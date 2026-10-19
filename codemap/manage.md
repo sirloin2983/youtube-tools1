@@ -11,34 +11,34 @@
 - **__init__.py** (3 行) — ④ 案件(配信 1 本の束ね)・紐づけ(切り抜き ↔ 文字起こし ↔ パック)・成果物の鍵の読み取り
 - **cases.py** (905 行) — 案件(配信1本)ごとの紐づけ(統合計画の段階4)。入口の「案件」画面(src/app/ui/home/portal.html)の中身を作る。
   - 名前: `locations` :92・`read_studio` :106・`read_transcripts` :110・`find_pack` :115・`clip_state` :180・`clip_live` :203・`auto_info` :217・`live_failures_by_mark` :236・`delivered_of` :270・`virtual_cases` :329・`build` :403・`load_saved` :453・ほか 7
-- **doclist.py** (108 行) — ④ 文字起こしの一覧と、元の動画・パックの有無・前回のパックの手順(役割で組み直す RS3-E5a。2026-10-10 に編集の文書の保存の部品から切り出した。中身は同じ)。
+- **doclist.py** (108 行) — ④ 文字起こしの一覧と、元の動画・パックの有無・前回のパックの手順(役割で組み直す RS3-E5a)。
   - 名前: `pack_info` :21・`list_transcripts` :59・`pack_readme` :88
-- **handoff_io.py** (118 行) — ④ 受け渡し: 元の配信の情報(clip/v1)・受け渡しの JSON と SRT を動画の隣に保存
-  - 名前: `clip_info` :33・`export_file` :69
+- **handoff_io.py** (117 行) — ④ 受け渡し: 元の配信の情報(clip/v1)・受け渡しの JSON と SRT を動画の隣に保存
+  - 名前: `clip_info` :32・`export_file` :68
 - **outdirs.py** (168 行) — ④ 書き出し先を変えたあとの案件の繋ぎ直し(決定 3-37 の (r8o))と、入口の「調子」の「置き場所」の数。
   - 名前: `read_data` :33・`state_path` :39・`read_state` :43・`relink_problem` :55・`relink` :69・`relink_out_dir` :85・`status` :136・`main` :148
 - **pipeline_io.py** (164 行) — ツール間の受け渡し(notes:docs/spec/pipeline.md の約束 v1)のうち、読み・保存・.runtime を扱う部品(層 manage)。serve.py から呼ぶ。Python 標準ライブラリだけで動く。
   - 名前: `class PipelineError` :35・`load_clip_file` :55・`resolve_clip_media` :63・`written_by_us` :97・`save_beside` :111・`ping` :155・`siblings` :160
-- **relink.py** (341 行) — ④ 文書と動画の紐づけ: 動画を選び直す(付け替え)・まとめて付け替える・「参照…」・素材を 30fps にそろえる
-  - 名前: `relink_path` :31・`relink_check` :72・`relink_doc` :128・`norm_swap` :195・`norm_start` :213・`relink_missing` :242・`relink_folder` :266・`relink_find` :294・`pick_path` :329
-- **txindex.py** (274 行) — 文字起こしの文書(文字起こしツールの transcripts/*.json)を、他のツールから**読むだけ**の部品(統合計画の段階4)。
-  - 名前: `folder` :31・`norm` :37・`doc_paths` :94・`load` :105・`class Docs` :118・`summary` :148・`matches` :163・`pick` :167・`offset` :191・`lines` :211・`pack_dir` :216・`packs_dir` :221・ほか 6
+- **relink.py** (340 行) — ④ 文書と動画の紐づけ: 動画を選び直す(付け替え)・まとめて付け替える・「参照…」・素材を 30fps にそろえる
+  - 名前: `relink_path` :30・`relink_check` :71・`relink_doc` :127・`norm_swap` :194・`norm_start` :212・`relink_missing` :241・`relink_folder` :265・`relink_find` :293・`pick_path` :328
+- **txindex.py** (273 行) — 文字起こしの文書(文字起こしツールの transcripts/*.json)を、他のツールから**読むだけ**の部品(統合計画の段階4)。
+  - 名前: `folder` :30・`norm` :36・`doc_paths` :93・`load` :104・`class Docs` :117・`summary` :147・`matches` :162・`pick` :166・`offset` :190・`lines` :210・`pack_dir` :215・`packs_dir` :220・ほか 6
 - **txlink.py** (37 行) — 書き出し済みのマークの「セリフ」(文字起こしツールで作った文字起こし)を、元の配信の時刻にして返す(統合計画の段階4)。
   - 名前: `tx_folder` :15・`for_video` :19
 
 ## src/manage/keep/
 
 - **__init__.py** (3 行) — ④ 置き場所・バックアップ・ごみ箱・録画の片付け
-- **backup.py** (670 行) — 作業データのバックアップ(2026-10-03。notes:docs/spec/data.md の「バックアップ」)。
+- **backup.py** (670 行) — 作業データのバックアップ(notes:docs/spec/data.md の「バックアップ」)。
   - 名前: `skip` :71・`plan` :138・`plan_cases` :174・`default_media_dirs` :201・`media_rel` :215・`plan_media` :232・`same` :239・`copy_one` :247・`run_once` :279・`class Backup` :329・`restore_once` :557・`main` :618
-- **cleanup.py** (502 行) — 作業データの片付け(全体の計画 段9 9-2。git の履歴(679ff01 以前)の docs/plan/phase9-ops-stability.md。ユーザー決定 2026-10-01: 元動画も候補に・ごみ箱フォルダ経由・日数を決めて消す)。
+- **cleanup.py** (502 行) — 作業データの片付け(全体の計画 段9 9-2。ユーザー決定: 元動画も候補に・ごみ箱フォルダ経由・日数を決めて消す)。
   - 名前: `class Cleanup` :123
 - **evalfolders.py** (503 行) — ④ 評価用のフォルダの整理: 動画の名前を「フォルダ名_番号_状態」にそろえる・仮置きからメンバーのフォルダへ移す・評価用にした文書の動画を外から取り込む
   - 名前: `eval_organize` :319・`eval_settle` :395・`eval_folders_info` :491
 - **learnpack.py** (163 行) — ④ データ: 学習の束を作る側(F1。notes:docs/design/f1-build.md の 2 の F1・3 の (f1c))。
   - 名前: `roster_names` :41・`filter_voices` :51・`collect` :58・`content_sha8` :87・`versions` :95・`build` :104・`verify` :147
-- **live_cleanup.py** (215 行) — 録画を自動で消す(線 D。notes:plan/line-d-live-clipping.md の 0-9 の最後。2026-10-05 ユーザー決定・2026-10-16 に条件を変えた = 決定 3-73)の入口の側。
-  - 名前: `class Cleaner` :52
+- **live_cleanup.py** (214 行) — 録画を自動で消す(線 D。notes:plan/line-d-live-clipping.md の 0-9 の最後。ユーザー決定。決定 3-73)の入口の側。
+  - 名前: `class Cleaner` :51
 - **trash.py** (124 行) — ④ データの keep: ごみ箱フォルダへ移す・戻すの 1 か所(OPT-M2。notes:plan/done/opt-manage.md の 7c-1・2c-1)。
   - 名前: `to_trash` :30・`record` :80・`put_back` :95
 
@@ -47,9 +47,9 @@
 - **__init__.py** (2 行) — ④ データの運用: 調子・起動し直し・エラーの記録・分析と日報(analytics/)。失敗の集約は ② にある
 - **clientlog.py** (86 行) — 画面(ブラウザ・窓)で起きたエラーの記録(統合計画の段階7-0)。
   - 名前: `clean` :28・`class ClientLog` :47
-- **health.py** (398 行) — 「調子」(全体の計画 段9 9-1。git の履歴(679ff01 以前)の docs/plan/phase9-ops-stability.md)。
+- **health.py** (398 行) — 「調子」(全体の計画 段9 9-1)。
   - 名前: `top_items` :36・`data_sizes` :56・`disk_free` :87・`tool_version` :107・`tool_versions` :115・`count_jsonl` :133・`count_client_errors` :166・`count_autorun_failed` :171・`crash_counts` :207・`count_worker_incidents` :252・`class Health` :281
-- **restart.py** (197 行) — 入口を起動し直す(段9 9-3。git の履歴(679ff01 以前)の docs/plan/phase9-ops-stability.md の「9-3」)。
+- **restart.py** (197 行) — 入口を起動し直す(段9 9-3)。
   - 名前: `launcher_script` :44・`restart_args` :49・`launcher_env` :63・`popen_kwargs` :68・`spawn_new_launcher` :83・`port_free` :109・`wait_port_free` :125・`wait_pid_gone` :136・`wait_old_launcher` :149・`can_restart` :172
 
 ## src/manage/ops/analytics/

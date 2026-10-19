@@ -4,22 +4,22 @@
 
 ## src/ytt/
 
-- **__init__.py** (37 行) — ytt — 基盤(役割で組み直す計画 notes:plan/done/role-restructure.md の 3 節。2026-10-09 の RS1-1 で移した。どの層からも読める)。
-- **apikey.py** (37 行) — YouTube Data API のキー(役割で組み直す RS3-4。2026-10-10 にスタジオの common.py から移した)。
+- **__init__.py** (30 行) — ytt — 基盤(役割で組み直す計画 notes:plan/done/role-restructure.md の 3 節。どの層からも読める)。
+- **apikey.py** (37 行) — YouTube Data API のキー。
   - 名前: `get_api_key` :16・`set_api_key` :27
-- **appwindow.py** (296 行) — 画面を「窓」(Edge のアプリモード)で開く(統合計画の段階7-3。2026-09-27 ユーザー決定で既定を窓に = 専用の窓。pywebview は使わない)。
+- **appwindow.py** (296 行) — 画面を「窓」(Edge のアプリモード)で開く(統合計画の段階7-3。ユーザー決定で既定は窓 = 専用の窓。pywebview は使わない)。
   - 名前: `class Unavailable` :41・`class TooMany` :45・`find_edge` :49・`app_command` :86・`local_url` :99・`external_url` :122・`read_mode` :139・`write_mode` :144・`focus_window` :154・`class Opener` :211
-- **casefiles.py** (315 行) — 案件の 候補.json・採用.json の純粋な部分(RS8 B3-4a。flow/casebook から ytt へ下ろした。決定 3-37 の (r8j)〜(r8q))。
+- **casefiles.py** (315 行) — 案件の 候補.json・採用.json の純粋な部分(決定 3-37 の (r8j)〜(r8q))。
   - 名前: `work_path` :38・`lock` :43・`is_remote` :53・`problem` :57・`unseen` :69・`need_root` :75・`abs_path` :82・`rel_path` :90・`empty_candidates` :104・`empty_adoptions` :108・`index_row` :117・`stored` :126・ほか 9
-- **colors.py** (211 行) — 配信者の名前 → メンバーカラー(字幕の文字の色。git の履歴(679ff01 以前)の docs/archive/followup-2026-09-27.md の 4)。
+- **colors.py** (211 行) — 配信者の名前 → メンバーカラー(字幕の文字の色)。
   - 名前: `members_path` :31・`mine_path` :43・`member_colors_path` :48・`norm_hex` :76・`normalize` :82・`load` :126・`lookup` :145・`from_channel` :163・`speaker_colors` :181・`resolve` :197
-- **datadir.py** (147 行) — 作業データの置き場所(統合計画の段階4)。データはリポジトリの外に置く(Public のリポジトリに個人データを混ぜないため)。
-  - 名前: `data_root` :36・`inplace_dir` :53・`tool_dir` :61・`override` :67・`register` :75・`registered` :85・`locate` :91・`resolve` :100・`studio_out_dir` :109・`prepare` :118
-- **dictfmt.py** (80 行) — 置換辞書の読み方と当て方(語彙。標準ライブラリと ytt.txbase だけの純粋な関数)。役割で組み直す RS6 a-1(2026-10-10)に pipeline/transcribe/replace から読み方を、
-  - 名前: `parse_replacements` :15・`spans` :37・`wb_split` :53・`apply_replacements` :60
+- **datadir.py** (145 行) — 作業データの置き場所(統合計画の段階4)。データはリポジトリの外に置く(Public のリポジトリに個人データを混ぜないため)。
+  - 名前: `data_root` :34・`inplace_dir` :51・`tool_dir` :59・`override` :65・`register` :73・`registered` :83・`locate` :89・`resolve` :98・`studio_out_dir` :107・`prepare` :116
+- **dictfmt.py** (79 行) — 置換辞書の読み方と当て方(語彙。標準ライブラリと ytt.txbase だけの純粋な関数)。③ 人の再認識の反映・① の clipjob の両方が読む。
+  - 名前: `parse_replacements` :14・`spans` :36・`wb_split` :52・`apply_replacements` :59
 - **docloc.py** (267 行) — 文字起こしの文書の置き場所を引く口(文書 id → フォルダ。RS8 B-2)。
   - 名前: `tx_root` :53・`loc_path` :58・`check_folder` :67・`placed` :108・`doc_dir` :119・`doc_file` :132・`hist_dir` :139・`bak_dir` :144・`iter_tids` :149・`doc_files` :155・`unseen` :184・`place` :203・ほか 2
-- **errors.py** (26 行) — API の失敗の形(役割で組み直す RS2-1a。2026-10-10 に編集の ed_state から移した)。
+- **errors.py** (26 行) — API の失敗の形。
   - 名前: `class ApiError` :13・`class Cancelled` :19・`class ResolveExportError` :23
 - **fsio.py** (472 行) — ファイルの読み書き(スタジオの common.atomic_write と、文字起こしの atomic_write / pipeline_io の書き込みを1つにしたもの)。
   - 名前: `replace_retry` :18・`unlink_quiet` :31・`temp_in` :39・`atomic_write` :58・`create_new` :76・`write_json` :98・`append_jsonl` :108・`class TooLarge` :115・`read_json_file` :123・`is_network_path` :143・`norm_path` :150・`long_path` :155・ほか 16
@@ -29,25 +29,25 @@
   - 名前: `allowed_hosts` :31・`host_ok` :35・`origin_ok` :39・`fetch_site_ok` :44・`navigation_ok` :48・`send_head` :53・`send` :66・`class BodyError` :79・`drain_body` :92・`read_json_body` :107・`token_ok` :145・`byte_range` :155・ほか 3
 - **jobs.py** (266 行) — 重い処理の同時実行数の上限(統合計画の段階4)。
   - 名前: `limit_from_env` :42・`class HeavySlots` :51・`check_cancel` :190・`class Ctl` :198
-- **layout.py** (75 行) — リポジトリの中のフォルダの並び(2026-10-07 に整理。段0 2026-09-30 の改名は `notes:docs/design/phase0-restructure.md`)。
+- **layout.py** (75 行) — リポジトリの中のフォルダの並び(段0 の改名は `notes:docs/design/phase0-restructure.md`)。
   - 名前: `src_root` :31・`repo_root` :36・`inplace_root` :41・`tool_dir` :49・`holo_colors_dir` :54・`notes_root` :62・`copy_shared_code` :68
-- **loudness.py** (110 行) — 聞こえ方の音量(ラウドネス。LUFS)をそろえる決まりの1か所(スタジオの書き出し・パック作りが共通で使う。2026-09-29)。
+- **loudness.py** (110 行) — 聞こえ方の音量(ラウドネス。LUFS)をそろえる決まりの1か所(スタジオの書き出し・パック作りが共通で使う)。
   - 名前: `check_target` :19・`check_volume` :32・`pct_to_db` :45・`parse` :49・`gain` :65・`select_filter` :71・`result` :80・`volume_filter` :89・`gain_filter` :94・`measure_args` :99・`reencode_args` :104
-- **marks.py** (380 行) — マークの純粋な語彙(スタジオの data.json の配信のマーク。RS8 B3-2 で human/review/store.py から下ろした)。
+- **marks.py** (380 行) — マークの純粋な語彙(スタジオの data.json の配信のマーク)。
   - 名前: `pos_int` :43・`ms_or_now` :52・`class BadMark` :61・`fnum` :65・`num_strict` :76・`clean_reasons` :82・`clean_parts` :87・`clamp_end` :98・`check_times` :105・`auto0` :127・`collab_from` :136・`clean_server` :145・ほか 14
-- **mediainfo.py** (49 行) — ffmpeg -i で読むメディア情報と、その覚え(役割で組み直す RS3-4。2026-10-10 にスタジオの common.py から移した)。
+- **mediainfo.py** (49 行) — ffmpeg -i で読むメディア情報と、その覚え。
   - 名前: `media_info` :26・`media_info_known` :40・`remember_media_info` :45
-- **modfwd.py** (82 行) — モジュールの名前の転送(役割で組み直す間の転送の仕組み。2026-10-10 の RS2-0)。
+- **modfwd.py** (82 行) — モジュールの名前の転送の仕組み。
   - 名前: `owner_table` :15・`duplicates` :23・`install` :34
 - **names.py** (175 行) — 書き出しの名前の規則(スタジオの書き出し src/pipeline/export/exporter.py と、ライブの書き出し src/flow/live_export.py が同じ規則を読む。
   - 名前: `compact_ts` :28・`safe_name` :34・`is_reserved` :40・`path_units` :44・`trim_units` :49・`read_owner` :58・`write_owner` :69・`find_folder` :87・`pick_folder` :102・`unique_base` :122・`clip_base` :136・`next_clip_number` :149・ほか 3
-- **normalize.py** (382 行) — 素材を 30fps にそろえる(Q1。notes:plan/line-bc-master-plan.md。2026-10-04 ユーザー決定)。
+- **normalize.py** (382 行) — 素材を 30fps にそろえる(Q1。notes:plan/line-bc-master-plan.md。ユーザー決定)。
   - 名前: `class NormalizeError` :51・`class Cancelled` :55・`fps_filter` :59・`encode_args` :65・`nvenc_args` :78・`nvenc_available` :90・`video_ok` :112・`legacy_args` :121・`is_fps_mode_error` :130・`probe` :166・`is_30fps` :206・`needs_normalize` :212・ほか 8
-- **pick.py** (97 行) — PC の標準の「ファイルを選ぶ」「フォルダを選ぶ」の窓(画面の「参照…」。2026-10-01)。
+- **pick.py** (97 行) — PC の標準の「ファイルを選ぶ」「フォルダを選ぶ」の窓(画面の「参照…」)。
   - 名前: `class PickError` :40・`class PickBusy` :44・`initial_dir` :48・`pick` :71
-- **procs.py** (200 行) — 外部コマンドの子プロセスの管理(役割で組み直す RS3-4。2026-10-10 にスタジオの common.py から移した。標準ライブラリだけ)。
+- **procs.py** (200 行) — 外部コマンドの子プロセスの管理(標準ライブラリだけ)。
   - 名前: `spawn` :28・`forget` :42・`children` :48・`stop_children` :56・`run_short` :85・`hard_kill` :109・`terminate` :115・`pid_alive` :140・`idle_message` :170・`run_capture` :175
-- **recproto.py** (62 行) — 録画元との約束(線 D。2026-10-09 見直し T8): 録画元・録画・セグメントの id の形、時刻の書き方(UTC の "…Z")、YouTube の動画の id の読み方。
+- **recproto.py** (62 行) — 録画元との約束(線 D。見直し T8): 録画元・録画・セグメントの id の形、時刻の書き方(UTC の "…Z")、YouTube の動画の id の読み方。
   - 名前: `utc_text` :20・`epoch_iso` :25・`now_iso` :30・`iso_epoch` :34・`video_id_of` :47
 - **runtime.py** (209 行) — 実行中のポートの共有(notes:docs/spec/pipeline.md の 4)。スタジオの handoff.py・文字起こしの pipeline_io.py・入口の server.py にあった同じ処理を1つにしたもの。
   - 名前: `valid_port` :28・`runtime_dir` :33・`runtime_path` :43・`valid_path` :49・`write_runtime` :53・`read_runtime` :79・`remove_runtime` :95・`ping` :107・`ping_app` :130・`port_open` :135・`siblings` :147・`safe_stdio` :185・ほか 1
@@ -56,31 +56,31 @@
   - 名前: `iso_now` :21・`now_ms` :26・`num` :31・`is_num` :42・`is_int` :47・`plain_int` :52・`int_in` :57・`num_or` :62・`union_spans` :71・`fmt_hms` :82・`other_speaker` :105・`no_sub_row` :110・ほか 28
 - **settings.py** (361 行) — 設定ファイル(JSON の辞書)の読み書きの共通部品(設定を 1 つにまとめる 段 2 = S4。notes:docs/spec/data.md の 4)。
   - 名前: `class SettingsError` :37・`class SettingsTooLarge` :41・`section_name_ok` :45・`retire_broken` :50・`class SettingsFile` :62・`load_settings` :191・`register_patch_key` :223・`patch_settings` :259・`merge_settings` :274・`replace_settings` :289・`eval_dirs` :326・`in_eval_dir` :342・ほか 1
-- **studio_env.py** (200 行) — スタジオの環境: データの置き場所・書き出し先・疑似の旗・外部の道具・失敗の記録(役割で組み直す RS3-4。2026-10-10 にスタジオの common.py から移した)。
+- **studio_env.py** (200 行) — スタジオの環境: データの置き場所・書き出し先・疑似の旗・外部の道具・失敗の記録。
   - 名前: `set_code_dir` :29・`code_dir` :35・`set_home` :40・`home` :48・`p` :60・`fake` :65・`fake_media` :70・`find_tool` :78・`old_log_name` :87・`rotate_log` :94・`log_failure` :100・`default_out_dir` :114・ほか 6
 - **studiodata.py** (176 行) — 切り抜きスタジオの data.json の配信の情報(読む側。書くのは盛り上がりグラフの save_series だけ)。
   - 名前: `load_live` :24・`load_video` :35・`save_series` :82・`read` :96・`load_all` :108・`videos` :116・`video` :121・`studio_videos` :157・`studio_stream` :162
-- **testkit.py** (149 行) — テストの共通の下ごしらえ(2026-10-18 テストの見直し TESTREV。notes:plan/test-review.md の 6)。
+- **testkit.py** (149 行) — テストの共通の下ごしらえ(テストの見直し TESTREV。notes:plan/test-review.md の 6)。
   - 名前: `write_json` :26・`read_json` :34・`write_text` :43・`tempdir` :51・`env` :59・`data_dir` :77・`free_port` :86・`wait_for` :93・`wait_js` :104・`serve` :119・`class TempCase` :129
-- **textutil.py** (69 行) — ログ・画面に出す文と数の小物(役割で組み直す RS3-4。2026-10-10 にスタジオの common.py から移した。標準ライブラリだけ)。
+- **textutil.py** (69 行) — ログ・画面に出す文と数の小物(標準ライブラリだけ)。
   - 名前: `redact` :18・`permission_message` :23・`tail_reason` :31・`fmt_ts` :38・`fmt_ms` :44・`num` :50・`person_key` :64
 - **tools.py** (642 行) — 外部プログラム(ffmpeg・ffprobe・yt-dlp)の場所と、子プロセスを動かすときの小道具。
   - 名前: `remember` :32・`recent` :46・`ytt_env` :51・`find_tool` :65・`find_ffmpeg` :115・`media_tool` :120・`ffmpeg_info` :127・`parse_ffmpeg_info` :140・`duration_in` :151・`media_duration` :156・`check_source` :162・`probe_media` :172・ほか 17
-- **trashbin.py** (57 行) — ごみ箱フォルダの決まりの 1 か所(どの層からも使う。LD-1 で ① の録画の部品も使うので ytt に置いた)。
+- **trashbin.py** (57 行) — ごみ箱フォルダの決まりの 1 か所(どの層からも使う。① の録画の部品も使うので ytt に置く)。
   - 名前: `day_name` :15・`free_path` :20・`append_manifest` :30・`old_day_dirs` :38
-- **txbase.py** (105 行) — 認識の部品が共有する小さな物: 記録(ロガー)・決まった値(文字・言語・長さの上限)・要確認の印の文と幻覚の決まり文句・ジョブの注意。
-  - 名前: `char_class` :41・`alt_fold` :57・`add_warning` :72・`env_off` :77・`wcpp_flavor` :89・`wcpp_bin_dir` :94・`wcpp_exe` :99・`wcpp_model_dir` :103
-- **txtext.py** (97 行) — 文字起こしの文字の語彙(標準ライブラリと ytt/txbase だけの純粋な関数と決まった値)。役割で組み直す RS6 a-3(2026-10-10)に
-  - 名前: `text_chars` :20・`strip_punct` :36・`split_segment` :67・`split_terms` :94
+- **txbase.py** (103 行) — 認識の部品が共有する小さな物: 記録(ロガー)・決まった値(文字・言語・長さの上限)・要確認の印の文と幻覚の決まり文句・ジョブの注意。
+  - 名前: `char_class` :40・`alt_fold` :56・`add_warning` :71・`env_off` :76・`wcpp_flavor` :87・`wcpp_bin_dir` :92・`wcpp_exe` :97・`wcpp_model_dir` :101
+- **txtext.py** (95 行) — 文字起こしの文字の語彙(標準ライブラリと ytt/txbase だけの純粋な関数と決まった値)。
+  - 名前: `text_chars` :19・`strip_punct` :34・`split_segment` :65・`split_terms` :92
 - **txwords.py** (42 行) — 文字起こしの単語の時刻 transcripts/<id>.words.json の読み書き(標準ライブラリ・ytt の fsio と workdata だけ = 純粋な形の記録)。
   - 名前: `words_path` :17・`read_words` :22・`write_words` :34
-- **version.py** (31 行) — 全体の版の 1 か所(役割で組み直す RS5-E。2026-10-10。決定 notes:plan/decisions.md の 3-28)。
+- **version.py** (31 行) — 全体の版の 1 か所(決定 notes:plan/decisions.md の 3-28)。
   - 名前: `on_disk` :21
-- **workdata.py** (52 行) — 編集の作業データの置き場所と版の「今の値」(役割で組み直す RS3-0A。2026-10-10)。
-  - 名前: `set_root` :32・`set_data_dir` :43
+- **workdata.py** (51 行) — 編集の作業データの置き場所と版の「今の値」。
+  - 名前: `set_root` :31・`set_data_dir` :42
 - **ytapi.py** (152 行) — YouTube Data API を 1 回呼ぶ口(OPT-H2 D。③ 配信の検索の rank.yt_get と ① のコメント欄 fetch_comments が別々に持っていた取得を 1 つに)。
   - 名前: `used` :36・`set_fake` :47・`get` :53・`soft` :101・`parse_dt` :114・`cache_get` :128・`cache_put` :136・`cached` :143
-- **yturl.py** (103 行) — YouTube の URL・動画 ID の形(語彙。標準ライブラリだけ・状態を持たない)。役割で組み直す RS6 a-1(2026-10-10)に pipeline/ingest/sources から移した。
+- **yturl.py** (103 行) — YouTube の URL・動画 ID の形(語彙。標準ライブラリだけ・状態を持たない)。
   - 名前: `parse_video_id` :22・`watch_url` :49・`check_live` :61・`check_media_path` :85・`file_video_id` :93・`ytdlp_out` :98
 
 ## テスト

@@ -4,15 +4,15 @@
 
 ## src/cut2resolve/
 
-- **serve.py** (615 行) — cut2resolve の API のサーバー(Python 標準ライブラリのみ。外部ツール: ffmpeg / ffprobe)。画面は「編集」(editor)に統合した(2026-09-26)。
+- **serve.py** (615 行) — cut2resolve の API のサーバー(Python 標準ライブラリのみ。外部ツール: ffmpeg / ffprobe)。画面は「編集」(editor)にある。
   - 名前: `log` :113・`runtime_dir` :130・`write_runtime` :134・`remove_runtime` :144・`siblings` :149・`class AppState` :163・`board_jobs` :190・`board_cancel` :195・`attach_board` :202・`is_pack_dir` :207・`open_folder` :212・`file_info` :229・ほか 14
   - 受ける口: `/api/ping` :363・`/api/siblings` :364・`/api/job` :365・`/api/plan` :380・`/api/build` :380・`/api/job/cancel` :380・`/api/open-folder` :380
 
 ## src/editor/
 
-- **ed_media.py** (156 行) — 「編集」のサーバーの部品: 音の波形(カットのタイムライン)(段10 で editor/serve.py から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
+- **ed_media.py** (156 行) — 「編集」のサーバーの部品: 音の波形(カットのタイムライン)。
   - 名前: `peaks_rate` :33・`compute_peaks` :54・`get_peaks` :123
-- **ed_state.py** (184 行) — 「編集」のサーバーの部品: 置き場所・設定の値・共通の小道具・記録(落ちたときの手がかり)・作業データの切り替え(段10 で editor/serve.py から分けた。git の履歴(679ff01 以前)の docs/plan/phase10-code-split.md)。
+- **ed_state.py** (184 行) — 「編集」のサーバーの部品: 置き場所・設定の値・共通の小道具・記録(落ちたときの手がかり)・作業データの切り替え。
   - 名前: `replace_retry` :64・`atomic_write` :70・`runtime_path_dir` :113・`setup_logging` :118・`write_mark` :144・`check_previous_run` :153・`clear_mark` :164・`backend_name` :176
 - **ed_thumb.py** (90 行) — 「編集」のサムネの案(提案 P5 の S。notes:plan/thumb-ideas.md の 7・8)。作る本体は thumb_ideas.py(コマンドとしても使える独立の部品)。
   - 名前: `thumb_paths` :25・`thumb_spec` :37・`run_thumb` :52・`thumb_info` :70・`thumb_image_path` :83
@@ -29,29 +29,29 @@
 - **serve.py** (708 行) — 切り抜きスタジオ(ローカルサーバー・標準ライブラリのみ。外部ツール: ffmpeg、YouTube には yt-dlp)。
   - 名前: `init` :65・`attach_board` :77・`flow_host` :84・`busy` :92・`fetch_title` :96・`api_state` :108・`class Handler` :120・`probe` :460・`make_server` :474・`prepare` :584・`shutdown_jobs` :625・`finish` :647・ほか 2
   - 受ける口: `/api/ping` :200・`/api/siblings` :201・`/api/state` :202・`/api/settings` :203・`/api/rank/registry` :204・`/api/rank/search` :205・`/api/rank/live` :206・`/api/queue` :207・`/api/videos` :208・`/api/video` :209・`/api/transcripts` :210・`/api/title` :211・`/api/export` :212・`/api/collab/groups` :213・`/api/collab/group` :214・`/api/rank/resolve` :425・`/api/rank/import-official` :426・`/api/rank/search/cancel` :428・`/api/queue/add` :429・`/api/queue/cancel` :430・`/api/queue/skipchat` :431・`/api/queue/retry` :432・`/api/queue/clear` :433・`/api/videos/open` :434・`/api/live/adopt` :435・`/api/live/exported` :436・`/api/video/delete` :437・`/api/video/request-marks` :438・`/api/export/cancel` :440・`/api/collab/group/add` :442・`/api/collab/group/remove` :443・`/api/collab/group/delete` :444・`/api/collab/anchor` :445・`/api/config` :448・`/api/outdir` :449
-- **startup.py** (111 行) — 切り抜きスタジオの起動の小物(役割で組み直す RS5-B。2026-10-10。旧 common.py の殻を消して、残った起動の物だけここへ)。
+- **startup.py** (111 行) — 切り抜きスタジオの起動の小物(役割で組み直す RS5-B)。
   - 名前: `migrate_old_logs` :37・`check_tools` :63・`start_env_check` :80・`env_state` :85
 
 ## src/ui-kit/
 
 - **styleguide.js** (130 行) — ui-kit/styleguide.html の見本を動かす部品(CSP の script-src 'self' に合わせてインラインの <script> を使わず、この外部ファイルにした)。
-- **ui-kit.js** (2795 行) — ui-kit v35 —テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+- **ui-kit.js** (2775 行) — ui-kit v35 —テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
 
 ## テスト
 
 - src/cut2resolve/tests/test_serve.py — 画面のサーバー(serve.py)の API のテスト。実サーバーを空きポートで別スレッドに起動する。
-- src/editor/tests/e2e_edit_common.py — 「編集」の部品(校正・カット・パック)を使う画面のテストの共通部分。RS8 C4 で古い編集の画面と旧 e2e(e2e_edit_*.py など 15 本)は消え、
+- src/editor/tests/e2e_edit_common.py — 「編集」の部品(校正・カット・パック)を使う画面のテストの共通部分。
 - src/editor/tests/fake_llama_server.py — テスト用の偽の llama-server(tx_engines.LlamaQwen3.COMMAND に [python, このファイル] を入れて使う)。
 - src/editor/tests/fake_whisper_cli.py — テスト用の偽の whisper-cli(tx_engines.WhisperCpp.COMMAND に [python, このファイル] を入れて使う)。
 - src/editor/tests/test_alt.py — 2つ目のエンジンとの食い違いに候補を出す機能のテスト。
 - src/editor/tests/test_autodiar.py — 評価用の文書の文字起こしのあとの話者の自動判別(human/proof/speakers の autodiar_*・eval/drill/evalbatch の後追い)のテスト。
-- src/editor/tests/test_backend.py — サーバー側の見直し(2026-09-24)で直したバグ・足した機能のテスト。
+- src/editor/tests/test_backend.py — サーバー側のバグ直し・機能のテスト。
 - src/editor/tests/test_drill.py — 評価ドリルと定点の「あと何分」(eval/drill/drill.py。動画 1 本ずつ・編集の画面で全部聞いて直す・文書の印 evalReviewed)のテスト。
 - src/editor/tests/test_edit.py — 「編集」ツールのサーバー側(notes:docs/design/edit-tool-design.md の 4・5・9)のテスト。
 - src/editor/tests/test_evalbatch.py — 評価用の動画の「手が空いたとき少しずつまとめて文字起こし」(eval/drill/evalbatch.py)のテスト。
 - src/editor/tests/test_fill.py — 認識のあとの後処理 A・B・C・D(pipeline/transcribe/fill.py。B = 行の頭の話者名)のテスト。test_metrics から読み込まれる。
 - src/editor/tests/test_llm.py — LLM の後処理 E(pipeline/transcribe/llm.py)のテスト。test_metrics から読み込まれる。
-- src/editor/tests/test_metrics.py — v0.7.0 の追加分(校正済み・CER測定・英字フラグ・A/B比較・校正済みの書き出し)のテスト。
+- src/editor/tests/test_metrics.py — 校正済み・CER測定・英字フラグ・A/B比較・校正済みの書き出し)のテスト。
 - src/editor/tests/test_names.py — serve の名前の受付のテスト。
 - src/editor/tests/test_normalize30.py — 素材を 30fps にそろえるテスト: ② flow/normalize の段・動画を選び直す(④ の付け替え)。
 - src/editor/tests/test_nosub_metrics.py — 「字幕に出さない」行(noSub)と、同時にしゃべっている所(重なり)の数え方・学習のテスト(数え方は eval/drill/metrics.py・noSub の外し方と学習は human/proof/learn.py)。
@@ -65,9 +65,9 @@
 - src/editor/tests/test_smooth.py — 話者の細切れをならす(smooth_labels・smooth_speakers・apply_diarization(smooth)・設定 diarSmooth)のテスト。
 - src/editor/tests/test_thumb_ideas.py — src/editor/thumb_ideas.py(サムネの案)のテスト。リポジトリ直下で:
 - src/editor/tests/test_thumb_job.py — サムネの案のジョブのテスト。
-- src/editor/tests/test_voices.py — 話者の声を覚える(A-3。git の履歴(679ff01 以前)の docs/archive/backlog-ui-2026-09-27.md)のサーバー側のテスト。
+- src/editor/tests/test_voices.py — 話者の声を覚える(A-3)のサーバー側のテスト。
 - src/editor/tests/test_whispercpp.py — whisper.cpp のエンジン(tx_engines.WhisperCpp。精度改善の計画 段2-2)のテスト。test_metrics から読み込まれる。
-- src/editor/tests/test_worker.py — 認識ワーカー(src/pipeline/transcribe/worker.py。別プロセス。統合計画の段階3-3。RS2-9 に編集の tx_worker.py から移した)のテスト。  python -m unittest test_worker -v
+- src/editor/tests/test_worker.py — 認識ワーカー(src/pipeline/transcribe/worker.py。別プロセス)のテスト。  python -m unittest test_worker -v
 - src/studio/tests/test_api.py — serve.py の HTTP 層のテスト(疑似モード・実サーバーを別スレッドで起動)。 実行: python3 test_api.py
 - src/studio/tests/test_board_s2.py — RS8 の ② の口 S2: スタジオの解析(an)・書き出し(ex)・配信の検索(se)が掲示板(flow/board.py)に載る。  py -3.12 -m unittest src/studio/tests/test_board_s2.py
 - src/studio/tests/test_file_recovery.py — 保存・書き出しの障害回復。実データやネットワークは使用しない。

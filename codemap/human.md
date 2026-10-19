@@ -43,17 +43,17 @@
 - **__init__.py** (3 行) — ③ 配信の検索(YouTube Data API・事務所の登録)
 - **fake_yt.py** (119 行) — ① 配信の検索 rank.py の疑似 YouTube Data API(STUDIO_FAKE=1 のときだけ使う。ネットワークなし。e2e と画面の確かめが使う)。
   - 名前: `fake_channel_id` :20・`fake_video` :24・`fake_get` :34・`fake_live` :97
-- **rank.py** (655 行) — ③ 配信の検索: 事務所・所属チャンネルの登録と、YouTube Data API による検索ジョブ。
-  - 名前: `yt_get` :64・`parse_ref` :74・`sanitize_registry` :100・`load_registry` :133・`parse_regions` :275・`validate_search` :324・`run_search` :450・`parse_live_agencies` :543・`live_list` :556・`get_registry` :579・`put_registry` :583・`resolve` :590・ほか 8
+- **rank.py** (654 行) — ③ 配信の検索: 事務所・所属チャンネルの登録と、YouTube Data API による検索ジョブ。
+  - 名前: `yt_get` :64・`parse_ref` :74・`sanitize_registry` :100・`load_registry` :133・`parse_regions` :274・`validate_search` :323・`run_search` :449・`parse_live_agencies` :542・`live_list` :555・`get_registry` :578・`put_registry` :582・`resolve` :589・ほか 8
 
 ## src/human/friend/
 
 - **__init__.py** (2 行) — ③ 友人: 受付(Dropbox)→ まとめて実行(②)に流す → 届ける。友人の返事・送り返し・ライブの依頼の結びつき
-- **friend_feedback.py** (142 行) — 友人の「要らない」を PC 側で片付ける(notes:docs/spec/friend.md の 2-14。2026-10-08 ユーザー「不採用の場合こちらにフィードバック」)。
+- **friend_feedback.py** (142 行) — 友人の「要らない」を PC 側で片付ける(notes:docs/spec/friend.md の 2-14。ユーザー「不採用の場合こちらにフィードバック」)。
   - 名前: `record_delivery` :26・`find_delivery` :37・`apply` :99
-- **intake.py** (906 行) — 友人からの依頼の受付(notes:docs/spec/friend.md。2026-09-30)。
-  - 名前: `configured_folder` :74・`out_dir_of` :85・`submit_urls` :95・`submit_file` :122・`youtube_id` :132・`parse_lines` :138・`parse_url_file` :164・`decode_text` :172・`probe_video` :186・`youtube_info` :198・`parse_speakers` :265・`parse_ranges` :300・ほか 4
-- **live_requests.py** (102 行) — 友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend.md の 2-15。ホーム 0.47.0)。
+- **intake.py** (904 行) — 友人からの依頼の受付(notes:docs/spec/friend.md)。
+  - 名前: `configured_folder` :74・`out_dir_of` :85・`submit_urls` :95・`submit_file` :122・`youtube_id` :132・`parse_lines` :138・`parse_url_file` :164・`decode_text` :172・`probe_video` :186・`youtube_info` :198・`parse_speakers` :264・`parse_ranges` :299・ほか 4
+- **live_requests.py** (102 行) — 友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend.md の 2-15)。
   - 名前: `settings_label` :26・`key_of` :31・`class Store` :35
 - **returns.py** (494 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。notes:docs/design/f1-build.md の (f1d))。
   - 名前: `class Refused` :54・`returns_dir` :58・`extract` :96・`parse_verdict` :130・`parse_notice` :177・`scan` :212・`recent_notices` :404・`iter_requests` :443・`requested_videos` :479
@@ -65,7 +65,7 @@
   - 名前: `alt_engine_key` :61・`alt_info` :70・`alt_first_run` :79・`alt_spec` :88・`alt_path` :121・`read_alt` :126・`run_alt` :136・`alt_after_transcribe` :160・`alt_notation_only` :193・`alt_diffs` :220・`alt_cached` :331・`alt_spans_of` :343・ほか 3
 - **doc_jobs.py** (405 行) — ③ 人の操作の層 human/proof: 文字起こしのジョブの本体(run_job)と書く先の決め方・受付(validate_job・
   - 名前: `set_learning` :40・`glossary_of` :45・`validate_job` :62・`public_job` :131・`subtitle_settings` :169・`split_chars_for` :183・`learned_finder` :201・`dict_learned` :212・`carry_overrides` :230・`run_job` :269・`validate_retranscribe` :331・`redo_targets` :383
-- **layers.py** (1061 行) — ③ 文書を「機械の層 + 人の層」から組み立てる純粋な関数(O2-1。RS8・2026-10-11。決定 3-37 の (r8r)〜(r8u)・notes:plan/done/rs8-cases-ui.md の決めたこと 3)。
+- **layers.py** (1061 行) — ③ 文書を「機械の層 + 人の層」から組み立てる純粋な関数(O2-1。RS8。決定 3-37 の (r8r)〜(r8u)・notes:plan/done/rs8-cases-ui.md の決めたこと 3)。
   - 名前: `match` :65・`join_flags` :126・`compose_rows` :328・`compose` :424・`split_meta` :445・`diff` :551・`mach_changes` :636・`pick` :656・`assign_speakers` :692・`carry` :747・`mach_from_doc` :829・`advance_mach` :870・ほか 5
 - **learn.py** (470 行) — ③ 人の操作の層 human/proof: 人が直した内容からの学習(機械の出力と人の行の対応づけ・「誤=>正」の統計・確度)と、行への修正の提案・
   - 名前: `align_groups` :29・`prep_rows` :48・`is_nosub` :63・`split_nosub` :67・`row_text` :92・`learn_events` :103・`learn_groups` :145・`learned_candidates` :198・`load_feedback` :228・`unrecord_feedback` :258・`record_feedback` :280・`forget_doc` :302・ほか 7
@@ -85,8 +85,8 @@
 - **__init__.py** (3 行) — ③ 候補の確認(手動マーク・採用と不採用・端の調整・その記録)
 - **feedback.py** (115 行) — 判定の記録(feedback.jsonl)。確認画面での人の結果(採用・不採用・削除・書き出し)と、人の最終の操作(手で足した・消した・採用の取り消し)を
   - 名前: `feedback_path` :17・`feedback_for_mark` :66・`nearest_auto` :83・`feedback_event` :106
-- **store.py** (1044 行) — ③ 動画とマークの保存(data.json)。スレッドセーフ・原子的に書き込む。スタジオの `Store` が書き手(スタジオなしの書き手は ② flow/studiobook の StudioBook)。
-  - 名前: `offset_from_anchors` :104・`class SeriesCache` :203・`class Store` :242
+- **store.py** (1043 行) — ③ 動画とマークの保存(data.json)。スレッドセーフ・原子的に書き込む。スタジオの `Store` が書き手(スタジオなしの書き手は ② flow/studiobook の StudioBook)。
+  - 名前: `offset_from_anchors` :103・`class SeriesCache` :202・`class Store` :241
 
 ## テスト
 

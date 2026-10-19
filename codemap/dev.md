@@ -6,14 +6,14 @@
 
 - **build_friend_zip.py** (643 行) — 友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(設計 notes:docs/design/f1-build.md の 2・3 節)。
   - 名前: `class BuildError` :92・`say` :96・`sha256_file` :100・`download` :113・`cached` :125・`wheel_pins` :160・`pip_download` :178・`wheels` :188・`unzip_into` :226・`lay_python` :251・`src_files` :272・`lay_src` :287・ほか 19
-- **code_map.py** (467 行) — コードの地図と言葉の索引を作る道具(AI のセッションがコードの場所を早く見つけるため。2026-10-18)。
+- **code_map.py** (467 行) — コードの地図と言葉の索引を作る道具(AI のセッションがコードの場所を早く見つけるため)。
   - 名前: `git_files` :52・`skipped` :57・`is_test` :61・`read` :65・`one_line` :73・`comment_head` :85・`py_info` :112・`js_info` :143・`cs_info` :164・`info` :186・`layer_of` :199・`norm_route` :206・ほか 12
   - 受ける口: 
 - **demo_env.py** (303 行) — 見本のデータで入口と3ツールを動かす(画面の見直し・画面の写真・手での確認用)。本物の作業データには触らない。
   - 名前: `run` :47・`make_media` :51・`seed` :65・`seed_check` :180・`main` :248
-- **doc_state.py** (241 行) — 計画の資料の頭の `状態`・`線` を計画の正(保管庫の plan/data/)から決めて書く・食い違いを止める(2026-10-18)。
+- **doc_state.py** (241 行) — 計画の資料の頭の `状態`・`線` を計画の正(保管庫の plan/data/)から決めて書く・食い違いを止める。
   - 名前: `plan_data` :27・`task_lines` :33・`decide` :42・`derived` :50・`front` :74・`read_props` :85・`write_props` :109・`read` :142・`write` :147・`plan_docs` :156・`check` :166・`sync` :203・ほか 1
-- **drift_report.py** (176 行) — 資料どうし・資料とコードの食い違いをまとめて流し、1 枚の一覧(保管庫の plan/食い違いの一覧.md。自動)に出す(2026-10-18)。
+- **drift_report.py** (176 行) — 資料どうし・資料とコードの食い違いをまとめて流し、1 枚の一覧(保管庫の plan/食い違いの一覧.md。自動)に出す。
   - 名前: `read` :31・`md_files` :36・`is_index` :45・`caps` :49・`entry_docs` :65・`sentences` :71・`duplicates` :91・`collect` :103・`render` :112・`cell` :133・`write_report` :138・`main` :155
 - **dropbox_auth.py** (165 行) — 友人のアプリの Dropbox の鍵を作る(ユーザーの PC で1回だけ。標準ライブラリと ytt の fsio だけ)。
   - 名前: `make_verifier` :40・`challenge_for` :47・`authorize_url` :53・`token_request_body` :65・`exchange` :74・`extra_scopes` :95・`missing_scopes` :101・`write_config` :109・`main` :114
@@ -27,31 +27,31 @@
   - 名前: `class Preflight` :70・`class Report` :74・`free_port` :100・`link_or_copy` :106・`unpack` :115・`break_fetch` :134・`place_models` :144・`mirror_map` :168・`lay_shim` :184・`friend_env` :194・`fake_media` :221・`make_work` :225・ほか 29
 - **friend_preflight_shim.py** (270 行) — 配る前の検査(dev/friend_preflight.py)の通信の差し替え。検査が、展開した写しの python/Lib/site-packages/sitecustomize.py として置く
   - 名前: `install` :246
-- **guard_hook.py** (434 行) — Claude Code の PreToolUse のフック: 事故のもとになる操作を機械が断る(2026-10-18)。標準ライブラリだけ・速く。
+- **guard_hook.py** (434 行) — Claude Code の PreToolUse のフック: 事故のもとになる操作を機械が断る。標準ライブラリだけ・速く。
   - 名前: `class Tok` :51・`tok` :56・`tokenize` :62・`pipelines` :137・`word_of` :155・`norm_path` :171・`is_main_checkout` :184・`generated_kind` :198・`check_kill` :216・`check_sed` :242・`git_sub` :255・`check_git` :271・ほか 9
-- **land.py** (305 行) — 作業のブランチを main に入れ、版(src/ytt/version.py の VERSION と README.txt の見出し)を道具が 1 つ上げる(2026-10-18)。
+- **land.py** (305 行) — 作業のブランチを main に入れ、版(src/ytt/version.py の VERSION と README.txt の見出し)を道具が 1 つ上げる。
   - 名前: `class Stop` :38・`git` :42・`main_worktree` :51・`bump` :62・`read_version` :67・`set_version` :74・`set_readme` :78・`needs_bump` :88・`read_file` :93・`write_file` :98・`pid_alive` :103・`class Lock` :121・ほか 5
-- **land_gate.py** (318 行) — main に入れる前の関所(dev/land.py が版を上げる前に流す。2026-10-18)。単独でも流せる:
+- **land_gate.py** (318 行) — main に入れる前の関所(dev/land.py が版を上げる前に流す)。単独でも流せる:
   - 名前: `layer_of_dir` :58・`dependents` :65・`select` :70・`pick_units` :89・`run_units` :96・`count_of` :107・`run_check` :113・`run_tool` :127・`table_folders` :139・`table_drift` :153・`git` :177・`worktree_of` :182・ほか 8
-- **layer_map.py** (133 行) — 役割の層と、今のファイルの行き先(役割で組み直す計画 `notes:plan/done/role-restructure.md` の 7 節を機械で読める形にしたもの。RS0。RS6 a-0 で 5 つの層に)。
-  - 名前: `layer_of` :113・`allowed` :123
+- **layer_map.py** (132 行) — 役割の層と、今のファイルの行き先(役割で組み直す計画 `notes:plan/done/role-restructure.md` の 7 節を機械で読める形にしたもの)。
+  - 名前: `layer_of` :112・`allowed` :122
 - **lint.py** (395 行) — コードの見直しの合格の基準を測る道具(読むだけ。基準は `notes:docs/spec/code.md`)。
   - 名前: `walk` :64・`read` :72・`rel` :80・`is_test` :84・`class Corpus` :88・`py_files` :109・`has_mark` :116・`unused_imports` :121・`dead_names` :145・`long_functions` :160・`dup_helpers` :171・`js_dead` :187・ほか 7
-- **loc.py** (342 行) — コードの行数を数える共通の道具(10-19 ユーザーと決めた数え方。セッションごとの数の食い違いを無くす)。
+- **loc.py** (342 行) — コードの行数を数える共通の道具(ユーザーと決めた数え方。セッションごとの数の食い違いを無くす)。
   - 名前: `classify` :39・`count_text` :64・`py_docstring_starts` :78・`py_code_lines` :89・`scan_code_lines` :104・`skip_to` :158・`skip_string` :163・`prefix_code_lines` :186・`git` :214・`files_at` :221・`tally` :244・`totals` :257・ほか 4
 - **members_channels.py** (151 行) — 名簿 friend-apps/holo-colors/members.json の JP・DEV_IS の各メンバーに YouTube のチャンネル ID(channel)を入れる・確かめる道具。
   - 名前: `read_text` :29・`targets` :34・`norm` :43・`fetch_rss` :48・`verdict` :69・`cmd_check` :81・`cmd_set` :106・`main` :140
-- **notes_tool.py** (470 行) — 資料のフォルダ(Obsidian の保管庫の中。layout.notes_root())のパスの検査と、資料を動かす道具(2026-10-13)。
+- **notes_tool.py** (470 行) — 資料のフォルダ(Obsidian の保管庫の中。layout.notes_root())のパスの検査と、資料を動かす道具。
   - 名前: `vault` :44・`plan_data` :48・`data_files` :54・`rebuild_data` :71・`read` :79・`write` :84・`md_files` :89・`code_files` :97・`local_target` :105・`pseudo_link` :117・`unlink_prose` :132・`tag_spans` :149・ほか 9
 - **plan_artifact.py** (543 行) — 資料の保管庫(layout.notes_root())の plan/ の HTML(index.html・user-tasks.html)を、claude.ai の Artifact(リンクで開けるページ。スマホでも見る)用に 1 枚ずつまとめる。
   - 名前: `read` :46・`inline_assets` :51・`main_fragment` :64・`parse_plan_js` :73・`link_paths` :103・`task_line` :118・`class Linker` :123・`line_page_name` :153・`line_groups` :157・`build_line_page` :172・`build_line_pages` :192・`build_index` :199・ほか 14
-- **plan_data.py** (466 行) — 計画のデータ(保管庫の plan/data/。計画の正)を 1 件 1 ファイルで持ち、表示用の plan/data.js を集めて作る(2026-10-18)。
+- **plan_data.py** (466 行) — 計画のデータ(保管庫の plan/data/。計画の正)を 1 件 1 ファイルで持ち、表示用の plan/data.js を集めて作る。
   - 名前: `plan_dir_default` :49・`data_dir` :53・`has_split` :57・`read_text` :63・`write_atomic` :68・`ordered_keys` :77・`dumps` :82・`slug` :86・`file_name` :105・`items` :113・`sort_key` :129・`main_version` :135・ほか 11
-- **push_helper.py** (263 行) — push.bat の補助(2026-09-26)。標準ライブラリだけ。リポジトリ直下で git が使えることが前提。
+- **push_helper.py** (263 行) — push.bat の補助。標準ライブラリだけ。リポジトリ直下で git が使えることが前提。
   - 名前: `git` :61・`read_removals` :70・`tracked` :90・`apply_removals` :95・`staged_files` :115・`staged_blob` :121・`problems_for` :125・`check` :160・`notes_root` :179・`push_notes` :186・`main` :232
-- **rule_checks.py** (482 行) — 規則(書き方・置き場所・ファイルの形)の見張り。テストに置いていた「規則の見張り」(分け ②a)をここへ移した(test-trim の規則の担当)。
+- **rule_checks.py** (482 行) — 規則(書き方・置き場所・ファイルの形)の見張り。test-trim の規則の担当。
   - 名前: `rule` :27・`read_text` :34・`read_bytes` :39・`rel` :44・`repo_files` :48・`src_py_files` :57・`non_ascii_lines` :67・`bat_problems` :72・`requirements_problems` :83・`rule_bat_ascii_crlf` :97・`rule_requirements_ascii` :108・`push_bat_problems` :117・ほか 22
-- **rule_imports.py** (707 行) — 規則の見張りのうち、ソースを import して突き合わせる物(`dev/rule_checks.py` の続き。テストの分け ②a から移した分)。
+- **rule_imports.py** (707 行) — 規則の見張りのうち、ソースを import して突き合わせる物(`dev/rule_checks.py` の続き)。
   - 名前: `check` :37・`c_adopt_defaults` :86・`c_live_tx_constants` :99・`c_port_ranges` :127・`c_tool_module_names` :134・`schema_shape_problems` :153・`schema_items` :208・`c_settings_schema` :223・`c_studio_schema` :248・`c_portal_title` :263・`c_static_table` :270・`c_spec_consistency` :278・ほか 21
 - **run_e2e.py** (134 行) — 画面テスト(e2e)の一式を 1 本ずつ流して、1 本 1 行(所要秒・OK/FAIL の数)で出す。一式の正はこのファイルの SUITE。
   - 名前: `label` :59・`summary` :64・`selected` :71・`run_one` :84・`main` :98
@@ -59,20 +59,20 @@
   - 名前: `find_node` :26・`summary` :48・`main` :61
 - **run_unit.py** (214 行) — unittest を層ごと・フォルダごとに流す道具(1 本ずつ別のプロセス)。リポジトリ直下で:
   - 名前: `find_node` :44・`find_files` :64・`matches` :79・`build_units` :96・`run_one` :118・`report` :140・`run_all` :155・`print_summary` :174・`main` :184
-- **session_start.py** (454 行) — セッションの入口の要約(2026-10-18)。新しい AI のセッションが最初に流し、今の状態を 1 画面(150 行以内)で見る。
+- **session_start.py** (454 行) — セッションの入口の要約。新しい AI のセッションが最初に流し、今の状態を 1 画面(150 行以内)で見る。
   - 名前: `cut` :49・`run` :54・`git` :64・`read` :68・`git_block` :78・`versions` :98・`worklog_block` :107・`boundary_dirs` :123・`boundary_notes` :131・`boundary_block` :146・`load_items` :160・`plan_block` :170・ほか 16
-- **spec_check.py** (222 行) — 仕様(保管庫の docs/spec/)とコードの食い違いを探す(2026-10-18)。
+- **spec_check.py** (222 行) — 仕様(保管庫の docs/spec/)とコードの食い違いを探す。
   - 名前: `git_files` :45・`read` :51・`class Code` :59・`spec_files` :77・`live_lines` :86・`norm_api` :103・`clean_path` :111・`setting_keys` :116・`check` :132・`gone` :183・`main` :200
   - 受ける口: 
 - **ui_audit.py** (1054 行) — 画面(UI)の見直しの合格の基準のうち、機械で測れるものを測る道具(読むだけ。基準は `notes:docs/spec/ui.md` の A)。
   - 名前: `class Findings` :107・`read` :123・`rel` :131・`screen_files` :135・`allowed` :144・`each_line` :149・`regex_starts` :157・`scan_string` :167・`scan_code` :181・`strip_js_comments` :231・`html_texts` :238・`py_strings` :253・ほか 31
   - 受ける口: `/api/info` :100
-- **worklog.py** (280 行) — 作業の記録(保管庫の docs/worklog/)をセッションごとのファイルに分けて書き、週のまとめを集めて作る(2026-10-18)。
+- **worklog.py** (280 行) — 作業の記録(保管庫の docs/worklog/)をセッションごとのファイルに分けて書き、週のまとめを集めて作る。
   - 名前: `worklog_dir` :56・`monday` :60・`week_name` :64・`read` :68・`write` :73・`front_matter` :78・`session_entry` :91・`sessions` :101・`auto_block` :108・`merge_week` :121・`update_index` :135・`build` :150・ほか 7
 
 ## dev/obsidian/graph-history-toggle/
 
-- **main.js** (103 行) — Obsidian のプラグイン: グラフを「いつもの見え方」と「すべてのファイル」でボタン 1 つで切り替える(2026-10-13)。
+- **main.js** (103 行) — Obsidian のプラグイン: グラフを「いつもの見え方」と「すべてのファイル」でボタン 1 つで切り替える。
   - 名前: `migrate` :16
 
 ## setup/
