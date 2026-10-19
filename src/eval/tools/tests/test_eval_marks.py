@@ -97,8 +97,9 @@ class Env:
         with gzip.open(os.path.join(self.studio, "archive", vid + ".json.gz"), "wt", encoding="utf-8") as f:
             json.dump({"v": 1, "videoId": vid, "type": "歌枠", "runs": [{"at": at, "candidates": cands}]}, f)
 
-    def runs(self, rows):
-        self.jsonl("app/logs/autorun-runs.jsonl", rows)
+    def runs(self, rows, mode="w"):
+        """入口の実行記録(flow/runlog の形: v・id・state・steps が無い行は読み飛ばされるので、省いた鍵は足す)"""
+        self.jsonl("app/logs/autorun-runs.jsonl", [dict({"v": 1, "state": "done", "steps": [], "kind": "video"}, **r) for r in rows], mode)
 
     def live_feedback(self, rows, mode="w"):
         self.jsonl("app/live/live_feedback.jsonl", rows, mode)
@@ -246,7 +247,7 @@ class EvalMarks(unittest.TestCase):
             k = next(n)
             judgments.record(os.path.join(env.root, "app"), who="friend", what=what, videoId=vid, markId="f%d" % k if vid else "", origin="request",
                              via="friend_file", at=ms("2026-10-08"), key="ff:%d" % k, ref={"zip": zip_name, "pack": "p%d" % k, "runId": run_id})
-        env.jsonl("app/logs/autorun-runs.jsonl", [{"v": 1, "id": "file1", "kind": "file", "sourcePath": os.path.join(env.root, "clips", "b.mp4")},
+        env.runs([{"v": 1, "id": "file1", "kind": "file", "sourcePath": os.path.join(env.root, "clips", "b.mp4")},
                                                   {"v": 1, "id": "file2", "kind": "file", "sourcePath": os.path.join(env.root, "other", "c.mp4")}], "a")
         friend("z.zip", V1), friend("z.zip", V2), friend("z.zip", V2, what="bad")   # V1 はスタジオで判定あり = 二重に数えない
         friend("y.zip", run_id="r1")        # 実行記録 r1 = V1

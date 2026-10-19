@@ -69,6 +69,7 @@ from manage.cases import txindex  # noqa: E402
 from ytt import studiodata  # noqa: E402  スタジオの data.json の読み口
 from flow import lengthhint  # noqa: E402  自動の長さの目安(人が指定した区間の長さ。本番と同じ式)
 from eval.tools import clipfit  # noqa: E402  区間の合い方(LD-2a。友人の区間を覆えた割合・余分の秒)
+from flow import runlog  # noqa: E402  入口の実行記録の読み口(② が持つ)
 from flow import deliveries  # noqa: E402  友人へ届けた記録の読み口(物差し 2 の分母。② が持つ起きた事実)
 from human import judgments  # noqa: E402  人の判断の記録(物差し 2・3 の分子と、線 D の人の行。③ が持つ)
 from pipeline.analyze import excite  # noqa: E402
@@ -178,8 +179,8 @@ def load_archive(studio, vid):
 
 
 def run_records(app):
-    """入口の実行記録(autorun-runs.jsonl.1 → 今のファイル)の行(壊れた行は飛ばす)"""
-    return [r for name in ("autorun-runs.jsonl.1", "autorun-runs.jsonl") for _, r in read_jsonl(os.path.join(app, "logs", name))]
+    """入口の実行記録(.1 → 今のファイル)の行。読み方と形の検査は ② flow/runlog の 1 か所(壊れた行・形の違う行は飛ばす)"""
+    return runlog.read_runs_log(os.path.join(app, "logs", runlog.RUNS_LOG))
 
 
 def load_runs(app, records=None):
