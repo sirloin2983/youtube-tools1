@@ -19,8 +19,6 @@
   - tx: 切り抜き全体の文字起こし・校正の進み具合の合計 {clips, withTranscript, segments, proofed}
   - packs: 切り抜き全体のパックの有無の合計 {have, total, textplus}
   - failed: 失敗の文がある切り抜きの数(ホームの「処理の状況」と一覧の行の結果)
-  - remaining: 残作業の合計件数(並び替え「次にやることが多い順」に使う)。候補の確認(まだ 1 本も採用・書き出ししていない配信の候補。配信 1 本で 1 件)・
-    書き出し(採用済みで書き出していない)・文字起こし・校正(パックがまだで校正が残っている切り抜き)・パックの合計
 スタジオから消えた配信(gone)は、候補の確認・書き出しをスタジオでできないので数えない(文字起こし・校正・パックは残った切り抜きで数える)。
 
 自動でできた切り抜きの確認(線 D の M9・M12・M13。計画 notes:plan/line-d-auto-pack.md の段階 4・6):
@@ -133,27 +131,17 @@ def _stream_time(v):
 
 
 def _case_extras(c):
-    """一覧の1行に要る合計・失敗の数・残作業の数。clips・marks だけから作れるので、案件の生成元(スタジオに
+    """一覧の1行に要る合計・失敗の数。clips だけから作れるので、案件の生成元(スタジオに
     まだある配信・消えた配信の最後に見えた内容)のどちらでも同じ規則で計算できる"""
     clips = c.get("clips") or []
-    marks = c.get("marks") or {}
-    gone = bool(c.get("gone"))                                                                      # スタジオから消えた配信(確認・書き出しはできない)
     total = len(clips)
     with_tx = [cl["transcript"] for cl in clips if cl.get("transcript")]
     have_pack = sum(1 for cl in clips if cl.get("pack"))
-    picked = int(marks.get("adopted") or 0) + total                                                 # 採用・書き出しを 1 本でも決めたか
-    review = 0 if gone or picked else int(marks.get("candidates") or 0)                             # 確認前の候補(まだ 1 本も選んでいない配信だけ)
-    to_export = 0 if gone else int(marks.get("adopted") or 0)                                       # 採用済みでまだ書き出していない
-    missing_tx = sum(1 for cl in clips if not cl.get("transcript"))                                 # 書き出し済みで文字起こしがまだ
-    proofing = sum(1 for cl in clips if cl.get("transcript") and not cl.get("pack")                 # 校正待ち = パックがまだで校正が残っている
-                   and cl["transcript"].get("proofed", 0) < cl["transcript"].get("segments", 0))
-    missing_pack = total - have_pack                                                                # 書き出し済みでパックがまだ
     autos = [cl for cl in clips if cl.get("auto")]
     return {"tx": {"clips": total, "withTranscript": len(with_tx), "segments": sum(t["segments"] for t in with_tx),
                    "proofed": sum(t["proofed"] for t in with_tx)},
             "packs": {"have": have_pack, "total": total, "textplus": sum(1 for cl in clips if cl.get("pack") and cl["pack"].get("textplus"))},
             "failed": sum(1 for cl in clips if (cl.get("review") or {}).get("failure")),
-            "remaining": (1 if review else 0) + to_export + missing_tx + proofing + missing_pack,
             "autoClips": {"total": len(autos)},
             "streamedAt": c.get("streamedAt") or c.get("updatedAt") or 0}
 

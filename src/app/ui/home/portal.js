@@ -803,8 +803,7 @@
   }
   function sortList(list) {
     var key = $('#fSort').value;
-    if (key === 'remaining') list.sort(function (a, b) { return (b.remaining || 0) - (a.remaining || 0) || (b.streamedAt || 0) - (a.streamedAt || 0); });
-    else if (key === 'channel') list.sort(function (a, b) { return (a.channel || '').localeCompare(b.channel || '', 'ja') || (a.title || '').localeCompare(b.title || '', 'ja'); });
+    if (key === 'channel') list.sort(function (a, b) { return (a.channel || '').localeCompare(b.channel || '', 'ja') || (a.title || '').localeCompare(b.title || '', 'ja'); });
     else if (key === 'title') list.sort(function (a, b) { return (a.title || '').localeCompare(b.title || '', 'ja'); });
     else list.sort(function (a, b) { return (b.streamedAt || 0) - (a.streamedAt || 0); });
   }
@@ -1003,7 +1002,7 @@
 
   function restoreFilters() {
     var so = lsGet('sort', 'new'), gr = lsGet('group', '');
-    if ($('#fSort').querySelector('option[value="' + so + '"]')) $('#fSort').value = so;
+    if ($('#fSort').querySelector('option[value="' + so + '"]')) $('#fSort').value = so;   // 無くなった並び方(次にやることが多い順など)を覚えていたら新しい順
     if ($('#fGroup').querySelector('option[value="' + gr + '"]')) $('#fGroup').value = gr;
   }
 

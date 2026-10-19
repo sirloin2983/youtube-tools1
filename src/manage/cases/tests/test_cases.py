@@ -230,9 +230,9 @@ class TestCasesC0(Base):
 
 
 class TestListExtras(Base):
-    """一覧(1件1行)が使う合計・残作業の数・配信日の目安"""
+    """一覧(1件1行)が使う合計・配信日の目安"""
 
-    def test_totals_and_remaining(self):
+    def test_totals(self):
         # m1: 書き出し済み・文字起こしなし / m2: 書き出し済み・文字起こしあり(校正未了)・パックあり / m3: 採用済みでまだ書き出していない
         self.studio({VID: {"kind": "youtube", "title": "配信A", "channel": "ch",
                            "marks": [mark("m1", "exported", self.clip1), mark("m2", "exported", self.clip2), mark("m3", "adopted")]}})
@@ -241,27 +241,7 @@ class TestListExtras(Base):
         c = cases.snapshot(self.root, self.env)["cases"][0]
         self.assertEqual(c["tx"], {"clips": 2, "withTranscript": 1, "segments": 4, "proofed": 1})
         self.assertEqual(c["packs"], {"have": 1, "total": 2, "textplus": 0})
-        # 残作業 = 書き出し1(m3) + 文字起こしなし1(m1) + パックがまだ1(m1) = 3。m2 はパック済みなので校正が残っていても校正待ちに数えない
-        self.assertEqual(c["remaining"], 3)
-        # パックがまだなら校正が残っている切り抜きは校正待ち
-        self.studio({VID: {"kind": "youtube", "title": "配信A", "marks": [mark("m1", "exported", self.clip1)]}})
-        self.transcript("aaaaaaaaaaaa", self.clip1, proofed=1, total=2)
-        self.assertEqual(cases.snapshot(self.root, self.env)["cases"][0]["remaining"], 2)   # 校正1 + パック1
-
-    def test_review_candidates_until_something_is_picked(self):
-        # 解析したが 1 本も採用していない配信: 確認前の候補は配信 1 本で 1 件(見送り rejected は数えない)
-        base = {"kind": "youtube", "title": "配信A", "analysis": {"uploadDate": "20260101"}}
-        self.studio({VID: dict(base, marks=[mark("m1", ""), mark("m2", ""), mark("m3", "rejected"), mark("m4", "")])})
-        self.assertEqual(cases.snapshot(self.root, self.env)["cases"][0]["remaining"], 1)
-        # 1 本でも採用したら、残った候補は「選ばなかったもの」として数えない(残りは書き出し 1)
-        self.studio({VID: dict(base, marks=[mark("m1", "adopted"), mark("m2", ""), mark("m3", "rejected"), mark("m4", "")])})
-        self.assertEqual(cases.snapshot(self.root, self.env)["cases"][0]["remaining"], 1)
-        # 書き出し済みだけ(採用は 0)でも候補は数えない(残りは文字起こし 1 + パック 1)
-        self.studio({VID: dict(base, marks=[mark("m1", "exported", self.clip1), mark("m2", "")])})
-        self.assertEqual(cases.snapshot(self.root, self.env)["cases"][0]["remaining"], 2)
-        # 候補も無い(マーク 0)なら 0
-        self.studio({VID: dict(base, marks=[])})
-        self.assertEqual(cases.snapshot(self.root, self.env)["cases"][0]["remaining"], 0)
+        self.assertEqual(c["failed"], 0)
 
     def test_gone_case_is_not_listed(self):
         """スタジオから消えた配信の行は一覧に出さない(前の状態・メモと最後に見えた紐づけ last は cases.json に残る = 読み飛ばすだけで書き換えない)"""
