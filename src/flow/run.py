@@ -165,6 +165,16 @@ def mode_of(kind, bundle, request_id=None):
     return None
 
 
+def _gone_shape(env, spec):
+    """待ちの記録の封筒 + 束が、束としては読めるのに今は無い形(消した mode)か。
+    そういう記録を束なし(= 既定の頭からパックまで)で戻すと、形を変えて動いてしまう(文字起こしまでの実行が全自動になるなど)ので、Run.restore は戻さない"""
+    try:
+        b = _spec.validate(_spec.merge(spec))
+    except (TypeError, ValueError, KeyError):
+        return False
+    return mode_of(env.get("kind"), b, env.get("requestId")) is None
+
+
 def steps_of(mode, deliver_dir=None, origin=None, ranges=0, top=None, diarize=None, normalize=False):
     """段の並び(鍵の並び)= MODE_STEPS[mode] + 今の付け足しの決まり(実行の段と見積もりが同じ物を使う。RV A2):
     normalize(動画ファイルの最初)は normalize が真のときだけ / 依頼の URL(REQUEST_URL_MODES)で区間が切り抜く数に足りていれば、解析なしで最後に analyze_later /
@@ -489,7 +499,7 @@ class Run:
             try:
                 run = cls.from_envelope(env, spec2)
             except ValueError:
-                if spec is None:
+                if spec is None or _gone_shape(env, spec2):   # 束は読めるのに今は無い形(消した mode)は、束なしで既定の形に戻さない = 戻さない
                     raise
                 env2, spec3 = _envelope.read(d["envelope"])   # 束が合わない: 束なし(封筒の段の並びだけ)で戻して、入口が組み直す
                 run = cls.from_envelope(dict(env, input=env["input"]), {"run": spec3.get("run", {})} if isinstance(spec3, dict) else None)

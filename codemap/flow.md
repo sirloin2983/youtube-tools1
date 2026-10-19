@@ -41,8 +41,8 @@
   - 名前: `from_archive` :146・`needs_archive` :151・`class ArchiveError` :157・`class Later` :161・`run_proc` :170・`probe_archive` :202・`readiness` :244・`fetch_full_audio` :262・`worker_python` :292・`run_align` :297・`inside` :311・`ended_at` :317・ほか 5
 - **live_detect.py** (751 行) — 配信中の盛り上がりの検出(線 D の L2)と自動の採用(M11)の入口の側。計画は notes:plan/line-d-detect.md(3 の「候補の API の約束」は線 2 = スタジオの画面との境目。変えない)。
   - 名前: `clean_spec` :80・`overlay` :94・`merge_spans` :114・`measured_holes` :125・`class Detector` :145
-- **live_export.py** (1388 行) — リアルタイム切り抜き(線 D の P2: マークと書き出し。notes:plan/line-d-live-clipping.md の 0・5・6)の入口の側の中身。
-  - 名前: `class LiveError` :114・`pick_folder` :126・`rec_list` :135・`latest_per_mark` :144・`cleaned_up` :154・`check_after` :165・`check_origin` :177・`clean_auto` :186・`check_streamer` :192・`deliver_pool` :204・`job_after` :215・`studio_mark_id` :221・ほか 6
+- **live_export.py** (1393 行) — リアルタイム切り抜き(線 D の P2: マークと書き出し。notes:plan/line-d-live-clipping.md の 0・5・6)の入口の側の中身。
+  - 名前: `read_after` :92・`class LiveError` :121・`pick_folder` :133・`rec_list` :142・`latest_per_mark` :151・`cleaned_up` :161・`check_after` :172・`check_origin` :184・`clean_auto` :193・`check_streamer` :199・`deliver_pool` :211・`job_after` :222・ほか 7
 - **live_failures.py** (173 行) — リアルタイム切り抜き(線 D)の失敗の集約(M3。notes:plan/line-d-auto-pack.md の 4)。
   - 名前: `failure_of` :49・`after_stream_failure` :74・`detect_failure` :91・`keep_failure` :107・`delete_notice` :117・`class Reader` :126・`collect` :154
 - **live_patrol.py** (64 行) — ライブの見回りの糸の骨組み(OPT2。live_export.Exporter・live_archive.Archiver・live_tx.LiveTx が継ぐ)と中止の例外 1 組。
@@ -79,11 +79,11 @@
   - 名前: `studio_data` :49・`case_root` :62・`doc_home` :90・`configured_out_dir` :124・`request_root` :132・`case_parents` :155・`case_roots` :161・`find_request_dir` :182・`work_dir` :203・`runs_dir` :209・`case_path` :227・`read_case` :232・ほか 10
 - **prio.py** (88 行) — ② 管理の層 flow: 処理の優先度の表(PRIO。決定 3-49・notes:plan/done/opt-series.md の 11)。
   - 名前: `name_ok` :35・`rank` :39・`idle_only` :43・`os_priority` :47・`label` :51・`slot_kw` :55・`of_run` :60・`of_spec` :69・`watch` :80・`idle_now` :85
-- **run.py** (1576 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
-  - 名前: `class Cancelled` :120・`class StepError` :124・`mode_of` :144・`steps_of` :167・`analyze_verdict` :205・`chat_missing` :222・`chat_retry_ok` :228・`redo_reason` :236・`short_why` :254・`adopted_ids` :266・`tx_verdict` :271・`pack_verdict` :278・ほか 4
+- **run.py** (1587 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
+  - 名前: `class Cancelled` :121・`class StepError` :125・`mode_of` :145・`steps_of` :178・`analyze_verdict` :216・`chat_missing` :233・`chat_retry_ok` :239・`redo_reason` :247・`short_why` :265・`adopted_ids` :277・`tx_verdict` :282・`pack_verdict` :289・ほか 4
 - **runlog.py** (93 行) — まとめて実行の「終わった実行の記録」の形と読み方(RS3-0B)。
   - 名前: `read_runs_log` :47・`read_result` :77
-- **runqueue.py** (833 行) — ② 管理の層 flow: 待ち行列と実行の糸(RS7-1 S5。決定 3-30・
+- **runqueue.py** (838 行) — ② 管理の層 flow: 待ち行列と実行の糸(RS7-1 S5。決定 3-30・
   - 名前: `class SpecVersionError` :64・`class BadSpecError` :68・`check_spec` :72・`disk_blocked` :86・`gpu_info` :100・`busy_reason` :114・`doc_id_ok` :123・`result_case` :171・`board_job` :182・`class Queue` :200
 - **sendpolicy.py** (73 行) — ② 管理の層 flow: 友人へ自動で送るかの判定(D-SEND の段 1。要件は notes:plan/done/d-send-requirements.md の 2-1・2-8・2-9)。
   - 名前: `hours_since` :27・`decide` :32・`reason_text` :49・`ended_at_of` :57・`switched_off` :69

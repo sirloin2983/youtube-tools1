@@ -314,6 +314,19 @@ class TestRestore(Base):
             self.assertEqual(self.active_file(), {"v": Q.ACTIVE_VERSION, "runs": []})
             self.assertEqual(tools.started, [])
 
+    def test_gone_shape_is_skipped_with_log(self):
+        """今は無い形(束は読めるのに mode_of が None。例: 配信の run.from adopt)の待ちの記録は、束なしの既定(頭からパックまで)で戻さず、
+        どれを飛ばしたかをログに 1 行(形を消したあとに古い記録が残っていても、黙って別の形で動かない)"""
+        env = {"id": "0123456789", "kind": "url", "input": {"videoId": "abcdefghijk", "title": "古い形"}, "requestId": None, "createdAt": 0, "specVersion": 2}
+        rec = {"id": "0123456789", "mode": "gone", "title": "古い形", "created": time.time() - 60, "steps": [], "envelope": env,
+               "spec": {"run": {"from": "adopt"}}}
+        testkit.write_json(os.path.join(self.logs, Q.ACTIVE_FILE), {"v": Q.ACTIVE_VERSION, "runs": [rec]})
+        logs = []
+        q = Q.Queue(None, env=self.env, poll=0.01, tools=Tools(), log_dir=self.logs, log=logs.append)
+        self.addCleanup(q.close)
+        self.assertEqual(q.runs, [])
+        self.assertTrue(any("戻せないので飛ばしました" in m and "0123456789" in m and "gone" in m for m in logs), logs)
+
 
 class TestCancel(Base):
     def test_cancel_queued_and_running(self):

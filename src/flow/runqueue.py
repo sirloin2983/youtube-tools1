@@ -308,7 +308,12 @@ class Queue(run_mod.Runner):
         out, seen = [], set()
         for x in items if isinstance(items, list) else []:
             run = Run.restore(x)
-            if run is None or run.id in seen:
+            if run is None:   # 壊れた・今は無い形(消した形の記録など)の記録: 戻さずに、どれを飛ばしたかだけ残す
+                d = x if isinstance(x, dict) else {}
+                self.log("まとめて実行: 前の起動の待ちの記録を戻せないので飛ばしました(id %s・形 %s・%s)"
+                         % (str(d.get("id") or "?")[:20], str(d.get("mode") or "?")[:20], str(d.get("title") or "")[:60]))
+                continue
+            if run.id in seen:
                 continue
             seen.add(run.id)
             if time.time() - run.created > RESTORE_MAX_AGE:

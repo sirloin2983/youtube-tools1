@@ -66,7 +66,7 @@
   - 画面: src/app/ui/editor/app-list.js:208・src/app/ui/editor/app.js:1077・src/app/ui/editor/pack-tab.js:37
 - **掲示板** — ② のジョブの掲示板(RS8 の口 S1)
   - コード: `src/flow/board.py`・`src/flow/jobs.py`
-  - 画面: src/app/ui/home/portal.js:675・src/app/ui/studio/review.js:3437
+  - 画面: src/app/ui/home/portal.js:675・src/app/ui/studio/review.js:3438
 - **調子** — 入口の「調子」。空き容量・失敗・道具の版などの集計
   - コード: `src/manage/ops/health.py`・`/api/health` src/app/server.py:770
   - 画面: src/app/ui/cases/panels/cand.js:137・src/app/ui/cases/panels/new.js:240・src/app/ui/home/portal.html:124・src/app/ui/home/portal.js:1243
@@ -167,11 +167,11 @@
 - 動画を選び直す(4)— src/app/ui/cases/panels/cut.js:35
 - 取り消す(4)— src/app/ui/editor/app-tpl.js:45
 - 外す(4)— src/app/ui/studio/rank.js:78
-- 戻す(4)— src/app/ui/studio/review.js:1860
+- 戻す(4)— src/app/ui/studio/review.js:1861
 - 校正済み(4)— src/app/ui/editor/app-list.js:106
 - 標準(4)— src/app/ui/cases/panels/cand.js:35
 - 読み込んでいます…(4)— src/app/ui/home/portal.html:45
-- YouTube で開く(3)— src/app/ui/studio/review.js:139
+- YouTube で開く(3)— src/app/ui/studio/review.js:140
 - すべて終了(3)— src/app/ui/home/portal.html:247
 - カット・パック(3)— src/app/ui/cases/cases.js:73
 - コピー(3)— src/app/ui/editor/app-tpl.js:170
@@ -182,7 +182,7 @@
 - 保存(3)— src/app/ui/cases/panels/new.js:23
 - 停止(3)— src/app/ui/home/portal.html:313
 - 全体(3)— src/app/ui/cases/panels/cut.js:86
-- 再生(3)— src/app/ui/studio/review.js:1855
+- 再生(3)— src/app/ui/studio/review.js:1856
 - 再生位置(3)— src/app/ui/cases/panels/cut.js:203
 - 削除(3)— src/app/ui/editor/app-rows.js:461
 - 区間(3)— src/app/ui/cases/panels/cut.js:90
@@ -192,7 +192,7 @@
 - 更新(3)— src/app/ui/home/portal.html:210
 - 未校正(3)— src/app/ui/editor/app-list.js:99
 - 残す(3)— src/app/ui/cases/panels/cut.js:243
-- 確かめています…(3)— src/app/ui/studio/review.js:206
+- 確かめています…(3)— src/app/ui/studio/review.js:207
 - 絞り込みを消す(3)— src/app/ui/editor/app-list.js:227
 - 自動(3)— src/app/ui/editor/app-tpl.js:92
 - 読み込み直す(3)— src/app/ui/cases/panels/machpick.js:37
@@ -206,7 +206,7 @@
 - URL から入れる(2)— src/app/ui/studio/collab.js:55
 - YouTube にログイン(2)— friend-apps/launcher/src/YtLogin.cs:140
 - この配信(2)— src/app/ui/studio/collab.js:153
-- この配信を解析する(2)— src/app/ui/studio/review.js:140
+- この配信を解析する(2)— src/app/ui/studio/review.js:141
 - すべて(2)— src/app/ui/editor/app-tpl.js:32
 - すべての行(2)— src/app/ui/editor/app-tpl.js:14
 - すべて止めて終了(2)— src/friendapp/ui/friend.html:38
@@ -215,7 +215,7 @@
 - まだ検索していません(2)— src/app/ui/studio/rank.js:196
 - もう一度検索する(2)— src/app/ui/studio/rank.js:308
 - もっと見る(あと(2)— src/app/ui/home/portal.js:946
-- アーカイブ(2)— src/app/ui/studio/review.js:2453
+- アーカイブ(2)— src/app/ui/studio/review.js:2454
 - カット後(2)— src/app/ui/cases/panels/cut.js:46
 - キー:(2)— src/app/ui/editor/app-tpl.js:30
 - キー操作の一覧(2)— src/app/ui/cases/panels/cand.js:34
@@ -251,7 +251,7 @@
 - 新しい案件(2)— src/app/ui/home/portal.html:73
 - 既定に戻す(2)— src/friendapp/ui/settings.js:56
 - 普段のレーンへ(2)— src/app/ui/check/check.js:258
-- 書き出す(2)— src/app/ui/studio/review.js:293
+- 書き出す(2)— src/app/ui/studio/review.js:294
 - 月報(2)— src/manage/ops/analytics/web/index.html:27
 - 期間(2)— src/app/ui/studio/rank.js:161
 - 本数(2)— src/friendapp/ui/friend.html:85
@@ -280,7 +280,7 @@
 - 配信の URL(2)— src/app/ui/studio/queue.js:21
 - 配信を探す(2)— src/app/ui/studio/queue.js:43
 - 開始(2)— src/app/ui/editor/app-rows.js:461
-- 音量(2)— src/app/ui/studio/review.js:203
+- 音量(2)— src/app/ui/studio/review.js:204
 - 音量のそろえ方((2)— src/app/ui/cases/panels/cut.js:154
 - 題名順(2)— src/app/ui/editor/app-tpl.js:240
 - (2本以上選ぶと選べます)(1)— src/app/ui/studio/collab.js:117
@@ -295,12 +295,12 @@
 - )を実行して、ツールを起動し直してください。(1)— src/app/ui/editor/app-jobs.js:178
 - + 区間を足す(1)— src/friendapp/ui/friend.html:83
 - -11 LUFS(大きめ)(1)— src/app/ui/cases/panels/cut.js:155
-- -11(大きめ)(1)— src/app/ui/studio/review.js:311
-- -14(YouTube の目安・おすすめ)(1)— src/app/ui/studio/review.js:311
+- -11(大きめ)(1)— src/app/ui/studio/review.js:312
+- -14(YouTube の目安・おすすめ)(1)— src/app/ui/studio/review.js:312
 - -16 LUFS(少し小さめ)(1)— src/app/ui/cases/panels/cut.js:155
-- -16(控えめ)(1)— src/app/ui/studio/review.js:311
+- -16(控えめ)(1)— src/app/ui/studio/review.js:312
 - -18 LUFS(小さめ)(1)— src/app/ui/cases/panels/cut.js:155
-- -18(小さめ)(1)— src/app/ui/studio/review.js:311
+- -18(小さめ)(1)— src/app/ui/studio/review.js:312
 - .btn(v6: 影を除いた)(1)— src/ui-kit/styleguide.html:52
 - / 元(1)— src/app/ui/editor/cut.js:702
 - 0.05秒(1)— src/app/ui/editor/app-tpl.js:309
@@ -308,7 +308,7 @@
 - 0.1秒(1)— src/app/ui/editor/app-tpl.js:309
 - 0.25秒(1)— src/app/ui/editor/app-tpl.js:309
 - 0.5秒(1)— src/app/ui/editor/app-tpl.js:309
-- 0件(1)— src/app/ui/studio/review.js:200
+- 0件(1)— src/app/ui/studio/review.js:201
 - 1 つ前に戻す(1)— src/app/ui/check/index.html:55
 - 1 文字起こし(1)— src/app/ui/editor/app-tpl.js:272
 - 1. 送る(1)— src/friendapp/ui/guide.html:46
