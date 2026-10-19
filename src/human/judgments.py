@@ -25,7 +25,7 @@ MAX_BYTES = 32 * 1024 * 1024   # 1 行 300 バイト前後。超えたら .old �
 WHATS = ("adopt", "reject", "quality_good", "quality_bad", "quality_unknown", "made_video", "good", "bad", "unknown", "retract")
 WHOS = ("self", "friend")
 ORIGINS = ("request", "auto", "manual", "live")
-VIAS = ("review", "cases", "check", "friend_file", "friend_verdict", "migrate")
+VIAS = ("review", "cases", "check", "friend_file", "friend_verdict", "migrate")   # migrate = 10-12 の 1 回の写しの行(写しの道具は 10-19 に消した・行は残る)
 LANES = ("adopt", "quality", "friend")
 REF_KEYS = ("zip", "pack", "requestId", "runId", "recorder", "recording")
 _SELF_WHATS = {"adopt": "adopt", "reject": "adopt", "quality_good": "quality", "quality_bad": "quality", "quality_unknown": "quality"}
