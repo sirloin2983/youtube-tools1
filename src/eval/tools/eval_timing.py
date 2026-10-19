@@ -34,7 +34,7 @@ import argparse
 import difflib
 import os
 import re
-import statistics
+import statistics
 import time
 import unicodedata
 

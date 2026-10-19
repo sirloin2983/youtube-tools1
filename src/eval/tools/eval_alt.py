@@ -40,7 +40,7 @@
 import argparse
 import bisect
 import difflib
-import os
+import os
 import time
 
 from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業データの場所・時期・率・保存。src を sys.path に足す)

@@ -1,1 +1,1 @@
-"""① 道具(解析 analyze・書き出し export・文字起こし transcribe・パック pack・録画の取り込み ingest。1 つ 1 つが「入力 → 出力」の変換)。画面・案件・順番を知らない。ytt だけを import する。いつ・どの順で・どこに置いて・飛ばすかは ② の src/flow/(run.py の run(入力, 指定, from=段) など)が決める"""
+"""① 道具(解析 analyze・書き出し export・文字起こし transcribe・パック pack・録画の取り込み ingest。1 つ 1 つが「入力 → 出力」の変換)。画面・案件・順番を知らない。ytt だけを import する。いつ・どの順で・どこに置いて・飛ばすかは ② の src/flow/(run.py の run(入力, 指定, from=段) など)が決める"""

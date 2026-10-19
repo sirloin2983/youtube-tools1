@@ -1,1 +1,1 @@
-"""① 書き出し: 区間 → 動画(exporter)・サムネの案の絵(thumb_cards)"""
+"""① 書き出し: 区間 → 動画(exporter)・サムネの案の絵(thumb_cards)"""
