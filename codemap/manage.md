@@ -9,8 +9,8 @@
 ## src/manage/cases/
 
 - **__init__.py** (3 行) — ④ 案件(配信 1 本の束ね)・紐づけ(切り抜き ↔ 文字起こし ↔ パック)・成果物の鍵の読み取り
-- **cases.py** (846 行) — 案件(配信1本)ごとの紐づけ(統合計画の段階4)。入口の「案件」画面(src/app/ui/home/portal.html)の中身を作る。
-  - 名前: `locations` :83・`read_studio` :97・`read_transcripts` :101・`find_pack` :106・`clip_state` :149・`clip_live` :172・`auto_info` :186・`live_failures_by_mark` :205・`delivered_of` :239・`virtual_cases` :298・`build` :345・`load_saved` :394・ほか 7
+- **cases.py** (847 行) — 案件(配信1本)ごとの紐づけ(統合計画の段階4)。入口の「案件」画面(src/app/ui/home/portal.html)の中身を作る。
+  - 名前: `locations` :84・`read_studio` :98・`read_transcripts` :102・`find_pack` :107・`clip_state` :150・`clip_live` :173・`auto_info` :187・`live_failures_by_mark` :206・`delivered_of` :240・`virtual_cases` :299・`build` :346・`load_saved` :395・ほか 7
 - **doclist.py** (108 行) — ④ 文字起こしの一覧と、元の動画・パックの有無・前回のパックの手順(役割で組み直す RS3-E5a)。
   - 名前: `pack_info` :21・`list_transcripts` :59・`pack_readme` :88
 - **handoff_io.py** (117 行) — ④ 受け渡し: 元の配信の情報(clip/v1)・受け渡しの JSON と SRT を動画の隣に保存
@@ -31,8 +31,8 @@
 - **__init__.py** (3 行) — ④ 置き場所・バックアップ・ごみ箱・録画の片付け
 - **backup.py** (670 行) — 作業データのバックアップ(notes:docs/spec/data.md の「バックアップ」)。
   - 名前: `skip` :71・`plan` :138・`plan_cases` :174・`default_media_dirs` :201・`media_rel` :215・`plan_media` :232・`same` :239・`copy_one` :247・`run_once` :279・`class Backup` :329・`restore_once` :557・`main` :618
-- **cleanup.py** (502 行) — 作業データの片付け(全体の計画 段9 9-2。ユーザー決定: 元動画も候補に・ごみ箱フォルダ経由・日数を決めて消す)。
-  - 名前: `class Cleanup` :123
+- **cleanup.py** (497 行) — 作業データの片付け(全体の計画 段9 9-2。ユーザー決定: 元動画も候補に・ごみ箱フォルダ経由・日数を決めて消す)。
+  - 名前: `class Cleanup` :118
 - **evalfolders.py** (503 行) — ④ 評価用のフォルダの整理: 動画の名前を「フォルダ名_番号_状態」にそろえる・仮置きからメンバーのフォルダへ移す・評価用にした文書の動画を外から取り込む
   - 名前: `eval_organize` :319・`eval_settle` :395・`eval_folders_info` :491
 - **learnpack.py** (163 行) — ④ データ: 学習の束を作る側(F1。notes:docs/design/f1-build.md の 2 の F1・3 の (f1c))。

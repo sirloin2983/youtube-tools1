@@ -26,7 +26,7 @@
   - コード: `Inbox.undo` src/friendapp/inbox.py:748・`Inbox.decide` src/friendapp/inbox.py:700・`VERDICTS` src/friendapp/inbox.py:55・`/api/friend/undo` src/friendapp/server.py:408
   - 画面: src/friendapp/ui/friend.html:175・src/friendapp/ui/guide.html:144・src/friendapp/ui/receive.js:65
 - **送る** — 友人のアプリの送る欄・受付の口。自動で送る判定は flow/sendpolicy
-  - コード: `src/friendapp/api.py`・`src/friendapp/ui/send-form.js`・`/api/friend/send` src/friendapp/server.py:395・`src/flow/sendpolicy.py`
+  - コード: `src/friendapp/api.py`・`src/friendapp/ui/send-form.js`・`/api/friend/send` src/friendapp/server.py:395・`flow/sendpolicy.py` (無いパス)
   - 画面: src/app/ui/cases/panels/cut.js:137・src/app/ui/check/cards/value.js:11・src/app/ui/editor/app-learn.js:138・src/app/ui/editor/app.js:369 ほか 16
 - **送った物** — 友人のアプリの送った物の行と、失敗の言葉・進み具合
   - コード: `src/friendapp/ui/sent.js`・`src/friendapp/progress.py`・`/api/friend/inbox` src/friendapp/server.py:290
@@ -35,7 +35,7 @@
   - コード: `src/friendapp/tidy.py`・`Tidy` src/friendapp/tidy.py:137・`/api/friend/tidy` src/friendapp/server.py:295
   - 画面: src/friendapp/ui/settings.js:84・src/friendapp/ui/update.js:78
 - **片付け** — 入口の作業データの片付けの候補。ごみ箱フォルダへ移す
-  - コード: `src/manage/keep/cleanup.py`・`Cleanup` src/manage/keep/cleanup.py:123・`/api/cleanup` src/app/server.py:663
+  - コード: `src/manage/keep/cleanup.py`・`Cleanup` src/manage/keep/cleanup.py:118・`/api/cleanup` src/app/server.py:663
   - 画面: src/app/ui/home/portal.html:227・src/app/ui/home/portal.js:472・src/friendapp/ui/friend.js:85・src/friendapp/ui/settings.js:84 ほか 2
 - **ごみ箱フォルダ** — ④ ごみ箱へ移す・戻すの 1 か所。片付けが通る
   - コード: `src/manage/keep/trash.py`・`to_trash` src/manage/keep/trash.py:30・`put_back` src/manage/keep/trash.py:95・`trash_days` src/app/server.py:1226
@@ -53,13 +53,13 @@
   - コード: `src/manage/cases/cases.py`・`src/flow/casebook.py`・`src/app/ui/cases/cases.js`・`/api/cases` src/app/server.py:809
   - 画面: src/app/ui/cases/caselink.js:2・src/app/ui/cases/cases.js:2・src/app/ui/cases/index.html:6・src/app/ui/cases/panels/cand.js:8 ほか 17
 - **まとめて実行** — 入口の案件から配信 1 本ぶんを順に自動で流す
-  - コード: `src/app/autorun.py`・`AutoRunner` src/app/autorun.py:213・`/api/flow/submit` src/app/server.py:657・`src/flow/runqueue.py`
+  - コード: `src/app/autorun.py`・`AutoRunner` src/app/autorun.py:212・`/api/flow/submit` src/app/server.py:657・`src/flow/runqueue.py`
   - 画面: src/app/ui/cases/cases.js:79・src/app/ui/cases/panels/cut.js:64・src/app/ui/editor/app-list.js:122・src/app/ui/editor/app-rows.js:142 ほか 8
 - **封筒** — ② の依頼の封筒の形と検査。欄から封筒への変換は order
   - コード: `src/flow/envelope.py`・`src/flow/order.py`
   - 画面: (画面の文字列に無い)
 - **束** — ① に渡す指定の束(spec)の形・既定値・検査
-  - コード: `src/flow/spec.py`・`spec_from_settings` src/app/autorun.py:184
+  - コード: `src/flow/spec.py`・`spec_from_settings` src/app/autorun.py:183
   - 画面: (画面の文字列に無い)
 - **見積もり** — ② の実行と同じ規則の見積もり(書き込まない)
   - コード: `/api/flow/estimate` src/app/server.py:657・`src/flow/runqueue.py`

@@ -5,19 +5,19 @@
 ## src/app/
 
 - **__init__.py** (3 行) — 入口と画面。起動・1 つのポート・API の配線・設定の画面の API。全部の層を使ってよい
-- **autorun.py** (499 行) — まとめて実行(統合計画の段階5)。入口の「案件」の画面から、配信1本ぶんの作業を順に自動で流す。
-  - 名前: `class ToolClient` :103・`spec_from_settings` :184・`live_auto_origin` :202・`class AutoRunner` :213
+- **autorun.py** (479 行) — まとめて実行(統合計画の段階5)。入口の「案件」の画面から、配信1本ぶんの作業を順に自動で流す。
+  - 名前: `class ToolClient` :102・`spec_from_settings` :183・`live_auto_origin` :201・`class AutoRunner` :212
 - **cli.py** (550 行) — ② 管理 + ① 道具で動くコマンド(RS6 b-S1。決定 3-29)。
   - 名前: `class UsageError` :55・`class PortalError` :59・`parse_args` :70・`load_spec` :97・`classify_input` :122・`check_from` :137・`use_data_dir` :148・`use_studio_data` :163・`class Learning` :184・`find_doc` :200・`class Progress` :215・`class Portal` :241・ほか 10
-- **live.py** (517 行) — リアルタイム切り抜き(線 D。notes:plan/line-d-live-clipping.md の 0)の入口の側。**既定はオフ**(ホームの設定の節 live.enabled)。
+- **live.py** (518 行) — リアルタイム切り抜き(線 D。notes:plan/line-d-live-clipping.md の 0)の入口の側。**既定はオフ**(ホームの設定の節 live.enabled)。
   - 名前: `studio_review` :105・`studio_audio` :112・`studio_lag` :130・`class Live` :139
   - 受ける口: `/api/peaks` :271・`/api/exports` :278・`/api/info` :290・`/api/begin` :326・`/api/export` :329・`/api/adopt` :336・`/api/export/cancel` :340・`/api/archive/cancel` :342・`/api/archive` :345
 - **mount.py** (220 行) — 統合サーバーへのツールの取り込み(統合計画の段階3。notes:docs/design/integration-plan.md)。
   - 名前: `class MountError` :53・`tool_modules` :57・`check_no_collision` :67・`load_serve` :77・`inject_token` :104・`send_redirect` :115・`make_handler` :125・`class Mount` :172
   - 受ける口: `/api/ytt` :46
-- **prefs.py** (490 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
-  - 名前: `class PrefsError` :95・`guess_streamer` :384・`class Prefs` :396
-- **server.py** (1889 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
+- **prefs.py** (488 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
+  - 名前: `class PrefsError` :95・`guess_streamer` :382・`class Prefs` :394
+- **server.py** (1888 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
   - 名前: `runtime_dir` :208・`ping` :218・`port_open` :223・`tail` :229・`expected_version` :250・`tool_python` :256・`rel_or_abs` :266・`signal_stop` :274・`class Tool` :287・`app_data_dir` :337・`logs_dir_for` :343・`class Supervisor` :349・ほか 20
   - 受ける口: `/api/intake` :651・`/api/backup` :652・`/api/accuracy` :653・`/api/flow/runs` :654・`/api/cases/auto` :656・`/api/flow/submit` :657・`/api/flow/estimate` :657・`/api/flow/cancel` :658・`/api/flow/retry` :658・`/api/flow/outbox/done` :659・`/api/intake/scan` :660・`/api/backup/run` :660・`/api/accuracy/run` :661・`/api/window` :661・`/api/check/answer` :662・`/api/check/skip` :662・`/api/check/flush` :662・`/api/cleanup` :663・`/api/shutdown` :663・`/api/ping` :764・`/api/status` :766・`/api/health` :770・`/api/log` :774・`/api/flow/machine` :789・`/api/flow/outbox` :794・`/api/flow/status` :796・`/api/flow/history` :800・`/api/check/next` :803・`/api/cases` :809
 

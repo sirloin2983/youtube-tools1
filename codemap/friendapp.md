@@ -11,8 +11,8 @@
   - 名前: `mask` :56・`windows_text` :79・`stage_rows` :90・`transcribe_rows` :104・`prune_names` :116・`class Diag` :126
 - **dropbox.py** (437 行) — 友人の玄関の Dropbox の部品(notes:docs/design/friend-history.md の 7 章・docs/spec/friend.md の 2-17・4 章)。
   - 名前: `class DropboxError` :35・`class Cancelled` :51・`class Config` :55・`config_path` :71・`load_config` :76・`missing_scope` :90・`is_not_found` :95・`error_text` :99・`arg_header` :125・`commit_arg` :130・`content_hash` :136・`urlopen_transport` :165・ほか 1
-- **engine.py** (354 行) — 友人の玄関の ② の組み立て(CLI(app/cli.py の run_local)と同じ部品を糸つきで持つ)。
-  - 名前: `stage_lines` :36・`transcribe_line` :52・`transcribe_lines` :72・`transcribe_records` :78・`class FriendQueue` :100・`class Engine` :128
+- **engine.py** (351 行) — 友人の玄関の ② の組み立て(CLI(app/cli.py の run_local)と同じ部品を糸つきで持つ)。
+  - 名前: `stage_lines` :36・`transcribe_line` :52・`transcribe_lines` :72・`transcribe_records` :78・`class FriendQueue` :100・`class Engine` :125
 - **inbox.py** (1092 行) — 友人の受信箱の正(notes:plan/f1-friend-requirements.md の C-3、notes:docs/design/friend-history.md の 7 章)。
   - 名前: `pack_name` :73・`pack_title` :79・`unique_dest` :83・`case_of` :91・`class Inbox` :102
 - **live.py** (133 行) — 友人の玄関のライブの依頼の欄と結びつき(notes:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-15)。軽い部品だけ(画面を先に出すため)。
