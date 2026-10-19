@@ -4,7 +4,6 @@
 import json
 import os
 import sys
-import tempfile
 import threading
 import unittest
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データを本物の置き場所に書かない(ytt/datadir。編集の設定の節は workdata を一時フォルダに差し替える)
@@ -13,17 +12,18 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.dirname(os.path.dirname(HERE))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
-from ytt import settings as S  # noqa: E402
+from ytt import settings as S, testkit  # noqa: E402
 
 
 class TestSettingsFile(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="ytt-settings-")
+        self.tmp = testkit.tempdir(self, "ytt-settings-")
         self.path = os.path.join(self.tmp, "sub", "settings.json")
 
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmp, ignore_errors=True)
+    def put(self, data):
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        with open(self.path, "wb") as f:
+            f.write(data)
 
     def raw(self):
         with open(self.path, "rb") as f:
@@ -55,9 +55,7 @@ class TestSettingsFile(unittest.TestCase):
         self.assertTrue(S.section_name_ok("review-2_x"))
 
     def test_broken_file_reads_as_empty_and_is_retired_on_save(self):
-        os.makedirs(os.path.dirname(self.path))
-        with open(self.path, "wb") as f:
-            f.write(b"{not json")
+        self.put(b"{not json")
         sf = S.SettingsFile(self.path)
         self.assertEqual(sf.load(), ({}, True))
         sf.set_section("review", {"a": 1})
@@ -68,11 +66,9 @@ class TestSettingsFile(unittest.TestCase):
             self.assertEqual(f.read(), b"{not json")
         self.assertEqual(sf.read(), {"review": {"a": 1}})
         # 辞書でない JSON・BOM つきの辞書
-        with open(self.path, "wb") as f:
-            f.write(b"[1, 2]")
+        self.put(b"[1, 2]")
         self.assertEqual(sf.load(), ({}, True))
-        with open(self.path, "wb") as f:
-            f.write(b"\xef\xbb\xbf" + json.dumps({"k": "v"}).encode("utf-8"))
+        self.put(b"\xef\xbb\xbf" + json.dumps({"k": "v"}).encode("utf-8"))
         self.assertEqual(sf.load(), ({"k": "v"}, False), "BOM があっても読む")
 
     def test_too_big_is_refused_without_touching_file(self):
@@ -84,8 +80,7 @@ class TestSettingsFile(unittest.TestCase):
         self.assertEqual(self.raw(), before)
         self.assertTrue(issubclass(S.SettingsTooLarge, S.SettingsError))
         # 読むときも上限: 大きいファイルは「壊れている」扱い
-        with open(self.path, "wb") as f:
-            f.write(json.dumps({"big": "z" * 300}).encode("utf-8"))
+        self.put(json.dumps({"big": "z" * 300}).encode("utf-8"))
         self.assertEqual(sf.load(), ({}, True))
 
     def test_patch_section_uses_cleaner_and_keeps_other_keys(self):
@@ -168,17 +163,13 @@ class TestEditorSettings(unittest.TestCase):
         from unittest import mock
         from ytt import settings, workdata
         self.st, self.wd = settings, workdata
-        self.tmp = tempfile.mkdtemp(prefix="ytt-edsettings-")
+        self.tmp = testkit.tempdir(self, "ytt-edsettings-")
         self.path = os.path.join(self.tmp, "settings.json")
         p = mock.patch.object(workdata, "SETTINGS", self.path)
         p.start()
         self.addCleanup(p.stop)
         keys = dict(settings.SETTINGS_PATCH_KEYS)
         self.addCleanup(lambda: (settings.SETTINGS_PATCH_KEYS.clear(), settings.SETTINGS_PATCH_KEYS.update(keys)))
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_follows_workdata_and_patch_keys(self):
         from ytt import errors

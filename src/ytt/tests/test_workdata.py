@@ -6,17 +6,14 @@
 編集の serve の名前の受付(S.TX_DIR = … が workdata へ届く)は src/editor/tests/test_names.py が確かめる。ここは serve なしで読めて、
 set_root・set_data_dir が以前の ed_state(読み込みのとき)・serve.set_data_dir と同じパスを作ることと、studiodata が置き場所を呼ぶたびに読むことだけ。
 """
-import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしないが、ほかのテストとそろえる
-import shutil
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src
-from ytt import layout, studiodata, workdata  # noqa: E402
+from ytt import layout, studiodata, testkit, workdata  # noqa: E402
 
 NAMES = ("ROOT", "DATA_DIR", "TX_DIR", "TMP_DIR", "SETTINGS", "FEEDBACK", "MARKER_DATA", "STUDIO_DATA", "SERVER_VERSION")
 
@@ -67,31 +64,25 @@ class TestWorkdata(_Saved):
 
 class TestStudiodata(_Saved):
     def test_reads_place_each_time(self):
-        tmp = tempfile.mkdtemp(prefix="rs3-studio-")
-        self.addCleanup(shutil.rmtree, tmp, True)
+        tmp = testkit.tempdir(self, "rs3-studio-")
         a, b = os.path.join(tmp, "a.json"), os.path.join(tmp, "b.json")
-        with open(a, "w", encoding="utf-8") as f:
-            json.dump({"videos": {"v1": {"channel": "Ch1", "title": "T1"}, "v2": {"channel": "Ch2", "title": "T2"}},
-                       "groups": {"g": {"members": ["v1", "v2"]}}}, f, ensure_ascii=False)
+        testkit.write_json(a, {"videos": {"v1": {"channel": "Ch1", "title": "T1"}, "v2": {"channel": "Ch2", "title": "T2"}},
+                               "groups": {"g": {"members": ["v1", "v2"]}}})
         workdata.STUDIO_DATA = a
         self.assertEqual(studiodata.studio_videos()["v1"], {"channel": "Ch1", "title": "T1"})
         self.assertEqual(studiodata.studio_stream("v1"), {"channel": "Ch1", "title": "T1", "collab": [{"channel": "Ch2", "title": "T2", "videoId": "v2"}]})
         self.assertIsNone(studiodata.studio_stream("none"))
         workdata.STUDIO_DATA = b   # 無いファイル = 空(呼ぶたびに今の場所を読む)
         self.assertEqual(studiodata.studio_videos(), {})
-        with open(b, "w", encoding="utf-8") as f:   # 壊れた data.json も空として読む(編集の test_roster から移した。文脈は題名・フォルダから続く)
-            f.write("{壊れた")
+        testkit.write_text(b, "{壊れた")   # 壊れた data.json も空として読む
         self.assertEqual(studiodata.studio_videos(), {})
         self.assertIsNone(studiodata.studio_stream("v1"))
 
     def test_load_read_paths(self):
         """読み口 load_all・videos・video・read: path 指定・省略(STUDIO_DATA)・無い・壊れた・大きすぎる・最上位が dict でない"""
-        tmp = tempfile.mkdtemp(prefix="b31-studio-")
-        self.addCleanup(shutil.rmtree, tmp, True)
+        tmp = testkit.tempdir(self, "b31-studio-")
         empty = {"schema": studiodata.SCHEMA, "videos": {}, "groups": {}}
-        good = os.path.join(tmp, "good.json")
-        with open(good, "w", encoding="utf-8") as f:
-            json.dump({"schema": "clip-studio/v1", "videos": {"v1": {"title": "T"}, "bad": 3}, "groups": {"g": {}}}, f)
+        good = testkit.write_json(os.path.join(tmp, "good.json"), {"schema": "clip-studio/v1", "videos": {"v1": {"title": "T"}, "bad": 3}, "groups": {"g": {}}})
         self.assertEqual(studiodata.load_all(good)["videos"]["v1"], {"title": "T"})
         self.assertEqual(studiodata.video("v1", good), {"title": "T"})
         self.assertIsNone(studiodata.video("bad", good))   # 配信が dict でなければ無い扱い
@@ -102,22 +93,12 @@ class TestStudiodata(_Saved):
         missing = os.path.join(tmp, "none.json")
         self.assertIsNone(studiodata.read(missing))
         self.assertEqual(studiodata.load_all(missing), empty)
-        broken = os.path.join(tmp, "broken.json")
-        with open(broken, "w", encoding="utf-8") as f:
-            f.write("{壊れた")
+        broken = testkit.write_text(os.path.join(tmp, "broken.json"), "{壊れた")
         self.assertIsNone(studiodata.read(broken))
         self.assertEqual(studiodata.load_all(broken), empty)
-        lst = os.path.join(tmp, "list.json")
-        with open(lst, "w", encoding="utf-8") as f:
-            f.write("[1, 2]")
-        self.assertEqual(studiodata.load_all(lst), empty)
-        shape = os.path.join(tmp, "shape.json")
-        with open(shape, "w", encoding="utf-8") as f:
-            f.write('{"videos": [1], "groups": 5}')
-        self.assertEqual(studiodata.load_all(shape), empty)
-        big = os.path.join(tmp, "big.json")
-        with open(big, "w", encoding="utf-8") as f:
-            f.write('{"videos": {"v": {}}}' + " " * 64)
+        for name, text in (("list", "[1, 2]"), ("shape", '{"videos": [1], "groups": 5}')):   # 最上位が dict でない・中の形が違う
+            self.assertEqual(studiodata.load_all(testkit.write_text(os.path.join(tmp, name + ".json"), text)), empty, name)
+        big = testkit.write_text(os.path.join(tmp, "big.json"), '{"videos": {"v": {}}}' + " " * 64)
         saved = studiodata.STUDIO_JSON_MAX
         self.addCleanup(setattr, studiodata, "STUDIO_JSON_MAX", saved)
         studiodata.STUDIO_JSON_MAX = 32   # 上限を超えるファイルは読めない扱い

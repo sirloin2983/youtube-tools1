@@ -32,12 +32,10 @@ class DoclocTest(unittest.TestCase):
         os.makedirs(self.case)
 
     def _doc(self, folder, tid=TID):
-        with open(os.path.join(folder, tid + ".json"), "w", encoding="utf-8") as f:
-            f.write("{}")
+        testkit.write_text(os.path.join(folder, tid + ".json"), "{}")
 
     def _loc(self, obj, tid=TID, root=None):
-        with open(os.path.join(root or self.tx, tid + docloc.LOC_SUFFIX), "w", encoding="utf-8") as f:
-            f.write(obj if isinstance(obj, str) else json.dumps(obj))
+        testkit.write_text(os.path.join(root or self.tx, tid + docloc.LOC_SUFFIX), obj if isinstance(obj, str) else json.dumps(obj))
 
     def test_no_index_is_tx_dir(self):
         self.assertEqual(docloc.doc_dir(TID), self.tx)
@@ -46,9 +44,7 @@ class DoclocTest(unittest.TestCase):
         self.assertEqual(docloc.hist_dir(TID), os.path.join(self.tx, ".hist", TID))
         self.assertEqual(docloc.bak_dir(TID), os.path.join(self.tx, ".bak"))
         self.assertIsNone(docloc.placed(TID))
-
-    def test_reads_tx_dir_each_call(self):
-        other = os.path.join(self.tmp, "other", "transcripts")
+        other = os.path.join(self.tmp, "other", "transcripts")   # 呼ぶたびに今の TX_DIR を読む
         workdata.TX_DIR = other
         self.assertEqual(docloc.doc_dir(TID), other)
 
@@ -162,8 +158,7 @@ class DoclocTest(unittest.TestCase):
         self._doc(self.case, third)
         docloc.place(third, self.case)     # 案件にだけある
         for n in (TID + ".edit.json", TID2 + ".diar.key.json", "notatid.json", ".write-test"):
-            with open(os.path.join(self.tx, n), "w") as f:
-                f.write("{}")
+            testkit.write_text(os.path.join(self.tx, n), "{}")
         os.makedirs(os.path.join(self.tx, ".hist", TID))
         self.assertEqual(docloc.iter_tids(), sorted([TID, TID2, third]))
 
