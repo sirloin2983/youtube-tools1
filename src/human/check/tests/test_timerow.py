@@ -98,26 +98,24 @@ class TimeApplyTest(unittest.TestCase):
         """短すぎる・行が無い・処理中(busy)・評価用の文書(eval)は断り、文書も記録も変えない"""
         from flow import jobs as _heavy
         head = {"answer": {"choice": "head", "dStart": 0.1}}
-        for name, c, body, err in (("too_short", card(), {"answer": {"choice": "both", "dStart": 1.0, "dEnd": -1.0}}, "too_short"),
-                                   ("no_row", card("nope"), {"answer": {"choice": "ok"}}, "no_row")):
-            with self.subTest(name), self.assertRaises(apply.Refused) as cm:
+
+        def refused(c, body, err):
+            with self.assertRaises(apply.Refused) as cm:
                 apply.answer(self.ctx, c, body)
             self.assertEqual(cm.exception.error, err)
+        refused(card(), {"answer": {"choice": "both", "dStart": 1.0, "dEnd": -1.0}}, "too_short")
+        refused(card("nope"), {"answer": {"choice": "ok"}}, "no_row")
         with mock.patch.object(_heavy, "doc_busy", return_value=True):
-            with self.assertRaises(apply.Refused) as cm:
-                apply.answer(self.ctx, card(), head)
-        self.assertEqual(cm.exception.error, "busy")
+            refused(card(), head, "busy")
         self.assertEqual((self.seg()["start"], self.seg()["end"]), (10.0, 12.0))
         self.assertEqual(answerlog.state(self.ctx.app_dir).order, [])
         doc = store.read_transcript(TID)
         doc["evalSet"] = True
         store.commit(TID, doc, why="save")
-        with self.assertRaises(apply.Refused) as cm:
-            apply.answer(self.ctx, card(), head)
-        self.assertEqual(cm.exception.error, "eval")
+        refused(card(), head, "eval")
 
     def test_undo_log_failure_then_retry(self):
-        """部品 H2 の再現: 頭を 1.0 → 1.5 秒へ答え、Z で 1.0 へ戻したあと戻すの行だけ OSError → 評価の有効な答えから外れ、
+        """頭を 1.0 → 1.5 秒へ答え、Z で 1.0 へ戻したあと戻すの行だけ OSError → 評価の有効な答えから外れ、
         同じ Z のやり直しで 409 changed にならずに記録が整う・同じカードに答え直せる"""
         doc = store.read_transcript(TID)
         doc["segments"][0].update(start=1.0, end=3.0)

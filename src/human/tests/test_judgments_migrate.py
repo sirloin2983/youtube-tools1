@@ -17,10 +17,7 @@ from ytt import testkit  # noqa: E402
 
 
 def jl(path, rows):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        for r in rows:
-            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    testkit.write_text(path, "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
 
 
 def aid(n):
@@ -49,12 +46,11 @@ class MigrateTest(unittest.TestCase):
             {"v": 1, "at": "2026-10-02T00:03:00Z", "event": "adopt", "origin": "auto", "human": False, "studio": {"video": "V1", "mark": "m12"}},
             {"v": 1, "at": "2026-10-02T00:04:00Z", "event": "detect_compare"}])
         root = os.path.join(out, "case1")
-        os.makedirs(os.path.join(root, "作業用"))
         testkit.write_json(os.path.join(root, "作業用", "case.json"), {"schema": "youtube-tools-case/v1", "id": "V1"})
-        with open(os.path.join(root, "作業用", "採用.json"), "w", encoding="utf-8") as f:
-            json.dump({"schema": casefiles.ADOPTIONS_SCHEMA, "sources": {"V1": {"kind": "youtube"}}, "marks": [],
-                       "auto": {"m6": {"discardedAt": 1760000000000}, "m7": {"discardedAt": 1760000001000},
-                                "m8": {"discardedAt": 1760000002000, "expiredAt": 1760000003000}, "m10": {"seenAt": 1760000004000}}}, f)
+        testkit.write_json(os.path.join(root, "作業用", "採用.json"),
+                           {"schema": casefiles.ADOPTIONS_SCHEMA, "sources": {"V1": {"kind": "youtube"}}, "marks": [],
+                            "auto": {"m6": {"discardedAt": 1760000000000}, "m7": {"discardedAt": 1760000001000},
+                                     "m8": {"discardedAt": 1760000002000, "expiredAt": 1760000003000}, "m10": {"seenAt": 1760000004000}}})
         logs = os.path.join(self.app, "logs")
         jl(os.path.join(logs, "deliveries.jsonl"), [{"at": 1760100000000, "zip": "REQ1__t.zip", "requestId": "REQ1", "runId": "run1", "videoId": "V1",
                                                      "origin": "request", "packs": [{"dir": "X:/p/pack1", "markId": "m9"}, {"dir": "X:/p/pack2", "markId": "m13"}]}])
@@ -63,7 +59,6 @@ class MigrateTest(unittest.TestCase):
             {"at": 1760200000000, "zip": "REQ1__t.zip", "verdict": "reject", "requestId": "REQ1", "videoId": "V1", "runId": "run1", "packs": pk, "origin": "request"},
             {"at": 1760200001000, "zip": "REQ1__t.zip", "verdict": "made_video", "requestId": "REQ1", "videoId": "V1", "runId": "run1", "packs": pk}])
         vd = os.path.join(self.app, "friend-returns", "2026-10", "REQ1", "verdicts")
-        os.makedirs(vd)
         for name, body in (("pack1.verdict.json", {"verdict": "keep", "at": 1760300000000, "requestId": "REQ1", "pack": "pack1"}),   # 受け取った後の本物の形(returns が並べる)
                            ("REQ1__pack2.verdict.json", {"verdict": "reject", "at": 1760300001000, "by": "auto"})):
             testkit.write_json(os.path.join(vd, name), body)
@@ -92,7 +87,7 @@ class MigrateTest(unittest.TestCase):
         self.assertIn("写す 3", M.report(got))
 
     def test_cases_reject_already_written_is_dup(self):
-        """MARKS-3 から案件の「要らない」は judgments に直に書く(via cases の reject・key lf:)= 同じ切り抜きの auto の discardedAt は写さず重複に数える"""
+        """案件の「要らない」は judgments に直に書く(via cases の reject・key lf:)= 同じ切り抜きの auto の discardedAt は写さず重複に数える"""
         J.record(self.app, at=1760000001000, who="self", videoId="V1", markId="m7", what="reject", origin="live", via="cases",
                  key="lf:1760000001000:rec1:m7:reject")
         J.record(self.app, at=1760000001500, who="self", videoId="V1", markId="m6", what="adopt", origin="live", via="cases",
@@ -104,7 +99,7 @@ class MigrateTest(unittest.TestCase):
         self.assertEqual(got["stats"]["auto_discard"]["copy"], 0)
 
     def test_switch_off_writes_nothing(self):
-        """スイッチがオフなら --apply でも書かない(10-16 にユーザーの確認でオンにした。オフに戻したときの守り)"""
+        """スイッチがオフなら --apply でも書かない(オフに戻したときの守り)"""
         self.addCleanup(setattr, M, "ENABLED", M.ENABLED)
         M.ENABLED = False
         out = io.StringIO()

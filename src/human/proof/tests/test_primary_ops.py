@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
-"""層が正(機械の層 + 人の層)のときの機械の操作(RS8 O2-5)のテスト。
+"""層が正(機械の層 + 人の層)のときの機械の操作のテスト。
 
     py -3.12 -m unittest src/human/proof/tests/test_primary_ops.py -v
 
-- (r8s)・X-RERUN 再認識 each・範囲・全体: 機械の層の選んだ区間だけ差し替え、人の行(校正済みでない直し・話者だけの直しも)は残る(機械が変わったら印 MACH_CHANGED)。直していない行は置き換わる
-- (r8r) 話者の判別: 人の層が話者の表を持ち(付け直さない)、判別し直したら機械の S… → 人の話者を重なり時間で当てる。当たらない話者だけ新しい H… と弱い印
+- 再認識 each・範囲・全体: 機械の層の選んだ区間だけ差し替え、人の行(校正済みでない直し・話者だけの直しも)は残る(機械が変わったら印 MACH_CHANGED)。直していない行は置き換わる
+- 話者の判別: 人の層が話者の表を持ち(付け直さない)、判別し直したら機械の S… → 人の話者を重なり時間で当てる。当たらない話者だけ新しい H… と弱い印
 """
-import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データ(AppData など)に触らない
 import sys
@@ -20,6 +19,7 @@ for _p in (os.path.join(SRC, "editor"), SRC):
 from human.proof import layers as L, rerun, speakers, store  # noqa: E402
 from ytt import schemas as YS, txbase, workdata  # noqa: E402
 from human.tests._workdata import temporary_workdata  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 TID = "0123456789ab"
 SPEC = {"tid": TID, "model": "m", "autoDict": False}
@@ -54,13 +54,11 @@ class _Env(unittest.TestCase):
         self.addCleanup(p.stop)
 
     def load(self, sfx):
-        with open(os.path.join(workdata.TX_DIR, TID + sfx), encoding="utf-8") as f:
-            return json.load(f)
+        return testkit.read_json(os.path.join(workdata.TX_DIR, TID + sfx))
 
     def start(self, rows, speakers=None):
         store.commit(TID, doc(rows, speakers), why="whole")
-        d = store.read_transcript(TID)
-        return d
+        return store.read_transcript(TID)
 
     def save(self, d):
         return store.save_transcript(TID, dict(d, baseUpdatedAt=d["updatedAt"]))
@@ -76,7 +74,7 @@ class RerunEachPrimaryTest(_Env):
         self.assertEqual(done, 3)
         got = store.read_transcript(TID)
         by = {g["id"]: g for g in got["segments"]}
-        self.assertEqual((by["s1"]["text"], by["s3"]["text"]), ("ああ", "うー"))   # 直していない行は置き換わる・直した行は校正済みでなくても残る(X-RERUN)
+        self.assertEqual((by["s1"]["text"], by["s3"]["text"]), ("ああ", "うー"))   # 直していない行は置き換わる・直した行は校正済みでなくても残る
         self.assertEqual((by["s2"]["text"], by["s2"].get("proofed")), ("いー", True))   # 校正済みは人の直しのまま
         self.assertIn(L.MACH_CHANGED, by["s2"]["flag"])
         self.assertIn(L.MACH_CHANGED, by["s3"]["flag"])
@@ -100,7 +98,7 @@ class RerunEachPrimaryTest(_Env):
 
 
 class RerunRangeTest(_Env):
-    """X-RERUN: 範囲・全体の再認識も機械の層の範囲だけを差し替え、人の層は触らない(校正済みでない直し・話者だけの直しも残る)"""
+    """範囲・全体の再認識も機械の層の範囲だけを差し替え、人の層は触らない(校正済みでない直し・話者だけの直しも残る)"""
 
     def test_range_keeps_human_rows_and_replaces_machine(self):
         d = self.start([row(1, 0.0, "あ"), row(2, 2.0, "い"), row(3, 4.0, "う"), row(4, 6.0, "え"), row(5, 8.0, "お")])

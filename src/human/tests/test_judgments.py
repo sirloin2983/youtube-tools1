@@ -99,12 +99,12 @@ class JudgmentsTest(unittest.TestCase):
         self.assertEqual(c["reason"], "cut")
         u = self.rec("u", "unknown", at=1200, who="friend", origin="auto", via="friend_verdict", by="auto", markId="m3")
         self.assertEqual((u["by"], J.friend_value(u)), ("auto", "unknown"))
-        with self.assertRaises(ValueError):
-            self.rec("x", "good", who="friend", reason="boring")   # reason は bad だけ
-        with self.assertRaises(ValueError):
-            self.rec("y", "unknown", who="friend", by="self")   # by は auto だけ
-        with self.assertRaises(ValueError):
-            self.rec("z", "unknown", who="friend", origin="request", via="friend_verdict", of="x")   # of は retract だけ
+        bad = [("x", "good", dict(reason="boring")),   # reason は bad だけ
+               ("y", "unknown", dict(by="self")),   # by は auto だけ
+               ("z", "unknown", dict(origin="request", via="friend_verdict", of="x"))]   # of は retract だけ
+        for key, what, kw in bad:
+            with self.subTest(key), self.assertRaises(ValueError):
+                self.rec(key, what, who="friend", **kw)
 
     def test_quality_unknown_lane(self):
         q = self.rec("qu", "quality_unknown", at=1000)

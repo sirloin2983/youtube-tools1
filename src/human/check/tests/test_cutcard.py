@@ -4,7 +4,6 @@
 
 実行(リポジトリ直下から): py -3.12 -m unittest src/human/check/tests/test_cutcard.py -v
 """
-import json
 import os
 import sys
 import unittest
@@ -19,6 +18,7 @@ for _p in (os.path.join(ROOT, "editor"), ROOT):
 from human.check import answerlog, apply, cutcard  # noqa: E402
 from human.proof import store  # noqa: E402
 from human.tests._workdata import temporary_workdata  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 TID = "0123456789ab"
 KEEPS = [[0.0, 10.0], [10.5, 20.0], [22.0, 30.0]]
@@ -37,10 +37,8 @@ class CutCardTest(unittest.TestCase):
             {"id": "s1", "start": 0.0, "end": 10.0, "text": "あいう", "speaker": "S1", "flag": "", "proofed": False}]}
         store.commit(TID, self.doc, why="save")
         self.edit_file = store.edit_path(TID, for_write=True)
-        os.makedirs(os.path.dirname(self.edit_file), exist_ok=True)
-        with open(self.edit_file, "w", encoding="utf-8") as f:
-            json.dump({"schema": store.EDIT_SCHEMA, "rev": 1, "updatedAt": 1, "sources": [], "clips": [],
-                       "draft": {"origin": "rows", "settings": {}, "keepsSec": KEEPS, "at": 1}}, f)
+        testkit.write_json(self.edit_file, {"schema": store.EDIT_SCHEMA, "rev": 1, "updatedAt": 1, "sources": [], "clips": [],
+                                            "draft": {"origin": "rows", "settings": {}, "keepsSec": KEEPS, "at": 1}})
         self.ctx = apply.Context(os.path.join(self.tmp, "app"), ROOT)
 
     def read_edit(self):
@@ -52,7 +50,7 @@ class CutCardTest(unittest.TestCase):
             self.assertTrue(apply._registered("cut", src), src)
 
     def test_switch(self):
-        """既定オン(3-64 (cc1) B)。明示でオフにした新しい鍵だけが効き、既定オフのころの鍵のオフは読み替える"""
+        """既定オン。明示でオフにした新しい鍵だけが効き、既定オフのころの鍵のオフは読み替える"""
         def with_settings(d, env=""):
             return mock.patch.dict(os.environ, {cutcard.SWITCH_ENV: env}), mock.patch.object(cutcard._settings, "load_settings", return_value=d)
         for d, want in (({}, True), ({"checkCutCards": False}, True), ({cutcard.SETTING: False}, False), ({cutcard.SETTING: True}, True)):

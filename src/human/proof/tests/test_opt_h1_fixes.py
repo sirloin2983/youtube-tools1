@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-"""③ 校正の小物の直し(OPT-H1。notes:plan/done/opt-human.md の役割 4・5)のテスト。serve なしで読める。
+"""③ 校正の小物(名前の比べ方・学習の統計・名簿・覚え直しの行・再認識の単語)のテスト。serve なしで読める。
 
     py -3.12 -m unittest src/human/proof/tests/test_opt_h1_fixes.py -v
 
-- 名前の比べ方を ytt.textutil.person_key 1 つに(決定 3-47 Q8): 一般的な名前の判定
-- 採否の記録の取り消しが学習の統計を減らさない(5d-1)・辞書の版の材料は確度「高」の組だけ(5d-2)
-- 名簿の読みが壊れた名簿でも 500 にならない(5d-3。① roster.load の整え方)・用語の自動追加の選び方は ① と同じ
-- 確かめるの覚え直しで、声に使わなかった行を「覚えた」と控えない(4g-3)
-- 再認識の words.json の差し替えは ② flow/tx(4a-2)
+- 名前の比べ方は ytt.textutil.person_key 1 つ: 一般的な名前の判定
+- 採否の記録の取り消しが学習の統計を減らさない・辞書の版の材料は確度「高」の組だけ
+- 壊れた名簿でも 500 にならない(① roster.load の整え方)・用語の自動追加の選び方は ① と同じ
+- 確かめるの覚え直しで、声に使わなかった行を「覚えた」と控えない
+- 再認識の words.json の差し替えは ② flow/tx
 """
 import json
 import os
@@ -46,7 +46,7 @@ class PersonKeyTest(unittest.TestCase):
             self.assertTrue(speakers.is_generic_speaker_name(n), n)
         for n in ("兎田ぺこら", "Pekora", "話者", ""):
             self.assertEqual(speakers.is_generic_speaker_name(n), n == "話者", n)
-        self.assertIs(speakers._spk_name_key, textutil.person_key)   # ⑤ eval/drill が読む旧い内部名は同じ決まり
+        self.assertIs(speakers._spk_name_key, textutil.person_key)   # ⑤ eval/drill が読む内部名は同じ決まり
 
 
 class FeedbackTest(_Tmp):

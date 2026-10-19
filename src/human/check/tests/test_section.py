@@ -1,4 +1,4 @@
-"""評価のレーンの区間カードの反映(src/human/check/section.py。C-EVAL)の単体テスト。一時の作業データに評価用の文書を作って、答える・戻すを確かめる。
+"""評価のレーンの区間カードの反映(src/human/check/section.py)の単体テスト。一時の作業データに評価用の文書を作って、答える・戻すを確かめる。
 
 実行(リポジトリ直下から): py -3.12 -m unittest src/human/check/tests/test_section.py -v
 """
@@ -39,6 +39,11 @@ class SectionApplyTest(unittest.TestCase):
 
     def seg(self, rid):
         return next((g for g in store.read_transcript(TID)["segments"] if g["id"] == rid), None)
+
+    def refused(self, c, body, error):
+        with self.assertRaises(apply.Refused) as cm:
+            apply.answer(self.ctx, c, body)
+        self.assertEqual(cm.exception.error, error)
 
     def test_registered_and_why(self):
         self.assertTrue(apply._registered("section", "eval"))
@@ -94,24 +99,15 @@ class SectionApplyTest(unittest.TestCase):
         self.assertTrue(self.seg("s1")["proofed"])   # 前の区間の答えはそのまま
 
     def test_refuse(self):
-        with self.assertRaises(apply.Refused) as cm:
-            apply.answer(self.ctx, self.card(stamp=12345), {"answer": {}})
-        self.assertEqual(cm.exception.error, "changed")
-        with self.assertRaises(apply.Refused) as cm:
-            apply.answer(self.ctx, self.card(rows=("s1", "nope")), {"answer": {}})
-        self.assertEqual(cm.exception.error, "changed")
-        with self.assertRaises(apply.Refused) as cm:   # 持ち主でない行は直せない
-            apply.answer(self.ctx, self.card(), {"answer": {"rows": [{"id": "s3", "text": "x"}]}})
-        self.assertEqual(cm.exception.error, "bad_request")
-        with mock.patch.object(section._doc, "busy", return_value=True), self.assertRaises(apply.Refused) as cm:
-            apply.answer(self.ctx, self.card(), {"answer": {}})
-        self.assertEqual(cm.exception.error, "busy")
+        self.refused(self.card(stamp=12345), {"answer": {}}, "changed")
+        self.refused(self.card(rows=("s1", "nope")), {"answer": {}}, "changed")
+        self.refused(self.card(), {"answer": {"rows": [{"id": "s3", "text": "x"}]}}, "bad_request")   # 持ち主でない行は直せない
+        with mock.patch.object(section._doc, "busy", return_value=True):
+            self.refused(self.card(), {"answer": {}}, "busy")
         d = store.read_transcript(TID)
         d.pop("evalSet")
         store.commit(TID, d, why="save")
-        with self.assertRaises(apply.Refused) as cm:
-            apply.answer(self.ctx, self.card(), {"answer": {}})
-        self.assertEqual(cm.exception.error, "not_eval")
+        self.refused(self.card(), {"answer": {}}, "not_eval")
         self.assertEqual(answerlog.state(self.ctx.app_dir).effective(), [])
 
     def test_undo_refused_when_changed_later(self):
@@ -124,7 +120,7 @@ class SectionApplyTest(unittest.TestCase):
         self.assertEqual(cm.exception.error, "changed")
 
     def test_switch(self):
-        """既定オン(3-63 (ce1) B)。明示でオフにした新しい鍵だけが効き、既定オフのころの鍵のオフは読み替える"""
+        """既定オン。明示でオフにした新しい鍵だけが効き、既定オフのころの鍵のオフは読み替える"""
         def with_settings(d, env=""):
             return mock.patch.dict(os.environ, {section.SWITCH_ENV: env}), mock.patch.object(section._settings, "load_settings", return_value=d)
         for d, want in (({}, True), ({"checkSectionCards": False}, True), ({section.SETTING: False}, False), ({section.SETTING: True}, True)):

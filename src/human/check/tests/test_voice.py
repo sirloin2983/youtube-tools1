@@ -1,5 +1,5 @@
-"""「確かめる」の誰の声のカード(src/human/check/voice.py。V1 V2c)の単体テスト: 答えの形・選択肢と予想・文書の行への反映(commit why check:voice)と Z・
-評価用と処理中を断る・層(O2)と食い違わない・声の覚え直し(1 人 30 秒・rows= で行を明示・learnedFrom で 2 度覚えない・待っている覚え直しを数えない)・
+"""「確かめる」の誰の声のカード(src/human/check/voice.py)の単体テスト: 答えの形・選択肢と予想・文書の行への反映(commit why check:voice)と Z・
+評価用と処理中を断る・層と食い違わない・声の覚え直し(1 人 30 秒・rows= で行を明示・learnedFrom で 2 度覚えない・待っている覚え直しを数えない)・
 human/proof/speakers.voice_learn_plan の rows=。一時フォルダの作業データだけを使う。
 
 実行(リポジトリ直下から): py -3.12 -m unittest src/human/check/tests/test_voice.py -v
@@ -64,6 +64,11 @@ class Base(unittest.TestCase):
 
     def answer(self, rid, ans, guess=None):
         return apply.answer(self.ctx, card(rid, guess), {"answer": ans})
+
+    def refused(self, rid, ans, error):
+        with self.assertRaises(apply.Refused) as cm:
+            self.answer(rid, ans)
+        self.assertEqual(cm.exception.error, error)
 
 
 class AnswerFormTest(unittest.TestCase):
@@ -145,24 +150,16 @@ class ApplyTest(Base):
         self.assertEqual(cm.exception.error, "changed")
 
     def test_refuse(self):
-        with self.assertRaises(apply.Refused) as cm:
-            self.answer("s1", {"choice": "S9"})
-        self.assertEqual(cm.exception.error, "gone")
-        with self.assertRaises(apply.Refused) as cm:
-            self.answer("zz", {"choice": "S1"})
-        self.assertEqual(cm.exception.error, "no_row")
+        self.refused("s1", {"choice": "S9"}, "gone")
+        self.refused("zz", {"choice": "S1"}, "no_row")
         with mock.patch.object(_heavy, "doc_busy", return_value=True):
-            with self.assertRaises(apply.Refused) as cm:
-                self.answer("s1", {"choice": "S1"})
-        self.assertEqual(cm.exception.error, "busy")
+            self.refused("s1", {"choice": "S1"}, "busy")
         self.put(make_doc(evalSet=True))
-        with self.assertRaises(apply.Refused) as cm:
-            self.answer("s1", {"choice": "S1"})
-        self.assertEqual(cm.exception.error, "eval")
+        self.refused("s1", {"choice": "S1"}, "eval")
         self.assertEqual(answerlog.state(self.app).order, [])           # 断った答えは記録しない
 
     def test_layers_match(self):
-        """人の層の話者の表と行の話者が文書と同じ(O2 の話者の表と矛盾しない)"""
+        """人の層の話者の表と行の話者が文書と同じ"""
         self.answer("s2", {"name": "みこ"})
         self.answer("s4", {"choice": "other"})
         d = self.doc()
@@ -231,7 +228,7 @@ class RelearnTest(Base):
             self.assertEqual(voice._relearn_sec(), voice.RELEARN_SEC_DEFAULT)   # 範囲の外は既定
 
     def test_failed_relearn_is_not_repeated(self):
-        """6g-1: 失敗した覚え直しと同じ行だけなら、答えるたびに足し直さない(材料が増えたらまた試す)"""
+        """失敗した覚え直しと同じ行だけなら、答えるたびに足し直さない(材料が増えたらまた試す)"""
         with mock.patch.dict(_heavy._jobs, {"j": {"kind": "voice-learn", "state": "error", "spec": {"by": "check", "tid": TID, "rows": ["s1", "s4"]}}}):
             self.answer("s1", {"choice": "S1"})
             got = self.answer("s4", {"choice": "S1"})                     # 32 秒 ≥ 30 だが前に失敗した行と同じ
@@ -243,7 +240,7 @@ class RelearnTest(Base):
     def test_name_rules(self):
         self.answer("s4", {"choice": "S2"})                              # 「話者2」= 仮の名前は覚えない
         self.assertEqual(voice._pending(self.ctx), {})
-        # Q8: 名前は ytt.textutil.person_key で比べる(カタカナ・全角半角・空白の違いは同じ人)
+        # 名前は ytt.textutil.person_key で比べる(カタカナ・全角半角・空白の違いは同じ人)
         got = self.answer("s2", {"name": "ペコラ"})
         self.assertEqual((self.seg("s2")["speaker"], got["applied"]["added"]), ("S1", None))
 

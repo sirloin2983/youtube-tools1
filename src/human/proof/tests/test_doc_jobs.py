@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""human/proof/doc_jobs のテスト(差し込みの口 set_hooks は X-RERUN で消した・serve なしで読める・人の行の引き継ぎ)。
+"""human/proof/doc_jobs のテスト(serve なしで読める・人の行の引き継ぎ)。
 
     py -3.12 -m unittest src/human/proof/tests/test_doc_jobs.py -v
 
@@ -7,12 +7,9 @@ doc_jobs は editor の部品を裸の名前(import ed_store など)で読むの
 (serve の登録で口が埋まり、評価用の作り直しの差し替えが本体に届くことは src/editor/tests/test_evalbatch.py・test_names.py が確かめる)。
 """
 import contextlib
-import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データ(AppData など)に触らない
-import shutil
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
@@ -22,11 +19,12 @@ for _p in (EDITOR, SRC):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 from human.proof import doc_jobs, layers  # noqa: E402
+from ytt.testkit import read_json, tempdir  # noqa: E402
 
 
 class TestCarryOverrides(unittest.TestCase):
-    """同じ動画の文書を作り直す(force の再文字起こし・エンジンを変えた再実行)と、前の文書の人の行が新しい文書に引き継がれる(RS6 b-O1。
-    10-18 から重ね方は層の組み立て layers.carry・控え <id>.over.json は書かない・読まない)。
+    """同じ動画の文書を作り直す(force の再文字起こし・エンジンを変えた再実行)と、前の文書の人の行が新しい文書に引き継がれる
+    (重ね方は層の組み立て layers.carry・控え <id>.over.json は書かない・読まない)。
     認識(② flow/tx.transcribe_clip)と続きの処理は差し替えて、run_job の ③ の分だけを動かす"""
     OLD = "0123456789ab"
 
@@ -34,7 +32,8 @@ class TestCarryOverrides(unittest.TestCase):
         from ytt import workdata
         from human.proof import store
         self.workdata, self.store = workdata, store
-        self.tmp = tempfile.mkdtemp(prefix="ytt-carry-")
+        self.tmp = tempdir(self, "ytt-carry-")
+        self.addCleanup(self.restore)
         self.saved = (workdata.TX_DIR, workdata.SETTINGS)
         workdata.TX_DIR = os.path.join(self.tmp, "transcripts")
         workdata.SETTINGS = os.path.join(self.tmp, "settings.json")
@@ -43,10 +42,9 @@ class TestCarryOverrides(unittest.TestCase):
         self.src = os.path.join(self.tmp, "clip_0001.mp4")
         self.spec = {"sourcePath": self.src, "sourceName": "clip_0001.mp4", "title": "t", "start": 0.0, "end": 20.0, "evalSet": False}
 
-    def tearDown(self):
+    def restore(self):
         self.workdata.TX_DIR, self.workdata.SETTINGS = self.saved
         self.store._summary_cache.clear()
-        shutil.rmtree(self.tmp, ignore_errors=True)
 
     def run_new(self, segs, spec=None):
         """新しい機械の行 segs で文字起こしのジョブを 1 本動かす -> (新しい文書, ジョブ)"""
@@ -140,7 +138,7 @@ class TestCarryOverrides(unittest.TestCase):
         self.assertEqual([g["text"] for g in doc["segments"]], ["まって"])   # 前の文書が評価用でも当てない
 
     def test_run_warnings_move_from_spec_to_job(self):
-        """走っている間に指定 spec へ足された注意(入れる文書が変わっていた)は、終わったら job の注意へ移る = [やり直す] が前の回の注意を引き継がない(3c-3)"""
+        """走っている間に指定 spec へ足された注意(入れる文書が変わっていた)は、終わったら job の注意へ移る = [やり直す] が前の回の注意を引き継がない"""
         self.put_old()
         doc, job = self.run_new([{"id": "s1", "start": 0.0, "end": 2.0, "text": "あ", "speaker": "", "flag": ""}],
                                 {"intoDoc": self.OLD, "warnings": ["受付の注意"]})
@@ -152,7 +150,7 @@ class TestCarryOverrides(unittest.TestCase):
         self.assertTrue(any("入れる文書が変わっていた" in w for w in pub["warnings"]))
 
     def test_new_doc_goes_to_case_work_dir(self):
-        """新しい文書は ② placement.doc_home が返す 作業用 に置く(索引は TX_DIR)。層も同じ場所(RS8 B2-2)"""
+        """新しい文書は ② placement.doc_home が返す 作業用 に置く(索引は TX_DIR)。層も同じ場所"""
         from ytt import docloc, schemas
         wd = os.path.join(self.tmp, "out", "題名", schemas.WORK_DIR)
         os.makedirs(os.path.dirname(wd))
@@ -171,14 +169,12 @@ class TestCarryOverrides(unittest.TestCase):
         self.assertEqual(docloc.placed(tid), os.path.normpath(wd))
         self.assertFalse(os.path.exists(os.path.join(wd, tid + ".over.json")))   # 控えはもう書かない
         self.assertEqual(doc["segments"][0]["text"], "待って")
-        # 層(RS8 O2-2)も文書と同じ 作業用 に。機械の層は引き継ぐ前の機械の行・引き継いだ人の直しは人の層
+        # 層も文書と同じ 作業用 に。機械の層は引き継ぐ前の機械の行・引き継いだ人の直しは人の層
         for sfx in (".mach.json", ".hum.json"):
             self.assertTrue(os.path.isfile(os.path.join(wd, tid + sfx)), sfx)
             self.assertFalse(os.path.exists(os.path.join(self.workdata.TX_DIR, tid + sfx)), sfx)
-        with open(os.path.join(wd, tid + ".mach.json"), encoding="utf-8") as f:
-            self.assertEqual([r["text"] for r in json.load(f)["rows"]], ["まって"])
-        with open(os.path.join(wd, tid + ".hum.json"), encoding="utf-8") as f:
-            self.assertIn("待って", [h.get("text") for h in json.load(f)["rows"]])
+        self.assertEqual([r["text"] for r in read_json(os.path.join(wd, tid + ".mach.json"))["rows"]], ["まって"])
+        self.assertIn("待って", [h.get("text") for h in read_json(os.path.join(wd, tid + ".hum.json"))["rows"]])
 
     def test_eval_doc_asks_with_eval_flag(self):
         calls = []

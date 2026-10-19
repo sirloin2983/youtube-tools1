@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
-"""文書の置き場所(ytt/docloc の索引)を人の側の部品が使うことのテスト(RS8 B-2-1b)。
+"""文書の置き場所(ytt/docloc の索引)を人の側の部品が使うことのテスト。
 
     py -3.12 -m unittest src/human/proof/tests/test_doc_placement.py -v
 
 索引 transcripts/<id>.loc.json が案件の 作業用 を指す文書を、store(読み書き・履歴・一覧・消す)・alt が
 その場所で読み書きすること。索引が無い・id の形が正しくない呼び手は今までどおり TX_DIR。
 """
-import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データ(AppData など)に触らない
 import shutil
@@ -34,8 +33,7 @@ class PlacementTest(unittest.TestCase):
         os.makedirs(self.case)
 
     def _place(self):
-        with open(os.path.join(self.case, TID + ".json"), "w", encoding="utf-8") as f:
-            f.write(json.dumps({"id": TID, "segments": []}))
+        testkit.write_json(os.path.join(self.case, TID + ".json"), {"id": TID, "segments": []})
         docloc.place(TID, self.case)
 
     def test_no_index_stays_in_tx_dir(self):
@@ -58,26 +56,23 @@ class PlacementTest(unittest.TestCase):
         store.write_doc(TID, {"id": TID, "segments": [], "n": 1})
         self.assertFalse(os.path.exists(os.path.join(self.tx, TID + ".json")))
         self.assertEqual(store.read_transcript(TID)["n"], 1)
-        store.backup_doc(TID, "test")   # 履歴だけ(.bak の控えはやめた = 決定 3-47 の 1b-1)
+        store.backup_doc(TID, "test")   # 履歴だけ(.bak の控えは作らない)
         self.assertTrue(os.path.isdir(os.path.join(self.case, ".hist", TID)))
         self.assertFalse(os.path.exists(os.path.join(self.case, ".bak")))
         self.assertFalse(os.path.exists(os.path.join(self.tx, ".bak")))
         self.assertEqual(store._tids(), [TID])
 
     def test_delete_doc_removes_files_history_index_and_dismissed(self):
-        """消す口 store.delete_doc: 本体・横のファイル・履歴・以前の控え .bak・索引・要約・学習の記録の「この候補は出さない」を一緒に消す(1b-3・5d-6)"""
+        """消す口 store.delete_doc: 本体・横のファイル・履歴・以前の控え .bak・索引・要約・学習の記録の「この候補は出さない」を一緒に消す"""
         from human.proof import learn
         other = "ba9876543210"
         self._place()
         store.write_doc(TID, {"id": TID, "segments": [], "updatedAt": 1})
         store.backup_doc(TID, "x")
         for sfx in (".edit.json", ".words.json", schemas.HUM_SUFFIX):
-            with open(os.path.join(self.case, TID + sfx), "w", encoding="utf-8") as f:
-                f.write("{}")
-        os.makedirs(os.path.join(self.case, ".bak"))
+            testkit.write_text(os.path.join(self.case, TID + sfx), "{}")
         for n in (TID + ".pre-diarize.json", other + ".pre-diarize.json"):   # 以前の版が残した控え(ほかの文書の分は残す)
-            with open(os.path.join(self.case, ".bak", n), "w", encoding="utf-8") as f:
-                f.write("{}")
+            testkit.write_text(os.path.join(self.case, ".bak", n), "{}")
         testkit.write_json(workdata.FEEDBACK, {"stat": {"あ=>い": {"acc": 1, "rej": 1}}, "dismissed": {TID: ["s1|あ=>い"], other: ["s2|う=>え"]}})
         self.assertIsNotNone(store.transcript_summary(TID))
         store.delete_doc(TID)
@@ -92,7 +87,7 @@ class PlacementTest(unittest.TestCase):
             store.delete_doc(TID)
         self.assertEqual(cm.exception.status, 404)
 
-    # ---------- 索引があるのに置き場所が見えない(ドライブが外れた)ときは書きを断る・読みは 404(RS8 B2-2) ----------
+    # ---------- 索引があるのに置き場所が見えない(ドライブが外れた)ときは書きを断る・読みは 404 ----------
     def _unseen(self):
         self._place()
         shutil.rmtree(self.case)   # 案件のフォルダが見えなくなった
@@ -119,8 +114,7 @@ class PlacementTest(unittest.TestCase):
         """索引が見えないあいだに TX_DIR に古い写しが残っていても、書きは断る(写しを読めはする = 枝分かれさせない)"""
         from ytt import errors
         self._unseen()
-        with open(os.path.join(self.tx, TID + ".json"), "w", encoding="utf-8") as f:
-            f.write(json.dumps({"id": TID, "segments": [], "updatedAt": 1}))
+        testkit.write_json(os.path.join(self.tx, TID + ".json"), {"id": TID, "segments": [], "updatedAt": 1})
         self.assertEqual(store.read_transcript(TID)["id"], TID)
         with self.assertRaises(errors.ApiError) as cm:
             store.save_transcript(TID, {"segments": []})

@@ -127,7 +127,7 @@ class ApplyTest(unittest.TestCase):
         st = answerlog.state(self.tmp)
         self.assertEqual(([r["id"] for r in st.failed()], st.held(), st.effective()), ([a["answer"]], [], []))
         self.assertEqual(apply.undo(self.ctx, a["answer"])["reverted"], {"held": True})   # 届かなかった物の Z は記録だけ
-        # 6b-2: 確定の途中の想定外の例外も failed に記録し、以後の答え・飛ばす・確定を止めない
+        # 確定の途中の想定外の例外も failed に記録し、以後の答え・飛ばす・確定を止めない
         apply.register("value", "fake", lambda ctx, c, ans: {}["nope"], self.fake.revert, defer=lambda ans: True)
         a2 = apply.answer(self.ctx, card("v2", kind="value"), {"answer": "send"})
         got = apply.answer(self.ctx, card("s1"), {"answer": "1"})
@@ -162,7 +162,7 @@ class ApplyTest(unittest.TestCase):
         return mock.patch.object(answerlog, "append", side_effect=append)
 
     def test_undo_log_failure_then_retry_is_consistent(self):
-        """部品 H2: Z の戻すの行だけが書けない → 実物は戻ったまま「やりかけ」。評価に数えず、同じ Z のやり直しで記録だけ書いて整う"""
+        """Z の戻すの行だけが書けない → 実物は戻ったまま「やりかけ」。評価に数えず、同じ Z のやり直しで記録だけ書いて整う"""
         got = apply.answer(self.ctx, card("s1"), {"answer": "2"})
         with self.fail_append_when(lambda r: "undo" in r):
             with self.assertRaises(OSError):
@@ -237,7 +237,7 @@ class ApplyTest(unittest.TestCase):
         self.assertEqual([c for c in self.fake.calls if c[0] == "apply"], [("apply", "value:fake:v1", "send")])   # 1 回だけ
 
     def test_flush_only_this_page(self):
-        """6b-1: 確定はその画面の保留だけ(別の画面の答え・飛ばす・flush では届けない)。古い保留はどの画面からでも確定する"""
+        """確定はその画面の保留だけ(別の画面の答え・飛ばす・flush では届けない)。古い保留はどの画面からでも確定する"""
         a = apply.answer(self.ctx, card("v1", kind="value"), {"answer": "send", "page": "A"})
         self.assertEqual(answerlog.state(self.tmp).answers[a["answer"]]["page"], "A")
         apply.answer(self.ctx, card("s1"), {"answer": "1", "page": "B"})
@@ -256,9 +256,8 @@ class ApplyTest(unittest.TestCase):
         self.assertTrue(b["held"])
 
     def test_broken_lines_are_skipped(self):
-        os.makedirs(answerlog._check_dir(self.tmp))
-        with open(answerlog.answers_path(self.tmp), "w", encoding="utf-8") as f:
-            f.write('{"id": "bad"}\nnot json\n{"id": "%s", "card": "read:fake:s1", "kind": "read", "source": "fake", "at": 1}\n' % answerlog.new_id(1))
+        testkit.write_text(answerlog.answers_path(self.tmp),
+                           '{"id": "bad"}\nnot json\n{"id": "%s", "card": "read:fake:s1", "kind": "read", "source": "fake", "at": 1}\n' % answerlog.new_id(1))
         st = answerlog.state(self.tmp)
         self.assertEqual(list(st.by_card), ["read:fake:s1"])
 

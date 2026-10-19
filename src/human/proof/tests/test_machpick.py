@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""3 択の口(human/proof/machpick と layers.mach_changes・pick。RS8 O2-4)のテスト。
+"""3 択の口(human/proof/machpick と layers.mach_changes・pick)のテスト。
 
     py -3.12 -m unittest src/human/proof/tests/test_machpick.py -v
 
@@ -42,13 +42,19 @@ def edited():
     return d, L.diff(M1, d)
 
 
+def rebuilt(rev, text):
+    """機械の 2 行目の文字が変わった機械の層"""
+    m = copy.deepcopy(M1)
+    m["rev"] = rev
+    m["rows"][1]["text"] = text
+    return m
+
+
 class LayersPickTest(unittest.TestCase):
     def test_changes_lists_before_now_human(self):
         d, hum = edited()
         self.assertEqual(L.mach_changes(M1, hum), [])   # 機械が変わっていない
-        m2 = copy.deepcopy(M1)
-        m2["rev"] = 2
-        m2["rows"][1]["text"] = "いい"
+        m2 = rebuilt(2, "いい")
         got = L.mach_changes(m2, hum)
         self.assertEqual(len(got), 1)
         x = got[0]
@@ -59,19 +65,14 @@ class LayersPickTest(unittest.TestCase):
 
     def test_pick_mine_and_machine(self):
         d, hum = edited()
-        m2 = copy.deepcopy(M1)
-        m2["rev"] = 2
-        m2["rows"][1]["text"] = "いい"
+        m2 = rebuilt(2, "いい")
         mine = L.pick(m2, hum, "s2", "mine")
         out = L.compose(m2, mine, META)
         g = out["segments"][1]
         self.assertEqual((g["text"], g["flag"]), ("いー", ""))   # 自分の直しのまま・印は外れる
         self.assertEqual(L.mach_changes(m2, mine), [])
         self.assertEqual(hum["rows"][0]["base"]["rows"][0]["text"], "い")   # 元の人の層は書き換えない
-        m3 = copy.deepcopy(m2)   # 次に機械が変わればまた印
-        m3["rev"] = 3
-        m3["rows"][1]["text"] = "いいい"
-        self.assertEqual([x["id"] for x in L.mach_changes(m3, mine)], ["s2"])
+        self.assertEqual([x["id"] for x in L.mach_changes(rebuilt(3, "いいい"), mine)], ["s2"])   # 次に機械が変わればまた印
         mach = L.pick(m2, hum, "s2", "machine")
         out = L.compose(m2, mach, META)
         self.assertEqual([g["text"] for g in out["segments"]], ["あ", "いい", "う"])   # 今の機械
@@ -111,7 +112,7 @@ class ApiTest(unittest.TestCase):
     def test_changes_and_pick_mine(self):
         r = machpick.changes(TID)
         self.assertEqual([x["id"] for x in r["rows"]], ["s2"])
-        self.assertNotIn("layers", r)   # 層のモードは無くなった(10-18 決定 3-61 pp2 = B)
+        self.assertNotIn("layers", r)   # 層のモードは無い
         self.assertEqual(r["rows"][0]["now"][0]["text"], "いい")
         self.assertEqual(machpick.changes(TID, "s1")["rows"], [])
         with self.assertRaises(errors.ApiError) as cm:
@@ -129,7 +130,7 @@ class ApiTest(unittest.TestCase):
     def test_pick_machine(self):
         with mock.patch.object(store, "snapshot", wraps=store.snapshot) as snap:
             machpick.pick({"id": TID, "row": "s2", "pick": "machine"})
-        snap.assert_called_once_with(TID, True)   # 前の履歴から 10 分経っていなくても必ず残す(P-PRIMARY = 1f-3。人の直しを丸ごと外すため)
+        snap.assert_called_once_with(TID, True)   # 前の履歴から 10 分経っていなくても必ず残す(人の直しを丸ごと外すため)
         d = store.read_transcript(TID)
         self.assertEqual([g["text"] for g in d["segments"]], ["あ", "いい", "う"])
         self.assertNotIn("proofed", d["segments"][1])

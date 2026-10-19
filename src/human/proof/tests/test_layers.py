@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""文書を「機械の層 + 人の層」から組み立てる関数(human/proof/layers。RS8 O2-1)のテスト。
+"""文書を「機械の層 + 人の層」から組み立てる関数(human/proof/layers)のテスト。
 
     py -3.12 -m unittest src/human/proof/tests/test_layers.py -v
 
@@ -67,7 +67,7 @@ class RoundTripTest(unittest.TestCase):
         hum, reasons = L.roundtrip(mach, doc, prev)
         self.assertEqual(reasons, [], reasons)
         self.assertEqual(L.compose(mach, hum, L.split_meta(doc)), doc)
-        rows = []   # O12: diff が返す組み立て済みの行は、その人の層で組み立て直した行と同じ(order のある文書も)
+        rows = []   # diff が返す組み立て済みの行は、その人の層で組み立て直した行と同じ(order のある文書も)
         self.assertEqual(rows if L.diff(mach, doc, prev, rows) is not None else None, L.compose_rows(mach, hum)[0])
         return hum
 
@@ -98,7 +98,7 @@ class RoundTripTest(unittest.TestCase):
         d["segments"] = [g for g in d["segments"] if g["id"] != "s3"]
         hum = self.assertRoundTrip(M0, d)
         self.assertEqual(hum["dead"], [{"start": 4.0, "end": 6.0, "text": "ですね", "mid": "s3"}])
-        out = L.compose(rebuild(M0), hum, L.split_meta(d))   # 作り直しても消した時間帯の機械の行を出さない(O1 の穴)
+        out = L.compose(rebuild(M0), hum, L.split_meta(d))   # 作り直しても消した時間帯の機械の行を出さない
         self.assertEqual(texts(out), ["こんにちは", "今日はいい天気", "ではまた", "さようなら"])
 
     def test_small_dead_mark_keeps_long_row(self):
@@ -177,17 +177,19 @@ class RoundTripTest(unittest.TestCase):
 
     def test_compare_docs_reasons(self):
         d = base_doc()
-        d2 = copy.deepcopy(d)
-        seg(d2, "s1")["text"] = "x"
-        seg(d2, "s2")["flag"] = "x"
-        d2["title"] = "別"
-        self.assertEqual([c for c, _x in L.compare_docs(d, d2)], ["text", "flag", "docFields"])
-        d3 = copy.deepcopy(d)
-        d3["segments"].reverse()
-        self.assertEqual([c for c, _x in L.compare_docs(d, d3)], ["order"])
-        d4 = copy.deepcopy(d)
-        d4["segments"].pop()
-        self.assertEqual([c for c, _x in L.compare_docs(d, d4)], ["rowCount", "rowIds"])
+
+        def text_flag_title(x):
+            seg(x, "s1")["text"] = "x"
+            seg(x, "s2")["flag"] = "x"
+            x["title"] = "別"
+        rows = [(text_flag_title, ["text", "flag", "docFields"]),
+                (lambda x: x["segments"].reverse(), ["order"]),
+                (lambda x: x["segments"].pop(), ["rowCount", "rowIds"])]
+        for change, want in rows:
+            with self.subTest(want=want):
+                d2 = copy.deepcopy(d)
+                change(d2)
+                self.assertEqual([c for c, _x in L.compare_docs(d, d2)], want)
 
 
 class MachChangedTest(unittest.TestCase):
@@ -205,7 +207,7 @@ class MachChangedTest(unittest.TestCase):
             self.assertEqual(texts(out), texts(d))
         with self.subTest("machine_row_gone"):
             out = L.compose(rebuild(M0, drop=(1,)), hum, L.split_meta(d))
-            self.assertIn(L.MACH_CHANGED, seg(out, "s2")["flag"])   # 覆っていた機械の行が無くなった(O1 の STALE_FLAG)
+            self.assertIn(L.MACH_CHANGED, seg(out, "s2")["flag"])   # 覆っていた機械の行が無くなった
             self.assertEqual(seg(out, "s2")["text"], "今日はいい天気だ")
         with self.subTest("rev_bump_same_rows"):
             m2 = copy.deepcopy(M0)
@@ -348,7 +350,7 @@ class MachFromDocTest(unittest.TestCase):
 
 
 class AdvanceMachTest(unittest.TestCase):
-    """機械の操作のあとの機械の層(RS8 O2-2。store.commit が機械の why で使う)"""
+    """機械の操作のあとの機械の層(store.commit が機械の why で使う)"""
 
     def test_nothing_written(self):
         d = base_doc()
@@ -444,16 +446,12 @@ class FlagsAndDeadTest(unittest.TestCase):
         self.assertEqual(st["dead"], 0)
         self.assertEqual([g["text"] for g in rows], ["今日はいい天気ですね", "い"])
         self.assertEqual(texts(L.compose(other, hum)), ["今日はいい天気ですね", "い"])
-        # 同じ時間帯に「あ」が出た: 消す
-        same = rebuild(m, texts={0: "あ"}, rev=3)
-        rows, st = L.compose_rows(same, hum)
-        self.assertEqual((st["dead"], st["deadSpared"]), (1, 0))
-        self.assertEqual([g["text"] for g in rows], ["い"])
-        # 同じ時間帯に空の行が出た: 消す
-        empty = rebuild(m, texts={0: ""}, rev=4)
-        rows, st = L.compose_rows(empty, hum)
-        self.assertEqual((st["dead"], st["deadSpared"]), (1, 0))
-        self.assertEqual([g["text"] for g in rows], ["い"])
+        # 同じ時間帯に同じ言葉「あ」・空の行が出た: 消す
+        for rev, word in ((3, "あ"), (4, "")):
+            with self.subTest(word=word):
+                rows, st = L.compose_rows(rebuild(m, texts={0: word}, rev=rev), hum)
+                self.assertEqual((st["dead"], st["deadSpared"]), (1, 0))
+                self.assertEqual([g["text"] for g in rows], ["い"])
 
 
 if __name__ == "__main__":

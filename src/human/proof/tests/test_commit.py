@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""文書を書く唯一の口 human/proof/store.commit のテスト(RS8 O2-0。動きは write_doc と同じ・why をログに残す)。
+"""文書を書く唯一の口 human/proof/store.commit のテスト(動きは write_doc と同じ・why をログに残す)。
 
     py -3.12 -m unittest src/human/proof/tests/test_commit.py -v
 """
@@ -43,7 +43,7 @@ class CommitTest(unittest.TestCase):
             store.commit(TID, {"id": TID}, why="nope")
 
     def test_commit_resets_cut_flags_from_edit(self):
-        """行の「カット済」は commit が必ず編集の内容から付け直す(確かめるの時刻のカード check:time のように apply_edit_cuts を呼ばない書き手でも。2a-1)"""
+        """行の「カット済」は commit が必ず編集の内容から付け直す(確かめるの時刻のカード check:time のように apply_edit_cuts を呼ばない書き手でも)"""
         edit = {"schema": store.EDIT_SCHEMA, "rev": 1, "sources": [{"fps": [30, 1], "duration": 40.0}], "clips": [{"src": 0, "in": 0.0, "out": 10.0}, {"src": 0, "in": 20.0, "out": 30.0}]}
         testkit.write_json(store.edit_path(TID, for_write=True), edit)
         doc = {"id": TID, "segments": [{"id": "a", "start": 8.0, "end": 9.5, "text": "あ", "cutState": "cut"},
@@ -55,7 +55,7 @@ class CommitTest(unittest.TestCase):
     def test_whys_do_not_overlap(self):
         self.assertFalse(store.HUMAN_WHYS & store.MACHINE_WHYS)
         self.assertLessEqual(store.FULL_WHYS | store.DIAR_WHYS, store.MACHINE_WHYS)
-        self.assertIn("fill", store.MACHINE_WHYS)   # 行の無い文書へ文字起こしを入れる = 機械(O2-2 で直した)
+        self.assertIn("fill", store.MACHINE_WHYS)   # 行の無い文書へ文字起こしを入れる = 機械
         self.assertIn("drill", store.HUMAN_WHYS)    # 評価ドリルの「全部聞いた」= 人
 
 
@@ -71,17 +71,13 @@ def _doc(rows, original=None, speakers=None):
 
 
 class LayersTest(unittest.TestCase):
-    """commit のたびに人の層 <id>.hum.json・機械の層 <id>.mach.json も書き、組み立てが文書と合う(RS8 O2-2。層が正 = 写しは組み立て済み)"""
+    """commit のたびに人の層 <id>.hum.json・機械の層 <id>.mach.json も書き、組み立てが文書と合う(層が正 = 写しは組み立て済み)"""
 
     def setUp(self):
         self.tmp = temporary_workdata(self, "layers-")
 
     def layer(self, sfx):
-        path = os.path.join(workdata.TX_DIR, TID + sfx)
-        if not os.path.isfile(path):
-            return None
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
+        return testkit.read_json(os.path.join(workdata.TX_DIR, TID + sfx))
 
     def commit(self, doc, why, **kw):
         with self.assertLogs("tx", level="INFO") as cm:
@@ -110,7 +106,7 @@ class LayersTest(unittest.TestCase):
         self.assertEqual(hum2["rev"], 2)
 
     def test_first_commit_migrates_from_original(self):
-        """機械の層が無い文書(O2-2 より前の文書)は、書く前の文書の original から機械の層を作る(移行。文書は書き換えない)"""
+        """機械の層が無い文書は、書く前の文書の original から機械の層を作る(移行。文書は書き換えない)"""
         orig = [{"start": 0.0, "end": 1.0, "text": "あ"}, {"start": 2.0, "end": 3.0, "text": "い"}]
         old = _doc([_row(1, 0.0, "あ"), _row(2, 2.0, "い")], orig)
         store.write_doc(TID, old)
@@ -152,8 +148,7 @@ class LayersTest(unittest.TestCase):
     def test_broken_layer_files_are_rebuilt(self):
         self.commit(_doc([_row(1, 0.0, "あ")]), "whole")
         for sfx in (".mach.json", ".hum.json"):
-            with open(os.path.join(workdata.TX_DIR, TID + sfx), "w", encoding="utf-8") as f:
-                f.write("{壊れた")
+            testkit.write_text(os.path.join(workdata.TX_DIR, TID + sfx), "{壊れた")
         mach, _hum = self.commit(_doc([_row(1, 0.0, "あ")]), "save")   # 壊れた層は無いのと同じ = 書く前の文書から作り直す
         self.assertEqual(mach["rev"], 1)
 
@@ -165,7 +160,7 @@ class LayersTest(unittest.TestCase):
 
 
 class PrimaryTest(unittest.TestCase):
-    """層が正(RS8 O2-3): 人の層 → 機械の層 → 写し(composedFrom)。開いたときに写しが古ければ組み立て直す"""
+    """層が正: 人の層 → 機械の層 → 写し(composedFrom)。開いたときに写しが古ければ組み立て直す"""
 
     def setUp(self):
         self.tmp = temporary_workdata(self, "primary-")
@@ -174,8 +169,7 @@ class PrimaryTest(unittest.TestCase):
         return os.path.join(workdata.TX_DIR, TID + sfx)
 
     def load(self, sfx):
-        with open(self.path(sfx), encoding="utf-8") as f:
-            return json.load(f)
+        return testkit.read_json(self.path(sfx))
 
     def put(self, sfx, obj):
         testkit.write_json(self.path(sfx), obj)
@@ -224,8 +218,7 @@ class PrimaryTest(unittest.TestCase):
     def test_broken_layer_reads_copy(self):
         store.commit(TID, _doc([_row(1, 0.0, "あ")]), why="whole")
         copy = self.load(".json")
-        with open(self.path(".hum.json"), "w", encoding="utf-8") as f:
-            f.write("{壊れた")
+        testkit.write_text(self.path(".hum.json"), "{壊れた")
         with self.assertLogs("tx", level="WARNING") as cm:
             self.assertEqual(store.read_transcript(TID), copy)
         self.assertTrue(any("写しのまま" in m for m in cm.output), cm.output)
@@ -284,7 +277,7 @@ class PrimaryTest(unittest.TestCase):
         self.assertEqual(store.read_transcript(TID)["segments"][0]["text"], "あ")
 
     def test_read_repair_does_not_undo_a_save_in_progress(self):
-        """P-PRIMARY(parts-review の H1): 保存が層を書いてから写しを書くまでの間に別のスレッドが古い写しを開いても、
+        """保存が層を書いてから写しを書くまでの間に別のスレッドが古い写しを開いても、
         古い写しの original・recognition で組み立て直した物が保存のあとに書かれない(新しい認識の原文と履歴が古い値に戻らない)"""
         import threading
         store.commit(TID, _doc([_row(1, 0.0, "あ")], original=[{"start": 0.0, "end": 1.0, "text": "old machine"}]), why="whole")

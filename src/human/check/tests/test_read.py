@@ -1,4 +1,4 @@
-"""「確かめる」の読みのカードの反映(src/human/check/read.py。V2b)の単体テスト。一時フォルダの文書と learn-feedback.json だけを使う。
+"""「確かめる」の読みのカードの反映(src/human/check/read.py)の単体テスト。一時フォルダの文書と learn-feedback.json だけを使う。
 決まり: 行を校正済みにしない・時刻に触れない・文書は commit(why='check:read')・採否は編集の「提案」と同じ記録・Z で戻る。
 
 実行(リポジトリ直下から): py -3.12 -m unittest src/human/check/tests/test_read.py -v
@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import unittest
+from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> check -> human -> src
@@ -49,8 +50,13 @@ class ReadTest(unittest.TestCase):
         self.ctx = apply.Context(self.app, ROOT)
 
     def seg(self, row):
-        with open(store.tx_path(TID), encoding="utf-8") as f:
-            return next(g for g in json.load(f)["segments"] if g["id"] == row)
+        return next(g for g in testkit.read_json(store.tx_path(TID))["segments"] if g["id"] == row)
+
+    def refused(self, c, ans, error=None):
+        with self.assertRaises(apply.Refused) as e:
+            apply.answer(self.ctx, c, {"answer": ans})
+        if error:
+            self.assertEqual(e.exception.error, error)
 
     def fb(self):
         return learn.load_feedback()
@@ -76,8 +82,7 @@ class ReadTest(unittest.TestCase):
         self.assertTrue(got["ok"])
 
     def test_fill_revert_to_recognized_and_undo(self):
-        from unittest import mock
-        # 6c-2: 読みの答えは編集の保存と同じく履歴を 10 分に 1 つ(必ず 1 つ残して 30 個の履歴を押し出さない)・.bak の控えを作らない
+        # 読みの答えは編集の保存と同じく履歴を 10 分に 1 つ(必ず 1 つ残して 30 個の履歴を押し出さない)・.bak の控えを作らない
         with self.assertLogs("tx", level="INFO") as cm, mock.patch.object(store, "snapshot") as snap, mock.patch.object(store, "backup_doc") as bak:
             got = apply.answer(self.ctx, card("fill", "s1"), {"answer": {"choice": "2"}})
         snap.assert_called_once_with(TID, False)
@@ -121,14 +126,10 @@ class ReadTest(unittest.TestCase):
         d = doc()
         d["segments"][1]["text"] = "全然違う文"
         testkit.write_json(store.tx_path(TID), d)
-        with self.assertRaises(apply.Refused) as e:
-            apply.answer(self.ctx, card("alt", "s2", CAND), {"answer": {"choice": "2"}})
-        self.assertEqual(e.exception.error, "gone")
+        self.refused(card("alt", "s2", CAND), {"choice": "2"}, "gone")
         self.assertNotIn("alt", self.fb())   # 断ったら記録も残さない
-        with self.assertRaises(apply.Refused):
-            apply.answer(self.ctx, card("alt", "s9", CAND), {"answer": {"choice": "2"}})   # 行がもう無い
-        with self.assertRaises(apply.Refused):
-            apply.answer(self.ctx, card("alt", "s2"), {"answer": {"choice": "2"}})         # 候補が組み直せない
+        self.refused(card("alt", "s9", CAND), {"choice": "2"})   # 行がもう無い
+        self.refused(card("alt", "s2"), {"choice": "2"})         # 候補が組み直せない
 
     def test_undo_refused_when_row_changed_afterwards(self):
         got = apply.answer(self.ctx, card("alt", "s2", CAND), {"answer": {"choice": "2"}})
@@ -141,7 +142,7 @@ class ReadTest(unittest.TestCase):
         self.assertEqual(self.fb()["alt"]["acc"], 1)   # 文書を戻せないときは記録も戻さない
 
     def test_undo_refused_when_flag_changed_afterwards(self):
-        """6c-1: 文字が同じでも、答えたあとに印を直していたら Z は断る(印・後処理の札を黙って上書きしない)"""
+        """文字が同じでも、答えたあとに印を直していたら Z は断る(印・後処理の札を黙って上書きしない)"""
         got = apply.answer(self.ctx, card("fill", "s1"), {"answer": {"choice": "2"}})
         d = store.read_transcript(TID)
         d["segments"][0]["flag"] = "メモ、人が足した印"
@@ -152,19 +153,14 @@ class ReadTest(unittest.TestCase):
         self.assertEqual(self.seg("s1")["flag"], "メモ、人が足した印")
 
     def test_busy_and_eval_are_refused(self):
-        """6c-3: 処理中の文書と評価用の文書には反映しない(声・時刻のカードと同じ守り)"""
-        from unittest import mock
+        """処理中の文書と評価用の文書には反映しない(声・時刻のカードと同じ守り)"""
         from flow import jobs as _heavy
         with mock.patch.object(_heavy, "doc_busy", return_value=True):
-            with self.assertRaises(apply.Refused) as e:
-                apply.answer(self.ctx, card("fill", "s1"), {"answer": {"choice": "2"}})
-        self.assertEqual(e.exception.error, "busy")
+            self.refused(card("fill", "s1"), {"choice": "2"}, "busy")
         d = store.read_transcript(TID)
         d["evalSet"] = True
         store.commit(TID, d, why="save")
-        with self.assertRaises(apply.Refused) as e:
-            apply.answer(self.ctx, card("fill", "s1"), {"answer": {"choice": "2"}})
-        self.assertEqual(e.exception.error, "eval")
+        self.refused(card("fill", "s1"), {"choice": "2"}, "eval")
 
     def test_human_why_is_registered(self):
         self.assertIn("check:read", store.HUMAN_WHYS)
