@@ -1,4 +1,4 @@
-"""src/eval/tools/clipfit.py(自動の区間が友人の区間にどれだけ合うかの物差し。LD-2a)のテスト。リポジトリ直下で:
+"""src/eval/tools/clipfit.py(自動の区間が友人の区間にどれだけ合うかの物差し)のテスト。リポジトリ直下で:
 
     py -3.12 -m unittest src/eval/tools/tests/test_clipfit.py -v
 
@@ -43,8 +43,7 @@ class Env(unittest.TestCase):
         os.makedirs(self.archive)
 
     def write_gz(self, vid, obj):
-        with gzip.open(os.path.join(self.archive, vid + ".json.gz"), "wb") as f:
-            f.write(json.dumps(obj).encode("utf-8"))
+        self.write_raw(vid, json.dumps(obj).encode("utf-8"))
 
     def write_raw(self, vid, raw):
         with gzip.open(os.path.join(self.archive, vid + ".json.gz"), "wb") as f:

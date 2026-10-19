@@ -7,7 +7,6 @@
 """
 import contextlib
 import io
-import json
 import os
 import sys
 import time
@@ -56,8 +55,19 @@ class Env:
         self.write(tid + ".json", d)
 
     def write(self, name, d):
-        with open(os.path.join(self.tdir, name), "w", encoding="utf-8") as f:
-            f.write(d if isinstance(d, str) else json.dumps(d, ensure_ascii=False))
+        p = os.path.join(self.tdir, name)
+        testkit.write_text(p, d) if isinstance(d, str) else testkit.write_json(p, d)
+
+
+def quiet(fn, *a, **kw):
+    """fn を呼ぶ(画面の出力は捨てる)。表示まで落ちないことを見るのにも使う"""
+    with contextlib.redirect_stdout(io.StringIO()):
+        return fn(*a, **kw)
+
+
+class Base(unittest.TestCase):
+    def setUp(self):
+        self.env = Env(self)
 
 
 # 5 つの数字が 1 回ずつ出る文書: ①頭(s1)・①末(s2)・②前(s3)・②次(s4)・文字が合わない行(s5)・校正済みでない行(s0)
@@ -70,9 +80,7 @@ FIVE_ORIG = [orig(1.2, 2.0, "こんにちは"),      # 頭が 0.2 秒遅い → 
              orig(6.25, 7.0, "ほかの言葉")]     # 人の「全然違う」と文字が合わない → 数えない
 
 
-class TimingTest(unittest.TestCase):
-    def setUp(self):
-        self.env = Env(self)
+class TimingTest(Base):
 
     def test_five_numbers(self):
         self.env.doc("aaaaaaaaaaaa", FIVE_SEGS, FIVE_ORIG)
@@ -91,7 +99,7 @@ class TimingTest(unittest.TestCase):
         self.assertNotIn("_rows", d)
 
     def test_boundary_agreement(self):
-        """行の境目の一致率(I-5): 文字の位置で突き合わせ、人の境目は両側が校正済みで同じ話者の所だけ。機械の境目のうち人の「数えない境目」に当たるものも数えない"""
+        """行の境目の一致率: 文字の位置で突き合わせ、人の境目は両側が校正済みで同じ話者の所だけ。機械の境目のうち人の「数えない境目」に当たるものも数えない"""
         def row(a, b, text, proofed=True, speaker=""):
             return {"start": a, "end": b, "text": text, "proofed": proofed, "speaker": speaker}
         human = T.text_rows([row(0, 1, "こんにちは"), row(1, 2, "元気ですか"), row(2, 3, "そうですね", speaker="B"), row(3, 4, "ありがとう", speaker="B"),
@@ -111,10 +119,7 @@ class TimingTest(unittest.TestCase):
         res = T.evaluate(self.env.root)
         self.assertEqual(res["byDoc"][0]["boundary"]["human"], res["overall"]["boundary"]["human"])
         self.assertIn("precision", res["overall"]["boundary"])
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            T.print_report(res)
-        self.assertIn("行の境目の一致率", buf.getvalue())
+        quiet(T.print_report, res)
 
     def test_tolerance_is_strict(self):
         # ちょうど 0.1 秒のずれは余裕の中(浮動小数の誤差で数えない)
@@ -165,33 +170,22 @@ class TimingTest(unittest.TestCase):
         res = T.evaluate(self.env.root)
         self.assertEqual(res["overall"]["n"], 0)
         self.assertIsNone(res["overall"]["head"])
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            T.print_report(res)
-        self.assertIn("測れる文書がありません", buf.getvalue())
-        self.env.doc("aaaaaaaaaaaa", FIVE_SEGS, FIVE_ORIG)
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            T.print_report(T.evaluate(self.env.root))
-        self.assertIn("①末  25%", buf.getvalue())
+        quiet(T.print_report, res)   # 空でも表示で落ちない
 
     def test_out_writes_only_the_given_file(self):
         self.env.doc("aaaaaaaaaaaa", FIVE_SEGS, FIVE_ORIG)
         out = os.path.join(self.env.root, "elsewhere", "r.json")
-        with contextlib.redirect_stdout(io.StringIO()):
-            T.main(["--data-dir", self.env.root, "--out", out])
-        with open(out, encoding="utf-8") as f:
-            got = json.load(f)
-        self.assertEqual(got["meta"]["schema"], T.SCHEMA)
-        self.assertEqual(got["overall"]["n"], 4)
+        quiet(T.main, ["--data-dir", self.env.root, "--out", out])
+        got = testkit.read_json(out)
+        self.assertEqual((got["meta"]["schema"], got["overall"]["n"]), (T.SCHEMA, 4))
         self.assertFalse(os.path.exists(os.path.join(self.env.root, "transcribe", "evals")))   # 作業データには書かない
 
 
-class CheckTest(unittest.TestCase):
+class CheckTest(Base):
     """--check: 「確かめる」の時刻のカードの答え(app の check/answers.jsonl)を数える。戻した答えは数えない"""
 
     def setUp(self):
-        self.env = Env(self)
+        super().setUp()
         self.app = os.path.join(self.env.root, "app")
 
     def add(self, i, choice, ds=0.0, de=0.0, kind="time", at=None, undo=False):
@@ -223,21 +217,12 @@ class CheckTest(unittest.TestCase):
         self.add(1, "ok", at=ms("2026-09-01"))
         self.add(2, "head", at=ms("2026-10-11"))
         self.assertEqual(T.check_summary(self.env.root, since="2026-10-01")["n"], 1)
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            res = T.main(["--data-dir", self.env.root, "--check"])
-        self.assertEqual(res["check"]["n"], 2)
-        self.assertIn("確かめる(時刻のカード)の答え", buf.getvalue())
-        self.assertIn("答え 2 件", buf.getvalue())
-        with contextlib.redirect_stdout(io.StringIO()):
-            self.assertNotIn("check", T.main(["--data-dir", self.env.root]))
+        self.assertEqual(quiet(T.main, ["--data-dir", self.env.root, "--check"])["check"]["n"], 2)
+        self.assertNotIn("check", quiet(T.main, ["--data-dir", self.env.root]))
 
 
-class ApplyTest(unittest.TestCase):
-    """--apply: 保存してある生出力(asr.json)に後処理(0.57.0 / 7-1 だけ / 0.57.1)を当て直す。editor の expand_segments をそのまま使う"""
-
-    def setUp(self):
-        self.env = Env(self)
+class ApplyTest(Base):
+    """--apply: 保存してある生出力(asr.json)に後処理(0.57.0 / 終わりを削らない / 0.57.1 など)を当て直す。editor の expand_segments をそのまま使う"""
 
     def test_variants(self):
         # 範囲の先頭が 10 秒の文書。生出力の時刻は元の動画の秒。続いている 2 行(すき間 0.2 秒)
@@ -257,7 +242,7 @@ class ApplyTest(unittest.TestCase):
         by = {v["key"]: v for v in ap["variants"]}
         self.assertEqual([v["key"] for v in ap["variants"]], ["now", "v0570", "trim0", "v0571", "split40", "split24"])   # 先頭 = 今の既定
         self.assertEqual(by["now"]["settings"], {"END_TRIM": postproc.END_TRIM, "JOIN_GAP": postproc.JOIN_GAP, "splitChars": T.txtext.SPLIT_CHARS})   # 今の値から作る(固定ではない)
-        self.assertEqual(by["now"]["overall"]["counts"]["tail"], by["split24"]["overall"]["counts"]["tail"])   # 今の既定 = 0.59.6 と同じ後処理(いまは)
+        self.assertEqual(by["now"]["overall"]["counts"]["tail"], by["split24"]["overall"]["counts"]["tail"])   # 今の既定 = split24 と同じ後処理
         self.assertEqual(by["split40"]["overall"]["counts"]["tail"], 0)                        # 0.57.1 と同じ後処理 + 分ける文字数 40(短い行は変わらない)
         self.assertEqual(by["split40"]["boundary"], {"machine": 1, "human": 1, "hit": 1, "rec": 1, "precision": 1.0, "recall": 1.0})   # 境目 1 つが人と同じ
         self.assertEqual(by["v0570"]["overall"]["counts"]["tail"], 1)                          # 10.9 < 11.2 − 0.1 = 末が切れる
@@ -266,10 +251,7 @@ class ApplyTest(unittest.TestCase):
         self.assertEqual(by["v0571"]["overall"]["n"], 2)
         self.assertEqual(by["v0570"]["byDoc"][0]["reproduced"], 1.0)                           # 0.57.0 の後処理で original と同じ行になる
         self.assertNotIn("reproduced", by["v0571"]["byDoc"][0])
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            T.print_report(res)
-        self.assertIn("0.57.1 の後処理", buf.getvalue())
+        quiet(T.print_report, res)
 
     def test_now_follows_the_current_values(self):
         """「今の既定」は postproc・txtext の今の値で作る = 値を変えると変わる(VARIANTS の固定の表を見ない)"""

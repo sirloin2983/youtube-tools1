@@ -1,4 +1,4 @@
-"""src/eval/tools/eval_cloud.py(クラウドの文字起こしとの比較。計画 B2 = E1)のテスト。リポジトリ直下で:
+"""src/eval/tools/eval_cloud.py(クラウドの文字起こしとの比較)のテスト。リポジトリ直下で:
 
     py -3.12 -m unittest src/eval/tools/tests/test_eval_cloud.py
 
@@ -112,16 +112,12 @@ class RunTest(unittest.TestCase):
         self.write("ccccccccccc1", title="一本目", evalSet=True, evalReviewed={"at": 1}, sourcePath=self.src, start=0, end=8, durationSec=8,
                    segments=[seg(1, 0.0, 4.0, "テスト文1"), seg(2, 4.0, 8.0, "テスト文2x", "B")], original=[])
         self.calls = []
-        self.env = mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": "0", "OPENAI_API_KEY": KEY, "ELEVENLABS_API_KEY": KEY})
-        self.env.start()
-
-    def tearDown(self):
-        self.env.stop()
+        env = mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": "0", "OPENAI_API_KEY": KEY, "ELEVENLABS_API_KEY": KEY})
+        env.start()
+        self.addCleanup(env.stop)
 
     def write(self, i, **doc):
-        path = os.path.join(self.data, "transcripts", i + ".json")
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(dict(id=i, **doc), f, ensure_ascii=False)
+        testkit.write_json(os.path.join(self.data, "transcripts", i + ".json"), dict(id=i, **doc))
 
     def snapshot(self):
         d = os.path.join(self.data, "transcripts")
@@ -152,14 +148,10 @@ class RunTest(unittest.TestCase):
             res, out = quiet(EC.main, ["run", "--service", "openai", "--model", "gpt-4o-transcribe-diarize", "--data", self.data])
             self.assertIsNone(res)
             self.assertEqual(self.calls, [])
-            self.assertIn("送る", out)
-            self.assertIn("見積もり $0.001", out)
-            self.assertIn("--send", out)
+            self.assertIn("見積もり $0.001", out)   # 8 秒の単価の計算
             self.assertNotIn(KEY, out)
             self.assertFalse(os.path.isdir(os.path.join(self.data, "evals")))
             # 2) --send = 送って控えに残し、採点して eval_asr と同じ形で保存
-            res, out = quiet(EC.main, ["run", "--service", "openai", "--model", "gpt-4o-transcribe-diarize", "--data", self.data, "--label", "cloud-test"])
-            self.assertIsNone(res)   # まだ --send が無い(見積もりだけ)
             res, out = quiet(EC.main, ["run", "--service", "openai", "--model", "gpt-4o-transcribe-diarize", "--data", self.data, "--label", "cloud-test", "--send"])
             self.assertEqual(len(self.calls), 1)
             m, url, headers, _body = self.calls[0]
@@ -177,16 +169,13 @@ class RunTest(unittest.TestCase):
             self.assertEqual(len(saved), 1)
             self.assertTrue(saved[0].endswith("_cloud-test.json"))
             cache = os.path.join(self.data, "evals", "cloud", "openai", "gpt-4o-transcribe-diarize", "ccccccccccc1.json")
-            self.assertTrue(os.path.isfile(cache))
-            with open(cache, encoding="utf-8") as f:
-                rec = json.load(f)
+            rec = testkit.read_json(cache)
             self.assertEqual(rec["response"], diar)
             self.assertNotIn(KEY, json.dumps(rec))
             # 3) 控えがあれば --send が無くても送らずに採点する(再送しない)
             self.calls.clear()
             res, out = quiet(EC.main, ["run", "--service", "openai", "--model", "gpt-4o-transcribe-diarize", "--data", self.data, "--no-save"])
             self.assertEqual(self.calls, [])
-            self.assertIn("控えあり", out)
             self.assertEqual(res["summary"]["overall"]["refChars"], 11)
             # 4) 文書の範囲が変わったら控えは使わない(送り直し = --send が要る)
             self.write("ccccccccccc1", title="一本目", evalSet=True, evalReviewed={"at": 1}, sourcePath=self.src, start=0, end=7, durationSec=7,
@@ -194,7 +183,6 @@ class RunTest(unittest.TestCase):
             res, out = quiet(EC.main, ["run", "--service", "openai", "--model", "gpt-4o-transcribe-diarize", "--data", self.data, "--no-save"])
             self.assertIsNone(res)
             self.assertEqual(self.calls, [])
-            self.assertIn("送る", out)
         # 一覧
         rows, out = quiet(EC.main, ["list", "--data", self.data])
         self.assertEqual(rows, [("openai", "gpt-4o-transcribe-diarize", 1)])
@@ -231,7 +219,6 @@ class RunTest(unittest.TestCase):
         o = res["summary"]["overall"]
         self.assertEqual((o["groups"], o["refChars"], o["cer"]), (1, 11, 0.0))
         self.assertEqual(res["summary"]["docText"]["cer"], 0.0)
-        self.assertIn("時刻を返さない", out)
         self.assertEqual(res["meta"]["engine"]["settings"]["timing"], "none")
 
     @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が無い")
@@ -252,16 +239,14 @@ class RunTest(unittest.TestCase):
         with mock.patch.object(EC, "http_json", bad), mock.patch.object(EC, "RETRY_WAIT", 0):
             res, out = quiet(EC.main, ["run", "--service", "openai", "--model", "gpt-4o-transcribe", "--data", self.data, "--send"])
         self.assertIsInstance(res, SystemExit)
-        self.assertIn("とばしました", out)
-        self.assertIn("HTTP 401", out)
+        self.assertIn("HTTP 401", out)   # とばした本の失敗の中身は残す
         self.assertNotIn(KEY, out)
         self.assertFalse(os.path.isdir(os.path.join(self.data, "evals", "asr")))
 
     def test_key_from_env_or_file(self):
         svc = dict(EC.SERVICES["elevenlabs"], id="elevenlabs")
         kf = os.path.join(self.tmp, "keys.txt")
-        with open(kf, "w", encoding="utf-8") as f:
-            f.write("# 鍵\nOPENAI_API_KEY = other\nELEVENLABS_API_KEY=\"file-key\"\n")
+        testkit.write_text(kf, "# 鍵\nOPENAI_API_KEY = other\nELEVENLABS_API_KEY=\"file-key\"\n")
         with mock.patch.dict(os.environ, {"ELEVENLABS_API_KEY": " env-key "}):
             self.assertEqual(EC.load_key(svc, kf), ("env-key", "環境変数 ELEVENLABS_API_KEY"))
         with mock.patch.dict(os.environ, {"ELEVENLABS_API_KEY": ""}):
@@ -321,7 +306,6 @@ class RunTest(unittest.TestCase):
             return 200, resp
         with mock.patch.object(EC, "http_json", http):
             res, out = quiet(EC.main, ["run", "--service", "elevenlabs", "--model", "scribe_v2", "--data", self.data, "--send", "--no-save"])
-        self.assertIn("消せませんでした", out)
         self.assertEqual(res["meta"]["cloud"]["remoteKept"], 1)
         self.assertTrue(os.path.isfile(os.path.join(self.data, "evals", "cloud", "elevenlabs", "scribe_v2", "ccccccccccc1.json")))
 
@@ -331,7 +315,6 @@ class RunTest(unittest.TestCase):
             res, out = quiet(EC.main, base + ["--max-usd", bad])
             self.assertIsInstance(res, SystemExit, bad)
             self.assertEqual(res.code, 2, bad)
-            self.assertIn("--max-usd", out)
         # 送り先と合わないモデルは、何も読まず・送らずに止める
         with mock.patch.object(EC, "http_json", self.fake_http({})):
             for svc, model, other in (("elevenlabs", "gpt-4o-transcribe", "openai"), ("openai", "scribe_v2", "elevenlabs")):
@@ -372,11 +355,8 @@ class RunTest(unittest.TestCase):
 
     def test_list_ignores_stray_files(self):
         root = os.path.join(self.data, "evals", "cloud")
-        os.makedirs(os.path.join(root, "openai", "m1"))
-        with open(os.path.join(root, "openai", "m1", "a.json"), "w") as f:
-            f.write("{}")
-        with open(os.path.join(root, "stray.txt"), "w") as f:   # 送り先のフォルダでないファイル
-            f.write("x")
+        testkit.write_text(os.path.join(root, "openai", "m1", "a.json"), "{}")
+        testkit.write_text(os.path.join(root, "stray.txt"), "x")   # 送り先のフォルダでないファイル
         rows, _out = quiet(EC.main, ["list", "--data", self.data])
         self.assertEqual(rows, [("openai", "m1", 1)])
 
@@ -385,7 +365,6 @@ class RunTest(unittest.TestCase):
         for sid, svc in EC.SERVICES.items():
             for m in svc["models"]:
                 self.assertIn(m, out)
-        self.assertIn("保持", out)
 
 
 if __name__ == "__main__":

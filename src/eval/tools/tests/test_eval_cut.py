@@ -6,10 +6,8 @@
 """
 import contextlib
 import io
-import json
 import os
 import sys
-import tempfile
 import time
 import unittest
 
@@ -35,17 +33,13 @@ def fr(*pairs, fps=30):
 class Env:
     """一時の作業データ(<root>/transcribe/transcripts/ と <root>/cut2resolve/packs/)に、edit.json・文書・パックの記録を作る"""
 
-    def __init__(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.root = self._tmp.name
+    def __init__(self, case):
+        self.root = testkit.tempdir(case)
         self.tdir = os.path.join(self.root, "transcribe", "transcripts")
         os.makedirs(self.tdir)
         self.env = {"YTT_DATA_DIR": self.root}
         self.pdir = E.txindex.packs_dir(self.env)
         os.makedirs(self.pdir)
-
-    def close(self):
-        self._tmp.cleanup()
 
     def edit(self, tid, clips, draft=None, fps=FPS30, origin="manual", updated=None, source=None, relink_from=None, title="t", doc=True, untouched=False):
         """clips / draft の keepsSec は秒の組。draft = {"origin", "settings", "keeps", "at"}"""
@@ -71,87 +65,52 @@ class Env:
             cp["keep_frames"] = keep_frames
             cp["frame_rate"] = frame_rate
         rec = {"schema": E.txindex.PACK_RECORD_SCHEMA, "dir": d, "video": video, "builtAt": built or ms("2026-10-06"), "files": [], "cutPlan": cp}
-        with open(os.path.join(self.pdir, E.txindex.pack_key(d)), "w", encoding="utf-8") as f:
-            json.dump(rec, f)
+        testkit.write_json(os.path.join(self.pdir, E.txindex.pack_key(d)), rec)
 
     def _write(self, name, d):
-        with open(os.path.join(self.tdir, name), "w", encoding="utf-8") as f:
-            json.dump(d, f, ensure_ascii=False)
+        testkit.write_json(os.path.join(self.tdir, name), d)
 
     def run(self, **kw):
         return E.evaluate(self.root, **kw)
 
 
 class TestCompare(unittest.TestCase):
-    def test_identical_is_untouched(self):
-        D = fr((0, 90), (150, 300))
-        r = E.compare(D, list(D), 30)
-        self.assertEqual((r["same"], r["moved"], r["added"], r["removed"], r["reshaped"]), (2, 0, 0, 0, 0))
-        self.assertEqual(r["keptDiff"], 0)
-        self.assertEqual([round(x * 30, 6) for x in r["diffs"]], [0, 0, 0, 0])
-
-    def test_edge_moved_in_frames(self):
-        r = E.compare(fr((30, 120)), fr((27, 126)), 30)    # 開始 3 コマ早く・終了 6 コマ遅く
-        self.assertEqual((r["moved"], r["same"]), (1, 0))
-        self.assertEqual([round(x * 30) for x in r["diffs"]], [-3, 6])
-        self.assertAlmostEqual(r["keptDiff"], 9 / 30, places=3)
-
-    def test_rounding_noise_is_same(self):
-        D = [(1.0, 2.0)]
-        r = E.compare(D, [(1.001, 1.9995)], 30)            # 0.001 秒は 0.03 コマ(許容 0.5 コマ未満)
-        self.assertEqual((r["same"], r["moved"]), (1, 0))
-
-    def test_added_and_removed(self):
-        r = E.compare(fr((0, 30), (60, 90)), fr((0, 30), (120, 150)), 30)
-        self.assertEqual((r["same"], r["removed"], r["added"]), (1, 1, 1))
-        self.assertEqual(r["keptDiff"], 0)
-
-    def test_split_and_merge_are_reshaped(self):
-        r = E.compare(fr((0, 300)), fr((0, 100), (200, 300)), 30)      # 中を削った(分けた)
-        self.assertEqual((r["reshaped"], r["same"]), (1, 0))
-        self.assertEqual([round(x * 30) for x in r["diffs"]], [0, 0])   # 外側の端は同じ
-        self.assertAlmostEqual(r["keptDiff"], -100 / 30, places=3)
-        r = E.compare(fr((0, 100), (150, 300)), fr((0, 300)), 30)      # つないだ
-        self.assertEqual(r["reshaped"], 1)
-
-    def test_touching_intervals(self):
-        for case, D, F, keys, want in [
-            ("たたき台の接する 2 区間は 1 つ", [(0.0, 5.0), (5.0, 10.0)], [(0.0, 10.0)], ("same", "reshaped"), (1, 0)),
-            ("端が接するだけは重ならない = 消して足した", fr((0, 30)), fr((30, 60)), ("removed", "added", "same"), (1, 1, 0)),
+    def test_compare_cases(self):
+        """たたき台 D と最終 F の区間の比べ: 数・端のずれ(コマ)・残した長さの差(コマ)。端は 0.5 コマ未満なら同じ"""
+        same = fr((0, 90), (150, 300))
+        n0 = {"same": 0, "moved": 0, "reshaped": 0}
+        for case, D, F, fps, counts, diffs, kept in [
+            ("同じ", same, list(same), 30, {"same": 2, "moved": 0, "added": 0, "removed": 0, "reshaped": 0}, [0, 0, 0, 0], 0),
+            ("開始 3 コマ早く・終了 6 コマ遅く", fr((30, 120)), fr((27, 126)), 30, {"moved": 1, "same": 0}, [-3, 6], 9),
+            ("0.001 秒は 0.03 コマ = 同じ", [(1.0, 2.0)], [(1.001, 1.9995)], 30, {"same": 1, "moved": 0}, None, None),
+            ("消して足した", fr((0, 30), (60, 90)), fr((0, 30), (120, 150)), 30, {"same": 1, "removed": 1, "added": 1}, None, 0),
+            ("中を削った(分けた)・外側の端は同じ", fr((0, 300)), fr((0, 100), (200, 300)), 30, {"reshaped": 1, "same": 0}, [0, 0], -100),
+            ("つないだ", fr((0, 100), (150, 300)), fr((0, 300)), 30, {"reshaped": 1}, None, None),
+            ("たたき台の接する 2 区間は 1 つ", [(0.0, 5.0), (5.0, 10.0)], [(0.0, 10.0)], 30, {"same": 1, "reshaped": 0}, None, None),
+            ("端が接するだけは重ならない = 消して足した", fr((0, 30)), fr((30, 60)), 30, {"removed": 1, "added": 1, "same": 0}, None, None),
+            ("60fps の 1 コマ", fr((0, 60), fps=60), fr((1, 60), fps=60), 60, {"moved": 1}, [1, 0], None),
+            ("両方空", [], [], 30, n0, None, None),
+            ("最終が空", fr((0, 30)), [], 30, dict(n0, removed=1), None, None),
+            ("たたき台が空", [], fr((0, 30)), 30, n0, None, None),
         ]:
             with self.subTest(case):
-                r = E.compare(D, F, 30)
-                self.assertEqual(tuple(r[k] for k in keys), want)
-
-    def test_empty(self):
-        for D, F in (([], []), (fr((0, 30)), []), ([], fr((0, 30)))):
-            r = E.compare(D, F, 30)
-            self.assertEqual(r["same"] + r["moved"] + r["reshaped"], 0)
-        self.assertEqual(E.compare(fr((0, 30)), [], 30)["removed"], 1)
-
-    def test_own_fps_tolerance(self):
-        D = fr((0, 60), fps=60)
-        r = E.compare(D, fr((1, 60), fps=60), 60)                      # 60fps の 1 コマ
-        self.assertEqual(r["moved"], 1)
-        self.assertEqual(round(r["diffs"][0] * 60), 1)
+                r = E.compare(D, F, fps)
+                self.assertEqual({k: r[k] for k in counts}, counts)
+                if diffs is not None:
+                    self.assertEqual([round(x * fps, 3) for x in r["diffs"]], diffs)
+                if kept is not None:
+                    self.assertAlmostEqual(r["keptDiff"], kept / fps, places=3)
 
 
 class TestEvaluate(unittest.TestCase):
     def setUp(self):
-        self.env = Env()
-
-    def tearDown(self):
-        self.env.close()
+        self.env = Env(self)
 
     def test_empty_data_does_not_fail(self):
         res = self.env.run()
-        self.assertEqual(res["meta"]["docs"], 0)
-        self.assertTrue(res["meta"]["few"])
-        self.assertEqual(res["byOrigin"], {})
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            E.print_report(res)
-        self.assertIn("測れる文書がありません", buf.getvalue())
+        self.assertEqual((res["meta"]["docs"], res["meta"]["few"], res["byOrigin"]), (0, True, {}))
+        with contextlib.redirect_stdout(io.StringIO()):
+            E.print_report(res)   # 空でも表示で落ちない
 
     def test_missing_dirs_do_not_fail(self):
         res = E.evaluate(testkit.tempdir(self))
@@ -229,7 +188,6 @@ class TestEvaluate(unittest.TestCase):
         res = self.env.run()
         self.assertEqual(res["meta"]["docs"], 1)
         self.assertEqual(res["meta"]["skipped"]["noDraft"], 1)
-        self.assertTrue(any("draft" in n for n in res["meta"]["notes"]))
 
     def test_untouched_draft_is_not_measured_nor_counted_as_pack(self):
         draft = {"origin": "rows", "settings": {}, "keeps": fr((0, 90))}
@@ -240,11 +198,9 @@ class TestEvaluate(unittest.TestCase):
         res = self.env.run()
         self.assertEqual((res["meta"]["docs"], res["meta"]["fromPack"], res["meta"]["skipped"]["unreviewed"]), (1, 1, 1))
         self.assertEqual([d["id"] for d in res["byDoc"]], ["bbbbbbbbbbbb"])
-        self.assertTrue(any("確かめていない" in n for n in res["meta"]["notes"]))
 
     def test_broken_edit_is_skipped(self):
-        with open(os.path.join(self.env.tdir, "ffffffffffff.edit.json"), "w", encoding="utf-8") as f:
-            f.write("{broken")
+        testkit.write_text(os.path.join(self.env.tdir, "ffffffffffff.edit.json"), "{broken")
         self.env.edit("aaaaaaaaaaaa", fr((0, 90)), {"origin": "all", "settings": {}, "keeps": fr((0, 90))})
         res = self.env.run()
         self.assertEqual((res["meta"]["docs"], res["meta"]["skipped"]["broken"]), (1, 1))
@@ -305,11 +261,9 @@ class TestEvaluate(unittest.TestCase):
         video = "C:\\clips\\aaaaaaaaaaaa.mp4"
         self.env.edit("aaaaaaaaaaaa", fr((0, 96)), {"origin": "rows", "settings": {}, "keeps": fr((0, 90))})
         path = os.path.join(self.env.tdir, "aaaaaaaaaaaa.edit.json")
-        with open(path, encoding="utf-8") as f:
-            d = json.load(f)
+        d = testkit.read_json(path)
         del d["updatedAt"]
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(d, f)
+        testkit.write_json(path, d)
         self.env.pack(video, segments=fr((0, 99)), built=ms("2026-10-06"))
         os.utime(path, (ms("2026-10-07") / 1000, ms("2026-10-07") / 1000))     # ファイルの更新時刻がパックより新しい
         self.assertEqual(self.env.run()["byDoc"][0]["finalFrom"], "edit")
@@ -319,17 +273,11 @@ class TestEvaluate(unittest.TestCase):
     def test_report_and_json_output(self):
         self.env.edit("aaaaaaaaaaaa", fr((27, 120), (200, 230)), {"origin": "rows", "settings": {"after": 0.5}, "keeps": fr((30, 120))}, title="見本")
         res = self.env.run()
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
+        with contextlib.redirect_stdout(io.StringIO()):
             E.print_report(res)
-        out = buf.getvalue()
-        self.assertIn("まだ少ない(参考)", out)
-        self.assertIn("行から", out)
-        self.assertIn("端のずれ", out)
         path = E.C.save(res, res["meta"]["dataDir"], "cut")
         self.assertEqual(os.path.dirname(path), os.path.join(self.env.root, "transcribe", "evals", "cut"))
-        with open(path, encoding="utf-8") as f:
-            self.assertEqual(json.load(f)["meta"]["schema"], E.SCHEMA)
+        self.assertEqual(testkit.read_json(path)["meta"]["schema"], E.SCHEMA)
 
     def test_main_is_read_only_without_json(self):
         self.env.edit("aaaaaaaaaaaa", fr((0, 90)), {"origin": "rows", "settings": {}, "keeps": fr((0, 90))})

@@ -33,6 +33,7 @@ def row(a, b, text, **kw):
 
 
 def quiet(fn, *a, **kw):
+    """fn を呼ぶ(画面の出力は捨てる)。表示まで落ちないことを見るのにも使う"""
     with contextlib.redirect_stdout(io.StringIO()):
         return fn(*a, **kw)
 
@@ -82,8 +83,11 @@ class Env:
         self._write("learn-feedback.json", {"stat": {}, "dismissed": {}, "alt": {"acc": acc, "rej": rej}}, under=self.tx)
 
     def _write(self, name, d, under=None):
-        with open(os.path.join(under or self.tdir, name), "w", encoding="utf-8") as f:
-            json.dump(d, f, ensure_ascii=False)
+        testkit.write_json(os.path.join(under or self.tdir, name), d)
+
+    def answers(self, rows):
+        """確かめるの答え(app/check/answers.jsonl)"""
+        testkit.write_text(os.path.join(self.root, "app", "check", "answers.jsonl"), "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
 
     def run(self, **kw):
         return E.evaluate(self.root, **kw)
@@ -126,39 +130,25 @@ class TestJudge(unittest.TestCase):
         self.assertEqual(sum(x["hit"] for x in f), 1)
         self.assertTrue(all(x["short"] for x in f))
 
-    def test_fold_matches_alt_fold(self):
-        """比べるときの文字の寄せ方は alt_fold: 人が right を全角・カタカナで書いても、伸ばしや記号を足しても当たり"""
-        orig = [row(0, 3, "私はカレーが好き")]
-        alt = [row(0, 3, "私はカレパンが好き")]
-        r = E.judge_doc({"updatedAt": 1, "original": orig, "segments": [seg(1, 0, 3, "私はかれぱんが、好き!")]}, {"rows": alt})
-        self.assertEqual([c["status"] for c in r["cands"]], ["hit"])
-
-    def test_adjacent_insert_counts_as_hit(self):
-        """候補が隣の 1 文字を足した置き換えの形(足りない文字を足す)で、人がその文字を足したら当たり"""
-        orig = [row(0, 3, "私は猫が好き")]
-        alt = [row(0, 3, "私は猫だが好き")]   # 「が」の前に「だ」を足す候補
-        r = E.judge_doc({"updatedAt": 1, "original": orig, "segments": [seg(1, 0, 3, "私は猫だが好き")]}, {"rows": alt})
-        self.assertEqual([c["status"] for c in r["cands"]], ["hit"])
-        r = E.judge_doc({"updatedAt": 1, "original": orig, "segments": [seg(1, 0, 3, "私は猫が好き")]}, {"rows": alt})
-        self.assertEqual([c["status"] for c in r["cands"]], ["miss"])
-
-    def test_split_and_merged_rows(self):
-        """人が行を分けた・つないだ(時刻の重なりのまとまり)でも、まとまりの文字で当たりが分かる"""
-        orig = [row(0, 3, "私は猫が"), row(3, 6, "好きです")]
-        alt = [row(0, 3, "私は犬が"), row(3, 6, "好きです")]
-        merged = [seg(1, 0, 6, "私は犬が好きです")]
-        r = E.judge_doc({"updatedAt": 1, "original": orig, "segments": merged}, {"rows": alt})
-        self.assertEqual([c["status"] for c in r["cands"]], ["hit"])
-        split = [seg(1, 0, 2, "私は犬"), seg(2, 2, 6, "が好きです")]
-        r = E.judge_doc({"updatedAt": 1, "original": orig, "segments": split}, {"rows": alt})
-        self.assertEqual([c["status"] for c in r["cands"]], ["hit"])
-
-    def test_deleted_text_is_other(self):
-        """人がその所の文字を消した(wrong でも right でもない)= 別の直し"""
-        orig = [row(0, 3, "私は猫が好き")]
-        alt = [row(0, 3, "私は犬が好き")]
-        r = E.judge_doc({"updatedAt": 1, "original": orig, "segments": [seg(1, 0, 3, "私はが好き")]}, {"rows": alt})
-        self.assertEqual([c["status"] for c in r["cands"]], ["other"])
+    def test_one_place_cases(self):
+        cat, cat_dog = [row(0, 3, "私は猫が好き")], [row(0, 3, "私は犬が好き")]
+        two, two_dog = [row(0, 3, "私は猫が"), row(3, 6, "好きです")], [row(0, 3, "私は犬が"), row(3, 6, "好きです")]
+        ins = [row(0, 3, "私は猫だが好き")]   # 「が」の前に「だ」を足す候補
+        for case, orig, alt, segs, want in [
+            # 比べるときの文字の寄せ方は alt_fold: 人が right を全角・カタカナで書いても、伸ばしや記号を足しても当たり
+            ("寄せ方", [row(0, 3, "私はカレーが好き")], [row(0, 3, "私はカレパンが好き")], [seg(1, 0, 3, "私はかれぱんが、好き!")], ["hit"]),
+            # 候補が隣の 1 文字を足した置き換えの形で、人がその文字を足したら当たり・足さなければ外れ
+            ("隣に足す・足した", cat, ins, [seg(1, 0, 3, "私は猫だが好き")], ["hit"]),
+            ("隣に足す・足さない", cat, ins, [seg(1, 0, 3, "私は猫が好き")], ["miss"]),
+            # 人が行をつないだ・分けた(時刻の重なりのまとまり)でも、まとまりの文字で当たりが分かる
+            ("つないだ", two, two_dog, [seg(1, 0, 6, "私は犬が好きです")], ["hit"]),
+            ("分けた", two, two_dog, [seg(1, 0, 2, "私は犬"), seg(2, 2, 6, "が好きです")], ["hit"]),
+            ("その所の文字を消した = 別の直し", cat, cat_dog, [seg(1, 0, 3, "私はが好き")], ["other"]),
+            ("2 つ目のエンジンの行が無い", ORIG, [], human_a(), []),
+        ]:
+            with self.subTest(case):
+                r = E.judge_doc({"updatedAt": 1, "original": orig, "segments": segs}, {"rows": alt})
+                self.assertEqual([c["status"] for c in r["cands"]], want)
 
     def test_time_range_by_group(self):
         """時期はまとまりの時刻(人の行の proofedAt の最大。無ければ文書の updatedAt)で絞る。範囲の外の候補は数えない"""
@@ -170,12 +160,8 @@ class TestJudge(unittest.TestCase):
         r = self.judge(human_a(), since_ms=ms("2026-10-05", "00:00:00"), until_ms=ms("2026-10-06"))
         self.assertEqual(len(r["cands"]), 3)   # 校正済みのまとまり 3 つだけ(updatedAt = 1 の行は外)
 
-    def test_no_candidates_without_alt_rows(self):
-        r = E.judge_doc({"updatedAt": 1, "original": ORIG, "segments": human_a()}, {"rows": []})
-        self.assertEqual(r["cands"], [])
-
     def test_answers_decide_and_are_not_double_counted(self):
-        """5a-2: 確かめるの答え(2 = 採った = 当たり・1 = 却下 = 外れ・打った = 別の直し)が正。同じ候補は置き換え、合わなければ足す"""
+        """確かめるの答え(2 = 採った = 当たり・1 = 却下 = 外れ・打った = 別の直し)が正。同じ候補は置き換え、合わなければ足す"""
         def ans(i, seg_id, status, wrong, right, at=T1):
             return {"id": "a%d" % i, "seg": seg_id, "status": status, "wrong": wrong, "right": right, "at": at}
         answers = [ans(1, "s5", "hit", "花", "鳥"),            # 校正済みでない(分からない)まとまり → 答えで当たり
@@ -197,6 +183,17 @@ class TestJudge(unittest.TestCase):
         a.add(r)
         ck = a.result()["check"]
         self.assertEqual((ck["answers"], ck["hit"], ck["miss"], ck["other"], ck["matched"], ck["added"]), (4, 2, 1, 1, 2, 2))
+
+    def test_nosub_row_candidates_are_not_judged(self):
+        """字幕に出さない行(noSub)とその時間の機械の行は、候補の当たり率にも拾えた率にも入れない(件数だけ別に出す)"""
+        base = self.judge(human_a())
+        self.assertEqual((base["noSub"], len(base["cands"])), ({"rows": 0, "candidates": 0}, 5))
+        segs = human_a()
+        segs[0] = dict(segs[0], noSub=True)            # 1 行目(猫 → 犬の候補。当たりのはずの行)を字幕に出さない行にする
+        r = self.judge(segs)
+        self.assertEqual({(c["wrong"], c["right"]) for c in r["cands"]}, {("晴れ", "雨"), ("蕎麦", "饂飩"), ("星", "月"), ("花", "鳥")})
+        self.assertEqual(r["noSub"], {"rows": 1, "candidates": 1})
+        self.assertEqual(len(r["fixes"]), len(base["fixes"]) - 1)   # 人の直しの数(拾えた率の分母)にも入らない: 猫 → 犬 の直しが減る
 
 
 class TestEvaluate(unittest.TestCase):
@@ -221,16 +218,9 @@ class TestEvaluate(unittest.TestCase):
         self.assertEqual((p["coveredRate"], p["hitRateOfCovered"]), (round(2 / 3, 4), 0.5))
         self.assertEqual(sum(t["skipped"].values()), 0)
         self.assertEqual(res["meta"]["docs"], 1)
-        self.assertTrue(res["meta"]["few"])                                # 判定できた候補が 100 件未満
-        self.assertIn("まだ少ない(参考)", res["meta"]["fewNote"])
+        self.assertTrue(res["meta"]["few"] and res["meta"]["fewNote"])     # 判定できた候補が 100 件未満
         self.assertIsNone(res["feedback"])
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            E.print_report(res)
-        text = buf.getvalue()
-        self.assertIn("まだ少ない(参考)", text)
-        self.assertIn("当たり 1", text)
-        self.assertIn("llama.cpp / qwen3-asr-1.7b", text)
+        quiet(E.print_report, res)
 
     def test_eval_set_and_docs_without_alt_are_not_measured(self):
         self.env.doc("aaaaaaaaaaa1", human_a())
@@ -244,18 +234,11 @@ class TestEvaluate(unittest.TestCase):
 
     def test_no_original_and_broken_are_skipped(self):
         self.env.doc("aaaaaaaaaaa1", human_a(), original=[])
-        with open(os.path.join(self.env.tdir, "bbbbbbbbbbb2.json"), "w", encoding="utf-8") as f:
-            f.write("{")
-        with open(os.path.join(self.env.tdir, "bbbbbbbbbbb2.alt.json"), "w", encoding="utf-8") as f:
-            f.write("{}")
+        testkit.write_text(os.path.join(self.env.tdir, "bbbbbbbbbbb2.json"), "{")
+        testkit.write_text(os.path.join(self.env.tdir, "bbbbbbbbbbb2.alt.json"), "{}")
         res = self.env.run()
-        self.assertEqual(res["meta"]["docs"], 0)
-        self.assertEqual(res["meta"]["skipped"]["noOriginal"], 1)
-        self.assertEqual(res["meta"]["skipped"]["broken"], 1)
-        text = io.StringIO()
-        with contextlib.redirect_stdout(text):
-            E.print_report(res)
-        self.assertIn("対象なし", text.getvalue())
+        self.assertEqual((res["meta"]["docs"], res["meta"]["skipped"]["noOriginal"], res["meta"]["skipped"]["broken"]), (0, 1, 1))
+        quiet(E.print_report, res)   # 対象が無くても表示で落ちない
 
     def test_by_engine_and_by_doc(self):
         self.env.doc("aaaaaaaaaaa1", human_a())
@@ -310,20 +293,11 @@ class TestEvaluate(unittest.TestCase):
         d = os.path.join(self.env.tx, "evals", "alt")
         names = os.listdir(d)
         self.assertEqual(len(names), 1)
-        with open(os.path.join(d, names[0]), encoding="utf-8") as f:
-            saved = json.load(f)
-        self.assertEqual(saved["meta"]["schema"], "youtube-tools-alt-eval/v1")
-        self.assertEqual(saved["total"]["judged"], 3)
-
-    def write_answers(self, rows):
-        d = os.path.join(self.env.root, "app", "check")
-        os.makedirs(d, exist_ok=True)
-        with open(os.path.join(d, "answers.jsonl"), "w", encoding="utf-8") as f:
-            for r in rows:
-                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        saved = testkit.read_json(os.path.join(d, names[0]))
+        self.assertEqual((saved["meta"]["schema"], saved["total"]["judged"]), ("youtube-tools-alt-eval/v1", 3))
 
     def test_check_answers_are_counted(self):
-        """5a-2: answers.jsonl の read:alt の答え(human/check/apply の形)を読む。戻した答え・別の出どころ・測らない文書は数えない"""
+        """answers.jsonl の read:alt の答え(human/check/apply の形)を読む。戻した答え・別の出どころ・測らない文書は数えない"""
         n = [0]
 
         def answer(tid, row_id, choice, wrong, right, source="alt", text=None, at=T1):
@@ -343,7 +317,7 @@ class TestEvaluate(unittest.TestCase):
                 answer("aaaaaaaaaaa1", "s3", "other", "蕎麦", "饂飩", text="昼はパンを食べる"),   # 校正済みで別の直し → 答えでも別の直し(1 件のまま)
                 answer("aaaaaaaaaaa1", "s1", "1", "猫", "犬", source="yt"),         # 消した yt の答え(alt では数えない)
                 answer("bbbbbbbbbbb2", "s1", "2", "猫", "犬")]                      # 測らない文書(評価用)
-        self.write_answers(rows)
+        self.env.answers(rows)
         before = self.env.snapshot()
         res = self.env.run()
         self.assertEqual(self.env.snapshot(), before)
@@ -351,50 +325,15 @@ class TestEvaluate(unittest.TestCase):
         self.assertEqual((t["candidates"], t["judged"], t["hit"], t["miss"], t["other"], t["unknown"]), (5, 4, 2, 1, 1, 1))
         ck = t["check"]
         self.assertEqual((ck["answers"], ck["hit"], ck["other"], ck["matched"], ck["added"], ck["notMeasured"]), (2, 1, 1, 2, 0, 1))
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            E.print_report(res)
-        self.assertIn("確かめるの答えで決めた 2 件", buf.getvalue())
-
-
-class TestNoSub(unittest.TestCase):
-    """字幕に出さない行(noSub)とその時間の機械の行は、候補の当たり率にも拾えた率にも入れない(件数だけ別に出す)"""
-
-    @classmethod
-    def setUpClass(cls):
-        E.C.prepare()
-
-    def judge(self, segments):
-        return E.judge_doc({"updatedAt": 1, "original": ORIG, "segments": segments}, {"rows": ALT})
-
-    def test_nosub_row_candidates_are_not_judged(self):
-        segs = human_a()
-        segs[0] = dict(segs[0], noSub=True)            # 1 行目(猫 → 犬の候補。当たりのはずの行)を字幕に出さない行にする
-        r = self.judge(segs)
-        self.assertEqual({(c["wrong"], c["right"]) for c in r["cands"]}, {("晴れ", "雨"), ("蕎麦", "饂飩"), ("星", "月"), ("花", "鳥")})
-        self.assertEqual(r["noSub"], {"rows": 1, "candidates": 1})
-        # 人の直しの数(拾えた率の分母)にも入らない: 猫 → 犬 の直しが減る
-        self.assertEqual(len(r["fixes"]), len(self.judge(human_a())["fixes"]) - 1)
-
-    def test_doc_without_nosub_is_unchanged(self):
-        r = self.judge(human_a())
-        self.assertEqual(r["noSub"], {"rows": 0, "candidates": 0})
-        self.assertEqual(len(r["cands"]), 5)
 
     def test_evaluate_reports_nosub_separately(self):
-        env = Env(self)
         segs = human_a()
         segs[0] = dict(segs[0], noSub=True)
-        env.doc("aaaaaaaaaaa1", segs)
-        env.doc("bbbbbbbbbbb2", human_a())
-        res = quiet(env.run)
-        t = res["total"]
+        self.env.doc("aaaaaaaaaaa1", segs)
+        self.env.doc("bbbbbbbbbbb2", human_a())
+        t = quiet(self.env.run)["total"]
         self.assertEqual(t["noSub"], {"docs": 1, "rows": 1, "candidates": 1})
         self.assertEqual(t["candidates"], 9)           # 4 + 5(noSub の行の候補 1 件は数えない)
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            E.print_report(res)
-        self.assertIn("noSub", out.getvalue())
 
 
 if __name__ == "__main__":

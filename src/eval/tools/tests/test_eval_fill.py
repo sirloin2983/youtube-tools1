@@ -60,19 +60,13 @@ class Env:
         if eval_set:
             d["evalSet"] = True
         d.update(extra)
-        with open(os.path.join(self.tdir, tid + ".json"), "w", encoding="utf-8") as f:
-            json.dump(d, f, ensure_ascii=False)
+        testkit.write_json(os.path.join(self.tdir, tid + ".json"), d)
         if raw is not None:
-            with open(os.path.join(self.tdir, tid + ".asr.json"), "w", encoding="utf-8") as f:
-                json.dump({"schema": "youtube-tools-asr/v1", "segments": raw}, f, ensure_ascii=False)
+            testkit.write_json(os.path.join(self.tdir, tid + ".asr.json"), {"schema": "youtube-tools-asr/v1", "segments": raw})
 
     def answers(self, rows):
         """確かめるの答えの記録(入口の作業データ app/check/answers.jsonl)を書く"""
-        d = os.path.join(self.root, "app", "check")
-        os.makedirs(d, exist_ok=True)
-        with open(os.path.join(d, "answers.jsonl"), "w", encoding="utf-8") as f:
-            for r in rows:
-                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        testkit.write_text(os.path.join(self.root, "app", "check", "answers.jsonl"), "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
 
 
 _n = [0]
@@ -103,9 +97,12 @@ class FoldTest(unittest.TestCase):
                 self.assertEqual(F.edit_distance(a, b), want)
 
 
-class EvalFillTest(unittest.TestCase):
+class Base(unittest.TestCase):
     def setUp(self):
         self.env = Env(self)
+
+
+class EvalFillTest(Base):
 
     def run_eval(self, **kw):
         return F.evaluate(self.env.root, **kw)
@@ -137,7 +134,7 @@ class EvalFillTest(unittest.TestCase):
         self.assertTrue(a["few"])
 
     def test_not_proofed_changes_are_unchecked(self):
-        """5b: 校正済みでない行は、直した・戻した・消したに見えても未確認(人が確認していない物を当たり・外れに入れない)"""
+        """校正済みでない行は、直した・戻した・消したに見えても未確認(人が確認していない物を当たり・外れに入れない)"""
         e = self.env
         orig = [machine(0, 2, "ゲームやろう", filled=True),   # 文字が違う・校正済みでない
                 machine(2, 4, "あいうえお", filled=True),     # whisper の文字に戻っている・校正済みでない
@@ -189,8 +186,7 @@ class EvalFillTest(unittest.TestCase):
         e.doc("abcdefabcde1", segs, orig, auto_fill=False, params={"autoLlm": True})
         items = [{"row": i, "start": i * 2.0, "end": i * 2.0 + 2, "text": "メコちゃん来た", "from": "メコちゃん", "to": "みこちゃん", "confidence": 0.8, "rejected": None}
                  for i in range(5)] + [{"row": 0, "start": 0, "end": 2, "text": "x", "from": "a", "to": "b", "rejected": "length"}]
-        with open(os.path.join(e.tdir, "abcdefabcde1.llm.json"), "w", encoding="utf-8") as f:
-            json.dump({"schema": "youtube-tools-llm/v1", "items": items}, f, ensure_ascii=False)
+        testkit.write_json(os.path.join(e.tdir, "abcdefabcde1.llm.json"), {"schema": "youtube-tools-llm/v1", "items": items})
         res = self.run_eval()
         x = res["e"]
         self.assertEqual((x["kept"], x["reverted"], x["unchecked"], x["deleted"], x["edited"]), (1, 1, 2, 0, 1))
@@ -224,15 +220,11 @@ class EvalFillTest(unittest.TestCase):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             self.assertEqual(F.main(["--data-dir", e.root, "--json"]), 0)
-        text = out.getvalue()
-        self.assertIn("残した", text)
-        self.assertIn("まだ少ない", text)
-        saved = text.strip().splitlines()[-1]
-        self.assertTrue(saved.startswith("保存: "))
-        path = saved[len("保存: "):]
+        saved = out.getvalue().strip().splitlines()[-1]
+        self.assertTrue(saved.startswith(F.C.SAVED_MARK))   # 入口の accuracy が読む最後の行
+        path = saved[len(F.C.SAVED_MARK):]
         self.assertTrue(path.startswith(os.path.join(e.root, "transcribe", "evals", "fill")))
-        with open(path, encoding="utf-8") as f:
-            self.assertEqual(json.load(f)["schema"], F.SCHEMA)
+        self.assertEqual(testkit.read_json(path)["schema"], F.SCHEMA)
 
     def test_empty_data(self):
         res = self.run_eval()
@@ -241,11 +233,8 @@ class EvalFillTest(unittest.TestCase):
         self.assertEqual(res["check"], {"answers": 0, "a": 0, "e": 0, "d": 0, "unmatched": 0})
 
 
-class AnswerTest(unittest.TestCase):
-    """5b-1: 確かめるの read:fill の答え(1 = 残した・2 = 戻した・打つ = 直した)を人の判断の正として読む"""
-
-    def setUp(self):
-        self.env = Env(self)
+class AnswerTest(Base):
+    """確かめるの read:fill の答え(1 = 残した・2 = 戻した・打つ = 直した)を人の判断の正として読む"""
 
     def test_answers_are_the_judgement(self):
         e, tid = self.env, "acacacacaca1"

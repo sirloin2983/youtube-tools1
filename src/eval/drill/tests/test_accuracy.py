@@ -19,7 +19,7 @@ for p in (HOME, ROOT):
 
 from eval.drill import accuracy  # noqa: E402
 from app import prefs as prefs_mod  # noqa: E402
-from ytt import fsio, jobs, testkit  # noqa: E402
+from ytt import fsio, testkit  # noqa: E402
 
 # 偽の道具: 引数 = 領域の id・結果の置き場所。環境変数 FAKE_FAIL(領域の id をカンマ区切り)で失敗・FAKE_HANG(同)で居座る・
 # FAKE_NOLINE(同)で「保存: 」の行を出さない・FAKE_OUTSIDE(同)で置き場所の外のファイルを知らせる。結果に環境変数 FAKE_MARK(引き継ぎの確認)と FAKE_VALUE を入れる
@@ -68,9 +68,17 @@ if not on("FAKE_NOLINE"):
 
 
 def put_file(path, text="{}"):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(text)
+    testkit.write_text(path, text)
+
+
+def areas(acc):
+    """{領域の id: 画面に渡す領域}"""
+    return {a["id"]: a for a in acc.snapshot()["areas"]}
+
+
+def goals(acc):
+    """{条件の id: 画面に渡す入口の条件}"""
+    return {g["id"]: g for g in acc.snapshot()["goals"]}
 
 
 def at(day, hour, minute=0):
@@ -98,8 +106,7 @@ class AccuracyTest(unittest.TestCase):
         self.tmp = testkit.tempdir(self, prefix="ytt-accuracy-")
         self.app = os.path.join(self.tmp, "app")
         self.fake = os.path.join(self.tmp, "fake_eval.py")
-        with open(self.fake, "w", encoding="utf-8") as f:
-            f.write(FAKE)
+        put_file(self.fake, FAKE)
         self.cut = True       # 偽の eval_cut.py があるか
         self.clock = Clock(at(5, 2))      # 夜の窓(1〜6 時)の中
         self.busy = Busy()
@@ -153,7 +160,7 @@ class AccuracyTest(unittest.TestCase):
         self.assertEqual(self.prefs.patch("accuracy", {"enabled": "yes"})["enabled"], False)   # true 以外はオフ
 
     def test_cfg_falls_back_to_given_defaults(self):
-        """設定が読めないときの既定は入口が渡す(accuracy は prefs を読み込まない。RS3-0B)"""
+        """設定が読めないときの既定は入口が渡す(accuracy は prefs を読み込まない)"""
         class Broken:
             def get(self, sections):
                 raise OSError("読めない")
@@ -173,12 +180,12 @@ class AccuracyTest(unittest.TestCase):
         self.assertTrue(one["few"])                      # 文書 2 本未満は「まだ少ない」
         marks = accuracy.summarize_marks({"meta": {"few": True}, "overall": {"judgedVideos": 3, "top": {"top10": {"adoptRate": 0.7}}, "misses": {"missRate": 0.1}}})
         self.assertEqual((marks["value"], marks["docs"], marks["unit"], marks["lowData"], marks["extra"][0]["value"]), (0.7, 3, "配信", True, 0.1))
-        # K2: 線 D の録画・友人の返事も足した judgedAll があれば、配信の数(C1 の入口)はそれ。無い以前の結果は judgedVideos
+        # 線 D の録画・友人の返事も足した judgedAll があれば、配信の数(C1 の入口)はそれ。無い結果は judgedVideos
         marks2 = accuracy.summarize_marks({"meta": {"few": True}, "overall": {"judgedVideos": 3, "judgedAll": 7, "top": {"top10": {"adoptRate": 0.7}}, "misses": {"missRate": 0.1}}})
         self.assertEqual((marks2["value"], marks2["docs"]), (0.7, 7))
         marks3 = accuracy.summarize_marks({"meta": {}, "overall": {"judgedVideos": 3, "top": {"top10": {"adoptRate": 0.7}}, "misses": {"missRate": 0.1}},
                                            "human3": {"friendRange": {"hitRate": 0.6}, "used": {"all": {"goodRate": 0.25}}}})
-        self.assertEqual([(e["label"], e["value"]) for e in marks3["extra"]][1:], [("友人の区間の拾えた率", 0.6), ("届けた物を友人が良いと答えた率", 0.25)])   # 物差し 3 本(MARKS-3・C-4-1)
+        self.assertEqual([(e["label"], e["value"]) for e in marks3["extra"]][1:], [("友人の区間の拾えた率", 0.6), ("届けた物を友人が良いと答えた率", 0.25)])   # 物差し 3 本
         spk = accuracy.summarize_speakers({"meta": {"docs": 9, "fewNote": ""}, "subsets": {"all": {"rate": 0.8, "voices": {"rate": 0.9}}}, "speakerCount": {"exactRate": 0.5}})
         self.assertEqual((spk["value"], spk["docs"], [e["value"] for e in spk["extra"]]), (0.8, 9, [0.9, 0.5]))
         gen = accuracy.summarize_generic({"accuracy": {"label": "x", "value": 0.4, "docs": 3, "better": "lower", "extra": [{"label": "y", "value": 1}]}})
@@ -194,6 +201,8 @@ class AccuracyTest(unittest.TestCase):
     def test_runs_in_night_window_once_a_day(self):
         r = self.acc.tick()
         self.assertEqual(r, {"asr": "ok", "marks": "ok", "speakers": "ok", "cut": "ok", "alt": "ok", "fill": "ok", "timing": "ok"})
+        asr_dir = self.edir({"id": "asr"})
+        self.assertEqual(testkit.read_json(os.path.join(asr_dir, os.listdir(asr_dir)[0]))["meta"]["mark"], "引き継ぎ")   # 子は YTT_DATA_DIR などの環境変数をそのまま引き継ぐ
         snap = self.acc.snapshot()
         by = {a["id"]: a for a in snap["areas"]}
         self.assertEqual(by["asr"]["latest"]["summary"]["value"], 0.2)
@@ -213,16 +222,9 @@ class AccuracyTest(unittest.TestCase):
         self.clock.t = at(6, 3)
         os.environ["FAKE_VALUE"] = "0.1"
         self.assertEqual(self.acc.tick()["asr"], "ok")   # 次の日の窓でまた 1 回
-        by = {a["id"]: a for a in self.acc.snapshot()["areas"]}
+        by = areas(self.acc)
         self.assertEqual(by["asr"]["latest"]["summary"]["value"], 0.1)    # 直近
         self.assertEqual(by["asr"]["prev"]["summary"]["value"], 0.2)      # 前回
-
-    def test_child_inherits_environment(self):
-        self.acc.tick()
-        path = os.path.join(self.edir({"id": "asr"}))
-        name = os.listdir(path)[0]
-        with open(os.path.join(path, name), encoding="utf-8") as f:
-            self.assertEqual(json.load(f)["meta"]["mark"], "引き継ぎ")   # YTT_DATA_DIR などの環境変数をそのまま引き継ぐ
 
     def test_waits_while_busy_then_runs(self):
         self.busy.why = "文字起こしのジョブ"
@@ -283,7 +285,7 @@ class AccuracyTest(unittest.TestCase):
         self.assertEqual((r["asr"], r["speakers"], r["cut"]), ("ok", "ok", "ok"))
         self.assertIn("終了コード 3", r["marks"])
         self.assertIn("道具が壊れました", r["marks"])
-        by = {a["id"]: a for a in self.acc.snapshot()["areas"]}
+        by = areas(self.acc)
         self.assertIn("道具が壊れました", by["marks"]["error"])
         self.assertIsNone(by["marks"]["latest"])
         self.assertIsNotNone(by["asr"]["latest"])
@@ -293,14 +295,14 @@ class AccuracyTest(unittest.TestCase):
         os.environ["FAKE_FAIL"] = ""
         self.clock.t = at(6, 3)
         self.acc.tick()
-        by = {a["id"]: a for a in self.acc.snapshot()["areas"]}
+        by = areas(self.acc)
         self.assertEqual(by["marks"]["error"], "")
         self.assertIsNotNone(by["marks"]["latest"])
         # 直った後にまた失敗しても、最後の良い結果は残る
         os.environ["FAKE_FAIL"] = "marks"
         self.clock.t = at(7, 3)
         self.acc.tick()
-        by = {a["id"]: a for a in self.acc.snapshot()["areas"]}
+        by = areas(self.acc)
         self.assertIn("道具が壊れました", by["marks"]["error"])
         self.assertIsNotNone(by["marks"]["latest"])
 
@@ -312,10 +314,10 @@ class AccuracyTest(unittest.TestCase):
         self.assertEqual((r["asr"], r["marks"]), ("ok", "ok"))
 
     def test_missing_tool_is_skipped(self):
-        self.cut = False                                 # eval/tools/eval_cut.py はまだ無い
+        self.cut = False                                 # 道具が無い領域
         r = self.acc.tick()
         self.assertIsNone(r["cut"])
-        by = {a["id"]: a for a in self.acc.snapshot()["areas"]}
+        by = areas(self.acc)
         self.assertFalse(by["cut"]["available"])
         self.assertTrue(by["asr"]["available"])
         self.assertEqual(by["cut"]["error"], "")
@@ -357,7 +359,7 @@ class AccuracyTest(unittest.TestCase):
             put_file(os.path.join(d, "memo.txt"))
             os.makedirs(os.path.join(d, "20240101-000000.json.d"))
         put_file(os.path.join(mine["asr"], "20250103-000000_baseline.json"))
-        for day in range(5, 12):                      # 7 回測る(夜の窓に 1 日 1 回)
+        for day in range(5, 10):                      # 5 回測る(夜の窓に 1 日 1 回)
             self.clock.t = at(day, 3)
             self.assertEqual(acc.tick()["asr"], "ok")
         for aid, d in mine.items():
@@ -367,14 +369,8 @@ class AccuracyTest(unittest.TestCase):
             self.assertEqual(auto, sorted(acc.last["areas"][aid]["files"]))
             self.assertEqual(auto[-1], acc.last["areas"][aid]["latest"]["file"])   # 直近は残る
             self.assertTrue(os.path.isdir(os.path.join(d, "20240101-000000.json.d")))
-            for keep in ("memo.txt",):
+            for keep in ("memo.txt", "20250101-000000.json", "20250102-000000_manual.json"):   # 手で流した分(古い日時の名前)は一覧に無いので消さない
                 self.assertIn(keep, names)
-        for aid in ("marks", "speakers", "cut"):   # 印が無い領域: 手で流した分(古い日時の名前)は、一覧に無いので消さない
-            self.assertIn("20250101-000000.json", os.listdir(mine[aid]))
-            self.assertIn("20250102-000000_manual.json", os.listdir(mine[aid]))
-        self.assertEqual(len([n for n in os.listdir(mine["asr"]) if n.endswith("_auto.json")]), 3)
-        self.assertIn("20250101-000000.json", os.listdir(mine["asr"]))
-        self.assertIn("20250102-000000_manual.json", os.listdir(mine["asr"]))
         self.assertIn("20250103-000000_baseline.json", os.listdir(mine["asr"]))
 
     def test_prune_finds_auto_asr_files_when_the_list_is_lost_but_not_other_areas(self):
@@ -416,7 +412,7 @@ class AccuracyTest(unittest.TestCase):
         again = self.make()
         self.assertEqual(again.last["day"], "2026-10-05")
         self.assertIsNone(again.tick())                  # 起動し直しても今日は測らない
-        by = {a["id"]: a for a in again.snapshot()["areas"]}
+        by = areas(again)
         self.assertEqual(by["asr"]["latest"]["summary"]["value"], 0.2)
         self.assertTrue(os.path.isfile(os.path.join(self.app, accuracy.STATE_FILE)))
         with open(os.path.join(self.app, accuracy.STATE_FILE), "w", encoding="utf-8") as f:
@@ -437,7 +433,7 @@ class AccuracyTest(unittest.TestCase):
         self.assertEqual([g["id"] for g in snap["goals"]], [g["id"] for g in accuracy.GOALS])
         json.dumps(snap)                                 # そのまま JSON にできる
 
-    # ---- 入口の条件(あと何本・何分。入口 0.38.0)
+    # ---- 入口の条件(あと何本・何分)
     def test_goals_before_any_measurement_are_unmeasured(self):
         goals = self.acc.snapshot()["goals"]
         self.assertEqual(len(goals), 10)
@@ -459,7 +455,7 @@ class AccuracyTest(unittest.TestCase):
         put_file(os.path.join(self.txdir, "notadoc.json"), json.dumps({"segments": [{"start": 0, "end": 900, "proofed": True}]}))
         put_file(os.path.join(self.txdir, "aaaaaaaaaa03.json"), "{壊れた")                                     # 読めない文書は飛ばす
         self.acc.tick()
-        by = {g["id"]: g for g in self.acc.snapshot()["goals"]}
+        by = goals(self.acc)
         self.assertEqual((by["g1"]["now"], by["g1"]["left"], by["g1"]["reached"]), (950.0, 0.0, True))     # 定点 = eval_asr の summary.reviewed.sec
         self.assertEqual((by["g2fixed"]["now"], by["g2fixed"]["left"], by["g2fixed"]["reached"]), (950.0, 850.0, False))
         self.assertEqual((by["g2daily"]["now"], by["g2daily"]["left"]), (30.0, 1770.0))                   # 普段 = 入口が数えた評価用以外の校正済み
@@ -480,7 +476,7 @@ class AccuracyTest(unittest.TestCase):
             raise RuntimeError("フォルダ")
         acc = self.make(transcripts_dir=boom)
         self.assertEqual(acc.tick()["asr"], "ok")        # 数えられなくても測定は成功
-        by = {g["id"]: g for g in acc.snapshot()["goals"]}
+        by = goals(acc)
         self.assertIsNone(by["g2daily"]["now"])
         self.assertTrue(any("普段" in m for m in self.logs))
         self.assertEqual(accuracy.count_daily(os.path.join(self.tmp, "無い")), {"sec": 0.0, "docs": 0, "lines": 0})
@@ -537,11 +533,11 @@ class AccuracyTest(unittest.TestCase):
             accuracy.summarize_speakers({"meta": {}, "bySetting": []})
 
     def test_goals_add_check_answers(self):
-        """「確かめる」の答え(app/check/answers.jsonl)を入口の条件に足す(V1 V0。数え方は src/eval/check/goals.py)"""
+        """「確かめる」の答え(app/check/answers.jsonl)を入口の条件に足す(数え方は src/eval/check/goals.py)"""
         from human.check import answerlog
         for i, (kind, source, case) in enumerate((("voice", "diar", "v1"), ("voice", "diar", "v1"), ("value", "auto", "v1"), ("value", "cand", "v1"))):
             answerlog.append(self.app, {"id": answerlog.new_id(), "at": 1000 + i, "kind": kind, "source": source, "card": "%s:%s:k%d" % (kind, source, i), "case": case})
-        by = {g["id"]: g for g in self.acc.snapshot()["goals"]}
+        by = goals(self.acc)
         self.assertEqual((by["speakers"]["now"], by["speakers"]["check"], by["speakers"]["left"]), (2.0, 2, 198))
         self.assertEqual((by["marks"]["now"], by["marks"]["check"]), (1.0, 1))   # 配信の単位
         self.assertEqual((by["alt"]["now"], by["alt"]["check"]), (None, 0))

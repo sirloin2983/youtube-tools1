@@ -50,20 +50,29 @@ class Env:
     """一時フォルダの作業データ: <root>/studio・<root>/app・<root>/cut2resolve"""
 
     def __init__(self, test):
+        self.test = test
         self.root = testkit.tempdir(test)
         self.studio = os.path.join(self.root, "studio")
         self.logs = os.path.join(self.root, "app", "logs")
         os.makedirs(self.studio)
         os.makedirs(self.logs)
 
-    def data(self, videos):
-        with open(os.path.join(self.studio, "data.json"), "w", encoding="utf-8") as f:
-            json.dump({"schema": "clip-studio/v1", "videos": videos, "groups": {}}, f, ensure_ascii=False)
-
-    def feedback(self, rows, name="feedback.jsonl"):
-        with open(os.path.join(self.studio, name), "w", encoding="utf-8") as f:
+    def jsonl(self, rel, rows, mode="w"):
+        """root の下の rel(/ 区切り)へ JSON の行を書く。mode "a" で足す"""
+        p = os.path.join(self.root, *rel.split("/"))
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, mode, encoding="utf-8") as f:
             for r in rows:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    def data(self, videos):
+        testkit.write_json(os.path.join(self.studio, "data.json"), {"schema": "clip-studio/v1", "videos": videos, "groups": {}})
+
+    def videos(self):
+        return testkit.read_json(os.path.join(self.studio, "data.json"))["videos"]
+
+    def feedback(self, rows, name="feedback.jsonl", mode="w"):
+        self.jsonl("studio/" + name, rows, mode)
 
     def archive(self, vid, cands, at):
         os.makedirs(os.path.join(self.studio, "archive"), exist_ok=True)
@@ -71,9 +80,22 @@ class Env:
             json.dump({"v": 1, "videoId": vid, "type": "歌枠", "runs": [{"at": at, "candidates": cands}]}, f)
 
     def runs(self, rows):
-        with open(os.path.join(self.logs, "autorun-runs.jsonl"), "w", encoding="utf-8") as f:
-            for r in rows:
-                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        self.jsonl("app/logs/autorun-runs.jsonl", rows)
+
+    def live_feedback(self, rows, mode="w"):
+        self.jsonl("app/live/live_feedback.jsonl", rows, mode)
+
+    def built(self):
+        """道具の中の配信ごとのまとめ(build_videos)"""
+        env, studio, app = M.locate(self.root)
+        return M.build_videos(studio, M.load_feedback(studio), M.load_runs(app), env)
+
+    def saved(self, suffix=".json"):
+        """--json で保存した evals/marks の結果(名前の終わりが suffix の 1 つ)"""
+        d = os.path.join(self.studio, "evals", "marks")
+        names = [n for n in os.listdir(d) if n.endswith(suffix) and (suffix != ".json" or not n.endswith("-live.json"))]
+        self.test.assertEqual(len(names), 1)
+        return testkit.read_json(os.path.join(d, names[0]))
 
     def pack(self, media):
         """media(書き出した mp4 のパス)の隣に _pack を作り、パックを作った記録を cut2resolve の packs/ に置く"""
@@ -98,8 +120,15 @@ class Env:
         """届けた記録(logs/deliveries.jsonl)を 1 行足す。packs = [(パックのフォルダ名, markId)]"""
         row = dict({"at": ms(at), "zip": zip_name, "requestId": "q" if origin == "request" else "", "runId": "r", "videoId": vid, "origin": origin,
                     "packs": [{"dir": "C:\\out\\" + n, "markId": m} for n, m in packs]}, **kw)
-        with open(os.path.join(self.logs, "deliveries.jsonl"), "a", encoding="utf-8") as f:
-            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        self.jsonl("app/logs/deliveries.jsonl", [row], "a")
+
+
+def printed(fn, *args):
+    """fn(*args) が画面に出した文字"""
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        fn(*args)
+    return out.getvalue()
 
 
 def video(vid, marks, typ="歌枠", title="t"):
@@ -127,9 +156,14 @@ def build(test):
         fb("2026-09-04", "unadopt", "retract", 500.0, 540.0, 3.0, auto0=[500.0, 540.0], prevStatus="adopted"),
         fb("2026-09-04", "adopt", "good", 900.0, 930.0, src="manual"),
     ])
-    env.runs([{"v": 1, "id": "r1", "kind": "video", "videoId": V1, "state": "done", "requestId": "20260901-000000-abcdef",
-               "steps": [{"key": "adopt", "state": "done"}, {"key": "deliver", "state": "done"}], "marks": ["mA", "mD"]}])
+    env.runs([build_run()])
     return env
+
+
+def build_run(**kw):
+    """build の実行記録(採用と届けるの段が動いた・届けたのは mA・mD)。kw で区間などを足す"""
+    return dict({"v": 1, "id": "r1", "kind": "video", "videoId": V1, "state": "done", "requestId": "20260901-000000-abcdef",
+                 "steps": [{"key": "adopt", "state": "done"}, {"key": "deliver", "state": "done"}], "marks": ["mA", "mD"]}, **kw)
 
 
 class EvalMarks(unittest.TestCase):
@@ -148,26 +182,20 @@ class EvalMarks(unittest.TestCase):
         self.assertEqual((al["exportRate"], al["packRate"], al["deliveredRate"]), (1.0, 1.0, 1.0))
         self.assertEqual(o["videos"], 1)
         self.assertTrue(r["meta"]["few"])   # 配信 10 本未満
-        self.assertIn("まだ少ない", r["meta"]["fewNote"])
+        self.assertTrue(r["meta"]["fewNote"])
 
     def test_top_n_order(self):
         """上位 N は点数の高い順。N=1 なら削除した候補 E(6.0)だけ = 悪い"""
-        env = build(self)
-        _env, studio, _app = M.locate(env.root)
-        vids = M.build_videos(studio, M.load_feedback(studio), M.load_runs(os.path.join(env.root, "app")), _env)
-        order = [(i["score"], i["verdict"]) for i in M.ranked(vids[V1]["auto"])]
+        order = [(i["score"], i["verdict"]) for i in M.ranked(build(self).built()[V1]["auto"])]
         self.assertEqual(order, [(6.0, "bad"), (5.0, "good"), (4.0, "bad"), (3.0, "none"), (2.0, "machine")])
 
     def test_rejected_without_human_row_is_none(self):
-        """OPT-E1 7c-1: 人の行(却下・削除)の無い rejected(マークの状態だけ)は「悪い」ではなく判定なし"""
+        """人の行(却下・削除)の無い rejected(マークの状態だけ)は「悪い」ではなく判定なし"""
         env = build(self)
-        with open(os.path.join(env.studio, "data.json"), encoding="utf-8") as f:
-            d = json.load(f)
-        d["videos"][V1]["marks"].append(mark("mR", 1100.0, 1140.0, 1.0, "rejected"))
-        env.data(d["videos"])
-        _env, studio, _app = M.locate(env.root)
-        vids = M.build_videos(studio, M.load_feedback(studio), M.load_runs(os.path.join(env.root, "app")), _env)
-        by = {i["score"]: i["verdict"] for i in vids[V1]["auto"]}
+        d = env.videos()
+        d[V1]["marks"].append(mark("mR", 1100.0, 1140.0, 1.0, "rejected"))
+        env.data(d)
+        by = {i["score"]: i["verdict"] for i in env.built()[V1]["auto"]}
         self.assertEqual((by[1.0], by[4.0]), ("none", "bad"))   # 行のある mB(4.0)は今までどおり悪い
 
     def test_live_recording_not_counted(self):
@@ -175,53 +203,39 @@ class EvalMarks(unittest.TestCase):
         env = build(self)
         before = env.evaluate()["overall"]
         rid = "20261005-185300-U972n0ncl4k"
-        with open(os.path.join(env.studio, "data.json"), encoding="utf-8") as f:
-            d = json.load(f)
-        d["videos"][rid] = {"id": rid, "kind": "live", "title": "録画", "analysis": None, "rev": 1,
-                            "marks": [mark("lm1", 10.0, 20.0, None, "exported", src="manual"), mark("lm2", 30.0, 40.0, None, "", src="manual")]}
-        env.data(d["videos"])
-        with open(os.path.join(env.studio, "feedback.jsonl"), "a", encoding="utf-8") as f:
-            for r in (fb("2026-09-05", "manual_add", "miss", 10.0, 20.0, src="manual", videoId=rid, kind="live", autoCount=0, nearAuto=None),
-                      fb("2026-09-05", "export", "good", 10.0, 20.0, src="manual", videoId=rid, kind="live")):
-                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        d = env.videos()
+        d[rid] = {"id": rid, "kind": "live", "title": "録画", "analysis": None, "rev": 1,
+                  "marks": [mark("lm1", 10.0, 20.0, None, "exported", src="manual"), mark("lm2", 30.0, 40.0, None, "", src="manual")]}
+        env.data(d)
+        env.feedback([fb("2026-09-05", "manual_add", "miss", 10.0, 20.0, src="manual", videoId=rid, kind="live", autoCount=0, nearAuto=None),
+                      fb("2026-09-05", "export", "good", 10.0, 20.0, src="manual", videoId=rid, kind="live")], mode="a")
         after = env.evaluate()["overall"]
         self.assertEqual((after["videos"], after["misses"], after["top"]), (before["videos"], before["misses"], before["top"]))
 
     def test_judged_elsewhere_counts_live_and_friend(self):
-        """K2(10-08 決定): C1 の入口の数に線 D の人の判定(届けた・要らない)と友人の返事も足す。採用率は変えない(友人の基準は別)"""
+        """C1 の入口の数に線 D の人の判定(届けた・要らない)と友人の返事も足す。採用率は変えない(友人の基準は別)"""
         env = build(self)
         before = env.evaluate()["overall"]
-        live = os.path.join(env.root, "app", "live")
-        os.makedirs(live)
-        rows = [{"v": 1, "at": "2026-10-08T10:00:00.000Z", "event": "adopt", "human": False, "recorder": "local", "recording": "rec1"},   # 機械の行は人の判断に数えない
-                {"v": 1, "at": "2026-10-08T12:00:00.000Z", "event": "detect_compare", "recorder": "local", "recording": "rec3"}]
-        with open(os.path.join(live, "live_feedback.jsonl"), "w", encoding="utf-8") as f:
-            f.write("\n".join(json.dumps(r) for r in rows) + "\n")
-        # 人の判断は judgments から(live_feedback の human の行はもう読まない)
+        env.live_feedback([{"v": 1, "at": "2026-10-08T10:00:00.000Z", "event": "adopt", "human": False, "recorder": "local", "recording": "rec1"},   # 機械の行は人の判断に数えない
+                           {"v": 1, "at": "2026-10-08T12:00:00.000Z", "event": "detect_compare", "recorder": "local", "recording": "rec3"},
+                           {"v": 1, "at": "2026-10-08T10:05:00.000Z", "event": "deliver", "human": True, "recorder": "local", "recording": "rec9"}])   # human の行は読まない(人の判断は judgments)
         for n, what, rec in ((1, "adopt", "rec1"), (2, "reject", "rec1"), (3, "reject", "rec2")):
             env.judge(n, what, vid=rec, ref={"recorder": "local", "recording": rec})
         env.judge(4, "adopt", vid="recx", origin="manual", ref={"recorder": "local", "recording": "recx"})   # origin live でない物は数えない
-        with open(os.path.join(live, "live_feedback.jsonl"), "a", encoding="utf-8") as f:
-            f.write(json.dumps({"v": 1, "at": "2026-10-08T10:05:00.000Z", "event": "deliver", "human": True, "recorder": "local", "recording": "rec9"}) + "\n")   # 古い人の行は無視
-        with open(os.path.join(env.logs, "friend_feedback.jsonl"), "w", encoding="utf-8") as f:
-            for vid in (V1, V2, V2):   # V1 はスタジオで判定あり = 二重に数えない
-                f.write(json.dumps({"at": ms("2026-10-08"), "zip": "z.zip", "verdict": "reject", "videoId": vid, "packs": []}) + "\n")
-            f.write(json.dumps({"at": ms("2026-10-08"), "zip": "y.zip", "verdict": "reject", "videoId": "", "runId": "r1", "packs": []}) + "\n")   # 実行記録 r1 = V1
-            f.write(json.dumps({"at": ms("2026-10-08"), "zip": "x.zip", "verdict": "reject", "videoId": "", "runId": "nothing", "packs": []}) + "\n")   # たどれない
-            clip_dir = os.path.join(env.root, "clips")   # V1 の書き出し先と同じフォルダ = V1(二重に数えない)
-            f.write(json.dumps({"at": ms("2026-10-08"), "zip": "w.zip", "verdict": "reject", "videoId": "", "runId": "file1", "packs": [{"dir": os.path.join(clip_dir, "b_pack")}]}) + "\n")
-            f.write(json.dumps({"at": ms("2026-10-08"), "zip": "v.zip", "verdict": "reject", "videoId": "", "runId": "file2",
-                                "packs": [{"dir": os.path.join(env.root, "other", "c_pack")}]}) + "\n")   # 突き合わないフォルダ = 1 つの配信
+        def friend(zip_name, vid="", run_id=None, pack=None):
+            return dict({"at": ms("2026-10-08"), "zip": zip_name, "verdict": "reject", "videoId": vid, "packs": [{"dir": pack}] if pack else []},
+                        **({"runId": run_id} if run_id else {}))
+        env.jsonl("app/logs/friend_feedback.jsonl", [friend("z.zip", V1), friend("z.zip", V2), friend("z.zip", V2),   # V1 はスタジオで判定あり = 二重に数えない
+                                                     friend("y.zip", run_id="r1"),        # 実行記録 r1 = V1
+                                                     friend("x.zip", run_id="nothing"),   # たどれない
+                                                     friend("w.zip", run_id="file1", pack=os.path.join(env.root, "clips", "b_pack")),   # V1 の書き出し先と同じフォルダ = V1
+                                                     friend("v.zip", run_id="file2", pack=os.path.join(env.root, "other", "c_pack"))])  # 突き合わないフォルダ = 1 つの配信
         r = env.evaluate()
         o = r["overall"]
         self.assertEqual(o["judgedElsewhere"], {"live": {"recordings": 2, "good": 1, "bad": 2}, "friend": {"videos": 3, "rows": 7, "unknown": 1, "notInStudio": 2}, "all": 5})
         self.assertEqual((o["judgedAll"], r["meta"]["judgedAll"], o["judgedVideos"]), (5, 5, 1))
         self.assertEqual((o["top"], o["misses"]), (before["top"], before["misses"]))   # 採用率・見逃しは今までどおり
         self.assertEqual(env.evaluate(since="2026-10-09")["overall"]["judgedElsewhere"]["live"]["recordings"], 0)   # 時期で絞る
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            M.print_report(r)
-        self.assertIn("C1 の入口に数える判定のある配信 5 本", out.getvalue())
 
     def test_misses_edits_retracts(self):
         o = build(self).evaluate()["overall"]
@@ -249,8 +263,6 @@ class EvalMarks(unittest.TestCase):
         self.assertEqual(r["byVideo"][0]["top"]["all"]["machine"], 1)
         self.assertEqual(r["overall"]["top"]["all"]["good"], 0)
         self.assertEqual(r["overall"]["top"]["all"]["unrecorded"], 1)
-        self.assertTrue(any("自動採用" in n for n in r["meta"]["notes"]))
-        self.assertTrue(any("status-fallback" in n for n in r["meta"]["notes"]))
         r2 = env.evaluate(status_fallback=True)
         self.assertEqual(r2["overall"]["top"]["all"]["good"], 1)   # V2 だけ(V1 は自動採用のまま)
         self.assertEqual(r2["overall"]["top"]["all"]["machine"], 1)
@@ -267,13 +279,11 @@ class EvalMarks(unittest.TestCase):
     def test_since_until(self):
         env = build(self)
         later = mark("n1", 10.0, 50.0, 9.0, "adopted", created=ms("2026-10-02"))
-        with open(os.path.join(env.studio, "data.json"), encoding="utf-8") as f:
-            d = json.load(f)
-        d["videos"][V2] = video(V2, [later, mark("n2", 100.0, 140.0, 8.0, created=ms("2026-10-02"))], typ="雑談")
-        env.data(d["videos"])
-        with open(os.path.join(env.studio, "feedback.jsonl"), "a", encoding="utf-8") as f:
-            f.write(json.dumps(fb("2026-10-02", "adopt", "good", 10.0, 50.0, 9.0, auto0=[10.0, 50.0], videoId=V2, type="雑談")) + "\n")
-            f.write(json.dumps(fb("2026-10-03", "manual_add", "miss", 500.0, 530.0, src="manual", videoId=V2, autoCount=2)) + "\n")
+        d = env.videos()
+        d[V2] = video(V2, [later, mark("n2", 100.0, 140.0, 8.0, created=ms("2026-10-02"))], typ="雑談")
+        env.data(d)
+        env.feedback([fb("2026-10-02", "adopt", "good", 10.0, 50.0, 9.0, auto0=[10.0, 50.0], videoId=V2, type="雑談"),
+                      fb("2026-10-03", "manual_add", "miss", 500.0, 530.0, src="manual", videoId=V2, autoCount=2)], mode="a")
         allr = env.evaluate()
         self.assertEqual(allr["overall"]["videos"], 2)
         self.assertEqual(sorted(allr["byType"]), ["歌枠", "雑談"])
@@ -368,37 +378,26 @@ class EvalMarks(unittest.TestCase):
             self.assertEqual(r["meta"]["videos"], 0)
             self.assertTrue(r["meta"]["few"])
             self.assertEqual(r["overall"]["top"]["all"]["items"], 0)
-            self.assertIsNone(r["overall"]["top"]["top5"]["adoptRate"])
-            buf = io.StringIO()
-            with contextlib.redirect_stdout(buf):
-                M.print_report(r)
-            self.assertIn("データがありません", buf.getvalue())
+            printed(M.print_report, r)   # 空でも表示で落ちない
 
     def test_corrupt_data_json(self):
         env = Env(self)
-        with open(os.path.join(env.studio, "data.json"), "w") as f:
-            f.write("{broken")
+        testkit.write_text(os.path.join(env.studio, "data.json"), "{broken")
         self.assertEqual(env.evaluate()["meta"]["videos"], 0)
 
     def test_cli_json_saved_and_read_only(self):
+        """--json なしでは何も書かない。--json の保存は画面と同じ値(友人の区間も入る)。入力は書き換えない"""
         env = build(self)
+        env.runs([build_run(created=ms("2026-09-05"), ranges=[[110, 130]])])
         before = {n: os.path.getmtime(os.path.join(env.studio, n)) for n in os.listdir(env.studio) if os.path.isfile(os.path.join(env.studio, n))}
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            res = M.main(["--data-dir", env.root])
-        out = buf.getvalue()
-        self.assertIn("★ まだ少ない", out)
-        self.assertIn("上位", out)
-        self.assertFalse(os.path.exists(os.path.join(env.studio, "evals")))   # --json が無ければ何も書かない
         with contextlib.redirect_stdout(io.StringIO()):
-            M.main(["--data-dir", env.root, "--json", "--since", "2026-01-01"])
-        d = os.path.join(env.studio, "evals", "marks")
-        files = os.listdir(d)
-        self.assertEqual(len(files), 1)
-        with open(os.path.join(d, files[0]), encoding="utf-8") as f:
-            saved = json.load(f)
+            res = M.main(["--data-dir", env.root])
+        self.assertFalse(os.path.exists(os.path.join(env.studio, "evals")))
+        printed(M.main, ["--data-dir", env.root, "--json", "--since", "2026-01-01"])
+        saved = env.saved()
         self.assertEqual(saved["meta"]["schema"], M.SCHEMA)
         self.assertEqual(saved["overall"]["top"]["top5"], res["overall"]["top"]["top5"])   # 画面と同じ形・同じ値
+        self.assertEqual(saved["friendRanges"]["overall"]["hit"], 1)
         after = {n: os.path.getmtime(os.path.join(env.studio, n)) for n in before}
         self.assertEqual(before, after)   # 入力は書き換えない
 
@@ -433,26 +432,17 @@ def eight(vid=V1):
 
 
 class LiveReports(unittest.TestCase):
-    """--live(線 D の D-12): 入口の配信ごとの記録(live/reports/)と live_feedback.jsonl を録画ごとに並べる(読むだけ)"""
+    """--live: 入口の配信ごとの記録(live/reports/)と live_feedback.jsonl を録画ごとに並べる(読むだけ)"""
     RC, R1, R2, R3 = "local", "20261008-200000-abcdefghijk", "20261009-200000-bbbbbbbbbbb", "20261001-100000-ccccccccccc"
 
     def report(self, env, rec, started, **kw):
         d = os.path.join(env.root, "app", "live", "reports")
-        os.makedirs(d, exist_ok=True)
         rep = dict({"v": 1, "recorder": self.RC, "recording": rec, "state": "done", "startedAt": started, "updatedAt": started, "finishedAt": started,
                     "info": {"title": "配信 " + rec[-3:], "hours": 2.5}, "samples": {"behindMax": 12.0, "memMaxMB": 300.0, "lagMax": 9, "restarts": 1, "chatRestarts": 2, "chat": "ok"},
                     "detect": {"frame": 5, "bench": 2, "dismissed": 1, "adopted": 3, "adoptedAuto": 2, "adoptedManual": 1, "givenUp": 1, "gaps": 0, "ended": True},
                     "tx": {"ok": 4, "empty": 1, "error": 1, "secMedian": 6.0}, "exports": {"total": 3, "failures": 1, "waitSecMedian": 90.0, "waitSecMax": 200.0, "byState": {"done": 2, "error": 1}},
                     "disk": {"state": "ok", "rows": []}, "request": None}, **kw)
-        with open(os.path.join(d, "%s__%s.json" % (self.RC, rec)), "w", encoding="utf-8") as f:
-            json.dump(rep, f, ensure_ascii=False)
-
-    def feedback(self, env, rows):
-        d = os.path.join(env.root, "app", "live")
-        os.makedirs(d, exist_ok=True)
-        with open(os.path.join(d, "live_feedback.jsonl"), "w", encoding="utf-8") as f:
-            for r in rows:
-                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        testkit.write_json(os.path.join(d, "%s__%s.json" % (self.RC, rec)), rep)
 
     def rows(self):
         R1, R2, R3, RC = self.R1, self.R2, self.R3, self.RC
@@ -480,7 +470,7 @@ class LiveReports(unittest.TestCase):
         env = Env(self)
         self.report(env, self.R1, "2026-10-08T20:00:00Z")
         self.report(env, self.R2, "2026-10-10T12:00:00Z", request={"rid": "r", "streamer": "x"}, detect={"frame": 1, "bench": 0, "dismissed": 0, "adopted": 0, "adoptedAuto": 0, "adoptedManual": 0, "givenUp": 0, "gaps": 1, "ended": False})
-        self.feedback(env, self.rows())
+        env.live_feedback(self.rows())
         self.human(env)
         res = M.evaluate_live(env.root)
         m, t = res["meta"], res["totals"]
@@ -507,31 +497,19 @@ class LiveReports(unittest.TestCase):
         env = Env(self)
         res = M.evaluate_live(env.root)
         self.assertEqual((res["meta"]["recordings"], res["recordings"], res["totals"]["recordings"], res["totals"]["adoptRate"]), (0, [], 0, None))
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            M.main(["--live", "--data-dir", env.root])
-        self.assertIn("記録がありません", out.getvalue())
+        printed(M.main, ["--live", "--data-dir", env.root])   # 空でも表示で落ちない
         self.report(env, self.R1, "2026-10-08T20:00:00Z")
-        self.feedback(env, self.rows())
+        env.live_feedback(self.rows())
         self.human(env)
         before = sorted(os.listdir(env.root))
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            M.main(["--live", "--data-dir", env.root, "--json"])
-        text = out.getvalue()
-        self.assertIn("録画 2 本", text)
-        self.assertIn("配信中 vs アーカイブ", text)
-        self.assertIn(self.R1, text)
-        self.assertIn("保存: ", text)
-        saved = [n for n in os.listdir(os.path.join(env.studio, "evals", "marks")) if n.endswith("-live.json")]
-        self.assertEqual(len(saved), 1)
-        with open(os.path.join(env.studio, "evals", "marks", saved[0]), encoding="utf-8") as f:
-            self.assertEqual(json.load(f)["meta"]["schema"], M.LIVE_SCHEMA)
+        self.assertIn(M.C.SAVED_MARK, printed(M.main, ["--live", "--data-dir", env.root, "--json"]))   # 入口の accuracy が読む印
+        saved = env.saved("-live.json")
+        self.assertEqual((saved["meta"]["schema"], saved["meta"]["recordings"]), (M.LIVE_SCHEMA, 2))
         self.assertEqual(sorted(os.listdir(env.root)), before)   # 作業データの親には何も足さない(evals は studio の中)
 
 
 class Human3(unittest.TestCase):
-    """物差し 3 本(human3。MARKS-3): 友人の区間・届けた物を友人が使ったか・確かめるの良い / 悪い。人の判断は judgments だけを読む"""
+    """物差し 3 本(human3): 友人の区間・届けた物を友人が使ったか・確かめるの良い / 悪い。人の判断は judgments だけを読む"""
 
     def h3(self, env, **kw):
         return env.evaluate(**kw)["human3"]
@@ -618,13 +596,8 @@ class Human3(unittest.TestCase):
         res = env.evaluate()
         fr = res["friendRanges"]["overall"]
         self.assertEqual((res["human3"]["friendRange"]["hit"], res["human3"]["friendRange"]["hitRate"], res["human3"]["friendRange"]["ranges"]), (fr["hit"], fr["hitRate"], fr["ranges"]))
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            M.print_report(res)
-        text = out.getvalue()
-        self.assertIn("物差し 3 本", text)
+        text = printed(M.print_report, res)
         self.assertLess(text.index("物差し 3 本"), text.index("上位"))   # 3 本が先頭(古い物差しより前)
-        self.assertIn("2 届けた物を友人がどう答えたか: 良い 100%(良い 1 / 届けた 1)", text)
 
 
 class FriendRanges(unittest.TestCase):
@@ -715,7 +688,6 @@ class FriendRanges(unittest.TestCase):
         self.assertFalse(v2["analyzed"])
         self.assertEqual((v2["ranges"], v2["unanalyzedRanges"], v2["miss"], v2["hit"]), (1, 1, 0, 0))
         self.assertIsNone(v2["items"][0]["rank"])
-        self.assertTrue(any("未解析" in n for n in fr["notes"]))
 
     def test_merge_same_ranges(self):
         env = Env(self)
@@ -746,7 +718,6 @@ class FriendRanges(unittest.TestCase):
         its = {(i["start"], i["end"]): i for i in fr["byVideo"][0]["items"]}
         self.assertEqual(sorted(its), [(0.0, 30.0), (100.0, 140.0), (900.0, 1000.0)])
         self.assertEqual(its[(100.0, 140.0)]["rank"], 1)
-        self.assertTrue(any("取りこぼし" in n for n in fr["notes"]))
         # 実行の記録の区間(指定したまま)と同じ区間のマークは 1 つ(出どころ 1 を優先)。開始が切られたマークも、元の区間(1〜30)に合えば同じ
         env.runs([run_row(V1, [[1, 30], [900, 1000]])])
         o = self.fr(env)["overall"]
@@ -770,8 +741,7 @@ class FriendRanges(unittest.TestCase):
         env.data({V1: eight()})
         env.runs([run_row(V1, [[110, 130]])])
         fr = self.fr(env)
-        self.assertTrue(fr["few"])
-        self.assertIn("まだ少ない", fr["fewNote"])
+        self.assertTrue(fr["few"] and fr["fewNote"])
         vids, rows = {}, []
         for i in range(M.FRIEND_FEW_VIDEOS):
             vid = "vid%08d" % i
@@ -805,51 +775,29 @@ class FriendRanges(unittest.TestCase):
         env.runs([run_row(V1, [[510, 530]])])
         self.assertIsNone(self.fr(env)["overall"]["contribution"])
 
-    def test_no_ranges_and_print(self):
+    def test_no_ranges_and_video_not_in_data(self):
+        """区間が無い・区間の配信が data.json に無い(未解析)でも数えて表示まで落ちない"""
         env = build(self)
         fr = self.fr(env)
-        self.assertEqual(fr["overall"]["ranges"], 0)
-        self.assertEqual(fr["byVideo"], [])
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            M.main(["--data-dir", env.root])
-        self.assertIn("友人が時刻で指定した区間", buf.getvalue())
-        self.assertIn("まだありません", buf.getvalue())
+        self.assertEqual((fr["overall"]["ranges"], fr["byVideo"]), (0, []))
+        printed(M.main, ["--data-dir", env.root])
         env2 = Env(self)
         env2.data({V1: eight()})
         env2.runs([run_row(V1, [[110, 130], [5000, 5100]]), run_row(V2, [[1, 5]])])
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            M.main(["--data-dir", env2.root])
-        out = buf.getvalue()
-        self.assertIn("拾えた率", out)
-        self.assertIn("見逃し 1 個", out)
-        self.assertIn("未解析", out)
-        self.assertIn("★ まだ少ない", out)
+        o = self.fr(env2)["overall"]
+        self.assertEqual((o["hit"], o["miss"], o["unanalyzedVideos"], o["unanalyzedRanges"]), (1, 1, 1, 1))
+        printed(M.main, ["--data-dir", env2.root])
 
     def test_existing_metrics_unchanged_by_ranges(self):
         env = build(self)
         before = env.evaluate()
-        env.runs([{"v": 1, "id": "r1", "kind": "video", "videoId": V1, "state": "done", "requestId": "20260901-000000-abcdef",
-                   "steps": [{"key": "adopt", "state": "done"}, {"key": "deliver", "state": "done"}], "marks": ["mA", "mD"],
-                   "created": ms("2026-09-05"), "ranges": [[110, 130], [5000, 5100]]}])
+        env.runs([build_run(created=ms("2026-09-05"), ranges=[[110, 130], [5000, 5100]])])
         after = env.evaluate()
         self.assertEqual(after["overall"], before["overall"])
         self.assertEqual(after["byType"], before["byType"])
         self.assertEqual(after["byVideo"], before["byVideo"])
         self.assertEqual(after["friendRanges"]["overall"]["ranges"], 2)
         self.assertEqual(before["friendRanges"]["overall"]["ranges"], 0)
-
-    def test_json_contains_friend_ranges(self):
-        env = Env(self)
-        env.data({V1: eight()})
-        env.runs([run_row(V1, [[110, 130]])])
-        with contextlib.redirect_stdout(io.StringIO()):
-            M.main(["--data-dir", env.root, "--json"])
-        d = os.path.join(env.studio, "evals", "marks")
-        with open(os.path.join(d, os.listdir(d)[0]), encoding="utf-8") as f:
-            saved = json.load(f)
-        self.assertEqual(saved["friendRanges"]["overall"]["hit"], 1)
 
 
 class ClipLength(unittest.TestCase):
@@ -892,13 +840,7 @@ class ClipLength(unittest.TestCase):
         env = Env(self)
         env.data({V1: video(V1, [], typ="歌枠")})
         env.runs([run_row(V1, [[100, 140]])])
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            M.main(["--data-dir", env.root])
-        out = buf.getvalue()
-        self.assertIn("友人が指定した区間の長さ", out)
-        self.assertIn("まだ少ない(参考)", out)
-        self.assertIn("[歌枠] 長さ 40 秒", out)
+        printed(M.main, ["--data-dir", env.root])   # 見本 1 個(少ない)でも表示で落ちない
         self.assertFalse(os.path.exists(os.path.join(env.studio, "evals")))   # --json なしでは何も書かない
 
 

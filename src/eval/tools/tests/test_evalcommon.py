@@ -6,13 +6,14 @@
 """
 import argparse
 import contextlib
+import datetime
 import io
 import json
 import os
 import sys
-import tempfile
-import time
+import types
 import unittest
+from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/tools (道具の置き場所)
@@ -22,9 +23,34 @@ from eval.tools import _evalcommon as C  # noqa: E402
 from ytt import testkit  # noqa: E402
 
 
-def put(path, data, mode="wb"):
-    with open(path, mode) as f:
+def put(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as f:
         f.write(data)
+
+
+def printed(fn, *a, **kw):
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        fn(*a, **kw)
+    return out.getvalue()
+
+
+class Ticking(datetime.datetime):
+    """呼ぶたびに 1 秒進む now(保存の名前は秒まで。待たずに別の名前にする)"""
+    t = datetime.datetime(2026, 10, 1, 12, 0, 0)
+
+    @classmethod
+    def now(cls, tz=None):
+        cls.t += datetime.timedelta(seconds=1)
+        return cls.t
+
+
+def ticking(case):
+    """case の間、_evalcommon の保存の時刻を Ticking にする"""
+    p = mock.patch.object(C, "datetime", types.SimpleNamespace(datetime=Ticking, timedelta=datetime.timedelta))
+    p.start()
+    case.addCleanup(p.stop)
 
 
 class TestArgs(unittest.TestCase):
@@ -49,95 +75,80 @@ class TestArgs(unittest.TestCase):
 
 class TestSave(unittest.TestCase):
     def test_save_and_report(self):
-        with tempfile.TemporaryDirectory() as root:
-            path = C.save({"a": "あ"}, root, "demo", "_x")
-            self.assertEqual(os.path.dirname(path), os.path.join(root, "evals", "demo"))
-            self.assertTrue(path.endswith("_x.json"))
-            with open(path, "rb") as f:
-                raw = f.read()
-            self.assertEqual(json.loads(raw.decode("utf-8")), {"a": "あ"})
-            self.assertFalse(raw.startswith(b"\xef\xbb\xbf"))   # BOM なし
-            self.assertEqual([n for n in os.listdir(os.path.dirname(path)) if n.startswith(".tmp")], [])   # 書きかけを残さない
-            out = os.path.join(root, "sub", "o.json")
-            buf = io.StringIO()
-            with contextlib.redirect_stdout(buf):
-                C.report_saved({"b": 1}, True, root, "demo", out=out)
-                C.report_saved({"b": 1}, False, root, "demo")
-            self.assertEqual(buf.getvalue(), "\n" + C.SAVED_MARK + os.path.abspath(out) + "\n")   # 入口の accuracy.py が読む「保存: <パス>」の形
-            with open(out, encoding="utf-8") as f:
-                self.assertEqual(json.load(f), {"b": 1})
-            self.assertEqual(os.listdir(os.path.join(root, "evals", "demo")), [os.path.basename(path)])   # enabled=False は書かない
+        root = testkit.tempdir(self)
+        path = C.save({"a": "あ"}, root, "demo", "_x")
+        self.assertEqual(os.path.dirname(path), os.path.join(root, "evals", "demo"))
+        self.assertTrue(path.endswith("_x.json"))
+        with open(path, "rb") as f:
+            raw = f.read()
+        self.assertEqual(json.loads(raw.decode("utf-8")), {"a": "あ"})
+        self.assertFalse(raw.startswith(b"\xef\xbb\xbf"))   # BOM なし
+        self.assertEqual([n for n in os.listdir(os.path.dirname(path)) if n.startswith(".tmp")], [])   # 書きかけを残さない
+        out = os.path.join(root, "sub", "o.json")
+        text = printed(lambda: (C.report_saved({"b": 1}, True, root, "demo", out=out), C.report_saved({"b": 1}, False, root, "demo")))
+        self.assertEqual(text, "\n" + C.SAVED_MARK + os.path.abspath(out) + "\n")   # 入口の accuracy.py が読む「保存: <パス>」の形
+        self.assertEqual(testkit.read_json(out), {"b": 1})
+        self.assertEqual(os.listdir(os.path.join(root, "evals", "demo")), [os.path.basename(path)])   # enabled=False は書かない
 
 
 class TestSaveUnchanged(unittest.TestCase):
     """前の結果と中身(時刻・git・かかった秒を除く)が同じなら書かずに「変わらず: <前のファイル>」(夜の測定が毎晩同じ結果を貯めない)"""
 
+    def setUp(self):
+        self.root = testkit.tempdir(self)
+        ticking(self)   # 保存のたびに時刻が 1 秒進む = 書くなら別の名前になる
+
     def res(self, v=1, at=1, git="aaa"):
         return {"meta": {"at": at, "git": git, "n": [{"sec": 1.5, "x": v}]}, "v": v}
 
     def test_same_content_is_not_written(self):
-        with tempfile.TemporaryDirectory() as root:
-            p1 = C.save(self.res(), root, "demo")
-            time.sleep(1.1)   # 名前は秒まで = 書くなら別の名前になる
-            self.assertEqual(C.save(self.res(at=2, git="bbb"), root, "demo"), p1)   # at・git・sec だけ違う = 同じ
-            self.assertEqual(len(os.listdir(os.path.dirname(p1))), 1)
-            buf = io.StringIO()
-            with contextlib.redirect_stdout(buf):
-                C.report_saved(self.res(at=3), True, root, "demo")
-            self.assertEqual(buf.getvalue(), "\n" + C.SAME_MARK + p1 + "\n")
-            time.sleep(1.1)
-            p2 = C.save(self.res(v=2), root, "demo")                                  # 中身が違えば書く
-            self.assertNotEqual(p2, p1)
-            self.assertEqual(len(os.listdir(os.path.dirname(p1))), 2)
-            self.assertIsNone(C.previous_same(self.res(v=1), root, "demo"))           # 比べるのは最新(p2)だけ
+        root = self.root
+        p1 = C.save(self.res(), root, "demo")
+        self.assertEqual(C.save(self.res(at=2, git="bbb"), root, "demo"), p1)   # at・git・sec だけ違う = 同じ
+        self.assertEqual(len(os.listdir(os.path.dirname(p1))), 1)
+        self.assertEqual(printed(C.report_saved, self.res(at=3), True, root, "demo"), "\n" + C.SAME_MARK + p1 + "\n")
+        p2 = C.save(self.res(v=2), root, "demo")                                  # 中身が違えば書く
+        self.assertNotEqual(p2, p1)
+        self.assertEqual(len(os.listdir(os.path.dirname(p1))), 2)
+        self.assertIsNone(C.previous_same(self.res(v=1), root, "demo"))           # 比べるのは最新(p2)だけ
 
     def test_suffix_out_and_marks_are_not_deduped(self):
-        with tempfile.TemporaryDirectory() as root:
-            a = C.save(self.res(), root, "demo", "_x")
-            self.assertIsNone(C.previous_same(self.res(), root, "demo", "-run"))       # 別の suffix は別の系列
-            self.assertEqual(C.previous_same(self.res(), root, "demo", "_x"), a)
-            out = os.path.join(root, "o.json")
-            self.assertEqual(C.save(self.res(), root, "demo", "_x", out=out), os.path.abspath(out))   # --out は必ず書く
-            m1 = C.save(self.res(), root, "marks")
-            time.sleep(1.1)
-            m2 = C.save(self.res(), root, "marks")                                      # marks も同じ(OPT-E2 で本番が結果のファイルを読まなくなった)
-            self.assertEqual(m1, m2)
-            buf = io.StringIO()
-            with contextlib.redirect_stdout(buf):
-                C.report_saved(self.res(), True, root, "marks")
-            self.assertIn(C.SAME_MARK, buf.getvalue())
+        root = self.root
+        a = C.save(self.res(), root, "demo", "_x")
+        self.assertIsNone(C.previous_same(self.res(), root, "demo", "-run"))       # 別の suffix は別の系列
+        self.assertEqual(C.previous_same(self.res(), root, "demo", "_x"), a)
+        out = os.path.join(root, "o.json")
+        self.assertEqual(C.save(self.res(), root, "demo", "_x", out=out), os.path.abspath(out))   # --out は必ず書く
+        m1 = C.save(self.res(), root, "marks")
+        self.assertEqual(C.save(self.res(), root, "marks"), m1)                     # marks も同じ決まり
+        self.assertIn(C.SAME_MARK, printed(C.report_saved, self.res(), True, root, "marks"))
 
     def test_unreadable_previous_gets_a_new_file(self):
-        with tempfile.TemporaryDirectory() as root:
-            d = os.path.join(root, "evals", "demo")
-            os.makedirs(d)
-            with open(os.path.join(d, "20260101-000000.json"), "w") as f:
-                f.write("{壊れている")
-            self.assertTrue(C.save(self.res(), root, "demo").endswith(".json"))
-            self.assertEqual(len(os.listdir(d)), 2)
+        d = os.path.join(self.root, "evals", "demo")
+        put(os.path.join(d, "20260101-000000.json"), "{壊れている".encode("utf-8"))
+        self.assertTrue(C.save(self.res(), self.root, "demo").endswith(".json"))
+        self.assertEqual(len(os.listdir(d)), 2)
 
 
 class TestReadJson(unittest.TestCase):
     def test_limit_and_bom_and_broken(self):
-        with tempfile.TemporaryDirectory() as d:
-            ok, big, bad = (os.path.join(d, n) for n in ("ok.json", "big.json", "bad.json"))
-            put(ok, b"\xef\xbb\xbf" + json.dumps({"a": 1}).encode())
-            put(big, json.dumps({"a": "x" * 100}).encode())
-            put(bad, b"{broken")
-            self.assertEqual(C.read_json(ok), {"a": 1})
-            self.assertEqual(C.read_json(ok, None, 100), {"a": 1})
-            self.assertEqual(C.read_json(big, "既定", 50), "既定")   # limit を超えたら既定値
-            self.assertEqual(C.read_json(big, None, C.DOC_BYTES)["a"], "x" * 100)
-            self.assertEqual(C.read_json(bad, {}), {})
-            self.assertEqual(C.read_json(os.path.join(d, "none.json"), 5), 5)
-            self.assertEqual(C.read_json(ok, {}, kind=list), {})
+        d = testkit.tempdir(self)
+        ok, big, bad = (os.path.join(d, n) for n in ("ok.json", "big.json", "bad.json"))
+        put(ok, b"\xef\xbb\xbf" + json.dumps({"a": 1}).encode())
+        put(big, json.dumps({"a": "x" * 100}).encode())
+        put(bad, b"{broken")
+        for case, args, want in [("BOM つき", (ok,), {"a": 1}), ("上限の中", (ok, None, 100), {"a": 1}),
+                                 ("上限を超えたら既定値", (big, "既定", 50), "既定"), ("文書の上限の中", (big, None, C.DOC_BYTES), {"a": "x" * 100}),
+                                 ("壊れた", (bad, {}), {}), ("無い", (os.path.join(d, "none.json"), 5), 5)]:
+            with self.subTest(case):
+                self.assertEqual(C.read_json(*args), want)
+        self.assertEqual(C.read_json(ok, {}, kind=list), {})   # 形が違えば既定値
 
 
 class TestAudioSpan(unittest.TestCase):
     def setUp(self):
         self.data = testkit.tempdir(self)
         self.full = os.path.join(self.data, "dataset", "docs", "d1", "full.flac")
-        os.makedirs(os.path.dirname(self.full))
         put(self.full, b"x")
         self.video = os.path.join(self.data, "v.mp4")
         put(self.video, b"x")
