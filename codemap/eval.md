@@ -26,7 +26,7 @@
 
 ## src/eval/fake/
 
-- **__init__.py** (3 行) — ④ 疑似モード(偽のエンジン・偽の YouTube API・偽の録画元)。各段の登録の口から差し込む。本体に if fake を置かない
+- **__init__.py** (3 行) — ④ 疑似モード(偽の認識エンジン fake_asr・偽のワーカー fake_worker)。各段の登録の口から差し込む。本体に if fake を置かない
 - **fake_asr.py** (187 行) — 疑似の文字起こし(環境変数 TRANSCRIBE_BACKEND=fake のテスト・画面の通し確認用)。
   - 名前: `fake_wait` :19・`transcribe_fake` :24・`fake_range_lines` :66・`diarize_fake` :87・`embed_fake` :101・`class FakeBackend` :118
 - **fake_worker.py** (127 行) — 認識ワーカーの中の疑似(環境変数 TRANSCRIBE_BACKEND=worker-fake のテスト用。認識ワーカーは pipeline/transcribe/worker.py)。
@@ -34,7 +34,7 @@
 
 ## src/eval/tools/
 
-- **__init__.py** (2 行) — ⑤ 物差し(今の src/eval/tools/eval_*・_evalcommon・demo_env)
+- **__init__.py** (2 行) — ⑤ 物差し(測る道具 eval_*・clipfit と共通の部品 _evalcommon)
 - **_evalcommon.py** (291 行) — dev/ の測る道具(eval_asr.py・eval_speakers.py・eval_timing.py・eval_cut.py・eval_alt.py・eval_marks.py)の共通の部品。
   - 名前: `add_period_args` :36・`split_ids` :45・`label_name` :50・`data_env` :55・`locate` :60・`day_ms` :67・`period` :78・`in_period` :83・`period_label` :92・`rate` :101・`pct` :105・`dist` :110・ほか 10
 - **clipfit.py** (357 行) — 自動の区間が友人の区間にどれだけ合うかの物差し(LD-2a。notes:plan/done/ld2-clip-length.md の L-2)。⑤ eval_marks が表示に使い、単独でも動く。

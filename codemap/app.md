@@ -23,7 +23,7 @@
 
 ## src/app/check/
 
-- **__init__.py** (2 行) — 入口の「確かめる」(⑤ の待ち行列 deck・lineup・sources・read_sources を入口から組む。goals は eval/check に残る。notes:docs/design/v1-check-build.md)
+- **__init__.py** (2 行) — 入口の「確かめる」(⑤ の待ち行列 deck・lineup・sources・read_sources を入口から組む。goals は eval/check。notes:docs/design/v1-check-build.md)
 - **cut_sources.py** (165 行) — 「確かめる」の自動カットのカードの出どころ(CUT-CARD。決定: plan/opt-eval.md の Q4 自動カットのカード)。
   - 名前: `cut_edge` :150・`cut_gap` :154・`cut_whole` :158
 - **deck.py** (140 行) — 「確かめる」の待ち行列を組み立てる(V1 の V0。GET /api/check/next の中身と、答える前にカードをサーバーの側で引き直す find)。
@@ -41,7 +41,7 @@
 
 ## src/app/ui/
 
-- **__init__.py** (3 行) — 画面(ホーム・確認の画面・校正の画面・ui-kit)。作りは後で再考。当面は今の画面をそのまま置く
+- **__init__.py** (3 行) — 画面(ホーム home・案件 cases・確かめる check・編集 editor・設定 settings・スタジオ studio)。共通の部品は src/ui-kit
 
 ## src/app/ui/cases/
 

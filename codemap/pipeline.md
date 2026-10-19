@@ -8,7 +8,7 @@
 
 ## src/pipeline/analyze/
 
-- **__init__.py** (3 行) — ① 解析: 盛り上がりの式(excite)・チャットとコメント・候補・自動採用・配信中の検出
+- **__init__.py** (3 行) — ① 解析: 材料の取得(fetch。動画・チャット・コメント)・音量(levels)・盛り上がりの式(excite)・候補・話の切れ目(breaks)・自動採用・配信中の検出
 - **adopt.py** (76 行) — 採用の規則 F-5(notes:plan/done/role-restructure.md 5-5・決定 3-29 Q3。純粋な関数)。
   - 名前: `check_args` :21・`adopt` :38
 - **analyze.py** (413 行) — 解析(自動切り抜き ac/serve.py 由来。書き出し・手動の○×は持たない)。
@@ -26,7 +26,7 @@
 
 ## src/pipeline/export/
 
-- **__init__.py** (3 行) — ① 書き出し: 区間 → 動画(今の studio/exporter・home/live_export)
+- **__init__.py** (3 行) — ① 書き出し: 区間 → 動画(exporter)・サムネの案の絵(thumb_cards)
 - **exporter.py** (993 行) — ③ 書き出し(クリップマーカー cm/serve.py 由来): store の動画・マークから ffmpeg / yt-dlp でクリップを mp4 にする。
   - 名前: `class ExportError` :51・`log_export` :55・`reason` :71・`verify_output` :78・`pick_folder` :87・`promote` :96・`drop_partial` :113・`clean_partials` :119・`check_section_path` :215・`build_section_spec` :236・`spec_from_video` :262・`new_result` :314・ほか 13
 - **thumb_cards.py** (175 行) — サムネの案の描く部分(提案 P5 の S。notes:plan/thumb-ideas.md の 7・8)。ffmpeg で動画から 1 枚ずつ切り取って文字を載せ、6 案を 1 枚の PNG にまとめる。
@@ -34,7 +34,7 @@
 
 ## src/pipeline/ingest/
 
-- **__init__.py** (3 行) — ① 取り込み: URL か動画ファイルの判定・取得(yt-dlp)・配信中なら録画(今の recorder)
+- **__init__.py** (3 行) — ① 取り込み: 配信中の録画(recorder・rec_core)と、録画とアーカイブの音の照合(live_align_worker)。YouTube からの取得は export/exporter と analyze/fetch
 - **live_align_worker.py** (133 行) — 音の照合(線 D の P4。notes:plan/line-d-live-clipping.md の 0-9)の子プロセス。**入口のプロセスから import しない
   - 名前: `fail` :34・`read_wav` :39・`next_pow2` :54・`xcorr_valid` :59・`align` :79・`main` :103
 - **rec_core.py** (884 行) — 録画の中身(線 D の P1。notes:plan/line-d-live-clipping.md の 0・2〜4)。HTTP は recorder.py。
@@ -45,7 +45,7 @@
 
 ## src/pipeline/pack/
 
-- **__init__.py** (3 行) — ① パック(今の cut2resolve の pack・textplus・core)
+- **__init__.py** (3 行) — ① パック: DaVinci Resolve に読ませるパック(pack・cut2resolve_core・srt2resolve)・Text+(resolve_textplus)・zip の受け渡し(resolve_export)・指定の読み(request)・自動のカット(auto_cut)・…
 - **auto_cut.py** (141 行) — カットの計画の部品(read_cut_plan・build_plan・plan_from_keeps・finalize_plan。pack.py が使う)。
   - 名前: `read_cut_plan` :16・`default_handles` :71・`build_plan` :77・`removed_between` :98・`plan_from_keeps` :109・`finalize_plan` :117
 - **cut2resolve_core.py** (887 行) — cut2resolve 共通部

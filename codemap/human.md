@@ -12,7 +12,7 @@
 
 ## src/human/check/
 
-- **__init__.py** (3 行) — ③ 確かめる(V1。カードの答えの記録 answerlog・答えを実物へ反映する土台 apply・文書の行を直す口 _doc と、種類ごとの反映 read・timerow・value・voice。
+- **__init__.py** (3 行) — ③ 確かめる(V1。カードの答えの記録 answerlog・答えを実物へ反映する土台 apply・文書の行を直す口 _doc と、種類ごとの反映 read・timerow・value・voice・speech・section・cutcard。
 - **_doc.py** (60 行) — 「確かめる」の文書の行を直す 1 つの口(読み・時刻・声のカードの反映と Z が使う。opt-human 6-1)。
   - 名前: `busy` :21・`edit_row` :29・`flag_parts` :53・`join_flags` :58
 - **answerlog.py** (182 行) — 「確かめる」の答えの記録(notes:docs/design/v1-check-build.md の 3-1)。
@@ -36,7 +36,7 @@
 
 ## src/human/cut/
 
-- **__init__.py** (2 行) — ③ カット(残す区間・たたき台)。今は空 = カットとパックの口は human/proof/store の後半(割るのは OPT2。notes:plan/done/opt-human.md の 2e-1)
+- **__init__.py** (2 行) — ③ カット(残す区間・たたき台)。中身は無い = カットとパックの口は human/proof/store の後半(notes:plan/done/opt-human.md の 2e-1)
 
 ## src/human/find/
 
