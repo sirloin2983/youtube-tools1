@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""テストが共有する部品: 以前の Run の欄の形(Run(video_id, title, mode, top, 欄...))から Run を作る(RV A2 で Run を作るのは封筒 + 束だけになった)。
+"""テストが共有する部品: Run の欄の形(Run(video_id, title, mode, top, 欄...))から Run を作る(Run を作るのは封筒 + 束だけ = RV A2)。
 
 テストの名前ではない(unittest は読まない)。flow の tests と入口 app のテストが `import _runfields as RF` で使う(app のテストは sys.path に src/flow/tests を足す)。
 欄 → 封筒 + 束の差分は本物の flow/order.py(画面・友人の受付と同じ変換)、mode → run.from・run.upto は flow/run.py の MODE_RUN。
@@ -17,7 +17,7 @@ RENAME = {"overwrite": "repack", "deliver_origin": "origin", "deliver_tag": "tag
 
 
 def run_of(video_id, title, mode, top=None, base=None, **kw):
-    """以前の Run(video_id, title, mode, top, **欄) と同じ実行の Run(base = 土台の束。None = 既定)。
+    """Run(video_id, title, mode, top, **欄) の形から作る実行の Run(base = 土台の束。None = 既定)。
     依頼の形(request・request_auto)は依頼の id が要る(無ければ "r-test")"""
     kind, frm, upto = R.MODE_RUN[mode]
     o = {RENAME.get(k, k): v for k, v in kw.items()}
@@ -36,6 +36,6 @@ def run_of(video_id, title, mode, top=None, base=None, **kw):
 
 
 def respec(run, spec):
-    """以前の run.spec = 束(欄から写した差分が重なる)と同じ: 束 spec(変えたい所だけ)にこの Run の差分を重ね直して置く。段の並びは作ったときのまま"""
+    """run.spec = 束(欄から写した差分が重なる): 束 spec(変えたい所だけ)にこの Run の差分を重ね直して置く。段の並びは作ったときのまま"""
     run.spec = SP.validate(SP.merge_onto(SP.validate(SP.merge(spec)), run.diff or {}))
     return run

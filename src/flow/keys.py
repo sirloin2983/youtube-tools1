@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""② 管理の層 flow: 成果物の鍵を書く・読む(役割で組み直す RS6 b-K1。2026-10-10。決定 3-29 / notes:plan/done/role-restructure.md 4 節の決まり 4・5-2)。
+"""② 管理の層 flow: 成果物の鍵を書く・読む(RS6 b-K1。決定 3-29 / notes:plan/done/role-restructure.md 4 節の決まり 4・5-2)。
 
 鍵(youtube-tools-key/v1。形と hash の計算は ytt/schemas の make_key・validate_key)は「この成果物は何から作ったか」の印。① pipeline は鍵を知らず、
 ② の段が終わったところ(ここの write_*)で書く。読むのは ② の段(RS6 b-K2。flow/run.py): 文字起こしは transcribe_state(違えば飛ばして印・
@@ -116,7 +116,7 @@ def export_inputs(media_id, start, end, export_settings):
     return {"media": media_id, "start": _schemas.sec_ms(start), "end": _schemas.sec_ms(end), "settings": export_settings or {}}
 
 
-KEY_DEVICES = ("cuda",)   # 鍵の inputs に書く機器(F1 F6a)。vulkan など他の機器は書かない = 今までの鍵のまま(この PC の実行を作り直さない)
+KEY_DEVICES = ("cuda",)   # 鍵の inputs に書く機器(F1 F6a)。vulkan など他の機器は書かない(この PC の鍵を変えず、実行を作り直さない)
 
 
 def transcribe_inputs(export_hash, engine, engine_version, model, language, quality, vad_mode, boost, span=None, device=None):
@@ -261,7 +261,7 @@ def write_diar(tid, people, voices_path=None):
 
 
 PACK_PATH_KEYS = ("video", "transcript", "srt", "plan")   # パックの要求の spec のうちファイルの場所(鍵には場所でなく中身を入れる)
-PACK_FORM = 2   # pack の鍵の inputs の形(2 = 要求の本文から = RS6 b-K2)。これと違う鍵(b-K1 のカット計画の版の形)は「鍵なし」と同じに扱う(一度の作り直しをしない)
+PACK_FORM = 2   # pack の鍵の inputs の形(2 = 要求の本文から = RS6 b-K2)。これと違う形の鍵は「鍵なし」と同じに扱う(作り直さない)
 _FILE_META = ("createdAt", "tool")                         # 受け渡しの JSON のうち、作るたびに変わる項目(中身の版に入れない)
 
 
@@ -291,7 +291,7 @@ def _pack_settings(o):
     styles = o.get("speakerStyles") if isinstance(o.get("speakerStyles"), dict) else {}
     loud = _loud.check_target(o.get("loudness"))
     return {"textplus": textplus, "copyVideo": _pack.normalize_outputs(o.get("copyVideo"), textplus), "render": bool(o.get("render")),
-            # backup(Text+ パックの予備)は 2026-10-18 に消した(決定 3-34)が、鍵の形は残す: 外すと鍵の hash が変わり、作ったパックが全部「作り直し」に見える
+            # backup は常に False で鍵の形に残す(決定 3-34): 外すと鍵の hash が変わり、作ったパックが全部「作り直し」に見える
             "backup": False, "target": [target["fps"], target["width"], target["height"]],
             "textplusWrap": None if o.get("textplusWrap") in (None, "") else int(o["textplusWrap"]), "color": hex_ or None, "who": who if hex_ else None,
             "speakerColors": o.get("speakerColors") is not False,

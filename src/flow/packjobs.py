@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""② 管理の層 flow: パックのジョブの器(OPT2 後半 J3・J6。2026-10-11)。cut2resolve/serve.py の Job・AppState のジョブの部分を移した。
-J6 で ② の 1 つの器 `flow/jobs.Table`(頭 pk)の上の薄い殻にした。
+"""② 管理の層 flow: パックのジョブの器(OPT2 後半 J3・J6)。cut2resolve/serve.py の Job・AppState のジョブの部分。
+② の 1 つの器 `flow/jobs.Table`(頭 pk)の上の薄い殻。
 
 同時に 1 本だけ(画面の二度押しで並ばない = Table の admit)・履歴は 20・糸 1 本・build は必ず SLOTS を待つ / plan は heavy() が真のときだけ待つ・
 Task(= ytt/jobs.Ctl の子)を Table が作って fn(task) を呼ぶ。変換のコードは書かない(fn は呼ぶ側 = serve が渡す ① の呼び出し)。
@@ -22,7 +22,7 @@ BUSY_MSG = "前の処理が終わっていません(「取り消す」で止め�
 
 class Job:
     """Table の記録 1 つの見え方(serve と画面が読む今の形: id・kind・state・progress・message・result・error・task・public())。
-    記録を読むだけ(動いている間の値もそのまま見える)。待ち(queued)は画面には「実行中」で見せる(移す前は受けたときから running)"""
+    記録を読むだけ(動いている間の値もそのまま見える)。待ち(queued)は画面には「実行中」で見せる"""
 
     def __init__(self, rec):
         self.rec = rec

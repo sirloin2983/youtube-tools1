@@ -95,7 +95,7 @@ class ProbeTest(unittest.TestCase):
 
 
 class StopRecorderTest(unittest.TestCase):
-    """入口の終了で録画の部品を止める(src/app/live.py の stop_recorder。入口 0.38.1)。止める相手・応答が無いとき・終わらないとき"""
+    """入口の終了で録画の部品を止める(src/app/live.py の stop_recorder)。止める相手・応答が無いとき・終わらないとき"""
 
     def setUp(self):
         self.tmp = testkit.tempdir(self, "ytt-live-stop-")

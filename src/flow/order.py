@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""② 管理の層 flow: 欄 → (封筒, 束の差分) の変換の 1 か所(RV A1。2026-10-16)。
+"""② 管理の層 flow: 欄 → (封筒, 束の差分) の変換の 1 か所(RV A1)。
 
 受付は ② の口 Queue.submit(封筒, 束)の 1 本だけ(HTTP は POST /api/flow/submit)。画面・CLI・友人の受付・ライブの受け渡しは、
 それぞれの欄をここで封筒(flow/envelope.py の版 2)+ 束の差分(flow/spec.py の形。変えたい所だけ)にして submit する。
@@ -57,7 +57,7 @@ def spec_diff(top=None, ranges=None, weights=None, cut=None, video_tracks=None, 
     def put(sec, key, val, pin=None):
         if not _spec.key_ok(sec, key, val):
             return False
-        a.setdefault(sec, {})[key] = copy.deepcopy(_spec.read_legacy_tx(key, val) if sec == "transcribe" else val)   # 旧い名前は今の値に(0.58.0)
+        a.setdefault(sec, {})[key] = copy.deepcopy(_spec.read_legacy_tx(key, val) if sec == "transcribe" else val)   # 旧い名前は今の値に
         if pin:
             pins.append(pin)
         return True

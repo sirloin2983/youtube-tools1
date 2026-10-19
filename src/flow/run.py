@@ -1,4 +1,4 @@
-"""① 自動の流れの経路(役割で組み直す RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
+"""① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
 
 入力(配信の ID・文書の ID・動画ファイル)を、段(解析 → 採用 → 書き出し → 文字起こし → 話者分離 → パック)の順に、各ツールの公開している API を
 client(call・ok)で呼んで進める。Run = 1 回の実行の状態(段・進み具合・待ちの記録の形)、Runner = 段の中身と待つ骨組み、run() = 入口の関数。
@@ -7,27 +7,27 @@ client(call・ok)で呼んで進める。Run = 1 回の実行の状態(段・進
 import してよいのは標準ライブラリ・ytt・同じ flow の spec だけ(層の決まり。dev/tests/test_layering.py。埋めた候補の文 pipeline/analyze/excite.FILL_REASON も)。案件・ホームの設定・届けることを知る所は
 Runner の hook(_await_tools・_checkpoint・_studio_video・_friend_length・_docs・_pick_doc・_pref・_live_auto_origin・_auto_streamer・
 _after_pack・_remember_styles・_remember_doc_streamer)にして、既定は「何も知らない」安全な値にした。
-_friend_length は RS7-1 S4 から受付(入口の AutoRunner._accept)が読む(段は束の analyze と Run.friend_plan を読む)。
+_friend_length は受付(入口の AutoRunner._accept)が読む(段は束の analyze と Run.friend_plan を読む)。
 
 順番待ちと実行の糸(_loop)・中止・状態と記録(snapshot・history・autorun-runs.jsonl)・起動し直しで戻す(autorun-active.json)・見積もりは
-RS7-1 S5 で flow/runqueue.py の Queue(Runner を継ぐ)へ。src/app/autorun.py に残したもの(AutoRunner が Queue を継いで hook を埋める):
+RS7-1 S5 の flow/runqueue.py の Queue(Runner を継ぐ)にある。src/app/autorun.py にあるもの(AutoRunner が Queue を継いで hook を埋める):
 restart_info・Dropbox へ届けることと組の溜め・HTTP の ToolClient(案件(cases・txindex)・ホームの設定(prefs)・届ける部品(deliver)を読むので)。
-autorun は移した名前を同じ名前で読み直している(テストと live.py が autorun.StepError などを使う。例外は同じ物)。
+autorun は Queue の名前を同じ名前で読み直している(テストと live.py が autorun.StepError などを使う。例外は同じ物)。
 
 将来 batch や live の流れを移すときは flow/run/ パッケージにせず兄弟モジュールにする(__init__ は import しない決まり)。
 
-RS6 b-0(2026-10-10): 段は指定の束(Run.spec。run() が merge・validate して置く)を読む。各ツールの GET /api/settings は読まない
+RS6 b-0: 段は指定の束(Run.spec。run() が merge・validate して置く)を読む。各ツールの GET /api/settings は読まない
 (入口の AutoRunner.build_spec が画面の設定から束を組む = ① は設定ファイルを読まない。束 → 本文は flow/spec.py の export_body・tx_opts・pack_output)。
 
-RS7-1 S4(2026-10-11): 束は受けたときに組む(② の口 submit。RV A1 で受付はこの 1 本。flow/runqueue.py の Queue._accept)= 待ちの間に画面の設定を変えても
-その実行の中身は変わらない。Run.screen(束に入れない画面の値)は消した(精密・画質の上限なし・fps 30 は固定 = 決定 3-30 Q2。用語集は編集の受付が
+RS7-1 S4: 束は受けたときに組む(② の口 submit。RV A1 で受付はこの 1 本。flow/runqueue.py の Queue._accept)= 待ちの間に画面の設定を変えても
+その実行の中身は変わらない。束に入れない画面の値は持たない(精密・画質の上限なし・fps 30 は固定 = 決定 3-30 Q2。用語集は編集の受付が
 自分の設定から読む)。受付で決めた物: 束・知らせ Run.notes(入口が画面の設定を束にするときに直した所。パックの段の文と結果の束に出す)・
 友人の区間の長さ Run.friend_plan(束の analyze.length・preRatio に入れ、解析したときに Run.friend_length = 使った印)・配信者(決まれば束の
 hints.streamer。決まらなければ実行中に _auto_streamer)・届ける名前の頭(封筒の deliver.tag)。
 
-RS7-1 S3(2026-10-10): 依頼 = 封筒(flow/envelope.py。何を入れたか・どの依頼か・届け先)+ 束(何を作るか)。段は束だけを読む。
-RV A2(2026-10-16): Run を作るのは封筒(版 2)+ 束だけ(Run.from_envelope。欄 → 封筒 + 束の差分は flow/order.py の 1 か所)。
-段の並びは束の run.from・run.upto と封筒の kind・依頼の id から(mode_of = 派生の mode。記録の mode・modeLabel・溜めの鍵は今のまま)+ steps_of。
+RS7-1 S3: 依頼 = 封筒(flow/envelope.py。何を入れたか・どの依頼か・届け先)+ 束(何を作るか)。段は束だけを読む。
+RV A2: Run を作るのは封筒(版 2)+ 束だけ(Run.from_envelope。欄 → 封筒 + 束の差分は flow/order.py の 1 か所)。
+段の並びは束の run.from・run.upto と封筒の kind・依頼の id から(mode_of = 派生の mode。記録の mode・modeLabel・溜めの鍵に使う)+ steps_of。
 束から読む欄(top・ranges・weights・cut・video_tracks・speakers・engine・model・force・overwrite・on_fail)は束を読む読み取りだけの属性:
   top = adopt.top / ranges = hints.ranges / weights = analyze.w* + run.requested "weights" / cut = pack.cut + "cut" /
   video_tracks = pack.videoTracks + "videoTracks" / speakers = transcribe.diarize(人数)+ hints.people(名前と色)/
@@ -37,9 +37,9 @@ Run.envelope() が封筒の形にする)。marks・streamer・doc_id は段と h
 待ちの記録(saved・restore)は封筒 + 束から戻す。段の始まりと終わりの時刻は steps[].startedAt・finishedAt(ミリ秒)。
 ツールの仕事は self.tools(flow/tools.py の HttpTools(client) = 今の API の形・LocalTools = 入口なし)に頼む。
 
-RS6 b-A(2026-10-10): 採用は 1 つの段 _step_adopt(規則 F-5 は pipeline/analyze/adopt.py の 1 か所 = 区間 ∪ 人の採用 ∪ 自動の上位で上限まで。RS8 B3-2 でスタジオの store.adopt_marks から出した)。
-RS6 b-K2(2026-10-10): 文字起こし・パックは成果物の鍵(flow/keys)を読んで飛ばす。文字起こし = 同じ・鍵なしは飛ばす / 違えば飛ばして印 TX_DIFFER /
-force(Run.force か束の run.force)なら作り直す。パック = 違えば作り直す / 同じは飛ばす / 鍵なしは今のまま。
+RS6 b-A: 採用は 1 つの段 _step_adopt(規則 F-5 は pipeline/analyze/adopt.py の 1 か所 = 区間 ∪ 人の採用 ∪ 自動の上位で上限まで。RS8 B3-2)。
+RS6 b-K2: 文字起こし・パックは成果物の鍵(flow/keys)を読んで飛ばす。文字起こし = 同じ・鍵なしは飛ばす / 違えば飛ばして印 TX_DIFFER /
+force(Run.force か束の run.force)なら作り直す。パック = 違えば作り直す / 同じは飛ばす / 鍵なしは触らない。
 素の Runner の文書の一覧(_docs・_pick_doc の既定)は tools の docs・doc(HttpTools = GET /api/transcripts・LocalTools = 作業データを直に)。
 """
 import copy
@@ -54,7 +54,7 @@ from ytt import colors, fsio as _fsio, jobs as _slots, schemas as _schemas
 from pipeline.analyze import excite as _excite   # 埋めた候補の理由の文(FILL_REASON)を数えるだけ
 from . import batch as _batch   # 解析の順番の断りの種類(queued_already)
 from . import envelope as _envelope, keys as _keys, order as _order, normalize as _norm, placement as _placement, prio as _prio, sendpolicy as _sendpolicy, spec as _spec, tools as _tools
-from .envelope import clean_pool  # noqa: F401  (src/app/autorun.py が同じ名前で読む。RS7-1 S3 で envelope へ移した)
+from .envelope import clean_pool  # noqa: F401  (src/app/autorun.py が同じ名前で読む。RS7-1 S3)
 from .spec import (CUTS, LIVE_AUTO_CUT, WEIGHT_KEYS)
 
 
@@ -66,19 +66,19 @@ MODE_STEPS = {"full": ("analyze", "adopt", "export", "transcribe", "pack"), "ado
               "request": ("analyze", "adopt", "export", "transcribe"), "file": ("normalize", "transcribe"),
               "request_auto": ("analyze", "adopt", "export", "transcribe", "pack", "deliver"),
               "file_auto": ("normalize", "transcribe", "pack", "deliver")}
-# 段 normalize(動画ファイルの実行の最初。opt-human 9a-1 で友人の受付から移した): 作業データへ写した動画を 30fps に置き換える(flow/normalize の replace=True)。
+# 段 normalize(動画ファイルの実行の最初。opt-human 9a-1): 作業データへ写した動画を 30fps に置き換える(flow/normalize の replace=True)。
 # 置き換えは元を消すので、写しを渡す受付(友人の受付 intake.submit_file = 封筒の input.normalize true)の実行だけ。ほか(ライブの書き出し・CLI)は段を持たない
 NORMALIZE_STEP = "normalize"
 # 友人からの依頼(src/human/friend/intake.py。notes:docs/spec/friend.md)の形。ホームの画面の「まとめて実行」の選択肢には出さない(MODES に入れない)。
-# 友人が送るときに選ぶ(2026-10-01 ユーザー決定): ① 全自動 auto = パックまで作って Dropbox の 出力\ へ / ② 軽く確認 check = 文字起こしまで /
-# (③ 全部人が行う manual = 解析まで は RS5-F で無くした。② check は自分の配信の書き出しのあと(L2)と手で置いた動画・URL が使う)。request* = 配信の URL(解析 → 上位 N 個を採用 → 書き出し → …)/ file* = 友人が切り抜いた動画
+# 友人が送るときに選ぶ(ユーザー決定): ① 全自動 auto = パックまで作って Dropbox の 出力\ へ / ② 軽く確認 check = 文字起こしまで /
+# (② check は自分の配信の書き出しのあと(L2)と手で置いた動画・URL が使う)。request* = 配信の URL(解析 → 上位 N 個を採用 → 書き出し → …)/ file* = 友人が切り抜いた動画
 REQUEST_MODES = {"request_auto": "依頼 ① 全自動: 解析 → パック", "request": "依頼 ② 軽く確認: 解析 → 文字起こし",
                  "file_auto": "依頼 ① 全自動: 文字起こし → パック", "file": "依頼 ② 軽く確認: 文字起こし"}
 # 友人が時刻で指定した区間(notes:docs/spec/friend.md の 2-6): 前後に余白を足してスタジオの手動マーク(採用)にする。
 # 区間が切り抜く数(top)に足りない分だけ、自動マークの上位で埋める(スタジオの /api/video/request-marks)
 REQUEST_URL_MODES = ("request", "request_auto")
 # 文書単位の実行(notes:docs/design/edit-tool-design.md の 12 ⑦(b)): 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック。
-# カットがある文書はカットのとおり(ユーザー決定 2026-09-27。配信単位の実行と同じ)。パックがあるときは既定で飛ばす(overwrite で上書き)
+# カットがある文書はカットのとおり(ユーザー決定。配信単位の実行と同じ)。パックがあるときは既定で飛ばす(overwrite で上書き)
 # 状態の言葉(気が利く画面へ 段4。どの入口の画面もこの言葉で出す = snapshot の labels)
 STEP_STATE_LABELS = {"wait": "待ち", "run": "実行中", "done": "済み", "skip": "飛ばした", "warn": "一部失敗", "error": "失敗"}
 RUN_STATE_LABELS = {"queued": "待ち", "running": "実行中", "done": "済み", "error": "失敗", "cancelled": "中止", "nothing": "やることがありませんでした"}
@@ -88,8 +88,8 @@ PACK_DIFFER = "字幕か設定が変わったので作り直しました"   # �
 DOC_MODE = "doc"
 DOC_LABEL = "文字起こし → パック"
 BUSY_WAIT = 5.0        # スタジオの書き出しが別の書き出しで塞がっているときの待ち間隔
-# あとから解析(mode post_analyze。測るため)は RS4 で消した(代わりは区間だけの依頼の最後の段 analyze_later。OPT-E2)。
-# 以前の待ちの記録に mode post_analyze が残っていても、MODE_STEPS に無いので restore が読み飛ばす
+# mode post_analyze は無い(区間だけの依頼の最後の段 analyze_later がその役目。OPT-E2)。
+# 待ちの記録に mode post_analyze が残っていても、MODE_STEPS に無いので restore が読み飛ばす
 CANCEL_WAIT = 30.0                   # 取り消したスタジオの解析が止まるのを待つ秒(次の実行が同じ配信の解析を始められるように)
 DONE_STEPS = ("done", "skip", "warn")   # 済んだ段(戻した実行では飛ばす)
 RUN_ID_RE = re.compile(r"^[0-9a-f]{10}\Z")
@@ -337,7 +337,7 @@ class Run:
         self.packs = []                  # この実行で作ったパックのフォルダ
         self.kept_packs = []             # 鍵で飛ばして作らなかった、前からあるパックのフォルダ(結果の packs には載せる。届ける対象にはしない = packs とは別)
         self.delivered = []              # 届けたパックのフォルダ(同じものを2回置かない)
-        self.pack_marks = {}             # パックのフォルダ -> {"path": 切り抜きの動画, "markId": スタジオのマーク}。友人の「要らない」で片付ける相手(2026-10-08)
+        self.pack_marks = {}             # パックのフォルダ -> {"path": 切り抜きの動画, "markId": スタジオのマーク}。友人の「要らない」で片付ける相手
         self.pack_hint = None            # _step_pack が _pack_one の直前に置く {"path", "markId"}(_pack_one が pack_marks へ移す)
         self.nothing = False       # どの段もやることが無かった(「完了」と言わない。段4 S-4)
         self.docs = []             # この実行で文字起こし・パックした文書の id(終わったら「校正を始める」で開く。段4)
@@ -543,7 +543,7 @@ class Run:
             if from_ not in FROM_MODE:
                 raise ValueError("from は %s のどれかです" % "・".join(k for k in FROM_MODE if k))
             env, diff = _order.order("url", video_id=str(d["videoId"]), title=title, top=_spec.top_arg(d.get("top")), force=force)
-            diff["run"]["from"] = from_   # 形は from_ だけで決める(束の run.from は見ない = 以前と同じ)
+            diff["run"]["from"] = from_   # 形は from_ だけで決める(束の run.from は見ない)
         elif d.get("docId"):
             env, diff = _order.order("docs", doc_id=str(d["docId"]), title=title or str(d["docId"]), force=force)
         elif d.get("path"):
@@ -731,7 +731,7 @@ class Runner:
 
     def _pack_state(self, run, doc, media, pack_opts, v=None):
         """切り抜き media の既定のパックの鍵と、今作ったときの材料を比べる -> (same | differ | none, _pack_body の結果 か None)。
-        鍵が無ければ本文を作らない(今のパックは今のまま)。本文を作れなければ (none, None)。
+        鍵が無ければ本文を作らない(鍵の無いパックは触らない)。本文を作れなければ (none, None)。
         比べるだけなので字幕のファイルは書かない(dry。見積もりも同じ関数 = 「何も書き込まない」。指摘 2)。作るときは _pack_one が書いて作り直す"""
         def make():
             self._auto_streamer(run, doc, v)
@@ -943,7 +943,7 @@ class Runner:
 
     def _step_analyze_later(self, run, st, v):
         """区間だけの依頼(解析の段なし)の最後: 配信の解析をスタジオの順番に入れるだけで、終わりを待たない(友人へ届くのを遅らせない。決定 3-49 Q6)。
-        解析が済めば測る道具(eval_marks の friendRanges)が友人の区間と自動の候補を比べられる(10-15 まで ⑤ eval_marks --analyze-missing が頼んでいた口)。
+        解析が済めば測る道具(eval_marks の friendRanges)が友人の区間と自動の候補を比べられる。
         解析済みなら飛ばす。入れられなくても実行は失敗にしない(飛ばしたと書く)。設定は束の analyze(依頼の重みがあればそれ)"""
         if v.get("analysis"):
             st["state"], st["detail"] = "skip", "解析済み"
@@ -1176,13 +1176,13 @@ class Runner:
     def _pack_settings(self, run):
         """パックの作り方(束の pack 節 = 入口では編集の設定の 3 パック のタブと同じ値。気が利く画面へ 段4):
         行から作るときの端の広げ方(rowEdge)・Text+ の置き先(fps・大きさ)・1段の文字数(縦横に合わせる)・話者の色・音量・無音で削るときの値(cutSilence)。
-        fps は固定の 30(素材は 30fps にそろえる = 2026-10-04 Q1・決定 3-30 Q2)。知らせ = 受付で入口が設定を束にするときに直した所(Run.notes。
+        fps は固定の 30(素材は 30fps にそろえる = Q1・決定 3-30 Q2)。知らせ = 受付で入口が設定を束にするときに直した所(Run.notes。
         行からの設定の形が変なら既定で作った、など)。-> (rowEdge, output に足すもの, cutSilence, 知らせ)"""
         row_edge, wrap_out, cut_silence = _spec.pack_output(self._bundle(run))
         return row_edge, wrap_out, cut_silence, list(run.notes)
 
     def _cut_method(self, run=None):
-        """カットを決めていない文書のカットの方法(束の pack.cut。入口はホームの設定 autorun.cut から。既定はカットしない = 2026-10-01)"""
+        """カットを決めていない文書のカットの方法(束の pack.cut。入口はホームの設定 autorun.cut から。既定はカットしない)"""
         return (self._bundle(run) if run is not None else _spec.DEFAULTS)["pack"]["cut"]
 
     def _speaker_styles(self, run):
@@ -1199,7 +1199,7 @@ class Runner:
         """1本のパックの要求の本文(cut2resolve の POST /api/build。上書き force は送る直前に足す)。「編集」でカットを決めてあればそのとおり
         (3 パック のタブのパックと同じ中身)、無ければ文字起こしの行だけを残す規則(preset transcript-rows)など。-> (本文, 残す区間 か None, カットの rev)。
         dry=True: 字幕の受け渡しの JSON を書かずに中身だけ作り、本文の "contents" に入れる(spec の transcript は None。鍵の比べ・見積もり用 = 送れない本文)"""
-        row_edge, wrap_out, cut_silence = pack_opts[:3]   # fps は固定の 30(RS7-1 S4 で画面の packFps を読まなくなったので、素材の fps を見る分岐は消した)
+        row_edge, wrap_out, cut_silence = pack_opts[:3]   # fps は固定の 30(画面の packFps は読まない)
         contents = {}
 
         def transcript():
@@ -1356,7 +1356,7 @@ class Runner:
         src = d.get("sourcePath") or ""
         if not src or not os.path.isfile(src):
             raise StepError("元の動画が見つかりません(移動・削除した可能性があります)")
-        if d["id"] not in run.docs:   # 文書単位の実行も結果に文書を出す(RS7-1 S3。入口に頼んだ CLI の packs・artifacts が空だった)
+        if d["id"] not in run.docs:   # 文書単位の実行も結果に文書を出す(RS7-1 S3。入口に頼んだ CLI の packs・artifacts が空にならないように)
             run.docs.append(d["id"])
         return d
 
@@ -1458,7 +1458,7 @@ class Runner:
     # 依頼の動画(mode file) -------------------------------------
     def _step_normalize(self, run, st, v=None):
         """動画ファイルの実行の最初: 作業データへ写した動画が 30fps(H.264・yuv420p・AAC)でなければ、写しを作り直して置き換える
-        (flow/normalize の plan(replace=True)・run。友人の元のファイルは触らない。opt-human 9a-1 で受付 intake から移した)。
+        (flow/normalize の plan(replace=True)・run。友人の元のファイルは触らない。opt-human 9a-1)。
         重い処理の枠 SLOTS はこの段の中で取る(実行ごとの糸なので、受付の見回りは止まらない)。作り直したら run.source_path を新しいパスにして
         待ちの記録(封筒の input.path)を書き直す。30fps 済みなら飛ばす。作れない・失敗・取り消しの文は警告にして、元の写しのまま次の段へ"""
         if run.doc_id or any(s["key"] == "transcribe" and s["state"] in DONE_STEPS for s in run.steps):

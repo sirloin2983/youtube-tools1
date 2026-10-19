@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
-"""まとめて実行の「終わった実行の記録」の形と読み方(役割で組み直す RS3-0B。入口 src/app/autorun.py から移した。動きは変えていない)。
+"""まとめて実行の「終わった実行の記録」の形と読み方(RS3-0B)。
 
 記録は入口の作業データの logs/autorun-runs.jsonl(と、上限を超えて回した .1)に 1 行 = 1 件の JSON で残る(書くのは AutoRunner。
 書き足しは ytt/fsio.append_line)。この部品は**読む側**: 入口の起動時に前回の結果を作る・履歴の画面(autorun)と、
 ライブの失敗の集約(live_failures。書き出しのジョブの runId で紐づける)が、同じ読み方を使う。
-autorun を読み込まずに記録を読めるようにして、① の部品(live_failures など)から app への向きの違反をなくすために出した。
+autorun を読み込まずに記録を読めるので、① の部品(live_failures など)から app への向きの違反にならない。
 
-RS6 b-B0(2026-10-10): 1 行 = 1 件は**索引**になった。実行の結果の正本は案件の `作業用/runs/<実行id>.json`(結果の束。
+RS6 b-B0: 1 行 = 1 件は**索引**。実行の結果の正本は案件の `作業用/runs/<実行id>.json`(結果の束。
 書くのは flow/placement.write_result)で、1 行の `resultPath` がその場所(書けなかった実行・それより前の行には無い)。
 束の形の名前 RESULT_SCHEMA と、索引の 1 行から束を読む read_result はここ(書く側と読む側で同じ名前を使う)。
 
-RS7-1 S3(2026-10-10): 1 行(Run.public)と結果の束の steps[] に段の時刻 startedAt・finishedAt(ミリ秒。段を始めた・終えた時)、
-1 行に packs・newDocs、結果の束に封筒 envelope を足した。足しただけなので LOG_VERSION・RESULT_SCHEMA は据え置き(無い行・束も今までどおり読める)。
+RS7-1 S3: 1 行(Run.public)と結果の束の steps[] に段の時刻 startedAt・finishedAt(ミリ秒。段を始めた・終えた時)、
+1 行に packs・newDocs、結果の束に封筒 envelope がある。これらが無い行・束も読める(LOG_VERSION・RESULT_SCHEMA は同じ)。
 
 標準ライブラリだけ(ファイルは読むだけ。書き換えない)。
 """

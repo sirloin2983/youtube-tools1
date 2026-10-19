@@ -140,7 +140,7 @@ class TestDeliveries(unittest.TestCase):
             self.assertIsNone(D.delivered_marks(self.tmp), "読めない = 届けたかが分からない")
 
     def test_not_sent_marks(self):
-        """送らなかった記録(ds1。前は案件の auto[マーク].notSent): 同じ切り抜きは新しい方・壊れた行と配信 / マーク / 理由の無い行は読み飛ばす・無ければ {}"""
+        """送らなかった記録(ds1): 同じ切り抜きは新しい方・壊れた行と配信 / マーク / 理由の無い行は読み飛ばす・無ければ {}"""
         self.assertEqual(D.not_sent_marks(self.tmp), {})
         self.assertEqual(D.not_sent_marks(None), {})
         D.record_not_sent(self.tmp, "v1", "m1", "stale", "古い", run_id="r1")

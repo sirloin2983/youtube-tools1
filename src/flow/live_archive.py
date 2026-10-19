@@ -2,10 +2,9 @@
 """録画に無い区間をアーカイブ(YouTube)から書き出す(線 D の P4 の残り。notes:plan/line-d-live-clipping.md の 0-9)と、配信後の全自動(M7)の入口の側の中身。
 API は src/app/live.py(設定 live.enabled がオンのときだけ)。
 
-2026-10-16 の見直し(決定 3-73・notes:docs/design/friend-history.md の 7 章)で、録画から作った速報版を本番版に入れ替える(P4 の入れ替え)は廃止した。
-材料: 10-05〜10-15 の 140 本で音のずれはほぼ 0 秒・友人へは配信中に速報版のパックで届いていて入れ替えても何も届かない。
-P4 の本当の役目は「録画を消してよい合図」だったので、それは archived(アーカイブ化したかの確かめ)に置き換えた(録画を消すのは
-src/manage/keep/live_cleanup.py。判断は src/flow/live_retire.py)。設定 live.autoArchive も消した(欠けのジョブは自動で必ずアーカイブから)。
+録画から作った速報版を本番版に入れ替えることはしない(決定 3-73・notes:docs/design/friend-history.md の 7 章。友人へは配信中に速報版のパックで届く)。
+P4 の役目は「録画を消してよい合図」= archived(アーカイブ化したかの確かめ)(録画を消すのは
+src/manage/keep/live_cleanup.py。判断は src/flow/live_retire.py)。欠けのジョブは自動で必ずアーカイブから書き出す。
 
 単位は入口の書き出しのジョブ(src/flow/live_export.py の Exporter。live/exports.json)。ジョブに archive を足して残す(入口を起動し直しても続く):
   archive {state: wait|probe|align|fetch|verify|done|error|cancelled, label(日本語), message(失敗のときは理由), progress(0〜1),
@@ -28,7 +27,7 @@ src/manage/keep/live_cleanup.py。判断は src/flow/live_retire.py)。設定 li
               相互相関(8kHz・モノラル。numpy を使うので別プロセス src/pipeline/ingest/live_align_worker.py = 入口のプロセスでは numpy を import しない)。
               録画の音が取れない(マークが録画の終わりより後・録画が無い)ときは、同じ録画の照合できたマークのずれのうち前にある・近いもの、
               無ければ配信後の全自動(M7)が求めた録画のずれ(afterStream.offset)を使う。どれも無ければできない。
-              2026-10-05 に本物の配信で確かめて変えた: yt-dlp の区間取得(--download-sections)は遅く(±600 秒で 570 秒)、m4a と opus で頭が 35ms ずれる /
+              本物の配信で確かめた決まり: yt-dlp の区間取得(--download-sections)は遅く(±600 秒で 570 秒)、m4a と opus で頭が 35ms ずれる /
               合わない区間で ratio 1.58 が出た(MIN_RATIO 3.0)/ yt-dlp の一時的な 403 は 30 秒あけて 2 回までやり直す
   3. fetch  … ② の書き出しの器 flow/export(区間の書き出し(部品)と同じ束 {videoId, start, end, path, volume, loudness, maxHeight,
               precision} = ① の build_section_spec。YouTube の書き出しの中身を使う。二重に書かない)を直に呼んで待つ。
@@ -62,13 +61,13 @@ ffmpeg で 8kHz の音にする(数秒)・照合(子プロセスで 1〜2 秒)�
              候補の数 count は N の 2 倍まで増やす)。スタジオで解析済みならそれを使う。進み具合は GET /studio/api/queue
   (比べる) … 配信中の候補とアーカイブの候補を比べて live_feedback.jsonl へ(compare。src/flow/live_detect.py。EV-1: 録画の欠け(録画元の /segments の gaps)と
              検出が測っていない所は外して数える = _rec_holes が欠けを渡す)
-  (採用)   … 候補(自動のマーク・判定前)を点数の高い順に、録画の頭から配信の終わり(end = アーカイブの終わり。2026-10-16 に録画の終わりから広げた)に
+  (採用)   … 候補(自動のマーク・判定前)を点数の高い順に、録画の頭から配信の終わり(end = アーカイブの終わり)に
              入る(半分以上入るものは範囲に切り詰める)・録画の採用済みのマーク(マークの置き場から = taken)と重ならない上位 N を選び
              (N = 録画の長さ(時間)× 1 時間あたりの数。1〜30)、M1 の採用(src/app/live.py の Live.adopt。origin archive・after auto = 文字起こし → パック・
              hold archive = 録画からは書き出さず、最初からアーカイブから書き出す)を 1 本ずつ呼ぶ
   export   … 採用したジョブをアーカイブからの書き出しに入れ、全部が済む(渡した・失敗した)と done(n 本のうち渡した数・失敗の数)
   done・none(採用する候補が無かった)・measured(測るだけ = 下)・error(理由。「調子」の失敗に出す = src/flow/live_failures.py の after_stream_failure)
-測るだけ(EV-1。2026-10-16。afterStream.mode "measure"): 配信後の全自動がオフの録画(友人の依頼の afterStream が偽も)でも、配信中の検出の記録
+測るだけ(EV-1。afterStream.mode "measure"): 配信後の全自動がオフの録画(友人の依頼の afterStream が偽も)でも、配信中の検出の記録
 (peaks.json)がある録画は、アーカイブを解析して比べるところまで進めて measured にする(採用しない)。配信中の検出の精度を、配信後の追加が
 オフの依頼でも測るため。止めるスイッチは環境変数 YTT_LIVE_MEASURE=off(解析の重さを避けたいとき)。
 録画を自動で消す(src/manage/keep/live_cleanup.py)は、afterStream(測るだけも = 配信中の候補のファイルは録画と一緒に消える)が済むまで(AFTER_MAX_AGE まで)その録画を消さない(after_stream_hold)。
@@ -96,12 +95,12 @@ RUN = LX.ARCHIVE_RUN
 ACTIVE = LX.ARCHIVE_ACTIVE
 LABELS = {"wait": "待ち", "probe": "アーカイブを確かめ中", "align": "照合中", "fetch": "取得中", "verify": "検証中",
           "done": "本番版", "error": "失敗", "cancelled": "取り消し"}
-# 確かさのしきい値(src/flow/tests/test_live_archive.py の合成の音で決めた。2026-10-05):
+# 確かさのしきい値(src/flow/tests/test_live_archive.py の合成の音で決めた):
 #   同じ音(AAC で作り直し・音量 60%・数十 ms ずらし)… score 0.99・ratio 17(60 秒の参照なら ratio は上限の 99)
 #   別の音(周波数の動きとノイズの違う合成の音)… score 0.18・ratio 1.3
 # 本物の配信はアーカイブ・速報版の両方で作り直しが重なり、BGM の繰り返しで 2 番目の山も高くなりやすいので、score は真ん中より下の 0.5、
 # ratio は「別の音」の 1.3 より上の 1.5 にした(両方を満たしたときだけ使う)。
-# 2026-10-05 に本物の配信 4 本で測った: 正しい区間は score 0.97〜0.999・ratio 4.7〜58、合わない区間で ratio 1.58 が出た(止めたのは score だけ)→ ratio は 3.0
+# 本物の配信 4 本で測った: 正しい区間は score 0.97〜0.999・ratio 4.7〜58、合わない区間で ratio 1.58 が出た(止めたのは score だけ)→ ratio は 3.0
 MIN_SCORE = 0.5
 MIN_RATIO = 3.0
 ARCHIVED_SLACK = 900.0       # アーカイブ化したか: アーカイブの終わり(開始 + 長さ)がこれだけ録画の終わりより前でもよい(release_timestamp は数分ずれる)
@@ -136,7 +135,7 @@ HOLE_CHUNK = 2 * 3600.0     # 録画の欠けを録画元に聞くときの 1 �
 BOARD_STATES = dict({s: "running" for s in RUN}, wait="queued", done="done", error="error", cancelled="cancelled")
 AFTER_BOARD = {"wait": "queued", "analyze": "running", "export": "running", "done": "done", "none": "skipped", "measured": "done", "error": "error"}
 AFTER_PREFIX = "as-"   # 掲示板の id「la:as-<録画元>.<録画>」= 配信後の全自動(録画 1 本)。それ以外の la: は書き出しのジョブの id
-BUILD_DIR = "本番版の作りかけ"            # 作業用/本番版の作りかけ/<ジョブ>/(スタジオが書く先。済んだら消す。名前は前の版のまま)
+BUILD_DIR = "本番版の作りかけ"            # 作業用/本番版の作りかけ/<ジョブ>/(スタジオが書く先。済んだら消す)
 UNAVAILABLE = ("subscriber_only", "premium_only", "needs_auth", "private")
 
 
@@ -318,7 +317,7 @@ def inside(path, root):
 def ended_at(r):
     """録画の一覧の行 r の「終わった時刻」(epoch 秒): endedAt、無ければ lastPdt(最後のセグメントの時刻)。分からなければ None。
     行の時刻の型は呼ぶ側で違う: after_tick は epoch(src/app/live.py の list_recordings)、after_stream_hold は録画の部品の生の行 = ISO の文字列
-    (src/manage/keep/live_cleanup.py)。どちらでも同じ値にする(3 か所で別々に求めていたのを 1 つに。2026-10-09)"""
+    (src/manage/keep/live_cleanup.py)。どちらでも同じ値にする"""
     for k in ("endedAt", "lastPdt"):
         v = r.get(k)
         t = float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else LX.iso_epoch(v)
@@ -366,7 +365,7 @@ def pick_candidates(marks, n, t0, offset, first, last, taken=()):
 
 
 def after_progress(a, jobs):
-    """配信後の全自動(M7)で採用したジョブの進み具合(スタジオの LIVE の帯に出す数。入口 0.41.0)。
+    """配信後の全自動(M7)で採用したジョブの進み具合(スタジオの LIVE の帯に出す数)。
     a = afterStream・jobs = その録画のジョブ(GET /live/api/exports の jobs の形 = tx・failure つき)。一覧から消えた古いジョブは total にだけ入る。
     -> {"total": 採用した本数, "exported": 書き出し済み, "archived": アーカイブから書き出した, "handed": まとめて実行へ渡した,
         "finished": まとめて実行(文字起こし → パック)まで済んだ, "failed": 失敗の文があるもの(live_failures.failure_of)}"""
@@ -1410,7 +1409,7 @@ class Archiver(LX.Patrol):
 
     def _nearest_offset(self, job, need=True, same_video=False):
         """同じ録画の、照合が済んだマークのずれのうち、時刻がいちばん近いもの(前にあるものを先に = 欠けをまたぐマークの頭は欠けの前の
-        セッションにあり、つなぎ直すとずれが 1 秒ほど変わるため。2026-10-05 の通しの確認で 0.73 秒)。無ければ need なら ArchiveError、でなければ None。
+        セッションにあり、つなぎ直すとずれが 1 秒ほど変わるため。通しの確認で 0.73 秒)。無ければ need なら ArchiveError、でなければ None。
         same_video: 同じ録画に無ければ、同じ配信(videoId)の別の録画のジョブからも探す(照合の窓の見当だけに使う。本物の配信で 2 本の録画の差は 1.24 秒 =
         ±20 秒の窓に収まる。マークの時刻そのものには使わない = 録画が違うと 1 秒ほどずれる)"""
         a = LX.iso_epoch(job.get("start")) or 0

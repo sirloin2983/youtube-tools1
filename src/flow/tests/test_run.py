@@ -18,7 +18,7 @@ sys.path.insert(0, SRC)
 from ytt import testkit  # noqa: E402
 from flow import run as R  # noqa: E402
 from flow import envelope as E, spec as SP, tools as T  # noqa: E402
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # 共有の部品 _runfields(以前の Run の欄の形 → 封筒 + 束。RV A2)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # 共有の部品 _runfields(Run の欄の形 → 封筒 + 束。RV A2)
 import _runfields as RF  # noqa: E402
 
 
@@ -126,7 +126,7 @@ class TestFromInput(unittest.TestCase):
         self.assertIsNone(R.Run.restore(new_only).deliver_origin)
 
     def test_restore_skips_removed_post_analyze(self):
-        """消した「あとから解析」(mode post_analyze。RS4)は段の並びに無い。前の版の封筒(legacy つき)の記録は落ちずに読み飛ばす"""
+        """「あとから解析」(mode post_analyze)は段の並びに無い。legacy つきの封筒の記録は落ちずに読み飛ばす"""
         d = R.Run.from_input({"videoId": "abcdefghijk"}).saved()
         self.assertIsNotNone(R.Run.restore(d))
         self.assertNotIn("post_analyze", R.MODE_STEPS)
@@ -159,7 +159,7 @@ class TestRestoreGolden(unittest.TestCase):
              "envelope": {"id": "0123456789", "kind": "url", "input": {"title": "配信", "videoId": "abcdefghijk", "duration": 3600.0,
                                                                      "fresh": {"title": "配信", "channel": "ch"}, "marks": ["r1", "r2"]},
                           "requestId": "20261016-120000-abcdef", "deliver": {"dir": "D:/out", "batch": 3, "pool": None, "origin": "request", "tag": None},
-                          "note": "", "createdAt": 1790000000000, "specVersion": 2},   # batch・note = 10-18 までに保存した封筒(読んで捨てる)
+                          "note": "", "createdAt": 1790000000000, "specVersion": 2},   # batch・note = 古い封筒の鍵(読んで捨てる)
              "spec": SP.validate(SP.merge(self.BASE))}
         d.update(kw)
         return json.loads(json.dumps(d))
@@ -207,7 +207,7 @@ class TestRestoreGolden(unittest.TestCase):
 
 class TestStepsOf(unittest.TestCase):
     """RV A2: 段の並び = 派生の mode(束の run.from・run.upto・封筒の kind・依頼の id)+ steps_of。8 つの形 × 届け先・出どころ・区間・話す人の総当たりで、
-    以前の決まり(MODE_STEPS + 足す決まり)と同じ"""
+    決まり(MODE_STEPS + 足す決まり)と同じ"""
 
     @staticmethod
     def old_rule(mode, dir_, origin, ranges, top, diarize, normalize):
@@ -221,7 +221,7 @@ class TestStepsOf(unittest.TestCase):
             keys.append("deliver")
         if diarize and "transcribe" in keys:
             keys.insert(keys.index("transcribe") + 1, "diarize")
-        if mode == "full" and origin == "auto" and "deliver" not in keys:   # 以前は入口の AutoRunner が足していた(RV A2 で steps_of へ)
+        if mode == "full" and origin == "auto" and "deliver" not in keys:   # auto の出どころは deliver を足す(steps_of)
             keys.append("deliver")
         return keys
 
@@ -391,7 +391,7 @@ class TestAdopt(unittest.TestCase):
         return out, st, run, tools.bodies[0]
 
     def test_human_adoption_counts_and_rest_is_filled(self):
-        """人が 1 本採用した配信の再実行: 上限までの残り 2 本を自動で足す(以前は「人が採用済みなら自動は 0」で飛ばした)"""
+        """人が 1 本採用した配信の再実行: 上限までの残り 2 本を自動で足す"""
         out, st, run, body = self.adopt({"rangeIds": [], "humanIds": ["h1"], "autoIds": ["a2", "a3"], "added": ["a2", "a3"]})
         self.assertEqual((out, st["state"], body), (None, "run", {"id": "abcdefghijk", "ranges": [], "top": 3}))
         self.assertEqual(st["detail"], "人が採用した 1 本・自動で 2 本を足しました(点数の高い順)")
@@ -422,7 +422,7 @@ class TestAdopt(unittest.TestCase):
 
 
 class TestKeys(unittest.TestCase):
-    """鍵を読む段(RS6 b-K2): 文字起こし = 同じ・鍵なしは飛ばす / 違えば飛ばして印 / force で作り直す。パック = 違えば作り直す / 同じは飛ばす / 鍵なしは今のまま"""
+    """鍵を読む段(RS6 b-K2): 文字起こし = 同じ・鍵なしは飛ばす / 違えば飛ばして印 / force で作り直す。パック = 違えば作り直す / 同じは飛ばす / 鍵なしは触らない"""
 
     def setUp(self):
         fd, self.media = tempfile.mkstemp(suffix=".mp4")
@@ -670,7 +670,7 @@ class TestFieldsToBundle(unittest.TestCase):
         rn.have = []
         with self.assertRaisesRegex(R.StepError, "文字起こしの文書がありません"):
             rn._file_transcribe(R.Run.from_envelope(env, {"run": {"from": "pack"}}), {"state": "run", "detail": ""})
-        r = R.Run.from_envelope(env, {"run": {"force": True}})   # from が無ければ今までどおり(force で作り直す)
+        r = R.Run.from_envelope(env, {"run": {"force": True}})   # from が無ければ force で作り直す
         rn.have = [doc]
         rn._file_transcribe(r, {"state": "run", "detail": ""})
         self.assertIn("/api/transcribe", c.bodies)
@@ -935,7 +935,7 @@ class TestShortfall(unittest.TestCase):
 
 
 class TestStepNormalize(unittest.TestCase):
-    """段 normalize(動画ファイルの実行の最初。opt-human 9a-1 で友人の受付 intake から移した): 写しを 30fps に置き換える。
+    """段 normalize(動画ファイルの実行の最初。opt-human 9a-1): 写しを 30fps に置き換える。
     本物の ffmpeg で lavfi の短い動画を「作業データへ写した動画」にする"""
 
     def setUp(self):

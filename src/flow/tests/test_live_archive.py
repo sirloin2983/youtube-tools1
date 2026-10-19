@@ -679,7 +679,7 @@ class AfterStreamTest(unittest.TestCase):
         self.assertEqual(len(self.adopted), 6)   # 読めなくても止めない
 
     def test_progress_for_the_band(self):
-        """スタジオの LIVE の帯に出す進み具合(入口 0.41.0): GET /live/api/exports の archiveInfo.afterStream の progress と text"""
+        """スタジオの LIVE の帯に出す進み具合: GET /live/api/exports の archiveInfo.afterStream の progress と text"""
         a = {"state": "export", "label": A.AFTER_LABELS["export"], "message": "3 本を採用しました", "jobs": ["j1", "j2", "j3", "j4"]}
         jobs = [{"id": "j1", "state": "done", "archive": {"state": "done"}, "runId": "r1", "tx": {"state": "done"}},
                 {"id": "j2", "state": "done", "archive": {"state": "done"}, "runId": "r2", "tx": {"state": "running"}},
@@ -700,7 +700,7 @@ class AfterStreamTest(unittest.TestCase):
 
     def test_ended_at_accepts_epoch_and_iso(self):
         """録画の一覧の行の「終わった時刻」(ended_at): epoch(入口の list_recordings)と ISO の文字列(録画の部品の生の行)のどちらでも同じ値。
-        endedAt が無ければ lastPdt。録画を消すのを待つか(after_stream_hold)も、どちらの形で渡しても古い録画は待たない(2026-10-09。前は ISO だけ見ていた)"""
+        endedAt が無ければ lastPdt。録画を消すのを待つか(after_stream_hold)も、どちらの形で渡しても古い録画は待たない"""
         t = 1790000000.5
         for row in ({"endedAt": t}, {"endedAt": LX.epoch_iso(t)}, {"endedAt": None, "lastPdt": t}, {"endedAt": "", "lastPdt": LX.epoch_iso(t)}):
             self.assertAlmostEqual(A.ended_at(row), t, places=3, msg=row)
@@ -771,7 +771,7 @@ class AfterStreamTest(unittest.TestCase):
         self.assertEqual(a.after_stream_hold("local", rec), "")
 
     def test_friend_request_without_after_stream(self):
-        """2-15: 依頼の afterStream が偽の録画では M7 を動かさない(ホームの M7 がオフでもオンでも。録画を消すのも待たない)。依頼の無い録画は今までどおり"""
+        """2-15: 依頼の afterStream が偽の録画では M7 を動かさない(ホームの M7 がオフでもオンでも。録画を消すのも待たない)。依頼の無い録画はホームの M7 の設定どおり"""
         self.status = "was_live"
         self.reqs[("local", REC)] = {"rid": "20261008-120000-abcd", "settings": {"afterStream": False, "perHour": 3}}
         a = self.archiver()

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""② 管理の層 flow: スタジオなしの配信の台帳と、URL の段の動詞(RS8 の「URL も CLI で」。2026-10-11。B-3 = スタジオの候補と採用を案件へ、のあと)。
+"""② 管理の層 flow: スタジオなしの配信の台帳と、URL の段の動詞(RS8 の「URL も CLI で」)。
 
 入口(スタジオ)が動いていないとき、コマンド(src/app/cli.py)が URL の段(配信の読み・解析・採用・書き出し)を ② + ① だけで進めるための物。
 友人の PC の ② + ① には ③ 人(スタジオの human/review/store)が無いことがあるので、③ を読まずに **スタジオの Store と同じ形** で書く:
@@ -8,7 +8,7 @@
   案件にする _make_case)。行の置き方(行を読む _row・1 行を書く _commit)は継ぐ側が付ける。人の操作(学習の記録・自己検査)は継ぐ側の口(既定は何もしない)。
   今は StudioBook が継ぐ(スタジオの Store が継ぐのは次の段 = OPT-H2 7b-1 の続き)
 - `StudioBook(path)` = 台帳(Ledger + data.json の 1 行の置き方)。スタジオの data.json(path)と、案件にした配信の 案件の `作業用/候補.json`・`作業用/採用.json`(flow/casebook)を読み書きする。
-  形・決まりはスタジオの Store と同じ 1 つ(ytt に下ろした物を使う): 行の読み方 ytt/studiodata.load_video・解析の反映 ytt/marks.replace_auto・
+  形・決まりはスタジオの Store と同じ 1 つ(ytt の物を使う): 行の読み方 ytt/studiodata.load_video・解析の反映 ytt/marks.replace_auto・
   採用の規則 F-5 は ② flow/adopt(① pipeline/analyze/adopt)・書き出し済みにする ytt/marks.exported_mark・索引の行 ytt/casefiles.index_row・
   分ける・書く flow/casebook.split・write・案件の引き方 flow/casebook.case_of(初めて書き出したとき = (r8j))。
   data.json はメモリに持たず、変えるたびに読み直して 1 行だけ置き換えて書く(ほかの配信の行・コラボのまとまりはそのまま。1 つ前は .bak・原子的)。

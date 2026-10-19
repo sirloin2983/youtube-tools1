@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """② 管理の層 flow: パックを作った記録(作業データの packs/<フォルダのハッシュ>.json)の持ち主(OPT-M2。notes:plan/done/opt-manage.md の 3b-1)。
 
-パックを作り終えたところで、旧い入口(cut2resolve の POST /api/build)も入口なしの CLI(flow/tools の LocalTools.pack_start)も
+パックを作り終えたところで、入口(cut2resolve の POST /api/build)も入口なしの CLI(flow/tools の LocalTools.pack_start)も
 同じ after_build を呼ぶ(設計原則の指摘 3: API と CLI が同じ「作れたあとの記録」)= 記録 + <パック>/pack.key.json(flow/keys.write_pack)。
 ① pipeline/pack は記録を知らない(作るだけ)。④ manage/cases/txindex はここの読み口(read_record・ready)で「パック済み」を決める。
 
-記録の中身は以前パックに入れていた cut-plan.json と、フォルダ・動画・日時・中身のファイル。隠しファイルにしてパックに置かないのは、
-Windows で上書きに失敗することがあるため(ユーザー決定 2026-09-26)。書けなくてもパックはできているので、呼び出し側は注意を出すだけ。
+記録の中身は cut-plan.json と、フォルダ・動画・日時・中身のファイル。隠しファイルにしてパックに置かないのは、
+Windows で上書きに失敗することがあるため(ユーザー決定)。書けなくてもパックはできているので、呼び出し側は注意を出すだけ。
 """
 import hashlib
 import logging
@@ -19,7 +19,7 @@ from ytt import datadir as _datadir, fsio as _fsio, layout as _layout
 log = logging.getLogger(__name__)
 
 SCHEMA = "youtube-tools-pack-record/v1"
-MAX_BYTES = 256 * 1024   # 記録は 1 件 3KB ほど(10-14 の実データで最大 3.2KB。opt-manage 3b-2)
+MAX_BYTES = 256 * 1024   # 記録は 1 件 3KB ほど(実データで最大 3.2KB。opt-manage 3b-2)
 MAX_RECORDS = 1000       # 記録がこれを超えたら、フォルダが無くなったものから古い順に消す
 VIDEO_EXTS = (".mp4", ".mov", ".mkv", ".m4v", ".webm")
 REPO_ROOT = _layout.src_root()
@@ -88,7 +88,7 @@ def ready(dirpath, env=None, c2r_dir=None):
 
 def write_record(res, video, textplus, color=None, tool=None, env=None, c2r_dir=None):
     """記録を書く(after_build から)。res = ① build_pack の結果(out_dir・files・plan・editMedia・videoCopy)。書けなければ OSError・ValueError。
-    2026-10-18 まで記録に入れていた backup(Text+ パックの予備。決定 3-34 で消した)は書かない(読む所も無い。古い記録に残っていても使わない)"""
+    backup(Text+ パックの予備。決定 3-34)は書かない(読む所も無い。古い記録に残っていても使わない)"""
     out_dir = Path(res["out_dir"])
     d = packs_dir(env, c2r_dir)
     os.makedirs(d, exist_ok=True)

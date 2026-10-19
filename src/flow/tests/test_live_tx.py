@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""配信中の候補の文字起こし(線 D の D-11 案 b。ホーム 0.48.0)のテスト。② の側 src/flow/live_tx.py(入口 home の Live は使わず、ライブ係 flow/livesession.LiveSession で組む)。
+"""配信中の候補の文字起こし(線 D の D-11 案 b)のテスト。② の側 src/flow/live_tx.py(入口 home の Live は使わず、ライブ係 flow/livesession.LiveSession で組む)。
 子プロセス live_tx_worker.py の試験は src/pipeline/transcribe/tests/test_live_tx_worker.py、設定(prefs)との一致と入口が numpy を読まないことは dev/rule_imports.py の C-02・I-02。
 
     py -3.12 -m unittest src/flow/tests/test_live_tx.py
@@ -276,7 +276,7 @@ class ReadyTest(LiveTxBase):
 
             def cfg(self):
                 return {"liveTx": self.v}
-        for v, want in (({"enabled": False, "model": "large-v3-turbo"}, {"enabled": False, "model": "large-v3"}),   # 0.58.0 で外したモデルは既定
+        for v, want in (({"enabled": False, "model": "large-v3-turbo"}, {"enabled": False, "model": "large-v3"}),   # 選べないモデルは既定
                         ("x", {"enabled": True, "model": "large-v3"}), (None, {"enabled": True, "model": "large-v3"}),
                         ({"enabled": "no", "model": "small"}, {"enabled": True, "model": "large-v3"}),   # 明示的に false のときだけオフ
                         ({"enabled": False, "model": ["large-v3"]}, {"enabled": False, "model": "large-v3"})):

@@ -27,7 +27,7 @@ class TestOrder(unittest.TestCase):
             self.assertIn(why, str(cm.exception))
 
     def test_fields_to_diff(self):
-        """以前の Run の欄から写した差分(_asked_spec)と同じ表。合わない欄は黙って土台のまま"""
+        """Run の欄から写した差分(_asked_spec)と同じ表。合わない欄は黙って土台のまま"""
         env, diff = O.order("url", video_id=VID, from_="export", upto="transcribe", on_fail="stop", top=4, ranges=[(1, 2)],
                             weights={"wAudio": 1.5, "wChat": 0.5, "wComments": 2.0}, cut="silence", video_tracks=2,
                             speakers={"count": 2, "names": ["A", " A", "B" * 50], "styles": {"A": {"color": "112233"}}},
@@ -47,7 +47,7 @@ class TestOrder(unittest.TestCase):
         self.assertEqual((env["input"]["videoId"], diff), (VID, {"pack": {"cut": "none"}, "run": {"requested": ["cut"]}}), "ライブは段の並びを持たない")
 
     def test_same_run_as_old_fields(self):
-        """欄から作った Run は、以前の Run(欄) と同じ形(派生の mode = 記録の mode)・段の並び(0.87 の Run の答えを固定の見本に)"""
+        """欄から作った Run は、Run(欄) と同じ形(派生の mode = 記録の mode)・段の並び(固定の見本と比べる)"""
         base = SP.validate(SP.merge(None))
         m = "C:/x/a.mp4"
         cases = [("full", dict(kind="url", video_id=VID), ["analyze", "adopt", "export", "transcribe", "pack"]),

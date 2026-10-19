@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""② 管理の層 flow: この PC の設定(機械の都合)を 1 か所に(役割で組み直す RS7-1 の S1。決定 3-30 の Q1・notes:plan/done/f1-friend-pc.md の決めたこと 8・9)。
+"""② 管理の層 flow: この PC の設定(機械の都合)を 1 か所に(RS7-1 の S1。決定 3-30 の Q1・notes:plan/done/f1-friend-pc.md の決めたこと 8・9)。
 
 束(flow/spec.py)は「何を作るか」。ここは「この PC でどう動かすか」= 束に入れない機械の都合:
-  engine       文字起こしのエンジン(spec.TX_ENGINES = whisper.cpp だけ。0.58.0。旧い faster-whisper などは読むときに whisper.cpp)
+  engine       文字起こしのエンジン(spec.TX_ENGINES = whisper.cpp だけ。旧い faster-whisper などは読むときに whisper.cpp)
   device       認識の機器(spec.TX_DEVICES = vulkan・cuda。cuda は F1 F0-2 = whisper.cpp の CUDA 版。旧い auto・cpu は読むときに vulkan)
   llmModel     LLM の後処理のモデル(pipeline/transcribe/tx_engines の LLAMA_TEXT_MODELS の名前か "none" = 後処理を飛ばす)。
                既定は VRAM で決める(F1 の仮決め f1b。ytt/gpuinfo): 10GB 以上 qwen3-8b・6〜10GB qwen3-4b・6GB 未満 none・不明 qwen3-8b(= 今)
@@ -26,7 +26,7 @@
 環境変数の整理(S1): 機械の都合の物は下の ENV(device は YTT_MACHINE_DEVICE だけ。旧い名前 TRANSCRIBE_DEVICE は ② では読まない)。
   ① の認識ワーカー(worker_client)は要求の本文の機器を先にする(本文が auto のときだけ TRANSCRIBE_DEVICE を見る = ② を通らない呼び出しの互換)。
   ① の調整の環境変数(TRANSCRIBE_CUDA_COMPUTE・TRANSCRIBE_CPU_THREADS・TRANSCRIBE_LLAMA_THREADS・TRANSCRIBE_DIAR_THREADS・TRANSCRIBE_ENGINE_DIR・
-  TRANSCRIBE_MODEL_IDLE_SEC・TRANSCRIBE_WORKER_PRIORITY)は machine の項目ではない(認識ワーカーのプロセスが自分で読む。今のまま)。
+  TRANSCRIBE_MODEL_IDLE_SEC・TRANSCRIBE_WORKER_PRIORITY)は machine の項目ではない(認識ワーカーのプロセスが自分で読む)。
   テスト・疑似の旗(TRANSCRIBE_BACKEND・TRANSCRIBE_FAKE_* など)は触らない。
   TRANSCRIBE_SPLIT_CHARS(行を分ける文字数)は「何を作るか」= 束の post.splitChars の側なので machine に入れない。入口の束は splitChars を
   いつも要求に入れる(S2)ので、入口からの流れでは効かず、編集の画面から始めた文字起こしでだけ効く開発用の旗として残す(一時の形。RS7-1 S1)。
@@ -67,7 +67,7 @@ SOURCES = ("arg", "env", "file", "default")
 # ---------- 値の検査 ----------
 def check(field, value):
     """1 項目の値を確かめる -> 整えた値。合わなければ理由つきの ValueError(知らない項目も)。
-    engine・device の旧い値(0.57.0 までの faster-whisper・auto・cpu など)は断らずに今の値へ読み替える(spec.read_legacy_tx = 束と同じ決まり)"""
+    engine・device の旧い値(faster-whisper・auto・cpu など)は断らずに今の値へ読み替える(spec.read_legacy_tx = 束と同じ決まり)"""
     if field in ("engine", "device"):
         value = _spec.read_legacy_tx(field, value)
     if field == "engine":
@@ -151,8 +151,8 @@ def read_env(env=None):
 
 
 def _editor_device():
-    """編集の設定 settings.json の device(旧い auto・cuda・cpu は vulkan に読む。無い・合わなければ vulkan = 0.58.0 から選べるのは GPU だけ)。
-    編集の画面の cuda は 0.57.0 までの faster-whisper の CUDA なので、束で cuda を選べるようになった(F1 F0-2)あとも vulkan に読む
+    """編集の設定 settings.json の device(旧い auto・cuda・cpu は vulkan に読む。無い・合わなければ vulkan = 選べるのは GPU だけ)。
+    編集の画面の cuda は faster-whisper の CUDA の値なので、束で cuda を選べるようになった(F1 F0-2)あとも vulkan に読む
     (CUDA 版の whisper.cpp を使うのは machine.json・環境変数で決めた PC だけ)。
     置き場所は workdata.SETTINGS(呼ぶたびに読む)、まだ決まっていなければ(入口の外)編集の作業データの settings.json"""
     p = _workdata.SETTINGS or os.path.join(_datadir.resolve("transcribe"), "settings.json")

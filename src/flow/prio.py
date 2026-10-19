@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """② 管理の層 flow: 処理の優先度の表(PRIO。決定 3-49・notes:plan/done/opt-series.md の 11)。
 
-それまでばらばらだった 4 つ(まとめて実行の待ち行列は入れた順だけ・重い処理の枠 ytt.jobs.SLOTS は来た順だけ・
+4 つ(まとめて実行の待ち行列・重い処理の枠 ytt.jobs.SLOTS・
 文字起こしの種類の数字 flow/jobs.JOB_PRIORITY・子プロセスの OS の優先度)を、この 1 つの表から決める:
 
   録画中のライブ(live) > 友人の依頼(friend) > 自分の配信のまとめて実行(batch) > 後回しの仕事(later。空いているときだけ)

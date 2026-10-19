@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""flow/placement(② 置き場所の持ち主・結果の束・.flow.lock。役割で組み直す RS6 b-B0)のテスト。
+"""flow/placement(② 置き場所の持ち主・結果の束・.flow.lock。RS6 b-B0)のテスト。
 
     py -3.12 -m unittest src/flow/tests/test_placement.py -v
 
-- 値が今と同じ: スタジオの data.json(案件の locations の以前の式・編集の studio_data_path の以前の式・スタジオ自身の studio_env)
+- スタジオの data.json の場所は案件の locations の式・編集の studio_data_path の式・スタジオ自身の studio_env と同じ
 - 案件の根: 配信 = 書き出しと同じ規則のフォルダ(作らない)・動画ファイル = 動画のあるフォルダ・作業用 / runs
 - 結果の束: 終わり方(done・error・cancelled・stopped)・段ごとの成果物と鍵・run() の最後に書く・書けなくても上げない・索引の resultPath から読める
 - .flow.lock: 取る・二重に取れない・返す・取り残し(動いていない pid・閉じたポート・壊れた中身)は取り直せる・他人の印は消さない
@@ -20,7 +20,7 @@ from unittest import mock
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
 from ytt import testkit  # noqa: E402
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # 共有の部品 _runfields(以前の Run の欄の形 → 封筒 + 束。RV A2)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # 共有の部品 _runfields(Run の欄の形 → 封筒 + 束。RV A2)
 import _runfields as RF  # noqa: E402
 from flow import keys, placement, run as run_mod, runlog  # noqa: E402
 from ytt import datadir, layout, names, schemas, studio_env, workdata  # noqa: E402
@@ -41,13 +41,13 @@ class _Tmp(unittest.TestCase):
 
 
 class TestStudioData(_Tmp):
-    """スタジオの data.json の場所は、置き場所の持ち主 3 系統の以前の値と同じ"""
+    """スタジオの data.json の場所は、置き場所の持ち主 3 系統の値と同じ"""
 
     def tearDown(self):
         datadir.register("studio", None)
 
     @staticmethod
-    def old_cases(repo_root, env):   # manage/cases の locations の以前の式
+    def old_cases(repo_root, env):   # manage/cases の locations の式
         return os.path.join(datadir.resolve("studio", repo_root, env), "data.json")
 
     def test_same_as_cases(self):
@@ -56,7 +56,7 @@ class TestStudioData(_Tmp):
         self.assertEqual(placement.studio_data(None, {"YTT_DATA_DIR": self.tmp}), os.path.join(self.tmp, "studio", "data.json"))
 
     def test_no_fallback_to_studio_folder(self):
-        """新しい置き場に data.json が無くても、以前の場所(スタジオのフォルダ)へは落ちない(2026-10-18 に消した)"""
+        """置き場に data.json が無くても、スタジオのフォルダへは落ちない"""
         with mock.patch.dict(os.environ, {"YTT_DATA_DIR": os.path.join(self.tmp, "data")}):
             os.environ.pop("STUDIO_HOME", None)
             _touch(os.path.join(layout.tool_dir("studio", self.tmp), "data.json"), b"{}")

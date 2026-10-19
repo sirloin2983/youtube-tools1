@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-"""② 管理の層 flow: 依頼の封筒(役割で組み直す RS7-1 S3。2026-10-10。決定 3-30・notes:plan/done/f1-friend-pc.md の決めたこと 9・
-資料の git:cbe1a64:docs/design/surveys/rs7-survey-2026-10-10/plan_order_v2.md の S3)。
+"""② 管理の層 flow: 依頼の封筒(RS7-1 S3。決定 3-30・notes:plan/done/f1-friend-pc.md の決めたこと 9)。
 
 依頼 = **封筒**(処理の中身でない物 = 何を入れたか・どの依頼か・届け先)+ **束**(何を作るか = flow/spec.py)。
 ② の段は束だけを読み、封筒は記録と届け先(③ の hook)に使う。ここは封筒の形と検査だけ(純粋。ファイル・ネットワークを読まない)。
@@ -33,7 +32,7 @@ KEYS = ("id", "kind", "input", "requestId", "deliver", "createdAt", "specVersion
 INPUT_KEYS = {"url": ("videoId", "url", "title", "duration", "fresh", "marks"), "live": ("videoId", "url", "title", "recorder"),
               "file": ("path", "title", "normalize"), "docs": ("docId", "title")}
 DELIVER_KEYS = ("dir", "pool", "origin", "tag")
-# 10-25 以降に消す(保存済みの封筒は待ちの列 3 日・録画の束 7 日で入れ替わる): 前に書いていた鍵。読んで捨てる(断らない・出力に入れない)
+# 保存済みの封筒(待ちの列 3 日・録画の束 7 日で入れ替わる)に残りうる古い鍵。読んで捨てる(断らない・出力に入れない)
 DROPPED_KEYS, DROPPED_DELIVER_KEYS = ("note",), ("batch",)
 DELIVER_ORIGINS = ("request", "auto", "manual")   # 届けるときの出どころ(flow/sendpolicy.ORIGINS と同じ。D-SEND。envelope は sendpolicy を読まない)
 ID_RE = re.compile(r"[0-9A-Za-z_-]{1,64}\Z")

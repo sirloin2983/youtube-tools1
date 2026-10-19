@@ -1,4 +1,4 @@
-"""ジョブの表・待機列・種類の登録・ワーカーの繰り返し・取り消しの受付(② 管理。役割で組み直す RS6 a-2。2026-10-10 に ytt/jobs から移した)。
+"""ジョブの表・待機列・種類の登録・ワーカーの繰り返し・取り消しの受付(② 管理。RS6 a-2)。
 
 重い処理の枠(HeavySlots・SLOTS・WAIT_MESSAGE)・中止の例外 Cancelled・中止の確かめ check_cancel は ① の部品も使うので ytt/jobs に残る(ここは ytt.jobs を読む)。
 SLOTS を差し替えるテストは ytt.jobs.SLOTS を差し替える(ここは呼ぶたびに _slots.SLOTS を読む)。
@@ -693,7 +693,7 @@ class Table:
 
 # ---------- 編集のジョブ(tx)の既定インスタンス(OPT2 後半 J8) ----------
 # 上の Table に載せた 1 つの表。種類の本体は JOB_RUNNERS(register)から呼ぶたびに引く。走らせる本体(① の呼び出し)は job の辞書を直に書く(state の loading・extracting・done・error も本体が入れる)。
-# 記録は今までの job の辞書に ctl・notes などを足した形(public_job が写す欄だけ画面へ出るので /api/jobs の応答は変わらない)。
+# 記録は job の辞書に ctl・notes などを足した形(public_job が写す欄だけ画面へ出るので /api/jobs の応答は変わらない)。
 # 糸は app が worker() を別スレッドで呼んで起こす(autostart=False = 入れただけでは動かない。テストは work_one で 1 つずつ動かす)。
 
 

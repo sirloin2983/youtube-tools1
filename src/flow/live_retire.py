@@ -7,8 +7,7 @@
 録画元へ delete を送る・記録の 1 行だけを持ち、② の記録を直に書かない。
 親(host)は flow/livesession.py の LiveSession(exporter・marks・detector)。marks と detector は呼ぶときに読む(use_headless の差し替えが効く)。
 
-2026-10-16 の見直し(決定 3-73): 「本番版に全部入れ替えたら消す」をやめ、「マークが全部書き出し済み(録画に無い区間はアーカイブから)で、
-アーカイブ化を確かめたら消す」にした。アーカイブ化の確かめは src/flow/live_archive.py の Archiver.archived(④ が verdict に関数で渡す)。
+消してよい条件(決定 3-73): マークが全部書き出し済み(録画に無い区間はアーカイブから)で、アーカイブ化を確かめたこと。アーカイブ化の確かめは src/flow/live_archive.py の Archiver.archived(④ が verdict に関数で渡す)。
 消すのは ごみ箱へ(録画の部品の delete が ごみ箱/<日付>/録画/ へ改名する。3 日で消える)。マークの正本は消さない(あとでアーカイブから書き出すときに URL・題を読む)。
 """
 import collections

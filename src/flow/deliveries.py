@@ -2,7 +2,7 @@
 """② 管理の層 flow: 友人へ届けた記録(入口の作業データの logs/deliveries.jsonl)の読み口(OPT-M2。notes:plan/done/opt-manage.md の 7x-2)。
 
 データの持ち主は ②(届けた = 起きた事実は起こした層。決定 3-48 の「切り抜きの印を 3 本に」)。④ の片付けは記録のファイルを直に読まず、
-ここの delivered_requests だけを読む。書く口 record は D-SEND の段 1 でここへ寄せた(③ human/friend/friend_feedback.record_delivery は
+ここの delivered_requests だけを読む。書く口 record はここ(③human/friend/friend_feedback.record_delivery は
 ここへ渡すだけの薄い転送)。行の鍵 origin(request・auto・manual。flow/sendpolicy.ORIGINS)と endedAt(配信が終わった時刻。ミリ秒。分からなければ 0)は
 D-SEND から。無い古い行は、依頼の id があれば request・無ければ auto として読む。既存の読み手は知らない鍵を無視する。
 行の鍵 mode(実行の形。まとめて実行の full など。手で届けた・無い古い行は "")は MARKS-3 から(④ 案件が「まとめて実行の自動で送った切り抜き」を見分ける)。
@@ -157,7 +157,7 @@ def delivered_marks(log_dir):
     return res
 
 
-# ---- 送らなかった記録(ds1・3-71 m3e。前は ④ 案件の 採用.json の auto[マーク].notSent・origin "full" に写していた)
+# ---- 送らなかった記録(ds1・3-71 m3e)
 NOT_SENT_LOG = "not-sent.jsonl"   # まとめて実行の自動で送る形(D-SEND)で送らなかった切り抜き(届けた記録の隣)
 
 

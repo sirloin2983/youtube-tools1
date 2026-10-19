@@ -62,7 +62,7 @@ class Runner:
         self.files = []
 
     def submit(self, env, spec=None, accept=False):
-        """② の口(RS7-2 G2b: 書き出しの受け渡しは封筒 kind file + 束)。覚えるのは (動画, flow, 欄) = 以前の start_file の形"""
+        """② の口(RS7-2 G2b: 書き出しの受け渡しは封筒 kind file + 束)。覚えるのは (動画, flow, 欄) = start_file の形"""
         run = R.Run.from_envelope(env, spec)
         kw = {k: getattr(run, k) for k in ("cut", "engine", "model") if getattr(run, k)}
         self.files.append((run.source_path, "auto" if run.mode == "file_auto" else "check", kw))
@@ -243,7 +243,7 @@ class LocalMarksTest(unittest.TestCase):
         self.assertFalse(self.host.exporter.marks.settled("fake", REC))
 
     def test_request_and_bad_input(self):
-        """友人の依頼の録画は after auto・余白は依頼の設定(2-15)。区間・録画元の検査は今と同じ文"""
+        """友人の依頼の録画は after auto・余白は依頼の設定(2-15)。区間・録画元の検査は同じ文"""
         self.host.requests.items["fake/" + REC] = {"rid": "r-1", "deliverDir": "", "streamer": "", "settings": {"pad": 0, "afterStream": False}}
         res = self.ad.adopt({"recorder": "fake", "recording": REC, "start": 50.0, "end": 60.0, "origin": "auto"})
         self.assertEqual((res["job"]["after"], res["job"]["studio"]["start"], res["job"]["request"]["rid"]), ("auto", 50.0, "r-1"))

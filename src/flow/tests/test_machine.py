@@ -57,7 +57,7 @@ class TestLoad(Base):
         self.assertFalse(os.path.exists(self.file))   # 読むだけでは書かない
 
     def test_default_device_vulkan_when_editor_setting_missing_odd_or_old(self):
-        """0.58.0: 選べる機器は GPU(vulkan)だけ。編集の設定が無い・形が違う・旧い auto・cuda・cpu でも vulkan と whisper.cpp"""
+        """選べる機器は GPU(vulkan)だけ。編集の設定が無い・形が違う・旧い auto・cuda・cpu でも vulkan と whisper.cpp"""
         self.assertEqual(M.load(env=self.env)["device"], "vulkan")
         for old in ("gpu", "auto", "cuda", "cpu"):
             self.write({"device": old}, self.settings)
@@ -72,7 +72,7 @@ class TestLoad(Base):
         self.assertEqual((m["diskMinGB"], m["sources"]["diskMinGB"]), (30, "env"))
         self.assertEqual((m["llmModel"], m["sources"]["llmModel"]), ("file-model", "file"))
         self.assertEqual(m["sources"]["caseRoot"], "default")
-        m = M.load(env=dict(self.env, YTT_MACHINE_DEVICE="auto"))   # 旧い値は断らずに vulkan に読む(0.58.0)
+        m = M.load(env=dict(self.env, YTT_MACHINE_DEVICE="auto"))   # 旧い値は断らずに vulkan に読む
         self.assertEqual((m["device"], m["sources"]["device"]), ("vulkan", "env"))
         m = M.load(env=dict(self.env, YTT_MACHINE_DEVICE="cuda"))   # F1 F0-2: cuda は whisper.cpp の CUDA 版(今の値)
         self.assertEqual((m["device"], m["engine"], m["sources"]["device"]), ("cuda", "whisper.cpp", "env"))
@@ -130,7 +130,7 @@ class TestSave(Base):
         self.assertEqual(M.save({"diskMinGB": 5}, env=self.env), {"engine": "whisper.cpp", "diskMinGB": 5, "schema": M.SCHEMA})
 
     def test_migration_switches_are_gone(self):
-        """移行の道具(docMove・markMove のスイッチ)は消した。知らない項目として断る(opt-manage 役割 4)"""
+        """docMove・markMove は知らない項目として断る(opt-manage 役割 4)"""
         with self.assertRaises(ValueError):
             M.check("docMove", True)
         self.write({"docMove": True, "markMove": False, "engine": "whisper.cpp"})   # 本物の machine.json に残っている = 黙って読み飛ばす
@@ -162,7 +162,7 @@ class TestOverlay(Base):
         self.assertNotIn("llmModel", S.tx_opts(out))
 
     def test_old_device_and_engine_read_as_gpu(self):
-        """0.58.0: この PC の設定の旧い機器・エンジン(cpu・qwen3-asr など)は vulkan・whisper.cpp に読んで重ねる(断らない)"""
+        """この PC の設定の旧い機器・エンジン(cpu・qwen3-asr など)は vulkan・whisper.cpp に読んで重ねる(断らない)"""
         b = self.bundle(device="auto", engine="faster-whisper")   # 旧い束も merge が読み替える
         self.assertEqual((b["transcribe"]["device"], b["transcribe"]["engine"]), ("vulkan", "whisper.cpp"))
         out = M.overlay(b, env=dict(self.env, YTT_MACHINE_DEVICE="cpu", YTT_MACHINE_ENGINE="qwen3-asr"))
@@ -213,7 +213,7 @@ class TestFirstLayer(Base):
                 os.environ.pop(k, None)
             self.assertEqual(LT.LiveTx.machine(), {"engine": "whisper.cpp", "device": "vulkan"})   # 何も決めていない = 今まで
             for old in ({"device": "cpu"}, {"device": "cpu", "engine": "whisper.cpp"}, {"device": "auto", "engine": "whisper.cpp"}):
-                self.write(old)   # 0.58.0: 旧い機器は machine が vulkan に読む = 配信中も GPU だけ
+                self.write(old)   # 旧い機器は machine が vulkan に読む = 配信中も GPU だけ
                 self.assertEqual(LT.LiveTx.machine(), {"engine": "whisper.cpp", "device": "vulkan"}, old)
             self.write({"device": "cuda"})   # F1 F0-2: CUDA 版を決めた PC は配信中も cuda(実行ファイルは bin/whisper.cpp-<版>-cuda)
             self.assertEqual(LT.LiveTx.machine(), {"engine": "whisper.cpp", "device": "cuda"})

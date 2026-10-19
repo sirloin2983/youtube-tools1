@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-"""ライブの採用 = サーバー側の「マーク + 書き出し」(線 D の M1。役割で組み直す RS7-2 G1b。資料の git:cbe1a64:docs/design/surveys/rs7-survey-2026-10-10/plan_order_v3.md)。
+"""ライブの採用 = サーバー側の「マーク + 書き出し」(線 D の M1。RS7-2 G1b)。
 
-POST /live/api/adopt・配信中の自動の採用(live_detect の M11)・配信後の追加(live_archive の M7)が通る。もとは src/app/live.py の Live.adopt と
-その周り(区間の秒・余白・スタジオのマーク・友人の依頼の結びつき)。Live.adopt は Adopter.adopt を呼ぶだけ(名前は残す = Detector・HTTP の受け口が呼ぶ)。
+POST /live/api/adopt・配信中の自動の採用(live_detect の M11)・配信後の追加(live_archive の M7)が通る。
+区間の秒・余白・スタジオのマーク・友人の依頼の結びつきを持つ。src/app/live.py の Live.adopt は Adopter.adopt を呼ぶだけ(名前は残す = Detector・HTTP の受け口が呼ぶ)。
 
 マークの置き場は差し込み口(親の marks。flow/livehost.py の MarkBook):
-  StudioMarks  今の動き(ユーザーの PC)。取り込んだスタジオの POST /api/live/adopt 1 回で kind live の配信(id = 録画の id)を(無ければ)登録し、採用のマークを足す
-               (同じ区間 ±SAME 秒のマークがあれば使い回し、候補・不採用なら採用に。スタジオが自分のロックの中で 1 度に = RS8 B3-5 で画面と同じ PUT と
-               409 のやり直しをやめた)。番号 n = スタジオの配信のマークを開始の順に並べた位置。書き出したら「書き出し済み」(POST /api/live/exported)。
+  StudioMarks  ユーザーの PC。取り込んだスタジオの POST /api/live/adopt 1 回で kind live の配信(id = 録画の id)を(無ければ)登録し、採用のマークを足す
+               (同じ区間 ±SAME 秒のマークがあれば使い回し、候補・不採用なら採用に。スタジオが自分のロックの中で 1 度に = RS8 B3-5。
+               画面と同じ PUT と 409 のやり直しはしない)。番号 n = スタジオの配信のマークを開始の順に並べた位置。書き出したら「書き出し済み」(POST /api/live/exported)。
                初めて書き出した配信はスタジオが案件にする(B3-4b)= そのあとの採用もスタジオを通って 採用.json へ
   LocalMarks   スタジオなし(友人の PC・headless。ライブ係 flow/livesession.py の既定・入口の Live.use_headless)。マークの正本 live_export.MarkStore
                (live/marks/<録画元>__<録画>.json)に採用の印を置く(MarkStore.adopt。配信の登録はしない)。

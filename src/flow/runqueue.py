@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""② 管理の層 flow: 待ち行列と実行の糸(役割で組み直す RS7-1 S5。2026-10-10。決定 3-30・
-資料の git:cbe1a64:docs/design/surveys/rs7-survey-2026-10-10/plan_order_v2.md の S5・notes:plan/done/f1-friend-pc.md の「RS7(② の側)へ渡すこと」)。
+"""② 管理の層 flow: 待ち行列と実行の糸(RS7-1 S5。決定 3-30・
+notes:plan/done/f1-friend-pc.md の「RS7(② の側)へ渡すこと」)。
 
-友人の依頼の受付・ユーザーの入口・CLI が同じ ② の口を使えるように、待ち行列と糸をここに置く(以前は入口の AutoRunner の中)。
+友人の依頼の受付・ユーザーの入口・CLI が同じ ② の口を使えるように、待ち行列と糸をここに置く。
 画面なし・③ なしでも動く: Queue(client, log_dir=...) だけで submit → 糸が段を進める → status / snapshot / history で見る。
 
 - Queue は flow/run.py の Runner を継ぐ(段の中身と hook はそのまま)。入口の AutoRunner(src/app/autorun.py)は Queue を継いで、
@@ -355,7 +355,7 @@ class Queue(run_mod.Runner):
 
     def _bundle_for(self, envelope, spec):
         """封筒 + 束の差分 -> (版 2 の封筒, 受付の束, 知らせ)。土台 = hook の build_spec(_base)に差分を重ね(spec.merge_onto)、
-        最後にこの PC の設定(flow/machine.py)を重ねる(差分の機器・エンジンより、この PC の設定が勝つ = 以前の submit と同じ)"""
+        最後にこの PC の設定(flow/machine.py)を重ねる(差分の機器・エンジンより、この PC の設定が勝つ)"""
         env, diff = _envelope.read(envelope, spec)
         base, notes = self._base()
         bundle = _machine.overlay(_spec.validate(_spec.merge_onto(base, diff)), env=self.env)
@@ -367,8 +367,7 @@ class Queue(run_mod.Runner):
         束 = 土台(hook の build_spec。素の Queue = 既定 + この PC・入口 = 画面の設定)+ 差分 + この PC の設定 = 受けたときの束のまま流す。
         受けたときに決める物は hook の _accept(必ず通す。配信者・友人の区間の長さ・届ける名前の頭)。
         動画ファイルの封筒(kind file)は、実在する絶対パスで拡張子が動画・音声(ytt/tools.MEDIA_TYPES)の物だけ。届け先が無ければ届けない(既定)。
-        配信者: 名前があれば色の一覧と照らし合わせる(ytt/colors.resolve。合わなければ ValueError。友人の依頼(requestId あり)は照らし合わせずそのまま =
-        以前と同じ)・空 = 色なし・null = _accept が決める(束の hints.people の先頭 → 入口は覚えた名前・チャンネル名から。決まらなければ実行中に)。
+        配信者: 名前があれば色の一覧と照らし合わせる(ytt/colors.resolve。合わなければ ValueError。友人の依頼(requestId あり)は照らし合わせずそのまま)・空 = 色なし・null = _accept が決める(束の hints.people の先頭 → 入口は覚えた名前・チャンネル名から。決まらなければ実行中に)。
         封筒・束の形が違う・同じ入力(配信・文書・動画)か同じ id が待ち・実行中・待ちが多すぎれば理由つきの ValueError"""
         check_spec(envelope, spec)   # 版の違い・束の形を先に(SpecVersionError・BadSpecError。どちらも ValueError)
         if isinstance(envelope, dict) and envelope.get("kind") == "live":
@@ -702,7 +701,7 @@ class Queue(run_mod.Runner):
 
     def _remember(self, rec):
         """past の元に入れる(呼ぶのは self._log_lock を持っている間か、__init__ の中)。
-        以前の記録に残っている消した「あとから解析」(mode post_analyze。RS4 で消した)は入れない(案件の行の「前回」は、依頼・まとめて実行の結果のまま。history には残る)"""
+        記録に残っている「あとから解析」(mode post_analyze)は入れない(案件の行の「前回」は、依頼・まとめて実行の結果のまま。history には残る)"""
         if rec.get("mode") == "post_analyze":
             return
         k = _rec_key(rec)

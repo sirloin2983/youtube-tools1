@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""② 管理: 学習データを読む側(F1。notes:docs/design/f1-build.md の 2 の F1・3 の (f1c))。app/cli の Learning と learning_dir をここへ移した。
+"""② 管理: 学習データを読む側(F1。notes:docs/design/f1-build.md の 2 の F1・3 の (f1c))。
 
 学習データの置き方は 2 つ(machine の learningDir):
 - 作業データの置き方(既定。ユーザーの PC): <根>/transcribe/ に settings.json・learn-feedback.json・文書がある。学習のもとの文書があるときだけ
@@ -51,9 +51,9 @@ def maker_pc(env=None):
 
 def learning_dir_checked():
     """machine の learningDir から -> (学習データの置き場所か None, 読まなかった理由の 1 行か空)。
-    束(learning.json がある)ならそのフォルダ。ただし束を作る側の PC(maker_pc)では束を読まない = None と理由(10-11 に友人のアプリの同期が
-    ユーザーの PC で learningDir を自分の束へ向け、入口のプロセスの設定が束の物に差し替わった。6d-1・Q9)。
-    既定(作業データの根)なら None(今の置き場所のまま)。それ以外はその下の編集の作業データのフォルダ(作業データの置き方)"""
+    束(learning.json がある)ならそのフォルダ。ただし束を作る側の PC(maker_pc)では束を読まない = None と理由(友人のアプリの同期が
+    learningDir を自分の束へ向けると、入口のプロセスの設定が束の物に差し替わるため。6d-1・Q9)。
+    既定(作業データの根)なら None。それ以外はその下の編集の作業データのフォルダ(作業データの置き方)"""
     ld = _machine.get("learningDir")
     if is_pack(ld):
         if maker_pc():

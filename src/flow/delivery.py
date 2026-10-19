@@ -1,5 +1,5 @@
 """② 友人へ届ける: まとめて実行の「Dropbox へ届ける」段と、置けなかった自動の分の溜め(まとめて実行 AutoRunner が継ぐ mixin)。
-ds1(要件 1-5「届ける段と溜めは ② へ」・仮決め 3-70 ds1・3-71 m3i)で ③ human/friend から移した。
+ds1(要件 1-5「届ける段と溜めは ② へ」・仮決め 3-70 ds1・3-71 m3i)。
 ① 確認用の動画は pipeline/pack/preview・1 本を届ける部品は同じフォルダの deliver。③(受付・送り返し)は読まない(友人の PC には ③ が無い)。
 
 形: AutoRunner(入口の src/app/autorun.py)が `class AutoRunner(Delivery, Queue)` で継ぐ(Queue = src/flow/runqueue.py)。ここは入口の部品
@@ -16,7 +16,7 @@ ds1(要件 1-5「届ける段と溜めは ② へ」・仮決め 3-70 ds1・3-71
   - 出どころ(_origin): run.deliver_origin(request・auto・manual)。無ければ依頼の id があれば request・無ければ auto。友人に見せる形は deliver.face_origin
   - まとめて実行(mode full)の届ける段は、先に sendpolicy.decide(チェック = 届け先があるか・友人の依頼済み = _requested・配信が終わった時刻 =
     スタジオの配信の analysis)。送らないなら段は飛ばして理由の文・切り抜きごとに _remember_not_sent(② の送らなかった記録 logs/not-sent.jsonl。
-    flow/deliveries.record_not_sent。前は案件の auto[マーク].notSent・origin "full" = 3-71 m3e)
+    flow/deliveries.record_not_sent。3-71 m3e)
   - 置けない(Dropbox のフォルダが無い・書けない)とき、出どころ auto は実行を失敗にせず溜めに預ける(鍵 full|<deliver_tag>|<配信>。meta.parked)・段は warn。
     flush_pools がすぐ送り直す(受付のフォルダがあるとき)。配信が終わってから 48 時間(sendpolicy.FRESH_SEC)を過ぎたら送らず溜めを消し notSent expired
   - 友人に失敗の知らせ(.失敗.txt)を置くのは依頼(request)だけ(2-6)。環境変数 YTT_AUTO_SEND=off(sendpolicy.switched_off)なら auto は届けない

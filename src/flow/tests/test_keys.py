@@ -206,7 +206,7 @@ class TestReadK2(_Env):
         self.assertEqual(keys.transcribe_state("bad id", self.media, self.REQ), "none")
 
     def test_transcribe_state_device(self):
-        """機器は cuda のときだけ鍵に入る(F1 F6a): vulkan は今までの鍵のまま = 作り直さない・cuda と vulkan は別の物"""
+        """機器は cuda のときだけ鍵に入る(F1 F6a): vulkan は鍵に入れない = 作り直さない・cuda と vulkan は別の物"""
         self.write_tx()   # 機器なしで書いた(今までの鍵)
         self.assertEqual(keys.transcribe_state(TID, self.media, dict(self.REQ, engine="faster-whisper", device="vulkan")), "same")
         self.assertEqual(keys.transcribe_state(TID, self.media, dict(self.REQ, engine="faster-whisper", device="cuda")), "differ")
@@ -284,7 +284,7 @@ class TestPackRecord(_Env):
         self.assertEqual((rec["tool"], rec["files"], rec["cutPlan"]), ({"name": "flow"}, ["a_0001.mp4"], {"cuts": 1}))
         self.assertEqual(packrec.ready(out), (True, ""))
         self.assertEqual(keys.pack_state(self.media, lambda: body)[0], "same")   # 鍵も同じ口で書いた
-        old = {"spec": body["spec"], "output": dict(body["output"], backup=True)}   # 古い要求の backup(予備。決定 3-34)は鍵を変えない
+        old = {"spec": body["spec"], "output": dict(body["output"], backup=True)}   # 要求に backup(予備。決定 3-34)があっても鍵を変えない
         self.assertEqual(keys.pack_state(self.media, lambda: old)[0], "same")
         os.unlink(v)
         self.assertIsNone(packrec.read_record(out))   # 中身が 1 つも無い = 記録は無効

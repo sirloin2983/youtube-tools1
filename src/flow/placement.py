@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
-"""② 管理の層 flow: 置き場所の持ち主(役割で組み直す RS6 b-B0。2026-10-10。決定 3-29・
-資料の git:cbe1a64:docs/design/surveys/rs6-survey-2026-10-10/option_b.md の 2 節・7 節の B-0 = 案件ごとのフォルダ(b2)の第 1 段)。
+"""② 管理の層 flow: 置き場所の持ち主(RS6 b-B0。決定 3-29。B-0 = 案件ごとのフォルダ(b2)の第 1 段)。
 
-「どこに何があるか」をここ 1 か所で答える。**値は今と同じ**(新しく書くのは 作業用/runs/ と .flow.lock だけ。データは移さない)。
+「どこに何があるか」をここ 1 か所で答える。新しく書くのは 作業用/runs/ と .flow.lock だけ(データは移さない)。
 
 - 案件の根 `case_root(media)`: 配信(スタジオの書き出し)= <書き出し先>/<題名>/(ytt.names の規則。作業用/.studio-id が持ち主)・
   動画ファイル(依頼の動画・文書の元の動画 = 切り抜き)= その動画のあるフォルダ。`work_dir` = <案件>/作業用・`runs_dir` = <案件>/作業用/runs。
@@ -131,7 +130,7 @@ def configured_out_dir():
 
 
 def request_root(day, title, request_id, out_dir=None):
-    """友人の依頼 1 件の置き場所 <書き出し先>/依頼/<日付>_<題>_<id6> か None(= 今までの app/intake/<日付>/<依頼 id> に置く)。
+    """友人の依頼 1 件の置き場所 <書き出し先>/依頼/<日付>_<題>_<id6> か None(= app/intake/<日付>/<依頼 id> に置く)。
     フォルダは作らない(読むだけ)。決め方は doc_home と同じ判定: 書き出し先が設定されている(out_dir が無ければスタジオの設定。未設定の既定の
     exports は使わない)・絶対パス・ネットワーク上でない・固定ディスク。day は YYYY-MM-DD。id6 = 依頼 id の末尾 6 文字(同じ日の同じ題を分ける)。
     題は ytt.names.safe_name で潰し、パスの長さの枠(MAX_PATH_UNITS から動画の名前の分を引いた残り)に収める"""
@@ -350,7 +349,7 @@ def result(run, exc=None, video=None, at=None):
     return {"schema": _runlog.RESULT_SCHEMA, "id": run.id, "input": {k: pub.get(k) for k in INPUT_KEYS}, "envelope": env,
             "spec": run.spec, "state": state, "message": run.message, "error": why or run.error, "nothing": run.nothing,
             "steps": steps, "outputs": outputs(run, video), "packs": run.all_packs(), "failures": failures,
-            "notes": list(getattr(run, "notes", None) or []),   # 受付で束を組んだときに直した所の知らせ(RS7-1 S4。以前の画面だけの値 packNotes)
+            "notes": list(getattr(run, "notes", None) or []),   # 受付で束を組んだときに直した所の知らせ(RS7-1 S4)
             "created": pub["created"], "at": int((time.time() if at is None else at) * 1000),
             "madeBy": {"name": "flow", "version": _version.VERSION}}
 

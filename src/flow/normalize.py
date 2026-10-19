@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-"""② 管理の層 flow: 素材を 30fps(H.264・yuv420p・AAC)にそろえる 1 つの段(役割で組み直す OPT-M2 5b-1・2026-10-16。
-それまでは ④ manage/cases/relink.py の norm_plan・norm_run などが持っていた。決定は資料 plan/opt-manage.md の 5b)。
+"""② 管理の層 flow: 素材を 30fps(H.264・yuv420p・AAC)にそろえる 1 つの段(OPT-M2 5b-1。決定は資料 plan/opt-manage.md の 5b)。
 
 30fps にそろえる道は ② のこの段だけ。中身の道具(判定 needs_normalize・作り直し normalize)は ① ytt/normalize。
 - plan(src, replace=False) -> None(作り直さない) か {"src", "dst", "reuse", "replace", "why": [理由], "note"?: 作れない理由(作らずに知らせる)}

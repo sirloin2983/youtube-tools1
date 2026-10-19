@@ -9,7 +9,7 @@
 
 数えるもの(kind):
   export     書き出しに失敗した(ジョブの state が error。欠けで「要差し替え」も)
-  handoff    書き出しはできたが、まとめて実行へ渡せなかった(ジョブの handoffError。入口 0.39.0 から記録する)
+  handoff    書き出しはできたが、まとめて実行へ渡せなかった(ジョブの handoffError)
   transcribe 渡したまとめて実行が、文字起こし(話者分離を含む)で失敗した(記録の steps の error の段)
   pack       同じく、パック・届ける段で失敗した
   afterStream 配信後の全自動(M7。src/flow/live_archive.py の afterStream)が止まった(アーカイブの解析・時刻合わせ・採用。録画ごと。after_stream_failure)
@@ -115,7 +115,7 @@ def keep_failure(recording, days, why, title="", at=""):
 
 
 def delete_notice(recording, hours_left, title="", at=""):
-    """書き出せない・アーカイブ化を確かめられない録画を消す予告(10-09 ユーザー決定。src/manage/keep/live_cleanup.py の kept_failures)-> collect と同じ形の 1 件(kind keep)"""
+    """書き出せない・アーカイブ化を確かめられない録画を消す予告(ユーザー決定。src/manage/keep/live_cleanup.py の kept_failures)-> collect と同じ形の 1 件(kind keep)"""
     name = "「%s」" % str(title)[:80] if title else "録画 %s" % (recording or "?")
     text = ("%s: 書き出せていないマークがあるか、アーカイブ化を確かめられないので、あと約 %d 時間で録画を自動で消します(ごみ箱へ移し、3 日は戻せます。書き出した切り抜きは残ります。"
             "録画を残したいときは、それまでに設定の「録画を自動で消す」をオフにしてください)") % (name, int(hours_left))

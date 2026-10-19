@@ -3,7 +3,7 @@
 計算はワーカー(src/pipeline/analyze/live_excite_worker.py。入口の子プロセス)。ここは起動・見張り・候補の API・人の採用と見送り・自動の採用・「調子」の行。
 ライブ係 src/flow/livesession.py の LiveSession(入口の Live はそれを継ぐ)が持ち(live.detector)、見回り(tick。30 秒ごと)・API の振り分け・「調子」から呼ぶ(live.py を大きくしない。仮決め (br))。
 
-設定(ホームの設定の節 live。src/app/prefs.py): detect {enabled(既定オン。10-08 ユーザー決定), sens: high|normal|low, perHour: 1〜30(既定 6)}・
+設定(ホームの設定の節 live。src/app/prefs.py): detect {enabled(既定オン。ユーザー決定), sens: high|normal|low, perHour: 1〜30(既定 6)}・
 autoAdopt {enabled(既定オン), waitMin: 1〜60(既定 5)}。検出はリアルタイム切り抜き(live.enabled)もオンのときだけ動く。
 束のある録画(親の bundles = live/bundles.json。RS7-2 G2b)は、録画を始めたときの束の解析の設定(analyze)・感度・枠(adopt.sens・perHour)を
 config.json の bundles に、自動の採用の待ちは束の adopt.waitMin(決定 3-31 の仮 b1)。束の無い録画は上の設定とスタジオの解析の設定のまま。
@@ -30,12 +30,11 @@ API(src/app/live.py の handle_get / _api_post から。書き込みは入口の
 自動の採用(M11。Detector.tick の最後。ワーカーが動いている間だけ): 録画中の録画の候補のうち、枠の中(frame)で終わり待ち(endPending)でなく、
 入口が最初に見てから waitMin 分たったものを Live.adopt(origin auto・after auto)。採用した候補は帳簿が枠に数えたまま固定する(excite の仮決め (bl))。
 スタジオにつながらない(502)・書き出しの途中など(409)は次の見回りでやり直し、1 候補 AUTO_TRIES 回で諦めて「調子」の失敗(kind detect。auto_failures.json)に出す。
-配信の終わり(D-14。10-08 決定): 録画が終わっても、ワーカーが帳簿を締めた(peaks.json の ended)あと END_GRACE_SEC の間は、待ち中だった候補(waitMin がまだ・
+配信の終わり(D-14): 録画が終わっても、ワーカーが帳簿を締めた(peaks.json の ended)あと END_GRACE_SEC の間は、待ち中だった候補(waitMin がまだ・
 終わり待ちだった候補が締めで確定したもの)を同じ待ちで採用する(終わった瞬間に待ち中だった候補を取りこぼさない)。
-安全弁(D-13。10-08 決定。仮の数 = 使いながら直す): 1 つの録画の自動の採用は AUTO_MAX_PER_REC 本まで(decisions.json の adopted/auto を数える。
+安全弁(D-13。仮の数 = 使いながら直す): 1 つの録画の自動の採用は AUTO_MAX_PER_REC 本まで(decisions.json の adopted/auto を数える。
 友人の依頼の録画・live.autoDeliver で確認なしに届く分にも効く)。
-(以前あった「ホームの未確認の自動の切り抜きが 20 本以上なら依頼の無い録画の自動の採用を休む」は 2026-10-15 にやめた = opt-manage Q1。
-採用は全部届けると決めたので「人が見ていない」は休む理由にならない。休み続けていたのはほぼ数え違い = 2a-1・2a-2)
+(「人が見ていない」ことを理由に自動の採用を休むことはしない = 採用は全部届ける。opt-manage Q1・2a-1・2a-2)
 上限の数は親の hook auto_max(rc, rec)で変えられる(RS7-2 G1b。flow/livehost.py の LiveHost。持っていなくてもよい。友人の PC = 束の adopt.top = live_adopt.top_of)。
 親が持たない・None(ユーザーの PC = Live)なら AUTO_MAX_PER_REC のまま。
 """
@@ -656,7 +655,7 @@ class Detector:
         """配信後の全自動(M7。src/flow/live_archive.py。測るだけの録画も = EV-1)がアーカイブの解析の結果を読んだとき: アーカイブの候補(自動のマーク)のうち、
         配信中にも候補(見送り以外)が出ていた割合と時刻の差を live_feedback.jsonl に 1 行({"event": "detect_compare"})。配信中の候補が無い録画は何もしない。
         a: afterStream の記録(t0・offset・first・last)。アーカイブの秒 s → 録画の頭からの秒 = t0 + s − offset − first(pick_candidates と同じ向き)。
-        EV-1(2026-10-16): 配信中に測れなかった所(holes)にあるアーカイブの候補は「拾えなかった」に数えない(分母から外して excluded に数える):
+        EV-1: 配信中に測れなかった所(holes)にあるアーカイブの候補は「拾えなかった」に数えない(分母から外して excluded に数える):
           holes(呼ぶ側から。録画の頭からの秒 [(から, まで)]。None = 分からない)= 録画の欠け(つなぎ直しの間・止めていた間。録画元の /segments の gaps)
           + 検出が測っていない所(peaks.json の first より前・measuredSec より後・遅れて飛ばした skipped。飛ばした所は測り直しても候補は作り直さない)。
           候補の区間の半分以上が穴か、山(peak・無ければまん中)が穴の中なら外す。-> 書いた行か None"""

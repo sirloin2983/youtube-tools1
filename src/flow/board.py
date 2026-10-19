@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""② 管理の層 flow: ジョブの掲示板(RS8 の ② の口 S1。2026-10-11。形は notes:docs/spec/pipeline.md 2.9・設計 notes:docs/design/rs8-flow-api.md)。
+"""② 管理の層 flow: ジョブの掲示板(RS8 の ② の口 S1。形は notes:docs/spec/pipeline.md 2.9・設計 notes:docs/design/rs8-flow-api.md)。
 
 新しい画面(入口・案件の画面)が「今・何が・どこまで動いているか」を 1 つの形(Job)で読むための表。プロセスに 1 つ(default())。
 画面が読むのは入口の GET /api/flow/status の jobs・cases・rev(src/app/server.py)。取り消し・やり直しも id 1 つで(POST /api/flow/cancel・retry)。
 
-器(② の Run・編集のジョブ・解析・書き出し・パック・ライブ・③ の届ける・検索)は次の 2 つのどちらかの形で載せる(器の本体と今の API は変えない):
+器(② の Run・編集のジョブ・解析・書き出し・パック・ライブ・③ の届ける・検索)は次の 2 つのどちらかの形で載せる(器の本体の API は変えない):
 - 押す形 upsert(job): 器が状態を変える所で 1 行呼ぶ。器が忘れた物も、終わった直近 RECENT_MAX 件までは掲示板に残る
 - 引く形 register(頭, source=fn): 問い合わせ(snapshot)のたびに fn() -> [job] を読んで写す(器が自分の状態を持ち、変わる所が多い物向け。② の Run はこれ =
   flow/runqueue.Queue.attach_board)。fn が返さなくなった待ち・実行中の物は消す(器が忘れた)・終わった物は残す

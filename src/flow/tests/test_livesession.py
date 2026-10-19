@@ -321,8 +321,8 @@ class HeadlessTest(Base):
             s2.detector.stop()
 
     def test_old_bundles_file_reads(self):
-        """10-18 までの live/bundles.json(封筒に deliver.batch・note・束の run.pinned)を固定の見本にして読む。batch・note は読んで捨てる。
-        前の版の封筒(legacy つき)は封筒だけ無しにして束は読む。配信者は束の hints.streamer・cut・engine・model は書き出したあとの設定に・
+        """古い形の live/bundles.json(封筒に deliver.batch・note・束の run.pinned)を固定の見本にして読む。batch・note は読んで捨てる。
+        legacy つきの封筒は封筒だけ無しにして束は読む。配信者は束の hints.streamer・cut・engine・model は書き出したあとの設定に・
         ファイルは読むだけでは書き換えない"""
         old = {"local/" + REC: {"envelope": {"id": "lv-0123456789ab", "kind": "live", "input": {"title": "", "videoId": VID, "url": URL, "recorder": None},
                                              "requestId": None, "deliver": {"dir": None, "batch": None, "pool": None, "origin": None, "tag": None}, "note": "",

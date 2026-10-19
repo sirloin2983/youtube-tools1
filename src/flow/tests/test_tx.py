@@ -130,7 +130,7 @@ class TestTranscribe(_Env):
         self.assertEqual(self.read("abc123def456.json"), doc_before)   # 文書は書かない
         mach = self.read("abc123def456.mach.json")
         self.assertEqual((mach["rev"], [r["text"] for r in mach["rows"]]), (2, ["新しい"]))
-        with mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "off"}):   # 古いスイッチ(10-18 に消した)が残っていても層を見る
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_LAYERS": "off"}):   # 古いスイッチが残っていても層を見る
             tx.write_machine_doc("abc123def456", fields, SPEC)
         self.assertEqual(self.read("abc123def456.json"), doc_before)
         self.assertEqual(self.read("abc123def456.mach.json")["rev"], 3)

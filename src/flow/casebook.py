@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""② 管理の層 flow: 案件の候補と採用のファイルの書く側(RS8 B3-3・B3-4a。決定 3-37 の (r8j)〜(r8q)。下調べは WORKLOG の 10-11)。
+"""② 管理の層 flow: 案件の候補と採用のファイルの書く側(RS8 B3-3・B3-4a。決定 3-37 の (r8j)〜(r8q))。
 
-**読む側・形・重ね方・ロックは ytt/casefiles(B3-4a で下ろした。ytt/studiodata が data.json の行の case から読むため)。ここは分ける split・案件の引き方 case_of・書く write**。
+**読む側・形・重ね方・ロックは ytt/casefiles(ytt/studiodata が data.json の行の case から読むため)。ここは分ける split・案件の引き方 case_of・書く write**。
 スタジオの配信 1 本(data.json の videos の 1 つの形)を、案件のフォルダの 2 つのファイルに分けて持つための読み書きと、分ける・重ねるの関数。
-読む側は ytt/casefiles(B3-4a)・保存の経路(スタジオの human/review/store.Store)に入ったのは B3-4b(初めて書き出したときに案件にする)。
+読む側は ytt/casefiles・保存の経路はスタジオの human/review/store.Store(初めて書き出したときに案件にする)。
 
 - `<案件>/作業用/候補.json`(CANDIDATES_SCHEMA。① の機械の候補): {schema, sources: {<スタジオの id>: {analysis, duration, auto: [手つかずの自動マーク]}}}
 - `<案件>/作業用/採用.json`(ADOPTIONS_SCHEMA。③ の人の採用): {schema, sources: {<スタジオの id>: {kind, title, channel, fileName, path, rev,

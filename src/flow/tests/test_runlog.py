@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""pipeline/runlog.py(終わった実行の記録の形と読み方。RS3-0B で autorun.py から移した)のテスト。  py -3.12 -m unittest src/flow/tests/test_runlog.py -v
+"""pipeline/runlog.py(終わった実行の記録の形と読み方。RS3-0B)のテスト。  py -3.12 -m unittest src/flow/tests/test_runlog.py -v
 - 壊れた行・形の違う行は飛ばす(途中で切れた行・手で直した行)
 - .1(古い)→ 今のファイルの順(書いた順)・max_bytes は末尾からだけ読み、途中から読んだ最初の行は捨てる
 - autorun を読み込まずに読める(① の部品が app を読まない = 層の向き)

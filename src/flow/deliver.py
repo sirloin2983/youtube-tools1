@@ -1,11 +1,11 @@
 """② パックを友人へ届ける(Dropbox の見張るフォルダの 出力\\ に zip で置く。友人のアプリの「受け取る」が読む)。
-notes:docs/spec/friend.md の 2-7。ds1(要件 1-5「届ける段と溜めは ② へ」)で ③ human/friend から移した。
+notes:docs/spec/friend.md の 2-7。ds1(要件 1-5「届ける段と溜めは ② へ」)。
 確認用の動画(ffmpeg)は ① pipeline/pack/preview。ここは ytt と ① と ② だけを読む(友人の PC には ③ が無い)。
 
 届く物の形(notes:plan/f1-friend-requirements.md の C-3・C-6。パックは 1 本ずつ):
   出力\\<頭>__<パックの題>.zip + 隣に同じ名前の .preview.mp4(480p・字幕なし)と .meta.json(依頼の分にも必ず)。置く順 = 確認用の動画 → meta → zip
 - deliver_one: 1 本を届ける(確認用の動画 → meta → zip → 届けた記録 deliveries.jsonl)。まとめて実行の届ける段(同じフォルダの delivery.py の _deliver_one)と
-  手で届ける(Deliveries = 「編集」の「友人へ届ける」・案件の「採用(友人へ届ける)」)が同じこれを使う(10-13 ユーザー決定 Q16)
+  手で届ける(Deliveries = 「編集」の「友人へ届ける」・案件の「採用(友人へ届ける)」)が同じこれを使う(ユーザー決定 Q16)
 - zip_packs: パックを zip に(中は <題>_pack/ が並ぶ)
 - place_preview: ① の確認用の動画を zip の隣に <zip の名前>.preview.mp4 で置く
 - 名前: zip は <依頼 id>__<題>(delivery_name)。同じ名前があれば末尾に 4 文字足す(unique_zip)
@@ -255,7 +255,7 @@ class Deliveries:
             done = dict(state="done", progress=1.0, name=os.path.basename(dest),
                         message="Dropbox の 出力 に置きました。同期が終わると友人のアプリの「受け取る」に出ます")
             self.log("友人へ届ける: %s を 出力 に置きました" % os.path.basename(dest))
-            if on_done:   # 記録してから done にする(画面は done を見てすぐ一覧を読み直すので、先に done にすると「届けた」がまだ無い一覧を読む。10-09)
+            if on_done:   # 記録してから done にする(画面は done を見てすぐ一覧を読み直すので、先に done にすると「届けた」がまだ無い一覧を読む)
                 try:
                     on_done(dict(job, **done))
                 except Exception as e:   # 記録できなくても、届けたことは変わらない(ログにだけ残す)

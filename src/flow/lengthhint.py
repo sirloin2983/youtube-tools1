@@ -1,17 +1,15 @@
 # -*- coding: utf-8 -*-
 """② 管理の層 flow: 自動の切り抜きの長さの目安(友人が依頼で指定した区間の長さから。OPT-E2 7f-1・7f-2。決定 3-49 の Q1)。
-LD-2d(10-16。notes:plan/done/ld2-clip-length.md): 区間は場面ごと(① excite の scene_region。スイッチ excite.SHAPE_DEFAULT)になったので、
+LD-2d(notes:plan/done/ld2-clip-length.md): 区間は場面ごと(① excite の scene_region。スイッチ excite.SHAPE_DEFAULT)なので、
 この目安の役目は「場面が取れないとき(点数が無い・山が平ら)の固定の長さ」と、スイッチを fixed に戻したときの長さ。
 
-今まで ⑤ の測る道具(src/eval/tools/eval_marks.py --json)が夜に結果のファイル(evals/marks/<日時>.json の clipLength)へ書き、
-本番の読み手 2 つ(依頼の解析 = src/app/autorun.py・ライブの新しい録画 = src/flow/live_detect.py)がそれを読んでいた
-(= ⑤ が本番の入力を作る層の違反・読み手ごとに定義が違う・名前が変わると黙って効かなくなる・30 日で黙って止まる)。
-今は使うときにここでその場で数える(作業データを読むだけ。スタジオの data.json・archive/<配信>.json.gz・入口の実行記録)。
+本番の読み手 2 つ(依頼の解析 = src/app/autorun.py・ライブの新しい録画 = src/flow/live_detect.py)は、使うときにここでその場で数える
+(作業データを読むだけ。スタジオの data.json・archive/<配信>.json.gz・入口の実行記録)。
 ⑤ eval_marks はこれを読んで表示するだけ。
 
 見本 = 入口の実行記録(logs/autorun-runs.jsonl と .1)の ranges(友人が指定した区間。余白を足す前)。同じ配信の同じ区間(±TOL 秒)は 1 つ。
 外れ値(OUTLIER_MIN 秒未満・OUTLIER_MAX 秒超)は数だけ。長さ = 見本の中央値を LENGTH_MIN〜LENGTH_MAX に丸める。
-上限は 300 秒(LD-2 の L-3 = 長さの守り 60〜300 秒に合わせた。10-16 まで 180 = 決定 3-49 Q1 の仮決め・10-14 まで 120)。山の前の割合 preRatio = 区間の中にある自動の候補の山の位置 (山 − 開始) ÷ 長さ の中央値(見本 PRE_MIN_SAMPLES 個から)。
+上限は 300 秒(LD-2 の L-3 = 長さの守り 60〜300 秒に合わせた。決定 3-49 Q1)。山の前の割合 preRatio = 区間の中にある自動の候補の山の位置 (山 − 開始) ÷ 長さ の中央値(見本 PRE_MIN_SAMPLES 個から)。
 enough = 見本 ENOUGH_SAMPLES 個以上かつ配信 ENOUGH_VIDEOS 本以上(読み手はこのときだけ使う)。
 同じ入力(data.json と実行記録の大きさ・更新の時刻)なら覚えた結果を返す(ライブの設定は数秒ごとに作り直すため)。
 

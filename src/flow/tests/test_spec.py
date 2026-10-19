@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """pipeline/spec.py(① に渡す指定の束の形・既定値・検査。RS1-6)のテスト。  py -3.12 -m unittest src/flow/tests/test_spec.py -v
-- autorun.py から移した検査(clean_ranges・clean_weights・top_arg・marks_arg・row_edge_ok)は動きを変えていない(autorun の同じ名前も同じ物)
+- 検査(clean_ranges・clean_weights・top_arg・marks_arg・row_edge_ok)は autorun の同じ名前と同じ物
 - merge = 既定値に変えたい所だけ重ねる(知らない節・鍵は ValueError)・validate = 型と範囲(理由つきの ValueError)
 """
 import os
@@ -21,7 +21,7 @@ class TestMoved(unittest.TestCase):
         self.assertEqual(spec.CUTS, ("none", "silence"))
         self.assertEqual(spec.LIVE_AUTO_CUT, "none")
         self.assertEqual(spec.WEIGHT_KEYS, ("wAudio", "wChat", "wComments"))
-        self.assertEqual((spec.TX_ENGINES, spec.TX_MODELS, spec.TX_DEVICES), (("whisper.cpp",), ("large-v3",), ("vulkan", "cuda")))   # 0.58.0・cuda は F1 F0-2
+        self.assertEqual((spec.TX_ENGINES, spec.TX_MODELS, spec.TX_DEVICES), (("whisper.cpp",), ("large-v3",), ("vulkan", "cuda")))   # cuda は F1 F0-2
         self.assertTrue(spec.TX_MODEL_RE.match("large-v3"))
         self.assertTrue(spec.TX_MODEL_RE.match("a" * 60))
         for bad in ("", "-x", "a" * 61, "a b", "../x", "x\n"):
@@ -48,7 +48,7 @@ class TestMoved(unittest.TestCase):
         self.assertEqual(spec.clean_ranges([[0, 360000]]), [(0.0, 360000.0)])   # 時刻の上限(100 時間)いっぱいまで
         self.assertEqual(len(spec.clean_ranges([[i, i + 1] for i in range(10)])), 10)
         with self.assertRaises(ValueError):
-            spec.clean_ranges([[0.01, 0.04]])   # 丸めたあと長さ 0(opt-human 9b-2。前は (0.0, 0.0) で通っていた)
+            spec.clean_ranges([[0.01, 0.04]])   # 丸めたあと長さ 0(opt-human 9b-2)
 
     def test_check_ranges(self):
         """理由つきの検査(opt-human 9b-2。友人の受付 intake.parse_ranges が呼ぶ): 形の違う区間だけ断り、ほかは進める"""
@@ -109,7 +109,7 @@ class TestMerge(unittest.TestCase):
         self.assertEqual((d["export"]["volume"], d["export"]["loudness"]), (75, -14))
         self.assertEqual((d["pack"]["size"], d["pack"]["volume"], d["pack"]["loudness"]), ("1080x1920", 30, 0))
         self.assertEqual((d["pack"]["speakerColors"], d["pack"]["cut"]), (True, "none"))
-        self.assertNotIn("backup", d["pack"])   # パックの予備は消した(決定 3-34)
+        self.assertNotIn("backup", d["pack"])   # パックの予備は束に無い(決定 3-34)
         self.assertEqual(d["adopt"]["top"], spec.DEFAULT_TOP)
         self.assertEqual((d["analyze"]["wAudio"], d["analyze"]["wChat"], d["analyze"]["wComments"]), (1.0, 1.0, 0.7))
 
@@ -210,7 +210,7 @@ class TestValidate(unittest.TestCase):
     def test_transcribe(self):
         spec.validate(spec.merge({"transcribe": {"engine": "whisper.cpp", "model": "large-v3", "language": "auto", "quality": "fast", "device": "vulkan",
                                                  "vadMode": "off", "boost": True, "diarize": 10}}))
-        # 0.58.0: 旧い値は断らずに読み替える(エンジン → whisper.cpp・機器 → vulkan・large-v3 でないモデルの名前 → large-v3)・消した項目 redoLarge・autoRedo は捨てる
+        # 旧い値は断らずに読み替える(エンジン → whisper.cpp・機器 → vulkan・large-v3 でないモデルの名前 → large-v3)・使わない項目 redoLarge・autoRedo は捨てる
         for eng, model, dev in (("faster-whisper", "small", "auto"), ("qwen3-asr", "qwen3-asr-0.6b", "cpu"), ("llama.cpp", "large-v3-turbo", "cuda"),
                                 ("faster-whisper", "kotoba-tech/kotoba-whisper-v2.0-faster", "cpu")):
             b = spec.validate(spec.merge({"transcribe": {"engine": eng, "model": model, "device": dev}, "post": {"redoLarge": False, "autoRedo": True}}))
@@ -253,7 +253,7 @@ class TestValidate(unittest.TestCase):
         self.assertEqual(o["learningVersion"], "v2")
 
     def test_old_pack_backup_is_dropped(self):
-        """古い束・待ちの記録・録画の束の pack.backup(パックの予備。決定 3-34 で消した)は断らずに黙って捨てる"""
+        """古い束・待ちの記録・録画の束の pack.backup(パックの予備。決定 3-34)は断らずに黙って捨てる"""
         for v in (True, False, 1):
             b = spec.validate(spec.merge({"pack": {"backup": v, "render": True}}))
             self.assertNotIn("backup", b["pack"])
@@ -302,11 +302,11 @@ class TestBodies(unittest.TestCase):
     def test_tx_opts(self):
         o = spec.tx_opts(spec.merge(None))
         self.assertEqual(set(o), set(spec.TX_TRANSCRIBE_KEYS + spec.TX_POST_KEYS))
-        self.assertEqual((o["model"], o["device"], o["quality"], o["autoLearned"]), ("large-v3", "vulkan", "best", False))   # 0.58.0 の既定
+        self.assertEqual((o["model"], o["device"], o["quality"], o["autoLearned"]), ("large-v3", "vulkan", "best", False))   # 既定
         self.assertNotIn("engine", o)   # エンジンは機器(vulkan)から決まる = 書かない
         self.assertNotIn("engine", spec.tx_opts(spec.merge({"transcribe": {"engine": "faster-whisper", "device": "cpu"}})))   # 旧い値も GPU に読む
         self.assertNotIn("glossary", o)   # 用語集は書かない(編集の受付が自分の設定から読む。RS7-1 S4)
-        self.assertNotIn("redoLarge", o)   # 0.58.0 で消した
+        self.assertNotIn("redoLarge", o)   # 使わない項目
         for dev in ("vulkan", "cuda", "cpu", "auto", None):
             self.assertEqual(spec.implied_engine(dev), "whisper.cpp")
         o = spec.tx_opts(spec.merge({"transcribe": {"device": "cuda"}}))   # F1 F0-2: 機器 cuda は本文に残り、エンジンは書かない(受付が whisper.cpp に決める)

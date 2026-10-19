@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
-"""② 管理の層 flow: 話者判別と声の段取り(役割で組み直す RS6 a-4。2026-10-10。決定 3-29)。
+"""② 管理の層 flow: 話者判別と声の段取り(RS6 a-4。決定 3-29)。
 
-human/proof/speakers.py(③)が ① の pipeline/transcribe(diarize・backend・recognize・fill・worker_client)を直に読んでいた所 =
-「① の半身が ③ に残っている所」(判別のジョブの計算の糸・判別の記録・声の特徴と照合・覚えた声の置き場所)をここへ移した。
-③ に残るのは、文書への反映・自動の判別の判断・字幕の見た目・声の登録簿の編集の受付・判別のジョブの受付と文書への書き込み。
+③ human/proof/speakers.py は ① の pipeline/transcribe(diarize・backend・recognize・fill・worker_client)を直に読まず、ここを通す。
+ここが持つのは判別のジョブの計算の糸・判別の記録・声の特徴と照合・覚えた声の置き場所。③ に残るのは、文書への反映・自動の判別の判断・字幕の見た目・声の登録簿の編集の受付・判別のジョブの受付と文書への書き込み。
 
 動詞(③ が呼ぶ口。どれも ① を呼ぶ前後で ② が足すことを docstring の「② が足すこと」に書いた):
 - 部品と判別モデル: models_ready・default_embedding・embedding・embeddings
@@ -90,7 +89,7 @@ def assign(doc, turns, offset, keep_row, smooth=False):
     -> {"segs": 行, "keep": 守る行の印, "raw": [(ラベル or None, 混ざる, 不確か)], "res": ならしたあとの同じ形, "ratios", "smoothed": {行の番号: ラベル} or None, "dropped": 捨てた行の数}。
     ② が足すこと: ① の定型の幻覚の掃除(fill_clean_turns)を先に通し、残った行で守る行を数え、区間を元の動画の秒に直して並べて
     ① の割り当て(_assign)とならし(smooth_speakers)へ渡し、ならした行は「不確か」の印つきでまとめる"""
-    dropped = _fill.fill_clean_turns(doc, turns, offset)   # 定型の幻覚で声の区間と重ならない行を捨てる(autoFill の文書だけ。0.60.0)
+    dropped = _fill.fill_clean_turns(doc, turns, offset)   # 定型の幻覚で声の区間と重ならない行を捨てる(autoFill の文書だけ)
     segs = doc.get("segments") or []
     keep = [keep_row(g) for g in segs]
     ts = sorted((a + offset, b + offset, s) for a, b, s in turns)   # 元の動画の秒(割り当て・ならし・記録で同じ並び)
@@ -230,8 +229,7 @@ def record_context(tid, name, hit, reason):
 
 # ---------- 覚えた声の置き場所(A-3。声の特徴は個人を見分けられる情報なので作業データの voices/ にだけ置く) ----------
 # 置き場所は呼ぶたびに作業データ(ytt/workdata の DATA_DIR)の voices(voices_dir)。VOICES_DIR は上書き用(テストが一時フォルダを入れる)。None なら作業データの中。
-# RS2-9 の不具合の直し(動きが変わる): 以前は読み込みのときに作り、serve の set_data_dir が直さなかったので、入口から起動すると
-# 覚えた声が作業データではなく editor のフォルダの voices に読み書きされていた(判別のモデルの DIAR_DIR だけ直っていた)
+# 置き場所は読み込みのときに固定せず呼ぶたびに求める(入口から起動しても作業データの voices に読み書きするため)
 VOICES_DIR = None
 _voices_lock = threading.Lock()
 

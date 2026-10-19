@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""ライブの親(host)の口(役割で組み直す RS7-2 G0。資料の git:cbe1a64:docs/design/surveys/rs7-survey-2026-10-10/plan_order_v3.md)。
+"""ライブの親(host)の口(RS7-2 G0)。
 
 ② のライブの子 4 つ(live_detect.Detector・live_tx.LiveTx・live_report.Reporter・live_export.Exporter)は、
 親(flow/livesession.py の LiveSession = ライブ係。RS7-2 G2b。入口の src/app/live.py の Live はそれを継ぐ app の殻)を受け取って呼び返す。
@@ -57,7 +57,7 @@ class LiveHost(Protocol):
     exporter: "Exporter"
     _halt: threading.Event                         # 入口の終了の途中ならワーカーを起こさない
     auto_max: Optional[Callable[[str, str], int]]  # (rc, rec) -> 1 録画の自動の採用の上限(D-13)。None なら live_detect.AUTO_MAX_PER_REC。友人の PC は束の adopt.top
-    bundles: Any   # 録画ごとの封筒 + 束(flow/livesession.py の BundleBook。spec(rc, rec)・specs())。無い・束の無い録画は今までの読み方
+    bundles: Any   # 録画ごとの封筒 + 束(flow/livesession.py の BundleBook。spec(rc, rec)・specs())。無い・束の無い録画はホームの設定の読み方
 
     def cfg(self) -> dict: ...
 

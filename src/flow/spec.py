@@ -1,4 +1,4 @@
-"""① に渡す指定の束(spec)の形・既定値・検査(役割で組み直す RS1-6。計画 notes:plan/done/role-restructure.md の 5-4)。
+"""① に渡す指定の束(spec)の形・既定値・検査(RS1-6。計画 notes:plan/done/role-restructure.md の 5-4)。
 
 純粋な関数と定数だけ(ファイル・ネットワーク・設定ファイルを読まない。ytt と標準ライブラリだけを import する)。
 束は 8 つの節: hints(人の指定)・analyze(解析)・adopt(自動採用)・export(書き出し)・transcribe(認識)・post(後処理)・pack(パック)・run(流れ)。
@@ -6,12 +6,12 @@
   validate(束)   = 型と範囲の検査(合わなければ理由つきの ValueError)。検査の本体は下の clean_*・top_arg・row_edge_ok など
 固定の項目(FIXED)は束の鍵にしない。呼ぶ側(画面・友人の受付・CLI)は、変えたい所だけを渡す。
 
-前半は src/app/autorun.py から移した検査(RS1-6。動きは変えていない)。autorun は同じ名前で読み直している。
-後半の DEFAULTS は、今のコードにある既定値を写した物(出どころの場所を横に書いた)。
+前半は検査(RS1-6)。autorun は同じ名前で読み直している。
+後半の DEFAULTS は既定値(出どころの場所を横に書いた)。
 末尾の「束 → 本文」(RS6 b-0)は、段(flow/run.py)が各ツールの API に渡す本文を束から作る純粋な関数:
   export_body(束, 配信, マーク)・tx_opts(束)・pack_output(束)。解析の設定は束の analyze 節をそのまま渡す。
 入口(src/app/autorun.py の build_spec)は画面の設定から束を組む = 段は設定ファイルも GET /api/settings も読まない(5-4)。
-5-4 の固定(切り出しの精密・画質の上限なし・パックの fps 30)は FIXED の値をいつも使う(RS7-1 S4 = 決定 3-30 Q2 で画面だけの値 screen の口を消した)。
+5-4 の固定(切り出しの精密・画質の上限なし・パックの fps 30)は FIXED の値をいつも使う(RS7-1 S4 = 決定 3-30 Q2。画面だけの値の口は無い)。
 学習データの用語集は束に入れない(編集の受付が要求に無ければ自分の設定から読む = human/proof/doc_jobs.validate_job・CLI は flow/tools の Learning)。
 """
 import copy
@@ -19,25 +19,25 @@ import re
 
 from ytt import marks as _marks, schemas
 
-# ---------- 区間・マーク・採用数・重みの検査(autorun.py から移した) ----------
+# ---------- 区間・マーク・採用数・重みの検査 ----------
 RANGE_MAX = _marks.MAX_REQUEST_RANGES   # 1本の配信の区間の数(スタジオと同じ = ytt/marks)
-# 1 つの区間の長さは上限なし(友人の依頼の要件 C-2-7・C-5-5。2026-10-17 に RANGE_MAX_SEC = 60 分を消した。人が付けるマークの 60 分は ytt/marks のまま)
-PAD_MAX = 3600           # 区間の前後の余白(束の adopt.pad)の上限(秒。前の RANGE_MAX_SEC と同じ値)
+# 1 つの区間の長さは上限なし(友人の依頼の要件 C-2-7・C-5-5。人が付けるマークの 60 分の上限は ytt/marks)
+PAD_MAX = 3600           # 区間の前後の余白(束の adopt.pad)の上限(秒)
 MARGIN_DEFAULT, MARGIN_MAX = _marks.CLIP_MARGIN_DEFAULT, _marks.CLIP_MARGIN_MAX   # 切り抜きの前後の余白(LD-2f。ytt/marks)
 RANGE_TIME_MAX = 360000  # 区間の時刻の上限(秒 = 100 時間。これより後は形が違う扱い。友人の受付の検査から)
-RANGE_PAD = 2.0          # 区間の前後に足す秒(ぴったり指定すると頭の一言が欠けやすいため。2026-10-02 ユーザー決定: 自動で付ける。RS1-7 で autorun.py から)
+RANGE_PAD = 2.0          # 区間の前後に足す秒(ぴったり指定すると頭の一言が欠けやすいため。ユーザー決定: 自動で付ける)
 CUTS = ("none", "silence")          # 友人が選べるカットの方法(① 全自動のパック)
 PACK_CUTS = ("rows",) + CUTS        # 束の pack.cut で選べる方法(rows = 行から = ホームの設定 autorun.cut の選択肢。run.py の _cut_method と同じ)
 # 文字起こしのエンジン・モデル・機器(束の transcribe 節・リアルタイム切り抜きの live.auto(M2)・この PC の設定 machine)。editor の tx_engines の id。
-# 0.58.0(2026-10-11 ユーザー決定「普段よく使っているモデル以外は要らない・faster-whisper も CPU の逃げ道以外は消す」)で whisper.cpp・large-v3・vulkan だけに。
+# 束から選べるのは whisper.cpp・large-v3・vulkan(cuda)だけ(ユーザー決定「普段よく使っているモデル以外は要らない」)。
 # faster-whisper は ① の中の CPU の逃げ道(GPU が実行時に失敗したとき・再認識など)として残るが、束からは選ばない。
 TX_ENGINES = ("whisper.cpp",)
 TX_MODELS = ("large-v3",)
 TX_DEVICES = ("vulkan", "cuda")   # cuda = whisper.cpp の CUDA 版(F1 F0-2。友人の PC の NVIDIA。エンジンは同じ whisper.cpp = implied_engine)
-# 旧い値(0.57.0 まで束・machine.json・保存した設定に書けた物)。断らずに上の値へ読み替える(read_legacy_tx。merge と machine が使う)
+# 旧い値(束・machine.json・保存した設定に書かれていることがある物)。断らずに上の値へ読み替える(read_legacy_tx。merge と machine が使う)
 LEGACY_TX_ENGINES = ("faster-whisper", "qwen3-asr", "llama.cpp")
-LEGACY_TX_DEVICES = ("auto", "cpu")   # cuda は F1 F0-2 から今の値(旧いエンジンと組で来た cuda = faster-whisper の CUDA だけ vulkan に読む = merge)
-LEGACY_TX_MODEL_RE = re.compile(r"^(?!\.)[A-Za-z0-9_.-]{1,60}(/(?!\.)[A-Za-z0-9_.-]{1,60})?\Z")   # 以前のモデルの名前の形(small・kotoba-tech/… など。worker_client.MODEL_RE と同じ形)
+LEGACY_TX_DEVICES = ("auto", "cpu")   # cuda は今の値(旧いエンジンと組で来た cuda = faster-whisper の CUDA だけ vulkan に読む = merge)
+LEGACY_TX_MODEL_RE = re.compile(r"^(?!\.)[A-Za-z0-9_.-]{1,60}(/(?!\.)[A-Za-z0-9_.-]{1,60})?\Z")   # 旧いモデルの名前の形(small・kotoba-tech/… など。worker_client.MODEL_RE と同じ形)
 TX_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,59}\Z")             # モデルの名前の形(LLM の後処理のモデル llmModel の検査)
 WEIGHT_KEYS = ("wAudio", "wChat", "wComments")   # 解析の重み(スタジオの解析の設定と同じ名前。0〜3)
 MAX_MARKS = 50   # マークを選んだ実行で選べる数(スタジオの書き出しの1回の上限と同じ)
@@ -164,17 +164,17 @@ def row_edge_ok(v):
 # ---------- 束の形 ----------
 SECTIONS = ("hints", "analyze", "adopt", "export", "transcribe", "post", "pack", "run")
 RUN_FROM = ("analyze", "adopt", "export", "transcribe", "pack")   # run.from に書ける段(run.py の MODE_STEPS の段の名前)
-RUN_UPTO = ("transcribe", "pack")   # run.upto = どこまで作るか(transcribe = 文字起こしまで・pack = パックまで。RV A2 で封筒の legacy.mode から)
-ON_FAIL = ("next", "stop")          # run.onFail = 1 本が失敗したとき(next = 残りを続ける・stop = そこで止める。RV A2 で封筒の legacy.onFail から)
-# run.requested に書ける項目(依頼が決めた項目。RV A2 で run.pinned から改名): weights = analyze の重み 3 つ(解析済みでも重みが違えば解析し直す)・
+RUN_UPTO = ("transcribe", "pack")   # run.upto = どこまで作るか(transcribe = 文字起こしまで・pack = パックまで。RV A2)
+ON_FAIL = ("next", "stop")          # run.onFail = 1 本が失敗したとき(next = 残りを続ける・stop = そこで止める。RV A2)
+# run.requested に書ける項目(依頼が決めた項目。RV A2): weights = analyze の重み 3 つ(解析済みでも重みが違えば解析し直す)・
 # cut = pack.cut(リアルタイム切り抜きの自動の採用の既定より強い)・videoTracks = pack.videoTracks(1 でも要求に書く)・
 # engine・model = transcribe の engine・model(機器から決まるエンジンと同じでも要求に書く)
 RUN_REQUESTED = ("weights", "cut", "videoTracks", "engine", "model")
 STREAMER_MAX = 120   # hints.streamer の長さ(封筒の題と同じ)
 
-# 束の鍵にしない固定の項目(5-4。ユーザー決定 2026-10-09 夜)。今の設定の画面から消す物。呼ぶ側は変えられない
+# 束の鍵にしない固定の項目(5-4。ユーザー決定)。設定の画面には出さない。呼ぶ側は変えられない
 FIXED = {
-    "fps": 30,                # 素材とパックは 30fps にそろえる(run.py の _pack_one。2026-10-04 Q1)
+    "fps": 30,                # 素材とパックは 30fps にそろえる(run.py の _pack_one。Q1)
     "precise": True,          # 切り出しは精密(run.py の _export_body の precision "accurate")
     "maxHeight": 0,           # 画質は最大 = 上限なし(書き出しの maxHeight 0 = 上限なし。スタジオの exporter._max_height)。録画の live.quality も最大
 }
@@ -185,7 +185,7 @@ DEFAULTS = {
         "ranges": [],         # 必ず切り抜く区間 [[開始秒, 終了秒], …]。無し = なし(autorun.py の clean_ranges(None))
         "people": [],         # 出る人 [{name, color?}](先頭 = 話者の分からない行の字幕の色にする人)か {count}。無し = ① が推定する。
                               # ② の口 submit は、配信者(下の streamer)が無ければ先頭の名前を配信者(字幕の色)にする(RS7-1 S4。flow/runqueue.py)
-        "streamer": None,     # 字幕の色にする配信者(照らし合わせた名前)。None = 自動(出る人の先頭 → 覚えた名前 → チャンネル名)・"" = 色なし(RV A2 で封筒の legacy.streamer から)
+        "streamer": None,     # 字幕の色にする配信者(照らし合わせた名前)。None = 自動(出る人の先頭 → 覚えた名前 → チャンネル名)・"" = 色なし(RV A2)
     },
     "analyze": {              # スタジオの解析の設定(src/pipeline/analyze/analyze.py の validate_settings 90-96 行)
         "useAudio": True, "useChat": True, "useComments": True,
@@ -210,9 +210,9 @@ DEFAULTS = {
     "export": {               # 書き出し(run.py の _export_body。exporter.py の DEFAULT_EXPORT_VOLUME)
         "loudness": -14,      # 聞こえ方をそろえる目標(LUFS)。None = そろえない(volume を使う)
         "volume": 75,         # そろえないときの音量(%)
-        "margin": MARGIN_DEFAULT,   # 切り抜きの動画の前後に足す余白(秒。LD-2f。マークの区間は変えない = パックの段が話の切れ目で両端を決める。0 = 今までどおり = スイッチ)
+        "margin": MARGIN_DEFAULT,   # 切り抜きの動画の前後に足す余白(秒。LD-2f。マークの区間は変えない = パックの段が話の切れ目で両端を決める。0 = 足さない = スイッチ)
     },
-    "transcribe": {           # 認識(重い。src/human/proof/doc_jobs.py の validate_job(文字起こしの要求))。0.58.0 から GPU の whisper.cpp + large-v3(0.57.0 まで faster-whisper・small・auto)
+    "transcribe": {           # 認識(重い。src/human/proof/doc_jobs.py の validate_job(文字起こしの要求))。GPU の whisper.cpp + large-v3
         "engine": "whisper.cpp", "model": "large-v3", "language": "ja",
         "quality": "best",    # best か fast(fast は beam 1)
         "device": "vulkan", "vadMode": "weak", "boost": False,
@@ -244,7 +244,7 @@ DEFAULTS = {
     "run": {
         "from": None,         # どの段からやり直すか(RUN_FROM)。None = 頭から
         "force": False,       # 同じ鍵でも作り直す
-        "repack": False,      # パックがあれば作り直す(文字起こしは作り直さない。Run の旧い欄 overwrite。RS7-1 S3)
+        "repack": False,      # パックがあれば作り直す(文字起こしは作り直さない。Run の欄 overwrite。RS7-1 S3)
         "upto": "pack",       # どこまで作るか(RUN_UPTO。transcribe = 文字起こしまで。from と組で段の並び = flow/run.py の steps_of)
         "onFail": "next",     # 1 本が失敗したとき(ON_FAIL。入口はホームの設定 autorun.onFail)
         "requested": [],      # 依頼が決めた項目(RUN_REQUESTED。画面の既定・自動の決め方より強い。旧い鍵 run.pinned も読む = RENAMED_KEYS。
@@ -257,14 +257,14 @@ def merge(spec):
     """既定値(DEFAULTS)に spec(変えたい所だけの dict。None・{} = 何も変えない)を重ねた新しい束を返す。
     辞書の値(maxChars・wrapChars・cutSilence・learning)は鍵ごとに重ね、それ以外(一覧・数・文字・None)は置き換える。
     知らない節・鍵は ValueError(綴りの間違いで黙って既定になるのを防ぐ)。値の検査はしない(validate)。
-    旧い値は断らずに読み替える(0.58.0): transcribe の engine・model・device の旧い値は read_legacy_tx・消した項目(RETIRED_KEYS)は捨てる"""
+    旧い値は断らずに読み替える: transcribe の engine・model・device の旧い値は read_legacy_tx・使わない項目(RETIRED_KEYS)は捨てる"""
     return _merge_into(copy.deepcopy(DEFAULTS), spec)
 
 
 def merge_onto(base, spec):
     """土台の束 base(検査済みの束 = 受付の build_spec など)に spec(変えたい所だけ)を重ねた新しい束(RV A1。② の口 submit の土台)。
     重ね方は merge と同じ。ただし run.requested は足し合わせ・run.force・run.repack はどちらかが真なら真(依頼が決めた印を土台が消さない =
-    ライブの録画の束 + 書き出したあとの欄。以前の Run の欄から写した差分の重ね方 _with_asked と同じ)。値の検査はしない(validate)"""
+    ライブの録画の束 + 書き出したあとの欄。Run の欄から写した差分の重ね方 _with_asked と同じ)。値の検査はしない(validate)"""
     out = _merge_into(copy.deepcopy(base), spec)
     if isinstance(spec, dict) and isinstance(spec.get("run"), dict):
         b, r = base.get("run") or {}, out["run"]
@@ -285,7 +285,7 @@ def _merge_into(out, spec):
         if not isinstance(given, dict):
             raise ValueError("%s は {項目: 値} の形にしてください" % sec)
         if sec == "transcribe" and given.get("engine") in LEGACY_TX_ENGINES and given.get("device") == "cuda":
-            given = dict(given, device=TX_DEVICES[0])   # 旧いエンジンと組の cuda = 0.57.0 までの faster-whisper の CUDA(whisper.cpp の CUDA 版ではない)
+            given = dict(given, device=TX_DEVICES[0])   # 旧いエンジンと組の cuda = faster-whisper の CUDA(whisper.cpp の CUDA 版ではない)
         given = {k: read_legacy_tx(k, v) if sec == "transcribe" else v for k, v in given.items() if k not in RETIRED_KEYS.get(sec, ())}
         for old, new in RENAMED_KEYS.get(sec, {}).items():   # 改名した鍵(旧い束・待ちの記録・録画の束)は今の名前で読む。両方あれば今の名前
             if old in given:
@@ -295,14 +295,14 @@ def _merge_into(out, spec):
     return out
 
 
-RENAMED_KEYS = {"run": {"pinned": "requested"}}   # 改名した鍵(RV A2: run.pinned → run.requested)。旧い名前は merge が今の名前に読み替える
-# 消した項目(0.58.0 = kotoba のときの redoLarge・10-16 = autoRedo の入口ごと・10-18 = パックの予備 pack.backup = 決定 3-34)。旧い束・待ちの記録・保存した要求にあれば黙って捨てる
+RENAMED_KEYS = {"run": {"pinned": "requested"}}   # 改名した鍵(run.pinned → run.requested)。旧い名前は merge が今の名前に読み替える
+# 使わない項目(kotoba のときの redoLarge・autoRedo・パックの予備 pack.backup = 決定 3-34)。旧い束・待ちの記録・保存した要求にあれば黙って捨てる
 RETIRED_KEYS = {"post": ("redoLarge", "autoRedo"), "pack": ("backup",)}
 
 
 def read_legacy_tx(field, value):
-    """transcribe 節の engine・model・device の旧い値(0.57.0 まで書けた物)を今の値に読み替える。
-    エンジン faster-whisper・qwen3-asr・llama.cpp → whisper.cpp / 機器 auto・cpu → vulkan(cuda は F1 F0-2 から今の値)/ large-v3 でないモデルの名前(small・kotoba など)→ large-v3。
+    """transcribe 節の engine・model・device の旧い値を今の値に読み替える。
+    エンジン faster-whisper・qwen3-asr・llama.cpp → whisper.cpp / 機器 auto・cpu → vulkan(cuda は今の値)/ large-v3 でないモデルの名前(small・kotoba など)→ large-v3。
     それ以外(今の値・形の違う値)はそのまま返す(検査は validate)。machine.check も同じ決まりで読む"""
     if field == "engine" and isinstance(value, str) and value in LEGACY_TX_ENGINES:
         return TX_ENGINES[0]
@@ -505,7 +505,7 @@ def key_ok(sec, key, value):
 
 
 # ---------- 束 → 各ツールの API の本文(RS6 b-0) ----------
-# 5-4 の固定の 3 つ(切り出しの精密・画質の上限・パックの fps)は FIXED の値(RS7-1 S4 で画面だけの値 screen の口を消した = 決定 3-30 Q2)
+# 5-4 の固定の 3 つ(切り出しの精密・画質の上限・パックの fps)は FIXED の値(RS7-1 S4 = 決定 3-30 Q2)
 TX_TRANSCRIBE_KEYS = ("model", "language", "quality", "device", "vadMode", "boost")   # 文字起こしの要求に渡す transcribe 節の項目
 TX_POST_KEYS = ("autoDict", "wordSplit", "stripPunct", "autoGloss", "autoLearned",
                 "autoFill", "stripNames", "autoLlm", "autoContext", "splitChars", "diarSmooth")   # 同じく post 節(編集の画面から始めるときと同じ。後ろの 6 つは RS7-1 S2 で足した = 要求にあれば受付が settings.json でなく要求を使う)

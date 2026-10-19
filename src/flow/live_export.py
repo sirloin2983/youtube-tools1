@@ -13,7 +13,7 @@
   スタジオなしの採用(RS7-2 G1b。flow/live_adopt.py の LocalMarks)は、正本のマークに採用の印(key・sec・status adopted|exported・src "local")を置く(MarkStore.adopt)。
   RS8 B3-5(決定 3-37 の (r8j)): 採用の正は案件の 採用.json。スタジオなしの採用の印は初めて書き出したとき案件へ写し(録画の記録に case = 案件の根)、
   そのあとの採用はここに置かない(書き出しのジョブの入力 upsert だけ)。正本のファイルはライブの片付けが録画を消したあと、写っていれば消す(settled・drop)。
-  画面からマークを直に足す POST /live/api/marks は消した(MarkStore.apply は P2 の形のまま残す = テストと手で使う)。
+  画面からマークを直に足す口は無い(MarkStore.apply は P2 の形で、テストと手で使う)。
 
 書き出しのジョブ(Exporter。計画の 6。1本ずつ順に):
   1. 録画待ち … マークの終わりの時刻まで録画が届くのを待つ(録画元の /live/<録画>/segments の lastPdt。届く前に録画が終われば、録れた所までで切る)
@@ -31,19 +31,19 @@
   P4(録画に無い区間をアーカイブから書き出す。src/flow/live_archive.py)はジョブに archive を足す(ここは起動し直したときに途中の段を「待ち」に戻すのと、
   作り直しの途中のマークを書き出し直させない busy・欠けのマークの名前を決める target・recBase(録画の頭の時刻)を受け持つ)。
 
-採用の出どころ origin(線 D の M1。入口 0.39.0): manual(人がマークした)・auto(配信中の検出が自動で採用。M11)・archive(配信後のアーカイブの解析で自動で採用。M7)。
+採用の出どころ origin(線 D の M1): manual(人がマークした)・auto(配信中の検出が自動で採用。M11)・archive(配信後のアーカイブの解析で自動で採用。M7)。
 ジョブ・.clip.json の source.live.origin と mark.src(auto・archive は "auto")・live/live_feedback.jsonl(採用の記録。feedback.jsonl とは別 = 計画の 0-8)に残す。
 自動の採用は「良い」に数えない(live_feedback の human が false・verdict が null。スタジオの採用(adopt_marks)と同じ決まり)。
 書き出しが済んだら、スタジオのマーク(ジョブの studio)を入口が自分で「書き出し済み」にする(POST /studio/api/live/exported。画面を閉じていても。M1)。
 書き出したあとの自動の流れの設定(ホームの設定 live.auto の cut・engine・model。M2)はジョブを作るときに auto に覚え、まとめて実行へ渡す。
-失敗の文は src/flow/live_failures.py の failure_of だけが作る(M3)。snapshot はジョブに failure を足し、帯が今までどおり出す欄(error・warning)にも同じ文を入れる。
+失敗の文は src/flow/live_failures.py の failure_of だけが作る(M3)。snapshot はジョブに failure を足し、帯が出す欄(error・warning)にも同じ文を入れる。
 
-ディスクの見張り(線 D の M4。入口 0.40.0): 書き出し先(パックも切り抜きの隣 <名前>_pack に作る)と live/work(取ったセグメント・アーカイブの丸ごとの音)の
+ディスクの見張り(線 D の M4): 書き出し先(パックも切り抜きの隣 <名前>_pack に作る)と live/work(取ったセグメント・アーカイブの丸ごとの音)の
 空きを DISK_POLL(1 分)ごとに調べる(disk)。DISK_WARN(20 GB)未満で注意(「調子」)、DISK_LOW(5 GB)未満で**新しい書き出しと文字起こしを「空き待ち」**にする
 (録画待ちのジョブは録画元に問い合わせずに待ち、書き出しが済んだジョブはまとめて実行へ渡すのを待つ = handoffWait "disk")。空けば続ける。
 止めずに待つのは、書き込みの途中で失敗して書きかけが壊れるより戻しやすいため(計画の 5 の 3)。録画の部品は録画先を 1 GB で止め・20 GB で注意する(別)。
 用途つきの枠(M6): 書き出す録画がまだ録画中なら、重い処理の順番(ytt.jobs.SLOTS)の用途つきの枠も使う(acquire(reserved=True))。
-アーカイブから書き出すジョブ(M7。2026-10-16 の見直し = 決定 3-73): 配信後の全自動(src/flow/live_archive.py)が採用した候補は hold "archive" で頼まれ、
+アーカイブから書き出すジョブ(M7。決定 3-73): 配信後の全自動(src/flow/live_archive.py)が採用した候補は hold "archive" で頼まれ、
 from "archive" の印を付けた wait のジョブになる。録画からは書き出さず(_next_ready が飛ばす・pending に数えない)、Archiver がアーカイブから書き出して
 _finish(archive=…)で済ませ、すぐ まとめて実行へ渡す。録画に無い区間(欠け・録画が区間まで届かなかった)は error + needsArchive で、同じく Archiver が書き出す。
 
@@ -74,7 +74,7 @@ VERSION = _version.VERSION   # 全体の版(ytt/version.py)
 TOOL = {"name": "ytt-live", "version": VERSION}
 MARKS_SCHEMA = "ytt-live-marks/v1"
 JOBS_SCHEMA = "ytt-live-exports/v1"
-# 録画元との約束(id の形・時刻の書き方・動画の id)は ytt/recproto.py の 1 か所(録画の部品・配信中の検出のワーカーと同じ物。2026-10-09 見直し T8)
+# 録画元との約束(id の形・時刻の書き方・動画の id)は ytt/recproto.py の 1 か所(録画の部品・配信中の検出のワーカーと同じ物)
 ID_RE = recproto.RECORDER_ID_RE   # 録画元の id
 REC_RE = recproto.REC_ID_RE       # 録画の id
 MARK_RE = re.compile(r"^lm-[0-9a-f]{8,16}\Z")
@@ -153,7 +153,7 @@ def latest_per_mark(js):
 
 def cleaned_up(job):
     """録画の片付け(src/flow/live_retire.py の口。④ live_cleanup が記す)が済んだジョブか = 録画を消した(recordingDeleted)。
-    済んだ物から記録を切ってよい(Exporter._trim。7e-3。前の版の archive.keep・keepDeleted は 10-19 から見ない)"""
+    済んだ物から記録を切ってよい(Exporter._trim。7e-3。archive.keep・keepDeleted は見ない)"""
     return bool(job.get("recordingDeleted"))
 
 
@@ -163,7 +163,7 @@ def _text(v, n):
 
 
 def check_after(body, default="check"):
-    """POST /live/api/export・adopt の after("none"|"check"|"auto")。無ければ以前の transcribe(真偽)から: false → none・true → check。
+    """POST /live/api/export・adopt の after("none"|"check"|"auto")。無ければ transcribe(真偽)から: false → none・true → check。
     どちらも無ければ default(ホームの設定 live.auto.after。M2)"""
     a = body.get("after") if isinstance(body, dict) else None
     if a is None:
@@ -203,7 +203,7 @@ def check_streamer(v):
 
 def deliver_pool(job, req):
     """ライブの切り抜きの溜めの指定(src/flow/run.py の Run.pool。届ける側の溜めの鍵 = 送り直しの間は同じ溜めの実行を待つ)。溜めは 依頼(自分の配信の自動で届ける分は録画)× 段
-    (配信中の live = 自動の採用・人のマーク / 配信後の追加 archive)ごと。10-09 ユーザー決定 = decisions 3-20"""
+    (配信中の live = 自動の採用・人のマーク / 配信後の追加 archive)ごと。ユーザー決定 = decisions 3-20"""
     phase = "archive" if job.get("origin") == "archive" else "live"
     who = "auto" if req.get("autoDeliver") is True else str(req.get("rid") or "")
     rec = "%s/%s" % (job.get("recorder") or "", job.get("recording") or "")

@@ -150,7 +150,7 @@ class RejectedTest(unittest.TestCase):
         self.assertEqual(CF.merge(c2, a2, VID), v)
 
     def test_marks_carry_over_on_reanalysis_split(self):
-        """候補を作り直す split(keep_candidates なし)でも、前の消した印は残る。印に当たる新しい候補は採用の側に残して往復は崩さない"""
+        """候補を作り直す split(keep_candidates なし)でも、消した印は残る。印に当たる新しい候補は採用の側に残して往復は崩さない"""
         v = self.base()
         docs = through_json(CB.split(v))
         v2 = copy.deepcopy(v)

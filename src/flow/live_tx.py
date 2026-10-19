@@ -1,4 +1,4 @@
-"""配信中の候補の文字起こし(線 D の D-11 案 b。ホーム 0.48.0。notes:plan/line-d-live-clipping.md の 0-11。2026-10-08 ユーザー決定「b をやる」)。
+"""配信中の候補の文字起こし(線 D の D-11 案 b。notes:plan/line-d-live-clipping.md の 0-11。ユーザー決定)。
 
 配信中の検出(src/flow/live_detect.py)の候補が確定するたびに、その区間の音を録画元から取り(書き出し src/flow/live_export.py と同じセグメント)、
 16kHz モノラルの wav にして子プロセス src/pipeline/transcribe/live_tx_worker.py(編集の whisper.cpp・Vulkan = GPU)で認識し、
@@ -12,7 +12,7 @@ pad = 実際に足せた前後の秒 [前, 後]・text は候補の区間にか�
 モデル(編集の作業データの models/whispercpp/)がある・ffmpeg がある、のときだけ(ready)。無ければ何もしない(候補に文字が付かないだけ)。
 機械の都合(エンジン・機器)はこの PC の設定 flow/machine.py から(LiveTx.machine。RS7-1 S1。決めていなければ今までどおり whisper.cpp の Vulkan)。
 守り: 1 本ずつ(同時に 1 つの子プロセス)・1 本 TX_TIMEOUT 秒まで・同じ候補は TX_TRIES 回まで・続けて FAIL_PAUSE_AFTER 回失敗したら PAUSE_SEC 休む(GPU の不調で回り続けない)。
-認識(GPU)は重い処理の順番(ytt.jobs.SLOTS。tool "live-tx")を通す(D-14。10-08 決定): 書き出し・文字起こし・パックと同じ枠で順番を待つ
+認識(GPU)は重い処理の順番(ytt.jobs.SLOTS。tool "live-tx")を通す(D-14): 書き出し・文字起こし・パックと同じ枠で順番を待つ
 (配信中の文字起こしが whisper.cpp の GPU を、書き出したあとの本番の文字起こしと取り合わない)。待っている間は status の slotWait。入口の終了で待ちをやめる。
 入口の見回り(Live.tick。30 秒ごと)が tick() で候補を見つけて列に入れ、裏のスレッドが 1 本ずつ処理する。
 """
@@ -30,10 +30,10 @@ WORKER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 # whisper.cpp の置き場所の決まり(版・実行ファイル・モデルのファイル)は ytt/txbase の 1 か所(F1 F0-2。編集の tx_engines も同じ物を読む)
 WCPP_VERSION = _txbase.WCPP_VERSION
 WCPP_EXE = _txbase.WCPP_EXE
-WCPP_MODEL_FILES = _txbase.WCPP_MODEL_FILES   # large-v3-turbo は 0.58.0 で外した(保存値は cfg が既定に戻す)
+WCPP_MODEL_FILES = _txbase.WCPP_MODEL_FILES   # large-v3-turbo は含まない(保存値にあれば cfg が既定に戻す)
 DEFAULT_MODEL = "large-v3"
 LIVE_ENGINE = "whisper.cpp"           # 配信中の文字起こしのエンジン(whisper.cpp だけ)
-LIVE_DEVICES = ("vulkan", "cuda")    # whisper.cpp の機器 = GPU だけ(0.58.0。cuda は F1 F0-2 の CUDA 版。この PC の設定の cpu などは machine が vulkan に読み替える)
+LIVE_DEVICES = ("vulkan", "cuda")    # whisper.cpp の機器 = GPU だけ(cuda は F1 F0-2 の CUDA 版。この PC の設定の cpu などは machine が vulkan に読み替える)
 TX_STATES = ("frame", "bench", "adopted")   # 文字を付ける候補の状態(仮の候補・終わり待ち・見送りは付けない)
 TX_TIMEOUT = 240.0        # 子プロセス 1 本の上限(秒。45〜120 秒の音は GPU で 10〜20 秒 = 区間の上限 300 秒 + 余白 2 × 30 秒でも 1 分ほど。LD-2f で見直して据え置き)
 WAV_TIMEOUT = 120          # 候補の区間の wav を作る ffmpeg 1 本の上限(秒)

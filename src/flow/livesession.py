@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""② 管理の層 flow: ライブ係(役割で組み直す RS7-2 G2b。資料の git:cbe1a64:docs/design/surveys/rs7-survey-2026-10-10/plan_order_v3.md の 1 節 5・notes:plan/done/f1-friend-pc.md)。
+"""② 管理の層 flow: ライブ係(RS7-2 G2b。notes:plan/done/f1-friend-pc.md)。
 
-もとは入口の src/app/live.py の Live の中の app でない部分。録画元のクライアント(一覧・要求・状態)・録画を始める(begin・友人の依頼の begin_request)・
+入口の src/app/live.py の Live の中の app でない部分を持つ。録画元のクライアント(一覧・要求・状態)・録画を始める(begin・友人の依頼の begin_request)・
 見回りの列(tick)・子プロセス(録画の部品の起動と後始末・検出のワーカー)・「調子」・採用の口(adopt)をここに置き、4 つの子(Detector・LiveTx・Reporter・
 Exporter)と Archiver・Adopter の親になる(flow/livehost.py の LiveHost を満たす)。入口の Live は LiveSession を継いで、HTTP の受け口・中継・札・
 スタジオ(studio_call・StudioMarks)・友人へ届ける・D-13・ホームの設定(prefs)だけを足す(app の殻)。画面なし(--headless)も同じ Live を使い、
@@ -9,19 +9,19 @@ use_headless でスタジオなしの採用(LocalMarks)・届けない・D-13 �
 
 受付 = submit(封筒, 束)(② の口 Queue.submit が kind live を回す = 入口が Queue.set_live_hook で登録する):
   封筒 kind live(flow/envelope.py)を受けて録画を始め、録画ごとに封筒 + 束を live/bundles.json に残す(BundleBook)。
-  友人の依頼(封筒の requestId・入口の intake から ctx つき)と画面なしの依頼は requests.json の結びつき(human/friend/live_requests.Store)も今までどおり作る
-  (= 依頼の録画の検出・自動の採用・after auto・配信後の追加は今の「友人の依頼の録画」の決まりのまま)。
+  友人の依頼(封筒の requestId・入口の intake から ctx つき)と画面なしの依頼は requests.json の結びつき(human/friend/live_requests.Store)も作る
+  (= 依頼の録画の検出・自動の採用・after auto・配信後の追加は「友人の依頼の録画」の決まり)。
   ユーザーの PC の自分の配信(スタジオの URL の欄 → begin_own)も録画を始めたときに束を組む(RS8): 封筒 kind live + own_bundle
-  (土台 + ライブの設定 + 束の無い録画が読んでいた今の値 = スタジオの解析の設定・書き出しの音量)。封筒にできない URL(テストの手元の録画元)だけ束なし。
+  (土台 + ライブの設定 + 束の無い録画が読む値 = スタジオの解析の設定・書き出しの音量)。封筒にできない URL(テストの手元の録画元)だけ束なし。
 
 live/bundles.json の形: {"<録画元>/<録画>": {"envelope": 封筒(検査済み。無い = 束だけ), "spec": 束(検査済み), "at": 受けた時刻(epoch 秒)}}
-  一時ファイルから置き換える(fsio.atomic_write)。無い・読めない・形の違う行 = その録画は束なし(今までどおりの読み方)。BUNDLES_KEEP_DAYS で片付ける。
+  一時ファイルから置き換える(fsio.atomic_write)。無い・読めない・形の違う行 = その録画は束なし(束の無い録画の読み方)。BUNDLES_KEEP_DAYS で片付ける。
 束から読む所(決定 3-31 の仮 b1・b2・b3 = 録画を始めたときの束に固定):
   検出(live_detect.Detector.config の bundles = 録画ごとの解析の設定・感度・枠)・自動の採用の待ち(Detector.adopt_for)・
   配信後の全自動の解析の設定(live_archive の settings_for)・書き出しの音量(live_export.Exporter._audio_cfg)・
   書き出したあとの設定(auto_cfg の cut・engine・model・pad。束の run.requested にある物だけ)・まとめて実行へ渡す束(Exporter._handoff)。
-  束の無い録画(封筒にできない URL・束より前の録画)は今の読み方(スタジオの GET /api/settings・settings-ui.json・ホームの設定 live.auto)に落ちる。
-  録画中に設定を変えても、束のある録画には効かない(変えるなら録画を止めて始め直す)。検出・自動採用のオン/オフ・書き出したあと(auto.after)・画質は束に無い = 今の設定。
+  束の無い録画(封筒にできない URL・束を持たない録画)は(スタジオの GET /api/settings・settings-ui.json・ホームの設定 live.auto)に落ちる。
+  録画中に設定を変えても、束のある録画には効かない(変えるなら録画を止めて始め直す)。検出・自動採用のオン/オフ・書き出したあと(auto.after)・画質は束に無い = その時の設定。
 
 import してよいのは標準ライブラリ・ytt・pipeline・同じ flow だけ(層の向き。友人の依頼の結びつき・片付け・案件は入口が hook で渡す)。
 """
@@ -49,7 +49,7 @@ from . import live_report   # 配信ごとの結果の記録。線 D の D-12
 from . import live_tx   # 配信中の候補の文字起こし。線 D の D-11 案 b
 from . import runlog, spec as _spec
 
-DEFAULT_FOLDER = r"E:\Video\live-rec"     # src/pipeline/ingest/rec_core.py の DEFAULT_FOLDER と同じ(2026-10-04 ユーザー決定)
+DEFAULT_FOLDER = r"E:\Video\live-rec"     # src/pipeline/ingest/rec_core.py の DEFAULT_FOLDER と同じ(ユーザー決定)
 RECORDER_PORT = 8730                      # src/pipeline/ingest/recorder.py の DEFAULT_PORT と同じ
 LOCAL = {"id": "local", "name": "この PC", "url": "http://127.0.0.1:%d" % RECORDER_PORT, "token": ""}
 RELAY_TIMEOUT = 15.0
@@ -199,7 +199,7 @@ def cfg_bundle(base, cfg):
     pins = list(b["run"]["requested"])
     for sec, key, v in (("transcribe", "engine", auto.get("engine")), ("transcribe", "model", auto.get("model")), ("pack", "cut", auto.get("cut"))):
         if v and _spec.key_ok(sec, key, v) and (key != "cut" or v in _spec.CUTS):
-            b[sec][key] = _spec.read_legacy_tx(key, v) if sec == "transcribe" else v   # 旧い名前は key_ok と同じく今の値に読む(0.58.0)
+            b[sec][key] = _spec.read_legacy_tx(key, v) if sec == "transcribe" else v   # 旧い名前は key_ok と同じく今の値に読む
             pins.append(key)
     b["run"]["requested"] = list(dict.fromkeys(pins))
     return _spec.validate(b)
@@ -913,7 +913,7 @@ class LiveSession:
             self._thread.start()
 
     def close(self):
-        """入口の終了: 見回りを止め、録画中でなければ録画の部品も止める(stop_recorder。録画中なら残す = 録画は続く。計画の 0-3 と 2026-10-07 ユーザー指示)"""
+        """入口の終了: 見回りを止め、録画中でなければ録画の部品も止める(stop_recorder。録画中なら残す = 録画は続く。計画の 0-3 とユーザー指示)"""
         self._halt.set()
         self.wake.set()
         self.detector.stop()   # 盛り上がりの検出のワーカー(状態は 1 分ごとに保存済み。次の起動で続きから)
@@ -927,7 +927,7 @@ class LiveSession:
         except Exception as e:   # 後始末の途中の不具合で入口の終了を止めない
             self.log("録画の部品を止める途中でエラー: %r" % (e,))
 
-    # --- 入口の終了で録画の部品も止める(入口 0.38.1) ---
+    # --- 入口の終了で録画の部品も止める ---
     def _own_proc(self):
         """この入口が起動して、まだ動いている録画の部品のプロセス(無ければ None)"""
         p = self.proc

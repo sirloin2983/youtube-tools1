@@ -9,7 +9,7 @@ src/pipeline/analyze/tests/test_live_excite_worker.py、設定(prefs)の検査�
   - GET /live/api/peaks の中身(Detector.api_get。since の差分・series・重ねた決定・無い録画・形の悪い id)/ POST adopt・dismiss・restore
     (マークと decisions.json)/「調子」の detect の行と失敗(kind detect)/ ワーカーの起動・心拍が止まったら起動し直す・止める
   - M11: 確定から waitMin 後に 1 回だけ採用(origin auto・after auto・live_feedback の human false)・見送り・控えは採用しない・スタジオ不通は 5 回で諦めて失敗の文
-  - D-13(1 録画の上限。未確認で休むのは 10-15 にやめた)・D-14(終わったあとの採用)・D-12(配信ごとの記録)・0-10-6(アーカイブとの比べ)・config.json(スタジオの解析の設定)
+  - D-13(1 録画の上限)・D-14(終わったあとの採用)・D-12(配信ごとの記録)・0-10-6(アーカイブとの比べ)・config.json(スタジオの解析の設定)
   - 友人のライブ配信の依頼(notes:docs/spec/friend.md の 2-15): ホームの検出・自動採用がオフでも結びついた録画は動く・依頼の waitMin・pad で自動の採用
   - 配信中の候補の文字起こし(D-11 案 b。本体は test_live_tx.py): 候補の text・textAt・since の差分・応答の tx・採用の記録 live_feedback.jsonl の text
 作業データはテストの一時フォルダだけ(YTT_DATA_DIR=inplace)。
@@ -470,7 +470,7 @@ class DetectApiTest(unittest.TestCase):
             c = json.load(f)
         self.assertEqual(c["recorders"], [{"id": "fake", "url": self.rec.url, "token": TOKEN}])
         self.assertEqual(c["detect"], {"sens": "high", "perHour": 3})
-        self.assertEqual((c["spec"]["length"], c["spec"]["preRatio"], c["spec"]["lag"], c["spec"]["wChat"], c["spec"]["lagAuto"]), (300.0, 0.5, 8.0, 1.4, False))   # 上限 300(LD-2d。10-16 まで 180)
+        self.assertEqual((c["spec"]["length"], c["spec"]["preRatio"], c["spec"]["lag"], c["spec"]["wChat"], c["spec"]["lagAuto"]), (300.0, 0.5, 8.0, 1.4, False))   # 上限 300(LD-2d)
         self.assertEqual(c["dir"], self.det.dir)
         self.assertFalse(self.det.write_config())   # 変わっていなければ書かない
         LF.patch_cfg(self.cfg, {"detect": {"perHour": 4}})

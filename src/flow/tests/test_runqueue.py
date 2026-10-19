@@ -18,7 +18,7 @@ sys.path.insert(0, SRC)
 from ytt import testkit  # noqa: E402
 from flow import board as B, runqueue as Q, run as R, spec as SP, tools as T  # noqa: E402
 from ytt import fsio  # noqa: E402
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # 共有の部品 _runfields(以前の Run の欄の形 → 封筒 + 束。RV A2)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # 共有の部品 _runfields(Run の欄の形 → 封筒 + 束。RV A2)
 import _runfields as RF  # noqa: E402
 
 WAIT = 10.0
@@ -276,7 +276,7 @@ class TestRestore(Base):
         self.assertEqual(calls, ["0123456789"])
 
     def test_old_form_and_too_old(self):
-        """10-18 までの形(封筒に deliver.batch・note)の待ちの記録も戻す(batch・note は読んで捨てる)。封筒の無い記録・前の版の封筒(legacy つき)は
+        """古い形(封筒に deliver.batch・note)の待ちの記録も戻す(batch・note は読んで捨てる)。封筒の無い記録・legacy つきの封筒は
         戻さない(RV A2)。RESTORE_MAX_AGE より前の物は戻さず記録に「中止」"""
         now = time.time()
 
@@ -290,7 +290,7 @@ class TestRestore(Base):
         fields_only = {k: v for k, v in dict(old, id="fedcba9876").items() if k != "envelope"}
         with open(os.path.join(self.logs, Q.ACTIVE_FILE), "w", encoding="utf-8") as f:
             json.dump({"v": Q.ACTIVE_VERSION, "runs": [{"id": "../x", "mode": "file"}, old, {"id": "abcdefabcd", "mode": "nope"}, stale, "壊れた",
-                                                       fields_only, v1]}, f)   # 壊れた行・形の違う id・知らない mode は読み飛ばす(入口の試験から移した)
+                                                       fields_only, v1]}, f)   # 壊れた行・形の違う id・知らない mode は読み飛ばす
         tools = Tools()
         q = self.queue(tools)
         _until(lambda: q.status()["idle"], "戻した 1 本が済む")
