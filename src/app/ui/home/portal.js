@@ -2084,7 +2084,8 @@
 
     restoreFilters();
     /* タブ・窓に戻ったらすぐ読み直す(ui-kit の UIKit.life。窓を並べて使うとタブの切り替えは来ないため。visibilitychange は直接使わない) */
-    UIKit.life.onReturn(function () { poll(); refreshCases(); loadCheck(); });
+    /* 依頼の受付・バックアップも(設定の画面でフォルダを決めて戻ったとき、受付のフォルダで決まる「採用」がすぐ押せる) */
+    UIKit.life.onReturn(function () { poll(); refreshCases(); loadCheck(); pollIntake(); pollBackup(); });
 
     poll();
     loadCheck();

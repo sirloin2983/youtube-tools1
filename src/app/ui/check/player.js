@@ -35,7 +35,7 @@
     var mk = [a, b > a ? b : a], win = [Math.max(0, a - pad), b > a ? b + pad : 0];
     var ytId = YT_RE.test(media.youtube || '') ? media.youtube : ((String(media.url || '').match(YT_URL_RE) || [])[1] || '');
     var src = ytId ? '' : localUrl(media.url);
-    var video = null, frame = null, endedOnce = false, endFns = [], raf = 0, timer = 0, gone = false, wave = null;
+    var video = null, frame = null, endedOnce = false, endFns = [], raf = 0, timer = 0, endTimer = 0, gone = false, wave = null;
 
     el.innerHTML = '<div class="chk-player">' +
       '<div class="chk-screen" data-chk-screen></div>' +
@@ -49,10 +49,23 @@
       endedOnce = true;
       endFns.slice().forEach(function (f) { try { f(); } catch (e) { UIKit.report('再生の終わりの知らせで失敗しました: ' + (e && e.message)); } });
     }
-    function watch() {   // 区間の終わりで止める(timeupdate は 0.25 秒おきなので、再生中は毎コマ見る)
+    /* 区間の終わりで止める: 残りの時間に合わせたタイマー(重いときにコマが遅れても・窓が隠れてコマが止まっても止まる)・毎コマ・timeupdate のどれでも */
+    function atEnd() {
+      if (gone || !video || !(win[1] > win[0]) || video.paused) return false;
+      if (video.currentTime < win[1]) return false;
+      video.pause(); finish();
+      return true;
+    }
+    function armEnd() {
+      clearTimeout(endTimer); endTimer = 0;
+      if (gone || !video || !(win[1] > win[0]) || video.paused || atEnd()) return;
+      var ms = (win[1] - video.currentTime) / (video.playbackRate || 1) * 1000;
+      endTimer = setTimeout(armEnd, Math.max(10, Math.min(ms, 250)));   // 近づくほど細かく見直す(タイマーの遅れを詰める)
+    }
+    function watch() {
       raf = 0;
       if (gone || !video) return;
-      if (win[1] > win[0] && video.currentTime >= win[1]) { video.pause(); finish(); }
+      atEnd();
       if (wave) drawWave();
       if (!video.paused) raf = requestAnimationFrame(watch);
     }
@@ -73,7 +86,11 @@
         if (win[0] > 0) { try { video.currentTime = win[0]; } catch (e) { /* 読み込みの途中 */ } }
         if (opt.autoplay !== false) play();
       });
-      video.addEventListener('play', function () { say(''); if (!raf) raf = requestAnimationFrame(watch); });
+      video.addEventListener('play', function () { say(''); armEnd(); if (!raf) raf = requestAnimationFrame(watch); });
+      video.addEventListener('playing', armEnd);
+      video.addEventListener('seeked', armEnd);
+      video.addEventListener('ratechange', armEnd);
+      video.addEventListener('timeupdate', atEnd);
       video.addEventListener('ended', finish);
       video.addEventListener('error', function () { say('この動画を再生できませんでした(元の動画が動いたか、消えた可能性があります)'); });
       video.src = src;
@@ -159,7 +176,7 @@
       setGuides: function (v) { guides = Array.isArray(v) && v.length === 2 && isFinite(+v[0]) && isFinite(+v[1]) ? [+v[0], +v[1]] : null; if (wave) drawWave(); },
       destroy: function () {
         gone = true; endFns = [];
-        cancelAnimationFrame(raf); clearTimeout(timer);
+        cancelAnimationFrame(raf); clearTimeout(timer); clearTimeout(endTimer);
         if (video) { stop(); video.removeAttribute('src'); try { video.load(); } catch (e) { /* 無視 */ } }   // 読み出しを止める(Windows でファイルを掴んだままにしない)
         if (frame) frame.remove();
         el.innerHTML = '';
