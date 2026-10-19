@@ -859,8 +859,12 @@ def folder_videos(dvideos):
     return out
 
 
-def _friend_folder(run_id, run_src):
-    """友人の返事の切り抜きのフォルダ(実行記録の sourcePath の親)。分からなければ空"""
+def _friend_folder(sent, run_id, run_src):
+    """友人の返事の切り抜きのフォルダ(届けた記録 sent のパックのフォルダの親か、実行記録の sourcePath の親)。分からなければ空"""
+    for p in (sent or {}).get("packs") or []:
+        d = p.get("dir") if isinstance(p, dict) else None
+        if isinstance(d, str) and d:
+            return os.path.normcase(os.path.dirname(os.path.abspath(d)))
     src = run_src.get(run_id)
     return os.path.normcase(os.path.dirname(os.path.abspath(src))) if isinstance(src, str) and src else ""
 
@@ -869,7 +873,8 @@ def judged_elsewhere(app, studio_judged, since_ms=None, until_ms=None, records=N
     """C1 の入口(「採用の記録 配信 10 本」)に数える、スタジオの判定の外の人の判定(K2 の決定 = 線 D の [採用][要らない]・友人の返事も数える)。
     線 D の録画 = judgments の人の行(origin live。adopt = 届けた = 良い・reject = 要らない = 悪い。自動の採用は数えない)を録画ごとに。
     友人の返事 = judgments の who friend の「要らない」(friend_value が bad・unknown の行 = 古い reject も)のある配信。行の videoId が空なら、
-    行の ref.runId から入口の実行記録(autorun-runs.jsonl)の videoId をたどり、それも無ければ(ファイル 1 本ずつの全自動)切り抜きのフォルダ = 配信ごとのフォルダを
+    ref.zip の届けた記録(② deliveries)の videoId → ref.runId(無ければ届けた記録の runId)から入口の実行記録(autorun-runs.jsonl)の videoId をたどり、
+    それも無ければ(ファイル 1 本ずつの全自動)切り抜きのフォルダ(届けた記録のパックのフォルダの親・実行記録の動画の親)= 配信ごとのフォルダを
     スタジオのマークの書き出し先(folders = folder_videos)と突き合わせる。突き合わなければフォルダを 1 つの配信として数える。
     **採用率には混ぜない**(友人が採る基準は送る基準と別 = ユーザー決定)。records = run_records(app) を読んであれば渡す。
     -> {"live": {"recordings", "good", "bad"}, "friend": {"videos", "rows", "unknown", "notInStudio"}, "all": スタジオの判定のある配信 + 線 D の録画 + ほかで数えていない友人の配信}"""
@@ -880,14 +885,17 @@ def judged_elsewhere(app, studio_judged, since_ms=None, until_ms=None, records=N
     recs = run_records(app) if records is None else records
     run_vid = {r.get("id"): r.get("videoId") for r in recs if isinstance(r.get("videoId"), str) and r.get("videoId")}
     run_src = {r.get("id"): r.get("sourcePath") for r in recs if isinstance(r.get("sourcePath"), str)}
+    sent = {d.get("zip"): d for d in deliveries.rows(os.path.join(app, "logs")) or [] if isinstance(d, dict)}   # 同じ zip は最後の行
     friend, unknown = {}, 0
     for r in judgments.rows(app):
         if judgments.friend_value(r) not in ("bad", "unknown") or not C.in_period(int(r["at"]), since_ms, until_ms):
             continue
-        run_id = (r.get("ref") or {}).get("runId")
-        vid = r["videoId"] or run_vid.get(run_id)
+        ref = r.get("ref") or {}
+        d = sent.get(ref.get("zip")) or {}
+        run_id = ref.get("runId") or d.get("runId")
+        vid = r["videoId"] or (d.get("videoId") if isinstance(d.get("videoId"), str) else "") or run_vid.get(run_id)
         if not vid:
-            folder = _friend_folder(run_id, run_src)
+            folder = _friend_folder(d, run_id, run_src)
             vid = (folders or {}).get(folder) or (("folder:" + folder) if folder else "")
         if vid:
             friend[vid] = friend.get(vid, 0) + 1

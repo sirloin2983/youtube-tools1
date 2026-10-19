@@ -253,9 +253,11 @@ class EvalMarks(unittest.TestCase):
         friend("w.zip", run_id="file1")     # 実行記録の動画が V1 の書き出し先と同じフォルダ = V1
         friend("v.zip", run_id="file2")     # 突き合わないフォルダ = 1 つの配信
         friend("u.zip", V2, what="good")    # 受け取った = 「要らない」ではない(数えない)
+        friend("t.zip")                     # 配信の分からない行(markId の無い古い行)= zip の届けた記録の配信 = V2
+        env.deliver("t.zip", [("t_pack", "")], vid=V2)
         r = env.evaluate()
         o = r["overall"]
-        self.assertEqual(o["judgedElsewhere"], {"live": {"recordings": 2, "good": 1, "bad": 2}, "friend": {"videos": 3, "rows": 7, "unknown": 1, "notInStudio": 2}, "all": 5})
+        self.assertEqual(o["judgedElsewhere"], {"live": {"recordings": 2, "good": 1, "bad": 2}, "friend": {"videos": 3, "rows": 8, "unknown": 1, "notInStudio": 2}, "all": 5})
         self.assertEqual((o["judgedAll"], r["meta"]["judgedAll"], o["judgedVideos"]), (5, 5, 1))
         self.assertEqual((o["top"], o["misses"]), (before["top"], before["misses"]))   # 採用率・見逃しは今までどおり
         self.assertEqual(env.evaluate(since="2026-10-09")["overall"]["judgedElsewhere"]["live"]["recordings"], 0)   # 時期で絞る
