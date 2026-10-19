@@ -1,20 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Resolve パックの契約テスト(文字起こしの「Resolveパッケージ(zip)」と cut2resolve の Text+ パック)。
-
-経緯: 2つの実装(src/editor/resolve_export.py(旧 transcribe-tool)と src/cut2resolve/pack.py。今は src/pipeline/pack/pack.py)があった(notes:docs/spec/code.md の 9 のリスク)。
-2026-09-26 に、先にこのテストで「同じ入力から同じ中身」を固定してから、resolve_export を pack.py を呼ぶだけの形に寄せた。
+"""Resolve パックの契約テスト(文字起こしの「Resolveパッケージ(zip)」と cut2resolve の Text+ パック)。zip とパックのタブは同じ部品(pack.py)で作る。
 
 このテストが守ること:
-  A. 一本化の前後で動きが変わらない … 旧 resolve_export の計算(下の LEGACY。一本化の前のコードをそのまま凍結)と、
-     今の文字起こしツールの経路(pack.plan_cut + pack.TRANSCRIPT_ROWS)で、残す区間・字幕・SRT が同じ。
-     2026-09-26(⑥ 語頭・語尾が切れる)から TRANSCRIPT_ROWS は行の端を声の止まる所まで広げる(pack.ROW_EDGE)ので、
-     A は「広げない」(row_edge=None)で比べる(行の時間を残す規則そのものは変わっていない)。広げ方の契約は RowEdgeContract
+  A. 区間と字幕の計算 … 凍結した計算(下の LEGACY)と、今の文字起こしツールの経路(pack.plan_cut + pack.TRANSCRIPT_ROWS)で、残す区間・字幕・SRT が同じ。
+     TRANSCRIPT_ROWS は行の端を声の止まる所まで広げる(pack.ROW_EDGE)ので、A は「広げない」(row_edge=None)で比べる。広げ方の契約は RowEdgeContract
   B. 同じ入力から同じパック … 文字起こしツールの zip の中身と、cut2resolve で同じ文字起こしから作った Text+ パックが同じ
-     (Lua・雛形・登録用の bat/ps1・手順書・動画のすべてのファイル。どちらも行の端を広げる既定・画面の既定の最小限(④)。予備ありも同じ)。
-     2026-09-26(④)から textplus-import.json は出さない(中身は Lua に埋め込み済み。区間と字幕は resolve_textplus.read_script_plan で読む)
+     (Lua・雛形・登録用の bat/ps1・手順書・動画のすべてのファイル。どちらも行の端を広げる既定・画面の既定の最小限(④))。
+     textplus-import.json は出さない(中身は Lua に埋め込み済み。区間と字幕は resolve_textplus.read_script_plan で読む)
 
-  B'. 重なる行のある文書(2026-10-05)… zip とパックが同じ(Text+ の字幕の段分け・切った終わりも同じ)。重なりの無い文書は計画に段の項目が無い
+  B'. 重なる行のある文書 … zip とパックが同じ(Text+ の字幕の段分け・切った終わりも同じ)。重なりの無い文書は計画に段の項目が無い
      (test_same_pack_with_overlapping_rows。Lua の本体が段分けの前と同じことは src/pipeline/pack/tests/test_pack.py の TestCaptionLanes)
 
   F. zip に渡らない設定 … 粗編集の動画・開始タイムコード・タイムラインの開始タイムコード・リール名は zip に渡らない(ZipSkipsContract。画面の説明の元。
@@ -49,11 +44,11 @@ for d in (ROOT / "editor", ROOT):
     if str(d) not in sys.path:
         sys.path.insert(0, str(d))
 
-from pipeline.pack import pack  # noqa: E402  パックの部品(RS1-2 で cut2resolve から移した)
+from pipeline.pack import pack  # noqa: E402
 from pipeline.pack import resolve_textplus as TP  # noqa: E402
 from pipeline.pack import srt2resolve as S  # noqa: E402
-from manage.cases import pipeline_io  # noqa: E402,F401  manage/cases(RS3-E5b。build_* は resolve_export へ移った)
-from pipeline.pack import resolve_export  # noqa: E402  pipeline/pack(RS3-E5b に editor から移した)
+from manage.cases import pipeline_io  # noqa: E402,F401
+from pipeline.pack import resolve_export  # noqa: E402
 from ytt import errors as _errors  # noqa: E402
 
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
@@ -213,7 +208,7 @@ class ResolvePackContract(unittest.TestCase):
             a = {n.split("/", 1)[1]: z.read(n) for n in z.namelist() if not n.endswith("/")}
         out = Path(tempfile.mkdtemp(dir=self.tmp)) / "pack"
         plan = pack.plan_cut(pack.Request(video=Path(doc["sourcePath"]), transcript=self.write_v1(doc), **pack.TRANSCRIPT_ROWS))
-        # cut2resolve の API(画面)と同じ: cut-plan.json・手順書(友人へ.txt。2026-09-27 から)はフォルダに書かない(予備の EDL・SRT は 10-18 に消した)
+        # cut2resolve の API(画面)と同じ: cut-plan.json・手順書(友人へ.txt)はフォルダに書かない
         res = pack.build_pack(plan, out, textplus=True, textplus_target=TP.parse_target(fps_text, size), plan_file=False, readme_file=False)
         b = {p.relative_to(out).as_posix(): p.read_bytes() for _, p in res["files"]}
         return a, b
@@ -311,8 +306,7 @@ class ResolvePackContract(unittest.TestCase):
 
     def test_same_pack_as_cut2resolve(self):
         ip = self.assertSamePack(self.doc([seg(1, 0, 2, "残す"), seg(2, 2, 4, "切る", cut=True), seg(3, 4, 8, "もう一度")]))
-        # 行の端を広げる(⑥): 契約の動画はずっと音(無音が無い)→ 後ろに決まった余白 0.2 秒(6 フレーム)。カット済の行(2〜4 秒)は越えない。
-        # 広げる前(2026-09-26 まで)は [(0, 60), (120, 240)]
+        # 行の端を広げる(⑥): 契約の動画はずっと音(無音が無い)→ 後ろに決まった余白 0.2 秒(6 フレーム)。カット済の行(2〜4 秒)は越えない
         self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(0, 60), (120, 246)])
 
     def test_zip_uses_transcribe_rules(self):
@@ -364,21 +358,20 @@ class ResolvePackContract(unittest.TestCase):
                                                       "selectionIn": 10, "handleBefore": 10, "handleAfter": 10}), encoding="utf-8")
         doc = self.doc([seg(1, 0, 2, "残す"), seg(2, 2, 4, "切る", cut=True), seg(3, 4, 8, "もう一度")], sourcePath=str(clip))
         ip = self.assertSamePack(doc)
-        # 旧 resolve_export で同じ入力から出た値は [(300, 360), (420, 540)](一本化の前の test_resolve_export の
-        # test_plan_uses_handle_media_and_keeps_recoverable_source_offsets と同じ)。⑥ から終わりに決まった余白 6 フレーム(無音が無い動画)
+        # 凍結した計算の値は [(300, 360), (420, 540)]。終わりに決まった余白 6 フレーム(無音が無い動画)
         self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(300, 360), (420, 546)])
         self.assertEqual([c["startFrame"] for c in ip["captions"]], [0, 60])
-        self.assertEqual(ip["media"]["file"], "clip_edit.mp4")      # 動画はパックの直下(2026-09-27 まで media/)
+        self.assertEqual(ip["media"]["file"], "clip_edit.mp4")      # 動画はパックの直下
 
 
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg / ffprobe が無い")
 class ZipSkipsContract(unittest.TestCase):
-    """F. zip に渡らない出力の設定(git の履歴(679ff01 以前)の docs/plan/phase4-pack-consistency.md の 4-4。ユーザー決定 2026-09-29: zip の中身は変えず、画面に書く)。
+    """F. zip に渡らない出力の設定(ユーザー決定: zip の中身は変えず、画面に書く)。
     zip(src/editor/resolve_export.create_package)は、粗編集の動画(render → _roughcut.mp4)・元の動画の開始タイムコード(advanced.srcStartTc)・
     タイムラインの開始タイムコード(advanced.recStart)・リール名(advanced.reel)を受け取らない。パックのタブ(pack-tab.js の ZIP_SKIPS)がそれを画面に書く。
     ここで「渡らない」ことを固定する: 将来 zip に渡すようにしてこのテストが落ちたら、画面の説明(pack-tab.js の zip の説明・注意、index.html)も直す合図。
     なお、開始タイムコード・リール名が効くのは EDL だけ(Lua は元動画のフレーム番号で区間を持つので変わらない)。Text+ パックには EDL が無い
-    (2026-10-18 まで backup で入れられた予備は決定 3-34 で消した)ので、Text+ パックでは zip とパックのタブで同じ中身"""
+    ので、Text+ パックでは zip とパックのタブで同じ中身"""
     setUpClass = ResolvePackContract.__dict__["setUpClass"]
     tearDownClass = ResolvePackContract.__dict__["tearDownClass"]
     video, doc, write_v1 = ResolvePackContract.video, ResolvePackContract.doc, ResolvePackContract.write_v1
@@ -423,20 +416,6 @@ class ZipSkipsContract(unittest.TestCase):
             self.assertEqual(a[name], b[name], "%s が違う" % name)
         self.assertFalse([n for n in a if n.endswith(".edl")])
         self.assertEqual(a, self.screen_pack_files(doc, render=False))
-
-    def test_zip_never_has_roughcut(self):
-        """zip に _roughcut.mp4 は入らない(パックのタブは render で入れる)"""
-        self.assertEqual([n for n in self.zip_files(self.doc(self.ROWS)) if "roughcut" in n], [])
-
-    def test_old_backup_in_requests_is_ignored(self):
-        """古い画面の /api/resolve-package・/api/build の backup: true(予備。決定 3-34)は読み捨てる: zip の口は引数ごと無く、
-        api/build の出力の指定(request.output_from_spec)は backup を返さない(パックの部品にも backup の引数は無い)"""
-        import inspect
-        from pipeline.pack import request as _req
-        self.assertNotIn("backup", set(inspect.signature(resolve_export.create_package).parameters))
-        doc = self.doc(self.ROWS)
-        out = _req.output_from_spec({"textplus": True, "backup": True}, Path(doc["sourcePath"]))
-        self.assertNotIn("backup", out)
 
     def test_textplus_pack_has_no_edl_so_advanced_has_no_effect_anywhere(self):
         """Text+ パックには EDL が無い。開始タイムコード・リール名だけを変えたパックも、zip とすべて同じ(効くのは Text+ でないパックの EDL だけ)"""

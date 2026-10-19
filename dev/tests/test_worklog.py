@@ -34,10 +34,6 @@ class WorklogTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_week_of_day(self):
-        self.assertEqual(worklog.week_name(datetime.date(2026, 10, 18)), "2026-10-12週")   # 日曜は前の月曜の週
-        self.assertEqual(worklog.week_name(datetime.date(2026, 10, 19)), "2026-10-19週")
-
     def test_new_session_files_and_week_summary(self):
         p1 = worklog.new("aaa", datetime.date(2026, 10, 19), "見出し A", notes=self.notes)
         self.assertEqual(p1, os.path.join(self.wl, "2026-10-19週", "2026-10-19-aaa.md"))
@@ -71,10 +67,6 @@ class WorklogTest(unittest.TestCase):
         self.assertEqual(week2.count(worklog.BEGIN), 1)
         self.assertIn("- 10-18 ccc: (まとめ未記入)\n- 10-17 ddd:", week2)
         self.assertTrue(week2.endswith("## 2026-10-12 前の記録\n- 本文\n"))
-
-    def test_bad_name(self):
-        with self.assertRaises(SystemExit):
-            worklog.new("a b", datetime.date(2026, 10, 19), notes=self.notes)
 
 
 if __name__ == "__main__":

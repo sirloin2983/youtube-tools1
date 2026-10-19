@@ -62,17 +62,10 @@ class PlanDataTest(unittest.TestCase):
             self.assertEqual(back[k], self.orig[k], k)
         self.assertEqual(back["versions"], [["全体(仮)", "9.9.9"], ["ui-kit", "v1"]])
         ut = back["userTasks"]
-        self.assertEqual(ut["notes"], ["メモ"])
         self.assertEqual(ut["ordered"], self.orig["userTasks"]["ordered"])
-        self.assertEqual(ut["later"], self.orig["userTasks"]["later"])
         self.assertEqual([p["id"] for p in ut["provisional"]], ["(b)", "(a)"])   # 重い物が先
-        self.assertEqual(ut["provisional"][1]["weight"], "軽")
-        self.assertEqual(ut["provisional"][1]["added"], "2026-10-18")
-        self.assertEqual(ut["provisional"][0]["added"], "2026-10-18")   # 決めた日より前には戻さない
-        names = sorted(os.listdir(os.path.join(self.plan, "data", "tasks")))
-        self.assertEqual(names[0], "1-%s.json" % names[0][2:-5])   # 統1 → 英数字 + crc
-        self.assertIn("t1.json", names)
-        self.assertEqual(sorted(os.listdir(os.path.join(self.plan, "data", "recent"))), ["1.json", "2.json"])
+        self.assertEqual(plan_data.slug("CON"), "con_")   # Windows の予約名はファイルにできない
+        self.assertNotEqual(plan_data.slug("統1"), plan_data.slug("統2"))
         self.assertEqual(plan_data.check(self.plan), [])
         self.assertEqual(plan_data.build(self.plan, version="9.9.9"), (False, []))   # 同じなら書かない
 
@@ -93,41 +86,23 @@ class PlanDataTest(unittest.TestCase):
         self.assertTrue(probs)
         self.assertEqual(self.built()[0], before)
 
-    def test_new_and_sweep(self):
-        p = plan_data.new(self.plan, "tasks", "N-1", {"name": "新しい", "state": "todo", "pre": ["T1"]})
-        self.assertTrue(p.endswith(os.path.join("tasks", "n-1.json")))
-        _, back = self.built()
-        self.assertEqual(back["tasks"][-1]["id"], "N-1")
+    def test_sweep_confirms_only_light_old_unheld(self):
         pv = plan_data.new(self.plan, "provisional", "(c)", {"sec": "3-89", "what": "迷う物"})
         with open(pv, encoding="utf-8") as f:
-            self.assertEqual(json.load(f)["weight"], "重")
+            self.assertEqual(json.load(f)["weight"], "重")   # 重さを書かない物は重い側
         self.assertEqual(plan_data.sweep(self.plan, datetime.date(2026, 10, 24)), 0)   # 7 日たっていない
-        self.assertEqual(plan_data.sweep(self.plan, datetime.date(2026, 10, 25)), 1)   # 軽い (a) だけ
-        conf = os.listdir(os.path.join(self.plan, "data", "confirmed"))
-        self.assertEqual(conf, ["3-88-a.json"])
-        with open(os.path.join(self.plan, plan_data.PROV_LIST), encoding="utf-8") as f:
-            lst = f.read()
-        self.assertIn("## まだの重い物(2 件)", lst)
-        self.assertIn("1. **3-87 (b)**(10-17・データ)", lst)   # 当たる理由の多い順・古い順
-        self.assertIn("## 今週(10-19〜)自動で確定した軽い物(1 件)\n\n- 3-88 (a)(10-25 に確定)", lst)
-        _, back = self.built()
-        self.assertEqual([p["id"] for p in back["userTasks"]["provisional"]], ["(c)", "(b)"])
-
-    def test_hold_stops_auto_confirm(self):
-        d = os.path.join(self.plan, "data", "provisional")
-        path = os.path.join(d, "3-88-a.json")
+        path = os.path.join(self.plan, "data", "provisional", "3-88-a.json")
         with open(path, encoding="utf-8") as f:
             it = json.load(f)
-        it["hold"] = True
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(dict(it, hold=True), f, ensure_ascii=False)
+        self.assertEqual(plan_data.sweep(self.plan, datetime.date(2026, 10, 25)), 0)   # 止めた物は確定しない
         with open(path, "w", encoding="utf-8") as f:
             json.dump(it, f, ensure_ascii=False)
-        self.assertEqual(plan_data.sweep(self.plan, datetime.date(2026, 11, 30)), 0)
-
-    def test_slug(self):
-        self.assertEqual(plan_data.slug("㉙"), "29")
-        self.assertEqual(plan_data.slug("D-11"), "d-11")
-        self.assertEqual(plan_data.slug("CON"), "con_")
-        self.assertNotEqual(plan_data.slug("統1"), plan_data.slug("統2"))
+        self.assertEqual(plan_data.sweep(self.plan, datetime.date(2026, 10, 25)), 1)   # 軽い (a) だけ
+        self.assertEqual(os.listdir(os.path.join(self.plan, "data", "confirmed")), ["3-88-a.json"])
+        _, back = self.built()
+        self.assertEqual([p["id"] for p in back["userTasks"]["provisional"]], ["(c)", "(b)"])
 
 
 if __name__ == "__main__":

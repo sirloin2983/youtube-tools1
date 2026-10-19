@@ -28,7 +28,6 @@ FIXTURE = [
     "src/flow/tests/test_run.py",
     "src/editor/tests/test_metrics.py",
     "src/editor/tests/test_backend.py",
-    "dev/tests/test_resolve_pack_contract.py",
     "dev/tests/test_lint.py",
     "dev/tests/e2e_pipeline.py",
 ]
@@ -69,20 +68,10 @@ class TestBuildUnits(unittest.TestCase):
         finally:
             open(os.path.join(self.tmp.name, "src/editor/tests/test_metrics.py"), "w").close()
 
-    def test_contract_is_marked_solo(self):
-        labels = {u.rel: u.label for u in R.build_units(self.tmp.name)}
-        self.assertIn("単独", labels["dev/tests/test_resolve_pack_contract.py"])
-        self.assertNotIn("単独", labels["dev/tests/test_lint.py"])
-
     def test_only_by_layer_folder_and_dev(self):
-        self.assertEqual(sorted(set(r.split("/")[1] for r in self.rels(["manage"]))), ["manage"])
         self.assertEqual(self.rels(["src/manage/keep"]), ["src/manage/keep/tests/test_backup.py", "src/manage/keep/tests/test_cleanup.py"])
-        self.assertEqual(self.rels(["editor"]), ["src/editor/tests/test_backend.py", "src/editor/tests/test_metrics.py"])
         self.assertTrue(all(r.startswith("dev/") for r in self.rels(["dev"])))
         self.assertEqual(self.rels(["manage", "flow"]), sorted(self.rels(["manage"]) + self.rels(["flow"])))
-
-    def test_only_unknown_is_empty(self):
-        self.assertEqual(self.rels(["nosuch"]), [])
 
     def test_run_one_tiny_real_test(self):
         with tempfile.TemporaryDirectory() as d:

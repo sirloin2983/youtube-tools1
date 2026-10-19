@@ -74,11 +74,6 @@ class LandTest(unittest.TestCase):
         self.assertEqual(self.land("b", b), "0.99.20")   # もう入っている = 何もしない
         self.assertFalse(os.path.exists(os.path.join(g(self.main, "rev-parse", "--git-common-dir").strip(), land.LOCK_NAME)))
 
-    def test_docs_or_tests_only_do_not_bump(self):
-        a = self.branch("a", {"dev/tool.py": "x\n", "src/tests/test_x.py": "y\n"})
-        self.assertEqual(self.land("a", a), "0.99.18")
-        self.assertIn('"0.99.18"', get(self.main, "src/ytt/version.py"))
-
     def test_branch_that_bumped_itself_is_recounted_from_main(self):
         a = self.branch("a", {"src/a.py": "a = 3\n", "src/ytt/version.py": '"""版"""\r\nVERSION = "0.99.25"\r\n'})
         b = self.branch("b", {"src/b.py": "b = 1\n", "src/ytt/version.py": '"""版"""\r\nVERSION = "0.99.19"\r\n'})

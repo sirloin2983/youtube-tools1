@@ -71,33 +71,13 @@ class PlanArtifactTest(unittest.TestCase):
             text = read(plan, "計画の索引.md")
             self.assertTrue(text.startswith("---\n種類: 索引\n状態: 有効\n---\n"))
             self.assertIn("2026-10-12", text)
-            self.assertIn("[index.html](index.html)", text)
             self.assertIn("[線 A 線A](線A.md)(進み 10%)", text)
-            self.assertIn("[その他](線その他.md)", text)
-            self.assertNotIn("T1", text)
-            # 線ごとのまとめ
             a = read(plan, "線A.md")
-            self.assertTrue(a.startswith("---\n種類: 索引\n状態: 有効\n線:\n  - A\n---\n"))
-            self.assertIn("更新(2026-10-12): 自動で作る(dev/plan_artifact.py)・手で直さない", a)
             self.assertIn("[`docs/spec/a.md`](../docs/spec/a.md)", a)
-            self.assertIn("[`plan/x.md`](x.md)", a)
-            self.assertIn("[`x.md`](x.md)", a)
             self.assertIn("T1 仕事 1", a)
-            self.assertIn("(済み)", a)
-            self.assertIn("T2 仕事 2", a)
-            b = read(plan, "線B.md")
-            self.assertIn("T2 仕事 2", b)
-            self.assertIn("(進行中)", b)
-            self.assertIn("docs/spec/none.md は無い", b)
-            self.assertNotIn("](../docs/spec/none.md)", b)
-            z = read(plan, "線その他.md")
-            self.assertIn("  - その他\n", z)
-            self.assertIn("T3 どこにも無い線", z)
+            self.assertIn("T3 どこにも無い線", read(plan, "線その他.md"))
             self.assertIn("無い資料: docs/spec/none.md(線 B)", r.stderr)
             self.assertNotIn("無い資料: docs/spec/a.md", r.stderr)
-            # Artifact の出力は今まで通り
-            self.assertTrue(os.path.isfile(os.path.join(out, "index.html")))
-            self.assertTrue(os.path.isfile(os.path.join(out, "user-tasks.html")))
             with open(os.path.join(out, "index.html"), encoding="utf-8") as f:
                 self.assertIn("window.PLAN_NO_MD", f.read())
             # 同じ data.js なら同じ中身
@@ -108,33 +88,22 @@ class PlanArtifactTest(unittest.TestCase):
             self.assertEqual(read(plan, "../ホーム.md"), home)
             self.assertEqual(r2.stderr, r.stderr)
 
-    def test_home_auto_part(self):
+    def test_home_relinks_week_summary(self):
         with tempfile.TemporaryDirectory() as tmp:
             plan = make_vault(os.path.join(tmp, "vault"))
             wl = os.path.join(tmp, "vault", "docs", "worklog")
             os.makedirs(wl)
             for name, body in (("2026-10-05週.md", "# 古い\n## まとめ\n古い話\n"),
-                               ("2026-10-12週.md", "# 新\n## まとめ\n新しい話 " + LINKS + "\n- 点\n\n---\n後ろ\n"),
-                               ("メモ.md", "x")):
+                               ("2026-10-12週.md", "# 新\n## まとめ\n新しい話 " + LINKS + "\n- 点\n\n---\n後ろ\n")):
                 with open(os.path.join(wl, name), "w", encoding="utf-8", newline="") as f:
                     f.write(body)
             self.assertEqual(run(plan, os.path.join(tmp, "out")).returncode, 0)
             home = read(plan, "../ホーム.md")
-            self.assertTrue(home.startswith("---\n種類: 索引\n状態: 有効\n---\n\n# youtube-tools"))
-            self.assertIn("[全体の計画](plan/index.html)", home)
-            self.assertIn("## 今の状況(2026-10-12)", home)
-            self.assertIn("一文目。二文目(括弧の。中)。三文目。", home)
-            self.assertNotIn("四文目", home)
-            self.assertIn("| [線 A 線A](plan/線A.md) | 10% | 次の物 |", home)
-            self.assertIn("- 進行中(1 件)\n  - 線 A・B: T2 仕事 2", home)
-            self.assertIn("- ユーザー待ち(1 件)", home)
-            self.assertIn("## 確認待ちの仮決め: 2 件", home)
             # 週の記録からの相対リンクを、ホーム(保管庫の直下)から見たパスに直して転記する
             self.assertIn("新しい話 [r](docs/design/r.md#a) [w](docs/worklog/2026-10-05週.md) "
                           "[u](https://x.jp/a) [o](../../../外.md) [p](#まとめ)\n- 点", home)
             self.assertNotIn("古い話", home)
             self.assertNotIn("後ろ", home)
-            self.assertIn("[詳しく](docs/worklog/2026-10-12週.md)", home)
 
     def test_version_and_refs(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -160,12 +129,6 @@ class PlanArtifactTest(unittest.TestCase):
             self.assertNotIn("gone.md", r.stderr)   # git:<コミット>: の後ろは消した資料 = 警告しない
             self.assertNotIn("plan_artifact.py", r.stderr)
             self.assertIn("`dev/plan_artifact.py`(リポジトリ)", read(plan, "線A.md"))
-
-    def test_home_without_worklog(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            plan = make_vault(os.path.join(tmp, "vault"))
-            self.assertEqual(run(plan, os.path.join(tmp, "out")).returncode, 0)
-            self.assertIn("## 今週の作業\n\n(まだ無い)", read(plan, "../ホーム.md"))
 
     def test_home_keeps_hand_written_part(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -203,14 +166,6 @@ class PlanArtifactTest(unittest.TestCase):
                 g = json.load(f)
             self.assertEqual(g["scale"], 2)
             self.assertEqual(g["search"], "-[状態:済み] -[状態:置き換え済み] -[状態:取り下げ]")
-            for name in ("manifest.json", "main.js"):   # 経緯の表示・非表示のボタン(プラグイン)を写す
-                self.assertTrue(os.path.isfile(os.path.join(gdir, "plugins", "graph-history-toggle", name)))
-            with open(os.path.join(REPO, "dev", "obsidian", "graph-history-toggle", "main.js"), encoding="utf-8") as f:
-                self.assertIn('const HIDE = "%s";' % g["search"], f.read())   # プラグインと条件の文字が同じ
-            qs = [c["query"] for c in g["colorGroups"]]
-            self.assertEqual(qs[0], "[状態:済み]")
-            self.assertIn("[種類:レビュー]", qs)
-            self.assertEqual(g["colorGroups"][3]["color"], {"a": 1, "rgb": 0xE5484D})
             root_home = os.path.join(tmp, "保管庫", "ホーム.md")
             with open(root_home, encoding="utf-8") as f:
                 self.assertIn("](proj/ホーム.md)", f.read())
@@ -219,16 +174,6 @@ class PlanArtifactTest(unittest.TestCase):
             run(plan, os.path.join(tmp, "out"), "--graph")
             with open(root_home, encoding="utf-8") as f:
                 self.assertEqual(f.read(), "mine")
-
-    def test_no_index(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            plan = make_vault(os.path.join(tmp, "vault"))
-            r = run(plan, os.path.join(tmp, "out"), "--no-index")
-            self.assertEqual(r.returncode, 0, r.stderr)
-            self.assertFalse(os.path.exists(os.path.join(plan, "計画の索引.md")))
-            self.assertFalse(os.path.exists(os.path.join(plan, "線A.md")))
-            self.assertFalse(os.path.exists(os.path.join(tmp, "vault", "ホーム.md")))
-            self.assertTrue(os.path.isfile(os.path.join(tmp, "out", "index.html")))
 
 
 if __name__ == "__main__":

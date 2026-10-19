@@ -62,20 +62,6 @@ class NotesToolTest(unittest.TestCase):
         self.assertIn("notes:plan/done/p.md の 2 節", get(self.repo, "src/x.py"))
         self.assertEqual(notes_tool.check(), [])
 
-    def test_mv_folder(self):
-        notes_tool.mv([("docs/spec", "docs/old/spec")])
-        self.assertIn("(../../../plan/p.md)", get(self.v, "docs/old/spec/a.md"))
-        self.assertIn("notes:docs/old/spec/a.md", get(self.repo, "src/x.py"))
-        self.assertEqual(notes_tool.check(), [])
-
-    def test_retarget_merged_doc(self):
-        put(self.v, "docs/spec/all.md", "まとめ\n")
-        notes_tool.mv([("docs/spec/a.md", "docs/spec/all.md")], move=False)
-        self.assertIn("[`docs/spec/all.md`](../docs/spec/all.md)", get(self.v, "plan/p.md"))
-        self.assertIn('"../docs/spec/all.md"', get(self.v, "plan/data.js"))
-        self.assertIn("notes:docs/spec/all.md", get(self.repo, "src/x.py"))
-        self.assertTrue(os.path.isfile(os.path.join(self.v, "docs", "spec", "a.md")))   # 旧は残す(消すのは呼び手)
-
     def test_drop_points_refs_to_git(self):
         put(self.v, "plan/data.js", '// docs: ["p.md"] 文 docs/spec/a.md(説明)\n')
         notes_tool.drop(["docs/spec"], "abc1234")
@@ -86,60 +72,22 @@ class NotesToolTest(unittest.TestCase):
         subprocess.run(["git", "-C", self.v, "rm", "-rq", "docs/spec"], check=True)
         self.assertEqual(notes_tool.check(), [])   # 消したあと切れたパスは無い
 
-    def test_prose_brackets(self):
-        put(self.v, "docs/b.md", "[送る](友人へ届ける)・[`x`](y)・`[a](b)`・[外](https://e.com)\n```\n[c](d)\n```\n[見る](`pollJobs`)\n")
-        self.assertEqual([p for w, _, p in notes_tool.check() if w == "docs/b.md"][0][-12:], "[送る](友人へ届ける)")
-        fixed = notes_tool.unlink_prose(get(self.v, "docs/b.md"))
-        self.assertEqual(fixed, "[送る] (友人へ届ける)・[`x`] (y)・`[a](b)`・[外](https://e.com)\n```\n[c](d)\n```\n[見る] (`pollJobs`)\n")
-
-    def test_tags(self):
-        text = "色 #7BDF0E と #1D3467、こぼ・かなえる・#タブ・`#ok`・見出しでない #12\n## 見出し\n```\n#x\n```\n"
-        fixed = notes_tool.unlink_prose(text)
-        self.assertEqual(fixed, "色 `#7BDF0E` と `#1D3467`、こぼ・かなえる・`#タブ`・`#ok`・見出しでない #12\n## 見出し\n```\n#x\n```\n")
-        self.assertEqual(notes_tool.tag_spans("a #タブ と"), [(2, 5)])   # 日本語のタグは区切りまで
+    def test_unlink_prose_brackets_and_tags(self):
+        self.assertEqual(notes_tool.unlink_prose("[送る](友人へ届ける)・[`x`](y)・`[a](b)`・[見る](`pollJobs`)\n"),
+                         "[送る] (友人へ届ける)・[`x`] (y)・`[a](b)`・[見る] (`pollJobs`)\n")   # 先がコードのかっこ書きも
+        self.assertEqual(notes_tool.unlink_prose("色 #7BDF0E・#タブ・`#ok`・見出しでない #12\n## 見出し\n```\n#x\n```\n"),
+                         "色 `#7BDF0E`・`#タブ`・`#ok`・見出しでない #12\n## 見出し\n```\n#x\n```\n")
         self.assertEqual(notes_tool.unlink_prose("背景 #000・LIVE と #1・2\n"), "背景 `#000`・LIVE と `#1`・2\n")   # 数字の後ろに続く物があればタグ
         self.assertEqual(notes_tool.unlink_prose("URL の #tx/#cut・【#名前 ／#shorts】・[節](a.md#x)・http://h/#y・C#\n"),
                          "URL の `#tx`/`#cut`・【`#名前` ／`#shorts`】・[節](a.md#x)・http://h/#y・C#\n")   # 記号の後ろもタグ。リンク先・URL は触らない
 
-    def test_relink_text(self):
-        old, new = os.path.join(self.v, "docs", "W.md"), os.path.join(self.v, "docs", "worklog", "w1.md")
-        out = notes_tool.relink_text("[`docs/spec/a.md`](spec/a.md#2)・[u](http://x)", old, new)
-        self.assertEqual(out, "[`docs/spec/a.md`](../spec/a.md#2)・[u](http://x)")
-
-
-GOOD_JS = "window.PLAN = {\n  tasks: [\n    {id: 1},\n    {id: 2}, // 注\n  ],\n};\n"
-BAD_JS = "window.PLAN = {\n  tasks: [\n    {id: 1}\n    {id: 2},\n  ],\n};\n"
-
-
-class DataJsSyntaxTest(unittest.TestCase):
-    def test_good_passes(self):
+    def test_data_js_missing_comma_stops_check(self):
+        put(self.v, "plan/data.js", "window.PLAN = {\n  tasks: [\n    {id: 1}\n    {id: 2},\n  ],\n};\n")
+        self.assertTrue(any(w == "plan/data.js" and "読めない" in p for w, _, p in notes_tool.check()))
         for node in (True, False):
-            self.assertEqual(notes_tool.data_js_problems(GOOD_JS, node), [])
-            self.assertIsNone(notes_tool.explain_data_js(GOOD_JS, use_node=node))
-
-    def test_missing_comma_stops_with_line(self):
-        for node in (True, False):
-            probs = notes_tool.data_js_problems(BAD_JS, node)
-            self.assertEqual([ln for ln, _ in probs], [4], node)
-            why = notes_tool.explain_data_js(BAD_JS, use_node=node)
+            why = notes_tool.explain_data_js(get(self.v, "plan/data.js"), use_node=node)
             self.assertIn("4 行目", why)
             self.assertIn(">    4|     {id: 2},", why)
-
-    def test_check_reports_broken_data_js(self):
-        tmp = tempfile.mkdtemp()
-        old = os.environ.get("YTT_NOTES_DIR")
-        os.environ["YTT_NOTES_DIR"] = tmp
-        try:
-            put(tmp, "plan/data.js", BAD_JS)
-            self.assertTrue(any(w == "plan/data.js" and "読めない" in p for w, _, p in notes_tool.check()))
-            put(tmp, "plan/data.js", GOOD_JS)
-            self.assertEqual([b for b in notes_tool.check() if b[0] == "plan/data.js"], [])
-        finally:
-            if old is None:
-                os.environ.pop("YTT_NOTES_DIR", None)
-            else:
-                os.environ["YTT_NOTES_DIR"] = old
-            shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":

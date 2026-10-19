@@ -14,21 +14,21 @@ import run_e2e  # noqa: E402
 class TestSuiteList(unittest.TestCase):
     # 一覧が実在する物と一致するか・編集の一式が流す物は一覧にあるかは、lint の規則 R-04(dev/rule_checks.py)が見る
     def test_suite_stays_one_per_path(self):
-        """e2e は主な道 1 つに 1 本(テストの見直し 10-18)。一式が 15 本を超えたら、足す前にどの道の 1 本に入るかを決める(細かい場面は単体・ui_audit へ)"""
+        """e2e は主な道 1 つに 1 本。一式が 15 本を超えたら、足す前にどの道の 1 本に入るかを決める(細かい場面は単体・ui_audit へ)"""
         self.assertLessEqual(len(run_e2e.SUITE), 15, [run_e2e.label(s, a) for _g, s, a, _w in run_e2e.SUITE])
 
     def test_no_duplicates_and_known_groups(self):
         names = [run_e2e.label(s, a) for _g, s, a, _w in run_e2e.SUITE]
         self.assertEqual(len(names), len(set(names)))
-        self.assertEqual({g for g, _s, _a, _w in run_e2e.SUITE}, {"cases", "home", "studio", "dev", "ui-kit", "friend"})
+        self.assertEqual({g for g, _s, _a, _w in run_e2e.SUITE}, {"cases", "home", "ui-kit", "friend"})
 
     def test_only_filters_by_group_or_name(self):
         cases = run_e2e.selected(["cases"])
         self.assertTrue(cases and all(r[0] == "cases" for r in cases))
         live = run_e2e.selected(["live_"])
         self.assertEqual(sorted(r[4] for r in live), ["e2e_live_archive", "e2e_live_studio"])
-        both = run_e2e.selected(["dev", "e2e_cases_cut"])
-        self.assertEqual({r[0] for r in both}, {"dev", "cases"})
+        both = run_e2e.selected(["ui-kit", "e2e_cases_cut"])
+        self.assertEqual({r[0] for r in both}, {"ui-kit", "cases"})
         self.assertEqual(len(run_e2e.selected([])), len(run_e2e.SUITE))
         no_live = run_e2e.selected([], ["live_"])
         self.assertEqual(len(no_live), len(run_e2e.SUITE) - 2)
