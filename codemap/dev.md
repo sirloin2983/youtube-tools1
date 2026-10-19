@@ -53,10 +53,10 @@
   - 名前: `rule` :27・`read_text` :34・`read_bytes` :39・`rel` :44・`repo_files` :48・`src_py_files` :57・`non_ascii_lines` :67・`bat_problems` :72・`requirements_problems` :83・`rule_bat_ascii_crlf` :97・`rule_requirements_ascii` :108・`push_bat_problems` :117・ほか 22
 - **rule_imports.py** (707 行) — 規則の見張りのうち、ソースを import して突き合わせる物(`dev/rule_checks.py` の続き。テストの分け ②a から移した分)。
   - 名前: `check` :37・`c_adopt_defaults` :86・`c_live_tx_constants` :99・`c_port_ranges` :127・`c_tool_module_names` :134・`schema_shape_problems` :153・`schema_items` :208・`c_settings_schema` :223・`c_studio_schema` :248・`c_portal_title` :263・`c_static_table` :270・`c_spec_consistency` :278・ほか 21
-- **run_e2e.py** (140 行) — 画面テスト(e2e)の一式を 1 本ずつ流して、1 本 1 行(所要秒・OK/FAIL の数)で出す。一式の正はこのファイルの SUITE。
-  - 名前: `label` :65・`summary` :70・`selected` :77・`run_one` :90・`main` :104
-- **run_editor_suite.py** (100 行) — 「編集」まわりのテストをまとめて流し、結果の1行ずつを出す(段10 のコードの整理で、分ける前と後の結果を比べるため)。
-  - 名前: `find_node` :26・`summary` :49・`main` :62
+- **run_e2e.py** (134 行) — 画面テスト(e2e)の一式を 1 本ずつ流して、1 本 1 行(所要秒・OK/FAIL の数)で出す。一式の正はこのファイルの SUITE。
+  - 名前: `label` :59・`summary` :64・`selected` :71・`run_one` :84・`main` :98
+- **run_editor_suite.py** (99 行) — 「編集」まわりのテストをまとめて流し、結果の1行ずつを出す(段10 のコードの整理で、分ける前と後の結果を比べるため)。
+  - 名前: `find_node` :26・`summary` :48・`main` :61
 - **run_unit.py** (214 行) — unittest を層ごと・フォルダごとに流す道具(1 本ずつ別のプロセス)。リポジトリ直下で:
   - 名前: `find_node` :44・`find_files` :64・`matches` :79・`build_units` :96・`run_one` :118・`report` :140・`run_all` :155・`print_summary` :174・`main` :184
 - **session_start.py** (454 行) — セッションの入口の要約(2026-10-18)。新しい AI のセッションが最初に流し、今の状態を 1 画面(150 行以内)で見る。
@@ -82,10 +82,9 @@
 
 ## テスト
 
-- dev/tests/e2e_pipeline.py — 3つのツールをつないだ通し確認(疑似モード・一時フォルダ・空きポート)。
 - dev/tests/test_build_friend_zip.py — dev/build_friend_zip.py(友人の PC に配る zip を作る。F1 の F4a)のテスト。ネットは使わない(偽のキャッシュ・取る関数は差し替えて呼ばれたら落とす)。
-- dev/tests/test_code_map.py — dev/code_map.py(コードの地図と言葉の索引を作る道具)の部品のテスト。リポジトリ直下で:
-- dev/tests/test_doc_state.py — 資料の食い違いの検査(dev/doc_state.py・dev/spec_check.py・dev/drift_report.py)のテスト。一時フォルダの偽の保管庫だけを使う
+- dev/tests/test_code_map.py — dev/code_map.py(コードの地図と言葉の索引を作る道具)の古さの判定と書き出しのテスト。リポジトリ直下で:
+- dev/tests/test_doc_state.py — 資料の食い違いの検査(dev/doc_state.py・dev/spec_check.py の --gone)のテスト。一時フォルダの偽の保管庫だけを使う
 - dev/tests/test_dropbox_auth.py — dev/dropbox_auth.py(切り抜き依頼の鍵を作る)のテスト。通信はしない(urlopen を差し替える)。
 - dev/tests/test_friend_diag.py — dev/friend_diag.py(届いた診断を読む道具)のテスト。一時フォルダだけ(本物の Dropbox は読まない)。
 - dev/tests/test_friend_preflight.py — 配る前の検査(dev/friend_preflight.py・dev/friend_preflight_shim.py)と、build_friend_zip.py --publish の関所のテスト。
@@ -94,13 +93,13 @@
 - dev/tests/test_land_gate.py — dev/land_gate.py(main に入れる前の関所)と dev/worklog.py check(報告の型)のテスト。一時フォルダだけを使う(テストは流さない)
 - dev/tests/test_layering.py — 役割の層の import の向きを守るテスト(役割で組み直す計画 `notes:plan/done/role-restructure.md` の 4 節 1。RS0)。
 - dev/tests/test_lint.py — dev/lint.py(コードの基準を測る道具)の部品のテスト。リポジトリ直下で:
-- dev/tests/test_loc.py — dev/loc.py(コードの行数を数える道具)のテスト。小さな見本の文字列で、言語ごとのコメント・空行・docstring・コードの後ろのコメントと分け方を確かめる
+- dev/tests/test_loc.py — dev/loc.py(コードの行数を数える道具)のテスト。小さな見本の文字列で、Python のコメント・空行・docstring の数え方と正味の差を確かめる
 - dev/tests/test_no_src_workdata.py — YTT_DATA_DIR=inplace のとき、作業データ(ログ・起動中の印・書き出し先)が src の中にできないことを見張る。リポジトリ直下で:
 - dev/tests/test_notes_tool.py — dev/notes_tool.py(資料のフォルダのパスの検査と、資料を動かす道具)のテスト。一時フォルダの資料のフォルダと git で確かめる
 - dev/tests/test_plan_artifact.py — dev/plan_artifact.py(計画のページ plan/ を 1 枚の公開用 HTML に組む道具)のテスト。目次と Artifact 用の 1 枚・ホームの自動の部分・版と参照・図を見る。
 - dev/tests/test_plan_data.py — dev/plan_data.py(計画のデータ plan/data/ の 1 件 1 ファイルと data.js の生成・仮決めの自動の確定)のテスト。一時フォルダだけを使う
 - dev/tests/test_push_helper.py — dev/push_helper.py(push.bat の補助: ファイルの削除・コミット前の検査)のテスト。一時フォルダの git リポジトリだけを使う。
-- dev/tests/test_resolve_pack_contract.py — Resolve パックの契約テスト(文字起こしの「Resolveパッケージ(zip)」と cut2resolve の Text+ パック)。
+- dev/tests/test_resolve_pack_contract.py — Resolve パックの契約テスト(文字起こしの「Resolveパッケージ(zip)」と cut2resolve の Text+ パック)。zip とパックのタブは同じ部品(pack.py)で作る。
 - dev/tests/test_rule_checks.py — 規則の見張り(dev/rule_checks.py・dev/rule_imports.py・dev/ui_audit.py の A-16〜A-19・A-37)が、破った見本で止まり、正しい見本で通ることを確かめる。
 - dev/tests/test_run_e2e.py — dev/run_e2e.py(e2e の一式)の一覧が、リポジトリの e2e_*.py と食い違っていないかを確かめる。
 - dev/tests/test_run_unit.py — dev/run_unit.py(層ごとに unittest を流す道具)の一覧の作り方と、1 本だけの実行。リポジトリ直下で:

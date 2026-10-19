@@ -111,6 +111,7 @@
 - src/pipeline/export/tests/test_manifest.py — 切り抜き 1 本の素性(.clip.json = youtube-tools-clip/v1)の組み立てと書き込み(書き出しの exporter.write_clip = ytt/schemas の build_clip・clip_path_for)のテスト。
 - src/pipeline/ingest/tests/hls_fixture.py — テスト用の「配信中のような HLS」(本物の YouTube には繋がない)。
 - src/pipeline/ingest/tests/test_recorder.py — 録画の部品(recorder/)のテスト。本物の YouTube には繋がない: ffmpeg の lavfi で作った HLS を、手元の HTTP サーバーで
+- src/pipeline/pack/tests/test_contracts.py — 別のプログラムが読む形の見本(src/ytt/tests/fixtures/contracts/ の clip/v1.json・transcript/v1.json)。書く側が書いた形は見本と同じ鍵・
 - src/pipeline/pack/tests/test_cut2resolve.py — cut2resolve のテスト。 python test_cut2resolve.py  (ffmpeg が無ければ通しテストは自動スキップ)
 - src/pipeline/pack/tests/test_pack.py — cut2resolve の見直し(2026-09)で直した所・足した所のテスト。
 - src/pipeline/transcribe/tests/test_clipjob.py — pipeline/transcribe/clipjob(文字起こしのジョブの機械の文書の行。役割で組み直す RS6 a-3 に human/proof/doc_jobs の run_job から切り出した)を、

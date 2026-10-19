@@ -68,12 +68,11 @@
 - src/editor/tests/test_voices.py — 話者の声を覚える(A-3。git の履歴(679ff01 以前)の docs/archive/backlog-ui-2026-09-27.md)のサーバー側のテスト。
 - src/editor/tests/test_whispercpp.py — whisper.cpp のエンジン(tx_engines.WhisperCpp。精度改善の計画 段2-2)のテスト。test_metrics から読み込まれる。
 - src/editor/tests/test_worker.py — 認識ワーカー(src/pipeline/transcribe/worker.py。別プロセス。統合計画の段階3-3。RS2-9 に編集の tx_worker.py から移した)のテスト。  python -m unittest test_worker -v
-- src/studio/tests/e2e_analyze.py — analyze.run の通し試験(疑似モード: 合成音声 + 合成チャット)。 実行: python3 e2e_analyze.py
 - src/studio/tests/test_api.py — serve.py の HTTP 層のテスト(疑似モード・実サーバーを別スレッドで起動)。 実行: python3 test_api.py
 - src/studio/tests/test_board_s2.py — RS8 の ② の口 S2: スタジオの解析(an)・書き出し(ex)・配信の検索(se)が掲示板(flow/board.py)に載る。  py -3.12 -m unittest src/studio/tests/test_board_s2.py
 - src/studio/tests/test_file_recovery.py — 保存・書き出しの障害回復。実データやネットワークは使用しない。
-- src/studio/tests/test_handoff.py — 受け渡し(notes:docs/spec/pipeline.md の 2.1・4・6)のテスト: .clip.json・.runtime/studio.json・/api/siblings。
+- src/studio/tests/test_handoff.py — /api/siblings(他のツールの .runtime を読んで返す口)のテスト。
 - src/studio/tests/test_rank_live.py — ① 探す の「配信中」のタブ: 配信中・これからの予定の取得(rank.live_list)と GET /api/rank/live のテスト。外へは繋がない。
 - src/studio/tests/test_robustness.py — データを失わない・壊れたファイルで止まらない、のテスト(feedback.jsonl・registry.json・キャッシュ・ログ・ポートの確保)。
 - src/studio/tests/test_settings_schema.py — 設定の画面のスキーマ(src/app/ui/settings/schema.json。S5)のスタジオの分(store studio の節 analyze)が、analyze.validate_settings の
-- src/ui-kit/tests/e2e_styleguide.py — ui-kit v6(画面の全面見直し notes:docs/design/briefs/ui-overhaul/ の段階1)の見本(styleguide.html)の動作確認(Playwright・chromium・headless)。
+- src/ui-kit/tests/e2e_styleguide.py — 見本(styleguide.html)の動作確認(Playwright・chromium・headless)。

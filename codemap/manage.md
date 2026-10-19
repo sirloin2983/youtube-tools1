@@ -85,5 +85,5 @@
 - src/manage/keep/tests/test_trash.py — src/manage/keep/trash.py(ごみ箱へ移す・戻すの 1 か所。OPT-M2)の単体テスト。設計原則の指摘 1 = 戻せなかった物の元の場所を必ず記録する。
 - src/manage/ops/analytics/tests/test_analytics.py — 分析と日報(src/manage/ops/analytics)のテスト。本物のチャンネルの数字は使わない(リポジトリは Public)。make_raw が規則どおりに伸びる架空のチャンネルを作る。
 - src/manage/ops/tests/test_clientlog.py — 画面のエラーの記録(src/manage/ops/clientlog.py の ClientLog・clean)の単体テスト。一時フォルダだけを使う。
-- src/manage/ops/tests/test_health.py — src/manage/ops/health.py(「調子」。段9 9-1)の単体テスト。
+- src/manage/ops/tests/test_health.py — src/manage/ops/health.py(「調子」)の単体テスト。
 - src/manage/ops/tests/test_restart.py — 入口を起動し直す部品(src/manage/ops/restart.py。段9 9-3)のテスト。  python -m unittest src/manage/ops/tests/test_restart.py -v

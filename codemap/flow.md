@@ -124,12 +124,13 @@
 - src/flow/tests/test_live_retire.py — 録画の片付けの ② の口(src/flow/live_retire.py の Retire。OPT2 の 7x-1)と、書き出しのジョブの切り詰め(live_export の _trim・cleaned_up。7e-3)のテスト。
 - src/flow/tests/test_live_tx.py — 配信中の候補の文字起こし(線 D の D-11 案 b。ホーム 0.48.0)のテスト。② の側 src/flow/live_tx.py(入口 home の Live は使わず、ライブ係 flow/livesession.LiveSession で組む)。
 - src/flow/tests/test_livehost.py — flow/livehost(ライブの親の口。役割で組み直す RS7-2 G0)のテスト。  py -3.12 -m unittest src/flow/tests/test_livehost.py -v
-- src/flow/tests/test_livesession.py — flow/livesession(ライブ係。役割で組み直す RS7-2 G2b)のテスト。  py -3.12 -m unittest src/flow/tests/test_livesession.py -v
+- src/flow/tests/test_livesession.py — flow/livesession(ライブ係)のテスト。  py -3.12 -m unittest src/flow/tests/test_livesession.py -v
 - src/flow/tests/test_machine.py — flow/machine(この PC の設定。役割で組み直す RS7-1 S1)のテスト。  py -3.12 -m unittest src/flow/tests/test_machine.py -v
 - src/flow/tests/test_order.py — flow/order.py(欄 → 封筒 + 束の差分。RV A1)のテスト。  py -3.12 -m unittest src/flow/tests/test_order.py -v
 - src/flow/tests/test_outbox.py — src/flow/outbox.py(送り返しの zip。F1 の F2)のテスト。リポジトリ直下で:
 - src/flow/tests/test_pack_ingest.py — ② flow/pack.py・flow/ingest.py の動詞の最小の検査(RS6 a-5a)。  py -3.12 -m unittest src/flow/tests/test_pack_ingest.py -v
 - src/flow/tests/test_packjobs.py — flow/packjobs.py(パックのジョブの器。OPT2 J3): 同時 1 本・取り消し・履歴・SLOTS・掲示板の形
+- src/flow/tests/test_packrec.py — flow/packrec.py(パックを作った記録)の整理: 記録が MAX_RECORDS を超えたときに消す物・残す物
 - src/flow/tests/test_placement.py — flow/placement(② 置き場所の持ち主・結果の束・.flow.lock。役割で組み直す RS6 b-B0)のテスト。
 - src/flow/tests/test_prio.py — flow/prio(処理の優先度の 1 つの表。PRIO・決定 3-49): 表・級の決め方・重い処理の枠の順番と「空いているときだけ」・
 - src/flow/tests/test_run.py — pipeline/run.py(① の経路。RS1-7)のテスト。  py -3.12 -m unittest src/flow/tests/test_run.py -v
@@ -138,7 +139,7 @@
 - src/flow/tests/test_sendpolicy.py — flow/sendpolicy.py(友人へ自動で送る判定。D-SEND の段 1)と flow/deliveries.py の書き口・読み口のテスト。
 - src/flow/tests/test_spec.py — pipeline/spec.py(① に渡す指定の束の形・既定値・検査。RS1-6)のテスト。  py -3.12 -m unittest src/flow/tests/test_spec.py -v
 - src/flow/tests/test_studiobook.py — src/flow/studiobook.py(スタジオなしの配信の台帳と URL の段の動詞。RS8 の「URL も CLI で」)のテスト。リポジトリ直下で:
-- src/flow/tests/test_tools.py — flow/tools(段が道具を呼ぶ継ぎ目。役割で組み直す RS6 b-0)のテスト。  py -3.12 -m unittest src/flow/tests/test_tools.py -v
+- src/flow/tests/test_tools.py — flow/tools(段が道具を呼ぶ継ぎ目。段が道具を呼ぶ継ぎ目)のテスト。  py -3.12 -m unittest src/flow/tests/test_tools.py -v
 - src/flow/tests/test_tx.py — flow/tx(② 文字起こしの動詞。役割で組み直す RS6 a-3)の最小のテスト。編集の serve を読まずに、疑似のエンジンで使う。
 - src/flow/tests/test_wire.py — flow/wire(② 文字起こしの配線。役割で組み直す RS6 a-5b)の最小のテスト。編集の serve を読まず、③⑤ の物なしで install を呼ぶ。
 - src/flow/tests/test_wire_setup.py — flow/wire の入口なしの準備(setup_places・setup_headless。OPT-E2 1c-1・設計原則のレビューの指摘 4)のテスト。編集の serve は読まない。
