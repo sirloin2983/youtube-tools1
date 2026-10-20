@@ -9,8 +9,8 @@
 ## src/manage/cases/
 
 - **__init__.py** (2 行) — ④ 案件(配信 1 本の束ね)・紐づけ(切り抜き ↔ 文字起こし ↔ パック)・成果物の鍵の読み取り
-- **cases.py** (824 行) — 案件(配信1本)ごとの紐づけ(統合計画の段階4)。入口の「案件」画面(src/app/ui/home/portal.html)の中身を作る。
-  - 名前: `locations` :84・`read_studio` :98・`clip_state` :139・`clip_live` :160・`auto_info` :174・`live_failures_by_mark` :193・`delivered_of` :227・`virtual_cases` :286・`build` :333・`load_saved` :382・`snapshot` :472・`find_doc` :486・ほか 5
+- **cases.py** (848 行) — 案件(配信1本)ごとの紐づけ(統合計画の段階4)。入口の「案件」画面(src/app/ui/home/portal.html)の中身を作る。
+  - 名前: `locations` :84・`read_studio` :98・`clip_state` :139・`clip_live` :160・`auto_info` :174・`live_failures_by_mark` :193・`delivered_of` :227・`virtual_cases` :286・`build` :333・`load_saved` :382・`revision` :475・`snapshot` :496・ほか 6
 - **doclist.py** (101 行) — ④ 文字起こしの一覧と、元の動画・パックの有無・前回のパックの手順(役割で組み直す RS3-E5a)。
   - 名前: `list_transcripts` :52・`pack_readme` :81
 - **handoff_io.py** (146 行) — ④ 受け渡し: 元の配信の情報(clip/v1)・受け渡しの JSON と SRT を動画の隣に保存
