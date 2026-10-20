@@ -52,6 +52,7 @@ if DEV not in sys.path:
     sys.path.insert(0, DEV)
 from ytt import datadir, version as _version, workdata  # noqa: E402
 from pipeline.transcribe import diarize as _diarize, tx_engines as _tx  # noqa: E402  取る物の表の正(写さない)
+import _common  # noqa: E402
 import push_helper  # noqa: E402  個人データの名前の表を流用する
 
 LAUNCHER_SRC = os.path.join(REPO, "friend-apps", "launcher")
@@ -623,6 +624,7 @@ def publish(a, out):
 
 
 def main(argv=None):
+    _common.console_utf8()   # 配る前の検査も同じプロセスで出力する
     ap = argparse.ArgumentParser(prog="build_friend_zip.py", description="友人の PC に配る zip を作る")
     ap.add_argument("--out", default="", help="出力先(一時のフォルダ。--first は既定 friend-apps/launcher/dist/)")
     ap.add_argument("--publish", action="store_true", help="--out なしで <intake.folder>/更新/ (Dropbox)へ置く。友人のアプリが取りに来る = ユーザーの OK のあとだけ")

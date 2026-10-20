@@ -53,6 +53,7 @@ SRC = os.path.join(REPO, "src")
 for _p in (SRC, DEV):
     if _p not in sys.path:
         sys.path.insert(0, _p)
+import _common  # noqa: E402
 import build_friend_zip as bfz  # noqa: E402
 from ytt import datadir, tools as _ytools  # noqa: E402
 
@@ -963,6 +964,7 @@ def build_zip(work, args):
 
 
 def main(argv=None):
+    _common.console_utf8()
     ap = argparse.ArgumentParser(prog="friend_preflight.py", description="友人に配る zip を、配る前に友人の PC と同じ状態で通しで試す")
     ap.add_argument("--zip", default="", help="試す zip(無ければ今のコードから作る)")
     ap.add_argument("--update-zip", default="", help="更新に使う全部入りの zip(既定は --zip と同じ物。前の形の --zip から今の build へ上がる確かめ)")

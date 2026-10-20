@@ -14,7 +14,7 @@
 | src/app(入口と画面) | [app.md](app.md) | 83 | 32369 |
 | src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 46 | 17631 |
 | その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 43 | 17664 |
-| dev・setup(開発の道具) | [dev.md](dev.md) | 58 | 15490 |
+| dev・setup(開発の道具) | [dev.md](dev.md) | 58 | 15504 |
 | friend-apps・chrome-ext(C# のアプリ・拡張) | [apps.md](apps.md) | 19 | 8898 |
 
 ## `/api/...` の口(受ける所 → 呼ぶ所)

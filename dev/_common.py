@@ -3,6 +3,16 @@
 import os
 import shutil
 import subprocess
+import sys
+
+
+def console_utf8():
+    """標準出力・標準エラーを UTF-8 にし、出せない字は置き換える(cp932 のコンソールで ⚙ などを出して落ちないため)"""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
 
 
 def find_node():
