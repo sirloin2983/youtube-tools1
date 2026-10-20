@@ -98,7 +98,7 @@ from flow import livesession  # noqa: E402  (ライブ係。録画の部品を�
 from flow import runqueue as queue_mod  # noqa: E402  (② の待ち行列。submit の版違い・束の形の例外 = 400 spec_version・bad_spec。F1 F0-1)
 from flow import learning as learning_mod  # noqa: E402  (学習データの読み手。machine の learningDir があるとき入口の文字起こしもそこから読む。F1 F6a)
 from flow import prio as prio_mod  # noqa: E402  (処理の優先度の表。後回しの仕事を始めてよいかを重い処理の枠へ。PRIO)
-from manage.keep import learnpack as learnpack_mod  # noqa: E402  (学習の束を <依頼の受付のフォルダ>/学習 に置く。起動時と 1 日ごと。F1 F6a)
+from manage.keep import learnpack as learnpack_mod  # noqa: E402  (学習の束の中身を作る。いつ・どこに置くかは ② の flow/learning.PackPatrol。F1 F6a)
 from ytt import colors as colors_mod, datadir, docloc, fsio, httpsec, jobs, layout, runtime, tools, version as _version  # noqa: E402
 from ytt import errors as _yerrors  # noqa: E402  (確かめるの部品が上げる ApiError を状態の番号で返す)
 from app import mount as mount_mod  # noqa: E402  (src/app/mount.py: 統合サーバーへのツールの取り込み)
@@ -145,8 +145,6 @@ SUBMIT_START_WAIT = 120  # 起動直後の POST /api/flow/submit がツールの
 PORTAL_TITLE = "動画編集ツール — ホーム"   # ホームの画面(portal.html)の <title>。窓を前に出すときに題名で探す(test_launch が portal.html と比べる)
 YTT_API = mount_mod.YTT_API   # 画面の共通の API の場所(入口の画面・取り込んだツールの画面の両方から。PortalServer.ytt_request)
 YTT_BODY_MAX = 16 * 1024   # エラーのスタックが入るので、他の API より大きめ
-LEARNPACK_DIR = "学習"          # 学習の束の置き場所 <依頼の受付のフォルダ>/学習(F1 の 3 の (f1c))
-LEARNPACK_FIRST, LEARNPACK_EVERY = 60.0, 86400.0   # 起動のあと最初に置くまでの秒・置き直しを見る間隔(1 日。ユーザー「そんなに頻繁に送らなくていい」。中身が変わらなければ作らない)
 
 
 def _human_learn():
@@ -965,7 +963,8 @@ class PortalServer(httpsec.ExclusiveServer):
         self._teardown_lock = threading.Lock()
         app_dir = os.path.dirname(sup.logs_dir)   # 入口の作業データ(settings.json・prefs.json・依頼の受付などの記録)
         self.learning = None     # 学習データの読み手(wire_learning。machine の learningDir があるときだけ。F1 F6a)
-        self.learnpack_last = None   # 最後に学習の束を置いた結果か理由(build_learnpack。F1 F6a)
+        # 学習の束を置く見回り(いつ・どこには ② の flow/learning。中身は ④ の learnpack。F1 F6a)
+        self.learnpack = learning_mod.PackPatrol(lambda: self.intake.folder(), lambda d: learnpack_mod.build(d), lambda m: self.sup.log(m), self.closing)
         self.client_log = clientlog_mod.ClientLog(sup.logs_dir)   # 画面のエラーの記録(段階7-0)
         self.window = appwindow_mod.Opener(app_dir, fsio.atomic_write, log=sup.log)   # 窓で開く(段階7-3)
         self.prefs = prefs_mod.Prefs(os.path.join(app_dir, "prefs.json"), fsio.atomic_write)   # ホームの設定(気が利く画面へ 段1)
@@ -1335,32 +1334,6 @@ class PortalServer(httpsec.ExclusiveServer):
             self._autorun.learning = lr
         return lr
 
-    def build_learnpack(self):
-        """依頼の受付のフォルダ(intake.folder)が設定されていれば、学習の束を <フォルダ>/学習 に置く(F1 F6a。中身が変わらなければ作らない)。
-        -> learnpack.build の結果か None(フォルダが無い・失敗 = ログだけ)"""
-        folder = self.intake.folder()
-        if not folder or not os.path.isdir(folder):
-            return None
-        try:
-            got = learnpack_mod.build(os.path.join(folder, LEARNPACK_DIR))
-        except Exception as e:   # 学習の束が作れなくても入口は止めない
-            self.learnpack_last = {"error": "%s: %s" % (e.__class__.__name__, str(e)[:200])}
-            self.sup.log("学習の束を置けませんでした: %s" % self.learnpack_last["error"])
-            return None
-        self.learnpack_last = got
-        if got.get("created"):
-            self.sup.log("学習の束を置きました: %s" % got.get("version"))
-        return got
-
-    def learnpack_loop(self):
-        """起動の少しあとに 1 回、そのあと LEARNPACK_EVERY 秒ごとに build_learnpack(終了で止まる)"""
-        if self.closing.wait(LEARNPACK_FIRST):
-            return
-        while True:
-            self.build_learnpack()
-            if self.closing.wait(LEARNPACK_EVERY):
-                return
-
     def live_activity(self):
         """② の status の live 欄: ライブ(線 D)の録画中・検出中・書き出しの途中の数(起こしたアプリの「終わったら閉じる」= どれかが 0 でなければ閉じない)。
         recording = 録画元の録画中の録画(Live.recent。数秒のキャッシュ)/ detecting = 盛り上がりの検出のワーカーが測っている録画(worker.json)/
@@ -1645,7 +1618,7 @@ def _main(opts):
         if srv.analytics:
             srv.analytics.start()   # 分析と日報(連携の設定が無ければ何もしない。新しいデータが来たら日報を作って LINE へ)
         threading.Thread(target=srv.purge_trash, daemon=True, name="trash-purge").start()   # 日数を過ぎたごみ箱フォルダ(段9 9-2)
-        threading.Thread(target=srv.learnpack_loop, daemon=True, name="learnpack").start()   # 学習の束を <依頼の受付のフォルダ>/学習 へ(起動の少しあとと 1 日ごと。F1 F6a)
+        threading.Thread(target=srv.learnpack.loop, daemon=True, name="learnpack").start()   # 学習の束を <依頼の受付のフォルダ>/学習 へ(起動の少しあとと 1 日ごと。F1 F6a)
         if opts.app_window:   # 設定にかかわらず窓で開く(設定には保存しない)
             srv.window.force_mode = "app"
         if not opts.no_open:   # 設定が「窓」なら Edge のアプリモード、それ以外・Edge が無いときはいつものブラウザ(段階7-3)

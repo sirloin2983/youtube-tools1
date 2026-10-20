@@ -174,3 +174,41 @@ def stamp(bundle, learning):
     out = dict(bundle, post=dict(post, learning=dict(post.get("learning") or {}, version=v)))
     return out
 
+
+
+PACK_DIR = "学習"                       # 学習の束の置き場所 <依頼の受付のフォルダ>/学習(F1 の 3 の (f1c))
+PACK_FIRST, PACK_EVERY = 60.0, 86400.0   # 起動のあと最初に置くまでの秒・置き直しを見る間隔(1 日。ユーザー「そんなに頻繁に送らなくていい」。中身が変わらなければ作らない)
+
+
+class PackPatrol:
+    """学習の束を置く見回り(作る側 = ユーザーの PC の入口)。いつ・どこに置くかは ② のここ、束の中身は ④ の manage/keep/learnpack。
+    folder() = 依頼の受付のフォルダ(無ければ置かない)・build(置き場所) = learnpack.build(入口が渡す)・closing = 入口の終わりの Event"""
+
+    def __init__(self, folder, build, log, closing):
+        self.folder, self.build, self.log, self.closing = folder, build, log, closing
+        self.last = None   # 最後に置いた結果か理由
+
+    def once(self):
+        """受付のフォルダがあれば、学習の束を <フォルダ>/学習 に置く。-> build の結果か None(フォルダが無い・失敗 = ログだけ)"""
+        folder = self.folder()
+        if not folder or not os.path.isdir(folder):
+            return None
+        try:
+            got = self.build(os.path.join(folder, PACK_DIR))
+        except Exception as e:   # 学習の束が作れなくても入口は止めない
+            self.last = {"error": "%s: %s" % (e.__class__.__name__, str(e)[:200])}
+            self.log("学習の束を置けませんでした: %s" % self.last["error"])
+            return None
+        self.last = got
+        if got.get("created"):
+            self.log("学習の束を置きました: %s" % got.get("version"))
+        return got
+
+    def loop(self):
+        """起動の少しあとに 1 回、そのあと PACK_EVERY 秒ごとに once(終了で止まる)"""
+        if self.closing.wait(PACK_FIRST):
+            return
+        while True:
+            self.once()
+            if self.closing.wait(PACK_EVERY):
+                return

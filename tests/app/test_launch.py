@@ -873,14 +873,14 @@ class PortalHttpTest(Base):
         folder = os.path.join(self.tmp, "受付")
         with mock.patch.object(L.learnpack_mod, "build", return_value={"version": "v", "dir": "d", "created": True}) as build:
             with mock.patch.object(self.srv.prefs, "get", return_value={"intake": {"folder": ""}}):
-                self.assertIsNone(self.srv.build_learnpack())
+                self.assertIsNone(self.srv.learnpack.once())
             os.makedirs(folder)
             with mock.patch.object(self.srv.prefs, "get", return_value={"intake": {"folder": folder}}):
-                self.assertEqual(self.srv.build_learnpack()["version"], "v")
+                self.assertEqual(self.srv.learnpack.once()["version"], "v")
                 build.side_effect = OSError("x")
-                self.assertIsNone(self.srv.build_learnpack())
+                self.assertIsNone(self.srv.learnpack.once())
         self.assertEqual(build.call_args[0][0], os.path.join(folder, "学習"))
-        self.assertIn("error", self.srv.learnpack_last)
+        self.assertIn("error", self.srv.learnpack.last)
 
     def test_flow_board_api(self):
         """② の口: status の rev・jobs・cases・?case= の検査と絞り込み・POST /api/flow/cancel
