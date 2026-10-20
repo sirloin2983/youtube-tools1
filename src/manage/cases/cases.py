@@ -469,6 +469,30 @@ def _edit_case(loc, root, vid, change):
     return got
 
 
+_rev_loc = [0.0, None]   # [覚えた時刻, (repo_root, locations)]
+
+
+def revision(repo_root, env=None):
+    """一覧の元の更新の印(元のファイル・文書のフォルダの更新時刻と大きさをつないだ文字列)。ホームが /api/status で比べ、変わったら一覧を読み直す。
+    stat だけ(中身は読まない)。置き場所は 30 秒覚える(env を渡したときは覚えない)"""
+    now = time.monotonic()
+    if env is not None:
+        loc = locations(repo_root, env)
+    else:
+        if _rev_loc[1] is None or _rev_loc[1][0] != repo_root or now - _rev_loc[0] > 30:
+            _rev_loc[:] = [now, (repo_root, locations(repo_root))]
+        loc = _rev_loc[1][1]
+    out = []
+    for p in (loc["studio"], loc["cases"], loc["liveJobs"], loc["runs"], loc["transcripts"],
+              os.path.join(loc["logs"], "deliveries.jsonl"), os.path.join(loc["app"], "judgments.jsonl")):
+        try:
+            st = os.stat(p)
+            out.append("%d.%d" % (st.st_mtime_ns // 1000000, st.st_size))
+        except (OSError, TypeError, ValueError):
+            out.append("-")
+    return ":".join(out)
+
+
 def snapshot(repo_root, env=None):
     """画面用の一覧(読むだけ。案件ファイルは書かない)"""
     loc = locations(repo_root, env)

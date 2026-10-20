@@ -111,6 +111,16 @@ class TestFullAuto(Base):
     notSent = 読むだけ)・送った物 = 届けた記録の mode full・origin auto。どちらもライブでなくても clip["auto"](品質のカードの対象)・notSent は届けていない間だけ
     review に出る・届けた・送らなかったは案件に写さない"""
 
+    def test_revision_changes_when_delivered(self):
+        from flow import deliveries
+        before = cases.revision(self.root, self.env)
+        self.assertEqual(before, cases.revision(self.root, self.env))   # 何も変わらなければ同じ
+        deliveries.record_not_sent(cases.locations(self.root, self.env)["logs"], VID, "m1", "stale", "理由")
+        os.makedirs(os.path.dirname(cases.locations(self.root, self.env)["runs"]), exist_ok=True)
+        with open(os.path.join(cases.locations(self.root, self.env)["logs"], "deliveries.jsonl"), "a", encoding="utf-8") as f:
+            f.write("{}\n")
+        self.assertNotEqual(before, cases.revision(self.root, self.env))   # 届けた記録が増えた = ホームが一覧を読み直す
+
     def test_not_sent_and_sent_full_clips(self):
         import types
         from flow import deliveries

@@ -22,7 +22,8 @@
 
   var casesData = null;                 // /api/cases の中身
   var txList = null, txById = {};       // /transcribe/api/transcripts(読めないときは null。次にやること・単体の文字起こしの詳しい表示に使う)
-  var autoPushed = null;               // /api/status の autoPushed(まとめて実行に積んだ回数。増えたら pollAuto をすぐ)
+  var casesRev = null, casesRevAt = 0, casesRevTimer = 0;   // /api/status の casesRev(案件の一覧の元の更新の印)・最後に一覧を読んだ時刻
+  var autoPushed = null;              // /api/status の autoPushed(まとめて実行に積んだ回数。増えたら pollAuto をすぐ)
   var runsByVideo = {}, runsByDoc = {}; // /api/flow/runs の実行(配信単位・文書単位)。最新のものだけ
   var pastByVideo = {}, pastByDoc = {}; // /api/flow/runs の past: 前回の結果(記録のファイルから。この起動の実行が無い配信・文書だけ。段2 B-6)
   var HIST_PAGE = 50, histOffset = 0, histBusy = false;   // 「まとめて実行の記録」(/api/flow/history。開いたときだけ読む)
@@ -268,6 +269,11 @@
       if (st.autoPushed !== autoPushed) {   /* まとめて実行に積まれた(友人の依頼の受付など)= 15 秒を待たずに一覧を読む */
         if (autoPushed !== null) pollAuto();
         autoPushed = st.autoPushed;
+      }
+      if (st.casesRev && st.casesRev !== casesRev) {   /* 案件の一覧の元が変わった(届けた・ライブの書き出し・友人の判断)= 戻るのを待たずに読み直す(5 秒に 1 回まで) */
+        var first = casesRev === null;
+        casesRev = st.casesRev;
+        if (!first && !casesRevTimer) casesRevTimer = setTimeout(function () { casesRevTimer = 0; refreshCases(); }, Math.max(0, casesRevAt + 5000 - Date.now()));
       }
       st.tools.forEach(updateTool);
       UIKit.tools.setPaths(toolPaths(st.tools));
@@ -957,6 +963,7 @@
   function refreshCases() {
     // render() だけでなく、案件の一覧から組み立てる「次にやること」・「単体の文字起こし」も一緒に作り直す
     // (E2 finding 1: render() だけだと、alt-tab で戻ったときにこの2つが古いままになる)
+    casesRevAt = Date.now();
     return api('api/cases').then(function (j) { casesLoadFailed = false; casesData = j; render(); renderDocs(); buildTodo(); }).catch(function () { /* 次の読み込みで直る */ });
   }
 

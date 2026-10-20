@@ -727,6 +727,10 @@ class PortalHandler(httpsec.LocalHandler):
             st["window"] = self.server.window.status()   # 画面を窓で開くか(段階7-3)
             ar = getattr(self.server, "_autorun", None)   # まだ作っていなければ作らない(0 のまま)
             st["autoPushed"] = ar.pushed if ar is not None else 0   # 積んだ回数(ホームが増えたのを見て実行の一覧をすぐ読み直す)
+            try:
+                st["casesRev"] = cases_mod.revision(sup.root)   # 案件の一覧の元の更新の印(届けた・ライブの書き出し・友人の判断など。変わったらホームが一覧を読み直す)
+            except Exception:   # noqa: BLE001  (印が取れなくても状態は返す = 前の通り)
+                st["casesRev"] = None
             return self._json(200, st)
         if u.path == "/api/health":   # 「調子」(段9 9-1。重い物は別のスレッドで数え、10 分は前の値。?refresh=1 で数え直す)
             return self._json(200, self.server.health.snapshot(refresh=(q.get("refresh") or ["0"])[0] == "1"))
