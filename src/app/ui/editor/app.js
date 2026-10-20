@@ -1,7 +1,7 @@
 'use strict';
-/* 案件の画面(/cases)の校正のパネルに載せたときの口。src/app/ui/cases/edhost.js が app.js より先に window.EditHost を置く = {base(API の頭), keybar(帯), tab(タブ), open(別の文書), opening}。
-   載せていないときは null。載せたときは URL・左のメニュー・タブ・カットとパック(panels/cut.js が持つ)を殻に任せる */
-const EDIT_HOST = window.EditHost || null;
+/* 案件の画面(/cases)の校正のパネルの口。src/app/ui/cases/edhost.js が app.js より先に window.EditHost を置く = {base(API の頭), keybar(帯), tab(タブ), open(別の文書), opening}。
+   URL・タブ・カットとパック(panels/cut.js が持つ)は殻のもの */
+const EDIT_HOST = window.EditHost;
 const APP_VERSION = (document.querySelector('meta[name="ytt-version"]') || {}).content || '';   // 全体の版(ytt/version.py)。入口が画面を返すときに meta ytt-version へ入れる(JS に版の文字は書かない)。入口なしだと空 = 版の比べはしない
 const $ = s => document.querySelector(s);
 const esc = UIKit.esc;   // ui-kit の 1 か所(null・undefined は '')
@@ -10,85 +10,45 @@ const S = { tools: null, settings: {}, jobs: [], list: [], doc: null, docId: nul
   navIdx: -1, conflict: false, forceNext: false, baseUpdatedAt: null, stripR: null, sess: { n: 0, activeMs: 0, lastBreak: 0, lastAct: Date.now() },
   eff: { id: null, ms: 0 } };   // eff = 操作中の知らせ(effortFlush = 文書の effort.lastAt)を送るまでの、たまった操作の時間
 const PALETTE = ['#2f62d6', '#d9534f', '#2e9e5b', '#c98a12', '#8a4fd6', '#0f9aa8', '#d6479a', '#6b7280'];
-/* 組み込みの話者「ゲーム音声など」(ゲームのキャラ・NPC・動画の音声など、その場かぎりの声)。サーバーの ed_state.OTHER_SPK_* と同じ値(変えるときは両方)。
-   話者の選択の候補に常に出し(話者なしの次・文書の話者より前)、選ぶと文書の speakers に 1 つだけ足す。名前は変えられない・声を覚えない・Alt+数字の番号に入らない。
-   この話者を付けた行は「字幕に出さない」(行の印 noSub)が自動でオン、別の話者へ変えるとオフ */
-const OTHER_SP = Object.freeze({ id: 'other', name: 'ゲーム音声など', builtin: 'other', color: '#8a8f98' });
-const isOtherSp = sp => !!sp && sp.id === OTHER_SP.id;
-/* 重なる行を映像の上の字幕に両方出す重なりの長さ(秒)。これより短い重なり(認識の時刻のぶれ)は今までどおり後の行に切り替わる */
-const CAP_OVERLAP_MIN = 0.3, CAP_MAX_STACK = 3;
-
 /* ---------- 共通 ---------- */
 window.addEventListener('error', e => showErr(e.message));
 window.addEventListener('unhandledrejection', e => showErr(String(e.reason && e.reason.message || e.reason)));
 /* サーバーの API・動画の URL は、必ずこの apiUrl() を通して作る(将来1つのアプリに統合するとき、
-   ベースのパスをここ1か所で変えられるように)。画面の場所から求める(絶対パス "/xxx" は直接書かない。
-   "" または入口に取り込まれたときの "/transcribe" になる) */
-const BASE = EDIT_HOST ? EDIT_HOST.base : location.pathname.replace(/\/[^/]*$/, '');
+   ベースのパスをここ1か所で変えられるように)。殻の口(EDIT_HOST.base)から求める(絶対パス "/xxx" は直接書かない) */
+const BASE = EDIT_HOST.base;
 const apiUrl = path => BASE + path;
 /* 入口の統合サーバーに取り込まれたときの合言葉(CSRF トークン。入口が <meta name="ytt-token"> で画面に入れる)。
    書き込み系(GET/HEAD 以外)の要求にだけ付ける */
 const TOKEN = (document.querySelector('meta[name="ytt-token"]') || {}).content || '';
-const safeName = (t, fb = 'transcript') => String(t || '').replace(/[\\/:*?"<>|\x00-\x1f]+/g, '_').trim().slice(0, 80) || fb;
 /* 話者の色: 文書の JSON は手で直せるので、色の文字列は #rgb / #rrggbb だけを通す(style 属性に入れるため。
    そのまま入れると「red;background:url(外部)」のような値で CSS を差し込まれ、外へ通信されうる) */
 const spColor = sp => sp && /^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(String(sp.color || '')) ? sp.color : '';
-const uid = () => 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const norm = s => String(s).normalize('NFKC').toLowerCase();
 
 /* ---------- 表示の好み(長時間の作業向け。このブラウザにだけ保存) ---------- */
 const VIEW_KEY = 'tx.view.v1';
-const V = { menu: true, fs: '15', dense: false, vid: 'l', follow: true, frameFollow: false, adjStep: '0.1', autoNext: false, rate: '1', brk: '45', sideTab: 'start' };
+const V = { fs: '15', dense: false, vid: 'l', follow: true, frameFollow: false, adjStep: '0.1', autoNext: false, rate: '1', brk: '45' };
 const VID_H = { s: '18vh', m: '28vh', l: '38vh' };
-/* 「編集」の 2 つのタブ(notes:docs/design/edit-tool-design.md 3)。編集は案件の画面の中だけで動くので、タブは URL に残さない(URL は殻 cases.js のもの)。
-   パックを作るのは 2 カット の末尾 #packArea・設定は ⚙ の「パック」。
-   カット・パックのタブでは、左のメニューを細い帯に畳む(overlay = 帯から開いて本文の上に重ねている間)。V.menu(文字起こしのタブの開閉)とは別に持つ */
-const ED_TABS = ['tx', 'cut'];
-const EDT = { tab: 'tx', overlay: false };
-const wideTab = () => EDT.tab !== 'tx';
-const menuOpen = () => !EDIT_HOST && (wideTab() ? EDT.overlay : V.menu);   // 案件の画面では左のメニューを出さない(隠したメニューがキーを持たないように)
 /* 画面の色は設定の引き出し(UIKit.settings。全体の節)で変える。ここは帯の色の描き直しだけ */
 UIKit.theme.onChange(() => { if (S.doc) drawStripSoon(); });   // ヘッダーのボタン・別のタブ・OS の設定・設定の引き出しで変わったとき(帯の色も描き直す)
-/* 720px 未満では、左のメニューは本文の上に重ねる引き出し(CSS)。開いたら中へ、閉じたら ☰ へフォーカスを移す(キーボードで迷わないように) */
-const OVERLAY_MID = '(max-width: 1599.98px)';   // 文書を開いている間は、この幅まで左のメニューを重ねて開く(CSS の同じ幅の @media と合わせる)
-const isDrawer = () => wideTab() || !!(window.matchMedia && (matchMedia('(max-width: 719.98px)').matches || ($('.app').classList.contains('has-doc') && matchMedia(OVERLAY_MID).matches)));   // カット・パックのタブでも重ねて開く
 {
   const bind = (id, key, get) => $('#' + id).addEventListener('change', e => { V[key] = get(e.target); saveView(); applyView(); });
   bind('vFs', 'fs', t => t.value); bind('vVid', 'vid', t => t.value); bind('vDense', 'dense', t => t.checked); bind('vBrk', 'brk', t => t.value); bind('autoNext', 'autoNext', t => t.checked);
   bind('follow', 'follow', t => t.checked); bind('frameFollow', 'frameFollow', t => t.checked); bind('adjStep', 'adjStep', t => t.value); bind('rate', 'rate', t => t.value);
-  $('#btnMenu').addEventListener('click', () => toggleMenu());
-  $('#btnMenuClose').addEventListener('click', () => toggleMenu(false));
-  $('#noDocMenu').addEventListener('click', () => toggleMenu(true));
-  $('#noDocResumeBtn').addEventListener('click', resumeLast);   // 前回の続き
-  $('#menuScrim').addEventListener('click', () => toggleMenu(false));   // 引き出しの外(暗い幕)を押したら閉じる
-  document.querySelectorAll('[data-strip]').forEach(b => b.addEventListener('click', () => { if (b.dataset.strip === 'menu') toggleMenu(true); else setSideTab(b.dataset.strip, true); }));
-  document.querySelectorAll('[data-edtab]').forEach(b => b.addEventListener('click', () => setEditTab(b.dataset.edtab)));
-  $('#edTabs').addEventListener('keydown', e => {   // タブの並び(role=tablist)の中は ← → で移る
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-    e.preventDefault(); const i = ED_TABS.indexOf(EDT.tab);
-    setEditTab(ED_TABS[(i + (e.key === 'ArrowRight' ? 1 : ED_TABS.length - 1)) % ED_TABS.length], { focus: true });
-  });
-  document.querySelectorAll('[data-side-tab]').forEach(b => b.addEventListener('click', () => setSideTab(b.dataset.sideTab, false)));
   $('#btnKeys').addEventListener('click', () => openKeys());
-  $('#jobBadge').addEventListener('click', () => showInMenu($('#jobsCard')));
   document.addEventListener('click', e => document.querySelectorAll('details.pop[open], details.ui-menu[open]').forEach(d => { if (!d.contains(e.target) || e.target.closest('.ui-menu-pop a')) d.open = false; }));
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape' || imeKey(e)) return;
-    const open = document.querySelectorAll('details.pop[open], details.ui-menu[open]');
-    if (open.length){ open.forEach(d => { d.open = false; }); return; }
-    if (isDrawer() && menuOpen() && !document.querySelector('dialog[open]') && !(e.target && e.target.matches && e.target.matches('input[type=search]') && e.target.value)) toggleMenu(false);   // 引き出しは Esc で閉じる(検索欄に文字があるときは、まず検索欄を空にする)
+    document.querySelectorAll('details.pop[open], details.ui-menu[open]').forEach(d => { d.open = false; });
   });
 }
 
 /* ---------- ヘッダーの ⚙(ui-kit v6。UIKit.settings)。「表示」の内容はツールの節、画面の色は全体の節(ui-kit) ---------- */
 $('#edSettings').hidden = false; UIKit.settings.mount({ tool: $('#edSettings'), title: '設定', version: 'v' + APP_VERSION });
-/* 左メニューの「すべての文字起こし → ホーム」。入口に取り込まれているときだけ */
-$('#txHomeLink').hidden = !UIKit.tools.mounted();
 document.addEventListener('DOMContentLoaded', setAppnavVersion);
 setAppnavVersion();
 
-/* ---------- 他のツール(app-core.js の loadSiblings。実際のポートはサーバーの /api/siblings) ---------- */
-S.ports = null;
+/* ---------- 取り込まれたツールの場所(app-core.js の loadSiblings) ---------- */
 let sibP = null;
 
 /* ---------- 設定(用語集・置換辞書など。保存は差のキーだけ = app-core.js の sendSettings) ---------- */
@@ -103,8 +63,6 @@ const onLeave = fn => UIKit.life.onLeave(fn);
 onLeave(() => { if (setT){ clearTimeout(setT); setT = null; sendSettings(true); } });
 UIKit.life.onReturn(() => { if (setFailed && !S.settingsLoadErr) sendSettings(); });   // 離れるときの送信が失敗していたら送り直す
 
-/* ---------- 時間の長さの表示(評価ドリルの定点の秒) ---------- */
-const fmtDur = s => { s = Math.max(0, Math.round(s)); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return h ? `${h}時間${String(m).padStart(2, '0')}分` : m >= 1 ? `${m}分${String(s % 60).padStart(2, '0')}秒` : `${s}秒`; };
 /* 左の各カードの開閉を覚える */
 document.querySelectorAll('aside details.card[id]').forEach(d => {
   try { const v = localStorage.getItem('tx.fold.' + d.id); if (v === '0') d.open = false; else if (v === '1') d.open = true; } catch {}
@@ -116,49 +74,13 @@ const ACTIVE = new Set(['queued', 'extracting', 'loading', 'running']);
 const STATE_LABEL = { queued: '待機中', extracting: '準備中', loading: '準備中', running: '処理中', done: '完了', error: '失敗', cancelled: '中止' };
 const pctOf = j => Math.max(0, Math.min(100, Math.round((Number(j.progress) || 0) * 100)));
 
-/* ---------- 保存済み一覧(履歴。描き方は app-list.js) ---------- */
-const LIST_KEY = 'tx.list.v1';
-const L = { state: 'all', kind: 'all', sort: 'updated', group: 'stream' };
-const LIST_OPTS = { state: ['all', 'todo', 'doing', 'done'], kind: ['all', 'clip', 'other', 'eval'], sort: ['updated', 'created', 'remain', 'title'], group: ['stream', 'channel', 'none'] };
-try { const o = JSON.parse(localStorage.getItem(LIST_KEY) || '{}'); for (const k of Object.keys(L)) if (o && LIST_OPTS[k].includes(o[k])) L[k] = o[k]; } catch {}
-const saveListPrefs = () => { try { localStorage.setItem(LIST_KEY, JSON.stringify(L)); } catch {} };
-const txOpen = new Set();      // 開いているまとまり(この画面の間だけ覚える)
-const txLimit = new Map();     // まとまりごとの表示件数(「もっと見る」で増やす)
-let txInitDone = false, txAuto = null, txGroups = new Map();   // txAuto: 最初に自動で開いた先頭のまとまり(文書を開いたら閉じる。人が開閉したら触らない)
-const GROUP_FIRST = 20, FLAT_FIRST = 40, MORE_STEP = 50;
+/* ---------- 保存済み一覧(読み込みは app-list.js)・題名の行の「まとめて実行」 ---------- */
 const ago = ms => UIKit.fmt.ago(ms);
-
-/* 校正の状態: 未校正(1行も校正していない)/ 校正中 / 校正済み(文字のある行が全部校正済み) */
-const txStatus = i => { const r = Number(i.rows) || 0, p = Number(i.proofed) || 0; return p <= 0 ? 'todo' : (r > 0 && p >= r ? 'done' : 'doing'); };
-const txStream = i => i.streamTitle || i.clipTitle || '';
-/* ---------- 選んだ文書をまとめて(12 ⑦(b)。入口の ② の口 /api/flow/submit。入口から開いたときだけ) ---------- */
-const PICK = { on: false, ids: new Set(), polling: 0, active: new Set() };
-const PICK_MAX = 20;   // まとめて実行に一度に入れられる文書の数(flow/runqueue.py の MAX_WAITING)
+const RUNS = { polling: 0, active: new Set(), last: [] };   // 入口の実行の見張り(app-list.js の pollRuns)
 /* 状態の言葉は共通の部品(UIKit.autorun。どの入口も同じ言葉)。ここは札の色だけ */
 const RUN_CLS = { queued: 'wait', running: 'run', done: 'ok', error: 'err', cancelled: 'wait' };
 const runLabelOf = r => UIKit.autorun.runLabel(r);
 const stepLabelOf = s => UIKit.autorun.stepLabel(s);
-
-$('#txPickAll').addEventListener('click', () => pickTx(false));
-$('#txPickNoPack').addEventListener('click', () => pickTx(true));
-
-$('#txList').addEventListener('click', e => { if (e.target.closest && e.target.closest('details.ui-group>summary')) txAuto = null; });   // 人が開閉したら、自動で閉じない
-/* まとまりを開いたときに、その中だけ描く(閉じたまとまりの行は作らない) */
-$('#txList').addEventListener('toggle', e => {
-  const d = e.target; if (!d || !d.matches || !d.matches('details.ui-group')) return;
-  const k = d.dataset.g;
-  if (d.open){ txOpen.add(k); const rows = d.querySelector('.tt-g-rows'); if (rows && !rows.children.length) rows.innerHTML = txRowsHTML(k, txGroups.get(k) || []); }
-  else txOpen.delete(k);
-}, true);
-[['txState', 'state'], ['txFilter', 'kind'], ['txSort', 'sort'], ['txGroup', 'group']].forEach(([id, k]) => {
-  const el = $('#' + id); el.value = L[k];
-  el.addEventListener('change', () => {
-    L[k] = el.value; saveListPrefs();
-    txLimit.clear();
-    if (k === 'group'){ txOpen.clear(); txInitDone = false; txAuto = null; }
-    renderList();
-  });
-});
 
 /* ---------- 話者の自動判別 ---------- */
 const LOCK_KINDS = ['diarize', 'retranscribe'];
@@ -209,7 +131,7 @@ $('#voiceLearn').addEventListener('click', async () => {
     if (!names.length) return toast('覚える人がいないので、やめました', 4000);
     if (S.docId !== docId) return;   // 確かめている間に別の文書へ移った
     await api('/api/voices/learn', { body: { tid: docId, embedding: emb, names, confirmSame: same } });
-    await kickJobs(); toast(names.join('・') + ' の声を覚える処理を待機列に追加しました(メニューの「処理状況」に出ます)', 4000);
+    await kickJobs(); toast(names.join('・') + ' の声を覚える処理を待機列に追加しました', 4000);
   } catch (er){ toast(er.message, 6000, 'err'); }
 });
 $('#spDetails').addEventListener('toggle', () => { if ($('#spDetails').open){ renderVoiceLearn(); loadVoices(); } });
@@ -342,28 +264,15 @@ $('#btnProofSel').addEventListener('click', () => {
   if (!proofNext(before)) toast(`${n}行を校正済みにしました(「元に戻す」で戻せます)`);   // 未校正が 0 になったら [2 カットへ]
 });
 
-/* ---------- ホロライブの名簿 / 用語集の「認識に効く長さ」 ---------- */
-const GLOSS_PROMPT = 150;   // serve.py の whisper_kwargs と揃える(initial_prompt に渡る文字数)
-const glossTerms = t => [...new Set(String(t || '').split(/[\r\n,、]+/).map(x => x.trim()).filter(Boolean))];
-$('#rosterAdd').addEventListener('click', () => {
-  const ids = [...document.querySelectorAll('#rosterGroups .rg:checked')].map(x => x.value), add = rosterNames(ids);
-  if (!add.length){ toast('追加する所属にチェックを入れてください'); return; }
-  const g = $('#optGloss'), have = glossTerms(g.value), fresh = add.filter(n => !have.includes(n));
-  g.value = have.concat(fresh).join('\n'); readOpts(); renderGlossFit();
-  document.querySelectorAll('#rosterGroups .rg:checked').forEach(x => x.checked = false);
-  toast(fresh.length ? `${fresh.length}語を用語集に追加しました` : 'すべて登録済みです');
-});
-$('#optGloss').addEventListener('input', renderGlossFit);
-
 /* ---------- 編集画面 ---------- */
 const player = () => $('#player');
 const hhmm = () => { const d = new Date(); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
 let docSaveP = null, docOpenSeq = 0;
 $('#cfReload').addEventListener('click', async () => {
-  clearTimeout(markDirty.t); S.dirty = false; S.conflict = false; S.forceNext = false; await openDoc(S.docId, true); toast('保存済みの内容を読み込みました'); if (CUT) CUT.refresh();
+  clearTimeout(markDirty.t); S.dirty = false; S.conflict = false; S.forceNext = false; await openDoc(S.docId, true); toast('保存済みの内容を読み込みました');
 });
 $('#cfForce').addEventListener('click', e => armDelete(e.currentTarget, () => {
-  S.conflict = false; S.forceNext = true; $('#conflictBar').hidden = true; S.dirty = true; saveDoc(); if (CUT) CUT.refresh();
+  S.conflict = false; S.forceNext = true; $('#conflictBar').hidden = true; S.dirty = true; saveDoc();
 }));
 onLeave(() => { if (S.dirty && !S.conflict){ clearTimeout(markDirty.t); saveDoc(); } });   // タブ・窓を離れるとき・画面を閉じるときに、待たずに保存する
 onLeave(() => effortFlush(true));   // 操作中の知らせのまだ送っていない分も送る(保存とは別の小さな POST。'blur' でも送るだけ = 重い処理はしない。閉じるときも届くよう keepalive)
@@ -437,13 +346,7 @@ $('#segs').addEventListener('click', e => {
   switch (b.dataset.act){
     case 'keep': case 'cut': {   // 2 択の「残す」「カット」:押した側の状態にする(今と同じなら何もしない)
       const want = b.dataset.act === 'cut'; if ((s.cutState === 'cut') === want) break;
-      if (CUT && CUT.active()){ CUT.rowsCut([i], want); break; }   // 行の時間を削る区間にする/戻す(印は編集の内容から付く)
-      if (EDIT_HOST){ hostRowsCut([i], want); break; }   // 案件の画面: 区間が決まっていればカット・パックのタブへ(app-tools.js)
-      pushUndo();
-      setCut(s, want);
-      paintCut(row, s.cutState === 'cut');
-      markDirty(); renderCutPack();
-      break;
+      hostRowsCut([i], want); break;   // 区間が決まっていればカット・パックのタブへ(app-tools.js)
     }
     case 'play': playSeg(s, true); break;   // 行の▶は、必ずその行だけ再生する(勝手に次の行へ続けない)
     case 'adj': nudge(s, row, b.dataset.f, Number(b.dataset.d)); break;
@@ -597,20 +500,16 @@ let zArm = null;
    ↓/↑・Shift+↓/↑ も残す(固定の別の手段)。S の分割は 2 カット のタブだけ(校正のキーは 1 文字起こし のタブだけなので重ならない)。
    キー配置: 割り当ては ⚙ 設定の「キー配置」で変えられる。保存は S.settings.keymap(サーバーの config.json。どのブラウザ・窓でも同じ)。
    共通の再生キー(UIKit.keys.PLAYBACK_ACTIONS)も同じ keymap に入れ、1 文字起こし・2 カット の両方の共通キーに渡す */
-const TX_ACTIONS_ALL = [   // [id, 既定のキー(UIKit.keys.comboOf の表記), 説明, まとまり]
+const TX_ACTIONS = [   // [id, 既定のキー(UIKit.keys.comboOf の表記), 説明, まとまり]
   ['rowNext', 's', '次の行', 'move'], ['rowPrev', 'w', '前の行', 'move'], ['unNext', 'd', '次の未校正', 'move'], ['unPrev', 'a', '前の未校正', 'move'], ['flagNext', 'f', '次の要確認', 'move'],
   ['replay', 'r', 'この行をもう一度聞く', 'listen'], ['back3', 'q', '3秒戻る', 'listen'], ['fwd3', 'e', '3秒進む', 'listen'], ['proof', 'Shift+Space', '校正済みにして次へ', 'listen'],
   ['edit', 't', 'この行の文字を直す(入力欄へ)', 'listen'], ['autoNext', 'b', '「移動したら自動で再生」のオン/オフ', 'listen'],
   ['tagUnclear', 'x', '聞き取れない', 'memo'], ['tagOverlap', 'c', '声が重なる', 'memo'], ['tagBgm', 'v', 'BGM・音が大きい', 'memo'], ['insert', 'n', '後ろに行を追加', 'memo'], ['del', 'z', 'この行を削除(2回押し)', 'memo'],
   /* つなぐ・分ける(校正でいちばん時間を食う操作) */
-  ['mergeNext', 'm', '次の行とつなぐ', 'memo'], ['mergePrev', 'Shift+m', '前の行とつなぐ', 'memo'], ['splitPlay', 'y', '再生位置で行を分ける', 'memo'],
-  ['menu', 'g', '左のメニューを開く/閉じる', 'screen']
+  ['mergeNext', 'm', '次の行とつなぐ', 'memo'], ['mergePrev', 'Shift+m', '前の行とつなぐ', 'memo'], ['splitPlay', 'y', '再生位置で行を分ける', 'memo']
 ];
-/* 案件の画面(EDIT_HOST)では、左のメニュー(G)が無い = 一覧・キー配置に載せない。
-   Shift+N は殻の「次の案件へ」・Alt+1/2 は殻のタブなので、割り当てさせない(KEY_SHELL) */
-const HOST_NO_KEY = new Set(['menu']);
-const TX_ACTIONS = EDIT_HOST ? TX_ACTIONS_ALL.filter(a => !HOST_NO_KEY.has(a[0])) : TX_ACTIONS_ALL;
-const KEY_SHELL = EDIT_HOST ? { 'Shift+n': '次の案件へ(案件の画面)', 'Shift+N': '次の案件へ(案件の画面)', 'Alt+1': 'タブの切り替え(案件の画面)', 'Alt+2': 'タブの切り替え(案件の画面)' } : {};
+/* Shift+N は殻の「次の案件へ」・Alt+1/2 は殻のタブなので、割り当てさせない(KEY_SHELL) */
+const KEY_SHELL = { 'Shift+n': '次の案件へ(案件の画面)', 'Shift+N': '次の案件へ(案件の画面)', 'Alt+1': 'タブの切り替え(案件の画面)', 'Alt+2': 'タブの切り替え(案件の画面)' };
 const KEY_GROUPS = [['move', '行を移動する'], ['listen', '聞く・校正する'], ['memo', '音の状態のメモ・行の編集'], ['screen', '画面']];
 const KEY_ALT = { rowNext: '↓', rowPrev: '↑', unNext: 'Shift+↓', unPrev: 'Shift+↑' };   // 固定の別の手段(一覧・帯に並べて出す)
 /* 割り当てられないキー(固定の意味がある)。値は使い道(「X は『使い道』に使っているので割り当てられません」) */
@@ -631,7 +530,7 @@ const KM = UIKit.keymap.create({
   fixed: [
     { group: 'listen', why: '入力欄の出入りに使うキー', rows: [['Tab', '選んだ行の入力欄へ'], ['Esc / Tab', '入力欄から抜ける']] },
     { group: 'memo', why: 'Ctrl つきのキー', rows: [['Ctrl+Z', '元に戻す']] },
-    { group: 'screen', rows: [['Alt+1 / Alt+2', EDIT_HOST ? 'タブ(校正・カット・パック)を切り替える' : 'タブ(文字起こし・カット)を切り替える', 'Alt つきのキー'], ...(EDIT_HOST ? [['Shift+N', '次の案件へ', '案件の画面のキー']] : []), ['?', 'この一覧を開く・閉じる', '一覧を開くキー']] },
+    { group: 'screen', rows: [['Alt+1 / Alt+2', 'タブ(校正・カット・パック)を切り替える', 'Alt つきのキー'], ['Shift+N', '次の案件へ', '案件の画面のキー'], ['?', 'この一覧を開く・閉じる', '一覧を開くキー']] },
     { title: '話者', why: '数字は話者の番号', rows: [['1…9', 'この行の話者を n 番目に'], ['0', '話者なし']] },
     { title: '入力中に使えるキー', why: '入力欄の中で使うキー', rows: [['Alt+Enter', '校正済みにして次の行の入力欄へ'], ['Ctrl+Enter', 'この行を聞き直す'], ['Alt+1…9', 'この行の話者'], ['Shift+右クリック', '行のメニュー(普通の右クリックはコピー・貼り付け)']] },
     { title: '2 カット のタブ', note: '(共通の再生キーに加えて)', why: '2 カット のタブの操作', rows: CUT_KEY_ROWS }
@@ -648,13 +547,9 @@ const KEY_FN = {
   autoNext: () => { V.autoNext = !V.autoNext; saveView(); applyView(); toast('移動したら自動で再生: ' + (V.autoNext ? 'オン' : 'オフ'), 1500); },
   tagUnclear: () => tagCur('unclear'), tagOverlap: () => tagCur('overlap'), tagBgm: () => tagCur('bgm'),
   insert: () => { const c = rowAndSeg(); if (c) insertAfter(c.i); else insertAtTime(player().currentTime); },
-  del: () => deleteCur(), menu: () => toggleMenu(),
+  del: () => deleteCur(),
   mergeNext: () => mergeKey(1), mergePrev: () => mergeKey(-1), splitPlay: () => splitKey()   // app-rows.js
 };
-/* 左のメニューがキーを持つ間は、文書を操作するキー(校正のキー・共通の再生キー・Ctrl+Z・Tab・2 カット のキー)を効かせない:
-   (a) 本文の上に重ねて開いている間(フォーカスが幕・本文のどこにあっても)または (b) フォーカスがメニューの中にある間(並べて出す 1600px 以上でも)。
-   (a) だけだと並べて出す幅で、(b) だけだと幕の上で押したキーが後ろへ漏れるので両方。残すのは G(開閉)・Esc(閉じる)・Alt+1/2/3(タブ)・?(一覧) */
-const menuHasKeys = t => !!((menuOpen() && isDrawer()) || (t && t.closest && t.closest('#menuPanel')));
 /* 押しっぱなし(キーの自動の繰り返し)で続けて働いてよいのは、移動とシークだけ。
    それ以外(特に Z の2回押しの削除・Shift+Space の校正済み)は、押しっぱなしで「2回目」や「聞かずに校正済み」にならないように、繰り返しを無視する */
 const REPEAT_OK = new Set(['rowNext', 'rowPrev', 'unNext', 'unPrev', 'flagNext', 'back3', 'fwd3']);
@@ -662,14 +557,14 @@ window.addEventListener('keydown', e => {
   if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || imeKey(e) || e.defaultPrevented || modalOpen()) return;   // 引き出しが開いている間はタブを変えない(ダイアログと同じ扱い)
   const m = /^Digit([12])$/.exec(e.code); if (!m) return;   // タブは 2 つ(Alt+3 は何もしない)
   if (e.target && e.target.closest && e.target.closest('#segs') && isTextEntry(e.target)) return;   // 行の文字の入力中の Alt+数字 は話者(#segs の keydown)
-  e.preventDefault(); if (!e.repeat) setEditTab(ED_TABS[Number(m[1]) - 1], { into: true });   // タブの中の最初の操作へ
+  e.preventDefault(); if (!e.repeat && m[1] === '2') EDIT_HOST.tab('cut');   // Alt+1 は校正(いまのタブ)
 });
 /* 共通の再生キー(ui-kit.js の UIKit.keys.playback。既定は Space・J/K/L・← →(Shift で5秒)・, .・I/O。割り当ては keymap())。
    1 文字起こし のタブだけ・ダイアログが開いていないときだけ有効にし、自分のキー処理(下)より先に呼ぶ。処理したら true が返るので、そのときは自分の処理をしない(1つのキーは全体で1つの意味) */
-/* 案件の画面(EDIT_HOST)では CUT が無い = fps を CUT から読めない。文書ごとに 1 回、カット(edit.json)か下書きの fps を引いて控える(引けるまでは 1/30 秒) */
+/* カットの欄は別のパネル = fps を読めない。文書ごとに 1 回、カット(edit.json)か下書きの fps を引いて控える(引けるまでは 1/30 秒) */
 let HOST_FPS = { id: '', f: null };
 function hostFps(){
-  if (!EDIT_HOST || !S.docId) return null;
+  if (!S.docId) return null;
   if (HOST_FPS.id !== S.docId){
     const id = S.docId, q = '?id=' + encodeURIComponent(id);
     HOST_FPS = { id, f: null };
@@ -682,16 +577,14 @@ const editPlaybackKeys = UIKit.keys.playback({
   media: () => player(), keymap: () => keymap(),
   /* 1コマ = 素材の fps(2 カット と同じ)。フレームの境目にそろえて動かす(押し続けても浮動小数のずれが溜まらない)。
      fps が分からない文書・開いた直後(カットの読み込み中)は ui-kit の既定(1/30 秒) */
-  fps: () => { const f = CUT ? CUT.fps() : hostFps(); return f ? f[0] / f[1] : 30; },
+  fps: () => { const f = hostFps(); return f ? f[0] / f[1] : 30; },
   onFrame: dir => {
-    const p = player();
-    let t = CUT && CUT.frameStep ? CUT.frameStep(p.currentTime || 0, dir) : null;
-    if (!CUT){ const f = hostFps(); if (f) t = Math.max(0, (Math.floor((p.currentTime || 0) * f[0] / f[1] + 0.5) + dir) * f[1] / f[0]) + 0.0005; }   // 案件の画面: フレームの境目にそろえて動かす(cut.js の frameStep と同じ)
-    if (t === null) return false;
-    p.pause(); p.currentTime = t;   // 2 カット の stepFrames と同じく止めてから(再生中の1コマは意味がない)
+    const p = player(), f = hostFps();
+    if (!f) return false;
+    p.pause(); p.currentTime = Math.max(0, (Math.floor((p.currentTime || 0) * f[0] / f[1] + 0.5) + dir) * f[1] / f[0]) + 0.0005;   // フレームの境目にそろえて動かす(cut.js の frameStep と同じ)。止めてから(再生中の1コマは意味がない)
     return true;
   },
-  enabled: () => { hostFps(); return !wideTab() && !!S.doc && !modalOpen() && !menuHasKeys(document.activeElement); }   // hostFps(): 案件の画面では fps を先に引いておく
+  enabled: () => { hostFps(); return !!S.doc && !modalOpen(); }   // hostFps(): fps を先に引いておく
 });
 window.addEventListener('keydown', e => {
   /* #edTabs(タブの並び)の ← → など、他の場所ですでに処理済み(preventDefault 済み)のキーには重ねて反応しない。
@@ -701,9 +594,7 @@ window.addEventListener('keydown', e => {
   const c = e.code;
   if (e.key === '?'){ e.preventDefault(); if (!e.repeat) openKeys(); return; }   // キー操作の一覧(配列によって Shift が要るので、Shift の判定より先に)
   const act = txActionOf(UIKit.keys.comboOf(e));
-  if (act === 'menu'){ e.preventDefault(); if (!e.repeat) toggleMenu(); return; }   // メニューは文書を開いていなくても
-  if (menuHasKeys(e.target)) return;   // 重ねて開いたメニューの中では、メニューの操作(↓ で次の項目など)を優先する
-  if (!S.doc || lockJob() || wideTab()) return;   // 校正のキーは 1 文字起こし のタブだけ(カットのタブは cut.js のキー)
+  if (!S.doc || lockJob()) return;   // 校正のキーは校正のパネルが開いている間だけ(edhost.js の guard。カットのタブは cut.js のキー)
   if (c === 'ArrowDown' || c === 'ArrowUp'){
     e.preventDefault();
     navigate(e.shiftKey ? 'unproofed' : null, c === 'ArrowDown' ? 1 : -1);   // 押しっぱなしで続けて動いてよい
@@ -725,7 +616,7 @@ window.addEventListener('keydown', e => {
 
 /* Tab: 入力欄の中 → 抜ける(コマンドモード) / 行を選んでいて入力欄の外 → その行の入力欄に入る。日本語変換中・Shift+Tab・ダイアログ中は、ふつうの動き */
 window.addEventListener('keydown', e => {
-  if (e.key !== 'Tab' || e.shiftKey || anyMod(e) || imeKey(e) || !S.doc || wideTab() || modalOpen() || menuHasKeys(e.target)) return;   // メニューの中の Tab はふつうのフォーカスの移動(3-1)
+  if (e.key !== 'Tab' || e.shiftKey || anyMod(e) || imeKey(e) || !S.doc || modalOpen()) return;
   const t = e.target;
   if (t.matches && t.matches('#segs textarea')){ e.preventDefault(); t.blur(); return; }
   const free = t === document.body || t === document.documentElement || (t.matches && t.matches('video')) || (t.closest && t.closest('#segs') && !isTextEntry(t) && !t.matches('button,a'));
@@ -855,8 +746,6 @@ player().addEventListener('playing', () => { $('#playerMsg').hidden = true; upda
 player().addEventListener('pause', () => { S.playEnd = null; updateCaption(); });
 player().addEventListener('ratechange', armPlayEnd);   // 再生の速さを変えたら、終わりで止める見張りの待ち時間を計算し直す(0.5× → 2× で過ぎないように)
 
-const fmtCs = t => { t = Math.max(0, Number(t) || 0); const cs = Math.round(t * 100), h = Math.floor(cs / 360000), m = Math.floor(cs % 360000 / 6000), sec = (cs % 6000) / 100;
-  return (h ? h + ':' + String(m).padStart(2, '0') : String(m)) + ':' + sec.toFixed(2).padStart(5, '0'); };   // 0:28.60(1/100 秒まで)
 let dbQ = 0;
 
 /* ---------- 検索・話者・置換 ---------- */
@@ -869,7 +758,7 @@ $('#evalSet').addEventListener('change', e => {
   if (!S.doc) return;
   if (S.doc.evalLocked && !e.target.checked){ e.target.checked = true; return toast(EVAL_LOCK_MSG, 5000); }
   S.doc.evalSet = e.target.checked; syncEval(); markDirty();
-  const it = curItem(); if (it){ it.evalSet = S.doc.evalSet; renderList(); }
+  const it = curItem(); if (it) it.evalSet = S.doc.evalSet;
   toast(S.doc.evalSet ? '評価用にしました。この文字起こしは、辞書・提案・追加学習には使いません(すでに登録した辞書は残ります)。'
     + (S.evalDirsActive ? 'ほかの文書へ移ると、動画を評価用のフォルダへ移します(すべて校正済みならメンバーのフォルダ、それ以外は仮置き)' : '')
     : '評価用を外しました。この文字起こしは、学習用として扱われます', 7000);
@@ -986,67 +875,24 @@ document.querySelectorAll('[data-ex]').forEach(b => b.addEventListener('click', 
 $('#diarNum').addEventListener('change', diarNumChanged);   // 文書ごとに覚える
 $('#diarEmb').addEventListener('change', () => { readOpts(); renderDiarSetup(); });
 // 設定のチェックは表(app-core.js の SET_CHECKS)から配線する。手で並べると表に足したチェックが漏れるため
-SET_CHECKS.map(c => c[1]).concat(['optModel', 'optLang', 'optQuality', 'optDevice', 'optVad', 'optSubOrient', 'optMaxV', 'optMaxH', 'optWrapV', 'optWrapH', 'rtModel', 'rtTarget']).forEach(id => { const e = $('#' + id); if (e) e.addEventListener('change', readOpts); });
-['optGloss', 'repDict'].forEach(id => $('#' + id).addEventListener('input', readOpts));
-$('#txPick').addEventListener('change', () => { PICK.on = $('#txPick').checked; if (!PICK.on) PICK.ids.clear(); renderList(); renderPickBar(); });
-$('#txBatchGo').addEventListener('click', startBatch);
+SET_CHECKS.map(c => c[1]).concat(['optVad', 'optSubOrient', 'optMaxV', 'optMaxH', 'optWrapV', 'optWrapH', 'rtModel', 'rtTarget']).forEach(id => { const e = $('#' + id); if (e) e.addEventListener('change', readOpts); });
+$('#repDict').addEventListener('input', readOpts);
 $('#docAutoGo').addEventListener('click', startDocAuto);
 {   // まとめて実行の設定の要約と「設定を変える」・上書きのチェックはホームの設定(どの入口で変えても同じ)
-  const syncOw = st => { if (st){ $('#docAutoOverwrite').checked = st.overwrite; $('#txOverwrite').checked = st.overwrite; } };
+  const syncOw = st => { if (st) $('#docAutoOverwrite').checked = st.overwrite; };
   document.addEventListener('ui-autorun-settings', e => syncOw(e.detail));
-  for (const id of ['#docAutoOverwrite', '#txOverwrite']) $(id).addEventListener('change', e => { UIKit.prefs.patch('autorun', { overwrite: e.target.checked }).catch(() => {}); syncOw(Object.assign({}, UIKit.autorun.state() || {}, { overwrite: e.target.checked })); });
+  $('#docAutoOverwrite').addEventListener('change', e => { UIKit.prefs.patch('autorun', { overwrite: e.target.checked }).catch(() => {}); syncOw(Object.assign({}, UIKit.autorun.state() || {}, { overwrite: e.target.checked })); });
   $('#docAuto').addEventListener('toggle', () => { if ($('#docAuto').open && TOKEN){ UIKit.autorun.panel($('#docAutoPanel'), { kind: 'docs' }); UIKit.autorun.load().then(syncOw, () => {}); } });
-  $('#txPick').addEventListener('change', () => { if ($('#txPick').checked && TOKEN){ UIKit.autorun.panel($('#txBatchPanel'), { kind: 'docs' }); UIKit.autorun.load().then(syncOw, () => {}); } });
 }
 {   // パックの音量(編集の設定 packLoudness の1か所。ほかの画面のまとめて実行の欄で変えたときも、この画面の値を合わせる)
   UIKit.packLoud.mount($('#docAutoLoud'));
-  document.addEventListener('ui-packloud', e => { if (S.settings && e.detail){ S.settings.packLoudness = e.detail.loud; S.settings.packVolume = e.detail.vol; } if (PACK) PACK.changed(); });
+  document.addEventListener('ui-packloud', e => { if (S.settings && e.detail){ S.settings.packLoudness = e.detail.loud; S.settings.packVolume = e.detail.vol; } });
 }
 $('#docAuto').addEventListener('toggle', () => {   // 開いたとき、配信者の欄を入れ直す(パックのタブで直した名前も覚えた名前になっている)
   if ($('#docAuto').open && S.docId) UIKit.streamer.autoFill($('#docAutoWho'), { docId: S.docId });
 });
-/* 配信者の欄(題名の行)で名前を直したら、パックの配信者(隠した欄 #pkWho。文書に覚えた名前をそのまま使う)も入れ直す(覚えるのは ui-kit の change のあと) */
-$('#docAutoWho').addEventListener('change', () => { setTimeout(() => { if (PACK) PACK.refreshWho(); }, 400);
-});
-$('#txRuns').addEventListener('click', async e => {
-  const b = e.target.closest('[data-act]'); if (!b) return;
-  const row = b.closest('.tt-run');
-  if (b.dataset.act === 'runopen') openDoc(row.dataset.doc);
-  else if (b.dataset.act === 'runcancel'){ try { await portalApi('api/flow/cancel', { id: 'run:' + row.dataset.run }); } catch (er){ toast(er.message, 4000, 'err'); } pollRuns(); }
-});
-$('#jobs').addEventListener('click', async e => {
-  const b = e.target.closest('[data-act]'); if (!b) return;
-  if (b.dataset.act === 'open') openDoc(b.dataset.tid);
-  else if (b.dataset.act === 'cancel'){ try { await api('/api/transcribe/cancel', { body: { id: b.closest('.job').dataset.id } }); pollJobs(); } catch (er){ toast(er.message); } }
-  else if (b.dataset.act === 'retry') retryJob(b.closest('.job').dataset.id);   // 失敗した文字起こしをもう一度
-});
-$('#txList').addEventListener('click', e => {
-  const b = e.target.closest('[data-act]'); if (!b) return;
-  if (b.dataset.act === 'more'){   // まとまりの「もっと見る」: そのまとまりだけ描き足す
-    const k = b.dataset.g; txLimit.set(k, (txLimit.get(k) || (k === 'all' ? FLAT_FIRST : GROUP_FIRST)) + MORE_STEP);
-    const rows = b.closest('.tt-g-rows'); if (rows) rows.innerHTML = txRowsHTML(k, txGroups.get(k) || []);
-    return;
-  }
-  if (b.dataset.act === 'gostart'){ setSideTab('start'); const p = $('#srcPath'); if (p) p.focus(); return; }   // 履歴が 0 件: 新規へ
-  if (b.dataset.act === 'clearfilter'){   // 絞り込みで 0 件: 状態・種類の絞り込みを消す
-    L.state = 'all'; L.kind = 'all'; $('#txState').value = 'all'; $('#txFilter').value = 'all'; saveListPrefs();
-    txLimit.clear();
-    renderList(); $('#txState').focus(); return;
-  }
-  const row = b.closest('.txi'); if (!row) return; const id = row.dataset.id;
-  if (b.dataset.act === 'pick'){ if (b.checked) PICK.ids.add(id); else PICK.ids.delete(id); renderPickBar(); return; }
-  if (b.dataset.act === 'open') openDoc(id);
-  else if (b.dataset.act === 'gotab'){   // 履歴の行の「パックを作る」「作り直す」: 開いてそのタブへ
-    const t = ED_TABS.includes(b.dataset.tab) ? b.dataset.tab : 'tx';
-    (S.docId === id ? Promise.resolve(true) : openDoc(id)).then(ok => { if (ok && S.docId === id) setEditTab(t, { focus: true }); });
-  }
-  else if (b.dataset.act === 'relink'){   // 動画が見つからない文書: 開いてから、付け替えのダイアログ
-    const menu = b.closest('details'); if (menu) menu.open = false;
-    (S.docId === id ? Promise.resolve(true) : openDoc(id)).then(ok => { if (ok && S.docId === id) openRelink(); });
-  }
-});
 window.addEventListener('keydown', e => {
-  if (!S.doc || wideTab() || isTextEntry(e.target) || modalOpen() || menuHasKeys(e.target)) return;   // メニューがキーを持つ間は戻さない(3-1)
+  if (!S.doc || isTextEntry(e.target) || modalOpen()) return;
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z'){ e.preventDefault(); if (!lockJob()) doUndo(); }
   /* Space の再生・停止は共通の再生キー(editPlaybackKeys)だけが受け持つ(ここでも扱うと1回押すと「再生 → すぐ停止」の2回分になる) */
 });
@@ -1055,27 +901,17 @@ window.addEventListener('beforeunload', e => { if (S.dirty || S.saving){ e.preve
 /* ---------- 受け渡し(notes:docs/spec/pipeline.md 2・3・6): 元の配信(.clip.json)・URL で渡された動画・動画の隣に保存 ---------- */
 const YT_PREFIX = 'https://www.youtube.com/';
 const CLIP_IC = '<span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></svg></span>';
-const WARN_IC = '<span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></span>';
-/* 動画(または .clip.json)のパスから、隣の .clip.json を調べて「元の配信」を出す。サーバーはネットワークのパスを調べず、ffmpeg も呼ばないのですぐ返る */
-let clipSeq = 0;
-$('#srcPath').addEventListener('change', e => lookupClip(e.target.value));
 /* 開いた文書の「元の配信」と、「動画の隣に保存」の結果の表示 */
 S.handoff = null;   // { id, transcript, srt, plan }: 開いている文書を、動画の隣に保存したパス
-const HANDOFF_KEY = { 'transcript-v1': 'transcript', srt: 'srt', 'cut-plan-v1': 'plan' };
+const HANDOFF_KEY = { 'transcript-v1': 'transcript', srt: 'srt' };
 const handoffRow = (h, k, l) => `<div><span class="hint">${l}:</span> <span class="path">${esc(h[k])}</span> <button type="button" class="btn ghost small" data-act="copy" data-k="${k}" title="このパスをコピー">コピー</button></div>`;
 document.querySelectorAll('[data-beside]').forEach(b => b.addEventListener('click', () => exportBeside(b.dataset.beside, b)));
-$('#mcTx').addEventListener('click', () => { $('#mediaChoice').hidden = true; onStart(); });
-/* #cpPlanOut は 2 カット の欄(案件の画面ではカット・パックのパネルが持つ = 無い) */
-[$('#handoffOut'), $('#cpPlanOut')].filter(Boolean).forEach(el => el.addEventListener('click', async e => {
+$('#handoffOut').addEventListener('click', e => {
   const b = e.target.closest('[data-act=copy]'); if (!b || !S.handoff) return;
   const v = S.handoff[b.dataset.k]; if (v) copyPath(v);
-}));
+});
 
-/* ---------- cut2resolve の API(app-tools.js の c2rBase・c2rApi。入口に取り込まれているときだけ) ---------- */
-const c2rUrl = path => c2rBase() + String(path).replace(/^\/+/, '');
-/* 行の「残す/カット」に関わる内容だけの印(文字を直しただけでは変わらない。文字が空になった行は残らないので含める) */
-const rowSig = () => S.doc ? S.doc.segments.map(g => `${g.start},${g.end},${g.cutState === 'cut' ? 1 : 0},${hasText(g) ? 1 : 0}${g.noSub ? ',n' : ''}`).join(';') : '';   // 字幕に出さない印が変わっても見積もりを出し直す
-/* 行やカットが変わったとき: 「まとめて ▾」の選んだ行のボタンと、3 パック のタブを描き直す(フレームごとに1回) */
+/* 行が変わったとき: 「まとめて ▾」の選んだ行のボタンを描き直す(フレームごとに1回) */
 let cpQ = 0;
 $('#cutSelected').addEventListener('click', () => bulkCut(true));
 $('#keepSelected').addEventListener('click', () => bulkCut(false));
@@ -1089,40 +925,24 @@ $('#keyHintOn').addEventListener('change', e => { try { localStorage.setItem(KH_
 applyKeyHint();
 if (window.ResizeObserver) new ResizeObserver(() => { document.documentElement.style.setProperty('--khh', $('#listHead').offsetHeight + 'px'); }).observe($('#listHead'));   // 一覧の上に固定した道具の高さ(行へ移動したとき、その下に隠れないように)
 
-/* ---------- 2 カット(cut.js)。区間の編集は cut.js、行の表示・文書の保存はこちら ---------- */
-const CUT = !EDIT_HOST && window.EditCut ? EditCut.create({ S, $, esc, fmtT, fmtCs, toast, api, patchSettings, apiUrl, player, isTextEntry, onLeave, saveDoc, putSettings: putSettingsNow, speakerColor, pushUndo, undoDocIf, splitRowAt, rowChanged, lockJob, doUndo: () => doUndo(undefined, true),
-  c2rApi, c2rWait, c2rBase, tab: () => EDT.tab, keymap: () => keymap(), menuHasKeys, modalOpen, imeKey, onCutMarks, onCutSaved, onCutState: () => { renderDocBar(); renderPlayerMsg(); renderFpsNote(); updateUndo(); if (PACK) PACK.changed(); }, relink: () => openRelink(), nextOp, capStack, paintCaps, toTx: goTxInto, keepCutHTML, toPack: () => { setEditTab('cut', { focus: true }); showPackArea(); }, onCutSave: (text, kind) => { S.cutSaveSt = { text, kind }; paintSaveState(); } }) : null;
-
-/* ---------- 3 パック(pack-tab.js) ---------- */
-const PACK = !EDIT_HOST && window.EditPack ? EditPack.create({ S, $, esc, fmtT, fmtCs, toast, api, patchSettings, apiBlob, apiUrl, download, safeName, ago, TOKEN, rowSig, lockJob, saveDoc, saveSettings,
-  c2rApi, c2rWait, c2rBase, cpExport, copyPath, savedAll, CUT, tab: () => EDT.tab, onPacked, speakerColor, speakerColorByName, onSpeakerColors, putSettings: putSettingsNow, isOtherSp, subColorOf }) : null;
-
 /* ---------- 起動 ---------- */
 async function boot(){
-  if (!EDIT_HOST) $('#ver').textContent = 'v' + APP_VERSION;   // 案件の画面の版は殻が出す
-  loadView(); setEditTab('tx');
-  applyNeedHome();   // まとめて実行(履歴の「選んで」・題名の行)は入口から開いたときだけ。開いていなければ押せない理由を出す(サーバーに届かないときも)
+  loadView(); applyView();
+  applyNeedHome();   // 題名の行のまとめて実行は入口から開いたときだけ。開いていなければ押せない理由を出す(サーバーに届かないときも)
   try {
     const ping = await api('/api/ping');
-    if (!APP_VERSION){ if (!EDIT_HOST) $('#ver').textContent = 'v' + ping.version; }
-    else if (ping.version !== APP_VERSION && !UIKit.restart.check($('#errBar'), APP_VERSION, ping.version))   // 帯に「起動し直す」
+    if (APP_VERSION && ping.version !== APP_VERSION && !UIKit.restart.check($('#errBar'), APP_VERSION, ping.version))   // 帯に「起動し直す」
       showErr(`画面(v${APP_VERSION})とサーバー(v${ping.version})の版が違います。黒い画面を閉じて、起動し直してください`, { plain: true });
   } catch (e){ return showErr(e.message + '。youtube-tools フォルダの start.bat で起動して、ホームから開いてください', { plain: true }); }
   try { S.tools = await api('/api/tools'); } catch {}
   if (TOKEN) pollRuns();
   await loadRoster();
-  if (S.tools){
-    $('#optModel').innerHTML = S.tools.models.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
-    // 処理方式は GPU(whisper.cpp)だけ(#optDevice。まだ作っていない PC は文字起こしを始めたときにサーバーが理由を出す = 黙って CPU にしない)
-    $('#optLang').innerHTML = S.tools.langs.map(l => `<option value="${esc(l)}">${esc({ ja: '日本語', en: '英語', ko: '韓国語', zh: '中国語', auto: '自動判定' }[l] || l)}</option>`).join('');
-  }
   await loadSettings();   // 読めなければ ⚙ に「読み直す」を出し、読み直すまで保存しない
   KM.reload();   // 校正のキーは編集の設定。共通の再生キーがここの保存に残っていたら、ホームの設定へ移す(部品が 1 回だけ)
   if (S.settings.speakerColors === undefined){   // 話者の色のスイッチは、このブラウザの tx.pk.speakerColors が残っていれば初回だけサーバーへ移す(localStorage は消さない)
     try { if (localStorage.getItem('tx.pk.speakerColors') === '0'){ S.settings.speakerColors = false; saveSettings(); } } catch {}
   }
-  applySettings(); renderSetup(); renderDiarSetup(); renderRtSetup(); renderAlt(); renderOptSummary(); renderKeyUI();   // キー配置は設定(サーバー)に入っている
-  if (!EDIT_HOST) takeUrlParams();   // ?media= / ?clip=(他のツールからのリンク)。設定を読んだあとに入れる(タブの切り替えで上書きされないように)
+  applySettings(); renderDiarSetup(); renderRtSetup(); renderAlt(); renderKeyUI();   // キー配置は設定(サーバー)に入っている
   loadSiblings();
   try { const j = await api('/api/jobs'); for (const x of j.jobs) if (x.state === 'done' || x.state === 'error') S.seen.add(x.id); } catch {}   // 開く前に終わっていたものは知らせない
   await Promise.all([loadList(), pollJobs()]);

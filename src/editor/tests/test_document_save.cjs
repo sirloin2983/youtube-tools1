@@ -31,7 +31,7 @@ function lineSource(prefix) {
   return line + '\n';
 }
 const saveSource = lineSource('const hhmm =') + fnSource('setSaveState') + lineSource('let docSaveP') + fnSource('saveDoc') + fnSource('showConflict');   // 保存の 409 の案内は app-core.js の showConflict
-const openSource = fnSource('openDoc') + fnSource('docInfoText') + fnSource('setUrlDoc') + fnSource('setUrlParam');   // 文書の 1 行の説明と URL の ?doc=(app-core.js の setUrlParam)も本物
+const openSource = fnSource('openDoc') + fnSource('docInfoText');   // 文書の 1 行の説明も本物
 const flush = () => new Promise(resolve => setImmediate(resolve));
 function deferred() {
   let resolve, reject;
@@ -44,8 +44,8 @@ function harness(respond) {
     baseUpdatedAt: 1, list: [{ id: 'A' }], navIdx: -1, forceNext: false };
   const nodes = {}, calls = [], timers = new Map();
   let timerId = 0;
-  const context = { S, window: { scrollY: 0, scrollTo() {} }, V: { rate: 1 }, CUT: null, PACK: null, EDIT_HOST: null, wideTab: () => false, txKeybarScene() {},
-    renderDocBar() {}, renderDocAuto() {}, lookupSpeakerNames() {}, renderPlayerMsg() {}, renderDocExtras() {}, applyLock() {}, applyView() {}, loadSuggest() {}, navRestore() {}, renderDoc() {}, renderList() {}, renderTerms() {}, setNav() {}, setSaveState() {}, syncEval() {}, toggleMenu() {}, updateUndo() {}, isDrawer: () => false, menuOpen: () => false, PICK: { on: false, ids: new Set(), polling: 0, active: new Set() },   // 画面を描く関数(このテストでは何もしない。下で定義し直したものが優先)   // カットのタブ(E3 から openDoc が見る)・キーの帯(段2)。このテストでは無い
+  const context = { S, window: { scrollY: 0, scrollTo() {} }, V: { rate: 1 }, EDIT_HOST: { opening: true }, RUNS: { last: [] }, txKeybarScene() {},
+    renderDocBar() {}, renderDocAuto() {}, lookupSpeakerNames() {}, renderPlayerMsg() {}, renderDocExtras() {}, applyLock() {}, applyView() {}, loadSuggest() {}, navRestore() {}, renderDoc() {}, renderTerms() {}, setNav() {}, setSaveState() {}, syncEval() {}, updateUndo() {},   // 画面を描く関数(このテストでは何もしない。下で定義し直したものが優先)
     $: selector => nodes[selector] ||= { classList: { add() {}, remove() {} }, setAttribute() {} },
     setTimeout(fn) { timers.set(++timerId, fn); return timerId; },
     clearTimeout(id) { timers.delete(id); },
@@ -61,8 +61,8 @@ function harness(respond) {
   };
   // 保存と切り替えの競合には関係しない画面の更新(上の context にないもの): 知らせ・修正の提案の読み直し・題名・一覧の進み具合・パックの見積もり・
   // 校正の手間(effortStart)
-  for (const name of ['toast', 'scheduleSuggest', 'updateDocTitle', 'syncListItem', 'cpAfterSave',
-    'effortStart', 'fillDiarNum', 'rememberLast', 'paintSaveState']) context[name] = () => {};
+  for (const name of ['toast', 'scheduleSuggest', 'updateDocTitle', 'syncListItem',
+    'effortStart', 'fillDiarNum', 'paintSaveState']) context[name] = () => {};
   context.apiUrl = p => p;
   vm.createContext(withUIKit(context));
   vm.runInContext(saveSource + '\n' + openSource, context);

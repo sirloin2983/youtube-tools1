@@ -9,7 +9,7 @@
     左のメニューの「精度」「学習」 … ホームの運用の中
     新規・履歴                  … ホームの「新しい案件」と案件の一覧(評価用の文書は一覧の末尾の「評価用」の案件)
   文書は /cases?d=<文書の id>#proof・動画のパスは /cases?v=<動画のパス>#proof で開きます。API は /transcribe/api/…、作業データと識別子は transcribe-tool です。
-  画面の部品 app-tpl.js・app-*.js・app.js・cut.js・pack-tab.js・proof.css は src/app/ui/editor/ にあります(URL の /transcribe/app.js などは ed_state.UI_DIR から配ります。テストが serve.py を一時フォルダに写すときは環境変数 YTT_EDITOR_UI_DIR で場所を教えます)。
+  画面の部品 app-tpl.js・app-*.js・app.js・doc-kit.js・cut.js・pack-tab.js・proof.css は src/app/ui/editor/ にあります(URL の /transcribe/app.js などは ed_state.UI_DIR から配ります。テストが serve.py を一時フォルダに写すときは環境変数 YTT_EDITOR_UI_DIR で場所を教えます)。
   以下の説明の「タブ」「左のメニュー」「⚙」は、案件の画面・ホームの対応する場所に読み替えてください。
 
 【これは何?】

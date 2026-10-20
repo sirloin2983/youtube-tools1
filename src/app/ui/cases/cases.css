@@ -37,8 +37,9 @@
   .cs-pane{min-height:0}
 }
 
-/* ---- カット・パックのパネル(panels/cut.js。RS8 C2c)。編集の index.html の CSS のうち 2 カット・パックの分。
-   .cs-cut = パネルの根。@container editor はここが入れ物(編集の画面と同じ幅の決まり)。.savest・.pop・.vpop は編集の中だけの部品なので .cs-cut の下に限る ---- */
+/* ---- カット・パックのパネル(panels/cut.js)。
+   .cs-cut = パネルの根。@container editor はここが入れ物(校正の欄と同じ幅の決まり)。.savest・.pop・.vpop は編集の部品なので .cs-cut の下に限る。
+   .tt-kc・.tt-cap-line・.tt-handoff は校正の欄(editor/proof.css)でも使う ---- */
 .cs-cut{container:editor / inline-size;min-width:0}
 .cs-cut .savest{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-3);white-space:nowrap;flex:none}
 .cs-cut .savest:not(:empty)::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--ink-4)}

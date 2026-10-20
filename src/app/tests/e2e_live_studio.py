@@ -39,8 +39,6 @@
      マウスが乗っている行は入れ替えで外れても消さない(本物の候補の API + 偽のワーカー tests/fake_excite_worker.py。_scene_peaks)
   D-11 配信中の候補の文字起こし: 入口が候補に付けた文字が見回りで行に出る(80 字で切る・title に全文)・whisper.cpp の無い入口では
      見出しに「文字起こしなし(理由)」(_scene_peak_text)
-  M1 サーバー側の「マーク + 書き出し」POST /live/api/adopt: スタジオの画面を閉じたまま、本物のスタジオに余白つきの auto の採用を頼む →
-     書き出しまで通る・スタジオの一覧にマークが余白 2 秒つき(8.0〜15.0)で出て「書き出し済み」(入口が自分で付ける)・長さ
 """
 import json
 import math
@@ -294,7 +292,6 @@ def run(tmp, shots, force_chromium):
                 _scene_settings_and_sound(cx)
                 _scene_badge_stop(cx)
                 _scene_after_end(cx)
-                _scene_adopt_api(cx)
                 _scene_peaks(cx)
                 _scene_errors(cx)
             finally:
@@ -731,29 +728,6 @@ def _scene_after_end(cx):
           "15 開き直しても「書き出したあと」と直した配信者のまま: %s / %s" % (pg.input_value("#rvAfter"), pg.text_content("#rvLiveWhoText")))
 
 
-def _scene_adopt_api(cx):
-    """M1. サーバー側の「マーク + 書き出し」(POST /live/api/adopt): 本物のスタジオが余白つきの auto の採用を丸めて書き出し済みにする組み合わせ"""
-    api, check, normalize, pg, rid = cx.api, cx.check, cx.normalize, cx.pg, cx.rid
-    # ---------------- M1. サーバー側の「マーク + 書き出し」(POST /live/api/adopt。画面を閉じていても) ----------------
-    pg.goto("about:blank")   # 案件の画面を閉じる(候補のパネルでこの録画を開いていない = 画面は「書き出し済み」を付けない。入口が自分で付ける)
-
-    def marks_of(v):
-        return ((api("GET", "/studio/api/video?id=%s" % v)[1] or {}).get("video") or {}).get("marks") or []
-    code, ad = api("POST", "/live/api/adopt", {"recorder": "local", "recording": rid, "start": 10.04, "end": 13.0, "label": "自動の山", "origin": "auto"})
-    check(code == 200 and ad and ad["origin"] == "auto" and ad["existing"] is False and ad["job"]["after"] == "auto",
-          "M1 adopt を受け付ける(after は設定 live.auto.after = 既定の全自動): %s" % ((ad or {}).get("job") or ad,))
-    jid = ((ad or {}).get("job") or {}).get("id")
-    done3 = wait_for(lambda: (lambda js: js and js[0]["state"] in ("done", "error") and js[0])(
-        [j for j in (api("GET", "/live/api/exports?recorder=local&recording=%s" % rid)[1] or {}).get("jobs") or [] if j["id"] == jid]), 90, 0.5)
-    check(done3 and done3["state"] == "done", "M1 画面なしで書き出しまで通る: %s" % (((done3 or {}).get("state"), (done3 or {}).get("error")),))
-    mk3 = wait_for(lambda: (lambda m: m if m and m["status"] == "exported" else None)(next((m for m in marks_of(rid) if m["id"] == (ad or {}).get("mark")), None)), 15)
-    check(mk3 and mk3["start"] == 8.0 and mk3["end"] == 15.0 and done3 and os.path.normcase(mk3.get("path") or "") == os.path.normcase(done3["path"]),   # 自動の採用は前後に余白 2 秒
-          "M1 スタジオの一覧にマークが出て「書き出し済み」(入口が付けた。区間は前後 2 秒の余白つき・スタジオの丸め): %s" % (mk3,))
-    if done3 and done3["state"] == "done":
-        dur3 = (normalize.probe(done3["path"]) or {}).get("duration", 0)
-        check(abs(dur3 - 7.0) <= 0.15, "M1 長さが区間(3 秒 + 余白 2 秒 × 2)と合う: %.2f 秒" % dur3)
-
-
 def _clock(s):
     """スタジオの時刻の表示(1:02:03.4・0:14.0)→ 秒"""
     t = 0.0
@@ -821,7 +795,8 @@ def _scene_peaks(cx):
                              "autoAdopt": {"waitMin": 60}})   # 自動採用はいつもオン(10-19)。この場面は人の採用を見るので、待ちを上限の 60 分にして通しの間は自動で採用させない
     check(det.tick() == "spawned", "L2 検出をオンにすると、見回りがワーカーを起動する(config.json を書いて)")
     check(wait_for(lambda: os.path.isfile(os.path.join(folder, "peaks.json")) and det.running(), 15), "L2 ワーカーが peaks.json と心拍(worker.json)を書く")
-    pg.goto(cases_url(rid))   # M1 で画面を閉じた(about:blank)ので、ここで開き直す
+    pg.goto("about:blank")   # 同じ URL への goto は読み直さないので、一度空にして開き直す
+    pg.goto(cases_url(rid))
     row = lambda pid: '#rvPeakList .rv-peak[data-pid="%s"]' % pid   # noqa: E731
     live_rows = "() => [...document.querySelectorAll('#rvPeakList .rv-peak:not(.is-gone)')].map(x => x.dataset.pid)"
     check(wait_js(pg, "() => !document.querySelector('#rvPeaks').hidden && document.querySelectorAll('#rvPeakList .rv-peak').length === 3", 15000),
@@ -840,7 +815,7 @@ def _scene_peaks(cx):
     check(abs(now - max(0, p1["start"] - 5)) < 2.5, "L3 [再生] で再生位置が候補の 5 秒前へ: %.1f(候補 %.1f)" % (now, p1["start"]))
     check(wait_js(pg, "() => document.querySelector('%s').classList.contains('is-playing')" % row("p1-14"), 3000), "L3 再生中の候補の行に印")
 
-    # [採用] → 本物の POST /live/api/peaks → M1 の adopt → マークの一覧・書き出し。配信者は録画に覚えた名前が入ってから
+    # [採用] → 本物の POST /live/api/peaks → adopt → マークの一覧・書き出し。配信者は録画に覚えた名前が入ってから
     wait_js(pg, "() => document.querySelector('#rvLiveWhoText').textContent === '配信者: 宝鐘マリン'", 8000)
     pg.evaluate("(s) => { const b = document.querySelector(s); b.click(); b.click(); }", row("p1-14") + ' [data-pact="adopt"]')
     check(wait_js(pg, "() => document.querySelectorAll('#rvList .rv-mark-row').length === %d" % (n0 + 1), 15000), "L3 [採用] でマークの一覧にマークが増える(%d → %d)" % (n0, n0 + 1))

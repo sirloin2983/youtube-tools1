@@ -267,3 +267,22 @@ test('sound: another window that sends nothing for 6 s counts as stopped (closed
   now = 6001; sweep();
   assert.deepEqual(seen, [[0, true], [6001, false]], 'stopped after 6 s without a message');
 });
+
+test('onEnter: the Enter that confirms a kana-kanji conversion (isComposing / keyCode 229) does not run; the plain one does', () => {
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(slice('  function onEnter(', '  /* 2 回押しの削除') + '\nthis.onEnter = onEnter;', ctx);
+  let handler = null, ran = 0;
+  const el = { addEventListener: (t, fn) => { handler = fn; } };
+  const key = (o) => { let stopped = false; handler({ key: 'Enter', preventDefault() { stopped = true; }, ...o }); return stopped; };
+  ctx.onEnter(el, () => { ran++; });
+  assert.equal(key({ isComposing: true }), false); assert.equal(key({ keyCode: 229 }), false);
+  assert.equal(ran, 0, 'a conversion Enter is ignored');
+  assert.equal(key({}), true); assert.equal(ran, 1, 'a plain Enter runs and is not left to the form');
+  ctx.onEnter(el, () => { ran++; }, { ctrl: true });
+  assert.equal(key({}), false); assert.equal(key({ ctrlKey: true }), true); assert.equal(ran, 2, 'ctrl: only with Ctrl / Cmd');
+  const btn = { disabled: true, click() { ran++; } };
+  ctx.onEnter(el, btn, { plain: true });
+  key({}); assert.equal(ran, 2, 'a disabled button is not pressed'); btn.disabled = false; key({}); assert.equal(ran, 3);
+  assert.equal(key({ shiftKey: true }), false, 'plain: no modifier keys');
+});

@@ -8,8 +8,7 @@ const esc = S.esc;
 const $ = s => document.querySelector(s);
 const fmt = S.fmtTime;
 const durText = s => fmt(s).replace(/\.\d$/, '');   // 配信の長さ(0.1 秒に丸めてから小数を出さない)
-/* 2回押しの確認。部品は ui-kit の UIKit.confirmTwice の1つ(気が利く画面へ 段1) */
-function armDelete(btn, run, text){ UIKit.confirmTwice(btn, run, text || 'もう一度押すと削除'); }
+const armDelete = UIKit.armDelete;   // 2回押しの確認
 
 /* addTo: 既存グループに配信を追加するモード中は、そのグループID。anchorOpen: 開いているアンカー指定フォーム({gid, videoId})
    q / f: 配信の一覧の絞り込み(文字 / 状態)。openG: 配信者ごとのまとまりの開閉(ユーザーが開け閉めしたものだけ) */
@@ -50,9 +49,9 @@ function paneHtml(){
 function emptyGroupsHtml(){
   const free = C.videos.filter(v => !v.groupId).length;
   const btn = free >= 2 ? '<button type="button" class="btn small" data-cl-go="pick">まとめる配信を選ぶ</button>' : '<button type="button" class="btn small" data-cl-go="queue">URL から配信を入れる</button>';
-  return `<div class="empty"><b>まだグループはありません</b>「配信をコラボにまとめる」で2本以上の配信を選んで「まとめる」か、① の「URL から入れる」で「コラボとしてまとめる」をオンにして追加すると、ここに出ます。<div class="cs-emptyacts">${btn}</div></div>`;
+  return UIKit.emptyHtml('まだグループはありません', '「配信をコラボにまとめる」で2本以上の配信を選んで「まとめる」か、① の「URL から入れる」で「コラボとしてまとめる」をオンにして追加すると、ここに出ます。', btn);
 }
-const EMPTY_VIDEOS = '<div class="empty"><b>まだ配信がありません</b>① の「URL から入れる」で配信を入れるか、② で配信を開くと、ここに出ます。<div class="cs-emptyacts"><button type="button" class="btn small" data-cl-go="queue">URL から入れる</button></div></div>';
+const EMPTY_VIDEOS = UIKit.emptyHtml('まだ配信がありません', '① の「URL から入れる」で配信を入れるか、② で配信を開くと、ここに出ます。', '<button type="button" class="btn small" data-cl-go="queue">URL から入れる</button>');
 
 /* ---------- 配信の選択(左のカード) ---------- */
 function vlabel(v){ return v.title || v.fileName || v.id; }
@@ -61,7 +60,7 @@ const vById = id => C.videos.find(x => x.id === id);
 function vmeta(v){
   const parts = [];
   const t = v.createdAt || v.updatedAt;
-  if (t) parts.push(`<span title="スタジオに追加: ${esc(S.date(t))}">${esc(S.ago(t))}</span>`);
+  if (t) parts.push(UIKit.fmt.agoSpan(t, 'スタジオに追加: '));
   if (v.duration) parts.push(`<span class="num">${durText(v.duration)}</span>`);
   if (v.marks) parts.push(`マーク ${Number(v.marks) || 0}件`);
   return parts.join('<span class="q-dot">・</span>');
@@ -143,7 +142,7 @@ function baseTitle(g){ const b = g.members.find(x => x.isBase); return b ? (b.ti
 function memberMeta(m){
   const v = vById(m.id); if (!v) return '';
   const t = v.createdAt || v.updatedAt;
-  return `<span class="cl-mmeta">${esc(who(v))}${t ? `<span class="q-dot">・</span><span title="スタジオに追加: ${esc(S.date(t))}">${esc(S.ago(t))}</span>` : ''}${v.duration ? `<span class="q-dot">・</span><span class="num">${durText(v.duration)}</span>` : ''}</span>`;
+  return `<span class="cl-mmeta">${esc(who(v))}${t ? `<span class="q-dot">・</span>${UIKit.fmt.agoSpan(t, 'スタジオに追加: ')}` : ''}${v.duration ? `<span class="q-dot">・</span><span class="num">${durText(v.duration)}</span>` : ''}</span>`;
 }
 function anchorFormHtml(g, m){
   return `<div class="cl-anchor">
@@ -298,11 +297,9 @@ async function onGroupClick(e){
     saveAnchor(gid, vid);
   }
 }
-/* 空の状態のボタン(S-13): URL から入れる(設定の引き出しを閉じて ① の先頭の URL の欄へ)/ まとめる配信を選ぶ(上の一覧の最初のチェックへ) */
+/* 空の状態のボタン(S-13): URL から入れる(① の先頭の URL の欄へ)/ まとめる配信を選ぶ(上の一覧の最初のチェックへ) */
 function clGo(where){
   if (where === 'queue'){
-    if (S.drawer) S.drawer.close();
-    S.go('queue');
     const f = $('#qUrls'); if (f) f.focus();
     return;
   }

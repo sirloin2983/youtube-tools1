@@ -248,7 +248,8 @@ class SupervisorTest(Base):
         old = self.sup.by_id["studio"].proc
         self.sup.start("studio")   # 起動中にもう一度押しても2つ目は起動しない
         self.assertIs(self.sup.by_id["studio"].proc, old)
-        self.sup.restart("studio")
+        self.sup.stop("studio")
+        self.sup.start("studio")
         self.assertIsNotNone(old.poll(), "古いプロセスが残っている")
         self.assertTrue(self.wait_state("studio", "running"))
         self.assertIsNot(self.sup.by_id["studio"].proc, old)
@@ -572,7 +573,7 @@ class PortalHttpTest(Base):
 
     def test_host_check(self):
         self.assertEqual(self.req("GET", "/api/status", headers={"Host": "evil.example:%d" % self.port})[0].status, 403)
-        self.assertEqual(self.post("/api/tools/studio/start", headers={"Host": "evil.example"})[0].status, 403)
+        self.assertEqual(self.post("/api/cleanup", headers={"Host": "evil.example"})[0].status, 403)
 
     def test_cross_site_reads_and_navigation(self):
         self.assertEqual(self.req("GET", "/api/status", headers={"Sec-Fetch-Site": "cross-site"})[0].status, 403)
@@ -582,15 +583,13 @@ class PortalHttpTest(Base):
         self.assertEqual(self.req("GET", "/", headers=dict(nav, **{"Sec-Fetch-Dest": "iframe"}))[0].status, 403)
 
     def test_post_guards(self):
-        self.assertEqual(self.req("POST", "/api/tools/studio/start", b"{}", {"Content-Type": "text/plain", "X-YTT-Token": self.srv.token})[0].status, 415)
-        self.assertEqual(self.post("/api/tools/studio/start", headers={"Origin": "http://evil.example"})[0].status, 403)
-        self.assertEqual(self.post("/api/tools/studio/start", headers={"Sec-Fetch-Site": "cross-site"})[0].status, 403)
-        self.assertEqual(self.post("/api/tools/studio/start", headers={"Origin": "http://localhost:%d" % (self.port + 1)})[0].status, 403)
-        self.assertEqual(self.post("/api/tools/studio/start", body=b"[1]")[0].status, 400)
-        self.assertEqual(self.post("/api/tools/studio/start", body=b"x" * 5000)[0].status, 413)
-        self.assertEqual(self.post("/api/tools/nope/start")[0].status, 404)
-        self.assertEqual(self.post("/api/tools/studio/delete")[0].status, 404)
-        self.assertEqual(self.state("studio"), "stopped", "拒否したのに起動した")
+        self.assertEqual(self.req("POST", "/api/cleanup", b"{}", {"Content-Type": "text/plain", "X-YTT-Token": self.srv.token})[0].status, 415)
+        self.assertEqual(self.post("/api/cleanup", headers={"Origin": "http://evil.example"})[0].status, 403)
+        self.assertEqual(self.post("/api/cleanup", headers={"Sec-Fetch-Site": "cross-site"})[0].status, 403)
+        self.assertEqual(self.post("/api/cleanup", headers={"Origin": "http://localhost:%d" % (self.port + 1)})[0].status, 403)
+        self.assertEqual(self.post("/api/cleanup", body=b"[1]")[0].status, 400)
+        self.assertEqual(self.post("/api/cleanup", body=b"x" * 5000)[0].status, 413)
+        self.assertEqual(self.post("/api/nope")[0].status, 404)
 
     def test_post_body_edges(self):
         """本文の読み取りの境目(httpsec.read_json_body)"""
@@ -603,7 +602,7 @@ class PortalHttpTest(Base):
         self.assertEqual(err(*self.post("/api/cases/auto", body=b'{"a": 1')), (400, "json"))
         self.assertEqual(err(*self.post("/api/cases/auto", body=b"[" * 3000)), (400, "json"))   # 深い入れ子でも落ちずに 400
         self.assertEqual(err(*self.post("/api/cases/auto", headers={"Content-Type": "text/plain"})), (415, "content_type"))
-        self.assertEqual(self.post("/api/tools/studio/start", headers={"X-YTT-Token": "é" * 10})[0].status, 403)   # ASCII 以外の合言葉でも落ちずに 403
+        self.assertEqual(self.post("/api/cleanup", headers={"X-YTT-Token": "é" * 10})[0].status, 403)   # ASCII 以外の合言葉でも落ちずに 403
 
     def test_extra_dirs(self):
         """空き容量・ごみ箱フォルダの書き出し先(読み方の場合分けは datadir.studio_out_dir の単体)。settings.json が無ければ []"""
@@ -740,7 +739,7 @@ class PortalHttpTest(Base):
         r, body = self.req("GET", "/")
         self.assertIn(('<meta name="ytt-token" content="%s">' % self.srv.token).encode(), body)
         for bad in ("", "x" * len(self.srv.token), self.srv.token + "x"):
-            self.assertEqual(self.post("/api/tools/studio/start", headers={"X-YTT-Token": bad})[0].status, 403, bad)
+            self.assertEqual(self.post("/api/cleanup", headers={"X-YTT-Token": bad})[0].status, 403, bad)
         h = {"Content-Type": "application/json", "Origin": "http://" + self.host}
         self.assertEqual(self.req("POST", "/api/shutdown", b"{}", h)[0].status, 403)   # 合言葉なし
         self.assertFalse(self.srv.closing.is_set())
@@ -815,56 +814,6 @@ class PortalHttpTest(Base):
             self.assertEqual((r.status, json.loads(body)["error"]), (400, code), bad)
         self.assertEqual(self.srv.autorun.status()["runs"], [])
 
-    def test_flow_machine_get_put(self):
-        """F1 F0-1: GET /api/flow/machine = この PC の設定・PUT は合言葉つきで machine.json に書く(変えられる項目だけ・合わない値は 400)"""
-        mfile = os.path.join(self.tmp, "m", "machine.json")
-        with mock.patch.dict(os.environ, {"YTT_MACHINE_FILE": mfile}):
-            st, j = self.get_json("/api/flow/machine")
-            self.assertEqual((st, j["diskMinGB"]), (200, L.machine_mod.DISK_MIN_GB))
-
-            def put(obj, token=None, path="/api/flow/machine"):
-                h = {"Content-Type": "application/json", "Origin": "http://" + self.host, "Sec-Fetch-Site": "same-origin",
-                     "X-YTT-Token": self.srv.token if token is None else token}
-                r, body = self.req("PUT", path, json.dumps(obj).encode("utf-8"), h)
-                return r.status, json.loads(body) if body.startswith(b"{") else body
-            self.assertEqual(put({"diskMinGB": 50}, token="x")[0], 403)
-            self.assertFalse(os.path.exists(mfile))
-            st, j = put({"diskMinGB": 50})
-            self.assertEqual((st, j["machine"]["diskMinGB"], testkit.read_json(mfile)["diskMinGB"]), (200, 50, 50))
-            st, j = put({"caseRoot": "relative"})   # 合わない値の場合分けは src/flow/tests/test_machine.py の TestSave
-            self.assertEqual((st, j["error"]), (400, "bad_request"))
-            self.assertEqual(put({}, path="/api/flow/nai")[0], 404)
-            cross = {"Content-Type": "application/json", "Sec-Fetch-Site": "cross-site", "X-YTT-Token": self.srv.token}
-            self.assertEqual(self.req("PUT", "/api/flow/machine", b"{}", cross)[0].status, 403)
-            # 案件の保存先 caseRoot を変えると、出来上がる場所(スタジオの書き出し先 outDir)も同じにそろう
-            from ytt import studio_env
-            shome, cases = os.path.join(self.tmp, "studio-home"), os.path.join(self.tmp, "cases")
-            with mock.patch.object(studio_env, "_home", shome), mock.patch.object(studio_env, "_out_dir", None):
-                os.makedirs(shome, exist_ok=True)
-                st, j = put({"caseRoot": cases})
-                self.assertEqual((st, j["machine"]["caseRoot"]), (200, cases))
-                self.assertEqual(studio_env.get_out_dir(), cases)
-                self.assertEqual(testkit.read_json(os.path.join(shome, "settings.json"))["outDir"], cases)
-                with mock.patch.object(L.PortalServer, "tools_busy", lambda s: True):   # 処理の実行中は変えない(machine.json も書かない)
-                    st, j = put({"caseRoot": os.path.join(self.tmp, "other")})
-                self.assertEqual((st, j["error"], testkit.read_json(mfile)["caseRoot"]), (409, "busy", cases))
-
-    def test_flow_outbox_api(self):
-        """F1 F6a: GET /api/flow/outbox = 送り返す zip の一覧・POST /api/flow/outbox/done {id} で 済み へ(無い・形が違う id は 404・合言葉が要る)"""
-        r, body = self.req("GET", "/api/flow/outbox")
-        self.assertEqual((r.status, json.loads(body)), (200, {"files": []}))
-        ob = os.path.join(self.srv.app_dir, "outbox")
-        os.makedirs(ob, exist_ok=True)
-        with open(os.path.join(ob, "req1__run1.zip"), "wb") as f:
-            f.write(b"PK")
-        r, body = self.req("GET", "/api/flow/outbox")
-        self.assertEqual([x["id"] for x in json.loads(body)["files"]], ["req1__run1.zip"])
-        self.assertEqual(self.post("/api/flow/outbox/done", body=b'{"id":"req1__run1.zip"}', headers={"X-YTT-Token": "x"})[0].status, 403)
-        for bad in (b'{"id":"nai__run1.zip"}', b'{"id":"../x.zip"}', b'{}'):
-            self.assertEqual(self.post("/api/flow/outbox/done", body=bad)[0].status, 404, bad)
-        r, body = self.post("/api/flow/outbox/done", body=b'{"id":"req1__run1.zip"}')   # 済みへの移し方は src/flow/tests/test_outbox.py
-        self.assertEqual((r.status, json.loads(body)), (200, {"ok": True}))
-
     def test_after_run_outbox_only_headless(self):
         """F1 F6a: 実行が終わったあとの送り返しの zip は、画面なし・依頼(requestId)の実行だけ"""
         run = mock.Mock(request_id="req1", result_path=os.path.join(self.tmp, "r.json"))
@@ -917,7 +866,7 @@ class PortalHttpTest(Base):
         self.assertIn("error", self.srv.learnpack_last)
 
     def test_flow_board_api(self):
-        """② の口: status の rev・jobs・cases・?case= の検査と絞り込み・POST /api/flow/cancel・retry
+        """② の口: status の rev・jobs・cases・?case= の検査と絞り込み・POST /api/flow/cancel
         (合言葉が要る・形が違えば 400・無い id は 404・できない物は 409)・GET /api/flow/history・POST /api/flow/estimate"""
         quote = urllib.parse.quote
         r, body = self.req("GET", "/api/flow/status")
@@ -936,19 +885,13 @@ class PortalHttpTest(Base):
         self.assertEqual((st["jobs"], [x["id"] for x in st["runs"]]), ([], ["0123456789"]))   # 絞るのは jobs だけ
         self.assertEqual(self.post("/api/flow/cancel", headers={"X-YTT-Token": "x"}, body=b'{"id": "run:0123456789"}')[0].status, 403)   # 書き込み系 = 合言葉が要る
         for payload, code, err in (({"id": "nai"}, 400, "bad_request"), ({}, 400, "bad_request"), ({"id": "run:ffffffffff"}, 404, "not_found")):
-            for op in ("cancel", "retry"):
-                r, body = self.post("/api/flow/" + op, body=json.dumps(payload).encode("utf-8"))
-                self.assertEqual((r.status, json.loads(body)["error"]), (code, err), (op, payload))
+            r, body = self.post("/api/flow/cancel", body=json.dumps(payload).encode("utf-8"))
+            self.assertEqual((r.status, json.loads(body)["error"]), (code, err), payload)
         r, body = self.post("/api/flow/cancel", body=b'{"id": "run:0123456789"}')
         self.assertIn(r.status, (200, 409))   # 実行中なら止める・もう終わっていれば cannot_cancel
         wait_for(lambda: self.srv.autorun.status()["idle"], 30, 0.05)
         r, body = self.post("/api/flow/cancel", body=b'{"id": "run:0123456789"}')
         self.assertEqual((r.status, json.loads(body)["error"]), (409, "cannot_cancel"))
-        r, body = self.post("/api/flow/retry", body=b'{"id": "run:0123456789"}')
-        self.assertEqual(r.status, 200, body)
-        new = json.loads(body)["job"]
-        self.assertNotEqual(new["id"], "run:0123456789")
-        self.post("/api/flow/cancel", body=json.dumps({"id": new["id"]}).encode("utf-8"))
         r, body = self.req("GET", "/api/flow/history?case=" + quote(self.tmp) + "&limit=5")
         self.assertEqual(r.status, 200)
         self.assertLessEqual({"runs", "total", "more", "offset"}, set(json.loads(body)))

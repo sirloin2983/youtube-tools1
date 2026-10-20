@@ -350,6 +350,9 @@ td.n,th.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .ui-listbar input[type=search]{flex:1 1 220px;min-width:0;width:auto}
 .ui-listbar select{width:auto}
 .ui-listbar .ui-count{color:var(--ink-3);font-size:var(--fs-sm);margin-left:auto;white-space:nowrap}
+/* 1枚の紙の中の行の並び: 行と行の間に区切り線 / はみ出した文字を … で切る(1行) */
+.ui-list>*+*{border-top:1px solid var(--line)}
+.ui-ell{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* 一覧のまとまり(配信者ごと・日付ごとなど)。<details class="ui-group"><summary>見出し <span class="ui-group-n">件数</span></summary>…</details> */
 .ui-group{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);margin:0 0 8px;overflow:hidden;flex:none}   /* flex:none: 高さに上限のある縦並びの中で縮んで中身が重ならないように */
 .ui-group>summary{display:flex;align-items:center;gap:8px;list-style:none;cursor:pointer;padding:8px 12px;font-weight:650;font-size:13.5px;background:var(--panel-2)}

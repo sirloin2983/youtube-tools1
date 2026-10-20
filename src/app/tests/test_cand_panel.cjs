@@ -455,7 +455,7 @@ test('portal export jobs are shown in the studio export list shape (wait / fetch
 });
 
 test('portal export rows: escaped text, cancel button only while active, "編集で開く" when done', () => {
-  const ctx = load([['const EXP_LABEL', 'function errHint('], ['function jobItemHTML(', 'function renderJob(j){']], {
+  const ctx = load([['const fileLabel', 'function errHint('], ['function jobItemHTML(', 'function renderJob(j){']], {
     fmt: t => 't' + t, esc: s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';'),
     handoffHTML: (j, it) => (it.status === 'done' && it.path ? '<a>編集で開く</a>' : ''), loudHTML: () => '' });
   const j = { live: true };
@@ -540,7 +540,7 @@ test('archive state of portal jobs is shown on the export rows (label, progress,
   assert.equal(ctx.liveArchView(arch('fetch', { progress: 7 })).progress, 1, 'progress is clamped to 0..1');
 
   const esc = s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
-  const html = load([['const EXP_LABEL', 'function errHint('], ['function jobItemHTML(', 'function renderJob(j){']], {
+  const html = load([['const fileLabel', 'function errHint('], ['function jobItemHTML(', 'function renderJob(j){']], {
     fmt: t => 't' + t, esc, handoffHTML: () => '', loudHTML: () => '', ARCH_TITLE: 'アーカイブから作り直して、速報版と入れ替えました' });
   const row = (it, i) => html.jobItemHTML({ live: true }, it, i);
   const done = row(items[0], 0);
@@ -635,7 +635,7 @@ test('a recording deleted by the portal (auto delete) is told apart from a missi
   assert.equal(ctx.liveArchView(arch('done', { packOld: true })).packOld, true);
   assert.equal(ctx.liveArchView(arch('error', { packOld: true })).packOld, false);
   const esc = x => String(x).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
-  const html = load([['const EXP_LABEL', 'function errHint('], ['function jobItemHTML(', 'function renderJob(j){']], {
+  const html = load([['const fileLabel', 'function errHint('], ['function jobItemHTML(', 'function renderJob(j){']], {
     fmt: t => 't' + t, esc, handoffHTML: () => '', loudHTML: () => '', ARCH_TITLE: 't' });
   const it = { id: 'a', start: 0, end: 1, title: '', status: 'done', stateLabel: '済み', progress: 1, path: 'C:\\c\\a.mp4', file: 'a.mp4', archive: ctx.liveArchView(arch('done', { packOld: true })) };
   const row = html.jobItemHTML({ live: true }, it, 0);
@@ -766,21 +766,12 @@ test('export done notice has [編集で開く] with the same URL as the row link
   assert.deepEqual(shown.at(-1), { m: '書き出しを中止しました', ms: 0, k: '' }, 'nothing to open: the plain notice');
 });
 
-test('links to the home use data-ui-portal (no new tab); the autorun entry is not hidden but says why it cannot be used', () => {
+test('links to the home use data-ui-portal (no new tab); the autorun bar links to the case', () => {
   const rv = between('async function pollAuto(', 'function showDataWarning(');
   // 「案件で見る」はこの配信の案件の画面(候補)を開く(ホームへのリンクではない = data-ui-portal の決まりの外)
   assert.ok(rv.includes('href="../cases?c=${encodeURIComponent(vid)}#cand"') && !rv.includes('href="../#cases"'), '案件で見る');
   const rk = sliceOf('rank.js', 'class="row rk-autogo"', '</div>');
   assert.ok(rk.includes('data-ui-portal') && !rk.includes('_blank'), '案件の一覧');
-  const ctx = load([['function autoOffReason(', 'function renderAutoMenu(']], { Studio: { token: '' } });
-  assert.ok(ctx.autoOffReason({ kind: 'youtube' }).includes('ホーム(start.bat)から開いたときだけ'));
-  ctx.Studio.token = 't';
-  assert.equal(ctx.autoOffReason({ kind: 'youtube' }), '');
-  assert.ok(ctx.autoOffReason({ kind: 'live' }).includes('ライブの録画では使えません'));
-  assert.ok(!/\$\('#rvAuto'\)\.hidden = !Studio\.token/.test(source), 'not hidden only because the home is not used');
-  assert.ok(sliceOf('rank.js', "$('#rkAuto').hidden = false", "$('#rkAutoGo')").includes("UIKit.menuOff($('#rkAuto'), "), '① まとめて実行 too (UIKit.menuOff)');
-  const ram = between('function renderAutoMenu(', 'function renderDuration(');
-  assert.ok(ram.includes('UIKit.menuOff(d, why, '), '② uses the shared disabled-menu helper');
 });
 
 test('"export all" always tells why it cannot be pressed', () => {
@@ -836,15 +827,17 @@ test('portal export rows: progress of the handed-off autorun (transcribe only / 
 
 /* パネルが渡す window.Studio の代わり(var Studio = {…})を、まわりの変数を偽物にして切り出す */
 function studioShim(file, start, end, extra) {
-  const ctx = withUIKit({ Map, String, Promise, Date, encodeURIComponent, esc: s => s, tokenTag: { content: 't' }, params: {}, readyFns: [], subs: {}, dead: false, visible: true,
+  const ctx = withUIKit({ Map, String, Promise, Date, encodeURIComponent, esc: s => s, params: {}, dead: false, visible: true, document: { head: { querySelector: () => ({ content: 't' }) } },
     LIVE: { infoP: null, offAt: 0 }, LIVE_RECHECK_MS: 60000, STUDIO_OFFLINE: 'スタジオにつながりませんでした', HOME_OFFLINE: 'ホームにつながりませんでした',
-    setStep() {}, emit() {}, q: () => null, location: { assign() {} }, window: {}, ...extra });
+    setStep() {}, q: () => null, location: { assign() {} }, window: {}, ...extra });
   vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(path.join(SRC, 'app/ui/cases/panels/studio-shim.js'), 'utf8'), ctx);   // 2 つのパネルが共有する Studio の代わりの共通の部分
+  ctx.StudioShim = ctx.window.StudioShim;
   vm.runInContext(sliceOf(file, start, end), ctx);
   return ctx;
 }
-const NEW_SHIM = ['app/ui/cases/panels/new.js', 'var Studio = {', '/* パネルが見えている間だけ'];
-const CAND_SHIM = ['app/ui/cases/panels/cand.js', 'var Studio = {', '/* review.js に渡す env'];
+const NEW_SHIM = ['app/ui/cases/panels/new.js', 'var Studio = StudioShim.create(', '/* パネルが見えている間だけ'];
+const CAND_SHIM = ['app/ui/cases/panels/cand.js', 'var Studio = StudioShim.create(', '/* review.js に渡す env'];
 
 test('live recordings are registered in one place with the channel name (new case panel register; rank.js "録画する" / "開く" pass the row channel)', async () => {
   // 新しい案件の引き出し(panels/new.js): Studio.live.register / begin(begin の返事のチャンネル名 → 無ければ opts.channel)
@@ -1153,11 +1146,11 @@ test('autoTx and "this one onward": the same order = from export to pack with th
   let out = 'C:/Dropbox/切り抜き依頼/出力';
   const UIKit = { flow: { order: f => f }, autorun: { watch() {}, state: () => ({ overwrite: false }), start: async orders => { started.push(...orders); return { runs: [] }; } },
     streamer: { check: async () => '兎田ぺこら' } };
-  const ctx = load([['async function sendOutDir(', '/* ---------- 書き出しのあと自動でパックまで'], ['async function autoOrder(', '/* まとめて実行(② のメニュー'],
+  const ctx = load([['async function sendOutDir(', '/* ---------- 書き出しのあと自動でパックまで'], ['async function autoOrder(', '/* まとめて実行(マークの行の「この後を」)'],
     ['async function startAuto(', 'async function pollAuto(']], {
     UIKit, Studio: { token: 't' }, S: { settings: {}, cur: { id: 'V', title: '配信' }, dirty: false }, toast: m => notes.push(m), pollAuto() {}, flushSave: async () => {},
     portalApi: async (path, body) => { if (path === 'api/intake') return { outDir: out }; sent.push({ path, body }); return { run: { id: 'r1' } }; },
-    autoTxEnabled: () => true, $: sel => (sel === '#rvAutoTop' ? { value: '3' } : sel === '#rvAuto' ? { open: true } : {}) });
+    autoTxEnabled: () => true, $: sel => ({}) });
   await ctx.maybeAutoTranscribe('V', ['m1', 'm2']);
   assert.deepEqual(plain(sent[0]), { path: 'api/flow/submit', body: { kind: 'url', videoId: 'V', from: 'export', upto: 'pack', marks: ['m1', 'm2'],
     deliver: { origin: 'auto', dir: out } } }, 'autoTx: from export to pack, with the send target (the send gate decides)');

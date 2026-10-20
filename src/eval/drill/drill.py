@@ -3,7 +3,6 @@
 
 **評価用の動画 1 本(30〜40 秒)を、いつもの編集の画面(1 文字起こし の校正)で開いて全部聞いて直す**。行と行のすき間(抜け)・話していない所の行(幻覚)・結合・分割まで直せるので、
 「全部聞いた」文書だけを定点の正解にする。画面は編集の index.html の `?doc=<id>&drill=1`(帯は app-learn.js の drill*)。
-  GET  /api/drill/next?skip=<id,…>  次の 1 本(評価用・文字起こし済み・まだ確かめていない・直近 10 分に更新していない・処理中でない・動画がある)を乱数で
   POST /api/drill/reviewed          {id, baseUpdatedAt, via?} 「全部聞いて直した」印 evalReviewed を書き、残りの行を校正済みに(409 = 別の所で変わった)
   POST /api/drill/unreviewed        {id, baseUpdatedAt} 印を外す(印を付けたときに校正済みにした行も戻す)
   GET  /api/drill/status            定点(確かめ済みの評価用の動画の長さ 15 分)の残りと条件(話者・配信・重なり・BGM・呼び名。確かめ済みの動画の中で数える)
@@ -20,7 +19,6 @@
 (差し替えが効くように。from … import で名前を写さない)。編集(app)の部品は読まない。
 """
 import os
-import random
 import threading
 
 from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas  # noqa: E402   ApiError・stamp・norm_path・ジョブの表・TID_RE・now_ms・num_or・plain_int
@@ -34,7 +32,6 @@ from manage.keep import evalfolders as _evfolders  # noqa: E402   評価用の�
 
 DRILL_RECENT_SEC = 600       # 直近これだけの間に更新した文書は選ばない(編集の画面で開いている可能性)
 DRILL_GOAL_SEC = 900         # 定点 = 確かめ済みの評価用の動画 15 分(マスタープラン Q4)
-DRILL_MAX_SKIP = 500         # 「飛ばした」として受け取る id の数の上限
 DRILL_MAX_CANDIDATES = 16
 # 定点の条件(q3-q4-design.md の (c))。数えるのは確かめ済みの評価用の文書の「校正済み・聞き取れない印なし」の行
 DRILL_CONDS = (("speakers", "話者", 4, "人"), ("streams", "配信", 3, "本"), ("overlap", "声の重なり", 30, "秒"),
@@ -190,59 +187,6 @@ def drill_status():
     return {"goalSec": DRILL_GOAL_SEC, "reviewedSec": round(sec, 1), "leftSec": round(max(0.0, DRILL_GOAL_SEC - sec), 1),
             "docs": docs, "reviewedDocs": rdocs, "pendingDocs": pend, "untranscribed": untx,
             "conds": conds, "ready": sec >= DRILL_GOAL_SEC and all(c["ok"] for c in conds)}
-
-
-# ---------- 次の 1 本 ----------
-def _drill_skip_ids(skip):
-    if isinstance(skip, str):
-        skip = skip.split(",")
-    return {str(x).strip() for x in list(skip or [])[:DRILL_MAX_SKIP] if _yschemas.TID_RE.match(str(x).strip())}
-
-
-def drill_next(skip=(), seed=None):
-    """GET /api/drill/next?skip= -> {"id": 次の文書 | None, "title", "reason"(無いとき), "counts"}。
-    評価用・文字起こし済み(文字のある行がある)・まだ確かめていない・直近 10 分に更新していない(updatedAt と校正の時間の lastAt の新しい方)・
-    処理中(話者判別など)でない・今回のドリルで飛ばしていない文書から、動画の単位で乱数で 1 本(自信の低いものを選ぶと数字が悪い側に偏るため)。
-    動画の無い文書(ネットワーク上は調べずに除く)は聞けないので除く"""
-    skip = _drill_skip_ids(skip)
-    now, busy = _yschemas.now_ms(), _busy_tids()
-    n = {"eval": 0, "reviewed": 0, "untranscribed": 0, "skipped": 0, "recent": 0, "busy": 0, "noMedia": 0}
-    pool = []
-    for tid, s in drill_docs():
-        if not s.get("eval"):
-            continue
-        n["eval"] += 1
-        if s["reviewed"]:
-            n["reviewed"] += 1
-        elif not s["rows"]:
-            n["untranscribed"] += 1
-        elif tid in skip:
-            n["skipped"] += 1
-        elif now - max(s["updatedAt"], s["lastAt"]) < DRILL_RECENT_SEC * 1000:
-            n["recent"] += 1
-        elif tid in busy:
-            n["busy"] += 1
-        else:
-            pool.append((tid, s["sourcePath"]))
-    random.Random(seed).shuffle(pool)
-    for tid, src in pool:
-        if not _media_ok(src):
-            n["noMedia"] += 1
-            continue
-        try:
-            d = _store.read_transcript(tid)
-        except _errors.ApiError:
-            continue
-        return {"id": tid, "title": str(d.get("title") or d.get("sourceName") or "")[:120], "counts": n}
-    return {"id": None, "reason": _drill_why_none(n), "counts": n}
-
-
-def _drill_why_none(n):
-    if not n["eval"]:
-        return "評価用の文字起こしがまだありません(⚙ の「評価用のフォルダ」の「仮置きをまとめて文字起こし」で作れます)"
-    parts = [(n["reviewed"], "確かめ済み"), (n["untranscribed"], "まだ文字起こししていない"), (n["skipped"], "このドリルで飛ばした"),
-             (n["recent"], "直近 10 分に直した"), (n["busy"], "処理中の"), (n["noMedia"], "動画が見つからない")]
-    return "次に出せる評価用の動画がありません(%s)" % "・".join("%s %d 本" % (lb, c) for c, lb in parts if c)
 
 
 # ---------- 確かめ済みの印 ----------

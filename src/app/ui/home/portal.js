@@ -13,13 +13,11 @@
   'use strict';
   var LABEL = { starting: '起動中…', running: '動作中', external: '別の画面で起動済み', stopping: '停止中…', stopped: '停止', crashed: '異常終了', missing: '見つかりません' };
   var PILL = { starting: 'run', running: 'ok', external: 'info', stopping: 'wait', stopped: 'wait', crashed: 'err', missing: 'err' };
-  var BUSY_LABEL = { start: '起動しています…', stop: '止めています…', restart: '再起動しています…' };
   var STEP_PILL = { wait: 'wait', run: 'run', done: 'ok', skip: 'wait', warn: 'warn', error: 'err' };
   var POLL_MS = 1500, POLL_HIDDEN_MS = 5000;
   var PAGE_SIZE = 30, DOC_PAGE = 20, TODO_CAP = 8;
 
   var cards = {};        // ツールID → {el, data}
-  var busy = {};         // ツールID → 実行中の操作(二重押し防止)
   var fails = 0, closed = false, timer = null, quitNotice = '';
 
   var casesData = null;                 // /api/cases の中身
@@ -167,15 +165,6 @@
     return a;
   }
   function baseName(p) { return String(p || '').split(/[\\/]/).pop(); }
-  /* 欄の Enter で実行(S-24)。かな漢字変換を確定する Enter(isComposing・229)では動かさない */
-  function enterRuns(input, btn) {
-    if (!input || !btn) return;
-    input.addEventListener('keydown', function (e) {
-      if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229 || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
-      e.preventDefault();
-      if (!btn.disabled && !btn.hidden) btn.click();
-    });
-  }
 
   /* ================================================================ ツールの起動状態(「詳しく」の中) ================================================================ */
 
@@ -204,11 +193,6 @@
     if (icon) mark.appendChild(icon.content.firstElementChild.cloneNode(true));
     $('.pt-name', li).textContent = t.name;
     $('.pt-sub', li).textContent = t.sub;
-    $('.pt-toggle', li).addEventListener('click', function () {
-      var s = cards[t.id].data.state;
-      act(t.id, s === 'running' || s === 'starting' ? 'stop' : 'start');
-    });
-    $('.pt-restart', li).addEventListener('click', function () { act(t.id, 'restart'); });
     var box = $('.pt-logbox', li);
     box.addEventListener('toggle', function () { if (box.open) loadLog(t.id); });
     $('#flow').appendChild(li);
@@ -217,14 +201,14 @@
 
   function updateTool(t) {
     if (t.hidden && !cards[t.id] && (t.state === 'running' || t.state === 'starting' || t.state === 'external')) return;   // 部品(cut2resolve)は困っているときだけ出す
-    if (t.hidden && cards[t.id] && (t.state === 'running' || t.state === 'external') && !busy[t.id]) { cards[t.id].el.remove(); delete cards[t.id]; return; }
+    if (t.hidden && cards[t.id] && (t.state === 'running' || t.state === 'external')) { cards[t.id].el.remove(); delete cards[t.id]; return; }
     var c = cards[t.id] || build(t);
     c.data = t;
-    var el2 = c.el, b = busy[t.id], s = t.state;
+    var el2 = c.el, s = t.state;
     el2.setAttribute('data-state', s);
     var pill = $('.pt-pill', el2);
-    pill.className = 'pill pt-pill ' + (b ? 'run' : (PILL[s] || ''));
-    pill.textContent = b ? BUSY_LABEL[b] : (LABEL[s] || s);
+    pill.className = 'pill pt-pill ' + (PILL[s] || '');
+    pill.textContent = LABEL[s] || s;
 
     var meta = [];
     if (t.port) meta.push('ポート ' + t.port);
@@ -238,20 +222,10 @@
     msg.textContent = text;
     msg.className = 'notice pt-msg' + (s === 'crashed' || s === 'missing' ? ' danger' : (s === 'external' && t.message) ? '' : ' info');
 
-    var open = $('.pt-open', el2), up = (s === 'running' || s === 'external') && !!t.port && !b;
+    var open = $('.pt-open', el2), up = (s === 'running' || s === 'external') && !!t.port;
     if (up) { open.href = toolUrl(t); open.removeAttribute('aria-disabled'); }
     else { open.removeAttribute('href'); open.setAttribute('aria-disabled', 'true'); }
 
-    var toggle = $('.pt-toggle', el2), restart = $('.pt-restart', el2);
-    toggle.hidden = restart.hidden = !!t.mounted;   // ホームに取り込んだツールは、ずっと押せない停止・再起動を並べない(S6。説明の 1 行だけ)
-    var runningHere = s === 'running' || s === 'starting';
-    toggle.textContent = runningHere || s === 'stopping' || s === 'external' ? '停止' : '起動';
-    toggle.disabled = !!b || closed || s === 'stopping' || s === 'external' || s === 'missing' || !!t.mounted;
-    toggle.title = s === 'external' ? '別の黒い画面で起動したツールは、その画面で止めてください'
-      : t.mounted ? 'ホームと一緒に動いています(「すべて終了」で一緒に終わります)' : '';
-    restart.disabled = !!b || closed || !(t.managed && runningHere) || !!t.mounted;
-    restart.title = t.mounted ? toggle.title : '';
-    if (fails >= 2) { toggle.disabled = true; restart.disabled = true; }
   }
 
   function loadLog(id) {
@@ -299,20 +273,6 @@
     }).then(function () {
       if (!closed) timer = setTimeout(poll, document.hidden ? POLL_HIDDEN_MS : POLL_MS);
     });
-  }
-
-  function act(id, action) {
-    if (busy[id] || closed) return;
-    busy[id] = action;
-    updateTool(cards[id].data);
-    api('api/tools/' + encodeURIComponent(id) + '/' + action, 'POST').then(function (j) {
-      delete busy[id];
-      if (j.tool) updateTool(j.tool);
-    }).catch(function (e) {
-      delete busy[id];
-      updateTool(cards[id].data);
-      failToast('ツールの操作ができませんでした', '少し待って、もう一度押してください', e);
-    }).then(poll);
   }
 
   /* 窓で開く(段階7-3。既定は窓) */
@@ -588,7 +548,7 @@
     p.title = '自動でできた切り抜き ' + a.total + '本。行を開くと、採用(友人へ届ける)・要らない を選べます';
   }
 
-  function active(r) { return r && (r.state === 'queued' || r.state === 'running'); }
+  var active = UIKit.autorun.isActive;
 
   /* スタジオから消えた配信(c.gone): まとめて実行に要るマークがスタジオに無い。欄は隠さずに押せなくして、理由と戻し方を出す(S-25) */
   function goneAuto(box, c) {
@@ -623,23 +583,19 @@
     box.setAttribute('data-auto-send', '');   // 友人へ自動で送る の注を付け直す対象(まとめて実行を配線した箱だけ)
     var send = $('.pt-auto-send', box);
     send.checked = true;   // 描くたびにオン(前回の値は覚えない = 3-47)
-    UIKit.streamer.attach(who);
+    var ar = UIKit.autorun, sync = function () { paintSendBox(box); };
+    /* 採用数・上書きはホームの設定(UIKit.autorun = どの入口で変えても同じ。気が利く画面へ 段4)。まとめて実行の形は解析から全部だけ(10-19 ユーザー決定:
+       人が採用した配信にも自動の上位で採用する数まで足す。人が選んだ 1 本だけは案件の画面の候補のマークの行の「この後を」)。配信者・採用数の欄の Enter で実行(S-24) */
+    ar.form({ who: who, top: top, panel: $('.pt-auto-panel', box), kind: 'video', run: $('.pt-auto-run', box), onLoad: sync });
     var draft = draftFor(c.id);
     if (draft.streamer != null) { who.value = draft.streamer; who.dispatchEvent(new Event('input')); }   // 未保存の入力を再描画でも保つ(E2 finding 1)
     else UIKit.streamer.autoFill(who, { videoId: c.id, channel: c.channel || '' });   // 覚えた名前 → チャンネル名から(段5)
     who.addEventListener('input', function () { draftFor(c.id).streamer = who.value; });
-    /* 採用数・上書きはホームの設定(UIKit.autorun = どの入口で変えても同じ。気が利く画面へ 段4)。まとめて実行の形は解析から全部だけ(10-19 ユーザー決定:
-       人が採用した配信にも自動の上位で採用する数まで足す。人が選んだ 1 本だけは案件の画面の候補のマークの行の「この後を」) */
-    var ar = UIKit.autorun;
-    var sync = function () { paintSendBox(box); };
-    ar.panel($('.pt-auto-panel', box), { kind: 'video' });
-    ar.load().then(function (st) { top.value = String(st.top); sync(); }, function () {});
-    top.addEventListener('change', function () { var n = Math.round(Number(top.value)); if (n >= 1 && n <= 20) UIKit.prefs.patch('autorun', { top: n }).catch(function () {}); });
     sync();
     $('.pt-auto-run', box).addEventListener('click', function () {
       var st = ar.state();
       /* 欄 → 封筒 + 束の差分(UIKit.flow.order = ② の口 api/flow/submit の本文。RV A1)。解析から全部 = 頭からパックまで */
-      var f = { kind: 'url', videoId: c.id, title: c.title || '', upto: 'pack', repack: !!(st && st.overwrite), top: Math.round(Number(top.value) || 3) };
+      var f = { kind: 'url', videoId: c.id, title: c.title || '', upto: 'pack', repack: !!(st && st.overwrite), top: ar.topOf(top) };
       var chk = UIKit.streamer.check(who);
       chk.then(function (name) {
         if (name === null) return null;   // 見つからない名前で「やめる」を選んだ
@@ -660,8 +616,6 @@
         runsByVideo[c.id] = r.run; node.open = true; renderAuto(node, c.id); focusCancel(c.id); pollAuto();
       }).catch(function (e) { failToast('まとめて実行を始められませんでした', 'もう一度「実行」を押してください', e); });
     });
-    enterRuns(who, $('.pt-auto-run', box));   // 配信者・採用する数の欄の Enter で実行(S-24)
-    enterRuns(top, $('.pt-auto-run', box));
     $('.pt-auto-cancel', box).addEventListener('click', function () {
       var r = runsByVideo[c.id]; if (!r) return;
       api('api/flow/cancel', 'POST', { id: 'run:' + r.id }).then(function () { pollAuto(); })   // 掲示板の id(RV A1)。止まったかは定期の読み込みで
@@ -897,8 +851,8 @@
       a.href = '/cases?c=' + encodeURIComponent(c.id) + '#proof';
       a.setAttribute('data-case', c.id);
       var main = el('span', 'pt-vrow-main');
-      main.appendChild(el('span', 'pt-case-title', c.title || c.id));
-      main.appendChild(el('span', 'hint pt-case-sub', VKIND[c.caseKind] || ''));
+      main.appendChild(el('span', 'pt-case-title ui-ell', c.title || c.id));
+      main.appendChild(el('span', 'hint pt-case-sub ui-ell', VKIND[c.caseKind] || ''));
       a.appendChild(main);
       var n = (c.clips || []).length;
       a.appendChild(el('span', 'hint num', '文書 ' + n + ' 本'));
@@ -1607,9 +1561,10 @@
 
   /* ---- 状態と設定を持つ欄(依頼の受付・バックアップ)の共通の形 ---- */
   /* 状態の札: 色は state の表から・言葉はサーバーの stateLabel(無ければ オン = onText / オフ) */
-  function paintStatePill(sel, colors, d, onText) {
+  var SECTION_PILL = { off: 'wait', watching: 'ok', idle: 'ok', running: 'run', error: 'err' };
+  function paintStatePill(sel, d, onText) {
     var pill = $(sel);
-    pill.className = 'pill ' + (colors[d.state] || 'wait');
+    pill.className = 'pill ' + (SECTION_PILL[d.state] || 'wait');
     pill.textContent = d.stateLabel || (d.enabled ? onText : 'オフ');
   }
   /* 状態を読む。404(その機能の無い版の入口)なら欄ごと隠す・それ以外で読めなければ札に「読めません」(理由は title) */
@@ -1627,9 +1582,36 @@
     msg.textContent = failText('保存できませんでした', check + '、もう一度お試しください', e);
     failToast(what + 'の設定を保存できませんでした', check + '、もう一度お試しください', e, retry);
   }
+  /* 状態と設定を持つ欄(依頼の受付・バックアップ)の共通の動き。sec: { prefs: 設定の節, what, check, box・enabled・msg・btn: 要素の selector, runPath・runOk・failTitle・failHint: 「今すぐ」,
+     data(): 今の状態, status(d)・render(d)・poll(): 描く・読む, fast(): 保存や実行の直後に呼ぶ(任意), busy }。
+     スイッチ(enabled)だけをその場で保存する(フォルダ・数は設定の画面)。断られたら(フォルダが空など)理由を出してスイッチを戻す */
+  function sectionSave(sec, v) {
+    var msg = $(sec.msg);
+    msg.textContent = '保存しています…';
+    return prefsPatch(sec.prefs, v).then(function () {
+      msg.textContent = '';
+      if (sec.fast) sec.fast();
+      return sec.poll();
+    }, function (e) {
+      saveFailed(msg, sec.what, sec.check, e, function () { sectionSave(sec, v); });
+      if (sec.data()) $(sec.enabled).checked = !!sec.data().enabled;   // 断られたら、表示を元に戻す
+    });
+  }
+  function sectionRun(sec) {
+    if (sec.busy) return;
+    sec.busy = true; $(sec.btn).disabled = true;
+    if (sec.fast) sec.fast();
+    api(sec.runPath, 'POST', {}).then(function (d) { sec.render(d); toast(sec.runOk); },
+      function (e) { failToast(sec.failTitle, sec.failHint, e); })
+      .then(function () { sec.busy = false; if (sec.data()) sec.status(sec.data()); });
+  }
+  function wireSection(sec) {
+    if (!$(sec.box)) return;
+    $(sec.btn).addEventListener('click', function () { sectionRun(sec); });
+    $(sec.enabled).addEventListener('change', function () { sectionSave(sec, { enabled: $(sec.enabled).checked }); });   // スイッチは押したらすぐ効く
+  }
 
-  var INTAKE_PILL = { off: 'wait', watching: 'ok', error: 'err' };
-  var intakeData = null, intakeSig = '', noticeSig = '', intakeBusy = false, intakeOpened = false;
+  var intakeData = null, intakeSig = '', noticeSig = '', intakeOpened = false;
   /* 見張るフォルダ・数の欄は設定の画面(/settings。範囲は app/prefs.py の INTAKE_RANGES とスキーマを test_settings_schema が突き合わせる)。ここはスイッチと今のフォルダだけ */
   function fillIntakeSettings(d) {
     $('#intakeEnabled').checked = !!d.enabled;
@@ -1637,12 +1619,12 @@
     $('#intakeFolderNow').title = d.folder || '';
   }
   function renderIntakeStatus(d) {
-    paintStatePill('#intakeState', INTAKE_PILL, d, '見張り中');
+    paintStatePill('#intakeState', d, '見張り中');
     $('#intakeMsg').textContent = d.message || '';
     $('#intakeScan').textContent = d.lastScan ? '最後に確認: ' + ago(d.lastScan) : (d.state === 'watching' ? 'まだ確認していません' : '');
     $('#intakeScan').title = d.lastScan ? when(d.lastScan) : '';
     $('#intakeToday').textContent = d.enabled ? '今日 ' + (d.today || 0) + ' 件' + (d.todayRejects ? '・要らない ' + d.todayRejects + ' 本' : '') : '';
-    $('#intakeScanBtn').disabled = intakeBusy || !d.enabled;
+    $('#intakeScanBtn').disabled = INTAKE.busy || !d.enabled;
     $('#intakeScanBtn').title = d.enabled ? '' : '受付がオフです。下の「依頼を受け付ける」をオンにすると押せます';
   }
   function intakeItemRow(it) {
@@ -1731,35 +1713,14 @@
   function pollIntake() {
     return pollSection('api/intake', '#intakeBox', '#intakeState', '依頼の受付', renderIntake);
   }
-  function intakeScanNow() {
-    if (intakeBusy) return;
-    intakeBusy = true; $('#intakeScanBtn').disabled = true;
-    api('api/intake/scan', 'POST', {}).then(function (d) { renderIntake(d); toast('確認しました'); },
-      function (e) { failToast('依頼を確認できませんでした', 'もう一度「今すぐ確認」を押してください(直らないときは画面を開き直してください)', e); })
-      .then(function () { intakeBusy = false; if (intakeData) renderIntakeStatus(intakeData); });
-  }
-  /* スイッチ(enabled)だけを保存する(フォルダ・数は設定の画面)。断られたら(フォルダが空など)理由を出してスイッチを戻す */
-  function intakeSave(v) {
-    var msg = $('#intakeSaveMsg');
-    msg.textContent = '保存しています…';
-    return prefsPatch('intake', v).then(function () {
-      msg.textContent = '';
-      return pollIntake();
-    }, function (e) {
-      saveFailed(msg, '依頼の受付', '「設定を変える」で見張るフォルダを決めて', e, function () { intakeSave(v); });
-      if (intakeData) $('#intakeEnabled').checked = !!intakeData.enabled;   // 断られたら、表示を元に戻す
-    });
-  }
-  function wireIntake() {
-    if (!$('#intakeBox')) return;
-    $('#intakeScanBtn').addEventListener('click', intakeScanNow);
-    $('#intakeEnabled').addEventListener('change', function () { intakeSave({ enabled: $('#intakeEnabled').checked }); });   // スイッチは押したらすぐ効く
-  }
+  var INTAKE = { prefs: 'intake', what: '依頼の受付', check: '「設定を変える」で見張るフォルダを決めて', box: '#intakeBox', enabled: '#intakeEnabled', msg: '#intakeSaveMsg', btn: '#intakeScanBtn',
+    runPath: 'api/intake/scan', runOk: '確認しました', failTitle: '依頼を確認できませんでした', failHint: 'もう一度「今すぐ確認」を押してください(直らないときは画面を開き直してください)',
+    busy: false, data: function () { return intakeData; }, status: renderIntakeStatus, render: renderIntake, poll: pollIntake };
+  function wireIntake() { wireSection(INTAKE); }
 
   /* ================================================================ 作業データのバックアップ(src/manage/keep/backup.py。notes:docs/spec/data.md の「バックアップ」) ================================================================ */
 
-  var BACKUP_PILL = { off: 'wait', idle: 'ok', running: 'run', error: 'err' };
-  var backupData = null, backupBusy = false, backupOpened = false, backupTimer = null, backupFastUntil = 0;
+  var backupData = null, backupOpened = false, backupTimer = null, backupFastUntil = 0;
   /* 写す先・間隔の欄は設定の画面(/settings)。ここはスイッチと今の写す先だけ */
   function fillBackupSettings(d) {
     $('#backupEnabled').checked = !!d.enabled;
@@ -1767,13 +1728,13 @@
     $('#backupFolderNow').title = d.folder || '';
   }
   function renderBackupStatus(d) {
-    paintStatePill('#backupState', BACKUP_PILL, d, '動いています');
+    paintStatePill('#backupState', d, '動いています');
     var n = (d.errors || []).length;
     $('#backupMsg').textContent = d.message || '';
     $('#backupMsg').title = n ? d.errors.join(' / ') : '';
     $('#backupLast').textContent = d.lastOk ? '最後に写した: ' + ago(d.lastOk) + '(' + (d.copied || 0) + ' 個・' + fmtBytes(d.bytes) + ')' : (d.enabled ? 'まだ写していません' : '');
     $('#backupLast').title = d.lastOk ? when(d.lastOk) + (d.dest ? ' → ' + d.dest : '') : '';
-    $('#backupRunBtn').disabled = backupBusy || !d.enabled || d.state === 'running';
+    $('#backupRunBtn').disabled = BACKUP.busy || !d.enabled || d.state === 'running';
     $('#backupRunBtn').title = d.enabled ? '' : 'バックアップがオフです。下の「自動でバックアップする」をオンにすると押せます';
   }
   function renderBackup(d) {
@@ -1791,41 +1752,19 @@
     if (!$('#backupBox')) return Promise.resolve();
     return pollSection('api/backup', '#backupBox', '#backupState', 'バックアップ', renderBackup);
   }
-  function backupRunNow() {
-    if (backupBusy) return;
-    backupBusy = true; $('#backupRunBtn').disabled = true;
-    backupFastUntil = Date.now() + 30000;
-    api('api/backup/run', 'POST', {}).then(function (d) { renderBackup(d); toast('バックアップを始めました'); },
-      function (e) { failToast('バックアップを始められませんでした', '写す先のフォルダを確かめて、もう一度「今すぐ写す」を押してください', e); })
-      .then(function () { backupBusy = false; if (backupData) renderBackupStatus(backupData); });
-  }
-  /* スイッチ(enabled)だけを保存する(写す先・間隔は設定の画面)。写す先が空のままオンにすると入口が断る(app/prefs.py)→ 理由を出してスイッチを戻す */
-  function backupSave(v) {
-    var msg = $('#backupSaveMsg');
-    msg.textContent = '保存しています…';
-    return prefsPatch('backup', v).then(function () {
-      msg.textContent = '';
-      backupFastUntil = Date.now() + 30000;
-      return pollBackup();
-    }, function (e) {
-      saveFailed(msg, 'バックアップ', '「設定を変える」で写す先のフォルダを決めて', e, function () { backupSave(v); });
-      if (backupData) $('#backupEnabled').checked = !!backupData.enabled;   // 断られたら、スイッチの表示を元に戻す
-    });
-  }
-  function wireBackup() {
-    if (!$('#backupBox')) return;
-    $('#backupRunBtn').addEventListener('click', backupRunNow);
-    $('#backupEnabled').addEventListener('change', function () { backupSave({ enabled: $('#backupEnabled').checked }); });   // スイッチは押したらすぐ効く
-  }
+  var BACKUP = { prefs: 'backup', what: 'バックアップ', check: '「設定を変える」で写す先のフォルダを決めて', box: '#backupBox', enabled: '#backupEnabled', msg: '#backupSaveMsg', btn: '#backupRunBtn',
+    runPath: 'api/backup/run', runOk: 'バックアップを始めました', failTitle: 'バックアップを始められませんでした', failHint: '写す先のフォルダを確かめて、もう一度「今すぐ写す」を押してください',
+    busy: false, data: function () { return backupData; }, status: renderBackupStatus, render: renderBackup, poll: pollBackup,
+    fast: function () { backupFastUntil = Date.now() + 30000; } };   // 写している間・保存や「今すぐ」の直後は、短い間隔で読み直す
+  function wireBackup() { wireSection(BACKUP); }
 
   /* ================================================================ まとめて実行の記録(段2 B-6。入口を終えても残る。開いたときだけ読む) ================================================================ */
 
-  var HIST_PILL = { done: 'ok', error: 'err', cancelled: 'wait' };
   function historyRow(r) {
     var li = $('#tplHistory').content.firstElementChild.cloneNode(true);
     if (r.id) li.setAttribute('data-fkey', 'runs:' + r.id);
     var pill = $('.pt-history-pill', li);
-    pill.className = 'pill pt-history-pill ' + (r.nothing ? 'wait' : (HIST_PILL[r.state] || 'wait'));
+    pill.className = 'pill pt-history-pill ' + (r.nothing ? 'wait' : UIKit.state.cls(r.state));
     pill.textContent = runLabel(r);
     var a = $('.pt-history-title', li);
     a.textContent = r.title || (r.kind === 'doc' ? r.docId : r.videoId) || (r.kind === 'file' ? '依頼の動画' : '');
@@ -1902,11 +1841,17 @@
       var css = document.createElement('link');
       css.rel = 'stylesheet'; css.href = 'cases-panels/new.css';
       document.head.appendChild(css);
-      var tag = document.createElement('script');
-      tag.src = 'cases-panels/new.js';
-      tag.onload = function () { if (window.NewCasePanel) resolve(); else reject(new Error('部品の形が違います')); };
-      tag.onerror = function () { reject(new Error('部品を読み込めませんでした')); };
-      document.head.appendChild(tag);
+      var shim = document.createElement('script');
+      shim.src = 'cases-panels/studio-shim.js';
+      shim.onload = function () {
+        var tag = document.createElement('script');
+        tag.src = 'cases-panels/new.js';
+        tag.onload = function () { if (window.NewCasePanel) resolve(); else reject(new Error('部品の形が違います')); };
+        tag.onerror = function () { reject(new Error('部品を読み込めませんでした')); };
+        document.head.appendChild(tag);
+      };
+      shim.onerror = function () { reject(new Error('部品を読み込めませんでした')); };
+      document.head.appendChild(shim);
     }).catch(function (e) { newLoad = null; throw e; });
     return newLoad;
   }
@@ -2011,7 +1956,7 @@
       var from = $all('#docList .pt-doc').length; docVisibleCount += DOC_PAGE; renderDocs(); focusNewRow('#docList .pt-doc', from);
     });
     $('#docRunBtn').addEventListener('click', runDocsBatch);
-    enterRuns($('#docWho'), $('#docRunBtn'));   // 配信者の欄の Enter で実行(S-24)
+    UIKit.onEnter($('#docWho'), $('#docRunBtn'), { plain: true });   // 配信者の欄の Enter で実行(S-24)
 
     $('#todoMore').addEventListener('click', function () {   // すべて見る ⇄ 少なく表示。広げたら最初に増えた行へフォーカス(M6・S10)
       todoShowAll = !todoShowAll; buildTodo();

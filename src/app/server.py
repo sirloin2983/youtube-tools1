@@ -25,15 +25,7 @@
                                           cases({案件の根: {active, lastState, lastFinished}})。?case=<案件の根> で jobs だけ絞る(ほかの項目は絞らない)。notes:docs/spec/pipeline.md 2.9
                                           F1 F0-1: + blocked(null か {reason: "disk", freeGB, minGB} = 空き容量が下限を切って次の実行を始めていない)・
                                           machine({engine, device, llmModel, gpu: {name, vramGB, ...} か null}。src/flow/runqueue.py の machine_status)
-  GET  /api/flow/machine                  この PC の設定(src/flow/machine.py の load。{engine, device, llmModel, caseRoot, diskMinGB, learningDir, sources})
-  PUT  /api/flow/machine                  {device?, llmModel?, caseRoot?, diskMinGB?, learningDir?}(null = 既定へ戻す)を machine.json に書く(合言葉が要る)→
-                                          {machine: 書いたあとの load, file: ファイルの中身}。知らない項目・合わない値は 400 bad_request と理由(F1 F0-1)。
-                                          caseRoot はスタジオの書き出し先にもそろえる(処理の実行中は 409 busy)
   POST /api/flow/cancel                   {id} 掲示板の id(「頭:id」)のジョブを止める → {job}。無い id は 404・止められない物は 409 cannot_cancel・形が違えば 400
-  POST /api/flow/retry                    {id} 失敗・中止したジョブを同じ指定で入れ直す → {job}(新しい id)。無い id は 404・できない物は 409 cannot_retry
-  GET  /api/flow/outbox                   送り返す zip の一覧 {files: [{id, requestId, runId, size, at}]}(src/flow/outbox.py の list_outbox。画面なしで
-                                          依頼(requestId のある実行)が終わるたびに <app>/outbox に組む。F1 F6a)
-  POST /api/flow/outbox/done              {id} 上げ終えた zip を outbox/済み へ → {ok: true}。無い・名前の形が違う id は 404(F1 F6a)
   GET  /api/flow/history?case=&limit=&offset=  終わった実行の記録(<作業データ>/app/logs/autorun-runs.jsonl と .1。新しい順。limit は既定 50・最大 200。case = 結果の束の案件で絞る)
   POST /api/flow/estimate                 {envelope, spec?}(submit と同じ本文)実行と同じ規則の見積もり → {steps, total, nothing, reason, notes}(段ごとの本数と飛ばす理由。書き込まない)
   GET  /api/intake                        友人からの依頼の受付の状態・設定・最近の依頼(src/human/friend/intake.py。notes:docs/spec/friend.md)
@@ -52,7 +44,6 @@
   GET  /api/health[?refresh=1]            「調子」(段9 9-1。src/manage/ops/health.py): 版の期待と実際・認識ワーカー・ffmpeg/ffprobe/yt-dlp・空き容量・作業データの大きさ・エラーの件数
   GET  /api/cleanup                       片付けの候補(段9 9-2。src/manage/keep/cleanup.py)。POST /api/cleanup {ids} で候補に出した物だけをごみ箱フォルダへ移す(TRASH_DAYS 日で起動時に消える)
   GET  /api/log?tool=<ID>&lines=N         ツールの出力(<作業データ>/app/logs/<ID>.log)の末尾
-  POST /api/tools/<ID>/start|stop|restart {} → {"tool": {...}}
   POST /api/shutdown                      {} → この入口から起動したツールを止めて、入口も終わる。録画中でなければ録画の部品も止める
                                           (録画中なら残して、応答に recorderKept・notice)
   POST /api/window                        {mode: browser|app} 画面を窓(Edge のアプリモード)で開くか(段階7-3。src/ytt/appwindow.py)
@@ -62,8 +53,7 @@
   POST api/ytt/restart-self               {} → 入口ごと起動し直す(段9 9-3。src/manage/ops/restart.py)。重い処理・人が始めた処理・書き出しの最中は 409 と理由の文。
                                           まとめて実行の待ち・実行中は断らずに、応答に notice(何件が起動し直したあとに続くか)
   GET  /live/…・POST /live/…              リアルタイム切り抜き(線 D。src/app/live.py)。**設定 live.enabled がオンのときだけ**(オフなら 404):
-                                          録画を始める /live/api/begin・録画元(src/pipeline/ingest/recorder.py)への中継 /live/r/<録画元>/<残り>・マークと書き出し・
-                                          サーバー側の「マーク + 書き出し」/live/api/adopt(線 D の M1)。
+                                          録画を始める /live/api/begin・録画元(src/pipeline/ingest/recorder.py)への中継 /live/r/<録画元>/<残り>・マークと書き出し。
                                           画面はスタジオの中(P3。/live/ はスタジオへ 302)。線 D の M4〜M7: 「調子」の live.disk(空き容量)・
                                           archiveInfo.afterStream(配信後の全自動 = 設定 live.autoAfterStream)。まとめて実行の待ち・実行中は起動し直しで戻る
   POST api/ytt/live                       {op: "status"} → 録画中の録画(全ツールのヘッダーの札。オフなら {enabled: false})/ {op: "stop", recorder, recording}
@@ -118,15 +108,14 @@ from flow import tools as flowtools_mod  # noqa: E402  (まとめて実行の段
 from flow import board as board_mod  # noqa: E402  (② のジョブの掲示板 = GET /api/flow/status の jobs・cases・rev と cancel・retry。RS8 の ② の口)
 from flow import live_export  # noqa: E402  (書き出しの途中の数 = ② の status の live 欄。RS7-2 G5a)
 from flow import livesession  # noqa: E402  (ライブ係。録画の部品を残したときの文 KEPT_NOTE。RS7-2 G2b)
-from flow import machine as machine_mod  # noqa: E402  (この PC の設定。画面なしの空き容量の下限 diskMinGB。RS7-2 G2b・GET/PUT /api/flow/machine。F1 F0-1)
+from flow import machine as machine_mod  # noqa: E402  (この PC の設定。画面なしの空き容量の下限 diskMinGB。RS7-2 G2b。F1 F0-1)
 from flow import runqueue as queue_mod  # noqa: E402  (② の待ち行列。submit の版違い・束の形の例外 = 400 spec_version・bad_spec。F1 F0-1)
 from flow import learning as learning_mod  # noqa: E402  (学習データの読み手。machine の learningDir があるとき入口の文字起こしもそこから読む。F1 F6a)
-from flow import outbox as outbox_mod  # noqa: E402  (送り返しの zip。画面なしで依頼の実行が終わるたびに組む・GET /api/flow/outbox。F1 F6a)
+from flow import outbox as outbox_mod  # noqa: E402  (送り返しの zip。画面なしで依頼の実行が終わるたびに組む。F1 F6a)
 from flow import prio as prio_mod  # noqa: E402  (処理の優先度の表。後回しの仕事を始めてよいかを重い処理の枠へ。PRIO)
 from manage.keep import learnpack as learnpack_mod  # noqa: E402  (学習の束を <依頼の受付のフォルダ>/学習 に置く。起動時と 1 日ごと。F1 F6a)
 from ytt import colors as colors_mod, datadir, docloc, fsio, httpsec, jobs, layout, runtime, tools, version as _version  # noqa: E402
 from ytt import errors as _yerrors  # noqa: E402  (確かめるの部品が上げる ApiError を状態の番号で返す)
-from ytt import studio_env  # noqa: E402  (PUT /api/flow/machine の caseRoot をスタジオの書き出し先にもそろえる)
 from app import mount as mount_mod  # noqa: E402  (src/app/mount.py: 統合サーバーへのツールの取り込み)
 from app import autorun as autorun_mod
 from human.friend import intake as intake_mod  # noqa: E402  (src/human/friend/intake.py: 友人からの依頼の受付)
@@ -175,7 +164,6 @@ EXIT_RUNNING = 3           # 画面なし: 入口がすでに動いている(ポ
 HEADLESS_RUNNING = "ホームはすでに起動しています(ポート %d)。画面なしでは起動しません。動いているホームを「すべて終了」してから起動してください"
 HEADLESS_NO_RESTART = "画面なしのホームは起動し直せません(起こしたアプリから起動し直してください)"
 PARENT_POLL = 2.0          # 親の見張り: Windows 以外で親の生死を見る間隔(秒。Windows は WaitForSingleObject で待つ)
-MACHINE_PUT_FIELDS = ("device", "llmModel", "caseRoot", "diskMinGB", "learningDir")   # PUT /api/flow/machine で変えられる項目(F1 の 1-2 の口)
 LEARNPACK_DIR = "学習"          # 学習の束の置き場所 <依頼の受付のフォルダ>/学習(F1 の 3 の (f1c))
 LEARNPACK_FIRST, LEARNPACK_EVERY = 60.0, 86400.0   # 起動のあと最初に置くまでの秒・置き直しを見る間隔(1 日。ユーザー「そんなに頻繁に送らなくていい」。中身が変わらなければ作らない)
 
@@ -438,7 +426,7 @@ class Supervisor:
         t.proc, t.managed, t.port, t.version, t.fail_pings = None, False, port, version, 0
         msg = ""
         if t.expected and version and version != t.expected:
-            msg = "古い版(v%s)が別の黒い画面で動いています。その画面を閉じてから「起動」を押すと、v%s で起動します" % (version, t.expected)
+            msg = "古い版(v%s)が別の黒い画面で動いています。その画面を閉じてからホームを起動し直すと、v%s で起動します" % (version, t.expected)
         t.set_state("external", msg)
         self.log("○ %s: 別の画面で起動済み http://localhost:%d/ (v%s)%s" % (t.spec["name"], port, version, "  ※" + msg if msg else ""))
 
@@ -499,10 +487,6 @@ class Supervisor:
                 self._finish(t, proc.returncode, "stopped", "")
                 self.log("■ %s を止めました" % t.spec["name"])
             return t.snapshot()
-
-    def restart(self, tid):
-        self.stop(tid)
-        return self.start(tid)
 
     def stop_all(self):
         ths = [threading.Thread(target=self.stop, args=(t.id,), daemon=True) for t in self.tools if t.proc is not None]
@@ -623,6 +607,7 @@ STATIC["/cases-panels/cand.css"] = (os.path.join("panels", "cand.css"), CASES_DI
 # 新しい案件のパネル(ホームの引き出しで開く。スタジオ ① の rank.js + queue.js のつなぎ。RS8 C3)。ホームが読む(/cases の画面では使わない)
 STATIC["/cases-panels/new.js"] = (os.path.join("panels", "new.js"), CASES_DIR)
 STATIC["/cases-panels/new.css"] = (os.path.join("panels", "new.css"), CASES_DIR)
+STATIC["/cases-panels/studio-shim.js"] = (os.path.join("panels", "studio-shim.js"), CASES_DIR)   # 候補・新しい案件の両方のパネルが使う window.Studio の代わり(共通の部分)
 STATIC["/portal-edit.js"] = ("portal-edit.js", HOME_UI_DIR)   # ホームの運用の中の「精度」「学習」(編集の左メニューにあった物。RS8 C3)
 STATIC.update({"/cases-panels/proof.css": (os.path.join("panels", "proof.css"), CASES_DIR),   # 校正のパネル(C2b): 見た目・3 択の部品・編集を載せる台(編集の app-*.js は transcribe/ から読む)
                "/cases-panels/machpick.js": (os.path.join("panels", "machpick.js"), CASES_DIR), "/cases-edhost.js": ("edhost.js", CASES_DIR)})
@@ -646,7 +631,6 @@ PAGE_CSP["/check"] = PAGE_CSP["/cases"]   # 確かめる: 候補のままのカ�
 # スクリプトは 'self' のまま(YouTube のプレイヤーはホームに無い)
 HOME_CSP = CSP.replace("style-src 'self'", "style-src 'self' 'unsafe-inline'").replace("img-src 'self' data:", "img-src 'self' data: https://*.ytimg.com https://*.ggpht.com")
 PAGE_CSP["/"] = PAGE_CSP["/index.html"] = HOME_CSP
-ACTION_RE = re.compile(r"/api/tools/([a-z0-9]{1,20})/(start|stop|restart)")
 # GET: 部品の今の状態をそのまま返す API(場所 → PortalServer の属性。どれも .snapshot())
 GET_SNAPSHOTS = {"/api/intake": "intake",       # 友人からの依頼の受付(src/human/friend/intake.py)
                  "/api/backup": "backup",       # 作業データのバックアップの状態と設定(src/manage/keep/backup.py)
@@ -655,8 +639,7 @@ GET_SNAPSHOTS = {"/api/intake": "intake",       # 友人からの依頼の受付
 # POST: 場所 → (PortalHandler のメソッド, 終了の途中なら 409 で断るか)。合言葉・Origin などの検査と本文の読み取りは do_POST が先に済ませる
 POST_ROUTES = {"/api/cases/auto": ("_post_case_auto", True),
                "/api/flow/submit": ("_post_flow_submit", True), "/api/flow/estimate": ("_post_flow_submit", True),
-               "/api/flow/cancel": ("_post_flow_job", True), "/api/flow/retry": ("_post_flow_job", True),
-               "/api/flow/outbox/done": ("_post_outbox_done", False),
+               "/api/flow/cancel": ("_post_flow_cancel", True),
                "/api/intake/scan": ("_post_intake_scan", True), "/api/backup/run": ("_post_backup_run", True),
                "/api/accuracy/run": ("_post_accuracy_run", True), "/api/window": ("_post_window", False),
                "/api/check/answer": ("_post_check", True), "/api/check/skip": ("_post_check", True), "/api/check/flush": ("_post_check", True),
@@ -786,13 +769,6 @@ class PortalHandler(BaseHTTPRequestHandler):
         case = (q.get("case") or [None])[0] if u.path in ("/api/flow/status", "/api/flow/history") else None   # 案件の根の絶対パス(RS8)
         if case is not None and board_mod.norm_case(case) is None:
             return self._fail(400, "bad_request", "case は案件のフォルダの絶対パスにしてください")
-        if u.path == "/api/flow/machine":   # この PC の設定(F1 F0-1)
-            try:
-                return self._json(200, machine_mod.load())
-            except (OSError, ValueError) as e:
-                return self._fail(500, "machine", "この PC の設定を読めませんでした: %s" % e.__class__.__name__)
-        if u.path == "/api/flow/outbox":   # 送り返す zip の一覧(F1 F6a)
-            return self._json(200, {"files": outbox_mod.list_outbox(self.server.app_dir)})
         if u.path == "/api/flow/status":   # ② の待ち・実行中の数と進み具合(RS7-1 S4。CLI・起こしたアプリの「終わったら閉じる」)+ 掲示板(RS8)
             st = self.server.autorun.status()   # autorun を作る = 掲示板に Run を載せる(PortalServer.autorun)
             st.update(self.server.board.snapshot(case=case))
@@ -835,57 +811,12 @@ class PortalHandler(BaseHTTPRequestHandler):
             return self.server.live.handle_post(self, u, body)
         if u.path.startswith("/analytics/") and self.server.analytics:   # 分析と日報(src/manage/ops/analytics/service.py)
             return self.server.analytics.handle_post(self, u, body)
-        m = ACTION_RE.fullmatch(u.path)
-        if m:
-            tid, action = m.groups()
-            if tid not in self.server.sup.by_id:
-                return self._fail(404, "unknown_tool", "そのツールはありません")
-            if self.server.closing.is_set():
-                return self._fail(409, "closing", "終了の途中です")
-            return self._json(200, {"tool": getattr(self.server.sup, action)(tid)})
         route = POST_ROUTES.get(u.path)
         if route is None:
             return self._fail(404, "not_found", "その操作はありません")
         if route[1] and self.server.closing.is_set():
             return self._fail(409, "closing", "終了の途中です")
         return getattr(self, route[0])(u.path, body)
-
-    def do_PUT(self):
-        """書き込み系の PUT(今は PUT /api/flow/machine だけ。F1 F0-1)。出どころ・合言葉・本文の検査は do_POST と同じ"""
-        u = urllib.parse.urlsplit(self.path)
-        if not site_ok(self.headers, self.server.allowed_hosts):
-            httpsec.drain_body(self.headers, self.rfile)
-            return self._send(403, b"forbidden")
-        body = guarded_body(self, self.server.token, MAX_BODY)
-        if body is None:
-            return
-        if u.path != "/api/flow/machine":
-            return self._fail(404, "not_found", "その操作はありません")
-        if self.server.closing.is_set():
-            return self._fail(409, "closing", "終了の途中です")
-        return self._put_machine(body)
-
-    def _put_machine(self, body):
-        """この PC の設定を machine.json に書く(flow/machine.py の save。変えられるのは MACHINE_PUT_FIELDS だけ・null = 既定へ戻す)。
-        画面なしなら、録画の開始の空き容量の下限も新しい diskMinGB にそろえる(処理の開始は Queue が始めるたびに読む)。
-        caseRoot を決めたときはスタジオの書き出し先 outDir も同じ所へ(出来上がる場所 = 書き出し先。友人のアプリの一時保管と同じそろえ方。処理の実行中は 409)"""
-        bad = [k for k in body if k not in MACHINE_PUT_FIELDS]
-        if bad:
-            return self._fail(400, "bad_request", "知らない項目です: %s(使えるのは %s)" % ("・".join(map(str, bad)), "・".join(MACHINE_PUT_FIELDS)))
-        try:
-            if body.get("caseRoot") is not None:
-                studio_env.set_out_dir(machine_mod.check("caseRoot", body["caseRoot"]), self.server.tools_busy)
-            saved = machine_mod.save(body)
-            now = machine_mod.load()
-        except ValueError as e:
-            return self._fail(400, "bad_request", str(e))
-        except _yerrors.ApiError as e:   # 書き出し先にできない(400 bad_dir)・処理の実行中(409 busy)
-            return self._fail(e.status, e.code, e.message)
-        except OSError as e:
-            return self._fail(500, "write", "この PC の設定を書けませんでした: %s" % tools.why(e))
-        if self.server.headless and "diskMinGB" in body:
-            self.server.live.disk_min_gb = now["diskMinGB"]
-        return self._json(200, {"machine": now, "file": saved})
 
     def _post_case_auto(self, path, body):
         """自動でできた切り抜きの操作(線 D の M9・M12): 採用 = 友人へ届ける・要らない。中身は src/manage/cases/cases.py の auto_review"""
@@ -952,28 +883,17 @@ class PortalHandler(BaseHTTPRequestHandler):
         except (TypeError, KeyError, AttributeError) as e:   # 検査を抜けた形の違い(外から来る本文なので 500 にしない)
             return self._fail(400, "bad_request", "封筒・束の形が正しくありません(%s)" % e.__class__.__name__)
 
-    def _post_flow_job(self, path, body):
-        """掲示板のジョブ 1 つを止める・やり直す(RS8。/api/flow/<cancel|retry> {id})。振り分けは src/flow/board.py(id の頭 → 器の関数)"""
-        op = path.rsplit("/", 1)[1]
+    def _post_flow_cancel(self, path, body):
+        """掲示板のジョブ 1 つを止める(RS8。/api/flow/cancel {id})。振り分けは src/flow/board.py(id の頭 → 器の関数)"""
         self.server.autorun   # ② の Run を掲示板に載せておく(初めて読むとき PortalServer.autorun が attach_board する)
         try:
-            return self._json(200, {"job": getattr(self.server.board, op)(body.get("id"))})
+            return self._json(200, {"job": self.server.board.cancel(body.get("id"))})
         except board_mod.NotFound as e:
             return self._fail(404, "not_found", str(e))
         except board_mod.Refused as e:
             return self._fail(409, e.error, e.message)
         except ValueError as e:
             return self._fail(400, "bad_request", str(e))
-
-    def _post_outbox_done(self, path, body):
-        """上げ終えた送り返しの zip を outbox/済み へ(F1 F6a。src/flow/outbox.py の mark_done。名前の形が違う・無い id は 404)"""
-        try:
-            moved = outbox_mod.mark_done(self.server.app_dir, body.get("id"))
-        except OSError as e:
-            return self._fail(500, "write", "送り返しの zip を移せませんでした: %s" % tools.why(e))
-        if not moved:
-            return self._fail(404, "not_found", "その zip はありません")
-        return self._json(200, {"ok": True})
 
     def _post_intake_scan(self, path, body):
         """今すぐフォルダを見る(時間がかかることがあるので裏で。応答は今の状態)"""

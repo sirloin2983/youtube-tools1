@@ -48,23 +48,38 @@
     return '<button type="button" class="btn lg ' + esc(cls || '') + '" data-chk-k="' + esc(key) + '">' + esc(label) +
       ' <kbd class="ui-kbd">' + esc(key) + '</kbd></button>';
   }
-  /* 決まった形の描き手: 問い・再生(card.media)・字幕 1 行・答えのボタン。options(card) = [{k, label, answer, primary, title}]。
-     answer が関数なら押したときに呼ぶ(null を返すと答えない = 再生が終わるまで Enter を効かせない、など) */
+  /* 決まった形の描き手: 問い・再生(card.media)・字幕 1 行・答えのボタン。options(card, st) = [{k, label, answer, primary, title}]。
+     answer が関数なら押したときに answer(card, 再生の手, st, repaint) を呼ぶ(null を返すと答えない = 再生が終わるまで Enter を効かせない、など)。
+     段のあるカードは st(カードごとの入れ物)に段を持ち、answer の中で変えて repaint() すると、ボタン(options と hint)だけ描き直す。
+     spec: question(card)・body(card)(情報欄)・after(card)(備考のあとの情報)・hint(card, st)(ボタンの前の 1 行)・keybar(card, st)(下の帯。省略 = options の先頭 5 つ)・
+     media: false = 再生を出さない・text: false = 再生に字幕を渡さない・wave・mounted(card, 再生の手) = 再生ができたとき呼ぶ(外すときの関数を返す) */
   function simple(spec) {
     return function () {
-      var cur = null, handle = null;
+      var cur = null, handle = null, unbind = null, box = null, rctx = null;
+      function acts() {
+        cur.opts = (spec.options && spec.options(cur.card, cur.st)) || [];
+        return (spec.hint ? spec.hint(cur.card, cur.st) : '') + cur.opts.map(function (o) {
+          return answerBtn(o.label, o.k, o.primary ? 'primary' : '').replace('<button ', '<button title="' + esc(o.title || '') + '" ');
+        }).join('');
+      }
+      function repaint() {
+        var a = box && box.querySelector('.chk-acts');
+        if (a) a.innerHTML = acts();
+        if (rctx && typeof rctx.refreshKeys === 'function') rctx.refreshKeys();
+      }
       return {
         render: function (card, el, ctx) {
-          cur = { card: card, opts: (spec.options && spec.options(card)) || [] };
+          cur = { card: card, opts: [], st: {} }; box = el; rctx = ctx;
           var q = spec.question ? spec.question(card) : '';
           el.innerHTML = '<div class="chk-q">' + esc(q) + '</div>' +
             '<div class="chk-media"><div class="chk-stagebox" data-chk-media></div><div class="chk-info">' +
-            (spec.body ? spec.body(card) : '') + (card.note ? '<p class="hint">' + esc(card.note) + '</p>' : '') + '</div></div>' +
-            '<div class="chk-acts">' + cur.opts.map(function (o) {
-              return answerBtn(o.label, o.k, o.primary ? 'primary' : '').replace('<button ', '<button title="' + esc(o.title || '') + '" ');
-            }).join('') + '</div>';
+            (spec.body ? spec.body(card) : '') + (card.note ? '<p class="hint">' + esc(card.note) + '</p>' : '') + (spec.after ? spec.after(card) : '') + '</div></div>' +
+            '<div class="chk-acts">' + acts() + '</div>';
           var m = card.media || {};
-          if (spec.media !== false && (m.url || m.youtube)) handle = ctx.player(el.querySelector('[data-chk-media]'), card.media, { text: card.text, wave: !!spec.wave, docId: card.target && card.target.docId });
+          if (spec.media !== false && (m.url || m.youtube)) {
+            handle = ctx.player(el.querySelector('[data-chk-media]'), card.media, { text: spec.text === false ? '' : card.text, wave: !!spec.wave, docId: card.target && card.target.docId });
+            if (spec.mounted) unbind = spec.mounted(card, handle) || null;
+          }
         },
         keys: function (e) {
           if (!cur || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return null;
@@ -72,13 +87,16 @@
           for (var i = 0; i < cur.opts.length; i++) {
             var o = cur.opts[i];
             if (keyOf({ key: o.k }) !== k) continue;
-            var a = typeof o.answer === 'function' ? o.answer(cur.card, handle) : o.answer;
+            var a = typeof o.answer === 'function' ? o.answer(cur.card, handle, cur.st, repaint) : o.answer;
             return a || true;
           }
           return null;
         },
-        keybar: function () { return cur ? cur.opts.slice(0, 5).map(function (o) { return { k: o.k, l: o.label }; }) : []; },
-        unmount: function () { cur = null; handle = null; }
+        keybar: function () {
+          if (!cur) return [];
+          return spec.keybar ? spec.keybar(cur.card, cur.st) : cur.opts.slice(0, 5).map(function (o) { return { k: o.k, l: o.label }; });
+        },
+        unmount: function () { if (unbind) unbind(); cur = null; handle = null; unbind = null; box = null; rctx = null; }
       };
     };
   }

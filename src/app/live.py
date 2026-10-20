@@ -22,13 +22,6 @@ P3(計画の 0-8): 録画と再生・マークは**スタジオの中**(② 確�
                                           スタジオのマークから書き出す(start・end は録画の最初のセグメントの受信時刻からの秒。入口が録画元の status の
                                           firstPdt で絶対時刻にしてマークの正本へ入れる)。P2 の形 {recorder, recording, markId, transcribe} も受ける
   POST /live/api/export/cancel  {id}     取り消し
-  POST /live/api/adopt  {recorder, recording, start, end, label?, origin?, after?, streamer?}   サーバー側の「マーク + 書き出し」(線 D の M1。
-                                          中身は src/flow/live_adopt.py の Adopter。マークの置き場はスタジオ = StudioMarks。RS7-2 G1b)。
-                                          画面を閉じていても API だけで書き出しまで通る: スタジオの配信(kind live)を(無ければ)登録して採用のマークを足し
-                                          (同じ区間 ±0.5 秒のマークがあれば使い回す)、マークの正本に入れて書き出しのジョブを作る。済んだら入口がスタジオのマークを「書き出し済み」にする。
-                                          start・end = 録画の最初のセグメントの受信時刻からの秒(数)か、絶対時刻(UTC の文字列)。origin = manual(既定)・auto・archive
-                                          (ジョブ・.clip.json・live_feedback.jsonl に残す。自動の採用は「良い」に数えない)。after が無ければホームの設定 live.auto.after
-                                          → {job, video, mark, origin, existing}(existing = 同じマークの書き出しが途中か済みなので、新しく作らなかった)
   POST /live/api/archive  {recorder, recording}   アーカイブで本番版に作り直す(P4。中身は src/flow/live_archive.py)。対象の全部を順番に入れる → {ok, queued, message}。
                                           対象が無い・アーカイブがまだ使えない → 409 と文(アーカイブの用意は yt-dlp で確かめる。10 分は前の結果を使う)
   POST /live/api/archive/cancel  {recorder, recording}  作り直しの取り消し → {ok, cancelled}(済んでいない分は速報版のまま)
@@ -334,8 +327,6 @@ class Live(livesession.LiveSession):
                 after, streamer = live_export.check_after(body, auto["after"]), live_export.check_streamer(body.get("streamer"))
                 return h._json(200, {"job": ex.add(body.get("recorder"), body.get("recording"), body.get("markId"), after != "none",
                                                    after=after, streamer=streamer, origin=live_export.check_origin(body.get("origin")), auto=auto)})
-            if path == "/live/api/adopt":   # サーバー側の「マーク + 書き出し」(M1)
-                return h._json(200, self.adopt(body))
             if path == "/live/api/peaks":   # 配信中の候補の採用・見送り・戻す(L2。src/flow/live_detect.py)
                 return h._json(200, self.detector.api_post(body))
             if path == "/live/api/export/cancel":

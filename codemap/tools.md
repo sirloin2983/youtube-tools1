@@ -16,9 +16,9 @@
   - 名前: `replace_retry` :64・`atomic_write` :70・`runtime_path_dir` :113・`setup_logging` :118・`write_mark` :144・`check_previous_run` :153・`clear_mark` :164・`backend_name` :176
 - **ed_thumb.py** (90 行) — 「編集」のサムネの案(提案 P5 の S。notes:plan/thumb-ideas.md の 7・8)。作る本体は thumb_ideas.py(コマンドとしても使える独立の部品)。
   - 名前: `thumb_paths` :25・`thumb_spec` :37・`run_thumb` :52・`thumb_info` :70・`thumb_image_path` :83
-- **serve.py** (817 行) — 文字起こしツール用のローカルサーバー(標準ライブラリ + faster-whisper)。
-  - 名前: `class Handler` :366・`probe` :611・`make_server` :617・`startup_checks` :639・`set_data_dir` :668・`studio_data_path` :679・`choose_data_dir` :687・`prepare` :699・`busy` :741・`finish` :746・`mounted_elsewhere` :760・`main` :769・ほか 1
-  - 受ける口: `/api/ping` :237・`/api/siblings` :238・`/api/clip-info` :239・`/api/roster` :240・`/api/tools` :241・`/api/voices` :242・`/api/voices/preview` :243・`/api/jobs` :244・`/api/transcripts` :245・`/api/learned` :246・`/api/suggest` :247・`/api/metrics` :248・`/api/drill/status` :249・`/api/drill/next` :250・`/api/drill/candidates` :251・`/api/history` :252・`/api/transcript` :253・`/api/eval-folders` :254・`/api/eval-batch` :255・`/api/edit` :256・`/api/edit/draft` :257・`/api/thumb-ideas` :258・`/api/edit/pack-readme` :259・`/api/doc-for` :260・`/api/mach-changes` :261・`/api/transcribe` :285・`/api/diarize` :286・`/api/voices/learn` :287・`/api/speakers/sub` :288・`/api/voices/delete` :289・`/api/rerun` :290・`/api/settings/patch` :292・`/api/restore` :293・`/api/suggest/feedback` :294・`/api/export-file` :295・`/api/relink/check` :296・`/api/relink` :297・`/api/eval-folders/organize` :298・`/api/eval-folders/settle` :299・`/api/eval-batch/start` :300・`/api/eval-batch/stop` :301・`/api/eval-batch/redo` :302・`/api/eval-batch/redo-one` :303・`/api/pick` :304・`/api/retime` :305・`/api/edit/pack` :306・`/api/edit/preview` :307・`/api/effort` :308・`/api/doc-diarnum` :309・`/api/mach-changes/pick` :310・`/api/drill/reviewed` :311・`/api/drill/unreviewed` :312・`/api/transcribe/cancel` :313・`/api/jobs/retry` :314・`/api/settings` :489・`/api/peaks` :491・`/api/thumb-ideas/image` :495・`/api/resolve-package` :528
+- **serve.py** (812 行) — 文字起こしツール用のローカルサーバー(標準ライブラリ + faster-whisper)。
+  - 名前: `class Handler` :361・`probe` :606・`make_server` :612・`startup_checks` :634・`set_data_dir` :663・`studio_data_path` :674・`choose_data_dir` :682・`prepare` :694・`busy` :736・`finish` :741・`mounted_elsewhere` :755・`main` :764・ほか 1
+  - 受ける口: `/api/ping` :235・`/api/siblings` :236・`/api/roster` :237・`/api/tools` :238・`/api/voices` :239・`/api/voices/preview` :240・`/api/jobs` :241・`/api/transcripts` :242・`/api/learned` :243・`/api/suggest` :244・`/api/metrics` :245・`/api/drill/status` :246・`/api/drill/candidates` :247・`/api/history` :248・`/api/transcript` :249・`/api/eval-folders` :250・`/api/eval-batch` :251・`/api/edit` :252・`/api/edit/draft` :253・`/api/thumb-ideas` :254・`/api/edit/pack-readme` :255・`/api/doc-for` :256・`/api/mach-changes` :257・`/api/transcribe` :281・`/api/diarize` :282・`/api/voices/learn` :283・`/api/speakers/sub` :284・`/api/voices/delete` :285・`/api/rerun` :286・`/api/settings/patch` :288・`/api/restore` :289・`/api/suggest/feedback` :290・`/api/export-file` :291・`/api/relink/check` :292・`/api/relink` :293・`/api/eval-folders/organize` :294・`/api/eval-folders/settle` :295・`/api/eval-batch/start` :296・`/api/eval-batch/stop` :297・`/api/eval-batch/redo-one` :298・`/api/pick` :299・`/api/retime` :300・`/api/edit/pack` :301・`/api/edit/preview` :302・`/api/effort` :303・`/api/doc-diarnum` :304・`/api/mach-changes/pick` :305・`/api/drill/reviewed` :306・`/api/drill/unreviewed` :307・`/api/transcribe/cancel` :308・`/api/jobs/retry` :309・`/api/settings` :484・`/api/peaks` :486・`/api/thumb-ideas/image` :490・`/api/resolve-package` :523
 - **thumb_ideas.py** (246 行) — サムネの案を 6 つ並べた 1 枚を作る試作(提案 P5 の S = LLM なし。notes:plan/thumb-ideas.md)。完成品ではなく、サムネを作るときの参照。
   - 名前: `excite_score` :42・`clean` :50・`lines_of` :57・`one_word` :75・`row_at` :81・`select_times` :91・`card_texts` :111・`find_doc` :127・`doc_rows` :152・`member_color` :161・`mmss` :175・`crops_for` :179・ほか 2
 
@@ -34,8 +34,7 @@
 
 ## src/ui-kit/
 
-- **styleguide.js** (130 行) — ui-kit/styleguide.html の見本を動かす部品(CSP の script-src 'self' に合わせてインラインの <script> を使わず、この外部ファイルにした)。
-- **ui-kit.js** (2768 行) — ui-kit v35 —テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+- **ui-kit.js** (2749 行) — ui-kit v37 —テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
 
 ## テスト
 
@@ -74,4 +73,3 @@
 - src/studio/tests/test_rank_live.py — ① 探す の「配信中」のタブ: 配信中・これからの予定の取得(rank.live_list)と GET /api/rank/live のテスト。外へは繋がない。
 - src/studio/tests/test_robustness.py — データを失わない・壊れたファイルで止まらない、のテスト(feedback.jsonl・registry.json・キャッシュ・ログ・ポートの確保)。
 - src/studio/tests/test_settings_schema.py — 設定の画面のスキーマ(src/app/ui/settings/schema.json。S5)のスタジオの分(store studio の節 analyze)が、analyze.validate_settings の
-- src/ui-kit/tests/e2e_styleguide.py — 見本(styleguide.html)の動作確認(Playwright・chromium・headless)。

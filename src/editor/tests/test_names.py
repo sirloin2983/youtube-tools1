@@ -37,7 +37,7 @@ class TestNames(unittest.TestCase):
         """元の部品が持っていた名前は、S.名前 で読める(数は名前の一覧の写しが欠けていないことの確かめ)"""
         for fname, n in (("data_ed_jobs_names.txt", 191), ("data_ed_speakers_names.txt", 102), ("data_ed_store_names.txt", 74),
                          ("data_ed_alt_names.txt", 31), ("data_ed_retime_names.txt", 2), ("data_ed_relink_names.txt", 47),
-                         ("data_ed_misc_names.txt", 4), ("data_ed_state_names.txt", 80), ("data_ed_learn_names.txt", 57)):
+                         ("data_ed_misc_names.txt", 3), ("data_ed_state_names.txt", 80), ("data_ed_learn_names.txt", 57)):
             with self.subTest(fname):
                 names = _old_names(fname)
                 self.assertGreaterEqual(len(names), n)
@@ -309,7 +309,6 @@ class TestEdMiscNames(unittest.TestCase):
         import ed_state
         handoff_io = self.owners()
         self.assertIn(handoff_io, S._ED_MODULES, handoff_io.__name__)
-        self.assertIs(S.clip_info, handoff_io.clip_info)
         self.assertIs(S.runtime_path_dir, ed_state.runtime_path_dir)
 
 
@@ -344,7 +343,7 @@ class TestDrillEvalbatchMovedWithoutShell(unittest.TestCase):
 
     def test_old_names_read_through_serve(self):
         drill, evalbatch = self.owners()
-        for mod, fname, n in ((drill, "data_ed_drill_names.txt", 30), (evalbatch, "data_ed_evalbatch_names.txt", 51)):
+        for mod, fname, n in ((drill, "data_ed_drill_names.txt", 26), (evalbatch, "data_ed_evalbatch_names.txt", 51)):
             names = _old_names(fname)
             self.assertEqual(len(names), n, fname)
             self.assertIn(mod, S._ED_MODULES, fname)

@@ -140,7 +140,7 @@ class TestStudioMounted(unittest.TestCase):
         self.assertEqual((snap["state"], snap["mounted"], snap["port"], snap["path"]), ("running", True, self.port, "/studio/"), self.events)
         self.assertIsNone(self.sup.by_id["studio"].proc)   # 子プロセスではない
         self.sup.stop("studio")
-        self.sup.restart("studio")
+        self.sup.start("studio")
         self.assertEqual(self.sup.by_id["studio"].snapshot()["state"], "running")   # 入口と一緒にしか止まらない
 
     def test_page_assets_and_security_headers(self):
@@ -307,7 +307,7 @@ class TestCut2ResolveMounted(unittest.TestCase):
         self.assertEqual(r.status, 403)
         r, body = self.req("POST", "/cut2resolve/api/job/cancel", b"{}", {"Content-Type": "application/json"})
         self.assertEqual(r.status, 403)   # 合言葉のないものは、ツールの処理まで届かない
-        r, _ = self.req("POST", "/api/tools/cut2resolve/stop", b"{}", {"Content-Type": "application/json"})
+        r, _ = self.req("POST", "/api/cleanup", b"{}", {"Content-Type": "application/json"})
         self.assertEqual(r.status, 403)   # 入口の API も合言葉が要る
 
     def test_mounted_state_runtime_and_siblings(self):
@@ -421,7 +421,7 @@ class TestTranscribeMounted(unittest.TestCase):
         csp = M.MOUNTS["transcribe"]["csp"]   # 取り込みの CSP(インラインのスクリプトを許さない)
         self.assertIn("script-src 'self';", csp)
         self.assertNotIn("unsafe-inline", csp)
-        for asset in ("app.js", "proof.css", "app-tpl.js", "cut.js", "pack-tab.js"):   # 案件の画面の校正のパネルが読む部品は配る
+        for asset in ("app.js", "proof.css", "app-tpl.js", "doc-kit.js", "cut.js", "pack-tab.js"):   # 案件の画面の校正のパネルが読む部品は配る
             r, _ = self.req("GET", "/transcribe/" + asset)
             self.assertEqual(r.status, 200, asset)
 

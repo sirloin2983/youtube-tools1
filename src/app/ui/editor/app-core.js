@@ -1,24 +1,12 @@
-/* app-core.js — 「編集」の画面: 共通の小道具・表示の好み・⚙・他のツール・設定・準備状況・評価ドリルの数の読み直し。
+/* app-core.js — 「編集」の画面: 共通の小道具・表示の好み・⚙・取り込まれたツールの場所・設定。
    ここは関数の定義だけ。状態(S・V など)・定数・ボタンの配線・起動は app.js(この後に読む)。
    関数はトップレベルの宣言なので、ほかの app-*.js・app.js から名前で呼べる(読む順番は src/app/ui/cases/edhost.js の ED_SCRIPTS の1か所) */
 'use strict';
 
 /* ---------- 共通 ---------- */
 
-function fmtT(t, ms){
-  t = Math.max(0, Number(t) || 0);
-  const h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = t % 60;
-  const ss = ms ? s.toFixed(1).padStart(4, '0') : String(Math.floor(s)).padStart(2, '0');
-  return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
-}
-
-function parseT(str){
-  str = String(str || '').trim().replace(/[：]/g, ':');
-  if (!str) return NaN;
-  const p = str.split(':');
-  if (p.length > 3 || p.some(x => !/^\d+(\.\d+)?$/.test(x.trim()))) return NaN;
-  return p.reduce((a, x) => a * 60 + Number(x), 0);
-}
+/* 文書の小さな部品は doc-kit.js(カット・パックのパネルと共用。この後の部品より先に読む) */
+const { OTHER_SP, isOtherSp, fmtT, fmtCs, hasText, uid, segIndexAt, subColorOf, safeName, download, keepCutHTML } = EditDoc;
 
 /* SVG の線のアイコン(UIKit.icon)の文字列。文字記号(✓ × ⋮ ▶)の代わり。ui-kit は必ず先に読み込む */
 function uiIcon(name, opts){ return UIKit.icon(name, opts); }
@@ -44,9 +32,9 @@ function showErr(msg, opt = {}){
   b.append(acts); b.hidden = false;
 }
 
-/* 知らせの次の一手:「元に戻す」(1 文字起こし の元に戻す)・「2 カットへ」 */
+/* 知らせの次の一手:「元に戻す」(校正の元に戻す)・「カット・パックへ」(タブの切り替えは殻のもの) */
 function undoToast(msg, ms = 5000){ return toast(msg, { kind: 'ok', ms, action: { label: '元に戻す', fn: () => doUndo('tx') } }); }
-const TO_CUT = Object.freeze({ label: window.EditHost ? 'カット・パックへ' : '2 カットへ', fn: () => setEditTab('cut', { focus: true }) });   // 案件の画面ではタブの名前
+const TO_CUT = Object.freeze({ label: 'カット・パックへ', fn: () => EDIT_HOST.tab('cut') });
 
 /* ---------- 区間の終わりで止める見張り(「この行だけ再生」・▶・評価ドリルの帯の「聞く」・端を動かしたあとの聞き直し) ----------
    timeupdate(Chromium で約 250ms ごと)で止めると行の終わりを平均 約 116ms 過ぎ、機械の行の終わりは次の声の出だしの
@@ -109,43 +97,25 @@ async function saveDone(){   // サーバーが保存済みの文書で計算す
   if (await saveDoc()) return true;
   toast('保存が終わっていません。少し待ってから、もう一度押してください', 5000, 'err'); return false;
 }
-async function savedAll(){   // 文書とカットの両方(まとめて実行・付け替え・zip)
-  if ((await saveDoc()) && !(CUT && !(await CUT.flush()))) return true;
+async function savedAll(){   // まとめて実行・動画の付け替えの前(カットは別のパネルが保存する)
+  if (await saveDoc()) return true;
   toast('保存が追いついていません。少し待ってから、もう一度押してください', 5000, 'err'); return false;
 }
 /* 文書 id を保存し終えたか(知らせない。保存の途中・競合・別の文書へ移ったなら false) */
 async function savedFor(id){ return !!(await saveDoc()) && !S.dirty && !S.saving && !S.conflict && S.docId === id; }
 function showConflict(){ S.conflict = true; $('#conflictBar').hidden = false; setSaveState('競合しています', 'err'); }   // 保存の 409 の案内(saveDoc もこれを呼ぶ)
-function copyPath(text){   // 動画の隣に保存した結果・前回のパックのパス(写し方と知らせは UIKit.copy の 1 か所)
+function copyPath(text){   // 動画の隣に保存した結果のパス(写し方と知らせは UIKit.copy の 1 か所)
   return UIKit.copy(text, { ok: 'パスをコピーしました', fail: 'コピーできませんでした(パスを選んでコピーしてください)' });
-}
-/* URL の引数を 1 つ直す(replaceState。v が空・null なら消す)。タブの # とほかの引数はそのまま */
-function setUrlParam(key, v){
-  if (EDIT_HOST) return;   // 案件の画面では URL は殻(cases.js)だけが書く
-  try {
-    const q = new URLSearchParams(location.search);
-    if (v) q.set(key, v); else q.delete(key);
-    const rest = q.toString(), url = location.pathname + (rest ? '?' + rest : '') + location.hash;
-    if (url !== location.pathname + location.search + location.hash) history.replaceState(history.state, '', url);
-  } catch {}
 }
 /* キーの前置きの判定(日本語の変換中にキーを奪わない・Ctrl/⌘/Alt つき。cut.js には h で渡す) */
 const imeKey = e => e.isComposing || e.keyCode === 229;
 const anyMod = e => e.ctrlKey || e.metaKey || e.altKey;
-/* 行に文字があるか(空白だけは数えない・text の無い行でも落ちない)・未校正の行(文字があって校正済みでない) */
-const hasText = g => !!String(g && g.text || '').trim();
+/* 未校正の行(文字があって校正済みでない) */
 const isUnproofed = g => !g.proofed && hasText(g);
 function setCut(g, on){ if (on) g.cutState = 'cut'; else delete g.cutState; }   // 行の「カット済」の印(残すなら印を消す)
 function curItem(){ return S.list.find(x => x.id === S.docId); }   // 今の文書の、履歴の一覧の項目(無ければ undefined)
 function modalOpen(){ return !!document.querySelector('dialog[open], .ui-drawer:not([hidden])'); }   // ダイアログ・引き出しが開いている = 文書を操作するキーを効かせない
-/* 行の並び(開始時刻の順)で、開始が t 以前の最後の行の添字(無ければ -1。二分探索) */
-function segIndexAt(segs, t){ let lo = 0, hi = segs.length - 1, ans = -1; while (lo <= hi){ const m = (lo + hi) >> 1; if (segs[m].start <= t){ ans = m; lo = m + 1; } else hi = m - 1; } return ans; }
 const approxLen = sec => sec < 90 ? Math.round(sec) + '秒' : Math.round(sec / 60) + '分';   // 音声の長さのおおよそ
-
-function download(blob, name){
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
-  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 30000);
-}
 
 function setRowSp(row, sp){ const c = sp ? rowSpColor(sp.id) : ''; if (c) row.style.setProperty('--sp', c); else row.style.removeProperty('--sp'); }
 
@@ -154,8 +124,6 @@ function armDelete(btn, run, text){ UIKit.confirmTwice(btn, run, text); }
 
 /* ---------- 表示の好み(長時間の作業向け。このブラウザにだけ保存) ---------- */
 
-/* メニューの開閉(V.menu)は保存する(上の「☰」ボタンがいつも見えているので、閉じたままでも迷わない)。
-   文字起こしを開いていないときに閉じていると何も見えないので、その場合は案内にボタンを出す(showNoDoc) */
 function loadView(){
   try {
     const o = JSON.parse(localStorage.getItem(VIEW_KEY) || '{}');
@@ -172,61 +140,8 @@ function loadView(){
 
 function saveView(){ try { localStorage.setItem(VIEW_KEY, JSON.stringify(V)); } catch {} }
 
-/* 編集のタブ(tx・cut)。URL のハッシュは読まない・書かない(編集は案件の画面の中だけで動く = URL は殻 cases.js のもの) */
-function setEditTab(t, opt = {}){
-  if (EDIT_HOST && !opt.host && t !== EDT.tab){ EDIT_HOST.tab(t); return; }   // 案件の画面ではタブは殻のもの(「2 カットへ」= 殻のカット・パックのタブへ)
-  if (!ED_TABS.includes(t)) t = 'tx';
-  const was = EDT.tab;
-  EDT.tab = t; EDT.overlay = false;
-  document.querySelectorAll('[data-edtab]').forEach(b => { const on = b.dataset.edtab === t; b.setAttribute('aria-selected', on ? 'true' : 'false'); b.tabIndex = on ? 0 : -1; });
-  /* 隠れるタブの中で開いている引き出し(書き出しの欄など)は、隠す前に閉じる。modal の引き出しは裏を inert にし、close まで残すので、
-     開いたまま隠すと見えない引き出しが全部の操作を塞ぐ(Alt+数字は下で止めるが、戻る・# のリンク・プログラムからの切り替えでも残さないための保険) */
-  let closedDrawer = false;
-  document.querySelectorAll('[data-edpanel]').forEach(p => {
-    if (p.dataset.edpanel === t) return;
-    p.querySelectorAll('.ui-drawer:not([hidden])').forEach(d => { closedDrawer = true; UIKit.drawer.close(d); });
-  });
-  /* パックの設定は ⚙ の引き出し(全体)にある。タブを移る(# のリンク・履歴の「パックを作る」・プログラムから)ときは閉じる
-     (modal の引き出しが開いたままだと裏が inert のまま = 新しいタブの操作ができない。Alt+数字は modalOpen で先に止まる) */
-  { const g = $('#uiSettingsDrawer'); if (was !== t && g && !g.hidden){ closedDrawer = true; UIKit.drawer.close(g); } }
-  document.querySelectorAll('[data-edpanel]').forEach(p => { p.hidden = p.dataset.edpanel !== t; });
-  document.documentElement.dataset.edtabNow = t;   // CSS 用(html[data-edtab-now])。[data-edtab] はタブのボタンだけに使う
-  applyView();
-  if (was !== t){ onEditTab(was, t); rememberLast(); }   // 前回の文書とタブ(文書を開いていなければ何もしない)
-  if (opt.focus || closedDrawer){ const b = document.querySelector(`[data-edtab="${t}"]`); if (b) b.focus(); }
-  if (opt.into) focusTabStart(t);   // 閉じた引き出しは隠れたタブのボタンへフォーカスを返すので、移った先のタブのボタンへ置き直す
-}
-/* 2 カット の末尾の「パック」へ(カットの「パックへ」)。見える所まで送り、押せるなら「パックを作る」へフォーカス */
-function showPackArea(){
-  const el = $('#packArea'); if (!el) return;
-  requestAnimationFrame(() => { el.scrollIntoView({ block: 'start' }); const b = $('#pkBuild'); if (b && !b.disabled && b.offsetParent) b.focus({ preventScroll: true }); });
-}
-
-/* キー(Alt+2/3)でタブを移ったあと: そのタブの最初の操作へ(フォーカスが隠れたタブの中に残って body に落ちないように)。
-   2 カット = 再生(読み込みが終わって押せるようになるまで少し待つ)。1 文字起こし は行の操作のキーがどこからでも効くので動かさない */
-function focusTabStart(t, tries = 30){
-  const el = t === 'cut' ? $('#cutPlay') : null;
-  if (!el || EDT.tab !== t) return;
-  if (!el.disabled && el.offsetParent){ el.focus(); return; }
-  if (tries > 0) setTimeout(() => focusTabStart(t, tries - 1), 100);
-}
-
-/* タブを移ったとき: 文字起こしのタブの映像は隠れるので止める(隠れたまま音だけ鳴らさない)。戻ったら行の高さと帯を描き直す */
-function onEditTab(from, to){
-  if (from === 'tx' && S.doc) player().pause();
-  if (from === 'cut' && CUT) CUT.onHidden();   // カットのタブの再生位置を、文字起こしの映像へ引き継ぐ・未保存のカットを保存
-  if (to === 'tx' && S.doc){ autoSizeSoon(); drawStripSoon(); }
-  if (to === 'cut' && CUT){ CUT.onShown(); if (PACK) PACK.shown(); }   // パックは 2 カット の末尾。帯の場面はカットのもの(PACK.shown は帯を触らない)
-  paintSaveState();   // ヘッダーの保存の状態(1 は文書・2 はカットも)
-  /* カットのタブは CUT.onShown()(上)が自分の帯をすでに出している(M.sel に応じた場面)。
-     ここで tx 以外もまとめて「from が tx なら clear」としてしまうと、その直後の帯を上書きして消してしまう */
-  if (to === 'tx') txKeybarScene();
-  renderDocBar();
-}
-
-/* 画面の下の帯(UIKit.keybar)。1 文字起こし のタブだけ、2つの場面(行を選んでいる/文字を直している)で置き換える */
+/* 画面の下の帯(UIKit.keybar)。2つの場面(行を選んでいる/文字を直している)で置き換える */
 function txKeybarScene(){
-  if (wideTab()) return;
   if (!S.doc){ keybarSet(null); return; }
   const editing = document.activeElement && document.activeElement.matches && document.activeElement.matches('#segs textarea');
   if (editing) keybarSet([{ k: 'Esc', l: '抜ける' }, { k: 'Alt+Enter', l: '校正済みで次へ' }]);
@@ -238,16 +153,8 @@ function txKeybarScene(){
   }
 }
 
-/* 下の帯に出す(案件の画面では殻の帯に混ぜてもらう = EDIT_HOST.keybar。null = 消す) */
-function keybarSet(items){ if (EDIT_HOST) EDIT_HOST.keybar(items); else if (items) UIKit.keybar.set(items); else UIKit.keybar.clear(); }
-
-function applySideTab(){
-  if (!['start', 'files'].includes(V.sideTab)) V.sideTab = 'start';
-  document.querySelectorAll('[data-side-tab]').forEach(b => b.setAttribute('aria-selected', b.dataset.sideTab === V.sideTab ? 'true' : 'false'));
-  document.querySelectorAll('[data-side-pane]').forEach(p => { p.hidden = p.dataset.sidePane !== V.sideTab; });
-}
-
-function setSideTab(tab, openPanel = true){ V.sideTab = tab; if (openPanel){ if (wideTab()) EDT.overlay = true; else V.menu = true; } saveView(); applyView(); }   // タブの切り替え(☰ のメニューの中)
+/* 下の帯に出す(殻の帯に混ぜてもらう = EDIT_HOST.keybar。null = 消す) */
+function keybarSet(items){ EDIT_HOST.keybar(items); }
 
 function applyView(){
   const r = document.documentElement;
@@ -257,12 +164,6 @@ function applyView(){
   if (!['0', '30', '45', '60'].includes(V.brk)) V.brk = '45';
   r.style.setProperty('--fs', V.fs + 'px'); r.style.setProperty('--vh', VID_H[V.vid] || VID_H.l);
   r.classList.toggle('dense', !!V.dense); r.classList.toggle('vid-audio', V.vid === 'a');
-  applySideTab();
-  const app = $('.app'), wide = wideTab();
-  app.classList.toggle('tab-wide', wide); app.classList.toggle('menu-overlay', wide && EDT.overlay);
-  app.classList.toggle('menu-closed', !menuOpen());
-  $('#btnMenu').setAttribute('aria-expanded', menuOpen() ? 'true' : 'false'); $('#btnMenuT').textContent = menuOpen() ? 'メニューを閉じる' : 'メニューを開く';
-  $('#noDocMenu').hidden = !!V.menu; if (typeof emptyPrimary === 'function') emptyPrimary();
   $('#vFs').value = V.fs; $('#vVid').value = V.vid; $('#vDense').checked = V.dense; $('#vBrk').value = V.brk;
   if (!['0.05', '0.1', '0.25', '0.5', '1'].includes(V.adjStep)) V.adjStep = '0.1';
   $('#follow').checked = V.follow; $('#frameFollow').checked = !!V.frameFollow; $('#adjStep').value = V.adjStep; $('#autoNext').checked = V.autoNext; $('#rate').value = V.rate;
@@ -270,38 +171,19 @@ function applyView(){
   if (S.doc){ autoSizeSoon(); drawStripSoon(); }
 }
 
-function toggleMenu(open){
-  const was = menuOpen();
-  if (wideTab()) EDT.overlay = open === undefined ? !EDT.overlay : !!open;
-  else { V.menu = open === undefined ? !V.menu : !!open; saveView(); }
-  applyView();
-  if (isDrawer() && was !== menuOpen()){
-    if (menuOpen()){ const t = document.querySelector('[data-side-tab][aria-selected=true]'); if (t) t.focus({ preventScroll: true }); }
-    else if (document.activeElement && $('#menuPanel').contains(document.activeElement)) $('#btnMenu').focus({ preventScroll: true });
-  }
-}
-
-/* メニューの中の項目へ移動する(閉じていれば開く) */
-function showInMenu(el){ const pane = el.closest('[data-side-pane]'); if (pane) V.sideTab = pane.dataset.sidePane; if (wideTab()) EDT.overlay = true; else V.menu = true; saveView(); applyView(); if (el.tagName === 'DETAILS') el.open = true; el.scrollIntoView({ block: 'center' }); }
-
 /* ---------- ヘッダーの ⚙(UIKit.settings)。「表示」の内容はツールの節・画面の色は全体の節(ui-kit) ---------- */
 
 /* ヘッダー左の ui-appnav(ホーム/案件/確かめる/設定)に版を出す。appnav は DOMContentLoaded で描かれるので、間に合わなければそこでも試す */
 function setAppnavVersion(){ UIKit.appnav.setVersion('v' + APP_VERSION); }
 
-/* ---------- 他のツール(実際のポートはサーバーの /api/siblings。答えない・古いサーバーなら既定のポート) ----------
-   ヘッダーの「他のツール」メニューは ui-appnav(ホーム/案件/確かめる/設定)なので、ここでは S.ports と
-   UIKit.tools.setPaths(cut2resolve の URL・c2rBase() が使う)だけを整える */
+/* ---------- 取り込まれたツールの場所(サーバーの /api/siblings を UIKit.tools.setPaths に渡す。答えない・古いサーバーなら既定のまま) ---------- */
 
 function loadSiblings(){
   if (sibP) return sibP;
   sibP = api('/api/siblings')
-    .then(j => {
-      S.ports = j && j.tools && typeof j.tools === 'object' ? j.tools : null;
-      UIKit.tools.setPaths(j && j.paths);   // 入口の統合サーバーに取り込まれたツールの場所(/studio/ など)
-    })
-    .catch(() => { S.ports = null; })   // 古いサーバー(404)・通信の失敗は、既定のポートで
-    .finally(() => { sibP = null; S.sibLoaded = true; renderHandoff(); if (S.doc) cpAfterSave(); if (CUT) CUT.refresh(); });
+    .then(j => { UIKit.tools.setPaths(j && j.paths); })   // 入口の統合サーバーに取り込まれたツールの場所(/studio/ など)
+    .catch(() => {})
+    .finally(() => { sibP = null; });
   return sibP;
 }
 
@@ -375,7 +257,7 @@ async function reloadSettings(){
   clearTimeout(setT); setT = null;
   if (!(await loadSettings())) return;
   KM.reload();
-  applySettings(); renderSetup(); renderDiarSetup(); renderRtSetup(); renderAlt(); renderOptSummary(); renderKeyUI();
+  applySettings(); renderDiarSetup(); renderRtSetup(); renderAlt(); renderKeyUI();
   toast('設定を読み直しました', 3000, 'ok');
 }
 
@@ -403,63 +285,25 @@ function optCheck(k){ return checksOf(OPT_CHECKS.filter(c => c[0] === k))[k] ===
 
 function readOpts(){
   const s = S.settings;
-  s.device = $('#optDevice').value; s.model = $('#optModel').value; s.language = $('#optLang').value; s.quality = $('#optQuality').value; if ($('#optVad')) s.vadMode = $('#optVad').value; s.subtitle = readSubtitle();
+  if ($('#optVad')) s.vadMode = $('#optVad').value;
+  s.subtitle = readSubtitle();
   Object.assign(s, checksOf(SET_CHECKS));
   if ($('#rtModel').value){ s.rtModel = $('#rtModel').value; s.rtTarget = $('#rtTarget').value; }
-  s.glossary = $('#optGloss').value.slice(0, 4000); s.replacements = $('#repDict').value.slice(0, 20000);
+  s.replacements = $('#repDict').value.slice(0, 20000);
   s.exBase = $('#exBase').value; s.exWrap = $('#exWrap').value; s.diarEmb = $('#diarEmb').value;   // 話者の人数は文書ごと(diarNumChanged。欄の値は開いている文書のもの)
-  saveSettings(); if (S.doc) renderTerms(); renderOptSummary();
-  if (PACK) PACK.changed();   // 字幕の1段の文字数(subtitle.wrapChars)はパックの見積もりの鍵
-}
-
-/* 「認識の設定」は既定で閉じるので、開かなくても分かるように「始める」の上へ1行の要約を出す */
-function renderOptSummary(){
-  // GPU(AMD など・whisper.cpp)で使えないモデルなら、始める前にその場で案内する(サーバーも断る)。「認識の設定」は閉じていることが多いので要約にも出す
-  const w = S.tools && S.tools.wcpp, vk = $('#optDevice').value === 'vulkan';
-  const bad = vk && w && !(w.models || []).includes($('#optModel').value);
-  const badText = bad ? `GPU(whisper.cpp)で使えるモデルは ${(w.models || []).join('・')} です。モデルを選び直してください。` : '';
-  const dh = $('#optDevHint');
-  if (dh){ dh.hidden = !bad; dh.textContent = badText; }
-  const gd = $('#glossDev'); if (gd) gd.hidden = !vk;   // GPU(whisper.cpp)では用語集がヒントに渡らない(tx_engines の -mc 0)
-  const el = $('#optSummary'); if (!el) return;
-  const model = $('#optModel').selectedOptions[0], lang = $('#optLang').selectedOptions[0];
-  const q = $('#optQuality').value === 'fast' ? '速度優先' : '精度優先';
-  el.textContent = model ? `モデル: ${model.textContent} ・ 言語: ${lang ? lang.textContent : ''} ・ ${q}${vk ? ' ・ GPU(whisper.cpp)' : ''}${bad ? ' ― ' + badText : ''}` : '';
+  saveSettings(); if (S.doc) renderTerms();
 }
 
 function applySettings(){
   const s = S.settings;
-  // 選択肢に無い保存値(small・kotoba など・処理方式の auto・cuda・cpu)は最初の選択肢(large-v3・GPU(whisper.cpp))に読み替える = 次の保存で直る
-  { const m = $('#optModel'); if (m.options.length) m.value = [...m.options].some(o => o.value === s.model) ? s.model : m.options[0].value; }
-  if (s.language && [...$('#optLang').options].some(o => o.value === s.language)) $('#optLang').value = s.language;
-  $('#optQuality').value = s.quality === 'fast' ? 'fast' : 'best'; $('#optDevice').value = [...$('#optDevice').options].some(o => o.value === s.device && o.value) ? s.device : $('#optDevice').options[0].value; { const vd = $('#optVad'); if (vd) vd.value = ['normal', 'off'].includes(s.vadMode) ? s.vadMode : 'weak'; } fillSubtitle(s.subtitle);
+  { const vd = $('#optVad'); if (vd) vd.value = ['normal', 'off'].includes(s.vadMode) ? s.vadMode : 'weak'; } fillSubtitle(s.subtitle);
   for (const [k, id, dv] of SET_CHECKS){ const el = $('#' + id); if (el) el.checked = dv === true ? s[k] !== false : dv === false ? s[k] === true : !!s[k]; }   // 欄の無い鍵(設定の画面にある)は飛ばす
-  $('#optGloss').value = s.glossary || ''; $('#repDict').value = s.replacements || ''; renderGlossFit();
+  $('#repDict').value = s.replacements || '';
   if (s.exBase) $('#exBase').value = s.exBase; if (s.exWrap) $('#exWrap').value = s.exWrap;
   fillDiarNum();   // 話者の人数: 開いている文書の人数(無ければ話者の数 → 全体の既定 s.diarNum)
 }
 
-/* ---------- 準備状況 ---------- */
+/* ---------- 処理の機器の表示 ---------- */
 
 // 処理の機器の表示(ジョブ・文書の認識の設定)。vulkan = AMD などの GPU で whisper.cpp
 function devLabel(d){ return d === 'cuda' ? 'GPU' : d === 'vulkan' ? 'GPU(whisper.cpp)' : 'CPU'; }
-
-function renderSetup(){
-  const t = S.tools, box = $('#setup'); if (!t){ box.innerHTML = ''; return; }
-  const miss = [];
-  if (!t.ffmpeg) miss.push('<b>ffmpeg</b> が見つかりません。Windows: <code>winget install Gyan.FFmpeg</code> / Mac: <code>brew install ffmpeg</code>(入れたらこのツールを起動し直す)');
-  if (!t.fasterWhisper && t.backend !== 'fake') miss.push('<b>faster-whisper</b> が入っていません。フォルダ内の <code>install.bat</code>(Mac は <code>install.command</code>)を実行してください');
-  const banner = (title, body, open) => `<details class="setup-banner"${open ? ' open' : ''}><summary>${title}</summary><div class="setup-body">${body}</div></details>`;
-  const hint = html => `<p class="hint" style="margin:0 0 10px">${html}</p>`;
-  let gpu = '';
-  if (t.backend !== 'fake' && !miss.length){
-    // 文字起こしは GPU(whisper.cpp・large-v3)だけ。作っていなければ始める前に案内する(始めてもサーバーが同じ理由で断る = 黙って CPU にしない)
-    if (t.wcpp && t.wcpp.ready) gpu = hint('GPU(whisper.cpp)で文字起こしします(モデルは large-v3)。');
-    else gpu = `<div class="notice">GPU(whisper.cpp)がまだ用意されていないため、文字起こしできません。setup フォルダの <code>build-whisper-vulkan.bat</code> を実行してから起動し直してください。${t.wcpp && t.wcpp.why ? '<br>' + esc(t.wcpp.why) : ''}</div>`;
-  }
-  const env = (Array.isArray(t.envWarnings) ? t.envWarnings : []).slice(0, 8);   // サーバーの起動時の確認(ディスクの空き・OneDrive・部品の欠けなど)
-  box.innerHTML = (t.backend === 'fake' ? banner('テスト用モード', '実際の文字起こしはしません。') : '')
-    + (env.length ? banner(`起動時の確認(${env.length}件)`, env.map(x => esc(x)).join('<br>'), !miss.length) : '')
-    + (miss.length ? banner(`準備が必要です(${miss.length}件)`, miss.join('<br>'), true) : '') + gpu;
-}
-

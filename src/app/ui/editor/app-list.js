@@ -1,117 +1,18 @@
-/* app-list.js — 「編集」の画面: 保存済み一覧(履歴)・選んだ文書をまとめて実行。
+/* app-list.js — 「編集」の画面: 保存済み一覧の読み込み・題名の行の「まとめて実行」。
    ここは関数の定義だけ。状態(S・V など)・定数・ボタンの配線・起動は app.js(この後に読む)。
    関数はトップレベルの宣言なので、ほかの app-*.js・app.js から名前で呼べる(読む順番は src/app/ui/cases/edhost.js の ED_SCRIPTS の1か所) */
 'use strict';
 
-/* ---------- 保存済み一覧(履歴。notes:docs/spec/ui.md 4.) ----------
+/* ---------- 保存済み一覧 ----------
    サーバーの /api/transcripts が、校正の進み具合・長さ・元の配信・配信者・元の動画とパックの有無を返す(serve.py の list_transcripts)。
-   画面では 絞り込み → 並び替え → まとめる(配信ごと/配信者ごと/まとめない)→ 開いているまとまりの分だけ描く(「もっと見る」で足す)。
-   同じ題名が並んでも見分けられるように、配信ごとのときは見出しの配信の題名を省いて、マークの名前・元の配信の時刻・いつ・長さを出す */
+   開いている文書の項目(curItem)から、題名の行の配信者・長さ・カットの有無を引く */
 
 async function loadList(){
   try { S.list = (await api('/api/transcripts')).items; } catch { S.list = []; }
-  renderList(); renderResume(); if (S.doc){ renderCutPack(); renderDocBar(); }
+  if (S.doc){ renderCutPack(); renderDocBar(); }
 }
 
-/* ---------- 前回の続き ----------
-   前に開いていた文書とタブをこのブラウザに覚え(localStorage tx.last.v1 = {id, tab})、文書を開いていない空の状態に「前回の続き: ○○」を出す(自動では開かない)。
-   サーバーの設定にしないのは、窓ごとの道すじの便利(表示の好み V と同じ扱い)で、タブを移るたびに設定のファイルを書き換えないため。
-   再読み込み・窓で開き直したときは、今までどおり URL の ?doc= と #タブ で同じ所に戻る */
-const LAST_KEY = 'tx.last.v1';
-const TAB_NAME = { tx: '1 文字起こし', cut: '2 カット' };
-function lastOpened(){
-  try { const o = JSON.parse(localStorage.getItem(LAST_KEY) || 'null'); return o && typeof o.id === 'string' && /^[\w-]{1,64}$/.test(o.id) ? { id: o.id, tab: ED_TABS.includes(o.tab) ? o.tab : 'tx' } : null; }
-  catch { return null; }
-}
-function rememberLast(){ if (S.docId){ try { localStorage.setItem(LAST_KEY, JSON.stringify({ id: S.docId, tab: EDT.tab })); } catch {} } }
-function renderResume(){
-  const box = $('#noDocResume'); if (!box) return;
-  const last = S.doc ? null : lastOpened(), it = last && S.list.find(x => x.id === last.id);   // 消した文書は出さない
-  box.hidden = !it; emptyPrimary();
-  if (!it) return;
-  $('#noDocResumeT').textContent = `「${it.title || '無題'}」の ${TAB_NAME[last.tab]}`;
-  $('#noDocResumeBtn').title = String(it.title || '無題');
-  $('#noDocResumeSub').textContent = [it.channel, '最終更新 ' + ago(Number(it.updatedAt) || 0)].filter(Boolean).join(' ・ ');
-}
-/* 何も開いていない画面の primary は 1 つ:前回の続きがあればそれだけ。無ければ「メニューを開く」(メニューが開いていれば「文字起こしを開始」) */
-function emptyPrimary(){
-  const resume = !S.doc && !$('#noDocResume').hidden;
-  $('#noDocMenu').classList.toggle('primary', !resume);
-  $('#btnStart').classList.toggle('primary', !resume);
-}
-async function resumeLast(){ const last = lastOpened(); if (last && (await openDoc(last.id))) setEditTab(last.tab, { focus: true }); }
-
-function txGroupKey(i){
-  if (L.group === 'channel') return 'c:' + (i.channel || '');
-  if (L.group === 'stream') return 'v:' + (i.videoId || '');
-  return 'all';
-}
-
-function txGroupHead(key, items){
-  const f = items[0], when = ago(Math.max(...items.map(i => Number(i.updatedAt) || 0)));
-  const done = items.filter(i => txStatus(i) === 'done').length;
-  if (key.startsWith('c:')) return { title: f.channel || '配信者が分からないもの', sub: `最終更新 ${when}`, done };
-  if (key === 'v:') return { title: '配信と紐づいていない文字起こし', sub: `手元の動画など ・ 最終更新 ${when}`, done };
-  return { title: txStream(f) || f.videoId, sub: [f.channel, `最終更新 ${when}`].filter(Boolean).join(' ・ '), done };
-}
-
-function txSortFn(){
-  const up = (a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0);
-  const left = i => (Number(i.rows) || 0) - (Number(i.proofed) || 0);
-  if (L.sort === 'created') return (a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0);
-  if (L.sort === 'remain') return (a, b) => left(b) - left(a) || up(a, b);
-  if (L.sort === 'title') return (a, b) => String(a.title || '').localeCompare(String(b.title || ''), 'ja') || up(a, b);
-  return up;
-}
-
-function txFiltered(){
-  return S.list.filter(i => {
-    if (L.kind === 'clip' && !i.hasClip) return false;
-    if (L.kind === 'other' && i.hasClip) return false;
-    if (L.kind === 'eval' && !i.evalSet) return false;
-    return L.state === 'all' || txStatus(i) === L.state;
-  }).sort(txSortFn());
-}
-
-/* 1件の表示用の題名: 配信ごとにまとめているときは、見出しにある配信の題名を省いて「違う部分」(マークの名前など)を出す */
-function txShortTitle(i){
-  const t = String(i.title || '').trim() || '無題';
-  if (L.group !== 'stream') return t;
-  for (const p of [txStream(i), i.clipTitle].filter(Boolean)){
-    if (t.startsWith(p) && t.length > p.length){ const rest = t.slice(p.length).replace(/^[\s・:：\-–—|]+/, '').trim(); if (rest) return rest; }
-  }
-  return t;
-}
-
-function txRowHTML(i){
-  const st = txStatus(i), r = Number(i.rows) || 0, p = Number(i.proofed) || 0, full = String(i.title || '無題');
-  const pick = PICK.on ? `<input type="checkbox" class="txi-pick" data-act="pick"${PICK.ids.has(i.id) ? ' checked' : ''} aria-label="${esc(full)} を選ぶ">` : '';
-  /* だれの・いつの を先に(狭いと後ろが「…」で切れるため)。まとまりの見出しにある情報は省く */
-  const meta = [];
-  if (L.group === 'none' && i.channel) meta.push(i.channel);
-  if (!i.hasClip && i.sourceName) meta.push(i.sourceName);                  // 配信と紐づかないものは、ファイル名で見分ける
-  meta.push(ago(Number(i.updatedAt) || Number(i.createdAt) || 0));
-  if (i.hasClip && i.clipStart !== null && Number.isFinite(Number(i.clipStart))) meta.push('配信の ' + fmtT(i.clipStart) + '〜');
-  if (Number(i.durationSec) > 0) meta.push(UIKit.fmt.dur(i.durationSec));
-  const side = [];
-  if (i.evalSet) side.push('<span class="pill info" title="精度を測るためだけに取っておく文字起こし(学習・辞書に使わない)">評価用</span>');
-  if (i.mediaOk === false) side.push(`<span class="pill warn" title="元の動画が見つかりません(移動・削除した可能性があります)。文字の直しと書き出しはできます">動画なし</span>`);
-  if (st === 'todo') side.push(`<span class="pill wait" title="まだ1行も校正していません(${r}行)">未校正</span>`);
-  else if (st === 'doing') side.push(`<span class="tt-prog" title="校正済み ${p}行 / ${r}行"><i><b style="width:${Math.round(p / Math.max(1, r) * 100)}%"></b></i>${p}/${r}</span>`);
-  /* 次の一手は押せるボタン(札は押せない表示だけ):開いてカット・パックのタブへ */
-  const next = (label, why) => `<button type="button" class="btn small ui-next-btn tt-txi-next" data-act="gotab" data-tab="cut" title="${why}。押すと開いてカット・パックのタブへ移ります">${label}</button>`;
-  if (i.pack) side.push(Number(i.pack.updatedAt) < (Number(i.updatedAt) || 0) - 2000
-    ? next('作り直す', 'パックを作ったあとに、行を直しています')
-    : `<span class="pill ok" title="パック(${i.pack.textplus ? 'Text+ 字幕つき' : 'カットだけ'})を作ってあります">パック済み</span>`);
-  else if (st === 'done') side.push(i.hasClip && i.mediaOk !== false ? next('パックを作る', '校正が終わりました') : '<span class="pill ok">校正済み</span>');
-  const info = [i.sourceName, txStream(i) && txStream(i) !== full ? '元の配信: ' + txStream(i) : '', i.channel, `${Number(i.segments) || 0}行`, String(i.model || '').split('/').pop()].filter(Boolean).join(' ・ ');
-  return `<div class="txi${i.id === S.docId ? ' cur' : ''}" data-id="${esc(i.id)}">
-    <div class="txi-head">${pick}<button type="button" class="t" data-act="open" title="${esc(full)}"${i.id === S.docId ? ' aria-current="true"' : ''}>${esc(txShortTitle(i))}</button><details class="pop txi-menu"><summary aria-label="${esc(full)} の操作と詳しい情報" title="操作と詳しい情報">${uiIcon('more', { size: 16 })}</summary><div class="vpop"><p class="tt-full">${esc(full)}</p><span class="hint">${esc(info)}</span>${i.mediaOk === false ? '<button type="button" class="btn small" data-act="relink">動画を選び直す</button>' : ''}</div></details></div>
-    <div class="txi-sub"><span class="txi-meta">${esc(meta.filter(Boolean).join(' ・ '))}</span><span class="txi-side">${side.join('')}</span></div>
-  </div>`;
-}
-
-/* ---------- 選んだ文書をまとめて(入口の ② の口 /api/flow/submit に文書 1 本ずつ = UIKit.flow.order。入口から開いたときだけ) ---------- */
+/* ---------- 題名の行の「まとめて実行」(入口の ② の口 /api/flow/submit = UIKit.flow.order。入口から開いたときだけ) ---------- */
 
 /* 入口の API(/api/...)。画面は入口の /transcribe/ の下にあるので、画面の場所から1つ上(UIKit.homeApi。絶対パスを書かない。エラーの形は api() と同じ) */
 function portalApi(path, body){
@@ -121,56 +22,27 @@ function portalApi(path, body){
 /* ホームから開いていない(合言葉なし)ときの「まとめて実行」: 隠さず、押せない見た目と理由を出す(機能があること自体が分かるように) */
 const NEED_HOME = 'ホーム(start.bat)から開くと使えます(まとめて実行はホームの順番待ちで進みます)';
 function applyNeedHome(){
-  if (TOKEN) return;
-  const pick = $('#txPick'); pick.disabled = true; pick.closest('label').title = NEED_HOME; $('#txBatchOff').hidden = false;
-  UIKit.menuOff($('#docAuto'), NEED_HOME);   // 押しても開かずに理由を知らせる(ui-kit v21 の共通の書き方。Enter・Space も)
+  if (!TOKEN) UIKit.menuOff($('#docAuto'), NEED_HOME);   // 押しても開かずに理由を知らせる(ui-kit v21 の共通の書き方。Enter・Space も)
 }
 
-function renderPickBar(){
-  $('#txBatch').hidden = !PICK.on;
-  const n = PICK.ids.size;
-  $('#txPickN').textContent = n > PICK_MAX ? `${n} 本を選んでいます(一度に ${PICK_MAX} 本までです)` : n ? `${n} 本を選んでいます(${PICK_MAX} 本まで)` : `文書を選んでください(一覧の行の左のチェック。${PICK_MAX} 本まで)`;
-  $('#txBatchGo').disabled = !n || n > PICK_MAX;
-}
-
-/* 表示中を全部選ぶ / パックが無いものだけ選ぶ。20 本までにして、あふれたら知らせる */
-function pickTx(onlyNoPack){
-  const items = txFiltered().filter(i => !onlyNoPack || !i.pack);
-  PICK.ids.clear(); for (const i of items.slice(0, PICK_MAX)) PICK.ids.add(i.id);
-  renderList(); renderPickBar();
-  if (items.length > PICK_MAX) toast(`一度に選べるのは ${PICK_MAX} 本までです(上から ${PICK_MAX} 本を選びました)`, 5000);
-  else if (!items.length) toast(onlyNoPack ? 'パックが無い文書はありません' : '選べる文書がありません', 4000);
-}
-
-/* 実行の札の色と、手順ごとの状態の 1 行(一覧と題名の行の札で同じ) */
+/* 実行の札の色と、手順ごとの状態の 1 行 */
 const runCls = r => r.nothing ? 'info' : RUN_CLS[r.state] || 'info';
 const runStepsText = r => (r.steps || []).map(s => `${s.label}: ${stepLabelOf(s)}${s.detail ? '(' + s.detail + ')' : ''}`).join(' / ') + (r.error ? ' ・ ' + r.error : '');
 
-function renderRuns(runs){
-  $('#txRuns').innerHTML = runs.slice(0, 10).map(r => `<div class="tt-run" data-run="${esc(r.id)}" data-doc="${esc(r.docId || '')}"><b title="${esc(r.title)}">${esc(r.title)}</b><span class="pill ${runCls(r)}">${esc(runLabelOf(r))}</span>` +
-    (r.state === 'queued' || r.state === 'running' ? '<button type="button" class="btn small" data-act="runcancel">中止</button>' : '') +
-    (r.state === 'done' && r.docId ? '<button type="button" class="btn small" data-act="runopen">開く</button>' : '') +
-    `<span class="tt-run-steps">${esc(runStepsText(r))}</span></div>`).join('');
-}
-
 async function pollRuns(){
-  clearTimeout(PICK.polling);
+  clearTimeout(RUNS.polling);
   if (!TOKEN) return;
   let runs = [];
   try { runs = ((await portalApi('api/flow/runs')).runs || []).filter(r => r.kind === 'doc'); } catch { return; }
-  PICK.lastRuns = runs; renderRuns(runs); renderDocAuto(runs);
+  RUNS.last = runs; renderDocAuto(runs);
   const active = new Set(runs.filter(r => r.state === 'queued' || r.state === 'running').map(r => r.id));
-  if ([...PICK.active].some(id => !active.has(id))){   // 終わった実行があれば、一覧の「パック済み」などを今の状態に
-    loadList();
-    const fin = runs.find(r => r.docId === S.docId && PICK.active.has(r.id) && !active.has(r.id));
-    if (fin && PACK && !S.dirty) PACK.load(S.docId);   // 今の文書のパックができた: パックのタブの「前回のパック」を読み直す
-  }
-  PICK.active = active;
-  if (active.size) PICK.polling = setTimeout(pollRuns, 2000);
+  if ([...RUNS.active].some(id => !active.has(id))) loadList();   // 終わった実行があれば、一覧の項目(パックの有無など)を今の状態に
+  RUNS.active = active;
+  if (active.size) RUNS.polling = setTimeout(pollRuns, 2000);
 }
 
-/* 今の文書を最後まで(題名の行の「まとめて実行 ▾」):履歴の「選んで、まとめて実行」と同じ入口の API を1本で。
-   先に文書とカットを保存する(まとめて実行は保存済みの内容を読む)。進み具合は pollRuns が題名の行の札に出す */
+/* 今の文書を最後まで(題名の行の「まとめて実行 ▾」):入口の API を1本で。
+   先に文書を保存する(まとめて実行は保存済みの内容を読む)。進み具合は pollRuns が題名の行の札に出す */
 async function startDocAuto(){
   const id = S.docId; if (!id || !TOKEN) return;
   const b = $('#docAutoGo'); b.disabled = true;
@@ -199,50 +71,10 @@ function renderDocAuto(runs){   // 題名の行の札: 今の文書のいちば�
   pill.title = runStepsText(r);
 }
 
-async function startBatch(){
-  const ids = [...PICK.ids]; if (!ids.length) return;
-  const b = $('#txBatchGo'); b.disabled = true;
-  try {
-    const who = $('#txBatchWho').value.trim();   // 手で入れたときだけ字幕の色に
-    const over = $('#txOverwrite').checked;
-    const orders = ids.map(id => UIKit.flow.order({ kind: 'docs', docId: id, repack: over, ...(who ? { streamer: who } : {}) }));   // 文書 1 本ずつ(見積もりも 1 本ずつ足す)
-    const r = await UIKit.autorun.start(orders);   // 見積もり → 始める → 終わったら知らせる(どの入口も同じ部品)
-    if (!r) return;
-    PICK.ids.clear(); renderList(); renderPickBar(); pollRuns();
-  } catch (e){ toast('まとめて実行を始められませんでした: ' + e.message, 7000, 'err'); }
-  finally { renderPickBar(); }
-}
-
-function txRowsHTML(key, items){
-  const lim = txLimit.get(key) || (key === 'all' ? FLAT_FIRST : GROUP_FIRST), rest = items.length - Math.min(lim, items.length);
-  return items.slice(0, lim).map(txRowHTML).join('') + (rest > 0 ? `<button type="button" class="btn small list-more" data-act="more" data-g="${esc(key)}">もっと見る(残り${rest}件)</button>` : '');
-}
-
-function renderList(){
-  const box = $('#txList'), total = S.list.length;
-  $('#txTotal').textContent = total ? `(${total}件)` : '';   // 折りたたんでも件数が見えるように
-  if (!total){ $('#txCount').textContent = ''; box.innerHTML = '<div class="tt-list-empty"><p class="hint">まだ文字起こしはありません。新規から動画を文字起こしすると、ここに出ます。</p><button type="button" class="btn small" data-act="gostart">新規を開く</button></div>'; return; }   // 空の状態に次のボタン
-  const found = txFiltered();
-  $('#txCount').textContent = found.length === total ? `${total}件` : `${found.length} / ${total}件`;
-  if (!found.length){ box.innerHTML = '<div class="tt-list-empty"><p class="hint">条件に合う文字起こしはありません。状態・種類の絞り込みを変えると出ます。</p><button type="button" class="btn small" data-act="clearfilter">絞り込みを消す</button></div>'; return; }
-  if (L.group === 'none'){ txGroups = new Map([['all', found]]); box.innerHTML = `<div class="tt-g-rows tt-flat">${txRowsHTML('all', found)}</div>`; return; }
-  txGroups = new Map();
-  for (const i of found){ const k = txGroupKey(i); if (!txGroups.has(k)) txGroups.set(k, []); txGroups.get(k).push(i); }
-  const cur = curItem(), curKey = cur ? txGroupKey(cur) : null;
-  if (curKey){ txOpen.add(curKey); if (txAuto && txAuto !== curKey) txOpen.delete(txAuto); txAuto = null; }   // 今開いている文書のまとまりだけ開く
-  if (!txInitDone){ txInitDone = true; if (!txOpen.size){ txAuto = txGroups.keys().next().value; txOpen.add(txAuto); } }   // 文書を開いていなければ、先頭のまとまりを開く
-  box.innerHTML = [...txGroups].map(([k, items]) => {
-    const h = txGroupHead(k, items), open = txOpen.has(k);
-    return `<details class="ui-group" data-g="${esc(k)}"${open ? ' open' : ''}><summary><span class="tt-g-main"><b title="${esc(h.title)}">${esc(h.title)}</b><small>${esc(h.sub)}</small></span><span class="ui-group-n" title="${items.length}本のうち、校正済み ${h.done}本">${items.length}本${h.done ? `<span class="tt-g-done"> ・ 済${h.done === items.length ? 'み' : ' ' + h.done}</span>` : ''}</span></summary><div class="tt-g-rows">${open ? txRowsHTML(k, items) : ''}</div></details>`;
-  }).join('');
-}
-
-/* 保存したら、一覧の進み具合も今の内容に合わせる(一覧を読み直さずに。開いている「⋮」を閉じないよう、少し待ってから) */
+/* 保存したら、一覧の項目も今の内容に合わせる(一覧を読み直さずに) */
 function syncListItem(){
   const d = S.doc, it = d && curItem(); if (!it) return;
   const segs = d.segments, txt = segs.filter(hasText);
   Object.assign(it, { title: d.title, evalSet: d.evalSet === true, segments: segs.length, rows: txt.length, proofed: txt.filter(g => g.proofed).length,
     cut: segs.filter(g => g.cutState === 'cut').length, flagged: segs.filter(g => g.flag).length, updatedAt: S.baseUpdatedAt || it.updatedAt });
-  clearTimeout(syncListItem.t);
-  syncListItem.t = setTimeout(() => { if (!document.querySelector('#txList details.txi-menu[open]')) renderList(); }, 1500);
 }

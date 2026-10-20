@@ -2,7 +2,6 @@
 DRILL_CONDS
 DRILL_GOAL_SEC
 DRILL_MAX_CANDIDATES
-DRILL_MAX_SKIP
 DRILL_RECENT_SEC
 _all_members
 _busy_tids
@@ -11,9 +10,7 @@ _drill_cache
 _drill_cache_lock
 _drill_check
 _drill_part
-_drill_skip_ids
 _drill_text_rows
-_drill_why_none
 _drill_write
 _learned_voices
 _media_ok
@@ -23,7 +20,6 @@ drill_candidates
 drill_candidates_for
 drill_doc_summary
 drill_docs
-drill_next
 drill_reviewed
 drill_reviewed_sec
 drill_status

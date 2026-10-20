@@ -53,37 +53,15 @@
     return null;
   }
 
-  CheckCards.define('cut', function () {
-    var cur = null;
-    return {
-      render: function (card, el, ctx) {
-        var o = OPTS[card.source] || [];
-        cur = { card: card, opts: o, unbind: null };
-        el.innerHTML = '<div class="chk-q">' + esc(QUESTION[card.source] || '機械のカットの確認') + '</div>' +
-          '<div class="chk-media"><div class="chk-stagebox" data-chk-media></div><div class="chk-info">' +
-          (card.note ? '<p class="hint">' + esc(card.note) + '</p>' : '') + '</div></div>' +
-          '<div class="chk-acts">' + o.map(function (x) {
-            return CheckCards.btn(x.label, x.k, x.primary ? 'primary' : '').replace('<button ', '<button title="' + esc(x.title) + '" ');
-          }).join('') + '</div>';
-        var m = card.media || {};
-        var handle = m.url ? ctx.player(el.querySelector('[data-chk-media]'), card.media, { text: '', docId: card.target && card.target.docId }) : null;
-        var v = handle && handle.media ? handle.media() : null;
-        var fn = v ? skipper(card, v) : null;
-        if (v && fn) {
-          v.addEventListener('timeupdate', fn);
-          cur.unbind = function () { v.removeEventListener('timeupdate', fn); };
-        }
-      },
-      keys: function (e) {
-        if (!cur || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return null;
-        var k = CheckCards.keyOf(e);
-        for (var i = 0; i < cur.opts.length; i++) {
-          if (CheckCards.keyOf({ key: cur.opts[i].k }) === k) return cur.opts[i].answer;
-        }
-        return null;
-      },
-      keybar: function () { return cur ? cur.opts.slice(0, 5).map(function (x) { return { k: x.k, l: x.label }; }) : []; },
-      unmount: function () { if (cur && cur.unbind) cur.unbind(); cur = null; }
-    };
-  });
+  CheckCards.define('cut', CheckCards.simple({
+    question: function (card) { return QUESTION[card.source] || '機械のカットの確認'; },
+    options: function (card) { return OPTS[card.source] || []; },
+    text: false,
+    mounted: function (card, handle) {
+      var v = handle && handle.media ? handle.media() : null, fn = v ? skipper(card, v) : null;
+      if (!v || !fn) return null;
+      v.addEventListener('timeupdate', fn);
+      return function () { v.removeEventListener('timeupdate', fn); };
+    }
+  }));
 })();

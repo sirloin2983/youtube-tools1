@@ -25,17 +25,6 @@
 #rvTheater[aria-pressed=true]{color:var(--accent-ink2);background:var(--accent-soft)}
 /* 配信の操作(名前・YouTube で開く・解析・削除) */
 .rv-vmenu>summary{display:inline-flex}
-.rv-auto{position:relative}
-.rv-autopop .btn{width:100%;justify-content:flex-start}
-.rv-autofull{display:flex;gap:8px;align-items:center}
-.rv-autofull .btn{width:auto;flex:1}
-.rv-autofull input{width:4.5em}
-.rv-autofull .lag{flex:none;white-space:nowrap}
-/* 長い選択肢の select・入力欄と組のラベルは、入りきらなければ欄を次の行へ折り返す(390 で「パックの音量」が 1 文字ずつ縦に割れていた。A-30) */
-.rv-autoloud,.rv-autowho{flex-wrap:wrap}
-.rv-autoloud select{max-width:100%;min-width:0}
-/* 640px 以下は上の帯が折り返して「まとめて実行」が左に来るので、右にそろえた欄が画面の左の外へ出ていた: 画面の幅に置く(top:auto = ボタンの真下) */
-@media (max-width:640px){.rv-auto>.rv-autopop{position:fixed;left:12px;right:12px;top:auto;width:auto;margin-top:6px;max-height:calc(100dvh - 140px);overflow-y:auto}}
 .rv-autobar{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:8px 10px;margin-bottom:8px;border:1px solid var(--line-2);border-radius:var(--r-md, 8px);background:var(--panel)}
 .rv-autosteps{flex:1 1 100%;overflow-wrap:anywhere;font-size:12px}
 .rv-vmenu>summary svg{width:16px;height:16px}

@@ -58,7 +58,6 @@ live で見るもの(場面 × 幅 390/960/1440(主な作業の場面は 1920 �
 import argparse
 import json
 import os
-import pathlib
 import re
 import subprocess
 import sys
@@ -72,15 +71,15 @@ SCREENS = {"app/ui/home": ["portal.html", "portal.js", "portal.css", "portal-edi
            "app/ui/settings": ["index.html", "settings.js", "settings.css"],
            # 案件の画面(/cases。RS8。入口が配る 1 枚。panels/new.* はホームの「新しい案件」の引き出しも読む)
            "app/ui/cases": ["index.html", "cases.js", "cases.css", "edhost.js", "panels/cand.js", "panels/cand.css", "panels/proof.js", "panels/proof.css",
-                            "panels/cut.js", "panels/machpick.js", "panels/new.js", "panels/new.css"],
+                            "panels/cut.js", "panels/machpick.js", "panels/new.js", "panels/new.css", "panels/studio-shim.js"],
            # 確かめる(/check。RS8 V1。入口が配る 1 枚。見る場面は default_scenes の check-*。V4)
            "app/ui/check": ["index.html", "check.js", "check.css", "player.js", "cards/value.js", "cards/read.js", "cards/voice.js", "cards/time.js"],
            # 案件の画面が studio/・transcribe/ から読む部品(部品だけ)
            "app/ui/studio": ["rank.js", "queue.js", "review.js", "collab.js"],
-           "app/ui/editor": ["proof.css", "app-tpl.js", "app.js", "app-core.js", "app-jobs.js", "app-learn.js", "app-list.js", "app-rows.js", "app-tools.js", "cut.js", "pack-tab.js"],
+           "app/ui/editor": ["proof.css", "app-tpl.js", "app.js", "app-core.js", "app-jobs.js", "app-learn.js", "app-list.js", "app-rows.js", "app-tools.js", "doc-kit.js", "cut.js", "pack-tab.js"],
            # 友人の受信箱(F2-2。友人の PC の玄関 src/friendapp が配る 1 枚。見る場面は friend_scenes。見本は dev/friend_demo.py)
            "friendapp/ui": ["friend.html", "friend.js", "friend.css", "setup.html", "setup.js", "settings.js", "settings.css", "host.js"],
-           "ui-kit": ["ui-kit.css", "ui-kit.js", "styleguide.html", "styleguide.js"]}
+           "ui-kit": ["ui-kit.css", "ui-kit.js"]}
 # ホームの画面に文が出る .py(server.py の argparse・backup.py の CLI の問いは黒い画面に出るだけなので見ない)。/ を含む物は src/ からのパス(役割の層にある物)
 HOME_PY = ["autorun.py", "manage/cases/cases.py", "flow/delivery.py", "live.py", "flow/live_archive.py", "flow/live_export.py", "flow/live_failures.py", "eval/drill/accuracy.py","manage/ops/health.py", "manage/keep/cleanup.py", "flow/deliver.py", "pipeline/pack/preview.py", "human/friend/intake.py", "manage/ops/restart.py"]
 # 用語集(notes:docs/spec/ui.md の 1)の「使わない言葉」のうち、文脈によらず使わないもの(「動画」「削除」「更新」「ショート」は別の意味で使うので見ない = B-04)
@@ -295,13 +294,12 @@ def static_html(screen, path, text, out):
         for i, line in enumerate(text.split("\n"), 1):
             if re.search(r"""(?:src|href|action)=["']/(?!/)""", line) and "data-ui-portal" not in line and not allowed(line, "A-01"):
                 out.add("A-01", f"{rel(path)}:{i}", "絶対パス: " + line.strip()[:120])
-    if "styleguide" not in path:
-        if not re.search(r"<html[^>]*\blang=", text):
-            out.add("A-12", rel(path), "<html lang> が無い")
-        if not re.search(r"<title>\s*\S", text):
-            out.add("A-12", rel(path), "<title> が無い")
-        if not re.search(r'<meta[^>]*name="viewport"', text):
-            out.add("A-12", rel(path), "viewport が無い")
+    if not re.search(r"<html[^>]*\blang=", text):
+        out.add("A-12", rel(path), "<html lang> が無い")
+    if not re.search(r"<title>\s*\S", text):
+        out.add("A-12", rel(path), "<title> が無い")
+    if not re.search(r'<meta[^>]*name="viewport"', text):
+        out.add("A-12", rel(path), "viewport が無い")
     texts = [(line_of(text, pos), s) for pos, s in html_texts(text)]
     check_terms(path, text, out, texts)
     for term in ABBR_TERMS:
@@ -737,7 +735,6 @@ def default_scenes(base):
     doc = demo_doc_id(base)
     ed = base + "/cases?d=" + doc if doc else base + "/cases?c=demo0000000"   # 案件の画面の校正・カット
     cand = base + "/cases?c=demo0000000#cand"
-    styleguide = pathlib.Path(os.path.join(SRC, "ui-kit", "styleguide.html")).resolve().as_uri()   # Windows でも file:///C:/... の形(区切りが / でないと origin が取れない)
     settings = {"root": "#uiSettingsDrawer", "opener": "[data-ui-settings]"}
     return [
         {"name": "home", "url": base + "/", "header": True, "wide": True},
@@ -775,7 +772,6 @@ def default_scenes(base):
         {"name": "check-eval", "url": base + "/check?lane=eval", "wide": True, "actions": [("wait", 1500)]},   # 評価のレーン(頭と区間カード。C-EVAL)
         {"name": "check-eval-add", "url": base + "/check?lane=eval", "actions": [("wait", 1500), ("click", "[data-sec-addrow]"), ("wait", 300)]},   # 区間カードで行を足した形
         {"name": "check-empty", "url": base + "/check?c=zz-no-such-case&back=cases", "actions": [("wait", 800)]},   # 空の状態(この案件に確かめる物が無い・案件へ戻る)
-        {"name": "styleguide", "url": styleguide},
     ]
 
 

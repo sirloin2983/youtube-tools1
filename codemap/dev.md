@@ -53,8 +53,8 @@
   - 名前: `rule` :27・`read_text` :34・`read_bytes` :39・`rel` :44・`repo_files` :48・`src_py_files` :57・`non_ascii_lines` :67・`bat_problems` :72・`requirements_problems` :83・`rule_bat_ascii_crlf` :97・`rule_requirements_ascii` :108・`push_bat_problems` :117・ほか 22
 - **rule_imports.py** (707 行) — 規則の見張りのうち、ソースを import して突き合わせる物(`dev/rule_checks.py` の続き)。
   - 名前: `check` :37・`c_adopt_defaults` :86・`c_live_tx_constants` :99・`c_port_ranges` :127・`c_tool_module_names` :134・`schema_shape_problems` :153・`schema_items` :208・`c_settings_schema` :223・`c_studio_schema` :248・`c_portal_title` :263・`c_static_table` :270・`c_spec_consistency` :278・ほか 21
-- **run_e2e.py** (134 行) — 画面テスト(e2e)の一式を 1 本ずつ流して、1 本 1 行(所要秒・OK/FAIL の数)で出す。一式の正はこのファイルの SUITE。
-  - 名前: `label` :59・`summary` :64・`selected` :71・`run_one` :84・`main` :98
+- **run_e2e.py** (132 行) — 画面テスト(e2e)の一式を 1 本ずつ流して、1 本 1 行(所要秒・OK/FAIL の数)で出す。一式の正はこのファイルの SUITE。
+  - 名前: `label` :57・`summary` :62・`selected` :69・`run_one` :82・`main` :96
 - **run_editor_suite.py** (99 行) — 「編集」まわりのテストをまとめて流し、結果の1行ずつを出す(段10 のコードの整理で、分ける前と後の結果を比べるため)。
   - 名前: `find_node` :26・`summary` :48・`main` :61
 - **run_unit.py** (218 行) — unittest を層ごと・フォルダごとに流す道具(1 本ずつ別のプロセス)。リポジトリ直下で:
@@ -64,9 +64,9 @@
 - **spec_check.py** (222 行) — 仕様(保管庫の docs/spec/)とコードの食い違いを探す。
   - 名前: `git_files` :45・`read` :51・`class Code` :59・`spec_files` :77・`live_lines` :86・`norm_api` :103・`clean_path` :111・`setting_keys` :116・`check` :132・`gone` :183・`main` :200
   - 受ける口: 
-- **ui_audit.py** (1054 行) — 画面(UI)の見直しの合格の基準のうち、機械で測れるものを測る道具(読むだけ。基準は `notes:docs/spec/ui.md` の A)。
-  - 名前: `class Findings` :107・`read` :123・`rel` :131・`screen_files` :135・`allowed` :144・`each_line` :149・`regex_starts` :157・`scan_string` :167・`scan_code` :181・`strip_js_comments` :231・`html_texts` :238・`py_strings` :253・ほか 31
-  - 受ける口: `/api/info` :100
+- **ui_audit.py** (1050 行) — 画面(UI)の見直しの合格の基準のうち、機械で測れるものを測る道具(読むだけ。基準は `notes:docs/spec/ui.md` の A)。
+  - 名前: `class Findings` :106・`read` :122・`rel` :130・`screen_files` :134・`allowed` :143・`each_line` :148・`regex_starts` :156・`scan_string` :166・`scan_code` :180・`strip_js_comments` :230・`html_texts` :237・`py_strings` :252・ほか 31
+  - 受ける口: `/api/info` :99
 - **worklog.py** (280 行) — 作業の記録(保管庫の docs/worklog/)をセッションごとのファイルに分けて書き、週のまとめを集めて作る。
   - 名前: `worklog_dir` :56・`monday` :60・`week_name` :64・`read` :68・`write` :73・`front_matter` :78・`session_entry` :91・`sessions` :101・`auto_block` :108・`merge_week` :121・`update_index` :135・`build` :150・ほか 7
 

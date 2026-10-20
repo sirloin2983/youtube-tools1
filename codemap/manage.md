@@ -13,8 +13,8 @@
   - 名前: `locations` :83・`read_studio` :97・`clip_state` :138・`clip_live` :159・`auto_info` :173・`live_failures_by_mark` :192・`delivered_of` :226・`virtual_cases` :285・`build` :332・`load_saved` :381・`snapshot` :471・`find_doc` :485・ほか 5
 - **doclist.py** (102 行) — ④ 文字起こしの一覧と、元の動画・パックの有無・前回のパックの手順(役割で組み直す RS3-E5a)。
   - 名前: `list_transcripts` :53・`pack_readme` :82
-- **handoff_io.py** (209 行) — ④ 受け渡し: 元の配信の情報(clip/v1)・受け渡しの JSON と SRT を動画の隣に保存
-  - 名前: `class PipelineError` :35・`resolve_clip_media` :44・`written_by_us` :74・`save_beside` :88・`clip_info` :126・`export_file` :161
+- **handoff_io.py** (147 行) — ④ 受け渡し: 元の配信の情報(clip/v1)・受け渡しの JSON と SRT を動画の隣に保存
+  - 名前: `class PipelineError` :35・`written_by_us` :47・`save_beside` :61・`export_file` :99
 - **outdirs.py** (168 行) — ④ 書き出し先を変えたあとの案件の繋ぎ直し(決定 3-37 の (r8o))と、入口の「調子」の「置き場所」の数。
   - 名前: `read_data` :33・`state_path` :39・`read_state` :43・`relink_problem` :55・`relink` :69・`relink_out_dir` :85・`status` :136・`main` :148
 - **relink.py** (243 行) — ④ 文書と動画の紐づけ: 動画を選び直す(付け替え)・「参照…」・素材を 30fps にそろえる

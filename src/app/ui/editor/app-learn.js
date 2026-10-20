@@ -1,4 +1,4 @@
-/* app-learn.js — 「編集」の画面: 修正から学習した候補・修正の提案・校正済み・進み具合の帯・認識精度の測定・名簿と用語集・保存データへの保管・評価用の確かめ済み。
+/* app-learn.js — 「編集」の画面: 修正から学習した候補・修正の提案・校正済み・進み具合の帯・認識精度の測定・名簿・保存データへの保管・評価用の確かめ済み。
    ここは関数の定義だけ。状態(S・V など)・定数・ボタンの配線・起動は app.js(この後に読む)。
    関数はトップレベルの宣言なので、ほかの app-*.js・app.js から名前で呼べる(読む順番は src/app/ui/cases/edhost.js の ED_SCRIPTS の1か所) */
 'use strict';
@@ -6,12 +6,6 @@
 /* ---------- 修正の提案の読み直し(保存のあと。学習した候補の一覧と登録はホームの運用の「編集の精度と学習」= src/app/ui/home/portal-edit.js) ---------- */
 
 function scheduleSuggest(){ clearTimeout(scheduleSuggest.t); scheduleSuggest.t = setTimeout(loadSuggest, 4000); }
-
-async function putSettingsNow(){   // すぐ保存する(辞書への登録・カットの設定など)。保存できなければ投げる(呼んだ側が知らせる)
-  clearTimeout(setT); setT = null;
-  if (S.settingsLoadErr) throw new Error('設定を読み込めていないため保存しません(設定の「読み直す」を押してください)');
-  if (!(await sendSettings())) throw new Error('設定を保存できませんでした(設定に理由と「もう一度」があります)');
-}
 
 /* ---------- 修正の提案(文脈つきの統計) ---------- */
 
@@ -233,7 +227,7 @@ function redoOneState(){   // -> [押せるか, 理由(ボタンの title)]
   if (d.evalReviewed) return [false, '確かめ済みの動画は作り直せません(先に確かめ済みを取り消してください)'];
   if (!d.model) return [false, 'まだ文字起こししていません'];
   if (REDO1.busy || lockJob()) return [false, 'この文字起こしは処理中です(終わってから押してください)'];
-  return [true, '今の編集の設定(メニューの「新規」の認識の設定)で、この動画をはじめから文字起こしし直します。前の版は「以前の版に戻す」に残ります。話者は自動でもう一度判別します'];
+  return [true, '保存した認識の設定で、この動画をはじめから文字起こしし直します。前の版は「以前の版に戻す」に残ります。話者は自動でもう一度判別します'];
 }
 function renderRedoOne(){
   const [ok, why] = redoOneState();
@@ -258,28 +252,7 @@ async function redoOneHere(){
   } finally { REDO1.busy = false; renderRedoOne(); }
 }
 
-/* ---------- ホロライブの名簿 / 用語集の「認識に効く長さ」 ---------- */
-
-function glossFit(terms){   // 先頭から何語がヒントに収まるか
-  let n = 0, len = 0;
-  for (const t of terms){ const add = (n ? 1 : 0) + t.length; if (len + add > GLOSS_PROMPT) break; len += add; n++; }
-  return { fit: n, len: terms.join('、').length };
-}
-function renderGlossFit(){
-  const t = glossTerms($('#optGloss').value), f = glossFit(t);
-  $('#glossFit').textContent = !t.length ? '' : f.fit >= t.length ? `${t.length}語(認識のヒントに全部入ります)` : `${t.length}語のうち、認識のヒントに入るのは先頭の${f.fit}語まで(${GLOSS_PROMPT}字まで)。後ろの語は効きません。今回の動画に出る人だけに絞ってください`;
-}
-
-function rosterNames(ids){
-  const seen = new Set(), out = [];
-  for (const g of (S.roster && S.roster.groups) || []) if (ids.includes(g.id)) for (const n of g.names) if (!seen.has(n)){ seen.add(n); out.push(n); }
-  return out;
-}
-
+/* ホロライブの名簿(話者の名前の欄の候補に使う。読めなければ候補に出さない) */
 async function loadRoster(){
   try { S.roster = await api('/api/roster'); } catch { S.roster = null; }
-  const box = $('#rosterGroups'), r = S.roster;
-  if (!r || !r.groups.length){ box.textContent = '名簿を読めません(hololive-roster.json が無いか壊れています)'; $('#rosterAdd').disabled = true; return; }
-  box.innerHTML = r.groups.map(g => `<label class="lag" style="display:inline-block;margin:0 10px 3px 0"><input type="checkbox" class="rg" value="${esc(g.id)}">${esc(g.label)}(${g.names.length})</label>`).join('');
-  $('#rosterNote').textContent = `${r.asOf} 時点`; $('#rosterBox').title = r.note;
 }

@@ -15,8 +15,8 @@ function create(h){
   /* パックの fps は 30 固定(RS7-1 S6a。素材は 30fps にそろえる = マスタープラン Q1。設定に packFps があっても読まない・消さない) */
   const fpsOf = () => '30';
   let disposed = false;
-  /* 画面に出す「ほかの欄」の呼び名。古い編集の画面は タブの名前のまま、案件の画面は h.words で校正・カットの言い方に替える */
-  const N = Object.assign({ tx: '1 文字起こし のタブ', txName: '1 文字起こし', cut: '2 カット のタブ', cutName: '2 カット', conflict: '1 文字起こし の映像の上の案内' }, h.words);
+  /* 画面に出す「ほかの欄」の呼び名(校正・カットの言い方。panels/cut.js の makeHost が渡す) */
+  const N = h.words;
   /* 「予備」(Text+ パックに足す EDL・SRT)は無い(決定 3-34)。字幕の無いパックは EDL が本体(サーバーが入れる) */
   const sizeOf = () => h.S.settings.packSize === '1920x1080' ? '1920x1080' : '1080x1920';
   /* 音量のそろえ方(LUFS。編集の設定 packLoudness。0 = そろえない(% で決める)。まとめて実行のパックも同じ値。既定は 0・音量 30%(ユーザー決定)) */
@@ -34,7 +34,7 @@ function create(h){
     return Number.isInteger(n) && n >= 0 && n <= 40 ? n : (o === 'horizontal' ? 14 : 8); };
   const kept = g => g.cutState !== 'cut' && String(g.text || '').trim();
   const padOf = () => { const o = h.S.settings.rowEdge && typeof h.S.settings.rowEdge === 'object' ? h.S.settings.rowEdge : {}, n = Number(o.padAfter); return Number.isFinite(n) && n >= 0 && n <= 2 ? n : 0.2; };   // 行の後の余白(段6 6-2)
-  const previewKeyNow = () => JSON.stringify(h.CUT ? h.CUT.keepsSec() : null) + '|' + h.rowSig() + '|' + wrapOf();   // 見積もりの鍵(残す区間・行の文字・字幕の1段の文字数(縦横で変わる))。同じなら出し直さない
+  const previewKeyNow = () => JSON.stringify(h.CUT.keepsSec()) + '|' + h.rowSig() + '|' + wrapOf();   // 見積もりの鍵(残す区間・行の文字・字幕の1段の文字数(縦横で変わる))。同じなら出し直さない
 
   /* 今の出力の設定(段4 4-3)。パックを作る API に渡す物と、作った記録(/api/edit/pack の output)と、前回のパックとの違いは、ここ1か所から作る */
   function outputNow(hasRows){
@@ -83,8 +83,8 @@ function create(h){
   /* パックを作れない理由(無ければ '')。見積もりと zip は、cut2resolve が無くても使える */
   function block(){
     const d = h.S.doc; if (!d) return 'no-doc';
-    const cs = h.CUT ? h.CUT.state() : null;
-    if (!h.CUT || !h.CUT.active()) return cs && cs.off ? 'off' : 'cut';
+    const cs = h.CUT.state();
+    if (!h.CUT.active()) return cs.off ? 'off' : 'cut';
     if (cs.off) return 'off';
     if (!h.TOKEN) return 'standalone';
     if (!h.S.sibLoaded) return 'checking';
@@ -94,7 +94,7 @@ function create(h){
     return '';
   }
   function blockMsg(b){
-    const cs = h.CUT ? h.CUT.state() : {};
+    const cs = h.CUT.state();
     return {
       off: (cs.off || 'この動画はカット・パックに使えません') + '。',
       cut: 'カットの準備をしています…',
@@ -118,7 +118,7 @@ function create(h){
   $('#pkWho').addEventListener('ui-streamer', e => {   // 合う人が決まったら、字幕の見本(パック・カットのタブ)の色と見出しを変える
     if (disposed) return;   // 案件の画面でパネルを開いてすぐ閉じたとき、照らし合わせの答えは閉じたあとに届く = 消えた欄に書かない(RS8 C4)
     const who = e.detail;
-    const capHost = h.root || document.body;   // 古い画面は body(1 文字起こし の字幕も同じ色)。案件の画面はパネルの中だけ
+    const capHost = h.root;   // パネルの中だけ
     if (who) capHost.style.setProperty('--tt-cap-color', who.hex); else capHost.style.removeProperty('--tt-cap-color');
     $('#pkLookName').textContent = who ? `けいふぉんと・${who.name}の色の文字(${who.hex})・白いふち・黒いふち` : 'けいふぉんと・黒い文字・白いふち・黒いふち';
     /* 配信者の欄は見せないので、どの名前を使うかを 1 行で */
@@ -240,14 +240,14 @@ function create(h){
   /* ---------- これから作るパック(見積もり) ---------- */
   function schedulePreview(ms = PREVIEW_DELAY){
     clearTimeout(P.pvT); P.pvT = 0;
-    if (!h.S.doc || !h.CUT || !h.CUT.active() || h.CUT.state().off) return;
+    if (!h.S.doc || !h.CUT.active() || h.CUT.state().off) return;
     P.pv = 'wait'; P.pvT = setTimeout(runPreview, ms);
   }
   /* 見積もりの状態 P.pv(4-1。監査 07): idle(最新か、出す物が無い)/ wait(予約)/ run(計算中)/ save(文字起こしの保存を待っている)/ err(失敗)。
      save・err のときは同じ鍵(pvErrKey)では自動で出し直さない(「もう一度」か、設定・カット・行が変わって鍵が変わったとき)。失敗しても前の見積もりは消さない(薄く残す) */
   async function runPreview(){
     P.pvT = 0;
-    const d = h.S.doc, keeps = h.CUT && h.CUT.keepsSec(); if (!d || !keeps || !keeps.length){ P.pv = 'idle'; return render(); }
+    const d = h.S.doc, keeps = h.CUT.keepsSec(); if (!d || !keeps || !keeps.length){ P.pv = 'idle'; return render(); }
     const key = previewKeyNow();
     if (key === P.previewKey && P.preview){ P.pv = 'idle'; return render(); }
     const seq = ++P.pvSeq, id = h.S.docId;
@@ -274,9 +274,9 @@ function create(h){
     off.hidden = !msg; off.textContent = msg;
     // 置き先
     const fps = fpsOf(), size = sizeOf();
-    (h.root || document).querySelectorAll('#pkSize [data-v]').forEach(x => x.setAttribute('aria-pressed', x.dataset.v === size ? 'true' : 'false'));
+    h.root.querySelectorAll('#pkSize [data-v]').forEach(x => x.setAttribute('aria-pressed', x.dataset.v === size ? 'true' : 'false'));
     // これから作るパック
-    const sm = h.CUT && h.CUT.summary(), pv = P.preview, pvKey = previewKeyNow(), fresh = !!pv && P.previewKey === pvKey;
+    const sm = h.CUT.summary(), pv = P.preview, pvKey = previewKeyNow(), fresh = !!pv && P.previewKey === pvKey;
     const hasRows = d.segments.some(kept), o = outputNow(hasRows);
     // 4-1: 鍵が変わっていて(縦横・字幕の文字数・カット・行)、予約も計算も無く、同じ鍵で失敗していなければ、ここで出し直しを予約する。
     // 設定を変える所ごとに予約を書くと足し忘れで同じ不具合が戻るので、描画の1か所で(タブを見ているときだけ。render は rAF でまとまるので連打にならない)
@@ -295,11 +295,6 @@ function create(h){
       const lanes = fresh ? Number(pv.captionLanes) || 0 : 0, stacked = fresh ? Number(pv.captionsStacked) || 0 : 0, el = $('#pkNoSub');
       const bits = [n ? `字幕に出さない行: ${n} 行(ゲームの声など。字幕は作らず、区間は残します)` : '', lanes >= 2 ? `重なる字幕を ${lanes} 段に分けます(${stacked} 個)` : ''].filter(Boolean);
       el.hidden = !bits.length; el.textContent = bits.join(' ・ '); }
-    { /* 読みにくい字幕(速い・短い): 残す行のうち読む速さの印が付く行の数(画面の側で数える。パックは変えない。0 なら出さない)。
-         readMark は app-rows.js(この画面の後に読む。描くときには読み終わっている) */
-      /* readMark は古い編集の画面の app-rows.js の関数。案件の画面(h.root)では校正のパネルが同じページに編集の app-*.js を読むので、その名前を見ない(状態が別) */
-      const el = $('#pkRead'), n = !h.root && typeof readMark === 'function' ? d.segments.filter(g => kept(g) && readMark(g)).length : 0;
-      if (el){ el.hidden = !n; el.textContent = n ? `読みにくい字幕: ${n} 行(1 秒あたりの文字が多い・表示が短い。${N.txName} の絞り込み「読みにくい行だけ」で確かめられます)` : ''; } }
     const rows = fresh && Array.isArray(pv.samples) && pv.samples.length ? pv.samples : keptSegs.map(g => String(g.text).trim());   // 見積もりができたら、パックと同じ改行の見本
     // 見本の色(4-5。監査 12): 見積もりができたら、パックと同じ規則の話者(pack.py の cue_speakers → sampleSpeakers。名前)。古い間は行の話者から。規則は同じなので通常は同じ色
     const spkNames = fresh && Array.isArray(pv.sampleSpeakers) && pv.samples && pv.samples.length ? pv.sampleSpeakers : null;
@@ -371,7 +366,7 @@ function create(h){
   }
   function defaultDirName(){ const p = String(h.S.doc && h.S.doc.sourcePath || ''), n = p.split(/[\\/]/).pop() || ''; return n.replace(/\.[^.]*$/, '') + '_pack'; }
   function renderMap(sm){
-    const box = $('#pkMap'), keeps = h.CUT && h.CUT.keepsSec();
+    const box = $('#pkMap'), keeps = h.CUT.keepsSec();
     if (!sm || !keeps || !sm.durSec){ box.innerHTML = ''; return; }
     const merged = []; for (const [a, b] of keeps){ const l = merged[merged.length - 1]; if (l && a <= l[1] + 1e-6) l[1] = b; else merged.push([a, b]); }
     box.innerHTML = merged.slice(0, 400).map(([a, b]) => `<i style="left:${a / sm.durSec * 100}%;width:${Math.max(0.3, (b - a) / sm.durSec * 100)}%"></i>`).join('');
@@ -379,7 +374,7 @@ function create(h){
   /* 前回のパックのあとに変わったこと = 作り直しが要る理由(段7 E-20)。カット(rev が違う・まだ保存していない変更)と字幕(文字起こしの保存 = docUpdatedAt より新しい)。
      出力の設定の違いは outputDiff(札は「設定が違う」・理由は「設定が変わった」)。-> 理由の文の並び(空 = 作り直しは要らない) */
   function staleWhy(){
-    const pk = P.pack; if (!pk || !h.CUT) return [];
+    const pk = P.pack; if (!pk) return [];
     const cs = h.CUT.state(), why = [];
     if (pk.rev !== cs.rev || cs.dirty) why.push('カットが変わった');
     if ((Number(h.S.baseUpdatedAt) || 0) > (Number(pk.docUpdatedAt) || 0)) why.push('字幕が変わった');
@@ -515,7 +510,7 @@ function create(h){
     h.S.settings.rowEdge = { ...cur, padAfter: v };
     try { await h.putSettings(); }
     catch (e){ h.S.settings.rowEdge = cur; $('#pkPadAfter').value = String(before); h.toast('設定を保存できませんでした: ' + e.message, { kind: 'err', ms: 10000, action: { label: 'もう一度', fn: () => savePad(String(v)) } }); return; }   // [もう一度](S27)   // 保存できなければ欄も元へ(zip・まとめて実行は保存済みの設定を読む)
-    const redo = h.CUT && h.CUT.redraftPristine ? h.CUT.redraftPristine() : false;
+    const redo = h.CUT.redraftPristine();
     $('#pkPadAfterNote').textContent = redo ? '「行から」のたたき台を作り直します(区間の終わりが変わります)' : '手で直したカットには効きません。' + N.cutName + ' の「行から」でたたき台を作り直すと効きます(zip と、まとめて実行で「行から」を選んだときには効きます)';
     render();
   }
@@ -599,10 +594,7 @@ function create(h){
         if (st && keys.some(k => st[k] !== h.S.settings[k])){ for (const k of keys) h.S.settings[k] = st[k]; if (h.S.doc) render(); h.onSpeakerColors(); }
       }, () => {});
     },
-    changed(){ if (P.pv === 'save') P.pvErrKey = ''; render(); if (h.tab() === 'cut') schedulePreview(); else { P.previewKey = ''; } },
-    refreshWho(){ if (!disposed && h.S.docId) UIKit.streamer.autoFill($('#pkWho'), { docId: h.S.docId }); },   // 題名の行で配信者を直したあと(隠した欄を入れ直す)   // カット・文字起こしが変わった(保存できたときも来る → 保存待ちを解く)
-    refresh: render,
-    state: () => ({ building: P.building, pack: P.pack }),
+    changed(){ if (P.pv === 'save') P.pvErrKey = ''; render(); if (h.tab() === 'cut') schedulePreview(); else { P.previewKey = ''; } },   // カット・文字起こしが変わった(保存できたときも来る → 保存待ちを解く)
     /* 案件の画面のパネルを閉じるとき: 予約したタイマー・描き直し・読み込みを止める */
     dispose(){ disposed = true; clearTimeout(P.pvT); clearTimeout(padT); cancelAnimationFrame(rq); rq = 0; P.docId = null; P.pvSeq++; TH.seq++; TH.docId = null; }
   };

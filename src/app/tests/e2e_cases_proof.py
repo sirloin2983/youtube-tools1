@@ -117,7 +117,7 @@ def _scene_open(ck, pg, base, t1, t2):
     ck(st["caseId"] == VID and st["tab"] == "proof" and st["docId"] == t1, "案件・タブ・文書: %s" % st)
     rail = pg.evaluate("[...document.querySelectorAll('#csRail [data-cs-key]')].map(b => b.dataset.csKey)")
     ck(rail == ["cand", "d:" + t1, "d:" + t2, "m:m3"], "左の一覧は 候補 + 切り抜き 3 本: %s" % rail)
-    ck(pg.evaluate("!document.querySelector('#menuPanel').offsetParent && !document.querySelector('#noDoc').offsetParent && !!document.querySelector('#csPane #docTitle').offsetParent"),
+    ck(pg.evaluate("!document.querySelector('#menuPanel') && !document.querySelector('#noDoc') && !!document.querySelector('#csPane #docTitle').offsetParent"),
        "左のメニュー・空の状態は出さず、題名の行は出す")
     ck(pg.input_value("#docTitle") == "切り抜き 1", "題名: %r" % pg.input_value("#docTitle"))
     ck(pg.evaluate("!!document.querySelector('#csPane #player') && document.querySelector('#player').src.includes('/transcribe/media?id=')"), "切り抜きの映像は編集の /transcribe/media")

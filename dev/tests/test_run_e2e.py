@@ -20,15 +20,15 @@ class TestSuiteList(unittest.TestCase):
     def test_no_duplicates_and_known_groups(self):
         names = [run_e2e.label(s, a) for _g, s, a, _w in run_e2e.SUITE]
         self.assertEqual(len(names), len(set(names)))
-        self.assertEqual({g for g, _s, _a, _w in run_e2e.SUITE}, {"cases", "home", "ui-kit", "friend"})
+        self.assertEqual({g for g, _s, _a, _w in run_e2e.SUITE}, {"cases", "home", "friend"})
 
     def test_only_filters_by_group_or_name(self):
         cases = run_e2e.selected(["cases"])
         self.assertTrue(cases and all(r[0] == "cases" for r in cases))
         live = run_e2e.selected(["live_"])
         self.assertEqual(sorted(r[4] for r in live), ["e2e_live_archive", "e2e_live_studio"])
-        both = run_e2e.selected(["ui-kit", "e2e_cases_cut"])
-        self.assertEqual({r[0] for r in both}, {"ui-kit", "cases"})
+        both = run_e2e.selected(["home", "e2e_cases_cut"])
+        self.assertEqual({r[0] for r in both}, {"home", "cases"})
         self.assertEqual(len(run_e2e.selected([])), len(run_e2e.SUITE))
         no_live = run_e2e.selected([], ["live_"])
         self.assertEqual(len(no_live), len(run_e2e.SUITE) - 2)

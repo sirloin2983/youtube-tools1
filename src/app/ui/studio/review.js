@@ -109,31 +109,20 @@ const SVG = {
   play: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.9l10.2-6.5a1 1 0 0 0 0-1.7L9.5 4.6A1 1 0 0 0 8 5.5z"/></svg>',
   x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>'
 };
-/* 上の行: 保存の状態・まとめて実行・シアター・配信の操作(配信は案件の画面の左の一覧で選ぶ) */
+/* 上の行: 保存の状態・シアター・配信の操作(配信は案件の画面の左の一覧で選ぶ) */
 function topBarHTML(){
   return `  <div class="rv-warn notice cs-notice-act" id="rvWarn" role="alert" hidden></div>
   <div class="rv-autobar" id="rvAutoBar" role="status" hidden></div>
   <div class="rv-top" id="rvTop">
     <button type="button" class="rv-save" id="rvSave" data-k="idle" role="status" title="マークは自動で保存します。失敗したときはここを押すと保存し直します">準備中</button>
     <span class="rv-topsp"></span>
-    <details class="ui-menu rv-auto" id="rvAuto" hidden>
-      <summary class="btn small ghost" title="案件の画面と同じ「まとめて実行」を、この配信で始めます"><span>まとめて実行</span></summary>
-      <div class="rv-vmenupop rv-autopop">
-        <p class="hint">この配信を、ホームの案件の画面と同じ順番待ちで自動で進めます。人が採用したマークに、自動の候補の上位を採用する数まで足します
-          (人が選んだ 1 本だけ進めるときは、マークの行の「この後を」)。進み具合は上の帯と、ホームの案件の画面に出ます。</p>
-        <div class="rv-autofull"><button type="button" class="btn small primary" data-auto="full" title="解析 → 上位を自動で採用 → 書き出し → 文字起こし → パック">解析から全部</button>
-          <label class="lag">採用する数 <input id="rvAutoTop" type="number" min="1" max="30" step="1" value="3"></label></div>
-        <label class="lag rv-autowho" title="名前を入れると、パックの字幕の文字をその人のメンバーカラーにします(空なら黒い文字)">配信者(字幕の色)
-          <input id="rvAutoWho" type="text" size="12" placeholder="例: さくらみこ"></label>
-        <div class="rv-autopanel"></div>
-        <label class="lag rv-autoloud" title="パックに入れる動画の音量を、カットで残す部分だけ測ってそろえます(パックのタブと同じ設定。どこで変えても同じ値)" hidden>パックの音量 <select id="rvAutoLoud" data-ui-packloud></select></label>
-      </div>
-    </details>
     <details class="ui-menu rv-vmenu" id="rvVMenu">
       <summary class="btn small ghost" title="この配信の名前・解析・削除"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg><span>配信の操作</span></summary>
       <div class="rv-vmenupop">
         <label class="rv-fl" for="rvTitle">名前(自分用のラベル。一覧と書き出しのフォルダ名に使います)</label>
         <input id="rvTitle" type="text" maxlength="120" placeholder="例: 2026-09-12 マリオカート配信">
+        <label class="rv-fl" for="rvAutoWho">配信者(マークの行の「この後を」の字幕の色。チャンネル名から自動で入ります)</label>
+        <input id="rvAutoWho" type="text" size="12" placeholder="例: さくらみこ">
         <div class="rv-vmenuacts">
           <button class="btn small ghost rv-theaterbtn" id="rvTheater" type="button" aria-pressed="false" title="シアター表示(プレーヤーを大きく)">${SVG.theater}<span>シアター表示</span><kbd class="ui-kbd" data-kbd="theater"></kbd></button>
           <a class="btn small ghost" id="rvYtLink" target="_blank" rel="noopener noreferrer" hidden title="YouTube で、いまの位置から開きます">YouTube で開く</a>
@@ -474,15 +463,10 @@ const inList = () => !!(document.activeElement && document.activeElement.closest
 /* ---------- 動画一覧・切り替え ---------- */
 async function refreshList(){
   try { S.videos = (await Studio.api('/api/videos')).videos || []; } catch (e){ return; }
-  updateBadge(); renderExportUI();
+  renderExportUI();
 }
 let quietT = null;
 function refreshListQuiet(){ clearTimeout(quietT); quietT = setTimeout(() => { quietT = null; refreshList(); }, 300); }
-/* ② のタブの件数: 判定か書き出しが残っている配信の数(候補か、書き出していない採用がある) */
-function updateBadge(){
-  const n = S.videos.filter(v => (Number(v.candidates) || 0) + (Number(v.adopted) || 0) > 0).length;
-  Studio.setBadge('review', n ? String(n) : '', n ? `判定か書き出しが残っている配信 ${n}本` : '');
-}
 /* ---------- 前回の場所: 配信ごとに、再生位置と選んでいたマークを覚えて、開いたときに戻す ----------
    置き場所はこのブラウザ(localStorage の ytt:studio.place)。ホームの設定(UIKit.prefs)は節が決まっていて(app/prefs.py の PATCHABLE)スタジオの節が無いこと、
    再生位置は再生中に数秒ごとに変わる値で、配信のデータ(マークの保存。rev で重なりを見ている)に書くとマークの保存と競合することから。
@@ -556,7 +540,7 @@ async function loadVideo(id){
   mountPlayer();
   renderAll();
   if (S.sel) placeScroll();
-  fillAutoWho();   // まとめて実行の配信者の欄を、この配信の覚えた名前 → チャンネル名から
+  fillAutoWho();   // 配信者の欄を、この配信の覚えた名前 → チャンネル名から
   syncExportDock();   // 配信を開いたとき(の1回だけ)欄の開閉を合わせる(test_review.cjs の harness は、これらを何もしない関数で渡す)
   refreshList();
   fetchAutoTitle(S.cur);
@@ -876,7 +860,7 @@ const LIVE_PLAY_ERR = {
 };
 async function mountLivePlayer(host, token, v, onReady, onState){
   const keep = 'マークの時刻の手入力・書き出しは続けられます。';
-  if (!Studio.token || !v.live || !v.live.recorder || !v.live.recording){ showNotice('ライブの録画は、ホーム(start.bat)から開いたときだけ再生できます。' + keep); return; }
+  if (!v.live || !v.live.recorder || !v.live.recording){ showNotice('ライブの録画は、ホーム(start.bat)から開いたときだけ再生できます。' + keep); return; }
   if (LV.vid === v.id && LV.deletedShown){ LV.deletedShown = false; liveDeletedShown(v); return; }   // 自動で消した録画: 案内をもう一度出す
   const st = LV.vid === v.id ? LV.status : null;
   if (!st || !(Number(st.segments) > 0)){
@@ -1190,7 +1174,7 @@ function liveRecActive(v){
   const lb = UIKit.liveBadge.get(), rid = liveRecId(v);
   return !!(lb && lb.enabled && (lb.recordings || []).some(r => r.id === rid && r.active && (!r.recorder || !v.live || r.recorder === v.live.recorder)));
 }
-const liveAutoExportOn = v => !!(v && v.kind === 'live' && Studio.token && S.settings.liveAutoExport);
+const liveAutoExportOn = v => !!(v && v.kind === 'live' && S.settings.liveAutoExport);
 const liveSet = (sel, t) => { const el = $(sel); if (el && el.textContent !== t) el.textContent = t; };
 /* 録画の合計の長さ(秒)。受信時刻の幅とセグメントの長さの合計の大きい方(欠けの間も時間は進む) */
 function liveTotal(st){
@@ -1344,7 +1328,7 @@ function liveStopPoll(){ clearTimeout(LV.timer); LV.timer = 0; LV.seq++; }
 function liveResume(){ if (S.cur && S.cur.kind === 'live' && LV.vid === S.cur.id && !LV.timer && visible()) pollLiveStatus(); }
 async function pollLiveStatus(){
   clearTimeout(LV.timer); LV.timer = 0;
-  const v = S.cur; if (!v || v.kind !== 'live' || LV.vid !== v.id || !v.live || !Studio.token) return;
+  const v = S.cur; if (!v || v.kind !== 'live' || LV.vid !== v.id || !v.live) return;
   const seq = ++LV.seq;
   let st = null, err = null;
   try { st = await Studio.live.api(liveRest(v, 'status?since=999999999')); } catch (e){ err = e; }   // since: セグメントの一覧(最大 5000 件)は要らない(入口の _rec_status と同じ)
@@ -1423,7 +1407,7 @@ function renderLiveRec(){
   liveSet('#rvRecState', label); liveSet('#rvRecMsg', msg);
   $('#rvRecStop').hidden = !active;
   for (const sel of ['label[for="rvAutoExp"]', 'label[for="rvDuck"]', 'label[for="rvAfter"]']){ const el = $(sel); if (el && el.hidden !== gone) el.hidden = gone; }   // 録画が無い: すぐ書き出す・音の扱い・書き出したあとは意味が無い
-  { const w = $('#rvLiveWho'), can = !gone && !!Studio.token; if (w && w.hidden !== !can) w.hidden = !can; }
+  { const w = $('#rvLiveWho'), can = !gone; if (w && w.hidden !== !can) w.hidden = !can; }
   const ended = (!!st && !err && !active) || gone;
   $('#rvLiveBar').classList.toggle('is-ended', ended);
   liveSet('#rvLiveBadge', ended ? '録画' : 'LIVE');
@@ -1511,7 +1495,7 @@ async function stopLiveRec(btn){
 
 /* 入口の書き出しの一覧(この録画の分)を読み、欄を差分で直し、済んだ分をスタジオの「書き出し済み」にする */
 async function pollLiveJobs(){
-  const v = S.cur; if (!v || v.kind !== 'live' || !v.live || !Studio.token) return;
+  const v = S.cur; if (!v || v.kind !== 'live' || !v.live) return;
   const seq = ++LV.jobsSeq;
   LV.jobsAt = Date.now();
   let j; try { j = await Studio.live.api('api/exports?recorder=' + enc(v.live.recorder) + '&recording=' + enc(v.live.recording)); } catch { return; }
@@ -1575,18 +1559,16 @@ function renderLiveWho(){ liveSet('#rvLiveWhoText', liveWhoLabel(LV.who)); }
 /* 録画を開いたとき: 欄を自動で埋める(手で直したあとは同じ録画では入れ直さない = UIKit.streamer の約束) */
 function liveWhoOpened(v){
   const box = $('#rvLiveWho'), inp = $('#rvLiveWhoIn'); if (!box || !inp) return;
-  const can = !!Studio.token;
-  box.hidden = !can; if (box.open) box.open = false;
+  box.hidden = false; if (box.open) box.open = false;
   LV.who = { vid: v.id, name: '', match: null };
   renderLiveWho();
-  if (!can) return;
   if (!inp.__liveWhoBound){
     inp.__liveWhoBound = true;
     const sync = match => { const cur = S.cur; if (!cur || cur.kind !== 'live' || !LV.who || LV.who.vid !== cur.id) return;
       LV.who.name = inp.value.trim(); if (match !== undefined) LV.who.match = match; renderLiveWho(); };
     inp.addEventListener('ui-streamer', e => sync(e.detail ? true : (inp.value.trim() ? false : null)));   // 色の一覧で照らし合わせた結果(UIKit.streamer)
     inp.addEventListener('input', () => sync(undefined));
-    inp.addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); inp.blur(); box.open = false; } });   // Enter で決めて閉じる(change で覚える)
+    UIKit.onEnter(inp, () => { inp.blur(); box.open = false; });   // Enter で決めて閉じる(change で覚える)
   }
   UIKit.streamer.autoFill(inp, { videoId: v.id, channel: v.channel || '' }).then(() => {
     if (S.cur === v && LV.who && LV.who.vid === v.id){ LV.who.name = inp.value.trim(); renderLiveWho(); }
@@ -1605,7 +1587,6 @@ function liveExportBody(v, m){
 function startLiveExport(onlyIds, opts){
   opts = opts || {};
   const v = S.cur; if (!v || v.kind !== 'live' || !v.live) return Promise.resolve();
-  if (!Studio.token){ toast('ライブの録画の書き出しは、ホーム(start.bat)から開いたときだけ使えます', 0, 'err'); return Promise.resolve(); }
   const targets = (onlyIds ? sortedMarks().filter(c => onlyIds.has(c.id)) : exportTargets()).filter(m => !LV.busy.has(m.id));
   if (!targets.length){ if (!opts.auto) toast('書き出すマークがありません(「採用」にしたマークが書き出されます。書き出しの途中のマークは除きます)'); return Promise.resolve(); }
   for (const m of targets){ LV.queued.add(m.id); LV.busy.add(m.id); }
@@ -1755,7 +1736,7 @@ function peakSeries(s){
 const peakFresh = vid => ({ vid, list: [], seq: 0, loaded: false, fullAt: 0, needFull: false, enabled: true, offAt: 0, missing: false, err: '', worker: null, hour: null, series: null,
   busy: new Set(), playId: null, playOn: false, lastId: null, hover: null, fading: new Map(), inflight: false });
 const PKV = Object.assign(peakFresh(null), { bench: false, reqSeq: 0, detect: null, auto: null, tx: null });   // tx = 配信中の文字起こしの状態(入口の答え。D-11 案 b)
-const peaksWanted = v => !!(v && v.kind === 'live' && v.live && Studio.token && PKV.vid === v.id && PKV.detect && PKV.detect.enabled && !PKV.missing && !LV.deletedShown);
+const peaksWanted = v => !!(v && v.kind === 'live' && v.live && PKV.vid === v.id && PKV.detect && PKV.detect.enabled && !PKV.missing && !LV.deletedShown);
 /* 帯に候補の行を出すか: 検出がオン・候補を読めた・入口がオンと答えた。終わった録画で候補が 1 つも無ければ出さない */
 function peaksShownNow(v){
   if (!peaksWanted(v) || !PKV.loaded || !PKV.enabled) return false;
@@ -2173,8 +2154,7 @@ function refresh(keyToFocus){
   renderTimeline(); renderStats(); renderList(); renderLiveCount();
   if (keyToFocus){ const el = $(`[data-key="${CSS.escape(keyToFocus)}"]`); if (el) el.focus(); }
 }
-/* 2回押しの確認(戻せない操作だけ)。部品は ui-kit の UIKit.confirmTwice の1つ(実行したらすぐ元に戻る) */
-function armDelete(btn, run, text){ UIKit.confirmTwice(btn, run, text || 'もう一度押すと削除'); }
+const armDelete = UIKit.armDelete;   // 2回押しの確認(戻せない操作だけ。実行したらすぐ元に戻る)
 const statusOf = c => c.status || '';
 const isFolded = id => (S.fold.has(id) ? S.fold.get(id) : S.settings.foldDefault);
 /* 表示するマーク(絞り込み + 並び替え)。前後移動もこの順で動く */
@@ -2251,8 +2231,6 @@ function autoTitleFromPlayer(){
 
 /* ---------- 書き出し(サーバーが store から組み立てる。クライアントは id とマークIDだけ送る)---------- */
 let expTimer = null;
-const EXP_LABEL = { queued: '待ち', running: '実行中', done: '済み', error: '失敗', cancelled: '中止' };   // 状態の言葉は 3 画面で同じ
-const EXP_CLS = { done: 'ok', error: 'err', running: 'run', cancelled: 'warn' };   // 状態の色(ほかは wait。順番待ちの解析の一覧と同じ色)
 /* 書き出したファイルの名前の見せ方: 名前の中の開始時刻 00h29m21s は 0:29:21 の形で見せる(ファイル名そのものは変えない。title に本当の名前) */
 const fileLabel = f => String(f || '').replace(/(\d{2})h(\d{2})m(\d{2})s/g, (_, h, m, sec) => `${Number(h)}:${m}:${sec}`);
 function errHint(msg){
@@ -2303,7 +2281,7 @@ function editorHref(path){ return path ? '/cases?v=' + enc(path) + '#proof' : ''
 function openEditor(href){
   if (!href) return;
   const w = UIKit.win;
-  if (Studio.token && w.isApp()){ w.open(href).catch(() => { window.open(href, '_blank', 'noopener'); }); return; }
+  if (w.isApp()){ w.open(href).catch(() => { window.open(href, '_blank', 'noopener'); }); return; }
   window.open(href, '_blank', 'noopener');
 }
 /* 書き出しが済んだ知らせ。paths: 書き出した mp4 の絶対パス(書き出しの順)。最初の1本を [編集で開く](行のリンクと同じ URL・同じ開き方)。
@@ -2423,10 +2401,10 @@ async function startJoin(){
 }
 function combinedHTML(j){   // つないだ1本の行(書き出しの一覧の先頭)
   const c = j.combined; if (!c) return '';
-  const pct = Math.round((c.progress || 0) * 100), cls = EXP_CLS[c.status] || 'wait';
+  const pct = Math.round((c.progress || 0) * 100), cls = UIKit.state.cls(c.status);
   return `<li class="rv-ejob st-${cls}"><div class="rv-ejob-h">
       <span class="rv-ejob-n">つないだ1本(${Number(c.count) || 0}件${c.seconds ? '・' + fmt(c.seconds) : ''})</span>
-      <span class="pill ${cls}">${esc(c.status === 'queued' ? '部品を切り出し中' : EXP_LABEL[c.status] || c.status)}${c.status === 'running' ? ' ' + pct + '%' : ''}</span></div>
+      <span class="pill ${cls}">${esc(c.status === 'queued' ? '部品を切り出し中' : UIKit.state.label(c.status))}${c.status === 'running' ? ' ' + pct + '%' : ''}</span></div>
       ${c.status === 'running' ? `<div class="bar rv-ejob-bar"><i style="width:${pct}%"></i></div>` : ''}
       ${c.file ? `<div class="rv-ejob-s mono">${esc(c.file)}</div>` : ''}
       ${handoffHTML(j, { status: c.status, path: c.path, file: c.file })}
@@ -2443,10 +2421,10 @@ function loudHTML(lo){   // ラウドネスをそろえた結果(書き出しの
   return `<div class="rv-ejob-s hint">音量: ${m.toFixed(1)} → ${(m + g).toFixed(1)} LUFS(${g >= 0 ? '+' : ''}${g.toFixed(1)} dB${reached ? '' : '。音が割れないよう目標の手前で止めました'})</div>`;
 }
 function jobItemHTML(j, it, i){
-  const pct = Math.round((it.progress || 0) * 100), cls = EXP_CLS[it.status] || 'wait';
+  const pct = Math.round((it.progress || 0) * 100), cls = UIKit.state.cls(it.status);
   /* ライブの録画(入口の書き出し。j.live): 状態は入口の言葉(録画待ち・取得中・作り直し中 n%)。行ごとに取り消す・やり直すは「書き出す」から */
   const lv = !!j.live, act = lv && (it.status === 'queued' || it.status === 'running');
-  const label = (lv && it.stateLabel) || EXP_LABEL[it.status] || it.status;
+  const label = (lv && it.stateLabel) || UIKit.state.label(it.status);
   const ar = lv ? it.archive : null;   // 本番版への作り直し(入口のジョブの archive)
   return `<li class="rv-ejob st-${cls}"${lv ? ` data-ljob="${esc(it.jobId || '')}"` : ''}><div class="rv-ejob-h">
       <span class="mono rv-ejob-t">${i + 1}. ${fmt(it.start)} – ${fmt(it.end)}</span><span class="rv-ejob-n">${esc(it.title || '無題')}</span>
@@ -2655,7 +2633,6 @@ function renderMeta(){
   const v = S.cur;
   $('#rvMain').hidden = !v;
   for (const id of ['#rvJump', '#rvTheater', '#rvVMenu', '#rvSave']) $(id).hidden = !v;
-  renderAutoMenu(v);
   if (!v){
     closeExportDrawer();
     return;
@@ -2666,21 +2643,6 @@ function renderMeta(){
   const ytHref = v.kind === 'youtube' ? Studio.watchUrl(v.id) : liveYtHref(v);
   const yl = $('#rvYtLink'); yl.hidden = !ytHref; if (ytHref) yl.href = ytHref;
   yl.title = v.kind === 'live' ? 'YouTube で配信を開きます(録画の時刻とは合わないので、頭から開きます)' : 'YouTube で、いまの位置から開きます';
-}
-/* まとめて実行の入口(上の行)。使えないときも隠さず、押せない理由を出す: ホームから開いていない・ライブの録画(まとめて実行はスタジオの書き出しを使う)。
-   配信を開いていないときは、ほかの配信ごとの操作と同じく出さない */
-function autoOffReason(v){
-  if (!Studio.token) return 'まとめて実行は、ホーム(start.bat)から開いたときだけ使えます';
-  if (v && v.kind === 'live') return 'ライブの録画では使えません(書き出したあとの文字起こし・パックは、LIVE の帯の「書き出したあと」で選べます)';
-  return '';
-}
-function renderAutoMenu(v){
-  const d = $('#rvAuto'), sm = d && d.querySelector('summary'); if (!sm) return;
-  d.hidden = !v;
-  const why = autoOffReason(v);
-  d.classList.toggle('is-off', !!why);
-  /* 押せないときは押しても開かずに理由を知らせる(ui-kit の共通の書き方 UIKit.menuOff。Enter・Space も) */
-  UIKit.menuOff(d, why, '案件の画面と同じ「まとめて実行」を、この配信で始めます');
 }
 function renderDuration(){
   $('#rvDur').textContent = '/ ' + (S.duration ? fmt(S.duration) : '--');
@@ -2846,7 +2808,7 @@ function markHTML(c){
       ${exp ? '<span class="rv-chip st exported">書き出し済み</span>' : ''}${exp && c.archived ? `<span class="rv-chip arch" title="${ARCH_TITLE}">アーカイブ</span>` : ''}
       ${fold && c.label ? `<span class="rv-lab-s" title="${esc(c.label)}">${esc(c.label)}</span>` : ''}
       <span class="rv-mact"><span class="rv-stgroup" role="group" aria-label="判定">${sb('adopted', '採用', exp ? '採用に戻す(書き出し済みの印を外して、もう一度書き出せるようにします)' : '採用(書き出し対象)')}${sb('rejected', '不採用', '不採用')}${sb('', '候補', '候補に戻す')}</span>
-      ${Studio.token && (st === 'adopted' || exp) && !(S.cur && S.cur.kind === 'live') ? `<details class="ui-pop rv-rowmore"><summary class="btn small ghost icon" aria-label="その他の操作" title="その他の操作"><span class="ui-icon" data-icon="more"></span></summary><div class="ui-pop-body"><button type="button" data-act="auto1"><span>この後を <span class="ui-caret right" aria-hidden="true"></span> ${exp ? '(文字起こし → パック)' : '(書き出し → 文字起こし → パック)'}</span></button><span class="hint rv-autowhoinfo">${esc(autoWhoText())}</span></div></details>` : ''}
+      ${(st === 'adopted' || exp) && !(S.cur && S.cur.kind === 'live') ? `<details class="ui-pop rv-rowmore"><summary class="btn small ghost icon" aria-label="その他の操作" title="その他の操作"><span class="ui-icon" data-icon="more"></span></summary><div class="ui-pop-body"><button type="button" data-act="auto1"><span>この後を <span class="ui-caret right" aria-hidden="true"></span> ${exp ? '(文字起こし → パック)' : '(書き出し → 文字起こし → パック)'}</span></button><span class="hint rv-autowhoinfo">${esc(autoWhoText())}</span></div></details>` : ''}
       <button type="button" class="btn small ghost rv-del" data-act="delete" title="このマークを削除" aria-label="このマークを削除">${SVG.x}</button></span>
     </div>
     <div class="rv-body"${fold ? ' hidden' : ''}>
@@ -3168,7 +3130,7 @@ function wire(){
   $('#rvTitle').addEventListener('input', e => {
     if (!S.cur) return; S.cur.title = e.target.value; markDirty();
   });
-  $('#rvTitle').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); $('#rvVMenu').open = false; } });
+  UIKit.onEnter($('#rvTitle'), () => { $('#rvVMenu').open = false; });
   $('#rvDelVideo').addEventListener('click', e => armDelete(e.currentTarget, deleteCurrentVideo));
   const runAnalyze = async () => {
     const v = S.cur; if (!v || v.kind !== 'youtube') return;
@@ -3343,7 +3305,6 @@ Studio.review = {
 };
 /* ---------- まとめて実行(notes:docs/design/edit-tool-design.md。入口の ② の口 /api/flow/submit。案件の画面と同じ API・同じ形。入口の中だけ) ---------- */
 const AUTO = { t: 0, active: false };
-const AUTO_STATE = { queued: 'wait', running: 'run', done: 'ok', error: 'err', cancelled: 'wait' };   // 実行の状態の色(言葉は UIKit.autorun.runLabel の 1 か所)
 /* 入口の API(/api/...)。① 探す のまとめて実行と同じ core.js の Studio.portalApi */
 const portalApi = (path, body) => Studio.portalApi(path, body);
 /* 友人へ自動で送る届け先(受付のフォルダの 出力。入口の api/intake の outDir)。決まっていなければ null(D-SEND。解析から全部の既定はオン) */
@@ -3361,7 +3322,7 @@ async function autoOrder(videoId, markIds, extra){
   return { kind: 'url', videoId, from: 'export', upto: 'pack', marks: markIds, ...(out ? { deliver: { origin: 'auto', dir: out } } : {}), ...(extra || {}) };
 }
 async function maybeAutoTranscribe(videoId, markIds){
-  if (!Studio.token || !autoTxEnabled() || !markIds || !markIds.length) return;
+  if (!autoTxEnabled() || !markIds || !markIds.length) return;
   try {
     const r = await portalApi('api/flow/submit', UIKit.flow.order(await autoOrder(videoId, markIds)));
     if (r && r.run) UIKit.autorun.watch(r.run.id);   // 終わったら知らせる
@@ -3374,45 +3335,40 @@ async function maybeAutoTranscribe(videoId, markIds){
     else toast('パックまでを自動では始められませんでした: ' + e.message, 7000, 'err');
   }
 }
-/* まとめて実行(② のメニュー・マークの行の「この後を」)。見積もり → 始める → 終わったら知らせる、は共通の部品 UIKit.autorun(どの入口も同じ)。
-   採用数・上書き・失敗したときはホームの設定(どの入口で変えても同じ) */
-/* マークの行の「この後を」: 実行する前に字幕の色(② のまとめて実行の配信者の欄の名前)を見せる(閉じたメニューの欄を黙って使わない) */
+/* まとめて実行(マークの行の「この後を」)。見積もり → 始める → 終わったら知らせる、は共通の部品 UIKit.autorun(どの入口も同じ)。
+   上書き・失敗したときはホームの設定(どの入口で変えても同じ) */
+/* マークの行の「この後を」: 実行する前に字幕の色(配信者の欄 #rvAutoWho の名前。「配信の操作」の中)を見せる */
 function autoWhoText(){ const el = $('#rvAutoWho'), v = el ? el.value.trim() : ''; return '字幕の色: ' + (v || 'なし(黒い文字)'); }
 function fillAutoWho(){
-  if (Studio.token && S.cur) UIKit.streamer.autoFill($('#rvAutoWho'), { videoId: S.cur.id, channel: S.cur.channel || '' });
+  if (S.cur) UIKit.streamer.autoFill($('#rvAutoWho'), { videoId: S.cur.id, channel: S.cur.channel || '' });
 }
-/* marks なし = 「まとめて実行 ▾」の解析から全部(友人へ自動で送る)/ marks = マークの行の「この後を」(書き出しから全部 = autoOrder) */
+/* マークの行の「この後を」(書き出しから全部 = autoOrder) */
 async function startAuto(marks){
   if (!S.cur) return;
-  const top = Math.min(20, Math.max(1, Math.round(Number($('#rvAutoTop').value) || 3)));
   try {
     if (S.dirty) await flushSave();   // 手で付けたマークを先に保存してから(まとめて実行は保存済みのマークを読む)
     const who = await UIKit.streamer.check($('#rvAutoWho'));
     if (who === null) return;   // 見つからない名前で「やめる」を選んだ
     const st = UIKit.autorun.state();
-    // 欄 → 封筒 + 束の差分(UIKit.flow.order): 解析から全部 = 頭からパックまで(まとめて実行の形はこれだけ。10-19)・
-    // マークの行の「この後を」(marks)= 書き出しのあと自動でと同じ注文(autoOrder = 書き出しから全部・受付のフォルダがあれば友人へ届ける)
-    const f = marks ? await autoOrder(S.cur.id, marks, { title: S.cur.title || '', streamer: who, repack: !!(st && st.overwrite) })
-      : { kind: 'url', videoId: S.cur.id, title: S.cur.title || '', upto: 'pack', streamer: who, repack: !!(st && st.overwrite), top };   // 空 = 色なし(欄は自動で入る)
-    if (!marks){ const out = await sendOutDir(); if (out) f.deliver = { origin: 'auto', dir: out }; }   // 解析から全部は友人へ自動で送る(既定オン)
+    // 書き出しのあと自動でと同じ注文(autoOrder = 書き出しから全部・受付のフォルダがあれば友人へ届ける)。空の配信者 = 色なし
+    const f = await autoOrder(S.cur.id, marks, { title: S.cur.title || '', streamer: who, repack: !!(st && st.overwrite) });
     const r = await UIKit.autorun.start([UIKit.flow.order(f)]);
     if (!r) return;   // やることが無い(見積もり。知らせは部品が出す)
-    $('#rvAuto').open = false;
     pollAuto();
   } catch (e){ toast('まとめて実行を始められませんでした: ' + e.message, 7000, 'err'); }
 }
 async function pollAuto(){
   clearTimeout(AUTO.t);
   const bar = $('#rvAutoBar');
-  if (!Studio.token || !S.cur || !bar){ if (bar) bar.hidden = true; return; }
+  if (!S.cur || !bar){ if (bar) bar.hidden = true; return; }
   const vid = S.cur.id;
   let runs;
-  try { runs = (await portalApi('api/flow/runs')).runs || []; } catch { return; }
+  try { runs = (await UIKit.autorun.runs()).runs || []; } catch { return; }
   if (!S.cur || S.cur.id !== vid) return;
   const r = runs.find(x => x.kind !== 'doc' && x.videoId === vid);   // いちばん新しい実行(一覧は新しい順)
   const active = !!r && (r.state === 'queued' || r.state === 'running');
   if (!r || (!active && !AUTO.active && Date.now() - (r.finished || 0) > 10 * 60 * 1000)){ bar.hidden = true; AUTO.active = false; return; }   // 10分より前に終わったものは出さない
-  const cls = r.nothing ? 'info' : AUTO_STATE[r.state] || 'info', label = UIKit.autorun.runLabel(r);   // 状態の言葉は1か所
+  const cls = r.nothing ? 'info' : UIKit.state.cls(r.state), label = UIKit.autorun.runLabel(r);   // 状態の言葉は1か所
   const steps = r.steps.map(s => `${esc(s.label)}: ${esc(UIKit.autorun.stepLabel(s))}${s.detail ? '(' + esc(s.detail) + ')' : ''}`).join(' / ');
   bar.innerHTML = `<span><b>まとめて実行</b>(${esc(r.modeLabel)})</span><span class="pill ${cls}">${esc(label)}</span>` +
     (active ? '<button type="button" class="btn small" data-act="autocancel" title="まとめて実行を止めます(済んだ段は残ります。もう一度始めると、残りから進めます)">中止</button>' : '') +
@@ -3430,15 +3386,7 @@ function showDataWarning(){ Studio.dataWarning($('#rvWarn')); }   // 文・閉�
 Studio.onReady(() => {
   buildDOM(); mountSettings(); S.built = true; placeJump();
   UIKit.icon.fill($('#paneReview'));   // buildDOM は DOMContentLoaded の一括の埋め込みより後に動くので、ここで埋める
-  /* まとめて実行はホームから開いたときだけ。使えないときは押せない理由を出す(renderAutoMenu → UIKit.menuOff が、押したら理由を知らせる) */
-  UIKit.packLoud.mount($('#rvAutoLoud'));   // パックの音量(編集の設定の1か所)
-  if (Studio.token){   // まとめて実行の設定の要約と「設定を変える」(どの入口も同じ部品)・採用数はホームの設定
-    UIKit.autorun.panel($('#paneReview .rv-autopanel'), { kind: 'video' });
-    UIKit.autorun.load().then(st => { $('#rvAutoTop').value = String(st.top); }, () => {});
-    $('#rvAutoTop').addEventListener('change', () => { const n = Math.round(Number($('#rvAutoTop').value)); if (n >= 1 && n <= 20) UIKit.prefs.patch('autorun', { top: n }).catch(() => {}); });
-    UIKit.streamer.attach($('#rvAutoWho'));   // 配信者の名前(字幕の色)の候補と色の見本
-  }
-  $('#rvAuto').addEventListener('click', e => { if (e.target.closest('[data-auto]')) startAuto(); });
+  UIKit.streamer.attach($('#rvAutoWho'));   // 配信者の名前(字幕の色)の候補と色の見本
   $('#rvAutoBar').addEventListener('click', async e => {
     if (!e.target.closest('[data-act=autocancel]')) return;
     try { await portalApi('api/flow/cancel', { id: 'run:' + $('#rvAutoBar').dataset.run }); } catch (er){ toast(er.message, 5000, 'err'); }   // 掲示板の id
@@ -3473,10 +3421,4 @@ Studio.onReady(() => {
 });
 }
 window.StudioReview = { create };
-/* スタジオの画面(core.js の window.Studio がある)では、document に ② を作る */
-const Studio = window.Studio;
-if (Studio) create({ Studio, $: s => document.querySelector(s), $$: s => document.querySelectorAll(s),
-  listen: (target, type, fn, opt) => target.addEventListener(type, fn, opt),
-  keybar: list => (list ? UIKit.keybar.set(list) : UIKit.keybar.clear()),
-  life: (onLeave, onReturn) => { UIKit.life.onLeave(onLeave); UIKit.life.onReturn(onReturn); } });
 })();

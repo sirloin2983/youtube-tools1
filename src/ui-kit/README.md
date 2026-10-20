@@ -20,7 +20,6 @@
   - `UIKit.portal`(v5・2026-09-27)… 入口へ戻るリンク(`a[data-ui-portal]`。「他のツール」の入口・`[data-ui-home]`・案件の画面の「← 入口へ」)は、
     入口がほかの窓・タブで開いていれば移らずに入口の窓を前に出す(`api/ytt/focus-portal`)。入口の画面は `UIKit.portal.listen()` で答える(BroadcastChannel `ytt-portal`)
   - 入口の API は相対パス `api/ytt/…` で呼ぶ(入口の画面 → `/api/ytt/…`、取り込んだツール → `/studio/api/ytt/…`。どちらも入口が受け持つ)
-- `styleguide.html` … 見本。ブラウザで直接開いて、ダーク/ライトの両方で確認する
 
 ## 使い方
 1. 正本(このフォルダ)を直す(写し先は無い。写す道具 dev/sync_ui_kit.py と、その確かめのテストは消した)
@@ -31,20 +30,20 @@
 - cut2resolve: 画面を「編集」に統合して消したので、写さない(2026-09-26)
 
 ## テーマ
-- `<html data-theme="light|dark">` を `ui-kit.js` が付ける。初回は OS の設定に合わせ、⚙ 設定の「テーマ」で選ぶと保存する(v14 でヘッダーの切り替えボタンはやめた。`[data-theme-toggle]` を付けたボタンがあれば今までどおり動く)
+- `<html data-theme="light|dark">` を `ui-kit.js` が付ける。初回は OS の設定に合わせ、⚙ 設定の「テーマ」で選ぶと保存する(v14 でヘッダーの切り替えボタンはやめた)
 - 保存場所は localStorage の `ytt:theme`(`light` / `dark`。無ければ OS に合わせる)。ツールごとにポートが違うので保存は別々
 - 色は必ず変数(`var(--panel)` など)で書く。固定の色を書くと片方のテーマで読めなくなる
 - 主な変数: `--bg` `--panel` `--panel-2` `--panel-3` `--field` `--line` `--line-2` `--ink` `--ink-2` `--ink-3` `--accent` `--accent-ink` `--accent-soft` `--ok` `--warn` `--danger` `--info`(+ `-soft`)、グラフ用 `--c-audio` `--c-chat` `--c-com`
 
 ## ヘッダーの書き方
-`styleguide.html` の `<header class="ui-header">` をそのまま使う(ブランドのアイコン・ツール名・版・タブ・他のツール・設定)。
+ホーム・案件の画面の `<header class="ui-header">` をそのまま使う(ブランドのアイコン・ツール名・版・タブ・他のツール・設定)。
 ブランドの色は `.ui-brand-mark[data-tool=studio|transcribe|cut2resolve]`。
 
 ## v3(2026-09-26・画面の全面見直し)
 共通のルールは `notes:docs/spec/ui.md`(用語集・ヘッダー・ボタンと札・一覧・段階的に見せる・狭い画面)。
 - 状態の札(`.pill`)の文字は `--ok-ink` `--warn-ink` `--danger-ink` `--info-ink` `--accent-ink2`(明るいテーマで 5.5:1 以上)。札は枠なし・押せない表示だけ
 - 入口へ戻る(v18 で消した): ヘッダーに `<a class="ui-home" data-ui-home hidden>`(と `data-ui-cases`)。入口に取り込まれているとき(画面に `ytt-token` がある)だけ ui-kit が `/`・`/cases.html` を入れて出す。
-  「他のツール」のメニュー(`UIKit.tools.render`)も、取り込まれているときは先頭に「入口」「案件の一覧」を出す。`UIKit.tools.mounted()`
+  `UIKit.tools.mounted()`
 - 一覧: `.ui-listbar`(検索は残りの幅いっぱい)・`.ui-count`・`details.ui-group`(+ `.ui-group-n`・`.ui-group-side`)・`.ui-next`(次にやること)
 - 言葉の説明: `<abbr class="ui-term" title="1文の説明">EDL</abbr>`
 - `.lag.keep`: 短いラベル + select の組を折り返さない(狭い画面で1文字ずつ縦に割れないように)
@@ -82,18 +81,16 @@
 - **`.ui-miniprogress`**: 幅 64px・高さ 4px の小さな進み具合の棒(`style="--p:42%"`)。`.indet` で進み具合が分からないとき
 - **`UIKit.settings.mount({tool, title, version})`**: ヘッダーの `[data-ui-settings]` ボタンから開く設定の引き出し。渡した `tool`(そのツール固有の設定の要素。無くてもよい)+ 共通の「全体」の節(テーマ・文字の大きさ・キーの帯を出す)を1つの `ui-drawer` にする。
   全体の設定は `localStorage` の `ytt:theme` / `ytt:fs`(`'md'|'lg'`)/ `ytt:keybar`(`'0'` で消す)を使うので、どのツールで変えても他のタブ・他のツールに効く(`storage` イベント)
-- **`UIKit.keys`**: `isTyping(el)`(入力欄・select・contenteditable か)・`helpHtml()`(共通の再生キーの表。`?` のキー操作の一覧の先頭に置く)・
+- **`UIKit.keys`**: `isTyping(el)`(入力欄・select・contenteditable か)・
   `playback({media, enabled, onIn, onOut, onFrame, fps, onKey})` → keydown ハンドラ関数(**自動では組み込まれない**。画面が自分のキー処理より先に呼び、`true`(処理した)なら自分の処理をしない)。
   Space 再生・停止 / J 1秒戻る / K 止める(速さを1倍に戻す)/ L 再生(もう一度で 1.5→2倍)/ ← → 1秒(Shift で5秒)/ , . 1コマ(`fps` 既定30。`onFrame(dir)` が `true` を返せば代わりにそちらを使う。カットで区間の端を選んでいるときなど)/ I O `onIn`/`onOut`。
   入力欄にフォーカスがある・Ctrl/Alt/Meta が押されている・Shift は矢印以外では無視。処理したキーは `opts.onKey(name)` と `UIKit.keybar.flash(name)` を呼ぶ
   `keymap`(オブジェクトか関数。操作 id → キーの表記)を渡すと割り当てを変えられる(編集の ⚙「キー配置」。渡さなければ上の既定 = スタジオ)。操作 id と既定は `PLAYBACK_ACTIONS`
   (playPause・back1・stop・play・seekBack・seekFwd・frameBack・frameFwd・markIn・markOut)。seekBack/seekFwd は割り当てたキー + Shift で5秒。
   押しっぱなしの繰り返しでは、再生・停止・K・L・I・O を繰り返さない。`comboOf(e)`(キーの表記。'j'・'Shift+j'・'Space'・'ArrowLeft'。英字・Space・名前のあるキーだけ Shift を付ける)・`keyText(combo)`(表示用。'Shift+←')・
-  `helpHtml(keymap)`(渡せば今の割り当ての表)
 - **`UIKit.icon(name, {size})`**: 24x24・線1本(`stroke=currentColor` `stroke-width=2`・角丸)の SVG を文字列で返す。`<span class="ui-icon" data-icon="play">` は DOMContentLoaded で自動的に中身が入る(`UIKit.icon.fill(root)` で好きな範囲だけ埋め直せる)。
-  種類の一覧は `ui-kit.js` の `ICONS`(`styleguide.html` の「アイコン」に一覧表示)
+  種類の一覧は `ui-kit.js` の `ICONS`
 
-`styleguide.html` はこれらすべての見本を表示する(動きは `styleguide.js`。CSP に合わせてインラインの `<script>` は使わない)。
 
 ## v8(2026-09-29・気が利く画面へ 段6。`UIKit.keymap`)
 キーの一覧がそのままキー配置の設定。`?` の一覧と ⚙ の「キー配置」は同じ部品(`mount(el)` を2か所に置く。中身は1つ)。編集とスタジオが使う。
@@ -147,34 +144,31 @@
   path は `'api/autorun'`・`'api/ytt/prefs'`・`'live/api/info'` のように入口の直下から。ツールの画面(/studio/・/transcribe/)からもホーム(/)からも同じ所を指す
 - **`UIKit.copy(text, opt)`** → Promise<true | false>(reject しない)。クリップボードへ写す(clipboard API が使えなければ execCommand の予備)。`opt.ok` / `opt.fail` の文があれば知らせも
 - `UIKit.fmt.day(ms)`(日付だけ)・`UIKit.fmt.dur(秒, opt)` の opt(`floor` 切り捨て・`tenths` 0.1 秒まで(`1:23.4`)・`noHours` 時を出さない(`83:45`)。省略は今までどおり四捨五入)・
-  `UIKit.icon.names()`(アイコンの名前の一覧。見本はこれで並べる = 手書きの一覧から `lock` が抜けていた)
 - ui-kit の中の fetch の包み 6 つ(yttPost・txPatch・packLoud.get・arHomeApi・arLoad・restartPing)は http を呼ぶ形にした。外から見える名前・引数・戻り値は同じ。
   違うのは (1) つながらないときの文が日本語の決まった文に(以前はブラウザの原文 `Failed to fetch`)・(2) `packLoud.get` は編集の api/settings が失敗(HTTP のエラー)なら reject
   (以前はエラーの本文を設定として読み、既定の値を出していた)・(3) 合言葉が空なら見出しを付けない(以前は空の `X-YTT-Token` を送っていた)
 - node のテスト用の **UIKit の代わり** `tests/uikit_stub.cjs`(`makeUIKit(overrides)`・`withUIKit(context)`。esc・fmt は本物の ui-kit.js から切り出す・呼ばれた部品は `calls` に残る・
   知らない名前は何もしない関数)。案件の画面の候補の `src/app/tests/test_cand_panel.cjs`・編集の `test_document_save.cjs` の vm の context はこれを通す(画面の `window.UIKit &&` の予備の経路を外しても動く)。
   本物と食い違っていないかは `node --test src/ui-kit/tests/test_uikit_stub.cjs`(本物の window.UIKit の名前を全部知っているか。名前を足したら stub の kit か FALLBACK にも足す)
-- テスト: `e2e_styleguide` の `check_http`(偽の API で 合言葉・失敗の形・時間切れ・取り消し・raw・ほかのオリジン・homeApi)・`check_v24_fmt_copy`・アイコンの一覧(`lock`)。`UIKit.version` は 24
 
 ## v23(2026-10-07・UI の見直しの基準 `notes:docs/spec/ui.md` に合わせる + 段9 見た目の確認の直し。クラウドと PC の 2 つの作業を合わせた版)
 - 文字記号のアイコンをやめる(A-10): 知らせの × は `UIKit.icon('close')`。メニューが開く印は `.ui-caret`(線で描く小さな山形。`<span class="ui-caret" aria-hidden="true">`。右向きは `.right`・上向きは `.up`)。各ツールの「まとめて ▾」「無音 ▾」「この後を ▸」はこれに替える
 - 文字の青(`a`・`.ui-next-btn`)は `--accent-ink2`(明るいテーマの `--accent` は薄い面の上で 4.3:1 と足りない。A-22)。`--ink-4` は placeholder・空の欄・押せない物・飾りにだけ(決定 P-4)
 - `.card>summary`・`.ui-disclosure>summary` に `min-height:28px`(押せる部品は 28px 以上。A-21)。`.ui-live-panel:focus-visible` の輪(A-07)
 - 設定の「全体」の節のテーマ・文字の大きさの名前を `<label for>` に(`#uiSetTheme`・`#uiSetFs`。A-24)
-- 測る道具: `py -3.12 dev/ui_audit.py all --demo`(基準の A)。見本 `styleguide.html` もその対象(入力欄に label・ボタンの長い名前は title に)
+- 測る道具: `py -3.12 dev/ui_audit.py all --demo`(基準の A)
 - `UIKit.dialog.choose({title, body, buttons: [{label, value, kind: 'primary'|'danger'|'ghost'|''}], cancel})` → Promise<value>(3 択以上の確認。Esc・背景は `cancel`(既定 null)。danger があれば既定のフォーカスは最初の ghost)。編集の画面ごとの確認(#dlgConfirm・#dlgOverwrite)を置き換える
 - `UIKit.autorun` の「設定を変える」: 音量の欄に値が入らなかった(select が文書に入る前に loudRefresh が落としていた)のを直し、fps の欄の名前「パックの置き先」→「フレームレート」(下の PC 側と同じ)(ホームの見直し M3・M4)
 (段9 の直し。PC 側)
 - **v22 の不具合を直した**: v22 で fitPop(ポップオーバーの置き場所の直し)のために `var POP_SEL` を同じ名前でもう一度書いていて(関数の中の var は 1 つにまとまる)、
   外側のクリック・Esc で閉じる処理が「開いていないメニュー」にも効いていた。Esc を押すとページの最後のメニューの summary へフォーカスが飛んだ
-  (録画中の札の一覧の Esc で、フォーカスが札に戻らなかった = `e2e_styleguide` の FAIL で見つけた)。fitPop の対象の名前を `FIT_SEL` に分けた
+  fitPop の対象の名前を `FIT_SEL` に分けた
 - まとめて実行の「設定を変える」の fps の欄の名前を「パックの置き先」→「フレームレート」(3 パック のタブと同じ言葉。中身は fps の選択だった)
 - **`[data-ui-fit]`**: `details.ui-menu` / `ui-pop` の中身を画面が自分の class で作るとき(`.ui-pop-body`・`.ui-menu-pop` でない)、中身に `data-ui-fit` を付けると、
   開いたときに ui-kit が画面に収まる位置へ置き直す(下にはみ出して上に余裕があれば上に開く・入らなければ高さを決めてスクロール)。
   使っている所: スタジオ ① の選択の帯の「まとめて実行」(`.rk-autopop`。帯が画面の下の方にあると、中身と「選んだ配信 N 本をまとめて実行」のボタンが画面の下の外に出ていた)
 - 知らせがあふれたとき(重ねて 2 つまで)の閉じる順を **失敗でない時間で消える知らせ → 失敗でない残す知らせ(ボタン・`ms: 0`)→ 古いもの** に。
   v22 は「時間で消える知らせ」を失敗かどうかに関わらず先に閉じたので、ボタンの無い失敗(8 秒)のあとに案内が 2 つ続くと失敗が消えた(「失敗の知らせは最後まで残す」にそろえた)
-- テスト: `e2e_styleguide` の `check_v23`(開いていないときの Esc はフォーカスを動かさない・外側を押すと開いていたものだけ閉じる・`details.pop > .vpop` も画面の中へ)と、
   `check_toast` の v22 の 2 項目(失敗の知らせは残す)。`UIKit.version` は 23
 
 ## v22(2026-10-07・気が利く画面へ 段9 見た目の確認)
@@ -205,7 +199,6 @@
   付け外しは **`UIKit.menuOff(details か summary, 理由, 使えるときの title)`**(理由あり = aria-disabled・`data-ui-why`・title を付けて閉じる /
   理由が空 = 外して、title を 3 つ目の値に(省くと、理由と同じ title だけ消す))。見た目は `.btn` の summary なら `.btn[aria-disabled=true]`、それ以外は薄く・`cursor:not-allowed`。
   使っている所: 編集の題名の行の「まとめて実行」・スタジオ ① と ③ の「まとめて実行」(以前はそれぞれが summary の click を止めていた)
-- 見本とテスト: `styleguide.html` の「v21: 次の一手のボタン・押せないメニュー」・`python src/ui-kit/tests/e2e_styleguide.py`(`check_v21` と `check_toast` の 2 つまで)。`UIKit.version` は 21
 
 ## v20(2026-10-07・「起動し直す」の帯に入口からの知らせ)
 - `UIKit.restart`: 「起動し直す」を押して入口が受けたとき、応答の本文に `notice` があれば、待つ間の帯の文(`data-ui-restart="waiting"`)に足す
@@ -244,16 +237,15 @@
   動いていた録画が error になった →「「題」の録画でエラーが起きました」
 - `UIKit.liveBadge`: `get()`(最後の応答 `{enabled, recordings}`。まだ無ければ `null`。失敗で札を消したときは `{enabled: false, recordings: []}`)・`refresh()`(すぐ問い合わせ直す → Promise(最後の応答))・
   `onChange(fn(応答))`(答えのたびに。差があったかは fn が比べる)・`onOpen(fn(録画))`(スタジオの画面が登録する。あれば「開く」はページを移らず、一覧を閉じて `fn` を呼ぶ。無ければスタジオへ移る)
-- 見本とテスト: `styleguide.html` の「v16: 録画中の札」(見た目だけの静的な見本)・`python src/ui-kit/tests/e2e_styleguide.py`(`api/ytt/live` を `page.route` で偽装。札・一覧・差分・二度押し・知らせ・間隔・隠れたタブ)。`UIKit.version` は 16
 
 ## v15(2026-10-04・引き出しの中から開くダイアログが固まる不具合)
 - 引き出し(`UIKit.drawer.open(el, {modal: true})`。⚙ 設定など)は裏の要素を `inert` にする。そのとき、ページに最初からある `<dialog>`(編集の `#dlgConfirm` など)まで `inert` にしていたので、
   引き出しの中から `showModal` で開いた確認が、表示はされるのにクリックもキーも受け付けず固まっていた(ユーザーの報告: ⚙ の「仮置きをまとめて文字起こし」の確認)。
   → `drawerInert` は `<dialog>` を `inert` にしない(閉じた dialog は表示されず、開いた modal の dialog は showModal が裏を止める)。`UIKit.version` は 15(v14 の間は 13 のままだった)。
-  テスト: 「⚙ の中から開いた確認のダイアログを押せて閉じられる」(直す前の ui-kit では FAIL になることを確かめた。確かめた `e2e_eval_set` は消えた。今は `src/ui-kit/tests/e2e_styleguide.py`)
+  テスト: 「⚙ の中から開いた確認のダイアログを押せて閉じられる」
 
 ## v14(2026-10-04・ヘッダーの明暗ボタンをやめる・キーを変える場所を1つに)
-- ヘッダーの明るい/暗いの切り替えボタン(`.ui-theme-toggle`)と、その CSS を消した。配色は ⚙ 設定の「テーマ」(4つ + OSに合わせる)から選ぶ。`UIKit.theme.toggle()` と `[data-theme-toggle]` のクリックの動きは残す(ボタンの無い軽い画面 `editor/lite.html` が使う)。
+- ヘッダーの明るい/暗いの切り替えボタン(`.ui-theme-toggle`)と、その CSS を消した。配色は ⚙ 設定の「テーマ」(4つ + OSに合わせる)から選ぶ。
 - キーを変える場所は ? の一覧の 1 か所(`UIKit.keymap` の `mount` は ? の一覧だけ)。⚙ 設定の「キー配置」の一覧はやめ、「キー配置を変える(?)」のボタンで同じ一覧を開く。
 
 ## v13(2026-10-04・一覧の項目を任意に非表示に `UIKit.hide`)
@@ -310,7 +302,6 @@
 - **足す**(v29): `UIKit.timebox.add(el, 秒)`(api は `add(秒)`)= 今の値に足す(空なら 0 から・0 未満にならない・上限まで)。足したら `ui-time` と `ui-time-commit`(`detail.via: 'add'`)。動いた一番上の単位を光らせる。画面のボタン(「+30 秒」など)から使う。
 - **貼り付けの前の口**(v29): 貼り付けたとき、読む前に `ui-time-beforepaste`(`detail.text`。bubbles・cancelable)を要素に出す。画面が `preventDefault()` したら値も `ui-time-reject` も変えない(別の配信の URL を画面で断るときに使う)。
 - 使っている所(2026-10-02): 編集の 1 文字起こし の行(short)・スタジオの ③ 確認のマークの開始/終了(tenths)・コラボの合わせる時刻(tenths)
-- 見本とテスト: `styleguide.html` の「v11: 時刻の欄」・`python src/ui-kit/tests/e2e_styleguide.py`(本物のキー入力)。`UIKit.version` は 11
 
 ## 重なりの順(z-index)の決まり(v6・段3-2)
 新しい値を作らず、この段のどれかにそろえる。
@@ -372,3 +363,7 @@
 - `UIKit.autorun` の形の表 `MODES`(採用後を全部・文字起こしまで・解析から全部)と、`panel(el, {modes})` の形を選ぶ欄を外した(ユーザー決定: まとめて実行は解析から全部だけ。
   人が採用した配信にも自動の候補の上位を採用する数まで足す・人が選んだ 1 本だけは案件の画面の候補のマークの行の「この後を」= 書き出しから全部)。
   要約と「設定を変える」には、映像の実行でもいつも「採用する数」を出す。`UIKit.version` は 36
+
+## v37(2026-10-20)画面の削減: 共通の部品を足し、使われない部品を外した
+- 足した: `UIKit.state.label・cls`(状態の言葉と色の表。中止は warn)・`UIKit.onEnter`(かな漢字変換を確定する Enter では動かない)・`UIKit.armDelete`・`UIKit.emptyHtml`・`UIKit.fmt.agoSpan`・`UIKit.autorun.form・topOf・runs・isActive`・`UIKit.loadScript`・CSS の `.ui-list`・`.ui-ell`
+- 外した(呼ぶ所が無い): `theme.toggle`・`theme.PALETTES`・`tools.list・url・render`・`keys.helpHtml`・`icon.names`・見本の画面 styleguide。`UIKit.version` は 37

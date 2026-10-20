@@ -4,7 +4,6 @@
     python -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
     python -m unittest test_drill -q                  # これだけ(src/editor/tests で)
 
-- 次の 1 本: 評価用・文字起こし済み・まだ確かめていない・直近 10 分に更新していない・処理中でない・飛ばしていない・動画がある文書から乱数で
 - 確かめ済み: 残りの行を校正済み(proofedAt)・印(at・rows・durationSec)・409・updatedAt が上がる・履歴・画面の保存では消えない/書き換えられない・
   評価用を外すと消える・取り消し(印が校正済みにした行も戻す)・再認識(機械が行を書いた)で外れる
 - あと何分と条件(確かめ済みの動画の長さ・条件は確かめ済みの動画の中で)・話者の候補(覚えた声 → メンバーのフォルダ → 配信の文脈)
@@ -66,42 +65,6 @@ class DrillBase(StoreDir):
 
     def review(self, n, **kw):
         return DR.drill_reviewed(dict({"id": tid_of(n), "baseUpdatedAt": self.rd(n)["updatedAt"]}, **kw))
-
-
-class TestDrillNext(DrillBase):
-    def test_picks_one_unreviewed_eval_doc_at_random(self):
-        for n in range(1, 9):
-            self.doc(n, [_seg(1, 0, 1, "あ"), _seg(2, 1, 2, "い", proofed=True)])
-        self.doc(20, [_seg(1, 0, 1, "学習用")], ev=False)                                   # 評価用でない
-        self.doc(21, [_seg(1, 0, 1, "")], model="")                                         # 文字のある行が無い(文字起こし前)
-        self.doc(22, [_seg(1, 0, 1, "済")], evalReviewed={"at": 1, "rows": 1, "durationSec": 30})   # 確かめ済み
-        picked = {DR.drill_next(seed=i)["id"] for i in range(40)}
-        self.assertEqual(picked, {tid_of(n) for n in range(1, 9)})                           # 乱数で(どの 1 本も出る)・ほかは出ない
-        self.assertEqual(DR.drill_next(seed="a")["id"], DR.drill_next(seed="a")["id"])       # 同じ種なら同じ
-        r = DR.drill_next(seed=1)
-        self.assertTrue(r["title"].startswith("文書"))
-        self.assertEqual((r["counts"]["eval"], r["counts"]["reviewed"], r["counts"]["untranscribed"]), (10, 1, 1))
-
-    def test_skip_recent_busy_and_missing_media(self):
-        self.doc(1, [_seg(1, 0, 1, "あ")], updated=int(time.time() * 1000) - 60 * 1000)   # 1 分前に保存 = 開いている可能性
-        self.doc(2, [_seg(1, 0, 1, "い")], effort={"activeSec": 30, "lastAt": int(time.time() * 1000)})   # 画面が校正の時間を送ったばかり
-        self.doc(3, [_seg(1, 0, 1, "う")], sourcePath=os.path.join(self.media, "無い.mp4"))   # 動画が無い = 聞けない
-        self.doc(4, [_seg(1, 0, 1, "え")])
-        self.doc(5, [_seg(1, 0, 1, "お")])
-        self.doc(6, [_seg(1, 0, 1, "か")])
-        self.busy_job(5, "running")
-        got = {DR.drill_next(skip="%s,bad,%s" % (tid_of(6), "x" * 12), seed=i)["id"] for i in range(10)}
-        r = DR.drill_next(skip=[tid_of(6), tid_of(4)])
-        self.assertEqual(got, {tid_of(4)})                                                   # 飛ばした文書(skip。壊れた id は無視)も出さない
-        self.assertIsNone(r["id"])
-        self.assertEqual((r["counts"]["recent"], r["counts"]["busy"], r["counts"]["noMedia"], r["counts"]["skipped"]), (2, 1, 1, 2))
-        self.assertIn("次に出せる評価用の動画がありません", r["reason"])
-        self.assertIn("このドリルで飛ばした 2 本", r["reason"])
-
-    def test_empty(self):
-        r = DR.drill_next()
-        self.assertIsNone(r["id"])
-        self.assertIn("評価用の文字起こしがまだありません", r["reason"])
 
 
 class TestDrillReviewed(DrillBase):

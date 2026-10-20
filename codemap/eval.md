@@ -17,8 +17,8 @@
 - **__init__.py** (2 行) — ⑤ 評価ドリル・評価用フォルダ・精度のカード・A/B・精度の自動測定
 - **accuracy.py** (622 行) — 精度の自動測定(マスタープラン Q3)。
   - 名前: `class ToolError` :87・`summarize_asr` :106・`summarize_marks` :121・`summarize_speakers` :140・`summarize_cut` :164・`summarize_alt` :177・`summarize_fill` :192・`summarize_timing` :207・`count_daily` :241・`goals_of` :275・`in_window` :307・`day_of` :314・ほか 1
-- **drill.py** (440 行) — 「編集」のサーバーの部品: 評価ドリルと定点の「あと何分」(マスタープラン Q4)。
-  - 名前: `drill_reviewed_sec` :47・`drill_stream_key` :54・`drill_doc_summary` :73・`drill_docs` :126・`drill_status` :159・`drill_next` :202・`drill_reviewed` :268・`drill_unreviewed` :299・`drill_candidates_for` :376・`drill_candidates` :415
+- **drill.py** (384 行) — 「編集」のサーバーの部品: 評価ドリルと定点の「あと何分」(マスタープラン Q4)。
+  - 名前: `drill_reviewed_sec` :44・`drill_stream_key` :51・`drill_doc_summary` :70・`drill_docs` :123・`drill_status` :156・`drill_reviewed` :212・`drill_unreviewed` :243・`drill_candidates_for` :320・`drill_candidates` :359
 - **evalbatch.py** (765 行) — 「編集」のサーバーの部品: 評価用の動画を、手が空いたとき少しずつまとめて文字起こしする(マスタープラン Q4(b))。
   - 名前: `eb_path` :78・`eb_lock_path` :83・`eb_key` :87・`eb_read` :99・`eval_batch_status` :147・`eb_require_ready` :174・`eval_batch_start` :182・`eval_batch_stop` :197・`eb_scan` :224・`eb_candidates` :242・`eb_diar_candidates` :265・`eb_request` :323・ほか 7
 - **metrics.py** (301 行) — ⑤ テストと検証の層 eval/drill: 認識精度の測定(文字誤り率 CER。人が校正済みにした行を正解に、機械の出力 original と比べる)・

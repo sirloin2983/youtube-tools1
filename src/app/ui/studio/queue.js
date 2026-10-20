@@ -5,8 +5,6 @@
 'use strict';
 const S = window.Studio, esc = S.esc;
 const $ = s => document.querySelector(s);
-/* 状態の言葉は 3 画面で同じ(待ち・実行中・済み・飛ばした・失敗・中止。見直し S7) */
-const STATUS = { waiting: ['待ち', 'wait'], running: ['実行中', 'run'], done: ['済み', 'ok'], error: ['失敗', 'err'], cancelled: ['中止', 'warn'], skipped: ['飛ばした', 'wait'] };
 const Q = { items: [], prev: null, timer: null, seq: 0, max: 10, sig: null, pressed: false, dirty: false, busy: false };
 const mmss = t => UIKit.fmt.dur(t, { floor: true, noHours: true });   // チャット取得の経過(83:45。ui-kit の 1 か所)
 
@@ -39,8 +37,8 @@ function entryHtml(){
   </div>`;
 }
 /* 空の状態は 2 文 + 次に押すボタン 1 つ(S-13)。URL の欄はすぐ左、配信を探す欄はすぐ下にある */
-const EMPTY_LIST = '<div class="empty"><b>まだ解析する配信はありません</b>URL を入れて「解析に追加」を押すか、下の「配信を探す」で選ぶと、ここに並んで順番に解析します。' +
-  '<div class="cs-emptyacts"><button type="button" class="btn small" data-act="gorank">配信を探す</button></div></div>';
+const EMPTY_LIST = UIKit.emptyHtml('まだ解析する配信はありません', 'URL を入れて「解析に追加」を押すか、下の「配信を探す」で選ぶと、ここに並んで順番に解析します。',
+  '<button type="button" class="btn small" data-act="gorank">配信を探す</button>');
 
 /* ---------- 設定 ---------- */
 /* 解析の設定(材料・本数・長さ・感度・詳しい設定・重み)の置き場所はスタジオのサーバー(/api/settings の settings.analyze。段階7-1)。
@@ -205,10 +203,10 @@ async function openWithout(){
 
 /* ---------- キュー一覧 ---------- */
 function itemHtml(it){
-  const [label, cls] = STATUS[it.status] || [String(it.status || ''), 'wait'];
+  const label = UIKit.state.label(it.status), cls = UIKit.state.cls(it.status);   // 状態の言葉と色は ui-kit の 1 か所
   const id = esc(it.qid), running = it.status === 'running', chat = running && it.chat && it.chat.state === 'running' ? it.chat : null, pct = Math.round((it.progress || 0) * 100);
   const who = it.kind === 'file' ? '動画ファイル' : (it.channel || '');
-  const when = it.finishedAt ? `<span title="${esc(S.date(it.finishedAt))}">${esc(S.ago(it.finishedAt))}</span>` : '';
+  const when = it.finishedAt ? UIKit.fmt.agoSpan(it.finishedAt) : '';
   const meta = [who ? `<span>${esc(who)}</span>` : '', it.status === 'done' ? `<span>マーク <b class="num">${Number(it.marks) || 0}</b>件</span>` : '', when].filter(Boolean).join('<span class="q-dot">・</span>');
   let h = `<div class="q-item st-${esc(cls)}" data-qid="${id}" data-status="${esc(it.status)}" tabindex="-1"><span class="q-ic" aria-hidden="true"></span><div class="q-main"><div class="q-title" title="${esc(it.videoId)}">${esc(it.title || it.videoId)}</div>
     <div class="q-meta"><span class="pill ${esc(cls)}">${esc(label)}</span>${meta}</div></div>
@@ -260,7 +258,6 @@ function updateMeta(){
   $('#qCount').textContent = its.length ? `待ち・実行中 ${act}/${Q.max}本 ・ 全${its.length}件` : '';
   const clr = $('#qClear'); clr.disabled = !its.some(i => !['waiting', 'running'].includes(i.status));
   clr.title = clr.disabled ? '終わった解析がまだありません(解析が完了・失敗・中止すると押せます)' : '終わった解析(完了・失敗・中止)を、この一覧から消します';   /* 押せない理由(A-34) */
-  S.setBadge('rank', act ? String(act) : '', act ? `解析中・順番待ちの配信 ${act}本` : '');   // 順番待ちは ① の先頭にあるので、① のタブに数を出す
   /* 次にやること(1つだけ): 解析が終わった配信を ② で確認する */
   /* マークが 0 件の配信は「確かめる」ではなく、手でマークする道を言う(2 周目 S16) */
   const fin = its.filter(i => i.status === 'done'), withM = fin.filter(i => Number(i.marks) > 0).length, zero = fin.length - withM, nx = $('#qNext');
@@ -327,8 +324,8 @@ S.onReady(() => {
   paintKinds(); loadOpts();
   UIKit.life.onReturn(loadOpts);   // 設定の画面で解析の設定を変えて戻ってきたら読み直す
   $('#qUrls').addEventListener('input', paintKinds); $('#qPath').addEventListener('input', paintKinds);
-  $('#qUrls').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); addFromForm(); } });   // Ctrl+Enter で追加
-  $('#qPath').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); addFromForm(); } });
+  UIKit.onEnter($('#qUrls'), () => addFromForm(), { ctrl: true });   // Ctrl+Enter で追加
+  UIKit.onEnter($('#qPath'), () => addFromForm());
   $('#qAdd').addEventListener('click', addFromForm);
   $('#qOpen').addEventListener('click', openWithout);
   $('#qList').addEventListener('click', listClick);

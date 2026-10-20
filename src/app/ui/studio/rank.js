@@ -76,7 +76,7 @@ function renderReg(){
     <div class="fld"><label class="l">チャンネルを追加(1行に1つ)<textarea class="paste" rows="3" placeholder="@handle&#10;https://www.youtube.com/@handle&#10;UCxxxxxxxxxxxxxxxxxxxxxx"></textarea></label>
       <div class="row ag-acts"><button type="button" class="btn small primary" data-act="add"${busy}>追加して解決</button><button type="button" class="btn small" data-act="res"${busy}>未解決を解決</button><span class="spacer"></span><button type="button" class="btn small danger" data-act="delag">この事務所を削除</button></div></div>
     <div class="ch-list">${a.channels.map((c, j) => `<div class="ch" data-k="${j}"><span class="st ${c.status === 'ok' ? 'ok' : c.status === 'error' ? 'error' : 'pending'}">${c.status === 'ok' ? '解決済み' : c.status === 'error' ? '失敗' : '未解決'}</span><span class="ch-name">${esc(c.title || c.ref)}${c.note ? ` <span class="hint">${esc(c.note)}</span>` : ''}</span><span class="rf hide-s">${esc(c.ref)}</span>${c.status === 'ok' ? regionSel(c) : ''}<button type="button" class="btn small ghost" data-act="delch">外す</button></div>`).join('') || '<p class="hint ch-empty">まだチャンネルがありません。「公式から取り込む」か、上の欄に @ハンドル・URL を入れて「追加して解決」すると、ここに出ます</p>'}</div></div></details>`;
-  }).join('') || '<div class="empty"><b>まだ事務所がありません</b>下の欄で事務所の名前を入れて追加すると、ここに出ます</div>');
+  }).join('') || UIKit.emptyHtml('まだ事務所がありません', '下の欄で事務所の名前を入れて追加すると、ここに出ます'));
   const add = `<div class="row ag-new"><label class="l" for="newAgency">事務所を追加</label><input type="text" id="newAgency" class="newAgency" placeholder="例: ○○プロダクション" maxlength="40"><button type="button" class="btn small" data-act="addag">追加</button></div>`;
   for (const el of R.regEls){
     const st = captureReg(el);
@@ -305,7 +305,7 @@ async function pollJob(){
   if (j.state === 'running') return;
   clearInterval(R.poll); setBusy(false); S.refreshState().catch(() => {});
   if (j.state === 'error'){ $('#results').innerHTML = searchErrHTML(j.code, j.error, j.detail); return; }
-  if (j.state === 'cancelled'){ $('#results').innerHTML = '<div class="empty"><b>検索を中止しました</b>条件を変えて、もう一度検索できます<div class="cs-emptyacts"><button type="button" class="btn small" data-rkretry>もう一度検索する</button></div></div>'; return S.toast('中止しました'); }
+  if (j.state === 'cancelled'){ $('#results').innerHTML = UIKit.emptyHtml('検索を中止しました', '条件を変えて、もう一度検索できます', '<button type="button" class="btn small" data-rkretry>もう一度検索する</button>'); return S.toast('中止しました'); }
   R.result = j.result; await loadMarks(); renderResults();
 }
 
@@ -351,8 +351,8 @@ function renderBody(){
     all.sort((x, y) => (Number(y.v.views) || 0) - (Number(x.v.views) || 0));
     const hit = all.filter(x => matchQ(x.v, x.ag)); total = hit.length;
     const list = R.limit ? hit.slice(0, R.limit) : hit; shown = list.length;
-    if (!all.length) html = `<div class="empty"><b>条件に合う配信はありませんでした</b>期間を広げるか、ワードを変えて探すと見つかることがあります<div class="cs-emptyacts"><button type="button" class="btn small" data-rkdays="90">期間を直近 90 日にして探す</button></div></div>`;
-    else if (!hit.length) html = `<div class="empty"><b>「${esc(R.q)}」に合う配信はありません</b>絞り込みの文字を消すと、すべての結果が出ます<div class="cs-emptyacts"><button type="button" class="btn small" data-rkclearq>絞り込みを消す</button></div></div>`;
+    if (!all.length) html = UIKit.emptyHtml('条件に合う配信はありませんでした', '期間を広げるか、ワードを変えて探すと見つかることがあります', '<button type="button" class="btn small" data-rkdays="90">期間を直近 90 日にして探す</button>');
+    else if (!hit.length) html = UIKit.emptyHtml(`「${esc(R.q)}」に合う配信はありません`, '絞り込みの文字を消すと、すべての結果が出ます', '<button type="button" class="btn small" data-rkclearq>絞り込みを消す</button>');
     else html = `<div class="card rk-all"><div class="tbl-wrap"><table class="rk-table">${TABLE_HEAD}<tbody>${list.map((x, i) => row(x.v, i, x.ag)).join('')}</tbody></table></div>` +
       (shown < total ? `<div class="rk-more"><button type="button" class="btn small" id="rkMore">もっと見る(残り ${total - shown} 本)</button></div>` : '') + '</div>';
   } else {
@@ -403,10 +403,9 @@ async function loadMarks(){
     R.inQueue = new Set(q.items.filter(i => i.status === 'waiting' || i.status === 'running').map(i => i.videoId));
     R.analyzed = new Set(v.videos.filter(x => x.analysis || x.marks > 0).map(x => x.id));
   } catch {}
-  if (!S.token) return;
-  try {   // まとめて実行の順番待ち・実行中の配信(入口の /api/flow/runs。入口から開いたときだけ)
-    const runs = (await S.portalApi('api/flow/runs')).runs || [];
-    R.auto = new Map(runs.filter(r => r.kind !== 'doc' && (r.state === 'queued' || r.state === 'running')).map(r => [r.videoId, r.state]));
+  try {   // まとめて実行の順番待ち・実行中の配信(入口の /api/flow/runs)
+    const runs = (await UIKit.autorun.runs()).runs || [];
+    R.auto = new Map(runs.filter(r => r.kind !== 'doc' && UIKit.autorun.isActive(r)).map(r => [r.videoId, r.state]));
   } catch {}
   clearTimeout(R.autoT);
   if (R.auto.size && S.step === 'rank') R.autoT = setTimeout(refreshMarks, 5000);   // 動いている間は印を更新する(① を開いている間だけ。戻ったら step で読み直す)
@@ -439,7 +438,7 @@ function focusNextAdd(tr){
 async function startAuto(){
   if (R.adding || !R.picked.size) return;
   const items = [...R.picked.values()].map(p => ({ id: p.videoId, title: p.title, channel: p.channel }));
-  const top = Math.min(20, Math.max(1, Math.round(Number($('#rkAutoTop').value) || 3)));
+  const top = UIKit.autorun.topOf($('#rkAutoTop'));
   const who = $('#rkAutoWho').value.trim();   // 手で入れたときだけ字幕の色に(チャンネル名から自動では入れない)
   R.adding = true; paintPick();
   try {
@@ -726,7 +725,7 @@ S.onReady(async () => {
   document.querySelectorAll('[data-m]').forEach(b => b.addEventListener('click', () => { const n = new Date(), k = Number(b.dataset.m); setRange(new Date(n.getFullYear(), n.getMonth() - k, 1), k ? new Date(n.getFullYear(), n.getMonth(), 0) : n); saveCond(); }));
   ['words', 'mode', 'inDesc', 'top', 'minViews', 'archiveOnly', 'noShorts', 'minDur10', 'dStart', 'dEnd'].forEach(id => $('#' + id).addEventListener('change', saveCond));
   advSummary();
-  $('#words').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); startSearch(); } });
+  UIKit.onEnter($('#words'), () => startSearch());
   /* 事務所のチェックは、ユーザーが変えたものだけ覚える(触っていない事務所は、チャンネルを登録すれば自動で選ばれる) */
   $('#agChecks').addEventListener('change', e => { const cb = e.target.closest('.agc'); if (!cb) return; R.agPick[cb.value] = cb.checked; lsSet('agsel', R.agPick); syncGo(); });
   $('#rgChecks').addEventListener('change', e => { const cb = e.target.closest('.rgc'); if (!cb) return; R.rgPick[cb.value] = cb.checked; lsSet('rgsel', R.rgPick); renderLvAg(); syncGo(); });
@@ -736,20 +735,10 @@ S.onReady(async () => {
   $('#rkOpenReg').addEventListener('click', () => S.openSettings('setReg'));
   $('#pickClear').addEventListener('click', () => { R.picked.clear(); paintPick(); });
   $('#pickGo').addEventListener('click', () => enqueue([...R.picked.values()]));
-  /* まとめて実行は入口から開いたときだけ(ほかの入口と同じ)。開いていないときも隠さず、押せない理由を出す(S-25。② の「まとめて実行」と同じ形) */
   $('#rkAuto').hidden = false;
-  if (!S.token){
-    /* 押しても開かずに理由を知らせる(ui-kit v21 の共通の書き方 UIKit.menuOff。Enter・Space も) */
-    UIKit.menuOff($('#rkAuto'), 'まとめて実行は、ホーム(start.bat)から開いたときだけ使えます');
-  }
   $('#rkAutoGo').addEventListener('click', startAuto);
-  if (S.token){
-    UIKit.streamer.attach($('#rkAutoWho'));   // 配信者の名前(字幕の色)の候補と色の見本
-    /* まとめて実行の設定の要約と「設定を変える」・採用数はホームの設定(どの入口も同じ。段4) */
-    UIKit.autorun.panel($('#paneRank .rk-autopanel'), { kind: 'new' });
-    UIKit.autorun.load().then(st => { $('#rkAutoTop').value = String(st.top); }, () => {});
-    $('#rkAutoTop').addEventListener('change', () => { const n = Math.round(Number($('#rkAutoTop').value)); if (n >= 1 && n <= 20) UIKit.prefs.patch('autorun', { top: n }).catch(() => {}); });
-  }
+  /* 配信者の名前(字幕の色)の候補・まとめて実行の設定の要約と「設定を変える」・採用数はホームの設定(どの入口も同じ。段4) */
+  UIKit.autorun.form({ who: $('#rkAutoWho'), top: $('#rkAutoTop'), panel: $('#paneRank .rk-autopanel'), kind: 'new' });
   $('#results').addEventListener('change', e => {
     const cb = e.target.closest('.pk'); if (!cb) return;
     if (cb.checked){ if (R.picked.size >= MAX_PICK){ cb.checked = false; return S.toast('一度に選べるのは最大10本です'); } R.picked.set(cb.dataset.id, { kind: 'youtube', videoId: cb.dataset.id, title: cb.dataset.title, channel: cb.dataset.channel }); }

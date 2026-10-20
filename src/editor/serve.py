@@ -3,7 +3,7 @@
 
     python3 serve.py [開始ポート] [--no-open]
 
-  GET  /app.js, /cut.js, /pack-tab.js, /app-*.js   画面の部品の JS(案件の画面の校正・カット・パックのパネルが transcribe/ から読む。
+  GET  /app.js, /doc-kit.js, /cut.js, /pack-tab.js, /app-*.js   画面の部品の JS(案件の画面の校正・カット・パックのパネルが transcribe/ から読む。
                              / は入口が案件の画面へ転送する)
   GET  /proof.css            校正のパネルの CSS
   GET  /api/ping             起動確認
@@ -45,11 +45,9 @@
   GET  /api/doc-for?path=    その動画の文書 → {"doc": {"id", "rows"} | null}(?media= で開いたとき。パスを比べるだけ)
   GET  /api/peaks?id=        音の波形(0〜255 の1バイトの並び。X-Peaks-Rate・X-Peaks-Duration)。作っている間は 202
   受け渡し(notes:docs/spec/pipeline.md。読み・保存は manage/cases/handoff_io.py・.runtime は ytt/runtime.py・JSON と SRT の組み立ては flow/pack.py):
-  GET  /api/clip-info?path=  動画(または .clip.json)の隣の youtube-tools-clip/v1 → {"clip", "clipPath", "mediaPath", "warning"}
   POST /api/export-file      {"id", "format": transcript-v1|srt|cut-plan-v1} 動画の隣に保存 → {"path", "name", "overwritten", "format", "count"}
   GET  /api/siblings         実行中の他のツールのポート {"tools": {"transcribe": 8775, ...}}
   評価ドリル(マスタープラン Q4。本体は eval/drill/drill.py。画面は編集の ?doc=<id>&drill=1):
-  GET  /api/drill/next?skip=<id,…>  次の評価用の動画 1 本(まだ確かめていない・直近 10 分に更新していない・処理中でない・動画がある)を乱数で
   POST /api/drill/reviewed   {id, baseUpdatedAt, via?} 「全部聞いて直した」印 evalReviewed と残りの行の校正済み(updatedAt が違えば 409)
   POST /api/drill/unreviewed {id, baseUpdatedAt} 確かめ済みの印を外す
   GET  /api/drill/status     定点(確かめ済みの評価用の動画 15 分)の残りと条件(話者・配信・重なり・BGM・呼び名)
@@ -189,7 +187,7 @@ _ed_owner = _modfwd.install(globals(), _ED_MODULES, "serve")   # serve.名前 �
 
 
 # ---------- HTTP ----------
-QUIET_PATHS = ("/api/jobs", "/media", "/api/siblings", "/api/clip-info", "/api/peaks", "/api/edit", "/api/doc-for", "/api/effort", "/api/drill/status")   # 画面が頻繁に呼ぶ・パスを含むので、黒い画面に出さない
+QUIET_PATHS = ("/api/jobs", "/media", "/api/siblings", "/api/peaks", "/api/edit", "/api/doc-for", "/api/effort", "/api/drill/status")   # 画面が頻繁に呼ぶ・パスを含むので、黒い画面に出さない
 PAGE_HEADERS = httpsec.PAGE_HEADERS
 
 
@@ -236,7 +234,6 @@ def _transcript(tid):
 GET_API = {
     "/api/ping": lambda a: _ping(),
     "/api/siblings": lambda a: _runtime.siblings(ed_state.runtime_path_dir(), ed_state.TOOL_ID, ed_state.PORT, self_path=ed_state.BASE_PATH),
-    "/api/clip-info": lambda a: _handoff_io.clip_info(a("path")),
     "/api/roster": lambda a: _learn.load_roster(),
     "/api/tools": lambda a: _tools_info(),
     "/api/voices": lambda a: {"voices": _speakers.voices_summary(), "match": _txdiarize.VOICE_MATCH},   # A-3: 覚えている声の一覧(特徴そのものは返さない)
@@ -247,7 +244,6 @@ GET_API = {
     "/api/suggest": lambda a: _learn.suggest_for_doc(_tid_arg(a("id"))),
     "/api/metrics": _metrics,
     "/api/drill/status": lambda a: _drill.drill_status(),   # 評価ドリル(Q4): 定点の「あと何分」と条件
-    "/api/drill/next": lambda a: _drill.drill_next(a("skip")),   # 次の評価用の動画 1 本(読むだけ。skip = このドリルで飛ばした文書)
     "/api/drill/candidates": lambda a: _drill.drill_candidates(a("id")),   # 話者の候補(ドリル・話者のカードの「全行をこの人に」)
     "/api/history": lambda a: {"items": _store.list_history(a("id"))},
     "/api/transcript": lambda a: _transcript(a("id")),
@@ -299,7 +295,6 @@ POST_API = {
     "/api/eval-folders/settle": lambda o: _evfolders.eval_settle(o),
     "/api/eval-batch/start": lambda o: _evalbatch.eval_batch_start(o),
     "/api/eval-batch/stop": lambda o: _evalbatch.eval_batch_stop(o),
-    "/api/eval-batch/redo": lambda o: _evalbatch.eval_batch_redo(o),   # 未確認で手つかずの評価用を作り直す(dryRun = 数えるだけ)
     "/api/eval-batch/redo-one": lambda o: _evalbatch.eval_batch_redo_one(o),   # 開いている評価用の動画 1 本だけを今の設定ですぐ作り直す(人が手を入れていれば force のときだけ)
     "/api/pick": lambda o: _relink.pick_path(o),
     "/api/retime": lambda o: _proofretime.retime_doc(o),   # 行の時刻を単語の時刻に合わせる候補(読むだけ。human/proof/retime)

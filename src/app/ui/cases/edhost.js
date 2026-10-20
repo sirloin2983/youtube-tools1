@@ -1,10 +1,10 @@
 /* 案件の画面に「編集」の校正(1 文字起こし)をそのまま載せる台(RS8 C2b。作り方 notes:docs/design/rs8-cases-build.md の C2b)。
-   編集の app-*.js・app.js は包みの無いトップレベルの名前(S・$・openDoc・saveDoc …)で動くので、包まずにそのまま読む(凍結した古い画面と同じコード)。
+   編集の app-*.js・app.js は包みの無いトップレベルの名前(S・$・openDoc・saveDoc …)で動くので、包まずにそのまま読む。
    ここがするのは:
    (1) 初めて校正を開いたときに 1 回だけ組み立てる: ホームの api/status で編集(transcribe)が取り込まれているかを見る → 版の meta → transcribe/app-tpl.js(欄の
        テンプレート)と transcribe/proof.css → 欄を組み立てて隠し場所(.cs-ed-park)へ → transcribe/app-core.js … app.js を順に読む(app.js が起動 boot() する)。
-       左のメニュー・空の状態・⚙ の節は app.js の配線に要るので組み立てるが、画面には出さない(案件の画面の CSS で隠す・⚙ の節は設定の引き出しへ app.js が移す)。
-       カット・パックは panels/cut.js が自分で持つ(app.js の CUT・PACK は作らない = app.js の EDIT_HOST の口)。⚙ の「パック」の節(#edSetPack)は同じ id が
+       ⚙ の節は設定の引き出しへ app.js が移す。
+       カット・パックは panels/cut.js が自分で持つ(app.js は作らない)。⚙ の「パック」の節(#edSetPack)は同じ id が
        カット・パックのパネルにあるので外す(app.js は欄が無ければ飛ばす)。
    (2) 校正のパネル(panels/proof.js)が開いている間だけ欄をパネルの中へ移し(attach)、閉じたら隠し場所へ戻す(detach。再生を止め・保存を送る)。
        欄は捨てない = app.js の配線(id で引いた要素)が生きたまま。
@@ -19,15 +19,6 @@
   var NOT_MOUNTED = '編集(文字起こし)がホームに取り込まれていません。ホームの「すべて終了」から start.bat で起動し直してください';
   var park = null, wrap = null, readyP = null, guardOn = false, built = false, later = [];
 
-  function loadScript(src) {
-    return new Promise(function (resolve, reject) {
-      var s = document.createElement('script');
-      s.src = src; s.async = false;
-      s.onload = function () { resolve(); };
-      s.onerror = function () { reject(new Error(src + ' を読み込めませんでした')); };
-      document.head.appendChild(s);
-    });
-  }
   function loadCss(href) {
     return new Promise(function (resolve) {
       var l = document.createElement('link');
@@ -48,7 +39,7 @@
   /* app.js の配線が引く欄。見せるのは #errBar・保存の状態・キー操作・題名の行・1 文字起こし の欄だけ(ほかは cases の CSS で隠す) */
   function build() {
     var T = window.EditProofTpl || {};
-    if (!T.tx || !T.menu || !T.docbar || !T.nodoc || !T.settings || !T.dialogs) throw new Error('編集の欄のテンプレート(app-tpl.js)が古いか読めません');
+    if (!T.tx || !T.docbar || !T.settings || !T.dialogs) throw new Error('編集の欄のテンプレート(app-tpl.js)が古いか読めません');
     park = document.createElement('div');
     park.className = 'cs-ed-park'; park.hidden = true;
     wrap = document.createElement('div');
@@ -58,13 +49,8 @@
         '<div class="cs-ed-tools" data-ed-tools></div><span class="cs-spacer"></span>' +
         '<span class="savest" id="saveState" role="status"></span>' +
         '<button type="button" class="btn ghost small" id="btnKeys" title="キー操作の一覧(?)" aria-haspopup="dialog"><span class="ui-icon" data-icon="keyboard" aria-hidden="true"></span>キー操作</button>' +
-        '<div hidden><button type="button" id="btnMenu" aria-expanded="false"><span id="btnMenuT"></span></button>' +
-          '<nav id="edTabs" role="tablist" aria-label="編集の段"><button type="button" role="tab" id="edtab-tx" data-edtab="tx" aria-selected="true">文字起こし</button>' +
-          '<button type="button" role="tab" id="edtab-cut" data-edtab="cut" aria-selected="false">カット</button></nav>' +
-          '<button type="button" id="jobBadge" hidden></button></div>' +
       '</div>' +
-      '<div class="app cs-ed">' + T.menu + '<main class="editor" id="editor">' + T.nodoc + '<div id="doc" hidden>' + T.docbar + T.tx + '</div></main></div>' +
-      '<div class="tt-scrim" id="menuScrim" aria-hidden="true"></div>';
+      '<main class="editor" id="editor"><div id="doc" hidden>' + T.docbar + T.tx + '</div></main>';
     park.appendChild(wrap);
     var set = document.createElement('div');
     set.hidden = true;
@@ -90,14 +76,15 @@
       var t = ((st && st.tools) || []).filter(function (x) { return x && x.id === 'transcribe'; })[0];
       if (!t || !t.mounted) { var e = new Error(NOT_MOUNTED); e.code = 'not_mounted'; throw e; }
       versionMeta(st.version);
-      return Promise.all([loadScript('transcribe/app-tpl.js'), loadCss('transcribe/proof.css')]);
+      return Promise.all([UIKit.loadScript('transcribe/app-tpl.js'), loadCss('transcribe/proof.css')]);
     }).then(function () {
       build(); built = true;
       if (!guardOn) { document.addEventListener('keydown', guard); guardOn = true; }
       /* cut.js を先に(app.js が読み込みの時点で EditCut.KEY_ROWS・FIXED_KEYS を写す = ? の一覧の「2 カット のタブ」の節とキー配置の検査。RS8 C4。
          カット・パックのパネルが先に読んでいれば読まない) */
-      var first = window.EditCut ? Promise.resolve() : loadScript('transcribe/cut.js');
-      return ED_SCRIPTS.reduce(function (p, n) { return p.then(function () { return loadScript('transcribe/' + n); }); }, first);
+      var first = window.EditCut ? Promise.resolve() : UIKit.loadScript('transcribe/cut.js');
+      var all = (window.EditDoc ? [] : ['doc-kit.js']).concat(ED_SCRIPTS);   // 文書の部品(doc-kit.js)は、カット・パックのパネルが先に読んでいれば読まない
+      return all.reduce(function (p, n) { return p.then(function () { return UIKit.loadScript('transcribe/' + n); }); }, first);
     }).then(function () {
       later.splice(0).forEach(function (fn) { fn(); });   // 編集の部品が「app.js のあとで」と頼んだ初期化(app-tools.js の evbInit)
       return BOOTED;   // app.js の起動(boot())の約束(app.js の最後の行)
@@ -126,7 +113,7 @@
       if (!wrap) return;
       el.appendChild(wrap);
       H.active = true; H.onKeys = onKeys || null;
-      setEditTab('tx', { host: true, hash: false });
+      applyView();
     },
     detach: function () {
       if (!wrap) return;

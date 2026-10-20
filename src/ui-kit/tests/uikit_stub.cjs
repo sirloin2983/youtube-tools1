@@ -26,8 +26,10 @@ function kitSlice(start, end) {
 function realText() {
   const ctx = {};
   vm.createContext(ctx);
-  vm.runInContext(kitSlice('  function esc(', '\n', 0) + '\n' + kitSlice('  function pad2(', '  /* ---- 入口の共通の API') + '\nthis.esc = esc; this.fmt = fmt;', ctx);
-  return { esc: ctx.esc, fmt: ctx.fmt };
+  vm.runInContext(kitSlice('  function esc(', '\n', 0) + '\n' + kitSlice('  function pad2(', '  /* ---- 入口の共通の API') + '\n' + kitSlice('  var AR_RUN = ', '\n') + '\n' +
+    kitSlice('  var STATE_CLS', '  /* UIKit.onEnter') + kitSlice('  function emptyHtml', '\n') + '\n' + kitSlice('  fmt.agoSpan', '\n') +
+    '\nthis.esc = esc; this.fmt = fmt; this.state = uiState; this.emptyHtml = emptyHtml;', ctx);
+  return { esc: ctx.esc, fmt: ctx.fmt, state: ctx.state, emptyHtml: ctx.emptyHtml };
 }
 
 /* window.UIKit = { … } の一番上の名前(ui-kit.js の最後)。テストが「代わりが本物の名前を全部知っているか」を確かめるのに使う */
@@ -54,13 +56,14 @@ function makeUIKit(overrides = {}) {
     });
   }
   const stubErr = name => Object.assign(new Error('テストで UIKit.' + name + ' を差し替えてください'), { code: 'stub', status: 0, body: {}, data: {}, reason: '', detail: '' });
-  const { esc, fmt } = realText();
+  const { esc, fmt, state, emptyHtml } = realText();
   const iconFn = rec('icon', () => '');
   iconFn.fill = rec('icon.fill');
-  iconFn.names = rec('icon.names', () => []);
   const kit = {
     version: Number((/window\.UIKit = \{ version: (\d+)/.exec(KIT_SRC) || [])[1]) || 0,   // 本物の版
-    esc, fmt,
+    esc, fmt, state, emptyHtml,
+    onEnter: rec('onEnter'),
+    armDelete: rec('armDelete'),
     toast: rec('toast', () => ({ close() {}, el: null })),
     dialog: {
       confirm: rec('dialog.confirm', () => Promise.resolve(true)),
@@ -81,6 +84,7 @@ function makeUIKit(overrides = {}) {
     homeApi: rec('homeApi', () => Promise.reject(stubErr('homeApi'))),
     homeUrl: rec('homeUrl', p => '/' + String(p == null ? '' : p).replace(/^\/+/, '')),
     copy: rec('copy', () => Promise.resolve(true)),
+    loadScript: rec('loadScript', () => Promise.resolve()),
     keys: {
       isTyping: rec('keys.isTyping', () => false),
       playback: rec('keys.playback', () => false),
@@ -89,9 +93,7 @@ function makeUIKit(overrides = {}) {
     tools: {
       paths: {},
       base: rec('tools.base', () => '/'),
-      url: rec('tools.url', () => ''),
       mounted: rec('tools.mounted', () => false),
-      render: rec('tools.render'),
       setPaths: rec('tools.setPaths'),
     },
     prefs: {

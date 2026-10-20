@@ -241,23 +241,14 @@ def main():
                 # ? のキー操作の一覧・キー配置の組み合わせ・下の帯の文字は画面の道に入れない(写真の関所で見る)
 
                 # 4c. まとめて実行(入口の /api/flow/submit。偽物で頼んだ中身だけ見る): 配信ごと・マークの行の「この後を ▸」
-                check(pg.is_visible("#rvAuto"), "「まとめて実行」が出る(入口の中)")
-                pg.click("#rvAuto > summary")
-                check(pg.eval_on_selector_all('#rvAuto [data-auto]', 'els => els.map(e => e.dataset.auto)') == ["full"],
-                      "「まとめて実行 ▾」は解析から全部だけ(採用後を全部・文字起こしまでは 10-19 に消した)")
-                pg.click('#rvAuto [data-auto="full"]')
-                check(wait_js(pg, "!document.querySelector('#rvAutoBar').hidden && /解析から全部/.test(document.querySelector('#rvAutoBar').textContent)", 10000),
-                      "始めると、同じパネルに進み具合の帯が出る: %s" % (pg.text_content("#rvAutoBar") or "")[:60])
-                check(bool(sent_tx) and sent_tx[-1].get("id") == VID and sent_tx[-1].get("mode") == "full" and not sent_tx[-1].get("marks"),
-                      "この配信の「解析から全部」を入口に頼む: %s" % sent_tx[-1:])
                 row_pop = M1 + " .rv-rowmore"
                 check(pg.locator(row_pop).count() == 1, "採用したマークの行に「…」(その他の操作)")
                 pg.click(row_pop + " > summary")
                 pg.click(row_pop + " [data-act=auto1]")
                 end = time.time() + 8
-                while time.time() < end and len(sent_tx) < 2:
+                while time.time() < end and len(sent_tx) < 1:
                     pg.wait_for_timeout(200)   # 同期版の route は Playwright を呼んでいる間しか動かない(time.sleep では届かない)
-                check(len(sent_tx) == 2 and sent_tx[-1].get("marks") == ["m1"] and sent_tx[-1].get("mode") == "full-export",
+                check(len(sent_tx) == 1 and sent_tx[-1].get("marks") == ["m1"] and sent_tx[-1].get("mode") == "full-export",
                       "「この後を ▸」はこのマークだけ・書き出しから全部: %s" % sent_tx[-1:])
                 runs[:] = []   # 帯は 10 分より前に終わった実行を出さない = 空にすれば消える
                 sent_tx[:] = []

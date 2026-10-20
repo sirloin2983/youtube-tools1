@@ -232,16 +232,13 @@ class TestAutoDiar(unittest.TestCase):
         self.assertTrue(any("話者の自動判別を始められませんでした" in w for w in doc_jobs.public_job(tj)["warnings"]))
         self.assertTrue(self.text_rows(tid))
 
-    # -- ドリル
-    def test_waiting_doc_is_not_in_drill(self):
+    # -- 評価用の作業の対象
+    def test_waiting_doc_is_busy(self):
         tid, _ = self.transcribe(self.put(self.mem, "l.mp4"))
-        self.age(tid)
         (dj,) = self.diar_jobs(tid)
-        r = S.drill_next()
-        self.assertEqual((r["id"], r["counts"]["busy"]), (None, 1), r)   # 判別の待ちの文書は出さない
+        self.assertIn(tid, S._busy_tids())   # 判別の待ちの文書は、ほかの評価用の作業の対象にしない
         self.run_one(dj)
-        self.age(tid)
-        self.assertEqual(S.drill_next()["id"], tid)   # 判別が済めば出る(話者付き)
+        self.assertNotIn(tid, S._busy_tids())   # 判別が済めば対象になる
 
     # -- まとめての文字起こし(後追い)
     def test_batch_transcription_adds_marked_diarize(self):

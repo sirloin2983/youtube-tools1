@@ -1,38 +1,33 @@
 /* 案件の画面の「カット・パック」のパネル(#cut。残す区間を決めて、末尾で DaVinci Resolve へ渡すパックを作る)。口の形は cases.js の先頭の説明。RS8 C2c。
-   中身は編集の 2 カット(src/app/ui/editor/cut.js = EditCut)とパック(src/app/ui/editor/pack-tab.js = EditPack)をそのまま使う(動きを二重に持たない。古い編集の画面は C4 まで残る)。
-   ここが持つのは (1) 画面の骨組み(編集の index.html の 2 カットの節と同じ。パックの設定の節 #edSetPack も画面の中に置く。「予備」の欄は決定 3-34 で置かない)、
-   (2) 編集の app-*.js が cut.js / pack-tab.js に渡している「host」(文書 S・保存・元に戻す・字幕の積み方・話者の色・cut2resolve の口)の、このパネル用の小さい版、
+   中身は 2 カット(src/app/ui/editor/cut.js = EditCut)とパック(src/app/ui/editor/pack-tab.js = EditPack)。
+   ここが持つのは (1) 画面の骨組み(パックの設定の節 #edSetPack も画面の中に置く。「予備」の欄は決定 3-34 で置かない)、
+   (2) cut.js / pack-tab.js に渡す「host」(文書 S・保存・元に戻す・字幕の積み方・話者の色・cut2resolve の口)、
    (3) 殻の口(mount / update / unmount / keys / keybar / leave / back)との橋。
    パネルの中の要素は root.querySelector で引く(document.getElementById・document.querySelector は使わない)。API は ctx.api('transcribe' | 'cut2resolve' | 'home', …) の相対パス。
-   cut.js・pack-tab.js は /transcribe/ から読む(同じ入口の中。CSP の script-src 'self')。窓へ付ける keydown は付けず(h.ownKeys)、殻の keydown 1 本から keys(e) で渡す */
+   cut.js・pack-tab.js は /transcribe/ から読む(同じ入口の中。CSP の script-src 'self')。窓へ付ける keydown は付けず、殻の keydown 1 本から keys(e) で渡す */
 (function () {
   'use strict';
 
-  var SCRIPTS = ['transcribe/cut.js', 'transcribe/pack-tab.js'];
-  var LOADED_AS = { 'transcribe/cut.js': 'EditCut', 'transcribe/pack-tab.js': 'EditPack' };
+  var SCRIPTS = ['transcribe/doc-kit.js', 'transcribe/cut.js', 'transcribe/pack-tab.js'];
+  var LOADED_AS = { 'transcribe/doc-kit.js': 'EditDoc', 'transcribe/cut.js': 'EditCut', 'transcribe/pack-tab.js': 'EditPack' };
   var scriptsP = null;
+  var D = null;   // window.EditDoc(文書の小さな部品。読み込んだあとに入る)
   function loadScripts() {
-    if (window.EditCut && window.EditPack) return Promise.resolve();
+    if (window.EditDoc && window.EditCut && window.EditPack) { D = window.EditDoc; return Promise.resolve(); }
     if (scriptsP) return scriptsP;
     scriptsP = SCRIPTS.reduce(function (p, src) {
       return p.then(function () {
-        if (window[LOADED_AS[src]]) return null;   // 校正の台(edhost.js)が先に読んだ cut.js は読み直さない
-        return new Promise(function (resolve, reject) {
-          var s = document.createElement('script');
-          s.src = src;
-          s.onload = function () { resolve(); };
-          s.onerror = function () { scriptsP = null; reject(new Error(src + ' を読み込めませんでした')); };
-          document.head.appendChild(s);
-        });
+        if (window[LOADED_AS[src]]) return null;   // 校正の台(edhost.js)が先に読んだ部品は読み直さない
+        return UIKit.loadScript(src);
       });
-    }, Promise.resolve());
+    }, Promise.resolve()).then(function () { D = window.EditDoc; }, function (e) { scriptsP = null; throw e; });
     return scriptsP;
   }
 
-  /* 編集の index.html の 2 カットの節(#tabCut)と同じ骨組み。id は cut.js / pack-tab.js が引く名前のまま */
+  /* 2 カットの節(#tabCut)の骨組み。id は cut.js / pack-tab.js が引く名前のまま */
   var TEMPLATE = `
 <section id="tabCut">
- <div class="notice tt-cut-off" id="cutOff" hidden role="status"><span id="cutOffMsg"></span><button type="button" class="btn small" id="cutRelink" hidden>動画を選び直す</button><button type="button" class="btn small" id="cutRetry" hidden>もう一度読み込む</button></div>
+ <div class="notice tt-cut-off" id="cutOff" hidden role="status"><span id="cutOffMsg"></span><button type="button" class="btn small" id="cutRetry" hidden>もう一度読み込む</button></div>
  <div class="notice err" id="cutDocConflict" hidden role="alert"><b>文字起こしの保存が競合しています。</b>字幕の段の行の時刻は、今は動かせません。別の場所で先に更新された文字起こしを読み直してください。
    <button type="button" class="btn small" id="cutDocConflictGo">文字起こしを読み直す(この画面の未保存の変更は消えます)</button></div>
  <div class="notice err" id="cutConflict" hidden role="alert"><b>別のタブか窓で、先にカットが保存されています。</b>自動保存は止めています。
@@ -122,7 +117,6 @@
        <div class="tt-pk-map" id="pkMap" aria-hidden="true"></div>
        <p class="hint tt-pk-p">区間は上の<b>カット</b>のとおり。字幕は文字起こしの行を区間に合わせて詰めます(削った行の字幕は入りません)。</p>
        <p class="hint tt-pk-p" id="pkNoSub" hidden></p>
-       <p class="hint tt-pk-p" id="pkRead" hidden></p>
        <p class="notice info tt-pk-pvstate" id="pkPvState" hidden role="status" aria-live="polite"><span></span><button type="button" class="btn small" id="pkPvRetry" hidden>もう一度</button></p>
        <ul class="notice tt-pk-warn" id="pkWarn" hidden></ul>
        <div class="row tt-pk-go"><button type="button" class="btn primary lg" id="pkBuild">パックを作る</button><span class="hint" id="pkBuildHint"></span></div>
@@ -207,42 +201,11 @@
  </dialog>
 </section>`;
 
-  /* ---- host に渡す小さい道具(編集の app-core / app-rows と同じ見え方・同じ規則のうち、このパネルが使う分だけ)---- */
+  /* ---- host に渡す小さい道具(文書の部品は editor/doc-kit.js の D)---- */
   var enc = encodeURIComponent;
-  function fmtT(t, ms) {
-    t = Math.max(0, Number(t) || 0);
-    var h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = t % 60;
-    var ss = ms ? s.toFixed(1).padStart(4, '0') : String(Math.floor(s)).padStart(2, '0');
-    return h ? h + ':' + String(m).padStart(2, '0') + ':' + ss : m + ':' + ss;
-  }
-  function fmtCs(t) {
-    t = Math.max(0, Number(t) || 0);
-    var cs = Math.round(t * 100), h = Math.floor(cs / 360000), m = Math.floor(cs % 360000 / 6000), sec = (cs % 6000) / 100;
-    return (h ? h + ':' + String(m).padStart(2, '0') : String(m)) + ':' + sec.toFixed(2).padStart(5, '0');
-  }
   function toast(msg, ms, kind) { return UIKit.toast(msg, ms && typeof ms === 'object' ? ms : { ms: ms, kind: kind || '' }); }
-  var hasText = function (g) { return !!String(g && g.text || '').trim(); };
-  var uid = function () { return 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); };
-  var CAP_SCAN = 40, CAP_OVERLAP_MIN = 0.3, CAP_MAX_STACK = 3, LOCK_KINDS = { diarize: 1, rerun: 1, transcribe: 1 };
-  var subColorOf = function (sp) { var c = sp && sp.sub && typeof sp.sub === 'object' ? String(sp.sub.color || '') : ''; return /^#[0-9a-fA-F]{6}$/.test(c) ? c.toUpperCase() : ''; };
-  var isOtherSp = function (sp) { return !!sp && sp.id === 'other'; };
-  function segIndexAt(segs, t) {
-    var lo = 0, hi = segs.length - 1, ans = -1;
-    while (lo <= hi) { var m = (lo + hi) >> 1; if (segs[m].start <= t) { ans = m; lo = m + 1; } else hi = m - 1; }
-    return ans;
-  }
-  function download(blob, name) {
-    var a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = name;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(function () { URL.revokeObjectURL(a.href); }, 30000);
-  }
+  var LOCK_KINDS = { diarize: 1, rerun: 1, transcribe: 1 };
   function metaToken() { var m = document.head.querySelector('meta[name="ytt-token"]'); return m ? m.content : ''; }
-  function keepCutHTML(cut, act, dis) {
-    var a = act || ['keep', 'cut'], d = dis || '';
-    return '<span class="tt-kc" role="group" aria-label="この行を残すかカットするか"><button type="button" data-act="' + a[0] + '" aria-pressed="' + (cut ? 'false' : 'true') + '" title="この行を残す"' + d + '>残す</button>' +
-      '<button type="button" data-act="' + a[1] + '" aria-pressed="' + (cut ? 'true' : 'false') + '" title="' + UIKit.esc('この行をカット済にする(Resolve の仮編集から外します。元の素材は残るので、あとで「残す」に戻せます)') + '"' + d + '>カット</button></span>';
-  }
   var NO_C2R = 'cut2resolve に接続できません(start.bat の黒い画面が閉じていないか確認してください)';
 
   window.CasesPanels.define('cut', function () {
@@ -382,7 +345,7 @@
       cut = Math.round(cut * 100) / 100;
       pushUndo();
       var left = Object.assign({}, s, { text: s.text.slice(0, pos).trimEnd(), end: cut });
-      var right = Object.assign({}, s, { id: uid(), text: s.text.slice(pos).trimStart(), start: cut, flag: '' });
+      var right = Object.assign({}, s, { id: D.uid(), text: s.text.slice(pos).trimStart(), start: cut, flag: '' });
       segs.splice(i, 1, left, right);
       markDirty();
       return true;
@@ -394,7 +357,7 @@
       return null;
     }
     function rowSig() {
-      return S.doc ? S.doc.segments.map(function (g) { return g.start + ',' + g.end + ',' + (g.cutState === 'cut' ? 1 : 0) + ',' + (hasText(g) ? 1 : 0) + (g.noSub ? ',n' : ''); }).join(';') : '';
+      return S.doc ? S.doc.segments.map(function (g) { return g.start + ',' + g.end + ',' + (g.cutState === 'cut' ? 1 : 0) + ',' + (D.hasText(g) ? 1 : 0) + (g.noSub ? ',n' : ''); }).join(';') : '';
     }
 
     /* ---- 話者の色(文書の話者の字幕の色 sub → 名前がメンバーと合えばメンバーカラー。照らし合わせは入口の api/ytt/streamer-colors)---- */
@@ -413,8 +376,8 @@
     function speakerColorByName(name) {
       name = String(name || '').trim();
       var own = null;
-      if (name && S.doc) S.doc.speakers.forEach(function (s) { if (!own && !isOtherSp(s) && String(s.name || '').trim() === name && subColorOf(s)) own = s; });
-      if (own) return { hex: subColorOf(own), member: '', pending: false, sub: true };
+      if (name && S.doc) S.doc.speakers.forEach(function (s) { if (!own && !D.isOtherSp(s) && String(s.name || '').trim() === name && D.subColorOf(s)) own = s; });
+      if (own) return { hex: D.subColorOf(own), member: '', pending: false, sub: true };
       if (!name || !metaToken() || !speakerColorsOn()) return { hex: '', member: '', pending: false };
       if (!SPKC.has(name)) lookupSpeakerNames([name]);
       var m = SPKC.get(name);
@@ -423,7 +386,7 @@
     function speakerColor(spId) {
       var sp = S.doc && S.doc.speakers.filter(function (s) { return s.id === spId; })[0];
       if (!sp) return { hex: '', auto: '', member: '', reason: '' };
-      var name = String(sp.name || '').trim(), sub = subColorOf(sp);
+      var name = String(sp.name || '').trim(), sub = D.subColorOf(sp);
       if (sub) return { hex: sub, auto: '', member: '', sub: true, reason: '字幕の色を指定しています(' + sub + '。メンバーの色より優先)' };
       if (!metaToken()) return { hex: '', auto: '', member: '', reason: 'ホームから開くと、名前をメンバーと照らし合わせて色を付けます' };
       if (!speakerColorsOn()) return { hex: '', auto: '', member: '', reason: '「話者の名前がメンバーと合えば…」を切っているので、メンバーの色は使いません' };
@@ -432,37 +395,6 @@
       return c.hex ? { hex: c.hex, auto: '', member: c.member, reason: '名簿の「' + c.member + '」と一致(この色で字幕を出します)' } : { hex: '', auto: '', member: '', reason: 'メンバーと合わないので、字幕は配信者の色で出します' };
     }
     function onSpeakerColors() { if (CUT && CUT.refreshCaption) CUT.refreshCaption(); if (PACK) PACK.changed(); }
-
-    /* ---- プレビューの字幕(重なる行は上下に積む。1 文字起こし と同じ規則)---- */
-    function capStack(segs, t, opt) {
-      var o = opt || {}, ok = function (i) { return hasText(segs[i]) && !segs[i].noSub && !(o.skip && o.skip(i)); };
-      var last = segIndexAt(segs, t), on = [];
-      for (var i = last; i >= 0 && i > last - CAP_SCAN; i--) if (t < segs[i].end && ok(i)) on.push(i);
-      var top = on.length ? on[0] : -1;
-      if (top < 0) return [];
-      var spIdx = function (id) { var k = S.doc ? S.doc.speakers.findIndex(function (s) { return s.id === id; }) : -1; return k < 0 ? 99 : k; };
-      var overlap = function (a, b) { return Math.min(a.end, b.end) - Math.max(a.start, b.start); };
-      var out = on.filter(function (x) { return x !== top && overlap(segs[x], segs[top]) >= CAP_OVERLAP_MIN; }).concat([top])
-        .sort(function (a, b) { return segs[a].start - segs[b].start || spIdx(segs[a].speaker) - spIdx(segs[b].speaker) || a - b; });
-      return out.length > CAP_MAX_STACK ? out.slice(0, CAP_MAX_STACK - 1).concat(out.slice(-1)) : out;
-    }
-    function paintCaps(box, idxs, segs) {
-      var items = idxs.map(function (i) { return { text: String(segs[i].text || '').trim(), hex: segs[i].speaker ? speakerColor(segs[i].speaker).hex : '' }; }).filter(function (x) { return x.text; });
-      var key = JSON.stringify(items);
-      if (box.dataset.capKey === key) return;
-      box.dataset.capKey = key;
-      box.hidden = !items.length;
-      if (items.length <= 1) {
-        var x = items[0];
-        box.textContent = x ? x.text : '';
-        if (x && x.hex) box.style.setProperty('--tt-cap-color', x.hex); else box.style.removeProperty('--tt-cap-color');
-        return;
-      }
-      box.style.removeProperty('--tt-cap-color');
-      box.innerHTML = items.slice().reverse().map(function (it) {
-        return '<span class="tt-cap-line"' + (/^#[0-9a-fA-F]{6}$/.test(it.hex) ? ' style="--tt-cap-color:' + it.hex + '"' : '') + '>' + UIKit.esc(it.text) + '</span>';
-      }).join('');
-    }
 
     /* ---- 作る前の書き出し・保存 ---- */
     async function cpExport(id) {
@@ -501,9 +433,9 @@
 
     function makeHost() {
       return {
-        root: root, S: S, $: q, esc: UIKit.esc, ownKeys: true, TOKEN: metaToken(),
+        root: root, S: S, $: q, esc: UIKit.esc, TOKEN: metaToken(),
         words: { tx: '校正のタブ', txName: '校正', cut: 'カットの欄', cutName: 'カット', conflict: 'カットの上の案内' },   // cut.js・pack-tab.js の案内文の「ほかの欄」の呼び名
-        fmtT: fmtT, fmtCs: fmtCs, toast: toast, api: hApi, apiUrl: apiUrl, apiBlob: apiBlob,
+        fmtT: D.fmtT, fmtCs: D.fmtCs, toast: toast, api: hApi, apiUrl: apiUrl, apiBlob: apiBlob,
         patchSettings: patchSettings, putSettings: putSettings, setKeybar: setKeybar,
         player: function () { return { currentTime: 0, readyState: 0 }; },   // 校正の欄の動画は無い(カットの動画は #cutPlayer)
         isTextEntry: function (t) { return UIKit.keys.isTyping(t); },
@@ -514,10 +446,8 @@
         lockJob: lockJob, rowSig: rowSig,
         c2rApi: c2rApi, c2rWait: c2rWait, c2rBase: c2rBase,
         tab: function () { return alive ? 'cut' : ''; },
-        keymap: function () { return null; }, menuHasKeys: function () { return false; },
         modalOpen: function () { return !!document.body.querySelector('dialog[open], .ui-drawer:not([hidden])'); },
         imeKey: function (e) { return e.isComposing || e.keyCode === 229; },
-        relink: null,   // 動画の選び直しは今の編集の画面(C4 で校正の欄へ)
         onCutMarks: function () {},
         onCutSaved: function (r) {
           if (!S.doc) return;
@@ -527,12 +457,14 @@
         },
         onCutState: function () { if (PACK) PACK.changed(); },
         onCutSave: function (text) { if (ctx && ctx.setHint) ctx.setHint(text); },
-        capStack: capStack, paintCaps: paintCaps, keepCutHTML: keepCutHTML,
+        keepCutHTML: D.keepCutHTML,
+        capStack: function (segs, t, opt) { return D.capStack(segs, t, Object.assign({ speakers: S.doc ? S.doc.speakers : [] }, opt)); },   // 重なる行は上下に積む(校正の映像の上と同じ規則)
+        paintCaps: function (box, idxs, segs) { D.paintCaps(box, idxs, segs, function (g) { return speakerColor(g.speaker).hex; }); },
         toTx: function () { location.hash = '#proof'; }, toPack: toPack, docConflictGo: reloadDoc,
-        download: download, safeName: function (t, fb) { return String(t || '').replace(/[\\/:*?"<>|\x00-\x1f]+/g, '_').trim().slice(0, 80) || fb || 'transcript'; },
+        download: D.download, safeName: D.safeName,
         ago: function (ms) { return UIKit.fmt.ago(ms); }, cpExport: cpExport,
         copyPath: function (text) { return UIKit.copy(text, { ok: 'パスをコピーしました', fail: 'コピーできませんでした(パスを選んでコピーしてください)' }); },
-        savedAll: savedAll, onPacked: onPacked, isOtherSp: isOtherSp, subColorOf: subColorOf
+        savedAll: savedAll, onPacked: onPacked, isOtherSp: D.isOtherSp, subColorOf: D.subColorOf
       };
     }
 

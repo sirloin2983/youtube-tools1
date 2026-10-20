@@ -37,49 +37,22 @@
   var ACTIVE = { queued: 1, running: 1 };
 
   function create() {
-    var pane = null, cctx = null, dead = false, started = false, vid = '', keyFn = null, kb = [], lifeFns = [null, null], subs = {}, readyFns = [], listeners = [], activeJobs = {};
+    var pane = null, cctx = null, dead = false, started = false, vid = '', keyFn = null, kb = [], lifeFns = [null, null], listeners = [], activeJobs = {};
     var esc = UIKit.esc;
     var q = function (sel) { return pane.querySelector(sel); };
-    var tokenTag = document.head.querySelector('meta[name="ytt-token"]');
-
-    /* ---- core.js の window.Studio の代わり(review.js が使う分だけ)---- */
-    function emit(name, detail) { (subs[name] || []).slice().forEach(function (fn) { try { fn(detail); } catch (e) { UIKit.report('候補のパネルで失敗しました: ' + (e && e.message), { stack: e && e.stack }); } }); }
-    var Studio = {
-      esc: esc, token: tokenTag ? tokenTag.content : '', state: null, step: '', review: null, params: {},
-      fmtTime: function (t) { return UIKit.fmt.dur(t, { tenths: true }); },
+    /* ---- core.js の window.Studio の代わり(review.js が使う分だけ。共通の部分は studio-shim.js)---- */
+    var Studio = StudioShim.create({ label: '候補のパネル', isDead: function () { return dead; },
       api: function (path, o) {
         o = o || {};
         return cctx.api('studio', path, { method: o.method, body: o.body, signal: o.signal, timeout: 0, offline: 'スタジオにつながりませんでした(start.bat の黒い画面が閉じていないか確かめてください)' });
-      },
-      url: function (p) { return 'studio/' + String(p).replace(/^\/+/, ''); },
-      portalApi: function (path, body) { return UIKit.homeApi(path, { body: body }); },
-      toast: function (msg, ms, kind) { return ms && typeof ms === 'object' ? UIKit.toast(msg, ms) : UIKit.toast(msg, { ms: ms || undefined, kind: kind }); },
-      why: function (b, why, okTitle) { b.disabled = !!why; b.title = why || okTitle || ''; if (why) b.setAttribute('data-ui-why', why); else b.removeAttribute('data-ui-why'); },
-      setBadge: function () {},
-      ago: function (ms) { return UIKit.fmt.ago(ms); },
-      date: function (ms) { return UIKit.fmt.date(ms); },
-      isVideoId: function (s) { return /^[\w-]{11}$/.test(s || ''); },
-      watchUrl: function (id, t) { return 'https://www.youtube.com/watch?v=' + encodeURIComponent(id) + (t >= 1 ? '&t=' + Math.floor(t) + 's' : ''); },
-      /* 入力中か: ui-kit の判定 + 時刻の欄(UIKit.timebox)。キーの判定は殻が先にするので、ここは review.js の中の確かめ用 */
-      isTyping: function (el) { return !!el && ((el.classList && el.classList.contains('ui-time')) || UIKit.keys.isTyping(el)); },
+      } });
+    Object.assign(Studio, {
       inMenu: function (el) { return !!(el && el.closest && el.closest('details.ui-menu[open]')); },
       overlayOpen: function () {
         var d = document.body.querySelector('#uiSettingsDrawer');
         return !!(document.body.querySelector('dialog[open]') || (d && UIKit.drawer.isOpen(d)));
       },
-      on: function (name, fn) { (subs[name] = subs[name] || []).push(fn); },
-      onReady: function (fn) { readyFns.push(fn); },
-      go: function (step) { if (step !== 'review' || dead) return; Studio.step = 'review'; emit('step', 'review'); },
-      refreshState: function () {
-        return Studio.api('/api/state').then(function (st) { if (dead) return st; Studio.state = st; emit('state', st); return st; });
-      },
-      /* 作業データ(data.json)の読み込みの問題(スタジオの起動のあと 1 回だけ /api/state に載る)。パネルでは帯に文だけ出す */
-      dataWarning: function (box) {
-        var w = Studio.state && Studio.state.dataWarning;
-        if (!box) return;
-        box.hidden = !w;
-        if (w && !box.childElementCount) box.innerHTML = '<div><b>スタジオの作業データの読み込みで問題がありました</b><br>' + esc(w) + '</div>';
-      },
+      go: function (step) { if (step !== 'review' || dead) return; Studio.step = 'review'; Studio.emit('step', 'review'); },
       openKeyHelp: function () {
         var dlg = q('#keyHelp'), km = Studio.review && Studio.review.keymap;
         if (!dlg || dlg.open || !km) return;
@@ -113,7 +86,7 @@
         begunText: function () { return ''; },
         register: function () { return Promise.reject(new Error('案件の画面では録画の登録はしません')); }
       }
-    };
+    });
     /* review.js に渡す env(review.js の先頭の説明)。見張りは片付けで外す・document の keydown は殻の keys へ */
     var env = {
       Studio: Studio, wide: '(min-width:1241px)',   // 左の一覧(280px)の分だけ、2 列にする幅を広げる(cand.css と同じ区切り)
@@ -153,7 +126,7 @@
     function start() {
       window.StudioReview.create(env);   // Studio.review・Studio.onReady(…)を登録する(画面はまだ作らない)
       started = true;
-      readyFns.splice(0).forEach(function (fn) { fn(); });   // 画面を作る・見張り・設定を読む(review.js の onReady)
+      Studio.fireReady();   // 画面を作る・見張り・設定を読む(review.js の onReady)
       UIKit.liveBadge.onOpen(null);   // 札の「開く」で別の録画をこのパネルに読み込まない(札の既定の行き先へ)
       Studio.refreshState().catch(function () { /* ffmpeg の有無が分からないだけ */ });
       openVideo();

@@ -15,7 +15,7 @@
              autoDelete(**既定オン**。src/manage/keep/live_cleanup.py)・
              書き出したあとの自動の流れ auto {after: none|check|auto(既定 check)・cut: ""(ホームの autorun.cut)|none|silence・
              engine: ""(編集の設定)|whisper.cpp・model: ""(編集の設定)|large-v3}(線 D の M2)。
-             after は画面・API が書き出したあとを指定しないとき(POST /live/api/adopt など)の既定。cut・engine・model は書き出しを頼んだときに覚えてまとめて実行へ渡す・
+             after は画面・API が書き出したあとを指定しないとき(自動の採用など)の既定。cut・engine・model は書き出しを頼んだときに覚えてまとめて実行へ渡す・
              配信が終わったらアーカイブの解析で自動で切り抜いてパックまで作る autoAfterStream(**既定オフ**。線 D の M7。src/flow/live_archive.py)と
              その数 afterStreamPerHour(1 時間あたり。1〜30。既定 6)・
              配信中の盛り上がりの検出 detect {enabled(**既定オン**。ユーザー決定), sens: high|normal|low(既定 normal), perHour: 1〜30(1 時間の候補の枠。既定 6)}

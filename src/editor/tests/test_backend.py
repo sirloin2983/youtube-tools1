@@ -4,7 +4,7 @@
     python3 -m unittest test_metrics test_resolve_export -q   # test_metrics がこのファイルのテストも読み込む
     python3 -m unittest test_backend -q                        # これだけ
 
-受け渡しの約束(notes:docs/spec/pipeline.md)の API(clip-info / export-file(transcript-v1)/ siblings)は、
+受け渡しの約束(notes:docs/spec/pipeline.md)の API(export-file(transcript-v1)/ siblings)は、
 疑似モード(TRANSCRIBE_BACKEND=fake)のサーバーを空いているポートで起動して確かめる(ffmpeg が必要)。
 """
 import json
@@ -353,25 +353,6 @@ class TestClipValidation(unittest.TestCase):
         clip, warn, _ = schemas.find_clip(media, 60.0)                          # 長さが大きく違えば警告(clip は使う)
         self.assertIsNotNone(clip)
         self.assertIn("長さ", warn)
-        # media.path は別の PC のパス → 同じフォルダの media.name を使う
-        self.assertEqual(P.resolve_clip_media(cj, clip, S.MEDIA_TYPES), os.path.abspath(media))
-        # media.name に ../ があっても、フォルダの外は見ない(名前だけを使う)
-        outside = os.path.join(os.path.dirname(tmp), "outside_%s.mp4" % os.getpid())
-        with open(outside, "wb") as f:
-            f.write(b"x")
-        try:
-            c2 = dict(clip, media={"name": "../" + os.path.basename(outside), "path": ""})
-            os.unlink(media)
-            self.assertIsNone(P.resolve_clip_media(cj, c2, S.MEDIA_TYPES))
-        finally:
-            os.unlink(outside)
-        # .clip.json の中のネットワークのパスには接続しない
-        self.assertTrue(fsio.is_network_path("\\\\host\\share\\x.mp4") and fsio.is_network_path("//host/x.mp4"))
-        self.assertFalse(fsio.is_network_path("C:\\x.mp4") or fsio.is_network_path("/home/x.mp4") or fsio.is_network_path("Z:/x.mp4"))
-        seen, real_isfile = [], os.path.isfile
-        with patch.object(os.path, "isfile", lambda c: seen.append(c) or real_isfile(c)):
-            P.resolve_clip_media(cj, dict(clip, media={"path": "\\\\evil\\share\\x.mp4", "name": ""}), S.MEDIA_TYPES)
-        self.assertFalse(any("evil" in c for c in seen))
         # 壊れた JSON・大きすぎるファイルは使わない
         testkit.write_text(cj, "{broken")
         self.assertIsNone(schemas.load_clip_file(cj)[0])
@@ -664,26 +645,6 @@ class TestPipelineHttp(unittest.TestCase):
         self.assertEqual(job["state"], "done")
         self.assertEqual(len(job["warnings"]), 1)
         self.assertNotIn("clip", self.call("GET", "/api/transcript?id=" + job["tid"]))
-
-    def test_clip_info(self):
-        r = self.call("GET", "/api/clip-info?path=" + self.q(self.wav))
-        self.assertEqual((r["clip"], r["mediaPath"], r["warning"]), (None, os.path.abspath(self.wav), None))   # 無ければ null
-        self.write_clip(clip_obj(media={"path": "C:\\別のPC\\x.mp4", "name": "動画_0012.wav"}))
-        r = self.call("GET", "/api/clip-info?path=" + self.q(self.wav))
-        self.assertEqual(r["clip"]["source"]["videoId"], "abcdefghijk")
-        self.assertTrue(r["clipPath"].endswith("動画_0012.clip.json"))
-        cj = os.path.join(self.media_dir, "動画_0012.clip.json")
-        r = self.call("GET", "/api/clip-info?path=" + self.q(cj))            # ?clip= 用: .clip.json から動画を探す
-        self.assertEqual(r["mediaPath"], os.path.abspath(self.wav))
-        r = self.call("GET", "/api/clip-info?path=" + self.q(os.path.join(self.media_dir, "無い.mp4")))
-        self.assertEqual((r["clip"], r["mediaPath"]), (None, None))
-        self.assertIn("見つかりません", r["warning"])
-        self.assertEqual(self.call("GET", "/api/clip-info?path=").get("_status"), 400)
-        for unc in ("\\\\evil.example\\share\\a.mp4", "//evil.example/share/a.mp4", "\\\\?\\UNC\\evil\\s\\a.mp4"):
-            r = self.call("GET", "/api/clip-info?path=" + self.q(unc))           # ネットワークのパスは調べない(Windows の資格情報の漏れ対策)
-            self.assertEqual((r["clip"], r["mediaPath"]), (None, None), unc)
-            self.assertIn("ネットワーク", r["warning"])
-        self.assertEqual(self.call("GET", "/api/clip-info?path=" + self.q(os.path.join(self.tmp, "serve.py"))).get("error"), "bad_ext")
 
     # ---- 動画の隣への保存 ----
     def make_edited(self):

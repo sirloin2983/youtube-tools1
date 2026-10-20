@@ -6,7 +6,7 @@ e2e は「主な道 1 つに 1 本」(plan/test-review.md): ホーム → 案件
 e2e に足さず、単体(/api・JS の小さな関数)と写真の関所(dev/ui_audit.py)へ。新しい e2e を足す前に、どの道の 1 本に入るかを決める。
 
     py -3.12 dev/run_e2e.py                      # 一式(大きな区切りに 1 回。AGENTS.md の「e2e は少なめに」)
-    py -3.12 dev/run_e2e.py --only cases         # 組(cases / home / studio / dev / ui-kit)か、名前の一部で絞る
+    py -3.12 dev/run_e2e.py --only cases         # 組(cases / home / studio / dev)か、名前の一部で絞る
     py -3.12 dev/run_e2e.py --only live_studio --only cases_cut
     py -3.12 dev/run_e2e.py --skip live_          # ライブを触っていないときは重い 2 本(約 7 分)を飛ばす
     py -3.12 dev/run_e2e.py --list               # 一覧だけ
@@ -43,8 +43,6 @@ SUITE = [
     ("home", "src/app/tests/e2e_autorun.py", [], "道 6 まとめて実行(画面と API・起動し直し後の記録)(27 秒)"),
     ("home", "src/app/tests/e2e_live_studio.py", [], "道 7 ライブ: オフなら今までの解析・ホームの /#new から録画 → 案件の画面の候補で再生 → マーク → 書き出し(絶対時刻)・シーク・離れると止まる・欠け・帯の音量と音を下げる・調子・札から停止・終わった録画の書き出し・配信者・開き直し・サーバーの adopt・配信中の候補と文字(約 1 分 45 秒)"),
     ("home", "src/app/tests/e2e_live_archive.py", [], "道 7 ライブ: 録画に無い区間だけをアーカイブから書き出す(409 の待ち)・録画を消す設定(オフの間は残す・オンでごみ箱)・マークの無い録画の自動の消去・配信後の全自動・帯の案内の文(約 2 分 40 秒)"),
-    # ui-kit
-    ("ui-kit", "src/ui-kit/tests/e2e_styleguide.py", [], "部品の約束(本物のブラウザでだけ見える物): 合言葉をほかのオリジンへ出さない・版の帯(合言葉が無ければ案内だけ・断られた理由・待って読み込み直す・戻らなければ案内)・録画中の札は合言葉が無ければ問い合わせない(約 6 秒)"),
     # 友人の受信箱(src/friendapp/tests/。玄関を一時フォルダに起こす・② と外の口は偽物)
     ("friend", "src/friendapp/tests/e2e_friend_send.py", [], "道 8 友人の送る: 一覧のカード → 区間 2 つ → 送る → 順番待ち・進み具合 → 取り消す(確認)・URL を貼る・失敗の [もう一度送る]・録画中の [録画を取り消す]・Esc・動画を落として 1 つだけ入る(約 13 秒)"),
     ("friend", "src/friendapp/tests/e2e_friend_receive.py", [], "道 9 友人の受け取る: 段・通し番号 → 再生(速度・音量を覚える)→ 受け取る・見送る・戻す・まとめて見送る・判断の記録 v2(約 5 秒)"),
@@ -101,7 +99,7 @@ def main():
     except (AttributeError, ValueError):
         pass
     ap = argparse.ArgumentParser(description="e2e の一式を 1 本ずつ流す")
-    ap.add_argument("--only", action="append", default=[], help="組(cases/home/studio/dev/ui-kit)か名前の一部。複数可")
+    ap.add_argument("--only", action="append", default=[], help="組(cases/home/studio/dev)か名前の一部。複数可")
     ap.add_argument("--skip", action="append", default=[], help="外す物(同じ形。例: --skip live_ でライブの 2 本を飛ばす)")
     ap.add_argument("--list", action="store_true", help="一覧だけ出す")
     ap.add_argument("--out", default="", help="結果を JSON で書く")

@@ -33,7 +33,7 @@
     <div class="empty pt-empty" id="todoEmpty" hidden>
       <b>いま動いている処理・待っている処理・失敗はありません</b><span id="todoEmptyText">まとめて実行や友人の依頼が始まると、ここに今の段と進み具合が出ます。</span>
     </div>
-    <ul class="pt-todo-list" id="todoList"></ul>
+    <ul class="pt-todo-list ui-list" id="todoList"></ul>
     <button type="button" class="btn small ghost" id="todoMore" hidden>すべて見る</button>
     <button type="button" class="btn small ghost" id="todoHidden" hidden></button>
   </section>
@@ -80,7 +80,7 @@
     <!-- 配信の案件に入らない文書の入れ物(動画ファイルの案件・評価用・案件の分からない文書)。開くとふつうの案件と同じ案件の画面(portal.js の renderVirtual) -->
     <div class="pt-vlist" id="vlistBox" hidden>
       <h3 class="pt-h3">配信のない案件 <span class="hint">動画ファイルの案件・評価用・どの案件にも入らない文字起こし</span></h3>
-      <ul class="pt-vlist-ul" id="vlist"></ul>
+      <ul class="pt-vlist-ul ui-list" id="vlist"></ul>
     </div>
 
     <!-- 単体の文字起こし(段5 5-1・B-5): 一覧は案件の画面の「どの案件にも入らない文字起こし」が主。ここは件数と「案件の画面で見る」の1行 + 選んでまとめて実行する入口(決定: 入口は減らさない) -->
@@ -119,7 +119,7 @@
   <!-- 運用(依頼の受付・バックアップ・まとめて実行の記録・編集の精度と学習・調子)。毎日は見ない物なので 1 つに畳む(RS8 C3・brief 原則 8)。
        中身の DOM と id は今のまま(portal.js の受付・バックアップ・記録・調子はそのまま動く)。中の欄を開く操作は、この枠も開く -->
   <details class="ui-disclosure pt-ops" id="opsBox">
-    <summary>運用 <span class="hint">依頼の受付・バックアップ・まとめて実行の記録・編集の精度と学習・調子</span> <span class="pill warn" id="opsAlert" hidden></span></summary>
+    <summary>運用 <span class="hint">依頼の受付・バックアップ・まとめて実行の記録・編集の精度と学習・調子</span></summary>
     <div class="pt-ops-body">
 
   <details class="ui-disclosure pt-intake" id="intakeBox">
@@ -148,12 +148,12 @@
       <div class="pt-notices" id="intakeNotices" hidden>
         <h3 class="pt-h3">友人から知らせ</h3>
         <p class="hint">友人のアプリで同じ失敗が 2 回続いたときに、友人が [作る人に知らせる] で送った物です(7 日の分)。ログの全文は作業データの friend-returns の notices に残っています。</p>
-        <ol class="pt-intake-list" id="intakeNoticeList"></ol>
+        <ol class="pt-intake-list ui-list" id="intakeNoticeList"></ol>
       </div>
 
       <div class="row"><h3 class="pt-h3 grow">届いた依頼</h3><button type="button" class="btn small ghost" id="intakeHidden" hidden></button></div>
       <div class="empty pt-empty" id="intakeEmpty" hidden></div>
-      <ol class="pt-intake-list" id="intakeList"></ol>
+      <ol class="pt-intake-list ui-list" id="intakeList"></ol>
     </div>
   </details>
 
@@ -185,7 +185,7 @@
       <p class="hint">終わったまとめて実行の結果です(新しい順)。ホームを終えても残ります(強制終了したときに実行中だった分は残りません)。</p>
       <div class="empty pt-empty" id="historyEmpty" hidden></div>
       <div class="row"><button type="button" class="btn small ghost" id="historyHidden" hidden></button></div>
-      <ol class="pt-history-list" id="historyList"></ol>
+      <ol class="pt-history-list ui-list" id="historyList"></ol>
       <div class="row" id="historyMoreBox" hidden><button type="button" class="btn small ghost" id="historyMore">もっと見る</button></div>
     </div>
   </details>
@@ -309,8 +309,6 @@
     <p class="notice pt-msg" hidden></p>
     <div class="row pt-actions">
       <a class="btn primary pt-open" target="_blank" rel="noopener">開く</a>
-      <button type="button" class="btn pt-toggle">停止</button>
-      <button type="button" class="btn ghost pt-restart">再起動</button>
     </div>
     <details class="ui-disclosure pt-logbox">
       <summary>ログ</summary>
@@ -325,8 +323,8 @@
     <a class="pt-todo-link">
       <span class="pill pt-todo-pill"></span>
       <span class="pt-todo-main">
-        <span class="pt-todo-title"></span>
-        <span class="hint pt-todo-sub"></span>
+        <span class="pt-todo-title ui-ell"></span>
+        <span class="hint pt-todo-sub ui-ell"></span>
       </span>
       <span class="ui-miniprogress pt-todo-prog" hidden><i></i></span>
       <span class="ui-caret right pt-todo-go" aria-hidden="true"></span>
@@ -345,8 +343,8 @@
   <details class="pt-case">
     <summary class="pt-case-row">
       <span class="pt-case-main grow">
-        <span class="pt-case-title"></span>
-        <span class="hint pt-case-sub"></span>
+        <span class="pt-case-title ui-ell"></span>
+        <span class="hint pt-case-sub ui-ell"></span>
       </span>
       <span class="pill pt-case-autopill" hidden></span>
       <span class="hint num pt-case-clips" hidden></span>
@@ -383,7 +381,7 @@
   <li class="pt-clip pt-doc">
     <div class="row">
       <label class="pt-doc-pick"><input type="checkbox" class="pt-doc-check" aria-label="選ぶ"></label>
-      <span class="grow pt-doc-main"><span class="pt-doc-title"></span><span class="hint pt-doc-sub"></span></span>
+      <span class="grow pt-doc-main"><span class="pt-doc-title ui-ell"></span><span class="hint pt-doc-sub ui-ell"></span></span>
       <span class="hint num pt-doc-tx"></span>
       <span class="pill pt-doc-runpill" hidden></span>
     </div>
@@ -398,7 +396,7 @@
   <li class="pt-history-item">
     <span class="pill pt-history-pill"></span>
     <span class="pt-history-main">
-      <a class="pt-history-title"></a>
+      <a class="pt-history-title ui-ell"></a>
       <span class="hint pt-history-sub"></span>
     </span>
     <span class="hint pt-history-when"></span>

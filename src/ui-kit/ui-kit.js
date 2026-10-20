@@ -1,9 +1,8 @@
-/* ui-kit v35 —テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+/* ui-kit v37 —テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
    画面の全面見直し(notes:docs/design/briefs/ui-overhaul/)の段階1。ES5 のまま(var・function。アロー関数・テンプレート文字列は使わない): <head> で同期に読み込むため。
    正本は src/ui-kit/ui-kit.js。写し先は無い(この正本を直接直す)。
-   window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark'。保存が無いときは既定で 'light') / set(p) / toggle() / onChange(fn)
-   window.UIKit.tools  : 既定のポートとツール名。render(el, {current, ports}) で「他のツール」メニューを作る。
-                         setPaths(/api/siblings の paths) で、入口の統合サーバーに取り込まれたツールの場所(/studio/ など)を覚える
+   window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark'。保存が無いときは既定で 'light') / set(p) / onChange(fn)
+   window.UIKit.tools  : setPaths(/api/siblings の paths) で、入口の統合サーバーに取り込まれたツールの場所(/studio/ など)を覚える。base(id)・mounted()
    window.UIKit.life   : onLeave(fn(reason)) / onReturn(fn(reason)) / isAway()。画面を離れた・戻ったの合図(段階7-2)。
                          離れた = タブの切り替え('hidden')・別の窓へ移った('blur')・閉じる直前('pagehide')。戻った = 'visible' | 'focus' | 'pageshow'
    window.UIKit.report : report(message, info) 画面のエラーを入口のログ(app\logs\client-errors.jsonl)へ送る(段階7-0)。
@@ -11,12 +10,11 @@
    window.UIKit.win    : isApp() 窓(Edge のアプリモード)で開いているか / open(url) 入口に頼んで開く(段階7-3)。
                          窓の中の「新しいタブで開く」リンクは自動で: このパソコンの画面 → 同じ形の窓、外のサイト → いつものブラウザ
    window.UIKit.fmt : ago(ms) 相対の日時(「3日前」)/ date(ms) 日付と時刻 / dur(秒) 長さ(1:23:45)・day・dur の opt(floor・tenths・noHours)、window.UIKit.esc(s)
-   ツールの一覧には cut2resolve も残す(UIKit.tools.base('cut2resolve') でパックの API を呼ぶ。「他のツール」のメニューには出さない)
    UIKit.streamer : 配信者の名前(字幕の色)の欄 <input data-ui-streamer>(候補と色の見本)
    UIKit.portal : 入口へ戻るリンク(data-ui-portal)は、入口がほかの窓・タブで開いていれば新しく開かずにそちらを前に出す(入口が二つにならないように)
    画面の全面見直し(使い方は README.md の「v6」): UIKit.appnav(ホーム / 案件 / 確かめる / 設定の切り替え。<nav data-ui-appnav="portal|cases|check|settings">)・UIKit.drawer(右から出る引き出し)・UIKit.dialog(確認・警告)・
        details.ui-pop(ポップオーバー。ui-menu と同じ閉じ方)・UIKit.toast(通知。重ねて最大2つ)・UIKit.keybar(下の細い帯)・
-       UIKit.settings.mount(設定の引き出し)・UIKit.keys(共通の再生キー)・UIKit.icon(SVG の線のアイコン。icon.names() = ICONS の名前)
+       UIKit.settings.mount(設定の引き出し)・UIKit.keys(共通の再生キー)・UIKit.icon(SVG の線のアイコン)
    UIKit.toast : ms: 0 = 消えない・action: {label, fn}(ボタン1つ)・閉じるボタン・戻り値 {close}。UIKit.confirmTwice(btn, run, text)(二度押しの確認を1つに)。
        知らせがあふれたときは 時間で消える → ボタン・消えない知らせ(失敗でない) → ボタンの無い失敗 → 古いもの の順に閉じる(失敗の知らせは最後まで残す)。README.md の「v7」「v22」「v23」
    UIKit.prefs(ホームの設定 api/ytt/prefs: get(sections)・patch(section, value)(節ごと・まとめて送る)・remember(kind, key, name)・
@@ -30,7 +28,6 @@
    UIKit.restart(版の赤い帯に「起動し直す」: check(el, 画面の版, サーバーの版) / band / run / available。入口の api/ytt/restart-self)。
        入口の応答に notice(まとめて実行の待ち・実行中は起動し直したあとに続きから進む)があれば、待つ間の帯の文に足す
    UIKit.theme.palette : サイバー風(計器盤)の形と配色。明るい = アイスライト、暗い = ネオンシアン・鋼の白・ターミナルグリーン・シンセウェーブ(synth)から選ぶ(README.md の「v12」)
-   UIKit.theme.toggle と [data-theme-toggle] の動きは、ボタンの無い軽い画面 lite.html が使う(配色は ⚙ 設定の「テーマ」から選ぶ)
    引き出し(modal)が裏を inert にするとき、<dialog> は外す(showModal が自分で前面と周りの扱いを決める。外さないと、ページに最初からあるダイアログ(編集の #dlgConfirm など)を ⚙ の中から開いたとき inert で操作できず固まる)
    UIKit.hide(一覧の項目を任意に非表示に。ホームの設定の節 hidden に覚える: load / has / set(list, ids, on) / count / showing / setShowing /
        toggle(btn, list, n)(「非表示 n件を表示」の切り替え)/ onChange。データは消さない。README.md の「v13」)
@@ -67,21 +64,11 @@
     try { var v = localStorage.getItem(KEY); return v === 'light' || v === 'dark' || v === 'system' ? v : 'light'; } catch (e) { return 'light'; }
   }
   function resolve(p) { return p === 'system' ? (mq && mq.matches ? 'dark' : 'light') : p; }
-  function syncButtons() {
-    var t = root.getAttribute('data-theme') === 'dark' ? 'dark' : 'light', p = pref();
-    var btns = document.querySelectorAll('[data-theme-toggle]');
-    for (var i = 0; i < btns.length; i++) {
-      btns[i].setAttribute('aria-pressed', String(t === 'dark'));
-      btns[i].setAttribute('aria-label', t === 'dark' ? 'ライト表示に切り替え' : 'ダーク表示に切り替え');
-      btns[i].title = (t === 'dark' ? 'ライト表示に切り替え' : 'ダーク表示に切り替え') + '(いま: ' + (p === 'system' ? 'OSの設定に合わせる' : t === 'dark' ? 'ダーク' : 'ライト') + ')';
-    }
-  }
   function paint(p) {
     var t = resolve(p);
     root.setAttribute('data-theme', t);
     root.setAttribute('data-palette', t === 'dark' ? darkPalette() : 'ice');
     root.setAttribute('data-theme-pref', p);
-    syncButtons();
     for (var j = 0; j < subs.length; j++) { try { subs[j](t, p); } catch (e) { /* 購読側の失敗は無視 */ } }
   }
   function set(p) {
@@ -92,7 +79,6 @@
   var theme = {
     get: pref,
     set: set,
-    toggle: function () { set(resolve(pref()) === 'dark' ? 'light' : 'dark'); },
     /* 暗いときの配色。palette() → 'cyan' | 'steel' | 'green'、palette(name) で変えて保存する(明るい/暗いは変えない) */
     palette: function (name) {
       if (name === undefined) return darkPalette();
@@ -101,7 +87,6 @@
       paint(pref());
       return name;
     },
-    PALETTES: DARK_PALETTES,
     onChange: function (fn) { if (typeof fn === 'function') subs.push(fn); }
   };
   paint(pref());
@@ -111,12 +96,6 @@
   }
   /* 別のタブで切り替えたら、このタブも合わせる */
   window.addEventListener('storage', function (e) { if (e.key === KEY || e.key === PAL_KEY) paint(pref()); });
-  document.addEventListener('click', function (e) {
-    var b = e.target && e.target.closest ? e.target.closest('[data-theme-toggle]') : null;
-    if (b) { e.preventDefault(); theme.toggle(); }
-  });
-  /* ボタンは <head> の実行時にはまだ無いので、読み込み後に表示だけ合わせる(data-theme は変えない: 画面側が独自に決めた値を消さないため) */
-  document.addEventListener('DOMContentLoaded', syncButtons);
   /* 「他のツール」などの <details class="ui-menu"> と、<details class="ui-pop">(ポップオーバー)を、外側のクリックと Esc で閉じる */
   var POP_SEL = 'details.ui-menu[open], details.ui-pop[open]';
   document.addEventListener('click', function (e) {
@@ -189,16 +168,10 @@
     }
   }).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ['open'] });
 
-  /* ---- ツール間のリンク ---- */
-  var TOOLS = [
-    { id: 'studio', name: '切り抜きスタジオ', sub: '配信を探す・切り抜く区間を選ぶ', port: 8800, mark: 'studio' },
-    { id: 'transcribe', name: '編集', sub: 'カット・字幕・Resolve へのパック', port: 8775, mark: 'transcribe' },
-    { id: 'cut2resolve', name: 'cut2resolve', sub: '「編集」がパックを作るのに使う部品', port: 8810, mark: 'cut2resolve', hidden: true }
-  ];
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   var PATH_RE = /^\/(?:[a-z0-9][a-z0-9-]{0,31}\/)?$/;
+  /* ---- 取り込まれたツールの場所 ---- */
   var tools = {
-    list: TOOLS,
     /* 統合サーバーに取り込まれたツールの場所 {studio: '/studio/'}(/api/siblings の paths。無ければ各ツールのポートの直下) */
     paths: {},
     setPaths: function (p) {
@@ -211,37 +184,9 @@
       if (typeof live !== 'undefined' && live && live.last) liveRender();   /* 録画の札の「開く」のリンクも(スタジオの場所を使う) */
     },
     base: function (id) { return tools.paths[id] || '/'; },
-    /* ports: {studio: 8801, ...}(サーバーが知っている実際のポート。無ければ既定)。path は画面の中の場所('/?media=...' など) */
-    url: function (id, ports, path) {
-      var t = null;
-      for (var i = 0; i < TOOLS.length; i++) if (TOOLS[i].id === id) t = TOOLS[i];
-      if (!t) return '';
-      var port = (ports && +ports[id]) || t.port;
-      var rest = path || '/';
-      if (rest.charAt(0) === '/') rest = rest.slice(1);
-      return 'http://localhost:' + port + tools.base(id) + rest;
-    },
     /* 入口に取り込まれているか(入口が画面に合言葉 ytt-token を入れる)。取り込まれていれば入口は同じアドレスの / */
-    mounted: function () { return !!document.querySelector('meta[name="ytt-token"]'); },
-    render: function (el, opt) {
-      if (!el) return;
-      opt = opt || {};
-      var html = '';
-      if (tools.mounted()) {   // 入口・案件へ戻る(ツールを開いたタブから、迷わず戻れるように)
-        html += '<a href="/" data-ui-portal><span class="ui-brand-mark" data-tool="portal" aria-hidden="true"></span><span><b>ホーム</b><small>ツールの状態・起動と終了</small></span></a>' +
-          '<a href="/#cases"><span class="ui-brand-mark" data-tool="portal" aria-hidden="true"></span><span><b>案件の一覧</b><small>配信ごとの切り抜き・文字起こし・パック</small></span></a>' +
-          '<div class="ui-menu-sep" role="separator"></div>';
-      }
-      for (var i = 0; i < TOOLS.length; i++) {
-        var t = TOOLS[i], cur = t.id === opt.current;
-        if (t.hidden && !cur) continue;   // 部品(cut2resolve)はメニューに出さない
-        html += '<a href="' + esc(cur ? tools.base(t.id) : tools.url(t.id, opt.ports)) + '"' + (cur ? ' aria-current="page"' : ' target="_blank" rel="noopener"') + '>' +
-          '<span class="ui-brand-mark" data-tool="' + t.mark + '" aria-hidden="true"></span><span><b>' + esc(t.name) + '</b><small>' + esc(t.sub) + (cur ? '(いま開いている画面)' : '') + '</small></span></a>';
-      }
-      el.innerHTML = html;
-    }
+    mounted: function () { return !!document.querySelector('meta[name="ytt-token"]'); }
   };
-  theme.syncButtons = syncButtons;
 
   /* ---- 表示の書式 ---- 一覧で「いつのものか」をすぐ分かるように */
   function pad2(n) { return (n < 10 ? '0' : '') + n; }
@@ -1417,11 +1362,6 @@
     if (tag === 'input') { var ty = String(t.type || '').toLowerCase(); return ty === 'checkbox' || ty === 'radio'; }
     return false;
   }
-  function kbdRow(keyStr, label) {
-    var parts = String(keyStr).split(' / '), kbds = '';
-    for (var i = 0; i < parts.length; i++) { if (i) kbds += '<span class="muted">/</span>'; kbds += '<kbd class="ui-kbd">' + esc(parts[i]) + '</kbd>'; }
-    return '<div class="ui-krow"><span class="ui-kkeys">' + kbds + '</span><span class="ui-klabel">' + esc(label) + '</span></div>';   /* キー → 説明(各ツールの一覧と同じ順) */
-  }
   /* キーの組み合わせの表記(割り当ての保存形式)。'j'・'Shift+j'・'Space'・'Shift+Space'・'ArrowLeft'・','。
      1文字の記号は Shift で文字そのものが変わる('?' など)ので Shift を付けない。英字・Space・名前のあるキー(矢印など)だけ Shift を付ける */
   var KEY_TEXT = { ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓', Space: 'Space', Enter: 'Enter', Tab: 'Tab', Escape: 'Esc', Delete: 'Del', Backspace: 'BS' };
@@ -1451,20 +1391,6 @@
       out[id] = km && typeof km[id] === 'string' ? km[id] : PLAYBACK_ACTIONS[i][1];
     }
     return out;
-  }
-  function keysHelpHtml(km) {
-    var html = '<section class="ui-kgroup"><h3 class="section-title">共通の再生キー</h3>';
-    if (!km) {
-      var rows = [
-        ['Space', '再生・停止'], ['J', '1秒戻る'], ['K', '止める'], ['L', '再生(もう一度で 1.5 → 2 倍)'],
-        ['← / →', '1秒(Shift で5秒)'], [', / .', '1コマ(コマ送り)'], ['I / O', 'IN / OUT(始まり / 終わりの印)']
-      ];
-      for (var i = 0; i < rows.length; i++) html += kbdRow(rows[i][0], rows[i][1]);
-      return html + '</section>';
-    }
-    var m = playbackMap(km);
-    for (var j = 0; j < PLAYBACK_ACTIONS.length; j++) html += kbdRow(keyText(m[PLAYBACK_ACTIONS[j][0]]), PLAYBACK_ACTIONS[j][2]);
-    return html + '</section>';
   }
   /* K・L で戻す速さは、画面の速さの設定(defaultPlaybackRate。編集の「速さ」など)。無ければ 1 倍 */
   function baseRate(media) { var r = +media.defaultPlaybackRate; return r > 0 ? r : 1; }
@@ -1524,7 +1450,7 @@
     ['seekBack', 'seekFwd'].forEach(function (id) { var d = kmDerived(m[id]); if (d && !out[d]) out[d] = id; });
     return out;
   }
-  var keysApi = { isTyping: isTyping, helpHtml: keysHelpHtml, playback: keysPlayback, comboOf: comboOf, keyText: keyText, PLAYBACK_ACTIONS: PLAYBACK_ACTIONS, playbackMap: playbackMap, derived: derivedKeys };
+  var keysApi = { isTyping: isTyping, playback: keysPlayback, comboOf: comboOf, keyText: keyText, PLAYBACK_ACTIONS: PLAYBACK_ACTIONS, playbackMap: playbackMap, derived: derivedKeys };
 
   /* ==== keymap = キーの一覧がそのままキー配置の設定(編集・スタジオで同じ部品。使い方は README.md の「v8」) ====
      キーを変える場所は ? の一覧の 1 か所(⚙ の設定には「キー配置を変える(?)」のボタンだけを置き、同じ一覧を開く。場所を重ねない)。キーのボタンを押す → その場で次のキーを待つ
@@ -1874,8 +1800,6 @@
       if (Object.prototype.hasOwnProperty.call(ICONS, name)) els[i].innerHTML = icon(name);
     }
   };
-  /* アイコンの名前の一覧(見本 styleguide.js はこれで並べる) */
-  icon.names = function () { return Object.keys(ICONS); };
   document.addEventListener('DOMContentLoaded', function () { icon.fill(document); });
 
   /* ---- packLoud(パックの音量のそろえ方)---- 値は編集の設定 packLoudness の1か所(パックのタブ・まとめて実行のパックと同じ)。
@@ -2760,8 +2684,65 @@
   }
   var sound = { other: sndOther, onChange: function (fn) { if (typeof fn === 'function') snd.subs.push(fn); }, tool: snd.tool };
 
-  window.UIKit = { version: 36, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
+  /* ---- 状態の言葉と色・Enter で実行・2 回押しの削除・空の表示・相対時刻の包み・まとめて実行の欄 ---- */
+  /* UIKit.state: 順番待ち・実行・書き出しの状態(queued|waiting・running・done・error・cancelled・skipped)の言葉 label(s) と札の色 cls(s)。どの画面も同じ(中止は warn) */
+  var STATE_CLS = { queued: 'wait', waiting: 'wait', running: 'run', done: 'ok', error: 'err', cancelled: 'warn', skipped: 'wait' };
+  var uiState = {
+    label: function (s) { return s === 'waiting' ? AR_RUN.queued : s === 'skipped' ? '飛ばした' : AR_RUN[s] || String(s || ''); },
+    cls: function (s) { return STATE_CLS[s] || 'wait'; }
+  };
+  /* UIKit.onEnter(el, fn | ボタン, opt): 欄の Enter で実行。かな漢字変換を確定する Enter(isComposing・keyCode 229)では動かさない。
+     ボタンを渡すと押せるときだけ押す。opt.ctrl = Ctrl(⌘)+Enter だけ・opt.plain = 修飾キーなしの Enter だけ */
+  function onEnter(el, run, opt) {
+    if (!el || !run) return;
+    opt = opt || {};
+    el.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
+      var mod = e.ctrlKey || e.metaKey;
+      if (opt.ctrl ? !mod : opt.plain && (mod || e.shiftKey || e.altKey)) return;
+      e.preventDefault();
+      if (typeof run === 'function') run(e); else if (!run.disabled && !run.hidden) run.click();
+    });
+  }
+  /* 2 回押しの削除(confirmTwice の既定の文つき) */
+  function armDelete(btn, run, text) { confirmTwice(btn, run, text || 'もう一度押すと削除'); }
+  /* 空の表示の HTML: title(太字)+ 本文 + 次の一手のボタン(acts。HTML)。title・body・acts は呼ぶ側でエスケープ済み */
+  function emptyHtml(title, body, acts) { return '<div class="empty"><b>' + title + '</b>' + (body || '') + (acts ? '<div class="cs-emptyacts">' + acts + '</div>' : '') + '</div>'; }
+  /* 「3日前」に日付と時刻を title で添えた span(prefix = title の頭の文) */
+  fmt.agoSpan = function (ms, prefix) { return '<span title="' + esc((prefix || '') + fmt.date(ms)) + '">' + esc(fmt.ago(ms)) + '</span>'; };
+  /* まとめて実行の欄の共通の配線(配信者・採用数・設定の要約): o = {who: 配信者の欄, top: 採用数の欄, panel: 要約を描く箱, kind, run: 実行ボタン(欄の Enter で押す)} */
+  autorun.topOf = function (input) { return Math.min(20, Math.max(1, Math.round(Number(input && input.value) || 3))); };
+  autorun.form = function (o) {
+    if (o.who) streamer.attach(o.who);
+    if (o.panel) autorun.panel(o.panel, { kind: o.kind || 'video' });
+    if (o.top) {
+      arLoad().then(function (st) { o.top.value = String(st.top); if (o.onLoad) o.onLoad(st); }, function () {});
+      o.top.addEventListener('change', function () { var n = Math.round(Number(o.top.value)); if (n >= 1 && n <= 20) prefs.patch('autorun', { top: n }).catch(function () {}); });
+    }
+    if (o.run) { onEnter(o.who, o.run, { plain: true }); onEnter(o.top, o.run, { plain: true }); }
+  };
+  /* 実行の一覧(api/flow/runs)の応答そのまま({runs, past})と、動いている(待ち・実行中)実行か */
+  autorun.runs = function () { return arHomeApi('api/flow/runs'); };
+  autorun.isActive = function (r) { return !!r && (r.state === 'queued' || r.state === 'running'); };
+
+  /* スクリプトを 1 つ読む(CSP の script-src 'self' のまま。相対パスか同じ入口のパス)。-> 読み終わったら解決する Promise(失敗したらタグを消して Error)。
+     opt.ready: 読み終わったあとに真でなければ「部品の形が違います」で失敗(window の名前を確かめる関数)・opt.timeout(ms): 待つ上限 */
+  function loadScript(src, opt) {
+    opt = opt || {};
+    return new Promise(function (resolve, reject) {
+      var tag = document.createElement('script'), timer = 0;
+      function fail(msg) { clearTimeout(timer); tag.remove(); reject(new Error(msg)); }
+      tag.src = src;
+      tag.onload = function () { clearTimeout(timer); if (opt.ready && !opt.ready()) fail('部品の形が違います: ' + src); else resolve(); };
+      tag.onerror = function () { fail(src + ' を読み込めませんでした'); };
+      if (opt.timeout) timer = setTimeout(function () { fail(src + ' の読み込みが長引いています'); }, opt.timeout);
+      document.head.appendChild(tag);
+    });
+  }
+
+  window.UIKit = { version: 37, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, settingsForm: settingsForm, keys: keysApi, keymap: keymapApi, icon: icon,
                    confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, flow: flow, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge, menuOff: menuOff,
-                   http: http, homeApi: homeApi, homeUrl: homeUrl, copy: copyText, tokenStale: tokenStale };
+                   http: http, homeApi: homeApi, homeUrl: homeUrl, copy: copyText, tokenStale: tokenStale, loadScript: loadScript,
+                   state: uiState, onEnter: onEnter, armDelete: armDelete, emptyHtml: emptyHtml };
 })();

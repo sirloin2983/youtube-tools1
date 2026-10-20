@@ -1,4 +1,4 @@
-/* app-tools.js — 「編集」の画面: 動画を選び直す・まとめて付け替える・検索と置換・書き出し・左パネル・受け渡し・cut2resolve の API・確認のダイアログ・カットとパックのタブとのつなぎ。
+/* app-tools.js — 「編集」の画面: 動画を選び直す・検索と置換・書き出し・受け渡し・確認のダイアログ・カット・パックのタブとのつなぎ。
    ここは関数の定義だけ。状態(S・V など)・定数・ボタンの配線・起動は app.js(この後に読む)。
    関数はトップレベルの宣言なので、ほかの app-*.js・app.js から名前で呼べる(読む順番は src/app/ui/cases/edhost.js の ED_SCRIPTS の1か所) */
 'use strict';
@@ -86,9 +86,8 @@ function renderDocBarNow(){
   const meta = $('#docMeta'); meta.textContent = parts.join(' ・ '); meta.title = String(d.sourcePath || '');
   const txt = d.segments.filter(hasText), pf = txt.filter(g => g.proofed).length;
   const pp = $('#pillProof'); pp.hidden = !txt.length; pp.textContent = `校正 ${pf} / ${txt.length}行`; pp.className = 'pill ' + (txt.length && pf === txt.length ? 'ok' : 'wait');
-  const pc = $('#pillCut'), cs = CUT && CUT.summary();
-  if (cs){ pc.textContent = `残す ${cs.count}区間 ・ カット後 ${fmtCs(cs.keptSec)}`; pc.hidden = false; }
-  else { const sp = cpApproxSpans(); pc.hidden = !sp.length; pc.textContent = `残す ${sp.length}区間 ・ カット後 約${fmtCs(sp.reduce((x, [p, q]) => x + q - p, 0))}`; }
+  const pc = $('#pillCut'), sp = cpApproxSpans();   // 校正の欄にはカットの区間が無い = 行の印からの目安
+  pc.hidden = !sp.length; pc.textContent = `残す ${sp.length}区間 ・ カット後 約${fmtCs(sp.reduce((x, [p, q]) => x + q - p, 0))}`;
 }
 
 /* ---------- 検索・話者・置換 ---------- */
@@ -230,8 +229,6 @@ function buildExport(kind){
   return JSON.stringify({ title: d.title, source: d.sourceName, start: d.start, end: d.end, speakers: d.speakers, segments: rows.map(r => ({ start: r.start, end: r.end, speaker: r.name, text: r.text.replace(/\n/g, ''), ...(r.noSub ? { noSub: true } : {}) })) }, null, 1);
 }
 
-/* ---------- 左パネルのイベント ---------- */
-
 /* ---------- 受け渡し(notes:docs/spec/pipeline.md 2・3・6): 元の配信(.clip.json)・URL で渡された動画・動画の隣に保存 ---------- */
 
 /* youtube-tools-clip/v1 の「元の配信: タイトル 12:34〜13:20」。中の文字列(配信タイトル・マークの名前・URL・パス)は外から来るので必ずエスケープし、
@@ -248,88 +245,20 @@ function clipHTML(clip){
   return `${CLIP_IC}<span>元の配信: ${name} <span class="mono">${esc(when)}</span>${label}</span>`;
 }
 
-function renderClipBox(box, clip, warning){
-  if (clip && typeof clip === 'object'){ box.className = 'tt-clip'; box.innerHTML = clipHTML(clip) + (warning ? `<span class="hint">(${esc(warning)})</span>` : ''); box.hidden = false; }
-  else if (warning){ box.className = 'tt-clip warn'; box.innerHTML = `${WARN_IC}<span>${esc(warning)}</span>`; box.hidden = false; }
-  else { box.hidden = true; box.innerHTML = ''; }
-}
-
-async function lookupClip(path){
-  const box = $('#srcClip'), seq = ++clipSeq;
-  path = String(path || '').trim().replace(/^"(.*)"$/, '$1');
-  if (!path){ box.hidden = true; return null; }
-  let r; try { r = await api('/api/clip-info?path=' + encodeURIComponent(path)); } catch { if (seq === clipSeq) box.hidden = true; return null; }   // 400(動画でないパス)などは、表示を消すだけ
-  if (seq !== clipSeq) return null;   // 待っている間に別のパスが入った
-  renderClipBox(box, r.clip, r.warning);
-  return r;
-}
-
-/* URL の ?media=<動画のパス> / ?clip=<.clip.json のパス>(他のツールの画面からのリンク)。
-   ファイル欄に入れるだけで、文字起こしは始めない(別のサイトのリンクからでも開けるので、重い処理を URL だけで動かさない。notes:docs/spec/pipeline.md 3)。
-   読んだら URL から消す(再読み込み・ブックマークで、同じ値が何度も入らないように) */
-/* まだ文書の無い動画の「文字起こしをする」。ボタンにフォーカスを置く(次に押す所) */
-function showMediaChoice(){ $('#mediaChoice').hidden = false; requestAnimationFrame(() => { const b = $('#mcTx'); if (b && b.offsetParent) b.focus({ preventScroll: true }); }); }
-
-function takeUrlParams(){
-  let q; try { q = new URLSearchParams(location.search); } catch { return false; }
-  const media = (q.get('media') || '').trim().slice(0, 1000), clip = (q.get('clip') || '').trim().slice(0, 1000);
-  const docId = /^[0-9a-f]{12}$/.test(q.get('doc') || '') ? q.get('doc') : '';   // ホームからは文書 ID で開く(同じ動画の文書が複数あっても選んだ文書)
-  const list = LIST_OPTS.kind.includes(q.get('list') || '') ? q.get('list') : '';   // ?list=other|clip|all|eval: 履歴を種類で絞って開く(ホームの「編集の履歴で見る」)
-  if (!q.has('media') && !q.has('clip') && !q.has('doc') && !list) return false;
-  q.delete('media'); q.delete('clip'); q.delete('list');   // ?doc= は残す(開いた文書を URL に残す。開けなければ下で消す)
-  if (!docId) q.delete('doc');
-  const rest = q.toString();
-  try { history.replaceState(history.state, '', location.pathname + (rest ? '?' + rest : '') + location.hash); } catch {}
-  if (list){   // 履歴の種類を変えて左のメニューの履歴を開く(doc・media と同時なら、下で文書を開く方も行う)
-    L.kind = list; saveListPrefs(); const el = $('#txFilter'); if (el) el.value = list;
-    txLimit.clear();
-    setSideTab('files'); renderList();
-  }
-  if (!media && !clip && !docId) return false;
-  if (docId){
-    loadList().then(() => S.list.some(x => x.id === docId) ? openDoc(docId) : false).then(ok => {   // 一覧に無い(消された)文書は読みに行かない
-      if (ok) return;
-      if (S.docId !== docId) setUrlDoc(S.docId);   // 開けなかった文書を URL に残さない(再読み込みで同じ知らせを繰り返さない)
-      if (media || clip){ toast('選んだ文書が見つからなかったので、動画から探します', 4000); openByMedia(); }
-      else toast('選んだ文書が見つかりませんでした(消された可能性があります)', 5000, 'err');
-    }).catch(() => { if (S.docId !== docId) setUrlDoc(S.docId); if (media || clip) openByMedia(); });
-    return true;
-  }
-  return openByMedia();
-  function openByMedia(){
-  $('#newBox').open = true;
-  if (media) $('#srcPath').value = media;
-  const ask = () => {   // まだ文書の無い動画: 「文字起こしをする」を出す(自動では始めない)
-    setSideTab('start'); showMediaChoice();
-    lookupClip(clip || media).then(r => {
-      if (clip && !media && r && r.mediaPath && !$('#srcPath').value.trim()) $('#srcPath').value = r.mediaPath;   // ?clip= だけのときは、.clip.json が指す動画を入れる
-    });
-    window.scrollTo(0, 0);   // 「新しく文字起こしする」はメニューの先頭なので、一番上を見せる(ファイル欄と「元の配信」が見える)
-    toast((media ? '動画のパスを入れました。' : '元の配信の情報(.clip.json)を読み込みます。') + '「文字起こしをする」で始めます(自動では始めません)', 7000, 'info');
-  };
-  if (!media) { ask(); return true; }
-  api('/api/doc-for?path=' + encodeURIComponent(media)).then(async r => {   // その動画の文書があれば、それを開く(編集で開く)
-    if (r && r.doc){ await loadList(); if (await openDoc(r.doc.id)) toast('この動画の文書を開きました', 3000, 'ok'); else ask(); }
-    else ask();
-  }).catch(ask);
-  return true;
-  }
-}
-
 function renderDocExtras(d){
-  renderClipBox($('#docClip'), d && d.clip);
+  const box = $('#docClip'), clip = d && d.clip;
+  if (clip && typeof clip === 'object'){ box.className = 'tt-clip'; box.innerHTML = clipHTML(clip); box.hidden = false; }
+  else { box.hidden = true; box.innerHTML = ''; }
   if (S.handoff && S.handoff.id !== S.docId) S.handoff = null;
   renderHandoff();
 }
 
 function renderHandoff(){
-  const box = $('#handoffOut'), pbox = $('#cpPlanOut'), h = S.handoff;
-  if (!box) return;
-  if (!S.doc || !h || h.id !== S.docId){ box.hidden = true; box.innerHTML = ''; if (pbox){ pbox.hidden = true; pbox.innerHTML = ''; } return; }
+  const box = $('#handoffOut'), h = S.handoff;
+  if (!S.doc || !h || h.id !== S.docId){ box.hidden = true; box.innerHTML = ''; return; }
   const rows = [['transcript', '文字起こし'], ['srt', '字幕']].filter(([k]) => h[k]).map(([k, l]) => handoffRow(h, k, l)).join('');
   box.innerHTML = rows + '<div class="row"><span class="hint">Resolve へ渡すパックは <b>カット・パック</b> のタブで作ります</span></div>';
   box.hidden = !rows;
-  if (pbox){ pbox.innerHTML = h.plan ? handoffRow(h, 'plan', '残す区間') : ''; pbox.hidden = !h.plan; }
 }
 
 async function exportBeside(fmt, btn){
@@ -346,65 +275,20 @@ async function exportBeside(fmt, btn){
     const r = await api('/api/export-file', { body: { id, format: fmt, baseUpdatedAt: S.baseUpdatedAt, wrap: Number($('#exWrap').value) || 0, speakerNames: $('#exSpk').checked } });
     if (S.docId !== id) return;
     S.handoff = { ...(S.handoff && S.handoff.id === id ? S.handoff : {}), id, [HANDOFF_KEY[fmt]]: r.path };
-    renderHandoff(); loadSiblings();   // cut2resolve のポートを確かめ直す(終わると、リンクを作り直す)
-    toast(`${r.overwritten ? '上書き保存' : '保存'}しました: ${r.name}(${Number(r.count) || 0}${fmt === 'cut-plan-v1' ? '区間' : '行'})`, 5000, 'ok');
+    renderHandoff();
+    toast(`${r.overwritten ? '上書き保存' : '保存'}しました: ${r.name}(${Number(r.count) || 0}行)`, 5000, 'ok');
   } catch (e){
     if (e.status === 409) toast('保存が追いついていません(書き出す直前に内容が変わりました)。少し待ってから、もう一度押してください', 6000, 'err');
     else toast('作業用フォルダに保存できませんでした: ' + e.message, 7000, 'err');
   } finally { btn.disabled = false; btn.textContent = label; }
 }
 
-/* ---------- cut2resolve の API(3 パック のタブ・カットのたたき台が使う) ----------
-   パックを作るのは pipeline/pack/pack.py だけ(文字起こし側に Resolve 用の計算を書き足さない。notes:docs/design/resolve-pack-unification.md)。
-   cut2resolve の API は、入口に取り込まれているとき(同じアドレスの /cut2resolve/。合言葉も同じ)だけ使う。別のポートの cut2resolve には送らない
-   (合言葉を別のサーバーへ渡さない・CORS で断られるため) */
-
-/* 取り込まれた cut2resolve の場所('/cut2resolve/')。使えないときは ''。URL はここと c2rUrl() だけで作る */
-function c2rBase(){
-  if (!TOKEN || !UIKit.tools.paths || !UIKit.tools.paths.cut2resolve) return '';
-  const here = Number(location.port || (location.protocol === 'https:' ? 443 : 80));
-  if (!S.ports || Number(S.ports.cut2resolve) !== here) return '';   // 同じ入口(同じポート)の中の cut2resolve だけ
-  return UIKit.tools.base('cut2resolve');
-}
-
-/* 中身は api() と同じ UIKit.http(つながらないときの code 'network' は c2rWait が見る) */
-async function c2rApi(path, opt = {}){
-  if (!c2rBase()){ const e = new Error('cut2resolve を使えません(ホーム(start.bat)から開いてください)'); e.code = 'unavailable'; throw e; }
-  return UIKit.http(c2rUrl(path), { body: opt.body, offline: 'cut2resolve に接続できません(start.bat の黒い画面が閉じていないか確認してください)', fail: st => `cut2resolve のエラー(${st})` });
-}
-
-/* cut2resolve のジョブが終わるまで待つ(api/job?id= を見て、done なら結果、error なら中身を投げる) */
-async function c2rWait(job, onTick){
-  let j = job, fails = 0;
-  while (j.state === 'running'){
-    await new Promise(res => setTimeout(res, 300));
-    try { j = await c2rApi('api/job?id=' + encodeURIComponent(job.id)); fails = 0; }
-    catch (e){ if (e.code === 'network' && ++fails < 20) continue; throw e; }
-    if (onTick) onTick(j);
-  }
-  if (j.state === 'done') return j.result;
-  const er = j.error || {}, e = new Error(j.state === 'cancelled' ? '中止しました' : (er.message || '失敗しました'));
-  e.code = j.state === 'cancelled' ? 'cancelled' : (er.code || 'failed'); e.data = er; throw e;
-}
-
-/* カットが使えないとき(動画が無いなど)の題名の行の目安: 残す行(文字があり、カット済でない)の時間を、重なりをまとめて足す */
+/* 題名の行の「残す区間」の目安(校正の欄にはカットの区間が無い): 残す行(文字があり、カット済でない)の時間を、重なりをまとめて足す */
 function cpApproxSpans(){
   const spans = S.doc.segments.filter(g => g.cutState !== 'cut' && hasText(g) && g.end > g.start).map(g => [g.start, g.end]).sort((a, b) => a[0] - b[0]);
   const out = [];
   for (const [a, b] of spans){ const cur = out[out.length - 1]; if (cur && a <= cur[1]) cur[1] = Math.max(cur[1], b); else out.push([a, b]); }
   return out;
-}
-
-/* 保存 → 動画の隣に .transcript.json(保存済みの内容を書き出す。画面と違う内容を cut2resolve に渡さないため、保存が追いついていなければ待つ) */
-async function cpExport(id){
-  const ok = await saveDoc();
-  const fail = (msg, code) => Object.assign(new Error(msg), { code });
-  if (S.docId !== id) throw fail('別の文字起こしに切り替えました', 'switched');
-  if (!ok || S.dirty || S.saving) throw S.conflict ? fail('保存が競合しています。1 文字起こし のタブの案内から選んでください', 'conflict') : fail('保存が追いついていません', 'saving');
-  let r;
-  try { r = await api('/api/export-file', { body: { id, format: 'transcript-v1', baseUpdatedAt: S.baseUpdatedAt } }); }
-  catch (e){ if (e.status === 409) e.code = 'saving'; throw e; }
-  return r.path;
 }
 
 function renderCutPack(){ if (!cpQ) cpQ = requestAnimationFrame(() => { cpQ = 0; renderCutPackNow(); }); }
@@ -415,14 +299,10 @@ function renderCutPackNow(){
   $('#cutSelected').disabled = $('#keepSelected').disabled = !n || locked;
   $('#cutSelected').title = $('#keepSelected').title = locked ? '処理中は変えられません(終わると押せます)' : (n ? '' : '行の左端のチェックで行を選ぶと押せます');   // 押せない理由
   $('#cpSelHint').textContent = n ? `チェックした${n}行を、まとめて変えます` : '行の左端のチェックで選んだ行を、まとめて変えます';
-  renderDocBar();   // 題名の行の札(カットが使えない文書では、行の印からの目安)
-  if (PACK) PACK.refresh();
+  renderDocBar();   // 題名の行の札
 }
 
-/* 文書を保存したあと: 3 パック のタブの見積もり(字幕の数など)を出し直す */
-function cpAfterSave(){ if (S.doc && PACK) PACK.changed(); }
-
-/* 案件の画面(EDIT_HOST)では、カットの欄(EditCut)は別のパネルにあって校正の中には無い。カットの区間(edit.json)が決まっている文書で行の印だけを
+/* カットの欄(EditCut)は別のパネルにあって校正の中には無い。カットの区間(edit.json)が決まっている文書で行の印だけを
    変えると、保存のときにサーバーが区間から印を付け直して黙って消える(区間は変わらない)。区間があるときは何も変えずにカット・パックのタブへ案内し、
    まだ無いとき(行の印がカットの正)だけ印を変える。idx = 行の番号の並び */
 async function hostRowsCut(idx, cut){
@@ -439,19 +319,11 @@ async function hostRowsCut(idx, cut){
   renderDoc(); markDirty(); renderCutPack();
   toast(`${n}行を${cut ? 'カット済' : '残す'}にしました(「元に戻す」で戻せます)`, 2500);
 }
-/* 選んだ行をまとめてカット済に/残す(1行ずつは、行の右の「残す / カット」。同じ印を変える入口は、この2つだけ) */
+/* 選んだ行をまとめてカット済に/残す(1行ずつは、行の右の「残す / カット」) */
 function bulkCut(cut){
   if (!S.doc || !S.sel.size) return toast('先に、行の左端のチェックで行を選んでください');
   if (lockJob()) return toast('処理中のため、今は変更できません');
-  if (CUT && CUT.active()){
-    const idx = S.doc.segments.map((g, i) => S.sel.has(g.id) ? i : -1).filter(i => i >= 0);
-    CUT.rowsCut(idx, cut);
-    return toast(`${idx.length}行を${cut ? 'カット済' : '残す'}にしました(「元に戻す」(Ctrl+Z)で戻せます)`, 4000);   // 1 行ずつの経路と同じ言葉
-  }
-  if (EDIT_HOST) return hostRowsCut(S.doc.segments.map((g, i) => S.sel.has(g.id) ? i : -1).filter(i => i >= 0), cut);
-  pushUndo(); let n = 0;
-  for (const g of S.doc.segments) if (S.sel.has(g.id)){ setCut(g, cut); n++; }
-  renderDoc(); markDirty(); toast(`${n}行を${cut ? 'カット済' : '残す'}にしました(「元に戻す」で戻せます)`, 2500);
+  return hostRowsCut(S.doc.segments.map((g, i) => S.sel.has(g.id) ? i : -1).filter(i => i >= 0), cut);
 }
 
 /* ---------- キー操作の手がかり(行の一覧の上。閉じたら覚える) ---------- */
@@ -462,54 +334,4 @@ function applyKeyHint(){ const on = khOn(); $('#keyHint').hidden = !on; $('#keyH
    ui-kit の UIKit.dialog.confirm。本文の改行は残す(.ui-dlg-body) */
 function confirmDlg(title, text, okLabel){
   return UIKit.dialog.confirm({ title, body: text || '', ok: okLabel || 'はい', cancel: 'やめる' });
-}
-
-/* ---------- 2 カット(cut.js)。区間の編集は cut.js、行の表示・文書の保存はこちら ---------- */
-
-/* 行の「残す/カット済」の見た目(行の印と右のボタン) */
-function paintCut(row, cut){
-  row.classList.toggle('cut', cut);
-  const k = row.querySelector('.tt-kc [data-act=keep]'), b = row.querySelector('.tt-kc [data-act=cut]');   // 2 択の今の側
-  if (k) k.setAttribute('aria-pressed', cut ? 'false' : 'true');
-  if (b) b.setAttribute('aria-pressed', cut ? 'true' : 'false');
-}
-
-/* 編集の内容から付け直した行の「カット済」を、1 文字起こし のタブの行に出す(文書は保存しない。サーバーが編集の内容から付ける) */
-function onCutMarks(changed){
-  updateUndo();   // カットが変わった(変更・元に戻す・やり直す)→ 「元に戻す(n)」の数も
-  const rows = rowsEl();   // 行の要素は i 番目 = data-i が i(描き直しは行の並びのとおり。数千行で 1 行ずつ探さない)
-  for (const i of changed){
-    const row = rows[i], g = S.doc && S.doc.segments[i];
-    if (row && g && row.classList.contains('seg')) paintCut(row, g.cutState === 'cut');
-  }
-  if (changed.length){ renderCutPack(); syncListItem(); if ($('#flagKind').value === 'cut') applyFilter(); }
-  if (changed.length) scheduleRead();   // カット済の行は読む速さの印の対象外(札と件数を合わせる)
-  renderDocBar();
-}
-
-/* 2 カット の字幕の無い案内のボタン:1 文字起こし のタブへ移り、行 0 の文書の「もう一度文字起こしする」にフォーカス */
-function goTxInto(){
-  setEditTab('tx');
-  requestAnimationFrame(() => {
-    const b = [$('#btnTxAgain')].find(x => x && x.offsetParent && !x.disabled) || document.querySelector('[data-edtab="tx"]');
-    if (b) b.focus();
-  });
-}
-
-/* 保存できたら、サーバーが付けた行の印(cutRows)で合わせ直す(規則は同じなので、ふつうは変わらない) */
-function onCutSaved(r){
-  if (!S.doc) return;
-  const set = new Set(r.cutRows || []), changed = [];
-  S.doc.segments.forEach((g, i) => { const want = set.has(g.id); if (want !== (g.cutState === 'cut')){ setCut(g, want); changed.push(i); } });
-  const it = curItem(); if (it){ it.hasEdit = true; it.editRev = r.rev; }
-  onCutMarks(changed);
-  cpAfterSave();   // 3 パック のタブの見積もりを出し直す
-}
-
-/* ---------- 3 パック(pack-tab.js) ---------- */
-
-/* パックを作り終えたら、履歴の一覧の「パック済み」も今の状態に */
-function onPacked(id, info){
-  const it = S.list.find(x => x.id === id);
-  if (it){ Object.assign(it, { pack: { textplus: true, updatedAt: info.at }, packRev: info.rev, packAt: info.at, packStale: false }); renderList(); }
 }

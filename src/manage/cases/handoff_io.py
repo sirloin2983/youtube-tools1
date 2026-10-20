@@ -40,33 +40,6 @@ class PipelineError(Exception):
         self.code, self.message, self.status = code, message, status
 
 
-# ---------- youtube-tools-clip/v1(.clip.json)が指す動画 ----------
-def resolve_clip_media(clip_json_path, clip, media_exts):
-    """.clip.json が指す動画の実際のパス。①media.path にあればそれ ②無ければ動画のフォルダの media.name
-    ③それも無ければ、動画のフォルダの「.clip.json と同じ名前 + 動画の拡張子」。見つからなければ None。
-    動画のフォルダ = .clip.json が 作業用/ の中なら1つ上(元動画は直下・途中のファイルは 作業用/)、そうでなければ同じフォルダ。
-    (フォルダごと移動した・友人に渡した場合への備え。notes:docs/spec/pipeline.md の 1)"""
-    media = clip.get("media") if isinstance(clip.get("media"), dict) else {}
-    folders = list(dict.fromkeys([_schemas.media_folder(clip_json_path), os.path.dirname(os.path.abspath(clip_json_path))]))
-    cands = []
-    if isinstance(media.get("path"), str) and media["path"].strip():
-        cands.append(media["path"].strip())
-    if isinstance(media.get("name"), str) and media["name"].strip():
-        base = os.path.basename(media["name"].strip().replace("\\", "/"))   # 名前だけを使う(../ などでフォルダの外を指させない)
-        cands += [os.path.join(f, base) for f in folders]
-    name = os.path.basename(os.path.abspath(clip_json_path))[:-len(_schemas.CLIP_SUFFIX)]
-    cands += [os.path.join(f, name + ext) for f in folders for ext in sorted(media_exts)]
-    for c in cands:
-        try:
-            if _fsio.is_network_path(c):   # .clip.json の中身(他人が作ったものかもしれない)でネットワークに接続しない
-                continue
-            if os.path.isfile(c) and os.path.splitext(c)[1].lower() in media_exts:
-                return os.path.abspath(c)
-        except (OSError, ValueError):
-            continue
-    return None
-
-
 # ---------- 動画の隣への保存(書き込みの部品は ytt.fsio: 一時的なロックのやり直し・一時ファイル → 置き換え・既存を上書きしない作成) ----------
 _beside_lock = threading.Lock()
 
@@ -121,41 +94,6 @@ def save_beside(media_path, suffix, data, schema=None):
 # ---------- 受け渡しの API(notes:docs/spec/pipeline.md の 2・4・6) ----------
 def _pipeline_error(e):
     return _errors.ApiError(e.code, e.message, e.status)
-
-
-def clip_info(path):
-    """GET /api/clip-info?path=。path は動画のパスか、.clip.json のパス(画面の ?clip= 用)。
-    戻り値 {"clip": clip/v1 または null, "clipPath", "mediaPath", "warning"}。clip が使えないときは clip=null と理由(warning)。
-    path が空・動画でも .clip.json でもないときだけ 400(画面が ?media= で開いたときに、例外にせず表示だけ省けるように)。"""
-    p = str(path or "").strip().strip('"')
-    if not p or "\x00" in p:
-        raise _errors.ApiError("bad_request", "path(動画のパス)を指定してください", 400)
-    out = {"clip": None, "clipPath": None, "mediaPath": None, "warning": None}
-    if _fsio.is_network_path(p):
-        # 画面は URL の ?media= を受けて自動でこれを呼ぶ(他のサイトのリンクでも開ける)。ネットワークのパスを調べると
-        # Windows がそのサーバーへ資格情報を送るので、ここでは調べない(文字起こしの開始ボタンでは従来どおり使える)
-        out["warning"] = "ネットワーク上のパスは、元の配信の情報を自動では調べません"
-        return out
-    p = os.path.abspath(p)
-    if p.lower().endswith(_schemas.CLIP_SUFFIX):
-        if not os.path.isfile(p):
-            out["warning"] = ".clip.json が見つかりません"
-            return out
-        clip, warn = _schemas.load_clip_file(p)
-        out.update({"clip": clip, "clipPath": p if clip else None, "warning": warn})
-        if clip:
-            out["mediaPath"] = resolve_clip_media(p, clip, _tools.MEDIA_TYPES)
-            if not out["mediaPath"]:
-                out["warning"] = ".clip.json が指す動画が見つかりません(同じフォルダにも見当たりません)"
-        return out
-    if os.path.splitext(p)[1].lower() not in _tools.MEDIA_TYPES:
-        raise _errors.ApiError("bad_ext", "動画・音声ファイルか .clip.json のパスを指定してください", 400)
-    if not os.path.isfile(p):
-        out["warning"] = "動画が見つかりません(パスを確認してください)"
-        return out
-    clip, warn, cp = _schemas.find_clip(p)   # ここでは長さの照合はしない(ffmpeg を呼ばず、すぐ返す)
-    out.update({"clip": clip, "clipPath": cp if clip else None, "mediaPath": p, "warning": warn})
-    return out
 
 
 def export_file(req):

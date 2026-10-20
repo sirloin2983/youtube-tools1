@@ -38,50 +38,22 @@
   }
 
   function create() {
-    var box = null, dead = false, started = false, visible = false, readyFns = [], subs = {}, params = {};
+    var box = null, dead = false, started = false, visible = false, params = {};
     var esc = UIKit.esc;
-    var tokenTag = document.head.querySelector('meta[name="ytt-token"]');
     var STUDIO_OFFLINE = 'スタジオにつながりませんでした(start.bat の黒い画面が閉じていないか確かめてください)';
     var HOME_OFFLINE = 'ホームにつながりませんでした(start.bat の黒い画面が閉じていないか確かめてください)';
     var LIVE = { infoP: null, offAt: 0 };
     var LIVE_RECHECK_MS = 60000;
 
-    function emit(name, detail) { (subs[name] || []).slice().forEach(function (fn) { try { fn(detail); } catch (e) { UIKit.report('新しい案件のパネルで失敗しました: ' + (e && e.message), { stack: e && e.stack }); } }); }
 
-    /* ---- core.js の window.Studio の代わり(rank.js・queue.js が使う分だけ)---- */
-    var Studio = {
-      esc: esc, token: tokenTag ? tokenTag.content : '', state: null, step: '', review: null, params: params, ready: false,
-      fmtTime: function (t) { return UIKit.fmt.dur(t, { tenths: true }); },
-      url: function (p) { return 'studio/' + String(p).replace(/^\/+/, ''); },
+    /* ---- core.js の window.Studio の代わり(rank.js・queue.js が使う分だけ。共通の部分は studio-shim.js)---- */
+    var Studio = StudioShim.create({ label: '新しい案件のパネル', isDead: function () { return dead; }, params: params, homeOffline: HOME_OFFLINE,
       api: function (path, o) {
         o = o || {};
         return UIKit.http(Studio.url(path), { method: o.method, body: o.body, signal: o.signal, offline: STUDIO_OFFLINE });
-      },
-      portalApi: function (path, body) { return UIKit.homeApi(path, { body: body, offline: HOME_OFFLINE }); },
-      toast: function (msg, ms, kind) { return ms && typeof ms === 'object' ? UIKit.toast(msg, ms) : UIKit.toast(msg, { ms: ms || undefined, kind: kind }); },
-      showErr: function (msg) { UIKit.toast(String(msg), { ms: 0, kind: 'err' }); },
-      why: function (b, why, okTitle) { b.disabled = !!why; b.title = why || okTitle || ''; if (why) b.setAttribute('data-ui-why', why); else b.removeAttribute('data-ui-why'); },
-      setBadge: function () {},
-      ago: function (ms) { return UIKit.fmt.ago(ms); },
-      date: function (ms) { return UIKit.fmt.date(ms); },
-      isVideoId: function (s) { return /^[\w-]{11}$/.test(s || ''); },
-      watchUrl: function (id, t) { return 'https://www.youtube.com/watch?v=' + encodeURIComponent(id) + (t >= 1 ? '&t=' + Math.floor(t) + 's' : ''); },
-      matchWords: function (words, hay) { return String(words || '').trim().toLowerCase().split(/\s+/).filter(Boolean).every(function (w) { return String(hay).toLowerCase().indexOf(w) >= 0; }); },
-      groupBy: function (list, key) { var m = new Map(); list.forEach(function (x) { var k = key(x); if (!m.has(k)) m.set(k, []); m.get(k).push(x); }); return m; },
-      isTyping: function (el) { return !!el && ((el.classList && el.classList.contains('ui-time')) || UIKit.keys.isTyping(el)); },
-      on: function (name, fn) { (subs[name] = subs[name] || []).push(fn); },
-      onReady: function (fn) { if (Studio.ready) fn(); else readyFns.push(fn); },
+      } });
+    Object.assign(Studio, {
       go: function (step) { if (step !== 'rank' || dead) return; setStep(visible ? 'rank' : ''); },
-      refreshState: function () {
-        return Studio.api('/api/state').then(function (st) { if (dead) return st; Studio.state = st; emit('state', st); return st; });
-      },
-      /* 作業データ(data.json)の読み込みの問題(起動のあと 1 回だけ /api/state に載る)。帯に文だけ出す */
-      dataWarning: function (b) {
-        var w = Studio.state && Studio.state.dataWarning;
-        if (!b) return;
-        b.hidden = !w;
-        if (w && !b.childElementCount) b.innerHTML = '<div><b>スタジオの作業データの読み込みで問題がありました</b><br>' + esc(w) + '</div>';
-      },
       /* API キー・事務所の登録・コラボはこのパネルの「探す設定」を開く(RS8 C4)。ほか(解析・出力先・ライブの録画)は設定の画面 */
       openSettings: function (which) {
         if (box && SET_SECS[which]) { openSet(which); return; }
@@ -136,7 +108,7 @@
           return Studio.openReview(b.video.id);
         }
       }
-    };
+    });
 
     /* ---- 探す設定(API キー・事務所の登録・コラボ。RS8 C4)---- */
     var regMounted = false;
@@ -201,7 +173,7 @@
     }
     function wireSet() {
       q('#nwKeySave').addEventListener('click', function () { saveKey(q('#nwKeyIn').value.trim(), q('#nwKeySave')); });
-      q('#nwKeyIn').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); q('#nwKeySave').click(); } });
+      UIKit.onEnter(q('#nwKeyIn'), function () { q('#nwKeySave').click(); });
       q('#nwKeyDel').addEventListener('click', function () {
         var b = q('#nwKeyDel');
         if (!(Studio.state && Studio.state.hasKey)) { saveKey('', b); return; }
@@ -214,7 +186,7 @@
     }
 
     /* パネルが見えている間だけ step = 'rank'(rank.js・queue.js の見回りは「見えている間」だけ動く)*/
-    function setStep(step) { Studio.step = step; emit('step', step); }
+    function setStep(step) { Studio.step = step; Studio.emit('step', step); }
 
     function start() {
       var prev = window.Studio;
@@ -222,9 +194,8 @@
       return loadScript(RANK_JS).then(function () { return loadScript(QUEUE_JS); }).then(function () {
         if (prev === undefined) delete window.Studio; else window.Studio = prev;
         if (dead) return;
-        Studio.ready = true;
         started = true;
-        readyFns.splice(0).forEach(function (fn) { try { fn(); } catch (e) { UIKit.report('新しい案件のパネルの初期化に失敗しました: ' + (e && e.message), { stack: e && e.stack }); } });
+        Studio.fireReady();
         Studio.refreshState().catch(function () { /* API キーの有無が分からないだけ */ });
         if (params.media) applyMedia(params.media);
         if (visible) setStep('rank');

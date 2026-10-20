@@ -1,5 +1,5 @@
-/* app-tpl.js — 「編集」の画面の HTML(window.EditProofTpl)。「1 文字起こし」の欄(tx)・ダイアログ(dialogs)・左のメニュー(menu)・空の状態(nodoc)・題名の行(docbar)・⚙ の編集の節(settings)。
-   案件の画面(src/app/ui/cases/edhost.js)が T.tx・T.menu・T.docbar・T.nodoc・T.settings・T.dialogs を自分の欄へ入れて校正のパネルを組み立てる。
+/* app-tpl.js — 「編集」の画面の HTML(window.EditProofTpl)。「校正」の欄(tx)・ダイアログ(dialogs)・題名の行(docbar)・⚙ の編集の節(settings)。
+   案件の画面(src/app/ui/cases/edhost.js)が T.tx・T.docbar・T.settings・T.dialogs を自分の欄へ入れて校正のパネルを組み立てる。
    中身の id・class・構造は app-*.js・cut.js・e2e が id で引くので変えない。 */
 (function () {
   'use strict';
@@ -156,7 +156,6 @@
   <div class="ui-dlg-head"><h2 id="keysT">キー操作の一覧</h2><form method="dialog"><button class="btn ghost small icon" aria-label="閉じる" title="閉じる(Esc・?)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button></form></div>
   <div class="ui-dlg-body">
   <div id="keysList"></div>   <!-- キーの一覧 = キー配置(UIKit.keymap)。キーを変える場所はここだけ(設定の歯車には開くボタンだけ) -->
-  <p class="hint" id="keysFpsNote" hidden style="margin:8px 0 0">動画の fps が分からないため、1 文字起こし の「1コマ」は約 1/30 秒です(2 カット のタブを使えない文書)。</p>   <!-- renderFpsNote() -->
   <p class="tt-flow" id="keysFlow"></p>   <!-- 基本の流れ(今の割り当てから renderKeyUI() が書く) -->
   <p class="hint" style="margin:8px 0 0">キーのない操作: 選んだ行の下に出るボタンで、時刻の微調整(開始 −/＋・終了 −/＋。幅は右上の「設定」の「再生・行の操作」)・時刻を再生位置に・行の追加(前/後)・分割・結合・削除。行の右の「残す/カット済」で、Resolve の仮編集に残すかを決めます(まとめては「まとめて」のメニュー。区間を細かく決めるのは 2 カット のタブ)。2 カット のタブでは、ホイールで拡大縮小(マウスの位置が中心)・Shift+ホイールで横に移動。区間の端のドラッグ中は Alt で吸い付きません。字幕の段の行を押して選ぶと、端のつまみのドラッグ(または Q / W で端を選んで , . で1コマ)で行の時刻を直せ(前後の行は越えない。残す行を外へ広げると残す区間も広がる)、「再生位置でこの行を分ける」で行を分けられます。</p>
   <label class="lag" style="margin-top:10px"><input type="checkbox" id="keyHintOn">行の一覧の上に、主なキー操作の手がかりを出す</label>
@@ -178,102 +177,6 @@
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button type="button" class="btn" id="rlCancel">やめる</button><button type="button" class="btn primary" id="rlGo" disabled>付け替える</button></div>
   </div>
 </dialog>`;
-  T.menu = `<nav class="tt-mstrip" id="menuStrip" aria-label="メニュー(畳んだ帯)">
-  <button type="button" class="btn ghost small icon" data-strip="menu" title="メニューを開く" data-key-title="menu" aria-label="メニューを開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
-  <button type="button" class="btn ghost small icon" data-strip="files" title="履歴(保存済みの文字起こし)を開く" aria-label="履歴を開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>
-  <button type="button" class="btn ghost small icon" data-strip="start" title="新規(新しく文字起こし)" aria-label="新規を開く"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
-</nav>
-<aside id="menuPanel" aria-label="メニュー">
-  <div class="menuhead"><b>メニュー</b><button type="button" class="btn ghost small" id="btnMenuClose" title="メニューを閉じて、編集画面を広く使います" data-key-title="menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>閉じる</button></div>
-  <div id="setup"></div>
-  <nav class="side-tabs" aria-label="管理パネル">
-    <button type="button" data-side-tab="start" aria-selected="true">新規</button>
-    <button type="button" data-side-tab="files" aria-selected="false">履歴</button>
-  </nav>
-
-  <details class="card side-pane" data-side-pane="start" id="newBox" open>
-    <summary>新しく文字起こしする</summary>
-    <div id="paneFile">
-      <div class="notice tt-mchoice" id="mediaChoice" hidden role="status"><b>この動画はまだ文字起こししていません。</b>
-        <div class="row" style="margin-top:6px"><button type="button" class="btn small primary" id="mcTx">文字起こしをする</button></div></div>
-      <div class="fld"><label for="srcPath">動画・音声ファイルのパス</label>
-        <input id="srcPath" type="text" placeholder="例: C:\\Videos\\stream.mp4 / /Users/me/stream.mp4" autocomplete="off" spellcheck="false">
-        <span class="hint">エクスプローラーでファイルを選び、Shift+右クリック →「パスのコピー」で貼り付けられます(Mac は Finder で option+右クリック →「パス名をコピー」)。</span>
-        <div id="srcClip" class="tt-clip" hidden role="status"></div></div>
-      <div class="fld"><span class="l">範囲(空欄なら全体)</span>
-        <div class="row"><input id="rStart" type="text" aria-label="開始" placeholder="開始 例: 1:23:45" style="width:130px" autocomplete="off"><span>〜</span><input id="rEnd" type="text" aria-label="終了" placeholder="終了 例: 1:30:00" style="width:130px" autocomplete="off"></div></div>
-      <div class="fld"><label for="jTitle">タイトル(任意)</label><input id="jTitle" type="text" maxlength="120" placeholder="空欄ならファイル名"></div>
-    </div>
-
-    <details class="tt-sub ui-disclosure" id="recogDetails"><summary>認識の設定</summary>
-      <div class="fld"><label for="optModel">モデル</label><select id="optModel"></select>
-        <span class="hint">モデルは large-v3 です。初回だけモデルのダウンロード(約 3GB)があります。</span></div>
-      <div class="row" style="margin-top:10px"><label class="lag">言語 <select id="optLang" style="width:auto"></select></label>
-        <label class="lag">品質 <select id="optQuality" style="width:auto"><option value="best">精度優先</option><option value="fast">速度優先</option></select></label>
-        <label class="lag">処理方式 <select id="optDevice" style="width:auto"><option value="vulkan">GPU(whisper.cpp)</option></select></label></div>
-      <p class="hint tt-dev-hint" id="optDevHint" role="status" hidden></p>
-      <!-- 声の検出・小さい声・単語の時刻・字幕の向きと最大文字数・自動の後処理のチェックは設定の画面(入口の /settings の編集の節)へ(notes:docs/spec/data.md の 6)。
-           文字起こしの要求には保存した設定が付く(app-core.js の checksOf・readSubtitle が S.settings から読む) -->
-      <p class="hint" style="margin-top:8px">声の検出・小さい声を持ち上げる・単語の時刻・字幕の文字数・終わったあとの自動の後処理(置換辞書・用語集・LLM・話者の自動判別など)は、
-        <a href="../settings#sec-editor">設定の画面(編集の節)</a>で変えます(保存した設定を次の文字起こしに使います)。</p>
-      <div class="fld"><label for="optGloss">用語集(1行に1語。名前や固有名詞)</label>
-        <textarea id="optGloss" rows="3" placeholder="例:&#10;白上フブキ&#10;ホロライブ"></textarea>
-        <span class="hint">認識のヒントとして渡します。効き目は限定的なので、直らないものは下の「置換辞書」で直します。</span>
-        <span class="hint" id="glossFit"></span>
-        <span class="hint" id="glossDev" hidden>処理の機器が GPU(whisper.cpp)のときは、用語集は認識のヒントに渡りません(whisper.cpp は「前の文を文脈にしない」設定だとヒントも使わないため。10-08 の測定ではヒントで精度は上がりませんでした)。名前は下の「置換辞書」と名簿の表記ゆれ直しで直ります。</span>
-        <details id="rosterBox" class="ui-disclosure" style="margin-top:6px"><summary class="hint">ホロライブの名簿から追加</summary>
-          <div id="rosterGroups" style="margin-top:4px"></div>
-          <div class="row" style="margin-top:4px"><button type="button" class="btn small" id="rosterAdd">選んだ所属を用語集に追加</button><span class="hint" id="rosterNote"></span></div></details></div>
-    </details>
-    <p class="hint" id="optSummary" style="margin:8px 0 0"></p>
-    <label class="lag" style="margin-top:10px" title="精度を測るためだけに取っておく文書にします(学習・辞書に使いません)。比べる基準にするため、用語集・呼び名のヒント・置換辞書・学習した置換を使わずに文字起こしします"><input type="checkbox" id="optEvalStart">評価用として文字起こしする(用語集・呼び名・置換辞書を使わない)</label>
-    <div class="row" style="margin-top:12px"><button type="button" class="btn primary" id="btnStart">文字起こしを開始</button></div>
-  </details>
-
-  <details class="card side-pane" data-side-pane="start" id="jobsCard" open><summary>処理状況</summary><div id="jobs"><p class="hint" style="margin:6px 0 0">ジョブはありません</p></div></details>
-  <details class="card side-pane" data-side-pane="files" id="txCard" open><summary>保存済みの文字起こし <span class="hint" id="txTotal"></span></summary>
-    <a href="/" id="txHomeLink" class="ui-next" data-ui-portal hidden>すべての文字起こし → ホーム</a>
-    <!-- 一覧の道具(notes:docs/spec/ui.md 4.)。選んだ条件はこのブラウザに覚える -->
-    <div class="ui-listbar tt-listbar" role="search">
-      <select id="txState" aria-label="校正の状態で絞り込む"><option value="all">状態: すべて</option><option value="todo">状態: 未校正</option><option value="doing">状態: 校正中</option><option value="done">状態: 校正済み</option></select>
-      <select id="txFilter" aria-label="種類で絞り込む"><option value="all">種類: すべて</option><option value="clip">種類: 切り抜き</option><option value="other">種類: それ以外</option><option value="eval">種類: 評価用</option></select>
-      <select id="txSort" aria-label="並び替え" title="並び替え"><option value="updated">更新が新しい順</option><option value="created">作った順</option><option value="remain" title="校正が残っている行が多い順">未校正が多い順</option><option value="title">題名順</option></select>
-      <select id="txGroup" aria-label="まとめ方" title="まとめ方"><option value="stream">配信ごと</option><option value="channel">配信者ごと</option><option value="none">まとめない</option></select>
-      <span class="ui-count" id="txCount" aria-live="polite"></span>
-    </div>
-    <!-- 選んだ文書をまとめて「文字起こし → パック」(入口の「まとめて実行」。入口から開いたときだけ使える。開いていないときは隠さず理由を出す) -->
-    <div class="tt-batch" id="txBatchBox">
-      <label class="lag"><input type="checkbox" id="txPick">選んで、まとめて実行(文字起こし → パック)</label>
-      <span class="hint tt-need-home" id="txBatchOff" hidden>ホーム(start.bat)から開くと使えます(まとめて実行はホームの順番待ちで進みます)</span>
-      <div class="tt-batch-go" id="txBatch" hidden>
-        <div class="row"><button type="button" class="btn small ghost" id="txPickAll">表示中を全部選ぶ</button>
-          <button type="button" class="btn small ghost" id="txPickNoPack">パックが無いものだけ選ぶ</button></div>
-        <div class="row"><span class="hint" id="txPickN">文書を選んでください</span>
-          <label class="lag" title="パックがすでにある文書も、作り直して上書きします"><input type="checkbox" id="txOverwrite">パックがあれば作り直す(上書き)</label>
-          <button type="button" class="btn small primary" id="txBatchGo" disabled>まとめて実行</button></div>
-        <div id="txBatchPanel"></div>
-        <label class="lag tt-batch-who" title="名前を入れると、パックの字幕の文字をその人のメンバーカラーにします(空なら黒い文字)">配信者(字幕の色)
-          <input id="txBatchWho" type="text" size="12" placeholder="例: さくらみこ" data-ui-streamer></label>
-        <span class="hint">行の無い文書は文字起こしから(「新規」の設定で)。カットの決め方などは上の要約のとおりです。
-          ホームの「まとめて実行」の順番で1本ずつ進みます(案件の画面と同じ順番待ち)</span></div>
-      <div id="txRuns" aria-live="polite"></div>
-    </div>
-    <div id="txList"><p class="hint" style="margin:6px 0 0">まだありません</p></div></details>
-</aside>`;
-  T.nodoc = `  <div class="empty" id="noDoc">
-    <div class="tt-empty-ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 10h4M14 10h3M7 14h7"/></svg></div>
-    <b>まだ何も開いていません</b>
-    <span>動画から字幕を作り(文字起こし)、カットを決めて、Resolve へ渡すパックを作ります。処理はすべてこのパソコンの中で行います。</span>
-    <!-- 前回の続き(app-list.js の renderResume。前に開いていた文書とタブ = このブラウザの tx.last.v1) -->
-    <div class="tt-resume" id="noDocResume" hidden><button type="button" class="btn primary" id="noDocResumeBtn"><span class="tt-resume-l">前回の続き:</span> <span class="tt-resume-t" id="noDocResumeT"></span></button><span class="hint" id="noDocResumeSub"></span></div>
-    <ol class="tt-steps" role="list">
-      <li><span class="n">1</span><span>左のメニューの「新規」に、動画のパスを入れて「文字起こしを開始」</span></li>
-      <li><span class="n">2</span><span>終わったら自動で開きます(保存済みのものは「履歴」から)</span></li>
-      <li><span class="n">3</span><span><b>1 文字起こし</b>: 聞いて直して「校正済み」に。キーだけで回せます(一覧は右上の「キー操作」)</span></li>
-      <li><span class="n">4</span><span><b>カット・パック</b> のタブで残す・削る所を決めて、その下の <b>パック</b> で Resolve へ渡すパックを作る</span></li>
-    </ol>
-    <div style="margin-top:14px"><button type="button" class="btn" id="noDocMenu" hidden><span class="ui-icon" data-icon="menu" aria-hidden="true"></span>メニューを開く</button></div>
-  </div>`;
   T.docbar = `   <!-- 題名の行(どのタブにも出す): 題名・配信者・長さ・元の配信の位置と、校正の進み具合・残す区間とカット後の長さ -->
    <div class="tt-docbar" id="docBar">
      <input id="docTitle" type="text" maxlength="120" aria-label="タイトル" title="タイトル(押して直せます)">
@@ -284,7 +187,7 @@
        <summary class="btn small ghost" title="この文書の残りの作業(文字起こし → パック)を、ホームの「まとめて実行」の順番待ちで進めます"><span>まとめて実行</span></summary>
        <div class="ui-menu-pop tt-docauto-pop">
          <p class="hint">この文書の残りを自動で進めます(行が無ければ文字起こし → パック)。カットの決め方などは下の要約のとおりです。
-           進み具合はここと、履歴の「選んで、まとめて実行」の下に出ます。</p>
+           進み具合はここに出ます。</p>
          <label class="lag" title="名前を入れると、パックの字幕の文字をその人のメンバーカラーにします(空なら黒い文字)">配信者(字幕の色)
            <input id="docAutoWho" type="text" size="14" placeholder="例: さくらみこ" data-ui-streamer></label>
          <label class="lag"><input type="checkbox" id="docAutoOverwrite">パックがあれば作り直す(上書き)</label>

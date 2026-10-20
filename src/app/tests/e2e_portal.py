@@ -15,7 +15,7 @@
       案件の画面の候補・校正・カットのパネルの中身は e2e_cases_cand・e2e_cases_proof・e2e_cases_cut、確かめる /check の中身は e2e_check が見る
       (ここは着くまで)。細かい操作(一覧の検索・並び替え・非表示・テーマ・狭い画面・空の表示・フォーカス・はみ出し)は画面の道に入れない(ui_audit)。
   (B) 文字起こしが子プロセスの形(--no-mount 相当・取り込めなかったときの落ち先。mounts=("studio", "cut2resolve")):
-      文字起こしだけ黒い画面(別プロセス)で動く形で、子プロセスの管理(停止・起動・再起動・異常終了の表示・ログの表示と XSS 対策)を
+      文字起こしだけ黒い画面(別プロセス)で動く形で、子プロセスの管理(異常終了の表示・ログの表示と XSS 対策)を
       確かめる(「詳しく」の中)。異常終了のあとの起動し直しは test_launch の test_crash_is_reported_with_log が見る。
 
 --shots で画面の写真を残す(A はホームと自動の切り抜き、B は異常終了。テーマ・幅ごとの写真は ui_audit)。
@@ -201,7 +201,6 @@ def run_mounted_phase(browser, tmp, shots, check, events):
 
         # 10. ホームが止まったら、開いたままの別のタブに「接続できません」を出す
         check(wait_js(mob, "!document.getElementById('errbar').hidden", 15000), "[A] 切断の表示")
-        check(mob.is_disabled(".pt-tool[data-tool=studio] .pt-toggle"), "[A] 切断中は操作できない")
 
         real_errors = [e for e in errors if "Failed to load resource" not in e and "ERR_CONNECTION_REFUSED" not in e]
         check(not real_errors, "[A] 画面のエラーなし(CSP 違反を含む): %s" % real_errors[:3])
@@ -257,8 +256,6 @@ def _mounted_cards_and_health(cx):
         meta = pg.text_content(".pt-tool[data-tool=%s] .pt-meta" % tid)
         good = ("ポート %d" % port) in meta and "ホームに取り込み" in meta and (verfrag is None or verfrag in meta)
         check(good, "[A] %s はホームに取り込み(同じポート): %s" % (tid, meta))
-        check(pg.is_disabled(".pt-tool[data-tool=%s] .pt-toggle" % tid) and pg.is_disabled(".pt-tool[data-tool=%s] .pt-restart" % tid),
-              "[A] 取り込んだ%sは単独で止めない(停止・再起動は押せない)" % tid)
 
     if shots:
         os.makedirs(shots, exist_ok=True)
@@ -912,8 +909,7 @@ def _auto_discard(cx):
 
 def run_child_process_phase(browser, tmp, shots, check, events):
     """(B) 文字起こしが子プロセスの形(--no-mount 相当・取り込めなかったときの落ち先)。
-    停止・起動、再起動、異常終了の表示、ログの表示(XSS 対策)を、子プロセスとして確かめる(「詳しく」の中)。
-    異常終了のあとの「起動」は停止のあとの「起動」と同じボタン・同じ口(起動し直せることは test_launch の test_crash_is_reported_with_log)"""
+    異常終了の表示、ログの表示(XSS 対策)を、子プロセスとして確かめる(「詳しく」の中)。起動し直せることは test_launch の test_crash_is_reported_with_log"""
     ports = dict(zip(L.TOOL_IDS, free_ports(3)))
     sup = L.Supervisor(tmp, ready_timeout=60, stop_timeout=10, poll=0.2, log=events.append, ports=ports, mounts=("studio", "cut2resolve"))
     srv, port = L.make_server(0, sup)
@@ -939,8 +935,6 @@ def run_child_process_phase(browser, tmp, shots, check, events):
         meta = pg.text_content(".pt-tool[data-tool=transcribe] .pt-meta")
         check(("ポート %d" % ports["transcribe"]) in meta and TX_VER in meta and "ホームに取り込み" not in meta,
               "[B] 文字起こしは別のプログラム(子プロセス): %s" % meta)
-        check(not pg.is_disabled(".pt-tool[data-tool=transcribe] .pt-toggle") and not pg.is_disabled(".pt-tool[data-tool=transcribe] .pt-restart"),
-              "[B] 子プロセスの文字起こしは停止・再起動が押せる")
 
         # 3. ログ: 開くと末尾が出る。題名などに HTML が入っていても実行されない
         tx = sup.by_id["transcribe"]
@@ -951,29 +945,11 @@ def run_child_process_phase(browser, tmp, shots, check, events):
         check(pg.evaluate("window.__xss") is None and pg.query_selector(".pt-log img") is None, "[B] ログの HTML は文字として表示(XSS なし)")
         check("transcribe.log" in pg.text_content(".pt-tool[data-tool=transcribe] .pt-logpath"), "[B] ログの場所の表示")
 
-        # 4. 停止 → 起動(この形で子プロセスなのは文字起こしだけ)
-        pg.click(".pt-tool[data-tool=transcribe] .pt-toggle")
-        check(wait_card(pg, "transcribe", "stopped"), "[B] 文字起こしを停止")
-        check(pg.get_attribute(".pt-tool[data-tool=transcribe] .pt-open", "aria-disabled") == "true", "[B] 停止中は「開く」が押せない")
-        check(pg.text_content(".pt-tool[data-tool=transcribe] .pt-toggle") == "起動", "[B] ボタンが「起動」になる")
-        check(pg.is_disabled(".pt-tool[data-tool=transcribe] .pt-restart"), "[B] 停止中は再起動が押せない")
-        pg.click(".pt-tool[data-tool=transcribe] .pt-toggle")
-        check(wait_card(pg, "transcribe", "running"), "[B] 文字起こしを起動")
-
-        # 5. 再起動
-        pg.click(".pt-tool[data-tool=transcribe] .pt-restart")
-        check(wait_js(pg, "document.querySelector('.pt-tool[data-tool=transcribe] .pt-pill').textContent.includes('再起動')", 5000)
-              or card_state(pg, "transcribe") in ("starting", "running"), "[B] 再起動中の表示")
-        check(wait_js(pg, "document.querySelector('.pt-tool[data-tool=transcribe] .pt-pill').textContent === '動作中'"
-                          " && document.querySelector('.pt-tool[data-tool=transcribe]').getAttribute('data-state') === 'running'"),
-              "[B] 文字起こしが再起動後に動作中")
-
-        # 6. 異常終了の表示(子を外から強制終了)
+        # 4. 異常終了の表示(子を外から強制終了)
         os.kill(sup.by_id["transcribe"].proc.pid, getattr(signal, "SIGKILL", signal.SIGTERM))   # Windows は SIGTERM = 強制終了(TerminateProcess)
         check(wait_card(pg, "transcribe", "crashed"), "[B] 異常終了の表示")
         msg = pg.text_content(".pt-tool[data-tool=transcribe] .pt-msg")
         check("異常終了" in msg and not pg.is_hidden(".pt-tool[data-tool=transcribe] .pt-msg"), "[B] 異常終了のメッセージ: %s" % msg)
-        check(pg.text_content(".pt-tool[data-tool=transcribe] .pt-toggle") == "起動", "[B] 異常終了のあと「起動」が押せる")
         if shots:
             os.makedirs(shots, exist_ok=True)
             pg.screenshot(path=os.path.join(shots, "portal-crashed.png"), full_page=True)
