@@ -82,8 +82,8 @@
 - **prio.py** (88 行) — ② 管理の層 flow: 処理の優先度の表(PRIO。決定 3-49・notes:plan/done/opt-series.md の 11)。
   - 名前: `name_ok` :35・`rank` :39・`idle_only` :43・`os_priority` :47・`label` :51・`slot_kw` :55・`of_run` :60・`of_spec` :69・`watch` :80・`idle_now` :85
 - **retention.py** (9 行) — ② 管理の層 flow: 物の終わりの日数の 1 か所(方針の数)。ユーザーのツールと友人のアプリが同じ値を読む。
-- **run.py** (1621 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
-  - 名前: `class Cancelled` :123・`class StepError` :127・`mode_of` :146・`steps_of` :180・`analyze_verdict` :224・`chat_missing` :242・`chat_retry_ok` :248・`stream_ended_at` :256・`redo_reason` :269・`short_why` :287・`adopted_ids` :299・`tx_verdict` :304・ほか 5
+- **run.py** (1684 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
+  - 名前: `class Cancelled` :124・`class StepError` :128・`mode_of` :147・`steps_of` :181・`analyze_verdict` :225・`chat_missing` :243・`chat_retry_ok` :249・`stream_ended_at` :257・`redo_reason` :270・`short_why` :288・`adopted_ids` :300・`tx_verdict` :305・ほか 5
 - **runlog.py** (93 行) — まとめて実行の「終わった実行の記録」の形と読み方(RS3-0B)。
   - 名前: `read_runs_log` :47・`read_result` :77
 - **runqueue.py** (817 行) — ② 管理の層 flow: 待ち行列と実行の糸(RS7-1 S5。決定 3-30・
