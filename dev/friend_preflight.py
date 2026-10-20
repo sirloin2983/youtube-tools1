@@ -4,9 +4,10 @@
 今までの「合言葉が違います」「ffmpeg が見つかりません」「確認用の動画が見られない」「依頼が届かない」は、どれも配ってから友人の PC で見つかった。
 開発の PC には Python・ffmpeg・PATH・作業データ・リポジトリがそろっていて、zip に足りない物があっても気づけないため。
 
-    py -3.12 dev/friend_preflight.py [--zip Z] [--work W] [--keep] [--skip-update] [--break ffmpeg] [--timeout-min 25]
+    py -3.12 dev/friend_preflight.py [--zip Z] [--update-zip U] [--work W] [--keep] [--skip-update] [--break ffmpeg] [--timeout-min 25]
 
 --zip が無ければ dev/build_friend_zip.py の build で今のコードから作る(キャッシュの物だけ = --no-fetch と同じ)。
+--update-zip は 10 の更新に使う全部入りの zip(既定は --zip と同じ物)。前の形の zip(--zip)から今の build(--update-zip)へ上がる確かめに使う。
 流れ(1 つでも落ちたら不合格。結果は <work>/report.json と 1 行ずつの OK / FAIL):
   1. 展開: zip を一時フォルダの FriendApp\\ に展開し、manifest.json の SHA-256 と直下の物を確かめる(sitecustomize.py が入っていないことも)
   2. 友人の PC の形: 環境変数は最小(PATH は Windows の System32 だけ = 開発の Python・ffmpeg・git は見えない)・USERPROFILE・LOCALAPPDATA・
@@ -25,7 +26,8 @@
   8. 届く物: この PC で作った確認用の動画(h264・yuv420p・高さ 480 以下)が受け取る画面の <video> で再生できる。
      ユーザーの PC が届ける形(flow/deliver.deliver_one = 1 本ずつの zip・.preview.mp4・.meta.json)を偽の Dropbox の /出力/ に置き、同期で取り込まれて再生できる
   9. 判断: 受け取る(保存先へ移る)・見送る → .verdict.json(v 2)が /送り返し/ に上がる
- 10. 更新: 版を上げた zip と latest.json を偽の /更新/ に置き → 取って app-<版>\\ へ → [更新する] → exe が入れ替えて新しい版で開き直す(--skip-update で飛ばす)
+ 10. 更新: 版を上げた全部入りの zip と軽い zip(-light。python/・tools/ なし)と light 付きの latest.json を偽の /更新/ に置き → 取って app-<版>\\ へ
+     (軽い更新に応じる版は light だけを取り python/ を今の python から写す・前の形の版は全部入りを取る)→ [更新する] → exe が入れ替えて新しい版で開き直す(--skip-update で飛ばす)
  11. 片付け: [すべて止めて終了] と同じ /api/shutdown → exe と子・孫(Python・ffmpeg・whisper.cpp・WebView2)が残らない。合格なら一時フォルダを消す(--keep で残す)
 --break ffmpeg は検査が効くかの確かめ用: 展開した写しの fetch.json から ffmpeg の行を消す(= ffmpeg を取れない zip と同じ)。初回の準備で落ちるのが正しい。
 音は出さない(exe は YTT_FRIEND_SHOTS で WebView2 を消音・<video> は muted)・窓は画面の外・子プロセスは黒い窓を出さない・止めるのは自分が起こした PID だけ。
@@ -707,11 +709,15 @@ def bump(ver):
 
 
 def make_update(zip_path, work, new_ver):
-    """版を上げた zip(src/ytt/version.py だけ書き換え・差し替えの sitecustomize.py を足す = 入れ替えた後も偽の通信のまま)と latest.json を偽の /更新/ へ"""
-    name = "%s-%s.zip" % (bfz.ZIP_PREFIX, new_ver)
-    dest = os.path.join(work, "dropbox", "更新", name)
+    """版を上げた全部入りの zip と軽い zip(src/ytt/version.py だけ書き換え・差し替えの sitecustomize.py を足す = 入れ替えた後も偽の通信のまま。
+    軽い方は manifest の files が同じで python/・tools/ を入れない)と light 付きの latest.json を偽の /更新/ へ"""
+    folder = os.path.join(work, "dropbox", "更新")
+    name, lname = "%s-%s.zip" % (bfz.ZIP_PREFIX, new_ver), "%s-%s-light.zip" % (bfz.ZIP_PREFIX, new_ver)
     shim_rel = "python/Lib/site-packages/sitecustomize.py"
-    with zipfile.ZipFile(zip_path) as zi, zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED, compresslevel=1) as zo:
+    with open(SHIM_SRC, "rb") as f:
+        shim = f.read()
+    with zipfile.ZipFile(zip_path) as zi, zipfile.ZipFile(os.path.join(folder, name), "w", zipfile.ZIP_DEFLATED, compresslevel=1) as zo, \
+            zipfile.ZipFile(os.path.join(folder, lname), "w", zipfile.ZIP_DEFLATED, compresslevel=1) as zl:
         man = json.loads(zi.read("manifest.json").decode("utf-8"))
         for info in zi.infolist():
             if info.filename == "manifest.json":
@@ -721,20 +727,43 @@ def make_update(zip_path, work, new_ver):
                 data = re.sub(rb'^VERSION\s*=\s*"[^"]+"', ('VERSION = "%s"' % new_ver).encode("ascii"), data, count=1, flags=re.M)
                 man["files"][info.filename] = hashlib.sha256(data).hexdigest()
             zo.writestr(info, data)
-        with open(SHIM_SRC, "rb") as f:
-            shim = f.read()
+            if not info.filename.startswith(bfz.LIGHT_SKIP):
+                zl.writestr(info.filename, data)   # info は共有しない(書くと中の位置が変わる)
         zo.writestr(shim_rel, shim)
         man["files"][shim_rel] = hashlib.sha256(shim).hexdigest()
         man["version"] = new_ver
         zo.writestr("manifest.json", json.dumps(man, ensure_ascii=False, indent=1))   # 友人のアプリは manifest の SHA-256 で更新の中身を確かめる
-    latest = {"version": new_ver, "file": name, "size": os.path.getsize(dest), "sha256": bfz.sha256_file(dest), "notes": "配る前の検査"}
-    with open(os.path.join(work, "dropbox", "更新", "latest.json"), "w", encoding="utf-8") as f:
+        man["light"] = True
+        zl.writestr("manifest.json", json.dumps(man, ensure_ascii=False, indent=1))
+    latest = {"version": new_ver, "file": name, "size": os.path.getsize(os.path.join(folder, name)), "sha256": bfz.sha256_file(os.path.join(folder, name)),
+              "notes": "配る前の検査", "light": {"file": lname, "size": os.path.getsize(os.path.join(folder, lname)), "sha256": bfz.sha256_file(os.path.join(folder, lname))}}
+    with open(os.path.join(folder, "latest.json"), "w", encoding="utf-8") as f:   # zip 2 つのあと
         json.dump(latest, f, ensure_ascii=False)
+
+
+def update_downloads(work):
+    """偽の Dropbox から取った /更新/ の zip の名前(通信の差し替えの記録 net.log から)"""
+    out = []
+    try:
+        with open(os.path.join(work, "net.log"), encoding="utf-8") as f:
+            for line in f:
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                path = d.get("path") or ""
+                if d.get("endpoint") == "files/download" and path.startswith("/更新/") and path.endswith(".zip"):
+                    out.append(path.rsplit("/", 1)[1])
+    except OSError:
+        pass
+    return out
 
 
 def check_update(w, app, work, zip_path, old_ver, rep, timeout):  # lint: long 更新の一続き(置く → 取る → 入れ替える → 新しい版で開く)
     new_ver = bump(old_ver)
     make_update(zip_path, work, new_ver)
+    with open(os.path.join(app, "src", "friendapp", "sync.py"), encoding="utf-8") as f:
+        knows_light = "-light.zip" in f.read()   # 前の形の友人のアプリ(軽い更新を知らない)は light を無視して全部入りを取る
     w.api("POST", "/api/friend/undo", {"items": []})   # 同期を起こす(押したあとの口 = SYNC_KICK)
 
     def avail():
@@ -745,6 +774,10 @@ def check_update(w, app, work, zip_path, old_ver, rep, timeout):  # lint: long �
               got and os.path.isfile(os.path.join(app, "app-" + new_ver, "src", "ytt", "version.py")), got)
     if not got:
         return False
+    grabbed = update_downloads(work)
+    want = "%s-%s%s.zip" % (bfz.ZIP_PREFIX, new_ver, "-light" if knows_light else "")
+    rep.check("取ったのは %s だけ" % want, grabbed == [want], grabbed)
+    rep.check("app-%s\\python\\python.exe がある(軽い更新は今の python から写す)" % new_ver, os.path.isfile(os.path.join(app, "app-" + new_ver, "python", "python.exe")))
     old_pid = w.proc.pid
     st, j = w.api("POST", "/api/friend/update/apply", {})
     rep.check("[更新する] が受け付けられる", st == 200, j)
@@ -881,7 +914,7 @@ def run(args):  # lint: long 検査の一本の流れ(上の説明の 1〜11 の
         check_diag(work, rep)
         check_secret_leak(work, rep)
         if not args.skip_update:
-            check_update(w, app, work, zip_path, lay["man"]["version"], rep, 240)
+            check_update(w, app, work, args.update_zip or zip_path, lay["man"]["version"], rep, 240)
         return rep
     except Preflight:
         raise
@@ -927,6 +960,7 @@ def build_zip(work, args):
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="friend_preflight.py", description="友人に配る zip を、配る前に友人の PC と同じ状態で通しで試す")
     ap.add_argument("--zip", default="", help="試す zip(無ければ今のコードから作る)")
+    ap.add_argument("--update-zip", default="", help="更新に使う全部入りの zip(既定は --zip と同じ物。前の形の --zip から今の build へ上がる確かめ)")
     ap.add_argument("--work", default="", help="一時フォルダ(既定は新しく作る。合格なら消す)")
     ap.add_argument("--keep", action="store_true", help="合格でも一時フォルダを残す")
     ap.add_argument("--skip-update", action="store_true", help="更新の入れ替えを試さない")
@@ -935,8 +969,9 @@ def main(argv=None):
     ap.add_argument("--timeout-min", type=float, default=25.0, help="全体の待ちの目安(分)")
     a = ap.parse_args(argv)
     a.cache = a.cache or bfz.default_cache()
-    if a.zip and not os.path.isfile(a.zip):
-        ap.error("zip がありません: %s" % a.zip)
+    for z in (a.zip, a.update_zip):
+        if z and not os.path.isfile(z):
+            ap.error("zip がありません: %s" % z)
     try:
         import playwright  # noqa: F401  (WebView2 につなぐ)
     except ImportError:

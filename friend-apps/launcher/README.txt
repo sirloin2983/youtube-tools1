@@ -29,8 +29,11 @@
   - WebView2 の本体が無い PC: Edge のアプリの窓で開く逃げ道(このときだけ画面に本物の合言葉を入れる。止めるのはアイコンから)
 
 ■ 更新(8 章・A-15。新しい版の入れ方と前の版へ戻す)
-  - 取る: Python の同期(src\friendapp\sync.py の 5)が Dropbox の /更新/latest.json を見て、今より新しければ FriendApp-<版>.zip を取り、
-    大きさと SHA-256 を確かめて <アプリのフォルダ>\app-<版>\ に入れる(src・python と FriendApp.exe・WebView2 の DLL・fetch.json・members.json)
+  - 取る: Python の同期(src\friendapp\sync.py の 5)が Dropbox の /更新/latest.json を見て、今より新しければ取り、
+    大きさと SHA-256 を確かめて <アプリのフォルダ>\app-<版>\ に入れる(src・python と FriendApp.exe・WebView2 の DLL・fetch.json・members.json)。
+    latest.json の light(FriendApp-<版>-light.zip = src と直下の物だけ・python と tools なし)があれば先にそれを取り、python は今動いている版から
+    manifest の SHA-256 を確かめて写す(1 つでも無い・違えば同じ回で file の全部入りを取る)。light が無い・形が変なら file だけ。
+    置く順は light → 全部入り → latest.json。file は全部入りのまま(前の形の友人のアプリは light を無視して file を取る)
   - 知らせる: 画面の帯の 1 行(src\friendapp\ui\update.js。画面は帯に <div data-fr-update></div> を置くだけ)に「新しい版 n があります [更新する]」
   - 入れ替える: [更新する] → 作業と預かりが無ければすぐ・あれば終わってから、exe が Python を止め、app-<版>\ の FriendApp.exe と DLL を写し
     (動いている exe と DLL は *.old に名前を変えてから。次の起動で消す)、閉じて新しい exe を起こす

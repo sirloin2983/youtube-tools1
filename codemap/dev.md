@@ -6,8 +6,8 @@
 
 - **_common.py** (38 行) — dev/ の道具が共通で使う小物(標準ライブラリだけ)。guard_hook.py・push_helper.py は単独で動く条件なので、ここを読まない。
   - 名前: `find_node` :8・`read_utf8` :21・`write_utf8` :27・`tracked_files` :33
-- **build_friend_zip.py** (641 行) — 友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(設計 notes:docs/design/f1-build.md の 2・3 節)。
-  - 名前: `class BuildError` :94・`say` :98・`sha256_file` :102・`download` :115・`cached` :127・`wheel_pins` :162・`pip_download` :180・`wheels` :190・`unzip_into` :228・`lay_python` :253・`src_files` :274・`lay_src` :289・ほか 19
+- **build_friend_zip.py** (662 行) — 友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(設計 notes:docs/design/f1-build.md の 2・3 節)。
+  - 名前: `class BuildError` :97・`say` :101・`sha256_file` :105・`download` :118・`cached` :130・`wheel_pins` :165・`pip_download` :183・`wheels` :193・`unzip_into` :231・`lay_python` :256・`src_files` :277・`lay_src` :292・ほか 19
 - **code_map.py** (466 行) — コードの地図と言葉の索引を作る道具(AI のセッションがコードの場所を早く見つけるため)。
   - 名前: `git_files` :53・`skipped` :57・`is_test` :61・`read` :65・`one_line` :73・`comment_head` :85・`py_info` :112・`js_info` :143・`cs_info` :164・`info` :186・`layer_of` :199・`norm_route` :206・ほか 12
   - 受ける口: 
@@ -25,8 +25,8 @@
   - 名前: `demo_fetch` :33・`demo_probe` :38・`class StubQueue` :43・`class StubEngine` :68・`demo_thumb` :95・`class DemoStreams` :104・`seed` :143・`write_demo_fetch` :214・`class DemoDownloader` :228・`demo_file` :241・`write_demo_update` :251・`main` :263
 - **friend_diag.py** (186 行) — 友人のアプリから届いた診断の記録を読む(ユーザーの PC。notes:docs/spec/friend.md の 13-11)。AI が原因を調べるときに流す。
   - 名前: `default_dir` :34・`prune` :45・`load` :59・`is_error` :82・`lines_of` :102・`main` :146
-- **friend_preflight.py** (968 行) — 友人に配る zip を、配る前にこの PC で「友人の PC と同じ状態」にして通しで試す(配る前の検査。notes:docs/spec/friend.md の 13-11)。
-  - 名前: `class Preflight` :70・`class Report` :74・`free_port` :100・`link_or_copy` :106・`unpack` :115・`break_fetch` :134・`place_models` :144・`mirror_map` :168・`lay_shim` :184・`friend_env` :194・`fake_media` :221・`make_work` :225・ほか 29
+- **friend_preflight.py** (1003 行) — 友人に配る zip を、配る前にこの PC で「友人の PC と同じ状態」にして通しで試す(配る前の検査。notes:docs/spec/friend.md の 13-11)。
+  - 名前: `class Preflight` :72・`class Report` :76・`free_port` :102・`link_or_copy` :108・`unpack` :117・`break_fetch` :136・`place_models` :146・`mirror_map` :170・`lay_shim` :186・`friend_env` :196・`fake_media` :223・`make_work` :227・ほか 30
 - **friend_preflight_shim.py** (270 行) — 配る前の検査(dev/friend_preflight.py)の通信の差し替え。検査が、展開した写しの python/Lib/site-packages/sitecustomize.py として置く
   - 名前: `install` :246
 - **guard_hook.py** (434 行) — Claude Code の PreToolUse のフック: 事故のもとになる操作を機械が断る。標準ライブラリだけ・速く。

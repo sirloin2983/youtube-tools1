@@ -123,13 +123,24 @@ class ToolTest(unittest.TestCase):
         man = {"version": "1.2.3", "files": {"src/ytt/version.py": B.hashlib.sha256(ver).hexdigest()}}
         with zipfile.ZipFile(src, "w") as z:
             z.writestr("src/ytt/version.py", ver)
+            z.writestr("python/python.exe", b"MZ")
+            z.writestr("tools/t.txt", b"t")
             z.writestr("manifest.json", json.dumps(man))
         os.makedirs(os.path.join(self.tmp, "dropbox", "更新"))
         P.make_update(src, self.tmp, "1.2.4")
         with open(os.path.join(self.tmp, "dropbox", "更新", "latest.json"), encoding="utf-8") as f:
             latest = json.load(f)
         self.assertEqual(latest["version"], "1.2.4")
+        with zipfile.ZipFile(os.path.join(self.tmp, "dropbox", "更新", latest["light"]["file"])) as zl:   # 軽い zip: python/・tools/ なし・manifest は同じ files + light
+            self.assertEqual(sorted(zl.namelist()), ["manifest.json", "src/ytt/version.py"])
+            ml = json.loads(zl.read("manifest.json"))
+            self.assertTrue(ml["light"])
+            self.assertIn("python/Lib/site-packages/sitecustomize.py", ml["files"])
+        self.assertEqual(latest["light"]["sha256"], B.sha256_file(os.path.join(self.tmp, "dropbox", "更新", latest["light"]["file"])))
         with zipfile.ZipFile(os.path.join(self.tmp, "dropbox", "更新", latest["file"])) as z:
+            self.assertIn("python/python.exe", z.namelist())
+            self.assertEqual([z.read(n) for n in ("python/python.exe", "tools/t.txt")], [b"MZ", b"t"])   # 2 つの zip へ書いても全部読める
+            self.assertIsNone(z.testzip())
             m = json.loads(z.read("manifest.json"))
             self.assertEqual(m["version"], "1.2.4")
             for rel, sha in m["files"].items():
@@ -148,9 +159,11 @@ class PublishGateTest(unittest.TestCase):
         p = os.path.join(out_dir, "FriendApp-9.9.9.zip")
         with open(p, "wb") as f:
             f.write(b"zip")
+        with open(os.path.join(out_dir, "FriendApp-9.9.9-light.zip"), "wb") as f:
+            f.write(b"l")
         with open(os.path.join(out_dir, "latest.json"), "w", encoding="utf-8") as f:
             json.dump({"version": "9.9.9", "file": "FriendApp-9.9.9.zip"}, f)
-        return {"zip": p, "size": 3, "sha256": "x", "files": 1}
+        return {"zip": p, "size": 3, "sha256": "x", "files": 1, "light": {"zip": os.path.join(out_dir, "FriendApp-9.9.9-light.zip"), "size": 1, "sha256": "y"}}
 
     def args(self, skip=False):
         return B.argparse.Namespace(cache="c", wcpp="w", no_fetch=True, notes="", launcher_build="l", skip_preflight=skip)
@@ -165,7 +178,7 @@ class PublishGateTest(unittest.TestCase):
     def test_passed_preflight_places_zip_then_latest(self):
         with mock.patch.object(B, "build", self.fake_build), mock.patch.object(P, "preflight_zip", return_value=True):
             got = B.publish(self.args(), self.out)
-        self.assertEqual(sorted(os.listdir(self.out)), ["FriendApp-9.9.9.zip", "latest.json"])
+        self.assertEqual(sorted(os.listdir(self.out)), ["FriendApp-9.9.9-light.zip", "FriendApp-9.9.9.zip", "latest.json"])
         self.assertEqual(got["zip"], os.path.join(self.out, "FriendApp-9.9.9.zip"))
 
     def test_skip_only_when_asked(self):

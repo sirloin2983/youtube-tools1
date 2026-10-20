@@ -16,7 +16,9 @@ config.json(Dropbox の鍵)は入れない。--first --with-key のときだけ 
 出力:
     --out D: 出力先を D に(テスト・手元の確かめ。FriendApp-<版>.zip + latest.json を D に書く)
     --first: friend-apps/launcher/dist/FriendApp-<版>-first.zip(latest.json は書かない。手で渡す)
-    --publish(--out なし): <ホームの設定の intake.folder>/更新/FriendApp-<版>.zip + latest.json(古い zip は 2 つ残して消す。(f1h))。
+    ふだんの出力(--first 以外)は FriendApp-<版>.zip(全部入り)に加えて FriendApp-<版>-light.zip(python/・tools/ を入れない軽い更新。manifest.json は同じ files + light = 真)を作り、
+        latest.json に light {file, size, sha256} を足す(file は全部入りのまま。友人のアプリは light が写せなければ file を取る。src/friendapp/sync.py)。
+    --publish(--out なし): <ホームの設定の intake.folder>/更新/ へ light → 全部入り → latest.json の順(古い版は 2 版残して消す。(f1h))。
         intake.folder は Dropbox の中 = 友人のアプリが「更新」で取る場所。ユーザーの OK のあとだけ。--out も --first も無い呼び出しは断る。
         置く前に必ず配る前の検査(dev/friend_preflight.py = 友人の PC と同じ状態で通しで試す)を流し、落ちたら置かない(抜けるのは --skip-preflight の明示だけ)
 
@@ -59,7 +61,8 @@ LAUNCHER_DLLS = ("Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.WinF
 SCHEMA = "youtube-tools-friend-zip/v1"
 FETCH_SCHEMA = "youtube-tools-friend-fetch/v1"
 TX_TOOL = "transcribe"   # 編集の作業データの ID(datadir。fetch の dest の頭)
-KEEP_ZIPS = 2            # 更新の置き場所に残す zip の数(今回の物を含む)
+KEEP_ZIPS = 2            # 更新の置き場所に残す版の数(今回の物を含む。1 版 = 全部入りと -light の 2 つ)
+LIGHT_SKIP = ("python/", "tools/")   # 軽い更新の zip に入れない物(python は今の版から写す・tools は更新で使われない)
 WHEEL_NAMES = ("numpy", "sherpa-onnx", "streamlink")   # 決めたこと 12: Python の部品はこの 3 つだけ(版は setup/requirements*.txt から読む)
 MEMBERS_SRC = os.path.join(REPO, "friend-apps", "holo-colors", "members.json")   # 配信者の名簿(zip の直下へ写す。places.py が直下から読む)
 KEY_SRC = os.path.join(LAUNCHER_SRC, "config.json")    # Dropbox の鍵(git の外。dev/dropbox_auth.py が作る)。--first --with-key のときだけ zip の直下へ
@@ -482,25 +485,29 @@ def file_hashes(stage):
     return dict(sorted(out.items()))
 
 
-def write_zip(stage, path):
+def write_zip(stage, path, skip=()):
     tmp = path + ".part"
     with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
         for rel in file_hashes(stage):
+            if rel.startswith(skip):
+                continue
             z.write(os.path.join(stage, *rel.split("/")), rel)
     os.replace(tmp, path)
 
 
 def _ver_key(name, prefix):
-    m = re.match(re.escape(prefix) + r"-(\d+)\.(\d+)\.(\d+)\.zip$", name)
+    m = re.match(re.escape(prefix) + r"-(\d+)\.(\d+)\.(\d+)(?:-light)?\.zip$", name)
     return tuple(int(x) for x in m.groups()) if m else None
 
 
 def prune(out_dir, keep=KEEP_ZIPS):
-    """更新の置き場所の古い FriendApp-<版>.zip を keep 個まで残して消す(版の新しい順)。-first.zip・ほかの名前は触らない"""
-    zs = sorted((n for n in os.listdir(out_dir) if _ver_key(n, ZIP_PREFIX)), key=lambda n: _ver_key(n, ZIP_PREFIX), reverse=True)
-    for n in zs[keep:]:
-        os.remove(os.path.join(out_dir, n))
-        say("古い zip を消しました: %s" % n)
+    """更新の置き場所の古い FriendApp-<版>.zip・FriendApp-<版>-light.zip を keep 版まで残して消す(版の新しい順)。-first.zip・ほかの名前は触らない"""
+    zs = [n for n in os.listdir(out_dir) if _ver_key(n, ZIP_PREFIX)]
+    keep_vers = sorted({_ver_key(n, ZIP_PREFIX) for n in zs}, reverse=True)[:keep]
+    for n in zs:
+        if _ver_key(n, ZIP_PREFIX) not in keep_vers:
+            os.remove(os.path.join(out_dir, n))
+            say("古い zip を消しました: %s" % n)
 
 
 def default_out(first, publish=False):
@@ -521,7 +528,7 @@ def default_out(first, publish=False):
 
 def build(out_dir, cache, wcpp_dir, first=False, with_key=False, fetch=True, notes="", fetcher=download, downloader=pip_download,
           launcher_build=LAUNCHER_BUILD, members_src=MEMBERS_SRC, key_src=KEY_SRC):  # lint: long 一本の流れ(置く → 表 → 検査 → zip)
-    """zip を作って {zip, size, sha256, files} を返す。失敗は BuildError"""
+    """zip を作って {zip, size, sha256, files, light} を返す(light = 軽い更新の {zip, size, sha256}。--first は無し)。失敗は BuildError"""
     if with_key and not first:
         raise BuildError("--with-key は --first のときだけ(更新の zip に鍵を入れない)")
     ver = _version.VERSION
@@ -557,11 +564,21 @@ def build(out_dir, cache, wcpp_dir, first=False, with_key=False, fetch=True, not
         name = "%s-%s%s.zip" % (ZIP_PREFIX, ver, "-first" if first else "")
         path = os.path.join(out_dir, name)
         write_zip(stage, path)
+        light = None
+        if not first:
+            manifest["light"] = True
+            with open(os.path.join(stage, "manifest.json"), "w", encoding="utf-8") as f:
+                json.dump(manifest, f, ensure_ascii=False, indent=1)
+            light_name = "%s-%s-light.zip" % (ZIP_PREFIX, ver)
+            write_zip(stage, os.path.join(out_dir, light_name), skip=LIGHT_SKIP)
+            light = {"zip": os.path.join(out_dir, light_name), "size": os.path.getsize(os.path.join(out_dir, light_name)),
+                     "sha256": sha256_file(os.path.join(out_dir, light_name))}
     finally:
         shutil.rmtree(stage_root, ignore_errors=True)
-    got = {"zip": path, "size": os.path.getsize(path), "sha256": sha256_file(path), "files": len(files) + 1}
+    got = {"zip": path, "size": os.path.getsize(path), "sha256": sha256_file(path), "files": len(files) + 1, "light": light}
     if not first:
-        latest = {"version": ver, "file": name, "size": got["size"], "sha256": got["sha256"], "notes": notes}
+        latest = {"version": ver, "file": name, "size": got["size"], "sha256": got["sha256"], "notes": notes,
+                  "light": {"file": os.path.basename(light["zip"]), "size": light["size"], "sha256": light["sha256"]}}
         with open(os.path.join(out_dir, "latest.json"), "w", encoding="utf-8") as f:
             json.dump(latest, f, ensure_ascii=False, indent=1)
         prune(out_dir)
@@ -579,7 +596,7 @@ def default_wcpp():
 
 
 def publish(a, out):
-    """--publish: 一時のフォルダに作り、配る前の検査(dev/friend_preflight.py)に通ったら更新の置き場所へ写す(zip → latest.json → 古い zip を消す)。
+    """--publish: 一時のフォルダに作り、配る前の検査(dev/friend_preflight.py)に通ったら更新の置き場所へ写す(light → 全部入り → latest.json → 古い zip を消す)。
     落ちたら置かない。検査を抜けるのは --skip-preflight の明示だけ -> build と同じ形"""
     tmp = tempfile.mkdtemp(prefix="friend-publish-")
     try:
@@ -593,9 +610,11 @@ def publish(a, out):
                 raise BuildError("配る前の検査に落ちたので、更新の置き場所には置きません(記録は上の不合格の行)")
         os.makedirs(out, exist_ok=True)
         name = os.path.basename(got["zip"])
-        shutil.copy2(got["zip"], os.path.join(out, name + ".part"))
-        os.replace(os.path.join(out, name + ".part"), os.path.join(out, name))
-        shutil.copy2(os.path.join(tmp, "latest.json"), os.path.join(out, "latest.json"))   # zip が置けてから(友人のアプリは latest.json を見て取る)
+        for z in (got["light"]["zip"], got["zip"]):   # light → 全部入り(友人のアプリは latest.json を見て取る = 2 つとも置けてから latest.json)
+            n = os.path.basename(z)
+            shutil.copy2(z, os.path.join(out, n + ".part"))
+            os.replace(os.path.join(out, n + ".part"), os.path.join(out, n))
+        shutil.copy2(os.path.join(tmp, "latest.json"), os.path.join(out, "latest.json"))
         prune(out)
         got["zip"] = os.path.join(out, name)
         return got
@@ -631,6 +650,8 @@ def main(argv=None):
         say("[失敗] %s" % e)
         return 1
     say("できました: %s(%.1f MB・%d ファイル)" % (got["zip"], got["size"] / 1e6, got["files"]))
+    if got.get("light"):
+        say("軽い更新: %s(%.1f MB)" % (got["light"]["zip"], got["light"]["size"] / 1e6))
     if a.with_key:
         say("鍵(config.json)が入っています。友人にだけ渡してください。")
     return 0

@@ -196,6 +196,27 @@ class BuildTest(Base):
         self.assertNotIn("#import site", pth)
         self.assertNotIn("ingest/data", " ".join(names))   # 追跡外の作業データは入らない
 
+    def test_light_zip_has_no_python_or_tools_and_same_manifest(self):
+        got = self.shared
+        lname = "FriendApp-%s-light.zip" % V.VERSION
+        self.assertEqual(os.path.basename(got["light"]["zip"]), lname)
+        with open(os.path.join(self.shared_out, "latest.json"), encoding="utf-8") as f:
+            latest = json.load(f)
+        self.assertEqual(latest["light"], {"file": lname, "size": got["light"]["size"], "sha256": got["light"]["sha256"]})
+        self.assertEqual(latest["file"], "FriendApp-%s.zip" % V.VERSION)   # file は全部入りのまま
+        self.assertEqual(B.sha256_file(got["light"]["zip"]), got["light"]["sha256"])
+        with zipfile.ZipFile(got["zip"]) as zf, zipfile.ZipFile(got["light"]["zip"]) as zl:
+            full, light = set(zf.namelist()), set(zl.namelist())
+            mf, ml = json.loads(zf.read("manifest.json")), json.loads(zl.read("manifest.json"))
+            self.assertEqual(light, {n for n in full if not n.startswith(B.LIGHT_SKIP)})
+            self.assertTrue({"FriendApp.exe", "WebView2Loader.dll", "fetch.json", "members.json", "manifest.json", "src/friendapp/server.py"} <= light)
+            for n in light - {"manifest.json"}:
+                self.assertEqual(zl.read(n), zf.read(n), n)
+        self.assertEqual(ml["files"], mf["files"])   # python/・tools/ のハッシュも含む
+        self.assertTrue(ml["light"])
+        self.assertNotIn("light", mf)
+        self.assertLess(got["light"]["size"], got["size"])
+
     def test_fetch_json_reads_the_tables(self):
         got = self.shared   # 既定の build()(notes は fetch.json に入らない)
         with zipfile.ZipFile(got["zip"]) as z:
@@ -242,6 +263,7 @@ class BuildTest(Base):
         got = self.build(first=True, with_key=True)
         self.assertTrue(got["zip"].endswith("-first.zip"))
         self.assertFalse(os.path.exists(os.path.join(self.out, "latest.json")))
+        self.assertIsNone(got["light"])   # --first は全部入りだけ
         self.assertEqual(os.path.basename(got["zip"]), "FriendApp-%s-first.zip" % V.VERSION)
         with zipfile.ZipFile(got["zip"]) as z:
             self.assertIn("config.json", z.namelist())
@@ -312,10 +334,11 @@ class BuildTest(Base):
         os.makedirs(self.out)
         for v in ("0.9.0", "0.10.0", "0.8.5"):
             open(os.path.join(self.out, "FriendApp-%s.zip" % v), "wb").close()
+            open(os.path.join(self.out, "FriendApp-%s-light.zip" % v), "wb").close()
         open(os.path.join(self.out, "FriendApp-0.1.0-first.zip"), "wb").close()
         open(os.path.join(self.out, "other.zip"), "wb").close()
         B.prune(self.out)
-        self.assertEqual(sorted(os.listdir(self.out)), ["FriendApp-0.1.0-first.zip", "FriendApp-0.10.0.zip", "FriendApp-0.9.0.zip", "other.zip"])
+        self.assertEqual(sorted(os.listdir(self.out)), ["FriendApp-0.1.0-first.zip", "FriendApp-0.10.0-light.zip", "FriendApp-0.10.0.zip", "FriendApp-0.9.0-light.zip", "FriendApp-0.9.0.zip", "other.zip"])
 
 
 class CacheTest(Base):

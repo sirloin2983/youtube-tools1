@@ -17,9 +17,10 @@
   4. 学習の束: /学習/latest.json が新しければ /学習/<版>/ を sha256 を確かめて <data>/learning/<版>/ へ・machine の learningDir を向ける・直近 3 版
      (束を作る側の PC = places.is_maker_data では取らない)
   5. 更新(FriendApp.exe との約束。形は friend-apps/launcher/README.txt): exe から動いているとき(YTT_FRIEND_LAUNCHER=1)だけ、/更新/latest.json が
-     今の版より新しければ zip(FriendApp-<版>.zip)を取り SHA-256 を確かめ、src/・python/ と直下の
+     今の版より新しければ zip を取り SHA-256 を確かめ、src/・python/ と直下の
      FriendApp.exe・WebView2 の DLL・fetch.json・members.json を <home>/app-<版>.tmp/ に展開 → src/friendapp/server.py と python/python.exe があれば
-     <home>/app-<版>/ へ。入れ替える(exe を写して開き直す)のは画面の [更新する] から exe が(作業と預かりが無いとき)
+     <home>/app-<版>/ へ。zip は latest.json の light(FriendApp-<版>-light.zip。python/ なし)があれば先にそれ = python/ は今動いている Python から
+     manifest の SHA-256 を確かめて写す(1 つでも無い・違えば同じ回で file の全部入り FriendApp-<版>.zip を取る)。入れ替える(exe を写して開き直す)のは画面の [更新する] から exe が(作業と預かりが無いとき)
 """
 import datetime
 import hashlib
@@ -27,6 +28,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import threading
 import time
 import zipfile
@@ -232,9 +234,46 @@ def extract_pack(zip_path, dest_dir, fallback_name):
     return target
 
 
-def install_update(zip_path, home, version):
+class RuntimeChanged(ValueError):
+    """軽い更新で python/ を今の版から写せない(無い・SHA-256 が違う = python が変わった)。呼ぶ側は全部入りの zip を取り直す"""
+
+
+def free_ok(folder, need):
+    try:
+        return shutil.disk_usage(fsio.existing_parent(folder) or folder).free >= need + 64 * 1024 * 1024
+    except (OSError, ValueError):
+        return True   # 測れない場所は測らない
+
+
+def _copy_runtime(manifest, runtime_dirs, tmp):
+    """軽い更新: manifest の python/* を今動いている Python のフォルダ runtime_dirs から tmp/python/ へ 1 ファイルずつ SHA-256 を確かめて写す
+    (ハードリンクは使わない = 開かれた実体を前の版の名前から消せず、前の版の片付けが失敗する)。1 つでも無い・違えば RuntimeChanged"""
+    files = manifest.get("files") if isinstance(manifest, dict) and isinstance(manifest.get("files"), dict) else {}
+    want = {rel: sha for rel, sha in files.items() if str(rel).startswith("python/")}
+    if not runtime_dirs or not want:
+        raise RuntimeChanged("軽い更新の写し元の python がありません")
+    srcs = {}
+    for rel, sha in want.items():
+        for d in runtime_dirs:
+            p = safe_join(d, rel[len("python/"):])
+            if isinstance(sha, str) and os.path.isfile(p) and sha256_file(p) == sha.lower():
+                srcs[rel] = p
+                break
+        else:
+            raise RuntimeChanged("今の python に更新の想定と合う %s がありません" % str(rel)[:120])
+    need = sum(os.path.getsize(p) for p in srcs.values())
+    if not free_ok(tmp, need):
+        raise SyncError("空きが足りません(あと %d MB ほど空けてください)" % (need // (1024 * 1024) + 64))
+    for rel, p in srcs.items():
+        dest = fsio.long_path(safe_join(tmp, rel))
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        shutil.copyfile(fsio.long_path(p), dest)
+
+
+def install_update(zip_path, home, version, runtime_dirs=None):
     """更新の zip の src/・python/ と直下の UPDATE_ROOT_FILES を <home>/app-<版>.tmp/ に展開し、manifest.json があれば SHA-256 を確かめ、
-    src/friendapp/server.py と python/python.exe があれば <home>/app-<版>/ へ名前を変える -> 置いたフォルダ。だめなら ValueError(途中の物は消す)"""
+    src/friendapp/server.py と python/python.exe があれば <home>/app-<版>/ へ名前を変える -> 置いたフォルダ。だめなら ValueError(途中の物は消す)。
+    軽い zip(manifest の light = 真。python/ を持たない)は python/ を runtime_dirs から写す(写せなければ RuntimeChanged)"""
     final = os.path.join(home, "app-" + version)
     tmp = final + ".tmp"
     shutil.rmtree(tmp, ignore_errors=True)
@@ -253,6 +292,8 @@ def install_update(zip_path, home, version):
                 if n.endswith("/") or not (n.startswith(("src/", "python/")) or n in UPDATE_ROOT_FILES):
                     continue
                 _copy_member(z, info, safe_join(tmp, n))
+        if isinstance(manifest, dict) and manifest.get("light") is True:
+            _copy_runtime(manifest, runtime_dirs, tmp)
         files = manifest.get("files") if isinstance(manifest, dict) and isinstance(manifest.get("files"), dict) else {}
         for rel, want in files.items():
             if not (str(rel).startswith(("src/", "python/")) or rel in UPDATE_ROOT_FILES):
@@ -327,7 +368,7 @@ class Sync:
     client_factory(config, cancelled) -> Dropbox の口(dropbox.Client と同じ名前の関数を持つ物。テストは偽物)"""
 
     def __init__(self, places, inbox, engine_fn=None, client_factory=None, clock=time.time, log=None, env=None,
-                 apply_learning=None, version=None, every=EVERY):
+                 apply_learning=None, version=None, every=EVERY, runtime_dirs=None):
         self.places, self.inbox = places, inbox
         self.engine_fn = engine_fn or (lambda: None)
         self.client_factory = client_factory or (lambda cfg, cancelled: _dropbox.Client(cfg, log=self.log, cancelled=cancelled))
@@ -336,6 +377,7 @@ class Sync:
         self.apply_learning = apply_learning or self._apply_learning
         self.version = version or _version.VERSION
         self.every = every
+        self.runtime_dirs = [os.path.dirname(os.path.abspath(sys.executable))] if runtime_dirs is None else list(runtime_dirs)   # 軽い更新で python/ を写す元(今動いている Python)
         self.state_path = os.path.join(places["friend"], STATE_NAME)
         self.state = fsio.read_json_or(self.state_path, {}, kind=dict)
         self.req_lock = threading.Lock()        # 依頼を上げる・直下から消す(この PC でやり直す)を重ねない
@@ -576,11 +618,9 @@ class Sync:
                 os.replace(part, dest)
             self.inbox.set_preview(rid, n, dest)
 
-    def _free_ok(self, folder, need):
-        try:
-            return shutil.disk_usage(fsio.existing_parent(folder) or folder).free >= need + 64 * 1024 * 1024
-        except (OSError, ValueError):
-            return True   # 測れない場所は測らない
+    @staticmethod
+    def _free_ok(folder, need):
+        return free_ok(folder, need)
 
     def _receive(self, io):
         """[受け取る] を押した Dropbox のパック: 取る → 大きさと content_hash → 保存先へ展開 → 受け取ったに決める。
@@ -720,21 +760,48 @@ class Sync:
         bad = fsio.read_json_or(os.path.join(home, VERSIONS_NAME), {}, kind=dict).get("bad") or []
         if os.path.isdir(os.path.join(home, "app-" + ver)) or ver in bad:
             return
-        part = os.path.join(home, "app-%s.zip.part" % ver)
-        try:
-            if not io.download("%s/%s" % (UPDATES, name), part):
-                return
-            size = d.get("size")
-            if (isinstance(size, int) and size > 0 and os.path.getsize(part) != size) or sha256_file(part) != sha:
-                raise SyncError("取った更新の zip が想定と違います(大きさか SHA-256 が合いません)")
-            install_update(part, home, ver)
-        finally:
-            fsio.unlink_quiet(part)
+        light = self._light_entry(d, ver)
+        placed = False
+        if light is not None:
+            try:
+                placed = self._fetch_install(io, home, ver, light, runtime_dirs=self.runtime_dirs)
+            except (SyncError, ValueError, zipfile.BadZipFile) as e:   # 写せない・軽い zip が想定と違う = 同じ回で全部入りを取る(通信の問題・OSError は次の回)
+                self.log("python が変わったので全部入りで取り直します(%s)" % str(e)[:120])
+            else:
+                if placed:
+                    self.log("軽い更新(python は今の版から写した)")
+        if not placed and not self._fetch_install(io, home, ver, (name, sha, d.get("size"))):
+            return
         self.state["updated"] = ver
         self._save_state()
         self.log("新しい版 %s を入れました(次に開いたときから)" % ver)
         if self.diag is not None:
-            self.diag.write("update", summary="新しい版 %s を取って入れました" % ver, toVersion=ver)
+            self.diag.write("update", summary="新しい版 %s を取って入れました" % ver, toVersion=ver, light=placed)
+
+    @staticmethod
+    def _light_entry(d, ver):
+        """latest.json の light 欄 -> (file, sha256, size) か None(無い・形が変 = 全部入りだけで進める)"""
+        lt = d.get("light")
+        if not isinstance(lt, dict):
+            return None
+        name, sha = lt.get("file"), str(lt.get("sha256") or "").lower()
+        if name != "FriendApp-%s-light.zip" % ver or not SHA_RE.match(sha):
+            return None
+        return name, sha, lt.get("size")
+
+    def _fetch_install(self, io, home, ver, entry, runtime_dirs=None):
+        """更新の zip を取り(大きさと SHA-256)<home>/app-<版>/ に入れる -> 入れた = True・Dropbox に無い = False"""
+        name, sha, size = entry
+        part = os.path.join(home, "app-%s.zip.part" % ver)
+        try:
+            if not io.download("%s/%s" % (UPDATES, name), part):
+                return False
+            if (isinstance(size, int) and size > 0 and os.path.getsize(part) != size) or sha256_file(part) != sha:
+                raise SyncError("取った更新の zip が想定と違います(大きさか SHA-256 が合いません)")
+            install_update(part, home, ver, runtime_dirs)
+        finally:
+            fsio.unlink_quiet(part)
+        return True
 
 
 def fetch_learning(io, root, log):

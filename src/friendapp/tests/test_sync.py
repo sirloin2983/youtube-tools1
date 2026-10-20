@@ -6,10 +6,12 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import sys
 import time
 import unittest
 import zipfile
+from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -34,6 +36,7 @@ class FakeIo:
         self.clock = clock
         self.fail = {}
         self.deleted = []
+        self.downloads = []
         self.n = 0
 
     def put(self, path, data, age=0.0):
@@ -70,6 +73,7 @@ class FakeIo:
 
     def download(self, path, part, rev=None, progress=None):
         self._check(path)
+        self.downloads.append(path)
         d = self.data(path)
         if d is None:
             return False
@@ -121,7 +125,7 @@ class SyncTest(unittest.TestCase):
         self.applied = []
         self.env = {}
         self.sync = S.Sync(self.places, self.box, client_factory=lambda cfg, cancelled: self.io, clock=self.clock,
-                           env=self.env, apply_learning=lambda ld: self.applied.append(ld) or True, version="0.90.0")
+                           env=self.env, apply_learning=lambda ld: self.applied.append(ld) or True, version="0.90.0", runtime_dirs=[])
 
     def clock(self):
         return self.t[0]
@@ -562,6 +566,87 @@ class SyncTest(unittest.TestCase):
         self.assertEqual(self.run_sync(), [])
         self.assertEqual([n for n in os.listdir(self.places["home"]) if n.startswith("app-0")], [])
         self.assertFalse(os.path.exists(os.path.join(self.tmp, "evil.py")))
+
+    # ------------------------------------------------------------ 軽い更新(python/ は今の python から写す)
+    RUNTIME = {"python.exe": b"MZpy", "python310._pth": b"..\\src\n", "Lib/site-packages/numpy/__init__.py": b"x = 1\n"}
+
+    def runtime(self, **change):
+        """今動いている Python のフォルダの偽物(change で 1 つ書き換える = python が変わった)"""
+        d = os.path.join(self.tmp, "runtime")
+        for rel, data in dict(self.RUNTIME, **change).items():
+            path = os.path.join(d, *rel.split("/"))
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as f:
+                f.write(data)
+        self.sync.runtime_dirs = [d]
+        return d
+
+    def put_light(self, ver, light_extra=None, with_full=True):
+        """全部入り(python/ つき)と軽い zip(python/ なし・manifest は同じ files + light)と light 付きの latest.json"""
+        src = {"src/friendapp/server.py": b"# server", "src/ytt/version.py": b"v", "fetch.json": b"{}"}
+        py = {"python/" + rel: data for rel, data in self.RUNTIME.items()}
+        files = {k: hashlib.sha256(v).hexdigest() for k, v in dict(src, **py).items()}
+        full = zip_bytes(dict(src, **py, **{"manifest.json": json.dumps({"files": files}).encode()}))
+        light = zip_bytes(dict(src, **{"manifest.json": json.dumps({"files": files, "light": True}).encode()}))
+        name, lname = "FriendApp-%s.zip" % ver, "FriendApp-%s-light.zip" % ver
+        self.io.put("/更新/" + name, full)
+        self.io.put("/更新/" + lname, light)
+        entry = {"file": lname, "size": len(light), "sha256": hashlib.sha256(light).hexdigest()}
+        entry.update(light_extra or {})
+        doc = {"version": ver, "file": name, "size": len(full), "sha256": hashlib.sha256(full).hexdigest(), "notes": "", "light": entry}
+        self.io.put("/更新/latest.json", json.dumps(doc).encode())
+        return name, lname
+
+    def test_light_update_copies_python_from_runtime(self):
+        self.key()
+        self.env[S.LAUNCHER_ENV] = "1"
+        self.runtime()
+        name, lname = self.put_light("0.95.0")
+        self.assertEqual(self.run_sync(), [])
+        app = os.path.join(self.places["home"], "app-0.95.0")
+        self.assertEqual([p for p in self.io.downloads if "FriendApp-" in p], ["/更新/" + lname])   # 取ったのは軽い zip だけ
+        with open(os.path.join(app, "python", "Lib", "site-packages", "numpy", "__init__.py"), "rb") as f:
+            self.assertEqual(f.read(), b"x = 1\n")
+        self.assertTrue(os.path.isfile(os.path.join(app, "python", "python.exe")))
+        self.assertTrue(os.path.isfile(os.path.join(app, "src", "friendapp", "server.py")))
+        self.assertEqual(self.sync.status()["updated"], "0.95.0")
+        self.assertEqual([n for n in os.listdir(self.places["home"]) if n.endswith((".tmp", ".part"))], [])
+
+    def test_light_update_falls_back_to_full_when_python_differs(self):
+        self.key()
+        self.env[S.LAUNCHER_ENV] = "1"
+        for missing in (False, True):   # 1 つ違う・1 つ無い
+            rt = self.runtime(**({} if missing else {"python.exe": b"MZother"}))
+            if missing:
+                os.remove(os.path.join(rt, "Lib", "site-packages", "numpy", "__init__.py"))
+            name, lname = self.put_light("0.95.0")
+            self.io.downloads.clear()
+            self.assertEqual(self.run_sync(), [])
+            self.assertEqual([p for p in self.io.downloads if "FriendApp-" in p], ["/更新/" + lname, "/更新/" + name])   # 同じ回で全部入りを取り直す
+            app = os.path.join(self.places["home"], "app-0.95.0")
+            self.assertTrue(os.path.isfile(os.path.join(app, "python", "python.exe")))
+            self.assertEqual([n for n in os.listdir(self.places["home"]) if n.endswith((".tmp", ".part"))], [])
+            shutil.rmtree(app)
+
+    def test_malformed_light_entry_takes_full(self):
+        self.key()
+        self.env[S.LAUNCHER_ENV] = "1"
+        self.runtime()
+        for extra in ({"file": "evil.zip"}, {"sha256": "zz"}, {"file": "FriendApp-0.1.0-light.zip"}):
+            name, lname = self.put_light("0.95.0", extra)
+            self.io.downloads.clear()
+            self.assertEqual(self.run_sync(), [])
+            self.assertEqual([p for p in self.io.downloads if "FriendApp-" in p], ["/更新/" + name], extra)
+            shutil.rmtree(os.path.join(self.places["home"], "app-0.95.0"))
+
+    def test_light_update_needs_free_space(self):
+        self.key()
+        self.env[S.LAUNCHER_ENV] = "1"
+        self.runtime()
+        name, lname = self.put_light("0.95.0")
+        with mock.patch.object(S, "free_ok", return_value=False):   # 写す分の空きが無い = 軽い更新はせず、同じ回で全部入りを取る
+            self.assertEqual(self.run_sync(), [])
+        self.assertEqual([p for p in self.io.downloads if "FriendApp-" in p], ["/更新/" + lname, "/更新/" + name])
 
     # ------------------------------------------------------------ 部品
     def test_request_doc_weights_and_top(self):
