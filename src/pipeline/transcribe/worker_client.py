@@ -459,6 +459,8 @@ class RemoteModel:
         if first and first[0] == "info" and isinstance(first[1], dict):
             info.__dict__.update({k: first[1].get(k) for k in ("duration", "duration_after_vad")})
             info.__dict__.update({k: first[1][k] for k in ("gpu", "backend") if isinstance(first[1].get(k), str)})
+            if isinstance(first[1].get("timing"), dict):
+                info.timing = first[1]["timing"]   # whisper.cpp の時間の内訳(記録用)
             first = None
 
         def conv(v):

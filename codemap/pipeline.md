@@ -17,8 +17,8 @@
   - 名前: `cuts` :61・`snap` :106
 - **excite.py** (980 行) — 盛り上がり(excitement)の式。スタジオのアーカイブの解析(src/pipeline/analyze/analyze.py)と、配信中の検出(src/pipeline/analyze/live_excite_worker.py。線 D の L2)が同じ式を読む(線 D の L1。notes…
   - 名前: `smooth` :64・`median` :75・`local_baseline` :81・`robust_scale` :100・`audio_score` :106・`chat_z` :118・`shift_chat` :127・`estimate_lag` :133・`ramp` :157・`head_ramp` :162・`comment_score` :169・`pick_clips` :181・ほか 13
-- **fetch.py** (494 行) — 解析の材料を取ってくる仕事(音声のダウンロード・チャットのリプレイの取得と先読み・コメント欄・動画の付加情報)と、そのキャッシュの置き場と掃除。
-  - 名前: `work_dir` :30・`chat_cache_dir` :34・`download_audio` :49・`chat_cache_path` :69・`drop_chat_cache` :73・`chat_cache_limit` :90・`use_chat_cache` :105・`prune_chat_cache` :115・`download_chat` :163・`prefetch_chat` :245・`cancel_prefetch` :288・`cancel_all_prefetch` :295・ほか 8
+- **fetch.py** (502 行) — 解析の材料を取ってくる仕事(音声のダウンロード・チャットのリプレイの取得と先読み・コメント欄・動画の付加情報)と、そのキャッシュの置き場と掃除。
+  - 名前: `work_dir` :32・`chat_cache_dir` :36・`download_audio` :51・`chat_cache_path` :77・`drop_chat_cache` :81・`chat_cache_limit` :98・`use_chat_cache` :113・`prune_chat_cache` :123・`download_chat` :171・`prefetch_chat` :253・`cancel_prefetch` :296・`cancel_all_prefetch` :303・ほか 8
 - **levels.py** (64 行) — 1 秒ごとの音量(RMS, dB)を、ffmpeg 1 回のデコードで全帯域と高音域(2kHz 超)の 2 系列に測る決まり(OPT1)。
   - 名前: `args` :23・`clear` :30・`level` :36・`read` :47・`collect` :56
 - **live_excite_worker.py** (1512 行) — 配信中の盛り上がりの検出のワーカー(線 D の L2。notes:plan/line-d-detect.md・notes:plan/line-d-live-clipping.md の 0-10)。入口(src/flow/live_detect.py)が起動する子プロセス。
@@ -68,8 +68,8 @@
 - **__init__.py** (2 行) — ① 文字起こし: 認識(エンジン・ワーカー)・話者・後処理(埋める・LLM・時刻)・名簿と辞書を読む。認識(重い)と後処理(軽い)で鍵を分ける
 - **backend.py** (114 行) — サーバー側の認識の本物と疑似の差し込み口。
   - 名前: `mode` :18・`is_fake` :23・`class Backend` :28・`set_selector` :106・`select` :111
-- **clipjob.py** (62 行) — ① 文字起こしのジョブの機械の文書の行を作る(make_doc_rows)。
-  - 名前: `make_doc_rows` :15
+- **clipjob.py** (69 行) — ① 文字起こしのジョブの機械の文書の行を作る(make_doc_rows)。
+  - 名前: `make_doc_rows` :17
 - **diarize.py** (542 行) — ① 自動の流れの層 pipeline/transcribe: 話者判別の計算(sherpa-onnx)と判別の記録・声の特徴と覚えた声との照らし合わせ。
   - 名前: `diar_threads` :54・`has_sherpa` :60・`diar_models_dir` :66・`diar_info` :79・`ensure_diar_models` :109・`diar_tune` :140・`diarize_real` :156・`assign_speakers` :195・`label_ratio` :246・`smooth_labels` :254・`smooth_speakers` :276・`diar_path` :296・ほか 8
 - **fill.py** (378 行) — 「編集」のサーバーの部品: 認識のあとの後処理(A・C・D。notes:plan/line-b-transcription.md の「10-08 の実験ループ」)。
@@ -82,22 +82,22 @@
   - 名前: `models_touched` :31・`release_idle_local` :36・`setup_cuda_paths` :105・`cuda_count` :130・`cuda_libs_ok` :138・`cuda_compute` :159
 - **postproc.py** (314 行) — ① 文字起こしの行の後処理: 要確認の印(make_flags)・認識の出力を整える流れ(expand_segments = 行を単語の時刻で分ける split_segment・
   - 名前: `latin_suspect` :31・`sparse_row` :59・`stock_phrase` :74・`repeats_in_line` :91・`make_flags` :102・`expand_segments` :135・`post_values` :174・`clip_rows` :201・`merge_repeats` :218・`trim_ends` :267・`join_rows` :280・`machine_conf` :291・ほか 2
-- **recognize.py** (362 行) — ① 音声の認識: 動画から音声を取り出す(extract_audio)・声の検出が捨てすぎたら緩めてやり直す(transcribe_vad_fallback)・文字起こしの行(transcribe_real)・
-  - 名前: `wav_args` :28・`extract_audio` :59・`seg_to_dict` :88・`vad_kept` :106・`vad_note` :114・`transcribe_vad_fallback` :128・`transcribe_real` :171・`transcribe_rows` :199・`audio_span` :218・`recognize_chunk` :228・`class ChunkModel` :250・`finish_range_lines` :270・ほか 1
-- **records.py** (178 行) — ① 文字起こしの記録: recognition.runs の 1 件(エンジンと版・設定・辞書の版・後処理)・配信ごとの文脈と声の検出の記録・
-  - 名前: `set_dict_inputs` :24・`pkg_version` :37・`engine_version` :46・`run_engine` :60・`recognition_run` :77・`short_hash` :91・`roster_hash` :104・`dict_version` :112・`context_record` :136・`vad_record` :144・`asr_path` :155・`capture_raw` :160・ほか 1
+- **recognize.py** (364 行) — ① 音声の認識: 動画から音声を取り出す(extract_audio)・声の検出が捨てすぎたら緩めてやり直す(transcribe_vad_fallback)・文字起こしの行(transcribe_real)・
+  - 名前: `wav_args` :28・`extract_audio` :59・`seg_to_dict` :88・`vad_kept` :106・`vad_note` :114・`transcribe_vad_fallback` :128・`transcribe_real` :173・`transcribe_rows` :201・`audio_span` :220・`recognize_chunk` :230・`class ChunkModel` :252・`finish_range_lines` :272・ほか 1
+- **records.py** (197 行) — ① 文字起こしの記録: recognition.runs の 1 件(エンジンと版・設定・辞書の版・後処理)・配信ごとの文脈と声の検出の記録・
+  - 名前: `set_dict_inputs` :24・`pkg_version` :37・`engine_version` :46・`run_engine` :60・`recognition_run` :77・`engine_timing` :94・`short_hash` :110・`roster_hash` :123・`dict_version` :131・`context_record` :155・`vad_record` :163・`asr_path` :174・ほか 2
 - **replace.py** (59 行) — ① 自動の流れの層 pipeline/transcribe: 確度「高」の学習済み置換を機械の出力に当てる(`auto_learned_replace`)。純粋な関数だけ(ファイル・設定を読まない)。
   - 名前: `fixed_finder` :15・`pick_glossary` :37・`auto_learned_replace` :52
 - **retime.py** (208 行) — ① 直した行の時刻を単語の時刻から配り直す候補(T1 の簡易版)の計算。
   - 名前: `retime_raw` :94・`retime_candidates` :141
 - **roster.py** (306 行) — 名簿(hololive-roster.json)と、配信ごとの文脈(文字起こしの改善の計画 段1。notes:plan/line-b-transcription.md(付録))。
   - 名前: `fold` :40・`load` :51・`channel_regions` :90・`find_in_text` :120・`match_name` :133・`build_context` :144・`member_terms` :168・`fit` :179・`prompt_terms` :194・`stream_context` :204・`leak_only` :229・`alias_variants` :263・ほか 1
-- **tx_engines.py** (1231 行) — 文字起こしの認識エンジンの口(精度改善の計画 段2。notes:plan/line-b-transcription.md(付録))。
-  - 名前: `engine_home` :52・`engine_of` :61・`env_num` :66・`is_16k_mono` :75・`half_cpu` :80・`class EngineError` :85・`class Engine` :93・`class FasterWhisper` :146・`wcpp_env` :214・`wcpp_bin_dir` :223・`wcpp_model_dir` :228・`wcpp_binary_ok` :232・ほか 19
-- **worker.py** (322 行) — ① 文字起こしの認識ワーカー(統合計画の段階3-3)。編集のサーバーが別プロセスとして起動する(worker_client.WorkerClient)。人が直接起動するものではない。
-  - 名前: `class Out` :84・`class JobProxy` :94・`handle` :253・`main` :277
-- **worker_client.py** (733 行) — ① 認識ワーカー(別プロセス)とのやり取りとモデル: ワーカーの起動・要求・取り消し・強制終了(WorkerClient・WORKER)・モデルの代理(RemoteModel)・
-  - 名前: `release_idle_models` :39・`worker_script` :68・`worker_log` :73・`worker_env` :90・`class WorkerError` :108・`class WorkerClient` :129・`class RemoteModel` :429・`req_engine` :479・`engines_info` :493・`check_engine` :500・`load_model` :513・`nvidia_gpu` :529・ほか 12
+- **tx_engines.py** (1278 行) — 文字起こしの認識エンジンの口(精度改善の計画 段2。notes:plan/line-b-transcription.md(付録))。
+  - 名前: `engine_home` :52・`engine_of` :61・`env_num` :66・`is_16k_mono` :75・`half_cpu` :80・`class EngineError` :85・`class Engine` :93・`class FasterWhisper` :146・`scan_timings` :218・`gpu_peek` :242・`wcpp_env` :257・`wcpp_bin_dir` :266・ほか 21
+- **worker.py** (330 行) — ① 文字起こしの認識ワーカー(統合計画の段階3-3)。編集のサーバーが別プロセスとして起動する(worker_client.WorkerClient)。人が直接起動するものではない。
+  - 名前: `class Out` :84・`class JobProxy` :94・`handle` :261・`main` :285
+- **worker_client.py** (735 行) — ① 認識ワーカー(別プロセス)とのやり取りとモデル: ワーカーの起動・要求・取り消し・強制終了(WorkerClient・WORKER)・モデルの代理(RemoteModel)・
+  - 名前: `release_idle_models` :39・`worker_script` :68・`worker_log` :73・`worker_env` :90・`class WorkerError` :108・`class WorkerClient` :129・`class RemoteModel` :429・`req_engine` :481・`engines_info` :495・`check_engine` :502・`load_model` :515・`nvidia_gpu` :531・ほか 12
 
 ## テスト
 

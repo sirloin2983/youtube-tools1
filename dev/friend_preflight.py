@@ -315,12 +315,14 @@ class Window:
         if root is None:
             return
         procs = list_processes()
+        # 子 = 親より後に作られた物だけ(終わった子の PID をほかのアプリ(Discord など)が使い回すと、その子まで数えてしまうため。時刻は同じ PC の ISO の文字)
+        born = {p["ProcessId"]: str(p.get("CreationDate") or "") for p in procs}
         kids = {root}
         grew = True
         while grew:
             grew = False
             for p in procs:
-                if p["ParentProcessId"] in kids and p["ProcessId"] not in kids:
+                if p["ParentProcessId"] in kids and p["ProcessId"] not in kids and born[p["ProcessId"]] >= born.get(p["ParentProcessId"], ""):
                     kids.add(p["ProcessId"])
                     grew = True
         for p in procs:

@@ -96,8 +96,8 @@
   - 名前: `font` :13・`scan` :18・`render` :25
 - **tools.py** (471 行) — ② 管理の層 flow: 段が道具を呼ぶ継ぎ目 Tools(RS6 b-0)。
   - 名前: `class HttpTools` :33・`class FlowTools` :128・`class PackHost` :186・`doc_row` :249・`class LocalTools` :261
-- **tx.py** (393 行) — ② 管理の層 flow: 文字起こしの動詞。RS6 a-3(決定 3-29)。
-  - 名前: `dict_pairs` :33・`rerun_base` :49・`roster_listing` :58・`pick_glossary_terms` :68・`check_model` :74・`request_engine` :83・`tx_spec` :91・`new_doc` :120・`transcribe_clip` :136・`write_clip_records` :180・`replace_span_words` :200・`write_machine_doc` :212・ほか 9
+- **tx.py** (395 行) — ② 管理の層 flow: 文字起こしの動詞。RS6 a-3(決定 3-29)。
+  - 名前: `dict_pairs` :33・`rerun_base` :49・`roster_listing` :58・`pick_glossary_terms` :68・`check_model` :74・`request_engine` :83・`tx_spec` :91・`new_doc` :120・`transcribe_clip` :136・`write_clip_records` :182・`replace_span_words` :202・`write_machine_doc` :214・ほか 9
 - **wire.py** (90 行) — ② 管理の層 flow: 文字起こしの配線(ジョブの種類の登録・ジョブの表の設定・本物と疑似の選び方・① の口の登録)。RS6 a-5b(決定 3-29)。登録は 1 つの install にまとまっている。
   - 名前: `install` :40・`setup_places` :65・`setup_headless` :80
 

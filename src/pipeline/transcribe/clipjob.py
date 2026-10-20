@@ -8,6 +8,8 @@
 (文書・words.json・asr.json・llm.json を書くのは ② の flow/tx と ③)。名前は呼ぶたびに `モジュール.名前` で読む(S.extract_audio などの差し替えが届く)。
 名前は編集の serve の名前の受付(_ED_MODULES)に並ぶ(S._rows_to_doc はここ)。
 """
+import time
+
 from ytt import dictfmt as _dictfmt, jobs as _heavy, txbase as _txbase
 from . import fill, llm, postproc, recognize, replace, roster as _roster
 
@@ -16,21 +18,26 @@ def make_doc_rows(job, spec, wav, pairs, learned=None):
     """文字起こしのジョブの機械の分(wav は呼ぶ側の一時ファイル。取り出しもここ)。pairs = 置換辞書の組 [(誤, 正)]・
     learned = 確度「高」の学習済み置換の選び方 find(文字) -> [{"i", "wrong", "right"}](autoLearned で規則があるときだけ。無ければ None)。
     -> {"segs", "original", "words", "dictApplied", "learnApplied"・"raw"(生出力 asr.json の segments)・"total"(音声の長さ)・
-        "t_rec"(認識を始めた time.monotonic())・"fill_rec"・"names_n"・"llm_rec"・"llm_items"}。取り消しは途中で Cancelled"""
+        "t_rec"(認識を始めた time.monotonic())・"fill_rec"・"names_n"・"llm_rec"・"llm_items"・
+        "secs"(段ごとの秒 {"recognize", "fill", "llm"}。記録用)}。取り消しは途中で Cancelled"""
     res = recognize.transcribe_rows(job, spec, wav)
+    t_fill = time.monotonic()
     rows, total = res["rows"], res["total"]
     rows, names_n = fill.fill_strip_names(spec, rows)   # 行の頭の「名前:」を外す(設定 stripNames)
     # 認識のあとの後処理(設定 autoFill): 末尾の重複を捨て、文字の少ない行の窓を SenseVoice で読んで埋める(A・C)。読めなければ警告だけ
     rows, fill_rec, fill_read = fill.fill_after_rows(job, spec, rows, wav, total)
+    t_doc = time.monotonic()
     _heavy.check_cancel(job)
     out = _rows_to_doc(job, spec, rows, pairs, learned)
     if fill_read is not None:   # D: 別のエンジンも同じ呼び名なら 1 字違いを名簿の呼び名に(置換辞書のあと)
         fill_rec["agree"] = fill.fill_agree_doc(job, out["segs"], fill_read, total, spec)
     _heavy.check_cancel(job)
     # E: 名簿の呼び名の聞き違いらしい所だけを LLM で直す(設定 autoLlm。P18。選んだ所が無ければ LLM を読み込まない・失敗しても警告だけ)
+    t_llm = time.monotonic()
     llm_rec, llm_items = llm.llm_after_doc(job, spec, out["segs"])
     _heavy.check_cancel(job)
-    return dict(out, raw=res["raw"], total=total, t_rec=res["t_rec"], fill_rec=fill_rec, names_n=names_n, llm_rec=llm_rec, llm_items=llm_items)
+    secs = {"recognize": round(t_fill - res["t_rec"], 2), "fill": round(t_doc - t_fill, 2), "llm": round(time.monotonic() - t_llm, 2)}
+    return dict(out, raw=res["raw"], total=total, t_rec=res["t_rec"], fill_rec=fill_rec, names_n=names_n, llm_rec=llm_rec, llm_items=llm_items, secs=secs)
 
 
 def _rows_to_doc(job, spec, rows, pairs, learned=None):

@@ -154,6 +154,13 @@ def lines_of(name, d, full=False):
         out.append("    文字起こし: %s %s GPU=%s モデル=%s 音声 %s かかった %s 実時間比 %s" % (
             t.get("device"), t.get("backend") or "", t.get("gpu") or "?", t.get("model") or "?", _sec(t.get("audioSec")), _sec(t.get("wallSec")),
             t.get("ratio") if t.get("ratio") is not None else "?"))
+        sc, et = t.get("secs") or {}, t.get("engineTiming") or {}
+        if sc or et:   # 内訳: 段ごとの秒と whisper.cpp の時間(読み込み・音の符号化・解読・やり直し・文字の数・始める前の GPU)
+            g = et.get("gpuBefore") or {}
+            out.append("      内訳: 認識 %s(whisper-cli %s = 読み込み %s・符号化 %s・解読 %s・やり直し %s 回・文字 %s)・埋める %s・LLM %s%s" % (
+                _sec(sc.get("recognize")), _sec(et.get("procSec")), _sec(et.get("loadSec")), _sec(et.get("encodeSec")), _sec(et.get("decodeSec")),
+                et.get("fallbacks", "?"), et.get("tokens", "?"), _sec(sc.get("fill")), _sec(sc.get("llm")),
+                "・始める前の GPU %s%%・%s MB" % (g.get("util"), g.get("memMB")) if g else ""))
     if d.get("kind") == "live":
         out += live_lines(d, full)
     if d.get("kind") == "preview" or d.get("stage") == "preview":

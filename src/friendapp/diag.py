@@ -113,7 +113,8 @@ def transcribe_rows(recs):
         ok = isinstance(audio, (int, float)) and isinstance(wall, (int, float)) and audio > 0
         out.append({"device": r.get("device"), "backend": r.get("backend"), "gpu": r.get("gpu"), "engine": r.get("engine"),
                     "engineVersion": r.get("engineVersion"), "model": r.get("model"), "audioSec": audio, "wallSec": wall,
-                    "ratio": round(wall / audio, 2) if ok else None})
+                    "ratio": round(wall / audio, 2) if ok else None,
+                    **{k: r[k] for k in ("secs", "engineTiming") if isinstance(r.get(k), dict)}})   # 内訳(段ごとの秒・whisper.cpp の時間)
     return out
 
 

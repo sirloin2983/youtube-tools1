@@ -91,6 +91,22 @@ class ScanGpuTest(unittest.TestCase):
         self.assertEqual(te.WhisperCpp.scan_gpu(["whisper_backend_init_gpu: no GPU found"]), ("", ""))   # CPU に落ちた
         self.assertEqual(te.WhisperCpp.scan_gpu(["progress = 5%"]), (None, ""))   # 装置の行なし
 
+    def test_engine_timing(self):
+        """whisper-cli の時間の行(v1.9.4 の本物の形)-> 内訳。解読 = decode・batchd・prompt の合計・文字 = sample の回数。複数回の認識は足し合わせる"""
+        from pipeline.transcribe import tx_engines as te
+        log = ["whisper_print_timings:     load time =  2208.90 ms", "whisper_print_timings:     fallbacks =   1 p /   2 h",
+               "whisper_print_timings:   sample time =  1774.00 ms /  5959 runs (     0.30 ms per run)",
+               "whisper_print_timings:   encode time =  2892.60 ms /    11 runs (   262.96 ms per run)",
+               "whisper_print_timings:   decode time =    18.78 ms /     2 runs (     9.39 ms per run)",
+               "whisper_print_timings:   batchd time = 20446.35 ms /  5935 runs (     3.45 ms per run)",
+               "whisper_print_timings:    total time = 27740.61 ms"]
+        t = te.scan_timings(log)
+        self.assertEqual(t, {"loadSec": 2.21, "encodeSec": 2.89, "decodeSec": 20.47, "sampleSec": 1.77, "totalSec": 27.74, "tokens": 5959, "fallbacks": 3})
+        self.assertEqual(te.scan_timings(["progress = 5%"]), {})
+        s = records.engine_timing([t, {"loadSec": 1.0, "gpuBefore": {"util": 40, "memMB": 900}}, "x"])
+        self.assertEqual((s["calls"], s["loadSec"], s["tokens"], s["gpuBefore"]), (2, 3.21, 5959, {"util": 40, "memMB": 900}))
+        self.assertIsNone(records.engine_timing([]))
+
     def test_recognition_run_keeps_gpu_when_known(self):
         """GPU の名前と装置の行は分かったときだけ記録に(CPU で無いときに書かないのは本物の通し tests/pipeline/transcribe/test_worker.py)"""
         with mock.patch.object(records, "dict_version", lambda s: {}):

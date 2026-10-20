@@ -283,6 +283,9 @@ class RealWorkerTest(unittest.TestCase):
         run = d["recognition"]["runs"][0]
         self.assertEqual((job["device"], run["engine"], run["model"], run["device"]), ("vulkan", "whisper.cpp", "large-v3", "vulkan"))
         self.assertTrue(run.get("gpu"), run)                                         # GPU の名前
+        et = run.get("engineTiming") or {}                                            # whisper-cli の時間の内訳(友人の診断に出す)
+        self.assertTrue(et.get("calls") == 1 and et.get("loadSec", 0) > 0 and et.get("totalSec", 0) > 0 and et.get("tokens", 0) > 0, et)
+        self.assertEqual(sorted(run.get("secs") or {}), ["fill", "llm", "recognize"])
         ws = _txwords.read_words(tid)
         self.assertTrue(ws and all(0.0 <= w[0] <= w[1] <= self.dur + 0.01 for w in ws), ws[:3])
         asr = testkit.read_json(_records.asr_path(tid))

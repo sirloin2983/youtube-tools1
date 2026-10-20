@@ -85,7 +85,26 @@ def recognition_run(spec, job, audio_sec, wall_sec, pairs=None):
     for k in ("gpu", "backend"):   # whisper.cpp が実際に使った装置(GPU 名・backend。無ければ書かない)
         if job.get(k):
             run[k] = str(job[k])
+    t = engine_timing(job.get("engineTiming"))
+    if t:
+        run["engineTiming"] = t
     return run
+
+
+def engine_timing(items):
+    """1 回の認識ごとのエンジンの時間の内訳の一覧 -> 足し合わせた 1 つ(数は合計・gpuBefore は最初の物・calls = 回数)か None。
+    遅い回の原因(モデルの読み込み・やり直し・文字の多さ・ほかの処理の GPU)を後から見るため"""
+    items = [x for x in items or [] if isinstance(x, dict)]
+    if not items:
+        return None
+    out = {"calls": len(items)}
+    for x in items:
+        for k, v in x.items():
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                out[k] = round(out.get(k, 0) + v, 2)
+            elif k == "gpuBefore" and isinstance(v, dict) and k not in out:
+                out[k] = v
+    return out
 
 
 def short_hash(text):

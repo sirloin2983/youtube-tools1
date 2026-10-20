@@ -21,6 +21,8 @@ CHAT_CACHE_KEEP = 30
 # チャットのキャッシュの合計の上限(件数だけでは容量が膨らむため)。既定 1GB。環境変数 STUDIO_CHAT_CACHE_MB(MB)で変えられる
 CHAT_CACHE_MAX_BYTES = 1024 ** 3
 AUDIO_DL_IDLE = 600      # 音声のダウンロードで、この秒数まったく出力がなければ中止
+AUDIO_DL_TRIES = 2       # 音声のダウンロードの回数(失敗したら同じ取り方でもう 1 回)
+AUDIO_DL_RETRY_WAIT = 3  # 取り直す前に待つ秒
 MAX_CHAT_BYTES = 400 * 1024 * 1024
 META_TTL = 24 * 3600     # 動画の付加情報の再取得までの秒数(再解析のたびに取り直さない)
 META_KEEP = 300
@@ -59,11 +61,17 @@ def download_audio(ctl, vid, wdir):
         m = re.search(r"\[download\]\s+([\d.]+)%", line)
         if m:
             ctl.report(0.02 + 0.10 * float(m.group(1)) / 100)
-    rc, err = _procs.run_capture(ctl, cmd, on, idle_timeout=AUDIO_DL_IDLE, what="音声の取得")
-    files = [f for f in glob.glob(glob.escape(os.path.join(wdir, "audio")) + ".*") if not f.endswith((".part", ".ytdl", ".temp"))]
-    if rc != 0 or not files:
-        raise ApiError("download", "音声を取得できませんでした: " + (tail_reason(err) or "不明なエラー"), 502)
-    return files[0]
+    for n in range(AUDIO_DL_TRIES):   # YouTube がときどき 1 回目だけ断る(HTTP 403)ので、同じ取り方で取り直す
+        rc, err = _procs.run_capture(ctl, cmd, on, idle_timeout=AUDIO_DL_IDLE, what="音声の取得")
+        files = [f for f in glob.glob(glob.escape(os.path.join(wdir, "audio")) + ".*") if not f.endswith((".part", ".ytdl", ".temp"))]
+        if rc == 0 and files:
+            return files[0]
+        if n + 1 < AUDIO_DL_TRIES:
+            for f in glob.glob(glob.escape(os.path.join(wdir, "audio")) + ".*"):
+                _fsio.unlink_quiet(f)
+            ctl.cancel_event.wait(AUDIO_DL_RETRY_WAIT)
+            ctl.check()
+    raise ApiError("download", "音声を取得できませんでした: " + (tail_reason(err) or "不明なエラー"), 502)
 
 
 def chat_cache_path(vid):

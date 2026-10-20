@@ -209,6 +209,49 @@ _GPU_LINE = re.compile(r"whisper_backend_init_gpu: (?:using (.+?) backend|no GPU
 _PROGRESS = re.compile(r"progress\s*=\s*(\d+)%")
 _VK_DEV = re.compile(r"ggml_vulkan: \d+ = ([^|(]+)")
 _CUDA_DEV = re.compile(r"Device \d+: ([^,]+), compute capability")   # ggml_cuda_init の機器の行(CUDA 版。F1 F0-2)
+# whisper-cli が最後に出す時間の内訳(whisper_print_timings)。記録の名前 → 行の名前(解読 decode は decode・batchd・prompt の合計)
+_TIMING_LINE = re.compile(r"whisper_print_timings:\s+(load|mel|sample|encode|decode|batchd|prompt|total) time =\s*([\d.]+) ms(?: /\s*(\d+) runs)?")
+_FALLBACK_LINE = re.compile(r"whisper_print_timings:\s+fallbacks =\s*(\d+) p /\s*(\d+) h")
+GPU_PEEK_TIMEOUT = 5   # 認識の前に NVIDIA の GPU の使われ方を 1 回だけ読む(nvidia-smi)時間の上限(秒)
+
+
+def scan_timings(log):
+    """whisper-cli の標準エラーの行 -> 時間の内訳 {"loadSec", "encodeSec", "decodeSec", "sampleSec", "totalSec", "tokens", "fallbacks"}(分かった物だけ)。
+    友人の PC で文字起こしが遅い回の原因(モデルの読み込み・やり直しの多さ・文字の多さ)を記録に残すための純粋な関数(結果には関わらない)"""
+    ms, runs, out = {}, {}, {}
+    for s in log or []:
+        m = _TIMING_LINE.search(s)
+        if m:
+            ms[m.group(1)] = float(m.group(2))
+            if m.group(3):
+                runs[m.group(1)] = int(m.group(3))
+            continue
+        f = _FALLBACK_LINE.search(s)
+        if f:
+            out["fallbacks"] = int(f.group(1)) + int(f.group(2))
+    for key, names in (("loadSec", ("load",)), ("encodeSec", ("encode",)), ("decodeSec", ("decode", "batchd", "prompt")),
+                       ("sampleSec", ("sample",)), ("totalSec", ("total",))):
+        got = [ms[n] for n in names if n in ms]
+        if got:
+            out[key] = round(sum(got) / 1000.0, 2)
+    if "sample" in runs:
+        out["tokens"] = runs["sample"]
+    return out
+
+
+def gpu_peek():
+    """NVIDIA の GPU の今の使われ方 {"util": %, "memMB": 使っている MB} か None(nvidia-smi が無い・読めない)。
+    認識の前に 1 回だけ読む = ほかの処理が GPU を使っていたかを記録に残す(友人の PC の遅い回の切り分け)。窓は出さない"""
+    exe = shutil.which("nvidia-smi")
+    if not exe:
+        return None
+    try:
+        p = subprocess.run([exe, "--query-gpu=utilization.gpu,memory.used", "--format=csv,noheader,nounits"], stdin=subprocess.DEVNULL,
+                           capture_output=True, timeout=GPU_PEEK_TIMEOUT, creationflags=_tools.no_window_flags())
+        a, b = (p.stdout or b"").decode("ascii", "replace").strip().splitlines()[0].split(",")[:2]
+        return {"util": int(float(a)), "memMB": int(float(b))}
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        return None
 
 
 def wcpp_env():
@@ -487,7 +530,10 @@ class WhisperCpp(Engine):
             rsp = os.path.join(work, "args.txt")
             with open(rsp, "w", encoding="utf-8", newline="\n") as f:   # 引数は応答ファイル(UTF-8)で渡す: コマンド行は Windows の文字コードで読まれ、日本語のヒントが化けるため
                 f.write("\n".join(self.args(wav, out_base, kw, cwd=work, model=model)) + "\n")
+            busy = gpu_peek() if self.device == "cuda" else None
+            t0 = time.monotonic()
             log = self._run(self.model["cmd"] + ["@" + _ascii_path(rsp, work)], cwd=work)
+            timing = dict(scan_timings(log), procSec=round(time.monotonic() - t0, 2), **({"gpuBefore": busy} if busy else {}))
             self._check_gpu(log)
             try:
                 with open(out_base + ".json", "rb") as f:
@@ -499,7 +545,8 @@ class WhisperCpp(Engine):
             # Silero の声の区間の外の行は捨てない(評価用 18 本で 27.0% → 33.8% に悪化)
             info = types.SimpleNamespace(language=(data.get("result") or {}).get("language") or kw.get("language"),
                                          duration=duration, duration_after_vad=None,
-                                         gpu=getattr(self, "gpu_name", "") or "", backend=getattr(self, "backend", "") or "")   # 使った装置(記録用)
+                                         gpu=getattr(self, "gpu_name", "") or "", backend=getattr(self, "backend", "") or "",   # 使った装置(記録用)
+                                         timing=timing)   # 時間の内訳(scan_timings・procSec = whisper-cli の起動から終わりまで。記録用)
             return iter(segs), info
         finally:
             shutil.rmtree(work, ignore_errors=True)

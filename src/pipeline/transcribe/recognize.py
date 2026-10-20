@@ -143,6 +143,8 @@ def transcribe_vad_fallback(job, model, audio, spec, on_seg=None):
             v = getattr(info, k, None)
             if isinstance(v, str) and v and isinstance(job, dict):
                 job[k] = v
+        if isinstance(getattr(info, "timing", None), dict) and isinstance(job, dict):
+            job.setdefault("engineTiming", []).append(info.timing)   # whisper.cpp の時間の内訳(1 回の認識ごと。records.recognition_run が足し合わせる)
         kept, removed = vad_kept(info, mode)
         if kept is not None and kept < VAD_MIN_KEEP and not last:
             close = getattr(segs, "close", None)

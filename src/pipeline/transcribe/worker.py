@@ -134,6 +134,13 @@ def _seg_dict(s):
     return d
 
 
+def _timing(t):
+    """エンジンの時間の内訳を送れる形に(数と、数だけの辞書 gpuBefore。ほかは捨てる)"""
+    num = (int, float)
+    return {k: (v if isinstance(v, num) else {a: b for a, b in v.items() if isinstance(b, num) and not isinstance(b, bool)})
+            for k, v in t.items() if isinstance(k, str) and (isinstance(v, dict) or (isinstance(v, num) and not isinstance(v, bool)))}
+
+
 def _audio(a):
     """{"wav": パス} → パスのまま(faster-whisper が読む)。{"wav", "from", "to"} → その範囲のサンプル(float32。16kHz・モノラル)。"""
     path = str(a.get("wav") or "")
@@ -204,7 +211,8 @@ def _op_transcribe(m, rid, job, out, cancels):
     # 先に送ると、サーバーは「ほとんど捨てた」ときに行を読まずにやり直せる(docs/design/whole-retranscribe-design.md の 4-2)
     out.send({"rid": rid, "ev": "info", "v": {k: (float(getattr(info, k)) if isinstance(getattr(info, k, None), (int, float)) else None)
                                                for k in ("duration", "duration_after_vad")}
-                                         | {k: str(getattr(info, k))[:120] for k in ("gpu", "backend") if isinstance(getattr(info, k, None), str)}})   # 使った装置(whisper.cpp の GPU 名・backend)
+                                         | {k: str(getattr(info, k))[:120] for k in ("gpu", "backend") if isinstance(getattr(info, k, None), str)}   # 使った装置(whisper.cpp の GPU 名・backend)
+                                         | ({"timing": _timing(info.timing)} if isinstance(getattr(info, "timing", None), dict) else {})})   # whisper.cpp の時間の内訳
     n = 0
     for s in segs:
         if rid in cancels:

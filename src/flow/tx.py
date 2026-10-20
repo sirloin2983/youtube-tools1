@@ -145,6 +145,8 @@ def transcribe_clip(job, spec, wav, pairs, learned=None):
     res = clipjob.make_doc_rows(job, spec, wav, pairs, learned)
     fields = _doc_fields(job, spec, res, res["total"], res["t_rec"], pairs)
     run = fields["recognition"]["runs"][-1]
+    if res.get("secs"):
+        run["secs"] = res["secs"]   # 段ごとの秒(認識・後処理の埋める・LLM。wallSec の内訳)
     if res["fill_rec"]:
         run["fill"] = res["fill_rec"]   # 後処理の記録(読んだ窓・置き換えた行・捨てた行・直した呼び名)
     if res["names_n"]:
