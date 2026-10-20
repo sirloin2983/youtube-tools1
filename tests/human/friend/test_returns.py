@@ -1,6 +1,6 @@
 """src/human/friend/returns.py(友人の送り返しの受け取り。F1 の F2)のテスト。リポジトリ直下で:
 
-    py -3.12 -m unittest src/human/friend/tests/test_returns.py
+    py -3.12 -m unittest tests/human/friend/test_returns.py
 
 一時フォルダだけを使う(本物の作業データ・Dropbox には触らない)。
 """
@@ -14,14 +14,15 @@ import unittest
 import zipfile
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> friend -> human -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> friend -> human -> src
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
 from flow import deliveries, outbox  # noqa: E402
 from human import judgments as J  # noqa: E402
 from human.friend import returns as R  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 RID = "20261011-120000-abcdef"
 

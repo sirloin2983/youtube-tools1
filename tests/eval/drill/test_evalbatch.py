@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """評価用の動画の「手が空いたとき少しずつまとめて文字起こし」(eval/drill/evalbatch.py)のテスト。
 
-    py -3.12 -m unittest src/editor/tests/test_metrics.py     # test_metrics がこのファイルのテストも読み込む
-    py -3.12 -m unittest src/editor/tests/test_evalbatch.py   # これだけ
+    py -3.12 -m unittest tests/eval/drill/test_metrics.py     # test_metrics がこのファイルのテストも読み込む
+    py -3.12 -m unittest tests/eval/drill/test_evalbatch.py   # これだけ
 ffmpeg が必要(2 秒の小さな動画を lavfi で作る)。ワーカーのスレッドは動かさず、テストが待機列のジョブを疑似の認識(TRANSCRIBE_BACKEND=fake)で
 その場で動かして「終わった」ことにする(= 偽のワーカー)。
 """
@@ -19,7 +19,7 @@ import unittest
 from unittest import mock
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-HERE = os.path.dirname(TESTS)
+HERE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(TESTS))), "src", "editor")
 os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
@@ -33,7 +33,9 @@ from human.proof import doc_jobs  # noqa: E402
 from human.proof import store  # noqa: E402
 from flow import jobs as ytt_jobs  # noqa: E402
 from manage.keep import evalfolders as EF  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "editor"))   # test_backend・test_edit(編集のサーバーを一時フォルダで動かす道具)
 
 FFMPEG = shutil.which("ffmpeg")
 MEMBER = "評価用データ01_ときのそら"

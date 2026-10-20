@@ -354,7 +354,7 @@ def static_js(screen, path, text, out):
 
 
 # ---------- 画面の部品の約束(A-16〜A-19・A-37。test-trim の規則の担当) ----------
-# 以下の *_problems は、本文(文字列)を受け取り「問題の文」の一覧を返す(dev/tests/test_rule_checks.py の TestUiContracts が破った見本で止まることを確かめる)
+# 以下の *_problems は、本文(文字列)を受け取り「問題の文」の一覧を返す(tests/dev/test_rule_checks.py の TestUiContracts が破った見本で止まることを確かめる)
 CASES_PANELS = ("cand", "proof", "cut")        # 案件の画面のパネル(CasesPanels.define を持つ)
 CASES_PANEL_KEYS = ("mount:", "update:", "unmount:", "keys:", "keybar:")
 CHECK_SHELL_DOC = ("render(card, el, ctx)", "keys(e, card)", "keybar(card)", "unmount()", "typingKeys")   # 殻の先頭にある口の説明(V2 への申し送り)

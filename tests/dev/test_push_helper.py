@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """dev/push_helper.py(push.bat の補助: ファイルの削除・コミット前の検査)のテスト。一時フォルダの git リポジトリだけを使う。
-実行(リポジトリ直下): python -m unittest dev/tests/test_push_helper.py"""
+実行(リポジトリ直下): python -m unittest tests/dev/test_push_helper.py"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # サーバーは動かさないが、全テストの決まりに合わせる(ytt のテストが検査)
 import shutil
@@ -11,7 +11,7 @@ import unittest
 from unittest import mock
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-HERE = os.path.dirname(TESTS)   # dev/ (道具の置き場所)
+HERE = os.path.join(os.path.dirname(os.path.dirname(TESTS)), "dev")   # dev/ (道具の置き場所)
 REPO = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 import push_helper as P  # noqa: E402

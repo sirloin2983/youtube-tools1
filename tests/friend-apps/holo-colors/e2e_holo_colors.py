@@ -1,5 +1,5 @@
 """ホロカラーの通しの確認(Windows だけ)。本物のキー入力とクリックで exe を動かす。
-    build.bat を流してから:  python friend-apps/holo-colors/tests/e2e_holo_colors.py
+    build.bat を流してから:  python tests/friend-apps/holo-colors/e2e_holo_colors.py
 確かめること: 呼び出しのキーで開く・検索して Enter / 札のクリックでコピー・コピーしたら閉じて元の窓へ戻る(すぐ Ctrl+V で貼れる)・
 キーをもう一度 / Esc で閉じる・札の色の帯(2つ目の色)を押すとその色・2つ目の起動は動いているほうを開く・閉じない設定・--quit で終わる。
 テストの間はマウスとキーボードに触らない(本物の入力を送るため)。クリップボードの文字は終わったら元に戻す。
@@ -15,7 +15,7 @@ import time
 import tkinter as tk
 from ctypes import wintypes
 
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # holo-colors/
+HERE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "friend-apps", "holo-colors")   # holo-colors/
 BUILD = os.path.join(HERE, "build")
 TITLE = "ホロカラー"
 HOTKEY_MODS, HOTKEY_VK = 0x2 | 0x1 | 0x4, 0x7A   # Ctrl+Alt+Shift+F11

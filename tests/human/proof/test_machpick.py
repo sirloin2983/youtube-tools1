@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """3 択の口(human/proof/machpick と layers.mach_changes・pick)のテスト。
 
-    py -3.12 -m unittest src/human/proof/tests/test_machpick.py -v
+    py -3.12 -m unittest tests/human/proof/test_machpick.py -v
 
 機械の結果が変わって人の直しと食い違う行(印 MACH_CHANGED)の 前の機械・今の機械・人の直しを返す・[自分の直しのまま] / [今の機械にする] を選ぶ。
 """
@@ -12,14 +12,16 @@ import sys
 import unittest
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")
 for _p in (os.path.join(SRC, "editor"), SRC):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 from human.proof import layers as L, machpick, store  # noqa: E402
 from ytt import errors, workdata  # noqa: E402
-from human.tests._workdata import temporary_workdata  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "human"))   # tests/human/(_workdata)
+from _workdata import temporary_workdata  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 TID = "0123456789ab"
 META = {"schema": "transcribe/v1", "id": TID, "title": "t", "updatedAt": 1}

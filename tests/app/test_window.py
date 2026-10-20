@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""窓で開く(src/ytt/appwindow.py)・画面のエラーの記録(本体は src/manage/ops/tests/test_clientlog.py)・入口の共通の API(api/ytt/…)。
-    python -m unittest src/app/tests/test_window.py -v
+"""窓で開く(src/ytt/appwindow.py)・画面のエラーの記録(本体は tests/manage/ops/test_clientlog.py)・入口の共通の API(api/ytt/…)。
+    python -m unittest tests/app/test_window.py -v
 
-Edge は起動しない(起動のコマンドは偽の popen で受け取って確かめる)。取り込んだツールの画面からの api/ytt/… は src/app/tests/test_mount.py。
+Edge は起動しない(起動のコマンドは偽の popen で受け取って確かめる)。取り込んだツールの画面からの api/ytt/… は tests/app/test_mount.py。
 """
 import http.client
 import json
@@ -14,8 +14,8 @@ import tempfile
 import threading
 import unittest
 
-TESTS = os.path.dirname(os.path.abspath(__file__))   # src/app/tests
-HERE = os.path.dirname(TESTS)   # home(入口の部品)
+TESTS = os.path.dirname(os.path.abspath(__file__))   # tests/app
+HERE = os.path.join(os.path.dirname(os.path.dirname(TESTS)), "src", "app")   # home(入口の部品)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)

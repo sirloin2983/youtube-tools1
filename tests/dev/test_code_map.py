@@ -1,6 +1,6 @@
 """dev/code_map.py(コードの地図と言葉の索引を作る道具)の古さの判定と書き出しのテスト。リポジトリ直下で:
 
-    py -3.12 -m unittest dev/tests/test_code_map.py
+    py -3.12 -m unittest tests/dev/test_code_map.py
 """
 import os
 import sys
@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 本物の作業データに触らない(test_ytt_core の「serve の語があるテストは YTT_DATA_DIR」)
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "dev"))
 import code_map  # noqa: E402
 
 

@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """flow/tx(② 文字起こしの動詞)の最小のテスト。編集の serve を読まずに、疑似のエンジンで使う。
 
-    py -3.12 -m unittest src/flow/tests/test_tx.py -v
+    py -3.12 -m unittest tests/flow/test_tx.py -v
 
 - transcribe_clip の fields に ③ の分が入らない
 - write_clip_records・write_machine_doc: 機械の分の文書と機械の層を作業データ(ytt/workdata の TX_DIR)か案件の 作業用 に書く・書けないとき
 - 受付の check_model・2 つ目のエンジンの engine_ready(疑似)・再認識の note_vad・時刻の候補 word_retime(単語なし)
-本物の通し(ジョブ・fields の行と記録・words.json・asr.json・鍵)は src/editor/tests/test_worker.py の RealWorkerTest。
+本物の通し(ジョブ・fields の行と記録・words.json・asr.json・鍵)は tests/pipeline/transcribe/test_worker.py の RealWorkerTest。
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)。ほかのテストとそろえる
@@ -15,9 +15,10 @@ import sys
 import unittest
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # tests -> flow -> src
 sys.path.insert(0, SRC)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from flow import tx  # noqa: E402
 from pipeline.transcribe import backend, recognize, roster  # noqa: E402
 from ytt import errors, tools, workdata  # noqa: E402
@@ -64,7 +65,7 @@ class TestTranscribe(_Env):
         return job, tx.transcribe_clip(job, dict(SPEC), os.path.join(self.tmp, "w.wav"), [])
 
     def test_fields_are_the_machine_part(self):
-        """題名・動画・clip・評価用・id は ③ が足す(② の fields に無い)。行・記録・words.json・asr.json・鍵は本物の通し src/editor/tests/test_worker.py"""
+        """題名・動画・clip・評価用・id は ③ が足す(② の fields に無い)。行・記録・words.json・asr.json・鍵は本物の通し tests/pipeline/transcribe/test_worker.py"""
         _job, clip = self.clip()
         for key in ("title", "sourcePath", "clip", "evalSet", "id"):
             self.assertNotIn(key, clip["fields"])

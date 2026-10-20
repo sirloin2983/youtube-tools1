@@ -14,10 +14,10 @@ import threading
 import unittest
 from unittest import mock
 
-TESTS = os.path.dirname(os.path.abspath(__file__))   # src/app/tests
-SRC = os.path.dirname(os.path.dirname(TESTS))
+TESTS = os.path.dirname(os.path.abspath(__file__))   # tests/app
+SRC = os.path.join(os.path.dirname(os.path.dirname(TESTS)), "src")
 sys.path.insert(0, os.path.join(SRC, "app"))
-sys.path.insert(0, os.path.join(SRC, "app", "tests"))
+sys.path.insert(0, os.path.join(os.path.dirname(SRC), "tests", "app"))
 if SRC not in sys.path:
     sys.path.append(SRC)
 from app import server as L  # noqa: E402

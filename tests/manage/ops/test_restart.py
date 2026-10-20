@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""入口を起動し直す部品(src/manage/ops/restart.py)のテスト。  python -m unittest src/manage/ops/tests/test_restart.py -v
+"""入口を起動し直す部品(src/manage/ops/restart.py)のテスト。  python -m unittest tests/manage/ops/test_restart.py -v
 
 - spawn_new_launcher: 一時フォルダに偽の app/server.py(受け取った引数・環境変数・作業フォルダを書いて終わる)を置き、
   本物の Python で起動して、引数・環境・作業フォルダ・待ち受けのソケットを引き継がないことを確かめる
@@ -17,12 +17,13 @@ import time
 import unittest
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> ops -> manage -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> ops -> manage -> src
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 from manage.ops import restart as R  # noqa: E402
 from ytt import jobs, layout  # noqa: E402
-from ytt.tests.testkit import read_json, tempdir, wait_for, write_text  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+from testkit import read_json, tempdir, wait_for, write_text  # noqa: E402
 
 FAKE_LAUNCH = textwrap.dedent(r'''
     import json, os, sys, time

@@ -36,7 +36,7 @@
   空きが足りなければ取らずに理由・失敗は「ネットを確かめて [もう一度]」(続きから)。部品の名前と詳しい文は「詳しく」の中だけ。
   済んだこと(版・機器・道具のファイルの印)は data\app\friendapp\setup.json に残し、次の起動では確かめ直さない(道具が変わったら確かめ直す)。
   準備中は exe がスリープを止め、閉じるときに確かめる(GET /api/friend/state の setup・awake)。
-  確かめ: src\friendapp\tests\test_setup.py・test_toolcheck.py・test_settings.py(本物のネット・道具・文字起こしは動かさない)
+  確かめ: tests\friendapp\test_setup.py・test_toolcheck.py・test_settings.py(本物のネット・道具・文字起こしは動かさない)
 
 ■ ⚙ 設定(friendapp\settings.py・画面 ui\settings.js。主の画面は settings.js を読み #btnSettings を置くだけ)
   受け取るの保存先   data\app\friendapp\save-dir.json(無ければ %USERPROFILE%\Videos\受け取ったパック)。変えても今ある物は移さない
@@ -104,7 +104,7 @@
     (ユーザーの PC の作業データ = app\prefs.json に intake.folder がある所では取らない)
   - 更新: FriendApp.exe から動いているとき(YTT_FRIEND_LAUNCHER=1)だけ、更新\latest.json が今の版より新しければ FriendApp-<版>.zip を取り SHA-256 を確かめ、
     src\ と python\ を <アプリのフォルダ>\app-<版>.tmp\ に展開 → そろっていれば app-<版>\ へ。画面の帯に「新しい版 n があります [更新する]」
-  確かめ: 同期のログは data\app\friendapp\logs\friendapp.log(「同期の …」の行)。テストは src\friendapp\tests\test_sync.py・test_dropbox.py(本物の Dropbox にはつながない)
+  確かめ: 同期のログは data\app\friendapp\logs\friendapp.log(「同期の …」の行)。テストは tests\friendapp\test_sync.py・test_dropbox.py(本物の Dropbox にはつながない)
 
 ■ 診断の記録(friendapp\diag.py。exe の分は friend-apps\launcher\src\Core.cs の Diag。notes:docs/spec/friend.md の 13-11)
   依頼 1 件ごと(段ごとの始めと終わりと秒・文字起こしの装置と実時間比・外の道具の終了コードと失敗の最後の数行)と、失敗のとき
@@ -113,7 +113,7 @@
   ユーザー名を含むパス・合言葉・鍵・API キー・動画の中身は入れない(伏せる)。3 日で消す(友人の側は箱と Dropbox・ユーザーの PC は読む道具が)。
   止めるのは環境変数 YTT_FRIEND_DIAG=0。ユーザーの PC の作業データでは書かない。
   読む(ユーザーの PC): py -3.12 -X utf8 dev\friend_diag.py [-n 10] [--errors] [--id <依頼 id>] [--json]
-  確かめ: src\friendapp\tests\test_diag.py・dev\tests\test_friend_diag.py
+  確かめ: tests\friendapp\test_diag.py・tests\dev\test_friend_diag.py
 
 ■ 動画ファイル(friendapp\api.py)
   送る欄の [動画ファイルを選ぶ] で、玄関が Windows のファイルを選ぶ窓を開きます(画面からパスは打たせない。選んだパスは玄関が覚えて id で受ける)。
@@ -134,7 +134,7 @@
     [すべて止めて終了]・FriendApp.exe の [止める] は録画中でも録画の部品まで止めます。次に開いたとき配信中なら、同じ録画の続きとして録り直します
     (止めていた間は録れていない。配信後の追加がオンなら、その分もアーカイブから補う = A-13)
   ユーザーの PC: <依頼 id>.request.json(kind live・live の設定)を上げる。結果は 出力\ から同じ行に届きます
-  確かめ: src\friendapp\tests\test_live.py(録画の部品・yt-dlp・ネットは偽物)
+  確かめ: tests\friendapp\test_live.py(録画の部品・yt-dlp・ネットは偽物)
 
 ■ 友人に渡す物の作り方
   1. friend-apps\launcher\build.bat(窓 FriendApp.exe と WebView2 の DLL。zip の直下に入る。build_friend_zip.py が古ければ自分で流す)

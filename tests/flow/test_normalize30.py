@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """素材を 30fps にそろえるテスト: ② flow/normalize の段・動画を選び直す(④ の付け替え)。
 
-    py -3.12 -m unittest src/editor/tests/test_metrics.py        # test_metrics がこのファイルのテストも読み込む
-    py -3.12 -m unittest src/editor/tests/test_normalize30.py    # これだけ
+    py -3.12 -m unittest tests/eval/drill/test_metrics.py        # test_metrics がこのファイルのテストも読み込む
+    py -3.12 -m unittest tests/flow/test_normalize30.py    # これだけ
 
 ffmpeg・ffprobe で数秒の合成動画(lavfi)を作り、疑似の認識(TRANSCRIBE_BACKEND=fake)で文字起こしのジョブをその場で動かす。
 正しく動く道と見本に混ぜられる入力(60・29.97fps・音声だけ違う・H.265 の 10 bit・作り直さない動画・隣の名前がふさがっている・2 回目の使い回し)は
@@ -20,8 +20,9 @@ import unittest
 from unittest import mock
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.dirname(TESTS))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(TESTS)), "src", "editor"))
 sys.path.insert(0, TESTS)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "editor"))   # test_backend・test_edit(編集のサーバーを一時フォルダで動かす道具)
 from test_backend import StoreDir  # noqa: F401  (S = serve)
 import ed_state  # noqa: E402
 from human.proof import doc_jobs  # noqa: E402
@@ -30,7 +31,8 @@ from flow import jobs  # noqa: E402
 from flow import normalize as FN  # noqa: E402   ② 30fps にそろえる段
 from manage.cases import relink as RL  # noqa: E402   付け替えと 30fps
 from ytt import normalize as N  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 HAVE_FF = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 

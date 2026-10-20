@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""flow/learning(学習データを読む側。F1)のテスト。  py -3.12 -m unittest src/flow/tests/test_learning.py -v
+"""flow/learning(学習データを読む側。F1)のテスト。  py -3.12 -m unittest tests/flow/test_learning.py -v
 
 - 学習の束(learning.json がある learningDir)は、文書も ③ も読まずに計算済みの規則で用語・置換・辞書の版を返す(= 友人の PC は文書なしで動く)
 - 束がなければ今のまま(文書が無い・③ の読み込みを渡されなければ「学習なし」)
@@ -14,9 +14,10 @@ import sys
 import unittest
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # tests -> flow -> src
 sys.path.insert(0, SRC)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from flow import diar, keys, learning, spec  # noqa: E402
 from manage.keep import learnpack  # noqa: E402  (束を作る側。テストの材料)
 from pipeline.transcribe import roster  # noqa: E402

@@ -1,4 +1,4 @@
-"""src/friendapp/server.py と api.py の HTTP の口のテスト(本物のソケットで 127.0.0.1 のポート 0 に起こす。② は偽の engine)。リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_server.py"""
+"""src/friendapp/server.py と api.py の HTTP の口のテスト(本物のソケットで 127.0.0.1 のポート 0 に起こす。② は偽の engine)。リポジトリ直下で: py -3.12 -m unittest tests/friendapp/test_server.py"""
 import datetime
 import http.client
 import json
@@ -12,10 +12,11 @@ import urllib.parse
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from friendapp import server as S  # noqa: E402
 from friendapp import api as _api  # noqa: E402
 from friendapp import api as A  # noqa: E402

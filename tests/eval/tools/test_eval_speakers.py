@@ -1,6 +1,6 @@
 """src/eval/tools/eval_speakers.py(話者の判別・声の照合を、人が直した最終で測る道具)のテスト。リポジトリ直下で:
 
-    py -3.12 -m unittest src/eval/tools/tests/test_eval_speakers.py
+    py -3.12 -m unittest tests/eval/tools/test_eval_speakers.py
 
 作業データは一時フォルダに作る(本物の作業データは読まない・書かない)。サーバーは動かさない。
 """
@@ -16,14 +16,15 @@ import wave
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/tools (道具の置き場所)
+HERE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src", "eval", "tools")   # src/eval/tools (道具の置き場所)
 REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 ytt の置き場所)
 sys.path.insert(0, REPO)
 from eval.tools import eval_speakers as E  # noqa: E402
 from pipeline.transcribe import worker_client  # noqa: E402
 from pipeline.transcribe import diarize as _diarize  # noqa: E402
 from ytt import errors as _errors  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 
 def ms(day, hhmm="12:00:00"):

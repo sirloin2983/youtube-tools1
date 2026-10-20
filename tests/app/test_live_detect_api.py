@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """配信中の盛り上がりの検出の入口 home の側(app の殻 Live の GET|POST /live/api/peaks の振り分け・ホームの設定 prefs の検査)のテスト。
-Detector の中身(api_get・採用・自動の採用など)は ② の src/flow/tests/test_live_detect.py、ワーカーは src/pipeline/analyze/tests/test_live_excite_worker.py。
+Detector の中身(api_get・採用・自動の採用など)は ② の tests/flow/test_live_detect.py、ワーカーは tests/pipeline/analyze/test_live_excite_worker.py。
 
-    py -3.12 -m unittest src/app/tests/test_live_detect_api.py
+    py -3.12 -m unittest tests/app/test_live_detect_api.py
 
   - Live.handle_get / handle_post の振り分け(入口の合言葉・Origin の検査は server.py が先に済ませる)・オフなら 404
   - 設定 detect・autoAdopt の検査(既定・範囲・壊れた値は既定へ)
@@ -19,10 +19,10 @@ import urllib.parse
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-HERE = os.path.dirname(TESTS)
+HERE = os.path.join(os.path.dirname(os.path.dirname(TESTS)), "src", "app")
 SRC = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
-sys.path.insert(0, os.path.join(SRC, "flow", "tests"))   # 共有の偽物 _livefix
+sys.path.insert(0, os.path.join(os.path.dirname(SRC), "tests", "flow"))   # 共有の偽物 _livefix
 if SRC not in sys.path:   # src(層のパッケージ。server.py と同じく後ろに)
     sys.path.append(SRC)
 import _livefix as LF  # noqa: E402

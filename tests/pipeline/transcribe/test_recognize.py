@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """pipeline/transcribe/recognize(音声の取り出し・認識・範囲の行・)を、編集の serve を読まずに使うテスト。
 
-    py -3.12 -m unittest src/pipeline/transcribe/tests/test_recognize.py -v
+    py -3.12 -m unittest tests/pipeline/transcribe/test_recognize.py -v
 
-正しく動く道(取り出し → 認識 → 行・範囲の開始を足した秒)は本物の通し src/editor/tests/test_worker.py の RealWorkerTest。
+正しく動く道(取り出し → 認識 → 行・範囲の開始を足した秒)は本物の通し tests/pipeline/transcribe/test_worker.py の RealWorkerTest。
 ここは本物では起こせない物だけ: 長さが分からない・ffmpeg が無い・boost の引数・照合用の 8kHz の切り方・声の検出の段(捨てすぎ)・エンジンの能力の表・
 行の頭の名前を外す決まり・全体の再認識の区切りと続きの記録。
 """
@@ -14,9 +14,10 @@ import types
 import unittest
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 from pipeline.transcribe import backend, fill, recognize, tx_engines  # noqa: E402
 from ytt import errors, tools, workdata  # noqa: E402
 

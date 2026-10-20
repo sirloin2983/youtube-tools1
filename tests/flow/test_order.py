@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""flow/order.py(欄 → 封筒 + 束の差分。RV A1)のテスト。  py -3.12 -m unittest src/flow/tests/test_order.py -v"""
+"""flow/order.py(欄 → 封筒 + 束の差分。RV A1)のテスト。  py -3.12 -m unittest tests/flow/test_order.py -v"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 import sys
 import unittest
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")
 sys.path.insert(0, SRC)
 from flow import envelope as E, order as O, run as R, spec as SP  # noqa: E402
 

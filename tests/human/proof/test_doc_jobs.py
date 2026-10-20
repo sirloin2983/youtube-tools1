@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """human/proof/doc_jobs のテスト(serve なしで読める・人の行の引き継ぎ)。
 
-    py -3.12 -m unittest src/human/proof/tests/test_doc_jobs.py -v
+    py -3.12 -m unittest tests/human/proof/test_doc_jobs.py -v
 
 doc_jobs は editor の部品を裸の名前(import ed_store など)で読むので、src と src/editor を sys.path に足す。編集の serve は読まない
-(serve の登録で口が埋まり、評価用の作り直しの差し替えが本体に届くことは src/editor/tests/test_evalbatch.py が確かめる)。
+(serve の登録で口が埋まり、評価用の作り直しの差し替えが本体に届くことは tests/eval/drill/test_evalbatch.py が確かめる)。
 """
 import contextlib
 import os
@@ -13,13 +13,14 @@ import sys
 import unittest
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> proof -> human -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> proof -> human -> src
 EDITOR = os.path.join(SRC, "editor")
 for _p in (EDITOR, SRC):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 from human.proof import doc_jobs, layers  # noqa: E402
-from ytt.tests.testkit import read_json, tempdir  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+from testkit import read_json, tempdir  # noqa: E402
 
 
 class TestCarryOverrides(unittest.TestCase):

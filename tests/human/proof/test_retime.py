@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """行の時刻を単語の時刻に合わせる候補(T1 の簡易版)のテスト(計算は pipeline/transcribe/retime.py・文書を読む包みは human/proof/retime.py)。
 
-    py -3.12 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
-    py -3.12 -m unittest test_retime -q                 # これだけ(src/editor/tests で)
+    py -3.12 -m unittest tests/eval/drill/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
+    py -3.12 -m unittest test_retime -q                 # これだけ(tests/editor で)
 
 - 時刻の候補: 保存した文書 1 本(場面ごとに 100 秒ずつ離した行の見本)と words.json を API の入口 retime_doc に通し、候補をまとめて確かめる
   (当て方・かなと句読点・人が足した字・当たりが少ない・差が小さい・短すぎる・大きく動かした行・前後の同じ話者の行で詰める・両方の候補が重ならない・
@@ -14,15 +14,17 @@ import sys
 import unittest
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.dirname(TESTS))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(TESTS))), "src", "editor"))
 sys.path.insert(0, TESTS)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "editor"))   # test_backend・test_edit(編集のサーバーを一時フォルダで動かす道具)
 from test_backend import TID, StoreDir  # noqa: F401,E402  (S = serve)
 from human.proof import retime as _retime  # noqa: E402
 from human.proof import store as _store  # noqa: E402
 from ytt import txwords as _txwords  # noqa: E402
 from pipeline.transcribe import retime  # noqa: E402  (計算 = retime_candidates)
 import ed_state  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 def _chars(t0, text, step=0.2):
     """1 文字ずつの単語(t0 から step 秒ずつ)"""

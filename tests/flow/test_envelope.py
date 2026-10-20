@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""flow/envelope.py(依頼の封筒。RS7-1 S3)のテスト。  py -3.12 -m unittest src/flow/tests/test_envelope.py -v"""
+"""flow/envelope.py(依頼の封筒。RS7-1 S3)のテスト。  py -3.12 -m unittest tests/flow/test_envelope.py -v"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 import sys
 import unittest
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")
 sys.path.insert(0, SRC)
 from flow import envelope as E  # noqa: E402
 

@@ -3,7 +3,7 @@
 
 ③ 人(human/proof の doc_jobs・rerun・alt・retime・learn)は ① pipeline/transcribe を直に読まず、ここの動詞を呼ぶ。動詞は ① を呼ぶ前後で ② の責任
 (本物と疑似の選び方と本物の処理 = ワーカーでモデルを読む・ジョブの状態・認識の記録 words.json・asr.json・llm.json の書き込み・学習データ(置換辞書と名簿)の読み・
-文書の機械の分 fields の組み立て)を足す。① の別名だけの関数は作らない(dev/tests/test_layering.py の test_flow_is_not_alias)。変換のコードは ① に置く。
+文書の機械の分 fields の組み立て)を足す。① の別名だけの関数は作らない(tests/dev/test_layering.py の test_flow_is_not_alias)。変換のコードは ① に置く。
 純粋な文字の関数(行を分ける・句読点・印の文・用語の区切り・置換辞書の読み方と当て方)は ytt(txtext・dictfmt)にあり、③ はそれを直に読む。
 
 動詞(それぞれの docstring に「② が足すこと」):

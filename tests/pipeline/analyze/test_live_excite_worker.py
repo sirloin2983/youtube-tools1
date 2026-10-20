@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """配信中の盛り上がりの検出(線 D の L2)のワーカー src/pipeline/analyze/live_excite_worker.py のテスト(子プロセスの中身を直に)。
-② の側(flow/live_detect.py。API・自動の採用 M11・友人の依頼など)は src/flow/tests/test_live_detect.py、設定の検査と入口を通す分は src/app/tests/test_live_detect_api.py。
+② の側(flow/live_detect.py。API・自動の採用 M11・友人の依頼など)は tests/flow/test_live_detect.py、設定の検査と入口を通す分は tests/app/test_live_detect_api.py。
 
-    py -3.12 -m unittest src/pipeline/analyze/tests/test_live_excite_worker.py
+    py -3.12 -m unittest tests/pipeline/analyze/test_live_excite_worker.py
 
 確かめること:
   - 通し(FfmpegTest.test_hls_run): 音の山を決めて作った HLS を偽の録画元(HTTP。合言葉と Host)から取り、本物の ffmpeg で測る → 山の秒に候補 →
@@ -38,10 +38,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(TESTS)))   # tests -> analyze -> pipeline -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(TESTS))), "src")   # tests -> analyze -> pipeline -> src
 if SRC not in sys.path:   # src(層のパッケージ pipeline・ytt。server.py と同じく後ろに)
     sys.path.append(SRC)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 from pipeline.analyze import live_excite_worker as W  # noqa: E402
 from pipeline.analyze import excite, levels  # noqa: E402
 from ytt import fsio, procs, tools  # noqa: E402
@@ -625,7 +626,7 @@ class FfmpegTest(unittest.TestCase):
     def test_hls_run(self):
         """配信中の検出の通し: 音の山を決めて作った HLS(4 秒のセグメント・5 分半)を、偽の録画元(HTTP)から合言葉つきで取り、本物の ffmpeg で測って
         1 秒の箱へ → 山が候補になる(録画の頭からの秒)→ 配信が終わったら帳簿を締める。ライブ端から遅れているので 60 秒分ずつまとめて測る"""
-        sys.path.insert(0, os.path.join(SRC, "pipeline", "ingest", "tests"))
+        sys.path.insert(0, os.path.join(os.path.dirname(SRC), "tests", "pipeline", "ingest"))
         import hls_fixture
         src = os.path.join(self.tmp, "src")
         bursts = (170, 250)
@@ -825,7 +826,7 @@ class WorkerRestTest(unittest.TestCase):
 
     def test_length_hint_from_human_records(self):
         """M10: 入口が ② flow/lengthhint で数えた目安(config.json の lengthHint)→ 見本が足りれば新しく受け持つ録画の長さ・前の割合をそれに
-        (lengthFrom human)、足りなければスタジオの設定(45 秒)。数え方は src/flow/tests/test_lengthhint.py。
+        (lengthFrom human)、足りなければスタジオの設定(45 秒)。数え方は tests/flow/test_lengthhint.py。
         長さがそのまま区間になるのは固定の形のとき(場面ごとの形では場面が取れないときの長さ = LD-2d。形の切り替えは test_shape_scene_and_friend)"""
         patch = mock.patch.object(excite, "SHAPE_DEFAULT", "fixed")
         patch.start()

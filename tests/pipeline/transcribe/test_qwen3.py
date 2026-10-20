@@ -18,14 +18,15 @@ import zipfile
 from unittest import mock
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-HERE = os.path.dirname(TESTS)
+HERE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(TESTS))), "src", "editor")
 os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import serve  # noqa: E402
 import ed_state  # noqa: E402
 from pipeline.transcribe import worker_client as _worker_client  # noqa: E402
 from pipeline.transcribe import tx_engines as E  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 FAKE = [sys.executable, os.path.join(TESTS, "fake_llama_server.py")]
 

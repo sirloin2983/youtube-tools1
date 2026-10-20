@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ytt/docloc.py(文字起こしの文書の置き場所を引く口。RS8 B-2)のテスト。
 
-    python -m unittest src/ytt/tests/test_docloc.py
+    python -m unittest tests/ytt/test_docloc.py
 
 索引が無ければ今までどおり workdata.TX_DIR・索引があれば案件の 作業用・壊れた索引や使えない場所は TX_DIR に落ちる、を確かめる。
 """
@@ -12,9 +12,10 @@ import sys
 import unittest
 from unittest import mock
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src"))   # src
 from ytt import docloc, schemas, workdata  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 TID = "0123456789ab"
 TID2 = "ba9876543210"

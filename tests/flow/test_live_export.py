@@ -2,7 +2,7 @@
 """ライブの書き出し(② の src/flow/live_export.py の Exporter)・採用・失敗の集約(src/flow/live_failures.py)のテスト。
 入口 home の Live は使わず、ライブ係 flow/livesession.LiveSession(本物の録画の部品 --source direct・偽のまとめて実行・偽のスタジオ)で組む。
 
-    py -3.12 -m unittest src/flow/tests/test_live_export.py
+    py -3.12 -m unittest tests/flow/test_live_export.py
 
   - 通し(ExportTest): 本物の録画の部品で配信中のふりの HLS を 1 本録り、マーク → 録画待ち → 30fps・.clip.json・音量 → 文字起こしへ・
     採用(スタジオ / スタジオなし + 友人の依頼)・取り消し・録画が先に終わった・録画元が落ちた・失敗の文・掲示板・記録の読み直し
@@ -25,10 +25,11 @@ from unittest import mock
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.dirname(os.path.dirname(TESTS))   # tests -> flow -> src
+REPO = os.path.join(os.path.dirname(os.path.dirname(TESTS)), "src")   # tests -> flow -> src
 sys.path.insert(0, TESTS)
 import _livefix as FIX  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from flow import board as Board  # noqa: E402
 from flow import live_adopt as LA  # noqa: E402
 from flow import live_export as LX  # noqa: E402
@@ -565,7 +566,7 @@ class ExportPiecesTest(unittest.TestCase):
         self.assertEqual(LA.pad_secs(0.0, LX.MAX_MARK_SEC, 2, {}, first), (0.0, float(LX.MAX_MARK_SEC)))
 
     def test_pick_folder_owner_default(self):
-        """配信の名前(題)が空のときの持ち主の既定名(規則の本体は ytt.names。ytt/tests/test_ytt_core.py の TestNames)"""
+        """配信の名前(題)が空のときの持ち主の既定名(規則の本体は ytt.names。tests/ytt/test_ytt_core.py の TestNames)"""
         root = os.path.join(self.tmp, "out")
         os.makedirs(root)
         self.assertEqual(os.path.basename(LX.pick_folder(root, "", "abcdefghijk")), "abcdefghijk")

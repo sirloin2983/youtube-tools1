@@ -32,7 +32,7 @@ class CountTest(unittest.TestCase):
 class ReportTest(unittest.TestCase):
     def test_net_diff_only(self):
         before = loc.tally([("src/app/a.py", "x = 1\ny = 2\n"), ("dev/t.py", "# c\nz = 3\n")])
-        now = loc.tally([("src/app/a.py", "x = 1\n"), ("src/app/tests/test_a.py", "assert 1\n")])
+        now = loc.tally([("src/app/a.py", "x = 1\n"), ("tests/app/test_a.py", "assert 1\n")])
         r = loc.report(now, before)
         self.assertEqual(r["diff"]["本体"], [-1, -1])
         self.assertEqual(r["diff"]["テスト"], [1, 1])

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""flow/runqueue.py(② の待ち行列と実行の糸。RS7-1 S5)のテスト。  py -3.12 -m unittest src/flow/tests/test_runqueue.py -v
+"""flow/runqueue.py(② の待ち行列と実行の糸。RS7-1 S5)のテスト。  py -3.12 -m unittest tests/flow/test_runqueue.py -v
 home(入口の AutoRunner・案件・ホームの設定)を読まずに、素の Queue だけで submit → status → 完了・待ちの記録の保存と復元・中止を見る。
-受付と hook を埋めた形(AutoRunner)の細かい動きは src/app/tests/test_autorun.py。
+受付と hook を埋めた形(AutoRunner)の細かい動きは tests/app/test_autorun.py。
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(記録は一時フォルダ)
@@ -13,9 +13,10 @@ import types
 import unittest
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # tests -> flow -> src
 sys.path.insert(0, SRC)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from flow import board as B, runqueue as Q, run as R, spec as SP, tools as T  # noqa: E402
 from ytt import fsio  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # 共有の部品 _runfields(Run の欄の形 → 封筒 + 束。RV A2)

@@ -1,6 +1,6 @@
 """src/flow/outbox.py(送り返しの zip。F1 の F2)のテスト。リポジトリ直下で:
 
-    py -3.12 -m unittest src/flow/tests/test_outbox.py
+    py -3.12 -m unittest tests/flow/test_outbox.py
 
 一時フォルダだけを使う(本物の作業データ・Dropbox には触らない)。
 """
@@ -11,11 +11,12 @@ import unittest
 import zipfile
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # tests -> flow -> src
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from flow import outbox, runlog  # noqa: E402
 
 SECRET = "AIzaSyA1234567890abcdefghijklmnopqrstuv"

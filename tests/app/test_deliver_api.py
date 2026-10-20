@@ -1,6 +1,6 @@
-"""入口の ytt_api("deliver") の受け渡し(src/app/server.py の PortalServer.ytt_api)のテスト。deliver の本体のテストは src/flow/tests/test_deliver.py。
+"""入口の ytt_api("deliver") の受け渡し(src/app/server.py の PortalServer.ytt_api)のテスト。deliver の本体のテストは tests/flow/test_deliver.py。
 
-実行(リポジトリ直下から): python -m unittest src/app/tests/test_deliver_api.py -v
+実行(リポジトリ直下から): python -m unittest tests/app/test_deliver_api.py -v
 """
 import os
 import shutil
@@ -10,7 +10,7 @@ import time
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-HOME = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+HOME = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src", "app")
 ROOT = os.path.dirname(HOME)
 for p in (HOME, ROOT):
     if p not in sys.path:

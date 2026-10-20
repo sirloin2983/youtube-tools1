@@ -1,13 +1,13 @@
 """dev/drift_report.py の索引の判定。リポジトリ直下で:
 
-    py -3.12 -m unittest dev/tests/test_drift_report.py
+    py -3.12 -m unittest tests/dev/test_drift_report.py
 """
 import os
 import sys
 import time
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "dev"))
 import drift_report as D  # noqa: E402
 
 

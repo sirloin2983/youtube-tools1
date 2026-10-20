@@ -2,7 +2,7 @@
 たたき台の出どころ(rows・silence 以外)と残す区間が 2 つ未満は出ない・切れ目は頭・真ん中・末・消した所は 2 秒以上だけ・仕上がりは合計 120 秒以下だけ・
 1 本 5 枚まで・id が読める。一時フォルダの文書と .edit.json だけを使う。
 
-実行(リポジトリ直下から): py -3.12 -m unittest src/app/check/tests/test_cut_sources.py -v
+実行(リポジトリ直下から): py -3.12 -m unittest tests/app/check/test_cut_sources.py -v
 """
 import json
 import os

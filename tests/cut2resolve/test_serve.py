@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """画面のサーバー(serve.py)の API のテスト。実サーバーを空きポートで別スレッドに起動する。
-python -m unittest src/cut2resolve/tests/test_serve.py(パックの部品のテストは src/pipeline/pack/tests)"""
+python -m unittest tests/cut2resolve/test_serve.py(パックの部品のテストは tests/pipeline/pack)"""
 import http.client
 import json
 import os
@@ -16,9 +16,9 @@ from pathlib import Path
 from unittest import mock
 
 TESTS = Path(__file__).resolve().parent
-sys.path.insert(0, str(TESTS.parent))   # cut2resolve/(部品)
+sys.path.insert(0, str(TESTS.parents[1] / "src" / "cut2resolve"))   # cut2resolve/(部品)
 sys.path.insert(0, str(TESTS))
-sys.path.append(str(TESTS.parents[1] / "pipeline" / "pack" / "tests"))   # test_cut2resolve の道具
+sys.path.append(str(TESTS.parent / "pipeline" / "pack"))   # test_cut2resolve の道具
 import serve  # noqa: E402
 from pipeline.pack import request  # noqa: E402
 from flow import packrec  # noqa: E402

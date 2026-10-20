@@ -1,6 +1,6 @@
 """src/eval/tools/eval_timing.py(行の時刻を原則の数字で測る道具)のテスト。リポジトリ直下で:
 
-    py -3.12 -m unittest src/eval/tools/tests/test_eval_timing.py
+    py -3.12 -m unittest tests/eval/tools/test_eval_timing.py
 
 作業データは一時フォルダに作る(本物の作業データは読まない・書かない)。サーバー・ネットワーク・ffmpeg は使わない
 (--apply は editor の serve を読まず、pipeline/transcribe/postproc.expand_segments を直に呼ぶ)。
@@ -14,12 +14,13 @@ import unittest
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/tools (道具の置き場所)
+HERE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src", "eval", "tools")   # src/eval/tools (道具の置き場所)
 REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 ytt の置き場所)
 sys.path.insert(0, REPO)
 from eval.tools import eval_timing as T  # noqa: E402
 from pipeline.transcribe import postproc  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 
 def ms(day, hhmm="12:00:00"):

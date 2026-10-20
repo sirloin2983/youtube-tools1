@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """リアルタイム切り抜き(線 D の P1)の入口の側(src/app/live.py・prefs の節 live・server.py の /live/…・「調子」の行)のテスト。
-② の部分は src/flow/tests にある:録画元まわり(probe・stop_recorder・見回りの起動)= test_live_recorder.py、マークと書き出し・採用・失敗の集約・ディスク・重い処理の枠 = test_live_export.py。
+② の部分は tests/flow にある:録画元まわり(probe・stop_recorder・見回りの起動)= test_live_recorder.py、マークと書き出し・採用・失敗の集約・ディスク・重い処理の枠 = test_live_export.py。
 
-    py -3.12 -m unittest src/app/tests/test_live.py
+    py -3.12 -m unittest tests/app/test_live.py
 
 確かめること:
   - 設定 live: 既定はオフ・形の検査・合言葉は空で送っても今の値を残す・画面へ返す設定に合言葉を出さない・配信中の候補の文字起こし liveTx の検査
@@ -30,13 +30,14 @@ from unittest import mock
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-HERE = os.path.dirname(TESTS)
+HERE = os.path.join(os.path.dirname(os.path.dirname(TESTS)), "src", "app")
 REPO = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
-sys.path.insert(0, os.path.join(REPO, "flow", "tests"))   # 共有の偽物 _livefix
+sys.path.insert(0, os.path.join(os.path.dirname(REPO), "tests", "flow"))   # 共有の偽物 _livefix
 import _livefix as LF  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)
 from app import server as L  # noqa: E402
 from app import live as LV  # noqa: E402
@@ -47,7 +48,7 @@ from app import prefs as P  # noqa: E402
 from ytt import fsio  # noqa: E402
 
 TOKEN = LF.TOKEN
-FakeRecorder = LF.FakeRecorder   # 録画元の偽物(flow/tests/_livefix.py。test_live_archive_api.py も借りる)
+FakeRecorder = LF.FakeRecorder   # 録画元の偽物(tests/flow/_livefix.py。test_live_archive_api.py も借りる)
 
 
 wait_for = testkit.wait_for
@@ -543,7 +544,7 @@ class PortalLiveTest(unittest.TestCase):
 
     def test_export_studio_with_friend_request(self):
         """スタジオの画面の人のマーク(POST /live/api/export の studio。Live.export_studio): 結びついた録画は transcribe false でも届ける。
-        採用(LiveSession.adopt)の側は src/flow/tests/test_live_request.py"""
+        採用(LiveSession.adopt)の側は tests/flow/test_live_request.py"""
         self.enable()
         live = self.srv.live
         rec_a, rec_c = "20261008-200000-abcdefghijk", "20261008-200000-ccccccccccc"
@@ -676,7 +677,7 @@ class AutoDeliverTest(unittest.TestCase):
         self.assertIsNone(self.live.deliver_dir())
 
     def test_request_limit_is_two(self):
-        """入口の Live は友人の依頼の同時録画の上限を live_requests.MAX_ACTIVE(2 本)にする。上限での 409 は src/flow/tests/test_live_request.py"""
+        """入口の Live は友人の依頼の同時録画の上限を live_requests.MAX_ACTIVE(2 本)にする。上限での 409 は tests/flow/test_live_request.py"""
         self.assertEqual(LR.MAX_ACTIVE, 2)
         self.assertEqual(self.live._request_limit(), LR.MAX_ACTIVE)
 

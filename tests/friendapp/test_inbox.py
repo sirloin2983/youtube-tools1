@@ -1,4 +1,4 @@
-"""src/friendapp/inbox.py のテスト(受信箱の記録・決める・3 日の片付け・画面へ出す形)。リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_inbox.py"""
+"""src/friendapp/inbox.py のテスト(受信箱の記録・決める・3 日の片付け・画面へ出す形)。リポジトリ直下で: py -3.12 -m unittest tests/friendapp/test_inbox.py"""
 import datetime
 import glob
 import json
@@ -9,10 +9,11 @@ import unittest
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from friendapp import inbox  # noqa: E402
 
 T0 = 1750000000.0          # 基準の時刻(秒)

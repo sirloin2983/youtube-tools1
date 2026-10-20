@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """配信中の候補の文字起こしの子プロセス src/pipeline/transcribe/live_tx_worker.py のテスト(D-11 案 b)。本物の認識はしない。
 
-    py -3.12 -m unittest src/pipeline/transcribe/tests/test_live_tx_worker.py
+    py -3.12 -m unittest tests/pipeline/transcribe/test_live_tx_worker.py
 
 確かめること(本物では起こせない物だけ):
   - 引数の数が違えば 2・知らないモデル・whisper-cli が無ければ ok false の json
   - GPU が無ければ ok false(偽の whisper-cli = 編集の tests/fake_whisper_cli.py)
-本物の whisper.cpp で text・rows・gpu・whisper-cli の引数を見る通しと、入口 flow 側(live_tx の _run_worker)は src/flow/tests/test_live_tx.py。
+本物の whisper.cpp で text・rows・gpu・whisper-cli の引数を見る通しと、入口 flow 側(live_tx の _run_worker)は tests/flow/test_live_tx.py。
 作業データはテストの一時フォルダだけ(YTT_DATA_DIR=inplace)。
 """
 import json
@@ -20,14 +20,15 @@ from unittest import mock
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(TESTS)))   # tests -> transcribe -> pipeline -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(TESTS))), "src")   # tests -> transcribe -> pipeline -> src
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 from pipeline.transcribe import live_tx_worker as TW  # noqa: E402
 
 WORKER = os.path.abspath(TW.__file__)
-FAKE_WCPP = os.path.join(SRC, "editor", "tests", "fake_whisper_cli.py")
+FAKE_WCPP = os.path.join(os.path.dirname(SRC), "tests", "pipeline", "transcribe", "fake_whisper_cli.py")
 
 
 def tx_engines():
@@ -86,7 +87,7 @@ class WorkerTest(unittest.TestCase):
 
     def test_gpu_missing_is_a_failure(self):
         """GPU が無い(この PC では起こせない): 黙って CPU にせず ok false。偽の whisper-cli(編集の tests/fake_whisper_cli.py)で通す。
-        正しく動く道(引数・行・GPU の名前)は本物の whisper.cpp の通し src/flow/tests/test_live_tx.py の RealWhisperTest"""
+        正しく動く道(引数・行・GPU の名前)は本物の whisper.cpp の通し tests/flow/test_live_tx.py の RealWhisperTest"""
         te = tx_engines()
         touch(os.path.join(te.wcpp_bin_dir(self.data), te.WCPP_EXE))
         touch(os.path.join(te.wcpp_model_dir(self.data), te.WCPP_MODELS["large-v3"]["file"]))

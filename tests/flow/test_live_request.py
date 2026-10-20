@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """友人のライブ配信の依頼(notes:docs/spec/friend.md の 2-15)の ② の側: ライブ係 flow/livesession.LiveSession の begin_request(録画を始めて依頼に結びつける)と、
 結びついた録画の採用(adopt。after は auto に固定・余白は依頼の pad・配信者は依頼のもの・アーカイブは afterStream が真のときだけ)。
-入口 home の Live は使わない(同時の上限 _request_limit は入口の物 = 本テストでは差し替える。入口の既定は src/app/tests/test_live.py)。
+入口 home の Live は使わない(同時の上限 _request_limit は入口の物 = 本テストでは差し替える。入口の既定は tests/app/test_live.py)。
 
-    py -3.12 -m unittest src/flow/tests/test_live_request.py
+    py -3.12 -m unittest tests/flow/test_live_request.py
 
 偽の録画元(HTTP。合言葉)・偽の yt-dlp(probe の差し替え)・偽のスタジオで、本物の YouTube へは繋がない。
 """
@@ -18,7 +18,8 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データ
 TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TESTS)
 import _livefix as FIX  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from ytt import fsio  # noqa: E402
 
@@ -135,7 +136,7 @@ class FriendRequestTest(unittest.TestCase):
                                                                              "lastPdt": "2026-10-08T11:00:05.000Z", "segments": [], "gaps": []})
 
     def test_adopt_with_friend_request(self):
-        """結びついた録画の採用(LiveSession.adopt。人のマークの HTTP は src/app/tests/test_live.py の test_export_studio_with_friend_request): after は auto に固定・余白は依頼の pad・配信者は依頼のもの(本文の指定が先)・
+        """結びついた録画の採用(LiveSession.adopt。人のマークの HTTP は tests/app/test_live.py の test_export_studio_with_friend_request): after は auto に固定・余白は依頼の pad・配信者は依頼のもの(本文の指定が先)・
         ジョブに request {rid, deliverDir, speakers, videoTracks, cut}。配信後のアーカイブからの追加(origin archive)は依頼の afterStream が真のときだけ結びつく。
         結びついていない録画はホームの設定のまま(after = live.auto.after・余白 = live.auto.pad)"""
         live = self.live

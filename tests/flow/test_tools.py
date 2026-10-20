@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""flow/tools(段が道具を呼ぶ継ぎ目。段が道具を呼ぶ継ぎ目)のテスト。  py -3.12 -m unittest src/flow/tests/test_tools.py -v
+"""flow/tools(段が道具を呼ぶ継ぎ目。段が道具を呼ぶ継ぎ目)のテスト。  py -3.12 -m unittest tests/flow/test_tools.py -v
 
 - LocalTools: 入口なしで 動画ファイル → 文字起こし → パック を 1 本(疑似のエンジン。疑似の差し込みはテストの側 = eval/fake/fake_asr の FAKE)
 - LocalTools に無い段(配信・解析・採用・書き出し・話者分離)は「入口に頼んでください」の StepError
-- HttpTools は今の API をそのまま呼ぶ(呼ぶ API と本文は src/app/tests/test_autorun.py が見る)
+- HttpTools は今の API をそのまま呼ぶ(呼ぶ API と本文は tests/app/test_autorun.py が見る)
 - 鍵を読んで飛ばす: 同じ・違う・force(LocalTools の本物の一続き)
 """
 import os
@@ -13,9 +13,10 @@ import sys
 import unittest
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # tests -> flow -> src
 sys.path.insert(0, SRC)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from flow import run as R, tools as T  # noqa: E402
 from pipeline.transcribe import backend, records, roster  # noqa: E402
 from ytt import workdata  # noqa: E402

@@ -1,6 +1,6 @@
 """確かめる(/check。部品は src/app/ui/check/)の通し確認(Playwright)。リポジトリ直下で:
     set PYTHONIOENCODING=utf-8
-    py -3.12 src/app/tests/e2e_check.py
+    py -3.12 tests/app/e2e_check.py
 入口(server.py)はツールを取り込まずに動かす。⑤ の待ち行列の口(api/check/next・answer・skip)は
 計画 notes:docs/design/v1-check-build.md 2-3 の形の偽物(Playwright の route)で答える。動画は ffmpeg で作った webm を transcribe/media の偽物で返す。
 見るもの: 開く(帯 = 今日 n 件・この確認で決まる物・このあと・最初のカード)・URL の c / kind を口へ渡す / A で答える → 送った中身・すぐ次へ /
@@ -25,16 +25,17 @@ from unittest import mock
 
 from playwright.sync_api import sync_playwright
 
-TESTS = os.path.dirname(os.path.abspath(__file__))   # src/app/tests
-SRC = os.path.dirname(os.path.dirname(TESTS))
+TESTS = os.path.dirname(os.path.abspath(__file__))   # tests/app
+SRC = os.path.join(os.path.dirname(os.path.dirname(TESTS)), "src")
 sys.path.insert(0, os.path.join(SRC, "app"))
-sys.path.insert(0, os.path.join(SRC, "app", "tests"))
+sys.path.insert(0, os.path.join(os.path.dirname(SRC), "tests", "app"))
 if SRC not in sys.path:
     sys.path.append(SRC)
 from app import server as L  # noqa: E402
 from test_launch import free_ports  # noqa: E402
 from ytt import tools  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 
 wait_js = testkit.wait_js

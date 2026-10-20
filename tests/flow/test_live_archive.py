@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """録画に無い区間をアーカイブから書き出す・配信後の全自動(線 D。src/flow/live_archive.py・src/pipeline/ingest/live_align_worker.py)のテスト。
-入口を通す API の分は src/app/tests/test_live_archive_api.py。本物の YouTube には繋がない。
+入口を通す API の分は tests/app/test_live_archive_api.py。本物の YouTube には繋がない。
 
-    py -3.12 -m unittest src/flow/tests/test_live_archive.py
+    py -3.12 -m unittest tests/flow/test_live_archive.py
 
 作るもの(ffmpeg の lavfi): 「アーカイブ」= 映像 testsrc2 の 60fps + 時間で変わる音(周波数が動く sine + ノイズ)。
 「録画」の音 = その途中を別の符号化(AAC の作り直し・音量 60%)で切り出したもの(録画元への問い合わせと取得を偽物にする)。
@@ -35,7 +35,8 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データ
 TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TESTS)
 import _livefix as LF  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from flow import board as Board  # noqa: E402
 from flow import live_archive as A  # noqa: E402
 from flow import live_export as LX  # noqa: E402
@@ -82,7 +83,7 @@ class WavArgsTest(unittest.TestCase):
         head = ["FF", "-hide_banner", "-nostdin", "-y", "-v", "error"]
         tail = ["-vn", "-sn", "-dn", "-ac", "1", "-ar", "8000", "-c:a", "pcm_s16le", "-f", "wav", dst]
         self.assertEqual([c for c, _, _ in cmds], [head + ["-ss", "15.500", "-i", "src.m4a", "-ss", "10.000", "-t", "4.250"] + tail, head + ["-i", "src.m4a"] + tail])
-        self.assertEqual([(t, c) for _, t, c in cmds], [(A.FFMPEG_TIMEOUT, True), (A.FFMPEG_TIMEOUT, False)])   # 引数の組み方の全部の場合は pipeline/transcribe/tests/test_recognize.py
+        self.assertEqual([(t, c) for _, t, c in cmds], [(A.FFMPEG_TIMEOUT, True), (A.FFMPEG_TIMEOUT, False)])   # 引数の組み方の全部の場合は tests/pipeline/transcribe/test_recognize.py
 
 
 @unittest.skipUnless(FF, "ffmpeg が無い")
@@ -458,7 +459,7 @@ class WorkerTest(unittest.TestCase):
 
 class AfterStreamTest(unittest.TestCase):
     """線 D の M7(配信後の全自動。src/flow/live_archive.py の after_tick): 用意を待つ → 解析を頼む → 上位 N を採用(origin archive・hold archive)
-    → アーカイブから書き出し → done。時刻合わせ(_after_offset)・スタジオ・採用(Live.adopt)は偽物(本物の通しは src/app/tests/e2e_live_archive.py の 9)"""
+    → アーカイブから書き出し → done。時刻合わせ(_after_offset)・スタジオ・採用(Live.adopt)は偽物(本物の通しは tests/app/e2e_live_archive.py の 9)"""
     HOURS = 3.0
 
     def setUp(self):

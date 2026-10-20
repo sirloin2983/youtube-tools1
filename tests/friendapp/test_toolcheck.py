@@ -1,14 +1,15 @@
 """src/friendapp/toolcheck.py と places の道具の置き方(F3-5)のテスト。本物の道具・文字起こし・ネットは動かさない(偽の run・偽の transcribe)。
-リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_toolcheck.py"""
+リポジトリ直下で: py -3.12 -m unittest tests/friendapp/test_toolcheck.py"""
 import os
 import sys
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from friendapp import places as P, toolcheck as T  # noqa: E402
 
 

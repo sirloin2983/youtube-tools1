@@ -4,9 +4,9 @@
 スタジオの review.js と LivePlayer を載せる)で再生・マーク・書き出しを操作する。本物の YouTube には繋がない。
 確かめの中身(保存の形・API の拒否・計算)は下の層(test_live.py・test_live_export.py・test_live_detect.py・test_cand_panel.cjs)で見る。ここは画面の操作と本物の部品どうしのつなぎ。
 
-    py -3.12 src/app/tests/e2e_live_studio.py                 # 確かめる(終了コード 0 = すべて OK)
-    py -3.12 src/app/tests/e2e_live_studio.py --shots DIR     # あわせて ② などのスクリーンショットを DIR に残す
-    py -3.12 src/app/tests/e2e_live_studio.py --chromium      # Edge があっても Playwright の chromium で(再生が要る確認は飛ばす)
+    py -3.12 tests/app/e2e_live_studio.py                 # 確かめる(終了コード 0 = すべて OK)
+    py -3.12 tests/app/e2e_live_studio.py --shots DIR     # あわせて ② などのスクリーンショットを DIR に残す
+    py -3.12 tests/app/e2e_live_studio.py --chromium      # Edge があっても Playwright の chromium で(再生が要る確認は飛ばす)
 
 作り:
   - 入口(server.py)に studio を取り込む(STUDIO_FAKE=1)。作業データ・書き出し先・録画の置き場所は全部一時フォルダ
@@ -57,15 +57,16 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データ
 from unittest import mock
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-HERE = os.path.dirname(TESTS)
+HERE = os.path.join(os.path.dirname(os.path.dirname(TESTS)), "src", "app")
 REPO = os.path.dirname(HERE)
 STUDIO = os.path.join(REPO, "studio")
 sys.path.insert(0, STUDIO)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
-sys.path.insert(0, os.path.join(REPO, "pipeline", "ingest", "tests"))
+sys.path.insert(0, os.path.join(os.path.dirname(REPO), "tests", "pipeline", "ingest"))
 sys.path.append(REPO)   # src(ytt の部品)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 os.environ["STUDIO_FAKE"] = "1"
 
 YT1 = "https://www.youtube.com/watch?v=TESTlive001"   # 画面に入れる配信の URL(録画元へは手元の HLS に読み替える)
@@ -758,7 +759,7 @@ def _scene_peaks(cx):
     """L2 + L3 配信中の候補: 本物の候補の API(入口の live_detect)と偽のワーカー(tests/fake_excite_worker.py = テストが置いた候補を本物と同じ形で
     peaks.json・worker.json に書き、decisions.json を本物と同じに当てる)で、帯の一覧・グラフ・[再生]・[採用](POST /live/api/peaks → M1 の adopt)・
     [見送り]・控えも見る・[戻す]・p / z。見出し・行の中身・decisions.json の形は test_cand_panel.cjs・test_live_detect.py。
-    音・チャット・ffmpeg は使わない(ワーカーの計算は src/pipeline/analyze/tests/test_live_excite_worker.py)"""
+    音・チャット・ffmpeg は使わない(ワーカーの計算は tests/pipeline/analyze/test_live_excite_worker.py)"""
     api, cases_url, check, pg, rid, shots, srv, live = cx.api, cx.cases_url, cx.check, cx.pg, cx.rid, cx.shots, cx.srv, cx.live
     det = live.detector
     det.worker, det.spawn_ok, det.python = os.path.join(TESTS, "fake_excite_worker.py"), True, sys.executable

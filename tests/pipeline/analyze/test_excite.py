@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""pipeline/analyze/excite.py(盛り上がりの式)のテスト。  py -3.12 -m unittest src/pipeline/analyze/tests/test_excite.py -v
+"""pipeline/analyze/excite.py(盛り上がりの式)のテスト。  py -3.12 -m unittest tests/pipeline/analyze/test_excite.py -v
 本物の音とチャットのファイルを通す解析の通しは test_analyze.TestAnalyzeRun(チャットの種類ごとの重み・埋めの印・場面ごとの区間の形もそこ)。
 ここは通しでは見えない物: 式の値を桁まで(golden)・2 つの計算の比べ・配信中の帳簿の規則(時間・人の決定)
 - golden: 同じ合成の入力で出した値(data/excite_golden.json)と一致する(式を変えたら作り直す)
@@ -16,7 +16,7 @@ import random
 import sys
 import unittest
 
-REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests の 3 つ上 = src
+REPO = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests の 3 つ上 = src
 sys.path.insert(0, REPO)
 from pipeline.analyze import excite  # noqa: E402
 

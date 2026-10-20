@@ -8,7 +8,8 @@ sys.path.insert(0, os.path.join(REPO, "dev"))
 sys.path.insert(0, os.path.join(REPO, "src"))
 import land_gate  # noqa: E402
 import worklog  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 GOOD = """---
 種類: 記録
@@ -29,12 +30,22 @@ put = testkit.write_text
 class SelectTest(unittest.TestCase):
     def test_layer_runs_itself_and_upper_layers(self):
         dirs, manual, unknown = land_gate.select(["src/manage/keep/trash.py"])
-        self.assertIn("src/manage/", dirs)
-        self.assertIn("src/eval/", dirs)            # eval は manage を読んでよい
-        self.assertIn("src/editor/", dirs)          # app(入口が取り込んだ旧いツールも)
-        self.assertNotIn("src/pipeline/", dirs)     # 下の層は流さない
-        self.assertNotIn("src/friendapp/", dirs)
+        self.assertIn("tests/manage/", dirs)
+        self.assertIn("tests/eval/", dirs)            # eval は manage を読んでよい
+        self.assertIn("tests/editor/", dirs)          # app(入口が取り込んだツールも)
+        self.assertNotIn("tests/pipeline/", dirs)     # 下の層は流さない
+        self.assertNotIn("tests/friendapp/", dirs)
         self.assertEqual((manual, unknown), ([], []))
+
+    def test_test_files_count_as_their_layer(self):
+        """tests/<層>/ のテストを変えたら、その層を変えたのと同じ。tests/ 直下の共通の物(testkit)は全部・tests/dev は dev の分"""
+        dirs = land_gate.select(["tests/flow/test_run.py"])[0]
+        self.assertIn("tests/flow/", dirs)
+        self.assertIn("tests/app/", dirs)             # flow を読んでよい上の層
+        self.assertNotIn("tests/pipeline/", dirs)
+        self.assertEqual(land_gate.select(["tests/testkit.py"])[0], land_gate.ALL)
+        self.assertEqual(land_gate.select(["tests/dev/test_lint.py"])[0], {land_gate.DEV_TESTS})
+        self.assertEqual(land_gate.select(["tests/friend-apps/launcher/Tests.cs"])[1], [r"friend-apps\launcher\build.bat"])
 
     def test_ytt_runs_everything(self):
         self.assertEqual(land_gate.select(["src/flow/a.py", "src/ytt/fsio.py"])[0], land_gate.ALL)
@@ -105,7 +116,7 @@ class WorklogCheckTest(unittest.TestCase):
         self.assertIn("確かめた物", probs[0])
 
     def test_english_warns_but_code_names_do_not_count(self):
-        code_heavy = GOOD + "".join("- `dev/land_gate.py` の `select()` と `run_unit.build_units` を使う(src/ytt/tests/test_ytt_core.py)\n"
+        code_heavy = GOOD + "".join("- `dev/land_gate.py` の `select()` と `run_unit.build_units` を使う(tests/ytt/test_ytt_core.py)\n"
                                     for _ in range(20))
         p = os.path.join(self.notes, "a.md")
         put(p, code_heavy)
@@ -152,13 +163,13 @@ class RunTest(unittest.TestCase):
         self.fake_units(set())
         g = land_gate.run("claude/gate-abc123", notes=self.notes, log=lambda s: None)
         self.assertEqual(g.problems, [])
-        self.assertIn("src/ytt/tests/test_ytt_core.py", self.ran)            # 見張りはいつも
-        self.assertTrue(any(r.startswith("src/manage/") for r in self.ran))
-        self.assertFalse(any(r.startswith("src/pipeline/") for r in self.ran))
+        self.assertIn("tests/ytt/test_ytt_core.py", self.ran)            # 見張りはいつも
+        self.assertTrue(any(r.startswith("tests/manage/") for r in self.ran))
+        self.assertFalse(any(r.startswith("tests/pipeline/") for r in self.ran))
         self.assertEqual([n for n, _s in g.times][0], "検査")
 
     def test_other_layer_test_failure_stops(self):
-        self.fake_units({"src/ytt/tests/test_ytt_core.py"})
+        self.fake_units({"tests/ytt/test_ytt_core.py"})
         g = land_gate.run("claude/gate-abc123", notes=self.notes, log=lambda s: None)
         self.assertEqual(len(g.problems), 1)
         self.assertIn("test_ytt_core", g.problems[0])
@@ -181,7 +192,7 @@ class RunTest(unittest.TestCase):
         self.assertIsNone(warn)
 
     def test_skips_are_kept(self):
-        self.fake_units({"src/ytt/tests/test_ytt_core.py"})
+        self.fake_units({"tests/ytt/test_ytt_core.py"})
         g = land_gate.run("claude/x-abc123", skip={"tests", "worklog"}, notes=self.notes, log=lambda s: None)
         self.assertEqual(g.problems, [])
         self.assertEqual(g.skipped, ["tests", "worklog"])

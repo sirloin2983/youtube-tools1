@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""pipeline/spec.py(① に渡す指定の束の形・既定値・検査。RS1-6)のテスト。  py -3.12 -m unittest src/flow/tests/test_spec.py -v
+"""pipeline/spec.py(① に渡す指定の束の形・既定値・検査。RS1-6)のテスト。  py -3.12 -m unittest tests/flow/test_spec.py -v
 - 検査(clean_ranges・clean_weights・top_arg・marks_arg・row_edge_ok)は autorun の同じ名前と同じ物
 - merge = 既定値に変えたい所だけ重ねる(知らない節・鍵は ValueError)・validate = 型と範囲(理由つきの ValueError)
 """
@@ -9,7 +9,7 @@ import copy
 import sys
 import unittest
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> pipeline -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # tests -> pipeline -> src
 sys.path.insert(0, SRC)
 from flow import spec  # noqa: E402
 
@@ -281,7 +281,7 @@ class TestValidate(unittest.TestCase):
 
 
 class TestBodies(unittest.TestCase):
-    """束 → 各ツールの API の本文。画面の設定 → 束は src/app/tests/test_autorun.py の TestSpecFromSettings"""
+    """束 → 各ツールの API の本文。画面の設定 → 束は tests/app/test_autorun.py の TestSpecFromSettings"""
 
     def test_key_ok(self):
         self.assertTrue(spec.key_ok("pack", "wrapChars", {"vertical": 9}))   # 辞書は既定に重ねてから見る

@@ -1,5 +1,5 @@
 """src/friendapp/diag.py(診断の記録)と、同期が /診断/ へ上げて 3 日で消す所・道具の記録 ytt/tools.remember のテスト。
-本物の Dropbox・GPU の調べ・道具は動かさない(偽の io・gpu_fn・一時フォルダ)。リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_diag.py"""
+本物の Dropbox・GPU の調べ・道具は動かさない(偽の io・gpu_fn・一時フォルダ)。リポジトリ直下で: py -3.12 -m unittest tests/friendapp/test_diag.py"""
 import json
 import os
 import sys
@@ -7,12 +7,13 @@ import time
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from friendapp import diag as G, inbox as I, sync as S  # noqa: E402
-from friendapp.tests.test_sync import FakeIo  # noqa: E402
+from test_sync import FakeIo  # noqa: E402
 from ytt import tools as T  # noqa: E402
 
 RID = "20261018-100000-abcdef"

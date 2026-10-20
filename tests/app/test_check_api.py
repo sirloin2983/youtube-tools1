@@ -1,7 +1,7 @@
 """入口の「確かめる」の口(GET api/check/next・POST api/check/answer(undo も)・skip・flush。V1 の V0)のつなぎ。
-待ち行列の中身のテストは src/app/check/tests/、記録と反映は src/human/check/tests/test_apply.py。
+待ち行列の中身のテストは tests/app/check/、記録と反映は tests/human/check/test_apply.py。
 
-実行(リポジトリ直下から): py -3.12 -m unittest src/app/tests/test_check_api.py -v
+実行(リポジトリ直下から): py -3.12 -m unittest tests/app/test_check_api.py -v
 """
 import http.client
 import json
@@ -11,7 +11,7 @@ import threading
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-HOME = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+HOME = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src", "app")
 ROOT = os.path.dirname(HOME)
 for p in (HOME, ROOT, os.path.dirname(os.path.abspath(__file__))):
     if p not in sys.path:

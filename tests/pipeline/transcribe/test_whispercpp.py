@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """whisper.cpp のエンジン(tx_engines.WhisperCpp)のテスト。test_metrics から読み込まれる。
 
-本物の whisper.cpp(GPU)の通しは src/flow/tests/test_live_tx.py の RealWhisperTest(既定の引数・結果の行と単語・自信の度合い・GPU の名前・進み具合)。
+本物の whisper.cpp(GPU)の通しは tests/flow/test_live_tx.py の RealWhisperTest(既定の引数・結果の行と単語・自信の度合い・GPU の名前・進み具合)。
 ここは本物では起こせない物・見えない物と、本物が無い PC でも見る既定の道だけ。本物の whisper-cli の代わりに tests/fake_whisper_cli.py を子プロセスで動かす:
 既定の引数と -ojf の読み取り / 用語集のヒントが UTF-8 の応答ファイルで渡る / CPU・温度 0・範囲の音声の引数 / GPU が無ければ止める(黙って CPU にしない)/ 失敗と取り消し /
 取得するファイルの大きさと SHA-256 / サーバーの受付と準備の確認・行の後処理(時刻の計算)・CUDA 版。
@@ -22,7 +22,7 @@ import wave
 from unittest import mock
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-HERE = os.path.dirname(TESTS)
+HERE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(TESTS))), "src", "editor")
 os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import serve as S  # noqa: E402
@@ -37,7 +37,8 @@ from pipeline.transcribe import worker_client as _worker_client  # noqa: E402
 from ytt import tools as _tools  # noqa: E402
 from ytt import workdata as _workdata  # noqa: E402
 from pipeline.transcribe import tx_engines as E  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 FAKE = [sys.executable, os.path.join(TESTS, "fake_whisper_cli.py")]
 

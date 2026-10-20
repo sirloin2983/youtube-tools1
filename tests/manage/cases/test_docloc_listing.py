@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """文書の一覧が、案件の 作業用 に置いた文書(索引 .loc.json があるもの)も拾うことの確かめ(RS8 B-2-1b)。
 
-    python -m unittest src/manage/cases/tests/test_docloc_listing.py
+    python -m unittest tests/manage/cases/test_docloc_listing.py
 
 txindex.load・accuracy.count_daily・eval_asr.load_docs は、
 索引が無ければ今までどおり transcripts の直下だけ・索引があれば置いた先から読む。
@@ -14,7 +14,7 @@ import sys
 import tempfile
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))   # src
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src"))   # src
 from eval.drill import accuracy  # noqa: E402
 from eval.tools import eval_asr  # noqa: E402
 from manage.cases import txindex  # noqa: E402

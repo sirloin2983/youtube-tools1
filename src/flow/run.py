@@ -4,7 +4,7 @@
 client(call・ok)で呼んで進める。Run = 1 回の実行の状態(段・進み具合・待ちの記録の形)、Runner = 段の中身と待つ骨組み、run() = 入口の関数。
 どの段も「まだ無いものだけ」作る(済んだ段は飛ばす)。中止は Cancelled、続けられない失敗は StepError。
 
-import してよいのは標準ライブラリ・ytt・同じ flow の spec だけ(層の決まり。dev/tests/test_layering.py。埋めた候補の文 pipeline/analyze/excite.FILL_REASON も)。案件・ホームの設定・届けることを知る所は
+import してよいのは標準ライブラリ・ytt・同じ flow の spec だけ(層の決まり。tests/dev/test_layering.py。埋めた候補の文 pipeline/analyze/excite.FILL_REASON も)。案件・ホームの設定・届けることを知る所は
 Runner の hook(_await_tools・_checkpoint・_studio_video・_friend_length・_docs・_pick_doc・_pref・_live_auto_origin・_auto_streamer・
 _after_pack・_remember_styles・_remember_doc_streamer)にして、既定は「何も知らない」安全な値にした。
 _friend_length は受付(入口の AutoRunner._accept)が読む(段は束の analyze と Run.friend_plan を読む)。

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """案件の画面(/cases)の「カット・パック」パネル(src/app/ui/cases/panels/cut.js)の通し確認(Playwright)。リポジトリ直下で:
     set PYTHONIOENCODING=utf-8
-    py -3.12 src/app/tests/e2e_cases_cut.py
+    py -3.12 tests/app/e2e_cases_cut.py
 入口を編集と cut2resolve を取り込んだ形で動かし(編集の e2e と同じ Server。疑似の文字起こし)、/cases?d=<文書 id>#cut を開く(仮の案件 orphan に入る)。
 行からのたたき台・波形・区間の選択と削る / 戻す / 元に戻す・自動保存・
 殻のキー(Alt+1/2)とパネルのキーの両立・下の帯・字幕の一覧の「残す / カット」・カットしない・パックの設定(大きさ・音量・行の後の余白)が編集の設定に残る・
@@ -20,9 +20,9 @@ import zipfile
 
 from playwright.sync_api import sync_playwright
 
-TESTS = os.path.dirname(os.path.abspath(__file__))   # src/app/tests
-SRC = os.path.dirname(os.path.dirname(TESTS))
-sys.path.insert(0, os.path.join(SRC, "editor", "tests"))
+TESTS = os.path.dirname(os.path.abspath(__file__))   # tests/app
+SRC = os.path.join(os.path.dirname(os.path.dirname(TESTS)), "src")
+sys.path.insert(0, os.path.join(os.path.dirname(SRC), "tests", "editor"))
 from e2e_edit_common import Checks, Server, make_video, read_pack_plan, wait_js  # noqa: E402
 
 FPS = 30

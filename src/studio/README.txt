@@ -29,7 +29,7 @@
   解析 analyze と盛り上がりの式 excite → src/pipeline/analyze/・まとめて解析 batch → src/flow/batch.py・書き出し exporter と .clip.json の組み立て manifest → src/pipeline/export/・
   マークの保存 store と判定の記録 feedback → src/human/review/・探す rank と seed.json → src/human/find/・文字起こしとの紐づけ txlink → src/manage/cases/txlink.py。
   共通の道具(子プロセス・ffprobe・API キーなど)は src/ytt/ にあります(URL の関数は src/ytt/yturl.py)。
-  テスト: src/human/review/tests/test_studio.py・src/pipeline/analyze/tests/test_analyze.py・src/pipeline/export/tests/test_exporter.py(画面と API のテストはこのフォルダの tests/)
+  テスト: tests/human/review/test_studio.py・tests/pipeline/analyze/test_analyze.py・tests/pipeline/export/test_exporter.py(画面と API のテストは tests/studio/)
 
 【ライブの録画の音量】
   - ライブの録画の LIVE の帯に、音量のつまみと「消音」のボタンがあります(「ライブ端へ」の横)。ライブの録画のプレーヤーは標準のコントロールを出さない

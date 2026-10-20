@@ -1,7 +1,7 @@
 """resolve_export(Resolve パッケージ = cut2resolve の Text+ パックを zip にしたもの)の通し(本物の ffmpeg)と HTTP の口。
 残す行の規則・字幕に出さない行・話者の字幕の色・置き先・余白つき素材・入力の誤りは、見本の文書に混ぜて zip を作って確かめる。
-受け渡しの JSON と SRT の書式は src/flow/tests/test_pack_ingest.py の通し。
-同じ入力から cut2resolve と同じ中身になることは、リポジトリ直下の dev/tests/test_resolve_pack_contract.py が確かめる。"""
+受け渡しの JSON と SRT の書式は tests/flow/test_pack_ingest.py の通し。
+同じ入力から cut2resolve と同じ中身になることは、リポジトリ直下の tests/dev/test_resolve_pack_contract.py が確かめる。"""
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
@@ -14,13 +14,15 @@ import urllib.request
 import zipfile
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-HERE = os.path.dirname(TESTS)   # ツール(editor/)のフォルダ
+HERE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(TESTS))), "src", "editor")   # ツール(editor/)のフォルダ
 os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))   # 一時フォルダに写した serve.py が src(ytt・pipeline.pack)を見つけられるように
 sys.path.insert(0, os.path.dirname(HERE))   # src(ytt・pipeline・manage の層)
 
 from pipeline.pack import resolve_export  # noqa: E402
 from ytt import errors as _errors  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "editor"))   # test_backend・test_edit(編集のサーバーを一時フォルダで動かす道具)
 
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 

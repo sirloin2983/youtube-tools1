@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""flow/machine(この PC の設定。役割で組み直す RS7-1 S1)のテスト。  py -3.12 -m unittest src/flow/tests/test_machine.py -v
+"""flow/machine(この PC の設定。役割で組み直す RS7-1 S1)のテスト。  py -3.12 -m unittest tests/flow/test_machine.py -v
 
 - 読む順の強さ: 引数 > 環境変数 > ファイル > 既定(sources も)・既定 = 今の値(編集の設定の device・qwen3-8b・スタジオの outDir・20・作業データの根)
 - machine.json が無ければ書かない・save の検査(知らない項目・合わない値はファイルを変えない)・None で既定へ
@@ -14,9 +14,10 @@ import sys
 import unittest
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # tests -> flow -> src
 sys.path.insert(0, SRC)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from flow import live_tx as LT, machine as M, spec as S  # noqa: E402
 from pipeline.transcribe import llm, tx_engines  # noqa: E402
 from ytt import gpuinfo, workdata  # noqa: E402

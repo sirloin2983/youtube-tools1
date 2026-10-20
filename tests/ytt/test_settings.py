@@ -1,5 +1,5 @@
 """ytt.settings(設定ファイルの共通部品。S4)のテスト。リポジトリ直下で:
-    python -m unittest src/ytt/tests/test_settings.py
+    python -m unittest tests/ytt/test_settings.py
 """
 import json
 import os
@@ -9,11 +9,12 @@ import unittest
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データを本物の置き場所に書かない(ytt/datadir。編集の設定の節は workdata を一時フォルダに差し替える)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.dirname(os.path.dirname(HERE))
+SRC = os.path.join(os.path.dirname(os.path.dirname(HERE)), "src")
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 from ytt import settings as S  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 
 class TestSettingsFile(unittest.TestCase):

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """dev/build_friend_zip.py(友人の PC に配る zip を作る。F1 の F4a)のテスト。ネットは使わない(偽のキャッシュ・取る関数は差し替えて呼ばれたら落とす)。
 展開した zip の src で友人のアプリ(friendapp/server.py)が import で落ちないことも、この PC の Python で確かめる。
-実行(リポジトリ直下): py -3.12 -m unittest dev/tests/test_build_friend_zip.py"""
+実行(リポジトリ直下): py -3.12 -m unittest tests/dev/test_build_friend_zip.py"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # サーバーは子プロセスで --help だけ。全テストの決まりに合わせる
 import hashlib
@@ -15,11 +15,12 @@ from unittest import mock
 import zipfile
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.dirname(TESTS))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(TESTS)), "dev"))
 import build_friend_zip as B  # noqa: E402
 from pipeline.transcribe import diarize as D, tx_engines as E  # noqa: E402
 from ytt import version as V  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 PTH = "python310.zip\r\n.\r\n\r\n# Uncomment to run site.main() automatically\r\n#import site\r\n"
 

@@ -3,13 +3,14 @@
 画面(/friend/)を実際に操作する。リポジトリ直下で:
 
     set PYTHONIOENCODING=utf-8
-    py -3.12 src/friendapp/tests/e2e_friend_receive.py
+    py -3.12 tests/friendapp/e2e_friend_receive.py
 
 準備: 偽の ② で 1 配信 3 本のパックを作って「届いた」にする。#1 #2 には短い確認用の動画(ffmpeg で作る。作れなければ全部「確認用の動画なし」の形)・#3 は動画なし。
 流れ: 段の見出し・通し番号 → 再生画面 → 速度と音量を変える(値で確かめる = 音は出さない)→ 読み直しても覚えている →
       [受け取る](知らせの [フォルダを開く])→ 自動で次 → [見送る] → 動画なしの形 → 知らせの [戻す] → チェックでまとめて見送る → 判断の記録 v2
 外に作用する口は全部偽物(フォルダを開く・ファイルを選ぶ・ネット・Dropbox・exe)。待ちは「表示されるまで待つ」。
 """
+import sys
 import json
 import os
 

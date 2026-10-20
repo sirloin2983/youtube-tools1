@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """案件(配信1本)ごとの紐づけ(src/manage/cases/cases.py)と、入口の /api/cases のテスト。本物の作業データは使わない。
-実行(リポジトリ直下): python -m unittest src/manage/cases/tests/test_cases.py"""
+実行(リポジトリ直下): python -m unittest tests/manage/cases/test_cases.py"""
 import json
 import os
 import shutil
@@ -11,7 +11,7 @@ import unittest
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> cases -> manage -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> cases -> manage -> src
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 from manage.cases import cases  # noqa: E402
@@ -20,7 +20,8 @@ from flow import deliver, packrec  # noqa: E402
 from manage.cases import txindex  # noqa: E402
 from flow import casebook  # noqa: E402
 from ytt import casefiles, schemas, trashbin  # noqa: E402
-from ytt.tests.testkit import read_json, tempdir, write_json, write_text  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+from testkit import read_json, tempdir, write_json, write_text  # noqa: E402
 
 VID = "abcdefghijk"
 REC = "20261007-120000"   # ライブの録画の id(スタジオの配信の id = 録画の id)

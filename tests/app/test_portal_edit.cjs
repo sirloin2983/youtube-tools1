@@ -1,11 +1,11 @@
-// Run: node --test src/app/tests/test_portal_edit.cjs
+// Run: node --test tests/app/test_portal_edit.cjs
 // ホームの運用の「編集の精度と学習」(src/app/ui/home/portal-edit.js)の、学習した候補の「登録」を切り出して試す。
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
-const source = fs.readFileSync(path.join(__dirname, '..', 'ui', 'home', 'portal-edit.js'), 'utf8').replace(/\r\n/g, '\n');
+const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'app', 'ui', 'home', 'portal-edit.js'), 'utf8').replace(/\r\n/g, '\n');
 function between(start, end) {
   const a = source.indexOf(start), b = source.indexOf(end, a);
   assert.ok(a >= 0 && b > a, 'application function boundaries must exist: ' + start);

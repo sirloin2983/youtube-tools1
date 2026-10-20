@@ -35,7 +35,7 @@ if errorlevel 1 goto fail
 copy /y members.json build\members.json >nul
 
 echo [2/4] tests
-"%CSC%" /nologo /codepage:65001 /target:exe /out:build\HoloColorsTests.exe %REFS% /r:build\HoloColors.exe tests\*.cs
+"%CSC%" /nologo /codepage:65001 /target:exe /out:build\HoloColorsTests.exe %REFS% /r:build\HoloColors.exe ..\..\tests\friend-apps\holo-colors\*.cs
 if errorlevel 1 goto fail
 build\HoloColorsTests.exe
 if errorlevel 1 goto fail

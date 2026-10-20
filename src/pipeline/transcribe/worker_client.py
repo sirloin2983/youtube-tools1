@@ -10,7 +10,7 @@ GPU(CUDA)の部品の調べ(setup_cuda_paths・cuda_count・cuda_libs_ok・_gpu_
 
 標準ライブラリ・ytt・同じパッケージの兄弟(backend・roster・tx_engines・txbase)だけを読む。
 **このモジュールは編集のサーバーのプロセスでも読む**ので、numpy・faster_whisper・ctranslate2・sherpa_onnx は IN_WORKER のときだけ通る関数の中で読む
-(src/editor/tests/test_worker.py が検査)。IN_WORKER は認識ワーカー(同じフォルダの worker.py の main)と測る道具(src/eval/tools/_evalcommon)が入れる。
+(tests/pipeline/transcribe/test_worker.py が検査)。IN_WORKER は認識ワーカー(同じフォルダの worker.py の main)と測る道具(src/eval/tools/_evalcommon)が入れる。
 ワーカーの本体は同じフォルダの worker.py(WORKER_SCRIPT はテストの差し替え用)。記録 WORKER_LOG は
 app(編集の serve.py)が読み込みのときと作業データの切り替えで入れる(入っていなければ呼ぶたびに ytt/workdata の DATA_DIR から作る)。
 ワーカーへは作業データの場所(環境変数 TRANSCRIBE_DATA_DIR)を必ず渡し、worker-fake(テスト)のときだけ疑似の部品のモジュール名(FAKES_MODULE。app が入れる)を渡す。

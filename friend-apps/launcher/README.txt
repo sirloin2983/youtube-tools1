@@ -66,6 +66,6 @@
   ユーザー名を含むパスと合言葉は伏せる・3 日で消す・YTT_FRIEND_DIAG=0 で書かない)。Python の同期が Dropbox の 診断\ へ上げる(notes:docs/spec/friend.md の 13-11)
 
 ■ 確かめ
-  build.bat の中のテスト(tests\Tests.cs = 版の選び方・閉じるときの判断・アイコンの文・起こし直しの回数・状態の読み取り)。
+  build.bat の中のテスト(tests\friend-apps\launcher\Tests.cs = 版の選び方・閉じるときの判断・アイコンの文・起こし直しの回数・状態の読み取り)。
   窓そのもの(合言葉の付け足し・起こし直しで読み込み直す・止める・exe を強制で止めると Python も止まる)は、この PC で
   本物の exe を起こして確かめた(手順は作業の記録 docs/worklog/2026-10-12週.md)。

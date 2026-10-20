@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """記録の土台のテスト。
 
-    python -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
-    python -m unittest test_records -q                # これだけ(src/editor/tests で)
+    python -m unittest tests/eval/drill/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
+    python -m unittest test_records -q                # これだけ(tests/editor で)
 
 - 文字起こし: 行の proofedAt(初めて校正済みにした時刻。引き継ぐ・外れたら捨てる・機械が書き換えたら外す)・
   再認識の前の機械の出力を recognition.runs に範囲つきで残す(件数・行数の上限)・辞書の版(settings.dict / params.dict)
@@ -10,6 +10,7 @@
 - 校正の行の数と作業中の印: POST /api/effort(effort.lastAt だけ・updatedAt を変えない = 保存の競合に巻き込まない)・保存で数える校正済みの行
 - 生出力の控え方(分ける前・置換の前の認識の結果。単語ごとの時刻と確信度)
 """
+import sys
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
@@ -17,6 +18,7 @@ import time
 import unittest
 from unittest.mock import patch
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "editor"))   # test_backend・test_edit(編集のサーバーを一時フォルダで動かす道具)
 from test_backend import TID, StoreDir  # noqa: F401  (S = serve)
 import ed_state  # noqa: E402
 from human.proof import rerun as _rerun  # noqa: E402
@@ -25,7 +27,8 @@ from ytt import workdata as _workdata  # noqa: E402
 from test_edit import doc_obj, edit_obj
 from pipeline.transcribe import recognize  # noqa: E402
 from pipeline.transcribe import records  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 
 def _rd(tid=TID):
@@ -249,7 +252,7 @@ class TestEffort(StoreDir):
 
 class TestAsrRaw(StoreDir):
     """生出力の控え方(分ける前・置換の前の認識の結果。単語ごとの時刻と確信度の丸め)。ジョブが <id>.asr.json を書くことは本物の通し
-    src/editor/tests/test_worker.py の RealWorkerTest"""
+    tests/pipeline/transcribe/test_worker.py の RealWorkerTest"""
 
     def test_capture_raw_keeps_words_and_probs(self):
         segs = [{"start": 0.0, "end": 1.5, "text": "えーこんにちは", "avg_logprob": -0.21234, "words": [(0.0, 0.4, "えー"), (0.5, 1.5, "こんにちは")],

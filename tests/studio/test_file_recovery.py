@@ -1,5 +1,5 @@
 """書き出しの途中の失敗(マークへの記録・名前を決める・使用中のファイル)。通しでは起こせないので ① を差し替えて起こす。実データやネットワークは使用しない。
-予約名の題(CON.txt)のフォルダは書き出しの通し(src/pipeline/export/tests/test_exporter.py の TestExportThrough)で見る。"""
+予約名の題(CON.txt)のフォルダは書き出しの通し(tests/pipeline/export/test_exporter.py の TestExportThrough)で見る。"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import sys
@@ -7,8 +7,8 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/。exporter が裸の名前で handoff を読む)
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src", "studio"))   # ツールのフォルダ(studio/。exporter が裸の名前で handoff を読む)
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src"))   # src
 from pipeline.export import exporter  # noqa: E402
 from ytt import jobs, studio_env  # noqa: E402
 

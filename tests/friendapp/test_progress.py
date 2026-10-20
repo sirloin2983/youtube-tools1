@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 """friendapp/progress.py の確かめ(F3-3)。ファイルもネットも使わない。
 
-    py -3.12 -m unittest src/friendapp/tests/test_progress.py
+    py -3.12 -m unittest tests/friendapp/test_progress.py
 """
 import os
 import sys
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.dirname(HERE))
-sys.path.insert(0, os.path.dirname(os.path.dirname(HERE)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "src", "friendapp"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "src"))
 import progress as P   # noqa: E402
 
 

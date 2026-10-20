@@ -8,7 +8,7 @@
 // 調べるとき: Studio の画面で DevTools の Console に localStorage.yttStudioTimeDebug = '1' を入れて再読み込みすると、
 // 控えた件数と行ごとの結果を出す。__yttStudioTime.times が控え(videoId → 秒)。
 //
-// 前半(応答の読み取り・時刻の選び方・書式)は純粋な関数で、node --test tests/test_main.cjs が確かめる。後半が画面。
+// 前半(応答の読み取り・時刻の選び方・書式)は純粋な関数で、node --test tests/chrome-ext/yt-studio-time/test_main.cjs が確かめる。後半が画面。
 (function (root) {
   'use strict';
   const TAG = 'ytt-pub-time';

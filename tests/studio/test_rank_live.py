@@ -1,5 +1,5 @@
 """① 探す の「配信中」のタブ: 配信中・これからの予定の取得(rank.live_list)と GET /api/rank/live のテスト。外へは繋がない。
-実行(リポジトリ直下): python -m unittest src/studio/tests/test_rank_live.py"""
+実行(リポジトリ直下): python -m unittest tests/studio/test_rank_live.py"""
 import http.client
 import json
 import os
@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 
 os.environ["STUDIO_FAKE"] = "1"
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src", "studio"))   # ツールのフォルダ(studio/)
 import startup  # noqa: E402  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
 from ytt import studio_env  # noqa: E402
 import serve  # noqa: E402

@@ -1,7 +1,7 @@
 """「確かめる」の読みのカードの反映(src/human/check/read.py)の単体テスト。一時フォルダの文書と learn-feedback.json だけを使う。
 決まり: 行を校正済みにしない・時刻に触れない・文書は commit(why='check:read')・採否は編集の「提案」と同じ記録・Z で戻る。
 
-実行(リポジトリ直下から): py -3.12 -m unittest src/human/check/tests/test_read.py -v
+実行(リポジトリ直下から): py -3.12 -m unittest tests/human/check/test_read.py -v
 """
 import json
 import os
@@ -10,15 +10,17 @@ import unittest
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> check -> human -> src
+ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> check -> human -> src
 for _p in (os.path.join(ROOT, "editor"), ROOT):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
 from human.check import answerlog, apply, read  # noqa: E402,F401
 from human.proof import learn, store  # noqa: E402
-from human.tests._workdata import temporary_workdata  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "human"))   # tests/human/(_workdata)
+from _workdata import temporary_workdata  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 TID = "aaaaaaaaaaaa"
 FLAG = "別の読みで埋めた(元の文字は「別の読み」の札)"

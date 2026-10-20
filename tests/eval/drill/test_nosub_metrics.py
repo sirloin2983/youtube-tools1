@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """「字幕に出さない」行(noSub)と、同時にしゃべっている所(重なり)の数え方・学習のテスト(数え方は eval/drill/metrics.py・noSub の外し方と学習は human/proof/learn.py)。
 
-    python -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
-    python -m unittest test_nosub_metrics -q          # これだけ(src/editor/tests で)
+    python -m unittest tests/eval/drill/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
+    python -m unittest test_nosub_metrics -q          # これだけ(tests/editor で)
 
 - noSub の行(とその時間の機械の行)は、精度の測定の本体・学習・辞書の提案に入らない。noSub が無い文書は今までと同じ数
 - 重なりのまとまりの判定(違う話者で 0.3 秒以上)と、人の行の並べ方を入れ替えた小さい方の数え方
 """
+import sys
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import unittest
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "editor"))   # test_backend・test_edit(編集のサーバーを一時フォルダで動かす道具)
 from test_backend import StoreDir  # noqa: F401  (S = serve)
 from eval.drill import metrics as _metrics  # noqa: E402
 from human.proof import learn as _learn  # noqa: E402

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """flow/jobs の掲示板への見せ方(RS8 の ② の口 S2。頭 tx)。
 
-    py -3.12 -m unittest src/flow/tests/test_jobs_board.py -v
+    py -3.12 -m unittest tests/flow/test_jobs_board.py -v
 
 - ジョブの状態が変わると、掲示板にその id(tx:<ジョブの id>)がその state で載る(引く形)
 - 取り消し・失敗のやり直しが掲示板の口から器の cancel_job・retry_job に届く
@@ -11,7 +11,7 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")
 import sys
 import unittest
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # tests -> flow -> src
 sys.path.insert(0, SRC)
 from flow import board as B, jobs  # noqa: E402
 

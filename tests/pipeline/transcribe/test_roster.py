@@ -5,19 +5,22 @@
     python -m unittest test_roster -q                        # これだけ
 
 小さな名簿の見本(壊れた行・普通の言葉と重なる呼び名・長音の呼び名・英字の名前)を読み、配信の名前・題名・話者から出る人を決める入口(build_context)に通してまとめて確かめる。
-要確認の印(ヒントの語だけ・決まり文句・繰り返し)は src/pipeline/transcribe/tests/test_postproc.py の見本の通し、配信ごとの文脈をジョブに残す形は test_fill.py の通し。
+要確認の印(ヒントの語だけ・決まり文句・繰り返し)は tests/pipeline/transcribe/test_postproc.py の見本の通し、配信ごとの文脈をジョブに残す形は test_fill.py の通し。
 ここに残す単体: 認識のやり直し(VAD を外す)の判断 = ヒントの語だけが出た状態は本物の認識では起こせない。
 """
+import sys
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import types
 import unittest
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "editor"))   # test_backend・test_edit(編集のサーバーを一時フォルダで動かす道具)
 from test_backend import write_json
 from human.proof import learn as _learn  # noqa: E402
 from pipeline.transcribe import recognize as _recognize  # noqa: E402
 from pipeline.transcribe import roster as R  # noqa: E402   (test_backend が serve を読んで src を sys.path に足したあと)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 from ytt.dictfmt import apply_replacements  # noqa: E402
 
 

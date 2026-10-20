@@ -1,8 +1,8 @@
-// main.js の純粋な部分(応答の読み取り・時刻の選び方・書式)の確認。node --test chrome-ext/yt-studio-time/tests/test_main.cjs
+// main.js の純粋な部分(応答の読み取り・時刻の選び方・書式)の確認。node --test tests/chrome-ext/yt-studio-time/test_main.cjs
 const test = require('node:test');
 const assert = require('node:assert');
 const path = require('path');
-const m = require(path.join(__dirname, '..', 'main.js'));
+const m = require(path.join(__dirname, '..', '..', '..', 'chrome-ext', 'yt-studio-time', 'main.js'));
 const p2 = n => String(n).padStart(2, '0');
 
 test('harvest: 入れ子の応答から videoId と秒を拾う(秒は文字列でも数でも)', () => {

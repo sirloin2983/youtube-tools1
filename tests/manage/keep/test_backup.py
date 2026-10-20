@@ -1,6 +1,6 @@
-"""作業データのバックアップ(src/manage/keep/backup.py。設定は入口の Prefs を借りる。prefs の節の検査は src/app/tests/test_backup_prefs.py)の単体テスト。一時フォルダだけを使う。
+"""作業データのバックアップ(src/manage/keep/backup.py。設定は入口の Prefs を借りる。prefs の節の検査は tests/app/test_backup_prefs.py)の単体テスト。一時フォルダだけを使う。
 
-実行(リポジトリ直下から): python -m unittest src/manage/keep/tests/test_backup.py -v
+実行(リポジトリ直下から): python -m unittest tests/manage/keep/test_backup.py -v
 """
 import contextlib
 import io
@@ -11,7 +11,7 @@ import sys
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> keep -> manage -> src
+ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> keep -> manage -> src
 HOME = os.path.join(ROOT, "app")   # 設定 prefs(入口 = app)を借りる
 for p in (HOME, ROOT):
     if p not in sys.path:
@@ -20,7 +20,8 @@ for p in (HOME, ROOT):
 from manage.keep import backup  # noqa: E402
 from app import prefs as prefs_mod  # noqa: E402
 from ytt import fsio  # noqa: E402
-from ytt.tests.testkit import tempdir, write_text as put  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+from testkit import tempdir, write_text as put  # noqa: E402
 
 
 def read(path):

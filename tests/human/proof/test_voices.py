@@ -10,6 +10,7 @@
 TestDiarRealRun だけは本物の sherpa-onnx(判別・声の特徴)で、Windows の音声合成の 2 人の声を 判別 → 声を覚える(2 回)→ 判別し直して名前を付ける まで通す
 (モデルは本物の作業データの models/diar から読むだけ。部品・モデル・音声合成が無い PC では飛ばす)。
 """
+import sys
 import importlib.util
 import json
 import os
@@ -19,6 +20,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "editor"))   # test_backend・test_edit(編集のサーバーを一時フォルダで動かす道具)
 from test_backend import TID, StoreDir
 import ed_state  # noqa: E402
 from eval.drill import evalbatch as _evalbatch  # noqa: E402
@@ -34,7 +36,7 @@ from pipeline.transcribe import diarize as transcribe_diarize  # noqa: E402
 from pipeline.transcribe import worker_client  # noqa: E402
 from ytt import schemas as ys  # noqa: E402
 
-_FILL_LLM = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "pipeline", "transcribe", "tests", "test_fill_llm.py")
+_FILL_LLM = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "pipeline", "transcribe", "test_fill_llm.py")
 _spec = importlib.util.spec_from_file_location("_tx_test_fill_llm", _FILL_LLM)
 _fill_llm = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_fill_llm)   # 声の見本を書く say_wav・本物のモデルの置き場所(読むだけ)

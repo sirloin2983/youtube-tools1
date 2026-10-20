@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """層が正(機械の層 + 人の層)のときの機械の操作のテスト。
 
-    py -3.12 -m unittest src/human/proof/tests/test_primary_ops.py -v
+    py -3.12 -m unittest tests/human/proof/test_primary_ops.py -v
 
 - 再認識 each・範囲・全体: 機械の層の選んだ区間だけ差し替え、人の行(校正済みでない直し・話者だけの直しも)は残る(機械が変わったら印 MACH_CHANGED)。直していない行は置き換わる
 - 話者の判別: 人の層が話者の表を持ち(付け直さない)、判別し直したら機械の S… → 人の話者を重なり時間で当てる。当たらない話者だけ新しい H… と弱い印
@@ -12,14 +12,16 @@ import sys
 import unittest
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")
 for _p in (os.path.join(SRC, "editor"), SRC):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 from human.proof import layers as L, rerun, speakers, store  # noqa: E402
 from ytt import schemas as YS, txbase, workdata  # noqa: E402
-from human.tests._workdata import temporary_workdata  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "human"))   # tests/human/(_workdata)
+from _workdata import temporary_workdata  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 TID = "0123456789ab"
 SPEC = {"tid": TID, "model": "m", "autoDict": False}

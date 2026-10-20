@@ -1,5 +1,5 @@
 """dev/friend_diag.py(届いた診断を読む道具)のテスト。一時フォルダだけ(本物の Dropbox は読まない)。
-リポジトリ直下で: py -3.12 -m unittest dev/tests/test_friend_diag.py"""
+リポジトリ直下で: py -3.12 -m unittest tests/dev/test_friend_diag.py"""
 import contextlib
 import io
 import json
@@ -15,7 +15,8 @@ for p in (os.path.join(REPO, "dev"), os.path.join(REPO, "src")):
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 import friend_diag as F  # noqa: E402
 from friendapp import diag as G  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 RID = "20261018-100000-abcdef"
 NOW_MS = int(time.time() * 1000)

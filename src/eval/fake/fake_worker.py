@@ -79,9 +79,9 @@ def install():
         return fake_asr.diarize_fake(job, total, num, threshold)
     diarize._diarize_local = fake_diarize
     diarize._embed_local = lambda job, wav, emb, groups: fake_asr.embed_fake(groups)   # 声の特徴(A-3)も偽の話者判別と同じ区切りで
-    # whisper.cpp(段2-2)は偽の whisper-cli(編集の tests/fake_whisper_cli.py。編集のフォルダは ytt.layout で探す)を動かす。モデルは取らない
+    # whisper.cpp(段2-2)は偽の whisper-cli(tests/pipeline/transcribe/fake_whisper_cli.py。リポジトリ直下は ytt.layout で探す)を動かす。モデルは取らない
     E = tx_engines
-    E.WhisperCpp.COMMAND = [sys.executable, os.path.join(layout.tool_dir("transcribe"), "tests", "fake_whisper_cli.py")]
+    E.WhisperCpp.COMMAND = [sys.executable, os.path.join(layout.repo_root(), "tests", "pipeline", "transcribe", "fake_whisper_cli.py")]
     E.fetch_file = lambda spec, folder, *a, **k: os.path.join(folder, spec["file"])
     E.ENGINES[E.SenseVoice.id] = fake_sense_voice(os.environ.get("TRANSCRIBE_FAKE_FILL", ""))   # 2 つ目の読み(後処理 A)は環境変数の文字を 1 行に(空 = 行なし。モデルは取らない)
     E.ENGINES[E.LlamaText.id] = fake_llama_text(os.environ.get("TRANSCRIBE_FAKE_LLM", ""))   # 文字の LLM(後処理 E)は環境変数の文字をそのまま答える(server を起動しない)

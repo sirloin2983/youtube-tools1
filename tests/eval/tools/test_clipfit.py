@@ -1,6 +1,6 @@
 """src/eval/tools/clipfit.py(自動の区間が友人の区間にどれだけ合うかの物差し)のテスト。リポジトリ直下で:
 
-    py -3.12 -m unittest src/eval/tools/tests/test_clipfit.py -v
+    py -3.12 -m unittest tests/eval/tools/test_clipfit.py -v
 
 作業データは一時フォルダに作る(本物の作業データは読まない・書かない)。
 """
@@ -11,11 +11,12 @@ import sys
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/tools (道具の置き場所)
+HERE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src", "eval", "tools")   # src/eval/tools (道具の置き場所)
 REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品の置き場所)
 sys.path.insert(0, REPO)
 from eval.tools import clipfit as K  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 VID = "v1aaaaaaaaa"
 OTHER = "v2bbbbbbbbb"

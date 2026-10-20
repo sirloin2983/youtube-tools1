@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""入口への取り込み(src/app/mount.py)のテスト。  python -m unittest src/app/tests/test_mount.py -v
+"""入口への取り込み(src/app/mount.py)のテスト。  python -m unittest tests/app/test_mount.py -v
 
 本物の切り抜きスタジオ(疑似モード)・cut2resolve を一時フォルダに写し、入口のサーバーに取り込んで確かめる:
 /studio/・/cut2resolve/ の画面・API・安全対策(CSP・合言葉・Host)、.runtime の場所、他のツールの /api/siblings、
@@ -20,8 +20,8 @@ import types
 import unittest
 from unittest import mock
 
-TESTS = os.path.dirname(os.path.abspath(__file__))   # src/app/tests
-HERE = os.path.dirname(TESTS)   # home(入口の部品)
+TESTS = os.path.dirname(os.path.abspath(__file__))   # tests/app
+HERE = os.path.join(os.path.dirname(os.path.dirname(TESTS)), "src", "app")   # home(入口の部品)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)

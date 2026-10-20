@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """人の操作のテストが共有する、一時の作業データの準備(S4)。
 
-テストの名前ではない(unittest は読まない)。`from human.tests._workdata import temporary_workdata` で使う。
+テストの名前ではない(unittest は読まない)。tests/human を sys.path に入れて `from _workdata import temporary_workdata` で使う。
 一時フォルダを作り、作業データ(workdata)の六つの置き場所を一時フォルダの下へ向け、transcripts を作る。
 六つの値の保存・復元は addCleanup で登録するので、準備の途中で例外が出ても、テストの本体が落ちても戻ってから消す。
 """

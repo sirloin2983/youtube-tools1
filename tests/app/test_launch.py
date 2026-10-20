@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""入口(src/app/server.py)のテスト。  python -m unittest src/app/tests/test_launch.py -v
+"""入口(src/app/server.py)のテスト。  python -m unittest tests/app/test_launch.py -v
 
 - 偽のツール(serve.py の約束だけをまねた小さなサーバー)で、起動・停止・再起動・異常終了・別の画面で起動済み・
   強制終了・ポートの繰り上げ・入口の画面の安全検査を確かめる
@@ -22,14 +22,15 @@ import unittest
 import urllib.parse
 from unittest import mock
 
-TESTS = os.path.dirname(os.path.abspath(__file__))   # src/app/tests
-HERE = os.path.dirname(TESTS)   # home(入口の部品)
+TESTS = os.path.dirname(os.path.abspath(__file__))   # tests/app
+HERE = os.path.join(os.path.dirname(os.path.dirname(TESTS)), "src", "app")   # home(入口の部品)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)
 from app import server as L  # noqa: E402
 from ytt import layout  # noqa: E402  (launch がリポジトリ直下を sys.path に入れる)
-from ytt.tests import testkit  # noqa: E402  (launch がリポジトリ直下を sys.path に入れる)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402  (launch がリポジトリ直下を sys.path に入れる)
 
 REPO = os.path.dirname(HERE)
 
@@ -555,7 +556,7 @@ class PortalHttpTest(Base):
             self.assertTrue({"state", "port"} <= set(t), t["id"])
 
     def test_cases_and_doc_lookup(self):
-        """/api/cases?doc= の失敗の答え(一覧の中身は src/manage/cases/tests/test_cases.py・画面からは e2e_portal)"""
+        """/api/cases?doc= の失敗の答え(一覧の中身は tests/manage/cases/test_cases.py・画面からは e2e_portal)"""
         r, body = self.req("GET", "/api/cases?doc=ffffffffffff")
         self.assertEqual(r.status, 404)
         r, body = self.req("GET", "/api/cases?doc=zz")
@@ -631,7 +632,7 @@ class PortalHttpTest(Base):
         self.assertEqual(h.sent, [(200, None)])
 
     def test_cleanup_api(self):
-        """片付け: 候補の一覧・移す物が無い/候補に出していない物は移さない(候補の中身は src/manage/keep/tests/test_cleanup.py)"""
+        """片付け: 候補の一覧・移す物が無い/候補に出していない物は移さない(候補の中身は tests/manage/keep/test_cleanup.py)"""
         r, body = self.req("GET", "/api/cleanup")
         self.assertEqual((r.status, "kinds" in json.loads(body)), (200, True))
         self.assertEqual(self.post("/api/cleanup", body=json.dumps({"ids": []}).encode())[0].status, 400)
@@ -710,7 +711,7 @@ class PortalHttpTest(Base):
 
     def test_flow_status_live(self):
         """GET /api/flow/status の live 欄 = PortalServer.live_activity(ライブの録画中・検出中・書き出しの途中の数)。どれかが 0 でなければ idle は偽。
-        リアルタイム切り抜きがオフなら全部 0 で、録画元に問い合わせない(読めないときの扱いは src/flow/tests/test_runqueue.py の TestStatusLive)"""
+        リアルタイム切り抜きがオフなら全部 0 で、録画元に問い合わせない(読めないときの扱いは tests/flow/test_runqueue.py の TestStatusLive)"""
         zero = {"recording": 0, "detecting": 0, "exporting": 0}
         st = self.get_json("/api/flow/status")[1]
         self.assertEqual((st["live"], st["idle"]), (zero, True))   # 既定(オフ)
@@ -788,7 +789,7 @@ class PortalHttpTest(Base):
         self.assertEqual(json.loads(body)["exists"], False)
 
     def test_autorun_history(self):
-        """まとめて実行の記録(作業データの logs/autorun-runs.jsonl)。前回の結果は /api/flow/runs の past・一覧は /api/flow/history(limit・offset の丸めは src/flow/tests/test_runqueue.py の TestRunLog)"""
+        """まとめて実行の記録(作業データの logs/autorun-runs.jsonl)。前回の結果は /api/flow/runs の past・一覧は /api/flow/history(limit・offset の丸めは tests/flow/test_runqueue.py の TestRunLog)"""
         logs = self.sup.logs_dir
         self.assertTrue(os.path.abspath(logs).startswith(os.path.abspath(self.tmp)), logs)   # テストは一時フォルダに書く
         os.makedirs(logs, exist_ok=True)
@@ -804,7 +805,7 @@ class PortalHttpTest(Base):
         self.assertEqual(self.req("GET", "/api/flow/history", headers={"Sec-Fetch-Site": "cross-site"})[0].status, 403)   # ほかのサイトからは読めない
 
     def test_flow_submit_and_status(self):
-        """② の口 POST /api/flow/submit {envelope, spec}(合言葉が要る・形が違えば 400 と理由。理由の中身は src/flow/tests/test_envelope.py)と GET /api/flow/status"""
+        """② の口 POST /api/flow/submit {envelope, spec}(合言葉が要る・形が違えば 400 と理由。理由の中身は tests/flow/test_envelope.py)と GET /api/flow/status"""
         r, body = self.req("GET", "/api/flow/status")
         j = json.loads(body)
         self.assertEqual((r.status, j["queued"], j["running"], j["idle"], j["runs"]), (200, 0, 0, True, []))
@@ -865,7 +866,7 @@ class PortalHttpTest(Base):
         ap.assert_called_once_with(pack)
         self.assertEqual(lr.version, "v9")
         self.assertIs(doc_jobs._learning[0], lr)
-        self.assertIs(self.srv.autorun.learning, lr)   # 読み手の中身は src/flow/tests/test_learning.py の TestPackReader
+        self.assertIs(self.srv.autorun.learning, lr)   # 読み手の中身は tests/flow/test_learning.py の TestPackReader
 
     def test_build_learnpack_needs_intake_folder(self):
         """F1 F6a: 学習の束は依頼の受付のフォルダが設定されているときだけ <フォルダ>/学習 へ"""
@@ -896,7 +897,7 @@ class PortalHttpTest(Base):
         _media, env = self.file_envelope()
         self.assertEqual(self.post_json("/api/flow/submit", {"envelope": env, "spec": {"run": {"upto": "transcribe"}}})[0], 200)
         st = self.get_json("/api/flow/status")[1]
-        self.assertIn("run:0123456789", [j["id"] for j in st["jobs"]])   # ジョブの形は src/flow/tests/test_runqueue.py の test_board_job_shape
+        self.assertIn("run:0123456789", [j["id"] for j in st["jobs"]])   # ジョブの形は tests/flow/test_runqueue.py の test_board_job_shape
         st = self.get_json("/api/flow/status?case=" + quote(os.path.join(self.tmp, "nai")))[1]
         self.assertEqual((st["jobs"], [x["id"] for x in st["runs"]]), ([], ["0123456789"]))   # 絞るのは jobs だけ
         self.assertEqual(self.post("/api/flow/cancel", headers={"X-YTT-Token": "x"}, body=b'{"id": "run:0123456789"}')[0].status, 403)   # 書き込み系 = 合言葉が要る

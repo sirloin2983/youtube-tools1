@@ -10,7 +10,7 @@
   2 単体テスト: `git diff --name-only main...<ブランチ>` の変えたファイルから、docs/spec/code.md の 6「フォルダと、変えたら通すテスト」の
     行に当たる層を選び、dev/run_unit.py と同じ流し方(1 本ずつ別のプロセス・YTT_DATA_DIR=inplace・窓なし)で並べて流す。
     層を変えたら、その層を import してよい上の層(dev/layer_map.py の ALLOWED)のテストも流す。ytt(基盤)を変えたら全部。
-    dev/・setup/ を変えたら dev/tests/ の全部。いつも流す見張り(GUARDS)= 層の向き・YTT_DATA_DIR の切り離し・src に作業データを残さない
+    層のテスト(tests/<層>/)を変えたら、その層を変えたのと同じ。dev/・setup/・tests/dev/ を変えたら tests/dev/ の全部。いつも流す見張り(GUARDS)= 層の向き・YTT_DATA_DIR の切り離し・src に作業データを残さない
   3 報告の型: 入れるセッションの作業の記録(dev/worklog.py check。名前の既定 = ブランチの claude/ と末尾の -16 進を外した物)。
     見出しが欠けたら止める・英字の割合は警告だけ
 テストと検査は、ブランチをチェックアウトしている作業フォルダで流す(main と合わせた形ではない。main の新しい分を取り込んでいなければ警告)。
@@ -37,18 +37,22 @@ from ytt import layout  # noqa: E402
 NOWIN = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 PY = run_unit.PY
 ALL = "*"
-# 層 → テストのフォルダ(app は入口と、入口が取り込んだ旧いツールのフォルダ。旧い src/home は app)
-LAYER_DIRS = {"ytt": ["src/ytt/"], "pipeline": ["src/pipeline/"], "flow": ["src/flow/"], "human": ["src/human/"],
-              "manage": ["src/manage/"], "eval": ["src/eval/"], "friendapp": ["src/friendapp/"],
-              "app": ["src/app/", "src/studio/", "src/editor/", "src/cut2resolve/", "src/home/", "src/ui-kit/"]}
-DEV_TESTS = "dev/tests/"
+# 層 → 本体のフォルダ(app は入口と、入口が取り込んだツールのフォルダ)。テストのフォルダは tests/ の下の同じ形(TEST_DIRS)
+LAYER_SRC = {"ytt": ["ytt"], "pipeline": ["pipeline"], "flow": ["flow"], "human": ["human"],
+             "manage": ["manage"], "eval": ["eval"], "friendapp": ["friendapp"],
+             "app": ["app", "studio", "editor", "cut2resolve", "ui-kit"]}
+LAYER_DIRS = {k: ["src/%s/" % d for d in v] + ["tests/%s/" % d for d in v] for k, v in LAYER_SRC.items()}
+DEV_TESTS = "tests/dev/"
 # いつも流す見張り(test_ytt_core の YTT_DATA_DIR の決まり = 層をまたぐ決まり)
-GUARDS = ("dev/tests/test_layering.py", "src/ytt/tests/test_ytt_core.py", "dev/tests/test_no_src_workdata.py")
+GUARDS = ("tests/dev/test_layering.py", "tests/ytt/test_ytt_core.py", "tests/dev/test_no_src_workdata.py")
 # 単体テストの道具の外(C#・node・e2e)。変えたら手で流す物を出すだけ
 MANUAL = {"friend-apps/holo-colors/": r"friend-apps\holo-colors\build.bat",
           "friend-apps/launcher/": r"friend-apps\launcher\build.bat",
           "friend-apps/common/": r"friend-apps\launcher\build.bat",
-          "chrome-ext/yt-studio-time/": "node --test chrome-ext/yt-studio-time/tests/test_main.cjs"}
+          "tests/friend-apps/holo-colors/": r"friend-apps\holo-colors\build.bat",
+          "tests/friend-apps/launcher/": r"friend-apps\launcher\build.bat",
+          "chrome-ext/yt-studio-time/": "node --test tests/chrome-ext/yt-studio-time/test_main.cjs",
+          "tests/chrome-ext/yt-studio-time/": "node --test tests/chrome-ext/yt-studio-time/test_main.cjs"}
 # テストの要らない場所(lint・notes_tool が見る)
 NO_TESTS = ("codemap/", ".claude/", "README.txt", "AGENTS.md", "CLAUDE.md", ".gitignore", ".gitattributes", "push.bat")
 TABLE_HEAD = "## 6. フォルダと、変えたら通すテスト"
@@ -77,8 +81,10 @@ def select(paths):
         if layer:
             for d in dependents(layer):
                 dirs.update(LAYER_DIRS[d])
-        elif p.startswith(("dev/", "setup/")):
+        elif p.startswith(("dev/", "setup/", DEV_TESTS)):
             dirs.add(DEV_TESTS)
+        elif p.startswith("tests/") and p.count("/") == 1:   # tests/ 直下の共通の下ごしらえ(testkit)= 全部
+            return ALL, sorted(manual), unknown
         elif p.startswith(tuple(MANUAL)):
             manual.add(next(v for k, v in MANUAL.items() if p.startswith(k)))
         elif not p.startswith(NO_TESTS) and "/" in p:

@@ -1,6 +1,6 @@
 """時刻のカードの反映(src/human/check/timerow.py)の単体テスト。一時の作業データに文書を作って、答える・戻すを確かめる。
 
-実行(リポジトリ直下から): py -3.12 -m unittest src/human/check/tests/test_timerow.py -v
+実行(リポジトリ直下から): py -3.12 -m unittest tests/human/check/test_timerow.py -v
 """
 import os
 import sys
@@ -8,7 +8,7 @@ import unittest
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> check -> human -> src
+ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> check -> human -> src
 for _p in (os.path.join(ROOT, "editor"), ROOT):
     if _p not in sys.path:
         sys.path.insert(0, _p)
@@ -16,7 +16,8 @@ for _p in (os.path.join(ROOT, "editor"), ROOT):
 from human.check import answerlog, apply  # noqa: E402
 from human.check import timerow as check_time  # noqa: E402
 from human.proof import store  # noqa: E402
-from human.tests._workdata import temporary_workdata  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "human"))   # tests/human/(_workdata)
+from _workdata import temporary_workdata  # noqa: E402
 
 TID = "0123456789ab"
 

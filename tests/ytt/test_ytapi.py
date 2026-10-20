@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""ytt/ytapi(YouTube Data API を 1 回呼ぶ口)のテスト。外へは繋がない。  py -3.12 -m unittest src/ytt/tests/test_ytapi.py -v
+"""ytt/ytapi(YouTube Data API を 1 回呼ぶ口)のテスト。外へは繋がない。  py -3.12 -m unittest tests/ytt/test_ytapi.py -v
 
 - 失敗の対応表(quota・key_invalid・api_permission・not_found・upstream・network・no_key)と 5xx の 1 回のやり直し
 - 数え = 実際に外へ出るとき(と疑似のとき)だけ・キーは URL でなく見出し
@@ -13,7 +13,7 @@ import unittest
 import urllib.error
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> ytt -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # tests -> ytt -> src
 sys.path.insert(0, SRC)
 from ytt import ytapi  # noqa: E402
 from ytt.errors import ApiError  # noqa: E402

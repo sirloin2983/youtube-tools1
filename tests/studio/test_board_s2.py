@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""RS8 の ② の口 S2: スタジオの解析(an)・書き出し(ex)・配信の検索(se)が掲示板(flow/board.py)に載る。  py -3.12 -m unittest src/studio/tests/test_board_s2.py
+"""RS8 の ② の口 S2: スタジオの解析(an)・書き出し(ex)・配信の検索(se)が掲示板(flow/board.py)に載る。  py -3.12 -m unittest tests/studio/test_board_s2.py
 状態が変わったら、その id がその state で載る。取り消し・やり直しは掲示板の id で。"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない
@@ -7,7 +7,7 @@ os.environ["STUDIO_FAKE"] = "1"
 import sys
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src", "studio"))   # ツールのフォルダ(studio/)
 import startup  # noqa: E402  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
 import serve  # noqa: E402
 from flow import batch as batch_mod, board as B, export as flow_export  # noqa: E402

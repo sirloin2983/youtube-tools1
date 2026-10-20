@@ -1,7 +1,7 @@
 @echo off
 rem Run the node tests and make dist\YtStudioTime.zip (the Chrome extension) to send to a friend. Details: README.txt
 rem The zip has one folder yt-studio-time with manifest.json, main.js and README.txt (no tests, no build.bat).
-rem node: the one on PATH, or the node.exe that ships with Playwright (python 3.12). The e2e (tests\e2e_fake_studio.py) is not run here.
+rem node: the one on PATH, or the node.exe that ships with Playwright (python 3.12). The e2e (..\..\tests\chrome-ext\yt-studio-time\e2e_fake_studio.py) is not run here.
 setlocal
 cd /d "%~dp0"
 
@@ -17,7 +17,7 @@ if not exist "%NODE%" (
     goto fail
   )
 )
-"%NODE%" --test tests\test_main.cjs
+"%NODE%" --test ..\..\tests\chrome-ext\yt-studio-time\test_main.cjs
 if errorlevel 1 goto fail
 
 echo [2/3] dist\yt-studio-time

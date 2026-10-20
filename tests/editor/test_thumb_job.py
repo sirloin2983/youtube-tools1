@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """サムネの案(ジョブ ed_thumb.py → thumb_ideas.py → ① thumb_cards)のテスト。
 
-    py -3.12 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
-    py -3.12 -m unittest src/editor/tests/test_thumb_job.py
+    py -3.12 -m unittest tests/eval/drill/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
+    py -3.12 -m unittest tests/editor/test_thumb_job.py
 
 通し(本物の ffmpeg で 12 秒の見本の動画から 6 案を描く): 指定の検査・作っている最中は 409 → ジョブ → 作業用/<名前>_thumb-ideas.png と .json →
 GET の形。見本の音は 6 秒の所だけ大きく、文書には 字幕に出さない行・カットした行・空の行・長い行・感情の強い行・文書の開始の秒 を混ぜて、
@@ -21,7 +21,7 @@ import tempfile
 import unittest
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.dirname(TESTS))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(TESTS)), "src", "editor"))
 sys.path.insert(0, TESTS)
 from test_backend import TID, StoreDir  # noqa: F401,E402  (S = serve)
 from human.proof import store as _store  # noqa: E402

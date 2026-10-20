@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """pipeline/transcribe/roster の配信ごとの文脈 stream_context と用語の区切り split_terms(ytt/txtext)を、編集の serve を読まずに使うテスト。
 
-    py -3.12 -m unittest src/pipeline/transcribe/tests/test_txroster.py -v
+    py -3.12 -m unittest tests/pipeline/transcribe/test_txroster.py -v
 
 名簿のファイルは roster.ROSTER、スタジオの配信の情報は ytt/studiodata.studio_stream から読む。文書の見本(チャンネル・コラボ相手・動画のフォルダ・題名・
-スタジオに無い配信・配信の ID が無い文書・オフ)を入口に通してまとめて確かめる。ジョブに文脈が残る形は src/editor/tests/test_fill.py の通し。
+スタジオに無い配信・配信の ID が無い文書・オフ)を入口に通してまとめて確かめる。ジョブに文脈が残る形は tests/pipeline/transcribe/test_fill.py の通し。
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)。ほかのテストとそろえる
@@ -12,9 +12,10 @@ import sys
 import unittest
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 from pipeline.transcribe import roster  # noqa: E402
 from ytt import studiodata  # noqa: E402
 from ytt import txtext  # noqa: E402

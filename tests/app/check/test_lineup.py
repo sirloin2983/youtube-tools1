@@ -1,13 +1,13 @@
 """「確かめる」の待ち行列の順と数え方(src/app/check/lineup.py・goals.py)の単体テスト。純粋な関数だけ。
 
-実行(リポジトリ直下から): py -3.12 -m unittest src/app/check/tests/test_lineup.py -v
+実行(リポジトリ直下から): py -3.12 -m unittest tests/app/check/test_lineup.py -v
 """
 import os
 import sys
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> check -> eval -> src
+ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> check -> eval -> src
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 

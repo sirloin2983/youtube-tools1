@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """flow/keys(② 成果物の鍵を書く・読む。役割で組み直す RS6 b-K1)のテスト。
 
-    py -3.12 -m unittest src/flow/tests/test_keys.py -v
+    py -3.12 -m unittest tests/flow/test_keys.py -v
 
 - 書く・読む・壊れた鍵・stale の 3 通り(same / differ / none)・消す
 - 段ごとの inputs・文書の鍵(transcribe・post・diar)・パックの鍵・スタジオの export の鍵
@@ -14,9 +14,10 @@ import sys
 import unittest
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # tests -> flow -> src
 sys.path.insert(0, SRC)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from flow import keys, live_archive, packrec  # noqa: E402
 from ytt import schemas, workdata  # noqa: E402
 

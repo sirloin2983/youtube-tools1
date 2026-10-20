@@ -4,7 +4,7 @@ GPU(CUDA)の部品の場所と有無をこのプロセスで調べる関数(setu
 
 worker_client にはサーバー側の物 = WorkerClient・RemoteModel・GPU の有無の別プロセス調べだけがある。
 **このモジュールのモデルの読み込み・CUDA の調べはワーカーのプロセス(と IN_WORKER の測る道具)だけが呼ぶ**。サーバーのプロセスが読んでも、numpy・faster_whisper・
-ctranslate2・sherpa_onnx は呼ばれた関数の中(cuda_count の ctranslate2)でしか読まない(src/editor/tests/test_worker.py が検査)。
+ctranslate2・sherpa_onnx は呼ばれた関数の中(cuda_count の ctranslate2)でしか読まない(tests/pipeline/transcribe/test_worker.py が検査)。
 ワーカーの本体(worker.py)・測る道具(eval/tools/_evalcommon)・疑似のワーカー(eval/fake/fake_worker が _gpu_ready_local を差し替える)が、名前を呼ぶたびに読む。
 標準ライブラリ・ytt・同じパッケージの tx_engines だけを読む(worker_client は読まない = 向きは worker_client → models)。
 """

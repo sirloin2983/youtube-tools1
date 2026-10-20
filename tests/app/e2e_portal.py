@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ホーム(src/app/ui/home/portal.html)の通し確認(Playwright。本物の3ツールを疑似モードで一時フォルダに写し、空きポートだけを使う)。
 
-    python src/app/tests/e2e_portal.py [--shots <フォルダ>]
+    python tests/app/e2e_portal.py [--shots <フォルダ>]
 
 2つの形をそれぞれ確かめる:
 
@@ -37,8 +37,8 @@ from unittest import mock
 
 from playwright.sync_api import sync_playwright
 
-TESTS = os.path.dirname(os.path.abspath(__file__))   # src/app/tests
-HERE = os.path.dirname(TESTS)   # home(入口の部品)
+TESTS = os.path.dirname(os.path.abspath(__file__))   # tests/app
+HERE = os.path.join(os.path.dirname(os.path.dirname(TESTS)), "src", "app")   # home(入口の部品)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)
@@ -46,7 +46,8 @@ from app import server as L  # noqa: E402
 from app import mount as M  # noqa: E402
 from test_launch import REPO, _copy_tool, free_ports  # noqa: E402
 from ytt import layout, schemas  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 
 def wait_js(pg, expr, timeout=30000):

@@ -2,8 +2,8 @@
 見本のパック(声のある切り抜き・音の無い切り抜き・壊れた動画・動画の無いパック・粗編集・1980 年より前のファイル)をまとめて届けて確かめる。
 ほかのクラスは通しでは起こせない物だけ(途中の失敗・中止・時間切れ・書けない中身・焼き込みの有無)。一時フォルダだけを使う。
 
-実行(リポジトリ直下から): python -m unittest src/flow/tests/test_deliver.py -v
-(入口の ytt_api の受け渡しは src/app/tests/test_deliver_api.py)
+実行(リポジトリ直下から): python -m unittest tests/flow/test_deliver.py -v
+(入口の ytt_api の受け渡しは tests/app/test_deliver_api.py)
 """
 import json
 import os
@@ -16,11 +16,12 @@ import zipfile
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
+ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # tests -> flow -> src
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from flow import deliver  # noqa: E402
 from pipeline.pack import preview as pv  # noqa: E402
 

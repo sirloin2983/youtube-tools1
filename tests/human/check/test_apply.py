@@ -1,6 +1,6 @@
 """「確かめる」の答えの記録(src/human/check/answerlog.py)と反映の土台(apply.py)の単体テスト。一時フォルダと偽の反映の部品だけを使う。
 
-実行(リポジトリ直下から): py -3.12 -m unittest src/human/check/tests/test_apply.py -v
+実行(リポジトリ直下から): py -3.12 -m unittest tests/human/check/test_apply.py -v
 """
 import json
 import os
@@ -9,12 +9,13 @@ import unittest
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> check -> human -> src
+ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> check -> human -> src
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from human.check import answerlog, apply  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 
 def card(key, kind="read", source="fake"):

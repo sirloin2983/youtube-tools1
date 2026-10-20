@@ -2,7 +2,7 @@
 """録画の部品(recorder/)のテスト。本物の YouTube には繋がない: ffmpeg の lavfi で作った HLS を、手元の HTTP サーバーで
 配信中のように少しずつ出し(tests/hls_fixture.py)、--source direct(HLS の URL を直接 ffmpeg に渡す)で録る。
 
-    py -3.12 -m unittest src/pipeline/ingest/tests/test_recorder.py
+    py -3.12 -m unittest tests/pipeline/ingest/test_recorder.py
 
 - TestRecordRun(通し): 1 つの録画の部品で 4 本を同時に録る。配信中の 1 本は 切断 → 繋ぎ直し(終わりにしない・新しいセッション・
   #EXT-X-DISCONTINUITY)→ 区間の取得(時刻と欠け)→ 部品の終了 → 起動し直して続ける → 停止(#EXT-X-ENDLIST)→ 消す(ごみ箱)。
@@ -27,12 +27,13 @@ from unittest import mock
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-HERE = os.path.dirname(TESTS)   # src/pipeline/ingest(recorder.py のある所)
+HERE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(TESTS))), "src", "pipeline", "ingest")   # src/pipeline/ingest(recorder.py のある所)
 SRC = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, SRC)
 sys.path.insert(0, TESTS)
 import hls_fixture as F  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 from pipeline.ingest import rec_core as R  # noqa: E402
 from ytt import trashbin  # noqa: E402
 

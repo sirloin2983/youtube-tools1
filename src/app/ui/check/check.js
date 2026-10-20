@@ -523,7 +523,7 @@
     show();
   });
 
-  /* 画面のテスト(src/app/tests/e2e_check.py)が今の状態を読む口 */
+  /* 画面のテスト(tests/app/e2e_check.py)が今の状態を読む口 */
   window.CheckShell = {
     state: function () {
       return { cur: S.cur ? S.cur.id : '', kind: S.cur ? S.cur.kind : '', queue: S.queue.map(function (c) { return c.id; }), today: S.today, answered: S.answered,

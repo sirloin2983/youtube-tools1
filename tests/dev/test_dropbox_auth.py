@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """dev/dropbox_auth.py(切り抜き依頼の鍵を作る)のテスト。通信はしない(urlopen を差し替える)。
-実行(リポジトリ直下): python -m unittest dev/tests/test_dropbox_auth.py"""
+実行(リポジトリ直下): python -m unittest tests/dev/test_dropbox_auth.py"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # サーバーは動かさないが、全テストの決まりに合わせる
 import io
@@ -13,7 +13,7 @@ import urllib.error
 import urllib.parse
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.dirname(TESTS))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(TESTS)), "dev"))
 import dropbox_auth as A  # noqa: E402
 
 ALL = "files.content.write files.content.read files.metadata.read"

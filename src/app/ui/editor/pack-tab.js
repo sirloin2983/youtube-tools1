@@ -75,7 +75,7 @@ function create(h){
     for (const k of ['srcStartTc', 'recStart', 'reel']) if (String(ra[k] || '') !== String(na[k] || '')) diffs.push(`${OUT_LABEL[k]}: ${ra[k] || 'なし'} → ${na[k] || 'なし'}`);
     return diffs;
   }
-  /* zip に渡らない設定(4-4。監査 10。zip の中身はそのまま = ユーザー決定)。dev/tests/test_resolve_pack_contract.py の ZipSkipsContract がこの差を固定している
+  /* zip に渡らない設定(4-4。監査 10。zip の中身はそのまま = ユーザー決定)。tests/dev/test_resolve_pack_contract.py の ZipSkipsContract がこの差を固定している
      (zip に渡すようにしたら、そのテストが落ちて、ここの説明を直す合図になる)。開始タイムコード・リール名は EDL(字幕の無いパック)にだけ効く */
   const ZIP_SKIPS = [['render', '粗編集の動画'], ['volume', '音量の調整'], ['srcStartTc', '開始タイムコード'], ['recStart', 'タイムラインの開始タイムコード'], ['reel', 'リール名']];
   const zipSkipped = o => ZIP_SKIPS.filter(([k]) => k === 'render' ? o.render : k === 'volume' ? !!(o.loudness || o.volume !== 100) : !!(o.advanced || {})[k]).map(([, l]) => l);

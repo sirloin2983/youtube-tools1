@@ -1,7 +1,7 @@
-"""入口の API(GET api/accuracy・POST api/accuracy/run・設定の節)と、手が空いた判定のつなぎ。精度の自動測定の本体のテストは src/eval/drill/tests/test_accuracy.py。
+"""入口の API(GET api/accuracy・POST api/accuracy/run・設定の節)と、手が空いた判定のつなぎ。精度の自動測定の本体のテストは tests/eval/drill/test_accuracy.py。
 調子(/api/health)の accuracy はホームの画面が読む(e2e_portal.py の「始める条件」)。
 
-実行(リポジトリ直下から): py -3.12 -m unittest src/app/tests/test_accuracy_api.py -v
+実行(リポジトリ直下から): py -3.12 -m unittest tests/app/test_accuracy_api.py -v
 """
 import http.client
 import json
@@ -11,7 +11,7 @@ import threading
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-HOME = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+HOME = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src", "app")
 ROOT = os.path.dirname(HOME)
 for p in (HOME, ROOT, os.path.dirname(os.path.abspath(__file__))):
     if p not in sys.path:

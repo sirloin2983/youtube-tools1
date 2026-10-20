@@ -18,7 +18,7 @@
   hooks = {"cancelled": 関数, "progress": 関数}        ワーカーが入れる(取り消しと進み具合。faster-whisper は使わない)
 
 このファイルは、サーバー側からも名前・版・準備できているかのために読む。
-**ネイティブの部品(faster_whisper・numpy など)は create・transcribe の中で読み込む**(サーバーのプロセスに入れない決まり = tests/test_worker.py が検査)。
+**ネイティブの部品(faster_whisper・numpy など)は create・transcribe の中で読み込む**(サーバーのプロセスに入れない決まり = tests/pipeline/transcribe/test_worker.py が検査)。
 取得する実行ファイル・モデルは、URL・大きさ・SHA-256 を固定(計画の 7)。外部コマンドは引数のリストで渡し、shell を使わない。モデルの名前から任意のパスを作らない。
 """
 import hashlib
@@ -39,7 +39,7 @@ import zlib
 
 try:
     from ytt import fsio as _fsio, tools as _tools, txbase as _txbase, workdata as _workdata   # 共通部品(標準ライブラリだけ。serve.py の _load_core が先に見つけてある)
-except ImportError:   # このファイルだけを読み込んだとき(tests/test_worker.py の子プロセスなど): ツールの 1 つ上(src/)の共通部品
+except ImportError:   # このファイルだけを読み込んだとき(tests/pipeline/transcribe/test_worker.py の子プロセスなど): ツールの 1 つ上(src/)の共通部品
     sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     from ytt import fsio as _fsio, tools as _tools, txbase as _txbase, workdata as _workdata
 

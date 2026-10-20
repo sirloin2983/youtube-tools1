@@ -16,7 +16,7 @@ from pathlib import Path
 from unittest import mock
 
 TESTS = Path(__file__).resolve().parent
-sys.path.insert(0, str(TESTS.parents[2]))   # src(パックの部品は pipeline.pack)
+sys.path.insert(0, str(TESTS.parents[2] / "src"))   # src(パックの部品は pipeline.pack)
 sys.path.insert(0, str(TESTS))          # 隣のテスト(test_cut2resolve の道具)
 from pipeline.pack import auto_cut as AC  # noqa: E402
 from pipeline.pack import cut2resolve_core as C  # noqa: E402
@@ -25,7 +25,8 @@ from pipeline.pack import request as R  # noqa: E402
 from pipeline.pack import resolve_textplus as RTP  # noqa: E402
 from pipeline.pack import srt2resolve as S  # noqa: E402
 from ytt import loudness  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 from ytt.errors import ApiError  # noqa: E402
 from test_cut2resolve import FPS30, HAVE_FFMPEG, make_video, parse_edl, selection_pack, tc2f  # noqa: E402
 

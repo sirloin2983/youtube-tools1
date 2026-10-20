@@ -1,6 +1,6 @@
 """友人のライブ配信の依頼と録画の結びつき(src/flow/live_rules.py の RequestBook。作業データの live/requests.json。2-15)のテスト。
 
-実行(リポジトリ直下から): python -m unittest src/flow/tests/test_live_rules.py -v
+実行(リポジトリ直下から): python -m unittest tests/flow/test_live_rules.py -v
 """
 import json
 import os
@@ -9,12 +9,13 @@ import unittest
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # tests -> flow -> src
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
 from flow import live_rules as LR  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 
 class LiveRequestsStoreTest(unittest.TestCase):

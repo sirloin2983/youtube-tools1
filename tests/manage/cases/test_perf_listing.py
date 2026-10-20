@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """案件の一覧の速さの工夫が、ふつうの経路と同じ結果を返すことの突き合わせ。
 
-    python -m unittest src/manage/cases/tests/test_perf_listing.py
+    python -m unittest tests/manage/cases/test_perf_listing.py
 
 - txindex.pick に load の結果(Docs = 逆引きつき)を渡したときと、ふつうのリスト(全部を照らす)を渡したときで、
   選ぶ文書・紐づいた数・id の順(同じ id の別の文書・同率の更新日時・片方の経路だけの一致・付け替える前のパスも)が同じ。
@@ -17,10 +17,11 @@ import sys
 import tempfile
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))   # src
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src"))   # src
 from manage.cases import txindex  # noqa: E402
 from ytt import docloc, schemas, workdata  # noqa: E402
-from ytt.tests.testkit import tempdir, write_text  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+from testkit import tempdir, write_text  # noqa: E402
 
 
 VIDS = ["v1", "v2", "", None, 0, 1, True, ["v1"]]

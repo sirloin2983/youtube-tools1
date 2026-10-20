@@ -1,7 +1,7 @@
 """精度の自動測定(src/eval/drill/accuracy.py)の単体テスト。一時フォルダと、src/eval/tools/eval_*.py の代わりの偽の道具(小さな Python スクリプト)だけを使う。
 
-実行(リポジトリ直下から): py -3.12 -m unittest src/eval/drill/tests/test_accuracy.py -v
-(入口の API の検査は src/app/tests/test_accuracy_api.py)
+実行(リポジトリ直下から): py -3.12 -m unittest tests/eval/drill/test_accuracy.py -v
+(入口の API の検査は tests/app/test_accuracy_api.py)
 """
 import datetime
 import json
@@ -11,7 +11,7 @@ import unittest
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> drill -> eval -> src
+ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> drill -> eval -> src
 HOME = os.path.join(ROOT, "app")   # 設定 prefs(入口 = app)を借りる
 for p in (HOME, ROOT):
     if p not in sys.path:
@@ -20,7 +20,8 @@ for p in (HOME, ROOT):
 from eval.drill import accuracy  # noqa: E402
 from app import prefs as prefs_mod  # noqa: E402
 from ytt import fsio  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 # 偽の道具: 引数 = 領域の id・結果の置き場所。環境変数 FAKE_FAIL(領域の id をカンマ区切り)で失敗・FAKE_HANG(同)で居座る・
 # FAKE_NOLINE(同)で「保存: 」の行を出さない・FAKE_OUTSIDE(同)で置き場所の外のファイルを知らせる。結果に環境変数 FAKE_MARK(引き継ぎの確認)と FAKE_VALUE を入れる

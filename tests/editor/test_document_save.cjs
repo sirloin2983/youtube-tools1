@@ -1,4 +1,4 @@
-// Run: node --test src/editor/tests/test_document_save.cjs
+// Run: node --test tests/editor/test_document_save.cjs
 // Exercise the actual save/navigation functions with delayed or failed API replies.
 // No browser, model, network, or user transcript files are needed.
 const assert = require('node:assert/strict');
@@ -7,12 +7,12 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 // UIKit の代わり。抜き出した関数は UIKit を直接呼ぶので、vm の context にはいつも withUIKit(context) を通す(context.UIKit と、harness の window に window.UIKit)。呼ばれた部品は h.context.UIKit.called('toast') などで読める
-const { withUIKit } = require(path.join(__dirname, '..', '..', 'ui-kit', 'tests', 'uikit_stub.cjs'));
+const { withUIKit } = require(path.join(__dirname, '..', 'ui-kit', 'uikit_stub.cjs'));
 
 // 画面の JS は案件の画面の校正の台(src/app/ui/cases/edhost.js の ED_SCRIPTS)が読む順番(app-*.js → app.js)で読み込まれる。
 // テストはその順番にファイルをつなげて読み、使う関数・状態を名前で取り出す
-const editorDir = path.join(__dirname, '..', '..', 'app', 'ui', 'editor');   // 画面の部品。ここから見て src は '..' の 3 つ上
-const srcDir = path.join(__dirname, '..', '..');
+const editorDir = path.join(__dirname, '..', '..', 'src', 'app', 'ui', 'editor');   // 画面の部品
+const srcDir = path.join(__dirname, '..', '..', 'src');
 const edhost = fs.readFileSync(path.join(srcDir, 'app', 'ui', 'cases', 'edhost.js'), 'utf8');
 const appFiles = [...(edhost.match(/var ED_SCRIPTS = \[([^\]]*)\]/) || ['', ''])[1].matchAll(/'(app[\w-]*\.js)'/g)].map(m => m[1]);
 assert.ok(appFiles.includes('app.js'), 'edhost.js must load app.js');

@@ -41,7 +41,7 @@
   合言葉とチャンネルの数字はリポジトリに入れません。
 
 ■ テスト
-  py -3.12 -m unittest src/manage/ops/analytics/tests/test_analytics.py   (本物の数字は使わない。規則どおりに伸びる架空のチャンネルで確かめる)
+  py -3.12 -m unittest tests/manage/ops/analytics/test_analytics.py   (本物の数字は使わない。規則どおりに伸びる架空のチャンネルで確かめる)
 
 ■ 連携への日付
   - 月報は、連携が日付を YYYY-MM-DD でしか受け取らないので、その月の 1 日の日付で渡します。

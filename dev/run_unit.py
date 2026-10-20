@@ -2,17 +2,16 @@
 """unittest を層ごと・フォルダごとに流す道具(1 本ずつ別のプロセス)。リポジトリ直下で:
 
     py -3.12 dev/run_unit.py --only manage            # 層かフォルダで絞る(複数可)
-    py -3.12 dev/run_unit.py --only src/manage/keep   # フォルダでも絞れる
+    py -3.12 dev/run_unit.py --only manage/keep       # フォルダでも絞れる(tests/manage/keep・src/manage/keep と書いても同じ)
     py -3.12 dev/run_unit.py --list                   # 流す物の一覧だけ
     py -3.12 dev/run_unit.py -j 2 --failfast          # 並べて流す数・最初の失敗で止める
     py -3.12 dev/run_unit.py                          # 全部
 
-対象: src/**/tests/test_*.py と dev/tests/test_*.py(e2e_*.py と test_ で始まらない物は流さない)。
-      同じ所の test_*.cjs は `node --test` で流す(node は PATH か Playwright に入っている node.exe。無ければ落ちた扱い)。
-同じプロセスに混ぜると名前が重なるテストがあるので、1 本ずつ `py -3.12 -m unittest <ファイル>` を別のプロセスで流す。
-例外 1: src/editor/tests/ はリポジトリ直下からだと test_backend の import で落ちるので、そのフォルダを cwd にしてモジュール名で 1 本ずつ流す
-        (test_metrics は自分で定義したクラスだけ流す)。
-例外 2: dev/tests/test_resolve_pack_contract.py は単独で流す(表示に「単独」と付ける)。
+対象: tests/**/test_*.py(e2e_*.py と test_ で始まらない物は流さない)。tests/ の下は src の層の形(tests/flow・tests/pipeline/transcribe)と
+      tests/dev・tests/chrome-ext・tests/friend-apps。同じ所の test_*.cjs は `node --test` で流す(node は PATH か Playwright に入っている node.exe。無ければ落ちた扱い)。
+同じプロセスに混ぜると名前が重なるテストがあるので、1 本ずつ別のプロセスで流す。
+.py は `py -3.12 -m unittest discover -s <フォルダ> -p <ファイル> -t <フォルダ>`(cwd はリポジトリ直下のまま・テストのフォルダが sys.path の先頭)。
+例外: tests/dev/test_resolve_pack_contract.py は単独で流す(表示に「単独」と付ける)。
 環境: YTT_DATA_DIR=inplace。PYTHONIOENCODING は外す。Windows の子プロセスは窓を出さない(CREATE_NO_WINDOW)。
 終了コード: 落ちた物があれば 1。使い方の誤りは 2。
 """
@@ -33,9 +32,7 @@ from layer_map import LAYERS  # noqa: E402
 from ytt import tools  # noqa: E402
 from _common import find_node  # noqa: E402
 
-EDITOR_TESTS = "src/editor/tests"
-EDITOR_ENTRY = "test_metrics"
-SOLO = {"dev/tests/test_resolve_pack_contract.py"}
+SOLO = {"tests/dev/test_resolve_pack_contract.py"}
 SKIP_DIRS = {"__pycache__", "node_modules", "build", "dist", "work", "logs", "fixtures", ".venv"}
 TAIL_LINES = 25
 SLOWEST = 10
@@ -49,55 +46,44 @@ Result = namedtuple("Result", "unit ok count secs err skipped", defaults=(0,))
 
 
 def find_files(root):
-    """root の下の src/**/tests/test_*.py と dev/tests/test_*.py を、リポジトリ相対の / 区切りでソートして返す。"""
+    """root の下の tests/**/test_*.py・test_*.cjs を、リポジトリ相対の / 区切りでソートして返す。"""
     found = []
-    for base in ("src", "dev"):
-        for dirpath, dirnames, filenames in os.walk(os.path.join(root, base)):
-            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
-            if os.path.basename(dirpath) != "tests":
-                continue
-            for name in filenames:
-                if name.startswith("test_") and name.endswith((".py", ".cjs")):
-                    full = os.path.join(dirpath, name)
-                    found.append(os.path.relpath(full, root).replace(os.sep, "/"))
+    for dirpath, dirnames, filenames in os.walk(os.path.join(root, "tests")):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        for name in filenames:
+            if name.startswith("test_") and name.endswith((".py", ".cjs")):
+                full = os.path.join(dirpath, name)
+                found.append(os.path.relpath(full, root).replace(os.sep, "/"))
     return sorted(found)
 
 
 def matches(rel, tokens):
-    """--only の語(層の名前・src/manage/keep のようなフォルダ・dev)に rel が当たるか。"""
+    """--only の語(層の名前・manage/keep のようなフォルダ・dev。頭の tests/・src/ は無くてよい)に rel が当たるか。"""
     if not tokens:
         return True
     for tok in tokens:
         t = tok.replace("\\", "/").strip("/")
-        if t == "src":
-            prefix = "src/"
-        elif t.startswith(("src/", "dev/")) or t == "dev":
-            prefix = t + "/"
-        else:
-            prefix = "src/" + t + "/"
-        if rel.startswith(prefix):
+        for head in ("tests/", "src/"):
+            if t.startswith(head):
+                t = t[len(head):]
+        if t in ("tests", "src", ""):
+            return True
+        if rel.startswith("tests/" + t + "/"):
             return True
     return False
 
 
 def build_units(root, only=None):
-    """流す物の一覧。editor は 1 つにまとめ、単独の物には印を付ける。only で絞る。"""
-    files = find_files(root)
+    """流す物の一覧。単独の物には印を付ける。only で絞る。"""
     units = []
-    editor_files = [rel for rel in files if rel.startswith(EDITOR_TESTS + "/") and rel.endswith(".py")]
-    for rel in files:
-        if rel in editor_files:
-            continue
+    for rel in find_files(root):
         label = rel + (" (単独)" if rel in SOLO else "")
-        units.append(Unit(rel, root, [rel], label))
-    edir = os.path.join(root, EDITOR_TESTS)
-    for rel in editor_files:
-        mod = os.path.basename(rel)[:-3]
-        args = [mod]
-        if mod == EDITOR_ENTRY:   # 星の import で読み込んだほかのモジュールのテストは、そのモジュールの回で流す
-            with open(os.path.join(root, rel), encoding="utf-8") as f:
-                args = [mod + "." + c for c in re.findall(r"^class (\w+)\(unittest\.TestCase\)", f.read(), re.M)] or [mod]
-        units.append(Unit(rel, edir, args, rel + " (編集)"))
+        if rel.endswith(".py"):
+            d, name = rel.rsplit("/", 1)
+            args = ["discover", "-s", d, "-p", name, "-t", d]
+        else:
+            args = [rel]
+        units.append(Unit(rel, root, args, label))
     units = [u for u in units if matches(u.rel, only)]
     return sorted(units, key=lambda u: u.rel)
 

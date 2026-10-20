@@ -1,5 +1,5 @@
 """src/friendapp/sync.py のテスト(本物の Dropbox につながない = 偽の io。受信箱は本物の一時フォルダ)。
-リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_sync.py"""
+リポジトリ直下で: py -3.12 -m unittest tests/friendapp/test_sync.py"""
 import datetime
 import glob
 import hashlib
@@ -14,10 +14,11 @@ import zipfile
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from friendapp import dropbox as D, inbox as I, sync as S  # noqa: E402
 
 RID = "20261016-100000-abcdef"

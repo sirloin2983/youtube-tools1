@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """flow/deliveries.py(届けた記録・送らなかった記録の読み口)と flow/delivery.switched_off のうち、通しでは起こせない物:
 前の版の行と壊れた行・読めない記録・開発機の守りのスイッチ。
-届けた記録を書いて読む正しく動く道は src/flow/tests/test_deliver.py の DeliverRun。 py -3.12 -m unittest src/flow/tests/test_deliveries.py -v
+届けた記録を書いて読む正しく動く道は tests/flow/test_deliver.py の DeliverRun。 py -3.12 -m unittest tests/flow/test_deliveries.py -v
 (10-19 まではここに友人へ自動で送る判定 flow/sendpolicy の試しもあった = 判定ごと消した)"""
 import json
 import os
@@ -9,9 +9,10 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")
 import sys
 import unittest
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")
 sys.path.insert(0, SRC)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from flow import deliveries as D, delivery as DL  # noqa: E402
 
 

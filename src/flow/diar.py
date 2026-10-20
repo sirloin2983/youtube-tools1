@@ -9,7 +9,7 @@
 - 判別: diarize(ジョブの音声 → 区間)・assign(区間 → 行の割り当て)・record_run・record_single(<id>.diar.json)・latest_run
 - 声: embed(声の特徴)・match_known_voices(行 → 声の特徴 → 覚えた声との照合)・voice_learn_rows(声を覚える行の選び方)・record_match・record_match_error・record_context・empty_voice
 - 覚えた声の置き場所(作業データの voices/<判別モデル>.json): VOICES_DIR・voices_dir・voices_path・load_voices・save_voices・voices_edit・merge_voice
-計算(sherpa-onnx・numpy)は ① の中・認識ワーカーの中だけ(ここでは読み込まない = src/editor/tests/test_worker.py の検査)。
+計算(sherpa-onnx・numpy)は ① の中・認識ワーカーの中だけ(ここでは読み込まない = tests/pipeline/transcribe/test_worker.py の検査)。
 ① の名前は呼ぶたびに `_calc.名前` で読む(テストの patch.object(S, "has_sherpa"・"ensure_diar_models"・"embed_groups"・"write_diar") が ① に届く)。
 疑似の判別・声の特徴は ① の口 backend.Backend.diarize・embed のまま(疑似の本体は eval/fake/fake_asr)。
 """

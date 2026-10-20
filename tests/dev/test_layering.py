@@ -4,8 +4,8 @@ src/ の .py(tests/ を除く)の import を解き、`dev/layer_map.py` の層�
 ② 管理(src/flow)に ① の別名だけの関数が無いことも検査する(test_flow_is_not_alias。RS6 a-0)。
 違反は `layer_map.KNOWN` の一覧と一致しなければならない(減らすだけ。新しい違反・表に無いファイルは落ちる)。
 
-    python -m unittest dev/tests/test_layering.py
-    python dev/tests/test_layering.py --list      # 違反の一覧を KNOWN に貼れる形で出す
+    python -m unittest tests/dev/test_layering.py
+    python tests/dev/test_layering.py --list      # 違反の一覧を KNOWN に貼れる形で出す
 """
 import ast
 import os

@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """録画に無い区間をアーカイブから書き出す(線 D の P4)の入口 home を通す分: POST /live/api/archive・…/cancel・GET /live/api/exports の archiveInfo(server.py を通して)。
-本体(照合・書き出し・自動の見回り)は ② の src/flow/tests/test_live_archive.py。
+本体(照合・書き出し・自動の見回り)は ② の tests/flow/test_live_archive.py。
 
-    py -3.12 -m unittest src/app/tests/test_live_archive_api.py
+    py -3.12 -m unittest tests/app/test_live_archive_api.py
 """
 import os
 import shutil
@@ -15,12 +15,12 @@ from unittest import mock
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-HERE = os.path.dirname(TESTS)
+HERE = os.path.join(os.path.dirname(os.path.dirname(TESTS)), "src", "app")
 REPO = os.path.dirname(HERE)
 sys.path.insert(0, REPO)    # ytt(このファイルだけを流しても読めるように)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
-sys.path.insert(0, os.path.join(REPO, "flow", "tests"))   # 共有の偽物 _livefix
+sys.path.insert(0, os.path.join(os.path.dirname(REPO), "tests", "flow"))   # 共有の偽物 _livefix
 import _livefix as LF  # noqa: E402
 from flow import live_archive as A  # noqa: E402
 from flow import live_export as LX  # noqa: E402

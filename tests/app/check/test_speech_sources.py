@@ -1,7 +1,7 @@
 """「確かめる」の「この行は声ですか?」の出どころ(src/app/check/speech_sources.py)の単体テスト: 声の区間との重なりの割合・除外(校正済み・noSub・短い・空)・
 評価用の文書は出ない・diar が無い文書は出ない・低い割合の順。一時フォルダの文書と .diar.json だけを使う。
 
-実行(リポジトリ直下から): py -3.12 -m unittest src/app/check/tests/test_speech_sources.py -v
+実行(リポジトリ直下から): py -3.12 -m unittest tests/app/check/test_speech_sources.py -v
 """
 import json
 import os

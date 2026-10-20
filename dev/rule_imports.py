@@ -44,38 +44,38 @@ def check(rid, title, moved_from, group="app"):
 NATIVE = ("numpy", "faster_whisper", "ctranslate2", "sherpa_onnx", "onnxruntime")
 # 切り離し: (番号, 何を止めるか, 移した元のテスト, sys.path の先頭に足すフォルダ, 読み込むコード, 読み込まれてはいけない名前(fnmatch。 "eval.*" は eval と eval.○○))
 ISOLATION = [
-    ("I-01", "入口と録画の部品(live・server・flow.live_archive・live_export)が numpy を読まない", "src/app/tests/test_live_archive_api.py test_no_numpy_in_portal",
+    ("I-01", "入口と録画の部品(live・server・flow.live_archive・live_export)が numpy を読まない", "tests/app/test_live_archive_api.py test_no_numpy_in_portal",
      ["src/app", "src"], "import live; from app import server; import flow.live_archive, flow.live_export", ["numpy"]),
     # 元のテストは子プロセスの結果を assert していなかった(何も見張っていない)。実際には tx_engines は読まれる(名前と版だけ。先頭でネイティブを読まない = I-04)ので、numpy・faster_whisper に絞った
     ("I-02", "入口が配信中の文字起こし(live_tx・live_detect)を読んでも numpy・faster_whisper を読まない", "(app のテストから移した)",
      ["src/app", "src"], "import live; import flow.live_tx, flow.live_detect", ["numpy", "faster_whisper"]),
-    ("I-03", "入口とワーカー(live_detect・live_excite_worker)が numpy を読まない", "src/pipeline/analyze/tests/test_live_excite_worker.py test_no_numpy_in_portal_or_worker",
+    ("I-03", "入口とワーカー(live_detect・live_excite_worker)が numpy を読まない", "tests/pipeline/analyze/test_live_excite_worker.py test_no_numpy_in_portal_or_worker",
      ["src/app", "src"], "import live; from app import server; import flow.live_detect, pipeline.analyze.live_excite_worker", ["numpy"]),
     ("I-04", "tx_engines を読んでも numpy・faster_whisper・ctranslate2 を読まない(サーバー側でも読む。先頭でネイティブを読まない)",
-     "src/editor/tests/test_worker.py test_engine_module_has_no_native_imports・src/editor/tests/test_qwen3.py test_engine_module_has_no_native_imports",
+     "tests/pipeline/transcribe/test_worker.py test_engine_module_has_no_native_imports・tests/pipeline/transcribe/test_qwen3.py test_engine_module_has_no_native_imports",
      ["src"], "from pipeline.transcribe import tx_engines", ["numpy", "faster_whisper", "ctranslate2", "sherpa_onnx"]),
-    ("I-05", "flow.run が home(autorun・cases・prefs・deliver・friend_feedback・manage)を読まない", "src/flow/tests/test_run.py test_imports_without_home",
+    ("I-05", "flow.run が home(autorun・cases・prefs・deliver・friend_feedback・manage)を読まない", "tests/flow/test_run.py test_imports_without_home",
      ["src"], "import flow.run", ["autorun", "cases", "prefs", "deliver", "friend_feedback", "manage"]),
-    ("I-06", "flow.runlog が autorun・launch・cases・prefs を読まない", "src/flow/tests/test_runlog.py test_autorun_is_not_needed",
+    ("I-06", "flow.runlog が autorun・launch・cases・prefs を読まない", "tests/flow/test_runlog.py test_autorun_is_not_needed",
      ["src"], "from flow import runlog", ["autorun", "launch", "cases", "prefs"]),
-    ("I-07", "flow.runqueue が home・human・manage を読まない(画面なし・③ なしの ②)", "src/flow/tests/test_runqueue.py test_imports_without_home",
+    ("I-07", "flow.runqueue が home・human・manage を読まない(画面なし・③ なしの ②)", "tests/flow/test_runqueue.py test_imports_without_home",
      ["src"], "import flow.runqueue", ["autorun", "cases", "prefs", "deliver", "delivery", "friend_feedback", "manage", "human", "home"]),
-    ("I-08", "human.proof.doc_jobs が編集の serve を読まない(口は空のまま = 使う前に serve が登録する)", "src/human/proof/tests/test_doc_jobs.py test_import_without_serve",
+    ("I-08", "human.proof.doc_jobs が編集の serve を読まない(口は空のまま = 使う前に serve が登録する)", "tests/human/proof/test_doc_jobs.py test_import_without_serve",
      ["src", "src/editor"], "from human.proof import doc_jobs", ["serve"]),
-    ("I-09", "clipjob が flow・human・manage・eval・serve・ed_* を読まない", "src/pipeline/transcribe/tests/test_clipjob.py test_reads_no_flow_human_or_app",
+    ("I-09", "clipjob が flow・human・manage・eval・serve・ed_* を読まない", "tests/pipeline/transcribe/test_clipjob.py test_reads_no_flow_human_or_app",
      ["src"], "from pipeline.transcribe import clipjob", ["flow", "flow.*", "human", "human.*", "manage", "manage.*", "eval", "eval.*", "serve", "ed_*"]),
-    ("I-10", "diarize がネイティブ部品・serve・ed_*・eval・human を読まない", "src/pipeline/transcribe/tests/test_diarize.py test_no_native_app_or_eval",
+    ("I-10", "diarize がネイティブ部品・serve・ed_*・eval・human を読まない", "tests/pipeline/transcribe/test_diarize.py test_no_native_app_or_eval",
      ["src"], "from pipeline.transcribe import diarize", list(NATIVE) + ["ed_*", "serve", "eval", "eval.*", "human", "human.*"]),
-    ("I-11", "fill・llm がネイティブ部品・serve・ed_*・eval を読まない", "src/pipeline/transcribe/tests/test_fill_llm.py test_no_native_app_or_eval",
+    ("I-11", "fill・llm がネイティブ部品・serve・ed_*・eval を読まない", "tests/pipeline/transcribe/test_fill_llm.py test_no_native_app_or_eval",
      ["src"], "from pipeline.transcribe import fill, llm", list(NATIVE) + ["ed_*", "serve", "eval", "eval.*"]),
     ("I-12", "文字起こしの部品(postproc・backend・roster・tx_engines・records・worker_client・recognize・diarize・fill・llm・retime・clipjob・replace・txbase)がネイティブ部品・serve・ed_*・eval を読まない",
-     "src/pipeline/transcribe/tests/test_postproc.py test_no_native_app_or_eval", ["src"],
+     "tests/pipeline/transcribe/test_postproc.py test_no_native_app_or_eval", ["src"],
      "from pipeline.transcribe import postproc, backend, roster, tx_engines, records, worker_client, recognize, diarize, fill, llm, retime, clipjob, replace; from ytt import txbase",
      list(NATIVE) + ["ed_*", "serve", "eval", "eval.*"]),
-    ("I-13", "backend が serve・ed_state・ed_jobs・eval を読まない(一時の口 txenv は無い)", "src/pipeline/transcribe/tests/test_txbackend.py test_no_app_or_eval",
+    ("I-13", "backend が serve・ed_state・ed_jobs・eval を読まない(一時の口 txenv は無い)", "tests/pipeline/transcribe/test_txbackend.py test_no_app_or_eval",
      ["src"], "from pipeline.transcribe import backend; import importlib.util as _u; assert not _u.find_spec('pipeline.transcribe.txenv'), 'txenv が復活している'",
      ["serve", "ed_state", "ed_jobs", "eval", "eval.*"]),
-    ("I-14", "認識ワーカー(pipeline.transcribe.worker)が import しただけでは serve・ed_*・eval・ネイティブ部品を読まない", "src/pipeline/transcribe/tests/test_worker_client.py test_import_reads_no_app_eval_or_native",
+    ("I-14", "認識ワーカー(pipeline.transcribe.worker)が import しただけでは serve・ed_*・eval・ネイティブ部品を読まない", "tests/pipeline/transcribe/test_worker_client.py test_import_reads_no_app_eval_or_native",
      ["src"], "import pipeline.transcribe.worker", list(NATIVE) + ["serve", "ed_*", "eval", "eval.*"]),
 ]
 
@@ -123,14 +123,14 @@ def c_live_tx_constants():
     return out
 
 
-@check("C-03", "入口のポート範囲と各ツールの既定ポートが重ならない", "src/app/tests/test_launch.py test_port_ranges_do_not_overlap_tools")
+@check("C-03", "入口のポート範囲と各ツールの既定ポートが重ならない", "tests/app/test_launch.py test_port_ranges_do_not_overlap_tools")
 def c_port_ranges():
     from app import server as L
     portal = set(range(L.DEFAULT_PORT, L.DEFAULT_PORT + L.PORT_RANGE))
     return ["入口のポート範囲とツール %s の既定ポートが重なる" % spec["id"] for spec in L.TOOLS if portal & set(range(spec["port"], spec["port"] + 20))]
 
 
-@check("C-04", "一つのプロセスに取り込むツール間で同じ名前の部品を作らない", "src/app/tests/test_mount.py test_tools_do_not_share_module_names")
+@check("C-04", "一つのプロセスに取り込むツール間で同じ名前の部品を作らない", "tests/app/test_mount.py test_tools_do_not_share_module_names")
 def c_tool_module_names():
     from app import mount as M
     from ytt import layout
@@ -219,7 +219,7 @@ def _schema():
 
 
 @check("C-05", "設定の画面のスキーマ(schema.json)の書き方・prefs の鍵と既定値との一致・全部の鍵が画面に出る(出さない鍵は NO_UI)",
-       "src/app/tests/test_settings_schema.py test_shape・test_keys_exist_and_defaults_match・test_all_leaves_are_in_schema")
+       "tests/app/test_settings_schema.py test_shape・test_keys_exist_and_defaults_match・test_all_leaves_are_in_schema")
 def c_settings_schema():
     from app import prefs as PR
     sc = _schema()
@@ -244,7 +244,7 @@ def c_settings_schema():
     return out
 
 
-@check("C-06", "スタジオの設定の画面: 解析の鍵と画面の項目が過不足なく対応・review の型は決まった 4 種", "src/studio/tests/test_settings_schema.py test_analyze_covers_all_keys・test_review_items_shape")
+@check("C-06", "スタジオの設定の画面: 解析の鍵と画面の項目が過不足なく対応・review の型は決まった 4 種", "tests/studio/test_settings_schema.py test_analyze_covers_all_keys・test_review_items_shape")
 def c_studio_schema():
     from pipeline.analyze import analyze
     sc = _schema()
@@ -259,14 +259,14 @@ def c_studio_schema():
     return out
 
 
-@check("C-07", "入口の題名(PORTAL_TITLE)とホームの画面の title が同じ文字", "src/app/tests/test_window.py test_portal_title_matches_page")
+@check("C-07", "入口の題名(PORTAL_TITLE)とホームの画面の title が同じ文字", "tests/app/test_window.py test_portal_title_matches_page")
 def c_portal_title():
     from app import server as L
     with open(os.path.join(L.HOME_UI_DIR, "portal.html"), encoding="utf-8") as f:
         return [] if "<title>%s</title>" % L.PORTAL_TITLE in f.read() else ["portal.html の <title> が PORTAL_TITLE(%s)と違う" % L.PORTAL_TITLE]
 
 
-@check("C-08", "配りの表(STATIC)の案件の画面の行が、実在するファイルを指す", "src/app/tests/test_cases_page.py test_static_table_points_to_files")
+@check("C-08", "配りの表(STATIC)の案件の画面の行が、実在するファイルを指す", "tests/app/test_cases_page.py test_static_table_points_to_files")
 def c_static_table():
     from app import server as L
     return ["STATIC の %s が実在しない: %s" % (url, os.path.join(base, name)) for url, (name, base) in L.STATIC.items()
@@ -274,7 +274,7 @@ def c_static_table():
 
 
 @check("C-09", "束(flow/spec)の検査の表と既定の鍵の一致・固定の項目は鍵に入れない・autorun は同じ名前を読み直す・既定が各ツールの既定と同じ",
-       "src/flow/tests/test_spec.py test_autorun_still_exposes_the_names・test_defaults_are_valid_and_complete・test_fixed_items_are_not_keys・test_defaults_match_the_tools")
+       "tests/flow/test_spec.py test_autorun_still_exposes_the_names・test_defaults_are_valid_and_complete・test_fixed_items_are_not_keys・test_defaults_match_the_tools")
 def c_spec_consistency():
     from flow import spec
     from app import autorun as A
@@ -318,7 +318,7 @@ def c_spec_consistency():
     return out
 
 
-@check("C-10", "機械の既定の LLM(machine.LLM_MODEL・束の post.llmModel)が llm.py の既定で、登録済みの文章モデル", "src/flow/tests/test_machine.py test_llm_default_matches_llm_py")
+@check("C-10", "機械の既定の LLM(machine.LLM_MODEL・束の post.llmModel)が llm.py の既定で、登録済みの文章モデル", "tests/flow/test_machine.py test_llm_default_matches_llm_py")
 def c_llm_default():
     from flow import machine as M, spec as S
     from pipeline.transcribe import llm, tx_engines
@@ -332,7 +332,7 @@ def c_llm_default():
     return out
 
 
-@check("C-11", "LiveSession が口(LiveHost)の名前を全部持ち、メソッドは口の引数を受けられる", "src/flow/tests/test_livehost.py test_live_has_every_name")
+@check("C-11", "LiveSession が口(LiveHost)の名前を全部持ち、メソッドは口の引数を受けられる", "tests/flow/test_livehost.py test_live_has_every_name")
 def c_livehost_names():
     import inspect
     import shutil
@@ -374,7 +374,7 @@ def _const(path, name):
 
 
 @check("C-12", "夜の測定の領域の道具が実在し呼び方が受けられる・しきい値(GOALS)が道具の「まだ少ない」の定数と同じ",
-       "src/eval/drill/tests/test_accuracy.py test_every_area_tool_exists・test_goal_thresholds_match_the_tools")
+       "tests/eval/drill/test_accuracy.py test_every_area_tool_exists・test_goal_thresholds_match_the_tools")
 def c_accuracy_areas():
     from eval.drill import accuracy
     from app import prefs as prefs_mod
@@ -409,7 +409,7 @@ def c_accuracy_areas():
 
 
 @check("C-13", "パックの既定(ノイズ・無音・先頭・リール・CRF)が cut2resolve_core の 1 か所・自動カットの SCHEMA が CUT_PLAN_SCHEMA と同じ",
-       "src/pipeline/pack/tests/test_cut2resolve.py test_defaults_agree")
+       "tests/pipeline/pack/test_cut2resolve.py test_defaults_agree")
 def c_pack_defaults():
     import dataclasses
     import inspect
@@ -434,7 +434,7 @@ def c_pack_defaults():
     return out
 
 
-@check("C-14", "Text+ の雛形がパックに同梱され、install の書き出しに雛形の名前が入る", "src/pipeline/pack/tests/test_pack.py test_template_is_bundled")
+@check("C-14", "Text+ の雛形がパックに同梱され、install の書き出しに雛形の名前が入る", "tests/pipeline/pack/test_pack.py test_template_is_bundled")
 def c_textplus_template():
     import zipfile
     from pathlib import Path
@@ -449,14 +449,14 @@ def c_textplus_template():
     return out
 
 
-@check("C-15", "移動・削除・バックアップの一覧(DOC_SUFFIXES)に機械の層・人の層の接尾辞が入る", "src/human/proof/tests/test_commit.py test_layer_suffixes_go_with_the_doc")
+@check("C-15", "移動・削除・バックアップの一覧(DOC_SUFFIXES)に機械の層・人の層の接尾辞が入る", "tests/human/proof/test_commit.py test_layer_suffixes_go_with_the_doc")
 def c_doc_suffixes():
     from ytt import docloc, schemas
     return ["DOC_SUFFIXES に %s が無い" % n for n, v in (("MACH_SUFFIX", schemas.MACH_SUFFIX), ("HUM_SUFFIX", schemas.HUM_SUFFIX)) if v not in docloc.DOC_SUFFIXES]
 
 
 @check("C-16", "録画元との約束の正規表現・関数(ID_RE・REC_RE・SEG_URI_RE・iso_epoch・epoch_iso・video_id)が ytt.recproto の同じ物(写しを作らない)",
-       "src/pipeline/analyze/tests/test_live_excite_worker.py test_same_objects")
+       "tests/pipeline/analyze/test_live_excite_worker.py test_same_objects")
 def c_recproto_same_objects():
     from ytt import recproto
     from flow import live_export as LX
@@ -472,7 +472,7 @@ def c_recproto_same_objects():
     return out
 
 
-@check("C-17", "フォルダの並び(app・studio・editor・cut2resolve)・ツールの場所・serve.py の実在・holo-colors の場所", "src/ytt/tests/test_ytt_core.py test_tool_dirs")
+@check("C-17", "フォルダの並び(app・studio・editor・cut2resolve)・ツールの場所・serve.py の実在・holo-colors の場所", "tests/ytt/test_ytt_core.py test_tool_dirs")
 def c_layout():
     from ytt import layout
     top = REPO
@@ -500,7 +500,7 @@ def c_layout():
     return out
 
 
-@check("C-18", "名簿(roster.json)の形: 人は組に入る・呼び名は 1 人だけ・地域は組から決めた物と合う・グループ名は人でない", "src/editor/tests/test_roster.py test_members_are_in_groups・test_member_regions_follow_groups")
+@check("C-18", "名簿(roster.json)の形: 人は組に入る・呼び名は 1 人だけ・地域は組から決めた物と合う・グループ名は人でない", "tests/pipeline/transcribe/test_roster.py test_members_are_in_groups・test_member_regions_follow_groups")
 def c_roster_file():
     from pipeline.transcribe import roster as R
     path = os.path.join(SRC, "editor", "hololive-roster.json")
@@ -522,14 +522,14 @@ def c_roster_file():
 
 # ---------------------------------------------------------------- 突き合わせ(ツール別)
 
-@check("C-19", "cut2resolve の作業フォルダ名が ytt.schemas.WORK_DIR と同じ(コマンドは ytt を読まない写しを持つ)", "src/cut2resolve/tests/test_serve.py test_work_dir_matches_ytt_core", "c2r")
+@check("C-19", "cut2resolve の作業フォルダ名が ytt.schemas.WORK_DIR と同じ(コマンドは ytt を読まない写しを持つ)", "tests/cut2resolve/test_serve.py test_work_dir_matches_ytt_core", "c2r")
 def c_c2r_work_dir():
     import serve
     from ytt import schemas as ys
     return [] if serve.C.WORK_DIR == ys.WORK_DIR else ["cut2resolve の WORK_DIR(%r)が ytt.schemas.WORK_DIR(%r)と違う" % (serve.C.WORK_DIR, ys.WORK_DIR)]
 
 
-@check("C-20", "編集のツールの識別子(APP_ID)と案件の書き出しの名前が ytt.runtime の表(TOOL_APPS)と同じ", "src/editor/tests/test_edit.py test_same_as_runtime_table", "editor")
+@check("C-20", "編集のツールの識別子(APP_ID)と案件の書き出しの名前が ytt.runtime の表(TOOL_APPS)と同じ", "tests/editor/test_edit.py test_same_as_runtime_table", "editor")
 def c_editor_identity():
     import serve as S
     from ytt import runtime
@@ -542,7 +542,7 @@ def c_editor_identity():
     return out
 
 
-@check("C-21", "スタジオのツールの識別子(APP_ID・server_version・書き出しの tool)が ytt.runtime の表(TOOL_APPS)と同じ", "src/studio/tests/test_handoff.py test_same_as_runtime_table", "studio")
+@check("C-21", "スタジオのツールの識別子(APP_ID・server_version・書き出しの tool)が ytt.runtime の表(TOOL_APPS)と同じ", "tests/studio/test_handoff.py test_same_as_runtime_table", "studio")
 def c_studio_identity():
     import startup  # noqa: F401  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
     import serve
@@ -556,7 +556,7 @@ def c_studio_identity():
 # ---------------------------------------------------------------- 友人に配る zip の決まり(dev/build_friend_zip.py)
 
 @check("C-22", "友人に配る zip: 名簿・鍵・出力先の既定の置き場所が決まった場所・必須の src が git の追跡に入る・yt-dlp は公式の版で固定・本物の src に個人データが無い・wheel の版の読み方",
-       "dev/tests/test_build_friend_zip.py test_default_members_and_key_sources・test_required_src_is_tracked・test_ytdlp_pinned_to_official_hash・test_real_src_is_clean・test_pins_from_requirements", "dev")
+       "tests/dev/test_build_friend_zip.py test_default_members_and_key_sources・test_required_src_is_tracked・test_ytdlp_pinned_to_official_hash・test_real_src_is_clean・test_pins_from_requirements", "dev")
 def c_build_friend_zip():
     import re
     import shutil

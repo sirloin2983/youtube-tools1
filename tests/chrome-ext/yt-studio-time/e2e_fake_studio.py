@@ -7,7 +7,7 @@ Studio の本物の作り(内部 API の鍵の名前・行の class)が変わっ
 ブラウザ: 拡張を --load-extension で入れられるものが要る。本物の Chrome は 137 以降この引数を受け付けない(拡張は入らない)ので、
 Edge(Windows に最初から入っている)→ Playwright の chromium(headless → 窓あり)の順に試す。
 必要: playwright。1 本ずつ・PYTHONIOENCODING=utf-8 で:
-  py -3.12 chrome-ext/yt-studio-time/tests/e2e_fake_studio.py
+  py -3.12 tests/chrome-ext/yt-studio-time/e2e_fake_studio.py
 """
 import json
 import os
@@ -18,7 +18,7 @@ import time
 from playwright.sync_api import sync_playwright
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-EXT = os.path.dirname(HERE)                       # manifest.json のあるフォルダ
+EXT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(HERE))), "chrome-ext", "yt-studio-time")                       # manifest.json のあるフォルダ
 T1, T2, T3, T4 = 1759640580, 1759600000, 1759700000, 1759800000   # 公開・アップロードの秒(画面にはローカル時刻で出る)
 EDGE = [p for p in (r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe", r"C:\Program Files\Microsoft\Edge\Application\msedge.exe")
         if os.path.exists(p)]

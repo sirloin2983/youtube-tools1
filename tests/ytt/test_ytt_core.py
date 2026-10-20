@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""ytt のテスト。  python -m unittest src/ytt/tests/test_ytt_core.py -v
+"""ytt のテスト。  python -m unittest tests/ytt/test_ytt_core.py -v
 ネットワークは 127.0.0.1 の空きポートだけを使う。"""
 import http.server
 import json
@@ -14,12 +14,13 @@ import time
 import unittest
 from unittest import mock
 
-REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ytt/tests の2つ上 = src(ツールの親)
+REPO = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # ytt/tests の2つ上 = src(ツールの親)
 TOP = os.path.dirname(REPO)   # リポジトリ直下(dev/・friend-apps/・setup/)
 sys.path.insert(0, REPO)
 from manage.cases import txindex  # noqa: E402
 from ytt import colors, datadir, errors, fsio, httpsec, jobs, layout, mediainfo, pick, procs, runtime, schemas, studio_env, tools  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 
 def locked(winerror=32):
@@ -1522,8 +1523,8 @@ class TestDatadir(unittest.TestCase):
         import glob
         import re
         bad = []
-        files = sorted(glob.glob(os.path.join(REPO, "**", "tests", "test_*.py"), recursive=True) + glob.glob(os.path.join(REPO, "**", "tests", "e2e_*.py"), recursive=True)
-                       + glob.glob(os.path.join(TOP, "dev", "tests", "test_*.py")) + glob.glob(os.path.join(TOP, "dev", "tests", "e2e_*.py")))   # テストは各フォルダの tests/(段0。役割の層は pipeline/pack/tests のように入れ子)。dev/ は src の外
+        tests_dir = os.path.join(os.path.dirname(REPO), "tests")   # テストはリポジトリ直下の tests/(層の形 tests/pipeline/pack・tests/dev)
+        files = sorted(glob.glob(os.path.join(tests_dir, "**", "test_*.py"), recursive=True) + glob.glob(os.path.join(tests_dir, "**", "e2e_*.py"), recursive=True))
         self.assertTrue(any(os.path.basename(f) == "test_launch.py" for f in files), "テストの場所が見つからない")
         for f in files:
             with open(f, encoding="utf-8") as fp:

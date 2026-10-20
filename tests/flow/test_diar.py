@@ -1,18 +1,18 @@
 # -*- coding: utf-8 -*-
 """flow/diar(② 話者判別と声の段取り)のうち、行の選び方と照合のつなぎ・覚えた声の記録のテスト(RS7-1 1e)。
 
-    py -3.12 -m unittest src/flow/tests/test_diar.py -v
+    py -3.12 -m unittest tests/flow/test_diar.py -v
 
 - voice_learn_rows: 短い行・混声は ② が数え、校正済みか音のメモかは accept(③)に任せる。数える順は 1 秒未満 → 混ざる → accept の理由
 - merge_voice: learnedFrom(文書の指定が無い・古い形・確かめるの声のカードの行の控え)
-行 → 声の特徴 → 照合のつなぎ(match_known_voices)と、同じ文書から 2 回覚える形は、本物の判別の通し(src/editor/tests/test_voices.py の TestDiarRealRun)が確かめる。
+行 → 声の特徴 → 照合のつなぎ(match_known_voices)と、同じ文書から 2 回覚える形は、本物の判別の通し(tests/human/proof/test_voices.py の TestDiarRealRun)が確かめる。
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 import sys
 import unittest
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # tests -> flow -> src
 sys.path.insert(0, SRC)
 from flow import diar  # noqa: E402
 from ytt import txbase  # noqa: E402

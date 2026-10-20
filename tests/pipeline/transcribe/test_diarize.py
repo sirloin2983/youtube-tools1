@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """pipeline/transcribe/diarize(話者判別の計算・判別の記録・声の特徴)を、編集の serve を読まずに使うテスト。
 
-    py -3.12 -m unittest src/pipeline/transcribe/tests/test_diarize.py -v
+    py -3.12 -m unittest tests/pipeline/transcribe/test_diarize.py -v
 
-本物の sherpa-onnx で判別 → 声を覚える → 判別し直すまでの通しは src/editor/tests/test_voices.py の TestDiarRealRun。ここに残すのは、その通しの声の見本では
+本物の sherpa-onnx で判別 → 声を覚える → 判別し直すまでの通しは tests/human/proof/test_voices.py の TestDiarRealRun。ここに残すのは、その通しの声の見本では
 決まって起こせない境目(2 人にまたがる行・区間の外・offset・同じ話者どうしの重なり・混ぜる重みの上限と次元の違い)・置き場所・記録の上限・
 サーバーからワーカーへの頼み方(通しはワーカーの中で読むので通らない)。
 """
@@ -13,9 +13,10 @@ import sys
 import unittest
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 from pipeline.transcribe import backend, diarize, worker_client  # noqa: E402
 from ytt import workdata  # noqa: E402
 

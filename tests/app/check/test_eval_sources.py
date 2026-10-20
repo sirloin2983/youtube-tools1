@@ -1,7 +1,7 @@
 """評価のレーンの区間カードの出どころ(src/app/check/eval_sources.py。C-EVAL)の単体テスト: 区切り方・行の持ち主・スイッチ・
 評価用の文書だけ・答えた区間の続きから・普段のレーンに出ない・確かめ済みは出さない。一時フォルダの文書だけを使う。
 
-実行(リポジトリ直下から): py -3.12 -m unittest src/app/check/tests/test_eval_sources.py -v
+実行(リポジトリ直下から): py -3.12 -m unittest tests/app/check/test_eval_sources.py -v
 """
 import json
 import os

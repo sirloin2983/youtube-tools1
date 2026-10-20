@@ -2,7 +2,7 @@
 """① 文字起こしの行の後処理(clipjob.make_doc_rows = 整える postproc → 名前を外す B → 末尾の重複 C と別の読み A → 印・置換辞書 → 名簿の呼び名 D → LLM E)を、
 編集の serve を読まずに 1 回通すテスト。
 
-    py -3.12 -m unittest src/pipeline/transcribe/tests/test_postproc.py -v
+    py -3.12 -m unittest tests/pipeline/transcribe/test_postproc.py -v
 
 認識の出力の見本(単語の時刻・続いている行・同じ文字の行・文字の少ない行・末尾の重複・決まり文句・行の中の繰り返し・同じ文の繰り返し・ヒントの語だけ・英字・
 名簿の呼び名の聞き違い・置換辞書・空の行・長さの外・頭の「名前:」・自信の度合い)を、本物の後処理の入口に通して答えをまとめて確かめる。
@@ -16,11 +16,12 @@ import sys
 import unittest
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
 from pipeline.transcribe import backend, clipjob, fill, llm, postproc, recognize, roster  # noqa: E402
 from ytt import studiodata, txbase, txtext, workdata  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 FILLED = "ラミーちゃんが来てくれてとても嬉しいです"   # 窓の読み(元の 5 字の 3 倍以上)。名簿の呼び名に近い所があっても後処理の行は LLM に選ばれない
 DUR = 220.0

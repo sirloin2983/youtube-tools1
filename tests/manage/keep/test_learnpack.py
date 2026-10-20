@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""manage/keep/learnpack(学習の束を作る側)のテスト。  py -3.12 -m unittest src/manage/keep/tests/test_learnpack.py -v
+"""manage/keep/learnpack(学習の束を作る側)のテスト。  py -3.12 -m unittest tests/manage/keep/test_learnpack.py -v
 
 - 束ができる(learning.json の sha256・size が中身と合う・latest.json・設定は置換辞書と用語集だけ)
 - 元が変わらなければ作らない / 変われば新しい版 / 直近 3 版を残して古い版は消す
@@ -14,12 +14,13 @@ import sys
 import unittest
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> keep -> manage -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> keep -> manage -> src
 sys.path.insert(0, SRC)
 from human.proof import doc_jobs, learn  # noqa: E402
 from manage.keep import learnpack  # noqa: E402
 from pipeline.transcribe import replace  # noqa: E402
-from ytt.tests.testkit import read_json as rd, tempdir, write_json as jwrite  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+from testkit import read_json as rd, tempdir, write_json as jwrite  # noqa: E402
 
 RULES = {
     ("ぺこ", "ぺこら"): {"pos": 4, "docs": {"a", "b"}, "pctx": [("あ", "い")] * 4, "neg": [], "ctx": False},                 # 高

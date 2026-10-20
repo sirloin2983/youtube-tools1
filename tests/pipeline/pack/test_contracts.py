@@ -1,18 +1,18 @@
 # -*- coding: utf-8 -*-
-"""別のプログラムが読む形の見本(src/ytt/tests/fixtures/contracts/ の clip/v1.json・transcript/v1.json)。書く側が書いた形は見本と同じ鍵・
-読む側(文字起こしの受付が読む .clip.json・cut2resolve が読む .transcript.json)は見本を読める。  py -3.12 -m unittest src/pipeline/pack/tests/test_contracts.py"""
+"""別のプログラムが読む形の見本(tests/ytt/fixtures/contracts/ の clip/v1.json・transcript/v1.json)。書く側が書いた形は見本と同じ鍵・
+読む側(文字起こしの受付が読む .clip.json・cut2resolve が読む .transcript.json)は見本を読める。  py -3.12 -m unittest tests/pipeline/pack/test_contracts.py"""
 import json
 import os
 import sys
 import tempfile
 import unittest
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> pack -> pipeline -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> pack -> pipeline -> src
 sys.path.insert(0, SRC)
 from pipeline.pack import cut2resolve_core as C, resolve_export as RE  # noqa: E402
 from ytt import schemas  # noqa: E402
 
-FIX = os.path.join(SRC, "ytt", "tests", "fixtures", "contracts")
+FIX = os.path.join(os.path.dirname(SRC), "tests", "ytt", "fixtures", "contracts")
 
 
 def sample(name):

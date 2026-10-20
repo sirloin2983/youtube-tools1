@@ -1,4 +1,4 @@
-"""計画のデータ plan/data/ をテストの一時フォルダに置く道具(dev/tests/test_plan_data.py・test_plan_artifact.py が使う)。"""
+"""計画のデータ plan/data/ をテストの一時フォルダに置く道具(tests/dev/test_plan_data.py・test_plan_artifact.py が使う)。"""
 import json
 import os
 import sys

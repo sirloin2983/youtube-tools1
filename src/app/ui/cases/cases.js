@@ -578,7 +578,7 @@
     else load(false);
   });
 
-  /* 画面のテスト(src/app/tests/e2e_cases_*.py)と確かめる(V1)が今の状態を読む口 */
+  /* 画面のテスト(tests/app/e2e_cases_*.py)と確かめる(V1)が今の状態を読む口 */
   window.CasesShell = {
     state: function () { var it = curItem(); return { caseId: S.kase ? S.kase.id : '', sel: S.sel, tab: S.tab, docId: it ? it.docId || '' : '', pollMs: S.pollMs, rev: S.status.rev, panel: S.panelTab }; },
     select: select, setTab: setTab, next: goNext, reload: function () { return load(true); }, poll: function () { poll(); }

@@ -2,7 +2,7 @@
 スイッチ(環境変数と編集の設定)・3 つの出どころの登録・答えと Z が文書と編集の内容(.edit.json)を変えないこと。
 一時の作業データの文書と編集の内容だけを使う。
 
-実行(リポジトリ直下から): py -3.12 -m unittest src/human/check/tests/test_cutcard.py -v
+実行(リポジトリ直下から): py -3.12 -m unittest tests/human/check/test_cutcard.py -v
 """
 import os
 import sys
@@ -10,15 +10,17 @@ import unittest
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> check -> human -> src
+ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> check -> human -> src
 for _p in (os.path.join(ROOT, "editor"), ROOT):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
 from human.check import answerlog, apply, cutcard  # noqa: E402
 from human.proof import store  # noqa: E402
-from human.tests._workdata import temporary_workdata  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "human"))   # tests/human/(_workdata)
+from _workdata import temporary_workdata  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 TID = "0123456789ab"
 KEEPS = [[0.0, 10.0], [10.5, 20.0], [22.0, 30.0]]

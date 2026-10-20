@@ -83,7 +83,7 @@
       build\HoloColors.exe    アプリ(動いていれば、先に終了させてから作り直す)
       build\HoloColorsTests.exe  テスト 31 件(build.bat が流す。失敗したら dist は作らない)
       dist\HoloColors.zip     友人に送るもの(HoloColors.exe・members.json・この README.txt)
-  - 通しの確認: python friend-apps\holo-colors\tests\e2e_holo_colors.py(本物のキー入力とクリックを送る。流す間はマウスとキーボードに触らない)
+  - 通しの確認: python tests\friend-apps\holo-colors\e2e_holo_colors.py(本物のキー入力とクリックを送る。流す間はマウスとキーボードに触らない)
   - ソース: src\(C# 5 で書く。$"" ・ ?. ・ => のメンバーは使えない)と、切り抜き依頼と共通の部品 ..\common\(JSON の読み書き Json.cs・記録 Log.cs。build.bat が一緒にコンパイルする)。
     設計と決めたこと: docs\design\holo-colors.md
   - メンバーの色を直す: members.json を直して build.bat → dist の zip を送り直す(形と調べ方: docs\design\holo-colors.md・holo-colors-research.md)。

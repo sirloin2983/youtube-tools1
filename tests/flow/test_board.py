@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""flow/board.py(② のジョブの掲示板。RS8 の ② の口 S1)のテスト。  py -3.12 -m unittest src/flow/tests/test_board.py -v
+"""flow/board.py(② のジョブの掲示板。RS8 の ② の口 S1)のテスト。  py -3.12 -m unittest tests/flow/test_board.py -v
 形の検査・押す形(upsert)と引く形(register の source)・rev・終わった直近の数・案件ごとの絞り込みとまとめ・親子の印・取り消しとやり直しの振り分け。
 器ごとに「状態が変わったら掲示板にその id がその state で載る」は各器のテスト(② の Run は test_runqueue.py)。
 """
@@ -9,11 +9,12 @@ import sys
 import tempfile
 import unittest
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # tests -> flow -> src
 sys.path.insert(0, SRC)
 from flow import board as B  # noqa: E402
 from ytt import fsio  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 ROOT = os.path.abspath(os.path.join(tempfile.gettempdir(), "案件A"))
 OTHER = os.path.abspath(os.path.join(tempfile.gettempdir(), "案件B"))

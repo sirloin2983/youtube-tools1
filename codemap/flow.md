@@ -103,45 +103,46 @@
 
 ## テスト
 
-- src/flow/tests/_livefix.py — ライブのテストが共有する部品(偽の設定・偽のスタジオ・偽の親の組み立て・HLS の偽物の入口)。
-- src/flow/tests/_runfields.py — テストが共有する部品: Run の欄の形(Run(video_id, title, mode, top, 欄...))から Run を作る(Run を作るのは封筒 + 束だけ = RV A2)。
-- src/flow/tests/test_board.py — flow/board.py(② のジョブの掲示板。RS8 の ② の口 S1)のテスト。  py -3.12 -m unittest src/flow/tests/test_board.py -v
-- src/flow/tests/test_casebook.py — src/flow/casebook.py(案件の候補と採用のファイル。RS8 B3-3)のテスト。リポジトリ直下で:
-- src/flow/tests/test_deliver.py — パックを友人へ届ける(src/flow/deliver.py・入口の api/ytt/deliver)のテスト。正しく動く道は本物の ffmpeg の通し(DeliverRun)で、
-- src/flow/tests/test_deliveries.py — flow/deliveries.py(届けた記録・送らなかった記録の読み口)と flow/delivery.switched_off のうち、通しでは起こせない物:
-- src/flow/tests/test_diar.py — flow/diar(② 話者判別と声の段取り)のうち、行の選び方と照合のつなぎ・覚えた声の記録のテスト(RS7-1 1e)。
-- src/flow/tests/test_envelope.py — flow/envelope.py(依頼の封筒。RS7-1 S3)のテスト。  py -3.12 -m unittest src/flow/tests/test_envelope.py -v
-- src/flow/tests/test_export_jobs.py — ② 書き出しの器 flow/export.ExportJobs(OPT2 の J2)。① の中身(exporter.run)は差し替える。
-- src/flow/tests/test_jobs_board.py — flow/jobs の掲示板への見せ方(RS8 の ② の口 S2。頭 tx)。
-- src/flow/tests/test_jobs_table.py — flow/jobs.Table(② の 1 つの器。OPT2 後半 J6): 積む・糸・枠・状態・取り消し・やり直し・履歴・busy・終了の流れ・掲示板
-- src/flow/tests/test_keys.py — flow/keys(② 成果物の鍵を書く・読む。役割で組み直す RS6 b-K1)のテスト。
-- src/flow/tests/test_learning.py — flow/learning(学習データを読む側。F1)のテスト。  py -3.12 -m unittest src/flow/tests/test_learning.py -v
-- src/flow/tests/test_lengthhint.py — flow/lengthhint(長さの目安を ② でその場で数える。OPT-E2 7f-1)のテスト。作業データは一時フォルダに作る。
-- src/flow/tests/test_live_adopt.py — flow/live_adopt(ライブの採用 = マーク + 書き出し)のテスト。  py -3.12 -m unittest src/flow/tests/test_live_adopt.py -v
-- src/flow/tests/test_live_archive.py — 録画に無い区間をアーカイブから書き出す・配信後の全自動(線 D。src/flow/live_archive.py・src/pipeline/ingest/live_align_worker.py)のテスト。
-- src/flow/tests/test_live_detect.py — 配信中の盛り上がりの検出の ② の側 src/flow/live_detect.py(Detector)と、その上に載る自動の採用(M11)・配信ごとの記録・友人の依頼のテスト。
-- src/flow/tests/test_live_export.py — ライブの書き出し(② の src/flow/live_export.py の Exporter)・採用・失敗の集約(src/flow/live_failures.py)のテスト。
-- src/flow/tests/test_live_recorder.py — ライブ係(flow/livesession.LiveSession)の録画元まわりのテスト: 配信の状態を調べる yt-dlp の呼び方(probe_live・validate_url)・
-- src/flow/tests/test_live_request.py — 友人のライブ配信の依頼(notes:docs/spec/friend.md の 2-15)の ② の側: ライブ係 flow/livesession.LiveSession の begin_request(録画を始めて依頼に結びつける)と、
-- src/flow/tests/test_live_retire.py — 録画の片付けの ② の口(src/flow/live_retire.py の Retire。OPT2 の 7x-1)と、書き出しのジョブの切り詰め(live_export の _trim・cleaned_up。7e-3)のテスト。
-- src/flow/tests/test_live_rules.py — 友人のライブ配信の依頼と録画の結びつき(src/flow/live_rules.py の RequestBook。作業データの live/requests.json。2-15)のテスト。
-- src/flow/tests/test_live_tx.py — 配信中の候補の文字起こし(線 D の D-11 案 b)のテスト。② の側 src/flow/live_tx.py(入口 home の Live は使わず、ライブ係 flow/livesession.LiveSession で組む)。
-- src/flow/tests/test_livehost.py — flow/livehost(ライブの親の口。役割で組み直す RS7-2 G0)のテスト。  py -3.12 -m unittest src/flow/tests/test_livehost.py -v
-- src/flow/tests/test_livesession.py — flow/livesession(ライブ係)のテスト。  py -3.12 -m unittest src/flow/tests/test_livesession.py -v
-- src/flow/tests/test_machine.py — flow/machine(この PC の設定。役割で組み直す RS7-1 S1)のテスト。  py -3.12 -m unittest src/flow/tests/test_machine.py -v
-- src/flow/tests/test_order.py — flow/order.py(欄 → 封筒 + 束の差分。RV A1)のテスト。  py -3.12 -m unittest src/flow/tests/test_order.py -v
-- src/flow/tests/test_outbox.py — src/flow/outbox.py(送り返しの zip。F1 の F2)のテスト。リポジトリ直下で:
-- src/flow/tests/test_pack_ingest.py — ② flow/pack.py・flow/ingest.py の動詞。  py -3.12 -m unittest src/flow/tests/test_pack_ingest.py -v
-- src/flow/tests/test_packjobs.py — flow/packjobs.py(パックのジョブの器。OPT2 J3): 同時 1 本・取り消し・履歴・SLOTS・掲示板の形
-- src/flow/tests/test_packrec.py — flow/packrec.py(パックを作った記録)の整理: 記録が MAX_RECORDS を超えたときに消す物・残す物
-- src/flow/tests/test_placement.py — flow/placement(② 置き場所の持ち主・結果の束・.flow.lock。RS6 b-B0)のテスト。
-- src/flow/tests/test_prio.py — flow/prio(処理の優先度の 1 つの表。PRIO・決定 3-49): 表・級の決め方・重い処理の枠の順番と「空いているときだけ」・
-- src/flow/tests/test_run.py — pipeline/run.py(① の経路。RS1-7)のテスト。  py -3.12 -m unittest src/flow/tests/test_run.py -v
-- src/flow/tests/test_runlog.py — pipeline/runlog.py(終わった実行の記録の形と読み方。RS3-0B)のテスト。  py -3.12 -m unittest src/flow/tests/test_runlog.py -v
-- src/flow/tests/test_runqueue.py — flow/runqueue.py(② の待ち行列と実行の糸。RS7-1 S5)のテスト。  py -3.12 -m unittest src/flow/tests/test_runqueue.py -v
-- src/flow/tests/test_spec.py — pipeline/spec.py(① に渡す指定の束の形・既定値・検査。RS1-6)のテスト。  py -3.12 -m unittest src/flow/tests/test_spec.py -v
-- src/flow/tests/test_studiobook.py — src/flow/studiobook.py(スタジオなしの配信の台帳と URL の段の動詞。RS8 の「URL も CLI で」)のテスト。リポジトリ直下で:
-- src/flow/tests/test_tools.py — flow/tools(段が道具を呼ぶ継ぎ目。段が道具を呼ぶ継ぎ目)のテスト。  py -3.12 -m unittest src/flow/tests/test_tools.py -v
-- src/flow/tests/test_tx.py — flow/tx(② 文字起こしの動詞)の最小のテスト。編集の serve を読まずに、疑似のエンジンで使う。
-- src/flow/tests/test_wire.py — flow/wire(② 文字起こしの配線。役割で組み直す RS6 a-5b)の最小のテスト。編集の serve を読まず、③⑤ の物なしで install を呼ぶ。
-- src/flow/tests/test_wire_setup.py — flow/wire の入口なしの準備(setup_places・setup_headless。OPT-E2 1c-1・設計原則のレビューの指摘 4)のテスト。編集の serve は読まない。
+- tests/flow/_livefix.py — ライブのテストが共有する部品(偽の設定・偽のスタジオ・偽の親の組み立て・HLS の偽物の入口)。
+- tests/flow/_runfields.py — テストが共有する部品: Run の欄の形(Run(video_id, title, mode, top, 欄...))から Run を作る(Run を作るのは封筒 + 束だけ = RV A2)。
+- tests/flow/test_board.py — flow/board.py(② のジョブの掲示板。RS8 の ② の口 S1)のテスト。  py -3.12 -m unittest tests/flow/test_board.py -v
+- tests/flow/test_casebook.py — src/flow/casebook.py(案件の候補と採用のファイル。RS8 B3-3)のテスト。リポジトリ直下で:
+- tests/flow/test_deliver.py — パックを友人へ届ける(src/flow/deliver.py・入口の api/ytt/deliver)のテスト。正しく動く道は本物の ffmpeg の通し(DeliverRun)で、
+- tests/flow/test_deliveries.py — flow/deliveries.py(届けた記録・送らなかった記録の読み口)と flow/delivery.switched_off のうち、通しでは起こせない物:
+- tests/flow/test_diar.py — flow/diar(② 話者判別と声の段取り)のうち、行の選び方と照合のつなぎ・覚えた声の記録のテスト(RS7-1 1e)。
+- tests/flow/test_envelope.py — flow/envelope.py(依頼の封筒。RS7-1 S3)のテスト。  py -3.12 -m unittest tests/flow/test_envelope.py -v
+- tests/flow/test_export_jobs.py — ② 書き出しの器 flow/export.ExportJobs(OPT2 の J2)。① の中身(exporter.run)は差し替える。
+- tests/flow/test_jobs_board.py — flow/jobs の掲示板への見せ方(RS8 の ② の口 S2。頭 tx)。
+- tests/flow/test_jobs_table.py — flow/jobs.Table(② の 1 つの器。OPT2 後半 J6): 積む・糸・枠・状態・取り消し・やり直し・履歴・busy・終了の流れ・掲示板
+- tests/flow/test_keys.py — flow/keys(② 成果物の鍵を書く・読む。役割で組み直す RS6 b-K1)のテスト。
+- tests/flow/test_learning.py — flow/learning(学習データを読む側。F1)のテスト。  py -3.12 -m unittest tests/flow/test_learning.py -v
+- tests/flow/test_lengthhint.py — flow/lengthhint(長さの目安を ② でその場で数える。OPT-E2 7f-1)のテスト。作業データは一時フォルダに作る。
+- tests/flow/test_live_adopt.py — flow/live_adopt(ライブの採用 = マーク + 書き出し)のテスト。  py -3.12 -m unittest tests/flow/test_live_adopt.py -v
+- tests/flow/test_live_archive.py — 録画に無い区間をアーカイブから書き出す・配信後の全自動(線 D。src/flow/live_archive.py・src/pipeline/ingest/live_align_worker.py)のテスト。
+- tests/flow/test_live_detect.py — 配信中の盛り上がりの検出の ② の側 src/flow/live_detect.py(Detector)と、その上に載る自動の採用(M11)・配信ごとの記録・友人の依頼のテスト。
+- tests/flow/test_live_export.py — ライブの書き出し(② の src/flow/live_export.py の Exporter)・採用・失敗の集約(src/flow/live_failures.py)のテスト。
+- tests/flow/test_live_recorder.py — ライブ係(flow/livesession.LiveSession)の録画元まわりのテスト: 配信の状態を調べる yt-dlp の呼び方(probe_live・validate_url)・
+- tests/flow/test_live_request.py — 友人のライブ配信の依頼(notes:docs/spec/friend.md の 2-15)の ② の側: ライブ係 flow/livesession.LiveSession の begin_request(録画を始めて依頼に結びつける)と、
+- tests/flow/test_live_retire.py — 録画の片付けの ② の口(src/flow/live_retire.py の Retire。OPT2 の 7x-1)と、書き出しのジョブの切り詰め(live_export の _trim・cleaned_up。7e-3)のテスト。
+- tests/flow/test_live_rules.py — 友人のライブ配信の依頼と録画の結びつき(src/flow/live_rules.py の RequestBook。作業データの live/requests.json。2-15)のテスト。
+- tests/flow/test_live_tx.py — 配信中の候補の文字起こし(線 D の D-11 案 b)のテスト。② の側 src/flow/live_tx.py(入口 home の Live は使わず、ライブ係 flow/livesession.LiveSession で組む)。
+- tests/flow/test_livehost.py — flow/livehost(ライブの親の口。役割で組み直す RS7-2 G0)のテスト。  py -3.12 -m unittest tests/flow/test_livehost.py -v
+- tests/flow/test_livesession.py — flow/livesession(ライブ係)のテスト。  py -3.12 -m unittest tests/flow/test_livesession.py -v
+- tests/flow/test_machine.py — flow/machine(この PC の設定。役割で組み直す RS7-1 S1)のテスト。  py -3.12 -m unittest tests/flow/test_machine.py -v
+- tests/flow/test_normalize30.py — 素材を 30fps にそろえるテスト: ② flow/normalize の段・動画を選び直す(④ の付け替え)。
+- tests/flow/test_order.py — flow/order.py(欄 → 封筒 + 束の差分。RV A1)のテスト。  py -3.12 -m unittest tests/flow/test_order.py -v
+- tests/flow/test_outbox.py — src/flow/outbox.py(送り返しの zip。F1 の F2)のテスト。リポジトリ直下で:
+- tests/flow/test_pack_ingest.py — ② flow/pack.py・flow/ingest.py の動詞。  py -3.12 -m unittest tests/flow/test_pack_ingest.py -v
+- tests/flow/test_packjobs.py — flow/packjobs.py(パックのジョブの器。OPT2 J3): 同時 1 本・取り消し・履歴・SLOTS・掲示板の形
+- tests/flow/test_packrec.py — flow/packrec.py(パックを作った記録)の整理: 記録が MAX_RECORDS を超えたときに消す物・残す物
+- tests/flow/test_placement.py — flow/placement(② 置き場所の持ち主・結果の束・.flow.lock。RS6 b-B0)のテスト。
+- tests/flow/test_prio.py — flow/prio(処理の優先度の 1 つの表。PRIO・決定 3-49): 表・級の決め方・重い処理の枠の順番と「空いているときだけ」・
+- tests/flow/test_run.py — pipeline/run.py(① の経路。RS1-7)のテスト。  py -3.12 -m unittest tests/flow/test_run.py -v
+- tests/flow/test_runlog.py — pipeline/runlog.py(終わった実行の記録の形と読み方。RS3-0B)のテスト。  py -3.12 -m unittest tests/flow/test_runlog.py -v
+- tests/flow/test_runqueue.py — flow/runqueue.py(② の待ち行列と実行の糸。RS7-1 S5)のテスト。  py -3.12 -m unittest tests/flow/test_runqueue.py -v
+- tests/flow/test_spec.py — pipeline/spec.py(① に渡す指定の束の形・既定値・検査。RS1-6)のテスト。  py -3.12 -m unittest tests/flow/test_spec.py -v
+- tests/flow/test_studiobook.py — src/flow/studiobook.py(スタジオなしの配信の台帳と URL の段の動詞。RS8 の「URL も CLI で」)のテスト。リポジトリ直下で:
+- tests/flow/test_tools.py — flow/tools(段が道具を呼ぶ継ぎ目。段が道具を呼ぶ継ぎ目)のテスト。  py -3.12 -m unittest tests/flow/test_tools.py -v
+- tests/flow/test_tx.py — flow/tx(② 文字起こしの動詞)の最小のテスト。編集の serve を読まずに、疑似のエンジンで使う。
+- tests/flow/test_wire.py — flow/wire(② 文字起こしの配線。役割で組み直す RS6 a-5b)の最小のテスト。編集の serve を読まず、③⑤ の物なしで install を呼ぶ。
+- tests/flow/test_wire_setup.py — flow/wire の入口なしの準備(setup_places・setup_headless。OPT-E2 1c-1・設計原則のレビューの指摘 4)のテスト。編集の serve は読まない。

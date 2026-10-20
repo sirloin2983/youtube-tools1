@@ -55,7 +55,7 @@ BAD_NAME_RE = re.compile(r"^settings.*\.json$|\.jsonl(\.old)?$|\.log(\.old)?$|\.
 BAD_DIRS = {"transcripts", "dataset", "models", "cache", "archive", "exports", "clips", "work", "logs", ".runtime", "0old", ".whisper_models", "evals",
             "browser-profile"}   # browser-profile: 窓(Edge のアプリモード)の専用のプロファイル(閲覧の記録・Cookie。段階7-3)
 # 検査の対象外(この検査自身とテスト。テストは偽物のキー・名前を使う)
-ALLOW = {"dev/push_helper.py", "dev/tests/test_push_helper.py"}
+ALLOW = {"dev/push_helper.py", "tests/dev/test_push_helper.py"}
 
 
 def git(*args, check=True, cwd=None):

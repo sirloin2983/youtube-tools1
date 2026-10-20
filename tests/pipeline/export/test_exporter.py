@@ -3,7 +3,7 @@
 (TestExportThrough・TestLiveSection の通し)で、本物の ffmpeg で合成した 30 秒の見本から書き出して出来上がった物をまとめて見る。
 単体は通しでは起こせない物だけ(途中の失敗・中止・上書きの瞬間・古い ffmpeg・落ちた後の書きかけ・保存の失敗・ログの上限・yt-dlp の失敗)。
 
-    py -3.12 -m unittest src/pipeline/export/tests/test_exporter.py
+    py -3.12 -m unittest tests/pipeline/export/test_exporter.py
 """
 import json
 import math
@@ -20,12 +20,13 @@ import unittest
 from unittest.mock import Mock, patch
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(TESTS)))   # tests → export → pipeline → src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(TESTS))), "src")   # tests → export → pipeline → src
 HERE = os.path.join(SRC, "studio")   # テストが使うスタジオの殻 common のあるフォルダ(studio/。exporter 自身は common を読まない)
 sys.path.insert(0, HERE)
 sys.path.insert(0, SRC)
 import startup  # noqa: E402,F401  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 from ytt import errors, jobs, mediainfo, studio_env  # noqa: E402
 from pipeline.export import exporter  # noqa: E402
 from flow import board as _board, export as _fexport  # noqa: E402  (指定は ② の build_spec = 台帳から引く口・器は ② の ExportJobs)

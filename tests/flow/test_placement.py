@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """flow/placement(② 置き場所の持ち主・結果の束・.flow.lock。RS6 b-B0)のテスト。
 
-    py -3.12 -m unittest src/flow/tests/test_placement.py -v
+    py -3.12 -m unittest tests/flow/test_placement.py -v
 
 - スタジオの data.json の場所は案件の locations の式・編集の studio_data_path の式・スタジオ自身の studio_env と同じ
 - 案件の根: 配信 = 書き出しと同じ規則のフォルダ(作らない)・動画ファイル = 動画のあるフォルダ・作業用 / runs
@@ -17,9 +17,10 @@ import sys
 import unittest
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # tests -> flow -> src
 sys.path.insert(0, SRC)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # 共有の部品 _runfields(Run の欄の形 → 封筒 + 束。RV A2)
 import _runfields as RF  # noqa: E402
 from flow import keys, placement, run as run_mod, runlog  # noqa: E402

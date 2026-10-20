@@ -1,6 +1,6 @@
 """dev/lint.py(コードの基準を測る道具)の部品のテスト。リポジトリ直下で:
 
-    py -3.12 -m unittest dev/tests/test_lint.py
+    py -3.12 -m unittest tests/dev/test_lint.py
 
 木をなめるのは 1 ファイル 1 回・窓のキーはタプル(出力は変えない)なので、その境目を守る。
 """
@@ -10,11 +10,12 @@ import sys
 import unittest
 from unittest import mock
 
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # dev/
+HERE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "dev")   # dev/
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "src"))
 import lint  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 
 def nodes_of(src):
@@ -87,7 +88,7 @@ class TestStaleRefs(unittest.TestCase):
         self.assertEqual(self.refs('"""② 管理(③ 人の操作を読まない)"""\n', "src/flow/m.py"), [])
 
     def test_tests_are_skipped(self):
-        self.assertEqual(self.refs('"""ed_alt"""\n', "src/human/tests/test_x.py"), [])
+        self.assertEqual(self.refs('"""ed_alt"""\n', "tests/human/test_x.py"), [])
 
 
 if __name__ == "__main__":

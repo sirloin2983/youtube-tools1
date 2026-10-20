@@ -2,7 +2,7 @@
 評価用と処理中を断る・層と食い違わない・声の覚え直し(1 人 30 秒・rows= で行を明示・learnedFrom で 2 度覚えない・待っている覚え直しを数えない)・
 human/proof/speakers.voice_learn_plan の rows=。一時フォルダの作業データだけを使う。
 
-実行(リポジトリ直下から): py -3.12 -m unittest src/human/check/tests/test_voice.py -v
+実行(リポジトリ直下から): py -3.12 -m unittest tests/human/check/test_voice.py -v
 """
 import os
 import sys
@@ -10,7 +10,7 @@ import unittest
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> check -> human -> src
+ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> check -> human -> src
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
@@ -18,8 +18,10 @@ from flow import diar as _diar, jobs as _heavy  # noqa: E402
 from human.check import answerlog, apply, voice  # noqa: E402
 from human.proof import layers, speakers, store  # noqa: E402
 from ytt import schemas, txbase, workdata  # noqa: E402
-from human.tests._workdata import temporary_workdata  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "human"))   # tests/human/(_workdata)
+from _workdata import temporary_workdata  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 TID = "0123456789ab"
 EMB = _diar.default_embedding()

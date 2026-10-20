@@ -5,7 +5,7 @@ import sys
 import tempfile
 import unittest
 
-DEV = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEV = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "dev")
 sys.path.insert(0, DEV)
 import doc_state  # noqa: E402
 import spec_check  # noqa: E402

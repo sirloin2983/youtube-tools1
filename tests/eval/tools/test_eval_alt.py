@@ -1,6 +1,6 @@
 """src/eval/tools/eval_alt.py(2つ目のエンジンとの食い違いの候補の当たり率を測る道具)のテスト。リポジトリ直下で:
 
-    py -3.12 -m unittest src/eval/tools/tests/test_eval_alt.py
+    py -3.12 -m unittest tests/eval/tools/test_eval_alt.py
 
 作業データは一時フォルダに作る(本物の作業データは読まない・書かない)。ネットワーク・ffmpeg・本物のエンジンは使わない。
 ③ の部品を読み込むので、test_eval_asr.py と同じ環境変数の決まり(YTT_DATA_DIR = inplace)に従う。
@@ -16,12 +16,13 @@ import time
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/tools (道具の置き場所)
+HERE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src", "eval", "tools")   # src/eval/tools (道具の置き場所)
 REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 ytt の置き場所)
 sys.path.insert(0, REPO)
 from eval.tools import eval_alt as E  # noqa: E402
 from human.proof import alt as _alt  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 
 def ms(day, hhmm="12:00:00"):

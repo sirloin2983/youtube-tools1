@@ -5,7 +5,7 @@
     python dev/rule_checks.py --list       # 規則の一覧(番号・何を止めるか・どのテストから移したか)
 
 規則 1 つ = 関数 1 つ。関数は「問題の文字列の一覧」を返す(0 件で合格)。頭の @rule(番号, 何を止めるか, 移した元のテスト)が一覧になる。
-中身を取り出して見る部分(`*_problems(…)`)は文字列・辞書を受け取る関数にして、`dev/tests/test_rule_checks.py` が破った見本で止まることを確かめる。
+中身を取り出して見る部分(`*_problems(…)`)は文字列・辞書を受け取る関数にして、`tests/dev/test_rule_checks.py` が破った見本で止まることを確かめる。
 この PC のソースを import して突き合わせる規則(定数が食い違わない・別プロセスで読んだときネイティブ部品が入らない)は `dev/rule_imports.py`
 (子プロセスで流す。lint がまとめて呼ぶ)。画面(HTML・JS・CSS)の見た目の規則は `dev/ui_audit.py` の A-xx。
 """
@@ -93,7 +93,7 @@ def requirements_problems(name, data):
     return out
 
 
-@rule("R-01", ".bat が ASCII だけで CRLF", "dev/tests/test_setup_ascii.py test_bat_ascii_crlf")
+@rule("R-01", ".bat が ASCII だけで CRLF", "tests/dev/test_setup_ascii.py test_bat_ascii_crlf")
 def rule_bat_ascii_crlf(repo=REPO):
     bats = repo_files(repo, "*.bat")
     out = []
@@ -104,7 +104,7 @@ def rule_bat_ascii_crlf(repo=REPO):
     return out
 
 
-@rule("R-02", "setup/requirements*.txt が ASCII だけで cp932 でも読める", "dev/tests/test_setup_ascii.py test_requirements_ascii")
+@rule("R-02", "setup/requirements*.txt が ASCII だけで cp932 でも読める", "tests/dev/test_setup_ascii.py test_requirements_ascii")
 def rule_requirements_ascii(repo=REPO):
     import glob
     reqs = glob.glob(os.path.join(repo, "setup", "requirements*.txt"))
@@ -132,7 +132,7 @@ def push_bat_problems(s):
     return out
 
 
-@rule("R-03", "push.bat の処理の順(削除 → add → 検査 → 保管庫)", "dev/tests/test_push_helper.py test_order_in_push_bat")
+@rule("R-03", "push.bat の処理の順(削除 → add → 検査 → 保管庫)", "tests/dev/test_push_helper.py test_order_in_push_bat")
 def rule_push_bat_order(repo=REPO):
     path = os.path.join(repo, "push.bat")
     if not os.path.isfile(path):
@@ -154,7 +154,7 @@ def suite_problems(repo, suite, not_in_suite, found):
     return out
 
 
-@rule("R-04", "e2e の一覧が実在する物と一致", "dev/tests/test_run_e2e.py test_every_listed_script_exists・test_every_repo_script_is_listed_or_excluded")
+@rule("R-04", "e2e の一覧が実在する物と一致", "tests/dev/test_run_e2e.py test_every_listed_script_exists・test_every_repo_script_is_listed_or_excluded")
 def rule_e2e_suite_listed(repo=REPO):
     import glob
     sys.path.insert(0, HERE)
@@ -171,7 +171,7 @@ def rule_e2e_suite_listed(repo=REPO):
     return suite_problems(repo, run_e2e.SUITE, run_e2e.NOT_IN_SUITE, found)
 
 
-@rule("R-05", "単体テストの層の名前が src のフォルダと一致", "dev/tests/test_run_unit.py test_layer_names_are_src_folders")
+@rule("R-05", "単体テストの層の名前が src のフォルダと一致", "tests/dev/test_run_unit.py test_layer_names_are_src_folders")
 def rule_run_unit_layers(repo=REPO):
     sys.path.insert(0, HERE)
     try:
@@ -249,7 +249,7 @@ def members_problems(d):
 
 
 @rule("R-06", "同梱の members.json が version 2 の決まった形(id の一意・先頭の色が hex と同じ・ラベル 12 字まで・出典が実在)",
-      "friend-apps/holo-colors/tests/CoreTests.cs BundledMembers・src/ytt/tests/test_ytt_core.py test_repo_members_json_is_readable")
+      "tests/friend-apps/holo-colors/CoreTests.cs BundledMembers・tests/ytt/test_ytt_core.py test_repo_members_json_is_readable")
 def rule_members_json(repo=REPO):
     path = os.path.join(repo, "friend-apps", "holo-colors", "members.json")
     if not os.path.isfile(path):
@@ -309,7 +309,7 @@ def write_doc_problems(files):
     return ["write_doc を store.commit の外で呼んでいる: %s" % n for n in sorted(bad) if n != "human/proof/store.py"]
 
 
-@rule("R-07", "文書を書く write_doc は store.py の中(commit)からだけ", "src/human/proof/tests/test_commit.py test_every_doc_write_in_src_uses_commit")
+@rule("R-07", "文書を書く write_doc は store.py の中(commit)からだけ", "tests/human/proof/test_commit.py test_every_doc_write_in_src_uses_commit")
 def rule_write_doc_only_in_store(repo=REPO):
     files = {os.path.relpath(p, os.path.join(repo, "src")).replace("\\", "/"): read_text(p) for p in src_py_files(repo)}
     return write_doc_problems(files)
@@ -320,7 +320,7 @@ def ytdlp_template_problems(name, text):
     return ["%s: yt-dlp の -o に os.path.join を直に渡している(yturl.ytdlp_out を通す)" % name] if '"-o", os.path.join(' in text else []
 
 
-@rule("R-08", "解析と書き出しの yt-dlp の -o は yturl.ytdlp_out を通す", "src/studio/tests/test_robustness.py test_all_ytdlp_calls_use_the_escaped_template")
+@rule("R-08", "解析と書き出しの yt-dlp の -o は yturl.ytdlp_out を通す", "tests/studio/test_robustness.py test_all_ytdlp_calls_use_the_escaped_template")
 def rule_ytdlp_out_template(repo=REPO):
     out = []
     for fn in ("src/pipeline/analyze/analyze.py", "src/pipeline/export/exporter.py"):
@@ -337,7 +337,7 @@ def tool_apps_problems(text):
     return [] if found == ["_runtime.TOOL_APPS"] else ["cut2resolve/serve.py の TOOL_APPS が ytt.runtime そのままでない: %s" % found]
 
 
-@rule("R-09", "cut2resolve の TOOL_APPS は ytt.runtime の物(写しを持たない)", "src/ytt/tests/test_ytt_core.py test_cut2resolve_uses_ytt_core")
+@rule("R-09", "cut2resolve の TOOL_APPS は ytt.runtime の物(写しを持たない)", "tests/ytt/test_ytt_core.py test_cut2resolve_uses_ytt_core")
 def rule_cut2resolve_tool_apps(repo=REPO):
     path = os.path.join(repo, "src", "cut2resolve", "serve.py")
     return tool_apps_problems(read_text(path)) if os.path.isfile(path) else []
@@ -348,7 +348,7 @@ def keys_adopt_problems(text):
     return ["flow/keys.py に束の adopt の語「%s」がある(鍵の材料にしない)" % w for w in ("adopt", "afterStream", "perHour", "waitMin") if w in text.replace("adoptedBy", "")]
 
 
-@rule("R-10", "成果物の鍵(flow/keys.py)に束の adopt 節を使わない", "src/flow/tests/test_keys.py test_no_bundle_adopt_in_keys")
+@rule("R-10", "成果物の鍵(flow/keys.py)に束の adopt 節を使わない", "tests/flow/test_keys.py test_no_bundle_adopt_in_keys")
 def rule_keys_ignore_adopt(repo=REPO):
     return keys_adopt_problems(read_text(os.path.join(repo, "src", "flow", "keys.py")))
 
@@ -384,7 +384,7 @@ def editor_import_problems(name, text):
 OWNERS_NO_EDITOR = ("src/human/proof/alt.py", "src/human/proof/retime.py", "src/eval/drill/drill.py", "src/eval/drill/evalbatch.py")
 
 
-@rule("R-11", "持ち主(alt・retime・drill・evalbatch)は編集の部品(ed_*・serve)を先頭で読まない", "src/editor/tests/test_names.py test_owners_do_not_read_editor_parts(2 本)")
+@rule("R-11", "持ち主(alt・retime・drill・evalbatch)は編集の部品(ed_*・serve)を先頭で読まない", "tests/editor/test_names.py test_owners_do_not_read_editor_parts(2 本)")
 def rule_owners_do_not_read_editor_parts(repo=REPO):
     out = []
     for fn in OWNERS_NO_EDITOR:

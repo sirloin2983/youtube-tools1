@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""pipeline/run.py(① の経路。RS1-7)のテスト。  py -3.12 -m unittest src/flow/tests/test_run.py -v
-段の中身の細かい動きは src/app/tests/test_autorun.py(AutoRunner が Runner を継いだ形)で見る。ここは入口の関数・入力の形・hook の既定と、
+"""pipeline/run.py(① の経路。RS1-7)のテスト。  py -3.12 -m unittest tests/flow/test_run.py -v
+段の中身の細かい動きは tests/app/test_autorun.py(AutoRunner が Runner を継いだ形)で見る。ここは入口の関数・入力の形・hook の既定と、
 層の決まり(home を知らずに読める)だけ。
 """
 import os
@@ -13,9 +13,10 @@ import tempfile
 import unittest
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> pipeline -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # tests -> pipeline -> src
 sys.path.insert(0, SRC)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from flow import run as R  # noqa: E402
 from flow import envelope as E, spec as SP, tools as T  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # 共有の部品 _runfields(Run の欄の形 → 封筒 + 束。RV A2)

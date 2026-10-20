@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """配る前の検査(dev/friend_preflight.py・dev/friend_preflight_shim.py)と、build_friend_zip.py --publish の関所のテスト。
 本物の exe・ネット・Dropbox は使わない(通信の差し替えは一時フォルダ・publish は build と検査を差し替える)。
-実行(リポジトリ直下): py -3.12 -m unittest dev/tests/test_friend_preflight.py"""
+実行(リポジトリ直下): py -3.12 -m unittest tests/dev/test_friend_preflight.py"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 全テストの決まり(作業データに触らない)
 import json
@@ -13,14 +13,15 @@ import zipfile
 from unittest import mock
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-DEV = os.path.dirname(TESTS)
+DEV = os.path.join(os.path.dirname(os.path.dirname(TESTS)), "dev")
 sys.path.insert(0, DEV)
 sys.path.insert(0, os.path.join(os.path.dirname(DEV), "src"))
 import build_friend_zip as B  # noqa: E402
 import friend_preflight as P  # noqa: E402
 import friend_preflight_shim as S  # noqa: E402  YTT_PREFLIGHT_SHIM が無ければ何も差し替えない
 from friendapp import dropbox as DBX  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 
 class ShimTest(unittest.TestCase):

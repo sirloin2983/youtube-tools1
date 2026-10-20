@@ -36,7 +36,7 @@ KEY_MARK = "<!-- spec-check: 設定 -->"
 CODE_DIRS = ("src/", "dev/", "setup/", "friend-apps/", "chrome-ext/")
 GONE = re.compile(r"RequestSender|request-sender|送るアプリ|依頼ボックス", re.I)   # 消した道具の名前
 # 名前を出してよい物: この検査とそのテスト・手元に残った前のアプリのフォルダの鍵を git に入れない守り(.gitignore・push の鍵の検査)
-GONE_OK = ("dev/spec_check.py", "dev/tests/test_doc_state.py", ".gitignore", "dev/push_helper.py", "dev/tests/test_push_helper.py")
+GONE_OK = ("dev/spec_check.py", "tests/dev/test_doc_state.py", ".gitignore", "dev/push_helper.py", "tests/dev/test_push_helper.py")
 GONE_NOTES = ("AGENTS.md", "docs/spec", "codemap")
 CODE_EXTS = (".py", ".js", ".cjs", ".mjs", ".cs", ".bat", ".vbs", ".ps1", ".html", ".json", ".txt", ".command", ".gs", ".css")
 SELF = ("dev/spec_check.py",)

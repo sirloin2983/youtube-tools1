@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""行の印(flag)のつなぎ方・探し方(ytt.schemas の join_flags・has_flag・flag_parts)のテスト。  py -3.12 -m unittest src/ytt/tests/test_flags.py -v
+"""行の印(flag)のつなぎ方・探し方(ytt.schemas の join_flags・has_flag・flag_parts)のテスト。  py -3.12 -m unittest tests/ytt/test_flags.py -v
 印の組の見本(決まった印・長い手書きの印・同じ印・空・決まった印だけで上限を超える)を join_flags に通し、並び・長さ・やり直しても同じかをまとめて確かめる。"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしないが、ほかのテストとそろえる
 import sys
 import unittest
 
-REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+REPO = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")
 sys.path.insert(0, REPO)
 from ytt import schemas as ys  # noqa: E402
 

@@ -1,6 +1,6 @@
 """src/manage/keep/cleanup.py(作業データの片付け。段9 9-2)の単体テスト。
 
-    python -m unittest src/manage/keep/tests/test_cleanup.py
+    python -m unittest tests/manage/keep/test_cleanup.py
 """
 import json
 import os
@@ -8,11 +8,12 @@ import sys
 import time
 import unittest
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> keep -> manage -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> keep -> manage -> src
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 from manage.keep import cleanup as C  # noqa: E402
-from ytt.tests.testkit import tempdir, write_json, write_text  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+from testkit import tempdir, write_json, write_text  # noqa: E402
 
 
 def touch(path, size=10, mtime=None):

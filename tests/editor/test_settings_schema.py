@@ -1,6 +1,6 @@
 """設定の画面のスキーマ(src/app/ui/settings/schema.json)の編集の分(store editor)が、ytt/settings の検査(SETTINGS_PATCH_KEYS・CUT_SILENCE_RANGE)と
 食い違っていないか。リポジトリ直下で:
-    python -m unittest src/editor/tests/test_settings_schema.py
+    python -m unittest tests/editor/test_settings_schema.py
 validated の鍵は api/settings/patch の検査(予定どおり通る・範囲の外は断る)、validated でない鍵は検査が無い(差分の PUT)ことを見る。"""
 import json
 import os
@@ -8,7 +8,7 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データ
 import sys
 import unittest
 
-EDITOR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+EDITOR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src", "editor")
 sys.path.insert(0, os.path.dirname(EDITOR))   # 共通部品 ytt(src/)
 sys.path.insert(0, EDITOR)
 from human.proof import alt as _alt  # noqa: E402,F401  (鍵の検査の持ち主が読み込みのときに ytt/settings へ登録する = altEngine)

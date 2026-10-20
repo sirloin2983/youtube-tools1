@@ -1,4 +1,4 @@
-// Run: node --test src/app/tests/test_cand_panel.cjs
+// Run: node --test tests/app/test_cand_panel.cjs
 // Exercise real save/navigation/export functions with delayed and failed API replies.
 // 案件の画面の候補のパネル(panels/cand.js)の中身 = スタジオの部品 src/app/ui/studio/review.js を切り出して試す。
 // 新しい案件の引き出し(panels/new.js)が読む src/app/ui/studio/rank.js・queue.js の小さな確かめと、2 つのパネルが渡す window.Studio の代わりもここ。
@@ -10,8 +10,8 @@ const vm = require('node:vm');
 const { test } = require('node:test');
 // UIKit の代わり。切り出した関数が UIKit を直接呼んでも動くように、vm の context にはいつも withUIKit(context) を通す
 // (context.UIKit・context.window.UIKit。テストが自分で入れた UIKit / window.UIKit はそのまま)。呼ばれた部品は context.UIKit.called('toast') などで読める
-const { makeUIKit, withUIKit } = require(path.join(__dirname, '..', '..', 'ui-kit', 'tests', 'uikit_stub.cjs'));
-const SRC = path.join(__dirname, '..', '..');   // src/
+const { makeUIKit, withUIKit } = require(path.join(__dirname, '..', 'ui-kit', 'uikit_stub.cjs'));
+const SRC = path.join(__dirname, '..', '..', 'src');
 const source = fs.readFileSync(path.join(SRC, 'app', 'ui', 'studio', 'review.js'), 'utf8').replace(/\r\n/g, '\n');   // 作業フォルダが CRLF でも同じに切り出す
 function between(start, end) {
   const a = source.indexOf(start), b = source.indexOf(end, a);
@@ -255,7 +255,7 @@ test('exported file path: server path first, otherwise outDir + relative file wi
 
 test('two-step confirmation resets after running (a quick third click does not run again)', () => {
   // 部品は ui-kit の UIKit.confirmTwice。review.js の armDelete はそれを呼ぶだけ(1 回目の確認だけは e2e_portal の終了ボタンが見る)
-  const kit = fs.readFileSync(path.join(__dirname, '..', '..', 'ui-kit', 'ui-kit.js'), 'utf8');
+  const kit = fs.readFileSync(path.join(SRC, 'ui-kit', 'ui-kit.js'), 'utf8');
   const a = kit.indexOf('function confirmTwice('), b = kit.indexOf('/* ---- prefs', a);
   assert.ok(a >= 0 && b > a, 'confirmTwice must exist in ui-kit.js');
   const timers = [];

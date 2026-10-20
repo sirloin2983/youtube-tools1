@@ -33,14 +33,14 @@
   - 名前: `class Tok` :51・`tok` :56・`tokenize` :62・`pipelines` :137・`word_of` :155・`norm_path` :171・`is_main_checkout` :184・`generated_kind` :198・`check_kill` :216・`check_sed` :242・`git_sub` :255・`check_git` :271・ほか 9
 - **land.py** (297 行) — 作業のブランチを main に入れ、版(src/ytt/version.py の VERSION と README.txt の見出し)を道具が 1 つ上げる。
   - 名前: `class Stop` :40・`git` :44・`main_worktree` :53・`bump` :64・`read_version` :69・`set_version` :76・`set_readme` :80・`needs_bump` :90・`pid_alive` :95・`class Lock` :113・`pending_paths` :160・`commit` :168・ほか 3
-- **land_gate.py** (318 行) — main に入れる前の関所(dev/land.py が版を上げる前に流す)。単独でも流せる:
-  - 名前: `layer_of_dir` :58・`dependents` :65・`select` :70・`pick_units` :89・`run_units` :96・`count_of` :107・`run_check` :113・`run_tool` :127・`table_folders` :139・`table_drift` :153・`git` :177・`worktree_of` :182・ほか 8
+- **land_gate.py** (324 行) — main に入れる前の関所(dev/land.py が版を上げる前に流す)。単独でも流せる:
+  - 名前: `layer_of_dir` :62・`dependents` :69・`select` :74・`pick_units` :95・`run_units` :102・`count_of` :113・`run_check` :119・`run_tool` :133・`table_folders` :145・`table_drift` :159・`git` :183・`worktree_of` :188・ほか 8
 - **layer_map.py** (131 行) — 役割の層と、今のファイルの行き先(役割で組み直す計画 `notes:plan/done/role-restructure.md` の 7 節を機械で読める形にしたもの)。
   - 名前: `layer_of` :111・`allowed` :121
-- **lint.py** (394 行) — コードの見直しの合格の基準を測る道具(読むだけ。基準は `notes:docs/spec/code.md`)。
-  - 名前: `walk` :63・`read` :71・`rel` :79・`is_test` :83・`class Corpus` :87・`py_files` :108・`has_mark` :115・`unused_imports` :120・`dead_names` :144・`long_functions` :159・`dup_helpers` :170・`js_dead` :186・ほか 7
-- **loc.py** (342 行) — コードの行数を数える共通の道具(ユーザーと決めた数え方。セッションごとの数の食い違いを無くす)。
-  - 名前: `classify` :39・`count_text` :64・`py_docstring_starts` :78・`py_code_lines` :89・`scan_code_lines` :104・`skip_to` :158・`skip_string` :163・`prefix_code_lines` :186・`git` :214・`files_at` :221・`tally` :244・`totals` :257・ほか 4
+- **lint.py** (395 行) — コードの見直しの合格の基準を測る道具(読むだけ。基準は `notes:docs/spec/code.md`)。
+  - 名前: `walk` :64・`read` :72・`rel` :80・`is_test` :84・`class Corpus` :88・`py_files` :109・`has_mark` :116・`unused_imports` :121・`dead_names` :145・`long_functions` :160・`dup_helpers` :171・`js_dead` :187・ほか 7
+- **loc.py** (356 行) — コードの行数を数える共通の道具(ユーザーと決めた数え方。セッションごとの数の食い違いを無くす)。
+  - 名前: `classify` :40・`test_layer` :65・`count_text` :78・`py_docstring_starts` :92・`py_code_lines` :103・`scan_code_lines` :118・`skip_to` :172・`skip_string` :177・`prefix_code_lines` :200・`git` :228・`files_at` :235・`tally` :258・ほか 5
 - **members_channels.py** (151 行) — 名簿 friend-apps/holo-colors/members.json の JP・DEV_IS の各メンバーに YouTube のチャンネル ID(channel)を入れる・確かめる道具。
   - 名前: `read_text` :29・`targets` :34・`norm` :43・`fetch_rss` :48・`verdict` :69・`cmd_check` :81・`cmd_set` :106・`main` :140
 - **notes_tool.py** (461 行) — 資料のフォルダ(Obsidian の保管庫の中。layout.notes_root())のパスの検査と、資料を動かす道具。
@@ -57,8 +57,8 @@
   - 名前: `check` :37・`c_adopt_defaults` :86・`c_live_tx_constants` :99・`c_port_ranges` :127・`c_tool_module_names` :134・`schema_shape_problems` :153・`schema_items` :208・`c_settings_schema` :223・`c_studio_schema` :248・`c_portal_title` :263・`c_static_table` :270・`c_spec_consistency` :278・ほか 21
 - **run_e2e.py** (132 行) — 画面テスト(e2e)の一式を 1 本ずつ流して、1 本 1 行(所要秒・OK/FAIL の数)で出す。一式の正はこのファイルの SUITE。
   - 名前: `label` :57・`summary` :62・`selected` :69・`run_one` :82・`main` :96
-- **run_unit.py** (205 行) — unittest を層ごと・フォルダごとに流す道具(1 本ずつ別のプロセス)。リポジトリ直下で:
-  - 名前: `find_files` :51・`matches` :66・`build_units` :83・`run_one` :105・`report` :129・`run_all` :144・`print_summary` :163・`main` :175
+- **run_unit.py** (191 行) — unittest を層ごと・フォルダごとに流す道具(1 本ずつ別のプロセス)。リポジトリ直下で:
+  - 名前: `find_files` :48・`matches` :60・`build_units` :76・`run_one` :91・`report` :115・`run_all` :130・`print_summary` :149・`main` :161
 - **session_start.py** (454 行) — セッションの入口の要約。新しい AI のセッションが最初に流し、今の状態を 1 画面(150 行以内)で見る。
   - 名前: `cut` :49・`run` :54・`git` :64・`read` :68・`git_block` :78・`versions` :98・`worklog_block` :107・`boundary_dirs` :123・`boundary_notes` :131・`boundary_block` :146・`load_items` :160・`plan_block` :170・ほか 16
 - **spec_check.py** (220 行) — 仕様(保管庫の docs/spec/)とコードの食い違いを探す。
@@ -82,28 +82,28 @@
 
 ## テスト
 
-- dev/tests/plan_fixture.py — 計画のデータ plan/data/ をテストの一時フォルダに置く道具(dev/tests/test_plan_data.py・test_plan_artifact.py が使う)。
-- dev/tests/test_build_friend_zip.py — dev/build_friend_zip.py(友人の PC に配る zip を作る。F1 の F4a)のテスト。ネットは使わない(偽のキャッシュ・取る関数は差し替えて呼ばれたら落とす)。
-- dev/tests/test_code_map.py — dev/code_map.py(コードの地図と言葉の索引を作る道具)の古さの判定と書き出しのテスト。リポジトリ直下で:
-- dev/tests/test_doc_state.py — 資料の食い違いの検査(dev/doc_state.py・dev/spec_check.py の --gone)のテスト。一時フォルダの偽の保管庫だけを使う
-- dev/tests/test_drift_report.py — dev/drift_report.py の索引の判定。リポジトリ直下で:
-- dev/tests/test_dropbox_auth.py — dev/dropbox_auth.py(切り抜き依頼の鍵を作る)のテスト。通信はしない(urlopen を差し替える)。
-- dev/tests/test_friend_diag.py — dev/friend_diag.py(届いた診断を読む道具)のテスト。一時フォルダだけ(本物の Dropbox は読まない)。
-- dev/tests/test_friend_preflight.py — 配る前の検査(dev/friend_preflight.py・dev/friend_preflight_shim.py)と、build_friend_zip.py --publish の関所のテスト。
-- dev/tests/test_guard_hook.py — dev/guard_hook.py(PreToolUse のフックの守り)のテスト。よくある命令を並べて、通す / 断るを確かめる。一時フォルダだけを使う
-- dev/tests/test_land.py — dev/land.py(main に入れる・版を道具が上げる)のテスト。一時フォルダの git リポジトリと worktree だけを使う
-- dev/tests/test_land_gate.py — dev/land_gate.py(main に入れる前の関所)と dev/worklog.py check(報告の型)のテスト。一時フォルダだけを使う(テストは流さない)
-- dev/tests/test_layering.py — 役割の層の import の向きを守るテスト(役割で組み直す計画 `notes:plan/done/role-restructure.md` の 4 節 1。RS0)。
-- dev/tests/test_lint.py — dev/lint.py(コードの基準を測る道具)の部品のテスト。リポジトリ直下で:
-- dev/tests/test_loc.py — dev/loc.py(コードの行数を数える道具)のテスト。小さな見本の文字列で、Python のコメント・空行・docstring の数え方と正味の差を確かめる
-- dev/tests/test_no_src_workdata.py — YTT_DATA_DIR=inplace のとき、作業データ(ログ・起動中の印・書き出し先)が src の中にできないことを見張る。リポジトリ直下で:
-- dev/tests/test_notes_tool.py — dev/notes_tool.py(資料のフォルダのパスの検査と、資料を動かす道具)のテスト。一時フォルダの資料のフォルダと git で確かめる
-- dev/tests/test_plan_artifact.py — dev/plan_artifact.py(計画のページ plan/ を 1 枚の公開用 HTML に組む道具)のテスト。目次と Artifact 用の 1 枚・ホームの自動の部分・版と参照・図を見る。
-- dev/tests/test_plan_data.py — dev/plan_data.py(計画のデータ plan/data/ の 1 件 1 ファイルと data.js の生成・仮決めの自動の確定)のテスト。一時フォルダだけを使う
-- dev/tests/test_push_helper.py — dev/push_helper.py(push.bat の補助: ファイルの削除・コミット前の検査)のテスト。一時フォルダの git リポジトリだけを使う。
-- dev/tests/test_resolve_pack_contract.py — Resolve パックの契約テスト(文字起こしの「Resolveパッケージ(zip)」と cut2resolve の Text+ パック)。zip とパックのタブは同じ部品(pack.py)で作る。
-- dev/tests/test_rule_checks.py — 規則の見張り(dev/rule_checks.py・dev/rule_imports.py・dev/ui_audit.py の A-16〜A-19・A-37)が、破った見本で止まり、正しい見本で通ることを確かめる。
-- dev/tests/test_run_e2e.py — dev/run_e2e.py(e2e の一式)の一覧が、リポジトリの e2e_*.py と食い違っていないかを確かめる。
-- dev/tests/test_run_unit.py — dev/run_unit.py(層ごとに unittest を流す道具)の一覧の作り方と、1 本だけの実行。リポジトリ直下で:
-- dev/tests/test_session_start.py — dev/session_start.py(セッションの入口の要約・子への指示文の下書き)のテスト。一時フォルダの git と偽の保管庫だけを使う
-- dev/tests/test_worklog.py — dev/worklog.py(作業の記録のセッションごとのファイルと週のまとめ)のテスト。一時フォルダだけを使う
+- tests/dev/plan_fixture.py — 計画のデータ plan/data/ をテストの一時フォルダに置く道具(tests/dev/test_plan_data.py・test_plan_artifact.py が使う)。
+- tests/dev/test_build_friend_zip.py — dev/build_friend_zip.py(友人の PC に配る zip を作る。F1 の F4a)のテスト。ネットは使わない(偽のキャッシュ・取る関数は差し替えて呼ばれたら落とす)。
+- tests/dev/test_code_map.py — dev/code_map.py(コードの地図と言葉の索引を作る道具)の古さの判定と書き出しのテスト。リポジトリ直下で:
+- tests/dev/test_doc_state.py — 資料の食い違いの検査(dev/doc_state.py・dev/spec_check.py の --gone)のテスト。一時フォルダの偽の保管庫だけを使う
+- tests/dev/test_drift_report.py — dev/drift_report.py の索引の判定。リポジトリ直下で:
+- tests/dev/test_dropbox_auth.py — dev/dropbox_auth.py(切り抜き依頼の鍵を作る)のテスト。通信はしない(urlopen を差し替える)。
+- tests/dev/test_friend_diag.py — dev/friend_diag.py(届いた診断を読む道具)のテスト。一時フォルダだけ(本物の Dropbox は読まない)。
+- tests/dev/test_friend_preflight.py — 配る前の検査(dev/friend_preflight.py・dev/friend_preflight_shim.py)と、build_friend_zip.py --publish の関所のテスト。
+- tests/dev/test_guard_hook.py — dev/guard_hook.py(PreToolUse のフックの守り)のテスト。よくある命令を並べて、通す / 断るを確かめる。一時フォルダだけを使う
+- tests/dev/test_land.py — dev/land.py(main に入れる・版を道具が上げる)のテスト。一時フォルダの git リポジトリと worktree だけを使う
+- tests/dev/test_land_gate.py — dev/land_gate.py(main に入れる前の関所)と dev/worklog.py check(報告の型)のテスト。一時フォルダだけを使う(テストは流さない)
+- tests/dev/test_layering.py — 役割の層の import の向きを守るテスト(役割で組み直す計画 `notes:plan/done/role-restructure.md` の 4 節 1。RS0)。
+- tests/dev/test_lint.py — dev/lint.py(コードの基準を測る道具)の部品のテスト。リポジトリ直下で:
+- tests/dev/test_loc.py — dev/loc.py(コードの行数を数える道具)のテスト。小さな見本の文字列で、Python のコメント・空行・docstring の数え方と正味の差を確かめる
+- tests/dev/test_no_src_workdata.py — YTT_DATA_DIR=inplace のとき、作業データ(ログ・起動中の印・書き出し先)が src の中にできないことを見張る。リポジトリ直下で:
+- tests/dev/test_notes_tool.py — dev/notes_tool.py(資料のフォルダのパスの検査と、資料を動かす道具)のテスト。一時フォルダの資料のフォルダと git で確かめる
+- tests/dev/test_plan_artifact.py — dev/plan_artifact.py(計画のページ plan/ を 1 枚の公開用 HTML に組む道具)のテスト。目次と Artifact 用の 1 枚・ホームの自動の部分・版と参照・図を見る。
+- tests/dev/test_plan_data.py — dev/plan_data.py(計画のデータ plan/data/ の 1 件 1 ファイルと data.js の生成・仮決めの自動の確定)のテスト。一時フォルダだけを使う
+- tests/dev/test_push_helper.py — dev/push_helper.py(push.bat の補助: ファイルの削除・コミット前の検査)のテスト。一時フォルダの git リポジトリだけを使う。
+- tests/dev/test_resolve_pack_contract.py — Resolve パックの契約テスト(文字起こしの「Resolveパッケージ(zip)」と cut2resolve の Text+ パック)。zip とパックのタブは同じ部品(pack.py)で作る。
+- tests/dev/test_rule_checks.py — 規則の見張り(dev/rule_checks.py・dev/rule_imports.py・dev/ui_audit.py の A-16〜A-19・A-37)が、破った見本で止まり、正しい見本で通ることを確かめる。
+- tests/dev/test_run_e2e.py — dev/run_e2e.py(e2e の一式)の一覧が、リポジトリの e2e_*.py と食い違っていないかを確かめる。
+- tests/dev/test_run_unit.py — dev/run_unit.py(層ごとに unittest を流す道具)の一覧の作り方と、1 本だけの実行。リポジトリ直下で:
+- tests/dev/test_session_start.py — dev/session_start.py(セッションの入口の要約・子への指示文の下書き)のテスト。一時フォルダの git と偽の保管庫だけを使う
+- tests/dev/test_worklog.py — dev/worklog.py(作業の記録のセッションごとのファイルと週のまとめ)のテスト。一時フォルダだけを使う

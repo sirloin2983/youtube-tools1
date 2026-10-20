@@ -1,4 +1,4 @@
-// FriendApp.exe の決まり(版の選び方・版の記録・閉じるときの判断)。画面にも通信にも触らない = tests\Tests.cs で確かめる。C# 5 で書く
+// FriendApp.exe の決まり(版の選び方・版の記録・閉じるときの判断)。画面にも通信にも触らない = tests\friend-apps\launcher\Tests.cs で確かめる。C# 5 で書く
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -261,7 +261,7 @@ namespace FriendInbox
         }
     }
 
-    // 窓の決まり(画面にも通信にも触らない = tests\Tests.cs で確かめる)
+    // 窓の決まり(画面にも通信にも触らない = tests\friend-apps\launcher\Tests.cs で確かめる)
     public static class Rules
     {
         public const string AppTitle = "切り抜き依頼";

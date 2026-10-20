@@ -1,7 +1,7 @@
 """友人の「要らない」を PC 側で片付ける(src/human/friend/friend_feedback.py)の単体テスト。ごみ箱は本物の cleanup.Cleanup(一時フォルダ)。
 スタジオは呼ばない(マークは変えない。ユーザー決定)。
 
-実行(リポジトリ直下から): python -m unittest src/human/friend/tests/test_friend_feedback.py -v
+実行(リポジトリ直下から): python -m unittest tests/human/friend/test_friend_feedback.py -v
 """
 import os
 import sys
@@ -9,7 +9,7 @@ import types
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> friend -> human -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> friend -> human -> src
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
@@ -17,7 +17,8 @@ from manage.cases import cases  # noqa: E402
 from manage.keep import cleanup  # noqa: E402
 from human import judgments as J  # noqa: E402
 from human.friend import friend_feedback as F  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 
 def put(path, data=b"x"):

@@ -1,6 +1,6 @@
 """src/eval/tools/eval_fill.py(認識のあとの後処理の様子見の物差し)のテスト。リポジトリ直下で:
 
-    py -3.12 -m unittest src/eval/tools/tests/test_eval_fill.py
+    py -3.12 -m unittest tests/eval/tools/test_eval_fill.py
 
 作業データは一時フォルダに作る(本物の作業データは読まない・書かない)。サーバー・ネットワーク・③ の部品は使わない
 (確かめるの答えは app/check/answers.jsonl を一時フォルダに書いて読ませる)。
@@ -14,11 +14,12 @@ import time
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/tools (道具の置き場所)
+HERE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src", "eval", "tools")   # src/eval/tools (道具の置き場所)
 REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 ytt の置き場所)
 sys.path.insert(0, REPO)
 from eval.tools import eval_fill as F  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 NAME_FLAG = "名簿の呼び名に直した(別のエンジンも同じ呼び名)"
 

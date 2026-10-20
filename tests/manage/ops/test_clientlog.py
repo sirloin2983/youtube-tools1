@@ -1,6 +1,6 @@
 """画面のエラーの記録(src/manage/ops/clientlog.py の ClientLog・clean)の単体テスト。一時フォルダだけを使う。
 
-実行(リポジトリ直下から): python -m unittest src/manage/ops/tests/test_clientlog.py -v
+実行(リポジトリ直下から): python -m unittest tests/manage/ops/test_clientlog.py -v
 """
 import json
 import os
@@ -8,12 +8,13 @@ import sys
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> ops -> manage -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> ops -> manage -> src
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
 from manage.ops import clientlog as C  # noqa: E402
-from ytt.tests.testkit import tempdir  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+from testkit import tempdir  # noqa: E402
 
 
 class TestClientLog(unittest.TestCase):

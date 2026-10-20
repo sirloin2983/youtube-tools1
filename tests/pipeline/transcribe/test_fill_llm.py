@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """pipeline/transcribe の fill(認識のあとの後処理 A・B・C・D)と llm(LLM の後処理 E)のテスト。編集の serve・ed_state は読まない。
 
-    py -3.12 -m unittest src/pipeline/transcribe/tests/test_fill_llm.py -v
+    py -3.12 -m unittest tests/pipeline/transcribe/test_fill_llm.py -v
 
 - TestRealParts: 本物の部品で 1 回ずつ通す。窓の読み = SenseVoice small(sherpa-onnx・CPU)・LLM = Qwen3-4B(llama-server・Vulkan。LLM の通しはこの 1 本だけ)。
   声の見本は Windows の音声合成でファイルに書く(スピーカーへは出さない)。モデルは本物の作業データの transcribe の中から読むだけ(tx_engines.ENGINE_DIR)。
@@ -19,10 +19,11 @@ import unittest
 import wave
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
 from ytt import tools  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 from pipeline.transcribe import backend, diarize, fill, llm, models, roster, tx_engines, worker_client  # noqa: E402
 from ytt import errors, studiodata, workdata  # noqa: E402
 

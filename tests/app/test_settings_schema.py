@@ -1,7 +1,7 @@
 """設定の画面のスキーマ(src/app/ui/settings/schema.json。S5)と、ホームの設定の検査(prefs.py)が食い違っていないか。リポジトリ直下で:
-    python -m unittest src/app/tests/test_settings_schema.py
+    python -m unittest tests/app/test_settings_schema.py
 スキーマの型・範囲・選択肢・既定値を、prefs.py の CLEANERS / DEFAULTS に実際に通して確かめる(数字をここに写さない)。
-スタジオ・編集の分は src/studio/tests/test_settings_schema.py・src/editor/tests/test_settings_schema.py。"""
+スタジオ・編集の分は tests/studio/test_settings_schema.py・tests/editor/test_settings_schema.py。"""
 import copy
 import json
 import os
@@ -9,7 +9,7 @@ import sys
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-HOME = os.path.dirname(HERE)
+HOME = os.path.join(os.path.dirname(os.path.dirname(HERE)), "src", "app")
 sys.path.insert(0, os.path.dirname(HOME))   # src
 from app import prefs as PR  # noqa: E402
 

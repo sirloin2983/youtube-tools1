@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""F3-2 友人のアプリの配信の一覧(friendapp/streams.py)のテスト。リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_streams.py
+"""F3-2 友人のアプリの配信の一覧(friendapp/streams.py)のテスト。リポジトリ直下で: py -3.12 -m unittest tests/friendapp/test_streams.py
 
 本物のネットには出ない(取りに行く口は偽物 = Web)。時計も偽物(Clock)。覚えの JSON は一時フォルダに書く。
 """
@@ -12,11 +12,12 @@ import unittest
 from datetime import datetime, timedelta
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from friendapp import streams as S  # noqa: E402
 
 CH_A = "UC" + "a" * 22

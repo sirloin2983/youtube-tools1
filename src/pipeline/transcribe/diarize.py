@@ -10,7 +10,7 @@ serve.名前 は serve の名前の受付がここへ回す(テストの S.名�
 - 判別: diarize_real(サーバーは認識ワーカーに頼む)→ ワーカーの中の _diarize_local(sherpa-onnx)。行への割り当て assign_speakers・細切れのならし smooth_labels
 - 判別の記録 transcripts/<id>.diar.json(build_diar_run・write_diar・read_diar・update_diar_voices)
 - 声の特徴: embed_groups(ワーカーの中の _embed_local)と照らし合わせ match_voices_explain。本物と疑似は backend の口(疑似は eval/fake/fake_asr の diarize_fake・embed_fake)
-numpy・sherpa_onnx は _diarize_local・_embed_local の関数の中で読む(サーバーのプロセスでは読まない = src/editor/tests/test_worker.py の検査)。
+numpy・sherpa_onnx は _diarize_local・_embed_local の関数の中で読む(サーバーのプロセスでは読まない = tests/pipeline/transcribe/test_worker.py の検査)。
 読むのは標準ライブラリ・ytt・兄弟(backend・tx_engines・txbase・worker_client)だけ(editor の ed_*・serve・eval は読まない)。
 """
 import bisect

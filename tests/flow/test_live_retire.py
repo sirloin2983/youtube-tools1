@@ -1,6 +1,6 @@
 """録画の片付けの ② の口(src/flow/live_retire.py の Retire。OPT2 の 7x-1)と、書き出しのジョブの切り詰め(live_export の _trim・cleaned_up。7e-3)のテスト。
-見回り・期限・録画元への delete は ④ の側(src/manage/keep/tests/test_live_cleanup.py)。ここは判断と記録の書き方だけを、本物の Exporter で確かめる。
-実行(リポジトリ直下から): python -m unittest src/flow/tests/test_live_retire.py -v
+見回り・期限・録画元への delete は ④ の側(tests/manage/keep/test_live_cleanup.py)。ここは判断と記録の書き方だけを、本物の Exporter で確かめる。
+実行(リポジトリ直下から): python -m unittest tests/flow/test_live_retire.py -v
 """
 import os
 import sys
@@ -8,11 +8,12 @@ import unittest
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # tests -> flow -> src
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from flow import live_retire as LR  # noqa: E402
 from ytt import fsio  # noqa: E402

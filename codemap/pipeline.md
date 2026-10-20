@@ -101,26 +101,36 @@
 
 ## テスト
 
-- src/pipeline/analyze/tests/fake_ytdlp_chat.py — テスト用の偽の yt-dlp(配信中の live_chat)。src/pipeline/analyze/tests/test_live_excite_worker.py が、盛り上がりの検出のワーカー(src/pipeline/analyze/live_excite_worker.py の
-- src/pipeline/analyze/tests/test_adopt.py — pipeline/analyze/adopt.py(採用の規則 F-5 の純粋な関数)と ② の口 flow/adopt のテスト。
-- src/pipeline/analyze/tests/test_analyze.py — pipeline/analyze/analyze.py のテスト。 実行(リポジトリ直下): py -3.12 -m unittest src/pipeline/analyze/tests/test_analyze.py
-- src/pipeline/analyze/tests/test_breaks.py — pipeline/analyze/breaks.py(話の切れ目)のテスト。  py -3.12 -m unittest src/pipeline/analyze/tests/test_breaks.py -v
-- src/pipeline/analyze/tests/test_excite.py — pipeline/analyze/excite.py(盛り上がりの式)のテスト。  py -3.12 -m unittest src/pipeline/analyze/tests/test_excite.py -v
-- src/pipeline/analyze/tests/test_live_excite_worker.py — 配信中の盛り上がりの検出(線 D の L2)のワーカー src/pipeline/analyze/live_excite_worker.py のテスト(子プロセスの中身を直に)。
-- src/pipeline/export/tests/test_exporter.py — 書き出し(① pipeline/export/exporter)のテスト。
-- src/pipeline/ingest/tests/hls_fixture.py — テスト用の「配信中のような HLS」(本物の YouTube には繋がない)。
-- src/pipeline/ingest/tests/test_recorder.py — 録画の部品(recorder/)のテスト。本物の YouTube には繋がない: ffmpeg の lavfi で作った HLS を、手元の HTTP サーバーで
-- src/pipeline/pack/tests/test_contracts.py — 別のプログラムが読む形の見本(src/ytt/tests/fixtures/contracts/ の clip/v1.json・transcript/v1.json)。書く側が書いた形は見本と同じ鍵・
-- src/pipeline/pack/tests/test_cut2resolve.py — パックのテストの道具(見本の動画・EDL の読み方・採用区間からのパック)と、通しでは起こせない物の単体
-- src/pipeline/pack/tests/test_pack.py — パック(pipeline.pack)のテスト。正しく動く道・端の場合・時刻の計算・入力の誤りは、本物の ffmpeg の通し(TestPackRun)で見本に混ぜてまとめて確かめる。
-- src/pipeline/transcribe/tests/test_clipjob.py — pipeline/transcribe/clipjob(文字起こしのジョブの機械の文書の行)を、編集の serve を読まずに疑似のエンジンで使うテスト。
-- src/pipeline/transcribe/tests/test_diarize.py — pipeline/transcribe/diarize(話者判別の計算・判別の記録・声の特徴)を、編集の serve を読まずに使うテスト。
-- src/pipeline/transcribe/tests/test_fill_llm.py — pipeline/transcribe の fill(認識のあとの後処理 A・B・C・D)と llm(LLM の後処理 E)のテスト。編集の serve・ed_state は読まない。
-- src/pipeline/transcribe/tests/test_live_tx_worker.py — 配信中の候補の文字起こしの子プロセス src/pipeline/transcribe/live_tx_worker.py のテスト(D-11 案 b)。本物の認識はしない。
-- src/pipeline/transcribe/tests/test_postproc.py — ① 文字起こしの行の後処理(clipjob.make_doc_rows = 整える postproc → 名前を外す B → 末尾の重複 C と別の読み A → 印・置換辞書 → 名簿の呼び名 D → LLM E)を、
-- src/pipeline/transcribe/tests/test_recognize.py — pipeline/transcribe/recognize(音声の取り出し・認識・範囲の行・)を、編集の serve を読まずに使うテスト。
-- src/pipeline/transcribe/tests/test_txbackend.py — pipeline/transcribe の本物と疑似の差し込み口 backend のテスト(役割で組み直す RS2-2)。
-- src/pipeline/transcribe/tests/test_txrecords.py — pipeline/transcribe/records(認識の記録・辞書の版・生出力・単語の時刻)を、編集の serve を読まずに使うテスト。
-- src/pipeline/transcribe/tests/test_txroster.py — pipeline/transcribe/roster の配信ごとの文脈 stream_context と用語の区切り split_terms(ytt/txtext)を、編集の serve を読まずに使うテスト。
-- src/pipeline/transcribe/tests/test_worker_client.py — pipeline/transcribe/worker_client(認識ワーカーとのやり取り・モデル・wav を読まずに渡す形。役割で組み直す RS2-6)を、編集の serve を読まずに使うテスト。
-- src/pipeline/transcribe/tests/voice_fixture.py — 文字起こしの本物の通しの下ごしらえ(テストではない)。
+- tests/pipeline/analyze/fake_ytdlp_chat.py — テスト用の偽の yt-dlp(配信中の live_chat)。tests/pipeline/analyze/test_live_excite_worker.py が、盛り上がりの検出のワーカー(src/pipeline/analyze/live_excite_worker.py の
+- tests/pipeline/analyze/test_adopt.py — pipeline/analyze/adopt.py(採用の規則 F-5 の純粋な関数)と ② の口 flow/adopt のテスト。
+- tests/pipeline/analyze/test_analyze.py — pipeline/analyze/analyze.py のテスト。 実行(リポジトリ直下): py -3.12 -m unittest tests/pipeline/analyze/test_analyze.py
+- tests/pipeline/analyze/test_breaks.py — pipeline/analyze/breaks.py(話の切れ目)のテスト。  py -3.12 -m unittest tests/pipeline/analyze/test_breaks.py -v
+- tests/pipeline/analyze/test_excite.py — pipeline/analyze/excite.py(盛り上がりの式)のテスト。  py -3.12 -m unittest tests/pipeline/analyze/test_excite.py -v
+- tests/pipeline/analyze/test_live_excite_worker.py — 配信中の盛り上がりの検出(線 D の L2)のワーカー src/pipeline/analyze/live_excite_worker.py のテスト(子プロセスの中身を直に)。
+- tests/pipeline/export/test_exporter.py — 書き出し(① pipeline/export/exporter)のテスト。
+- tests/pipeline/ingest/hls_fixture.py — テスト用の「配信中のような HLS」(本物の YouTube には繋がない)。
+- tests/pipeline/ingest/test_recorder.py — 録画の部品(recorder/)のテスト。本物の YouTube には繋がない: ffmpeg の lavfi で作った HLS を、手元の HTTP サーバーで
+- tests/pipeline/pack/test_contracts.py — 別のプログラムが読む形の見本(tests/ytt/fixtures/contracts/ の clip/v1.json・transcript/v1.json)。書く側が書いた形は見本と同じ鍵・
+- tests/pipeline/pack/test_cut2resolve.py — パックのテストの道具(見本の動画・EDL の読み方・採用区間からのパック)と、通しでは起こせない物の単体
+- tests/pipeline/pack/test_pack.py — パック(pipeline.pack)のテスト。正しく動く道・端の場合・時刻の計算・入力の誤りは、本物の ffmpeg の通し(TestPackRun)で見本に混ぜてまとめて確かめる。
+- tests/pipeline/pack/test_resolve_export.py — resolve_export(Resolve パッケージ = cut2resolve の Text+ パックを zip にしたもの)の通し(本物の ffmpeg)と HTTP の口。
+- tests/pipeline/transcribe/fake_llama_server.py — テスト用の偽の llama-server(tx_engines.LlamaQwen3.COMMAND に [python, このファイル] を入れて使う)。
+- tests/pipeline/transcribe/fake_whisper_cli.py — テスト用の偽の whisper-cli(tx_engines.WhisperCpp.COMMAND に [python, このファイル] を入れて使う)。
+- tests/pipeline/transcribe/test_clipjob.py — pipeline/transcribe/clipjob(文字起こしのジョブの機械の文書の行)を、編集の serve を読まずに疑似のエンジンで使うテスト。
+- tests/pipeline/transcribe/test_diarize.py — pipeline/transcribe/diarize(話者判別の計算・判別の記録・声の特徴)を、編集の serve を読まずに使うテスト。
+- tests/pipeline/transcribe/test_fill.py — 文字起こしのジョブの後処理(A 別の読み・B 頭の名前・E LLM・配信ごとの文脈)を ③ の run_job で 1 回通し、文書と記録に残る形を確かめるテスト。test_metrics から読み込まれる。
+- tests/pipeline/transcribe/test_fill_llm.py — pipeline/transcribe の fill(認識のあとの後処理 A・B・C・D)と llm(LLM の後処理 E)のテスト。編集の serve・ed_state は読まない。
+- tests/pipeline/transcribe/test_live_tx_worker.py — 配信中の候補の文字起こしの子プロセス src/pipeline/transcribe/live_tx_worker.py のテスト(D-11 案 b)。本物の認識はしない。
+- tests/pipeline/transcribe/test_llm.py — LLM の後処理 E(pipeline/transcribe/llm.py)の、通しで起こせない所のテスト。test_metrics から読み込まれる。
+- tests/pipeline/transcribe/test_postproc.py — ① 文字起こしの行の後処理(clipjob.make_doc_rows = 整える postproc → 名前を外す B → 末尾の重複 C と別の読み A → 印・置換辞書 → 名簿の呼び名 D → LLM E)を、
+- tests/pipeline/transcribe/test_qwen3.py — Qwen3-ASR のエンジン(tx_engines.LlamaQwen3 = llama.cpp の 1.7B)のテスト。test_metrics から読み込まれる。
+- tests/pipeline/transcribe/test_recognize.py — pipeline/transcribe/recognize(音声の取り出し・認識・範囲の行・)を、編集の serve を読まずに使うテスト。
+- tests/pipeline/transcribe/test_records.py — 記録の土台のテスト。
+- tests/pipeline/transcribe/test_roster.py — 名簿の呼び名(pipeline/transcribe/roster.py)と同梱の名簿のテスト。
+- tests/pipeline/transcribe/test_txbackend.py — pipeline/transcribe の本物と疑似の差し込み口 backend のテスト(役割で組み直す RS2-2)。
+- tests/pipeline/transcribe/test_txrecords.py — pipeline/transcribe/records(認識の記録・辞書の版・生出力・単語の時刻)を、編集の serve を読まずに使うテスト。
+- tests/pipeline/transcribe/test_txroster.py — pipeline/transcribe/roster の配信ごとの文脈 stream_context と用語の区切り split_terms(ytt/txtext)を、編集の serve を読まずに使うテスト。
+- tests/pipeline/transcribe/test_whispercpp.py — whisper.cpp のエンジン(tx_engines.WhisperCpp)のテスト。test_metrics から読み込まれる。
+- tests/pipeline/transcribe/test_worker.py — 認識ワーカー(src/pipeline/transcribe/worker.py。別プロセス)のテスト。  python -m unittest test_worker -v
+- tests/pipeline/transcribe/test_worker_client.py — pipeline/transcribe/worker_client(認識ワーカーとのやり取り・モデル・wav を読まずに渡す形。役割で組み直す RS2-6)を、編集の serve を読まずに使うテスト。
+- tests/pipeline/transcribe/voice_fixture.py — 文字起こしの本物の通しの下ごしらえ(テストではない)。

@@ -57,7 +57,7 @@ ROW_EDGE = RowEdge()   # 既定(オン)。「編集」の「行から」の設�
 ROW_EDGE_MAX = 2.0     # 広げる上限(秒)の上限
 SNAP_MIN = 0.05        # 話の切れ目で両端を詰めるのは、これより大きく動くときだけ(秒)
 
-# 文字起こしツールの「残す行」の規則(dev/tests/test_resolve_pack_contract.py が確かめる):
+# 文字起こしツールの「残す行」の規則(tests/dev/test_resolve_pack_contract.py が確かめる):
 # 行の時間を残す・短い行も捨てない(最短 0)・1フレーム以下の隙間はつなぐ(1フレームだけのジャンプカットを作らない)・
 # 端を声の止まる所まで広げる(ROW_EDGE。⑥)
 TRANSCRIPT_ROWS = {"base": "rows", "handles": 0.0, "min_len": 0.0, "join_frames": 1, "row_edge": ROW_EDGE}

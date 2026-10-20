@@ -1,6 +1,6 @@
 """案件の画面(/cases)の「候補」のパネル(src/app/ui/cases/panels/cand.js)の通し確認(Playwright)。リポジトリ直下で:
     set PYTHONIOENCODING=utf-8
-    py -3.12 src/app/tests/e2e_cases_cand.py
+    py -3.12 tests/app/e2e_cases_cand.py
 入口(app/server.py)にスタジオを取り込んで動かす(STUDIO_FAKE=1・生成した短い webm・一時フォルダだけ)。
 ④ の案件の一覧(cases_mod.snapshot)は見本に差し替え、案件の id = スタジオの配信の id にする。
 見るもの: パネルが載る・動画を再生できる・盛り上がりグラフ・採用 / 不採用がスタジオに保存される・
@@ -27,8 +27,8 @@ from unittest import mock
 
 from playwright.sync_api import sync_playwright
 
-TESTS = os.path.dirname(os.path.abspath(__file__))   # src/app/tests
-SRC = os.path.dirname(os.path.dirname(TESTS))
+TESTS = os.path.dirname(os.path.abspath(__file__))   # tests/app
+SRC = os.path.join(os.path.dirname(os.path.dirname(TESTS)), "src")
 STUDIO = os.path.join(SRC, "studio")
 sys.path.insert(0, STUDIO)
 sys.path.insert(0, os.path.join(SRC, "app"))
@@ -36,7 +36,8 @@ if SRC not in sys.path:
     sys.path.append(SRC)
 import startup  # noqa: E402,F401  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
 from ytt import datadir, studio_env  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 import serve  # noqa: E402
 from app import server as L  # noqa: E402
 from app import mount  # noqa: E402

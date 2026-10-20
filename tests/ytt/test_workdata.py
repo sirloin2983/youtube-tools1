@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ytt/workdata.py(編集の作業データの置き場所と版の今の値)と ytt/studiodata.py(スタジオの data.json の読み口)のテスト(役割で組み直す RS3-0A)。
 
-    python -m unittest src/ytt/tests/test_workdata.py
+    python -m unittest tests/ytt/test_workdata.py
 
 ここは serve なしで読めて、
 set_root・set_data_dir が serve.set_data_dir と同じパスを作ることと、studiodata が置き場所を呼ぶたびに読むことだけ。
@@ -12,9 +12,10 @@ import sys
 import unittest
 from unittest import mock
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src"))   # src
 from ytt import layout, studiodata, workdata  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 NAMES = ("ROOT", "DATA_DIR", "TX_DIR", "TMP_DIR", "SETTINGS", "FEEDBACK", "MARKER_DATA", "STUDIO_DATA", "SERVER_VERSION")
 

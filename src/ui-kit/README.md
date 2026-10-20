@@ -109,7 +109,7 @@
 - 重なり: 別の操作に使っているキーを選ぶと、そちらを外して「「X」から外しました [戻す]」(一覧はモーダルの上なので、知らせ(トースト)ではなく一覧の中に出す)。行ごとの「標準」・すべて標準に戻す
 - **重なりの検査は部品の1か所**: 共通の再生キーにできないキー `PB_BLOCKED`(ui-kit.js の中。全ツールの固定キー・編集の 2 カット のキー・数字)・ツールの `refuse`・
   派生キー(← → に当たるキー + Shift = 5 秒。1文字の記号は派生しない。GPT-03)。キーの形は `src/app/prefs.py` の `COMBO_RE` と同じ(サーバーは fullmatch で検査)
-- 新しいキーを足すとき: ツールのキーは `actions` に、共通の再生キーにできなくなるキー(どこかのツールで固定の意味を持つもの)は `PB_BLOCKED`(ui-kit.js)に足す。確かめるテストは `src/app/tests/test_window.py`・`src/editor/tests/test_edit.py` のキーの場面(以前の e2e_keymap は 10-18 のテストの見直しで消した)
+- 新しいキーを足すとき: ツールのキーは `actions` に、共通の再生キーにできなくなるキー(どこかのツールで固定の意味を持つもの)は `PB_BLOCKED`(ui-kit.js)に足す。確かめるテストは `tests/app/test_window.py`・`tests/editor/test_edit.py` のキーの場面(以前の e2e_keymap は 10-18 のテストの見直しで消した)
 
 ## v9(2026-09-30・全体の計画 段2 監査 11。`UIKit.settings.status`)
 設定の保存・読み込みの失敗を、文書の保存の表示とは別の場所に出す(黙って捨てない)。
@@ -147,9 +147,9 @@
 - ui-kit の中の fetch の包み 6 つ(yttPost・txPatch・packLoud.get・arHomeApi・arLoad・restartPing)は http を呼ぶ形にした。外から見える名前・引数・戻り値は同じ。
   違うのは (1) つながらないときの文が日本語の決まった文に(以前はブラウザの原文 `Failed to fetch`)・(2) `packLoud.get` は編集の api/settings が失敗(HTTP のエラー)なら reject
   (以前はエラーの本文を設定として読み、既定の値を出していた)・(3) 合言葉が空なら見出しを付けない(以前は空の `X-YTT-Token` を送っていた)
-- node のテスト用の **UIKit の代わり** `tests/uikit_stub.cjs`(`makeUIKit(overrides)`・`withUIKit(context)`。esc・fmt は本物の ui-kit.js から切り出す・呼ばれた部品は `calls` に残る・
-  知らない名前は何もしない関数)。案件の画面の候補の `src/app/tests/test_cand_panel.cjs`・編集の `test_document_save.cjs` の vm の context はこれを通す(画面の `window.UIKit &&` の予備の経路を外しても動く)。
-  本物と食い違っていないかは `node --test src/ui-kit/tests/test_uikit_stub.cjs`(本物の window.UIKit の名前を全部知っているか。名前を足したら stub の kit か FALLBACK にも足す)
+- node のテスト用の **UIKit の代わり** `tests/ui-kit/uikit_stub.cjs`(`makeUIKit(overrides)`・`withUIKit(context)`。esc・fmt は本物の ui-kit.js から切り出す・呼ばれた部品は `calls` に残る・
+  知らない名前は何もしない関数)。案件の画面の候補の `tests/app/test_cand_panel.cjs`・編集の `test_document_save.cjs` の vm の context はこれを通す(画面の `window.UIKit &&` の予備の経路を外しても動く)。
+  本物と食い違っていないかは `node --test tests/ui-kit/test_uikit_stub.cjs`(本物の window.UIKit の名前を全部知っているか。名前を足したら stub の kit か FALLBACK にも足す)
 
 ## v23(2026-10-07・UI の見直しの基準 `notes:docs/spec/ui.md` に合わせる + 段9 見た目の確認の直し。クラウドと PC の 2 つの作業を合わせた版)
 - 文字記号のアイコンをやめる(A-10): 知らせの × は `UIKit.icon('close')`。メニューが開く印は `.ui-caret`(線で描く小さな山形。`<span class="ui-caret" aria-hidden="true">`。右向きは `.right`・上向きは `.up`)。各ツールの「まとめて ▾」「無音 ▾」「この後を ▸」はこれに替える
@@ -354,7 +354,7 @@
 ## v34(2026-10-19)起動し直しの 403 と設定の入力が消える不具合
 - `UIKit.http` が 403 `{"error":"token"}`(入口が起動し直されて合言葉が変わった)を受けたら、「ホームが起動し直されました [開き直す]」の知らせを 1 回だけ出す(押すと `location.reload()`)。`UIKit.http`・`homeApi` を通る書き込みは全部に効く。通らない書き込み(分析の画面の fetch など)は `UIKit.tokenStale()` を呼ぶ
 - `UIKit.settingsForm`: 保存が終わった描き直しで、フォーカスのある text・int・number・folder・textarea は書き戻さない(打っている途中の入力が消えて保存されなかった)。保存の失敗で値を戻すときだけ書き戻す
-- テスト: `src/ui-kit/tests/test_uikit_stub.cjs`(node)。`UIKit.version` は 34
+- テスト: `tests/ui-kit/test_uikit_stub.cjs`(node)。`UIKit.version` は 34
 
 ## v35(2026-10-19)設定の欄: 保存の答えが前後しても選んだ値が消えない
 - `UIKit.settingsForm`: 自分の保存が返るまでの欄は、先に返ったほかの欄の保存の描き直しで書き戻さない(ライブの設定でエンジンを選んですぐモデルを選ぶと、エンジンの答えでモデルが前の値に戻っていた)。`UIKit.version` は 35

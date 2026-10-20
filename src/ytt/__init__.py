@@ -1,7 +1,7 @@
 """ytt — 基盤(役割で組み直す計画 notes:plan/done/role-restructure.md の 3 節。どの層からも読める)。
 
 Python 標準ライブラリだけで動く。読む側は src/ を sys.path に入れて `from ytt import fsio` のように読む(層のパッケージの中は兄弟を相対で)。
-この __init__ は説明と定数だけ(import しない。dev/tests/test_layering.py が検査)。
+この __init__ は説明と定数だけ(import しない。tests/dev/test_layering.py が検査)。
 
 - fsio      … 原子的な書き込み(Windows の一時的なロックはやり直す)・大きさの上限つきの JSON の読み込み(読めなければ既定値 read_json_or も)・
               ネットワークパスの判定・静かに消す・更新日時のキャッシュ StampCache・ログの回し rotate・フォルダの中か is_inside・フォルダの大きさ dir_size
@@ -23,7 +23,7 @@ Python 標準ライブラリだけで動く。読む側は src/ を sys.path に
 - settings  … 設定ファイル(JSON の辞書)の読み書きの決まり SettingsFile(壊れていれば既定で動き、書く前に .broken-<日時> へ退避・原子的に書く・大きさの上限・
               節を置き換える / 節の鍵を直す / 最上位の鍵を直す)。ホームの prefs.json・スタジオの settings-ui.json・編集の settings.json が読む
 
-ここを変えるときは `python -m unittest src/ytt/tests/test_ytt_core.py src/ytt/tests/test_normalize.py src/ytt/tests/test_settings.py` と、
+ここを変えるときは `python -m unittest tests/ytt/test_ytt_core.py tests/ytt/test_normalize.py tests/ytt/test_settings.py` と、
 使っている各ツールのテスト(notes:docs/spec/code.md の 6 の表)を通すこと。
 """
 # 版は全体で 1 つ = ytt/version.py の VERSION(__init__ は import しない決まり)。

@@ -9,7 +9,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, os.path.join(REPO, "dev"))
 sys.path.insert(0, os.path.join(REPO, "src"))
 import guard_hook  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
@@ -81,7 +82,7 @@ class GuardTest(unittest.TestCase):
         self.assertBlocked("add", ["git add -A", "git add .", "git add --all", "git add -- .", "git add :/",
                                    "git -C C:/x add -A", "git commit -a -m wip", "git commit -am 'wip'",
                                    "git add . && git commit -m x", "git commit --all -m x"])
-        self.assertPass(["git add dev/guard_hook.py dev/tests/test_guard_hook.py", "git add -p f.py",
+        self.assertPass(["git add dev/guard_hook.py tests/dev/test_guard_hook.py", "git add -p f.py",
                          "git commit -m 'git add -A は使わない'", "git commit --amend --no-edit",
                          'git commit -m "x -a y"', "git status", "git diff --cached --stat", "git log -1"])
 
@@ -136,7 +137,7 @@ class GuardTest(unittest.TestCase):
     # 足す物: テストの起動の知らせ
     def test_test_run_warning(self):
         warn = lambda c, t="Bash": guard_hook.check_command(c, t, self.wt)[1]  # noqa: E731
-        self.assertTrue(warn("py -3.12 -m unittest dev/tests/test_land.py"))
+        self.assertTrue(warn("py -3.12 -m unittest tests/dev/test_land.py"))
         self.assertTrue(warn("python -m pytest -q"))
         self.assertIsNone(warn("YTT_DATA_DIR=inplace py -3.12 -m unittest x"))
         self.assertIsNone(warn("$env:YTT_DATA_DIR='inplace'; py -3.12 -m unittest x", "PowerShell"))

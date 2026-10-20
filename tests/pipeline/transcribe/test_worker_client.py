@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """pipeline/transcribe/worker_client(認識ワーカーとのやり取り・モデル・wav を読まずに渡す形。役割で組み直す RS2-6)を、編集の serve を読まずに使うテスト。
 
-    py -3.12 -m unittest src/pipeline/transcribe/tests/test_worker_client.py -v
+    py -3.12 -m unittest tests/pipeline/transcribe/test_worker_client.py -v
 
-本物のワーカーの通し・取り消し・落ちたときの立ち直りは編集のテスト(src/editor/tests/test_worker.py。serve の名前で読む)が確かめる。
+本物のワーカーの通し・取り消し・落ちたときの立ち直りは編集のテスト(tests/pipeline/transcribe/test_worker.py。serve の名前で読む)が確かめる。
 ここは「① が serve なしで読めて、ワーカーの本体と記録のパスを差し替えか ytt/workdata から読む・サーバーのプロセスでは wav を読まない」ことだけ。
 """
 import os
@@ -13,9 +13,10 @@ import unittest
 import wave
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 from pipeline.transcribe import models, worker_client as W  # noqa: E402
 from ytt import workdata  # noqa: E402
 from ytt import errors  # noqa: E402
@@ -51,7 +52,7 @@ class TestPaths(unittest.TestCase):
 
 
 class TestWorkerModule(unittest.TestCase):
-    """認識ワーカーの本体 worker.py を serve なしで読む(本物の要求の道は src/editor/tests/test_worker.py の RealWorkerTest)"""
+    """認識ワーカーの本体 worker.py を serve なしで読む(本物の要求の道は tests/pipeline/transcribe/test_worker.py の RealWorkerTest)"""
 
     def test_handle_errors_and_cancel(self):
         """知らない要求は bad_op・知らないエンジンは ApiError・読み込み中の取り消しは cancelled"""

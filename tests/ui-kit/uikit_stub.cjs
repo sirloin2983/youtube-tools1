@@ -1,7 +1,7 @@
 // node のテスト(画面の JS の関数を vm で切り出して動かすもの)に渡す、UIKit の代わり(ui-kit 用)。
 // 切り出した画面の JS の関数は UIKit を直接呼ぶので、テストの環境(context)にこれを入れる。
 //
-//   const { makeUIKit, withUIKit } = require(path.join(__dirname, '..', '..', 'ui-kit', 'tests', 'uikit_stub.cjs'));
+//   const { makeUIKit, withUIKit } = require(path.join(__dirname, '..', 'ui-kit', 'uikit_stub.cjs'));
 //   const kit = makeUIKit({ toast: msg => notes.push(msg) });     // 差し替えたい部品だけ渡す(入れ子は 'dialog.confirm' のように . でつないだ名前でも)
 //   const context = withUIKit({ S, ... }, kit);                   // context.UIKit と context.window.UIKit に入れる(window が既にあればそれに足す)
 //   kit.calls        … 呼ばれた部品の [名前, 引数] の並び。kit.called('toast') でその名前の引数だけ
@@ -16,7 +16,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const KIT_SRC = fs.readFileSync(path.join(__dirname, '..', 'ui-kit.js'), 'utf8').replace(/\r\n/g, '\n');
+const KIT_SRC = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ui-kit', 'ui-kit.js'), 'utf8').replace(/\r\n/g, '\n');
 function kitSlice(start, end) {
   const a = KIT_SRC.indexOf(start), b = KIT_SRC.indexOf(end, a);
   if (a < 0 || b <= a) throw new Error('ui-kit.js の切り出しの印が見つかりません: ' + start);

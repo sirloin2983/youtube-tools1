@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""② flow/pack.py・flow/ingest.py の動詞。  py -3.12 -m unittest src/flow/tests/test_pack_ingest.py -v
+"""② flow/pack.py・flow/ingest.py の動詞。  py -3.12 -m unittest tests/flow/test_pack_ingest.py -v
 - 受け渡しの通し(transcript-v1・cut-plan-v1・SRT の中身と書式。字幕に出さない行・カット済の行・時と改行のある行を混ぜた文書)
 - 入力の見分けの通し(YouTube の URL・ファイル・ライブの録画・不正な入力)
 - 通しでは見えない物: 版を一時の文字起こしに渡す・重い処理の札(順番待ち)・古いキャッシュの片付け(更新日時の並び)
@@ -12,7 +12,7 @@ import time
 import unittest
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # tests -> flow -> src
 sys.path.insert(0, SRC)
 from flow import ingest, pack  # noqa: E402
 from ytt import errors, fsio, workdata  # noqa: E402

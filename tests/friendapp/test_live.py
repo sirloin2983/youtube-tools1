@@ -1,4 +1,4 @@
-"""送る欄の動画ファイル・ライブのテスト。リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_live.py
+"""送る欄の動画ファイル・ライブのテスト。リポジトリ直下で: py -3.12 -m unittest tests/friendapp/test_live.py
 
 - ライブの設定の検査(長さ 10〜180 = A-5b の仮)と、依頼と録画の結びつき(② flow/live_rules.RequestBook を友人の PC の形 deliver=False で)
 - ② のライブ係 FriendLive: 送る → ② の待ち行列(本物の flow/runqueue.Queue)の live の hook → 録画を始めて結びつける(長さは送った欄から)→
@@ -17,11 +17,12 @@ import unittest
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from flow import live_export as LX, live_rules, runqueue as Q  # noqa: E402
 from friendapp import api as A, engine as E, inbox as I, live as L, live_session as LS, server as SV  # noqa: E402
 

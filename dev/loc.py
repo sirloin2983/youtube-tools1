@@ -13,7 +13,8 @@
   - コメントは言語ごと: Python の # と docstring・JS/CS/CSS/GS の // と /* */(CSS は /* */ だけ)・HTML の <!-- -->(<script>・<style> の中は JS・CSS)・
     bat の REM と ::・ps1 の # と <# #>・vbs の ' と REM・lua の -- と --[[ ]]。コードの後ろに付いたコメントの行はコードの行。
   - 分け方: 層(src/app などのフォルダ。src/ と friend-apps/ は 2 段目まで・ほかは 1 段目)ごとに 本体・テスト・開発の道具。
-    テスト = /tests/ の下・名前が test_* か e2e_*。開発の道具 = dev/ の下(dev/tests/ はテスト)。
+    テスト = tests/ の下(層は持ち主: tests/flow → src/flow・tests/dev → dev・tests/friend-apps/x → friend-apps/x)・名前が test_* か e2e_*。
+    開発の道具 = dev/ の下。
   - 「減った」は前と後の合計の差(正味)だけ。消した行・足した行は出さない。
 """
 import argparse
@@ -43,6 +44,8 @@ def classify(path):
     if ext not in LANG or p.startswith(SKIP_TOP) or "vendor" in p.lower().split("/")[:-1]:
         return None
     parts = p.split("/")
+    if parts[0] == "tests":
+        return test_layer(parts[1:-1]), "テスト"
     if len(parts) == 1:
         layer = "(直下)"
     elif parts[0] in ("src", "friend-apps") and len(parts) > 2:
@@ -50,13 +53,24 @@ def classify(path):
     else:
         layer = parts[0]
     name = parts[-1].lower()
-    if "tests" in parts[:-1] or name.startswith(("test_", "e2e_")):
+    if name.startswith(("test_", "e2e_")):
         kind = "テスト"
     elif parts[0] == "dev":
         kind = "開発の道具"
     else:
         kind = "本体"
     return layer, kind
+
+
+def test_layer(dirs):
+    """tests/ の下のフォルダの並び → 持ち主の層(src の層・dev・chrome-ext・friend-apps/x)。tests/ 直下の共通の物は tests"""
+    if not dirs:
+        return "tests"
+    if dirs[0] == "friend-apps" and len(dirs) > 1:
+        return "friend-apps/" + dirs[1]
+    if dirs[0] in ("dev", "chrome-ext"):
+        return dirs[0]
+    return "src/" + dirs[0]
 
 
 # ---------------------------------------------------------------- 1 ファイルの (a)(b)

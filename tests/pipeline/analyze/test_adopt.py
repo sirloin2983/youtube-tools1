@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """pipeline/analyze/adopt.py(採用の規則 F-5 の純粋な関数)と ② の口 flow/adopt のテスト。
-    py -3.12 -m unittest src/pipeline/analyze/tests/test_adopt.py -v
+    py -3.12 -m unittest tests/pipeline/analyze/test_adopt.py -v
 自動マーク 5 つの配信を、使う順(上位を採用 → 再実行 → 人の採用 → 区間つきの依頼)に通して、採った id と印をまとめて確かめる。
-期待値は store のテスト(src/human/review/tests/test_studio.py の TestAdoptRule)と同じ。保存を通した動きはそちらが確かめる。
+期待値は store のテスト(tests/human/review/test_studio.py の TestAdoptRule)と同じ。保存を通した動きはそちらが確かめる。
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしないが、ほかのテストとそろえる
@@ -10,7 +10,7 @@ import copy
 import sys
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))   # src
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src"))   # src
 from flow import adopt as flow_adopt  # noqa: E402
 from pipeline.analyze import adopt as A  # noqa: E402
 from ytt import marks as M, yturl  # noqa: E402

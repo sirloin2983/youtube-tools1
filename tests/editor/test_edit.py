@@ -34,7 +34,8 @@ from ytt import settings as _settings  # noqa: E402
 from ytt import tools as _tools  # noqa: E402
 from ytt import workdata as _workdata  # noqa: E402
 from ytt import docloc  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 
 def doc_obj(**over):
@@ -369,7 +370,7 @@ class TestEditHttp(unittest.TestCase):
 
     def test_settings_http(self):
         """設定の HTTP のつなぎ(1 本): 丸ごとの保存(PUT)は patch の鍵(パックの音量・キー配置)を戻さない・差分の保存(PUT patch・POST patch)・
-        device は machine.json(この PC の設定)に書いて GET が返す・400/413。値の検査そのものは editor/tests/test_settings_schema.py・ytt/tests/test_settings.py"""
+        device は machine.json(この PC の設定)に書いて GET が返す・400/413。値の検査そのものは tests/editor/test_settings_schema.py・tests/ytt/test_settings.py"""
         def machine_files():
             return [os.path.join(d, "machine.json") for d, _n, fs in os.walk(self.tmp) if "machine.json" in fs]
         orig = {k: v for k, v in self.call("GET", "/api/settings").items() if k != "_status"}

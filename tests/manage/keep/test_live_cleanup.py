@@ -1,8 +1,8 @@
 """録画を自動で消す(src/manage/keep/live_cleanup.py。「書き出し済み + アーカイブ化を確かめたら ごみ箱へ」)のテスト。
-消すのは戻しにくいので、消えない場合を厚く確かめる。録画を ごみ箱 へ移すのは録画の部品(src/pipeline/ingest/tests/ の rec_core の delete)。
+消すのは戻しにくいので、消えない場合を厚く確かめる。録画を ごみ箱 へ移すのは録画の部品(tests/pipeline/ingest/ の rec_core の delete)。
 
 偽の Live(録画元の一覧と delete)と本物の書き出しの管理(flow/live_export の Exporter)で動かす。入口(src/app/live.py)は使わない。
-実行(リポジトリ直下から): python -m unittest src/manage/keep/tests/test_live_cleanup.py -v
+実行(リポジトリ直下から): python -m unittest tests/manage/keep/test_live_cleanup.py -v
 """
 import os
 import sys
@@ -10,7 +10,7 @@ import time
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> keep -> manage -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> keep -> manage -> src
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
@@ -18,7 +18,8 @@ from flow import live_archive as A  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from manage.keep import live_cleanup as LC  # noqa: E402
 from ytt import fsio  # noqa: E402
-from ytt.tests.testkit import tempdir  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+from testkit import tempdir  # noqa: E402
 
 RELEASE = 1790000000.0            # 配信の開始時刻
 

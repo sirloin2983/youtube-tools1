@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """「編集」の部品(校正・カット・パック)を使う画面のテストの共通部分。
-案件の画面の e2e(src/app/tests/e2e_cases_proof.py・e2e_cases_cut.py)が使う。
+案件の画面の e2e(tests/app/e2e_cases_proof.py・e2e_cases_cut.py)が使う。
 
 - ツールのフォルダの直下のファイルはまとめて一時フォルダへ写す(新しい cut.js などを足しても写し忘れで画面が真っ白にならない)
 - 入口に取り込んだ形(app/server.py --only transcribe,cut2resolve。パック作りは cut2resolve の API を呼ぶため)で起動する。mounted=False は serve.py 単体(画面は無い・API だけ)
@@ -19,11 +19,12 @@ import urllib.error
 import urllib.request
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-HERE = os.path.dirname(TESTS)   # ツール(editor/)のフォルダ
+HERE = os.path.join(os.path.dirname(os.path.dirname(TESTS)), "src", "editor")   # ツール(editor/)のフォルダ
 REPO = os.path.dirname(HERE)
 sys.path.append(REPO)   # ytt.layout(フォルダ名の対応表)を読むため
 from ytt import layout as _layout  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 os.environ.setdefault("YTT_CORE_DIR", REPO)   # 一時フォルダに写した serve.py が共通部品(ytt・パックの部品 pipeline.pack)を見つけられるように
 
 

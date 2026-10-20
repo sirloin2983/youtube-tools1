@@ -28,17 +28,17 @@ SYM_MAX = 12      # 1 ファイルに出す名前の数
 
 # 層(出す順)。(見出し, ファイル名, パスの頭の並び)。どれにも当たらない物は「その他」
 LAYERS = [
-    ("ytt(基盤)", "ytt", ("src/ytt/",)),
-    ("① pipeline(道具 = データを加工する)", "pipeline", ("src/pipeline/",)),
-    ("② flow(管理 = いつ・どの順で・どこに置くか)", "flow", ("src/flow/",)),
-    ("③ human(人の操作)", "human", ("src/human/",)),
-    ("④ manage(データ)", "manage", ("src/manage/",)),
-    ("⑤ eval(検証)", "eval", ("src/eval/",)),
-    ("src/app(入口と画面)", "app", ("src/app/",)),
-    ("src/friendapp(友人の玄関)", "friendapp", ("src/friendapp/",)),
-    ("その他の画面(editor・studio・ui-kit・cut2resolve)", "tools", ("src/",)),
-    ("dev・setup(開発の道具)", "dev", ("dev/", "setup/")),
-    ("friend-apps・chrome-ext(C# のアプリ・拡張)", "apps", ("friend-apps/", "chrome-ext/")),
+    ("ytt(基盤)", "ytt", ("src/ytt/", "tests/ytt/", "tests/testkit.py")),
+    ("① pipeline(道具 = データを加工する)", "pipeline", ("src/pipeline/", "tests/pipeline/")),
+    ("② flow(管理 = いつ・どの順で・どこに置くか)", "flow", ("src/flow/", "tests/flow/")),
+    ("③ human(人の操作)", "human", ("src/human/", "tests/human/")),
+    ("④ manage(データ)", "manage", ("src/manage/", "tests/manage/")),
+    ("⑤ eval(検証)", "eval", ("src/eval/", "tests/eval/")),
+    ("src/app(入口と画面)", "app", ("src/app/", "tests/app/")),
+    ("src/friendapp(友人の玄関)", "friendapp", ("src/friendapp/", "tests/friendapp/")),
+    ("その他の画面(editor・studio・ui-kit・cut2resolve)", "tools", ("src/", "tests/editor/", "tests/studio/", "tests/ui-kit/", "tests/cut2resolve/")),
+    ("dev・setup(開発の道具)", "dev", ("dev/", "setup/", "tests/dev/")),
+    ("friend-apps・chrome-ext(C# のアプリ・拡張)", "apps", ("friend-apps/", "chrome-ext/", "tests/friend-apps/", "tests/chrome-ext/")),
 ]
 ROUTE = re.compile(r"^/?(?:friend/|live/)?api/[A-Za-z0-9_\-/.]*$")
 JS_ROUTE = re.compile(r"""['"`]/?((?:friend/|live/)?api/[A-Za-z0-9_\-/.]+)""")
@@ -59,7 +59,7 @@ def skipped(p):
 
 
 def is_test(p):
-    return "/tests/" in p or os.path.basename(p).startswith(("test_", "e2e_"))
+    return p.startswith("tests/") or os.path.basename(p).startswith(("test_", "e2e_"))
 
 
 def read(p):

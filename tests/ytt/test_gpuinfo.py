@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""ytt/gpuinfo(この PC の GPU の名前と VRAM。F1 F0-2)のテスト。  py -3.12 -m unittest src/ytt/tests/test_gpuinfo.py -v
+"""ytt/gpuinfo(この PC の GPU の名前と VRAM。F1 F0-2)のテスト。  py -3.12 -m unittest tests/ytt/test_gpuinfo.py -v
 
 - nvidia-smi・CIM の出力の読み方(CIM の AdapterRAM の 4GB の頭打ちは None)・GPU の選び方・調べる順と覚え方
 - この PC(Windows)で本物を 1 回調べて、形が合うこと(GPU が無い PC では None でよい)
@@ -9,7 +9,7 @@ import sys
 import unittest
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> ytt -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # tests -> ytt -> src
 sys.path.insert(0, SRC)
 from ytt import gpuinfo as G  # noqa: E402
 

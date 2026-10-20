@@ -6,7 +6,7 @@ import sys
 import tempfile
 import unittest
 
-DEV = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEV = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "dev")
 sys.path.insert(0, DEV)
 import notes_tool  # noqa: E402
 

@@ -1,6 +1,6 @@
 """src/eval/tools/eval_cloud.py(クラウドの文字起こしとの比較)のテスト。リポジトリ直下で:
 
-    py -3.12 -m unittest src/eval/tools/tests/test_eval_cloud.py
+    py -3.12 -m unittest tests/eval/tools/test_eval_cloud.py
 
 作業データは一時フォルダに作る(本物の作業データは読まない)。通信は http_json を差し替えて偽の応答にする(外へは何も送らない)。
 音声の取り出しは ffmpeg が要る(無ければ run のテストは skip)。
@@ -17,11 +17,12 @@ from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/tools (道具の置き場所)
+HERE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src", "eval", "tools")   # src/eval/tools (道具の置き場所)
 REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 ytt の置き場所)
 sys.path.insert(0, REPO)
 from eval.tools import eval_cloud as EC  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 KEY = "sk-test-secret-key-0123456789"
 

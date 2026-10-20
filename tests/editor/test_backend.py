@@ -23,7 +23,7 @@ import urllib.request
 from unittest.mock import patch
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-HERE = os.path.dirname(TESTS)   # ツール(editor/)のフォルダ
+HERE = os.path.join(os.path.dirname(os.path.dirname(TESTS)), "src", "editor")   # ツール(editor/)のフォルダ
 UI_DIR = os.path.join(os.path.dirname(HERE), "app", "ui", "editor")   # 画面の部品(RV C2 で src/app/ui/editor へ)
 os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))   # 一時フォルダに写した serve.py が共通部品 ytt(リポジトリ直下)を見つけられるように
 sys.path.insert(0, HERE)
@@ -48,7 +48,8 @@ from ytt import workdata as _workdata  # noqa: E402
 from manage.cases import handoff_io as P  # noqa: E402   (.clip.json が指す動画・動画の隣への保存)
 from pipeline.pack import resolve_export as RE  # noqa: E402   (受け渡しの JSON と SRT の組み立て build_*。RS3-E5b)
 from ytt import fsio, runtime, schemas  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 TID = "0123456789ab"
 

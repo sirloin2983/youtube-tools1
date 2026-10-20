@@ -1,6 +1,6 @@
 """src/flow/casebook.py(案件の候補と採用のファイル。RS8 B3-3)のテスト。リポジトリ直下で:
 
-    py -3.12 -m unittest src/flow/tests/test_casebook.py
+    py -3.12 -m unittest tests/flow/test_casebook.py
 
 案件のフォルダは一時フォルダに作る(本物の作業データは読まない・書かない)。
 """
@@ -14,8 +14,9 @@ import unittest
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src"))   # src
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from flow import casebook as CB  # noqa: E402
 from ytt import casefiles as CF, errors, studiodata, marks as M, names, schemas  # noqa: E402
 

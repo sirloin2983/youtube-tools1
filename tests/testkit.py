@@ -1,9 +1,10 @@
 """テストの共通の下ごしらえ(テストの見直し TESTREV。notes:plan/test-review.md の 6)。
 
-各層の tests/ が共通で使う「一時フォルダ・JSON の読み書き・偽の HTTP サーバー・作業データの切り離し」を 1 か所に置く。
-テストからだけ使う(本体のコードは import しない)。ytt は一番下の層なので、どの層のテストからも読める。
+tests/ の各層のテストが共通で使う「一時フォルダ・JSON の読み書き・偽の HTTP サーバー・作業データの切り離し」を 1 か所に置く。
+テストからだけ使う(本体のコードは import しない)。tests/ を sys.path に入れて読む。
 
-    from ytt.tests import testkit
+    sys.path.insert(0, <tests/ のフォルダ>)
+    import testkit
     class T(unittest.TestCase):
         def test_x(self):
             tmp = testkit.tempdir(self)           # 一時フォルダ(case の終わりに消す)

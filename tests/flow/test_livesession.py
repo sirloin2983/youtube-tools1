@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""flow/livesession(ライブ係)のテスト。  py -3.12 -m unittest src/flow/tests/test_livesession.py -v
+"""flow/livesession(ライブ係)のテスト。  py -3.12 -m unittest tests/flow/test_livesession.py -v
 
 - 入口の Live を使わず、偽の録画元・偽の まとめて実行で: ② の口(Queue.submit の kind live)→ submit → 録画を始める → live/bundles.json →
   束から検出の設定(config.json の bundles)・自動の採用の待ち・配信後の解析の設定・書き出したあとの設定
@@ -18,9 +18,10 @@ import sys
 import time
 import unittest
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # tests -> flow -> src
 sys.path.insert(0, SRC)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from flow import live_adopt as LA, live_detect as D, live_export as LX, livesession as LS, run as R, runqueue as Q, spec as S  # noqa: E402
 from ytt import fsio  # noqa: E402
 
@@ -357,7 +358,7 @@ class HeadlessTest(Base):
 
 
 class BeginTest(Base):
-    """録画を始める芯 begin の分かれ道(録画元の 409・画質・配信前・調べられない・チャンネル名の掃除)。入口の POST /live/api/begin の形と安全の境目は src/app/tests/test_live.py"""
+    """録画を始める芯 begin の分かれ道(録画元の 409・画質・配信前・調べられない・チャンネル名の掃除)。入口の POST /live/api/begin の形と安全の境目は tests/app/test_live.py"""
 
     def recorder(self, lists, start):
         """録画元の偽物: /live/list は lists を順に返し(尽きたら空)、/live/start は start(body) -> (code, dict)。-> 録画を始める body の記録"""

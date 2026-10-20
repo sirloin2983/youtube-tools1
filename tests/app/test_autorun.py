@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""まとめて実行(src/app/autorun.py)の段取りのテスト。ツールの API は偽物(FakeTools)で、本物の通し確認は src/app/tests/e2e_autorun.py。
-実行(リポジトリ直下): python -m unittest src/app/tests/test_autorun.py"""
+"""まとめて実行(src/app/autorun.py)の段取りのテスト。ツールの API は偽物(FakeTools)で、本物の通し確認は tests/app/e2e_autorun.py。
+実行(リポジトリ直下): python -m unittest tests/app/test_autorun.py"""
 import json
 import os
 import re
@@ -13,7 +13,7 @@ from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 TESTS = os.path.dirname(os.path.abspath(__file__))   # src/home/tests
-HERE = os.path.dirname(TESTS)   # home(入口の部品)
+HERE = os.path.join(os.path.dirname(os.path.dirname(TESTS)), "src", "app")   # home(入口の部品)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 sys.path.insert(0, os.path.dirname(HERE))
@@ -29,8 +29,9 @@ from flow import spec as SP  # noqa: E402
 from flow import order as O  # noqa: E402  (欄 → 封筒 + 束の差分。受付は submit の 1 本)
 from human.friend import intake as IN  # noqa: E402  (友人の受付の欄 → submit = submit_urls・submit_file)
 from ytt import fsio  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
-sys.path.insert(0, os.path.join(os.path.dirname(HERE), "flow", "tests"))   # 共有の部品 _runfields(Run の欄の形 → 封筒 + 束)
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "tests", "flow"))   # 共有の部品 _runfields(Run の欄の形 → 封筒 + 束)
 import _runfields as RF  # noqa: E402
 
 
@@ -473,7 +474,7 @@ class TestMarks(Base):
         self.assertEqual({s["key"]: s["state"] for s in run["steps"]}["export"], "skip")
 
     def test_bad_marks(self):
-        with self.assertRaisesRegex(ValueError, "マークの指定"):   # 形の違いは src/flow/tests/test_spec.py の test_marks_arg
+        with self.assertRaisesRegex(ValueError, "マークの指定"):   # 形の違いは tests/flow/test_spec.py の test_marks_arg
             start(self.r, VID, "export", marks=["../x"])
         with self.assertRaisesRegex(ValueError, "書き出しから"):
             start(self.r, VID, "full", marks=["m1"])
@@ -830,7 +831,7 @@ class TestStage5(Base):
 
 class TestRunLog(Base):
     """終わった実行の記録に、まとめて実行の配信の欄(kind video・videoId)が入る。書き方・past・history・回す・書けないときは
-    src/flow/tests/test_runqueue.py の TestRunLog"""
+    tests/flow/test_runqueue.py の TestRunLog"""
 
     def test_video_run_is_written(self):
         logs = os.path.join(self.tmp, "logs")
@@ -1051,7 +1052,7 @@ class TestRequests(Base):
         self.assertEqual(self.prefs.get(["streamer"])["streamer"]["docs"], {"000000000001": "さくらみこ"})   # パックのときの字幕の色
         # もう一度: 文字起こし済みなので飛ばす
         run = self.wait(start_file(self.r, media))
-        # 段 normalize(start_file の既定。空のファイルは調べられない = 警告で続く。中身は src/flow/tests/test_run.py の TestStepNormalize)
+        # 段 normalize(start_file の既定。空のファイルは調べられない = 警告で続く。中身は tests/flow/test_run.py の TestStepNormalize)
         self.assertEqual(self.states(run), {"normalize": "warn", "transcribe": "skip"})
 
     def test_file_engine_and_model(self):
@@ -1147,7 +1148,7 @@ class TestRequests(Base):
 
     def test_request_auto_delivers_packs(self):
         """① 全自動(URL): 解析 → 採用 → 書き出し → 文字起こし → パック → パックができるたびに 1 本ずつ届ける(組はない): 1 本の zip + 隣の確認用の動画 + 隣の印(meta)。
-        実行の欄(依頼 id・配信・マーク)が印と届けた記録まで届く。置く順・印の欄の形は src/flow/tests/test_deliver.py の DeliverRun.test_deliver_run"""
+        実行の欄(依頼 id・配信・マーク)が印と届けた記録まで届く。置く順・印の欄の形は tests/flow/test_deliver.py の DeliverRun.test_deliver_run"""
         self.tools.known = False
         run = self.auto_request()
         self.assertEqual((run["state"], run["mode"]), ("done", "request_auto"), run)
@@ -1393,7 +1394,7 @@ class TestRequests(Base):
 
     def test_request_ranges_filled_with_auto(self):
         """区間が切り抜く数に足りない: 解析して、足りない分だけ自動の上位で埋める。採用の答え(区間・人の採用・自動)の id をこの実行が全部扱う
-        (どれを選ぶかの規則は src/human/review/tests/test_studio.py の TestAdoptRule)"""
+        (どれを選ぶかの規則は tests/human/review/test_studio.py の TestAdoptRule)"""
         self.tools.known = False
         self.tools.video["marks"] = [{"id": "old", "src": "manual", "status": "adopted", "score": None, "start": 500, "end": 510}]   # 前からある人の採用
         run = self.request({"id": VID, "top": 3, "ranges": [(18, 23)]}, request_id="rid")
@@ -1441,13 +1442,13 @@ class TestRequests(Base):
         self.assertEqual(self.states(run)["analyze"], "skip")
 
     def test_bad_range_is_skipped(self):
-        res = start_request(self.r, [{"id": VID, "top": 1, "ranges": [[5, 1]]}])   # 区間の検査は src/flow/tests/test_spec.py の test_clean_ranges・test_pad_range
+        res = start_request(self.r, [{"id": VID, "top": 1, "ranges": [[5, 1]]}])   # 区間の検査は tests/flow/test_spec.py の test_clean_ranges・test_pad_range
         self.assertEqual((res["runs"], res["skipped"][0]["reason"]), ([], "区間の指定が正しくありません"))
 
 
 class TestFriendLength(Base):
     """友人の区間の長さを、依頼の自動の候補の長さに使う: ② flow/lengthhint が入口の実行記録の友人の区間からその場で数え、
-    依頼(URL)で足りない分を自動で埋めるために解析するときだけ、解析の設定 length に重ねる。数え方の細かい所は src/flow/tests/test_lengthhint.py"""
+    依頼(URL)で足りない分を自動で埋めるために解析するときだけ、解析の設定 length に重ねる。数え方の細かい所は tests/flow/test_lengthhint.py"""
     marks = []
     analysis = False
 
@@ -1489,7 +1490,7 @@ class TestFriendLength(Base):
         self.assertIn("長さの目安を使います(場面が取れないときの長さ): 38 秒", self.logs[0])
         n = len(self.logs)
         self.r._friend_length()
-        self.assertEqual(len(self.logs), n)   # 変わらなければログに出さない(数え方・上限は src/flow/tests/test_lengthhint.py)
+        self.assertEqual(len(self.logs), n)   # 変わらなければログに出さない(数え方・上限は tests/flow/test_lengthhint.py)
 
     def test_only_for_requests(self):
         """ユーザー自身のまとめて実行には効かない。解析済みなら使い回す(長さが違っても解析し直さない)"""
@@ -1628,7 +1629,7 @@ class TestAutoSend(Base):
         zips = sorted(n for n in names if n.endswith(".zip"))
         self.assertEqual(sorted(names), sorted(z[:-4] + e for z in zips for e in (".zip", ".preview.mp4", ".meta.json")), names)   # 1 本ずつ
         self.assertEqual([self.meta(z)["origin"] for z in zips], ["auto", "auto"])   # 自動の分は印の出どころ auto(友人には「依頼なし」)
-        rows = self.rows()   # 届けた記録の欄の形・案件の札は src/flow/tests/test_deliver.py の DeliverRun.test_deliver_run・src/manage/cases/tests/test_cases.py
+        rows = self.rows()   # 届けた記録の欄の形・案件の札は tests/flow/test_deliver.py の DeliverRun.test_deliver_run・tests/manage/cases/test_cases.py
         self.assertEqual(({(r["origin"], r["videoId"], r["mode"]) for r in rows}, sorted(p["markId"] for r in rows for p in r["packs"])),
                          ({("auto", VID, "full")}, ["a2", "a3"]))
         self.assertEqual(self.recs(), {}, "届けたは案件に写さない(② の届けた記録から引く)")
@@ -1639,7 +1640,7 @@ class TestAutoSend(Base):
         run = self.go(auto_send=False)
         self.assertEqual((run["state"], self.step(run)["state"], self.step(run)["detail"]), ("done", "skip", DL.UNCHECKED_TEXT), run)
         self.assertEqual({k: r["code"] for k, r in self.notsent().items()}, {"a2": "unchecked", "a3": "unchecked"})
-        self.assertEqual((self.outs(), self.rows()), ([], []))   # 案件が記録を読んで札とカードを出すのは src/manage/cases/tests/test_cases.py
+        self.assertEqual((self.outs(), self.rows()), ([], []))   # 案件が記録を読んで札とカードを出すのは tests/manage/cases/test_cases.py
 
     def test_requested_video_still_sends(self):
         """友人が依頼済みの配信でも送る(二重は防がない = 10-19 ユーザー決定。D-SEND 2-9 の取り下げ)"""
@@ -1704,7 +1705,7 @@ class TestAutoSend(Base):
         self.assertEqual(self.outs(), first)
 
     def test_old_pool_is_readable(self):
-        """古い溜め(tag・origin・mode が無い・組の batch 入り)も読めて、1 本ずつ届ける(古い待ちの記録は src/flow/tests/test_run.py の TestFromInput)"""
+        """古い溜め(tag・origin・mode が無い・組の batch 入り)も読めて、1 本ずつ届ける(古い待ちの記録は tests/flow/test_run.py の TestFromInput)"""
         pack = os.path.join(self.tmp, "p_pack")
         os.makedirs(pack)
         with open(os.path.join(pack, "p.mp4"), "wb") as f:
@@ -1795,7 +1796,7 @@ class TestSubmitBase(Base):
         self.assertEqual((a.on_fail, a.spec["run"]["onFail"], b.on_fail), ("stop", "stop", "next"))
 
     def test_friend_app_body(self):
-        """友人の依頼の本文(版 2 = run.upto・hints.streamer・run.requested)が実行の欄になる(捨てる欄の読み方は src/flow/tests/test_envelope.py)"""
+        """友人の依頼の本文(版 2 = run.upto・hints.streamer・run.requested)が実行の欄になる(捨てる欄の読み方は tests/flow/test_envelope.py)"""
         v2 = {"id": "0123456789", "kind": "url", "input": {"url": "https://www.youtube.com/watch?v=" + VID}, "requestId": "20261016-120000-abcdef",
               "createdAt": 1, "specVersion": 2}
         s2 = {"adopt": {"top": 2}, "pack": {"cut": "silence", "videoTracks": 2}, "hints": {"streamer": "さくらみこ"},

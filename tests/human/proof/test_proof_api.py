@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """校正まわりの API の確かめ(編集の画面の裏の API だけで確かめる)。
 
-    py -3.12 -m unittest src/editor/tests/test_metrics.py     # test_metrics がこのファイルのテストも読み込む
-    py -3.12 -m unittest src/editor/tests/test_proof_api.py   # これだけ
+    py -3.12 -m unittest tests/eval/drill/test_metrics.py     # test_metrics がこのファイルのテストも読み込む
+    py -3.12 -m unittest tests/human/proof/test_proof_api.py   # これだけ
 
 - 学習の候補 GET /api/learned(human/proof/learn.py。評価用は数えない・登録済みは出さない)
 - 精度の測定 all_metrics の scope(eval/drill/metrics.py)
@@ -21,7 +21,8 @@ import tempfile
 import unittest
 from unittest import mock
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # リポジトリ直下から py -3.12 -m unittest src/editor/tests/test_proof_api.py でも読めるように
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # リポジトリ直下から py -3.12 -m unittest tests/human/proof/test_proof_api.py でも読めるように
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "editor"))   # test_backend・test_edit(編集のサーバーを一時フォルダで動かす道具)
 from test_backend import HERE, S, StoreDir, write_json  # noqa: E402
 import ed_state  # noqa: E402
 from flow import diar as _diar  # noqa: E402
@@ -35,7 +36,8 @@ from ytt import tools as _tools  # noqa: E402
 from test_voices import doc_with_speakers, unit
 from human.proof import learn  # noqa: E402
 from ytt import txtext as _txtext  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 TID_A, TID_B, TID_C = "aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc"
 HAVE_FF = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))

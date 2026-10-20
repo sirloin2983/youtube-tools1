@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """pipeline/transcribe/records(認識の記録・辞書の版・生出力・単語の時刻)を、編集の serve を読まずに使うテスト。
 
-    py -3.12 -m unittest src/pipeline/transcribe/tests/test_txrecords.py -v
+    py -3.12 -m unittest tests/pipeline/transcribe/test_txrecords.py -v
 
-細かい決まり(記録の項目・辞書の版の中身)は編集のテスト(src/editor/tests/test_records.py・test_whispercpp.py。serve の名前で読む)が確かめる。
+細かい決まり(記録の項目・辞書の版の中身)は編集のテスト(tests/pipeline/transcribe/test_records.py・test_whispercpp.py。serve の名前で読む)が確かめる。
 ここは「① が serve なしで読めて、置き場所と辞書の材料を持ち主(ytt/workdata・roster.ROSTER)・口(set_dict_inputs)か引数から読む」ことだけ。
 """
 import os
@@ -12,9 +12,10 @@ import sys
 import unittest
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 from pipeline.transcribe import records, roster as roster_mod  # noqa: E402
 from ytt import txwords, workdata  # noqa: E402
 
@@ -52,7 +53,7 @@ TID = "abc123abc123"   # 文書の id の形(12 文字の 16 進)
 
 class TestFiles(_Env):
     def test_words_sorted_and_empty(self):
-        """単語の時刻は TX_DIR に並べ替えて書く・空なら読めば None(ジョブが書く道は本物の通し src/editor/tests/test_worker.py)"""
+        """単語の時刻は TX_DIR に並べ替えて書く・空なら読めば None(ジョブが書く道は本物の通し tests/pipeline/transcribe/test_worker.py)"""
         txwords.write_words(TID, [[1.0, 1.5, "い"], [0.0, 0.5, "あ"]], "small")
         self.assertEqual(txwords.words_path(TID), os.path.join(self.tmp, TID + ".words.json"))
         self.assertEqual(txwords.read_words(TID), [[0.0, 0.5, "あ"], [1.0, 1.5, "い"]])
@@ -91,7 +92,7 @@ class ScanGpuTest(unittest.TestCase):
         self.assertEqual(te.WhisperCpp.scan_gpu(["progress = 5%"]), (None, ""))   # 装置の行なし
 
     def test_recognition_run_keeps_gpu_when_known(self):
-        """GPU の名前と装置の行は分かったときだけ記録に(CPU で無いときに書かないのは本物の通し src/editor/tests/test_worker.py)"""
+        """GPU の名前と装置の行は分かったときだけ記録に(CPU で無いときに書かないのは本物の通し tests/pipeline/transcribe/test_worker.py)"""
         with mock.patch.object(records, "dict_version", lambda s: {}):
             a = records.recognition_run({"model": "small", "language": "ja"}, {"device": "vulkan", "gpu": "RTX 3060", "backend": "Vulkan0"}, 1.0, 2.0)
         self.assertEqual((a["gpu"], a["backend"]), ("RTX 3060", "Vulkan0"))

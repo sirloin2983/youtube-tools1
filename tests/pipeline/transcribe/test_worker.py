@@ -22,7 +22,7 @@ import unittest
 from unittest import mock
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-HERE = os.path.dirname(TESTS)   # ツール(editor/)のフォルダ
+HERE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(TESTS))), "src", "editor")   # ツール(editor/)のフォルダ
 os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import serve as S  # noqa: E402
@@ -43,8 +43,9 @@ from ytt import tools as _tools  # noqa: E402
 from ytt import txwords as _txwords  # noqa: E402
 from human.proof import doc_jobs  # noqa: E402
 from ytt import workdata  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
-sys.path.insert(0, os.path.join(os.path.dirname(HERE), "pipeline", "transcribe", "tests"))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "tests", "pipeline", "transcribe"))
 import voice_fixture as VF  # noqa: E402
 
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))

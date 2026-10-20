@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """配信中の候補の文字起こし(線 D の D-11 案 b)のテスト。② の側 src/flow/live_tx.py(入口 home の Live は使わず、ライブ係 flow/livesession.LiveSession で組む)。
-子プロセス live_tx_worker.py の試験は src/pipeline/transcribe/tests/test_live_tx_worker.py、設定(prefs)との一致と入口が numpy を読まないことは dev/rule_imports.py の C-02・I-02。
+子プロセス live_tx_worker.py の試験は tests/pipeline/transcribe/test_live_tx_worker.py、設定(prefs)との一致と入口が numpy を読まないことは dev/rule_imports.py の C-02・I-02。
 
-    py -3.12 -m unittest src/flow/tests/test_live_tx.py
+    py -3.12 -m unittest tests/flow/test_live_tx.py
 
 確かめること:
   - RealWhisperTest(本物の通し): 声の TS セグメント → 見回り → 裏の糸 → 本物の ffmpeg → 本物の whisper.cpp(GPU)→ tx.json → view / text_for /
@@ -30,9 +30,10 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データ
 TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TESTS)
 import _livefix as LF  # noqa: E402
-sys.path.insert(0, os.path.join(LF.SRC, "pipeline", "transcribe", "tests"))
+sys.path.insert(0, os.path.join(os.path.dirname(TESTS), "pipeline", "transcribe"))   # voice_fixture
 import voice_fixture as VF  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from flow import board as Board  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from flow import live_tx as TX  # noqa: E402
@@ -511,7 +512,7 @@ class OneTest(LiveTxBase):
 
 
 class RealWhisperTest(LiveTxBase):
-    """本物の通し(whisper.cpp large-v3・GPU。GPU の通しはこれと主の文字起こしの src/editor/tests/test_worker.py の 2 本): 声の見本の 4 秒の TS セグメントを偽の録画元が出し
+    """本物の通し(whisper.cpp large-v3・GPU。GPU の通しはこれと主の文字起こしの tests/pipeline/transcribe/test_worker.py の 2 本): 声の見本の 4 秒の TS セグメントを偽の録画元が出し
     (8 秒から先はつなぎ直し = session_002)、見回り → 裏の糸 → 本物の ffmpeg で wav → live_tx_worker.recognize
     (whisper-cli は編集の作業データから読むだけ)→ tx.json。モデル・whisper.cpp・ffmpeg・日本語の音声合成が無ければ飛ばす"""
 

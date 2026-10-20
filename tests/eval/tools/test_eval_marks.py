@@ -1,6 +1,6 @@
 """src/eval/tools/eval_marks.py(盛り上がりの検出を、人の判定の記録で測る道具。線 C の土台)のテスト。リポジトリ直下で:
 
-    python -m unittest src/eval/tools/tests/test_eval_marks.py
+    python -m unittest tests/eval/tools/test_eval_marks.py
 
 作業データは一時フォルダに作る(本物の作業データは読まない・書かない)。サーバーは動かさない。
 """
@@ -14,7 +14,7 @@ import time
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src/eval/tools (道具の置き場所)
+HERE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src", "eval", "tools")   # src/eval/tools (道具の置き場所)
 REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 ytt の置き場所)
 sys.path.insert(0, REPO)
 from eval.tools import eval_marks as M  # noqa: E402
@@ -22,7 +22,8 @@ from flow import packrec  # noqa: E402
 from manage.cases import txindex  # noqa: E402
 from flow import lengthhint  # noqa: E402
 from human import judgments  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 V1, V2 = "v1aaaaaaaaa", "v2bbbbbbbbb"
 
@@ -825,7 +826,7 @@ class FriendRanges(unittest.TestCase):
 
 
 class ClipLength(unittest.TestCase):
-    """友人が指定した区間の長さ(clipLength = src/flow/lengthhint の数。細かい式は src/flow/tests/test_lengthhint.py)"""
+    """友人が指定した区間の長さ(clipLength = src/flow/lengthhint の数。細かい式は tests/flow/test_lengthhint.py)"""
 
     def cl(self, env):
         return env.evaluate()["clipLength"]

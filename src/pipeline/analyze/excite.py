@@ -2,7 +2,7 @@
 
 決まり:
 - **一括の関数(smooth・local_baseline・robust_scale・audio_score・chat_z・estimate_lag・pick_clips …)は式・加算の順・丸めを変えない**。
-  アーカイブの結果(候補・series)が golden と完全に一致することを pipeline/analyze/tests/test_excite.py の golden が確かめる。式を直すときは golden も作り直す(src/eval/tools/eval_marks.py の数字と比べられなくなるので WORKLOG に書く)
+  アーカイブの結果(候補・series)が golden と完全に一致することを tests/pipeline/analyze/test_excite.py の golden が確かめる。式を直すときは golden も作り直す(src/eval/tools/eval_marks.py の数字と比べられなくなるので WORKLOG に書く)
 - 配信中は「未来を見る量」だけが違う(notes:plan/line-d-live-clipping.md の 0-10-2): ふだん = 前 back 秒・後 fwd 秒の中央値(アーカイブは 150/150、配信中は 270/30)、
   跳ね上がりの尺度 = 直近 window 秒の MAD(アーカイブは全体)。これを持つのが Online(1 秒ずつ足す。一括の答え合わせは test_excite の windowed_scores)
 - 候補の帳簿 PeakBook: 山の確定(0-10-3 の 5)・1 時間の枠と入れ替え(0-10-3 の 6)・採用と見送りの除外。純粋(時計・ファイルを持たない)で、JSON にして起動し直しに耐える。

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""確かめる(/check。src/app/ui/check/)の配り方の安全の境目のテスト。  python -m unittest src/app/tests/test_check_page.py -v
+"""確かめる(/check。src/app/ui/check/)の配り方の安全の境目のテスト。  python -m unittest tests/app/test_check_page.py -v
 
 - 入口(src/app/server.py)は URL の完全一致の表だけを配る(フォルダは配らない)・部品は nosniff で CSP なし・同じ画面からだけ
 - /check の CSP は案件の画面と同じ(YouTube のプレイヤーだけ外のスクリプトを許す・インラインなし・枠に入らない)・合言葉の meta が入る・/check/ は /check へ
@@ -11,10 +11,10 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データ
 import sys
 import unittest
 
-TESTS = os.path.dirname(os.path.abspath(__file__))   # src/app/tests
-SRC = os.path.dirname(os.path.dirname(TESTS))
+TESTS = os.path.dirname(os.path.abspath(__file__))   # tests/app
+SRC = os.path.join(os.path.dirname(os.path.dirname(TESTS)), "src")
 sys.path.insert(0, os.path.join(SRC, "app"))
-sys.path.insert(0, os.path.join(SRC, "app", "tests"))
+sys.path.insert(0, os.path.join(os.path.dirname(SRC), "tests", "app"))
 if SRC not in sys.path:
     sys.path.append(SRC)
 sys.path.insert(0, TESTS)   # 土台 _pagetest.py(入口を立てる共通の準備)

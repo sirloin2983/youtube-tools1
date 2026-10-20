@@ -1,5 +1,5 @@
 """友人の玄関の ⚙ と初回の準備の口のテスト(src/friendapp/settings.py・setup.py・server.py)。本物のソケットで 127.0.0.1 のポート 0 に起こす。
-② は偽物・ネット(取得と API キーの確かめ)は偽物・フォルダを選ぶ窓は偽物(画面を取らない)。リポジトリ直下で: py -3.12 -m unittest src/friendapp/tests/test_settings.py"""
+② は偽物・ネット(取得と API キーの確かめ)は偽物・フォルダを選ぶ窓は偽物(画面を取らない)。リポジトリ直下で: py -3.12 -m unittest tests/friendapp/test_settings.py"""
 import hashlib
 import http.client
 import json
@@ -11,13 +11,14 @@ from collections import namedtuple
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 from ytt import tools as YT  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from friendapp import places as P, server as S, settings as T, setup as SU  # noqa: E402
-from friendapp.tests.test_server import FakeEngine  # noqa: E402
+from test_server import FakeEngine  # noqa: E402
 
 URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 KEY = "AIzaSyA-abcdefghijklmnopqrstuvwxyz012345"

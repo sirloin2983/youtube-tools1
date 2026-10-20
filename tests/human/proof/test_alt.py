@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """2つ目のエンジンとの食い違いに候補を出す機能のテスト。
 
-    py -3.12 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
-    py -3.12 -m unittest test_alt -q                    # これだけ(src/editor/tests で)
+    py -3.12 -m unittest tests/eval/drill/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
+    py -3.12 -m unittest test_alt -q                    # これだけ(tests/editor で)
 
 - alt_diffs(純粋な関数): 場面を並べた文書 1 本で、置き換え・表記だけの違いは出さない・片方だけの文字・長すぎ・行またぎ・行の大半が違う・校正済み・
   重なる候補をまとめて確かめる。長い文書は窓ごと
@@ -19,8 +19,9 @@ import unittest
 from unittest import mock
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.dirname(TESTS))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(TESTS))), "src", "editor"))
 sys.path.insert(0, TESTS)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "editor"))   # test_backend・test_edit(編集のサーバーを一時フォルダで動かす道具)
 from test_backend import StoreDir, write_json  # noqa: E402  (S = serve)
 import ed_state  # noqa: E402
 from human.proof import learn as _learn  # noqa: E402
@@ -28,7 +29,8 @@ from pipeline.transcribe import records as _records  # noqa: E402
 from ytt import settings as _settings  # noqa: E402
 from ytt import workdata as _workdata  # noqa: E402
 from eval.fake import fake_asr  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 from human.proof import alt as proof_alt  # noqa: E402
 from human.proof import doc_jobs  # noqa: E402
 from human.proof import store  # noqa: E402

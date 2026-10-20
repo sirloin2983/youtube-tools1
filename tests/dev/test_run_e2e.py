@@ -1,6 +1,6 @@
 """dev/run_e2e.py(e2e の一式)の一覧が、リポジトリの e2e_*.py と食い違っていないかを確かめる。
 
-    py -3.12 -m unittest dev/tests/test_run_e2e.py
+    py -3.12 -m unittest tests/dev/test_run_e2e.py
 """
 import os
 import sys
@@ -37,7 +37,7 @@ class TestSuiteList(unittest.TestCase):
 
     def test_check_screen_is_covered(self):
         """確かめる(/check。V1)の e2e は一式の cases の組にあり、画面の検査(ui_audit all --demo)の場面は 4 種類のカードと空の状態を開く"""
-        self.assertIn(("cases", "src/app/tests/e2e_check.py"), {(g, s) for g, s, _a, _w in run_e2e.SUITE})
+        self.assertIn(("cases", "tests/app/e2e_check.py"), {(g, s) for g, s, _a, _w in run_e2e.SUITE})
         import ui_audit
         self.assertTrue(set(ui_audit.SCREENS["app/ui/check"]) >= {"index.html", "check.js", "check.css", "player.js",
                                                                   "cards/value.js", "cards/read.js", "cards/voice.js", "cards/time.js"})

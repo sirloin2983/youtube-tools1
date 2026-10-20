@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """文書の置き場所(ytt/docloc の索引)を人の側の部品が使うことのテスト。
 
-    py -3.12 -m unittest src/human/proof/tests/test_doc_placement.py -v
+    py -3.12 -m unittest tests/human/proof/test_doc_placement.py -v
 
 索引 transcripts/<id>.loc.json が案件の 作業用 を指す文書を、store(読み書き・履歴・一覧・消す)・alt が
 その場所で読み書きすること。索引が無い・id の形が正しくない呼び手は今までどおり TX_DIR。
@@ -12,14 +12,16 @@ import shutil
 import sys
 import unittest
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")
 for _p in (os.path.join(SRC, "editor"), SRC):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 from human.proof import alt, store  # noqa: E402
 from ytt import docloc, schemas, workdata  # noqa: E402
-from human.tests._workdata import temporary_workdata  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "human"))   # tests/human/(_workdata)
+from _workdata import temporary_workdata  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 TID = "0123456789ab"
 

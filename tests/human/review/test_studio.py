@@ -1,4 +1,4 @@
-"""human/review/store.py の単体テスト(ネットワーク・ffmpeg 不要)。 実行(リポジトリ直下): py -3.12 -m unittest src/human/review/tests/test_studio.py"""
+"""human/review/store.py の単体テスト(ネットワーク・ffmpeg 不要)。 実行(リポジトリ直下): py -3.12 -m unittest tests/human/review/test_studio.py"""
 import glob
 import json
 import os
@@ -7,7 +7,7 @@ import sys
 import unittest
 from unittest.mock import patch
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))   # tests → review → human → src
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src"))   # tests → review → human → src
 from human.review import store  # noqa: E402
 from human import judgments as _judgments  # noqa: E402
 from ytt import yturl  # noqa: E402
@@ -15,7 +15,8 @@ from ytt import studio_env  # noqa: E402
 from ytt import casefiles, marks, names, schemas, studiodata  # noqa: E402
 from flow import casebook  # noqa: E402
 from ytt.errors import ApiError  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 YT = {"kind": "youtube", "videoId": "abcdefghijk", "name": "abcdefghijk"}
 YT2 = {"kind": "youtube", "videoId": "bbbbbbbbbbb", "name": "bbbbbbbbbbb"}

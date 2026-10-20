@@ -2,7 +2,7 @@
 """ライブ係(flow/livesession.LiveSession)の録画元まわりのテスト: 配信の状態を調べる yt-dlp の呼び方(probe_live・validate_url)・
 入口の終了で録画の部品を止める(stop_recorder)・見回りが本物の録画の部品を切り離して起動する(tick)。入口 home の Live は使わない。
 
-    py -3.12 -m unittest src/flow/tests/test_live_recorder.py
+    py -3.12 -m unittest tests/flow/test_live_recorder.py
 
 偽の yt-dlp(この Python で動く小さなスクリプト)・偽の録画元(HTTP。合言葉)で、本物の YouTube へは繋がない。
 """
@@ -17,10 +17,11 @@ from unittest import mock
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.dirname(os.path.dirname(TESTS))   # tests -> flow -> src
+REPO = os.path.join(os.path.dirname(os.path.dirname(TESTS)), "src")   # tests -> flow -> src
 sys.path.insert(0, TESTS)
 import _livefix as FIX  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from flow import livesession as LS  # noqa: E402
 

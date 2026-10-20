@@ -1,19 +1,20 @@
 """価値のカードの反映(src/human/check/value.py)の単体テスト。入口が渡す口(studio)は偽物。value:auto は記録だけ(案件の口を呼ばない)。
 
-実行(リポジトリ直下から): py -3.12 -m unittest src/human/check/tests/test_value.py -v
+実行(リポジトリ直下から): py -3.12 -m unittest tests/human/check/test_value.py -v
 """
 import os
 import sys
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> check -> human -> src
+ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> check -> human -> src
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from human import judgments  # noqa: E402
 from human.check import answerlog, apply, value  # noqa: E402,F401
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 VID = "abcdefghijk"
 

@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """ytt/marks.py(マークの純粋な語彙)の単体テスト。
 
-    python -m unittest src/ytt/tests/test_marks.py
+    python -m unittest tests/ytt/test_marks.py
 
 保存済みのマークの見本(壊れた行・重なる id・自動・書き出し済み・機械の採用・長い依頼の区間)を、読み込み(load_marks)→ 画面からの保存(validate_marks)
 → 解析の反映(replace_auto)→ 書き出し済みにする(exported_mark)の順に通して、まとめて確かめる。
-期待値は store のテスト(src/human/review/tests/test_studio.py)と同じ。Store を通した動き(保存・学習の記録)はそちらが確かめる。
+期待値は store のテスト(tests/human/review/test_studio.py)と同じ。Store を通した動き(保存・学習の記録)はそちらが確かめる。
 """
 import os
 import sys
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src"))   # src
 from ytt import marks as M  # noqa: E402
 
 

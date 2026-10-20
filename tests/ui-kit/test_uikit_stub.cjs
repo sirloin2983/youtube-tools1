@@ -1,4 +1,4 @@
-// Run: node --test src/ui-kit/tests/test_uikit_stub.cjs
+// Run: node --test tests/ui-kit/test_uikit_stub.cjs
 // node のテストに渡す UIKit の代わり(uikit_stub.cjs)が、本物の ui-kit.js と食い違っていないか。
 // あわせて、ui-kit.js の部品のうち画面の通しで起こしにくい物(失敗の答え・打っている欄・時計)を本物から切り出して試す
 const assert = require('node:assert/strict');
@@ -65,7 +65,7 @@ test('life handlers can be fired; withUIKit fills context.UIKit and window.UIKit
 /* ---- ui-kit.js の http / settingsForm を本物から切り出して動かす ---- */
 const fs = require('node:fs');
 const path = require('node:path');
-const KIT_TEXT = fs.readFileSync(path.join(__dirname, '..', 'ui-kit.js'), 'utf8').replace(/\r\n/g, '\n');
+const KIT_TEXT = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ui-kit', 'ui-kit.js'), 'utf8').replace(/\r\n/g, '\n');
 function slice(start, end) {
   const a = KIT_TEXT.indexOf(start), b = KIT_TEXT.indexOf(end, a);
   assert.ok(a >= 0 && b > a, 'marker not found: ' + start);

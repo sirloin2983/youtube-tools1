@@ -4,7 +4,7 @@
 //   (yt-dlp の wiki の「回されない cookie の取り方」: 私窓でログイン → robots.txt へ → 書き出す → 窓を閉じる)
 // - 書く先は <friendDir>\secrets\youtube-cookies.txt(Python の friendapp/places.cookies_path と同じ)。Dropbox・診断・送り返しには入らない。
 //   中身(値)はログに出さない(件数だけ)。yt-dlp には Python(ytt/tools.ytdlp_auth_args)が呼ぶたびに写しで渡す
-// - 決まり(YtCookies)は画面にも通信にも触らない = tests\Tests.cs で偽の cookie で確かめる
+// - 決まり(YtCookies)は画面にも通信にも触らない = tests\friend-apps\launcher\Tests.cs で偽の cookie で確かめる
 using System;
 using System.Collections.Generic;
 using System.Drawing;

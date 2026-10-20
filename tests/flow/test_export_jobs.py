@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """② 書き出しの器 flow/export.ExportJobs(OPT2 の J2)。① の中身(exporter.run)は差し替える。
 
-    py -3.12 -m unittest src/flow/tests/test_export_jobs.py -v
+    py -3.12 -m unittest tests/flow/test_export_jobs.py -v
 
 本物の ① で書き終えるまでの道(public の done の形・同時 1 本の 409・動いている間は書き出し先を変えない・無い id は 404・掲示板の載り方)は
-通し src/pipeline/export/tests/test_exporter.py の TestExportThrough。ここは通しでは起こせない物だけ:
+通し tests/pipeline/export/test_exporter.py の TestExportThrough。ここは通しでは起こせない物だけ:
 - 取り消し・終了の流れの cancel_all(interrupted)
 - 枠(SLOTS)をほかの重い処理が持っている間は waiting・待ちの間の取り消し・想定外の例外でも「実行中」のまま残らない
 - 掲示板からの取り消し
@@ -17,9 +17,10 @@ import time
 import unittest
 from unittest.mock import patch
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # tests -> flow -> src
 sys.path.insert(0, SRC)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from flow import board as B, export as E  # noqa: E402
 from pipeline.export import exporter  # noqa: E402
 from ytt import jobs, studio_env  # noqa: E402

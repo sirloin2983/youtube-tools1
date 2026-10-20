@@ -1,7 +1,7 @@
 """案件の画面(/cases)の「校正」のパネル(panels/proof.js・edhost.js・machpick.js)の通し確認(Playwright)。リポジトリ直下で:
     set PYTHONIOENCODING=utf-8
-    py -3.12 src/app/tests/e2e_cases_proof.py
-入口(app/server.py --only transcribe,cut2resolve)を疑似の文字起こしで動かす(src/editor/tests/e2e_edit_common.py の Server)。
+    py -3.12 tests/app/e2e_cases_proof.py
+入口(app/server.py --only transcribe,cut2resolve)を疑似の文字起こしで動かす(tests/editor/e2e_edit_common.py の Server)。
 層が正(機械の層 + 人の層)の一時の作業データで 3 択まで確かめる。スタジオの data.json に配信 1 本(切り抜き 3 本・うち 1 本は文字起こし前)を置く。
 見るもの: 編集の欄が載る(左のメニュー・空の状態は出ない)/ 左手のキー(S・Shift+Space)・? の一覧 /
 文字を直すと保存・離れたら(UIKit.life の pagehide)すぐ保存 / 別の切り抜きへ移ると保存してから開く・Shift+N で次の未校正 / カット・パックのタブの間は校正のキーが効かない /
@@ -23,11 +23,12 @@ os.environ["TRANSCRIBE_FAKE_ALT"] = "文=>分"   # 2 つ目のエンジン(疑�
 
 from playwright.sync_api import sync_playwright
 
-TESTS = os.path.dirname(os.path.abspath(__file__))   # src/app/tests
-SRC = os.path.dirname(os.path.dirname(TESTS))
-sys.path.insert(0, os.path.join(SRC, "editor", "tests"))
+TESTS = os.path.dirname(os.path.abspath(__file__))   # tests/app
+SRC = os.path.join(os.path.dirname(os.path.dirname(TESTS)), "src")
+sys.path.insert(0, os.path.join(os.path.dirname(SRC), "tests", "editor"))
 from e2e_edit_common import Checks, Server, make_video  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 VID = "AbCdEfGhIjK"   # YouTube の形の配信 id(11 字)
 

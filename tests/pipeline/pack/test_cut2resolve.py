@@ -3,6 +3,7 @@
 """パックのテストの道具(見本の動画・EDL の読み方・採用区間からのパック)と、通しでは起こせない物の単体
 (何時間もの切り抜きの時間切れ・書きかけの付け替えの失敗・無料版の Resolve で読めない形式)。
 時刻・カットリスト・EDL・字幕の付け直しなどの正しく動く道は test_pack の TestPackRun(本物の ffmpeg の通し)。 python test_cut2resolve.py"""
+import os
 import re
 import shutil
 import subprocess
@@ -11,11 +12,12 @@ import unittest
 from pathlib import Path
 
 TESTS = Path(__file__).resolve().parent
-sys.path.insert(0, str(TESTS.parents[2]))   # src(パックの部品は pipeline.pack)
+sys.path.insert(0, str(TESTS.parents[2] / "src"))   # src(パックの部品は pipeline.pack)
 from pipeline.pack import cut2resolve_core as C  # noqa: E402
 from pipeline.pack import pack  # noqa: E402
 from pipeline.pack import srt2resolve as S  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 FPS30 = (30, 1)

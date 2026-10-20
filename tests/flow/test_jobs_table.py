@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """flow/jobs.Table(② の 1 つの器。OPT2 後半 J6): 積む・糸・枠・状態・取り消し・やり直し・履歴・busy・終了の流れ・掲示板
 
-    py -3.12 -m unittest src/flow/tests/test_jobs_table.py -v
+    py -3.12 -m unittest tests/flow/test_jobs_table.py -v
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
@@ -11,9 +11,10 @@ import time
 import unittest
 from unittest import mock
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> flow -> src
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src"))   # tests -> flow -> src
 from flow import board as B  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from flow.jobs import Table  # noqa: E402
 from ytt import jobs as slots  # noqa: E402
 from ytt.errors import ApiError, Cancelled  # noqa: E402

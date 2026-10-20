@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """評価ドリルと定点の「あと何分」(eval/drill/drill.py。動画 1 本ずつ・編集の画面で全部聞いて直す・文書の印 evalReviewed)のテスト。
 
-    python -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
-    python -m unittest test_drill -q                  # これだけ(src/editor/tests で)
+    python -m unittest tests/eval/drill/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
+    python -m unittest test_drill -q                  # これだけ(tests/editor で)
 
 - 確かめ済み: 残りの行を校正済み(proofedAt)・印(at・rows・durationSec)・409・updatedAt が上がる・履歴・画面の保存では消えない/書き換えられない・
   評価用を外すと消える・取り消し(印が校正済みにした行も戻す)・再認識(機械が行を書いた)で外れる
 - あと何分と条件(確かめ済みの動画の長さ・条件は確かめ済みの動画の中で)・話者の候補(覚えた声 → メンバーのフォルダ → 配信の文脈)
 """
+import sys
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
@@ -15,6 +16,7 @@ import time
 import unittest
 from unittest.mock import patch
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "editor"))   # test_backend・test_edit(編集のサーバーを一時フォルダで動かす道具)
 from test_backend import StoreDir, write_json  # noqa: F401  (S = serve)
 import ed_state  # noqa: E402
 from flow import jobs as _jobs  # noqa: E402

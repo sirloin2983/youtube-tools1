@@ -13,8 +13,8 @@ import unittest
 from unittest.mock import patch
 
 os.environ["STUDIO_FAKE"] = "1"
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src(解析などは ytt・pipeline を読む)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src", "studio"))   # ツールのフォルダ(studio/)
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src"))   # src(解析などは ytt・pipeline を読む)
 import startup  # noqa: E402  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
 from ytt import errors, mediainfo, studio_env  # noqa: E402
 import serve
@@ -493,7 +493,7 @@ class TestLiveApi(Base):
             self.assertEqual((st, j["error"]), (400, "bad_source"), bad)
 
     def test_open_rejects_bad_values(self):
-        # 値ごとの形の検査は yturl.check_live(human/review/tests/test_studio.py の TestCheckLive)。ここは API が 400 にして登録しないことと、title の型
+        # 値ごとの形の検査は yturl.check_live(tests/human/review/test_studio.py の TestCheckLive)。ここは API が 400 にして登録しないことと、title の型
         bads = [dict(recording="abc"), dict(recorder="Rec"), dict(url="http://www.youtube.com/watch?v=U972n0ncl4k"), dict(title=5), dict(title=["x"])]
         for kw in bads:
             st, j, *_ = self.req("POST", "/api/videos/open", live_body("20261005-185399", **kw) if "recording" not in kw else live_body(**kw))

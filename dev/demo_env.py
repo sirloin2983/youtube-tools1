@@ -29,7 +29,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.join(os.path.dirname(HERE), "src")   # ツールと ytt の置き場所(入口の ROOT と同じ意味)
 sys.path.insert(0, os.path.join(REPO, "app"))
-sys.path.insert(0, os.path.join(REPO, "app", "tests"))   # test_launch(_copy_tool)
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "tests", "app"))   # test_launch(_copy_tool)
 sys.path.insert(0, REPO)
 
 CHANNELS = ["星見ルナ", "朝霧ソラ", "猫宮こはく", "雷堂ジン", "白銀ユキ", "緋ノ宮かえで", "海月ミオ", "鷹野レン"]

@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const path = require('path');
 
 global.window = {};
-require(path.join(__dirname, '..', 'ui', 'cases', 'caselink.js'));
+require(path.join(__dirname, '..', '..', 'src', 'app', 'ui', 'cases', 'caselink.js'));
 const L = window.CaseLink;
 
 test('リンクは c・d・m の順・あるものだけ・知らないタブは proof', () => {

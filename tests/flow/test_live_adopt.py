@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""flow/live_adopt(ライブの採用 = マーク + 書き出し)のテスト。  py -3.12 -m unittest src/flow/tests/test_live_adopt.py -v
+"""flow/live_adopt(ライブの採用 = マーク + 書き出し)のテスト。  py -3.12 -m unittest tests/flow/test_live_adopt.py -v
 
-採用から書き出し済みまでの道(スタジオのとき・スタジオなし + 友人の依頼)は、本物の録画で src/flow/tests/test_live_export.py の通しが見る。
+採用から書き出し済みまでの道(スタジオのとき・スタジオなし + 友人の依頼)は、本物の録画で tests/flow/test_live_export.py の通しが見る。
 ここは通しの録画では起こせない物だけ: スタジオなしの採用を案件へ写す(書き出しを 3 回重ねる)・案件が見えない・依頼の決め方の端・束の上限の形。
 - 親には「口(livehost.LiveHost)に並べた名前だけを通す」包みを渡す = 口と実際の使い方がずれない
 """
@@ -12,9 +12,10 @@ import sys
 import unittest
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # tests -> flow -> src
 sys.path.insert(0, SRC)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from flow import casebook as CB, live_adopt as LA, live_export as LX, livehost as H, run as R, spec as S  # noqa: E402
 from ytt import casefiles as CF, schemas  # noqa: E402
 
@@ -193,7 +194,7 @@ class LocalMarksTest(unittest.TestCase):
 
     def test_request_for(self):
         """依頼が配信後の追加を要らないと言う(アーカイブからの採用 = Archiver の道)・届ける hook が無い = 届けない。
-        依頼つきの採用の道(after auto・依頼の余白・検査)は src/flow/tests/test_live_export.py の通し"""
+        依頼つきの採用の道(after auto・依頼の余白・検査)は tests/flow/test_live_export.py の通し"""
         self.host.requests.items["fake/" + REC] = {"rid": "r-1", "deliverDir": "", "streamer": "", "settings": {"pad": 0, "afterStream": False}}
         self.assertEqual(self.ad.request_for("fake", REC, "archive", "auto", "x"), (None, "auto", "x"))
         self.assertEqual(self.ad.request_for("fake", "20261011-200001-" + VID, "auto", "auto", ""), (None, "auto", ""))

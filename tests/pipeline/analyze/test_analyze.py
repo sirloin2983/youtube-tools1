@@ -1,4 +1,4 @@
-"""pipeline/analyze/analyze.py のテスト。 実行(リポジトリ直下): py -3.12 -m unittest src/pipeline/analyze/tests/test_analyze.py
+"""pipeline/analyze/analyze.py のテスト。 実行(リポジトリ直下): py -3.12 -m unittest tests/pipeline/analyze/test_analyze.py
 - TestAnalyzeRun: 本物の ffmpeg で、6 分の音声 + チャット・コメント・付加情報のファイル(疑似モード)を analyze.run に通す通し
 - ほかは通しでは起こせない物(中止・途中の失敗・YouTube API・壊れた記録・上限・合成の系列で測る推定の確かさ)
 (判定の記録 feedback は human/review/feedback.py)。"""
@@ -13,10 +13,11 @@ import tempfile
 import unittest
 from unittest import mock
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))   # tests → analyze → pipeline → src
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src"))   # tests → analyze → pipeline → src
 from human.review import machinelog  # noqa: E402
 from ytt import tools  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 from pipeline.analyze import analyze, excite, fetch  # noqa: E402
 from ytt import studio_env  # noqa: E402
 from ytt.errors import ApiError, Cancelled  # noqa: E402

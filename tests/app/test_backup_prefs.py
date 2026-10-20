@@ -1,6 +1,6 @@
-"""設定 prefs の backup の節(src/app/prefs.py。入口の側に残した検査)。バックアップの本体のテストは src/manage/keep/tests/test_backup.py。
+"""設定 prefs の backup の節(src/app/prefs.py。入口の側に残した検査)。バックアップの本体のテストは tests/manage/keep/test_backup.py。
 
-実行(リポジトリ直下から): python -m unittest src/app/tests/test_backup_prefs.py -v
+実行(リポジトリ直下から): python -m unittest tests/app/test_backup_prefs.py -v
 """
 import os
 import shutil
@@ -9,7 +9,7 @@ import tempfile
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-HOME = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+HOME = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src", "app")
 ROOT = os.path.dirname(HOME)
 for p in (HOME, ROOT):
     if p not in sys.path:

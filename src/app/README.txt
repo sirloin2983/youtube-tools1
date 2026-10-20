@@ -109,7 +109,7 @@
   start.bat / start.command   起動用(リポジトリ直下)
   src\app\server.py                    ホームのサーバー(3つのツールの起動・監視・停止と、ホームの画面)
   src\app\ui\home\portal.html / portal.js / portal.css   ホームの画面(処理の状況・案件の一覧・単体の文字起こし・「詳しく」。見た目は src\ui-kit\ をそのまま使う)
-  src\app\tests\                       テスト(下の「テスト」)
+  tests\app\                       テスト(下の「テスト」)
   .runtime\portal.json                 ホームのポート(各ツールの .runtime と同じ置き場。各ツールの動きには影響しない)
   ホームの部品の多くは src\ の役割の層にあります。src\app\ にあるのは、
   server.py・mount.py・autorun.py(まとめて実行)・live.py(ライブ)・prefs.py(設定)と画面(ui\)です。ほかの部品の場所:
@@ -144,20 +144,20 @@
 
 ■ テスト
   py -3.12 dev/run_unit.py --only app                       (この層の単体テストをまとめて。ほかの層も --only で)
-  python -m unittest src/app/tests/test_launch.py -v         (偽のツールと本物の3ツールで起動・停止・異常終了などを確認)
-  python -m unittest src/manage/cases/tests/test_cases.py -v (案件の紐づけ・状態とメモの保存。各ツールのデータを書き換えないこと)
-  python -m unittest src/app/tests/test_autorun.py -v        (まとめて実行の段取り。ツールは偽物)
-  python -m unittest src/flow/tests/test_run.py src/flow/tests/test_runlog.py -v (まとめて実行の段の中身・実行の記録の読み)
-  python -m unittest src/manage/keep/tests/test_cleanup.py src/manage/ops/tests/test_health.py src/manage/ops/tests/test_restart.py -v (片付け・調子・起動し直し)
-  python -m unittest src/human/friend/tests/test_intake.py -v (友人からの依頼の受付。まとめて実行・ffprobe・yt-dlp は偽物)
-  python -m unittest src/flow/tests/test_deliver.py -v       (友人へ届ける: 1 本ずつの zip・確認用の動画(本物の ffmpeg))
-  python -m unittest src/human/friend/tests/test_friend_feedback.py -v (友人の「要らない」の返事)
-  python -m unittest src/flow/tests/test_live_detect.py -v   (配信中の候補のワーカーと入口: 偽の録画元で 12 時間の早送り・候補の API・自動の採用)
-  python src/app/tests/e2e_live_studio.py                    (リアルタイム切り抜きの通し: 録画 → マーク → 候補の帯 → 採用。偽の録画元と偽のワーカー)
-  python src/app/tests/e2e_autorun.py                        (まとめて実行の通し確認。本物の3ツールを疑似モードでホームに取り込む。Playwright と ffmpeg が必要)
-  python -m unittest src/app/tests/test_mount.py -v          (取り込み: /studio/・/transcribe/・/cut2resolve/ の API・CSP・合言葉・二重起動の防止・認識ワーカーが落ちたときなど)
-  python src/app/tests/e2e_portal.py                         (画面の確認: 処理の状況・案件の一覧・単体の文字起こし・動画のパスで開く /cases?v= を含む。Playwright(chromium)が必要)
-  python -m unittest src/app/tests/test_window.py -v         (段階7: 窓で開く・画面のエラーの記録・画面の共通の API。Edge は起動しない)
+  python -m unittest tests/app/test_launch.py -v         (偽のツールと本物の3ツールで起動・停止・異常終了などを確認)
+  python -m unittest tests/manage/cases/test_cases.py -v (案件の紐づけ・状態とメモの保存。各ツールのデータを書き換えないこと)
+  python -m unittest tests/app/test_autorun.py -v        (まとめて実行の段取り。ツールは偽物)
+  python -m unittest tests/flow/test_run.py tests/flow/test_runlog.py -v (まとめて実行の段の中身・実行の記録の読み)
+  python -m unittest tests/manage/keep/test_cleanup.py tests/manage/ops/test_health.py tests/manage/ops/test_restart.py -v (片付け・調子・起動し直し)
+  python -m unittest tests/human/friend/test_intake.py -v (友人からの依頼の受付。まとめて実行・ffprobe・yt-dlp は偽物)
+  python -m unittest tests/flow/test_deliver.py -v       (友人へ届ける: 1 本ずつの zip・確認用の動画(本物の ffmpeg))
+  python -m unittest tests/human/friend/test_friend_feedback.py -v (友人の「要らない」の返事)
+  python -m unittest tests/flow/test_live_detect.py -v   (配信中の候補のワーカーと入口: 偽の録画元で 12 時間の早送り・候補の API・自動の採用)
+  python tests/app/e2e_live_studio.py                    (リアルタイム切り抜きの通し: 録画 → マーク → 候補の帯 → 採用。偽の録画元と偽のワーカー)
+  python tests/app/e2e_autorun.py                        (まとめて実行の通し確認。本物の3ツールを疑似モードでホームに取り込む。Playwright と ffmpeg が必要)
+  python -m unittest tests/app/test_mount.py -v          (取り込み: /studio/・/transcribe/・/cut2resolve/ の API・CSP・合言葉・二重起動の防止・認識ワーカーが落ちたときなど)
+  python tests/app/e2e_portal.py                         (画面の確認: 処理の状況・案件の一覧・単体の文字起こし・動画のパスで開く /cases?v= を含む。Playwright(chromium)が必要)
+  python -m unittest tests/app/test_window.py -v         (段階7: 窓で開く・画面のエラーの記録・画面の共通の API。Edge は起動しない)
   e2e は道ごとに 1 本。一覧と流し方は dev/run_e2e.py
 
 ■ 設定の画面とパネル(notes:docs/spec/data.md の 6)

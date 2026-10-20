@@ -29,7 +29,7 @@ copy /y lib\*.dll build\ >nul
 if errorlevel 1 goto fail
 
 echo [3/3] tests
-"%CSC%" /nologo /codepage:65001 /target:exe /platform:x64 /out:build\FriendAppTests.exe %REFS% /r:build\FriendApp.exe tests\*.cs
+"%CSC%" /nologo /codepage:65001 /target:exe /platform:x64 /out:build\FriendAppTests.exe %REFS% /r:build\FriendApp.exe ..\..\tests\friend-apps\launcher\*.cs
 if errorlevel 1 goto fail
 build\FriendAppTests.exe
 if errorlevel 1 goto fail

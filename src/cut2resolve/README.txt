@@ -189,7 +189,7 @@ cut2resolve(「編集」の部品・API。版は全体で 1 つ = ytt/version.py
 ■ 文字起こしツールの Resolve パッケージとの一本化
   - 文字起こしツールの「Resolveパッケージ(zip)」は、このツールの Text+ パックを作る(pack.py が唯一の実装)。
     文字起こしの行を残すときの規則は pack.TRANSCRIPT_ROWS(行の時間だけ・短い行も残す・1フレームの隙間はつなぐ)。
-    同じ入力から同じ中身になることは dev/tests/test_resolve_pack_contract.py が確かめる。詳しくは notes:docs/design/resolve-pack-unification.md
+    同じ入力から同じ中身になることは tests/dev/test_resolve_pack_contract.py が確かめる。詳しくは notes:docs/design/resolve-pack-unification.md
   - 切り抜きスタジオの前後の余白つき素材(.edit.json)を、動画を入れるパックで使う(上の「3. 書き出し」)
   - 時刻をフレームに直すときの丸めは四捨五入(0.5 は大きい方へ)。Python の round(偶数への丸め)だと、30fps の 0.15 秒(4.5 フレーム)が 4、0.25 秒(7.5 フレーム)が 8 と、
     ちょうど半フレームの時刻が上下ばらばらに丸まって 1 フレームずれることがあるため。文字起こしツールと同じ規則

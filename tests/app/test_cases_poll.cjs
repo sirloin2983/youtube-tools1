@@ -1,4 +1,4 @@
-// Run: node --test src/app/tests/test_cases_poll.cjs
+// Run: node --test tests/app/test_cases_poll.cjs
 // 案件の画面(src/app/ui/cases/cases.js)の load と poll を vm で切り出し、status の応答を遅らせて試す。
 // 状態確認の途中で同じ案件を load(true) で読み直しても、次の問い合わせは予約される(自動の更新が止まらない)。古い案件への応答は当てない。
 const assert = require('node:assert/strict');
@@ -7,7 +7,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 
-const source = fs.readFileSync(path.join(__dirname, '..', 'ui', 'cases', 'cases.js'), 'utf8').replace(/\r\n/g, '\n');
+const source = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'app', 'ui', 'cases', 'cases.js'), 'utf8').replace(/\r\n/g, '\n');
 const a = source.indexOf('  function load(keep) {'), b = source.indexOf('  /* ---- キー(keydown');
 assert.ok(a >= 0 && b > a, 'load/schedule/poll boundaries must exist');
 const code = source.slice(a, b);

@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""ytt.normalize(素材を 30fps にそろえる。Q1)のテスト。  py -3.12 -m unittest src/ytt/tests/test_normalize.py -v
+"""ytt.normalize(素材を 30fps にそろえる。Q1)のテスト。  py -3.12 -m unittest tests/ytt/test_normalize.py -v
 ffmpeg・ffprobe で数秒の合成動画を作って確かめる(無い環境ではスキップ)。
 正しく動く道と、見本で作れる入力の決まり(60・29.97fps・H.265・10 bit・yuv444p・音声だけ opus・音声なし・30fps のまま)は、
-② の段の通し src/editor/tests/test_normalize30.py の test_job_through。
+② の段の通し tests/flow/test_normalize30.py の test_job_through。
 ここは通しでは起こせない物だけ: 見本で作れない入力の決まり(可変 fps・端数の平均・映像なし・調べられない)・出来上がりから読めない画質の引数・
 取り消し・失敗・検証で落ちる・ffprobe が無い・古い ffmpeg・GPU から CPU へ。"""
 import os
@@ -14,7 +14,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+REPO = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")
 sys.path.insert(0, REPO)
 from ytt import normalize, tools  # noqa: E402
 

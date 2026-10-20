@@ -20,7 +20,7 @@
 
 ## friend-apps/holo-colors/src/
 
-- **Core.cs** (1025 行) — ホロカラーの中身(画面と Windows に依存しない部分)。tests\CoreTests.cs で確かめる。
+- **Core.cs** (1025 行) — ホロカラーの中身(画面と Windows に依存しない部分)。tests\friend-apps\holo-colors\CoreTests.cs で確かめる。
   - 名前: `class AppInfo` :16・`class ColorOption` :25・`Clone` :37・`CloneAll` :48・`ReadList` :54・`Validate` :69・`class ColorEntry` :87・`SetColors` :106・`class ColorGroup` :124・`class Branches` :137・`Short` :142・`IsSpecial` :157・ほか 59
 - **Dialogs.cs** (842 行) — 設定の画面・色の追加/編集の画面・呼び出しのキーを受け取る欄・コピーしたときの小さな知らせ
   - 名前: `class Ui` :16・`SystemScale` :28・`Px` :34・`Px` :39・`StyleDialog` :50・`Btn` :63・`FieldLabel` :69・`Note` :75・`ButtonRow` :81・`PickColor` :89・`class HotkeyBox` :101・`SetValue` :115・ほか 21
@@ -35,7 +35,7 @@
 
 ## friend-apps/launcher/src/
 
-- **Core.cs** (497 行) — FriendApp.exe の決まり(版の選び方・版の記録・閉じるときの判断)。画面にも通信にも触らない = tests\Tests.cs で確かめる。C# 5 で書く
+- **Core.cs** (497 行) — FriendApp.exe の決まり(版の選び方・版の記録・閉じるときの判断)。画面にも通信にも触らない = tests\friend-apps\launcher\Tests.cs で確かめる。C# 5 で書く
   - 名前: `class Layout` :12・`class VersionRecord` :18・`class Versions` :24・`Parse` :30・`Compare` :45・`LayoutOf` :57・`Complete` :63・`Installed` :69・`LegacyVersion` :83・`Pick` :101・`Read` :111・`Q` :128・ほか 28
 - **Launcher.cs** (472 行) — FriendApp.exe の起こし方: 窓 1 枚(MainForm = WebView2)を持ち、Python(src\friendapp\server.py)を子としてジョブオブジェクトで起こす。C# 5 で書く
   - 名前: `class Job` :26・`Add` :40・`Kill` :45・`Dispose` :50・`class JOBOBJECT_BASIC_LIMIT_INFORMATION` :56・`class IO_COUNTERS` :67・`class JOBOBJECT_EXTENDED_LIMIT_INFORMATION` :73・`CreateJobObject` :81・`SetInformationJobObject` :83・`AssignProcessToJobObject` :85・`TerminateJobObject` :87・`CloseHandle` :89・ほか 21
@@ -46,8 +46,8 @@
 
 ## テスト
 
-- chrome-ext/yt-studio-time/tests/e2e_fake_studio.py — YouTube Studio 投稿時刻(Chrome 拡張)の通しの確認。
-- friend-apps/holo-colors/tests/CoreTests.cs — ホロカラーのテスト(build.bat が HoloColors.exe を参照して作り、流す)。失敗が1つでもあれば終了コード 1。
-- friend-apps/holo-colors/tests/WordsTests.cs — マイワード・お気に入り・最近使ったものの中身のテスト(CoreTests.Main から WordsTests.RunAll(Run); で呼ぶ)
-- friend-apps/holo-colors/tests/e2e_holo_colors.py — ホロカラーの通しの確認(Windows だけ)。本物のキー入力とクリックで exe を動かす。
-- friend-apps/launcher/tests/Tests.cs — FriendApp.exe のテスト(build.bat が FriendApp.exe を参照して作り、流す)。窓・玄関のプロセス・通信は使わない。失敗が 1 つでもあれば終了コード 1。
+- tests/chrome-ext/yt-studio-time/e2e_fake_studio.py — YouTube Studio 投稿時刻(Chrome 拡張)の通しの確認。
+- tests/friend-apps/holo-colors/CoreTests.cs — ホロカラーのテスト(build.bat が HoloColors.exe を参照して作り、流す)。失敗が1つでもあれば終了コード 1。
+- tests/friend-apps/holo-colors/WordsTests.cs — マイワード・お気に入り・最近使ったものの中身のテスト(CoreTests.Main から WordsTests.RunAll(Run); で呼ぶ)
+- tests/friend-apps/holo-colors/e2e_holo_colors.py — ホロカラーの通しの確認(Windows だけ)。本物のキー入力とクリックで exe を動かす。
+- tests/friend-apps/launcher/Tests.cs — FriendApp.exe のテスト(build.bat が FriendApp.exe を参照して作り、流す)。窓・玄関のプロセス・通信は使わない。失敗が 1 つでもあれば終了コード 1。

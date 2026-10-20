@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""pipeline/analyze/breaks.py(話の切れ目)のテスト。  py -3.12 -m unittest src/pipeline/analyze/tests/test_breaks.py -v
+"""pipeline/analyze/breaks.py(話の切れ目)のテスト。  py -3.12 -m unittest tests/pipeline/analyze/test_breaks.py -v
 パックと同じ順(cuts → snap)で、行の並びの見本(頭の余白・間・句読点・半角の ?・終助詞・語尾の空白・短い間・壊れた行・文字の無い行・長い間)を 1 回通し、
 切れ目の一覧と寄せた端をまとめて確かめる。
 """
@@ -7,7 +7,7 @@ import os
 import sys
 import unittest
 
-REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests の 3 つ上 = src
+REPO = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests の 3 つ上 = src
 sys.path.insert(0, REPO)
 from pipeline.analyze import breaks  # noqa: E402
 

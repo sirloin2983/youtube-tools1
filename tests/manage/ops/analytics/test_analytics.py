@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """分析と日報(src/manage/ops/analytics)のテスト。本物のチャンネルの数字は使わない(リポジトリは Public)。make_raw が規則どおりに伸びる架空のチャンネルを作る。
 
-    py -3.12 -m unittest src/manage/ops/analytics/tests/test_analytics.py
+    py -3.12 -m unittest tests/manage/ops/analytics/test_analytics.py
 """
 import datetime
 import functools
@@ -17,7 +17,7 @@ import urllib.parse
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))), "src")
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 

@@ -15,12 +15,13 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from unittest.mock import patch
 import urllib.error
 import urllib.request
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-HERE = os.path.dirname(TESTS)   # ツール(editor/)のフォルダ
+HERE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(TESTS))), "src", "editor")   # ツール(editor/)のフォルダ
 os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))   # 一時フォルダに写した serve.py が共通部品 ytt(リポジトリ直下)を見つけられるように
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
@@ -40,7 +41,8 @@ from ytt import dictfmt as _dictfmt  # noqa: E402
 from ytt import txtext as _txtext  # noqa: E402
 from ytt import workdata as _workdata  # noqa: E402
 from pipeline.transcribe import diarize as transcribe_diarize  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 
 def lev(a, b):
@@ -673,28 +675,8 @@ class TestRangeAndStudio(unittest.TestCase):
         self.assertEqual(out[1]["end"], 20.0)
 
 
-# test_backend.py のテストも、このコマンド(python -m unittest test_metrics test_resolve_export)で一緒に走らせる
-from test_backend import start_server  # noqa: E402,F401
-from test_backend import *  # noqa: E402,F401,F403
-from test_worker import *  # noqa: E402,F401,F403   認識ワーカー(別プロセス)のテストも同じコマンドで
-from test_voices import *  # noqa: E402,F401,F403   話者の声を覚える(A-3)
-from test_edit import *  # noqa: E402,F401,F403   「編集」のサーバー側(編集の内容・doc-for・peaks・intoDoc・削除)
-from test_roster import *  # noqa: E402,F401,F403   名簿の呼び名・配信ごとの文脈(計画 段1)
-from test_normalize30 import *  # noqa: E402,F401,F403   素材を 30fps にそろえる(マスタープラン Q1。文字起こし・選び直し)
-from test_evalbatch import *  # noqa: E402,F401,F403   評価用の動画の手が空いたときのまとめての文字起こし(マスタープラン Q4(b))
-from test_whispercpp import *  # noqa: E402,F401,F403   whisper.cpp のエンジン(精度改善 段2-2)
-from test_qwen3 import *  # noqa: E402,F401,F403   Qwen3-ASR のエンジン(sherpa-onnx・llama.cpp。精度改善 段2-3)
-from test_records import *  # noqa: E402,F401,F403   記録の土台(マスタープラン Q2。proofedAt・再認識の前の機械の出力・辞書の版・カットの draft・校正の手間)
-from test_drill import *  # noqa: E402,F401,F403   評価ドリルと定点の「あと何分」(マスタープラン Q4(c)。ed_drill.py)
-from test_alt import *  # noqa: E402,F401,F403   2つ目のエンジンとの食い違いの候補(精度改善 第2版 D1-b。ed_alt.py)
-from test_fill import *  # noqa: E402,F401,F403   認識のあとの後処理 A・C・D(pipeline/transcribe/fill.py)
-from test_llm import *  # noqa: E402,F401,F403   LLM の後処理 E(提案 P18。pipeline/transcribe/llm.py・tx_engines.LlamaText・ワーカーの op complete)
-from test_thumb_job import *  # noqa: E402,F401,F403   サムネの案のジョブ(提案 P5。ed_thumb.py → thumb_ideas.py)
-from test_autodiar import *  # noqa: E402,F401,F403   評価用の文書の文字起こしのあとの話者の自動判別(human/proof/speakers の autodiar_)
-from test_nosub_metrics import *  # noqa: E402,F401,F403   字幕に出さない行(noSub)と重なりの数え方・学習(eval/drill/metrics・human/proof/learn。RS3-E5c まで ed_learn.py)
-from test_smooth import *  # noqa: E402,F401,F403   話者の細切れをならす(S2。ed_speakers の smooth_・設定 diarSmooth)
-from test_retime import *  # noqa: E402,F401,F403   字幕の読む速さの印・行の時刻を単語の時刻に合わせる候補(ed_retime.py・POST /api/retime)
-from test_proof_api import *  # noqa: E402,F401,F403   API の確かめ
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "editor"))   # test_backend・test_edit(編集のサーバーを一時フォルダで動かす道具)
+from test_backend import start_server  # noqa: E402
 
 
 class TestThreadDefaults(unittest.TestCase):

@@ -7,9 +7,9 @@
 帯の案内の文(設定とジョブの状態で変わる)は画面が組み立てるだけで下の層に無いので、ここで見る。
 録画を始めて案件の画面へ移る道・欠けの表示は e2e_live_studio.py が見るので、ここは前提として通るだけ。
 
-    py -3.12 src/app/tests/e2e_live_archive.py                 # 確かめる(終了コード 0 = すべて OK)
-    py -3.12 src/app/tests/e2e_live_archive.py --shots DIR     # あわせてスクリーンショットを DIR に残す
-    py -3.12 src/app/tests/e2e_live_archive.py --chromium      # Edge があっても Playwright の chromium で
+    py -3.12 tests/app/e2e_live_archive.py                 # 確かめる(終了コード 0 = すべて OK)
+    py -3.12 tests/app/e2e_live_archive.py --shots DIR     # あわせてスクリーンショットを DIR に残す
+    py -3.12 tests/app/e2e_live_archive.py --chromium      # Edge があっても Playwright の chromium で
 
 作り(e2e_live_studio.py と同じ形。全部一時フォルダ):
   - 「アーカイブ」= ffmpeg の lavfi で作った mp4(testsrc2 の 30fps + 時間で変わる音。照合できる音)。それを -c copy で 1 秒ごとの HLS にして、
@@ -52,15 +52,16 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データ
 from unittest import mock
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-HERE = os.path.dirname(TESTS)
+HERE = os.path.join(os.path.dirname(os.path.dirname(TESTS)), "src", "app")
 REPO = os.path.dirname(HERE)
 STUDIO = os.path.join(REPO, "studio")
 sys.path.insert(0, STUDIO)
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
-sys.path.insert(0, os.path.join(REPO, "pipeline", "ingest", "tests"))
+sys.path.insert(0, os.path.join(os.path.dirname(REPO), "tests", "pipeline", "ingest"))
 sys.path.append(REPO)   # src(ytt の部品)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 os.environ["STUDIO_FAKE"] = "1"
 
 YT1 = "https://www.youtube.com/watch?v=TESTarch001"   # 手で作り直す録画
@@ -69,7 +70,7 @@ YT3 = "https://www.youtube.com/watch?v=TESTarch003"   # マークの無い録画
 YT4 = "https://www.youtube.com/watch?v=TESTarch004"   # 配信後の全自動の録画
 TITLE = "アーカイブのテスト<b>配信</b>"
 ARC_SEC = 420
-AUDIO = "0.4*sin(2*PI*t*(400+300*sin(2*PI*0.07*t)))*(0.6+0.4*sin(2*PI*1.3*t))+0.15*(2*random(0)-1)"   # src/flow/tests/test_live_archive.py と同じ(照合できる音)
+AUDIO = "0.4*sin(2*PI*t*(400+300*sin(2*PI*0.07*t)))*(0.6+0.4*sin(2*PI*1.3*t))+0.15*(2*random(0)-1)"   # tests/flow/test_live_archive.py と同じ(照合できる音)
 START_SEGS = 30           # 配信中のふりの HLS で最初から見えている本数(録画はアーカイブの 27 秒あたりから始まる)
 FRAME_TOL = 0.034
 INIT_JS = r"""

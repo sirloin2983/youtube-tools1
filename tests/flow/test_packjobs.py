@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parents[1] / "src"))
 
 from flow import board as B  # noqa: E402
 from flow.packjobs import KEEP_JOBS, PackJobs  # noqa: E402

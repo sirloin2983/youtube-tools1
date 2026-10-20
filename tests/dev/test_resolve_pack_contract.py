@@ -10,7 +10,7 @@
      textplus-import.json は出さない(中身は Lua に埋め込み済み。区間と字幕は resolve_textplus.read_script_plan で読む)
 
   B'. 重なる行のある文書 … zip とパックが同じ(Text+ の字幕の段分け・切った終わりも同じ)。重なりの無い文書は計画に段の項目が無い
-     (test_same_pack_with_overlapping_rows。重なりの無いパックの Lua の本体が段のコードの印を消した雛形と同じことは src/pipeline/pack/tests/test_pack.py の TestPackRun.test_textplus_run)
+     (test_same_pack_with_overlapping_rows。重なりの無いパックの Lua の本体が段のコードの印を消した雛形と同じことは tests/pipeline/pack/test_pack.py の TestPackRun.test_textplus_run)
 
   F. zip に渡らない設定 … 粗編集の動画・開始タイムコード・タイムラインの開始タイムコード・リール名は zip に渡らない(ZipSkipsContract。画面の説明の元。
      渡すようにしたらこのテストが落ちる = pack-tab.js の zip の説明も直す合図)
@@ -23,7 +23,7 @@ A の入力の範囲: 行は時刻順(開始が同じなら終わりの早い順
   - 動画の終わり … 旧は文書の duration から数えた(実際のフレーム数を超えることがあった。今は ffprobe のフレーム数)
   - 選んだ fps が動画と違う … 旧は選んだ fps でフレームを数えた(Resolve の元クリップのフレームとずれた。今は動画の fps で数える)
 
-実行(リポジトリ直下): python -m unittest dev/tests/test_resolve_pack_contract.py   (ffmpeg・ffprobe が要る)
+実行(リポジトリ直下): python -m unittest tests/dev/test_resolve_pack_contract.py   (ffmpeg・ffprobe が要る)
 """
 import json
 import math

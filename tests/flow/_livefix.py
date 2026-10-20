@@ -2,7 +2,7 @@
 """ライブのテストが共有する部品(偽の設定・偽のスタジオ・偽の親の組み立て・HLS の偽物の入口)。
 
 テストの名前ではない(unittest は読まない)。flow の tests と、入口 home の残りのテストの両方が `import _livefix as LF` で使う
-(home のテストは sys.path に src/flow/tests を足す)。入口 home の Live は使わず、ライブ係 flow/livesession.LiveSession を直に組む。
+(home のテストは sys.path に tests/flow を足す)。入口 home の Live は使わず、ライブ係 flow/livesession.LiveSession を直に組む。
 """
 import copy
 import json
@@ -15,14 +15,15 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.dirname(os.path.dirname(TESTS))
+SRC = os.path.join(os.path.dirname(os.path.dirname(TESTS)), "src")
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
 from flow import live_adopt  # noqa: E402
 from flow import livesession as LS  # noqa: E402
 from ytt import normalize, tools  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 TOKEN = "t" * 40   # FakeRecorder の合言葉
 FF = tools.find_tool("ffmpeg", "YTT_FFMPEG")
@@ -78,8 +79,8 @@ def new_session(tmp, cfg, log=None, root=None, **kw):
 
 
 def hls_fixture():
-    """pipeline/ingest/tests/hls_fixture(配信中のふりの HLS を出す偽物)"""
-    d = os.path.join(SRC, "pipeline", "ingest", "tests")
+    """tests/pipeline/ingest/hls_fixture(配信中のふりの HLS を出す偽物)"""
+    d = os.path.join(os.path.dirname(SRC), "tests", "pipeline", "ingest")
     if d not in sys.path:
         sys.path.insert(0, d)
     import hls_fixture as F

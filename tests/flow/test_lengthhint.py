@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """flow/lengthhint(長さの目安を ② でその場で数える。OPT-E2 7f-1)のテスト。作業データは一時フォルダに作る。
 
-    py -3.12 -m unittest src/flow/tests/test_lengthhint.py -v
+    py -3.12 -m unittest tests/flow/test_lengthhint.py -v
 
 - 見本 = 実行記録の ranges(同じ区間は 1 つ・外れ値は数だけ)・長さは中央値を 10〜300 秒に丸める(上限 300 = LD-2d)
 - 山の前の割合は区間の中の自動の候補の山(data.json のマーク・archive の候補)から・見本 10 個未満なら出さない
@@ -14,9 +14,10 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書
 import sys
 import unittest
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")   # tests -> flow -> src
 sys.path.insert(0, SRC)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 from flow import lengthhint as LH  # noqa: E402
 
 

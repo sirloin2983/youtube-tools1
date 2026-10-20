@@ -74,17 +74,17 @@
 
 ## テスト
 
-- src/manage/cases/tests/test_cases.py — 案件(配信1本)ごとの紐づけ(src/manage/cases/cases.py)と、入口の /api/cases のテスト。本物の作業データは使わない。
-- src/manage/cases/tests/test_docloc_listing.py — 文書の一覧が、案件の 作業用 に置いた文書(索引 .loc.json があるもの)も拾うことの確かめ(RS8 B-2-1b)。
-- src/manage/cases/tests/test_outdirs.py — 書き出し先を変えたあとの案件の繋ぎ直し(src/manage/cases/outdirs.py)の確かめ。
-- src/manage/cases/tests/test_perf_listing.py — 案件の一覧の速さの工夫が、ふつうの経路と同じ結果を返すことの突き合わせ。
-- src/manage/keep/tests/test_backup.py — 作業データのバックアップ(src/manage/keep/backup.py。設定は入口の Prefs を借りる。prefs の節の検査は src/app/tests/test_backup_prefs.py)の単体テスト。一時フォルダだけを使う。
-- src/manage/keep/tests/test_cleanup.py — src/manage/keep/cleanup.py(作業データの片付け。段9 9-2)の単体テスト。
-- src/manage/keep/tests/test_learnpack.py — manage/keep/learnpack(学習の束を作る側)のテスト。  py -3.12 -m unittest src/manage/keep/tests/test_learnpack.py -v
-- src/manage/keep/tests/test_live_cleanup.py — 録画を自動で消す(src/manage/keep/live_cleanup.py。「書き出し済み + アーカイブ化を確かめたら ごみ箱へ」)のテスト。
-- src/manage/keep/tests/test_trash.py — src/manage/keep/trash.py(ごみ箱へ移す・戻すの 1 か所)の単体テスト。戻せなかった物の元の場所を必ず記録する。
-- src/manage/ops/analytics/tests/test_analytics.py — 分析と日報(src/manage/ops/analytics)のテスト。本物のチャンネルの数字は使わない(リポジトリは Public)。make_raw が規則どおりに伸びる架空のチャンネルを作る。
-- src/manage/ops/tests/test_autorestart.py — 自動の起動し直しの判定(src/manage/ops/autorestart.py)のテスト。  python -m unittest src/manage/ops/tests/test_autorestart.py -v
-- src/manage/ops/tests/test_clientlog.py — 画面のエラーの記録(src/manage/ops/clientlog.py の ClientLog・clean)の単体テスト。一時フォルダだけを使う。
-- src/manage/ops/tests/test_health.py — src/manage/ops/health.py(「調子」)の単体テスト。
-- src/manage/ops/tests/test_restart.py — 入口を起動し直す部品(src/manage/ops/restart.py)のテスト。  python -m unittest src/manage/ops/tests/test_restart.py -v
+- tests/manage/cases/test_cases.py — 案件(配信1本)ごとの紐づけ(src/manage/cases/cases.py)と、入口の /api/cases のテスト。本物の作業データは使わない。
+- tests/manage/cases/test_docloc_listing.py — 文書の一覧が、案件の 作業用 に置いた文書(索引 .loc.json があるもの)も拾うことの確かめ(RS8 B-2-1b)。
+- tests/manage/cases/test_outdirs.py — 書き出し先を変えたあとの案件の繋ぎ直し(src/manage/cases/outdirs.py)の確かめ。
+- tests/manage/cases/test_perf_listing.py — 案件の一覧の速さの工夫が、ふつうの経路と同じ結果を返すことの突き合わせ。
+- tests/manage/keep/test_backup.py — 作業データのバックアップ(src/manage/keep/backup.py。設定は入口の Prefs を借りる。prefs の節の検査は tests/app/test_backup_prefs.py)の単体テスト。一時フォルダだけを使う。
+- tests/manage/keep/test_cleanup.py — src/manage/keep/cleanup.py(作業データの片付け。段9 9-2)の単体テスト。
+- tests/manage/keep/test_learnpack.py — manage/keep/learnpack(学習の束を作る側)のテスト。  py -3.12 -m unittest tests/manage/keep/test_learnpack.py -v
+- tests/manage/keep/test_live_cleanup.py — 録画を自動で消す(src/manage/keep/live_cleanup.py。「書き出し済み + アーカイブ化を確かめたら ごみ箱へ」)のテスト。
+- tests/manage/keep/test_trash.py — src/manage/keep/trash.py(ごみ箱へ移す・戻すの 1 か所)の単体テスト。戻せなかった物の元の場所を必ず記録する。
+- tests/manage/ops/test_autorestart.py — 自動の起動し直しの判定(src/manage/ops/autorestart.py)のテスト。  python -m unittest tests/manage/ops/test_autorestart.py -v
+- tests/manage/ops/test_clientlog.py — 画面のエラーの記録(src/manage/ops/clientlog.py の ClientLog・clean)の単体テスト。一時フォルダだけを使う。
+- tests/manage/ops/test_health.py — src/manage/ops/health.py(「調子」)の単体テスト。
+- tests/manage/ops/test_restart.py — 入口を起動し直す部品(src/manage/ops/restart.py)のテスト。  python -m unittest tests/manage/ops/test_restart.py -v
+- tests/manage/ops/analytics/test_analytics.py — 分析と日報(src/manage/ops/analytics)のテスト。本物のチャンネルの数字は使わない(リポジトリは Public)。make_raw が規則どおりに伸びる架空のチャンネルを作る。

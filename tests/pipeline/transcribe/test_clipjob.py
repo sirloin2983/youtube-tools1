@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """pipeline/transcribe/clipjob(文字起こしのジョブの機械の文書の行)を、編集の serve を読まずに疑似のエンジンで使うテスト。
 
-    py -3.12 -m unittest src/pipeline/transcribe/tests/test_clipjob.py -v
+    py -3.12 -m unittest tests/pipeline/transcribe/test_clipjob.py -v
 
 本物では出せない行(文字の無い行・置換辞書や学習した置換に当たる行・長い区間に文字が少ない行)を手で決めた期待値で確かめる。
-文字起こしの本物の通し(行の id・範囲の開始を足した秒・単語の時刻・文書・words.json・asr.json)は src/editor/tests/test_worker.py の RealWorkerTest。
+文字起こしの本物の通し(行の id・範囲の開始を足した秒・単語の時刻・文書・words.json・asr.json)は tests/pipeline/transcribe/test_worker.py の RealWorkerTest。
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)。ほかのテストとそろえる
@@ -12,9 +12,10 @@ import sys
 import unittest
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 from pipeline.transcribe import backend, clipjob, recognize, replace  # noqa: E402
 from ytt import tools, txtext, workdata  # noqa: E402
 
@@ -50,7 +51,7 @@ class TestMakeDocRows(unittest.TestCase):
         return job, clipjob.make_doc_rows(job, dict(SPEC), os.path.join(self.tmp, "w.wav"), list(pairs), learned)
 
     def test_rows_like_run_job(self):
-        """本物の通し(src/editor/tests/test_worker.py)では出ない行: 文字の無い行・置換辞書に当たる行・長い区間に文字が少ない行"""
+        """本物の通し(tests/pipeline/transcribe/test_worker.py)では出ない行: 文字の無い行・置換辞書に当たる行・長い区間に文字が少ない行"""
         job, res = self.run_rows(pairs=[("ペコラ", "ぺこら")])
         self.assertEqual([g["id"] for g in res["segs"]], ["s1", "s2"])   # 文字の無い行は捨てる
         self.assertEqual(res["segs"][0]["text"], "こんにちはぺこらです")   # 置換辞書は segments だけ

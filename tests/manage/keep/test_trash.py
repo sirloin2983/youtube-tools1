@@ -1,6 +1,6 @@
 """src/manage/keep/trash.py(ごみ箱へ移す・戻すの 1 か所)の単体テスト。戻せなかった物の元の場所を必ず記録する。
 
-    python -m unittest src/manage/keep/tests/test_trash.py
+    python -m unittest tests/manage/keep/test_trash.py
 """
 import json
 import os
@@ -9,12 +9,13 @@ import sys
 import unittest
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> keep -> manage -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> keep -> manage -> src
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 from manage.keep import trash as T  # noqa: E402
 from ytt import trashbin  # noqa: E402
-from ytt.tests.testkit import tempdir  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+from testkit import tempdir  # noqa: E402
 
 
 def touch(path, data=b"x"):

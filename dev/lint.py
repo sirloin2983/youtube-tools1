@@ -32,6 +32,7 @@ from collections import Counter, defaultdict
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(REPO, "src")
+TESTS = os.path.join(REPO, "tests")
 SKIP_DIRS = {"__pycache__", "node_modules", ".venv", "build", "dist", "packs", "work", "exports", "logs", "fixtures", ".artifact-build"}
 TEXT_EXT = (".py", ".js", ".cjs", ".html", ".css", ".cs", ".md", ".txt", ".bat", ".vbs", ".json")
 DUP_HELPERS = {"_unlink": "fsio.unlink_quiet", "_unlink_quiet": "fsio.unlink_quiet", "_no_window": "tools.no_window_flags", "NO_WINDOW": "tools.no_window_flags",
@@ -81,7 +82,7 @@ def rel(path):
 
 
 def is_test(path):
-    return "/tests/" in rel(path)
+    return rel(path).startswith("tests/")
 
 
 class Corpus:
@@ -89,7 +90,7 @@ class Corpus:
 
     def __init__(self):
         self.texts, self.counts = {}, {}
-        for root in (SRC, os.path.join(REPO, "dev"), os.path.join(REPO, "setup"), os.path.join(REPO, "friend-apps")):
+        for root in (SRC, os.path.join(REPO, "dev"), os.path.join(REPO, "setup"), os.path.join(REPO, "friend-apps"), TESTS):
             for p in walk(root, TEXT_EXT):
                 t = read(p)
                 self.texts[p] = t
@@ -107,7 +108,7 @@ class Corpus:
 
 def py_files():
     out = []
-    for root in (SRC, os.path.join(REPO, "dev"), os.path.join(REPO, "setup")):
+    for root in (SRC, os.path.join(REPO, "dev"), os.path.join(REPO, "setup"), TESTS):
         out.extend(walk(root, (".py",)))
     return sorted(out)
 

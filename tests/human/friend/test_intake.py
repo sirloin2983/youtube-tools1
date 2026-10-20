@@ -1,7 +1,7 @@
 """友人からの依頼の受付(src/human/friend/intake.py)の単体テスト。まとめて実行・ffprobe・yt-dlp は偽物。
 
-実行(リポジトリ直下から): python -m unittest src/human/friend/tests/test_intake.py -v
-(設定 prefs の intake の節の検査は入口の側 src/app/tests/test_intake_prefs.py)
+実行(リポジトリ直下から): python -m unittest tests/human/friend/test_intake.py -v
+(設定 prefs の intake の節の検査は入口の側 tests/app/test_intake_prefs.py)
 """
 import json
 import os
@@ -13,7 +13,7 @@ import unittest
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> friend -> human -> src
+ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> friend -> human -> src
 HOME = os.path.join(ROOT, "app")   # 設定 prefs(入口 = app)を、本物の設定と組み合わせて使うため
 for p in (HOME, ROOT):
     if p not in sys.path:
@@ -24,7 +24,8 @@ from flow import order as _order  # noqa: E402
 from human.friend import live_requests  # noqa: E402
 from app import prefs as prefs_mod  # noqa: E402
 from ytt import fsio, jobs, normalize, tools  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 
 class FakeRunner:
@@ -686,7 +687,7 @@ class TestRequestFolder(Base):
 
 class TestVideoNoSlots(Base):
     """届いた動画の確かめ(本物の ffprobe)と、受付が重い処理の枠を待たないこと(opt-human 9a-1)。lavfi の短い動画を「届いた動画」にする。
-    30fps にそろえるのはまとめて実行の段 normalize(テストは src/flow/tests/test_run.py の TestStepNormalize)"""
+    30fps にそろえるのはまとめて実行の段 normalize(テストは tests/flow/test_run.py の TestStepNormalize)"""
 
     def setUp(self):
         super().setUp()

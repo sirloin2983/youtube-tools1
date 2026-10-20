@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """文書を書く唯一の口 human/proof/store.commit のテスト(動きは write_doc と同じ・why をログに残す)。
 
-    py -3.12 -m unittest src/human/proof/tests/test_commit.py -v
+    py -3.12 -m unittest tests/human/proof/test_commit.py -v
 """
 import json
 import os
@@ -10,14 +10,16 @@ import sys
 import unittest
 from unittest import mock
 
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")
 for _p in (os.path.join(SRC, "editor"), SRC):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 from human.proof import layers, store  # noqa: E402
 from ytt import workdata  # noqa: E402
-from human.tests._workdata import temporary_workdata  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "human"))   # tests/human/(_workdata)
+from _workdata import temporary_workdata  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 TID = "0123456789ab"
 

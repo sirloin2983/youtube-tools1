@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """文字起こしのジョブの後処理(A 別の読み・B 頭の名前・E LLM・配信ごとの文脈)を ③ の run_job で 1 回通し、文書と記録に残る形を確かめるテスト。test_metrics から読み込まれる。
 
-    py -3.12 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
-    py -3.12 -m unittest test_fill -q                        # これだけ(src/editor/tests で)
+    py -3.12 -m unittest tests/eval/drill/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
+    py -3.12 -m unittest test_fill -q                        # これだけ(tests/editor で)
 
 - ジョブの通し(疑似の認識 TRANSCRIBE_BACKEND=fake の行を差し替え + TRANSCRIBE_FAKE_FILL・TRANSCRIBE_FAKE_LLM): 行が置き換わり fill と印・
   記録 recognition.runs[].fill・names・llm・settings.context・<id>.llm.json・<id>.asr.json・params・保存で fill が残る・評価用は後処理も文脈も使わない
-- 規則の答え(行の並びの見本)は src/pipeline/transcribe/tests/test_postproc.py、本物の SenseVoice・LLM の通しは test_fill_llm.py
+- 規則の答え(行の並びの見本)は tests/pipeline/transcribe/test_postproc.py、本物の SenseVoice・LLM の通しは test_fill_llm.py
 - ここに残す単体: 声の区間の外の幻覚を捨てる fill_clean_turns(評価用・設定オフ・offset の別の道)・SenseVoice のエンジンの表とトークンの時刻・偽物・小さいモデル
 """
 import json
@@ -19,11 +19,13 @@ import unittest
 from unittest import mock
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.dirname(TESTS))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(TESTS))), "src", "editor"))
 sys.path.insert(0, TESTS)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "editor"))   # test_backend・test_edit(編集のサーバーを一時フォルダで動かす道具)
 from test_backend import StoreDir, write_json  # noqa: F401,E402  (S = serve)
 from ytt import workdata as _workdata  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 from pipeline.transcribe import fill  # noqa: E402
 from pipeline.transcribe import llm  # noqa: E402
 from pipeline.transcribe import roster  # noqa: E402
@@ -35,7 +37,8 @@ from flow import jobs  # noqa: E402
 from pipeline.transcribe import tx_engines as E  # noqa: E402
 from eval.fake import fake_asr, fake_worker  # noqa: E402  (疑似の認識・SenseVoice の偽物)
 from ytt import studiodata  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 HAVE_FF = bool(shutil.which("ffmpeg"))
 LONG = "これは別の読みで埋めた長い文です"   # 16 字(テスト文n の 5 字の 3 倍以上)

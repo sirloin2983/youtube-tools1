@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
 """話者の細切れをならす(smooth_labels・smooth_speakers・apply_diarization(smooth)・設定 diarSmooth)のテスト。
 
-    python -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
-    python -m unittest test_smooth -q                 # これだけ(src/editor/tests で)
+    python -m unittest tests/eval/drill/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
+    python -m unittest test_smooth -q                 # これだけ(tests/editor で)
 
 - 短い 1 行だけ前後と違う話者で、根拠が弱い(自分のラベルの区間に入っている割合が低い)・前後とのすき間が小さい・重なりが無い → 前後の話者にする
 - 判別の生の結果(turns・overlaps)は変えない。diar.json の rows に smoothed: true(label は元のラベル)。既定はオフ
 - 判別のジョブの要求 smooth が記録まで届くこと・既定でならさないことは、本物の判別の通し(test_voices.py の TestDiarRealRun)が確かめる
 """
+import sys
 import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import unittest
 import unittest.mock
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "editor"))   # test_backend・test_edit(編集のサーバーを一時フォルダで動かす道具)
 from test_backend import TID, StoreDir  # noqa: F401  (S = serve)
 import ed_state  # noqa: E402
 from human.proof import speakers as _speakers  # noqa: E402

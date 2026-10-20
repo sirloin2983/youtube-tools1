@@ -6,7 +6,7 @@ zip の中身は cut2resolve の Text+ パックと同じ:
   EDL・SRT は入れない(予備は決定 3-34 で入れない)。cut-plan.json も入れない(zip はダウンロードなので記録も残さない)
 残す区間の決め方は pack.TRANSCRIPT_ROWS(行の時間・短い行も残す・1フレームの隙間はつなぐ・端を声の止まる所まで広げる)。
 端を広げるか(設定の rowEdge)は pack.row_edge_from で読む(規則はここに書かない)。
-同じ入力から同じ中身になることは dev/tests/test_resolve_pack_contract.py が確かめる。
+同じ入力から同じ中身になることは tests/dev/test_resolve_pack_contract.py が確かめる。
 
 このファイルに持っているもの: 「残す行」の規則(is_kept / kept_spans)・SRT の書式・受け渡しの JSON の組み立て
 (transcript/v1・cut-plan/v1・SRT = build_*。パックが読む形を作る側がここなので、

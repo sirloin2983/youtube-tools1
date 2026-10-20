@@ -14,8 +14,8 @@ import unittest
 from unittest.mock import patch
 
 os.environ["STUDIO_FAKE"] = "1"
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # ツールのフォルダ(studio/)
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src(解析などは ytt・pipeline を読む。RS5-B から common を読まない)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src", "studio"))   # ツールのフォルダ(studio/)
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src"))   # src(解析などは ytt・pipeline を読む。RS5-B から common を読まない)
 import startup  # noqa: E402  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
 from ytt import errors, fsio, mediainfo, procs, studio_env  # noqa: E402
 from ytt import yturl  # noqa: E402

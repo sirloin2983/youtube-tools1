@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """LLM の後処理 E(pipeline/transcribe/llm.py)の、通しで起こせない所のテスト。test_metrics から読み込まれる。
 
-    py -3.12 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
-    py -3.12 -m unittest test_llm -q                         # これだけ(src/editor/tests で)
+    py -3.12 -m unittest tests/eval/drill/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
+    py -3.12 -m unittest test_llm -q                         # これだけ(tests/editor で)
 
-規則(選ぶ・聞く・検査・上限・当てる)は src/pipeline/transcribe/tests/test_postproc.py の見本の通し、ジョブの記録は test_fill.py の通し、
+規則(選ぶ・聞く・検査・上限・当てる)は tests/pipeline/transcribe/test_postproc.py の見本の通し、ジョブの記録は test_fill.py の通し、
 本物の Qwen3-4B は test_fill_llm.py が確かめる。ここに残すのは:
 - 学習: 後処理が直した行(fill)を含むまとまりは learn_events の材料にしない(校正のあとの話。文字起こしの通しでは起きない)
 - エンジン: LlamaText の登録(モデルの表・取得先と SHA-256)・サーバーからワーカーへ頼む op complete(通しはワーカーの中で読むので通らない)
@@ -17,8 +17,9 @@ import unittest
 from unittest import mock
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.dirname(TESTS))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(TESTS))), "src", "editor"))
 sys.path.insert(0, TESTS)
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "editor"))   # test_backend・test_edit(編集のサーバーを一時フォルダで動かす道具)
 import test_backend  # noqa: E402,F401  (serve を読んで src を sys.path に足す)
 from pipeline.transcribe import models as _models  # noqa: E402
 from human.proof import learn  # noqa: E402

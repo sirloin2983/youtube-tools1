@@ -1,6 +1,6 @@
 """src/manage/ops/health.py(「調子」)の単体テスト。
 
-    python -m unittest src/manage/ops/tests/test_health.py
+    python -m unittest tests/manage/ops/test_health.py
 """
 import json
 import os
@@ -13,7 +13,7 @@ import unittest
 from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> ops -> manage -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> ops -> manage -> src
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 from manage.ops import health as H  # noqa: E402

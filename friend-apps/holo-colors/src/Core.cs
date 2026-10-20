@@ -1,4 +1,4 @@
-// ホロカラーの中身(画面と Windows に依存しない部分)。tests\CoreTests.cs で確かめる。
+// ホロカラーの中身(画面と Windows に依存しない部分)。tests\friend-apps\holo-colors\CoreTests.cs で確かめる。
 // C# 5(Windows に最初から入っている csc)で書く: $"" ・ ?. ・ => のメンバー ・ nameof は使えない。
 using System;
 using System.Collections;

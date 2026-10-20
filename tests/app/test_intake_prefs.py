@@ -1,13 +1,13 @@
-"""入口の設定 prefs の intake の節(src/app/prefs.py。入口の側に残した検査)。intake の本体のテストは src/human/friend/tests/test_intake.py。
+"""入口の設定 prefs の intake の節(src/app/prefs.py。入口の側に残した検査)。intake の本体のテストは tests/human/friend/test_intake.py。
 
-実行(リポジトリ直下から): python -m unittest src/app/tests/test_intake_prefs.py -v
+実行(リポジトリ直下から): python -m unittest tests/app/test_intake_prefs.py -v
 """
 import os
 import sys
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
-HOME = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+HOME = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src", "app")
 ROOT = os.path.dirname(HOME)
 for p in (HOME, ROOT):
     if p not in sys.path:
@@ -16,7 +16,8 @@ for p in (HOME, ROOT):
 from human.friend import intake  # noqa: E402
 from app import prefs as prefs_mod  # noqa: E402
 from ytt import fsio  # noqa: E402
-from ytt.tests import testkit  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
+import testkit  # noqa: E402
 
 
 class TestPrefs(unittest.TestCase):
