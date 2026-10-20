@@ -458,6 +458,27 @@ class TestVideo(Base):
         self.assertEqual((items[0]["id"], items[0]["top"], got), ("abcdefghijk", 7, rid))
         self.assertIsNone(self.runner.last["speakers"])
 
+    def test_watch_request_json_settles_sooner_and_wakes_on_new_name(self):
+        rid = "20261001-120000-abc127"
+        p = self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "items": [{"url": "https://youtu.be/abcdefghijk"}]}))
+        os.utime(p, (self.now, self.now))   # 今置かれた
+        v = self.put("20261001-120000-abc128__a.mp4", b"x")
+        os.utime(v, (self.now, self.now))
+        self.it.scan()
+        self.assertEqual(self.runner.requests, [])
+        self.assertAlmostEqual(self.it._settle_due(), intake.REQ_SETTLE + 0.5)   # 一番早いのは依頼の JSON(動画は SETTLE)
+        self.now += intake.REQ_SETTLE + 0.5
+        self.it.scan()
+        self.assertEqual(len(self.runner.requests), 1)   # 依頼の JSON は REQ_SETTLE 秒で受け付ける
+        self.assertAlmostEqual(self.it._settle_due(), intake.SETTLE - intake.REQ_SETTLE)
+        with mock.patch.object(intake, "WATCH_SEC", 0.05):
+            t = threading.Timer(0.2, lambda: self.put("new.txt", "x"))
+            t.start()
+            t0 = time.monotonic()
+            self.it._wait_next(30.0)   # 名前が増えたら待たずに戻る
+            self.assertLess(time.monotonic() - t0, 5)
+            t.join()
+
     def test_speakers_passed(self):
         """話す人(1.3.0 のアプリ): 人数と名前をまとめて実行へ。形が違えば話者分離しない"""
         self.assertEqual(_order.speakers_arg({"count": 2, "names": [" 兎田ぺこら ", "", "兎田ぺこら", "宝鐘マリン", "x"]}),

@@ -960,6 +960,7 @@ def main(argv=None):
     threading.Thread(target=app.prepare, name="friend-prepare", daemon=True).start()
     threading.Thread(target=app.watch, name="friend-watch", daemon=True).start()
     threading.Thread(target=app.sync.loop, name="friend-sync", daemon=True).start()   # Dropbox の同期(鍵が無ければ何もしない)
+    threading.Thread(target=app.sync.watch, name="friend-sync-watch", daemon=True).start()   # Dropbox の変化を長く待ってすぐ同期(sync.WATCH)
     app.streams.start()   # 配信の一覧(F3-2)
     if not a.no_open:
         open_window(pl["friend"], url, log)

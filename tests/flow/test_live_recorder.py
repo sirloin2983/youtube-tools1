@@ -58,26 +58,28 @@ class ProbeTest(unittest.TestCase):
         return stack
 
     def test_live_status_and_title(self):
-        with self.fake(out="is_live\tPekora Ch. 兎田ぺこら\x07\t【雑談】配信の題\tつづき\x07\n"):
-            r = LS.probe_live("https://www.youtube.com/watch?v=abcdefghijk")
-        self.assertEqual(r, {"status": "is_live", "title": "【雑談】配信の題つづき", "channel": "Pekora Ch. 兎田ぺこら", "message": ""})   # 題のタブは崩さない
+        with self.fake(out="is_live\tabcdefghijk\tPekora Ch. 兎田ぺこら\x07\t【雑談】配信の題\tつづき\x07\n"):
+            r = LS.probe_live("https://www.youtube.com/@pekora/live")
+        self.assertEqual(r, {"status": "is_live", "title": "【雑談】配信の題つづき", "channel": "Pekora Ch. 兎田ぺこら", "message": "",
+                             "id": "abcdefghijk"})   # 題のタブは崩さない・/@名前/live でも動画の id が分かる
         with open(self.args, encoding="utf-8") as f:
             args = json.load(f)
-        self.assertEqual(args[-2:], ["--", "https://www.youtube.com/watch?v=abcdefghijk"])   # URL は1つの引数・オプションとして読ませない
+        self.assertEqual(args[-2:], ["--", "https://www.youtube.com/@pekora/live"])   # URL は1つの引数・オプションとして読ませない
         for flag in ("--skip-download", "--no-playlist", "--ignore-no-formats-error"):
             self.assertIn(flag, args)
-        self.assertEqual(args[args.index("--print") + 1], "%(live_status)s\t%(channel,uploader)s\t%(title)s")
+        self.assertEqual(args[args.index("--print") + 1], "%(live_status)s\t%(id)s\t%(channel,uploader)s\t%(title)s")
 
     def test_other_states(self):
-        with self.fake(out="was_live\tNA\tNA\n"):
-            self.assertEqual(LS.probe_live("https://www.youtube.com/watch?v=abcdefghijk"), {"status": "was_live", "title": "", "channel": "", "message": ""})
+        with self.fake(out="was_live\tNA\tNA\tNA\n"):
+            self.assertEqual(LS.probe_live("https://www.youtube.com/watch?v=abcdefghijk"),
+                             {"status": "was_live", "title": "", "channel": "", "message": "", "id": ""})
         with self.fake(out="", err="ERROR: [youtube] x: This live event will begin in 3 hours.\n", code=1):
             self.assertEqual(LS.probe_live("https://www.youtube.com/watch?v=abcdefghijk")["status"], "is_upcoming")
         with self.fake(out="", err="ERROR: Video unavailable\n", code=1):
             r = LS.probe_live("https://www.youtube.com/watch?v=abcdefghijk")
         self.assertEqual(r["status"], "unknown")
         self.assertIn("Video unavailable", r["message"])
-        with self.fake(out="NA\tNA\tNA\n"):
+        with self.fake(out="NA\tNA\tNA\tNA\n"):
             self.assertEqual(LS.probe_live("https://www.youtube.com/watch?v=abcdefghijk")["status"], "unknown")
         with self.fake(out="is_live\tc\tx\n", sleep=3):
             r = LS.probe_live("https://www.youtube.com/watch?v=abcdefghijk", timeout=0.5)

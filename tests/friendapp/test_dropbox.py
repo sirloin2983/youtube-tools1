@@ -38,9 +38,11 @@ class FakeNet:
     def __init__(self, *handlers):
         self.handlers = list(handlers)
         self.calls = []
+        self.timeouts = []
 
     def __call__(self, url, headers, body, timeout):
         self.calls.append((url, dict(headers), body))
+        self.timeouts.append(timeout)
         if url == D.TOKEN_URL:
             return 200, {}, Stream(json.dumps({"access_token": TOKEN}).encode())
         h = self.handlers.pop(0)
@@ -88,6 +90,18 @@ class DropboxTest(unittest.TestCase):
         self.assertIn(b"client_id=APPKEY", body)
         self.assertEqual(net.calls[1][1]["Authorization"], "Bearer " + TOKEN)
         self.assertTrue(net.calls[1][0].startswith(D.RPC_BASE))
+
+    def test_latest_cursor_and_longpoll_without_key(self):
+        net = FakeNet(ok({"cursor": "CUR"}), ok({"changes": True, "backoff": 30}))
+        c = self.client(net)
+        self.assertEqual(c.latest_cursor(""), "CUR")
+        self.assertEqual(json.loads(net.calls[1][2]), {"path": "", "recursive": True, "include_deleted": True})
+        self.assertEqual(c.longpoll("CUR", 480), {"changes": True, "backoff": 30})
+        url, h, body = net.calls[2]
+        self.assertTrue(url.startswith(D.NOTIFY_BASE))
+        self.assertNotIn("Authorization", h)              # 長く待つ口に鍵を付けない
+        self.assertEqual(json.loads(body), {"cursor": "CUR", "timeout": 480})
+        self.assertEqual(net.timeouts[-1], 480 + D.LONGPOLL_EXTRA)
 
     def test_401_refreshes_once_then_missing_scope_is_not_retried(self):
         net = FakeNet(err(401, {"error_summary": "expired_access_token/"}), ok({"name": "a"}))

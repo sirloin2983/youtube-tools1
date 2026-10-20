@@ -61,8 +61,8 @@
   - 名前: `channel_regions` :37・`live_row` :55・`live_list` :150
 - **livehost.py** (87 行) — ライブの親(host)の口(RS7-2 G0)。
   - 名前: `class RequestBook` :25・`class MarkBook` :37・`class LiveHost` :47
-- **livesession.py** (1150 行) — ② 管理の層 flow: ライブ係(RS7-2 G2b。notes:plan/done/f1-friend-pc.md)。
-  - 名前: `validate_url` :80・`probe_live` :108・`rec_view` :134・`recorder_data_dir` :150・`is_local_url` :163・`stream_url` :171・`live_envelope` :177・`cfg_bundle` :187・`now_bundle` :208・`request_bundle` :227・`request_settings` :260・`speakers_of` :267・ほか 4
+- **livesession.py** (1154 行) — ② 管理の層 flow: ライブ係(RS7-2 G2b。notes:plan/done/f1-friend-pc.md)。
+  - 名前: `validate_url` :80・`probe_live` :108・`rec_view` :136・`recorder_data_dir` :152・`is_local_url` :165・`stream_url` :173・`live_envelope` :179・`cfg_bundle` :189・`now_bundle` :210・`request_bundle` :229・`request_settings` :262・`speakers_of` :269・ほか 4
 - **machine.py** (303 行) — ② 管理の層 flow: この PC の設定(機械の都合)を 1 か所に(RS7-1 の S1。決定 3-30 の Q1・notes:plan/done/f1-friend-pc.md の決めたこと 8・9)。
   - 名前: `check` :68・`root` :102・`path` :107・`read_file` :119・`read_env` :136・`llm_for_vram` :163・`auto_llm` :173・`overlay_llm` :179・`explicit` :212・`load` :221・`get` :239・`save` :247・ほか 1
 - **normalize.py** (167 行) — ② 管理の層 flow: 素材を 30fps(H.264・yuv420p・AAC)にそろえる 1 つの段(OPT-M2 5b-1。決定は資料 plan/opt-manage.md の 5b)。
@@ -86,7 +86,7 @@
   - 名前: `class Cancelled` :123・`class StepError` :127・`mode_of` :146・`steps_of` :180・`analyze_verdict` :224・`chat_missing` :242・`chat_retry_ok` :248・`stream_ended_at` :256・`redo_reason` :269・`short_why` :287・`adopted_ids` :299・`tx_verdict` :304・ほか 5
 - **runlog.py** (93 行) — まとめて実行の「終わった実行の記録」の形と読み方(RS3-0B)。
   - 名前: `read_runs_log` :47・`read_result` :77
-- **runqueue.py** (815 行) — ② 管理の層 flow: 待ち行列と実行の糸(RS7-1 S5。決定 3-30・
+- **runqueue.py** (817 行) — ② 管理の層 flow: 待ち行列と実行の糸(RS7-1 S5。決定 3-30・
   - 名前: `class SpecVersionError` :64・`class BadSpecError` :68・`check_spec` :72・`disk_blocked` :86・`gpu_info` :100・`busy_reason` :114・`doc_id_ok` :123・`result_case` :171・`board_job` :182・`class Queue` :200
 - **spec.py** (600 行) — ① に渡す指定の束(spec)の形・既定値・検査(RS1-6。計画 notes:plan/done/role-restructure.md の 5-4)。
   - 名前: `num_ok` :48・`check_range` :58・`check_ranges` :73・`clean_ranges` :92・`pad_range` :108・`check_weights` :116・`clean_weights` :127・`top_arg` :136・`marks_arg` :145・`row_edge_ok` :155・`merge` :260・`merge_onto` :268・ほか 11

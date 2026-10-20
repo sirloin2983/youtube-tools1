@@ -164,6 +164,43 @@ class SyncTest(unittest.TestCase):
         self.assertIn("Dropbox の鍵がありません", st["message"])
         self.assertEqual(self.io.files, {})
 
+    # ------------------------------------------------------------ 変化を長く待つ糸(WATCH)
+    def test_watch_kicks_on_change_takes_new_cursor_and_backs_off(self):
+        self.key()
+        calls, waits = [], []
+        sync = self.sync
+        plan = [{"changes": False, "backoff": None}, {"changes": True, "backoff": 7}, D.DropboxError("切れた", 0), {"changes": True, "backoff": None}]
+
+        def latest_cursor(path=""):
+            calls.append(("cursor", path))
+            return "c%d" % len(calls)
+
+        def longpoll(cursor, timeout):
+            calls.append(("poll", cursor, timeout))
+            got = plan.pop(0)
+            if not plan:
+                sync.stop()
+            if isinstance(got, Exception):
+                raise got
+            return got
+        self.io.latest_cursor, self.io.longpoll = latest_cursor, longpoll
+        kicks = []
+        with mock.patch.object(sync, "kick", lambda: kicks.append(1)), \
+                mock.patch.object(sync._stop, "wait", lambda s: waits.append(s)):
+            sync.watch(timeout=30, gap=2, retry=99)
+        self.assertEqual([c[0] for c in calls], ["cursor", "poll", "poll", "cursor", "poll", "cursor", "poll", "cursor"])
+        self.assertEqual(calls[2][1], "c1")              # 変化が無ければ同じ位置で待ち続ける
+        self.assertEqual(calls[4][1], "c4")              # 変化のあとは取り直した位置で
+        self.assertEqual(len(kicks), 2)
+        self.assertEqual(waits, [2, 7, 12, 2])           # ふだんは gap・backoff はその秒・1 回目の失敗は gap x 6
+
+    def test_watch_without_longpoll_waits_like_before(self):
+        self.key()
+        waits = []
+        with mock.patch.object(self.sync._stop, "wait", lambda s: waits.append(s) or self.sync.stop()):
+            self.sync.watch(retry=99)   # 偽の口に longpoll が無い = 数分ごとの見回りだけ
+        self.assertEqual(waits, [99])
+
     # ------------------------------------------------------------ ユーザーの PC に頼む(A-2)
     def test_request_upload_accept_and_wait(self):
         self.key()

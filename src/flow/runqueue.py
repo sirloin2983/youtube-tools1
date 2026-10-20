@@ -219,7 +219,8 @@ class Queue(run_mod.Runner):
         self.lock = threading.Lock()
         self.cv = threading.Condition(self.lock)
         self.runs = []
-        self.live_hook = None   # ライブの封筒の受け口(set_live_hook)
+        self.pushed = 0         # 積んだ回数(画面が /api/status で比べ、増えたら実行の一覧をすぐ読み直す)
+        self.live_hook = None  # ライブの封筒の受け口(set_live_hook)
         self.learning = None    # 学習データの読み手(flow/learning.Learning。入口が machine の learningDir があるときに入れる。束の版を束に入れる。F1 F6a)
         self.finished_hook = None   # 実行が終わって記録を書いたあとに呼ぶ fn(run)(set_finished_hook。画面なしの送り返しの zip。F1 F6a)
         self.thread = None
@@ -329,6 +330,7 @@ class Queue(run_mod.Runner):
     def _push(self, run):
         """順番待ちに入れる(呼ぶのは self.cv を持っている間)。-> run.public()"""
         self.runs.append(run)
+        self.pushed += 1
         self._trim()
         self._wake()
         return run.public()
