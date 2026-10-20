@@ -43,6 +43,8 @@
 ## src/manage/ops/
 
 - **__init__.py** (2 行) — ④ データの運用: 調子・起動し直し・エラーの記録・分析と日報(analytics/)。失敗の集約は ② にある
+- **autorestart.py** (47 行) — 入口の自動の起動し直し(ディスクの版 != 動いている版のとき、何も処理していない間に自分で起動し直す)の判定。
+  - 名前: `read_tried` :21・`write_tried` :27・`decide` :32・`editor_in_use` :44
 - **clientlog.py** (86 行) — 画面(ブラウザ・窓)で起きたエラーの記録(統合計画の段階7-0)。
   - 名前: `clean` :28・`class ClientLog` :47
 - **health.py** (387 行) — 「調子」(全体の計画 段9 9-1)。
@@ -82,6 +84,7 @@
 - src/manage/keep/tests/test_live_cleanup.py — 録画を自動で消す(src/manage/keep/live_cleanup.py。「書き出し済み + アーカイブ化を確かめたら ごみ箱へ」)のテスト。
 - src/manage/keep/tests/test_trash.py — src/manage/keep/trash.py(ごみ箱へ移す・戻すの 1 か所)の単体テスト。戻せなかった物の元の場所を必ず記録する。
 - src/manage/ops/analytics/tests/test_analytics.py — 分析と日報(src/manage/ops/analytics)のテスト。本物のチャンネルの数字は使わない(リポジトリは Public)。make_raw が規則どおりに伸びる架空のチャンネルを作る。
+- src/manage/ops/tests/test_autorestart.py — 自動の起動し直しの判定(src/manage/ops/autorestart.py)のテスト。  python -m unittest src/manage/ops/tests/test_autorestart.py -v
 - src/manage/ops/tests/test_clientlog.py — 画面のエラーの記録(src/manage/ops/clientlog.py の ClientLog・clean)の単体テスト。一時フォルダだけを使う。
 - src/manage/ops/tests/test_health.py — src/manage/ops/health.py(「調子」)の単体テスト。
 - src/manage/ops/tests/test_restart.py — 入口を起動し直す部品(src/manage/ops/restart.py)のテスト。  python -m unittest src/manage/ops/tests/test_restart.py -v
