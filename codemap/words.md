@@ -81,7 +81,7 @@
   - 画面: src/app/ui/home/portal.html:289・src/app/ui/home/portal.js:1341
 - **作業データ** — 置き場所の持ち主は flow/placement。入口と友人の玄関に各々ある
   - コード: `src/flow/placement.py`・`app_data_dir` src/app/server.py:325・`src/flow/machine.py`
-  - 画面: src/app/ui/cases/panels/new.js:21・src/app/ui/home/portal.html:150・src/app/ui/home/portal.js:1235・friend-apps/holo-colors/src/Dialogs.cs:261 ほか 2
+  - 画面: src/app/ui/cases/panels/new.js:21・src/app/ui/cases/panels/studio-shim.js:43・src/app/ui/home/portal.html:150・src/app/ui/home/portal.js:1235 ほか 3
 - **パック** — Resolve へ渡すパック。作る ①・口 ②・作った記録・ジョブ
   - コード: `src/pipeline/pack/pack.py`・`src/flow/pack.py`・`src/flow/packrec.py`・`src/flow/packjobs.py`
   - 画面: src/app/ui/cases/cases.js:73・src/app/ui/cases/edhost.js:14・src/app/ui/cases/panels/cut.js:62・src/app/ui/editor/app-core.js:37 ほか 13
@@ -102,7 +102,7 @@
   - 画面: src/app/ui/cases/cases.js:79・src/app/ui/cases/panels/new.js:26・src/app/ui/check/cards/value.js:9・src/app/ui/editor/app-learn.js:17 ほか 9
 - **候補** — 案件の候補と採用のファイル(読む側 ytt・書く側 ②)と候補パネル
   - コード: `src/flow/casebook.py`・`src/ytt/casefiles.py`・`src/app/ui/cases/panels/cand.js`・`src/human/review/store.py`
-  - 画面: src/app/ui/cases/cases.js:73・src/app/ui/cases/index.html:48・src/app/ui/cases/panels/cand.js:31・src/app/ui/check/check.js:112 ほか 11
+  - 画面: src/app/ui/cases/cases.js:73・src/app/ui/cases/index.html:48・src/app/ui/cases/panels/cand.js:31・src/app/ui/cases/panels/studio-shim.js:4 ほか 12
 - **文字起こし** — ② の文字起こしの動詞と ① の認識の部品
   - コード: `src/flow/tx.py`・`src/pipeline/transcribe/worker.py`・`transcribe_clip` src/flow/tx.py:137
   - 画面: src/app/ui/cases/cases.js:75・src/app/ui/cases/edhost.js:19・src/app/ui/cases/panels/cut.js:31・src/app/ui/cases/panels/proof.js:64 ほか 19
@@ -126,10 +126,10 @@
   - 画面: src/app/ui/cases/cases.js:79・src/app/ui/cases/panels/cand.js:31・src/app/ui/cases/panels/new.js:122・src/app/ui/check/cards/value.js:10 ほか 9
 - **スタジオ** — 切り抜きスタジオ(解析・確認・コラボ)
   - コード: `src/studio/serve.py`・`src/app/ui/studio`・`src/human/review/store.py`・`src/flow/studiobook.py`
-  - 画面: src/app/ui/cases/cases.js:23・src/app/ui/cases/panels/cand.js:13・src/app/ui/cases/panels/cut.js:76・src/app/ui/cases/panels/new.js:43 ほか 10
+  - 画面: src/app/ui/cases/cases.js:23・src/app/ui/cases/panels/cand.js:13・src/app/ui/cases/panels/cut.js:76・src/app/ui/cases/panels/new.js:43 ほか 11
 - **編集** — 文字起こしを直す「編集」の画面とサーバー
   - コード: `src/editor/serve.py`・`src/app/ui/editor`・`src/editor/ed_state.py`・`/api/edit` src/editor/serve.py:252
-  - 画面: src/app/ui/cases/cases.js:3・src/app/ui/cases/edhost.js:19・src/app/ui/cases/index.html:6・src/app/ui/cases/panels/cut.js:142 ほか 25
+  - 画面: src/app/ui/cases/cases.js:3・src/app/ui/cases/edhost.js:19・src/app/ui/cases/index.html:6・src/app/ui/cases/panels/cut.js:142 ほか 26
 - **解析の順番待ち** — 解析の待ち(最大 10 本)と、スタジオの URL から入れる欄
   - コード: `src/flow/batch.py`・`src/app/ui/studio/queue.js`
   - 画面: src/app/ui/cases/panels/cand.js:70・src/app/ui/home/portal.html:71・src/app/ui/studio/queue.js:33・src/app/ui/studio/rank.js:385 ほか 1
@@ -200,6 +200,7 @@
 - もう一度検索する(2)— src/app/ui/studio/rank.js:308
 - もっと見る(あと(2)— src/app/ui/home/portal.js:873
 - アーカイブ(2)— src/app/ui/studio/review.js:2431
+- カット(2)— src/app/ui/cases/panels/cut.js:118
 - カット・パック(2)— src/app/ui/cases/cases.js:73
 - カット・パックへ(2)— src/app/ui/editor/app-core.js:37
 - カット後(2)— src/app/ui/cases/panels/cut.js:41
@@ -237,6 +238,7 @@
 - 本数(2)— src/friendapp/ui/friend.html:85
 - 校正済み(2)— src/app/ui/editor/app-rows.js:424
 - 正解字(2)— src/app/ui/home/portal-edit.js:52
+- 残す(2)— src/app/ui/editor/cut.js:701
 - 消す(2)— src/app/ui/check/cards/section.js:35
 - 確かめると効く物(2)— src/app/ui/cases/cases.js:282
 - 確認中…(2)— src/app/ui/home/portal.html:126
@@ -329,5 +331,3 @@
 - API キーを削除しますか?(1)— src/app/ui/cases/panels/new.js:181
 - IN と OUT を押すと追加できます(1)— src/app/ui/studio/review.js:242
 - IN(開始)(1)— src/app/ui/studio/review.js:233
-- I〜O を削る(1)— src/app/ui/cases/panels/cut.js:53
-- OUT(終了)(1)— src/app/ui/studio/review.js:237

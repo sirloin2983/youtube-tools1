@@ -11,7 +11,7 @@
 | ③ human(人の操作) | [human.md](human.md) | 56 | 15673 |
 | ④ manage(データ) | [manage.md](manage.md) | 41 | 10959 |
 | ⑤ eval(検証) | [eval.md](eval.md) | 33 | 13624 |
-| src/app(入口と画面) | [app.md](app.md) | 84 | 33549 |
+| src/app(入口と画面) | [app.md](app.md) | 86 | 33697 |
 | src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 46 | 17598 |
 | その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 45 | 18205 |
 | dev・setup(開発の道具) | [dev.md](dev.md) | 57 | 15579 |
@@ -151,7 +151,7 @@
 - `/api/shutdown` — src/app/server.py:646・src/friendapp/server.py:481 ← friend_preflight.py・Launcher.cs・portal.js・host.js
 - `/api/siblings` — src/cut2resolve/serve.py:364・src/cut2resolve/serve.py:97・src/editor/serve.py:236 ← app-core.js
 - `/api/speakers/sub` — src/editor/serve.py:284 ← autorun.py
-- `/api/state` — src/studio/serve.py:202 ← settings.js・app.js
+- `/api/state` — src/studio/serve.py:202 ← studio-shim.js・settings.js・app.js
 - `/api/status` — src/app/server.py:749 ← cli.py・cases.js・edhost.js・check.js・portal.js ほか 1
 - `/api/suggest` — src/editor/serve.py:244 ← app-learn.js
 - `/api/suggest/feedback` — src/editor/serve.py:290 ← app-learn.js
