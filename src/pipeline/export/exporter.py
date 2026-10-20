@@ -389,21 +389,63 @@ def _make(ctl, cmd, it, dur, out, what, log_cmd=None):
         raise
 
 
-# 書き出しの作り直しの設定は ytt/normalize.py の1か所(30fps・libx264 crf 18・yuv420p・AAC 192k・faststart)
+# 書き出しの作り直しの設定は ytt/normalize.py の1か所(30fps・GPU か libx264 crf 18・yuv420p・AAC 192k・faststart)
 PROGRESS = ["-progress", "pipe:1", "-nostats"]
-ENC = _norm.ENC_ARGS + PROGRESS              # 精密(veryfast)
-ENC_FAST = _norm.ENC_FAST_ARGS + PROGRESS    # 高速(ultrafast。画質の設定 crf は同じで、ファイルが大きくなる代わりに速い)
+ENC = _norm.ENC_ARGS + PROGRESS              # 精密(veryfast)の CPU の作り方
 SECTION_PAD = 2.0   # YouTube の区間取得で、前後に足す秒数(yt-dlp ではそのまま取り、正確な区間は ffmpeg で切る)
 DL_TAG = "_dl"      # 区間取得の途中のファイルの名前(<base>_dl.partial.mp4。作業用/ に置き、切り出したら消す)
-RAW_KEEP_TAG = "_dlkeep"   # 編集用素材を切るために残す取ったファイル(<base>_dlkeep.partial.mp4。1 本を作り終えたら消す)
+EDIT_TAG = "_edit"  # 編集用素材の名前(<base>_edit.partial.mp4。作業用/)
+# 区間取得の yt-dlp に渡す ffmpeg の読み方: 10 MB ずつ分けて頼む(1 本の長い取得は YouTube に絞られて遅い)
+DL_FFMPEG_ARGS = "ffmpeg_i:-request_size 10485760"
+DL_FAST_ENV = "YTT_DL_FAST"   # "0" で分けて頼まない(前の取り方)
+_dl_chunk = {}   # ffmpeg のパス -> -request_size を知っているか(1 回だけ確かめる)
 
 
-def _enc(spec):
-    """作り直しの出力側の引数。音量(%)はここで最初の書き出しに組み込む(音声の作り直しは 1 回だけ = AAC の 2 回目の圧縮と
+def _dl_args(ff):
+    """区間取得の yt-dlp に足す引数。ffmpeg が http の -request_size を知っていれば 10 MB ずつ分けて頼む
+    (本物の 314 秒の区間で 235 秒 → 9 秒)。YTT_DL_FAST=0・知らない古い ffmpeg では足さない(1 本の長い取得)"""
+    if os.environ.get(DL_FAST_ENV, "").strip() == "0" or not ff:
+        return []
+    if ff not in _dl_chunk:
+        try:
+            p = _procs.run_short([ff, "-hide_banner", "-h", "protocol=http"], timeout=30)
+            _dl_chunk[ff] = p.returncode == 0 and "request_size" in (p.stdout or "")
+        except (OSError, subprocess.SubprocessError):
+            _dl_chunk[ff] = False
+    return ["--downloader-args", DL_FFMPEG_ARGS] if _dl_chunk[ff] else []
+
+
+def _encs(spec):
+    """作り直しの作り方の順 [(作り方の名前, 出力側の引数)](GPU → libx264。ytt/normalize.encode_tries。-progress は呼ぶ側)。
+    高速 = libx264 の ultrafast(GPU は同じ)。音量(%)はここで最初の書き出しに組み込む(音声の作り直しは 1 回だけ = AAC の 2 回目の圧縮と
     ファイル全体の読み書きをしない。O3)。ラウドネスのときは測ってから apply_loudness が後でかける(測る前は量が分からないため)"""
-    enc = ENC_FAST if spec.get("fast") else ENC
+    preset = _norm.FAST_PRESET if spec.get("fast") else _norm.PRESET
     vol = spec.get("volume", 100)
-    return enc if vol == 100 or spec.get("loudness") else enc + ["-af", _loud.volume_filter(vol)]
+    af = [] if vol == 100 or spec.get("loudness") else ["-af", _loud.volume_filter(vol)]
+    return [(how, enc + af) for how, enc in _norm.encode_tries(_env.find_tool("ffmpeg"), preset)]
+
+
+def _encode(ctl, spec, it, build, outs, what, span=(0.0, 1.0), log_cmd=None, tries=None):
+    """build(出力側の引数) -> コマンドの全部 で outs([(パス, 期待する長さ)])を作り、空・短すぎないかを確かめる。
+    作り方は tries(既定 _encs(spec))の順(GPU で失敗したら outs を消して libx264 で 1 回だけ)。作った作り方は it["encoder"](.clip.json の export.encoder)。
+    失敗は export-log.txt に残して outs を消す。最後の作り方も失敗・中止なら ExportError をそのまま上げる"""
+    tries = tries or _encs(spec)
+    dur = max(d for _p, d in outs)
+    for n, (how, enc) in enumerate(tries, 1):
+        cmd, tail = build(enc), []
+        try:
+            tail = _pump(ctl, cmd, it, dur, span)
+            for p, d in outs:
+                verify_output(p, d, tail)
+            it["encoder"] = how
+            return
+        except ExportError as e:
+            log_export("%s 失敗(%s): %s" % (what, how, e), cmd if log_cmd is None else log_cmd, tail)
+            for p, _d in outs:
+                if os.path.exists(p):
+                    os.unlink(p)
+            if ctl.cancelled or n == len(tries):
+                raise
 
 
 def _method(spec):
@@ -428,13 +470,12 @@ def run_ffmpeg(ctl, spec, it, base):
     # 1) -ss を -i の前に置く高速シーク(作り直すのでフレーム精度で切れる)
     # 2) 出力が空になるファイル向けの予備: -i の後に置く精密シーク(先頭から読むので遅いが確実)
     # 高速・精密のどちらも 30fps に作り直す(高速は x264 の速い設定。コピーでは fps を変えられないため)
-    enc = _enc(spec)
-    attempts = [base_cmd + ["-ss", ts, "-i", spec["sourcePath"], "-t", "%.3f" % dur] + enc + [out],
-                base_cmd + ["-i", spec["sourcePath"], "-ss", ts, "-t", "%.3f" % dur] + enc + [out]]
+    attempts = [lambda enc: base_cmd + ["-ss", ts, "-i", spec["sourcePath"], "-t", "%.3f" % dur] + enc + PROGRESS + [out],
+                lambda enc: base_cmd + ["-i", spec["sourcePath"], "-ss", ts, "-t", "%.3f" % dur] + enc + PROGRESS + [out]]
     last = None
-    for n, cmd in enumerate(attempts, 1):
+    for n, build in enumerate(attempts, 1):
         try:
-            _make(ctl, cmd, it, dur, out, "ffmpeg 方法%d" % n)
+            _encode(ctl, spec, it, build, [(out, dur)], "ffmpeg 方法%d" % n)
             it["method"] = _method(spec)
             return spec["folder"] + "/" + os.path.basename(out)
         except ExportError as e:
@@ -476,11 +517,11 @@ def _drop_glob(prefix):
 def _ytdlp_sections(ctl, spec, it, base):
     """方法1: 2段で作る。
     1) yt-dlp で区間を**そのまま**取る(作り直さない・前後に SECTION_PAD 秒の余裕。作業用/<base>_dl.partial.mp4)
-    2) ffmpeg で正確な区間に切り、30fps に作り直す(書き出しと同じ ENC。crf 18)。取った区間のファイルは最後に消す。
+    2) ffmpeg で正確な区間に切り、30fps に作り直す(書き出しと同じ _encs)。取った区間のファイルは最後に消す。
     yt-dlp は区間を ffmpeg の入力側の -ss + コピーで取るので、取ったファイルの 0 秒 = 頼んだ開始(手前のキーフレームからの分は
     mp4 の edit list で隠れる)。万一、頼んだより長い(手前のキーフレームから見えている)ときは位置が分からないので、方法2(直接指定)に回す。
-    it["keepRaw"](秒)があれば前後をその秒だけ広く取り、取ったファイルを 作業用/<base>_dlkeep.partial.mp4 に残して it["rawKeep"] に書く
-    = 編集用素材(前後 10 秒)を yt-dlp をもう 1 回呼ばずに同じファイルから切る(_cut_raw。1 本の切り抜きで YouTube への問い合わせは 1 回)"""
+    it["keepRaw"](秒)があれば前後をその秒だけ広く取り、同じ 1 本の ffmpeg で編集用素材(前後その秒つき)も 作業用/<base>_edit.partial.mp4 に
+    作って it["editMade"] に書く(読み込み 1 回で 2 本。1 本の切り抜きで YouTube への問い合わせは 1 回。export_edit_media が使う)"""
     lim = spec.get("sourceDuration") or 0
     pad = max(SECTION_PAD, float(it.get("keepRaw") or 0))
     dl_start = max(0.0, float(it["start"]) - pad)
@@ -494,13 +535,25 @@ def _ytdlp_sections(ctl, spec, it, base):
     _drop_glob(raw_base)   # 前回の残り(yt-dlp は同じ名前があると取得済みとして使ってしまう)
     out = partial_path(spec["outDir"], base)
     ff = _env.find_tool("ffmpeg")
-    cmd = _ytdlp_cmd() + ["--no-playlist", "--no-warnings", "--newline", "--ffmpeg-location", ff,
-                          "--download-sections", "*%s-%s" % (fmt_ts(dl_start), fmt_ts(dl_end)),
-                          "-f", _fsel(spec), "--merge-output-format", "mp4", "-o", _yturl.ytdlp_out(work, os.path.basename(raw_base) + ".%(ext)s"),
-                          "--", _yturl.watch_url(spec["videoId"])]
-    tail = []
+    chunk = _dl_args(ff)
+
+    def dl_cmd(extra):
+        return _ytdlp_cmd() + ["--no-playlist", "--no-warnings", "--newline", "--ffmpeg-location", ff,
+                               "--download-sections", "*%s-%s" % (fmt_ts(dl_start), fmt_ts(dl_end))] + extra + [
+                               "-f", _fsel(spec), "--merge-output-format", "mp4", "-o", _yturl.ytdlp_out(work, os.path.basename(raw_base) + ".%(ext)s"),
+                               "--", _yturl.watch_url(spec["videoId"])]
+    cmd = dl_cmd(chunk)
+    tail, stage = [], "dl"
     try:
-        tail = _pump(ctl, cmd, it, dl_len, span=(0.0, 0.5))
+        try:
+            tail = _pump(ctl, cmd, it, dl_len, span=(0.0, 0.5))
+        except ExportError as e:   # 分けて頼む取り方で取れなかった: 1 本の長い取得で 1 回だけ取り直す(止められた・中止はそのまま)
+            if not chunk or ctl.cancelled or blocked(e):
+                raise
+            log_export("yt-dlp 区間取得(分けて頼む)失敗・分けずに取り直す: %s" % e, cmd, [])
+            _drop_glob(raw_base)
+            cmd = dl_cmd([])
+            tail = _pump(ctl, cmd, it, dl_len, span=(0.0, 0.5))
         files = [f for f in glob.glob(glob.escape(raw_base) + ".*")
                  if not f.endswith((".part", ".ytdl", ".temp")) and ".temp." not in os.path.basename(f)]
         if not files:
@@ -515,18 +568,29 @@ def _ytdlp_sections(ctl, spec, it, base):
         dur = min(need, raw_len - off) if raw_len is not None else need
         if dur < 0.5:
             raise ExportError("取った区間が短すぎます(%.1f 秒)" % (raw_len or 0))
-        cmd = [ff, "-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file,pipe", "-ss", "%.3f" % off, "-i", raw, "-t", "%.3f" % dur] + _enc(spec) + [out]
-        tail = []
-        tail = _pump(ctl, cmd, it, dur, span=(0.5, 1.0))
-        verify_output(out, dur, tail)
+        outs = [(out, dur, off)]
+        if it.get("keepRaw"):   # 編集用素材: マーク(余白つき)の前後 keepRaw 秒(0 秒より前・取れた末尾より後へは出さない)
+            e_start = max(0.0, float(it["start"]) - float(it["keepRaw"]))
+            e_off = max(0.0, e_start - dl_start)
+            e_dur = float(it["end"]) + float(it["keepRaw"]) - e_start
+            if raw_len is not None:
+                e_dur = min(e_dur, raw_len - e_off)
+            outs.append((partial_path(work, base + EDIT_TAG), e_dur, e_off))
+
+        def build(enc):   # 読み込みは 1 回(-i の後の -ss = 出力ごとにコマ単位で正確に切る)・出力ごとに同じ作り方
+            cmd = [ff, "-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file,pipe", "-i", raw] + PROGRESS
+            for p, d, o in outs:
+                cmd += ["-ss", "%.3f" % o, "-t", "%.3f" % d, "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn"] + enc + [p]
+            return cmd
+        stage = "cut"
+        _encode(ctl, spec, it, build, [(p, d) for p, d, _o in outs], "yt-dlp 区間取得 → 切り出し", span=(0.5, 1.0))
         it["method"] = _method(spec)
-        if it.get("keepRaw"):
-            keep = os.path.join(work, base + RAW_KEEP_TAG + PARTIAL + ".mp4")
-            os.replace(raw, keep)
-            it["rawKeep"] = {"path": keep, "start": dl_start, "len": raw_len}
+        if len(outs) > 1:
+            it["editMade"] = {"path": outs[1][0], "start": dl_start + outs[1][2], "encoder": it.get("encoder")}
         return out
     except ExportError as e:
-        log_export("yt-dlp 区間取得 → 切り出し 失敗: %s" % e, cmd, tail)
+        if stage == "dl":   # 切り出しの失敗は _encode が残した
+            log_export("yt-dlp 区間取得 失敗: %s" % e, cmd, tail)
         if os.path.exists(out):
             os.unlink(out)
         raise
@@ -558,8 +622,8 @@ def _ytdlp_stream(ctl, spec, it, base):
         cmd += ["-ss", fmt_ts(it["start"]), "-i", u]
     if len(urls) == 2:
         cmd += ["-map", "0:v:0", "-map", "1:a:0"]
-    cmd += ["-t", "%.3f" % dur] + _enc(spec) + [out]
-    _make(ctl, cmd, it, dur, out, "ストリーム直接指定", log_cmd=["ffmpeg", "...(URLは省略)..."])
+    cmd += ["-t", "%.3f" % dur]
+    _encode(ctl, spec, it, lambda enc: cmd + enc + PROGRESS + [out], [(out, dur)], "ストリーム直接指定", log_cmd=["ffmpeg", "...(URLは省略)..."])
     it["method"] = _method(spec)
     return out
 
@@ -718,8 +782,9 @@ def concat_pieces(ctl, it, pieces, out):
     fc = "".join("[%d:v:0]setsar=1,%s[v%d];" % (k, _norm.fps_filter(), k) for k in range(len(pieces)))
     fc += "".join("[v%d]%s" % (k, "[%d:a:0]" % k if has_a else "") for k in range(len(pieces)))
     fc += "concat=n=%d:v=1:a=%d[v]%s" % (len(pieces), 1 if has_a else 0, "[a]" if has_a else "")
-    cmd += ["-filter_complex", fc, "-map", "[v]"] + (["-map", "[a]"] if has_a else []) + _norm.encode_args(in_graph=True) + PROGRESS + [out]
-    _make(ctl, cmd, it, total, out, "つなぐ")
+    cmd += ["-filter_complex", fc, "-map", "[v]"] + (["-map", "[a]"] if has_a else [])
+    tries = _norm.encode_tries(_env.find_tool("ffmpeg"), in_graph=True)   # 音量は部品で済み
+    _encode(ctl, {}, it, lambda enc: cmd + enc + PROGRESS + [out], [(out, total)], "つなぐ", tries=tries)
 
 
 def _drop_edit(it):
@@ -741,12 +806,14 @@ def export_edit_media(ctl, spec, it, base, runner):
     # 編集用素材と .edit.json は途中のファイルなので 作業用/ に書く(出力先の直下はパックと元動画だけ)
     wspec = dict(spec, outDir=os.path.join(spec["outDir"], schemas.WORK_DIR), folder=spec.get("folder", "") + "/" + schemas.WORK_DIR)
     os.makedirs(wspec["outDir"], exist_ok=True)
-    raw = it.get("rawKeep")
-    if raw and os.path.isfile(raw["path"]):   # 本体と同じ取ったファイルから(YouTube へもう問い合わせない)
-        rel = _cut_raw(ctl, wspec, edit_it, base + "_edit", raw)
+    made = it.get("editMade")
+    if made and os.path.isfile(made["path"]):   # 本体と同じ ffmpeg で作った(_ytdlp_sections。YouTube へもう問い合わせない)
+        media_path = made["path"]
+        edit_it.update(start=made["start"], method=_method(spec), encoder=made.get("encoder"))
+        rel = wspec["folder"] + "/" + os.path.basename(media_path)
     else:
-        rel = runner(ctl, wspec, edit_it, base + "_edit")   # 書きかけ(<base>_edit.partial.mp4。音量は本体と同じ spec で作り直しの中で)
-    media_path = os.path.join(wspec["outDir"], os.path.basename(rel))
+        rel = runner(ctl, wspec, edit_it, base + EDIT_TAG)   # 書きかけ(<base>_edit.partial.mp4。音量は本体と同じ spec で作り直しの中で)
+        media_path = os.path.join(wspec["outDir"], os.path.basename(rel))
     actual, _v, _a, _line = _media.media_info(media_path)
     selection_in = float(it["start"]) - edit_it["start"]
     selected = float(it["end"]) - float(it["start"])
@@ -762,31 +829,18 @@ def export_edit_media(ctl, spec, it, base, runner):
     _fsio.write_json(sidecar, data, indent=2)   # Windows の一時的なロックは再試行
     it["editRange"] = (edit_it["start"], edit_it["end"])
     it["editMethod"] = edit_it.get("method")
+    it["editEncoder"] = edit_it.get("encoder")
     it["editSrcLen"] = edit_it.get("srcLen")
     return rel
 
 
-def _cut_raw(ctl, spec, it, base, raw):
-    """区間取得で残したファイル(_ytdlp_sections の rawKeep)から it の区間を切る(本体と同じ作り直し)-> 出力の相対パス"""
-    off = max(0.0, float(it["start"]) - raw["start"])
-    dur = float(it["end"]) - float(it["start"])
-    if raw.get("len"):
-        dur = min(dur, raw["len"] - off)
-    if dur < 0.5:
-        raise ExportError("取った区間が短すぎます(%.1f 秒)" % dur)
-    out = partial_path(spec["outDir"], base)
-    ff = _env.find_tool("ffmpeg")
-    cmd = [ff, "-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file,pipe", "-ss", "%.3f" % off, "-i", raw["path"], "-t", "%.3f" % dur] + _enc(spec) + [out]
-    _make(ctl, cmd, it, dur, out, "取った区間から切り出し")
-    it["method"] = _method(spec)
-    return spec["folder"] + "/" + os.path.basename(out)
-
-
 # ---------- youtube-tools-clip/v1(.clip.json) ----------
-def _clip_export_info(spec, method, loudness=None):
+def _clip_export_info(spec, method, loudness=None, encoder=None):
     """.clip.json の export。mode は fast(高速の設定で作り直した)/ precise。どちらも位置ちょうど(range.start が 0 秒)なので actualStart は付けない
-    余白つき(LD-2f)の actualStart・margin は write_manifests が足す"""
+    encoder = 映像を作った作り方(libx264・h264_nvenc など。印)。余白つき(LD-2f)の actualStart・margin は write_manifests が足す"""
     info = {"mode": "fast" if method in ("fast", "copy") else "precise"}
+    if encoder:
+        info["encoder"] = encoder
     if spec.get("loudness"):
         info["loudness"] = loudness or {"target": spec["loudness"]}   # そろえたラウドネス(音量(%)は使っていない)
     else:
@@ -818,7 +872,7 @@ def write_manifests(spec, it, mark_status):
         return min(end, lim) if lim and lim > 0 else end
     media = it["path"]
     dur = _media.media_info(media)[0]
-    ex = _clip_export_info(spec, it.get("method"), it.get("loudness"))
+    ex = _clip_export_info(spec, it.get("method"), it.get("loudness"), it.get("encoder"))
     end = end_of(it["end"], it.get("srcLen"))
     if it.get("clipRange"):   # 余白つき(LD-2f): range はマークのまま・動画の 0 秒 = actualStart(schemas.clip_offset が読む)・margin = 実際に足せた前後の秒(印)
         cf, ct = it["clipRange"]
@@ -827,7 +881,7 @@ def write_manifests(spec, it, mark_status):
     if it.get("editPath") and it.get("editRange"):
         es, ee = it["editRange"]
         edur = _media.media_info(it["editPath"])[0]
-        ex = _clip_export_info(spec, it.get("editMethod"), it.get("loudness"))
+        ex = _clip_export_info(spec, it.get("editMethod"), it.get("loudness"), it.get("editEncoder"))
         ex.update(purpose="edit-handles", selection={"start": it["start"], "end": it["end"]})   # 切り抜き本体の範囲(元の配信の秒)
         it["editManifest"] = write_clip(it["editPath"], edur, source, (es, end_of(ee, it.get("editSrcLen"))), mark, ex)
 
@@ -956,9 +1010,9 @@ def _export_clip(ctl, spec, it, idx, on_done):
     finally:
         it["start"], it["end"] = mark
         it.pop("keepRaw", None)
-        raw = it.pop("rawKeep", None)
-        if raw:
-            _rm(raw["path"])
+        made = it.pop("editMade", None)
+        if made and made["path"] != it.get("editPath"):   # 作ったが編集用素材として使わなかった(途中で止まった)
+            drop_partial(made["path"])
     apply_loudness(ctl, spec, it)   # 編集用素材ができてから、両方に同じ量をかける
     # 仕上がったので本当の名前へ(ここまでに止まったら、書きかけは _run_job の finally で消える)。切り抜き本体 → 編集用素材の順
     it["path"] = promote(it["path"])

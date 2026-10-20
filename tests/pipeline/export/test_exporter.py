@@ -279,6 +279,8 @@ class TestExportThrough(unittest.TestCase):
         self.assertEqual(d["range"], {"start": 7.0, "end": 12.0})   # 元の配信の秒
         self.assertEqual(d["source"], {"kind": "file", "videoId": VID, "url": None, "title": LONG_TITLE, "path": self.src})
         self.assertEqual(d["mark"], {"id": "m1", "label": "見どころ", "status": "exported", "src": "manual"})
+        enc = d["export"].pop("encoder")   # 作った作り方の印(GPU が使えない・失敗した PC では libx264)
+        self.assertIn(enc, ["libx264"] + [c for c, _a in normalize.GPU_ENCODERS])
         self.assertEqual(d["export"], {"mode": "precise", "volume": 50})   # 余白なしは actualStart なし(= range.start)
         # 前後10秒の編集用素材: 作業用/ に・その範囲の .clip.json・.edit.json は本当の名前を指す
         self.assertTrue(it["editPath"].endswith("_edit.mp4") and os.path.isfile(it["editPath"]) and os.path.dirname(it["editPath"]) == work)
@@ -705,6 +707,7 @@ class TestLiveSection(unittest.TestCase):
         it = job["items"][0]
         self.assertEqual((job["state"], it["status"]), ("done", "done"), it.get("error"))
         self.assertTrue(cmds and not [c for c in cmds if "-af" in c], cmds)   # 音量 100% は音のフィルタを足さない
+        self.assertEqual((cmds[-1].count("-i"), cmds[-1].count("-ss")), (1, 2), cmds)   # 本体と編集用素材を 1 本の ffmpeg で(読み込み 1 回)
         self.assertEqual(self.sections(), ["*00:00:00.000-00:00:22.000"])
         self.assertAlmostEqual(mediainfo.media_info(it["path"])[0], 5.0, delta=0.2)
         self.assertEqual((_fps(it["path"]), _fps(it["editPath"])), ("30/1", "30/1"))

@@ -24,7 +24,7 @@ FP = tools.find_tool("ffprobe", "YTT_FFPROBE")
 
 def no_gpu(case):
     """作り直しのテストを GPU の有無で変えない(NVIDIA の PC でも libx264 の道を確かめる)。GPU の道は TestFastPaths で別に"""
-    p = mock.patch.dict(os.environ, {normalize.NVENC_ENV: "0"})
+    p = mock.patch.dict(os.environ, {normalize.GPU_ENV: "0"})
     p.start()
     case.addCleanup(p.stop)
 
@@ -256,29 +256,32 @@ class TestOldFfmpeg(unittest.TestCase):
 
 
 class TestFastRules(unittest.TestCase):
-    """速くする 2 つの決まり:映像が条件どおりなら音声だけ・GPU(h264_nvenc)の引数と使えるかの確かめ"""
+    """速くする 2 つの決まり:映像が条件どおりなら音声だけ・GPU の作り方の引数と使えるかの確かめ"""
     def test_video_ok(self):
         """映像をコピーしてよいか(音声だけ違う・60fps の道は通し)"""
         for bad in (info(vcodec="hevc"), info(bit_depth=10), info(pix_fmt="yuv444p"), info(avg_fps=29.5), info(has_video=False), None):
             self.assertFalse(normalize.video_ok(bad))
 
-    def test_nvenc_args_keep_the_rules(self):
-        a = normalize.nvenc_args()
-        for pair in (["-vf", "fps=30"], ["-fps_mode", "cfr"], ["-c:v", "h264_nvenc"], ["-pix_fmt", "yuv420p"], ["-c:a", "aac"],
-                     ["-movflags", "+faststart"], ["-cq", normalize.NVENC_CQ]):
-            i = a.index(pair[0])
-            self.assertEqual(a[i:i + 2], pair)
-        self.assertEqual(normalize.ENC_ARGS[normalize.ENC_ARGS.index("-c:v") + 1], "libx264")   # スタジオの書き出しは今のまま
+    def test_gpu_args_keep_the_rules(self):
+        for codec, _a in normalize.GPU_ENCODERS:
+            a = normalize.encode_args(codec=codec)
+            for pair in (["-vf", "fps=30"], ["-fps_mode", "cfr"], ["-c:v", codec], ["-pix_fmt", "yuv420p"], ["-c:a", "aac"], ["-movflags", "+faststart"]):
+                i = a.index(pair[0])
+                self.assertEqual(a[i:i + 2], pair)
+            self.assertNotIn("-crf", a)
+        self.assertEqual(normalize.ENC_ARGS[normalize.ENC_ARGS.index("-c:v") + 1], "libx264")
 
-    def test_nvenc_available(self):
-        with mock.patch.dict(os.environ, {normalize.NVENC_ENV: "0"}):
-            self.assertFalse(normalize.nvenc_available("ffmpeg", runner=lambda c: 0))   # スイッチで使わない
-        with mock.patch.dict(os.environ, {normalize.NVENC_ENV: ""}):
-            seen = []
-            self.assertTrue(normalize.nvenc_available("ffmpeg", runner=lambda c: seen.append(c) or 0))
-            self.assertIn("h264_nvenc", seen[0])
-            self.assertFalse(normalize.nvenc_available("ffmpeg", runner=lambda c: 1))
-            self.assertFalse(normalize.nvenc_available(None))
+    def test_gpu_encoder_order_and_switch(self):
+        """GPU_ENCODERS の順で最初に使える物・スイッチで使わない・どれも使えなければ libx264 だけ"""
+        with mock.patch.dict(os.environ, {normalize.GPU_ENV: "0"}):
+            self.assertIsNone(normalize.gpu_encoder("ffmpeg", runner=lambda c: 0))
+            self.assertEqual([c for c, _a in normalize.encode_tries("ffmpeg", runner=lambda c: 0)], ["libx264"])
+        with mock.patch.dict(os.environ, {normalize.GPU_ENV: ""}):
+            amd = lambda c: 0 if "h264_amf" in c else 1   # noqa: E731
+            self.assertEqual(normalize.gpu_encoder("ffmpeg", runner=amd), "h264_amf")
+            self.assertEqual([c for c, _a in normalize.encode_tries("ffmpeg", runner=amd)], ["h264_amf", "libx264"])
+            self.assertIsNone(normalize.gpu_encoder("ffmpeg", runner=lambda c: 1))
+            self.assertIsNone(normalize.gpu_encoder(None))
 
 
 @unittest.skipUnless(FF and FP, "ffmpeg・ffprobe が無い環境ではスキップ")
@@ -297,14 +300,14 @@ class TestFastPaths(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, True)
 
     def test_gpu_first_then_cpu(self):
-        """GPU が使えると見たら h264_nvenc から。GPU で作れなければ(NVIDIA の無い PC では必ず)libx264 で 1 回だけやり直す"""
+        """GPU が使えると見たら(確かめを差し替えて全部使えると見せる = 最初の h264_nvenc から)。GPU で作れなければ(NVIDIA の無い PC では必ず)libx264 で 1 回だけやり直す"""
         calls = []
 
         def popen(cmd, **kw):
             calls.append(list(cmd))
             return subprocess.Popen(cmd, **kw)
-        with mock.patch.dict(os.environ, {normalize.NVENC_ENV: ""}):
-            out = normalize.normalize(self.v60, os.path.join(self.tmp, "g.mp4"), popen=popen, nvenc_runner=lambda c: 0)
+        with mock.patch.dict(os.environ, {normalize.GPU_ENV: ""}):
+            out = normalize.normalize(self.v60, os.path.join(self.tmp, "g.mp4"), popen=popen, gpu_runner=lambda c: 0)
         self.assertEqual(calls[0][calls[0].index("-c:v") + 1], "h264_nvenc")
         self.assertEqual(normalize.probe(out["path"])["r_frame_rate"], "30/1")
         if out["how"] == "CPU(libx264)":   # この PC に NVIDIA の GPU が無い
