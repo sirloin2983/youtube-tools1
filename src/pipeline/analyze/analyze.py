@@ -199,14 +199,7 @@ def parse_chat(path, n, extra=None):
                 continue
             if t < 0 or t >= n:
                 continue
-            for a in ra.get("actions") or []:
-                item = ((a.get("addChatItemAction") or {}).get("item")) or {}
-                kind, r = next(iter(item.items()), (None, None)) if item else (None, None)
-                if not isinstance(r, dict):
-                    continue
-                w, warm, paid = excite.message_weight(kind, excite.message_text(r))   # 重み(「草」+1.5・スパチャ +4)は配信中の検出と同じ 1 か所
-                if w is None:
-                    continue
+            for r, w, warm, paid in excite.chat_messages(ra.get("actions")):   # 重み(「草」+1.5・スパチャ +4)は配信中の検出と同じ 1 か所
                 if warm:
                     warm_total += 1
                     warm_s[int(t)] += 1

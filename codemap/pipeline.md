@@ -11,18 +11,18 @@
 - **__init__.py** (2 行) — ① 解析: 材料の取得(fetch。動画・チャット・コメント)・音量(levels)・盛り上がりの式(excite)・候補・話の切れ目(breaks)・自動採用・配信中の検出
 - **adopt.py** (73 行) — 採用の規則 F-5(notes:plan/done/role-restructure.md 5-5・決定 3-29 Q3。純粋な関数)。
   - 名前: `check_args` :18・`adopt` :35
-- **analyze.py** (409 行) — 解析(自動切り抜き ac/serve.py 由来。書き出し・手動の○×は持たない)。
+- **analyze.py** (402 行) — 解析(自動切り抜き ac/serve.py 由来。書き出し・手動の○×は持たない)。
   - 名前: `sig_cache_dir` :35・`validate_live` :42・`validate_source` :48・`validate_settings` :63・`make_spec` :78・`chat_public` :87・`sig_path` :94・`load_sig` :98・`save_sig` :115・`archive_path` :128・`load_archive` :132・`save_archive` :142・ほか 3
 - **breaks.py** (119 行) — 話の切れ目(breaks)。切り抜きの区間の両端を、文字起こしの話の切れ目へ寄せて言葉の途中で切らないための関数(線 LD-2c。notes:plan/done/ld2-clip-length.md)。
   - 名前: `cuts` :61・`snap` :106
-- **excite.py** (966 行) — 盛り上がり(excitement)の式。スタジオのアーカイブの解析(src/pipeline/analyze/analyze.py)と、配信中の検出(src/pipeline/analyze/live_excite_worker.py。線 D の L2)が同じ式を読む(線 D の L1。notes…
-  - 名前: `smooth` :64・`median` :75・`local_baseline` :81・`robust_scale` :100・`audio_score` :106・`chat_z` :118・`shift_chat` :127・`chat_score` :133・`estimate_lag` :137・`ramp` :161・`head_ramp` :166・`comment_score` :173・ほか 13
+- **excite.py** (977 行) — 盛り上がり(excitement)の式。スタジオのアーカイブの解析(src/pipeline/analyze/analyze.py)と、配信中の検出(src/pipeline/analyze/live_excite_worker.py。線 D の L2)が同じ式を読む(線 D の L1。notes…
+  - 名前: `smooth` :64・`median` :75・`local_baseline` :81・`robust_scale` :100・`audio_score` :106・`chat_z` :118・`shift_chat` :127・`estimate_lag` :133・`ramp` :157・`head_ramp` :162・`comment_score` :169・`pick_clips` :181・ほか 13
 - **fetch.py** (494 行) — 解析の材料を取ってくる仕事(音声のダウンロード・チャットのリプレイの取得と先読み・コメント欄・動画の付加情報)と、そのキャッシュの置き場と掃除。
   - 名前: `work_dir` :30・`chat_cache_dir` :34・`download_audio` :49・`chat_cache_path` :69・`drop_chat_cache` :73・`chat_cache_limit` :90・`use_chat_cache` :105・`prune_chat_cache` :115・`download_chat` :163・`prefetch_chat` :245・`cancel_prefetch` :288・`cancel_all_prefetch` :295・ほか 8
 - **levels.py** (64 行) — 1 秒ごとの音量(RMS, dB)を、ffmpeg 1 回のデコードで全帯域と高音域(2kHz 超)の 2 系列に測る決まり(OPT1)。
   - 名前: `args` :23・`clear` :30・`level` :36・`read` :47・`collect` :56
-- **live_excite_worker.py** (1494 行) — 配信中の盛り上がりの検出のワーカー(線 D の L2。notes:plan/line-d-detect.md・notes:plan/line-d-live-clipping.md の 0-10)。入口(src/flow/live_detect.py)が起動する子プロセス。
-  - 名前: `class MeasureError` :115・`class NoTool` :119・`class RecorderDown` :123・`clean_requests` :131・`request_spec` :146・`clean_spec_doc` :159・`clean_bundles` :173・`clean_detect` :184・`measure_levels` :191・`parse_chat_line` :211・`clean_hint` :239・`spec_with_hint` :254・ほか 8
+- **live_excite_worker.py** (1485 行) — 配信中の盛り上がりの検出のワーカー(線 D の L2。notes:plan/line-d-detect.md・notes:plan/line-d-live-clipping.md の 0-10)。入口(src/flow/live_detect.py)が起動する子プロセス。
+  - 名前: `class MeasureError` :115・`class NoTool` :119・`class RecorderDown` :123・`clean_requests` :131・`request_spec` :146・`clean_spec_doc` :159・`clean_bundles` :173・`clean_detect` :184・`measure_levels` :191・`parse_chat_line` :211・`clean_hint` :230・`spec_with_hint` :245・ほか 8
 
 ## src/pipeline/export/
 

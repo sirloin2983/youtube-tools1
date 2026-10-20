@@ -217,16 +217,7 @@ def parse_chat_line(line):
     ra = d.get("replayChatItemAction") if isinstance(d, dict) else None
     acts = ra.get("actions") if isinstance(ra, dict) else ([d] if isinstance(d, dict) and "addChatItemAction" in d else None)
     out = []
-    for a in acts or []:
-        item = ((a.get("addChatItemAction") or {}).get("item")) if isinstance(a, dict) else None
-        if not isinstance(item, dict) or not item:
-            continue
-        kind, r = next(iter(item.items()))
-        if not isinstance(r, dict):
-            continue
-        w, _warm, _paid = excite.message_weight(kind, excite.message_text(r))
-        if w is None:
-            continue
+    for r, w, _warm, _paid in excite.chat_messages(acts):
         try:
             ts = int(r.get("timestampUsec")) / 1e6
         except (TypeError, ValueError):

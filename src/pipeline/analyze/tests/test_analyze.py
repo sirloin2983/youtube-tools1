@@ -66,7 +66,6 @@ class TestLagEstimate(unittest.TestCase):
     def test_shift_chat_edges(self):
         self.assertEqual(excite.shift_chat([1, 2, 3, 4], 0), [1, 2, 3, 4])
         self.assertEqual(excite.shift_chat([1, 2, 3, 4], 2), [3, 4, 0.0, 0.0])
-        self.assertEqual(excite.chat_score([0.0] * 50, 3), excite.shift_chat(excite.chat_z([0.0] * 50), 3))
 
 
 class TestFetchComments(unittest.TestCase):

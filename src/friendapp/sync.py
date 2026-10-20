@@ -47,7 +47,6 @@ UPDATES = "/更新"
 REQ_SUFFIX = ".request.json"
 FAIL_SUFFIX, PREVIEW_SUFFIX, META_SUFFIX, ZIP_SUFFIX = ".失敗.txt", ".preview.mp4", ".meta.json", ".zip"
 KINDS = (("failure", FAIL_SUFFIX), ("preview", PREVIEW_SUFFIX), ("meta", META_SUFFIX), ("pack", ZIP_SUFFIX))
-RID_RE = re.compile(r"^\d{8}-\d{6}-[0-9a-f]{6}$")                     # 依頼 id(受付の REQ_ID_RE と同じ)
 OUT_NAME_RE = re.compile(r"^(\d{8}-\d{6}-[0-9a-f]{6})__(.+)$")        # 出力の名前 <依頼 id>__<題>
 VERSION_DIR_RE = re.compile(r"^\d{8}-\d{6}-[0-9a-f]{8}$")             # 学習の束の版
 RETURN_ZIP_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}__[0-9A-Za-z_-]{1,64}\.zip$")                      # 送り返しの zip

@@ -130,10 +130,6 @@ def shift_chat(z, lag):
     return z[k:] + [0.0] * k if k > 0 else list(z)
 
 
-def chat_score(act, lag):   # lint: keep スタジオのテスト(test_analyze)が呼ぶ
-    return shift_chat(chat_z(act), lag)
-
-
 def estimate_lag(audio, chat, max_lag=LAG_MAX):
     """音量の山とチャットの山の相関から、チャットが音声より何秒遅れているかを推定する。(遅れ秒, 一致度) / はっきりしなければ (None, 一致度)。
     配信ごとに、チャットの遅れ(視聴者の反応時間・配信の遅延)は違うため、固定値ではずれる。"""
@@ -345,6 +341,21 @@ def message_weight(kind, text):
     if paid:
         w += PAID_BONUS
     return w, warm, paid
+
+
+def chat_messages(actions):
+    """yt-dlp のチャットの actions -> 数える 1 件ずつの (renderer, 重み, 反応か, スパチャか)。数えない種類・形の合わない物は飛ばす。
+    解析(analyze.parse_chat)と配信中(live_excite_worker.parse_chat_line)の共通の読み方"""
+    for a in actions or []:
+        item = ((a.get("addChatItemAction") or {}).get("item")) if isinstance(a, dict) else None
+        if not isinstance(item, dict) or not item:
+            continue
+        kind, r = next(iter(item.items()))
+        if not isinstance(r, dict):
+            continue
+        w, warm, paid = message_weight(kind, message_text(r))
+        if w is not None:
+            yield r, w, warm, paid
 
 
 def message_text(renderer):
