@@ -108,6 +108,13 @@ def live_lines(d, full=False):
                 _sec(pd.get("measuredSec")), pd.get("peaks"), det.get("frame"), det.get("bench"), det.get("adopted"), det.get("adoptedAuto"), f.get("autoMax"),
                 pd.get("maxScore"), pd.get("thr"), "(音だけ)" if pd.get("audioOnly") else "", pd.get("chat"),
                 "・%s" % pd["message"][:120] if pd.get("message") else ""))
+            ci = pd.get("chatInfo") if isinstance(pd.get("chatInfo"), dict) else {}
+            if ci:
+                out.append("    チャット: %s・種類 %s・起動 %s 回(起動し直し %s・cookies %s・切り替え %s)・%s 件(最初 %s 秒・遅れ 中央 %s / 90%% %s 秒・待ち %s 秒・遅れて捨てた %s)%s" % (
+                    ci.get("state") or "?", ci.get("kind") or "-", ci.get("launches", "?"), ci.get("restarts", "?"),
+                    {True: "あり", False: "なし"}.get(ci.get("cookies"), "?"), ci.get("flips", "?"), ci.get("messages", "?"), ci.get("firstSec"),
+                    ci.get("delayMed"), ci.get("delayP90"), ci.get("grace"), pd.get("lateChat"),
+                    "・最後のエラー %s" % str(ci["lastError"])[:160] if ci.get("lastError") else "・%s" % str(ci["reason"])[:160] if ci.get("reason") else ""))
         out.append("    ワーカー: %s・起動し直し %s・チャットの起動し直し %s%s" % (
             "動いている" if wk.get("running") else "止まっている", wk.get("restarts"), wk.get("chatRestarts"),
             "・%s" % (wk.get("error") or wk.get("message"))[:160] if (wk.get("error") or wk.get("message")) else ""))

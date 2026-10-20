@@ -117,6 +117,36 @@ PEAK_ID_RE = re.compile(r"^p(\d{1,7})-\d{1,8}\Z")    # 候補の id(excite.PeakB
 PEAK_AHEAD = 20            # まだ帳簿に無い候補の決定を待つのは、通し番号が今の番号からこれ未満先のときだけ(起動し直して最後の保存より後の候補がまだ出ていない)
 NOCHAT_HINTS = ("There are no subtitles", "no subtitles for the requested", "Live chat is disabled", "members-only", "Join this channel", "Private video")
 BLOCK_HINTS = ("HTTP Error 403", "HTTP Error 429", "403: Forbidden", "429: Too Many")
+# YouTube のログインまわりで断られた(bot 判定・cookies の失効)。出たら次の起動で cookies の有無を替える(CHAT_COOKIE_FLIPS 回まで)。
+# 「チャットが無い」の文と一緒に出たときは、チャットが無いとは決めない(bot 判定で別の取り方へ落ちて字幕が無いと言われることがある)
+AUTH_HINTS = ("Sign in to confirm", "not a bot", "cookies are no longer valid", "--cookies-from-browser", "Sign in to view", "account cookies")
+CHAT_COOKIE_FLIPS = 2   # cookies の有無を替える回数の上限(あり → なし → ありで 1 往復)。0 = 替えない(前の動き)
+# チャットの待ち(grace)を、読んだメッセージの遅れ(PC の時計 − timestampUsec。yt-dlp の書き出しの遅れ + PC の時計のずれ)に合わせて延ばす:
+# 遅れの 90% 点 + CHAT_GRACE_MARGIN 秒(CHAT_GRACE_MAX まで)。PC の時計が進んでいるとメッセージが全部「遅れ」で捨てられ、音だけになるため。
+# スイッチ: CHAT_GRACE_MAX = CHAT_GRACE で前の動き(延ばさない)。数え方(timestampUsec・重み)は変えない
+CHAT_GRACE_MAX = 180.0
+CHAT_GRACE_MARGIN = 15.0
+CHAT_DELAY_MIN_SAMPLES = 20
+CHAT_LOG_KEEP = 3 * 86400   # チャットの yt-dlp のログ(<動画>.<番号>.log)を残す日数(失敗の中身を後で見る。cookies の中身は入らない)
+URL_RE = re.compile(r"https?://\S+")
+
+
+def chat_trouble(text):
+    """yt-dlp のログの末尾 -> (種類, 最後のエラーの行)。種類 = auth(bot 判定・cookies)| blocked(403・429)| nochat | error | ""。
+    行は URL を伏せて 200 字まで(診断へ出す。題・URL は入れない)"""
+    kind = ""
+    if any(h in text for h in AUTH_HINTS):
+        kind = "auth"
+    elif any(h in text for h in BLOCK_HINTS):
+        kind = "blocked"
+    elif any(h in text for h in NOCHAT_HINTS):
+        kind = "nochat"
+    lines = [x.strip() for x in text.splitlines() if x.strip()]
+    errs = [x for x in lines if x.startswith("ERROR") or "WARNING" in x and any(h in x for h in AUTH_HINTS)]
+    last = errs[-1] if errs else ""
+    if last and not kind:
+        kind = "error"
+    return kind, URL_RE.sub("<url>", last)[:200]
 
 
 class MeasureError(Exception):
@@ -333,12 +363,20 @@ class ChatFeed:
         self.dedupe_ts = 0.0       # 起動し直したあと、この時刻以下は前のファイルで数えた(重ねない)
         self.launches = 0
         self.tails = {}            # 止めた yt-dlp のファイルの改行の無い末尾: 通し番号 -> (大きさ, その大きさになった時刻)
+        self.cookies = True        # 次の起動で cookies を渡すか(ある PC だけ。bot 判定・失効のたびに替える)
+        self.used_cookies = False  # 今の起動で cookies を渡したか
+        self.flips = 0
+        self.delays = []           # 読んだメッセージの遅れ(PC の時計 − timestampUsec。新しい 500 件)
+        self.info = {"launches": 0, "restarts": 0, "lastExit": None, "kind": "", "lastError": "", "cookies": None, "flips": 0,
+                     "messages": 0, "firstSec": None, "delayMed": None, "delayP90": None}   # 診断(peaks.json の chatInfo・友人の診断 kind live)
+        self.started_at = None
+        self.read_gens = set()     # 読み始めた起動の番号
 
     # ---- 保存
     def to_json(self):
         return {"gen": self.gen, "files": [list(x) for x in self.files], "state": self.state if self.state == "none" else "starting", "reason": self.reason,
                 "fails": self.fails, "restarts": list(self.restarts), "totalRestarts": self.total_restarts, "maxTs": self.max_ts,
-                "dedupeTs": self.dedupe_ts, "everGrew": self.ever_grew}
+                "dedupeTs": self.dedupe_ts, "everGrew": self.ever_grew, "cookies": self.cookies, "flips": self.flips, "info": dict(self.info)}
 
     def load(self, d):
         """前のワーカーの続き(前の yt-dlp はワーカーと一緒に終わっている = 残ったファイルを読み切ってから、新しい番号で起動し直す)"""
@@ -351,7 +389,17 @@ class ChatFeed:
         self.total_restarts = int(d.get("totalRestarts") or 0)
         self.max_ts, self.dedupe_ts = float(d.get("maxTs") or 0.0), float(d.get("dedupeTs") or 0.0)
         self.ever_grew = bool(d.get("everGrew"))
+        self.cookies, self.flips = d.get("cookies") is not False, int(d.get("flips") or 0)
+        if isinstance(d.get("info"), dict):
+            self.info.update({k: v for k, v in d["info"].items() if k in self.info})
         return self
+
+    def delay_p90(self):
+        """読んだメッセージの遅れの 90% 点(秒)。少なければ None"""
+        if len(self.delays) < CHAT_DELAY_MIN_SAMPLES:
+            return None
+        s = sorted(self.delays)
+        return s[int(len(s) * 0.9)]
 
     def view_state(self):
         """peaks.json の chat: ok | restarting | none"""
@@ -414,8 +462,11 @@ class ChatFeed:
         self.dedupe_ts = self.max_ts
         os.makedirs(self.folder, exist_ok=True)
         exe = [sys.executable, self.ytdlp] if self.ytdlp.lower().endswith(".py") else [self.ytdlp]
-        cmd = exe + tools.ytdlp_auth_args() + ["--encoding", "utf-8", "--no-playlist", "--no-warnings", "--newline", "--skip-download", "--write-subs", "--sub-langs", "live_chat",
-                     "-o", self.stem(self.gen) + ".%(ext)s", "--", self.url]
+        auth = tools.ytdlp_auth_args() if self.cookies else []
+        self.used_cookies = bool(auth)
+        # 警告は出す(cookies の失効・bot 判定の手がかり)。--ignore-no-formats-error = 動画の形式が取れなくてもチャットは取る
+        cmd = exe + auth + ["--encoding", "utf-8", "--no-playlist", "--newline", "--ignore-no-formats-error", "--skip-download", "--write-subs",
+                            "--sub-langs", "live_chat", "-o", self.stem(self.gen) + ".%(ext)s", "--", self.url]
         try:
             self.logf = open(self.stem(self.gen) + ".log", "ab")
             self.proc = self.launcher(cmd, self.logf)
@@ -429,9 +480,12 @@ class ChatFeed:
         self.launches += 1
         self.files.append([self.gen, 0])
         self.grew_at = now
+        if self.started_at is None:
+            self.started_at = now
+        self.info.update(launches=self.info["launches"] + 1, cookies=self.used_cookies)
         if self.state != "restarting":
             self.state = "starting" if not self.ever_grew else "ok"
-        self.log("チャット %s: yt-dlp を起動しました(%d 回目)" % (self.vid, self.gen))
+        self.log("チャット %s: yt-dlp を起動しました(%d 回目・cookies %s)" % (self.vid, self.gen, "あり" if self.used_cookies else "なし"))
 
     def _close_log(self):
         if self.logf is not None:
@@ -458,14 +512,19 @@ class ChatFeed:
         if rc is not None:   # 終わった(配信の終わり・エラー)
             self._kill()
             text = self._log_tail(self.gen)
-            if not self.ever_grew and self.launches <= 1 and any(h in text for h in NOCHAT_HINTS):
+            kind, last = chat_trouble(text)
+            self.info.update(lastExit=rc, kind=kind or self.info["kind"], lastError=last or self.info["lastError"])
+            if kind == "auth":
+                self._flip_cookies()
+            elif not self.ever_grew and self.launches <= 1 and kind == "nochat":
                 return self._give_up("この配信はチャットを取れません(チャットがオフ・メンバー限定など)。音だけで候補を出します")
             if alive:
-                self._failed(now, text, "yt-dlp が終わりました(終了コード %s)" % rc)
+                self._failed(now, text, "yt-dlp が終わりました(終了コード %s%s)" % (rc, "・" + last if last else ""))
             return
         text = self._log_tail(self.gen, 1024)
         if any(h in text for h in BLOCK_HINTS):   # YouTube に止められた(403・429): 待たずに止めて、最大の間隔から
             self._kill()
+            self.info.update(kind="blocked", lastError=chat_trouble(text)[1] or self.info["lastError"])
             return self._failed(now, text, "YouTube にチャットの読み取りを止められました")
         size = self._size(self.gen)
         if size > self.limit:   # 64MB: 新しいファイルへ(数えない・待たない)
@@ -477,9 +536,19 @@ class ChatFeed:
             self._kill()
             self._failed(now, self._log_tail(self.gen), "チャットが %d 秒増えていません" % int(self.stall))
 
+    def _flip_cookies(self):
+        """bot 判定・cookies の失効: 次の起動は cookies の有無を替える(cookies のある PC だけ・CHAT_COOKIE_FLIPS 回まで)"""
+        if self.flips >= CHAT_COOKIE_FLIPS or not (self.used_cookies or tools.ytdlp_auth_args()):
+            return
+        self.cookies = not self.used_cookies
+        self.flips += 1
+        self.info["flips"] = self.flips
+        self.log("チャット %s: YouTube のログインまわりで断られたので、次は cookies %sで起動します" % (self.vid, "あり" if self.cookies else "なし"))
+
     def _failed(self, now, text, why):
         self.restarts = [t for t in self.restarts if now - t < 3600.0] + [now]
         self.total_restarts += 1
+        self.info["restarts"] = self.total_restarts
         if len(self.restarts) > self.max_per_hour:
             return self._give_up("チャットを 1 時間に %d 回起動し直してもつながらないので、音だけで候補を出します(%s)" % (self.max_per_hour, why))
         idx = len(self.backoff) - 1 if any(h in text for h in BLOCK_HINTS) else min(self.fails, len(self.backoff) - 1)
@@ -520,10 +589,14 @@ class ChatFeed:
             if cut:
                 budget -= cut
                 ent[1] = pos + cut
+                backlog = gen not in self.read_gens   # 起動して最初に読む束 = 起動の前の過去の分(遅れに数えない。時計がずれた PC でも見分けられるように時刻で決めない)
+                self.read_gens.add(gen)
                 for line in raw[:cut].decode("utf-8", "replace").splitlines():
                     for ts, w in parse_chat_line(line):
                         if ts > self.dedupe_ts:
                             out.append((ts, w))
+                            if not backlog:
+                                self.delays.append(now - ts)
                         self.max_ts = max(self.max_ts, ts)
                 if self._live_gen(gen):
                     self.grew_at, self.ever_grew, self.fails = now, True, 0
@@ -532,19 +605,43 @@ class ChatFeed:
             if gen != self.gen and ent[1] >= self._size(gen):   # 前の起動のファイル: 読み切ったので消す(生のチャットは残さない)
                 self._remove_files(gen)
                 self.files.remove(ent)
+        if out:
+            if self.info["firstSec"] is None and self.started_at is not None:
+                self.info["firstSec"] = round(now - self.started_at, 1)
+            self.info["messages"] += len(out)
+            self.delays = self.delays[-500:]
+            if self.delays:
+                s = sorted(self.delays)
+                self.info.update(delayMed=round(s[len(s) // 2], 1), delayP90=round(s[int(len(s) * 0.9)], 1))
         return out
 
     def _remove_files(self, gen):
+        """その起動のチャットのファイルを消す(yt-dlp のログ .log は CHAT_LOG_KEEP のあいだ残す = 失敗の中身を後で見る)"""
         for p in glob.glob(glob.escape(self.stem(gen)) + ".*"):
-            fsio.unlink_quiet(p)
+            if not p.endswith(".log"):
+                fsio.unlink_quiet(p)
 
     def close(self, delete=True):
-        """止める。delete なら生のチャットのファイルを全部消す(配信が終わった)"""
+        """止める。delete なら生のチャットのファイルを全部消す(配信が終わった。ログは残す)"""
         self._kill()
         if delete:
             for p in glob.glob(glob.escape(os.path.join(self.folder, self.vid)) + ".*"):
-                fsio.unlink_quiet(p)
+                if not p.endswith(".log"):
+                    fsio.unlink_quiet(p)
             self.files = []
+
+
+def purge_chat_logs(folder, now, keep=CHAT_LOG_KEEP):
+    """チャットの yt-dlp のログで keep 秒より古い物を消す -> 消した数"""
+    n = 0
+    for p in glob.glob(os.path.join(glob.escape(folder), "*.log")):
+        try:
+            if now - os.path.getmtime(p) > keep:
+                os.remove(p)
+                n += 1
+        except OSError:
+            pass
+    return n
 
 
 def shape_of(spec):
@@ -567,6 +664,7 @@ class RecState:
                      "w_audio": self.spec["wAudio"], "w_chat": self.spec["wChat"], "head": self.spec["headSec"]}
         self.use_chat = bool(use_chat)
         self.chat_state = "ok" if use_chat else "off"
+        self.chat_info = {}   # チャットの診断(ChatFeed.info と状態・待ち。チャットを使わない録画は理由 kind だけ)
         self.online = excite.Online(use_chat=self.use_chat, **self.args)
         det = clean_detect(detect)
         self.book = excite.PeakBook(self.spec["length"], self.spec["preRatio"], det["sens"], det["perHour"], shape=shape_of(self.spec))
@@ -611,7 +709,7 @@ class RecState:
                 "segSince": self.seg_since, "nextBox": self.next_box, "nextPush": self.next_push, "audio": self.audio, "lastAudio": self.last_audio,
                 "chatBins": self.chat_bins, "chatWm": self.chat_wm, "raw": self.raw, "gaps": self.gaps, "gapCount": self.gap_count,
                 "skipped": self.skipped, "minute": self.minute, "lagA": self.lag_a, "lagC": self.lag_c, "nextLagAt": self.next_lag_at,
-                "decN": self.dec_n, "chat": self.chat_snap, "late": self.late, "errors": self.errors, "ending": self.ending,
+                "decN": self.dec_n, "chat": self.chat_snap, "chatInfo": self.chat_info, "late": self.late, "errors": self.errors, "ending": self.ending,
                 "bookDone": self.book_done, "finished": self.finished, "message": self.message,
                 "fast": self.fast.to_json() if self.fast is not None else None, "mood": self.mood.to_json(), "moodShifts": self.mood_shifts,
                 "nextScan": self.next_scan, "lateFrom": self.late_from, "thrBase": self.thr_base}
@@ -645,6 +743,7 @@ class RecState:
         st.next_lag_at = int(d.get("nextLagAt") or LAG_FIRST)
         st.dec_n = int(d.get("decN") or 0)
         st.chat_snap = d.get("chat")
+        st.chat_info = d["chatInfo"] if isinstance(d.get("chatInfo"), dict) else {}
         st.late, st.errors = int(d.get("late") or 0), int(d.get("errors") or 0)
         st.ending, st.book_done, st.finished = bool(d.get("ending")), bool(d.get("bookDone")), bool(d.get("finished"))
         st.message = str(d.get("message") or "")
@@ -880,7 +979,7 @@ class RecState:
                 "behindSec": round(max(0.0, self.behind), 1), "at": epoch_iso(now), "first": epoch_iso(self.first), "measuredSec": self.next_box,
                 "scoredSec": self.online.next_out, "gaps": self.gap_count,
                 "skipped": [{"from": s["from"], "to": s["to"], "done": s["done"], "capped": bool(s.get("capped"))} for s in self.skipped],
-                "lateChat": self.late, "ended": self.finished, "message": self.message,
+                "lateChat": self.late, "chatInfo": self.chat_info, "ended": self.finished, "message": self.message,
                 "length": self.book.length, "preRatio": self.book.pre, "lengthFrom": self.spec.get("lengthFrom") or "studio",   # M10: 候補の長さの出どころ
                 "shape": self.book.shape,   # 区間の形(LD-2b。scene = 場面ごと・fixed = 山から固定の長さ)
                 "moodShifts": self.mood_shifts, "provisional": self.fast is not None,   # 雰囲気の変わり目の数・仮の候補を出しているか
@@ -1018,6 +1117,7 @@ class Worker:
         fsio.unlink_quiet(stop_file)   # 前の起動の残り
         try:
             self.log("盛り上がりの検出のワーカーを始めました(pid %d・%s)" % (os.getpid(), self.dir))
+            purge_chat_logs(os.path.join(self.dir, "chat"), time.time())   # 3 日より古いチャットの yt-dlp のログ(ワーカーは配信のたびに起き直す)
             while not self.stop_flag and not os.path.exists(stop_file):
                 t0 = self.clock()
                 try:
@@ -1125,10 +1225,16 @@ class Worker:
         """チャット 1 本: 起動・見張り・読む → 受け持つ録画の箱へ(諦めたら録画を音だけにする)"""
         subs = [self.recs[k] for k in f.subs if k in self.recs]
         msgs = f.step(now, any(not s.ending for s in subs))
+        p90 = f.delay_p90()
+        grace = self.chat_grace if p90 is None else max(self.chat_grace, min(CHAT_GRACE_MAX, p90 + CHAT_GRACE_MARGIN))
         for s in subs:
+            s.chat_info = dict(f.info, state=f.state, reason=f.reason, grace=round(grace, 1))
             if f.state == "none":
                 s.disable_chat(f.reason)
                 continue
+            if grace > s.grace + 5.0 or grace < s.grace - 5.0:
+                self.log("チャット %s: メッセージの遅れ(90%% 点 %.0f 秒)に合わせて、チャットの待ちを %.0f 秒にします" % (f.vid, p90 or 0.0, grace))
+                s.grace = grace
             s.add_chat(msgs)
             s.chat_state = f.view_state()
 
@@ -1297,8 +1403,12 @@ class Worker:
                 spec = request_spec(spec, req)
             st = RecState(folder, rc["id"], r["id"], url, first, spec, self._detect_for(rc["id"], r["id"]), bool(ytdlp and video_id(url, r["id"])) and live,
                           self.chat_grace, provisional=self.cfg.get("provisional", True))
+            why = ("" if st.use_chat else "配信が終わってから受け持った" if not live else "yt-dlp が見つからない" if not ytdlp
+                   else "配信の URL から動画の id が分からない")
+            if why:
+                st.chat_info = {"state": "off", "kind": "noytdlp" if not ytdlp else "novid" if live else "ended", "reason": why}
             self.log("盛り上がりの検出: %s を受け持ちます(チャット %s・候補の長さ %g 秒 = %s%s)" % (
-                r["id"], "あり" if st.use_chat else "なし", st.book.length, spec.get("lengthNote") or "スタジオの解析の設定",
+                r["id"], "あり" if st.use_chat else "なし = " + why, st.book.length, spec.get("lengthNote") or "スタジオの解析の設定",
                 "・順番待ちのあと" if queued else ""))
             try:   # すぐに state.json を置く(順番待ちの印 = peaks.json の queued は最初の候補の書き出しで消えるので、落ちても続きから受け持てるように)
                 st.save(self.clock(), peaks=False)

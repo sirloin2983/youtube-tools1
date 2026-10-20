@@ -292,7 +292,8 @@ class WorkerSimTest(unittest.TestCase):
         self.assertGreaterEqual(len(a["peaks"]), 12)
         self.assertEqual([key_of(p) for p in a["peaks"]], [key_of(p) for p in b["peaks"]])
         self.assertEqual((a["seq"], a["counts"], a["lag"]), (b["seq"], b["counts"], b["lag"]))
-        self.assertEqual(sorted(os.listdir(os.path.join(self.tmp, "run3", "chat")))[:1], [VID + ".4.live_chat.json.part"])   # 前の起動のファイルは読み切って消した
+        self.assertEqual(sorted(x for x in os.listdir(os.path.join(self.tmp, "run3", "chat")) if not x.endswith(".log"))[:1],
+                         [VID + ".4.live_chat.json.part"])   # 前の起動のファイルは読み切って消した(yt-dlp のログは残す)
 
     def test_gap_drops_nearby_peaks_and_recording_end(self):
         """欠け(繋ぎ直しで 40 秒届かない)の前後 GAP_MARGIN 秒には山を作らない / 配信が終わったら終わり待ちを確定して締め、生のチャットを消す"""
@@ -309,7 +310,7 @@ class WorkerSimTest(unittest.TestCase):
         self.assertTrue(any(abs(p["peak"] - 1502) < 5 for p in d["peaks"]))   # 欠けの前の山は残る
         self.assertGreaterEqual(d["gaps"], 1)
         self.assertFalse(any(p["endPending"] for p in d["peaks"]))
-        self.assertEqual([x for x in os.listdir(os.path.join(self.dir, "chat")) if x.startswith(VID)], [])   # 配信が終わったら生のチャットは消す
+        self.assertEqual([x for x in os.listdir(os.path.join(self.dir, "chat")) if x.startswith(VID) and not x.endswith(".log")], [])   # 配信が終わったら生のチャットは消す(ログは 3 日残す)
         self.assertNotIn(("fake", REC), w.recs)
         n = sim.measured
         run_until(w, clock, sim, T0 + 2800, chat=chat)   # 終わった録画はもう触らない
@@ -456,6 +457,45 @@ class ChatFeedTest(unittest.TestCase):
         self.drive(f, lambda f, m: f.state == "none")
         self.assertEqual(f.launches, 1)
         self.assertIn("チャットを取れません", f.reason)
+
+    def test_bot_check_flips_cookies_and_keeps_reason(self):
+        """bot 判定(「字幕が無い」と一緒に出る)はチャットが無いと決めず、cookies の有無を替えて起動し直す・理由(種類・最後のエラーの行)を残す・URL は伏せる"""
+        cookies = os.path.join(self.tmp, "cookies.txt")
+        with open(cookies, "w", encoding="utf-8") as fh:
+            fh.write("# Netscape HTTP Cookie File\n")   # 中身は偽物(読まない)
+        os.environ[W.tools.COOKIES_ENV] = cookies
+        f = self.feed([{"mode": "auth"}, {"mode": "write", "interval": 0.05}], backoff=(0.1,))
+        self.drive(f, lambda f, m: f.launches >= 2 and len(m) >= 3)
+        args = self.launches()
+        self.assertIn("--cookies", args[0])
+        self.assertNotIn("--cookies", args[1])   # 2 回目は cookies なし
+        self.assertIn("--ignore-no-formats-error", args[0])
+        self.assertEqual(f.state, "ok")
+        self.assertEqual((f.info["kind"], f.info["flips"], f.info["cookies"], f.info["lastExit"]), ("auth", 1, False, 1))
+        self.assertIn("not a bot", f.info["lastError"])
+        self.assertNotIn("example.invalid", f.info["lastError"])
+        self.assertIsNotNone(f.info["firstSec"])
+        self.assertGreaterEqual(f.info["messages"], 3)
+        self.assertTrue(os.path.isfile(os.path.join(self.folder, VID + ".1.log")))   # 失敗の中身は残す
+        f.close()
+        self.assertTrue(os.path.isfile(os.path.join(self.folder, VID + ".1.log")))
+        self.assertEqual(W.purge_chat_logs(self.folder, time.time() + W.CHAT_LOG_KEEP + 60), 2)
+
+    def test_delay_p90_ignores_backlog(self):
+        """遅れ(PC の時計 − timestampUsec)は、起動して最初に読む束(過去の分)を数えない"""
+        f = W.ChatFeed(VID, URL, self.folder, "fake-yt-dlp", launcher=lambda cmd, logf: FakeProc(None, ""), log=lambda m: None)
+        self.feeds.append(f)
+        now = time.time()
+        f.step(now)
+        p = os.path.join(self.folder, VID + ".1.live_chat.json.part")
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.writelines(chat_line(now - 500 + i) for i in range(30))   # 過去の分
+        f.step(now)
+        self.assertIsNone(f.delay_p90())
+        with open(p, "a", encoding="utf-8") as fh:
+            fh.writelines(chat_line(now - 70 + i / 10.0) for i in range(30))   # 70 秒遅れ(時計が進んだ PC)
+        f.step(now)
+        self.assertAlmostEqual(f.delay_p90(), 70.0, delta=3.0)
 
     def test_size_limit_rotates_without_counting(self):
         """ファイルが上限(64MB を小さくして 4KB)を超えたら新しいファイルへ(起動し直しの数に入れない・待たない)・古い方は読み切ってから消す"""
@@ -745,6 +785,27 @@ class WorkerRestTest(unittest.TestCase):
     def setUp(self):
         self.tmp = testkit.tempdir(self, prefix="ytt-detect-rest-")
         self.dir = os.path.join(self.tmp, "excite")
+
+    def test_slow_chat_waits_longer_instead_of_dropping(self):
+        """チャットが 70 秒遅れて届く(PC の時計が進んでいる): 待ちを遅れに合わせて延ばし、捨てない。スイッチ CHAT_GRACE_MAX = CHAT_GRACE なら前の動き(多くを捨てる)"""
+        late = {}
+        for name, cap in (("new", W.CHAT_GRACE_MAX), ("old", W.CHAT_GRACE)):
+            clock = Clock(T0)
+            sim, chat = SimRecorder(clock), SimChat(clock, delay=70.0)
+            folder = os.path.join(self.tmp, name)
+            with mock.patch.object(W, "CHAT_GRACE_MAX", cap):
+                w = make_worker(write_config(folder, ytdlp="fake-yt-dlp"), clock, sim, chat)
+                run_until(w, clock, sim, T0 + 1500, chat=chat)
+                st = w.recs[("fake", REC)]
+                w._save_rec(st, clock.t)
+                w.close()
+            d = peaks_of(folder)
+            late[name] = d["lateChat"]
+            if name == "new":
+                self.assertGreater(st.grace, 70.0)
+                self.assertGreaterEqual(d["chatInfo"]["delayP90"], 70.0)
+                self.assertGreater(d["chatInfo"]["messages"], 300)
+        self.assertLess(late["new"], late["old"] / 10, late)
 
     def test_provisional_comes_first_and_final_is_unchanged(self):
         """仮の候補は山から 60 秒以内に出て、本番(チャット込み・90 秒ほど)に同じ id で置き換わる(仮なしと同じ本番になることは test_excite.TestProvisional)"""

@@ -21,8 +21,8 @@
   - 名前: `work_dir` :30・`chat_cache_dir` :34・`download_audio` :49・`chat_cache_path` :69・`drop_chat_cache` :73・`chat_cache_limit` :90・`use_chat_cache` :105・`prune_chat_cache` :115・`download_chat` :163・`prefetch_chat` :245・`cancel_prefetch` :288・`cancel_all_prefetch` :295・ほか 8
 - **levels.py** (64 行) — 1 秒ごとの音量(RMS, dB)を、ffmpeg 1 回のデコードで全帯域と高音域(2kHz 超)の 2 系列に測る決まり(OPT1)。
   - 名前: `args` :23・`clear` :30・`level` :36・`read` :47・`collect` :56
-- **live_excite_worker.py** (1512 行) — 配信中の盛り上がりの検出のワーカー(線 D の L2。notes:plan/line-d-detect.md・notes:plan/line-d-live-clipping.md の 0-10)。入口(src/flow/live_detect.py)が起動する子プロセス。
-  - 名前: `class MeasureError` :122・`class NoTool` :126・`class RecorderDown` :130・`clean_requests` :138・`request_spec` :153・`clean_spec_doc` :166・`clean_bundles` :180・`clean_detect` :191・`measure_levels` :198・`parse_chat_line` :218・`clean_hint` :237・`spec_with_hint` :252・ほか 8
+- **live_excite_worker.py** (1622 行) — 配信中の盛り上がりの検出のワーカー(線 D の L2。notes:plan/line-d-detect.md・notes:plan/line-d-live-clipping.md の 0-10)。入口(src/flow/live_detect.py)が起動する子プロセス。
+  - 名前: `chat_trouble` :134・`class MeasureError` :152・`class NoTool` :156・`class RecorderDown` :160・`clean_requests` :168・`request_spec` :183・`clean_spec_doc` :196・`clean_bundles` :210・`clean_detect` :221・`measure_levels` :228・`parse_chat_line` :248・`clean_hint` :267・ほか 10
 
 ## src/pipeline/export/
 

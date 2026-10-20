@@ -246,7 +246,7 @@ class FriendLive(_ls.LiveSession):
         if doc is not None:
             scores = [p.get("score") for p in peaks if isinstance(p.get("score"), (int, float))]
             out["peaksDoc"] = {k: doc.get(k) for k in ("measuredSec", "scoredSec", "ended", "chat", "message", "lag", "gaps", "lateFrom", "perHour",
-                                                         "thr", "audioOnly", "lengthFrom", "shape", "moodShifts", "behindSec")}
+                                                         "thr", "audioOnly", "lengthFrom", "shape", "moodShifts", "behindSec", "lateChat", "chatInfo")}
             out["peaksDoc"].update(skipped=len(doc.get("skipped") or []), peaks=len(peaks), maxScore=max(scores) if scores else None,
                                    audioOnlyPeaks=sum(1 for p in peaks if p.get("audioOnly")),
                                    provisional=sum(1 for p in peaks if p.get("provisional")), expired=sum(1 for p in peaks if p.get("expired")))

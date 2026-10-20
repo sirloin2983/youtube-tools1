@@ -107,26 +107,28 @@ def _clean(s, n):
 
 def probe_live(url, timeout=PROBE_TIMEOUT):
     """yt-dlp で配信の状態・チャンネル名・題を調べる(ダウンロードしない・シェルを通さない・窓を出さない)。
-    -> {"status": LIVE_STATUSES のどれか か "unknown", "title": 題, "channel": チャンネル名(無ければ投稿者。分からなければ ""), "message": 調べられなかった理由}"""
+    -> {"status": LIVE_STATUSES のどれか か "unknown", "title": 題, "channel": チャンネル名(無ければ投稿者。分からなければ ""), "message": 調べられなかった理由,
+        "id": 動画の id(分かれば。/@名前/live の URL を watch?v= にそろえる = 配信中のチャットを読めるように)}"""
     yd = tools.find_tool("yt-dlp")
     if not yd:
         return {"status": "unknown", "title": "", "channel": "", "message": "yt-dlp が見つからないので、配信中か調べられませんでした"}
     try:   # 題は最後(題にタブが入っても崩れない)。%(channel,uploader)s = チャンネル名が無ければ投稿者(yt-dlp の書式の「代わり」)
-        r = tools.run(tools.ytdlp_print_cmd(yd, url, "%(live_status)s\t%(channel,uploader)s\t%(title)s"), timeout=timeout, err_tail=40)
+        r = tools.run(tools.ytdlp_print_cmd(yd, url, "%(live_status)s\t%(id)s\t%(channel,uploader)s\t%(title)s"), timeout=timeout, err_tail=40)
     except OSError as e:
         return {"status": "unknown", "title": "", "channel": "", "message": "yt-dlp を起動できませんでした: %s" % (e.strerror or e.__class__.__name__)}
     if r.why == "timeout":
         return {"status": "unknown", "title": "", "channel": "", "message": "配信の状態を %d 秒で調べられませんでした" % int(timeout)}
     lines = r.out.decode("utf-8", "replace").strip().splitlines()
-    parts = (lines[-1] if lines else "").split("\t", 2)
+    parts = (lines[-1] if lines else "").split("\t", 3)
     st = parts[0].strip()
-    channel = _clean(parts[1], CHANNEL_MAX) if len(parts) > 2 else ""
+    vid = parts[1].strip() if len(parts) > 3 and LX.YT_ID_RE.match(parts[1].strip()) else ""
+    channel = _clean(parts[2], CHANNEL_MAX) if len(parts) > 3 else ""
     title = _clean(parts[-1], LX.TITLE_MAX) if len(parts) > 1 else ""
     if st in LIVE_STATUSES:
-        return {"status": st, "title": title, "channel": channel, "message": ""}
+        return {"status": st, "title": title, "channel": channel, "message": "", "id": vid}
     err = r.err.decode("utf-8", "replace")
     if "will begin" in err or "Premieres in" in err:   # 古い yt-dlp は配信の前をエラーで返す
-        return {"status": "is_upcoming", "title": title, "channel": channel, "message": ""}
+        return {"status": "is_upcoming", "title": title, "channel": channel, "message": "", "id": vid}
     last = (err.strip().splitlines() or [""])[-1][:160]
     return {"status": "unknown", "title": "", "channel": "", "message": "配信の状態を調べられませんでした" + ("(%s)" % last if last else "")}
 
@@ -782,6 +784,8 @@ class LiveSession:
             self.log("リアルタイム切り抜き: 配信の状態を調べられませんでした %r" % (e,))
             info = {}
         status = info.get("status") if info.get("status") in LIVE_STATUSES else "unknown"
+        if not LX.video_id_of(url) and isinstance(info.get("id"), str) and LX.YT_ID_RE.match(info["id"]):
+            url = "https://www.youtube.com/watch?v=" + info["id"]   # /@名前/live など: 動画の形にそろえる(配信中のチャットは動画の id で読む・同じ配信を二重に録らない)
         if status not in ("is_live", "is_upcoming"):
             out = {"live": False, "status": status}
             if info.get("message"):
