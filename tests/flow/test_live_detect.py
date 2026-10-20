@@ -115,6 +115,20 @@ class DetectApiTest(unittest.TestCase):
                                                                                    "recordings": [{"recorder": "fake", "id": REC, "behindSec": 4.0, "chat": "ok"}], "message": "1 本の録画を見ています", "error": ""}).encode("utf-8"))
         return t
 
+    def test_adopt_tick_only_while_own_worker_measures(self):
+        calls = []
+        self.det.auto_tick = lambda: calls.append(1) or 1
+        self.assertEqual(self.det.adopt_tick(), 0)   # この入口のワーカーが無い
+        self.det.proc = object()
+        self.det.heartbeat = lambda: {"recordings": []}
+        self.assertEqual(self.det.adopt_tick(), 0)   # 測っている録画が無い = 録画元に聞かない
+        self.det.heartbeat = lambda: {"recordings": [{"id": REC}]}
+        self.assertEqual(self.det.adopt_tick(), 1)
+        with self.det._tick_lock:
+            self.assertEqual(self.det.adopt_tick(), 0)   # 見回りの tick と重ねない
+        self.assertEqual(calls, [1])
+        self.det.proc = None
+
     def test_get_full_since_and_series(self):
         with open(os.path.join(self.folder, "series.jsonl"), "w", encoding="utf-8") as f:
             for m in range(3):

@@ -998,7 +998,12 @@ class LiveSession:
                 self.tick()
             except Exception as e:   # 見回りは止めない
                 self.log("録画の部品の見回りでエラー: %r" % (e,))
-            self.wake.wait(self.watch_sec)
+            end = time.monotonic() + self.watch_sec
+            while not self._halt.is_set():   # 見回りの間は自動の採用だけを数秒ごとに(live_detect.ADOPT_FAST)
+                rest = end - time.monotonic()
+                if rest <= 0 or self.wake.wait(min(rest, live_detect.ADOPT_SEC)):
+                    break
+                self._guard("自動の採用でエラー", self.detector.adopt_tick)
             self.wake.clear()
 
     def _guard(self, what, fn, default=None):

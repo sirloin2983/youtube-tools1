@@ -60,7 +60,9 @@ WORKER = os.path.join(CODE_DIR, "live_excite_worker.py")
 STOP_WAIT = 8.0            # 止める合図のあと、ワーカーが自分で終わるのを待つ秒(周期 6 秒 + 保存)
 STALE_SEC = 120.0          # 心拍(worker.json)がこれだけ止まったら起動し直す
 LENGTH_HINT_ENV = "YTT_LIVE_LENGTH"   # off = 長さの目安を使わない(スタジオの解析の設定の長さのまま)
-SETTINGS_EVERY = 300.0     # スタジオの解析の設定を読み直す間隔
+SETTINGS_EVERY = 60.0      # スタジオの解析の設定を読み直す間隔(10-20 に 300 → 60。設定を変えてから効くまで。入口の中の問い合わせ 1 回)
+ADOPT_FAST = True          # スイッチ: 見回り(30 秒)の間も ADOPT_SEC ごとに自動の採用だけを見る(False = 前の通り 30 秒ごと)
+ADOPT_SEC = 5.0
 RESTART_WARN = 3           # 起動し直しがこれを超えたら「調子」に失敗として出す
 AUTO_TRIES = 5             # 自動の採用を 1 候補で試す回数
 LOG_MAX = 2 * 1024 * 1024  # logs/excite.log がこれを超えていたら、ワーカーを起動するときに .old.log へ回す
@@ -291,6 +293,18 @@ class Detector:
             except Exception as e:   # 自動の採用の不具合でも、見張りは続ける
                 self.host.note("リアルタイム切り抜き: 自動の採用でエラー: %r" % (e,))
             return state
+
+    def adopt_tick(self):
+        """見回りの間の自動の採用だけ(ADOPT_SEC ごと。ワーカーの起動・設定は tick の 30 秒ごとのまま)。
+        候補を入口が最初に見る時刻と、waitMin 分たってから採用する時刻の遅れを 30 秒 → 数秒に。決まり(waitMin・上限)は同じ -> 採用した数"""
+        if not ADOPT_FAST or self.proc is None or not ((self.heartbeat() or {}).get("recordings")):   # この入口のワーカーが録画を測っている間だけ(録画元に聞かない)
+            return 0
+        if not self._tick_lock.acquire(blocking=False):   # tick と重ねない
+            return 0
+        try:
+            return self.auto_tick()
+        finally:
+            self._tick_lock.release()
 
     def heartbeat(self):
         """worker.json(ワーカーの心拍)。無い・読めなければ None"""
