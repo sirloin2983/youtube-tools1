@@ -44,7 +44,7 @@ class TestSetup(unittest.TestCase):
         with mock.patch.dict(os.environ, {"TRANSCRIBE_DATA_DIR": self.tmp}):
             wire.setup_places(root=self.tmp)
         self.assertEqual(workdata.DATA_DIR, self.tmp)
-        self.assertEqual(roster.ROSTER, os.path.join(self.tmp, wire.ROSTER_FILE))
+        self.assertEqual(roster.ROSTER, roster.BUNDLED)   # 名簿の既定は ① の同梱の名簿(作業フォルダの中ではない)
 
     def test_headless(self):
         fake = mock.Mock(name="fake")
