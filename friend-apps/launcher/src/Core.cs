@@ -147,11 +147,29 @@ namespace FriendInbox
             if (r.Previous == v) r.Previous = "";
         }
 
-        // current・previous より古い app-<版>\ を消す(8-2)。新しいけれどまだ起動していない物・bad の新しい物は触らない。消した名前を返す
+        // 残す版の数(current から古い方へ数える)。src/friendapp/tidy.py の KEEP_VERSIONS と同じ値にする
+        public const int Keep = 3;
+
+        // 残す一番古い版(floor)= Installed のうち current 以下で bad に無い物を新しい順に並べた Keep 番目(足りなければ最古)。無ければ null
+        public static string KeepFloor(string home, VersionRecord r)
+        {
+            if (string.IsNullOrEmpty(r.Current)) return null;
+            string floor = null;
+            int n = 0;
+            foreach (var v in Installed(home))
+            {
+                if (Compare(v, r.Current) > 0 || r.Bad.Contains(v)) continue;
+                floor = v;
+                if (++n >= Keep) break;
+            }
+            return floor;
+        }
+
+        // floor より古い app-<版>\ を消す(8-2。bad も floor 未満なら消す)。新しいけれどまだ起動していない物・bad の新しい物は触らない。消した名前を返す
         public static List<string> Prune(string home, VersionRecord r, Action<string> log)
         {
             var gone = new List<string>();
-            string floor = !string.IsNullOrEmpty(r.Previous) ? r.Previous : r.Current;
+            string floor = KeepFloor(home, r);
             if (string.IsNullOrEmpty(floor)) return gone;
             foreach (var d in Directory.GetDirectories(home, Prefix + "*"))
             {

@@ -3,6 +3,7 @@
 許可の一覧に載る形の物だけが候補・載らない物は「分からない」・黙る / 聞くの振り分け・触らない物・ごみ箱と記録・新しい版のあとの 1 回の条件"""
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -96,8 +97,8 @@ class TidyTest(unittest.TestCase):
         self.friend = os.path.join(self.data, "app", "friendapp")
         os.makedirs(self.friend)
         os.makedirs(self.cases)
-        # 版のフォルダ: current 0.1.0・previous 0.0.9・古い 0.0.5(exe の消し損ね)・bad 0.0.7
-        for v in ("0.1.0", "0.0.9", "0.0.5", "0.0.7"):
+        # 版のフォルダ: current 0.1.0・previous 0.0.9・その前 0.0.6(3 つ目 = floor)・古い 0.0.5(exe の消し損ね)・bad 0.0.7(floor 以上は残す)
+        for v in ("0.1.0", "0.0.9", "0.0.6", "0.0.5", "0.0.7"):
             put(os.path.join(h, "app-" + v, "src", "friendapp", "server.py"))
             put(os.path.join(h, "app-" + v, "python", "python.exe"))
         testkit.write_json(os.path.join(h, "app-versions.json"), {"v": 1, "current": "0.1.0", "previous": "0.0.9", "bad": ["0.0.7"]})
@@ -161,7 +162,7 @@ class TidyTest(unittest.TestCase):
                      ("unused-tool", os.path.join("tools", "oldtool"))]:
             self.assertIn(want, k)
         paths = {p for _k, p in k}
-        for never in ("app-0.1.0", "app-0.0.9", "app-0.0.7", "config.json", "mystuff.txt", os.path.join("作業", "使っている配信"),
+        for never in ("app-0.1.0", "app-0.0.9", "app-0.0.6", "app-0.0.7", "config.json", "mystuff.txt", os.path.join("作業", "使っている配信"),
                       os.path.join("作業", "友人の物"), os.path.join("作業", "ライブの録画"), os.path.join("作業", "ごみ箱"),
                       os.path.join("作業", "新しい配信"), os.path.join("tools", "ffmpeg"),
                       os.path.join("data", "transcribe", "models", "whispercpp", "ggml-large-v3.bin"),
@@ -175,6 +176,29 @@ class TidyTest(unittest.TestCase):
         modes = {it["kind"]: it["mode"] for it in got["items"]}
         self.assertEqual((modes["old-exe"], modes["update-leftover"], modes["old-log"], modes["learning-part"]), ("auto",) * 4)
         self.assertEqual((modes["legacy"], modes["orphan-case"], modes["unused-model"], modes["unused-tool"]), ("ask",) * 4)
+
+    def test_keep_floor_counts_three_good_versions(self):
+        """exe の Versions.KeepFloor と同じ見本(tests/friend-apps/launcher/Tests.cs の PruneKeepsThreeGood)"""
+        def home_with(*vs):
+            h = os.path.join(self.tmp, "k%d" % len(os.listdir(self.tmp)))
+            for v in vs:
+                put(os.path.join(h, "app-" + v, "src", "friendapp", "server.py"))
+                put(os.path.join(h, "app-" + v, "python", "python.exe"))
+            return h
+        h = home_with("0.85.0", "0.86.0", "0.87.0", "0.88.0", "0.89.0", "0.90.0", "0.91.0", "0.92.0")
+        self.assertEqual(T.keep_floor(h, "0.89.0", {"0.92.0", "0.91.0", "0.90.0", "0.86.0"}), "0.87.0")   # bad は数えない・current より新しい版も
+        self.assertEqual(T.keep_floor(home_with("0.88.0", "0.89.0"), "0.89.0"), "0.88.0")   # 足りなければ最古
+        self.assertIsNone(T.keep_floor(h, ""))
+        self.assertEqual(T.keep_floor(home_with("0.86.0", "0.87.0", "0.88.0", "0.89.0", "0.90.0"), "0.88.0", {"0.90.0", "0.89.0"}), "0.86.0")
+        os.remove(os.path.join(h, "app-0.88.0", "python", "python.exe"))   # 揃っていない版は数えない
+        self.assertEqual(T.keep_floor(h, "0.89.0", {"0.92.0", "0.91.0", "0.90.0", "0.86.0"}), "0.85.0")
+
+    def test_few_versions_are_never_pruned(self):
+        h = self.home
+        for v in ("0.0.6", "0.0.5"):
+            shutil.rmtree(os.path.join(h, "app-" + v))
+        testkit.write_json(os.path.join(h, "app-versions.json"), {"v": 1, "current": "0.1.0", "previous": "0.0.9", "bad": []})
+        self.assertNotIn("old-version", {it["kind"] for it in self.t.scan()["items"]})
 
     def test_scan_has_no_side_effects(self):
         before = sorted(os.path.relpath(os.path.join(r, f), self.tmp) for r, _d, fs in os.walk(self.tmp) for f in fs)

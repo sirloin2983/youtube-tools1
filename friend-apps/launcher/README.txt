@@ -33,12 +33,17 @@
     大きさと SHA-256 を確かめて <アプリのフォルダ>\app-<版>\ に入れる(src・python と FriendApp.exe・WebView2 の DLL・fetch.json・members.json)。
     latest.json の light(FriendApp-<版>-light.zip = src と直下の物だけ・python と tools なし)があれば先にそれを取り、python は今動いている版から
     manifest の SHA-256 を確かめて写す(1 つでも無い・違えば同じ回で file の全部入りを取る)。light が無い・形が変なら file だけ。
-    置く順は light → 全部入り → latest.json。file は全部入りのまま(前の形の友人のアプリは light を無視して file を取る)
+    置く順は light → 全部入り → latest.json → versions.json → 古い zip を消す。file は全部入りのまま(前の形の友人のアプリは light を無視して file を取る)
+    Dropbox の /更新/ に残す数: 全部入り 3 版(約 70 MB ずつ)・light 10 版(約 3 MB ずつ)= 約 240 MB(-first.zip は触らない)。versions.json = 作る側の版の台帳
+    (新しい順 20 版・zip が消えた版は file/light が null)。友人のアプリは読まない。取る前に空き(320 MB + 作業データが同じドライブなら diskMinGB)を見て、
+    足りなければ取らずに次の回へ(診断 update:space)
   - 知らせる: 画面の帯の 1 行(src\friendapp\ui\update.js。画面は帯に <div data-fr-update></div> を置くだけ)に「新しい版 n があります [更新する]」
   - 入れ替える: [更新する] → 作業と預かりが無ければすぐ・あれば終わってから、exe が Python を止め、app-<版>\ の FriendApp.exe と DLL を写し
     (動いている exe と DLL は *.old に名前を変えてから。次の起動で消す)、閉じて新しい exe を起こす
   - 版のフォルダ: 一番新しい版を選ぶ(前の形 <アプリのフォルダ>\src・python も src\ytt\version.py の版で比べる)。1 回起動できた版を current・その前を
-    previous にし、それより古い app-<版> を消す(置くのは 2 つ)。前の形は版のフォルダが 2 つそろったら消す。起動できない版は bad にして前の版で起こし直す
+    previous にし、current 以下で bad でない版を新しい順に 3 つ(Versions.Keep)残して、それより古い app-<版> を消す(bad の新しい版は残す)。
+    友人の PC は 1 版約 200 MB = 常時 3 つで約 600 MB・新しい版を入れた直後は最大約 800 MB。前の形は版のフォルダが 2 つそろったら消す。
+    起動できない版は bad にして前の版で起こし直す(新しい方から順に何版でも。起きなかった版は YTT_FRIEND_ROLLBACK に "72,71" の形で渡し、診断 start に bad と installed)
 
 ■ 窓と画面の境目
   - 画面の URL: http://127.0.0.1:<番号>/friend/(送る・受け取る)。初回の準備が済むまでは /friend/setup.html(準備だけの画面)へ 302
@@ -56,7 +61,7 @@
       作業中・預かり = making + recording + waiting + reserved + archiveWait + (setup ? 1 : 0)。数の出どころは server.py の FriendApp.state() と holdings()
     止めるとき POST /api/shutdown(10 秒待って、終わらなければジョブごと)
   - 環境変数(exe → Python): YTT_FRIEND_HOME・YTT_FRIEND_TOKEN・YTT_FRIEND_HOST(webview2 / edge)・YTT_FRIEND_REC_PORT・YTT_FRIEND_LAUNCHER=1(更新を受ける)・
-    YTT_FRIEND_ROLLBACK(前の版へ戻したとき)
+    YTT_FRIEND_ROLLBACK(前の版へ戻したとき。起きなかった版を新しい方から ,で区切る)
   - 開発の PC で確かめるときだけ(どちらも音を出さない = WebView2 の音を消す・Edge の逃げ道は --mute-audio・止まったときの窓と音も出さない): YTT_FRIEND_SHOTS=<フォルダ>(画面の外で起こし関所の写真を撮って終わる)・YTT_FRIEND_NOACTIVATE=1(最小化で出し前に出さない)・YTT_FRIEND_DEVTOOLS=1・
     WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=<番号>(Playwright の connect_over_cdp で画面を調べる)
 

@@ -76,6 +76,7 @@ EXTRACT_MAX_FILES = 20000
 EXTRACT_MAX_BYTES = 64 * 1024 ** 3
 UPDATE_MAX_FILES = 60000
 UPDATE_MAX_BYTES = 4 * 1024 ** 3
+UPDATE_NEED = 320 * 1024 ** 2      # 新しい版を取る前に要る空き(版のフォルダ 1 つ 200 MB + zip 約 70 MB + 余裕)。作業データが同じドライブなら diskMinGB も足す
 LAUNCHER_ENV = "YTT_FRIEND_LAUNCHER"
 STATE_NAME = "sync.json"
 VERSIONS_NAME = "app-versions.json"
@@ -787,6 +788,8 @@ class Sync:
         bad = fsio.read_json_or(os.path.join(home, VERSIONS_NAME), {}, kind=dict).get("bad") or []
         if os.path.isdir(os.path.join(home, "app-" + ver)) or ver in bad:
             return
+        if not self._update_space_ok(home):
+            return
         light = self._light_entry(d, ver)
         placed = False
         if light is not None:
@@ -804,6 +807,21 @@ class Sync:
         self.log("新しい版 %s を入れました(次に開いたときから)" % ver)
         if self.diag is not None:
             self.diag.write("update", summary="新しい版 %s を取って入れました" % ver, toVersion=ver, light=placed)
+
+    def _update_space_ok(self, home):
+        """新しい版を取る前の空き(UPDATE_NEED。作業データと同じドライブなら diskMinGB も足す)。足りなければ取らずに次の回へ(.part も作らない)"""
+        need = UPDATE_NEED
+        if fsio.same_drive(home, self.places["data"]):
+            try:
+                need += int(float(_machine.get("diskMinGB")) * 1024 ** 3)
+            except (OSError, ValueError, TypeError):
+                need += int(_machine.DISK_MIN_GB * 1024 ** 3)
+        if self._free_ok(home, need):
+            return True
+        self.log("新しい版を取る空き(%d MB)がありません。次の回にまた見ます" % (need // (1024 * 1024)))
+        if self.diag is not None:
+            self.diag.once("update:space", DIAG_ERROR_EVERY, "update", summary="新しい版を取る空きが足りません(%d MB 要ります)" % (need // (1024 * 1024)), stage="space")
+        return False
 
     @staticmethod
     def _light_entry(d, ver):

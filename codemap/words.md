@@ -23,16 +23,16 @@
   - コード: `src/friendapp/inbox.py`・`receive_view` src/friendapp/inbox.py:1009・`src/friendapp/ui/receive.js`・`Inbox.decide` src/friendapp/inbox.py:707
   - 画面: src/app/ui/cases/panels/cut.js:176・src/app/ui/editor/pack-tab.js:546・src/app/ui/home/portal.js:475・src/friendapp/ui/friend.html:29 ほか 7
 - **見送った物** — 受け取る画面で 3 日は戻せる skip・bad の物
-  - コード: `Inbox.undo` src/friendapp/inbox.py:755・`Inbox.decide` src/friendapp/inbox.py:707・`VERDICTS` src/friendapp/inbox.py:57・`/api/friend/undo` src/friendapp/server.py:395
+  - コード: `Inbox.undo` src/friendapp/inbox.py:755・`Inbox.decide` src/friendapp/inbox.py:707・`VERDICTS` src/friendapp/inbox.py:57・`/api/friend/undo` src/friendapp/server.py:396
   - 画面: src/friendapp/ui/friend.html:175・src/friendapp/ui/guide.html:144・src/friendapp/ui/receive.js:65
 - **送る** — 友人のアプリの送る欄・受付の口。自動で送る判定は flow/sendpolicy
-  - コード: `src/friendapp/api.py`・`src/friendapp/ui/send-form.js`・`/api/friend/send` src/friendapp/server.py:382・`flow/sendpolicy.py` (無いパス)
+  - コード: `src/friendapp/api.py`・`src/friendapp/ui/send-form.js`・`/api/friend/send` src/friendapp/server.py:383・`flow/sendpolicy.py` (無いパス)
   - 画面: src/app/ui/cases/panels/cut.js:131・src/app/ui/check/cards/value.js:11・src/app/ui/editor/app-learn.js:132・src/app/ui/editor/app.js:278 ほか 16
 - **送った物** — 友人のアプリの送った物の行と、失敗の言葉・進み具合
-  - コード: `src/friendapp/ui/sent.js`・`src/friendapp/progress.py`・`/api/friend/inbox` src/friendapp/server.py:277
+  - コード: `src/friendapp/ui/sent.js`・`src/friendapp/progress.py`・`/api/friend/inbox` src/friendapp/server.py:278
   - 画面: src/app/ui/home/portal.html:150・src/friendapp/ui/friend.html:140・src/friendapp/ui/guide.html:37・src/friendapp/ui/receive.js:65
 - **片付ける** — 友人のアプリのフォルダの整理(新しい版の後と ⚙)。ごみ箱へ移す
-  - コード: `src/friendapp/tidy.py`・`Tidy` src/friendapp/tidy.py:136・`/api/friend/tidy` src/friendapp/server.py:282
+  - コード: `src/friendapp/tidy.py`・`Tidy` src/friendapp/tidy.py:166・`/api/friend/tidy` src/friendapp/server.py:283
   - 画面: src/friendapp/ui/settings.js:84・src/friendapp/ui/update.js:78
 - **片付け** — 入口の作業データの片付けの候補。ごみ箱フォルダへ移す
   - コード: `src/manage/keep/cleanup.py`・`Cleanup` src/manage/keep/cleanup.py:99・`/api/cleanup` src/app/server.py:634
@@ -41,11 +41,11 @@
   - コード: `src/manage/keep/trash.py`・`to_trash` src/ytt/trashbin.py:100・`put_back` src/ytt/trashbin.py:166・`trash_days` src/app/server.py:1147
   - 画面: src/app/ui/home/portal.html:228・src/app/ui/home/portal.js:483
 - **初回の準備** — 友人のアプリの初回の取得と道具の確かめ
-  - コード: `src/friendapp/setup.py`・`src/friendapp/ui/setup.js`・`src/friendapp/toolcheck.py`・`/api/friend/setup` src/friendapp/server.py:286
-  - 画面: src/friendapp/ui/guide.html:40・src/friendapp/ui/setup.html:6・friend-apps/launcher/src/Core.cs:279
+  - コード: `src/friendapp/setup.py`・`src/friendapp/ui/setup.js`・`src/friendapp/toolcheck.py`・`/api/friend/setup` src/friendapp/server.py:287
+  - 画面: src/friendapp/ui/guide.html:40・src/friendapp/ui/setup.html:6・friend-apps/launcher/src/Core.cs:297
 - **新しい版** — 友人のアプリの新しい版の帯と、exe の側の版の選び方
-  - コード: `src/friendapp/ui/update.js`・`/api/friend/update` src/friendapp/server.py:284・`friend-apps/launcher/src/Core.cs`
-  - 画面: src/friendapp/ui/friend.js:77・src/friendapp/ui/update.js:2・friend-apps/launcher/src/Launcher.cs:404・friend-apps/launcher/src/MainForm.cs:568
+  - コード: `src/friendapp/ui/update.js`・`/api/friend/update` src/friendapp/server.py:285・`friend-apps/launcher/src/Core.cs`
+  - 画面: src/friendapp/ui/friend.js:77・src/friendapp/ui/update.js:2・friend-apps/launcher/src/Launcher.cs:412・friend-apps/launcher/src/MainForm.cs:568
 - **送り返す zip** — 友人の PC から送り返す zip を作る ②(outbox)
   - コード: `src/flow/outbox.py`・`list_outbox` (見つからない)・`mark_done` (見つからない)・`/api/flow/outbox` (受ける所が見つからない)
   - 画面: (画面の文字列に無い)
@@ -140,7 +140,7 @@
   - コード: `src/manage/ops/analytics/render.py`・`src/manage/ops/analytics/service.py`
   - 画面: src/app/ui/home/portal.html:20・src/app/ui/settings/settings.js:78・src/manage/ops/analytics/web/app.js:4・src/manage/ops/analytics/web/index.html:6
 - **配色** — ホロカラーは C# の色の一覧アプリ。配色は友人の画面の A〜D
-  - コード: `friend-apps/holo-colors/src/Core.cs`・`src/friendapp/ui/palette.js`・`/api/friend/palette` src/friendapp/server.py:399
+  - コード: `friend-apps/holo-colors/src/Core.cs`・`src/friendapp/ui/palette.js`・`/api/friend/palette` src/friendapp/server.py:400
   - 画面: src/friendapp/ui/guide.html:167・src/friendapp/ui/palette.js:36・friend-apps/launcher/src/MainForm.cs:278・src/ui-kit/ui-kit.js:54
 - **起動** — 入口のランチャーと友人の FriendApp.exe。起動し直しは restart
   - コード: `src/app/server.py`・`Supervisor` src/app/server.py:317・`friend-apps/launcher/src/Launcher.cs`・`src/manage/ops/restart.py`
