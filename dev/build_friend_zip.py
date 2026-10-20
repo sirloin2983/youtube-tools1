@@ -7,7 +7,7 @@ zip の中(アプリのフォルダ <任意>/FriendApp/ にそのまま展開す
     members.json     配信者の名簿(friend-apps/holo-colors/members.json の写し。友人のアプリが places.py で直下から読んで YTT_HOLO_MEMBERS に渡す)
     FriendApp-はじめに.txt  入れ方とアプリのフォルダの説明(friend-apps/launcher/INSTALL.txt)
     python/        公式の埋め込み用 Python 3.10 + python310._pth(Lib/site-packages と ../src を足す)+ wheel を展開した部品(numpy・sherpa-onnx・streamlink と依存)
-    src/           git が管理している src のファイルのうち friendapp・ytt・flow・pipeline・ui-kit の層と名簿 src/editor/hololive-roster.json(__pycache__ は外す。テストは src の外の tests/ なので入らない。作業データ・追跡外のファイルは入らない)
+    src/           git が管理している src のファイルのうち friendapp・ytt・flow・pipeline・ui-kit の層(__pycache__ は外す。テストは src の外の tests/ なので入らない。作業データ・追跡外のファイルは入らない)
     tools/whisper.cpp-<版>-vulkan/   ユーザーの PC で作った whisper.cpp(build.json の files と SHA-256 が合う物だけ)
     fetch.json     初回に取る物の表(モデル・llama.cpp・ffmpeg・yt-dlp・Deno)。モデルと llama.cpp は tx_engines・diarize の表を import して読むだけ
     manifest.json  全体の版・各ファイルの SHA-256
@@ -72,10 +72,9 @@ FOLDER_NAME = "FriendApp"                               # zip の中を包むフ
 ZIP_PREFIX = "FriendApp"                                # ふだんの zip の名前の頭(FriendApp-<版>.zip)
 # 新しいアプリが動くのに要る src の物(git に入っていないと zip に入らない = 追跡し忘れの検査)
 FRIEND_LAYERS = ("friendapp", "ytt", "flow", "pipeline", "ui-kit")   # zip に入れる src の層(許可リスト)。友人のアプリが読む層だけ。ここの層は外の層を読まない(dev/rule_imports.py の C-22)
-FRIEND_FILES = ("src/editor/hololive-roster.json",)   # 許可リストの外の層から入れる物。編集のフォルダ(ytt/workdata の ROOT)は名簿を置く所で、認識ワーカーの cwd でもある(無いとワーカーが起きない)
 REQUIRED_SRC = ("src/friendapp/server.py", "src/friendapp/streams.py", "src/friendapp/setup.py", "src/friendapp/places.py",
                 "src/friendapp/ui/friend.html", "src/friendapp/ui/friend.js", "src/friendapp/ui/host.js", "src/friendapp/ui/setup.html",
-                "src/friendapp/ui/setup.js", "src/friendapp/ui/guide.html") + FRIEND_FILES
+                "src/friendapp/ui/setup.js", "src/friendapp/ui/guide.html", "src/pipeline/transcribe/hololive-roster.json")   # 名簿 = 最初に作業データへ写す同梱の物
 
 # 公式の埋め込み用 Python(3.10 の Windows 向けの最後の版)。SHA-256 は表に無い = 取ったときの値をキャッシュに残して以後照らす
 PY_EMBED = {"version": "3.10.11", "file": "python-3.10.11-embed-amd64.zip",
@@ -276,14 +275,14 @@ def lay_python(stage, embed_zip, wheel_files):
 
 
 def src_files(repo=REPO):
-    """git が管理している src のファイルのうち FRIEND_LAYERS の層の物と FRIEND_FILES(__pycache__ を外す。テストは src の外の tests/)。追跡外の作業データ(src/pipeline/ingest/data など)は入らない"""
+    """git が管理している src のファイルのうち FRIEND_LAYERS の層の物(__pycache__ を外す。テストは src の外の tests/)。追跡外の作業データ(src/pipeline/ingest/data など)は入らない"""
     r = subprocess.run(["git", "-C", repo, "ls-files", "-z", "src"], capture_output=True)
     if r.returncode != 0:
         raise BuildError("git ls-files が失敗しました: %s" % r.stderr.decode("utf-8", "replace")[:200])
     out = []
     for f in r.stdout.decode("utf-8").split("\0"):
         parts = f.split("/")
-        if not f or "__pycache__" in parts or f.endswith(".pyc") or len(parts) < 3 or (parts[1] not in FRIEND_LAYERS and f not in FRIEND_FILES):
+        if not f or "__pycache__" in parts or f.endswith(".pyc") or len(parts) < 3 or parts[1] not in FRIEND_LAYERS:
             continue
         if os.path.isfile(os.path.join(repo, *parts)):   # 消したのにまだコミットしていない物は飛ばす
             out.append(f)

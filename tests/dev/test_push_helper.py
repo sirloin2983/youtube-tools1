@@ -96,7 +96,7 @@ class TestCheck(Repo):
             with self.subTest(path=path):
                 self.assertTrue(P.problems_for(path, data), path)
         for path, data in {"clip-studio/serve.py": b"API_KEY_ENV = 'YOUTUBE_API_KEY'", "docs/data-location.md": b"config.json \xe3\x81\xae\xe8\xaa\xac\xe6\x98\x8e",
-                           "src/cut2resolve/selection.example.json": b"{}", "src/editor/hololive-roster.json": b"[]",
+                           "src/cut2resolve/selection.example.json": b"{}", "src/pipeline/transcribe/hololive-roster.json": b"[]",
                            "dev/push_helper.py": FAKE_GOOGLE.encode(), "docs/pipeline.md": b"sk-short",
                            "docs/archive/project/README.md": b"# old", "docs/archive/TRANSCRIPTION_V2_DESIGN.md": b"x"}.items():   # 古い資料の置き場(段0)
             with self.subTest(ok=path):

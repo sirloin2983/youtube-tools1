@@ -33,8 +33,8 @@
   - 名前: `configure` :38・`tool_slot` :50・`register` :56・`set_cancelled` :70・`set_internal_error` :74・`job_errors` :81・`job_temp_wav` :102・`job_done` :111・`job_title` :115・`tid_busy` :125・`doc_busy` :139・`active_jobs` :151・ほか 12
 - **keys.py** (397 行) — ② 管理の層 flow: 成果物の鍵を書く・読む(RS6 b-K1。決定 3-29 / notes:plan/done/role-restructure.md 4 節の決まり 4・5-2)。
   - 名前: `media_key_path` :40・`doc_key_path` :45・`pack_key_path` :55・`write` :60・`read` :71・`stale` :83・`remove` :95・`key_hash` :107・`export_inputs` :114・`transcribe_inputs` :122・`post_inputs` :134・`diar_inputs` :142・ほか 15
-- **learning.py** (177 行) — ② 管理: 学習データを読む側(F1。notes:docs/design/f1-build.md の 2 の F1・3 の (f1c))。
-  - 名前: `is_pack` :29・`pack_version` :34・`maker_pc` :41・`learning_dir_checked` :52・`learning_dir` :65・`apply_places` :77・`class Learning` :108・`stamp` :167
+- **learning.py** (214 行) — ② 管理: 学習データを読む側(F1。notes:docs/design/f1-build.md の 2 の F1・3 の (f1c))。
+  - 名前: `is_pack` :29・`pack_version` :34・`maker_pc` :41・`learning_dir_checked` :52・`learning_dir` :65・`apply_places` :77・`class Learning` :108・`stamp` :167・`class PackPatrol` :182
 - **lengthhint.py** (273 行) — ② 管理の層 flow: 自動の切り抜きの長さの目安(友人が依頼で指定した区間の長さから。OPT-E2 7f-1・7f-2。決定 3-49 の Q1)。
   - 名前: `run_ranges` :73・`friend_ranges` :81・`read_archive` :92・`load_archive` :109・`candidates` :119・`peak_ratio` :143・`samples` :155・`suggest` :172・`compute` :195・`usable` :215・`describe` :225・`change` :237・ほか 1
 - **live_adopt.py** (276 行) — ライブの採用 = サーバー側の「マーク + 書き出し」(線 D の M1。RS7-2 G1b)。
@@ -57,11 +57,11 @@
   - 名前: `num_in` :28・`clean_settings` :32・`settings_text` :51・`class RequestBook` :62
 - **live_tx.py** (481 行) — 配信中の候補の文字起こし(線 D の D-11 案 b。notes:plan/line-d-live-clipping.md の 0-11。ユーザー決定)。
   - 名前: `shift_rows` :59・`class LiveTx` :73
-- **live_watch.py** (166 行) — ② 配信の見回り: 登録した事務所のチャンネルから「配信中」と「これからの予定」を探す(いつ探すか・どれだけ覚えるか)。OPT-H2 D。
-  - 名前: `channel_regions` :39・`live_row` :57・`live_list` :152
+- **live_watch.py** (164 行) — ② 配信の見回り: 登録した事務所のチャンネルから「配信中」と「これからの予定」を探す(いつ探すか・どれだけ覚えるか)。OPT-H2 D。
+  - 名前: `channel_regions` :37・`live_row` :55・`live_list` :150
 - **livehost.py** (87 行) — ライブの親(host)の口(RS7-2 G0)。
   - 名前: `class RequestBook` :25・`class MarkBook` :37・`class LiveHost` :47
-- **livesession.py** (1149 行) — ② 管理の層 flow: ライブ係(RS7-2 G2b。notes:plan/done/f1-friend-pc.md)。
+- **livesession.py** (1150 行) — ② 管理の層 flow: ライブ係(RS7-2 G2b。notes:plan/done/f1-friend-pc.md)。
   - 名前: `validate_url` :80・`probe_live` :108・`rec_view` :134・`recorder_data_dir` :150・`is_local_url` :163・`stream_url` :171・`live_envelope` :177・`cfg_bundle` :187・`now_bundle` :208・`request_bundle` :227・`request_settings` :260・`speakers_of` :267・ほか 4
 - **machine.py** (303 行) — ② 管理の層 flow: この PC の設定(機械の都合)を 1 か所に(RS7-1 の S1。決定 3-30 の Q1・notes:plan/done/f1-friend-pc.md の決めたこと 8・9)。
   - 名前: `check` :68・`root` :102・`path` :107・`read_file` :119・`read_env` :136・`llm_for_vram` :163・`auto_llm` :173・`overlay_llm` :179・`explicit` :212・`load` :221・`get` :239・`save` :247・ほか 1
@@ -77,8 +77,8 @@
   - 名前: `class Job` :23・`board_job` :51・`class PackJobs` :78
 - **packrec.py** (131 行) — ② 管理の層 flow: パックを作った記録(作業データの packs/<フォルダのハッシュ>.json)の持ち主(OPT-M2。notes:plan/done/opt-manage.md の 3b-1)。
   - 名前: `norm` :28・`packs_dir` :33・`record_name` :42・`read_record` :52・`ready` :68・`write_record` :89・`after_build` :119
-- **placement.py** (482 行) — ② 管理の層 flow: 置き場所の持ち主(RS6 b-B0。決定 3-29。B-0 = 案件ごとのフォルダ(b2)の第 1 段)。
-  - 名前: `studio_data` :49・`case_root` :62・`doc_home` :90・`request_id6` :129・`request_folder` :134・`configured_out_dir` :147・`request_root` :155・`case_parents` :176・`case_roots` :182・`find_request_dir` :203・`work_dir` :224・`runs_dir` :230・ほか 12
+- **placement.py** (483 行) — ② 管理の層 flow: 置き場所の持ち主(RS6 b-B0。決定 3-29。B-0 = 案件ごとのフォルダ(b2)の第 1 段)。
+  - 名前: `studio_data` :50・`case_root` :63・`doc_home` :91・`request_id6` :130・`request_folder` :135・`configured_out_dir` :148・`request_root` :156・`case_parents` :177・`case_roots` :183・`find_request_dir` :204・`work_dir` :225・`runs_dir` :231・ほか 12
 - **prio.py** (88 行) — ② 管理の層 flow: 処理の優先度の表(PRIO。決定 3-49・notes:plan/done/opt-series.md の 11)。
   - 名前: `name_ok` :35・`rank` :39・`idle_only` :43・`os_priority` :47・`label` :51・`slot_kw` :55・`of_run` :60・`of_spec` :69・`watch` :80・`idle_now` :85
 - **retention.py** (9 行) — ② 管理の層 flow: 物の終わりの日数の 1 か所(方針の数)。ユーザーのツールと友人のアプリが同じ値を読む。

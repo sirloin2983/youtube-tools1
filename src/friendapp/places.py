@@ -19,6 +19,7 @@ import os
 import shutil
 
 from flow import learning as _learning, machine as _machine, placement as _placement, studiobook as _studiobook, wire as _wire
+from pipeline.transcribe import roster as _roster
 from ytt import colors as _colors, datadir as _datadir, fsio as _fsio, layout as _layout, studio_env as _studio_env, tools as _tools
 
 HOME_ENV = "YTT_FRIEND_HOME"
@@ -193,6 +194,27 @@ def members_env(h, env=None):
     return True
 
 
+def first_roster(tx_data):
+    """最初の名簿を作業データの側(<文字起こしの作業データ>/hololive-roster.json)に置く -> そのパス。
+    同梱の名簿(① の roster.BUNDLED)と中身が違うか無ければ写す(写しは誰も書き換えない = 同梱の写し)。
+    学習の束が届けば、名簿は束の物を読む(flow/learning.apply_places。読み順は束 → ここ)"""
+    os.makedirs(tx_data, exist_ok=True)   # 認識ワーカーの cwd でもある(無いとワーカーが起きない)
+    dst = os.path.join(tx_data, _wire.ROSTER_FILE)
+    try:
+        with open(_roster.BUNDLED, "rb") as f:
+            data = f.read()
+    except OSError:
+        return dst
+    try:
+        with open(dst, "rb") as f:
+            same = f.read() == data
+    except OSError:
+        same = False
+    if not same:
+        _fsio.atomic_write(dst, data)
+    return dst
+
+
 def setup(env=None, log=None):
     """② の置き場所を決める(何度呼んでもよい)。-> {"home", "data", "friend", "outbox", "cases", "studio"(スタジオなしの台帳)}"""
     env = os.environ if env is None else env
@@ -206,7 +228,9 @@ def setup(env=None, log=None):
     members_env(h, env)
     root = data_root(env)
     tx = _datadir.locate("transcribe")
-    _wire.setup_places(data_dir=tx, studio_data=None if env.get("TRANSCRIBE_STUDIO_DATA") else _placement.studio_data())
+    # 文字起こしの作業フォルダ(ytt/workdata の ROOT = 認識ワーカーの cwd)と名簿は作業データの側(src の中は読むだけ)
+    _wire.setup_places(root=tx, data_dir=tx, studio_data=None if env.get("TRANSCRIBE_STUDIO_DATA") else _placement.studio_data(),
+                       roster=first_roster(tx))
     _learning.apply_places(_learning.learning_dir())
     lay_whisper(os.path.join(h, TOOLS_NAME), tx, log)
     api_key_env(root, env)

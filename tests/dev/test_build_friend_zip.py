@@ -186,9 +186,9 @@ class BuildTest(Base):
                   "python/Lib/site-packages/numpy/__init__.py", "python/Lib/site-packages/sherpa_onnx_core.pyd"):
             self.assertIn(n, names)
         self.assertFalse(any("/tests/" in n or "__pycache__" in n or n.endswith(".pyc") for n in names))
-        layers = {n.split("/")[1] for n in names if n.startswith("src/") and n not in B.FRIEND_FILES}
+        layers = {n.split("/")[1] for n in names if n.startswith("src/")}
         self.assertEqual(layers, set(B.FRIEND_LAYERS))   # 友人のアプリが読む層だけ(入口 app・編集・人・管理・評価・スタジオ・cut2resolve は入らない)
-        self.assertTrue(set(B.FRIEND_FILES) <= names)
+        self.assertIn("src/pipeline/transcribe/hololive-roster.json", names)   # 名簿は ① の層と一緒に入る(友人のアプリが作業データへ写す)
         self.assertFalse(any(n.endswith("sherpa-onnx.exe") for n in names))   # wheel の scripts は捨てる
         wsub = "tools/" + os.path.basename(E.wcpp_bin_dir(""))
         self.assertIn(wsub + "/" + E.WCPP_EXE, names)

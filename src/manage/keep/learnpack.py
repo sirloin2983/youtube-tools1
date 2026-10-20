@@ -103,10 +103,9 @@ def versions(learn_root):
 
 def build(learn_root, data_dir=None, roster_path=None, members_path=None, rules=None, keep=KEEP, now=None):
     """学習の束を learn_root(同期フォルダの 学習/)に作る -> {"version", "dir", "created": 作ったか}。
-    data_dir 既定 = ytt/workdata.DATA_DIR(編集の作業データ)・roster_path 既定 = その編集のフォルダの名簿・members_path 既定 = ytt/colors の場所・
+    data_dir 既定 = ytt/workdata.DATA_DIR(編集の作業データ)・roster_path = 名簿(入口が ① の roster.ROSTER を渡す。無ければ束に入れない)・members_path 既定 = ytt/colors の場所・
     rules 既定 = ③ learn.export_rules()。元が変わらなければ作らず最新の版を返す"""
     data_dir = data_dir or _workdata.DATA_DIR
-    roster_path = roster_path or (os.path.join(_workdata.ROOT, "hololive-roster.json") if _workdata.ROOT else None)
     members_path = members_path or _colors.members_path()
     rules = _learn.export_rules() if rules is None else rules
     files = collect(data_dir, roster_path, members_path, rules)

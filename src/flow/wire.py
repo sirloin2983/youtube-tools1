@@ -18,7 +18,7 @@ from pipeline.transcribe import backend as _backend, models as _models, records 
 from ytt import layout as _layout
 from pipeline.transcribe import roster as _roster
 
-ROSTER_FILE = "hololive-roster.json"   # 名簿のファイルの名前(置き場所は編集のフォルダ。持ち主は ① roster.ROSTER)
+ROSTER_FILE = os.path.basename(_roster.BUNDLED)   # 名簿のファイルの名前(友人の PC の作業データの写し。持ち主は ① roster.ROSTER)
 
 # 同じ文字起こしに同時に入れない組み合わせ(exclusive)。入口の検査と登録で見る組は同じ。
 # 表は対称(a が b を断るなら b も a を断る)= 再認識・疑わしい所も声を覚えるの最中は断る(声を覚える途中で行の時刻が変わると、覚える区間がずれる)。
@@ -65,16 +65,16 @@ def install(*, bodies=None, tool=None, log=None, tmp_dir=None, max_queue=None, m
 def setup_places(*, root=None, data_dir=None, studio_data=None, roster=None):
     """作業データの置き場所・スタジオの data.json・名簿のファイルを、持ち主(ytt/workdata・① roster.ROSTER)へ明示して入れる(OPT-E2 1c-1)。
     編集の ed_state の読み込み・友人の玄関(friendapp/places)・⑤ の道具(setup_headless)が同じこれを呼ぶ(読み込みの副作用に頼らない)。
-    root = 編集のフォルダ(既定 layout の transcribe。ytt/workdata の ROOT と MARKER_DATA・名簿の置き場所)・
+    root = 文字起こしの作業フォルダ(既定 layout の transcribe = 編集のフォルダ。ytt/workdata の ROOT と MARKER_DATA・認識ワーカーの cwd)・
     data_dir = 作業データ(省けば set_root の既定 = 環境変数 TRANSCRIBE_DATA_DIR か root)・studio_data = スタジオの data.json(省けば set_root の既定)・
-    roster = 名簿の JSON(省けば <root>/hololive-roster.json)。サーバーの記録・環境変数・datadir の登録はしない(それは編集の serve.set_data_dir)"""
+    roster = 名簿の JSON(省けば ① の同梱の名簿 roster.BUNDLED)。サーバーの記録・環境変数・datadir の登録はしない(それは編集の serve.set_data_dir)"""
     root = root or _layout.tool_dir("transcribe")
     _workdata.set_root(root)
     if data_dir:
         _workdata.set_data_dir(os.path.abspath(data_dir))
     if studio_data:
         _workdata.STUDIO_DATA = studio_data
-    _roster.ROSTER = roster or os.path.join(root, ROSTER_FILE)
+    _roster.ROSTER = roster or _roster.BUNDLED
 
 
 def setup_headless(*, data_dir, studio_data=None, roster=None, in_process=False, **install_kw):

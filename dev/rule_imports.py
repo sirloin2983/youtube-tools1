@@ -503,7 +503,7 @@ def c_layout():
 @check("C-18", "名簿(roster.json)の形: 人は組に入る・呼び名は 1 人だけ・地域は組から決めた物と合う・グループ名は人でない", "tests/pipeline/transcribe/test_roster.py test_members_are_in_groups・test_member_regions_follow_groups")
 def c_roster_file():
     from pipeline.transcribe import roster as R
-    path = os.path.join(SRC, "editor", "hololive-roster.json")
+    path = os.path.join(SRC, "pipeline", "transcribe", "hololive-roster.json")
     sys.path.insert(0, HERE)
     import rule_checks
     with open(path, encoding="utf-8") as f:

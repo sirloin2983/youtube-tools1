@@ -98,6 +98,7 @@ from flow import livesession  # noqa: E402  (ライブ係。録画の部品を�
 from flow import runqueue as queue_mod  # noqa: E402  (② の待ち行列。submit の版違い・束の形の例外 = 400 spec_version・bad_spec。F1 F0-1)
 from flow import learning as learning_mod  # noqa: E402  (学習データの読み手。machine の learningDir があるとき入口の文字起こしもそこから読む。F1 F6a)
 from flow import prio as prio_mod  # noqa: E402  (処理の優先度の表。後回しの仕事を始めてよいかを重い処理の枠へ。PRIO)
+from pipeline.transcribe import roster as roster_mod  # noqa: E402  (読む名簿のファイル roster.ROSTER を学習の束へ)
 from manage.keep import learnpack as learnpack_mod  # noqa: E402  (学習の束の中身を作る。いつ・どこに置くかは ② の flow/learning.PackPatrol。F1 F6a)
 from ytt import colors as colors_mod, datadir, docloc, fsio, httpsec, jobs, layout, runtime, tools, version as _version  # noqa: E402
 from ytt import errors as _yerrors  # noqa: E402  (確かめるの部品が上げる ApiError を状態の番号で返す)
@@ -964,7 +965,7 @@ class PortalServer(httpsec.ExclusiveServer):
         app_dir = os.path.dirname(sup.logs_dir)   # 入口の作業データ(settings.json・prefs.json・依頼の受付などの記録)
         self.learning = None     # 学習データの読み手(wire_learning。machine の learningDir があるときだけ。F1 F6a)
         # 学習の束を置く見回り(いつ・どこには ② の flow/learning。中身は ④ の learnpack。F1 F6a)
-        self.learnpack = learning_mod.PackPatrol(lambda: self.intake.folder(), lambda d: learnpack_mod.build(d), lambda m: self.sup.log(m), self.closing)
+        self.learnpack = learning_mod.PackPatrol(lambda: self.intake.folder(), lambda d: learnpack_mod.build(d, roster_path=roster_mod.ROSTER), lambda m: self.sup.log(m), self.closing)
         self.client_log = clientlog_mod.ClientLog(sup.logs_dir)   # 画面のエラーの記録(段階7-0)
         self.window = appwindow_mod.Opener(app_dir, fsio.atomic_write, log=sup.log)   # 窓で開く(段階7-3)
         self.prefs = prefs_mod.Prefs(os.path.join(app_dir, "prefs.json"), fsio.atomic_write)   # ホームの設定(気が利く画面へ 段1)

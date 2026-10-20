@@ -29,16 +29,16 @@
 - **__init__.py** (2 行) — ④ 置き場所・バックアップ・ごみ箱・録画の片付け
 - **backup.py** (670 行) — 作業データのバックアップ(notes:docs/spec/data.md の「バックアップ」)。
   - 名前: `skip` :71・`plan` :138・`plan_cases` :174・`default_media_dirs` :201・`media_rel` :215・`plan_media` :232・`same` :239・`copy_one` :247・`run_once` :279・`class Backup` :329・`restore_once` :557・`main` :618
-- **cleanup.py** (479 行) — 作業データの片付け(全体の計画 段9 9-2。ユーザー決定: 元動画も候補に・ごみ箱フォルダ経由・日数を決めて消す)。
-  - 名前: `class Cleanup` :100
+- **cleanup.py** (472 行) — 作業データの片付け(全体の計画 段9 9-2。ユーザー決定: 元動画も候補に・ごみ箱フォルダ経由・日数を決めて消す)。
+  - 名前: `class Cleanup` :99
 - **evalfolders.py** (514 行) — ④ 評価用のフォルダの整理: 動画の名前を「フォルダ名_番号_状態」にそろえる・仮置きからメンバーのフォルダへ移す・評価用にした文書の動画を外から取り込む
   - 名前: `eval_videos` :68・`norm_member` :99・`member_name` :104・`organizing` :111・`eval_members` :116・`eval_organize` :330・`eval_settle` :406・`eval_folders_info` :502
-- **learnpack.py** (145 行) — ④ データ: 学習の束を作る側(F1。notes:docs/design/f1-build.md の 2 の F1・3 の (f1c))。
+- **learnpack.py** (144 行) — ④ データ: 学習の束を作る側(F1。notes:docs/design/f1-build.md の 2 の F1・3 の (f1c))。
   - 名前: `roster_names` :41・`filter_voices` :51・`collect` :58・`content_sha8` :87・`versions` :95・`build` :104
 - **live_cleanup.py** (214 行) — 録画を自動で消す(線 D。notes:plan/line-d-live-clipping.md の 0-9 の最後。ユーザー決定。決定 3-73)の入口の側。
   - 名前: `class Cleaner` :51
-- **trash.py** (129 行) — ④ データの keep: ごみ箱フォルダへ移す・戻すの 1 か所(OPT-M2。notes:plan/done/opt-manage.md の 7c-1・2c-1)。
-  - 名前: `existing_sidecars` :23・`to_trash` :35・`record` :85・`put_back` :100
+- **trash.py** (19 行) — ④ データの keep: 動画と一緒にごみ箱フォルダへ動かす途中のファイル(何を一緒に動かすか)。
+  - 名前: `existing_sidecars` :16
 
 ## src/manage/ops/
 
@@ -82,7 +82,7 @@
 - tests/manage/keep/test_cleanup.py — src/manage/keep/cleanup.py(作業データの片付け。段9 9-2)の単体テスト。
 - tests/manage/keep/test_learnpack.py — manage/keep/learnpack(学習の束を作る側)のテスト。  py -3.12 -m unittest tests/manage/keep/test_learnpack.py -v
 - tests/manage/keep/test_live_cleanup.py — 録画を自動で消す(src/manage/keep/live_cleanup.py。「書き出し済み + アーカイブ化を確かめたら ごみ箱へ」)のテスト。
-- tests/manage/keep/test_trash.py — src/manage/keep/trash.py(ごみ箱へ移す・戻すの 1 か所)の単体テスト。戻せなかった物の元の場所を必ず記録する。
+- tests/manage/keep/test_trash.py — src/ytt/trashbin.py のごみ箱へ移す・戻す(④ の片付けと「要らない」が使う 1 か所)の単体テスト。戻せなかった物の元の場所を必ず記録する。
 - tests/manage/ops/test_autorestart.py — 自動の起動し直しの判定(src/manage/ops/autorestart.py)のテスト。  python -m unittest tests/manage/ops/test_autorestart.py -v
 - tests/manage/ops/test_clientlog.py — 画面のエラーの記録(src/manage/ops/clientlog.py の ClientLog・clean)の単体テスト。一時フォルダだけを使う。
 - tests/manage/ops/test_health.py — src/manage/ops/health.py(「調子」)の単体テスト。

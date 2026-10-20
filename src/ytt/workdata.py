@@ -17,7 +17,7 @@ from . import datadir as _datadir
 from . import layout as _layout
 from . import version as _version
 
-ROOT = None             # 編集のフォルダ(serve.py・ed_state.py のある所)。名簿 hololive-roster.json・認識ワーカーの cwd・.venv の基準
+ROOT = None             # 文字起こしの作業フォルダ(ユーザーの PC = 編集のフォルダ・友人の PC = 作業データ)。認識ワーカーの cwd・.venv の基準
 DATA_DIR = None         # 作業データ(起動時に serve が datadir で決める。読み込みの直後は環境変数 TRANSCRIBE_DATA_DIR か ROOT = テスト用)
 TX_DIR = None           # 文字起こしの文書 <DATA_DIR>/transcripts
 TMP_DIR = None          # 一時ファイル <TX_DIR>/.tmp

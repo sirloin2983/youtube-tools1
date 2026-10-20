@@ -19,8 +19,8 @@
   - 名前: `class ToolError` :87・`summarize_asr` :106・`summarize_marks` :121・`summarize_speakers` :140・`summarize_cut` :164・`summarize_alt` :177・`summarize_fill` :192・`summarize_timing` :207・`count_daily` :241・`goals_of` :275・`in_window` :307・`day_of` :314・ほか 1
 - **drill.py** (383 行) — 「編集」のサーバーの部品: 評価ドリルと定点の「あと何分」(マスタープラン Q4)。
   - 名前: `drill_reviewed_sec` :43・`drill_stream_key` :50・`drill_doc_summary` :69・`drill_docs` :122・`drill_status` :155・`drill_reviewed` :211・`drill_unreviewed` :242・`drill_candidates_for` :319・`drill_candidates` :358
-- **evalbatch.py** (765 行) — 「編集」のサーバーの部品: 評価用の動画を、手が空いたとき少しずつまとめて文字起こしする(マスタープラン Q4(b))。
-  - 名前: `eb_path` :78・`eb_lock_path` :83・`eb_key` :87・`eb_read` :99・`eval_batch_status` :147・`eb_require_ready` :174・`eval_batch_start` :182・`eval_batch_stop` :197・`eb_scan` :224・`eb_candidates` :242・`eb_diar_candidates` :265・`eb_request` :323・ほか 7
+- **evalbatch.py** (767 行) — 「編集」のサーバーの部品: 評価用の動画を、手が空いたとき少しずつまとめて文字起こしする(マスタープラン Q4(b))。
+  - 名前: `eb_path` :80・`eb_lock_path` :85・`eb_key` :89・`eb_read` :101・`eval_batch_status` :149・`eb_require_ready` :176・`eval_batch_start` :184・`eval_batch_stop` :199・`eb_scan` :226・`eb_candidates` :244・`eb_diar_candidates` :267・`eb_request` :325・ほか 7
 - **metrics.py** (300 行) — ⑤ テストと検証の層 eval/drill: 認識精度の測定(文字誤り率 CER。人が校正済みにした行を正解に、機械の出力 original と比べる)・
   - 名前: `nosub_stats` :27・`is_overlap_group` :37・`overlap_orders` :54・`overlap_best_counts` :73・`norm_cer` :98・`lev_counts` :104・`metric_terms` :147・`new_acc` :160・`acc_line` :165・`acc_merge` :189・`acc_finish` :200・`scored_groups` :209・ほか 3
 

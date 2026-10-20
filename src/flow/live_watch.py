@@ -9,7 +9,6 @@ search(eventType=live)は 1 回 100 ユニットと高いので使わない。�
   結果は LIVE_TTL(60 秒)覚える(画面の「更新」・2 分ごとの読み直しで外へ聞きすぎない)
 取得の関数 get(path, params) と、事務所から解決済みのチャンネルを選ぶ関数 pick(ags) は呼び手が渡す(③ の rank は自分の yt_get を渡す = テストが差し替えられる)。
 """
-import os
 import re
 import threading
 import time
@@ -21,7 +20,6 @@ from ytt import yturl as _yturl
 from ytt.errors import ApiError
 
 REGIONS = _roster.REGIONS   # 地域の種類(JP・EN・ID。名簿の members の region)
-_BUNDLED_ROSTER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "editor", "hololive-roster.json")   # 名簿の置き場所が決まっていないとき(スタジオだけを動かすとき)の同梱の名簿
 
 LIVE_TTL = 60
 LIVE_SCAN_TTL = 1200
@@ -39,7 +37,7 @@ _lock = threading.Lock()
 def channel_regions():
     """チャンネル ID → 地域(JP・EN・ID)。名簿(① roster.ROSTER。無ければ同梱の名簿)の members の region から。名簿に無い・欄が無いチャンネルは入らない = 不明。
     検索(③ human/find/rank)も「配信中」も、地域の絞り込みはこの表を引く(登録簿には地域を二重に持たない)"""
-    return _roster.channel_regions(_roster.ROSTER or _BUNDLED_ROSTER)
+    return _roster.channel_regions(_roster.ROSTER or _roster.BUNDLED)
 
 
 def _scan(ch, get):

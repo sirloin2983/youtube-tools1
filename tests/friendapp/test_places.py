@@ -41,5 +41,23 @@ class MembersEnvTest(unittest.TestCase):
         self.assertFalse(places.members_env(self.home, env))
         self.assertEqual(env[colors.MEMBERS_ENV], "X:/mine.json")
 
+
+class FirstRosterTest(unittest.TestCase):
+    def test_copies_bundled_to_work_data(self):
+        """名簿は作業データの側へ同梱の物を写して読む(無い・中身が違えば写し直す)"""
+        tx = os.path.join(testkit.tempdir(self, "roster-"), "transcribe")
+        with open(places._roster.BUNDLED, "rb") as f:
+            want = f.read()
+        p = places.first_roster(tx)
+        self.assertEqual(p, os.path.join(tx, "hololive-roster.json"))
+        with open(p, "rb") as f:
+            self.assertEqual(f.read(), want)
+        with open(p, "wb") as f:
+            f.write(b"{}")
+        places.first_roster(tx)
+        with open(p, "rb") as f:
+            self.assertEqual(f.read(), want)
+
+
 if __name__ == "__main__":
     unittest.main()

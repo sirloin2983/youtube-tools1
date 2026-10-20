@@ -327,7 +327,7 @@ class TestModelName(unittest.TestCase):
         self.assertFalse(_worker_client.valid_model("mymodel"))       # 起動したフォルダからの相対で実在する
         self.assertFalse(_worker_client.valid_model("org/local"))
         self.assertTrue(_worker_client.valid_model("org/remote"))
-        self.assertFalse(_worker_client.valid_model("transcripts" if os.path.isdir(os.path.join(_workdata.ROOT, "transcripts")) else "hololive-roster.json"))   # ツールのフォルダの中の名前
+        self.assertFalse(_worker_client.valid_model("transcripts" if os.path.isdir(os.path.join(_workdata.ROOT, "transcripts")) else "serve.py"))   # ツールのフォルダの中の名前
 
 
 class TestClipValidation(unittest.TestCase):
@@ -545,7 +545,7 @@ class _PingServer:
 
 
 def start_server(tmp, port, runtime):
-    for n in ("serve.py", "hololive-roster.json") + tuple(n for n in sorted(os.listdir(HERE)) if n.startswith("ed_") and n.endswith(".py")):   # 段10 で serve.py から分けた部品。画面の部品は src/app/ui/editor(RV C2。YTT_EDITOR_UI_DIR で教える)
+    for n in ("serve.py",) + tuple(n for n in sorted(os.listdir(HERE)) if n.startswith("ed_") and n.endswith(".py")):   # 段10 で serve.py から分けた部品。画面の部品は src/app/ui/editor(RV C2。YTT_EDITOR_UI_DIR で教える)
         shutil.copy(os.path.join(HERE, n), tmp)
     env = dict(os.environ, YTT_EDITOR_UI_DIR=UI_DIR,TRANSCRIBE_BACKEND="fake", TRANSCRIBE_FAKE_DELAY="0.005", YTT_RUNTIME_DIR=runtime,
                YTT_MACHINE_FILE=os.path.join(tmp, "machine.json"),   # この PC の設定は一時フォルダへ(src に書かない。RS7-1 S6b)
@@ -782,7 +782,7 @@ class TestPipelineHttp(unittest.TestCase):
         self.assertEqual((st, d, hd.get("Content-Range"), hd.get("Content-Length")), (206, body[10:20], "bytes 10-19/%d" % size, "10"))
         r = self.call("GET", "/media?id=ffffffffffff")
         self.assertEqual(r["_status"], 404)
-        self.assertEqual(self.call("POST", "/api/transcribe", {"sourcePath": self.wav, "model": "hololive-roster.json"}).get("error"), "bad_model")
+        self.assertEqual(self.call("POST", "/api/transcribe", {"sourcePath": self.wav, "model": "serve.py"}).get("error"), "bad_model")
 
 
 class TestSafe(unittest.TestCase):

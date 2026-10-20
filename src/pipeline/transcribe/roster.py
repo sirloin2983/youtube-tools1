@@ -5,7 +5,7 @@
   認識のヒント(initial_prompt・hotwords)に渡す。入る長さに限りがある(先頭 150 字)ので、出る人に絞る。**題名の文字列そのものは渡さない**
 - プロンプトの漏れ出し(S-3): 声の無い所で、ヒントに渡した語だけが字幕に出ることがある。行が渡した語だけでできているかを調べる
 サーバー側で使う(numpy などのネイティブの部品は読まない)。
-名簿のファイルは下の ROSTER(編集の ed_state が入れる)、スタジオの配信の情報(stream_context)は ytt/studiodata から読む(RS3-0A まで txenv の口)。
+名簿のファイルは下の ROSTER(② の flow/wire.setup_places が入れる。同梱の名簿はこのフォルダの BUNDLED)、スタジオの配信の情報(stream_context)は ytt/studiodata から読む(RS3-0A まで txenv の口)。
 """
 import os
 import re
@@ -15,7 +15,8 @@ import unicodedata
 from ytt import studiodata as _studiodata
 from ytt import txbase as _txbase
 
-ROSTER = None   # 名簿のファイル(編集のフォルダの hololive-roster.json)。app(編集の ed_state)が読み込みのときに入れる。読む側は呼ぶたびに roster.ROSTER(テストの S.ROSTER = … は編集の serve の名前の受付がここへ届ける)
+BUNDLED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hololive-roster.json")   # 同梱の名簿(git で直す正本。友人の PC は作業データへ写して読む)
+ROSTER = None   # 読む名簿のファイル。② の flow/wire.setup_places が入れる(既定 BUNDLED。友人の PC は作業データの写し・学習の束が届けば束の物)。読む側は呼ぶたびに roster.ROSTER(テストの S.ROSTER = … は編集の serve の名前の受付がここへ届ける)
 
 PROMPT_LIMIT = 150      # initial_prompt に入れる語の長さ(「用語: 」を除く。画面の GLOSS_PROMPT と同じ)
 HOT_LIMIT = 300         # hotwords の長さ
