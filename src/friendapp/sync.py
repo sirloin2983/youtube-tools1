@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """友人の玄関の Dropbox の同期(notes:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-14〜2-17・5-1)。
 
-玄関の裏の糸で数分ごと(EVERY 秒)と、起動の直後・画面の操作のあと(kick)に 1 回ずつ回す。② = flow は Dropbox を知らない(ここが玄関の中で全部持つ)。
+玄関の裏の糸で数分ごと(EVERY 秒)と、起動の直後・画面の操作のあと(kick)に 1 回ずつ回す。
+もう 1 本の糸(watch)が Dropbox のアプリのフォルダの変化を長く待ち(files/list_folder/longpoll)、変化があればすぐ kick する
+(ユーザーの PC が依頼を受け付けた・出力にパックを置いた、を数分待たずに画面へ。スイッチ WATCH・失敗したら WATCH_RETRY 秒は数分ごとだけ)。② = flow は Dropbox を知らない(ここが玄関の中で全部持つ)。
 鍵は <home>/config.json(探し方・形 = friendapp/dropbox.py)。無ければ何もしない(画面に小さく知らせる)。
 1 回の中身(1 つの失敗でほかを止めない。Dropbox の名前は全部検査してから使い、手元のパスには Dropbox の名前を入れない):
   1. ユーザーの PC に頼む(A-2): 受信箱のユーザーの PC の行の依頼の JSON(5-1 の形 = request_doc。url・video・live)を直下 /<依頼 id>.request.json へ上げる。
@@ -38,6 +40,10 @@ from ytt import fsio, version as _version
 from . import diag as _diag, dropbox as _dropbox, inbox as _inbox, places as _places
 
 EVERY = 180                        # 見回りの間隔(秒。数分ごと)
+WATCH = True                       # スイッチ: Dropbox の変化を長く待ってすぐ見回る(False = 前の通り EVERY 秒ごとと kick だけ)
+WATCH_TIMEOUT = 480                # 長く待つ 1 回の秒(Dropbox の上限)
+WATCH_GAP = 5                      # 変化で見回ったあと次に待ち始めるまでの秒(自分が上げた物の変化で回り続けない)
+WATCH_RETRY = 600                  # 長く待つのが失敗したら、この秒数は EVERY 秒ごとだけに戻る
 OUT = "/出力"
 RETURNS = "/送り返し"
 DIAG = "/診断"                     # 診断の記録(friendapp/diag。ユーザーの PC は dev/friend_diag.py で読む)
@@ -420,6 +426,36 @@ class Sync:
                 self.log("同期: 止まりました %s %s" % (e.__class__.__name__, str(e)[:200]))
             self._wake.wait(self.every)
             self._wake.clear()
+
+    def watch(self, timeout=WATCH_TIMEOUT, gap=WATCH_GAP, retry=WATCH_RETRY):
+        """裏のもう 1 本の糸: アプリのフォルダの変化を長く待ち、変化があれば kick。
+        位置は変化のたびに取り直す(続きの一覧は読まない = 回数を増やさない)。新しい位置を取ってから kick するので、その間の変化も次の回が拾う。
+        鍵が無い・口が長く待てない(テストの偽物)・失敗 = retry 秒待ってから(その間は EVERY 秒ごとの見回りのまま)"""
+        cursor, cfg, fails = None, None, 0
+        while WATCH and not self._stop.is_set():
+            io = self.io()
+            if io is None or not hasattr(io, "longpoll"):
+                self._stop.wait(self.every if io is None else retry)   # 鍵を置いたら数分のうちに待ち始める
+                continue
+            if self._client_cfg != cfg:   # 鍵が変わった = 位置を取り直す
+                cursor, cfg = None, self._client_cfg
+            try:
+                if cursor is None:
+                    cursor = io.latest_cursor("")
+                got = io.longpoll(cursor, timeout)
+                if got["changes"]:
+                    cursor = io.latest_cursor("")
+                    self.kick()
+            except _dropbox.Cancelled:
+                return
+            except Exception as e:   # noqa: BLE001  (長く待てなくても同期は数分ごとに回る)
+                cursor, fails = None, fails + 1   # 位置が古くなった(reset)なら取り直せば済むので、1 回目は少しだけ待つ
+                wait = gap * 6 if fails == 1 else retry
+                self.log("同期: 変化を待てませんでした(%s %s)。%d 秒は数分ごとの見回りだけにします" % (e.__class__.__name__, str(e)[:120], wait))
+                self._stop.wait(wait)
+                continue
+            fails = 0
+            self._stop.wait(max(gap, got["backoff"] or 0))
 
     def kick(self):
         self._wake.set()

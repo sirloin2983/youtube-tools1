@@ -58,6 +58,10 @@ TEXT_MAX = 64 * 1024
 MAX_URLS = 10            # 1つの依頼に書ける配信の数(① 探す から一度に入れられる数と同じ)
 SETTLE = 20.0            # 大きさと更新時刻がこの秒数変わらなければ、同期が終わったとみなす
 INTERVAL = 30.0          # 見る間隔
+WATCH = True             # スイッチ: 見る間隔の間もフォルダの直下と 送り返し\ の名前・大きさ・更新時刻を WATCH_SEC ごとに比べ、変わったらすぐ見る・
+                         # 落ち着くのを待っている物があれば落ち着く時刻に見る・依頼の JSON は REQ_SETTLE 秒で落ち着いたとみなす(False = 前の通り)
+WATCH_SEC = 2.0          # 比べる間隔(名前の一覧を読むだけ = 軽い)
+REQ_SETTLE = 5.0         # 依頼の JSON(数 KB。Dropbox のアプリは書き終えてから置く)が落ち着いたとみなす秒
 WAIT_FILES = 3600.0      # JSON があるのに動画がそろわないとき、断るまで待つ秒数
 KEEP_REQUESTS = 50       # 画面に出す最近の依頼の数
 STATE_FILE = "intake-state.json"
@@ -346,8 +350,50 @@ class Intake:
                 self.state, self.message = "error", "依頼を読めませんでした(依頼のファイルの形が違うか、読み取りで問題が起きました)。次の確認でもう一度試します。続くときは、詳しくの「ログ」を見てください"
                 self.log("依頼の受付: 内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]))
             # 見る間隔: 設定の interval(段9 9-4。ホームの「依頼の受付」で変える)。テストで interval を渡したときはそれ
-            self.wake.wait(self.interval if self.interval != INTERVAL else float(self._cfg().get("interval") or INTERVAL))
+            self._wait_next(self.interval if self.interval != INTERVAL else float(self._cfg().get("interval") or INTERVAL))
             self.wake.clear()
+
+    def _wait_next(self, interval):
+        """次に見るまで待つ: interval 秒・wake・(WATCH のとき)フォルダの変化か、落ち着くのを待っている物の落ち着く時刻の早いほう"""
+        if not WATCH:
+            self.wake.wait(interval)
+            return
+        due = self._settle_due()
+        left = min(interval, due) if due is not None else interval
+        end = time.monotonic() + left
+        sig = self._signature()
+        while not self.closed:
+            rest = end - time.monotonic()
+            if rest <= 0 or self.wake.wait(min(WATCH_SEC, rest)):
+                return
+            if self._signature() != sig:
+                return
+
+    def _settle_due(self):
+        """落ち着くのを待っている物が落ち着くまでの秒(一番早い物。無ければ None)"""
+        now, dues = self.clock(), []
+        for p, (_size, mtime, seen) in list(self._seen_size.items()):
+            need = self._settle_of(p)
+            due = max(seen + need, mtime + need) - now
+            if due > -1:   # もう落ち着いた物(動画の JSON 待ちなど)は数えない = 見る間隔のまま
+                dues.append(max(due, 0) + 0.5)
+        return min(dues) if dues else None
+
+    def _settle_of(self, p):
+        return min(self.settle, REQ_SETTLE) if WATCH and p.endswith(REQ_SUFFIX) else self.settle
+
+    def _signature(self):
+        """フォルダの直下と 送り返し\\ の名前の集まり(読めなければ None)。大きさの変化(同期の途中)は見ない = 落ち着く時刻で見る"""
+        folder = self.folder()
+        if not folder or fsio.is_network_path(folder):
+            return None
+        out = []
+        for d in (folder, os.path.join(folder, returns.IN_DIR)):
+            try:
+                out += [(d, n) for n in os.listdir(d)]
+            except OSError:
+                continue
+        return frozenset(out)
 
     def snapshot(self):
         cfg = self._cfg()
@@ -462,7 +508,8 @@ class Intake:
         if prev is None or prev[:2] != cur:
             self._seen_size[p] = cur + (now,)
             return False
-        return now - prev[2] >= self.settle and now - s.st_mtime >= self.settle
+        need = self._settle_of(p)
+        return now - prev[2] >= need and now - s.st_mtime >= need
 
     def _count(self, n=1):
         """今日の件数を足す(画面の「今日 n 件」に出すだけ。受け付けるかどうかには使わない)"""

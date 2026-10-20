@@ -20,6 +20,8 @@ import urllib.request
 TOKEN_URL = "https://api.dropboxapi.com/oauth2/token"
 RPC_BASE = "https://api.dropboxapi.com/2/"
 CONTENT_BASE = "https://content.dropboxapi.com/2/"
+NOTIFY_BASE = "https://notify.dropboxapi.com/2/"   # 変化を長く待つ口(files/list_folder/longpoll。鍵を付けない)
+LONGPOLL_EXTRA = 120          # 長く待つ口の通信の時間切れ = 待つ秒 + これ(Dropbox は最大 90 秒遅れて返す)
 CONFIG_NAME = "config.json"
 RETRIES = 4
 DOWNLOAD_RETRIES = 6          # 数 GB のパックは途中で切れることがある。続きから取るので多め
@@ -164,7 +166,7 @@ def _correct_offset(body):
 
 def urlopen_transport(url, headers, body, timeout):
     """本物の通信(urllib)-> (status, {ヘッダーの名前の小文字: 値}, 読む口)。返事の来ない失敗は DropboxError(status 0)"""
-    if not (url == TOKEN_URL or url.startswith(RPC_BASE) or url.startswith(CONTENT_BASE)):
+    if not (url == TOKEN_URL or url.startswith(RPC_BASE) or url.startswith(CONTENT_BASE) or url.startswith(NOTIFY_BASE)):
         raise DropboxError("決まった Dropbox の場所の外へはつなぎません", -1)
     req = urllib.request.Request(url, data=body, headers=headers, method="POST")
     try:
@@ -284,6 +286,24 @@ class Client:
                 break
             d = self.rpc("files/list_folder/continue", {"cursor": cur})
         return out
+
+    def latest_cursor(self, path=""):
+        """path より下(下のフォルダも)の今の位置(一覧は読まない)-> カーソルの文字列"""
+        d = self.rpc("files/list_folder/get_latest_cursor", {"path": path, "recursive": True, "include_deleted": True})
+        cur = d.get("cursor") if isinstance(d, dict) else None
+        if not isinstance(cur, str) or not cur:
+            raise DropboxError("位置の返事にカーソルがありません", -1)
+        return cur
+
+    def longpoll(self, cursor, timeout):
+        """カーソルの後に変化があるまで最大 timeout 秒待つ(1 回だけ。やり直しは呼ぶ側)-> {"changes": bool, "backoff": 秒か None}。
+        鍵を付けない口(Dropbox の決まり)。API の回数の上限にほぼ数えられない"""
+        self._check()
+        body = json.dumps({"cursor": cursor, "timeout": int(timeout)}).encode("utf-8")
+        _s, _h, r = self._open(NOTIFY_BASE + "files/list_folder/longpoll", {"Content-Type": "application/json"}, body, int(timeout) + LONGPOLL_EXTRA)
+        d = _parse(self._read_all(r))
+        back = d.get("backoff") if isinstance(d, dict) else None
+        return {"changes": bool(isinstance(d, dict) and d.get("changes")), "backoff": back if isinstance(back, int) and back > 0 else None}
 
     def get_metadata(self, path):
         """1 つのファイルの情報か None(無い)"""

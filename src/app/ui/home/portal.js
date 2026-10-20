@@ -22,6 +22,7 @@
 
   var casesData = null;                 // /api/cases の中身
   var txList = null, txById = {};       // /transcribe/api/transcripts(読めないときは null。次にやること・単体の文字起こしの詳しい表示に使う)
+  var autoPushed = null;               // /api/status の autoPushed(まとめて実行に積んだ回数。増えたら pollAuto をすぐ)
   var runsByVideo = {}, runsByDoc = {}; // /api/flow/runs の実行(配信単位・文書単位)。最新のものだけ
   var pastByVideo = {}, pastByDoc = {}; // /api/flow/runs の past: 前回の結果(記録のファイルから。この起動の実行が無い配信・文書だけ。段2 B-6)
   var HIST_PAGE = 50, histOffset = 0, histBusy = false;   // 「まとめて実行の記録」(/api/flow/history。開いたときだけ読む)
@@ -264,6 +265,10 @@
       UIKit.appnav.setVersion('v' + st.version);
       if (st.dataDir) { $('#dataDir').textContent = st.dataDir; $('#dataBox').hidden = false; }
       if (st.window) renderWin(st.window);
+      if (st.autoPushed !== autoPushed) {   /* まとめて実行に積まれた(友人の依頼の受付など)= 15 秒を待たずに一覧を読む */
+        if (autoPushed !== null) pollAuto();
+        autoPushed = st.autoPushed;
+      }
       st.tools.forEach(updateTool);
       UIKit.tools.setPaths(toolPaths(st.tools));
       Object.keys(cards).forEach(function (id) { if ($('.pt-logbox', cards[id].el).open) loadLog(id); });
