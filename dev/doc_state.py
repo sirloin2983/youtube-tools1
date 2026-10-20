@@ -17,6 +17,7 @@ import sys
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "src"))
 from ytt import layout  # noqa: E402
+from _common import read_utf8 as read  # noqa: E402
 
 DONE_STATES = ("済み", "取り下げ", "置き換え済み")
 LINE_ORDER = ("A", "B", "C", "D", "別件", "全体")
@@ -137,11 +138,6 @@ def write_props(text, state, lines):
             out.append(ln)
         i += 1
     return "".join(out) + text[end:]
-
-
-def read(p):
-    with open(p, "rb") as f:
-        return f.read().decode("utf-8")
 
 
 def write(p, text):

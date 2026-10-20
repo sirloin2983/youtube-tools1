@@ -4,7 +4,7 @@
 - **一括の関数(smooth・local_baseline・robust_scale・audio_score・chat_z・estimate_lag・pick_clips …)は式・加算の順・丸めを変えない**。
   アーカイブの結果(候補・series)が golden と完全に一致することを pipeline/analyze/tests/test_excite.py の golden が確かめる。式を直すときは golden も作り直す(src/eval/tools/eval_marks.py の数字と比べられなくなるので WORKLOG に書く)
 - 配信中は「未来を見る量」だけが違う(notes:plan/line-d-live-clipping.md の 0-10-2): ふだん = 前 back 秒・後 fwd 秒の中央値(アーカイブは 150/150、配信中は 270/30)、
-  跳ね上がりの尺度 = 直近 window 秒の MAD(アーカイブは全体)。この 2 つを持つのが windowed_scores(一括)と Online(1 秒ずつ足す)。2 つは同じ値を返す(テストで確かめる)
+  跳ね上がりの尺度 = 直近 window 秒の MAD(アーカイブは全体)。これを持つのが Online(1 秒ずつ足す。一括の答え合わせは test_excite の windowed_scores)
 - 候補の帳簿 PeakBook: 山の確定(0-10-3 の 5)・1 時間の枠と入れ替え(0-10-3 の 6)・採用と見送りの除外。純粋(時計・ファイルを持たない)で、JSON にして起動し直しに耐える。
   配信中だけの足し(どれも呼ばなければ候補は同じ): しきい値を上げる区間 thr_scale(雰囲気の変わり目 MoodShift のあと 60 秒は 1.3 倍。0-10-5)・
   仮の候補 fast_push(チャットを待たない音だけの先回り。候補が出るまでの遅れを縮める。本番の候補は変わらない)
@@ -359,7 +359,7 @@ def message_text(renderer):
     return text
 
 
-# ---------------------------------------------------------------- 配信中の式(窓つき)。一括の windowed_scores と 1 秒ずつの Online は同じ値
+# ---------------------------------------------------------------- 配信中の式(窓つき)。1 秒ずつ確定させる Online
 def _int_keys(d):
     """JSON で文字列になった秒・点の鍵を int に戻す(to_json / load の往復)"""
     return {int(k): v for k, v in (d or {}).items()}
@@ -371,39 +371,8 @@ def _drop_before(d, k0):
         del d[k]
 
 
-def windowed_scores(x, floor, w, back=ONLINE_BACK, fwd=ONLINE_FWD, window=ONLINE_WINDOW, step=STEP, log=False):
-    """1 本の系列の、窓つきの点数(一括。Online の答え合わせ用)。
-    smooth(w)(log なら log1p も)→ 点 p(step の倍数)ごとに x[p-back..p+fwd] の中央値を取り間を直線で補間 → 偏差 →
-    点 p ごとに直近 window 秒の偏差の MAD(robust_scale)を尺度にして [p, p+step) に使う → clip(0, CAP)。
-    値が確定するのは「次の点の中央値が取れる秒」まで(= 一括でも末尾の fwd + step 秒ほどは出さない)。-> [score](確定した秒の分だけ)"""
-    n = len(x)
-    h = max(0, int(w) // 2)
-    sm = [sum(x[max(0, i - h):i + h + 1]) / (min(n, i + h + 1) - max(0, i - h)) for i in range(n)]   # smooth と同じ値(Online と同じ足し方で、末尾の桁までそろえる)
-    if log:
-        sm = [math.log1p(v) for v in sm]
-    final_sm = n - h   # smooth は未来 h 秒が要る(末尾 h 個は一括では窓が縮むので、配信中と同じ「未確定」として捨てる)
-    med = {}
-    for p in range(0, final_sm, step):
-        if p + fwd < final_sm:
-            med[p] = median(sm[max(0, p - back):p + fwd + 1])
-    out, dev, scale = [], [], {}
-    for i in range(final_sm):
-        p = (i // step) * step
-        q = p + step
-        if p not in med or q not in med:
-            break
-        base = med[p] + (med[q] - med[p]) * (i - p) / (q - p)
-        dev.append(sm[i] - base)
-        if p not in scale:
-            if i != p:
-                break   # 点 p の偏差が無い(来ない)
-            scale[p] = robust_scale(dev[max(0, p - window + 1):p + 1], floor)
-        out.append(max(0.0, min(CAP, dev[i] / scale[p])))
-    return out
-
-
 class _Channel:
-    """Online の 1 本の系列(windowed_scores と同じ式を、1 秒ずつ確定させる)。古い値は捨てる(メモリは窓の分だけ)"""
+    """Online の 1 本の系列(test_excite の windowed_scores と同じ式を、1 秒ずつ確定させる)。古い値は捨てる(メモリは窓の分だけ)"""
 
     def __init__(self, floor, w, back, fwd, window, step, log=False):
         self.floor, self.w, self.h = floor, w, max(0, int(w) // 2)

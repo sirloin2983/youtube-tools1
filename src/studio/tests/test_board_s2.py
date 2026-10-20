@@ -49,12 +49,10 @@ class TestAnalyze(unittest.TestCase):
         j = b.get("an:" + it["id"])
         self.assertEqual((j["state"], j["error"]["text"], j["canRetry"]), ("error", "だめ", True))
 
-    def test_cancel_and_retry_by_board_id(self):
+    def test_cancel_by_board_id(self):
         bt, b, it = self.new()
         j = b.cancel("an:" + it["id"])
         self.assertEqual(j["state"], "skipped")
-        new = b.retry("an:" + it["id"])
-        self.assertEqual((new["state"], new["id"] != "an:" + it["id"]), ("queued", True))
         with self.assertRaises(B.NotFound):
             b.cancel("an:nai")
 
@@ -96,7 +94,7 @@ class TestSearch(unittest.TestCase):
         self.addCleanup(rank._jobs.clear)
         rank._jobs.clear()
 
-    def test_states_cancel_retry(self):
+    def test_states_and_cancel(self):
         b = B.Board()
         rank.attach_board(b)
         req = {"start": "2026-09-01", "end": "2026-09-30", "agencies": ["hololive"]}
@@ -106,13 +104,6 @@ class TestSearch(unittest.TestCase):
         self.assertEqual((state_of(b, "se:s1"), b.get("se:s1")["canCancel"]), ("running", True))
         b.cancel("se:s1")
         self.assertTrue(rank._jobs["s1"]["cancel"])
-        rank._jobs["s1"]["state"] = "cancelled"
-        calls = []
-        orig = rank._start_search
-        rank._start_search = lambda s: calls.append(s["req"]) or {"id": "s2", "state": "running", "phase": "開始", "progress": 0.0, "cancel": False, "error": "", "created": 2}
-        self.addCleanup(setattr, rank, "_start_search", orig)
-        new = b.retry("se:s1")
-        self.assertEqual((new["id"], new["state"], calls), ("se:s2", "running", [req]))   # やり直しは前の登録簿の写しでなく、元の指定から今の登録簿で検査し直す(8c-1)
 
 
 class TestWiring(unittest.TestCase):

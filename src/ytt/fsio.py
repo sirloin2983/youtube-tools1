@@ -4,6 +4,7 @@
 read_json_or(読めなければ既定値)・stamp / StampCache(更新日時と大きさが変わったときだけ読み直す)・rotate(ログの 1 世代の回し)・
 is_inside(パスがフォルダの中か。セキュリティの検査に使う形はここ 1 か所)・dir_size(フォルダの大きさ)。"""
 import glob
+import hashlib
 import json
 import os
 import shutil
@@ -110,6 +111,15 @@ def append_jsonl(path, rows, separators=(",", ":")):
     with open(path, "a", encoding="utf-8") as f:
         for row in rows:
             f.write(json.dumps(row, separators=separators) + "\n")
+
+
+def sha256_file(path, chunk=1 << 20):
+    """ファイルの内容の sha256(16 進 64 桁)。1MB ずつ読む(巨大な動画でもメモリを食わない)。読めなければ OSError"""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for b in iter(lambda: f.read(chunk), b""):
+            h.update(b)
+    return h.hexdigest()
 
 
 class TooLarge(ValueError):

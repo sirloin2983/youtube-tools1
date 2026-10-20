@@ -50,7 +50,8 @@ def register(kind, source, fn):
         _SOURCES[(kind, source)] = fn
 
 
-def unregister(kind, source):
+def _unregister(kind, source):
+    """テストが足した出どころを外す"""
     with _reg_lock:
         _SOURCES.pop((kind, source), None)
 

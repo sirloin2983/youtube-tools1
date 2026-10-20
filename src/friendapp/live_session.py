@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """友人の玄関のライブ係(notes:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-15)。
 
-友人の PC の ② のライブ係 = flow/livesession.LiveSession を継いだ FriendLive。入口 app の src/app/live.py の use_headless と同じ形を、app を読まずに作る:
+友人の PC の ② のライブ係 = flow/livesession.LiveSession を継いだ FriendLive。入口 app を読まずに作る:
   設定に関わらずオン(always_on)・どの封筒も依頼の決まりで(request_all = 検出・自動の採用・パックまで)・スタジオなしの採用(LocalMarks = 親の既定)・
   届けない(deliver_for なし = 親の既定)・6 時間の見回りなし(親の既定)・自動の採用の上限は束の adopt.top(bundle_top)・空き容量の下限(machine の diskMinGB)。
   ② の待ち行列(engine.FriendQueue)の set_live_hook で封筒 kind live を回し、書き出した切り抜きは同じ待ち行列へ(runner)。
@@ -55,7 +55,7 @@ class FriendLive(_ls.LiveSession):
         super().__init__(layout.src_root(), os.path.join(places["data"], "app", "logs"),
                          requests=RequestBook(os.path.join(store, REQUESTS_NAME), clock=clock, log=log, deliver=False), cfg=self.live_cfg, log=log, spawn=spawn,
                          store_dir=store, out_dir=lambda: self.places["cases"], runner=self.queue_fn)
-        self.always_on = self.request_all = True   # 入口 app の use_headless と同じ値(設定に関わらずオン・どの封筒も依頼の決まり)
+        self.always_on = self.request_all = True   # 設定に関わらずオン・どの封筒も依頼の決まり
         self.disk_min_gb = disk_min_gb
         self.auto_max = self.bundle_top
 

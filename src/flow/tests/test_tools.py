@@ -9,7 +9,6 @@
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしない(一時フォルダだけ)
 import shutil
-import subprocess
 import sys
 import unittest
 from unittest import mock
@@ -21,12 +20,6 @@ from flow import run as R, tools as T  # noqa: E402
 from pipeline.transcribe import backend, records, roster  # noqa: E402
 from ytt import workdata  # noqa: E402
 from eval.fake import fake_asr  # noqa: E402  (疑似の認識。flow は eval を読めないので、テストの側で差し込む)
-
-
-def _make_video(path, sec=6):
-    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=160x284:rate=30:duration=%d" % sec,
-                    "-f", "lavfi", "-i", "sine=frequency=440:duration=%d" % sec, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
-                    "-shortest", path], check=True, timeout=120)
 
 
 class TestHttpTools(unittest.TestCase):
@@ -220,7 +213,7 @@ class TestLocalTranscribePack(unittest.TestCase):
         self.addCleanup(backend.set_selector, saved)
         self.video = os.path.join(self.tmp, "clip", "切り抜き.mp4")
         os.makedirs(os.path.dirname(self.video))
-        _make_video(self.video)
+        testkit.make_video(self.video, 6, size="160x284")
 
     def test_case_video_doc_goes_to_work_dir(self):
         """書き出し先の下の案件(作業用/.studio-id)の動画なら、CLI の文書もその 作業用 に置く(索引は TX_DIR)"""

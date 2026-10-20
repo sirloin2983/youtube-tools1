@@ -13,8 +13,7 @@
   2 つ目のエンジン engine_ready・check_engine_ready・alt_lines(+ alt_engine_version)
   時刻の候補    word_retime
   名簿と学習    roster_listing・pick_glossary_terms
-名前は編集の serve の名前の受付(_ED_MODULES)に並ぶ(S._doc_fields・S.dict_pairs・S.alt_engine_version はここ)。
-受付に並ぶほかの部品と同じ名前を作らない(modfwd.duplicates)。① の名前は呼ぶたびに `モジュール.名前` で読む(S.extract_audio などの差し替えが届く)。
+① の名前は呼ぶたびに `モジュール.名前` で読む(差し替えが届く)。
 ジョブの表は兄弟の flow/jobs、枠と取り消しの確かめ(check_cancel・Cancelled)は ytt/jobs(_slots)。
 """
 import json
@@ -382,13 +381,12 @@ def alt_lines(job, spec, wav):
 
 
 # ---------- 行の時刻の候補(human/proof/retime) ----------
-def word_retime(tid, segments, rows, engine):
+def word_retime(tid, segments, rows):
     """行の時刻を単語の時刻に合わせる候補(読むだけ)。単語の時刻(<id>.words.json)が無ければ None。
-    -> {"items": 候補(① retime.retime_candidates), "checked": 調べた行の数(上限 RETIME_MAX_ROWS), "endEdge": 終わりの端も候補にしたか}。
-    ② が足すこと = 認識の記録(words.json)を読む・行の数の上限・エンジンで終わりの端を使うかを決める(engine = 文書の最初の認識のエンジン)"""
+    -> {"items": 候補(① retime.retime_candidates), "checked": 調べた行の数(上限 RETIME_MAX_ROWS)}。
+    ② が足すこと = 認識の記録(words.json)を読む・行の数の上限"""
     rows = list(rows)[:_retime.RETIME_MAX_ROWS]
     words = _txwords.read_words(tid)
     if not words:
         return None
-    end_ok = engine not in _retime.RETIME_END_SKIP
-    return {"items": _retime.retime_candidates(segments, words, rows, end_ok=end_ok), "checked": len(rows), "endEdge": end_ok}
+    return {"items": _retime.retime_candidates(segments, words, rows), "checked": len(rows)}

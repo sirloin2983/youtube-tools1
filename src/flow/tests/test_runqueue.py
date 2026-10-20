@@ -382,39 +382,23 @@ class TestBoard(Base):
         self.assertEqual(q.history(case=os.path.join(self.tmp, "nai"))["total"], 0)
         self.assertEqual(q.history(case="相対")["total"], 0)
 
-    def test_cancel_and_retry(self):
-        """掲示板の cancel は Queue.cancel・retry は同じ封筒(新しい id)+ 同じ束をもう一度 submit。できない物は Refused・無い id は NotFound"""
+    def test_cancel(self):
+        """掲示板の cancel は Queue.cancel。済んだ物は Refused・無い id は NotFound"""
         tools = Tools()
         tools.gate.clear()
         q = self.queue(tools)
         b = self.board(q)
         self.sub(q, self.env_of(self.media[0]), {"transcribe": {"model": "large-v3"}})
         _until(lambda: q.status()["running"] == 1, "実行中")
-        with self.assertRaises(B.Refused):   # 実行中はやり直せない
-            b.retry("run:0123456789")
         out = b.cancel("run:0123456789")
         self.assertEqual((out["id"], out["canCancel"]), ("run:0123456789", False))   # 止める印 = もう止められない
         _until(lambda: q.status()["idle"], "待ち・実行中が 0")
-        old = self.job_of(b, "run:0123456789")
-        self.assertEqual((old["state"], old["canRetry"]), ("cancelled", True))
-        new = b.retry("run:0123456789")
-        self.assertNotEqual(new["id"], "run:0123456789")
-        self.assertEqual((new["kind"], new["state"] in ("queued", "running"), new["target"]), ("run", True, {"path": self.media[0]}))
-        again = next(r for r in q.runs if "run:" + r.id == new["id"])
-        self.assertEqual(again.spec["transcribe"]["model"], "large-v3")   # 同じ束
-        with self.assertRaisesRegex(B.Refused, "すでに実行中"):   # 同じ入力が待ち・実行中
-            b.retry("run:0123456789")
         tools.gate.set()
-        _until(lambda: q.status()["idle"], "待ち・実行中が 0")
-        with self.assertRaises(B.Refused):   # 済んだ物は止められない・やり直せない
-            b.cancel(new["id"])
-        with self.assertRaises(B.Refused):
-            b.retry(new["id"])
+        with self.assertRaises(B.Refused):   # 済んだ物は止められない
+            b.cancel("run:0123456789")
         with self.assertRaises(B.NotFound):
             b.cancel("run:ffffffffff")
         self.assertIsNone(q.board_cancel("0123456789"))
-        with self.assertRaises(LookupError):
-            q.board_retry("ffffffffff")
 
     def test_board_job_shape(self):
         """board_job は掲示板の形のまま(normalize を通る)。失敗は error・案件の根は結果の束のパスの形だけで決める"""

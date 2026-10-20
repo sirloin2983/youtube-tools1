@@ -174,7 +174,7 @@ class TestSmallVerbs(_Env):
         self.assertEqual(job["vadNote"], note)
 
     def test_word_retime_without_words(self):
-        self.assertIsNone(tx.word_retime("abc123def456", [], ["s1"], "faster-whisper"))
+        self.assertIsNone(tx.word_retime("abc123def456", [], ["s1"]))
 
 
 if __name__ == "__main__":

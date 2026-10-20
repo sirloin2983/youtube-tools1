@@ -17,7 +17,7 @@
   - 候補は**今の行の文字**に対して毎回計算する(人が直した・採用した所は自然に消える)。校正済みの行には出さない
   - 採った候補は行の文字が変わるだけ(印は付かない)= 採った後の文字は人の直しとして学習の材料に入る。候補そのものと採否の数は学習の統計に入れない
 
-名前は serve.py からも見える(serve.py の _ED_MODULES。ほかの部品と重ならないよう、名前は alt_ / ALT_ / _alt_ で始める。ジョブの口は run_alt・read_alt)。
+名前は alt_ / ALT_ / _alt_ で始める。ジョブの口は run_alt・read_alt。
 ほかの部品の名前は `モジュール.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
 疑似の認識(TRANSCRIBE_BACKEND=fake)は backend.select() の口 alt_rows・check_engine・engine_version(本体は eval/fake/fake_asr)に任せる。
 ① pipeline/transcribe は直に読まない: エンジンの準備(engine_ready)・ジョブの前の確かめ(check_engine_ready)・

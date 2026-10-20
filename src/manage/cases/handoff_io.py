@@ -8,7 +8,6 @@
 
 - .runtime の置き場所 runtime_path_dir は app(editor/ed_state.py)
 - 名前 handoff_io はスタジオの handoff(配信 → 編集の受け渡しの書き手)と重ねないため
-名前は serve.py からも見える(serve.py の名前の受付 _ED_MODULES がこの部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `モジュール.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
 """
 import json

@@ -17,12 +17,12 @@
 - **__init__.py** (2 行) — ⑤ 評価ドリル・評価用フォルダ・精度のカード・A/B・精度の自動測定
 - **accuracy.py** (622 行) — 精度の自動測定(マスタープラン Q3)。
   - 名前: `class ToolError` :87・`summarize_asr` :106・`summarize_marks` :121・`summarize_speakers` :140・`summarize_cut` :164・`summarize_alt` :177・`summarize_fill` :192・`summarize_timing` :207・`count_daily` :241・`goals_of` :275・`in_window` :307・`day_of` :314・ほか 1
-- **drill.py** (384 行) — 「編集」のサーバーの部品: 評価ドリルと定点の「あと何分」(マスタープラン Q4)。
-  - 名前: `drill_reviewed_sec` :44・`drill_stream_key` :51・`drill_doc_summary` :70・`drill_docs` :123・`drill_status` :156・`drill_reviewed` :212・`drill_unreviewed` :243・`drill_candidates_for` :320・`drill_candidates` :359
+- **drill.py** (383 行) — 「編集」のサーバーの部品: 評価ドリルと定点の「あと何分」(マスタープラン Q4)。
+  - 名前: `drill_reviewed_sec` :43・`drill_stream_key` :50・`drill_doc_summary` :69・`drill_docs` :122・`drill_status` :155・`drill_reviewed` :211・`drill_unreviewed` :242・`drill_candidates_for` :319・`drill_candidates` :358
 - **evalbatch.py** (765 行) — 「編集」のサーバーの部品: 評価用の動画を、手が空いたとき少しずつまとめて文字起こしする(マスタープラン Q4(b))。
   - 名前: `eb_path` :78・`eb_lock_path` :83・`eb_key` :87・`eb_read` :99・`eval_batch_status` :147・`eb_require_ready` :174・`eval_batch_start` :182・`eval_batch_stop` :197・`eb_scan` :224・`eb_candidates` :242・`eb_diar_candidates` :265・`eb_request` :323・ほか 7
-- **metrics.py** (301 行) — ⑤ テストと検証の層 eval/drill: 認識精度の測定(文字誤り率 CER。人が校正済みにした行を正解に、機械の出力 original と比べる)・
-  - 名前: `nosub_stats` :28・`is_overlap_group` :38・`overlap_orders` :55・`overlap_best_counts` :74・`norm_cer` :99・`lev_counts` :105・`metric_terms` :148・`new_acc` :161・`acc_line` :166・`acc_merge` :190・`acc_finish` :201・`scored_groups` :210・ほか 3
+- **metrics.py** (300 行) — ⑤ テストと検証の層 eval/drill: 認識精度の測定(文字誤り率 CER。人が校正済みにした行を正解に、機械の出力 original と比べる)・
+  - 名前: `nosub_stats` :27・`is_overlap_group` :37・`overlap_orders` :54・`overlap_best_counts` :73・`norm_cer` :98・`lev_counts` :104・`metric_terms` :147・`new_acc` :160・`acc_line` :165・`acc_merge` :189・`acc_finish` :200・`scored_groups` :209・ほか 3
 
 ## src/eval/fake/
 
@@ -35,7 +35,7 @@
 ## src/eval/tools/
 
 - **__init__.py** (2 行) — ⑤ 物差し(測る道具 eval_*・clipfit と共通の部品 _evalcommon)
-- **_evalcommon.py** (343 行) — 測る道具(src/eval/tools の eval_*.py・clipfit.py)の共通の部品。道具は src の中で `py -3.12 -m eval.tools.<名前>` で動かす(入口の accuracy.py も同じ)。
+- **_evalcommon.py** (342 行) — 測る道具(src/eval/tools の eval_*.py・clipfit.py)の共通の部品。道具は src の中で `py -3.12 -m eval.tools.<名前>` で動かす(入口の accuracy.py も同じ)。
   - 名前: `add_period_args` :36・`split_ids` :45・`label_name` :50・`data_env` :55・`locate` :60・`day_ms` :67・`period` :78・`in_period` :83・`period_label` :92・`iter_docs` :100・`read_answers` :109・`short_pct` :127・ほか 14
 - **clipfit.py** (342 行) — 自動の区間が友人の区間にどれだけ合うかの物差し(LD-2a。notes:plan/done/ld2-clip-length.md の L-2)。⑤ eval_marks が表示に使い、単独でも動く。
   - 名前: `load_material` :35・`rebuild` :51・`picks` :72・`fit` :81・`summarize` :93・`default_variants` :103・`friend_material` :111・`evaluate` :123・`edge_speech` :184・`scene_only` :242・`grid` :257・`print_fit` :289・ほか 1

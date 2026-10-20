@@ -6,7 +6,6 @@
 - 一覧と元の動画・パックの有無(list_transcripts・pack_info)と前回のパックの手順(pack_readme)は ④ manage/cases/doclist.py(txindex を読むのはそちら)
 - 評価ドリルの要約は持たない(⑤ eval/drill/drill.drill_docs が自前で文書を読んで足す)
 - 編集の内容(edit.json)は文書と相互に呼ぶので割らない。行の「カット済」は commit が必ず apply_edit_cuts で編集の内容に合わせる
-名前は serve.py からも見える(serve.py の名前の受付 _ED_MODULES がこの部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `モジュール.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。編集の ed_state は読まない(入口 = 上の層)。
 説明の中の記号: RS8 O2-0〜5・(r8t) など = 層の段と仮決め(notes:plan/decisions.md の 3-37)・Q2 = notes:plan/line-bc-master-plan.md の Q2。
 """

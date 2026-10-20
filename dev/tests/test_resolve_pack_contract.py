@@ -48,6 +48,7 @@ from pipeline.pack import pack  # noqa: E402
 from pipeline.pack import resolve_textplus as TP  # noqa: E402
 from pipeline.pack import srt2resolve as S  # noqa: E402
 from pipeline.pack import resolve_export  # noqa: E402
+from human.proof import store as _store  # noqa: E402   (行の「カット済」を編集の内容から決める edit_cut_flags)
 from ytt import errors as _errors  # noqa: E402
 
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
@@ -439,15 +440,6 @@ class ZipSkipsContract(unittest.TestCase):
                 self.assertEqual(sorted(p.relative_to(out).as_posix() for _, p in res["files"]), ["v30.edl"])
 
 
-def _load_transcribe_serve():
-    """文字起こしの serve.py(行の「カット済」を編集の内容から決める edit_cut_flags)。cut2resolve の serve と名前が同じなので別の名前で読む"""
-    import importlib.util
-    spec = importlib.util.spec_from_file_location("tx_serve_for_contract", str(ROOT / "editor" / "serve.py"))
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg / ffprobe が無い")
 class EditKeepsContract(unittest.TestCase):
     """「編集」ツール(notes:docs/design/edit-tool-design.md)のパック:
@@ -491,7 +483,6 @@ class EditKeepsContract(unittest.TestCase):
                 self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], frames)
 
     def test_rows_draft_same_as_transcript_rows(self):
-        tx = _load_transcribe_serve()
         cases = [
             [seg(1, 0, 2, "残す"), seg(2, 2, 4, "切る", cut=True), seg(3, 4, 8, "もう一度")],
             [seg(1, 0.52, 2.2, "a"), seg(2, 2.2, 3.4, "b", cut=True), seg(3, 3.4, 4.4, "c"), seg(4, 4.42, 6.04, "d"), seg(5, 6.5, 6.62, "短い"),
@@ -517,10 +508,10 @@ class EditKeepsContract(unittest.TestCase):
                     p_rows, a = self.build(pack.Request(video=video, transcript=self.write_v1(doc), **pack.TRANSCRIPT_ROWS), fps_text)
                     keeps_sec = [(round(x, 3), round(y, 3)) for x, y in pack.summary(p_rows)["keepsSec"]]   # 画面が編集の内容に保存する形
                     fps = p_rows.meta["fps"]
-                    edit = tx.sanitize_edit({"sources": [{"fps": list(fps), "duration": VIDEO_SEC}],
+                    edit = _store.sanitize_edit({"sources": [{"fps": list(fps), "duration": VIDEO_SEC}],
                                              "clips": [{"src": 0, "in": x, "out": y} for x, y in keeps_sec]})
                     segs = [dict(r) for r in rows]
-                    for r, cut in zip(segs, tx.edit_cut_flags(segs, edit)):   # 保存のときに行の cutState を編集の内容から付け直す
+                    for r, cut in zip(segs, _store.edit_cut_flags(segs, edit)):   # 保存のときに行の cutState を編集の内容から付け直す
                         r.pop("cutState", None)
                         if cut:
                             r["cutState"] = "cut"

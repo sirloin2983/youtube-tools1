@@ -4,8 +4,8 @@
 入口の src/app/live.py の Live の中の app でない部分を持つ。録画元のクライアント(一覧・要求・状態)・録画を始める(begin・友人の依頼の begin_request)・
 見回りの列(tick)・子プロセス(録画の部品の起動と後始末・検出のワーカー)・「調子」・採用の口(adopt)をここに置き、4 つの子(Detector・LiveTx・Reporter・
 Exporter)と Archiver・Adopter の親になる(flow/livehost.py の LiveHost を満たす)。入口の Live は LiveSession を継いで、HTTP の受け口・中継・札・
-スタジオ(studio_call・StudioMarks)・友人へ届ける・D-13・ホームの設定(prefs)だけを足す(app の殻)。画面なし(--headless)も同じ Live を使い、
-use_headless でスタジオなしの採用(LocalMarks)・届けない・D-13 の 6 時間の見回りなし・上限は束の adopt.top・空き容量の下限にする。
+スタジオ(studio_call・StudioMarks)・友人へ届ける・D-13・ホームの設定(prefs)だけを足す(app の殻)。友人の玄関(friendapp/live_session.py の FriendLive)は同じ LiveSession を継いで、
+スタジオなしの採用(LocalMarks)・届けない・D-13 の 6 時間の見回りなし・上限は束の adopt.top・空き容量の下限にする。
 
 受付 = submit(封筒, 束)(② の口 Queue.submit が kind live を回す = 入口が Queue.set_live_hook で登録する):
   封筒 kind live(flow/envelope.py)を受けて録画を始め、録画ごとに封筒 + 束を live/bundles.json に残す(BundleBook)。
@@ -441,9 +441,9 @@ class LiveSession:
         self._recent_lock = threading.Lock()
         self._stop_lock = threading.Lock()
         self._stopped = None              # 入口の終了で録画の部品を止めた結果(stop_recorder。2 回目からはこれを返す)
-        self.always_on = False            # 設定に関わらずオン(画面なし = 友人の依頼で動く。use_headless)
-        self.request_all = False          # どの封筒も友人の依頼の結びつきを作る(画面なし = 依頼の決まりで検出・採用・パックまで)
-        self.disk_min_gb = None           # 空き容量の下限(GB。下回ったら新しい録画を始めない。画面なし = machine.json の diskMinGB。None = 見ない)
+        self.always_on = False            # 設定に関わらずオン(友人の玄関 = 友人の依頼で動く)
+        self.request_all = False          # どの封筒も友人の依頼の結びつきを作る(友人の玄関 = 依頼の決まりで検出・採用・パックまで)
+        self.disk_min_gb = None           # 空き容量の下限(GB。下回ったら新しい録画を始めない。友人の玄関 = machine.json の diskMinGB。None = 見ない)
         self.disk_usage = fsio.disk_space     # (空き, 全体)(テストは偽の小さな空きにする)
         # 子(Detector・LiveTx・Reporter・Exporter)は self を親 host として受ける = flow/livehost.py の LiveHost(RS7-2 G0)
         self.detector = live_detect.Detector(self, python=self.python, spawn=spawn)   # 配信中の盛り上がりの検出(L2)と自動の採用(M11)
@@ -716,8 +716,8 @@ class LiveSession:
     # --- 受付(録画を始める) ---
     def submit(self, envelope, bundle, ctx=None):
         """② の口(Queue.submit が kind live を回す。RS7-2 G2b): 封筒 kind live + 束を受けて録画を始め、録画に封筒 + 束を残す(live/bundles.json)。
-        友人の依頼(封筒の requestId か ctx = 入口の intake の欄)と画面なし(request_all)は友人の依頼の結びつき(requests.json)も作る(begin_request)。
-        画面なしで空き容量が下限(disk_min_gb)より少なければ録画を始めない。
+        友人の依頼(封筒の requestId か ctx = 入口の intake の欄)と友人の玄関(request_all)は友人の依頼の結びつき(requests.json)も作る(begin_request)。
+        友人の玄関で空き容量が下限(disk_min_gb)より少なければ録画を始めない。
         -> {"id": 封筒の id, "live", "recorder", "recording": 録画の id, "existing", "title"?} か 配信中でなければ {"id", "live": False, "status", "message"?}。
         形が違う・録画を始められなければ LiveError(ValueError)"""
         env, bundle = _envelope.read(envelope, bundle)
@@ -751,7 +751,7 @@ class LiveSession:
         return rc
 
     def _disk_guard(self, rc):
-        """空き容量の下限(disk_min_gb。画面なし = machine.json の diskMinGB。notes:plan/done/f1-friend-pc.md 決めたこと 7)を下回っていたら LiveError(409)。
+        """空き容量の下限(disk_min_gb。友人の玄関 = machine.json の diskMinGB。notes:plan/done/f1-friend-pc.md 決めたこと 7)を下回っていたら LiveError(409)。
         見る所: 書き出し先・パック・live\\work(Exporter.disk の行)と録画元の録画の置き場所(GET /live/list の freeBytes)"""
         gb = self.disk_min_gb
         if not schemas.is_num(gb) or gb <= 0:

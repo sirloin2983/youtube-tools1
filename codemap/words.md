@@ -23,37 +23,37 @@
   - コード: `src/friendapp/inbox.py`・`receive_view` src/friendapp/inbox.py:1009・`src/friendapp/ui/receive.js`・`Inbox.decide` src/friendapp/inbox.py:700
   - 画面: src/app/ui/cases/panels/cut.js:176・src/app/ui/editor/pack-tab.js:546・src/app/ui/home/portal.js:464・src/friendapp/ui/friend.html:29 ほか 7
 - **見送った物** — 受け取る画面で 3 日は戻せる skip・bad の物
-  - コード: `Inbox.undo` src/friendapp/inbox.py:748・`Inbox.decide` src/friendapp/inbox.py:700・`VERDICTS` src/friendapp/inbox.py:55・`/api/friend/undo` src/friendapp/server.py:408
+  - コード: `Inbox.undo` src/friendapp/inbox.py:748・`Inbox.decide` src/friendapp/inbox.py:700・`VERDICTS` src/friendapp/inbox.py:55・`/api/friend/undo` src/friendapp/server.py:395
   - 画面: src/friendapp/ui/friend.html:175・src/friendapp/ui/guide.html:144・src/friendapp/ui/receive.js:65
 - **送る** — 友人のアプリの送る欄・受付の口。自動で送る判定は flow/sendpolicy
-  - コード: `src/friendapp/api.py`・`src/friendapp/ui/send-form.js`・`/api/friend/send` src/friendapp/server.py:395・`flow/sendpolicy.py` (無いパス)
+  - コード: `src/friendapp/api.py`・`src/friendapp/ui/send-form.js`・`/api/friend/send` src/friendapp/server.py:382・`flow/sendpolicy.py` (無いパス)
   - 画面: src/app/ui/cases/panels/cut.js:131・src/app/ui/check/cards/value.js:11・src/app/ui/editor/app-learn.js:132・src/app/ui/editor/app.js:278 ほか 16
 - **送った物** — 友人のアプリの送った物の行と、失敗の言葉・進み具合
-  - コード: `src/friendapp/ui/sent.js`・`src/friendapp/progress.py`・`/api/friend/inbox` src/friendapp/server.py:290
+  - コード: `src/friendapp/ui/sent.js`・`src/friendapp/progress.py`・`/api/friend/inbox` src/friendapp/server.py:277
   - 画面: src/app/ui/home/portal.html:150・src/friendapp/ui/friend.html:140・src/friendapp/ui/guide.html:37・src/friendapp/ui/receive.js:65
 - **片付ける** — 友人のアプリのフォルダの整理(新しい版の後と ⚙)。ごみ箱へ移す
-  - コード: `src/friendapp/tidy.py`・`Tidy` src/friendapp/tidy.py:137・`/api/friend/tidy` src/friendapp/server.py:295
+  - コード: `src/friendapp/tidy.py`・`Tidy` src/friendapp/tidy.py:137・`/api/friend/tidy` src/friendapp/server.py:282
   - 画面: src/friendapp/ui/settings.js:84・src/friendapp/ui/update.js:78
 - **片付け** — 入口の作業データの片付けの候補。ごみ箱フォルダへ移す
-  - コード: `src/manage/keep/cleanup.py`・`Cleanup` src/manage/keep/cleanup.py:99・`/api/cleanup` src/app/server.py:646
+  - コード: `src/manage/keep/cleanup.py`・`Cleanup` src/manage/keep/cleanup.py:99・`/api/cleanup` src/app/server.py:625
   - 画面: src/app/ui/home/portal.html:227・src/app/ui/home/portal.js:432・src/friendapp/ui/friend.js:85・src/friendapp/ui/settings.js:84 ほか 2
 - **ごみ箱フォルダ** — ④ ごみ箱へ移す・戻すの 1 か所。片付けが通る
-  - コード: `src/manage/keep/trash.py`・`to_trash` src/manage/keep/trash.py:27・`put_back` src/manage/keep/trash.py:92・`trash_days` src/app/server.py:1146
+  - コード: `src/manage/keep/trash.py`・`to_trash` src/manage/keep/trash.py:27・`put_back` src/manage/keep/trash.py:92・`trash_days` src/app/server.py:1091
   - 画面: src/app/ui/home/portal.html:228・src/app/ui/home/portal.js:472
 - **初回の準備** — 友人のアプリの初回の取得と道具の確かめ
-  - コード: `src/friendapp/setup.py`・`src/friendapp/ui/setup.js`・`src/friendapp/toolcheck.py`・`/api/friend/setup` src/friendapp/server.py:299
+  - コード: `src/friendapp/setup.py`・`src/friendapp/ui/setup.js`・`src/friendapp/toolcheck.py`・`/api/friend/setup` src/friendapp/server.py:286
   - 画面: src/friendapp/ui/guide.html:40・src/friendapp/ui/setup.html:6・friend-apps/launcher/src/Core.cs:279
 - **新しい版** — 友人のアプリの新しい版の帯と、exe の側の版の選び方
-  - コード: `src/friendapp/ui/update.js`・`/api/friend/update` src/friendapp/server.py:297・`friend-apps/launcher/src/Core.cs`
+  - コード: `src/friendapp/ui/update.js`・`/api/friend/update` src/friendapp/server.py:284・`friend-apps/launcher/src/Core.cs`
   - 画面: src/friendapp/ui/friend.js:77・src/friendapp/ui/update.js:2・friend-apps/launcher/src/Launcher.cs:404・friend-apps/launcher/src/MainForm.cs:568 ほか 1
 - **送り返す zip** — 友人の PC から送り返す zip を作る ②(outbox)
-  - コード: `src/flow/outbox.py`・`list_outbox` src/flow/outbox.py:223・`mark_done` src/flow/outbox.py:246・`/api/flow/outbox` (受ける所が見つからない)
+  - コード: `src/flow/outbox.py`・`list_outbox` (見つからない)・`mark_done` (見つからない)・`/api/flow/outbox` (受ける所が見つからない)
   - 画面: (画面の文字列に無い)
 - **案件** — 配信 1 本の束ね。④ が組み、案件の画面(/cases)で見る
-  - コード: `src/manage/cases/cases.py`・`src/flow/casebook.py`・`src/app/ui/cases/cases.js`・`/api/cases` src/app/server.py:785
+  - コード: `src/manage/cases/cases.py`・`src/flow/casebook.py`・`src/app/ui/cases/cases.js`・`/api/cases` src/app/server.py:752
   - 画面: src/app/ui/cases/caselink.js:2・src/app/ui/cases/cases.js:2・src/app/ui/cases/index.html:6・src/app/ui/cases/panels/cand.js:8 ほか 14
 - **まとめて実行** — 入口の案件から配信 1 本ぶんを順に自動で流す
-  - コード: `src/app/autorun.py`・`AutoRunner` src/app/autorun.py:213・`/api/flow/submit` src/app/server.py:641・`src/flow/runqueue.py`
+  - コード: `src/app/autorun.py`・`AutoRunner` src/app/autorun.py:213・`/api/flow/submit` src/app/server.py:620・`src/flow/runqueue.py`
   - 画面: src/app/ui/cases/cases.js:79・src/app/ui/cases/panels/cut.js:59・src/app/ui/editor/app-list.js:23・src/app/ui/editor/app-rows.js:126 ほか 7
 - **封筒** — ② の依頼の封筒の形と検査。欄から封筒への変換は order
   - コード: `src/flow/envelope.py`・`src/flow/order.py`
@@ -62,25 +62,25 @@
   - コード: `src/flow/spec.py`・`spec_from_settings` src/app/autorun.py:184
   - 画面: (画面の文字列に無い)
 - **見積もり** — ② の実行と同じ規則の見積もり(書き込まない)
-  - コード: `/api/flow/estimate` src/app/server.py:641・`src/flow/runqueue.py`
+  - コード: `/api/flow/estimate` src/app/server.py:620・`src/flow/runqueue.py`
   - 画面: src/app/ui/editor/pack-tab.js:37
 - **掲示板** — ② のジョブの掲示板(RS8 の口 S1)
   - コード: `src/flow/board.py`・`src/flow/jobs.py`
   - 画面: src/app/ui/home/portal.js:621・src/app/ui/studio/review.js:3392
 - **調子** — 入口の「調子」。空き容量・失敗・道具の版などの集計
-  - コード: `src/manage/ops/health.py`・`/api/health` src/app/server.py:753
+  - コード: `src/manage/ops/health.py`・`/api/health` src/app/server.py:720
   - 画面: src/app/ui/cases/panels/cand.js:110・src/app/ui/cases/panels/new.js:211・src/app/ui/home/portal.html:122・src/app/ui/home/portal.js:1170
 - **依頼の受付** — 友人の依頼を見張るフォルダ。入口の設定の節 intake
-  - コード: `src/human/friend/intake.py`・`src/flow/envelope.py`・`/api/intake` src/app/server.py:635
+  - コード: `src/human/friend/intake.py`・`src/flow/envelope.py`・`/api/intake` src/app/server.py:614
   - 画面: src/app/ui/home/portal.html:122・src/app/ui/home/portal.js:453
 - **バックアップ** — 作業データの自動バックアップ。設定の節 backup
-  - コード: `src/manage/keep/backup.py`・`/api/backup` src/app/server.py:636
+  - コード: `src/manage/keep/backup.py`・`/api/backup` src/app/server.py:615
   - 画面: src/app/ui/editor/app-tpl.js:147・src/app/ui/home/portal.html:122・src/app/ui/home/portal.js:1738
 - **精度の自動測定** — 夜に 1 日 1 回、校正済みで認識の精度を測る。設定の節 accuracy
-  - コード: `src/eval/drill/accuracy.py`・`/api/accuracy` src/app/server.py:637・`/api/accuracy/run` src/app/server.py:644
+  - コード: `src/eval/drill/accuracy.py`・`/api/accuracy` src/app/server.py:616・`/api/accuracy/run` src/app/server.py:623
   - 画面: src/app/ui/home/portal.html:289・src/app/ui/home/portal.js:1341
 - **作業データ** — 置き場所の持ち主は flow/placement。入口と友人の玄関に各々ある
-  - コード: `src/flow/placement.py`・`app_data_dir` src/app/server.py:325・`src/flow/machine.py`
+  - コード: `src/flow/placement.py`・`app_data_dir` src/app/server.py:304・`src/flow/machine.py`
   - 画面: src/app/ui/cases/panels/new.js:21・src/app/ui/cases/panels/studio-shim.js:43・src/app/ui/home/portal.html:150・src/app/ui/home/portal.js:1235 ほか 3
 - **パック** — Resolve へ渡すパック。作る ①・口 ②・作った記録・ジョブ
   - コード: `src/pipeline/pack/pack.py`・`src/flow/pack.py`・`src/flow/packrec.py`・`src/flow/packjobs.py`
@@ -104,7 +104,7 @@
   - コード: `src/flow/casebook.py`・`src/ytt/casefiles.py`・`src/app/ui/cases/panels/cand.js`・`src/human/review/store.py`
   - 画面: src/app/ui/cases/cases.js:73・src/app/ui/cases/index.html:48・src/app/ui/cases/panels/cand.js:31・src/app/ui/cases/panels/studio-shim.js:4 ほか 12
 - **文字起こし** — ② の文字起こしの動詞と ① の認識の部品
-  - コード: `src/flow/tx.py`・`src/pipeline/transcribe/worker.py`・`transcribe_clip` src/flow/tx.py:137
+  - コード: `src/flow/tx.py`・`src/pipeline/transcribe/worker.py`・`transcribe_clip` src/flow/tx.py:136
   - 画面: src/app/ui/cases/cases.js:75・src/app/ui/cases/edhost.js:19・src/app/ui/cases/panels/cut.js:31・src/app/ui/cases/panels/proof.js:64 ほか 19
 - **校正** — 案件の校正パネルと「編集」。人の直しを書く ③
   - コード: `src/app/ui/cases/panels/proof.js`・`src/human/proof/store.py`・`src/editor/serve.py`
@@ -116,19 +116,19 @@
   - コード: `src/flow/diar.py`・`src/human/proof/speakers.py`・`src/pipeline/transcribe/diarize.py`
   - 画面: src/app/ui/cases/cases.js:79・src/app/ui/cases/panels/cut.js:153・src/app/ui/cases/panels/machpick.js:35・src/app/ui/cases/panels/proof.js:64 ほか 15
 - **声を覚える** — 「編集」の話者に名前を付けて声を覚えるジョブ
-  - コード: `validate_voice_learn` src/human/proof/speakers.py:538・`run_voice_learn` src/human/proof/speakers.py:565・`/api/voices/learn` src/editor/serve.py:283
-  - 画面: src/app/ui/editor/app-jobs.js:97・src/app/ui/editor/app-rows.js:487・src/app/ui/editor/app-tools.js:98・src/app/ui/editor/app-tpl.js:103 ほか 1
+  - コード: `validate_voice_learn` src/human/proof/speakers.py:538・`run_voice_learn` src/human/proof/speakers.py:565・`/api/voices/learn` src/editor/serve.py:245
+  - 画面: src/app/ui/editor/app-jobs.js:97・src/app/ui/editor/app-rows.js:489・src/app/ui/editor/app-tools.js:98・src/app/ui/editor/app-tpl.js:103 ほか 1
 - **用語集** — 編集の設定の用語集(1 行 1 語)。② tx が選び ① が使う
-  - コード: `pick_glossary_terms` src/flow/tx.py:69・`src/app/ui/editor/app-learn.js`
+  - コード: `pick_glossary_terms` src/flow/tx.py:68・`src/app/ui/editor/app-learn.js`
   - 画面: src/app/ui/home/portal-edit.js:5・src/app/ui/home/portal.html:210
 - **書き出し** — 書き出しの ① と ② のジョブ表。スタジオの確認の画面から頼む
-  - コード: `src/pipeline/export/exporter.py`・`src/flow/export.py`・`ExportJobs` src/flow/export.py:38・`/api/export` src/app/live.py:323
+  - コード: `src/pipeline/export/exporter.py`・`src/flow/export.py`・`ExportJobs` src/flow/export.py:38・`/api/export` src/app/live.py:308
   - 画面: src/app/ui/cases/cases.js:79・src/app/ui/cases/panels/cand.js:31・src/app/ui/cases/panels/new.js:122・src/app/ui/check/cards/value.js:10 ほか 9
 - **スタジオ** — 切り抜きスタジオ(解析・確認・コラボ)
   - コード: `src/studio/serve.py`・`src/app/ui/studio`・`src/human/review/store.py`・`src/flow/studiobook.py`
   - 画面: src/app/ui/cases/cases.js:23・src/app/ui/cases/panels/cand.js:13・src/app/ui/cases/panels/cut.js:76・src/app/ui/cases/panels/new.js:43 ほか 11
 - **編集** — 文字起こしを直す「編集」の画面とサーバー
-  - コード: `src/editor/serve.py`・`src/app/ui/editor`・`src/editor/ed_state.py`・`/api/edit` src/editor/serve.py:252
+  - コード: `src/editor/serve.py`・`src/app/ui/editor`・`src/editor/ed_state.py`・`/api/edit` src/editor/serve.py:214
   - 画面: src/app/ui/cases/cases.js:3・src/app/ui/cases/edhost.js:19・src/app/ui/cases/index.html:6・src/app/ui/cases/panels/cut.js:142 ほか 26
 - **解析の順番待ち** — 解析の待ち(最大 10 本)と、スタジオの URL から入れる欄
   - コード: `src/flow/batch.py`・`src/app/ui/studio/queue.js`
@@ -140,10 +140,10 @@
   - コード: `src/manage/ops/analytics/render.py`・`src/manage/ops/analytics/service.py`
   - 画面: src/app/ui/home/portal.html:20・src/app/ui/settings/settings.js:78・src/manage/ops/analytics/web/app.js:4・src/manage/ops/analytics/web/index.html:6
 - **配色** — ホロカラーは C# の色の一覧アプリ。配色は友人の画面の A〜D
-  - コード: `friend-apps/holo-colors/src/Core.cs`・`src/friendapp/ui/palette.js`・`/api/friend/palette` src/friendapp/server.py:412
+  - コード: `friend-apps/holo-colors/src/Core.cs`・`src/friendapp/ui/palette.js`・`/api/friend/palette` src/friendapp/server.py:399
   - 画面: src/friendapp/ui/guide.html:167・src/friendapp/ui/palette.js:36・friend-apps/launcher/src/MainForm.cs:278・src/ui-kit/ui-kit.js:54
 - **起動** — 入口のランチャーと友人の FriendApp.exe。起動し直しは restart
-  - コード: `src/app/server.py`・`Supervisor` src/app/server.py:337・`friend-apps/launcher/src/Launcher.cs`・`src/manage/ops/restart.py`
+  - コード: `src/app/server.py`・`Supervisor` src/app/server.py:316・`friend-apps/launcher/src/Launcher.cs`・`src/manage/ops/restart.py`
   - 画面: src/app/ui/cases/cases.js:346・src/app/ui/cases/edhost.js:19・src/app/ui/cases/panels/new.js:122・src/app/ui/cases/panels/proof.js:183 ほか 16
 
 ## 候補(画面の文字列。多く出る順。手で整える前)
@@ -222,7 +222,7 @@
 - 友人へ自動で送る(2)— src/app/ui/home/portal.html:366
 - 失敗(2)— src/app/ui/home/portal.js:718
 - 始まりから(2)— src/friendapp/ui/send-form.js:108
-- 字幕に出さない(2)— src/app/ui/editor/app-rows.js:425
+- 字幕に出さない(2)— src/app/ui/editor/app-rows.js:427
 - 対象(2)— src/app/ui/editor/app-tpl.js:120
 - 対象の事務所(2)— src/app/ui/studio/rank.js:166
 - 対象の事務所を選ぶ(2)— src/app/ui/studio/rank.js:274
@@ -236,7 +236,7 @@
 - 月報(2)— src/manage/ops/analytics/web/index.html:27
 - 期間(2)— src/app/ui/studio/rank.js:161
 - 本数(2)— src/friendapp/ui/friend.html:85
-- 校正済み(2)— src/app/ui/editor/app-rows.js:424
+- 校正済み(2)— src/app/ui/editor/app-rows.js:426
 - 正解字(2)— src/app/ui/home/portal-edit.js:52
 - 残す(2)— src/app/ui/editor/cut.js:701
 - 消す(2)— src/app/ui/check/cards/section.js:35
@@ -250,7 +250,7 @@
 - 設定で API キーを入れる(2)— src/app/ui/studio/rank.js:272
 - 設定の画面を開く(2)— src/app/ui/home/portal.html:291
 - 設定を開く(2)— src/app/ui/studio/rank.js:157
-- 話者を外す(2)— src/app/ui/editor/app-rows.js:495
+- 話者を外す(2)— src/app/ui/editor/app-rows.js:497
 - 週報(2)— src/manage/ops/analytics/web/index.html:26
 - 適用(2)— src/app/ui/editor/app-tpl.js:100
 - 選ぶ(2)— src/friendapp/ui/settings.js:55
@@ -263,12 +263,12 @@
 - (2本以上選ぶと選べます)(1)— src/app/ui/studio/collab.js:116
 - (Mac は(1)— src/app/ui/editor/app-jobs.js:120
 - (カットしない = 動画全体)(1)— src/app/ui/editor/cut.js:703
-- (キーなし)(1)— src/app/ui/editor/app-rows.js:797
+- (キーなし)(1)— src/app/ui/editor/app-rows.js:799
 - (チャンネルの登録は「設定」の「事務所の登録」)(1)— src/app/ui/studio/rank.js:166
 - (任意)(1)— src/app/ui/studio/rank.js:164
 - (前の設定での見積もり)(1)— src/app/ui/editor/pack-tab.js:324
 - (送った物の見方もここです)(1)— src/friendapp/ui/guide.html:37
-- )で入力 →(1)— src/app/ui/editor/app-rows.js:798
+- )で入力 →(1)— src/app/ui/editor/app-rows.js:800
 - )も補正できます。(1)— src/app/ui/studio/collab.js:149
 - )を実行して、ツールを起動し直してください。(1)— src/app/ui/editor/app-jobs.js:120
 - + 区間を足す(1)— src/friendapp/ui/friend.html:83
@@ -287,6 +287,7 @@
 - 0件(1)— src/app/ui/studio/review.js:189
 - 1 つ前に戻す(1)— src/app/ui/check/index.html:55
 - 1. 送る(1)— src/friendapp/ui/guide.html:46
+- 10 字/秒・短い(1)— src/app/ui/editor/app-rows.js:240
 - 100本(1)— src/app/ui/studio/rank.js:172
 - 10分以上の動画だけ(1)— src/app/ui/studio/rank.js:178
 - 10本(1)— src/app/ui/studio/rank.js:172
@@ -330,4 +331,3 @@
 - API キー(1)— src/app/ui/cases/panels/new.js:22
 - API キーを削除しますか?(1)— src/app/ui/cases/panels/new.js:181
 - IN と OUT を押すと追加できます(1)— src/app/ui/studio/review.js:242
-- IN(開始)(1)— src/app/ui/studio/review.js:233

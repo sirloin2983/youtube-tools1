@@ -765,23 +765,23 @@ class TestArtifactKey(unittest.TestCase):
         self.assertIn("diar", schemas.KEY_STAGES)
         self.assertIn("post", schemas.KEY_STAGES)
 
-    def test_file_digest(self):
+    def test_sha256_file(self):
         import hashlib
         data = b"0123456789" * 1000
         with tempfile.TemporaryDirectory() as tmp:
             p = os.path.join(tmp, "a.bin")
             with open(p, "wb") as f:
                 f.write(data)
-            self.assertEqual(schemas.file_digest(p), hashlib.sha256(data).hexdigest())
-            self.assertEqual(schemas.file_digest(p, chunk=7), hashlib.sha256(data).hexdigest())
+            self.assertEqual(fsio.sha256_file(p), hashlib.sha256(data).hexdigest())
+            self.assertEqual(fsio.sha256_file(p, chunk=7), hashlib.sha256(data).hexdigest())
             q = os.path.join(tmp, "b.bin")
             with open(q, "wb") as f:
                 f.write(data)
             os.utime(q, (1, 1))   # 更新日時が違っても中身が同じなら同じ
-            self.assertEqual(schemas.file_digest(p), schemas.file_digest(q))
-            self.assertEqual(schemas.media_identity("file", sha256=schemas.file_digest(p))["sha256"], schemas.file_digest(q))
+            self.assertEqual(fsio.sha256_file(p), fsio.sha256_file(q))
+            self.assertEqual(schemas.media_identity("file", sha256=fsio.sha256_file(p))["sha256"], fsio.sha256_file(q))
             with self.assertRaises(OSError):
-                schemas.file_digest(os.path.join(tmp, "none.bin"))
+                fsio.sha256_file(os.path.join(tmp, "none.bin"))
 
     def test_key_path(self):
         W = schemas.WORK_DIR
@@ -1018,7 +1018,7 @@ class TestTools(unittest.TestCase):
         self.addCleanup(shutil.rmtree, tmp, True)
         empty = os.path.join(tmp, "empty")
         os.makedirs(empty)
-        env = {"LOCALAPPDATA": tmp, "PATH": empty, "TRANSCRIBE_FFMPEG": "", "YTT_FFMPEG": "", "YTT_FFPROBE": ""}
+        env = {"LOCALAPPDATA": tmp, "PATH": empty, "YTT_FFMPEG": "", "YTT_FFPROBE": ""}
         with mock.patch.dict(os.environ, env):
             self.assertEqual((tools.media_tool("ffmpeg"), tools.media_tool("ffprobe"), tools.find_ffmpeg()), ("ffmpeg", "ffprobe", None))
             bin_dir = os.path.join(tmp, "Microsoft", "WinGet", "Packages", "Gyan.FFmpeg_x", "ffmpeg-9.0-full_build", "bin")
@@ -1032,7 +1032,7 @@ class TestTools(unittest.TestCase):
             os.makedirs(other)
             for n in ("ffmpeg.exe", "ffprobe.exe"):
                 open(os.path.join(other, n), "wb").close()
-            with mock.patch.dict(os.environ, {"TRANSCRIBE_FFMPEG": os.path.join(other, "ffmpeg.exe")}):   # 環境変数で決めた ffmpeg の隣の ffprobe
+            with mock.patch.dict(os.environ, {"YTT_FFMPEG": os.path.join(other, "ffmpeg.exe")}):   # 環境変数で決めた ffmpeg の隣の ffprobe
                 self.assertEqual(os.path.normcase(tools.media_tool("ffprobe")), os.path.normcase(os.path.join(other, "ffprobe.exe")))
 
     def test_subprocess_helpers(self):
@@ -1108,18 +1108,18 @@ class TestTools(unittest.TestCase):
         self.assertEqual(cmd[-2:], ["--", "https://www.youtube.com/watch?v=x"])   # URL は最後のまま
 
     def test_find_tool_ytt_env(self):
-        """OPT1: 固有の環境変数 → YTT_<名前> → PATH(どの部品も YTT_ を見る)"""
+        """OPT1: 引数の環境変数 → YTT_<名前> → PATH(どの部品も YTT_ を見る)"""
         with tempfile.TemporaryDirectory() as d:
             a, b = os.path.join(d, "a.exe"), os.path.join(d, "b.exe")
             for p in (a, b):
                 open(p, "wb").close()
             self.assertEqual(tools.ytt_env("yt-dlp"), "YTT_YTDLP")
-            with mock.patch.dict(os.environ, {"YTT_YTDLP": a, "STUDIO_YTDLP": b}), mock.patch.object(tools.shutil, "which", return_value="/p/yt-dlp"):
+            with mock.patch.dict(os.environ, {"YTT_YTDLP": a, "OTHER_YTDLP": b}), mock.patch.object(tools.shutil, "which", return_value="/p/yt-dlp"):
                 self.assertEqual(tools.find_tool("yt-dlp"), a)
-                self.assertEqual(tools.find_tool("yt-dlp", "STUDIO_YTDLP"), b)     # 固有の名前が先(今までの指定が効く)
-            with mock.patch.dict(os.environ, {"YTT_YTDLP": a + ".missing", "STUDIO_YTDLP": ""}), \
+                self.assertEqual(tools.find_tool("yt-dlp", "OTHER_YTDLP"), b)     # 引数の名前が先
+            with mock.patch.dict(os.environ, {"YTT_YTDLP": a + ".missing", "OTHER_YTDLP": ""}), \
                     mock.patch.object(tools.shutil, "which", return_value="/p/yt-dlp"):
-                self.assertEqual(tools.find_tool("yt-dlp", "STUDIO_YTDLP"), "/p/yt-dlp")   # 実在しなければ PATH
+                self.assertEqual(tools.find_tool("yt-dlp", "OTHER_YTDLP"), "/p/yt-dlp")   # 実在しなければ PATH
 
     @unittest.skipUnless(os.name == "nt", "winget の場所は Windows だけ")
     def test_find_tool_winget_for_every_caller(self):
@@ -1130,10 +1130,10 @@ class TestTools(unittest.TestCase):
         empty = os.path.join(tmp, "empty")
         os.makedirs(empty)
         env = {"LOCALAPPDATA": tmp, "PATH": empty}
-        for v in ("STUDIO_FFMPEG", "STUDIO_FFPROBE", "STUDIO_YTDLP", "YTT_FFMPEG", "YTT_FFPROBE", "YTT_YTDLP", "TRANSCRIBE_FFMPEG"):
+        for v in ("YTT_FFMPEG", "YTT_FFPROBE", "YTT_YTDLP"):
             env[v] = ""
         with mock.patch.dict(os.environ, env):
-            self.assertIsNone(tools.find_tool("ffmpeg", "STUDIO_FFMPEG"))
+            self.assertIsNone(tools.find_tool("ffmpeg"))
             pk = os.path.join(tmp, "Microsoft", "WinGet", "Packages")
             bin_dir = os.path.join(pk, "Gyan.FFmpeg_x", "ffmpeg-9.0-full_build", "bin")
             yd_dir = os.path.join(pk, "yt-dlp.yt-dlp_x")
@@ -1151,7 +1151,7 @@ class TestTools(unittest.TestCase):
                 open(os.path.join(other, n), "wb").close()
             with mock.patch.dict(os.environ, {"YTT_FFMPEG": os.path.join(other, "ffmpeg.exe")}):
                 same(tools.find_tool("ffprobe"), other, "ffprobe.exe")
-            with mock.patch.dict(os.environ, {"STUDIO_FFMPEG": os.path.join(other, "ffmpeg.exe")}):
+            with mock.patch.dict(os.environ, {"YTT_FFMPEG": os.path.join(other, "ffmpeg.exe")}):
                 same(studio_env.find_tool("ffprobe"), other, "ffprobe.exe")
 
     def test_no_window_flags_priority(self):

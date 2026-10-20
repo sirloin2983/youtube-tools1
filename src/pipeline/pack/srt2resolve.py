@@ -2,10 +2,9 @@
 # -*- coding: utf-8 -*-
 """パックの部品(動画の情報の読み取り・字幕の読み込み・フレームの計算・SRT の組み立ての小道具)。
 単独のコマンドと FCPXML の書き出しは持たない(ユーザー決定)。
-パックを作る道は入口と ② の CLI src/app/cli.py だけ。
+パックを作る道は入口と ② の自動の流れだけ。
 """
 import contextlib
-import json
 import math
 import os
 import re
@@ -197,18 +196,14 @@ def _exact_frames(video, v):
 
 
 def probe(video, fps_override=None, frames_override=None):
-    cmd = [tool("ffprobe"), "-v", "error", "-print_format", "json", "-show_streams", "-show_format", arg_path(video)]
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=60, stdin=subprocess.DEVNULL)
+        info = _ytools.ffprobe_json(tool("ffprobe"), ["-show_streams", "-show_format", arg_path(video)])
     except FileNotFoundError:
         raise ToolError("ffprobe が見つかりません。ffmpeg をインストールして PATH に通してください。")
     except subprocess.TimeoutExpired:
         raise ToolError("ffprobe が 60 秒で終わりませんでした。動画ファイルを確認してください。")
-    if r.returncode != 0:
-        raise ToolError(f"動画を読めませんでした: {r.stderr.strip()[:200]}")
-    try:
-        info = json.loads(r.stdout or "{}")
+    except subprocess.CalledProcessError as e:
+        raise ToolError(f"動画を読めませんでした: {e.stderr.strip()[:200]}")
     except ValueError:
         raise ToolError("動画の情報(ffprobe の出力)を読めませんでした。")
     streams = info.get("streams", [])

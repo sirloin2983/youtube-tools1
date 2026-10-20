@@ -6,7 +6,6 @@
 - 行を単語の時刻で整えて分ける split_segment(決まりの値 SPLIT_GAP・SPLIT_SEC・SPLIT_CHARS・SPLIT_SLACK)と、空白を詰めて比べる _squash
 - テロップ用の句読点の除去 strip_punct(STRIP_PUNCT_CHARS)
 - 用語集の欄の区切り split_terms
-名前は編集の serve の名前の受付(_ED_MODULES)に並ぶ = S.strip_punct などで読める。受付に並ぶほかの部品と同じ名前を作らない。
 """
 import re
 import unicodedata

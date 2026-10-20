@@ -11,6 +11,7 @@
 """
 import collections
 import glob
+import json
 import os
 import re
 import shutil
@@ -64,7 +65,7 @@ def _env_file(names):
 
 def find_tool(name, env_var=None):
     """外部プログラム(ffmpeg・ffprobe・yt-dlp など)の場所。すべての部品の探し方はこの 1 つ(OPT1)。順:
-    1. ツール固有の環境変数 env_var(STUDIO_FFMPEG・TRANSCRIBE_FFMPEG・TRANSCRIBE_YTDLP など。先に見る)
+    1. 引数 env_var で渡した環境変数(省くと見ない)
     2. 共通の環境変数 ytt_env(name)(YTT_FFMPEG・YTT_FFPROBE・YTT_YTDLP)
     3. ffprobe だけ: 1・2 の ffmpeg の環境変数(名前の FFPROBE を FFMPEG にした物)で決めた ffmpeg の隣
     4. PATH
@@ -83,7 +84,7 @@ def find_tool(name, env_var=None):
 
 
 # ---------- 動画・音声のファイル(編集の文字起こし・波形・付け替え・保管が使う) ----------
-# 編集の部品は呼ぶたびに tools.名前 で読む(テストの S.find_ffmpeg = …・patch.object(S, "check_source", …) は編集の serve の名前の受付がここへ届ける)
+# 編集の部品は呼ぶたびに tools.名前 で読む(テストは tools の名前を差し替える)
 MEDIA_TYPES = {   # 編集が受け付ける動画・音声の拡張子 → 配信する Content-Type(/media・check_source・フォルダの一括・付け替え)
     ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm", ".mkv": "video/x-matroska",
     ".avi": "video/x-msvideo", ".ts": "video/mp2t", ".flv": "video/x-flv",
@@ -113,15 +114,14 @@ def _in_dirs(name, dirs):
 
 
 def find_ffmpeg():
-    """編集の ffmpeg(find_tool の決め方。固有の環境変数は TRANSCRIBE_FFMPEG)。無ければ None"""
-    return find_tool("ffmpeg", "TRANSCRIBE_FFMPEG")
+    """編集の ffmpeg(find_tool の決め方)。無ければ None"""
+    return find_tool("ffmpeg")
 
 
 def media_tool(name):
-    """ffmpeg / ffprobe の実行ファイルのパス(パックが呼ぶ。RS7-1 F-k)。find_tool の決め方で、固有の環境変数は TRANSCRIBE_<名前>
-    (ffprobe は TRANSCRIBE_FFMPEG で決めた ffmpeg の隣も見る)。
+    """ffmpeg / ffprobe の実行ファイルのパス(パックが呼ぶ。RS7-1 F-k)。find_tool の決め方(ffprobe は YTT_FFMPEG で決めた ffmpeg の隣も見る)。
     どこにも無ければ名前のまま(呼ぶと FileNotFoundError = 呼ぶ側の「見つかりません」の案内)"""
-    return find_tool(name, "TRANSCRIBE_" + name.upper().replace("-", "")) or name
+    return find_tool(name) or name
 
 
 def ffmpeg_info(path, ff=None):
@@ -131,7 +131,8 @@ def ffmpeg_info(path, ff=None):
         return None
     try:
         p = subprocess.run([ff, "-hide_banner", "-nostdin", "-i", path], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                           stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", timeout=30)
+                           stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", timeout=30,
+                           creationflags=no_window_flags())
     except (OSError, subprocess.SubprocessError):
         return None
     return p.stdout or ""
@@ -193,6 +194,19 @@ def no_window_flags(new_group=False, priority=None):
         return 0
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | (getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if new_group else 0)
     return flags | (getattr(subprocess, PRIORITY[priority], 0) if priority else 0)
+
+
+def ffprobe_json(ffprobe, args, timeout=60):
+    """ffprobe を JSON の出力で 1 回動かして辞書(か配列)にする(窓なし・標準入力なし)。ffprobe = 実行ファイルのパス、args = 足す引数
+    (["-show_streams", "-show_format", パス] など。-v error と -of json はここで足す)。
+    実行ファイルが無い = FileNotFoundError(OSError)・時間切れ = subprocess.TimeoutExpired・終了コード 0 でない = subprocess.CalledProcessError
+    (stderr に標準エラーの文字)・JSON でない = ValueError。呼ぶ側が落ち先(None にする・ToolError にする)を決める"""
+    cmd = [ffprobe, "-v", "error", "-of", "json"] + list(args)
+    r = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout,
+                       creationflags=no_window_flags(new_group=True))
+    if r.returncode != 0:
+        raise subprocess.CalledProcessError(r.returncode, cmd, r.stdout, r.stderr.decode("utf-8", "replace"))
+    return json.loads(r.stdout.decode("utf-8", "replace") or "{}")
 
 
 def python_exe(python=None):

@@ -6,7 +6,6 @@
   ① 探す(配信ランキング。先頭に URL から入れる欄と解析の順番待ち = 切り抜き候補の自動選定・バッチ)→ ② 確認・書き出し(クリップマーカー)。
   エンドポイントは API.md を参照。127.0.0.1 にのみバインドし、Host / Origin / Sec-Fetch-Site を検査する。
 """
-import json
 import logging
 import os
 import re
@@ -14,16 +13,12 @@ import shutil
 import sys
 import threading
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 import webbrowser
-from http.server import BaseHTTPRequestHandler
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import startup  # noqa: E402  最初に読む: src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる(下の部品は src の ytt・pipeline を読む)
-import handoff  # noqa: E402  実行中のポートの共有(.runtime・/api/siblings)。スタジオに残る
 from human.find import rank  # noqa: E402  (startup が src を sys.path に足してある。RS3-5 でスタジオの隣から層へ)
 from human.review import store as store_mod  # noqa: E402
 from manage.cases import txlink  # noqa: E402
@@ -33,7 +28,7 @@ from pipeline.analyze import analyze  # noqa: E402
 from pipeline.analyze import fetch  # noqa: E402
 from pipeline.export import exporter  # noqa: E402
 from ytt import yturl as _yturl  # noqa: E402
-from ytt import apikey as _key, datadir, httpsec, procs as _procs, runtime as ytt_runtime, studio_env as _env, tools as _tools  # noqa: E402  (startup が ytt を読めるようにしてある)
+from ytt import apikey as _key, datadir, httpsec, procs as _procs, runtime as ytt_runtime, studio_env as _env, tools as _tools, ytapi as _ytapi  # noqa: E402  (startup が ytt を読めるようにしてある)
 from ytt import version as _version  # noqa: E402
 from ytt import marks as _marks, schemas as _schemas  # noqa: E402  (/api/live/exported の clip の検査。LD-2f)
 from ytt.errors import ApiError  # noqa: E402
@@ -97,12 +92,7 @@ def fetch_title(vid):
     """oEmbed(公開エンドポイント・キー不要)でタイトルだけ取得する。失敗時は空文字。接続先は固定で、IDは検証済み。"""
     if _env.fake():
         return "疑似タイトル(%s)" % vid
-    target = "https://www.youtube.com/oembed?format=json&url=" + urllib.parse.quote(_yturl.watch_url(vid), safe="")
-    try:
-        with urllib.request.urlopen(urllib.request.Request(target, headers={"Accept": "application/json"}), timeout=8) as r:
-            return str(json.loads(r.read(200000).decode("utf-8", "replace")).get("title", ""))[:120]
-    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
-        return ""
+    return _ytapi.oembed(vid)["title"]
 
 
 def api_state():
@@ -117,25 +107,18 @@ def api_state():
     return d
 
 
-class Handler(BaseHTTPRequestHandler):
+def _runtime_dir():
+    """<studio の1つ上>/.runtime。環境変数 YTT_RUNTIME_DIR があればそちら(テスト用)"""
+    return ytt_runtime.runtime_dir(_env.code_dir())
+
+
+class Handler(httpsec.LocalHandler):
     server_version = APP_ID
     timeout = SOCKET_TIMEOUT
+    json_type = "application/json"
 
-    # 安全検査の規則は ytt.httpsec に1か所(スタジオ・文字起こし・入口で共通)
-    def _host_ok(self):          # DNS rebinding 対策
-        return httpsec.host_ok(self.headers, ALLOWED_HOSTS)
-
-    def _origin_ok(self):        # 他サイトからの書き込み(CSRF)対策。"http://" + 許可した Host と完全に一致するものだけ
-        return httpsec.origin_ok(self.headers, ALLOWED_HOSTS)
-
-    def _fetch_site_ok(self):    # 他サイトからのAPI消費(クォータ浪費)対策
-        return httpsec.fetch_site_ok(self.headers)
-
-    def _send(self, code, body=b"", ctype="text/plain; charset=utf-8", extra=None):
-        httpsec.send(self, code, body, ctype, extra)   # 見出し(no-store・nosniff)は ytt の 1 か所(動画の _media も同じ send_head)
-
-    def _json(self, code, obj):
-        self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"), "application/json")
+    def _allowed(self):   # 安全検査の規則は ytt.httpsec(スタジオ・文字起こし・入口で共通)
+        return ALLOWED_HOSTS
 
     def _err(self, e):
         self._json(e.status, dict(e.extra or {}, error=e.code, message=e.message))
@@ -198,7 +181,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._guard(self._media, arg("id"))
         routes = {
             "/api/ping": lambda: {"app": APP_ID, "version": SERVER_VERSION},
-            "/api/siblings": lambda: handoff.siblings(TOOL_ID, PORT, self_path=BASE_PATH),
+            "/api/siblings": lambda: ytt_runtime.siblings(_runtime_dir(), TOOL_ID, PORT, self_path=BASE_PATH),
             "/api/state": api_state,
             "/api/settings": lambda: {"settings": STORE.get_ui()},
             "/api/rank/registry": rank.get_registry,
@@ -597,7 +580,9 @@ def prepare(port, base_path="/"):
     _attach_warn_log()
     _log("起動 v%s port=%d%s pid=%d python=%s" % (SERVER_VERSION, port, "" if base_path == "/" else " path=" + base_path, os.getpid(), sys.version.split()[0]))
     shutil.rmtree(fetch.work_dir(), ignore_errors=True)   # 前回の途中で残った作業ファイルを消す
-    runtime = handoff.write_runtime(TOOL_ID, port, SERVER_VERSION, base_path)   # 他のツールの「他のツール」メニュー用。書けなくても続ける
+    runtime = ytt_runtime.write_runtime(_runtime_dir(), TOOL_ID, port, SERVER_VERSION, base_path)   # 他のツールの「他のツール」メニュー用。書けなくても続ける
+    if runtime is None:
+        _env.log_failure(".runtime の書き込み", OSError("%s に書けません" % _runtime_dir()))
     startup.start_env_check()   # 道具の版などは裏で調べる(yt-dlp --version は数秒かかることがある)
     threading.Thread(target=_clean_leftovers, daemon=True, name="clean-partials").start()   # 出力先がネットワークドライブでも起動を待たせない
     return runtime
@@ -650,13 +635,13 @@ def finish():
     try:
         shutdown_jobs()
     finally:
-        handoff.remove_runtime(TOOL_ID, PORT)
+        ytt_runtime.remove_runtime(_runtime_dir(), TOOL_ID, PORT)
 
 
 def mounted_elsewhere():
     """入口(start.bat)の統合サーバーの中でスタジオが動いていれば、その URL。
     同じ data.json を2つのサーバーで取り合わないよう、serve.py を直接起動したときはそちらを開くだけにする(単独起動はしない)。"""
-    info = ytt_runtime.read_runtime(handoff.runtime_dir(), TOOL_ID)
+    info = ytt_runtime.read_runtime(_runtime_dir(), TOOL_ID)
     if info and info["path"] != "/" and ytt_runtime.ping_app(info["port"], 1, info["path"]) == APP_ID:
         return "http://localhost:%d%s" % (info["port"], info["path"])
     return None

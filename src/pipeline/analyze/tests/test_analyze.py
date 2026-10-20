@@ -50,7 +50,7 @@ class TestLagEstimate(unittest.TestCase):
 
     def est(self, **kw):
         full, band, act = synth(**kw)
-        return analyze.estimate_lag(analyze.audio_score(full, band), analyze.chat_z(act))
+        return excite.estimate_lag(excite.audio_score(full, band), excite.chat_z(act))
 
     def test_recovers_lag_from_synthetic(self):
         for lag in (0, 4, 8, 12, 20, 27):
@@ -60,13 +60,13 @@ class TestLagEstimate(unittest.TestCase):
                 self.assertLessEqual(abs(est - lag), 2, (lag, seed, est))   # chat の9秒平滑化があるので±2秒まで
 
     def test_short_or_flat_series_returns_none(self):
-        self.assertEqual(analyze.estimate_lag([1.0] * 100, [1.0] * 100)[0], None)
-        self.assertEqual(analyze.estimate_lag([0.0] * 1000, [0.0] * 1000)[0], None)
+        self.assertEqual(excite.estimate_lag([1.0] * 100, [1.0] * 100)[0], None)
+        self.assertEqual(excite.estimate_lag([0.0] * 1000, [0.0] * 1000)[0], None)
 
     def test_shift_chat_edges(self):
-        self.assertEqual(analyze.shift_chat([1, 2, 3, 4], 0), [1, 2, 3, 4])
-        self.assertEqual(analyze.shift_chat([1, 2, 3, 4], 2), [3, 4, 0.0, 0.0])
-        self.assertEqual(analyze.chat_score([0.0] * 50, 3), analyze.shift_chat(analyze.chat_z([0.0] * 50), 3))
+        self.assertEqual(excite.shift_chat([1, 2, 3, 4], 0), [1, 2, 3, 4])
+        self.assertEqual(excite.shift_chat([1, 2, 3, 4], 2), [3, 4, 0.0, 0.0])
+        self.assertEqual(excite.chat_score([0.0] * 50, 3), excite.shift_chat(excite.chat_z([0.0] * 50), 3))
 
 
 class TestFetchComments(unittest.TestCase):
@@ -95,7 +95,7 @@ class TestFetchComments(unittest.TestCase):
 
 class TestComments(unittest.TestCase):
     def test_comment_score_accepts_legacy_pairs(self):
-        out = analyze.comment_score([(100, 5)], 300)
+        out = excite.comment_score([(100, 5)], 300)
         self.assertGreater(out[100], 0)
 
 

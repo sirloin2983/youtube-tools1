@@ -10,7 +10,7 @@
    入口に取り込んだスタジオの解析の順番待ちを、入口のまとめて実行が待つ組み合わせはここだけ
 ③ 画面のエラー(CSP 違反を含む)が無い
 ④ 入口を起動し直しても、案件の行と「まとめて実行の記録」に前回の結果(止まった理由も)が出る(記録は logs/autorun-runs.jsonl)
-パックの中身・記録の形・API の拒否は下の層(test_autorun.py・test_cli.py・test_launch.py)で見る。
+パックの中身・記録の形・API の拒否は下の層(test_autorun.py・test_launch.py)で見る。
 """
 import json
 import os

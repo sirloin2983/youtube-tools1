@@ -14,9 +14,10 @@ import argparse
 import ast
 import os
 import re
-import subprocess
 import sys
 from collections import Counter, defaultdict
+
+from _common import tracked_files
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(REPO, "codemap")
@@ -50,8 +51,7 @@ HTML_TEXT = re.compile(r">([^<>\n]{2,24})<")
 
 
 def git_files():
-    out = subprocess.run(["git", "ls-files", "-z"], cwd=REPO, capture_output=True, check=True).stdout.decode("utf-8")
-    return sorted(p for p in out.split("\0") if p.endswith(EXTS) and not skipped(p))
+    return sorted(p for p in tracked_files(REPO) if p.endswith(EXTS) and not skipped(p))
 
 
 def skipped(p):
@@ -306,8 +306,7 @@ def load_words():
 
 
 def ui_files():
-    out = subprocess.run(["git", "ls-files", "-z"], cwd=REPO, capture_output=True, check=True).stdout.decode("utf-8")
-    return sorted(p for p in out.split("\0") if p.endswith((".js", ".html", ".cs")) and not skipped(p) and not is_test(p))
+    return sorted(p for p in tracked_files(REPO) if p.endswith((".js", ".html", ".cs")) and not skipped(p) and not is_test(p))
 
 
 def fmt_name(name, where):

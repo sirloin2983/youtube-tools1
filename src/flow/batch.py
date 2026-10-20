@@ -177,7 +177,7 @@ class Batch:
     # ---- 掲示板(RS8 の ② の口 S2。flow/board.py。頭 an・id = an:<qid>。今の API は変えない: 状態を写して見せるだけ) ----
     def attach_board(self, board):
         """解析のキューを掲示板に載せる(引く形・頭 an。取り消し・やり直しも掲示板の id で)。スタジオの serve が init で 1 回呼ぶ"""
-        board.register("an", source=self.board_jobs, cancel=self.board_cancel, retry=self.board_retry)
+        board.register("an", source=self.board_jobs, cancel=self.board_cancel)
 
     def _board_job(self, rec):
         """記録 -> 掲示板の Job(Table の cv を持って呼ぶ)。案件の根は掲示板の case_hook が target から引く"""
@@ -202,15 +202,6 @@ class Batch:
             self.cancel(qid)
         except ApiError as e:
             raise LookupError(e.message)
-
-    def board_retry(self, qid):
-        """掲示板のやり直し: retry と同じ(新しい qid で入れ直す)-> 新しい item の Job。無い id は LookupError・入れられないは ValueError"""
-        try:
-            new = self.retry(qid)
-        except ApiError as e:
-            raise (LookupError if e.status == 404 else ValueError)(e.message)
-        with self.table.cv:
-            return self._board_job(self.table.get(new))
 
     # ---- 糸の中身(Table が呼ぶ) ----
     def _before(self, rec):

@@ -23,7 +23,11 @@ HERE = os.path.dirname(TESTS)
 os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
-import serve as S  # noqa: E402
+import serve  # noqa: E402
+import ed_state  # noqa: E402
+from eval.drill import drill as _drill  # noqa: E402
+from pipeline.transcribe import diarize as _diarize  # noqa: E402
+from ytt import workdata as _workdata  # noqa: E402
 from eval.drill import evalbatch as EB  # noqa: E402
 from human.proof import doc_jobs  # noqa: E402
 from human.proof import store  # noqa: E402
@@ -66,9 +70,9 @@ class TestEvalBatch(unittest.TestCase):
     def setUp(self):
         self.tmp = testkit.tempdir(self)    # 作業データの代わり(設定・eval-batch.json・文書)
         self.ev = testkit.tempdir(self)     # 評価用のフォルダ(動画)
-        self.saved = (S.TX_DIR, S.TMP_DIR, S.SETTINGS)
-        S.TX_DIR, S.TMP_DIR, S.SETTINGS = os.path.join(self.tmp, "transcripts"), os.path.join(self.tmp, ".tmp"), os.path.join(self.tmp, "settings.json")
-        os.makedirs(S.TX_DIR)
+        self.saved = (_workdata.TX_DIR, _workdata.TMP_DIR, _workdata.SETTINGS)
+        _workdata.TX_DIR, _workdata.TMP_DIR, _workdata.SETTINGS = os.path.join(self.tmp, "transcripts"), os.path.join(self.tmp, ".tmp"), os.path.join(self.tmp, "settings.json")
+        os.makedirs(_workdata.TX_DIR)
         self.old_jobs = dict(ytt_jobs._jobs)
         ytt_jobs._jobs.clear()
         self.env = mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": "0", "TRANSCRIBE_NORMALIZE": "off",
@@ -86,11 +90,11 @@ class TestEvalBatch(unittest.TestCase):
         self.env.stop()
         ytt_jobs._jobs.clear()
         ytt_jobs._jobs.update(self.old_jobs)
-        S.TX_DIR, S.TMP_DIR, S.SETTINGS = self.saved
+        _workdata.TX_DIR, _workdata.TMP_DIR, _workdata.SETTINGS = self.saved
 
     # -- 道具
     def settings(self, d):
-        testkit.write_json(S.SETTINGS, d)
+        testkit.write_json(_workdata.SETTINGS, d)
 
     def video(self, folder, name):
         p = os.path.join(folder, name)
@@ -194,13 +198,13 @@ class TestEvalBatch(unittest.TestCase):
         """行の無い文書がある動画は、その文書へ入れる(文書が2つにならない)"""
         from test_edit import put_empty_doc   # 行の無い文書
         (a,) = self.staged("a.mp4")
-        tid = put_empty_doc(S.TX_DIR, a)
+        tid = put_empty_doc(_workdata.TX_DIR, a)
         EB.eval_batch_start()
         EB.eb_tick("test")
         (j,) = self.mine()
         self.assertEqual(j["spec"]["intoDoc"], tid)
         self.finish(j)
-        self.assertEqual(len([n for n in os.listdir(S.TX_DIR) if S.TID_RE.match(n[:-5]) and n.endswith(".json")]), 1)   # 文書 <id>.json だけ(横のファイルは数えない)
+        self.assertEqual(len([n for n in os.listdir(_workdata.TX_DIR) if ed_state.TID_RE.match(n[:-5]) and n.endswith(".json")]), 1)   # 文書 <id>.json だけ(横のファイルは数えない)
 
     def test_user_job_makes_it_wait(self):
         """ユーザーのジョブが動いている・待っているときは自分の分を増やさない。終われば再開する"""
@@ -310,7 +314,7 @@ class TestEvalBatch(unittest.TestCase):
 
         def fake(req):
             if req["sourcePath"] == a:
-                raise S.ApiError("too_long", "1回に処理できるのは6時間までです", 400)
+                raise ed_state.ApiError("too_long", "1回に処理できるのは6時間までです", 400)
             return real(req)
         EB.eval_batch_start()
         with mock.patch.object(doc_jobs, "validate_job", side_effect=fake):
@@ -324,7 +328,7 @@ class TestEvalBatch(unittest.TestCase):
     def test_no_eval_dirs(self):
         self.staged("a.mp4")
         self.settings({})
-        with self.assertRaises(S.ApiError) as cm:
+        with self.assertRaises(ed_state.ApiError) as cm:
             EB.eval_batch_start()
         self.assertEqual(cm.exception.code, "no_eval_dirs")
         self.assertFalse(EB.eval_batch_status()["enabled"])
@@ -402,7 +406,7 @@ class TestEvalBatch(unittest.TestCase):
                 g["speaker"] = "S1"
         d = self.edit_doc(tid, fn)
         voices = {"checked": True, "speakers": {"S1": {"decided": name, "by": by}} if by else {}}
-        S.write_diar(tid, {"at": int(time.time() * 1000), "engine": {"name": "fake"}, "rows": {g["id"]: {"label": 0, "speaker": "S1"} for g in d["segments"]},
+        _diarize.write_diar(tid, {"at": int(time.time() * 1000), "engine": {"name": "fake"}, "rows": {g["id"]: {"label": 0, "speaker": "S1"} for g in d["segments"]},
                            "labelMap": {"0": "S1"}, "voices": voices, "auto": {"eval": True, "contextName": None}})
 
     def redo_jobs(self, *states):
@@ -455,7 +459,7 @@ class TestEvalBatch(unittest.TestCase):
         self.assertEqual(why(d), "speaker")   # 人が名前を変えた
         self.auto_speakers(tid, "ときのそら", by="request")
         self.assertEqual(why(store.read_transcript(tid)), "speaker")   # 依頼の名前(人の入力)は迷うので手を入れた側
-        S.write_diar(tid, dict(S.read_diar(tid)["latest"], auto=None))
+        _diarize.write_diar(tid, dict(_diarize.read_diar(tid)["latest"], auto=None))
         self.assertEqual(why(store.read_transcript(tid)), "speaker")   # 人が始めた判別
 
     def test_redo_dry_run_counts_and_does_nothing(self):
@@ -491,7 +495,7 @@ class TestEvalBatch(unittest.TestCase):
         (job,) = self.redo_jobs()
         self.assertEqual((job["spec"]["intoDoc"], job["spec"]["tid"], job["spec"]["model"], job["spec"]["evalSet"]), (tid, tid, "base", True))
         self.assertEqual(job["spec"]["glossary"], [])   # 評価用 = ヒントなし
-        self.assertIn(tid, S._busy_tids())   # 待っている間は処理中(ドリルが出さない)
+        self.assertIn(tid, _drill._busy_tids())   # 待っている間は処理中(ドリルが出さない)
         self.finish(job)
         self.assertEqual((job["tid"], job.get("redoSkipped")), (tid, None))
         self.assertEqual(len(store._tids()), n_docs)   # 新しい文書は作らない
@@ -597,7 +601,7 @@ class TestEvalBatch(unittest.TestCase):
         return EB.eval_batch_redo_one(req)
 
     def one_err(self, tid, **kw):
-        with self.assertRaises(S.ApiError) as cm:
+        with self.assertRaises(ed_state.ApiError) as cm:
             self.one(tid, **kw)
         return cm.exception
 
@@ -619,7 +623,7 @@ class TestEvalBatch(unittest.TestCase):
         self.assertEqual((sp["intoDoc"], sp["tid"], sp["model"], sp["evalSet"], sp["glossary"]), (tid, tid, "base", True, []))
         self.assertNotIn("evalBatch", sp)   # ユーザーのジョブ(まとめての文字起こしの待ちの数に入れない)
         self.assertFalse(EB.eval_batch_status()["enabled"])
-        self.assertIn(tid, S._busy_tids())
+        self.assertIn(tid, _drill._busy_tids())
         self.assertEqual(self.one_err(tid).code, "busy")   # 2 回押しても 1 本だけ
         self.assertEqual(len(self.one_jobs()), 1)
         self.finish(job)
@@ -633,7 +637,7 @@ class TestEvalBatch(unittest.TestCase):
         tid = self.eval_doc("a.mp4")
         e = self.one_err(tid, base=1)
         self.assertEqual((e.code, e.status), ("conflict", 409))
-        with self.assertRaises(S.ApiError) as cm:
+        with self.assertRaises(ed_state.ApiError) as cm:
             EB.eval_batch_redo_one({"id": tid})
         self.assertEqual(cm.exception.code, "bad_request")
         self.edit_doc(tid, lambda d: d.update(evalReviewed={"at": 1, "rows": 1, "durationSec": 2}))
@@ -680,7 +684,7 @@ class TestEvalBatch(unittest.TestCase):
         self.settings({})
         r = EB.eval_batch_redo({"dryRun": True})   # 数えるのは評価用のフォルダが無くてもできる(文書の印で見る)
         self.assertEqual(r["targets"], 1)
-        with self.assertRaises(S.ApiError) as cm:
+        with self.assertRaises(ed_state.ApiError) as cm:
             EB.eval_batch_redo({"dryRun": False})
         self.assertEqual(cm.exception.code, "no_eval_dirs")
 

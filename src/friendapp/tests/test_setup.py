@@ -122,8 +122,13 @@ class SetupTest(HomeBase):
         kw.setdefault("cuda", lambda: None)
         return S.Setup(self.fetch, self.data, self.home, self.friend, **kw)
 
+    def start_job(self, st, only=None):
+        """取る段だけを裏の糸で始める(準備の流れ start を通さない)"""
+        st.thread = threading.Thread(target=st._job, args=(st.missing(only),), daemon=True)
+        st.thread.start()
+
     def run_setup(self, st, only=None):
-        st.start_fetch(only)
+        self.start_job(st, only)
         st.wait(10)
         return st.result
 
@@ -141,23 +146,20 @@ class SetupTest(HomeBase):
         self.write_fetch([dict(self.items[0], url="http://h/model.bin")])
         st = self.make()
         self.assertEqual(st.missing(), [])
-        self.assertIn("https", st.inbox_view()["error"])
+        self.assertIn("https", st.error)
         self.assertIsNone(st.block_reason())
 
     def test_no_fetch_json_means_inactive(self):
         st = S.Setup(None, self.data, self.home, self.friend)
         self.assertEqual(st.missing(), [])
         self.assertIsNone(st.block_reason())
-        self.assertEqual(st.inbox_view()["count"], 0)
 
     # ---- 取る
     def test_fetch_all_and_done(self):
         st = self.make()
         self.assertEqual(len(st.missing()), 4)
         self.assertIn("足りません", st.block_reason())
-        v = st.inbox_view()
-        self.assertTrue(v["canStart"])
-        self.assertEqual(v["total"], sum(S.expect(S.parse_item(i)) for i in self.items))
+        self.assertEqual(sum(S.expect(i) for i in st.missing()), sum(S.expect(S.parse_item(i)) for i in self.items))
         res = self.run_setup(st)
         self.assertTrue(res["ok"], res)
         self.assertEqual(st.missing(), [])
@@ -229,7 +231,6 @@ class SetupTest(HomeBase):
         self.assertIn("SHA-256", res["failed"][0]["message"])
         self.assertEqual([i["name"] for i in st.missing()], ["whisper.cpp/large-v3"])   # 失敗した物だけ次の回
         self.assertFalse(os.path.exists(os.path.join(self.data, "transcribe", "models", "whispercpp", "model.bin.part")))
-        self.assertEqual(st.inbox_view()["result"]["failed"][0]["name"], "whisper.cpp/large-v3")
 
     def test_failure_does_not_stop_others(self):
         self.dl.fail["https://h/ffmpeg.zip"] = 1
@@ -251,33 +252,15 @@ class SetupTest(HomeBase):
                 if cancelled():
                     raise S.Cancelled()
         st = self.make(downloader=Slow(self.files))
-        st.start_fetch()
+        self.start_job(st)
         started.wait(5)
         self.assertTrue(st.running())
         self.assertIn("取っています", st.block_reason())
-        with self.assertRaises(ValueError):
-            st.start_fetch()   # 2 つ目は断る
         st.cancel()
         gate.set()
         st.wait(5)
         self.assertTrue(st.result["cancelled"])
         self.assertTrue(os.path.isfile(os.path.join(self.data, "transcribe", "models", "whispercpp", "model.bin.part")))
-
-    def test_space_short_refuses(self):
-        st = self.make(disk_usage=lambda p: Usage(100, 99, 1))
-        v = st.inbox_view()
-        self.assertFalse(v["canStart"])
-        self.assertIn("空きが足りません", v["reason"])
-        with self.assertRaises(ValueError):
-            st.start_fetch()
-        self.assertEqual(self.dl.calls, [])
-
-    def test_later_and_reopen(self):
-        st = self.make()
-        st.defer()
-        self.assertTrue(st.inbox_view()["later"])
-        st.reopen()
-        self.assertFalse(st.inbox_view()["later"])
 
     def test_after_called_with_result(self):
         got = []

@@ -3,7 +3,6 @@
 疑わしい行の選び方 redo_targets)・字幕の文字数の設定・人の直しの引き継ぎ carry_overrides(layers.carry)・新しい行の id。
 再認識(each・range・whole)の受付 validate_retranscribe・ジョブの本体・文書への反映・再認識の記録は隣の rerun.py(rerun → doc_jobs の一方向 =
 ここは rerun を読まない。例外は評価用の作り直しの書き込み rerun.rebuild_whole を呼ぶときだけ読む)。ジョブの表と器は ② flow/jobs・flow/wire(本体は入口 editor/serve.py が渡す)。
-名前は serve.py からも見える(serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `store.名前`・`_flowtx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
 ⑤ eval/drill/evalbatch は読まない(評価用の作り直しの書き込みは rerun.rebuild_whole = X-RERUN。評価用のフォルダの判定は ytt/settings を直に)。2つ目のエンジンの候補 alt・学習 learn・話者 speakers・文書の置き場 store は隣。
 ③ は ① pipeline/transcribe を直に読まない: 文字起こしの機械の分(取り出し → 認識 → 後処理 fill・llm → 文書の行 = ① clipjob)と

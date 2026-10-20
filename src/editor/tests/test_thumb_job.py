@@ -23,7 +23,9 @@ import unittest
 TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(TESTS))
 sys.path.insert(0, TESTS)
-from test_backend import S, TID, StoreDir  # noqa: F401,E402  (S = serve)
+from test_backend import TID, StoreDir  # noqa: F401,E402  (S = serve)
+from human.proof import store as _store  # noqa: E402
+from ytt import settings as _settings  # noqa: E402
 from human.proof import doc_jobs  # noqa: E402
 from flow import jobs  # noqa: E402
 from pipeline.export import thumb_cards as _cards  # noqa: E402  (crop_box・W・H は ① の名前)
@@ -93,27 +95,27 @@ class TestThumbJob(StoreDir):
 
     def test_thumb_through(self):
         # 作る前: 無い・画像は 404・切り取りの値・文書が無い
-        self.assertEqual(S.thumb_info(TID)["ok"], False)
+        self.assertEqual(ed_thumb.thumb_info(TID)["ok"], False)
         with self.assertRaises(ed_state.ApiError) as cm:
-            S.thumb_image_path(TID)
+            ed_thumb.thumb_image_path(TID)
         self.assertEqual(cm.exception.status, 404)
         with self.assertRaises(ed_state.ApiError) as cm:
-            S.thumb_spec(TID, {"crop": "zoom"})
+            ed_thumb.thumb_spec(TID, {"crop": "zoom"})
         self.assertEqual(cm.exception.status, 400)
         with self.assertRaises(ed_state.ApiError):
-            S.thumb_spec("0123456789ac", {})
+            ed_thumb.thumb_spec("0123456789ac", {})
         # 画面が選んだ切り取りは編集の設定 thumbCrop に覚える(矩形の zoom は設定にできない)
-        self.assertTrue(S.patch_settings({"values": {"thumbCrop": "right"}})["ok"])
-        self.assertEqual(S.load_settings()["thumbCrop"], "right")
+        self.assertTrue(_settings.patch_settings({"values": {"thumbCrop": "right"}})["ok"])
+        self.assertEqual(_settings.load_settings()["thumbCrop"], "right")
         with self.assertRaises(ed_state.ApiError):
-            S.patch_settings({"values": {"thumbCrop": "zoom"}})
+            _settings.patch_settings({"values": {"thumbCrop": "zoom"}})
         # ジョブ(既定 = 中央と右下を交互)。待っている間にもう一度 → 409
-        spec = S.thumb_spec(TID, {})
+        spec = ed_thumb.thumb_spec(TID, {})
         self.assertEqual((spec["crop"], spec["sourcePath"], spec["title"]), ("alt", self.video, "サムネの案: サムネの試し"))
         job = jobs.add_job(spec, "thumb")
         self.assertEqual(job["tid"], TID)
         with self.assertRaises(ed_state.ApiError) as cm:
-            S.thumb_spec(TID, {})
+            ed_thumb.thumb_spec(TID, {})
         self.assertEqual(cm.exception.status, 409)
         doc_jobs.run_job(job)
         self.assertEqual(job["state"], "done", job.get("error"))
@@ -123,11 +125,11 @@ class TestThumbJob(StoreDir):
         with open(js, encoding="utf-8") as f:
             rec = json.load(f)
         self.assertEqual((rec["schema"], rec["doc"], rec["video"]), ("youtube-tools-thumb-ideas/v1", TID, self.video))
-        info = S.thumb_info(TID)
+        info = ed_thumb.thumb_info(TID)
         self.assertTrue(info["ok"])
         self.assertEqual((len(info["cards"]), info["crops"], info["file"]), (6, ["center", "right"], "切り抜き_thumb-ideas.png"))
-        self.assertEqual(S.thumb_image_path(TID), png)
-        with open(S.tx_path(TID), encoding="utf-8") as f:
+        self.assertEqual(ed_thumb.thumb_image_path(TID), png)
+        with open(_store.tx_path(TID), encoding="utf-8") as f:
             self.assertEqual(json.load(f)["updatedAt"], 123)   # 文書は読むだけ
         # 時刻: 点数の順(感情の強い行 3.0・10.75 → 音の大きい 6.25)に 3 秒あけて選び、足りない分を均等に(12 秒 × 1/7・3/7・4/7。2/7 は 3.0 に近すぎる)
         got = [(c["n"], c["layout"], c["from"], c["crop"]) for c in info["cards"]]
@@ -157,7 +159,7 @@ class TestThumbJob(StoreDir):
         # 動画が無くなった文書は断る
         self.put_doc({"id": TID, "title": "x", "sourcePath": os.path.join(self.src_dir, "無い.mp4"), "segments": []})
         with self.assertRaises(ed_state.ApiError):
-            S.thumb_spec(TID, {})
+            ed_thumb.thumb_spec(TID, {})
 
 
 class TestWordRe(unittest.TestCase):

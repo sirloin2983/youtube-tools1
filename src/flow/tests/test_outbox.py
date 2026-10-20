@@ -102,23 +102,5 @@ class TestBuild(Base):
             self.assertIn("run.json", z.namelist())
 
 
-class TestListDone(Base):
-    def test_list_and_done(self):
-        p = outbox.build(self.rp, self.app)
-        open(os.path.join(os.path.dirname(p), "x.zip.part"), "wb").close()
-        lst = outbox.list_outbox(self.app)
-        self.assertEqual([x["id"] for x in lst], [os.path.basename(p)])
-        self.assertEqual((lst[0]["requestId"], lst[0]["runId"]), ("20261011-120000-abcdef", "r20261011"))
-        self.assertFalse(outbox.mark_done(self.app, "../evil.zip"))
-        self.assertFalse(outbox.mark_done(self.app, "nothing__x.zip"))
-        self.assertTrue(outbox.mark_done(self.app, lst[0]["id"]))
-        self.assertEqual(outbox.list_outbox(self.app), [])
-        self.assertTrue(os.path.isfile(os.path.join(self.app, "outbox", outbox.DONE_DIR, lst[0]["id"])))
-        self.assertFalse(outbox.mark_done(self.app, lst[0]["id"]))
-
-    def test_empty_when_no_folder(self):
-        self.assertEqual(outbox.list_outbox(os.path.join(self.tmp, "nope")), [])
-
-
 if __name__ == "__main__":
     unittest.main()

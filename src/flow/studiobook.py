@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """② 管理の層 flow: スタジオなしの配信の台帳と、URL の段の動詞(RS8 の「URL も CLI で」)。
 
-入口(スタジオ)が動いていないとき、コマンド(src/app/cli.py)が URL の段(配信の読み・解析・採用・書き出し)を ② + ① だけで進めるための物。
+入口(スタジオ)が動いていないとき、友人の玄関(friendapp)が URL の段(配信の読み・解析・採用・書き出し)を ② + ① だけで進めるための物。
 友人の PC の ② + ① には ③ 人(スタジオの human/review/store)が無いことがあるので、③ を読まずに **スタジオの Store と同じ形** で書く:
 
 - `Ledger` = 採用の台帳の書き方の 1 つ(書く道 _writing・保存 _put・登録 ensure・解析の反映 replace_auto・採用 adopt_marks・書き出し済み mark_exported・

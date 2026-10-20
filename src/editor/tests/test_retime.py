@@ -1,58 +1,32 @@
 #!/usr/bin/env python3
-"""字幕の読む速さの印(T2)と、行の時刻を単語の時刻に合わせる候補(T1 の簡易版)のテスト(計算は pipeline/transcribe/retime.py・文書を読む包みは human/proof/retime.py)。
+"""行の時刻を単語の時刻に合わせる候補(T1 の簡易版)のテスト(計算は pipeline/transcribe/retime.py・文書を読む包みは human/proof/retime.py)。
 
     py -3.12 -m unittest src/editor/tests/test_metrics.py   # test_metrics がこのファイルのテストも読み込む
     py -3.12 -m unittest test_retime -q                 # これだけ(src/editor/tests で)
 
-- 読む速さ: 文字の数え方・速い/短いの印・対象外(1 文字・行でない物)・設定 subtitle.read。例は tests/subread_cases.json(画面の readMark も同じ例 = test_document_save.cjs)
 - 時刻の候補: 保存した文書 1 本(場面ごとに 100 秒ずつ離した行の見本)と words.json を API の入口 retime_doc に通し、候補をまとめて確かめる
   (当て方・かなと句読点・人が足した字・当たりが少ない・差が小さい・短すぎる・大きく動かした行・前後の同じ話者の行で詰める・両方の候補が重ならない・
-  伸ばしの単語・単語の途中・同じ言葉が 2 回・空の行・知らない行・終わりの端を出さないエンジン・文書を書き換えない)
+  伸ばしの単語・単語の途中・同じ言葉が 2 回・空の行・知らない行・文書を書き換えない)
 """
-import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所に書かない(ytt.datadir)
 import sys
 import unittest
-from unittest import mock
 
 TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(TESTS))
 sys.path.insert(0, TESTS)
-from test_backend import S, TID, StoreDir  # noqa: F401,E402  (S = serve)
-from pipeline.transcribe import retime  # noqa: E402  (計算 = subread_*・retime_candidates)
+from test_backend import TID, StoreDir  # noqa: F401,E402  (S = serve)
+from human.proof import retime as _retime  # noqa: E402
+from human.proof import store as _store  # noqa: E402
+from ytt import txwords as _txwords  # noqa: E402
+from pipeline.transcribe import retime  # noqa: E402  (計算 = retime_candidates)
 import ed_state  # noqa: E402
 from ytt import testkit  # noqa: E402
-
-with open(os.path.join(TESTS, "subread_cases.json"), encoding="utf-8") as _f:
-    CASES = json.load(_f)
-
 
 def _chars(t0, text, step=0.2):
     """1 文字ずつの単語(t0 から step 秒ずつ)"""
     return [[round(t0 + i * step, 3), round(t0 + (i + 1) * step, 3), ch] for i, ch in enumerate(text)]
-
-
-class TestSubread(unittest.TestCase):
-    def test_chars_marks_and_limits(self):
-        for text, n in CASES["chars"]:
-            self.assertEqual(retime.subread_chars(text), n, text)
-        for row, want in CASES["marks"]:
-            m = retime.subread_mark(row)
-            self.assertEqual(None if m is None else [m["fast"], m["short"]], want, row)
-        m = retime.subread_mark({"start": 1.0, "end": 1.4, "text": "あいうえおかき"})   # 7 文字 / 0.4 秒
-        self.assertEqual((m["chars"], m["sec"], m["cps"]), (7, 0.4, 17.5))
-        self.assertIsNone(retime.subread_mark({"start": 0, "end": 0, "text": "あ"}))      # 1 文字は数えない(長さ 0 でも)
-        self.assertIsNone(retime.subread_mark("not a row"))
-        self.assertEqual(retime.subread_limits({}), {"fastCps": 10.0, "shortSec": 0.5})
-        st = {"subtitle": {"orientation": "horizontal", "maxChars": {"vertical": 16, "horizontal": 28}, "read": {"fastCps": 14, "shortSec": 0.3}}}
-        lim = retime.subread_limits(st)
-        self.assertEqual(lim, {"fastCps": 14.0, "shortSec": 0.3})
-        self.assertIsNone(retime.subread_mark({"start": 0, "end": 1.0, "text": "あいうえおかきくけこさ"}, lim))   # 11 字/秒 < 14
-        self.assertEqual(S.subtitle_settings(st)["orientation"], "horizontal")   # read を足しても字幕の設定(向き・文字数)は変わらない
-        self.assertNotIn("read", S.subtitle_settings(st))
-        for bad in ({"fastCps": 1}, {"fastCps": True}, {"shortSec": "0.3"}, {"shortSec": 9}, "x"):
-            self.assertEqual(retime.subread_limits({"subtitle": {"read": bad}}), {"fastCps": 10.0, "shortSec": 0.5}, bad)
 
 
 def _row(i, a, b, text, **kw):
@@ -96,17 +70,17 @@ class TestRetimeApi(StoreDir):
         self.put_doc({"id": TID, "title": "t", "updatedAt": 123, "speakers": [], "segments": self.segs})
 
     def _bytes(self):
-        with open(S.tx_path(TID), "rb") as f:
+        with open(_store.tx_path(TID), "rb") as f:
             return f.read()
 
     def test_candidates_through_api(self):
         ids = [g["id"] for g in self.segs if g["id"] not in ("s11", "s13", "s15", "s17")] + ["nope"]   # 前の行(詰める相手)には候補を出さない
-        r = S.retime_doc({"id": TID, "rows": ids})
+        r = _retime.retime_doc({"id": TID, "rows": ids})
         self.assertEqual((r["items"], r["reasonCode"], r["updatedAt"]), ([], "no_words", 123))   # 単語の時刻が無い文書
         self.assertIn("範囲を再認識", r["reason"])
-        testkit.write_json(S.words_path(TID), {"schema": "youtube-tools-words/v1", "words": self.words})
+        testkit.write_json(_txwords.words_path(TID), {"schema": "youtube-tools-words/v1", "words": self.words})
         before = self._bytes()
-        r = S.retime_doc({"id": TID, "rows": ids})
+        r = _retime.retime_doc({"id": TID, "rows": ids})
         got = {x["id"]: (x["start"], x["end"], x["edges"]) for x in r["items"]}
         self.assertEqual(got, {"s1": (1.0, 2.0, ["start", "end"]), "s2": (101.0, 102.2, ["start", "end"]), "s3": (200.5, 202.0, ["end"]),
                                "s4": (301.0, 302.0, ["start", "end"]), "s10": (900.95, 902.0, ["end"]), "s12": (1001.0, 1001.8, ["start"]),
@@ -117,22 +91,20 @@ class TestRetimeApi(StoreDir):
         s1 = r["items"][0]
         self.assertEqual((s1["matched"], s1["dStart"], s1["dEnd"], s1["from"]), (1.0, 0.5, -0.5, {"start": 0.5, "end": 2.5}))
         self.assertAlmostEqual(next(x for x in r["items"] if x["id"] == "s3")["matched"], 5 / 7, places=3)
-        self.assertEqual((r["checked"], r["updatedAt"], r["engine"], r["endEdge"]), (len(ids), 123, "faster-whisper", True))
+        self.assertEqual((r["checked"], r["updatedAt"], r["engine"]), (len(ids), 123, "faster-whisper"))
         self.assertEqual(self._bytes(), before)                             # 文書は書き換えない
-        # 終わりの端を出さないエンジン(最初の認識の記録。2 つ目のエンジンの記録は見ない)
+        # 返すエンジンは最初の認識の記録(2 つ目のエンジンの記録は見ない)
         self.put_doc({"id": TID, "title": "t", "updatedAt": 124, "speakers": [], "segments": self.segs,
                       "recognition": {"runs": [{"kind": "alt", "engine": "x"}, {"engine": "whisper.cpp"}]}})
-        with mock.patch.object(retime, "RETIME_END_SKIP", ("whisper.cpp",)):
-            r = S.retime_doc({"id": TID, "rows": ["s1"]})
-        self.assertEqual((r["engine"], r["endEdge"], [(x["start"], x["end"], x["edges"]) for x in r["items"]]), ("whisper.cpp", False, [(1.0, 2.5, ["start"])]))
+        self.assertEqual(_retime.retime_doc({"id": TID, "rows": ["s1"]})["engine"], "whisper.cpp")
 
     def test_bad_request(self):
         for body in ({"id": TID}, {"id": TID, "rows": []}, {"id": TID, "rows": [1]}, {"id": TID, "rows": "s1"}):
             with self.assertRaises(ed_state.ApiError, msg=body) as cm:
-                S.retime_doc(body)
+                _retime.retime_doc(body)
             self.assertEqual(cm.exception.status, 400)
         with self.assertRaises(ed_state.ApiError) as cm:
-            S.retime_doc({"id": "zzzzzzzzzzzz", "rows": ["s1"]})
+            _retime.retime_doc({"id": "zzzzzzzzzzzz", "rows": ["s1"]})
         self.assertEqual(cm.exception.status, 404)
 
 

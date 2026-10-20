@@ -29,6 +29,22 @@ os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))   # 一時フォル
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 import serve as S  # noqa: E402
+import ed_state  # noqa: E402
+from flow import jobs as _jobs  # noqa: E402
+from human.proof import doc_jobs as _doc_jobs  # noqa: E402
+from human.proof import learn as _learn  # noqa: E402
+from human.proof import rerun as _rerun  # noqa: E402
+from human.proof import speakers as _speakers  # noqa: E402
+from human.proof import store as _store  # noqa: E402
+from manage.cases import doclist as _doclist  # noqa: E402
+from pipeline.transcribe import models as _models  # noqa: E402
+from pipeline.transcribe import recognize as _recognize  # noqa: E402
+from pipeline.transcribe import roster as _roster  # noqa: E402
+from pipeline.transcribe import worker_client as _worker_client  # noqa: E402
+from ytt import dictfmt as _dictfmt  # noqa: E402
+from ytt import settings as _settings  # noqa: E402
+from ytt import tools as _tools  # noqa: E402
+from ytt import workdata as _workdata  # noqa: E402
 from manage.cases import handoff_io as P  # noqa: E402   (.clip.json が指す動画・動画の隣への保存)
 from pipeline.pack import resolve_export as RE  # noqa: E402   (受け渡しの JSON と SRT の組み立て build_*。RS3-E5b)
 from ytt import fsio, runtime, schemas, testkit  # noqa: E402
@@ -55,7 +71,7 @@ class StoreDir(unittest.TestCase):
     def setUp(self):
         self.tmp = testkit.tempdir(self)
         for name, value in (("TX_DIR", self.tmp), ("TMP_DIR", os.path.join(self.tmp, ".tmp")), ("SETTINGS", os.path.join(self.tmp, "settings.json"))):
-            self.patch(S, name, value)
+            self.patch(_workdata, name, value)
 
     def patch(self, obj, name, value):
         """このテストの間だけ obj.name を value に(終わりに戻す)"""
@@ -64,7 +80,7 @@ class StoreDir(unittest.TestCase):
         self.addCleanup(p.stop)
 
     def put_doc(self, doc, tid=TID):
-        write_json(S.tx_path(tid), doc)
+        write_json(_store.tx_path(tid), doc)
 
 
 class TestWriteLocks(StoreDir):
@@ -81,7 +97,7 @@ class TestWriteLocks(StoreDir):
                 err.append(e)
             done.set()
 
-        with S._save_lock:
+        with _store._save_lock:
             th = threading.Thread(target=run, daemon=True)
             th.start()
             self.assertFalse(done.wait(0.3), "保存のロック中なのに書き込みが進んだ")
@@ -95,47 +111,47 @@ class TestWriteLocks(StoreDir):
 
     def test_retranscribe_waits_for_save_lock(self):
         self.put_doc(self.base_doc())
-        self._blocked_while_locked(lambda: S.apply_retranscribe({"tid": TID, "model": "m", "autoDict": False}, {"s1": ("A", "")}))
-        self.assertEqual(S.read_transcript(TID)["segments"][0]["text"], "A")
+        self._blocked_while_locked(lambda: _rerun.apply_retranscribe({"tid": TID, "model": "m", "autoDict": False}, {"s1": ("A", "")}))
+        self.assertEqual(_store.read_transcript(TID)["segments"][0]["text"], "A")
 
     def test_range_waits_for_save_lock(self):
         self.put_doc(self.base_doc())
         spec = {"tid": TID, "model": "m", "autoDict": False, "range": [0, 4], "ids": ["s1", "s2"]}
-        self._blocked_while_locked(lambda: S.apply_range(spec, [{"start": 0, "end": 4, "raw": "新しい", "flag": ""}]))
-        self.assertEqual([g["text"] for g in S.read_transcript(TID)["segments"]], ["新しい"])
+        self._blocked_while_locked(lambda: _rerun.apply_range(spec, [{"start": 0, "end": 4, "raw": "新しい", "flag": ""}]))
+        self.assertEqual([g["text"] for g in _store.read_transcript(TID)["segments"]], ["新しい"])
 
     def test_diarization_waits_for_save_lock(self):
         self.put_doc(self.base_doc())
-        self._blocked_while_locked(lambda: S.apply_diarization(TID, [(0, 4, 0)], 0.0, 0))
-        self.assertEqual(S.read_transcript(TID)["segments"][0]["speaker"], "S1")
+        self._blocked_while_locked(lambda: _speakers.apply_diarization(TID, [(0, 4, 0)], 0.0, 0))
+        self.assertEqual(_store.read_transcript(TID)["segments"][0]["speaker"], "S1")
 
 
 class TestJobs(unittest.TestCase):
     def setUp(self):
-        self.old = dict(S._jobs)
-        S._jobs.clear()
+        self.old = dict(_jobs._jobs)
+        _jobs._jobs.clear()
 
     def tearDown(self):
-        S._jobs.clear()
-        S._jobs.update(self.old)
+        _jobs._jobs.clear()
+        _jobs._jobs.update(self.old)
 
     def test_exclusive_checked_inside_add_job(self):
         """同じ文字起こしへの話者判別・再認識は、待機列に入れるときにも重ねない(確認と登録の間の割り込み対策)。"""
-        S.add_job({"title": "d", "tid": "t1"}, "diarize")
-        with self.assertRaises(S.ApiError) as cm:
-            S.add_job({"title": "r", "tid": "t1"}, "retranscribe")
+        _jobs.add_job({"title": "d", "tid": "t1"}, "diarize")
+        with self.assertRaises(ed_state.ApiError) as cm:
+            _jobs.add_job({"title": "r", "tid": "t1"}, "retranscribe")
         self.assertEqual(cm.exception.status, 409)
-        S.add_job({"title": "d2", "tid": "t2"}, "diarize")        # 別の文字起こしなら入る
-        S.add_job({"title": "al", "tid": "t1"}, "alt")             # 2つ目のエンジンは話者判別と同時でもよい(文書を書き換えない)
-        with self.assertRaises(S.ApiError):
-            S.add_job({"title": "al2", "tid": "t1"}, "alt")
+        _jobs.add_job({"title": "d2", "tid": "t2"}, "diarize")        # 別の文字起こしなら入る
+        _jobs.add_job({"title": "al", "tid": "t1"}, "alt")             # 2つ目のエンジンは話者判別と同時でもよい(文書を書き換えない)
+        with self.assertRaises(ed_state.ApiError):
+            _jobs.add_job({"title": "al2", "tid": "t1"}, "alt")
 
 
 class TestPerformance(StoreDir):
     def test_audio_span(self):
-        self.assertEqual(S.audio_span([{"start": 100, "end": 102}, {"start": 50, "end": 51}], 0, 3600), (50 - 0.3 - S.AUDIO_MARGIN, 102 + 0.3 + S.AUDIO_MARGIN))
-        self.assertEqual(S.audio_span([{"start": 1, "end": 2}], 0.5, 3.0), (0.5, 3.0))       # 文書の範囲の外は取り出さない
-        self.assertEqual(S.audio_span([{"start": 1, "end": 2}], 0, None)[1], 2 + 0.3 + S.AUDIO_MARGIN)
+        self.assertEqual(_recognize.audio_span([{"start": 100, "end": 102}, {"start": 50, "end": 51}], 0, 3600), (50 - 0.3 - _recognize.AUDIO_MARGIN, 102 + 0.3 + _recognize.AUDIO_MARGIN))
+        self.assertEqual(_recognize.audio_span([{"start": 1, "end": 2}], 0.5, 3.0), (0.5, 3.0))       # 文書の範囲の外は取り出さない
+        self.assertEqual(_recognize.audio_span([{"start": 1, "end": 2}], 0, None)[1], 2 + 0.3 + _recognize.AUDIO_MARGIN)
 
     def _long_doc(self):
         src = os.path.join(self.tmp, "long.wav")
@@ -147,7 +163,7 @@ class TestPerformance(StoreDir):
 
     def _run_capturing(self, fn, job):
         seen = []
-        with patch.object(S, "extract_audio", lambda job, spec, wav: seen.append((spec["start"], spec["end"]))), \
+        with patch.object(_recognize, "extract_audio", lambda job, spec, wav: seen.append((spec["start"], spec["end"]))), \
                 patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": os.environ.get("TRANSCRIBE_FAKE_DELAY", "0")}):
             fn(job)
         return seen
@@ -158,14 +174,14 @@ class TestPerformance(StoreDir):
         spec = {"tid": TID, "ids": ["s100", "s101"], "mode": "each", "range": None, "model": "small", "language": "ja", "beam": 5, "vadMode": "off",
                 "wordSplit": False, "stripPunct": True, "device": "auto", "boost": False, "autoDict": False, "glossary": [], "title": "t"}
         job = {"id": "j1" + "0" * 10, "spec": spec, "cancel": False, "state": "queued", "progress": 0, "phase": "", "proc": None}
-        seen = self._run_capturing(S.run_retranscribe, job)
+        seen = self._run_capturing(_rerun.run_retranscribe, job)
         self.assertEqual(job["state"], "done", job.get("error"))
         self.assertEqual(len(seen), 1)
         a, b = seen[0]
         self.assertLessEqual(a, 1000 - 0.3)
         self.assertGreaterEqual(b, 1015 + 0.3)
         self.assertLess(b - a, 30)
-        return S.read_transcript(TID)
+        return _store.read_transcript(TID)
 
     def test_retranscribe_extracts_only_needed_span_primary(self):
         """層が正: 取り出す範囲は同じ。行は校正済みなので機械の文字で置き換わらず、印 MACH_CHANGED が付く"""
@@ -177,38 +193,38 @@ class TestPerformance(StoreDir):
 
     def test_idle_model_release(self):
         """認識ワーカーの中(IN_WORKER)でのモデルの手放し。サーバー側(ワーカーごと終わらせる)は test_worker.py"""
-        old = (dict(S._models), S._model_used[0], S.MODEL_IDLE_SEC, S.IN_WORKER)
-        S.IN_WORKER = True
+        old = (dict(_models._models), _models._model_used[0], _models.MODEL_IDLE_SEC, _worker_client.IN_WORKER)
+        _worker_client.IN_WORKER = True
         try:
-            S._models.clear()
-            S._models[("large-v3", "cpu")] = object()
-            S.MODEL_IDLE_SEC = 900
+            _models._models.clear()
+            _models._models[("large-v3", "cpu")] = object()
+            _models.MODEL_IDLE_SEC = 900
             now = time.time()
-            S._model_used[0] = now - 100
-            self.assertFalse(S.release_idle_models(now))            # まだ使って間もない
-            S._model_used[0] = now - 901
-            self.assertTrue(S.release_idle_models(now))
-            self.assertEqual(S._models, {})
-            S._models[("small", "cpu")] = object()
-            S.MODEL_IDLE_SEC = 0
-            self.assertFalse(S.release_idle_models(now + 10 ** 6))   # 0 は手放さない
+            _models._model_used[0] = now - 100
+            self.assertFalse(_worker_client.release_idle_models(now))            # まだ使って間もない
+            _models._model_used[0] = now - 901
+            self.assertTrue(_worker_client.release_idle_models(now))
+            self.assertEqual(_models._models, {})
+            _models._models[("small", "cpu")] = object()
+            _models.MODEL_IDLE_SEC = 0
+            self.assertFalse(_worker_client.release_idle_models(now + 10 ** 6))   # 0 は手放さない
         finally:
-            S._models.clear()
-            S._models.update(old[0])
-            S._model_used[0], S.MODEL_IDLE_SEC, S.IN_WORKER = old[1], old[2], old[3]
+            _models._models.clear()
+            _models._models.update(old[0])
+            _models._model_used[0], _models.MODEL_IDLE_SEC, _worker_client.IN_WORKER = old[1], old[2], old[3]
 
     def test_summary_cache_without_rereading(self):
         self.put_doc({"id": TID, "title": "一", "sourcePath": "/v/a.mp4", "start": 0, "end": 10, "whole": True, "segments": [], "createdAt": 1})
-        items = S.list_transcripts()
+        items = _doclist.list_transcripts()
         self.assertEqual((items[0]["title"], items[0]["hasClip"]), ("一", False))
         self.assertNotIn("_sourcePath", items[0])
         time.sleep(0.01)
         self.put_doc({"id": TID, "title": "二番目", "sourcePath": "/v/a.mp4", "clip": clip_obj(), "segments": [], "createdAt": 1})
-        items = S.list_transcripts()
+        items = _doclist.list_transcripts()
         self.assertEqual((items[0]["title"], items[0]["hasClip"]), ("二番目", True))   # 書き換わったら読み直す
-        os.unlink(S.tx_path(TID))
-        self.assertEqual(S.list_transcripts(), [])
-        self.assertNotIn(TID, S._summary_cache)
+        os.unlink(_store.tx_path(TID))
+        self.assertEqual(_doclist.list_transcripts(), [])
+        self.assertNotIn(TID, _store._summary_cache)
 
     def test_list_fields_for_history(self):
         """履歴の一覧の項目(校正の進み具合・長さ・元の配信・配信者・元の動画の有無・パック)"""
@@ -228,10 +244,10 @@ class TestPerformance(StoreDir):
                       "segments": [], "createdAt": 3}, tid=other)
         studio = os.path.join(self.tmp, "studio-data.json")
         write_json(studio, {"videos": {"abcdefghijk": {"title": "スタジオの題名", "channel": "星見ルナ", "marks": []}}})
-        old = (S.STUDIO_DATA, S.PACK_CHECK_BUDGET)
-        S.STUDIO_DATA = studio
+        old = (_workdata.STUDIO_DATA, _doclist.PACK_CHECK_BUDGET)
+        _workdata.STUDIO_DATA = studio
         try:
-            items = {x["id"]: x for x in S.list_transcripts()}
+            items = {x["id"]: x for x in _doclist.list_transcripts()}
             a = items[TID]
             self.assertEqual((a["rows"], a["proofed"], a["cut"], a["flagged"], a["durationSec"]), (3, 2, 1, 1, 24.0))
             self.assertEqual((a["videoId"], a["clipTitle"], a["clipStart"], a["clipEnd"], a["markLabel"]),
@@ -246,7 +262,7 @@ class TestPerformance(StoreDir):
             pk = os.path.join(media_dir, "01_見どころ_pack")
             os.makedirs(pk)
             write_json(os.path.join(pk, "cut-plan.json"), {})                   # フォルダの中の cut-plan.json だけでは「パックあり」にしない
-            self.assertIsNone({x["id"]: x for x in S.list_transcripts()}[TID]["pack"])
+            self.assertIsNone({x["id"]: x for x in _doclist.list_transcripts()}[TID]["pack"])
             c2r = os.path.join(self.tmp, "cut2resolve")
             lua = os.path.join(pk, "create_resolve_textplus_project.lua")
             write_json(lua, {})
@@ -254,30 +270,30 @@ class TestPerformance(StoreDir):
             write_json(studio, {"videos": {"abcdefghijk": {"title": "", "channel": "朝霧ソラ"}}})   # スタジオの data.json が変われば読み直す
             with patch.dict(os.environ, {"YTT_CUT2RESOLVE_DIR": c2r}):
                 packrec.write_record({"out_dir": pk, "files": [("textplus_script", lua)]}, media, True, c2r_dir=c2r)
-                a = {x["id"]: x for x in S.list_transcripts()}[TID]
+                a = {x["id"]: x for x in _doclist.list_transcripts()}[TID]
             self.assertEqual((a["pack"]["textplus"], a["pack"]["updatedAt"] > 0, a["channel"], a.get("streamTitle")), (True, True, "朝霧ソラ", None))
             os.unlink(media)
-            self.assertIs({x["id"]: x for x in S.list_transcripts()}[TID]["mediaOk"], False)
-            S.PACK_CHECK_BUDGET = -1   # 調べる時間を使い切ったら、残りは「不明」(一覧を止めない)
-            a = {x["id"]: x for x in S.list_transcripts()}[TID]
+            self.assertIs({x["id"]: x for x in _doclist.list_transcripts()}[TID]["mediaOk"], False)
+            _doclist.PACK_CHECK_BUDGET = -1   # 調べる時間を使い切ったら、残りは「不明」(一覧を止めない)
+            a = {x["id"]: x for x in _doclist.list_transcripts()}[TID]
             self.assertEqual((a["mediaOk"], a["pack"]), (None, None))
         finally:
-            S.STUDIO_DATA, S.PACK_CHECK_BUDGET = old
+            _workdata.STUDIO_DATA, _doclist.PACK_CHECK_BUDGET = old
 
 
 class TestStartupChecks(StoreDir):
     def test_checks(self):
         self.assertFalse(hasattr(S, "INDEX"))   # RS8 C4: 編集の画面のページ index.html は無い(入口が案件の画面へ転送する) = その検査もない
-        self.patch(S, "APP_JS", testkit.write_text(os.path.join(self.tmp, "app.js"), "// app"))
-        self.patch(S, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
+        self.patch(ed_state, "APP_JS", testkit.write_text(os.path.join(self.tmp, "app.js"), "// app"))
+        self.patch(_tools, "find_ffmpeg", lambda: "/usr/bin/ffmpeg")
         self.assertEqual(S.startup_checks(), [])
-        S.find_ffmpeg = lambda: None
+        _tools.find_ffmpeg = lambda: None
         blocker = testkit.write_text(os.path.join(self.tmp, "file"), "x")
-        S.TX_DIR = os.path.join(blocker, "transcripts")    # ファイルの下には作れない = 書き込めない保存先
+        _workdata.TX_DIR = os.path.join(blocker, "transcripts")    # ファイルの下には作れない = 書き込めない保存先
         w = " / ".join(S.startup_checks())
         for word in ("ffmpeg", "保存先に書き込めません"):
             self.assertIn(word, w)
-        os.unlink(S.APP_JS)
+        os.unlink(ed_state.APP_JS)
         self.assertIn("app.js が見つかりません", " / ".join(S.startup_checks()))
         self.assertNotIn("index.html", " / ".join(S.startup_checks()))   # 画面のページを確かめない
 
@@ -285,31 +301,31 @@ class TestStartupChecks(StoreDir):
 class TestBomTolerant(StoreDir):
     def test_settings_and_roster_with_bom(self):
         """メモ帳の「UTF-8 (BOM 付き)」で直した settings.json・名簿でも読める。"""
-        with open(S.SETTINGS, "w", encoding="utf-8-sig") as f:
+        with open(_workdata.SETTINGS, "w", encoding="utf-8-sig") as f:
             json.dump({"replacements": "よっきゃ=>陽キャ"}, f, ensure_ascii=False)
-        self.assertEqual(S.parse_replacements(S.load_settings().get("replacements")), [("よっきゃ", "陽キャ")])
-        self.patch(S, "ROSTER", os.path.join(self.tmp, "roster.json"))
-        with open(S.ROSTER, "w", encoding="utf-8-sig") as f:
+        self.assertEqual(_dictfmt.parse_replacements(_settings.load_settings().get("replacements")), [("よっきゃ", "陽キャ")])
+        self.patch(_roster, "ROSTER", os.path.join(self.tmp, "roster.json"))
+        with open(_roster.ROSTER, "w", encoding="utf-8-sig") as f:
             json.dump({"asOf": "2026-09-22", "groups": [{"id": "g", "label": "G", "names": ["兎田ぺこら"]}]}, f, ensure_ascii=False)
-        self.assertEqual(S.load_roster()["groups"][0]["names"], ["兎田ぺこら"])
+        self.assertEqual(_learn.load_roster()["groups"][0]["names"], ["兎田ぺこら"])
 
 
 class TestModelName(unittest.TestCase):
     def test_local_paths_are_not_model_names(self):
         """faster-whisper は名前と同じフォルダがあればそれを読み込むので、手元に実在する名前は断る。"""
-        self.assertTrue(S.valid_model("large-v3"))
-        self.assertTrue(S.valid_model("kotoba-tech/kotoba-whisper-v2.0-faster"))
+        self.assertTrue(_worker_client.valid_model("large-v3"))
+        self.assertTrue(_worker_client.valid_model("kotoba-tech/kotoba-whisper-v2.0-faster"))
         for bad in ("../x", ".hidden", "a/b/c", "C:\\x", "", "x" * 101, None):
-            self.assertFalse(S.valid_model(bad), bad)
+            self.assertFalse(_worker_client.valid_model(bad), bad)
         tmp = testkit.tempdir(self)
         self.addCleanup(os.chdir, os.getcwd())
         os.chdir(tmp)
         os.makedirs("mymodel")
         os.makedirs(os.path.join("org", "local"))
-        self.assertFalse(S.valid_model("mymodel"))       # 起動したフォルダからの相対で実在する
-        self.assertFalse(S.valid_model("org/local"))
-        self.assertTrue(S.valid_model("org/remote"))
-        self.assertFalse(S.valid_model("transcripts" if os.path.isdir(os.path.join(S.ROOT, "transcripts")) else "hololive-roster.json"))   # ツールのフォルダの中の名前
+        self.assertFalse(_worker_client.valid_model("mymodel"))       # 起動したフォルダからの相対で実在する
+        self.assertFalse(_worker_client.valid_model("org/local"))
+        self.assertTrue(_worker_client.valid_model("org/remote"))
+        self.assertFalse(_worker_client.valid_model("transcripts" if os.path.isdir(os.path.join(_workdata.ROOT, "transcripts")) else "hololive-roster.json"))   # ツールのフォルダの中の名前
 
 
 class TestClipValidation(unittest.TestCase):
@@ -481,7 +497,7 @@ class TestRuntime(unittest.TestCase):
 
     def test_runtime_dir_env(self):
         with patch.dict(os.environ, {"YTT_RUNTIME_DIR": self.dir}):
-            self.assertEqual(S.runtime_path_dir(), self.dir)
+            self.assertEqual(ed_state.runtime_path_dir(), self.dir)
 
     def test_entries_validation(self):
         write_json(os.path.join(self.dir, "studio.json"), {"tool": "studio", "port": 8801})
@@ -802,7 +818,7 @@ class TestSettingsMerge(StoreDir):
     """設定の保存の「差のキーだけ」(PUT /api/settings {"patch"}。段2 監査 11): 別の窓が保存したほかのキーを消さない"""
 
     def st(self):
-        return testkit.read_json(S.SETTINGS)
+        return testkit.read_json(_workdata.SETTINGS)
 
     def test_merge_keeps_other_keys(self):
         # (名前, 保存前の設定ファイル(None = ファイルなし), 送る patch, 保存後の中身)
@@ -815,22 +831,22 @@ class TestSettingsMerge(StoreDir):
             ("設定ファイルが無いときは空から作る", None, {"glossary": "x"}, {"glossary": "x"}),
         ]:
             with self.subTest(name):
-                if os.path.exists(S.SETTINGS):
-                    os.remove(S.SETTINGS)
+                if os.path.exists(_workdata.SETTINGS):
+                    os.remove(_workdata.SETTINGS)
                 if before is not None:
-                    write_json(S.SETTINGS, before)
-                self.assertEqual(S.merge_settings({"patch": patch}), {"ok": True})
+                    write_json(_workdata.SETTINGS, before)
+                self.assertEqual(_settings.merge_settings({"patch": patch}), {"ok": True})
                 self.assertEqual(self.st(), want)
 
     def test_merge_rejects(self):
-        write_json(S.SETTINGS, {"glossary": "ぺこら"})
+        write_json(_workdata.SETTINGS, {"glossary": "ぺこら"})
         for bad in ({"patch": []}, {"patch": "x"}, {"patch": {"": 1}}, {"patch": {"k" * 61: 1}}, {"patch": {"a": 1}, "glossary": "y"},
                     {"patch": {"k%d" % i: 1 for i in range(201)}}):
-            with self.assertRaises(S.ApiError, msg=str(bad)[:60]) as c:
-                S.merge_settings(bad)
+            with self.assertRaises(ed_state.ApiError, msg=str(bad)[:60]) as c:
+                _settings.merge_settings(bad)
             self.assertEqual(c.exception.status, 400)
-        with self.assertRaises(S.ApiError) as c:
-            S.merge_settings({"patch": {"big": "x" * 500000}})
+        with self.assertRaises(ed_state.ApiError) as c:
+            _settings.merge_settings({"patch": {"big": "x" * 500000}})
         self.assertEqual(c.exception.status, 413)
         self.assertEqual(self.st(), {"glossary": "ぺこら"})   # 断ったときは書かない
 
@@ -859,26 +875,26 @@ class TestHeavyJobLimit(unittest.TestCase):
         from ytt import jobs
         self.jobs = jobs
         self.tmp = testkit.tempdir(self)
-        self.saved = (S.RUN_MARK, jobs.SLOTS, S.run_job)
-        S.RUN_MARK = os.path.join(self.tmp, ".running.json")
+        self.saved = (ed_state.RUN_MARK, jobs.SLOTS, _doc_jobs.run_job)
+        ed_state.RUN_MARK = os.path.join(self.tmp, ".running.json")
         jobs.SLOTS = jobs.HeavySlots(1)
         self.ran = []
-        S.run_job = lambda job: (self.ran.append(job["id"]), job.update(state="done"))
+        _doc_jobs.run_job = lambda job: (self.ran.append(job["id"]), job.update(state="done"))
 
     def tearDown(self):
-        S.RUN_MARK, self.jobs.SLOTS, S.run_job = self.saved
+        ed_state.RUN_MARK, self.jobs.SLOTS, _doc_jobs.run_job = self.saved
         for jid in ("hj1", "hj2"):
-            S._jobs.pop(jid, None)
+            _jobs._jobs.pop(jid, None)
 
     def job(self, jid):
         j = {"id": jid, "kind": "transcribe", "state": "queued", "phase": "待機中", "cancel": False, "spec": {"title": "t", "model": "m"}}
-        S._jobs[jid] = j
+        _jobs._jobs[jid] = j
         return j
 
     def test_waits_then_runs_or_cancels(self):
         held = self.jobs.SLOTS.acquire("studio", "解析")
         j1 = self.job("hj1")
-        t = threading.Thread(target=S.work_one, args=("hj1",))
+        t = threading.Thread(target=_jobs.work_one, args=("hj1",))
         t.start()
         for _ in range(100):
             if j1["phase"] == self.jobs.WAIT_MESSAGE:
@@ -890,9 +906,30 @@ class TestHeavyJobLimit(unittest.TestCase):
         self.assertEqual((j1["state"], self.ran), ("cancelled", []))
         self.jobs.SLOTS.release(held)
         self.job("hj2")
-        S.work_one("hj2")
+        _jobs.work_one("hj2")
         self.assertEqual(self.ran, ["hj2"])
         self.assertEqual(self.jobs.SLOTS.snapshot()["active"], [])
+
+
+class TestWiring(unittest.TestCase):
+    """serve の配線: 画面が読むジョブの形(public_job の鍵)と、本物と疑似の選び方(呼ぶたびに ed_state.backend_name を読む)"""
+    PUBLIC_JOB_KEYS = {
+        "id", "title", "state", "phase", "progress", "tid", "error", "segments", "speakers", "unsure", "kind", "device", "createdAt",
+        "errorDetail", "internal", "canRetry", "warnings", "hasClip", "into", "named", "learned", "auto", "autoSkipped",
+        "redo", "redoOne", "redoSkipped", "vadNote", "normNote", "normOk", "kept", "emptyKept", "loose"}
+
+    def test_public_job_keys(self):
+        job = {"id": "j1", "title": "t", "state": "done", "phase": "完了", "progress": 1.0, "tid": "", "error": "", "segments": 0,
+               "speakers": 0, "unsure": 0, "kind": "transcribe", "device": "cpu", "createdAt": 0, "spec": {}}
+        self.assertEqual(set(_doc_jobs.public_job(job)), self.PUBLIC_JOB_KEYS)
+
+    def test_selector_follows_backend_name(self):
+        from eval.fake import fake_asr
+        from pipeline.transcribe import backend
+        with patch.object(ed_state, "backend_name", lambda: "fake"):
+            self.assertIs(backend.select(), fake_asr.FAKE)
+        with patch.object(ed_state, "backend_name", lambda: "faster-whisper"):
+            self.assertIs(backend.select(), backend.REAL)
 
 
 if __name__ == "__main__":

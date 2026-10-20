@@ -34,7 +34,6 @@ output.fcpxml・output.crf。送っても黙って無視する(知らない鍵�
 入口(start.bat)の統合サーバーに取り込まれたときは http://localhost:8700/cut2resolve/ で動く(app/mount.py。段階3-2)。
 そのときは prepare() / finish() が起動・終了の準備を行い、状態は MOUNT に持つ。書き込み系の API には合言葉(X-YTT-Token)が要る(mount.py が検査)
 """
-import json
 import os
 import socket
 import subprocess
@@ -45,7 +44,6 @@ import traceback
 import urllib.parse
 import urllib.request
 import webbrowser
-from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -91,7 +89,7 @@ MOVED_PAGE = ("<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><t
               "<h1>cut2resolve の画面は「編集」に統合しました</h1>"
               "<p>カットと Resolve へのパックは、案件の画面の <b>カット・パック</b> のタブで作ります。"
               "入口(このフォルダの1つ上の start.bat)からホームを開いてください。</p>"
-              "<p>コマンドで使うときは src/app/cli.py。</p></body></html>").encode("utf-8")
+              "</body></html>").encode("utf-8")
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; "
        "connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 QUIET_PATHS = ("/api/job", "/api/siblings", "/api/ping")
@@ -117,39 +115,17 @@ def log(msg):
         with _log_lock:
             os.makedirs(WORK_DIR, exist_ok=True)
             fsio.rotate(LOG_PATH, LOG_MAX)
-            with open(LOG_PATH, "a", encoding="utf-8") as f:
-                f.write(line)
+            fsio.append_line(LOG_PATH, line, None)
     except Exception:
         pass
 
 
 # ---------------------------------------------------------------- 実行中のポートの共有(.runtime)と /api/siblings
 # 中身は ytt.runtime(スタジオ・文字起こし・入口と同じ1か所)。
-# ここは cut2resolve の ID・版・ログを付けるだけの薄い包み(呼び出し側・テストの名前は変えない)
+# ここは置き場所 runtime_dir だけ
 
 def runtime_dir():
     return _runtime.runtime_dir(CODE_DIR)
-
-
-def write_runtime(port, base_path="/"):
-    """起動時に <runtime>/cut2resolve.json を書く。書けなくても起動は続ける(None)。
-    場所は入口に取り込まれたときだけ書く。形の違う場所は "/" として扱う(古い形の記録と同じに保つ)"""
-    path = base_path if _runtime.valid_path(base_path) else "/"
-    f = _runtime.write_runtime(runtime_dir(), TOOL_ID, port, SERVER_VERSION, path)
-    if f is None:
-        log("warn: .runtime を書けません: %s" % runtime_dir())
-    return f
-
-
-def remove_runtime(port):
-    """自分が書いた記録(同じポート・同じプロセス)だけ消す"""
-    return _runtime.remove_runtime(runtime_dir(), TOOL_ID, port)
-
-
-def siblings(self_port, timeout=PING_TIMEOUT, self_path="/"):
-    """.runtime の記録の場所に並行して /api/ping を問い合わせ、app が一致したものだけ(自分自身は問い合わせずに含める)。
-    入口に取り込まれたツールがあれば {"paths": {"studio": "/studio/"}} も付ける"""
-    return _runtime.siblings(runtime_dir(), TOOL_ID, self_port, timeout, self_path)
 
 
 # ---------------------------------------------------------------- 入力のパス・画面の指定 → pack.Request は pipeline/pack/request.py(flow/tools の LocalTools も同じものを呼ぶ)
@@ -259,9 +235,10 @@ def with_warning_levels(d):
 
 # ---------------------------------------------------------------- HTTP
 
-class Handler(BaseHTTPRequestHandler):
+class Handler(httpsec.LocalHandler):
     server_version = "cut2resolve"
     timeout = SOCKET_TIMEOUT
+    send_headers = {"Referrer-Policy": "no-referrer"}
 
     @property
     def ctx(self):
@@ -297,16 +274,6 @@ class Handler(BaseHTTPRequestHandler):
             self._fail(403, "forbidden", "別のサイト・別のツールの画面からの操作は受け付けません")
             return False
         return True
-
-    # ---- 応答
-    def _send(self, code, body=b"", ctype="text/plain; charset=utf-8", extra=None):
-        httpsec.send(self, code, body, ctype, dict({"Referrer-Policy": "no-referrer"}, **(extra or {})))
-
-    def _json(self, code, obj):
-        self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
-
-    def _fail(self, code, error, message, extra=None):
-        self._json(code, dict(extra or {}, error=error, message=message))
 
     def _safe(self, fn):
         try:
@@ -361,7 +328,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, MOVED_PAGE, "text/html; charset=utf-8", {"Content-Security-Policy": CSP, "X-Frame-Options": "DENY"})
         routes = {
             "/api/ping": lambda: {"app": APP_ID, "version": SERVER_VERSION},
-            "/api/siblings": lambda: siblings(self.ctx.port, self_path=BASE_PATH),
+            "/api/siblings": lambda: _runtime.siblings(runtime_dir(), TOOL_ID, self.ctx.port, PING_TIMEOUT, BASE_PATH),
             "/api/job": lambda: self.app.job((q.get("id") or [""])[0]).public(),
         }
         fn = routes.get(u.path)
@@ -530,7 +497,9 @@ def _startup(port, base_path="/"):
     global BASE_PATH
     BASE_PATH = base_path
     _choose_work_dir()
-    runtime = write_runtime(port, base_path)
+    runtime = _runtime.write_runtime(runtime_dir(), TOOL_ID, port, SERVER_VERSION, base_path if _runtime.valid_path(base_path) else "/")   # 形の違う場所は "/"
+    if runtime is None:
+        log("warn: .runtime を書けません: %s" % runtime_dir())
     log("起動 v%s port=%d%s pid=%d python=%s" % (SERVER_VERSION, port, "" if base_path == "/" else " path=" + base_path,
                                                os.getpid(), sys.version.split()[0]))
     return runtime
@@ -556,7 +525,7 @@ def finish():
     job = MOUNT.app.packjobs.running_now()
     if job is not None:
         job.task.cancel()
-    remove_runtime(MOUNT.port)
+    _runtime.remove_runtime(runtime_dir(), TOOL_ID, MOUNT.port)
     log("終了(入口)")
 
 
@@ -603,7 +572,7 @@ def main(argv=None):
         print("\nCtrl+C を受け取ったので終了します")
     finally:
         if runtime:
-            remove_runtime(port)
+            _runtime.remove_runtime(runtime_dir(), TOOL_ID, port)
         log("終了")
     return 0
 

@@ -112,7 +112,7 @@
   src\app\tests\                       テスト(下の「テスト」)
   .runtime\portal.json                 ホームのポート(各ツールの .runtime と同じ置き場。各ツールの動きには影響しない)
   ホームの部品の多くは src\ の役割の層にあります。src\app\ にあるのは、
-  server.py・mount.py・cli.py・autorun.py(まとめて実行)・live.py(ライブ)・prefs.py(設定)と画面(ui\)です。ほかの部品の場所:
+  server.py・mount.py・autorun.py(まとめて実行)・live.py(ライブ)・prefs.py(設定)と画面(ui\)です。ほかの部品の場所:
     友人の依頼の受付・友人の返事          src\human\friend\(intake.py・live_requests.py・friend_feedback.py)
     届ける                                  src\flow\(deliver.py・delivery.py)
     案件(cases.py)・文字起こしの紐づけ      src\manage\cases\(cases.py・txindex.py・txlink.py ほか)

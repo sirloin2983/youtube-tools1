@@ -13,7 +13,9 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データ
 import types
 import unittest
 
-from test_backend import S, write_json
+from test_backend import write_json
+from human.proof import learn as _learn  # noqa: E402
+from pipeline.transcribe import recognize as _recognize  # noqa: E402
 from pipeline.transcribe import roster as R  # noqa: E402   (test_backend が serve を読んで src を sys.path に足したあと)
 from ytt import testkit  # noqa: E402
 from ytt.dictfmt import apply_replacements  # noqa: E402
@@ -37,7 +39,7 @@ def small_roster(tmp):
 class TestRosterRun(unittest.TestCase):
     def test_bundled_roster(self):
         """同梱の名簿: 画面の「名簿から追加」は groups だけを読む・所属 id が一意・名前が空でなく前後に空白がなく重ならない・主な人がいる・基準日がある"""
-        r = S.load_roster()
+        r = _learn.load_roster()
         self.assertEqual(set(r), {"asOf", "note", "groups"})
         ids = [g["id"] for g in r["groups"]]
         self.assertEqual(len(ids), len(set(ids)))
@@ -104,9 +106,9 @@ class TestVadFallback(unittest.TestCase):
                 return Segs([types.SimpleNamespace(start=0.0, end=2.0, text="やるぜよー", words=[])]), types.SimpleNamespace(duration=30.0, duration_after_vad=30.0)
 
         spec = {"vadMode": "weak", "language": "ja", "beam": 5, "model": "large-v3", "glossary": [], "context": {"terms": ["大空スバル", "スバル"]}}
-        raw, vad = S.transcribe_vad_fallback({"cancel": False}, Model(), "a.wav", spec)
+        raw, vad = _recognize.transcribe_vad_fallback({"cancel": False}, Model(), "a.wav", spec)
         self.assertEqual(([r["text"] for r in raw], vad["used"], vad["retries"][0]["why"]), (["やるぜよー"], "off", "empty"))
-        raw, vad = S.transcribe_vad_fallback({"cancel": False}, Model(), "a.wav", dict(spec, context={}))
+        raw, vad = _recognize.transcribe_vad_fallback({"cancel": False}, Model(), "a.wav", dict(spec, context={}))
         self.assertEqual(([r["text"] for r in raw], vad["retries"]), (["スバル"], []))            # ヒントを渡していなければ本物の発話とみなす
 
 

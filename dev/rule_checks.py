@@ -142,9 +142,8 @@ def rule_push_bat_order(repo=REPO):
 
 # ---------------------------------------------------------------- e2e の一覧・単体テストの層の名前
 
-def suite_problems(repo, suite, not_in_suite, found, editor_cases=None, editor_e2e=None, case_labels=None):
-    """e2e の一覧(SUITE・NOT_IN_SUITE)の中身が実在し、リポジトリの e2e は一覧か除外のどちらかに必ず入る。
-    編集の一式の道具が流す e2e は一覧の cases の組にある"""
+def suite_problems(repo, suite, not_in_suite, found):
+    """e2e の一覧(SUITE・NOT_IN_SUITE)の中身が実在し、リポジトリの e2e は一覧か除外のどちらかに必ず入る"""
     out = []
     for script in [s for _g, s, _a, _w in suite] + sorted(not_in_suite):
         if not os.path.isfile(os.path.join(repo, script)):
@@ -152,21 +151,15 @@ def suite_problems(repo, suite, not_in_suite, found, editor_cases=None, editor_e
     listed = {s for _g, s, _a, _w in suite} | set(not_in_suite)
     for s in sorted(set(found) - listed):
         out.append("e2e を足したら dev/run_e2e.py の SUITE か NOT_IN_SUITE に入れる: %s" % s)
-    if editor_e2e:
-        out.append("run_editor_suite.E2E が空でない: %r" % (editor_e2e,))
-    for label in (editor_cases or []):
-        if label not in (case_labels or set()):
-            out.append("run_editor_suite.CASES_E2E の %s が run_e2e.SUITE の cases に無い" % label)
     return out
 
 
-@rule("R-04", "e2e の一覧が実在する物と一致・編集の一式が流す物は一覧にある", "dev/tests/test_run_e2e.py test_every_listed_script_exists・test_every_repo_script_is_listed_or_excluded・test_editor_suite_runner_agrees")
+@rule("R-04", "e2e の一覧が実在する物と一致", "dev/tests/test_run_e2e.py test_every_listed_script_exists・test_every_repo_script_is_listed_or_excluded")
 def rule_e2e_suite_listed(repo=REPO):
     import glob
     sys.path.insert(0, HERE)
     try:
         import run_e2e
-        import run_editor_suite
     finally:
         sys.path.remove(HERE)
     found = set()
@@ -175,8 +168,7 @@ def rule_e2e_suite_listed(repo=REPO):
             r = rel(p, repo)
             if not r.endswith("/e2e_edit_common.py"):
                 found.add(r)
-    labels = {run_e2e.label(s, a) for g, s, a, _w in run_e2e.SUITE if g == "cases"}
-    return suite_problems(repo, run_e2e.SUITE, run_e2e.NOT_IN_SUITE, found, run_editor_suite.CASES_E2E, run_editor_suite.E2E, labels)
+    return suite_problems(repo, run_e2e.SUITE, run_e2e.NOT_IN_SUITE, found)
 
 
 @rule("R-05", "単体テストの層の名前が src のフォルダと一致", "dev/tests/test_run_unit.py test_layer_names_are_src_folders")

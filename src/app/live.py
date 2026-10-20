@@ -61,7 +61,6 @@ src/flow/livesession.py の LiveSession(ライブ係)にある。Live はそれ�
 自分の配信(スタジオの URL の欄 POST /live/api/begin)も録画を始めたときに束を組む(livesession.begin_own。封筒 kind live + own_bundle =
 画面の設定の束 + ホームの設定 live + 今のスタジオの解析の設定・書き出しの音量)。録画中に設定を変えても、その録画の検出の感度・枠・採用の待ち・余白・
 配信後の解析・書き出しの音量・書き出したあとのエンジン・モデル・カットには効かない(決定 3-31 の b1・b2)。封筒にできない URL(テストの手元の録画元)は束なし。
-画面なし(--headless)は use_headless: スタジオなしの採用(LocalMarks)・届けない・6 時間で止めない・上限は束の adopt.top・空き容量の下限(machine.json の diskMinGB)。
 """
 import http.client
 import os
@@ -142,30 +141,18 @@ class Live(livesession.LiveSession):
         cleanup_opts: src/manage/keep/live_cleanup.py の Cleaner へ渡す引数(テスト用: 24 時間・3 日・見回りの間隔を縮める)"""
         self.prefs = prefs
         self._server = server
-        self.headless = False              # 画面なし(use_headless)
         log = log or (lambda m: None)
         store_dir = store_dir or os.path.join(os.path.dirname(logs_dir), "live")
         super().__init__(root, logs_dir, requests=live_rules.RequestBook(os.path.join(store_dir, "requests.json"), log=log), log=log, python=python,
                          data_dir=data_dir, watch_sec=watch_sec, spawn=spawn, store_dir=store_dir, out_dir=out_dir,
                          runner=runner or (lambda: getattr(self._server, "autorun", None) if self._server is not None else None),
                          audio=audio or (lambda: studio_audio(self.root)), archive_opts=archive_opts, cleanup_opts=cleanup_opts,
-                         # 採用(M1)のマークの置き場 = 取り込んだスタジオ(呼ぶときに self.studio_call を読む = テストの差し替えが効く)。画面なしは LocalMarks(use_headless)
+                         # 採用(M1)のマークの置き場 = 取り込んだスタジオ(呼ぶときに self.studio_call を読む = テストの差し替えが効く)
                          marks=live_adopt.StudioMarks(lambda method, path, body=None: self.studio_call(method, path, body)),
                          deliver_for=self._auto_deliver_for)
         self._stop_said = set()            # D-13: 6 時間で止められなかった録画(記録に 1 回だけ)
         self._expire_at = 0.0              # 日数で自動の切り抜きの片付けを最後に見た時刻(EXPIRE_EVERY ごと)
         self._pool_at = 0.0                # 組の溜めの残りを最後に見た時刻(POOL_EVERY ごと)
-
-    def use_headless(self, disk_min_gb=None):
-        """画面なし(server.py --headless。notes:plan/done/f1-friend-pc.md の決めたこと 6・7): 設定に関わらずオン・どの封筒も依頼の決まりで(検出・採用・パックまで)・
-        スタジオなしの採用(LocalMarks)・友人へ届けない・6 時間で止めない・同時の上限なし・自動の採用の上限は束の adopt.top・
-        空き容量が disk_min_gb(GB)より少なければ新しい録画を始めない"""
-        self.headless = True
-        self.always_on = self.request_all = True
-        self.disk_min_gb = disk_min_gb
-        self.marks = live_adopt.LocalMarks(lambda: self.exporter)
-        self.adopter.deliver_for = None
-        self.auto_max = self.bundle_top
 
     # --- 設定 ---
     def _load_cfg(self):
@@ -201,17 +188,15 @@ class Live(livesession.LiveSession):
         return live_cleanup.Cleaner(self, **kw)
 
     def _request_limit(self):
-        return None if self.headless else live_requests.MAX_ACTIVE   # 友人の PC は同時の上限なし(決めたこと 7)
+        return live_requests.MAX_ACTIVE
 
     def _request_label(self, item):
         return live_requests.settings_label(item["settings"])
 
     def _request_watch(self):
-        return [] if self.headless else [("友人の依頼の録画の上限の見回りでエラー", self.stop_long_requests)]   # D-13: 友人の依頼の録画は 1 依頼 6 時間まで
+        return [("友人の依頼の録画の上限の見回りでエラー", self.stop_long_requests)]   # D-13: 友人の依頼の録画は 1 依頼 6 時間まで
 
     def _app_watch(self):
-        if self.headless:   # 友人の PC は届けない・③④ の片付けは画面なしでは動かさない
-            return []
         return [("溜めの見回りでエラー", self.flush_pools),   # 置けなかった自動の分の送り直し・組に溜めたライブの切り抜きの残り(今は 1 本ずつ届ける)
                 ("日数で自動の切り抜きの片付けでエラー", self.expire_unseen)]   # 作ってから・届けてから 3 日の自動の切り抜きはごみ箱へ(ユーザー決定。オフでも前の分は片付ける)
 

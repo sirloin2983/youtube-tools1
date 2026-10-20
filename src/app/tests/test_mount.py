@@ -28,6 +28,7 @@ sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app
 from app import server as L  # noqa: E402
 from app import mount as M  # noqa: E402
 from test_launch import REPO, _copy_tool, free_ports, wait_for  # noqa: E402
+from pipeline.transcribe import worker_client as _worker_client  # noqa: E402
 from ytt import httpsec, layout  # noqa: E402
 
 STUDIO_DIR, TX_DIR = layout.TOOL_DIRS["studio"], layout.TOOL_DIRS["transcribe"]   # リポジトリの中のフォルダ名
@@ -339,7 +340,7 @@ class TestCut2ResolveMounted(unittest.TestCase):
         gate.set()
         self.assertIsNone(L.read_runtime(self.rdir, "cut2resolve"))
         self.assertTrue(wait_for(lambda: not self.mod.busy(), 5))
-        self.mod.write_runtime(self.port, "/cut2resolve/")
+        self.mod._runtime.write_runtime(self.mod.runtime_dir(), self.mod.TOOL_ID, self.port, self.mod.SERVER_VERSION, "/cut2resolve/")
 
 
 @unittest.skipUnless(all(os.path.isfile(os.path.join(REPO, d, "serve.py")) for d in (STUDIO_DIR, TX_DIR)) and shutil.which("ffmpeg"),
@@ -440,7 +441,7 @@ class TestTranscribeMounted(unittest.TestCase):
         j = self.run_job()
         self.assertEqual(j["state"], "done", j)
         self.assertEqual(j["segments"], 3)
-        w = self.mod.WORKER
+        w = _worker_client.WORKER
         self.assertTrue(w.alive())
         self.assertNotEqual(w.proc.pid, os.getpid())          # 認識は入口とは別のプロセス
         for m in ("faster_whisper", "ctranslate2", "sherpa_onnx"):
@@ -448,7 +449,7 @@ class TestTranscribeMounted(unittest.TestCase):
 
     def test_worker_crash_does_not_take_down_portal(self):
         """ワーカーが落ちても、そのジョブが失敗になるだけ。入口・スタジオはそのまま動き、次の文字起こしでワーカーを起動し直す。"""
-        self.mod.WORKER.stop()   # 次の要求で、落ちる設定のワーカーが起動する
+        _worker_client.WORKER.stop()   # 次の要求で、落ちる設定のワーカーが起動する
         os.environ["TRANSCRIBE_WORKER_CRASH"] = "1"
         try:
             j = self.run_job()
@@ -475,12 +476,12 @@ class TestTranscribeMounted(unittest.TestCase):
     def test_zz_finish_stops_worker_and_runtime(self):
         """入口の終了(finish): 待っているジョブを取り消し、ワーカーを終わらせ、.runtime を消す(記録は書き戻す)"""
         self.assertEqual(self.run_job()["state"], "done")
-        p = self.mod.WORKER.proc
+        p = _worker_client.WORKER.proc
         self.mod.finish()
         self.assertIsNotNone(p.poll())
         self.assertIsNone(L.read_runtime(self.rdir, "transcribe"))
-        self.mod.WORKER.closed = False
-        self.mod._runtime.write_runtime(self.mod.runtime_path_dir(), "transcribe", self.port, self.mod.SERVER_VERSION, "/transcribe/")
+        _worker_client.WORKER.closed = False
+        self.mod._runtime.write_runtime(self.mod.ed_state.runtime_path_dir(), "transcribe", self.port, self.mod.SERVER_VERSION, "/transcribe/")
 
 
 @unittest.skipUnless(os.path.isfile(os.path.join(REPO, STUDIO_DIR, "serve.py")), "スタジオのフォルダが無い")

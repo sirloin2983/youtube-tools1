@@ -24,13 +24,10 @@ import re
 import shutil
 import threading
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 import uuid
 
 from flow import deliver as _deliver, order as _order, placement as _placement, spec as _spec
-from ytt import colors as _colors, fsio as _fsio, tools as _tools, version as _version, yturl as _yturl
+from ytt import colors as _colors, fsio as _fsio, tools as _tools, version as _version, ytapi as _ytapi, yturl as _yturl
 
 from . import inbox as _inbox, live as _live, progress as _progress
 
@@ -43,7 +40,6 @@ FORM_DEFAULTS = {"top": TOP_DEFAULT, "videoTracks": 1, "useWeights": False, "wei
                  "pc": "this", "live": dict(_live.SETTINGS_DEFAULT, lengthMode="auto"), "cut": "none"}   # cut = ⚙ のカットの既定(A-8)
 PCS = ("this", "user")
 PEOPLE_MAX = 6
-OEMBED = "https://www.youtube.com/oembed?format=json&url="
 PEEK_TIMEOUT = 8
 LIVE_PEEK_CACHE = 60                # 配信中か調べた結果を覚える秒(配信前 → 配信中と変わるので短く)
 LIVE_STATES = ("is_live", "is_upcoming")
@@ -91,14 +87,8 @@ def merge_live(cur, change):
 
 
 def oembed(vid, timeout=PEEK_TIMEOUT):
-    """oEmbed(公開・キー不要)で題とチャンネル名 -> {"title", "channel"}(取れなければ空。接続先は固定・id は検査済み)"""
-    target = OEMBED + urllib.parse.quote(_yturl.watch_url(vid), safe="")
-    try:
-        with urllib.request.urlopen(urllib.request.Request(target, headers={"Accept": "application/json"}), timeout=timeout) as r:
-            d = json.loads(r.read(200000).decode("utf-8", "replace"))
-    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
-        return {"title": "", "channel": ""}
-    return {"title": str(d.get("title") or "")[:120], "channel": str(d.get("author_name") or "")[:100]}
+    """題とチャンネル名 -> {"title", "channel"}(取れなければ空。ytt/ytapi.oembed)"""
+    return _ytapi.oembed(vid, timeout)
 
 
 def probe_live(url):

@@ -17,7 +17,11 @@ import time
 import unittest
 from unittest.mock import patch
 
-from test_backend import S, TID, StoreDir  # noqa: F401  (S = serve)
+from test_backend import TID, StoreDir  # noqa: F401  (S = serve)
+import ed_state  # noqa: E402
+from human.proof import rerun as _rerun  # noqa: E402
+from human.proof import store as _store  # noqa: E402
+from ytt import workdata as _workdata  # noqa: E402
 from test_edit import doc_obj, edit_obj
 from pipeline.transcribe import recognize  # noqa: E402
 from pipeline.transcribe import records  # noqa: E402
@@ -25,7 +29,7 @@ from ytt import testkit  # noqa: E402
 
 
 def _rd(tid=TID):
-    with open(S.tx_path(tid), encoding="utf-8") as f:
+    with open(_store.tx_path(tid), encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -36,19 +40,19 @@ def _seg(i, a, b, text, **kw):
 class TestProofedAt(StoreDir):
     def test_sanitize_sets_inherits_and_drops(self):
         before = int(time.time() * 1000)
-        out = S.sanitize_transcript({"segments": [_seg(1, 0, 1, "a", proofed=True, proofedAt=5), _seg(2, 1, 2, "b", proofedAt=7)]}, {})["segments"]
+        out = _store.sanitize_transcript({"segments": [_seg(1, 0, 1, "a", proofed=True, proofedAt=5), _seg(2, 1, 2, "b", proofedAt=7)]}, {})["segments"]
         self.assertGreaterEqual(out[0]["proofedAt"], before)            # 画面の値(5)は使わない。保存済みに無ければ今
         self.assertNotIn("proofedAt", out[1])                           # 校正済みでない行には付けない
         base = {"segments": [_seg(1, 0, 1, "a", proofed=True, proofedAt=1234), _seg(2, 1, 2, "b", proofed=True, proofedAt=2345),
                              _seg(3, 2, 3, "c", proofed=True)]}          # s3 = この項目より前に校正済みにした行(時刻なし)
-        out = S.sanitize_transcript({"segments": [_seg(1, 0, 1, "a2", proofed=True, proofedAt=99), _seg(2, 1, 2, "b"),
+        out = _store.sanitize_transcript({"segments": [_seg(1, 0, 1, "a2", proofed=True, proofedAt=99), _seg(2, 1, 2, "b"),
                                                   _seg(3, 2, 3, "c", proofed=True), _seg(4, 3, 4, "d", proofed=True)]}, base)["segments"]
         self.assertEqual(out[0]["proofedAt"], 1234)                     # 同じ id の行から引き継ぐ(文字を直しても初めての時刻のまま)
         self.assertNotIn("proofedAt", out[1])                           # 外した行は捨てる
         self.assertNotIn("proofedAt", out[2])                           # 校正済みの行に、今の時刻を作らない
         self.assertGreaterEqual(out[3]["proofedAt"], before)
         # 外したあとにもう一度校正済みにしたら、その時刻から数え直す
-        out2 = S.sanitize_transcript({"segments": [_seg(2, 1, 2, "b", proofed=True)]}, {"segments": out})["segments"]
+        out2 = _store.sanitize_transcript({"segments": [_seg(2, 1, 2, "b", proofed=True)]}, {"segments": out})["segments"]
         self.assertGreaterEqual(out2[0]["proofedAt"], before)
 
     def test_save_round_trip_and_old_lite_mark(self):
@@ -58,13 +62,13 @@ class TestProofedAt(StoreDir):
                 d = doc_obj(**({"lite": {"streamer": "x"}} if lite else {}))
                 self.put_doc(d)
                 d["segments"][0]["proofed"] = True
-                S.save_transcript(TID, dict(d, baseUpdatedAt=d["updatedAt"]))
+                _store.save_transcript(TID, dict(d, baseUpdatedAt=d["updatedAt"]))
                 cur = _rd()
                 at = cur["segments"][0]["proofedAt"]
                 cur["segments"][0]["text"] = "直した"
                 cur["segments"][0]["proofedAt"] = 1   # 画面が古い値を送っても
                 time.sleep(0.01)
-                S.save_transcript(TID, dict(cur, baseUpdatedAt=cur["updatedAt"]))
+                _store.save_transcript(TID, dict(cur, baseUpdatedAt=cur["updatedAt"]))
                 self.assertEqual(_rd()["segments"][0]["proofedAt"], at)
 
     def test_retranscribe_keeps_proofed_at_primary(self):
@@ -73,7 +77,7 @@ class TestProofedAt(StoreDir):
         d = doc_obj(original=[{"start": 0.4, "end": 2.8, "text": "こんばんわ"}])
         d["segments"][0].update(proofed=True, proofedAt=1111)
         self.put_doc(d)
-        S.apply_retranscribe({"tid": TID, "model": "m", "autoDict": False}, {"s1": ("こんにちは", "")})   # 機械の文字は前の機械とも人の直しとも違う
+        _rerun.apply_retranscribe({"tid": TID, "model": "m", "autoDict": False}, {"s1": ("こんにちは", "")})   # 機械の文字は前の機械とも人の直しとも違う
         g = _rd()["segments"][0]
         self.assertEqual((g["text"], g.get("proofed"), g.get("proofedAt")), ("こんばんは", True, 1111))
         self.assertIn(layers.MACH_CHANGED, g["flag"])
@@ -89,7 +93,7 @@ class TestReplacedRuns(StoreDir):
 
     def test_each_keeps_replaced_machine_output(self):
         self.put()
-        S.apply_retranscribe({"tid": TID, "model": "large-v3", "autoDict": False, "beam": 5}, {"s2": ("待って", ""), "s4": ("それって", "")})
+        _rerun.apply_retranscribe({"tid": TID, "model": "large-v3", "autoDict": False, "beam": 5}, {"s2": ("待って", ""), "s4": ("それって", "")})
         d = _rd()
         runs = d["recognition"]["runs"]
         self.assertEqual(len(runs), 2)
@@ -105,7 +109,7 @@ class TestReplacedRuns(StoreDir):
             with self.subTest(mode=mode):
                 self.put()
                 spec = {"tid": TID, "range": [0.0, 12.0], "ids": ["s2", "s3", "s4"], "model": "small", "autoDict": False, "mode": mode}
-                S.apply_range(spec, [{"start": 3.0, "end": 11.5, "raw": "待ってあのーそれって", "flag": ""}])
+                _rerun.apply_range(spec, [{"start": 3.0, "end": 11.5, "raw": "待ってあのーそれって", "flag": ""}])
                 r = _rd()["recognition"]["runs"][-1]
                 self.assertEqual((r["kind"], r["range"]), (mode, [0.0, 12.0]))
                 self.assertNotIn("spans", r)
@@ -114,24 +118,24 @@ class TestReplacedRuns(StoreDir):
 
     def test_doc_without_original_or_recognition(self):
         self.put_doc(doc_obj())   # 文字起こしせずに開いた文書(original・recognition が無い)
-        S.apply_retranscribe({"tid": TID, "model": "m", "autoDict": False}, {"s1": ("A", "")})
+        _rerun.apply_retranscribe({"tid": TID, "model": "m", "autoDict": False}, {"s1": ("A", "")})
         r = _rd()["recognition"]["runs"]
         self.assertEqual((len(r), r[0]["kind"], r[0]["replaced"]), (1, "each", []))
 
     def test_limits(self):
         self.put()
-        with patch.object(S, "MAX_RERUNS", 3):
+        with patch.object(_rerun, "MAX_RERUNS", 3):
             for i in range(5):
-                S.apply_retranscribe({"tid": TID, "model": "m%d" % i, "autoDict": False}, {"s1": ("A%d" % i, "")})
+                _rerun.apply_retranscribe({"tid": TID, "model": "m%d" % i, "autoDict": False}, {"s1": ("A%d" % i, "")})
         runs = _rd()["recognition"]["runs"]
         self.assertEqual([r.get("model") for r in runs], ["small", "m2", "m3", "m4"])   # 最初の認識は残し、再認識は新しい 3 件
         self.put()
-        with patch.object(S, "MAX_REPLACED_ROWS", 3):
-            S.apply_retranscribe({"tid": TID, "model": "a", "autoDict": False}, {"s1": ("A", ""), "s2": ("B", "")})
-            S.apply_retranscribe({"tid": TID, "model": "b", "autoDict": False}, {"s3": ("C", ""), "s4": ("D", "")})
+        with patch.object(_rerun, "MAX_REPLACED_ROWS", 3):
+            _rerun.apply_retranscribe({"tid": TID, "model": "a", "autoDict": False}, {"s1": ("A", ""), "s2": ("B", "")})
+            _rerun.apply_retranscribe({"tid": TID, "model": "b", "autoDict": False}, {"s3": ("C", ""), "s4": ("D", "")})
             runs = _rd()["recognition"]["runs"]
             self.assertEqual([r.get("model") for r in runs], ["small", "b"])          # 行の合計が上限を超えたら古い記録から
-            S.apply_range({"tid": TID, "range": [0.0, 12.0], "ids": ["s1", "s2", "s3", "s4"], "model": "c", "autoDict": False},
+            _rerun.apply_range({"tid": TID, "range": [0.0, 12.0], "ids": ["s1", "s2", "s3", "s4"], "model": "c", "autoDict": False},
                           [{"start": 0.3, "end": 11.5, "raw": "全部", "flag": ""}, {"start": 0.1, "end": 0.2, "raw": "x", "flag": ""}])
         r = _rd()["recognition"]["runs"][-1]
         self.assertEqual(r["model"], "c")
@@ -141,27 +145,27 @@ class TestReplacedRuns(StoreDir):
 
 class TestDictVersion(StoreDir):
     def test_hashes(self):
-        a = S.dict_version({"glossary": ["兎田ぺこら", "ぺこーら"]})
+        a = records.dict_version({"glossary": ["兎田ぺこら", "ぺこーら"]})
         self.assertEqual(len(a["glossary"]), 10)
-        self.assertEqual(a, S.dict_version({"glossary": ["兎田ぺこら", "ぺこーら"]}))      # 同じ中身なら同じ版
-        self.assertNotEqual(a["glossary"], S.dict_version({"glossary": ["兎田ぺこら"]})["glossary"])
+        self.assertEqual(a, records.dict_version({"glossary": ["兎田ぺこら", "ぺこーら"]}))      # 同じ中身なら同じ版
+        self.assertNotEqual(a["glossary"], records.dict_version({"glossary": ["兎田ぺこら"]})["glossary"])
         self.assertNotIn("replacements", a)                                                  # 使っていない辞書は入れない
         self.assertTrue(a.get("roster"))
-        testkit.write_json(S.SETTINGS, {"replacements": "ぺこら=>ぺこら\nとわ様=>トワ様"})
+        testkit.write_json(_workdata.SETTINGS, {"replacements": "ぺこら=>ぺこら\nとわ様=>トワ様"})
         from ytt import dictfmt
-        r0 = S.dict_version({"autoDict": True})["replacements"]
+        r0 = records.dict_version({"autoDict": True})["replacements"]
         with patch.object(dictfmt, "USER_DICT", True):
-            r1 = S.dict_version({"autoDict": True})["replacements"]
-        testkit.write_json(S.SETTINGS, {"replacements": "とわ様=>トワ様"})
-        self.assertEqual(r0, S.dict_version({"autoDict": True})["replacements"])             # 人の置換辞書が今はオフ = 変えても版は同じ(名簿の表だけ)
+            r1 = records.dict_version({"autoDict": True})["replacements"]
+        testkit.write_json(_workdata.SETTINGS, {"replacements": "とわ様=>トワ様"})
+        self.assertEqual(r0, records.dict_version({"autoDict": True})["replacements"])             # 人の置換辞書が今はオフ = 変えても版は同じ(名簿の表だけ)
         with patch.object(dictfmt, "USER_DICT", True):
-            self.assertNotEqual(r1, S.dict_version({"autoDict": True})["replacements"])      # オンなら辞書を変えたら版が変わる
-        self.assertIn("learned", S.dict_version({"autoLearned": True}))
+            self.assertNotEqual(r1, records.dict_version({"autoDict": True})["replacements"])      # オンなら辞書を変えたら版が変わる
+        self.assertIn("learned", records.dict_version({"autoLearned": True}))
 
     def test_recognition_run_has_dict(self):
         spec = {"engine": None, "model": "small", "language": "ja", "beam": 5, "vadMode": "normal", "glossary": ["ホロライブ"], "context": {}}
-        run = S.recognition_run(spec, {}, 1.0, 1.0)
-        self.assertEqual(run["settings"]["dict"], S.dict_version(spec))
+        run = records.recognition_run(spec, {}, 1.0, 1.0)
+        self.assertEqual(run["settings"]["dict"], records.dict_version(spec))
 
 
 class TestEditDraft(StoreDir):
@@ -175,30 +179,30 @@ class TestEditDraft(StoreDir):
         return d
 
     def test_written_once(self):
-        S.save_edit(TID, {"edit": edit_obj(), "baseRev": 0, "draft": self.draft()})
-        e = S.get_edit(TID)["edit"]
+        _store.save_edit(TID, {"edit": edit_obj(), "baseRev": 0, "draft": self.draft()})
+        e = _store.get_edit(TID)["edit"]
         self.assertEqual(e["draft"], self.draft())
-        S.save_edit(TID, {"edit": edit_obj(clips=((0, 12),)), "baseRev": 1, "draft": self.draft(origin="silence")})   # 2回目以降は上書きしない
-        self.assertEqual(S.get_edit(TID)["edit"]["draft"]["origin"], "rows")
-        S.record_pack({"id": TID, "rev": 2, "docUpdatedAt": 1000, "dir": os.path.abspath(self.tmp), "files": []})   # パックの記録で消えない
-        with open(S.edit_path(TID), encoding="utf-8") as f:
+        _store.save_edit(TID, {"edit": edit_obj(clips=((0, 12),)), "baseRev": 1, "draft": self.draft(origin="silence")})   # 2回目以降は上書きしない
+        self.assertEqual(_store.get_edit(TID)["edit"]["draft"]["origin"], "rows")
+        _store.record_pack({"id": TID, "rev": 2, "docUpdatedAt": 1000, "dir": os.path.abspath(self.tmp), "files": []})   # パックの記録で消えない
+        with open(_store.edit_path(TID), encoding="utf-8") as f:
             self.assertEqual(json.load(f)["draft"]["origin"], "rows")
 
     def test_old_edit_and_bad_draft(self):
-        S.save_edit(TID, {"edit": edit_obj(), "baseRev": 0})   # draft を送らない画面
-        g = S.get_edit(TID)
+        _store.save_edit(TID, {"edit": edit_obj(), "baseRev": 0})   # draft を送らない画面
+        g = _store.get_edit(TID)
         self.assertEqual((g["rev"], "draft" in g["edit"]), (1, False))   # draft の無い edit.json も読める
-        S.save_edit(TID, {"edit": edit_obj(), "baseRev": 1, "draft": self.draft()})
-        self.assertNotIn("draft", S.get_edit(TID)["edit"])               # 後から足さない(始めたたき台が分からないため)
-        os.unlink(S.edit_path(TID))
+        _store.save_edit(TID, {"edit": edit_obj(), "baseRev": 1, "draft": self.draft()})
+        self.assertNotIn("draft", _store.get_edit(TID)["edit"])               # 後から足さない(始めたたき台が分からないため)
+        os.unlink(_store.edit_path(TID))
         for bad in (self.draft(origin="manual"), self.draft(keepsSec=[[2, 1]]), self.draft(keepsSec=[[3, 4], [1, 2]]), "x", self.draft(keepsSec="a")):
             with self.subTest(bad=str(bad)[:60]):
-                r = S.save_edit(TID, {"edit": edit_obj(), "baseRev": 0, "draft": bad})   # 記録の値が正しくなくてもカットは保存する
+                r = _store.save_edit(TID, {"edit": edit_obj(), "baseRev": 0, "draft": bad})   # 記録の値が正しくなくてもカットは保存する
                 self.assertEqual(r["rev"], 1)
-                self.assertNotIn("draft", S.get_edit(TID)["edit"])
-                os.unlink(S.edit_path(TID))
-        S.save_edit(TID, {"edit": edit_obj(), "baseRev": 0, "draft": self.draft(settings={"noise": -35, "x\n": 1, "s": "a" * 101, "ok": "abc", "b": [1]})})
-        self.assertEqual(S.get_edit(TID)["edit"]["draft"]["settings"], {"noise": -35, "ok": "abc"})
+                self.assertNotIn("draft", _store.get_edit(TID)["edit"])
+                os.unlink(_store.edit_path(TID))
+        _store.save_edit(TID, {"edit": edit_obj(), "baseRev": 0, "draft": self.draft(settings={"noise": -35, "x\n": 1, "s": "a" * 101, "ok": "abc", "b": [1]})})
+        self.assertEqual(_store.get_edit(TID)["edit"]["draft"]["settings"], {"noise": -35, "ok": "abc"})
 
 
 class TestEffort(StoreDir):
@@ -212,33 +216,33 @@ class TestEffort(StoreDir):
         d["effort"] = {"activeSec": 90, "cutSec": 30, "sessions": 1, "proofedRows": 0, "unproofedRows": 0}
         self.put_doc(d)
         t0 = int(time.time() * 1000)
-        r = S.touch_effort({"id": TID, "activeSec": 30, "newSession": True})   # 画面が送る秒は受け取って捨てる
+        r = _store.touch_effort({"id": TID, "activeSec": 30, "newSession": True})   # 画面が送る秒は受け取って捨てる
         self.assertGreaterEqual(r["effort"]["lastAt"], t0)
         d = _rd()
         self.assertEqual(d["updatedAt"], 1000)                                       # 記録のために updatedAt を動かさない
         self.assertEqual((d["effort"]["activeSec"], d["effort"]["cutSec"], d["effort"]["sessions"]), (90, 30, 1))   # 今ある値は消さない・足さない
-        S.save_transcript(TID, dict(d, baseUpdatedAt=1000, effort={"lastAt": 1}))   # 開いていた画面の保存は 409 にならず、作業中の印も戻さない
+        _store.save_transcript(TID, dict(d, baseUpdatedAt=1000, effort={"lastAt": 1}))   # 開いていた画面の保存は 409 にならず、作業中の印も戻さない
         self.assertGreaterEqual(_rd()["effort"]["lastAt"], t0)
-        with self.assertRaises(S.ApiError) as cm:
-            S.touch_effort({"id": "../x"})
+        with self.assertRaises(ed_state.ApiError) as cm:
+            _store.touch_effort({"id": "../x"})
         self.assertEqual(cm.exception.status, 404)
 
     def test_rows_counted_on_save_and_kept_on_restore(self):
         d = _rd()
         d["segments"][0]["proofed"] = d["segments"][1]["proofed"] = True
-        S.save_transcript(TID, dict(d, baseUpdatedAt=1000))
+        _store.save_transcript(TID, dict(d, baseUpdatedAt=1000))
         d = _rd()
         self.assertEqual((d["effort"]["proofedRows"], d["effort"]["unproofedRows"]), (2, 0))
-        S.touch_effort({"id": TID})
+        _store.touch_effort({"id": TID})
         d = _rd()
         last = d["effort"]["lastAt"]
         d["segments"][1].pop("proofed")
-        S.save_transcript(TID, dict(d, baseUpdatedAt=d["updatedAt"]))
+        _store.save_transcript(TID, dict(d, baseUpdatedAt=d["updatedAt"]))
         d = _rd()
         self.assertEqual((d["effort"]["proofedRows"], d["effort"]["unproofedRows"]), (2, 1))
         self.assertNotIn("activeSec", d["effort"])
-        ts = S.hist_stamps(TID)[0]   # 校正済みにする前の版へ戻しても、行の数と作業中の印は戻さない
-        S.restore_history(TID, ts)
+        ts = _store.hist_stamps(TID)[0]   # 校正済みにする前の版へ戻しても、行の数と作業中の印は戻さない
+        _store.restore_history(TID, ts)
         self.assertEqual((_rd()["effort"]["proofedRows"], _rd()["effort"]["unproofedRows"]), (2, 1))
         self.assertGreaterEqual(_rd()["effort"]["lastAt"], last)
 

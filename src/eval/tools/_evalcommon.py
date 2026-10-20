@@ -257,8 +257,7 @@ _PREPARED = {}   # この道具の部品の作業データ(一時フォルダ。
 
 def prepare(backend=None, prefix="eval_"):
     """入口(編集の serve)を読まずに、①②③ の部品をこのプロセスの中で使う準備 -> 部品の作業データ(一時フォルダ)。何度呼んでもよい。
-    OPT-E2(1c。設計原則のレビューの指摘 4)まで load_serve が編集の serve.py を別名で読み、その読み込みの副作用(置き場所・名簿・疑似の登録)と
-    名前の転送(S.名前)に頼っていた。今は要る物を ② flow/wire.setup_headless に明示して渡し、道具は持ち主のモジュールを直に読む:
+    OPT-E2(1c。設計原則のレビューの指摘 4)の準備は要る物を ② flow/wire.setup_headless に明示して渡し、道具は持ち主のモジュールを直に読む:
     - 部品の作業データ = 一時フォルダ <prefix>…(本物の作業データの横に何も書かない。本物は道具が自分で読む。このプロセスの終わりに消す)。
       環境変数 TRANSCRIBE_DATA_DIR は書き換えない(このあとの locate は本物を指したまま)
     - スタジオの data.json = 環境変数 TRANSCRIBE_STUDIO_DATA(テスト)か、置き場所の持ち主 flow/placement(--context auto が配信のチャンネル名・コラボ相手を読む)

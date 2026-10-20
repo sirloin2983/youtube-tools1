@@ -6,8 +6,8 @@
 - 値を入れるのは app と認識ワーカーだけ: 編集の ed_state が読み込みのときに set_root(編集のフォルダ)・
   serve が版(SERVER_VERSION)と起動時の作業データの切り替え(serve.set_data_dir → set_data_dir)・スタジオの data.json の場所(choose_data_dir)。
   認識ワーカー(pipeline/transcribe/worker.py)は自分のプロセスで DATA_DIR を入れる。
-- 読む側は `workdata.TX_DIR` のように**呼ぶたびに**読む(`from ytt.workdata import TX_DIR` で写さない)。テストの `S.TX_DIR = …`・
-  `mock.patch.object(S, "SETTINGS", …)` は serve の名前の受付(ytt/modfwd.py)がここへ届ける。ed_state に同じ名前を残さない(別名に当たって届かなくなる)。
+- 読む側は `workdata.TX_DIR` のように**呼ぶたびに**読む(`from ytt.workdata import TX_DIR` で写さない)。テストはこのモジュールの名前を差し替える
+  (`mock.patch.object(workdata, "SETTINGS", …)`)。ed_state に同じ名前を残さない(別名に当たって届かなくなる)。
 - 既定は None(入れる前に読むと os.path.join が TypeError = 気づける)。ROOT の既定をリポジトリの src/editor にしない
   (テストは serve.py を一時フォルダに写して動かす。写した先のフォルダが ROOT)。
 """

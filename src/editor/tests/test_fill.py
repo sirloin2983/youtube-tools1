@@ -21,8 +21,9 @@ from unittest import mock
 TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(TESTS))
 sys.path.insert(0, TESTS)
-from test_backend import S, StoreDir, write_json  # noqa: F401,E402  (S = serve)
-from test_alt import make_video  # noqa: E402
+from test_backend import StoreDir, write_json  # noqa: F401,E402  (S = serve)
+from ytt import workdata as _workdata  # noqa: E402
+from ytt import testkit  # noqa: E402
 from pipeline.transcribe import fill  # noqa: E402
 from pipeline.transcribe import llm  # noqa: E402
 from pipeline.transcribe import roster  # noqa: E402
@@ -55,7 +56,7 @@ class TestFillJobRun(StoreDir):
     def setUpClass(cls):
         cls.src_dir = tempfile.mkdtemp()
         os.makedirs(os.path.join(cls.src_dir, "テスト分子 雑談"))
-        cls.video = make_video(os.path.join(cls.src_dir, "テスト分子 雑談", "テスト分の配信.mp4"))   # フォルダの名前 = 配信ごとの文脈・題名の呼び名 = LLM の出る人
+        cls.video = testkit.make_video(os.path.join(cls.src_dir, "テスト分子 雑談", "テスト分の配信.mp4"), 9)   # フォルダの名前 = 配信ごとの文脈・題名の呼び名 = LLM の出る人
 
     @classmethod
     def tearDownClass(cls):
@@ -113,11 +114,11 @@ class TestFillJobRun(StoreDir):
         base = {"sourcePath": self.video, "model": "small"}
         v = doc_jobs.validate_job(base)
         self.assertEqual((v["autoFill"], v["autoLlm"], v["stripNames"], v["context"]), (True, True, True, {"members": [], "terms": []}))   # 配信ごとの文脈は既定オフ
-        write_json(S.SETTINGS, {"autoFill": False, "autoLlm": False})
+        write_json(_workdata.SETTINGS, {"autoFill": False, "autoLlm": False})
         v = doc_jobs.validate_job(base)
         self.assertEqual((v["autoFill"], v["autoLlm"]), (False, False))
         self.assertTrue(doc_jobs.validate_job(dict(base, autoFill=True))["autoFill"])
-        write_json(S.SETTINGS, {})
+        write_json(_workdata.SETTINGS, {})
         job = self.transcribe(autoContext=True, glossary="ホロライブ", evalSet=True, autoDict=True, autoLearned=True, autoFill=True, autoLlm=True)
         d = store.read_transcript(job["tid"])
         self.assertIs(d["evalSet"], True)

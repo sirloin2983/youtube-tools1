@@ -22,24 +22,17 @@ from unittest import mock
 TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(TESTS))
 sys.path.insert(0, TESTS)
-from test_backend import S, StoreDir  # noqa: F401  (S = serve)
+from test_backend import StoreDir  # noqa: F401  (S = serve)
+import ed_state  # noqa: E402
 from human.proof import doc_jobs  # noqa: E402
 from human.proof import store  # noqa: E402
 from flow import jobs  # noqa: E402
 from flow import normalize as FN  # noqa: E402   ② 30fps にそろえる段
 from manage.cases import relink as RL  # noqa: E402   付け替えと 30fps
 from ytt import normalize as N  # noqa: E402
+from ytt import testkit  # noqa: E402
 
 HAVE_FF = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
-
-
-def make_video(path, fps=60, sec=8, codec="libx264"):
-    """testsrc の映像 + sine の音(AAC)。疑似の文字起こしは 4 秒ごとに1行"""
-    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-                    "-f", "lavfi", "-i", "testsrc=size=160x90:rate=%s:duration=%s" % (fps, sec),
-                    "-f", "lavfi", "-i", "sine=frequency=440:duration=%s" % sec,
-                    "-c:v", codec, "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", path], check=True)
-    return path
 
 
 def ff(*args, check=True):
@@ -54,8 +47,8 @@ class _Base(StoreDir):
     @classmethod
     def setUpClass(cls):
         cls.src_dir = tempfile.mkdtemp()
-        cls.v60 = make_video(os.path.join(cls.src_dir, "v60.mp4"), 60)
-        cls.v30 = make_video(os.path.join(cls.src_dir, "v30.mp4"), 30)
+        cls.v60 = testkit.make_video(os.path.join(cls.src_dir, "v60.mp4"), fps=60)
+        cls.v30 = testkit.make_video(os.path.join(cls.src_dir, "v30.mp4"), fps=30)
 
     @classmethod
     def tearDownClass(cls):
@@ -155,7 +148,7 @@ class TestFlowNormalize(_Base):
 
     def check_2997_next_name(self):
         """配信の録画に多い 29.97fps も 30/1 に作り直し、長さ(= 時刻)は保つ。隣の名前が 30fps でない別の動画なら上書きせず次の名前に作る"""
-        src = make_video(os.path.join(self.media, "配信 2997.mp4"), "30000/1001", sec=4)
+        src = testkit.make_video(os.path.join(self.media, "配信 2997.mp4"), 4, "30000/1001")
         other = self.copy(self.v60, "配信 2997_30fps.mp4")
         size = os.path.getsize(other)
         before = N.probe(src)
@@ -301,13 +294,13 @@ class TestRelinkNormalize(_Base):
         tid, d = self.make_doc(old)
         os.remove(old)
         moved = self.copy(self.v60, "移した先.mp4")
-        r = S.relink_doc({"id": tid, "path": moved, "baseUpdatedAt": d["updatedAt"], "acceptDiff": True})
+        r = RL.relink_doc({"id": tid, "path": moved, "baseUpdatedAt": d["updatedAt"], "acceptDiff": True})
         self.assertTrue(r["normalizing"])
         self.assertEqual(os.path.normcase(self.doc(tid)["sourcePath"]), os.path.normcase(moved))   # 付け替えは済んでいる
         job = jobs._jobs[r["normalizing"]]
         self.assertEqual((job["kind"], job["tid"]), ("normalize", tid))
-        with self.assertRaises(S.ApiError) as cm:   # 作り直しの間は、この文書を選び直せない
-            S.relink_doc({"id": tid, "path": old, "baseUpdatedAt": r["updatedAt"]})
+        with self.assertRaises(ed_state.ApiError) as cm:   # 作り直しの間は、この文書を選び直せない
+            RL.relink_doc({"id": tid, "path": old, "baseUpdatedAt": r["updatedAt"]})
         self.assertIn(cm.exception.code, ("busy", "no_file"))
         self.run_job(job)
         d2 = self.doc(tid)
@@ -329,9 +322,9 @@ class TestRelinkNormalize(_Base):
                 tid, d = self.make_doc(old)
                 if eval_set:
                     d["evalSet"] = True
-                    S.atomic_write(S.tx_path(tid), json.dumps(d, ensure_ascii=False).encode("utf-8"))
+                    ed_state.atomic_write(store.tx_path(tid), json.dumps(d, ensure_ascii=False).encode("utf-8"))
                 moved = self.copy(new_v, "先%s.mp4" % name)
-                r = S.relink_doc(dict({"id": tid, "path": moved, "baseUpdatedAt": d["updatedAt"], "acceptDiff": True}, **extra))
+                r = RL.relink_doc(dict({"id": tid, "path": moved, "baseUpdatedAt": d["updatedAt"], "acceptDiff": True}, **extra))
                 self.assertIsNone(r["normalizing"])
                 self.assertEqual(r["normNote"], "")
                 self.assertEqual([n for n in os.listdir(self.media) if "30fps" in n], [])   # 作り直した写しは無い

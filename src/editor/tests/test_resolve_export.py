@@ -6,7 +6,6 @@ import json
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -26,12 +25,6 @@ from ytt import testkit  # noqa: E402
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 
 
-def make_video(path, dur, fps="30"):
-    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc=size=160x90:rate=%s:duration=%s" % (fps, dur),
-                    "-f", "lavfi", "-i", "sine=duration=%s" % dur, "-pix_fmt", "yuv420p", "-c:v", "libx264", "-c:a", "aac",
-                    "-shortest", path], check=True)
-
-
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg / ffprobe が無い")
 class PackageTests(unittest.TestCase):
     """zip の通し。見本: 8 秒・30fps・ずっと音(無音が無い = 行の端は決まった余白 前 3・後 6 コマ)"""
@@ -40,7 +33,7 @@ class PackageTests(unittest.TestCase):
     def setUpClass(cls):
         cls.tmp = tempfile.mkdtemp()
         cls.source = os.path.join(cls.tmp, "clip.mp4")
-        make_video(cls.source, 8)
+        testkit.make_video(cls.source, 8)
 
     @classmethod
     def tearDownClass(cls):
@@ -101,7 +94,7 @@ class PackageTests(unittest.TestCase):
 
         # 切り抜きスタジオの余白つき素材(前後10秒)があれば、それを入れて、区間を余白の分だけ後ろへずらす
         edit, side = os.path.join(self.tmp, "clip_edit.mp4"), os.path.join(self.tmp, "clip.edit.json")
-        make_video(edit, 28)
+        testkit.make_video(edit, 28)
         with open(side, "w", encoding="utf-8") as f:
             json.dump({"schema": "clip-studio/edit-media/v1", "media": "clip_edit.mp4", "selectionIn": 10, "handleBefore": 10, "handleAfter": 10}, f)
         try:
@@ -140,7 +133,7 @@ class HttpTests(unittest.TestCase):
         import test_backend
         cls.tmp = tempfile.mkdtemp()
         cls.video = os.path.join(cls.tmp, "clip.mp4")
-        make_video(cls.video, 8)
+        testkit.make_video(cls.video, 8)
         os.makedirs(os.path.join(cls.tmp, "transcripts"))
         cls.tid = "0123456789ab"
         doc = {"id": cls.tid, "title": "HTTP", "sourcePath": cls.video, "whole": True, "duration": 8, "updatedAt": 1,

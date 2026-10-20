@@ -13,7 +13,6 @@
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所に書かない(ytt.datadir)
 import shutil
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -22,8 +21,14 @@ from unittest import mock
 TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(TESTS))
 sys.path.insert(0, TESTS)
-from test_backend import S, StoreDir, write_json  # noqa: E402  (S = serve)
+from test_backend import StoreDir, write_json  # noqa: E402  (S = serve)
+import ed_state  # noqa: E402
+from human.proof import learn as _learn  # noqa: E402
+from pipeline.transcribe import records as _records  # noqa: E402
+from ytt import settings as _settings  # noqa: E402
+from ytt import workdata as _workdata  # noqa: E402
 from eval.fake import fake_asr  # noqa: E402
+from ytt import testkit  # noqa: E402
 from human.proof import alt as proof_alt  # noqa: E402
 from human.proof import doc_jobs  # noqa: E402
 from human.proof import store  # noqa: E402
@@ -64,15 +69,15 @@ class TestAltDiffs(unittest.TestCase):
             t += 4
         rows += [_row(90, t, t + 2, "ここからあいう"), _row(91, t + 2, t + 4, "えおそれから")]   # 行をまたぐ置き換え(1 行目の終わり〜2 行目の始まり)
         alts.append(_alt(t, t + 4, "ここからあいかきおそれから"))
-        items, st = S.alt_diffs(rows, alts)
+        items, st = proof_alt.alt_diffs(rows, alts)
         self.assertEqual([(x["seg"], x["i"], x["wrong"], x["right"]) for x in items], want)
         self.assertEqual({x["tier"] for x in items}, {"alt"})
         for x in items[:1] + items[2:4]:   # 片方だけの文字: 画面の採用(位置で置き換え)で 2 つ目のエンジンの文字になる
             k = int(x["seg"][1:]) - 1
             self.assertEqual(CASES[k][0][:x["i"]] + x["right"] + CASES[k][0][x["i"] + len(x["wrong"]):], CASES[k][1])
         self.assertEqual(st, {"long": 1, "cross": 1, "mostly": 2, "notation": 2, "edge": 0})
-        self.assertEqual(S.alt_diffs([], [_alt(0, 1, "a")]), ([], {"long": 0, "cross": 0, "mostly": 0, "notation": 0, "edge": 0}))
-        self.assertEqual(S.alt_diffs(rows, [])[0], [])
+        self.assertEqual(proof_alt.alt_diffs([], [_alt(0, 1, "a")]), ([], {"long": 0, "cross": 0, "mostly": 0, "notation": 0, "edge": 0}))
+        self.assertEqual(proof_alt.alt_diffs(rows, [])[0], [])
         # 長い文書は時刻の窓ごとにそろえる(窓が複数・遠い所の食い違いも正しい行に・2 つ目のエンジンの時刻が少しずれていても)
         rows, alts = [], []
         for i in range(400):   # 20 分(3 秒ごと)
@@ -80,7 +85,7 @@ class TestAltDiffs(unittest.TestCase):
             rows.append(_row(i, i * 3.0, i * 3.0 + 2.5, text))
             alts.append(_alt(i * 3.0 + 0.4, i * 3.0 + 2.9, text.replace("行", "業") if i in (5, 250, 399) else text))
         self.assertGreater(len(proof_alt._alt_windows(sorted([dict(r, n=k) for k, r in enumerate(rows)], key=lambda r: r["start"]))), 5)
-        items, st = S.alt_diffs(rows, alts)
+        items, st = proof_alt.alt_diffs(rows, alts)
         self.assertEqual([(x["seg"], x["wrong"], x["right"]) for x in items], [("s5", "行", "業"), ("s250", "行", "業"), ("s399", "行", "業")])
         self.assertEqual(st["cross"], 0)
 
@@ -90,14 +95,14 @@ class TestAltDiffsRowStart(unittest.TestCase):
         """行の頭に足された字は、前の行の終わりの候補にしない(次の行の頭の置き換えにする)"""
         rows = [_row(1, 0.0, 3.0, "今日は晴れですよ"), _row(2, 3.0, 6.0, "明日は雨になります")]
         alts = [_alt(0.0, 6.0, "今日は晴れですよ。そして明日は雨になります")]
-        items, _st = S.alt_diffs(rows, alts)
+        items, _st = proof_alt.alt_diffs(rows, alts)
         self.assertEqual([(x["seg"], x["wrong"], x["right"]) for x in items], [("s2", "明", "そして明")])
 
 
 class _AltStore(StoreDir):
     def setUp(self):
         super().setUp()
-        self.fb = mock.patch.object(S, "FEEDBACK", os.path.join(self.tmp, "learn-feedback.json"))
+        self.fb = mock.patch.object(_workdata, "FEEDBACK", os.path.join(self.tmp, "learn-feedback.json"))
         self.fb.start()
         proof_alt._alt_cache.clear()
 
@@ -108,32 +113,25 @@ class _AltStore(StoreDir):
 
 class TestAltSettings(_AltStore):
     def test_load_feedback_alt_and_dict_version(self):
-        write_json(S.FEEDBACK, {"stat": {}, "dismissed": {}, "alt": {"acc": "x", "rej": 3}})
-        self.assertEqual(S.load_feedback()["alt"], {"acc": 0, "rej": 3})
-        v1 = S.dict_version({"autoLearned": True})
-        write_json(S.FEEDBACK, {"stat": {}, "dismissed": {}, "alt": {"acc": 9, "rej": 3}})
-        self.assertEqual(S.dict_version({"autoLearned": True}), v1)   # 別のエンジンの数は辞書の版を変えない
+        write_json(_workdata.FEEDBACK, {"stat": {}, "dismissed": {}, "alt": {"acc": "x", "rej": 3}})
+        self.assertEqual(_learn.load_feedback()["alt"], {"acc": 0, "rej": 3})
+        v1 = _records.dict_version({"autoLearned": True})
+        write_json(_workdata.FEEDBACK, {"stat": {}, "dismissed": {}, "alt": {"acc": 9, "rej": 3}})
+        self.assertEqual(_records.dict_version({"autoLearned": True}), v1)   # 別のエンジンの数は辞書の版を変えない
 
     def test_settings_alt_engine(self):
         for bad in ("bad", "whisper.cpp", "faster-whisper"):   # 選べるのは Qwen3-ASR 1.7B(llama.cpp)だけ
-            with self.assertRaises(S.ApiError):
-                S.patch_settings({"values": {"altEngine": bad}})
-        S.patch_settings({"values": {"altEngine": "llama.cpp"}})
-        self.assertEqual(S.load_settings()["altEngine"], "llama.cpp")
-        write_json(S.SETTINGS, {"altEngine": "whisper.cpp"})   # 外れた値は既定に読む
-        self.assertEqual(S.alt_engine_key({}), "llama.cpp")
-        self.assertEqual(S.alt_engine_key({"engine": "faster-whisper"}), "llama.cpp")
-        self.assertEqual(S.alt_engine_key({"engine": "nope"}), "llama.cpp")
-        info = S.alt_info()
-        self.assertEqual([e["key"] for e in info["engines"]], list(S.ALT_ENGINES))
+            with self.assertRaises(ed_state.ApiError):
+                _settings.patch_settings({"values": {"altEngine": bad}})
+        _settings.patch_settings({"values": {"altEngine": "llama.cpp"}})
+        self.assertEqual(_settings.load_settings()["altEngine"], "llama.cpp")
+        write_json(_workdata.SETTINGS, {"altEngine": "whisper.cpp"})   # 外れた値は既定に読む
+        self.assertEqual(proof_alt.alt_engine_key({}), "llama.cpp")
+        self.assertEqual(proof_alt.alt_engine_key({"engine": "faster-whisper"}), "llama.cpp")
+        self.assertEqual(proof_alt.alt_engine_key({"engine": "nope"}), "llama.cpp")
+        info = proof_alt.alt_info()
+        self.assertEqual([e["key"] for e in info["engines"]], list(proof_alt.ALT_ENGINES))
         self.assertEqual(info["default"], "llama.cpp")
-
-
-def make_video(path, sec=9):
-    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-f", "lavfi", "-i", "testsrc=size=160x90:rate=30:duration=%s" % sec,
-                    "-f", "lavfi", "-i", "sine=frequency=440:duration=%s" % sec, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", path],
-                   check=True, timeout=120)
-    return path
 
 
 @unittest.skipUnless(HAVE_FF, "ffmpeg が必要")
@@ -141,7 +139,7 @@ class TestAltJob(_AltStore):
     @classmethod
     def setUpClass(cls):
         cls.src_dir = tempfile.mkdtemp()
-        cls.video = make_video(os.path.join(cls.src_dir, "v.mp4"))
+        cls.video = testkit.make_video(os.path.join(cls.src_dir, "v.mp4"), 9)
 
     @classmethod
     def tearDownClass(cls):
@@ -192,13 +190,13 @@ class TestAltJob(_AltStore):
         tid = self.transcribe()
         before = store.read_transcript(tid)
         self.assertEqual([(g["end"], g["text"]) for g in before["segments"]], [(3.0, "白上フブキです"), (6.0, "大神ミオです")])
-        self.assertIsNone(S.suggest_for_doc(tid)["alt"])                    # alt.json が無い
-        self.assertEqual(S.alt_doc_candidates(tid, before), [])
-        write_json(S.alt_path(tid), {"schema": "other", "rows": []})         # 形が違うものは読まない
-        self.assertIsNone(S.suggest_for_doc(tid)["alt"])
-        job = self.run_one(jobs.add_job(S.alt_spec(tid, {}), "alt"))
+        self.assertIsNone(_learn.suggest_for_doc(tid)["alt"])                    # alt.json が無い
+        self.assertEqual(proof_alt.alt_doc_candidates(tid, before), [])
+        write_json(proof_alt.alt_path(tid), {"schema": "other", "rows": []})         # 形が違うものは読まない
+        self.assertIsNone(_learn.suggest_for_doc(tid)["alt"])
+        job = self.run_one(jobs.add_job(proof_alt.alt_spec(tid, {}), "alt"))
         self.assertEqual((job["tid"], job["kind"]), (tid, "alt"))
-        alt = S.read_alt(tid)
+        alt = proof_alt.read_alt(tid)
         self.assertEqual((alt["schema"], alt["id"], alt["engine"], alt["model"], alt["range"][0]), ("youtube-tools-alt/v1", tid, "llama.cpp", "qwen3-asr-1.7b", 0))
         self.assertEqual([(r["end"], r["text"]) for r in alt["rows"]], [(2.7, "白神フブキです"), (6.0, "大上ミオです")])   # 長さの外は捨て、つながない
         self.assertEqual(alt["post"], {"clip": True, "mergeRepeats": True})
@@ -206,29 +204,29 @@ class TestAltJob(_AltStore):
             self.assertIn(k, alt)
         self.assertEqual(store.read_transcript(tid), before)                # 文書は書き換えない(updatedAt も)
 
-        r = S.suggest_for_doc(tid)
+        r = _learn.suggest_for_doc(tid)
         self.assertEqual([(x["seg"], x["i"], x["wrong"], x["right"]) for x in r["items"] if x["tier"] == "alt"], [("s1", 1, "上", "神"), ("s2", 1, "神", "上")])
         self.assertEqual((r["alt"]["engine"], r["alt"]["model"], r["alt"]["count"]), ("llama.cpp", "qwen3-asr-1.7b", 2))
-        items, info = S.alt_suggest(tid, before, set(), [{"seg": "s1", "i": 0, "wrong": "白上", "right": "白神", "tier": "mid"}])
+        items, info = proof_alt.alt_suggest(tid, before, set(), [{"seg": "s1", "i": 0, "wrong": "白上", "right": "白神", "tier": "mid"}])
         self.assertEqual(([x["seg"] for x in items], info["count"]), (["s2"], 1))   # 同じ行・同じ位置は学習の提案を優先
         # 却下: 学習の統計に入れず、数だけ fb["alt"]。却下した候補は出さない(文書 1 本の候補の口も採否の記録から却下を読む)
-        S.record_feedback({"tid": tid, "action": "reject", "items": [{"seg": "s1", "wrong": "上", "right": "神", "tier": "alt"}]})
-        S.record_feedback({"tid": tid, "action": "accept", "items": [{"seg": "s2", "wrong": "神", "right": "上", "tier": "alt"},
+        _learn.record_feedback({"tid": tid, "action": "reject", "items": [{"seg": "s1", "wrong": "上", "right": "神", "tier": "alt"}]})
+        _learn.record_feedback({"tid": tid, "action": "accept", "items": [{"seg": "s2", "wrong": "神", "right": "上", "tier": "alt"},
                                                                        {"seg": "s2", "wrong": "ミオ", "right": "みお"}]})
-        fb = S.load_feedback()
+        fb = _learn.load_feedback()
         self.assertEqual((fb["alt"], list(fb["stat"])), ({"acc": 1, "rej": 1}, ["ミオ=>みお"]))   # 学習の提案の採用だけが統計に入る
         self.assertIn("s1|上=>神", fb["dismissed"][tid])
-        r = S.suggest_for_doc(tid)
+        r = _learn.suggest_for_doc(tid)
         self.assertEqual(([(x["seg"], x["wrong"]) for x in r["items"] if x["tier"] == "alt"], r["alt"]["count"]), ([("s2", "神")], 1))
-        self.assertEqual([x["seg"] for x in S.alt_doc_candidates(tid, before)], ["s2"])
-        self.assertEqual([x["seg"] for x in S.alt_doc_candidates(tid, before, set())], ["s1", "s2"])
+        self.assertEqual([x["seg"] for x in proof_alt.alt_doc_candidates(tid, before)], ["s2"])
+        self.assertEqual([x["seg"] for x in proof_alt.alt_doc_candidates(tid, before, set())], ["s1", "s2"])
         # 候補は今の行の文字で毎回計算する(採用して直した所は消える)
         d = dict(before, updatedAt=before["updatedAt"] + 1, segments=[before["segments"][0], dict(before["segments"][1], text="大上ミオです")])
-        write_json(S.tx_path(tid), d)
-        self.assertEqual([x for x in S.suggest_for_doc(tid)["items"] if x["tier"] == "alt"], [])
-        write_json(S.tx_path(tid), dict(before, evalSet=True))                # 評価用には出さない
-        r = S.suggest_for_doc(tid)
-        self.assertEqual((r["alt"], [x for x in r["items"] if x["tier"] == "alt"], S.alt_doc_candidates(tid, dict(before, evalSet=True))), (None, [], []))
+        write_json(store.tx_path(tid), d)
+        self.assertEqual([x for x in _learn.suggest_for_doc(tid)["items"] if x["tier"] == "alt"], [])
+        write_json(store.tx_path(tid), dict(before, evalSet=True))                # 評価用には出さない
+        r = _learn.suggest_for_doc(tid)
+        self.assertEqual((r["alt"], [x for x in r["items"] if x["tier"] == "alt"], proof_alt.alt_doc_candidates(tid, dict(before, evalSet=True))), (None, [], []))
 
     def test_refusals(self):
         tid = self.transcribe()
@@ -236,39 +234,39 @@ class TestAltJob(_AltStore):
         first = dict(d["recognition"]["runs"][0])
         # 最初の認識と同じエンジンとモデル(2 つ目のエンジンは Qwen3-ASR 1.7B だけ = 選び直せない)
         d["recognition"]["runs"][0].update(engine="llama.cpp", model="qwen3-asr-1.7b")
-        write_json(S.tx_path(tid), d)
-        with self.assertRaises(S.ApiError) as cm:
-            S.alt_spec(tid, {})
+        write_json(store.tx_path(tid), d)
+        with self.assertRaises(ed_state.ApiError) as cm:
+            proof_alt.alt_spec(tid, {})
         self.assertEqual(cm.exception.code, "same_engine")
         d["recognition"]["runs"][0] = first
-        write_json(S.tx_path(tid), d)
-        self.assertEqual(S.alt_spec(tid, {})["engine"], "llama.cpp")   # 最初の認識と違えば通る
+        write_json(store.tx_path(tid), d)
+        self.assertEqual(proof_alt.alt_spec(tid, {})["engine"], "llama.cpp")   # 最初の認識と違えば通る
         # 実行中のものがあれば断る
-        self._take(jobs.add_job(S.alt_spec(tid, {}), "alt"))
-        with self.assertRaises(S.ApiError) as cm:
-            S.alt_spec(tid, {})
+        self._take(jobs.add_job(proof_alt.alt_spec(tid, {}), "alt"))
+        with self.assertRaises(ed_state.ApiError) as cm:
+            proof_alt.alt_spec(tid, {})
         self.assertEqual(cm.exception.code, "busy")
         # 評価用・文字の無い文書・動画の無い文書
         for over, code in (({"evalSet": True}, "eval_set"), ({"segments": []}, "empty"), ({"sourcePath": os.path.join(self.tmp, "none.mp4")}, "no_file")):
             with self.subTest(code=code):
-                write_json(S.tx_path(tid), dict(d, **over))
-                with self.assertRaises(S.ApiError) as cm:
-                    S.alt_spec(tid, {})
+                write_json(store.tx_path(tid), dict(d, **over))
+                with self.assertRaises(ed_state.ApiError) as cm:
+                    proof_alt.alt_spec(tid, {})
                 self.assertEqual(cm.exception.code, code)
 
     def test_doc_deleted_during_job(self):
         tid = self.transcribe()
-        job = self._take(jobs.add_job(S.alt_spec(tid, {}), "alt"))
-        os.unlink(S.tx_path(tid))
+        job = self._take(jobs.add_job(proof_alt.alt_spec(tid, {}), "alt"))
+        os.unlink(store.tx_path(tid))
         doc_jobs.run_job(job)
         self.assertEqual(job["state"], "error")
-        self.assertFalse(os.path.exists(S.alt_path(tid)))
+        self.assertFalse(os.path.exists(proof_alt.alt_path(tid)))
 
     def test_auto_alt(self):
         """設定 autoAlt(既定オフ): 文字起こしが終わったら alt のジョブを足す。要求の autoAlt が優先・評価用は足さない"""
         tid = self.transcribe()
         self.assertEqual(self.queued("alt", tid), [])   # 既定はオフ
-        write_json(S.SETTINGS, {"autoAlt": True})
+        write_json(_workdata.SETTINGS, {"autoAlt": True})
         tid2 = self.transcribe()
         q = self.queued("alt", tid2)
         self.assertEqual(len(q), 1)
@@ -282,7 +280,7 @@ class TestAltJob(_AltStore):
         self.assertEqual(len(d4), 1)
         self.mine.update(j["id"] for j in d4)
         self.assertTrue(doc_jobs.validate_job({"sourcePath": self.video, "model": "small", "autoAlt": True})["autoAlt"])
-        write_json(S.SETTINGS, {"altEngine": "llama.cpp"})
+        write_json(_workdata.SETTINGS, {"altEngine": "llama.cpp"})
         self.assertFalse(doc_jobs.validate_job({"sourcePath": self.video, "model": "small"})["autoAlt"])
         base = {"sourcePath": self.video, "model": "small"}   # llmModel は要求にあれば通す(合う名前だけ)
         self.assertIsNone(doc_jobs.validate_job(base)["llmModel"])
@@ -290,8 +288,8 @@ class TestAltJob(_AltStore):
         self.assertIsNone(doc_jobs.validate_job(dict(base, llmModel="../x y"))["llmModel"])
         # 始められなくても(同じエンジン)文字起こしは成功のまま・注意を出す
         job = {"warnings": []}
-        with mock.patch.object(proof_alt, "alt_spec", side_effect=S.ApiError("same_engine", "同じ", 400)):
-            S.alt_after_transcribe(job, {"autoAlt": True}, tid)
+        with mock.patch.object(proof_alt, "alt_spec", side_effect=ed_state.ApiError("same_engine", "同じ", 400)):
+            proof_alt.alt_after_transcribe(job, {"autoAlt": True}, tid)
         self.assertEqual(len(job["warnings"]), 1)
 
 

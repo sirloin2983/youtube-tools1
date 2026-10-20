@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """カットの計画の部品(read_cut_plan・build_plan・plan_from_keeps・finalize_plan。pack.py が使う)。
-パックを書くのは pack.py だけ。単独のコマンドと FCPXML の書き出しは持たない(ユーザー決定。パックを作る道は入口と ② の CLI src/app/cli.py だけ)。
+パックを書くのは pack.py だけ。単独のコマンドと FCPXML の書き出しは持たない(ユーザー決定。パックを作る道は入口と ② の自動の流れだけ)。
 """
-import datetime
 import math
 from fractions import Fraction
 from pathlib import Path
 
+from ytt import schemas as _schemas
 from . import cut2resolve_core as C
 
 SCHEMA = C.CUT_PLAN_SCHEMA
@@ -125,7 +125,7 @@ def finalize_plan(plan, video, meta, src_start, copy_video=False, cues_out=None,
         return round(C.frames_to_sec(n, fps), 6)
     doc = dict(plan)
     doc["tool"] = tool or {"name": "cut2resolve", "version": C.VERSION}
-    doc["createdAt"] = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+    doc["createdAt"] = _schemas.iso_now()
     doc["media"] = {"path": str(Path(video).resolve()), "name": Path(video).name,
                     "durationSec": sec(meta["total"])}
     doc["segments"] = [{"id": f"keep-{i:03d}", "start": sec(a), "end": sec(b), "status": "adopted", "label": ""}

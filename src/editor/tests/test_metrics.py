@@ -25,6 +25,20 @@ os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))   # 一時フォル
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 import serve as S  # noqa: E402
+import ed_state  # noqa: E402
+from eval.drill import metrics as _metrics  # noqa: E402
+from flow import jobs as _jobs  # noqa: E402
+from human.proof import doc_jobs as _doc_jobs  # noqa: E402
+from human.proof import learn as _learn  # noqa: E402
+from human.proof import rerun as _rerun  # noqa: E402
+from human.proof import store as _store  # noqa: E402
+from pipeline.transcribe import models as _models  # noqa: E402
+from pipeline.transcribe import postproc as _postproc  # noqa: E402
+from pipeline.transcribe import recognize as _recognize  # noqa: E402
+from pipeline.transcribe import worker_client as _worker_client  # noqa: E402
+from ytt import dictfmt as _dictfmt  # noqa: E402
+from ytt import txtext as _txtext  # noqa: E402
+from ytt import workdata as _workdata  # noqa: E402
 from pipeline.transcribe import diarize as transcribe_diarize  # noqa: E402
 from ytt import testkit  # noqa: E402
 
@@ -49,103 +63,103 @@ def seg(i, a, b, text, proofed=False):
 
 class TestPure(unittest.TestCase):
     def test_norm_cer(self):
-        self.assertEqual(S.norm_cer("ホロ・ライブ！ Ｔｅｓｔ、ー"), "ほろらいぶtestー")
-        self.assertEqual(S.norm_cer(" 、。 "), "")
+        self.assertEqual(_metrics.norm_cer("ホロ・ライブ！ Ｔｅｓｔ、ー"), "ほろらいぶtestー")
+        self.assertEqual(_metrics.norm_cer(" 、。 "), "")
         # 〜・～・~ は ー と同じに数える(ユーザー決定)
-        self.assertEqual(S.norm_cer("すご〜い"), S.norm_cer("すごーい"))
-        self.assertEqual(S.norm_cer("すご～い"), S.norm_cer("すご~い"))
-        self.assertEqual(S.norm_cer("すご〜い"), "すごーい")
+        self.assertEqual(_metrics.norm_cer("すご〜い"), _metrics.norm_cer("すごーい"))
+        self.assertEqual(_metrics.norm_cer("すご～い"), _metrics.norm_cer("すご~い"))
+        self.assertEqual(_metrics.norm_cer("すご〜い"), "すごーい")
         # 表記の違いを数えない(ユーザー決定。notes:docs/spec/subtitles.md の B)
-        self.assertEqual(S.norm_cer("イエターーーーー"), S.norm_cer("いえたー"))      # 伸ばし棒の連続は 1 つ・カタカナ = ひらがな
-        self.assertEqual(S.norm_cer("フワモコ"), S.norm_cer("ふわもこ"))
-        self.assertEqual(S.norm_cer("ヴィ"), "ゔい")
-        self.assertEqual(S.norm_cer("まぁ"), S.norm_cer("まあ"))                    # 小さい母音 = 大きい母音
-        self.assertEqual(S.norm_cer("オォォォォ"), "おお")                           # 小さいかなの連続は 1 つ
-        self.assertEqual(S.norm_cer("あっっっ"), "あっ")
-        self.assertNotEqual(S.norm_cer("えっ"), S.norm_cer("え"))                   # っ は残す(音が違う)
-        self.assertNotEqual(S.norm_cer("きゃ"), S.norm_cer("きや"))                 # ゃゅょ は残す
-        self.assertEqual(S.norm_cer("ラミィ"), "らみい")
-        self.assertNotEqual(S.norm_cer("ラミィ"), S.norm_cer("ラミー"))
+        self.assertEqual(_metrics.norm_cer("イエターーーーー"), _metrics.norm_cer("いえたー"))      # 伸ばし棒の連続は 1 つ・カタカナ = ひらがな
+        self.assertEqual(_metrics.norm_cer("フワモコ"), _metrics.norm_cer("ふわもこ"))
+        self.assertEqual(_metrics.norm_cer("ヴィ"), "ゔい")
+        self.assertEqual(_metrics.norm_cer("まぁ"), _metrics.norm_cer("まあ"))                    # 小さい母音 = 大きい母音
+        self.assertEqual(_metrics.norm_cer("オォォォォ"), "おお")                           # 小さいかなの連続は 1 つ
+        self.assertEqual(_metrics.norm_cer("あっっっ"), "あっ")
+        self.assertNotEqual(_metrics.norm_cer("えっ"), _metrics.norm_cer("え"))                   # っ は残す(音が違う)
+        self.assertNotEqual(_metrics.norm_cer("きゃ"), _metrics.norm_cer("きや"))                 # ゃゅょ は残す
+        self.assertEqual(_metrics.norm_cer("ラミィ"), "らみい")
+        self.assertNotEqual(_metrics.norm_cer("ラミィ"), _metrics.norm_cer("ラミー"))
 
     def test_lev_counts_matches_reference(self):
-        self.assertEqual(S.lev_counts("あいうえお", "あいくえおか"), (1, 0, 1))
-        self.assertEqual(S.lev_counts("", "abc"), (0, 0, 3))
-        self.assertEqual(S.lev_counts("abc", ""), (0, 3, 0))
+        self.assertEqual(_metrics.lev_counts("あいうえお", "あいくえおか"), (1, 0, 1))
+        self.assertEqual(_metrics.lev_counts("", "abc"), (0, 0, 3))
+        self.assertEqual(_metrics.lev_counts("abc", ""), (0, 3, 0))
         rnd = random.Random(1)
         for _ in range(300):
             a = "".join(rnd.choice("あいう") for _ in range(rnd.randint(0, 12)))
             b = "".join(rnd.choice("あいうえ") for _ in range(rnd.randint(0, 12)))
-            s, d, i = S.lev_counts(a, b)
+            s, d, i = _metrics.lev_counts(a, b)
             self.assertEqual(s + d + i, lev(a, b), (a, b))
             self.assertEqual(len(b), len(a) - d + i, (a, b))   # 正解 - 脱落 + 挿入 = 機械の長さ
 
     def test_lev_counts_same_text_shortcut(self):
         for t in ("", "a", "あいうえお", "ｱﾞ😀é", "x" * 5000):
-            self.assertEqual(S.lev_counts(t, t), (0, 0, 0))
-        self.assertEqual(S.lev_counts("あいう" * 3, "".join(["あ", "い", "う"] * 3)), (0, 0, 0))   # 別のオブジェクトの同じ中身
-        self.assertEqual(S.lev_counts("あいう", "あいえ"), (1, 0, 0))                                # 一字違いは表で数える
-        self.assertEqual(S.lev_counts("😀a", "😀b"), (1, 0, 0))
-        old = S.MAX_LEV_CELLS
-        S.MAX_LEV_CELLS = 1
+            self.assertEqual(_metrics.lev_counts(t, t), (0, 0, 0))
+        self.assertEqual(_metrics.lev_counts("あいう" * 3, "".join(["あ", "い", "う"] * 3)), (0, 0, 0))   # 別のオブジェクトの同じ中身
+        self.assertEqual(_metrics.lev_counts("あいう", "あいえ"), (1, 0, 0))                                # 一字違いは表で数える
+        self.assertEqual(_metrics.lev_counts("😀a", "😀b"), (1, 0, 0))
+        old = _metrics.MAX_LEV_CELLS
+        _metrics.MAX_LEV_CELLS = 1
         try:
-            self.assertEqual(S.lev_counts("あいうえお", "あいうえお"), (0, 0, 0))                   # 近似の上限より長くても同じなら即返す
+            self.assertEqual(_metrics.lev_counts("あいうえお", "あいうえお"), (0, 0, 0))                   # 近似の上限より長くても同じなら即返す
         finally:
-            S.MAX_LEV_CELLS = old
+            _metrics.MAX_LEV_CELLS = old
 
     def test_lev_counts_approx_fallback(self):
-        old = S.MAX_LEV_CELLS
-        S.MAX_LEV_CELLS = 10
+        old = _metrics.MAX_LEV_CELLS
+        _metrics.MAX_LEV_CELLS = 10
         try:
-            s, d, i = S.lev_counts("あいうえおかきくけこ", "あいうえおXかきくけこ")
+            s, d, i = _metrics.lev_counts("あいうえおかきくけこ", "あいうえおXかきくけこ")
             self.assertEqual((s, d, i), (0, 0, 1))
         finally:
-            S.MAX_LEV_CELLS = old
+            _metrics.MAX_LEV_CELLS = old
 
     def test_latin_suspect(self):
         yes = ["ヴァ、ゲ son w見て。い", "な?ん?honeyit's upすでにそこに誰も作っちゃってる... alsoそうだよ", "honey it's up"]
         no = ["ガチでApexやってる", "GGありがとう", "ホロライブのトワ様", "草wwwwwwwwww", "OKじゃあいこう", "ワンちゃんあるかもwww", ""]
         for t in yes:
-            self.assertTrue(S.latin_suspect(t), t)
+            self.assertTrue(_postproc.latin_suspect(t), t)
         for t in no:
-            self.assertFalse(S.latin_suspect(t), t)
-        self.assertTrue(S.latin_suspect("今日はMinecraftやります"))
-        self.assertFalse(S.latin_suspect("今日はMinecraftやります", ["Minecraft"]))   # 用語集にある語は数えない
+            self.assertFalse(_postproc.latin_suspect(t), t)
+        self.assertTrue(_postproc.latin_suspect("今日はMinecraftやります"))
+        self.assertFalse(_postproc.latin_suspect("今日はMinecraftやります", ["Minecraft"]))   # 用語集にある語は数えない
 
     def test_split_by_subtitle_chars(self):
         """1つの字幕の最大文字数(12 ②): 2 文字までのはみ出しは許す・区切りのよい所で分ける・同じ種類の文字の途中はなるべく避ける"""
         def words(text, t0=0.0, step=0.2):
             return [(round(t0 + i * step, 2), round(t0 + (i + 1) * step, 2), ch) for i, ch in enumerate(text)]
         seg = lambda text: {"start": 0.0, "end": len(text) * 0.2, "text": text, "words": words(text)}   # noqa: E731
-        self.assertEqual(len(S.split_segment(seg("あ" * 18), 16)), 1)                  # 16 + 2 文字までは分けない
-        parts = S.split_segment(seg("きょうはいいてんきですね、さんぽにいきましょう"), 16)
+        self.assertEqual(len(_txtext.split_segment(seg("あ" * 18), 16)), 1)                  # 16 + 2 文字までは分けない
+        parts = _txtext.split_segment(seg("きょうはいいてんきですね、さんぽにいきましょう"), 16)
         self.assertEqual([p["text"] for p in parts], ["きょうはいいてんきですね、", "さんぽにいきましょう"])   # 句読点のあと
         self.assertTrue(all("_words" in p for p in parts))                                # 行の単語(words.json 用)
-        parts = S.split_segment(seg("あいうえおかきくけこさしすせそマインクラフトたちつてと"), 16)
+        parts = _txtext.split_segment(seg("あいうえおかきくけこさしすせそマインクラフトたちつてと"), 16)
         self.assertFalse(any(p["text"].endswith(("マ", "マイ", "マイン", "マインク", "マインクラ", "マインクラフ")) for p in parts),
                          [p["text"] for p in parts])                                     # カタカナの語の途中で切らない
         self.assertTrue(all(len(p["text"]) <= 18 for p in parts))
-        self.assertEqual(len(S.split_segment(seg("あ" * 26))), 1)                          # 既定 24 + 2 文字までは分けない
+        self.assertEqual(len(_txtext.split_segment(seg("あ" * 26))), 1)                          # 既定 24 + 2 文字までは分けない
 
     def test_subtitle_settings(self):
-        self.assertEqual(S.subtitle_settings({}), S.SUBTITLE_DEFAULT)
+        self.assertEqual(_doc_jobs.subtitle_settings({}), _doc_jobs.SUBTITLE_DEFAULT)
         st = {"subtitle": {"orientation": "horizontal", "maxChars": {"vertical": 12, "horizontal": 99}, "wrapChars": {"vertical": "8", "horizontal": 20}}}
-        v = S.subtitle_settings(st)
+        v = _doc_jobs.subtitle_settings(st)
         self.assertEqual(v, {"orientation": "horizontal", "maxChars": {"vertical": 12, "horizontal": 28}, "wrapChars": {"vertical": 8, "horizontal": 20}, "splitChars": 24})
         # 行を分ける文字数は字幕の最大文字数・向きとは別(設定 subtitle.splitChars。既定 24。notes:plan/done/line-b-row-split.md の 8・line-b-transcription.md の「長い行だけ分けると」)
-        self.assertEqual(S.split_chars_for({}, st), 24)                                  # 設定の向き(横)でも 28 ではなく既定 24
-        self.assertEqual(S.split_chars_for({"subtitleOrientation": "vertical"}, st), 24)  # 要求の向きでも変わらない
-        self.assertEqual(S.split_chars_for({"subtitleOrientation": "x"}, {}), 24)          # 既定 24
-        self.assertEqual(S.split_chars_for({"splitChars": 20, "subtitleOrientation": "vertical"}, st), 20)   # 要求の明示の値(② のまとめて実行の束)
-        self.assertEqual(S.split_chars_for({"splitChars": 200}, st), 24)                  # 範囲の外は使わない
+        self.assertEqual(_doc_jobs.split_chars_for({}, st), 24)                                  # 設定の向き(横)でも 28 ではなく既定 24
+        self.assertEqual(_doc_jobs.split_chars_for({"subtitleOrientation": "vertical"}, st), 24)  # 要求の向きでも変わらない
+        self.assertEqual(_doc_jobs.split_chars_for({"subtitleOrientation": "x"}, {}), 24)          # 既定 24
+        self.assertEqual(_doc_jobs.split_chars_for({"splitChars": 20, "subtitleOrientation": "vertical"}, st), 20)   # 要求の明示の値(② のまとめて実行の束)
+        self.assertEqual(_doc_jobs.split_chars_for({"splitChars": 200}, st), 24)                  # 範囲の外は使わない
         self.assertFalse(hasattr(S, "subtitle_max_chars"))                                # 「長い行を分け直す」は無い(決定 3-47 の Q4)
-        self.assertEqual(S.split_chars_for({}, {"subtitle": {"splitChars": 32}}), 32)       # 設定の値
-        self.assertEqual(S.split_chars_for({}, {"subtitle": {"splitChars": 4}}), 24)        # 範囲(8〜80)の外は既定
+        self.assertEqual(_doc_jobs.split_chars_for({}, {"subtitle": {"splitChars": 32}}), 32)       # 設定の値
+        self.assertEqual(_doc_jobs.split_chars_for({}, {"subtitle": {"splitChars": 4}}), 24)        # 範囲(8〜80)の外は既定
         with patch.dict(os.environ, {"TRANSCRIBE_SPLIT_CHARS": "16"}):
-            self.assertEqual(S.split_chars_for({}, st), 16)                              # 測り直し用の環境変数
+            self.assertEqual(_doc_jobs.split_chars_for({}, st), 16)                              # 測り直し用の環境変数
 
     def test_redo_targets(self):
         """疑わしい所だけ認識し直す(12 ③-2): 対象は「文字が少ない」の印・校正済みでない・機械の出力のままの行。範囲は前後 1 秒で隣の行にかからない"""
-        F = S.SPARSE_FLAG
+        F = _txtext.SPARSE_FLAG
         doc = {"start": 0, "end": 30, "segments": [
             {"id": "p", "start": 0.0, "end": 2.5, "text": "前の行"},
             {"id": "a", "start": 3.0, "end": 9.0, "text": "黒", "flag": F},
@@ -153,31 +167,31 @@ class TestPure(unittest.TestCase):
             {"id": "c", "start": 16.0, "end": 22.0, "text": "直した", "flag": F},                     # 人が直した(機械の出力と違う)
             {"id": "d", "start": 29.5, "end": 30.0, "text": "終わり"}],
             "original": [{"start": 3.0, "end": 9.0, "text": "黒"}, {"start": 16.0, "end": 22.0, "text": "くろ"}]}
-        t = S.redo_targets(doc)
+        t = _doc_jobs.redo_targets(doc)
         self.assertEqual([(g["id"], a, b) for g, a, b in t], [("a", 2.5, 9.4)])                      # 前は前の行の終わり・後ろは次の行の始まりまで
         doc2 = dict(doc, original=None)
-        self.assertEqual([g["id"] for g, _a, _b in S.redo_targets(doc2)], ["a", "c"])                 # 機械の出力が無い文書は、手直しを見分けない
+        self.assertEqual([g["id"] for g, _a, _b in _doc_jobs.redo_targets(doc2)], ["a", "c"])                 # 機械の出力が無い文書は、手直しを見分けない
 
     def test_make_flags_sparse_long_rows(self):
         """長い区間に文字が少ない行(抜けの可能性。notes:docs/design/edit-tool-design.md の 12 ③-1): 4 秒より長くて、記号・空白を除いて 1 秒あたり 1.5 文字未満"""
         row = lambda a, b, t: {"start": a, "end": b, "text": t}   # noqa: E731
-        self.assertIn(S.SPARSE_FLAG, S.make_flags(row(0, 7.2, "黒"), []))
-        self.assertIn(S.SPARSE_FLAG, S.make_flags(row(4.2, 24.6, "いや、なんだ!"), []))          # 記号は数えない(5 文字 / 20.4 秒)
-        self.assertEqual(S.make_flags(row(0, 3.9, "あ"), []), "")                                 # 4 秒までは対象外
-        self.assertEqual(S.make_flags(row(0, 4.0, "テスト文1"), []), "")                          # ちょうど 4 秒(疑似の文字起こしの行)も対象外
-        self.assertEqual(S.make_flags(row(0, 4.4, "あいうえおかき"), []), "")                     # 7 文字 / 4.4 秒 = 1.59
-        self.assertIn(S.SPARSE_FLAG, S.make_flags(row(0, 4.1, "あいうえお"), []))                 # 5 文字 / 4.1 秒 = 1.22
-        self.assertEqual(S.text_chars("A1 あ、ア!漢 …"), 5)
-        self.assertFalse(S.sparse_row("x", 5, "a"))
+        self.assertIn(_txtext.SPARSE_FLAG, _postproc.make_flags(row(0, 7.2, "黒"), []))
+        self.assertIn(_txtext.SPARSE_FLAG, _postproc.make_flags(row(4.2, 24.6, "いや、なんだ!"), []))          # 記号は数えない(5 文字 / 20.4 秒)
+        self.assertEqual(_postproc.make_flags(row(0, 3.9, "あ"), []), "")                                 # 4 秒までは対象外
+        self.assertEqual(_postproc.make_flags(row(0, 4.0, "テスト文1"), []), "")                          # ちょうど 4 秒(疑似の文字起こしの行)も対象外
+        self.assertEqual(_postproc.make_flags(row(0, 4.4, "あいうえおかき"), []), "")                     # 7 文字 / 4.4 秒 = 1.59
+        self.assertIn(_txtext.SPARSE_FLAG, _postproc.make_flags(row(0, 4.1, "あいうえお"), []))                 # 5 文字 / 4.1 秒 = 1.22
+        self.assertEqual(_txtext.text_chars("A1 あ、ア!漢 …"), 5)
+        self.assertFalse(_postproc.sparse_row("x", 5, "a"))
 
     def test_make_flags_latin_only_for_ja(self):
         sg = {"text": "honey it's up", "start": 0, "end": 2, "avg_logprob": -0.2, "no_speech_prob": 0.1, "compression_ratio": 1.0}
-        self.assertEqual(S.make_flags(sg, []), "")                              # 言語を渡さなければ従来どおり(印なし)
-        self.assertEqual(S.make_flags(sg, [], "en"), "")
-        self.assertIn("英字が多い", S.make_flags(sg, [], "ja"))
-        self.assertEqual(S.make_flags(sg, [], "ja", ["honey", "it's", "up"]), S.LEAK_FLAG)   # 用語集の英字の語は「英字が多い」に数えない
+        self.assertEqual(_postproc.make_flags(sg, []), "")                              # 言語を渡さなければ従来どおり(印なし)
+        self.assertEqual(_postproc.make_flags(sg, [], "en"), "")
+        self.assertIn("英字が多い", _postproc.make_flags(sg, [], "ja"))
+        self.assertEqual(_postproc.make_flags(sg, [], "ja", ["honey", "it's", "up"]), ed_state.LEAK_FLAG)   # 用語集の英字の語は「英字が多い」に数えない
                                                                                            # (この行は用語集の語だけなので S-3 の「ヒントの語だけ」は付く)
-        self.assertEqual(S.make_flags(dict(sg, end=5), [], "ja", ["honey", "it's", "up"]), "")
+        self.assertEqual(_postproc.make_flags(dict(sg, end=5), [], "ja", ["honey", "it's", "up"]), "")
 
     def test_sanitize_keeps_proofed_only_when_true(self):
         obj = {"speakers": [], "segments": [
@@ -185,20 +199,20 @@ class TestPure(unittest.TestCase):
             {"id": "b", "start": 1, "end": 2, "text": "y", "proofed": "true"},
             {"id": "c", "start": 2, "end": 3, "text": "z", "proofed": False},
             {"id": "d", "start": 3, "end": 4, "text": "w"}]}
-        out = S.sanitize_transcript(obj, {})["segments"]
+        out = _store.sanitize_transcript(obj, {})["segments"]
         self.assertEqual([("proofed" in g) for g in out], [True, False, False, False])
 
     def test_tags_are_kept_and_unclear_rows_are_not_measured(self):
         obj = {"speakers": [], "segments": [{"id": "a", "start": 0, "end": 1, "text": "x", "tags": ["unclear", "bgm", "hack"]},   # 決まった印だけ残る
                                             {"id": "b", "start": 1, "end": 2, "text": "y"}]}
-        out = S.sanitize_transcript(obj, {})["segments"]
+        out = _store.sanitize_transcript(obj, {})["segments"]
         self.assertEqual(out[0]["tags"], ["unclear", "bgm"])
         self.assertNotIn("tags", out[1])
         # 「聞き取れない」の行は精度の測定に入らない(校正済み 3 行のうち 2 行 + 人が消した行 1 つ)
         orig = [{"start": 0, "end": 2, "text": "あ"}, {"start": 2, "end": 4, "text": "い"}, {"start": 4, "end": 6, "text": "う"}, {"start": 6, "end": 8, "text": "え"}]
         segs = [seg(1, 0, 2, "あ", True), dict(seg(2, 2, 4, "い", True), tags=["unclear"]), seg(3, 6, 8, "え", True)]   # 4〜6 秒の行は人が消した
-        m = S.doc_metrics({"original": orig, "segments": segs})
-        self.assertEqual((m["machineOnly"], m["refChars"]), (1, len(S.norm_cer("あえ"))))   # い(聞き取れない)は数えない
+        m = _metrics.doc_metrics({"original": orig, "segments": segs})
+        self.assertEqual((m["machineOnly"], m["refChars"]), (1, len(_metrics.norm_cer("あえ"))))   # い(聞き取れない)は数えない
 
     def test_doc_metrics_proofed(self):
         orig = [{"start": 0, "end": 2, "text": "トゥー様は後合流"}, {"start": 2, "end": 4, "text": "こんにちは"},
@@ -207,42 +221,42 @@ class TestPure(unittest.TestCase):
         segs = [seg(1, 0, 2, "トワ様は後合流", True), seg(2, 2, 4, "こんにちは", True),
                 # 4-5 の行は人が消した(機械だけにある) / 6-8 は未校正 / 20-22 も消したが、校正した範囲の外
                 seg(3, 5, 6, "続き", True), seg(4, 6, 8, "未確認の行を直した", False)]
-        m = S.doc_metrics({"original": orig, "segments": segs})
+        m = _metrics.doc_metrics({"original": orig, "segments": segs})
         self.assertEqual(m["basis"], "proofed")
         # 数える: 1行目(置換1・挿入1: トゥー→トワ) + 2行目・4行目(誤りなし) + 消した行(挿入4)。未校正の6-8と、範囲外の20-22は数えない
         self.assertEqual((m["sub"], m["del"], m["ins"]), (1, 0, 5))
-        self.assertEqual(m["refChars"], len(S.norm_cer("トワ様は後合流こんにちは続き")))
+        self.assertEqual(m["refChars"], len(_metrics.norm_cer("トワ様は後合流こんにちは続き")))
         self.assertEqual(m["machineOnly"], 1)
-        self.assertEqual(S.acc_finish(m)["cer"], round(6 / m["refChars"], 4))
+        self.assertEqual(_metrics.acc_finish(m)["cer"], round(6 / m["refChars"], 4))
 
     def test_doc_metrics_added_line_is_deletion(self):
         orig = [{"start": 0, "end": 2, "text": "あいう"}]
         segs = [seg(1, 0, 2, "あいう", True), seg(2, 10, 12, "人が足した行", True)]
-        m = S.doc_metrics({"original": orig, "segments": segs})
-        self.assertEqual((m["sub"], m["del"], m["ins"]), (0, len(S.norm_cer("人が足した行")), 0))
+        m = _metrics.doc_metrics({"original": orig, "segments": segs})
+        self.assertEqual((m["sub"], m["del"], m["ins"]), (0, len(_metrics.norm_cer("人が足した行")), 0))
 
     def test_doc_metrics_none_cases(self):
         orig = [{"start": 0, "end": 2, "text": "あ"}]
-        self.assertIsNone(S.doc_metrics({"original": orig, "segments": [seg(1, 0, 2, "い")]}))                       # 校正済みなし
-        self.assertIsNone(S.doc_metrics({"original": [], "segments": [seg(1, 0, 2, "い", True)]}))                 # 機械の出力なし
-        self.assertIsNone(S.doc_metrics({"original": orig, "segments": [seg(1, 0, 2, "い")]}))                       # 校正済みの印が無ければ、修正があっても数えない
+        self.assertIsNone(_metrics.doc_metrics({"original": orig, "segments": [seg(1, 0, 2, "い")]}))                       # 校正済みなし
+        self.assertIsNone(_metrics.doc_metrics({"original": [], "segments": [seg(1, 0, 2, "い", True)]}))                 # 機械の出力なし
+        self.assertIsNone(_metrics.doc_metrics({"original": orig, "segments": [seg(1, 0, 2, "い")]}))                       # 校正済みの印が無ければ、修正があっても数えない
 
     def test_terms_hit_and_extra(self):
         orig = [{"start": 0, "end": 2, "text": "トゥー様とホロライブ"}, {"start": 2, "end": 4, "text": "陽キャだよ"}]
         segs = [seg(1, 0, 2, "トワ様とホロライブ", True), seg(2, 2, 4, "陽キャだよ", True)]
-        m = S.doc_metrics({"original": orig, "segments": segs}, terms=["トワ", "ホロライブ", "陽キャ"])
+        m = _metrics.doc_metrics({"original": orig, "segments": segs}, terms=["トワ", "ホロライブ", "陽キャ"])
         self.assertEqual((m["termRef"], m["termHit"], m["termExtra"]), (3, 2, 0))
         # 正解に無い用語が機械に出た(用語集が誘発した語尾挿入の疑い)
         orig2 = [{"start": 0, "end": 2, "text": "ちゃうわけホロライブ"}]
         segs2 = [seg(1, 0, 2, "ちゃうわけ", True)]
-        m2 = S.doc_metrics({"original": orig2, "segments": segs2}, terms=["ホロライブ"])
+        m2 = _metrics.doc_metrics({"original": orig2, "segments": segs2}, terms=["ホロライブ"])
         self.assertEqual((m2["termRef"], m2["termHit"], m2["termExtra"]), (0, 0, 1))
 
     def test_learn_groups_changed_only(self):
         orig = [{"start": 0, "end": 2, "text": "トゥー様"}, {"start": 2, "end": 4, "text": "そのまま"}]
         segs = [seg(1, 0, 2, "トワ様", True), seg(2, 2, 4, "そのまま", True), seg(3, 4, 6, "未確認", False)]
-        self.assertEqual([g["text"] for g in S.learn_groups({"original": orig, "segments": segs})], ["トワ様"])       # 直した行だけ
-        self.assertEqual(S.learn_groups({"segments": segs}), [])   # 機械の出力が無い文字起こしは材料にならない
+        self.assertEqual([g["text"] for g in _learn.learn_groups({"original": orig, "segments": segs})], ["トワ様"])       # 直した行だけ
+        self.assertEqual(_learn.learn_groups({"segments": segs}), [])   # 機械の出力が無い文字起こしは材料にならない
 
 
 class TestStore(unittest.TestCase):
@@ -250,19 +264,19 @@ class TestStore(unittest.TestCase):
 
     def setUp(self):
         self.tmp = testkit.tempdir(self)
-        self.saved = (S.TX_DIR, S.TMP_DIR, S.SETTINGS)
-        S.TX_DIR, S.TMP_DIR, S.SETTINGS = self.tmp, os.path.join(self.tmp, ".tmp"), os.path.join(self.tmp, "settings.json")
+        self.saved = (_workdata.TX_DIR, _workdata.TMP_DIR, _workdata.SETTINGS)
+        _workdata.TX_DIR, _workdata.TMP_DIR, _workdata.SETTINGS = self.tmp, os.path.join(self.tmp, ".tmp"), os.path.join(self.tmp, "settings.json")
 
     def tearDown(self):
-        S.TX_DIR, S.TMP_DIR, S.SETTINGS = self.saved
+        _workdata.TX_DIR, _workdata.TMP_DIR, _workdata.SETTINGS = self.saved
 
     def test_retranscribe_clears_proofed(self):
         tid = "0123456789ab"
         doc = {"id": tid, "original": [{"start": 0, "end": 2, "text": "a"}, {"start": 2, "end": 4, "text": "b"}],
                "segments": [seg(1, 0, 2, "a", True), seg(2, 2, 4, "b", True)]}
-        testkit.write_json(S.tx_path(tid), doc)
-        S.apply_retranscribe({"tid": tid, "model": "large-v3", "autoDict": False}, {"s1": ("A", "")})
-        d = S.read_transcript(tid)
+        testkit.write_json(_store.tx_path(tid), doc)
+        _rerun.apply_retranscribe({"tid": tid, "model": "large-v3", "autoDict": False}, {"s1": ("A", "")})
+        d = _store.read_transcript(tid)
         self.assertTrue(d["segments"][0].get("proofed"))   # X-RERUN: 校正済みの行は機械で置き換えない(印 MACH_CHANGED)
         self.assertTrue(d["segments"][1].get("proofed"))  # 触っていない行はそのまま
         self.assertEqual(d["segments"][0]["text"], "a")
@@ -273,9 +287,9 @@ class TestStore(unittest.TestCase):
         tid = "0123456789ab"
         doc = {"id": tid, "original": [{"start": 0, "end": 2, "text": "a"}, {"start": 2, "end": 4, "text": "b"}],
                "segments": [seg(1, 0, 2, "a", True), seg(2, 2, 4, "b", True)]}
-        testkit.write_json(S.tx_path(tid), doc)
-        S.apply_retranscribe({"tid": tid, "model": "large-v3", "autoDict": False}, {"s1": ("A", "")})
-        d = S.read_transcript(tid)
+        testkit.write_json(_store.tx_path(tid), doc)
+        _rerun.apply_retranscribe({"tid": tid, "model": "large-v3", "autoDict": False}, {"s1": ("A", "")})
+        d = _store.read_transcript(tid)
         self.assertTrue(d["segments"][0].get("proofed"))   # 校正済みはそのまま
         self.assertEqual(d["segments"][0]["text"], "a")
         self.assertIn(layers.MACH_CHANGED, d["segments"][0]["flag"])
@@ -285,22 +299,22 @@ class TestStore(unittest.TestCase):
 
     def test_hist_snapshot_interval_and_cap(self):
         tid = "0123456789ab"
-        testkit.write_json(S.tx_path(tid), {"segments": [], "updatedAt": 1})
-        self.assertIsNotNone(S.hist_snapshot(tid))
-        self.assertIsNone(S.hist_snapshot(tid))                      # 10分以内は増やさない
-        old = S.HIST_INTERVAL
-        S.HIST_INTERVAL = 0
+        testkit.write_json(_store.tx_path(tid), {"segments": [], "updatedAt": 1})
+        self.assertIsNotNone(_store.hist_snapshot(tid))
+        self.assertIsNone(_store.hist_snapshot(tid))                      # 10分以内は増やさない
+        old = _store.HIST_INTERVAL
+        _store.HIST_INTERVAL = 0
         try:
-            self.assertIsNotNone(S.hist_snapshot(tid))               # 間隔が過ぎていれば残す
+            self.assertIsNotNone(_store.hist_snapshot(tid))               # 間隔が過ぎていれば残す
         finally:
-            S.HIST_INTERVAL = old
-        for _ in range(S.HIST_KEEP + 5):
-            S.hist_snapshot(tid, force=True)
-        st = S.hist_stamps(tid)
-        self.assertEqual(len(st), S.HIST_KEEP)                       # 古いものから消える
+            _store.HIST_INTERVAL = old
+        for _ in range(_store.HIST_KEEP + 5):
+            _store.hist_snapshot(tid, force=True)
+        st = _store.hist_stamps(tid)
+        self.assertEqual(len(st), _store.HIST_KEEP)                       # 古いものから消える
         self.assertEqual(st, sorted(set(st)))                        # 同じ時刻でも上書きしない
-        with self.assertRaises(S.ApiError):
-            S.restore_history(tid, 12345)
+        with self.assertRaises(ed_state.ApiError):
+            _store.restore_history(tid, 12345)
 
 
 class TestLearnBoundary(unittest.TestCase):
@@ -309,27 +323,27 @@ class TestLearnBoundary(unittest.TestCase):
     def test_events_widen_to_whole_run(self):
         doc = {"original": [{"start": 0, "end": 3, "text": "トーイ様は後合流するんで"}, {"start": 3, "end": 6, "text": "トルカパパ"}],
                "segments": [seg(1, 0, 3, "トワ様は後合流するんで", True), seg(2, 3, 6, "ポルカパパ", True)]}
-        ev = [(w, r) for w, r, _c, _l, _r in S.learn_events(doc)]
+        ev = [(w, r) for w, r, _c, _l, _r in _learn.learn_events(doc)]
         self.assertIn(("トーイ", "トワ"), ev)             # 「ーイ→ワ」の断片ではなく、カタカナの語の全体
         self.assertIn(("トルカパパ", "ポルカパパ"), ev)
         self.assertNotIn(("ーイ", "ワ"), ev)
         # 漢字の並びも全体に広げる
         doc2 = {"original": [{"start": 0, "end": 3, "text": "反省魂だなぁ"}], "segments": [seg(1, 0, 3, "配信魂だなぁ", True)]}
-        self.assertEqual([(w, r) for w, r, _c, _l, _r in S.learn_events(doc2)], [("反省魂", "配信魂")])
+        self.assertEqual([(w, r) for w, r, _c, _l, _r in _learn.learn_events(doc2)], [("反省魂", "配信魂")])
 
     def test_spans_do_not_hit_inside_a_word(self):
-        self.assertEqual(S._spans("トルコとトル様", "トル", "ポル"), [4])         # 「トルコ」の中には当てない。「トル様」は語の切れ目
-        self.assertEqual(S._spans("ABCD abc", "abc", "x"), [5])
-        self.assertEqual(S._spans("あんきも", "きも", "肝"), [2])                 # ひらがなは切れ目の判定に使わない(従来どおり)
+        self.assertEqual(_learn._spans("トルコとトル様", "トル", "ポル"), [4])         # 「トルコ」の中には当てない。「トル様」は語の切れ目
+        self.assertEqual(_learn._spans("ABCD abc", "abc", "x"), [5])
+        self.assertEqual(_learn._spans("あんきも", "きも", "肝"), [2])                 # ひらがなは切れ目の判定に使わない(従来どおり)
 
     def test_manual_dict_word_bound_syntax(self):
-        pairs = S.parse_replacements("|トル|=>ポル\nふぶき=>フブキ")
-        self.assertEqual(S.apply_replacements("トルコとトル様、ふぶき", pairs), ("トルコとポル様、フブキ", 2))
+        pairs = _dictfmt.parse_replacements("|トル|=>ポル\nふぶき=>フブキ")
+        self.assertEqual(_dictfmt.apply_replacements("トルコとトル様、ふぶき", pairs), ("トルコとポル様、フブキ", 2))
         # 縦棒なしは従来どおり(全部置換)
-        self.assertEqual(S.apply_replacements("トルコとトル様", S.parse_replacements("トル=>ポル")), ("ポルコとポル様", 2))
+        self.assertEqual(_dictfmt.apply_replacements("トルコとトル様", _dictfmt.parse_replacements("トル=>ポル")), ("ポルコとポル様", 2))
         # 登録済みの判定は、縦棒を外した形で(学習候補に同じものが残らない)
-        self.assertEqual(S.wb_split("|ab|"), ("ab", True))
-        self.assertEqual(S.wb_split("||"), ("||", False))
+        self.assertEqual(_dictfmt.wb_split("|ab|"), ("ab", True))
+        self.assertEqual(_dictfmt.wb_split("||"), ("||", False))
 
 
 class TestSplitAndRobust(unittest.TestCase):
@@ -339,59 +353,59 @@ class TestSplitAndRobust(unittest.TestCase):
     def test_split_segment(self):
         # 声のない所まで伸びた行(0〜20秒で、実際に話しているのは 3.0〜4.0 秒): 行の時刻が単語にそろう
         s = {"start": 0.0, "end": 20.0, "text": "おっけ!", "words": self._w([(3.0, 3.5, "おっ"), (3.5, 4.0, "け!")]), "avg_logprob": -0.3}
-        out = S.split_segment(s)
+        out = _txtext.split_segment(s)
         self.assertEqual([(o["start"], o["end"], o["text"]) for o in out], [(3.0, 4.0, "おっけ!")])
         self.assertEqual(out[0]["avg_logprob"], -0.3)     # 他の項目は引き継ぐ
         self.assertNotIn("words", out[0])
         # 間が1秒以上あいた所で分かれる
         s = {"start": 0.0, "end": 9.0, "text": "こんにちはありがとう", "words": self._w([(0.0, 0.8, "こんにちは"), (5.0, 5.9, "ありがとう")])}
-        self.assertEqual([o["text"] for o in S.split_segment(s)], ["こんにちは", "ありがとう"])
+        self.assertEqual([o["text"] for o in _txtext.split_segment(s)], ["こんにちは", "ありがとう"])
         # 長すぎる行(8秒超)は句点のあとなど区切りのよい所で分かれる。続けて話していても分かれる
         ws = [(i * 0.5, i * 0.5 + 0.45, "あ" * 2 + ("。" if i == 9 else "")) for i in range(20)]      # 10秒・40文字超
         s = {"start": 0.0, "end": 10.0, "text": "".join(t for _a, _b, t in ws), "words": ws}
-        out = S.split_segment(s)
+        out = _txtext.split_segment(s)
         self.assertGreaterEqual(len(out), 2)
         self.assertEqual("".join(o["text"] for o in out), s["text"])          # 文字は増えも減りもしない
-        self.assertTrue(all(o["end"] - o["start"] <= S.SPLIT_SEC + 0.01 for o in out))
+        self.assertTrue(all(o["end"] - o["start"] <= _txtext.SPLIT_SEC + 0.01 for o in out))
         self.assertEqual(out[0]["text"].endswith("。"), True)                  # 句点のあとで切れる
         # 単語の並びと文章が合わない・単語が無い → 何もしない
         s = {"start": 0.0, "end": 5.0, "text": "違う文章", "words": self._w([(0.0, 1.0, "こんにちは")])}
-        self.assertEqual(S.split_segment(s), [s])
+        self.assertEqual(_txtext.split_segment(s), [s])
         s = {"start": 0.0, "end": 5.0, "text": "単語なし"}
-        self.assertEqual(S.split_segment(s), [s])
+        self.assertEqual(_txtext.split_segment(s), [s])
 
     def test_expand_and_kwargs(self):
         gen = iter([{"start": 0.0, "end": 9.0, "text": "あいう", "words": [(0.0, 0.5, "あ"), (6.0, 6.5, "いう")]}])
-        self.assertEqual(len(list(S.expand_segments(gen, {"wordSplit": True}))), 2)
+        self.assertEqual(len(list(_postproc.expand_segments(gen, {"wordSplit": True}))), 2)
         gen = iter([{"start": 0.0, "end": 9.0, "text": "あいう", "words": [(0.0, 0.5, "あ"), (6.0, 6.5, "いう")]}])
-        self.assertEqual(len(list(S.expand_segments(gen, {"wordSplit": False}))), 1)     # 無効なら従来どおり
-        self.assertTrue(S.whisper_kwargs({"language": "ja", "beam": 5, "model": "large-v3", "glossary": [], "wordSplit": True}).get("word_timestamps"))
-        self.assertNotIn("word_timestamps", S.whisper_kwargs({"language": "ja", "beam": 5, "model": "large-v3", "glossary": []}))
+        self.assertEqual(len(list(_postproc.expand_segments(gen, {"wordSplit": False}))), 1)     # 無効なら従来どおり
+        self.assertTrue(_worker_client.whisper_kwargs({"language": "ja", "beam": 5, "model": "large-v3", "glossary": [], "wordSplit": True}).get("word_timestamps"))
+        self.assertNotIn("word_timestamps", _worker_client.whisper_kwargs({"language": "ja", "beam": 5, "model": "large-v3", "glossary": []}))
 
     def test_strip_punct(self):
-        self.assertEqual(S.strip_punct("こんにちは、元気?今日は晴れです。すごい!"), "こんにちは元気今日は晴れですすごい")
-        self.assertEqual(S.strip_punct("かっこ(括弧)は残る"), "かっこ(括弧)は残る")   # 、。？！と半角?!以外は対象外
-        self.assertEqual(S.strip_punct(""), "")
+        self.assertEqual(_txtext.strip_punct("こんにちは、元気?今日は晴れです。すごい!"), "こんにちは元気今日は晴れですすごい")
+        self.assertEqual(_txtext.strip_punct("かっこ(括弧)は残る"), "かっこ(括弧)は残る")   # 、。？！と半角?!以外は対象外
+        self.assertEqual(_txtext.strip_punct(""), "")
 
     def test_expand_segments_strip_punct(self):
         """句読点の除去(stripPunct)は既定でオン。単語分割の区切り判断には除去前の句読点を使うので、分け方(行数・時刻)は変わらない。"""
         ws = [(i * 0.5, i * 0.5 + 0.45, "あ" * 2 + ("。" if i == 9 else "")) for i in range(20)]   # test_split_segment と同じ素材(10秒・40字超)
         text = "".join(t for _a, _b, t in ws)
         mk_gen = lambda: iter([{"start": 0.0, "end": 10.0, "text": text, "words": ws}])
-        with_strip = list(S.expand_segments(mk_gen(), {"wordSplit": True, "stripPunct": True}))
-        without_strip = list(S.expand_segments(mk_gen(), {"wordSplit": True, "stripPunct": False}))
+        with_strip = list(_postproc.expand_segments(mk_gen(), {"wordSplit": True, "stripPunct": True}))
+        without_strip = list(_postproc.expand_segments(mk_gen(), {"wordSplit": True, "stripPunct": False}))
         self.assertGreaterEqual(len(with_strip), 2)
         self.assertEqual([(o["start"], o["end"]) for o in with_strip], [(o["start"], o["end"]) for o in without_strip])   # 分け方は不変
         self.assertNotIn("。", "".join(o["text"] for o in with_strip))    # オンなら句点が消える
         self.assertIn("。", "".join(o["text"] for o in without_strip))    # オフなら残る
-        default_spec = list(S.expand_segments(mk_gen(), {"wordSplit": True}))   # spec に無いときはオン扱い(既定)
+        default_spec = list(_postproc.expand_segments(mk_gen(), {"wordSplit": True}))   # spec に無いときはオン扱い(既定)
         self.assertEqual([o["text"] for o in default_spec], [o["text"] for o in with_strip])
 
     def test_finish_range_lines_drops_punct_only_line(self):
         """句読点だけの行は、除去すると空文字になるので捨てられる。"""
         spec = {"range": [0.0, 10.0], "language": "ja", "glossary": [], "wordSplit": False, "stripPunct": True}
         raw = [{"start": 1.0, "end": 2.0, "text": "。", "avg_logprob": -0.3}, {"start": 3.0, "end": 4.0, "text": "元気?", "avg_logprob": -0.3}]
-        out = S.finish_range_lines(raw, spec, 0.0)
+        out = _recognize.finish_range_lines(raw, spec, 0.0)
         self.assertEqual([o["raw"] for o in out], ["元気"])
 
     def test_model_cache_keeps_one(self):
@@ -406,17 +420,17 @@ class TestSplitAndRobust(unittest.TestCase):
         fw.WhisperModel = FakeModel
         old = sys.modules.get("faster_whisper")
         sys.modules["faster_whisper"] = fw
-        S._models.clear()
+        _models._models.clear()
         try:
             job = {"phase": ""}
-            m1, _ = S._load_model_local("large-v3", job, "cpu")   # 認識ワーカーの中で動く本体
-            self.assertIs(S._load_model_local("large-v3", job, "cpu")[0], m1)     # 同じモデルは使い回す
-            S._load_model_local("large-v3-turbo", job, "cpu")
-            self.assertEqual(len(S._models), 1)                            # 別のモデルを読み込んだら、前のモデルは手放す
-            self.assertEqual(list(S._models)[0][0], "large-v3-turbo")
+            m1, _ = _models._load_model_local("large-v3", job, "cpu")   # 認識ワーカーの中で動く本体
+            self.assertIs(_models._load_model_local("large-v3", job, "cpu")[0], m1)     # 同じモデルは使い回す
+            _models._load_model_local("large-v3-turbo", job, "cpu")
+            self.assertEqual(len(_models._models), 1)                            # 別のモデルを読み込んだら、前のモデルは手放す
+            self.assertEqual(list(_models._models)[0][0], "large-v3-turbo")
             self.assertEqual(made, ["large-v3", "large-v3-turbo"])
         finally:
-            S._models.clear()
+            _models._models.clear()
             if old is None:
                 del sys.modules["faster_whisper"]
             else:
@@ -437,14 +451,14 @@ class TestSplitAndRobust(unittest.TestCase):
         fw.WhisperModel = FakeModel
         old = sys.modules.get("faster_whisper")
         sys.modules["faster_whisper"] = fw
-        S._models.clear()
+        _models._models.clear()
         try:
-            S._load_model_local("large-v3", {"phase": ""}, "cpu")
+            _models._load_model_local("large-v3", {"phase": ""}, "cpu")
             self.assertEqual(calls, [("large-v3", True)])                             # 手元だけで読めた → 通信しない
-            S._load_model_local("not-downloaded", {"phase": ""}, "cpu")
+            _models._load_model_local("not-downloaded", {"phase": ""}, "cpu")
             self.assertEqual(calls[1:], [("not-downloaded", True), ("not-downloaded", False)])   # 手元に無い → ネットワークから
         finally:
-            S._models.clear()
+            _models._models.clear()
             if old is None:
                 del sys.modules["faster_whisper"]
             else:
@@ -483,16 +497,16 @@ class TestSplitAndRobust(unittest.TestCase):
 
         job = {"cancel": False}
         spec = {"vadMode": "normal", "language": "ja", "beam": 5, "model": "large-v3", "glossary": []}
-        raw, vad = S.transcribe_vad_fallback(job, Model(), "a.wav", spec)
+        raw, vad = _recognize.transcribe_vad_fallback(job, Model(), "a.wav", spec)
         self.assertEqual(calls, ["normal", "weak", "off"])
         self.assertEqual(len(closed), 1)                                          # 捨てすぎた回は行を読まずに閉じた
         self.assertEqual([r["text"] for r in raw], ["こんにちは"])
         self.assertEqual((vad["requested"], vad["used"]), ("normal", "off"))
         self.assertEqual([(r["mode"], r["why"], r["removedSec"]) for r in vad["retries"]], [("normal", "kept", 9.0), ("weak", "empty", 4.0)])
-        self.assertIn("標準→弱め→なし", S.vad_note(vad))
+        self.assertIn("標準→弱め→なし", _recognize.vad_note(vad))
         calls.clear()
-        raw, vad = S.transcribe_vad_fallback(job, Model(), "a.wav", dict(spec, vadMode="off"))
-        self.assertEqual((calls, vad["retries"], S.vad_note(vad)), (["off"], [], ""))   # 「なし」ならやり直さない
+        raw, vad = _recognize.transcribe_vad_fallback(job, Model(), "a.wav", dict(spec, vadMode="off"))
+        self.assertEqual((calls, vad["retries"], _recognize.vad_note(vad)), (["off"], [], ""))   # 「なし」ならやり直さない
 
         class Halluc(Model):   # 残りは 25%(捨てすぎではない)だが、出たのはよくある誤認識の文だけ → 文字が 0 と同じにやり直す
             def transcribe(self, audio, **kw):
@@ -501,60 +515,60 @@ class TestSplitAndRobust(unittest.TestCase):
                     return Segs([types.SimpleNamespace(start=0.0, end=2.0, text="ご視聴ありがとうございました", words=[])]), types.SimpleNamespace(duration=30.0, duration_after_vad=7.6)
                 return Segs([types.SimpleNamespace(start=0.0, end=2.0, text="やるぜよー", words=[])]), types.SimpleNamespace(duration=30.0, duration_after_vad=30.0)
         calls.clear()
-        raw, vad = S.transcribe_vad_fallback(job, Halluc(), "a.wav", dict(spec, vadMode="weak"))
+        raw, vad = _recognize.transcribe_vad_fallback(job, Halluc(), "a.wav", dict(spec, vadMode="weak"))
         self.assertEqual(([r["text"] for r in raw], vad["used"], vad["retries"][0]["why"]), (["やるぜよー"], "off", "empty"))
 
     def test_machine_conf(self):
-        self.assertEqual(S.machine_conf({"avg_logprob": -0.123456, "no_speech_prob": None, "compression_ratio": float("nan")}), {"avg_logprob": -0.1235})
-        self.assertEqual(S.machine_conf({}), {})
+        self.assertEqual(_postproc.machine_conf({"avg_logprob": -0.123456, "no_speech_prob": None, "compression_ratio": float("nan")}), {"avg_logprob": -0.1235})
+        self.assertEqual(_postproc.machine_conf({}), {})
         spec = {"range": [0.0, 10.0], "language": "ja", "glossary": [], "wordSplit": False, "stripPunct": True}
-        out = S.finish_range_lines([{"start": 1.0, "end": 2.0, "text": "元気", "avg_logprob": -0.5, "no_speech_prob": 0.2}], spec, 0.0)
-        orig = S.replace_original_multi([{"start": 1.0, "end": 2.0, "text": "古い"}], 0.0, 10.0, out)
+        out = _recognize.finish_range_lines([{"start": 1.0, "end": 2.0, "text": "元気", "avg_logprob": -0.5, "no_speech_prob": 0.2}], spec, 0.0)
+        orig = _rerun.replace_original_multi([{"start": 1.0, "end": 2.0, "text": "古い"}], 0.0, 10.0, out)
         self.assertEqual(orig, [{"start": 1.0, "end": 2.0, "text": "元気", "avg_logprob": -0.5, "no_speech_prob": 0.2}])   # 範囲の再認識でも残る
 
     def test_worker_survives_and_marks(self):
         tmp = tempfile.mkdtemp()
-        old_mark, old_run = S.RUN_MARK, S.run_job
-        S.RUN_MARK = os.path.join(tmp, ".running.json")
+        old_mark, old_run = ed_state.RUN_MARK, _doc_jobs.run_job
+        ed_state.RUN_MARK = os.path.join(tmp, ".running.json")
         try:
-            S.write_mark({"id": "j1", "kind": "transcribe", "model": "m", "title": "t"})
-            prev = S.check_previous_run()
+            ed_state.write_mark({"id": "j1", "kind": "transcribe", "model": "m", "title": "t"})
+            prev = ed_state.check_previous_run()
             self.assertEqual(prev["job"]["id"], "j1")                       # 印が残っていれば「前回は異常終了」と分かる
-            S.clear_mark()
-            self.assertIsNone(S.check_previous_run())
+            ed_state.clear_mark()
+            self.assertIsNone(ed_state.check_previous_run())
 
             def boom(job):
                 raise ValueError("boom")
-            S.run_job = boom
+            _doc_jobs.run_job = boom
             job = {"id": "jx", "state": "queued", "cancel": False, "spec": {"model": "m", "title": "t"}, "kind": "transcribe"}
-            S._jobs["jx"] = job
+            _jobs._jobs["jx"] = job
             try:
-                S.work_one("jx")                                            # 例外でもワーカー(の1回分)は落ちず、ジョブが失敗になる
+                _jobs.work_one("jx")                                            # 例外でもワーカー(の1回分)は落ちず、ジョブが失敗になる
             finally:
-                S._jobs.pop("jx", None)
+                _jobs._jobs.pop("jx", None)
             self.assertEqual(job["state"], "error")
             self.assertEqual(job["error"], "処理が途中で止まりました")       # 想定外の失敗は決まった文(UI の見直し M9)
             self.assertIn("boom", job["errorDetail"])                        # 原文は errorDetail(画面の「詳しく」)
-            self.assertIsNone(S._run_state["job"])                          # 終わったら実行中の印は消える
+            self.assertIsNone(ed_state._run_state["job"])                          # 終わったら実行中の印は消える
         finally:
-            S.RUN_MARK, S.run_job = old_mark, old_run
+            ed_state.RUN_MARK, _doc_jobs.run_job = old_mark, old_run
             shutil.rmtree(tmp, ignore_errors=True)
 
     def test_diarize_overtakes_queued_transcribe(self):
         """話者判別(diarize)は、待機列に並んでいる文字起こし(transcribe)より先に取り出される。
         実行中のジョブを中断するわけではなく、待機列の中の順序だけを入れ替える(同じ種類どうしの順番は変えない)。"""
-        old_jobs = dict(S._jobs)
-        S._jobs.clear()
+        old_jobs = dict(_jobs._jobs)
+        _jobs._jobs.clear()
         try:
-            j1 = S.add_job({"title": "t1"}, "transcribe")
-            j2 = S.add_job({"title": "t2"}, "transcribe")
-            j3 = S.add_job({"title": "d1", "tid": "docabc"}, "diarize")
-            j4 = S.add_job({"title": "t3"}, "transcribe")
-            picked = [r["id"] for r in S.TX_TABLE.queue_order()]
+            j1 = _jobs.add_job({"title": "t1"}, "transcribe")
+            j2 = _jobs.add_job({"title": "t2"}, "transcribe")
+            j3 = _jobs.add_job({"title": "d1", "tid": "docabc"}, "diarize")
+            j4 = _jobs.add_job({"title": "t3"}, "transcribe")
+            picked = [r["id"] for r in _jobs.TX_TABLE.queue_order()]
             self.assertEqual(picked, [j3["id"], j1["id"], j2["id"], j4["id"]])
         finally:
-            S._jobs.clear()
-            S._jobs.update(old_jobs)
+            _jobs._jobs.clear()
+            _jobs._jobs.update(old_jobs)
 
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg が必要")
@@ -653,7 +667,7 @@ class TestRangeAndStudio(unittest.TestCase):
         spec = {"range": [10.0, 20.0], "language": "ja", "glossary": [], "wordSplit": False}
         raw = [{"start": 0.0, "end": 1.0, "text": "頭", "avg_logprob": -0.3}, {"start": 9.0, "end": 10.6, "text": "尾", "avg_logprob": -0.3},
                {"start": 10.55, "end": 10.58, "text": "極小", "avg_logprob": -0.3}, {"start": 3.0, "end": 4.0, "text": "", "avg_logprob": -0.3}]
-        out = S.finish_range_lines(raw, spec, 9.7)
+        out = _recognize.finish_range_lines(raw, spec, 9.7)
         self.assertEqual([o["raw"] for o in out], ["頭", "尾"])
         self.assertEqual((out[0]["start"], out[0]["end"]), (10.0, 10.7))     # 開始は範囲の始まりまで切り上げる
         self.assertEqual(out[1]["end"], 20.0)
@@ -680,7 +694,6 @@ from test_autodiar import *  # noqa: E402,F401,F403   評価用の文書の文�
 from test_nosub_metrics import *  # noqa: E402,F401,F403   字幕に出さない行(noSub)と重なりの数え方・学習(eval/drill/metrics・human/proof/learn。RS3-E5c まで ed_learn.py)
 from test_smooth import *  # noqa: E402,F401,F403   話者の細切れをならす(S2。ed_speakers の smooth_・設定 diarSmooth)
 from test_retime import *  # noqa: E402,F401,F403   字幕の読む速さの印・行の時刻を単語の時刻に合わせる候補(ed_retime.py・POST /api/retime)
-from test_names import *  # noqa: E402,F401,F403   serve の名前の受付と ed_jobs の転送(役割で組み直す RS2。ytt/modfwd.py)
 from test_proof_api import *  # noqa: E402,F401,F403   API の確かめ
 
 

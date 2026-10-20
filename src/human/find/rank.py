@@ -4,7 +4,7 @@ HTTP は serve.py が受け持つ。ここは素の関数だけを公開する:
   get_registry() / put_registry(obj) / resolve(agency) / import_official_channels(agency)
   start_search(obj) / get_search(id) / cancel_search(id)
   live_list(agencies, now, regions)(配信中・これからの予定。画面の「配信中」のタブ。いつ探すか・覚える長さは ② flow/live_watch。ここは登録簿から事務所と地域を選んで渡す)
-  attach_board(board)(掲示板に検索のジョブを出す。board_jobs・board_cancel・board_retry は掲示板が呼ぶ引く形・取り消し・やり直し)
+  attach_board(board)(掲示板に検索のジョブを出す。board_jobs・board_cancel は掲示板が呼ぶ引く形・取り消し)
 STUDIO_FAKE=1 のときは疑似API(fake_yt.py。ネットワークなし。起動時に ytt/ytapi へ差し込む)で動く。
 YouTube Data API を呼ぶ口は ytt/ytapi.get の 1 つ(失敗の対応表・数え・覚え)。ここの yt_get はその呼び手の名前(テストの差し替えの的)。
 中の部品は _ を付けた名前。_ なしで残すのは、外から呼ぶ上の口と、テストが使う load_registry・sanitize_registry・validate_search・run_search・
@@ -609,7 +609,7 @@ def get_search(jid):
 
 # 掲示板(flow/board.py。頭 se・id = se:<検索の id>)。入口の側(スタジオの serve)が board を渡して 1 回呼ぶ
 def attach_board(board):
-    board.register("se", source=board_jobs, cancel=board_cancel, retry=board_retry)
+    board.register("se", source=board_jobs, cancel=board_cancel)
 
 
 def _board_job(j):
@@ -630,20 +630,6 @@ def board_cancel(jid):
     if str(jid or "") not in _jobs:
         raise LookupError("その検索はありません")
     cancel_search(jid)
-
-
-def board_retry(jid):
-    """掲示板のやり直し: 同じ指定でもう一度検索する -> 新しい検索の Job。無い id は LookupError・別の検索が動いていれば(や今の登録簿で指定が通らなければ)ValueError。
-    前の検索の登録簿の写し(spec["agencies"])は使わず、元の指定から今の登録簿で検査し直す(あとで足した・解決したチャンネルも入る)"""
-    j = _jobs.get(str(jid or ""))
-    req = (j.get("spec") or {}).get("req") if j else None
-    if not isinstance(req, dict):
-        raise LookupError("その検索はありません")
-    try:
-        new = _start_search(validate_search(req))
-    except ApiError as e:
-        raise ValueError(e.message)
-    return _board_job(new)
 
 
 def cancel_search(jid):

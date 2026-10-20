@@ -22,7 +22,7 @@ import os
 import re
 import socket
 import sys
-from http.server import ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PAGES = ("/", "/index.html")
 PAGE_HEADERS = {"X-Frame-Options": "DENY", "Content-Security-Policy": "frame-ancestors 'none'", "Referrer-Policy": "same-origin"}
@@ -69,6 +69,35 @@ def send(handler, code, body=b"", ctype="text/plain; charset=utf-8", extra=None,
     send_head(handler, code, ctype, len(body), extra, cache)
     if handler.command != "HEAD":
         handler.wfile.write(body)
+
+
+class LocalHandler(BaseHTTPRequestHandler):
+    """各ツール・入口・友人のアプリの Handler の土台: 安全検査の入口(_host_ok・_origin_ok・_fetch_site_ok)と応答(_send・_json・_fail)。
+    許可する Host は _allowed(既定は self.server.allowed_hosts)。全応答に足す見出しは send_headers、JSON の Content-Type は json_type
+    (入口の取り込み src/app/mount.py は _send を上書きして CSP と合言葉を足すので、_send という名前は残す)"""
+    send_headers = None
+    json_type = "application/json; charset=utf-8"
+
+    def _allowed(self):
+        return self.server.allowed_hosts
+
+    def _host_ok(self):          # DNS rebinding 対策
+        return host_ok(self.headers, self._allowed())
+
+    def _origin_ok(self):        # 他サイトからの書き込み(CSRF)対策。"http://" + 許可した Host と完全に一致するものだけ
+        return origin_ok(self.headers, self._allowed())
+
+    def _fetch_site_ok(self):    # 他サイトからの API 消費の対策
+        return fetch_site_ok(self.headers)
+
+    def _send(self, code, body=b"", ctype="text/plain; charset=utf-8", extra=None):
+        send(self, code, body, ctype, dict(self.send_headers, **(extra or {})) if self.send_headers else extra)
+
+    def _json(self, code, obj):
+        self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"), self.json_type)
+
+    def _fail(self, code, error, message, extra=None):
+        self._json(code, dict(extra or {}, error=error, message=message))
 
 
 # ---------- 各サーバーに共通の定型 ----------

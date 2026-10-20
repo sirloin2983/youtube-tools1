@@ -19,12 +19,12 @@ src・friend-apps を含む。GONE_OK の物を除く)と、保管庫の AGENTS.
 """
 import os
 import re
-import subprocess
 import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "src"))
 from ytt import layout  # noqa: E402
+from _common import tracked_files  # noqa: E402
 
 YTT = re.compile(r"(?<![A-Za-z0-9_])YTT_[A-Z0-9_]+")
 API = re.compile(r"(?<![A-Za-z0-9_.])/(?:friend/|live/)?api/[A-Za-z0-9_\-/.{}<>*:]*")
@@ -43,9 +43,7 @@ SELF = ("dev/spec_check.py",)
 
 
 def git_files():
-    r = subprocess.run(["git", "-C", REPO, "ls-files", "-z"], stdout=subprocess.PIPE, check=True,
-                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    return [p for p in r.stdout.decode("utf-8", "replace").split("\0") if p]
+    return tracked_files(REPO)
 
 
 def read(p):

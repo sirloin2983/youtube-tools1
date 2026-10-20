@@ -24,15 +24,13 @@
             if ok:
                 normalize.normalize(src, dst, cancelled=..., on_progress=...)
 """
-import json
-import math
 import os
 import re
 import subprocess
 import uuid
 from fractions import Fraction
 
-from . import fsio, tools
+from . import fsio, schemas, tools
 
 TARGET_FPS = 30
 AVG_TOL = 0.01            # avg_frame_rate は 29.99〜30.01 を許す(長さの端数で 30/1 ちょうどにならないことがある)
@@ -144,14 +142,6 @@ def _ratio(s):
     return f if f > 0 else None
 
 
-def _float(x):
-    try:
-        v = float(x)
-    except (TypeError, ValueError):
-        return None
-    return v if math.isfinite(v) else None
-
-
 def _bit_depth(stream):
     try:
         n = int(stream.get("bits_per_raw_sample") or 0)
@@ -171,13 +161,9 @@ def probe(path, ffprobe=None, timeout=60):
     fp = ffprobe or tools.find_tool("ffprobe")
     if not fp:
         return None
-    cmd = [fp, "-v", "error", "-of", "json", "-show_entries",
-           "format=duration:stream=index,codec_type,codec_name,pix_fmt,bits_per_raw_sample,width,height,r_frame_rate,avg_frame_rate,sample_rate,duration",
-           path]
     try:
-        r = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout,
-                           creationflags=tools.no_window_flags(new_group=True))
-        data = json.loads(r.stdout.decode("utf-8", "replace") or "null") if r.returncode == 0 else None
+        data = tools.ffprobe_json(fp, ["-show_entries", "format=duration:stream=index,codec_type,codec_name,pix_fmt,bits_per_raw_sample,"
+                                       "width,height,r_frame_rate,avg_frame_rate,sample_rate,duration", path], timeout)
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
     if not isinstance(data, dict):
@@ -185,13 +171,13 @@ def probe(path, ffprobe=None, timeout=60):
     streams = data.get("streams") or []
     v = next((s for s in streams if s.get("codec_type") == "video"), None)
     a = next((s for s in streams if s.get("codec_type") == "audio"), None)
-    dur = _float((data.get("format") or {}).get("duration"))
+    dur = schemas.num_or((data.get("format") or {}).get("duration"))
     if dur is None and v:
-        dur = _float(v.get("duration"))
+        dur = schemas.num_or(v.get("duration"))
     info = {"path": path, "duration": dur, "has_video": v is not None, "has_audio": a is not None,
             "vcodec": None, "pix_fmt": None, "bit_depth": None, "width": None, "height": None,
             "r_frame_rate": None, "avg_frame_rate": None, "fps": None, "avg_fps": None, "cfr": None,
-            "acodec": (a or {}).get("codec_name"), "sample_rate": int(_float((a or {}).get("sample_rate")) or 0) or None}
+            "acodec": (a or {}).get("codec_name"), "sample_rate": int(schemas.num_or((a or {}).get("sample_rate")) or 0) or None}
     if v:
         r_, avg = _ratio(v.get("r_frame_rate")), _ratio(v.get("avg_frame_rate"))
         info.update(vcodec=v.get("codec_name"), pix_fmt=v.get("pix_fmt"), bit_depth=_bit_depth(v),

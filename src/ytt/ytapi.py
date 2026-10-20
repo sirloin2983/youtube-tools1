@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from . import apikey as _key, studio_env as _env, yturl as _yturl
 from .errors import ApiError
 
+OEMBED = "https://www.youtube.com/oembed?format=json&url="   # 題とチャンネル名の取得(公開・キー不要。接続先は固定)
 NET_MSG = "YouTube の API に接続できません。インターネットの接続を確かめてから、もう一度試してください"
 CHID_RE = re.compile(r"^UC[\w-]{22}\Z", re.ASCII)   # チャンネル ID
 CACHE_TTL = 1800
@@ -149,3 +150,14 @@ def cached(key, fn, ttl=CACHE_TTL):
     val = fn()
     cache_put(key, val, now)
     return val
+
+
+def oembed(vid, timeout=8):
+    """oEmbed(公開・キー不要)で題とチャンネル名 -> {"title", "channel"}(取れなければ空。接続先は固定・vid は検査済みの動画 ID)"""
+    target = OEMBED + urllib.parse.quote(_yturl.watch_url(vid), safe="")
+    try:
+        with urllib.request.urlopen(urllib.request.Request(target, headers={"Accept": "application/json"}), timeout=timeout) as r:
+            d = json.loads(r.read(200000).decode("utf-8", "replace"))
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        return {"title": "", "channel": ""}
+    return {"title": str(d.get("title") or "")[:120], "channel": str(d.get("author_name") or "")[:100]}

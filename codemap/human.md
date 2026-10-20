@@ -41,8 +41,8 @@
 - **__init__.py** (2 行) — ③ 配信の検索(YouTube Data API・事務所の登録)
 - **fake_yt.py** (119 行) — ① 配信の検索 rank.py の疑似 YouTube Data API(STUDIO_FAKE=1 のときだけ使う。ネットワークなし。e2e と画面の確かめが使う)。
   - 名前: `fake_channel_id` :20・`fake_video` :24・`fake_get` :34・`fake_live` :97
-- **rank.py** (654 行) — ③ 配信の検索: 事務所・所属チャンネルの登録と、YouTube Data API による検索ジョブ。
-  - 名前: `yt_get` :64・`parse_ref` :74・`sanitize_registry` :100・`load_registry` :133・`parse_regions` :274・`validate_search` :323・`run_search` :449・`parse_live_agencies` :542・`live_list` :555・`get_registry` :578・`put_registry` :582・`resolve` :589・ほか 8
+- **rank.py** (640 行) — ③ 配信の検索: 事務所・所属チャンネルの登録と、YouTube Data API による検索ジョブ。
+  - 名前: `yt_get` :64・`parse_ref` :74・`sanitize_registry` :100・`load_registry` :133・`parse_regions` :274・`validate_search` :323・`run_search` :449・`parse_live_agencies` :542・`live_list` :555・`get_registry` :578・`put_registry` :582・`resolve` :589・ほか 7
 
 ## src/human/friend/
 
@@ -61,22 +61,22 @@
 - **__init__.py** (2 行) — ③ 字幕の校正(文書の置き場と機械の層・人の層・カットの「カット済」・文字起こしと再認識のジョブ・別の読み・話者と声・辞書と名簿の学習・校正の記録)
 - **alt.py** (416 行) — ③ 人の操作の層 human/proof: 2つ目のエンジンとの食い違いに候補を出す(精度改善の計画 第2版 D1-b。notes:plan/line-b-transcription.md)。
   - 名前: `alt_engine_key` :61・`alt_info` :70・`alt_first_run` :79・`alt_spec` :88・`alt_path` :121・`read_alt` :126・`run_alt` :136・`alt_after_transcribe` :160・`alt_notation_only` :193・`alt_diffs` :220・`alt_cached` :344・`alt_spans_of` :356・ほか 3
-- **doc_jobs.py** (359 行) — ③ 人の操作の層 human/proof: 文字起こしのジョブの本体(run_job)と書く先の決め方・受付(validate_job と
-  - 名前: `set_learning` :40・`glossary_of` :45・`validate_job` :62・`public_job` :131・`subtitle_settings` :169・`split_chars_for` :183・`learned_finder` :201・`dict_learned` :212・`carry_overrides` :230・`run_job` :269・`run_transcribe_job` :279・`redo_targets` :337
+- **doc_jobs.py** (358 行) — ③ 人の操作の層 human/proof: 文字起こしのジョブの本体(run_job)と書く先の決め方・受付(validate_job と
+  - 名前: `set_learning` :39・`glossary_of` :44・`validate_job` :61・`public_job` :130・`subtitle_settings` :168・`split_chars_for` :182・`learned_finder` :200・`dict_learned` :211・`carry_overrides` :229・`run_job` :268・`run_transcribe_job` :278・`redo_targets` :336
 - **layers.py** (1056 行) — ③ 文書を「機械の層 + 人の層」から組み立てる純粋な関数(O2-1。RS8。決定 3-37 の (r8r)〜(r8u)・notes:plan/done/rs8-cases-ui.md の決めたこと 3)。
   - 名前: `match` :65・`compose_rows` :323・`compose` :419・`split_meta` :440・`diff` :546・`mach_changes` :631・`pick` :651・`assign_speakers` :687・`carry` :742・`mach_from_doc` :824・`advance_mach` :865・`replace_mach_span` :913・ほか 4
-- **learn.py** (470 行) — ③ 人の操作の層 human/proof: 人が直した内容からの学習(機械の出力と人の行の対応づけ・「誤=>正」の統計・確度)と、行への修正の提案・
-  - 名前: `align_groups` :29・`prep_rows` :48・`is_nosub` :63・`split_nosub` :67・`row_text` :92・`learn_events` :103・`learn_groups` :145・`learned_candidates` :198・`load_feedback` :228・`unrecord_feedback` :258・`record_feedback` :280・`forget_doc` :302・ほか 7
+- **learn.py** (469 行) — ③ 人の操作の層 human/proof: 人が直した内容からの学習(機械の出力と人の行の対応づけ・「誤=>正」の統計・確度)と、行への修正の提案・
+  - 名前: `align_groups` :28・`prep_rows` :47・`is_nosub` :62・`split_nosub` :66・`row_text` :91・`learn_events` :102・`learn_groups` :144・`learned_candidates` :197・`load_feedback` :227・`unrecord_feedback` :257・`record_feedback` :279・`forget_doc` :301・ほか 7
 - **machpick.py** (46 行) — ③ 3 択の口(RS8 O2-4。決定 3-37・notes:plan/done/rs8-cases-ui.md の決めたこと 3 の案 A): 機械の結果が変わって人の直しと食い違う行(印 layers.MACH_CHANGED)を
   - 名前: `changes` :15・`pick` :24
-- **rerun.py** (455 行) — ③ 人の操作の層 human/proof: 再認識(選んだ行 each・範囲 range)のジョブの本体と、文書への反映・
-  - 名前: `record_rerun` :50・`apply_retranscribe` :86・`replace_original_multi` :155・`thin_rows` :174・`apply_range` :187・`run_retranscribe` :232・`rebuild_whole` :278・`validate_retranscribe` :362・`validate_whole` :398・`validate_rerun` :426
+- **rerun.py** (454 行) — ③ 人の操作の層 human/proof: 再認識(選んだ行 each・範囲 range)のジョブの本体と、文書への反映・
+  - 名前: `record_rerun` :49・`apply_retranscribe` :85・`replace_original_multi` :154・`thin_rows` :173・`apply_range` :186・`run_retranscribe` :231・`rebuild_whole` :277・`validate_retranscribe` :361・`validate_whole` :397・`validate_rerun` :425
 - **retime.py** (32 行) — ③ 人の操作の層 human/proof: 行の時刻の候補の API の包み POST /api/retime {id, rows: [行の id…]}
   - 名前: `retime_engine` :12・`retime_doc` :18
 - **speakers.py** (672 行) — ③ 人の操作の層 human/proof: 話者判別の結果を文書へ(apply_diarization・1 人指定 single_speaker・守る行 diar_keep_row)・判別のジョブの受付と文書への書き込み(validate_diarize・
   - 名前: `set_context_namer` :29・`check_context_namer` :38・`apply_diarization` :60・`diar_keep_row` :77・`validate_diarize` :169・`single_speaker` :192・`run_diarize` :220・`autodiar_enabled` :268・`autodiar_ready` :273・`autodiar_enqueue` :293・`autodiar_after_transcribe` :325・`is_generic_speaker_name` :406・ほか 7
-- **store.py** (1190 行) — ③ 文書の置き場: 文書を書く唯一の口 commit と機械の層・人の層(層が正 = 文書は組み立て済みの写し・古い写しの読み直し fresh_copy)・保存の錠 saving・
-  - 名前: `tx_path` :38・`write_doc` :42・`read_layers` :82・`commit` :123・`layers_for` :180・`fresh_copy` :210・`snapshot` :260・`backup_doc` :268・`sanitize_sub_style` :287・`sanitize_transcript` :300・`doc_length` :382・`good_row` :403・ほか 38
+- **store.py** (1189 行) — ③ 文書の置き場: 文書を書く唯一の口 commit と機械の層・人の層(層が正 = 文書は組み立て済みの写し・古い写しの読み直し fresh_copy)・保存の錠 saving・
+  - 名前: `tx_path` :37・`write_doc` :41・`read_layers` :81・`commit` :122・`layers_for` :179・`fresh_copy` :209・`snapshot` :259・`backup_doc` :267・`sanitize_sub_style` :286・`sanitize_transcript` :299・`doc_length` :381・`good_row` :402・ほか 38
 
 ## src/human/review/
 

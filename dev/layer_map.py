@@ -59,10 +59,9 @@ FILES = {
     "src/pipeline/pack/request.py": ("pipeline", "pipeline/pack", "パックの指定(spec・output)-> pack.Request と build_pack の引数の 1 か所(OPT2。cut2resolve の API と flow/tools の LocalTools が呼ぶ。検査は API の厳しさ)"),
     # ---- pipeline/pack(pack・resolve_textplus・cut2resolve_core・srt2resolve・auto_cut)は DIRS で読む
     "src/cut2resolve/serve.py": ("app", "app", "API の配線"),
-    # ---- studio: analyze・batch・store・feedback・rank・txlink は層のフォルダ(DIRS で読む)。serve・startup・handoff = app
+    # ---- studio: analyze・batch・store・feedback・rank・txlink は層のフォルダ(DIRS で読む)。serve・startup = app
     "src/studio/startup.py": ("app", "app", "起動の小物(src を sys.path に足す・環境チェック・古いログの改名)。RS5-B で common.py の殻を消して残りをここへ"),
     "src/studio/serve.py": ("app", "app", "API の配線"),
-    "src/studio/handoff.py": ("app", "app", "実行中のポートの共有(.runtime・/api/siblings)だけが残る。RS3-5 で .clip.json の組み立てと書き込みを pipeline/export/manifest.py へ割った(OPT1 で exporter.write_clip に畳んだ)"),
     # ---- editor
     # ---- ed_drill・ed_evalbatch は eval/drill の drill・evalbatch(殻なし。決定 3-25 #7。DIRS で読む)
     # ---- resolve_export は pipeline/pack(受け渡しの JSON と SRT の組み立て build_* も一緒)・handoff_io は manage/cases(.clip.json の動画・動画の隣への保存)。どちらも DIRS で読む
@@ -70,7 +69,7 @@ FILES = {
     "src/editor/ed_thumb.py": ("app", "app", "サムネの配信"),
     "src/editor/thumb_ideas.py": ("human", "human/cut", "サムネの案(P5)"),
     "src/editor/ed_state.py": ("app", "app", "split: 設定は ytt/settings、backend_name は eval/fake の登録"),
-    "src/editor/serve.py": ("app", "app", "名前の受付と API の配線"),
+    "src/editor/serve.py": ("app", "app", "API の配線"),
     # ---- 入口の部品(src/app)
     "src/app/mount.py": ("app", "app", ""),
     "src/app/prefs.py": ("app", "app", "設定の既定値と検査(ytt/settings に寄せる)"),
@@ -84,7 +83,7 @@ FILES = {
     # ---- 精度の自動測定 accuracy と測る道具(dev/eval_*.py 13 本・_evalcommon)は eval/drill・eval/tools にある(DIRS で読む)
     # ---- flow(② 管理)は DIRS で読む。RS7-1 で足した物も明示しておく
     "src/flow/machine.py": ("flow", "flow", "この PC の設定(machine.json・環境変数・既定。束に重ねる overlay。RS7-1 S1)"),
-    "src/flow/learning.py": ("flow", "flow", "学習データを読む側(F1。app/cli の Learning・learning_dir を移した。学習の束 learning.json があれば計算済みの規則 learned-rules.json だけで文書も ③ も読まない = 友人の PC。"
+    "src/flow/learning.py": ("flow", "flow", "学習データを読む側(F1。学習の束 learning.json があれば計算済みの規則 learned-rules.json だけで文書も ③ も読まない = 友人の PC。"
                              "束の置き場所を使う側へ入れる apply_places・束の版を束に入れる stamp。ytt・pipeline を読む。③ は文書があるときだけ遅延 import)"),
     "src/manage/keep/learnpack.py": ("manage", "manage/keep", "学習の束を作る側(F1。置換辞書・用語・学習した置換・計算済みの規則・名簿・色・名簿にある人の声 -> 同期フォルダの 学習/<版>/ + learning.json + latest.json。直近 3 版を残す。③ の learn.export_rules を読む)"),
     "src/flow/envelope.py": ("flow", "flow", "依頼の封筒(RS7-1 S3。何を入れたか・どの依頼か・届け方 = 処理の中身でない物。中身は束 flow/spec.py)"),

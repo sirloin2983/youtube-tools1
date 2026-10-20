@@ -283,7 +283,7 @@ def fetch_file(spec, folder, log=None, cancelled=None, progress=None):
     取るときは .part に書き、大きさと SHA-256 が合ったときだけ名前を付ける(違えば消して EngineError)。URL は https の固定のものだけ"""
     path = os.path.join(folder, spec["file"])
     if os.path.isfile(path) and os.path.getsize(path) == spec["size"]:
-        if _sha256(path) == spec["sha256"]:
+        if _fsio.sha256_file(path) == spec["sha256"]:
             return path
         if log:
             log.warning("ファイルの中身が違うので取り直します: %s", path)
@@ -325,14 +325,6 @@ def fetch_file(spec, folder, log=None, cancelled=None, progress=None):
         raise EngineError("fetch_failed", "取得した %s の中身が想定と違うので使いません(大きさ %d / SHA-256 が一致しない)" % (spec["file"], got))
     _fsio.replace_retry(part, path)
     return path
-
-
-def _sha256(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for b in iter(lambda: f.read(1 << 20), b""):
-            h.update(b)
-    return h.hexdigest()
 
 
 def _wcpp_path(p, cwd=None):

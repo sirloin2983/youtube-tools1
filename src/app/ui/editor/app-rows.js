@@ -234,8 +234,10 @@ function snapEdge(i, f, toward){
 /* ---------- 字幕の読む速さの印(表示だけ = 行は書き換えない。校正済みにする操作も止めない) ----------
    読む速さ = 字幕として数える文字(NFKC にして文字と数字だけ。記号・空白・句読点・〜 は数えない・ー は数える)÷ 行の長さ(秒)。
    印は「速い」(1 秒あたり READ_FAST_CPS 字を超える)と「短い」(READ_SHORT_SEC 秒未満)。どちらも READ_MIN_CHARS 字以上の行だけ。
-   対象外: 字幕に出さない行・文字の無い行・カット済の行。規則と値はサーバーの pipeline/transcribe/retime.py の subread_mark と同じ(例は tests/subread_cases.json)。
-   値は設定の subtitle.read = {fastCps, shortSec} で変えられる(欄は無い)。根拠の数字は pipeline/transcribe/retime.py の先頭 */
+   対象外: 字幕に出さない行・文字の無い行・カット済の行。例は editor/tests/subread_cases.json。
+   値は設定の subtitle.read = {fastCps, shortSec} で変えられる(欄は無い)。
+   しきい値の根拠(確かめ済みの評価用 10 本の校正済み 148 行): 1 秒あたりの文字は中央値 5.8・p95 9.1・p99 13.2、長さは中央値 1.9 秒・p5 0.78 秒。
+   速い > 10 字/秒・短い < 0.5 秒で校正済みの行の 4.1% に印(ショートの字幕は人が通した行でもう 5.8 字/秒なので、放送の目安の 4 字/秒よりかなり速くした) */
 const READ_FAST_CPS = 10, READ_SHORT_SEC = 0.5, READ_MIN_CHARS = 2;
 const READ_CH = /[\p{L}\p{N}]/gu;
 function readChars(text){ return (String(text || '').normalize('NFKC').match(READ_CH) || []).length; }

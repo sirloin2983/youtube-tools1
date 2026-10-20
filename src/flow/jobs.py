@@ -24,7 +24,6 @@ LATER_POLL = 5.0   # 後回しの仕事(flow/prio.py の later)だけが待っ�
 # 種類(kind)ごとの本体・優先度・同時に入れない組・文書の id を持つか・やり直せるかは register で登録する(登録するのは app = 編集の serve.py。下の層は自分で登録しない)。
 # 編集だけの値(記録の書き先・起動中の印・一時フォルダ・待機の上限・やり直せない理由)は configure で渡す(ytt は編集の部品を読まない)。
 # 状態(state)・段階(phase)の文字は画面(編集の app-jobs.js)が読むので変えない(loading・extracting は走らせる本体が入れる)。
-# 編集の部品・テストは今までどおり serve.名前 / S.名前 で読み書きできる(serve の名前の受付 _modfwd)。
 JOB_RUNNERS = {}     # 種類 → 本体 run(job)
 JOB_PRIORITY = {}    # 種類 → 優先度(登録しない種類は 1。数値が小さいほど先に実行。話者判別は文字起こしの待機列を追い越す = 実行中は中断せず次の空きで割り込む)
 EXCLUSIVE = {}       # 種類 → 同じ文書に同時に入れない種類(入口の検査 validate_* と add_job の両方がこの表を使う)
@@ -282,19 +281,9 @@ def board_cancel(jid):
         raise LookupError(e.message)
 
 
-def board_retry(jid):
-    """掲示板の retry。-> 入れ直した新しい Job。できなければ ValueError・無ければ LookupError"""
-    try:
-        return board_job(retry_job(jid))
-    except errors.ApiError as e:
-        if e.status == 404:
-            raise LookupError(e.message)
-        raise ValueError(e.message)
-
-
 def attach_board(board):
     """掲示板(flow/board.Board)に頭 tx で載せる(app が 1 回)。やり直し(retry)は RETRY_KINDS の失敗だけ(can_retry)"""
-    board.register("tx", source=board_jobs, cancel=board_cancel, retry=board_retry)
+    board.register("tx", source=board_jobs, cancel=board_cancel)
 
 
 # ---------- ② の 1 つの器 Table(OPT2 後半 J6。notes:docs/design/opt2-jobs-plan.md の 3) ----------
@@ -675,20 +664,9 @@ class Table:
             raise ValueError("その処理は終わっています")
         self.cancel(jid)
 
-    def board_retry(self, jid, prepare=None):
-        """掲示板のやり直し -> 新しい記録の Job。無い id は LookupError・やり直せなければ ValueError"""
-        try:
-            rec = self.retry(jid, prepare)
-        except errors.ApiError as e:
-            raise (LookupError if e.status == 404 else ValueError)(e.message)
-        with self.cv:
-            return self.board_job(rec)
-
-    def attach_board(self, board, retry=None):
-        """掲示板に頭 prefix で載せる(引く形・取り消し。retryable があればやり直しも。retry で差し替えられる)"""
-        if retry is None and self.retryable:
-            retry = self.board_retry
-        board.register(self.prefix, source=self.board_jobs, cancel=self.board_cancel, retry=retry)
+    def attach_board(self, board):
+        """掲示板に頭 prefix で載せる(引く形・取り消し)"""
+        board.register(self.prefix, source=self.board_jobs, cancel=self.board_cancel)
 
 
 # ---------- 編集のジョブ(tx)の既定インスタンス(OPT2 後半 J8) ----------

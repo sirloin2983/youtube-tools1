@@ -7,10 +7,10 @@
 - **__init__.py** (2 行) — ② 管理(RS6。決定 3-29)。① 道具(pipeline)をいつ・どの順で・どこに置いて・飛ばすかを決める層。ytt と pipeline だけを import する。③ 人(human)と ④ データ(manage)は ① を直に読まず、ここの口を通す。② に変換のコードを書かない(加工は…
 - **adopt.py** (33 行) — ② 採用の口(RS8 B3-2 の G1a)。③ のスタジオの台帳(human/review/store の Store.adopt_marks)が、採用の規則 F-5
   - 名前: `check` :16・`pick` :24
-- **batch.py** (253 行) — 解析キュー(バッチ): 最大10本(待ち+実行中)。1つの糸が古い順に1本ずつ analyze.run(spec, ctl) で解析する(OPT2 の J1)。
+- **batch.py** (244 行) — 解析キュー(バッチ): 最大10本(待ち+実行中)。1つの糸が古い順に1本ずつ analyze.run(spec, ctl) で解析する(OPT2 の J1)。
   - 名前: `queued_already` :28・`class Batch` :47
-- **board.py** (423 行) — ② 管理の層 flow: ジョブの掲示板(RS8 の ② の口 S1。形は notes:docs/spec/pipeline.md 2.9・設計 notes:docs/design/rs8-flow-api.md)。
-  - 名前: `class NotFound` :53・`split_id` :60・`norm_case` :68・`normalize` :126・`class Board` :154・`default` :393・`guess_case` :402
+- **board.py** (406 行) — ② 管理の層 flow: ジョブの掲示板(RS8 の ② の口 S1。形は notes:docs/spec/pipeline.md 2.9・設計 notes:docs/design/rs8-flow-api.md)。
+  - 名前: `class NotFound` :53・`split_id` :60・`norm_case` :68・`normalize` :126・`class Board` :154・`default` :376・`guess_case` :385
 - **casebook.py** (326 行) — ② 管理の層 flow: 案件の候補と採用のファイルの書く側(RS8 B3-3・B3-4a。決定 3-37 の (r8j)〜(r8q))。
   - 名前: `owners` :43・`case_of` :57・`split` :88・`carry_over` :140・`write` :168・`live_video` :207・`live_mark` :216・`live_into` :251・`live_adopt` :272・`live_exported` :295・`live_marks` :310・`live_has` :317
 - **deliver.py** (301 行) — ② パックを友人へ届ける(Dropbox の見張るフォルダの 出力\ に zip で置く。友人のアプリの「受け取る」が読む)。
@@ -27,8 +27,8 @@
   - 名前: `build_spec` :24・`class ExportJobs` :38・`default` :140
 - **ingest.py** (23 行) — ② 取り込みの口(RS6 a-5a)。人とデータの層(③・④)が入力の判定(① pipeline/analyze・ingest)を直に読まずに済む動詞。
   - 名前: `probe` :13
-- **jobs.py** (727 行) — ジョブの表・待機列・種類の登録・ワーカーの繰り返し・取り消しの受付(② 管理。RS6 a-2)。
-  - 名前: `configure` :39・`tool_slot` :51・`register` :57・`set_cancelled` :71・`set_internal_error` :75・`job_errors` :82・`job_temp_wav` :104・`job_done` :113・`job_title` :117・`tid_busy` :127・`doc_busy` :141・`active_jobs` :153・ほか 13
+- **jobs.py** (705 行) — ジョブの表・待機列・種類の登録・ワーカーの繰り返し・取り消しの受付(② 管理。RS6 a-2)。
+  - 名前: `configure` :38・`tool_slot` :50・`register` :56・`set_cancelled` :70・`set_internal_error` :74・`job_errors` :81・`job_temp_wav` :103・`job_done` :112・`job_title` :116・`tid_busy` :126・`doc_busy` :140・`active_jobs` :152・ほか 12
 - **keys.py** (397 行) — ② 管理の層 flow: 成果物の鍵を書く・読む(RS6 b-K1。決定 3-29 / notes:plan/done/role-restructure.md 4 節の決まり 4・5-2)。
   - 名前: `media_key_path` :40・`doc_key_path` :45・`pack_key_path` :55・`write` :60・`read` :71・`stale` :83・`remove` :95・`key_hash` :107・`export_inputs` :114・`transcribe_inputs` :122・`post_inputs` :134・`diar_inputs` :142・ほか 15
 - **learning.py** (177 行) — ② 管理: 学習データを読む側(F1。notes:docs/design/f1-build.md の 2 の F1・3 の (f1c))。
@@ -67,8 +67,8 @@
   - 名前: `enabled` :28・`sibling_name` :33・`usable` :39・`plan` :48・`room` :86・`run` :106・`set_note` :137・`run_job` :146
 - **order.py** (209 行) — ② 管理の層 flow: 欄 → (封筒, 束の差分) の変換の 1 か所(RV A1)。
   - 名前: `new_id` :30・`speakers_arg` :60・`cut_arg` :86・`video_tracks_arg` :91・`people_of` :96・`spec_diff` :114・`request_top` :165・`order` :170
-- **outbox.py** (264 行) — ② 管理の層 flow: 送り返しの zip(F1 の F2。docs/design/f1-build.md の 2・3 の (f1d)(f1m)・plan/f1-friend-pc.md の決めたこと 11)。
-  - 名前: `outbox_dir` :48・`scrub` :57・`default_health` :92・`build` :131・`list_outbox` :223・`mark_done` :246
+- **outbox.py** (219 行) — ② 管理の層 flow: 送り返しの zip(F1 の F2。docs/design/f1-build.md の 2・3 の (f1d)(f1m)・plan/f1-friend-pc.md の決めたこと 11)。
+  - 名前: `outbox_dir` :46・`scrub` :55・`default_health` :90・`build` :129
 - **pack.py** (65 行) — ② パックの口(RS6 a-5a)。人とデータの層(③・④)が Resolve のパックの部品(① pipeline/pack/resolve_export)を直に読まずに済む動詞。
   - 名前: `cut_draft` :25・`cut_preview` :31・`handoff_files` :36・`media_plan` :53・`instructions` :60
 - **packjobs.py** (127 行) — ② 管理の層 flow: パックのジョブの器(OPT2 後半 J3・J6)。cut2resolve/serve.py の Job・AppState のジョブの部分。
@@ -83,8 +83,8 @@
   - 名前: `class Cancelled` :123・`class StepError` :127・`mode_of` :146・`steps_of` :180・`analyze_verdict` :224・`chat_missing` :242・`chat_retry_ok` :248・`stream_ended_at` :256・`redo_reason` :269・`short_why` :287・`adopted_ids` :299・`tx_verdict` :304・ほか 5
 - **runlog.py** (93 行) — まとめて実行の「終わった実行の記録」の形と読み方(RS3-0B)。
   - 名前: `read_runs_log` :47・`read_result` :77
-- **runqueue.py** (831 行) — ② 管理の層 flow: 待ち行列と実行の糸(RS7-1 S5。決定 3-30・
-  - 名前: `class SpecVersionError` :65・`class BadSpecError` :69・`check_spec` :73・`disk_blocked` :87・`gpu_info` :101・`busy_reason` :115・`doc_id_ok` :124・`result_case` :172・`board_job` :183・`class Queue` :201
+- **runqueue.py** (815 行) — ② 管理の層 flow: 待ち行列と実行の糸(RS7-1 S5。決定 3-30・
+  - 名前: `class SpecVersionError` :64・`class BadSpecError` :68・`check_spec` :72・`disk_blocked` :86・`gpu_info` :100・`busy_reason` :114・`doc_id_ok` :123・`result_case` :171・`board_job` :182・`class Queue` :200
 - **spec.py** (599 行) — ① に渡す指定の束(spec)の形・既定値・検査(RS1-6。計画 notes:plan/done/role-restructure.md の 5-4)。
   - 名前: `num_ok` :48・`check_range` :58・`check_ranges` :73・`clean_ranges` :92・`pad_range` :108・`check_weights` :116・`clean_weights` :127・`top_arg` :136・`marks_arg` :145・`row_edge_ok` :155・`merge` :260・`merge_onto` :268・ほか 10
 - **studiobook.py** (476 行) — ② 管理の層 flow: スタジオなしの配信の台帳と、URL の段の動詞(RS8 の「URL も CLI で」)。
@@ -93,8 +93,8 @@
   - 名前: `font` :13・`scan` :18・`render` :25
 - **tools.py** (471 行) — ② 管理の層 flow: 段が道具を呼ぶ継ぎ目 Tools(RS6 b-0)。
   - 名前: `class HttpTools` :33・`class FlowTools` :128・`class PackHost` :186・`doc_row` :249・`class LocalTools` :261
-- **tx.py** (395 行) — ② 管理の層 flow: 文字起こしの動詞。RS6 a-3(決定 3-29)。
-  - 名前: `dict_pairs` :34・`rerun_base` :50・`roster_listing` :59・`pick_glossary_terms` :69・`check_model` :75・`request_engine` :84・`tx_spec` :92・`new_doc` :121・`transcribe_clip` :137・`write_clip_records` :181・`replace_span_words` :201・`write_machine_doc` :213・ほか 9
+- **tx.py** (393 行) — ② 管理の層 flow: 文字起こしの動詞。RS6 a-3(決定 3-29)。
+  - 名前: `dict_pairs` :33・`rerun_base` :49・`roster_listing` :58・`pick_glossary_terms` :68・`check_model` :74・`request_engine` :83・`tx_spec` :91・`new_doc` :120・`transcribe_clip` :136・`write_clip_records` :180・`replace_span_words` :200・`write_machine_doc` :212・ほか 9
 - **wire.py** (90 行) — ② 管理の層 flow: 文字起こしの配線(ジョブの種類の登録・ジョブの表の設定・本物と疑似の選び方・① の口の登録)。RS6 a-5b(決定 3-29)。登録は 1 つの install にまとまっている。
   - 名前: `install` :40・`setup_places` :65・`setup_headless` :80
 

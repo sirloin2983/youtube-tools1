@@ -358,50 +358,6 @@ def _plus(day, n):
         return "????-??-??"
 
 
-# ---------------------------------------------------------------- 1 回きりの分割
-
-RULE_START = "2026-10-18"   # 軽い物の 7 日はこの日(重さ分けを決めた日)より前に戻らない = 前からの軽い物も 1 週は見られる
-
-
-def split(plan_dir, plan=None, weights=None):
-    """手書きの data.js を plan/data/ に分ける。weights = {provisional の並びの番号: {"w":…, "why":[…]}}(無ければ全部 重)"""
-    if has_split(plan_dir):
-        raise SystemExit("もう分けてある: %s" % data_dir(plan_dir))
-    if plan is None:
-        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        from plan_artifact import parse_plan_js
-        plan = parse_plan_js(read_text(os.path.join(plan_dir, "data.js")))
-    dd = data_dir(plan_dir)
-    year = (plan.get("updated") or datetime.date.today().isoformat())[:4]
-
-    def put(kind, it, order):
-        it = dict(it, order=order)
-        write_atomic(os.path.join(dd, kind, file_name(kind, it)), dumps(it))
-
-    for kind in ("recent", "tasks", "history"):
-        for i, it in enumerate(plan.pop(kind, []), 1):
-            put(kind, it, i * 10)
-    ut = plan.setdefault("userTasks", {})
-    for lst in USER_LISTS:
-        for i, it in enumerate(ut.pop(lst, []), 1):
-            put("user", dict(it, list=lst), i * 10)
-    for i, it in enumerate(ut.pop("provisional", [])):
-        w = (weights or {}).get(i, {})
-        weight = w.get("w", "重")
-        it = dict(it, weight=weight, why=list(w.get("why") or ([] if weight == "軽" else ["形"])),
-                  added=max(_added(it.get("date", ""), year), RULE_START))
-        put("provisional", it, (i + 1) * 10)
-    write_atomic(os.path.join(dd, "summary.md"), plan.pop("summary", "") + "\n")
-    write_atomic(os.path.join(dd, "main.json"), json.dumps(plan, ensure_ascii=False, indent=2) + "\n")
-    return dd
-
-
-def _added(date, year):
-    """「10-18」「10-16 夜」→ 2026-10-18"""
-    m = re.match(r"(\d{1,2})-(\d{1,2})", str(date))
-    return "%s-%02d-%02d" % (year, int(m.group(1)), int(m.group(2))) if m else "%s-01-01" % year
-
-
 def main(argv):
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -419,11 +375,9 @@ def main(argv):
     p = sub.add_parser("sweep")
     p.add_argument("--today")
     p.add_argument("--dry-run", action="store_true")
-    p = sub.add_parser("split")
-    p.add_argument("--weights", help="仕分けの JSON([{n, w, why}])")
     a = ap.parse_args(argv)
     plan_dir = os.path.abspath(a.plan) if a.plan else plan_dir_default()
-    if a.cmd != "split" and not has_split(plan_dir):
+    if not has_split(plan_dir):
         print("plan/data/main.json が無い(まだ分けていない): %s" % plan_dir)
         return 1
     if a.cmd == "build":

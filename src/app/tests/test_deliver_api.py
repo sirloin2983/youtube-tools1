@@ -111,11 +111,9 @@ class AutoSendApiTest(unittest.TestCase):
 
     def test_flush_sends(self):
         import types
-        srv = types.SimpleNamespace(headless=False, autorun=self.ar)
+        srv = types.SimpleNamespace(autorun=self.ar)
         self.assertEqual(self.server.PortalServer.flush_sends(srv), 2)
         self.assertEqual(self.calls[-1], ("flush", False), "ライブの組は録画が終わったかを live の見回りが決める")
-        srv.headless = True
-        self.assertEqual(self.server.PortalServer.flush_sends(srv), 0, "画面なし(友人の PC)では届けない")
 
 
 if __name__ == "__main__":

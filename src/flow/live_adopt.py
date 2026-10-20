@@ -9,7 +9,7 @@ POST /live/api/adopt・配信中の自動の採用(live_detect の M11)・配信
                (同じ区間 ±SAME 秒のマークがあれば使い回し、候補・不採用なら採用に。スタジオが自分のロックの中で 1 度に = RS8 B3-5。
                画面と同じ PUT と 409 のやり直しはしない)。番号 n = スタジオの配信のマークを開始の順に並べた位置。書き出したら「書き出し済み」(POST /api/live/exported)。
                初めて書き出した配信はスタジオが案件にする(B3-4b)= そのあとの採用もスタジオを通って 採用.json へ
-  LocalMarks   スタジオなし(友人の PC・headless。ライブ係 flow/livesession.py の既定・入口の Live.use_headless)。マークの正本 live_export.MarkStore
+  LocalMarks   スタジオなし(友人の PC。ライブ係 flow/livesession.py の既定)。マークの正本 live_export.MarkStore
                (live/marks/<録画元>__<録画>.json)に採用の印を置く(MarkStore.adopt。配信の登録はしない)。
                採用の印の形: マークに key(スタジオのマークの id の代わり = "a" + 16 進 12 桁)・status(adopted → 書き出したら exported)・src "local"。
                マークの id は studio_mark_id(key)(スタジオのマークと同じ規則)= 書き出しのジョブ・.clip.json の studio {video: 録画の id, mark: key} も同じ形。

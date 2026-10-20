@@ -3,7 +3,7 @@
 本物の音とチャットのファイルを通す解析の通しは test_analyze.TestAnalyzeRun(チャットの種類ごとの重み・埋めの印・場面ごとの区間の形もそこ)。
 ここは通しでは見えない物: 式の値を桁まで(golden)・2 つの計算の比べ・配信中の帳簿の規則(時間・人の決定)
 - golden: 同じ合成の入力で出した値(data/excite_golden.json)と一致する(式を変えたら作り直す)
-- Online(1 秒ずつ)= windowed_scores(一括。同じ窓)
+- Online(1 秒ずつ)= windowed_scores(一括。同じ窓。この下で定義)
 - PeakBook(候補の帳簿)の規則: 確定・1 時間の枠・入れ替え・採用は数えない・見送りは外す・JSON の往復
 - 配信中だけの足し: しきい値を上げる区間(thr_scale)・仮の候補(fast_push。同じ id で本番に置き換わる・外れる・人の決定)・
   雰囲気の変わり目(MoodShift)
@@ -21,6 +21,38 @@ sys.path.insert(0, REPO)
 from pipeline.analyze import excite  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def windowed_scores(x, floor, w, back=excite.ONLINE_BACK, fwd=excite.ONLINE_FWD, window=excite.ONLINE_WINDOW, step=excite.STEP, log=False):
+    """1 本の系列の、窓つきの点数(一括。Online の答え合わせ用)。
+    smooth(w)(log なら log1p も)→ 点 p(step の倍数)ごとに x[p-back..p+fwd] の中央値を取り間を直線で補間 → 偏差 →
+    点 p ごとに直近 window 秒の偏差の MAD(robust_scale)を尺度にして [p, p+step) に使う → clip(0, CAP)。
+    値が確定するのは「次の点の中央値が取れる秒」まで(= 一括でも末尾の fwd + step 秒ほどは出さない)。-> [score](確定した秒の分だけ)"""
+    n = len(x)
+    h = max(0, int(w) // 2)
+    sm = [sum(x[max(0, i - h):i + h + 1]) / (min(n, i + h + 1) - max(0, i - h)) for i in range(n)]   # smooth と同じ値(Online と同じ足し方で、末尾の桁までそろえる)
+    if log:
+        sm = [math.log1p(v) for v in sm]
+    final_sm = n - h   # smooth は未来 h 秒が要る(末尾 h 個は一括では窓が縮むので、配信中と同じ「未確定」として捨てる)
+    med = {}
+    for p in range(0, final_sm, step):
+        if p + fwd < final_sm:
+            med[p] = excite.median(sm[max(0, p - back):p + fwd + 1])
+    out, dev, scale = [], [], {}
+    for i in range(final_sm):
+        p = (i // step) * step
+        q = p + step
+        if p not in med or q not in med:
+            break
+        base = med[p] + (med[q] - med[p]) * (i - p) / (q - p)
+        dev.append(sm[i] - base)
+        if p not in scale:
+            if i != p:
+                break   # 点 p の偏差が無い(来ない)
+            scale[p] = excite.robust_scale(dev[max(0, p - window + 1):p + 1], floor)
+        out.append(max(0.0, min(excite.CAP, dev[i] / scale[p])))
+    return out
+
 GOLDEN = os.path.join(HERE, "data", "excite_golden.json")
 SPEC = {"length": 45, "preRatio": 0.65, "sensitivity": "normal", "count": 8}
 STAMPS = [(100, 5), (250, 40, 0.5), (390, 0)]
@@ -114,7 +146,7 @@ class TestOnline(unittest.TestCase):
     def test_channel_equals_batch(self):
         full, band, act = synth(3, n=4200)
         for x, floor, w, log in ((full, excite.AUDIO_FLOOR, excite.AUDIO_PARTS[0][0], False), (act, excite.CHAT_FLOOR, excite.CHAT_SMOOTH, True)):
-            batch = excite.windowed_scores(x, floor, w, back=270, fwd=30, window=600, log=log)
+            batch = windowed_scores(x, floor, w, back=270, fwd=30, window=600, log=log)
             ch = excite._Channel(floor, w, 270, 30, 600, excite.STEP, log=log)
             got = []
             for v in x:
@@ -140,9 +172,9 @@ class TestOnline(unittest.TestCase):
         self.assertGreater(len(out), 2900)
         # 同じ値を一括で
         (w_full, wt_full), (w_band, wt_band) = excite.AUDIO_PARTS   # 式の数字は excite の 1 か所(値は golden が守る)
-        a = excite.windowed_scores(full, excite.AUDIO_FLOOR, w_full, back=270, fwd=30, window=600)
-        b = excite.windowed_scores(band, excite.AUDIO_FLOOR, w_band, back=270, fwd=30, window=600)
-        c = excite.windowed_scores(act, excite.CHAT_FLOOR, excite.CHAT_SMOOTH, back=270, fwd=30, window=600, log=True)
+        a = windowed_scores(full, excite.AUDIO_FLOOR, w_full, back=270, fwd=30, window=600)
+        b = windowed_scores(band, excite.AUDIO_FLOOR, w_band, back=270, fwd=30, window=600)
+        c = windowed_scores(act, excite.CHAT_FLOOR, excite.CHAT_SMOOTH, back=270, fwd=30, window=600, log=True)
         for t, total, parts in out:
             ref_a = wt_full * a[t] + wt_band * b[t]
             ref = (ref_a + c[t + 11]) * excite.ramp(t, 180)

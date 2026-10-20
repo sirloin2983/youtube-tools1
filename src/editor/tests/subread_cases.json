@@ -1,5 +1,5 @@
 {
-  "_comment": "読む速さの印の例(ed_retime.subread_mark と app-rows.js の readMark が同じ結果になること)。test_retime.py と test_document_save.cjs が読む。mark: null = 印なし / [fast, short]",
+  "_comment": "読む速さの印の例(app-rows.js の readMark の結果)。test_document_save.cjs が読む。mark: null = 印なし / [fast, short]",
   "chars": [
     ["こんにちは、世界！", 7],
     ["えー〜", 2],

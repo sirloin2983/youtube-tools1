@@ -23,6 +23,8 @@ import subprocess
 import sys
 import time
 
+from _common import read_utf8 as read_file, write_utf8 as write_file
+
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VERSION_REL = "src/ytt/version.py"
 README_REL = "README.txt"
@@ -88,16 +90,6 @@ def set_readme(text, new):
 def needs_bump(paths):
     """版を上げる理由になるか(テストだけの変更は入口にも zip にも載らない = 上げない)"""
     return any((p == README_REL or p.startswith(BUMP_PREFIXES)) and not TEST_PATH.search(p) for p in paths)
-
-
-def read_file(path):
-    with open(path, "rb") as f:
-        return f.read().decode("utf-8")
-
-
-def write_file(path, text):
-    with open(path, "wb") as f:
-        f.write(text.encode("utf-8"))
 
 
 def pid_alive(pid):

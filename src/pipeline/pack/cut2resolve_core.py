@@ -19,13 +19,12 @@ import re
 import shutil
 import stat
 import subprocess
-import sys
 import tempfile
 import unicodedata
 from fractions import Fraction
 from pathlib import Path
 
-from ytt import fsio, jobs as _jobs, tools as _tools
+from ytt import fsio, jobs as _jobs, loudness as _loud, tools as _tools
 from ytt import version as _version
 from . import srt2resolve as S
 
@@ -331,7 +330,6 @@ def detect_silence(video, fps, total, noise_db=DEFAULT_NOISE_DB, min_sec=DEFAULT
 
 # タイムコードの計算は srt2resolve と共通(FCPXML の開始タイムコードにも使うため、向こうに1か所だけ持つ)
 nominal_rate = S.nominal_rate
-safe_stdio = S.safe_stdio
 tc_to_frames = S.tc_to_frames
 frames_to_tc = S.frames_to_tc
 
@@ -355,11 +353,13 @@ def read_start_tc(video, meta=None):
     meta(srt2resolve.probe の結果)を渡すと、そこで読んだ値を使う(ffprobe をもう一度呼ばない。読み方は srt2resolve.start_tc_from の1か所)"""
     if meta is not None and "start_tc" in meta:
         return meta["start_tc"]
-    r = _ffmpeg_run([S.tool("ffprobe"), "-v", "error", "-print_format", "json", "-show_streams", "-show_format",
-                     S.arg_path(video)], 60)
     try:
-        info = json.loads(r.stdout or "{}")
-    except ValueError:
+        info = _tools.ffprobe_json(S.tool("ffprobe"), ["-show_streams", "-show_format", S.arg_path(video)])
+    except FileNotFoundError:
+        raise ToolError("ffprobe が見つかりません。ffmpeg をインストールして PATH に通してください。")
+    except subprocess.TimeoutExpired:
+        raise ToolError("ffprobe が 60 秒で終わりませんでした。動画ファイルを確認してください。")
+    except (subprocess.CalledProcessError, ValueError):
         return None
     return S.start_tc_from(S.timecode_tags(info))
 
@@ -611,20 +611,9 @@ def name_warnings(video):
     return []
 
 
-def loudness_mod():
-    """ytt/loudness.py(ラウドネスの決まりの1か所)。コマンドとして動かしたときは ytt を読める所に無いことがあるので、src を足して読む"""
-    try:
-        from ytt import loudness
-    except ImportError:
-        sys.path.append(str(Path(__file__).resolve().parents[2]))   # src/pipeline/pack の 2 つ上 = src
-        from ytt import loudness
-    return loudness
-
-
 def measure_loudness(video, spans_sec=None, task=None, duration=None):
     """(統合ラウドネス LUFS, トゥルーピーク dBTP)。spans_sec = 測る区間 [(開始秒, 終了秒)](残す区間だけ。None = 全体)。
     無音・測れないときは (None, None)。読み方・区間の選び方は ytt/loudness.py の1か所(スタジオの書き出しと共通)"""
-    _loud = loudness_mod()
     sel = _loud.select_filter(spans_sec)
     r = _ffmpeg_script((sel + "," if sel else "") + "loudnorm=print_format=json", ("-filter_script:a", "-/af"),
                        lambda opt, sp: [S.tool("ffmpeg"), "-nostdin", "-hide_banner", "-i", S.arg_path(video), "-vn", opt, sp, "-f", "null", "-"],
@@ -786,9 +775,6 @@ def num(v):
     return v if math.isfinite(v) else None
 
 
-is_network_path = fsio.is_network_path   # ytt/fsio の同じ関数を読む(ここに写しを持たない。下の呼び出しと test_pack の名前を残す)
-
-
 WORK_DIR = "作業用"   # 途中のファイルの下のフォルダ(ytt.schemas.WORK_DIR と同じ名前。コマンドは ytt を読まないのでここにも持つ。test_serve が確かめる)
 EDIT_MEDIA_SCHEMA = "clip-studio/edit-media/v1"
 EDIT_MEDIA_SUFFIX = ".edit.json"
@@ -802,7 +788,7 @@ def find_edit_media(video):
     素材は .edit.json と同じフォルダの中だけを見る(名前だけを使う。../ やネットワークのパスを指させない)。
     .edit.json は 作業用/ → 以前の置き方(動画の隣)の順に探す(途中のファイルは 作業用/)"""
     video = Path(video)
-    if is_network_path(str(video)):
+    if fsio.is_network_path(str(video)):
         return None
     cands = [video.parent / WORK_DIR / (video.stem + EDIT_MEDIA_SUFFIX)] if video.parent.name != WORK_DIR else []
     sidecar = next((c for c in cands + [video.with_name(video.stem + EDIT_MEDIA_SUFFIX)] if c.is_file()), None)

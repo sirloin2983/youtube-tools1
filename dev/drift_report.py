@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """資料どうし・資料とコードの食い違いをまとめて流し、1 枚の一覧(保管庫の plan/食い違いの一覧.md。自動)に出す。
 
-    python dev/drift_report.py [--no-write]    # 流して件数を出し、一覧を書く(--no-write は書かない)
+    python dev/drift_report.py    # 流して件数を出し、一覧を書く
 
 見る物:
   - 止める物 = dev/notes_tool.py check と同じ(リンク切れ・計画のデータ・資料の頭の状態 dev/doc_state.py)
@@ -162,17 +162,15 @@ def main(argv):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except (AttributeError, ValueError):
         pass
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--no-write", action="store_true")
-    a = ap.parse_args(argv)
+    argparse.ArgumentParser().parse_args(argv)
     root = layout.notes_root()
     if not os.path.isdir(root):
         print("資料のフォルダが無い: %s" % root)
         return 0
-    res = collect(root) if a.no_write else write_report(root)
+    res = write_report(root)
     print("止める物 %d 件・警告 %d 件(仕様とコード %d・行数 %d・同じ文 %d)%s" % (
         len(res["bad"]), len(res["spec"]) + len(res["caps"]) + len(res["dups"]), len(res["spec"]), len(res["caps"]),
-        len(res["dups"]), "" if a.no_write else " → " + REPORT))
+        len(res["dups"]), " → " + REPORT))
     return 1 if res["bad"] else 0
 
 

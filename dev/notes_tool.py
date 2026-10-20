@@ -25,6 +25,7 @@ import sys
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "src"))
 from ytt import layout  # noqa: E402
+from _common import read_utf8 as read, write_utf8 as write  # noqa: E402
 
 LINK = re.compile(r"(!?\[)([^\]\n]*)(\]\()(<[^>\n]+>|[^)\s]+)((?:\s+\"[^\"\n]*\")?\))")
 NOTE_REF = re.compile(r"notes:((?:docs|plan)/[A-Za-z0-9_\-][A-Za-z0-9_./\-]*)")
@@ -74,16 +75,6 @@ def rebuild_data(root):
     plan = os.path.join(root, "plan")
     if pd.has_split(plan):
         pd.build(plan)
-
-
-def read(p):
-    with open(p, "rb") as f:
-        return f.read().decode("utf-8")
-
-
-def write(p, text):
-    with open(p, "wb") as f:
-        f.write(text.encode("utf-8"))
 
 
 def md_files(root):
@@ -194,7 +185,7 @@ def data_js_problems(text, use_node=True):
     node = None
     if use_node:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        from run_editor_suite import find_node
+        from _common import find_node
         node = find_node()
     if not node:
         return _comma_gaps(text)

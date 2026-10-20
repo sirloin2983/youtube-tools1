@@ -5,7 +5,6 @@
 - 文書を付け替える書き込みは ④ の manage/cases/relink(_relink_write・_doc_busy。同じ層の中の呼び出し = 呼ぶたびに _relink.名前 で読む = S._relink_write = … が届く)
 - 評価用のフォルダの判定(eval_dirs・in_eval_dir)は ytt/settings、別のドライブへの移動 move_file は ytt/fsio(RS3-1)
 - 起動の 5 秒後に 1 回の整理(_evalorg_startup)は serve.prepare が裏のスレッドで呼ぶ
-名前は serve.py からも見える(serve.py の名前の受付 _ED_MODULES がこの部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `モジュール.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
 """
 import os

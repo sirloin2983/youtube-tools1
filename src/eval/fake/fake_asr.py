@@ -3,7 +3,7 @@
 実際の音声認識は行わず、決まった形の行を作る。認識の部品(pipeline/transcribe)は疑似を知らず、
 `pipeline/transcribe/backend.py` の差し込み口から FakeBackend(FAKE)を呼ぶ。どちらを使うかは app(編集の serve.py)が決める
 (`backend.set_selector`。ed_state.backend_name() が "fake" のとき FAKE)。
-`transcribe_fake`・`_fake_spans` は S.名前 でも読める(serve の受付がこのモジュールへ回す)。編集の ed_state.fake_sleep は fake_wait の別名。
+編集の ed_state.fake_sleep は fake_wait の別名。
 本体は呼ぶたびにこのモジュールの名前を読む(`mock.patch.object(fake_asr, "transcribe_fake", …)` が効く)。
 話者判別と声の特徴の疑似 diarize_fake・embed_fake も置く(S.diarize_fake・S.embed_fake は serve の受付で読める。
 認識ワーカーの worker-fake もこの 2 つを使う = 偽物どうしが食い違わない)。

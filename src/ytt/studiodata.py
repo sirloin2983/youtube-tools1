@@ -2,8 +2,8 @@
 
 編集の履歴の一覧の配信者・配信の題名(studio_videos)と、文字起こしの配信ごとの文脈(pipeline/transcribe/roster.stream_context の
 チャンネル名とコラボ相手 = studio_stream)が読む。置き場所は workdata.STUDIO_DATA(起動時に編集の serve が datadir の規則で入れる)を
-呼ぶたびに読む(テストの S.STUDIO_DATA = … が効く)。スタジオのデータは書き換えない。
-読む側は呼ぶたびに studiodata.名前 で読む(テストの S.studio_stream の差し替えは編集の serve の名前の受付がここへ届ける)。
+呼ぶたびに読む(テストの差し替えが効く)。スタジオのデータは書き換えない。
+読む側は呼ぶたびに studiodata.名前 で読む。
 """
 import json
 import logging

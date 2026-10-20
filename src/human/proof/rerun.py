@@ -9,8 +9,7 @@ doc_jobs は rebuild_whole を呼ぶときだけここを読む)。
 ① pipeline/transcribe は直に読まない: 音声の取り出し(extract_span)・認識器とワーカーのモデル(each_lines・recognize_range)・
 声の検出の知らせ(note_vad)・置換辞書の組(dict_pairs)・再認識の記録の共通項目(rerun_base)・
 単語の時刻 words.json の差し替え(replace_span_words)は ② の `flow/tx`(`_flowtx.名前`)。句読点・文字数・印の文は ytt/txtext、置換辞書の当て方は ytt/dictfmt。
-置き場所と元のファイルの検査は ytt の tools・ジョブの表は ② flow/jobs。S.名前 は serve の受付がここへ回す
-(テストの S.MAX_RERUNS = …・patch.object(S, "apply_range") もここに届く)。
+置き場所と元のファイルの検査は ytt の tools・ジョブの表は ② flow/jobs。
 """
 import time
 

@@ -64,7 +64,6 @@ import threading
 import time
 import urllib.parse
 import webbrowser
-from http.server import BaseHTTPRequestHandler
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # 別のフォルダから起動しても、隣の部品(ed_*.py)を読めるように
 
@@ -83,43 +82,27 @@ def _load_core():
 
 
 _load_core()
-from ytt import datadir as _datadir, httpsec, modfwd as _modfwd, runtime as _runtime  # noqa: E402
+from ytt import datadir as _datadir, httpsec, runtime as _runtime  # noqa: E402
 from flow import placement as _placement  # noqa: E402  (② 置き場所の持ち主。スタジオの data.json の場所 = studio_data_path。RS6 b-B0)
 from flow import jobs as _heavy_jobs  # noqa: E402
-from ytt import jobs as _slots_jobs  # noqa: E402  重い処理の枠・Cancelled・check_cancel(① の部品も使う物)
 from flow import board as _flowboard  # noqa: E402  ② のジョブの掲示板(RS8 の ② の口)
 from flow import normalize as _flownorm  # noqa: E402  ② 30fps にそろえる 1 つの段(ジョブ normalize の本体。OPT-M2 5b-1)
 from flow import wire as _flowwire  # noqa: E402  ② 文字起こしの配線(ジョブの種類の登録・ジョブの表の設定・本物と疑似の選び方・① の口。RS6 a-5b)
-from flow import tx as _flowtx  # noqa: E402  ② 文字起こしの動詞(RS6 a-3。_doc_fields・dict_pairs と alt_engine_version はここ)
-from pipeline.transcribe import clipjob as _txclipjob  # noqa: E402  ① 文字起こしのジョブの機械の文書の行(_rows_to_doc はここ)
-from ytt import txwords as _txwords  # noqa: E402  単語の時刻 words.json の読み書き(S.read_words・S.words_path はここ)
-from ytt import txtext as _txtext  # noqa: E402  文字起こしの文字の語彙(S.strip_punct・S.split_segment・S.SPARSE_FLAG・S.split_terms はここ)
 from ytt import version as _version  # noqa: E402
-from ytt import settings as _settings  # noqa: E402  (編集の設定の読み書きと鍵の検査・評価用のフォルダの判定 = S.load_settings・S.in_eval_dir はここへ届く)
-from ytt import studiodata as _studiodata, tools as _tools, workdata as _workdata  # noqa: E402  (スタジオの data.json の読み口・置き場所と版の今の値・動画と音声の小道具 = S.TX_DIR = …・S.find_ffmpeg = … はここへ届く)
+from ytt import settings as _settings  # noqa: E402  (編集の設定の読み書きと鍵の検査・評価用のフォルダの判定)
+from ytt import tools as _tools, workdata as _workdata  # noqa: E402  (置き場所と版の今の値・動画と音声の小道具)
 import ed_state, ed_media  # noqa: E402,F401  (分けた部品)
 from pipeline.pack import resolve_export  # noqa: E402  (Resolve パッケージ(zip)と受け渡しの JSON・SRT の組み立て)
 from ytt import errors as _errors  # noqa: E402
 import ed_thumb  # noqa: E402,F401  (サムネの案のジョブ。提案 P5)
 from eval.fake import fake_asr  # noqa: E402  (疑似の文字起こし。app だけが ④ を読んで差し込み口に登録する。RS2-2)
 from eval.fake import fake_worker  # noqa: E402  (認識ワーカーの中の疑似。ワーカーへはモジュールの名前だけを渡す = worker_client.FAKES_MODULE。RS2-9)
-from pipeline.transcribe import backend as _txbackend  # noqa: E402  (本物と疑似の差し込み口。RS2-2)
-from pipeline.transcribe import roster as _txroster, tx_engines as _txengines  # noqa: E402  (名簿の prompt_terms・エンジンの engine_of・engine_home。RS2-4a)
-from pipeline.transcribe import postproc as _txpost  # noqa: E402  (行の後処理と要確認の印。RS2-4b)
-from pipeline.transcribe import records as _txrecords  # noqa: E402  (認識の記録・辞書の版・生出力・単語の時刻。RS2-5)
 from pipeline.transcribe import models as _txmodels, worker_client as _txworker  # noqa: E402  (認識ワーカー・モデル・エンジンの確かめと wav の形。RS2-6)
-from pipeline.transcribe import recognize as _txrecognize  # noqa: E402  (音声の取り出し・認識・範囲の行・全体の再認識の続きから。RS2-7)
-from pipeline.transcribe import fill as _txfill, llm as _txllm, retime as _txretime  # noqa: E402  (認識のあとの後処理 A・B・C・D と LLM の後処理 E と、読む速さと時刻の候補の計算。RS2-9)
 from human.proof import doc_jobs as _docjobs  # noqa: E402  (文字起こしのジョブの本体・書く先・受付)
 from human.proof import rerun as _rerun  # noqa: E402  (再認識の本体・反映・記録。RS2-8c)
 from pipeline.transcribe import diarize as _txdiarize  # noqa: E402  (話者判別の計算・判別の記録・声の特徴と照らし合わせ。RS2-9)
-from flow import pack as _flowpack  # noqa: E402  (② パックの動詞。RS6 a-5a)
 from flow import machine as _machine  # noqa: E402  (② この PC の設定 machine.json。⚙ のデバイスはここへ書く・読む。RS7-1 S6b)
-from flow import keys as _flowkeys  # noqa: E402  (② 成果物の鍵。文書の削除で鍵のファイルも消す。RS6 b-K1)
-from flow import diar as _flowdiar  # noqa: E402  (② 判別と声の段取り・判別の記録を書く・覚えた声の置き場所 VOICES_DIR・load_voices ほか。RS6 a-4)
 from human.proof import speakers as _speakers  # noqa: E402  (判別の結果を文書へ・判別のジョブ・評価用の自動の判別・声を覚える・字幕の見た目)
-from ytt import dictfmt as _dictfmt  # noqa: E402  (置換辞書の読み方 parse_replacements・wb_split・_bounded。RS6 a-1 = S.parse_replacements・S._bounded はここへ届く)
-from pipeline.transcribe import replace as _txreplace  # noqa: E402  (置換辞書の読み方と当て方)
 from human.proof import learn as _learn  # noqa: E402  (人が直した内容からの学習・提案・採用と却下の記録・名簿)
 from eval.drill import metrics as _evmetrics  # noqa: E402  (認識精度の測定・noSub と重なりの数え方・評価用の基準の記録)
 from human.proof import alt as _alt  # noqa: E402  (2つ目のエンジンとの食い違いの候補。精度改善 第2版 D1-b)
@@ -135,34 +118,17 @@ from eval.drill import evalbatch as _evalbatch  # noqa: E402  (評価用の動�
 
 
 APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のため値は変えない。正は ytt.runtime.TOOL_APPS)
+ALLOWED_HOSTS = set()   # 取り込まれたときに許す Host(app/mount.py が入口のポートで入れる。prepare が ed_state へ渡す)
 SERVER_VERSION = _version.VERSION  # 全体の版(ytt/version.py の 1 か所。画面は入口が入れる meta ytt-version から読む。部品は ytt/workdata の SERVER_VERSION で読む)
 ed_state.APP_ID = APP_ID
 _workdata.SERVER_VERSION = SERVER_VERSION   # 部品が読む版(持ち主は ytt/workdata)
 
 
-# ---------- 分けた部品 ----------
-# serve.py の名前の受付: serve.py に無い名前は分けた部品から読み、S.名前 = … の差し替えはその名前を持つ部品へ転送する
-# (テスト・認識ワーカー・src/eval/tools/eval_asr.py・入口の取り込みは、今までどおり serve の名前で使える)
-_ED_MODULES = (_workdata, _tools, _studiodata, ed_state, _store, _doclist, _relink, _evfolders, ed_media, _heavy_jobs, _slots_jobs, fake_asr, _txroster, _txengines, _txpost, _txrecords, _txworker, _txmodels, _txrecognize, _docjobs, _rerun, _txdiarize, _speakers, _txreplace, _learn, _evmetrics, _handoff_io, _drill, _evalbatch, _alt)   # _workdata = ytt/workdata(置き場所と版の今の値。ed_state から移した。RS3-0A)・_tools = ytt/tools(動画と音声の小道具 find_ffmpeg・check_source・media_duration・probe_media ほか。ed_state から移した。RS3-0A)・_studiodata = ytt/studiodata(スタジオの data.json の読み口 studio_videos・studio_stream。RS3-0A)・_heavy_jobs = flow/jobs(ジョブの表。RS2-1b)・fake_asr = 疑似の文字起こし(RS2-2)・_txroster・_txengines = 名簿とエンジン(RS2-4a)・_txpost = 行の後処理(RS2-4b)・_txrecords = 認識の記録(RS2-5)・_txworker = 認識ワーカー(RS2-6)・_txrecognize = 認識(RS2-7)・_docjobs = 文書の側のジョブ(RS2-8b)・_rerun = 再認識の本体と反映(RS2-8c)。移した先は文書の側の部品より前。_txdiarize・_speakers = 話者判別の計算と文書の側(RS2-9。ed_speakers のあった所)・_txreplace・_learn・_evmetrics = 置換辞書・学習と提案・精度と基準(RS3-E5c)
-_ED_MODULES += (_txretime, _proofretime)   # 読む速さ・時刻の候補。計算は pipeline/transcribe/retime.py・文書を読む包みが human/proof/retime
-_ED_MODULES += (_txfill,)   # 認識のあとの後処理 A・B・C・D(pipeline/transcribe/fill.py)
-_ED_MODULES += (_txllm,)   # LLM の後処理 E(pipeline/transcribe/llm.py)
-_ED_MODULES += (ed_thumb,)   # サムネの案
-_ED_MODULES += (_settings,)   # 編集の設定の読み書き・鍵の検査(load_settings・patch_settings・SETTINGS_PATCH_KEYS ほか)と評価用のフォルダの判定(ytt/settings)
-_ED_MODULES += (_dictfmt,)   # 置換辞書の読み方(ytt。S.parse_replacements・S.wb_split・S._bounded の差し替えが届く)
-_ED_MODULES += (_flowdiar,)   # 判別と声の段取り(RS6 a-4。speakers の覚えた声の置き場所・diarize の _record_diar。S.VOICES_DIR = … はここへ届く)
-_ED_MODULES += (_txtext, _txclipjob, _flowtx)   # RS6 a-3: 文字の語彙(ytt/txtext)・① の機械の文書の行(clipjob)・② 文字起こしの動詞(flow/tx)
-_ED_MODULES += (_txwords,)   # RS6 a-5b: 単語の時刻の読み書き(S.read_words・S.words_path)
-_ED_MODULES += (_flowpack,)   # RS6 a-5a: ② パックの動詞(カットのたたき台の枠 DRAFT_SLOT_WAIT・_draft_slot を serve の名前として読めるように)
-# ↑ _store・_doclist = 文書の置き場と一覧
-# ↑ _relink・_evfolders = 付け替えと 30fps・評価用のフォルダの整理・_handoff_io = 受け渡し
-
-
 # ---------- 文字起こしの配線(RS6 a-5b。ジョブの種類の登録・ジョブの表の設定・本物と疑似の選び方・① の口の登録は ② flow/wire.install。表と待機列は flow/jobs) ----------
-# 種類ごとの優先度・同時に入れない組・やり直せるかは flow/wire の表が正。本体は lambda の中で呼ぶたびに読む(S.run_job = … などのテストの差し替えが効く)。
+# 種類ごとの優先度・同時に入れない組・やり直せるかは flow/wire の表が正。本体は lambda の中で呼ぶたびに読む(テストの差し替えが効く)。
 # ③ ⑤ の関数(doc_jobs・speakers・rerun・alt・relink・ed_thumb・疑似の本体)は ② が読めないので、ここから渡す。
 # 置き場所(ytt/workdata)・動画と音声の小道具(ytt/tools)・ワーカーと GPU とモデル名の検査(worker_client)・名簿のファイル(roster.ROSTER)・スタジオの配信の情報(ytt/studiodata)は、
-# 下の層の部品が持ち主を呼ぶたびに直に読む(S.TX_DIR = …・patch.object(S, "check_source") は名前の受付が持ち主へ届ける)
+# 下の層の部品が持ち主を呼ぶたびに直に読む(テストは持ち主のモジュールを差し替える)
 _flowwire.install(
     bodies={"transcribe": lambda job: _docjobs.run_job(job), "diarize": lambda job: _speakers.run_diarize(job), "voice-learn": lambda job: _speakers.run_voice_learn(job),
             "retranscribe": lambda job: _rerun.run_retranscribe(job),
@@ -170,7 +136,7 @@ _flowwire.install(
             "alt": lambda job: _alt.run_alt(job), "thumb": lambda job: ed_thumb.run_thumb(job)},
     tool=ed_state.TOOL_ID, log=ed_state.log, tmp_dir=lambda: _workdata.TMP_DIR, max_queue=lambda: ed_state.MAX_QUEUE,
     mark=lambda info: ed_state.write_mark(info), no_retry=lambda: _docjobs.NO_RETRY,
-    backend_name=lambda: ed_state.backend_name(), fake_backend=fake_asr.FAKE,   # 呼ぶたびに決める(テストの S.backend_name の差し替えが効く)。transcribe_fake などの名前は fake_asr へ転送
+    backend_name=lambda: ed_state.backend_name(), fake_backend=fake_asr.FAKE,   # 呼ぶたびに決める(テストの ed_state.backend_name の差し替えが効く)
     fake_worker_module=fake_worker.__name__,   # worker-fake(テスト)のときワーカーに読ませる疑似の部品の名前(RS2-9)
     dict_learned=lambda: _docjobs.dict_learned())   # 辞書の版の材料の学習の記録は文書の側(doc_jobs が learn を読む)から。呼ぶたびに読む
 _heavy_jobs.attach_board(_flowboard.default())   # ② のジョブの掲示板に頭 tx で見せる(引く形・取り消し・やり直し。表と /api/jobs はそのまま。RS8 の ② の口 S2)
@@ -180,10 +146,6 @@ _heavy_jobs.attach_board(_flowboard.default())   # ② のジョブの掲示板�
 # 例外: 学習データの読み手 doc_jobs.set_learning は機械の設定(learningDir)が要るので入口 app/server.py が入れる
 _speakers.set_context_namer(lambda tid: _drill.drill_candidates(tid).get("suggest"))
 _speakers.check_context_namer()
-
-
-_ed_owner = _modfwd.install(globals(), _ED_MODULES, "serve")   # serve.名前 で serve.py に無い名前を分けた部品から読み、
-# serve.名前 = …・del(テストの差し替え・mock.patch.object・入口の ALLOWED_HOSTS・ワーカーの IN_WORKER)はその名前を持つ部品へ。仕組みは ytt/modfwd.py
 
 
 # ---------- HTTP ----------
@@ -358,8 +320,9 @@ _BODY_ERRORS = {"type": ("bad_type", "Content-Type は application/json にし�
                 "object": ("bad_json", "JSON のオブジェクトを送ってください")}
 
 
-class Handler(BaseHTTPRequestHandler):
+class Handler(httpsec.LocalHandler):
     server_version = "TranscribeTool/0.1"
+    json_type = "application/json"
     timeout = 120   # 送ると言った長さより短い本文・読まれない応答で、処理のスレッドが永久に止まらないように(秒)
 
     def log_message(self, fmt, *args):
@@ -371,19 +334,8 @@ class Handler(BaseHTTPRequestHandler):
         self._responded = True
         super().send_response(code, message)
 
-    # 安全検査の規則は ytt.httpsec に1か所(スタジオ・文字起こし・入口で共通)
-    def _host_ok(self):
-        return httpsec.host_ok(self.headers, ed_state.ALLOWED_HOSTS)
-
-    def _origin_ok(self):
-        # 「http://」+ 許可したホスト と完全に一致するものだけ
-        return httpsec.origin_ok(self.headers, ed_state.ALLOWED_HOSTS)
-
-    def _fetch_site_ok(self):
-        return httpsec.fetch_site_ok(self.headers)
-
-    def _send(self, code, body=b"", ctype="text/plain; charset=utf-8", extra=None):
-        httpsec.send(self, code, body, ctype, extra)   # 見出し(no-store・nosniff)は ytt の 1 か所(スタジオ・入口と同じ)
+    def _allowed(self):   # 安全検査の規則は ytt.httpsec(スタジオ・文字起こし・入口で共通)
+        return ed_state.ALLOWED_HOSTS
 
     def _send_path(self, path, ctype, extra=None):
         with open(path, "rb") as f:
@@ -395,15 +347,8 @@ class Handler(BaseHTTPRequestHandler):
         with open(path, "rb") as f:
             shutil.copyfileobj(f, self.wfile, 65536)
 
-    def _json(self, code, obj):
-        self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"), "application/json")
-
     def _err(self, e):
         self._json(e.status, dict(e.extra, error=e.code, message=e.message))
-
-    def _fail(self, code, error, message):
-        """画面の api() が理由を表示できるよう、エラーも JSON で返す(素の文字列だと「エラー 403」としか出ない)。"""
-        self._json(code, {"error": error, "message": message})
 
     def _read_json(self):
         """書き込み系の要求の本文(JSON のオブジェクト)。だめなら理由を返して None(読み方は ytt.httpsec.read_json_body。
@@ -696,7 +641,9 @@ def prepare(port, base_path="/", hooks=False):
     main() と、入口の統合サーバー(app/mount.py)の両方から呼ぶ。戻り値は .runtime の記録のパス(書けなければ None)。
     シグナルの受け取りは main() だけで行う(統合サーバーでは入口が受け取る)。"""
     ed_state.PORT, ed_state.BASE_PATH = port, base_path
-    if not ed_state.ALLOWED_HOSTS:
+    if ALLOWED_HOSTS:
+        ed_state.ALLOWED_HOSTS = set(ALLOWED_HOSTS)
+    elif not ed_state.ALLOWED_HOSTS:
         ed_state.ALLOWED_HOSTS = httpsec.allowed_hosts(port)
     choose_data_dir()   # ログより先に(ログも置き場所の中に書く)
     _txmodels.setup_cuda_paths()

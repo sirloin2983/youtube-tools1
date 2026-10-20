@@ -5,7 +5,6 @@
 置換辞書の読み方と当て方は pipeline/transcribe/replace.py、認識精度の測定(CER)と評価用の基準の記録は eval/drill/metrics.py(metrics → learn の一方向 =
 ここは metrics を読まない。機械と人の行の対応づけ align_groups・prep_rows・split_nosub・row_text は ⑤ の metrics と測る道具もここから読む)。
 設定(settings.json)の読み書きは ytt/settings。文書の形の小道具は ytt/schemas・エラーは ytt/errors・書き込みは ytt/fsio。
-名前は serve の名前の受付(_ED_MODULES)からも読める(テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `alt.名前`・`store.名前`・`_flowtx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
 2つ目のエンジンの候補 alt は隣。文書の置き場は隣の store。
 """

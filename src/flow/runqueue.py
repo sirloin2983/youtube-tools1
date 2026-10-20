@@ -32,7 +32,6 @@ import os
 import threading
 import time
 import urllib.parse
-import uuid
 
 from ytt import colors as _colors, fsio, jobs as _yjobs, schemas as _schemas, tools as _ytools
 from . import board as _board, envelope as _envelope, learning as _learning, machine as _machine, placement as _placement, prio as _prio, run as run_mod, runlog, spec as _spec
@@ -655,9 +654,9 @@ class Queue(run_mod.Runner):
 
     def attach_board(self, board):
         """掲示板にこの待ち行列の実行を載せる(引く形・頭 run = 問い合わせのたびに board_jobs を読む)。取り消し・やり直しも掲示板の id で
-        (board_cancel・board_retry)。入口(src/app/server.py)が 1 回呼ぶ。器のジョブ(Run.owned)は親の下に畳む印を付ける"""
+        (board_cancel)。入口(src/app/server.py)が 1 回呼ぶ。器のジョブ(Run.owned)は親の下に畳む印を付ける"""
         self._board_ref = board
-        board.register(BOARD_PREFIX, source=self.board_jobs, cancel=self.board_cancel, retry=self.board_retry)
+        board.register(BOARD_PREFIX, source=self.board_jobs, cancel=self.board_cancel)
 
     def board_jobs(self):
         """掲示板の引く形: メモリの実行(入れた順)-> [Job]。実行が今待っている器のジョブ(Run.owned = 編集・スタジオの解析・パック)には親の印を付ける"""
@@ -681,21 +680,6 @@ class Queue(run_mod.Runner):
             if not any(r.id == run_id for r in self.runs):
                 raise LookupError("その実行はありません")
         self.cancel(run_id)
-
-    def board_retry(self, run_id):
-        """掲示板のやり直し: 失敗・中止した実行と同じ封筒(新しい id)+ 同じ束をもう一度 submit(済んだ段は鍵で飛ぶ)-> 新しい実行の Job。
-        無い id は LookupError・失敗・中止でない・同じ入力が待ち・実行中なら理由つきの ValueError"""
-        with self.cv:
-            run = next((r for r in self.runs if r.id == run_id), None)
-        if run is None:
-            raise LookupError("その実行はありません")
-        if run.state not in RETRY_STATES:
-            raise ValueError("やり直せるのは失敗・中止した実行だけです")
-        env = dict(run.envelope(), id=uuid.uuid4().hex[:10], createdAt=None)
-        pub = self.submit(env, run.spec)
-        with self.cv:
-            new = next(r for r in self.runs if r.id == pub["id"])
-            return board_job(new, self.closed)
 
     def _remember(self, rec):
         """past の元に入れる(呼ぶのは self._log_lock を持っている間か、__init__ の中)。

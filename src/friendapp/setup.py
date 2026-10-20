@@ -523,7 +523,6 @@ class Setup:
         self.rows = []              # 部品ごとの行 [{name, label, state, text}]
         self.prog = {"done": 0, "total": 0, "start": None, "first": None}
         self.percent = 0
-        self.later = False          # [あとで](起動ごと。次に開くとまた確認を出す)
         self.error = None           # fetch.json が壊れている(作る側の不具合。ログと画面に)
         self.lock = threading.Lock()
         self.thread = None
@@ -571,45 +570,6 @@ class Setup:
         if self.missing():
             return "処理の部品が足りません。上の帯の [取ってくる] から取ってください"
         return None
-
-    def inbox_view(self):
-        """受信箱の上の帯用: {active, missing: [{name, label, size}], count, total, places, canStart, reason, running, progress, result, later, error}"""
-        miss = self.missing()
-        sp = space(miss, self.data_root, self.home, self.disk_usage) if miss else []
-        short = [s for s in sp if not s["ok"]]
-        reason = ""
-        if short:
-            s = short[0]
-            reason = "%s の空きが足りません(空き %s・要る %s)。空きを増やしてから始めてください" % (s["path"], gb(s["free"]), gb(s["need"]))
-        running = self.running()
-        return {"active": True, "count": len(miss), "total": sum(expect(i) for i in miss),
-                "missing": [{"name": i["name"], "label": label(i["name"]), "size": expect(i)} for i in miss],
-                "places": [{"path": s["path"], "need": s["need"], "free": s["free"], "ok": s["ok"]} for s in sp],
-                "canStart": bool(miss) and not short and not running, "reason": reason, "running": running,
-                "progress": dict(self.progress) if running and self.progress else None, "result": self.result, "later": self.later,
-                "error": self.error}
-
-    # ---- 操作
-    def start_fetch(self, only=None):
-        """足りない物を裏の糸で取り始める(準備の流れ start を通さず取るだけ。テストが取る段だけを試す口)(only = 名前の組 = その物だけ)。始められなければ ValueError(理由)"""
-        with self.lock:
-            if self.running():
-                raise ValueError("もう取っています")
-            miss = self.missing(only)
-            if not miss:
-                raise ValueError("足りない部品はありません")
-            short = [s for s in space(miss, self.data_root, self.home, self.disk_usage) if not s["ok"]]
-            if short:
-                raise ValueError("%s の空きが足りません(空き %s・要る %s)" % (short[0]["path"], gb(short[0]["free"]), gb(short[0]["need"])))
-            self.cancel_ev.clear()
-            self.later = False
-            self.result = None
-            self.cuda_job = False
-            self.progress = {"index": 0, "count": len(miss), "name": "", "label": "", "phase": "始めています", "itemDone": 0,
-                             "itemTotal": 0, "done": 0, "total": sum(expect(i) for i in miss)}
-            self.thread = threading.Thread(target=self._job, args=(miss,), name="friend-setup", daemon=True)
-            self.thread.start()
-        return self.view()
 
     # ---- ⚙ のエンジン C の部品(10 章の 8: 取り終えるまで C は選べない・横に理由と [取る])
     def cuda_ready(self):
@@ -662,12 +622,6 @@ class Setup:
 
     def cancel(self):
         self.cancel_ev.set()
-
-    def defer(self):
-        self.later = True
-
-    def reopen(self):
-        self.later = False
 
     def wait(self, timeout=None):
         for t in (self.thread, self.flow_thread):

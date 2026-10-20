@@ -22,7 +22,7 @@
   - 1 本ずつの作り直し(ユーザー要望):`POST api/eval-batch/redo-one {id, baseUpdatedAt}`(eval_batch_redo_one)。
     開いている評価用の動画だけを、見回りを通さずすぐ待機列へ。人が手を入れた文書も作り直す(人の層 = 直しは残る。X-RERUN)
 
-名前は serve.py からも見える(serve.py が部品の名前を集めるので、**ほかの部品と重ならないよう eb_ / EB_ / eval_batch_ を付ける**)。
+名前は eb_ / EB_ / eval_batch_ を付ける(編集の部品と重ならないように)。
 ほかの部品は `_store.名前` などモジュールの属性として呼ぶたびに読む。編集(app)の部品は読まない: 文字起こしのジョブ(human/proof/doc_jobs の run_job)が
 見回りの裏のスレッド eb_start_background は serve が起動する(② は ④ を読まない)。
 """

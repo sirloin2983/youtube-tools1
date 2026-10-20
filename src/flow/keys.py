@@ -159,7 +159,7 @@ def _file_sha(path):
         if ck not in _digests:
             if len(_digests) > 200:
                 _digests.clear()
-            _digests[ck] = _schemas.file_digest(path)
+            _digests[ck] = _fsio.sha256_file(path)
         return _digests[ck]
     except OSError:
         return None

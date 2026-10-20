@@ -21,7 +21,18 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from test_backend import HERE, S, TID, StoreDir, start_server, write_json  # noqa: F401  (S = serve)
+from test_backend import HERE, TID, StoreDir, start_server, write_json  # noqa: F401  (S = serve)
+import ed_state  # noqa: E402
+from flow import jobs as _jobs  # noqa: E402
+from human.proof import doc_jobs as _doc_jobs  # noqa: E402
+from human.proof import rerun as _rerun  # noqa: E402
+from human.proof import store as _store  # noqa: E402
+from manage.cases import doclist as _doclist  # noqa: E402
+from manage.cases import relink as _relink  # noqa: E402
+from manage.keep import evalfolders as _evalfolders  # noqa: E402
+from ytt import settings as _settings  # noqa: E402
+from ytt import tools as _tools  # noqa: E402
+from ytt import workdata as _workdata  # noqa: E402
 from ytt import docloc, testkit  # noqa: E402
 
 
@@ -66,23 +77,23 @@ class TestEditStore(StoreDir):
         self.put_doc(doc_obj())
 
     def doc(self):
-        with open(S.tx_path(TID), encoding="utf-8") as f:
+        with open(_store.tx_path(TID), encoding="utf-8") as f:
             return json.load(f)
 
     def cut_ids(self, doc=None):
         return [s["id"] for s in (doc or self.doc())["segments"] if s.get("cutState") == "cut"]
 
     def test_sanitize_rules(self):
-        e = S.sanitize_edit(dict(edit_obj(clips=((0.30001, 5.6), (8.6, 12.0))), extra="捨てる", rev=99, packRev=5))
+        e = _store.sanitize_edit(dict(edit_obj(clips=((0.30001, 5.6), (8.6, 12.0))), extra="捨てる", rev=99, packRev=5))
         self.assertEqual(e, {"sources": [{"fps": [30, 1], "duration": 12.0}], "clips": [{"src": 0, "in": 0.3, "out": 5.6}, {"src": 0, "in": 8.6, "out": 12.0}],
                              "origin": "manual"})                                               # 知らない項目・rev は捨てる
-        self.assertEqual(S.sanitize_edit(edit_obj(clips=()))["clips"], [])                      # 全部削った状態も保存できる
-        self.assertEqual(S.sanitize_edit(edit_obj(clips=((0, 12.03),)))["clips"][0]["out"], 12.03)   # 長さ + 1フレームまで
-        self.assertEqual(S.sanitize_edit(edit_obj(origin="rows"))["origin"], "rows")
-        self.assertEqual(S.sanitize_edit(edit_obj(origin="<b>"))["origin"], "manual")
-        self.assertIs(S.sanitize_edit(dict(edit_obj(), draftUntouched=True))["draftUntouched"], True)   # 手つかずの印は通す(OPT-E1 8a-1)
-        self.assertNotIn("draftUntouched", S.sanitize_edit(dict(edit_obj(), draftUntouched="yes")))     # true 以外は捨てる
-        self.assertNotIn("draftUntouched", S.sanitize_edit(edit_obj()))
+        self.assertEqual(_store.sanitize_edit(edit_obj(clips=()))["clips"], [])                      # 全部削った状態も保存できる
+        self.assertEqual(_store.sanitize_edit(edit_obj(clips=((0, 12.03),)))["clips"][0]["out"], 12.03)   # 長さ + 1フレームまで
+        self.assertEqual(_store.sanitize_edit(edit_obj(origin="rows"))["origin"], "rows")
+        self.assertEqual(_store.sanitize_edit(edit_obj(origin="<b>"))["origin"], "manual")
+        self.assertIs(_store.sanitize_edit(dict(edit_obj(), draftUntouched=True))["draftUntouched"], True)   # 手つかずの印は通す(OPT-E1 8a-1)
+        self.assertNotIn("draftUntouched", _store.sanitize_edit(dict(edit_obj(), draftUntouched="yes")))     # true 以外は捨てる
+        self.assertNotIn("draftUntouched", _store.sanitize_edit(edit_obj()))
         bad = [
             None, [], {"clips": []},
             edit_obj(fps=(0, 1)), edit_obj(fps=(30,)), edit_obj(fps=(True, 1)), edit_obj(fps=(30.0, 1)), edit_obj(fps=(1000, 1)),
@@ -101,131 +112,131 @@ class TestEditStore(StoreDir):
         ]
         for b in bad:
             with self.subTest(b=str(b)[:80]):
-                with self.assertRaises(S.ApiError) as cm:
-                    S.sanitize_edit(b)
+                with self.assertRaises(ed_state.ApiError) as cm:
+                    _store.sanitize_edit(b)
                 self.assertEqual(cm.exception.code, "bad_edit")
 
     def test_doc_diar_num(self):
         """文書ごとの話者判別の人数 diarNum(段7 E-6。POST /api/doc-diarnum): 0〜8 の整数だけ・文書の updatedAt は変えない・画面の保存(PUT)では残る"""
         at = self.doc()["updatedAt"]
-        self.assertEqual(S.set_diar_num({"id": TID, "diarNum": 3}), {"diarNum": 3})
+        self.assertEqual(_store.set_diar_num({"id": TID, "diarNum": 3}), {"diarNum": 3})
         d = self.doc()
         self.assertEqual((d["diarNum"], d["updatedAt"]), (3, at))                                   # 人数を選んだだけで保存の競合・作り直しを起こさない
-        self.assertEqual(S.set_diar_num({"id": TID, "diarNum": 0})["diarNum"], 0)                   # 0 = 自動
-        S.save_transcript(TID, {"title": "t", "speakers": [], "segments": d["segments"], "baseUpdatedAt": at})
+        self.assertEqual(_store.set_diar_num({"id": TID, "diarNum": 0})["diarNum"], 0)                   # 0 = 自動
+        _store.save_transcript(TID, {"title": "t", "speakers": [], "segments": d["segments"], "baseUpdatedAt": at})
         self.assertEqual(self.doc()["diarNum"], 0)                                                   # 画面の保存(diarNum を送らない)では消えない
         for bad in (9, -1, 2.5, "3", True, None):
             with self.subTest(bad=bad):
-                with self.assertRaises(S.ApiError):
-                    S.set_diar_num({"id": TID, "diarNum": bad})
-        with self.assertRaises(S.ApiError):
-            S.set_diar_num({"id": "../x", "diarNum": 2})
+                with self.assertRaises(ed_state.ApiError):
+                    _store.set_diar_num({"id": TID, "diarNum": bad})
+        with self.assertRaises(ed_state.ApiError):
+            _store.set_diar_num({"id": "../x", "diarNum": 2})
 
     def test_save_rev_conflict_and_cut_rows(self):
-        self.assertEqual(S.get_edit(TID), {"edit": None, "rev": 0, "broken": False, "packStale": False})
-        r = S.save_edit(TID, {"edit": edit_obj(), "baseRev": 0})
+        self.assertEqual(_store.get_edit(TID), {"edit": None, "rev": 0, "broken": False, "packStale": False})
+        r = _store.save_edit(TID, {"edit": edit_obj(), "baseRev": 0})
         self.assertEqual((r["rev"], r["cutRows"]), (1, ["s3"]))                                   # 6.0–8.3 は削る区間 5.6–8.6 の中
         d = self.doc()
         self.assertEqual((self.cut_ids(d), d["updatedAt"]), (["s3"], 1000))                       # 文書の updatedAt は変えない(校正の保存を 409 にしない)
-        g = S.get_edit(TID)
+        g = _store.get_edit(TID)
         self.assertEqual((g["rev"], g["edit"]["schema"], g["edit"]["clips"][1], g["edit"]["packRev"]),
                          (1, "youtube-tools-edit/v1", {"src": 0, "in": 8.6, "out": 11.2}, 0))
-        with self.assertRaises(S.ApiError) as cm:                                                 # 別のタブが古い rev で保存 → 409 と今の rev
-            S.save_edit(TID, {"edit": edit_obj(clips=((0, 12),)), "baseRev": 0})
+        with self.assertRaises(ed_state.ApiError) as cm:                                                 # 別のタブが古い rev で保存 → 409 と今の rev
+            _store.save_edit(TID, {"edit": edit_obj(clips=((0, 12),)), "baseRev": 0})
         self.assertEqual((cm.exception.status, cm.exception.code, cm.exception.extra), (409, "conflict", {"rev": 1}))
         self.assertEqual(self.cut_ids(), ["s3"])
-        r = S.save_edit(TID, {"edit": edit_obj(clips=((0, 12),)), "baseRev": 1})                # 「こちらで上書き」= 今の rev で送り直す
+        r = _store.save_edit(TID, {"edit": edit_obj(clips=((0, 12),)), "baseRev": 1})                # 「こちらで上書き」= 今の rev で送り直す
         self.assertEqual((r["rev"], r["cutRows"], self.cut_ids()), (2, [], []))
         for body in ({"edit": edit_obj()}, {"edit": edit_obj(), "baseRev": "2"}, {"edit": edit_obj(), "baseRev": True}):
-            with self.assertRaises(S.ApiError) as cm:
-                S.save_edit(TID, body)
+            with self.assertRaises(ed_state.ApiError) as cm:
+                _store.save_edit(TID, body)
             self.assertEqual(cm.exception.code, "bad_request")
-        with self.assertRaises(S.ApiError) as cm:
-            S.save_edit("../../x", {"edit": edit_obj(), "baseRev": 2})
+        with self.assertRaises(ed_state.ApiError) as cm:
+            _store.save_edit("../../x", {"edit": edit_obj(), "baseRev": 2})
         self.assertEqual(cm.exception.status, 404)
         self.assertFalse(os.path.exists(os.path.join(self.tmp, "x.edit.json")))
 
     def test_doc_save_and_other_writers_follow_edit(self):
         """編集の内容があれば、行の cutState はどの書き込みでも編集の内容から決まる(画面の古い印・再認識・履歴から戻すで食い違わない)"""
-        S.save_edit(TID, {"edit": edit_obj(), "baseRev": 0})
+        _store.save_edit(TID, {"edit": edit_obj(), "baseRev": 0})
         d = self.doc()
         d["segments"][0]["cutState"] = "cut"                  # 古い画面が、編集と違う印で保存しても
         d["segments"][2].pop("cutState")
         d["segments"][1]["text"] = "待って待って"
-        S.save_transcript(TID, dict(d, baseUpdatedAt=d["updatedAt"]))
+        _store.save_transcript(TID, dict(d, baseUpdatedAt=d["updatedAt"]))
         d = self.doc()
         self.assertEqual((self.cut_ids(d), d["segments"][1]["text"]), (["s3"], "待って待って"))   # 文字は保存・印は編集の内容のまま
         # 範囲の再認識で行が入れ替わっても、新しい行の印は時刻から付く
-        S.apply_range({"tid": TID, "range": [5.9, 8.5], "ids": ["s3"], "model": "small", "autoDict": False},
+        _rerun.apply_range({"tid": TID, "range": [5.9, 8.5], "ids": ["s3"], "model": "small", "autoDict": False},
                       [{"start": 6.1, "end": 8.2, "raw": "新しい行", "flag": ""}])
         d = self.doc()
         new = next(s for s in d["segments"] if s["start"] < 8.2 and s["end"] > 6.1)   # 新しい機械の行か、そこを覆う人の行(X-RERUN)
         self.assertEqual(new.get("cutState"), "cut")
         # 履歴から戻しても、カットは今の編集の内容のまま
-        S.hist_snapshot(TID, force=True)
-        ts = S.hist_stamps(TID)[-1]
-        S.save_edit(TID, {"edit": edit_obj(clips=((0, 12),)), "baseRev": 1})
-        S.restore_history(TID, ts)
+        _store.hist_snapshot(TID, force=True)
+        ts = _store.hist_stamps(TID)[-1]
+        _store.save_edit(TID, {"edit": edit_obj(clips=((0, 12),)), "baseRev": 1})
+        _store.restore_history(TID, ts)
         self.assertEqual(self.cut_ids(), [])
 
     def test_without_edit_rows_keep_their_own_cut_state(self):
         """編集の内容が無い文書は、画面から来た cutState をそのまま保存する"""
         d = self.doc()
         d["segments"][1]["cutState"] = "cut"
-        S.save_transcript(TID, d)
+        _store.save_transcript(TID, d)
         self.assertEqual(self.cut_ids(), ["s2"])
 
     def test_cut_flags_frame_rounding_and_short_rows(self):
         fps = [30000, 1001]
         fr = lambda n: round(n * 1001 / 30000, 3)   # noqa: E731  フレームの境目の秒
-        e = S.sanitize_edit(edit_obj(clips=((0, fr(168)), (fr(258), fr(359))), fps=fps))   # 5.6056 / 8.6086(行の端 5.60・8.60 に一番近いフレーム)
+        e = _store.sanitize_edit(edit_obj(clips=((0, fr(168)), (fr(258), fr(359))), fps=fps))   # 5.6056 / 8.6086(行の端 5.60・8.60 に一番近いフレーム)
         segs = [{"start": 5.60, "end": 8.60}, {"start": 5.00, "end": 5.60}, {"start": 8.61, "end": 9.0},
                 {"start": 7.0, "end": 7.01}, {"start": 1.0, "end": 1.0}, {"start": 5.58, "end": 5.64}]
-        self.assertEqual(S.edit_cut_flags(segs, e), [True, False, False, True, False, False])
+        self.assertEqual(_store.edit_cut_flags(segs, e), [True, False, False, True, False, False])
         # 1フレームより多く残っていれば残す行
-        e2 = S.sanitize_edit(edit_obj(clips=((0, 5.7),)))
-        self.assertEqual(S.edit_cut_flags([{"start": 5.6, "end": 8.0}], e2), [False])
-        e3 = S.sanitize_edit(edit_obj(clips=((0, 5.6166),)))                            # 0.0166 秒 = 30fps の半フレーム → カット済
-        self.assertEqual(S.edit_cut_flags([{"start": 5.6, "end": 8.0}], e3), [True])
-        self.assertEqual(S.edit_cut_flags([{"start": 0, "end": 1}], S.sanitize_edit(edit_obj(clips=()))), [True])   # 全部削った
+        e2 = _store.sanitize_edit(edit_obj(clips=((0, 5.7),)))
+        self.assertEqual(_store.edit_cut_flags([{"start": 5.6, "end": 8.0}], e2), [False])
+        e3 = _store.sanitize_edit(edit_obj(clips=((0, 5.6166),)))                            # 0.0166 秒 = 30fps の半フレーム → カット済
+        self.assertEqual(_store.edit_cut_flags([{"start": 5.6, "end": 8.0}], e3), [True])
+        self.assertEqual(_store.edit_cut_flags([{"start": 0, "end": 1}], _store.sanitize_edit(edit_obj(clips=()))), [True])   # 全部削った
         # 字幕に出さない行(noSub)も「残す」の判定は同じ(映像は削られない。cut.js の rowCutFlags も印を見ない)
-        self.assertEqual(S.edit_cut_flags([dict(g, noSub=True, speaker="other") for g in segs], e), [True, False, False, True, False, False])
+        self.assertEqual(_store.edit_cut_flags([dict(g, noSub=True, speaker="other") for g in segs], e), [True, False, False, True, False, False])
 
     @unittest.skipUnless(sys.platform == "win32", "Windows のパス(円記号の区切り・ドライブ名 C:)が前提(段1: Windows 以外では飛ばす)")
     def test_record_pack_and_stale(self):
-        with self.assertRaises(S.ApiError) as cm:
-            S.record_pack({"id": TID, "rev": 1, "docUpdatedAt": 1000, "dir": os.path.join(self.tmp, "p")})
+        with self.assertRaises(ed_state.ApiError) as cm:
+            _store.record_pack({"id": TID, "rev": 1, "docUpdatedAt": 1000, "dir": os.path.join(self.tmp, "p")})
         self.assertEqual(cm.exception.code, "no_edit")
-        S.save_edit(TID, {"edit": edit_obj(), "baseRev": 0})
+        _store.save_edit(TID, {"edit": edit_obj(), "baseRev": 0})
         out = os.path.join(self.tmp, "clip_pack")
-        r = S.record_pack({"id": TID, "rev": 1, "docUpdatedAt": 1000, "dir": out, "files": ["clip.edl", "..\\..\\x.txt", 3]})
+        r = _store.record_pack({"id": TID, "rev": 1, "docUpdatedAt": 1000, "dir": out, "files": ["clip.edl", "..\\..\\x.txt", 3]})
         self.assertEqual(r["packRev"], 1)
-        g = S.get_edit(TID)
+        g = _store.get_edit(TID)
         self.assertEqual((g["rev"], g["edit"]["packRev"], g["edit"]["pack"]["dir"], g["edit"]["pack"]["files"], g["packStale"]),
                          (1, 1, out, ["clip.edl", "x.txt"], False))                     # rev は増やさない・ファイルは名前だけ
-        item = next(i for i in S.list_transcripts() if i["id"] == TID)
+        item = next(i for i in _doclist.list_transcripts() if i["id"] == TID)
         self.assertEqual((item["hasEdit"], item["editRev"], item["packRev"], item["packStale"]), (True, 1, 1, False))
         self.assertNotIn("_packDocAt", item)
-        S.save_edit(TID, {"edit": edit_obj(clips=((0, 12),)), "baseRev": 1})             # カットが変わった → 作り直し
-        self.assertTrue(S.get_edit(TID)["packStale"])
-        self.assertEqual(S.get_edit(TID)["edit"]["pack"]["rev"], 1)                        # 前回のパックの記録は残る
-        S.record_pack({"id": TID, "rev": 2, "docUpdatedAt": 1000, "dir": out})
-        self.assertFalse(S.get_edit(TID)["packStale"])
+        _store.save_edit(TID, {"edit": edit_obj(clips=((0, 12),)), "baseRev": 1})             # カットが変わった → 作り直し
+        self.assertTrue(_store.get_edit(TID)["packStale"])
+        self.assertEqual(_store.get_edit(TID)["edit"]["pack"]["rev"], 1)                        # 前回のパックの記録は残る
+        _store.record_pack({"id": TID, "rev": 2, "docUpdatedAt": 1000, "dir": out})
+        self.assertFalse(_store.get_edit(TID)["packStale"])
         d = self.doc()
-        S.save_transcript(TID, dict(d, baseUpdatedAt=d["updatedAt"]))                     # 文字が変わった(文書が新しい)→ 作り直し
-        self.assertTrue(S.get_edit(TID)["packStale"])
-        item = next(i for i in S.list_transcripts() if i["id"] == TID)
+        _store.save_transcript(TID, dict(d, baseUpdatedAt=d["updatedAt"]))                     # 文字が変わった(文書が新しい)→ 作り直し
+        self.assertTrue(_store.get_edit(TID)["packStale"])
+        item = next(i for i in _doclist.list_transcripts() if i["id"] == TID)
         self.assertTrue(item["packStale"])
         for bad in ({"rev": 9, "docUpdatedAt": 1, "dir": out}, {"rev": 0, "docUpdatedAt": 1, "dir": out}, {"rev": 1, "docUpdatedAt": 1, "dir": "rel\\p"},
                     {"rev": 1, "docUpdatedAt": 1, "dir": out + "\n"}, {"rev": 1, "docUpdatedAt": -1, "dir": out}, {"rev": True, "docUpdatedAt": 1, "dir": out}):
-            with self.assertRaises(S.ApiError) as cm:
-                S.record_pack(dict(bad, id=TID))
+            with self.assertRaises(ed_state.ApiError) as cm:
+                _store.record_pack(dict(bad, id=TID))
             self.assertEqual(cm.exception.status, 400, bad)
 
     @unittest.skipUnless(sys.platform == "win32", "Windows のパス(円記号の区切り・ドライブ名 C:)が前提(段1: Windows 以外では飛ばす)")
     def test_record_pack_output(self):
         """4-3: パックを作ったときの出力の設定(output)。決まった鍵だけ・型と長さを確かめる。壊れていれば output なしで記録する(エラーにしない)"""
-        S.save_edit(TID, {"edit": edit_obj(), "baseRev": 0})
+        _store.save_edit(TID, {"edit": edit_obj(), "baseRev": 0})
         out = os.path.join(self.tmp, "clip_pack")
         full = {"fps": "30", "size": "1080x1920", "wrap": 8, "textplus": True, "render": False, "speakerColors": True,
                 "streamer": "さくらみこ", "loudness": -14, "volume": 100,
@@ -236,8 +247,8 @@ class TestEditStore(StoreDir):
             if output is not KEEP_OFF:
                 body["output"] = output
             body.update(kw)
-            self.assertEqual(S.record_pack(body)["packRev"], 1)
-            return S.get_edit(TID)["edit"]["pack"]
+            self.assertEqual(_store.record_pack(body)["packRev"], 1)
+            return _store.get_edit(TID)["edit"]["pack"]
         KEEP_OFF = object()
         self.assertEqual(rec(full).get("output"), full)                                     # 全部の鍵が入る
         p = rec(dict(full, junk=1, advanced=dict(full["advanced"], other="x")))
@@ -250,7 +261,7 @@ class TestEditStore(StoreDir):
                          dict(mini, loudness=0, volume=200, streamer="", advanced={}))
         # output が無い・壊れている → 記録はできて output は入らない
         self.assertNotIn("output", rec(KEEP_OFF))                                           # 古い画面・まとめて実行(app/autorun.py)
-        self.assertEqual(S.get_edit(TID)["packStale"], False)
+        self.assertEqual(_store.get_edit(TID)["packStale"], False)
         for bad in (None, "x", [], 3, dict(full, fps=30), dict(full, fps="1000"), dict(full, fps="3a"), dict(full, fps="3\n"), dict(full, size="abc"),
                     dict(full, size="1080x1080"), dict(full, wrap=41), dict(full, wrap=-1), dict(full, wrap="8"), dict(full, wrap=True), dict(full, wrap=8.5),
                     dict(full, textplus=None), dict(full, render=0), dict(full, speakerColors="true"),
@@ -261,48 +272,48 @@ class TestEditStore(StoreDir):
                     {k: v for k, v in full.items() if k != "fps"}):
             self.assertNotIn("output", rec(bad), bad)
         self.assertEqual(rec(dict(full, streamer="あ" * 200))["output"]["streamer"], "あ" * 200)   # 上限ちょうどは通る
-        self.assertEqual(S.get_edit(TID)["edit"]["pack"]["files"], [])
+        self.assertEqual(_store.get_edit(TID)["edit"]["pack"]["files"], [])
         # packStale・一覧は output に依らない
         rec(full)
-        item = next(i for i in S.list_transcripts() if i["id"] == TID)
+        item = next(i for i in _doclist.list_transcripts() if i["id"] == TID)
         self.assertEqual((item["packRev"], item["packStale"]), (1, False))
 
     def test_broken_edit_file(self):
-        with open(S.edit_path(TID), "w", encoding="utf-8") as f:
+        with open(_store.edit_path(TID), "w", encoding="utf-8") as f:
             f.write('{"schema": "youtube-tools-edit/v1", "rev": 3, "clips": [')
-        g = S.get_edit(TID)
+        g = _store.get_edit(TID)
         self.assertEqual((g["edit"], g["rev"], g["broken"]), (None, 0, True))
         d = self.doc()
         d["segments"][0]["cutState"] = "cut"
-        S.save_transcript(TID, d)
+        _store.save_transcript(TID, d)
         self.assertEqual(self.cut_ids(), ["s1"])                                           # 壊れた編集の内容では行の印を変えない
-        self.assertEqual(S.save_edit(TID, {"edit": edit_obj(), "baseRev": 0})["rev"], 1)   # 読み直して保存し直せる
+        self.assertEqual(_store.save_edit(TID, {"edit": edit_obj(), "baseRev": 0})["rev"], 1)   # 読み直して保存し直せる
         self.assertTrue(os.path.isfile(os.path.join(self.tmp, TID + ".edit.broken.json")))  # 壊れたものは1つ残す
-        with open(S.edit_path(TID), "w", encoding="utf-8") as f:                           # 形は JSON でも中身が正しくない(手で書き換えた)
+        with open(_store.edit_path(TID), "w", encoding="utf-8") as f:                           # 形は JSON でも中身が正しくない(手で書き換えた)
             json.dump({"schema": "youtube-tools-edit/v1", "rev": 3, "sources": [{"fps": [30, 1], "duration": 12}], "clips": [{"in": 5, "out": 1}]}, f)
-        self.assertTrue(S.get_edit(TID)["broken"])
+        self.assertTrue(_store.get_edit(TID)["broken"])
 
     def test_edit_file_is_not_a_document(self):
-        S.save_edit(TID, {"edit": edit_obj(), "baseRev": 0})
-        self.assertEqual(S._tids(), [TID])
+        _store.save_edit(TID, {"edit": edit_obj(), "baseRev": 0})
+        self.assertEqual(_store._tids(), [TID])
         from manage.cases import txindex
         self.assertEqual([d["id"] for d in txindex.load(self.tmp)], [TID])                 # 入口の案件・スタジオのセリフも文書だけを読む
 
     @unittest.skipUnless(sys.platform == "win32", "Windows のパス(円記号の区切り・ドライブ名 C:)が前提(段1: Windows 以外では飛ばす)")
     def test_fill_doc_into_empty_document(self):
         self.put_doc(doc_obj(segments=[], title="動画だけ", createdAt=5))
-        S.save_edit(TID, {"edit": edit_obj(), "baseRev": 0})                               # 文字起こしの前にカットを決めてあった
+        _store.save_edit(TID, {"edit": edit_obj(), "baseRev": 0})                               # 文字起こしの前にカットを決めてあった
         segs = [{"id": "s1", "start": 1.0, "end": 2.0, "text": "a"}, {"id": "s2", "start": 6.5, "end": 7.5, "text": "b"}]
         spec = {"intoDoc": TID, "sourcePath": "C:\\x\\clip.mp4", "clip": None, "warnings": []}
-        self.assertEqual(S.fill_doc(spec, {"segments": segs, "original": [], "model": "small", "updatedAt": 2000}), TID)
+        self.assertEqual(_store.fill_doc(spec, {"segments": segs, "original": [], "model": "small", "updatedAt": 2000}), TID)
         d = self.doc()
         self.assertEqual((d["title"], d["createdAt"], d["model"], [s.get("cutState") for s in d["segments"]]),
                          ("動画だけ", 5, "small", [None, "cut"]))
         # もう行がある・別の動画 → 入れない(呼び出し側が新しい文書にする)
-        self.assertIsNone(S.fill_doc(dict(spec, warnings=[]), {"segments": segs, "updatedAt": 3000}))
+        self.assertIsNone(_store.fill_doc(dict(spec, warnings=[]), {"segments": segs, "updatedAt": 3000}))
         self.put_doc(doc_obj(segments=[]))
         sp2 = dict(spec, sourcePath="C:\\y\\other.mp4", warnings=[])
-        self.assertIsNone(S.fill_doc(sp2, {"segments": segs, "updatedAt": 3000}))
+        self.assertIsNone(_store.fill_doc(sp2, {"segments": segs, "updatedAt": 3000}))
         self.assertTrue(sp2["warnings"])
 
 
@@ -722,32 +733,32 @@ class TestRelinkStore(StoreDir):
 
     def setUp(self):
         super().setUp()
-        self.saved_check = S.relink_check
+        self.saved_check = _relink.relink_check
         self.chk = {"path": os.path.abspath("新しい.mp4"), "name": "新しい.mp4", "durationSec": 12.0, "fps": [30, 1], "hasVideo": True,
                     "docDuration": 12.0, "diffSec": 0.0, "mismatch": False, "sameAsNow": False, "usedBy": [], "rowsAfterEnd": 0, "warnings": []}
-        S.relink_check = lambda obj: dict(self.chk)
+        _relink.relink_check = lambda obj: dict(self.chk)
         segs = doc_obj()["segments"]
         segs[0].update(proofed=True, speaker="A", tags=["bgm"])
         self.put_doc(doc_obj(segments=segs, speakers=[{"id": "A", "name": "まつり", "color": "#f80"}],
                              original=[{"start": 0.4, "end": 2.8, "text": "こんばんわ"}], clip={"schema": "x"}))
-        write_json(S.edit_path(TID), dict(S.sanitize_edit(edit_obj()), schema=S.EDIT_SCHEMA, rev=3, packRev=0, updatedAt=5))
+        write_json(_store.edit_path(TID), dict(_store.sanitize_edit(edit_obj()), schema=_store.EDIT_SCHEMA, rev=3, packRev=0, updatedAt=5))
         d = self.doc()
-        S.apply_edit_cuts(TID, d)   # 保存済みの文書と同じく、行の「カット済」はカットに合わせてある
+        _store.apply_edit_cuts(TID, d)   # 保存済みの文書と同じく、行の「カット済」はカットに合わせてある
         self.put_doc(d)
 
     def tearDown(self):
-        S.relink_check = self.saved_check
-        with S._jobs_lock:
-            for k in [k for k in S._jobs if k.startswith("relinktest")]:
-                S._jobs.pop(k)
+        _relink.relink_check = self.saved_check
+        with _jobs._jobs_lock:
+            for k in [k for k in _jobs._jobs if k.startswith("relinktest")]:
+                _jobs._jobs.pop(k)
         super().tearDown()
 
     def doc(self):
-        with open(S.tx_path(TID), encoding="utf-8") as f:
+        with open(_store.tx_path(TID), encoding="utf-8") as f:
             return json.load(f)
 
     def relink(self, **over):
-        return S.relink_doc(dict({"id": TID, "path": "x", "baseUpdatedAt": 1000}, **over))
+        return _relink.relink_doc(dict({"id": TID, "path": "x", "baseUpdatedAt": 1000}, **over))
 
     def test_relink_keeps_rows_and_makes_backups(self):
         before = self.doc()
@@ -762,11 +773,11 @@ class TestRelinkStore(StoreDir):
         bak = os.path.join(self.tmp, ".bak")
         self.assertFalse(os.path.exists(os.path.join(bak, TID + ".pre-relink.json")))   # 1) 直前の文書は履歴だけ(.bak の控えは作らない)
         self.assertFalse(os.path.exists(os.path.join(bak, TID + ".edit.pre-relink.json")))   # 2) カットの写しも作らない(付け替えはカットを書き換えない = opt-human 2a-4)
-        stamps = S.hist_stamps(TID)                                                # 3) 履歴(「前の版に戻す」)
+        stamps = _store.hist_stamps(TID)                                                # 3) 履歴(「前の版に戻す」)
         self.assertEqual(len(stamps), 1)
-        S.restore_history(TID, stamps[0])
+        _store.restore_history(TID, stamps[0])
         self.assertEqual(self.doc()["sourcePath"], "C:\\x\\clip.mp4")
-        with open(S.edit_path(TID), encoding="utf-8") as f:
+        with open(_store.edit_path(TID), encoding="utf-8") as f:
             self.assertEqual(json.load(f)["rev"], 3)                               # カット(edit.json)は書き換えない
 
     def test_relink_record_is_capped(self):
@@ -775,26 +786,26 @@ class TestRelinkStore(StoreDir):
         self.put_doc(d)
         self.relink()
         rl = self.doc()["relinks"]
-        self.assertEqual(len(rl), S.RELINK_KEEP)
+        self.assertEqual(len(rl), _relink.RELINK_KEEP)
         self.assertEqual(rl[-1]["from"], "C:\\x\\clip.mp4")
 
     def test_conflict_busy_mismatch(self):
-        with self.assertRaises(S.ApiError) as c:
+        with self.assertRaises(ed_state.ApiError) as c:
             self.relink(baseUpdatedAt=999)
         self.assertEqual((c.exception.status, c.exception.code), (409, "conflict"))
-        with self.assertRaises(S.ApiError) as c:
+        with self.assertRaises(ed_state.ApiError) as c:
             self.relink(baseUpdatedAt=None)
         self.assertEqual(c.exception.status, 400)
         for kind, spec in (("diarize", {"tid": TID}), ("transcribe", {"intoDoc": TID})):
-            with S._jobs_lock:
-                S._jobs["relinktest1"] = {"id": "relinktest1", "state": "running", "kind": kind, "tid": spec.get("tid"), "spec": spec}
-            with self.assertRaises(S.ApiError) as c:
+            with _jobs._jobs_lock:
+                _jobs._jobs["relinktest1"] = {"id": "relinktest1", "state": "running", "kind": kind, "tid": spec.get("tid"), "spec": spec}
+            with self.assertRaises(ed_state.ApiError) as c:
                 self.relink()
             self.assertEqual((c.exception.status, c.exception.code), (409, "busy"), kind)
-            with S._jobs_lock:
-                S._jobs["relinktest1"]["state"] = "done"                            # 終わったジョブは妨げない
+            with _jobs._jobs_lock:
+                _jobs._jobs["relinktest1"]["state"] = "done"                            # 終わったジョブは妨げない
         self.chk.update(mismatch=True, diffSec=-30.0)
-        with self.assertRaises(S.ApiError) as c:
+        with self.assertRaises(ed_state.ApiError) as c:
             self.relink()
         self.assertEqual((c.exception.status, c.exception.code), (409, "duration_mismatch"))
         self.assertTrue(c.exception.extra["check"]["mismatch"])
@@ -803,45 +814,45 @@ class TestRelinkStore(StoreDir):
         self.assertTrue(self.relink(acceptDiff=True)["ok"])
         self.assertEqual(self.doc()["relinks"][-1]["diffSec"], -30.0)
         self.chk.update(mismatch=False, sameAsNow=True)
-        with self.assertRaises(S.ApiError) as c:
+        with self.assertRaises(ed_state.ApiError) as c:
             self.relink(baseUpdatedAt=self.doc()["updatedAt"])
         self.assertEqual(c.exception.code, "same_path")
 
     def test_relink_ref_rules(self):
-        self.assertEqual(S._relink_ref({"whole": True, "duration": 100.0, "end": 100.0}), (100.0, True))
-        self.assertEqual(S._relink_ref({"whole": False, "duration": 100.0, "end": 40.0}), (40.0, False))
-        self.assertEqual(S._relink_ref({"segments": [{"end": 7.5}, {"end": 3}]}), (7.5, False))
-        self.assertEqual(S._relink_ref({"segments": []}), (None, False))
+        self.assertEqual(_relink._relink_ref({"whole": True, "duration": 100.0, "end": 100.0}), (100.0, True))
+        self.assertEqual(_relink._relink_ref({"whole": False, "duration": 100.0, "end": 40.0}), (40.0, False))
+        self.assertEqual(_relink._relink_ref({"segments": [{"end": 7.5}, {"end": 3}]}), (7.5, False))
+        self.assertEqual(_relink._relink_ref({"segments": []}), (None, False))
 
     def test_relink_path_rejects(self):
         for bad in ("", "  ", "a\x00b.mp4", "動画.mp4", "\\\\server\\share\\a.mp4", "//server/share/a.mp4", "\\\\?\\UNC\\server\\s\\a.mp4"):
-            with self.assertRaises(S.ApiError, msg=repr(bad)) as c:
-                S.relink_path(bad)
+            with self.assertRaises(ed_state.ApiError, msg=repr(bad)) as c:
+                _relink.relink_path(bad)
             self.assertEqual(c.exception.status, 400)
-        with self.assertRaises(S.ApiError) as c:
-            S.relink_path("\\\\server\\share\\a.mp4")
+        with self.assertRaises(ed_state.ApiError) as c:
+            _relink.relink_path("\\\\server\\share\\a.mp4")
         self.assertEqual(c.exception.code, "network_path")
         vid = os.path.join(self.tmp, "中.mp4")   # StoreDir は TX_DIR を差し替えるだけなので、DATA_DIR も一時的にここへ
         with open(vid, "wb") as f:
             f.write(b"x")
-        saved = S.DATA_DIR
-        S.DATA_DIR = self.tmp
+        saved = _workdata.DATA_DIR
+        _workdata.DATA_DIR = self.tmp
         try:
-            with self.assertRaises(S.ApiError) as c:
-                S.relink_path(vid)
+            with self.assertRaises(ed_state.ApiError) as c:
+                _relink.relink_path(vid)
             self.assertIn("作業データ", c.exception.message)
         finally:
-            S.DATA_DIR = saved
-        with self.assertRaises(S.ApiError) as c:
-            S.relink_path(os.path.join(self.tmp, "無い.mp4"))
+            _workdata.DATA_DIR = saved
+        with self.assertRaises(ed_state.ApiError) as c:
+            _relink.relink_path(os.path.join(self.tmp, "無い.mp4"))
         self.assertEqual(c.exception.code, "no_file")
         txt = os.path.join(self.tmp, "メモ.txt")
         with open(txt, "w") as f:
             f.write("x")
-        with self.assertRaises(S.ApiError) as c:
-            S.relink_path(txt)
+        with self.assertRaises(ed_state.ApiError) as c:
+            _relink.relink_path(txt)
         self.assertEqual(c.exception.code, "bad_ext")
-        self.assertEqual(S.relink_path('"%s"' % vid), os.path.realpath(vid))       # 「パスとしてコピー」の " は外す
+        self.assertEqual(_relink.relink_path('"%s"' % vid), os.path.realpath(vid))       # 「パスとしてコピー」の " は外す
 
     @unittest.skipUnless(os.name == "nt", "Windows のパスの形(ドライブ・代替ストリーム)")
     def test_relink_path_windows_forms(self):
@@ -849,10 +860,10 @@ class TestRelinkStore(StoreDir):
         with open(vid, "wb") as f:
             f.write(b"x")
         for bad in (vid + ":stream", vid + ":stream:$DATA", "C:a.mp4", "\\a.mp4"):
-            with self.assertRaises(S.ApiError, msg=bad) as c:
-                S.relink_path(bad)
+            with self.assertRaises(ed_state.ApiError, msg=bad) as c:
+                _relink.relink_path(bad)
             self.assertEqual(c.exception.status, 400)
-        self.assertEqual(S.relink_path(vid.replace("\\", "/")), os.path.realpath(vid))
+        self.assertEqual(_relink.relink_path(vid.replace("\\", "/")), os.path.realpath(vid))
 
 
 class TestPickPath(StoreDir):
@@ -874,19 +885,19 @@ class TestPickPath(StoreDir):
         _pick.pick = fake
         try:
             fake.result = os.path.join(self.media, "x.mp4")
-            self.assertEqual(S.pick_path({"kind": "dir", "hint": "D:\\動画"}), {"path": fake.result})
-            self.assertEqual(S.pick_path({"kind": "なんでも"})["path"], fake.result)   # dir 以外は file
+            self.assertEqual(_relink.pick_path({"kind": "dir", "hint": "D:\\動画"}), {"path": fake.result})
+            self.assertEqual(_relink.pick_path({"kind": "なんでも"})["path"], fake.result)   # dir 以外は file
             self.assertEqual([c[0] for c in calls], ["dir", "file"])
             self.assertEqual(calls[0][1], "D:\\動画")
-            self.assertIs(calls[0][2], S.MEDIA_TYPES)
+            self.assertIs(calls[0][2], _tools.MEDIA_TYPES)
             fake.result = ""                                                         # やめたら "" のまま返す
-            self.assertEqual(S.pick_path({"kind": "file"}), {"path": ""})
+            self.assertEqual(_relink.pick_path({"kind": "file"}), {"path": ""})
             for exc, status, code in ((_pick.PickBusy("開いている"), 409, "pick_busy"), (_pick.PickError("tk なし"), 400, "pick_unavailable")):
                 def boom(*a, _e=exc):
                     raise _e
                 _pick.pick = boom
-                with self.assertRaises(S.ApiError) as c:
-                    S.pick_path({"kind": "file"})
+                with self.assertRaises(ed_state.ApiError) as c:
+                    _relink.pick_path({"kind": "file"})
                 self.assertEqual((c.exception.status, c.exception.code), (status, code))
         finally:
             _pick.pick = saved
@@ -1015,7 +1026,7 @@ class TestEvalFolder(StoreDir):
         self.ev = testkit.tempdir(self)
         self.mem = os.path.join(self.ev, "1_JP", "01_0期生", "評価用データ01_ときのそら")
         os.makedirs(self.mem)
-        write_json(S.SETTINGS, {"evalDirs": [self.ev]})
+        write_json(_workdata.SETTINGS, {"evalDirs": [self.ev]})
 
     def video(self, name, mtime):
         p = os.path.join(self.mem, name)
@@ -1025,19 +1036,19 @@ class TestEvalFolder(StoreDir):
         return p
 
     def doc(self, tid=TID):
-        with open(S.tx_path(tid), encoding="utf-8") as f:
+        with open(_store.tx_path(tid), encoding="utf-8") as f:
             return json.load(f)
 
     def test_settings_check_and_inside(self):
-        self.assertTrue(S._eval_dirs_ok([self.ev]))
+        self.assertTrue(_settings._eval_dirs_ok([self.ev]))
         for bad in (["relative\\x"], ["\\\\server\\share"], "E:\\x", [self.ev] * 11, ["C:\\a:b"]):
-            self.assertFalse(S._eval_dirs_ok(bad), bad)
-        self.assertEqual(S.eval_dirs(), [os.path.abspath(self.ev)])
-        self.assertTrue(S.in_eval_dir(os.path.join(self.mem, "a.mp4")))
-        self.assertFalse(S.in_eval_dir(self.ev + "x\\a.mp4"))   # 名前が前で一致するだけの隣のフォルダは外
-        self.assertFalse(S.in_eval_dir("\\\\server\\share\\a.mp4"))
-        write_json(S.SETTINGS, {"evalDirs": [os.path.join(self.ev, "無いフォルダ")]})
-        self.assertEqual(S.eval_dirs(), [])
+            self.assertFalse(_settings._eval_dirs_ok(bad), bad)
+        self.assertEqual(_settings.eval_dirs(), [os.path.abspath(self.ev)])
+        self.assertTrue(_settings.in_eval_dir(os.path.join(self.mem, "a.mp4")))
+        self.assertFalse(_settings.in_eval_dir(self.ev + "x\\a.mp4"))   # 名前が前で一致するだけの隣のフォルダは外
+        self.assertFalse(_settings.in_eval_dir("\\\\server\\share\\a.mp4"))
+        write_json(_workdata.SETTINGS, {"evalDirs": [os.path.join(self.ev, "無いフォルダ")]})
+        self.assertEqual(_settings.eval_dirs(), [])
 
     def test_glossary_from_settings_when_request_has_none(self):
         """要求に用語集の鍵が無ければ(② のまとめて実行。RS7-1 S4 で用語集は束の外 = 学習データ)保存した設定の用語集。鍵があれば(空でも)要求のまま"""
@@ -1045,22 +1056,22 @@ class TestEvalFolder(StoreDir):
         plain = os.path.join(other, "y.mp4")
         with open(plain, "wb") as f:
             f.write(b"x")
-        write_json(S.SETTINGS, {"evalDirs": [self.ev], "glossary": "用語1\n用語2"})
-        self.assertEqual(S.validate_job({"sourcePath": plain, "autoGloss": False})["glossary"], ["用語1", "用語2"])
-        self.assertEqual(S.validate_job({"sourcePath": plain, "autoGloss": False, "glossary": ""})["glossary"], [])
-        self.assertEqual(S.validate_job({"sourcePath": plain, "autoGloss": False, "glossary": "別"})["glossary"], ["別"])
-        self.assertEqual(S.validate_job({"sourcePath": self.video("a.mp4", 1000), "autoGloss": False})["glossary"], [])   # 評価用は渡さない
+        write_json(_workdata.SETTINGS, {"evalDirs": [self.ev], "glossary": "用語1\n用語2"})
+        self.assertEqual(_doc_jobs.validate_job({"sourcePath": plain, "autoGloss": False})["glossary"], ["用語1", "用語2"])
+        self.assertEqual(_doc_jobs.validate_job({"sourcePath": plain, "autoGloss": False, "glossary": ""})["glossary"], [])
+        self.assertEqual(_doc_jobs.validate_job({"sourcePath": plain, "autoGloss": False, "glossary": "別"})["glossary"], ["別"])
+        self.assertEqual(_doc_jobs.validate_job({"sourcePath": self.video("a.mp4", 1000), "autoGloss": False})["glossary"], [])   # 評価用は渡さない
 
     def test_job_save_restore_force_eval(self):
         p = self.video("a.mp4", 1000)
-        spec = S.validate_job({"sourcePath": p, "glossary": "用語"})
+        spec = _doc_jobs.validate_job({"sourcePath": p, "glossary": "用語"})
         self.assertTrue(spec["evalSet"])
         self.assertEqual(spec["glossary"], [])   # 評価用は用語集を渡さない
         self.put_doc(doc_obj(sourcePath=p, evalSet=True))
-        S.save_transcript(TID, {"title": "t", "evalSet": False, "segments": doc_obj()["segments"], "speakers": []})
+        _store.save_transcript(TID, {"title": "t", "evalSet": False, "segments": doc_obj()["segments"], "speakers": []})
         self.assertTrue(self.doc()["evalSet"])   # 画面から外そうとしても残る
         self.put_doc(doc_obj(sourcePath="C:\\x\\clip.mp4", evalSet=True))
-        S.save_transcript(TID, {"title": "t", "evalSet": False, "segments": doc_obj()["segments"], "speakers": []})
+        _store.save_transcript(TID, {"title": "t", "evalSet": False, "segments": doc_obj()["segments"], "speakers": []})
         self.assertNotIn("evalSet", self.doc())   # フォルダの外は今までどおり外せる
 
     def test_unset_eval_dirs_stops_eval_named_folder(self):
@@ -1077,28 +1088,28 @@ class TestEvalFolder(StoreDir):
             f.write(b"x")
         self.put_doc(doc_obj(sourcePath=plain))
         for unset in ({}, {"evalDirs": []}, {"evalDirs": "壊れた"}):
-            write_json(S.SETTINGS, unset)
-            with self.assertRaises(S.ApiError) as cm:
-                S.validate_job({"sourcePath": p})
+            write_json(_workdata.SETTINGS, unset)
+            with self.assertRaises(ed_state.ApiError) as cm:
+                _doc_jobs.validate_job({"sourcePath": p})
             self.assertEqual((cm.exception.code, cm.exception.status), ("eval_dir_unset", 400))
             self.assertIn("評価用のフォルダ", cm.exception.message)
-            with self.assertRaises(S.ApiError) as cm:
-                S.relink_check({"id": TID, "path": p})
+            with self.assertRaises(ed_state.ApiError) as cm:
+                _relink.relink_check({"id": TID, "path": p})
             self.assertEqual(cm.exception.code, "eval_dir_unset")
             self.assertIn("付け替え", cm.exception.message)
-            self.assertEqual(S.validate_job({"sourcePath": plain})["evalSet"], False)   # 名前に「評価用」が無い動画は今までどおり
-            self.assertTrue(S.validate_job({"sourcePath": p, "evalSet": True})["evalSet"])   # 評価用として始めるなら学習用に混ざらないので通す
+            self.assertEqual(_doc_jobs.validate_job({"sourcePath": plain})["evalSet"], False)   # 名前に「評価用」が無い動画は今までどおり
+            self.assertTrue(_doc_jobs.validate_job({"sourcePath": p, "evalSet": True})["evalSet"])   # 評価用として始めるなら学習用に混ざらないので通す
         # 設定があれば今までどおり(そのフォルダの外でも、名前だけでは止めない)
-        write_json(S.SETTINGS, {"evalDirs": [os.path.join(other, "評価用データ")]})
-        self.assertTrue(S.validate_job({"sourcePath": p})["evalSet"])
-        write_json(S.SETTINGS, {"evalDirs": [self.ev]})
-        self.assertFalse(S.validate_job({"sourcePath": p})["evalSet"])
+        write_json(_workdata.SETTINGS, {"evalDirs": [os.path.join(other, "評価用データ")]})
+        self.assertTrue(_doc_jobs.validate_job({"sourcePath": p})["evalSet"])
+        write_json(_workdata.SETTINGS, {"evalDirs": [self.ev]})
+        self.assertFalse(_doc_jobs.validate_job({"sourcePath": p})["evalSet"])
         # すでに評価用の文書の付け替えは止めない(評価用のまま動かすだけ)
-        write_json(S.SETTINGS, {})
+        write_json(_workdata.SETTINGS, {})
         self.put_doc(doc_obj(sourcePath=plain, evalSet=True))
         try:
-            S.relink_check({"id": TID, "path": p})
-        except S.ApiError as e:
+            _relink.relink_check({"id": TID, "path": p})
+        except ed_state.ApiError as e:
             self.assertNotEqual(e.code, "eval_dir_unset")
 
     def test_organize_names_numbers_and_relinks(self):
@@ -1111,7 +1122,7 @@ class TestEvalFolder(StoreDir):
             f.write("{}")
         segs = [dict(s, proofed=True) for s in doc_obj()["segments"]]
         self.put_doc(doc_obj(sourcePath=old, segments=segs))   # 全行が校正済み・印なし
-        r = S.eval_organize("test")
+        r = _evalfolders.eval_organize("test")
         names = sorted(os.listdir(self.mem))
         self.assertEqual(names, ["作業用", "評価用データ01_ときのそら_01_未文字起こし.mp4", "評価用データ01_ときのそら_02_済.mp4",
                                  "評価用データ01_ときのそら_03_未文字起こし.mp4"])
@@ -1125,35 +1136,35 @@ class TestEvalFolder(StoreDir):
         # 1行の校正を外すと「未」に・2回目は名前が同じなら何もしない
         d["segments"][0]["proofed"] = False
         self.put_doc(d)
-        r = S.eval_organize("test")
+        r = _evalfolders.eval_organize("test")
         self.assertEqual(len(r["renamed"]), 1)
         self.assertTrue(self.doc()["sourcePath"].endswith("_02_未.mp4"))
-        self.assertEqual(S.eval_organize("test")["renamed"], [])
+        self.assertEqual(_evalfolders.eval_organize("test")["renamed"], [])
 
     def test_organize_skips_busy_and_name_clash(self):
         p = self.video("a.mp4", 1000)
-        with S._jobs_lock:
-            S._jobs["evaltest1"] = {"id": "evaltest1", "state": "running", "kind": "transcribe", "spec": {"sourcePath": p}}
+        with _jobs._jobs_lock:
+            _jobs._jobs["evaltest1"] = {"id": "evaltest1", "state": "running", "kind": "transcribe", "spec": {"sourcePath": p}}
         try:
-            r = S.eval_organize("test")
+            r = _evalfolders.eval_organize("test")
         finally:
-            with S._jobs_lock:
-                S._jobs.pop("evaltest1")
+            with _jobs._jobs_lock:
+                _jobs._jobs.pop("evaltest1")
         self.assertEqual(len(r["skipped"]), 1)
         self.assertTrue(os.path.exists(p))
 
     def test_organize_rolls_back_when_relink_fails(self):
         p = self.video("a.mp4", 1000)
         self.put_doc(doc_obj(sourcePath=p, evalSet=True))
-        saved = S._relink_write
+        saved = _relink._relink_write
 
         def boom(*a, **k):
             raise OSError("disk")
-        S._relink_write = boom
+        _relink._relink_write = boom
         try:
-            r = S.eval_organize("test")
+            r = _evalfolders.eval_organize("test")
         finally:
-            S._relink_write = saved
+            _relink._relink_write = saved
         self.assertEqual(len(r["skipped"]), 1)
         self.assertTrue(os.path.exists(p))   # 名前は元に戻る
         self.assertEqual(self.doc()["sourcePath"], p)
@@ -1173,16 +1184,16 @@ class TestEvalFolder(StoreDir):
                 raise OSError("locked")
             return real(a, b, **k)
         with unittest.mock.patch.object(EF._fsio, "move_file", move):
-            r = S.eval_organize("test")
+            r = _evalfolders.eval_organize("test")
         self.assertEqual(len(r["skipped"]), 1)
         self.assertEqual(sorted(os.listdir(self.mem)), sorted(os.path.basename(x) for x in (p, stem + ".clip.json", stem + ".edit.json")))
 
     def test_no_dirs_does_nothing(self):
-        write_json(S.SETTINGS, {})
-        self.assertEqual(S.eval_organize("test")["dirs"], 0)
+        write_json(_workdata.SETTINGS, {})
+        self.assertEqual(_evalfolders.eval_organize("test")["dirs"], 0)
 
     def staged(self, name="仮の動画.mp4", proofed=True, speakers=True, names=("ときのそら", "さくらみこ")):
-        stg = os.path.join(self.ev, S.EVAL_STAGING)
+        stg = os.path.join(self.ev, _evalfolders.EVAL_STAGING)
         os.makedirs(stg, exist_ok=True)
         p = os.path.join(stg, name)
         with open(p, "wb") as f:
@@ -1202,7 +1213,7 @@ class TestEvalFolder(StoreDir):
         os.makedirs(os.path.join(os.path.dirname(p), "作業用"))
         with open(os.path.join(os.path.dirname(p), "作業用", "仮の動画.clip.json"), "w", encoding="utf-8") as f:
             f.write("{}")
-        r = S.eval_organize("test")
+        r = _evalfolders.eval_organize("test")
         dst = os.path.join(self.mem, "評価用データ01_ときのそら_02_済.mp4")
         self.assertEqual([(m["to"], m["member"]) for m in r["moved"]], [(dst, "ときのそら")])   # 長く話した人のフォルダ・空いている番号・済
         self.assertTrue(os.path.isfile(dst) and not os.path.exists(p))
@@ -1215,7 +1226,7 @@ class TestEvalFolder(StoreDir):
         for kw, why in (({"proofed": False}, "校正していない行"), ({"speakers": False}, "話者が付いていない行"),
                         ({"names": ("話者1", "ゲスト")}, "移す先が決まりません")):
             p = self.staged(**kw)
-            r = S.eval_organize("test")
+            r = _evalfolders.eval_organize("test")
             self.assertEqual(r["moved"], [])
             self.assertIn(why, r["staged"][0]["reason"])
             self.assertTrue(os.path.isfile(p))   # 仮置きの中は名前も変えない
@@ -1224,7 +1235,7 @@ class TestEvalFolder(StoreDir):
     def test_staging_copy_adopts_the_original_doc(self):
         """仮置きに置いたコピー(文書なし)は、同じ名前・同じ大きさの動画を指す文書が1つだけなら、その文書を付け替えてから移す"""
         orig_dir = testkit.tempdir(self)
-        stg = os.path.join(self.ev, S.EVAL_STAGING)
+        stg = os.path.join(self.ev, _evalfolders.EVAL_STAGING)
         os.makedirs(stg)
 
         def put(folder, name, data):
@@ -1239,7 +1250,7 @@ class TestEvalFolder(StoreDir):
         put(stg, "other.mp4", b"different")                       # 大きさが違う → 付け替えない
         put(orig_dir, "other.mp4", b"other-size!!")
         self.put_doc(doc_obj(sourcePath=os.path.join(orig_dir, "other.mp4"), segments=segs, speakers=[{"id": "A", "name": "ときのそら"}]), tid="bbbbbbbbbbbb")
-        r = S.eval_organize("test")
+        r = _evalfolders.eval_organize("test")
         self.assertEqual([a["id"] for a in r["adopted"]], [TID])
         d = self.doc()
         self.assertEqual((d["sourcePath"], d["evalSet"]), (os.path.join(self.mem, "評価用データ01_ときのそら_01_済.mp4"), True))
@@ -1252,7 +1263,7 @@ class TestEvalFolder(StoreDir):
         dirs = [tempfile.mkdtemp(), tempfile.mkdtemp()]
         for d_ in dirs:
             self.addCleanup(shutil.rmtree, d_, True)
-        stg = os.path.join(self.ev, S.EVAL_STAGING)
+        stg = os.path.join(self.ev, _evalfolders.EVAL_STAGING)
         os.makedirs(stg)
         for i, d_ in enumerate(dirs):
             with open(os.path.join(d_, "clip.mp4"), "wb") as f:
@@ -1260,15 +1271,15 @@ class TestEvalFolder(StoreDir):
             self.put_doc(doc_obj(sourcePath=os.path.join(d_, "clip.mp4")), tid="%012d" % (i + 1))
         with open(os.path.join(stg, "clip.mp4"), "wb") as f:
             f.write(b"x")
-        r = S.eval_organize("test")
+        r = _evalfolders.eval_organize("test")
         self.assertFalse(r.get("adopted"))
         self.assertIn("決められません", r["staged"][0]["reason"])
 
     def test_settle_one_doc(self):
         p = self.staged()
-        self.assertEqual(S.eval_settle({"id": TID})["moved"]["member"], "ときのそら")
+        self.assertEqual(_evalfolders.eval_settle({"id": TID})["moved"]["member"], "ときのそら")
         self.assertFalse(os.path.exists(p))
-        self.assertEqual(S.eval_settle({"id": TID}), {"moved": None, "reason": None})   # もう仮置きではない
+        self.assertEqual(_evalfolders.eval_settle({"id": TID}), {"moved": None, "reason": None})   # もう仮置きではない
 
     # ---- 評価用にした文書の動画を、評価用のフォルダの外から取り込む
     def outside(self, name="外の切り抜き.mp4", proofed=True, eval_set=True, tid=TID, names=("ときのそら", "さくらみこ")):
@@ -1289,22 +1300,22 @@ class TestEvalFolder(StoreDir):
 
     def test_intake_ready_goes_to_member_folder(self):
         p = self.outside()
-        r = S.eval_organize("test")
+        r = _evalfolders.eval_organize("test")
         dst = os.path.join(self.mem, "評価用データ01_ときのそら_01_済.mp4")
         self.assertEqual([(x["from"], x["to"], x["member"], x["staged"]) for x in r["intaken"]], [(p, dst, "ときのそら", None)])
         self.assertTrue(os.path.isfile(dst) and not os.path.exists(p))
         self.assertTrue(os.path.isfile(os.path.join(self.mem, "作業用", "評価用データ01_ときのそら_01_済.clip.json")))
         d = self.doc()
         self.assertEqual((d["sourcePath"], d["evalSet"], d["relinks"][-1]["why"]), (dst, True, "evalIntake"))
-        self.assertEqual(S.eval_organize("test")["intaken"], [])   # 2回目は何もしない
+        self.assertEqual(_evalfolders.eval_organize("test")["intaken"], [])   # 2回目は何もしない
 
     def test_intake_not_ready_goes_to_staging(self):
         p = self.outside(proofed=False)
-        stg = os.path.join(self.ev, S.EVAL_STAGING)
+        stg = os.path.join(self.ev, _evalfolders.EVAL_STAGING)
         os.makedirs(stg)
         with open(os.path.join(stg, "外の切り抜き.mp4"), "wb") as f:   # 同じ名前が仮置きにある → 「 (2)」
             f.write(b"other")
-        r = S.eval_organize("test")
+        r = _evalfolders.eval_organize("test")
         dst = os.path.join(stg, "外の切り抜き (2).mp4")
         self.assertEqual([(x["to"], x["member"]) for x in r["intaken"]], [(dst, None)])
         self.assertIn("校正していない行", r["intaken"][0]["staged"])
@@ -1313,10 +1324,10 @@ class TestEvalFolder(StoreDir):
 
     def test_intake_skips_unmarked_and_shared(self):
         self.outside(eval_set=False)
-        self.assertEqual(S.eval_organize("test")["intaken"], [])   # 評価用の印が無ければ動かさない
+        self.assertEqual(_evalfolders.eval_organize("test")["intaken"], [])   # 評価用の印が無ければ動かさない
         p = self.outside()
         self.put_doc(doc_obj(sourcePath=p), "b" * len(TID))   # 同じ動画を、評価用でない文書も使っている
-        r = S.eval_organize("test")
+        r = _evalfolders.eval_organize("test")
         self.assertEqual(r["intaken"], [])
         self.assertIn("評価用でない文書", r["skipped"][0]["reason"])
         self.assertTrue(os.path.isfile(p))
@@ -1332,7 +1343,7 @@ class TestEvalFolder(StoreDir):
             return real(a, b)
         p = self.outside()
         with mock.patch.object(fsio, "same_drive", lambda a, b: False), mock.patch.object(fsio.os, "rename", no_rename_across):
-            r = S.eval_organize("test")
+            r = _evalfolders.eval_organize("test")
         dst = os.path.join(self.mem, "評価用データ01_ときのそら_01_済.mp4")
         self.assertEqual([x["to"] for x in r["intaken"]], [dst])
         with open(dst, "rb") as f:
@@ -1345,7 +1356,7 @@ class TestEvalFolder(StoreDir):
         real_remove = os.remove
         with mock.patch.object(fsio, "same_drive", lambda a, b: False), mock.patch.object(fsio.os, "rename", no_rename_across), \
                 mock.patch.object(fsio.os, "remove", lambda x: (_ for _ in ()).throw(PermissionError(13, "使用中")) if x == p2 else real_remove(x)):
-            r = S.eval_organize("test")
+            r = _evalfolders.eval_organize("test")
         self.assertEqual(r["intaken"], [])
         self.assertTrue(os.path.isfile(p2))
         self.assertFalse(any(f.startswith("評価用データ01_ときのそら_02") for f in os.listdir(self.mem)))
@@ -1353,10 +1364,10 @@ class TestEvalFolder(StoreDir):
 
     def test_settle_intakes_in_background(self):
         p = self.outside()
-        r = S.eval_settle({"id": TID})
+        r = _evalfolders.eval_settle({"id": TID})
         self.assertEqual(r, {"moved": None, "reason": None, "intake": True})
         for _ in range(100):
-            if not S._evalorg_lock.locked():
+            if not _evalfolders._evalorg_lock.locked():
                 break
             time.sleep(0.05)
         self.assertFalse(os.path.exists(p))

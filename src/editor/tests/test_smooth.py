@@ -14,7 +14,13 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データ
 import unittest
 import unittest.mock
 
-from test_backend import S, TID, StoreDir  # noqa: F401  (S = serve)
+from test_backend import TID, StoreDir  # noqa: F401  (S = serve)
+import ed_state  # noqa: E402
+from human.proof import speakers as _speakers  # noqa: E402
+from human.proof import store as _store  # noqa: E402
+from pipeline.transcribe import diarize as _diarize  # noqa: E402
+from ytt import settings as _settings  # noqa: E402
+from ytt import tools as _tools  # noqa: E402
 
 
 def _r(a, b, label, ratio=0.3, skip=False):
@@ -33,10 +39,10 @@ class TestSmoothBoundary(unittest.TestCase):
     def test_boundary_values_survive_float_error(self):
         """境目ちょうどの値は小数の誤差で外れない(前後のすき間 0.6 秒はならす・重なり 0.1 秒はならさない)"""
         rows = [_r(0, 3, 0, 0.9), _r(3.2, 4.0, 1, 0.3), _r(4.0 + 0.6, 7.6, 0, 0.9)]
-        self.assertEqual(S.smooth_labels(rows, []), {1: 0})
+        self.assertEqual(_diarize.smooth_labels(rows, []), {1: 0})
         rows[2] = _r(4.3, 7.0, 0, 0.9)
-        self.assertEqual(S.smooth_labels(rows, [(3.5, 3.5 + (3.6 - 3.5))]), {})   # 3.6 - 3.5 = 0.0999999… でも 0.1 秒の重なりとして数える
-        self.assertEqual(S.smooth_labels(rows, [(3.5, 3.55)]), {1: 0})
+        self.assertEqual(_diarize.smooth_labels(rows, [(3.5, 3.5 + (3.6 - 3.5))]), {})   # 3.6 - 3.5 = 0.0999999… でも 0.1 秒の重なりとして数える
+        self.assertEqual(_diarize.smooth_labels(rows, [(3.5, 3.55)]), {1: 0})
 
 
 class TestSmoothLabels(unittest.TestCase):
@@ -59,24 +65,24 @@ class TestSmoothLabels(unittest.TestCase):
                 _episode(250, [(0.2, 1.0, 1, W, True)]) +                                  # 守る行そのものはならさない
                 [_r(300, 303, 0, 0.9), _r(303.2, 304.0, 1)])                               # 最後の行はならさない
         overlaps = [(133.5, 133.65), (153.5, 153.55)]
-        got = S.smooth_labels(list(reversed(rows)), overlaps)
+        got = _diarize.smooth_labels(list(reversed(rows)), overlaps)
         rev = list(reversed(rows))
         self.assertEqual(sorted((rev[i]["start"], lab) for i, lab in got.items()), [(13.2, 0), (53.2, 0), (113.2, 0), (153.2, 0), (233.2, 0)])
         ts = [(0, 3, 0), (3.5, 3.74, 1)]
-        self.assertEqual((round(S.label_ratio(3.2, 4.0, 1, ts), 6), S.label_ratio(3.2, 4.0, None, ts), S.label_ratio(0, 2, 0, ts)), (0.3, 0.0, 1.0))
+        self.assertEqual((round(_diarize.label_ratio(3.2, 4.0, 1, ts), 6), _diarize.label_ratio(3.2, 4.0, None, ts), _diarize.label_ratio(0, 2, 0, ts)), (0.3, 0.0, 1.0))
 
     def test_with_assign_speakers(self):
         """assign_speakers の結果から(本番と同じ道)。守る行・文字の無い行・その人の区間に入っている短い行(本物の相づち)はならさない"""
         segs = [{"start": 0.0, "end": 3.0, "text": "a"}, {"start": 3.2, "end": 4.0, "text": "b"}, {"start": 4.2, "end": 7.0, "text": "c"}]
         turns = [(0.0, 3.1, 0), (3.5, 3.74, 1), (4.1, 7.0, 0)]
-        res = S.assign_speakers(segs, turns, 0.0)
+        res = _diarize.assign_speakers(segs, turns, 0.0)
         self.assertEqual([r[0] for r in res], [0, 1, 0])
-        self.assertEqual(S.smooth_speakers(segs, res, sorted(turns), [False] * 3), {1: 0})
-        self.assertEqual(S.smooth_speakers(segs, res, sorted(turns), [False, True, False]), {})
-        self.assertEqual(S.smooth_speakers([dict(segs[0]), dict(segs[1], text=" "), dict(segs[2])], res, sorted(turns), [False] * 3), {})
+        self.assertEqual(_diarize.smooth_speakers(segs, res, sorted(turns), [False] * 3), {1: 0})
+        self.assertEqual(_diarize.smooth_speakers(segs, res, sorted(turns), [False, True, False]), {})
+        self.assertEqual(_diarize.smooth_speakers([dict(segs[0]), dict(segs[1], text=" "), dict(segs[2])], res, sorted(turns), [False] * 3), {})
         segs = [{"start": 0.0, "end": 3.0, "text": "a"}, {"start": 3.2, "end": 3.8, "text": "うん"}, {"start": 4.0, "end": 7.0, "text": "c"}]
         turns = [(0.0, 3.1, 0), (3.15, 3.85, 1), (3.95, 7.0, 0)]
-        self.assertEqual(S.smooth_speakers(segs, S.assign_speakers(segs, turns, 0.0), sorted(turns), [False] * 3), {})
+        self.assertEqual(_diarize.smooth_speakers(segs, _diarize.assign_speakers(segs, turns, 0.0), sorted(turns), [False] * 3), {})
 
 
 class TestSmoothApply(StoreDir):
@@ -92,38 +98,38 @@ class TestSmoothApply(StoreDir):
         self.put_doc({"title": "t", "sourcePath": "C:\\x\\clip.mp4", "createdAt": 1, "updatedAt": 1, "speakers": [], "segments": [dict(g) for g in self.SEGS]})
 
     def read(self):
-        with open(S.tx_path(TID), encoding="utf-8") as f:
+        with open(_store.tx_path(TID), encoding="utf-8") as f:
             return json.load(f)
 
     def test_on(self):
         self.put()
-        S.apply_diarization(TID, self.TURNS, 0.0, 0, smooth=True)
-        d, run = self.read(), S.read_diar(TID)["latest"]
+        _speakers.apply_diarization(TID, self.TURNS, 0.0, 0, smooth=True)
+        d, run = self.read(), _diarize.read_diar(TID)["latest"]
         self.assertEqual([g["speaker"] for g in d["segments"]], ["S1", "S1", "S1", "S2"])
-        self.assertIn(S.WEAK_FLAG, d["segments"][1]["flag"])     # ならした行は「話者が不確か」を残す(人が見られるように)
+        self.assertIn(ed_state.WEAK_FLAG, d["segments"][1]["flag"])     # ならした行は「話者が不確か」を残す(人が見られるように)
         self.assertEqual(d["diarization"]["smoothed"], 1)
         r2 = run["rows"]["s2"]
         self.assertEqual((r2["label"], r2["speaker"], r2["smoothed"], r2["weak"]), (1, "S1", True, True))   # label は機械の元のラベル
         self.assertAlmostEqual(r2["ratio"], 0.3)
         self.assertNotIn("smoothed", run["rows"]["s1"])
-        self.assertEqual(run["smooth"], {"on": True, "rows": 1, "short": S.DIAR_SMOOTH_SHORT, "gap": S.DIAR_SMOOTH_GAP, "ratio": S.DIAR_SMOOTH_RATIO})
+        self.assertEqual(run["smooth"], {"on": True, "rows": 1, "short": _diarize.DIAR_SMOOTH_SHORT, "gap": _diarize.DIAR_SMOOTH_GAP, "ratio": _diarize.DIAR_SMOOTH_RATIO})
         self.assertEqual([t["label"] for t in run["turns"]], [0, 1, 0, 1])   # 生の結果は変えない
         self.assertEqual(run["labelMap"], {"0": "S1", "1": "S2"})
-        S.apply_diarization(TID, [(0.0, 12.0, 0)], 0.0, 0, smooth=True)   # ならす所が無くても記録する
-        self.assertEqual(S.read_diar(TID)["latest"]["smooth"]["rows"], 0)
+        _speakers.apply_diarization(TID, [(0.0, 12.0, 0)], 0.0, 0, smooth=True)   # ならす所が無くても記録する
+        self.assertEqual(_diarize.read_diar(TID)["latest"]["smooth"]["rows"], 0)
 
     def test_validate_and_setting(self):
         self.put()
-        with unittest.mock.patch.object(S, "check_source", lambda p: p):
-            self.assertIs(S.validate_diarize({"tid": TID})["smooth"], False)                 # 既定オフ
-            self.assertIs(S.validate_diarize({"tid": TID, "smooth": True})["smooth"], True)
-            S.patch_settings({"values": {"diarSmooth": True}})
-            self.assertIs(S.validate_diarize({"tid": TID})["smooth"], True)                  # 要求に無ければ設定
-            self.assertIs(S.validate_diarize({"tid": TID, "smooth": False})["smooth"], False)
-            self.assertIs(S.validate_diarize({"tid": TID, "smooth": "yes"})["smooth"], True)  # 真偽値でなければ設定
-        with self.assertRaises(S.ApiError):
-            S.patch_settings({"values": {"diarSmooth": "on"}})
-        self.assertIn("diarSmooth", S.SETTINGS_PATCH_KEYS)
+        with unittest.mock.patch.object(_tools, "check_source", lambda p: p):
+            self.assertIs(_speakers.validate_diarize({"tid": TID})["smooth"], False)                 # 既定オフ
+            self.assertIs(_speakers.validate_diarize({"tid": TID, "smooth": True})["smooth"], True)
+            _settings.patch_settings({"values": {"diarSmooth": True}})
+            self.assertIs(_speakers.validate_diarize({"tid": TID})["smooth"], True)                  # 要求に無ければ設定
+            self.assertIs(_speakers.validate_diarize({"tid": TID, "smooth": False})["smooth"], False)
+            self.assertIs(_speakers.validate_diarize({"tid": TID, "smooth": "yes"})["smooth"], True)  # 真偽値でなければ設定
+        with self.assertRaises(ed_state.ApiError):
+            _settings.patch_settings({"values": {"diarSmooth": "on"}})
+        self.assertIn("diarSmooth", _settings.SETTINGS_PATCH_KEYS)
 
 
 if __name__ == "__main__":

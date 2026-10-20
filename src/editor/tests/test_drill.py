@@ -15,7 +15,15 @@ import time
 import unittest
 from unittest.mock import patch
 
-from test_backend import S, StoreDir, write_json  # noqa: F401  (S = serve)
+from test_backend import StoreDir, write_json  # noqa: F401  (S = serve)
+import ed_state  # noqa: E402
+from flow import jobs as _jobs  # noqa: E402
+from human.proof import rerun as _rerun  # noqa: E402
+from human.proof import speakers as _speakers  # noqa: E402
+from human.proof import store as _store  # noqa: E402
+from manage.keep import evalfolders as _evalfolders  # noqa: E402
+from pipeline.transcribe import diarize as _diarize  # noqa: E402
+from ytt import workdata as _workdata  # noqa: E402
 
 from eval.drill import drill as DR  # noqa: E402  (serve を読み込んだあとなので、部品の場所は通っている)
 
@@ -46,21 +54,21 @@ class DrillBase(StoreDir):
         if ev:
             d["evalSet"] = True
         d.update(over)
-        write_json(S.tx_path(tid_of(n)), d)
+        write_json(_store.tx_path(tid_of(n)), d)
         return d
 
     def rd(self, n):
-        with open(S.tx_path(tid_of(n)), encoding="utf-8") as f:
+        with open(_store.tx_path(tid_of(n)), encoding="utf-8") as f:
             return json.load(f)
 
     def busy_job(self, n, state):
         """文書 n に判別のジョブが載っている間だけ(contextmanager の代わりに addCleanup で外す)"""
-        with S._jobs_lock:
-            S._jobs["jx"] = {"id": "jx", "kind": "diarize", "state": state, "spec": {"tid": tid_of(n)}, "tid": tid_of(n)}
+        with _jobs._jobs_lock:
+            _jobs._jobs["jx"] = {"id": "jx", "kind": "diarize", "state": state, "spec": {"tid": tid_of(n)}, "tid": tid_of(n)}
 
         def drop():
-            with S._jobs_lock:
-                S._jobs.pop("jx", None)
+            with _jobs._jobs_lock:
+                _jobs._jobs.pop("jx", None)
         self.addCleanup(drop)
 
     def review(self, n, **kw):
@@ -92,24 +100,24 @@ class TestDrillReviewed(DrillBase):
 
     def test_conflict_and_bad_requests(self):
         self.doc(1, [_seg(1, 0, 1, "あ")])
-        with self.assertRaises(S.ApiError) as cm:
+        with self.assertRaises(ed_state.ApiError) as cm:
             DR.drill_reviewed({"id": tid_of(1), "baseUpdatedAt": OLD - 5})
         self.assertEqual(cm.exception.status, 409)
         self.assertNotIn("evalReviewed", self.rd(1))                                         # 書かない
-        with self.assertRaises(S.ApiError) as cm:
+        with self.assertRaises(ed_state.ApiError) as cm:
             DR.drill_reviewed({"id": tid_of(1)})                                             # 読み込んだときの版が無い
         self.assertEqual(cm.exception.status, 400)
         self.doc(2, [_seg(1, 0, 1, "あ")], ev=False)
-        with self.assertRaises(S.ApiError) as cm:
+        with self.assertRaises(ed_state.ApiError) as cm:
             self.review(2)
         self.assertEqual(cm.exception.code, "not_eval")
         self.doc(3, [], model="")                                                            # 文字起こしせずに開いた文書
-        with self.assertRaises(S.ApiError) as cm:
+        with self.assertRaises(ed_state.ApiError) as cm:
             self.review(3)
         self.assertEqual(cm.exception.code, "not_transcribed")
         self.doc(4, [_seg(1, 0, 1, "あ")])
         self.busy_job(4, "queued")
-        with self.assertRaises(S.ApiError) as cm:
+        with self.assertRaises(ed_state.ApiError) as cm:
             self.review(4)
         self.assertEqual(cm.exception.code, "busy")
 
@@ -127,24 +135,24 @@ class TestDrillReviewed(DrillBase):
         d = self.rd(1)
         rv = d["evalReviewed"]
         segs = [dict(g, text=g["text"] + "直", end=g["end"] + 0.1) for g in d["segments"]]  # 人が後から文字・時刻を直す
-        S.save_transcript(tid_of(1), {"title": "t", "speakers": [], "segments": segs, "baseUpdatedAt": d["updatedAt"], "evalSet": True,
+        _store.save_transcript(tid_of(1), {"title": "t", "speakers": [], "segments": segs, "baseUpdatedAt": d["updatedAt"], "evalSet": True,
                                       "evalReviewed": {"at": 1, "rows": 99}})                 # 画面から送った印は使わない
         d2 = self.rd(1)
         self.assertEqual(d2["evalReviewed"], rv)
-        S.save_transcript(tid_of(1), {"title": "t", "speakers": [], "segments": d2["segments"], "baseUpdatedAt": d2["updatedAt"], "evalReviewed": None})
+        _store.save_transcript(tid_of(1), {"title": "t", "speakers": [], "segments": d2["segments"], "baseUpdatedAt": d2["updatedAt"], "evalReviewed": None})
         self.assertEqual(self.rd(1)["evalReviewed"], rv)                                      # 消すこともできない
         d3 = self.rd(1)
-        S.save_transcript(tid_of(1), {"title": "t", "speakers": [], "segments": d3["segments"], "baseUpdatedAt": d3["updatedAt"], "evalSet": False})
+        _store.save_transcript(tid_of(1), {"title": "t", "speakers": [], "segments": d3["segments"], "baseUpdatedAt": d3["updatedAt"], "evalSet": False})
         self.assertNotIn("evalReviewed", self.rd(1))                                         # 評価用を外すと消える
         self.doc(2, [_seg(1, 0, 1, "あ")])
-        S.save_transcript(tid_of(2), {"title": "t", "speakers": [], "segments": [], "evalReviewed": {"at": 1}})
+        _store.save_transcript(tid_of(2), {"title": "t", "speakers": [], "segments": [], "evalReviewed": {"at": 1}})
         self.assertNotIn("evalReviewed", self.rd(2))                                         # 画面から付けることもできない
 
     def test_unreviewed_restores_rows_the_mark_proofed(self):
         self.doc(1, [_seg(1, 0, 1, "あ"), _seg(2, 1, 2, "い", proofed=True, proofedAt=1234), _seg(3, 2, 3, "う")])
         self.review(1)
         d = self.rd(1)
-        with self.assertRaises(S.ApiError) as cm:
+        with self.assertRaises(ed_state.ApiError) as cm:
             DR.drill_unreviewed({"id": tid_of(1), "baseUpdatedAt": d["updatedAt"] - 1})
         self.assertEqual(cm.exception.status, 409)
         r = DR.drill_unreviewed({"id": tid_of(1), "baseUpdatedAt": d["updatedAt"]})
@@ -163,7 +171,7 @@ class TestDrillReviewed(DrillBase):
         from human.proof import layers
         self.doc(1, [_seg(1, 0, 1, "あ"), _seg(2, 1, 2, "い")])
         self.review(1)
-        S.apply_retranscribe({"tid": tid_of(1), "model": "m", "autoDict": False}, {"s1": ("A", "")})   # 機械が行を書き換えた
+        _rerun.apply_retranscribe({"tid": tid_of(1), "model": "m", "autoDict": False}, {"s1": ("A", "")})   # 機械が行を書き換えた
         d = self.rd(1)
         self.assertNotIn("evalReviewed", d)
         self.assertTrue(d["segments"][0].get("proofed"))   # 校正済みの行は残る(印 MACH_CHANGED)
@@ -171,11 +179,11 @@ class TestDrillReviewed(DrillBase):
         self.assertEqual((g["text"], g.get("proofed")), ("あ", True))
         self.assertIn(layers.MACH_CHANGED, g["flag"])
         doc = {"evalReviewed": {"at": 1}}
-        S.record_rerun(doc, {"model": "m"}, "range", [(0, 1)], [])                          # 範囲・全体・疑わしい所も同じ所を通る
+        _rerun.record_rerun(doc, {"model": "m"}, "range", [(0, 1)], [])                          # 範囲・全体・疑わしい所も同じ所を通る
         self.assertNotIn("evalReviewed", doc)
         # 行の無い文書(確かめ済みにしていた)へ文字起こしを入れたときも外す
         self.doc(2, [], model="", evalReviewed={"at": 1, "rows": 0, "durationSec": 30})
-        self.assertEqual(S.fill_doc({"intoDoc": tid_of(2), "sourcePath": os.path.normcase(os.path.abspath(self.video))},
+        self.assertEqual(_store.fill_doc({"intoDoc": tid_of(2), "sourcePath": os.path.normcase(os.path.abspath(self.video))},
                                     {"segments": [_seg(1, 0, 1, "機械")], "model": "small"}), tid_of(2))
         self.assertNotIn("evalReviewed", self.rd(2))
 
@@ -219,7 +227,7 @@ class TestDrillStatus(DrillBase):
         self.assertEqual(DR.drill_stream_key({"clip": {"source": {"videoId": "X1"}}}), "v:X1")
         k = DR.drill_stream_key({"sourcePath": os.path.join(self.tmp, "評価用データ01_ときのそら", "a.mp4")})
         self.assertEqual(k, "m:ときのそら")
-        k2 = DR.drill_stream_key({"sourcePath": os.path.join(self.tmp, S.EVAL_STAGING, "a.mp4")})
+        k2 = DR.drill_stream_key({"sourcePath": os.path.join(self.tmp, _evalfolders.EVAL_STAGING, "a.mp4")})
         self.assertTrue(k2.startswith("d:"))
 
 
@@ -233,13 +241,13 @@ class TestDrillCandidates(DrillBase):
         video = os.path.join(member, "評価用データ01_ときのそら_01_未.mp4")
         with open(video, "wb") as f:
             f.write(b"\0" * 64)
-        write_json(S.SETTINGS, {"evalDirs": [root]})
+        write_json(_workdata.SETTINGS, {"evalDirs": [root]})
         self.doc(1, [_seg(1, 0, 1, "あ"), _seg(2, 1, 2, "い", speaker="S1")], sourcePath=video, title="さくらみこ コラボ",
                  speakers=[{"id": "S1", "name": "話者1", "color": ""}])
-        diar = {"schema": S.DIAR_SCHEMA, "latest": {"voices": {"speakers": {"S1": {"top": "白上フブキ", "score": 0.5, "decided": None},
+        diar = {"schema": _diarize.DIAR_SCHEMA, "latest": {"voices": {"speakers": {"S1": {"top": "白上フブキ", "score": 0.5, "decided": None},
                                                                                "S2": {"top": "星街すいせい", "score": 0.7, "decided": "星街すいせい"}}}}}
-        write_json(S.diar_path(tid_of(1)), diar)
-        with patch.object(S, "voices_summary", return_value={"voxceleb": [{"name": "兎田ぺこら", "sec": 50.0, "generic": False},
+        write_json(_diarize.diar_path(tid_of(1)), diar)
+        with patch.object(_speakers, "voices_summary", return_value={"voxceleb": [{"name": "兎田ぺこら", "sec": 50.0, "generic": False},
                                                                           {"name": "本人", "sec": 99.0, "generic": True}]}):
             r = DR.drill_candidates(tid_of(1))
         names = [(c["name"], c["from"], c["near"]) for c in r["candidates"]]
@@ -269,7 +277,7 @@ class TestDrillDecodeOnce(DrillBase):
 
     def test_cold_decodes_once_warm_zero_roster_only_zero(self):
         self.doc(1, [_seg(1, 0, 1, "あ"), _seg(2, 1, 2, "い", proofed=True)])
-        S._summary_cache.clear()
+        _store._summary_cache.clear()
         DR._drill_cache.clear()
         roster = os.path.join(self.tmp, "roster.json")
         with open(roster, "w", encoding="utf-8") as f:

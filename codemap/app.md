@@ -7,19 +7,17 @@
 - **__init__.py** (2 行) — 入口と画面。起動・1 つのポート・API の配線・設定の画面の API。全部の層を使ってよい
 - **autorun.py** (480 行) — まとめて実行(統合計画の段階5)。入口の「案件」の画面から、配信1本ぶんの作業を順に自動で流す。
   - 名前: `class ToolClient` :103・`spec_from_settings` :184・`live_auto_origin` :202・`class AutoRunner` :213
-- **cli.py** (550 行) — ② 管理 + ① 道具で動くコマンド(RS6 b-S1。決定 3-29)。
-  - 名前: `class UsageError` :55・`class PortalError` :59・`parse_args` :70・`load_spec` :97・`classify_input` :122・`check_from` :137・`use_data_dir` :148・`use_studio_data` :163・`class Learning` :184・`find_doc` :200・`class Progress` :215・`class Portal` :241・ほか 10
-- **live.py** (510 行) — リアルタイム切り抜き(線 D。notes:plan/line-d-live-clipping.md の 0)の入口の側。**既定はオフ**(ホームの設定の節 live.enabled)。
-  - 名前: `studio_review` :99・`studio_audio` :106・`studio_lag` :124・`class Live` :133
-  - 受ける口: `/api/peaks` :265・`/api/exports` :272・`/api/info` :284・`/api/begin` :320・`/api/export` :323・`/api/export/cancel` :332・`/api/archive/cancel` :334・`/api/archive` :337
+- **live.py** (495 行) — リアルタイム切り抜き(線 D。notes:plan/line-d-live-clipping.md の 0)の入口の側。**既定はオフ**(ホームの設定の節 live.enabled)。
+  - 名前: `studio_review` :98・`studio_audio` :105・`studio_lag` :123・`class Live` :132
+  - 受ける口: `/api/peaks` :250・`/api/exports` :257・`/api/info` :269・`/api/begin` :305・`/api/export` :308・`/api/export/cancel` :317・`/api/archive/cancel` :319・`/api/archive` :322
 - **mount.py** (208 行) — 統合サーバーへのツールの取り込み(統合計画の段階3。notes:docs/design/integration-plan.md)。
   - 名前: `class MountError` :52・`tool_modules` :56・`check_no_collision` :66・`load_serve` :76・`send_redirect` :103・`make_handler` :113・`class Mount` :160
   - 受ける口: `/api/ytt` :45
 - **prefs.py** (488 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
   - 名前: `class PrefsError` :95・`guess_streamer` :382・`class Prefs` :394
-- **server.py** (1808 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
-  - 名前: `runtime_dir` :196・`ping` :206・`port_open` :211・`tail` :217・`expected_version` :238・`tool_python` :244・`rel_or_abs` :254・`signal_stop` :262・`class Tool` :275・`app_data_dir` :325・`logs_dir_for` :331・`class Supervisor` :337・ほか 20
-  - 受ける口: `/api/intake` :635・`/api/backup` :636・`/api/accuracy` :637・`/api/flow/runs` :638・`/api/cases/auto` :640・`/api/flow/submit` :641・`/api/flow/estimate` :641・`/api/flow/cancel` :642・`/api/intake/scan` :643・`/api/backup/run` :643・`/api/accuracy/run` :644・`/api/window` :644・`/api/check/answer` :645・`/api/check/skip` :645・`/api/check/flush` :645・`/api/cleanup` :646・`/api/shutdown` :646・`/api/ping` :747・`/api/status` :749・`/api/health` :753・`/api/log` :757・`/api/flow/status` :772・`/api/flow/history` :776・`/api/check/next` :779・`/api/cases` :785
+- **server.py** (1620 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
+  - 名前: `runtime_dir` :175・`ping` :185・`port_open` :190・`tail` :196・`expected_version` :217・`tool_python` :223・`rel_or_abs` :233・`signal_stop` :241・`class Tool` :254・`app_data_dir` :304・`logs_dir_for` :310・`class Supervisor` :316・ほか 16
+  - 受ける口: `/api/intake` :614・`/api/backup` :615・`/api/accuracy` :616・`/api/flow/runs` :617・`/api/cases/auto` :619・`/api/flow/submit` :620・`/api/flow/estimate` :620・`/api/flow/cancel` :621・`/api/intake/scan` :622・`/api/backup/run` :622・`/api/accuracy/run` :623・`/api/window` :623・`/api/check/answer` :624・`/api/check/skip` :624・`/api/check/flush` :624・`/api/cleanup` :625・`/api/shutdown` :625・`/api/ping` :714・`/api/status` :716・`/api/health` :720・`/api/log` :724・`/api/flow/status` :739・`/api/flow/history` :743・`/api/check/next` :746・`/api/cases` :752
 
 ## src/app/check/
 
@@ -34,8 +32,8 @@
   - 名前: `card_id` :26・`parse_id` :30・`kind_rank` :40・`order` :67・`first` :72・`per_kind` :77・`public` :86・`check_n` :91
 - **read_sources.py** (89 行) — 「確かめる」の読みのカードの出どころ read:alt(V1 の V2b。notes:docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
   - 名前: `read_alt` :84
-- **sources.py** (365 行) — 「確かめる」のカードの出どころ(V1 の V0。notes:docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
-  - 名前: `register` :45・`unregister` :53・`registered` :58・`class View` :81・`value_auto` :219・`value_cand` :245・`read_fill` :274・`voice_diar` :291・`time_row` :323・`collect` :348
+- **sources.py** (366 行) — 「確かめる」のカードの出どころ(V1 の V0。notes:docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
+  - 名前: `register` :45・`registered` :59・`class View` :82・`value_auto` :220・`value_cand` :246・`read_fill` :275・`voice_diar` :292・`time_row` :324・`collect` :349
 - **speech_sources.py** (66 行) — 「確かめる」の普段のレーンの「この行は声ですか?」カードの出どころ speech:diar(C-EVAL (3))。
   - 名前: `speech_diar` :41
 
@@ -83,7 +81,7 @@
   - 名前: `scheduleSuggest` :8・`sugList` :12・`sugHTML` :14・`renderChips` :23・`loadSuggest` :33・`sugFeedback` :40・`altJob` :47・`renderAlt` :50・`applySug` :69・`acceptSug` :74・`rejectSug` :83・`setProof` :87・ほか 17
 - **app-list.js** (81 行) — app-list.js — 「編集」の画面: 保存済み一覧の読み込み・題名の行の「まとめて実行」。
   - 名前: `loadList` :10・`portalApi` :18・`applyNeedHome` :24・`runCls` :29・`runStepsText` :30・`pollRuns` :32・`startDocAuto` :46・`renderDocAuto` :63・`syncListItem` :75
-- **app-rows.js** (972 行) — app-rows.js — 「編集」の画面: 編集画面(保存・開く・行の描画と操作)・字幕の文字数・行の移動・話者の色・キー配置・用語の挿入・履歴・行の追加。
+- **app-rows.js** (974 行) — app-rows.js — 「編集」の画面: 編集画面(保存・開く・行の描画と操作)・字幕の文字数・行の移動・話者の色・キー配置・用語の挿入・履歴・行の追加。
   - 名前: `spById` :8・`markDirty` :10・`setSaveState` :17・`paintSaveState` :20・`saveDoc` :26・`subNum` :62・`readSubtitle` :64・`fillSubtitle` :77・`subtitleReq` :87・`openDoc` :89・`docInfoText` :134・`opts` :145・ほか 102
 - **app-tools.js** (338 行) — app-tools.js — 「編集」の画面: 動画を選び直す・検索と置換・書き出し・受け渡し・確認のダイアログ・カット・パックのタブとのつなぎ。
   - 名前: `rlSync` :8・`rlReset` :10・`openRelink` :16・`renderRlResult` :23・`rlCheck` :42・`pickPath` :58・`updateDocTitle` :64・`docLength` :70・`renderDocBar` :77・`renderDocBarNow` :79・`syncEval` :95・`evNote` :103・ほか 23
@@ -136,13 +134,11 @@
 - src/app/tests/e2e_portal.py — ホーム(src/app/ui/home/portal.html)の通し確認(Playwright。本物の3ツールを疑似モードで一時フォルダに写し、空きポートだけを使う)。
 - src/app/tests/fake_excite_worker.py — 偽の検出ワーカー(e2e 用)。本物の src/pipeline/analyze/live_excite_worker.py の代わりに入口(live_detect.Detector)が起動し、
 - src/app/tests/test_accuracy_api.py — 入口の API(GET api/accuracy・POST api/accuracy/run・設定の節)と、手が空いた判定のつなぎ。精度の自動測定の本体のテストは src/eval/drill/tests/test_accuracy.py。
-- src/app/tests/test_adopt_defaults.py — 採用の数・余白・待ちの既定が束(flow/spec.py の DEFAULTS adopt)の 1 か所から来て、今までの値のままであることを固定する(RS6 b-R1)
 - src/app/tests/test_autorun.py — まとめて実行(src/app/autorun.py)の段取りのテスト。ツールの API は偽物(FakeTools)で、本物の通し確認は src/app/tests/e2e_autorun.py。
 - src/app/tests/test_backup_prefs.py — 設定 prefs の backup の節(src/app/prefs.py。入口の側に残した検査)。バックアップの本体のテストは src/manage/keep/tests/test_backup.py。
 - src/app/tests/test_cases_page.py — 案件の画面(/cases。src/app/ui/cases/)とホーム(/)の配り方の安全の境目のテスト。  python -m unittest src/app/tests/test_cases_page.py -v
 - src/app/tests/test_check_api.py — 入口の「確かめる」の口(GET api/check/next・POST api/check/answer(undo も)・skip・flush。V1 の V0)のつなぎ。
 - src/app/tests/test_check_page.py — 確かめる(/check。src/app/ui/check/)の配り方の安全の境目のテスト。  python -m unittest src/app/tests/test_check_page.py -v
-- src/app/tests/test_cli.py — app/cli(② + ① で動くコマンド)のテスト。  py -3.12 -m unittest src/app/tests/test_cli.py -v
 - src/app/tests/test_deliver_api.py — 入口の ytt_api("deliver") の受け渡し(src/app/server.py の PortalServer.ytt_api)のテスト。deliver の本体のテストは src/flow/tests/test_deliver.py。
 - src/app/tests/test_intake_prefs.py — 入口の設定 prefs の intake の節(src/app/prefs.py。入口の側に残した検査)。intake の本体のテストは src/human/friend/tests/test_intake.py。
 - src/app/tests/test_launch.py — 入口(src/app/server.py)のテスト。  python -m unittest src/app/tests/test_launch.py -v

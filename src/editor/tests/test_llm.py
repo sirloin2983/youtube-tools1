@@ -19,7 +19,8 @@ from unittest import mock
 TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(TESTS))
 sys.path.insert(0, TESTS)
-from test_backend import S  # noqa: F401,E402  (S = serve)
+import test_backend  # noqa: E402,F401  (serve を読んで src を sys.path に足す)
+from pipeline.transcribe import models as _models  # noqa: E402
 from human.proof import learn  # noqa: E402
 import ed_state  # noqa: E402
 from pipeline.transcribe import tx_engines as E  # noqa: E402
@@ -56,8 +57,8 @@ class TestLlamaTextEngine(unittest.TestCase):
         model = types.SimpleNamespace(complete=lambda msgs, n: "答え:%d:%d" % (len(msgs), n))
         m = {"name": "qwen3-8b", "device": "vulkan", "engine": "llama-text", "messages": [{"role": "user", "content": "x"}], "max_tokens": 50}
         # ワーカーは読み込んだモデルを worker_client._models から呼ぶたびに読む(S._models は同じ辞書。_model_used は差し替えて元に戻す)
-        with mock.patch.dict(S._models, {("qwen3-8b", "vulkan", "llama-text"): model}, clear=True), mock.patch.object(S, "_model_used", [0]), \
-                mock.patch.object(S, "_load_model_local", None):
+        with mock.patch.dict(_models._models, {("qwen3-8b", "vulkan", "llama-text"): model}, clear=True), mock.patch.object(_models, "_model_used", [0]), \
+                mock.patch.object(_models, "_load_model_local", None):
             self.assertEqual(W._op_complete(m, 1, {}, None, set()), {"content": "答え:1:50"})
             with self.assertRaises(ed_state.ApiError):
                 W._op_complete(dict(m, messages=[{"role": "tool", "content": "x"}]), 1, {}, None, set())

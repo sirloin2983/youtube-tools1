@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """dev/build_friend_zip.py(友人の PC に配る zip を作る。F1 の F4a)のテスト。ネットは使わない(偽のキャッシュ・取る関数は差し替えて呼ばれたら落とす)。
-展開した zip の src で入口(server.py --headless の形)と CLI が import で落ちないことも、この PC の Python で確かめる。
+展開した zip の src で友人のアプリ(friendapp/server.py)が import で落ちないことも、この PC の Python で確かめる。
 実行(リポジトリ直下): py -3.12 -m unittest dev/tests/test_build_friend_zip.py"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # サーバーは子プロセスで --help だけ。全テストの決まりに合わせる
@@ -180,10 +180,13 @@ class BuildTest(Base):
         for n in ("FriendApp.exe", "WebView2Loader.dll", "Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.WinForms.dll",
                   B.INSTALL_NAME, "members.json", "fetch.json",
                   "src/friendapp/server.py", "src/friendapp/streams.py", "src/friendapp/ui/friend.html", "src/friendapp/ui/host.js", "src/friendapp/ui/setup.html",
-                  "src/friendapp/ui/guide.html", "src/app/server.py", "src/app/cli.py", "src/ytt/version.py",
+                  "src/friendapp/ui/guide.html", "src/flow/run.py", "src/pipeline/transcribe/diarize.py", "src/ytt/version.py",
                   "python/Lib/site-packages/numpy/__init__.py", "python/Lib/site-packages/sherpa_onnx_core.pyd"):
             self.assertIn(n, names)
         self.assertFalse(any("/tests/" in n or "__pycache__" in n or n.endswith(".pyc") for n in names))
+        layers = {n.split("/")[1] for n in names if n.startswith("src/") and n not in B.FRIEND_FILES}
+        self.assertEqual(layers, set(B.FRIEND_LAYERS))   # 友人のアプリが読む層だけ(入口 app・編集・人・管理・評価・スタジオ・cut2resolve は入らない)
+        self.assertTrue(set(B.FRIEND_FILES) <= names)
         self.assertFalse(any(n.endswith("sherpa-onnx.exe") for n in names))   # wheel の scripts は捨てる
         wsub = "tools/" + os.path.basename(E.wcpp_bin_dir(""))
         self.assertIn(wsub + "/" + E.WCPP_EXE, names)
@@ -220,7 +223,7 @@ class BuildTest(Base):
             self.assertRegex(i["sha256"], r"^[0-9a-f]{64}$")
 
     def test_extracted_src_imports(self):
-        """外した後も ② の headless(server.py)と CLI が import で落ちない(展開した src だけを読む)"""
+        """展開した src だけで友人のアプリの入口(friendapp/server.py)が import で落ちない"""
         got = self.shared
         app = os.path.join(self.tmp, "friend", "FriendApp")
         with zipfile.ZipFile(got["zip"]) as z:
@@ -229,12 +232,9 @@ class BuildTest(Base):
         os.makedirs(data)
         env = {k: v for k, v in os.environ.items() if not k.startswith("PYTHON")}
         env.update(YTT_DATA_DIR=data, PYTHONIOENCODING="utf-8")
-        for script in ("server.py", "cli.py"):
-            r = subprocess.run([sys.executable, "-E", "-s", "-B", os.path.join(app, "src", "app", script), "--help"], cwd=self.tmp, env=env,
-                               capture_output=True, timeout=120, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            self.assertEqual(r.returncode, 0, r.stderr.decode("utf-8", "replace")[-2000:])
-            if script == "server.py":
-                self.assertIn("--headless", r.stdout.decode("utf-8", "replace"))
+        r = subprocess.run([sys.executable, "-E", "-s", "-B", os.path.join(app, "src", "friendapp", "server.py"), "--help"], cwd=self.tmp, env=env,
+                           capture_output=True, timeout=120, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        self.assertEqual(r.returncode, 0, r.stderr.decode("utf-8", "replace")[-2000:])
 
     def test_first_with_key(self):
         with self.assertRaises(B.BuildError):

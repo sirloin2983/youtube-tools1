@@ -50,9 +50,6 @@ class BreaksRunTest(unittest.TestCase):
                 self.assertEqual(snap(a, b, cs, **kw), (a, b, {"in": [a, a, None], "out": [b, b, None]}))
         self.assertEqual(snap(3.0, 40.0, []), (3.0, 40.0, {"in": [3.0, 3.0, None], "out": [40.0, 40.0, None]}))
 
-        self.assertEqual([breaks.inside_row(t, ROWS) for t in (1.0, 2.0, 0.5, 2.5, 8.5)], [True, False, False, False, False])   # 端は内側でない・壊れた行は無視
-        self.assertFalse(breaks.inside_row(2, []))
-
 
 if __name__ == "__main__":
     unittest.main()

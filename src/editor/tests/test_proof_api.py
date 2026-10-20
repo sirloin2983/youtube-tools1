@@ -23,6 +23,15 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # リポジトリ直下から py -3.12 -m unittest src/editor/tests/test_proof_api.py でも読めるように
 from test_backend import HERE, S, StoreDir, write_json  # noqa: E402
+import ed_state  # noqa: E402
+from flow import diar as _diar  # noqa: E402
+from flow import jobs as _jobs  # noqa: E402
+from human.proof import rerun as _rerun  # noqa: E402
+from human.proof import speakers as _speakers  # noqa: E402
+from human.proof import store as _store  # noqa: E402
+from ytt import workdata as _workdata  # noqa: E402
+from pipeline.transcribe import diarize as _diarize, recognize as _recognize  # noqa: E402
+from ytt import tools as _tools  # noqa: E402
 from test_voices import doc_with_speakers, unit
 from human.proof import learn  # noqa: E402
 from ytt import txtext as _txtext  # noqa: E402
@@ -52,7 +61,7 @@ class _ProofStore(StoreDir):
 
     def setUp(self):
         super().setUp()
-        self.patch(S, "FEEDBACK", os.path.join(self.tmp, "learn-feedback.json"))
+        self.patch(_workdata, "FEEDBACK", os.path.join(self.tmp, "learn-feedback.json"))
         learn._info_cache.clear()
         learn._rules_cache.update(key=None, val=None)
         self.addCleanup(learn._info_cache.clear)
@@ -88,11 +97,11 @@ class TestLearnedCandidates(_ProofStore):
     def test_registered_replacement_is_not_offered(self):
         self.put_doc(fixed_doc(TID_A), TID_A)
         (wrong, right), = self.pair()
-        write_json(S.SETTINGS, {"replacements": "%s=>%s\n" % (wrong, right)})     # 置換辞書に入れた候補は、もう出さない
+        write_json(_workdata.SETTINGS, {"replacements": "%s=>%s\n" % (wrong, right)})     # 置換辞書に入れた候補は、もう出さない
         self.assertEqual(self.pair(), [])
-        write_json(S.SETTINGS, {"replacements": "%s=>%s\n" % ("別の誤り", right)})  # 別の誤りの登録は影響しない
+        write_json(_workdata.SETTINGS, {"replacements": "%s=>%s\n" % ("別の誤り", right)})  # 別の誤りの登録は影響しない
         self.assertEqual(self.pair(), [(wrong, right)])
-        write_json(S.SETTINGS, {"learnIgnore": ["%s=>%s" % (wrong, right)]})      # 「無視」にした候補も出さない
+        write_json(_workdata.SETTINGS, {"learnIgnore": ["%s=>%s" % (wrong, right)]})      # 「無視」にした候補も出さない
         self.assertEqual(self.pair(), [])
 
     def test_http_min_parameter_goes_through_serve(self):
@@ -132,7 +141,7 @@ class TestSanitizeSpeakerColor(unittest.TestCase):
 
     def test_css_injection_is_stripped(self):
         evil = "red;background-image:url(http://127.0.0.1:1/leak.png)"
-        out = S.sanitize_transcript({"speakers": [{"id": "S1", "name": "a", "color": evil}], "segments": []}, {})
+        out = _store.sanitize_transcript({"speakers": [{"id": "S1", "name": "a", "color": evil}], "segments": []}, {})
         c = out["speakers"][0]["color"]
         self.assertLessEqual(len(c), 9)
         self.assertLess(len(c), len(evil))
@@ -143,9 +152,9 @@ class TestSanitizeSpeakerColor(unittest.TestCase):
 
     def test_normal_colors_survive(self):
         for col in ("#2f62d6", "#888", "#8a8f98cc"):
-            out = S.sanitize_transcript({"speakers": [{"id": "S1", "name": "a", "color": col}], "segments": []}, {})
+            out = _store.sanitize_transcript({"speakers": [{"id": "S1", "name": "a", "color": col}], "segments": []}, {})
             self.assertEqual(out["speakers"][0]["color"], col)
-        out = S.sanitize_transcript({"speakers": [{"id": "S1", "name": "a"}], "segments": []}, {})
+        out = _store.sanitize_transcript({"speakers": [{"id": "S1", "name": "a"}], "segments": []}, {})
         self.assertEqual(out["speakers"][0]["color"], "")                           # 無ければ空のまま
 
 
@@ -156,13 +165,13 @@ class TestTranscriptEvalLocked(_ProofStore):
         ev = testkit.tempdir(self)
         inside = os.path.join(ev, "1_JP", "評価用データ01_ときのそら", "a.mp4")
         os.makedirs(os.path.dirname(inside))
-        write_json(S.SETTINGS, {"evalDirs": [ev]})
+        write_json(_workdata.SETTINGS, {"evalDirs": [ev]})
         self.put_doc(fixed_doc(TID_A, source=inside, eval_set=True), TID_A)
         self.put_doc(fixed_doc(TID_B, source="C:\\x\\clip.mp4"), TID_B)
         self.assertIs(S._transcript(TID_A)["evalLocked"], True)
         self.assertIs(S._transcript(TID_B)["evalLocked"], False)
         self.assertEqual(S._transcript(TID_A)["segments"][0]["text"], "今日はテスタです")   # 文書の中身は変えない
-        write_json(S.SETTINGS, {"evalDirs": []})                                     # 設定が消えたら、どれも固定しない
+        write_json(_workdata.SETTINGS, {"evalDirs": []})                                     # 設定が消えたら、どれも固定しない
         self.assertIs(S._transcript(TID_A)["evalLocked"], False)
 
 
@@ -189,13 +198,13 @@ class TestRangeRetranscribe(_ProofStore):
 
     def tearDown(self):
         self.env.stop()
-        with S._jobs_lock:
+        with _jobs._jobs_lock:
             for k in self.mine:
-                S._jobs.pop(k, None)
+                _jobs._jobs.pop(k, None)
         super().tearDown()
 
     def doc(self):
-        with open(S.tx_path(TID_A), encoding="utf-8") as f:
+        with open(_store.tx_path(TID_A), encoding="utf-8") as f:
             return json.load(f)
 
     def put(self, segs, speakers=()):
@@ -209,10 +218,10 @@ class TestRangeRetranscribe(_ProofStore):
                  "proofed": True, "tags": ["bgm"]} for i in range(4)]
 
     def run_range(self, ids):
-        spec = S.validate_retranscribe({"tid": TID_A, "ids": ids, "mode": "range", "model": "small"})
-        job = S.add_job(spec, "retranscribe")
+        spec = _rerun.validate_retranscribe({"tid": TID_A, "ids": ids, "mode": "range", "model": "small"})
+        job = _jobs.add_job(spec, "retranscribe")
         self.mine.append(job["id"])
-        S.work_one(job["id"])
+        _jobs.work_one(job["id"])
         return spec, job
 
     def test_range_replaces_only_the_range(self):
@@ -229,29 +238,29 @@ class TestRangeRetranscribe(_ProofStore):
         from human.proof import layers
         self.assertEqual([g["id"] for g in rest], ["x1", "x2", "x3"])
         self.assertTrue(all(g.get("proofed") and layers.MACH_CHANGED in g["flag"] for g in rest))
-        mach = S.read_layers(TID_A)[0]
+        mach = _store.read_layers(TID_A)[0]
         self.assertTrue(mach["rows"] and all(r["text"].startswith("範囲再認識") for r in mach["rows"] if r["start"] >= 2.0 - 1e-6))
         self.assertGreaterEqual(min(r["start"] for r in mach["rows"] if r["text"].startswith("範囲再認識")), 2.0 - 1e-6)   # 新しい行は範囲の内側
         self.assertLessEqual(max(g["end"] for g in segs), 7.8 + 1e-6)
         starts = [g["start"] for g in segs]
         self.assertEqual(starts, sorted(starts))                                   # 時刻順
         self.assertEqual(len({g["id"] for g in segs}), len(segs))                  # id は重複しない
-        self.assertEqual(os.listdir(S.TMP_DIR) if os.path.isdir(S.TMP_DIR) else [], [])                    # 一時ファイルは残さない
-        with open(os.path.join(S._hist_dir(TID_A), "%d.json" % S.hist_stamps(TID_A)[-1]), encoding="utf-8") as f:   # 最後の履歴 = 実行の直前
+        self.assertEqual(os.listdir(_workdata.TMP_DIR) if os.path.isdir(_workdata.TMP_DIR) else [], [])                    # 一時ファイルは残さない
+        with open(os.path.join(_store._hist_dir(TID_A), "%d.json" % _store.hist_stamps(TID_A)[-1]), encoding="utf-8") as f:   # 最後の履歴 = 実行の直前
             bak = json.load(f)
         self.assertEqual([g["text"] for g in bak["segments"]], ["行0", "行1", "行2", "行3"])                 # 差し替える前の行
 
     def test_range_longer_than_15_minutes_is_refused(self):
         far = [{"id": "y0", "start": 0, "end": 1, "text": "a"}, {"id": "y1", "start": 1000, "end": 1001, "text": "b"}]
         self.put(far)
-        with self.assertRaises(S.ApiError) as c:
-            S.validate_retranscribe({"tid": TID_A, "ids": ["y0", "y1"], "mode": "range", "model": "small"})
+        with self.assertRaises(ed_state.ApiError) as c:
+            _rerun.validate_retranscribe({"tid": TID_A, "ids": ["y0", "y1"], "mode": "range", "model": "small"})
         self.assertEqual((c.exception.code, c.exception.status), ("too_long", 400))
         self.assertIn("長すぎ", str(c.exception))
-        self.assertEqual(S.MAX_RANGE_SEC, 900)
+        self.assertEqual(_rerun.MAX_RANGE_SEC, 900)
         ok = [{"id": "y0", "start": 0, "end": 1, "text": "a"}, {"id": "y1", "start": 899, "end": 900, "text": "b"}]   # ちょうど 15 分は通る
         self.put(ok)
-        self.assertEqual(S.validate_retranscribe({"tid": TID_A, "ids": ["y0", "y1"], "mode": "range", "model": "small"})["range"], [0, 900])
+        self.assertEqual(_rerun.validate_retranscribe({"tid": TID_A, "ids": ["y0", "y1"], "mode": "range", "model": "small"})["range"], [0, 900])
 
 
 class TestVoiceChain(_ProofStore):
@@ -260,11 +269,11 @@ class TestVoiceChain(_ProofStore):
 
     def setUp(self):
         super().setUp()
-        self.patch(S, "VOICES_DIR", os.path.join(self.tmp, "voices"))
+        self.patch(_diar, "VOICES_DIR", os.path.join(self.tmp, "voices"))
         self.start_mocks()
 
     def read(self):
-        with open(S.tx_path(TID_A), encoding="utf-8") as f:
+        with open(_store.tx_path(TID_A), encoding="utf-8") as f:
             return json.load(f)
 
     def job(self, spec):
@@ -283,21 +292,21 @@ class TestVoiceChain(_ProofStore):
 
     def start_mocks(self):
         """動画・音声・判別のモデルは使わない(疑似の判別 diarize_fake と、上の emb の声の特徴)"""
-        for name, val in (("check_source", lambda p: p), ("extract_audio", lambda *a: None), ("has_sherpa", lambda: True),
-                          ("ensure_diar_models", lambda *a: None), ("backend_name", lambda: "fake"), ("embed_groups", self.emb)):
-            self.patch(S, name, val)
+        for obj, name, val in ((_tools, "check_source", lambda p: p), (_recognize, "extract_audio", lambda *a: None), (_diarize, "has_sherpa", lambda: True),
+                               (_diarize, "ensure_diar_models", lambda *a: None), (ed_state, "backend_name", lambda: "fake"), (_diarize, "embed_groups", self.emb)):
+            self.patch(obj, name, val)
 
     def learn(self):
         self.doc([("S1", "兎田ぺこら"), ("S2", "話者2")])
-        spec = S.validate_voice_learn({"tid": TID_A, "embedding": "voxceleb", "names": ["兎田ぺこら", "話者2"]})
+        spec = _speakers.validate_voice_learn({"tid": TID_A, "embedding": "voxceleb", "names": ["兎田ぺこら", "話者2"]})
         j = self.job(spec)
-        S.run_voice_learn(j)
+        _speakers.run_voice_learn(j)
         self.assertEqual((j["state"], j["learned"]), ("done", ["兎田ぺこら"]), j.get("error"))   # 仮の名前(話者2)は覚えない
 
     def rediarize(self, **req):
         self.doc([("S1", "話者1"), ("S2", "話者2")])                                  # 判別し直す前は仮の名前
-        j = self.job(S.validate_diarize(dict({"tid": TID_A, "numSpeakers": 2}, **req)))
-        S.run_diarize(j)
+        j = self.job(_speakers.validate_diarize(dict({"tid": TID_A, "numSpeakers": 2}, **req)))
+        _speakers.run_diarize(j)
         self.assertEqual(j["state"], "done", j.get("error"))
         return j, self.read()
 
@@ -315,9 +324,9 @@ class TestVoiceChain(_ProofStore):
 
     def test_forgotten_voice_does_not_name(self):
         self.learn()
-        self.assertEqual([v["name"] for v in S.voices_summary()["voxceleb"]], ["兎田ぺこら"])
-        S.delete_voice("voxceleb", "兎田ぺこら")                                       # 忘れる
-        self.assertEqual(S.voices_summary().get("voxceleb", []), [])
+        self.assertEqual([v["name"] for v in _speakers.voices_summary()["voxceleb"]], ["兎田ぺこら"])
+        _speakers.delete_voice("voxceleb", "兎田ぺこら")                                       # 忘れる
+        self.assertEqual(_speakers.voices_summary().get("voxceleb", []), [])
         j, d = self.rediarize()
         self.assertFalse(j.get("named"))
         self.assertEqual([s["name"] for s in d["speakers"]], ["話者1", "話者2"])
@@ -350,7 +359,7 @@ class TestRerunReceive(_ProofStore):
                 ("評価用", self.sparse_rows(), {"evalSet": True}, dict(target="flagged"), "eval_set")):
             with self.subTest(name):
                 self.put(rows, **extra)
-                with self.assertRaises(S.ApiError) as c:
+                with self.assertRaises(ed_state.ApiError) as c:
                     self.rerun(**req)
                 self.assertEqual((c.exception.code, c.exception.status), (code, 400))
 

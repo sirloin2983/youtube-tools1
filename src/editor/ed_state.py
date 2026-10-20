@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """「編集」のサーバーの部品: 置き場所・設定の値・共通の小道具・記録(落ちたときの手がかり)・作業データの切り替え。
 
-名前は serve.py からも見える(serve.py が受け付けて、この部品へ転送する。テストの S.名前 = … もここに入る)。
 ほかの部品の名前は `ed_xxx.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。
 """
 import faulthandler
@@ -21,7 +20,7 @@ from pipeline.transcribe import backend as _txbackend  # noqa: E402   疑似の�
 APP_ID = _runtime.TOOL_APPS["transcribe"]   # /api/ping の app 名(互換のため値は変えない。正は ytt.runtime.TOOL_APPS)
 # 版(SERVER_VERSION)・このフォルダ(ROOT)・作業データの置き場所(段階4。DATA_DIR・TX_DIR・TMP_DIR・SETTINGS・FEEDBACK)・
 # スタジオと clip-marker の data.json(STUDIO_DATA・MARKER_DATA)の今の値の持ち主は ytt/workdata(下の層の部品も同じ名前を直に読むため。
-# ここに同じ名前を残さない = S.TX_DIR = … は serve の名前の受付が workdata へ届ける)。起動時に prepare() が ytt.datadir で決めて
+# ここに同じ名前を残さない)。起動時に prepare() が ytt.datadir で決めて
 # serve.set_data_dir() で切り替え、認識ワーカーにも環境変数 TRANSCRIBE_DATA_DIR で渡す。import した直後はこのフォルダ(テスト用)= 下の set_root
 _flowwire.setup_places(root=os.path.dirname(os.path.abspath(__file__)))   # 置き場所の既定(ytt/workdata の set_root)と名簿のファイル(① roster.ROSTER)を ② の準備 1 か所で(OPT-E2 1c-1)
 UI_DIR = os.environ.get("YTT_EDITOR_UI_DIR") or os.path.join(os.path.dirname(_workdata.ROOT), "app", "ui", "editor")   # 画面の部品(app*.js・cut.js・pack-tab.js・proof.css)の置き場所。RV C2 で src/editor から src/app/ui/editor へ(URL は /transcribe/app.js のまま)。環境変数はテスト用(serve.py を一時フォルダに写して動かすため)
@@ -170,7 +169,7 @@ fmt_hms = _yschemas.fmt_hms   # lint: keep 別名(RS2-1a)= 秒 → 時:分:秒
 
 
 # GPU と部品の有無(nvidia_gpu・has_faster_whisper・worker_has・gpu_ready・_probe_gpu)・ワーカーの Python(worker_python)・
-# 疑似のワーカーの判定(worker_fake)の正は pipeline/transcribe/worker_client(S.名前 は serve の受付で読める)
+# 疑似のワーカーの判定(worker_fake)の正は pipeline/transcribe/worker_client
 
 
 def backend_name():

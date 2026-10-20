@@ -2,7 +2,7 @@
 """② 管理の層 flow: 送り返しの zip(F1 の F2。docs/design/f1-build.md の 2・3 の (f1d)(f1m)・plan/f1-friend-pc.md の決めたこと 11)。
 
 友人の PC の ② は、依頼(封筒に requestId がある実行)が 1 本終わるたびに、`<app>/outbox/<requestId>__<runId>.zip` を組む。
-アプリ(C#)が Dropbox の `/送り返し/` へ上げ、上げ終えたら `mark_done` で `outbox/済み/` へ移す(消さない = 直近 KEEP_DONE 件は残す)。
+友人のアプリの同期(friendapp/sync.py)が Dropbox の `/送り返し/` へ上げ、上がった物は outbox から消す。
 ユーザーの PC の受付が受け取る(human/friend/returns)。Dropbox を知らないのは ② の決まりのまま: ここは zip を作って並べるだけ。
 
 zip の中身(動画・音声は入れない。ファイルは 作業用/ にある物だけ。壊れて読めない物は飛ばす):
@@ -33,11 +33,9 @@ log = logging.getLogger("ytt.flow.outbox")
 
 SCHEMA = "youtube-tools-outbox/v1"
 OUTBOX_DIR = "outbox"
-DONE_DIR = "済み"
 MAX_BYTES = 50 * 1024 * 1024
 LOG_TAIL_LINES = 2000
 LOG_TAIL_READ = 2 * 1024 * 1024   # ログの末尾はこの大きさだけ読む
-KEEP_DONE = 20
 NAME_RE = re.compile(r"^([0-9A-Za-z_-]{1,64})__([0-9A-Za-z_-]{1,64})\.zip\Z")
 SECRET_KEY_RE = re.compile(r"api[-_]?key|token|secret|passw|credential|authorization|cookie", re.I)
 SECRET_TEXT_RE = re.compile(r"AIza[0-9A-Za-z_-]{20,}|sk-[0-9A-Za-z_-]{20,}|(?i:bearer)\s+[0-9A-Za-z._~+/=-]{16,}|X-YTT-Token\W+[0-9A-Za-z_-]{8,}")
@@ -218,46 +216,3 @@ def build(result_path, app_dir, request_id=None, health=None, log_path=None, max
     except Exception as e:   # 実行は失敗にしない(呼び手は終わったあとの hook)
         log.warning("送り返しの zip を作れませんでした: %s %s", e.__class__.__name__, str(e)[:150])
         return None
-
-
-def list_outbox(app_dir):
-    """送り返す zip の一覧(古い順)-> [{"id": zip の名前, "requestId", "runId", "size", "at"(更新のミリ秒)}]。
-    HTTP の口 GET /api/flow/outbox の中身(F6 で server.py が {"files": これ} で返す)。書きかけ(.part)は出さない"""
-    d = outbox_dir(app_dir)
-    out = []
-    try:
-        names = os.listdir(d)
-    except OSError:
-        return out
-    for n in names:
-        m = NAME_RE.match(n)
-        p = os.path.join(d, n)
-        if not m or not os.path.isfile(p):
-            continue
-        try:
-            st = os.stat(p)
-        except OSError:
-            continue
-        out.append({"id": n, "requestId": m.group(1), "runId": m.group(2), "size": st.st_size, "at": int(st.st_mtime * 1000)})
-    out.sort(key=lambda x: (x["at"], x["id"]))
-    return out
-
-
-def mark_done(app_dir, zip_id):
-    """上げ終えた印: outbox/<id> を outbox/済み/ へ移す -> 移したら True(無い・名前が違う = False)。
-    口 POST /api/flow/outbox/done {id}。名前は NAME_RE の形だけ(パスを通さない)。済みは新しい KEEP_DONE 件だけ残す"""
-    if not isinstance(zip_id, str) or not NAME_RE.match(zip_id):
-        return False
-    src = os.path.join(outbox_dir(app_dir), zip_id)
-    if not os.path.isfile(src):
-        return False
-    done = os.path.join(outbox_dir(app_dir), DONE_DIR)
-    os.makedirs(done, exist_ok=True)
-    _fsio.replace_retry(src, os.path.join(done, zip_id))
-    try:
-        olds = sorted((os.path.join(done, n) for n in os.listdir(done) if NAME_RE.match(n)), key=os.path.getmtime)
-        for p in olds[:-KEEP_DONE]:
-            _fsio.unlink_quiet(p)
-    except OSError:
-        pass
-    return True

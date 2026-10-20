@@ -4,8 +4,7 @@
 
 機械と人の行の対応づけ(_groups・_prep・split_nosub・_norm)は human/proof/learn、置換辞書は pipeline/transcribe/replace を呼ぶたびに読む
 (⑤ から ②・① を読む向き。learn はここを読まない)。画面の API(/api/metrics)は serve が直に呼び、
-src/eval/tools/eval_asr.py・src/eval/tools/eval_alt.py は serve の名前(S.norm_cer・S.lev_counts・S.doc_metrics など)で読む。
-S.名前 は serve の受付がここへ回す(テストの S.MAX_LEV_CELLS = … もここに入る)。
+src/eval/tools/eval_asr.py・src/eval/tools/eval_alt.py も直に読む。
 """
 import difflib
 import itertools

@@ -43,17 +43,13 @@ class TestJobsBoard(unittest.TestCase):
         j = self.board.snapshot()["jobs"][0]
         self.assertEqual((j["state"], j["error"]["code"], j["error"]["text"], j["canCancel"], j["canRetry"]), ("error", "x", "失敗しました", False, True))
 
-    def test_cancel_and_retry_go_through(self):
+    def test_cancel_goes_through(self):
         job = jobs.add_job({"title": "配信 B", "tid": "t2"}, "transcribe")
         got = self.board.cancel("tx:" + job["id"])
         self.assertEqual((got["state"], got["finishedAt"] is not None), ("cancelled", True))
         self.assertTrue(job["cancel"])
         with self.assertRaises(B.NotFound):
             self.board.cancel("tx:nothere")
-        job["state"], job["error"] = "error", "失敗しました"
-        new = self.board.retry("tx:" + job["id"])
-        self.assertNotEqual(new["id"], "tx:" + job["id"])
-        self.assertEqual(new["state"], "queued")
 
 
 if __name__ == "__main__":

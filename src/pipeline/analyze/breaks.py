@@ -3,7 +3,7 @@
 
 決まり:
 - 標準ライブラリだけ。純粋な関数(ファイルも時計も読まない)。入力は文字起こしの行 [{"start": 秒, "end": 秒, "text": "…"}] だけ
-- cuts = 切れ目の候補の一覧 / snap = 区間の両端を近くの切れ目へ寄せる / inside_row = 端が行の中かどうか(物差し「端が行の中」用)
+- cuts = 切れ目の候補の一覧 / snap = 区間の両端を近くの切れ目へ寄せる
 - 壊れた行(数でない・end < start・辞書でない)は飛ばす。text が無い行は text を "" とみなす
 
 使い方:
@@ -116,7 +116,3 @@ def snap(a, b, cs, radius=RADIUS):
         a2, b2, ka, kb = a, b, None, None
     return a2, b2, {"in": [a, a2, ka], "out": [b, b2, kb]}
 
-
-def inside_row(t, rows):
-    """t がどれかの行の (start, end) の内側(start < t < end)なら True"""
-    return any(s < t < e for s, e, _text in _rows(rows))

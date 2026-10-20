@@ -8,24 +8,26 @@ import unittest
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SCRIPT = os.path.join(REPO, "dev", "plan_artifact.py")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from plan_fixture import lay  # noqa: E402
 
-DATA_JS = """/* コメント */
-window.PLAN = {
-  updated: "2026-10-12",
-  summary: "一文目。二文目(括弧の。中)。三文目。四文目。",
-  url: "https://example.com/x",   // 末尾コメント
-  lines: [
-    { id: "A", name: "線A", pct: 10, next: "次の物", aim: "docs/spec/a.md を読む", docs: ["x.md", "../docs/spec/a.md"], },
-    { id: "B", name: "線B", pct: 20, next: "docs/spec/none.md は無い" },
-  ],
-  userTasks: { provisional: [{ id: "p1" }, { id: "p2" }] },
-  tasks: [
-    { id: "T1", name: "仕事 1(plan/x.md)", line: "A", state: "done" },
-    { id: "T2", name: "仕事 2", line: "A・B", state: "doing" },
-    { id: "T3", name: "どこにも無い線", line: "Z", state: "wait" },
-  ],
-};
-"""
+PLAN = {
+    "updated": "2026-10-12",
+    "summary": "一文目。二文目(括弧の。中)。三文目。四文目。",
+    "url": "https://example.com/x",
+    "lines": [
+        {"id": "A", "name": "線A", "pct": 10, "next": "次の物", "aim": "docs/spec/a.md を読む", "docs": ["x.md", "../docs/spec/a.md"]},
+        {"id": "B", "name": "線B", "pct": 20, "next": "docs/spec/none.md は無い"},
+    ],
+    "userTasks": {"provisional": [
+        {"sec": "3-1", "id": "p1", "date": "10-12", "what": "x", "weight": "重", "why": ["形"], "added": "2026-10-12"},
+        {"sec": "3-2", "id": "p2", "date": "10-12", "what": "y", "weight": "重", "why": ["形"], "added": "2026-10-12"}]},
+    "tasks": [
+        {"id": "T1", "name": "仕事 1(plan/x.md)", "line": "A", "state": "done"},
+        {"id": "T2", "name": "仕事 2", "line": "A・B", "state": "doing"},
+        {"id": "T3", "name": "どこにも無い線", "line": "Z", "state": "wait"},
+    ],
+}
 
 HTML = ('<!doctype html><html><head><title>t</title><link rel="stylesheet" href="plan.css"></head>'
         '<body><script src="data.js"></script><script src="plan.js"></script><p>hi</p></body></html>')
@@ -39,7 +41,8 @@ def make_vault(root):
     plan = os.path.join(root, "plan")
     os.makedirs(plan)
     os.makedirs(os.path.join(root, "docs", "spec"))
-    files = {"plan/data.js": DATA_JS, "plan/plan.css": "p{}", "plan/plan.js": "var a=1;",
+    lay(plan, PLAN)
+    files = {"plan/plan.css": "p{}", "plan/plan.js": "var a=1;",
              "plan/index.html": HTML, "plan/user-tasks.html": HTML,
              "plan/x.md": "x", "docs/spec/a.md": "a"}
     for rel, body in files.items():
@@ -80,7 +83,7 @@ class PlanArtifactTest(unittest.TestCase):
             self.assertNotIn("無い資料: docs/spec/a.md", r.stderr)
             with open(os.path.join(out, "index.html"), encoding="utf-8") as f:
                 self.assertIn("window.PLAN_NO_MD", f.read())
-            # 同じ data.js なら同じ中身
+            # 同じ計画のデータなら同じ中身
             home = read(plan, "../ホーム.md")
             r2 = run(plan, out)
             self.assertEqual(read(plan, "計画の索引.md"), text)
@@ -108,24 +111,24 @@ class PlanArtifactTest(unittest.TestCase):
     def test_version_and_refs(self):
         with tempfile.TemporaryDirectory() as tmp:
             plan = make_vault(os.path.join(tmp, "vault"))
-            js = os.path.join(plan, "data.js")
-            with open(js, encoding="utf-8") as f:
-                body = f.read()
-            body = body.replace('updated: "2026-10-12",',
-                                'updated: "2026-10-12",\r\n  versions: [\r\n    ["全体(仮)", "0.0.1"], ["ui-kit", "v1"]\r\n  ],')
-            body = body.replace('summary: "一文目。', 'summary: "仮決め 9 件。消した git:cbe1a64:docs/spec/gone.md を読む。一文目。')
-            body = body.replace('docs: ["x.md", "../docs/spec/a.md"]', 'docs: ["x.md", "../docs/spec/a.md", "../dev/plan_artifact.py"]')
-            with open(js, "w", encoding="utf-8", newline="") as f:
-                f.write(body)
+            main = os.path.join(plan, "data", "main.json")
+            with open(main, encoding="utf-8") as f:
+                m = json.load(f)
+            m["versions"] = [["全体(仮)", "0.0.1"], ["ui-kit", "v1"]]
+            m["lines"][0]["docs"].append("../dev/plan_artifact.py")
+            with open(main, "w", encoding="utf-8", newline="\n") as f:
+                json.dump(m, f, ensure_ascii=False)
+            with open(os.path.join(plan, "data", "summary.md"), "w", encoding="utf-8", newline="\n") as f:
+                f.write("消した git:cbe1a64:docs/spec/gone.md を読む。一文目。\n")
             r = run(plan, os.path.join(tmp, "out"))
             self.assertEqual(r.returncode, 0, r.stderr)
             sys.path.insert(0, os.path.join(REPO, "src"))
             from ytt.version import VERSION
-            with open(js, encoding="utf-8", newline="") as f:
+            with open(os.path.join(plan, "data.js"), encoding="utf-8") as f:
                 after = f.read()
-            self.assertIn('["全体(仮)", "%s"], ["ui-kit", "v1"]' % VERSION, after)   # 全体の版だけ version.py から
-            self.assertIn("\r\n  versions:", after)   # 改行は変えない
-            self.assertIn("「仮決め 9 件」が provisional の数 2 と違う", r.stderr)
+            self.assertIn('"%s"' % VERSION, after)   # 全体の版だけ version.py から
+            self.assertNotIn("0.0.1", after)
+            self.assertIn('"ui-kit"', after)
             self.assertNotIn("gone.md", r.stderr)   # git:<コミット>: の後ろは消した資料 = 警告しない
             self.assertNotIn("plan_artifact.py", r.stderr)
             self.assertIn("`dev/plan_artifact.py`(リポジトリ)", read(plan, "線A.md"))

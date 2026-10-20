@@ -2,13 +2,13 @@
 """② 管理の層 flow: ジョブの掲示板(RS8 の ② の口 S1。形は notes:docs/spec/pipeline.md 2.9・設計 notes:docs/design/rs8-flow-api.md)。
 
 新しい画面(入口・案件の画面)が「今・何が・どこまで動いているか」を 1 つの形(Job)で読むための表。プロセスに 1 つ(default())。
-画面が読むのは入口の GET /api/flow/status の jobs・cases・rev(src/app/server.py)。取り消し・やり直しも id 1 つで(POST /api/flow/cancel・retry)。
+画面が読むのは入口の GET /api/flow/status の jobs・cases・rev(src/app/server.py)。取り消しも id 1 つで(POST /api/flow/cancel)。
 
 器(② の Run・編集のジョブ・解析・書き出し・パック・ライブ・③ の届ける・検索)は次の 2 つのどちらかの形で載せる(器の本体の API は変えない):
 - 押す形 upsert(job): 器が状態を変える所で 1 行呼ぶ。器が忘れた物も、終わった直近 RECENT_MAX 件までは掲示板に残る
 - 引く形 register(頭, source=fn): 問い合わせ(snapshot)のたびに fn() -> [job] を読んで写す(器が自分の状態を持ち、変わる所が多い物向け。② の Run はこれ =
   flow/runqueue.Queue.attach_board)。fn が返さなくなった待ち・実行中の物は消す(器が忘れた)・終わった物は残す
-取り消し・やり直しは register(頭, cancel=fn, retry=fn) の fn(器の中の id) へ id の頭(PREFIXES)で振り分ける。
+取り消しは register(頭, cancel=fn) の fn(器の中の id) へ id の頭(PREFIXES)で振り分ける。
 親子: link(子の id, 親の id) = ② の実行が頼んだ器のジョブ(Run.owned)を親の下に畳むための印。子が親なしで載ったら親を足す。
 案件: Job の case は案件の根(fsio.norm_path)。器が知らなければ set_case_hook(fn) の fn(job) -> 根か None で引く(既定は無し。入口は guess_case を登録)。
 ① の器(書き出し・パック)は flow を読めない(層の向き)ので、呼び手(app の serve)が器の on_change の hook で upsert する。
@@ -167,13 +167,13 @@ class Board:
         self._case_cache = {}                     # (id, target の鍵) -> (根か None, 引いた時刻)
 
     # ------------------------------------------------------------ 登録
-    def register(self, prefix, source=None, cancel=None, retry=None):
+    def register(self, prefix, source=None, cancel=None):
         """器を登録する(頭ごとに 1 つ。登録し直すと置き換える)。source() -> [Job](引く形)・cancel(器の中の id)・retry(器の中の id) -> 新しい Job。
         cancel は None か止めたあとの Job・retry は新しい Job を返す。できなければ ValueError(Refused になる)・無ければ LookupError(NotFound になる)を上げる"""
         if prefix not in PREFIXES:
             raise ValueError("知らない頭です: %r(%s)" % (prefix, "・".join(PREFIXES)))
         with self._lock:
-            self._handlers[prefix] = {"source": source, "cancel": cancel, "retry": retry}
+            self._handlers[prefix] = {"source": source, "cancel": cancel}
 
     def unregister(self, prefix):
         with self._lock:
@@ -367,23 +367,6 @@ class Board:
             self.upsert(got)
         self.refresh(prefix)
         return self.get(jid) or job
-
-    def retry(self, jid):
-        """id のジョブを同じ指定で入れ直す(器の retry へ)。-> 新しい Job。無い id は NotFound・canRetry が偽・器に retry が無いは Refused"""
-        prefix, inner, job, fn = self._handler(jid, "retry")
-        if not job["canRetry"] or fn is None:
-            raise Refused("このジョブは今はやり直せません(%s)" % job["stateLabel"], 409, "cannot_retry")
-        try:
-            got = fn(inner)
-        except LookupError as e:
-            raise NotFound(str(e) or "そのジョブはありません")
-        except ValueError as e:
-            raise Refused(str(e), 409, "cannot_retry")
-        if not isinstance(got, dict):
-            raise Refused("やり直したジョブが分かりません", 409, "cannot_retry")
-        new = self.upsert(got)
-        self.refresh(prefix)
-        return self.get(new["id"]) or new
 
 
 _default = None

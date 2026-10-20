@@ -27,7 +27,6 @@ from pathlib import Path
 from ytt import errors as _errors, runtime as _runtime, schemas as _schemas
 
 TOOL_NAME = _runtime.TOOL_APPS["transcribe"]   # 受け渡しの tool.name(互換のため値は変えない。manage/cases/handoff_io も同じ値を持つ)
-_num = _schemas.num
 
 
 def _safe_name(value: str, fallback: str = "resolve-package") -> str:
@@ -90,7 +89,7 @@ def sorted_segments(doc):
     for g in doc.get("segments") or []:
         if not isinstance(g, dict):
             continue
-        a, b = _num(g.get("start")), _num(g.get("end"))
+        a, b = _schemas.num(g.get("start")), _schemas.num(g.get("end"))
         if a is None or b is None or b < a:
             continue
         out.append(g)
@@ -100,7 +99,7 @@ def sorted_segments(doc):
 def _media_of(doc):
     """受け渡しの JSON の media(動画のパス・名前・長さ。transcript/v1 と cut-plan/v1 で同じ)"""
     return {"path": str(doc.get("sourcePath") or ""), "name": str(doc.get("sourceName") or os.path.basename(str(doc.get("sourcePath") or ""))),
-            "durationSec": _num(doc.get("duration"))}
+            "durationSec": _schemas.num(doc.get("duration"))}
 
 
 def build_transcript_v1(doc, version):
@@ -127,7 +126,7 @@ def build_transcript_v1(doc, version):
         out["clip"] = doc["clip"]
     out.update({"title": str(doc.get("title") or ""), "language": str(doc.get("language") or ""), "speakers": speakers, "segments": segs})
     if doc.get("whole") is False:   # 範囲を指定して文字起こしした文書は、その範囲も示す(約束に無い項目。読む側は無視してよい)
-        out["transcribedRange"] = {"start": _num(doc.get("start")) or 0.0, "end": _num(doc.get("end"))}
+        out["transcribedRange"] = {"start": _schemas.num(doc.get("start")) or 0.0, "end": _schemas.num(doc.get("end"))}
     return out
 
 
@@ -188,10 +187,7 @@ def _load_pack():
     """パックの部品(同じフォルダの pack と resolve_textplus)。
     呼ばれたときに初めて読む(重い部品なので、残す行の規則・SRT・受け渡しの JSON だけ使うときは読まない)。
     resolve_export 自体が pipeline/pack にあるので、sys.path を探す必要は無い"""
-    try:
-        from . import pack, resolve_textplus
-    except ImportError as e:
-        raise _errors.ResolveExportError("パックの部品(pipeline.pack)を読み込めません: %s" % e)
+    from . import pack, resolve_textplus
     return pack, resolve_textplus
 
 

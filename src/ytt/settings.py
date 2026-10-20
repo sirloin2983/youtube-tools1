@@ -19,7 +19,7 @@
 ここに置く(どの層の部品も編集の部品を読まずに設定を読める)。
 置き場所は ytt/workdata の SETTINGS を呼ぶたびに読む(テストの S.SETTINGS = … が効く)。鍵の検査は持ち主の部品が register_patch_key で足す
 (2 つ目のエンジンの altEngine は human/proof/alt)。
-評価用のフォルダの判定(eval_dirs・in_eval_dir・eval_name_guard。設定 evalDirs を読む)もここ(RS0-f)。編集の部品・テストは serve の名前の受付(S.load_settings など)からも読める。
+評価用のフォルダの判定(eval_dirs・in_eval_dir・eval_name_guard。設定 evalDirs を読む)もここ(RS0-f)。
 """
 import json
 import os

@@ -186,8 +186,8 @@ test('out-of-order responses honor the most recent navigation request', async ()
   assert.equal(h.S.docId, 'C');
 });
 
-// 字幕の読む速さの印: 画面の readMark とサーバーの pipeline/transcribe/retime.subread_mark が同じ結果になること(例は tests/subread_cases.json。test_retime.py も読む)
-test('readMark matches the server rule (subread_cases.json)', () => {
+// 字幕の読む速さの印: 画面の readMark の結果(例は tests/subread_cases.json)
+test('readMark gives the marks in subread_cases.json', () => {
   const cases = JSON.parse(fs.readFileSync(path.join(__dirname, 'subread_cases.json'), 'utf8'));
   const src = lineSource('const READ_FAST_CPS') + lineSource('const READ_CH') + lineSource('const READ_MEMO')
     + fnSource('readChars') + fnSource('readLimits') + fnSource('readMark');

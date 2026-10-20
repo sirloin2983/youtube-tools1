@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""カットの計算(試算)とパックの作成。② の CLI(src/app/cli.py)と画面(serve.py)の両方から呼ぶ共通部(処理を二重に持たない)。
+"""カットの計算(試算)とパックの作成。画面(serve.py)と ② の自動の流れが呼ぶ共通部(処理を二重に持たない)。
 
   plan_cut(Request)   … 動画を調べ、カットの決め方を組み合わせて「残す区間」を出す。ファイルは作らない(= --dry-run)
   build_pack(Plan, …) … EDL・カット後の字幕・友人へ.txt・cut-plan.json(+ 任意で粗編集 mp4・元動画のコピー・Text+パック)を作る。
@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
-from ytt import fsio
+from ytt import fsio, loudness as LD
 from . import auto_cut as AC
 from . import cut2resolve_core as C
 from . import srt2resolve as S
@@ -880,7 +880,6 @@ def _pack_gain(loudness, volume, render, copy_video, same, m, task=None, log=Non
         elif not mmeta["audio"]:
             loud = {"target": loudness, "skipped": "音声の無い動画です"}
         else:
-            LD = C.loudness_mod()
             _say(log, task, "残す区間の音量を測っています…")
             mf = mmeta["fps"]
             spans = [(C.frames_to_sec(a, mf), C.frames_to_sec(b, mf)) for a, b in m["keeps"]]
@@ -897,7 +896,7 @@ def _pack_gain(loudness, volume, render, copy_video, same, m, task=None, log=Non
         return {"volume": volume, "skipped": same_msg}, 0.0, ["音量は変えませんでした(%s)。" % same_msg]
     if not mmeta["audio"]:
         return {"volume": volume, "skipped": "音声の無い動画です"}, 0.0, []
-    gain = C.loudness_mod().pct_to_db(volume)
+    gain = LD.pct_to_db(volume)
     return {"volume": volume, "gainDb": gain}, gain, []
 
 

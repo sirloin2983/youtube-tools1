@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""友人の玄関の ② の組み立て(CLI(app/cli.py の run_local)と同じ部品を糸つきで持つ)。
+"""友人の玄関の ② の組み立て(flow の部品を糸つきで持つ)。
 
 - FriendQueue = ② の待ち行列 flow/runqueue.Queue + 道具 flow/tools.LocalTools(配信の段はスタジオなしの台帳 flow/studiobook.LocalStudio)。
   ③ human・入口の 3 ツールの取り込みは読まない。待ちの記録は ② のまま(<作業データ>/app/logs。閉じても次に開いたとき続きから = 4-6)
@@ -98,7 +98,7 @@ def _read_doc(tid):
 
 
 class FriendQueue(_runqueue.Queue):
-    """玄関の ② の待ち行列(hook は CLI の CliRunner と同じ物 + 区間だけの依頼の後の解析を飛ばす)"""
+    """玄関の ② の待ち行列(区間だけの依頼の後の解析を飛ばす)"""
 
     def __init__(self, studio_book, log_dir, log=None):
         self.learning_reader = _learning.Learning(_learning.learning_dir())   # 学習の束だけ(③ の読み込みは渡さない)

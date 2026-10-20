@@ -86,8 +86,6 @@ class TestE2eSuite(Table):
             ("一覧にあって実在しない", RC.suite_problems, (tmp, suite, set(), {"a/e2e_a.py"}), "実在しない: a/e2e_gone.py"),
             ("実在するのに一覧にも除外にも無い", RC.suite_problems, (tmp, suite[:1], set(), {"a/e2e_a.py", "a/e2e_new.py"}), "e2e を足したら"),
             ("除外に入れれば通る", RC.suite_problems, (tmp, suite[:1], {"a/e2e_a.py"}, {"a/e2e_a.py"}), None),
-            ("編集の一式が一覧に無い物を流す", RC.suite_problems, (tmp, suite[:1], set(), {"a/e2e_a.py"}, ["x-case"], [], {"y"}), "CASES_E2E"),
-            ("編集だけの e2e が復活", RC.suite_problems, (tmp, suite[:1], set(), {"a/e2e_a.py"}, [], ["old"], set()), "E2E が空でない"),
         ])
 
 

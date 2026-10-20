@@ -36,7 +36,7 @@ class CheckApiTest(TL.Base):
         sources.register("read", "tst", fake_cards)
         apply.register("read", "tst", lambda ctx, c, ans: self.applied.append(c["id"]) or {"n": len(self.applied)},
                        lambda ctx, row: self.applied.remove(row["card"]) or {"ok": True})
-        self.addCleanup(sources.unregister, "read", "tst")
+        self.addCleanup(sources._unregister, "read", "tst")
         self.addCleanup(apply._unregister, "read", "tst")
         deck.invalidate()
         self.srv, self.port = L.make_server(0, self.sup)
@@ -129,7 +129,7 @@ class CheckApiTest(TL.Base):
         from human.check import timerow as check_time
         sources.register("time", "tst", lambda view: [dict(c, id=c["id"].replace("read:", "time:"), kind="time") for c in fake_cards(view)])
         apply.register("time", "tst", check_time._apply_time, check_time._revert_time, check_time._check)
-        self.addCleanup(sources.unregister, "time", "tst")
+        self.addCleanup(sources._unregister, "time", "tst")
         self.addCleanup(apply._unregister, "time", "tst")
         deck.invalidate()
         cid = "time:tst:aaaaaaaaaaaa#s1"

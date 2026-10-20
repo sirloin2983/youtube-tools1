@@ -13,7 +13,7 @@
 home の決め方: 環境変数 YTT_FRIEND_HOME > src の親(親が app-<版> ならもう 1 つ上)。
 作業データは YTT_DATA_DIR が決まっていればそれ(テストの inplace も)、無ければ <home>/data。
 
-setup() が、CLI(app/cli.py の use_data_dir・use_studio_data)と同じ順で ② の置き場所を決める(③ の学習の読み込みは渡さない = 学習の束だけ読む)。
+setup() が ② の置き場所を決める(③ の学習の読み込みは渡さない = 学習の束だけ読む)。
 """
 import os
 import shutil
@@ -199,7 +199,7 @@ def setup(env=None, log=None):
     h = home(env)
     if not (env.get("YTT_DATA_DIR") or "").strip():
         env["YTT_DATA_DIR"] = os.path.join(h, DATA_NAME)
-    for name in _datadir.ENV_OVERRIDE.values():   # 指定した根の下だけを使う(CLI の --data-dir と同じ)
+    for name in _datadir.ENV_OVERRIDE.values():   # 指定した根の下だけを使う
         env.pop(name, None)
     lay_tools_shallow(os.path.join(h, TOOLS_NAME))   # 深く展開された道具を直下へ
     tool_env(os.path.join(h, TOOLS_NAME), env)

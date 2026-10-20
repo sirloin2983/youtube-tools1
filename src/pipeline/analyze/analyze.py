@@ -4,7 +4,6 @@
 解析は関数 run(spec, ctl) -> {source, candidates, series, signals, counts, warnings, spec}(失敗・中止は例外)。batch.py が Ctl を作って1本ずつ回す。
   進み具合は ctl.report・取り消しは ctl.check()/is_cancelled・チャットの状態は ctl.note("chat", …)・「チャット待ちを打ち切る」は ctl.flag("skipChat")。
 """
-import glob
 import gzip
 import json
 import math
@@ -22,8 +21,7 @@ from ytt import fsio as _fsio, mediainfo as _media, procs as _procs, studio_env 
 from ytt.errors import ApiError, Cancelled
 from ytt.jobs import Ctl   # ① の関数への手渡し(進み具合・取り消し・合図。OPT2 の J1)
 from ytt.textutil import fmt_ms, fmt_ts, num, permission_message, tail_reason   # 純粋な関数(差し替えない)
-from .excite import (CAP, SENS, LAG_MAX, LAG_MIN_CORR, LAG_MIN_CONTRAST, smooth, median, local_baseline, robust_scale, audio_score, chat_z, shift_chat,  # noqa: E402,F401
-                             chat_score, estimate_lag, head_ramp, comment_score, pick_clips, snap_quiet, downsample)   # 同じ名前で再公開(batch・テスト・e2e が analyze.X で呼ぶ)
+from .excite import audio_score, chat_z, shift_chat, estimate_lag, head_ramp, comment_score, pick_clips, downsample
 
 MAX_DURATION = 12 * 3600
 AUDIO_LEVEL_IDLE = 900   # 音量の解析(ffmpeg)で、この秒数まったく出力がなければ中止
@@ -152,9 +150,7 @@ def save_archive(vid, payload, run, keep=ARCHIVE_KEEP):
     payload = dict(payload, v=1, videoId=vid, runs=runs[-4:] + [run])
     try:
         _fsio.atomic_write(p, gzip.compress(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), 6))
-        fs = sorted((os.path.getmtime(q), q) for q in glob.glob(os.path.join(glob.escape(os.path.dirname(p)), "*.json.gz")))
-        for _, q in fs[:-keep]:
-            os.remove(q)
+        _fsio.prune_cache(os.path.dirname(p), "*.json.gz", keep)
         return True
     except OSError:
         return False

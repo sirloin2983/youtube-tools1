@@ -24,7 +24,7 @@ from pipeline.pack import pack  # noqa: E402
 from pipeline.pack import request as R  # noqa: E402
 from pipeline.pack import resolve_textplus as RTP  # noqa: E402
 from pipeline.pack import srt2resolve as S  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt import loudness, testkit  # noqa: E402
 from ytt.errors import ApiError  # noqa: E402
 from test_cut2resolve import FPS30, HAVE_FFMPEG, make_video, parse_edl, selection_pack, tc2f  # noqa: E402
 
@@ -367,10 +367,6 @@ class TestOldDocs(unittest.TestCase):
 
     def test_network_paths_are_not_touched(self):
         """ネットワーク上のパス(サーバーの共有)は存在も確かめない(確かめるだけで資格情報のハッシュを送るため)。"""
-        for p in (r"\\server\share\clip2.mp4", "//server/share/clip2.mp4"):
-            self.assertTrue(C.is_network_path(p), p)
-        for p in (r"C:\gone\clip.mp4", "/nope/x.mp4", "clip.mp4", "", None):
-            self.assertFalse(C.is_network_path(p), p)
         with mock.patch.object(Path, "is_file", side_effect=AssertionError("ネットワークのパスを調べた")):
             self.assertIsNone(C.find_edit_media(r"\\server\share\clip2.mp4"))   # 余白つき素材も探さない
 
@@ -973,7 +969,7 @@ class TestPackRun(unittest.TestCase):
         self.assertIn("コピーを飛ばしました", r["warnings"][-1])                          # serve.py が info に分ける言葉
         self.assertTrue(any("さくらみこ_roughcut.mp4" in w for w in r["warnings"]))         # 今回書かない前の粗編集は消さずに知らせる
         self.assertEqual((r["videoCopy"], dict(r["files"])["video"]), (rec, out / "さくらみこ.mp4"))   # 次のパックの記録にも同じ条件を残す
-        gain = C.loudness_mod().pct_to_db(50)
+        gain = loudness.pct_to_db(50)
         r, regain, measured = again(rec, volume=50)                                       # 量が違う → 作り直す(% は測らない)
         self.assertEqual((regain, measured, r["loudness"]), (True, False, {"volume": 50, "gainDb": gain}))
         self.assertFalse(any("コピーを飛ばしました" in w for w in r["warnings"]))

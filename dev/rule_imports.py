@@ -47,7 +47,7 @@ ISOLATION = [
     ("I-01", "入口と録画の部品(live・server・flow.live_archive・live_export)が numpy を読まない", "src/app/tests/test_live_archive_api.py test_no_numpy_in_portal",
      ["src/app", "src"], "import live; from app import server; import flow.live_archive, flow.live_export", ["numpy"]),
     # 元のテストは子プロセスの結果を assert していなかった(何も見張っていない)。実際には tx_engines は読まれる(名前と版だけ。先頭でネイティブを読まない = I-04)ので、numpy・faster_whisper に絞った
-    ("I-02", "入口が配信中の文字起こし(live_tx・live_detect)を読んでも numpy・faster_whisper を読まない", "src/app/tests/test_live_tx_prefs.py test_portal_does_not_import_editor_engines",
+    ("I-02", "入口が配信中の文字起こし(live_tx・live_detect)を読んでも numpy・faster_whisper を読まない", "(app のテストから移した)",
      ["src/app", "src"], "import live; import flow.live_tx, flow.live_detect", ["numpy", "faster_whisper"]),
     ("I-03", "入口とワーカー(live_detect・live_excite_worker)が numpy を読まない", "src/pipeline/analyze/tests/test_live_excite_worker.py test_no_numpy_in_portal_or_worker",
      ["src/app", "src"], "import live; from app import server; import flow.live_detect, pipeline.analyze.live_excite_worker", ["numpy"]),
@@ -82,7 +82,7 @@ ISOLATION = [
 
 # ---------------------------------------------------------------- 突き合わせ(app)
 
-@check("C-01", "採用の既定(perHour・waitMin・pad)が束 spec.DEFAULTS の 1 か所から読まれる", "src/app/tests/test_adopt_defaults.py test_prefs_reads_spec・test_live_detect_reads_spec")
+@check("C-01", "採用の既定(perHour・waitMin・pad)が束 spec.DEFAULTS の 1 か所から読まれる", "(app のテストから移した)")
 def c_adopt_defaults():
     from flow import live_detect, spec
     from app import prefs
@@ -95,7 +95,7 @@ def c_adopt_defaults():
     return ["%s が束の adopt と違う: %r != %r" % p for p in pairs if p[1] != p[2]]
 
 
-@check("C-02", "配信中の文字起こしの値(版・exe・モデルのファイル名・置き場所)が編集の認識エンジン tx_engines と同じ", "src/app/tests/test_live_tx_prefs.py test_same_values_as_editor")
+@check("C-02", "配信中の文字起こしの値(版・exe・モデルのファイル名・置き場所)が編集の認識エンジン tx_engines と同じ", "(app のテストから移した)")
 def c_live_tx_constants():
     from flow import live_tx as TX
     from app import prefs as P
@@ -577,6 +577,18 @@ def c_build_friend_zip():
         out.append("REQUIRED_SRC が src_files() に全部入っていない")
     if any("FriendInbox" in n for n in B.REQUIRED_SRC):
         out.append("REQUIRED_SRC に旧い FriendInbox がある")
+    import ast
+    for f in B.src_files():   # zip に入れる層(許可リスト)は、zip に入れない層を読まない
+        if not f.endswith(".py"):
+            continue
+        with open(os.path.join(B.REPO, *f.split("/")), encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        for n in ast.walk(tree):
+            mods = [a.name for a in n.names] if isinstance(n, ast.Import) else [n.module] if isinstance(n, ast.ImportFrom) and n.module and not n.level else []
+            for m in mods:
+                top = m.split(".")[0]
+                if top in ("app", "cut2resolve", "editor", "eval", "human", "manage", "studio"):
+                    out.append("%s:%d が zip に入れない層 %s を読む" % (f, n.lineno, m))
     t = next((t for t in B.TOOLS if t["name"] == "yt-dlp"), None)
     if t is None:
         out.append("TOOLS に yt-dlp が無い")

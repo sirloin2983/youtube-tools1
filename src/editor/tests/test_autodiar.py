@@ -23,7 +23,11 @@ HERE = os.path.dirname(TESTS)
 os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
-import serve as S  # noqa: E402
+import serve  # noqa: E402
+import ed_state  # noqa: E402
+from flow import diar as _diar  # noqa: E402
+from pipeline.transcribe import diarize as _diarize  # noqa: E402
+from ytt import workdata as _workdata  # noqa: E402
 from eval.drill import drill as ed_drill  # noqa: E402 
 from eval.drill import evalbatch as EB  # noqa: E402
 from human.proof import doc_jobs  # noqa: E402
@@ -54,10 +58,10 @@ class TestAutoDiar(unittest.TestCase):
     def setUp(self):
         self.tmp = testkit.tempdir(self)
         self.ev = testkit.tempdir(self)
-        self.saved = (S.TX_DIR, S.TMP_DIR, S.SETTINGS, S.VOICES_DIR)
-        S.TX_DIR, S.TMP_DIR, S.SETTINGS = os.path.join(self.tmp, "transcripts"), os.path.join(self.tmp, ".tmp"), os.path.join(self.tmp, "settings.json")
-        S.VOICES_DIR = os.path.join(self.tmp, "voices")
-        os.makedirs(S.TX_DIR)
+        self.saved = (_workdata.TX_DIR, _workdata.TMP_DIR, _workdata.SETTINGS, _diar.VOICES_DIR)
+        _workdata.TX_DIR, _workdata.TMP_DIR, _workdata.SETTINGS = os.path.join(self.tmp, "transcripts"), os.path.join(self.tmp, ".tmp"), os.path.join(self.tmp, "settings.json")
+        _diar.VOICES_DIR = os.path.join(self.tmp, "voices")
+        os.makedirs(_workdata.TX_DIR)
         self.old_jobs = dict(jobs._jobs)
         jobs._jobs.clear()
         self.env = mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake", "TRANSCRIBE_FAKE_DELAY": "0", "TRANSCRIBE_NORMALIZE": "off",
@@ -75,12 +79,12 @@ class TestAutoDiar(unittest.TestCase):
         self.env.stop()
         jobs._jobs.clear()
         jobs._jobs.update(self.old_jobs)
-        S.TX_DIR, S.TMP_DIR, S.SETTINGS, S.VOICES_DIR = self.saved
+        _workdata.TX_DIR, _workdata.TMP_DIR, _workdata.SETTINGS, _diar.VOICES_DIR = self.saved
         ed_drill._drill_cache.clear()
 
     # -- 道具
     def settings(self, d):
-        testkit.write_json(S.SETTINGS, d)
+        testkit.write_json(_workdata.SETTINGS, d)
 
     def put(self, folder, name, long=False):
         p = os.path.join(folder, name)
@@ -106,19 +110,19 @@ class TestAutoDiar(unittest.TestCase):
         return {s["id"]: s["name"] for s in self.doc(tid).get("speakers") or []}
 
     def diar(self, tid):
-        return S.read_diar(tid)["latest"]
+        return _diarize.read_diar(tid)["latest"]
 
     def age(self, tid, at=OLD):
         """人が直したのは 10 分より前のこと、にする(直近に直した文書は後回し・ドリルに出さない、を外す)"""
         d = self.doc(tid)
         d["updatedAt"] = at
-        S.atomic_write(S.tx_path(tid), json.dumps(d, ensure_ascii=False).encode("utf-8"))
+        ed_state.atomic_write(store.tx_path(tid), json.dumps(d, ensure_ascii=False).encode("utf-8"))
 
     def learn_voice(self, name, idx):
         """覚えた声(embed_fake と同じ向き: idx = 0 は 1 人目・1 は 2 人目)"""
         v = [0.1] * 8
         v[idx] = 1.0
-        S.save_voices(S.DIAR_EMB_DEFAULT, {name: {"vec": S._unit(v), "rows": 3, "sec": 30.0, "updatedAt": 1}})
+        _diar.save_voices(_diarize.DIAR_EMB_DEFAULT, {name: {"vec": _diarize._unit(v), "rows": 3, "sec": 30.0, "updatedAt": 1}})
 
     def text_rows(self, tid):
         return [g for g in self.doc(tid)["segments"] if g["text"].strip()]
@@ -141,7 +145,7 @@ class TestAutoDiar(unittest.TestCase):
         self.assertEqual((run["voices"]["speakers"]["S1"]["decided"], run["voices"]["speakers"]["S1"]["by"]), ("ときのそら", "context"))
         self.assertEqual(run["voices"]["context"], {"name": "ときのそら", "speaker": "S1", "reason": None})
         self.assertEqual([(x["name"], x["by"]) for x in dj["named"]], [("ときのそら", "context")])
-        self.assertTrue(S.drill_candidates(tid)["noSpeaker"] == 0)
+        self.assertTrue(ed_drill.drill_candidates(tid)["noSpeaker"] == 0)
 
     def test_two_speakers_names(self):
         """2 人の動画(候補の名前 = ときのそら)。覚えた声が無ければ話した秒が長い 1 人目に・覚えた声が候補と同じ名前ならその人が先で候補は使われている
@@ -183,18 +187,18 @@ class TestAutoDiar(unittest.TestCase):
         d = self.doc(tid)   # 待っている間に人が 1 行だけ話者を付けた
         d["speakers"] = [{"id": "A", "name": "人が付けた", "color": "#888"}]
         d["segments"][0]["speaker"] = "A"
-        S.atomic_write(S.tx_path(tid), json.dumps(d, ensure_ascii=False).encode("utf-8"))
+        ed_state.atomic_write(store.tx_path(tid), json.dumps(d, ensure_ascii=False).encode("utf-8"))
         self.run_one(dj)
         self.assertEqual(dj["autoSkipped"], "has_speakers")
         self.assertEqual(self.names(tid), {"A": "人が付けた"})
         self.assertEqual(self.doc(tid)["segments"][0]["speaker"], "A")
-        self.assertIsNone(S.read_diar(tid))
-        self.assertEqual(S.autodiar_enqueue(tid), {"skipped": "has_speakers"})
+        self.assertIsNone(_diarize.read_diar(tid))
+        self.assertEqual(proof_speakers.autodiar_enqueue(tid), {"skipped": "has_speakers"})
         d = self.doc(tid)
         d["segments"][0]["speaker"] = ""
         d["evalReviewed"] = {"at": 5, "rows": 1, "durationSec": 2.0}
-        S.atomic_write(S.tx_path(tid), json.dumps(d, ensure_ascii=False).encode("utf-8"))
-        self.assertEqual(S.autodiar_enqueue(tid), {"skipped": "reviewed"})
+        ed_state.atomic_write(store.tx_path(tid), json.dumps(d, ensure_ascii=False).encode("utf-8"))
+        self.assertEqual(proof_speakers.autodiar_enqueue(tid), {"skipped": "reviewed"})
 
     def test_non_eval_is_never_diarized(self):
         """評価用でない文書は、保存した設定・要求の autoDiarize があっても判別しない"""
@@ -226,7 +230,7 @@ class TestAutoDiar(unittest.TestCase):
         self.assertEqual(EB.eb_read()["diar"], {})
 
     def test_enqueue_failure_keeps_transcription(self):
-        with mock.patch.object(proof_speakers, "autodiar_enqueue", side_effect=S.ApiError("busy", "待機中のジョブが多すぎます", 429)):
+        with mock.patch.object(proof_speakers, "autodiar_enqueue", side_effect=ed_state.ApiError("busy", "待機中のジョブが多すぎます", 429)):
             tid, tj = self.transcribe(self.put(self.mem, "k.mp4"))
         self.assertEqual(tj["state"], "done")   # 文字起こしは成功のまま・注意だけ
         self.assertTrue(any("話者の自動判別を始められませんでした" in w for w in doc_jobs.public_job(tj)["warnings"]))
@@ -236,9 +240,9 @@ class TestAutoDiar(unittest.TestCase):
     def test_waiting_doc_is_busy(self):
         tid, _ = self.transcribe(self.put(self.mem, "l.mp4"))
         (dj,) = self.diar_jobs(tid)
-        self.assertIn(tid, S._busy_tids())   # 判別の待ちの文書は、ほかの評価用の作業の対象にしない
+        self.assertIn(tid, ed_drill._busy_tids())   # 判別の待ちの文書は、ほかの評価用の作業の対象にしない
         self.run_one(dj)
-        self.assertNotIn(tid, S._busy_tids())   # 判別が済めば対象になる
+        self.assertNotIn(tid, ed_drill._busy_tids())   # 判別が済めば対象になる
 
     # -- まとめての文字起こし(後追い)
     def test_batch_transcription_adds_marked_diarize(self):
@@ -306,7 +310,7 @@ class TestAutoDiar(unittest.TestCase):
 
     def test_backlog_skips_docs_with_speakers_and_non_eval(self):
         tid = self._old_doc_without_diar("q.mp4")
-        S.single_speaker(tid, "ときのそら")
+        proof_speakers.single_speaker(tid, "ときのそら")
         self.age(tid)
         other = os.path.join(self.src, "other3.mp4")
         shutil.copy2(self.short, other)

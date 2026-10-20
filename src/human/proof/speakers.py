@@ -261,7 +261,7 @@ def run_diarize(job):
 # (drill.drill_candidates の suggest = 覚えた声 → 動画の入ったメンバーのフォルダ → 配信の文脈)を付ける。新しい認識の道は作らない(今の diarize のジョブ)。
 # 人が付けたものは置き換えない: 文字のある行に1つでも話者があれば何もしない(足すときと、ジョブが動き出すときの両方で確かめる)。
 # 判別の部品(sherpa-onnx)が無いときは黙って飛ばす(ログだけ。文字起こしは失敗にしない)。外から呼ぶ口は autodiar_enqueue・autodiar_after_transcribe
-# (⑤ eval/drill/evalbatch と doc_jobs)・autodiar_enabled・autodiar_ready。名前は serve.py からも見える(autodiar_ / _autodiar_ で始める)
+# (⑤ eval/drill/evalbatch と doc_jobs)・autodiar_enabled・autodiar_ready。名前は autodiar_ / _autodiar_ で始める
 _AUTODIAR_BY = "context"   # diar.json の voices の by(動画の手がかりで付けた。覚えた声 = threshold・消去法 = elimination・依頼 = request と並べる)
 
 

@@ -11,7 +11,9 @@ import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 import unittest
 
-from test_backend import S, StoreDir  # noqa: F401  (S = serve)
+from test_backend import StoreDir  # noqa: F401  (S = serve)
+from eval.drill import metrics as _metrics  # noqa: E402
+from human.proof import learn as _learn  # noqa: E402
 
 
 def sg(i, a, b, text, proofed=True, speaker="", **kw):
@@ -29,7 +31,7 @@ def mo(a, b, text):
 class TestSplitNoSub(unittest.TestCase):
     def test_no_nosub_returns_same_lists(self):
         orig, segs = [mo(0, 2, "あ")], [sg(1, 0, 2, "あ")]
-        o, s, no, ns = S.split_nosub(orig, segs)
+        o, s, no, ns = _learn.split_nosub(orig, segs)
         self.assertIs(o, orig)
         self.assertIs(s, segs)
         self.assertEqual((no, ns), ([], []))
@@ -38,7 +40,7 @@ class TestSplitNoSub(unittest.TestCase):
         orig = [mo(0, 2, "本体"), mo(4, 6, "ゲーム"), mo(7, 9, "またぎ")]
         # noSub の行は 4〜7。「ゲーム」(4〜6)は全部・「またぎ」(7〜9)は 0 秒しか入らない
         segs = [sg(1, 0, 2, "本体"), sg(2, 4, 7, "ゲームの声", noSub=True), sg(3, 7, 9, "またぎ")]
-        o, s, no, ns = S.split_nosub(orig, segs)
+        o, s, no, ns = _learn.split_nosub(orig, segs)
         self.assertEqual([x["text"] for x in o], ["本体", "またぎ"])
         self.assertEqual([x["text"] for x in no], ["ゲーム"])
         self.assertEqual([x["id"] for x in s], ["s1", "s3"])
@@ -47,14 +49,14 @@ class TestSplitNoSub(unittest.TestCase):
     def test_half_boundary_is_inclusive(self):
         # 機械の行 4〜6 のうち 4〜5 が noSub(ちょうど半分)→ 外す。4〜7 のうち 1 秒(半分未満)→ 残す
         segs = [sg(1, 0, 5, "x", noSub=True)]
-        o, _s, no, _ns = S.split_nosub([mo(4, 6, "半分")], segs)
+        o, _s, no, _ns = _learn.split_nosub([mo(4, 6, "半分")], segs)
         self.assertEqual((len(o), len(no)), (0, 1))
-        o, _s, no, _ns = S.split_nosub([mo(4, 7, "半分未満")], segs)
+        o, _s, no, _ns = _learn.split_nosub([mo(4, 7, "半分未満")], segs)
         self.assertEqual((len(o), len(no)), (1, 0))
 
     def test_is_nosub_needs_true(self):
         for row, want in (({"noSub": True}, True), ({"noSub": 1}, False), ({"noSub": "true"}, False), ({}, False)):
-            self.assertIs(S.is_nosub(row), want, row)
+            self.assertIs(_learn.is_nosub(row), want, row)
 
 
 class TestDocMetricsNoSub(unittest.TestCase):
@@ -62,7 +64,7 @@ class TestDocMetricsNoSub(unittest.TestCase):
     base_segs = [sg(1, 0, 4, "まつりが来た"), sg(2, 4, 8, "二人で話す")]
 
     def test_doc_without_nosub_has_no_nosub_key_and_same_numbers(self):
-        m = S.doc_metrics({"original": self.base_orig, "segments": self.base_segs})
+        m = _metrics.doc_metrics({"original": self.base_orig, "segments": self.base_segs})
         self.assertNotIn("noSub", m)
         self.assertEqual((m["groups"], m["refChars"], m["sub"], m["del"], m["ins"]), (2, 11, 1, 1, 0))   # 今までの数(祭り→まつり は置換 1・抜け 1)
 
@@ -70,8 +72,8 @@ class TestDocMetricsNoSub(unittest.TestCase):
         # 20〜24 はゲームの声(人は noSub の行を書いた)。機械はそこへ文字を書いている → 本体の余分に数えない
         orig = self.base_orig + [mo(20, 24, "ゲームのセリフです")]
         segs = self.base_segs + [sg(3, 20, 24, "ゲームのセリフ", noSub=True)]
-        m = S.doc_metrics({"original": orig, "segments": segs})
-        plain = S.doc_metrics({"original": self.base_orig, "segments": self.base_segs})
+        m = _metrics.doc_metrics({"original": orig, "segments": segs})
+        plain = _metrics.doc_metrics({"original": self.base_orig, "segments": self.base_segs})
         for k in ("groups", "refChars", "sub", "del", "ins", "changed"):
             self.assertEqual(m[k], plain[k], k)
         self.assertEqual(m["noSub"], {"rows": 1, "sec": 4.0, "machineChars": len("ゲームのセリフです")})
@@ -80,23 +82,23 @@ class TestDocMetricsNoSub(unittest.TestCase):
         """noSub の行が無いと、人が書いていない所の機械の文字は「余分」。noSub の行の中なら余分に数えない(校正した範囲の中)"""
         orig = [mo(0, 4, "ええ"), mo(4, 8, "ゲームの声"), mo(8, 12, "おわり")]
         segs = [sg(1, 0, 4, "ええ"), sg(3, 8, 12, "おわり")]
-        without = S.doc_metrics({"original": orig, "segments": segs})
+        without = _metrics.doc_metrics({"original": orig, "segments": segs})
         self.assertEqual(without["ins"], len("ゲームの声"))
         segs2 = segs[:1] + [sg(2, 4, 8, "ゲーム", noSub=True)] + segs[1:]
-        with_ns = S.doc_metrics({"original": orig, "segments": segs2})
+        with_ns = _metrics.doc_metrics({"original": orig, "segments": segs2})
         self.assertEqual(with_ns["ins"], 0)
         self.assertEqual(with_ns["noSub"]["machineChars"], len("ゲームの声"))
 
     def test_only_nosub_rows_gives_none(self):
-        self.assertIsNone(S.doc_metrics({"original": [mo(0, 2, "あ")], "segments": [sg(1, 0, 2, "あ", noSub=True)]}))
+        self.assertIsNone(_metrics.doc_metrics({"original": [mo(0, 2, "あ")], "segments": [sg(1, 0, 2, "あ", noSub=True)]}))
 
     def test_acc_merge_adds_nosub(self):
-        a, b = S.new_acc(), S.new_acc()
-        S.acc_merge(a, S.doc_metrics({"original": self.base_orig + [mo(20, 24, "ゲーム")], "segments": self.base_segs + [sg(3, 20, 24, "ゲーム", noSub=True)]}))
-        S.acc_merge(a, S.doc_metrics({"original": self.base_orig, "segments": self.base_segs}))
-        S.acc_merge(a, S.doc_metrics({"original": self.base_orig + [mo(20, 22, "NPC")], "segments": self.base_segs + [sg(3, 20, 22, "NPC", noSub=True)]}))
+        a, b = _metrics.new_acc(), _metrics.new_acc()
+        _metrics.acc_merge(a, _metrics.doc_metrics({"original": self.base_orig + [mo(20, 24, "ゲーム")], "segments": self.base_segs + [sg(3, 20, 24, "ゲーム", noSub=True)]}))
+        _metrics.acc_merge(a, _metrics.doc_metrics({"original": self.base_orig, "segments": self.base_segs}))
+        _metrics.acc_merge(a, _metrics.doc_metrics({"original": self.base_orig + [mo(20, 22, "NPC")], "segments": self.base_segs + [sg(3, 20, 22, "NPC", noSub=True)]}))
         self.assertEqual(a["noSub"], {"rows": 2, "sec": 6.0, "machineChars": len("ゲーム") + len("NPC")})
-        self.assertNotIn("noSub", S.acc_finish(b))
+        self.assertNotIn("noSub", _metrics.acc_finish(b))
 
 
 class TestOverlapGroup(unittest.TestCase):
@@ -105,76 +107,76 @@ class TestOverlapGroup(unittest.TestCase):
 
     def test_boundary_0_3(self):
         segs = self.rows(1.3)          # 重なり 0.3 秒ちょうど(1.3 − 1.0)
-        self.assertTrue(S.is_overlap_group(segs, [0, 1]))
-        self.assertTrue(S.is_overlap_group(self.rows(1.31), [0, 1]))
-        self.assertFalse(S.is_overlap_group(self.rows(1.29), [0, 1]))
+        self.assertTrue(_metrics.is_overlap_group(segs, [0, 1]))
+        self.assertTrue(_metrics.is_overlap_group(self.rows(1.31), [0, 1]))
+        self.assertFalse(_metrics.is_overlap_group(self.rows(1.29), [0, 1]))
 
     def test_same_or_missing_speaker_is_not_overlap(self):
         for sa, sb in (("A", "A"), ("", "B"), ("", "")):
-            self.assertFalse(S.is_overlap_group(self.rows(1.8, sa=sa, sb=sb), [0, 1]), (sa, sb))
+            self.assertFalse(_metrics.is_overlap_group(self.rows(1.8, sa=sa, sb=sb), [0, 1]), (sa, sb))
 
     def test_overlap_tag_is_not_a_condition(self):
         segs = self.rows(1.8)
-        self.assertTrue(S.is_overlap_group(segs, [0, 1]))          # 音のメモが無くても
+        self.assertTrue(_metrics.is_overlap_group(segs, [0, 1]))          # 音のメモが無くても
         segs = [dict(g, tags=["overlap"]) for g in self.rows(1.0)]  # 音のメモがあっても重なりが無ければ違う
-        self.assertFalse(S.is_overlap_group(segs, [0, 1]))
+        self.assertFalse(_metrics.is_overlap_group(segs, [0, 1]))
 
     def test_chain_group_with_pair_in_middle(self):
         # A(0〜2)・A(1.9〜4)は同じ話者・B(3〜5)が A の 2 行目と 1 秒重なる
         segs = [sg(1, 0, 2, "あ", speaker="A"), sg(2, 1.9, 4, "い", speaker="A"), sg(3, 3, 5, "う", speaker="B")]
-        self.assertTrue(S.is_overlap_group(segs, [0, 1, 2]))
-        self.assertFalse(S.is_overlap_group(segs, [0, 1]))
+        self.assertTrue(_metrics.is_overlap_group(segs, [0, 1, 2]))
+        self.assertFalse(_metrics.is_overlap_group(segs, [0, 1]))
 
 
 class TestOverlapBest(unittest.TestCase):
     def test_swapped_order_wins(self):
         segs = [sg(1, 0, 2, "あいう", speaker="A"), sg(2, 1, 3, "かきく", speaker="B")]
-        self.assertEqual(S.overlap_best_counts(segs, [0, 1], "あいうかきく"), (0, 0, 0))   # 開始時刻の順
-        self.assertEqual(S.overlap_best_counts(segs, [0, 1], "かきくあいう"), (0, 0, 0))   # 話者の並びの入れ替え
-        s, d, i = S.overlap_best_counts(segs, [0, 1], "かきあいう")
+        self.assertEqual(_metrics.overlap_best_counts(segs, [0, 1], "あいうかきく"), (0, 0, 0))   # 開始時刻の順
+        self.assertEqual(_metrics.overlap_best_counts(segs, [0, 1], "かきくあいう"), (0, 0, 0))   # 話者の並びの入れ替え
+        s, d, i = _metrics.overlap_best_counts(segs, [0, 1], "かきあいう")
         self.assertEqual((s, d, i), (0, 1, 0))
 
     def test_orders_for_interleaved_speakers(self):
         segs = [sg(1, 0, 1, "あ", speaker="A"), sg(2, 0.5, 1.5, "か", speaker="B"), sg(3, 1.2, 2, "い", speaker="A")]
-        self.assertEqual(sorted(S.overlap_orders(segs, [0, 1, 2])), sorted(["あかい", "あいか", "かあい"]))
+        self.assertEqual(sorted(_metrics.overlap_orders(segs, [0, 1, 2])), sorted(["あかい", "あいか", "かあい"]))
         # 話者ごとの並びで機械が書いたとき、開始時刻の順より小さい
-        self.assertEqual(S.overlap_best_counts(segs, [0, 1, 2], "あいか"), (0, 0, 0))
-        e = S.lev_counts("あかい", "あいか")
+        self.assertEqual(_metrics.overlap_best_counts(segs, [0, 1, 2], "あいか"), (0, 0, 0))
+        e = _metrics.lev_counts("あかい", "あいか")
         self.assertGreater(sum(e), 0)
 
     def test_many_speakers_use_two_orders_only(self):
         segs = [sg(i + 1, 0.1 * i, 1 + 0.1 * i, "ぁぃぅぇぉ"[i], speaker="S%d" % i) for i in range(5)]
-        self.assertLessEqual(len(S.overlap_orders(segs, [0, 1, 2, 3, 4])), 2)
+        self.assertLessEqual(len(_metrics.overlap_orders(segs, [0, 1, 2, 3, 4])), 2)
         three = segs[:3]
-        self.assertEqual(len(S.overlap_orders(three, [0, 1, 2])), 6)   # 3 人までは並びを全部(開始時刻の順 = 話者ごとの 1 つと同じなので 6)
+        self.assertEqual(len(_metrics.overlap_orders(three, [0, 1, 2])), 6)   # 3 人までは並びを全部(開始時刻の順 = 話者ごとの 1 つと同じなので 6)
 
     def test_one_speaker_has_only_start_order(self):
         segs = [sg(1, 0, 2, "あい", speaker="A"), sg(2, 1, 3, "うえ", speaker="A")]
-        self.assertEqual(S.overlap_orders(segs, [0, 1]), ["あいうえ"])
+        self.assertEqual(_metrics.overlap_orders(segs, [0, 1]), ["あいうえ"])
 
 
 class TestLearningSkipsNoSub(StoreDir):
     def test_learn_events_ignores_nosub_rows(self):
         orig = [mo(0, 3, "トーイ様は後合流"), mo(10, 13, "ポルカ")]
         segs = [sg(1, 0, 3, "トワ様は後合流"), sg(2, 10, 13, "ホロライブ", noSub=True)]
-        ev = [(w, r) for w, r, _c, _l, _r in S.learn_events({"original": orig, "segments": segs})]
+        ev = [(w, r) for w, r, _c, _l, _r in _learn.learn_events({"original": orig, "segments": segs})]
         self.assertIn(("トーイ", "トワ"), ev)
         self.assertFalse([e for e in ev if "ポルカ" in e[0] or "ホロ" in e[1]])
         # noSub を外すと材料に入る(印が効いている)
         segs2 = [segs[0], dict(segs[1], noSub=False)]
-        ev2 = [(w, r) for w, r, _c, _l, _r in S.learn_events({"original": orig, "segments": segs2})]
+        ev2 = [(w, r) for w, r, _c, _l, _r in _learn.learn_events({"original": orig, "segments": segs2})]
         self.assertTrue([e for e in ev2 if "ポルカ" in e[0]])
 
     def test_learn_groups_skip_nosub(self):
         orig = [mo(0, 3, "あい"), mo(10, 13, "ぽるか")]
         segs = [sg(1, 0, 3, "あう"), sg(2, 10, 13, "ホロ", noSub=True)]
         doc = {"original": orig, "segments": segs}
-        self.assertEqual([g["text"] for g in S.learn_groups(doc)], ["あう"])
+        self.assertEqual([g["text"] for g in _learn.learn_groups(doc)], ["あう"])
 
     def test_doc_info_texts_skip_nosub(self):
         doc = {"id": "aaaaaaaaaaaa", "original": [mo(0, 2, "あい"), mo(5, 7, "NPC")], "segments": [sg(1, 0, 2, "あう"), sg(2, 5, 7, "NPCのセリフ", noSub=True)]}
         self.put_doc(doc, "aaaaaaaaaaaa")
-        info = S._doc_info("aaaaaaaaaaaa")
+        info = _learn._doc_info("aaaaaaaaaaaa")
         self.assertEqual(info["texts"], ["あう"])
         self.assertEqual(info["lines"], 1)
 

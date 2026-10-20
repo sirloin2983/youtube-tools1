@@ -7,7 +7,7 @@ zip の中(アプリのフォルダ <任意>/FriendApp/ にそのまま展開す
     members.json     配信者の名簿(friend-apps/holo-colors/members.json の写し。友人のアプリが places.py で直下から読んで YTT_HOLO_MEMBERS に渡す)
     FriendApp-はじめに.txt  入れ方とアプリのフォルダの説明(friend-apps/launcher/INSTALL.txt)
     python/        公式の埋め込み用 Python 3.10 + python310._pth(Lib/site-packages と ../src を足す)+ wheel を展開した部品(numpy・sherpa-onnx・streamlink と依存)
-    src/           git が管理している src のファイル(tests/・__pycache__ は外す。作業データ・追跡外のファイルは入らない)
+    src/           git が管理している src のファイルのうち friendapp・ytt・flow・pipeline・ui-kit の層と名簿 src/editor/hololive-roster.json(tests/・__pycache__ は外す。作業データ・追跡外のファイルは入らない)
     tools/whisper.cpp-<版>-vulkan/   ユーザーの PC で作った whisper.cpp(build.json の files と SHA-256 が合う物だけ)
     fetch.json     初回に取る物の表(モデル・llama.cpp・ffmpeg・yt-dlp・Deno)。モデルと llama.cpp は tx_engines・diarize の表を import して読むだけ
     manifest.json  全体の版・各ファイルの SHA-256
@@ -24,7 +24,7 @@ Python の本体・wheel・ffmpeg などはキャッシュのフォルダ(--cach
 無ければ取りに行く(https の固定の URL・wheel は pip download)。ffmpeg・yt-dlp・Deno・Python の本体は表に SHA-256 が無いので、
 キャッシュに取った物の大きさと SHA-256 を fetch.json・manifest.json に書く(取ったときに 1 回だけ信じる。以後はキャッシュの記録と照らす)。
 
-    py -3.12 dev/build_friend_zip.py [--out D | --publish] [--cache C] [--wcpp-dir W] [--launcher-build L] [--first [--with-key]] [--no-fetch]
+    py -3.12 dev/build_friend_zip.py [--out D | --publish] [--cache C] [--first [--with-key]] [--no-fetch]
 終了コード 0 済み / 1 失敗 / 2 引数
 """
 import argparse
@@ -67,9 +67,11 @@ INSTALL_NAME = "FriendApp-はじめに.txt"                 # zip の直下に�
 FOLDER_NAME = "FriendApp"                               # zip の中を包むフォルダの名前
 ZIP_PREFIX = "FriendApp"                                # ふだんの zip の名前の頭(FriendApp-<版>.zip)
 # 新しいアプリが動くのに要る src の物(git に入っていないと zip に入らない = 追跡し忘れの検査)
+FRIEND_LAYERS = ("friendapp", "ytt", "flow", "pipeline", "ui-kit")   # zip に入れる src の層(許可リスト)。友人のアプリが読む層だけ。ここの層は外の層を読まない(dev/rule_imports.py の C-22)
+FRIEND_FILES = ("src/editor/hololive-roster.json",)   # 許可リストの外の層から入れる物。編集のフォルダ(ytt/workdata の ROOT)は名簿を置く所で、認識ワーカーの cwd でもある(無いとワーカーが起きない)
 REQUIRED_SRC = ("src/friendapp/server.py", "src/friendapp/streams.py", "src/friendapp/setup.py", "src/friendapp/places.py",
                 "src/friendapp/ui/friend.html", "src/friendapp/ui/friend.js", "src/friendapp/ui/host.js", "src/friendapp/ui/setup.html",
-                "src/friendapp/ui/setup.js", "src/friendapp/ui/guide.html")
+                "src/friendapp/ui/setup.js", "src/friendapp/ui/guide.html") + FRIEND_FILES
 
 # 公式の埋め込み用 Python(3.10 の Windows 向けの最後の版)。SHA-256 は表に無い = 取ったときの値をキャッシュに残して以後照らす
 PY_EMBED = {"version": "3.10.11", "file": "python-3.10.11-embed-amd64.zip",
@@ -270,14 +272,14 @@ def lay_python(stage, embed_zip, wheel_files):
 
 
 def src_files(repo=REPO):
-    """git が管理している src のファイル(tests/・__pycache__ を外す)。追跡外の作業データ(src/pipeline/ingest/data など)は入らない"""
+    """git が管理している src のファイルのうち FRIEND_LAYERS の層の物と FRIEND_FILES(tests/・__pycache__ を外す)。追跡外の作業データ(src/pipeline/ingest/data など)は入らない"""
     r = subprocess.run(["git", "-C", repo, "ls-files", "-z", "src"], capture_output=True)
     if r.returncode != 0:
         raise BuildError("git ls-files が失敗しました: %s" % r.stderr.decode("utf-8", "replace")[:200])
     out = []
     for f in r.stdout.decode("utf-8").split("\0"):
         parts = f.split("/")
-        if not f or "tests" in parts or "__pycache__" in parts or f.endswith(".pyc"):
+        if not f or "tests" in parts or "__pycache__" in parts or f.endswith(".pyc") or len(parts) < 3 or (parts[1] not in FRIEND_LAYERS and f not in FRIEND_FILES):
             continue
         if os.path.isfile(os.path.join(repo, *parts)):   # 消したのにまだコミットしていない物は飛ばす
             out.append(f)
@@ -581,7 +583,7 @@ def publish(a, out):
     落ちたら置かない。検査を抜けるのは --skip-preflight の明示だけ -> build と同じ形"""
     tmp = tempfile.mkdtemp(prefix="friend-publish-")
     try:
-        got = build(tmp, a.cache, a.wcpp, with_key=False, fetch=not a.no_fetch, notes=a.notes, launcher_build=a.launcher_build)
+        got = build(tmp, a.cache, a.wcpp, with_key=False, fetch=not a.no_fetch)
         if a.skip_preflight:
             say("[警告] 配る前の検査を飛ばします(--skip-preflight)")
         else:
@@ -606,12 +608,9 @@ def main(argv=None):
     ap.add_argument("--out", default="", help="出力先(一時のフォルダ。--first は既定 friend-apps/launcher/dist/)")
     ap.add_argument("--publish", action="store_true", help="--out なしで <intake.folder>/更新/ (Dropbox)へ置く。友人のアプリが取りに来る = ユーザーの OK のあとだけ")
     ap.add_argument("--cache", default="", help="Python の本体・wheel・道具のキャッシュ(既定 %%LOCALAPPDATA%%/youtube-tools/app/friend-build-cache)")
-    ap.add_argument("--wcpp-dir", default="", help="whisper.cpp の Vulkan 版のフォルダ(既定: 作業データの transcribe/bin/whisper.cpp-<版>-vulkan)")
-    ap.add_argument("--launcher-build", default=LAUNCHER_BUILD, help="friend-apps/launcher/build.bat が作った FriendApp.exe と DLL の置き場所")
     ap.add_argument("--first", action="store_true", help="初回に手で渡す zip(dist に・latest.json を書かない)")
     ap.add_argument("--with-key", action="store_true", help="--first のときだけ: friend-apps/launcher/config.json(Dropbox の鍵)を入れる")
     ap.add_argument("--no-fetch", action="store_true", help="キャッシュに無い物を取りに行かない(無ければ失敗)")
-    ap.add_argument("--notes", default="", help="latest.json の notes(更新の説明)")
     ap.add_argument("--skip-preflight", action="store_true", help="--publish のときだけ: 配る前の検査(dev/friend_preflight.py)を飛ばす(明示のときだけ)")
     a = ap.parse_args(argv)
     if a.skip_preflight and not a.publish:
@@ -623,12 +622,11 @@ def main(argv=None):
     try:
         out = a.out or default_out(a.first, a.publish)
         a.cache = a.cache or default_cache()
-        a.wcpp = a.wcpp_dir or default_wcpp()
+        a.wcpp = default_wcpp()
         if a.publish:
             got = publish(a, out)
         else:
-            got = build(out, a.cache, a.wcpp, first=a.first, with_key=a.with_key, fetch=not a.no_fetch, notes=a.notes,
-                        launcher_build=a.launcher_build)
+            got = build(out, a.cache, a.wcpp, first=a.first, with_key=a.with_key, fetch=not a.no_fetch)
     except (BuildError, OSError) as e:
         say("[失敗] %s" % e)
         return 1

@@ -40,7 +40,6 @@ from ytt import testkit  # noqa: E402
 sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)
 from app import server as L  # noqa: E402
 from app import live as LV  # noqa: E402
-from flow import live_adopt as LA  # noqa: E402
 from flow import livesession as LS  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from human.friend import live_requests as LR  # noqa: E402
@@ -734,8 +733,8 @@ class StudioSettingsTest(unittest.TestCase):
         self.assertEqual((LV.studio_audio(REPO), LV.studio_lag(REPO)), ({"volume": 1, "loudness": -14.0}, 0))
 
 
-class HeadlessLiveTest(unittest.TestCase):
-    """入口の Live の画面なしの形(use_headless)と、友人の依頼(intake の live_begin = Live.submit_request)が封筒 + 束で submit を通る経路。
+class FriendRequestLiveTest(unittest.TestCase):
+    """友人の依頼(intake の live_begin = Live.submit_request)が封筒 + 束で submit を通る経路。
     録画元は呼び出しの偽物(Live.call)"""
     VID = "abcdefghijk"
     URL = "https://www.youtube.com/watch?v=" + VID
@@ -744,7 +743,7 @@ class HeadlessLiveTest(unittest.TestCase):
     def setUp(self):
         from flow import spec as S
         self.S = S
-        self.tmp = tempfile.mkdtemp(prefix="ytt-live-headless-")
+        self.tmp = tempfile.mkdtemp(prefix="ytt-live-request-")
         self.prefs = P.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
         self.live = LV.Live(self.prefs, self.tmp, os.path.join(self.tmp, "logs"), spawn=False, store_dir=os.path.join(self.tmp, "live"),
                             out_dir=lambda: os.path.join(self.tmp, "out"), runner=lambda: None)
@@ -768,20 +767,6 @@ class HeadlessLiveTest(unittest.TestCase):
     def tearDown(self):
         self.live.detector.stop()
         shutil.rmtree(self.tmp, ignore_errors=True)
-
-    def test_use_headless(self):
-        lv = self.live
-        steps = [w for w, _f in lv._watch_steps()]
-        self.assertTrue(any("6" in w or "上限" in w for w in steps) and any("溜め" in w for w in steps), steps)   # 画面ありは D-13・溜めの見回りも
-        self.assertIsInstance(lv.marks, LA.StudioMarks)
-        self.assertFalse(lv.enabled())
-        lv.use_headless(20)
-        self.assertTrue(lv.enabled())   # 設定はオフのままでも動く
-        self.assertIsInstance(lv.marks, LA.LocalMarks)
-        self.assertEqual((lv.adopter.deliver_for, lv._request_limit(), lv.disk_min_gb, lv.request_all), (None, None, 20, True))
-        self.assertEqual(lv.auto_max, lv.bundle_top)
-        steps = [w for w, _f in lv._watch_steps()]
-        self.assertFalse(any("上限" in w or "溜め" in w or "見ていない" in w for w in steps), steps)
 
     def test_friend_request_goes_through_submit(self):
         """友人のライブ配信の依頼(intake の live_begin = Live.submit_request): 封筒 + 束で submit を通る。requests.json は ctx のまま・

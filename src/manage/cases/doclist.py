@@ -5,7 +5,6 @@
 - pack_readme … GET /api/edit/pack-readme(前回のパックの Resolve での手順)
 文書の読み書きと要約のキャッシュは ③ の human/proof/store(呼ぶたびに store.名前 で読む)。パックの有無の規則は隣の txindex の 1 か所
 (入口の案件の画面と同じ判定。txindex を読むのは編集ではここだけ)。スタジオの data.json は ytt/studiodata を読むだけ。
-名前は編集の serve.py からも見える(serve.py の名前の受付 _ED_MODULES。テストの S.PACK_CHECK_BUDGET = … もここに入る)。
 """
 import os
 import time

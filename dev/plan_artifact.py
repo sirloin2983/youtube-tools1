@@ -39,8 +39,6 @@ STATE_JA = {"done": "済み", "doing": "進行中", "next": "次(今できる)",
 DOC_PATH = re.compile(r"(?:docs|plan)/[\w./-]*?\.(?:md|html)")
 GIT_REF = re.compile(r"git:[0-9a-f]{7,40}:$")
 MD_LINK = re.compile(r"(\]\()(<[^>]+>|[^)\s]+)(\))")
-WHOLE_VERSION = re.compile(r'(versions:\s*\[\s*\[\s*"全体[^"]*",\s*")([^"]*)(")')
-PROV_COUNT = re.compile(r"仮決め[^。]{0,10}?(\d+) *件")
 
 
 def read(name):
@@ -68,36 +66,6 @@ def main_fragment(html):
     keep = re.findall(r"<style>.*?</style>|<script>.*?</script>", head, re.S)
     body = re.search(r"<body>(.*?)</body>", html, re.S).group(1)
     return title + "\n" + "\n".join(keep) + "\n" + body.strip() + "\n"
-
-
-def parse_plan_js(text):
-    """data.js の window.PLAN = {...}; を dict にする。
-    コメントを外し、引用符なしのキーに引用符を付け、末尾のカンマを消して json で読む(文字列の中は触らない)"""
-    start = text.index("{", text.index("window.PLAN"))
-    out, strs, i, n = [], [], start, len(text)
-    while i < n:
-        c = text[i]
-        if c == '"':
-            j = i + 1
-            while text[j] != '"':
-                j += 2 if text[j] == "\\" else 1
-            strs.append(text[i:j + 1])
-            out.append("@@S%d@@" % (len(strs) - 1))
-            i = j + 1
-        elif text.startswith("//", i):
-            while i < n and text[i] != "\n":
-                i += 1
-        elif text.startswith("/*", i):
-            i = text.index("*/", i) + 2
-        else:
-            out.append(c)
-            i += 1
-    src = "".join(out)
-    src = src[:src.rindex("}") + 1]
-    src = re.sub(r"([{,]\s*)([A-Za-z_$][\w$]*)\s*:", r'\1"\2":', src)
-    src = re.sub(r",(\s*[}\]])", r"\1", src)
-    src = re.sub(r"@@S(\d+)@@", lambda m: strs[int(m.group(1))], src)
-    return json.loads(src)
 
 
 def link_paths(text, notes, name, warn):
@@ -330,27 +298,6 @@ def rebase_links(text, src_dir):
     return MD_LINK.sub(sub, text)
 
 
-def sync_data_js(plan_dir):
-    """data.js の全体の版を src/ytt/version.py の VERSION に合わせて書き直す(手で書かない)。
-    文中の「仮決め N 件」が provisional の数と違えば警告。直したら True"""
-    path = os.path.join(plan_dir, "data.js")
-    with open(path, encoding="utf-8", newline="") as f:
-        text = f.read()
-    from ytt.version import VERSION
-    new = WHOLE_VERSION.sub(lambda m: m.group(1) + VERSION + m.group(3), text, count=1)
-    if new != text:
-        with open(path, "w", encoding="utf-8", newline="") as f:
-            f.write(new)
-        print("data.js の全体の版を %s に" % VERSION, file=sys.stderr)
-    plan = parse_plan_js(new)
-    n = len(plan.get("userTasks", {}).get("provisional", []))
-    notes = [plan.get("summary", "")] + list(plan.get("userTasks", {}).get("notes", []))
-    for m in (m for s in notes for m in PROV_COUNT.finditer(s)):
-        if int(m.group(1)) != n:
-            print("data.js の文の「%s」が provisional の数 %d と違う(件数は書かない)" % (m.group(0), n), file=sys.stderr)
-    return new != text
-
-
 def merge_home(existing, auto):
     """既存のホームの印の間だけ差し替える(印が無ければ末尾に足す。existing が None なら手書きの初めの中身から)"""
     block = HOME_BEGIN + "\n" + auto + HOME_END + "\n"
@@ -372,13 +319,10 @@ def write_text(path, text):
 
 
 def load_plan(plan_dir):
-    """計画のデータ(分けてあれば plan/data/、まだなら data.js)"""
+    """計画のデータ(plan/data/)"""
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import plan_data
-    if plan_data.has_split(plan_dir):
-        return plan_data.load(plan_dir)
-    with open(os.path.join(plan_dir, "data.js"), encoding="utf-8") as f:
-        return parse_plan_js(f.read())
+    return plan_data.load(plan_dir)
 
 
 DOC_INDEX = "docs/資料の索引.md"
@@ -502,21 +446,16 @@ def main():
     if a.plan:
         PLAN = os.path.abspath(a.plan)
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    import notes_tool
     import plan_data
-    if plan_data.has_split(PLAN):   # 正は plan/data/(1 件 1 ファイル)。軽い仮決めの自動の確定 → data.js を作る
-        plan_data.sweep(PLAN)
-        _wrote, probs = plan_data.build(PLAN)
-        if probs:
-            for f, ln, msg in probs:
-                print("%s:%d %s" % (f, ln, msg), file=sys.stderr)
-            return 1
-    else:
-        broken = notes_tool.explain_data_js(read("data.js"), os.path.join(PLAN, "data.js"))
-        if broken:   # 並行の書き足しでカンマが抜けると計画のページが何も出ない = 公開ページを作らずに止める
-            print(broken, file=sys.stderr)
-            return 1
-        sync_data_js(PLAN)
+    if not plan_data.has_split(PLAN):
+        print("plan/data/main.json が無い: %s" % PLAN, file=sys.stderr)
+        return 1
+    plan_data.sweep(PLAN)   # 正は plan/data/(1 件 1 ファイル)。軽い仮決めの自動の確定 → data.js を作る
+    _wrote, probs = plan_data.build(PLAN)
+    if probs:
+        for f, ln, msg in probs:
+            print("%s:%d %s" % (f, ln, msg), file=sys.stderr)
+        return 1
     if not a.no_index:
         import doc_state
         import drift_report

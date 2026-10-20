@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """③ 人の操作の層 human/proof: 行の時刻の候補の API の包み POST /api/retime {id, rows: [行の id…]}
--> {items: [{id, start, end, matched, dStart, dEnd, edges, from}], checked, updatedAt, engine, endEdge, reasonCode?, reason?}(読むだけ。採るのは画面の 1 押し)。
-保存済みの文書を読み、② flow/tx.word_retime(words.json・行の数の上限・終わりの端の決まり → ① pipeline/transcribe/retime の計算。名前が同じ)に渡す。
-名前は serve.py からも見える(serve.py の _ED_MODULES。計算の ① を包みより前に並べる。ほかの部品と重ならないよう retime_ で始める)。
+-> {items: [{id, start, end, matched, dStart, dEnd, edges, from}], checked, updatedAt, engine, reasonCode?, reason?}(読むだけ。採るのは画面の 1 押し)。
+保存済みの文書を読み、② flow/tx.word_retime(words.json・行の数の上限 → ① pipeline/transcribe/retime の計算。名前が同じ)に渡す。
+名前は retime_ で始める。
 """
 from ytt import errors as _errors  # noqa: E402
 from flow import tx as _flowtx  # noqa: E402   ② 単語の時刻を読んで ① の計算に渡す word_retime
@@ -24,8 +24,8 @@ def retime_doc(obj):
     doc = store.read_transcript(tid)
     upd = int(doc.get("updatedAt") or 0)
     eng = retime_engine(doc)
-    got = _flowtx.word_retime(tid, doc.get("segments") or [], rows, eng)   # 行の数の上限(RETIME_MAX_ROWS)・words.json・終わりの端の決まりは ②・計算は ①
+    got = _flowtx.word_retime(tid, doc.get("segments") or [], rows)   # 行の数の上限(RETIME_MAX_ROWS)・words.json は ②・計算は ①
     if got is None:
         return {"items": [], "checked": 0, "updatedAt": upd, "reasonCode": "no_words",
                 "reason": "この文字起こしには単語の時刻がありません(古い文字起こし・単語の時刻を使わない設定)。範囲を再認識すると取り直せます"}
-    return {"items": got["items"], "checked": got["checked"], "updatedAt": upd, "engine": eng, "endEdge": got["endEdge"]}
+    return {"items": got["items"], "checked": got["checked"], "updatedAt": upd, "engine": eng}

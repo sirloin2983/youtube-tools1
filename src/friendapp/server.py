@@ -63,7 +63,6 @@ import tempfile
 import threading
 import time
 import urllib.parse
-from http.server import BaseHTTPRequestHandler
 
 SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if SRC not in sys.path:
@@ -233,21 +232,12 @@ def inject_meta(body, token, palette=None):
     return body[:i + 6] + tag + body[i + 6:] if i >= 0 else tag + body
 
 
-class Handler(BaseHTTPRequestHandler):
+class Handler(httpsec.LocalHandler):
     server_version = APP_ID
     timeout = 30
 
     def log_message(self, fmt, *args):
         pass
-
-    def _send(self, code, body=b"", ctype="text/plain; charset=utf-8", extra=None):
-        httpsec.send(self, code, body, ctype, extra)
-
-    def _json(self, code, obj):
-        self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
-
-    def _fail(self, code, err, message):
-        self._json(code, {"error": err, "message": message})
 
     def _token_fail(self):
         """合言葉が違う(「合言葉が違います」)。診断は 10 分に 1 回(合言葉が入っていたかと口の名前だけ。中身は書かない)"""
@@ -256,9 +246,6 @@ class Handler(BaseHTTPRequestHandler):
             d.once("token", TOKEN_DIAG_EVERY, "token", summary="合言葉が違います", path=urllib.parse.urlsplit(self.path).path[:80],
                    method=self.command, hadToken=bool(self.headers.get(TOKEN_HEADER)), host=(os.environ.get(HOST_ENV) or "").strip() or "browser")
         return self._json(403, TOKEN_FAIL)
-
-    def _host_ok(self):
-        return httpsec.host_ok(self.headers, self.server.allowed_hosts)
 
     # ------------------------------------------------------------ GET
     def do_GET(self):
@@ -496,7 +483,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._fail(409, "preparing", "準備中です")
             return self._json(200, {"result": app.engine.queue.cancel(str(body.get("id") or ""))})
         if path == "/api/ytt/streamer-colors":
-            return self._json(200, streamer_colors(body))
+            return self._json(200, _colors.streamer_api(body))
         if path == "/api/ytt/client-log":
             _fsio.append_line(os.path.join(app.places["friend"], "logs", "client-errors.jsonl"), client_log_line(body), CLIENT_LOG_MAX)
             return self._json(200, {"ok": True})
@@ -539,10 +526,6 @@ class Handler(BaseHTTPRequestHandler):
         return self._json(200, {"ok": True, "setup": st.view(), "done": app.setup_done()})
 
 
-def _entry(e):
-    return {k: e[k] for k in ("name", "en", "hex", "group", "mine")}
-
-
 CLIENT_LOG_TEXT = {"message": 500, "source": 300, "stack": 2000, "page": 300, "kind": 20, "tool": 20, "version": 20}   # 入口の manage/ops/clientlog と同じ長さ
 
 
@@ -552,18 +535,6 @@ def client_log_line(body):
     out = {k: v[:n] for k, n in CLIENT_LOG_TEXT.items() for v in (b.get(k),) if isinstance(v, str) and v}
     out.update({k: b[k] for k in ("line", "col") if isinstance(b.get(k), int) and not isinstance(b.get(k), bool)})
     return json.dumps(out, ensure_ascii=False) + "\n"
-
-
-def streamer_colors(body):
-    """ui-kit の配信者の欄(UIKit.streamer)の口。形はユーザーの PC の入口(src/app/server.py の streamer_colors)と同じ"""
-    entries = _colors.load()
-    if isinstance(body.get("names"), list):
-        names = list(dict.fromkeys(n.strip()[:_colors.NAME_MAX] for n in body["names"][:60] if isinstance(n, str) and n.strip()))
-        return {"ok": True, "matches": {n: (_entry(m) if m else None) for n, m in ((n, _colors.lookup(n, entries)["match"]) for n in names)}}
-    q = body.get("q") if isinstance(body.get("q"), str) else ""
-    r = _colors.lookup(q[:_colors.NAME_MAX], entries)
-    return {"ok": True, "match": _entry(r["match"]) if r["match"] else None, "candidates": [_entry(e) for e in r["candidates"]],
-            "items": [_entry(e) for e in entries] if body.get("all") is True else []}
 
 
 class Server(httpsec.ExclusiveServer):

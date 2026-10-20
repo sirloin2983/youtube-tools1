@@ -350,23 +350,6 @@ class TestResolveAndRetry(unittest.TestCase):
             c = rank.resolve("aaa")["registry"]["agencies"][0]["channels"][0]
         self.assertEqual((c["status"], "見つかりません" in c["note"]), ("error", True))
 
-    def test_board_retry_validates_again_with_current_registry(self):
-        from flow import board as B
-        b = B.Board()
-        rank.attach_board(b)
-        req = {"start": "2026-09-01", "end": "2026-09-30", "agencies": ["other"]}
-        spec = rank.validate_search(req)
-        self.assertEqual(spec["req"], req)
-        self.assertEqual([c["ref"] for c in spec["agencies"][0]["channels"]], ["@abc"])
-        rank._jobs["s1"] = {"id": "s1", "state": "cancelled", "phase": "", "progress": 0.0, "cancel": True, "error": "", "result": None, "created": 1, "spec": spec}
-        self.addCleanup(rank._jobs.clear)
-        rank.put_registry({"agencies": [{"id": "aaa", "name": "事務所A", "channels": [{"ref": "@abc"}, {"ref": "@later"}]}]})   # 検索のあとで足したチャンネル
-        got = []
-        with patch.object(rank, "_start_search", lambda s: got.append(s) or {"id": "s2", "state": "running", "phase": "", "progress": 0.0, "cancel": False, "error": "", "created": 2}):
-            b.refresh()
-            b.retry("se:s1")
-        self.assertEqual([c["ref"] for c in got[0]["agencies"][0]["channels"]], ["@abc", "@later"])
-
 
 class TestRankSearch(unittest.TestCase):
     """① 探す: 「10分以上の動画だけ」(minDur)の検査と絞り込み(疑似の YouTube API)"""

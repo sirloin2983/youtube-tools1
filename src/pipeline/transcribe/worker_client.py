@@ -25,14 +25,13 @@ import json
 import os
 import queue
 import re
-import shutil
 import subprocess
 import sys
 import threading
 import time
 import wave
 
-from ytt import errors as _errors, fsio as _fsio, jobs as _heavy, tools as _tools, workdata as _workdata
+from ytt import errors as _errors, fsio as _fsio, gpuinfo, jobs as _heavy, tools as _tools, workdata as _workdata
 from . import backend as _backend, models as _mdl, roster as _roster, tx_engines
 from ytt import txbase as _txbase
 
@@ -527,24 +526,10 @@ def load_model(name, job, pref="auto", force_cpu=False, engine=tx_engines.DEFAUL
 # ---------- サーバーのプロセスでの GPU と部品の有無・ワーカーの Python・疑似のワーカー・モデル名の検査 ----------
 # 画面の表示(/api/tools)・文字起こしの受付(doc_jobs の valid_model)・エンジンの確かめ(check_engine)・話者判別の部品の有無(diarize.has_sherpa)が読む。
 # 疑似かどうかは backend.is_fake()(RS5-D。編集の serve が登録する selector = ed_state.backend_name を呼ぶたびに読む)。置き場所は ytt/workdata の ROOT
-_nv_cache = []
-
-
 def nvidia_gpu():
-    """NVIDIA GPU の名前(nvidia-smi で確認)。なければ None。"""
-    if _nv_cache:
-        return _nv_cache[0]
-    name = None
-    exe = shutil.which("nvidia-smi")
-    if exe:
-        try:
-            p = subprocess.run([exe, "--query-gpu=name", "--format=csv,noheader"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                               stderr=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace", timeout=10)
-            name = (p.stdout or "").strip().splitlines()[0].strip()[:80] if p.returncode == 0 and (p.stdout or "").strip() else None
-        except (OSError, subprocess.SubprocessError, IndexError):
-            name = None
-    _nv_cache.append(name)
-    return name
+    """NVIDIA GPU の名前(ytt/gpuinfo の覚えた結果)。なければ None"""
+    g = gpuinfo.info()
+    return g["name"][:80] if g and g.get("vendor") == "nvidia" else None
 
 
 def has_faster_whisper():

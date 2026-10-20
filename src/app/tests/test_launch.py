@@ -438,17 +438,6 @@ class HelpersTest(unittest.TestCase):
         for bad in ("transcribe/", "/../x", "//evil.example/x", "/a b", "/a?x=1", "/" + "a" * 200):
             with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
                 L.parse_args(["--open-path", bad])
-        # 画面なし: 既定はオフ・--port と一緒に使える・画面を開く --app-window とは一緒にしない
-        self.assertFalse(L.parse_args([]).headless)
-        a = L.parse_args(["--headless", "--port", "8750", "--only", "transcribe"])
-        self.assertEqual((a.headless, a.port, a.only), (True, 8750, ["transcribe"]))
-        with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
-            L.parse_args(["--headless", "--app-window"])
-        # 親の見張り(F1 F0-1): 画面なしだけ・正の数
-        self.assertEqual((L.parse_args([]).parent_pid, L.parse_args(["--headless", "--parent-pid", "123"]).parent_pid), (0, 123))
-        for bad in (["--parent-pid", "123"], ["--headless", "--parent-pid", "-1"], ["--headless", "--parent-pid", "x"]):
-            with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
-                L.parse_args(bad)
 
     def test_relink_out_dirs_on_start(self):
         """書き出し先を変えたあとの案件の繋ぎ直し(起動のとき)。inplace(テスト)は何もしない・書き出し先は起動のたびに覚える・失敗しても上げない"""
@@ -557,7 +546,7 @@ class PortalHttpTest(Base):
         r, _ = self.req("GET", "/settings/")
         self.assertEqual((r.status, r.getheader("Location")), (302, "/settings"))
         self.assertEqual(self.req("GET", "/server.py")[0].status, 404)   # コードや他のファイルは配らない
-        code, st = self.get_json("/api/status", headers={"Sec-Fetch-Site": "same-origin"})   # CLI(cli.py)と入口の画面が読む形
+        code, st = self.get_json("/api/status", headers={"Sec-Fetch-Site": "same-origin"})   # 入口の画面が読む形
         self.assertEqual((code, st["app"], st["version"]), (200, L.APP_ID, L.VERSION))
         self.assertIn("dataDir", st)
         self.assertEqual({t["id"] for t in st["tools"]}, set(L.TOOL_IDS))
@@ -671,14 +660,6 @@ class PortalHttpTest(Base):
             p.start()
             self.addCleanup(p.stop)
         return R, calls, stops
-
-    def test_restart_self_refused_when_headless(self):
-        """画面なしの入口(--headless)は起動し直さない(新しい入口が起こしたアプリの子にならない)= 409 で新しい入口を起こさない"""
-        _R, calls, _stops = self.fake_restart()
-        with mock.patch.object(self.srv, "headless", True):
-            r, body = self.post("/api/ytt/restart-self")
-        self.assertEqual((r.status, json.loads(body)["error"]), (409, "headless"))
-        self.assertEqual(calls, [])
 
     def test_flow_status_live(self):
         """GET /api/flow/status の live 欄 = PortalServer.live_activity(ライブの録画中・検出中・書き出しの途中の数)。どれかが 0 でなければ idle は偽。
@@ -813,18 +794,6 @@ class PortalHttpTest(Base):
             r, body = self.post("/api/flow/submit", body=json.dumps(bad, ensure_ascii=False).encode("utf-8"))
             self.assertEqual((r.status, json.loads(body)["error"]), (400, code), bad)
         self.assertEqual(self.srv.autorun.status()["runs"], [])
-
-    def test_after_run_outbox_only_headless(self):
-        """F1 F6a: 実行が終わったあとの送り返しの zip は、画面なし・依頼(requestId)の実行だけ"""
-        run = mock.Mock(request_id="req1", result_path=os.path.join(self.tmp, "r.json"))
-        with mock.patch.object(L.outbox_mod, "build", return_value=os.path.join(self.tmp, "x.zip")) as build:
-            self.assertIsNone(self.srv.after_run(run))   # 画面あり(ユーザーの PC)は組まない
-            self.srv.headless = True
-            self.assertIsNone(self.srv.after_run(mock.Mock(request_id=None, result_path="r.json")))
-            self.assertTrue(self.srv.after_run(run))
-        self.assertEqual(build.call_count, 1)
-        self.assertEqual((build.call_args[0], build.call_args[1]["request_id"]), ((run.result_path, self.srv.app_dir), "req1"))
-        self.assertIs(self.srv.autorun.finished_hook.__func__, L.PortalServer.after_run)
 
     def test_wire_learning(self):
         """F1 F6a: machine の learningDir が学習の束なら、入口の文字起こし(doc_jobs)とまとめて実行(束の版)がその読み手を使う。既定なら何もしない"""
@@ -1017,30 +986,13 @@ class MainShutdownTest(unittest.TestCase):
         self.assertTrue(srv.closing.is_set())
         self.assertTrue(srv._autorun.closed, "Ctrl+C の経路でまとめて実行を閉じていない")
 
-    def run_headless(self, argv, on_ready):
-        """画面なしで main を本物のサーバー(ポート 0)で起こす。標準出力の ready の 1 行が出たら on_ready(srv, ready) を呼んでから「すべて終了」。
-        -> (終了コード, srv, 標準出力, 起こした常駐の名前, 画面を開いた回数)"""
+    def run_started(self, argv):
+        """main を本物のサーバー(ポート 0)で起こし、見張りの起動を数えて、起動のすぐあとに「すべて終了」する。-> (終了コード, srv, 起こした常駐の名前, 画面を開いた回数)"""
         got, started, opened = {}, [], []
-        out = io.StringIO()
 
-        def live_start(live):   # ready は Live.start のあとに出る = 裏で ready を待ってから終える(画面ありはすぐ終える)
+        def live_start(live):
             started.append("live")
-            if "--headless" not in argv:
-                got["srv"].request_shutdown()
-                return
-
-            def wait_ready():
-                for _ in range(200):
-                    line = out.getvalue()
-                    if line.endswith("\n"):
-                        try:
-                            got["result"] = on_ready(got["srv"], json.loads(line))
-                        finally:
-                            got["srv"].request_shutdown()
-                        return
-                    time.sleep(0.05)
-                got["srv"].request_shutdown()
-            threading.Thread(target=wait_ready, daemon=True).start()
+            got["srv"].request_shutdown()
 
         def rec(name):
             return lambda *a, **k: started.append(name)
@@ -1054,108 +1006,18 @@ class MainShutdownTest(unittest.TestCase):
                 mock.patch.object(L.intake_mod.Intake, "start", rec("intake")), mock.patch.object(L.backup_mod.Backup, "start", rec("backup")),
                 mock.patch.object(L.accuracy_mod.Accuracy, "start", rec("accuracy")),
                 mock.patch.object(L.PortalServer, "purge_trash", rec("trash")),
-                mock.patch.object(L.appwindow_mod.Opener, "open_start", lambda op, url: opened.append(url) or "browser"),
-                mock.patch.object(sys, "stdout", out)]):
+                mock.patch.object(L.appwindow_mod.Opener, "open_start", lambda op, url: opened.append(url) or "browser")]):
             code = L.main(argv)
-            self.assertIs(sys.stdout, out, "標準出力を元に戻していない")
         if analytics.Service.return_value.start.called:
             started.append("analytics")
-        return code, got["srv"], out.getvalue(), started, opened, got.get("result")
-
-    def test_headless_ready_line_and_no_watchers(self):
-        """--headless は ③④⑤ の常駐(依頼の受付・バックアップ・精度の自動測定・分析と日報・ごみ箱の片付け)を起こさず、画面を開かない。
-        ②(まとめて実行 = Queue・ライブ)は載せる。標準出力は ready の 1 行の JSON だけ(合言葉とポートで ② の口が使える)"""
-        def on_ready(srv, ready):
-            st, body = _http(ready["port"], "GET", "/api/flow/status")
-            st2, body2 = _http(ready["port"], "POST", "/api/ytt/restart-self", b"{}", ready["token"])
-            return st, json.loads(body), st2, json.loads(body2)
-        code, srv, out, started, opened, res = self.run_headless(["--headless", "--port", "0", "--no-mount"], on_ready)
-        self.assertEqual(code, 0)
-        self.assertEqual(out.count("\n"), 1, out)
-        ready = json.loads(out)
-        self.assertEqual(ready, {"event": "ready", "port": srv.server_address[1], "token": srv.token, "pid": os.getpid()})
-        self.assertEqual(started, ["live"], "画面なしで ③ の見張りを起こした")
-        self.assertEqual(opened, [])
-        self.assertTrue(srv.headless)
-        self.assertIsNotNone(srv._autorun, "② のまとめて実行を載せていない")
-        self.assertTrue(srv._autorun.closed)
-        st, status, st2, restart = res
-        self.assertEqual((st, status["idle"], status["live"]), (200, True, {"recording": 0, "detecting": 0, "exporting": 0}))
-        self.assertEqual((st2, restart["error"]), (409, "headless"))
-
-    def test_headless_parent_gone_shuts_down(self):
-        """F1 F0-1: --parent-pid の親が終わったら 3 秒以内に「すべて終了」と同じ後始末(終了コード 0・まとめて実行を閉じる = 待ちは次の起動で続く)"""
-        import subprocess
-        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        self.addCleanup(child.kill)
-        r, w = os.pipe()
-        stdin = open(r, "rb")
-
-        def on_ready(srv, ready):
-            self.assertFalse(srv.closing.is_set())
-            t0 = time.time()
-            child.kill()
-            child.wait()
-            return wait_for(srv.closing.is_set, 5, 0.05), time.time() - t0
-        try:
-            with mock.patch.object(sys, "stdin", stdin):
-                code, srv, out, started, opened, res = self.run_headless(["--headless", "--port", "0", "--no-mount", "--parent-pid", str(child.pid)], on_ready)
-        finally:   # 書く側を先に閉じる(読んでいる糸が EOF で戻る。先に読む側を閉じると読み終わりを待って止まる)
-            os.close(w)
-            time.sleep(0.2)
-            stdin.close()
-        self.assertEqual(code, 0)
-        self.assertTrue(res[0], "親が終わっても止まらない")
-        self.assertLess(res[1], 3.0)
-        self.assertTrue(srv._autorun.closed)
-
-    def test_headless_stdin_eof_shuts_down(self):
-        """F1 F0-1: --parent-pid のとき標準入力が閉じられたら(EOF)終わる(親がまだいても)"""
-        r, w = os.pipe()
-
-        def on_ready(srv, ready):
-            self.assertFalse(srv.closing.is_set())
-            os.close(w)
-            return wait_for(srv.closing.is_set, 5, 0.05)
-        stdin = open(r, "rb")
-        try:
-            with mock.patch.object(sys, "stdin", stdin):
-                code, srv, out, started, opened, res = self.run_headless(["--headless", "--port", "0", "--no-mount", "--parent-pid", str(os.getpid())], on_ready)
-        finally:
-            stdin.close()
-        self.assertEqual((code, res), (0, True))
-
-    def test_watch_parent_fires_once(self):
-        """親の見張り: 親がもういない(開けない pid)ときはすぐ・標準入力の EOF と重なっても on_gone は 1 回だけ"""
-        got = []
-        threads = L.watch_parent(0x7FFFFFF0, io.BytesIO(b""), got.append)
-        for t in threads:
-            t.join(5)
-        self.assertEqual(len(got), 1)
+        return code, got["srv"], started, opened
 
     def test_normal_start_still_starts_watchers(self):
-        """画面ありの起動は(見張りを起こす・ready の行を出さない)"""
-        code, srv, out, started, opened, _ = self.run_headless(["--port", "0", "--no-mount", "--no-open"], lambda srv, ready: None)
-        self.assertEqual((code, out, srv.headless), (0, "", False))
+        """起動すると見張りを起こす(依頼の受付・バックアップ・精度の自動測定・分析と日報・ごみ箱の片付け・ライブ)"""
+        code, srv, started, opened = self.run_started(["--port", "0", "--no-mount", "--no-open"])
+        self.assertEqual(code, 0)
         wait_for(lambda: "trash" in started, 5)   # ごみ箱の片付けは裏のスレッド
         self.assertEqual(sorted(started), ["accuracy", "analytics", "backup", "intake", "live", "trash"])
-
-    def test_headless_existing_launcher_exits_nonzero(self):
-        """画面なし: そのポートの範囲に入口がすでに動いている = 画面を開かず、読める文を標準エラーへ出して EXIT_RUNNING"""
-        opened = []
-        with mock.patch.object(L.appwindow_mod.Opener, "open_start", lambda op, url: opened.append(url)):
-            code, logs, err, made = self.run_main_failing(["--headless", "--port", "8700"], existing=True)
-        self.assertEqual((code, opened), (L.EXIT_RUNNING, []))
-        self.assertIn("すでに起動しています", err)
-        self.assertIn("8700", err)
-        self.assertEqual(err.count("すでに起動しています"), 1, "標準エラーに 2 回出した")
-        self.assertTrue(any("すでに起動しています" in x for x in logs))   # launcher.log にも残す
-
-    def test_headless_lock_busy_exits_running(self):
-        code, logs, err, made = self.run_main_failing(["--headless", "--port", "0", "--no-mount"], lock_busy={"pid": 4242, "port": 8700})
-        self.assertEqual(code, L.EXIT_RUNNING)
-        self.assertIn("4242", err)
-        made[0].server_close.assert_called_once()
 
     def run_main_failing(self, argv, wait_result=None, lock_busy=None, existing=False):
         """待ちの期限・.flow.lock の先客で、トレースバックにせず読める文を出して非 0 で終わる。existing: 入口がすでに動いている"""

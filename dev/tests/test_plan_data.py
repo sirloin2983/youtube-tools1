@@ -8,32 +8,31 @@ import unittest
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(REPO, "dev"))
-import plan_artifact  # noqa: E402
 import plan_data  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from plan_fixture import lay  # noqa: E402
 
-DATA_JS = """/* 手書きのころ */
-window.PLAN = {
-  updated: "2026-10-18",
-  summary: "全体の説明。",
-  versions: [["全体(仮)", "0.0.1"], ["ui-kit", "v1"]],
-  recent: [{ id: "①", name: "前" }, { id: "②", name: "次" }],
-  lines: [{ id: "A", name: "線A", docs: ["x.md"] }],
-  tasks: [
-    { id: "T1", name: "仕事 1", line: "A", state: "done", pre: [] },
-    { id: "統1", name: "仕事 2", line: "A", state: "next", pre: ["T1", "U1", "H1"] },
-  ],
-  userTasks: {
-    notes: ["メモ"],
-    ordered: [{ id: "U1", name: "やる", why: "x" }],
-    later: [{ id: "U2", name: "あとで", why: "y" }],
-    provisional: [
-      { sec: "3-88", id: "(a)", date: "10-18", what: "軽い物", impact: "小" },
-      { sec: "3-87", id: "(b)", date: "10-17", what: "重い物", impact: "大" },
+PLAN = {
+    "updated": "2026-10-18",
+    "summary": "全体の説明。",
+    "versions": [["全体(仮)", "0.0.1"], ["ui-kit", "v1"]],
+    "recent": [{"id": "①", "name": "前"}, {"id": "②", "name": "次"}],
+    "lines": [{"id": "A", "name": "線A", "docs": ["x.md"]}],
+    "tasks": [
+        {"id": "T1", "name": "仕事 1", "line": "A", "state": "done", "pre": []},
+        {"id": "統1", "name": "仕事 2", "line": "A", "state": "next", "pre": ["T1", "U1", "H1"]},
     ],
-  },
-  history: [{ id: "H1", name: "済んだ", line: "A" }],
-};
-"""
+    "userTasks": {
+        "notes": ["メモ"],
+        "ordered": [{"id": "U1", "name": "やる", "why": "x"}],
+        "later": [{"id": "U2", "name": "あとで", "why": "y"}],
+        "provisional": [
+            {"sec": "3-88", "id": "(a)", "date": "10-18", "what": "軽い物", "impact": "小", "weight": "軽", "why": [], "added": "2026-10-18"},
+            {"sec": "3-87", "id": "(b)", "date": "10-17", "what": "重い物", "impact": "大", "weight": "重", "why": ["データ"], "added": "2026-10-18"},
+        ],
+    },
+    "history": [{"id": "H1", "name": "済んだ", "line": "A"}],
+}
 
 
 class PlanDataTest(unittest.TestCase):
@@ -41,10 +40,8 @@ class PlanDataTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.plan = os.path.join(self.tmp.name, "plan")
         os.makedirs(self.plan)
-        with open(os.path.join(self.plan, "data.js"), "w", encoding="utf-8") as f:
-            f.write(DATA_JS)
-        self.orig = plan_artifact.parse_plan_js(DATA_JS)
-        plan_data.split(self.plan, weights={0: {"w": "軽"}, 1: {"w": "重", "why": ["データ"]}})
+        self.orig = PLAN
+        lay(self.plan, PLAN)
         plan_data.build(self.plan, version="9.9.9")
 
     def tearDown(self):
@@ -53,9 +50,9 @@ class PlanDataTest(unittest.TestCase):
     def built(self):
         with open(os.path.join(self.plan, "data.js"), encoding="utf-8") as f:
             text = f.read()
-        return text, plan_artifact.parse_plan_js(text)
+        return text, plan_data.load(self.plan, version="9.9.9")
 
-    def test_split_round_trip(self):
+    def test_build_round_trip(self):
         text, back = self.built()
         self.assertTrue(text.startswith("/* plan/data.js — 自動で作る(dev/plan_data.py build)。手で直さない"))
         for k in ("updated", "summary", "recent", "lines", "tasks", "history"):

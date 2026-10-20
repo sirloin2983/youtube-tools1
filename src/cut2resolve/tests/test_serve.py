@@ -160,7 +160,7 @@ class TestPaths(ServerBase):
                 self.assertTrue(rt and os.path.isfile(rt))
                 self.assertTrue((work / "serve.log").is_file())
             finally:
-                serve.remove_runtime(8899)
+                serve._runtime.remove_runtime(serve.runtime_dir(), serve.TOOL_ID, 8899)
 
     def test_open_folder_only_for_pack_dirs(self):
         st, j = self.c.json("POST", "/api/open-folder", {"path": str(self.dir)})

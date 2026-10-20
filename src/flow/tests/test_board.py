@@ -189,12 +189,7 @@ class TestCancelRetry(unittest.TestCase):
         def cancel(inner):
             self.calls.append(("cancel", inner))
             self.state[inner] = "cancelled"
-
-        def retry(inner):
-            self.calls.append(("retry", inner))
-            self.state["r9"] = "queued"
-            return job("run:r9", "queued", kind="run")
-        self.b.register("run", source=source, cancel=cancel, retry=retry)
+        self.b.register("run", source=source, cancel=cancel)
 
     def test_cancel(self):
         out = self.b.cancel("run:r1")
@@ -221,16 +216,6 @@ class TestCancelRetry(unittest.TestCase):
             self.b.upsert(job("tx:j1", "running", canCancel=True))
             with self.assertRaises(exc):
                 self.b.cancel("tx:j1")
-
-    def test_retry(self):
-        out = self.b.retry("run:r2")
-        self.assertEqual((out["id"], out["state"], self.calls), ("run:r9", "queued", [("retry", "r2")]))
-        for jid in ("run:r1", "run:r3"):   # 実行中・済み(canRetry が偽)
-            with self.assertRaises(B.Refused) as cm:
-                self.b.retry(jid)
-            self.assertEqual(cm.exception.error, "cannot_retry")
-        with self.assertRaises(B.NotFound):
-            self.b.retry("run:nai")
 
 
 class TestDefault(unittest.TestCase):

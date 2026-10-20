@@ -11,14 +11,14 @@
 - **__init__.py** (2 行) — ④ 案件(配信 1 本の束ね)・紐づけ(切り抜き ↔ 文字起こし ↔ パック)・成果物の鍵の読み取り
 - **cases.py** (823 行) — 案件(配信1本)ごとの紐づけ(統合計画の段階4)。入口の「案件」画面(src/app/ui/home/portal.html)の中身を作る。
   - 名前: `locations` :83・`read_studio` :97・`clip_state` :138・`clip_live` :159・`auto_info` :173・`live_failures_by_mark` :192・`delivered_of` :226・`virtual_cases` :285・`build` :332・`load_saved` :381・`snapshot` :471・`find_doc` :485・ほか 5
-- **doclist.py** (102 行) — ④ 文字起こしの一覧と、元の動画・パックの有無・前回のパックの手順(役割で組み直す RS3-E5a)。
-  - 名前: `list_transcripts` :53・`pack_readme` :82
-- **handoff_io.py** (147 行) — ④ 受け渡し: 元の配信の情報(clip/v1)・受け渡しの JSON と SRT を動画の隣に保存
-  - 名前: `class PipelineError` :35・`written_by_us` :47・`save_beside` :61・`export_file` :99
+- **doclist.py** (101 行) — ④ 文字起こしの一覧と、元の動画・パックの有無・前回のパックの手順(役割で組み直す RS3-E5a)。
+  - 名前: `list_transcripts` :52・`pack_readme` :81
+- **handoff_io.py** (146 行) — ④ 受け渡し: 元の配信の情報(clip/v1)・受け渡しの JSON と SRT を動画の隣に保存
+  - 名前: `class PipelineError` :34・`written_by_us` :46・`save_beside` :60・`export_file` :98
 - **outdirs.py** (168 行) — ④ 書き出し先を変えたあとの案件の繋ぎ直し(決定 3-37 の (r8o))と、入口の「調子」の「置き場所」の数。
   - 名前: `read_data` :33・`state_path` :39・`read_state` :43・`relink_problem` :55・`relink` :69・`relink_out_dir` :85・`status` :136・`main` :148
-- **relink.py** (243 行) — ④ 文書と動画の紐づけ: 動画を選び直す(付け替え)・「参照…」・素材を 30fps にそろえる
-  - 名前: `relink_path` :28・`relink_check` :69・`relink_doc` :125・`norm_swap` :192・`norm_start` :210・`pick_path` :231
+- **relink.py** (242 行) — ④ 文書と動画の紐づけ: 動画を選び直す(付け替え)・「参照…」・素材を 30fps にそろえる
+  - 名前: `relink_path` :27・`relink_check` :68・`relink_doc` :124・`norm_swap` :191・`norm_start` :209・`pick_path` :230
 - **txindex.py** (237 行) — 文字起こしの文書(文字起こしツールの transcripts/*.json)を、他のツールから**読むだけ**の部品(統合計画の段階4)。
   - 名前: `folder` :29・`norm` :35・`doc_paths` :92・`load` :103・`class Docs` :116・`summary` :146・`matches` :161・`pick` :165・`offset` :189・`lines` :209・`pack_dir` :214・`pack_info` :219・ほか 1
 - **txlink.py** (37 行) — 書き出し済みのマークの「セリフ」(文字起こしツールで作った文字起こし)を、元の配信の時刻にして返す(統合計画の段階4)。
@@ -31,8 +31,8 @@
   - 名前: `skip` :71・`plan` :138・`plan_cases` :174・`default_media_dirs` :201・`media_rel` :215・`plan_media` :232・`same` :239・`copy_one` :247・`run_once` :279・`class Backup` :329・`restore_once` :557・`main` :618
 - **cleanup.py** (478 行) — 作業データの片付け(全体の計画 段9 9-2。ユーザー決定: 元動画も候補に・ごみ箱フォルダ経由・日数を決めて消す)。
   - 名前: `class Cleanup` :99
-- **evalfolders.py** (514 行) — ④ 評価用のフォルダの整理: 動画の名前を「フォルダ名_番号_状態」にそろえる・仮置きからメンバーのフォルダへ移す・評価用にした文書の動画を外から取り込む
-  - 名前: `eval_videos` :68・`norm_member` :99・`member_name` :104・`organizing` :111・`eval_members` :116・`eval_organize` :330・`eval_settle` :406・`eval_folders_info` :502
+- **evalfolders.py** (513 行) — ④ 評価用のフォルダの整理: 動画の名前を「フォルダ名_番号_状態」にそろえる・仮置きからメンバーのフォルダへ移す・評価用にした文書の動画を外から取り込む
+  - 名前: `eval_videos` :67・`norm_member` :98・`member_name` :103・`organizing` :110・`eval_members` :115・`eval_organize` :329・`eval_settle` :405・`eval_folders_info` :501
 - **learnpack.py** (145 行) — ④ データ: 学習の束を作る側(F1。notes:docs/design/f1-build.md の 2 の F1・3 の (f1c))。
   - 名前: `roster_names` :41・`filter_voices` :51・`collect` :58・`content_sha8` :87・`versions` :95・`build` :104
 - **live_cleanup.py** (213 行) — 録画を自動で消す(線 D。notes:plan/line-d-live-clipping.md の 0-9 の最後。ユーザー決定。決定 3-73)の入口の側。

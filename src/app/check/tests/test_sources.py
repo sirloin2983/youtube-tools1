@@ -143,7 +143,7 @@ class SourcesTest(unittest.TestCase):
 
     def test_broken_source_does_not_stop_others(self):
         sources.register("time", "boom", lambda view: 1 / 0)
-        self.addCleanup(sources.unregister, "time", "boom")
+        self.addCleanup(sources._unregister, "time", "boom")
         cards, view = sources.collect(self.ctx)
         self.assertTrue(cards)
         self.assertTrue(any("time:boom" in e for e in view.errors))
@@ -193,7 +193,7 @@ class SourcesTest(unittest.TestCase):
             return [self._card("value", "dep", "s1")] if view.__dict__.get("_mark_seen") else []
         for k, s, f in (("read", "flk", flaky), ("read", "mrk", mark), ("value", "dep", dep)):
             sources.register(k, s, f)
-            self.addCleanup(sources.unregister, k, s)
+            self.addCleanup(sources._unregister, k, s)
         deck.invalidate()
         listed = [c["id"] for c in deck.next_cards(self.ctx, n=50)["cards"]]
         self.assertIn("read:flk:%s#s1" % DOC, listed)

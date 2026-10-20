@@ -11,12 +11,12 @@
 - **__init__.py** (2 行) — ① 解析: 材料の取得(fetch。動画・チャット・コメント)・音量(levels)・盛り上がりの式(excite)・候補・話の切れ目(breaks)・自動採用・配信中の検出
 - **adopt.py** (73 行) — 採用の規則 F-5(notes:plan/done/role-restructure.md 5-5・決定 3-29 Q3。純粋な関数)。
   - 名前: `check_args` :18・`adopt` :35
-- **analyze.py** (413 行) — 解析(自動切り抜き ac/serve.py 由来。書き出し・手動の○×は持たない)。
-  - 名前: `sig_cache_dir` :37・`validate_live` :44・`validate_source` :50・`validate_settings` :65・`make_spec` :80・`chat_public` :89・`sig_path` :96・`load_sig` :100・`save_sig` :117・`archive_path` :130・`load_archive` :134・`save_archive` :144・ほか 3
-- **breaks.py** (123 行) — 話の切れ目(breaks)。切り抜きの区間の両端を、文字起こしの話の切れ目へ寄せて言葉の途中で切らないための関数(線 LD-2c。notes:plan/done/ld2-clip-length.md)。
-  - 名前: `cuts` :61・`snap` :106・`inside_row` :120
-- **excite.py** (997 行) — 盛り上がり(excitement)の式。スタジオのアーカイブの解析(src/pipeline/analyze/analyze.py)と、配信中の検出(src/pipeline/analyze/live_excite_worker.py。線 D の L2)が同じ式を読む(線 D の L1。notes…
-  - 名前: `smooth` :64・`median` :75・`local_baseline` :81・`robust_scale` :100・`audio_score` :106・`chat_z` :118・`shift_chat` :127・`chat_score` :133・`estimate_lag` :137・`ramp` :161・`head_ramp` :166・`comment_score` :173・ほか 14
+- **analyze.py** (409 行) — 解析(自動切り抜き ac/serve.py 由来。書き出し・手動の○×は持たない)。
+  - 名前: `sig_cache_dir` :35・`validate_live` :42・`validate_source` :48・`validate_settings` :63・`make_spec` :78・`chat_public` :87・`sig_path` :94・`load_sig` :98・`save_sig` :115・`archive_path` :128・`load_archive` :132・`save_archive` :142・ほか 3
+- **breaks.py** (119 行) — 話の切れ目(breaks)。切り抜きの区間の両端を、文字起こしの話の切れ目へ寄せて言葉の途中で切らないための関数(線 LD-2c。notes:plan/done/ld2-clip-length.md)。
+  - 名前: `cuts` :61・`snap` :106
+- **excite.py** (966 行) — 盛り上がり(excitement)の式。スタジオのアーカイブの解析(src/pipeline/analyze/analyze.py)と、配信中の検出(src/pipeline/analyze/live_excite_worker.py。線 D の L2)が同じ式を読む(線 D の L1。notes…
+  - 名前: `smooth` :64・`median` :75・`local_baseline` :81・`robust_scale` :100・`audio_score` :106・`chat_z` :118・`shift_chat` :127・`chat_score` :133・`estimate_lag` :137・`ramp` :161・`head_ramp` :166・`comment_score` :173・ほか 13
 - **fetch.py** (494 行) — 解析の材料を取ってくる仕事(音声のダウンロード・チャットのリプレイの取得と先読み・コメント欄・動画の付加情報)と、そのキャッシュの置き場と掃除。
   - 名前: `work_dir` :30・`chat_cache_dir` :34・`download_audio` :49・`chat_cache_path` :69・`drop_chat_cache` :73・`chat_cache_limit` :90・`use_chat_cache` :105・`prune_chat_cache` :115・`download_chat` :163・`prefetch_chat` :245・`cancel_prefetch` :288・`cancel_all_prefetch` :295・ほか 8
 - **levels.py** (64 行) — 1 秒ごとの音量(RMS, dB)を、ffmpeg 1 回のデコードで全帯域と高音域(2kHz 超)の 2 系列に測る決まり(OPT1)。
@@ -29,8 +29,8 @@
 - **__init__.py** (2 行) — ① 書き出し: 区間 → 動画(exporter)・サムネの案の絵(thumb_cards)
 - **exporter.py** (993 行) — ③ 書き出し(クリップマーカー cm/serve.py 由来): store の動画・マークから ffmpeg / yt-dlp でクリップを mp4 にする。
   - 名前: `class ExportError` :51・`log_export` :55・`reason` :71・`verify_output` :78・`pick_folder` :87・`promote` :96・`drop_partial` :113・`clean_partials` :119・`check_section_path` :215・`build_section_spec` :236・`spec_from_video` :262・`new_result` :314・ほか 13
-- **thumb_cards.py** (175 行) — サムネの案の描く部分(提案 P5 の S。notes:plan/thumb-ideas.md の 7・8)。ffmpeg で動画から 1 枚ずつ切り取って文字を載せ、6 案を 1 枚の PNG にまとめる。
-  - 名前: `class ThumbError` :21・`ffmpeg_path` :28・`probe` :35・`loud_times` :45・`scene_times` :60・`font_path` :69・`fpath` :76・`text_filter` :81・`card_filters` :90・`crop_box` :120・`render_card` :138・`tile` :153・ほか 1
+- **thumb_cards.py** (174 行) — サムネの案の描く部分(提案 P5 の S。notes:plan/thumb-ideas.md の 7・8)。ffmpeg で動画から 1 枚ずつ切り取って文字を載せ、6 案を 1 枚の PNG にまとめる。
+  - 名前: `class ThumbError` :21・`ffmpeg_path` :28・`probe` :35・`loud_times` :44・`scene_times` :59・`font_path` :68・`fpath` :75・`text_filter` :80・`card_filters` :89・`crop_box` :119・`render_card` :137・`tile` :152・ほか 1
 
 ## src/pipeline/ingest/
 
@@ -48,20 +48,20 @@
 - **__init__.py** (2 行) — ① パック: DaVinci Resolve に読ませるパック(pack・cut2resolve_core・srt2resolve)・Text+(resolve_textplus)・zip の受け渡し(resolve_export)・指定の読み(request)・自動のカット(auto_cut)・…
 - **auto_cut.py** (141 行) — カットの計画の部品(read_cut_plan・build_plan・plan_from_keeps・finalize_plan。pack.py が使う)。
   - 名前: `read_cut_plan` :16・`default_handles` :71・`build_plan` :77・`removed_between` :98・`plan_from_keeps` :109・`finalize_plan` :117
-- **cut2resolve_core.py** (889 行) — cut2resolve 共通部
-  - 名前: `class Cancelled` :48・`class OutputExists` :55・`class Task` :64・`parse_time` :79・`parse_cut_list` :117・`sec_to_frames` :148・`cue_frames` :152・`frames_to_sec` :158・`fps_label` :163・`cut_list_to_keeps` :168・`normalize` :183・`subtract` :201・ほか 36
-- **pack.py** (948 行) — カットの計算(試算)とパックの作成。② の CLI(src/app/cli.py)と画面(serve.py)の両方から呼ぶ共通部(処理を二重に持たない)。
+- **cut2resolve_core.py** (875 行) — cut2resolve 共通部
+  - 名前: `class Cancelled` :47・`class OutputExists` :54・`class Task` :63・`parse_time` :78・`parse_cut_list` :116・`sec_to_frames` :147・`cue_frames` :151・`frames_to_sec` :157・`fps_label` :162・`cut_list_to_keeps` :167・`normalize` :182・`subtract` :200・ほか 35
+- **pack.py** (947 行) — カットの計算(試算)とパックの作成。画面(serve.py)と ② の自動の流れが呼ぶ共通部(処理を二重に持たない)。
   - 名前: `class RowEdge` :41・`class Request` :76・`class Plan` :113・`class Cache` :137・`default_out_dir` :201・`row_edge_from` :205・`widen_row_edges` :229・`row_edge_pending` :272・`silence_pending` :281・`detect_pending` :289・`without_detect` :298・`plan_cut` :317・ほか 15
 - **preview.py** (124 行) — ① 確認用の動画(友人が受け取るかを決める前に見る、1 本の切り抜きの 480p の動画)とパックの中の切り抜きの動画の引き方(ds1 = 要件 1-5。② flow/deliver から分けた)。
   - 名前: `pack_title` :24・`scratch_path` :30・`remove_quiet` :35・`pack_video` :41・`make_preview` :80・`clip_preview` :105・`pack_seconds` :118
 - **request.py** (336 行) — パックの指定(JSON の spec・output)-> pack.Request と build_pack の引数。指定の読み方の 1 か所
   - 名前: `clean_path` :33・`input_path` :58・`request_from_spec` :103・`clip_range_from_spec` :174・`row_edge_from_spec` :184・`advanced_from_spec` :193・`keeps_from_spec` :204・`speaker_color_map` :225・`speaker_styles_from` :244・`apply_speaker_styles` :267・`output_from_spec` :288・`speaker_colors_for` :327
-- **resolve_export.py** (379 行) — DaVinci Resolve への受け渡し(文字起こしツールの「Resolveパッケージ(zip)をダウンロード」)と、「残す行」の規則。
-  - 名前: `srt_time` :38・`srt_text` :44・`is_kept` :50・`kept_spans` :56・`tool_info` :83・`sorted_segments` :87・`build_transcript_v1` :106・`build_cut_plan_v1` :134・`wrap_text` :147・`build_srt` :154・`pack_instructions` :174・`edit_draft` :237・ほか 3
+- **resolve_export.py** (375 行) — DaVinci Resolve への受け渡し(文字起こしツールの「Resolveパッケージ(zip)をダウンロード」)と、「残す行」の規則。
+  - 名前: `srt_time` :37・`srt_text` :43・`is_kept` :49・`kept_spans` :55・`tool_info` :82・`sorted_segments` :86・`build_transcript_v1` :105・`build_cut_plan_v1` :133・`wrap_text` :146・`build_srt` :153・`pack_instructions` :173・`edit_draft` :233・ほか 3
 - **resolve_textplus.py** (1019 行) — Resolve Free向け Text+ 試験パック。Luaスクリプトを同梱する。
   - 名前: `hex_rgba` :70・`text_style` :81・`style_inputs` :97・`video_tracks_value` :119・`parse_target` :126・`caption_segments` :149・`stack_captions` :180・`default_wrap` :252・`wrap_caption` :257・`build_import_plan` :295・`importer_script` :363・`installer_script` :781・ほか 6
-- **srt2resolve.py** (358 行) — パックの部品(動画の情報の読み取り・字幕の読み込み・フレームの計算・SRT の組み立ての小道具)。
-  - 名前: `class ToolError` :28・`same_path` :32・`staged` :45・`write_text_atomic` :57・`tool` :66・`arg_path` :71・`clean_text` :95・`parse_subs` :102・`read_sub_file` :126・`snap_fps` :150・`codec_warnings` :162・`probe` :199・ほか 9
+- **srt2resolve.py** (353 行) — パックの部品(動画の情報の読み取り・字幕の読み込み・フレームの計算・SRT の組み立ての小道具)。
+  - 名前: `class ToolError` :27・`same_path` :31・`staged` :44・`write_text_atomic` :56・`tool` :65・`arg_path` :70・`clean_text` :94・`parse_subs` :101・`read_sub_file` :125・`snap_fps` :149・`codec_warnings` :161・`probe` :198・ほか 9
 
 ## src/pipeline/transcribe/
 
@@ -88,16 +88,16 @@
   - 名前: `set_dict_inputs` :24・`pkg_version` :37・`engine_version` :46・`run_engine` :60・`recognition_run` :77・`short_hash` :91・`roster_hash` :104・`dict_version` :112・`context_record` :136・`vad_record` :144・`asr_path` :155・`capture_raw` :160・ほか 1
 - **replace.py** (59 行) — ① 自動の流れの層 pipeline/transcribe: 確度「高」の学習済み置換を機械の出力に当てる(`auto_learned_replace`)。純粋な関数だけ(ファイル・設定を読まない)。
   - 名前: `fixed_finder` :15・`pick_glossary` :37・`auto_learned_replace` :52
-- **retime.py** (268 行) — ① 字幕の読む速さの印(T2)と、直した行の時刻を単語の時刻から配り直す候補(T1 の簡易版)の計算。
-  - 名前: `subread_chars` :44・`subread_limits` :49・`subread_mark` :62・`retime_raw` :154・`retime_candidates` :201
+- **retime.py** (208 行) — ① 直した行の時刻を単語の時刻から配り直す候補(T1 の簡易版)の計算。
+  - 名前: `retime_raw` :94・`retime_candidates` :141
 - **roster.py** (305 行) — 名簿(hololive-roster.json)と、配信ごとの文脈(文字起こしの改善の計画 段1。notes:plan/line-b-transcription.md(付録))。
   - 名前: `fold` :39・`load` :50・`channel_regions` :89・`find_in_text` :119・`match_name` :132・`build_context` :143・`member_terms` :167・`fit` :178・`prompt_terms` :193・`stream_context` :203・`leak_only` :228・`alias_variants` :262・ほか 1
-- **tx_engines.py** (1239 行) — 文字起こしの認識エンジンの口(精度改善の計画 段2。notes:plan/line-b-transcription.md(付録))。
+- **tx_engines.py** (1231 行) — 文字起こしの認識エンジンの口(精度改善の計画 段2。notes:plan/line-b-transcription.md(付録))。
   - 名前: `engine_home` :52・`engine_of` :61・`env_num` :66・`is_16k_mono` :75・`half_cpu` :80・`class EngineError` :85・`class Engine` :93・`class FasterWhisper` :146・`wcpp_env` :214・`wcpp_bin_dir` :223・`wcpp_model_dir` :228・`wcpp_binary_ok` :232・ほか 19
 - **worker.py** (322 行) — ① 文字起こしの認識ワーカー(統合計画の段階3-3)。編集のサーバーが別プロセスとして起動する(worker_client.WorkerClient)。人が直接起動するものではない。
   - 名前: `class Out` :84・`class JobProxy` :94・`handle` :253・`main` :277
-- **worker_client.py** (748 行) — ① 認識ワーカー(別プロセス)とのやり取りとモデル: ワーカーの起動・要求・取り消し・強制終了(WorkerClient・WORKER)・モデルの代理(RemoteModel)・
-  - 名前: `release_idle_models` :40・`worker_script` :69・`worker_log` :74・`worker_env` :91・`class WorkerError` :109・`class WorkerClient` :130・`class RemoteModel` :430・`req_engine` :480・`engines_info` :494・`check_engine` :501・`load_model` :514・`nvidia_gpu` :533・ほか 12
+- **worker_client.py** (733 行) — ① 認識ワーカー(別プロセス)とのやり取りとモデル: ワーカーの起動・要求・取り消し・強制終了(WorkerClient・WORKER)・モデルの代理(RemoteModel)・
+  - 名前: `release_idle_models` :39・`worker_script` :68・`worker_log` :73・`worker_env` :90・`class WorkerError` :108・`class WorkerClient` :129・`class RemoteModel` :429・`req_engine` :479・`engines_info` :493・`check_engine` :500・`load_model` :513・`nvidia_gpu` :529・ほか 12
 
 ## テスト
 

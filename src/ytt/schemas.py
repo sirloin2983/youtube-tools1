@@ -374,7 +374,7 @@ def _is_hex(s, n):
 def media_identity(kind, **kw):
     """元の媒体の識別(F-1)。切り抜きの鍵に入れて、配信中の録画からの速報版と、アーカイブからの本番版が同じ鍵にならないようにする。
     recording: recorder=録画の部品の名前/id, recording=録画 id。archive: videoId=YouTube の動画 ID。
-    file: sha256=中身のハッシュ(file_digest で出す。ファイル名や更新日時は入れない = 動かしても同じ)。
+    file: sha256=中身のハッシュ(fsio.sha256_file で出す。ファイル名や更新日時は入れない = 動かしても同じ)。
     決まった項目以外・足りない項目・空の値は ValueError"""
     fields = {"recording": ("recorder", "recording"), "archive": ("videoId",), "file": ("sha256",)}
     if kind not in fields:
@@ -389,18 +389,6 @@ def media_identity(kind, **kw):
         if not _is_hex(out["sha256"], 64):
             raise ValueError("sha256 は 64 桁の 16 進数にしてください")
     return out
-
-
-def file_digest(path, chunk=1 << 20):
-    """ファイルの内容の sha256(16 進 64 桁)。1MB ずつ読む(巨大な動画でもメモリを食わない)。読めなければ OSError"""
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        while True:
-            b = f.read(chunk)
-            if not b:
-                break
-            h.update(b)
-    return h.hexdigest()
 
 
 def _norm(v):

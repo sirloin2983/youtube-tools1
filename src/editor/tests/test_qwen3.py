@@ -21,7 +21,9 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 HERE = os.path.dirname(TESTS)
 os.environ.setdefault("YTT_CORE_DIR", os.path.dirname(HERE))
 sys.path.insert(0, HERE)
-import serve as S  # noqa: E402
+import serve  # noqa: E402
+import ed_state  # noqa: E402
+from pipeline.transcribe import worker_client as _worker_client  # noqa: E402
 from pipeline.transcribe import tx_engines as E  # noqa: E402
 from ytt import testkit  # noqa: E402
 
@@ -130,12 +132,12 @@ class Qwen3EngineTest(unittest.TestCase):
             self.assertRegex(spec["sha256"], r"^[0-9a-f]{64}$")
 
     def test_server_accepts_engine(self):
-        self.assertEqual(S.req_engine({"engine": "llama.cpp"}, "qwen3-asr-1.7b"), "llama.cpp")
-        with self.assertRaises(S.ApiError) as c:
-            S.req_engine({"engine": "qwen3-asr"}, "qwen3-asr-0.6b")
+        self.assertEqual(_worker_client.req_engine({"engine": "llama.cpp"}, "qwen3-asr-1.7b"), "llama.cpp")
+        with self.assertRaises(ed_state.ApiError) as c:
+            _worker_client.req_engine({"engine": "qwen3-asr"}, "qwen3-asr-0.6b")
         self.assertEqual(c.exception.code, "bad_engine")
-        with self.assertRaises(S.ApiError) as c:
-            S.req_engine({"engine": "llama.cpp"}, "large-v3")
+        with self.assertRaises(ed_state.ApiError) as c:
+            _worker_client.req_engine({"engine": "llama.cpp"}, "large-v3")
         self.assertEqual(c.exception.code, "bad_model")
 
 

@@ -206,9 +206,6 @@ class TestTable(unittest.TestCase):
             b.cancel("pk:" + rec["id"])
         with self.assertRaises(B.NotFound):
             b.cancel("pk:nai")
-        new = b.retry("pk:" + rec["id"])
-        self.assertNotEqual(new["id"], "pk:" + rec["id"])
-        self.assertTrue(wait(lambda: not t.busy()))
 
 
     def test_j8_priority_manual_lane_and_runner_owned_state(self):

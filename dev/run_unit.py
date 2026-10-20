@@ -31,6 +31,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(REPO, "src"))
 from layer_map import LAYERS  # noqa: E402
 from ytt import tools  # noqa: E402
+from _common import find_node  # noqa: E402
 
 EDITOR_TESTS = "src/editor/tests"
 EDITOR_ENTRY = "test_metrics"
@@ -39,20 +40,6 @@ SKIP_DIRS = {"__pycache__", "node_modules", "build", "dist", "work", "logs", "fi
 TAIL_LINES = 25
 SLOWEST = 10
 PY = [sys.executable]   # この道具を動かした Python(py -3.12)で流す
-
-
-def find_node():
-    """node(PATH に無ければ Playwright に入っている node.exe)。無ければ None"""
-    import shutil
-    n = shutil.which("node")
-    if n:
-        return n
-    try:
-        import playwright
-    except ImportError:
-        return None
-    p = os.path.join(os.path.dirname(playwright.__file__), "driver", "node.exe" if os.name == "nt" else "node")
-    return p if os.path.isfile(p) else None
 
 
 NODE = find_node()

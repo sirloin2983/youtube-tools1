@@ -3,16 +3,15 @@
 
     python dev/lint.py            # 一覧と件数。問題が 1 つでもあれば終了コード 1
     python dev/lint.py --json     # 同じ内容を JSON で
-    python dev/lint.py --long 150 --long-test 400 --dup 12
 
 見るもの(標準ライブラリだけ。pyflakes などは入れない):
   1 unused-import … import したのに使っていない名前(`# noqa` の行・`__init__.py` の再公開・`__future__` は除く)
   2 dead-name     … モジュールの直下で定義した関数・クラスが、リポジトリのどこからも参照されていない
                     (名前がリポジトリ全体の .py/.js/.cjs/.html/.cs/.md に 1 回しか出ない。残すものは定義の行に `# lint: keep <理由>`)
-  3 long-function … 本体が --long 行(テストは --long-test 行)を超える関数(残すものは def の行に `# lint: long <理由>`)
+  3 long-function … 本体が LONG 行(テストは LONG_TEST 行)を超える関数(残すものは def の行に `# lint: long <理由>`)
   4 dup-helper    … ytt にある小道具の写し(_unlink / _no_window / KillJob の定義が ytt の外にある。残すなら `# lint: keep <理由>`)
   5 js-dead       … JS のトップレベルの function が、同じツールの .js/.html のどこからも参照されていない(名前が 1 回だけ)
-  6 dup-block     … 同じ行の並びが --dup 行以上、別の場所にもある(空白と行末のコメントをそろえて比べる。src/ と dev/ の .py・.js。tests/ は除く)
+  6 dup-block     … 同じ行の並びが DUP 行以上、別の場所にもある(空白と行末のコメントをそろえて比べる。src/ と dev/ の .py・.js。tests/ は除く)
   7 no-docstring  … モジュールの先頭に説明(docstring)が無い .py(tests/ は除く)。テストの .py・.js・.cs(git の全部)は頭の説明
                     (docstring か最初のコメント)が無い物(dev/code_map.py の --missing と同じ)
  10 code-map      … コードの地図 codemap/ が古い(dev/code_map.py --check。作り直しは python dev/code_map.py)
@@ -316,12 +315,12 @@ def stale_refs(path, tree, src):
     return sorted({x for x in out if (x[1], r) not in REF_ALLOW})
 
 
+LONG, LONG_TEST, DUP = 150, 400, 12   # 関数の長さの上限(本体・テスト)・同じ行の並びの下限
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--json", action="store_true")
-    ap.add_argument("--long", type=int, default=150)
-    ap.add_argument("--long-test", dest="long_test", type=int, default=400)
-    ap.add_argument("--dup", type=int, default=12)
     a = ap.parse_args()
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -343,7 +342,7 @@ def main():
         nodes = list(ast.walk(tree))   # 木をなめるのは 1 ファイル 1 回
         for ln, name in unused_imports(p, nodes, src):
             add("unused-import", rel(p), ln, name)
-        for ln, name, n in long_functions(p, nodes, src, a.long_test if is_test(p) else a.long):
+        for ln, name, n in long_functions(p, nodes, src, LONG_TEST if is_test(p) else LONG):
             add("long-function", rel(p), ln, name, lines=n)
         for ln, kind, name in stale_refs(p, tree, src):
             add(kind, rel(p), ln, name)
@@ -356,8 +355,8 @@ def main():
                 add("no-docstring", rel(p), 1, "docstring")
     for f, ln, name in js_dead(corpus):
         add("js-dead", f, ln, name)
-    for locs in dup_blocks(a.dup, corpus):
-        add("dup-block", locs[0][0], locs[0][1], "同じ %d 行以上: " % a.dup + "・".join("%s:%d" % loc for loc in locs[1:4]))
+    for locs in dup_blocks(DUP, corpus):
+        add("dup-block", locs[0][0], locs[0][1], "同じ %d 行以上: " % DUP + "・".join("%s:%d" % loc for loc in locs[1:4]))
     for tool, found in version_mismatch():
         add("version", found[0][0], 1, tool + ": " + "・".join("%s=%s" % (os.path.basename(f), v) for f, v in found))
     # 資料のフォルダ(Obsidian の保管庫)の切れたパス = dev/notes_tool.py の check(資料のフォルダが無い PC では 0)

@@ -34,12 +34,11 @@ def ffmpeg_path():
 
 def probe(ff, video):
     """-> (長さの秒, 幅, 高さ)。ffmpeg -i の表示から読む"""
-    r = subprocess.run([ff, "-hide_banner", "-i", video], capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=tools.no_window_flags())
-    m = re.search(r"Duration: (\d+):(\d+):([\d.]+)", r.stderr)
-    s = re.search(r"Video:.*?(\d{2,5})x(\d{2,5})", r.stderr)
-    if not m or not s:
+    dur, _has_v, _has_a, vline = tools.parse_ffmpeg_info(tools.ffmpeg_info(video, ff))   # 読み方は tools の 1 か所(映像の行 = カバー画像でない最初の Video)
+    s = re.search(r"(\d{2,5})x(\d{2,5})", vline)
+    if dur is None or not s:
         raise ThumbError("動画を読めませんでした: %s" % os.path.basename(video))
-    return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)), int(s.group(1)), int(s.group(2))
+    return dur, int(s.group(1)), int(s.group(2))
 
 
 def loud_times(ff, video, step=0.5):
