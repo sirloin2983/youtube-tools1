@@ -9,8 +9,8 @@
 ## src/manage/cases/
 
 - **__init__.py** (2 行) — ④ 案件(配信 1 本の束ね)・紐づけ(切り抜き ↔ 文字起こし ↔ パック)・成果物の鍵の読み取り
-- **cases.py** (823 行) — 案件(配信1本)ごとの紐づけ(統合計画の段階4)。入口の「案件」画面(src/app/ui/home/portal.html)の中身を作る。
-  - 名前: `locations` :83・`read_studio` :97・`clip_state` :138・`clip_live` :159・`auto_info` :173・`live_failures_by_mark` :192・`delivered_of` :226・`virtual_cases` :285・`build` :332・`load_saved` :381・`snapshot` :471・`find_doc` :485・ほか 5
+- **cases.py** (824 行) — 案件(配信1本)ごとの紐づけ(統合計画の段階4)。入口の「案件」画面(src/app/ui/home/portal.html)の中身を作る。
+  - 名前: `locations` :84・`read_studio` :98・`clip_state` :139・`clip_live` :160・`auto_info` :174・`live_failures_by_mark` :193・`delivered_of` :227・`virtual_cases` :286・`build` :333・`load_saved` :382・`snapshot` :472・`find_doc` :486・ほか 5
 - **doclist.py** (101 行) — ④ 文字起こしの一覧と、元の動画・パックの有無・前回のパックの手順(役割で組み直す RS3-E5a)。
   - 名前: `list_transcripts` :52・`pack_readme` :81
 - **handoff_io.py** (146 行) — ④ 受け渡し: 元の配信の情報(clip/v1)・受け渡しの JSON と SRT を動画の隣に保存
@@ -29,24 +29,24 @@
 - **__init__.py** (2 行) — ④ 置き場所・バックアップ・ごみ箱・録画の片付け
 - **backup.py** (670 行) — 作業データのバックアップ(notes:docs/spec/data.md の「バックアップ」)。
   - 名前: `skip` :71・`plan` :138・`plan_cases` :174・`default_media_dirs` :201・`media_rel` :215・`plan_media` :232・`same` :239・`copy_one` :247・`run_once` :279・`class Backup` :329・`restore_once` :557・`main` :618
-- **cleanup.py** (478 行) — 作業データの片付け(全体の計画 段9 9-2。ユーザー決定: 元動画も候補に・ごみ箱フォルダ経由・日数を決めて消す)。
-  - 名前: `class Cleanup` :99
-- **evalfolders.py** (513 行) — ④ 評価用のフォルダの整理: 動画の名前を「フォルダ名_番号_状態」にそろえる・仮置きからメンバーのフォルダへ移す・評価用にした文書の動画を外から取り込む
-  - 名前: `eval_videos` :67・`norm_member` :98・`member_name` :103・`organizing` :110・`eval_members` :115・`eval_organize` :329・`eval_settle` :405・`eval_folders_info` :501
+- **cleanup.py** (479 行) — 作業データの片付け(全体の計画 段9 9-2。ユーザー決定: 元動画も候補に・ごみ箱フォルダ経由・日数を決めて消す)。
+  - 名前: `class Cleanup` :100
+- **evalfolders.py** (514 行) — ④ 評価用のフォルダの整理: 動画の名前を「フォルダ名_番号_状態」にそろえる・仮置きからメンバーのフォルダへ移す・評価用にした文書の動画を外から取り込む
+  - 名前: `eval_videos` :68・`norm_member` :99・`member_name` :104・`organizing` :111・`eval_members` :116・`eval_organize` :330・`eval_settle` :406・`eval_folders_info` :502
 - **learnpack.py** (145 行) — ④ データ: 学習の束を作る側(F1。notes:docs/design/f1-build.md の 2 の F1・3 の (f1c))。
   - 名前: `roster_names` :41・`filter_voices` :51・`collect` :58・`content_sha8` :87・`versions` :95・`build` :104
-- **live_cleanup.py** (213 行) — 録画を自動で消す(線 D。notes:plan/line-d-live-clipping.md の 0-9 の最後。ユーザー決定。決定 3-73)の入口の側。
-  - 名前: `class Cleaner` :50
-- **trash.py** (121 行) — ④ データの keep: ごみ箱フォルダへ移す・戻すの 1 か所(OPT-M2。notes:plan/done/opt-manage.md の 7c-1・2c-1)。
-  - 名前: `to_trash` :27・`record` :77・`put_back` :92
+- **live_cleanup.py** (214 行) — 録画を自動で消す(線 D。notes:plan/line-d-live-clipping.md の 0-9 の最後。ユーザー決定。決定 3-73)の入口の側。
+  - 名前: `class Cleaner` :51
+- **trash.py** (129 行) — ④ データの keep: ごみ箱フォルダへ移す・戻すの 1 か所(OPT-M2。notes:plan/done/opt-manage.md の 7c-1・2c-1)。
+  - 名前: `existing_sidecars` :23・`to_trash` :35・`record` :85・`put_back` :100
 
 ## src/manage/ops/
 
 - **__init__.py** (2 行) — ④ データの運用: 調子・起動し直し・エラーの記録・分析と日報(analytics/)。失敗の集約は ② にある
 - **autorestart.py** (47 行) — 入口の自動の起動し直し(ディスクの版 != 動いている版のとき、何も処理していない間に自分で起動し直す)の判定。
   - 名前: `read_tried` :21・`write_tried` :27・`decide` :32・`editor_in_use` :44
-- **clientlog.py** (86 行) — 画面(ブラウザ・窓)で起きたエラーの記録(統合計画の段階7-0)。
-  - 名前: `clean` :28・`class ClientLog` :47
+- **clientlog.py** (78 行) — 画面(ブラウザ・窓)で起きたエラーの記録(統合計画の段階7-0)。
+  - 名前: `clean` :27・`class ClientLog` :39
 - **health.py** (387 行) — 「調子」(全体の計画 段9 9-1)。
   - 名前: `top_items` :36・`data_sizes` :56・`disk_free` :87・`tool_version` :107・`tool_versions` :115・`count_jsonl` :133・`count_client_errors` :164・`crash_counts` :198・`count_worker_incidents` :243・`class Health` :272
 - **restart.py** (197 行) — 入口を起動し直す(段9 9-3)。

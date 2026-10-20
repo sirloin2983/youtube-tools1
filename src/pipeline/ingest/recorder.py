@@ -26,6 +26,7 @@ API(/api/ping 以外は合言葉 `Authorization: Bearer <token>` が要る。tok
 録画そのものは置き場所(既定 E:\\Video\\live-rec\\)。ドライブが無ければ作業データの中へ逃がさず、画面で案内する。
 """
 import argparse
+import importlib
 import json
 import os
 import re
@@ -304,6 +305,7 @@ def parse_args(argv):
     ap.add_argument("--backoff", default="", help="繋ぎ直すまでの秒(例 5,10,30。テスト用)")
     ap.add_argument("--idle-end", type=int, default=rec_core.IDLE_END)
     ap.add_argument("--stall-sec", type=int, default=rec_core.STALL_SEC)
+    ap.add_argument("--trash-days", type=int, default=None, help="ごみ箱の日付のフォルダを消すまでの日数(省略は ② の flow/retention.KEEP_DAYS)")
     ap.add_argument("--quiet", action="store_true", help="黒い画面に記録を出さない")
     a = ap.parse_args(argv)
     if not 1024 <= a.port <= 65535:
@@ -328,9 +330,11 @@ def main(argv=None):
             save_folder(ddir, folder)
         except OSError:
             pass
+    # 録画の部品は別のプロセスで単独で動く(① は ② を import しない決まりなので、起動のときに読んで渡す。import の検査に掛けない動的 import)
+    trash_days = a.trash_days or importlib.import_module("flow.retention").KEEP_DAYS
     backoff = tuple(int(x) for x in a.backoff.split(",") if x.strip().isdigit())   # 空なら既定(rec_core.BACKOFF)
     rec = rec_core.Recorder(folder, source=a.source, hls_time=a.hls_time, backoff=backoff,
-                            idle_end=a.idle_end, stall_sec=a.stall_sec, log=log)
+                            idle_end=a.idle_end, stall_sec=a.stall_sec, log=log, trash_days=trash_days)
     token = load_token(ddir)
     allowed = httpsec.allowed_hosts(a.port) | set(a.allow_host)
     try:

@@ -24,12 +24,12 @@ import shutil
 import threading
 import time
 
-from flow import placement as _placement
+from flow import placement as _placement, retention as _retention
 from ytt import fsio as _fsio, trashbin as _trashbin
 
 DAY = 86400
 FRESH = DAY                 # 最後に書かれてからこの秒数より新しい物は候補にしない
-CASE_DAYS = _trashbin.KEEP_DAYS   # 片付け忘れた作業のフォルダ・回したログの日数(物の終わりの日数)
+CASE_DAYS = _retention.KEEP_DAYS   # 片付け忘れた作業のフォルダ・回したログの日数(物の終わりの日数)
 AUTO_MAX = 100 * 1024 ** 2  # 黙る側の 1 件の上限(超えたら聞く)
 AUTO_TOTAL = 20 * 1024 ** 3  # 1 回の自動で動かす量の上限(超えた分は聞く)
 EPOCH_SANE = 946684800      # 2000-01-01。これより古い時刻は壊れた時刻 = 分からない

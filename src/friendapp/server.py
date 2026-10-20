@@ -68,8 +68,8 @@ SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
-from flow import placement as _placement, runqueue as _runqueue  # noqa: E402
-from ytt import appwindow as _appwindow, colors as _colors, fsio as _fsio, httpsec, version as _version  # noqa: E402
+from flow import colors_api as _colors_api, placement as _placement, runqueue as _runqueue  # noqa: E402
+from ytt import appwindow as _appwindow, clientlog_rule as _clientlog_rule, fsio as _fsio, httpsec, version as _version  # noqa: E402
 from friendapp import api as _api, diag as _diag, inbox as _inbox, places as _places, settings as _settings, setup as _setup, streams as _streams, sync as _sync  # noqa: E402
 from friendapp import tidy as _tidy  # noqa: E402
 
@@ -483,7 +483,7 @@ class Handler(httpsec.LocalHandler):
                 return self._fail(409, "preparing", "準備中です")
             return self._json(200, {"result": app.engine.queue.cancel(str(body.get("id") or ""))})
         if path == "/api/ytt/streamer-colors":
-            return self._json(200, _colors.streamer_api(body))
+            return self._json(200, _colors_api.streamer_api(body))
         if path == "/api/ytt/client-log":
             _fsio.append_line(os.path.join(app.places["friend"], "logs", "client-errors.jsonl"), client_log_line(body), CLIENT_LOG_MAX)
             return self._json(200, {"ok": True})
@@ -526,15 +526,13 @@ class Handler(httpsec.LocalHandler):
         return self._json(200, {"ok": True, "setup": st.view(), "done": app.setup_done()})
 
 
-CLIENT_LOG_TEXT = {"message": 500, "source": 300, "stack": 2000, "page": 300, "kind": 20, "tool": 20, "version": 20}   # 入口の manage/ops/clientlog と同じ長さ
+CLIENT_LOG_TEXT = dict(_clientlog_rule.TEXT, kind=20, tool=20, version=20)   # 入口の manage/ops/clientlog と同じ規則(ytt/clientlog_rule)に、友人の側が付ける項目を足した物
 
 
 def client_log_line(body):
     """画面のエラーの 1 件 -> 改行つきの 1 行の JSON(決まった項目を項目の中で切る = JSON の途中で切らない・次の行と繋がらない)"""
     b = body if isinstance(body, dict) else {}
-    out = {k: v[:n] for k, n in CLIENT_LOG_TEXT.items() for v in (b.get(k),) if isinstance(v, str) and v}
-    out.update({k: b[k] for k in ("line", "col") if isinstance(b.get(k), int) and not isinstance(b.get(k), bool)})
-    return json.dumps(out, ensure_ascii=False) + "\n"
+    return json.dumps(_clientlog_rule.pick(b, CLIENT_LOG_TEXT), ensure_ascii=False) + "\n"
 
 
 class Server(httpsec.ExclusiveServer):

@@ -36,7 +36,7 @@ from ytt import testkit  # noqa: E402
 from pipeline.ingest import rec_core as R  # noqa: E402
 from ytt import trashbin  # noqa: E402
 
-FAST = dict(source="direct", hls_time=1, backoff=(1, 2), idle_end=8, stall_sec=4, first_seg_sec=15, poll=0.3)
+FAST = dict(trash_days=3, source="direct", hls_time=1, backoff=(1, 2), idle_end=8, stall_sec=4, first_seg_sec=15, poll=0.3)
 
 
 def wait_for(fn, timeout=30.0, step=0.2):
@@ -581,7 +581,7 @@ class TestTitle(unittest.TestCase):
 
     def test_lookup_only_for_streamlink(self):
         self.assertIsNone(self.rec.title_lookup)                                       # direct(テスト)では聞かない
-        self.assertIs(R.Recorder(self.folder, source="streamlink").title_lookup, R.fetch_title)
+        self.assertIs(R.Recorder(self.folder, source="streamlink", trash_days=3).title_lookup, R.fetch_title)
 
     def test_untitled_recording_gets_title(self):
         calls = []

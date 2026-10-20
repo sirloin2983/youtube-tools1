@@ -16,6 +16,14 @@ from ytt import fsio, schemas, tools, trashbin
 
 # 名前と記録の形は ytt/trashbin の 1 か所(① の録画の部品も同じ物を使う。LD-1)
 
+SIDECARS = (".clip.json", ".edit.json", ".transcript.json", ".cut-plan.json", ".srt", "_edit.mp4", "_edit.clip.json")
+# ↑ 動画と同じ名前で持つ途中のファイル(片付け・評価用のフォルダの整理・「要らない」が動画と一緒に動かす。使うのは ④ だけ)
+
+
+def existing_sidecars(media_path):
+    """動画の途中のファイル(SIDECARS)のうち、あるもの(作業用/ と動画の隣)"""
+    return [p for suf in SIDECARS for p in schemas.sidecar_candidates(media_path, suf) if os.path.isfile(p)]
+
 
 def _size(p):
     try:

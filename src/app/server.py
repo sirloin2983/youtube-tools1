@@ -90,6 +90,7 @@ if CODE_DIR not in sys.path:   # 入口の部品を裸の名前で読む(import 
     sys.path.insert(0, CODE_DIR)
 from manage.cases import txindex  # noqa: E402
 from flow import placement  # noqa: E402  (② の .flow.lock。RS6 b-B0)
+from flow import colors_api  # noqa: E402  (POST api/ytt/streamer-colors の口)
 from flow import tools as flowtools_mod  # noqa: E402  (まとめて実行の段が仕事を頼む先 FlowTools = ① の動詞は取り込んだツールの ② の器を直に。OPT2 後半 J7)
 from flow import board as board_mod  # noqa: E402  (② のジョブの掲示板 = GET /api/flow/status の jobs・cases・rev と cancel・retry。RS8 の ② の口)
 from flow import live_export  # noqa: E402  (書き出しの途中の数 = ② の status の live 欄。RS7-2 G5a)
@@ -1198,7 +1199,7 @@ class PortalServer(httpsec.ExclusiveServer):
             if sub == "prefs":   # ホームの設定(src/app/prefs.py。節ごとに読む・直す。全体を上書きしない)
                 return 200, self.prefs_api(body)
             if sub == "streamer-colors":   # 配信者の名前の欄(字幕の色): 候補の一覧と、入れた名前に合う人(規則は src/ytt/colors.py)
-                return 200, colors_mod.streamer_api(body)
+                return 200, colors_api.streamer_api(body)
         except ValueError as e:
             return 400, {"error": "bad_request", "message": str(e)}
         except appwindow_mod.TooMany as e:

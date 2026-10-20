@@ -15,9 +15,9 @@
   - 受ける口: `/api/ytt` :45
 - **prefs.py** (488 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
   - 名前: `class PrefsError` :95・`guess_streamer` :382・`class Prefs` :394
-- **server.py** (1672 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
-  - 名前: `runtime_dir` :176・`ping` :186・`port_open` :191・`tail` :197・`expected_version` :218・`tool_python` :224・`rel_or_abs` :234・`signal_stop` :242・`class Tool` :255・`app_data_dir` :305・`logs_dir_for` :311・`class Supervisor` :317・ほか 16
-  - 受ける口: `/api/intake` :623・`/api/backup` :624・`/api/accuracy` :625・`/api/flow/runs` :626・`/api/cases/auto` :628・`/api/flow/submit` :629・`/api/flow/estimate` :629・`/api/flow/cancel` :630・`/api/intake/scan` :631・`/api/backup/run` :631・`/api/accuracy/run` :632・`/api/window` :632・`/api/check/answer` :633・`/api/check/skip` :633・`/api/check/flush` :633・`/api/cleanup` :634・`/api/shutdown` :634・`/api/ping` :723・`/api/status` :725・`/api/health` :729・`/api/log` :733・`/api/flow/status` :748・`/api/flow/history` :752・`/api/check/next` :755・`/api/cases` :761
+- **server.py** (1673 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
+  - 名前: `runtime_dir` :177・`ping` :187・`port_open` :192・`tail` :198・`expected_version` :219・`tool_python` :225・`rel_or_abs` :235・`signal_stop` :243・`class Tool` :256・`app_data_dir` :306・`logs_dir_for` :312・`class Supervisor` :318・ほか 16
+  - 受ける口: `/api/intake` :624・`/api/backup` :625・`/api/accuracy` :626・`/api/flow/runs` :627・`/api/cases/auto` :629・`/api/flow/submit` :630・`/api/flow/estimate` :630・`/api/flow/cancel` :631・`/api/intake/scan` :632・`/api/backup/run` :632・`/api/accuracy/run` :633・`/api/window` :633・`/api/check/answer` :634・`/api/check/skip` :634・`/api/check/flush` :634・`/api/cleanup` :635・`/api/shutdown` :635・`/api/ping` :724・`/api/status` :726・`/api/health` :730・`/api/log` :734・`/api/flow/status` :749・`/api/flow/history` :753・`/api/check/next` :756・`/api/cases` :762
 
 ## src/app/check/
 

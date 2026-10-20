@@ -16,13 +16,12 @@ import os
 import threading
 import time
 
-from ytt import fsio   # 入口(server.py)が src を sys.path に入れてから読み込む
+from ytt import clientlog_rule, fsio   # 入口(server.py)が src を sys.path に入れてから読み込む
 
 FILE_NAME = "client-errors.jsonl"
 PER_MINUTE = 30
 MAX_BYTES = 512 * 1024
 KINDS = ("error", "rejection", "report")
-TEXT = {"message": 500, "source": 300, "stack": 2000, "page": 300}
 
 
 def clean(body):
@@ -31,14 +30,7 @@ def clean(body):
         raise ValueError("JSON のオブジェクトを送ってください")
     kind = body.get("kind")
     out = {"kind": kind if kind in KINDS else "report"}
-    for k, n in TEXT.items():
-        v = body.get(k)
-        if isinstance(v, str) and v:
-            out[k] = v[:n]
-    for k in ("line", "col"):
-        v = body.get(k)
-        if isinstance(v, int) and not isinstance(v, bool) and 0 < v < 10 ** 7:
-            out[k] = v
+    out.update(clientlog_rule.pick(body, line_max=10 ** 7))
     if not out.get("message"):
         raise ValueError("message がありません")
     return out

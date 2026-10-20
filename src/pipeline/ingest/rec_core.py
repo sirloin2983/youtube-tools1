@@ -72,7 +72,6 @@ RANGE_MAX_SEC = 3 * 3600       # /segments で一度に聞ける区間の長さ
 SEGMENTS_MAX = 5000
 TRASH_DIR = trashbin.TRASH_DIR   # 消した録画を移す先(置き場所の直下。録画の id の形ではないので録画として読まない)
 TRASH_KIND = "録画"
-TRASH_DAYS = trashbin.KEEP_DAYS   # ごみ箱の日付のフォルダを消すまでの日数
 PRIORITY = getattr(subprocess, "ABOVE_NORMAL_PRIORITY_CLASS", 0)   # 録画は「通常より上」(書き出し・文字起こしは「通常より下」)
 
 
@@ -668,8 +667,9 @@ class Recording:
 # ---------- 録画の全体 ----------
 class Recorder:
     def __init__(self, folder, source="streamlink", ffmpeg=None, python=None, hls_time=HLS_TIME, backoff=BACKOFF,
-                 idle_end=IDLE_END, wait_start=WAIT_START, stall_sec=STALL_SEC, first_seg_sec=FIRST_SEG_SEC, poll=1.0, log=None):
+                 idle_end=IDLE_END, wait_start=WAIT_START, stall_sec=STALL_SEC, first_seg_sec=FIRST_SEG_SEC, poll=1.0, log=None, *, trash_days):
         self.folder = folder
+        self.trash_days = trash_days   # ごみ箱の日付のフォルダを消すまでの日数(方針の数は ② の flow/retention。呼ぶ側 recorder.py が読んで渡す)
         self.source = source if source in ("streamlink", "direct") else "streamlink"
         self.title_lookup = fetch_title if self.source == "streamlink" else None   # 名前なしの録画に題を付ける(テストは差し替える・None で聞かない)
         self.ffmpeg = ffmpeg or ytools.find_tool("ffmpeg") or "ffmpeg"
@@ -824,7 +824,7 @@ class Recorder:
     def delete(self, rid):
         """録画を消す(線 D の「録画を自動で消す」。入口の manage/keep/live_cleanup.py だけが呼ぶ。入口の中継 /live/r/… は delete を通さない)。
         LD-1: すぐには消さずに 置き場所の ごみ箱/<日付>/録画/<録画の id> へ改名する(同じドライブなので一瞬)。
-        元の場所は <日付>/manifest.jsonl に 1 行(④ の manage/keep/trash.py と同じ形 = ytt/trashbin)。TRASH_DAYS を過ぎた日付のフォルダは purge_trash が消す。
+        元の場所は <日付>/manifest.jsonl に 1 行(④ の manage/keep/trash.py と同じ形 = ytt/trashbin)。trash_days を過ぎた日付のフォルダは purge_trash が消す。
         移すのは置き場所の直下の <録画の id>/ で、recording.json があるものだけ(id は REC_ID_RE の形・realpath で置き場所の直下か確かめる・
         リンク / ジャンクションは移さない)。録画中・配信待ち・つなぎ直し中は 409。使用中で改名できなければ 409(何も動かないので、あとでまた呼べる)。
         -> 移した録画の id"""
@@ -872,21 +872,21 @@ class Recorder:
         with self.lock:
             if self.recs.get(rid) is r:
                 self.recs.pop(rid, None)
-        self.log("録画 %s: ごみ箱へ移しました(%s。%d 日で消えます)" % (rid, dest, TRASH_DAYS))
+        self.log("録画 %s: ごみ箱へ移しました(%s。%d 日で消えます)" % (rid, dest, self.trash_days))
         self.purge_trash(now)
         return rid
 
     def purge_trash(self, now=None):
-        """置き場所の ごみ箱 の、TRASH_DAYS を過ぎた日付のフォルダを消す(起動時の load と、録画を移すたび)。-> 消した日付のフォルダの数"""
+        """置き場所の ごみ箱 の、trash_days を過ぎた日付のフォルダを消す(起動時の load と、録画を移すたび)。-> 消した日付のフォルダの数"""
         if not self.folder:
             return 0
         now = time.time() if now is None else now
         n = 0
-        for name, p in trashbin.old_day_dirs(os.path.join(self.folder, TRASH_DIR), TRASH_DAYS, now):
+        for name, p in trashbin.old_day_dirs(os.path.join(self.folder, TRASH_DIR), self.trash_days, now):
             shutil.rmtree(p, ignore_errors=True)
             if not os.path.isdir(p):
                 n += 1
-                self.log("録画の ごみ箱 の %s を消しました(%d 日を過ぎた)" % (name, TRASH_DAYS))
+                self.log("録画の ごみ箱 の %s を消しました(%d 日を過ぎた)" % (name, self.trash_days))
         return n
 
     def set_folder(self, folder):

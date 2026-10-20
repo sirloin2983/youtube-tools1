@@ -21,7 +21,6 @@
     確かめ終えたことは setup.json の checked(版・機器・道具のファイルの印)に残し、次の起動では確かめ直さない(道具が変わったら確かめ直す)。
     画面は view()(1 本の棒)・done(送る画面へ)・awake()(スリープを止める)。
 """
-import hashlib
 import json
 import os
 import re
@@ -301,20 +300,12 @@ class HttpDownloader:
                     progress(done)
 
 
-def sha256_file(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for b in iter(lambda: f.read(HASH_CHUNK), b""):
-            h.update(b)
-    return h.hexdigest()
-
-
 def verify(it, path):
     """大きさ(分かっていれば一致・無ければ上限以下)と SHA-256 -> 違う理由か None"""
     n = os.path.getsize(path)
     if (n != it["size"]) if it["size"] > 0 else (n == 0 or n > it["maxBytes"]):
         return "大きさが違います"
-    if sha256_file(path) != it["sha256"]:
+    if _fsio.sha256_file(path) != it["sha256"]:
         return "SHA-256 が合いません"
     return None
 

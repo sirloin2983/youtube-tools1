@@ -40,13 +40,14 @@ import threading
 import time
 import uuid
 
+from flow import retention   # 物の終わりの日数
 from ytt import fsio, trashbin
 
 from . import progress as _progress
 
 V = 1
 DAY = 86400
-KEEP_DAYS = trashbin.KEEP_DAYS      # 物の終わりの日数(6 章の原則。ユーザーのツールと同じ ytt/trashbin の 1 か所)
+KEEP_DAYS = retention.KEEP_DAYS      # 物の終わりの日数(6 章の原則。ユーザーのツールと同じ flow/retention の 1 か所)
 STATES = ("waiting", "sent", "making", "recording", "arrived", "failed", "done")   # recording = この PC のライブの行(録画中・残りを作っている)・waiting = アーカイブ待ち(F3-3)
 KINDS = ("url", "file", "live")     # 送った物。自動で届いた行は "remote"
 PHASES = ("live", "archive")        # ライブの切り抜きの段(配信中 / 配信後の追加 M7)。組は段ごと

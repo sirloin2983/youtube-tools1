@@ -130,7 +130,7 @@ def clean_weights(v):
 
 
 # 採用する数(束の adopt.top)は 1 以上の整数なら上限なし(10-20 ユーザー決定: 友人が指定した数をそのまま使う。候補が足りなければある分だけ)。
-# 受付の submit_urls・束の検査 _top_ok もこの top_arg を通す
+# 受付の submit_urls・束の検査 top_ok もこの top_arg を通す
 
 
 def top_arg(top):
@@ -402,7 +402,8 @@ def _weight_ok(v):
     return clean_weights(dict.fromkeys(WEIGHT_KEYS, v)) is not None
 
 
-def _top_ok(v):
+def top_ok(v):
+    """採用する数として正しいか(1 以上の整数。未指定・空は False。友人の受付 friendapp/api も同じ決まりで使う)"""
     if v in (None, ""):
         return False
     try:
@@ -432,7 +433,7 @@ SCHEMA = {
                 "preRatio": (_num_in(0.3, 0.9), "0.3〜0.9 の数"), "headSec": (_num_in(0, 600), "0〜600 の数(秒)"),
                 "lagAuto": (_is_bool, "true か false"), "lag": (_num_in(0, 30), "0〜30 の数(秒)"),
                 "chatTimeout": (_int_in(1, 120), "1〜120 の整数(秒)")},
-    "adopt": {"top": (_top_ok, "1 以上の整数"), "pad": (_num_in(0, PAD_MAX), "0〜%d の数(秒)" % PAD_MAX),
+    "adopt": {"top": (top_ok, "1 以上の整数"), "pad": (_num_in(0, PAD_MAX), "0〜%d の数(秒)" % PAD_MAX),
               "perHour": (_int_in(1, 30), "1〜30 の整数"), "waitMin": (_int_in(1, 60), "1〜60 の整数(分)"),
               "sens": (_one_of("high", "normal", "low"), "high・normal・low のどれか"), "afterStream": (_is_bool, "true か false")},
     "export": {"loudness": (_or_none(_one_of(*_LUFS)), "null か %s のどれか" % "・".join(map(str, _LUFS))),

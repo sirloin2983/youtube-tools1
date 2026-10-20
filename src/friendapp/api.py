@@ -69,7 +69,8 @@ def _int_in(v, lo, hi=None):
 
 
 def check_weights(w):
-    """⚙ の解析の重み {wAudio・wChat・wComments} -> 整えた辞書。どれかが 0〜3 の整数でなければ FormError(⚙ の 2 つの口が使う 1 か所)"""
+    """⚙ の解析の重み {wAudio・wChat・wComments} -> 整えた辞書。どれかが 0〜3 の整数でなければ FormError(⚙ の 2 つの口が使う 1 か所)。
+    友人の画面の重みは整数の段階だけ(flow/spec.check_weights は小数も通して 1 桁に丸めるので、保存する値が変わらないようここは整数だけを通す)"""
     if not (isinstance(w, dict) and all(_int_in(w.get(k), 0, 3) for k in _spec.WEIGHT_KEYS)):
         raise FormError("解析の重みは 0〜3 の整数にしてください(音量・チャット・コメント)")
     return {k: w[k] for k in _spec.WEIGHT_KEYS}
@@ -161,7 +162,7 @@ class Api:
     def form(self):
         d = _fsio.read_json_or(self.form_path, {}, kind=dict)
         out = json.loads(json.dumps(FORM_DEFAULTS))
-        if _int_in(d.get("top"), 1):   # 本数は 1 以上(上限なし。10-20)
+        if _spec.top_ok(d.get("top")):   # 本数は 1 以上(上限なし。10-20)
             out["top"] = d["top"]
         if _int_in(d.get("videoTracks"), 1, 5):
             out["videoTracks"] = d["videoTracks"]
@@ -365,7 +366,7 @@ class Api:
         top = None
         if kind != "live" and not ranges:
             top = body.get("top")
-            if not _int_in(top, 1):   # 上限なし(10-20。候補が足りなければある分だけ)
+            if not _spec.top_ok(top):   # 上限なし(10-20。候補が足りなければある分だけ)
                 raise FormError("本数は 1 以上の整数にしてください")
         live = None
         if kind == "live":

@@ -33,14 +33,15 @@ import threading
 import uuid
 
 from pipeline.pack import preview as _preview   # ① パックの題
-from ytt import fsio, tools, trashbin
+from ytt import fsio, tools
 from . import deliver as deliver_mod   # 1 本を届ける(確認用の動画 → meta → zip → 届けた記録)・名前の整え方
 from . import deliveries as deliveries_mod   # 届けた記録の読み口(届け済みのパック)・送らなかった記録の書く口
+from . import retention   # 物の終わりの日数
 from . import envelope as envelope_mod   # 届けるときの出どころの一覧 DELIVER_ORIGINS
 from . import run as run_mod   # 段の失敗 StepError(② の経路)
 
 ENV_SWITCH = "YTT_AUTO_SEND"   # 開発機の守り: off で出どころ auto の届けを止める(switched_off)
-PARK_KEEP_SEC = trashbin.KEEP_SEC   # 置けなかった自動の分を送り直す期限(預けてから。物の終わりの日数)
+PARK_KEEP_SEC = retention.KEEP_SEC   # 置けなかった自動の分を送り直す期限(預けてから。物の終わりの日数)
 EXPIRED = "expired"            # 送らなかった記録の理由の鍵(期限切れ。案件の画面の札 cases.js の NOT_SENT と同じ鍵)
 EXPIRED_TEXT = "送らなかった(古くなった)"
 UNCHECKED = "unchecked"        # 同(まとめて実行で「友人へ自動で送る」のチェックを外した)

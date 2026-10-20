@@ -14,6 +14,7 @@ import unicodedata
 
 from ytt import errors as _errors, fsio as _fsio, schemas as _yschemas, trashbin as _trashbin  # noqa: E402
 from flow import jobs as _heavy  # noqa: E402
+from manage.keep import trash as _trash  # noqa: E402   途中のファイルの一覧 SIDECARS
 from ytt import settings as _settings  # noqa: E402   評価用のフォルダの判定と設定の読み load_settings(ytt/settings)
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402   (置き場所の今の値・動画と音声の拡張子)
 from ytt import txbase as _txbase  # noqa: E402   ロガー log(RS3-E7 まで ed_state の別名で読んでいた)
@@ -86,7 +87,7 @@ def _rename_sidecars(old, new, done=None):
     done = [] if done is None else done
     ostem, nstem = os.path.splitext(os.path.basename(old))[0], os.path.splitext(os.path.basename(new))[0]
     for src, dst in ((_yschemas.work_dir(old), _yschemas.work_dir(new)), (os.path.dirname(old), os.path.dirname(new))):
-        for suf in _yschemas.SIDECARS:
+        for suf in _trash.SIDECARS:
             a, b = os.path.join(src, ostem + suf), os.path.join(dst, nstem + suf)
             if os.path.isfile(a) and not os.path.exists(b):
                 os.makedirs(dst, exist_ok=True)

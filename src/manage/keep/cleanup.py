@@ -26,16 +26,17 @@ import time
 
 from flow import deliveries as _deliveries   # 届けた記録の読み口(持ち主は ②。7x-2)
 from flow import packrec as _packrec   # パックの中身の確かめ(部品 M1)
+from flow import retention   # 物の終わりの日数(1 か所)
 from flow import placement   # 依頼のフォルダの名前・案件の身分証 case.json・案件の根の置き場所の読み方(④ は ② を読める)
 from human.friend import returns as _returns   # 友人の送り返し(同期フォルダの 送り返し\\ と その 受付済み・失敗 の名前。持ち主は ③ human/friend/returns)
 from ytt import datadir, fsio, schemas, trashbin
 
 from . import trash as _trash
 
-# 日数は「精度のデータは残す・ただの控えは早めに消す」の方針(notes:docs/spec/data.md)。値は ytt/trashbin.KEEP_DAYS の 1 か所
-KEEP_DAYS = trashbin.KEEP_DAYS       # 受け付けた依頼の動画(受付済み。作業データに写しがある = ただの控え)を候補に出すまでの日数
-TRASH_DAYS = trashbin.KEEP_DAYS      # ごみ箱フォルダの日付のフォルダを起動時に消すまでの日数
-PACK_AGE_DAYS = trashbin.KEEP_DAYS   # パック(Text+ = 動画のコピー入り)を作ってからこの日数たった元動画も候補(案件の状態を変えなくても出る)
+# 日数は「精度のデータは残す・ただの控えは早めに消す」の方針(notes:docs/spec/data.md)。値は flow/retention.KEEP_DAYS の 1 か所
+KEEP_DAYS = retention.KEEP_DAYS       # 受け付けた依頼の動画(受付済み。作業データに写しがある = ただの控え)を候補に出すまでの日数
+TRASH_DAYS = retention.KEEP_DAYS      # ごみ箱フォルダの日付のフォルダを起動時に消すまでの日数
+PACK_AGE_DAYS = retention.KEEP_DAYS   # パック(Text+ = 動画のコピー入り)を作ってからこの日数たった元動画も候補(案件の状態を変えなくても出る)
 REQUEST_DIR = placement.REQUEST_DIR   # 書き出し先の下の友人の依頼のフォルダ(依頼)
 APP_INTAKE = "intake"     # 作業データ app の下の、友人の依頼の動画の写し(app\intake\<日付>\<依頼 id>\。書き出し先が固定ディスクでない PC)
 DELIVERIES_LOG = _deliveries.LOG      # 届けた記録(持ち主は ② flow/deliveries。logs の中)
@@ -208,7 +209,7 @@ class Cleanup:
                             seen.add(key)
                             title = str(c.get("title") or c.get("id") or "")[:40]
                             out.append(_item("export", p, "案件「%s」(届けてから %d 日・パックなし)" % (
-                                title, int((now - sent / 1000.0) // 86400)), schemas.existing_sidecars(p)))
+                                title, int((now - sent / 1000.0) // 86400)), _trash.existing_sidecars(p)))
                     continue
                 at = pk.get("updatedAt") if isinstance(pk, dict) else 0
                 aged = isinstance(pk, dict) and pk.get("textplus") is True and isinstance(at, (int, float)) and at > 0 \
@@ -224,7 +225,7 @@ class Cleanup:
                 seen.add(key)
                 title = str(c.get("title") or c.get("id") or "")[:40]
                 why = "パックから %d 日" % int((now - at / 1000.0) // 86400)
-                it = _item("export", p, "案件「%s」(%s)" % (title, why), schemas.existing_sidecars(p))
+                it = _item("export", p, "案件「%s」(%s)" % (title, why), _trash.existing_sidecars(p))
                 if pack_dir:
                     it["packDir"] = pack_dir   # move の直前にもう一度見る
                 out.append(it)

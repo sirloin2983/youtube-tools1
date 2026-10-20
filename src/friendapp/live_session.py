@@ -21,12 +21,13 @@ import time
 
 from flow import live_export as _lx, livesession as _ls
 from pipeline.ingest import rec_core as _rec_core
-from ytt import layout, tools, trashbin
+from ytt import layout, tools
+from flow import retention   # 物の終わりの日数
 
 from flow.live_rules import RequestBook
 from .live import REC_FOLDER, REQUESTS_NAME, STORE_DIR, settings_label
 
-REC_KEEP_DAYS = trashbin.KEEP_DAYS  # 終わった録画を消すまでの日数(配信後の追加が済んでから)
+REC_KEEP_DAYS = retention.KEEP_DAYS  # 終わった録画を消すまでの日数(配信後の追加が済んでから)
 CLEAN_EVERY = 600.0                 # 録画の片付けを見る間隔(秒)
 RECORDER_WAIT = 20.0                # 送ったとき、録画の部品が起動するまで待つ秒
 REC_PORT_ENV = "YTT_FRIEND_REC_PORT"   # 録画の部品の番号(exe が選ぶ。無ければ 8730)

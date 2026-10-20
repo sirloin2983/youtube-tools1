@@ -23,7 +23,6 @@
      manifest の SHA-256 を確かめて写す(1 つでも無い・違えば同じ回で file の全部入り FriendApp-<版>.zip を取る)。入れ替える(exe を写して開き直す)のは画面の [更新する] から exe が(作業と預かりが無いとき)
 """
 import datetime
-import hashlib
 import json
 import os
 import re
@@ -179,14 +178,6 @@ def local_name(s, limit=100):
     return "_" + n if not n or RESERVED.match(n) else n
 
 
-def sha256_file(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for block in iter(lambda: f.read(1 << 20), b""):
-            h.update(block)
-    return h.hexdigest()
-
-
 def version_tuple(v):
     return tuple(int(x) for x in v.split(".")) if isinstance(v, str) and APP_VERSION_RE.match(v) else (0,)
 
@@ -256,7 +247,7 @@ def _copy_runtime(manifest, runtime_dirs, tmp):
     for rel, sha in want.items():
         for d in runtime_dirs:
             p = safe_join(d, rel[len("python/"):])
-            if isinstance(sha, str) and os.path.isfile(p) and sha256_file(p) == sha.lower():
+            if isinstance(sha, str) and os.path.isfile(p) and fsio.sha256_file(p) == sha.lower():
                 srcs[rel] = p
                 break
         else:
@@ -299,7 +290,7 @@ def install_update(zip_path, home, version, runtime_dirs=None):
             if not (str(rel).startswith(("src/", "python/")) or rel in UPDATE_ROOT_FILES):
                 continue
             p = safe_join(tmp, rel)
-            if not isinstance(want, str) or not os.path.isfile(p) or sha256_file(p) != want.lower():
+            if not isinstance(want, str) or not os.path.isfile(p) or fsio.sha256_file(p) != want.lower():
                 raise ValueError("更新の zip の中身が manifest.json と違います: %s" % str(rel)[:120])
         for need in (("src", "friendapp", "server.py"), ("python", "python.exe")):
             if not os.path.isfile(os.path.join(tmp, *need)):
@@ -796,7 +787,7 @@ class Sync:
         try:
             if not io.download("%s/%s" % (UPDATES, name), part):
                 return False
-            if (isinstance(size, int) and size > 0 and os.path.getsize(part) != size) or sha256_file(part) != sha:
+            if (isinstance(size, int) and size > 0 and os.path.getsize(part) != size) or fsio.sha256_file(part) != sha:
                 raise SyncError("取った更新の zip が想定と違います(大きさか SHA-256 が合いません)")
             install_update(part, home, ver, runtime_dirs)
         finally:
@@ -834,7 +825,7 @@ def fetch_learning(io, root, log):
             if not io.download("%s/%s/%s" % (LEARNING, v, rel), local):
                 raise SyncError("学習の束のファイルが Dropbox にありません: %s" % rel)
             size = f.get("size")
-            if (isinstance(size, int) and size >= 0 and os.path.getsize(local) != size) or sha256_file(local) != sha:
+            if (isinstance(size, int) and size >= 0 and os.path.getsize(local) != size) or fsio.sha256_file(local) != sha:
                 raise SyncError("学習の束のファイルが壊れています(hash が合いません): %s" % rel)
         os.replace(tmp, final)
     except BaseException:

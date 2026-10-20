@@ -11,8 +11,10 @@
   - 名前: `class Unavailable` :41・`class TooMany` :45・`find_edge` :49・`app_command` :86・`local_url` :99・`external_url` :122・`read_mode` :139・`write_mode` :144・`focus_window` :154・`class Opener` :211
 - **casefiles.py** (315 行) — 案件の 候補.json・採用.json の純粋な部分(決定 3-37 の (r8j)〜(r8q))。
   - 名前: `work_path` :38・`lock` :43・`is_remote` :53・`problem` :57・`unseen` :69・`need_root` :75・`abs_path` :82・`rel_path` :90・`empty_candidates` :104・`empty_adoptions` :108・`index_row` :117・`stored` :126・ほか 9
-- **colors.py** (229 行) — 配信者の名前 → メンバーカラー(字幕の文字の色)。
-  - 名前: `members_path` :31・`mine_path` :43・`member_colors_path` :48・`norm_hex` :76・`normalize` :82・`load` :126・`lookup` :145・`from_channel` :163・`speaker_colors` :181・`resolve` :197・`streamer_api` :217
+- **clientlog_rule.py** (17 行) — 画面のエラー 1 件の「決まった項目を決まった長さで切る」規則の 1 か所(入口 manage/ops/clientlog と友人のアプリ friendapp/server が呼ぶ)。
+  - 名前: `pick` :9
+- **colors.py** (211 行) — 配信者の名前 → メンバーカラー(字幕の文字の色)。
+  - 名前: `members_path` :31・`mine_path` :43・`member_colors_path` :48・`norm_hex` :76・`normalize` :82・`load` :126・`lookup` :145・`from_channel` :163・`speaker_colors` :181・`resolve` :197
 - **datadir.py** (145 行) — 作業データの置き場所(統合計画の段階4)。データはリポジトリの外に置く(Public のリポジトリに個人データを混ぜないため)。
   - 名前: `data_root` :34・`inplace_dir` :51・`tool_dir` :59・`override` :65・`register` :73・`registered` :83・`locate` :89・`resolve` :98・`studio_out_dir` :107・`prepare` :116
 - **dictfmt.py** (79 行) — 置換辞書の読み方と当て方(語彙。標準ライブラリと ytt.txbase だけの純粋な関数)。③ 人の再認識の反映・① の clipjob の両方が読む。
@@ -50,8 +52,8 @@
 - **runtime.py** (209 行) — 実行中のポートの共有(notes:docs/spec/pipeline.md の 4)。スタジオの handoff.py・文字起こしの pipeline_io.py・入口の server.py にあった同じ処理を1つにしたもの。
   - 名前: `valid_port` :28・`runtime_dir` :33・`runtime_path` :43・`valid_path` :49・`write_runtime` :53・`read_runtime` :79・`remove_runtime` :95・`ping` :107・`ping_app` :130・`port_open` :135・`siblings` :147・`safe_stdio` :185・ほか 1
   - 受ける口: `/api/ping` :116
-- **schemas.py** (481 行) — 受け渡しの形式(notes:docs/spec/pipeline.md の 1・2)。youtube-tools-clip/v1 は、スタジオが書き(build_clip)、文字起こしが読む(load_clip_file)。
-  - 名前: `iso_now` :21・`now_ms` :26・`num` :31・`is_num` :42・`is_int` :47・`plain_int` :52・`int_in` :57・`num_or` :62・`union_spans` :71・`fmt_hms` :82・`other_speaker` :105・`no_sub_row` :110・ほか 28
+- **schemas.py** (472 行) — 受け渡しの形式(notes:docs/spec/pipeline.md の 1・2)。youtube-tools-clip/v1 は、スタジオが書き(build_clip)、文字起こしが読む(load_clip_file)。
+  - 名前: `iso_now` :21・`now_ms` :26・`num` :31・`is_num` :42・`is_int` :47・`plain_int` :52・`int_in` :57・`num_or` :62・`union_spans` :71・`fmt_hms` :82・`other_speaker` :105・`no_sub_row` :110・ほか 27
 - **settings.py** (361 行) — 設定ファイル(JSON の辞書)の読み書きの共通部品(設定を 1 つにまとめる 段 2 = S4。notes:docs/spec/data.md の 4)。
   - 名前: `class SettingsError` :37・`class SettingsTooLarge` :41・`section_name_ok` :45・`retire_broken` :50・`class SettingsFile` :62・`load_settings` :191・`register_patch_key` :223・`patch_settings` :259・`merge_settings` :274・`replace_settings` :289・`eval_dirs` :326・`in_eval_dir` :342・ほか 1
 - **studio_env.py** (199 行) — スタジオの環境: データの置き場所・書き出し先・疑似の旗・外部の道具・失敗の記録。
@@ -64,8 +66,8 @@
   - 名前: `redact` :18・`permission_message` :23・`tail_reason` :31・`fmt_ts` :38・`fmt_ms` :44・`num` :50・`person_key` :64
 - **tools.py** (656 行) — 外部プログラム(ffmpeg・ffprobe・yt-dlp)の場所と、子プロセスを動かすときの小道具。
   - 名前: `remember` :33・`recent` :47・`ytt_env` :52・`find_tool` :66・`find_ffmpeg` :116・`media_tool` :121・`ffmpeg_info` :127・`parse_ffmpeg_info` :141・`duration_in` :152・`media_duration` :157・`check_source` :163・`probe_media` :173・ほか 18
-- **trashbin.py** (60 行) — ごみ箱フォルダの決まりの 1 か所(どの層からも使う。① の録画の部品も使うので ytt に置く)。
-  - 名前: `day_name` :18・`free_path` :23・`append_manifest` :33・`old_day_dirs` :41
+- **trashbin.py** (58 行) — ごみ箱フォルダの決まりの 1 か所(どの層からも使う。① の録画の部品も使うので ytt に置く)。
+  - 名前: `day_name` :16・`free_path` :21・`append_manifest` :31・`old_day_dirs` :39
 - **txbase.py** (103 行) — 認識の部品が共有する小さな物: 記録(ロガー)・決まった値(文字・言語・長さの上限)・要確認の印の文と幻覚の決まり文句・ジョブの注意。
   - 名前: `char_class` :40・`alt_fold` :56・`add_warning` :71・`env_off` :76・`wcpp_flavor` :87・`wcpp_bin_dir` :92・`wcpp_exe` :97・`wcpp_model_dir` :101
 - **txtext.py** (94 行) — 文字起こしの文字の語彙(標準ライブラリと ytt/txbase だけの純粋な関数と決まった値)。

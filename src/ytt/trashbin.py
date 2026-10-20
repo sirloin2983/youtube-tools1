@@ -2,8 +2,8 @@
 """ごみ箱フォルダの決まりの 1 か所(どの層からも使う。① の録画の部品も使うので ytt に置く)。
 
 ごみ箱フォルダの中は <YYYY-MM-DD>/<種類>/... の日付のフォルダ。移した物は <日付>/manifest.jsonl に元の場所を 1 行ずつ残す(戻したいときに見る)。
-KEEP_DAYS を過ぎた日付のフォルダは丸ごと消す(④ の manage/keep/cleanup.Cleanup.purge・① の pipeline/ingest/rec_core.Recordings.purge_trash)。
-移し方・戻し方は ④ の manage/keep/trash.py(to_trash・put_back)。ここは名前・日数・記録の形と古い日付の見つけ方だけを持つ。
+日数(② の flow/retention.KEEP_DAYS)を過ぎた日付のフォルダは丸ごと消す(④ の manage/keep/cleanup.Cleanup.purge・① の pipeline/ingest/rec_core.Recordings.purge_trash)。
+移し方・戻し方は ④ の manage/keep/trash.py(to_trash・put_back)。ここは名前・記録の形と古い日付の見つけ方だけを持つ。
 """
 import json
 import os
@@ -11,8 +11,6 @@ import time
 
 MANIFEST = "manifest.jsonl"
 TRASH_DIR = "ごみ箱"     # ごみ箱フォルダの名前(作業データ・書き出し先・録画の置き場所・友人のアプリの一時保管の直下)
-KEEP_DAYS = 3            # 物の終わりの日数(ごみ箱の日付のフォルダ・受付済み・片付けの候補・自動の切り抜き・録画。ユーザーのツールと友人のアプリが同じ値を読む)
-KEEP_SEC = KEEP_DAYS * 86400
 
 
 def day_name(now=None):
