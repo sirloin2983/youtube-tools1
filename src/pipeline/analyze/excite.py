@@ -604,6 +604,7 @@ class PeakBook:
         self.rising = None    # {"since": 秒, "peak": 秒, "value": 値, "low": 下りの秒数}
         self.block_until = -1  # この秒までは次の山にしない(確定した区間の後ろ + EXCLUDE_AFTER)
         self.pending = []     # 終わりがまだ録れていない候補の id
+        self.tag = None       # 新しく確定する本番の候補に足す印({"audioOnly": True} など。呼ぶ側が決める。保存しない = 呼ぶ側が毎回入れ直す)
 
     # ---- 1 秒ずつ
     def push(self, t, total, parts, level):
@@ -706,6 +707,8 @@ class PeakBook:
         pk.update({"start": round(s, 1), "end": round(e, 1), "peak": peak, "score": round(value, 2), "parts": self._parts_at(peak),
                    "confirmedAt": now, "hour": peak // 3600, "state": "frame", "endPending": True, "origin": None, "seq": pk.get("seq", 0)})
         pk["reasons"] = reasons_of(pk["parts"])
+        if self.tag:
+            pk.update(self.tag)
         if self.shape == "scene":
             pk.update(shape="scene" if r is not None else "fixed", fixed=[round(fs, 1), round(fe, 1)], sceneOpen=bool(r and r["open"]))
         if not pk.get("sceneOpen"):

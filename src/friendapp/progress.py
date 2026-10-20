@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """友人のアプリの「送った物」の行に出す、失敗の言葉と進み具合を作る部品(F3-3。notes:plan/f1-friend-requirements.md の C-2-15・C-2-16)。純粋な関数だけ(ファイルもネットも触らない。時計は引数で受ける)。
 
-- classify(text, kind, login) = ② や同期が出した失敗の文を、友人の言葉(次にすること 1 つ)と再試行の可否に直す。表 CODES は上から順に当てる。
+- classify(text, kind, login) = ② や同期が出した失敗の文を、友人の言葉(次にすること 1 つ)と再試行の可否に直す。表 CODES は上から順に当てる
+  (頭はライブの行の理由の印 LIVE_MARKS = 候補なし・チャットなし・検出が動かない・採用の失敗・書き出しの失敗 など)。
   RETRY_PLAN の種類は retryMax・retryEvery(自動のやり直しの回数と間隔)も付ける。login = YouTube にログインしてあるか(bot の言葉を変える。
   ログインの形は notes:docs/spec/friend.md の 13-13。ログインし直したら bot・age の行は玄関が自動でやり直す = api.tick)
 - stage(steps, kind, ranged) = ② の実行の段を友人の 5 段(動画を取得・見どころを探す・切り抜き・文字起こし・仕上げ)に読み替えて、今の段を返す
@@ -39,8 +40,21 @@ BOT_EXPIRED_MSG = "YouTube に止められました。ログインが切れた�
 LOGIN_EXPIRED = ("cookies are no longer valid",)
 LOGIN_CODES = ("bot", "age")   # ログインし直したら自動でやり直す種類
 
+# ライブの行がパックの無いまま閉じた理由の印(engine.live_cause が行の error の頭に置く)と友人の言葉。CODES の頭で当てる(理由の文に
+# ほかの種類の字句が混じっても、この印で決める)。送り直しても同じ配信は録り直せないので retry しない
+LIVE_MARKS = {"liveExport": "ライブ(書き出しの失敗):", "liveAdopt": "ライブ(採用の失敗):", "liveNoDetect": "ライブ(検出が動かない):",
+              "liveLate": "ライブ(採用の前に終了):", "liveNoChat": "ライブ(チャットなし):", "liveNone": "ライブ(候補なし):"}
+LIVE_MESSAGES = {
+    "liveExport": "切り抜く所は見つかりましたが、録画から切り出せませんでした。[作る人に知らせる] で知らせてください",
+    "liveAdopt": "切り抜く所は見つかりましたが、切り抜きに回せませんでした。[作る人に知らせる] で知らせてください",
+    "liveNoDetect": "盛り上がりを探す部品が動きませんでした。アプリを起動し直してください(アーカイブが出たら URL で送れます)",
+    "liveLate": "切り抜く所の候補はありましたが、切り抜く前に終わりました。[作る人に知らせる] で知らせてください",
+    "liveNoChat": "チャットを読み取れず、音だけでは切り抜く所が見つかりませんでした。アーカイブが出たら URL で送ると切り抜けます",
+    "liveNone": "配信の中に盛り上がった所が見つかりませんでした(短い配信・静かな配信では見つからないことがあります)。アーカイブが出たら区間を指定して送れます",
+}
+
 # 失敗の言葉の表(上から順に当てる)。(code, 当てる文の字句, message, retry)。字句は小文字にして照らす。bot の message は classify が login で選ぶ
-CODES = (
+CODES = tuple((code, (LIVE_MARKS[code],), LIVE_MESSAGES[code], False) for code in LIVE_MARKS) + (
     ("bot", ("not a bot", "cookies are no longer valid"), BOT_LOGIN_MSG, True),
     ("rate", ("HTTP Error 429", "Too Many Requests"),
      "YouTube に一時的に止められました。30 分ほどあとに自動でやり直します", True),

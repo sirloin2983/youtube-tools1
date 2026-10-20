@@ -41,7 +41,7 @@
   - 名前: `adopt_secs` :42・`pad_secs` :63・`top_of` :75・`class StudioMarks` :85・`class LocalMarks` :128・`class Adopter` :220
 - **live_archive.py** (1533 行) — 録画に無い区間をアーカイブ(YouTube)から書き出す(線 D の P4 の残り。notes:plan/line-d-live-clipping.md の 0-9)と、配信後の全自動(M7)の入口の側の中身。
   - 名前: `from_archive` :146・`needs_archive` :151・`class ArchiveError` :157・`class Later` :161・`run_proc` :170・`probe_archive` :202・`readiness` :244・`fetch_full_audio` :262・`worker_python` :292・`run_align` :297・`inside` :311・`ended_at` :317・ほか 5
-- **live_detect.py** (743 行) — 配信中の盛り上がりの検出(線 D の L2)と自動の採用(M11)の入口の側。計画は notes:plan/line-d-detect.md(3 の「候補の API の約束」は線 2 = スタジオの画面との境目。変えない)。
+- **live_detect.py** (749 行) — 配信中の盛り上がりの検出(線 D の L2)と自動の採用(M11)の入口の側。計画は notes:plan/line-d-detect.md(3 の「候補の API の約束」は線 2 = スタジオの画面との境目。変えない)。
   - 名前: `clean_spec` :80・`overlay` :94・`merge_spans` :114・`measured_holes` :125・`class Detector` :145
 - **live_export.py** (1393 行) — リアルタイム切り抜き(線 D の P2: マークと書き出し。notes:plan/line-d-live-clipping.md の 0・5・6)の入口の側の中身。
   - 名前: `read_after` :92・`class LiveError` :121・`pick_folder` :133・`rec_list` :142・`latest_per_mark` :151・`cleaned_up` :161・`check_after` :172・`check_origin` :184・`clean_auto` :193・`check_streamer` :199・`deliver_pool` :211・`job_after` :222・ほか 7

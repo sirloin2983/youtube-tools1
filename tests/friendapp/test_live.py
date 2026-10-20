@@ -24,7 +24,7 @@ if SRC not in sys.path:
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
 import testkit  # noqa: E402
 from flow import live_export as LX, live_rules, runqueue as Q  # noqa: E402
-from friendapp import api as A, engine as E, inbox as I, live as L, live_session as LS, server as SV  # noqa: E402
+from friendapp import api as A, diag as D, engine as E, inbox as I, live as L, live_session as LS, progress as P, server as SV  # noqa: E402
 
 VID = "abcdefghijk"
 URL = "https://www.youtube.com/watch?v=" + VID
@@ -280,6 +280,117 @@ class LiveFlowTest(unittest.TestCase):
         r = self.box.row(rid)
         self.assertEqual(r["state"], "failed")
         self.assertIn("パックができませんでした", r["error"])
+
+    def use_diag(self):
+        """本物の診断の係(送り返しの箱は一時フォルダ)-> 箱のパス"""
+        box = os.path.join(self.tmp, "outbox-diag")
+        self.eng.diag = D.Diag(dict(self.places, outbox=box, home=self.tmp), env={})
+        return box
+
+    def diags(self, box, kind="live"):
+        out = []
+        for n in sorted(os.listdir(box)) if os.path.isdir(box) else []:
+            with open(os.path.join(box, n), encoding="utf-8") as f:
+                d = json.load(f)
+            if d.get("kind") == kind:
+                out.append(d)
+        return out
+
+    def write_peaks(self, **doc):
+        det = self.eng.live.detector
+        os.makedirs(det.folder("local", REC), exist_ok=True)
+        with open(os.path.join(det.folder("local", REC), "peaks.json"), "w", encoding="utf-8") as f:
+            json.dump(dict({"v": 1, "recorder": "local", "recording": REC, "seq": 1, "decN": 0, "peaks": [], "changes": []}, **doc), f)
+
+    def test_close_without_packs_writes_cause_and_diag_then_late_pack_revives(self):
+        """パックが無いまま閉じた行: 理由は原因ごと(検出の記録が無い = 検出が動かない)・診断 kind live(録画の長さ・検出・ワーカー)・
+        閉じたあとに届いたパックで「届いた」に戻る"""
+        box = self.use_diag()
+        rid = self.send_live()["id"]
+        self.rec.end(REC)
+        self.eng.live_tick()
+        r = self.box.row(rid)
+        self.assertEqual((r["state"], r["live"]["cause"]), ("failed", "liveNoDetect"))
+        self.assertTrue(r["error"].startswith(P.LIVE_MARKS["liveNoDetect"]), r["error"])
+        fail = next(x for x in self.api.view()["rows"] if x["id"] == rid)["fail"]
+        self.assertEqual((fail["code"], fail["retrying"]), ("liveNoDetect", False))
+        got = self.diags(box)
+        self.assertEqual(len(got), 1)
+        d = got[0]
+        self.assertEqual((d["requestId"], d["code"], d["stage"], d["outcome"]["state"], d["outcome"]["packs"], d["outcome"]["cause"]),
+                         (rid, "liveNoDetect", "close", "failed", 0, "liveNoDetect"))
+        lv = d["live"]
+        self.assertEqual((lv["peaksDoc"], lv["worker"]["running"], lv["recording"]["sec"], lv["settings"]["perHour"]), (None, False, 3600.0, 8))
+        self.assertNotIn(URL, json.dumps(d, ensure_ascii=False))   # 配信の URL・題は入れない
+        self.assertNotIn("配信の題", json.dumps(d, ensure_ascii=False))
+        self.eng.live_tick()   # 閉じた行は見回らない = 診断は 1 回
+        self.assertEqual(len(self.diags(box)), 1)
+        self.eng.after_run(fake_run("late", "done", self.packs(1), rid))   # 閉じたあとに採用された切り抜きが届いた
+        r = self.box.row(rid)
+        self.assertEqual((r["state"], r["error"], len(r["groups"])), ("arrived", "", 1))
+
+    def test_detect_hold_keeps_row_until_adoption_settles(self):
+        """録画が終わっても、検出が帳簿を締める前・締めたあと採用待ちの候補がある間は閉じない(ワーカーが動いているときだけ・上限つき)。
+        自動の採用を諦めたら閉じて、理由は「採用の失敗」"""
+        box = self.use_diag()
+        rid = self.send_live()["id"]
+        det = self.eng.live.detector
+        self.write_peaks(ended=False, measuredSec=1500, chat="ok")
+        self.rec.end(REC)
+        with mock.patch.object(det, "running", lambda hb=None: True), mock.patch.object(self.eng.live, "after_hold", lambda rc, raw: ""):   # 測り直し(EV-1)は待たない
+            self.eng.live_tick()
+            self.assertEqual((self.box.row(rid)["state"], self.box.row(rid)["live"]["phase"]), ("recording", "after"))
+            pk = {"id": "p0-100", "start": 60.0, "end": 105.0, "peak": 100, "score": 2.5, "state": "frame", "endPending": False, "confirmedAt": 110, "hour": 0}
+            self.write_peaks(ended=True, measuredSec=1800, chat="ok", peaks=[pk])
+            self.eng.live_tick()   # 締めたが採用待ちの候補がある
+            self.assertEqual(self.box.row(rid)["state"], "recording")
+            self.assertIn("自動の採用を待っています", self.eng.live.detect_hold("local", self.rec.recs[REC]))
+            det._give_up("local", REC, pk, "スタジオにつながりません")
+            self.eng.live_tick()
+        r = self.box.row(rid)
+        self.assertEqual((r["state"], r["live"]["cause"]), ("failed", "liveAdopt"))
+        self.assertIn("スタジオにつながりません", r["error"])
+        d = self.diags(box)[-1]
+        self.assertEqual((d["live"]["givenUp"][0]["message"], d["live"]["peaksDoc"]["peaks"], d["live"]["peaksDoc"]["chat"]),
+                         ("スタジオにつながりません", 1, "ok"))
+
+    def test_detect_hold_has_a_limit_and_no_chat_cause(self):
+        rid = self.send_live()["id"]
+        det = self.eng.live.detector
+        self.write_peaks(ended=False, measuredSec=1800, chat="none", message="この配信はチャットを取れません")
+        self.rec.end(REC, ago=SETTINGS["waitMin"] * 60 + LS.DETECT_HOLD_EXTRA + 60)   # 待ちの上限を過ぎた = 締めていなくても閉じる
+        with mock.patch.object(det, "running", lambda hb=None: True), mock.patch.object(self.eng.live, "after_hold", lambda rc, raw: ""):
+            self.assertEqual(self.eng.live.detect_hold("local", self.rec.recs[REC]), "")
+            self.eng.live_tick()
+        r = self.box.row(rid)
+        self.assertEqual((r["state"], r["live"]["cause"]), ("failed", "liveNoChat"))
+        self.assertIn("チャットを取れません", r["error"])
+        self.assertEqual(self.api.classify(r)["message"], P.LIVE_MESSAGES["liveNoChat"])
+
+    def test_live_cause_order(self):
+        base = {"recording": {"sec": 1800.0}, "peaksDoc": {"measuredSec": 1800, "chat": "ok"}, "detect": {"frame": 0, "bench": 0, "adopted": 0}}
+        cases = [({}, "boom", "error"), (dict(base, exportFailures=["01.mp4: 書き出しに失敗しました: x"]), "", "liveExport"),
+                 (dict(base, givenUp=[{"message": "502"}]), "", "liveAdopt"), (dict(base, peaksDoc=None), "", "liveNoDetect"),
+                 (dict(base, peaksDoc={"measuredSec": 0}), "", "liveNoDetect"), (dict(base, detect={"frame": 2}), "", "liveLate"),
+                 (dict(base, peaksDoc={"measuredSec": 1800, "chat": "restarting"}), "", "liveNoChat"), (base, "", "liveNone")]
+        for facts, err, code in cases:
+            with self.subTest(code=code):
+                got = E.live_cause(facts, err)
+                self.assertEqual(got["code"], code)
+                if code.startswith("live"):
+                    self.assertEqual(P.classify(got["text"], "live")["code"], code)
+        tail = E.live_cause(dict(base, afterStream={"state": "none", "message": "採用する候補がありませんでした"}))
+        self.assertTrue(tail["text"].endswith("(配信後の追加: 採用する候補がありませんでした)"), tail["text"])
+        self.assertEqual(E.live_cause(None)["code"], "liveNoDetect")
+
+    def test_live_submit_failure_writes_diag(self):
+        box = self.use_diag()
+        self.eng.live.probe = lambda url: {"status": "was_live", "title": "", "channel": "", "message": ""}
+        with self.assertRaises(A.FormError):
+            self.send_live()
+        d = self.diags(box)
+        self.assertEqual((len(d), d[0]["stage"], d[0]["outcome"]["state"]), (1, "submit", "refused"))
+        self.assertIn("配信中・配信前", d[0]["summary"])
 
     def test_recorder_unreachable_skips(self):
         rid = self.send_live()["id"]

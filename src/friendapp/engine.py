@@ -8,7 +8,8 @@
 - 話者分離(束の transcribe.diarize)は LocalTools に無いので、送る側(api)で人数を束に入れない(コラボの名前は hints.people の色だけ。仮・AI)
 - ライブ: ② のライブ係 friendapp/live.FriendLive を持ち、待ち行列の set_live_hook で封筒 kind live を回す(長さは受信箱の行の送った欄 =
   束の analyze に入れない。lengthMode auto = 場面ごとの形・fixed = 固定の秒。C-2-11)。切り抜きごとの実行(requestId = 行の id)が終わったら行にパックを足し(live_clip)、ライブ係の見回りのたびに
-  録画が終わったか・作っている物が残っているかを見て行を進める(live_tick)
+  録画が終わったか・作っている物が残っているか・検出がまだ採用しうるかを見て行を進める(live_tick)。行を閉じたら診断 kind live(friendapp/diag)。
+  パックが無いまま閉じた理由は原因ごと(live_cause = 候補なし・チャットなし・検出が動かない・採用の失敗・書き出しの失敗 など)
 """
 import os
 import shutil
@@ -246,12 +247,28 @@ class Engine:
         if isinstance(s, dict) and s.get("lengthMode") == "auto":   # 長さ「自動(場面ごと)」(C-2-11。length は場面が取れないときの長さ)
             ctx["settings"] = dict(ctx["settings"], lengthMode="auto")
         ctx["deliverDir"] = ""   # 友人の PC は届けない(4-7。パックは受信箱に並ぶ)
-        self.live.wait_recorder()
-        return self.live.submit(env, bundle, ctx=ctx)
+        try:
+            self.live.wait_recorder()
+            return self.live.submit(env, bundle, ctx=ctx)
+        except Exception as e:   # 受付の失敗(配信中でない・録画を始められない・空き容量など)も診断へ。断りはそのまま呼んだ側へ
+            self._diag("live", rid=env.get("requestId"), summary="ライブの受付に失敗しました: %s" % (str(e).splitlines()[0][:200] if str(e) else e.__class__.__name__),
+                       detail="%s: %s" % (e.__class__.__name__, str(e)[:2000]), stage="submit", outcome={"state": "refused", "error": e.__class__.__name__})
+            raise
+
+    def _diag(self, kind, **kw):
+        """診断を 1 つ書く(診断の係が無い = テスト・書けない = 何もしない)"""
+        if self.diag is None:
+            return None
+        try:
+            return self.diag.write(kind, **kw)
+        except Exception as e:   # noqa: BLE001  (診断で玄関を止めない)
+            self.log("診断を書けませんでした: %s" % e.__class__.__name__)
+            return None
 
     def live_tick(self):
-        """ライブ係の見回りのたび: この PC のライブの行ごとに、録画が終わったか・書き出しと切り抜きの実行が残っているか・配信後の追加を待つかを見て
-        行を進める(組・届いた・失敗)。録画元につながらないときはその行を飛ばす(分からないまま閉じない)"""
+        """ライブ係の見回りのたび: この PC のライブの行ごとに、録画が終わったか・書き出しと切り抜きの実行が残っているか・
+        検出がまだ採用しうるか(detect_hold)・配信後の追加を待つかを見て行を進める(組・届いた・失敗)。録画元につながらないときはその行を飛ばす
+        (分からないまま閉じない)。行を閉じるときは、パックが無ければ原因ごとの理由(live_cause)を渡し、成功・失敗とも診断(kind live)を書く"""
         rows = self.inbox.live_rows()
         if not rows or self.live is None:
             return
@@ -268,9 +285,44 @@ class Engine:
             raw = recs.get(rec)
             recording = bool(raw and raw.get("active"))
             busy = self.live.busy_recording(rc, rec) or any(x.get("requestId") == r["id"] and x.get("state") in ("queued", "running") for x in runs)
-            waiting = self.live.after_hold(rc, raw) if raw is not None and not recording and not busy else ""
-            if self.inbox.live_update(r["id"], recording, busy, waiting):
+            waiting = ""
+            if raw is not None and not recording and not busy:
+                hold = getattr(self.live, "detect_hold", None)
+                waiting = self.live.after_hold(rc, raw) or (hold(rc, raw) if hold is not None else "")
+            closing = r["state"] == "recording" and not recording and not busy and not waiting and not lv.get("finished")
+            facts = self._live_facts(rc, rec, raw) if closing else None
+            why = live_cause(facts, lv.get("lastError")) if closing and not r["packs"] else None
+            if self.inbox.live_update(r["id"], recording, busy, waiting, why=why):
                 self._want_previews(r["id"])
+            if closing:
+                self._live_closed(r["id"], facts, why)
+
+    def _live_facts(self, rc, rec, raw):
+        fn = getattr(self.live, "live_facts", None)
+        if fn is None:
+            return {}
+        try:
+            return fn(rc, rec, raw)
+        except Exception as e:   # noqa: BLE001  (材料が読めなくても行は閉じる)
+            self.log("ライブの診断の材料を読めませんでした: %s" % e.__class__.__name__)
+            return {"factsError": e.__class__.__name__}
+
+    def _live_closed(self, rid, facts, why):
+        """ライブの行を閉じた: friendapp.log に 1 行・診断(kind live。成功・失敗とも。秘密は diag が伏せる)"""
+        r = self.inbox.row(rid) or {}
+        lv = r.get("live") or {}
+        packs = len(r.get("packs") or [])
+        summary = "ライブ %s: パック %d 本" % (r.get("state") or "?", packs) + (" / %s" % (why or {}).get("text") if why else "")
+        self.log("ライブの行を閉じました 依頼=%s 状態=%s パック=%d 理由=%s" % (rid, r.get("state"), packs, (why or {}).get("code") or "-"))
+        if self.diag is None:
+            return
+        outcome = {"state": r.get("state"), "packs": packs, "groups": len(r.get("groups") or []), "cause": lv.get("cause"),
+                   "lastError": lv.get("lastError") or "", "errors": lv.get("errors") or 0, "clipRuns": len(lv.get("done") or []),
+                   "phase": lv.get("phase"), "startedAt": lv.get("startedAt"), "endedAt": lv.get("endedAt"), "finished": lv.get("finished")}
+        mask = getattr(self.diag, "mask_tree", None)
+        code = (why or {}).get("code") or ""
+        self._diag("live", rid=rid, summary=summary, detail=(why or {}).get("text") or "", code=code if code.startswith("live") else None,
+                   stage="close", outcome=mask(outcome) if mask else outcome, live=mask(facts or {}) if mask else (facts or {}))
 
     def _preview_loop(self):
         while True:
@@ -348,3 +400,43 @@ class Engine:
 
 def _case_from(result_path):
     return _inbox.case_of(result_path)
+
+
+def _minutes(sec):
+    return "%d 分" % max(1, int(round(sec / 60.0))) if isinstance(sec, (int, float)) and not isinstance(sec, bool) and sec > 0 else "? 分"
+
+
+def live_cause(facts, last_error=""):
+    """ライブの行がパックの無いまま閉じるときの理由 {"code", "text"}。facts = FriendLive.live_facts の形(読めない欄は無くてよい)。
+    当てる順: 切り抜きの実行の失敗(lastError)→ 書き出しの失敗 → 自動の採用を諦めた → 検出が測っていない → 候補はあったが採用されない →
+    チャットが取れず音だけで候補 0 → 候補 0。文の頭の印(progress.LIVE_MARKS)で友人の言葉が決まる。配信後の追加が無い・失敗した理由は後ろに添える"""
+    f = facts if isinstance(facts, dict) else {}
+    pd = f.get("peaksDoc") if isinstance(f.get("peaksDoc"), dict) else None
+    det = f.get("detect") if isinstance(f.get("detect"), dict) else {}
+    wk = f.get("worker") if isinstance(f.get("worker"), dict) else {}
+    rec = f.get("recording") if isinstance(f.get("recording"), dict) else {}
+    after = f.get("afterStream") if isinstance(f.get("afterStream"), dict) else {}
+    tail = ""
+    if after.get("state") in ("none", "error"):
+        tail = "(配信後の追加: %s)" % (str(after.get("message") or after.get("label") or after.get("state"))[:200])
+    if last_error:
+        return {"code": "error", "text": str(last_error)[:300] + tail}
+
+    def say(code, text):
+        return {"code": code, "text": "%s %s、パックができませんでした%s" % (_progress.LIVE_MARKS[code], text, tail)}
+    ex = [x for x in f.get("exportFailures") or [] if x]
+    if ex:
+        return say("liveExport", "切り抜く所を録画から書き出せず(%s)" % str(ex[0])[:200])
+    gu = [x for x in f.get("givenUp") or [] if isinstance(x, dict)]
+    if gu:
+        return say("liveAdopt", "切り抜く所を自動で採用できず(%s)" % str(gu[-1].get("message") or "")[:200])
+    mins = _minutes(rec.get("sec"))
+    if pd is None or not pd.get("measuredSec"):
+        why = wk.get("error") or wk.get("message") or ("ワーカーが動いていません" if not wk.get("running") else "")
+        return say("liveNoDetect", "録画 %s の盛り上がりを測った記録が無く(%s)" % (mins, str(why)[:200] or "理由が分かりません"))
+    cands = int(det.get("frame") or 0) + int(det.get("bench") or 0) + int(det.get("adopted") or 0)
+    if cands:
+        return say("liveLate", "候補 %d 件が切り抜きに回らないまま終わり" % cands)
+    if pd.get("chat") in ("none", "restarting", "off"):
+        return say("liveNoChat", "チャットを読み取れず(%s)、音だけで録画 %s を測っても候補が 0 件で" % (str(pd.get("message") or pd.get("chat"))[:200], mins))
+    return say("liveNone", "録画 %s(測った %s)に盛り上がった所(候補)が 0 件で" % (mins, _minutes(pd.get("measuredSec"))))

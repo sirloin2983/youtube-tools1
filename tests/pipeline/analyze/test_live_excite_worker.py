@@ -653,7 +653,7 @@ class FfmpegTest(unittest.TestCase):
             w.cfg_checked = -1e18
             w.tick()
             st = w.recs[("fake", REC)]
-            self.assertEqual((st.book.thr, st.book.per_hour), (excite.SENS["low"], 2))
+            self.assertEqual((st.thr_base, st.book.per_hour), (excite.SENS["low"], 2))
             rec.active = False
             w.tick()
             self.assertIn(("fake", REC), w.done)
@@ -976,6 +976,45 @@ class WorkerRestTest(unittest.TestCase):
         self.assertEqual((st.dec_n, st.book.peaks[known]["state"]), (2, "dismissed"))
         w.close()
 
+    def test_audio_only_lowers_threshold(self):
+        """音だけの録画(チャットを諦めた・測り始めて AUDIO_ONLY_AFTER 秒チャットが来ない)は山のしきい値を AUDIO_ONLY_SCALE 倍・
+        その間に確定した候補に印 audioOnly・peaks.json に thr と audioOnly。チャットが来たら元に戻す。スイッチ 1.0 = 変えない"""
+        normal = excite.SENS["normal"]
+        st = W.RecState(self.tmp, "fake", REC, URL, T0, dict(W.SPEC_DEFAULT), {"sens": "normal", "perHour": 6}, True)
+        st.apply_thr()
+        self.assertEqual((st.book.thr, st.audio_only()), (normal, False))   # 測り始めたばかり = チャットを待つ
+        st.next_push = W.AUDIO_ONLY_AFTER
+        st.apply_thr()
+        self.assertAlmostEqual(st.book.thr, normal * W.AUDIO_ONLY_SCALE)
+        st.chat_wm = 10.0
+        st.apply_thr()
+        self.assertEqual(st.book.thr, normal)
+        st.disable_chat("チャットを取れません")
+        self.assertAlmostEqual(st.book.thr, normal * W.AUDIO_ONLY_SCALE)
+        st.set_detect({"sens": "low", "perHour": 3})   # 感度を途中で変えても音だけの倍率はそのまま
+        self.assertEqual(st.thr_base, excite.SENS["low"])
+        self.assertAlmostEqual(st.book.thr, excite.SENS["low"] * W.AUDIO_ONLY_SCALE)
+        back = W.RecState.from_json(self.tmp, st.to_json(), {"sens": "low", "perHour": 3})
+        self.assertEqual((back.thr_base, round(back.book.thr, 3)), (excite.SENS["low"], round(excite.SENS["low"] * W.AUDIO_ONLY_SCALE, 3)))
+        doc = st.peaks_doc(T0)
+        self.assertEqual((doc["audioOnly"], doc["thrBase"], doc["thr"]), (True, excite.SENS["low"], round(excite.SENS["low"] * W.AUDIO_ONLY_SCALE, 3)))
+        with mock.patch.object(W, "AUDIO_ONLY_SCALE", 1.0):   # スイッチ: 音だけでも変えない
+            st.apply_thr()
+            self.assertEqual((st.book.thr, st.book.tag), (excite.SENS["low"], None))
+
+        def peaks(scale):
+            s = W.RecState(self.tmp, "fake", REC, URL, T0, dict(W.SPEC_DEFAULT), {"sens": "normal", "perHour": 6}, False)
+            with mock.patch.object(W, "AUDIO_ONLY_SCALE", scale):
+                s.apply_thr()
+            for t in range(240):   # しきい値 2.0 に届かない山(1.6)が 1 つ
+                v = 1.6 if 100 <= t < 112 else 0.0
+                s.book.push(t, v, {"audio": v, "chat": 0.0}, -30.0)
+            s.book.finish()
+            return s.book.list()
+        got = peaks(W.AUDIO_ONLY_SCALE)
+        self.assertEqual([(p["state"], p.get("audioOnly")) for p in got], [("frame", True)])
+        self.assertEqual(peaks(1.0), [])   # 前の動き = 候補 0
+
     def test_bad_numbers(self):
         self.assertEqual([levels.level(x) for x in ("nan", "inf", "-inf", "1e400", "50", "-12.5", "-120", "x")], [-90.0, -90.0, -90.0, -90.0, levels.LEVEL_MAX, -12.5, -90.0, -90.0])
         with self.assertRaises(ValueError):
@@ -1003,7 +1042,7 @@ class WorkerRestTest(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.dir, "fake", REC)))   # ほかの録画は測らない(peaks.json も置かない)
         self.assertEqual(a.measured, 0)
         st = w.recs[("fake", REC_B)]
-        self.assertEqual((st.book.thr, st.book.per_hour, st.book.length, st.spec["lengthFrom"]), (excite.SENS["high"], 2, 30.0, "friend"))
+        self.assertEqual((st.thr_base, st.book.per_hour, st.book.length, st.spec["lengthFrom"]), (excite.SENS["high"], 2, 30.0, "friend"))
         with open(os.path.join(self.dir, "fake", REC_B, "peaks.json"), encoding="utf-8") as f:
             d = json.load(f)
         self.assertEqual((d["perHour"], d["length"], d["lengthFrom"]), (2, 30.0, "friend"))
@@ -1012,21 +1051,21 @@ class WorkerRestTest(unittest.TestCase):
         w = make_worker(cfg, clock, sim)   # 起動し直しても(state.json から)依頼の感度・枠のまま
         run_until(w, clock, sim, T0 + 1330)
         st = w.recs[("fake", REC_B)]
-        self.assertEqual((st.book.thr, st.book.per_hour, st.book.length), (excite.SENS["high"], 2, 30.0))
+        self.assertEqual((st.thr_base, st.book.per_hour, st.book.length), (excite.SENS["high"], 2, 30.0))
         # ホームの検出もオンにした: ほかの録画はホームの設定(低・5 本・スタジオの長さ)で受け持ち、依頼の録画は依頼の設定のまま
         write_config(self.dir, detect=home, detectAll=True, requests=reqs)
         w.cfg_checked = -1e18
         run_until(w, clock, sim, T0 + 1400)
         sa = w.recs[("fake", REC)]
-        self.assertEqual((sa.book.thr, sa.book.per_hour, sa.book.length, sa.spec["lengthFrom"]), (excite.SENS["low"], 5, 45.0, "studio"))
-        self.assertEqual((st.book.thr, st.book.per_hour), (excite.SENS["high"], 2))
+        self.assertEqual((sa.thr_base, sa.book.per_hour, sa.book.length, sa.spec["lengthFrom"]), (excite.SENS["low"], 5, 45.0, "studio"))
+        self.assertEqual((st.thr_base, st.book.per_hour), (excite.SENS["high"], 2))
         # 依頼の設定が変わった(読み直し): 感度・枠・長さも途中から(長さは C-2-11 で録画中に変えられるようにした = これから確定する候補から)
         write_config(self.dir, detect=home, detectAll=True, requests={"fake/" + REC_B: {"sens": "normal", "perHour": 4, "length": 60}})
         w.cfg_checked = -1e18
         clock.t += 6
         w.tick()
-        self.assertEqual((st.book.thr, st.book.per_hour, st.book.length, st.book.shape), (excite.SENS["normal"], 4, 60.0, "fixed"))
-        self.assertEqual((sa.book.thr, sa.book.per_hour), (excite.SENS["low"], 5))
+        self.assertEqual((st.thr_base, st.book.per_hour, st.book.length, st.book.shape), (excite.SENS["normal"], 4, 60.0, "fixed"))
+        self.assertEqual((sa.thr_base, sa.book.per_hour), (excite.SENS["low"], 5))
         # 長さを「自動(場面ごと)」に(C-2-11): 場面ごとの形へ・依頼でない録画は変えない
         write_config(self.dir, detect=home, detectAll=True, requests={"fake/" + REC_B: {"sens": "normal", "perHour": 4, "length": 60, "lengthMode": "auto"}})
         w.cfg_checked = -1e18
@@ -1060,13 +1099,13 @@ class WorkerRestTest(unittest.TestCase):
         w = make_worker(cfg, clock, sim)
         run_until(w, clock, sim, T0 + 300)
         sa, sb = w.recs[("fake", REC)], w.recs[("fake", REC_B)]
-        self.assertEqual((sa.book.thr, sa.book.per_hour, sa.book.length, sa.spec["lagAuto"]), (excite.SENS["high"], 2, 30.0, False))
-        self.assertEqual((sb.book.thr, sb.book.per_hour, sb.book.length, sb.spec["lagAuto"]), (excite.SENS["low"], 5, 45.0, True))
+        self.assertEqual((sa.thr_base, sa.book.per_hour, sa.book.length, sa.spec["lagAuto"]), (excite.SENS["high"], 2, 30.0, False))
+        self.assertEqual((sb.thr_base, sb.book.per_hour, sb.book.length, sb.spec["lagAuto"]), (excite.SENS["low"], 5, 45.0, True))
         write_config(self.dir, detect=home, bundles=bundles, requests={"fake/" + REC: {"sens": "normal", "perHour": 4, "length": 60}})
         w.cfg_checked = -1e18
         clock.t += 6
         w.tick()
-        self.assertEqual((sa.book.thr, sa.book.per_hour), (excite.SENS["normal"], 4))   # 友人の依頼の設定が先
+        self.assertEqual((sa.thr_base, sa.book.per_hour), (excite.SENS["normal"], 4))   # 友人の依頼の設定が先
         w.close()
         k = "fake/" + REC
         self.assertEqual(W.clean_bundles({k: {"spec": {"length": 50, "lagAuto": "x"}, "sens": "nope", "perHour": "3"}}),

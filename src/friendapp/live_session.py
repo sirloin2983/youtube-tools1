@@ -14,7 +14,8 @@
   - 配信後のアーカイブからの追加(M7)の解析は、② の道具のスタジオなしの台帳(flow/studiobook.LocalStudio)へ(studio_call の 3 つの口だけを写す)
   - 録画中に依頼の設定(1 時間の枠・長さ・配信後の追加)を差し替えられる(change_request。C-2-11)
   - 録画は終わって 3 日で消す(配信後の追加が済んでから。6 章の「確かめられないまま 3 日で消す」。アーカイブ化で消すのは線 D の LD-1)
-受信箱の行と録画を結ぶ見回り(行の状態・組)は engine が持つ(on_tick)。
+受信箱の行と録画を結ぶ見回り(行の状態・組)は engine が持つ(on_tick)。録画が終わっても検出がまだ採用しうる間は行を閉じさせない(detect_hold)・
+閉じたときの診断の材料(live_facts)はここが集める。
 """
 import os
 import time
@@ -31,6 +32,7 @@ REC_KEEP_DAYS = retention.KEEP_DAYS  # 終わった録画を消すまでの日�
 CLEAN_EVERY = 600.0                 # 録画の片付けを見る間隔(秒)
 RECORDER_WAIT = 20.0                # 送ったとき、録画の部品が起動するまで待つ秒
 REC_PORT_ENV = "YTT_FRIEND_REC_PORT"   # 録画の部品の番号(exe が選ぶ。無ければ 8730)
+DETECT_HOLD_EXTRA = 900.0           # 録画が終わってから自動の採用を待つ上限 = 依頼の待ち(分)+ この秒(帳簿を締める遅れと採用の見回りの分)
 
 
 def recorders(env=None):
@@ -192,6 +194,88 @@ class FriendLive(_ls.LiveSession):
             return self.archiver.after_stream_hold(rc_id, raw) or ""
         except Exception:   # noqa: BLE001  (分からなければ待たない)
             return ""
+
+    def detect_hold(self, rc_id, raw, now=None):
+        """録画が終わったあと、配信中の検出がまだ自動で採用しうる間の理由か ""(待たない)。raw = 録画元の一覧の生の行。
+        待つのは、依頼の録画でワーカーが動いていて、帳簿を締める前か、締めたあと採用待ちの枠の候補が残る間だけ。
+        録画の終わりから 依頼の待ち(分)+ DETECT_HOLD_EXTRA 秒を過ぎたら待たない(止まったワーカー・採用されない候補で行を閉じそびれない)"""
+        try:
+            return self._detect_hold(rc_id, raw, self.clock() if now is None else now)
+        except Exception:   # noqa: BLE001  (分からなければ待たない)
+            return ""
+
+    def _detect_hold(self, rc_id, raw, now):
+        rec = str((raw or {}).get("id") or "")
+        req = self.requests.get(rc_id, rec)
+        det = self.detector
+        if req is None or not det.enabled() or not det.running():
+            return ""
+        ended = _lx.iso_epoch(raw.get("endedAt")) or _lx.iso_epoch(raw.get("lastPdt"))
+        if ended is None or now - ended > req["settings"]["waitMin"] * 60 + DETECT_HOLD_EXTRA:
+            return ""
+        doc, peaks, _pending = det.view(rc_id, rec)
+        if doc is None or not doc.get("ended"):
+            return "配信中の検出が録画の終わりまで測り終えるのを待っています"
+        if det.auto_count(rc_id, rec) >= det.auto_max(rc_id, rec):
+            return ""
+        given = {x.get("id") for x in det.given_up(rc_id, rec)}
+        left = [p for p in peaks if p.get("state") == "frame" and not p.get("provisional") and p.get("id") not in given]
+        return "配信中の候補 %d 件の自動の採用を待っています" % len(left) if left else ""
+
+    def live_facts(self, rc_id, rec, raw=None):
+        """ライブの行を閉じたときの診断の材料(friendapp/diag の kind live。engine が伏せてから書く)。
+        配信の記録(flow/live_report の build = 録画の長さ・候補と採用の数・遅れ・チャット・書き出しの数)から題と URL を除き、
+        検出の記録(peaks.json)の測った秒・チャットの状態と理由・しきい値・音だけの候補、ワーカーの心拍、自動の採用を諦めた候補、
+        書き出しの失敗の文、配信後の追加(archive.json の afterStream)、依頼の設定を足す。読めない欄は None"""
+        raw = raw or {}
+        row = {"recorder": rc_id, "id": rec, "active": raw.get("active") is True or raw.get("state") in _rec_core.ACTIVE,
+               "endedAt": _lx.iso_epoch(raw.get("endedAt")), "firstPdt": _lx.iso_epoch(raw.get("firstPdt")), "lastPdt": _lx.iso_epoch(raw.get("lastPdt"))}
+        out = {}
+        try:
+            rep = self.reporter.build(row, {}, self.clock(), True)
+            info = rep.get("info") or {}
+            first, last = row["firstPdt"], row["lastPdt"]
+            out.update(recording={"sec": round(last - first, 1) if first is not None and last is not None and last >= first else None,
+                                  "hours": info.get("hours"), "firstPdt": info.get("firstPdt"), "lastPdt": info.get("lastPdt"), "endedAt": info.get("endedAt"),
+                                  "state": raw.get("state")},
+                       samples=rep.get("samples"), detect=rep.get("detect"), tx=rep.get("tx"), exports=rep.get("exports"), disk=rep.get("disk"))
+        except Exception as e:   # noqa: BLE001  (材料の一部が読めなくても残りは書く)
+            out["reportError"] = e.__class__.__name__
+        det = self.detector
+        doc, peaks, _pending = det.view(rc_id, rec)
+        if doc is not None:
+            scores = [p.get("score") for p in peaks if isinstance(p.get("score"), (int, float))]
+            out["peaksDoc"] = {k: doc.get(k) for k in ("measuredSec", "scoredSec", "ended", "chat", "message", "lag", "gaps", "lateFrom", "perHour",
+                                                         "thr", "audioOnly", "lengthFrom", "shape", "moodShifts", "behindSec")}
+            out["peaksDoc"].update(skipped=len(doc.get("skipped") or []), peaks=len(peaks), maxScore=max(scores) if scores else None,
+                                   audioOnlyPeaks=sum(1 for p in peaks if p.get("audioOnly")),
+                                   provisional=sum(1 for p in peaks if p.get("provisional")), expired=sum(1 for p in peaks if p.get("expired")))
+        else:
+            out["peaksDoc"] = None
+        hb = det.heartbeat() or {}
+        out["worker"] = {"enabled": det.enabled(), "running": det.running(hb), "restarts": det.restarts, "lastExit": det.last_exit,
+                         "chatRestarts": hb.get("chatRestarts"), "memMB": hb.get("memMB"), "behindSec": hb.get("behindSec"),
+                         "message": hb.get("message") or "", "error": hb.get("error") or "", "at": hb.get("at")}
+        out["givenUp"] = [{"start": x.get("start"), "end": x.get("end"), "message": x.get("message"), "at": x.get("at")}
+                          for x in det.given_up(rc_id, rec)][-10:]
+        try:
+            out["exportFailures"] = [f.get("text") for f in self.exporter.failures() if f.get("recorder") == rc_id and f.get("recording") == rec][:10]
+        except Exception as e:   # noqa: BLE001
+            out["exportFailures"] = None
+            out["exportError"] = e.__class__.__name__
+        try:
+            with self.archiver.lock:
+                a = dict((self.archiver.info.get(self.archiver.key(rc_id, rec)) or {}).get("afterStream") or {})
+            out["afterStream"] = {k: a.get(k) for k in ("state", "label", "message", "mode", "n", "at", "picked", "skipped")} if a else None
+            if a:
+                out["afterStream"]["jobs"] = len(a.get("jobs") or [])
+        except Exception as e:   # noqa: BLE001
+            out["afterStream"] = None
+            out["afterStreamError"] = e.__class__.__name__
+        req = self.requests.get(rc_id, rec)
+        out["settings"] = dict(req["settings"]) if req else None
+        out["autoMax"] = det.auto_max(rc_id, rec)
+        return out
 
     # ------------------------------------------------------------ 見回り
     def _app_watch(self):

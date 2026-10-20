@@ -541,6 +541,11 @@ class Detector:
             self._fails = [x for x in d.get("items") or [] if isinstance(x, dict)]
         return self._fails
 
+    def given_up(self, rc, rec):
+        """その録画で自動の採用を諦めた候補(auto_failures.json の写し。古い順)"""
+        with self.lock:
+            return [dict(x) for x in self._load_fails() if x.get("recorder") == rc and x.get("recording") == rec]
+
     def _give_up(self, rc, rec, pk, why):
         with self.lock:
             fails = self._load_fails()
@@ -692,7 +697,8 @@ class Detector:
         row = {"event": "detect_compare", "recorder": rc, "recording": rec, "archive": len(arch), "hit": hits,
                "ratio": round(hits / len(arch), 3) if arch else None, "medianAbsDiff": ds[len(ds) // 2] if ds else None, "diffs": diffs[:200],
                "liveFrame": sum(1 for p in live if p.get("state") in ("frame", "adopted")), "liveBench": sum(1 for p in live if p.get("state") == "bench"),
-               "liveUnmatched": unmatched, "lag": doc.get("lag"), "chat": doc.get("chat"), "gaps": doc.get("gaps"), "offset": a.get("offset"),
+               "liveUnmatched": unmatched, "liveAudioOnly": sum(1 for p in live if p.get("audioOnly")),   # 音だけで下げたしきい値で出た候補(数えるときに分けられる)
+               "lag": doc.get("lag"), "chat": doc.get("chat"), "gaps": doc.get("gaps"), "offset": a.get("offset"),
                "excluded": excluded, "holesSec": round(sum(y - x for x, y in hs), 1), "holes": [[round(x, 1), round(y, 1)] for x, y in hs[:50]],
                "gapsKnown": holes is not None, "mode": a.get("mode") or "after"}
         self.host.exporter.feedback(row)

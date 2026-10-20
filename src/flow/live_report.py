@@ -158,7 +158,7 @@ class Reporter:
                    "chat": _worst_chat(chat, ps.get("chat"))}
         dec = host.detector._decisions(host.detector.folder(rc, rec))["items"]
         adopted = [x for x in dec if x.get("state") == "adopted"]
-        fails = [x for x in host.detector._load_fails() if x.get("recorder") == rc and x.get("recording") == rec]
+        fails = host.detector.given_up(rc, rec)
         detect = {"frame": sum(1 for p in peaks if p.get("state") == "frame"), "bench": sum(1 for p in peaks if p.get("state") == "bench"),
                   "dismissed": sum(1 for p in peaks if p.get("state") == "dismissed"), "adopted": sum(1 for p in peaks if p.get("state") == "adopted"),
                   "adoptedAuto": sum(1 for x in adopted if x.get("origin") == "auto"), "adoptedManual": sum(1 for x in adopted if x.get("origin") != "auto"),

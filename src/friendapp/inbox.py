@@ -24,7 +24,8 @@ Dropbox の同期(friendapp/sync.py が呼ぶ):
   決めたら同期が /出力/ の zip・確認用の動画・.meta.json を消す(cleanup_queue → remote_cleaned)。名前は全部 Dropbox の名前(パスにしない)
 
 送る物: 行の kind = "url" / "file"(動画ファイル。form.file = {path, name, size, copy}。path・copy は画面に出さない)/ "live"(ライブ)。
-- この PC のライブの行: 送った → recording(録画中。live = {recorder, recording, endedAt, finished, phase, done, errors, lastError})→ 届いた / 失敗 → 決めた。
+- この PC のライブの行: 送った → recording(録画中。live = {recorder, recording, endedAt, finished, phase, done, errors, lastError, cause})→ 届いた / 失敗 → 決めた。
+  失敗(パックが無いまま閉じた)の理由は engine.live_cause が原因ごとに分けて渡す(cause = その種類)。閉じたあとにパックが届けば失敗の行も「届いた」に戻す。
   切り抜きごとの実行(封筒の requestId = 行の id)が終わるたびに live_clip でパックを足し、1 本ずつの枠に入れる(録画が終わって作る物が無くなったら残りも
   = live_update。配信後の追加(M7)の分は札「配信後」)。録画中でも枠に入った物は決められる(入る前の物は出さない・決めない)
 - 動画ファイルのこの PC の行: 送った(写している = runId なし)→ set_run(② に積んだ)→ URL の行と同じ
@@ -386,16 +387,16 @@ class Inbox:
                 lv["errors"] = int(lv.get("errors") or 0) + 1
                 lv["lastError"] = str(error or "止めました")[:300]
             made = self._live_group(r, False)
-            if added and r["state"] in ("arrived", "done"):   # 閉じたあとに届いた(配信後の追加の遅れ)= もう一度「届いた」
-                r.update(state="arrived", arrivedAt=now, doneAt=None)
+            if added and r["state"] in ("arrived", "done", "failed"):   # 閉じたあとに届いた(採用の遅れ・配信後の追加)= もう一度「届いた」
+                r.update(state="arrived", arrivedAt=now, doneAt=None, failedAt=None, error="")
             r["updatedAt"] = now
             self._save()
             return json.loads(json.dumps(r)), made
 
-    def live_update(self, rid, recording, busy, waiting=""):
-        """見回り: recording = 録画中か・busy = 書き出し・作っている切り抜きがあるか・waiting = 配信後の追加を待つ理由("" = 待たない)。
-        録画が終わって作る物が無ければ残りを組に・配信後の追加も待たなければ行を閉じる(パックがあれば「届いた」・全部決めていれば「決めた」・無ければ「失敗」)。
-        -> 足した組の n のリスト"""
+    def live_update(self, rid, recording, busy, waiting="", why=None):
+        """見回り: recording = 録画中か・busy = 書き出し・作っている切り抜きがあるか・waiting = 検出の採用・配信後の追加を待つ理由("" = 待たない)。
+        録画が終わって作る物が無ければ残りを組に・どれも待たなければ行を閉じる(パックがあれば「届いた」・全部決めていれば「決めた」・無ければ「失敗」)。
+        why = パックが無いまま閉じるときの理由 {"code", "text"}(engine.live_cause。live.cause に残す)。-> 足した組の n のリスト"""
         with self.lock:
             r = self.row(rid)
             lv = (r or {}).get("live")
@@ -410,16 +411,20 @@ class Inbox:
             if not recording and not busy and not waiting and not lv.get("finished"):
                 lv["finished"] = now
                 if r["state"] == "recording":
-                    self._live_close(r, now)
+                    self._live_close(r, now, why)
             if json.dumps([r["state"], lv, r.get("groups")]) != before:
                 r["updatedAt"] = now
                 self._save()
             return made
 
-    def _live_close(self, r, now):
+    def _live_close(self, r, now, why=None):
         lv = r["live"]
         if not r["packs"]:
-            r.update(state="failed", failedAt=now, error=lv.get("lastError") or "録画から切り抜く所が見つからず、パックができませんでした")
+            why = why if isinstance(why, dict) else {}
+            lv["cause"] = why.get("code") or ("error" if lv.get("lastError") else "none")
+            r.update(state="failed", failedAt=now,
+                     error=str(why.get("text") or lv.get("lastError") or "録画から切り抜く所が見つからず、パックができませんでした")[:500])
+            self._failed_code(r)
         elif all(p["verdict"] for p in r["packs"]):
             self._close_row(r)
         else:

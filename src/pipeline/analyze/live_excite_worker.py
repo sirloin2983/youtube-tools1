@@ -22,7 +22,8 @@ queued と worker.json の queued)で、受け持っている録画の検出が�
      1 秒の RMS(dB)を全帯域と 2kHz 超の 2 系列(src/pipeline/analyze/levels.py。スタジオの analyze.audio_levels と同じ物。asplit で 1 回に)
   3. セグメントの受信時刻(pdt)で「録画の頭(firstPdt)からの秒」の 1 秒の箱へ(数で数えない)。欠けは音を直前の値で埋めて欠けとして覚える
   4. チャット(yt-dlp の live_chat。配信 1 本に 1 つ)を末尾から読み、timestampUsec(絶対時刻)で 1 秒の箱へ。重みは excite.message_weight
-  5. 音とチャットがそろった秒から excite.Online → excite.PeakBook。欠け ±GAP_MARGIN 秒は帳簿に 0 を渡す(山を作らない)
+  5. 音とチャットがそろった秒から excite.Online → excite.PeakBook。欠け ±GAP_MARGIN 秒は帳簿に 0 を渡す(山を作らない)。
+     音だけの録画(チャットを諦めた・来ない)は山のしきい値を AUDIO_ONLY_SCALE 倍(RecState.apply_thr。候補に印 audioOnly)
      その前に、箱に入った音を秒の順に(チャットを待たずに)通す(RecState.scan): 雰囲気の変わり目(excite.MoodShift。全帯域の 5 分の中央値が前の 5 分より
      6dB 以上動いた)のあと 60 秒は山のしきい値を 1.3 倍(PeakBook.thr_scale)/ 音だけの先回りの Online から仮の候補(PeakBook.fast_push。
      provisional: true・endPending: true = 採用できない・枠に数えない。チャット込みの本番が近くで確定したら同じ id のまま置き換わる)。
@@ -89,6 +90,12 @@ CHAT_STALL = 300.0               # 録画が進んでいるのにチャットの
 CHAT_BACKOFF = (30.0, 60.0, 120.0, 240.0, 480.0, 600.0)   # 起動し直す間隔(最大 10 分)
 CHAT_MAX_PER_HOUR = 6            # 1 時間にこれを超えて起動し直したら諦める(音だけ)
 CHAT_READ_MAX = 16 * 1024 * 1024  # 1 回の周期で読むチャットの上限
+# 音だけの録画(チャットを諦めた・測り始めて AUDIO_ONLY_AFTER 秒チャットが 1 件も来ない)は、山のしきい値を AUDIO_ONLY_SCALE 倍にする。
+# 音だけの点数はチャット込みより低く、ふつう(2.0)のままだと 30 分の配信で候補 0 になりやすい(アーカイブ 40 本の頭 30 分で 3 本が 0。
+# 0.7 倍 = 1.4 で 0 本は無く、チャット込みの候補との重なりは 93%)。印: 候補の audioOnly・peaks.json の thr と audioOnly。
+# スイッチ: 1.0 = 音だけでもしきい値を変えない(前の動き)。配信中の検出だけ(アーカイブの解析・評価の道具は PeakBook を使わない)
+AUDIO_ONLY_SCALE = 0.7
+AUDIO_ONLY_AFTER = 300
 TAIL_IDLE = 10.0                 # 止めた yt-dlp のファイルの改行の無い末尾が、これだけ増えなければ読み終えたことにする
 FFMPEG_TIMEOUT = 120.0
 EXIT_MEM, EXIT_LOCKED = 3, 4
@@ -563,6 +570,7 @@ class RecState:
         self.online = excite.Online(use_chat=self.use_chat, **self.args)
         det = clean_detect(detect)
         self.book = excite.PeakBook(self.spec["length"], self.spec["preRatio"], det["sens"], det["perHour"], shape=shape_of(self.spec))
+        self.thr_base = self.book.thr   # 感度のしきい値(音だけのときは apply_thr が AUDIO_ONLY_SCALE 倍を帳簿に入れる)
         # 候補が出るまでの遅れを縮める(仮の候補): チャットを待たずに音だけで先に計算する Online(同じ窓・同じ重み。チャットなしの録画は本番がもう待たないので作らない)
         self.fast = excite.Online(use_chat=False, **self.args) if self.use_chat and provisional else None
         self.mood = excite.MoodShift()   # 雰囲気の変わり目(0-10-5)
@@ -606,7 +614,7 @@ class RecState:
                 "decN": self.dec_n, "chat": self.chat_snap, "late": self.late, "errors": self.errors, "ending": self.ending,
                 "bookDone": self.book_done, "finished": self.finished, "message": self.message,
                 "fast": self.fast.to_json() if self.fast is not None else None, "mood": self.mood.to_json(), "moodShifts": self.mood_shifts,
-                "nextScan": self.next_scan, "lateFrom": self.late_from}
+                "nextScan": self.next_scan, "lateFrom": self.late_from, "thrBase": self.thr_base}
 
     @classmethod
     def from_json(cls, folder, d, detect, grace=CHAT_GRACE):
@@ -615,6 +623,7 @@ class RecState:
         st.args = dict(d.get("args") or st.args)
         st.online = excite.Online(use_chat=st.use_chat, **st.args).load(d["online"])
         st.book = excite.PeakBook.from_json(d["book"])
+        st.thr_base = float(d["thrBase"]) if schemas.is_num(d.get("thrBase")) else st.book.thr
         # 先回りの計算(仮の候補)は state.json に無ければ作らない(本番と秒の数え始めがずれるため。その録画は本番の候補だけ)。変わり目は無ければここから数え始める
         st.fast = excite.Online(use_chat=False, **st.args).load(d["fast"]) if st.use_chat and isinstance(d.get("fast"), dict) else None
         st.mood = excite.MoodShift().load(d["mood"]) if isinstance(d.get("mood"), dict) else excite.MoodShift()
@@ -644,7 +653,21 @@ class RecState:
     def set_detect(self, detect):
         """感度・1 時間の本数は配信の途中でも変えられる(これから確定する候補から)"""
         det = clean_detect(detect)
-        self.book.thr, self.book.per_hour = excite.SENS[det["sens"]], det["perHour"]
+        self.thr_base, self.book.per_hour = excite.SENS[det["sens"]], det["perHour"]
+        self.apply_thr()
+
+    def audio_only(self):
+        """音だけで測っているか: チャットを諦めた・使わない録画か、測り始めて AUDIO_ONLY_AFTER 秒チャットが 1 件も来ない"""
+        return not self.use_chat or (self.chat_wm < 0 and self.next_push >= (self.late_from or 0) + AUDIO_ONLY_AFTER)
+
+    def apply_thr(self):
+        """帳簿のしきい値 = 感度のしきい値(音だけなら AUDIO_ONLY_SCALE 倍)。これから上り始める山から効く。音だけの間に確定した候補に印 audioOnly"""
+        scale = AUDIO_ONLY_SCALE if self.audio_only() else 1.0
+        thr = self.thr_base * scale
+        if self.book.thr != thr:
+            self.book.thr = thr
+            self.peaks_dirty = True
+        self.book.tag = {"audioOnly": True} if scale != 1.0 else None
 
     def set_request(self, req):
         """友人の依頼の録画の長さ(固定の秒 / 場面ごと)も配信の途中で変えられる(C-2-11。これから確定する候補から。もう出た候補は変えない)。
@@ -668,6 +691,7 @@ class RecState:
         self.chat_state, self.message = "none", why
         self.chat_bins.clear()
         self.lag_a, self.lag_c = [], []
+        self.apply_thr()
 
     # ---- チャット
     def add_chat(self, msgs):
@@ -787,6 +811,8 @@ class RecState:
             t = self.next_push
             if self.use_chat and not ended and not (self.chat_wm >= t + 1 or now >= self.first + t + self.grace):
                 break
+            if t % 10 == 0:
+                self.apply_thr()
             full, band = self.audio.pop(t)
             act = self.chat_bins.pop(t, 0.0) if self.use_chat else 0.0
             self.raw[t] = [full, band, act]
@@ -859,6 +885,7 @@ class RecState:
                 "shape": self.book.shape,   # 区間の形(LD-2b。scene = 場面ごと・fixed = 山から固定の長さ)
                 "moodShifts": self.mood_shifts, "provisional": self.fast is not None,   # 雰囲気の変わり目の数・仮の候補を出しているか
                 "lateFrom": self.late_from,   # 録画の途中から測り始めた秒(それより前の候補は無い)
+                "thr": round(self.book.thr, 3), "thrBase": self.thr_base, "audioOnly": self.audio_only(),   # 今のしきい値・感度のしきい値・音だけか(AUDIO_ONLY_SCALE)
                 "peaks": self.book.list(), "changes": ch}
 
     def save(self, now, peaks=True):

@@ -3,7 +3,8 @@
 
     py -3.12 dev/friend_diag.py                  # 最新の 10 件を、段ごとの秒・エラー・道具の終了コードで一覧
     py -3.12 dev/friend_diag.py -n 30            # 30 件
-    py -3.12 dev/friend_diag.py --errors         # 失敗(kind run の error と、run・preview 以外)だけ
+    py -3.12 dev/friend_diag.py --errors         # 失敗(kind run の error・kind live のパック 0 本と、run・live・preview 以外)だけ
+    py -3.12 dev/friend_diag.py --live           # ライブの行の診断(kind live。閉じた結果・録画の長さ・検出・チャット・採用・書き出し・配信後の追加)だけ
     py -3.12 dev/friend_diag.py --id <依頼 id>   # 1 つの依頼の物だけ(全部の欄)
     py -3.12 dev/friend_diag.py --json           # 読んだ物をそのまま JSON で(AI が細かく読む)
     py -3.12 dev/friend_diag.py --dir D          # 読む場所を変える(既定 <ホームの設定 intake.folder>/診断 = Dropbox の /診断/)
@@ -86,7 +87,41 @@ def is_error(d):
     kind = d.get("kind")
     if kind == "run":
         return (d.get("request") or {}).get("state") == "error"
+    if kind == "live":
+        return (d.get("outcome") or {}).get("state") not in ("arrived", "done")
     return kind not in ("preview", "update")
+
+
+def live_lines(d, full=False):
+    """kind live(ライブの行を閉じた・受付の失敗)の行: 結果・録画の長さ・検出・チャット・採用・書き出し・配信後の追加"""
+    o, f = d.get("outcome") or {}, d.get("live") or {}
+    out = ["    結果: %s パック %s 本・理由 %s・切り抜きの実行 %s 回(失敗 %s)%s" % (
+        o.get("state") or "?", o.get("packs", "?"), o.get("cause") or "-", o.get("clipRuns", "?"), o.get("errors", "?"),
+        "・最後の失敗 %s" % o["lastError"][:120] if o.get("lastError") else "")]
+    rec, det, pd, wk = f.get("recording") or {}, f.get("detect") or {}, f.get("peaksDoc"), f.get("worker") or {}
+    if f:
+        out.append("    録画: %s(%s 〜 %s)" % (_sec(rec.get("sec")), rec.get("firstPdt") or "?", rec.get("endedAt") or rec.get("lastPdt") or "?"))
+        if pd is None:
+            out.append("    検出: 記録なし(peaks.json が無い)")
+        else:
+            out.append("    検出: 測った %s・候補 %s(枠 %s・控え %s・採用 %s うち自動 %s・上限 %s)・最高点 %s・しきい値 %s%s・チャット %s%s" % (
+                _sec(pd.get("measuredSec")), pd.get("peaks"), det.get("frame"), det.get("bench"), det.get("adopted"), det.get("adoptedAuto"), f.get("autoMax"),
+                pd.get("maxScore"), pd.get("thr"), "(音だけ)" if pd.get("audioOnly") else "", pd.get("chat"),
+                "・%s" % pd["message"][:120] if pd.get("message") else ""))
+        out.append("    ワーカー: %s・起動し直し %s・チャットの起動し直し %s%s" % (
+            "動いている" if wk.get("running") else "止まっている", wk.get("restarts"), wk.get("chatRestarts"),
+            "・%s" % (wk.get("error") or wk.get("message"))[:160] if (wk.get("error") or wk.get("message")) else ""))
+        for g in (f.get("givenUp") or [])[-(3 if not full else 10):]:
+            out.append("    採用を諦めた: %s〜%s %s" % (g.get("start"), g.get("end"), (g.get("message") or "")[:160]))
+        ex = f.get("exports") or {}
+        out.append("    書き出し: %s 本 %s" % (ex.get("total", "?"), json.dumps(ex.get("byState") or {}, ensure_ascii=False)))
+        for t in (f.get("exportFailures") or [])[:(3 if not full else 10)]:
+            out.append("      失敗: %s" % str(t)[:200])
+        a = f.get("afterStream")
+        out.append("    配信後の追加: %s" % ("%s %s" % (a.get("state"), (a.get("message") or "")[:160]) if a else "なし"))
+        if f.get("settings"):
+            out.append("    依頼の設定: %s" % json.dumps(f["settings"], ensure_ascii=False))
+    return out
 
 
 def _when(ms):
@@ -119,6 +154,8 @@ def lines_of(name, d, full=False):
         out.append("    文字起こし: %s %s GPU=%s モデル=%s 音声 %s かかった %s 実時間比 %s" % (
             t.get("device"), t.get("backend") or "", t.get("gpu") or "?", t.get("model") or "?", _sec(t.get("audioSec")), _sec(t.get("wallSec")),
             t.get("ratio") if t.get("ratio") is not None else "?"))
+    if d.get("kind") == "live":
+        out += live_lines(d, full)
     if d.get("kind") == "preview" or d.get("stage") == "preview":
         out.append("    確認用の動画: %s 本・作れなかった %s 本 %s" % (d.get("count"), d.get("missed"), _sec(d.get("sec"))))
     tools = d.get("tools") or []
@@ -138,7 +175,7 @@ def lines_of(name, d, full=False):
         out += ["    詳しく: " + det.replace("\n", "\n            ")]
     if full:
         rest = {k: v for k, v in d.items() if k not in ("v", "kind", "source", "at", "requestId", "app", "pc", "summary", "code", "stages", "transcribe",
-                                                       "tools", "tail", "detail", "exitCode", "totalSec")}
+                                                       "tools", "tail", "detail", "exitCode", "totalSec", "outcome")}
         if rest:
             out.append("    ほか: %s" % json.dumps(rest, ensure_ascii=False))
     return out
@@ -148,6 +185,7 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="dev/friend_diag.py", description="友人のアプリから届いた診断の記録を一覧にする")
     ap.add_argument("-n", type=int, default=10, help="件数(新しい順。既定 10)")
     ap.add_argument("--errors", action="store_true", help="失敗だけ")
+    ap.add_argument("--live", action="store_true", help="ライブの行の診断(kind live)だけ")
     ap.add_argument("--id", help="1 つの依頼の id の物だけ(全部の欄)")
     ap.add_argument("--json", action="store_true", help="そのまま JSON で")
     ap.add_argument("--dir", help="読む場所(既定 <intake.folder>/診断)")
@@ -169,6 +207,8 @@ def main(argv=None):
         got = [g for g in got if g[1].get("requestId") == a.id]
     if a.errors:
         got = [g for g in got if is_error(g[1])]
+    if a.live:
+        got = [g for g in got if g[1].get("kind") == "live"]
     got = got[:max(1, a.n)] if not a.id else got
     if a.json:
         print(json.dumps([dict(d, file=n) for n, d in got], ensure_ascii=False, indent=1))

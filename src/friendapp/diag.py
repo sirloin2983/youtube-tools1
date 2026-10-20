@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
 """友人のアプリの診断の記録(ユーザー決定。notes:docs/spec/friend.md の 13-11)。友人の PC でしか出ない不具合を、伝聞でなく記録で追うため。
 
-- 依頼 1 件ごと(② の実行が終わったとき = kind run。確認用の動画を作り終えたとき = preview)と、エラーのとき(error・sync・setup・start・
-  rollback・token・exception・update)に、JSON 1 つを送り返しの箱 <data>/app/outbox/ へ <依頼 id か app>__diag-<at ミリ秒 13 桁>.diag.json で書く。
+- 依頼 1 件ごと(② の実行が終わったとき = kind run。確認用の動画を作り終えたとき = preview。ライブの行を閉じたとき・ライブの受付に失敗したとき = live)と、
+  エラーのとき(error・sync・setup・start・rollback・token・exception・update)に、JSON 1 つを送り返しの箱 <data>/app/outbox/ へ
+  <依頼 id か app>__diag-<at ミリ秒 13 桁>.diag.json で書く。
+  live の中身: stage(close = 行を閉じた・submit = 受付の失敗)・outcome(行の状態・パックの数・理由の種類 cause・切り抜きの実行の失敗)・
+  live(friendapp/live_session.FriendLive.live_facts を mask_tree で伏せた物 = 録画の長さ・候補と採用の数・検出の記録・心拍・チャット・諦めた採用・
+  書き出しの失敗・配信後の追加・依頼の設定)
   exe(FriendApp.exe)も同じ箱へ launcher__diag-<at>.diag.json を書く(起動・更新の失敗。Core.cs の Diag)。
   上げるのは同期(friendapp/sync.py の 4 送り返し)で、置き場所だけ Dropbox の /診断/(送り返しの受付 human/friend/returns は読まない)
 - 中身: アプリの版・Windows の版・GPU の名前・文字起こしの機器・各段の始めと終わりと秒・文字起こしの装置と実時間比・エラーの種類(progress.classify)と要約・
@@ -150,6 +154,18 @@ class Diag:
 
     def mask(self, text):
         return mask(text, self.places.get("home"), self.env)
+
+    def mask_tree(self, obj, depth=0):
+        """dict・list の中の文を全部伏せた写し(数・真偽・None はそのまま。深さは 8 まで)"""
+        if isinstance(obj, str):
+            return self.mask(obj)
+        if depth >= 8:
+            return None
+        if isinstance(obj, dict):
+            return {str(k): self.mask_tree(v, depth + 1) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [self.mask_tree(v, depth + 1) for v in obj]
+        return obj if obj is None or isinstance(obj, (bool, int, float)) else self.mask(str(obj))
 
     def pc(self):
         """{windows, gpu: {name, vendor, vramGB} か None, device}。GPU はプロセスの中で 1 回だけ調べる(ytt/gpuinfo = 黒い窓なし。exe から動いているときだけ)"""
