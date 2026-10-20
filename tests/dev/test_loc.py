@@ -29,6 +29,17 @@ class CountTest(unittest.TestCase):
         self.check(".py", src, 12, 8)
 
 
+class ClassifyTest(unittest.TestCase):
+    def test_tests_folder_counts_for_its_owner_layer(self):
+        """tests/ の下は持ち主の層のテスト。前のコミットの部品の隣の tests/ もテスト(--since で前と比べる)"""
+        self.assertEqual(loc.classify("tests/pipeline/transcribe/test_worker.py"), ("src/pipeline", "テスト"))
+        self.assertEqual(loc.classify("tests/dev/plan_fixture.py"), ("dev", "テスト"))
+        self.assertEqual(loc.classify("tests/friend-apps/launcher/Tests.cs"), ("friend-apps/launcher", "テスト"))
+        self.assertEqual(loc.classify("tests/testkit.py"), ("tests", "テスト"))
+        self.assertEqual(loc.classify("src/flow/tests/_livefix.py"), ("src/flow", "テスト"))
+        self.assertEqual(loc.classify("src/flow/run.py"), ("src/flow", "本体"))
+
+
 class ReportTest(unittest.TestCase):
     def test_net_diff_only(self):
         before = loc.tally([("src/app/a.py", "x = 1\ny = 2\n"), ("dev/t.py", "# c\nz = 3\n")])

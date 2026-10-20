@@ -13,7 +13,7 @@
   - コメントは言語ごと: Python の # と docstring・JS/CS/CSS/GS の // と /* */(CSS は /* */ だけ)・HTML の <!-- -->(<script>・<style> の中は JS・CSS)・
     bat の REM と ::・ps1 の # と <# #>・vbs の ' と REM・lua の -- と --[[ ]]。コードの後ろに付いたコメントの行はコードの行。
   - 分け方: 層(src/app などのフォルダ。src/ と friend-apps/ は 2 段目まで・ほかは 1 段目)ごとに 本体・テスト・開発の道具。
-    テスト = tests/ の下(層は持ち主: tests/flow → src/flow・tests/dev → dev・tests/friend-apps/x → friend-apps/x)・名前が test_* か e2e_*。
+    テスト = tests/ の下(層は持ち主: tests/flow → src/flow・tests/dev → dev・tests/friend-apps/x → friend-apps/x)・前のコミットの部品の隣の tests/ の下・名前が test_* か e2e_*。
     開発の道具 = dev/ の下。
   - 「減った」は前と後の合計の差(正味)だけ。消した行・足した行は出さない。
 """
@@ -53,7 +53,7 @@ def classify(path):
     else:
         layer = parts[0]
     name = parts[-1].lower()
-    if name.startswith(("test_", "e2e_")):
+    if "tests" in parts[:-1] or name.startswith(("test_", "e2e_")):   # 部品の隣の tests/ は前のコミットを数えるとき(--since・--rev)
         kind = "テスト"
     elif parts[0] == "dev":
         kind = "開発の道具"
