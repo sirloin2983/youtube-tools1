@@ -661,6 +661,52 @@ class PortalHttpTest(Base):
             self.addCleanup(p.stop)
         return R, calls, stops
 
+    def test_auto_restart_check(self):
+        """自動の起動し直し: 版が同じなら何もしない・処理中(まとめて実行・ライブ・編集の画面・重い処理)は待つ・空けば 1 回だけ起こす・
+        同じ版はもう起こさない(起動し直しても版が変わらなかったとき = 赤い帯と手の口が残る)。本物は起こさない(偽の spawn)"""
+        from manage.ops import autorestart as A
+        R, calls, stops = self.fake_restart()
+        app = os.path.join(self.tmp, "appdata")
+        zero = {"recording": 0, "detecting": 0, "exporting": 0}
+        runs = {"runs": 0, "redo": None}
+
+        class Stub:
+            def restart_info(self):
+                return runs
+
+            def close(self):
+                pass
+        patches = [mock.patch.object(L, "app_data_dir", lambda root: app), mock.patch.object(self.srv, "_autorun", Stub()),
+                   mock.patch.object(self.srv, "live_activity", lambda: zero), mock.patch.object(self.srv.sup, "status", lambda: {"heavy": {}})]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        disk = {"v": L.VERSION}
+        with mock.patch.object(L._version, "on_disk", lambda root=None: disk["v"]):
+            self.assertEqual(self.srv.auto_restart_check(), A.NOTHING)   # 同じ版
+            disk["v"] = "9.9.9"
+            runs["runs"] = 1
+            self.assertEqual(self.srv.auto_restart_check(), A.WAIT)   # まとめて実行の待ち・実行中
+            runs["runs"] = 0
+            zero["recording"] = 1
+            self.assertEqual(self.srv.auto_restart_check(), A.WAIT)   # ライブの録画中
+            zero["recording"] = 0
+            self.srv.editor_seen = time.monotonic()
+            self.assertEqual(self.srv.auto_restart_check(), A.WAIT)   # 編集の画面を使っている
+            self.srv.editor_seen = time.monotonic() - A.EDITOR_IDLE - 1
+            with mock.patch.object(self.srv, "_busy_tools", lambda: [("studio", "スタジオ")]):
+                self.assertEqual(self.srv.auto_restart_check(), A.WAIT)   # 取り込んだツールのジョブ
+            self.assertEqual(calls, [])
+            self.assertEqual(self.srv.auto_restart_check(), A.GO)
+            self.assertEqual((len(calls), A.read_tried(os.path.join(app, A.STATE_NAME))), (1, "9.9.9"))
+            self.assertIn("--wait-port", calls[0])
+            self.wait_stops(stops)
+            self.assertEqual(self.srv.auto_restart_check(), A.NOTHING)   # 版が変わらないまま = 1 版 1 回(輪にならない)
+            self.assertEqual(len(calls), 1)
+            disk["v"] = "9.9.10"   # 次の版は改めて 1 回
+            self.assertEqual(self.srv.auto_restart_check(), A.GO)
+            self.assertEqual(len(calls), 2)
+
     def test_flow_status_live(self):
         """GET /api/flow/status の live 欄 = PortalServer.live_activity(ライブの録画中・検出中・書き出しの途中の数)。どれかが 0 でなければ idle は偽。
         リアルタイム切り抜きがオフなら全部 0 で、録画元に問い合わせない(読めないときの扱いは src/flow/tests/test_runqueue.py の TestStatusLive)"""

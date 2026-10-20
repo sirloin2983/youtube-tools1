@@ -2188,7 +2188,7 @@
     el.appendChild(msg);
     el.hidden = false;
     if (!token()) { msg.textContent = head + '黒い画面を閉じて、起動し直してください'; el.removeAttribute('data-ui-restart'); return el; }
-    msg.textContent = head + '「起動し直す」で新しい版に入れ替えます(この画面は開いたままで大丈夫です)';
+    msg.textContent = head + '処理が終わったら自動で起動し直します(今すぐ: [起動し直す])';
     el.setAttribute('data-ui-restart', 'ready');
     var b = document.createElement('button'); b.type = 'button'; b.className = 'btn small ui-restart-btn'; b.textContent = '起動し直す';
     el.appendChild(b);

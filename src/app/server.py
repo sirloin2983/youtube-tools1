@@ -122,6 +122,7 @@ from ytt import appwindow as appwindow_mod  # noqa: E402  (src/ytt/appwindow.py:
 from manage.ops import clientlog as clientlog_mod  # noqa: E402  (src/manage/ops/clientlog.py: 画面のエラーの記録。段階7-0)
 from manage.ops import health as health_mod  # noqa: E402  (src/manage/ops/health.py: 「調子」。段9 9-1)
 from manage.keep import cleanup as cleanup_mod  # noqa: E402  (src/manage/keep/cleanup.py: 片付け。段9 9-2)
+from manage.ops import autorestart as autorestart_mod  # noqa: E402  (src/manage/ops/autorestart.py: 版が違うとき処理の合間に自分で起動し直す判定)
 from manage.ops import restart as restart_mod  # noqa: E402  (src/manage/ops/restart.py: 入口ごと起動し直す。段9 9-3)
 from app import prefs as prefs_mod  # noqa: E402  (src/app/prefs.py: ホームの設定。まとめて実行の既定・配信者の記憶・共通の再生キー)
 from app import live as live_mod  # noqa: E402  (src/app/live.py: リアルタイム切り抜き(線 D)。既定はオフ)
@@ -330,6 +331,7 @@ class Supervisor:
         self.log = log or (lambda msg: None)
         self._halt = threading.Event()
         self._thread = None
+        self.patrol = None   # 見回りの周期で呼ぶ物(autorestart_mod.EVERY 秒ごと。入口が自動の起動し直しの見直しを入れる)
         self.mounts = tuple(m for m in mounts if m in mount_mod.MOUNTS)
         self.server = None
 
@@ -551,7 +553,14 @@ class Supervisor:
                  + "".join("\n    " + ln for ln in last))
 
     def _monitor(self):
+        patrol_at = time.monotonic()
         while not self._halt.wait(self.poll):
+            if self.patrol is not None and time.monotonic() - patrol_at >= autorestart_mod.EVERY:
+                patrol_at = time.monotonic()
+                try:
+                    self.patrol()
+                except Exception as e:   # 見回りは止めない
+                    self.log("※ 見回りのエラー: %s" % e.__class__.__name__)
             for t in self.tools:
                 try:
                     self._tick(t)
@@ -942,6 +951,7 @@ class PortalServer(httpsec.ExclusiveServer):
         p = self.server_address[1]
         self.allowed_hosts = httpsec.allowed_hosts(p)
         self.closing = threading.Event()
+        self.editor_seen = None   # 編集の画面の要求を最後に受けた時刻(time.monotonic。自動の起動し直しは使っている最中は待つ)
         self.token = secrets.token_urlsafe(24)   # 書き込み系の API の合言葉(CSRF トークン)。起動ごとに変わる
         self.mounts = {}
         self._autorun = None
@@ -1059,7 +1069,46 @@ class PortalServer(httpsec.ExclusiveServer):
         """取り込んだツールのどれかが処理の途中か(書き出し先を変えられるかの判定)"""
         return bool(self._busy_tools())
 
-    def restart_self(self):
+    def auto_busy(self):
+        """自動の起動し直しを待つ理由の文(処理が無ければ None)。手の起動し直しより厳しい: まとめて実行の待ち・実行中・ライブの録画中・検出中・
+        書き出しの途中・実行中の段のツールの仕事・編集の画面を使っている最中、のどれでも待つ"""
+        if self.closing.is_set():
+            return "終了の途中です"
+        ar = self._autorun
+        info = ar.restart_info() if ar is not None else {}
+        if info.get("runs"):
+            return "まとめて実行の待ち・実行中が %d 件あります" % info["runs"]
+        why = restart_mod.can_restart(self.sup.status(), self._busy_tools(), None)
+        if why:
+            return why
+        live = self.live_activity()
+        if any(live.values()):
+            return "ライブの録画・検出・書き出しが動いています"
+        if autorestart_mod.editor_in_use(self.editor_seen, time.monotonic()):
+            return "編集の画面を使っています"
+        return None
+
+    def auto_restart_check(self):
+        """見回りの周期で: ディスクの版が動いている版と違い、何も処理していなければ、手の「起動し直す」と同じ道で起動し直す。
+        1 版につき 1 回(試す版を auto-restart.json に先に書く)。-> autorestart_mod の WAIT・GO・NOTHING"""
+        path = os.path.join(app_data_dir(self.sup.root), autorestart_mod.STATE_NAME)
+        disk = _version.on_disk(self.sup.root)
+        act, why = autorestart_mod.decide(disk, VERSION, autorestart_mod.read_tried(path), self.auto_busy() if disk and disk != VERSION else None)
+        if act != autorestart_mod.GO:
+            return act
+        try:
+            autorestart_mod.write_tried(path, disk, VERSION)
+        except OSError as e:
+            self.sup.log("自動の起動し直しの記録を書けませんでした(自動では起動し直しません): %s" % tools.why(e))
+            return autorestart_mod.NOTHING
+        self.sup.log("ディスクの版(v%s)が動いている版(v%s)と違うので、自動で起動し直します" % (disk, VERSION))
+        code, out = self.restart_self(auto=True)
+        if code != 200:
+            self.sup.log("自動の起動し直しはできませんでした(赤い帯の「起動し直す」で入れ替えます): %s" % out.get("message"))
+            return autorestart_mod.NOTHING
+        return act
+
+    def restart_self(self, auto=False):
         """新しい入口(同じポートが空くのを待つ)を起こしてから、この入口は「すべて終了」と同じ後始末をして終わる。
         重い処理・取り込んだツールの処理(人が始めたもの・まとめて実行の書き出し)が動いていれば 409 で断る(理由の文)。
         まとめて実行の待ち・実行中は断らない(M5 で起動し直したあとに続きから進む): 応答の notice と記録で何件続くかを知らせる。
@@ -1069,7 +1118,7 @@ class PortalServer(httpsec.ExclusiveServer):
         ar = self._autorun
         info = ar.restart_info() if ar is not None else {}
         busy = self._busy_tools()
-        why = restart_mod.can_restart(self.sup.status(), busy, info.get("redo"))
+        why = restart_mod.can_restart(self.sup.status(), busy, None if auto else info.get("redo"))
         if why:
             return 409, {"ok": False, "error": "busy", "message": why}
         notice = restart_mod.RESUME_NOTICE % info["runs"] if info.get("runs") else ""
@@ -1079,7 +1128,7 @@ class PortalServer(httpsec.ExclusiveServer):
                                            log=self.sup.log)
         except OSError as e:
             return 500, {"ok": False, "error": "spawn", "message": "ホームを起動し直せませんでした(新しいホームを起動できません): %s" % tools.why(e)}
-        self.sup.log("画面から「起動し直す」が押されました" + ("(%s)" % notice if notice else ""))
+        self.sup.log(("自動で起動し直します" if auto else "画面から「起動し直す」が押されました") + ("(%s)" % notice if notice else ""))
         threading.Timer(0.3, self.request_shutdown).start()   # 応答を返してから後始末(新しい入口はポートが空くのを待っている)
         return 200, dict({"ok": True}, **({"notice": notice} if notice else {}))
 
@@ -1337,6 +1386,8 @@ class PortalServer(httpsec.ExclusiveServer):
             p = urllib.parse.urlsplit(path).path
             for prefix, handler in self.mounts.items():
                 if p == prefix or p.startswith(prefix + "/"):
+                    if prefix == mount_mod.MOUNTS["transcribe"]["prefix"]:
+                        self.editor_seen = time.monotonic()
                     return handler
         return PortalHandler
 
@@ -1575,6 +1626,7 @@ def _main(opts):
             sup.start_all()
         finally:
             srv.tools_started.set()
+        sup.patrol = srv.auto_restart_check   # 版が違うとき、処理の合間に自動で起動し直す(見回りの周期。新しい常駐は作らない)
         sup.start_monitor()
         try:   # 学習データの置き場所(machine の learningDir。F1 F6a)。取り込みのあと・まとめて実行を作る前
             if srv.wire_learning() is not None:
