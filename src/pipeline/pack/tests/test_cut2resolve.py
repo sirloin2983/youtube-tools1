@@ -15,7 +15,7 @@ sys.path.insert(0, str(TESTS.parents[2]))   # src(パックの部品は pipeline
 from pipeline.pack import cut2resolve_core as C  # noqa: E402
 from pipeline.pack import pack  # noqa: E402
 from pipeline.pack import srt2resolve as S  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 FPS30 = (30, 1)

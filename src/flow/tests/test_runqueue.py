@@ -15,7 +15,7 @@ from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from flow import board as B, runqueue as Q, run as R, spec as SP, tools as T  # noqa: E402
 from ytt import fsio  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # 共有の部品 _runfields(Run の欄の形 → 封筒 + 束。RV A2)

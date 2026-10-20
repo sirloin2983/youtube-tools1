@@ -14,7 +14,7 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # dev/
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "src"))
 import lint  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 
 def nodes_of(src):

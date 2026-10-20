@@ -29,8 +29,8 @@
   - 名前: `build_spec` :24・`class ExportJobs` :38・`default` :140
 - **ingest.py** (23 行) — ② 取り込みの口(RS6 a-5a)。人とデータの層(③・④)が入力の判定(① pipeline/analyze・ingest)を直に読まずに済む動詞。
   - 名前: `probe` :13
-- **jobs.py** (705 行) — ジョブの表・待機列・種類の登録・ワーカーの繰り返し・取り消しの受付(② 管理。RS6 a-2)。
-  - 名前: `configure` :38・`tool_slot` :50・`register` :56・`set_cancelled` :70・`set_internal_error` :74・`job_errors` :81・`job_temp_wav` :103・`job_done` :112・`job_title` :116・`tid_busy` :126・`doc_busy` :140・`active_jobs` :152・ほか 12
+- **jobs.py** (704 行) — ジョブの表・待機列・種類の登録・ワーカーの繰り返し・取り消しの受付(② 管理。RS6 a-2)。
+  - 名前: `configure` :38・`tool_slot` :50・`register` :56・`set_cancelled` :70・`set_internal_error` :74・`job_errors` :81・`job_temp_wav` :102・`job_done` :111・`job_title` :115・`tid_busy` :125・`doc_busy` :139・`active_jobs` :151・ほか 12
 - **keys.py** (397 行) — ② 管理の層 flow: 成果物の鍵を書く・読む(RS6 b-K1。決定 3-29 / notes:plan/done/role-restructure.md 4 節の決まり 4・5-2)。
   - 名前: `media_key_path` :40・`doc_key_path` :45・`pack_key_path` :55・`write` :60・`read` :71・`stale` :83・`remove` :95・`key_hash` :107・`export_inputs` :114・`transcribe_inputs` :122・`post_inputs` :134・`diar_inputs` :142・ほか 15
 - **learning.py** (177 行) — ② 管理: 学習データを読む側(F1。notes:docs/design/f1-build.md の 2 の F1・3 の (f1c))。
@@ -65,7 +65,7 @@
   - 名前: `validate_url` :80・`probe_live` :108・`rec_view` :134・`recorder_data_dir` :150・`is_local_url` :163・`stream_url` :171・`live_envelope` :177・`cfg_bundle` :187・`now_bundle` :208・`request_bundle` :227・`request_settings` :260・`speakers_of` :267・ほか 4
 - **machine.py** (303 行) — ② 管理の層 flow: この PC の設定(機械の都合)を 1 か所に(RS7-1 の S1。決定 3-30 の Q1・notes:plan/done/f1-friend-pc.md の決めたこと 8・9)。
   - 名前: `check` :68・`root` :102・`path` :107・`read_file` :119・`read_env` :136・`llm_for_vram` :163・`auto_llm` :173・`overlay_llm` :179・`explicit` :212・`load` :221・`get` :239・`save` :247・ほか 1
-- **normalize.py** (166 行) — ② 管理の層 flow: 素材を 30fps(H.264・yuv420p・AAC)にそろえる 1 つの段(OPT-M2 5b-1。決定は資料 plan/opt-manage.md の 5b)。
+- **normalize.py** (167 行) — ② 管理の層 flow: 素材を 30fps(H.264・yuv420p・AAC)にそろえる 1 つの段(OPT-M2 5b-1。決定は資料 plan/opt-manage.md の 5b)。
   - 名前: `enabled` :28・`sibling_name` :33・`usable` :39・`plan` :48・`room` :86・`run` :106・`set_note` :137・`run_job` :146
 - **order.py** (209 行) — ② 管理の層 flow: 欄 → (封筒, 束の差分) の変換の 1 か所(RV A1)。
   - 名前: `new_id` :30・`speakers_arg` :60・`cut_arg` :86・`video_tracks_arg` :91・`people_of` :96・`spec_diff` :114・`request_top` :165・`order` :170

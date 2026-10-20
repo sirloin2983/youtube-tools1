@@ -25,7 +25,7 @@ HERE = os.path.join(SRC, "studio")   # テストが使うスタジオの殻 comm
 sys.path.insert(0, HERE)
 sys.path.insert(0, SRC)
 import startup  # noqa: E402,F401  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from ytt import errors, jobs, mediainfo, studio_env  # noqa: E402
 from pipeline.export import exporter  # noqa: E402
 from flow import board as _board, export as _fexport  # noqa: E402  (指定は ② の build_spec = 台帳から引く口・器は ② の ExportJobs)

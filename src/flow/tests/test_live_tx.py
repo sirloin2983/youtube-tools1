@@ -32,7 +32,7 @@ sys.path.insert(0, TESTS)
 import _livefix as LF  # noqa: E402
 sys.path.insert(0, os.path.join(LF.SRC, "pipeline", "transcribe", "tests"))
 import voice_fixture as VF  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from flow import board as Board  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from flow import live_tx as TX  # noqa: E402

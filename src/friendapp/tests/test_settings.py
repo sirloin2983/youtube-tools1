@@ -14,7 +14,8 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
-from ytt import testkit, tools as YT  # noqa: E402
+from ytt import tools as YT  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from friendapp import places as P, server as S, settings as T, setup as SU  # noqa: E402
 from friendapp.tests.test_server import FakeEngine  # noqa: E402
 

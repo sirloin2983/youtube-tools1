@@ -18,7 +18,7 @@ for _p in (os.path.join(ROOT, "editor"), ROOT):
 from human.check import answerlog, apply, read  # noqa: E402,F401
 from human.proof import learn, store  # noqa: E402
 from human.tests._workdata import temporary_workdata  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 TID = "aaaaaaaaaaaa"
 FLAG = "別の読みで埋めた(元の文字は「別の読み」の札)"

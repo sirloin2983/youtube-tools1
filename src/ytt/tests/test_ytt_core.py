@@ -18,7 +18,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 TOP = os.path.dirname(REPO)   # リポジトリ直下(dev/・friend-apps/・setup/)
 sys.path.insert(0, REPO)
 from manage.cases import txindex  # noqa: E402
-from ytt import colors, datadir, errors, fsio, httpsec, jobs, layout, mediainfo, pick, procs, runtime, schemas, studio_env, testkit, tools  # noqa: E402
+from ytt import colors, datadir, errors, fsio, httpsec, jobs, layout, mediainfo, pick, procs, runtime, schemas, studio_env, tools  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 
 def locked(winerror=32):

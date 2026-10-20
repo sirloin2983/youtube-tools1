@@ -28,7 +28,7 @@ from pipeline.transcribe import records as _records  # noqa: E402
 from ytt import settings as _settings  # noqa: E402
 from ytt import workdata as _workdata  # noqa: E402
 from eval.fake import fake_asr  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from human.proof import alt as proof_alt  # noqa: E402
 from human.proof import doc_jobs  # noqa: E402
 from human.proof import store  # noqa: E402

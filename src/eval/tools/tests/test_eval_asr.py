@@ -30,7 +30,7 @@ from pipeline.transcribe import worker_client as _worker_client  # noqa: E402
 from pipeline.transcribe import models as _txmodels  # noqa: E402
 from pipeline.transcribe import backend as _backend  # noqa: E402
 from ytt import workdata as _workdata  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from eval.drill import metrics as _metrics  # noqa: E402
 
 HAS_FFMPEG = bool(shutil.which("ffmpeg"))

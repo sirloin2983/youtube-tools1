@@ -22,7 +22,7 @@ from flow import packrec  # noqa: E402
 from manage.cases import txindex  # noqa: E402
 from flow import lengthhint  # noqa: E402
 from human import judgments  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 V1, V2 = "v1aaaaaaaaa", "v2bbbbbbbbb"
 

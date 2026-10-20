@@ -23,7 +23,7 @@ from eval.tools import eval_speakers as E  # noqa: E402
 from pipeline.transcribe import worker_client  # noqa: E402
 from pipeline.transcribe import diarize as _diarize  # noqa: E402
 from ytt import errors as _errors  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 
 def ms(day, hhmm="12:00:00"):

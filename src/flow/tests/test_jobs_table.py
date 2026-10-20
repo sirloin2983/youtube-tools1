@@ -13,7 +13,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> flow -> src
 from flow import board as B  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from flow.jobs import Table  # noqa: E402
 from ytt import jobs as slots  # noqa: E402
 from ytt.errors import ApiError, Cancelled  # noqa: E402

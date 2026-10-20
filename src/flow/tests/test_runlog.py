@@ -12,7 +12,7 @@ import unittest
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> pipeline -> src
 sys.path.insert(0, SRC)
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from flow import runlog  # noqa: E402
 
 

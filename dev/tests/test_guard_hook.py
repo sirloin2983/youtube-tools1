@@ -9,7 +9,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 sys.path.insert(0, os.path.join(REPO, "dev"))
 sys.path.insert(0, os.path.join(REPO, "src"))
 import guard_hook  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 

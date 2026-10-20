@@ -166,8 +166,8 @@ def download_chat(ctl, run, vid, wdir, timeout):
     c = run["chat"]
     sub = _Stop(ctl, c.setdefault("stop", threading.Event()), skip=True)
     if _env.fake():
-        p = os.environ.get("STUDIO_FAKE_CHAT", "")
-        return (p, "") if os.path.isfile(p) else (None, "疑似モード: チャットなし")
+        p = _env.fake_file("CHAT")
+        return (p, "") if p else (None, "疑似モード: チャットなし")
     cp = chat_cache_path(vid)
     if _usable_chat(cp):
         c["cached"] = True
@@ -328,8 +328,8 @@ TS_RE = re.compile(r"(?<![\d:])(?:(\d{1,2}):)?([0-5]?\d):([0-5]\d)(?![\d:])")
 def fetch_comments(vid, dur, texts=None):
     """動画コメント欄から [(秒, いいね数)]。APIキーが無い・失敗のときは (None, 理由)。"""
     if _env.fake():
-        p = os.environ.get("STUDIO_FAKE_COMMENTS", "")
-        if not os.path.isfile(p):
+        p = _env.fake_file("COMMENTS")
+        if not p:
             return None, "疑似モード: コメントなし"
         with open(p, encoding="utf-8") as f:
             threads = json.load(f)
@@ -443,8 +443,8 @@ def load_meta(vid):
 def fetch_meta(ctl, vid):
     """(付加情報 or None, 理由)。失敗しても解析には影響しない。24時間以内に取得済みならそれを使う。"""
     if _env.fake():
-        p = os.environ.get("STUDIO_FAKE_META", "")
-        if not os.path.isfile(p):
+        p = _env.fake_file("META")
+        if not p:
             return None, "疑似モード: 付加情報なし"
         with open(p, encoding="utf-8") as f:
             return slim_meta(json.load(f)), ""

@@ -35,7 +35,8 @@ sys.path.insert(0, os.path.join(SRC, "app"))
 if SRC not in sys.path:
     sys.path.append(SRC)
 import startup  # noqa: E402,F401  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
-from ytt import datadir, studio_env, testkit  # noqa: E402
+from ytt import datadir, studio_env  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 import serve  # noqa: E402
 from app import server as L  # noqa: E402
 from app import mount  # noqa: E402

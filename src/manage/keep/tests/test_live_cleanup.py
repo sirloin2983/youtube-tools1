@@ -18,7 +18,7 @@ from flow import live_archive as A  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from manage.keep import live_cleanup as LC  # noqa: E402
 from ytt import fsio  # noqa: E402
-from ytt.testkit import tempdir  # noqa: E402
+from ytt.tests.testkit import tempdir  # noqa: E402
 
 RELEASE = 1790000000.0            # 配信の開始時刻
 

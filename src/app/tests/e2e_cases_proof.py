@@ -27,7 +27,7 @@ TESTS = os.path.dirname(os.path.abspath(__file__))   # src/app/tests
 SRC = os.path.dirname(os.path.dirname(TESTS))
 sys.path.insert(0, os.path.join(SRC, "editor", "tests"))
 from e2e_edit_common import Checks, Server, make_video  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 VID = "AbCdEfGhIjK"   # YouTube の形の配信 id(11 字)
 

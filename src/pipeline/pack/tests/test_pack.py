@@ -24,7 +24,8 @@ from pipeline.pack import pack  # noqa: E402
 from pipeline.pack import request as R  # noqa: E402
 from pipeline.pack import resolve_textplus as RTP  # noqa: E402
 from pipeline.pack import srt2resolve as S  # noqa: E402
-from ytt import loudness, testkit  # noqa: E402
+from ytt import loudness  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from ytt.errors import ApiError  # noqa: E402
 from test_cut2resolve import FPS30, HAVE_FFMPEG, make_video, parse_edl, selection_pack, tc2f  # noqa: E402
 

@@ -16,7 +16,7 @@ SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from friendapp import streams as S  # noqa: E402
 
 CH_A = "UC" + "a" * 22

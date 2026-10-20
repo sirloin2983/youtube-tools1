@@ -20,7 +20,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))   # src
 from manage.cases import txindex  # noqa: E402
 from ytt import docloc, schemas, workdata  # noqa: E402
-from ytt.testkit import tempdir, write_text  # noqa: E402
+from ytt.tests.testkit import tempdir, write_text  # noqa: E402
 
 
 VIDS = ["v1", "v2", "", None, 0, 1, True, ["v1"]]

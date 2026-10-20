@@ -19,7 +19,7 @@ sys.path.insert(0, SRC)
 from human.proof import doc_jobs, learn  # noqa: E402
 from manage.keep import learnpack  # noqa: E402
 from pipeline.transcribe import replace  # noqa: E402
-from ytt.testkit import read_json as rd, tempdir, write_json as jwrite  # noqa: E402
+from ytt.tests.testkit import read_json as rd, tempdir, write_json as jwrite  # noqa: E402
 
 RULES = {
     ("ぺこ", "ぺこら"): {"pos": 4, "docs": {"a", "b"}, "pctx": [("あ", "い")] * 4, "neg": [], "ctx": False},                 # 高

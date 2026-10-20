@@ -20,7 +20,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from flow import deliver  # noqa: E402
 from pipeline.pack import preview as pv  # noqa: E402
 

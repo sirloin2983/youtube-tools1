@@ -20,7 +20,7 @@ from flow import deliver, packrec  # noqa: E402
 from manage.cases import txindex  # noqa: E402
 from flow import casebook  # noqa: E402
 from ytt import casefiles, schemas, trashbin  # noqa: E402
-from ytt.testkit import read_json, tempdir, write_json, write_text  # noqa: E402
+from ytt.tests.testkit import read_json, tempdir, write_json, write_text  # noqa: E402
 
 VID = "abcdefghijk"
 REC = "20261007-120000"   # ライブの録画の id(スタジオの配信の id = 録画の id)

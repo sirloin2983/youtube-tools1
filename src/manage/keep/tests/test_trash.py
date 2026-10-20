@@ -14,7 +14,7 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 from manage.keep import trash as T  # noqa: E402
 from ytt import trashbin  # noqa: E402
-from ytt.testkit import tempdir  # noqa: E402
+from ytt.tests.testkit import tempdir  # noqa: E402
 
 
 def touch(path, data=b"x"):

@@ -19,7 +19,7 @@ for _p in (EDITOR, SRC):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 from human.proof import doc_jobs, layers  # noqa: E402
-from ytt.testkit import read_json, tempdir  # noqa: E402
+from ytt.tests.testkit import read_json, tempdir  # noqa: E402
 
 
 class TestCarryOverrides(unittest.TestCase):

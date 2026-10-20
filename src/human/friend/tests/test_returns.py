@@ -21,7 +21,7 @@ if SRC not in sys.path:
 from flow import deliveries, outbox  # noqa: E402
 from human import judgments as J  # noqa: E402
 from human.friend import returns as R  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 RID = "20261011-120000-abcdef"
 

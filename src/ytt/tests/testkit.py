@@ -3,7 +3,7 @@
 各層の tests/ が共通で使う「一時フォルダ・JSON の読み書き・偽の HTTP サーバー・作業データの切り離し」を 1 か所に置く。
 テストからだけ使う(本体のコードは import しない)。ytt は一番下の層なので、どの層のテストからも読める。
 
-    from ytt import testkit
+    from ytt.tests import testkit
     class T(unittest.TestCase):
         def test_x(self):
             tmp = testkit.tempdir(self)           # 一時フォルダ(case の終わりに消す)

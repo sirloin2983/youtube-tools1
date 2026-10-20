@@ -21,7 +21,8 @@ if SRC not in sys.path:
 
 from flow import live_adopt  # noqa: E402
 from flow import livesession as LS  # noqa: E402
-from ytt import normalize, testkit, tools  # noqa: E402
+from ytt import normalize, tools  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 TOKEN = "t" * 40   # FakeRecorder の合言葉
 FF = tools.find_tool("ffmpeg", "YTT_FFMPEG")

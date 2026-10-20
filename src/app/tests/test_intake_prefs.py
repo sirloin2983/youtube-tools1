@@ -15,7 +15,8 @@ for p in (HOME, ROOT):
 
 from human.friend import intake  # noqa: E402
 from app import prefs as prefs_mod  # noqa: E402
-from ytt import fsio, testkit  # noqa: E402
+from ytt import fsio  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 
 class TestPrefs(unittest.TestCase):

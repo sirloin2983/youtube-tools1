@@ -40,7 +40,7 @@ from ytt import dictfmt as _dictfmt  # noqa: E402
 from ytt import txtext as _txtext  # noqa: E402
 from ytt import workdata as _workdata  # noqa: E402
 from pipeline.transcribe import diarize as transcribe_diarize  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 
 def lev(a, b):

@@ -17,7 +17,7 @@ from manage.cases import cases  # noqa: E402
 from manage.keep import cleanup  # noqa: E402
 from human import judgments as J  # noqa: E402
 from human.friend import friend_feedback as F  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 
 def put(path, data=b"x"):

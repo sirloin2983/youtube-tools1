@@ -15,7 +15,7 @@ from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from flow import casebook as CB  # noqa: E402
 from ytt import casefiles as CF, errors, studiodata, marks as M, names, schemas  # noqa: E402
 

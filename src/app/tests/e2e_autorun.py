@@ -35,7 +35,7 @@ sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app
 from app import server as L  # noqa: E402
 from app import mount as M  # noqa: E402
 from test_launch import REPO, _copy_tool, free_ports  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 
 def make_media(path, sec=40, bursts=False):

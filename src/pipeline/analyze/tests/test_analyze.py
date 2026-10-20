@@ -15,7 +15,8 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))   # tests → analyze → pipeline → src
 from human.review import machinelog  # noqa: E402
-from ytt import testkit, tools  # noqa: E402
+from ytt import tools  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from pipeline.analyze import analyze, excite, fetch  # noqa: E402
 from ytt import studio_env  # noqa: E402
 from ytt.errors import ApiError, Cancelled  # noqa: E402

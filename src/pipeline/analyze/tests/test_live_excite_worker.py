@@ -41,7 +41,7 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(TESTS)))   # tests -> analyze -> pipeline -> src
 if SRC not in sys.path:   # src(層のパッケージ pipeline・ytt。server.py と同じく後ろに)
     sys.path.append(SRC)
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from pipeline.analyze import live_excite_worker as W  # noqa: E402
 from pipeline.analyze import excite, levels  # noqa: E402
 from ytt import fsio, procs, tools  # noqa: E402

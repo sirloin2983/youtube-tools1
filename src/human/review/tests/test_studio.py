@@ -15,7 +15,7 @@ from ytt import studio_env  # noqa: E402
 from ytt import casefiles, marks, names, schemas, studiodata  # noqa: E402
 from flow import casebook  # noqa: E402
 from ytt.errors import ApiError  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 YT = {"kind": "youtube", "videoId": "abcdefghijk", "name": "abcdefghijk"}
 YT2 = {"kind": "youtube", "videoId": "bbbbbbbbbbb", "name": "bbbbbbbbbbb"}

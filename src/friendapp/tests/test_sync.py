@@ -17,7 +17,7 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from friendapp import dropbox as D, inbox as I, sync as S  # noqa: E402
 
 RID = "20261016-100000-abcdef"

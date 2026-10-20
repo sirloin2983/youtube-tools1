@@ -19,7 +19,8 @@ from unittest import mock
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
 from pipeline.transcribe import backend, clipjob, fill, llm, postproc, recognize, roster  # noqa: E402
-from ytt import studiodata, testkit, txbase, txtext, workdata  # noqa: E402
+from ytt import studiodata, txbase, txtext, workdata  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 FILLED = "ラミーちゃんが来てくれてとても嬉しいです"   # 窓の読み(元の 5 字の 3 倍以上)。名簿の呼び名に近い所があっても後処理の行は LLM に選ばれない
 DUR = 220.0

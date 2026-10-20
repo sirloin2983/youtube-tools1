@@ -14,7 +14,7 @@ from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from flow import casebook as CB, live_adopt as LA, live_export as LX, livehost as H, run as R, spec as S  # noqa: E402
 from ytt import casefiles as CF, schemas  # noqa: E402
 

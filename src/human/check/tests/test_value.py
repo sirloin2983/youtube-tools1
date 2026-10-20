@@ -13,7 +13,7 @@ if ROOT not in sys.path:
 
 from human import judgments  # noqa: E402
 from human.check import answerlog, apply, value  # noqa: E402,F401
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 VID = "abcdefghijk"
 

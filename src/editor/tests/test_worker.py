@@ -42,7 +42,8 @@ from ytt import jobs as _jobs_  # noqa: E402
 from ytt import tools as _tools  # noqa: E402
 from ytt import txwords as _txwords  # noqa: E402
 from human.proof import doc_jobs  # noqa: E402
-from ytt import testkit, workdata  # noqa: E402
+from ytt import workdata  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "pipeline", "transcribe", "tests"))
 import voice_fixture as VF  # noqa: E402
 

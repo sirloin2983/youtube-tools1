@@ -12,7 +12,7 @@ SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from flow import live_retire as LR  # noqa: E402
 from ytt import fsio  # noqa: E402

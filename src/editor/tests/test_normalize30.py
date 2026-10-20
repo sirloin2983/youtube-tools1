@@ -30,7 +30,7 @@ from flow import jobs  # noqa: E402
 from flow import normalize as FN  # noqa: E402   ② 30fps にそろえる段
 from manage.cases import relink as RL  # noqa: E402   付け替えと 30fps
 from ytt import normalize as N  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 HAVE_FF = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 

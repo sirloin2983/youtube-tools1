@@ -19,7 +19,7 @@ for _p in (os.path.join(SRC, "editor"), SRC):
 from human.proof import layers as L, machpick, store  # noqa: E402
 from ytt import errors, workdata  # noqa: E402
 from human.tests._workdata import temporary_workdata  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 TID = "0123456789ab"
 META = {"schema": "transcribe/v1", "id": TID, "title": "t", "updatedAt": 1}

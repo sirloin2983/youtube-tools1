@@ -19,7 +19,8 @@ for p in (HOME, ROOT):
 
 from eval.drill import accuracy  # noqa: E402
 from app import prefs as prefs_mod  # noqa: E402
-from ytt import fsio, testkit  # noqa: E402
+from ytt import fsio  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 # 偽の道具: 引数 = 領域の id・結果の置き場所。環境変数 FAKE_FAIL(領域の id をカンマ区切り)で失敗・FAKE_HANG(同)で居座る・
 # FAKE_NOLINE(同)で「保存: 」の行を出さない・FAKE_OUTSIDE(同)で置き場所の外のファイルを知らせる。結果に環境変数 FAKE_MARK(引き継ぎの確認)と FAKE_VALUE を入れる

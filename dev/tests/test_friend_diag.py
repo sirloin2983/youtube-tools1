@@ -15,7 +15,7 @@ for p in (os.path.join(REPO, "dev"), os.path.join(REPO, "src")):
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 import friend_diag as F  # noqa: E402
 from friendapp import diag as G  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 RID = "20261018-100000-abcdef"
 NOW_MS = int(time.time() * 1000)

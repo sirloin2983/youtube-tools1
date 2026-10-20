@@ -33,7 +33,7 @@ from human.proof import doc_jobs  # noqa: E402
 from human.proof import store  # noqa: E402
 from flow import jobs as ytt_jobs  # noqa: E402
 from manage.keep import evalfolders as EF  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 FFMPEG = shutil.which("ffmpeg")
 MEMBER = "評価用データ01_ときのそら"

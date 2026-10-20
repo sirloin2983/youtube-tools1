@@ -162,4 +162,5 @@ def run_job(job, swap=None):
         set_note(job, ok, note)
         job["progress"], job["state"], job["phase"] = 1.0, "done", "完了" if ok else "元の動画のまま"
     except Exception as e:
+        _txbase.log.exception("30fps の作り直しで例外")
         _heavy.set_internal_error(job, e)

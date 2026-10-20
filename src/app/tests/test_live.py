@@ -36,7 +36,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 sys.path.insert(0, os.path.join(REPO, "flow", "tests"))   # 共有の偽物 _livefix
 import _livefix as LF  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)
 from app import server as L  # noqa: E402
 from app import live as LV  # noqa: E402

@@ -22,7 +22,7 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 from manage.ops import restart as R  # noqa: E402
 from ytt import jobs, layout  # noqa: E402
-from ytt.testkit import read_json, tempdir, wait_for, write_text  # noqa: E402
+from ytt.tests.testkit import read_json, tempdir, wait_for, write_text  # noqa: E402
 
 FAKE_LAUNCH = textwrap.dedent(r'''
     import json, os, sys, time

@@ -19,7 +19,7 @@ from human.check import answerlog, apply, voice  # noqa: E402
 from human.proof import layers, speakers, store  # noqa: E402
 from ytt import schemas, txbase, workdata  # noqa: E402
 from human.tests._workdata import temporary_workdata  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 TID = "0123456789ab"
 EMB = _diar.default_embedding()

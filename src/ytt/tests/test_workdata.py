@@ -13,7 +13,8 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src
-from ytt import layout, studiodata, testkit, workdata  # noqa: E402
+from ytt import layout, studiodata, workdata  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 NAMES = ("ROOT", "DATA_DIR", "TX_DIR", "TMP_DIR", "SETTINGS", "FEEDBACK", "MARKER_DATA", "STUDIO_DATA", "SERVER_VERSION")
 

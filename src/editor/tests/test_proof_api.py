@@ -35,7 +35,7 @@ from ytt import tools as _tools  # noqa: E402
 from test_voices import doc_with_speakers, unit
 from human.proof import learn  # noqa: E402
 from ytt import txtext as _txtext  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 TID_A, TID_B, TID_C = "aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc"
 HAVE_FF = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))

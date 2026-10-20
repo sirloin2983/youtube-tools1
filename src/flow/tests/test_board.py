@@ -12,7 +12,8 @@ import unittest
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
 from flow import board as B  # noqa: E402
-from ytt import fsio, testkit  # noqa: E402
+from ytt import fsio  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 ROOT = os.path.abspath(os.path.join(tempfile.gettempdir(), "案件A"))
 OTHER = os.path.abspath(os.path.join(tempfile.gettempdir(), "案件B"))

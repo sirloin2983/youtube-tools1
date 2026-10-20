@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(TESTS))
 sys.path.insert(0, TESTS)
 from test_backend import StoreDir, write_json  # noqa: F401,E402  (S = serve)
 from ytt import workdata as _workdata  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from pipeline.transcribe import fill  # noqa: E402
 from pipeline.transcribe import llm  # noqa: E402
 from pipeline.transcribe import roster  # noqa: E402
@@ -34,7 +34,8 @@ from pipeline.transcribe import models  # noqa: E402
 from flow import jobs  # noqa: E402
 from pipeline.transcribe import tx_engines as E  # noqa: E402
 from eval.fake import fake_asr, fake_worker  # noqa: E402  (疑似の認識・SenseVoice の偽物)
-from ytt import studiodata, testkit  # noqa: E402
+from ytt import studiodata  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 HAVE_FF = bool(shutil.which("ffmpeg"))
 LONG = "これは別の読みで埋めた長い文です"   # 16 字(テスト文n の 5 字の 3 倍以上)

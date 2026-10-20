@@ -13,7 +13,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.a
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from human.check import apply  # noqa: E402
 
 write = testkit.write_json   # write(path, obj): 親のフォルダも作って JSON を書く

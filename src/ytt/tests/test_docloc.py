@@ -13,7 +13,8 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # src
-from ytt import docloc, schemas, testkit, workdata  # noqa: E402
+from ytt import docloc, schemas, workdata  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 TID = "0123456789ab"
 TID2 = "ba9876543210"

@@ -33,7 +33,8 @@ if SRC not in sys.path:
     sys.path.append(SRC)
 from app import server as L  # noqa: E402
 from test_launch import free_ports  # noqa: E402
-from ytt import testkit, tools  # noqa: E402
+from ytt import tools  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 
 wait_js = testkit.wait_js

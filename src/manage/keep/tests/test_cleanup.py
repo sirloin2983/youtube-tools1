@@ -12,7 +12,7 @@ SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.ab
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 from manage.keep import cleanup as C  # noqa: E402
-from ytt.testkit import tempdir, write_json, write_text  # noqa: E402
+from ytt.tests.testkit import tempdir, write_json, write_text  # noqa: E402
 
 
 def touch(path, size=10, mtime=None):

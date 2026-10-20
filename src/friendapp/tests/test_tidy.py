@@ -13,7 +13,7 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from friendapp import tidy as T  # noqa: E402
 
 OLD = time.time() - 10 * 86400

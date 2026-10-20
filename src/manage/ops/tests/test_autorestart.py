@@ -11,7 +11,7 @@ SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.ab
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 from manage.ops import autorestart as A  # noqa: E402
-from ytt.testkit import tempdir  # noqa: E402
+from ytt.tests.testkit import tempdir  # noqa: E402
 
 
 class TestDecide(unittest.TestCase):

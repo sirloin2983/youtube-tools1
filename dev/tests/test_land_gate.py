@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.join(REPO, "dev"))
 sys.path.insert(0, os.path.join(REPO, "src"))
 import land_gate  # noqa: E402
 import worklog  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 GOOD = """---
 種類: 記録

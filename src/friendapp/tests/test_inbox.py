@@ -12,7 +12,7 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from friendapp import inbox  # noqa: E402
 
 T0 = 1750000000.0          # 基準の時刻(秒)

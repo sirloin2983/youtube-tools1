@@ -47,7 +47,8 @@ from ytt import tools as _tools  # noqa: E402
 from ytt import workdata as _workdata  # noqa: E402
 from manage.cases import handoff_io as P  # noqa: E402   (.clip.json が指す動画・動画の隣への保存)
 from pipeline.pack import resolve_export as RE  # noqa: E402   (受け渡しの JSON と SRT の組み立て build_*。RS3-E5b)
-from ytt import fsio, runtime, schemas, testkit  # noqa: E402
+from ytt import fsio, runtime, schemas  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 TID = "0123456789ab"
 

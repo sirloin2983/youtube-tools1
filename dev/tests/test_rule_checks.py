@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.join(REPO, "src"))
 import rule_checks as RC  # noqa: E402
 import rule_imports as RI  # noqa: E402
 import ui_audit as UA  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 
 class Table(unittest.TestCase):

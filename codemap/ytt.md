@@ -56,12 +56,10 @@
   - 名前: `iso_now` :21・`now_ms` :26・`num` :31・`is_num` :42・`is_int` :47・`plain_int` :52・`int_in` :57・`num_or` :62・`union_spans` :71・`fmt_hms` :82・`other_speaker` :105・`no_sub_row` :110・ほか 27
 - **settings.py** (361 行) — 設定ファイル(JSON の辞書)の読み書きの共通部品(設定を 1 つにまとめる 段 2 = S4。notes:docs/spec/data.md の 4)。
   - 名前: `class SettingsError` :37・`class SettingsTooLarge` :41・`section_name_ok` :45・`retire_broken` :50・`class SettingsFile` :62・`load_settings` :191・`register_patch_key` :223・`patch_settings` :259・`merge_settings` :274・`replace_settings` :289・`eval_dirs` :326・`in_eval_dir` :342・ほか 1
-- **studio_env.py** (199 行) — スタジオの環境: データの置き場所・書き出し先・疑似の旗・外部の道具・失敗の記録。
-  - 名前: `set_code_dir` :29・`code_dir` :35・`set_home` :40・`home` :48・`p` :60・`fake` :65・`fake_media` :70・`find_tool` :78・`old_log_name` :87・`rotate_log` :94・`log_failure` :99・`default_out_dir` :113・ほか 6
+- **studio_env.py** (205 行) — スタジオの環境: データの置き場所・書き出し先・疑似の旗・外部の道具・失敗の記録。
+  - 名前: `set_code_dir` :29・`code_dir` :35・`set_home` :40・`home` :48・`p` :60・`fake` :65・`fake_file` :70・`fake_media` :76・`find_tool` :84・`old_log_name` :93・`rotate_log` :100・`log_failure` :105・ほか 7
 - **studiodata.py** (176 行) — 切り抜きスタジオの data.json の配信の情報(読む側。書くのは盛り上がりグラフの save_series だけ)。
   - 名前: `load_live` :24・`load_video` :35・`save_series` :82・`read` :96・`load_all` :108・`videos` :116・`video` :121・`studio_videos` :157・`studio_stream` :162
-- **testkit.py** (137 行) — テストの共通の下ごしらえ(テストの見直し TESTREV。notes:plan/test-review.md の 6)。
-  - 名前: `write_json` :27・`read_json` :35・`write_text` :44・`tempdir` :52・`env` :60・`data_dir` :78・`free_port` :87・`wait_for` :94・`wait_js` :105・`make_video` :120・`serve` :129
 - **textutil.py** (69 行) — ログ・画面に出す文と数の小物(標準ライブラリだけ)。
   - 名前: `redact` :18・`permission_message` :23・`tail_reason` :31・`fmt_ts` :38・`fmt_ms` :44・`num` :50・`person_key` :64
 - **tools.py** (656 行) — 外部プログラム(ffmpeg・ffprobe・yt-dlp)の場所と、子プロセスを動かすときの小道具。
@@ -94,3 +92,4 @@
 - src/ytt/tests/test_workdata.py — ytt/workdata.py(編集の作業データの置き場所と版の今の値)と ytt/studiodata.py(スタジオの data.json の読み口)のテスト(役割で組み直す RS3-0A)。
 - src/ytt/tests/test_ytapi.py — ytt/ytapi(YouTube Data API を 1 回呼ぶ口)のテスト。外へは繋がない。  py -3.12 -m unittest src/ytt/tests/test_ytapi.py -v
 - src/ytt/tests/test_ytt_core.py — ytt のテスト。  python -m unittest src/ytt/tests/test_ytt_core.py -v
+- src/ytt/tests/testkit.py — テストの共通の下ごしらえ(テストの見直し TESTREV。notes:plan/test-review.md の 6)。

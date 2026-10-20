@@ -25,7 +25,7 @@ from ytt import workdata as _workdata  # noqa: E402
 from test_edit import doc_obj, edit_obj
 from pipeline.transcribe import recognize  # noqa: E402
 from pipeline.transcribe import records  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 
 def _rd(tid=TID):

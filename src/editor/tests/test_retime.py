@@ -22,7 +22,7 @@ from human.proof import store as _store  # noqa: E402
 from ytt import txwords as _txwords  # noqa: E402
 from pipeline.transcribe import retime  # noqa: E402  (計算 = retime_candidates)
 import ed_state  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 def _chars(t0, text, step=0.2):
     """1 文字ずつの単語(t0 から step 秒ずつ)"""

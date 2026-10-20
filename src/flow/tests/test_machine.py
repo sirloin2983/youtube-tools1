@@ -16,7 +16,7 @@ from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from flow import live_tx as LT, machine as M, spec as S  # noqa: E402
 from pipeline.transcribe import llm, tx_engines  # noqa: E402
 from ytt import gpuinfo, workdata  # noqa: E402

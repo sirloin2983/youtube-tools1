@@ -18,7 +18,7 @@ for _p in (os.path.join(ROOT, "editor"), ROOT):
 from human.check import answerlog, apply, cutcard  # noqa: E402
 from human.proof import store  # noqa: E402
 from human.tests._workdata import temporary_workdata  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 TID = "0123456789ab"
 KEEPS = [[0.0, 10.0], [10.5, 20.0], [22.0, 30.0]]

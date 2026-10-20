@@ -80,7 +80,7 @@ def set_internal_error(job, e):
 @contextlib.contextmanager
 def job_errors(job, wav=None, cancelled="中止しました", log=None):
     """ジョブの本体の失敗を job の状態にする(取り消し = cancelled・ApiError = その理由・想定外 = 内部エラー。ワーカーは止めない)。
-    wav = 終わったら消す一時ファイル。log = 想定外の失敗を記録に残すときの文"""
+    wav = 終わったら消す一時ファイル。log = 想定外の失敗を記録に残すときの文(省くとジョブの種類。例外の名前・traceback はいつもログに残る)"""
     try:
         yield
     except errors.Cancelled:
@@ -91,8 +91,7 @@ def job_errors(job, wav=None, cancelled="中止しました", log=None):
         if e.extra.get("detail"):
             job["errorDetail"] = str(e.extra["detail"])[:300]   # 内部の名前・原文は「詳しく」の中だけ(UI の見直し S12)
     except Exception as e:
-        if log:
-            _conf["log"].exception(log)
+        _conf["log"].exception(log or "ジョブで例外 %s" % job.get("kind", ""))
         set_internal_error(job, e)
     finally:
         if wav:

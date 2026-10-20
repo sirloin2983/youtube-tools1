@@ -19,7 +19,7 @@ from human.review import store  # noqa: E402
 from manage.cases import outdirs as O  # noqa: E402
 from ytt import names, schemas, studio_env  # noqa: E402
 from ytt.errors import ApiError  # noqa: E402
-from ytt.testkit import read_json, tempdir  # noqa: E402
+from ytt.tests.testkit import read_json, tempdir  # noqa: E402
 
 YT = {"kind": "youtube", "videoId": "abcdefghijk", "name": "abcdefghijk"}
 

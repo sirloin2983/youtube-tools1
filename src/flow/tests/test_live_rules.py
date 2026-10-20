@@ -14,7 +14,7 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
 from flow import live_rules as LR  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 
 class LiveRequestsStoreTest(unittest.TestCase):

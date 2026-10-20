@@ -17,7 +17,7 @@ from test_backend import write_json
 from human.proof import learn as _learn  # noqa: E402
 from pipeline.transcribe import recognize as _recognize  # noqa: E402
 from pipeline.transcribe import roster as R  # noqa: E402   (test_backend が serve を読んで src を sys.path に足したあと)
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from ytt.dictfmt import apply_replacements  # noqa: E402
 
 

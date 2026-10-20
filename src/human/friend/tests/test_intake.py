@@ -24,7 +24,7 @@ from flow import order as _order  # noqa: E402
 from human.friend import live_requests  # noqa: E402
 from app import prefs as prefs_mod  # noqa: E402
 from ytt import fsio, jobs, normalize, tools  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 
 class FakeRunner:

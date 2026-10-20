@@ -25,7 +25,7 @@ import serve  # noqa: E402
 import ed_state  # noqa: E402
 from pipeline.transcribe import worker_client as _worker_client  # noqa: E402
 from pipeline.transcribe import tx_engines as E  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 FAKE = [sys.executable, os.path.join(TESTS, "fake_llama_server.py")]
 

@@ -14,7 +14,7 @@ from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> transcribe -> pipeline -> src
 sys.path.insert(0, SRC)
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from pipeline.transcribe import backend, clipjob, recognize, replace  # noqa: E402
 from ytt import tools, txtext, workdata  # noqa: E402
 

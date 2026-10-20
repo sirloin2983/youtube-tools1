@@ -16,7 +16,7 @@ from unittest import mock
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from flow import diar, keys, learning, spec  # noqa: E402
 from manage.keep import learnpack  # noqa: E402  (束を作る側。テストの材料)
 from pipeline.transcribe import roster  # noqa: E402

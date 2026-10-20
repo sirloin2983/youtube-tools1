@@ -23,7 +23,7 @@ HERE = os.path.dirname(TESTS)   # ツール(editor/)のフォルダ
 REPO = os.path.dirname(HERE)
 sys.path.append(REPO)   # ytt.layout(フォルダ名の対応表)を読むため
 from ytt import layout as _layout  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 os.environ.setdefault("YTT_CORE_DIR", REPO)   # 一時フォルダに写した serve.py が共通部品(ytt・パックの部品 pipeline.pack)を見つけられるように
 
 

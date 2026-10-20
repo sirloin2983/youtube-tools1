@@ -84,7 +84,7 @@ def check_whisper(device, data_root, ffmpeg, work_dir, run=run_cmd, transcribe=w
         try:
             transcribe(device, data_root, wav)
         except Exception as e:   # noqa: BLE001  (EngineError・部品が無い・落ちた。理由は詳しくに出す)
-            msg = str(getattr(e, "message", "") or e)[:240] or e.__class__.__name__
+            msg = (e.__class__.__name__ + " " + str(getattr(e, "message", "") or e))[:240].strip()   # 例外の名前も「詳しく」に残す
             return _row(name, WHISPER_LABEL, False, "動きません(%s)" % msg)
         return _row(name, WHISPER_LABEL, True, "動きました(%s)" % ("C = CUDA" if device == "cuda" else "A = Vulkan"))
     finally:

@@ -5,7 +5,7 @@
 - 置き場所: `set_home(d)`・`home()`・`p(*parts)`(既定はスタジオのフォルダ。環境変数 STUDIO_HOME の規則は ytt.datadir の 1 か所)
 - スタジオのフォルダ: `code_dir()`。スタジオの common.py が読み込みのときに `set_code_dir(自分のフォルダ)` で知らせる
   (ここ ytt から見た `layout.tool_dir("studio")` は、テストが共通部品 YTT_CORE_DIR を別の場所から読むとずれるため。知らされるまでは layout の値)
-- 疑似の旗: `fake()`(STUDIO_FAKE=1)・`fake_media()`(STUDIO_FAKE_MEDIA)。登録の口への置き換えは RS5
+- 疑似の旗: `fake()`(STUDIO_FAKE=1)・`fake_file(kind)`(STUDIO_FAKE_<kind> の入力ファイル)・`fake_media()`(STUDIO_FAKE_MEDIA)。登録の口への置き換えは RS5
 - 外部の道具: `find_tool(name)`(環境変数 YTT_<名前> → PATH → winget。決め方は ytt/tools.find_tool)
 - 失敗の記録: `log_failure(context, error)`(<置き場所>/studio-errors.log)・`rotate_log`・`old_log_name`
 - 書き出し先(settings.json の outDir): `get_out_dir`・`default_out_dir`・`set_out_dir`・`load_out_dir`・`check_out_dir`・`is_inside_out_dir`・`_out_lock`
@@ -67,10 +67,16 @@ def fake():
     return os.environ.get("STUDIO_FAKE") == "1"
 
 
+def fake_file(kind):
+    """疑似モードの入力のファイル(環境変数 STUDIO_FAKE_<kind>。CHAT・COMMENTS・META・MEDIA)のパス。指定が無い・ファイルが無ければ ""。"""
+    path = os.environ.get("STUDIO_FAKE_" + kind, "")
+    return path if os.path.isfile(path) else ""
+
+
 def fake_media():
     """疑似モードで YouTube の動画の代わりに使う手元のファイル(環境変数 STUDIO_FAKE_MEDIA)。無ければ ApiError 500"""
-    path = os.environ.get("STUDIO_FAKE_MEDIA", "")
-    if not os.path.isfile(path):
+    path = fake_file("MEDIA")
+    if not path:
         raise errors.ApiError("fake", "STUDIO_FAKE_MEDIA が指定されていません", 500)
     return path
 

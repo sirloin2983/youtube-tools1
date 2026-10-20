@@ -18,7 +18,8 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(TESTS))
 import build_friend_zip as B  # noqa: E402
 from pipeline.transcribe import diarize as D, tx_engines as E  # noqa: E402
-from ytt import testkit, version as V  # noqa: E402
+from ytt import version as V  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 PTH = "python310.zip\r\n.\r\n\r\n# Uncomment to run site.main() automatically\r\n#import site\r\n"
 

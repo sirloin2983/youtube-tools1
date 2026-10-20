@@ -15,7 +15,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests -> flow -> src
 from flow import prio  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from flow import runqueue  # noqa: E402
 from flow.jobs import Table  # noqa: E402
 from ytt import jobs as slots  # noqa: E402

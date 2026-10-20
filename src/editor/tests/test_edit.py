@@ -33,7 +33,8 @@ from manage.keep import evalfolders as _evalfolders  # noqa: E402
 from ytt import settings as _settings  # noqa: E402
 from ytt import tools as _tools  # noqa: E402
 from ytt import workdata as _workdata  # noqa: E402
-from ytt import docloc, testkit  # noqa: E402
+from ytt import docloc  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 
 def doc_obj(**over):

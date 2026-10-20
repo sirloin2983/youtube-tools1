@@ -19,7 +19,7 @@ from unittest.mock import patch
 
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests -> flow -> src
 sys.path.insert(0, SRC)
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from flow import board as B, export as E  # noqa: E402
 from pipeline.export import exporter  # noqa: E402
 from ytt import jobs, studio_env  # noqa: E402

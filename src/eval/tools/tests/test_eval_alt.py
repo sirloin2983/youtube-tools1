@@ -21,7 +21,7 @@ REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 y
 sys.path.insert(0, REPO)
 from eval.tools import eval_alt as E  # noqa: E402
 from human.proof import alt as _alt  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 
 def ms(day, hhmm="12:00:00"):

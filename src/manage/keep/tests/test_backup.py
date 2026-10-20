@@ -20,7 +20,7 @@ for p in (HOME, ROOT):
 from manage.keep import backup  # noqa: E402
 from app import prefs as prefs_mod  # noqa: E402
 from ytt import fsio  # noqa: E402
-from ytt.testkit import tempdir, write_text as put  # noqa: E402
+from ytt.tests.testkit import tempdir, write_text as put  # noqa: E402
 
 
 def read(path):

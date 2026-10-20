@@ -23,7 +23,7 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.dirname(os.path.dirname(os.path.dirname(TESTS)))   # tests -> transcribe -> pipeline -> src
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from pipeline.transcribe import live_tx_worker as TW  # noqa: E402
 
 WORKER = os.path.abspath(TW.__file__)

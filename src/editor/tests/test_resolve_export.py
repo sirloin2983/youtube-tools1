@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(HERE))   # src(ytt・pipeline・manage の層
 
 from pipeline.pack import resolve_export  # noqa: E402
 from ytt import errors as _errors  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 

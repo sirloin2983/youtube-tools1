@@ -21,7 +21,7 @@ SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from flow import live_export as LX, live_rules, runqueue as Q  # noqa: E402
 from friendapp import api as A, engine as E, inbox as I, live as L, live_session as LS, server as SV  # noqa: E402
 

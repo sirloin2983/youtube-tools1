@@ -25,7 +25,7 @@ from flow import tx as flowtx  # noqa: E402
 from pipeline.transcribe import replace, roster  # noqa: E402
 from ytt import textutil, workdata  # noqa: E402
 from human.tests._workdata import temporary_workdata  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 TID = "0123456789ab"
 

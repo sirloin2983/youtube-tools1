@@ -28,7 +28,8 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)
 from app import server as L  # noqa: E402
-from ytt import layout, testkit  # noqa: E402  (launch がリポジトリ直下を sys.path に入れる)
+from ytt import layout  # noqa: E402  (launch がリポジトリ直下を sys.path に入れる)
+from ytt.tests import testkit  # noqa: E402  (launch がリポジトリ直下を sys.path に入れる)
 
 REPO = os.path.dirname(HERE)
 

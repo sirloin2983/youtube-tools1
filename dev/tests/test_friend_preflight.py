@@ -20,7 +20,7 @@ import build_friend_zip as B  # noqa: E402
 import friend_preflight as P  # noqa: E402
 import friend_preflight_shim as S  # noqa: E402  YTT_PREFLIGHT_SHIM が無ければ何も差し替えない
 from friendapp import dropbox as DBX  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 
 
 class ShimTest(unittest.TestCase):

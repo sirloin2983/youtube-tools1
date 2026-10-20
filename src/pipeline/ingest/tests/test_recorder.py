@@ -32,7 +32,7 @@ SRC = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, SRC)
 sys.path.insert(0, TESTS)
 import hls_fixture as F  # noqa: E402
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 from pipeline.ingest import rec_core as R  # noqa: E402
 from ytt import trashbin  # noqa: E402
 

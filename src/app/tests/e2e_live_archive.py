@@ -60,7 +60,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 sys.path.insert(0, os.path.join(REPO, "pipeline", "ingest", "tests"))
 sys.path.append(REPO)   # src(ytt の部品)
-from ytt import testkit  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 os.environ["STUDIO_FAKE"] = "1"
 
 YT1 = "https://www.youtube.com/watch?v=TESTarch001"   # 手で作り直す録画

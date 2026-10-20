@@ -28,7 +28,8 @@ from flow import runlog  # noqa: E402
 from flow import spec as SP  # noqa: E402
 from flow import order as O  # noqa: E402  (欄 → 封筒 + 束の差分。受付は submit の 1 本)
 from human.friend import intake as IN  # noqa: E402  (友人の受付の欄 → submit = submit_urls・submit_file)
-from ytt import fsio, testkit  # noqa: E402
+from ytt import fsio  # noqa: E402
+from ytt.tests import testkit  # noqa: E402
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "flow", "tests"))   # 共有の部品 _runfields(Run の欄の形 → 封筒 + 束)
 import _runfields as RF  # noqa: E402
 

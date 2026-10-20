@@ -59,6 +59,8 @@ from ytt import datadir, tools as _ytools  # noqa: E402
 SHIM_SRC = os.path.join(DEV, "friend_preflight_shim.py")
 SHIM_ENV = "YTT_PREFLIGHT_SHIM"
 REPORT = "report.json"
+EXIT_WAIT_S = 30   # [すべて止めて終了] のあと子・孫が消えるまでの待ち(shutdown)
+PREVIEW_WAIT_S = 90   # 届いてから確認用の動画ができるまでの待ち(check_local_delivery)
 WORK_MAX = 60   # 一時フォルダのパスの長さの上限(下の run)
 ROOT_FILES = (bfz.LAUNCHER_EXE,) + bfz.LAUNCHER_DLLS + ("fetch.json", "manifest.json", "members.json")
 TOOL_EXES = ("ffmpeg/ffmpeg.exe", "ffmpeg/ffprobe.exe", "yt-dlp/yt-dlp.exe", "deno/deno.exe")   # 浅く置いた道具(friendapp/places.lay_tools_shallow)
@@ -629,7 +631,8 @@ def check_local_delivery(w, app, row, rep):
     rep.check("受け取る画面にこの PC で作った物が出る", bool(items), len(items))
     if not items:
         return None
-    it = items[0]
+    # 確認用の動画は届いたあとに裏の糸が作る(友人の PC でも画面は届いた直後から見える)ので、できるまで待つ(重い PC では数十秒かかる)
+    it = wait_for(lambda: next((x for x in receive_items(w) if x.get("id") == row["id"] and x.get("preview")), None), PREVIEW_WAIT_S, every=1.0) or items[0]
     rep.check("確認用の動画がある", it.get("preview"), it)
     pk = next((p for p in row.get("packs") or [] if p.get("name") == it["name"]), {})
     prev = _inbox_pack(app, row["id"], it["name"]).get("preview")
@@ -850,13 +853,15 @@ def shutdown(w, rep):
     except subprocess.TimeoutExpired:
         ended = False
     rep.check("/api/shutdown で exe が終わる", ended)
-    time.sleep(3)
-    alive = {(p["ProcessId"], p["CreationDate"]): p["Name"] for p in list_processes()}
-    left = ["%s(%d)" % (name, pid) for pid, (name, cd) in w.seen.items() if (pid, cd) in alive]
-    rep.check("止めたあと子・孫のプロセスが残らない(見た %d 個)" % len(w.seen), not left, ", ".join(left))
-    for pid, (name, cd) in w.seen.items():
-        if (pid, cd) in alive:
-            subprocess.run([TASKKILL, "/PID", str(pid), "/T", "/F"], capture_output=True, creationflags=CHILD_FLAGS)   # 自分が起こした exe の子孫だけ・PID で
+
+    def remaining():   # WebView2 の子は exe が終わったあとも少し遅れて終わる(重い PC では数秒〜十数秒)ので、残りが無くなるまで待つ
+        alive = {(p["ProcessId"], p["CreationDate"]) for p in list_processes()}
+        return [(pid, name) for pid, (name, cd) in w.seen.items() if (pid, cd) in alive]
+    wait_for(lambda: not remaining(), EXIT_WAIT_S, every=1.0)
+    left = remaining()
+    rep.check("止めたあと子・孫のプロセスが残らない(見た %d 個)" % len(w.seen), not left, ", ".join("%s(%d)" % (name, pid) for pid, name in left))
+    for pid, _name in left:
+        subprocess.run([TASKKILL, "/PID", str(pid), "/T", "/F"], capture_output=True, creationflags=CHILD_FLAGS)   # 自分が起こした exe の子孫だけ・PID で
 
 
 # ---------------------------------------------------------------- 全体
