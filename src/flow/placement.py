@@ -38,6 +38,7 @@ CASE_SCHEMA = "youtube-tools-case/v1"
 CASE_MAX = 64 * 1024
 RUNS_DIR = "runs"                # 結果の束のフォルダ(<案件>/作業用/runs)
 LOCK_NAME = ".flow.lock"         # ② が 1 つだけ動く印(作業データの根)
+LIVE_REC_FOLDER = r"E:\Video\live-rec"   # 録画の置き場所の既定(ユーザー決定。ホームの設定で変えられる。録画の部品へは起動の引数で渡す)
 LOCK_MAX = 4096                  # 印はこれより大きければ読まない(壊れた物として扱う)
 # 結果の束の input に写す Run.public の鍵(何を入れて始めた実行か)
 INPUT_KEYS = ("kind", "videoId", "docId", "sourcePath", "title", "mode", "top", "marks", "ranges", "cut", "engine", "model", "overwrite",

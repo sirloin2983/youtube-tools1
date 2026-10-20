@@ -297,7 +297,8 @@ def parse_args(argv):
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--host", default="127.0.0.1", help="待ち受けるアドレス(1台のときは 127.0.0.1 のまま。2台のときは LAN のアドレス)")
     ap.add_argument("--allow-host", action="append", default=[], help="Host ヘッダーで許す名前(例 192.168.1.20:8730。2台のとき)")
-    ap.add_argument("--folder", default="", help="録画の置き場所(指定すると設定に覚える。既定 %s)" % rec_core.DEFAULT_FOLDER)
+    ap.add_argument("--folder", default="", help="録画の置き場所(指定すると設定に覚える)")
+    ap.add_argument("--default-folder", default="", help="置き場所の指定も設定も無いときの既定(入口の ② が渡す。省略は ② の flow/placement.LIVE_REC_FOLDER)")
     ap.add_argument("--data-dir", default="", help="作業データ(token・設定・記録)の場所(テスト用)")
     ap.add_argument("--source", default="streamlink", choices=("streamlink", "direct"),
                     help="取得のしかた(direct = HLS の URL を直接 ffmpeg に渡す。テスト用)")
@@ -305,12 +306,18 @@ def parse_args(argv):
     ap.add_argument("--backoff", default="", help="繋ぎ直すまでの秒(例 5,10,30。テスト用)")
     ap.add_argument("--idle-end", type=int, default=rec_core.IDLE_END)
     ap.add_argument("--stall-sec", type=int, default=rec_core.STALL_SEC)
-    ap.add_argument("--trash-days", type=int, default=None, help="ごみ箱の日付のフォルダを消すまでの日数(省略は ② の flow/retention.KEEP_DAYS)")
+    ap.add_argument("--trash-days", type=int, default=None, help="ごみ箱の日付のフォルダを消すまでの日数(入口の ② が渡す。省略は ② の flow/retention.KEEP_DAYS)")
     ap.add_argument("--quiet", action="store_true", help="黒い画面に記録を出さない")
     a = ap.parse_args(argv)
     if not 1024 <= a.port <= 65535:
         ap.error("--port は 1024〜65535")
     return a
+
+
+def _policy(module, name):
+    """引数で渡されなかった方針の値(日数・既定の置き場所)を ② から読む。入口の ② は起動の引数で渡す。
+    2 台目の PC で単独に起こしたときだけここを通る(① は ② を import しない決まりなので、import の検査に掛けない動的 import)"""
+    return getattr(importlib.import_module(module), name)
 
 
 def main(argv=None):
@@ -320,18 +327,18 @@ def main(argv=None):
     os.makedirs(ddir, exist_ok=True)
     log = make_logger(os.path.join(ddir, "logs", "recorder.log"), echo=not a.quiet)
     saved = read_settings(ddir).get("folder")
+    default = a.default_folder or _policy("flow.placement", "LIVE_REC_FOLDER")
     try:
-        folder = clean_folder(a.folder or saved or rec_core.DEFAULT_FOLDER)
+        folder = clean_folder(a.folder or saved or default)
     except rec_core.RecError as e:
         log("置き場所の指定が正しくないので既定を使います: %s" % e)
-        folder = rec_core.DEFAULT_FOLDER
+        folder = default
     if a.folder and saved != folder:
         try:
             save_folder(ddir, folder)
         except OSError:
             pass
-    # 録画の部品は別のプロセスで単独で動く(① は ② を import しない決まりなので、起動のときに読んで渡す。import の検査に掛けない動的 import)
-    trash_days = a.trash_days or importlib.import_module("flow.retention").KEEP_DAYS
+    trash_days = a.trash_days or _policy("flow.retention", "KEEP_DAYS")
     backoff = tuple(int(x) for x in a.backoff.split(",") if x.strip().isdigit())   # 空なら既定(rec_core.BACKOFF)
     rec = rec_core.Recorder(folder, source=a.source, hls_time=a.hls_time, backoff=backoff,
                             idle_end=a.idle_end, stall_sec=a.stall_sec, log=log, trash_days=trash_days)

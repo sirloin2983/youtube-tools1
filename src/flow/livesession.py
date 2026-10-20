@@ -47,9 +47,9 @@ from . import live_export as LX   # マークと書き出し。P2
 from . import live_failures   # 失敗の集約。M3・M7
 from . import live_report   # 配信ごとの結果の記録。線 D の D-12
 from . import live_tx   # 配信中の候補の文字起こし。線 D の D-11 案 b
-from . import runlog, spec as _spec
+from . import placement as _placement, retention as _retention, runlog, spec as _spec
 
-DEFAULT_FOLDER = r"E:\Video\live-rec"     # src/pipeline/ingest/rec_core.py の DEFAULT_FOLDER と同じ(ユーザー決定)
+DEFAULT_FOLDER = _placement.LIVE_REC_FOLDER   # 録画の置き場所の既定(録画の部品へは spawn の --default-folder で渡す)
 RECORDER_PORT = 8730                      # src/pipeline/ingest/recorder.py の DEFAULT_PORT と同じ
 LOCAL = {"id": "local", "name": "この PC", "url": "http://127.0.0.1:%d" % RECORDER_PORT, "token": ""}
 RELAY_TIMEOUT = 15.0
@@ -1087,7 +1087,8 @@ class LiveSession:
             self.log("録画の部品が見つかりません: %s" % script)
             return False
         port = urllib.parse.urlsplit(rc["url"]).port or RECORDER_PORT
-        cmd = [self.python, "-u", script, "--port", str(port), "--quiet", "--data-dir", self.data_dir]
+        cmd = [self.python, "-u", script, "--port", str(port), "--quiet", "--data-dir", self.data_dir,
+               "--trash-days", str(_retention.KEEP_DAYS), "--default-folder", DEFAULT_FOLDER]   # 方針の数と既定の置き場所は ② が渡す
         if folder:
             cmd += ["--folder", folder]
         # 別のプロセスグループ(入口への Ctrl+Break が届かない)・隠れた黒い画面(入口の黒い画面を閉じても止まらない)・通常より上の優先度

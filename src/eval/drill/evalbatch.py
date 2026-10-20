@@ -16,12 +16,14 @@
   - 未確認の評価用の作り直し(ユーザー承認。whisper.cpp の時刻の 1 秒丸め・繰り返しを直す前に文字起こしした分):
     `POST api/eval-batch/redo {dryRun}`(eval_batch_redo)。「手つかず」(eb_redo_why が None)の評価用の文書を状態の redo.queue に入れ、
     見回り(_eb_redo_pass)が待ちの数の中で少しずつ、同じ文書 id のまま今の編集の設定で文字起こしし直す(spec の evalRedo・intoDoc。
-    書き込みは ③ human/proof/rerun.rebuild_whole(X-RERUN = 全体 × いつものエンジン × 差し替え。ユーザー決定 Q-A): 機械の層を丸ごと入れ替え、
+    書き込みは ② の待機列(flow/jobs.add_job)に入れたジョブが、入口の登録した本体(③ human/proof/doc_jobs.run_job → rerun.rebuild_whole)で行う(X-RERUN = 全体 × いつものエンジン × 差し替え。ユーザー決定 Q-A): 機械の層を丸ごと入れ替え、
     人の層(答え)は残す。入れたときに手つかずで、そのあと変わっていなければ人の層も持たない = 前と同じく丸ごと)。
     前の状態は履歴(hist_snapshot)に・前の機械の出力は recognition.runs の kind "evalRedo" に残す。話者の判別の記録は外して、評価用の自動の判別をもう一度かける
   - 1 本ずつの作り直し(ユーザー要望):`POST api/eval-batch/redo-one {id, baseUpdatedAt}`(eval_batch_redo_one)。
     開いている評価用の動画だけを、見回りを通さずすぐ待機列へ。人が手を入れた文書も作り直す(人の層 = 直しは残る。X-RERUN)
 
+本物の作業データ(評価用の文書)へは直に書かない: 文字起こし・作り直し・話者の判別は、どれも ② の待機列(flow/jobs.add_job。判別は ③ の
+_speakers.autodiar_enqueue が組んで入れる)を通る。ここが自分で書くのは状態の eval-batch.json だけ。
 名前は eb_ / EB_ / eval_batch_ を付ける(編集の部品と重ならないように)。
 ほかの部品は `_store.名前` などモジュールの属性として呼ぶたびに読む。編集(app)の部品は読まない: 文字起こしのジョブ(human/proof/doc_jobs の run_job)が
 見回りの裏のスレッド eb_start_background は serve が起動する(② は ④ を読まない)。

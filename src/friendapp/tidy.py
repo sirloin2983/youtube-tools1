@@ -15,7 +15,6 @@
 - 守り: 置き場所の外のパス・ネットワーク・リンクと接合点(とその中)は触らない。作業データの lock に別の持ち主がいたら作業のフォルダとモデルは見ない。
   使用中で動かせない物は飛ばして記録(次の回にまた)。走査(scan)は副作用なし・実行(apply)は移す口と消す口を差し替えられる(テストは本物を触らない)
 """
-import datetime
 import hashlib
 import json
 import os
@@ -428,7 +427,7 @@ class Tidy:
 
     def apply(self, items):
         """候補を片付ける -> {"count", "bytes", "failed": [(where, 理由)]}"""
-        day = datetime.datetime.fromtimestamp(self.clock()).strftime("%Y%m%d")
+        day = _trashbin.day_name(self.clock())
         done = size = 0
         failed = []
         manifests = {}
@@ -450,7 +449,7 @@ class Tidy:
                         raise OSError("同じドライブにごみ箱を作れないので動かしません")
                     day_dir = os.path.join(root, day, TIDY_SUB, it["kind"])
                     os.makedirs(_fsio.long_path(day_dir), exist_ok=True)
-                    dest = _trashbin.free_path(os.path.join(day_dir, os.path.basename(p)), check=lambda x: os.path.lexists(_fsio.long_path(x)))
+                    dest = _trashbin.free_path(os.path.join(day_dir, os.path.basename(p)))
                     self.move(p, dest)
                     manifests.setdefault(os.path.join(root, day), []).append({"from": p, "to": dest, "at": int(self.clock()), "kind": it["kind"],
                                                                              "bytes": it["bytes"], "version": self.version})
@@ -470,12 +469,7 @@ class Tidy:
     def purge_home_trash(self):
         """<home>/ごみ箱 の 3 日より前の日付のフォルダを消す(一時保管のごみ箱は受信箱が消す)"""
         t = os.path.join(self.home(), TRASH_NAME) if self.home() else ""
-        if not t or not os.path.isdir(_fsio.long_path(t)) or _fsio.is_link(t):
-            return
-        cut = datetime.datetime.fromtimestamp(self.clock() - CASE_DAYS * DAY).strftime("%Y%m%d")
-        for name in os.listdir(_fsio.long_path(t)):
-            if re.fullmatch(r"\d{8}", name) and name < cut:
-                shutil.rmtree(_fsio.long_path(os.path.join(t, name)), ignore_errors=True)
+        _trashbin.purge(t, CASE_DAYS, self.clock())
 
     # ---------------------------------------------------------------- 画面・口
     def rescan(self):

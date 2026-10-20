@@ -1,4 +1,4 @@
-"""src/manage/keep/trash.py(ごみ箱へ移す・戻すの 1 か所)の単体テスト。戻せなかった物の元の場所を必ず記録する。
+"""src/ytt/trashbin.py のごみ箱へ移す・戻す(④ の片付けと「要らない」が使う 1 か所)の単体テスト。戻せなかった物の元の場所を必ず記録する。
 
     python -m unittest tests/manage/keep/test_trash.py
 """
@@ -12,8 +12,8 @@ from unittest import mock
 SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> keep -> manage -> src
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
-from manage.keep import trash as T  # noqa: E402
-from ytt import trashbin  # noqa: E402
+from ytt import fsio, trashbin  # noqa: E402
+from ytt import trashbin as T  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
 from testkit import tempdir  # noqa: E402
 
@@ -63,7 +63,7 @@ class TrashTest(unittest.TestCase):
 
         def move(a, b):
             calls.append(a)
-            if a == self.side:
+            if a == fsio.long_path(self.side):   # OS を呼ぶ所は長いパスで包む
                 raise OSError("開いている")
             return real(a, b)
         with mock.patch.object(T.shutil, "move", side_effect=move):
@@ -79,7 +79,7 @@ class TrashTest(unittest.TestCase):
         real = shutil.move
 
         def move(a, b):
-            if b == self.clip:
+            if b == fsio.long_path(self.clip):
                 raise OSError("戻せない")
             return real(a, b)
         with mock.patch.object(T.shutil, "move", side_effect=move):

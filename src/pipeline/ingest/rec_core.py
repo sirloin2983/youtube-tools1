@@ -42,7 +42,6 @@ if ROOT not in sys.path:   # 共通部品 ytt(src/ の中)
 from ytt import errors as yerrors, fsio, recproto, tools as ytools, trashbin  # noqa: E402
 
 SCHEMA = "ytt-recorder/v1"
-DEFAULT_FOLDER = r"E:\Video\live-rec"      # 録画の置き場所の既定(ユーザー決定。ホームの設定で変えられる)
 # 録画の id・セッション・セグメントの形と時刻の書き方は ytt/recproto.py の 1 か所(入口の live_export・配信中の検出のワーカーと同じ物)
 REC_ID_RE, SESSION_RE, SEG_RE = recproto.REC_ID_RE, recproto.SESSION_RE, recproto.SEG_RE
 ACTIVE = ("waiting", "recording", "reconnecting")   # ほかの状態: stopped(手で止めた)・ended(配信が終わった)・error
@@ -669,7 +668,7 @@ class Recorder:
     def __init__(self, folder, source="streamlink", ffmpeg=None, python=None, hls_time=HLS_TIME, backoff=BACKOFF,
                  idle_end=IDLE_END, wait_start=WAIT_START, stall_sec=STALL_SEC, first_seg_sec=FIRST_SEG_SEC, poll=1.0, log=None, *, trash_days):
         self.folder = folder
-        self.trash_days = trash_days   # ごみ箱の日付のフォルダを消すまでの日数(方針の数は ② の flow/retention。呼ぶ側 recorder.py が読んで渡す)
+        self.trash_days = trash_days   # ごみ箱の日付のフォルダを消すまでの日数(方針の数は ② の flow/retention。入口の ② が録画の部品の起動の引数で渡す)
         self.source = source if source in ("streamlink", "direct") else "streamlink"
         self.title_lookup = fetch_title if self.source == "streamlink" else None   # 名前なしの録画に題を付ける(テストは差し替える・None で聞かない)
         self.ffmpeg = ffmpeg or ytools.find_tool("ffmpeg") or "ffmpeg"
@@ -824,7 +823,7 @@ class Recorder:
     def delete(self, rid):
         """録画を消す(線 D の「録画を自動で消す」。入口の manage/keep/live_cleanup.py だけが呼ぶ。入口の中継 /live/r/… は delete を通さない)。
         LD-1: すぐには消さずに 置き場所の ごみ箱/<日付>/録画/<録画の id> へ改名する(同じドライブなので一瞬)。
-        元の場所は <日付>/manifest.jsonl に 1 行(④ の manage/keep/trash.py と同じ形 = ytt/trashbin)。trash_days を過ぎた日付のフォルダは purge_trash が消す。
+        元の場所は <日付>/manifest.jsonl に 1 行(形は ytt/trashbin)。trash_days を過ぎた日付のフォルダは purge_trash が消す。
         移すのは置き場所の直下の <録画の id>/ で、recording.json があるものだけ(id は REC_ID_RE の形・realpath で置き場所の直下か確かめる・
         リンク / ジャンクションは移さない)。録画中・配信待ち・つなぎ直し中は 409。使用中で改名できなければ 409(何も動かないので、あとでまた呼べる)。
         -> 移した録画の id"""
@@ -880,14 +879,7 @@ class Recorder:
         """置き場所の ごみ箱 の、trash_days を過ぎた日付のフォルダを消す(起動時の load と、録画を移すたび)。-> 消した日付のフォルダの数"""
         if not self.folder:
             return 0
-        now = time.time() if now is None else now
-        n = 0
-        for name, p in trashbin.old_day_dirs(os.path.join(self.folder, TRASH_DIR), self.trash_days, now):
-            shutil.rmtree(p, ignore_errors=True)
-            if not os.path.isdir(p):
-                n += 1
-                self.log("録画の ごみ箱 の %s を消しました(%d 日を過ぎた)" % (name, self.trash_days))
-        return n
+        return len(trashbin.purge(os.path.join(self.folder, TRASH_DIR), self.trash_days, now, log=lambda m: self.log("録画の" + m)))
 
     def set_folder(self, folder):
         with self.lock:

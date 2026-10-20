@@ -15,6 +15,7 @@ if SRC not in sys.path:
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
 import testkit  # noqa: E402
 from friendapp import inbox  # noqa: E402
+from ytt import trashbin  # noqa: E402
 
 T0 = 1750000000.0          # 基準の時刻(秒)
 DAY_MS = 86400 * 1000
@@ -33,7 +34,8 @@ class Clock:
 
 
 def day_of(t):
-    return datetime.datetime.fromtimestamp(t).strftime("%Y%m%d")
+    """受信箱がごみ箱へ移した物のフォルダ(<日付>/受信箱。形は ytt/trashbin)"""
+    return os.path.join(trashbin.day_name(t), inbox.TRASH_KIND)
 
 
 def iso_day(t):
@@ -502,9 +504,9 @@ class InboxTest(unittest.TestCase):
 
     def test_sweep_purges_old_trash_days(self):
         trash = os.path.join(self.cases, inbox.TRASH_NAME)
-        old = day_of(T0 - 4 * 86400)
-        edge = day_of(T0 - 3 * 86400)
-        fresh = day_of(T0)
+        old = trashbin.day_name(T0 - 4 * 86400)
+        edge = trashbin.day_name(T0 - 3 * 86400)
+        fresh = trashbin.day_name(T0)
         for d in (old, edge, fresh, "memo"):
             os.makedirs(os.path.join(trash, d, "x"))
         self.box.sweep()

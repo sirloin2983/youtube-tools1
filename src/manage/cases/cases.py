@@ -50,8 +50,8 @@ import time
 import urllib.parse
 
 from . import txindex   # 同じ manage/cases の兄弟
-from ytt import casefiles, datadir, errors, fsio, schemas, studiodata, tools
-from manage.keep import trash as _trash   # ごみ箱へ移す・戻す・戻せなかった物の記録の 1 か所(OPT-M2)
+from ytt import casefiles, datadir, errors, fsio, schemas, studiodata, tools, trashbin   # trashbin = ごみ箱へ移す・戻す・戻せなかった物の記録の 1 か所
+from manage.keep import trash as _trash   # 動画と一緒に動かす途中のファイル
 from flow import casebook, live_failures   # 失敗の文は 1 か所。線 D の M3 / 案件の採用.json を書く口(RS8 B3-6)
 from flow import deliveries as _deliveries   # 届けた記録の読み口(持ち主は ②。OPT-M2)
 from flow import retention   # 物の終わりの日数
@@ -764,12 +764,12 @@ def discard_clip(trash, studio, video_id, mark_id, media, pack=None):
     -> (移したもの [(元, 先)], ごみ箱の場所, スタジオの返事 "rejected"/"gone"/None)。
     M9 の「要らない」(_discard)はマークも不採用に。友人の「要らない」(src/human/friend/friend_feedback.py)はマークがあっても mark_id を空で呼んで
     マークを変えない(友人の採用の基準はこちらの送る基準と別。ユーザー決定)。
-    移す・戻すは ④ keep/trash の 1 か所(設計原則の指摘 1): 戻せずにごみ箱に残った物は manifest に元の場所を書き、ReviewError の文で知らせる"""
+    移す・戻すは ytt/trashbin の 1 か所(設計原則の指摘 1): 戻せずにごみ箱に残った物は manifest に元の場所を書き、ReviewError の文で知らせる"""
     pack = pack if pack is not None else (txindex.pack_dir(media) if media else "")
     extra = _trash.existing_sidecars(media) if media else []
     files = [p for p in [media, pack] + extra if p and os.path.exists(p)]
     stem = os.path.splitext(os.path.basename(media or pack))[0] or "clip"
-    res = _trash.to_trash(trash, files, DISCARD_KIND, stem, all_or_nothing=True, record=False)
+    res = trashbin.to_trash(trash, files, DISCARD_KIND, stem, all_or_nothing=True, record=False)
     if res["failed"]:   # 1 つでも移せなかった(Resolve・エクスプローラーで開いていると移せない)= 移した分は戻した
         raise ReviewError("ファイルを ごみ箱フォルダ へ移せなかったので、片付けませんでした(Resolve やエクスプローラーで開いていれば閉じて、もう一度): %s%s"
                           % (res["failed"][0][1][:120], _left_note(res)))
@@ -778,11 +778,11 @@ def discard_clip(trash, studio, video_id, mark_id, media, pack=None):
         try:
             st = _studio_reject(studio, video_id, mark_id)
         except ReviewError as e:
-            _trash.put_back(res)
+            trashbin.put_back(res)
             if res["left"]:
                 raise ReviewError(str(e) + _left_note(res), e.code, e.error) from e
             raise
-    _trash.record(res)
+    trashbin.record(res)
     return res["moved"], res["dest"], st
 
 

@@ -60,6 +60,7 @@ CLIP_RANGE_RE = re.compile(r"(\d{2,})h(\d{2})m(\d{2})s-(\d{2,})h(\d{2})m(\d{2})s
 TITLE_CUT = 40                      # 保存先のフォルダの名前に入れる配信の題の長さ(C-3-8)
 VERDICT_SUFFIX = ".verdict.json"
 TRASH_NAME = trashbin.TRASH_DIR
+TRASH_KIND = "受信箱"   # ごみ箱の日付のフォルダの中の種類(受け取らなかった物・片付けた案件のフォルダ)
 ROW_ID_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}$")   # 依頼 id(flow/deliver.request_id の形。送り返しの名前にも入る)
 BAD_NAME = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 NAME_MAX = 100                      # 送り返しの名前に入れるパック名の長さ
@@ -870,12 +871,11 @@ class Inbox:
         return os.path.join(self.case_root(), TRASH_NAME)
 
     def _to_trash(self, path):
-        day = datetime.datetime.fromtimestamp(self.clock()).strftime("%Y%m%d")
-        folder = os.path.join(self.trash_dir(), day)
-        os.makedirs(fsio.long_path(folder), exist_ok=True)
-        dest = unique_dest(folder, os.path.basename(path.rstrip("\\/")))
-        shutil.move(fsio.long_path(path), fsio.long_path(dest))
-        return dest
+        """一時保管の ごみ箱\\<日付>\\受信箱\\ へ移す(ytt/trashbin の 1 か所。元の場所は manifest に)-> 移した先。移せなければ OSError"""
+        res = trashbin.to_trash(self.trash_dir(), [path], TRASH_KIND, clock=self.clock)
+        if not res["moved"]:
+            raise OSError(res["failed"][0][1] if res["failed"] else "移す物がありません")
+        return res["moved"][0][1]
 
     def _close_row(self, r):
         """録画の行を閉じる(全部決めていれば _maybe_close が done に)"""
@@ -949,13 +949,7 @@ class Inbox:
                 self._save()
 
     def _purge_trash(self):
-        t = self.trash_dir()
-        if not os.path.isdir(fsio.long_path(t)):
-            return
-        cut = datetime.datetime.fromtimestamp(self.clock() - KEEP_DAYS * DAY).strftime("%Y%m%d")
-        for name in os.listdir(fsio.long_path(t)):
-            if re.fullmatch(r"\d{8}", name) and name < cut:
-                shutil.rmtree(fsio.long_path(os.path.join(t, name)), ignore_errors=True)
+        trashbin.purge(self.trash_dir(), KEEP_DAYS, self.clock())
 
     # ------------------------------------------------------------ 画面へ
     def view(self, status_of=None):

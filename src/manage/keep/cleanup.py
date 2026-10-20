@@ -21,7 +21,6 @@
 """
 import hashlib
 import os
-import shutil
 import time
 
 from flow import deliveries as _deliveries   # 届けた記録の読み口(持ち主は ②。7x-2)
@@ -31,7 +30,7 @@ from flow import placement   # 依頼のフォルダの名前・案件の身分�
 from human.friend import returns as _returns   # 友人の送り返し(同期フォルダの 送り返し\\ と その 受付済み・失敗 の名前。持ち主は ③ human/friend/returns)
 from ytt import datadir, fsio, schemas, trashbin
 
-from . import trash as _trash
+from . import trash as _trash   # 動画と一緒に動かす途中のファイル
 
 # 日数は「精度のデータは残す・ただの控えは早めに消す」の方針(notes:docs/spec/data.md)。値は flow/retention.KEEP_DAYS の 1 か所
 KEEP_DAYS = retention.KEEP_DAYS       # 受け付けた依頼の動画(受付済み。作業データに写しがある = ただの控え)を候補に出すまでの日数
@@ -427,7 +426,7 @@ class Cleanup:
             # 元動画と途中のファイルは <名前>\ にまとめる(作業用の物は その中の 作業用\)。元動画が移せなければほかは移さない・
             # 途中のファイルが移せなくても元動画は移した(次の候補の work に出る)
             stem = os.path.splitext(it["name"])[0] if it.get("extra") else None
-            r = _trash.to_trash(self, [src] + list(it.get("extra") or []), it["kind"], stem, need_first=True, clock=self.clock,
+            r = trashbin.to_trash(self, [src] + list(it.get("extra") or []), it["kind"], stem, need_first=True, clock=self.clock,
                                 log=lambda m: self.log("片付け: " + m))
             if r["moved"] and r["moved"][0][0] == src:
                 moved.append(dict(it, to=r["moved"][0][1]))
@@ -440,7 +439,7 @@ class Cleanup:
     def _move_parts(self, it, moved, failed):
         """依頼の置き場所の動画とパックだけを ごみ箱\\<日付>\\<種類>\\<フォルダ名>\\ へ(フォルダと 作業用\\ は残す)。移せた物は manifest に 1 行ずつ。
         1 つも移せなければ failed、一部でも移せたら moved(移せなかった物は次の候補にまた出る)"""
-        r = _trash.to_trash(self, it["parts"], it["kind"], it["name"], clock=self.clock, log=lambda m: self.log("片付け: " + m))
+        r = trashbin.to_trash(self, it["parts"], it["kind"], it["name"], clock=self.clock, log=lambda m: self.log("片付け: " + m))
         if r["moved"]:
             moved.append(dict(it, to=r["dest"]))
             self._known.pop(it["id"], None)
@@ -453,13 +452,7 @@ class Cleanup:
         return sum(self._purge_root(r) for r in self.trash_roots())
 
     def _purge_root(self, root):
-        n = 0
-        for name, p in _old_day_dirs(root, self.trash_days, self.clock()):
-            shutil.rmtree(p, ignore_errors=True)
-            if not os.path.isdir(p):
-                n += 1
-                self.log("ごみ箱フォルダの %s を消しました(%d 日を過ぎた)" % (name, self.trash_days))
-        return n
+        return len(trashbin.purge(root, self.trash_days, self.clock(), log=self.log))
 
 
 _old_day_dirs = trashbin.old_day_dirs   # 日付のフォルダの決まりは ytt/trashbin の 1 か所(受付済み と ごみ箱フォルダ。① の録画の部品も)
