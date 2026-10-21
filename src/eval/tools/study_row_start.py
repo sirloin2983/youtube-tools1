@@ -193,8 +193,12 @@ def wcpp_raw(data, dtw, shift=None):
     return raw
 
 
+DROPPED = {"words": 0, "dropped": 0}   # 始まりだけ DTW の形で今の時刻へ落とした単語の数(最後に作った分)
+
+
 def wcpp_raw_start(data, shift):
     raw, prev = [], 0.0
+    DROPPED.update(words=0, dropped=0)
     for seg in data.get("transcription") or []:
         off = seg.get("offsets") or {}
         if not isinstance(off.get("from"), (int, float)):
@@ -210,8 +214,11 @@ def wcpp_raw_start(data, shift):
                 continue
             a, b = a / 1000.0, b / 1000.0
             d = tok.get("t_dtw")
+            DROPPED["words"] += 1
             if isinstance(d, (int, float)) and d >= 0 and off["from"] / 1000.0 - 1.0 <= d / 100.0 <= off["to"] / 1000.0 + 1.0:   # 崩れた(行の範囲の前後 1 秒の外)時刻は今の時刻のまま
                 a = max(prev, 0.0, d / 100.0 - shift)
+            else:
+                DROPPED["dropped"] += 1
             prev = a
             ws.append((a, max(a, b), t))
         start = ws[0][0] if ws else off["from"] / 1000.0
@@ -292,7 +299,7 @@ def study_dtw(root, doc, human, wav, work):
     res, rows_out = {}, []
     texts = {}
     got = {}
-    for key, dtw, shift in (("w0", False, None), ("w2", True, None), ("w3", True, 0.1)):   # w3 = 始まりだけ DTW − 0.1 秒・終わりは今のまま(w2 と同じ出力から)
+    for key, dtw, shift in (("w0", False, None), ("w2", True, None), ("w3", True, 0.1), ("w3a", True, 0.05), ("w3c", True, 0.15)):   # w3 = 始まりだけ DTW − 0.1 秒・終わりは今のまま(w2 と同じ出力から)
         if dtw not in got:
             got[dtw] = wcpp_run(root, wav, work, dtw)
         data, sec = got[dtw]
@@ -303,7 +310,8 @@ def study_dtw(root, doc, human, wav, work):
         texts[key] = "".join(T.letters(r.get("text")) for r in raw)
         st1, _en, moved = retimed(mrows, words)
         pr = pairs(human, mrows)
-        res[key] = {"sec": round(sec, 1), "rows": len(mrows), "pairs": len(pr), "movedR1": moved,
+        res[key] = {"sec": round(sec, 1), "rows": len(mrows), "pairs": len(pr), "movedR1": moved, "boundary": T.boundary_agreement(human, mrows),
+                    **({"dropped": dict(DROPPED)} if shift is not None else {}),
                     "rowTexts": [T.letters(r.get("text")) for r in mrows], "starts": [r["start"] for r in mrows], "ends": [r["end"] for r in mrows]}
         if dtw:
             res[key]["anomalies"] = dtw_anomalies(data, float(doc.get("end")) - off)
@@ -316,6 +324,8 @@ def study_dtw(root, doc, human, wav, work):
     res["sameText"] = texts["w0"] == texts["w2"]
     a, b = res["w0"].pop("rowTexts"), res["w2"].pop("rowTexts")
     c = res["w3"].pop("rowTexts")
+    for k in ("w3a", "w3c"):
+        res[k].pop("rowTexts", None)
     res["rowsSameTextW3"] = round(sum(1 for t in c if t in set(a)) / len(c), 3) if c else None
     res["sameRows"] = a == b
     res["rowsSameText"] = round(sum(1 for t in b if t in set(a)) / len(b), 3) if b else None
@@ -431,11 +441,11 @@ def main(argv=None):
         res["ends"][k] = stats([r["end_" + k] for r in main_rows])
     dr = [r for r in rows if "dtwKey" in r]
     if dr:
-        res["dtw"] = {k: stats([r[k] for r in dr if k in r]) for k in ("w0", "w0r1", "w2", "w2r1", "w3")}
+        res["dtw"] = {k: stats([r[k] for r in dr if k in r]) for k in ("w0", "w0r1", "w2", "w2r1", "w3", "w3a", "w3c")}
         for sh in DTW_SHIFTS:   # DTW の時刻は遅れぎみ(中央値 +0.11 秒)= 決まった秒だけ前へ
             res["dtw"]["w2-%g" % sh] = stats([r["w2"] - sh for r in dr if "w2" in r])
-        res["dtwEnds"] = {k: stats([r["end_" + k] for r in dr if "end_" + k in r]) for k in ("w0", "w2", "w3")}
-        res["dtwChanged"] = {k: stats([r[k] for r in dr if k in r and r.get("changed")]) for k in ("w0", "w2", "w3")}
+        res["dtwEnds"] = {k: stats([r["end_" + k] for r in dr if "end_" + k in r]) for k in ("w0", "w2", "w3", "w3a", "w3c")}
+        res["dtwChanged"] = {k: stats([r[k] for r in dr if k in r and r.get("changed")]) for k in ("w0", "w2", "w3", "w3a", "w3c")}
         res["dtwChanged"].update({"w2-%g" % sh: stats([r["w2"] - sh for r in dr if "w2" in r and r.get("changed")]) for sh in DTW_SHIFTS})
     tot = {k: sum(d["moved"].get(k, 0) for d in docs) for k in keys if k != "base"}
     res["movedRows"] = tot
