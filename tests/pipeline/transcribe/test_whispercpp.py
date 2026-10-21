@@ -265,6 +265,10 @@ class WhisperCppTest(unittest.TestCase):
         c = {}
         g = E.parse_json(ghost, 0.1, c, duration=10.0)[0]   # 音の長さを超える幻の行: DTW の時刻(22.96 秒)は使わない(使うと後処理が行ごと消した)
         self.assertEqual(([w.start for w in g.words], c), ([0.0, 1.43], {"words": 2, "dropped": 2}))
+        lump = {"transcription": [{"offsets": {"from": 0, "to": 11980}, "text": "ご視聴あり", "tokens": [tok("ご", 0, 3000, 1186), tok("視聴", 3000, 6000, 1186), tok("あり", 6000, 9000, 1187)]}]}
+        c = {}
+        g = E.parse_json(lump, 0.1, c, duration=12.0)[0]   # 行の DTW の時刻が 1 か所に固まった(12 秒の動画で全部 11.86 秒)= 行ごと今の時刻
+        self.assertEqual(([w.start for w in g.words], g.start, c["dropped"]), ([0.0, 3.0, 6.0], 0.0, 3))
 
 
 def row(a, b, text, words=None):
