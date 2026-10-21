@@ -1129,7 +1129,8 @@ class Runner:
         items = self._poll(run, ("export", [jid]), read, lambda: self.tools.export_cancel(jid)).get("items") or []
         done = sum(1 for i in items if i.get("status") == "done")
         bad = [i for i in items if i.get("status") == "error"]
-        st["detail"] = "%d 本を書き出しました" % done + ("(%d 本失敗)" % len(bad) if bad else "")
+        encs = sorted({i["encoder"] for i in items if isinstance(i.get("encoder"), str) and i["encoder"]})   # 作り方の印(友人の診断の段の detail に出る)
+        st["detail"] = "%d 本を書き出しました" % done + ("(%d 本失敗)" % len(bad) if bad else "") + ("・%s" % "・".join(encs) if encs else "")
         if bad and (not done or run.on_fail == "stop"):
             raise StepError("書き出しに失敗しました(%d 本): %s" % (len(bad), bad[0].get("error") or ""))
         if bad:

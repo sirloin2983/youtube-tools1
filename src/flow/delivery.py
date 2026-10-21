@@ -58,6 +58,19 @@ def switched_off(environ=None):
     return str(env.get(ENV_SWITCH) or "").strip().lower() == "off"
 
 
+def _dirs_mb(dirs):
+    """パックのフォルダの中身の大きさの合計(MB。zip はほぼこの大きさ = 動画は圧縮しない)。読めないファイルは数えない"""
+    n = 0
+    for d in dirs:
+        for base, _ds, fs in os.walk(fsio.long_path(d)):
+            for f in fs:
+                try:
+                    n += os.path.getsize(os.path.join(base, f))
+                except OSError:
+                    pass
+    return n / 1e6
+
+
 class _PoolRun:
     """溜めを届けるときに Delivery の届ける部品(_deliver_pending・_deliver_one)へ渡す、実行の代わり"""
 
@@ -177,7 +190,7 @@ class Delivery:
                 return self._park(run, st, e)
         else:
             self._deliver_pending(run)
-        st["detail"] = "%d 本のパックを Dropbox の 出力 に置きました(字幕は校正前)" % len(run.delivered)
+        st["detail"] = "%d 本のパックを Dropbox の 出力 に置きました(字幕は校正前・計 %.0f MB)" % (len(run.delivered), _dirs_mb(run.delivered))
         return None
 
     def _park(self, run, st, err):

@@ -281,6 +281,7 @@ class TestExportThrough(unittest.TestCase):
         self.assertEqual(d["mark"], {"id": "m1", "label": "見どころ", "status": "exported", "src": "manual"})
         enc = d["export"].pop("encoder")   # 作った作り方の印(GPU が使えない・失敗した PC では libx264)
         self.assertIn(enc, ["libx264"] + [c for c, _a in normalize.GPU_ENCODERS])
+        self.assertEqual(d["export"].pop("encodeSet"), normalize.enc_set())   # 画質の設定の版の印
         self.assertEqual(d["export"], {"mode": "precise", "volume": 50})   # 余白なしは actualStart なし(= range.start)
         # 前後10秒の編集用素材: 作業用/ に・その範囲の .clip.json・.edit.json は本当の名前を指す
         self.assertTrue(it["editPath"].endswith("_edit.mp4") and os.path.isfile(it["editPath"]) and os.path.dirname(it["editPath"]) == work)

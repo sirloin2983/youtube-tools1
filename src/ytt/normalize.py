@@ -7,6 +7,8 @@
 - GPU の作り方(NVIDIA h264_nvenc → AMD h264_amf → Intel h264_qsv の順で、最初に使える 1 つ)が使えればそれで作る(CPU の libx264 の数倍速い)。
   使えるかは ffmpeg で 0.1 秒の見本を作って確かめる(ffmpeg ごとに 1 回だけ覚える)。GPU で失敗したら libx264 で 1 回だけやり直す。
   環境変数 YTT_GPU_ENC=0 で GPU を使わない(スイッチ = 全部 libx264)。どれで作ったかは呼ぶ側が記録する(normalize は戻り値の "how")
+- 画質の段は 2 つ(video_tries の look): main = 本番(上の作り直し)・preview = 確認用の動画(pipeline/pack/preview の 480p)。
+  GPU の値は元との VMAF と大きさが libx264(crf 18 / 28)と同じくらいになるように合わせた物。YTT_ENC_PREV=1 で前の設定に戻す
 - normalize() だけ、映像がもう条件どおりで音声だけが違う(AAC でない)ときは、映像はコピーして音声だけ作り直す(video_ok)
 
 - 時刻は秒のまま保たれる(ずらさない): fps フィルタは各コマの表示時刻をそのまま 1/30 秒の格子に当てはめるだけなので、
@@ -40,13 +42,23 @@ CRF = "18"
 IDLE_SEC = 600            # ffmpeg がこの秒数まったく出力しなければ止める
 PART = ".normalizing-"    # 作り直しの途中の名前(<名前>.normalizing-xxxxxxxx.mp4。検証が済んでから本当の名前へ)
 GPU_ENV = "YTT_GPU_ENC"   # "0" で GPU の作り方を使わない(全部 libx264)
+PREV_ENV = "YTT_ENC_PREV" # "1" で 10-21 より前の設定に戻す(本番の GPU の画質の値は前の物・確認用の動画は libx264)
 CPU = "libx264"
-# GPU の作り方(確かめる順)と、映像の作り方の引数(-c:v から。画質は libx264 の crf 18 と同じくらい)
+PREVIEW_CRF = "28"        # 確認用の動画(pipeline/pack/preview の 480p。本番より落とす)の libx264 の画質
+ENC_SET = "1021"          # 画質の設定の版(.clip.json の export.encodeSet の印。前の設定に戻したときは "prev")
+# GPU の作り方(確かめる順)と、映像の作り方の引数(-c:v から)。main = 本番(libx264 crf 18 と同じくらいの画質・大きさ)・preview = 確認用の動画
 GPU_ENCODERS = (
-    ("h264_nvenc", ["-preset", "p4", "-rc", "vbr", "-cq", "19", "-b:v", "0"]),   # p4 = 速さと画質の中ほど
-    ("h264_amf", ["-quality", "balanced", "-rc", "cqp", "-qp_i", "18", "-qp_p", "20", "-qp_b", "22"]),
-    ("h264_qsv", ["-preset", "medium", "-global_quality", "20"]),
+    ("h264_nvenc", {"main": ["-preset", "p4", "-rc", "vbr", "-cq", "19", "-b:v", "0"],   # p4 = 速さと画質の中ほど
+                    "preview": ["-preset", "p4", "-rc", "vbr", "-cq", "29", "-b:v", "0"]}),
+    ("h264_amf", {"main": ["-quality", "balanced", "-rc", "cqp", "-qp_i", "18", "-qp_p", "20", "-qp_b", "22"],
+                  "preview": ["-quality", "balanced", "-rc", "cqp", "-qp_i", "28", "-qp_p", "30", "-qp_b", "32"]}),
+    ("h264_qsv", {"main": ["-preset", "medium", "-global_quality", "20"],
+                  "preview": ["-preset", "medium", "-global_quality", "30"]}),
 )
+# 前の設定(YTT_ENC_PREV=1 で戻す。本番だけ。確認用の動画は前は libx264 だけ)
+PREV_MAIN = {"h264_nvenc": ["-preset", "p4", "-rc", "vbr", "-cq", "19", "-b:v", "0"],
+             "h264_amf": ["-quality", "balanced", "-rc", "cqp", "-qp_i", "18", "-qp_p", "20", "-qp_b", "22"],
+             "h264_qsv": ["-preset", "medium", "-global_quality", "20"]}
 _PIX_DEPTH = re.compile(r"p(\d{2})(?:le|be)$")             # yuv420p10le などの bit 数
 
 
@@ -64,11 +76,31 @@ def fps_filter(vf=None):
     return "%s,%s" % (vf, f) if vf else f
 
 
-def video_args(codec=CPU, preset=PRESET):
-    """映像の作り方の引数(-c:v から。preset は libx264 のときだけ使う)"""
+def use_prev():
+    """前の設定に戻すスイッチ(YTT_ENC_PREV=1)が入っているか"""
+    return os.environ.get(PREV_ENV, "").strip() == "1"
+
+
+def enc_set():
+    """今の画質の設定の版(印)。前の設定に戻していれば prev"""
+    return "prev" if use_prev() else ENC_SET
+
+
+def video_args(codec=CPU, preset=PRESET, look="main"):
+    """映像の作り方の引数(-c:v から。preset は libx264 のときだけ使う)。look = main(本番)か preview(確認用の動画)"""
     if codec == CPU:
-        return ["-c:v", CPU, "-preset", preset, "-crf", CRF]
-    return ["-c:v", codec] + dict(GPU_ENCODERS)[codec]
+        return ["-c:v", CPU, "-preset", preset, "-crf", PREVIEW_CRF if look == "preview" else CRF]
+    if look == "main" and use_prev():
+        return ["-c:v", codec] + PREV_MAIN[codec]
+    return ["-c:v", codec] + dict(GPU_ENCODERS)[codec][look]
+
+
+def video_tries(ffmpeg, look="main", preset=PRESET, runner=None):
+    """映像の作り方の順 [(作り方の名前, video_args の結果)]。GPU が使えれば GPU → libx264(前が失敗したら次で 1 回だけ)。
+    確認用の動画(look=preview)は前の設定に戻すスイッチで libx264 だけ"""
+    gpu = None if look == "preview" and use_prev() else gpu_encoder(ffmpeg, runner)
+    tries = [(gpu, video_args(gpu, preset, look))] if gpu else []
+    return tries + [(CPU, video_args(CPU, preset, look))]
 
 
 def encode_args(preset=PRESET, vf=None, in_graph=False, codec=CPU):
@@ -118,9 +150,7 @@ def gpu_encoder(ffmpeg, runner=None):
 
 def encode_tries(ffmpeg, preset=PRESET, vf=None, in_graph=False, runner=None):
     """作り直しの作り方の順 [(作り方の名前, encode_args の結果)]。GPU が使えれば GPU → libx264(前が失敗したら次で 1 回だけ)"""
-    gpu = gpu_encoder(ffmpeg, runner)
-    tries = [(gpu, encode_args(preset, vf, in_graph, gpu))] if gpu else []
-    return tries + [(CPU, encode_args(preset, vf, in_graph))]
+    return [(c, encode_args(preset, vf, in_graph, c)) for c, _v in video_tries(ffmpeg, "main", preset, runner)]
 
 
 def video_ok(info):

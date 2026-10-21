@@ -16,7 +16,6 @@ from ytt import fsio, normalize, tools
 LONG_PATH_AT = 240             # このくらい長いパスは \\?\ の形にして OS・ffmpeg に渡す(Windows の 260 文字の壁)
 CLIP_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v")                     # パックの中の切り抜きの動画
 PREVIEW_HEIGHT = 480           # 確認用の動画の縦の画素数(速さは等速 = ユーザー決定)
-PREVIEW_CRF = 28               # 確認用の動画の画質(本番より落とす。90 秒で 6〜10MB の見込み)
 PREVIEW_TIMEOUT = 600          # 確認用の動画を作る ffmpeg の上限(秒)。長い切り抜きは長さ × PREVIEW_PER_SEC まで延ばす
 PREVIEW_PER_SEC = 0.5          # (友人の依頼の区間は長さの上限なし = 3 時間の切り抜きでも 600 秒で切らない)
 
@@ -70,20 +69,22 @@ def _run_ffmpeg(args, timeout, check):
     return r.code, r.err[-400:].decode("utf-8", "replace").strip()
 
 
-def _preview_args(ffmpeg, video, out, height, audio):
-    """確認用の動画を作る ffmpeg の引数(height に縮めて等速・30fps・音は 96k の aac か無し)"""
+def _preview_args(ffmpeg, video, out, height, audio, vargs):
+    """確認用の動画を作る ffmpeg の引数(height に縮めて等速・30fps・音は 96k の aac か無し)。vargs = 映像の作り方(normalize.video_tries の 1 つ)"""
     args = [ffmpeg, "-hide_banner", "-nostdin", "-y", "-loglevel", "error", "-i", video, "-vf", "scale=-2:%d" % height, "-map", "0:v:0"]
     args += ["-map", "0:a:0", "-c:a", "aac", "-b:a", "96k"] if audio else ["-an"]
-    return args + ["-r", "30", "-c:v", "libx264", "-preset", "veryfast", "-crf", str(PREVIEW_CRF), "-pix_fmt", "yuv420p", "-movflags", "+faststart", out]
+    return args + ["-r", "30"] + list(vargs) + ["-pix_fmt", "yuv420p", "-movflags", "+faststart", out]
 
 
 def make_preview(video, out_path, height=PREVIEW_HEIGHT, ffmpeg=None, ffprobe=None, timeout=PREVIEW_TIMEOUT, check=None, log=None):
-    """1 本の切り抜きの、友人が中身を確かめるための動画を out_path に作る(480p・等速・字幕なし・札なし)。-> 作れたか。
-    作れなくても呼ぶ側は確認用の動画なしで届ける。音の無いクリップは音なしで作る"""
+    """1 本の切り抜きの、友人が中身を確かめるための動画を out_path に作る(480p・等速・字幕なし・札なし)。
+    -> 作った作り方の名前(h264_amf・libx264 など。作れなければ None)。
+    作り方は normalize.video_tries の順(GPU → 失敗したら libx264 で 1 回だけ)。作れなくても呼ぶ側は確認用の動画なしで届ける。
+    音の無いクリップは音なしで作る"""
     log = log or (lambda msg: None)
     ffmpeg = ffmpeg or tools.find_tool("ffmpeg")
     if not ffmpeg or not video or not os.path.isfile(fsio.long_path(video)):
-        return False
+        return None
     info = normalize.probe(video, ffprobe=ffprobe) or {}
     audio = bool(info.get("has_audio"))
     dur = info.get("duration")
@@ -92,12 +93,20 @@ def make_preview(video, out_path, height=PREVIEW_HEIGHT, ffmpeg=None, ffprobe=No
     tmpdir = tempfile.mkdtemp(prefix="ytt-preview-")
     tmp_out = os.path.join(tmpdir, "preview.mp4")
     try:
-        code, err = _run_ffmpeg(_preview_args(ffmpeg, video, tmp_out, height, audio), timeout, check)
-        if code == 0 and os.path.isfile(tmp_out) and os.path.getsize(tmp_out) > 0:
-            shutil.move(tmp_out, fsio.long_path(out_path))
-            return True
-        log("確認用の動画を作れませんでした: %s" % err)
-        return False
+        failed = []
+        for how, vargs in normalize.video_tries(ffmpeg, "preview", "veryfast"):
+            code, err = _run_ffmpeg(_preview_args(ffmpeg, video, tmp_out, height, audio, vargs), timeout, check)
+            if code == 0 and os.path.isfile(tmp_out) and os.path.getsize(tmp_out) > 0:
+                shutil.move(tmp_out, fsio.long_path(out_path))
+                if failed:
+                    log("確認用の動画: %s で作れなかったので %s で作りました(%s)" % (failed[0][0], how, failed[0][1][:200]))
+                return how
+            failed.append((how, err))
+            if err == "timeout":
+                break
+            remove_quiet(tmp_out)
+        log("確認用の動画を作れませんでした: %s" % failed[-1][1])
+        return None
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 

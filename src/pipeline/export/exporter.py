@@ -327,7 +327,8 @@ def result_public(res):
         return {k: (it.get(k) if done else None) for k in PUBLIC_PATHS}
     return {"state": res["state"], "folder": res.get("folder", ""),
             "items": [{**{k: it[k] for k in ("id", "start", "end", "title", "status", "progress", "file", "error")},
-                       "warning": it.get("warning", ""), "loudness": it.get("loudness"), **paths(it)} for it in res["items"]],
+                       "warning": it.get("warning", ""), "loudness": it.get("loudness"), "encoder": it.get("encoder"), **paths(it)}
+                      for it in res["items"]],
             "combined": _combined_public(res.get("combined"))}
 
 
@@ -837,10 +838,11 @@ def export_edit_media(ctl, spec, it, base, runner):
 # ---------- youtube-tools-clip/v1(.clip.json) ----------
 def _clip_export_info(spec, method, loudness=None, encoder=None):
     """.clip.json の export。mode は fast(高速の設定で作り直した)/ precise。どちらも位置ちょうど(range.start が 0 秒)なので actualStart は付けない
-    encoder = 映像を作った作り方(libx264・h264_nvenc など。印)。余白つき(LD-2f)の actualStart・margin は write_manifests が足す"""
+    encoder = 映像を作った作り方(libx264・h264_nvenc など。印)・encodeSet = その画質の設定の版(normalize.enc_set)。
+    余白つき(LD-2f)の actualStart・margin は write_manifests が足す"""
     info = {"mode": "fast" if method in ("fast", "copy") else "precise"}
     if encoder:
-        info["encoder"] = encoder
+        info["encoder"], info["encodeSet"] = encoder, _norm.enc_set()
     if spec.get("loudness"):
         info["loudness"] = loudness or {"target": spec["loudness"]}   # そろえたラウドネス(音量(%)は使っていない)
     else:
