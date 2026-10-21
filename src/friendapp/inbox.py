@@ -33,6 +33,7 @@ Dropbox の同期(friendapp/sync.py が呼ぶ):
 ファイルと時計は引数で受ける(テストは一時フォルダ)。標準ライブラリと ytt だけを読む。
 """
 import datetime
+import glob
 import json
 import os
 import re
@@ -122,6 +123,19 @@ class Inbox:
     def _load(self):
         d = fsio.read_json_or(self.path, None, kind=dict)
         rows = d.get("rows") if isinstance(d, dict) and d.get("v") == V else None
+        if rows is None and os.path.isfile(self.path):   # 読めない・形の版が違う(前の版へ戻ったときなど): 上書きする前に写しを残す
+            keep = "%s.bad-%s" % (self.path, time.strftime("%Y%m%d-%H%M%S"))
+            try:
+                shutil.copyfile(self.path, keep)   # 時刻は今(3 日を写した時から数える)
+                self.log("受信箱の記録を読めないので写しを残して空から始めます: %s(版 %s)" % (os.path.basename(keep), d.get("v") if isinstance(d, dict) else "?"))
+            except OSError as e:
+                self.log("受信箱の記録を読めず、写しも残せませんでした: %s" % e.__class__.__name__)
+        for old in glob.glob(glob.escape(self.path) + ".bad-*"):   # 写しの終わりも 3 日
+            try:
+                if time.time() - os.path.getmtime(old) > retention.KEEP_SEC:
+                    os.remove(old)
+            except OSError:
+                pass
         st = d.get("stats") if isinstance(d, dict) else None
         if isinstance(st, dict):
             self.stats = {k: [x for x in v if isinstance(x, (int, float)) and x >= 0][:STATS_KEEP] for k, v in st.items() if isinstance(k, str) and isinstance(v, list)}
