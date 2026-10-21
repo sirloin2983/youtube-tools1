@@ -4,7 +4,7 @@
 
 環境変数 YTT_PREFLIGHT_SHIM(設定の JSON のパス)があるときだけ、urllib の https と http をここで受ける:
   - mirror = {URL: この PC のファイル}: 初回の準備の取得(fetch.json の URL)を、検査が用意したファイルから返す(Range つき = 続きからも本物と同じ)
-  - dropbox = 一時フォルダ: Dropbox の API(鍵・list_folder・get_latest_cursor・longpoll・get_metadata・delete_v2・move_v2・upload・upload_session・download)を
+  - dropbox = 一時フォルダ: Dropbox の API(鍵・list_folder・get_latest_cursor・longpoll・get_metadata・delete_v2・upload・upload_session・download)を
     そのフォルダの読み書きで返す(本物の Dropbox へは書かない。フォルダの中 = Dropbox のアプリのフォルダの中と同じ形)
   - それ以外の https と、127.0.0.1・localhost 以外の http は断る(URLError)。つないだ先は log(1 行 1 件の JSON)に残す
   - net = 真(--youtube)なら、それ以外の https は本物へ通す(Dropbox は偽物のまま)
@@ -203,16 +203,6 @@ class _Shim:
             else:
                 os.remove(p)
             return self.json_resp(url, {"metadata": m})
-        if ep == "files/move_v2":
-            src, _sd = self.local(arg.get("from_path"))
-            dst, dd = self.local(arg.get("to_path"))
-            if not os.path.exists(src):
-                self.not_found(req)
-            if os.path.exists(dst):
-                self.error(req, 409, {"error_summary": "to/conflict/..", "error": {".tag": "to", "to": {".tag": "conflict"}}})
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            os.replace(src, dst)
-            return self.json_resp(url, {"metadata": self.meta(dst, dd)})
         if ep == "files/upload":
             return self.json_resp(url, self.commit(arg, data))
         if ep == "files/upload_session/start":

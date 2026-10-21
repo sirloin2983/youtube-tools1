@@ -17,7 +17,7 @@
 準備だけの画面(notes:plan/f1-friend-requirements.md の C-5-1・C-5-2・C-0): start() が確認なしで自動で始める流れ。
     取る(fetching。空きが足りなければ始めずに need-space)→
     浅く置く(placing。places.lay_tools_shallow)→ 道具を確かめる(checking。toolcheck)→
-    (文字起こしが A で動かなければ)エンジン C にして CUDA 版を取り確かめ直す(cuda)→ 済み(done)。失敗は failed(続きから [もう一度] = begin)。
+    (文字起こしが A で動かなければ)エンジン C にして CUDA 版を取り確かめ直す(cuda)→ 済み(done)。失敗は failed(続きから [もう一度] = start)。
     確かめ終えたことは setup.json の checked(版・機器・道具のファイルの印)に残し、次の起動では確かめ直さない(道具が変わったら確かめ直す)。
     画面は view()(1 本の棒)・done(送る画面へ)・awake()(スリープを止める)。
 """
@@ -522,7 +522,7 @@ class Setup:
         self.fetch_path, self.data_root, self.home, self.record_dir = fetch_path, data_root, home, record_dir
         self.device, self.log, self.downloader = device, log or (lambda msg: None), downloader
         self.disk_usage, self.wcpp, self.cuda, self.after = disk_usage, wcpp, cuda, after
-        # 準備だけの画面の流れ(begin)。env = 道具の場所を入れる環境変数(既定 os.environ)・set_device(機器) = machine.json に書く口・
+        # 準備だけの画面の流れ(start)。env = 道具の場所を入れる環境変数(既定 os.environ)・set_device(機器) = machine.json に書く口・
         # run = 子プロセスの実行・whisper = 文字起こしの 1 回(どれもテストは偽物)
         self.env = os.environ if env is None else env
         self.set_device = set_device or _set_device
@@ -606,7 +606,9 @@ class Setup:
         err = None
         res = self.result
         if not fetching and not ready and self.cuda_job and res and not res.get("ok"):
-            err = "取れませんでした。ネットを確かめて、もう一度 [取る] を押してください" if not res.get("cancelled") else "やめました(取れた分は残り、次は続きから)"
+            why = ((res.get("failed") or [{}])[0].get("message") or "")[:120]
+            err = "やめました(取れた分は残り、次は続きから)" if res.get("cancelled") else \
+                "取れませんでした%s。ネットを確かめて、もう一度 [取る] を押してください" % ("(%s)" % why if why else "")
         return {"ready": ready, "fetching": bool(fetching), "percent": pct, "size": expect(it) if it else None,
                 "available": ready or it is not None, "error": err}
 
@@ -651,7 +653,7 @@ class Setup:
         return self.flow in FLOW_ACTIVE or self.running()
 
     def start(self):
-        """準備を確認なしで自動で始める(裏の糸)。すでに進んでいれば何もしない。失敗のあとの [もう一度] もこれ(取れた分は残り、続きから。begin は別名)。
+        """準備を確認なしで自動で始める(裏の糸)。すでに進んでいれば何もしない。失敗のあとの [もう一度] もこれ(取れた分は残り、続きから)。
         fetch.json が無ければ(開発の PC)何もせず済みにする"""
         with self.lock:
             if self.running():
@@ -665,8 +667,6 @@ class Setup:
             self._flow_set("fetching", "準備しています")
             self.flow_thread = threading.Thread(target=self._flow_job, name="friend-setup-flow", daemon=True)
             self.flow_thread.start()
-
-    begin = start
 
     def _flow_set(self, state, msg, percent=None):
         self.flow, self.flow_msg = state, msg
@@ -890,6 +890,12 @@ class Setup:
         res["at"] = int(time.time() * 1000)
         self.result = res
         self.log("初回の取得: 取れた %d 個・取れなかった %d 個%s" % (len(res["done"]), len(res["failed"]), "・やめた" if res["cancelled"] else ""))
+        cb = getattr(self, "on_fail", None)
+        if res["failed"] and cb is not None:   # 診断へ(準備の流れの失敗と同じ口)
+            try:
+                cb("部品を取れませんでした", "; ".join("%s: %s" % (x["name"], x["message"]) for x in res["failed"])[:1000])
+            except Exception:   # noqa: BLE001
+                pass
         self._record(items, res)
         if res["done"] and self.after is not None:
             try:

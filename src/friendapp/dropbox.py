@@ -324,12 +324,6 @@ class Client:
                 return False
             raise
 
-    def move(self, src, dst):
-        """名前を変える・移す(同じ名前があれば失敗)-> 移した先の名前"""
-        d = self.rpc("files/move_v2", {"from_path": src, "to_path": dst, "autorename": False, "allow_ownership_transfer": False})
-        md = d.get("metadata") if isinstance(d.get("metadata"), dict) else {}
-        return md.get("name") or dst.rsplit("/", 1)[-1]
-
     # ------------------------------------------------------------ 上げる
     def _content(self, endpoint, arg, data):
         def once():

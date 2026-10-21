@@ -12,9 +12,9 @@
 | ④ manage(データ) | [manage.md](manage.md) | 43 | 10981 |
 | ⑤ eval(検証) | [eval.md](eval.md) | 37 | 15530 |
 | src/app(入口と画面) | [app.md](app.md) | 83 | 32433 |
-| src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 46 | 18407 |
+| src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 46 | 18393 |
 | その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 22 | 11048 |
-| dev・setup(開発の道具) | [dev.md](dev.md) | 59 | 15994 |
+| dev・setup(開発の道具) | [dev.md](dev.md) | 59 | 15989 |
 | friend-apps・chrome-ext(C# のアプリ・拡張) | [apps.md](apps.md) | 19 | 8950 |
 
 ## `/api/...` の口(受ける所 → 呼ぶ所)

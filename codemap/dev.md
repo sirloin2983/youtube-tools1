@@ -27,10 +27,10 @@
   - 名前: `demo_fetch` :33・`demo_probe` :38・`class StubQueue` :43・`class StubEngine` :68・`demo_thumb` :95・`class DemoStreams` :104・`seed` :143・`write_demo_fetch` :214・`class DemoDownloader` :228・`demo_file` :241・`write_demo_update` :251・`main` :263
 - **friend_diag.py** (245 行) — 友人のアプリから届いた診断の記録を読む(ユーザーの PC。notes:docs/spec/friend.md の 13-11)。AI が原因を調べるときに流す。
   - 名前: `default_dir` :36・`prune` :47・`load` :61・`is_error` :84・`live_lines` :95・`lines_of` :145・`main` :202
-- **friend_preflight.py** (1140 行) — 友人に配る zip を、配る前にこの PC で「友人の PC と同じ状態」にして通しで試す(配る前の検査。notes:docs/spec/friend.md の 13-11)。
+- **friend_preflight.py** (1146 行) — 友人に配る zip を、配る前にこの PC で「友人の PC と同じ状態」にして通しで試す(配る前の検査。notes:docs/spec/friend.md の 13-11)。
   - 名前: `class Preflight` :81・`class Report` :85・`free_port` :111・`link_or_copy` :117・`unpack` :126・`break_fetch` :145・`place_models` :155・`mirror_map` :179・`lay_shim` :195・`friend_env` :206・`fake_media` :234・`make_work` :238・ほか 35
-- **friend_preflight_shim.py** (297 行) — 配る前の検査(dev/friend_preflight.py)の通信の差し替え。検査が、展開した写しの python/Lib/site-packages/sitecustomize.py として置く
-  - 名前: `install` :272
+- **friend_preflight_shim.py** (287 行) — 配る前の検査(dev/friend_preflight.py)の通信の差し替え。検査が、展開した写しの python/Lib/site-packages/sitecustomize.py として置く
+  - 名前: `install` :262
 - **guard_hook.py** (434 行) — Claude Code の PreToolUse のフック: 事故のもとになる操作を機械が断る。標準ライブラリだけ・速く。
   - 名前: `class Tok` :51・`tok` :56・`tokenize` :62・`pipelines` :137・`word_of` :155・`norm_path` :171・`is_main_checkout` :184・`generated_kind` :198・`check_kill` :216・`check_sed` :242・`git_sub` :255・`check_git` :271・ほか 9
 - **land.py** (297 行) — 作業のブランチを main に入れ、版(src/ytt/version.py の VERSION と README.txt の見出し)を道具が 1 つ上げる。

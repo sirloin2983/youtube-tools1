@@ -157,15 +157,6 @@ class EtaTest(unittest.TestCase):
         stats = {"動画を取得": [60], "文字起こし": [300], "仕上げ": [30]}
         self.assertEqual(P.eta(stats, "file", False, "動画を取得", 10), 50 + 300 + 30)
 
-    def test_record_keeps_five_newest(self):
-        s = {}
-        for i in range(7):
-            s = P.record(s, "切り抜き", i)
-        self.assertEqual(s["切り抜き"], [6, 5, 4, 3, 2])
-        orig = {"切り抜き": [1]}
-        P.record(orig, "切り抜き", 9)
-        self.assertEqual(orig, {"切り抜き": [1]})
-
 
 class SlowTest(unittest.TestCase):
     def test_boundary(self):

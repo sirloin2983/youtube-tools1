@@ -71,10 +71,9 @@ class ShimTest(unittest.TestCase):
         self.assertTrue(c.download("/送り返し/a.verdict.json", part))
         with open(part, "rb") as f:
             self.assertEqual(f.read(), b"abc")
-        self.assertEqual(c.move("/送り返し/a.verdict.json", "/出力/b.json"), "b.json")
-        self.assertTrue(c.delete("/出力/b.json"))
-        self.assertFalse(c.delete("/出力/b.json"))
-        self.assertIsNone(c.get_metadata("/出力/b.json"))
+        self.assertTrue(c.delete("/送り返し/a.verdict.json"))
+        self.assertFalse(c.delete("/送り返し/a.verdict.json"))
+        self.assertIsNone(c.get_metadata("/送り返し/a.verdict.json"))
         meta = c.get_metadata("/送り返し/a.verdict (1).json")
         self.assertEqual(meta["content_hash"], DBX.content_hash(os.path.join(self.box, "送り返し", "a.verdict (1).json")))
 
