@@ -124,7 +124,7 @@ from ytt import appwindow as appwindow_mod  # noqa: E402  (src/ytt/appwindow.py:
 from manage.ops import clientlog as clientlog_mod  # noqa: E402  (src/manage/ops/clientlog.py: 画面のエラーの記録。段階7-0)
 from manage.ops import health as health_mod  # noqa: E402  (src/manage/ops/health.py: 「調子」。段9 9-1)
 from manage.keep import cleanup as cleanup_mod  # noqa: E402  (src/manage/keep/cleanup.py: 片付け。段9 9-2)
-from manage.ops import autorestart as autorestart_mod  # noqa: E402  (src/manage/ops/autorestart.py: 版が違うとき処理の合間に自分で起動し直す判定)
+from ytt import autorestart as autorestart_mod  # noqa: E402  (src/ytt/autorestart.py: 版が違うとき処理の合間に自分で起動し直す判定)
 from manage.ops import restart as restart_mod  # noqa: E402  (src/manage/ops/restart.py: 入口ごと起動し直す。段9 9-3)
 from app import prefs as prefs_mod  # noqa: E402  (src/app/prefs.py: ホームの設定。まとめて実行の既定・配信者の記憶・共通の再生キー)
 from app import live as live_mod  # noqa: E402  (src/app/live.py: リアルタイム切り抜き(線 D)。既定はオフ)

@@ -5,7 +5,9 @@
 (function () {
   'use strict';
   var POLL = 30000, POLL_WAIT = 3000, timer = 0, busy = false;
-  var curU = null, curT = null, tidyBusy = false;   /* 新しい版の知らせ・フォルダの整理の view(口が無い・失敗のときは null) */
+  var curU = null, curT = null, tidyBusy = false;
+  var lastInput = 0;   /* 画面で最後に入力した時刻(0 = まだ。玄関は入力の途中に自動で入れ替えない) */
+  ['input', 'keydown', 'pointerdown', 'drop'].forEach(function (ev) { document.addEventListener(ev, function () { lastInput = Date.now(); }, true); });   /* 新しい版の知らせ・フォルダの整理の view(口が無い・失敗のときは null) */
 
   function api(path, body) { return UIKit.http('api/friend/' + path, body === undefined ? {} : { body: body }); }
 
@@ -22,13 +24,14 @@
     box.setAttribute('role', 'status');
     var msg = el('span', 'fr-update-text');
     if (!u.requested) {
-      msg.textContent = '新しい版 ' + u.version + ' があります';
+      msg.textContent = '新しい版 ' + u.version + ' があります' + (u.auto ? '。処理が終わったら自動で新しい版にします(今すぐ:' : '');
       box.appendChild(msg);
       var b = el('button', 'btn primary small', '更新する');
       b.type = 'button';
       b.title = '新しい版に入れ替えて開き直します(作っている途中の物があれば、終わってから入れ替えます)';
       b.addEventListener('click', function () { apply(box, b); });
       box.appendChild(b);
+      if (u.auto) box.appendChild(el('span', 'fr-update-text', ')'));
       return;
     }
     if (!u.hosted) msg.textContent = '新しい版 ' + u.version + ' は、アプリを開き直すと使えます';
@@ -118,7 +121,7 @@
   function poll() {
     clearTimeout(timer);
     if (!document.querySelector('[data-fr-update]')) return;
-    var u = api('update').then(function (x) { curU = x; return x; }, function () { return curU; });
+    var u = api('update' + (lastInput ? '?input=' + Math.round((Date.now() - lastInput) / 1000) : '')).then(function (x) { curU = x; return x; }, function () { return curU; });
     var t = api('tidy').then(function (j) { curT = viewOf(j); return curT; }, function () { curT = null; return null; });
     Promise.all([u, t]).then(function (r) {
       redraw();

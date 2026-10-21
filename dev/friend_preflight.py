@@ -206,7 +206,7 @@ def lay_shim(app, work, mirror, net=False):
     return conf
 
 
-def friend_env(work, cdp_port, shim_conf, fake=True):
+def friend_env(work, cdp_port, shim_conf, fake=True, auto_update=False):
     """友人の PC と同じくらい何も無い環境変数(開発の PATH・YTT_*・Python の変数を渡さない)"""
     win = os.environ.get("SystemRoot", r"C:\Windows")
     prof = os.path.join(work, PROFILE)
@@ -229,6 +229,8 @@ def friend_env(work, cdp_port, shim_conf, fake=True):
         "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": "--remote-debugging-port=%d" % cdp_port,
         SHIM_ENV: shim_conf,
     })
+    if not auto_update:   # 自動の入れ替えは --auto-update のときだけ(版を続けて置く確かめの途中で先に入れ替わらないように)
+        env["YTT_FRIEND_AUTO_UPDATE"] = "0"
     if fake:   # URL の依頼(区間 5 つ)は YouTube の代わりにこの動画を切る(7b。動画ファイルの依頼には効かない)
         env.update({"STUDIO_FAKE": "1", "STUDIO_FAKE_MEDIA": fake_media(work)})
     return env
@@ -950,7 +952,7 @@ def check_update_leftovers(app, old_ver, new_ver, rep):
     rep.check("更新の取り残し(.tmp・.zip.part)が無い", not left, left)
 
 
-def check_update(w, app, work, zip_path, old_ver, rep, timeout, break_n=0):  # lint: long 更新の一続き(置く → 取る → 入れ替える → 新しい版で開く)
+def check_update(w, app, work, zip_path, old_ver, rep, timeout, break_n=0, auto=False):  # lint: long 更新の一続き(置く → 取る → 入れ替える → 新しい版で開く)
     vers = [bump_n(old_ver, i) for i in range(1, max(break_n, 1) + 1)]   # 壊す = N 版続けて置く(1 版目を取ったあと 2 版目を置いて取る = どちらも入った形で再起動)
     new_ver = vers[-1]
     with open(os.path.join(app, "src", "friendapp", "sync.py"), encoding="utf-8") as f:
@@ -972,8 +974,20 @@ def check_update(w, app, work, zip_path, old_ver, rep, timeout, break_n=0):  # l
     rep.check("取ったのは %s だけ" % ", ".join(want), grabbed == want, grabbed)
     rep.check("app-%s/python/python.exe がある(軽い更新は今の python から写す)" % new_ver, os.path.isfile(os.path.join(app, "app-" + new_ver, "python", "python.exe")))
     old_pid = w.proc.pid
-    st, j = w.api("POST", "/api/friend/update/apply", {})
-    rep.check("[更新する] が受け付けられる", st == 200, j)
+    if auto:   # [更新する] を押さない = 何も処理していないので玄関が自分で頼み、exe が入れ替える
+        st, j = w.api("GET", "/api/friend/update")
+        rep.check("帯に「処理が終わったら自動で新しい版にします」が出る(auto)", (j or {}).get("auto") is True, j)
+        def asked():   # 頼んだ・exe が入れ替えのため画面を閉じた・終わった
+            if w.proc.poll() is not None:
+                return True
+            try:
+                return (w.api("GET", "/api/friend/state")[1] or {}).get("updateRequested") or None
+            except RuntimeError:
+                return True
+        rep.check("[更新する] を押さなくても自動で入れ替えを頼む", wait_for(asked, 420, every=5))   # 画面の入力(落とした動画)から AUTO_INPUT_IDLE 秒は待つ
+    else:
+        st, j = w.api("POST", "/api/friend/update/apply", {})
+        rep.check("[更新する] が受け付けられる", st == 200, j)
     w.watch_tree()
     w.close()
     try:
@@ -1006,6 +1020,15 @@ def check_update(w, app, work, zip_path, old_ver, rep, timeout, break_n=0):  # l
     if break_n:
         if v == open_ver:
             check_rolled_back(w, app, work, old_ver, vers, rep)
+            if auto:   # 戻った版は同じ版をもう自動で試さない(試した版の記録・起動できなかった版)
+                time.sleep(30)
+                st, j = w.api("GET", "/api/friend/state")
+                try:
+                    with open(os.path.join(app, "data", "app", "friendapp", "auto-update.json"), encoding="utf-8") as f:
+                        tried = json.load(f).get("tried")
+                except (OSError, ValueError):
+                    tried = None
+                rep.check("戻ったあと同じ版をもう自動で試さない", not (j or {}).get("updateRequested") and tried == new_ver, [(j or {}).get("updateRequested"), tried])
         return v == open_ver
     try:
         with open(os.path.join(app, "app-versions.json"), encoding="utf-8") as f:
@@ -1074,7 +1097,7 @@ def run(args):  # lint: long 検査の一本の流れ(上の説明の 1〜11 の
         lay = make_work(work, zip_path, args, rep)
         app = lay["app"]
         cdp = free_port()
-        w = Window(app, friend_env(work, cdp, lay["shim"], fake=not (args.youtube or args.live)), cdp)
+        w = Window(app, friend_env(work, cdp, lay["shim"], fake=not (args.youtube or args.live), auto_update=args.auto_update), cdp)
         w.start()
         w.connect()
         w.watch_tree()
@@ -1132,7 +1155,7 @@ def run(args):  # lint: long 検査の一本の流れ(上の説明の 1〜11 の
         check_diag(work, rep)
         check_secret_leak(work, rep)
         if not args.skip_update:
-            check_update(w, app, work, args.update_zip or zip_path, lay["man"]["version"], rep, 240, args.break_update)
+            check_update(w, app, work, args.update_zip or zip_path, lay["man"]["version"], rep, 240, args.break_update, auto=args.auto_update)
         return rep
     except Preflight:
         raise
@@ -1187,6 +1210,7 @@ def main(argv=None):
     ap.add_argument("--break-update", type=int, default=0, choices=(0, 1, 2), help="戻りの確かめ: 更新の新しい版を N 版続けて起動できない形にする(元の版で開き直すのが正しい)")
     ap.add_argument("--cache", default="", help="build_friend_zip のキャッシュ(既定と同じ)")
     ap.add_argument("--timeout-min", type=float, default=25.0, help="全体の待ちの目安(分)")
+    ap.add_argument("--auto-update", action="store_true", help="更新の確かめで [更新する] を押さず、自動の入れ替えを待つ")
     ap.add_argument("--file", default="", help="手元の本物の動画ファイルを動画ファイルの依頼で通す(初回の準備のあと 1 本だけ)")
     ap.add_argument("--top", type=int, default=0, help="--youtube を区間なしの全自動で頼む本数(0 = 区間 2 つ)")
     ap.add_argument("--live", type=float, default=0, help="本物のライブを友人と同じ形でこの分だけ録る(--youtube の URL か、無ければ一覧のライブ中の物)")

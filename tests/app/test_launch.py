@@ -666,7 +666,7 @@ class PortalHttpTest(Base):
     def test_auto_restart_check(self):
         """自動の起動し直し: 版が同じなら何もしない・処理中(まとめて実行・ライブ・編集の画面・重い処理)は待つ・空けば 1 回だけ起こす・
         同じ版はもう起こさない(起動し直しても版が変わらなかったとき = 赤い帯と手の口が残る)。本物は起こさない(偽の spawn)"""
-        from manage.ops import autorestart as A
+        from ytt import autorestart as A
         R, calls, stops = self.fake_restart()
         app = os.path.join(self.tmp, "appdata")
         zero = {"recording": 0, "detecting": 0, "exporting": 0}

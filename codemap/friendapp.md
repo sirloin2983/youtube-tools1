@@ -24,9 +24,9 @@
   - 名前: `home` :36・`data_root` :48・`friend_dir` :56・`cookies_path` :60・`outbox_dir` :65・`is_maker_data` :69・`tool_env` :98・`lay_tools_shallow` :119・`lay_whisper` :147・`api_key_env` :172・`members_env` :186・`first_roster` :197・ほか 1
 - **progress.py** (255 行) — 友人のアプリの「送った物」の行に出す、失敗の言葉と進み具合を作る部品(F3-3。notes:plan/f1-friend-requirements.md の C-2-15・C-2-16)。純粋な関数だけ(ファイルもネットも触らない。時計は引数で受ける)。
   - 名前: `classify` :93・`stage` :151・`eta` :199・`slow` :218・`text` :236
-- **server.py** (998 行) — 友人の玄関(notes:docs/design/friend-history.md の 7 章)。友人の PC の 2 つ目の玄関(ユーザーの PC は src/app/server.py)。
-  - 名前: `save_dir` :119・`open_folder` :128・`pick_file_dialog` :144・`pick_folder_dialog` :184・`page_token` :221・`inject_meta` :228・`class Handler` :237・`client_log_line` :534・`class Server` :540・`class FriendApp` :558・`make_logger` :880・`say` :920・ほか 2
-  - 受ける口: `/api/ping` :277・`/api/friend/inbox` :279・`/api/friend/tidy` :284・`/api/friend/update` :286・`/api/friend/setup` :288・`/api/friend/state` :290・`/api/friend/peek` :294・`/api/friend/peek-live` :299・`/api/friend/player` :304・`/api/friend/receive` :306・`/api/friend/media` :309・`/api/friend/settings` :319・`/api/friend/streams` :321・`/api/flow/status` :323・`/api/friend/upload` :338・`/api/friend/send` :384・`/api/friend/pick-file` :387・`/api/friend/decide` :395・`/api/friend/undo` :397・`/api/friend/palette` :401・`/api/friend/files` :403・`/api/friend/report` :405・`/api/friend/prefs` :407・`/api/friend/retry` :410・`/api/friend/cancel` :412・`/api/friend/live-settings` :414・`/api/friend/local` :416・`/api/friend/open` :418・`/api/friend/update/apply` :431・`/api/friend/streams/refresh` :439・`/api/friend/settings/key` :447・`/api/friend/pick-folder` :452・`/api/friend/notice-seen` :464・`/api/shutdown` :470・`/api/flow/submit` :474・`/api/flow/cancel` :483・`/api/ytt/streamer-colors` :487・`/api/ytt/client-log` :489
+- **server.py** (1057 行) — 友人の玄関(notes:docs/design/friend-history.md の 7 章)。友人の PC の 2 つ目の玄関(ユーザーの PC は src/app/server.py)。
+  - 名前: `save_dir` :122・`open_folder` :131・`pick_file_dialog` :147・`pick_folder_dialog` :187・`page_token` :224・`inject_meta` :231・`class Handler` :240・`client_log_line` :538・`class Server` :544・`class FriendApp` :562・`make_logger` :939・`say` :979・ほか 2
+  - 受ける口: `/api/ping` :280・`/api/friend/inbox` :282・`/api/friend/tidy` :287・`/api/friend/update` :289・`/api/friend/setup` :292・`/api/friend/state` :294・`/api/friend/peek` :298・`/api/friend/peek-live` :303・`/api/friend/player` :308・`/api/friend/receive` :310・`/api/friend/media` :313・`/api/friend/settings` :323・`/api/friend/streams` :325・`/api/flow/status` :327・`/api/friend/upload` :342・`/api/friend/send` :388・`/api/friend/pick-file` :391・`/api/friend/decide` :399・`/api/friend/undo` :401・`/api/friend/palette` :405・`/api/friend/files` :407・`/api/friend/report` :409・`/api/friend/prefs` :411・`/api/friend/retry` :414・`/api/friend/cancel` :416・`/api/friend/live-settings` :418・`/api/friend/local` :420・`/api/friend/open` :422・`/api/friend/update/apply` :435・`/api/friend/streams/refresh` :443・`/api/friend/settings/key` :451・`/api/friend/pick-folder` :456・`/api/friend/notice-seen` :468・`/api/shutdown` :474・`/api/flow/submit` :478・`/api/flow/cancel` :487・`/api/ytt/streamer-colors` :491・`/api/ytt/client-log` :493
 - **settings.py** (387 行) — 友人の玄関の ⚙(notes:docs/design/friend-history.md の 7 章)。
   - 名前: `class SettingsError` :49・`clean_key` :54・`looks_like_key` :58・`judge` :63・`probe_key` :91・`check_key` :105・`keys_path` :113・`load_key` :117・`save_key` :122・`check_folder` :131・`class Settings` :156
 - **setup.py** (936 行) — 友人の玄関の初回の取得(notes:docs/design/friend-history.md の 7 章)。
@@ -51,7 +51,7 @@
 - **sent.js** (142 行) — 送った物(F3-3。notes:plan/f1-friend-requirements.md の C-2-14〜C-2-16)。行 = GET api/friend/inbox の rows のうち、まだ届け終えていない物と失敗。
 - **settings.js** (427 行) — ⚙ 設定の引き出し(notes:plan/f1-friend-requirements.md の C-5-2・C-2-19)。
 - **setup.js** (103 行) — 初回の準備だけの画面(notes:plan/f1-friend-requirements.md の C-5-1)。
-- **update.js** (134 行) — 新しい版の帯の 1 行(更新。notes:docs/design/friend-history.md の 7 章)。
+- **update.js** (137 行) — 新しい版の帯の 1 行(更新。notes:docs/design/friend-history.md の 7 章)。
 
 ## テスト
 
