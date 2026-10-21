@@ -82,7 +82,6 @@ class TestLongClipTimeouts(unittest.TestCase):
         video = d / "clip.mp4"
         video.write_bytes(b"\0")
         got = []
-        self.enterContext(mock.patch.dict("os.environ", {PV.normalize.GPU_ENV: "0"}))   # 作り方は libx264 の 1 つだけ(1 回の呼び出しの上限を見る)
         with mock.patch.object(PV.normalize, "probe", return_value={"has_audio": True, "duration": 3 * 3600.0}), \
                 mock.patch.object(PV, "_run_ffmpeg", side_effect=lambda args, timeout, check: (got.append(timeout), (1, "x"))[1]):
             self.assertFalse(PV.make_preview(str(video), str(d / "p.mp4"), ffmpeg="ffmpeg"))

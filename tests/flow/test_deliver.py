@@ -280,16 +280,13 @@ class PreviewTest(unittest.TestCase):
 
     def test_no_labels_and_normal_speed(self):
         """札・字幕は焼かない・等速(焼き込みの有無は出来た動画から読めないので引数で見る)。音は 96k の aac か無し"""
-        for codec in ("libx264", "h264_amf"):
-            vargs = pv.normalize.video_args(codec, "veryfast", "preview")
-            for audio in (True, False):
-                args = pv._preview_args("ffmpeg", "in.mp4", "out.mp4", 480, audio, vargs)
-                self.assertFalse(any("drawtext" in a or "setpts" in a or "atempo" in a for a in args), args)
-                self.assertNotIn("-filter_complex", args)
-                self.assertEqual("-an" in args, not audio)
-                self.assertEqual(args[args.index("-c:v") + 1], codec)
+        for audio in (True, False):
+            args = pv._preview_args("ffmpeg", "in.mp4", "out.mp4", 480, audio)
+            self.assertFalse(any("drawtext" in a or "setpts" in a or "atempo" in a for a in args), args)
+            self.assertNotIn("-filter_complex", args)
+            self.assertEqual("-an" in args, not audio)
         self.assertEqual(args[-1], "out.mp4")
-        args = pv._preview_args("ffmpeg", "in.mp4", "out.mp4", 480, True, vargs)
+        args = pv._preview_args("ffmpeg", "in.mp4", "out.mp4", 480, True)
         self.assertEqual(args[args.index("-b:a") + 1], "96k")
 
     def test_seconds_unknown_or_zero(self):

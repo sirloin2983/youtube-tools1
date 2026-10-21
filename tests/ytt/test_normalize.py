@@ -263,8 +263,7 @@ class TestFastRules(unittest.TestCase):
             self.assertFalse(normalize.video_ok(bad))
 
     def test_gpu_args_keep_the_rules(self):
-        for codec, looks in normalize.GPU_ENCODERS:
-            self.assertEqual(set(looks), {"main", "preview"})
+        for codec, _a in normalize.GPU_ENCODERS:
             a = normalize.encode_args(codec=codec)
             for pair in (["-vf", "fps=30"], ["-fps_mode", "cfr"], ["-c:v", codec], ["-pix_fmt", "yuv420p"], ["-c:a", "aac"], ["-movflags", "+faststart"]):
                 i = a.index(pair[0])
@@ -284,17 +283,15 @@ class TestFastRules(unittest.TestCase):
             self.assertIsNone(normalize.gpu_encoder("ffmpeg", runner=lambda c: 1))
             self.assertIsNone(normalize.gpu_encoder(None))
 
-    def test_preview_look_and_prev_switch(self):
-        """確認用の動画も GPU → libx264(crf は PREVIEW_CRF)。前の設定に戻すスイッチで本番の GPU は前の値・確認用の動画は libx264 だけ"""
-        amd = lambda c: 0 if "h264_amf" in c else 1   # noqa: E731
-        with mock.patch.dict(os.environ, {normalize.GPU_ENV: "", normalize.PREV_ENV: ""}):
-            pv = normalize.video_tries("ffmpeg", "preview", "veryfast", runner=amd)
-            self.assertEqual([c for c, _a in pv], ["h264_amf", "libx264"])
-            self.assertEqual(pv[1][1][pv[1][1].index("-crf") + 1], normalize.PREVIEW_CRF)
+    def test_prev_switch(self):
+        """YTT_ENC_PREV=1 で GPU の画質の値が前の物に戻り、印も prev(libx264 は変わらない)"""
+        with mock.patch.dict(os.environ, {normalize.PREV_ENV: ""}):
+            self.assertEqual(normalize.video_args("h264_amf")[2:], dict(normalize.GPU_ENCODERS)["h264_amf"])
             self.assertEqual(normalize.enc_set(), normalize.ENC_SET)
-        with mock.patch.dict(os.environ, {normalize.GPU_ENV: "", normalize.PREV_ENV: "1"}):
-            self.assertEqual([c for c, _a in normalize.video_tries("ffmpeg", "preview", runner=amd)], ["libx264"])
-            self.assertEqual(normalize.video_args("h264_amf")[2:], normalize.PREV_MAIN["h264_amf"])
+        with mock.patch.dict(os.environ, {normalize.PREV_ENV: "1"}):
+            for codec, _a in normalize.GPU_ENCODERS:
+                self.assertEqual(normalize.video_args(codec)[2:], normalize.PREV_ARGS[codec])
+            self.assertEqual(normalize.video_args(), ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18"])
             self.assertEqual(normalize.enc_set(), "prev")
 
 
