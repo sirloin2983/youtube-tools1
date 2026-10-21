@@ -285,7 +285,7 @@ namespace FriendInbox
                 if (g.Ready) { Gw = g; break; }
                 g.Kill();
                 Diag.Note("start", "版 " + (Diag.AppVersion ?? "?") + " の Python が起きませんでした(終了コード " + g.ExitCode + ")", null, g.ErrTail(),
-                          new Dictionary<string, object> { { "exitCode", g.ExitCode }, { "stage", "start" } });
+                          new Dictionary<string, object> { { "exitCode", g.ExitCode }, { "stage", "start" }, { "bad", BadWith(rec, used) }, { "installed", Versions.Installed(home).ToArray() } });
                 if (g.ExitCode == Gateway.LockBusyExit) return "ほかの処理が同じ作業データを使っています。閉じてから開き直してください";
                 if (used.Version == null)   // 前の形が起動できない: 版のフォルダがあればそちらで(無ければ止める)
                 {
@@ -296,7 +296,7 @@ namespace FriendInbox
                 }
                 Log.Write("版 " + used.Version + " を起動できませんでした(終了コード " + g.ExitCode + ")。前の版で起こし直します");
                 rec.Bad.Add(used.Version);
-                RolledFrom = used.Version;
+                RolledFrom = string.IsNullOrEmpty(RolledFrom) ? used.Version : RolledFrom + "," + used.Version;   // 起きなかった順("72,71")
                 SaveQuietly(rec);
             }
             Version = Diag.AppVersion;
@@ -307,6 +307,14 @@ namespace FriendInbox
                 try { Versions.Prune(home, rec, Log.Write); } catch (Exception ex) { Log.Write("古い版の片付けに失敗: " + ex.Message); }
             }
             return null;
+        }
+
+        // 診断に書く bad = 記録の bad に、今起きなかった版も足した物
+        static string[] BadWith(VersionRecord rec, Layout used)
+        {
+            var l = new List<string>(rec.Bad);
+            if (used.Version != null && !l.Contains(used.Version)) l.Add(used.Version);
+            return l.ToArray();
         }
 
         // 番号が取られていたら(終了コード 5)別の番号で 3 回まで

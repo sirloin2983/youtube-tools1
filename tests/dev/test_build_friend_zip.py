@@ -332,15 +332,73 @@ class BuildTest(Base):
         with self.assertRaisesRegex(B.BuildError, "launcher/build.bat"):
             self.build()
 
-    def test_prune_keeps_two(self):
+    def test_prune_keeps_three_full_and_ten_light(self):
         os.makedirs(self.out)
-        for v in ("0.9.0", "0.10.0", "0.8.5"):
+        full = ["0.9.0", "0.10.0", "0.8.5", "0.8.4", "0.7.0"]
+        light = ["0.%d.0" % n for n in range(1, 14)]
+        for v in full:
             open(os.path.join(self.out, "FriendApp-%s.zip" % v), "wb").close()
+        for v in light:
             open(os.path.join(self.out, "FriendApp-%s-light.zip" % v), "wb").close()
         open(os.path.join(self.out, "FriendApp-0.1.0-first.zip"), "wb").close()
         open(os.path.join(self.out, "other.zip"), "wb").close()
-        B.prune(self.out)
-        self.assertEqual(sorted(os.listdir(self.out)), ["FriendApp-0.1.0-first.zip", "FriendApp-0.10.0-light.zip", "FriendApp-0.10.0.zip", "FriendApp-0.9.0-light.zip", "FriendApp-0.9.0.zip", "other.zip"])
+        gone = B.prune(self.out)
+        left = sorted(os.listdir(self.out))
+        self.assertEqual([n for n in left if not n.endswith("-light.zip")], ["FriendApp-0.1.0-first.zip", "FriendApp-0.10.0.zip", "FriendApp-0.8.5.zip", "FriendApp-0.9.0.zip", "other.zip"])
+        self.assertEqual(len([n for n in left if n.endswith("-light.zip")]), B.KEEP_LIGHT)
+        self.assertNotIn("FriendApp-0.1.0-light.zip", left)   # 軽いのは新しい順に 10 版(0.4.0 以降)
+        self.assertIn("FriendApp-0.4.0-light.zip", left)
+        self.assertEqual(len(gone), 2 + 3)
+
+    def test_versions_json_rows_newest_first_and_nulled_when_zip_pruned(self):
+        os.makedirs(self.out)
+
+        def add(v, size):
+            for n in ("FriendApp-%s.zip" % v, "FriendApp-%s-light.zip" % v):
+                with open(os.path.join(self.out, n), "wb") as f:
+                    f.write(b"x" * size)
+            row = {"version": v, "builtAt": "2026-10-21T00:00:00", "notes": "n", "file": "FriendApp-%s.zip" % v, "size": size, "sha256": "a" * 64,
+                   "light": {"file": "FriendApp-%s-light.zip" % v, "size": size, "sha256": "b" * 64}, "runtime": "c" * 64}
+            B.update_versions(self.out, row)
+            B.prune(self.out)
+
+        for n in range(1, 6):
+            add("0.99.%d" % (60 + n), n)
+        with open(os.path.join(self.out, "versions.json"), encoding="utf-8") as f:
+            doc = json.load(f)
+        self.assertEqual(doc["v"], 1)
+        self.assertEqual([r["version"] for r in doc["versions"]], ["0.99.65", "0.99.64", "0.99.63", "0.99.62", "0.99.61"])
+        have = [r["file"] is not None for r in doc["versions"]]
+        self.assertEqual(have, [True, True, True, False, False])   # 全部入りは 3 版
+        self.assertTrue(all(r["light"] is not None for r in doc["versions"]))   # 軽いのは 10 版
+        self.assertEqual(doc["versions"][3]["sha256"], "a" * 64)   # 行は残る
+        for n in range(6, 30):
+            add("0.99.%d" % (60 + n), 1)
+        with open(os.path.join(self.out, "versions.json"), encoding="utf-8") as f:
+            doc = json.load(f)
+        self.assertEqual(len(doc["versions"]), B.KEEP_ROWS)
+        self.assertEqual(doc["versions"][0]["version"], "0.99.89")
+        self.assertIsNone(doc["versions"][-1]["light"])
+        with open(os.path.join(self.out, "versions.json"), "w", encoding="utf-8") as f:
+            f.write("{broken")
+        B.update_versions(self.out, doc["versions"][0])   # 壊れた台帳は作り直す
+        with open(os.path.join(self.out, "versions.json"), encoding="utf-8") as f:
+            self.assertEqual(len(json.load(f)["versions"]), 1)
+
+    def test_runtime_mark_follows_python_files_only(self):
+        a = {"python/python.exe": "1" * 64, "python/x.pyd": "2" * 64, "src/a.py": "3" * 64}
+        self.assertEqual(B.runtime_mark(a), B.runtime_mark(dict(a, **{"src/a.py": "4" * 64})))
+        self.assertNotEqual(B.runtime_mark(a), B.runtime_mark(dict(a, **{"python/x.pyd": "5" * 64})))
+
+    def test_build_writes_versions_row(self):
+        with open(os.path.join(self.shared_out, "versions.json"), encoding="utf-8") as f:
+            rows = json.load(f)["versions"]
+        self.assertEqual(rows[0]["version"], V.VERSION)
+        self.assertEqual(rows[0]["file"], "FriendApp-%s.zip" % V.VERSION)
+        self.assertEqual(rows[0]["light"]["file"], "FriendApp-%s-light.zip" % V.VERSION)
+        self.assertEqual(len(rows[0]["runtime"]), 64)
+        with open(os.path.join(self.shared_out, "latest.json"), encoding="utf-8") as f:
+            self.assertEqual(sorted(json.load(f)), ["file", "light", "notes", "sha256", "size", "version"])   # 友人が読む latest.json に欄を足さない
 
 
 class CacheTest(Base):

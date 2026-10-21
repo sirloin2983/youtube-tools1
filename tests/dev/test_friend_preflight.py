@@ -164,7 +164,9 @@ class PublishGateTest(unittest.TestCase):
             f.write(b"l")
         with open(os.path.join(out_dir, "latest.json"), "w", encoding="utf-8") as f:
             json.dump({"version": "9.9.9", "file": "FriendApp-9.9.9.zip"}, f)
-        return {"zip": p, "size": 3, "sha256": "x", "files": 1, "light": {"zip": os.path.join(out_dir, "FriendApp-9.9.9-light.zip"), "size": 1, "sha256": "y"}}
+        light = {"file": "FriendApp-9.9.9-light.zip", "size": 1, "sha256": "y"}
+        return {"zip": p, "size": 3, "sha256": "x", "files": 1, "light": dict(light, zip=os.path.join(out_dir, light["file"])),
+                "row": {"version": "9.9.9", "builtAt": "t", "notes": "", "file": "FriendApp-9.9.9.zip", "size": 3, "sha256": "x", "light": light, "runtime": "r"}}
 
     def args(self, skip=False):
         return B.argparse.Namespace(cache="c", wcpp="w", no_fetch=True, notes="", launcher_build="l", skip_preflight=skip)
@@ -179,8 +181,31 @@ class PublishGateTest(unittest.TestCase):
     def test_passed_preflight_places_zip_then_latest(self):
         with mock.patch.object(B, "build", self.fake_build), mock.patch.object(P, "preflight_zip", return_value=True):
             got = B.publish(self.args(), self.out)
-        self.assertEqual(sorted(os.listdir(self.out)), ["FriendApp-9.9.9-light.zip", "FriendApp-9.9.9.zip", "latest.json"])
+        self.assertEqual(sorted(os.listdir(self.out)), ["FriendApp-9.9.9-light.zip", "FriendApp-9.9.9.zip", "latest.json", "versions.json"])
         self.assertEqual(got["zip"], os.path.join(self.out, "FriendApp-9.9.9.zip"))
+
+    def test_publish_prunes_old_zips_and_nulls_their_rows(self):
+        os.makedirs(self.out)
+        rows = []
+        for n in range(1, 5):   # 置いてある全部入り 4 版(0.9.1〜0.9.4)に今回の 9.9.9 が加わる = 全部入りは 3 版・古い 2 版が消える
+            v = "0.9.%d" % n
+            for name in ("FriendApp-%s.zip" % v, "FriendApp-%s-light.zip" % v):
+                open(os.path.join(self.out, name), "wb").close()
+            rows.append({"version": v, "builtAt": "t", "notes": "", "file": "FriendApp-%s.zip" % v, "size": 0, "sha256": "s",
+                         "light": {"file": "FriendApp-%s-light.zip" % v, "size": 0, "sha256": "l"}, "runtime": "r"})
+        with open(os.path.join(self.out, "versions.json"), "w", encoding="utf-8") as f:
+            json.dump({"v": 1, "versions": rows}, f)
+        with mock.patch.object(B, "build", self.fake_build), mock.patch.object(P, "preflight_zip", return_value=True):
+            B.publish(self.args(), self.out)
+        zips = sorted(n for n in os.listdir(self.out) if n.endswith(".zip") and not n.endswith("-light.zip"))
+        self.assertEqual(zips, ["FriendApp-0.9.3.zip", "FriendApp-0.9.4.zip", "FriendApp-9.9.9.zip"])
+        with open(os.path.join(self.out, "versions.json"), encoding="utf-8") as f:
+            got = {r["version"]: r for r in json.load(f)["versions"]}
+        self.assertEqual(list(got), ["9.9.9", "0.9.4", "0.9.3", "0.9.2", "0.9.1"])
+        self.assertIsNone(got["0.9.2"]["file"])
+        self.assertIsNone(got["0.9.1"]["file"])
+        self.assertIsNotNone(got["0.9.4"]["file"])
+        self.assertIsNotNone(got["0.9.1"]["light"])   # 軽いのは 10 版まで残る
 
     def test_skip_only_when_asked(self):
         with mock.patch.object(B, "build", self.fake_build), mock.patch.object(P, "preflight_zip") as pf:

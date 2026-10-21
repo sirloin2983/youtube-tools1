@@ -261,7 +261,8 @@ class SetupTest(HomeBase):
         gate.set()
         st.wait(5)
         self.assertTrue(st.result["cancelled"])
-        self.assertTrue(os.path.isfile(os.path.join(self.data, "transcribe", "models", "whispercpp", "model.bin.part")))
+        parts = [n for _, _, fs in os.walk(self.home) for n in fs if n.endswith(".part")]
+        self.assertEqual(len(parts), S.PARALLEL, parts)   # 同時に始めた物の途中は残す・残りは始めない
 
     def test_after_called_with_result(self):
         got = []

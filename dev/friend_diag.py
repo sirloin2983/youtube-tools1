@@ -150,7 +150,11 @@ def lines_of(name, d, full=False):
     gpu = (pc.get("gpu") or {}).get("name") if isinstance(pc.get("gpu"), dict) else None
     head = "%s  %-9s %s  版 %s(%s)  %s" % (_when(d.get("at")), d.get("kind"), d.get("requestId") or d.get("source") or "",
                                           app.get("version") or "?", app.get("host") or "", d.get("code") or "")
+    if d.get("kind") == "rollback" and d.get("fromVersions") and d.get("toVersion"):
+        head += "  戻り: %s → %s" % (",".join(str(v) for v in d["fromVersions"]), d["toVersion"])   # 起動できなかった版(新しい順)→ 開いた版
     out = [head.rstrip(), "    要約: %s" % (d.get("summary") or "")]
+    if d.get("kind") == "start" and ("bad" in d or "installed" in d):
+        out.append("    bad: %s  入っている版: %s" % (",".join(d.get("bad") or []) or "なし", ",".join(d.get("installed") or []) or "?"))
     if full or d.get("kind") == "run":
         out.append("    PC: %s / GPU %s / 文字起こし %s" % (pc.get("windows") or "?", gpu or "?", pc.get("device") or "?"))
     st = d.get("stages") or []

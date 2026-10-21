@@ -225,7 +225,12 @@ class Engine:
             if made:
                 self._want_previews(row["id"])
             return
-        got = self.inbox.finished(run.id, run.state, error, packs, case=_case_from(run.result_path))
+        try:
+            got = self.inbox.finished(run.id, run.state, error, packs, case=_case_from(run.result_path))
+        except Exception as e:   # noqa: BLE001  (行を「作っている」のまま残さない。fail が診断にも書く)
+            self.log("届いた物を受信箱に入れられませんでした: %s %s" % (e.__class__.__name__, str(e)[:160]))
+            self.inbox.fail(row["id"], "できた物を受信箱に入れられませんでした(%s %s)。アプリを開き直してください" % (e.__class__.__name__, str(e)[:80]))
+            return
         if got and got["state"] == "arrived":
             self._want_previews(got["id"])
 

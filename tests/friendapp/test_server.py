@@ -1741,6 +1741,17 @@ class ApiTest(Base):
         app.rollback_seen = True
         self.assertIsNone(app.rollback_notice())
 
+    def test_rollback_env_lists_failed_versions_in_order(self):
+        with mock.patch.dict(os.environ, {S.ROLLBACK_ENV: "0.99.72, 0.99.71,../x"}):
+            app = S.FriendApp(self.places, make_engine=FakeEngine)
+        self.assertEqual(app.rollback_versions, ["0.99.72", "0.99.71"])
+        self.assertIn("0.99.72・0.99.71", app.rollback_notice())
+        docs = [json.load(open(os.path.join(self.places["outbox"], n), encoding="utf-8")) for n in os.listdir(self.places["outbox"]) if n.endswith(".diag.json")]
+        rb = [d for d in docs if d.get("kind") == "rollback"]
+        self.assertEqual(len(rb), 1)
+        self.assertEqual(rb[0]["fromVersions"], ["0.99.72", "0.99.71"])
+        self.assertTrue(rb[0]["toVersion"])
+
 
 if __name__ == "__main__":
     unittest.main()

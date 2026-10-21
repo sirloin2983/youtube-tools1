@@ -38,6 +38,7 @@ class FakeIo:
         self.fail = {}
         self.deleted = []
         self.downloads = []
+        self.reads = []
         self.n = 0
 
     def put(self, path, data, age=0.0):
@@ -68,6 +69,7 @@ class FakeIo:
         return {"name": f["path"]} if f else None
 
     def read_small(self, path, cap=1024 * 1024):
+        self.reads.append(path)
         self._check(path)
         d = self.data(path)
         return None if d is None else (d[:cap], len(d) > cap)
@@ -406,7 +408,30 @@ class SyncTest(unittest.TestCase):
         probs = self.run_sync()
         self.assertTrue(any(p.startswith("受け取る") for p in probs))
         self.assertEqual(self.box.row(AUTO)["packs"][0]["want"], "keep")   # 押したまま次の回へ
+        self.assertEqual(self.sync.status()["message"], "")   # 一時の切れは帯に出さない
+        self.t[0] += S.PROBLEM_SHOW
+        self.run_sync()
+        self.assertIn("10 分以上", self.sync.status()["message"])   # 続く問題は帯に出す
         del self.io.fail["/出力/" + zips[0]]
+        self.run_sync()
+        self.assertEqual(self.box.row(AUTO)["packs"][0]["verdict"], "keep")
+        self.assertEqual(self.sync.status()["message"], "")
+
+    def test_keep_unwritable_save_folder_gives_reason(self):
+        """保存先を作れない(抜いた USB など)= その行に理由を出して押す前に戻す(「受け取っています」のまま止めない)"""
+        self.key()
+        self.put_packs(AUTO, n=1)
+        self.run_sync()
+        name = self.box.row(AUTO)["packs"][0]["name"]
+        with open(os.path.join(self.tmp, "save"), "w") as f:   # 保存先の場所にファイル = フォルダを作れない
+            f.write("x")
+        self.box.decide(AUTO, [name], "keep")
+        self.run_sync()
+        p = self.box.row(AUTO)["packs"][0]
+        self.assertIsNone(p["verdict"])
+        self.assertIn("保存先のフォルダを作れません", p["error"])
+        os.remove(os.path.join(self.tmp, "save"))
+        self.box.decide(AUTO, [name], "keep")
         self.run_sync()
         self.assertEqual(self.box.row(AUTO)["packs"][0]["verdict"], "keep")
 
@@ -682,9 +707,47 @@ class SyncTest(unittest.TestCase):
         self.env[S.LAUNCHER_ENV] = "1"
         self.runtime()
         name, lname = self.put_light("0.95.0")
-        with mock.patch.object(S, "free_ok", return_value=False):   # 写す分の空きが無い = 軽い更新はせず、同じ回で全部入りを取る
+        with mock.patch.object(S, "free_ok", side_effect=lambda folder, need: need >= S.UPDATE_NEED):   # 取る前の空きはある・写す分の空きが無い = 軽い更新はせず、同じ回で全部入りを取る
             self.assertEqual(self.run_sync(), [])
         self.assertEqual([p for p in self.io.downloads if "FriendApp-" in p], ["/更新/" + lname, "/更新/" + name])
+
+    def test_update_waits_for_free_space_before_downloading(self):
+        self.key()
+        self.env[S.LAUNCHER_ENV] = "1"
+        self.runtime()
+        seen = []
+
+        class FakeDiag:
+            def once(self, key, every, kind, **kw):
+                seen.append((key, kind, kw.get("stage")))
+
+            def write(self, kind, **kw):
+                pass
+
+        self.sync.diag = FakeDiag()
+        self.put_light("0.95.0")
+        needs = []
+        with mock.patch.object(S, "free_ok", side_effect=lambda folder, need: needs.append(need) or False):
+            self.assertEqual(self.run_sync(), [])
+        self.assertEqual([p for p in self.io.downloads if "FriendApp-" in p], [])   # 取らない = .part も作らない
+        self.assertEqual([n for n in os.listdir(self.places["home"]) if n.endswith((".tmp", ".part"))], [])
+        self.assertEqual(seen, [("update:space", "update", "space")])
+        self.assertGreater(needs[0], S.UPDATE_NEED)   # 作業データが同じドライブ = diskMinGB を足す
+        self.assertIsNone(self.sync.status().get("updated"))
+        self.assertEqual(self.run_sync(), [])   # 空いたら次の回で取る
+        self.assertTrue([p for p in self.io.downloads if "FriendApp-" in p])
+        self.assertEqual(self.sync.status()["updated"], "0.95.0")
+
+    def test_friend_never_reads_versions_json(self):
+        """更新/versions.json は作る側の台帳。友人のアプリは読まない(latest.json の欄も増やさない)"""
+        self.key()
+        self.env[S.LAUNCHER_ENV] = "1"
+        self.runtime()
+        self.put_light("0.95.0")
+        self.io.put("/更新/versions.json", b'{"v":1,"versions":[]}')
+        self.assertEqual(self.run_sync(), [])
+        self.assertNotIn("/更新/versions.json", self.io.reads + self.io.downloads)
+        self.assertEqual(sorted(json.loads(self.io.data("/更新/latest.json"))), ["file", "light", "notes", "sha256", "size", "version"])
 
     # ------------------------------------------------------------ 部品
     def test_request_doc_weights_and_top(self):

@@ -22,6 +22,7 @@
     偽ならホームの M7 がオンでも動かさない・録画を消すのを待つか(after_stream_hold)も同じ決め方。採用の範囲は配信の終わりまで
   - アーカイブ化したか(archived。録画を消す合図)
 """
+import json
 import os
 import shutil
 import sys
@@ -537,6 +538,50 @@ class AfterStreamTest(unittest.TestCase):
         got = A.pick_candidates(marks, 3, t0, off, first, last, taken=[(first + 110, first + 140)])
         self.assertEqual([(round(a - first, 1), round(b - first, 1), m["score"]) for a, b, m in got], [(10.0, 40.0, 9), (300.0, 330.0, 3), (580.0, 600.0, 6)])
         self.assertEqual(A.pick_candidates(marks, 0, t0, off, first, last), [])
+
+    def put_chat(self):
+        """ライブで取ったチャット(② の置き場所 chat-keep)を、アーカイブの全体に 5 秒ごと置く(絶対時刻 = 開始 + SKEW + アーカイブの秒)"""
+        d = os.path.join(self.ex.folder, A._chatreuse.KEEP_NAME)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, VID + ".0.live_chat.json"), "w", encoding="utf-8") as f:
+            for i, s in enumerate(range(0, int(self.arc_sec), 5)):
+                for k in range(1 + 4 * (i % 7 == 0)):   # 35 秒ごとに山(相関が測れるように)
+                    r = {"id": "m%d-%d" % (i, k), "timestampUsec": str(int((RELEASE + SKEW + s + k * 0.1) * 1e6)), "message": {"runs": [{"text": "草"}]}}
+                    f.write(json.dumps({"addChatItemAction": {"item": {"liveChatTextMessageRenderer": r}}}) + "\n")
+
+    def test_live_chat_is_passed_or_compared(self):
+        """ライブで取ったチャット(決定 3-117): on なら解析に chatFile で渡す(URL の依頼の口 chat_for も同じ物)/ measure なら渡さず、
+        解析が済んだらリプレイと比べて chat-reuse.jsonl に 1 行"""
+        self.put_chat()
+        self.status = "was_live"
+        with mock.patch.object(A._chatreuse, "MODE", "on"):
+            a = self.archiver()
+            a.after_tick()
+            add = next(c for c in self.calls if c[1] == "/api/queue/add")[2]
+            made = os.path.join(self.ex.folder, A._chatreuse.KEEP_NAME, VID + ".replay.json")
+            self.assertEqual(add["items"][0].get("chatFile"), made)
+            self.assertIs(a.info[a.key("local", REC)]["afterStream"]["chatReuse"]["used"], True)   # 印(archive.json の afterStream)
+            self.assertEqual(a.chat_for(VID), made)
+            self.assertIsNone(a.chat_for("zzzzzzzzzzz"))
+        self.calls.clear()
+        self.queue.clear()
+        a2 = self.archiver()
+        with mock.patch.object(A._chatreuse, "MODE", "measure"):
+            a2._after_set("local", REC, state="", message="")
+            a2.info[a2.key("local", REC)].pop("afterStream", None)
+            a2.after_tick()
+            add = next(c for c in self.calls if c[1] == "/api/queue/add")[2]
+            self.assertNotIn("chatFile", add["items"][0])
+            replay = os.path.join(self.tmp, "replay.json")
+            shutil.copyfile(made, replay)   # 解析が取ったリプレイの代わり(同じ中身 = 近い)
+            with mock.patch.object(A._fetch, "chat_cache_path", lambda vid: replay):
+                self.queue[0]["status"], self.analysis = "done", {"at": 1}
+                a2.after_tick()
+        with open(os.path.join(self.ex.folder, A._chatreuse.LOG_NAME), encoding="utf-8") as f:
+            rows = [json.loads(x) for x in f]
+        cmp = [r for r in rows if r["kind"] == "compare"]
+        self.assertEqual(len(cmp), 1)
+        self.assertTrue(A._chatreuse.ok(cmp[0]), cmp[0])
 
     def test_flow_to_done(self):
         a = self.archiver()

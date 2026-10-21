@@ -66,6 +66,12 @@ class FriendDiagTest(unittest.TestCase):
         self.assertIn("読めません", out)
         self.assertIn("RTX 3060", out)
 
+    def test_rollback_head_shows_failed_versions_and_start_shows_bad(self):
+        head = F.lines_of("x", {"v": 1, "kind": "rollback", "at": NOW_MS, "fromVersions": ["0.99.72", "0.99.71"], "toVersion": "0.99.70", "summary": "s"})[0]
+        self.assertIn("戻り: 0.99.72,0.99.71 → 0.99.70", head)
+        lines = F.lines_of("x", {"v": 1, "kind": "start", "at": NOW_MS, "summary": "s", "bad": ["0.99.72"], "installed": ["0.99.71", "0.99.70"]})
+        self.assertIn("bad: 0.99.72  入っている版: 0.99.71,0.99.70", " ".join(lines))
+
     def test_keep_errors_id_json(self):
         _code, out = self.run_main("--keep", "--errors")
         self.assertIn(self.old, os.listdir(self.dir))

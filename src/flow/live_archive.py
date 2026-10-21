@@ -1035,6 +1035,33 @@ class Archiver(LX.Patrol):
         _chatreuse.log(store, dict(mark, kind="prepare", vid=vid))
         return mark
 
+    def chat_for(self, vid):
+        """URL の依頼・まとめて実行の解析(配信後の全自動の外)に渡すライブのチャット: 同じ配信の終わった録画を探し、アーカイブの用意(check)と
+        ずれ(_after_offset = 照合済みのマーク か 録画の音とアーカイブの照合)を求めて _chat_reuse と同じ決まりで選ぶ -> パス か None。
+        どれかが分からない(録画が無い・録画を消した・アーカイブがまだ・照合できない)ときは None = リプレイを取る"""
+        for r in self.recordings() or []:
+            rc, rec = r.get("recorder"), r.get("id")
+            if not rc or not rec or r.get("active") or LX.video_id_of(r.get("url") or "", rec) != vid:
+                continue
+            first, last = r.get("firstPdt"), r.get("lastPdt")
+            if not isinstance(first, (int, float)) or not isinstance(last, (int, float)) or last - first < 5.0:
+                continue
+            try:
+                i = self.check(rc, rec, vid=vid)
+                t0, dur = i.get("release"), i.get("duration")
+                if i.get("ready") is not True or not isinstance(t0, (int, float)):
+                    continue
+                offset, how = self._after_offset(rc, rec, vid, t0, first, last)
+            except Exception as e:   # noqa: BLE001  照合できなければリプレイを取る
+                self.log("ライブのチャット: %s のずれを求められませんでした: %s" % (vid, e))
+                continue
+            item = {}
+            mark = self._chat_reuse(vid, t0, offset, dur, item)
+            self.log("ライブのチャット: %s の解析に%s(ずれ %.1f 秒・%s%s)" % (vid, "渡します" if item.get("chatFile") else "渡しません", offset, how,
+                                                                    "・" + mark["why"] if mark.get("why") else ""))
+            return item.get("chatFile")
+        return None
+
     def _chat_check(self, a):
         """measure: 解析が済んだら、同じ配信のリプレイ(解析が取って cache/chat に残した物)とライブのチャットを 1 秒の箱で比べて記録に 1 行"""
         cr = a.get("chatReuse") if isinstance(a.get("chatReuse"), dict) else {}

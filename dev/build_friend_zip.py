@@ -18,7 +18,8 @@ config.json(Dropbox の鍵)は入れない。--first --with-key のときだけ 
     --first: friend-apps/launcher/dist/FriendApp-<版>-first.zip(latest.json は書かない。手で渡す)
     ふだんの出力(--first 以外)は FriendApp-<版>.zip(全部入り)に加えて FriendApp-<版>-light.zip(python/・tools/ を入れない軽い更新。manifest.json は同じ files + light = 真)を作り、
         latest.json に light {file, size, sha256} を足す(file は全部入りのまま。友人のアプリは light が写せなければ file を取る。src/friendapp/sync.py)。
-    --publish(--out なし): <ホームの設定の intake.folder>/更新/ へ light → 全部入り → latest.json の順(古い版は 2 版残して消す。(f1h))。
+    --publish(--out なし): <ホームの設定の intake.folder>/更新/ へ light → 全部入り → latest.json → versions.json の順(古い zip は全部入り 3 版・軽い 10 版を残して消す。(f1h))。
+        versions.json = 版の台帳(版・builtAt・notes・全部入りと light の file/size/sha256・python の印 runtime)を新しい順に 20 版。zip が消えた版は file/light を null にして行は残す
         intake.folder は Dropbox の中 = 友人のアプリが「更新」で取る場所。ユーザーの OK のあとだけ。--out も --first も無い呼び出しは断る。
         置く前に必ず配る前の検査(dev/friend_preflight.py = 友人の PC と同じ状態で通しで試す)を流し、落ちたら置かない(抜けるのは --skip-preflight の明示だけ)
 
@@ -62,7 +63,10 @@ LAUNCHER_DLLS = ("Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.WinF
 SCHEMA = "youtube-tools-friend-zip/v1"
 FETCH_SCHEMA = "youtube-tools-friend-fetch/v1"
 TX_TOOL = "transcribe"   # 編集の作業データの ID(datadir。fetch の dest の頭)
-KEEP_ZIPS = 2            # 更新の置き場所に残す版の数(今回の物を含む。1 版 = 全部入りと -light の 2 つ)
+KEEP_FULL = 3            # 更新の置き場所に残す全部入りの zip の版の数(今回の物を含む。約 70 MB ずつ。-first.zip は触らない)
+KEEP_LIGHT = 10          # 同じく -light.zip(約 3 MB ずつ)
+KEEP_ROWS = 20           # 更新/versions.json に残す版の行の数(zip が消えた版も行は残す)
+VERSIONS_NAME = "versions.json"   # 更新の置き場所の版の台帳(作る側だけが書く。友人のアプリは読まない)
 LIGHT_SKIP = ("python/", "tools/")   # 軽い更新の zip に入れない物(python は今の版から写す・tools は更新で使われない)
 WHEEL_NAMES = ("numpy", "sherpa-onnx", "streamlink")   # 決めたこと 12: Python の部品はこの 3 つだけ(版は setup/requirements*.txt から読む)
 MEMBERS_SRC = os.path.join(REPO, "friend-apps", "holo-colors", "members.json")   # 配信者の名簿(zip の直下へ写す。places.py が直下から読む)
@@ -500,14 +504,62 @@ def _ver_key(name, prefix):
     return tuple(int(x) for x in m.groups()) if m else None
 
 
-def prune(out_dir, keep=KEEP_ZIPS):
-    """更新の置き場所の古い FriendApp-<版>.zip・FriendApp-<版>-light.zip を keep 版まで残して消す(版の新しい順)。-first.zip・ほかの名前は触らない"""
-    zs = [n for n in os.listdir(out_dir) if _ver_key(n, ZIP_PREFIX)]
-    keep_vers = sorted({_ver_key(n, ZIP_PREFIX) for n in zs}, reverse=True)[:keep]
-    for n in zs:
-        if _ver_key(n, ZIP_PREFIX) not in keep_vers:
-            os.remove(os.path.join(out_dir, n))
-            say("古い zip を消しました: %s" % n)
+def prune_plan(out_dir, keep_full=KEEP_FULL, keep_light=KEEP_LIGHT):
+    """消す zip の名前 = 全部入りは新しい順に keep_full 版・-light は keep_light 版を超えた物。-first.zip・ほかの名前は入らない"""
+    out = []
+    for light, keep in ((False, keep_full), (True, keep_light)):
+        zs = [n for n in os.listdir(out_dir) if _ver_key(n, ZIP_PREFIX) and n.endswith("-light.zip") == light]
+        zs.sort(key=lambda n: _ver_key(n, ZIP_PREFIX), reverse=True)
+        out += zs[keep:]
+    return out
+
+
+def prune(out_dir, keep_full=KEEP_FULL, keep_light=KEEP_LIGHT):
+    """更新の置き場所の古い zip を消す(prune_plan)。消した名前を返す"""
+    gone = prune_plan(out_dir, keep_full, keep_light)
+    for n in gone:
+        os.remove(os.path.join(out_dir, n))
+        say("古い zip を消しました: %s" % n)
+    return gone
+
+
+def runtime_mark(files):
+    """python/ の中身の印 = python/* の相対パスと SHA-256 を並べた SHA-256(軽い更新で python を写せるかの目安。版ごとに台帳へ)"""
+    h = hashlib.sha256()
+    for rel in sorted(k for k in files if k.startswith("python/")):
+        h.update(("%s %s;" % (rel, files[rel])).encode("utf-8"))
+    return h.hexdigest()
+
+
+def update_versions(out_dir, row, plan=None):
+    """versions.json に row(この版の行)を足して書く -> 行の一覧。新しい順に KEEP_ROWS 版・prune で消える zip(plan。無ければ prune_plan)の行は file/light を null に。
+    読めない・形が違う台帳は作り直す(zip の置き場所の正は zip と latest.json)"""
+    path = os.path.join(out_dir, VERSIONS_NAME)
+    try:
+        with open(path, encoding="utf-8") as f:
+            rows = json.load(f).get("versions")
+    except (OSError, ValueError, AttributeError):
+        rows = None
+    rows = [r for r in rows if isinstance(r, dict) and r.get("version") != row["version"]] if isinstance(rows, list) else []
+    rows.append(row)
+    rows = [r for r in rows if isinstance(r.get("version"), str) and re.fullmatch(r"\d+\.\d+\.\d+", r["version"])]
+    rows.sort(key=lambda r: tuple(int(x) for x in r["version"].split(".")), reverse=True)
+    rows = rows[:KEEP_ROWS]
+    gone = set(prune_plan(out_dir) if plan is None else plan)
+
+    def alive(n):
+        return bool(n) and n not in gone and os.path.isfile(os.path.join(out_dir, n))
+
+    for r in rows:
+        if not alive(r.get("file")):
+            r["file"] = None
+        if not (isinstance(r.get("light"), dict) and alive(r["light"].get("file"))):
+            r["light"] = None
+    tmp = path + ".part"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump({"v": 1, "versions": rows}, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, path)
+    return rows
 
 
 def default_out(first, publish=False):
@@ -577,10 +629,13 @@ def build(out_dir, cache, wcpp_dir, first=False, with_key=False, fetch=True, not
         shutil.rmtree(stage_root, ignore_errors=True)
     got = {"zip": path, "size": os.path.getsize(path), "sha256": sha256_file(path), "files": len(files) + 1, "light": light}
     if not first:
-        latest = {"version": ver, "file": name, "size": got["size"], "sha256": got["sha256"], "notes": notes,
-                  "light": {"file": os.path.basename(light["zip"]), "size": light["size"], "sha256": light["sha256"]}}
+        light_entry = {"file": os.path.basename(light["zip"]), "size": light["size"], "sha256": light["sha256"]}
+        latest = {"version": ver, "file": name, "size": got["size"], "sha256": got["sha256"], "notes": notes, "light": light_entry}
         with open(os.path.join(out_dir, "latest.json"), "w", encoding="utf-8") as f:
             json.dump(latest, f, ensure_ascii=False, indent=1)
+        got["row"] = {"version": ver, "builtAt": manifest["builtAt"], "notes": notes, "file": name, "size": got["size"], "sha256": got["sha256"],
+                      "light": light_entry, "runtime": runtime_mark(files)}
+        update_versions(out_dir, got["row"])
         prune(out_dir)
     return got
 
@@ -615,6 +670,7 @@ def publish(a, out):
             shutil.copy2(z, os.path.join(out, n + ".part"))
             os.replace(os.path.join(out, n + ".part"), os.path.join(out, n))
         shutil.copy2(os.path.join(tmp, "latest.json"), os.path.join(out, "latest.json"))
+        update_versions(out, got["row"])   # 台帳 → 古い zip を消す(消える zip の行は台帳で先に null にする)
         prune(out)
         got["zip"] = os.path.join(out, name)
         return got

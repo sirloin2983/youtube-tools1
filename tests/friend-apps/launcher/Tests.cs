@@ -18,7 +18,8 @@ static class Tests
         Run("版: bad に無い一番新しい版を選ぶ・無ければ app-版なしの形・それも無ければ null", PickRules);
         Run("記録: app-versions.json の読み書き・壊れていたら空・bad の重なりと不正な版は捨てる", RecordRoundTrip);
         Run("記録: 起動できた版が current・その前が previous(bad は previous にしない)", MarkStarted);
-        Run("片付け: previous より古い app-版 だけ消す(新しい物・.tmp は残す)", PruneOld);
+        Run("片付け: current から数えて 3 つより古い app-版 だけ消す(新しい物・.tmp は残す)", PruneOld);
+        Run("片付け: bad は 3 つに数えない・足りなければ消さない", PruneKeepsThreeGood);
         Run("閉じる: 作業中・預かりがあるときだけ確認・文に数と録画の注意", ConfirmRules);
         Run("窓: タイトルの ●n・アイコンの文(127 文字まで)", TrayAndTitle);
         Run("裏で続ける: 仕事が無くなったら自分で終わる(予約の間は続ける)", AutoExitRules);
@@ -142,10 +143,35 @@ static class Tests
         foreach (var v in new[] { "0.87.0", "0.88.0", "0.89.0", "0.90.0", "0.91.0" }) Install(h, v);
         Directory.CreateDirectory(Path.Combine(h, "app-0.86.0.tmp"));
         var gone = Versions.Prune(h, new VersionRecord { Current = "0.90.0", Previous = "0.89.0" }, null);
-        Eq("0.87.0,0.88.0", string.Join(",", gone.OrderBy(x => x).ToArray()), "消した物");
+        Eq("0.87.0", string.Join(",", gone.OrderBy(x => x).ToArray()), "消した物(current から数えて 3 つ = 0.90.0・0.89.0・0.88.0 を残す)");
         True(Directory.Exists(Path.Combine(h, "app-0.91.0")), "新しい未起動の版は残す");
         True(Directory.Exists(Path.Combine(h, "app-0.86.0.tmp")), ".tmp は触らない");
-        True(Directory.Exists(Path.Combine(h, "app-0.89.0")) && Directory.Exists(Path.Combine(h, "app-0.90.0")), "current・previous は残す");
+        True(Directory.Exists(Path.Combine(h, "app-0.88.0")) && Directory.Exists(Path.Combine(h, "app-0.89.0")) && Directory.Exists(Path.Combine(h, "app-0.90.0")), "current・previous とその前は残す");
+    }
+
+    // bad は残す 3 つに数えない(bad の新しい物は消さず、bad の古い物は消す)
+    static void PruneKeepsThreeGood()
+    {
+        string h = Temp();
+        foreach (var v in new[] { "0.85.0", "0.86.0", "0.87.0", "0.88.0", "0.89.0", "0.90.0", "0.91.0", "0.92.0" }) Install(h, v);
+        var r = new VersionRecord { Current = "0.89.0", Previous = "" };
+        r.Bad.Add("0.92.0"); r.Bad.Add("0.91.0"); r.Bad.Add("0.90.0"); r.Bad.Add("0.86.0");
+        Eq("0.87.0", Versions.KeepFloor(h, r), "bad を除いて 0.89.0・0.88.0・0.87.0 の 3 つ目");
+        var gone = Versions.Prune(h, r, null);
+        Eq("0.85.0,0.86.0", string.Join(",", gone.OrderBy(x => x).ToArray()), "floor より古い物(bad の 0.86.0 も)だけ消す");
+        True(Directory.Exists(Path.Combine(h, "app-0.90.0")) && Directory.Exists(Path.Combine(h, "app-0.92.0")), "bad でも floor 以上は残す");
+        // 足りないときは最古を floor に(消さない)
+        string k = Temp();
+        Install(k, "0.88.0"); Install(k, "0.89.0");
+        Eq("0.88.0", Versions.KeepFloor(k, new VersionRecord { Current = "0.89.0" }), "2 つしか無ければ最古");
+        Eq(0, Versions.Prune(k, new VersionRecord { Current = "0.89.0", Previous = "0.88.0" }, null).Count, "足りなければ何も消さない");
+        Eq(null, Versions.KeepFloor(k, new VersionRecord()), "current が無ければ floor なし(何も消さない)");
+        // 戻って current が古くなっても、current より新しい版は数えない
+        string m = Temp();
+        foreach (var v in new[] { "0.86.0", "0.87.0", "0.88.0", "0.89.0", "0.90.0" }) Install(m, v);
+        var q = new VersionRecord { Current = "0.88.0", Previous = "" };
+        q.Bad.Add("0.90.0"); q.Bad.Add("0.89.0");
+        Eq("0.86.0", Versions.KeepFloor(m, q), "current 以下の 3 つ(0.88.0・0.87.0・0.86.0)");
     }
 
     static HostState S(int making = 0, int rec = 0, int waiting = 0, int reserved = 0, int archive = 0, bool setup = false)
