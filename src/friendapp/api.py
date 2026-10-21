@@ -129,6 +129,18 @@ def clean_ranges(v):
     return out
 
 
+PATH_FIT = 200   # 写しのパスの長さの上限(後の ffmpeg・② は 260 文字の壁の中で扱う。.part・-xxxx の分を残す)
+
+
+def fit_name(folder, name):
+    """folder に置く name を、パス全体が PATH_FIT 文字に収まるよう拡張子を残して名前の頭だけにする"""
+    room = PATH_FIT - len(os.path.join(folder, ""))
+    stem, ext = os.path.splitext(name)
+    if len(stem) + len(ext) <= room or room < len(ext) + 8:
+        return name
+    return stem[:room - len(ext)].rstrip(" .") + ext
+
+
 class Api:
     """玄関の口(server.py の Handler が呼ぶ)。engine = friendapp.engine.Engine(準備中は None)。
     fetch = oEmbed・probe = 配信中か調べる(テストは偽物)"""
@@ -143,7 +155,9 @@ class Api:
         self._copies = {}                # 写している動画 {依頼 id: [写した, 全部]}
         self._stages = {}                # 作っている行の今の段 {依頼 id: [段の名前, 始まった ms, detail, 最後に変わった ms]}(進み具合・残り時間)
         self._lock = threading.Lock()
-        self.stopping = lambda: False    # 玄関が終わる途中か(写すのを止める。玄関が入れる)
+        self._wait_why = {}              # アーカイブ待ちの行を調べられなかった最後の理由 {依頼 id: 文}(1 日待って諦めるときに添える)
+        self.log = lambda msg: None      # friendapp.log(玄関が入れる)
+        self.stopping = lambda: False   # 玄関が終わる途中か(写すのを止める。玄関が入れる)
         self.sync = None   # Dropbox の同期(friendapp/sync.Sync。玄関が入れる。無ければ依頼できない)
         self.parts_missing = lambda: None   # 初回の取得の部品が足りない理由か None(この PC で作る依頼を断る。玄関が setup.Setup.block_reason を入れる)
         self.log_path = os.path.join(places["friend"], "logs", "friendapp.log")   # [作る人に知らせる] に付けるログ
@@ -314,7 +328,7 @@ class Api:
             free = None
         if free is not None and free < size + COPY_ROOM:
             raise FormError("パソコンの空きが足りません(あと %d MB ほど空けてください)" % ((size + COPY_ROOM - free) // (1024 * 1024) + 1))
-        dest = os.path.join(folder, "%s_%s" % (uuid.uuid4().hex[:8], name))
+        dest = os.path.join(folder, fit_name(folder, "%s_%s" % (uuid.uuid4().hex[:8], name)))
         tmp = dest + ".part"
         try:
             with open(tmp, "wb") as f:
@@ -573,24 +587,24 @@ class Api:
 
     def _move_upload(self, rid, title, src):
         folder = self._request_folder(rid, title)
-        name = os.path.basename(src).split("_", 1)[-1]
+        name = fit_name(folder, os.path.basename(src).split("_", 1)[-1])
         dest = _inbox.unique_dest(folder, name)
         shutil.move(src, dest)
         return dest
 
     def _copy_video(self, rid, title, src):
         """元の動画を一時保管の <作業>/依頼/<日付>_<題>_<id6>/ へ写す(元は読むだけ)-> 写しのパス"""
-        if not os.path.isfile(src):
+        if not os.path.isfile(_fsio.long_path(src)):   # 友人の動画は深いフォルダ・長い名前のことがある(読むだけ)
             raise FormError("動画ファイルが見つかりません(移動・削除した可能性があります)。選び直して送ってください")
         folder = self._request_folder(rid, title)
-        size = os.path.getsize(src)
+        size = os.path.getsize(_fsio.long_path(src))
         try:
             free = shutil.disk_usage(folder).free
         except OSError:
             free = None
         if free is not None and free < size + COPY_ROOM:
             raise FormError("パソコンの空きが足りません(あと %d MB ほど空けてから [もう一度送る])" % ((size + COPY_ROOM - free) // (1024 * 1024) + 1))
-        stem, ext = os.path.splitext(_inbox.BAD_NAME.sub("_", os.path.basename(src)))
+        stem, ext = os.path.splitext(fit_name(folder, _inbox.BAD_NAME.sub("_", os.path.basename(src))))
         dest = os.path.join(folder, stem + ext)
         while os.path.exists(dest):
             dest = os.path.join(folder, "%s-%s%s" % (stem, uuid.uuid4().hex[:4], ext))
@@ -598,7 +612,7 @@ class Api:
         with self._lock:
             self._copies[rid] = [0, size]
         try:
-            with open(src, "rb") as a, open(tmp, "wb") as b:
+            with open(_fsio.long_path(src), "rb") as a, open(tmp, "wb") as b:
                 done = 0
                 while True:
                     if self.stopping():
@@ -779,15 +793,21 @@ class Api:
         """アーカイブ待ちの行を調べる・直る見込みのある失敗を自動でやり直す・落としたまま送らなかった動画を片付ける"""
         now = self.clock()
         for r in self.inbox.waiting_rows():
-            if now - r["createdAt"] / 1000.0 >= WAIT_GIVE_UP:
-                self.inbox.wait_failed(r["id"], "アーカイブが出ませんでした(1 日待ちました)")
+            if now - r["createdAt"] / 1000.0 >= WAIT_GIVE_UP:   # 調べられなかった理由(bot 判定など)があれば添える = その種類の言葉と自動のやり直しになる
+                why = self._wait_why.pop(r["id"], "")
+                self.inbox.wait_failed(r["id"], "アーカイブが出ませんでした(1 日待ちました)" + ("。最後に調べたとき: %s" % why if why else ""))
                 continue
             if now - (r.get("checkedAt") or 0) / 1000.0 < WAIT_EVERY:
                 continue
             try:
                 info = self.probe(r["form"]["url"]) or {}
-            except Exception:   # noqa: BLE001  (調べられない = 次の回にもう一度)
-                info = {}
+            except Exception as e:   # noqa: BLE001  (調べられない = 次の回にもう一度)
+                info = {"message": "%s %s" % (e.__class__.__name__, str(e)[:160])}
+            if info.get("status") in ARCHIVE_OK or not info.get("message"):
+                self._wait_why.pop(r["id"], None)
+            elif self._wait_why.get(r["id"]) != info["message"][:200]:
+                self._wait_why[r["id"]] = info["message"][:200]
+                self.log("アーカイブ待ちの行 %s を調べられませんでした: %s" % (r["id"], info["message"][:200]))
             self.inbox.wait_checked(r["id"])
             if info.get("status") in ARCHIVE_OK:
                 self._start_waited(r["id"])
@@ -799,16 +819,20 @@ class Api:
             if login and cls["code"] in _progress.LOGIN_CODES and r.get("pc") != "user" and (r.get("failedAt") or 0) < login:
                 try:   # ログインし直した: 前に bot・年齢で止まった行をやり直す(1 回。また落ちれば failedAt がログインより後になる)
                     self.retry(r["id"])
-                except (FormError, KeyError):
-                    pass
+                except Exception as e:   # noqa: BLE001  (1 行の失敗で見回りを止めない)
+                    self._retry_failed(r["id"], e)
                 continue
             if cls["retry"] and (r.get("autoRetries") or 0) < cls.get("retryMax", RETRY_MAX) and \
                     now - (r.get("failedAt") or 0) / 1000.0 >= cls.get("retryEvery", RETRY_EVERY):
                 try:
                     self.retry(r["id"], auto=True)
-                except (FormError, KeyError):
-                    pass
+                except Exception as e:   # noqa: BLE001
+                    self._retry_failed(r["id"], e)
         self.sweep_uploads()
+
+    def _retry_failed(self, rid, e):
+        if not isinstance(e, (FormError, KeyError)):   # 形の問題(送り直せない行)はいつものこと
+            self.log("自動のやり直しに失敗しました %s: %s %s" % (rid, e.__class__.__name__, str(e)[:160]))
 
     def _start_waited(self, rid):
         """アーカイブが出た: 普通の URL の依頼として作り始める(区間の長さの検査はここ = ② が配信の長さで断る)"""
