@@ -320,7 +320,7 @@ def _save_record(src, spec, dur, n, levels, chat, stamps, ctexts, meta, info, ca
                    "chat": ({"act": [round(x, 1) for x in chat["act"]], "count": chat["count"], "warmCount": chat["warm"], **(chat["extra"] or {})} if chat else None),
                    "stamps": ([[t, lk, round(w, 3), (ctexts[i] if i < len(ctexts) else "")] for i, (t, lk, w) in enumerate(stamps)] if stamps else None)}
         run = {"at": payload["at"], "spec": {k: spec.get(k) for k in SPEC_KEYS},
-               "lagUsed": spec.get("lagUsed"), "signals": info,
+               "lagUsed": spec.get("lagUsed"), "signals": info, "chatHalf": excite.CHAT_HALF,   # 印: チャットのふだんの幅(決定 3-135。無い記録は 150)
                "candidates": [dict({"start": c["start"], "end": c["end"], "peak": c["peak"], "score": c["score"], "parts": c["parts"]},
                                **{k: c[k] for k in ("shape", "fixed", "fill") if k in c}) for c in cands]}   # 生の結果(固定の長さの区間・埋めた印)も残す(LD-2b)
         save_archive(src["videoId"], payload, run)

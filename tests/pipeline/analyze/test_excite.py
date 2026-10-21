@@ -174,7 +174,7 @@ class TestOnline(unittest.TestCase):
         (w_full, wt_full), (w_band, wt_band) = excite.AUDIO_PARTS   # 式の数字は excite の 1 か所(値は golden が守る)
         a = windowed_scores(full, excite.AUDIO_FLOOR, w_full, back=270, fwd=30, window=600)
         b = windowed_scores(band, excite.AUDIO_FLOOR, w_band, back=270, fwd=30, window=600)
-        c = windowed_scores(act, excite.CHAT_FLOOR, excite.CHAT_SMOOTH, back=270, fwd=30, window=600, log=True)
+        c = windowed_scores(act, excite.CHAT_FLOOR, excite.CHAT_SMOOTH, back=excite.ONLINE_CHAT_BACK, fwd=30, window=600, log=True)   # チャットのふだんは前が広い
         for t, total, parts in out:
             ref_a = wt_full * a[t] + wt_band * b[t]
             ref = (ref_a + c[t + 11]) * excite.ramp(t, 180)

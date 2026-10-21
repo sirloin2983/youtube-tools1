@@ -1013,6 +1013,7 @@ class RecState:
                 "moodShifts": self.mood_shifts, "provisional": self.fast is not None,   # 雰囲気の変わり目の数・仮の候補を出しているか
                 "lateFrom": self.late_from,   # 録画の途中から測り始めた秒(それより前の候補は無い)
                 "thr": round(self.book.thr, 3), "thrBase": self.thr_base, "audioOnly": self.audio_only(),   # 今のしきい値・感度のしきい値・音だけか(AUDIO_ONLY_SCALE)
+                "chatBack": self.online.ch_chat.back if self.online.ch_chat else None,   # 印: チャットのふだんの前の幅(決定 3-135。無い記録は 270)
                 "peaks": self.book.list(), "changes": ch}
 
     def save(self, now, peaks=True):

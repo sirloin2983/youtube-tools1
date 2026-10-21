@@ -3,7 +3,7 @@
 決まり:
 - **一括の関数(smooth・local_baseline・robust_scale・audio_score・chat_z・estimate_lag・pick_clips …)は式・加算の順・丸めを変えない**。
   アーカイブの結果(候補・series)が golden と完全に一致することを tests/pipeline/analyze/test_excite.py の golden が確かめる。式を直すときは golden も作り直す(src/eval/tools/eval_marks.py の数字と比べられなくなるので WORKLOG に書く)
-- 配信中は「未来を見る量」だけが違う(notes:plan/line-d-live-clipping.md の 0-10-2): ふだん = 前 back 秒・後 fwd 秒の中央値(アーカイブは 150/150、配信中は 270/30)、
+- 配信中は「未来を見る量」だけが違う(notes:plan/line-d-live-clipping.md の 0-10-2): ふだん = 前 back 秒・後 fwd 秒の中央値(アーカイブは 150/150、配信中は 270/30。チャットだけはアーカイブ 600/600・配信中 1170/30 = CHAT_HALF・ONLINE_CHAT_BACK)、
   跳ね上がりの尺度 = 直近 window 秒の MAD(アーカイブは全体)。これを持つのが Online(1 秒ずつ足す。一括の答え合わせは test_excite の windowed_scores)
 - 候補の帳簿 PeakBook: 山の確定(0-10-3 の 5)・1 時間の枠と入れ替え(0-10-3 の 6)・採用と見送りの除外。純粋(時計・ファイルを持たない)で、JSON にして起動し直しに耐える。
   配信中だけの足し(どれも呼ばなければ候補は同じ): しきい値を上げる区間 thr_scale(雰囲気の変わり目 MoodShift のあと 60 秒は 1.3 倍。0-10-5)・
@@ -37,6 +37,12 @@ STEP = 10   # ふだんの中央値を取る間隔(秒)。local_baseline の ste
 AUDIO_PARTS = ((3, 0.6), (3, 0.4))   # 音の点数の (ならす幅(秒), 重み): 全帯域・高音域(笑い声・叫び)の順
 AUDIO_FLOOR = 1.5                    # 音の跳ね上がりの尺度の下限(robust_scale の floor)
 CHAT_SMOOTH, CHAT_FLOOR = 9, 0.25    # チャットの活気: ならす幅(秒)・尺度の下限
+# チャットの「ふだん」を取る幅(10-22 heatmap = よく再生された所 45 本で選んだ。決定 3-135): 前後 150 秒 → 600 秒(アーカイブ)・
+# 配信中は前 270 秒 → 1170 秒(後ろは ONLINE_FWD のまま = 候補の遅れは変わらない)。狭いとチャットの多い場面が続くと「ふだん」が追いついて山が消える。
+# 音のふだんは今のまま(広げても良くならなかった)。スイッチ: 2 つを 150・ONLINE_BACK に戻すと前の式(golden は作り直し)。
+# 印: archive の解析の記録 chatHalf・配信中の peaks.json の chatBack
+CHAT_HALF = 600
+ONLINE_CHAT_BACK = 1170
 PICK_SMOOTH = 5                      # 山を探す前に合計をならす幅(秒)
 LEVEL_SMOOTH = 3                     # 区間を静かな所へ合わせる前に音量をならす幅(秒)
 SNAP_RADIUS = 4                      # 静かな所を探す前後の秒数(snap_quiet)
@@ -116,9 +122,9 @@ def audio_score(full_db, band_db):
 
 
 def chat_z(act):
-    """チャットの活気(9秒平均)が「ふだん」からどれだけ増えたか(ずらす前)。"""
+    """チャットの活気(9秒平均)が「ふだん」(前後 CHAT_HALF 秒)からどれだけ増えたか(ずらす前)。"""
     x = [math.log1p(v) for v in smooth(act, CHAT_SMOOTH)]
-    base = local_baseline(x)
+    base = local_baseline(x, half=CHAT_HALF)
     dev = [a - b for a, b in zip(x, base)]
     sc = robust_scale(dev, CHAT_FLOOR)
     return [max(0.0, min(CAP, d / sc)) for d in dev]
@@ -409,7 +415,7 @@ class _Channel:
             self.sm[i] = math.log1p(s) if self.log else s
             p = (i - self.fwd)
             if p >= 0 and p % self.step == 0:   # 点 p の中央値が取れる(sm[p+fwd] が確定した)
-                self.med[p] = median([self.sm[k] for k in range(max(0, p - self.back), p + self.fwd + 1)])
+                self.med[p] = median([self.sm[k] for k in range(max(0, p - self.back), p + self.fwd + 1) if k in self.sm])   # 無い秒 = 窓を広げる前の版の保存から続けた(その間だけ狭い窓)
         out = []
         while True:
             t = self.next_out
@@ -450,16 +456,17 @@ class _Channel:
 
 class Online:
     """配信中の合計の点数を 1 秒ずつ足す。audio_score(全体 0.6 + 高音域 0.4。floor 1.5 = AUDIO_PARTS・AUDIO_FLOOR)と
-    chat_z(9 秒平均・log1p・floor 0.25 = CHAT_SMOOTH・CHAT_FLOOR)の窓つき版を合わせ、
+    chat_z(9 秒平均・log1p・floor 0.25 = CHAT_SMOOTH・CHAT_FLOOR。ふだんは前 chat_back 秒 = ONLINE_CHAT_BACK)の窓つき版を合わせ、
     チャットは lag 秒だけ前へずらし(t の値 = chat[t+lag])、重み(w_audio・w_chat)で足して head_ramp をかける。
     push(full, band, act) -> [(秒, 合計, {"audio": 音の点数, "chat": チャットの点数, "chatRaw": ずらす前のその秒のチャットの点数})]
     (新しく確定した秒。遅れは fwd + step + 4 + lag 秒ほど。chatRaw は遅れの推定 estimate_lag 用)。
     lag は set_lag で途中から変えられる(過去の秒は出し直さない)。to_json / load で途中から続けられる。"""
 
-    def __init__(self, back=ONLINE_BACK, fwd=ONLINE_FWD, window=ONLINE_WINDOW, step=STEP, lag=8, w_audio=1.0, w_chat=1.0, head=180, use_chat=True):
+    def __init__(self, back=ONLINE_BACK, fwd=ONLINE_FWD, window=ONLINE_WINDOW, step=STEP, lag=8, w_audio=1.0, w_chat=1.0, head=180, use_chat=True,
+                 chat_back=ONLINE_CHAT_BACK):
         self.ch_full = _Channel(AUDIO_FLOOR, AUDIO_PARTS[0][0], back, fwd, window, step)
         self.ch_band = _Channel(AUDIO_FLOOR, AUDIO_PARTS[1][0], back, fwd, window, step)
-        self.ch_chat = _Channel(CHAT_FLOOR, CHAT_SMOOTH, back, fwd, window, step, log=True) if use_chat else None
+        self.ch_chat = _Channel(CHAT_FLOOR, CHAT_SMOOTH, chat_back, fwd, window, step, log=True) if use_chat else None
         self.lag = int(round(lag))
         self.w_audio, self.w_chat, self.head = float(w_audio), float(w_chat), int(head)
         self.full, self.band, self.chat = {}, {}, {}   # 確定したが、まだ合計にしていない秒
