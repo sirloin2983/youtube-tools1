@@ -41,8 +41,8 @@
   - 名前: `media_info` :26・`media_info_known` :40・`remember_media_info` :45
 - **names.py** (175 行) — 書き出しの名前の規則(スタジオの書き出し src/pipeline/export/exporter.py と、ライブの書き出し src/flow/live_export.py が同じ規則を読む。
   - 名前: `compact_ts` :28・`safe_name` :34・`is_reserved` :40・`path_units` :44・`trim_units` :49・`read_owner` :58・`write_owner` :69・`find_folder` :87・`pick_folder` :102・`unique_base` :122・`clip_base` :136・`next_clip_number` :149・ほか 3
-- **normalize.py** (387 行) — 素材を 30fps にそろえる(Q1。notes:plan/line-bc-master-plan.md。ユーザー決定)。
-  - 名前: `class NormalizeError` :53・`class Cancelled` :57・`fps_filter` :61・`video_args` :67・`encode_args` :74・`gpu_encoder` :106・`encode_tries` :119・`video_ok` :126・`legacy_args` :135・`is_fps_mode_error` :144・`probe` :172・`is_30fps` :208・ほか 9
+- **normalize.py** (405 行) — 素材を 30fps にそろえる(Q1。notes:plan/line-bc-master-plan.md。ユーザー決定)。
+  - 名前: `class NormalizeError` :61・`class Cancelled` :65・`fps_filter` :69・`use_prev` :75・`enc_set` :80・`video_args` :85・`encode_args` :92・`gpu_encoder` :124・`encode_tries` :137・`video_ok` :144・`legacy_args` :153・`is_fps_mode_error` :162・ほか 11
 - **pick.py** (97 行) — PC の標準の「ファイルを選ぶ」「フォルダを選ぶ」の窓(画面の「参照…」)。
   - 名前: `class PickError` :40・`class PickBusy` :44・`initial_dir` :48・`pick` :71
 - **procs.py** (200 行) — 外部コマンドの子プロセスの管理(標準ライブラリだけ)。

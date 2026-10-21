@@ -27,7 +27,7 @@
 ## src/pipeline/export/
 
 - **__init__.py** (2 行) — ① 書き出し: 区間 → 動画(exporter)・サムネの案の絵(thumb_cards)
-- **exporter.py** (1047 行) — ③ 書き出し(クリップマーカー cm/serve.py 由来): store の動画・マークから ffmpeg / yt-dlp でクリップを mp4 にする。
+- **exporter.py** (1049 行) — ③ 書き出し(クリップマーカー cm/serve.py 由来): store の動画・マークから ffmpeg / yt-dlp でクリップを mp4 にする。
   - 名前: `class ExportError` :51・`log_export` :55・`reason` :71・`verify_output` :78・`pick_folder` :87・`promote` :96・`drop_partial` :113・`clean_partials` :119・`check_section_path` :215・`build_section_spec` :236・`spec_from_video` :262・`new_result` :314・ほか 13
 - **thumb_cards.py** (174 行) — サムネの案の描く部分(提案 P5 の S。notes:plan/thumb-ideas.md の 7・8)。ffmpeg で動画から 1 枚ずつ切り取って文字を載せ、6 案を 1 枚の PNG にまとめる。
   - 名前: `class ThumbError` :21・`ffmpeg_path` :28・`probe` :35・`loud_times` :44・`scene_times` :59・`font_path` :68・`fpath` :75・`text_filter` :80・`card_filters` :89・`crop_box` :119・`render_card` :137・`tile` :152・ほか 1

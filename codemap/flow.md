@@ -21,8 +21,8 @@
   - 名前: `outbox_ok` :42・`safe_name` :49・`request_id` :53・`delivery_name` :58・`face_origin` :63・`meta_path_for` :73・`meta_doc` :85・`write_meta_json` :97・`unique_zip` :103・`zip_packs` :111・`preview_path_for` :147・`place_preview` :152・ほか 2
 - **deliveries.py** (187 行) — ② 管理の層 flow: 友人へ届けた記録(入口の作業データの logs/deliveries.jsonl)の読み口(OPT-M2。notes:plan/done/opt-manage.md の 7x-2)。
   - 名前: `record` :23・`origin_of` :39・`rows` :47・`delivered_requests` :69・`pack_name` :84・`delivered_marks` :92・`record_not_sent` :148・`not_sent_marks` :159
-- **delivery.py** (380 行) — ② 友人へ届ける: まとめて実行の「Dropbox へ届ける」段と、置けなかった自動の分の溜め(まとめて実行 AutoRunner が継ぐ mixin)。
-  - 名前: `switched_off` :55・`class Delivery` :82
+- **delivery.py** (393 行) — ② 友人へ届ける: まとめて実行の「Dropbox へ届ける」段と、置けなかった自動の分の溜め(まとめて実行 AutoRunner が継ぐ mixin)。
+  - 名前: `switched_off` :55・`class Delivery` :95
 - **diar.py** (299 行) — ② 管理の層 flow: 話者判別と声の段取り(RS6 a-4。決定 3-29)。
   - 名前: `models_ready` :29・`default_embedding` :40・`embedding` :45・`embeddings` :50・`diarize` :56・`assign` :86・`record_run` :110・`record_single` :117・`latest_run` :127・`embed` :134・`match_known_voices` :150・`voice_learn_rows` :163・ほか 10
 - **envelope.py** (170 行) — ② 管理の層 flow: 依頼の封筒(RS7-1 S3。決定 3-30・notes:plan/done/f1-friend-pc.md の決めたこと 9)。
@@ -84,7 +84,7 @@
 - **prio.py** (88 行) — ② 管理の層 flow: 処理の優先度の表(PRIO。決定 3-49・notes:plan/done/opt-series.md の 11)。
   - 名前: `name_ok` :35・`rank` :39・`idle_only` :43・`os_priority` :47・`label` :51・`slot_kw` :55・`of_run` :60・`of_spec` :69・`watch` :80・`idle_now` :85
 - **retention.py** (9 行) — ② 管理の層 flow: 物の終わりの日数の 1 か所(方針の数)。ユーザーのツールと友人のアプリが同じ値を読む。
-- **run.py** (1698 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
+- **run.py** (1699 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
   - 名前: `class Cancelled` :124・`class StepError` :128・`mode_of` :147・`steps_of` :181・`analyze_verdict` :225・`chat_missing` :243・`chat_retry_ok` :249・`stream_ended_at` :257・`redo_reason` :270・`short_why` :288・`adopted_ids` :300・`tx_verdict` :305・ほか 5
 - **runlog.py** (93 行) — まとめて実行の「終わった実行の記録」の形と読み方(RS3-0B)。
   - 名前: `read_runs_log` :47・`read_result` :77
