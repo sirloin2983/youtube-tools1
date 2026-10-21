@@ -42,6 +42,7 @@ from . import board as _board   # ② のジョブの掲示板(RS8 の ② の�
 from . import envelope as _envelope
 from . import live_adopt   # 採用 = マーク + 書き出し(M1。RS7-2 G1b)
 from . import live_archive   # 録画に無い区間をアーカイブから書き出す・配信後の全自動(M7)
+from . import chatreuse as _chatreuse   # ライブで取ったチャットの使い回し(決定 3-117)
 from . import live_detect   # 配信中の盛り上がりの検出と自動の採用。線 D の L2・M11
 from . import live_export as LX   # マークと書き出し。P2
 from . import live_failures   # 失敗の集約。M3・M7
@@ -578,6 +579,12 @@ class LiveSession:
                                              exported=lambda job, media, archived=False: self.marks.exported(job, media, archived))   # マークを「書き出し済み」に
                 self._exporter.attach_board(self.board)
             return self._exporter
+
+    def chat_for(self, vid):
+        """URL の依頼・まとめて実行の解析に渡す、ライブで取ったチャット(flow/chatreuse が on のときだけ。残したファイルが無ければアーカイブを調べない)-> パス か None"""
+        if not vid or _chatreuse.mode_now(self.store_dir) != "on" or not _chatreuse.files_of(self.store_dir, vid):
+            return None
+        return self.archiver.chat_for(vid)
 
     @property
     def archiver(self):

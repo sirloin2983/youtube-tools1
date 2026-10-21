@@ -648,6 +648,7 @@ class Runner:
         self.closed = False   # 入口の終了(_check が止める)
         self._chat_retry = {}   # 動画 ID -> {"item", "settings", "due", "tries"}: チャットのリプレイを取り直す待ち(メモリだけ。chat_retry_tick)
         self._chat_retry_lock = threading.Lock()
+        self.live_chat = None   # hook: live_chat(動画 ID) -> ライブで取ったチャット(リプレイの形)のパス か None(入口がライブ係の chat_for を入れる。決定 3-117)
 
     # ------------------------------------------------------------ hook(既定 = 何も知らない。src/app/autorun.py の AutoRunner が埋める)
     def _await_tools(self, run):
@@ -1024,7 +1025,10 @@ class Runner:
             run.friend_length = fl
         if self._fill_top(run):   # 山がしきい値を超える数が採用の上限に届かなければ、しきい値の下の山で埋める(印 fill・pipeline/analyze/excite.pick_clips)
             saved["fill"] = self._fill_top(run)
-        res = self.tools.analyze_add(item, saved)
+        chat = self._live_chat_file(item)
+        res = self.tools.analyze_add(dict(item, chatFile=chat) if chat else item, saved)
+        if chat:
+            st["chatReuse"] = True   # 印: ライブで取ったチャットを渡した(リプレイを取らない)
         added = res.get("added") or []
         qid = added[0]["qid"] if added else None
         if not qid:
@@ -1050,6 +1054,16 @@ class Runner:
         # 人が入れた解析(qid なし)を待つときは自分の仕事にしない・中止しても止めない(この実行が入れた解析だけ取り消す)
         self._poll(run, ("studio", [qid]) if qid else None, read, (lambda: self._cancel_analysis(qid)) if qid else None)
         return saved   # 送った設定(チャットの取り直しが同じ設定で解析し直す)
+
+    def _live_chat_file(self, item):
+        """配信の解析に渡すライブで取ったチャット(どれを渡すかはライブ係 = flow/chatreuse・live_archive が決める)。分からない・失敗は None = リプレイを取る今の形"""
+        if self.live_chat is None or item.get("kind") != "youtube" or not item.get("videoId"):
+            return None
+        try:
+            return self.live_chat(item["videoId"])
+        except Exception as e:   # noqa: BLE001  使い回せなくても解析は今の形で進める
+            self.log("ライブのチャットを使えませんでした(%s): %s" % (item["videoId"], e))
+            return None
 
     def _cancel_analysis(self, qid):
         """スタジオの解析のキューの1件を取り消し(POST /api/queue/cancel)、止まるまで待つ(CANCEL_WAIT 秒まで)。
