@@ -189,7 +189,7 @@ class FasterWhisper(Engine):
 DTW_ENV = "TRANSCRIBE_WCPP_DTW"   # スイッチ: 0 で今の形(単語の時刻をトークンの時刻のまま)。既定オン(10-21 ユーザー「友人用にも入れていい」)
 DTW_MODELS = {"large-v3": "large.v3"}   # -dtw に渡す名前(モデルごと。表に無いモデルではかけない)
 DTW_SHIFT = 0.1                   # DTW の単語の始まりを前へずらす秒(DTW は約 0.1 秒遅れる。0.05・0.15 と比べて全部の行の ±0.2 秒以内がいちばん高い)
-DTW_SPREAD = 0.2                  # 1 つの行の DTW の時刻の広がりが行の長さのこの割合より狭ければ、固まった(崩れた)とみなして行ごと今の時刻
+DTW_SPREAD = 0.15                 # 2 秒より長い行の DTW の時刻がこの秒より狭く固まっていたら、崩れたとみなして行ごと今の時刻
 DTW_TOL = 1.0                     # 行の範囲の前後この秒の外の DTW の時刻は崩れとみなす
 WHISPER_CPP = {"version": _txbase.WCPP_VERSION, "commit": "927cfce34f31707e17f2bff35c349632fb9e2c3a", "repo": "https://github.com/ggml-org/whisper.cpp.git"}
 # 種類 -> 公式の配布の zip。cuda = リリース b5130(タグ v1.9.4 と同じコミット 927cfce)の whisper-cublas-12.4.0-bin-x64.zip(CUDA ランタイムの DLL 込みの大きさ)。
@@ -635,13 +635,13 @@ def _dtw_start(tok, a, prev, seg_from, seg_to, shift, dur=None):
 
 
 def _dtw_collapsed(seg, a, b, dur):
-    """1 つの行の DTW の時刻が 1 か所に固まっている(行の長さの DTW_SPREAD 未満に 2 個以上が集まる・行が 1 秒より長い)か。
+    """1 つの行の DTW の時刻が 1 か所に固まっている(2 個以上が DTW_SPREAD 秒の中に集まる・行が 2 秒より長い)か。
     音のほとんど無い動画で、行の単語の t_dtw が全部その行の終わり近くの同じ時刻になった(12 秒の動画で 4 単語とも 11.86 秒 = 行が 0.1 秒に縮んだ)"""
-    if a is None or b is None or b - a <= 1.0:
+    if a is None or b is None or b - a <= 2.0:
         return False
     ts = [t["t_dtw"] / 100.0 for t in seg.get("tokens") or [] if isinstance(t, dict) and not str(t.get("text") or "").startswith("[_")
           and isinstance(t.get("t_dtw"), (int, float)) and t["t_dtw"] >= 0]
-    return len(ts) >= 2 and max(ts) - min(ts) < DTW_SPREAD * (b - a)
+    return len(ts) >= 2 and max(ts) - min(ts) < DTW_SPREAD
 
 
 def parse_json(data, dtw_shift=None, dtw_counts=None, duration=None):
