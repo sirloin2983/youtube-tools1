@@ -41,7 +41,7 @@
   - 名前: `run_ranges` :73・`friend_ranges` :81・`read_archive` :92・`load_archive` :109・`candidates` :119・`peak_ratio` :143・`samples` :155・`suggest` :172・`compute` :195・`usable` :215・`describe` :225・`change` :237・ほか 1
 - **live_adopt.py** (276 行) — ライブの採用 = サーバー側の「マーク + 書き出し」(線 D の M1。RS7-2 G1b)。
   - 名前: `adopt_secs` :42・`pad_secs` :63・`top_of` :75・`class StudioMarks` :85・`class LocalMarks` :128・`class Adopter` :220
-- **live_archive.py** (1573 行) — 録画に無い区間をアーカイブ(YouTube)から書き出す(線 D の P4 の残り。notes:plan/line-d-live-clipping.md の 0-9)と、配信後の全自動(M7)の入口の側の中身。
+- **live_archive.py** (1600 行) — 録画に無い区間をアーカイブ(YouTube)から書き出す(線 D の P4 の残り。notes:plan/line-d-live-clipping.md の 0-9)と、配信後の全自動(M7)の入口の側の中身。
   - 名前: `from_archive` :148・`needs_archive` :153・`class ArchiveError` :159・`class Later` :163・`run_proc` :172・`probe_archive` :204・`readiness` :246・`fetch_full_audio` :264・`worker_python` :294・`run_align` :299・`inside` :313・`ended_at` :319・ほか 5
 - **live_detect.py** (765 行) — 配信中の盛り上がりの検出(線 D の L2)と自動の採用(M11)の入口の側。計画は notes:plan/line-d-detect.md(3 の「候補の API の約束」は線 2 = スタジオの画面との境目。変えない)。
   - 名前: `clean_spec` :83・`overlay` :97・`merge_spans` :117・`measured_holes` :128・`class Detector` :148
@@ -63,8 +63,8 @@
   - 名前: `channel_regions` :37・`live_row` :55・`live_list` :150
 - **livehost.py** (87 行) — ライブの親(host)の口(RS7-2 G0)。
   - 名前: `class RequestBook` :25・`class MarkBook` :37・`class LiveHost` :47
-- **livesession.py** (1159 行) — ② 管理の層 flow: ライブ係(RS7-2 G2b。notes:plan/done/f1-friend-pc.md)。
-  - 名前: `validate_url` :80・`probe_live` :108・`rec_view` :136・`recorder_data_dir` :152・`is_local_url` :165・`stream_url` :173・`live_envelope` :179・`cfg_bundle` :189・`now_bundle` :210・`request_bundle` :229・`request_settings` :262・`speakers_of` :269・ほか 4
+- **livesession.py** (1166 行) — ② 管理の層 flow: ライブ係(RS7-2 G2b。notes:plan/done/f1-friend-pc.md)。
+  - 名前: `validate_url` :81・`probe_live` :109・`rec_view` :137・`recorder_data_dir` :153・`is_local_url` :166・`stream_url` :174・`live_envelope` :180・`cfg_bundle` :190・`now_bundle` :211・`request_bundle` :230・`request_settings` :263・`speakers_of` :270・ほか 4
 - **machine.py** (303 行) — ② 管理の層 flow: この PC の設定(機械の都合)を 1 か所に(RS7-1 の S1。決定 3-30 の Q1・notes:plan/done/f1-friend-pc.md の決めたこと 8・9)。
   - 名前: `check` :68・`root` :102・`path` :107・`read_file` :119・`read_env` :136・`llm_for_vram` :163・`auto_llm` :173・`overlay_llm` :179・`explicit` :212・`load` :221・`get` :239・`save` :247・ほか 1
 - **normalize.py** (167 行) — ② 管理の層 flow: 素材を 30fps(H.264・yuv420p・AAC)にそろえる 1 つの段(OPT-M2 5b-1。決定は資料 plan/opt-manage.md の 5b)。
@@ -84,7 +84,7 @@
 - **prio.py** (88 行) — ② 管理の層 flow: 処理の優先度の表(PRIO。決定 3-49・notes:plan/done/opt-series.md の 11)。
   - 名前: `name_ok` :35・`rank` :39・`idle_only` :43・`os_priority` :47・`label` :51・`slot_kw` :55・`of_run` :60・`of_spec` :69・`watch` :80・`idle_now` :85
 - **retention.py** (9 行) — ② 管理の層 flow: 物の終わりの日数の 1 か所(方針の数)。ユーザーのツールと友人のアプリが同じ値を読む。
-- **run.py** (1684 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
+- **run.py** (1698 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
   - 名前: `class Cancelled` :124・`class StepError` :128・`mode_of` :147・`steps_of` :181・`analyze_verdict` :225・`chat_missing` :243・`chat_retry_ok` :249・`stream_ended_at` :257・`redo_reason` :270・`short_why` :288・`adopted_ids` :300・`tx_verdict` :305・ほか 5
 - **runlog.py** (93 行) — まとめて実行の「終わった実行の記録」の形と読み方(RS3-0B)。
   - 名前: `read_runs_log` :47・`read_result` :77

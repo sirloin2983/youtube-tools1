@@ -4,7 +4,7 @@
 今までの「合言葉が違います」「ffmpeg が見つかりません」「確認用の動画が見られない」「依頼が届かない」は、どれも配ってから友人の PC で見つかった。
 開発の PC には Python・ffmpeg・PATH・作業データ・リポジトリがそろっていて、zip に足りない物があっても気づけないため。
 
-    py -3.12 dev/friend_preflight.py [--zip Z] [--update-zip U] [--work W] [--keep] [--skip-update] [--break ffmpeg] [--timeout-min 25]
+    py -3.12 dev/friend_preflight.py [--zip Z] [--update-zip U] [--work W] [--keep] [--skip-update] [--break ffmpeg] [--break-update N] [--timeout-min 25]
 
 --zip が無ければ dev/build_friend_zip.py の build で今のコードから作る(キャッシュの物だけ = --no-fetch と同じ)。
 --update-zip は 10 の更新に使う全部入りの zip(既定は --zip と同じ物)。前の形の zip(--zip)から今の build(--update-zip)へ上がる確かめに使う。
@@ -29,6 +29,11 @@
  10. 更新: 版を上げた全部入りの zip と軽い zip(-light。python/・tools/ なし)と light 付きの latest.json を偽の /更新/ に置き → 取って app-<版>\\ へ
      (軽い更新に応じる版は light だけを取り python/ を今の python から写す・前の形の版は全部入りを取る)→ [更新する] → exe が入れ替えて新しい版で開き直す(--skip-update で飛ばす)
  11. 片付け: [すべて止めて終了] と同じ /api/shutdown → exe と子・孫(Python・ffmpeg・whisper.cpp・WebView2)が残らない。合格なら一時フォルダを消す(--keep で残す)
+--break-update N(1 か 2)は戻りの確かめ用: 更新の新しい版を N 版続けて起動できない形(src/friendapp/server.py の先頭に raise SystemExit(7)・manifest の SHA-256 は直す)にして
+  置く。[更新する] のあと exe が新しい方から順に起こそうとして失敗 → bad に足す → 元の版で開き直す。確かめるのは、元の版で開く・app-versions.json の bad と current・
+  送り返しの箱(と Dropbox の /診断/)に exe の start(bad・installed つき)と Python の rollback(fromVersions・toVersion)がある・画面の帯に戻った知らせ。
+--youtube URL は本物の YouTube で試す形: 通信の差し替えは Dropbox と取得元のほかを本物へ通し、疑似モードにしない。初回の準備のあと、その URL の区間 2 つ(REAL_RANGES)を
+  頼み、同梱の yt-dlp・ffmpeg・文字起こしで作って届くまでの秒・進み具合の移り・再生・診断を見る(ログイン・動画ファイル・更新は試さない)。
 --break ffmpeg は検査が効くかの確かめ用: 展開した写しの fetch.json から ffmpeg の行を消す(= ffmpeg を取れない zip と同じ)。初回の準備で落ちるのが正しい。
 音は出さない(exe は YTT_FRIEND_SHOTS で WebView2 を消音・<video> は muted)・窓は画面の外・子プロセスは黒い窓を出さない・止めるのは自分が起こした PID だけ。
 終了コード 0 合格 / 1 不合格 / 2 引数・前提が無い(Playwright・キャッシュ・モデル)
@@ -66,6 +71,7 @@ WORK_MAX = 60   # 一時フォルダのパスの長さの上限(下の run)
 ROOT_FILES = (bfz.LAUNCHER_EXE,) + bfz.LAUNCHER_DLLS + ("fetch.json", "manifest.json", "members.json")
 TOOL_EXES = ("ffmpeg/ffmpeg.exe", "ffmpeg/ffprobe.exe", "yt-dlp/yt-dlp.exe", "deno/deno.exe")   # 浅く置いた道具(friendapp/places.lay_tools_shallow)
 STREAMER = "星街すいせい"   # 名簿 members.json にいる名前(ファイル名の頭の【】から配信者を推す)
+BROKEN_HEAD = b"raise SystemExit(7)\n"   # --break-update: 起動できない版(Python がすぐ終わる)
 DBX_DIRS = ("出力", "送り返し", "更新", "学習", "診断")
 CHILD_FLAGS = _ytools.no_window_flags()
 TASKKILL = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "taskkill.exe")
@@ -186,17 +192,18 @@ def mirror_map(fetch, cache, rep):
     return out
 
 
-def lay_shim(app, work, mirror):
-    """展開した写しの python に通信の差し替えを置き、設定の JSON を書く -> 設定のパス"""
+def lay_shim(app, work, mirror, net=False):
+    """展開した写しの python に通信の差し替えを置き、設定の JSON を書く -> 設定のパス(net = Dropbox と取得元のほかは本物へ通す)"""
     site = os.path.join(app, "python", "Lib", "site-packages")
     shutil.copy2(SHIM_SRC, os.path.join(site, "sitecustomize.py"))
     conf = os.path.join(work, "shim.json")
     with open(conf, "w", encoding="utf-8") as f:
-        json.dump({"mirror": mirror, "dropbox": os.path.join(work, "dropbox"), "log": os.path.join(work, "net.log")}, f, ensure_ascii=False, indent=1)
+        json.dump({"mirror": mirror, "dropbox": os.path.join(work, "dropbox"), "log": os.path.join(work, "net.log"), "net": net}, f,
+                  ensure_ascii=False, indent=1)
     return conf
 
 
-def friend_env(work, cdp_port, shim_conf):
+def friend_env(work, cdp_port, shim_conf, fake=True):
     """友人の PC と同じくらい何も無い環境変数(開発の PATH・YTT_*・Python の変数を渡さない)"""
     win = os.environ.get("SystemRoot", r"C:\Windows")
     prof = os.path.join(work, "home")
@@ -218,8 +225,9 @@ def friend_env(work, cdp_port, shim_conf):
         "YTT_FRIEND_SHOT_STEPS": os.path.join(work, "steps.json"),   # 手順 = 長く待つだけ(写真は撮らない。つないで調べる間、窓を開けておく)
         "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": "--remote-debugging-port=%d" % cdp_port,
         SHIM_ENV: shim_conf,
-        "STUDIO_FAKE": "1", "STUDIO_FAKE_MEDIA": fake_media(work),   # URL の依頼(区間 5 つ)は YouTube の代わりにこの動画を切る(7b。動画ファイルの依頼には効かない)
     })
+    if fake:   # URL の依頼(区間 5 つ)は YouTube の代わりにこの動画を切る(7b。動画ファイルの依頼には効かない)
+        env.update({"STUDIO_FAKE": "1", "STUDIO_FAKE_MEDIA": fake_media(work)})
     return env
 
 
@@ -245,7 +253,7 @@ def make_work(work, zip_path, args, rep):  # lint: long 置き場所を作る一
         json.dump({"appKey": "preflight", "refreshToken": "preflight"}, f)
     place_models(fetch, app, datadir.data_root(), rep)
     mirror = mirror_map(fetch, args.cache, rep)
-    shim = lay_shim(app, work, mirror)
+    shim = lay_shim(app, work, mirror, net=bool(args.youtube))
     return {"app": app, "dropbox": os.path.join(work, "dropbox"), "man": man, "fetch": fetch, "shim": shim, "mirror": mirror}
 
 
@@ -412,7 +420,7 @@ def check_setup(w, app, rep, timeout):
         checked = None
     rep.check("道具と文字起こしを動かして確かめた印(setup.json の checked)", bool(checked), json.dumps(checked, ensure_ascii=False)[:300])
     if ok:
-        page_ok = wait_for(lambda: "/friend/" in w.page.url and "setup" not in w.page.url, 60, every=1)
+        page_ok = wait_for(lambda: "/friend/" in w.page.url and "setup" not in w.page.url, 120, every=1)   # 準備の終わりの画面の移りは重いと 60 秒を超えることがある
         st, j = w.api("GET", "/api/friend/setup")
         vis = w.eval("() => [document.visibilityState, document.hasFocus()]")
         rep.check("準備が済んだら送る画面へ移る", bool(page_ok), "%s done=%s 見え方=%s" % (w.page.url, (j or {}).get("done"), vis))
@@ -588,6 +596,45 @@ def send_five(w, app, work, rep, timeout):
     return r
 
 
+REAL_RANGES = [[600, 630], [1200, 1230]]   # --youtube の区間(本物の配信の頭の 10 分・20 分)
+
+
+def send_real(w, url, rep, timeout):
+    """--youtube: 本物の YouTube の区間 2 つを友人と同じ形で頼む(同梱の yt-dlp・ffmpeg・文字起こし)→ 届いて再生できる -> 行か None"""
+    t0 = time.time()
+    st, j = w.api("POST", "/api/friend/send", {"url": url, "ranges": REAL_RANGES, "streamer": STREAMER, "people": [], "videoTracks": 1})
+    row = (j or {}).get("row") or {}
+    if not rep.check("本物の YouTube: 区間の依頼を送れる", st == 200 and row.get("id"), j):
+        return None
+    rid, got = row["id"], {}
+
+    def finished():
+        w.watch_tree()
+        st, j = w.api("GET", "/api/friend/inbox")
+        r = next((x for x in (j or {}).get("rows") or [] if x.get("id") == rid), None)
+        if r:
+            got["row"] = r
+            got.setdefault("seen", []).append((round(time.time() - t0), r.get("state"), (r.get("steps") or {}).get("text") if isinstance(r.get("steps"), dict) else ""))
+        return r is not None and r.get("state") in ("arrived", "failed", "done")
+    wait_for(finished, timeout, every=5)
+    r = got.get("row") or {}
+    steps, last = [], None
+    for x in got.get("seen") or []:
+        if x[1:] != last:
+            steps.append(x)
+            last = x[1:]
+    rep.info("本物の YouTube: 進み具合の移り(秒・状態・表示)", steps)
+    if not rep.check("本物の YouTube: ② が処理して届いた(%.0f 秒)" % (time.time() - t0), r.get("state") == "arrived", "%s %s" % (r.get("state"), r.get("error") or "")):
+        return r
+    mine = lambda: [it for it in receive_items(w) if it.get("id") == rid]   # noqa: E731
+    items = wait_for(lambda: (lambda x: x if len(x) == len(REAL_RANGES) and all(it.get("preview") for it in x) else None)(mine()), 180, every=4) or mine()
+    rep.check("本物の YouTube: 受け取る画面に 2 本そろう(確認用の動画つき)", len(items) == len(REAL_RANGES) and all(it.get("preview") for it in items),
+              [(it.get("num"), it.get("seconds"), it.get("preview")) for it in items])
+    for it in items[:1]:
+        check_play(w, it, "本物の YouTube", rep)
+    return r
+
+
 # ---------------------------------------------------------------- 8 届く物・再生
 def probe(app, path):
     """同梱の ffprobe で 1 本目の映像と音 -> {vcodec, pix, h, acodec}"""
@@ -694,14 +741,19 @@ def check_diag(work, rep):
     """診断の記録(notes:docs/spec/friend.md の 13-11): 依頼の分(kind run)が /診断/ に上がり、ユーザー名を含まない。
     診断の仕組みの無い zip(0.99.20 より前)は情報だけ"""
     d = os.path.join(work, "dropbox", "診断")
-    got = wait_for(lambda: [n for n in os.listdir(d) if n.endswith(".diag.json")] if os.path.isdir(d) else None, 200, every=4) or []
+
+    def read():
+        names = [n for n in os.listdir(d) if n.endswith(".diag.json")] if os.path.isdir(d) else []
+        docs = []
+        for n in names:
+            with open(os.path.join(d, n), encoding="utf-8") as f:
+                docs.append(f.read())
+        return names, docs
+    wait_for(lambda: any(json.loads(t).get("kind") == "run" for t in read()[1]), 200, every=4)   # 合言葉などの診断が先に上がることがある
+    got, docs = read()
     if not got and not os.path.isfile(os.path.join(work, "FriendApp", "src", "friendapp", "diag.py")):
         rep.info("診断の記録", "この zip には診断の仕組みが無い(friendapp/diag.py)")
         return
-    docs = []
-    for n in got:
-        with open(os.path.join(d, n), encoding="utf-8") as f:
-            docs.append(f.read())
     kinds = sorted({(json.loads(t).get("kind") or "") for t in docs})
     rep.check("診断の記録 .diag.json(依頼の分 run)が /診断/ に上がる", "run" in kinds, kinds)
     user = os.path.basename(os.path.expanduser("~")).lower()
@@ -714,9 +766,10 @@ def bump(ver):
     return "%d.%d.%d" % (a, b, c + 1)
 
 
-def make_update(zip_path, work, new_ver):
+def make_update(zip_path, work, new_ver, broken=False):
     """版を上げた全部入りの zip と軽い zip(src/ytt/version.py だけ書き換え・差し替えの sitecustomize.py を足す = 入れ替えた後も偽の通信のまま。
-    軽い方は manifest の files が同じで python/・tools/ を入れない)と light 付きの latest.json を偽の /更新/ へ"""
+    軽い方は manifest の files が同じで python/・tools/ を入れない)と light 付きの latest.json を偽の /更新/ へ。
+    broken = 起動できない版(src/friendapp/server.py の先頭で終了コード 7。manifest のハッシュも直す = 直さないと sync が弾く)"""
     folder = os.path.join(work, "dropbox", "更新")
     name, lname = "%s-%s.zip" % (bfz.ZIP_PREFIX, new_ver), "%s-%s-light.zip" % (bfz.ZIP_PREFIX, new_ver)
     shim_rel = "python/Lib/site-packages/sitecustomize.py"
@@ -731,6 +784,9 @@ def make_update(zip_path, work, new_ver):
             data = zi.read(info.filename)
             if info.filename == "src/ytt/version.py":
                 data = re.sub(rb'^VERSION\s*=\s*"[^"]+"', ('VERSION = "%s"' % new_ver).encode("ascii"), data, count=1, flags=re.M)
+                man["files"][info.filename] = hashlib.sha256(data).hexdigest()
+            if broken and info.filename == "src/friendapp/server.py":
+                data = BROKEN_HEAD + data
                 man["files"][info.filename] = hashlib.sha256(data).hexdigest()
             zo.writestr(info, data)
             if not info.filename.startswith(bfz.LIGHT_SKIP):
@@ -765,25 +821,85 @@ def update_downloads(work):
     return out
 
 
-def check_update(w, app, work, zip_path, old_ver, rep, timeout):  # lint: long 更新の一続き(置く → 取る → 入れ替える → 新しい版で開く)
-    new_ver = bump(old_ver)
-    make_update(zip_path, work, new_ver)
+def bump_n(ver, n):
+    for _ in range(n):
+        ver = bump(ver)
+    return ver
+
+
+def diag_docs(work):
+    """送り返しの箱と偽の Dropbox の /診断/ にある診断(.diag.json)-> {ファイル名: 中身}(箱から Dropbox へ上がった物は名前で重ねる)"""
+    out = {}
+    for d in (os.path.join(work, "FriendApp", "data", "app", "outbox"), os.path.join(work, "dropbox", "診断")):
+        for n in sorted(glob.glob(os.path.join(d, "*.diag.json"))):
+            try:
+                with open(n, encoding="utf-8") as f:
+                    out[os.path.basename(n)] = json.load(f)
+            except (OSError, ValueError):
+                pass
+    return out
+
+
+def check_rolled_back(w, app, work, old_ver, broken, rep):
+    """壊れた新しい版を起こせず、元の版で開き直したあとの確かめ(--break-update)。broken = 壊した版(古い順)"""
+    try:
+        with open(os.path.join(app, "app-versions.json"), encoding="utf-8") as f:
+            rec = json.load(f)
+    except (OSError, ValueError):
+        rec = {}
+    rep.check("app-versions.json: current が元の版(展開したままの前の形は空)・bad が壊した版 %s" % ",".join(broken), rec.get("current") in (old_ver, "") and sorted(rec.get("bad") or []) == sorted(broken), rec)
+    tried = list(reversed(broken))   # 新しい方から起こそうとする
+
+    def docs():
+        got = diag_docs(work)
+        starts = [d for d in got.values() if d.get("kind") == "start" and d.get("stage") == "start" and d.get("exitCode") == 7]
+        rolls = [d for d in got.values() if d.get("kind") == "rollback"]
+        return (starts, rolls) if len(starts) >= len(broken) and rolls else None
+    starts, rolls = wait_for(docs, 200, every=4) or ([], [])
+    last = max(starts, key=lambda d: d.get("at") or 0) if starts else {}
+    rep.check("診断 start(exe。終了コード 7)が壊した版の数だけある・最後の行に bad と installed がある",
+              len(starts) == len(broken) and sorted(last.get("bad") or []) == sorted(broken) and set(broken) <= set(last.get("installed") or []), last)
+    rb = rolls[0] if rolls else {}
+    rep.check("診断 rollback(Python)に fromVersions %s と toVersion %s" % (tried, old_ver),
+              rb.get("fromVersions") == tried and rb.get("toVersion") == old_ver, rb)
+    st, j = w.api("GET", "/api/friend/inbox")
+    note = (j or {}).get("rollback") or ""
+    rep.check("画面の帯に戻った知らせ(新しい版 %s)" % "・".join(tried), st == 200 and all(v in note for v in tried), note)
+    rep.info("診断の中身", json.dumps({"start": last, "rollback": rb}, ensure_ascii=False)[:1500])
+
+
+def check_update_leftovers(app, old_ver, new_ver, rep):
+    """更新のあと: 片付けで python を消さない(current・previous の両方に python/python.exe)・取り残し(.tmp・.zip.part)が無い"""
+    old_root = os.path.join(app, "app-" + old_ver)   # 展開したままの zip の版は前の形(直下の python・src)= 版のフォルダが無い
+    if not os.path.isdir(old_root):
+        old_root = app
+    both = [os.path.isfile(os.path.join(r, "python", "python.exe")) for r in (old_root, os.path.join(app, "app-" + new_ver))]
+    rep.check("元の版 %s(版のフォルダか前の形)と app-%s の両方に python/python.exe がある(片付けで消さない)" % (old_ver, new_ver), all(both), both)
+    left = [n for n in os.listdir(app) if n.endswith((".tmp", ".zip.part"))]
+    rep.check("更新の取り残し(.tmp・.zip.part)が無い", not left, left)
+
+
+def check_update(w, app, work, zip_path, old_ver, rep, timeout, break_n=0):  # lint: long 更新の一続き(置く → 取る → 入れ替える → 新しい版で開く)
+    vers = [bump_n(old_ver, i) for i in range(1, max(break_n, 1) + 1)]   # 壊す = N 版続けて置く(1 版目を取ったあと 2 版目を置いて取る = どちらも入った形で再起動)
+    new_ver = vers[-1]
     with open(os.path.join(app, "src", "friendapp", "sync.py"), encoding="utf-8") as f:
         knows_light = "-light.zip" in f.read()   # 前の形の友人のアプリ(軽い更新を知らない)は light を無視して全部入りを取る
-    w.api("POST", "/api/friend/undo", {"items": []})   # 同期を起こす(押したあとの口 = SYNC_KICK)
+    for v in vers:
+        make_update(zip_path, work, v, broken=bool(break_n))
+        w.api("POST", "/api/friend/undo", {"items": []})   # 同期を起こす(押したあとの口 = SYNC_KICK)
 
-    def avail():
-        st, j = w.api("GET", "/api/friend/update")
-        return j if (j or {}).get("available") and (j or {}).get("version") == new_ver else None
-    got = wait_for(avail, timeout, every=3)
-    rep.check("偽の /更新/ の新しい版 %s を取って app-%s\\ に入れる" % (new_ver, new_ver),
-              got and os.path.isfile(os.path.join(app, "app-" + new_ver, "src", "ytt", "version.py")), got)
-    if not got:
-        return False
+        def avail(v=v):
+            st, j = w.api("GET", "/api/friend/update")
+            return j if (j or {}).get("available") and (j or {}).get("version") == v else None
+        got = wait_for(avail, timeout, every=3)
+        rep.check("偽の /更新/ の新しい版 %s を取って app-%s/ に入れる%s" % (v, v, "(起動できない版)" if break_n else ""),
+                  got and os.path.isfile(os.path.join(app, "app-" + v, "src", "ytt", "version.py")), got)
+        if not got:
+            return False
     grabbed = update_downloads(work)
-    want = "%s-%s%s.zip" % (bfz.ZIP_PREFIX, new_ver, "-light" if knows_light else "")
-    rep.check("取ったのは %s だけ" % want, grabbed == [want], grabbed)
-    rep.check("app-%s\\python\\python.exe がある(軽い更新は今の python から写す)" % new_ver, os.path.isfile(os.path.join(app, "app-" + new_ver, "python", "python.exe")))
+    want = ["%s-%s%s.zip" % (bfz.ZIP_PREFIX, v, "-light" if knows_light else "") for v in vers]
+    rep.check("取ったのは %s だけ" % ", ".join(want), grabbed == want, grabbed)
+    rep.check("app-%s/python/python.exe がある(軽い更新は今の python から写す)" % new_ver, os.path.isfile(os.path.join(app, "app-" + new_ver, "python", "python.exe")))
     old_pid = w.proc.pid
     st, j = w.api("POST", "/api/friend/update/apply", {})
     rep.check("[更新する] が受け付けられる", st == 200, j)
@@ -797,6 +913,7 @@ def check_update(w, app, work, zip_path, old_ver, rep, timeout):  # lint: long �
     rep.check("古い exe が終わる(入れ替えのため)", ended)
     if not ended:
         return False
+    open_ver = old_ver if break_n else new_ver   # 壊した版は起こせず元の版で開く
 
     def new_page():
         try:
@@ -807,20 +924,25 @@ def check_update(w, app, work, zip_path, old_ver, rep, timeout):  # lint: long �
             v = pg.evaluate("() => { const m = document.querySelector('meta[name=ytt-version]'); return m ? m.content : null; }")
         except Exception:   # noqa: BLE001  (読み込みの途中)
             v = None
-        if v == new_ver:
+        if v == open_ver:
             return v
         w.close()
         return None
     v = wait_for(new_page, 120, every=2)
-    rep.check("新しい exe が新しい版 %s で開き直す" % new_ver, v == new_ver, v)
+    rep.check("新しい exe が%s版 %s で開き直す" % ("壊れた版を飛ばして元の" if break_n else "新しい", open_ver), v == open_ver, v)
     pids = [p for p in list_processes() if p["Name"].lower() == bfz.LAUNCHER_EXE.lower() and p["ParentProcessId"] == old_pid]   # 古い exe が起こした物だけ
     w.proc = _Adopted(pids[0]["ProcessId"]) if len(pids) == 1 else w.proc
+    if break_n:
+        if v == open_ver:
+            check_rolled_back(w, app, work, old_ver, vers, rep)
+        return v == open_ver
     try:
         with open(os.path.join(app, "app-versions.json"), encoding="utf-8") as f:
             cur = json.load(f).get("current")
     except (OSError, ValueError):
         cur = None
     rep.check("app-versions.json の current が新しい版", cur == new_ver, cur)
+    check_update_leftovers(app, old_ver, new_ver, rep)
     return v == new_ver
 
 
@@ -881,12 +1003,16 @@ def run(args):  # lint: long 検査の一本の流れ(上の説明の 1〜11 の
         lay = make_work(work, zip_path, args, rep)
         app = lay["app"]
         cdp = free_port()
-        w = Window(app, friend_env(work, cdp, lay["shim"]), cdp)
+        w = Window(app, friend_env(work, cdp, lay["shim"], fake=not args.youtube), cdp)
         w.start()
         w.connect()
         w.watch_tree()
         check_token(w, rep)
         if not check_setup(w, app, rep, args.timeout_min * 60 * 0.4):
+            return rep
+        if args.youtube:
+            send_real(w, args.youtube, rep, args.timeout_min * 60 * 0.8)
+            check_diag(work, rep)
             return rep
         check_login(w, app, rep)
         block_ytdlp_net(app)
@@ -922,7 +1048,7 @@ def run(args):  # lint: long 検査の一本の流れ(上の説明の 1〜11 の
         check_diag(work, rep)
         check_secret_leak(work, rep)
         if not args.skip_update:
-            check_update(w, app, work, args.update_zip or zip_path, lay["man"]["version"], rep, 240)
+            check_update(w, app, work, args.update_zip or zip_path, lay["man"]["version"], rep, 240, args.break_update)
         return rep
     except Preflight:
         raise
@@ -974,8 +1100,10 @@ def main(argv=None):
     ap.add_argument("--keep", action="store_true", help="合格でも一時フォルダを残す")
     ap.add_argument("--skip-update", action="store_true", help="更新の入れ替えを試さない")
     ap.add_argument("--break", dest="break_item", default="", choices=("", "ffmpeg"), help="検査が効くかの確かめ: fetch.json からその行を消す")
+    ap.add_argument("--break-update", type=int, default=0, choices=(0, 1, 2), help="戻りの確かめ: 更新の新しい版を N 版続けて起動できない形にする(元の版で開き直すのが正しい)")
     ap.add_argument("--cache", default="", help="build_friend_zip のキャッシュ(既定と同じ)")
     ap.add_argument("--timeout-min", type=float, default=25.0, help="全体の待ちの目安(分)")
+    ap.add_argument("--youtube", default="", help="本物の YouTube の URL で区間の依頼を通す(Dropbox は偽物のまま・初回の準備のあと依頼 1 つだけ)")
     a = ap.parse_args(argv)
     a.cache = a.cache or bfz.default_cache()
     for z in (a.zip, a.update_zip):

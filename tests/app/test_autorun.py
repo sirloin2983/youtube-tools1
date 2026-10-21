@@ -670,6 +670,19 @@ class TestFull(Base):
         add = [c for c in self.tools.calls if c[2] == "/api/queue/add"]
         self.assertEqual(add[0][3], {"items": [{"kind": "youtube", "videoId": VID}], "settings": AN(fill=2)})   # 保存した設定が無ければ既定値(束の既定 = スタジオの既定)。fill = 採用の上限(足りなければ埋める)
 
+    def test_live_chat_is_passed_to_analysis(self):
+        """ライブ係が選んだチャット(決定 3-117)があれば解析に chatFile で渡す。ライブ係が失敗しても解析は今の形(リプレイを取る)"""
+        self.r.live_chat = lambda vid: "C:/keep/%s.replay.json" % vid
+        run = self.run_one("full", top=2)
+        add = [c for c in self.tools.calls if c[2] == "/api/queue/add"]
+        self.assertEqual(add[0][3]["items"], [{"kind": "youtube", "videoId": VID, "chatFile": "C:/keep/%s.replay.json" % VID}])
+        self.assertIs(next(s for s in run["steps"] if s["key"] == "analyze")["chatReuse"], True)
+
+        def broken(vid):
+            raise OSError("x")
+        self.r.live_chat = broken
+        self.assertIsNone(self.r._live_chat_file({"kind": "youtube", "videoId": VID}))
+
 
 class TestNew(Base):
     """スタジオの ① 探す で選んだ配信:まだスタジオに無い配信を「解析から全部」"""

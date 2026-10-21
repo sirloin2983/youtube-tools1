@@ -1480,6 +1480,19 @@ class ApiTest(Base):
         doc = json.loads(dbx.files["/%s.request.json" % rid])
         self.assertEqual((doc["kind"], doc["items"][0]["url"], doc["items"][0]["ranges"]), ("url", URL, [{"start": 10.0, "end": 40.0}]))
 
+    def test_tick_wait_keeps_why_it_could_not_check(self):
+        """アーカイブ待ちの間ずっと bot 判定で調べられなかった: 諦めるときに理由を添え、bot の種類(ログインの案内)になる"""
+        t = self.fake_clock()
+        self.app.api.probe = lambda url: {"status": "unknown", "message": "ERROR: [youtube] x: Sign in to confirm you're not a bot"}
+        rid = self.send(kind="wait", top=4)[1]["row"]["id"]
+        t[0] += A.WAIT_EVERY
+        self.app.api.tick()
+        t[0] += A.WAIT_GIVE_UP
+        self.app.api.tick()
+        r = self.app.inbox.row(rid)
+        self.assertIn("not a bot", r["error"])
+        self.assertEqual(self.app.api.classify(r)["code"], "bot")
+
     def test_tick_gives_up_after_a_day(self):
         t = self.fake_clock()
         probed = []
@@ -1740,6 +1753,28 @@ class ApiTest(Base):
         self.assertIn("前の版", app.rollback_notice())
         app.rollback_seen = True
         self.assertIsNone(app.rollback_notice())
+
+    def test_rollback_env_lists_failed_versions_in_order(self):
+        with mock.patch.dict(os.environ, {S.ROLLBACK_ENV: "0.99.72, 0.99.71,../x"}):
+            app = S.FriendApp(self.places, make_engine=FakeEngine)
+        self.assertEqual(app.rollback_versions, ["0.99.72", "0.99.71"])
+        self.assertIn("0.99.72・0.99.71", app.rollback_notice())
+        docs = [json.load(open(os.path.join(self.places["outbox"], n), encoding="utf-8")) for n in os.listdir(self.places["outbox"]) if n.endswith(".diag.json")]
+        rb = [d for d in docs if d.get("kind") == "rollback"]
+        self.assertEqual(len(rb), 1)
+        self.assertEqual(rb[0]["fromVersions"], ["0.99.72", "0.99.71"])
+        self.assertTrue(rb[0]["toVersion"])
+
+
+class FitNameTest(unittest.TestCase):
+    def test_long_video_name_fits_the_copy_path(self):
+        """友人の長い動画の名前でも、写しのパスは PATH_FIT 文字に収まり拡張子は残る"""
+        folder = "C:\\Users\\ともだち\\AppData\\Local\\FriendApp\\作業\\依頼\\2026-10-21_とても長い配信の題_abcdef"
+        name = "【歌枠】" + "あ" * 240 + ".mp4"
+        got = _api.fit_name(folder, name)
+        self.assertLessEqual(len(os.path.join(folder, got)), _api.PATH_FIT)
+        self.assertTrue(got.startswith("【歌枠】あ") and got.endswith(".mp4"))
+        self.assertEqual(_api.fit_name(folder, "短い.mp4"), "短い.mp4")
 
 
 if __name__ == "__main__":

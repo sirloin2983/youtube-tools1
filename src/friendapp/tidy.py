@@ -8,7 +8,7 @@
 - 1 回聞いて片付ける(ask): 友人の物かもしれない・判断が要る物(前の形の src・python・片付け忘れた作業のフォルダ・使っていないモデルと道具)。
   大きさでなく種類で分ける(小さくても友人の依頼かもしれない物は聞く)
 - 触らない: ライブの録画(録画の部品が持ち主)・学習の束(同期が直近 3 版で回す)・受け取った物・受信箱の記録・設定と鍵・ごみ箱の中・印の無い物・
-  current・previous・bad・自分の版・最後に書かれてから 24 時間以内の物(未来の時刻も新しい扱い・1970 年などの壊れた時刻は分からない扱い)
+  current から数えて KEEP_VERSIONS 個の版・current・previous・bad・自分の版・最後に書かれてから 24 時間以内の物(未来の時刻も新しい扱い・1970 年などの壊れた時刻は分からない扱い)
 - 消し方: ごみ箱 = アプリのごみ箱(Windows のごみ箱は大きい物が確認なしで消えるので使わない)。同じドライブだけ(改名 1 回・別のドライブへ写さない):
   <一時保管>/ごみ箱/<YYYYMMDD>/整理/<種類>/(受信箱の 3 日の片付けが消す)か、別のドライブなら <home>/ごみ箱/<YYYYMMDD>/整理/(ここで 3 日で消す)。
   <日付>/manifest.jsonl に元の場所を 1 行ずつ。写しがある・作り直せる物(auto の消し方 delete)は直接消す
@@ -27,6 +27,7 @@ from flow import placement as _placement, retention as _retention
 from ytt import fsio as _fsio, trashbin as _trashbin
 
 DAY = 86400
+KEEP_VERSIONS = 3           # 残す版のフォルダの数(exe の Versions.Keep と同じ値)
 FRESH = DAY                 # 最後に書かれてからこの秒数より新しい物は候補にしない
 CASE_DAYS = _retention.KEEP_DAYS   # 片付け忘れた作業のフォルダ・回したログの日数(物の終わりの日数)
 AUTO_MAX = 100 * 1024 ** 2  # 黙る側の 1 件の上限(超えたら聞く)
@@ -61,6 +62,35 @@ def _vt(v):
         return tuple(int(x) for x in v.split("."))
     except (AttributeError, ValueError):
         return (0,)
+
+
+def _installed(home):
+    """python.exe と server.py がそろった app-<版> の版(新しい順)。exe の Versions.Installed と同じ"""
+    out = []
+    try:
+        names = os.listdir(home)
+    except OSError:
+        return out
+    for name in names:
+        m = APP_RE.match(name)
+        if m and _vt(m.group(1)) > (0,) and os.path.isfile(os.path.join(home, name, "python", "python.exe"))                 and os.path.isfile(os.path.join(home, name, "src", "friendapp", "server.py")):
+            out.append(m.group(1))
+    return sorted(out, key=_vt, reverse=True)
+
+
+def keep_floor(home, cur, bad=()):
+    """残す一番古い版 = 置いてある版のうち current 以下で bad に無い物を新しい順に並べた KEEP_VERSIONS 番目(足りなければ最古)。無ければ None。
+    exe の Versions.KeepFloor と同じ計算(同じ見本でテストする)"""
+    if not cur:
+        return None
+    floor, n = None, 0
+    for v in _installed(home):
+        if _vt(v) > _vt(cur) or v in bad:
+            continue
+        floor, n = v, n + 1
+        if n >= KEEP_VERSIONS:
+            break
+    return floor
 
 
 def _newest_mtime(path, limit=20000):
@@ -241,6 +271,7 @@ class Tidy:
         cur, prev = (rec or {}).get("current") or "", (rec or {}).get("previous") or ""
         bad = set((rec or {}).get("bad") or [])
         keep = {cur, prev, self.version} | bad
+        floor = keep_floor(home, cur, bad)
         for name in sorted(os.listdir(home)):
             path = os.path.join(home, name)
             if _fsio.is_link(path):
@@ -256,7 +287,7 @@ class Tidy:
             m = APP_RE.match(name)
             if m:
                 v = m.group(1)
-                if rec is not None and prev and v not in keep and _vt(v) < _vt(prev) and not _has_link_inside(path):
+                if rec is not None and floor and v not in keep and _vt(v) < _vt(floor) and not _has_link_inside(path):
                     out.append(self._item("old-version", path))
                 continue
             if name in KNOWN_HOME:

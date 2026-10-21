@@ -4,9 +4,10 @@
 
 環境変数 YTT_PREFLIGHT_SHIM(設定の JSON のパス)があるときだけ、urllib の https と http をここで受ける:
   - mirror = {URL: この PC のファイル}: 初回の準備の取得(fetch.json の URL)を、検査が用意したファイルから返す(Range つき = 続きからも本物と同じ)
-  - dropbox = 一時フォルダ: Dropbox の API(鍵・list_folder・get_metadata・delete_v2・move_v2・upload・upload_session・download)を
+  - dropbox = 一時フォルダ: Dropbox の API(鍵・list_folder・get_latest_cursor・longpoll・get_metadata・delete_v2・move_v2・upload・upload_session・download)を
     そのフォルダの読み書きで返す(本物の Dropbox へは書かない。フォルダの中 = Dropbox のアプリのフォルダの中と同じ形)
   - それ以外の https と、127.0.0.1・localhost 以外の http は断る(URLError)。つないだ先は log(1 行 1 件の JSON)に残す
+  - net = 真(--youtube)なら、それ以外の https は本物へ通す(Dropbox は偽物のまま)
 アプリのコードは変えない(差し替えるのは urllib の口だけ = アプリの取得・同期・更新の流れはそのまま動く)。
 """
 import email.message
@@ -23,7 +24,7 @@ import urllib.request
 import urllib.response
 
 ENV = "YTT_PREFLIGHT_SHIM"
-DBX_HOSTS = ("api.dropboxapi.com", "content.dropboxapi.com")
+DBX_HOSTS = ("api.dropboxapi.com", "content.dropboxapi.com", "notify.dropboxapi.com")
 LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
 HASH_BLOCK = 4 * 1024 * 1024
 
@@ -41,6 +42,8 @@ class _Shim:
         self.mirror = dict(conf.get("mirror") or {})
         self.root = conf.get("dropbox") or ""
         self.log_path = conf.get("log") or ""
+        self.net = bool(conf.get("net"))   # 本物の YouTube で試す形: Dropbox と取得元のほかは本物へ通す
+        self.real_https = None
         self.lock = threading.RLock()   # 記録(note)は Dropbox の口の中からも呼ぶ
         self.sessions = {}
         self.hashes = {}
@@ -84,6 +87,9 @@ class _Shim:
             return self.serve_file(req, self.mirror[url])
         if host in DBX_HOSTS:
             return self.dropbox(req)
+        if self.net:
+            self.note("net", url)
+            return self.real_https(req)
         self.note("blocked", url)
         raise urllib.error.URLError("配る前の検査: ネットにはつなぎません(%s)" % host)
 
@@ -130,6 +136,19 @@ class _Shim:
             self.hashes[key] = outer.hexdigest()
         return self.hashes[key]
 
+    def snapshot(self):
+        """フォルダ全体の今の形(名前・大きさ・更新時刻)-> カーソルの代わりの文字列"""
+        h = hashlib.sha1()
+        for d, _ds, fs in sorted(os.walk(self.root)):
+            for n in sorted(fs):
+                if not n.endswith(".shim-part"):
+                    try:
+                        st = os.stat(os.path.join(d, n))
+                    except OSError:
+                        continue
+                    h.update(("%s|%s|%d|%d\n" % (os.path.relpath(d, self.root), n, st.st_size, st.st_mtime_ns)).encode("utf-8"))
+        return h.hexdigest()
+
     def not_found(self, req):
         self.error(req, 409, {"error_summary": "path/not_found/..", "error": {".tag": "path", "path": {".tag": "not_found"}}})
 
@@ -149,6 +168,13 @@ class _Shim:
         else:
             arg = json.loads(data.decode("utf-8") or "{}") if data else {}
         self.note("dropbox", url, {"endpoint": ep, "path": arg.get("path") or arg.get("from_path") or ""})
+        if ep == "files/list_folder/get_latest_cursor":
+            return self.json_resp(url, {"cursor": self.snapshot()})
+        if ep == "files/list_folder/longpoll":   # 鍵の口の lock を持たずに待つ(待つ間もほかの口は動く)
+            end = time.time() + min(int(arg.get("timeout") or 30), 480)
+            while time.time() < end and self.snapshot() == arg.get("cursor"):
+                time.sleep(0.5)
+            return self.json_resp(url, {"changes": self.snapshot() != arg.get("cursor")})
         with self.lock:
             return self.dropbox_call(req, ep, arg, data)
 
@@ -248,7 +274,8 @@ def install():
     if conf is None:
         return None
     shim = _Shim(conf)
-    orig_http = urllib.request.HTTPHandler.http_open
+    orig_http, orig_https = urllib.request.HTTPHandler.http_open, urllib.request.HTTPSHandler.https_open
+    shim.real_https = lambda req: orig_https(urllib.request.HTTPSHandler(), req)
 
     def https_open(self, req):
         return shim.https(req)

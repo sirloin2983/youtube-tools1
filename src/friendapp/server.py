@@ -56,7 +56,9 @@
 """
 import argparse
 import json
+import logging
 import os
+import re
 import secrets
 import sys
 import tempfile
@@ -568,12 +570,15 @@ class FriendApp:
         self.closing = threading.Event()
         self.server = None
         self.update_requested = False   # 画面の [更新する](exe が見回りで見て、作業が無ければ入れ替える)
-        self.rollback = (os.environ.get(ROLLBACK_ENV) or "").strip()   # exe が前の版へ戻した = 起動できなかった版
+        # exe が前の版へ戻した = 起動できなかった版("72,71" = 新しい方から起きなかった順。数字と . 以外の名前は捨てる)
+        self.rollback_versions = [v for v in (x.strip() for x in (os.environ.get(ROLLBACK_ENV) or "").split(",")) if re.fullmatch(r"\d+(\.\d+){0,3}", v)][:5]
+        self.rollback = "・".join(self.rollback_versions)
         self.rollback_seen = False
         self.open_folder = open_folder   # エクスプローラーで開く口(テストは差し替える = 画面を取らない)
         self.pick_file = pick_file_dialog   # ファイルを選ぶ窓の口(テストは差し替える = 本物の窓を出さない)
         self.pick_lock = threading.Lock()
         self.api.stopping = self.closing.is_set   # 終わる途中なら動画を写すのを止める
+        self.api.log = self.log
         # Dropbox の同期。糸を起こすのは main だけ(テストは run_once を直に呼ぶ・偽の口を client_factory に)
         self.sync = _sync.Sync(places, self.inbox, engine_fn=lambda: self.engine, clock=clock, log=self.log)
         self.api.sync = self.sync
@@ -588,7 +593,8 @@ class FriendApp:
                                                       detail=r.get("error") or "", stage="before-run", request={"kind": r.get("kind"), "pc": r.get("pc")})
         self.setup.on_fail = lambda msg, detail: self.diag.write("setup", summary=msg, detail=detail, stage="setup")
         if self.rollback:
-            self.diag.write("rollback", summary="新しい版 %s を起動できなかったので前の版で開きました" % self.rollback[:40], fromVersion=self.rollback[:40])
+            self.diag.write("rollback", summary="新しい版 %s を起動できなかったので版 %s で開きました" % (self.rollback, _version.VERSION),
+                            fromVersions=self.rollback_versions, fromVersion=self.rollback_versions[0], toVersion=_version.VERSION)
         self.settings = _settings.Settings(places, self.api, self.setup, engine_fn=lambda: self.engine, log=self.log)
         # フォルダの整理(新しい版で起動できたあとの 1 回と ⚙。動かす・消す口はテストで差し替える)
         self.tidy = _tidy.Tidy(places, self.inbox, queue_fn=lambda: getattr(self.engine, "queue", None), setup=self.setup, sync=self.sync,
@@ -706,7 +712,7 @@ class FriendApp:
 
     def rollback_notice(self):
         """前の版で開いた知らせ(exe から戻ったと聞いたとき、閉じるまで 1 回)"""
-        return "新しい版 %s を起動できなかったので、前の版で開きました" % self.rollback[:40] if self.rollback and not self.rollback_seen else None
+        return "新しい版 %s を起動できなかったので、前の版で開きました" % self.rollback if self.rollback and not self.rollback_seen else None
 
     def setup_done(self):
         """初回の準備が済んだか(済むまで /friend/ は準備だけの画面へ。fetch.json の無い開発の PC は済み扱い)"""
@@ -879,6 +885,17 @@ def make_logger(path):
         line = "%s %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), msg)
         with lock:
             _fsio.append_line(path, line, 2 * 1024 * 1024)
+
+    class ToLog(logging.Handler):   # ① ② の部品(ytt.*・tx)の警告もこのログへ(付けないと誰にも見えない)
+        def emit(self, record):
+            try:
+                log("[%s] %s" % (record.name, record.getMessage()))
+            except Exception:   # noqa: BLE001
+                pass
+    for name in ("ytt", "tx", "flow", "pipeline"):
+        lg = logging.getLogger(name)
+        if not any(isinstance(h, ToLog) or type(h).__name__ == "ToLog" for h in lg.handlers):
+            lg.addHandler(ToLog(level=logging.WARNING))
     return log
 
 

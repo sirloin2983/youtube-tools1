@@ -64,6 +64,18 @@ class InboxTest(unittest.TestCase):
     def new_box(self):
         return inbox.Inbox(self.path, self.outbox, lambda: self.save, lambda: self.cases, clock=self.clock)
 
+    def test_unreadable_record_is_kept_before_overwrite(self):
+        """形の版が違う記録(前の版へ戻ったとき)は、空から始める前に写しを残す"""
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump({"v": 999, "rows": [{"id": "x"}]}, f)
+        box = self.new_box()
+        self.assertEqual(box.rows, [])
+        bad = glob.glob(self.path + ".bad-*")
+        self.assertEqual(len(bad), 1)
+        with open(bad[0], encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["v"], 999)
+
     def make_case(self, rid, names):
         """案件フォルダ(一時保管の中)とその中のパックのフォルダを作る -> (案件, [パックのフォルダ])"""
         case = os.path.join(self.cases, "案件-" + rid)
