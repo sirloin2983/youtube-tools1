@@ -876,7 +876,7 @@ def make_logger(path):
     lock = threading.Lock()
 
     def log(msg):
-        line = "%s %s" % (time.strftime("%Y-%m-%d %H:%M:%S"), msg)
+        line = "%s %s\n" % (time.strftime("%Y-%m-%d %H:%M:%S"), msg)
         with lock:
             _fsio.append_line(path, line, 2 * 1024 * 1024)
     return log
