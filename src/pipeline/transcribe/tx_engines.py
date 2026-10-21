@@ -551,7 +551,7 @@ class WhisperCpp(Engine):
             except (OSError, ValueError) as e:
                 raise EngineError("engine_failed", "whisper.cpp の結果を読めませんでした: %s" % str(e)[:160])
             dtw = {} if self.dtw() else None
-            segs = parse_json(data, DTW_SHIFT if dtw is not None else None, dtw)
+            segs = parse_json(data, DTW_SHIFT if dtw is not None else None, dtw, duration)
             if dtw is not None:   # 印(recognition.runs の dtw・友人の診断の engineTiming)。dropped が words と同じ = 黙って切れた
                 timing.update(dtwWords=dtw.get("words", 0), dtwDropped=dtw.get("dropped", 0))
             # duration_after_vad = None(声の検出をしない = 分からない。サーバーの「捨てすぎたら緩める」は見ない)。
@@ -621,18 +621,19 @@ class WhisperCpp(Engine):
                               % ("CUDA" if self.device == "cuda" else "Vulkan", "GPU が見つからない" if used is not None else "GPU の初期化の記録が無い"))
 
 
-def _dtw_start(tok, a, prev, seg_from, seg_to, shift):
-    """DTW の単語の始まり(秒)か None(使えない = 今の時刻のまま)。t_dtw は 10 ミリ秒の単位・-1 = 無し。行の範囲の前後 DTW_TOL 秒の外は崩れとみなす"""
+def _dtw_start(tok, a, prev, seg_from, seg_to, shift, dur=None):
+    """DTW の単語の始まり(秒)か None(使えない = 今の時刻のまま)。t_dtw は 10 ミリ秒の単位・-1 = 無し。行の範囲の前後 DTW_TOL 秒の外・音の長さ dur より後は崩れとみなす
+    (音のほとんど無い切り抜きで、音の長さを超える幻の行の単語が全部その行の終わりに集まり、音の長さで切る後処理に行ごと消された = 配る前の検査の区間 5 つ)"""
     d = tok.get("t_dtw")
     if not isinstance(d, (int, float)) or isinstance(d, bool) or d < 0 or seg_from is None:
         return None
     t = d / 100.0
-    if not (seg_from - DTW_TOL <= t <= seg_to + DTW_TOL):
+    if not (seg_from - DTW_TOL <= t <= seg_to + DTW_TOL) or (dur is not None and t > dur):
         return None
     return max(prev, 0.0, t - shift)
 
 
-def parse_json(data, dtw_shift=None, dtw_counts=None):
+def parse_json(data, dtw_shift=None, dtw_counts=None, duration=None):
     """whisper-cli の -ojf の結果 → faster-whisper と同じ属性の行の一覧。単語 = 文字のトークン(特別なトークン [_…] は除く)。
     dtw_shift(秒)= -dtw で出した単語の始まり(t_dtw)を使う: 始まり = t_dtw − dtw_shift(前の単語・0 より前にしない)・終わりは今の時刻(offsets)のまま・
     t_dtw が無い・崩れた単語は今の時刻のまま。行の始まりは最初の単語の始まり。dtw_counts に {"words", "dropped"(今の時刻のままにした数)} を足す
@@ -660,7 +661,7 @@ def parse_json(data, dtw_shift=None, dtw_counts=None):
             w0, w1 = _ms(to.get("from")), _ms(to.get("to"))
             if w0 is not None and w1 is not None:
                 if dtw_shift is not None:
-                    d = _dtw_start(tok, w0, prev, a, b, dtw_shift)
+                    d = _dtw_start(tok, w0, prev, a, b, dtw_shift, duration)
                     if dtw_counts is not None:
                         dtw_counts["words"] = dtw_counts.get("words", 0) + 1
                         dtw_counts["dropped"] = dtw_counts.get("dropped", 0) + (d is None)
