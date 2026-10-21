@@ -818,7 +818,7 @@ class Setup:
             return self._flow_fail("部品の一つが動きません。ウイルス対策ソフトに止められていないか確かめて [もう一度] を押してください(どれかは「詳しく」に)")
         if not wrow["ok"]:
             if device == "cuda" or not self._try_cuda(device):
-                return self._flow_fail("文字起こしが動きません。詳しくは「詳しく」を見てください")
+                return self._flow_fail("文字起こしが動きません。パソコンを起動し直してから [もう一度] を押してください。続くときは [詳しい文をコピー] で写して作る人に送ってください")
             device = "cuda"
         self._save_checked(device)
         self._flow_set("done", "")

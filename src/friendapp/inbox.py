@@ -64,7 +64,7 @@ VERDICT_SUFFIX = ".verdict.json"
 TRASH_NAME = trashbin.TRASH_DIR
 TRASH_KIND = "受信箱"   # ごみ箱の日付のフォルダの中の種類(受け取らなかった物・片付けた案件のフォルダ)
 ROW_ID_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}$")   # 依頼 id(flow/deliver.request_id の形。送り返しの名前にも入る)
-BAD_NAME = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+BAD_NAME = re.compile(r'[\\/:*?"<>|\x00-\x1f\x7f]')
 NAME_MAX = 100                      # 送り返しの名前に入れるパック名の長さ
 PACK_SUFFIX = "_pack"
 PCS = ("this", "user")              # 処理する PC(A-2)。行の pc にはほかに "auto"(依頼なし)
@@ -260,9 +260,6 @@ class Inbox:
             if r is not None and r["state"] == "waiting":
                 r["checkedAt"] = self._now_ms()
                 self._save()
-
-    def wait_failed(self, rid, text):
-        return self.fail(rid, text)
 
     def wait_done(self, rid):
         """アーカイブが出た: 普通の URL の依頼の行に(作り始めるのは呼ぶ側)"""

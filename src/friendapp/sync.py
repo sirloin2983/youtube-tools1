@@ -64,7 +64,7 @@ UPDATE_FILE_RE = re.compile(r"^FriendApp-\d+\.\d+\.\d+\.zip$")   # dev/build_fri
 UPDATE_ROOT_FILES = ("FriendApp.exe", "Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.WinForms.dll", "WebView2Loader.dll",
                      "fetch.json", "members.json")   # zip の直下から app-<版>/ へ写す物(exe と DLL は [更新する] のとき exe がアプリのフォルダへ写す)
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
-BAD_NAME = re.compile(r'[\\/:*?"<>|\x00-\x1f\x7f]')
+BAD_NAME = _inbox.BAD_NAME   # 使えない字は受信箱と同じ 1 か所
 RESERVED = re.compile(r"^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$", re.I)
 SMALL_CAP = 64 * 1024              # 失敗の知らせ・latest.json
 META_CAP = 16 * 1024
@@ -598,10 +598,6 @@ class Sync:
     def out_path(name):
         return "%s/%s" % (OUT, name)
 
-    def _read(self, io, name, cap):
-        got = io.read_small(self.out_path(name), cap)
-        return got if got is not None else None
-
     def _intake(self, io):
         entries = io.list_folder(OUT)
         if entries is None:
@@ -620,7 +616,7 @@ class Sync:
             pv, meta = (pv if pv in files else None), (meta if meta in files else None)
             if not pv and not meta and now - server_time(f["entry"].get("server_modified")) < NO_META_WAIT:
                 continue
-            got = self._read(io, meta, META_CAP) if meta else None
+            got = io.read_small(self.out_path(meta), META_CAP) if meta else None
             origin = (parse_meta(got[0]) if got and not got[1] else "") or "request"
             item = self._pack_item(f, f["title"], None)
             item["meta"] = meta
@@ -631,7 +627,7 @@ class Sync:
         for name, f in sorted(files.items()):
             if f["kind"] != "failure" or name in known or not f["rid"]:
                 continue
-            got = self._read(io, name, SMALL_CAP)
+            got = io.read_small(self.out_path(name), SMALL_CAP)
             if got is None:
                 continue
             self.inbox.remote_failure(f["rid"], f["title"], failure_text(*got), name)

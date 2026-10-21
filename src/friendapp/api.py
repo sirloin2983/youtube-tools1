@@ -821,7 +821,7 @@ class Api:
         for r in self.inbox.waiting_rows():
             if now - r["createdAt"] / 1000.0 >= WAIT_GIVE_UP:   # 調べられなかった理由(bot 判定など)があれば添える = その種類の言葉と自動のやり直しになる
                 why = self._wait_why.pop(r["id"], "")
-                self.inbox.wait_failed(r["id"], "アーカイブが出ませんでした(1 日待ちました)" + ("。最後に調べたとき: %s" % why if why else ""))
+                self.inbox.fail(r["id"], "アーカイブが出ませんでした(1 日待ちました)" + ("。最後に調べたとき: %s" % why if why else ""))
                 continue
             if now - (r.get("checkedAt") or 0) / 1000.0 < WAIT_EVERY:
                 continue
