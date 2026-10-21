@@ -1084,6 +1084,16 @@ def run(args):  # lint: long 検査の一本の流れ(上の説明の 1〜11 の
         if args.live:
             send_live(w, args.youtube, args.live, rep)
             return rep
+        if args.file:   # 手元の本物の動画ファイルを友人と同じ形(ドロップ → 送る → この PC で作る)で
+            media = os.path.join(work, PROFILE, "Videos", "【%s】%s" % (STREAMER, os.path.basename(args.file)))
+            shutil.copy2(args.file, media)
+            t0 = time.time()
+            row = send_request(w, media, rep, args.timeout_min * 60 * 0.8)
+            rep.info("動画ファイル: 届くまでの秒", round(time.time() - t0))
+            if row and row.get("state") == "arrived":
+                check_local_delivery(w, app, row, rep)
+            check_diag(work, rep)
+            return rep
         if args.youtube:
             send_real(w, args.youtube, rep, args.timeout_min * 60 * 0.8, top=args.top)
             check_diag(work, rep)
@@ -1177,6 +1187,7 @@ def main(argv=None):
     ap.add_argument("--break-update", type=int, default=0, choices=(0, 1, 2), help="戻りの確かめ: 更新の新しい版を N 版続けて起動できない形にする(元の版で開き直すのが正しい)")
     ap.add_argument("--cache", default="", help="build_friend_zip のキャッシュ(既定と同じ)")
     ap.add_argument("--timeout-min", type=float, default=25.0, help="全体の待ちの目安(分)")
+    ap.add_argument("--file", default="", help="手元の本物の動画ファイルを動画ファイルの依頼で通す(初回の準備のあと 1 本だけ)")
     ap.add_argument("--top", type=int, default=0, help="--youtube を区間なしの全自動で頼む本数(0 = 区間 2 つ)")
     ap.add_argument("--live", type=float, default=0, help="本物のライブを友人と同じ形でこの分だけ録る(--youtube の URL か、無ければ一覧のライブ中の物)")
     ap.add_argument("--youtube", default="", help="本物の YouTube の URL で区間の依頼を通す(Dropbox は偽物のまま・初回の準備のあと依頼 1 つだけ)")
