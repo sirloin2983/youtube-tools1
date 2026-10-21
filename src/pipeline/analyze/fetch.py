@@ -309,14 +309,18 @@ def cancel_all_prefetch():
     return len(vids)
 
 
-def start_chat(ctl, run, vid, wdir, timeout):
-    """チャット取得を別スレッドで始める(音声のダウンロード・解析と並行して進める)。"""
+def start_chat(ctl, run, vid, wdir, timeout, given=None):
+    """チャット取得を別スレッドで始める(音声のダウンロード・解析と並行して進める)。
+    given = 呼ぶ側が渡したチャットのファイル(リプレイの形。どれを渡すかは ②)。読めればリプレイを取らずにそれを使う(c["given"] が真)"""
     c = {"state": "running", "t0": time.time(), "t1": None, "bytes": 0, "stop": threading.Event(), "cached": False, "path": None, "why": "", "err": None}
     run["chat"] = c
     ctl.note("chat", c)   # 器が画面に見せる(進み具合のチャットの欄)
 
     def work():
         try:
+            if given and _usable_chat(given):
+                c["path"], c["given"] = given, True
+                return
             c["path"], c["why"] = download_chat(ctl, run, vid, wdir, timeout)
         except Cancelled:
             c["why"] = "中止"
@@ -328,6 +332,48 @@ def start_chat(ctl, run, vid, wdir, timeout):
     th = threading.Thread(target=work, daemon=True)
     c["thread"] = th
     th.start()
+
+
+def live_to_replay(paths, zero, dur, out):
+    """ライブで取ったチャット(yt-dlp の live_chat。起動し直し・回しで分かれた複数のファイル)を、リプレイの形
+    (1 行 1 件の replayChatItemAction + videoOffsetTimeMsec)に直して out に書く。どのファイルを渡すか・zero は呼ぶ側(②)が決める。
+    zero = アーカイブの 0 秒の絶対時刻(epoch 秒)。時刻は renderer の timestampUsec。同じメッセージ(id)は 1 回だけ・0〜dur 秒の外は捨てる。
+    -> {"count", "first", "last", "maxGap"}(秒はアーカイブの秒。maxGap は頭(0 秒から)・終わり(dur まで)・メッセージの間の空きの最大。無ければ count 0)"""
+    seen, rows = set(), []
+    for p in paths:
+        with open(p, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                ra = d.get("replayChatItemAction") if isinstance(d, dict) else None
+                acts = ra.get("actions") if isinstance(ra, dict) else ([d] if isinstance(d, dict) and "addChatItemAction" in d else None)
+                for a in acts or []:
+                    item = ((a.get("addChatItemAction") or {}).get("item")) if isinstance(a, dict) else None
+                    r = next(iter(item.values()), None) if isinstance(item, dict) and item else None
+                    if not isinstance(r, dict):
+                        continue
+                    try:
+                        t = int(r.get("timestampUsec")) / 1e6 - zero
+                    except (TypeError, ValueError):
+                        continue
+                    key = r.get("id") or (round(t, 3), str(r.get("authorExternalChannelId")))
+                    if key in seen or not 0 <= t < dur:
+                        continue
+                    seen.add(key)
+                    rows.append((t, a))
+    rows.sort(key=lambda x: x[0])
+    tmp = out + ".tmp"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+        for t, a in rows:
+            f.write(json.dumps({"replayChatItemAction": {"actions": [a], "videoOffsetTimeMsec": str(int(t * 1000))}}, ensure_ascii=False) + "\n")
+    _fsio.replace_retry(tmp, out)
+    ts = [t for t, _a in rows]
+    if not ts:
+        return {"count": 0, "first": None, "last": None, "maxGap": round(dur, 1)}
+    gaps = [ts[0], dur - ts[-1]] + [b - a for a, b in zip(ts, ts[1:])]
+    return {"count": len(ts), "first": round(ts[0], 1), "last": round(ts[-1], 1), "maxGap": round(max(gaps), 1)}
 
 
 TS_RE = re.compile(r"(?<![\d:])(?:(\d{1,2}):)?([0-5]?\d):([0-5]\d)(?![\d:])")

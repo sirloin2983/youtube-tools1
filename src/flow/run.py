@@ -90,6 +90,7 @@ PACK_DIFFER = "字幕か設定が変わったので作り直しました"   # �
 DOC_MODE = "doc"
 DOC_LABEL = "文字起こし → パック"
 BUSY_WAIT = 5.0        # スタジオの書き出しが別の書き出しで塞がっているときの待ち間隔
+PIPE_TX = True         # スイッチ: 流れ作業 = 書き出しの 1 本が済むたびに、その本の文字起こしを先に頼む(False = 書き出しが全部済んでから頼む)
 # mode post_analyze は無い(区間だけの依頼の最後の段 analyze_later がその役目。OPT-E2)。
 # 待ちの記録に mode post_analyze が残っていても、MODE_STEPS に無いので restore が読み飛ばす
 CANCEL_WAIT = 30.0                   # 取り消したスタジオの解析が止まるのを待つ秒(次の実行が同じ配信の解析を始められるように)
@@ -366,6 +367,7 @@ class Run:
         self.friend_plan = None            # 受付で決めた友人の区間の長さ(friend_length の形 + "base" = 重ねる前の束の値。束の analyze に入れてある。RS7-1 S4)
         self.notes = []                    # 受付で束を組んだときの知らせ(入口が画面の設定を直した所。パックの段の文と結果の束に出す。RS7-1 S4)
         self.new_docs = []               # この実行で文字起こしした文書(話者分離はこれだけ。前からある文書の話者は人が直したかもしれない)
+        self.tx_early = {}               # 流れ作業(PIPE_TX): 書き出しの段で見た本の動画のパスの鍵 -> {"job": 先に頼んだ文字起こしのジョブ か None, "redo"}(メモリだけ)
         self.tx_before = {}              # 文字起こしを頼む直前に、動画ごとに前からあった文書(文字のある物)の id(F2。再開でこの外の文書 = この実行が作った物)
         self.packs = []                  # この実行で作ったパックのフォルダ
         self.kept_packs = []             # 鍵で飛ばして作らなかった、前からあるパックのフォルダ(結果の packs には載せる。届ける対象にはしない = packs とは別)
@@ -1118,24 +1120,80 @@ class Runner:
         if status != 200:
             raise StepError("書き出しを始められませんでした: %s" % (res.get("message") or "HTTP %d" % status))
         jid = res.get("id")
+        early = self._tx_early_on(run)
 
         def read():
             j = self.tools.export_job(jid)
             items = j.get("items") or []
             st["detail"] = ("他のツールの重い処理を待っています" if j.get("waiting")
                             else "%d / %d 本" % (sum(1 for i in items if i.get("status") == "done"), len(items)))
+            if early:
+                self._tx_early(run, items)
             return j if j.get("state") != "running" else None
         # owned の "export" は掲示板の親子の印だけ(ex:<jid> を親の run の下に畳む)。起動し直しは段が REDO_STEPS に無いので今までどおり断る
-        items = self._poll(run, ("export", [jid]), read, lambda: self.tools.export_cancel(jid)).get("items") or []
+        try:
+            items = self._poll(run, ("export", [jid]), read, lambda: self.tools.export_cancel(jid)).get("items") or []
+        except BaseException:   # 中止・失敗: 先に頼んだ文字起こしも取り消す(今までどおり、書き出しが通らなければ文字起こしは動かない)
+            self._tx_early_drop(run)
+            raise
         done = sum(1 for i in items if i.get("status") == "done")
         bad = [i for i in items if i.get("status") == "error"]
         encs = sorted({i["encoder"] for i in items if isinstance(i.get("encoder"), str) and i["encoder"]})   # 作り方の印(友人の診断の段の detail に出る)
         st["detail"] = "%d 本を書き出しました" % done + ("(%d 本失敗)" % len(bad) if bad else "") + ("・%s" % "・".join(encs) if encs else "")
         if bad and (not done or run.on_fail == "stop"):
+            self._tx_early_drop(run)
             raise StepError("書き出しに失敗しました(%d 本): %s" % (len(bad), bad[0].get("error") or ""))
         if bad:
             st["state"] = "warn"
         return None
+
+    def _tx_early_on(self, run):
+        """流れ作業にするか: スイッチ PIPE_TX・配信の実行・この後に文字起こしの段が待っている"""
+        return PIPE_TX and not run.source_path and not run.doc_id and any(
+            s["key"] == "transcribe" and s["state"] == "wait" for s in run.steps)
+
+    def _tx_early(self, run, items):
+        """流れ作業(PIPE_TX): 書き出しの済んだ本の文字起こしを、残りの書き出しを待たずに頼む。順番(GPU は同時に 1 つ)は文字起こしの器の糸 1 本と SLOTS が守る。
+        頼むかは文字起こしの段と同じ判定(_made_here・tx_verdict)。頼まない本は文字起こしの段がいつもどおり扱う。
+        頼めなかったとき(例外)は覚えるだけにして、文字起こしの段が今の形で頼む"""
+        new = [i for i in items if i.get("status") == "done" and isinstance(i.get("path"), str) and i["path"]
+               and self._tx_path_key(i["path"]) not in run.tx_early and os.path.isfile(i["path"])]
+        if not new:
+            return
+        docs, opts, tx = self._docs(), self._tx_opts(run), run.step("transcribe")
+        for i in new:
+            path, key = i["path"], self._tx_path_key(i["path"])
+            run.tx_early[key] = {"job": None, "redo": False}
+            doc = self._pick_doc(docs, run.video_id, i.get("id"), path)
+            verdict = "skip" if self._made_here(run, path, doc) else tx_verdict(bool(doc), self._force(run))
+            if verdict not in ("make", "redo"):
+                continue
+            try:
+                self._tx_mark(run, [(path, [doc["id"]] if doc else [])])
+                job = self.tools.transcribe_start(dict(opts, sourcePath=path), bundle=self._bundle(run))
+            except Exception as e:   # noqa: BLE001  先に頼めなくても、文字起こしの段が今の形で頼む
+                self.log("流れ作業: 文字起こしを先に頼めませんでした(%s): %s" % (os.path.basename(path), e))
+                continue
+            run.tx_early[key] = {"job": job, "redo": verdict == "redo"}
+            tx["early"] = tx.get("early", 0) + 1   # 印: 書き出しの最中に先に頼んだ本数と最初の時刻(記録の steps[] に残る)
+            tx.setdefault("earlyAt", int(self.clock() * 1000))
+            tx["detail"] = "書き出しの済んだ %d 本を先に始めています" % tx["early"]
+
+    def _tx_early_drop(self, run):
+        """先に頼んだ文字起こしを取り消す(書き出しの段が中止・失敗で終わったとき)"""
+        for e in run.tx_early.values():
+            if e.get("job"):
+                try:
+                    self.tools.transcribe_cancel(e["job"])
+                except Exception:   # noqa: BLE001  取り消しの失敗で元の理由を隠さない
+                    pass
+        run.tx_early.clear()
+        try:
+            tx = run.step("transcribe")
+        except StopIteration:
+            return
+        if tx.get("early"):
+            tx["detail"] = ""
 
     # 文字起こし -------------------------------------------------
     def _clips(self, v, run=None):
@@ -1149,8 +1207,11 @@ class Runner:
             return "stop"
         docs = self._docs()
         opts = self._tx_opts(run)
-        todo, differ, redo, before = [], 0, 0, []
+        early = [e for e in run.tx_early.values() if e.get("job")]   # 書き出しの最中に先に頼んだ分(流れ作業)は、そのジョブを待つ
+        todo, differ, redo, before = [], 0, sum(1 for e in early if e["redo"]), []
         for m in clips:   # 文書のある切り抜きは鍵を見る(RS6 b-K2): 同じ・鍵なし = 飛ばす / 違う = 飛ばして印 / force = 作り直す(新しい文書。人の直しは引き継ぐ)
+            if (run.tx_early.get(self._tx_path_key(m["path"])) or {}).get("job"):
+                continue
             doc = self._pick_doc(docs, run.video_id, m.get("id"), m["path"])
             made = self._made_here(run, m["path"], doc)   # 再開: 終了の前にこの実行が作った文書(F2)は作り直さず、話者の判別の対象に
             verdict = "skip" if made else tx_verdict(bool(doc), self._force(run))
@@ -1166,11 +1227,13 @@ class Runner:
                 else:
                     differ += self._tx_state(doc, m["path"], opts) == "differ"
         note = ("。うち %d 本は%s" % (differ, TX_DIFFER)) if differ else ""
-        if not todo:
+        if not todo and not early:
             st["state"], st["detail"] = "skip", "%d 本とも文字起こし済み" % len(clips) + note
             return None
-        jobs = []   # 入れたジョブ(同じリストに足していく = 起動し直すときに止めてよい仕事 run.owned)
-        self._tx_mark(run, before)
+        jobs = [e["job"] for e in early]   # 入れたジョブ(同じリストに足していく = 起動し直すときに止めてよい仕事 run.owned)
+        run.tx_early.clear()
+        if todo:
+            self._tx_mark(run, before)
 
         def submit():
             for m in todo:

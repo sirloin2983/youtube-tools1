@@ -8,11 +8,12 @@ queued と worker.json の queued)で、受け持っている録画の検出が�
 録画は、それより前を「飛ばした区間」にしない = 測り直さない。順番待ちのうちに配信が終わった録画は音だけで頭から測る)。
 入口とは**ファイルだけ**で話す(stdin/stdout の常駐の約束は作らない。仮決め (bk)):
   config.json    入口が書く。{"v":1, "dir", "recorders": [{"id","url","token"}], "detect": {"sens","perHour"}, "spec": {"length","preRatio","lag","lagAuto",
-                 "wAudio","wChat","headSec"}, "ffmpeg", "ytdlp", "chatLimitBytes", "chatStallSec", "lengthHint"?, "provisional"?}。30 秒ごとに更新の時刻を見て読み直す。
+                 "wAudio","wChat","headSec"}, "ffmpeg", "ytdlp", "chatLimitBytes", "chatStallSec", "chatKeepDir"?, "lengthHint"?, "provisional"?}。30 秒ごとに更新の時刻を見て読み直す。
                  lengthHint = M10 の人が選んだ長さの目安(入口が ② flow/lengthhint でその場で数える。enough のときだけ、新しく受け持つ
                  録画の長さ・前の割合に使う。無い・足りない = スタジオの解析の設定)。provisional = 仮の候補(既定オン。false で出さない)
                  bundles?(RS7-2 G2b)= 束のある録画ごとの {"<録画元>/<録画>": {spec, sens, perHour}}(録画を始めたときの束。新しく受け持つ録画の spec と
                  感度・枠に使う。友人の依頼の録画は requests の感度・枠・長さが先)
+                 chatKeepDir?= 読み終えた・配信が終わった生のチャットを消さずに移す先(入口が決める。無い = 今までどおり消す)
   <録画元>/<録画>/ の state.json(続きから再開する状態)・series.jsonl(1 分 1 行)・peaks.json(候補の正本)・skipped.jsonl(飛ばした区間の測り直し)はここが書く。
   decisions.json(人の採用・見送り・自動の採用)は入口が書き、ここは読んで PeakBook に当てるだけ。worker.json(心拍)もここが書く
 
@@ -341,8 +342,9 @@ class ChatFeed:
     (state "none" = 音だけ)。403・429 が出たら最大の間隔から。最初の起動で「チャットが無い」と分かれば最初から諦める"""
 
     def __init__(self, vid, url, folder, ytdlp, launcher=None, job=None, log=None, limit=CHAT_LIMIT, stall=CHAT_STALL,
-                 backoff=CHAT_BACKOFF, max_per_hour=CHAT_MAX_PER_HOUR, read_max=CHAT_READ_MAX):
+                 backoff=CHAT_BACKOFF, max_per_hour=CHAT_MAX_PER_HOUR, read_max=CHAT_READ_MAX, keep_dir=None):
         self.vid, self.url, self.folder, self.ytdlp = vid, url, folder, ytdlp
+        self.keep_dir = keep_dir   # 生のチャットを消さずに移す先(入口が config の chatKeepDir で渡す。None = 消す)
         self.launcher = launcher or launch_process
         self.job, self.log = job, log or (lambda m: None)
         self.limit, self.stall, self.backoff, self.max_per_hour, self.read_max = limit, stall, tuple(backoff), max_per_hour, read_max
@@ -616,10 +618,23 @@ class ChatFeed:
         return out
 
     def _remove_files(self, gen):
-        """その起動のチャットのファイルを消す(yt-dlp のログ .log は CHAT_LOG_KEEP のあいだ残す = 失敗の中身を後で見る)"""
+        """その起動のチャットのファイルを消す(yt-dlp のログ .log は CHAT_LOG_KEEP のあいだ残す = 失敗の中身を後で見る)。keep_dir があればそこへ移す"""
         for p in glob.glob(glob.escape(self.stem(gen)) + ".*"):
             if not p.endswith(".log"):
-                fsio.unlink_quiet(p)
+                self._drop(p)
+
+    def _drop(self, p):
+        """生のチャットのファイル 1 つを手放す: keep_dir があれば <videoId>.<通し番号>.live_chat.json の名前で移す(書きかけの .part も)、無ければ消す。
+        移せなければ消す(読み終えた物なので検出には要らない)"""
+        name = os.path.basename(p)
+        if self.keep_dir and ".live_chat.json" in name and "-Frag" not in name:
+            try:
+                os.makedirs(self.keep_dir, exist_ok=True)
+                os.replace(p, os.path.join(self.keep_dir, name.split(".live_chat.json", 1)[0] + ".live_chat.json"))
+                return
+            except OSError:
+                pass
+        fsio.unlink_quiet(p)
 
     def close(self, delete=True):
         """止める。delete なら生のチャットのファイルを全部消す(配信が終わった。ログは残す)"""
@@ -627,7 +642,7 @@ class ChatFeed:
         if delete:
             for p in glob.glob(glob.escape(os.path.join(self.folder, self.vid)) + ".*"):
                 if not p.endswith(".log"):
-                    fsio.unlink_quiet(p)
+                    self._drop(p)
             self.files = []
 
 
@@ -1095,6 +1110,7 @@ class Worker:
         self.cfg = {"dir": d.get("dir") if isinstance(d.get("dir"), str) and d.get("dir") else os.path.dirname(self.config_path), "recorders": rcs,
                     "detect": clean_detect(d.get("detect")), "spec": spec, "ffmpeg": d.get("ffmpeg") or None, "ytdlp": d.get("ytdlp") or None,
                     "chatLimitBytes": int(d.get("chatLimitBytes") or CHAT_LIMIT), "chatStallSec": float(d.get("chatStallSec") or CHAT_STALL),
+                    "chatKeepDir": d.get("chatKeepDir") if isinstance(d.get("chatKeepDir"), str) and d.get("chatKeepDir") else None,
                     "lengthHint": clean_hint(d.get("lengthHint")),         # M10(入口が書く。無ければスタジオの設定の長さ)
                     "provisional": d.get("provisional") is not False,      # 仮の候補(既定オン。false = 本番の候補だけ)
                     "detectAll": d.get("detectAll") is not False,         # false = 友人の依頼の録画(requests)だけ測る(ホームの検出がオフのとき。2-15)
@@ -1207,7 +1223,8 @@ class Worker:
         f = self.feeds.get(st.vid)
         if f is None:
             f = ChatFeed(st.vid, st.url, os.path.join(self.dir, "chat"), self.cfg["ytdlp"], launcher=self.launcher, job=self.job, log=self.log,
-                         limit=self.cfg["chatLimitBytes"], stall=self.cfg["chatStallSec"], backoff=self.chat_backoff, max_per_hour=self.chat_max_per_hour)
+                         limit=self.cfg["chatLimitBytes"], stall=self.cfg["chatStallSec"], backoff=self.chat_backoff, max_per_hour=self.chat_max_per_hour,
+                         keep_dir=self.cfg.get("chatKeepDir"))
             if isinstance(st.chat_snap, dict):
                 f.load(st.chat_snap)
             self.feeds[st.vid] = f

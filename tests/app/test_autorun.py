@@ -25,6 +25,7 @@ from pipeline.pack import preview as pv  # noqa: E402
 from human.friend import friend_feedback  # noqa: E402
 import prefs as prefs_mod  # noqa: E402
 from flow import runlog  # noqa: E402
+from flow import run as RUN  # noqa: E402  (流れ作業のスイッチ PIPE_TX)
 from flow import spec as SP  # noqa: E402
 from flow import order as O  # noqa: E402  (欄 → 封筒 + 束の差分。受付は submit の 1 本)
 from human.friend import intake as IN  # noqa: E402  (友人の受付の欄 → submit = submit_urls・submit_file)
@@ -179,6 +180,8 @@ class FakeTools:
         self.calls = []
         self.export_busy = 0      # この回数だけ 409 busy を返す
         self.export_job = None
+        self.export_one = False   # True = 書き出しは 1 回の問い合わせで 1 本ずつ進む(流れ作業のテスト)
+        self.export_stop = None   # この本数が済んだら書き出しを進めない
         self.queue = []
         self.tx_jobs = {}
         self.c2r = {}
@@ -284,7 +287,10 @@ class FakeTools:
     def h_studio_GET_api_export(self, path, body):
         j = self.export_job
         if j["state"] == "running" and not self.hold:
-            for it in j["items"]:
+            todo = [it for it in j["items"] if it["status"] != "done"]
+            if self.export_stop is not None and len(j["items"]) - len(todo) >= self.export_stop:
+                return 200, j   # export_stop 本で止まる(流れ作業の中止のテスト)
+            for it in todo[:1] if self.export_one else todo:
                 it["status"] = "done"
                 p = self.clip_path(it["id"])
                 os.makedirs(os.path.dirname(p), exist_ok=True)
@@ -292,7 +298,9 @@ class FakeTools:
                     f.write(b"x")
                 m = next(m for m in self.video["marks"] if m["id"] == it["id"])
                 m.update(status="exported", path=p)
-            j["state"] = "done"
+                it["path"] = p
+            if all(it["status"] == "done" for it in j["items"]):
+                j["state"] = "done"
         return 200, j
 
     def h_studio_POST_api_export_cancel(self, path, body):
@@ -310,6 +318,7 @@ class FakeTools:
         return 200, s
 
     def h_transcribe_POST_api_transcribe(self, path, body):
+        self.tx_at_export = getattr(self, "tx_at_export", None) or (self.export_job or {}).get("state")   # 最初に頼んだときの書き出しの状態
         jid = "t%d" % (len(self.tx_jobs) + 1)
         self.tx_jobs[jid] = {"id": jid, "state": "queued", "src": body["sourcePath"], "body": body}
         return 200, {"id": jid}
@@ -699,6 +708,43 @@ class TestNew(Base):
             start_new(self.r, [{"id": VID}])
         with self.assertRaises(ValueError):
             start(self.r, VID, "export")        # 配信の画面からの実行とも重ねない
+
+
+class TestPipeTx(Base):
+    """流れ作業(flow/run.PIPE_TX): 書き出しの 1 本が済むたびに、その本の文字起こしを先に頼む。文字起こしの段はそのジョブを待つ"""
+    marks = [{"id": "m1", "status": "adopted", "start": 1, "end": 5}, {"id": "m2", "status": "adopted", "start": 9, "end": 12}]
+
+    def setUp(self):
+        super().setUp()
+        self.tools.export_one = True
+
+    def tx_step(self, run):
+        return next(s for s in run["steps"] if s["key"] == "transcribe")
+
+    def test_transcribe_starts_while_exporting(self):
+        self.jobs_with_tid()
+        run = self.run_one("export")
+        self.assertEqual((run["state"], self.states(run)), ("done", {"export": "done", "transcribe": "done", "pack": "done"}), run)
+        self.assertEqual(self.tools.tx_at_export, "running")   # 2 本目を書き出している間に 1 本目を頼んだ
+        self.assertEqual(sorted(j["src"] for j in self.tools.tx_jobs.values()), [self.tools.clip_path("m1"), self.tools.clip_path("m2")])   # 二重に頼まない
+        st = self.tx_step(run)
+        self.assertEqual(st["early"], 2)
+        self.assertLessEqual(st["earlyAt"], st["startedAt"])
+        self.assertEqual(len(run["newDocs"]), 2)
+
+    def test_switch_off_is_the_old_order(self):
+        with mock.patch.object(RUN, "PIPE_TX", False):
+            run = self.run_one("export")
+        self.assertEqual((run["state"], self.tools.tx_at_export), ("done", "done"))
+        self.assertNotIn("early", self.tx_step(run))
+
+    def test_cancel_during_export_cancels_early_transcribe(self):
+        self.tools.export_stop = 1
+        run = start(self.r, VID, "export")
+        self.until(lambda: self.tools.tx_jobs.get("t1"))
+        self.r.cancel(run["id"])
+        got = self.wait(run)
+        self.assertEqual((got["state"], self.tools.tx_jobs["t1"]["state"], self.states(got)["transcribe"]), ("cancelled", "cancelled", "wait"))
 
 
 class TestControl(Base):

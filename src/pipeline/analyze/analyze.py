@@ -254,7 +254,9 @@ def _chat_signal(ctl, run, spec, n, comps, info, warnings):
         ctl.report(0.5, "チャットのリプレイを取得中(音声の解析は完了、経過 %s)" % fmt_ms(time.time() - c["t0"]))
         c["thread"].join(0.3)
     path, why = c["path"], c["why"]
-    if c["cached"] and path:
+    if c.get("given") and path:
+        warnings.append("チャットはライブで取った物を使いました(リプレイは取っていません)")   # 印(ライブのチャットの使い回し。決定 3-117)
+    elif c["cached"] and path:
         warnings.append("チャットは先読みで取得済みでした" if c.get("prefetched") else "チャットは前回の取得分を再利用しました")
     if not path:
         warnings.append(why)
@@ -359,7 +361,7 @@ def run(spec, ctl=None):
         warnings = []
         ctl.report(None, "素材を取得中")
         if spec["useChat"]:
-            fetch.start_chat(ctl, run_, src["videoId"], wdir, spec["chatTimeout"] * 60)   # 音声の取得・解析と同時に始める
+            fetch.start_chat(ctl, run_, src["videoId"], wdir, spec["chatTimeout"] * 60, spec.get("chatFile"))   # 音声の取得・解析と同時に始める(chatFile = ② が渡したチャット)
         if src["kind"] == "youtube":
             fetch.start_meta(ctl, run_, src["videoId"])   # 動画の付加情報(記録用)も同時に取得する
         dur, n, full, band = _levels(ctl, spec, src, wdir, warnings)
