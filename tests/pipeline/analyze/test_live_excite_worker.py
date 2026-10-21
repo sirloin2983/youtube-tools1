@@ -392,7 +392,7 @@ class ChatFeedTest(unittest.TestCase):
     def feed(self, runs, **kw):
         with open(self.spec, "w", encoding="utf-8") as f:
             json.dump({"log": self.log, "t0": T0, "runs": runs}, f)
-        opts = dict(limit=W.CHAT_LIMIT, stall=1.0, backoff=(0.3, 0.6, 4.0), max_per_hour=6)
+        opts = dict(limit=W.CHAT_LIMIT, stall=5.0, backoff=(0.3, 0.6, 4.0), max_per_hour=6)   # 止まりの見張りを確かめるテストだけ stall=1.0(並べて流す負荷で偽の yt-dlp が 1 秒止まっても起動し直さない)
         opts.update(kw)
         f = W.ChatFeed(VID, URL, self.folder, FAKE_CHAT, log=lambda m: None, **opts)
         self.feeds.append(f)
@@ -414,7 +414,7 @@ class ChatFeedTest(unittest.TestCase):
 
     def test_stall_restarts_with_backoff_and_new_file(self):
         """5 行書いて黙って止まる → chatStallSec(1 秒)で止めて間隔をあけて起動し直す(新しいファイル)・前のファイルは読み切って消す・行は重ねない"""
-        f = self.feed([{"mode": "stall", "lines": 5, "interval": 0.02}, {"mode": "write", "interval": 0.05}])
+        f = self.feed([{"mode": "stall", "lines": 5, "interval": 0.02}, {"mode": "write", "interval": 0.05}], stall=1.0)
         msgs = self.drive(f, lambda f, m: f.launches >= 2 and len(m) >= 10)
         self.assertEqual(f.total_restarts, 1)
         self.assertEqual(f.state, "ok")
@@ -431,9 +431,9 @@ class ChatFeedTest(unittest.TestCase):
 
     def test_quiet_chat_is_not_a_stall(self):
         """静かな配信: チャットが増えなくても yt-dlp の取得が進んでいる間は起動し直さない(10-21 Lofi Girl で 300 秒ごとに起動し直していた)"""
-        f = self.feed([{"mode": "quiet", "lines": 3, "interval": 0.2}])
+        f = self.feed([{"mode": "quiet", "lines": 3, "interval": 0.2}], stall=2.0)
         self.drive(f, lambda f, m: len(m) >= 3)
-        end = time.time() + 3.0   # stall の 1 秒の 3 倍
+        end = time.time() + 6.0   # stall の 2 秒の 3 倍
         while time.time() < end:
             f.step(time.time())
             time.sleep(0.05)
@@ -509,8 +509,7 @@ class ChatFeedTest(unittest.TestCase):
 
     def test_size_limit_rotates_without_counting(self):
         """ファイルが上限(64MB を小さくして 4KB)を超えたら新しいファイルへ(起動し直しの数に入れない・待たない)・古い方は読み切ってから消す"""
-        # 止まりの見張りはこのテストの中身ではない = 長めに(並べて流す負荷で偽の yt-dlp の起動が 1 秒を超え、起動し直しに数えて揺れた)
-        f = self.feed([{"mode": "write", "interval": 0.01, "pad": 300}], limit=4000, stall=5.0)
+        f = self.feed([{"mode": "write", "interval": 0.01, "pad": 300}], limit=4000)
         msgs = self.drive(f, lambda f, m: f.launches >= 3 and len(m) > 40)
         self.assertEqual(f.total_restarts, 0)
         self.assertEqual(len(msgs), len({t for t, _w in msgs}))
@@ -535,7 +534,7 @@ class ChatFeedTest(unittest.TestCase):
 
     def test_stop_kills_child_of_ytdlp(self):
         """本物の yt-dlp(PyInstaller の 1 ファイルの exe)は起動すると子を作る: 止めたら子も終わる(前の番号の .part に書き続けない)"""
-        f = self.feed([{"mode": "stall", "lines": 3, "interval": 0.02, "child": True}, {"mode": "write", "interval": 0.05, "child": True}])
+        f = self.feed([{"mode": "stall", "lines": 3, "interval": 0.02, "child": True}, {"mode": "write", "interval": 0.05, "child": True}], stall=1.0)
         msgs = self.drive(f, lambda f, m: f.launches >= 2 and len(m) >= 6 and len(self.child_pids()) >= 2)
         pids = self.child_pids()
         self.assertTrue(self.wait_dead(pids[0]), "止まった yt-dlp の子が残っている")

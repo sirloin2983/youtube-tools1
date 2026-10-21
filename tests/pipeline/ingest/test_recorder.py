@@ -612,7 +612,7 @@ class TestTitle(unittest.TestCase):
                 elif route == "/html":
                     body = b"<html>not json</html>"
                 elif route == "/slow":
-                    time.sleep(3)
+                    time.sleep(6)
                     body = b'{"title": "slow"}'
                 else:
                     code, body = 404, b'{"error": "not found"}'
@@ -661,7 +661,7 @@ class TestTitle(unittest.TestCase):
             self.assertEqual(R.fetch_title(url, endpoint=self.base + bad), "", bad)
         t = time.time()
         self.assertEqual(R.fetch_title(url, endpoint=self.base + "/slow", timeout=0.5), "")      # 時間切れ
-        self.assertLess(time.time() - t, 2.5)
+        self.assertLess(time.time() - t, 5.0)   # 返事(6 秒後)を待たずに戻った = 時間切れが効いた(負荷で 0.5 秒が延びても揺れない幅)
         self.assertEqual(R.fetch_title(url, endpoint="http://127.0.0.1:%d/x" % free_port()), "")   # つながらない
 
     def test_lookup_only_for_streamlink(self):
@@ -674,7 +674,7 @@ class TestTitle(unittest.TestCase):
         url = "https://127.0.0.1:%d/live.m3u8" % self.no_live   # https の手元の URL(配信が無いので録画は「待ち」のまま)
         s = self.rec.start(url)
         r = self.rec.get(s["id"])
-        self.assertTrue(wait_for(lambda: r.meta.get("title") == "配信の題", 10), (r.meta, calls))
+        self.assertTrue(wait_for(lambda: r.meta.get("title") == "配信の題", 30), (r.meta, calls))
         self.assertEqual(calls, [url])
         with open(os.path.join(r.dir, "recording.json"), encoding="utf-8") as f:
             self.assertEqual(json.load(f)["title"], "配信の題")   # 記録にも残る
