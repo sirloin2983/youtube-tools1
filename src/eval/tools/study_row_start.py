@@ -147,7 +147,8 @@ def snapped(rows, base_starts, finder, off):
 def wcpp_run(root, wav, work, dtw):
     exe, model = os.path.join(root, WCPP), os.path.join(root, MODEL)
     base = os.path.join(work, "dtw" if dtw else "plain")
-    cmd = [exe, "-m", model, "-f", wav, "-ojf", "-of", base, "-t", str(max(1, (os.cpu_count() or 2) // 2)), "-l", "ja", "-bs", "5", "-nfa"]
+    cmd = [exe, "-m", model, "-f", wav, "-ojf", "-of", base, "-t", str(max(1, (os.cpu_count() or 2) // 2)), "-l", "ja", "-bs", "5", "-nfa",
+           "-mc", "0", "-nth", "0.9"]   # 本番と同じ(worker_client.whisper_kwargs の既定 = 前の文を文脈にしない・声の検出 weak の no_speech 0.9。無いと長い音で同じ文を繰り返した)
     if dtw:
         cmd += ["-dtw", "large.v3"]
     t0 = time.time()
@@ -160,8 +161,11 @@ def wcpp_run(root, wav, work, dtw):
         return json.load(f), sec
 
 
-def wcpp_raw(data, dtw):
-    """-ojf の結果 -> 後処理に渡す分ける前の行(tx_engines.parse_json と同じ単語の選び方。dtw = 単語の始まりを t_dtw に・終わりは次の単語の始まり)"""
+def wcpp_raw(data, dtw, shift=None):
+    """-ojf の結果 -> 後処理に渡す分ける前の行(tx_engines.parse_json と同じ単語の選び方。dtw = 単語の始まりを t_dtw に・終わりは次の単語の始まり)。
+    shift(秒)= 始まりだけ: 単語の始まりを t_dtw − shift(前の単語の始まり・0 より前にしない)・終わりは今の時刻(offsets)のまま"""
+    if shift is not None:
+        return wcpp_raw_start(data, shift)
     raw = []
     for seg in data.get("transcription") or []:
         off = seg.get("offsets") or {}
@@ -186,6 +190,32 @@ def wcpp_raw(data, dtw):
         for r in raw:
             if r["words"]:
                 r["start"] = min(r["start"], r["words"][0][0]) if r["words"][0][0] < r["start"] else r["words"][0][0]
+    return raw
+
+
+def wcpp_raw_start(data, shift):
+    raw, prev = [], 0.0
+    for seg in data.get("transcription") or []:
+        off = seg.get("offsets") or {}
+        if not isinstance(off.get("from"), (int, float)):
+            continue
+        ws = []
+        for tok in seg.get("tokens") or []:
+            t = str((tok or {}).get("text") or "")
+            if not t or t.startswith("[_") or "�" in t:
+                continue
+            to = tok.get("offsets") or {}
+            a, b = to.get("from"), to.get("to")
+            if not (isinstance(a, (int, float)) and isinstance(b, (int, float))):
+                continue
+            a, b = a / 1000.0, b / 1000.0
+            d = tok.get("t_dtw")
+            if isinstance(d, (int, float)) and d >= 0 and off["from"] / 1000.0 - 1.0 <= d / 100.0 <= off["to"] / 1000.0 + 1.0:   # 崩れた(行の範囲の前後 1 秒の外)時刻は今の時刻のまま
+                a = max(prev, 0.0, d / 100.0 - shift)
+            prev = a
+            ws.append((a, max(a, b), t))
+        start = ws[0][0] if ws else off["from"] / 1000.0
+        raw.append({"start": start, "end": max(start, off["to"] / 1000.0), "text": str(seg.get("text") or ""), "words": ws})
     return raw
 
 
@@ -261,9 +291,12 @@ def study_dtw(root, doc, human, wav, work):
     spec = {"wordSplit": params.get("wordSplit", True) is not False, "stripPunct": params.get("stripPunct", True) is not False, "engine": "whisper.cpp"}
     res, rows_out = {}, []
     texts = {}
-    for key, dtw in (("w0", False), ("w2", True)):
-        data, sec = wcpp_run(root, wav, work, dtw)
-        raw = wcpp_raw(data, dtw)
+    got = {}
+    for key, dtw, shift in (("w0", False, None), ("w2", True, None), ("w3", True, 0.1)):   # w3 = 始まりだけ DTW − 0.1 秒・終わりは今のまま(w2 と同じ出力から)
+        if dtw not in got:
+            got[dtw] = wcpp_run(root, wav, work, dtw)
+        data, sec = got[dtw]
+        raw = wcpp_raw(data, dtw, shift)
         mrows = T.reapply(raw, spec, float(doc.get("end")) - off, off)
         mrows = T.text_rows(mrows)
         words = [[w[0] + off, w[1] + off, w[2]] for r in raw for w in r["words"]]
@@ -282,6 +315,8 @@ def study_dtw(root, doc, human, wav, work):
                              "end_" + key: mrows[k]["end"] - h["end"], "len": h["end"] - h["start"], "changed": changed_at(h, doc)})
     res["sameText"] = texts["w0"] == texts["w2"]
     a, b = res["w0"].pop("rowTexts"), res["w2"].pop("rowTexts")
+    c = res["w3"].pop("rowTexts")
+    res["rowsSameTextW3"] = round(sum(1 for t in c if t in set(a)) / len(c), 3) if c else None
     res["sameRows"] = a == b
     res["rowsSameText"] = round(sum(1 for t in b if t in set(a)) / len(b), 3) if b else None
     res["_rows"] = rows_out
@@ -396,11 +431,11 @@ def main(argv=None):
         res["ends"][k] = stats([r["end_" + k] for r in main_rows])
     dr = [r for r in rows if "dtwKey" in r]
     if dr:
-        res["dtw"] = {k: stats([r[k] for r in dr if k in r]) for k in ("w0", "w0r1", "w2", "w2r1")}
+        res["dtw"] = {k: stats([r[k] for r in dr if k in r]) for k in ("w0", "w0r1", "w2", "w2r1", "w3")}
         for sh in DTW_SHIFTS:   # DTW の時刻は遅れぎみ(中央値 +0.11 秒)= 決まった秒だけ前へ
             res["dtw"]["w2-%g" % sh] = stats([r["w2"] - sh for r in dr if "w2" in r])
-        res["dtwEnds"] = {k: stats([r["end_" + k] for r in dr if "end_" + k in r]) for k in ("w0", "w2")}
-        res["dtwChanged"] = {k: stats([r[k] for r in dr if k in r and r.get("changed")]) for k in ("w0", "w2")}
+        res["dtwEnds"] = {k: stats([r["end_" + k] for r in dr if "end_" + k in r]) for k in ("w0", "w2", "w3")}
+        res["dtwChanged"] = {k: stats([r[k] for r in dr if k in r and r.get("changed")]) for k in ("w0", "w2", "w3")}
         res["dtwChanged"].update({"w2-%g" % sh: stats([r["w2"] - sh for r in dr if "w2" in r and r.get("changed")]) for sh in DTW_SHIFTS})
     tot = {k: sum(d["moved"].get(k, 0) for d in docs) for k in keys if k != "base"}
     res["movedRows"] = tot
