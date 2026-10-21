@@ -578,6 +578,7 @@ class FriendApp:
         self.pick_file = pick_file_dialog   # ファイルを選ぶ窓の口(テストは差し替える = 本物の窓を出さない)
         self.pick_lock = threading.Lock()
         self.api.stopping = self.closing.is_set   # 終わる途中なら動画を写すのを止める
+        self.api.log = self.log
         # Dropbox の同期。糸を起こすのは main だけ(テストは run_once を直に呼ぶ・偽の口を client_factory に)
         self.sync = _sync.Sync(places, self.inbox, engine_fn=lambda: self.engine, clock=clock, log=self.log)
         self.api.sync = self.sync

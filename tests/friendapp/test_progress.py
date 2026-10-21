@@ -33,6 +33,10 @@ class ClassifyTest(unittest.TestCase):
                 ("rangeOver", None, ("区間が配信の長さを超えています", "requested range is out of range", "区間が長すぎます(3 時間まで)")),
                 ("disk", True, ("パソコンの空きが足りません", "[Errno 28] No space left on device", "disk full")),
                 ("net", True, ("ネットにつながりませんでした", "<urlopen error [Errno 11001] getaddrinfo failed>", "ConnectionError: timed out", "HTTP Error 503: Service Unavailable")),
+                ("gpu", False, ("文字起こし: GPU(Vulkan)を使えませんでした。GPU のドライバを確かめるか、処理方式を「CPU」にしてください",)),
+                ("busy", True, ("[WinError 32] プロセスはファイルにアクセスできません。別のプロセスが使用中です。",)),
+                ("longPath", False, ("[WinError 206] ファイル名または拡張子が長すぎます。",)),
+                ("unknown", None, ("ごみ箱へ移す前の削除に失敗しました",)),   # 内部の「削除」は非公開・削除の動画と言わない
                 ("transcribe", False, ("文字起こしの部品が見つかりません", "whisper.cpp exited with code 1", "CUDA error")),
                 ("dropbox", True, ("Dropbox の鍵が無い", "invalid_grant: refresh token expired", "expired_access_token")),
                 ("noHighlights", None, ("見どころが見つかりませんでした", "切り抜く所が見つかりませんでした", "no highlights were found", "候補が 0 件です")),
