@@ -618,6 +618,9 @@ class SyncTest(unittest.TestCase):
         self.put_update("0.91.0", e)
         probs = self.run_sync()
         self.assertTrue(any("python.exe" in p for p in probs))
+        self.assertEqual(self.run_sync(), [])   # 同じ zip はしばらく取り直さない
+        self.t[0] += S.UPDATE_RETRY_SEC
+        self.assertTrue(any("python.exe" in p for p in self.run_sync()))
         self.put_update("0.91.0", self.update_entries(**{"src/../../evil.py": b"x"}))
         probs = self.run_sync()
         self.assertTrue(probs)

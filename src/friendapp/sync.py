@@ -80,6 +80,7 @@ UPDATE_NEED = 320 * 1024 ** 2      # 新しい版を取る前に要る空き(版
 LAUNCHER_ENV = "YTT_FRIEND_LAUNCHER"
 STATE_NAME = "sync.json"
 VERSIONS_NAME = "app-versions.json"
+UPDATE_RETRY_SEC = 3600            # 同じ新しい版の zip の中身が違ったとき、取り直さない秒(約 70 MB を 3 分ごとに取り続けない)
 PROBLEM_SHOW = 600                  # 同期の問題がこの秒より続いたら帯に出す(一時の通信の切れは数分で戻るので出さない)
 PROBLEM_TEXT = "Dropbox とのやり取りが 10 分以上うまくいっていません。ネットを確かめてください。続くときは作る人に伝えてください(%s)"
 NO_KEY = "Dropbox の鍵がありません。作る人の PC に依頼する・作る人の PC から届く物を受け取ることはできません(この PC で作る物は使えます)"   # 友人の画面の言葉(作る側の「ユーザーの PC」は出さない)
@@ -816,8 +817,29 @@ class Sync:
         bad = fsio.read_json_or(os.path.join(home, VERSIONS_NAME), {}, kind=dict).get("bad") or []
         if os.path.isdir(os.path.join(home, "app-" + ver)) or ver in bad:
             return
+        key = "%s:%s" % (ver, sha)
+        last = self.state.get("updateFailed") or {}
+        if last.get("key") == key and self.clock() - (last.get("at") or 0) < UPDATE_RETRY_SEC:
+            return   # 同じ zip の中身が違った: しばらく取り直さない(作る側が直した zip は sha256 が変わる = すぐ取る)
         if not self._update_space_ok(home):
             return
+        try:
+            placed = self._update_from(io, home, d, ver, name, sha)
+        except (SyncError, ValueError, zipfile.BadZipFile) as e:
+            self.state["updateFailed"] = {"key": key, "at": self.clock()}
+            self._save_state()
+            raise SyncError("新しい版 %s の zip を入れられませんでした(%d 分は取り直しません): %s" % (ver, UPDATE_RETRY_SEC // 60, str(e)[:160]))
+        if placed is None:
+            return
+        self.state.pop("updateFailed", None)
+        self.state["updated"] = ver
+        self._save_state()
+        self.log("新しい版 %s を入れました(次に開いたときから)" % ver)
+        if self.diag is not None:
+            self.diag.write("update", summary="新しい版 %s を取って入れました" % ver, toVersion=ver, light=placed)
+
+    def _update_from(self, io, home, d, ver, name, sha):
+        """軽い zip(あれば)→ だめなら全部入り -> 軽い方で入れたか(真偽)か None(取れなかった = 次の回)"""
         light = self._light_entry(d, ver)
         placed = False
         if light is not None:
@@ -829,12 +851,8 @@ class Sync:
                 if placed:
                     self.log("軽い更新(python は今の版から写した)")
         if not placed and not self._fetch_install(io, home, ver, (name, sha, d.get("size"))):
-            return
-        self.state["updated"] = ver
-        self._save_state()
-        self.log("新しい版 %s を入れました(次に開いたときから)" % ver)
-        if self.diag is not None:
-            self.diag.write("update", summary="新しい版 %s を取って入れました" % ver, toVersion=ver, light=placed)
+            return None
+        return placed
 
     def _update_space_ok(self, home):
         """新しい版を取る前の空き(UPDATE_NEED。作業データと同じドライブなら diskMinGB も足す)。足りなければ取らずに次の回へ(.part も作らない)"""
