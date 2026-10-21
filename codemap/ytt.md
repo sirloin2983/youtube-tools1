@@ -9,6 +9,8 @@
   - 名前: `get_api_key` :16・`set_api_key` :27
 - **appwindow.py** (296 行) — 画面を「窓」(Edge のアプリモード)で開く(統合計画の段階7-3。ユーザー決定で既定は窓 = 専用の窓。pywebview は使わない)。
   - 名前: `class Unavailable` :41・`class TooMany` :45・`find_edge` :49・`app_command` :86・`local_url` :99・`external_url` :122・`read_mode` :139・`write_mode` :144・`focus_window` :154・`class Opener` :211
+- **autorestart.py** (48 行) — 自動の起動し直し・入れ替え(新しい版があるとき、何も処理していない間に自分で新しい版にする)の判定。純粋な部品(入口と友人のアプリの両方が使う)。
+  - 名前: `read_tried` :22・`write_tried` :28・`decide` :33・`editor_in_use` :45
 - **casefiles.py** (315 行) — 案件の 候補.json・採用.json の純粋な部分(決定 3-37 の (r8j)〜(r8q))。
   - 名前: `work_path` :38・`lock` :43・`is_remote` :53・`problem` :57・`unseen` :69・`need_root` :75・`abs_path` :82・`rel_path` :90・`empty_candidates` :104・`empty_adoptions` :108・`index_row` :117・`stored` :126・ほか 9
 - **clientlog_rule.py** (17 行) — 画面のエラー 1 件の「決まった項目を決まった長さで切る」規則の 1 か所(入口 manage/ops/clientlog と友人のアプリ friendapp/server が呼ぶ)。
@@ -62,7 +64,7 @@
   - 名前: `load_live` :24・`load_video` :35・`save_series` :82・`read` :96・`load_all` :108・`videos` :116・`video` :121・`studio_videos` :157・`studio_stream` :162
 - **textutil.py** (69 行) — ログ・画面に出す文と数の小物(標準ライブラリだけ)。
   - 名前: `redact` :18・`permission_message` :23・`tail_reason` :31・`fmt_ts` :38・`fmt_ms` :44・`num` :50・`person_key` :64
-- **tools.py** (656 行) — 外部プログラム(ffmpeg・ffprobe・yt-dlp)の場所と、子プロセスを動かすときの小道具。
+- **tools.py** (654 行) — 外部プログラム(ffmpeg・ffprobe・yt-dlp)の場所と、子プロセスを動かすときの小道具。
   - 名前: `remember` :33・`recent` :47・`ytt_env` :52・`find_tool` :66・`find_ffmpeg` :116・`media_tool` :121・`ffmpeg_info` :127・`parse_ffmpeg_info` :141・`duration_in` :152・`media_duration` :157・`check_source` :163・`probe_media` :173・ほか 18
 - **trashbin.py** (195 行) — ごみ箱フォルダの 1 か所(形と、移す・戻す・古い日付を消す動作)。どの層からも使う(① の録画の部品・④ の片付けと「要らない」・友人のアプリ)ので ytt に置く。
   - 名前: `day_name` :24・`free_path` :33・`append_manifest` :43・`old_day_dirs` :61・`purge` :79・`to_trash` :100・`record` :151・`put_back` :166
@@ -78,12 +80,15 @@
   - 名前: `set_root` :31・`set_data_dir` :42
 - **ytapi.py** (164 行) — YouTube Data API を 1 回呼ぶ口(OPT-H2 D。③ 配信の検索の rank.yt_get と ① のコメント欄 fetch_comments が別々に持っていた取得を 1 つに)。
   - 名前: `used` :37・`set_fake` :48・`get` :54・`soft` :102・`parse_dt` :115・`cache_get` :129・`cache_put` :137・`cached` :144・`oembed` :155
+- **ytcookies.py** (240 行) — YouTube のログインの cookie を長持ちさせる(友人の PC。notes:docs/spec/friend.md の 13-13)。
+  - 名前: `enabled` :34・`state_path` :39・`read_state` :43・`copy_name` :55・`parse` :60・`merge_rows` :89・`merge_back` :119・`login_at` :208・`facts` :222・`forget` :237
 - **yturl.py** (103 行) — YouTube の URL・動画 ID の形(語彙。標準ライブラリだけ・状態を持たない)。
   - 名前: `parse_video_id` :22・`watch_url` :49・`check_live` :61・`check_media_path` :85・`file_video_id` :93・`ytdlp_out` :98
 
 ## テスト
 
 - tests/testkit.py — テストの共通の下ごしらえ(テストの見直し TESTREV。notes:plan/test-review.md の 6)。
+- tests/ytt/test_autorestart.py — 自動の起動し直しの判定(src/ytt/autorestart.py)のテスト。  python -m unittest tests/ytt/test_autorestart.py -v
 - tests/ytt/test_docloc.py — ytt/docloc.py(文字起こしの文書の置き場所を引く口。RS8 B-2)のテスト。
 - tests/ytt/test_flags.py — 行の印(flag)のつなぎ方・探し方(ytt.schemas の join_flags・has_flag・flag_parts)のテスト。  py -3.12 -m unittest tests/ytt/test_flags.py -v
 - tests/ytt/test_gpuinfo.py — ytt/gpuinfo(この PC の GPU の名前と VRAM。F1 F0-2)のテスト。  py -3.12 -m unittest tests/ytt/test_gpuinfo.py -v
@@ -92,4 +97,5 @@
 - tests/ytt/test_settings.py — ytt.settings(設定ファイルの共通部品。S4)のテスト。リポジトリ直下で:
 - tests/ytt/test_workdata.py — ytt/workdata.py(編集の作業データの置き場所と版の今の値)と ytt/studiodata.py(スタジオの data.json の読み口)のテスト(役割で組み直す RS3-0A)。
 - tests/ytt/test_ytapi.py — ytt/ytapi(YouTube Data API を 1 回呼ぶ口)のテスト。外へは繋がない。  py -3.12 -m unittest tests/ytt/test_ytapi.py -v
+- tests/ytt/test_ytcookies.py — src/ytt/ytcookies.py(yt-dlp が書き戻した cookie を元へ戻す)のテスト。偽の cookie だけ(値は fake-*)。
 - tests/ytt/test_ytt_core.py — ytt のテスト。  python -m unittest tests/ytt/test_ytt_core.py -v

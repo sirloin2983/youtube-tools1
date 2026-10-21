@@ -66,6 +66,8 @@ HLS_FORMAT = {"best": "best[protocol^=m3u8]", "1080p": "best[protocol^=m3u8][hei
               "720p": "best[protocol^=m3u8][height<=720]/best[protocol^=m3u8]"}   # yt-dlp で取る再生リストの画質(QUALITIES と同じ選び方)
 BLOCKED_GIVE_UP = 1800         # 1 つも取れないまま bot と判定され続けたら、この秒で録画を「エラー」で止める
 HLS_RESOLVE_SEC = 90          # yt-dlp で再生リストの URL を取る上限(秒)
+HLS_RETRY_SEC = 300           # yt-dlp でも断られたら、この秒は取り直さない(10-21 19:00: 35 秒ごとに問い合わせを重ねていた)
+BLOCKED_WAIT = 120            # bot と判定されている間につなぎ直すまでの最短(秒。短い間で問い合わせを重ねない)
 ARCHIVE = "archive"
 ENDED = "配信が終わったので録画を終えました"
 ARCHIVE_MIN_SEC = 90           # 取れた長さがこれを超えて、
@@ -331,6 +333,7 @@ class Recording:
         self.procs = []
         self._cache = {}                    # セッション -> (mtime, size, segs, ended)
         self._hls = None                    # bot と判定されたとき yt-dlp で取った HLS の再生リストの URL(取得はこれを hls:// で。取れなくなったら取り直す)
+        self._hls_failed_at = 0.0           # yt-dlp で取れなかった時刻(HLS_RETRY_SEC は呼ばない = 断られている間に問い合わせを重ねない)
 
     # --- 記録 ---
     def save(self):
@@ -396,7 +399,8 @@ class Recording:
                "message": m.get("message") or "", "created": m.get("created"), "endedAt": m.get("endedAt"),
                "segments": len(segs), "seconds": round(sum(x["dur"] for x in segs), 3),
                "firstPdt": next((x["pdt"] for x in segs if x.get("pdt")), None), "lastPdt": epoch_iso(e + segs[-1]["dur"]) if e else None,
-               "active": m.get("state") in ACTIVE, "sessions": sum(1 for _, s in sess if s)}
+               "active": m.get("state") in ACTIVE, "sessions": sum(1 for _, s in sess if s),
+               "blockedAt": m.get("blockedAt") if m.get("state") in ACTIVE else None}   # bot と判定され続けている始まり(ミリ秒)
         if detail:
             info = {x.get("name"): x for x in (m.get("sessions") or []) if isinstance(x, dict)}
             out["sessionList"] = [{"name": n, "segments": len(s), "seconds": round(sum(x["dur"] for x in s), 3),
@@ -510,17 +514,18 @@ class Recording:
                 n, code, why = self._run_session(name)
                 hls_before = self._hls
                 if n == 0 and why != ARCHIVE and not self._stopping() and self._blocked(name):   # bot と判定された: yt-dlp(cookies)で再生リストを取って取り直す
-                    if self._resolve_hls() and not hls_before:   # 初めて = すぐ(取り直した再生リストでも取れなかったときは下の間を空ける)
+                    blocked_at = blocked_at or time.time()
+                    self._mark_blocked(blocked_at)   # 記録の blockedAt(友人の行の知らせ・診断が読む)
+                    if time.time() - self._hls_failed_at >= HLS_RETRY_SEC and self._resolve_hls() and not hls_before:   # 初めて = すぐ(取り直した再生リストでも取れなかったときは下の間を空ける)
                         self._drop_session(name)
                         continue
-                    if not hls_before and not self._hls:
-                        why = BLOCKED
-                        blocked_at = blocked_at or time.time()
-                        if not got_any and time.time() - blocked_at > BLOCKED_GIVE_UP:   # 配信の前の 6 時間を待たない(行を閉じて理由を診断へ)
-                            self._drop_session(name)
-                            return self._finish("error", BLOCKED, "bot と判定されたまま %d 分たったので止めました" % (BLOCKED_GIVE_UP // 60))
+                    why = BLOCKED   # yt-dlp でも取れない・取った再生リストでも録れない(10-21: 後者で何も出さずに待ち続けていた)
+                    if not got_any and time.time() - blocked_at > BLOCKED_GIVE_UP:   # 配信の前の 6 時間を待たない(行を閉じて理由を診断へ)
+                        self._drop_session(name)
+                        return self._finish("error", BLOCKED, "bot と判定されたまま %d 分たったので止めました" % (BLOCKED_GIVE_UP // 60))
                 else:
                     blocked_at = None
+                    self._mark_blocked(None)
                 if why == ARCHIVE:   # 終わった配信(アーカイブ)を頭から取りに行った: そのセッションは消して(時刻が受信時刻と合わない)「終了」。本番画質は P4 のアーカイブの取得で
                     self._drop_session(name)
                     return self._finish("ended", ENDED + "(アーカイブを取り始めたので止めました)", "アーカイブを取り始めたので止めました")
@@ -538,6 +543,8 @@ class Recording:
                     msg = ENDED if got_any else "配信が始まらないので待つのをやめました"
                     return self._finish("ended", msg, "終了(%s)" % msg)
                 delay = mgr.backoff[min(backoff_i, len(mgr.backoff) - 1)]
+                if why == BLOCKED:
+                    delay = max(delay, BLOCKED_WAIT)
                 backoff_i += 1
                 msg = ("切れました(%s)。%d 秒後につなぎ直します" if got_any else "配信を待っています(%s)。%d 秒後にもう一度見ます") % (why, delay)
                 self.set(state="reconnecting" if got_any else "waiting", message=msg)
@@ -570,6 +577,12 @@ class Recording:
         except (OSError, ValueError):
             return False
 
+    def _mark_blocked(self, at):
+        """bot と判定され続けている始まり(エポック秒)か None を記録へ(変わったときだけ書く)"""
+        v = int(at * 1000) if at else None
+        if self.meta.get("blockedAt") != v:
+            self.set(blockedAt=v)
+
     def _blocked(self, name):
         """取れなかったセッションの取得の記録に、YouTube の bot 判定の印があるか(direct は見ない)。yt-dlp で取った再生リストでも
         取れなかった(期限切れなど)ときも取り直す"""
@@ -597,12 +610,14 @@ class Recording:
             r = subprocess.run(cmd, capture_output=True, timeout=HLS_RESOLVE_SEC, creationflags=ytools.no_window_flags())
         except (OSError, subprocess.TimeoutExpired) as e:
             self.mgr.log("録画 %s: yt-dlp で再生リストを取れませんでした(%s)" % (self.id, e.__class__.__name__))
+            self._hls_failed_at = time.time()
             return False
         out = r.stdout.decode("utf-8", "replace").strip().splitlines()
         url = out[0].strip() if r.returncode == 0 and out else ""
         if not url.startswith("https://"):
             err = r.stderr.decode("utf-8", "replace").strip().splitlines()
             self.mgr.log("録画 %s: yt-dlp で再生リストを取れませんでした(終了コード %s: %s)" % (self.id, r.returncode, (err[-1] if err else "")[:200]))
+            self._hls_failed_at = time.time()
             return False
         self._hls = url
         self.mgr.log("録画 %s: YouTube に bot と判定されたので、yt-dlp で取った再生リストから録画します" % self.id)

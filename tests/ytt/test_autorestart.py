@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""自動の起動し直しの判定(src/manage/ops/autorestart.py)のテスト。  python -m unittest tests/manage/ops/test_autorestart.py -v
+"""自動の起動し直しの判定(src/ytt/autorestart.py)のテスト。  python -m unittest tests/ytt/test_autorestart.py -v
 
 待つ・起こす・1 版 1 回・失敗したら手で、を値だけで確かめる(本物の起動はしない)"""
 import os
@@ -7,11 +7,11 @@ os.environ.setdefault("YTT_DATA_DIR", "inplace")
 import sys
 import unittest
 
-SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> ops -> manage -> src
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
-from manage.ops import autorestart as A  # noqa: E402
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
+from ytt import autorestart as A  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
 from testkit import tempdir  # noqa: E402
 
 

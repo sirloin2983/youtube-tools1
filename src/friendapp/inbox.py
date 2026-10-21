@@ -404,7 +404,7 @@ class Inbox:
             self._save()
             return json.loads(json.dumps(r)), made
 
-    def live_update(self, rid, recording, busy, waiting="", why=None):
+    def live_update(self, rid, recording, busy, waiting="", why=None, warn=""):
         """見回り: recording = 録画中か・busy = 書き出し・作っている切り抜きがあるか・waiting = 検出の採用・配信後の追加を待つ理由("" = 待たない)。
         録画が終わって作る物が無ければ残りを組に・どれも待たなければ行を閉じる(パックがあれば「届いた」・全部決めていれば「決めた」・無ければ「失敗」)。
         why = パックが無いまま閉じるときの理由 {"code", "text"}(engine.live_cause。live.cause に残す)。-> 足した組の n のリスト"""
@@ -419,6 +419,10 @@ class Inbox:
                 lv["endedAt"] = now
             made = self._live_group(r, True) if not recording and not busy else []
             lv["phase"] = "recording" if recording else "making" if busy else "after" if waiting else "done"
+            if warn:   # 録画できていない知らせ(engine._live_blocked。録れ始めたら消す)
+                lv["warn"] = warn
+            else:
+                lv.pop("warn", None)
             if not recording and not busy and not waiting and not lv.get("finished"):
                 lv["finished"] = now
                 if r["state"] == "recording":

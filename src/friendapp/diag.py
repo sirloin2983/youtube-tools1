@@ -24,7 +24,7 @@ import sys
 import threading
 import time
 
-from ytt import fsio as _fsio, tools as _tools, version as _version
+from ytt import fsio as _fsio, tools as _tools, version as _version, ytcookies as _ytcookies
 
 from . import inbox as _inbox, places as _places, progress as _progress
 
@@ -197,7 +197,17 @@ class Diag:
 
     def base(self, kind, rid=None):
         return {"v": V, "kind": kind, "source": "python", "at": int(self.clock() * 1000), "requestId": rid if rid and SAFE_ID.match(rid) else None,
-                "app": {"version": _version.VERSION, "host": self.host, "python": platform.python_version()}, "pc": self.pc()}
+                "app": {"version": _version.VERSION, "host": self.host, "python": platform.python_version()}, "pc": self.pc(), "yt": self.yt()}
+
+    def yt(self):
+        """YouTube の取得の様子: ログインした時刻・切れた時刻・cookie の書き戻しの数(ytt/ytcookies.facts。値は入れない)・取り替えた yt-dlp の版"""
+        out = {"login": _ytcookies.facts((self.env.get(_tools.COOKIES_ENV) or "").strip())}
+        try:
+            from . import ytdlp_update as _ytdlp_update
+            out["ytdlp"] = _ytdlp_update.facts(self.env)
+        except Exception:   # noqa: BLE001
+            out["ytdlp"] = None
+        return out
 
     def write(self, kind, rid=None, summary="", detail="", code=None, **fields):
         """1 つ書く。summary / detail は伏せてから入れる。fields はそのまま(作る側で伏せる)"""

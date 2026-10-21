@@ -66,7 +66,7 @@ def make_cache(root):
         with open(os.path.join(wdir, n), "rb") as f:
             files[n] = _sha(f.read())
     with open(os.path.join(wdir, "wheels.lock.json"), "w", encoding="utf-8") as f:
-        json.dump({"requirements": reqs, "files": files}, f)
+        json.dump({"requirements": reqs, "python": B.PY_TAG, "files": files}, f)
     for t in B.TOOLS:
         p = os.path.join(cache, "tools", t["file"])
         os.makedirs(os.path.dirname(p), exist_ok=True)
@@ -384,6 +384,34 @@ class BuildTest(Base):
         B.update_versions(self.out, doc["versions"][0])   # 壊れた台帳は作り直す
         with open(os.path.join(self.out, "versions.json"), encoding="utf-8") as f:
             self.assertEqual(len(json.load(f)["versions"]), 1)
+
+    def test_withdraw_moves_zips_and_rolls_latest_back(self):
+        """配った版の取り下げ: zip は手元へ移す(消さない)・台帳から消す・latest.json は前の良い版へ"""
+        os.makedirs(self.out)
+        for v in ("0.99.91", "0.99.92"):
+            for n in ("FriendApp-%s.zip" % v, "FriendApp-%s-light.zip" % v):
+                with open(os.path.join(self.out, n), "wb") as f:
+                    f.write(b"x")
+            row = {"version": v, "builtAt": "", "notes": "", "file": "FriendApp-%s.zip" % v, "size": 1, "sha256": "a" * 64,
+                   "light": {"file": "FriendApp-%s-light.zip" % v, "size": 1, "sha256": "b" * 64}, "runtime": "c" * 64}
+            B.update_versions(self.out, row)
+            testkit.write_json(os.path.join(self.out, "latest.json"), {"version": v, "file": row["file"], "size": 1, "sha256": "a" * 64, "notes": "", "light": row["light"]})
+        keep = os.path.join(self.tmp, "withdrawn")
+        self.assertEqual(B.withdraw(self.out, "0.99.92", keep), "0.99.91")
+        self.assertEqual(sorted(os.listdir(keep)), ["FriendApp-0.99.92-light.zip", "FriendApp-0.99.92.zip"])
+        self.assertFalse(any("0.99.92" in n for n in os.listdir(self.out)))
+        with open(os.path.join(self.out, "versions.json"), encoding="utf-8") as f:
+            self.assertEqual([r["version"] for r in json.load(f)["versions"]], ["0.99.91"])
+        with open(os.path.join(self.out, "latest.json"), encoding="utf-8") as f:
+            latest = json.load(f)
+        self.assertEqual((latest["version"], latest["file"], latest["light"]["file"]), ("0.99.91", "FriendApp-0.99.91.zip", "FriendApp-0.99.91-light.zip"))
+
+    def test_wheel_python_mismatch_stops(self):
+        """埋め込みの Python(python310._pth)と違う cpXY の wheel では作らない(0.99.92 = 3.10 と cp312)"""
+        bad = os.path.join(self.tmp, "x-1.0-cp312-cp312-win_amd64.whl")
+        _zip(bad, {"x/__init__.py": ""})
+        with self.assertRaises(B.BuildError):
+            B.lay_python(os.path.join(self.tmp, "stage-bad"), os.path.join(self.cache, "python", B.PY_EMBED["file"]), [bad])
 
     def test_runtime_mark_follows_python_files_only(self):
         a = {"python/python.exe": "1" * 64, "python/x.pyd": "2" * 64, "src/a.py": "3" * 64}

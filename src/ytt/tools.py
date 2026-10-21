@@ -21,7 +21,7 @@ import sys
 import threading
 import time
 
-from . import errors as _errors, fsio as _fsio
+from . import errors as _errors, fsio as _fsio, ytcookies as _ytcookies
 
 PRIORITY = {"low": "BELOW_NORMAL_PRIORITY_CLASS", "high": "ABOVE_NORMAL_PRIORITY_CLASS", "idle": "IDLE_PRIORITY_CLASS"}   # no_window_flags の priority(idle = 後回しの仕事。PRIO)
 KILL_TREE_TIMEOUT = 15   # taskkill /T /F を待つ秒数
@@ -471,7 +471,8 @@ COOKIES_RUN_KEEP = 24 * 3600        # 写しを消すまでの秒(長い取得�
 
 def ytdlp_auth_args(env=None):
     """yt-dlp に足す ["--cookies", <写し>](COOKIES_ENV のファイルがあるときだけ。無ければ [])。
-    写しを渡す: yt-dlp は終わると cookie のファイルに書き戻すので、同時に動く複数の yt-dlp が 1 つのファイルを壊さないように(元は C# のログインだけが書く)。
+    写しを渡す: yt-dlp は終わると cookie のファイルに書き戻すので、同時に動く複数の yt-dlp が 1 つのファイルを壊さないように。
+    書き戻された写し(YouTube が回した新しい値)は、写す前に ytt/ytcookies.merge_back が 1 つずつ元へ戻す(cookie を長持ちさせる)。
     中身は読まない・ログに出さない(パスだけ)。古い写しはここで消す"""
     env = os.environ if env is None else env
     src = (env.get(COOKIES_ENV) or "").strip()
@@ -481,6 +482,7 @@ def ytdlp_auth_args(env=None):
     except OSError:
         return []
     run = os.path.join(os.path.dirname(src), COOKIES_RUN)
+    _ytcookies.merge_back(src, env=env)
     try:
         os.makedirs(run, exist_ok=True)
         now = time.time()
@@ -491,7 +493,7 @@ def ytdlp_auth_args(env=None):
                     os.remove(p)
             except OSError:
                 pass
-        dst = os.path.join(run, "%d-%d-%s.txt" % (int(now * 1000), os.getpid(), os.urandom(3).hex()))
+        dst = os.path.join(run, _ytcookies.copy_name(now, os.stat(src).st_mtime_ns))
         shutil.copyfile(src, dst)
     except OSError:
         return ["--cookies", src]   # 写せないとき(空きが無いなど)は元を渡す
@@ -499,13 +501,9 @@ def ytdlp_auth_args(env=None):
 
 
 def ytdlp_login_at(env=None):
-    """yt-dlp に渡す cookie を書いた時刻(ミリ秒。= ログインした時刻)か 0(ログインしていない)"""
+    """YouTube にログインした時刻(ミリ秒)か 0(ログインしていない)。書き戻しで cookie を書き替えてもログインの時刻のまま(ytt/ytcookies)"""
     env = os.environ if env is None else env
-    src = (env.get(COOKIES_ENV) or "").strip()
-    try:
-        return int(os.path.getmtime(src) * 1000) if src and os.path.getsize(src) > 0 else 0
-    except OSError:
-        return 0
+    return _ytcookies.login_at((env.get(COOKIES_ENV) or "").strip())
 
 
 def start_logged(cmd, log_path, cwd, flags, rotate=None):

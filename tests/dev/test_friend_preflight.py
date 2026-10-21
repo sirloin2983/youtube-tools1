@@ -101,7 +101,7 @@ class ToolTest(unittest.TestCase):
     def test_friend_env_has_no_dev_things(self):
         with mock.patch.dict(os.environ, {"YTT_DATA_DIR": "x", "PYTHONPATH": "y", "PATH": r"C:\Python310;C:\ffmpeg\bin;C:\Windows\System32"}):
             env = P.friend_env(self.tmp, 9222, "shim.json")
-        self.assertFalse([k for k in env if k.startswith("YTT_") and k not in ("YTT_FRIEND_SHOTS", "YTT_FRIEND_SHOT_STEPS", P.SHIM_ENV)])
+        self.assertFalse([k for k in env if k.startswith("YTT_") and k not in ("YTT_FRIEND_SHOTS", "YTT_FRIEND_SHOT_STEPS", "YTT_FRIEND_AUTO_UPDATE", P.SHIM_ENV)])   # 自動の入れ替えは --auto-update のときだけ
         self.assertNotIn("PYTHONPATH", env)
         self.assertNotIn("Python310", env["PATH"])
         self.assertNotIn("ffmpeg", env["PATH"].lower())

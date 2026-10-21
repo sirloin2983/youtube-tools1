@@ -18,6 +18,7 @@
     if (r.state === 'recording') {
       if (upcoming(r)) return ['録画を予約しました(' + hm(r.form.startAt) + ' から)', null];
       var ph = (r.live || {}).phase;
+      if (ph === 'recording' && r.live.warn) return [r.live.warn + '・届いた ' + r.packs.length + ' 本', null];
       return [(ph === 'making' ? '録画は終わりました。残りを作っています' : ph === 'after' ? 'アーカイブから足すのを待っています' : '録画中') + '・届いた ' + r.packs.length + ' 本', null];
     }
     if (r.pc === 'user') {

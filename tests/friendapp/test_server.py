@@ -1308,6 +1308,28 @@ class ServerTest(Base):
         self.assertTrue(u["waiting"])   # 作っている間は待つ
         self.assertIn("作っている", u["label"])
 
+    def test_auto_update_when_idle_once_per_version(self):
+        """[更新する] を押さなくても、何も処理していなければ自分で頼む: 処理中・録画中・入力中は待つ → 済めば頼む → 同じ版は 2 回頼まない"""
+        t = self.fake_clock()
+        self.app.clock = lambda: t[0]
+        self.make_version("999.0.0")
+        with mock.patch.dict(os.environ, {S.HOST_ENV: "webview2"}):
+            self.assertTrue(self.js(self.get("/api/friend/update")[2])["auto"])   # 帯に「処理が終わったら自動で」
+            self.engine.queue.status = lambda: {"idle": False, "runs": [{"state": "running"}]}
+            self.assertFalse(self.app.auto_update())   # 作っている間は待つ
+            self.engine.queue.status = lambda: {"idle": True, "runs": []}
+            with mock.patch.object(self.app, "recording_count", lambda: 1):
+                self.assertFalse(self.app.auto_update())   # ライブの録画中は入れ替えない
+            self.get("/api/friend/update?input=10")   # 画面で入力している途中
+            self.assertFalse(self.app.auto_update())
+            t[0] += S.AUTO_INPUT_IDLE
+            self.assertTrue(self.app.auto_update())
+            d = self.js(self.get("/api/friend/state", headers={TOKEN: self.srv.token})[2])
+            self.assertEqual((d["update"], d["updateRequested"]), ("999.0.0", True))   # exe が入れ替える
+            self.app.update_requested = False   # 開き直したが新しい版が立たなかった(exe が戻した)
+            self.assertFalse(self.app.auto_update())   # 同じ版はもう自動ではしない([更新する] は残る)
+            self.assertFalse(self.js(self.get("/api/friend/update")[2])["auto"])
+
     def test_tidy_routes(self):
         """フォルダの整理の口: GET の形・調べる・片付ける物が無ければ 409・あとで・ごみ箱が無ければ 404・合言葉"""
         st, _h, p = self.get("/api/friend/tidy")

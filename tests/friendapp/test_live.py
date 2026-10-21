@@ -302,6 +302,23 @@ class LiveFlowTest(unittest.TestCase):
         with open(os.path.join(det.folder("local", REC), "peaks.json"), "w", encoding="utf-8") as f:
             json.dump(dict({"v": 1, "recorder": "local", "recording": REC, "seq": 1, "decN": 0, "peaks": [], "changes": []}, **doc), f)
 
+    def test_blocked_recording_warns_row_and_diag_once(self):
+        """録画元が YouTube に断られ続けて 3 分(blockedAt)= 友人の行に知らせ・診断 kind live stage blocked を 1 回。録れ始めたら消す"""
+        box = self.use_diag()
+        rid = self.send_live()["id"]
+        self.rec.recs[REC]["blockedAt"] = int((time.time() - 60) * 1000)
+        self.eng.live_tick()
+        self.assertNotIn("warn", self.box.row(rid)["live"])   # まだ 1 分
+        self.rec.recs[REC]["blockedAt"] = int((time.time() - E.BLOCKED_NOTICE - 5) * 1000)
+        self.eng.live_tick()
+        self.eng.live_tick()
+        self.assertEqual(self.box.row(rid)["live"]["warn"], E.BLOCKED_WARN)
+        got = [d for d in self.diags(box) if d.get("stage") == "blocked"]
+        self.assertEqual((len(got), got[0]["requestId"]), (1, rid))
+        self.rec.recs[REC]["blockedAt"] = None
+        self.eng.live_tick()
+        self.assertNotIn("warn", self.box.row(rid)["live"])
+
     def test_close_without_packs_writes_cause_and_diag_then_late_pack_revives(self):
         """パックが無いまま閉じた行: 理由は原因ごと(検出の記録が無い = 検出が動かない)・診断 kind live(録画の長さ・検出・ワーカー)・
         閉じたあとに届いたパックで「届いた」に戻る"""

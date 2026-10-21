@@ -71,9 +71,9 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
 from flow import colors_api as _colors_api, placement as _placement, runqueue as _runqueue  # noqa: E402
-from ytt import appwindow as _appwindow, clientlog_rule as _clientlog_rule, fsio as _fsio, httpsec, version as _version  # noqa: E402
+from ytt import appwindow as _appwindow, autorestart as _autorestart, clientlog_rule as _clientlog_rule, fsio as _fsio, httpsec, version as _version  # noqa: E402
 from friendapp import api as _api, diag as _diag, inbox as _inbox, places as _places, settings as _settings, setup as _setup, streams as _streams, sync as _sync  # noqa: E402
-from friendapp import tidy as _tidy  # noqa: E402
+from friendapp import tidy as _tidy, ytdlp_update as _ytdlp_update  # noqa: E402
 
 APP_ID = "ytt-friend"
 DEFAULT_PORT = 8720
@@ -109,6 +109,9 @@ HOST_ENV = "YTT_FRIEND_HOST"          # exe の窓の種類(webview2 = 合言葉
 PORT_BUSY_EXIT = 5                    # exe が渡した番号を使えなかった(exe が選び直す)
 ROLLBACK_ENV = "YTT_FRIEND_ROLLBACK"  # exe が前の版へ戻したとき、起動できなかった版
 SWEEP_EVERY = 3600        # 受信箱の 3 日の片付けを見る間隔(秒)
+AUTO_UPDATE_FILE = "auto-update.json"   # 自動で入れ替えを試した版(ytt/autorestart の記録。1 版につき 1 回)
+AUTO_UPDATE_ENV = "YTT_FRIEND_AUTO_UPDATE"   # "0" で自動の入れ替えをしない([更新する] だけ)
+AUTO_INPUT_IDLE = 300     # 画面で最後に入力してからこの秒数たつまでは自動で入れ替えない
 TIDY_EVERY = 180          # 新しい版のあとのフォルダの整理を見直す間隔(秒。版ごとに 1 回走れば以後は何もしない)
 SAVE_DEFAULT = _settings.SAVE_DEFAULT   # 受け取るの保存先の既定(%USERPROFILE% の下。⚙ で選ぶ)
 SAVE_FILE = _settings.SAVE_FILE
@@ -283,7 +286,8 @@ class Handler(httpsec.LocalHandler):
             return self._json(200, out)
         if path == "/api/friend/tidy":   # フォルダの整理(帯の 1 行と ⚙)
             return self._json(200, app.tidy_view())
-        if path == "/api/friend/update":   # 新しい版があるか(帯の 1 行 = ui/update.js)
+        if path == "/api/friend/update":   # 新しい版があるか(帯の 1 行 = ui/update.js。input = 画面で最後に入力してからの秒)
+            app.note_input((q.get("input") or [""])[0])
             return self._json(200, app.update_view())
         if path == "/api/friend/setup":   # 初回の準備の進み具合(F3-5)
             return self._json(200, {"ok": True, "setup": app.setup.view(), "done": app.setup_done()})
@@ -569,7 +573,8 @@ class FriendApp:
         self.make_engine = make_engine
         self.closing = threading.Event()
         self.server = None
-        self.update_requested = False   # 画面の [更新する](exe が見回りで見て、作業が無ければ入れ替える)
+        self.update_requested = False   # 画面の [更新する](exe が見回りで見て、作業が無ければ入れ替える)。auto_update も立てる
+        self.input_at = None            # 画面で最後に入力した時刻(帯の見回りが知らせる。自動の入れ替えは入力の途中にしない)
         # exe が前の版へ戻した = 起動できなかった版("72,71" = 新しい方から起きなかった順。数字と . 以外の名前は捨てる)
         self.rollback_versions = [v for v in (x.strip() for x in (os.environ.get(ROLLBACK_ENV) or "").split(",")) if re.fullmatch(r"\d+(\.\d+){0,3}", v)][:5]
         self.rollback = "・".join(self.rollback_versions)
@@ -759,12 +764,62 @@ class FriendApp:
         return best
 
     def update_view(self):
-        """画面の帯の 1 行: {available, version, requested(押した), waiting(作業が終わるのを待っている), label(待っている作業), hosted(exe の窓か)}"""
+        """画面の帯の 1 行: {available, version, requested(押した・自動で頼んだ), waiting(作業が終わるのを待っている), label(待っている作業),
+        hosted(exe の窓か), auto(処理が終わったら自動で入れ替える = exe の窓で、まだ自動で試していない版)}"""
         v = self.update_version()
         st = self.state() if v and self.update_requested else None
         hold = st and (st["making"] + st["recording"] + st["waiting"] + st["reserved"] + st["archiveWait"] + (1 if st["setup"] else 0))
+        hosted = (os.environ.get(HOST_ENV) or "").strip() == "webview2"
         return {"available": bool(v), "version": v, "requested": bool(v and self.update_requested), "waiting": bool(hold),
-                "label": (st or {}).get("label") or "", "hosted": (os.environ.get(HOST_ENV) or "").strip() == "webview2"}
+                "label": (st or {}).get("label") or "", "hosted": hosted,
+                "auto": bool(v and hosted and os.environ.get(AUTO_UPDATE_ENV, "").strip() != "0" and _autorestart.read_tried(self._auto_path()) != v)}
+
+    def note_input(self, secs):
+        """画面の帯の見回りが知らせた「最後に入力してからの秒」を覚える(読めなければ何もしない)"""
+        try:
+            s = float(secs)
+        except (TypeError, ValueError):
+            return
+        if 0 <= s < 86400:
+            self.input_at = self.clock() - s
+
+    def _auto_path(self):
+        return os.path.join(self.places["friend"], AUTO_UPDATE_FILE)
+
+    def auto_busy(self):
+        """自動の入れ替えを待つ理由(処理中・預かり・準備・同期の上げ下ろし・画面で入力中)か None"""
+        st = self.state()
+        if st["recording"]:
+            return "ライブを録画しています"
+        if st["making"] or st["waiting"] or self.busy():
+            return st["label"] or "処理しています"
+        if st["reserved"] or st["archiveWait"]:
+            return "予約・アーカイブ待ちがあります"
+        if st["setup"]:
+            return "初回の準備をしています"
+        if self.input_at is not None and self.clock() - self.input_at < AUTO_INPUT_IDLE:
+            return "画面で入力しています"
+        return None
+
+    def auto_update(self):
+        """新しい版を入れてあり、何も処理していないとき、exe に入れ替えを頼む([更新する] を押したのと同じ。1 版につき 1 回 = 試す版を先に書く。
+        起動できなければ exe が前の版へ戻し bad に入れる)。決め方は入口の自動の起動し直しと同じ ytt/autorestart -> 頼んだか"""
+        if self.update_requested or (os.environ.get(HOST_ENV) or "").strip() != "webview2" or os.environ.get(AUTO_UPDATE_ENV, "").strip() == "0":
+            return False
+        v = self.update_version()
+        act, why = _autorestart.decide(v, _version.VERSION, _autorestart.read_tried(self._auto_path()), self.auto_busy() if v else None)
+        if act != _autorestart.GO:
+            return False
+        try:
+            _autorestart.write_tried(self._auto_path(), v, _version.VERSION)
+        except OSError as e:
+            self.log("自動の入れ替えの記録を書けませんでした(%s)。自動ではしません" % e.__class__.__name__)
+            return False
+        self.update_requested = True
+        self.log("何も処理していないので、新しい版 %s に自動で入れ替えます" % v)
+        if self.diag is not None:
+            self.diag.write("update", summary="新しい版 %s に自動で入れ替えます" % v, toVersion=v, stage="auto")
+        return True
 
     def tidy_view(self):
         """整理の画面の中身(今は調べない理由 = blocked つき)"""
@@ -844,8 +899,17 @@ class FriendApp:
                     self.api.tick()   # アーカイブ待ち・失敗の自動のやり直し・落とした動画の片付け(F3-3)
                 except Exception as e:   # 見回りで玄関を止めない
                     self.log("送った物の見回りに失敗しました: %s" % e.__class__.__name__)
+                try:
+                    self.auto_update()   # 新しい版を、何も処理していない間に自動で(exe が入れ替える)
+                except Exception as e:   # noqa: BLE001
+                    self.log("自動の入れ替えの見直しに失敗しました: %s" % e.__class__.__name__)
             if now - last_sweep >= SWEEP_EVERY and self.engine is not None:
                 last_sweep = now
+                try:   # yt-dlp を新しく(1 日 1 回まで・別の糸。ユーザーの PC では動かない)
+                    _ytdlp_update.maybe_start(os.environ, self.places["friend"], os.path.join(self.places["home"], _places.TOOLS_NAME), log=self.log,
+                                              maker=_places.is_maker_data(self.places["data"]))
+                except Exception as e:   # noqa: BLE001  (見回りで玄関を止めない)
+                    self.log("yt-dlp の取り替えを始められませんでした: %s" % e.__class__.__name__)
                 try:
                     n = self.inbox.sweep()
                     if n:

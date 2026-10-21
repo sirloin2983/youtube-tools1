@@ -518,6 +518,59 @@ class TestStreamlinkPipe(unittest.TestCase):
             f.write("[cli][error] No playable streams found on this URL\n")
         self.assertFalse(r._blocked("session_001"))   # 配信の前などは bot ではない
 
+    def test_bot_block_even_with_resolved_hls_is_marked_and_gives_up(self):
+        """yt-dlp で再生リストは取れたのに、それでも録れない(10-21 19:00 の本物のライブ = 10 分「録画中」のまま何も出なかった):
+        記録に blockedAt と BLOCKED を出し、1 つも取れないまま BLOCKED_GIVE_UP たったら「エラー」で止める(偽の 429)"""
+        r = R.Recording(self.rec, "20261021-190000-y", os.path.join(self.folder, "y"), {"url": "https://www.youtube.com/watch?v=y", "quality": "1080p"})
+        os.makedirs(r.dir, exist_ok=True)
+        resolved = []
+
+        def session(name):
+            os.makedirs(os.path.join(r.dir, name), exist_ok=True)
+            with open(os.path.join(r.dir, name, "source.log"), "w", encoding="utf-8") as f:
+                f.write("error: Unable to open URL (429 Client Error: Too Many Requests)\n")
+            return 0, 1, "切れました"
+
+        def resolve():
+            resolved.append(1)
+            r._hls = "https://manifest.googlevideo.com/x/index.m3u8"
+            return True
+        with mock.patch.object(r, "_run_session", session), mock.patch.object(r, "_resolve_hls", resolve), \
+                mock.patch.object(R, "BLOCKED_GIVE_UP", 1.5), mock.patch.object(R, "BLOCKED_WAIT", 0):
+            t = threading.Thread(target=r._run, daemon=True)
+            t.start()
+            self.assertTrue(wait_for(lambda: r.meta.get("blockedAt"), 10), r.meta)
+            self.assertTrue(r.summary()["blockedAt"])
+            t.join(20)
+        self.assertFalse(t.is_alive())
+        self.assertEqual((r.meta["state"], r.meta["message"]), ("error", R.BLOCKED))
+        self.assertGreaterEqual(len(resolved), 2)   # 取り直しはする
+        self.assertIsNone(r.summary()["blockedAt"])   # 止めたあとは出さない
+
+    def test_bot_block_without_cookies_does_not_repeat_ytdlp(self):
+        """10-21 19:00 の形: cookie が無く yt-dlp も「Sign in to confirm」で断られる = 35 秒ごとに yt-dlp を呼び直していた。
+        断られたら HLS_RETRY_SEC は呼ばない・つなぎ直しは BLOCKED_WAIT あける・記録は blockedAt と BLOCKED(偽の 429・偽の yt-dlp)"""
+        r = R.Recording(self.rec, "20261021-190043-w", os.path.join(self.folder, "w"), {"url": "https://www.youtube.com/watch?v=w", "quality": "1080p"})
+        os.makedirs(r.dir, exist_ok=True)
+        calls, waits = [], []
+
+        def session(name):
+            os.makedirs(os.path.join(r.dir, name), exist_ok=True)
+            with open(os.path.join(r.dir, name, "source.log"), "w", encoding="utf-8") as f:
+                f.write("error: Unable to open URL (429 Client Error: Too Many Requests)\n")
+            return 0, 1, "切れました"
+
+        def run(cmd, **kw):
+            calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 1, b"", "ERROR: [youtube] w: Sign in to confirm you’re not a bot.\n".encode("utf-8"))
+        self.rec.ytdlp = "yt-dlp-fake"
+        with mock.patch.object(r, "_run_session", session), mock.patch.object(R.subprocess, "run", run), \
+                mock.patch.object(r, "_wait", lambda sec: (waits.append(sec), time.sleep(0.05))), mock.patch.object(R, "BLOCKED_GIVE_UP", 1.0):
+            r._run()
+        self.assertEqual((r.meta["state"], r.meta["message"]), ("error", R.BLOCKED))
+        self.assertEqual(len(calls), 1)   # 断られてからは呼ばない
+        self.assertTrue(waits and min(waits) >= R.BLOCKED_WAIT, waits)
+
     def test_default_quality_is_1080p(self):
         """画質の既定は 1080p(4K の配信で容量が膨らむのを避ける)。720p・best も選べる"""
         import inspect
