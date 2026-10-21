@@ -34,7 +34,7 @@ import zipfile
 
 from ytt import fsio as _fsio, version as _version
 
-from . import places as _places, toolcheck as _toolcheck
+from . import places as _places, toolcheck as _toolcheck, ytdlp_update as _ytdlp_update
 
 UNZIPS = (None, "zip", "tar.bz2", "tar.bz2-member", "wcpp")   # wcpp = CUDA 版の whisper.cpp(表には無い。cuda_item が組む)
 SHA_RE = re.compile(r"^[0-9a-f]{64}\Z")
@@ -183,6 +183,8 @@ def is_done(it, data_root, home):
             if not os.path.isfile(p):
                 return False
             n = os.path.getsize(p)
+            if it["file"] == _ytdlp_update.EXE and _ytdlp_update.mark_ok(fold, n):   # 自動で新しい版に取り替えた(表の大きさと違ってよい)
+                return True
             return n == it["size"] if it["size"] > 0 else 0 < n <= it["maxBytes"]
         if it["unzip"] == "zip":
             with open(marker(it, fold), "r", encoding="utf-8") as f:

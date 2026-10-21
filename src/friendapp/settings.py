@@ -27,7 +27,7 @@ import urllib.parse
 import urllib.request
 
 from flow import machine as _machine, spec as _spec
-from ytt import fsio as _fsio, studio_env as _studio_env, tools as _tools
+from ytt import fsio as _fsio, studio_env as _studio_env, tools as _tools, ytcookies as _ytcookies
 
 from . import api as _api, live as _live
 
@@ -203,8 +203,9 @@ class Settings:
         at = self.api.login_at()
         if not at:
             return {"state": "none", "at": 0}
-        expired = False
-        for r in self.api.inbox.view():
+        facts = _ytcookies.facts((self.env.get(_tools.COOKIES_ENV) or "").strip()) or {}
+        expired = bool(facts.get("lostAt"))   # yt-dlp の書き戻しでログインの cookie が消えた(ytt/ytcookies)
+        for r in [] if expired else self.api.inbox.view():
             if r.get("state") == "failed" and (r.get("failedAt") or 0) > at and r.get("pc") != "user" and self.api.classify(r)["code"] == "bot":
                 expired = True
                 break
@@ -221,6 +222,7 @@ class Settings:
                 os.remove(src)
         except OSError as e:
             raise SettingsError("ログアウトできませんでした(%s)" % (e.strerror or e.__class__.__name__))
+        _ytcookies.forget(src)
         run = os.path.join(os.path.dirname(src), _tools.COOKIES_RUN)
         if os.path.isdir(run):
             for n in os.listdir(run):

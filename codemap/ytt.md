@@ -64,7 +64,7 @@
   - 名前: `load_live` :24・`load_video` :35・`save_series` :82・`read` :96・`load_all` :108・`videos` :116・`video` :121・`studio_videos` :157・`studio_stream` :162
 - **textutil.py** (69 行) — ログ・画面に出す文と数の小物(標準ライブラリだけ)。
   - 名前: `redact` :18・`permission_message` :23・`tail_reason` :31・`fmt_ts` :38・`fmt_ms` :44・`num` :50・`person_key` :64
-- **tools.py** (656 行) — 外部プログラム(ffmpeg・ffprobe・yt-dlp)の場所と、子プロセスを動かすときの小道具。
+- **tools.py** (654 行) — 外部プログラム(ffmpeg・ffprobe・yt-dlp)の場所と、子プロセスを動かすときの小道具。
   - 名前: `remember` :33・`recent` :47・`ytt_env` :52・`find_tool` :66・`find_ffmpeg` :116・`media_tool` :121・`ffmpeg_info` :127・`parse_ffmpeg_info` :141・`duration_in` :152・`media_duration` :157・`check_source` :163・`probe_media` :173・ほか 18
 - **trashbin.py** (195 行) — ごみ箱フォルダの 1 か所(形と、移す・戻す・古い日付を消す動作)。どの層からも使う(① の録画の部品・④ の片付けと「要らない」・友人のアプリ)ので ytt に置く。
   - 名前: `day_name` :24・`free_path` :33・`append_manifest` :43・`old_day_dirs` :61・`purge` :79・`to_trash` :100・`record` :151・`put_back` :166

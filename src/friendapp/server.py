@@ -73,7 +73,7 @@ if SRC not in sys.path:
 from flow import colors_api as _colors_api, placement as _placement, runqueue as _runqueue  # noqa: E402
 from ytt import appwindow as _appwindow, autorestart as _autorestart, clientlog_rule as _clientlog_rule, fsio as _fsio, httpsec, version as _version  # noqa: E402
 from friendapp import api as _api, diag as _diag, inbox as _inbox, places as _places, settings as _settings, setup as _setup, streams as _streams, sync as _sync  # noqa: E402
-from friendapp import tidy as _tidy  # noqa: E402
+from friendapp import tidy as _tidy, ytdlp_update as _ytdlp_update  # noqa: E402
 
 APP_ID = "ytt-friend"
 DEFAULT_PORT = 8720
@@ -905,6 +905,11 @@ class FriendApp:
                     self.log("自動の入れ替えの見直しに失敗しました: %s" % e.__class__.__name__)
             if now - last_sweep >= SWEEP_EVERY and self.engine is not None:
                 last_sweep = now
+                try:   # yt-dlp を新しく(1 日 1 回まで・別の糸。ユーザーの PC では動かない)
+                    _ytdlp_update.maybe_start(os.environ, self.places["friend"], os.path.join(self.places["home"], _places.TOOLS_NAME), log=self.log,
+                                              maker=_places.is_maker_data(self.places["data"]))
+                except Exception as e:   # noqa: BLE001  (見回りで玄関を止めない)
+                    self.log("yt-dlp の取り替えを始められませんでした: %s" % e.__class__.__name__)
                 try:
                     n = self.inbox.sweep()
                     if n:
