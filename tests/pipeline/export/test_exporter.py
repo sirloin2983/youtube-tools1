@@ -282,7 +282,11 @@ class TestExportThrough(unittest.TestCase):
         enc = d["export"].pop("encoder")   # 作った作り方の印(GPU が使えない・失敗した PC では libx264)
         self.assertIn(enc, ["libx264"] + [c for c, _a in normalize.GPU_ENCODERS])
         self.assertEqual(d["export"].pop("encodeSet"), normalize.enc_set())   # 画質の設定の版の印
+        self.assertGreater(d["export"].pop("secs")["encode"], 0)   # 段ごとの秒(友人の診断で読む)
+        d["export"].pop("gpuError", None)   # GPU で作れなかった PC だけ
         self.assertEqual(d["export"], {"mode": "precise", "volume": 50})   # 余白なしは actualStart なし(= range.start)
+        self.assertEqual(exporter.src_shape("Stream #0:0[0x1](und): Video: av1 (libdav1d) (Main), yuv420p(tv), 1920x1080 [SAR 1:1 DAR 16:9], 1472 kb/s, 60 fps"),
+                         {"vcodec": "av1", "height": 1080, "fps": 60.0})
         # 前後10秒の編集用素材: 作業用/ に・その範囲の .clip.json・.edit.json は本当の名前を指す
         self.assertTrue(it["editPath"].endswith("_edit.mp4") and os.path.isfile(it["editPath"]) and os.path.dirname(it["editPath"]) == work)
         self.assertEqual(it["editManifest"], os.path.splitext(it["editPath"])[0] + ".clip.json")

@@ -435,13 +435,17 @@ def _encode(ctl, spec, it, build, outs, what, span=(0.0, 1.0), log_cmd=None, tri
     dur = max(d for _p, d in outs)
     for n, (how, enc) in enumerate(tries, 1):
         cmd, tail = build(enc), []
+        t0 = time.monotonic()
         try:
             tail = _pump(ctl, cmd, it, dur, span)
             for p, d in outs:
                 verify_output(p, d, tail)
             it["encoder"] = how
+            _secs(it, "encode", time.monotonic() - t0)
             return
         except ExportError as e:
+            if how != _norm.CPU and n < len(tries):   # GPU で作れず libx264 へ = 理由を .clip.json に(友人の診断で見る)
+                it["gpuError"] = "%s: %s" % (how, str(e)[:200])
             log_export("%s 失敗(%s): %s" % (what, how, e), cmd if log_cmd is None else log_cmd, tail)
             for p, _d in outs:
                 if os.path.exists(p):
@@ -546,6 +550,7 @@ def _ytdlp_sections(ctl, spec, it, base):
                                "--", _yturl.watch_url(spec["videoId"])]
     cmd = dl_cmd(chunk)
     tail, stage = [], "dl"
+    t_get = time.monotonic()
     try:
         try:
             tail = _pump(ctl, cmd, it, dl_len, span=(0.0, 0.5))
@@ -563,7 +568,10 @@ def _ytdlp_sections(ctl, spec, it, base):
         raw = raw_base + ".mp4" if raw_base + ".mp4" in files else sorted(files)[0]
         need = expected_len(spec, it)
         verify_output(raw, need, tail)
-        raw_len = _media.media_info(raw)[0]
+        raw_info = _media.media_info(raw)
+        raw_len = raw_info[0]
+        _secs(it, "get", time.monotonic() - t_get)
+        it["input"] = src_shape(raw_info[3])
         if raw_len is not None and raw_len > dl_len + 1.0:
             raise ExportError("取った区間の開始の位置が分かりません(頼んだ %.1f 秒より長い %.1f 秒)" % (dl_len, raw_len))
         off = float(it["start"]) - dl_start   # 取ったファイルの中での開始
@@ -691,6 +699,7 @@ def apply_loudness(ctl, spec, it):
     edit = it.get("editPath")
     edit = edit if edit and os.path.isfile(edit) else None
     paths = [main] + ([edit] if edit else [])
+    t0 = time.monotonic()
     got = _both([lambda p=p: measure_loudness(ctl, it, p) for p in paths])   # 本体と編集用素材は別のファイル = 同時に測る・作り直す(結果は 1 本ずつと同じ)
     i, tp = got[0]
     if i is None:
@@ -701,6 +710,25 @@ def apply_loudness(ctl, spec, it):
     if abs(gain) >= _loud.MIN_GAIN_DB:
         _both([lambda p=p: _reencode_audio(ctl, it, p, _loud.gain_filter(gain), "ラウドネス調整") for p in paths])
     it["loudness"] = {"target": target, "measured": round(i, 1), "gainDb": gain}
+    _secs(it, "loudness", time.monotonic() - t0)
+
+
+_SRC_CODEC = re.compile(r"Video:\s*([A-Za-z0-9_]+)")
+_SRC_SIZE = re.compile(r"\b(\d{2,5})x(\d{2,5})\b")
+_SRC_FPS = re.compile(r"([\d.]+)\s*fps")
+
+
+def src_shape(line):
+    """ffmpeg -i の映像の行 -> {vcodec, height, fps}(分からない欄は None)。書き出しの元の形の印(友人の診断で読み込みの重さを見る)"""
+    line = str(line or "")
+    c, sz, f = _SRC_CODEC.search(line), _SRC_SIZE.search(line), _SRC_FPS.search(line)
+    return {"vcodec": c.group(1) if c else None, "height": int(sz.group(2)) if sz else None, "fps": float(f.group(1)) if f else None}
+
+
+def _secs(it, key, sec):
+    """書き出しの段ごとの秒を it["secs"] に足す(.clip.json の export.secs)"""
+    secs = it.setdefault("secs", {})
+    secs[key] = round(secs.get(key, 0) + sec, 1)
 
 
 def _both(fns):
@@ -848,7 +876,7 @@ def export_edit_media(ctl, spec, it, base, runner):
 
 
 # ---------- youtube-tools-clip/v1(.clip.json) ----------
-def _clip_export_info(spec, method, loudness=None, encoder=None):
+def _clip_export_info(spec, method, loudness=None, encoder=None, extra=None):
     """.clip.json の export。mode は fast(高速の設定で作り直した)/ precise。どちらも位置ちょうど(range.start が 0 秒)なので actualStart は付けない
     encoder = 映像を作った作り方(libx264・h264_nvenc など。印)・encodeSet = その画質の設定の版(normalize.enc_set)。
     余白つき(LD-2f)の actualStart・margin は write_manifests が足す"""
@@ -859,6 +887,7 @@ def _clip_export_info(spec, method, loudness=None, encoder=None):
         info["loudness"] = loudness or {"target": spec["loudness"]}   # そろえたラウドネス(音量(%)は使っていない)
     else:
         info["volume"] = spec.get("volume", 100)
+    info.update(extra or {})   # 元の形(input)・段ごとの秒(secs)・GPU で作れなかった理由(gpuError)
     return info
 
 
@@ -886,7 +915,7 @@ def write_manifests(spec, it, mark_status):
         return min(end, lim) if lim and lim > 0 else end
     media = it["path"]
     dur = _media.media_info(media)[0]
-    ex = _clip_export_info(spec, it.get("method"), it.get("loudness"), it.get("encoder"))
+    ex = _clip_export_info(spec, it.get("method"), it.get("loudness"), it.get("encoder"), {k: it[k] for k in ("input", "secs", "gpuError") if it.get(k)})
     end = end_of(it["end"], it.get("srcLen"))
     if it.get("clipRange"):   # 余白つき(LD-2f): range はマークのまま・動画の 0 秒 = actualStart(schemas.clip_offset が読む)・margin = 実際に足せた前後の秒(印)
         cf, ct = it["clipRange"]

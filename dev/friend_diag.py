@@ -172,6 +172,11 @@ def lines_of(name, d, full=False):
                 _sec(sc.get("recognize")), _sec(et.get("procSec")), _sec(et.get("loadSec")), _sec(et.get("encodeSec")), _sec(et.get("decodeSec")),
                 et.get("fallbacks", "?"), et.get("tokens", "?"), _sec(sc.get("fill")), _sec(sc.get("llm")),
                 "・始める前の GPU %s%%・%s MB" % (g.get("util"), g.get("memMB")) if g else ""))
+    for x in d.get("exports") or []:   # 1 本ずつの書き出し: 作り方・元の形・取得と作り直しと音量そろえの秒・GPU で作れなかった理由
+        src, sc = x.get("input") or {}, x.get("secs") or {}
+        out.append("    書き出し: %s 元 %s %sp %sfps・取得 %s・作り直し %s・音量 %s%s" % (
+            x.get("encoder") or "?", src.get("vcodec") or "?", src.get("height") or "?", src.get("fps") or "?",
+            _sec(sc.get("get")), _sec(sc.get("encode")), _sec(sc.get("loudness")), "・GPU で作れず: %s" % x["gpuError"] if x.get("gpuError") else ""))
     if d.get("kind") == "live":
         out += live_lines(d, full)
     if d.get("kind") == "preview" or d.get("stage") == "preview":

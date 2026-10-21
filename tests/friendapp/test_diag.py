@@ -80,7 +80,9 @@ class DiagTest(unittest.TestCase):
         T.RECENT[-1]["at"] = int(NOW * 1000) - 100000
         path = self.d.run(FakeRun("error", "yt-dlp が失敗しました: Sign in to confirm you're not a bot\n" + r"C:\Users\taro\a"),
                           {"id": RID, "kind": "url", "pc": "this", "form": {"ranges": [[1, 2]], "videoId": "dQw4w9WgXcQ"}},
-                          [{"device": "cuda", "backend": "CUDA", "gpu": "RTX 3060", "model": "large", "audioSec": 600.0, "wallSec": 60.0}])
+                          [{"device": "cuda", "backend": "CUDA", "gpu": "RTX 3060", "model": "large", "audioSec": 600.0, "wallSec": 60.0}],
+                          exports=[{"encoder": "libx264", "input": {"vcodec": "av1", "height": 1080, "fps": 60.0}, "secs": {"get": 11.4, "encode": 85.2},
+                                    "gpuError": "h264_nvenc: " + r"C:\Users\taro\x" + " Driver does not support the required nvenc API version"}])
         self.assertEqual(os.path.basename(path), "%s__diag-%013d.diag.json" % (RID, int(NOW * 1000)))
         d = self.read(os.path.basename(path))
         self.assertEqual((d["v"], d["kind"], d["source"], d["requestId"], d["code"]), (1, "run", "python", RID, "bot"))
@@ -92,6 +94,8 @@ class DiagTest(unittest.TestCase):
         self.assertEqual(d["totalSec"], 420.0)
         self.assertEqual(d["transcribe"][0]["ratio"], 0.1)
         self.assertEqual(d["request"]["ranges"], 1)
+        self.assertEqual((d["exports"][0]["encoder"], d["exports"][0]["input"]["vcodec"], d["exports"][0]["secs"]["encode"]), ("libx264", "av1", 85.2))
+        self.assertIn("nvenc API version", d["exports"][0]["gpuError"])
         self.assertEqual([(t["name"], t["code"]) for t in d["tools"]], [("yt-dlp", 1), ("ffmpeg", 0)])
         self.assertEqual(d["tools"][1]["tail"], [])   # うまくいった道具の行は持たない
         text = json.dumps(d, ensure_ascii=False)

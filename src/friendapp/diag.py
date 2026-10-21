@@ -37,6 +37,7 @@ DETAIL_MAX = 4000
 SUMMARY_MAX = 300
 LOCAL_MAX = 300                     # 箱に置く診断の数の上限(古い物から消す)
 TOOLS_MAX = 30
+EXPORTS_MAX = 20   # 書き出しの記録(1 本ずつの作り方・元の形・秒)の数の上限
 KEEP_SEC = _inbox.KEEP_DAYS * _inbox.DAY
 
 _USERS = re.compile(r"(?i)([A-Z]:[\\/]+(?:Users|Documents and Settings)[\\/]+)[^\\/\"'<>|\r\n\t]+")
@@ -233,7 +234,7 @@ class Diag:
             r["tail"] = [self.mask(x) for x in r.get("tail") or []]
         return rows
 
-    def run(self, run, row=None, transcribe=None):
+    def run(self, run, row=None, transcribe=None, exports=None):
         """② の実行 1 本が終わった(依頼 1 件ごと)。row = 受信箱の行(kind・区間・pc)"""
         steps = getattr(run, "steps", None) or []
         starts = [s.get("startedAt") for s in steps if isinstance(s.get("startedAt"), int)]
@@ -251,7 +252,8 @@ class Diag:
         code = _progress.classify(err, kind).get("code") if err else None
         rid = (row or {}).get("id") or getattr(run, "request_id", None)
         return self.write("run", rid=rid, summary=err.splitlines()[0] if err else "%s(%s 秒)" % (state, total), detail=err, code=code,
-                          request=req, totalSec=total, stages=stages, transcribe=transcribe_rows(transcribe), tools=self.tools_since(t0 - 1000))
+                          request=req, totalSec=total, stages=stages, transcribe=transcribe_rows(transcribe), tools=self.tools_since(t0 - 1000),
+                          exports=[dict(x, gpuError=self.mask(x["gpuError"])[:300]) if x.get("gpuError") else x for x in (exports or [])][:EXPORTS_MAX])
 
     def _put(self, doc):
         data = json.dumps(doc, ensure_ascii=False).encode("utf-8")

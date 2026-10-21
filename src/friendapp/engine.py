@@ -91,6 +91,18 @@ def transcribe_records(run, read_doc=None):
     return out
 
 
+def export_records(run, read_doc=None):
+    """この実行の文書ごとの書き出しの記録(文書の clip.export の作り方・元の形・段ごとの秒・GPU で作れなかった理由)。診断が読む"""
+    read_doc = read_doc or _read_doc
+    out = []
+    for tid in getattr(run, "docs", None) or []:
+        ex = (((read_doc(tid) or {}).get("clip") or {}).get("export")) or {}
+        got = {k: ex[k] for k in ("encoder", "input", "secs", "gpuError") if ex.get(k) is not None} if isinstance(ex, dict) else {}
+        if got:
+            out.append(got)
+    return out
+
+
 def _read_doc(tid):
     try:
         return _fsio.read_json_or(_docloc.doc_file(str(tid), ".json"), None, kind=dict)
@@ -202,7 +214,7 @@ class Engine:
             return
         if self.diag is not None:   # 依頼 1 件ごとの診断(段ごとの秒・道具の終了コード。friendapp/diag)
             try:
-                self.diag.run(run, row, transcribe_records(run))
+                self.diag.run(run, row, transcribe_records(run), exports=export_records(run))
             except Exception as e:   # noqa: BLE001  (診断で届けるのを止めない)
                 self.log("診断を書けませんでした: %s" % e.__class__.__name__)
         if run.result_path:
