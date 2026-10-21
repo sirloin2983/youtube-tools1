@@ -88,7 +88,19 @@ def recognition_run(spec, job, audio_sec, wall_sec, pairs=None):
     t = engine_timing(job.get("engineTiming"))
     if t:
         run["engineTiming"] = t
+        d = dtw_record(t)
+        if d:
+            run["dtw"] = d
     return run
+
+
+def dtw_record(timing):
+    """whisper.cpp の DTW の印 {"shift", "words", "dropped"}(engineTiming の dtwWords・dtwDropped から。無ければ None)。
+    dropped が words と同じ = DTW が黙って切れた(フラッシュアテンション・-dtw の通らない版)。eval_timing はこの印で組を分ける"""
+    if not isinstance(timing, dict) or "dtwWords" not in timing:
+        return None
+    from .tx_engines import DTW_SHIFT   # 遅く読む(記録の部品はエンジンを読まずに使える)
+    return {"shift": DTW_SHIFT, "words": int(timing.get("dtwWords") or 0), "dropped": int(timing.get("dtwDropped") or 0)}
 
 
 def engine_timing(items):

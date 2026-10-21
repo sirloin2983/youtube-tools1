@@ -186,6 +186,10 @@ class FasterWhisper(Engine):
 # ユーザー決定)。作った物は作業データの bin\whisper.cpp-<版>-vulkan\ に置き、build.json にコミットを記録する(違えば使わない)。
 # CUDA 版(F1 F0-2。友人の PC の RTX)は公式のリリースの zip を URL・大きさ・SHA-256 固定で取り bin\whisper.cpp-<版>-cuda\ に置く(WCPP_BINARIES。
 # 取るのは機器を cuda に切り替えて最初に読み込むときだけ)。置き場所の決まりは ytt/txbase の wcpp_bin_dir(入口の flow/live_tx も同じ関数を読む)
+DTW_ENV = "TRANSCRIBE_WCPP_DTW"   # スイッチ: 0 で今の形(単語の時刻をトークンの時刻のまま)。既定オン(10-21 ユーザー「友人用にも入れていい」)
+DTW_MODELS = {"large-v3": "large.v3"}   # -dtw に渡す名前(モデルごと。表に無いモデルではかけない)
+DTW_SHIFT = 0.1                   # DTW の単語の始まりを前へずらす秒(DTW は約 0.1 秒遅れる。0.05・0.15 と比べて全部の行の ±0.2 秒以内がいちばん高い)
+DTW_TOL = 1.0                     # 行の範囲の前後この秒の外の DTW の時刻は崩れとみなす
 WHISPER_CPP = {"version": _txbase.WCPP_VERSION, "commit": "927cfce34f31707e17f2bff35c349632fb9e2c3a", "repo": "https://github.com/ggml-org/whisper.cpp.git"}
 # 種類 -> 公式の配布の zip。cuda = リリース b5130(タグ v1.9.4 と同じコミット 927cfce)の whisper-cublas-12.4.0-bin-x64.zip(CUDA ランタイムの DLL 込みの大きさ)。
 # 大きさと SHA-256 は GitHub の API(リリースの assets の size・digest)の値(zip は取っていない = 中のフォルダの形は取ったときに探す)。
@@ -489,6 +493,10 @@ class WhisperCpp(Engine):
         ドライバが直ったら環境変数 TRANSCRIBE_WCPP_FA=1 で試せる"""
         return os.environ.get("TRANSCRIBE_WCPP_FA") == "1"
 
+    def dtw(self):
+        """単語の始まりを DTW(-dtw)で出すか: スイッチ DTW_ENV が 0 でない・large-v3・フラッシュアテンションがオフ(オンだと whisper.cpp が黙って DTW を切る)"""
+        return os.environ.get(DTW_ENV) != "0" and self.name in DTW_MODELS and not self.flash_attn()
+
     def args(self, wav, out_base, kw, cwd=None, model=None):
         """whisper-cli の引数(応答ファイルの行)。kw は faster-whisper の引数の名前(worker_client.whisper_kwargs が作る)。
         cwd = whisper-cli を起こす作業フォルダ(パスはそこからの相対でもよい)・model = 使うモデルのファイル(既定は self.model)。
@@ -500,6 +508,8 @@ class WhisperCpp(Engine):
             a += ["-mc", "0"]   # 前の文を文脈にしない(faster-whisper と同じ)。注意: whisper.cpp は -mc 0 だと --prompt(用語集のヒント)も使わない(測定でヒントで精度は上がらなかったので -mc 0 のまま。画面の #glossDev で案内)
         if not self.flash_attn():
             a += ["-nfa"]
+        if self.dtw():
+            a += ["-dtw", DTW_MODELS[self.name]]
         if self.device == "cpu":
             a += ["-ng"]
         if kw.get("temperature") == 0.0:
@@ -540,7 +550,10 @@ class WhisperCpp(Engine):
                     data = json.loads(f.read().decode("utf-8", errors="replace"), strict=False)
             except (OSError, ValueError) as e:
                 raise EngineError("engine_failed", "whisper.cpp の結果を読めませんでした: %s" % str(e)[:160])
-            segs = parse_json(data)
+            dtw = {} if self.dtw() else None
+            segs = parse_json(data, DTW_SHIFT if dtw is not None else None, dtw)
+            if dtw is not None:   # 印(recognition.runs の dtw・友人の診断の engineTiming)。dropped が words と同じ = 黙って切れた
+                timing.update(dtwWords=dtw.get("words", 0), dtwDropped=dtw.get("dropped", 0))
             # duration_after_vad = None(声の検出をしない = 分からない。サーバーの「捨てすぎたら緩める」は見ない)。
             # Silero の声の区間の外の行は捨てない(評価用 18 本で 27.0% → 33.8% に悪化)
             info = types.SimpleNamespace(language=(data.get("result") or {}).get("language") or kw.get("language"),
@@ -608,8 +621,22 @@ class WhisperCpp(Engine):
                               % ("CUDA" if self.device == "cuda" else "Vulkan", "GPU が見つからない" if used is not None else "GPU の初期化の記録が無い"))
 
 
-def parse_json(data):
+def _dtw_start(tok, a, prev, seg_from, seg_to, shift):
+    """DTW の単語の始まり(秒)か None(使えない = 今の時刻のまま)。t_dtw は 10 ミリ秒の単位・-1 = 無し。行の範囲の前後 DTW_TOL 秒の外は崩れとみなす"""
+    d = tok.get("t_dtw")
+    if not isinstance(d, (int, float)) or isinstance(d, bool) or d < 0 or seg_from is None:
+        return None
+    t = d / 100.0
+    if not (seg_from - DTW_TOL <= t <= seg_to + DTW_TOL):
+        return None
+    return max(prev, 0.0, t - shift)
+
+
+def parse_json(data, dtw_shift=None, dtw_counts=None):
     """whisper-cli の -ojf の結果 → faster-whisper と同じ属性の行の一覧。単語 = 文字のトークン(特別なトークン [_…] は除く)。
+    dtw_shift(秒)= -dtw で出した単語の始まり(t_dtw)を使う: 始まり = t_dtw − dtw_shift(前の単語・0 より前にしない)・終わりは今の時刻(offsets)のまま・
+    t_dtw が無い・崩れた単語は今の時刻のまま。行の始まりは最初の単語の始まり。dtw_counts に {"words", "dropped"(今の時刻のままにした数)} を足す
+    (notes:plan/row-start-study.md の最終試験。人が直した行の始まりのずれ |中央値| 0.52 → 0.18 秒)。
     avg_logprob はトークンの確率の対数の平均(faster-whisper の値と同じ尺度の近い値)、compression_ratio は文字列の zlib の圧縮率(faster-whisper と同じ式)"""
     out = []
     for seg in data.get("transcription") or []:
@@ -620,7 +647,7 @@ def parse_json(data):
         if a is None or b is None:
             continue
         text = str(seg.get("text") or "")
-        words, lps = [], []
+        words, lps, prev = [], [], 0.0
         for tok in seg.get("tokens") or []:
             t = str((tok or {}).get("text") or "")
             if not t or t.startswith("[_") or "�" in t:
@@ -632,8 +659,26 @@ def parse_json(data):
             to = tok.get("offsets") or {}
             w0, w1 = _ms(to.get("from")), _ms(to.get("to"))
             if w0 is not None and w1 is not None:
+                if dtw_shift is not None:
+                    d = _dtw_start(tok, w0, prev, a, b, dtw_shift)
+                    if dtw_counts is not None:
+                        dtw_counts["words"] = dtw_counts.get("words", 0) + 1
+                        dtw_counts["dropped"] = dtw_counts.get("dropped", 0) + (d is None)
+                    w0 = d if d is not None else w0
+                    prev = w0
                 words.append(types.SimpleNamespace(start=w0, end=max(w0, w1), word=t, probability=p))
+        if dtw_shift is not None and words:
+            a = words[0].start
         raw = text.strip().encode("utf-8")
+        if dtw_shift is not None and out:   # 前へずらした始まりが、前の行の今の終わりより前に来たら、前の行と最後の単語の終わりをそこで止める(行どうしを重ねない)
+            p = out[-1]
+            if p.words and p.words[-1].end > a >= p.words[-1].start:
+                p.words[-1].end = a
+            if p.end > a >= p.start:
+                p.end = a
+        for i in range(len(words) - 1) if dtw_shift is not None else ():   # 行の中の単語どうしも同じ
+            if words[i].end > words[i + 1].start >= words[i].start:
+                words[i].end = words[i + 1].start
         out.append(types.SimpleNamespace(start=a, end=max(a, b), text=text, words=words,
                                          avg_logprob=(sum(lps) / len(lps)) if lps else None, no_speech_prob=None,
                                          compression_ratio=(len(raw) / len(zlib.compress(raw))) if raw else None))

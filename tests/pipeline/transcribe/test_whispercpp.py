@@ -234,6 +234,35 @@ class WhisperCppTest(unittest.TestCase):
             self.assertNotIn("-nfa", e.args(self.wav, os.path.join(self.tmp, "o"), kw))
 
 
+    def test_dtw_word_starts(self):
+        """DTW(既定オン・large-v3・フラッシュアテンションがオフのときだけ -dtw large.v3): 単語の始まり = t_dtw − 0.1 秒(前の単語・0 より前にしない)・
+        終わりは今の時刻・t_dtw が -1・行の範囲の外の単語は今の時刻のまま(数を数える)・行の始まりは最初の単語"""
+        e = self.engine()
+        kw = {"language": "ja", "beam_size": 5}
+        a = e.args(self.wav, os.path.join(self.tmp, "o"), kw)
+        self.assertEqual(a[a.index("-dtw") + 1], "large.v3")
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_WCPP_FA": "1"}):
+            self.assertNotIn("-dtw", e.args(self.wav, os.path.join(self.tmp, "o"), kw))   # 一緒だと whisper.cpp が黙って DTW を切る
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_WCPP_DTW": "0"}):
+            self.assertNotIn("-dtw", e.args(self.wav, os.path.join(self.tmp, "o"), kw))
+        self.assertNotIn("-dtw", E.WhisperCpp("large-v3-turbo", "vulkan", {"cmd": FAKE, "model": "m"}).args(self.wav, "o", kw))
+
+        def tok(text, a, b, d):
+            return {"text": text, "offsets": {"from": a, "to": b}, "p": 0.9, "t_dtw": d}
+        data = {"transcription": [{"offsets": {"from": 1000, "to": 4000}, "text": "あいうえ", "tokens": [
+            tok("[_BEG_]", 1000, 1000, -1), tok("あ", 1000, 1500, 150), tok("い", 1500, 2000, 140), tok("う", 2000, 2500, -1), tok("え", 2500, 3000, 900)]}]}
+        counts = {}
+        s = E.parse_json(data, 0.1, counts)[0]
+        self.assertEqual([(round(w.start, 2), round(w.end, 2)) for w in s.words], [(1.4, 1.4), (1.4, 2.0), (2.0, 2.5), (2.5, 3.0)])   # 戻らない・-1 と範囲の外は今のまま・次の始まりで止める
+        two = {"transcription": [{"offsets": {"from": 0, "to": 2000}, "text": "か", "tokens": [tok("か", 0, 2000, 10)]},
+                                 {"offsets": {"from": 2000, "to": 3000}, "text": "き", "tokens": [tok("き", 2000, 3000, 190)]}]}
+        a, b = E.parse_json(two, 0.1, {})
+        self.assertEqual((round(a.end, 2), round(a.words[0].end, 2), round(b.start, 2)), (1.8, 1.8, 1.8))   # 前の行と重ねない
+        self.assertEqual((round(s.start, 2), s.end), (1.4, 4.0))
+        self.assertEqual(counts, {"words": 4, "dropped": 2})
+        self.assertEqual(E.parse_json(data)[0].words[0].start, 1.0)   # DTW なし = 今のまま
+
+
 def row(a, b, text, words=None):
     return {"start": a, "end": b, "text": text, "_words": words if words is not None else [(a, b, text)]}
 

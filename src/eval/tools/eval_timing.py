@@ -216,7 +216,9 @@ def post_label(run):
 def engine_label(run):
     if not isinstance(run, dict) or not (run.get("engine") or run.get("model")):
         return eval_asr.DRAFT_NONE
-    return " ".join(str(x) for x in (run.get("engine"), run.get("model")) if x)
+    d = run.get("dtw") if isinstance(run.get("dtw"), dict) else None   # DTW の単語の始まり(pipeline/transcribe/records.dtw_record)の文書は組を分ける
+    dtw = " DTW %g" % d["shift"] if d and isinstance(d.get("shift"), (int, float)) and d.get("words") and d.get("dropped") != d.get("words") else ""
+    return " ".join(str(x) for x in (run.get("engine"), run.get("model")) if x) + dtw
 
 
 def doc_record(doc):
