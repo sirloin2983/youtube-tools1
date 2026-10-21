@@ -76,6 +76,8 @@ class DiagTest(unittest.TestCase):
         T.RECENT[-1]["at"] = int(NOW * 1000) - 300000
         T.remember(["ffmpeg"], 0, [b"ok"], None, time.monotonic())
         T.RECENT[-1]["at"] = int(NOW * 1000) - 200000
+        T.remember(["ffmpeg", "-i", "a.mp4"], 1, [b"At least one output file must be specified"], None, time.monotonic())   # 中を読むだけ = 数えない
+        T.RECENT[-1]["at"] = int(NOW * 1000) - 100000
         path = self.d.run(FakeRun("error", "yt-dlp が失敗しました: Sign in to confirm you're not a bot\n" + r"C:\Users\taro\a"),
                           {"id": RID, "kind": "url", "pc": "this", "form": {"ranges": [[1, 2]], "videoId": "dQw4w9WgXcQ"}},
                           [{"device": "cuda", "backend": "CUDA", "gpu": "RTX 3060", "model": "large", "audioSec": 600.0, "wallSec": 60.0}])

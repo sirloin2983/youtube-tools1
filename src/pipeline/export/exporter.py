@@ -9,6 +9,7 @@
 - 各 item が成功した時点で on_done(video_id, mark_id, "フォルダ/ファイル.mp4", 開始, 終了) を呼ぶ(store がマークを exported にする)。
 - 書き出した mp4 ごとに、隣へ youtube-tools-clip/v1 の <名前>.clip.json を書く(notes:docs/spec/pipeline.md の 2.1。書けなくても書き出しは成功扱いで、警告だけ出す)。
 """
+import concurrent.futures
 import glob
 import json
 import os
@@ -687,18 +688,29 @@ def apply_loudness(ctl, spec, it):
     if not target:
         return
     main = it["path"]
-    i, tp = measure_loudness(ctl, it, main)
+    edit = it.get("editPath")
+    edit = edit if edit and os.path.isfile(edit) else None
+    paths = [main] + ([edit] if edit else [])
+    got = _both([lambda p=p: measure_loudness(ctl, it, p) for p in paths])   # 本体と編集用素材は別のファイル = 同時に測る・作り直す(結果は 1 本ずつと同じ)
+    i, tp = got[0]
     if i is None:
         it["loudness"] = {"target": target, "skipped": "音声が無いか、無音のため測れませんでした"}
         return
-    edit = it.get("editPath")
-    edit = edit if edit and os.path.isfile(edit) else None
-    etp = measure_loudness(ctl, it, edit)[1] if edit else None
+    etp = got[1][1] if edit else None
     gain = _loud.gain(target, i, tp, etp)
     if abs(gain) >= _loud.MIN_GAIN_DB:
-        for path in [main] + ([edit] if edit else []):
-            _reencode_audio(ctl, it, path, _loud.gain_filter(gain), "ラウドネス調整")
+        _both([lambda p=p: _reencode_audio(ctl, it, p, _loud.gain_filter(gain), "ラウドネス調整") for p in paths])
     it["loudness"] = {"target": target, "measured": round(i, 1), "gainDb": gain}
+
+
+def _both(fns):
+    """呼び出しを同時に(1 つなら今の糸で)-> 結果の並び。失敗は最初の物を上げる(ほかが終わるのを待ってから)"""
+    if len(fns) < 2:
+        return [f() for f in fns]
+    with concurrent.futures.ThreadPoolExecutor(len(fns)) as ex:
+        futs = [ex.submit(f) for f in fns]
+        concurrent.futures.wait(futs)
+    return [f.result() for f in futs]
 
 
 MAX_COMBINE_SEC = 3600   # つないだ長さの上限(秒)

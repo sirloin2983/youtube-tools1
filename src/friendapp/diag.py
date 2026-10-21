@@ -118,6 +118,12 @@ def transcribe_rows(recs):
     return out
 
 
+def probe_only(row):
+    """「ffmpeg -i で中を読むだけ」の呼び出し(出力が無いので終了コード 1 が決まり。失敗に数えない)か"""
+    tail = row.get("tail") or []
+    return row.get("name") == "ffmpeg" and row.get("code") == 1 and bool(tail) and "At least one output file must be specified" in str(tail[-1])
+
+
 def prune_names(names, now_ms):
     """Dropbox の /診断/ の名前のうち、消す物(3 日より古い・名前が違う物は触らない)"""
     out = []
@@ -222,7 +228,7 @@ class Diag:
         return self.write(kind, **kw)
 
     def tools_since(self, since_ms):
-        rows = _tools.recent(since_ms)[-TOOLS_MAX:]
+        rows = [r for r in _tools.recent(since_ms) if not probe_only(r)][-TOOLS_MAX:]
         for r in rows:
             r["tail"] = [self.mask(x) for x in r.get("tail") or []]
         return rows
