@@ -56,6 +56,7 @@
 """
 import argparse
 import json
+import logging
 import os
 import re
 import secrets
@@ -883,6 +884,17 @@ def make_logger(path):
         line = "%s %s" % (time.strftime("%Y-%m-%d %H:%M:%S"), msg)
         with lock:
             _fsio.append_line(path, line, 2 * 1024 * 1024)
+
+    class ToLog(logging.Handler):   # ① ② の部品(ytt.*・tx)の警告もこのログへ(付けないと誰にも見えない)
+        def emit(self, record):
+            try:
+                log("[%s] %s" % (record.name, record.getMessage()))
+            except Exception:   # noqa: BLE001
+                pass
+    for name in ("ytt", "tx", "flow", "pipeline"):
+        lg = logging.getLogger(name)
+        if not any(isinstance(h, ToLog) or type(h).__name__ == "ToLog" for h in lg.handlers):
+            lg.addHandler(ToLog(level=logging.WARNING))
     return log
 
 

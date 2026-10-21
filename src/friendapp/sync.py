@@ -80,6 +80,8 @@ UPDATE_NEED = 320 * 1024 ** 2      # 新しい版を取る前に要る空き(版
 LAUNCHER_ENV = "YTT_FRIEND_LAUNCHER"
 STATE_NAME = "sync.json"
 VERSIONS_NAME = "app-versions.json"
+PROBLEM_SHOW = 600                  # 同期の問題がこの秒より続いたら帯に出す(一時の通信の切れは数分で戻るので出さない)
+PROBLEM_TEXT = "Dropbox とのやり取りが 10 分以上うまくいっていません。ネットを確かめてください。続くときは作る人に伝えてください(%s)"
 NO_KEY = "Dropbox の鍵がありません。作る人の PC に依頼する・作る人の PC から届く物を受け取ることはできません(この PC で作る物は使えます)"   # 友人の画面の言葉(作る側の「ユーザーの PC」は出さない)
 
 
@@ -196,6 +198,12 @@ def _copy_member(z, info, path):
         shutil.copyfileobj(src, dst, 1 << 20)
 
 
+def os_reason(e):
+    """OSError -> 短い理由(OS の文と番号。パスは入れない)"""
+    code = getattr(e, "winerror", None) or e.errno
+    return "%s %s" % (str(e.strerror or e.__class__.__name__)[:80], code or "")
+
+
 def extract_pack(zip_path, dest_dir, fallback_name):
     """受け取った zip を dest_dir に展開する -> 置いたフォルダ。
     中身が 1 つのフォルダ(<題>_pack)ならそれを直下に・違えば fallback_name のフォルダに入れる。<名前>.extracting に書いてから名前を変える。
@@ -225,7 +233,7 @@ def extract_pack(zip_path, dest_dir, fallback_name):
                     os.makedirs(fsio.long_path(path), exist_ok=True)
                 else:
                     _copy_member(z, info, path)
-            os.replace(fsio.long_path(temp), fsio.long_path(target))
+            fsio.replace_retry(fsio.long_path(temp), fsio.long_path(target))   # 展開した直後はウイルス対策が開いていることがある
         except BaseException:
             shutil.rmtree(fsio.long_path(temp), ignore_errors=True)
             raise
@@ -302,7 +310,7 @@ def install_update(zip_path, home, version, runtime_dirs=None):
         for need in (("src", "friendapp", "server.py"), ("python", "python.exe")):
             if not os.path.isfile(os.path.join(tmp, *need)):
                 raise ValueError("更新の zip に %s がありません" % "/".join(need))
-        os.replace(tmp, final)
+        fsio.replace_retry(tmp, final)
     except BaseException:
         shutil.rmtree(tmp, ignore_errors=True)
         raise
@@ -469,10 +477,14 @@ class Sync:
         return self.receiving > 0 or bool(self.uploads)
 
     def status(self):
-        """画面へ: {"key": 鍵があるか, "message": 鍵が無いときの文, "at": 最後に回したミリ秒, "problem": 最後の問題, "updated": 入れた新しい版}"""
+        """画面へ: {"key": 鍵があるか, "message": 帯の文(鍵が無い・PROBLEM_SHOW 秒より続く問題), "at": 最後に回したミリ秒, "problem": 最後の問題,
+        "updated": 入れた新しい版}"""
         up = self.state.get("updated")
         key = self.has_key()
-        return {"key": key, "message": "" if key else NO_KEY, "at": self.last["at"], "problem": self.last["problem"],
+        since = self.last.get("since")
+        long_problem = key and self.last["problem"] and since and self.clock() * 1000 - since >= PROBLEM_SHOW * 1000
+        msg = NO_KEY if not key else (PROBLEM_TEXT % self.last["problem"][:120] if long_problem else "")
+        return {"key": key, "message": msg, "at": self.last["at"], "problem": self.last["problem"],
                 "updated": up if version_tuple(up) > version_tuple(self.version) else None}
 
     def run_once(self):
@@ -493,13 +505,15 @@ class Sync:
                     step(io)
                 except _dropbox.Cancelled:
                     raise
-                except (_dropbox.DropboxError, SyncError, OSError, ValueError, zipfile.BadZipFile) as e:
-                    problems.append("%s: %s" % (label, e))
+                except Exception as e:   # noqa: BLE001  (1 つの段の失敗でほかの段を止めない)
+                    problems.append("%s: %s" % (label, str(e)[:200] or e.__class__.__name__))
                     self.log("同期の %s: %s %s" % (label, e.__class__.__name__, str(e)[:200]))
                     if self.diag is not None:
                         self.diag.once("sync:%s:%s" % (label, str(e)[:80]), DIAG_ERROR_EVERY, "sync", summary="同期の %s: %s" % (label, str(e)[:200]),
                                        detail="%s %s" % (e.__class__.__name__, e), stage=label, status=getattr(e, "status", None))
-            self.last = {"at": int(self.clock() * 1000), "problem": problems[0] if problems else ""}
+            now = int(self.clock() * 1000)
+            since = (self.last.get("since") or now) if problems else None
+            self.last = {"at": now, "problem": problems[0] if problems else "", "since": since}
             return problems
         finally:
             self._run_lock.release()
@@ -643,12 +657,19 @@ class Sync:
                 if not io.download(self.out_path(name), part):
                     self.inbox.set_preview(rid, n, None)
                     continue
-                os.replace(part, dest)
+                fsio.replace_retry(part, dest)
             self.inbox.set_preview(rid, n, dest)
 
     @staticmethod
     def _free_ok(folder, need):
         return free_ok(folder, need)
+
+    def _keep_failed(self, rid, name, msg):
+        """[受け取る] の失敗: 行に理由を出し、ログと診断にも残す"""
+        self.log("受け取れませんでした %s: %s" % (name, msg))
+        if self.diag is not None:
+            self.diag.once("receive:%s" % msg[:40], DIAG_ERROR_EVERY, "sync", summary="受け取り: %s" % msg[:200], stage="receive")
+        self.inbox.remote_keep_failed(rid, name, msg)
 
     def _receive(self, io):
         """[受け取る] を押した Dropbox のパック: 取る → 大きさと content_hash → 保存先へ展開 → 受け取ったに決める。
@@ -660,7 +681,11 @@ class Sync:
                 self.inbox.remote_keep_failed(rid, name, "名前が正しくないので受け取れません")
                 continue
             save, num = self.inbox.keep_place(rid, name) or (self.places["save"](), None)   # <保存先>\<日付>_<配信者>_<題>\#番号(C-3-8)
-            os.makedirs(save, exist_ok=True)
+            try:
+                os.makedirs(fsio.long_path(save), exist_ok=True)
+            except OSError as e:   # 抜いた USB・消えたドライブ・書けないフォルダ: このパックだけ押す前に戻す(後ろのパックは進める)
+                self._keep_failed(rid, name, "保存先のフォルダを作れません。⚙ の保存先を確かめてください(%s)" % os_reason(e))
+                continue
             if not self._free_ok(save, size * 2):
                 self.inbox.remote_keep_failed(rid, name, "保存先の空きが足りません(あと %d MB ほど空けてから、もう一度 [受け取る])" % (size * 2 // (1024 * 1024) + 64))
                 continue
@@ -675,14 +700,17 @@ class Sync:
                 if (size and got != size) or (rem.get("hash") and _dropbox.content_hash(part) != rem["hash"]):
                     self.inbox.remote_keep_failed(rid, name, "受け取った物が壊れていました。もう一度 [受け取る] を押してください")
                     continue
+                placed = None
                 try:
                     placed = extract_pack(part, save, _inbox.pack_title(name))
                     if num:   # 展開した <題>_pack を #番号 に
                         dest = _inbox.unique_dest(save, num)
-                        os.replace(placed, dest)
+                        fsio.replace_retry(fsio.long_path(placed), fsio.long_path(dest))
                         placed = dest
                 except (ValueError, zipfile.BadZipFile, OSError) as e:
-                    self.inbox.remote_keep_failed(rid, name, "展開できませんでした(%s)" % (str(e)[:120] if isinstance(e, ValueError) else e.__class__.__name__))
+                    if placed and num:   # #番号 にできなかった展開の残りを消す(押し直すたびに <題>-xxxx が増えないように)
+                        shutil.rmtree(fsio.long_path(placed), ignore_errors=True)
+                    self._keep_failed(rid, name, "展開できませんでした(%s)" % (str(e)[:120] if isinstance(e, ValueError) else os_reason(e)))
                     continue
                 self.inbox.remote_kept(rid, name, placed)
                 self.log("受け取りました: %s" % zname)
@@ -881,7 +909,7 @@ def fetch_learning(io, root, log):
             size = f.get("size")
             if (isinstance(size, int) and size >= 0 and os.path.getsize(local) != size) or fsio.sha256_file(local) != sha:
                 raise SyncError("学習の束のファイルが壊れています(hash が合いません): %s" % rel)
-        os.replace(tmp, final)
+        fsio.replace_retry(tmp, final)
     except BaseException:
         shutil.rmtree(tmp, ignore_errors=True)
         raise

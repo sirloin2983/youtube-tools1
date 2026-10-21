@@ -408,7 +408,30 @@ class SyncTest(unittest.TestCase):
         probs = self.run_sync()
         self.assertTrue(any(p.startswith("受け取る") for p in probs))
         self.assertEqual(self.box.row(AUTO)["packs"][0]["want"], "keep")   # 押したまま次の回へ
+        self.assertEqual(self.sync.status()["message"], "")   # 一時の切れは帯に出さない
+        self.t[0] += S.PROBLEM_SHOW
+        self.run_sync()
+        self.assertIn("10 分以上", self.sync.status()["message"])   # 続く問題は帯に出す
         del self.io.fail["/出力/" + zips[0]]
+        self.run_sync()
+        self.assertEqual(self.box.row(AUTO)["packs"][0]["verdict"], "keep")
+        self.assertEqual(self.sync.status()["message"], "")
+
+    def test_keep_unwritable_save_folder_gives_reason(self):
+        """保存先を作れない(抜いた USB など)= その行に理由を出して押す前に戻す(「受け取っています」のまま止めない)"""
+        self.key()
+        self.put_packs(AUTO, n=1)
+        self.run_sync()
+        name = self.box.row(AUTO)["packs"][0]["name"]
+        with open(os.path.join(self.tmp, "save"), "w") as f:   # 保存先の場所にファイル = フォルダを作れない
+            f.write("x")
+        self.box.decide(AUTO, [name], "keep")
+        self.run_sync()
+        p = self.box.row(AUTO)["packs"][0]
+        self.assertIsNone(p["verdict"])
+        self.assertIn("保存先のフォルダを作れません", p["error"])
+        os.remove(os.path.join(self.tmp, "save"))
+        self.box.decide(AUTO, [name], "keep")
         self.run_sync()
         self.assertEqual(self.box.row(AUTO)["packs"][0]["verdict"], "keep")
 

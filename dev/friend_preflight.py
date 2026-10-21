@@ -32,6 +32,8 @@
 --break-update N(1 か 2)は戻りの確かめ用: 更新の新しい版を N 版続けて起動できない形(src/friendapp/server.py の先頭に raise SystemExit(7)・manifest の SHA-256 は直す)にして
   置く。[更新する] のあと exe が新しい方から順に起こそうとして失敗 → bad に足す → 元の版で開き直す。確かめるのは、元の版で開く・app-versions.json の bad と current・
   送り返しの箱(と Dropbox の /診断/)に exe の start(bad・installed つき)と Python の rollback(fromVersions・toVersion)がある・画面の帯に戻った知らせ。
+--youtube URL は本物の YouTube で試す形: 通信の差し替えは Dropbox と取得元のほかを本物へ通し、疑似モードにしない。初回の準備のあと、その URL の区間 2 つ(REAL_RANGES)を
+  頼み、同梱の yt-dlp・ffmpeg・文字起こしで作って届くまでの秒・進み具合の移り・再生・診断を見る(ログイン・動画ファイル・更新は試さない)。
 --break ffmpeg は検査が効くかの確かめ用: 展開した写しの fetch.json から ffmpeg の行を消す(= ffmpeg を取れない zip と同じ)。初回の準備で落ちるのが正しい。
 音は出さない(exe は YTT_FRIEND_SHOTS で WebView2 を消音・<video> は muted)・窓は画面の外・子プロセスは黒い窓を出さない・止めるのは自分が起こした PID だけ。
 終了コード 0 合格 / 1 不合格 / 2 引数・前提が無い(Playwright・キャッシュ・モデル)
@@ -190,17 +192,18 @@ def mirror_map(fetch, cache, rep):
     return out
 
 
-def lay_shim(app, work, mirror):
-    """展開した写しの python に通信の差し替えを置き、設定の JSON を書く -> 設定のパス"""
+def lay_shim(app, work, mirror, net=False):
+    """展開した写しの python に通信の差し替えを置き、設定の JSON を書く -> 設定のパス(net = Dropbox と取得元のほかは本物へ通す)"""
     site = os.path.join(app, "python", "Lib", "site-packages")
     shutil.copy2(SHIM_SRC, os.path.join(site, "sitecustomize.py"))
     conf = os.path.join(work, "shim.json")
     with open(conf, "w", encoding="utf-8") as f:
-        json.dump({"mirror": mirror, "dropbox": os.path.join(work, "dropbox"), "log": os.path.join(work, "net.log")}, f, ensure_ascii=False, indent=1)
+        json.dump({"mirror": mirror, "dropbox": os.path.join(work, "dropbox"), "log": os.path.join(work, "net.log"), "net": net}, f,
+                  ensure_ascii=False, indent=1)
     return conf
 
 
-def friend_env(work, cdp_port, shim_conf):
+def friend_env(work, cdp_port, shim_conf, fake=True):
     """友人の PC と同じくらい何も無い環境変数(開発の PATH・YTT_*・Python の変数を渡さない)"""
     win = os.environ.get("SystemRoot", r"C:\Windows")
     prof = os.path.join(work, "home")
@@ -222,8 +225,9 @@ def friend_env(work, cdp_port, shim_conf):
         "YTT_FRIEND_SHOT_STEPS": os.path.join(work, "steps.json"),   # 手順 = 長く待つだけ(写真は撮らない。つないで調べる間、窓を開けておく)
         "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": "--remote-debugging-port=%d" % cdp_port,
         SHIM_ENV: shim_conf,
-        "STUDIO_FAKE": "1", "STUDIO_FAKE_MEDIA": fake_media(work),   # URL の依頼(区間 5 つ)は YouTube の代わりにこの動画を切る(7b。動画ファイルの依頼には効かない)
     })
+    if fake:   # URL の依頼(区間 5 つ)は YouTube の代わりにこの動画を切る(7b。動画ファイルの依頼には効かない)
+        env.update({"STUDIO_FAKE": "1", "STUDIO_FAKE_MEDIA": fake_media(work)})
     return env
 
 
@@ -249,7 +253,7 @@ def make_work(work, zip_path, args, rep):  # lint: long 置き場所を作る一
         json.dump({"appKey": "preflight", "refreshToken": "preflight"}, f)
     place_models(fetch, app, datadir.data_root(), rep)
     mirror = mirror_map(fetch, args.cache, rep)
-    shim = lay_shim(app, work, mirror)
+    shim = lay_shim(app, work, mirror, net=bool(args.youtube))
     return {"app": app, "dropbox": os.path.join(work, "dropbox"), "man": man, "fetch": fetch, "shim": shim, "mirror": mirror}
 
 
@@ -592,6 +596,45 @@ def send_five(w, app, work, rep, timeout):
     return r
 
 
+REAL_RANGES = [[600, 630], [1200, 1230]]   # --youtube の区間(本物の配信の頭の 10 分・20 分)
+
+
+def send_real(w, url, rep, timeout):
+    """--youtube: 本物の YouTube の区間 2 つを友人と同じ形で頼む(同梱の yt-dlp・ffmpeg・文字起こし)→ 届いて再生できる -> 行か None"""
+    t0 = time.time()
+    st, j = w.api("POST", "/api/friend/send", {"url": url, "ranges": REAL_RANGES, "streamer": STREAMER, "people": [], "videoTracks": 1})
+    row = (j or {}).get("row") or {}
+    if not rep.check("本物の YouTube: 区間の依頼を送れる", st == 200 and row.get("id"), j):
+        return None
+    rid, got = row["id"], {}
+
+    def finished():
+        w.watch_tree()
+        st, j = w.api("GET", "/api/friend/inbox")
+        r = next((x for x in (j or {}).get("rows") or [] if x.get("id") == rid), None)
+        if r:
+            got["row"] = r
+            got.setdefault("seen", []).append((round(time.time() - t0), r.get("state"), (r.get("steps") or {}).get("text") if isinstance(r.get("steps"), dict) else ""))
+        return r is not None and r.get("state") in ("arrived", "failed", "done")
+    wait_for(finished, timeout, every=5)
+    r = got.get("row") or {}
+    steps, last = [], None
+    for x in got.get("seen") or []:
+        if x[1:] != last:
+            steps.append(x)
+            last = x[1:]
+    rep.info("本物の YouTube: 進み具合の移り(秒・状態・表示)", steps)
+    if not rep.check("本物の YouTube: ② が処理して届いた(%.0f 秒)" % (time.time() - t0), r.get("state") == "arrived", "%s %s" % (r.get("state"), r.get("error") or "")):
+        return r
+    mine = lambda: [it for it in receive_items(w) if it.get("id") == rid]   # noqa: E731
+    items = wait_for(lambda: (lambda x: x if len(x) == len(REAL_RANGES) and all(it.get("preview") for it in x) else None)(mine()), 180, every=4) or mine()
+    rep.check("本物の YouTube: 受け取る画面に 2 本そろう(確認用の動画つき)", len(items) == len(REAL_RANGES) and all(it.get("preview") for it in items),
+              [(it.get("num"), it.get("seconds"), it.get("preview")) for it in items])
+    for it in items[:1]:
+        check_play(w, it, "本物の YouTube", rep)
+    return r
+
+
 # ---------------------------------------------------------------- 8 届く物・再生
 def probe(app, path):
     """同梱の ffprobe で 1 本目の映像と音 -> {vcodec, pix, h, acodec}"""
@@ -698,14 +741,19 @@ def check_diag(work, rep):
     """診断の記録(notes:docs/spec/friend.md の 13-11): 依頼の分(kind run)が /診断/ に上がり、ユーザー名を含まない。
     診断の仕組みの無い zip(0.99.20 より前)は情報だけ"""
     d = os.path.join(work, "dropbox", "診断")
-    got = wait_for(lambda: [n for n in os.listdir(d) if n.endswith(".diag.json")] if os.path.isdir(d) else None, 200, every=4) or []
+
+    def read():
+        names = [n for n in os.listdir(d) if n.endswith(".diag.json")] if os.path.isdir(d) else []
+        docs = []
+        for n in names:
+            with open(os.path.join(d, n), encoding="utf-8") as f:
+                docs.append(f.read())
+        return names, docs
+    wait_for(lambda: any(json.loads(t).get("kind") == "run" for t in read()[1]), 200, every=4)   # 合言葉などの診断が先に上がることがある
+    got, docs = read()
     if not got and not os.path.isfile(os.path.join(work, "FriendApp", "src", "friendapp", "diag.py")):
         rep.info("診断の記録", "この zip には診断の仕組みが無い(friendapp/diag.py)")
         return
-    docs = []
-    for n in got:
-        with open(os.path.join(d, n), encoding="utf-8") as f:
-            docs.append(f.read())
     kinds = sorted({(json.loads(t).get("kind") or "") for t in docs})
     rep.check("診断の記録 .diag.json(依頼の分 run)が /診断/ に上がる", "run" in kinds, kinds)
     user = os.path.basename(os.path.expanduser("~")).lower()
@@ -955,12 +1003,16 @@ def run(args):  # lint: long 検査の一本の流れ(上の説明の 1〜11 の
         lay = make_work(work, zip_path, args, rep)
         app = lay["app"]
         cdp = free_port()
-        w = Window(app, friend_env(work, cdp, lay["shim"]), cdp)
+        w = Window(app, friend_env(work, cdp, lay["shim"], fake=not args.youtube), cdp)
         w.start()
         w.connect()
         w.watch_tree()
         check_token(w, rep)
         if not check_setup(w, app, rep, args.timeout_min * 60 * 0.4):
+            return rep
+        if args.youtube:
+            send_real(w, args.youtube, rep, args.timeout_min * 60 * 0.8)
+            check_diag(work, rep)
             return rep
         check_login(w, app, rep)
         block_ytdlp_net(app)
@@ -1051,6 +1103,7 @@ def main(argv=None):
     ap.add_argument("--break-update", type=int, default=0, choices=(0, 1, 2), help="戻りの確かめ: 更新の新しい版を N 版続けて起動できない形にする(元の版で開き直すのが正しい)")
     ap.add_argument("--cache", default="", help="build_friend_zip のキャッシュ(既定と同じ)")
     ap.add_argument("--timeout-min", type=float, default=25.0, help="全体の待ちの目安(分)")
+    ap.add_argument("--youtube", default="", help="本物の YouTube の URL で区間の依頼を通す(Dropbox は偽物のまま・初回の準備のあと依頼 1 つだけ)")
     a = ap.parse_args(argv)
     a.cache = a.cache or bfz.default_cache()
     for z in (a.zip, a.update_zip):
