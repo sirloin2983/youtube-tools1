@@ -14,7 +14,7 @@ import re
 
 from ytt import tools as _tools
 
-TIMEOUT = 20            # -version の時間切れ(秒)
+TIMEOUT = 60            # -version の時間切れ(秒。1 ファイルの yt-dlp.exe の初回は展開とウイルス対策の検査で遅い PC だと 20 秒を超えうる)
 WAV_TIMEOUT = 30        # 短い音を作る
 TOOL_CHECKS = (("ffmpeg", "YTT_FFMPEG", "-version", "動画の道具 ffmpeg"), ("ffprobe", "YTT_FFPROBE", "-version", "動画の道具 ffprobe"),
                ("yt-dlp", "YTT_YTDLP", "--version", "配信を取る道具 yt-dlp"), ("deno", "YTT_DENO", "--version", "配信を取る道具の部品 Deno"))

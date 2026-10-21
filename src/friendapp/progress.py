@@ -223,13 +223,6 @@ def eta(stats, kind, ranged, current_label, elapsed_in_stage_sec):
     return int(round(max(0.0, cur - elapsed) + rest))
 
 
-def record(stats, label, seconds):
-    """記録の写し(元は変えない)にその段の秒を先頭に足す。段ごとに新しい順 5 個まで"""
-    out = {k: list(v) for k, v in (stats or {}).items()}
-    out[label] = ([seconds] + out.get(label, []))[:5]
-    return out
-
-
 def slow(stage_started_ms, last_change_ms, now_ms):
     """1 つの段で 10 分(600 秒)進み(detail の変化)が無ければ真。段の始まりと最後の変化の遅いほうから数える"""
     since = max(stage_started_ms, last_change_ms)

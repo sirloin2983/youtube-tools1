@@ -543,11 +543,13 @@ class Tidy:
             return
         res = self.apply(pick)
         at = int(self.clock() * 1000)
+        if res["failed"]:   # 黙る側の失敗も理由を残す(画面の文には出ない)
+            self.log("整理: 動かせなかった %d 件: %s" % (len(res["failed"]), "; ".join("%s(%s)" % (str(w)[-80:], str(y)[:80]) for w, y in res["failed"][:5])))
         with self.lock:
             done_ids = {it["id"] for it in pick}
             self.items = [it for it in self.items if it["id"] not in done_ids]
             if auto:
-                self.st["autoDone"] = {"count": res["count"], "bytes": res["bytes"], "at": at}
+                self.st["autoDone"] = {"count": res["count"], "bytes": res["bytes"], "at": at, "failed": len(res["failed"])}
             else:
                 self.st["asked"] = True
                 self.st["last"] = {"at": at, "count": res["count"], "bytes": res["bytes"], "failed": len(res["failed"]),

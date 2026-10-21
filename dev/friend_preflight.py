@@ -420,7 +420,13 @@ def check_setup(w, app, rep, timeout):
         checked = None
     rep.check("道具と文字起こしを動かして確かめた印(setup.json の checked)", bool(checked), json.dumps(checked, ensure_ascii=False)[:300])
     if ok:
-        page_ok = wait_for(lambda: "/friend/" in w.page.url and "setup" not in w.page.url, 120, every=1)   # 準備の終わりの画面の移りは重いと 60 秒を超えることがある
+        def moved():   # page.url は Playwright を呼ぶまで古いまま(sleep だけの待ちでは移りが見えない)ので、ページに聞く
+            try:
+                href = w.page.evaluate("() => location.href")
+            except Exception:   # noqa: BLE001  (移っている途中)
+                return False
+            return "/friend/" in href and "setup" not in href
+        page_ok = wait_for(moved, 60, every=1)
         st, j = w.api("GET", "/api/friend/setup")
         vis = w.eval("() => [document.visibilityState, document.hasFocus()]")
         rep.check("準備が済んだら送る画面へ移る", bool(page_ok), "%s done=%s 見え方=%s" % (w.page.url, (j or {}).get("done"), vis))
