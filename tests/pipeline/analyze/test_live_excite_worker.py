@@ -429,6 +429,16 @@ class ChatFeedTest(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.folder, VID + ".1.live_chat.json.part")))   # 前の起動のファイルは消した
         self.assertEqual(f.view_state(), "ok")
 
+    def test_quiet_chat_is_not_a_stall(self):
+        """静かな配信: チャットが増えなくても yt-dlp の取得が進んでいる間は起動し直さない(10-21 Lofi Girl で 300 秒ごとに起動し直していた)"""
+        f = self.feed([{"mode": "quiet", "lines": 3, "interval": 0.2}])
+        self.drive(f, lambda f, m: len(m) >= 3)
+        end = time.time() + 3.0   # stall の 1 秒の 3 倍
+        while time.time() < end:
+            f.step(time.time())
+            time.sleep(0.05)
+        self.assertEqual((f.launches, f.total_restarts, f.state), (1, 0, "ok"))
+
     def test_403_waits_longest_then_gives_up(self):
         """403 が出たら最大の間隔から・1 時間に max_per_hour を超えたら諦める(音だけ = state none)"""
         f = self.feed([{"mode": "403", "lines": 2, "interval": 0.01}])

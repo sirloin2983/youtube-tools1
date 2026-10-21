@@ -79,6 +79,11 @@ def main():
         return 1
     if mode == "exit":
         return int(run.get("code", 0))
+    k = 0
+    while mode == "quiet":   # 静かな配信: チャットは増えないが取得は進む(本物の --newline の進みの行)
+        k += 1
+        print("[download]    1.82MiB at  886.97KiB/s (00:00:02) (frag %d)" % k, flush=True)
+        time.sleep(interval)
     while True:   # write・stall: 配信中のまま待つ(ワーカーが止める)
         time.sleep(1)
 

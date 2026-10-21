@@ -361,6 +361,7 @@ class ChatFeed:
         self.next_at = 0.0
         self.grew_at = None
         self.ever_grew = False
+        self._log_seen = {}   # yt-dlp の記録の大きさ(前に見たとき。_fetching)
         self.max_ts = 0.0          # 読んだメッセージの時刻の最大(epoch)
         self.dedupe_ts = 0.0       # 起動し直したあと、この時刻以下は前のファイルで数えた(重ねない)
         self.launches = 0
@@ -534,9 +535,21 @@ class ChatFeed:
             self.next_at = now
             self.log("チャット %s: ファイルが %d MB を超えたので新しいファイルにします" % (self.vid, self.limit // 1048576))
             return
+        if self.grew_at is not None and self._fetching(text):   # 静かな配信: チャットは増えなくても yt-dlp が取り続けている = 止まっていない(10-21 Lofi Girl で 300 秒ごとに起動し直していた)
+            self.grew_at = now
         if alive and self.ever_grew and self.grew_at is not None and now - self.grew_at > self.stall:
             self._kill()
             self._failed(now, self._log_tail(self.gen), "チャットが %d 秒増えていません" % int(self.stall))
+
+    def _fetching(self, tail):
+        """前に見たときから yt-dlp の記録が伸びて、末尾が取得の進み(--newline の「(frag N)」)か"""
+        try:
+            n = os.path.getsize(self.stem(self.gen) + ".log")
+        except OSError:
+            return False
+        grew, self._log_seen = n > self._log_seen.get(self.gen, 0), {self.gen: n}
+        lines = tail.strip().splitlines()
+        return grew and bool(lines) and "(frag " in lines[-1]
 
     def _flip_cookies(self):
         """bot 判定・cookies の失効: 次の起動は cookies の有無を替える(cookies のある PC だけ・CHAT_COOKIE_FLIPS 回まで)"""
