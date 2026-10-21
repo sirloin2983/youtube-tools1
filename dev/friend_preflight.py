@@ -608,10 +608,14 @@ def send_five(w, app, work, rep, timeout):
 REAL_RANGES = [[600, 630], [1200, 1230]]   # --youtube の区間(本物の配信の頭の 10 分・20 分)
 
 
-def send_real(w, url, rep, timeout):
-    """--youtube: 本物の YouTube の区間 2 つを友人と同じ形で頼む(同梱の yt-dlp・ffmpeg・文字起こし)→ 届いて再生できる -> 行か None"""
+def send_real(w, url, rep, timeout, top=0):
+    """--youtube: 本物の YouTube の区間 2 つ(top があれば区間なしの全自動で top 本)を友人と同じ形で頼む(同梱の yt-dlp・ffmpeg・文字起こし)
+    → 届いて再生できる -> 行か None"""
     t0 = time.time()
-    st, j = w.api("POST", "/api/friend/send", {"url": url, "ranges": REAL_RANGES, "streamer": STREAMER, "people": [], "videoTracks": 1})
+    body = {"url": url, "streamer": STREAMER, "people": [], "videoTracks": 1}
+    body.update({"top": top} if top else {"ranges": REAL_RANGES})
+    want = top or len(REAL_RANGES)
+    st, j = w.api("POST", "/api/friend/send", body)
     row = (j or {}).get("row") or {}
     if not rep.check("本物の YouTube: 区間の依頼を送れる", st == 200 and row.get("id"), j):
         return None
@@ -636,8 +640,8 @@ def send_real(w, url, rep, timeout):
     if not rep.check("本物の YouTube: ② が処理して届いた(%.0f 秒)" % (time.time() - t0), r.get("state") == "arrived", "%s %s" % (r.get("state"), r.get("error") or "")):
         return r
     mine = lambda: [it for it in receive_items(w) if it.get("id") == rid]   # noqa: E731
-    items = wait_for(lambda: (lambda x: x if len(x) == len(REAL_RANGES) and all(it.get("preview") for it in x) else None)(mine()), 180, every=4) or mine()
-    rep.check("本物の YouTube: 受け取る画面に 2 本そろう(確認用の動画つき)", len(items) == len(REAL_RANGES) and all(it.get("preview") for it in items),
+    items = wait_for(lambda: (lambda x: x if len(x) >= want and all(it.get("preview") for it in x) else None)(mine()), 180, every=4) or mine()
+    rep.check("本物の YouTube: 受け取る画面に %d 本そろう(確認用の動画つき)" % want, len(items) >= want and all(it.get("preview") for it in items),
               [(it.get("num"), it.get("seconds"), it.get("preview")) for it in items])
     for it in items[:1]:
         check_play(w, it, "本物の YouTube", rep)
@@ -1081,7 +1085,7 @@ def run(args):  # lint: long 検査の一本の流れ(上の説明の 1〜11 の
             send_live(w, args.youtube, args.live, rep)
             return rep
         if args.youtube:
-            send_real(w, args.youtube, rep, args.timeout_min * 60 * 0.8)
+            send_real(w, args.youtube, rep, args.timeout_min * 60 * 0.8, top=args.top)
             check_diag(work, rep)
             return rep
         check_login(w, app, rep)
@@ -1173,6 +1177,7 @@ def main(argv=None):
     ap.add_argument("--break-update", type=int, default=0, choices=(0, 1, 2), help="戻りの確かめ: 更新の新しい版を N 版続けて起動できない形にする(元の版で開き直すのが正しい)")
     ap.add_argument("--cache", default="", help="build_friend_zip のキャッシュ(既定と同じ)")
     ap.add_argument("--timeout-min", type=float, default=25.0, help="全体の待ちの目安(分)")
+    ap.add_argument("--top", type=int, default=0, help="--youtube を区間なしの全自動で頼む本数(0 = 区間 2 つ)")
     ap.add_argument("--live", type=float, default=0, help="本物のライブを友人と同じ形でこの分だけ録る(--youtube の URL か、無ければ一覧のライブ中の物)")
     ap.add_argument("--youtube", default="", help="本物の YouTube の URL で区間の依頼を通す(Dropbox は偽物のまま・初回の準備のあと依頼 1 つだけ)")
     a = ap.parse_args(argv)

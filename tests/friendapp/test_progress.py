@@ -78,6 +78,15 @@ class ClassifyTest(unittest.TestCase):
 
 
 class StageTest(unittest.TestCase):
+    def test_fetch_detail_keeps_count(self):
+        """解析の途中でチャットのリプレイを取っている間も段の数と番号は変えない(名前だけ 動画を取得)。前は 1/4 → 1/5 → 2/4 と揺れた"""
+        def steps(detail):
+            return [st("analyze", "run", detail), st("adopt", "wait"), st("export", "wait"), st("transcribe", "wait"), st("pack", "wait")]
+        a = P.stage(steps("音量を解析中 42%"))
+        b = P.stage(steps("チャットのリプレイを取得中(音声の解析は完了、経過 0:21) 50%"))
+        self.assertEqual((a["index"], a["total"], a["label"]), (1, 4, "見どころを探す"))
+        self.assertEqual((b["index"], b["total"], b["label"]), (1, 4, "動画を取得"))
+
     def test_url_full(self):
         steps = [st("analyze", "done"), st("adopt", "done"), st("export", "run", "12/30"),
                  st("transcribe", "wait"), st("pack", "wait")]

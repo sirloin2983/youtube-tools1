@@ -121,16 +121,6 @@ def _labels(kind, ranged):
     return names
 
 
-def _friend_label(key, detail):
-    """② の段の鍵 + detail -> 友人の段の名前(知らない鍵は None)"""
-    lab = FRIEND_OF.get(key)
-    if lab is None:
-        return None
-    if lab in ("見どころを探す", "切り抜き") and any(w in detail.lower() for w in FETCH_WORDS):
-        return "動画を取得"
-    return lab
-
-
 _PCT = re.compile(r"(\d{1,3})\s*%")
 _COUNT = re.compile(r"^(\d+)\s*/\s*(\d+)\s*(?:本)?\s*(?:[・･]\s*(.*))?$")
 
@@ -161,6 +151,7 @@ def _merge_state(states):
 def stage(steps, kind="url", ranged=False, with_raw=False):
     """② の段の一覧 -> 今の段 {index, total, label, detail} か None(全部済み・段が無い)。
     段は友人の名前に読み替え、同じ名前が続くときは 1 段にまとめる。ranged なら 見どころを探す を数えない。
+    段の数と番号は段の鍵だけで決める(detail の「取得」で数を変えない)。今の段の detail が取得中なら名前だけ 動画を取得 と見せる
     with_raw: 元の detail も "raw" に付ける(進みが動いているかの印 = slow の「最後に変わった時」を測るため)"""
     allowed = _labels(kind, ranged)
     seq = []
@@ -168,7 +159,7 @@ def stage(steps, kind="url", ranged=False, with_raw=False):
         if not isinstance(s, dict):
             continue
         detail = str(s.get("detail") or "")
-        label = _friend_label(s.get("key"), detail)
+        label = FRIEND_OF.get(s.get("key"))
         if label is None or label not in allowed:
             continue
         state = s.get("state")
@@ -190,7 +181,8 @@ def stage(steps, kind="url", ranged=False, with_raw=False):
     if cur is None:
         return None
     x = seq[cur]
-    out = {"index": cur + 1, "total": len(seq), "label": x["label"], "detail": _stage_detail(x["label"], x["detail"])}
+    shown = "動画を取得" if x["label"] in ("見どころを探す", "切り抜き") and any(w in x["detail"].lower() for w in FETCH_WORDS) else x["label"]
+    out = {"index": cur + 1, "total": len(seq), "label": shown, "detail": _stage_detail(shown, x["detail"])}
     if with_raw:
         out["raw"] = x["detail"]
     return out
