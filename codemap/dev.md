@@ -6,8 +6,8 @@
 
 - **_common.py** (48 行) — dev/ の道具が共通で使う小物(標準ライブラリだけ)。guard_hook.py・push_helper.py は単独で動く条件なので、ここを読まない。
   - 名前: `console_utf8` :9・`find_node` :18・`read_utf8` :31・`write_utf8` :37・`tracked_files` :43
-- **build_friend_zip.py** (720 行) — 友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(設計 notes:docs/design/f1-build.md の 2・3 節)。
-  - 名前: `class BuildError` :102・`say` :106・`sha256_file` :110・`download` :123・`cached` :135・`wheel_pins` :170・`pip_download` :188・`wheels` :198・`unzip_into` :236・`lay_python` :261・`src_files` :282・`lay_src` :297・ほか 22
+- **build_friend_zip.py** (774 行) — 友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(設計 notes:docs/design/f1-build.md の 2・3 節)。
+  - 名前: `class BuildError` :102・`say` :106・`sha256_file` :110・`download` :123・`cached` :135・`wheel_pins` :170・`pip_download` :188・`wheels` :198・`unzip_into` :236・`lay_python` :261・`src_files` :286・`lay_src` :301・ほか 23
 - **chat_reuse_check.py** (96 行) — ライブのチャットの使い回し(src/flow/chatreuse.py。決定 3-117)の精度の確かめ: 同じ配信で、使い回したチャットとリプレイのチャットの
   - 名前: `zero_of` :25・`analyze` :44・`match` :53・`main` :67
 - **code_map.py** (466 行) — コードの地図と言葉の索引を作る道具(AI のセッションがコードの場所を早く見つけるため)。

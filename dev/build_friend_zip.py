@@ -265,6 +265,10 @@ def lay_python(stage, embed_zip, wheel_files):
     pths = [n for n in os.listdir(py) if re.match(r"python3\d+\._pth$", n)]
     if len(pths) != 1:
         raise BuildError("埋め込み用 Python の ._pth が見つかりません(%s)" % os.path.basename(embed_zip))
+    tag = "cp" + pths[0][len("python"):-len("._pth")]   # python312._pth -> cp312
+    wrong = sorted({m.group(1) for w in wheel_files for m in [re.search(r"-(cp3\d+)-cp3\d+-", os.path.basename(w))] if m and m.group(1) != tag})   # abi3(安定の ABI)の wheel は版を問わない
+    if wrong:   # 埋め込みの Python と wheel の版が食い違うと、同梱の python で部品が読めない(0.99.92 = 3.10 と cp312)
+        raise BuildError("wheel の版(%s)が埋め込みの Python(%s)と合いません。キャッシュの wheels を消して取り直してください" % (", ".join(wrong), tag))
     pth = os.path.join(py, pths[0])
     with open(pth, encoding="utf-8") as f:
         lines = [ln.strip() for ln in f.read().splitlines() if ln.strip()]
@@ -563,6 +567,52 @@ def update_versions(out_dir, row, plan=None):
     return rows
 
 
+def withdraw(out_dir, version, keep_dir):
+    """配った版を取り下げる: 更新の置き場所から その版の zip(全部入り・軽い)を keep_dir へ移し(消さない)、versions.json の行を消し、
+    latest.json がその版なら台帳の前の良い版(zip が置き場所に残っている物)へ戻す(無ければ latest.json を keep_dir へ移す)。
+    友人の版は下がらない(取り下げた版を取った友人は、次に配る版で進む)-> 戻した latest の版か None"""
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version or ""):
+        raise BuildError("版の形が違います: %s" % version)
+    os.makedirs(keep_dir, exist_ok=True)
+    moved = []
+    for n in ("%s-%s.zip" % (ZIP_PREFIX, version), "%s-%s-light.zip" % (ZIP_PREFIX, version)):
+        if os.path.isfile(os.path.join(out_dir, n)):
+            shutil.move(os.path.join(out_dir, n), os.path.join(keep_dir, n))
+            moved.append(n)
+    path = os.path.join(out_dir, VERSIONS_NAME)
+    try:
+        with open(path, encoding="utf-8") as f:
+            rows = json.load(f).get("versions")
+    except (OSError, ValueError, AttributeError):
+        rows = None
+    rows = [r for r in rows if isinstance(r, dict) and r.get("version") != version] if isinstance(rows, list) else []
+    with open(path + ".part", "w", encoding="utf-8") as f:
+        json.dump({"v": 1, "versions": rows}, f, ensure_ascii=False, indent=1)
+    os.replace(path + ".part", path)
+    latest_path = os.path.join(out_dir, "latest.json")
+    try:
+        with open(latest_path, encoding="utf-8") as f:
+            latest = json.load(f)
+    except (OSError, ValueError):
+        latest = None
+    back = None
+    if isinstance(latest, dict) and latest.get("version") == version:
+        prev = next((r for r in rows if r.get("file") and os.path.isfile(os.path.join(out_dir, r["file"]))
+                     and tuple(int(x) for x in r["version"].split(".")) < tuple(int(x) for x in version.split("."))), None)
+        if prev is None:
+            shutil.move(latest_path, os.path.join(keep_dir, "latest-%s.json" % version))
+        else:
+            light = prev.get("light") if isinstance(prev.get("light"), dict) and os.path.isfile(os.path.join(out_dir, prev["light"].get("file") or "")) else None
+            new = {"version": prev["version"], "file": prev["file"], "size": prev["size"], "sha256": prev["sha256"], "notes": prev.get("notes") or "", "light": light}
+            with open(latest_path + ".part", "w", encoding="utf-8") as f:
+                json.dump(new, f, ensure_ascii=False, indent=1)
+            os.replace(latest_path + ".part", latest_path)
+            back = prev["version"]
+    say("取り下げました: %s(移した zip: %s → %s。latest.json: %s)" % (version, ", ".join(moved) or "無し", keep_dir,
+                                                                    "版 %s に戻した" % back if back else ("置き場所から外した" if latest and latest.get("version") == version else "そのまま")))
+    return back
+
+
 def default_out(first, publish=False):
     if first:
         return os.path.join(LAUNCHER_SRC, "dist")
@@ -688,6 +738,7 @@ def main(argv=None):
     ap.add_argument("--first", action="store_true", help="初回に手で渡す zip(dist に・latest.json を書かない)")
     ap.add_argument("--with-key", action="store_true", help="--first のときだけ: friend-apps/launcher/config.json(Dropbox の鍵)を入れる")
     ap.add_argument("--no-fetch", action="store_true", help="キャッシュに無い物を取りに行かない(無ければ失敗)")
+    ap.add_argument("--withdraw", default="", help="配った版を取り下げる(更新の置き場所から zip を外して手元へ移す・台帳から消す・latest.json を前の良い版へ)")
     ap.add_argument("--skip-preflight", action="store_true", help="--publish のときだけ: 配る前の検査(dev/friend_preflight.py)を飛ばす(明示のときだけ)")
     a = ap.parse_args(argv)
     if a.skip_preflight and not a.publish:
@@ -697,6 +748,9 @@ def main(argv=None):
     if a.publish and (a.out or a.first):
         ap.error("--publish は --out・--first と一緒に使えません")
     try:
+        if a.withdraw:   # 取り下げ: --out が無ければ更新の置き場所(Dropbox)・外した zip は作る PC の手元へ
+            withdraw(a.out or default_out(False, True), a.withdraw, os.path.join(datadir.locate("app", SRC), "friend-withdrawn"))
+            return 0
         out = a.out or default_out(a.first, a.publish)
         a.cache = a.cache or default_cache()
         a.wcpp = default_wcpp()
