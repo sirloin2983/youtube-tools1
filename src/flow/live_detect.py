@@ -47,6 +47,7 @@ import time
 
 from ytt import fsio, schemas, tools
 from . import spec as _spec   # 採用の数・待ちの既定は束の 1 か所(RS6 b-R1)
+from . import chatreuse as _chatreuse   # 生のチャットを移す先(決定 3-117)
 from . import live_failures
 from . import live_export as LX
 from . import livehost   # 親の口の型(RS7-2 G0)
@@ -258,7 +259,8 @@ class Detector:
                 "detect": EW.clean_detect(self.detect_cfg()), "spec": self.spec(), "ffmpeg": self.ffmpeg(), "ytdlp": self.ytdlp(),
                 "chatLimitBytes": self.chat_limit, "chatStallSec": self.chat_stall, "lengthHint": self._length_hint(),
                 "detectAll": self.detect_cfg().get("enabled") is True, "requests": self.requests_cfg(),   # 友人の依頼の録画(2-15)
-                **({"bundles": bc} if bc else {})}   # 束のある録画(RS7-2 G2b。無ければ書かない = 今までの config.json のまま)
+                **({"bundles": bc} if bc else {}),   # 束のある録画(RS7-2 G2b。無ければ書かない = 今までの config.json のまま)
+                **({"chatKeepDir": keep} if (keep := _chatreuse.keep_dir(self.host.store_dir)) else {})}   # 生のチャットを移す先(決定 3-117。② が決める)
 
     def _length_hint(self):
         """M10: 人が選んだ区間の長さの目安(② flow/lengthhint がその場で数える = 友人が依頼で指定した区間。enough のときだけワーカーが使う)。

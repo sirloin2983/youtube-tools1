@@ -6,6 +6,8 @@ J6 で ② の 1 つの器 `flow/jobs.Table`(頭 an)の上に載せた: 積む�
 - 失敗・中止は次の item へ続行。終わった item の履歴は新しい順に最大30件。
 - 応答(/api/queue の items)の形は今のまま: qid・videoId・kind(src の kind)・title・channel・status(waiting・running・done・error・cancelled・skipped)・phase・progress・error・chat・marks・finishedAt
 """
+import os
+
 from ytt import schemas, studio_env as _env
 
 from pipeline.analyze import fetch   # 解析の材料の取得と先読み(OPT2)
@@ -106,6 +108,8 @@ class Batch:
                 v = self.store.ensure(src, title, channel)   # 受け入れの検査のあと・同じロックの中(入れられない配信は store に足さない)
                 return {"title": v["title"], "channel": v["channel"], "marks": 0, "chatSnap": None}
             spec = {"src": src, "settings": settings}
+            if src["kind"] == "youtube" and isinstance(raw.get("chatFile"), str) and os.path.isfile(raw["chatFile"]):
+                spec["chatFile"] = raw["chatFile"]   # ② が選んだチャット(ライブで取った物。flow/chatreuse)= リプレイを取らない
             if _prio.name_ok(raw.get("prio")):   # 優先度の表の名前(後回しの仕事 = later は空いているときだけ。flow/prio.py。PRIO)
                 spec["prio"] = raw["prio"]
             try:
@@ -213,7 +217,10 @@ class Batch:
 
     def _run(self, rec, ctl):
         """解析して結果を store へ入れる(失敗は ApiError = その文が error になる)"""
-        result = analyze.run(analyze.make_spec(rec["spec"]["src"], rec["spec"]["settings"]), ctl)
+        spec = analyze.make_spec(rec["spec"]["src"], rec["spec"]["settings"])
+        if rec["spec"].get("chatFile"):
+            spec["chatFile"] = rec["spec"]["chatFile"]
+        result = analyze.run(spec, ctl)
         if not result:
             raise ApiError("no_result", "解析結果がありません")
         try:

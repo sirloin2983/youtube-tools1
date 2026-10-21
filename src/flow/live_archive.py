@@ -83,8 +83,10 @@ from pipeline.export import exporter as _exporter   # 区間の書き出しの�
 from pipeline.transcribe import recognize as _recognize   # wav の引数を組む所は ① の 1 か所(OPT2)
 from ytt import fsio, jobs, normalize, schemas, tools
 from ytt.errors import ApiError
+from pipeline.analyze import fetch as _fetch   # 解析が取ったリプレイの場所(比べるだけ。flow/chatreuse)
 from . import batch as _batch   # 解析の順番の断りの種類(queued_already = 同じ配信がもう順番にある)
 from . import export as _export   # 書き出しの器(プロセスに 1 つ。OPT2 の J5)
+from . import chatreuse as _chatreuse   # ライブのチャットの使い回し(決定 3-117)
 from . import live_failures   # 失敗の文は 1 か所。M3・M7
 from . import live_export as LX
 
@@ -998,7 +1000,9 @@ class Archiver(LX.Patrol):
         saved = dict(saved) if isinstance(saved, dict) else {}
         cnt = saved.get("count") if isinstance(saved.get("count"), int) and not isinstance(saved.get("count"), bool) else 8
         saved["count"] = max(1, min(AFTER_TOP_MAX, max(cnt, n * 2)))   # 録画の外・人のマークと重なる候補を飛ばす分の余り
-        code, d = self.studio("POST", "/api/queue/add", {"items": [{"kind": "youtube", "videoId": vid, "title": base["title"]}], "settings": saved})
+        item = {"kind": "youtube", "videoId": vid, "title": base["title"]}
+        base["chatReuse"] = self._chat_reuse(vid, t0, offset, dur, item)
+        code, d = self.studio("POST", "/api/queue/add", {"items": [item], "settings": saved})
         if code is None:
             raise Later("スタジオにつながりません(%s)" % ((d or {}).get("message") or ""), self.retry_sec)
         d = d if isinstance(d, dict) else {}
@@ -1011,6 +1015,41 @@ class Archiver(LX.Patrol):
                         "アーカイブを解析しています(上位 %d 本を採用します。ずれ %.1f 秒・%s)" % (n, offset, how), **base)
         self.log("リアルタイム切り抜き: 配信後の自動の切り抜き: %s のアーカイブ(%s)を解析します(上位 %d 本)" % (rec, vid, n))
         return True
+
+    def _chat_reuse(self, vid, t0, offset, dur, item):
+        """ライブで取ったチャットをアーカイブの解析に渡すか(flow/chatreuse。スイッチ MODE)。on で途切れが無ければ item に chatFile を足す。
+        -> afterStream に残す印 {mode, used, why, stats, made}(どの形でも、失敗したらリプレイを取る今の形)"""
+        store = self.ex.folder
+        mode = _chatreuse.mode_now(store)
+        if mode == "off":
+            return {"mode": mode, "used": False}
+        _chatreuse.prune(store)
+        try:
+            p = _chatreuse.prepare(store, vid, t0, offset, dur)
+        except Exception as e:   # noqa: BLE001  使い回せなくても解析は今の形で進める
+            p = {"path": None, "made": None, "stats": None, "why": "ライブのチャットを確かめられませんでした: %s" % e.__class__.__name__}
+        used = mode == "on" and bool(p["path"])
+        if used:
+            item["chatFile"] = p["path"]
+        mark = {"mode": mode, "used": used, "why": p["why"], "stats": p["stats"], "made": p["made"], "dur": dur}
+        _chatreuse.log(store, dict(mark, kind="prepare", vid=vid))
+        return mark
+
+    def _chat_check(self, a):
+        """measure: 解析が済んだら、同じ配信のリプレイ(解析が取って cache/chat に残した物)とライブのチャットを 1 秒の箱で比べて記録に 1 行"""
+        cr = a.get("chatReuse") if isinstance(a.get("chatReuse"), dict) else {}
+        made, vid, dur = cr.get("made"), a.get("vid"), cr.get("dur")
+        if cr.get("used") or not made or not os.path.isfile(made) or not vid:
+            return
+        replay = _fetch.chat_cache_path(vid)
+        st = cr.get("stats") or {}
+        if not os.path.isfile(replay) or not dur:
+            return
+        try:
+            got = _chatreuse.compare(made, replay, dur)
+        except Exception as e:   # noqa: BLE001  比べるだけ(解析と採用は進める)
+            got = {"error": e.__class__.__name__}
+        _chatreuse.log(self.ex.folder, dict(got, kind="compare", vid=vid, stats=st))
 
     def _known_offset(self, rc, rec, vid):
         """照合済みのマーク(P4)のずれ: 同じ録画を先に・無ければ同じ配信の別の録画(差は 1 秒ほど = 候補の置き場所には足りる)。中央の値。無ければ None"""
@@ -1087,6 +1126,7 @@ class Archiver(LX.Patrol):
                 return self._after_adopt(rc, rec, a)
             raise ArchiveError("アーカイブの解析がスタジオの順番から消えました(スタジオを起動し直したかもしれません)")
         if it.get("status") == "done":
+            self._chat_check(a)
             return self._after_adopt(rc, rec, a)
         if it.get("status") in ("error", "cancelled", "skipped"):
             raise ArchiveError("アーカイブの解析が終わりませんでした: %s" % (it.get("error") or it.get("status")))
