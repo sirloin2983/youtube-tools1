@@ -10,7 +10,7 @@
 | ② flow(管理 = いつ・どの順で・どこに置くか) | [flow.md](flow.md) | 94 | 29869 |
 | ③ human(人の操作) | [human.md](human.md) | 62 | 17584 |
 | ④ manage(データ) | [manage.md](manage.md) | 41 | 10885 |
-| ⑤ eval(検証) | [eval.md](eval.md) | 38 | 15983 |
+| ⑤ eval(検証) | [eval.md](eval.md) | 38 | 15993 |
 | src/app(入口と画面) | [app.md](app.md) | 83 | 32433 |
 | src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 48 | 18936 |
 | その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 22 | 11048 |
