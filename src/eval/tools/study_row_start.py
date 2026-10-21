@@ -153,6 +153,9 @@ def wcpp_run(root, wav, work, dtw):
     t0 = time.time()
     subprocess.run(cmd, check=True, capture_output=True, creationflags=ytools.no_window_flags(), stdin=subprocess.DEVNULL, cwd=work)
     sec = time.time() - t0
+    keep = os.environ.get("YTT_STUDY_KEEP")
+    if keep:   # 崩れの形を見るために -ojf の結果を残す(一時フォルダの外)
+        shutil.copyfile(base + ".json", os.path.join(keep, "%s-%d.json" % ("dtw" if dtw else "plain", int(time.time()))))
     with open(base + ".json", encoding="utf-8", errors="replace") as f:
         return json.load(f), sec
 
@@ -220,6 +223,32 @@ def study_doc(root, doc, words, audio, dtw, work):
     return out, rows
 
 
+def dtw_anomalies(data, dur):
+    """DTW のトークンの時刻の崩れ: 時刻なし(-1)・行の中で戻る・音の長さを超える・行の範囲の外(前後 1 秒より外)の数"""
+    out = {"tokens": 0, "none": 0, "back": 0, "beyond": 0, "outside": 0}
+    for seg in data.get("transcription") or []:
+        off = seg.get("offsets") or {}
+        prev = None
+        for tok in seg.get("tokens") or []:
+            t = str((tok or {}).get("text") or "")
+            if not t or t.startswith("[_"):
+                continue
+            out["tokens"] += 1
+            d = tok.get("t_dtw")
+            if not isinstance(d, (int, float)) or d < 0:
+                out["none"] += 1
+                continue
+            s = d / 100.0
+            if prev is not None and s < prev - 1e-6:
+                out["back"] += 1
+            prev = s
+            if s > dur + 0.05:
+                out["beyond"] += 1
+            if isinstance(off.get("from"), (int, float)) and not (off["from"] / 1000.0 - 1.0 <= s <= off["to"] / 1000.0 + 1.0):
+                out["outside"] += 1
+    return out
+
+
 def changed_at(h, doc):
     """人が始まりを直した行か(original のいちばん重なる行の始まりと CHANGED 秒以上違う)"""
     m = T.best_overlap(h, T.text_rows(doc.get("original")))
@@ -241,13 +270,85 @@ def study_dtw(root, doc, human, wav, work):
         texts[key] = "".join(T.letters(r.get("text")) for r in raw)
         st1, _en, moved = retimed(mrows, words)
         pr = pairs(human, mrows)
-        res[key] = {"sec": round(sec, 1), "rows": len(mrows), "pairs": len(pr), "movedR1": moved}
+        res[key] = {"sec": round(sec, 1), "rows": len(mrows), "pairs": len(pr), "movedR1": moved,
+                    "rowTexts": [T.letters(r.get("text")) for r in mrows], "starts": [r["start"] for r in mrows], "ends": [r["end"] for r in mrows]}
+        if dtw:
+            res[key]["anomalies"] = dtw_anomalies(data, float(doc.get("end")) - off)
+            sh = [s - 0.1 for s in res[key]["starts"]]
+            res[key]["shiftOverlap"] = sum(1 for i in range(1, len(sh)) if sh[i] < res[key]["ends"][i - 1] - 1e-6 <= res[key]["starts"][i])
+            res[key]["shiftNegative"] = sum(1 for s in sh if s < off)
         for h, k in pr:
             rows_out.append({"doc": doc.get("id"), "dtwKey": key, "h": h["start"], key: mrows[k]["start"] - h["start"], key + "r1": st1[k] - h["start"],
-                             "changed": changed_at(h, doc)})
+                             "end_" + key: mrows[k]["end"] - h["end"], "len": h["end"] - h["start"], "changed": changed_at(h, doc)})
     res["sameText"] = texts["w0"] == texts["w2"]
+    a, b = res["w0"].pop("rowTexts"), res["w2"].pop("rowTexts")
+    res["sameRows"] = a == b
+    res["rowsSameText"] = round(sum(1 for t in b if t in set(a)) / len(b), 3) if b else None
     res["_rows"] = rows_out
     return res
+
+
+def embed_check(root, ids, pre_wav, pre):
+    """長い音の中の DTW の確かさ: 校正済みの文書の音の前に pre_wav の頭 pre 秒をつないで流し、文書の所の行を人の行と比べる(短い音だけでは長い配信の形が分からない)"""
+    import numpy as np
+    work = tempfile.mkdtemp(prefix="ytt-rowstart-embed-")
+    out = {}
+    try:
+        lead = read_wav(pre_wav)[:int(pre * 16000)]
+        for tid, doc in C.iter_docs(root, only=set(ids)):
+            if not doc:
+                continue
+            off = float(doc.get("start") or 0.0)
+            extract(doc.get("sourcePath"), off, float(doc.get("end")), os.path.join(work, "d.wav"))
+            x = np.concatenate([lead, read_wav(os.path.join(work, "d.wav"))])
+            wav = os.path.join(work, "a.wav")
+            with wave.open(wav, "wb") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(16000)
+                w.writeframes((x.clip(-1, 1) * 32767).astype("<i2").tobytes())
+            human = T.text_rows(doc.get("segments"))
+            params = doc.get("params") if isinstance(doc.get("params"), dict) else {}
+            spec = {"wordSplit": params.get("wordSplit", True) is not False, "stripPunct": params.get("stripPunct", True) is not False, "engine": "whisper.cpp"}
+            rec = {}
+            for key, dtw in (("w0", False), ("w2", True)):
+                data, sec = wcpp_run(root, wav, work, dtw)
+                raw = wcpp_raw(data, dtw)
+                mrows = T.text_rows(T.reapply(raw, spec, len(x) / 16000.0, off - pre))
+                pr = pairs(human, mrows)
+                rec[key] = dict(stats([mrows[k]["start"] - h["start"] for h, k in pr]), sec=round(sec, 1))
+                if dtw:
+                    rec[key]["anomalies"] = dtw_anomalies(data, len(x) / 16000.0)
+            out[tid] = rec
+            print(tid, json.dumps(rec, ensure_ascii=False), file=sys.stderr, flush=True)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    print(json.dumps(out, ensure_ascii=False, indent=1))
+    return 0
+
+
+def long_check(root, src, secs):
+    """長い音(配信の頭から secs 秒)で DTW なし・ありを 1 回ずつ -> 秒・崩れ・文字が同じか・行の数(標準出力に JSON)"""
+    work = tempfile.mkdtemp(prefix="ytt-rowstart-long-")
+    try:
+        wav = os.path.join(work, "a.wav")
+        extract(src, 0.0, secs, wav)
+        out = {}
+        for key, dtw in (("w0", False), ("w2", True)):
+            data, sec = wcpp_run(root, wav, work, dtw)
+            raw = wcpp_raw(data, dtw)
+            out[key] = {"sec": round(sec, 1), "segments": len(raw), "text": "".join(T.letters(r.get("text")) for r in raw)}
+            if dtw:
+                out[key]["anomalies"] = dtw_anomalies(data, secs)
+                ws = [w for r in raw for w in r["words"]]
+                out[key]["zeroLen"] = sum(1 for w in ws if w[1] - w[0] <= 0.0)
+                out[key]["words"] = len(ws)
+        out["sameText"] = out["w0"]["text"] == out["w2"]["text"]
+        out["chars"] = [len(out["w0"].pop("text")), len(out["w2"].pop("text"))]
+        print(json.dumps(out, ensure_ascii=False, indent=1))
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    return 0
 
 
 def main(argv=None):
@@ -257,8 +358,14 @@ def main(argv=None):
     ap.add_argument("--only", default="", help="文書の id(, 区切り)")
     ap.add_argument("--json", default="", help="結果を書くファイル")
     ap.add_argument("--data-dir", default=None)
+    ap.add_argument("--long", default="", help="長い音の確かめ: この動画の頭から --secs 秒を DTW なし・ありで 1 回ずつ(崩れ・秒・文字が同じか)")
+    ap.add_argument("--secs", type=float, default=3600.0)
     a = ap.parse_args(argv)
     root = C.locate("transcribe", a.data_dir)
+    if a.long and a.only:   # 長い音の中の確かさ(--long の頭 --secs 秒を文書の前につなぐ)
+        return embed_check(root, C.split_ids(a.only), a.long, a.secs)
+    if a.long:
+        return long_check(root, a.long, a.secs)
     only = set(C.split_ids(a.only)) if a.only else None
     docs, rows = [], []
     work = tempfile.mkdtemp(prefix="ytt-rowstart-")
@@ -292,6 +399,7 @@ def main(argv=None):
         res["dtw"] = {k: stats([r[k] for r in dr if k in r]) for k in ("w0", "w0r1", "w2", "w2r1")}
         for sh in DTW_SHIFTS:   # DTW の時刻は遅れぎみ(中央値 +0.11 秒)= 決まった秒だけ前へ
             res["dtw"]["w2-%g" % sh] = stats([r["w2"] - sh for r in dr if "w2" in r])
+        res["dtwEnds"] = {k: stats([r["end_" + k] for r in dr if "end_" + k in r]) for k in ("w0", "w2")}
         res["dtwChanged"] = {k: stats([r[k] for r in dr if k in r and r.get("changed")]) for k in ("w0", "w2")}
         res["dtwChanged"].update({"w2-%g" % sh: stats([r["w2"] - sh for r in dr if "w2" in r and r.get("changed")]) for sh in DTW_SHIFTS})
     tot = {k: sum(d["moved"].get(k, 0) for d in docs) for k in keys if k != "base"}
@@ -299,6 +407,7 @@ def main(argv=None):
     res["machineRows"] = sum(d["rows"] for d in docs)
     print(json.dumps({k: v for k, v in res.items() if k != "byDoc"}, ensure_ascii=False, indent=1))
     if a.json:
+        res["rowsData"] = rows
         with open(a.json, "w", encoding="utf-8") as f:
             json.dump(res, f, ensure_ascii=False, indent=1)
     return 0
