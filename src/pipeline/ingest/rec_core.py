@@ -10,6 +10,9 @@
 取得のしかた(source):
   streamlink … 本番。`python -m streamlink --stdout <URL> <画質>` の出力を ffmpeg の標準入力へ(シェルを通さない引数のリスト)
   direct     … テスト用。HLS の URL を直接 ffmpeg に渡す(手元の 127.0.0.1 の URL だけ。起動の引数 --source direct)
+  YouTube に bot と判定された(streamlink の記録に 429・google.com/sorry・Sign in to confirm)ときは、yt-dlp(ログインの cookies つき =
+  ytt/tools.ytdlp_auth_args)で配信の HLS の再生リストの URL を取り、streamlink に hls:// で渡して続ける(Recording._resolve_hls)。
+  取れなければ「bot と判定されて録画できません」を記録の message に出して待つ(10-21 友人のライブが 0 本だった件)
 
 切れたら: 5 → 10 → 30 秒(以後 30 秒)の間を空けて繋ぎ直す。データの来ない時間が続いたら「終了」:
   配信の前(まだ1つも取れていない)… WAIT_START 秒、途中で切れた … IDLE_END 秒。
@@ -57,6 +60,12 @@ MIN_FREE = 1024 ** 3           # 空きがこれより少なくなったら録�
 LOW_FREE = 20 * 1024 ** 3      # これより少なければ注意(1時間あたり約 3〜4GB)
 HLS_TIME = 4
 SOURCE_TROUBLE = ("No new segments", "Reloading failed", "[error]", "Read timeout")   # streamlink の記録に出たら「切れた」(終わりではない)
+BLOCKED_MARKS = ("429", "Too Many Requests", "google.com/sorry", "not a bot", "Sign in to confirm")   # YouTube に bot と判定された(取得の記録・yt-dlp の出力)
+BLOCKED = "YouTube に bot と判定されて録画できません(アプリで YouTube にログインすると取れます)"
+HLS_FORMAT = {"best": "best[protocol^=m3u8]", "1080p": "best[protocol^=m3u8][height<=1080]/best[protocol^=m3u8]",
+              "720p": "best[protocol^=m3u8][height<=720]/best[protocol^=m3u8]"}   # yt-dlp で取る再生リストの画質(QUALITIES と同じ選び方)
+BLOCKED_GIVE_UP = 1800         # 1 つも取れないまま bot と判定され続けたら、この秒で録画を「エラー」で止める
+HLS_RESOLVE_SEC = 90          # yt-dlp で再生リストの URL を取る上限(秒)
 ARCHIVE = "archive"
 ENDED = "配信が終わったので録画を終えました"
 ARCHIVE_MIN_SEC = 90           # 取れた長さがこれを超えて、
@@ -321,6 +330,7 @@ class Recording:
         self.thread = None
         self.procs = []
         self._cache = {}                    # セッション -> (mtime, size, segs, ended)
+        self._hls = None                    # bot と判定されたとき yt-dlp で取った HLS の再生リストの URL(取得はこれを hls:// で。取れなくなったら取り直す)
 
     # --- 記録 ---
     def save(self):
@@ -487,6 +497,7 @@ class Recording:
         mgr = self.mgr
         backoff_i = 0
         last_data = time.time()
+        blocked_at = None
         try:
             while not self._stopping():
                 fs = folder_state(os.path.dirname(self.dir))
@@ -497,6 +508,19 @@ class Recording:
                 self.set(state="reconnecting" if got_any else "waiting",
                          message="つないでいます…" if got_any else "配信を待っています(始まると自動で録画します)")
                 n, code, why = self._run_session(name)
+                hls_before = self._hls
+                if n == 0 and why != ARCHIVE and not self._stopping() and self._blocked(name):   # bot と判定された: yt-dlp(cookies)で再生リストを取って取り直す
+                    if self._resolve_hls() and not hls_before:   # 初めて = すぐ(取り直した再生リストでも取れなかったときは下の間を空ける)
+                        self._drop_session(name)
+                        continue
+                    if not hls_before and not self._hls:
+                        why = BLOCKED
+                        blocked_at = blocked_at or time.time()
+                        if not got_any and time.time() - blocked_at > BLOCKED_GIVE_UP:   # 配信の前の 6 時間を待たない(行を閉じて理由を診断へ)
+                            self._drop_session(name)
+                            return self._finish("error", BLOCKED, "bot と判定されたまま %d 分たったので止めました" % (BLOCKED_GIVE_UP // 60))
+                else:
+                    blocked_at = None
                 if why == ARCHIVE:   # 終わった配信(アーカイブ)を頭から取りに行った: そのセッションは消して(時刻が受信時刻と合わない)「終了」。本番画質は P4 のアーカイブの取得で
                     self._drop_session(name)
                     return self._finish("ended", ENDED + "(アーカイブを取り始めたので止めました)", "アーカイブを取り始めたので止めました")
@@ -546,6 +570,44 @@ class Recording:
         except (OSError, ValueError):
             return False
 
+    def _blocked(self, name):
+        """取れなかったセッションの取得の記録に、YouTube の bot 判定の印があるか(direct は見ない)。yt-dlp で取った再生リストでも
+        取れなかった(期限切れなど)ときも取り直す"""
+        if self.mgr.source == "direct":
+            return False
+        if self._hls:
+            self._hls = None
+            return True
+        try:
+            text = read_text(os.path.join(self.dir, name, "source.log"), 1024 * 1024) or ""
+        except (OSError, ValueError):
+            return False
+        return any(m in text for m in BLOCKED_MARKS)
+
+    def _resolve_hls(self):
+        """yt-dlp(ログインの cookies つき)で配信の HLS の再生リストの URL を取る -> 取れたか(self._hls に入れる)。
+        cookies の中身は読まない(ytt/tools.ytdlp_auth_args がパスを渡すだけ)。取れなければ理由を記録に 1 行"""
+        yd = self.mgr.ytdlp or ytools.find_tool("yt-dlp")
+        if not yd:
+            self.mgr.log("録画 %s: bot と判定されましたが yt-dlp が無いので取り直せません" % self.id)
+            return False
+        cmd = [yd, "--encoding", "utf-8", "--no-warnings", "--no-playlist", "-g", "-f", HLS_FORMAT.get(self.meta.get("quality"), HLS_FORMAT["best"])] + \
+            ytools.ytdlp_auth_args() + ["--", self.meta["url"]]
+        try:
+            r = subprocess.run(cmd, capture_output=True, timeout=HLS_RESOLVE_SEC, creationflags=ytools.no_window_flags())
+        except (OSError, subprocess.TimeoutExpired) as e:
+            self.mgr.log("録画 %s: yt-dlp で再生リストを取れませんでした(%s)" % (self.id, e.__class__.__name__))
+            return False
+        out = r.stdout.decode("utf-8", "replace").strip().splitlines()
+        url = out[0].strip() if r.returncode == 0 and out else ""
+        if not url.startswith("https://"):
+            err = r.stderr.decode("utf-8", "replace").strip().splitlines()
+            self.mgr.log("録画 %s: yt-dlp で再生リストを取れませんでした(終了コード %s: %s)" % (self.id, r.returncode, (err[-1] if err else "")[:200]))
+            return False
+        self._hls = url
+        self.mgr.log("録画 %s: YouTube に bot と判定されたので、yt-dlp で取った再生リストから録画します" % self.id)
+        return True
+
     def _commands(self, name):
         mgr = self.mgr
         sdir = os.path.join(self.dir, name)
@@ -553,6 +615,9 @@ class Recording:
         if mgr.source == "direct":
             out += ["-i", self.meta["url"]]
             src = None
+        elif self._hls:   # bot と判定された: yt-dlp で取った 1 つの画質の再生リスト
+            out += ["-i", "pipe:0"]
+            src = [mgr.python, "-m", "streamlink", "--stdout", "--loglevel", "warning", "hls://" + self._hls, "best"]
         else:
             out += ["-i", "pipe:0"]
             src = [mgr.python, "-m", "streamlink", "--stdout", "--loglevel", "warning", "--stream-types", "hls",   # hls だけ = 終わった配信(アーカイブ)を取りに行かない
@@ -672,6 +737,7 @@ class Recorder:
         self.source = source if source in ("streamlink", "direct") else "streamlink"
         self.title_lookup = fetch_title if self.source == "streamlink" else None   # 名前なしの録画に題を付ける(テストは差し替える・None で聞かない)
         self.ffmpeg = ffmpeg or ytools.find_tool("ffmpeg") or "ffmpeg"
+        self.ytdlp = None   # bot と判定されたときの再生リストの取得(None = その都度 ytt/tools.find_tool。テストは差し替える)
         self.python = python or sys.executable
         self.hls_time = hls_time
         self.backoff = tuple(backoff) or BACKOFF

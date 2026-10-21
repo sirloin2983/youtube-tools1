@@ -487,6 +487,37 @@ class TestStreamlinkPipe(unittest.TestCase):
         self.assertEqual(ff[ff.index("-c") + 1], "copy")
         self.assertIn("temp_file+program_date_time", ff)
 
+    def test_bot_block_resolves_hls_with_cookies(self):
+        """YouTube に bot と判定された(streamlink の記録に 429)= yt-dlp(ログインの cookies つき)で再生リストを取って hls:// で録る。
+        取れなければ bot の印のある記録だけを「判定された」とみなす(10-21 友人のライブが 1 秒も録れず 0 本だった件)"""
+        r = R.Recording(self.rec, "20261021-000000-z", os.path.join(self.folder, "z"), {"url": "https://www.youtube.com/watch?v=z", "quality": "1080p"})
+        sdir = os.path.join(r.dir, "session_001")
+        os.makedirs(sdir)
+        log = os.path.join(sdir, "source.log")
+        with open(log, "w", encoding="utf-8") as f:
+            f.write("error: Unable to open URL: https://www.youtube.com/watch?v=z (429 Client Error: Too Many Requests for url: https://www.google.com/sorry/index)\n")
+        self.assertTrue(r._blocked("session_001"))
+        self.rec.ytdlp = "yt-dlp-fake"
+        cookies = os.path.join(self.tmp, "cookies.txt")
+        with open(cookies, "w", encoding="utf-8") as f:
+            f.write("# Netscape HTTP Cookie File\n")
+        seen = []
+
+        def run(cmd, **kw):
+            seen.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, b"https://manifest.googlevideo.com/api/manifest/hls_playlist/x/index.m3u8\n", b"")
+        with mock.patch.dict(os.environ, {"YTT_YTDLP_COOKIES": cookies}), mock.patch.object(R.subprocess, "run", run):
+            self.assertTrue(r._resolve_hls())
+        self.assertIn("--cookies", seen[0])
+        self.assertEqual(seen[0][-2:], ["--", "https://www.youtube.com/watch?v=z"])
+        src, _ff = r._commands("session_002")
+        self.assertEqual(src[-2:], ["hls://https://manifest.googlevideo.com/api/manifest/hls_playlist/x/index.m3u8", "best"])
+        self.assertTrue(r._blocked("session_002"))   # 取った再生リストでも取れなかった = 取り直す(期限切れ)
+        self.assertIsNone(r._hls)
+        with open(log, "w", encoding="utf-8") as f:
+            f.write("[cli][error] No playable streams found on this URL\n")
+        self.assertFalse(r._blocked("session_001"))   # 配信の前などは bot ではない
+
     def test_default_quality_is_1080p(self):
         """画質の既定は 1080p(4K の配信で容量が膨らむのを避ける)。720p・best も選べる"""
         import inspect
