@@ -240,6 +240,18 @@ def fake_media(work):
     return os.path.join(work, PROFILE, "Videos", "疑似の配信.mp4")
 
 
+IMPORTS = ("numpy", "streamlink", "sherpa_onnx", "lxml.etree", "Crypto.Cipher.AES")   # 同梱の部品(wheel)= 埋め込みの Python と版が合わないと読めない
+
+
+def check_imports(app, rep):
+    """同梱の python で部品を読み込めるか(埋め込みの Python と wheel の版の食い違い = 0.99.92 の 3.10 と cp312 を配る前に止める)"""
+    py = os.path.join(app, "python", "python.exe")
+    code = "import importlib\nfor m in %r:\n    importlib.import_module(m)\nprint('ok')" % (IMPORTS,)
+    r = subprocess.run([py, "-c", code], capture_output=True, creationflags=CHILD_FLAGS, timeout=120)
+    out = (r.stdout or b"").decode("utf-8", "replace").strip() + (r.stderr or b"").decode("utf-8", "replace").strip()[-300:]
+    rep.check("同梱の python で部品を読み込める(%s)" % "・".join(IMPORTS), r.returncode == 0 and out.startswith("ok"), out[-300:])
+
+
 def make_work(work, zip_path, args, rep):  # lint: long 置き場所を作る一続き(展開 → 壊す → 鍵 → モデル → 取得元 → 差し替え)
     """一時フォルダの形を作る -> {app, dropbox, man, fetch, shim}"""
     app = os.path.join(work, "FriendApp")
@@ -1102,6 +1114,7 @@ def run(args):  # lint: long 検査の一本の流れ(上の説明の 1〜11 の
         rep.info("zip", zip_path)
         lay = make_work(work, zip_path, args, rep)
         app = lay["app"]
+        check_imports(app, rep)
         cdp = free_port()
         w = Window(app, friend_env(work, cdp, lay["shim"], fake=not (args.youtube or args.live), auto_update=args.auto_update), cdp)
         w.start()
