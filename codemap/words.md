@@ -221,7 +221,7 @@
 - 動画を選び直す(2)— src/app/ui/editor/app-tpl.js:56
 - 友人へ自動で送る(2)— src/app/ui/home/portal.html:366
 - 失敗(2)— src/app/ui/home/portal.js:729
-- 始まりから(2)— src/friendapp/ui/send-form.js:108
+- 始まりから(2)— src/friendapp/ui/send-form.js:109
 - 字幕に出さない(2)— src/app/ui/editor/app-rows.js:427
 - 対象(2)— src/app/ui/editor/app-tpl.js:120
 - 対象の事務所(2)— src/app/ui/studio/rank.js:166

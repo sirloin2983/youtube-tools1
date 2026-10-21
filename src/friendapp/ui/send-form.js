@@ -17,6 +17,7 @@
     var h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
     return (h ? h + '時間' : '') + (h || m ? m + '分' : '') + (s < 10 && (h || m) ? '0' : '') + s + '秒';
   }
+  var CH_LIVE = /^https?:\/\/(?:www\.|m\.)?youtube\.com\/(?:@[^\/?#\s]+|channel\/UC[\w-]{22}|c\/[^\/?#\s]+|user\/[^\/?#\s]+)\/live\/?(?:[?#]\S*)?$/i;   /* api.py の CHANNEL_LIVE_RE と同じ */
   function vidOf(text) {   /* 貼った文字から YouTube の動画の id(無ければ '') */
     var m = /(?:[?&]v=|youtu\.be\/|\/live\/|\/shorts\/)([A-Za-z0-9_-]{11})/.exec(String(text || ''));
     return m ? m[1] : '';
@@ -272,8 +273,17 @@
     if (window.innerWidth <= 960) $('sendForm').scrollIntoView({ block: 'start' });
     else if (window.scrollY > 0) window.scrollTo(0, 0);   /* 2 列 = 右の列は画面の上に貼り付く。画面ごと下がっていると欄の頭が隠れる */
   }
+  var chSeq = 0;
   function openUrl(text) {
     var vid = vidOf(text);
+    var my = ++chSeq;
+    if (!vid && CH_LIVE.test(String(text || '').trim())) {   /* チャンネルの /live の URL = 今の配信の id をアプリに調べてもらう(yt-dlp で数秒) */
+      $('urlWhy').hidden = false; $('urlWhy').textContent = 'チャンネルの今のライブを調べています…';
+      api('peek-live?url=' + encodeURIComponent(String(text).trim())).then(function (lv) {
+        if (my === chSeq && lv && lv.videoId) openUrl('https://www.youtube.com/watch?v=' + lv.videoId);
+      }, function (e) { if (my === chSeq) $('urlWhy').textContent = (e && e.message) || 'そのチャンネルの今のライブが見つかりませんでした'; });
+      return;
+    }
     if (!vid) { $('urlWhy').hidden = false; $('urlWhy').textContent = 'YouTube の配信の URL を貼ってください'; return; }
     $('urlWhy').hidden = true;
     var hit = FRList.item(vid);

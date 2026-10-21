@@ -34,6 +34,8 @@
   送り返しの箱(と Dropbox の /診断/)に exe の start(bad・installed つき)と Python の rollback(fromVersions・toVersion)がある・画面の帯に戻った知らせ。
 --youtube URL は本物の YouTube で試す形: 通信の差し替えは Dropbox と取得元のほかを本物へ通し、疑似モードにしない。初回の準備のあと、その URL の区間 2 つ(REAL_RANGES)を
   頼み、同梱の yt-dlp・ffmpeg・文字起こしで作って届くまでの秒・進み具合の移り・再生・診断を見る(ログイン・動画ファイル・更新は試さない)。
+--live 分 は本物のライブで試す形(通信は --youtube と同じ): 初回の準備のあと、--youtube の URL か配信の一覧のライブ中の 1 件をライブの依頼で頼み、
+  分だけ録ったら [取り消す] で止める。録画が始まるまでの秒・行の移り・届いたパックと再生・止めたあとの行を見る。
 --break ffmpeg は検査が効くかの確かめ用: 展開した写しの fetch.json から ffmpeg の行を消す(= ffmpeg を取れない zip と同じ)。初回の準備で落ちるのが正しい。
 音は出さない(exe は YTT_FRIEND_SHOTS で WebView2 を消音・<video> は muted)・窓は画面の外・子プロセスは黒い窓を出さない・止めるのは自分が起こした PID だけ。
 終了コード 0 合格 / 1 不合格 / 2 引数・前提が無い(Playwright・キャッシュ・モデル)
@@ -254,7 +256,7 @@ def make_work(work, zip_path, args, rep):  # lint: long 置き場所を作る一
         json.dump({"appKey": "preflight", "refreshToken": "preflight"}, f)
     place_models(fetch, app, datadir.data_root(), rep)
     mirror = mirror_map(fetch, args.cache, rep)
-    shim = lay_shim(app, work, mirror, net=bool(args.youtube))
+    shim = lay_shim(app, work, mirror, net=bool(args.youtube or args.live))
     return {"app": app, "dropbox": os.path.join(work, "dropbox"), "man": man, "fetch": fetch, "shim": shim, "mirror": mirror}
 
 
@@ -642,6 +644,64 @@ def send_real(w, url, rep, timeout):
     return r
 
 
+def live_now(w, timeout=180):
+    """配信の一覧(本物の通信)のライブ中の 1 件 -> {url, streamer} か None"""
+    def pick():
+        st, j = w.api("GET", "/api/friend/streams")
+        for sec in (j or {}).get("sections") or []:
+            for it in sec.get("items") or []:
+                if it.get("state") == "live" and it.get("videoId"):
+                    return {"url": "https://www.youtube.com/watch?v=" + it["videoId"], "streamer": it.get("streamer") or it.get("channel") or STREAMER,
+                            "title": it.get("title") or ""}
+        return None
+    return wait_for(pick, timeout, every=10)
+
+
+def send_live(w, url, minutes, rep):
+    """--live 分: 本物のライブを友人と同じ形で頼み(録画・検出・切り抜き)、分だけ録ったら [取り消す] で止める。
+    見る物 = 録画が始まるまでの秒・行の状態と表示の移り・届いたパックの数と確認用の動画・止めたあとの行・診断 kind live"""
+    t0 = time.time()
+    got = {"url": url, "streamer": STREAMER} if url else live_now(w)
+    if not rep.check("ライブ: 配信中の物がある", bool(got), url or "一覧にライブ中が無い"):
+        return None
+    rep.info("ライブ: 頼んだ配信", "%s %s" % (got["url"], got.get("title") or ""))
+    st, j = w.api("POST", "/api/friend/send", {"url": got["url"], "kind": "live", "streamer": got["streamer"], "people": [], "videoTracks": 1, "live": {}})
+    row = (j or {}).get("row") or {}
+    if not rep.check("ライブ: 依頼を送れる", st == 200 and row.get("id"), j):
+        return None
+    rid, seen = row["id"], []
+
+    def snap():
+        w.watch_tree()
+        st, j = w.api("GET", "/api/friend/inbox")
+        r = next((x for x in (j or {}).get("rows") or [] if x.get("id") == rid), None) or {}
+        steps = r.get("steps") if isinstance(r.get("steps"), dict) else {}
+        key = (r.get("state"), steps.get("text") or (r.get("live") or {}).get("text") if isinstance(r.get("live"), dict) else steps.get("text"),
+               len(r.get("packs") or []))
+        if not seen or seen[-1][1:] != key:
+            seen.append((round(time.time() - t0),) + key)
+        return r
+    rec = wait_for(lambda: snap().get("state") == "recording" or None, 300, every=5)
+    rep.check("ライブ: 録画が始まる(5 分以内)", bool(rec), seen[-3:])
+    end = time.time() + minutes * 60
+    while time.time() < end:
+        r = snap()
+        if r.get("state") in ("failed", "arrived", "done"):
+            break
+        time.sleep(15)
+    st, j = w.api("POST", "/api/friend/cancel", {"id": rid})
+    rep.check("ライブ: [取り消す] で止められる", st == 200, j if st != 200 else "")
+    wait_for(lambda: snap().get("state") not in ("recording", "making", "sent") or None, 240, every=5)
+    r = snap()
+    rep.info("ライブ: 行の移り(秒・状態・表示・パック)", seen)
+    rep.info("ライブ: 止めたあとの行", {k: r.get(k) for k in ("state", "error", "cancelled")} | {"packs": len(r.get("packs") or [])})
+    mine = [it for it in receive_items(w) if it.get("id") == rid]
+    rep.info("ライブ: 受け取る画面のパック", [(it.get("num"), it.get("seconds"), bool(it.get("preview"))) for it in mine])
+    if mine:
+        check_play(w, mine[0], "ライブ", rep)
+    return r
+
+
 # ---------------------------------------------------------------- 8 届く物・再生
 def probe(app, path):
     """同梱の ffprobe で 1 本目の映像と音 -> {vcodec, pix, h, acodec}"""
@@ -1010,12 +1070,15 @@ def run(args):  # lint: long 検査の一本の流れ(上の説明の 1〜11 の
         lay = make_work(work, zip_path, args, rep)
         app = lay["app"]
         cdp = free_port()
-        w = Window(app, friend_env(work, cdp, lay["shim"], fake=not args.youtube), cdp)
+        w = Window(app, friend_env(work, cdp, lay["shim"], fake=not (args.youtube or args.live)), cdp)
         w.start()
         w.connect()
         w.watch_tree()
         check_token(w, rep)
         if not check_setup(w, app, rep, args.timeout_min * 60 * 0.4):
+            return rep
+        if args.live:
+            send_live(w, args.youtube, args.live, rep)
             return rep
         if args.youtube:
             send_real(w, args.youtube, rep, args.timeout_min * 60 * 0.8)
@@ -1110,6 +1173,7 @@ def main(argv=None):
     ap.add_argument("--break-update", type=int, default=0, choices=(0, 1, 2), help="戻りの確かめ: 更新の新しい版を N 版続けて起動できない形にする(元の版で開き直すのが正しい)")
     ap.add_argument("--cache", default="", help="build_friend_zip のキャッシュ(既定と同じ)")
     ap.add_argument("--timeout-min", type=float, default=25.0, help="全体の待ちの目安(分)")
+    ap.add_argument("--live", type=float, default=0, help="本物のライブを友人と同じ形でこの分だけ録る(--youtube の URL か、無ければ一覧のライブ中の物)")
     ap.add_argument("--youtube", default="", help="本物の YouTube の URL で区間の依頼を通す(Dropbox は偽物のまま・初回の準備のあと依頼 1 つだけ)")
     a = ap.parse_args(argv)
     a.cache = a.cache or bfz.default_cache()

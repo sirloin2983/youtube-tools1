@@ -383,6 +383,17 @@ class LiveFlowTest(unittest.TestCase):
         self.assertTrue(tail["text"].endswith("(配信後の追加: 採用する候補がありませんでした)"), tail["text"])
         self.assertEqual(E.live_cause(None)["code"], "liveNoDetect")
 
+    def test_cancel_while_recording_writes_diag(self):
+        """録画中に [取り消す](パック 0 本 = 行は消える): 消える前に診断 kind live(理由 cancelled・材料つき)"""
+        box = self.use_diag()
+        rid = self.send_live()["id"]
+        self.api.cancel(rid)
+        self.assertIsNone(self.box.row(rid))
+        d = self.diags(box)
+        self.assertEqual((len(d), d[0]["requestId"], d[0]["stage"], d[0]["outcome"]["packs"]), (1, rid, "close", 0))
+        self.assertIn("[取り消す]", d[0]["summary"])
+        self.assertIn("settings", d[0]["live"])
+
     def test_live_submit_failure_writes_diag(self):
         box = self.use_diag()
         self.eng.live.probe = lambda url: {"status": "was_live", "title": "", "channel": "", "message": ""}

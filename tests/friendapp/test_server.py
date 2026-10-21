@@ -1042,6 +1042,21 @@ class ServerTest(Base):
         self.assertEqual((d["status"], d["message"]), ("post_live", "配信が終わったばかりです。送ると、アーカイブが出たら自動で作り始めます"))   # アーカイブ待ちで送れる
         self.assertEqual(self.get("/api/friend/peek-live?url=x")[0], 400)
 
+    def test_peek_live_channel_live_url(self):
+        """チャンネルの /live の URL(/@名前/live)= 今の配信の id に置き換える(調べるのは 1 回)・ライブをしていなければ理由"""
+        ch = "https://www.youtube.com/@hoshimachisuisei/live"
+        seen = []
+        self.app.api.probe = lambda url: seen.append(url) or {"status": "is_live", "message": "", "id": VID}
+        d = self.js(self.get("/api/friend/peek-live?url=" + urllib.parse.quote(ch, safe=""))[2])
+        self.assertEqual((d["videoId"], d["status"], d["live"]), (VID, "is_live", True))
+        self.assertEqual(seen, [ch])
+        self.assertEqual(self.app.api.check_form({"url": ch, "kind": "url", "top": 3})["videoId"], VID)   # 送るときも覚えた id
+        self.assertEqual(seen, [ch])
+        self.app.api.probe = lambda url: {"status": "not_live", "message": ""}
+        st, _h, body = self.get("/api/friend/peek-live?url=" + urllib.parse.quote("https://www.youtube.com/@other/live", safe=""))
+        self.assertEqual(st, 400)
+        self.assertIn("今のライブが見つかりませんでした", self.js(body)["message"])
+
     def test_peek_live_members_only_and_probe_failure(self):
         self.app.api.probe = lambda url: {"status": "unknown", "message": "Join this channel to get access to members-only content"}
         d = self.js(self.get("/api/friend/peek-live?url=" + URL)[2])

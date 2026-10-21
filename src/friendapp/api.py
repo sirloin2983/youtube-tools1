@@ -50,6 +50,7 @@ COPY_CHUNK = 8 * 1024 * 1024
 COPY_ROOM = 512 * 1024 * 1024       # 写すときに残す空き
 WAIT_EVERY = 300                    # アーカイブ待ち: 配信を調べ直す間隔(秒)
 WAIT_GIVE_UP = 86400                # アーカイブ待ち: これだけ待って出なければ失敗(C-2-12 の「1 日など」)
+CHANNEL_LIVE_RE = re.compile(r"^https?://(?:www\.|m\.)?youtube\.com/(?:@[^/?#\s]+|channel/UC[\w-]{22}|c/[^/?#\s]+|user/[^/?#\s]+)/live/?(?:[?#]\S*)?\Z", re.I)
 ARCHIVE_OK = ("was_live", "not_live")   # 調べた結果がこれならアーカイブが見られる(post_live = まだ)
 RETRY_MAX = _inbox.RETRY_MAX         # 直る見込みのある失敗の自動のやり直しの回数(C-2-16)
 RETRY_EVERY = 180                   # 自動のやり直しの間隔(秒 = 数分おき)
@@ -151,6 +152,7 @@ class Api:
         self.form_path = os.path.join(places["friend"], FORM_NAME)
         self._peek = {}
         self._live_peek = {}
+        self._live_ids = {}              # チャンネルの /live の URL -> (調べた時刻, 今の配信の id)
         self._files = {}                 # 選んだ・落とした動画 {id: {path, name, size, copy?}}(パスは画面に出さない)
         self._copies = {}                # 写している動画 {依頼 id: [写した, 全部]}
         self._stages = {}                # 作っている行の今の段 {依頼 id: [段の名前, 始まった ms, detail, 最後に変わった ms]}(進み具合・残り時間)
@@ -260,15 +262,16 @@ class Api:
     def peek_live(self, url):
         """配信中・配信前か(yt-dlp の live_status = ② の probe_live。数秒かかる)-> {"videoId", "status", "live", "message"}。
         live = 配信中・配信前(ライブの送る欄)。post_live = 終わった直後(アーカイブ待ちで送れる = C-2-12)。members = メンバー限定(送れない)"""
+        info = None
         vid = _yturl.parse_video_id(url)
         if not vid:
-            raise FormError("YouTube の配信の URL を貼ってください")
+            vid, info = self._channel_live(url)
         now = self.clock()
         with self._lock:
             hit = self._live_peek.get(vid)
         if hit is None or now - hit[0] > LIVE_PEEK_CACHE:
             try:
-                info = self.probe(_yturl.watch_url(vid)) or {}
+                info = info or self.probe(_yturl.watch_url(vid)) or {}
             except Exception as e:   # 調べる部品の不具合でも送る欄は使える(普通の URL として)
                 info = {"status": "unknown", "message": "配信中か調べられませんでした(%s)" % e.__class__.__name__}
             st = info.get("status") if isinstance(info.get("status"), str) else "unknown"
@@ -281,6 +284,27 @@ class Api:
             with self._lock:
                 self._live_peek[vid] = hit
         return dict(hit[1])
+
+    def _channel_live(self, url):
+        """チャンネルの /live の URL(/@名前/live など)-> (今の配信の動画の id, 調べた結果)。覚えた id は送るときにも使う。
+        ライブをしていない・URL の形が違えば FormError"""
+        u = str(url or "").strip()
+        if not CHANNEL_LIVE_RE.match(u):
+            raise FormError("YouTube の配信の URL を貼ってください")
+        with self._lock:
+            hit = self._live_ids.get(u)
+        if hit and self.clock() - hit[0] <= LIVE_PEEK_CACHE:
+            return hit[1], None
+        try:
+            info = self.probe(u) or {}
+        except Exception:   # noqa: BLE001
+            info = {}
+        vid = info.get("id") if isinstance(info.get("id"), str) else ""
+        if not _yturl.parse_video_id(vid):
+            raise FormError("そのチャンネルの今のライブが見つかりませんでした。配信のページの URL を貼ってください")
+        with self._lock:
+            self._live_ids[u] = (self.clock(), vid)
+        return vid, info
 
     def _keep_file(self, entry):
         fid = uuid.uuid4().hex[:12]
@@ -372,9 +396,7 @@ class Api:
     def check_form(self, body):
         """配信 1 本の送る欄 -> 整えた欄(上の説明)。違えば FormError。処理する PC・重み・カットは ⚙ の値"""
         prefs = self.form()
-        vid = _yturl.parse_video_id(body.get("url"))
-        if not vid:
-            raise FormError("YouTube の配信の URL を貼ってください")
+        vid = _yturl.parse_video_id(body.get("url")) or self._channel_live(body.get("url"))[0]
         kind = body.get("kind") if body.get("kind") in ("url", "live", "wait") else "url"
         ranges = clean_ranges(body.get("ranges")) if kind != "live" else []
         top = None
@@ -707,6 +729,10 @@ class Api:
                 except ValueError as e:
                     raise FormError(str(e))
                 self._cancel_runs(eng, lambda x: x.get("requestId") == rid)   # 作りかけの切り抜きは捨てる
+            try:
+                getattr(eng, "live_cancelled", lambda _rid: None)(rid)   # 診断(行が消える前に)
+            except Exception as e:   # noqa: BLE001  (診断で取り消しを止めない)
+                self.log("取り消したライブの診断を書けませんでした: %s" % e.__class__.__name__)
             self.inbox.cancelled(rid)
             return {"id": rid, "state": "cancelled"}
         if r["state"] in ("sent", "making"):

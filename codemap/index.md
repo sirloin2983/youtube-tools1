@@ -12,9 +12,9 @@
 | ④ manage(データ) | [manage.md](manage.md) | 43 | 10981 |
 | ⑤ eval(検証) | [eval.md](eval.md) | 37 | 15530 |
 | src/app(入口と画面) | [app.md](app.md) | 83 | 32433 |
-| src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 46 | 18417 |
+| src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 46 | 18484 |
 | その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 22 | 11048 |
-| dev・setup(開発の道具) | [dev.md](dev.md) | 59 | 15990 |
+| dev・setup(開発の道具) | [dev.md](dev.md) | 59 | 16054 |
 | friend-apps・chrome-ext(C# のアプリ・拡張) | [apps.md](apps.md) | 19 | 8950 |
 
 ## `/api/...` の口(受ける所 → 呼ぶ所)
@@ -74,7 +74,7 @@
 - `/api/flow/runs` — src/app/server.py:626 ← app-list.js・portal.js・ui-kit.js
 - `/api/flow/status` — src/app/server.py:754・src/app/server.py:751・src/friendapp/server.py:323 ← cases.js
 - `/api/flow/submit` — src/app/server.py:629・src/friendapp/server.py:474 ← review.js・ui-kit.js
-- `/api/friend/cancel` — src/friendapp/server.py:412
+- `/api/friend/cancel` — src/friendapp/server.py:412 ← friend_preflight.py
 - `/api/friend/decide` — src/friendapp/server.py:395・src/friendapp/server.py:116 ← friend_preflight.py
 - `/api/friend/files` — src/friendapp/server.py:403 ← MainForm.cs
 - `/api/friend/inbox` — src/friendapp/server.py:279 ← friend_preflight.py
@@ -98,7 +98,7 @@
 - `/api/friend/settings/key` — src/friendapp/server.py:447
 - `/api/friend/setup` — src/friendapp/server.py:288・src/friendapp/server.py:437 ← friend_preflight.py・server.py
 - `/api/friend/state` — src/friendapp/server.py:290 ← friend_preflight.py・Launcher.cs
-- `/api/friend/streams` — src/friendapp/server.py:321 ← send-list.js
+- `/api/friend/streams` — src/friendapp/server.py:321 ← friend_preflight.py・send-list.js
 - `/api/friend/streams/refresh` — src/friendapp/server.py:439 ← send-list.js
 - `/api/friend/tidy` — src/friendapp/server.py:284・src/friendapp/server.py:429 ← server.py
 - `/api/friend/undo` — src/friendapp/server.py:397・src/friendapp/server.py:116 ← friend_preflight.py

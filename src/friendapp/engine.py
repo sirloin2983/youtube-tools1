@@ -312,6 +312,11 @@ class Engine:
             self.log("ライブの診断の材料を読めませんでした: %s" % e.__class__.__name__)
             return {"factsError": e.__class__.__name__}
 
+    def live_cancelled(self, rid):
+        """録画中のライブを友人が [取り消す] で止めた(行は消えることがある = 消す前に): 閉じたときと同じ診断(パック 0 本で取り消したときの原因を残す)"""
+        lv = (self.inbox.row(rid) or {}).get("live") or {}
+        self._live_closed(rid, self._live_facts(lv.get("recorder"), lv.get("recording"), None), {"code": "cancelled", "text": "録画中に [取り消す] で止めました"})
+
     def _live_closed(self, rid, facts, why):
         """ライブの行を閉じた: friendapp.log に 1 行・診断(kind live。成功・失敗とも。秘密は diag が伏せる)"""
         r = self.inbox.row(rid) or {}
