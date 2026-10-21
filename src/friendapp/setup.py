@@ -40,6 +40,7 @@ UNZIPS = (None, "zip", "tar.bz2", "tar.bz2-member", "wcpp")   # wcpp = CUDA 版�
 SHA_RE = re.compile(r"^[0-9a-f]{64}\Z")
 CHUNK = 256 * 1024
 HASH_CHUNK = 1 << 20
+PARALLEL = 3                # 同時に取る数(帯域を食いすぎない上限。1 = 1 つずつ)
 RETRIES = 6
 RETRY_WAIT = 2.0
 TIMEOUT = 60
@@ -380,7 +381,7 @@ def untar_member(archive, member, out_file, max_bytes):
 
 # ---------------------------------------------------------------- 1 回の取得
 class Fetcher:
-    """items を 1 つずつ取る。downloader = HttpDownloader(テストは偽物)・wcpp = CUDA 版の展開(テストは偽物)"""
+    """items を PARALLEL 本まで同時に取る(大きい物から始める)。downloader = HttpDownloader(テストは偽物)・wcpp = CUDA 版の展開(テストは偽物)"""
 
     def __init__(self, data_root, home, downloader=None, log=None, progress=None, cancelled=None, wcpp=install_wcpp):
         self.data_root, self.home = data_root, home
@@ -391,30 +392,50 @@ class Fetcher:
         self.wcpp = wcpp
 
     def run(self, items):
-        """-> {"done": [名前], "failed": [{"name", "message"}], "cancelled": 真偽}"""
-        res = {"done": [], "failed": [], "cancelled": False}
+        """-> {"done": [名前], "failed": [{"name", "message"}], "cancelled": 真偽}(並びは表の順)。
+        進み具合は動いた行の 1 つずつ(index = 表の何番目・done = 全部の合計)。最後の phase は 済み か 取れませんでした"""
         total = sum(expect(i) for i in items)
-        before = 0
-        for idx, it in enumerate(items):
-            pr = {"index": idx + 1, "count": len(items), "name": it["name"], "label": label(it["name"]), "phase": "",
-                  "itemDone": 0, "itemTotal": expect(it), "done": before, "total": total}
+        got, ok, bad, errs = [0] * len(items), {}, {}, []
+        todo = sorted(range(len(items)), key=lambda k: -expect(items[k]))
+        lock, stop = threading.Lock(), threading.Event()
 
-            def report(done, phase, pr=pr, it=it, before=before):
-                pr.update(itemDone=done, phase=phase, done=before + min(done, expect(it)))
-                self.progress(dict(pr))
-            try:
-                self.fetch_one(it, report)
-                res["done"].append(it["name"])
-            except Cancelled:
-                res["cancelled"] = True
-                return res
-            except (FetchError, OSError, zipfile.BadZipFile, tarfile.TarError, EOFError) as e:
-                msg = str(e)[:200] or e.__class__.__name__
-                self.log("取れませんでした %s: %s" % (it["name"], msg))
-                res["failed"].append({"name": it["name"], "label": label(it["name"]), "message": msg})
-            report(expect(it), "済み")
-            before += expect(it)
-        return res
+        def report(k, done, phase):
+            it = items[k]
+            with lock:
+                got[k] = min(done, expect(it))
+                self.progress({"index": k + 1, "count": len(items), "name": it["name"], "label": label(it["name"]), "phase": phase,
+                               "itemDone": done, "itemTotal": expect(it), "done": sum(got), "total": total})
+
+        def work():
+            while not stop.is_set():
+                with lock:
+                    if not todo:
+                        return
+                    k = todo.pop(0)
+                it = items[k]
+                try:
+                    self.fetch_one(it, lambda n, ph, k=k: report(k, n, ph))
+                    ok[k] = it["name"]
+                    report(k, expect(it), "済み")
+                except Cancelled:
+                    stop.set()
+                except (FetchError, OSError, zipfile.BadZipFile, tarfile.TarError, EOFError) as e:
+                    msg = str(e)[:200] or e.__class__.__name__
+                    self.log("取れませんでした %s: %s" % (it["name"], msg))
+                    bad[k] = {"name": it["name"], "label": label(it["name"]), "message": msg}
+                    report(k, expect(it), "取れませんでした")
+                except BaseException as e:   # 思わない失敗は 1 本のときと同じく呼んだ側へ
+                    errs.append(e)
+                    stop.set()
+
+        ts = [threading.Thread(target=work, name="friend-fetch-%d" % n, daemon=True) for n in range(max(1, min(PARALLEL, len(items))))]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join()
+        if errs:
+            raise errs[0]
+        return {"done": [ok[k] for k in sorted(ok)], "failed": [bad[k] for k in sorted(bad)], "cancelled": stop.is_set()}
 
     def fetch_one(self, it, report):
         fold = folder(it, self.data_root, self.home)
@@ -729,14 +750,10 @@ class Setup:
         return res
 
     def _flow_progress(self, p):
-        p = dict(p)
-        mine = [r for r in self.rows if r["name"] in self.fetching]
-        for k, r in enumerate(mine):
-            if k + 1 < p["index"]:
-                r["state"], r["text"] = "done", "取れました"
-            elif k + 1 == p["index"]:
-                if r["state"] != "failed":
-                    r["state"], r["text"] = "doing", p.get("phase") or "取っています"
+        ph = p.get("phase") or "取っています"
+        for r in self.rows:
+            if r["name"] == p["name"] and r["name"] in self.fetching and r["state"] != "failed":
+                r["state"], r["text"] = {"済み": ("done", "取れました"), "取れませんでした": ("failed", ph)}.get(ph, ("doing", ph))
         total, done = p["total"], p["done"]
         if self.prog["first"] is None:
             self.prog["first"] = done

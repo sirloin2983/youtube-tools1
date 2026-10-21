@@ -29,8 +29,8 @@
   - 受ける口: `/api/ping` :276・`/api/friend/inbox` :278・`/api/friend/tidy` :283・`/api/friend/update` :285・`/api/friend/setup` :287・`/api/friend/state` :289・`/api/friend/peek` :293・`/api/friend/peek-live` :298・`/api/friend/player` :303・`/api/friend/receive` :305・`/api/friend/media` :308・`/api/friend/settings` :318・`/api/friend/streams` :320・`/api/flow/status` :322・`/api/friend/upload` :337・`/api/friend/send` :383・`/api/friend/pick-file` :386・`/api/friend/decide` :394・`/api/friend/undo` :396・`/api/friend/palette` :400・`/api/friend/files` :402・`/api/friend/report` :404・`/api/friend/prefs` :406・`/api/friend/retry` :409・`/api/friend/cancel` :411・`/api/friend/live-settings` :413・`/api/friend/local` :415・`/api/friend/open` :417・`/api/friend/update/apply` :430・`/api/friend/streams/refresh` :438・`/api/friend/settings/key` :446・`/api/friend/pick-folder` :451・`/api/friend/notice-seen` :463・`/api/shutdown` :469・`/api/flow/submit` :473・`/api/flow/cancel` :482・`/api/ytt/streamer-colors` :486・`/api/ytt/client-log` :488
 - **settings.py** (387 行) — 友人の玄関の ⚙(notes:docs/design/friend-history.md の 7 章)。
   - 名前: `class SettingsError` :49・`clean_key` :54・`looks_like_key` :58・`judge` :63・`probe_key` :91・`check_key` :105・`keys_path` :113・`load_key` :117・`save_key` :122・`check_folder` :131・`class Settings` :156
-- **setup.py** (913 行) — 友人の玄関の初回の取得(notes:docs/design/friend-history.md の 7 章)。
-  - 名前: `class FetchError` :56・`class Cancelled` :60・`safe_relative` :69・`problem` :85・`parse_item` :112・`load` :122・`archive_name` :146・`expect` :154・`folder` :159・`marker` :163・`label` :167・`is_done` :176・ほか 11
+- **setup.py** (930 行) — 友人の玄関の初回の取得(notes:docs/design/friend-history.md の 7 章)。
+  - 名前: `class FetchError` :57・`class Cancelled` :61・`safe_relative` :70・`problem` :86・`parse_item` :113・`load` :123・`archive_name` :147・`expect` :155・`folder` :160・`marker` :164・`label` :168・`is_done` :177・ほか 11
 - **streams.py** (559 行) — 友人のアプリの「送る」画面の左に並べる、ホロライブ JP(と DEV_IS)の配信の一覧(F3-2)。API キー無し。
   - 名前: `parse_rss` :159・`classify` :191・`class Streams` :261
 - **sync.py** (892 行) — 友人の玄関の Dropbox の同期(notes:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-14〜2-17・5-1)。
