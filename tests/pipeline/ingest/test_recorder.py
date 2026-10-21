@@ -518,6 +518,35 @@ class TestStreamlinkPipe(unittest.TestCase):
             f.write("[cli][error] No playable streams found on this URL\n")
         self.assertFalse(r._blocked("session_001"))   # 配信の前などは bot ではない
 
+    def test_bot_block_even_with_resolved_hls_is_marked_and_gives_up(self):
+        """yt-dlp で再生リストは取れたのに、それでも録れない(10-21 19:00 の本物のライブ = 10 分「録画中」のまま何も出なかった):
+        記録に blockedAt と BLOCKED を出し、1 つも取れないまま BLOCKED_GIVE_UP たったら「エラー」で止める(偽の 429)"""
+        r = R.Recording(self.rec, "20261021-190000-y", os.path.join(self.folder, "y"), {"url": "https://www.youtube.com/watch?v=y", "quality": "1080p"})
+        os.makedirs(r.dir, exist_ok=True)
+        resolved = []
+
+        def session(name):
+            os.makedirs(os.path.join(r.dir, name), exist_ok=True)
+            with open(os.path.join(r.dir, name, "source.log"), "w", encoding="utf-8") as f:
+                f.write("error: Unable to open URL (429 Client Error: Too Many Requests)\n")
+            return 0, 1, "切れました"
+
+        def resolve():
+            resolved.append(1)
+            r._hls = "https://manifest.googlevideo.com/x/index.m3u8"
+            return True
+        with mock.patch.object(r, "_run_session", session), mock.patch.object(r, "_resolve_hls", resolve), \
+                mock.patch.object(R, "BLOCKED_GIVE_UP", 1.5):
+            t = threading.Thread(target=r._run, daemon=True)
+            t.start()
+            self.assertTrue(wait_for(lambda: r.meta.get("blockedAt"), 10), r.meta)
+            self.assertTrue(r.summary()["blockedAt"])
+            t.join(20)
+        self.assertFalse(t.is_alive())
+        self.assertEqual((r.meta["state"], r.meta["message"]), ("error", R.BLOCKED))
+        self.assertGreaterEqual(len(resolved), 2)   # 取り直しはする
+        self.assertIsNone(r.summary()["blockedAt"])   # 止めたあとは出さない
+
     def test_default_quality_is_1080p(self):
         """画質の既定は 1080p(4K の配信で容量が膨らむのを避ける)。720p・best も選べる"""
         import inspect

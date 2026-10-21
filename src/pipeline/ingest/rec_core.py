@@ -396,7 +396,8 @@ class Recording:
                "message": m.get("message") or "", "created": m.get("created"), "endedAt": m.get("endedAt"),
                "segments": len(segs), "seconds": round(sum(x["dur"] for x in segs), 3),
                "firstPdt": next((x["pdt"] for x in segs if x.get("pdt")), None), "lastPdt": epoch_iso(e + segs[-1]["dur"]) if e else None,
-               "active": m.get("state") in ACTIVE, "sessions": sum(1 for _, s in sess if s)}
+               "active": m.get("state") in ACTIVE, "sessions": sum(1 for _, s in sess if s),
+               "blockedAt": m.get("blockedAt") if m.get("state") in ACTIVE else None}   # bot と判定され続けている始まり(ミリ秒)
         if detail:
             info = {x.get("name"): x for x in (m.get("sessions") or []) if isinstance(x, dict)}
             out["sessionList"] = [{"name": n, "segments": len(s), "seconds": round(sum(x["dur"] for x in s), 3),
@@ -510,17 +511,18 @@ class Recording:
                 n, code, why = self._run_session(name)
                 hls_before = self._hls
                 if n == 0 and why != ARCHIVE and not self._stopping() and self._blocked(name):   # bot と判定された: yt-dlp(cookies)で再生リストを取って取り直す
+                    blocked_at = blocked_at or time.time()
+                    self._mark_blocked(blocked_at)   # 記録の blockedAt(友人の行の知らせ・診断が読む)
                     if self._resolve_hls() and not hls_before:   # 初めて = すぐ(取り直した再生リストでも取れなかったときは下の間を空ける)
                         self._drop_session(name)
                         continue
-                    if not hls_before and not self._hls:
-                        why = BLOCKED
-                        blocked_at = blocked_at or time.time()
-                        if not got_any and time.time() - blocked_at > BLOCKED_GIVE_UP:   # 配信の前の 6 時間を待たない(行を閉じて理由を診断へ)
-                            self._drop_session(name)
-                            return self._finish("error", BLOCKED, "bot と判定されたまま %d 分たったので止めました" % (BLOCKED_GIVE_UP // 60))
+                    why = BLOCKED   # yt-dlp でも取れない・取った再生リストでも録れない(10-21: 後者で何も出さずに待ち続けていた)
+                    if not got_any and time.time() - blocked_at > BLOCKED_GIVE_UP:   # 配信の前の 6 時間を待たない(行を閉じて理由を診断へ)
+                        self._drop_session(name)
+                        return self._finish("error", BLOCKED, "bot と判定されたまま %d 分たったので止めました" % (BLOCKED_GIVE_UP // 60))
                 else:
                     blocked_at = None
+                    self._mark_blocked(None)
                 if why == ARCHIVE:   # 終わった配信(アーカイブ)を頭から取りに行った: そのセッションは消して(時刻が受信時刻と合わない)「終了」。本番画質は P4 のアーカイブの取得で
                     self._drop_session(name)
                     return self._finish("ended", ENDED + "(アーカイブを取り始めたので止めました)", "アーカイブを取り始めたので止めました")
@@ -569,6 +571,12 @@ class Recording:
                 return b"#EXT-X-ENDLIST" in r.read(PLAYLIST_MAX)
         except (OSError, ValueError):
             return False
+
+    def _mark_blocked(self, at):
+        """bot と判定され続けている始まり(エポック秒)か None を記録へ(変わったときだけ書く)"""
+        v = int(at * 1000) if at else None
+        if self.meta.get("blockedAt") != v:
+            self.set(blockedAt=v)
 
     def _blocked(self, name):
         """取れなかったセッションの取得の記録に、YouTube の bot 判定の印があるか(direct は見ない)。yt-dlp で取った再生リストでも

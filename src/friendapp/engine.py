@@ -25,6 +25,8 @@ from ytt import docloc as _docloc, fsio as _fsio, workdata as _workdata
 from . import inbox as _inbox, progress as _progress
 
 PREVIEW_DIR = "previews"
+BLOCKED_NOTICE = 180   # 録画元が YouTube に断られ続けてこの秒たったら友人の行に出す(録画元の記録の blockedAt。pipeline/ingest/rec_core)
+BLOCKED_WARN = "YouTube に断られて録画できていません(⚙ で YouTube にログインするか、しばらく待ってください)"
 
 
 ENGINE_OF_DEVICE = {"vulkan": "A", "cuda": "C"}   # 文字起こしのエンジン A = whisper.cpp の Vulkan・C = CUDA(⚙ と同じ名前)
@@ -309,10 +311,21 @@ class Engine:
             closing = r["state"] == "recording" and not recording and not busy and not waiting and not lv.get("finished")
             facts = self._live_facts(rc, rec, raw) if closing else None
             why = live_cause(facts, lv.get("lastError")) if closing and not r["packs"] else None
-            if self.inbox.live_update(r["id"], recording, busy, waiting, why=why):
+            warn = self._live_blocked(r["id"], raw) if recording else ""
+            if self.inbox.live_update(r["id"], recording, busy, waiting, why=why, warn=warn):
                 self._want_previews(r["id"])
             if closing:
                 self._live_closed(r["id"], facts, why)
+
+    def _live_blocked(self, rid, raw):
+        """録画元が YouTube に断られ続けて BLOCKED_NOTICE 秒たった -> 行に出す知らせ(無ければ "")。初めて出すとき診断(kind live・stage blocked)を 1 回"""
+        at = (raw or {}).get("blockedAt")
+        if not at or time.time() * 1000 - at < BLOCKED_NOTICE * 1000:
+            return ""
+        if self.diag is not None:
+            self.diag.once("blocked-" + rid, 6 * 3600, "live", rid=rid, summary=BLOCKED_WARN, stage="blocked",
+                           live={"blockedAt": at, "state": raw.get("state"), "message": raw.get("message"), "segments": raw.get("segments")})
+        return BLOCKED_WARN
 
     def _live_facts(self, rc, rec, raw):
         fn = getattr(self.live, "live_facts", None)
