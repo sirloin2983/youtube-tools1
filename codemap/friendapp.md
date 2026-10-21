@@ -35,8 +35,8 @@
   - 名前: `parse_rss` :159・`classify` :191・`class Streams` :261
 - **sync.py** (920 行) — 友人の玄関の Dropbox の同期(notes:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-14〜2-17・5-1)。
   - 名前: `class SyncError` :88・`name_ok` :93・`out_kind` :99・`clean_text` :111・`clean_origin` :116・`parse_meta` :127・`parse_meta_info` :133・`failure_text` :152・`server_time` :159・`safe_rel` :167・`safe_join` :174・`local_name` :184・ほか 10
-- **tidy.py** (601 行) — アプリのフォルダの整理(形は Fable と相談 = 共有のメモ f3a-tidy-design.md。決定 3-86)。新しい版に入れ替えて起動できたあとと ⚙ から。
-  - 名前: `keep_floor` :81・`class Tidy` :166
+- **tidy.py** (596 行) — アプリのフォルダの整理(形は Fable と相談 = 共有のメモ f3a-tidy-design.md。決定 3-86)。新しい版に入れ替えて起動できたあとと ⚙ から。
+  - 名前: `keep_floor` :76・`class Tidy` :161
 - **toolcheck.py** (111 行) — 友人の PC の初回の準備の最後の「道具を動かして確かめる」(F3-5。notes:plan/f1-friend-requirements.md の C-5-2・C-0)。
   - 名前: `run_cmd` :26・`check_tool` :37・`check_tools` :53・`make_wav` :58・`whisper_run` :68・`check_whisper` :76・`signature` :97・`failed` :109
 

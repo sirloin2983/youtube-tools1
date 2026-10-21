@@ -32,7 +32,7 @@
   - コード: `src/friendapp/ui/sent.js`・`src/friendapp/progress.py`・`/api/friend/inbox` src/friendapp/server.py:279
   - 画面: src/app/ui/home/portal.html:150・src/friendapp/ui/friend.html:140・src/friendapp/ui/guide.html:37・src/friendapp/ui/receive.js:65
 - **片付ける** — 友人のアプリのフォルダの整理(新しい版の後と ⚙)。ごみ箱へ移す
-  - コード: `src/friendapp/tidy.py`・`Tidy` src/friendapp/tidy.py:166・`/api/friend/tidy` src/friendapp/server.py:284
+  - コード: `src/friendapp/tidy.py`・`Tidy` src/friendapp/tidy.py:161・`/api/friend/tidy` src/friendapp/server.py:284
   - 画面: src/friendapp/ui/settings.js:84・src/friendapp/ui/update.js:78
 - **片付け** — 入口の作業データの片付けの候補。ごみ箱フォルダへ移す
   - コード: `src/manage/keep/cleanup.py`・`Cleanup` src/manage/keep/cleanup.py:99・`/api/cleanup` src/app/server.py:634

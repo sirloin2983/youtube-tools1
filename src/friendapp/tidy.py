@@ -26,6 +26,8 @@ import time
 from flow import placement as _placement, retention as _retention
 from ytt import fsio as _fsio, trashbin as _trashbin
 
+from .sync import version_tuple   # 版の比べ方は更新と同じ 1 か所
+
 DAY = 86400
 KEEP_VERSIONS = 3           # 残す版のフォルダの数(exe の Versions.Keep と同じ値)
 FRESH = DAY                 # 最後に書かれてからこの秒数より新しい物は候補にしない
@@ -57,13 +59,6 @@ KINDS = {   # 種類: (画面の言葉, 扱い, 消し方)
 }
 
 
-def _vt(v):
-    try:
-        return tuple(int(x) for x in v.split("."))
-    except (AttributeError, ValueError):
-        return (0,)
-
-
 def _installed(home):
     """python.exe と server.py がそろった app-<版> の版(新しい順)。exe の Versions.Installed と同じ"""
     out = []
@@ -73,9 +68,9 @@ def _installed(home):
         return out
     for name in names:
         m = APP_RE.match(name)
-        if m and _vt(m.group(1)) > (0,) and os.path.isfile(os.path.join(home, name, "python", "python.exe"))                 and os.path.isfile(os.path.join(home, name, "src", "friendapp", "server.py")):
+        if m and version_tuple(m.group(1)) > (0,) and os.path.isfile(os.path.join(home, name, "python", "python.exe"))                 and os.path.isfile(os.path.join(home, name, "src", "friendapp", "server.py")):
             out.append(m.group(1))
-    return sorted(out, key=_vt, reverse=True)
+    return sorted(out, key=version_tuple, reverse=True)
 
 
 def keep_floor(home, cur, bad=()):
@@ -85,7 +80,7 @@ def keep_floor(home, cur, bad=()):
         return None
     floor, n = None, 0
     for v in _installed(home):
-        if _vt(v) > _vt(cur) or v in bad:
+        if version_tuple(v) > version_tuple(cur) or v in bad:
             continue
         floor, n = v, n + 1
         if n >= KEEP_VERSIONS:
@@ -287,7 +282,7 @@ class Tidy:
             m = APP_RE.match(name)
             if m:
                 v = m.group(1)
-                if rec is not None and floor and v not in keep and _vt(v) < _vt(floor) and not _has_link_inside(path):
+                if rec is not None and floor and v not in keep and version_tuple(v) < version_tuple(floor) and not _has_link_inside(path):
                     out.append(self._item("old-version", path))
                 continue
             if name in KNOWN_HOME:
@@ -296,10 +291,10 @@ class Tidy:
         # 前の形(直下の src・python): exe の Prune の条件(current・previous の版のフォルダがそろい、前の形の版 <= previous)なのに残っている物
         lv = self._legacy_version(home)
         if rec is not None and cur and prev and os.path.isdir(os.path.join(home, "app-" + cur)) and os.path.isdir(os.path.join(home, "app-" + prev)) \
-                and (lv is None or _vt(lv) <= _vt(prev)):
+                and (lv is None or version_tuple(lv) <= version_tuple(prev)):
             for d in ("src", "python"):
                 p = os.path.join(home, d)
-                if os.path.isdir(p) and not _has_link_inside(p) and _vt(self.version) > (0,) and self.version != lv:
+                if os.path.isdir(p) and not _has_link_inside(p) and version_tuple(self.version) > (0,) and self.version != lv:
                     out.append(self._item("legacy", p))
         return out
 

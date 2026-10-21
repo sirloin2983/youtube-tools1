@@ -70,6 +70,7 @@ PREVIEW_WAIT_S = 90   # 届いてから確認用の動画ができるまでの�
 WORK_MAX = 60   # 一時フォルダのパスの長さの上限(下の run)
 ROOT_FILES = (bfz.LAUNCHER_EXE,) + bfz.LAUNCHER_DLLS + ("fetch.json", "manifest.json", "members.json")
 TOOL_EXES = ("ffmpeg/ffmpeg.exe", "ffmpeg/ffprobe.exe", "yt-dlp/yt-dlp.exe", "deno/deno.exe")   # 浅く置いた道具(friendapp/places.lay_tools_shallow)
+PROFILE = "ゆう じ"   # 一時のユーザーのフォルダ(友人の PC の日本語・空白を含むユーザー名と同じ形)
 STREAMER = "星街すいせい"   # 名簿 members.json にいる名前(ファイル名の頭の【】から配信者を推す)
 BROKEN_HEAD = b"raise SystemExit(7)\n"   # --break-update: 起動できない版(Python がすぐ終わる)
 DBX_DIRS = ("出力", "送り返し", "更新", "学習", "診断")
@@ -206,7 +207,7 @@ def lay_shim(app, work, mirror, net=False):
 def friend_env(work, cdp_port, shim_conf, fake=True):
     """友人の PC と同じくらい何も無い環境変数(開発の PATH・YTT_*・Python の変数を渡さない)"""
     win = os.environ.get("SystemRoot", r"C:\Windows")
-    prof = os.path.join(work, "home")
+    prof = os.path.join(work, PROFILE)
     local, roaming = os.path.join(prof, "AppData", "Local"), os.path.join(prof, "AppData", "Roaming")
     temp = os.path.join(local, "Temp")
     for d in (local, roaming, temp, os.path.join(prof, "Videos"), os.path.join(prof, "Desktop")):
@@ -220,7 +221,7 @@ def friend_env(work, cdp_port, shim_conf, fake=True):
         "SystemRoot": win, "windir": win, "ComSpec": os.path.join(win, "System32", "cmd.exe"),
         "PATHEXT": ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC",
         "PATH": ";".join([os.path.join(win, "System32"), win, os.path.join(win, "System32", "Wbem"), os.path.join(win, "System32", "WindowsPowerShell", "v1.0")]),
-        "USERNAME": "friend", "USERPROFILE": prof, "HOMEDRIVE": drive, "HOMEPATH": rest, "APPDATA": roaming, "LOCALAPPDATA": local, "TEMP": temp, "TMP": temp,
+        "USERNAME": PROFILE, "USERPROFILE": prof, "HOMEDRIVE": drive, "HOMEPATH": rest, "APPDATA": roaming, "LOCALAPPDATA": local, "TEMP": temp, "TMP": temp,
         "YTT_FRIEND_SHOTS": os.path.join(work, "shots"),            # 画面の外・前に出さない・消音(MainForm.Quiet)
         "YTT_FRIEND_SHOT_STEPS": os.path.join(work, "steps.json"),   # 手順 = 長く待つだけ(写真は撮らない。つないで調べる間、窓を開けておく)
         "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": "--remote-debugging-port=%d" % cdp_port,
@@ -232,7 +233,7 @@ def friend_env(work, cdp_port, shim_conf, fake=True):
 
 
 def fake_media(work):
-    return os.path.join(work, "home", "Videos", "疑似の配信.mp4")
+    return os.path.join(work, PROFILE, "Videos", "疑似の配信.mp4")
 
 
 def make_work(work, zip_path, args, rep):  # lint: long 置き場所を作る一続き(展開 → 壊す → 鍵 → モデル → 取得元 → 差し替え)
@@ -763,7 +764,7 @@ def check_diag(work, rep):
     kinds = sorted({(json.loads(t).get("kind") or "") for t in docs})
     rep.check("診断の記録 .diag.json(依頼の分 run)が /診断/ に上がる", "run" in kinds, kinds)
     user = os.path.basename(os.path.expanduser("~")).lower()
-    leak = [n for n, t in zip(got, docs) if len(user) >= 3 and user in t.lower()]
+    leak = [n for n, t in zip(got, docs) if (len(user) >= 3 and user in t.lower()) or PROFILE in t]   # 友人のユーザー名(一時のユーザーのフォルダ)も
     rep.check("診断の記録にこの PC のユーザー名が入っていない", not leak, ", ".join(leak))
 
 
@@ -1023,7 +1024,7 @@ def run(args):  # lint: long 検査の一本の流れ(上の説明の 1〜11 の
         check_login(w, app, rep)
         block_ytdlp_net(app)
         send_five(w, app, work, rep, args.timeout_min * 60 * 0.4)
-        media_dir = os.path.join(work, "home", "Videos")
+        media_dir = os.path.join(work, PROFILE, "Videos")
         media = os.path.join(media_dir, "【%s】配る前の検査.mp4" % STREAMER)
         make_video(app, media)
         row = send_request(w, media, rep, args.timeout_min * 60 * 0.5)
@@ -1038,7 +1039,7 @@ def run(args):  # lint: long 検査の一本の流れ(上の説明の 1〜11 の
         auto_rid = deliver_from_user_pc(work, pack_copy, it.get("title") or "検査", rep)
         st, j = w.api("POST", "/api/friend/decide", {"items": [{"id": it["id"], "name": it["name"]}], "verdict": "keep"})
         rep.check("[受け取る] が通る", st == 200, j if st != 200 else "")
-        save = os.path.join(work, "home", "Videos", "受け取ったパック")
+        save = os.path.join(work, PROFILE, "Videos", "受け取ったパック")
         rep.check("受け取った物が保存先(%USERPROFILE%\\Videos\\受け取ったパック)に入る",
                   wait_for(lambda: os.path.isdir(save) and any(os.scandir(save)), 20, every=1))
         auto = wait_for(lambda: [x for x in receive_items(w) if x.get("auto")] or None, 240, every=4)
