@@ -6,7 +6,7 @@ zip の中(アプリのフォルダ <任意>/FriendApp/ にそのまま展開す
                      無い・launcher の C# より古ければ friend-apps/launcher/build.bat を流してから入れる
     members.json     配信者の名簿(friend-apps/holo-colors/members.json の写し。友人のアプリが places.py で直下から読んで YTT_HOLO_MEMBERS に渡す)
     FriendApp-はじめに.txt  入れ方とアプリのフォルダの説明(friend-apps/launcher/INSTALL.txt)
-    python/        公式の埋め込み用 Python 3.10 + python310._pth(Lib/site-packages と ../src を足す)+ wheel を展開した部品(numpy・sherpa-onnx・streamlink と依存)
+    python/        公式の埋め込み用 Python 3.12 + python312._pth(Lib/site-packages と ../src を足す)+ wheel を展開した部品(numpy・sherpa-onnx・streamlink と依存)
     src/           git が管理している src のファイルのうち friendapp・ytt・flow・pipeline・ui-kit の層(__pycache__ は外す。テストは src の外の tests/ なので入らない。作業データ・追跡外のファイルは入らない)
     tools/whisper.cpp-<版>-vulkan/   ユーザーの PC で作った whisper.cpp(build.json の files と SHA-256 が合う物だけ)
     fetch.json     初回に取る物の表(モデル・llama.cpp・ffmpeg・yt-dlp・Deno)。モデルと llama.cpp は tx_engines・diarize の表を import して読むだけ
@@ -80,9 +80,10 @@ REQUIRED_SRC = ("src/friendapp/server.py", "src/friendapp/streams.py", "src/frie
                 "src/friendapp/ui/friend.html", "src/friendapp/ui/friend.js", "src/friendapp/ui/host.js", "src/friendapp/ui/setup.html",
                 "src/friendapp/ui/setup.js", "src/friendapp/ui/guide.html", "src/pipeline/transcribe/hololive-roster.json")   # 名簿 = 最初に作業データへ写す同梱の物
 
-# 公式の埋め込み用 Python(3.10 の Windows 向けの最後の版)。SHA-256 は表に無い = 取ったときの値をキャッシュに残して以後照らす
-PY_EMBED = {"version": "3.10.11", "file": "python-3.10.11-embed-amd64.zip",
-            "url": "https://www.python.org/ftp/python/3.10.11/python-3.10.11-embed-amd64.zip"}
+# 公式の埋め込み用 Python(3.12 の Windows 向けの最後の版 = この PC と同じ 3.12)。SHA-256 は表に無い = 取ったときの値をキャッシュに残して以後照らす
+PY_EMBED = {"version": "3.12.10", "file": "python-3.12.10-embed-amd64.zip",
+            "url": "https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip"}
+PY_TAG = ".".join(PY_EMBED["version"].split(".")[:2])   # wheel を取る Python の版(3.12)
 # アプリのフォルダの tools/ に置く道具(初回に取る。版はこの PC と同じ。SHA-256 はキャッシュに取った物から)
 TOOLS = (
     {"name": "ffmpeg", "file": "ffmpeg-9.0.2-essentials_build.zip", "unzip": "zip", "dest": "tools/ffmpeg",
@@ -185,8 +186,8 @@ def wheel_pins(setup_dir=None):
 
 
 def pip_download(reqs, folder):
-    """Windows・Python 3.10 向けの wheel を依存ごと folder に取る(pip が PyPI の SHA-256 で確かめる)。テストは差し替える"""
-    cmd = [sys.executable, "-m", "pip", "download", "--only-binary=:all:", "--platform", "win_amd64", "--python-version", "3.10",
+    """Windows・埋め込みの Python(PY_TAG)向けの wheel を依存ごと folder に取る(pip が PyPI の SHA-256 で確かめる)。テストは差し替える"""
+    cmd = [sys.executable, "-m", "pip", "download", "--only-binary=:all:", "--platform", "win_amd64", "--python-version", PY_TAG,
            "--implementation", "cp", "--no-cache-dir", "-d", folder] + list(reqs)
     say("> " + " ".join(cmd))
     r = subprocess.run(cmd)
@@ -203,7 +204,7 @@ def wheels(cache, reqs, fetch, downloader=pip_download):
             rec = json.load(f)
     except (OSError, ValueError):
         rec = {}
-    if rec.get("requirements") != list(reqs):
+    if rec.get("requirements") != list(reqs) or rec.get("python", "3.10") != PY_TAG:   # Python の版が変わったら取り直す
         if not fetch:
             raise BuildError("キャッシュの wheel が %s と合いません(--no-fetch)" % " ".join(reqs))
         if os.path.isdir(folder):
@@ -211,7 +212,7 @@ def wheels(cache, reqs, fetch, downloader=pip_download):
         os.makedirs(folder)
         downloader(reqs, folder)
         files = sorted(n for n in os.listdir(folder) if n.endswith(".whl"))
-        rec = {"requirements": list(reqs), "files": {n: sha256_file(os.path.join(folder, n)) for n in files}}
+        rec = {"requirements": list(reqs), "python": PY_TAG, "files": {n: sha256_file(os.path.join(folder, n)) for n in files}}
         with open(lock, "w", encoding="utf-8") as f:
             json.dump(rec, f, ensure_ascii=False, indent=1)
     out = []

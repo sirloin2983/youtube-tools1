@@ -970,7 +970,13 @@ def check_update(w, app, work, zip_path, old_ver, rep, timeout, break_n=0, auto=
         if not got:
             return False
     grabbed = update_downloads(work)
-    want = ["%s-%s%s.zip" % (bfz.ZIP_PREFIX, v, "-light" if knows_light else "") for v in vers]
+    old_py = sorted(n for n in os.listdir(os.path.join(app, "python")) if re.match(r"python3\d+\._pth$", n))
+    with zipfile.ZipFile(zip_path) as z:
+        new_py = sorted(n.split("/")[-1] for n in z.namelist() if re.match(r"python/python3\d+\._pth$", n))
+    py_changed = old_py != new_py   # Python が変わる回は、軽い zip を取ったあと全部入りを取り直す(今の python を写せない)
+    rep.info("更新の前と後の Python", "%s -> %s" % (old_py, new_py))
+    want = [n for v in vers for n in (["%s-%s-light.zip" % (bfz.ZIP_PREFIX, v)] if knows_light else []) +
+            (["%s-%s.zip" % (bfz.ZIP_PREFIX, v)] if py_changed or not knows_light else [])]
     rep.check("取ったのは %s だけ" % ", ".join(want), grabbed == want, grabbed)
     rep.check("app-%s/python/python.exe がある(軽い更新は今の python から写す)" % new_ver, os.path.isfile(os.path.join(app, "app-" + new_ver, "python", "python.exe")))
     old_pid = w.proc.pid

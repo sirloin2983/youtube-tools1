@@ -66,7 +66,7 @@ def make_cache(root):
         with open(os.path.join(wdir, n), "rb") as f:
             files[n] = _sha(f.read())
     with open(os.path.join(wdir, "wheels.lock.json"), "w", encoding="utf-8") as f:
-        json.dump({"requirements": reqs, "files": files}, f)
+        json.dump({"requirements": reqs, "python": B.PY_TAG, "files": files}, f)
     for t in B.TOOLS:
         p = os.path.join(cache, "tools", t["file"])
         os.makedirs(os.path.dirname(p), exist_ok=True)

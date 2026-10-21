@@ -6,8 +6,8 @@
 
 - **_common.py** (48 行) — dev/ の道具が共通で使う小物(標準ライブラリだけ)。guard_hook.py・push_helper.py は単独で動く条件なので、ここを読まない。
   - 名前: `console_utf8` :9・`find_node` :18・`read_utf8` :31・`write_utf8` :37・`tracked_files` :43
-- **build_friend_zip.py** (719 行) — 友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(設計 notes:docs/design/f1-build.md の 2・3 節)。
-  - 名前: `class BuildError` :101・`say` :105・`sha256_file` :109・`download` :122・`cached` :134・`wheel_pins` :169・`pip_download` :187・`wheels` :197・`unzip_into` :235・`lay_python` :260・`src_files` :281・`lay_src` :296・ほか 22
+- **build_friend_zip.py** (720 行) — 友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(設計 notes:docs/design/f1-build.md の 2・3 節)。
+  - 名前: `class BuildError` :102・`say` :106・`sha256_file` :110・`download` :123・`cached` :135・`wheel_pins` :170・`pip_download` :188・`wheels` :198・`unzip_into` :236・`lay_python` :261・`src_files` :282・`lay_src` :297・ほか 22
 - **chat_reuse_check.py** (96 行) — ライブのチャットの使い回し(src/flow/chatreuse.py。決定 3-117)の精度の確かめ: 同じ配信で、使い回したチャットとリプレイのチャットの
   - 名前: `zero_of` :25・`analyze` :44・`match` :53・`main` :67
 - **code_map.py** (466 行) — コードの地図と言葉の索引を作る道具(AI のセッションがコードの場所を早く見つけるため)。
@@ -27,7 +27,7 @@
   - 名前: `demo_fetch` :33・`demo_probe` :38・`class StubQueue` :43・`class StubEngine` :68・`demo_thumb` :95・`class DemoStreams` :104・`seed` :143・`write_demo_fetch` :214・`class DemoDownloader` :228・`demo_file` :241・`write_demo_update` :251・`main` :263
 - **friend_diag.py** (250 行) — 友人のアプリから届いた診断の記録を読む(ユーザーの PC。notes:docs/spec/friend.md の 13-11)。AI が原因を調べるときに流す。
   - 名前: `default_dir` :36・`prune` :47・`load` :61・`is_error` :84・`live_lines` :95・`lines_of` :145・`main` :207
-- **friend_preflight.py** (1251 行) — 友人に配る zip を、配る前にこの PC で「友人の PC と同じ状態」にして通しで試す(配る前の検査。notes:docs/spec/friend.md の 13-11)。
+- **friend_preflight.py** (1257 行) — 友人に配る zip を、配る前にこの PC で「友人の PC と同じ状態」にして通しで試す(配る前の検査。notes:docs/spec/friend.md の 13-11)。
   - 名前: `class Preflight` :84・`class Report` :88・`free_port` :114・`link_or_copy` :120・`unpack` :129・`break_fetch` :148・`place_models` :158・`mirror_map` :182・`lay_shim` :198・`friend_env` :209・`fake_media` :239・`make_work` :243・ほか 37
 - **friend_preflight_shim.py** (287 行) — 配る前の検査(dev/friend_preflight.py)の通信の差し替え。検査が、展開した写しの python/Lib/site-packages/sitecustomize.py として置く
   - 名前: `install` :262
