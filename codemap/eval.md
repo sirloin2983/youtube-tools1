@@ -55,8 +55,8 @@
   - 名前: `read_diar` :96・`norm_name` :105・`hungarian_max` :109・`best_mapping` :160・`time_edited_flags` :174・`is_other_row` :195・`in_period` :200・`confirm_map` :204・`human_rows` :235・`overlap_rows` :276・`class Overlap` :301・`new_counts` :324・ほか 31
 - **eval_timing.py** (444 行) — 行の時刻(字幕の区間)を、行の時刻の原則(notes:docs/spec/subtitles.md)の数字で測る道具(notes:plan/done/line-b-row-timing.md の 7-4)。
   - 名前: `current_variant` :68・`letters` :76・`text_rows` :81・`text_match` :96・`best_overlap` :102・`measure_rows` :112・`boundary_agreement` :154・`boundary_sum` :178・`summarize` :186・`post_label` :196・`engine_label` :216・`doc_record` :222・ほか 12
-- **study_row_start.py** (309 行) — 行の始まりのずれの 3 案を測る道具(10-21 ユーザー「区間の始めが話し始めより前にくる」の調べ。**測るだけ・ツールの動きは変えない**)。
-  - 名前: `stats` :47・`pairs` :59・`retimed` :74・`extract` :86・`read_wav` :92・`db_frames` :98・`energy_onset` :106・`vad_starts` :119・`near` :125・`snapped` :130・`wcpp_run` :147・`wcpp_raw` :160・ほか 4
+- **study_row_start.py** (453 行) — 行の始まりのずれの 3 案を測る道具(10-21 ユーザー「区間の始めが話し始めより前にくる」の調べ。**測るだけ・ツールの動きは変えない**)。
+  - 名前: `stats` :47・`pairs` :59・`retimed` :74・`extract` :86・`read_wav` :92・`db_frames` :98・`energy_onset` :106・`vad_starts` :119・`near` :125・`snapped` :130・`wcpp_run` :147・`wcpp_raw` :164・ほか 8
 
 ## テスト
 
