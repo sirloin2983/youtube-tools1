@@ -39,13 +39,15 @@ class EarlyTranscribeTest(unittest.TestCase):
         from friendapp import engine as E
         run = FakeRun()
         t = run.steps[1]["startedAt"]
-        run.steps[1].update(early=1, earlyAt=t - 60000)
-        run.docs = ["d1", "d2"]
-        docs = {"d1": {"recognition": {"runs": [{"at": t - 30000, "audioSec": 100.0, "wallSec": 20.0}]}},   # 書き出しの最中
-                "d2": {"recognition": {"runs": [{"at": t - 90000, "audioSec": 100.0, "wallSec": 20.0}]}}}   # 前からある文書(載せない)
-        self.assertEqual([r["at"] for r in E.transcribe_records(run, docs.get)], [t - 30000])
+        run.steps[0]["key"] = "export"   # t − 120 秒に始まった書き出しの段
+        run.steps[1].update(early=2, earlyAt=t - 30000)   # 印は 1 本目が済んだあと(この PC の道具は頼んだ糸の中で終える)
+        run.docs = ["d1", "d2", "d3"]
+        docs = {"d1": {"recognition": {"runs": [{"at": t - 60000, "audioSec": 100.0, "wallSec": 20.0}]}},   # 書き出しの最中の 1 本目
+                "d2": {"recognition": {"runs": [{"at": t - 20000, "audioSec": 100.0, "wallSec": 20.0}]}},
+                "d3": {"recognition": {"runs": [{"at": t - 200000, "audioSec": 100.0, "wallSec": 20.0}]}}}   # 前からある文書(載せない)
+        self.assertEqual([r["at"] for r in E.transcribe_records(run, docs.get)], [t - 60000, t - 20000])
         rows = G.stage_rows(run.steps, lambda s: s)
-        self.assertEqual([r.get("early") for r in rows], [None, 1])
+        self.assertEqual([r.get("early") for r in rows], [None, 2])
 
 
 class MaskTest(unittest.TestCase):

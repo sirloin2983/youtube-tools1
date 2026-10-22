@@ -1732,6 +1732,19 @@ class ApiTest(Base):
         self.engine.transcribe_progress = lambda: "18%"
         self.assertNotIn("時間がかかっています", self.view_row(rid)["steps"]["text"])
 
+    def test_steps_export_shows_early_transcribe(self):
+        """流れ作業: 書き出しの段の最中に済んだ本の文字起こしが回っていれば、段は「切り抜き」のまま進みを添える"""
+        self.fake_clock()
+        rid = self.send()[1]["row"]["id"]
+        run = self.run_of(rid)
+        run.update(state="running", steps=[{"key": "export", "state": "run", "detail": "1 / 2 本"}, {"key": "transcribe", "state": "wait", "detail": ""}])
+        self.engine.transcribe_progress = lambda: None
+        self.assertNotIn("文字起こし", self.view_row(rid)["steps"]["text"])
+        self.engine.transcribe_progress = lambda: "40%"
+        st = self.view_row(rid)["steps"]
+        self.assertEqual(st["label"], "切り抜き")
+        self.assertIn("切り抜き・済んだ分の文字起こし 40%", st["text"])
+
     def test_steps_vanish_when_row_arrives(self):
         self.fake_clock()
         rid = self.send()[1]["row"]["id"]
