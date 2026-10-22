@@ -547,6 +547,41 @@ class TestStreamlinkPipe(unittest.TestCase):
         self.assertGreaterEqual(len(resolved), 2)   # 取り直しはする
         self.assertIsNone(r.summary()["blockedAt"])   # 止めたあとは出さない
 
+    def test_expired_hls_after_recording_is_renewed_without_bot_mark(self):
+        """取った再生リストで録れていたのに 0 になった(約 6 時間の期限切れなど・記録に bot の印なし)= 取り直すだけ。
+        blockedAt(友人の知らせ)は出さず、つなぎ直しも BLOCKED_WAIT を待たない"""
+        r = R.Recording(self.rec, "20261022-230000-v", os.path.join(self.folder, "v"), {"url": "https://www.youtube.com/watch?v=v", "quality": "1080p"})
+        os.makedirs(r.dir, exist_ok=True)
+        r._hls = "https://manifest.googlevideo.com/old/index.m3u8"
+        runs, resolved, waits, marks = [], [], [], []
+
+        def session(name):
+            os.makedirs(os.path.join(r.dir, name), exist_ok=True)
+            with open(os.path.join(r.dir, name, "source.log"), "w", encoding="utf-8") as f:
+                f.write("[cli][error] Unable to open URL: hls://… (403 Client Error: Forbidden)\n")
+            runs.append(name)
+            if len(runs) >= 3:
+                r._stop.set()
+            return (5, 1, "切れました") if len(runs) == 1 else (0, 1, "切れました")
+
+        def resolve():
+            resolved.append(1)
+            r._hls = "https://manifest.googlevideo.com/new/index.m3u8"
+            return True
+        real_set = r.set
+
+        def set_(**kw):
+            if kw.get("blockedAt"):
+                marks.append(kw["blockedAt"])
+            return real_set(**kw)
+        with mock.patch.object(r, "_run_session", session), mock.patch.object(r, "_resolve_hls", resolve), \
+                mock.patch.object(r, "_wait", lambda sec: waits.append(sec)), mock.patch.object(r, "set", set_), \
+                mock.patch.object(r, "_session_mark", lambda *a, **kw: None), mock.patch.object(r, "all_segments", lambda: [("session_001", runs[:1])]):
+            r._run()
+        self.assertGreaterEqual(len(resolved), 1)   # 取り直した
+        self.assertEqual(marks, [])                 # bot の知らせは出さない
+        self.assertTrue(waits and max(waits) < R.BLOCKED_WAIT, waits)
+
     def test_bot_block_without_cookies_does_not_repeat_ytdlp(self):
         """10-21 19:00 の形: cookie が無く yt-dlp も「Sign in to confirm」で断られる = 35 秒ごとに yt-dlp を呼び直していた。
         断られたら HLS_RETRY_SEC は呼ばない・つなぎ直しは BLOCKED_WAIT あける・記録は blockedAt と BLOCKED(偽の 429・偽の yt-dlp)"""

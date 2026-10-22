@@ -247,13 +247,16 @@ class TestFailures(_Base):
         self.assertEqual((rec, job["phase"], len(job["warnings"])), ({}, "x", 1))
         with mock.patch.object(separate, "voice_spans", lambda job, wav: []):
             self.assertEqual(fill.fill_drop_silent({}, rows, "w.wav", rec), rows)
-        db = [-90.0] * 10 + [-10.0] * 10 + [-90.0] * 5 + [-10.0] * 10 + [-60.0] * 30 + [-10.0] * 3   # 0.03 秒ごと
+        self.assertEqual((rec["dropped"]["n"], rec["dropped"]["why"]), (0, "no-voice"))   # 区間 0 でもかけたことは残す
+        db =[-90.0] * 10 + [-10.0] * 10 + [-90.0] * 5 + [-10.0] * 10 + [-60.0] * 30 + [-10.0] * 3   # 0.03 秒ごと
         self.assertEqual([(round(a, 2), round(b, 2)) for a, b in separate.spans_from_db(db)], [(0.3, 1.05)])   # すき間 0.15 秒はつなぎ、最後の 0.09 秒は捨てる
-        rows = [{"start": 0.0, "end": 2.0, "text": "a"}, {"start": 2.1, "end": 3.0, "text": "b"}, {"start": 4.0, "end": 5.0, "text": "c"}]
+        rows = [{"start": 0.0, "end": 2.0, "text": "a"}, {"start": 2.1, "end": 3.0, "text": "b", "_words": [(2.1, 2.5, "b"), (2.5, 3.0, "b")]},
+                {"start": 4.0, "end": 5.0, "text": "c"}]
         rec = {}
         with mock.patch.object(separate, "voice_spans", lambda job, wav: [(0.0, 2.25), (2.1, 2.9), (4.0, 5.6)]):
             out = fill.fill_drop_silent({}, rows, "w.wav", rec, drop=False, snap=True)   # 終わりを寄せるだけ: 次の行の頭は越えない・0.3 秒より遠くは動かさない
         self.assertEqual(([r["end"] for r in out], rec["endSnap"]["n"], "dropped" in rec), ([2.0, 2.9, 5.0], 1, False))
+        self.assertEqual(out[1]["_words"][-1][1], 2.9)   # 縮めた行の単語も行の中へ
 
     def test_llm_record_and_broken_file(self):
         self.assertEqual(llm.llm_path("abcdefabcde1"), os.path.join(self.tmp, "abcdefabcde1.llm.json"))   # 置き場所は ytt/workdata の TX_DIR

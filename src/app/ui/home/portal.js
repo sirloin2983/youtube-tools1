@@ -941,8 +941,11 @@
   }
 
   var casesLoadFailed = false;
+  var casesSeq = 0;   // 案件の一覧の読みの連番(重なったとき、古い答えで新しい一覧を戻さない)
   function loadCases() {
-    return api('api/cases').then(function (j) { casesLoadFailed = false; casesData = j; resetPaging(); }).catch(function (e) {
+    var my = ++casesSeq;
+    return api('api/cases').then(function (j) { if (my !== casesSeq) return; casesLoadFailed = false; casesData = j; resetPaging(); }).catch(function (e) {
+      if (my !== casesSeq) return;
       casesLoadFailed = true;
       if (casesData) { failToast('案件の一覧を読み直せませんでした', '「読み込み直す」を押してください', e); return; }   // 前の一覧は残す
       // 初めての読み込みの失敗(M9): 欄の中に「何が」+「どうすれば」の 2 文 + [読み込み直す](赤い帯は接続の文だけ)
@@ -964,7 +967,8 @@
     // render() だけでなく、案件の一覧から組み立てる「次にやること」・「単体の文字起こし」も一緒に作り直す
     // (E2 finding 1: render() だけだと、alt-tab で戻ったときにこの2つが古いままになる)
     casesRevAt = Date.now();
-    return api('api/cases').then(function (j) { casesLoadFailed = false; casesData = j; render(); renderDocs(); buildTodo(); }).catch(function () { /* 次の読み込みで直る */ });
+    var my = ++casesSeq;
+    return api('api/cases').then(function (j) { if (my !== casesSeq) return; casesLoadFailed = false; casesData = j; render(); renderDocs(); buildTodo(); }).catch(function () { /* 次の読み込みで直る */ });
   }
 
   function restoreFilters() {

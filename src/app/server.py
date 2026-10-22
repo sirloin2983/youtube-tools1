@@ -142,6 +142,7 @@ UI_KIT_DIR = os.path.join(ROOT, layout.UI_KIT_DIR)   # 共通の見た目は正�
 LOG_MAX = 1024 * 1024     # ログ(*.log。.gitignore 済み)はこれを超えたら <名前>.old.log に回す(fsio.rotate。回せなければそのまま追記)
 PING_TIMEOUT = 0.5
 MAX_BODY = 4096
+EDITOR_IDLE_POLLS = ("/api/drill/status", "/api/eval-batch")   # 確かめるの評価のレーンが開いている間ずっと読む = 「編集を使っている」に数えない(自動の起動し直しを延ばし続けない)
 SUBMIT_START_WAIT = 120  # 起動直後の POST /api/flow/submit がツールの取り込みを待つ最長の秒(_post_flow_submit)
 PORTAL_TITLE = "動画編集ツール — ホーム"   # ホームの画面(portal.html)の <title>。窓を前に出すときに題名で探す(test_launch が portal.html と比べる)
 YTT_API = mount_mod.YTT_API   # 画面の共通の API の場所(入口の画面・取り込んだツールの画面の両方から。PortalServer.ytt_request)
@@ -1368,7 +1369,7 @@ class PortalServer(httpsec.ExclusiveServer):
             p = urllib.parse.urlsplit(path).path
             for prefix, handler in self.mounts.items():
                 if p == prefix or p.startswith(prefix + "/"):
-                    if prefix == mount_mod.MOUNTS["transcribe"]["prefix"]:
+                    if prefix == mount_mod.MOUNTS["transcribe"]["prefix"] and p[len(prefix):] not in EDITOR_IDLE_POLLS:
                         self.editor_seen = time.monotonic()
                     return handler
         return PortalHandler

@@ -16,6 +16,7 @@ import re
 import threading
 import time
 import urllib.request
+from http.client import HTTPException   # 引数 http(取る関数)と名前が重ならないように
 
 from ytt import fsio as _fsio, tools as _tools, version as _version
 
@@ -132,7 +133,7 @@ def update(exe, friend_dir, now=None, http=_http, run=_run, force=False, log=pri
         _fsio.write_json(os.path.join(fold, MARK), {"size": os.path.getsize(exe), "sha256": sha, "version": tag, "at": int(now * 1000)})
         rec.update(prev=cur, version=tag, updatedAt=int(now * 1000))
         log("yt-dlp を %s から %s に取り替えました" % (cur or "?", tag))
-    except (OSError, ValueError) as e:
+    except (OSError, ValueError, HTTPException) as e:   # HTTPException = 途中で切れた応答(IncompleteRead など。OSError でない)
         rec["error"] = (str(e) or e.__class__.__name__)[:200]
         log("yt-dlp の取り替えを見送りました: %s" % rec["error"])
     finally:

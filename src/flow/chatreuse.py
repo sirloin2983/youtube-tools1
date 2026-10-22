@@ -108,19 +108,17 @@ def mode_now(store_dir):
     """今の形(off | measure | on)。auto は比べた記録の新しい READY_N 本がどれも近ければ on"""
     if MODE != "auto":
         return MODE
-    rows = [d for d in fsio.iter_jsonl(os.path.join(store_dir, LOG_NAME)) if d.get("kind") == "compare"]
+    p = os.path.join(store_dir, LOG_NAME)
+    rows = [d for f in (p + ".1", p) for d in fsio.iter_jsonl(f) if d.get("kind") == "compare"]   # 回した 1 世代前も(回した直後に measure へ戻らない)
     last = rows[-READY_N:]
     return "on" if len(last) >= READY_N and all(ok(d) for d in last) else "measure"
 
 
 def log(store_dir, rec):
-    """比べた結果・渡したかの記録(chat-reuse.jsonl に 1 行。大きくなりすぎたら書かない)"""
+    """比べた結果・渡したかの記録(chat-reuse.jsonl に 1 行。LOG_MAX を超えたら .1 へ回す = 書くのを止めて auto の判定が止まらない)"""
     p = os.path.join(store_dir, LOG_NAME)
     try:
-        if os.path.isfile(p) and os.path.getsize(p) > LOG_MAX:
-            return
-        with open(p, "a", encoding="utf-8", newline="\n") as f:
-            f.write(json.dumps(dict(rec, at=int(time.time())), ensure_ascii=False) + "\n")
+        fsio.append_line(p, json.dumps(dict(rec, at=int(time.time())), ensure_ascii=False) + "\n", LOG_MAX)
     except OSError:
         pass
 

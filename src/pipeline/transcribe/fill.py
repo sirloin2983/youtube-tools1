@@ -31,7 +31,7 @@ import re
 import unicodedata
 
 from ytt import errors as _errors, jobs as _heavy   # 取り消し Cancelled(RS2-8a。持ち主から直に読む)
-from . import backend as _backend, diarize, roster as _roster, separate, tx_engines, worker_client  # separate = 分けた声の区間(dropSilent)・ diarize = 話者判別の部品の有無 has_sherpa(RS2-9。呼ぶたびに diarize.名前 で読む)・ wav を読まずに渡す形 read_wav_f32(RS2-6)・モデルの読み込み load_model・filter_kwargs(RS2-8a)
+from . import backend as _backend, diarize, postproc as _postproc, roster as _roster, separate, tx_engines, worker_client  # postproc = 単語の時刻を行の中へ _clip_words(endSnap)・ separate = 分けた声の区間(dropSilent)・ diarize = 話者判別の部品の有無 has_sherpa(RS2-9。呼ぶたびに diarize.名前 で読む)・ wav を読まずに渡す形 read_wav_f32(RS2-6)・モデルの読み込み load_model・filter_kwargs(RS2-8a)
 from ytt import txbase as _txbase
 
 FILL_ENGINE, FILL_MODEL = "sense-voice", "sense-voice-small"   # 2 つ目の読み(tx_engines.SenseVoice)
@@ -378,6 +378,8 @@ def fill_snap_ends(rows, spans, rec, reach=FILL_SNAP_END):
         if abs(t - e) > 1e-6:
             moved.append({"start": round(s, 2), "from": round(e, 2), "to": round(t, 2)})
             g["end"] = t
+            if t < e:   # 縮めたら単語の時刻も行の中へ(残すと記録に行の終わりの後の単語が残る)
+                rows[k] = _postproc._clip_words(g, s, t)
     rec["endSnap"] = {"n": len(moved), "rows": moved[:200]}
     return rows
 
@@ -398,7 +400,10 @@ def fill_drop_silent(job, rows, wav, rec, drop=True, snap=False):
         return rows
     finally:
         job["phase"] = phase
-    if not spans:
+    if not spans:   # 区間が 0 = 捨てない(かけたことは記録に残す)
+        _txbase.add_warning(job, "分けた声に区間が無かったので、声の無い行は捨てていません")
+        if drop:
+            rec["dropped"] = {"n": 0, "db": -separate.SEP_DB, "rows": [], "why": "no-voice"}
         return rows
     keep, out = [], []
     for g in rows:

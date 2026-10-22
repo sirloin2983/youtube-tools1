@@ -514,12 +514,15 @@ class Recording:
                 n, code, why = self._run_session(name)
                 hls_before = self._hls
                 if n == 0 and why != ARCHIVE and not self._stopping() and self._blocked(name):   # bot と判定された: yt-dlp(cookies)で再生リストを取って取り直す
-                    blocked_at = blocked_at or time.time()
-                    self._mark_blocked(blocked_at)   # 記録の blockedAt(友人の行の知らせ・診断が読む)
+                    renew = bool(hls_before) and got_any and not self._log_blocked(name)   # 録れていた再生リストの期限切れなど = 取り直すだけ(bot の知らせ・長い待ちにしない)
+                    if not renew:
+                        blocked_at = blocked_at or time.time()
+                        self._mark_blocked(blocked_at)   # 記録の blockedAt(友人の行の知らせ・診断が読む)
                     if time.time() - self._hls_failed_at >= HLS_RETRY_SEC and self._resolve_hls() and not hls_before:   # 初めて = すぐ(取り直した再生リストでも取れなかったときは下の間を空ける)
                         self._drop_session(name)
                         continue
-                    why = BLOCKED   # yt-dlp でも取れない・取った再生リストでも録れない(10-21: 後者で何も出さずに待ち続けていた)
+                    if not renew:
+                        why = BLOCKED   # yt-dlp でも取れない・取った再生リストでも録れない(10-21: 後者で何も出さずに待ち続けていた)
                     if not got_any and time.time() - blocked_at > BLOCKED_GIVE_UP:   # 配信の前の 6 時間を待たない(行を閉じて理由を診断へ)
                         self._drop_session(name)
                         return self._finish("error", BLOCKED, "bot と判定されたまま %d 分たったので止めました" % (BLOCKED_GIVE_UP // 60))
@@ -591,6 +594,10 @@ class Recording:
         if self._hls:
             self._hls = None
             return True
+        return self._log_blocked(name)
+
+    def _log_blocked(self, name):
+        """セッションの取得の記録に bot 判定の印があるか"""
         try:
             text = read_text(os.path.join(self.dir, name, "source.log"), 1024 * 1024) or ""
         except (OSError, ValueError):

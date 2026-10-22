@@ -497,7 +497,7 @@ def prune_older(folder, pattern, keep_sec, now=None):
 def iter_jsonl(path):
     """1 行 1 件の JSON のファイルの dict の行(壊れた行・dict でない行は飛ばす。無い・読めないファイルは行なし)"""
     try:
-        with open(path, encoding="utf-8") as f:
+        with open(path, encoding="utf-8", errors="replace") as f:   # 書きかけで切れた多バイトの行も「壊れた行」として飛ばす
             for line in f:
                 try:
                     d = json.loads(line)

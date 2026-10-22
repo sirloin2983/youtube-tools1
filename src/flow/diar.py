@@ -158,7 +158,9 @@ def embed(job, spec, wav, groups, hints):
         _backend.select().diar_models(job, spec["embedding"], fetch)   # 疑似は取らない(backend の口。OPT-E2 1a-2)
         job["state"], job["phase"], job["progress"] = "running", "声の特徴を取り出し中(CPU)", 0.0
     elif spec["embedding"] != _calc.DIAR_EMB_DEFAULT:
+        state = job.get("state")
         _backend.select().diar_models(job, spec["embedding"], fetch)
+        job["state"] = state or "running"   # 取ったあと「読み込み中」のまま残さない
     return _calc.embed_groups(job, wav, spec["embedding"], groups, hints["start"])
 
 
