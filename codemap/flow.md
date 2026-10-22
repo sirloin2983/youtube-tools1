@@ -13,8 +13,8 @@
   - 名前: `class NotFound` :53・`split_id` :60・`norm_case` :68・`normalize` :126・`class Board` :154・`default` :376・`guess_case` :385
 - **casebook.py** (326 行) — ② 管理の層 flow: 案件の候補と採用のファイルの書く側(RS8 B3-3・B3-4a。決定 3-37 の (r8j)〜(r8q))。
   - 名前: `owners` :43・`case_of` :57・`split` :88・`carry_over` :140・`write` :168・`live_video` :207・`live_mark` :216・`live_into` :251・`live_adopt` :272・`live_exported` :295・`live_marks` :310・`live_has` :317
-- **chatreuse.py** (131 行) — ② ライブで取ったチャットの使い回し(決定 3-117)。配信中のワーカー(① pipeline/analyze/live_excite_worker.py)が読み終えた生のチャットを、
-  - 名前: `keep_dir` :34・`files_of` :39・`prepare` :51・`compare` :78・`ok` :101・`mode_now` :107・`log` :116・`prune` :128
+- **chatreuse.py** (129 行) — ② ライブで取ったチャットの使い回し(決定 3-117)。配信中のワーカー(① pipeline/analyze/live_excite_worker.py)が読み終えた生のチャットを、
+  - 名前: `keep_dir` :34・`files_of` :39・`prepare` :51・`compare` :78・`ok` :101・`mode_now` :107・`log` :117・`prune` :126
 - **colors_api.py** (24 行) — ② 管理の層 flow: api/ytt/streamer-colors の口(入口 src/app/server.py も友人のアプリ src/friendapp/server.py も同じ物を呼ぶ)。
   - 名前: `streamer_api` :12
 - **deliver.py** (301 行) — ② パックを友人へ届ける(Dropbox の見張るフォルダの 出力\ に zip で置く。友人のアプリの「受け取る」が読む)。
@@ -23,7 +23,7 @@
   - 名前: `record` :23・`origin_of` :39・`rows` :47・`delivered_requests` :69・`pack_name` :84・`delivered_marks` :92・`record_not_sent` :148・`not_sent_marks` :159
 - **delivery.py** (393 行) — ② 友人へ届ける: まとめて実行の「Dropbox へ届ける」段と、置けなかった自動の分の溜め(まとめて実行 AutoRunner が継ぐ mixin)。
   - 名前: `switched_off` :55・`class Delivery` :95
-- **diar.py** (314 行) — ② 管理の層 flow: 話者判別と声の段取り(RS6 a-4。決定 3-29)。
+- **diar.py** (316 行) — ② 管理の層 flow: 話者判別と声の段取り(RS6 a-4。決定 3-29)。
   - 名前: `models_ready` :29・`default_embedding` :40・`embedding` :45・`embeddings` :50・`learn_embedding` :55・`match_embedding` :61・`diarize` :69・`assign` :99・`record_run` :123・`record_single` :130・`latest_run` :140・`embed` :147・ほか 12
 - **envelope.py** (170 行) — ② 管理の層 flow: 依頼の封筒(RS7-1 S3。決定 3-30・notes:plan/done/f1-friend-pc.md の決めたこと 9)。
   - 名前: `clean_pool` :44・`version_of` :135・`check` :143・`read` :167
@@ -84,7 +84,7 @@
 - **prio.py** (88 行) — ② 管理の層 flow: 処理の優先度の表(PRIO。決定 3-49・notes:plan/done/opt-series.md の 11)。
   - 名前: `name_ok` :35・`rank` :39・`idle_only` :43・`os_priority` :47・`label` :51・`slot_kw` :55・`of_run` :60・`of_spec` :69・`watch` :80・`idle_now` :85
 - **retention.py** (9 行) — ② 管理の層 flow: 物の終わりの日数の 1 か所(方針の数)。ユーザーのツールと友人のアプリが同じ値を読む。
-- **run.py** (1699 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
+- **run.py** (1705 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
   - 名前: `class Cancelled` :124・`class StepError` :128・`mode_of` :147・`steps_of` :181・`analyze_verdict` :225・`chat_missing` :243・`chat_retry_ok` :249・`stream_ended_at` :257・`redo_reason` :270・`short_why` :288・`adopted_ids` :300・`tx_verdict` :305・ほか 5
 - **runlog.py** (93 行) — まとめて実行の「終わった実行の記録」の形と読み方(RS3-0B)。
   - 名前: `read_runs_log` :47・`read_result` :77
