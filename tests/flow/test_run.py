@@ -316,7 +316,7 @@ class TestRun(unittest.TestCase):
         self.assertEqual(body["spec"], {"video": media, "transcript": "/x/t1.transcript.json", "mode": "silence",
                                         "silence": {"noise": -40, "min": 0.6, "pad": 0.15}, "snapEdges": True})   # 両端を話の切れ目へ詰める(LD-2c。束の pack.snapEdges の既定)
         self.assertEqual(body["output"], {"textplus": True, "textplusWrap": 12, "textplusSize": "1920x1080", "textplusFps": "30",
-                                          "speakerColors": True, "volume": 50})
+                                          "speakerColors": True, "loudness": -14.0})   # 音量 % でなく -14 LUFS(PACK_LEVEL)
         self.assertEqual(r.packs, [os.path.normpath("/x/clip_pack")])
 
     def test_doc_pack_sends_clip_range(self):
