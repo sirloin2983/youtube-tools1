@@ -118,6 +118,7 @@ class TestGolden(unittest.TestCase):
         n = len(self.full)
         self.assertEqual([excite.snap_quiet(excite.smooth(self.full, 3), t, n) for t in (0.0, 12.0, 333.3, float(n - 1))], g["snap"])
         self.same(excite.comment_score(STAMPS, 400), g["comment"])
+        self.same(excite.comment_score(STAMPS, 400, "sym"), g["comment_sym"])   # スイッチで戻す前の形(決定 3-137)
 
     def test_helpers_and_constants(self):
         """1 か所にまとめた数字と小さな関数(snap_region・ramp・_drop_before)"""

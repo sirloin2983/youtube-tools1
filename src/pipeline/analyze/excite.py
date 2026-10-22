@@ -43,6 +43,11 @@ CHAT_SMOOTH, CHAT_FLOOR = 9, 0.25    # チャットの活気: ならす幅(秒)�
 # 印: archive の解析の記録 chatHalf・配信中の peaks.json の chatBack
 CHAT_HALF = 600
 ONLINE_CHAT_BACK = 1170
+# コメント欄の時刻の点数の形(10-22 heatmap 45 本・友人の区間で選んだ。決定 3-137): 書かれた時刻の前はチャットが平らで、時刻から 45 秒ほど跳ねる
+# → 山を時刻の 5 秒あとに置き、前は狭く(5 秒)後ろは広く(30 秒)。スイッチ: COMMENT_SHAPE = "sym" で前の形(左右同じ ±20 秒・幅 8 秒。golden は作り直し)。
+# 印: archive の解析の記録 commentShape(無い記録は sym)
+COMMENT_SHAPE = "fwd"
+COMMENT_FORMS = {"sym": (-20, 20, 0, 8.0, 8.0), "fwd": (-5, 71, 5, 5.0, 30.0)}   # (時刻からの秒の から, まで, 山の位置, 前の幅, 後ろの幅)
 PICK_SMOOTH = 5                      # 山を探す前に合計をならす幅(秒)
 LEVEL_SMOOTH = 3                     # 区間を静かな所へ合わせる前に音量をならす幅(秒)
 SNAP_RADIUS = 4                      # 静かな所を探す前後の秒数(snap_quiet)
@@ -172,15 +177,18 @@ def head_ramp(total, head):
     return [v * ramp(i, head) for i, v in enumerate(total)]
 
 
-def comment_score(stamps, n):
+def comment_score(stamps, n, shape=None):
+    """コメント欄の時刻 [(秒, いいね数[, 重み])] -> 1 秒ごとの点数。形は COMMENT_FORMS(既定 COMMENT_SHAPE)"""
+    lo, hi, c, before, after = COMMENT_FORMS[shape or COMMENT_SHAPE]
     out = [0.0] * n
     for st in stamps:
         t, likes = st[0], st[1]
         amp = min(3.0, 0.8 + 0.5 * math.log1p(likes)) * (st[2] if len(st) > 2 else 1.0)
-        for d in range(-20, 21):
+        for d in range(lo, hi + 1):
             i = int(t) + d
             if 0 <= i < n:
-                out[i] += amp * math.exp(-(d / 8.0) ** 2)
+                x = d - c
+                out[i] += amp * math.exp(-(x / (before if x < 0 else after)) ** 2)
     return [min(CAP, v) for v in out]
 
 
