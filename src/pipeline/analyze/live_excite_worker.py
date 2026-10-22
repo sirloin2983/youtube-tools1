@@ -109,6 +109,10 @@ QUEUED_EVERY = 60.0        # 順番待ちの録画の peaks.json を書き直す
 # M10: 自動の候補の長さの目安。入口が ② flow/lengthhint でその場で数え(友人が依頼で指定した区間の長さ。OPT-E2 7f-1)、config.json の lengthHint に入れる。
 # ワーカーは読むだけ(clean_hint)。足りない(enough でない)ときはスタジオの解析の設定のまま
 LENGTH_HINT_MIN_SAMPLES, LENGTH_HINT_MIN_VIDEOS = 20, 5   # enough の条件(flow/lengthhint の ENOUGH_SAMPLES・ENOUGH_VIDEOS と同じ値。ワーカーでも確かめ直す)
+# 友人の依頼の長さ「自動」(場面ごと)の、場面が取れないときの長さ(10-23 ユーザー「150 秒を基準に自動で決める」・Fable の判断):
+# 長さの目安(M10)が使えて極端でない(excite.SCENE の min〜max)ならそれ、ほかは 150 秒。依頼の length は見ない。
+# スイッチ: None = 前の動き(依頼の length。友人の画面の既定 45 秒)
+LIVE_AUTO_LENGTH = 150.0
 # スタジオの解析の設定(spec)の範囲(src/pipeline/analyze/analyze.py の validate_settings と同じ)。入口の live_detect.clean_spec と、ここの clean_hint が読む
 SPEC_RANGES = {"length": (10.0, 300.0), "preRatio": (0.3, 0.9), "lag": (0.0, 30.0), "wAudio": (0.0, 3.0), "wChat": (0.0, 3.0), "headSec": (0.0, 600.0)}
 # 録画元との約束(録画元・録画・セグメントの id の形、時刻の書き方、動画の id)は ytt/recproto.py の 1 か所(入口の live_export と同じ物)
@@ -182,12 +186,20 @@ def clean_requests(v):
 
 
 def request_spec(spec, req):
-    """友人の依頼の録画の spec(2-15・C-2-11): lengthMode auto なら場面ごとの形(長さは場面が取れないときの長さ)、ほかは依頼の固定の長さ。
-    依頼の長さが無ければ spec の長さのまま"""
+    """友人の依頼の録画の spec(2-15・C-2-11): lengthMode auto なら場面ごとの形(長さは場面が取れないときの長さ = 上の LIVE_AUTO_LENGTH の決まり)、
+    ほかは依頼の固定の長さ(古い友人のアプリの「固定」)。依頼の長さが無ければ spec の長さのまま。
+    同じ spec に何度かけても同じ(配信の途中の set_request は前に request_spec を通した spec にかける = 目安を選んだ印 friendSceneHint を見る)"""
     if req.get("lengthMode") == "auto":
         out = dict(spec, shape="scene", lengthFrom="friendScene", lengthNote="友人の依頼の設定(場面ごと)")
-        if req.get("length"):
-            out["length"] = req["length"]
+        if LIVE_AUTO_LENGTH is None:
+            if req.get("length"):
+                out["length"] = req["length"]
+            return out
+        hinted = spec.get("lengthFrom") in ("human", "friendSceneHint")
+        if hinted and excite.SCENE["min"] <= float(spec.get("length") or 0) <= excite.SCENE["max"]:
+            out.update(lengthFrom="friendSceneHint", lengthNote="友人の依頼の設定(場面ごと・場面が取れないときは長さの目安)")
+        else:
+            out.update(length=LIVE_AUTO_LENGTH, lengthNote="友人の依頼の設定(場面ごと・場面が取れないときは %g 秒)" % LIVE_AUTO_LENGTH)
         return out
     if req.get("length"):
         return dict(spec, length=req["length"], lengthFrom="friend", lengthNote="友人の依頼の設定")

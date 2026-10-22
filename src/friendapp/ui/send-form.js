@@ -229,14 +229,7 @@
   }
   function fillLive(lv) {
     $('lvPerHour').value = lv.perHour;
-    $('lvLength').value = lv.length;
-    Array.prototype.forEach.call(document.querySelectorAll('input[name=lvLenMode]'), function (r) { r.checked = r.value === (lv.lengthMode || 'auto'); });
-    lenBox((lv.lengthMode || 'auto') === 'fixed');
     $('lvAfter').checked = !!lv.afterStream;
-  }
-  function lenBox(on) {
-    $('lvLength').disabled = !on;
-    $('lvLength').title = on ? '1 本の長さ(10〜180 秒)' : '「固定」を選ぶと入れられます';
   }
   function head(s) {
     $('headThumb').src = s.thumb || (s.videoId ? 'https://i.ytimg.com/vi/' + s.videoId + '/mqdefault.jpg' : '');
@@ -421,9 +414,8 @@
   }
 
   /* ---------------------------------------------------------------- 送る */
-  function liveBody() {
-    var mode = (document.querySelector('input[name=lvLenMode]:checked') || {}).value || 'auto';
-    return { perHour: parseInt($('lvPerHour').value, 10) || 6, lengthMode: mode, length: parseInt($('lvLength').value, 10) || 45, afterStream: $('lvAfter').checked };
+  function liveBody() {   /* 長さはいつも自動(10-23) */
+    return { perHour: parseInt($('lvPerHour').value, 10) || 6, afterStream: $('lvAfter').checked };
   }
   function liveChanged() {   /* 録画中の配信の設定を途中で変える(この先の切り抜きから効く) */
     if (!f.rec) return;
@@ -483,10 +475,7 @@
     $('btnRange').addEventListener('click', function () { addRange(true); });
     $('topMinus').addEventListener('click', function () { f.top = Math.max(1, f.top - 1); sync(); });
     $('topPlus').addEventListener('click', function () { f.top = f.top + 1; sync(); });
-    Array.prototype.forEach.call(document.querySelectorAll('input[name=lvLenMode]'), function (r) {
-      r.addEventListener('change', function () { lenBox(r.value === 'fixed' && r.checked); liveChanged(); });
-    });
-    ['lvPerHour', 'lvLength', 'lvAfter'].forEach(function (id) { $(id).addEventListener('change', liveChanged); });
+    ['lvPerHour', 'lvAfter'].forEach(function (id) { $(id).addEventListener('change', liveChanged); });
     $('btnSend').addEventListener('click', send);
     $('btnPick').addEventListener('click', pickFile);
     $('btnPickMore').addEventListener('click', pickFile);

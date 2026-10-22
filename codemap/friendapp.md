@@ -5,8 +5,8 @@
 ## src/friendapp/
 
 - **__init__.py** (2 行) — 友人の玄関(FriendApp。友人の PC の 2 つ目の玄関。notes:docs/design/friend-history.md の 7 章)。ytt と ② flow だけを読む(③ human は読まない)
-- **api.py** (994 行) — 友人の玄関の口の中身(F3-3。HTTP の形は server.py。ここは欄の検査・② への受付・送った物の進み具合と取り消し・失敗のやり直し・前回の値)。
-  - 名前: `class FormError` :63・`check_weights` :72・`merge_live` :80・`oembed` :91・`probe_live` :96・`guess_streamer` :102・`file_title` :111・`clean_ranges` :117・`fit_name` :136・`class Api` :145・`fsio_inside` :956・`rowtitle` :963
+- **api.py** (955 行) — 友人の玄関の口の中身(F3-3。HTTP の形は server.py。ここは欄の検査・② への受付・送った物の進み具合と取り消し・失敗のやり直し・前回の値)。
+  - 名前: `class FormError` :63・`live_auto` :72・`merge_live` :80・`oembed` :90・`probe_live` :95・`guess_streamer` :101・`file_title` :110・`clean_ranges` :116・`fit_name` :135・`class Api` :144・`fsio_inside` :917・`rowtitle` :924
 - **diag.py** (307 行) — 友人のアプリの診断の記録(ユーザー決定。notes:docs/spec/friend.md の 13-11)。友人の PC でしか出ない不具合を、伝聞でなく記録で追うため。
   - 名前: `mask` :61・`windows_text` :84・`stage_rows` :95・`transcribe_rows` :110・`probe_only` :123・`prune_names` :129・`class Diag` :139
 - **dropbox.py** (451 行) — 友人の玄関の Dropbox の部品(notes:docs/design/friend-history.md の 7 章・docs/spec/friend.md の 2-17・4 章)。
@@ -27,13 +27,13 @@
 - **server.py** (1062 行) — 友人の玄関(notes:docs/design/friend-history.md の 7 章)。友人の PC の 2 つ目の玄関(ユーザーの PC は src/app/server.py)。
   - 名前: `save_dir` :122・`open_folder` :131・`pick_file_dialog` :147・`pick_folder_dialog` :187・`page_token` :224・`inject_meta` :231・`class Handler` :240・`client_log_line` :538・`class Server` :544・`class FriendApp` :562・`make_logger` :944・`say` :984・ほか 2
   - 受ける口: `/api/ping` :280・`/api/friend/inbox` :282・`/api/friend/tidy` :287・`/api/friend/update` :289・`/api/friend/setup` :292・`/api/friend/state` :294・`/api/friend/peek` :298・`/api/friend/peek-live` :303・`/api/friend/player` :308・`/api/friend/receive` :310・`/api/friend/media` :313・`/api/friend/settings` :323・`/api/friend/streams` :325・`/api/flow/status` :327・`/api/friend/upload` :342・`/api/friend/send` :388・`/api/friend/pick-file` :391・`/api/friend/decide` :399・`/api/friend/undo` :401・`/api/friend/palette` :405・`/api/friend/files` :407・`/api/friend/report` :409・`/api/friend/prefs` :411・`/api/friend/retry` :414・`/api/friend/cancel` :416・`/api/friend/live-settings` :418・`/api/friend/local` :420・`/api/friend/open` :422・`/api/friend/update/apply` :435・`/api/friend/streams/refresh` :443・`/api/friend/settings/key` :451・`/api/friend/pick-folder` :456・`/api/friend/notice-seen` :468・`/api/shutdown` :474・`/api/flow/submit` :478・`/api/flow/cancel` :487・`/api/ytt/streamer-colors` :491・`/api/ytt/client-log` :493
-- **settings.py** (389 行) — 友人の玄関の ⚙(notes:docs/design/friend-history.md の 7 章)。
-  - 名前: `class SettingsError` :49・`clean_key` :54・`looks_like_key` :58・`judge` :63・`probe_key` :91・`check_key` :105・`keys_path` :113・`load_key` :117・`save_key` :122・`check_folder` :131・`class Settings` :156
-- **setup.py** (938 行) — 友人の玄関の初回の取得(notes:docs/design/friend-history.md の 7 章)。
-  - 名前: `class FetchError` :57・`class Cancelled` :61・`safe_relative` :70・`problem` :86・`parse_item` :113・`load` :123・`archive_name` :147・`expect` :155・`folder` :160・`marker` :164・`label` :168・`is_done` :177・ほか 11
+- **settings.py** (347 行) — 友人の玄関の ⚙(notes:docs/design/friend-history.md の 7 章)。
+  - 名前: `class SettingsError` :46・`clean_key` :51・`looks_like_key` :55・`judge` :60・`probe_key` :88・`check_key` :102・`keys_path` :110・`load_key` :114・`save_key` :119・`check_folder` :128・`class Settings` :153
+- **setup.py** (961 行) — 友人の玄関の初回の取得(notes:docs/design/friend-history.md の 7 章)。
+  - 名前: `class FetchError` :61・`class Cancelled` :65・`safe_relative` :74・`problem` :90・`parse_item` :117・`load` :127・`archive_name` :151・`expect` :159・`folder` :164・`marker` :168・`label` :172・`is_done` :181・ほか 11
 - **streams.py** (559 行) — 友人のアプリの「送る」画面の左に並べる、ホロライブ JP(と DEV_IS)の配信の一覧(F3-2)。API キー無し。
   - 名前: `parse_rss` :159・`classify` :191・`class Streams` :261
-- **sync.py** (930 行) — 友人の玄関の Dropbox の同期(notes:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-14〜2-17・5-1)。
+- **sync.py** (927 行) — 友人の玄関の Dropbox の同期(notes:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-14〜2-17・5-1)。
   - 名前: `class SyncError` :89・`name_ok` :94・`out_kind` :100・`clean_text` :112・`clean_origin` :117・`parse_meta` :128・`parse_meta_info` :134・`failure_text` :153・`server_time` :160・`safe_rel` :168・`safe_join` :175・`local_name` :185・ほか 10
 - **tidy.py** (596 行) — アプリのフォルダの整理(形は Fable と相談 = 共有のメモ f3a-tidy-design.md。決定 3-86)。新しい版に入れ替えて起動できたあとと ⚙ から。
   - 名前: `keep_floor` :76・`class Tidy` :161
@@ -48,10 +48,10 @@
 - **host.js** (92 行) — 窓と画面の境目(F3-1。notes:plan/f1-friend-requirements.md の C-1、notes:docs/design/friend-history.md の 7 章)。
 - **palette.js** (71 行) — 友人のアプリの配色(A ネオンシアン・B シンセウェーブ・C ターミナルグリーン・D アイスライト)。
 - **receive.js** (348 行) — 受け取る画面(F3-4。notes:plan/f1-friend-requirements.md の C-3)。口 = GET api/friend/receive(friendapp/inbox.py の receive_view)・
-- **send-form.js** (517 行) — 送る欄(F3-3。notes:plan/f1-friend-requirements.md の C-2-6〜C-2-13・C-2-17〜C-2-19)。口 = POST api/friend/send(friendapp/api.py の説明)。
+- **send-form.js** (506 行) — 送る欄(F3-3。notes:plan/f1-friend-requirements.md の C-2-6〜C-2-13・C-2-17〜C-2-19)。口 = POST api/friend/send(friendapp/api.py の説明)。
 - **send-list.js** (168 行) — 送る画面の配信の一覧(F3-2。notes:plan/f1-friend-requirements.md の C-2-2〜C-2-5)。
 - **sent.js** (145 行) — 送った物(F3-3。notes:plan/f1-friend-requirements.md の C-2-14〜C-2-16)。行 = GET api/friend/inbox の rows のうち、まだ届け終えていない物と失敗。
-- **settings.js** (427 行) — ⚙ 設定の引き出し(notes:plan/f1-friend-requirements.md の C-5-2・C-2-19)。
+- **settings.js** (379 行) — ⚙ 設定の引き出し(notes:plan/f1-friend-requirements.md の C-5-2・C-2-19)。
 - **setup.js** (103 行) — 初回の準備だけの画面(notes:plan/f1-friend-requirements.md の C-5-1)。
 - **update.js** (137 行) — 新しい版の帯の 1 行(更新。notes:docs/design/friend-history.md の 7 章)。
 

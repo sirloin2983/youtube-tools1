@@ -414,7 +414,7 @@ class ServerTest(Base):
         self.app.setup.block_reason = lambda: "処理の部品を取っています"
         self.assertEqual(self.js(self.get("/api/friend/inbox")[2])["partsWhy"], "処理の部品を取っています")   # 画面が [送る] を先に止める(C-5-1)
         self.assertEqual(d["form"]["top"], 5)   # 本数の初め(C-2-8)
-        self.assertEqual((d["form"]["pc"], d["form"]["useWeights"], d["form"]["cut"]), ("this", False, "none"))
+        self.assertEqual((d["form"]["pc"], d["form"]["cut"], "useWeights" in d["form"]), ("this", "none", False))
         self.assertEqual(d["form"]["live"]["lengthMode"], "auto")
         self.assertEqual(d["saveDir"], os.path.join(self.tmp, "save"))
 
@@ -1075,17 +1075,17 @@ class ServerTest(Base):
         self.assertIn("RuntimeError", d["message"])
 
     def test_send_live_without_recorder_is_400(self):
-        st, d = self.send(kind="live", live={"perHour": 6, "lengthMode": "fixed", "length": 45, "afterStream": True})
+        st, d = self.send(kind="live", live={"perHour": 6, "afterStream": True})
         self.assertEqual(st, 400)
         self.assertIn("録画できません", d["message"])
         self.assertEqual(self.app.inbox.rows, [])
-        st, d = self.send(kind="live", live={"perHour": 6, "lengthMode": "fixed", "length": 200, "afterStream": True})   # 検査の言葉は test_live の SettingsTest
+        st, d = self.send(kind="live", live={"perHour": 99, "afterStream": True})   # 検査の言葉は test_live の SettingsTest
         self.assertEqual(st, 400)
-        st, d = self.send(kind="live", live={"perHour": 6, "lengthMode": "fixed", "afterStream": "yes"})   # fixed で長さ無し・配信後の追加が真偽でない
+        st, d = self.send(kind="live", live={"perHour": 6, "afterStream": "yes"})   # 配信後の追加が真偽でない
         self.assertEqual(st, 400)
 
     def test_send_live_to_user_pc_mixes_form_and_prefs(self):
-        """ライブの送る欄の 3 つ(1 時間の枠・長さ・配信後の追加)+ ⚙ の感度・待ち・余白(C-2-11)"""
+        """ライブの送る欄の 2 つ(1 時間の枠・配信後の追加)+ ⚙ の感度・待ち・余白(C-2-11)。長さはいつも自動(10-23)"""
         dbx = self.use_fake_dropbox()
         self.assertEqual(self.prefs(pc="user", liveSens="high", liveWait=9, livePad=3.5)[0], 200)
         live = {"perHour": 12, "lengthMode": "fixed", "length": 180, "afterStream": False, "sens": "low", "waitMin": 1, "pad": 0}   # 感度・待ち・余白は送る欄から読まない
@@ -1094,21 +1094,35 @@ class ServerTest(Base):
         self.app.sync.run_once()
         doc = json.loads(dbx.files["/%s.request.json" % d["row"]["id"]])
         self.assertEqual(doc["kind"], "live")
-        self.assertEqual(doc["live"], {"sens": "high", "perHour": 12, "length": 180, "waitMin": 9, "pad": 3.5, "afterStream": False, "lengthMode": "fixed"})   # 長さの自動か固定も(C-2-11)
+        self.assertEqual(doc["live"], {"sens": "high", "perHour": 12, "length": 45, "waitMin": 9, "pad": 3.5, "afterStream": False, "lengthMode": "auto"})   # 送った固定は読まない
         f = self.app.api.form()
-        self.assertEqual(f["live"], {"sens": "high", "perHour": 12, "length": 180, "waitMin": 9, "pad": 3.5, "afterStream": False, "lengthMode": "fixed"})
+        self.assertEqual(f["live"], {"sens": "high", "perHour": 12, "length": 45, "waitMin": 9, "pad": 3.5, "afterStream": False, "lengthMode": "auto"})
         self.assertEqual(f["top"], 5)   # ライブは本数を持たない = 前の本数のまま
 
-    def test_send_live_length_only_when_fixed(self):
-        """lengthMode が auto の間は送る欄の length を読まない(fixed のときだけ length を検査して使う)"""
+    def test_send_live_length_always_auto(self):
+        """長さはいつも自動(10-23): 古い画面が lengthMode fixed・length を送っても読まない"""
         self.use_fake_dropbox()
         self.prefs(pc="user")
-        st, d = self.send(kind="live", live={"perHour": 6, "lengthMode": "auto", "length": 9999, "afterStream": True})
+        for mode in ("auto", "fixed", "weird"):
+            st, d = self.send(kind="live", live={"perHour": 6, "lengthMode": mode, "length": 9999, "afterStream": True})
+            self.assertEqual((st, d["row"]["form"]["live"]["lengthMode"]), (200, "auto"), mode)
+            self.assertNotEqual(d["row"]["form"]["live"]["length"], 9999)
+
+    def test_old_form_json_with_weights_and_fixed_length(self):
+        """前の版の form.json(解析の重み・ライブの長さ fixed)でも起動・送れる。重みと固定は黙って読まず、次に書くときに消える(10-23)"""
+        with open(os.path.join(self.places["friend"], "form.json"), "w", encoding="utf-8") as fh:
+            json.dump({"top": 7, "useWeights": True, "weights": {"wAudio": 3, "wChat": 0, "wComments": 2}, "pc": "this", "cut": "silence",
+                       "live": {"sens": "low", "perHour": 9, "length": 120, "lengthMode": "fixed", "waitMin": 7, "pad": 1.5, "afterStream": False}}, fh)
+        f = self.app.api.form()
+        self.assertEqual((f["top"], f["cut"], "weights" in f, "useWeights" in f), (7, "silence", False, False))
+        self.assertEqual((f["live"]["lengthMode"], f["live"]["sens"], f["live"]["perHour"]), ("auto", "low", 9))
+        self.assertEqual(self.js(self.get("/api/friend/inbox")[2])["form"]["live"]["lengthMode"], "auto")
+        st, d = self.send(top=2)
         self.assertEqual(st, 200)
-        self.assertEqual(d["row"]["form"]["live"]["lengthMode"], "auto")
-        self.assertNotEqual(d["row"]["form"]["live"]["length"], 9999)
-        st, d = self.send(kind="live", live={"perHour": 6, "lengthMode": "weird", "length": 9999, "afterStream": True})   # 知らない値は auto
-        self.assertEqual((st, d["row"]["form"]["live"]["lengthMode"]), (200, "auto"))
+        _env, spec = self.engine.queue.submitted[-1]
+        self.assertNotIn("analyze", spec)   # 重みは束に入れない = いつも既定の重み
+        with open(os.path.join(self.places["friend"], "form.json"), encoding="utf-8") as fh:
+            self.assertNotIn("weights", json.load(fh))
 
     def test_send_wait_kind_makes_waiting_row(self):
         """kind wait(終わったばかり = アーカイブ待ち): 行は waiting・② にも Dropbox にも積まない。区間も送る欄どおり"""
@@ -1155,17 +1169,13 @@ class ServerTest(Base):
 
     # ------------------------------------------------------------ ⚙ の値(prefs。C-2-19)
     def test_prefs_sets_each_value_and_writes_form_json(self):
-        st, d = self.prefs(useWeights=True, weights={"wAudio": 3, "wChat": 0, "wComments": 1}, liveSens="low", liveWait=20, livePad=4)
+        st, d = self.prefs(useWeights=True, weights={"wAudio": 3, "wChat": 0, "wComments": 1}, liveSens="low", liveWait=20, livePad=4)   # 重みは読まない(10-23)
         self.assertEqual(st, 200)
         self.assertTrue(d["ok"])
-        for word in ("解析の重みを使う", "解析の重みを変えました", "ライブの設定を変えました"):
-            self.assertIn(word, d["message"])
+        self.assertEqual(d["message"], "ライブの設定を変えました(次に頼む録画から)")
         f = d["form"]
-        self.assertEqual((f["useWeights"], f["weights"]), (True, {"wAudio": 3, "wChat": 0, "wComments": 1}))
+        self.assertNotIn("weights", f)
         self.assertEqual((f["live"]["sens"], f["live"]["waitMin"], f["live"]["pad"]), ("low", 20, 4.0))
-        st, d = self.prefs(useWeights=False)
-        self.assertIn("使わない", d["message"])
-        self.assertEqual(self.app.api.form()["weights"], {"wAudio": 3, "wChat": 0, "wComments": 1})   # 重みの値は残す
         st, d = self.prefs()
         self.assertEqual((st, d["message"]), (200, "変えるものがありません"))
         st, d = self.prefs(liveSens="low")   # 同じ値 = 変わらない
@@ -1175,10 +1185,7 @@ class ServerTest(Base):
 
     def test_prefs_bad_values_are_400_and_write_nothing(self):
         before = self.app.api.form()
-        bad = [(dict(pc="other"), "処理する PC"), (dict(useWeights="yes"), "オンかオフ"), (dict(useWeights=1), "オンかオフ"),
-               (dict(weights={"wAudio": 9, "wChat": 1, "wComments": 1}), "重みは 0〜3"), (dict(weights={"wAudio": 1}), "重みは 0〜3"),
-               (dict(weights=3), "重みは 0〜3"), (dict(weights={"wAudio": 1, "wChat": 1, "wComments": True}), "重みは 0〜3"),
-               (dict(liveSens="max"), "感度"), (dict(liveWait=0), "待ち"), (dict(liveWait=61), "待ち"), (dict(livePad=6), "余白"),
+        bad = [(dict(pc="other"), "処理する PC"), (dict(liveSens="max"), "感度"), (dict(liveWait=0), "待ち"), (dict(liveWait=61), "待ち"), (dict(livePad=6), "余白"),
                (dict(livePad="1"), "余白"), (dict(liveWait=2.5), "待ち")]
         for kw, why in bad:
             with self.subTest(kw=kw):
@@ -1186,11 +1193,11 @@ class ServerTest(Base):
                 self.assertEqual((st, d["error"]), (400, "bad_request"))
                 self.assertIn(why, d["message"])
         # 1 つでも違えば、同じ呼びの正しい値も書かない
-        st, d = self.prefs(useWeights=True, liveSens="max")
+        st, d = self.prefs(pc="this", liveSens="max")
         self.assertEqual(st, 400)
         self.assertEqual(self.app.api.form(), before)
         self.assertFalse(os.path.exists(os.path.join(self.places["friend"], "form.json")))
-        self.assertEqual(self.post("/api/friend/prefs", {"useWeights": True}, headers={TOKEN: None})[0], 403)
+        self.assertEqual(self.post("/api/friend/prefs", {"liveSens": "low"}, headers={TOKEN: None})[0], 403)
 
     # ------------------------------------------------------------ アーカイブ待ち(tick。C-2-12)
     # ------------------------------------------------------------ 失敗の言葉・自動のやり直し・知らせる(C-2-16)
@@ -1382,8 +1389,7 @@ class ServerTest(Base):
 class ApiTest(Base):
     """玄関の Api と受信箱を直に呼ぶ(送る欄 -> 束・待ち・やり直し・失敗の言葉の受け渡し・進み具合・終わり方)。口の HTTP は ServerTest"""
 
-    def test_send_with_ranges_uses_count_and_ignores_top_and_weights(self):
-        self.assertEqual(self.prefs(useWeights=True, weights={"wAudio": 2, "wChat": 2, "wComments": 2})[0], 200)   # 重みは ⚙ の値
+    def test_send_with_ranges_uses_count_and_ignores_top(self):
         st, d = self.send(top=9, ranges=[[10, 20], [30, 45]])
         self.assertEqual(st, 200)
         env, spec = self.engine.queue.submitted[0]
@@ -1391,7 +1397,6 @@ class ApiTest(Base):
         self.assertEqual(len(spec["hints"]["ranges"]), 2)
         self.assertEqual(spec["hints"]["ranges"][0][0], 10)
         self.assertNotIn("analyze", spec)
-        self.assertEqual(d["row"]["form"]["useWeights"], False)
 
     def test_send_long_range_has_no_length_limit(self):
         """区間 1 つの長さは上限なし(C-2-7・C-5-5): 3 時間の区間もそのまま束の hints.ranges へ"""
@@ -1403,16 +1408,12 @@ class ApiTest(Base):
         self.assertEqual(st, 400)
         self.assertIn("終了が開始より前", json.dumps(d, ensure_ascii=False))
 
-    def test_send_with_weights_uses_them(self):
-        st, d = self.prefs(useWeights=True, weights={"wAudio": 0, "wChat": 2, "wComments": 3})
+    def test_send_never_carries_weights(self):
+        """解析の重みは 10-23 に消した: ⚙ にも送る欄にも来ても読まない = 束にいつも入れない(既定の重み)"""
+        self.prefs(useWeights=True, weights={"wAudio": 0, "wChat": 2, "wComments": 3})
+        st, d = self.send(useWeights=True, weights={"wAudio": 3, "wChat": 3, "wComments": 3})
         self.assertEqual(st, 200)
-        st, d = self.send(useWeights=True, weights={"wAudio": 3, "wChat": 3, "wComments": 3})   # 送る欄の重みは読まない(⚙ の値を使う)
-        self.assertEqual(st, 200)
-        env, spec = self.engine.queue.submitted[0]
-        self.assertEqual(spec["analyze"], {"wAudio": 0, "wChat": 2, "wComments": 3})
-        self.prefs(useWeights=False)
-        self.send()
-        self.assertNotIn("analyze", self.engine.queue.submitted[1][1])
+        self.assertNotIn("analyze", self.engine.queue.submitted[0][1])
 
     def test_send_people_becomes_hints_only_with_two_or_more(self):
         st, _d = self.send(streamer="配信者A", people=["コラボB", "配信者A"])
@@ -1425,7 +1426,6 @@ class ApiTest(Base):
         self.assertNotIn("people", spec2.get("hints", {}))
 
     def test_form_remembers_last_values_in_form_json(self):
-        self.prefs(useWeights=True, weights={"wAudio": 2, "wChat": 0, "wComments": 3})
         st, _d = self.send(top=7, videoTracks=3)
         self.assertEqual(st, 200)
         form_path = os.path.join(self.places["friend"], "form.json")
@@ -1433,8 +1433,6 @@ class ApiTest(Base):
         f = self.app.api.form()
         self.assertEqual(f["top"], 7)
         self.assertEqual(f["videoTracks"], 3)
-        self.assertTrue(f["useWeights"])
-        self.assertEqual(f["weights"], {"wAudio": 2, "wChat": 0, "wComments": 3})
         # 区間のある送りでは本数は覚えず、前の本数が残る
         self.send(top=None, ranges=[[1, 5]], videoTracks=2)
         f2 = self.app.api.form()

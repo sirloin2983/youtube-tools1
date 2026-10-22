@@ -646,6 +646,67 @@ class FlowTest(HomeBase):
         self.assertEqual(v["state"], "failed")
         self.assertEqual(self.devices_set, [])
 
+    # ---- エンジンの自動の選び(10-23)
+    NV = {"name": "NVIDIA GeForce RTX 3060", "vramGB": 12.0, "vendor": "nvidia"}
+    AMD = {"name": "AMD Radeon RX 6600", "vramGB": 8.0, "vendor": "amd"}
+
+    def test_auto_nvidia_without_c_fetches_and_uses_c(self):
+        """NVIDIA で C の部品が無い = A で確かめたあと C の部品を取って確かめ、C にする"""
+        notes = []
+        st = self.make(cuda=self.cuda_item, wcpp=lambda it, archive, root: None, gpu=lambda: self.NV)
+        st.on_fail = lambda msg, detail: notes.append(msg)
+        with mock.patch.object(S, "_wcpp_ready", lambda root: False):
+            v = self.go(st)
+        self.assertEqual(v["state"], "done", v)
+        self.assertEqual((self.whispered, self.devices_set, self.device[0]), (["vulkan", "cuda"], ["cuda"], "cuda"))
+        self.assertIn("https://h/c.zip", self.dl.calls)
+        self.assertEqual(notes, [])
+        # 2 回目の起動(部品あり・確かめ済み)= C のまま・確かめ直さない
+        self.whispered.clear()
+        with mock.patch.object(S, "_wcpp_ready", lambda root: True):
+            v = self.go(self.make(cuda=self.cuda_item, gpu=lambda: self.NV))
+        self.assertEqual((v["state"], self.whispered, self.device[0]), ("done", [], "cuda"))
+
+    def test_auto_nvidia_c_fails_stays_a_and_notes(self):
+        """C の部品を取っても動かない = A のまま済み・診断に 1 つ・この版では取り直さない"""
+        self.whisper_ok["cuda"] = False
+        notes = []
+        st = self.make(cuda=self.cuda_item, wcpp=lambda it, archive, root: None, gpu=lambda: self.NV)
+        st.on_fail = lambda msg, detail: notes.append((msg, detail))
+        with mock.patch.object(S, "_wcpp_ready", lambda root: False):
+            v = self.go(st)
+        self.assertEqual(v["state"], "done", v)
+        self.assertEqual((self.devices_set, self.device[0]), (["cuda", "vulkan"], "vulkan"))
+        self.assertEqual(len(notes), 1)
+        self.assertIn("A のまま", notes[0][0])
+        self.assertIn("CUDA が動きません", notes[0][1])
+        self.assertTrue(st.cuda_failed())
+        self.whispered.clear()
+        with mock.patch.object(S, "_wcpp_ready", lambda root: True):   # 部品は置いてあっても、この版では選ばない
+            v = self.go(self.make(cuda=self.cuda_item, gpu=lambda: self.NV))
+        self.assertEqual((v["state"], self.device[0], self.whispered), ("done", "vulkan", []))
+
+    def test_auto_non_nvidia_goes_back_to_a(self):
+        self.device[0] = "cuda"
+        with mock.patch.object(S, "_wcpp_ready", lambda root: True):
+            v = self.go(self.make(gpu=lambda: self.AMD))
+        self.assertEqual((v["state"], self.devices_set, self.whispered), ("done", ["vulkan"], ["vulkan"]))
+
+    def test_auto_nvidia_with_c_ready_uses_c_and_env_forces_a(self):
+        with mock.patch.object(S, "_wcpp_ready", lambda root: True):
+            v = self.go(self.make(cuda=self.cuda_item, gpu=lambda: self.NV))
+            self.assertEqual((v["state"], self.device[0], self.whispered), ("done", "cuda", ["cuda"]))
+            v = self.go(self.make(cuda=self.cuda_item, gpu=lambda: self.NV, env={S.ENGINE_ENV: "A"}))   # 逃げ道
+        self.assertEqual((v["state"], self.device[0]), ("done", "vulkan"))
+
+    def test_auto_unknown_gpu_keeps_device(self):
+        def boom():
+            raise OSError("nvidia-smi")
+        self.device[0] = "cuda"
+        with mock.patch.object(S, "_wcpp_ready", lambda root: True):
+            v = self.go(self.make(cuda=self.cuda_item, gpu=boom))
+        self.assertEqual((v["state"], self.devices_set, self.device[0]), ("done", [], "cuda"))
+
     # ---- 見た目の形
     def test_view_shape_while_fetching(self):
         gate = self.hold_downloads()

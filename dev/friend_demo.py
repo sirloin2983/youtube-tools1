@@ -156,7 +156,7 @@ def seed(app, home):
         return out
 
     form = {"url": "https://www.youtube.com/watch?v=demo0000001", "videoId": "demo0000001", "ranges": [], "top": 5, "streamer": "星見ルナ",
-            "people": [], "videoTracks": 1, "useWeights": False, "weights": None, "title": "", "channel": ""}
+            "people": [], "videoTracks": 1, "title": "", "channel": ""}
     rows = [("20261016-090000-aaaa01", TITLES[0], "demorun0001", "arrived", 3), ("20261016-091000-aaaa02", TITLES[1], "demorun0003", "arrived", 7),
             ("20261016-092000-aaaa03", TITLES[2], "demorun0004", "failed", 0), ("20261016-093000-aaaa04", TITLES[3], "demorun0002", "sent", 0),
             ("20261016-094000-aaaa05", "【雑談】夜ふかし", "demorun0005", "sent", 0)]

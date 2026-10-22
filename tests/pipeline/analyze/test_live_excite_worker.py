@@ -1141,7 +1141,7 @@ class WorkerRestTest(unittest.TestCase):
         w.cfg_checked = -1e18
         clock.t += 6
         w.tick()
-        self.assertEqual((st.book.shape, st.book.length, st.spec["lengthFrom"]), ("scene", 60.0, "friendScene"))
+        self.assertEqual((st.book.shape, st.book.length, st.spec["lengthFrom"]), ("scene", 150.0, "friendScene"))   # 依頼の 60 秒は見ない(10-23)
         self.assertEqual(sa.spec["lengthFrom"], "studio")
         # ホームの検出をオフに戻した(detectAll false): ほかの録画は保存して手放す。依頼の録画は続ける
         write_config(self.dir, detect=home, detectAll=False, requests=reqs)
@@ -1203,14 +1203,24 @@ class WorkerRestTest(unittest.TestCase):
         w.close()
 
     def test_request_length_mode(self):
-        """C-2-11: 依頼の lengthMode auto = 場面ごとの形(長さは場面が取れないときの長さ)・無い(前の形の依頼)と auto 以外 = 固定の長さ"""
+        """C-2-11: 依頼の lengthMode auto = 場面ごとの形・無い(前の形の依頼)と auto 以外 = 固定の長さ。
+        auto の場面が取れないときの長さ(10-23): 目安が使えて 60〜300 秒ならそれ・ほかは 150 秒(依頼の length は見ない)・何度かけても同じ"""
         k = "fake/" + REC
         self.assertEqual(W.clean_requests({k: {"length": 30, "lengthMode": "auto"}})[k]["lengthMode"], "auto")
         for mode in (None, "fixed", "AUTO", 1):
             self.assertNotIn("lengthMode", W.clean_requests({k: {"length": 30, "lengthMode": mode}})[k], mode)
         base = dict(W.SPEC_DEFAULT, lengthFrom="studio", shape="fixed")
         auto = W.request_spec(base, {"length": 30.0, "lengthMode": "auto"})
-        self.assertEqual((W.shape_of(auto), auto["length"], auto["lengthFrom"]), ("scene", 30.0, "friendScene"))
+        self.assertEqual((W.shape_of(auto), auto["length"], auto["lengthFrom"]), ("scene", 150.0, "friendScene"))
+        self.assertEqual(W.request_spec(auto, {"length": 30.0, "lengthMode": "auto"}), auto)
+        hint = W.spec_with_hint(base, {"length": 160.0, "preRatio": 0.68, "samples": 30, "videos": 6})
+        h = W.request_spec(hint, {"length": 30.0, "lengthMode": "auto"})
+        self.assertEqual((W.shape_of(h), h["length"], h["preRatio"], h["lengthFrom"]), ("scene", 160.0, 0.68, "friendSceneHint"))
+        self.assertEqual(W.request_spec(h, {"length": 45.0, "lengthMode": "auto"}), h)   # 配信の途中の set_request
+        short = W.spec_with_hint(base, {"length": 20.0, "samples": 30, "videos": 6})   # 目安が極端(場面の下限 60 秒より短い)= 150 秒
+        self.assertEqual(W.request_spec(short, {"lengthMode": "auto"})["length"], 150.0)
+        with mock.patch.object(W, "LIVE_AUTO_LENGTH", None):   # スイッチ: 前の動き = 依頼の length
+            self.assertEqual(W.request_spec(base, {"length": 30.0, "lengthMode": "auto"})["length"], 30.0)
         fixed = W.request_spec(auto, {"length": 50.0})
         self.assertEqual((W.shape_of(fixed), fixed["length"], fixed["lengthFrom"]), ("fixed", 50.0, "friend"))
         self.assertEqual(W.request_spec(base, {"length": None}), base)   # 長さの無い依頼 = スタジオの長さのまま

@@ -354,9 +354,6 @@ def request_doc(kind, rid, form, sent_at, files=None):
         d["speakers"] = {"count": len(names), "names": names, "people": [{"name": n} for n in names]}
     d["videoTracks"] = form.get("videoTracks") or 1
     d["cut"] = form.get("cut") if form.get("cut") in ("none", "silence") else "none"   # ⚙ のカットの既定(送ったときの値)
-    w = form.get("weights")
-    if w and kind == "url":
-        d["weights"] = {"audio": float(w["wAudio"]), "chat": float(w["wChat"]), "comments": float(w["wComments"])}
     if kind == "live":
         s = form.get("live") or {}
         d["live"] = {k: s[k] for k in LIVE_KEYS if k in s}

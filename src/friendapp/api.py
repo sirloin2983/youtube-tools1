@@ -8,8 +8,9 @@
     top            本数(区間が無いときだけ。1 以上・上限なし(10-20)。初め 5・前回の値 = C-2-8)
     streamer       配信者の札(名簿・打った名前。"" = 色なし)・people = [+ 人] で足したコラボの相手(字幕の色だけ)
     videoTracks    映像トラックの数 1〜5(送る欄・前回の値 = C-2-10)
-    live           ライブの送る欄の 3 つ {perHour, lengthMode: auto|fixed, length, afterStream}。感度・待ち・余白は ⚙ の値(C-2-11)
-⚙ の値(C-2-19。prefs で変える): pc(この PC で処理する "this" / 依頼する "user")・解析の重み(useWeights・weights)・ライブの感度・待ち・余白・カットの既定。
+    live           ライブの送る欄の 2 つ {perHour, afterStream}。感度・待ち・余白は ⚙ の値(C-2-11)。長さはいつも自動(lengthMode auto。10-23 に選びを消した)
+⚙ の値(C-2-19。prefs で変える): pc(この PC で処理する "this" / 依頼する "user")・ライブの感度・待ち・余白・カットの既定。
+解析の重みは 10-23 に消した(いつも既定の重み。前の form.json の useWeights・weights は読まない)。
 前回の値は <玄関>/form.json。パックは 1 本ずつ届く(C-3-1)。
 
 送った物(C-2-14〜C-2-16): どの行にも [取り消す](cancel)。失敗は friendapp/progress.classify で友人の言葉に直し、直る見込みのある物は
@@ -35,9 +36,8 @@ FORM_NAME = "form.json"
 TOP_DEFAULT = 5                     # 本数の初め(C-2-8)
 RANGES_MAX = 5                      # 区間の数の上限(C-5-5)
 FILES_MAX_SEND = 20                 # 動画ファイルを 1 回に送る数(C-2-13)
-LENGTH_MODES = ("auto", "fixed")    # ライブの長さ: 自動(場面ごと)/ 固定の秒数(C-2-11)
-FORM_DEFAULTS = {"top": TOP_DEFAULT, "videoTracks": 1, "useWeights": False, "weights": {"wAudio": 1, "wChat": 1, "wComments": 1},
-                 "pc": "this", "live": dict(_live.SETTINGS_DEFAULT, lengthMode="auto"), "cut": "none"}   # cut = ⚙ のカットの既定(A-8)
+FORM_DEFAULTS = {"top": TOP_DEFAULT, "videoTracks": 1, "pc": "this", "live": dict(_live.SETTINGS_DEFAULT, lengthMode="auto"),
+                 "cut": "none"}   # cut = ⚙ のカットの既定(A-8)・ライブの長さはいつも自動(10-23)
 PCS = ("this", "user")
 PEOPLE_MAX = 6
 PEEK_TIMEOUT = 8
@@ -69,23 +69,22 @@ def _int_in(v, lo, hi=None):
     return isinstance(v, int) and not isinstance(v, bool) and lo <= v and (hi is None or v <= hi)
 
 
-def check_weights(w):
-    """⚙ の解析の重み {wAudio・wChat・wComments} -> 整えた辞書。どれかが 0〜3 の整数でなければ FormError(⚙ の 2 つの口が使う 1 か所)。
-    友人の画面の重みは整数の段階だけ(flow/spec.check_weights は小数も通して 1 桁に丸めるので、保存する値が変わらないようここは整数だけを通す)"""
-    if not (isinstance(w, dict) and all(_int_in(w.get(k), 0, 3) for k in _spec.WEIGHT_KEYS)):
-        raise FormError("解析の重みは 0〜3 の整数にしてください(音量・チャット・コメント)")
-    return {k: w[k] for k in _spec.WEIGHT_KEYS}
+def live_auto(s):
+    """ライブの設定 -> 検べた設定 + 長さはいつも自動(lengthMode auto。10-23)。違えば FormError(文は live.check_settings)"""
+    try:
+        return dict(_live.check_settings({k: v for k, v in s.items() if k != "lengthMode"}), lengthMode="auto")
+    except ValueError as e:
+        raise FormError(str(e))
 
 
 def merge_live(cur, change):
-    """⚙ のライブの値(change の sens・waitMin・pad)を今の設定 cur に重ねて検べる -> 新しい設定(lengthMode は今のまま)。
+    """⚙ のライブの値(change の sens・waitMin・pad)を今の設定 cur に重ねて検べる -> 新しい設定(長さは自動)。
     違えば FormError(文は live.check_settings。⚙ の 2 つの口が使う 1 か所)"""
     lv = dict(cur, **{k: change[k] for k in ("sens", "waitMin", "pad") if k in change})
     try:
-        checked = _live.check_settings(lv)
-    except ValueError as e:
+        return live_auto(lv)
+    except FormError as e:
         raise FormError("ライブの" + str(e))
-    return dict(checked, lengthMode=cur.get("lengthMode", "auto"))
 
 
 def oembed(vid, timeout=PEEK_TIMEOUT):
@@ -182,15 +181,9 @@ class Api:
             out["top"] = d["top"]
         if _int_in(d.get("videoTracks"), 1, 5):
             out["videoTracks"] = d["videoTracks"]
-        if isinstance(d.get("useWeights"), bool):
-            out["useWeights"] = d["useWeights"]
         if d.get("pc") in PCS:
             out["pc"] = d["pc"]
-        w = d.get("weights")
-        if isinstance(w, dict) and all(_int_in(w.get(k), 0, 3) for k in _spec.WEIGHT_KEYS):
-            out["weights"] = {k: w[k] for k in _spec.WEIGHT_KEYS}
-        lv = d.get("live") if isinstance(d.get("live"), dict) else {}
-        out["live"] = dict(_live.clean_settings(lv), lengthMode=lv.get("lengthMode") if lv.get("lengthMode") in LENGTH_MODES else "auto")
+        out["live"] = dict(_live.clean_settings(d.get("live")), lengthMode="auto")   # 前の lengthMode fixed・length は読まない(10-23)
         if d.get("cut") in _spec.CUTS:
             out["cut"] = d["cut"]
         return out
@@ -207,7 +200,7 @@ class Api:
         self._write_form(cur)
 
     def set_prefs(self, body):
-        """⚙ の値(C-2-19・C-2-11): pc・useWeights・weights・liveSens・liveWait・livePad -> 変えた物の文のリスト。違えば FormError(どれも書かない)"""
+        """⚙ の値(C-2-19・C-2-11): pc・liveSens・liveWait・livePad -> 変えた物の文のリスト。違えば FormError(どれも書かない)"""
         cur = self.form()
         msgs = []
         if "pc" in body:
@@ -217,14 +210,6 @@ class Api:
                 self._need_key()
             cur["pc"] = body["pc"]
             msgs.append("依頼するにしました(この PC では処理しません)" if body["pc"] == "user" else "この PC で処理するにしました")
-        if "useWeights" in body:
-            if not isinstance(body["useWeights"], bool):
-                raise FormError("解析の重みはオンかオフにしてください")
-            cur["useWeights"] = body["useWeights"]
-            msgs.append("解析の重みを%s" % ("使うにしました" if body["useWeights"] else "使わないにしました"))
-        if "weights" in body:
-            cur["weights"] = check_weights(body["weights"])
-            msgs.append("解析の重みを変えました")
         change = {name: body[key] for key, name in (("liveSens", "sens"), ("liveWait", "waitMin"), ("livePad", "pad")) if key in body}
         if dict(cur["live"], **change) != cur["live"]:
             cur["live"] = merge_live(cur["live"], change)
@@ -239,7 +224,7 @@ class Api:
         if f.get("top") is not None and f["kind"] in ("url", "wait"):
             cur["top"] = f["top"]
         if f.get("live"):
-            cur["live"] = dict(cur["live"], **{k: f["live"][k] for k in ("perHour", "length", "afterStream", "lengthMode") if k in f["live"]})
+            cur["live"] = dict(cur["live"], **{k: f["live"][k] for k in ("perHour", "afterStream") if k in f["live"]})
         self._write_form(cur)
 
     # ------------------------------------------------------------ 送る
@@ -394,7 +379,7 @@ class Api:
         return streamer, people, vt
 
     def check_form(self, body):
-        """配信 1 本の送る欄 -> 整えた欄(上の説明)。違えば FormError。処理する PC・重み・カットは ⚙ の値"""
+        """配信 1 本の送る欄 -> 整えた欄(上の説明)。違えば FormError。処理する PC・カットは ⚙ の値"""
         prefs = self.form()
         vid = _yturl.parse_video_id(body.get("url")) or self._channel_live(body.get("url"))[0]
         kind = body.get("kind") if body.get("kind") in ("url", "live", "wait") else "url"
@@ -407,22 +392,10 @@ class Api:
         live = None
         if kind == "live":
             got = body.get("live") if isinstance(body.get("live"), dict) else {}
-            mode = got.get("lengthMode") if got.get("lengthMode") in LENGTH_MODES else "auto"
-            s = dict(prefs["live"])   # 感度・待ち・余白は ⚙ の値
-            for k in ("perHour", "afterStream"):
-                if k in got:
-                    s[k] = got[k]
-            if mode == "fixed":
-                s["length"] = got.get("length")
-            s.pop("lengthMode", None)
-            try:
-                live = dict(_live.check_settings(s), lengthMode=mode)
-            except ValueError as e:
-                raise FormError(str(e))
+            live = live_auto(dict(prefs["live"], **{k: got[k] for k in ("perHour", "afterStream") if k in got}))   # 感度・待ち・余白は ⚙ の値
         streamer, people, vt = self._common(body)
-        use_w = prefs["useWeights"] and not ranges and kind != "live"
         return {"kind": kind, "url": _yturl.watch_url(vid), "videoId": vid, "ranges": ranges, "top": top, "streamer": streamer, "people": people,
-                "videoTracks": vt, "useWeights": use_w, "weights": prefs["weights"] if use_w else None,
+                "videoTracks": vt,
                 "title": str(body.get("title") or "")[:120], "channel": str(body.get("channel") or "")[:100], "pc": prefs["pc"],
                 "cut": prefs["cut"], "live": live, "startAt": body.get("startAt") if _int_in(body.get("startAt"), 0, 1 << 50) else None}
 
@@ -435,7 +408,7 @@ class Api:
         prefs = self.form()
         streamer, people, vt = self._common(dict(body, streamer=(item or {}).get("streamer", "")))
         return {"kind": "file", "url": "", "videoId": None, "ranges": [], "top": None, "streamer": streamer, "people": people, "videoTracks": vt,
-                "useWeights": False, "weights": None, "title": file_title(picked["name"]), "channel": "", "pc": prefs["pc"], "cut": prefs["cut"],
+                "title": file_title(picked["name"]), "channel": "", "pc": prefs["pc"], "cut": prefs["cut"],
                 "live": None, "file": dict(picked)}
 
     def _people(self, f):
@@ -461,7 +434,7 @@ class Api:
         else:
             env, diff = _order.order("url", video_id=f["videoId"], title=f["title"] or f["videoId"], fresh={"title": f["title"], "channel": f["channel"]},
                                      upto="pack", top=_order.request_top(f["top"], f["ranges"]), ranges=f["ranges"] or None,
-                                     weights=f["weights"], video_tracks=f["videoTracks"], streamer=f["streamer"], repack=True, request_id=rid, cut=_cut(f))
+                                     video_tracks=f["videoTracks"], streamer=f["streamer"], repack=True, request_id=rid, cut=_cut(f))
         people = self._people(f)
         if people:
             diff.setdefault("hints", {})["people"] = people
@@ -748,8 +721,8 @@ class Api:
         raise FormError("取り消せる行ではありません")
 
     def update_live(self, rid, body):
-        """録画中のライブの行の設定を途中で変える(C-2-11。POST /api/friend/live-settings)。body = {perHour?, lengthMode?: auto|fixed, length?, afterStream?}
-        (無い鍵は今の値のまま・length は fixed のときだけ読む・範囲は送る欄と同じ check_settings)。② のライブ係の結びつきを差し替え、行の form.live も
+        """録画中のライブの行の設定を途中で変える(C-2-11。POST /api/friend/live-settings)。body = {perHour?, afterStream?}
+        (無い鍵は今の値のまま・長さはいつも自動 = 前の形の固定の行も自動になる(10-23)・範囲は送る欄と同じ check_settings)。② のライブ係の結びつきを差し替え、行の form.live も
         書き換える = これから採用・切り出す物から効く(もう切った物は作り直さない)。-> 行。ユーザーの PC に頼んだ行・録画中でない行・値の違いは FormError"""
         r = self.inbox.row(rid)
         if r is None:
@@ -762,19 +735,7 @@ class Api:
         if r["state"] != "recording" or not lv.get("recording") or lv.get("endedAt"):
             raise FormError("録画中の行だけ設定を変えられます")
         cur = (r.get("form") or {}).get("live") or {}
-        mode = body.get("lengthMode", cur.get("lengthMode") if cur.get("lengthMode") in LENGTH_MODES else "fixed")   # 無い = 前の形の行 = 固定
-        if mode not in LENGTH_MODES:
-            raise FormError("長さは「自動(場面ごと)」か「固定」を選んでください")
-        s = {k: v for k, v in _live.clean_settings(cur).items() if k != "lengthMode"}
-        for k in ("perHour", "afterStream"):
-            if k in body:
-                s[k] = body[k]
-        if mode == "fixed" and "length" in body:
-            s["length"] = body["length"]
-        try:
-            new = dict(_live.check_settings(s), lengthMode=mode)
-        except ValueError as e:
-            raise FormError(str(e))
+        new = live_auto(dict(_live.clean_settings(cur), **{k: body[k] for k in ("perHour", "afterStream") if k in body}))
         eng = self.engine_fn()
         if eng is None or getattr(eng, "live", None) is None:
             raise FormError("準備中です。少し待ってから、もう一度押してください")

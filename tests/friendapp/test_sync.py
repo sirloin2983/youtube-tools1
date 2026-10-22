@@ -753,11 +753,11 @@ class SyncTest(unittest.TestCase):
         self.assertEqual(sorted(json.loads(self.io.data("/更新/latest.json"))), ["file", "light", "notes", "sha256", "size", "version"])
 
     # ------------------------------------------------------------ 部品
-    def test_request_doc_weights_and_top(self):
-        f = dict(FORM, ranges=[], top=7, people=[], streamer="", weights={"wAudio": 1, "wChat": 2, "wComments": 0})
+    def test_request_doc_top(self):
+        f = dict(FORM, ranges=[], top=7, people=[], streamer="", weights={"wAudio": 1, "wChat": 2, "wComments": 0})   # 前の版の行に残った重みは送らない(10-23)
         d = S.request_doc("url", RID, f, NOW)
         self.assertEqual(d["items"], [{"url": FORM["url"], "top": 7}])
-        self.assertEqual(d["weights"], {"audio": 1.0, "chat": 2.0, "comments": 0.0})
+        self.assertNotIn("weights", d)
         self.assertNotIn("streamer", d)
         self.assertNotIn("speakers", d)
         with self.assertRaises(ValueError):

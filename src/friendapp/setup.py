@@ -12,12 +12,15 @@
     書き換えるのは表に載った物の置き場所(dest の下)だけ(7-5)。接続先は表の https の URL だけ(http への転送は断る)。
 文字起こしのエンジン C(CUDA)にしているときは、公式の CUDA 版の whisper.cpp(pipeline/transcribe/tx_engines.WCPP_BINARIES)も足りない物に数える
     (表に無いので行を組む。取った zip を tx_engines.fetch_wcpp_binary に渡して展開する = 置き方は ① と同じ 1 か所)。
+エンジンは自動で選ぶ(10-23。⚙ の切り替えは消した): 流れの頭の pick_device が、NVIDIA の GPU があり C の部品が取れていれば C、無ければ A を machine.json に書く。
+    NVIDIA で C の部品が無ければ、確かめのあとに C の部品を取って確かめる(_try_cuda。失敗したら A のまま・診断に残し、この版では取り直さない = setup.json の cudaFailed)。
+    逃げ道: 環境変数 YTT_FRIEND_ENGINE=A で A に固定。GPU が分からない(gpu が None・調べに失敗)ときは今のまま。
 記録 <玄関>/setup.json(取った物と最後の回の結果。見るためだけ。足りないかの判断には使わない。ただし checked = 道具を動かして確かめ終えた印は使う)。
 
 準備だけの画面(notes:plan/f1-friend-requirements.md の C-5-1・C-5-2・C-0): start() が確認なしで自動で始める流れ。
     取る(fetching。空きが足りなければ始めずに need-space)→
     浅く置く(placing。places.lay_tools_shallow)→ 道具を確かめる(checking。toolcheck)→
-    (文字起こしが A で動かなければ)エンジン C にして CUDA 版を取り確かめ直す(cuda)→ 済み(done)。失敗は failed(続きから [もう一度] = start)。
+    (文字起こしが A で動かないか、NVIDIA で C の部品が無ければ)エンジン C にして CUDA 版を取り確かめ直す(cuda)→ 済み(done)。失敗は failed(続きから [もう一度] = start)。
     確かめ終えたことは setup.json の checked(版・機器・道具のファイルの印)に残し、次の起動では確かめ直さない(道具が変わったら確かめ直す)。
     画面は view()(1 本の棒)・done(送る画面へ)・awake()(スリープを止める)。
 """
@@ -48,6 +51,7 @@ ROOM = 1024 ** 3            # 取るときに残す空き(展開の途中の物�
 RECORD = "setup.json"
 TX_TOOL = "transcribe"      # 文字起こしの作業データの ID(fetch.json の dest の頭と同じ。dev/build_friend_zip.py の TX_TOOL)
 CUDA_NAME = "whisper.cpp/cuda"
+ENGINE_ENV = "YTT_FRIEND_ENGINE"   # A = エンジンを A に固定(困ったときの逃げ道。10-23)
 FLOW_ACTIVE = ("fetching", "placing", "checking", "cuda")   # スリープを止める間
 FLOW_STATES = FLOW_ACTIVE + ("done", "failed", "need-space")
 LABELS = (("whisper.cpp/", "文字起こしのモデル"), ("llama.cpp/", "文を整える部品"), ("llm/", "文を整えるモデル"), ("sensevoice/", "声の判別のモデル"),
@@ -515,12 +519,12 @@ def space(items, data_root, home, disk_usage=shutil.disk_usage):
 # ---------------------------------------------------------------- 玄関の係
 class Setup:
     """初回の取得の係(玄関に 1 つ)。fetch_path = <home>/fetch.json(無ければ何もしない = 開発の PC)。
-    device() = 今の文字起こしの機器(cuda なら CUDA 版の whisper.cpp も数える)。
+    device() = 今の文字起こしの機器(cuda なら CUDA 版の whisper.cpp も数える)。gpu() = ytt/gpuinfo.info の形か None(None の口 = エンジンを自動で選ばない)。
     after(結果) = 取り終えたとき(玄関が道具の場所を教え直す)"""
 
     def __init__(self, fetch_path, data_root, home, record_dir, device=lambda: "vulkan", log=None, downloader=None,
                  disk_usage=shutil.disk_usage, wcpp=install_wcpp, cuda=cuda_item, after=None, env=None, set_device=None,
-                 run=_toolcheck.run_cmd, whisper=_toolcheck.whisper_run):
+                 run=_toolcheck.run_cmd, whisper=_toolcheck.whisper_run, gpu=None):
         self.fetch_path, self.data_root, self.home, self.record_dir = fetch_path, data_root, home, record_dir
         self.device, self.log, self.downloader = device, log or (lambda msg: None), downloader
         self.disk_usage, self.wcpp, self.cuda, self.after = disk_usage, wcpp, cuda, after
@@ -528,7 +532,7 @@ class Setup:
         # run = 子プロセスの実行・whisper = 文字起こしの 1 回(どれもテストは偽物)
         self.env = os.environ if env is None else env
         self.set_device = set_device or _set_device
-        self.run, self.whisper = run, whisper
+        self.run, self.whisper, self.gpu = run, whisper, gpu
         self.flow = None            # None = まだ始めていない・FLOW_STATES のどれか
         self.flow_thread = None
         self.flow_msg = ""
@@ -543,7 +547,6 @@ class Setup:
         self.cancel_ev = threading.Event()
         self.progress = None
         self.result = None
-        self.cuda_job = False   # 今の(最後の)取得が ⚙ の [取る](C の部品だけ)か
 
     # ---- 足りない物
     def items(self):
@@ -585,7 +588,7 @@ class Setup:
             return "処理の部品が足りません。上の帯の [取ってくる] から取ってください"
         return None
 
-    # ---- ⚙ のエンジン C の部品(10 章の 8: 取り終えるまで C は選べない・横に理由と [取る])
+    # ---- エンジンの自動の選び(10-23。説明は先頭)
     def cuda_ready(self):
         """C の部品(CUDA 版の whisper.cpp)が置いてあるか"""
         try:
@@ -593,48 +596,56 @@ class Setup:
         except Exception:   # noqa: BLE001  (読めなければ無い扱い = C を選ばせない)
             return False
 
-    def cuda_state(self):
-        """⚙ の C の欄: {ready, fetching, percent(取っている間), size(取る大きさ。分からなければ null), available(この PC に取れる物があるか), error}"""
-        ready = self.cuda_ready()
-        fetching = self.running() and self.cuda_job
-        p = self.progress if fetching else None
-        pct = int(min(100, p["done"] * 100 // p["total"])) if p and p.get("total") else (0 if fetching else None)
-        it = None
-        if not ready:
-            try:
-                it = self.cuda()
-            except Exception:   # noqa: BLE001
-                it = None
-        err = None
-        res = self.result
-        if not fetching and not ready and self.cuda_job and res and not res.get("ok"):
-            why = ((res.get("failed") or [{}])[0].get("message") or "")[:120]
-            err = "やめました(取れた分は残り、次は続きから)" if res.get("cancelled") else \
-                "取れませんでした%s。ネットを確かめて、もう一度 [取る] を押してください" % ("(%s)" % why if why else "")
-        return {"ready": ready, "fetching": bool(fetching), "percent": pct, "size": expect(it) if it else None,
-                "available": ready or it is not None, "error": err}
+    def _nvidia(self):
+        """NVIDIA の GPU があるか(True・False)。分からなければ None"""
+        if self.gpu is None:
+            return None
+        try:
+            g = self.gpu()
+        except Exception:   # noqa: BLE001  (調べられなければ今のまま)
+            return None
+        return g.get("vendor") == "nvidia" if isinstance(g, dict) and g.get("name") else None
 
-    def fetch_cuda(self):
-        """C の部品だけを裏の糸で取り始める(エンジンは変えない = 取り終えたら ⚙ で C を選べる)。始められなければ ValueError(理由)"""
-        with self.lock:
-            if self.running():
-                raise ValueError("ほかの部品を取っている途中です。終わってから押してください")
-            if self.cuda_ready():
-                raise ValueError("C の部品はもう取ってあります")
-            it = self.cuda()
-            if not it:
-                raise ValueError("この PC で使える C の部品がありません")
-            short = [s for s in space([it], self.data_root, self.home, self.disk_usage) if not s["ok"]]
-            if short:
-                raise ValueError("%s の空きが足りません(空き %s・要る %s)" % (short[0]["path"], gb(short[0]["free"]), gb(short[0]["need"])))
-            self.cancel_ev.clear()
-            self.result = None
-            self.cuda_job = True
-            self.progress = {"index": 0, "count": 1, "name": it["name"], "label": label(it["name"]), "phase": "始めています", "itemDone": 0,
-                             "itemTotal": 0, "done": 0, "total": expect(it)}
-            self.thread = threading.Thread(target=self._job, args=([it],), name="friend-setup-cuda", daemon=True)
-            self.thread.start()
-        return self.cuda_state()
+    def _rec(self):
+        return _fsio.read_json_or(os.path.join(self.record_dir, RECORD), {}, kind=dict)
+
+    def cuda_failed(self):
+        """この版で C が使えなかった(取れない・動かない)= 自動では選ばず取り直さない"""
+        return self._rec().get("cudaFailed") == _version.VERSION
+
+    def pick_device(self):
+        """NVIDIA の GPU があり C の部品が取れていれば C、無ければ A を machine.json に書く(逃げ道 ENGINE_ENV=A は A)。
+        -> C の部品を取りに行くか(NVIDIA で部品が無く、この版でまだ失敗していない)"""
+        if (self.env.get(ENGINE_ENV) or "").strip().upper() == "A":
+            want, fetch = "vulkan", False
+        else:
+            nv = self._nvidia()
+            if nv is None:
+                return False
+            ready = nv and self.cuda_ready() and not self.cuda_failed()
+            want = "cuda" if ready else "vulkan"
+            fetch = bool(nv and not ready and not self.cuda_failed())
+        if self.device() != want:
+            self.set_device(want)
+            self.log("文字起こしのエンジンを %s にしました(自動)" % ("C" if want == "cuda" else "A"))
+        return fetch
+
+    def _cuda_fail(self, why):
+        """C を使えなかった: この版では取り直さない印・診断に 1 つ(準備は A のまま続ける)"""
+        path = os.path.join(self.record_dir, RECORD)
+        d = self._rec()
+        d["cudaFailed"] = _version.VERSION
+        try:
+            _fsio.write_json(path, d, indent=1)
+        except OSError as e:
+            self.log("C の失敗の印を書けませんでした: %s" % e.__class__.__name__)
+        self.log("エンジン C を使えないので A のままにします: %s" % why[:200])
+        cb = getattr(self, "on_fail", None)
+        if cb is not None:
+            try:
+                cb("エンジン C を使えないので A のままにしました", why[:2000])
+            except Exception:   # noqa: BLE001  (診断で準備を止めない)
+                pass
 
     def cancel(self):
         self.cancel_ev.set()
@@ -780,6 +791,7 @@ class Setup:
     def _flow(self):
         if self.cancel_ev.is_set():
             raise Cancelled()
+        fetch_c = self.pick_device()   # エンジンの自動の選び(items が C の部品を数えるので先に)
         # 1 足りない物
         items = self.items()
         if self.error:
@@ -788,6 +800,8 @@ class Setup:
         device = self.device()
         miss = [i for i in items if not is_done(i, self.data_root, self.home)]
         if not miss and self._checked_ok(device):
+            if fetch_c and self._try_cuda(device):
+                self._save_checked("cuda")
             self._flow_set("done", "")
             return
         fetched = []
@@ -818,10 +832,17 @@ class Setup:
         bad = _toolcheck.failed(rows)
         if bad:
             return self._flow_fail("部品の一つが動きません。ウイルス対策ソフトに止められていないか確かめて [もう一度] を押してください(どれかは「詳しく」に)")
-        if not wrow["ok"]:
-            if device == "cuda" or not self._try_cuda(device):
+        if not wrow["ok"] and device == "cuda" and self._nvidia() is not None:   # 自動で選んだ C が動かない = A で確かめ直す
+            self._cuda_fail(wrow.get("text") or "")
+            self.set_device("vulkan")
+            device = "vulkan"
+            wrow = self._whisper_row(device, rows)
+            self._check_rows([wrow])
+        if not wrow["ok"] or fetch_c:
+            if device != "cuda" and not self.cuda_failed() and self._try_cuda(device):
+                device = "cuda"
+            elif not wrow["ok"]:
                 return self._flow_fail("文字起こしが動きません。パソコンを起動し直してから [もう一度] を押してください。続くときは [詳しい文をコピー] で写して作る人に送ってください")
-            device = "cuda"
         self._save_checked(device)
         self._flow_set("done", "")
         if self.after is not None:
@@ -865,6 +886,8 @@ class Setup:
         self._check_rows([row])
         if not row["ok"]:
             self.set_device(was)
+            if self.gpu is not None:   # 自動の選び = この版では取り直さない・診断へ
+                self._cuda_fail(row.get("text") or "")
             return False
         return True
 

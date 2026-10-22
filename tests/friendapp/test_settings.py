@@ -17,7 +17,7 @@ if SRC not in sys.path:
 from ytt import tools as YT  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
 import testkit  # noqa: E402
-from friendapp import places as P, server as S, settings as T, setup as SU  # noqa: E402
+from friendapp import places as P, server as S, settings as T  # noqa: E402
 from test_server import FakeEngine  # noqa: E402
 
 URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
@@ -101,7 +101,7 @@ class SettingsBase(unittest.TestCase):
         self.app.setup.wait(5)
 
     def upd(self, body):
-        """Settings.update を直に呼ぶ(processing・weights・live)"""
+        """Settings.update を直に呼ぶ(processing・live)"""
         try:
             msg = self.app.settings.update(body)["message"]
         except T.SettingsError as e:
@@ -216,12 +216,12 @@ class SettingsServerTest(SettingsBase):
         self.assertTrue(s["caseIsDefault"])
         self.assertEqual(s["diskMinGB"], 20)
 
-    def test_engine_disk_cut(self):
-        self.app.setup.cuda_ready = lambda: True   # C の部品はもう置いてある形(取るのは test_engine_c_needs_parts_first)
-        st, j = self.post("/api/friend/settings", {"engine": "C", "diskMinGB": 35, "cut": "silence"})
+    def test_engine_is_read_only_disk_cut(self):
+        """エンジンは見せるだけ(10-23: 自動で選ぶ = test_setup の AutoDeviceTest)。古い画面の engine・fetchCuda は読まない"""
+        st, j = self.post("/api/friend/settings", {"engine": "C", "fetchCuda": True, "diskMinGB": 35, "cut": "silence"})
         self.assertEqual(st, 200, j)
         s = j["settings"]
-        self.assertEqual((s["engine"], s["diskMinGB"], s["cut"]), ("C", 35, "silence"))
+        self.assertEqual((s["engine"], s["diskMinGB"], s["cut"], "cuda" in s), ("A", 35, "silence", False))
         # カットは送るときの束に入る(しない = 入れない = 今までの束のまま)
         st, j = self.post("/api/friend/send", {"url": URL, "top": 3, "title": "題"})
         self.assertEqual(st, 200, j)
@@ -233,59 +233,20 @@ class SettingsServerTest(SettingsBase):
         self.assertNotIn("cut", diff.get("pack") or {})
 
     def test_bad_values_refused(self):
-        for body in ({"engine": "B"}, {"diskMinGB": -1}, {"diskMinGB": "abc"}, {"cut": "rows"}):
+        for body in ({"diskMinGB": -1}, {"diskMinGB": "abc"}, {"cut": "rows"}):
             st, j = self.post("/api/friend/settings", body)
             self.assertEqual(st, 400, body)
         self.assertFalse(os.path.exists(os.environ["YTT_MACHINE_FILE"]))
         # ---- test_bad_values_write_nothing
-        for body in ({"weights": {"wAudio": 4, "wChat": 0, "wComments": 0}}, {"weights": {"wAudio": 1}}, {"live": {"sens": "max"}},
-                     {"live": {"waitMin": 0}}, {"live": {"pad": 9}}, {"processing": "x"}):
+        for body in ({"live": {"sens": "max"}}, {"live": {"waitMin": 0}}, {"live": {"pad": 9}}, {"processing": "x"}):
             st, j = self.upd(dict(body, cut="silence"))
             self.assertEqual(st, 400, body)
         self.assertEqual(self.app.api.form()["cut"], "none")
-        self.assertFalse(self.app.api.form()["useWeights"])
 
-    def test_engine_c_needs_parts_first(self):
-        """f1 の 10 章の 8: C は部品を取り終えるまで選べない(理由つきで断る)・[取る] で C の部品だけを取る(エンジンは変えない)・取り終えたら選べる"""
-        blob = b"cuda-zip"
-        item = {"name": SU.CUDA_NAME, "file": "c.zip", "url": "https://h/c.zip", "sha256": hashlib.sha256(blob).hexdigest(), "base": "data",
-                "dest": "transcribe/bin", "unzip": "wcpp", "top": "", "member": "", "size": len(blob), "maxBytes": 0, "parts": []}
-        self.dl.files["https://h/c.zip"] = blob
-        self.app.setup.cuda = lambda: item
-        self.app.setup.wcpp = lambda it, archive, root: None   # 置き方は test_setup
-        ready = [False]
-        with mock.patch.object(SU, "_wcpp_ready", lambda root: ready[0]):
-            s = self.get("/api/friend/settings")[1]["settings"]["cuda"]
-            self.assertEqual((s["ready"], s["fetching"], s["available"], s["size"]), (False, False, True, len(blob)))
-            st, j = self.post("/api/friend/settings", {"engine": "C"})
-            self.assertEqual(st, 400)
-            self.assertIn("[取る]", j["message"])
-            self.assertEqual(self.get("/api/friend/settings")[1]["settings"]["engine"], "A")   # 変えていない
-            st, j = self.post("/api/friend/settings", {"fetchCuda": True})
-            self.assertEqual(st, 200, j)
-            self.assertIn("取り始めました", j["message"])
-            self.app.setup.wait(5)
-            self.assertEqual(self.get("/api/friend/settings")[1]["settings"]["engine"], "A")   # 取ってもエンジンは変えない
-            ready[0] = True
-            self.assertTrue(self.get("/api/friend/settings")[1]["settings"]["cuda"]["ready"])
-            st, j = self.post("/api/friend/settings", {"engine": "C"})
-            self.assertEqual(st, 200, j)
-            st, j = self.post("/api/friend/settings", {"fetchCuda": True})
-            self.assertEqual(st, 400)   # もう取ってある
-            self.assertIn("もう取ってあります", j["message"])
-
-    def test_fetch_cuda_without_part_for_this_pc(self):
-        self.app.setup.cuda = lambda: None
-        with mock.patch.object(SU, "_wcpp_ready", lambda root: False):
-            self.assertFalse(self.get("/api/friend/settings")[1]["settings"]["cuda"]["available"])
-            st, j = self.post("/api/friend/settings", {"fetchCuda": True})
-        self.assertEqual(st, 400)
-        self.assertIn("使える C の部品がありません", j["message"])
-
-    def test_processing_weights_live_view_and_update(self):
+    def test_processing_live_view_and_update(self):
         st, j = self.get("/api/friend/settings")
         s = j["settings"]
-        self.assertEqual((s["processing"], s["weights"], s["canRemote"]), ("local", None, False))
+        self.assertEqual((s["processing"], s["canRemote"], "weights" in s), ("local", False, False))   # 解析の重みは 10-23 に消した
         self.assertEqual(s["live"], {"sens": "normal", "waitMin": 5, "pad": 2.0})
         self.assertEqual([o["value"] for o in s["liveSensOptions"]], ["high", "normal", "low"])
         self.assertEqual(s["liveSensOptions"][0]["label"], "高い")
@@ -293,13 +254,9 @@ class SettingsServerTest(SettingsBase):
         st, j = self.upd({"weights": {"wAudio": 3, "wChat": 0, "wComments": 1}, "live": {"sens": "high", "waitMin": 10, "pad": 1.5}})
         self.assertEqual(st, 200, j)
         s = j["settings"]
-        self.assertEqual(s["weights"], {"wAudio": 3, "wChat": 0, "wComments": 1})
-        self.assertEqual(s["live"], {"sens": "high", "waitMin": 10, "pad": 1.5})
+        self.assertEqual((s["live"], "weights" in s), ({"sens": "high", "waitMin": 10, "pad": 1.5}, False))   # 重みは読まない
         form = self.app.api.form()   # 送る係が読む form.json に入っている
-        self.assertEqual((form["useWeights"], form["live"]["sens"], form["live"]["perHour"]), (True, "high", 6))
-        st, j = self.upd({"weights": None})
-        self.assertIsNone(j["settings"]["weights"])
-        self.assertEqual(self.app.api.form()["weights"], {"wAudio": 3, "wChat": 0, "wComments": 1})
+        self.assertEqual((form["live"]["sens"], form["live"]["perHour"], "weights" in form), ("high", 6, False))
 
     def test_api_key_saved_and_never_returned(self):
         st, j = self.post("/api/friend/settings/key", {"key": "  " + KEY + "\n"})

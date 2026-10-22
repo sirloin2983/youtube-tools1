@@ -36,11 +36,11 @@ class FakeRunner:
         self.requests, self.files = [], []
         self.fail = None
 
-    def start_request(self, items, request_id=None, deliver_dir=None, speakers=None, video_tracks=None, cut=None, weights=None, streamer=None):
+    def start_request(self, items, request_id=None, deliver_dir=None, speakers=None, video_tracks=None, cut=None, streamer=None):
         if self.fail:
             raise ValueError(self.fail)
         self.requests.append((items, request_id))
-        self.last = {"deliver": deliver_dir, "speakers": speakers, "tracks": video_tracks, "cut": cut, "weights": weights, "streamer": streamer}
+        self.last = {"deliver": deliver_dir, "speakers": speakers, "tracks": video_tracks, "cut": cut, "streamer": streamer}
         return {"runs": [{"id": "r%d" % len(self.requests) + it["id"][:3], "videoId": it["id"]} for it in items], "skipped": []}
 
     def start_file(self, path, title="", streamer=None, request_id=None, deliver_dir=None, speakers=None, video_tracks=None, cut=None):
@@ -120,7 +120,7 @@ class TestSubmitOrders(unittest.TestCase):
         out = intake.submit_urls(rec, [{"id": "aaaaaaaaaaa", "top": 3, "title": "配信", "channel": "ch", "ranges": [(10, 20)], "duration": 100.0},
                                        {"id": "bbbbbbbbbbb", "top": 2}, {"id": "bad", "top": 2}, {"id": "ccccccccccc", "top": 0}],   # 本数は 1 以上(上限なし。10-20)
                                  request_id="20261016-120000-abc123", deliver_dir="D:/out", speakers={"count": 2, "names": ["A"]},
-                                 video_tracks=2, cut="silence", weights={"wAudio": 1.5, "wChat": 0.5, "wComments": 2.0}, streamer="兎田ぺこら")
+                                 video_tracks=2, cut="silence", streamer="兎田ぺこら")
         self.assertEqual(sorted(out), ["runs", "skipped"])
         self.assertEqual([r["videoId"] for r in out["runs"]], ["aaaaaaaaaaa"])
         self.assertEqual([(s["id"], s["reason"]) for s in out["skipped"]],
@@ -554,8 +554,8 @@ class TestVideo(Base):
         self.assertEqual(self.runner.last["tracks"], 3)
         self.assertEqual(self.it.snapshot()["requests"][0]["flowOrig"], "check")
 
-    def test_ranges_cut_weights_from_app(self):
-        """2.0.0 のアプリ: 時刻で指定した区間(配信ごと)・カット(① だけ)・解析の重みを、形を確かめてまとめて実行へ"""
+    def test_ranges_cut_from_app(self):
+        """2.0.0 のアプリ: 時刻で指定した区間(配信ごと)・カット(① だけ)を、形を確かめてまとめて実行へ。解析の重みは古いアプリから来ても読まない(10-23)"""
         self.assertEqual(intake.parse_ranges(None), ([], []))
         ok, bad = intake.parse_ranges([{"start": 10, "end": 20}, {"start": 5, "end": 5}, {"start": 0, "end": 360001}, {"start": "1", "end": 2}, "x",
                                        {"start": True, "end": 2}, {"start": 10, "end": 20}, {"start": 0, "end": 3 * 3600}])
@@ -565,9 +565,6 @@ class TestVideo(Base):
         self.assertEqual((ok, len(bad)), ([(1.3, 2.0)], 1))
         self.assertIn("短すぎます", bad[0])
         self.assertEqual([_order.cut_arg(x) for x in ("none", "silence", "rows", None, 1)], ["none", "silence", None, None, None])
-        self.assertEqual(intake.parse_weights({"audio": 1.5, "chat": 0, "comments": 3}), {"wAudio": 1.5, "wChat": 0.0, "wComments": 3.0})
-        for badw in (None, {}, {"audio": 1, "chat": 1}, {"audio": 4, "chat": 1, "comments": 1}, {"audio": "1", "chat": 1, "comments": 1}, {"audio": True, "chat": 1, "comments": 1}):
-            self.assertIsNone(intake.parse_weights(badw), badw)
 
         self.infos["abcdefghijk"] = {"duration": 7200.0, "live": "not_live", "title": "長い配信", "channel": "ch"}
         self.infos["bbbbbbbbbbb"] = {"duration": 600.0, "live": "not_live", "title": "短い配信", "channel": "ch"}
@@ -583,10 +580,10 @@ class TestVideo(Base):
         self.assertEqual((by["abcdefghijk"]["top"], by["abcdefghijk"]["ranges"]), (2, [(5025, 5110), (60, 90)]))   # 区間を選んだら切り抜く数 = 区間の数(10-19。友人のアプリと同じ)
         self.assertEqual((by["bbbbbbbbbbb"]["top"], by["bbbbbbbbbbb"]["ranges"], by["bbbbbbbbbbb"]["duration"]), (1, [(590, 600.0)], 600.0))   # 配信の長さで切る・長さより後の区間の分は自動で埋めない(頼んだ 3 本は使わない)
         self.assertEqual((by["ccccccccccc"]["top"], by["ccccccccccc"]["ranges"]), (2, []))
-        self.assertEqual((self.runner.last["cut"], self.runner.last["weights"], self.runner.last["tracks"]), ("silence", {"wAudio": 1.5, "wChat": 1.0, "wComments": 0.7}, 2))
+        self.assertEqual((self.runner.last["cut"], self.runner.last["tracks"]), ("silence", 2))   # 古いアプリの weights は読まない
         rec = self.it.snapshot()["requests"][0]
-        self.assertEqual((rec["rangesLabel"], rec["cutLabel"], rec["weightsLabel"]),
-                         ("区間: 1:23:45〜1:25:10・0:01:00〜0:01:30・0:09:50〜0:10:00", "カット: 無音で削る", "重み: 音声 1.5・チャット 1.0・コメント 0.7"))
+        self.assertEqual((rec["rangesLabel"], rec["cutLabel"], "weightsLabel" in rec),
+                         ("区間: 1:23:45〜1:25:10・0:01:00〜0:01:30・0:09:50〜0:10:00", "カット: 無音で削る", False))
         reasons = [i["reason"] for i in rec["items"] if i["state"] == "rejected"]
         self.assertEqual(len(reasons), 2, reasons)
         self.assertTrue(any("より後です" in r for r in reasons) and any("終了が開始より前" in r for r in reasons), reasons)
@@ -599,7 +596,7 @@ class TestVideo(Base):
         self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "flow": "check", "cut": "silence",
                                                      "items": [{"url": "https://youtu.be/ddddddddddd", "top": 3, "ranges": [{"start": 1, "end": 9}]}]}))
         self.scan2()
-        self.assertEqual((self.runner.requests[-1][0][0]["ranges"], self.runner.last["cut"], self.runner.last["weights"]), ([(1, 9)], "silence", None))
+        self.assertEqual((self.runner.requests[-1][0][0]["ranges"], self.runner.last["cut"]), ([(1, 9)], "silence"))
         self.assertEqual(self.it.snapshot()["requests"][0]["cutLabel"], "カット: 無音で削る")
         rid = "20261002-120000-abc203"
         self.put(rid + ".request.json", json.dumps({"v": 1, "kind": "url", "id": rid, "flow": "manual",
@@ -922,7 +919,7 @@ class TestLiveRequest(Base):
             items, got = self.runner.requests[-1]
             self.assertEqual(([(x["id"], x["top"], x["ranges"]) for x in items], got), ([(self.VID, 4, [])], rid))
             self.assertEqual(self.runner.last, {"deliver":os.path.join(self.folder, intake.OUT_DIR), "speakers": self.SPEAKERS, "tracks": 3,
-                                                "cut": "silence", "weights": None, "streamer": "さくらみこ"})
+                                                "cut": "silence", "streamer": "さくらみこ"})
             self.assertEqual((rec["kind"], rec["state"], rec["title"], rec["flowLabel"]), ("url", "accepted", title, "① 全自動"))
             note = [x for x in rec["items"] if x["label"] == "ライブ配信"]
             self.assertEqual([(x["state"], "配信は終わっていた" in x["reason"]) for x in note], [("accepted", True)])

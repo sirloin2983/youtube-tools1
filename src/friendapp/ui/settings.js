@@ -56,21 +56,14 @@
     ui.resetSave = h('button', { type: 'button', class: 'btn ghost small', text: '既定に戻す' });
     ui.pickCases = h('button', { type: 'button', class: 'btn small', text: '選ぶ' });
     ui.resetCases = h('button', { type: 'button', class: 'btn ghost small', text: '既定に戻す' });
+    ui.engine = h('p', {});   /* 文字起こしのエンジンは見せるだけ(10-23: 自動で選ぶ) */
     ui.gpu = h('p', { class: 'hint' });
-    /* C の部品(f1 の 10 章の 8): 取り終えるまで C は選べない。横に理由と [取る]・取っている間は n% */
-    ui.cudaText = h('span', { class: 'fs-cuda-text', 'aria-live': 'polite' });
-    ui.cudaGet = h('button', { type: 'button', class: 'btn small', text: '取る', title: 'C(NVIDIA 用)の部品を取ってきます。取り終えると C を選べます' });
-    ui.cudaRow = h('div', { class: 'fs-line fs-cuda', hidden: '' }, [ui.cudaText, ui.cudaGet]);
     ui.keyState = h('p', {});
     ui.key = h('input', { type: 'text', class: 'fs-key', autocomplete: 'off', spellcheck: 'false', 'aria-labelledby': 'fsKeyH', placeholder: 'キーを貼る' });
     ui.keySave = h('button', { type: 'button', class: 'btn small', text: '確かめて保存' });
     ui.keyClear = h('button', { type: 'button', class: 'btn ghost small', text: '消す' });
     ui.keyHelp = h('p', { class: 'hint' });
     ui.remoteWhy = h('p', { class: 'hint' });
-    ui.useWeights = h('input', { type: 'checkbox' });
-    ui.weightsRow = h('div', { class: 'fs-line fs-weights' }, [['wAudio', '音量'], ['wChat', 'チャット'], ['wComments', 'コメント']].map(function (w) {
-      return h('label', { class: 'fs-radio' }, [w[1] + ' ', num('fsW_' + w[0], 0, 3, 1, w[1] + 'の重み')]);
-    }));
     ui.sens = h('select', { 'aria-labelledby': 'fsLiveSensL' });
     /* YouTube のログイン(notes:docs/spec/friend.md の 13-13)。ログインは exe の小窓(FriendHost.youtubeLogin)・ログアウトは POST settings {ytLogout} */
     ui.ytState = h('p', { 'aria-live': 'polite' });
@@ -103,13 +96,11 @@
               '[受け取る] を押した切り抜きを置く場所です。変えても、今ある物は移しません。'),
       section('fsCasesH', '一時保管', [ui.cases, h('div', { class: 'fs-line' }, [ui.pickCases, ui.resetCases])],
               '作っている途中の物・録画を置く場所です。選び直しても今ある物は移さず、新しい物から新しい場所に作ります。空き容量はこの場所のドライブで測ります。'),
-      section('fsEngineH', '文字起こしのエンジン', [radios('fsEngine', 'fsEngineH', [['A', 'A(どの GPU でも)'], ['C', 'C(NVIDIA 用)']]), ui.cudaRow, ui.gpu],
-              'C は NVIDIA の GPU で速くなります。C を使うには部品を取ります(取り終えると選べます)。次の処理から使います。'),
+      section('fsEngineH', '文字起こしのエンジン', [ui.engine, ui.gpu],
+              'この PC に合わせて自動で選びます(NVIDIA の GPU なら C、ほかは A)。'),
       section('fsKeyH', 'YouTube の API キー', [ui.keyState, h('div', { class: 'fs-line' }, [ui.key, ui.keySave, ui.keyClear]), ui.keyHelp]),
       section('fsDiskH', '空き容量の下限', [h('div', { class: 'fs-line' }, [num('fsDisk', 0, 100000, 1, '空き容量の下限(GB)'), h('span', { class: 'hint', text: 'GB(空きがこれより少なくなると、新しい処理を始めずに待ちます)' })])]),
       section('fsCutH', 'カットの既定', [radios('fsCut', 'fsCutH', [['none', 'しない'], ['silence', '無音を削る']])], '送るときに使います。初めは「しない」です。'),
-      section('fsWH', '解析の重み', [h('label', { class: 'fs-radio' }, [ui.useWeights, ' 重みを指定する']), ui.weightsRow],
-              '見どころを自動で探すときの手がかりの強さ(0〜3)。指定しなければ、作る人の PC の設定の値を使います。区間を入れた依頼では使いません。'),
       section('fsLiveH', 'ライブの切り抜き', [
         h('div', { class: 'fs-line' }, [h('span', { id: 'fsLiveSensL', text: '感度' }), ui.sens]),
         h('div', { class: 'fs-line' }, [h('label', { class: 'fs-radio' }, ['待ち ', num('fsLiveWait', 1, 60, 1, '待ち(分)'), ' 分'])]),
@@ -130,7 +121,6 @@
     ui.resetSave.addEventListener('click', function () { put({ reset: 'save' }); });
     ui.resetCases.addEventListener('click', function () { put({ reset: 'cases' }); });
     ['local', 'remote'].forEach(function (v) { ui['fsPc:' + v].addEventListener('change', function () { put({ processing: v }); }); });
-    ['A', 'C'].forEach(function (v) { ui['fsEngine:' + v].addEventListener('change', function () { put({ engine: v }); }); });
     ['none', 'silence'].forEach(function (v) { ui['fsCut:' + v].addEventListener('change', function () { put({ cut: v }); }); });
     ui.fsDisk.addEventListener('change', function () {
       var v = parseFloat(ui.fsDisk.value);
@@ -139,23 +129,11 @@
     ui.keySave.addEventListener('click', function () { saveKey(ui.key.value.trim()); });
     ui.key.addEventListener('keydown', function (e) { if (e.key === 'Enter') saveKey(ui.key.value.trim()); });
     ui.keyClear.addEventListener('click', function () { saveKey(''); });
-    ui.cudaGet.addEventListener('click', function () { ui.cudaGet.disabled = true; put({ fetchCuda: true }); });
-    ui.useWeights.addEventListener('change', putWeights);
-    ['wAudio', 'wChat', 'wComments'].forEach(function (k) { ui['fsW_' + k].addEventListener('change', putWeights); });
     ui.sens.addEventListener('change', putLive);
     ui.fsLiveWait.addEventListener('change', putLive);
     ui.fsLivePad.addEventListener('change', putLive);
     ui.ytLogin.addEventListener('click', ytLogin);
     ui.ytLogout.addEventListener('click', function () { put({ ytLogout: true }); });
-  }
-
-  function putWeights() {
-    var w = null;
-    if (ui.useWeights.checked) {
-      w = {};
-      ['wAudio', 'wChat', 'wComments'].forEach(function (k) { w[k] = Math.max(0, Math.min(3, parseInt(ui['fsW_' + k].value, 10) || 0)); });
-    }
-    put({ weights: w });
   }
 
   function putLive() {
@@ -174,8 +152,7 @@
     ui['fsPc:remote'].disabled = s.canRemote === false && s.processing !== 'remote';
     ui['fsPc:remote'].title = ui['fsPc:remote'].disabled ? 'Dropbox の鍵が無いので選べません' : '';
     ui.remoteWhy.textContent = s.canRemote === false ? 'Dropbox の鍵が無いので「依頼する」は選べません' : '';
-    setRadio('fsEngine', s.engine);
-    fillCuda(s);
+    ui.engine.textContent = s.engine === 'C' ? 'C(NVIDIA 用)で動いています' : 'A(どの GPU でも)で動いています';
     ui.gpu.textContent = s.gpu ? 'この PC の GPU: ' + s.gpu.name + (s.gpu.vramGB ? '(' + s.gpu.vramGB + ' GB)' : '') : '';
     ui.keyState.textContent = s.apiKey ? '入っています' : 'まだ入っていません';
     ui.keyClear.disabled = !s.apiKey;
@@ -183,14 +160,6 @@
     ui.keyHelp.textContent = s.apiKeyHelp || '';
     if (document.activeElement !== ui.fsDisk) ui.fsDisk.value = s.diskMinGB == null ? '' : s.diskMinGB;
     setRadio('fsCut', s.cut);
-    var w = s.weights;
-    ui.useWeights.checked = !!w;
-    ['wAudio', 'wChat', 'wComments'].forEach(function (k) {
-      var e = ui['fsW_' + k];
-      e.disabled = !w;
-      e.title = w ? '0〜3' : '「重みを指定する」を入れると変えられます';
-      if (document.activeElement !== e) e.value = w && w[k] != null ? w[k] : 1;
-    });
     var lv = s.live || {};
     if (!ui.sens.options.length || ui.sens.dataset.n !== String((s.liveSensOptions || []).length)) {
       ui.sens.textContent = '';
@@ -224,23 +193,6 @@
       if (message) UIKit.toast(message, { ms: 4000 });
       load();
     });
-  }
-
-  var cudaTimer = 0;
-
-  function fillCuda(s) {
-    var c = s.cuda || {}, r = ui['fsEngine:C'];
-    var locked = !c.ready && s.engine !== 'C';
-    r.disabled = locked;
-    r.title = !locked ? '' : c.fetching ? 'C の部品を取っています。取り終えると選べます' : 'C の部品がまだありません。横の [取る] で取り終えると選べます';
-    if (locked) ui.cudaRow.removeAttribute('hidden'); else ui.cudaRow.setAttribute('hidden', '');
-    ui.cudaGet.hidden = !!c.fetching || !c.available;
-    ui.cudaGet.disabled = false;
-    ui.cudaText.textContent = c.fetching ? 'C の部品を取っています ' + (c.percent || 0) + '%' :
-      !c.available ? 'この PC には C の部品がありません(NVIDIA の GPU 用)' :
-      (c.error ? c.error : 'C を使うには部品' + (c.size ? '(約 ' + sizeText(c.size) + ')' : '') + 'を取ります');
-    clearTimeout(cudaTimer);
-    if (c.fetching) cudaTimer = setTimeout(function () { if (drawer && UIKit.drawer.isOpen(drawer)) load(); }, 1500);   /* 開いている間だけ進み具合を読み直す */
   }
 
   function load() { return api('settings').then(function (j) { fill(j.settings); }, function (e) { fail('設定を読めませんでした', e); }); }

@@ -49,8 +49,8 @@
 - **__init__.py** (2 行) — ③ 友人: 受付(Dropbox)→ まとめて実行(②)に流す → 届ける。友人の返事・送り返し・ライブの依頼の結びつき
 - **friend_feedback.py** (118 行) — 友人の「要らない」を PC 側で片付ける(notes:docs/spec/friend.md の 2-14。ユーザー「不採用の場合こちらにフィードバック」)。
   - 名前: `record_delivery` :24・`find_delivery` :29・`apply` :82
-- **intake.py** (835 行) — 友人からの依頼の受付(notes:docs/spec/friend.md)。
-  - 名前: `configured_folder` :76・`out_dir_of` :87・`submit_urls` :97・`submit_file` :122・`youtube_id` :132・`parse_lines` :138・`decode_text` :164・`probe_video` :178・`youtube_info` :190・`parse_ranges` :240・`parse_weights` :251・`class Intake` :277
+- **intake.py** (826 行) — 友人からの依頼の受付(notes:docs/spec/friend.md)。
+  - 名前: `configured_folder` :77・`out_dir_of` :88・`submit_urls` :98・`submit_file` :122・`youtube_id` :132・`parse_lines` :138・`decode_text` :164・`probe_video` :178・`youtube_info` :190・`parse_ranges` :240・`class Intake` :269
 - **live_requests.py** (22 行) — 友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend.md の 2-15)。
   - 名前: `settings_label` :19
 - **returns.py** (476 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。notes:docs/design/f1-build.md の (f1d))。

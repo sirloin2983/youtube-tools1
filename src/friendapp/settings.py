@@ -4,15 +4,13 @@
 項目と置き場所:
     受け取るの保存先    <玄関>/save-dir.json の dir(無ければ %USERPROFILE%/Videos/受け取ったパック = server.save_dir)
     一時保管            スタジオの書き出し先 outDir と machine の caseRoot(同じ値にそろえる)。7-3 = 選び直しても移さない(新しい物から新しい場所)
-    文字起こしのエンジン machine の device(A = vulkan / C = cuda)。C は部品(CUDA 版の whisper.cpp)を取り終えるまで選べない(f1 の 10 章の 8)。
-                       取るのは ⚙ の [取る](fetchCuda = setup.Setup.fetch_cuda。エンジンは変えない)
+    文字起こしのエンジン machine の device(A = vulkan / C = cuda)。見せるだけ(10-23: 選ぶのは初回の準備・起動の setup.Setup.pick_device)
     YouTube の API キー  <作業データ>/app/keys.json の youtubeApiKey(画面へはキーを返さない =「入っている / 無い」だけ)。
                         貼ったら videos.list を 1 回呼んで確かめ、使えるときだけ保存。消すと "" を書く。
                         入れた・消したは環境変数 YTT_YT_API_KEY にもすぐ写す
     空き容量の下限      machine の diskMinGB(GB)
     カットの既定        <玄関>/form.json の cut(none = しない・silence = 無音を削る。初めは none = A-8)。送る欄には出さず、送るときの束に効く
     処理する PC         processing: local = この PC で処理する・remote = 依頼する(form.json の pc: this / user。remote は Dropbox の鍵があるときだけ = view の canRemote)
-    解析の重み          weights: null(既定の重み)か {wAudio, wChat, wComments} 0〜3(form.json の useWeights と weights)
     ライブの感度・待ち・余白  live: {sens: high|normal|low, waitMin: 分, pad: 秒}(form.json の live。範囲は friendapp/live.RANGES。画面の選択肢は view の liveSensOptions)
     YouTube のログイン   view の ytLogin: {state: none|ok|expired, at: ログインした ms}。ログインは FriendApp.exe の窓(LoginForm)が cookie を書く =
                         ここは読むだけ。expired = ログインのあとに bot の失敗があった。update の ytLogout: true で cookie を消す(notes:docs/spec/friend.md の 13-13)
@@ -40,7 +38,6 @@ KEY_TIMEOUT = 10
 SAVE_FILE = "save-dir.json"
 SAVE_DEFAULT = ("Videos", "受け取ったパック")
 CASES_NAME = "作業"
-DEVICES = {"A": "vulkan", "C": "cuda"}
 CUTS = _spec.CUTS            # none・silence
 CUT_DEFAULT = "none"         # A-8
 PROCESSING = {"local": "this", "remote": "user"}   # ⚙ の処理する PC -> form.json の pc
@@ -196,7 +193,7 @@ class Settings:
                 "engine": "C" if m.get("device") == "cuda" else "A", "gpu": gpu,
                 "apiKey": bool(load_key(self.places["data"]) or self.env.get(KEY_ENV)), "apiKeyHelp": KEY_HELP,
                 "diskMinGB": m.get("diskMinGB"), "cut": self.api.form().get("cut", CUT_DEFAULT),
-                **self._form_view(), "cuda": self.cuda(), "ytLogin": self.yt_login()}
+                **self._form_view(), "ytLogin": self.yt_login()}
 
     def yt_login(self):
         """YouTube のログインの状態(上の説明)。cookie の中身は読まない"""
@@ -234,10 +231,8 @@ class Settings:
 
     def _form_view(self):
         f = self.api.form()
-        w = f["weights"]
         lv = f["live"]
-        return {"processing": "remote" if f["pc"] == "user" else "local",
-                "weights": dict(w) if f["useWeights"] else None, "live": {k: lv[k] for k in ("sens", "waitMin", "pad")},
+        return {"processing": "remote" if f["pc"] == "user" else "local", "live": {k: lv[k] for k in ("sens", "waitMin", "pad")},
                 "liveSensOptions": [{"value": v, "label": _live.SENS_LABELS[v]} for v in _live.SENS], "canRemote": self._can_remote()}
 
     def _can_remote(self):
@@ -245,7 +240,7 @@ class Settings:
         return bool(sync is not None and sync.has_key())
 
     def _check_form(self, body):
-        """processing・weights・live を検べて form.json へ書く差分を返す(違えば SettingsError)"""
+        """processing・live を検べて form.json へ書く差分を返す(違えば SettingsError)"""
         patch, msgs = {}, []
         if "processing" in body:
             if body["processing"] not in PROCESSING:
@@ -254,18 +249,6 @@ class Settings:
                 raise SettingsError("Dropbox の鍵が無いので、作る人の PC には依頼できません(鍵は作る人から受け取ります)")
             patch["pc"] = PROCESSING[body["processing"]]
             msgs.append("処理する PC を「%s」にしました(次に送る物から)" % ("この PC" if body["processing"] == "local" else "依頼する"))
-        if "weights" in body:
-            w = body["weights"]
-            if w is None:
-                patch["useWeights"] = False
-                msgs.append("解析の重みを既定に戻しました")
-            else:
-                try:
-                    patch["weights"] = _api.check_weights(w)
-                except ValueError as e:
-                    raise SettingsError(str(e))
-                patch["useWeights"] = True
-                msgs.append("解析の重みを変えました(次に送る物から)")
         if "live" in body:
             lv = body["live"]
             if not isinstance(lv, dict):
@@ -309,26 +292,12 @@ class Settings:
             return "一時保管を既定(アプリのフォルダの 作業)に戻しました。新しい物からここに作ります"
         raise SettingsError("変えられる場所ではありません")
 
-    # ---- エンジン・空き容量・カット
+    # ---- 空き容量・カット
     def update(self, body):
-        """{engine?: A|C, diskMinGB?: 数, cut?: none|silence, processing?: local|remote, weights?: null|{volume,chat,comment},
-        live?: {sensitivity?, wait?, margin?}, fetchCuda?: true, ytLogout?: true} -> {"message", "fetching"}。合わなければ SettingsError(どれも書かない)"""
+        """{diskMinGB?: 数, cut?: none|silence, processing?: local|remote, live?: {sens?, waitMin?, pad?}, ytLogout?: true} -> {"message"}。
+        合わなければ SettingsError(どれも書かない)"""
         patch, msgs, cut = {}, [], None
         form_patch, form_msgs = self._check_form(body)
-        if "engine" in body:
-            if body["engine"] not in DEVICES:
-                raise SettingsError("エンジンは A か C を選んでください")
-            if body["engine"] == "C" and self._machine().get("device") != "cuda" and not self.cuda()["ready"]:
-                raise SettingsError("C の部品がまだありません。横の [取る] で取り終えると選べます")
-            patch["device"] = DEVICES[body["engine"]]
-        if body.get("fetchCuda") is True:
-            if not callable(getattr(self.setup, "fetch_cuda", None)):
-                raise SettingsError("C の部品を取れません")
-            try:
-                self.setup.fetch_cuda()
-            except ValueError as e:
-                raise SettingsError(str(e))
-            msgs.append("C の部品を取り始めました。取り終えると C を選べます")
         if "diskMinGB" in body:
             try:
                 patch["diskMinGB"] = _machine.check("diskMinGB", body["diskMinGB"])
@@ -350,25 +319,14 @@ class Settings:
         if "diskMinGB" in patch:
             self._live_floor(patch["diskMinGB"])
             msgs.append("空き容量の下限を %s GB にしました" % patch["diskMinGB"])
-        if "device" in patch:
-            c = patch["device"] == "cuda"
-            msgs.append("C(NVIDIA 用)にしました。次の処理から使います" if c else "A にしました。次の処理から使います")
         self.log("⚙: %s" % "・".join(msgs))
-        return {"message": "。".join(m.rstrip("。") for m in msgs) if msgs else "変えるものがありません", "fetching": body.get("fetchCuda") is True}
+        return {"message": "。".join(m.rstrip("。") for m in msgs) if msgs else "変えるものがありません"}
 
     def _live_floor(self, gb):
         """録画の空き容量の下限もすぐ変える(ライブ係は起こしたときに読むので)"""
         live = getattr(self.engine_fn(), "live", None)
         if live is not None and hasattr(live, "disk_min_gb"):
             live.disk_min_gb = gb
-
-    def cuda(self):
-        """⚙ の C の欄(10 章の 8: 取り終えるまで C は選べない)。初回の準備の係が無ければ使えない扱い"""
-        st = self.setup
-        f = getattr(st, "cuda_state", None)
-        if not callable(f):
-            return {"ready": False, "fetching": False, "percent": None, "size": None, "available": False, "error": None}
-        return f()
 
     # ---- API キー
     def set_key(self, raw):

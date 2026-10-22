@@ -24,19 +24,19 @@
   - 画面: src/app/ui/cases/panels/cut.js:176・src/app/ui/editor/pack-tab.js:546・src/app/ui/home/portal.js:475・src/friendapp/ui/friend.html:29 ほか 7
 - **見送った物** — 受け取る画面で 3 日は戻せる skip・bad の物
   - コード: `Inbox.undo` src/friendapp/inbox.py:775・`Inbox.decide` src/friendapp/inbox.py:727・`VERDICTS` src/friendapp/inbox.py:58・`/api/friend/undo` src/friendapp/server.py:401
-  - 画面: src/friendapp/ui/friend.html:175・src/friendapp/ui/guide.html:144・src/friendapp/ui/receive.js:65
+  - 画面: src/friendapp/ui/friend.html:169・src/friendapp/ui/guide.html:144・src/friendapp/ui/receive.js:65
 - **送る** — 友人のアプリの送る欄・受付の口。自動で送る判定は flow/sendpolicy
   - コード: `src/friendapp/api.py`・`src/friendapp/ui/send-form.js`・`/api/friend/send` src/friendapp/server.py:388・`flow/sendpolicy.py` (無いパス)
   - 画面: src/app/ui/cases/panels/cut.js:131・src/app/ui/check/cards/value.js:11・src/app/ui/editor/app-learn.js:132・src/app/ui/editor/app.js:278 ほか 16
 - **送った物** — 友人のアプリの送った物の行と、失敗の言葉・進み具合
   - コード: `src/friendapp/ui/sent.js`・`src/friendapp/progress.py`・`/api/friend/inbox` src/friendapp/server.py:282
-  - 画面: src/app/ui/home/portal.html:150・src/friendapp/ui/friend.html:140・src/friendapp/ui/guide.html:37・src/friendapp/ui/receive.js:65
+  - 画面: src/app/ui/home/portal.html:150・src/friendapp/ui/friend.html:134・src/friendapp/ui/guide.html:37・src/friendapp/ui/receive.js:65
 - **片付ける** — 友人のアプリのフォルダの整理(新しい版の後と ⚙)。ごみ箱へ移す
   - コード: `src/friendapp/tidy.py`・`Tidy` src/friendapp/tidy.py:161・`/api/friend/tidy` src/friendapp/server.py:287
-  - 画面: src/friendapp/ui/settings.js:84・src/friendapp/ui/update.js:81
+  - 画面: src/friendapp/ui/settings.js:77・src/friendapp/ui/update.js:81
 - **片付け** — 入口の作業データの片付けの候補。ごみ箱フォルダへ移す
   - コード: `src/manage/keep/cleanup.py`・`Cleanup` src/manage/keep/cleanup.py:99・`/api/cleanup` src/app/server.py:635
-  - 画面: src/app/ui/home/portal.html:227・src/app/ui/home/portal.js:443・src/friendapp/ui/friend.js:85・src/friendapp/ui/settings.js:84 ほか 2
+  - 画面: src/app/ui/home/portal.html:227・src/app/ui/home/portal.js:443・src/friendapp/ui/friend.js:85・src/friendapp/ui/settings.js:77 ほか 2
 - **ごみ箱フォルダ** — ④ ごみ箱へ移す・戻すの 1 か所。片付けが通る
   - コード: `src/manage/keep/trash.py`・`to_trash` src/ytt/trashbin.py:100・`put_back` src/ytt/trashbin.py:166・`trash_days` src/app/server.py:1148
   - 画面: src/app/ui/home/portal.html:228・src/app/ui/home/portal.js:483
@@ -177,14 +177,13 @@
 - 再生位置(3)— src/app/ui/cases/panels/cut.js:197
 - 区間(3)— src/app/ui/cases/panels/cut.js:85
 - 基準(3)— src/app/ui/studio/collab.js:153
-- 映像トラック(3)— src/friendapp/ui/friend.html:109
+- 映像トラック(3)— src/friendapp/ui/friend.html:103
 - 更新(3)— src/app/ui/home/portal.html:209
 - 確かめています…(3)— src/app/ui/studio/review.js:195
 - 自動(3)— src/app/ui/editor/app-tpl.js:92
 - 良い(3)— src/app/ui/check/cards/cut.js:9
 - 読み込み直す(3)— src/app/ui/cases/panels/machpick.js:37
 - 配信中(3)— src/app/ui/studio/rank.js:484
-- 長さ(3)— src/app/ui/studio/rank.js:344
 - 非表示のものも出す(3)— src/app/ui/home/portal.js:893
 - (「終わった配信」と同じ選び方です)(2)— src/app/ui/studio/rank.js:477
 - 1 時間の枠(2)— src/friendapp/ui/friend.html:96
@@ -195,7 +194,7 @@
 - すべて(2)— src/app/ui/editor/app-tpl.js:32
 - すべての行(2)— src/app/ui/editor/app-tpl.js:14
 - すべて止めて終了(2)— src/friendapp/ui/friend.html:38
-- つまらない(2)— src/friendapp/ui/friend.html:206
+- つまらない(2)— src/friendapp/ui/friend.html:200
 - まだ検索していません(2)— src/app/ui/studio/rank.js:196
 - もう一度検索する(2)— src/app/ui/studio/rank.js:308
 - もっと見る(あと(2)— src/app/ui/home/portal.js:884
@@ -217,7 +216,7 @@
 - 元のメッセージ(2)— src/app/ui/studio/queue.js:225
 - 分割(2)— src/app/ui/cases/panels/cut.js:51
 - 分析と日報(2)— src/app/ui/home/portal.html:20
-- 切り方が変(2)— src/friendapp/ui/friend.html:206
+- 切り方が変(2)— src/friendapp/ui/friend.html:200
 - 動画を選び直す(2)— src/app/ui/editor/app-tpl.js:56
 - 友人へ自動で送る(2)— src/app/ui/home/portal.html:366
 - 失敗(2)— src/app/ui/home/portal.js:729
@@ -226,7 +225,7 @@
 - 対象(2)— src/app/ui/editor/app-tpl.js:120
 - 対象の事務所(2)— src/app/ui/studio/rank.js:166
 - 対象の事務所を選ぶ(2)— src/app/ui/studio/rank.js:274
-- 届かなくてよかった:(2)— src/friendapp/ui/friend.html:206
+- 届かなくてよかった:(2)— src/friendapp/ui/friend.html:200
 - 採用する数(2)— src/app/ui/home/portal.html:363
 - 探す地域(2)— src/app/ui/studio/rank.js:167
 - 探す地域を選ぶ(2)— src/app/ui/studio/rank.js:275
@@ -255,9 +254,10 @@
 - 適用(2)— src/app/ui/editor/app-tpl.js:100
 - 選ぶ(2)— src/friendapp/ui/settings.js:55
 - 配信(2)— src/app/ui/home/portal.js:939
-- 配信が終わったら、アーカイブからも足す(2)— src/friendapp/ui/friend.html:105
+- 配信が終わったら、アーカイブからも足す(2)— src/friendapp/ui/friend.html:99
 - 配信の URL(2)— src/app/ui/studio/queue.js:19
 - 配信を探す(2)— src/app/ui/studio/queue.js:41
+- 長さ(2)— src/app/ui/studio/rank.js:344
 - 音量(2)— src/app/ui/studio/review.js:192
 - 音量のそろえ方((2)— src/app/ui/cases/panels/cut.js:148
 - (2本以上選ぶと選べます)(1)— src/app/ui/studio/collab.js:116

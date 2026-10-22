@@ -109,8 +109,16 @@ def estimate(ar, video_id=None, mode=None, marks=None, top=None, doc_ids=None, o
                                 top=top, marks=marks, repack=overwrite, **dl))
 
 
-def start_request(ar, items, **kw):
-    return IN.submit_urls(ar, items, **kw)
+def start_request(ar, items, weights=None, **kw):
+    """URL の依頼(intake.submit_urls)。weights = 解析の重み: 友人の依頼からは 10-23 に消したので、束の analyze の扱いを確かめるときだけ
+    submit_urls と同じ形を order で組む(1 本目だけ)"""
+    if weights is None:
+        return IN.submit_urls(ar, items, **kw)
+    from flow import spec as _spec
+    it = items[0]
+    env, diff = O.order("url", video_id=it["id"], title=it.get("title") or it["id"], fresh={"title": it.get("title", ""), "channel": it.get("channel", "")},
+                        upto="pack", top=it["top"], ranges=_spec.clean_ranges(it.get("ranges")), weights=_spec.clean_weights(weights), repack=True, **kw)
+    return {"runs": [ar.submit(env, diff)], "skipped": []}
 
 
 def start_file(ar, path, title="", streamer=None, request_id=None, flow="check", deliver_dir=None, speakers=None, video_tracks=None, cut=None,

@@ -35,7 +35,7 @@
   POST /api/friend/decide {items: [{id, name}], verdict: keep|skip|bad, reason?: boring|cut}   受け取る / 見送る / 届かなくてよかった(name の無い項目 = その行の決めていない物の全部)
   POST /api/friend/undo {items}           見送った・届かなくてよかったを 3 日の間は戻す(C-3-6)
   POST /api/friend/retry {id}・cancel {id}      失敗の行の [もう一度送る]・[消す]・送った行を止める(録画中のライブの行は録画を止める)
-  POST /api/friend/live-settings {id, perHour?, lengthMode?: auto|fixed, length?, afterStream?}   録画中のライブの設定を途中で変える(C-2-11。→ {ok, row})
+  POST /api/friend/live-settings {id, perHour?, afterStream?}   録画中のライブの設定を途中で変える(C-2-11。→ {ok, row})
   POST /api/friend/local {id}             ユーザーの PC に頼んだ依頼を [この PC でやり直す](Dropbox の同期は friendapp/sync.py の裏の糸)
   POST /api/friend/open {what: saved}     受け取るの保存先をエクスプローラーで開く
   POST /api/friend/notice-seen {what?}    知らせを見た(what: cleaned = 3 日の片付けの知らせ・無ければ前の版で開いた知らせ)
@@ -71,7 +71,7 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
 from flow import colors_api as _colors_api, placement as _placement, runqueue as _runqueue  # noqa: E402
-from ytt import appwindow as _appwindow, autorestart as _autorestart, clientlog_rule as _clientlog_rule, fsio as _fsio, httpsec, version as _version  # noqa: E402
+from ytt import appwindow as _appwindow, autorestart as _autorestart, clientlog_rule as _clientlog_rule, fsio as _fsio, gpuinfo as _gpuinfo, httpsec, version as _version  # noqa: E402
 from friendapp import api as _api, diag as _diag, inbox as _inbox, places as _places, settings as _settings, setup as _setup, streams as _streams, sync as _sync  # noqa: E402
 from friendapp import tidy as _tidy, ytdlp_update as _ytdlp_update  # noqa: E402
 
@@ -408,8 +408,8 @@ class Handler(httpsec.LocalHandler):
             return self._json(200, app.dropped_files(body.get("paths")))
         if path == "/api/friend/report":   # [作る人に知らせる](C-2-16)
             return self._json(200, {"ok": True, "row": app.api.report(str(body.get("id") or ""))})
-        if path == "/api/friend/prefs":   # ⚙ の処理する PC・解析の重み・ライブの感度・待ち・余白(C-2-19・C-2-11)
-            msgs = app.api.set_prefs({k: body[k] for k in ("pc", "useWeights", "weights", "liveSens", "liveWait", "livePad") if k in body})
+        if path == "/api/friend/prefs":   # ⚙ の処理する PC・ライブの感度・待ち・余白(C-2-19・C-2-11)
+            msgs = app.api.set_prefs({k: body[k] for k in ("pc", "liveSens", "liveWait", "livePad") if k in body})
             return self._json(200, {"ok": True, "message": "。".join(msgs) or "変えるものがありません", "form": app.api.form()})
         if path == "/api/friend/retry":
             return self._json(200, {"ok": True, "row": app.api.retry(str(body.get("id") or ""))})
@@ -446,7 +446,7 @@ class Handler(httpsec.LocalHandler):
             if body.get("reset") is not None:
                 msg = app.settings.reset_folder(body.get("reset"))
             else:
-                msg = app.settings.update({k: body[k] for k in ("engine", "diskMinGB", "cut", "processing", "weights", "live", "fetchCuda", "ytLogout") if k in body})["message"]
+                msg = app.settings.update({k: body[k] for k in ("diskMinGB", "cut", "processing", "live", "ytLogout") if k in body})["message"]
             return self._json(200, {"ok": True, "message": msg, "settings": app.settings.view()})
         if path == "/api/friend/settings/key":
             ok, msg = app.settings.set_key(body.get("key") if isinstance(body.get("key"), str) else "")
@@ -589,7 +589,7 @@ class FriendApp:
         self.api.sync = self.sync
         # 初回の取得(fetch.json が無ければ何もしない)と ⚙
         self.setup = _setup.Setup(places.get("fetch"), places["data"], places.get("home") or os.path.dirname(places["data"]), places["friend"],
-                                  device=_machine_device, log=self.log, after=self.after_setup)
+                                  device=_machine_device, log=self.log, after=self.after_setup, gpu=_gpuinfo.info)   # エンジンは自動で選ぶ(10-23)
         self.api.parts_missing = self.setup.block_reason
         # 診断の記録(friendapp/diag。友人の PC でしか出ない不具合を記録で追う)。② の前の失敗・同期・準備の失敗もここへ
         self.diag = _diag.Diag(places, clock=clock, log=self.log, device_fn=_machine_device)

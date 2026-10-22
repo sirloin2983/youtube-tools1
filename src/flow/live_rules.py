@@ -7,7 +7,8 @@
                                           "settings": clean_settings の形, "createdAt"}}}
 を ② の検出・採用・配信後の追加が読む。設定の文の言葉(感度の言い方)は読む側(human/friend/live_requests・friendapp/live)が持つ。
 長さの上限 180 秒 = A-5b の仮(ユーザーの PC の自動の切り抜きの上限と同じ)。
-長さ「自動(場面ごと)」(友人の玄関の C-2-11)は settings の lengthMode "auto"(無い = 固定の長さ)。検出のワーカーが場面ごとの形で切る(長さは場面が取れないときの長さ)。
+長さ「自動(場面ごと)」(友人の玄関の C-2-11)は settings の lengthMode "auto"(無い = 固定の長さ)。検出のワーカーが場面ごとの形で切る
+(場面が取れないときの長さはワーカーの LIVE_AUTO_LENGTH の決まり = 目安か 150 秒。auto の length は使わない)。10-23 から友人のアプリはいつも auto。
 軽い部品だけ(友人の玄関が画面を先に出すため。ytt と標準ライブラリだけを読む・ファイルは結びつきの記録だけ)。
 """
 import copy

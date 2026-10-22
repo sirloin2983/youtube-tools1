@@ -41,7 +41,8 @@
 ■ ⚙ 設定(friendapp\settings.py・画面 ui\settings.js。主の画面は settings.js を読み #btnSettings を置くだけ)
   受け取るの保存先   data\app\friendapp\save-dir.json(無ければ %USERPROFILE%\Videos\受け取ったパック)。変えても今ある物は移さない
   一時保管           スタジオの書き出し先と machine.json の caseRoot をそろえて変える。7-3 = 選び直しても移さない(新しい物から新しい場所)。空き容量はこのドライブで測る
-  文字起こしのエンジン A Vulkan / C CUDA = machine.json の device(vulkan / cuda)。次の処理から。C の部品が無ければ [取る] で取ってから選ぶ
+  文字起こしのエンジン A Vulkan / C CUDA = machine.json の device(vulkan / cuda)。見せるだけ。初回の準備・起動のたびに自動で選ぶ
+                     (NVIDIA の GPU があり C の部品が取れていれば C。部品が無ければ取って確かめる・駄目なら A のまま。環境変数 YTT_FRIEND_ENGINE=A で A に固定)
   YouTube の API キー data\app\keys.json の youtubeApiKey。貼ると videos.list を 1 回呼んで確かめ、使えるときだけ保存(すぐ効く = 環境変数 YTT_YT_API_KEY)。
                      画面へはキーを返さず「入っています / まだ入っていません」だけ。消すと "" を書く
   空き容量の下限     machine.json の diskMinGB(GB。録画中のライブ係にもすぐ効く)
@@ -49,7 +50,6 @@
                      ユーザーの PC への依頼の cut に入る(「しない」は束に入れない)。送った値は行に残る([もう一度送る] も同じ)
   フォルダは [選ぶ] で玄関が Windows のフォルダを選ぶ窓を開く(画面からパスを打たせない。FriendApp.pick_folder = テストと見本は偽物)。[既定に戻す] もある
   処理する PC       form.json の pc(この PC で処理する / 依頼する。依頼するは Dropbox の鍵があるときだけ = C-2-19)
-  解析の重み         form.json の useWeights・weights(wAudio・wChat・wComments 0〜3。指定しなければユーザーの PC の設定の値)
   ライブの切り抜き   form.json の live(感度・待ち・余白。範囲は friendapp\live.py)
   YouTube のログイン  exe の小窓でログインした cookie(data\app\friendapp\secrets\)。[ログアウト] で消す
   フォルダの整理     friendapp\tidy.py(新しい版で起動できたあとの 1 回と ⚙。消すのはアプリのごみ箱へ・3 日で消える)
