@@ -33,7 +33,6 @@ FILES = {
     "src/ytt/ytcookies.py": ("ytt", "ytt", "yt-dlp が書き戻した cookie の写しを元へ戻す・ログインと切れの記録(10-21。値は読まない・ネットも子プロセスも無し。tools.ytdlp_auth_args が呼ぶ)"),
     "src/ytt/autorestart.py": ("ytt", "ytt", "自動の起動し直し・入れ替えを今やるかの判定(時計と fsio だけ。app/server と friendapp/server の両方が使う。10-21 に manage/ops から移した)"),
     "src/friendapp/ytdlp_update.py": ("friendapp", "friendapp", "友人の PC の tools/yt-dlp.exe を 1 日 1 回新しくする(10-21。公式の版を SHA-256 で確かめて取り替え。作る人の PC では動かない)"),
-    "src/eval/tools/study_row_start.py": ("eval", "eval/tools", "行の始まりのずれ 3 案を測る研究の道具(10-21。測るだけ・本体からは使わない。notes:plan/row-start-study.md)"),
     "src/ytt/casefiles.py": ("ytt", "ytt", "案件の 候補.json・採用.json の読む側(RS8 B3-4a。形・パスの相対 ⇔ 絶対・読み read(cached)・重ね merge・ロック。flow/casebook から下ろした。ytt/studiodata が data.json の行の case から読むため。書く側は flow/casebook)"),
     "src/ytt/gpuinfo.py": ("ytt", "ytt", "この PC の GPU の名前と VRAM(F1 F0-2。nvidia-smi → レジストリ → CIM。窓を出さない子プロセス・結果を覚える。flow/machine の llmModel の既定と ② の状態が読む)"),
     "src/ytt/marks.py": ("ytt", "ytt", "マークの純粋な語彙(RS8 B3-2。検査・整形 build_mark・読み込み load_marks・同じ区間 same/near・手を入れたか touched。human/review/store から下ろした。ファイルにもロックにも触らない)"),
