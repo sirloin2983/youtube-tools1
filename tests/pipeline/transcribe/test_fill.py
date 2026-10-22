@@ -99,7 +99,7 @@ class TestFillJobRun(StoreDir):
                                                          {"from": "テスト文3", "by": "llm"}])   # 後処理の行は LLM に選ばれない
         self.assertEqual([g["flag"].split("(")[0] for g in segs], [fill.FILL_FLAG.split("(")[0], fill.FILL_SPK_FLAG.split("(")[0], llm.LLM_FLAG.split("(")[0]])
         run = doc["recognition"]["runs"][0]
-        self.assertEqual(run["fill"], {"engine": "sense-voice", "windows": 1, "rows": 1, "added": 1, "dup": 0, "agree": 0})
+        self.assertEqual(run["fill"], {"engine": "sense-voice", "windows": 1, "rows": 1, "added": 1, "dup": 0, "agree": 0, "order": "AC"})
         self.assertEqual((run["names"], run["llm"]), (1, {"engine": "llama-text", "model": "qwen3-8b", "picked": 1, "proposed": 1, "applied": 1, "rejected": {}}))
         self.assertEqual({k: doc["params"][k] for k in ("autoFill", "stripNames", "autoLlm")}, {"autoFill": True, "stripNames": True, "autoLlm": True})
         self.assertEqual(doc["params"]["context"], {"members": [{"name": "テスト分子", "from": ["title"]}], "terms": 2})   # 動画のフォルダの名前から

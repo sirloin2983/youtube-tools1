@@ -149,7 +149,7 @@ class TestDocRowsRun(unittest.TestCase):
         self.assertEqual(at("テスト文2")[2:], (SPARSE, None))
         self.assertEqual(at("これは別の読みで埋めた長い文です")[3]["from"], "テスト文3")
         self.assertEqual(rich.windows, [4.5, 10.5, 58.5, 61.5, 117.5, 128.5, 134.5])   # 文字の少ない行の窓(3 回以上の繰り返しは 1 字に数える = 「あはは…」も)
-        self.assertEqual(out["fill_rec"], {"engine": "sense-voice", "windows": 7, "rows": 2, "added": 2, "dup": 1, "agree": 1})
+        self.assertEqual(out["fill_rec"], {"engine": "sense-voice", "windows": 7, "rows": 2, "added": 2, "dup": 1, "agree": 1, "order": "AC"})
         self.assertEqual(orig[by[FILLED]["id"]], {"start": 4.7, "end": 9.8, "text": FILLED})   # 機械の出力 = 後処理のあと(自信の度合いの無い行)
         # 要確認の印
         self.assertEqual([by[t]["flag"] for t in ("ご視聴ありがとうございました", "げんげんげんげんげん", "スバル", "this is a random english line", "えーと")],

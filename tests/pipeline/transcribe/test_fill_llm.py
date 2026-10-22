@@ -201,6 +201,18 @@ class TestFailures(_Base):
         roster.ROSTER = os.path.join(self.tmp, "none.json")   # 無い名簿は空(読めなくても止めない)
         self.assertEqual(fill.fill_aliases(), set())
 
+    def test_fill_before_clean_tail(self):
+        """A → C の順: 前の行の末尾と同じ字だけの「ああああ」の行(C の形)も A が先に埋める(10-22。C → A だと捨てられて埋まらなかった)。A が読めなくても C は当てる"""
+        rows = [{"start": 0.0, "end": 2.0, "text": "うわああああああああああ"}, {"start": 2.0, "end": 12.0, "text": "ああああああああああ"}]
+        read = lambda s0, e0: [{"start": 3.0, "end": 11.0, "text": "おいマリン倒れたマリン倒れた倒れちゃった"}] if s0 > 1.0 else []
+        with mock.patch.object(fill, "fill_reader", lambda job, spec, wav: read):
+            out, rec, _read = fill.fill_after_rows({}, {"autoFill": True}, [dict(r) for r in rows], "w.wav", 12.0)
+        self.assertEqual([r["text"] for r in out], ["うわああああああああああ", "おいマリン倒れたマリン倒れた倒れちゃった"])
+        self.assertEqual((rec["rows"], rec["dup"], rec["order"]), (1, 0, "AC"))
+        with mock.patch.object(diarize, "has_sherpa", lambda: False):
+            out, rec, _read = fill.fill_after_rows({}, {"autoFill": True}, [dict(r) for r in rows], "w.wav", 12.0)
+        self.assertEqual(([r["text"] for r in out], rec["dup"]), (["うわああああああああああ"], 1))
+
     def test_llm_record_and_broken_file(self):
         self.assertEqual(llm.llm_path("abcdefabcde1"), os.path.join(self.tmp, "abcdefabcde1.llm.json"))   # 置き場所は ytt/workdata の TX_DIR
         self.assertIsNone(llm.read_llm("abcdefabcde1"))

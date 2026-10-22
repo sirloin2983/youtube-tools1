@@ -40,6 +40,7 @@ FILL_RUNNY = 0.6         # A: 同じ字の繰り返しを縮めて文字数が�
 FILL_PAD = 0.5           # A: 窓の前後の余白(秒)
 FILL_RATIO = 3.0         # A: 別の読みの字数が元の何倍以上なら置き換えるか
 FILL_MAX_ROWS = 60       # A: 1 回の文字起こしで読む窓の上限(長い文書で遅くならないように)
+FILL_A_FIRST = True      # A を C より先に(False = 0.99.99 までの C → A。記録の fill.order)
 FILL_FLAG = "別の読みで埋めた(元の文字は「別の読み」の札)"
 FILL_NAME_FLAG = "名簿の呼び名に直した(別のエンジンも同じ呼び名)"
 FILL_STOCK = ("ご視聴ありがとうございました", "チャンネル登録", "ありがとうございました", "おやすみなさい", "字幕", "最後まで", "ご視聴")   # C: 定型の幻覚
@@ -331,25 +332,31 @@ def _fill_reader_real(job, spec, wav):
 
 
 def fill_after_rows(job, spec, rows, wav, total):
-    """run_job の行(expand_segments のあと)に C(末尾の重複)と A(別の読みで埋める)を当てる。
-    -> (行, 記録 {engine, windows, rows, added, dup, agree} か None(設定オフ), 窓を読む関数 か None(読めない = 警告を job に足して whisper のまま))"""
+    """run_job の行(expand_segments のあと)に A(別の読みで埋める)と C(末尾の重複)を当てる。
+    順は FILL_A_FIRST(既定 A → C。C が A の対象の「うわああああ」の次の「ああああ」の行を先に捨てて埋められなかった = 確かめ済み 23 本の組 B で
+    C → A 15.23% → A → C 12.45%・組 A は全部同じ。notes:plan/accuracy-review-1022.md)。A が読めなくても C は当てる。dup は A の後の行で数える。
+    -> (行, 記録 {engine, windows, rows, added, dup, agree, order} か None(設定オフ), 窓を読む関数 か None(読めない = 警告を job に足して whisper のまま))"""
     if not spec.get("autoFill"):
         return rows, None, None
-    rows, dup = fill_clean_tail(rows)
-    rec = {"engine": FILL_ENGINE, "windows": 0, "rows": 0, "added": 0, "dup": dup, "agree": 0}
+    order = "AC" if FILL_A_FIRST else "CA"
+    rec = {"engine": FILL_ENGINE, "windows": 0, "rows": 0, "added": 0, "dup": 0, "agree": 0, "order": order}
+    if order == "CA":
+        rows, rec["dup"] = fill_clean_tail(rows)
     phase = job.get("phase")
+    read = None
     try:
         read = fill_reader(job, spec, wav)
         job["phase"] = "文字の少ない行を別の読みで埋め中"
         rows, st = fill_apply(rows, read, total)
+        rec.update(st)
     except _heavy.Cancelled:
         raise
     except (_errors.ApiError, tx_engines.EngineError) as e:
-        job["phase"] = phase
+        read = None
         _txbase.add_warning(job, "別の読みで埋められませんでした(whisper の結果のまま): " + str(getattr(e, "message", e))[:200])
-        return rows, rec, None
     job["phase"] = phase
-    rec.update(st)
+    if order == "AC":
+        rows, rec["dup"] = fill_clean_tail(rows)
     return rows, rec, read
 
 
