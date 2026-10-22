@@ -81,6 +81,11 @@ class Backend:
         (RS5-D。疑似は環境変数 TRANSCRIBE_FAKE_FILL の文字を窓いっぱいの 1 行に)"""
         return real(job, spec, wav)
 
+    def voice_spans(self, job, wav, real):
+        """分けた声の区間 [(始め, 終わり)](separate.py。後処理の声の無い行を捨てる)。real(job, wav) = ワーカーで Spleeter
+        (疑似は環境変数 TRANSCRIBE_FAKE_VOICED の「始め-終わり,…」の秒)"""
+        return real(job, wav)
+
     def diar_ready(self, real):
         """話者判別の部品が使えるか。real() = 部品の有無(OPT-E2 1a-2。② flow/diar の「疑似なら」をここへ。疑似は常に使える)"""
         return real()

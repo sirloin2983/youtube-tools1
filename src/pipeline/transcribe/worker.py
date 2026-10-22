@@ -50,7 +50,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.dirname(os.path.dirname(HERE))   # transcribe -> pipeline -> src
 if not __package__:   # スクリプトとして起動したとき(python worker.py)だけ。兄弟を裸の名前で読まないように、このフォルダを外して src を先頭に
     sys.path[:] = [SRC] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(SRC))]
-from pipeline.transcribe import diarize, models, tx_engines, worker_client  # noqa: E402  (スクリプトとして動くので相対 import は使えない = 絶対 import。RS2-9)
+from pipeline.transcribe import diarize, models, separate, tx_engines, worker_client  # noqa: E402  (スクリプトとして動くので相対 import は使えない = 絶対 import。RS2-9)
 from ytt import errors as _errors, jobs as _heavy, layout as _layout, workdata as _workdata  # noqa: E402
 
 PROGRESS_EVERY = 0.25   # 進み具合を送る間隔(秒)。行ごとに送ると、長い音声で無駄に多くなる
@@ -235,6 +235,10 @@ def _op_embed(m, rid, job, out, cancels):
     return diarize._embed_local(job, str(m.get("wav")), str(m.get("emb") or diarize.DIAR_EMB_DEFAULT), groups)
 
 
+def _op_voiced(m, rid, job, out, cancels):
+    return [[float(a), float(b)] for a, b in separate._voice_spans_local(job, str(m.get("wav")))]
+
+
 def _op_complete(m, rid, job, out, cancels):
     """文字の LLM に聞く(LLM の後処理 = pipeline/transcribe/llm.py)。messages = [{"role", "content": 文字}](40 件・1 件 8000 字まで)-> {"content": 答え}"""
     name, dev, eng = str(m.get("name")), str(m.get("device") or "vulkan"), _engine(m)
@@ -255,7 +259,7 @@ def _op_complete(m, rid, job, out, cancels):
 
 
 OPS = {"load": _op_load, "transcribe": _op_transcribe, "diarize": _op_diarize, "embed": _op_embed,
-       "complete": _op_complete}   # 要求の種類 → 本体(結果 v を返す。途中の知らせは本体が送る)
+       "complete": _op_complete, "voiced": _op_voiced}   # 要求の種類 → 本体(結果 v を返す。途中の知らせは本体が送る)
 
 
 def handle(m, out, cancels):

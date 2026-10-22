@@ -66,14 +66,14 @@
 ## src/pipeline/transcribe/
 
 - **__init__.py** (2 行) — ① 文字起こし: 認識(エンジン・ワーカー)・話者・後処理(埋める・LLM・時刻)・名簿と辞書を読む。認識(重い)と後処理(軽い)で鍵を分ける
-- **backend.py** (114 行) — サーバー側の認識の本物と疑似の差し込み口。
-  - 名前: `mode` :18・`is_fake` :23・`class Backend` :28・`set_selector` :106・`select` :111
+- **backend.py** (119 行) — サーバー側の認識の本物と疑似の差し込み口。
+  - 名前: `mode` :18・`is_fake` :23・`class Backend` :28・`set_selector` :111・`select` :116
 - **clipjob.py** (69 行) — ① 文字起こしのジョブの機械の文書の行を作る(make_doc_rows)。
   - 名前: `make_doc_rows` :17
 - **diarize.py** (547 行) — ① 自動の流れの層 pipeline/transcribe: 話者判別の計算(sherpa-onnx)と判別の記録・声の特徴と覚えた声との照らし合わせ。
   - 名前: `diar_threads` :59・`has_sherpa` :65・`diar_models_dir` :71・`diar_info` :84・`ensure_diar_models` :114・`diar_tune` :145・`diarize_real` :161・`assign_speakers` :200・`label_ratio` :251・`smooth_labels` :259・`smooth_speakers` :281・`diar_path` :301・ほか 8
-- **fill.py** (385 行) — 「編集」のサーバーの部品: 認識のあとの後処理(A・C・D。notes:plan/line-b-transcription.md の「10-08 の実験ループ」)。
-  - 名前: `fill_norm` :63・`fill_chars` :68・`fill_sparse_row` :73・`fill_apply` :92・`fill_clean_tail` :122・`fill_stock` :135・`fill_voice_frac` :141・`fill_clean_turns` :149・`fill_spk_key` :174・`fill_spk_names` :179・`fill_spk_split` :195・`fill_strip_names` :224・ほか 7
+- **fill.py** (414 行) — 「編集」のサーバーの部品: 認識のあとの後処理(A・C・D。notes:plan/line-b-transcription.md の「10-08 の実験ループ」)。
+  - 名前: `fill_norm` :65・`fill_chars` :70・`fill_sparse_row` :75・`fill_apply` :94・`fill_clean_tail` :124・`fill_stock` :137・`fill_voice_frac` :143・`fill_clean_turns` :151・`fill_spk_key` :176・`fill_spk_names` :181・`fill_spk_split` :197・`fill_strip_names` :226・ほか 8
 - **live_tx_worker.py** (71 行) — 配信中の候補の文字起こし(線 D の D-11 案 b。notes:plan/line-d-live-clipping.md の 0-11)の子プロセス。**入口のプロセスから import しない
   - 名前: `recognize` :28・`main` :53
 - **llm.py** (340 行) — 「編集」のサーバーの部品: LLM の後処理(提案 P18。notes:plan/done/llm-postfix.md)。
@@ -92,10 +92,12 @@
   - 名前: `retime_raw` :94・`retime_candidates` :141
 - **roster.py** (306 行) — 名簿(hololive-roster.json)と、配信ごとの文脈(文字起こしの改善の計画 段1。notes:plan/line-b-transcription.md(付録))。
   - 名前: `fold` :40・`load` :51・`channel_regions` :90・`find_in_text` :120・`match_name` :133・`build_context` :144・`member_terms` :168・`fit` :179・`prompt_terms` :194・`stream_context` :204・`leak_only` :229・`alias_variants` :263・ほか 1
+- **separate.py** (97 行) — 「編集」のサーバーの部品: 声を伴奏から分けて(Spleeter 2stems・sherpa-onnx・CPU)、分けた声の音量から声のある区間を作る(notes:plan/voice-separation-1022.md)。
+  - 名前: `sep_model_dir` :31・`spans_from_db` :35・`voice_spans` :61
 - **tx_engines.py** (1336 行) — 文字起こしの認識エンジンの口(精度改善の計画 段2。notes:plan/line-b-transcription.md(付録))。
   - 名前: `engine_home` :52・`engine_of` :61・`env_num` :66・`is_16k_mono` :75・`half_cpu` :80・`class EngineError` :85・`class Engine` :93・`class FasterWhisper` :146・`scan_timings` :223・`gpu_peek` :247・`wcpp_env` :262・`wcpp_bin_dir` :271・ほか 21
-- **worker.py** (330 行) — ① 文字起こしの認識ワーカー(統合計画の段階3-3)。編集のサーバーが別プロセスとして起動する(worker_client.WorkerClient)。人が直接起動するものではない。
-  - 名前: `class Out` :84・`class JobProxy` :94・`handle` :261・`main` :285
+- **worker.py** (334 行) — ① 文字起こしの認識ワーカー(統合計画の段階3-3)。編集のサーバーが別プロセスとして起動する(worker_client.WorkerClient)。人が直接起動するものではない。
+  - 名前: `class Out` :84・`class JobProxy` :94・`handle` :265・`main` :289
 - **worker_client.py** (735 行) — ① 認識ワーカー(別プロセス)とのやり取りとモデル: ワーカーの起動・要求・取り消し・強制終了(WorkerClient・WORKER)・モデルの代理(RemoteModel)・
   - 名前: `release_idle_models` :39・`worker_script` :68・`worker_log` :73・`worker_env` :90・`class WorkerError` :108・`class WorkerClient` :129・`class RemoteModel` :429・`req_engine` :481・`engines_info` :495・`check_engine` :502・`load_model` :515・`nvidia_gpu` :531・ほか 12
 

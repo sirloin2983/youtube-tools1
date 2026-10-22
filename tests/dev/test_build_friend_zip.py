@@ -17,7 +17,7 @@ import zipfile
 TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(TESTS)), "dev"))
 import build_friend_zip as B  # noqa: E402
-from pipeline.transcribe import diarize as D, tx_engines as E  # noqa: E402
+from pipeline.transcribe import diarize as D, separate as SEP, tx_engines as E  # noqa: E402
 from ytt import version as V  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
 import testkit  # noqa: E402
@@ -233,6 +233,8 @@ class BuildTest(Base):
             self.assertEqual(items["llm/" + name]["sha256"], s["model"]["sha256"])
         for name, s in E.SENSE_VOICE_MODELS.items():
             self.assertEqual((items["sensevoice/" + name]["sha256"], items["sensevoice/" + name]["top"]), (s["sha256"], s["dir"]))
+        for name, s in SEP.SEP_MODELS.items():   # 声の分離(10-22)
+            self.assertEqual((items["sep/" + name]["sha256"], items["sep/" + name]["dest"]), (s["sha256"], "transcribe/models/sep"))
         self.assertEqual(items["diar/segmentation"]["sha256"], D.DIAR_SEG["sha256"])
         self.assertEqual(items["diar/segmentation"]["member"], D.DIAR_SEG["member"])
         self.assertEqual(items["diar/" + D.DIAR_EMB_DEFAULT]["sha256"], D.DIAR_EMBS[D.DIAR_EMB_DEFAULT]["sha256"])

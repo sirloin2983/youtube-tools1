@@ -6,6 +6,7 @@
 - TestRealParts: 本物の部品で 1 回ずつ通す。窓の読み = SenseVoice small(sherpa-onnx・CPU)・LLM = Qwen3-4B(llama-server・Vulkan。LLM の通しはこの 1 本だけ)。
   声の見本は Windows の音声合成でファイルに書く(スピーカーへは出さない)。モデルは本物の作業データの transcribe の中から読むだけ(tx_engines.ENGINE_DIR)。
   取得の口(fetch_file)は差し替え、無ければ飛ばす(ネットへ取りに行かない)。部品・モデル・音声合成が無い PC では飛ばす。
+  声の分離(Spleeter)も同じ置き場所の型で 1 本(声の後ろの無音に置いた幻の行を捨てる)。
 - 規則の答え(行の並びの見本を後処理の入口に通す)は test_postproc.py。ここに残すのは通しで起こせない物(部品が無い・LLM が落ちる・壊れた記録)だけ。
 """
 import os
@@ -24,7 +25,7 @@ sys.path.insert(0, SRC)
 from ytt import tools  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
 import testkit  # noqa: E402
-from pipeline.transcribe import backend, diarize, fill, llm, models, roster, tx_engines, worker_client  # noqa: E402
+from pipeline.transcribe import backend, diarize, fill, llm, models, roster, separate, tx_engines, worker_client  # noqa: E402
 from ytt import errors, studiodata, workdata  # noqa: E402
 
 REAL_HOME = os.path.join(os.environ.get("LOCALAPPDATA") or "", "youtube-tools", "transcribe")   # 本物のモデルの置き場所(読むだけ)
@@ -80,6 +81,12 @@ def _have_sherpa():
 def _sense_voice_ready():
     spec = tx_engines.SENSE_VOICE_MODELS[fill.FILL_MODEL]
     mdir = os.path.join(tx_engines.sv_model_dir(REAL_HOME), spec["dir"])
+    return _have_sherpa() and all(os.path.isfile(os.path.join(mdir, p)) for p in spec["parts"])
+
+
+def _sep_ready():
+    spec = separate.SEP_MODELS[separate.SEP_MODEL]
+    mdir = os.path.join(separate.sep_model_dir(REAL_HOME), spec["dir"])
     return _have_sherpa() and all(os.path.isfile(os.path.join(mdir, p)) for p in spec["parts"])
 
 
@@ -142,6 +149,20 @@ class TestRealParts(unittest.TestCase):
         whole = read(0.0, b + 0.6)                           # D の全体の読みも同じ読み口
         self.assertTrue(whole and all(r["start"] >= 0 and r["end"] <= b + 0.6 + 0.01 for r in whole), whole)
         self.assertEqual(set(models._models), {(fill.FILL_MODEL, "cpu", fill.FILL_ENGINE)})
+
+    @unittest.skipUnless(_sep_ready(), "sherpa-onnx か Spleeter のモデルが無い")
+    def test_spleeter_drops_silent_row(self):
+        """声を分けて声の無い行を捨てる(dropSilent): 声の後ろの 3 秒の無音に置いた幻の行だけ捨て、印に残す"""
+        wav = os.path.join(self.tmp, "gap.wav")
+        spans = say_wav(wav, [("ja", "こんにちは、今日はみんなでゲームをします。")], gap=3.0)
+        a, b = spans[0]
+        rows = [{"start": a, "end": b, "text": "こんにちは、今日はみんなでゲームをします。"}, {"start": b + 0.8, "end": b + 2.6, "text": "ご視聴ありがとうございました"}]
+        job, rec = {"cancel": False}, {}
+        with mock.patch.object(workdata, "DATA_DIR", REAL_HOME):
+            out = fill.fill_drop_silent(job, rows, wav, rec)
+        self.assertFalse(job.get("warnings"), job.get("warnings"))
+        self.assertEqual([r["text"] for r in out], [rows[0]["text"]])
+        self.assertEqual((rec["dropped"]["n"], rec["dropped"]["rows"][0]["text"]), (1, "ご視聴ありがとうございました"))
 
     @unittest.skipUnless(_llm_ready("qwen3-4b"), "llama-server か Qwen3-4B のモデルが無い")
     def test_llm_fixes_roster_name(self):
@@ -213,6 +234,21 @@ class TestFailures(_Base):
         with mock.patch.object(diarize, "has_sherpa", lambda: False):
             out, rec, _read = fill.fill_after_rows({}, {"autoFill": True}, [dict(r) for r in rows], "w.wav", 12.0)
         self.assertEqual(([r["text"] for r in out], rec["dup"]), (["うわああああああああああ"], 1))
+
+    def test_drop_silent_edges(self):
+        """声の無い行を捨てる(dropSilent)の端: 分けられない = 警告して捨てない・区間 0 = 捨てない・音量から区間(上位 5% − 40 dB・すき間 0.3 秒をつなぐ・0.2 秒未満は捨てる)"""
+        rows = [{"start": 0.0, "end": 2.0, "text": "テスト文1"}]
+
+        def boom(job, wav):
+            raise tx_engines.EngineError("fetch_failed", "取得した型の中身が違う")
+        job, rec = {"phase": "x"}, {}
+        with mock.patch.object(separate, "voice_spans", boom):
+            self.assertEqual(fill.fill_drop_silent(job, rows, "w.wav", rec), rows)
+        self.assertEqual((rec, job["phase"], len(job["warnings"])), ({}, "x", 1))
+        with mock.patch.object(separate, "voice_spans", lambda job, wav: []):
+            self.assertEqual(fill.fill_drop_silent({}, rows, "w.wav", rec), rows)
+        db = [-90.0] * 10 + [-10.0] * 10 + [-90.0] * 5 + [-10.0] * 10 + [-60.0] * 30 + [-10.0] * 3   # 0.03 秒ごと
+        self.assertEqual([(round(a, 2), round(b, 2)) for a, b in separate.spans_from_db(db)], [(0.3, 1.05)])   # すき間 0.15 秒はつなぎ、最後の 0.09 秒は捨てる
 
     def test_llm_record_and_broken_file(self):
         self.assertEqual(llm.llm_path("abcdefabcde1"), os.path.join(self.tmp, "abcdefabcde1.llm.json"))   # 置き場所は ytt/workdata の TX_DIR

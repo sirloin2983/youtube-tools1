@@ -168,6 +168,10 @@ class FakeBackend(_fa_backend.Backend):
         text = os.environ.get("TRANSCRIBE_FAKE_FILL", "")   # 空 = 行なし
         return lambda s0, e0: [{"start": s0, "end": e0, "text": text}] if text else []
 
+    def voice_spans(self, job, wav, real):
+        raw = os.environ.get("TRANSCRIBE_FAKE_VOICED", "")   # 「始め-終わり,…」の秒(空 = 区間なし)
+        return [tuple(float(v) for v in p.split("-", 1)) for p in raw.split(",") if "-" in p]
+
     def llm_ask(self, job, spec, real):
         reply = os.environ.get("TRANSCRIBE_FAKE_LLM", "")
         return lambda messages: reply

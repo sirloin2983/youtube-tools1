@@ -27,7 +27,7 @@
 ## src/eval/fake/
 
 - **__init__.py** (2 行) — ④ 疑似モード(偽の認識エンジン fake_asr・偽のワーカー fake_worker)。各段の登録の口から差し込む。本体に if fake を置かない
-- **fake_asr.py** (187 行) — 疑似の文字起こし(環境変数 TRANSCRIBE_BACKEND=fake のテスト・画面の通し確認用)。
+- **fake_asr.py** (191 行) — 疑似の文字起こし(環境変数 TRANSCRIBE_BACKEND=fake のテスト・画面の通し確認用)。
   - 名前: `fake_wait` :19・`transcribe_fake` :24・`fake_range_lines` :66・`diarize_fake` :87・`embed_fake` :101・`class FakeBackend` :118
 - **fake_worker.py** (127 行) — 認識ワーカーの中の疑似(環境変数 TRANSCRIBE_BACKEND=worker-fake のテスト用。認識ワーカーは pipeline/transcribe/worker.py)。
   - 名前: `install` :24・`fake_sense_voice` :92・`fake_llama_text` :111

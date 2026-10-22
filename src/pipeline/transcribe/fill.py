@@ -22,14 +22,15 @@
 名前は fill_ / FILL_ / _fill_ で始める(serve.py の _ED_MODULES。ほかの部品と重ならないように)。
 
 S.fill_* は serve の名前の受付で読める。
-標準ライブラリ・ytt・同じパッケージの兄弟(backend・diarize・roster・tx_engines・txbase・worker_client)だけを読む。名簿のファイルの場所は呼ぶたびに
+  fill_drop_silent  声を分けて(separate.py の Spleeter)声と 1 割も重ならない行を捨てる(A → C のあと。束 transcribe.dropSilent・既定オフ。印 fill.dropped)
+標準ライブラリ・ytt・同じパッケージの兄弟(backend・diarize・roster・separate・tx_engines・txbase・worker_client)だけを読む。名簿のファイルの場所は呼ぶたびに
 roster.ROSTER から、話者判別の部品の有無は diarize.has_sherpa から、疑似の窓の読みは backend の口 fill_reader から(app の ed_state を読まない)。ネイティブの部品は読み込まない。
 """
 import re
 import unicodedata
 
 from ytt import errors as _errors, jobs as _heavy   # 取り消し Cancelled(RS2-8a。持ち主から直に読む)
-from . import backend as _backend, diarize, roster as _roster, tx_engines, worker_client  # diarize = 話者判別の部品の有無 has_sherpa(RS2-9。呼ぶたびに diarize.名前 で読む)・ wav を読まずに渡す形 read_wav_f32(RS2-6)・モデルの読み込み load_model・filter_kwargs(RS2-8a)
+from . import backend as _backend, diarize, roster as _roster, separate, tx_engines, worker_client  # separate = 分けた声の区間(dropSilent)・ diarize = 話者判別の部品の有無 has_sherpa(RS2-9。呼ぶたびに diarize.名前 で読む)・ wav を読まずに渡す形 read_wav_f32(RS2-6)・モデルの読み込み load_model・filter_kwargs(RS2-8a)
 from ytt import txbase as _txbase
 
 FILL_ENGINE, FILL_MODEL = "sense-voice", "sense-voice-small"   # 2 つ目の読み(tx_engines.SenseVoice)
@@ -45,7 +46,8 @@ FILL_FLAG = "別の読みで埋めた(元の文字は「別の読み」の札)"
 FILL_NAME_FLAG = "名簿の呼び名に直した(別のエンジンも同じ呼び名)"
 FILL_STOCK = ("ご視聴ありがとうございました", "チャンネル登録", "ありがとうございました", "おやすみなさい", "字幕", "最後まで", "ご視聴")   # C: 定型の幻覚
 FILL_MIN_VOICE = 0.3     # C: 行の長さのうち声の区間と重なる割合がこれ未満なら幻覚
-FILL_DUP_MIN = 6         # C: 前の行の末尾の重複とみなす最小の文字数
+FILL_SILENT_VOICE = 0.1  # 声の無い行: 分けた声の区間と重なる割合がこれ未満の行を捨てる(dropSilent。3 割では本当の声を捨てた)
+FILL_DUP_MIN = 6        # C: 前の行の末尾の重複とみなす最小の文字数
 FILL_AGREE_MIN = 3       # D: 呼び名の最小の文字数
 FILL_AGREE_SLACK = 0.5   # D: 行と 2 つ目のエンジンの行の時間の重なりの余裕(秒)
 FILL_AGREE_MAX_SEC = 1800   # D: 全体を読むのはこの秒までの文書(CPU で音声の約 2% の時間)
@@ -357,7 +359,34 @@ def fill_after_rows(job, spec, rows, wav, total):
     job["phase"] = phase
     if order == "AC":
         rows, rec["dup"] = fill_clean_tail(rows)
+    if spec.get("dropSilent"):
+        rows = fill_drop_silent(job, rows, wav, rec)
     return rows, rec, read
+
+
+def fill_drop_silent(job, rows, wav, rec):
+    """分けた声(separate.voice_spans)と FILL_SILENT_VOICE も重ならない行を捨てる(束 transcribe.dropSilent・既定オフ。確かめ済み 23 本で
+    組 A 10.35 → 9.89%・組 B 12.45 → 11.70%・抜け・時刻は両方の組で同じ = notes:plan/voice-separation-1022.md の 2)。
+    捨てた行は rec["dropped"] = {n, db, rows(最初の 200)} に残す。分けられない(型が無い・落ちた)・区間が無ければ警告して捨てない"""
+    phase = job.get("phase")
+    job["phase"] = "声を分けて声の無い行を探し中"
+    try:
+        spans = separate.voice_spans(job, wav)
+    except _heavy.Cancelled:
+        raise
+    except (_errors.ApiError, tx_engines.EngineError, OSError, MemoryError, RuntimeError) as e:
+        _txbase.add_warning(job, "声を分けられなかったので声の無い行は捨てていません: " + str(getattr(e, "message", e))[:200])
+        return rows
+    finally:
+        job["phase"] = phase
+    if not spans:
+        return rows
+    keep, out = [], []
+    for g in rows:
+        (out if fill_voice_frac(g, spans) < FILL_SILENT_VOICE else keep).append(g)
+    rec["dropped"] = {"n": len(out), "db": -separate.SEP_DB,
+                      "rows": [{"start": round(float(g["start"]), 2), "end": round(float(g["end"]), 2), "text": str(g.get("text") or "")[:200]} for g in out[:200]]}
+    return keep
 
 
 def fill_agree_doc(job, segs, read, total, spec):

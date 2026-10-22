@@ -229,6 +229,7 @@ DEFAULTS = {
         "splitChars": 24,
         "autoDict": True, "autoGloss": True, "autoContext": False, "autoLearned": False,
         "autoFill": True, "stripNames": True, "autoLlm": True,
+        "dropSilent": False,  # 声を分けて声の無い行を捨てる(pipeline/transcribe/fill.fill_drop_silent。既定オフ = 配る前の検査が通ったら次の版で)
         "llmModel": "qwen3-8b",   # LLM の後処理のモデル(src/pipeline/transcribe/llm.py の LLM_MODEL。この PC の設定 flow/machine.py が重ねる。RS7-1 S1)
         "diarSmooth": False,  # 試験中・既定オフ(src/ytt/settings.py の SETTINGS_PATCH_KEYS の説明)
         "learning": {"version": ""},   # 学習データの版(中身も場所も束に入れない。場所は機械の設定 machine。決定 3-30 Q3)。"" = 指定なし。違えば後処理の鍵が変わる
@@ -455,7 +456,7 @@ SCHEMA = {
              "autoLearned": (_is_bool, "true か false"),
              "autoFill": (_is_bool, "true か false"), "stripNames": (_is_bool, "true か false"), "autoLlm": (_is_bool, "true か false"),
              "llmModel": (_model_ok, "英数字と . _ - の 60 字までの名前"),
-             "diarSmooth": (_is_bool, "true か false"),
+             "diarSmooth": (_is_bool, "true か false"), "dropSilent": (_is_bool, "true か false"),
              "learning": (_dict_of(version=_version_ok), "{version}(80 字までの文字。空 = 指定なし)")},
     "pack": {"size": (_one_of("1080x1920", "1920x1080"), "1080x1920 か 1920x1080"),
              "loudness": (_one_of(0, *_LUFS), "0 か %s のどれか" % "・".join(map(str, _LUFS))),
