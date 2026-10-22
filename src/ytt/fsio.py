@@ -481,6 +481,34 @@ def prune_cache(d, pattern, keep):
         pass
 
 
+def prune_older(folder, pattern, keep_sec, now=None):
+    """フォルダ folder の中の pattern に合う物で、更新が keep_sec 秒より古い物を消す -> 消した数(消せない物は黙って飛ばす。prune_cache は本数で消す版)"""
+    now, n = time.time() if now is None else now, 0
+    for p in glob.glob(os.path.join(glob.escape(folder), pattern)):
+        try:
+            if now - os.path.getmtime(p) > keep_sec:
+                os.remove(p)
+                n += 1
+        except OSError:
+            pass
+    return n
+
+
+def iter_jsonl(path):
+    """1 行 1 件の JSON のファイルの dict の行(壊れた行・dict でない行は飛ばす。無い・読めないファイルは行なし)"""
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(d, dict):
+                    yield d
+    except OSError:
+        return
+
+
 def try_lock(path):
     """ほかのプロセスと同時に動かさない印: path の先頭の 1 バイトを取る -> 開いたファイル(持っている間だけ有効。unlock で外す。
     プロセスが終われば自然に外れる)か None(ほかのプロセスが持っている)"""

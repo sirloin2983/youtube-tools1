@@ -92,16 +92,14 @@ def version_of(exe, run=_run):
 
 def mark_ok(fold, size):
     """setup.is_done が読む: 取り替えた印の大きさが今のファイルと同じか"""
-    m = _fsio.read_json_or(os.path.join(fold, MARK), {})
-    return isinstance(m, dict) and m.get("size") == size
+    return _fsio.read_json_or(os.path.join(fold, MARK), {}, kind=dict).get("size") == size
 
 
 def update(exe, friend_dir, now=None, http=_http, run=_run, force=False, log=print):
     """1 回見る(上の説明)-> 記録の dict。1 日 1 回まで(force で無視)"""
     now = time.time() if now is None else now
     rp = record_path(friend_dir)
-    rec = _fsio.read_json_or(rp, {})
-    rec = rec if isinstance(rec, dict) else {}
+    rec = _fsio.read_json_or(rp, {}, kind=dict)
     if not force and now - float(rec.get("checkedAt") or 0) / 1000 < EVERY:
         return rec
     rec["checkedAt"] = int(now * 1000)
@@ -161,8 +159,8 @@ def maybe_start(env, friend_dir, tools_dir, log=print, maker=False):
     if not enabled(env, maker) or not exe or os.path.basename(exe).lower() != EXE or not os.path.isfile(exe) \
             or not _fsio.is_inside(exe, tools_dir, strict=True):
         return False
-    rec = _fsio.read_json_or(record_path(friend_dir), {})
-    if isinstance(rec, dict) and time.time() - float(rec.get("checkedAt") or 0) / 1000 < EVERY:
+    rec = _fsio.read_json_or(record_path(friend_dir), {}, kind=dict)
+    if time.time() - float(rec.get("checkedAt") or 0) / 1000 < EVERY:
         return False
     with _lock:
         if _running[0]:
@@ -181,7 +179,7 @@ def maybe_start(env, friend_dir, tools_dir, log=print, maker=False):
 def facts(env):
     """診断に入れる物: 版・前の版・取り替えた時刻・見た時刻・最後の理由(記録から)"""
     from . import places as _places
-    rec = _fsio.read_json_or(record_path(_places.friend_dir(env)), {})
-    if not isinstance(rec, dict) or not rec:
+    rec = _fsio.read_json_or(record_path(_places.friend_dir(env)), {}, kind=dict)
+    if not rec:
         return None
     return {k: rec[k] for k in ("version", "prev", "updatedAt", "checkedAt", "latest", "error") if rec.get(k) is not None}

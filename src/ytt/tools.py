@@ -486,13 +486,7 @@ def ytdlp_auth_args(env=None):
     try:
         os.makedirs(run, exist_ok=True)
         now = time.time()
-        for n in os.listdir(run):
-            p = os.path.join(run, n)
-            try:
-                if now - os.path.getmtime(p) > COOKIES_RUN_KEEP:
-                    os.remove(p)
-            except OSError:
-                pass
+        _fsio.prune_older(run, "*", COOKIES_RUN_KEEP, now)
         dst = os.path.join(run, _ytcookies.copy_name(now, os.stat(src).st_mtime_ns))
         shutil.copyfile(src, dst)
     except OSError:

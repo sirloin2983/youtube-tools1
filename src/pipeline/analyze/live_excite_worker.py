@@ -661,15 +661,7 @@ class ChatFeed:
 
 def purge_chat_logs(folder, now, keep=CHAT_LOG_KEEP):
     """チャットの yt-dlp のログで keep 秒より古い物を消す -> 消した数"""
-    n = 0
-    for p in glob.glob(os.path.join(glob.escape(folder), "*.log")):
-        try:
-            if now - os.path.getmtime(p) > keep:
-                os.remove(p)
-                n += 1
-        except OSError:
-            pass
-    return n
+    return fsio.prune_older(folder, "*.log", keep, now)
 
 
 def shape_of(spec):

@@ -51,7 +51,7 @@ if SRC not in sys.path:
 DEV = os.path.dirname(os.path.abspath(__file__))
 if DEV not in sys.path:
     sys.path.insert(0, DEV)
-from ytt import datadir, version as _version, workdata  # noqa: E402
+from ytt import datadir, fsio as _fsio, version as _version, workdata  # noqa: E402
 from pipeline.transcribe import diarize as _diarize, tx_engines as _tx  # noqa: E402  取る物の表の正(写さない)
 import _common  # noqa: E402
 import push_helper  # noqa: E402  個人データの名前の表を流用する
@@ -107,12 +107,7 @@ def say(msg):
     print(msg, flush=True)
 
 
-def sha256_file(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for b in iter(lambda: f.read(1 << 20), b""):
-            h.update(b)
-    return h.hexdigest()
+sha256_file = _fsio.sha256_file   # 写しを持たない(friend_preflight も bfz.sha256_file で呼ぶ)
 
 
 def _rel(path):

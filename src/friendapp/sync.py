@@ -657,10 +657,6 @@ class Sync:
                 fsio.replace_retry(part, dest)
             self.inbox.set_preview(rid, n, dest)
 
-    @staticmethod
-    def _free_ok(folder, need):
-        return free_ok(folder, need)
-
     def _keep_failed(self, rid, name, msg):
         """[受け取る] の失敗: 行に理由を出し、ログと診断にも残す"""
         self.log("受け取れませんでした %s: %s" % (name, msg))
@@ -683,7 +679,7 @@ class Sync:
             except OSError as e:   # 抜いた USB・消えたドライブ・書けないフォルダ: このパックだけ押す前に戻す(後ろのパックは進める)
                 self._keep_failed(rid, name, "保存先のフォルダを作れません。⚙ の保存先を確かめてください(%s)" % os_reason(e))
                 continue
-            if not self._free_ok(save, size * 2):
+            if not free_ok(save, size * 2):
                 self.inbox.remote_keep_failed(rid, name, "保存先の空きが足りません(あと %d MB ほど空けてから、もう一度 [受け取る])" % (size * 2 // (1024 * 1024) + 64))
                 continue
             os.makedirs(folder, exist_ok=True)
@@ -858,7 +854,7 @@ class Sync:
                 need += int(float(_machine.get("diskMinGB")) * 1024 ** 3)
             except (OSError, ValueError, TypeError):
                 need += int(_machine.DISK_MIN_GB * 1024 ** 3)
-        if self._free_ok(home, need):
+        if free_ok(home, need):
             return True
         self.log("新しい版を取る空き(%d MB)がありません。次の回にまた見ます" % (need // (1024 * 1024)))
         if self.diag is not None:

@@ -108,18 +108,7 @@ def mode_now(store_dir):
     """今の形(off | measure | on)。auto は比べた記録の新しい READY_N 本がどれも近ければ on"""
     if MODE != "auto":
         return MODE
-    rows = []
-    try:
-        with open(os.path.join(store_dir, LOG_NAME), encoding="utf-8") as f:
-            for line in f:
-                try:
-                    d = json.loads(line)
-                except ValueError:
-                    continue
-                if isinstance(d, dict) and d.get("kind") == "compare":
-                    rows.append(d)
-    except OSError:
-        pass
+    rows = [d for d in fsio.iter_jsonl(os.path.join(store_dir, LOG_NAME)) if d.get("kind") == "compare"]
     last = rows[-READY_N:]
     return "on" if len(last) >= READY_N and all(ok(d) for d in last) else "measure"
 
@@ -138,13 +127,4 @@ def log(store_dir, rec):
 
 def prune(store_dir, now=None, keep=None):
     """残したチャットを物の終わりの日数で片付ける(更新が古い物から)-> 消した数"""
-    now, keep = time.time() if now is None else now, _retention.KEEP_SEC if keep is None else keep
-    n = 0
-    for p in glob.glob(os.path.join(glob.escape(os.path.join(store_dir, KEEP_NAME)), "*")):
-        try:
-            if now - os.path.getmtime(p) > keep:
-                fsio.unlink_quiet(p)
-                n += 1
-        except OSError:
-            pass
-    return n
+    return fsio.prune_older(os.path.join(store_dir, KEEP_NAME), "*", _retention.KEEP_SEC if keep is None else keep, now)

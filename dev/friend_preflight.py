@@ -62,7 +62,7 @@ for _p in (SRC, DEV):
         sys.path.insert(0, _p)
 import _common  # noqa: E402
 import build_friend_zip as bfz  # noqa: E402
-from ytt import datadir, tools as _ytools  # noqa: E402
+from ytt import datadir, fsio, tools as _ytools  # noqa: E402
 
 SHIM_SRC = os.path.join(DEV, "friend_preflight_shim.py")
 SHIM_ENV = "YTT_PREFLIGHT_SHIM"
@@ -891,18 +891,10 @@ def make_update(zip_path, work, new_ver, broken=False):
 def update_downloads(work):
     """偽の Dropbox から取った /更新/ の zip の名前(通信の差し替えの記録 net.log から)"""
     out = []
-    try:
-        with open(os.path.join(work, "net.log"), encoding="utf-8") as f:
-            for line in f:
-                try:
-                    d = json.loads(line)
-                except ValueError:
-                    continue
-                path = d.get("path") or ""
-                if d.get("endpoint") == "files/download" and path.startswith("/更新/") and path.endswith(".zip"):
-                    out.append(path.rsplit("/", 1)[1])
-    except OSError:
-        pass
+    for d in fsio.iter_jsonl(os.path.join(work, "net.log")):
+        path = d.get("path") or ""
+        if d.get("endpoint") == "files/download" and path.startswith("/更新/") and path.endswith(".zip"):
+            out.append(path.rsplit("/", 1)[1])
     return out
 
 
@@ -1196,15 +1188,10 @@ def net_summary(work, rep):
         rep.check("展開した写しの python が通信の差し替えを読んだ", False, "net.log が無い")
         return
     kinds, blocked = {}, set()
-    with open(p, encoding="utf-8") as f:
-        for line in f:
-            try:
-                d = json.loads(line)
-            except ValueError:
-                continue
-            kinds[d.get("kind")] = kinds.get(d.get("kind"), 0) + 1
-            if d.get("kind") == "blocked":
-                blocked.add(re.sub(r"[?#].*$", "", d.get("url") or "")[:120])
+    for d in fsio.iter_jsonl(p):
+        kinds[d.get("kind")] = kinds.get(d.get("kind"), 0) + 1
+        if d.get("kind") == "blocked":
+            blocked.add(re.sub(r"[?#].*$", "", d.get("url") or "")[:120])
     rep.check("展開した写しの python が通信の差し替えを読んだ", kinds.get("installed"), kinds)
     if blocked:
         rep.info("断ったネットの先(友人の PC では出る通信)", ", ".join(sorted(blocked)[:12]))

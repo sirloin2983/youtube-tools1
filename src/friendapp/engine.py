@@ -325,18 +325,22 @@ class Engine:
             if closing:
                 self._live_closed(r["id"], facts, why)
 
+    def _masked(self, x):
+        """診断に載せる前の伏せ字(診断の口の mask_tree。無ければそのまま)"""
+        mask = getattr(self.diag, "mask_tree", None)
+        return mask(x) if mask else x
+
     def _live_ended(self, r, rc, rec, raw, waiting):
         """録画が終わった見回り(行の phase が録画中から変わる 1 回): 診断 kind live・stage ended(閉じたときの close と同じ材料)。
         診断は行を閉じたときにしか書いていなかったので、配信後のアーカイブ待ち(afterStream)が長い・閉じる前にアプリを閉じると、作る人に何も届かなかった"""
         if self.diag is None:
             return
-        mask = getattr(self.diag, "mask_tree", None)
         facts = self._live_facts(rc, rec, raw)
         lv = r.get("live") or {}
         outcome = {"state": r.get("state"), "packs": len(r.get("packs") or []), "clipRuns": len(lv.get("done") or []), "errors": lv.get("errors") or 0,
                    "lastError": lv.get("lastError") or "", "waiting": waiting or ""}
         self._diag("live", rid=r["id"], summary="ライブ: 録画が終わりました(パック %d 本・%s)" % (outcome["packs"], waiting or "残りを作っています"),
-                   stage="ended", outcome=mask(outcome) if mask else outcome, live=mask(facts or {}) if mask else (facts or {}))
+                   stage="ended", outcome=self._masked(outcome), live=self._masked(facts or {}))
 
     def _live_blocked(self, rid, raw):
         """録画元が YouTube に断られ続けて BLOCKED_NOTICE 秒たった -> 行に出す知らせ(無ければ "")。初めて出すとき診断(kind live・stage blocked)を 1 回"""
@@ -386,10 +390,9 @@ class Engine:
         outcome = {"state": r.get("state"), "packs": packs, "groups": len(r.get("groups") or []), "cause": lv.get("cause"),
                    "lastError": lv.get("lastError") or "", "errors": lv.get("errors") or 0, "clipRuns": len(lv.get("done") or []),
                    "phase": lv.get("phase"), "startedAt": lv.get("startedAt"), "endedAt": lv.get("endedAt"), "finished": lv.get("finished")}
-        mask = getattr(self.diag, "mask_tree", None)
         code = (why or {}).get("code") or ""
         self._diag("live", rid=rid, summary=summary, detail=(why or {}).get("text") or "", code=code if code.startswith("live") else None,
-                   stage="close", outcome=mask(outcome) if mask else outcome, live=mask(facts or {}) if mask else (facts or {}))
+                   stage="close", outcome=self._masked(outcome), live=self._masked(facts or {}))
 
     def _preview_loop(self):
         while True:

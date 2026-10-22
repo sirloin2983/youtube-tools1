@@ -40,8 +40,7 @@ def state_path(src):
 
 
 def read_state(src):
-    s = _fsio.read_json_or(state_path(src), {})
-    return s if isinstance(s, dict) else {}
+    return _fsio.read_json_or(state_path(src), {}, kind=dict)
 
 
 def _write_state(src, s):
