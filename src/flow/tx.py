@@ -111,7 +111,7 @@ def tx_spec(req, post, learning=None, *, src=None, dur=None):
             "vadMode": req.get("vadMode") if req.get("vadMode") in ("weak", "normal", "off") else "weak",
             "boost": req.get("boost") is True, "autoDict": req.get("autoDict") is not False, "wordSplit": req.get("wordSplit") is not False,
             "splitChars": post["splitChars"], "autoAlt": False,
-            "autoFill": post["autoFill"], "autoLlm": post["autoLlm"], "stripNames": post["stripNames"], "dropSilent": post.get("dropSilent") is True,
+            "autoFill": post["autoFill"], "autoLlm": post["autoLlm"], "stripNames": post["stripNames"], "dropSilent": post.get("dropSilent") is True, "endSnap": post.get("endSnap") is True,
             "stripPunct": req.get("stripPunct") is not False, "glossary": glossary + gauto, "glossAuto": gauto,
             "learningVersion": post["learning"]["version"], "context": ctx, "evalSet": False, "autoLearned": post["autoLearned"], "clip": clip,
             "warnings": [clip_warn] if clip_warn else [], "title": title}
@@ -165,7 +165,7 @@ def _doc_fields(job, spec, out, total, t_rec, pairs=None):
               "splitChars": spec.get("splitChars"), "stripPunct": spec.get("stripPunct", True) is not False,
               "autoLearned": bool(spec.get("autoLearned")), "learnApplied": out["learnApplied"], "glossAuto": spec.get("glossAuto", [])[:20],
               "context": records.context_record(spec), "autoFill": bool(spec.get("autoFill")), "autoLlm": bool(spec.get("autoLlm")),
-              "stripNames": bool(spec.get("stripNames")), "dropSilent": bool(spec.get("dropSilent"))}
+              "stripNames": bool(spec.get("stripNames")), "dropSilent": bool(spec.get("dropSilent")), "endSnap": bool(spec.get("endSnap"))}
     fields = {"start": spec["start"], "end": spec["end"], "whole": spec["whole"], "duration": spec["duration"], "model": spec["model"],
               "language": spec["language"], "params": params, "speakers": [], "segments": out["segs"], "original": out["original"], "updatedAt": now,
               "recognition": {"runs": [records.recognition_run(spec, job, total, time.monotonic() - t_rec, pairs)]}}

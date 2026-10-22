@@ -72,8 +72,8 @@
   - 名前: `make_doc_rows` :17
 - **diarize.py** (547 行) — ① 自動の流れの層 pipeline/transcribe: 話者判別の計算(sherpa-onnx)と判別の記録・声の特徴と覚えた声との照らし合わせ。
   - 名前: `diar_threads` :59・`has_sherpa` :65・`diar_models_dir` :71・`diar_info` :84・`ensure_diar_models` :114・`diar_tune` :145・`diarize_real` :161・`assign_speakers` :200・`label_ratio` :251・`smooth_labels` :259・`smooth_speakers` :281・`diar_path` :301・ほか 8
-- **fill.py** (414 行) — 「編集」のサーバーの部品: 認識のあとの後処理(A・C・D。notes:plan/line-b-transcription.md の「10-08 の実験ループ」)。
-  - 名前: `fill_norm` :65・`fill_chars` :70・`fill_sparse_row` :75・`fill_apply` :94・`fill_clean_tail` :124・`fill_stock` :137・`fill_voice_frac` :143・`fill_clean_turns` :151・`fill_spk_key` :176・`fill_spk_names` :181・`fill_spk_split` :197・`fill_strip_names` :226・ほか 8
+- **fill.py** (434 行) — 「編集」のサーバーの部品: 認識のあとの後処理(A・C・D。notes:plan/line-b-transcription.md の「10-08 の実験ループ」)。
+  - 名前: `fill_norm` :67・`fill_chars` :72・`fill_sparse_row` :77・`fill_apply` :96・`fill_clean_tail` :126・`fill_stock` :139・`fill_voice_frac` :145・`fill_clean_turns` :153・`fill_spk_key` :178・`fill_spk_names` :183・`fill_spk_split` :199・`fill_strip_names` :228・ほか 9
 - **live_tx_worker.py** (71 行) — 配信中の候補の文字起こし(線 D の D-11 案 b。notes:plan/line-d-live-clipping.md の 0-11)の子プロセス。**入口のプロセスから import しない
   - 名前: `recognize` :28・`main` :53
 - **llm.py** (340 行) — 「編集」のサーバーの部品: LLM の後処理(提案 P18。notes:plan/done/llm-postfix.md)。

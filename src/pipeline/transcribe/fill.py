@@ -23,6 +23,7 @@
 
 S.fill_* は serve の名前の受付で読める。
   fill_drop_silent  声を分けて(separate.py の Spleeter)声と 1 割も重ならない行を捨てる(A → C のあと。束 transcribe.dropSilent・既定オフ。印 fill.dropped)
+  fill_snap_ends    同じ区間で行の終わりを区間の終わりへ ±0.3 秒寄せる(束 transcribe.endSnap・既定オフ。印 fill.endSnap)
 標準ライブラリ・ytt・同じパッケージの兄弟(backend・diarize・roster・separate・tx_engines・txbase・worker_client)だけを読む。名簿のファイルの場所は呼ぶたびに
 roster.ROSTER から、話者判別の部品の有無は diarize.has_sherpa から、疑似の窓の読みは backend の口 fill_reader から(app の ed_state を読まない)。ネイティブの部品は読み込まない。
 """
@@ -47,7 +48,8 @@ FILL_NAME_FLAG = "名簿の呼び名に直した(別のエンジンも同じ呼�
 FILL_STOCK = ("ご視聴ありがとうございました", "チャンネル登録", "ありがとうございました", "おやすみなさい", "字幕", "最後まで", "ご視聴")   # C: 定型の幻覚
 FILL_MIN_VOICE = 0.3     # C: 行の長さのうち声の区間と重なる割合がこれ未満なら幻覚
 FILL_SILENT_VOICE = 0.1  # 声の無い行: 分けた声の区間と重なる割合がこれ未満の行を捨てる(dropSilent。3 割では本当の声を捨てた)
-FILL_DUP_MIN = 6        # C: 前の行の末尾の重複とみなす最小の文字数
+FILL_SNAP_END = 0.3      # 行の終わりを分けた声の区間の終わりへ寄せる幅(秒。endSnap。row-start-study の物差しで ±0.2〜0.3 が良かった)
+FILL_DUP_MIN = 6       # C: 前の行の末尾の重複とみなす最小の文字数
 FILL_AGREE_MIN = 3       # D: 呼び名の最小の文字数
 FILL_AGREE_SLACK = 0.5   # D: 行と 2 つ目のエンジンの行の時間の重なりの余裕(秒)
 FILL_AGREE_MAX_SEC = 1800   # D: 全体を読むのはこの秒までの文書(CPU で音声の約 2% の時間)
@@ -359,15 +361,32 @@ def fill_after_rows(job, spec, rows, wav, total):
     job["phase"] = phase
     if order == "AC":
         rows, rec["dup"] = fill_clean_tail(rows)
-    if spec.get("dropSilent"):
-        rows = fill_drop_silent(job, rows, wav, rec)
+    if spec.get("dropSilent") or spec.get("endSnap"):
+        rows = fill_drop_silent(job, rows, wav, rec, drop=bool(spec.get("dropSilent")), snap=bool(spec.get("endSnap")))
     return rows, rec, read
 
 
-def fill_drop_silent(job, rows, wav, rec):
+def fill_snap_ends(rows, spans, rec, reach=FILL_SNAP_END):
+    """行の終わりを、reach 秒以内でいちばん近い分けた声の区間の終わりへ寄せる(始まり + 0.1 秒より後・次の行の始まりを越えない)。
+    動かした行は rec["endSnap"] = {n, rows(最初の 200 = 始まり・元の終わり・新しい終わり)}"""
+    ends, moved = sorted(b for _a, b in spans), []
+    for k, g in enumerate(rows):
+        e, s = float(g["end"]), float(g["start"])
+        cap = float(rows[k + 1]["start"]) if k + 1 < len(rows) else float("inf")
+        c = [t for t in ends if abs(t - e) <= reach and s + 0.1 < t <= max(cap, e)]
+        t = min(c, key=lambda t: abs(t - e)) if c else e
+        if abs(t - e) > 1e-6:
+            moved.append({"start": round(s, 2), "from": round(e, 2), "to": round(t, 2)})
+            g["end"] = t
+    rec["endSnap"] = {"n": len(moved), "rows": moved[:200]}
+    return rows
+
+
+def fill_drop_silent(job, rows, wav, rec, drop=True, snap=False):
     """分けた声(separate.voice_spans)と FILL_SILENT_VOICE も重ならない行を捨てる(束 transcribe.dropSilent・既定オフ。確かめ済み 23 本で
     組 A 10.35 → 9.89%・組 B 12.45 → 11.70%・抜け・時刻は両方の組で同じ = notes:plan/voice-separation-1022.md の 2)。
-    捨てた行は rec["dropped"] = {n, db, rows(最初の 200)} に残す。分けられない(型が無い・落ちた)・区間が無ければ警告して捨てない"""
+    捨てた行は rec["dropped"] = {n, db, rows(最初の 200)} に残す。分けられない(型が無い・落ちた)・区間が無ければ警告して捨てない。
+    snap(束 transcribe.endSnap・既定オフ)なら残した行の終わりを分けた声の区間の終わりへ寄せる(fill_snap_ends)"""
     phase = job.get("phase")
     job["phase"] = "声を分けて声の無い行を探し中"
     try:
@@ -383,10 +402,11 @@ def fill_drop_silent(job, rows, wav, rec):
         return rows
     keep, out = [], []
     for g in rows:
-        (out if fill_voice_frac(g, spans) < FILL_SILENT_VOICE else keep).append(g)
-    rec["dropped"] = {"n": len(out), "db": -separate.SEP_DB,
-                      "rows": [{"start": round(float(g["start"]), 2), "end": round(float(g["end"]), 2), "text": str(g.get("text") or "")[:200]} for g in out[:200]]}
-    return keep
+        (out if drop and fill_voice_frac(g, spans) < FILL_SILENT_VOICE else keep).append(g)
+    if drop:
+        rec["dropped"] = {"n": len(out), "db": -separate.SEP_DB,
+                          "rows": [{"start": round(float(g["start"]), 2), "end": round(float(g["end"]), 2), "text": str(g.get("text") or "")[:200]} for g in out[:200]]}
+    return fill_snap_ends(keep, spans, rec) if snap else keep
 
 
 def fill_agree_doc(job, segs, read, total, spec):
