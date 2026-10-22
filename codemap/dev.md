@@ -6,10 +6,8 @@
 
 - **_common.py** (48 行) — dev/ の道具が共通で使う小物(標準ライブラリだけ)。guard_hook.py・push_helper.py は単独で動く条件なので、ここを読まない。
   - 名前: `console_utf8` :9・`find_node` :18・`read_utf8` :31・`write_utf8` :37・`tracked_files` :43
-- **build_friend_zip.py** (775 行) — 友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(設計 notes:docs/design/f1-build.md の 2・3 節)。
-  - 名前: `class BuildError` :102・`say` :106・`sha256_file` :110・`download` :123・`cached` :135・`wheel_pins` :170・`pip_download` :188・`wheels` :198・`unzip_into` :236・`lay_python` :261・`src_files` :286・`lay_src` :301・ほか 23
-- **chat_reuse_check.py** (96 行) — ライブのチャットの使い回し(src/flow/chatreuse.py。決定 3-117)の精度の確かめ: 同じ配信で、使い回したチャットとリプレイのチャットの
-  - 名前: `zero_of` :25・`analyze` :44・`match` :53・`main` :67
+- **build_friend_zip.py** (770 行) — 友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(設計 notes:docs/design/f1-build.md の 2・3 節)。
+  - 名前: `class BuildError` :102・`say` :106・`download` :118・`cached` :130・`wheel_pins` :165・`pip_download` :183・`wheels` :193・`unzip_into` :231・`lay_python` :256・`src_files` :281・`lay_src` :296・`run_launcher_build` :315・ほか 22
 - **code_map.py** (466 行) — コードの地図と言葉の索引を作る道具(AI のセッションがコードの場所を早く見つけるため)。
   - 名前: `git_files` :53・`skipped` :57・`is_test` :61・`read` :65・`one_line` :73・`comment_head` :85・`py_info` :112・`js_info` :143・`cs_info` :164・`info` :186・`layer_of` :199・`norm_route` :206・ほか 12
   - 受ける口: 
@@ -27,7 +25,7 @@
   - 名前: `demo_fetch` :33・`demo_probe` :38・`class StubQueue` :43・`class StubEngine` :68・`demo_thumb` :95・`class DemoStreams` :104・`seed` :143・`write_demo_fetch` :215・`class DemoDownloader` :229・`demo_file` :242・`write_demo_update` :252・`main` :264
 - **friend_diag.py** (251 行) — 友人のアプリから届いた診断の記録を読む(ユーザーの PC。notes:docs/spec/friend.md の 13-11)。AI が原因を調べるときに流す。
   - 名前: `default_dir` :36・`prune` :47・`load` :61・`is_error` :84・`live_lines` :95・`lines_of` :145・`main` :208
-- **friend_preflight.py** (1270 行) — 友人に配る zip を、配る前にこの PC で「友人の PC と同じ状態」にして通しで試す(配る前の検査。notes:docs/spec/friend.md の 13-11)。
+- **friend_preflight.py** (1257 行) — 友人に配る zip を、配る前にこの PC で「友人の PC と同じ状態」にして通しで試す(配る前の検査。notes:docs/spec/friend.md の 13-11)。
   - 名前: `class Preflight` :84・`class Report` :88・`free_port` :114・`link_or_copy` :120・`unpack` :129・`break_fetch` :148・`place_models` :158・`mirror_map` :182・`lay_shim` :198・`friend_env` :209・`fake_media` :239・`check_imports` :246・ほか 38
 - **friend_preflight_shim.py** (287 行) — 配る前の検査(dev/friend_preflight.py)の通信の差し替え。検査が、展開した写しの python/Lib/site-packages/sitecustomize.py として置く
   - 名前: `install` :262
@@ -37,8 +35,8 @@
   - 名前: `class Stop` :40・`git` :44・`main_worktree` :53・`bump` :64・`read_version` :69・`set_version` :76・`set_readme` :80・`needs_bump` :90・`pid_alive` :95・`class Lock` :113・`pending_paths` :160・`commit` :168・ほか 3
 - **land_gate.py** (324 行) — main に入れる前の関所(dev/land.py が版を上げる前に流す)。単独でも流せる:
   - 名前: `layer_of_dir` :62・`dependents` :69・`select` :74・`pick_units` :95・`run_units` :102・`count_of` :113・`run_check` :119・`run_tool` :133・`table_folders` :145・`table_drift` :159・`git` :183・`worktree_of` :188・ほか 8
-- **layer_map.py** (135 行) — 役割の層と、今のファイルの行き先(役割で組み直す計画 `notes:plan/done/role-restructure.md` の 7 節を機械で読める形にしたもの)。
-  - 名前: `layer_of` :115・`allowed` :125
+- **layer_map.py** (134 行) — 役割の層と、今のファイルの行き先(役割で組み直す計画 `notes:plan/done/role-restructure.md` の 7 節を機械で読める形にしたもの)。
+  - 名前: `layer_of` :114・`allowed` :124
 - **lint.py** (395 行) — コードの見直しの合格の基準を測る道具(読むだけ。基準は `notes:docs/spec/code.md`)。
   - 名前: `walk` :64・`read` :72・`rel` :80・`is_test` :84・`class Corpus` :88・`py_files` :109・`has_mark` :116・`unused_imports` :121・`dead_names` :145・`long_functions` :160・`dup_helpers` :171・`js_dead` :187・ほか 7
 - **loc.py** (356 行) — コードの行数を数える共通の道具(ユーザーと決めた数え方。セッションごとの数の食い違いを無くす)。
