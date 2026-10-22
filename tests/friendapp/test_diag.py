@@ -33,6 +33,21 @@ class FakeRun:
         return ["p1", "p2"]
 
 
+class EarlyTranscribeTest(unittest.TestCase):
+    def test_records_made_during_export_are_kept(self):
+        """流れ作業: 書き出しの段の最中に済んだ文字起こし(段の始まりより前)も診断に載る・段の行に先に済ませた本数"""
+        from friendapp import engine as E
+        run = FakeRun()
+        t = run.steps[1]["startedAt"]
+        run.steps[1].update(early=1, earlyAt=t - 60000)
+        run.docs = ["d1", "d2"]
+        docs = {"d1": {"recognition": {"runs": [{"at": t - 30000, "audioSec": 100.0, "wallSec": 20.0}]}},   # 書き出しの最中
+                "d2": {"recognition": {"runs": [{"at": t - 90000, "audioSec": 100.0, "wallSec": 20.0}]}}}   # 前からある文書(載せない)
+        self.assertEqual([r["at"] for r in E.transcribe_records(run, docs.get)], [t - 30000])
+        rows = G.stage_rows(run.steps, lambda s: s)
+        self.assertEqual([r.get("early") for r in rows], [None, 1])
+
+
 class MaskTest(unittest.TestCase):
     def test_paths_and_secrets(self):
         home = r"D:\友人\FriendApp"

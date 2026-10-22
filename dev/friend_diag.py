@@ -159,7 +159,8 @@ def lines_of(name, d, full=False):
         out.append("    PC: %s / GPU %s / 文字起こし %s" % (pc.get("windows") or "?", gpu or "?", pc.get("device") or "?"))
     st = d.get("stages") or []
     if st:
-        out.append("    段: " + "・".join("%s %s%s" % (s.get("key"), _sec(s.get("sec")), "" if s.get("state") in ("done", "skip", "") else "(%s)" % s.get("state"))
+        out.append("    段: " + "・".join("%s %s%s%s" % (s.get("key"), _sec(s.get("sec")), "" if s.get("state") in ("done", "skip", "") else "(%s)" % s.get("state"),
+                                                      "(%d 本は書き出しの最中に済ませた)" % s["early"] if s.get("early") else "")
                                        for s in st) + "  計 %s" % _sec(d.get("totalSec")))
     for t in d.get("transcribe") or []:
         out.append("    文字起こし: %s %s GPU=%s モデル=%s 音声 %s かかった %s 実時間比 %s" % (

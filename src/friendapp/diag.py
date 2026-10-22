@@ -102,7 +102,8 @@ def stage_rows(steps, mask_fn):
         b = b if isinstance(b, int) and not isinstance(b, bool) else None
         out.append({"key": s.get("key"), "label": _progress.FRIEND_OF.get(s.get("key")) or "", "start": a, "end": b,
                     "sec": round(max(0, b - a) / 1000.0, 1) if b is not None else None, "state": s.get("state") or "",
-                    "detail": mask_fn(str(s.get("detail") or "")[:300])})
+                    "detail": mask_fn(str(s.get("detail") or "")[:300]),
+                    **({"early": s["early"]} if isinstance(s.get("early"), int) and s["early"] else {})})   # 書き出しの最中に先に済ませた本数(流れ作業)
     return out
 
 

@@ -79,9 +79,11 @@ def transcribe_lines(run, read_doc=None):
 
 
 def transcribe_records(run, read_doc=None):
-    """この実行が文字起こしした文書ごとの認識の記録(recognition.runs の最後。段の始まりより後の物だけ)。ログの行と診断(friendapp/diag)が読む"""
+    """この実行が文字起こしした文書ごとの認識の記録(recognition.runs の最後。段の始まりより後の物だけ)。ログの行と診断(friendapp/diag)が読む。
+    流れ作業(書き出しの段の最中に先に頼んだ分)は段の印 earlyAt から数える(段の始まりより前に済んでいる)"""
     read_doc = read_doc or _read_doc
-    t0 = next((s.get("startedAt") for s in getattr(run, "steps", None) or [] if s.get("key") == "transcribe" and isinstance(s.get("startedAt"), int)), None)
+    tx = next((s for s in getattr(run, "steps", None) or [] if s.get("key") == "transcribe"), {})
+    t0 = min([t for t in (tx.get("startedAt"), tx.get("earlyAt")) if isinstance(t, int) and not isinstance(t, bool)], default=None)
     out = []
     for tid in getattr(run, "docs", None) or []:
         d = read_doc(tid)
