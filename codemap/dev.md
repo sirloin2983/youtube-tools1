@@ -37,8 +37,8 @@
   - 名前: `class Stop` :40・`git` :44・`main_worktree` :53・`bump` :64・`read_version` :69・`set_version` :76・`set_readme` :80・`needs_bump` :90・`pid_alive` :95・`class Lock` :113・`pending_paths` :160・`commit` :168・ほか 3
 - **land_gate.py** (324 行) — main に入れる前の関所(dev/land.py が版を上げる前に流す)。単独でも流せる:
   - 名前: `layer_of_dir` :62・`dependents` :69・`select` :74・`pick_units` :95・`run_units` :102・`count_of` :113・`run_check` :119・`run_tool` :133・`table_folders` :145・`table_drift` :159・`git` :183・`worktree_of` :188・ほか 8
-- **layer_map.py** (131 行) — 役割の層と、今のファイルの行き先(役割で組み直す計画 `notes:plan/done/role-restructure.md` の 7 節を機械で読める形にしたもの)。
-  - 名前: `layer_of` :111・`allowed` :121
+- **layer_map.py** (135 行) — 役割の層と、今のファイルの行き先(役割で組み直す計画 `notes:plan/done/role-restructure.md` の 7 節を機械で読める形にしたもの)。
+  - 名前: `layer_of` :115・`allowed` :125
 - **lint.py** (395 行) — コードの見直しの合格の基準を測る道具(読むだけ。基準は `notes:docs/spec/code.md`)。
   - 名前: `walk` :64・`read` :72・`rel` :80・`is_test` :84・`class Corpus` :88・`py_files` :109・`has_mark` :116・`unused_imports` :121・`dead_names` :145・`long_functions` :160・`dup_helpers` :171・`js_dead` :187・ほか 7
 - **loc.py** (356 行) — コードの行数を数える共通の道具(ユーザーと決めた数え方。セッションごとの数の食い違いを無くす)。

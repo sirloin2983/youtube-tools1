@@ -80,8 +80,8 @@
   - 名前: `set_root` :31・`set_data_dir` :42
 - **ytapi.py** (164 行) — YouTube Data API を 1 回呼ぶ口(OPT-H2 D。③ 配信の検索の rank.yt_get と ① のコメント欄 fetch_comments が別々に持っていた取得を 1 つに)。
   - 名前: `used` :37・`set_fake` :48・`get` :54・`soft` :102・`parse_dt` :115・`cache_get` :129・`cache_put` :137・`cached` :144・`oembed` :155
-- **ytcookies.py** (240 行) — YouTube のログインの cookie を長持ちさせる(友人の PC。notes:docs/spec/friend.md の 13-13)。
-  - 名前: `enabled` :34・`state_path` :39・`read_state` :43・`copy_name` :55・`parse` :60・`merge_rows` :89・`merge_back` :119・`login_at` :208・`facts` :222・`forget` :237
+- **ytcookies.py** (235 行) — YouTube のログインの cookie を長持ちさせる(友人の PC。notes:docs/spec/friend.md の 13-13)。
+  - 名前: `enabled` :33・`state_path` :38・`read_state` :42・`copy_name` :54・`parse` :59・`merge_rows` :88・`merge_back` :114・`login_at` :203・`facts` :217・`forget` :232
 - **yturl.py** (103 行) — YouTube の URL・動画 ID の形(語彙。標準ライブラリだけ・状態を持たない)。
   - 名前: `parse_video_id` :22・`watch_url` :49・`check_live` :61・`check_media_path` :85・`file_video_id` :93・`ytdlp_out` :98
 
