@@ -237,7 +237,7 @@ def run_diarize(job):
         job["speakers"], job["unsure"] = apply_diarization(spec["tid"], turns, start, spec["numSpeakers"], spec["embedding"], auto, bool(spec.get("smooth")))
         if spec.get("recognize", True):   # A-3: 覚えている声と照らし合わせて、仮の名前(話者n)に名前を付ける。失敗しても判別の結果は残す
             try:
-                job["named"] = _recognize_voices(job, spec["tid"], wav, start, spec["embedding"], spec.get("names") or None)
+                job["named"] = _recognize_voices(job, spec["tid"], wav, start, _diar.match_embedding(spec["embedding"]), spec.get("names") or None)   # 照らすモデルは判別と別(VOICE_EMB)
             except _slots.Cancelled:
                 raise
             except Exception as e:
@@ -517,7 +517,8 @@ def voice_learn_plan(doc, rows=None):
 
 
 def _voice_emb(req, doc):
-    return _diar.embedding(str(req.get("embedding") or (doc.get("diarization") or {}).get("embedding") or ""))   # 知らない・空なら既定
+    """声を覚える・確かめるモデル(要求か判別の記録のモデル → ② の learn_embedding = VOICE_EMB があればそれ)"""
+    return _diar.learn_embedding(str(req.get("embedding") or (doc.get("diarization") or {}).get("embedding") or ""))   # 知らない・空なら既定
 
 
 def voice_preview(tid, emb):

@@ -40,13 +40,18 @@ DIAR_SEG = {"file": "segmentation.onnx", "member": "sherpa-onnx-pyannote-segment
             "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2",
             "sha256": "24615ee884c897d9d2ba09bb4d30da6bb1b15e685065962db5b02e76e4996488", "max": 40 * 1024 * 1024}
 _GH = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/"
-# 声の特徴を取り出すモデル(表の形は残す。3D-Speaker の campplus・standard は持たない(ユーザー決定「普段よく使っているモデル以外は要らない」)。
-# 知らない名前(古い設定・覚えた声の campplus など)は flow/diar.embedding が既定に読み替える)
+# 声の特徴を取り出すモデル(表の形は残す。standard = ERes2Net は持たない(ユーザー決定 10-11「普段よく使っているモデル以外は要らない」)。
+# 知らない名前(古い設定・覚えた声の standard など)は flow/diar.embedding が既定に読み替える)。
+# campplus は 10-11 に「使っていない」で外したのを 10-22 に戻した: 声の名前付け(覚える・照らし合わせる)だけに使う(VOICE_EMB)。
+# 評価用のソロの文書 83 本の一つ抜きで、本人が 1 位 9 → 44 / 75・名前付けの誤りが増えない。人を分ける判別は voxceleb のまま(campplus だと組 B で行の正しさ 80 → 78%)
 DIAR_EMBS = {
     "voxceleb": {"file": "embedding-voxceleb.onnx", "member": None, "label": "VoxCeleb ResNet34(多言語の声で学習)", "mb": 27, "max": 80 * 1024 * 1024,
                  "url": _GH + "wespeaker_en_voxceleb_resnet34_LM.onnx", "sha256": "e9848563da86f263117134dfd7ad63c92355b37de492b55e325400c9d9c39012"},
+    "campplus": {"file": "embedding-campplus.onnx", "member": None, "label": "3D-Speaker CAM++(中国語+英語)", "mb": 28, "max": 80 * 1024 * 1024,
+                 "url": _GH + "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx", "sha256": "aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2"},
 }
 DIAR_EMB_DEFAULT = "voxceleb"
+VOICE_EMB = "campplus"   # 声の名前付けに使うモデル(覚えた声は voices/<モデル>.json でモデルごとに別。"" = 判別と同じモデル = 10-22 より前の形)
 MAX_DIAR_SEC = 3 * 3600
 DIAR_CLUSTER_THRESHOLD, DIAR_MIN_ON, DIAR_MIN_OFF = 0.6, 0.1, 0.3   # sherpa-onnx の設定(_diarize_local と、判別の記録 <id>.diar.json の engine に同じ値を使う)
 

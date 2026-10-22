@@ -436,7 +436,8 @@ def model_entries():
     diar = _diar_rel()
     if diar is None:
         raise BuildError("diarize.DIAR_DIR が上書きされています(置き場所を決められない)")
-    for key, s in (("segmentation", _diarize.DIAR_SEG), (_diarize.DIAR_EMB_DEFAULT, _diarize.DIAR_EMBS[_diarize.DIAR_EMB_DEFAULT])):
+    embs = [_diarize.DIAR_EMB_DEFAULT] + ([_diarize.VOICE_EMB] if _diarize.VOICE_EMB in _diarize.DIAR_EMBS and _diarize.VOICE_EMB != _diarize.DIAR_EMB_DEFAULT else [])   # 判別と声の名前付けのモデル
+    for key, s in [("segmentation", _diarize.DIAR_SEG)] + [(e, _diarize.DIAR_EMBS[e]) for e in embs]:
         # 判別のモデルの表は大きさを持たない(上限 max だけ)= size は null・maxBytes で守る。tar.bz2 は member の 1 つだけを file の名前で置く
         out.append({"name": "diar/" + key, "file": s["file"], "url": s["url"], "size": None, "maxBytes": s["max"], "sha256": s["sha256"],
                     "base": "data", "dest": _data_dest(diar), "unzip": "tar.bz2-member" if s["member"] else None, "member": s["member"]})

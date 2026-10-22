@@ -117,7 +117,8 @@ def diar_models():
     if not home:
         return None
     from pipeline.transcribe import diarize
-    paths = [os.path.join(home, "models", "diar", item["file"]) for item in (diarize.DIAR_SEG, diarize.DIAR_EMBS[diarize.DIAR_EMB_DEFAULT])]
+    paths = [os.path.join(home, "models", "diar", item["file"])
+             for item in (diarize.DIAR_SEG, diarize.DIAR_EMBS[diarize.DIAR_EMB_DEFAULT], diarize.DIAR_EMBS[diarize.VOICE_EMB])]   # 声の名前付けのモデルも(10-22)
     return paths if all(os.path.isfile(p) and os.path.getsize(p) > 1000 for p in paths) else None
 
 

@@ -52,6 +52,19 @@ def embeddings():
     return list(_calc.DIAR_EMBS)
 
 
+def learn_embedding(diar_emb):
+    """声を覚えるモデル: ① の VOICE_EMB(空・知らない名前なら判別のモデル diar_emb)"""
+    v = _calc.VOICE_EMB
+    return v if v in _calc.DIAR_EMBS else embedding(diar_emb)
+
+
+def match_embedding(diar_emb):
+    """覚えた声と照らし合わせるモデル: 覚えるモデル。ただしそのモデルの声が 0 人で、判別のモデルで覚えた声があれば判別のモデル
+    (10-22 より前に覚えた voxceleb の声がある PC で、モデルを替えたとたん名前が付かなくならないように)"""
+    v, d = learn_embedding(diar_emb), embedding(diar_emb)
+    return d if v != d and not load_voices(v) and load_voices(d) else v
+
+
 # ---------- 判別 ----------
 def diarize(job, spec, wav, hints):
     """判別のジョブの 1 回 -> [(開始, 終了, 話者番号)](音声の頭からの秒)。spec = 判別のジョブの指定(numSpeakers・embedding)・
@@ -111,7 +124,7 @@ def record_run(tid, a, turns, offset, requested, emb, idmap, auto=None):
     """判別の 1 回の記録を <id>.diar.json に(機械の最初の結果 = 人が直す前)。a = assign の結果・idmap = {機械のラベル: 付けた話者の id}・
     auto = 自動の判別の印 {eval, contextName}。② が足すこと: 割り当ての結果を ① の記録の形(build_diar_run)へ渡し、書けなくても判別は失敗にしない"""
     _record_diar(tid, _calc.build_diar_run(a["segs"], a["raw"], turns, offset, requested, emb, idmap, auto, a["smoothed"], a["ratios"]))
-    _keys.write_diar(tid, {"requested": requested, "embedding": emb}, voices_path(emb))   # 成果物の鍵 <id>.diar.key.json(RS6 b-K1)
+    _keys.write_diar(tid, {"requested": requested, "embedding": emb}, voices_path(match_embedding(emb)))   # 成果物の鍵 <id>.diar.key.json(RS6 b-K1。材料は照らし合わせる声)
 
 
 def record_single(tid, segs, name):
@@ -134,16 +147,18 @@ def latest_run(tid):
 def embed(job, spec, wav, groups, hints):
     """声の特徴 -> [長さ 1 の特徴 or None](groups と同じ並び)。groups = [[(開始, 終了)…]](元の動画の秒)・spec["embedding"] = 判別モデル・
     hints = {"start": wav の頭の元の動画の秒, "sourcePath"?: 元の動画, "end"?}。sourcePath があれば(声を覚えるジョブ)音声を取り出してから・
-    本物ならモデルを取ってから特徴を取る(判別のあとの照合は判別の音声とモデルをそのまま使う)。
+    本物ならモデルを取ってから特徴を取る(判別のあとの照合は判別の音声をそのまま使い、照合のモデルが判別と違えば取る = VOICE_EMB)。
     ② が足すこと: 音声の取り出しと状態の表示・モデルの取得(疑似は取らない)"""
+    def fetch(j, emb):
+        j["state"] = "loading"
+        _calc.ensure_diar_models(j, emb)
     if hints.get("sourcePath"):
         job["state"], job["phase"], job["device"] = "extracting", "音声を取り出し中", "cpu"
         _recognize.extract_audio(job, {"sourcePath": hints["sourcePath"], "start": hints["start"], "end": hints.get("end")}, wav)
-        def fetch(j, emb):
-            j["state"] = "loading"
-            _calc.ensure_diar_models(j, emb)
         _backend.select().diar_models(job, spec["embedding"], fetch)   # 疑似は取らない(backend の口。OPT-E2 1a-2)
         job["state"], job["phase"], job["progress"] = "running", "声の特徴を取り出し中(CPU)", 0.0
+    elif spec["embedding"] != _calc.DIAR_EMB_DEFAULT:
+        _backend.select().diar_models(job, spec["embedding"], fetch)
     return _calc.embed_groups(job, wav, spec["embedding"], groups, hints["start"])
 
 

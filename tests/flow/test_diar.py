@@ -43,6 +43,24 @@ class TestLearnGroups(unittest.TestCase):
         self.assertEqual(diar.match_known_voices({}, {}, "w", [], lambda g: "x", {}, {}), ({}, {}))
 
 
+class TestVoiceEmbedding(unittest.TestCase):
+    def test_learn_and_match_model(self):
+        """声の名前付けのモデル(① VOICE_EMB。10-22): 覚えるのはいつも VOICE_EMB・照らすのは VOICE_EMB の声が 0 人で判別のモデルの声があるときだけ判別のモデル。
+        VOICE_EMB を空にすると判別と同じ(前の形)"""
+        import tempfile
+        from unittest import mock
+        from pipeline.transcribe import diarize as D
+        tmp = tempfile.mkdtemp()
+        with mock.patch.object(diar, "VOICES_DIR", tmp):
+            self.assertEqual((diar.learn_embedding("voxceleb"), diar.match_embedding("voxceleb")), ("campplus", "campplus"))   # 声がどちらにも無い
+            diar.save_voices("voxceleb", {"A": {"vec": [1.0, 0.0]}})
+            self.assertEqual((diar.learn_embedding("voxceleb"), diar.match_embedding("voxceleb")), ("campplus", "voxceleb"))   # 前に覚えた声で照らす
+            diar.save_voices("campplus", {"B": {"vec": [0.0, 1.0]}})
+            self.assertEqual(diar.match_embedding("voxceleb"), "campplus")
+            with mock.patch.object(D, "VOICE_EMB", ""):
+                self.assertEqual((diar.learn_embedding("voxceleb"), diar.match_embedding("x")), ("voxceleb", "voxceleb"))
+
+
 class TestMergeVoice(unittest.TestCase):
     def test_learned_from(self):
         v = diar.merge_voice(None, [1.0, 0.0], 3, 10.0)

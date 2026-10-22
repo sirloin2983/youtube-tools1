@@ -46,7 +46,8 @@ def _learnable_name(name):
 
 
 def doc_embedding(doc):
-    return _diar.embedding(str((doc.get("diarization") or {}).get("embedding") or ""))
+    """カードで覚える・登録簿を見るモデル(判別の記録のモデル → ② の learn_embedding = 声の名前付けのモデル VOICE_EMB)"""
+    return _diar.learn_embedding(str((doc.get("diarization") or {}).get("embedding") or ""))
 
 
 def registry(emb, cache=None):

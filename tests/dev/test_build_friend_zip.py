@@ -236,6 +236,7 @@ class BuildTest(Base):
         self.assertEqual(items["diar/segmentation"]["sha256"], D.DIAR_SEG["sha256"])
         self.assertEqual(items["diar/segmentation"]["member"], D.DIAR_SEG["member"])
         self.assertEqual(items["diar/" + D.DIAR_EMB_DEFAULT]["sha256"], D.DIAR_EMBS[D.DIAR_EMB_DEFAULT]["sha256"])
+        self.assertEqual(items["diar/" + D.VOICE_EMB]["sha256"], D.DIAR_EMBS[D.VOICE_EMB]["sha256"])   # 声の名前付けのモデル(10-22)
         self.assertEqual(items["diar/segmentation"]["dest"], "transcribe/models/diar")
         for t in B.TOOLS:   # 道具はキャッシュの記録の値
             with open(os.path.join(self.shared_cache, "tools", t["file"] + ".sha256.json"), encoding="utf-8") as f:

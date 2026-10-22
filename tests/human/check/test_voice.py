@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import testkit  # noqa: E402
 
 TID = "0123456789ab"
-EMB = _diar.default_embedding()
+EMB = _diar.learn_embedding(_diar.default_embedding())   # カードで覚える声の帳のモデル(声の名前付け = VOICE_EMB。10-22)
 
 
 def row(rid, a, b, sp, flag="", **kw):

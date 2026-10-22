@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
 from test_backend import HERE, S, StoreDir, write_json  # noqa: E402
 import ed_state  # noqa: E402
 from flow import diar as _diar  # noqa: E402
+VE = _diar.learn_embedding("voxceleb")   # 覚えた声の帳のモデル(声の名前付け = pipeline/transcribe/diarize.VOICE_EMB。10-22)
 from flow import jobs as _jobs  # noqa: E402
 from human.proof import rerun as _rerun  # noqa: E402
 from human.proof import speakers as _speakers  # noqa: E402
@@ -326,9 +327,9 @@ class TestVoiceChain(_ProofStore):
 
     def test_forgotten_voice_does_not_name(self):
         self.learn()
-        self.assertEqual([v["name"] for v in _speakers.voices_summary()["voxceleb"]], ["兎田ぺこら"])
-        _speakers.delete_voice("voxceleb", "兎田ぺこら")                                       # 忘れる
-        self.assertEqual(_speakers.voices_summary().get("voxceleb", []), [])
+        self.assertEqual([v["name"] for v in _speakers.voices_summary()[VE]], ["兎田ぺこら"])
+        _speakers.delete_voice(VE, "兎田ぺこら")                                       # 忘れる
+        self.assertEqual(_speakers.voices_summary().get(VE, []), [])
         j, d = self.rediarize()
         self.assertFalse(j.get("named"))
         self.assertEqual([s["name"] for s in d["speakers"]], ["話者1", "話者2"])
