@@ -601,7 +601,7 @@ class TestModes(Base):
         run = self.run_one("export")   # ホームの設定が無いときはカットしない
         self.assertEqual(self.tools.c2r["body"]["spec"]["mode"], "list")
         out = self.tools.c2r["body"]["output"]
-        self.assertEqual((out["speakerColors"], out.get("loudness"), out.get("volume")), (True, None, 30))   # 既定: 色あり・音量 30%
+        self.assertEqual((out["speakerColors"], out.get("loudness"), out.get("volume")), (True, -14.0, None))   # 既定: 色あり・届ける動画は -14 LUFS にそろえる(PACK_LEVEL。音量 % は使わない)
 
     def test_adopted_mode_exports_transcribes_and_packs(self):
         """採用後を全部の代表。画面の設定は受付で読まれ、パックの本文まで届く(代表の 1 値 = 縦の 1 段の文字数。読み方の表は TestSpecFromSettings)"""

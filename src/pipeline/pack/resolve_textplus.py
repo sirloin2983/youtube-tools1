@@ -21,14 +21,14 @@ VIDEO_TRACKS_MAX = 5   # 映像トラックの数(V1〜V数 に同じカット�
 #   フォント「けいふぉんと」Regular・大きさ 0.14・字間 1.0・行間 1.0・アンカー 縦 1.0(下)/ 横 0.0(中央)
 #   シェード 1 = 塗り 黒(優先順位 8)/ 2 = ふち 白・太さ 0.12・ずらす X 0.015 Y −0.02(優先順位 7)/ 5 = ふち 黒・太さ 0.18(優先順位 4)
 # けいふぉんと は友人の PC に各自で入れてもらう(規約に再配布の許可が書かれていないので、パックに入れない。ユーザー決定)。
-# 無ければ自動選択(Windows に最初から入っている日本語フォント)に切り替え、マーカーを黄色にしてメモに書く。
+# 無ければ自動選択(Windows に最初から入っている日本語フォント)に切り替え、結果の記録(cut2resolve-result.txt)を要確認にして書く。
 # 自動選択の理由: フォント名を決め打ちすると外れた(実機で Font Not Found: 「MS ゴシック」+ Semibold / Regular / 標準、「ＭＳ ゴシック」+ 標準)。
 # そこで Lua 側で Resolve(Fusion)のフォント一覧を読み、候補のうち実際にあるもの・ある太さを選ぶ。一覧を読めないときは fallback。
-# 入力の名前(Size・Thickness2・Offset2 など)は Fusion の Text+ のもの。入れたあと読み直し、違う値になった項目はマーカーのメモに出す
+# 入力の名前(Size・Thickness2・Offset2 など)は Fusion の Text+ のもの。入れたあと読み直し、違う値になった項目は結果の記録に出す
 # (名前が実機と違っても気づけるように。色は 0〜1)。
 # 優先順位(重ね順)は、実機(Resolve 21.1)で「Priority1」などが入らなかった(読み直すと値が無い)。そこで
 # Resolve の入力の一覧から表示名「Priority」と要素の番号で探す → 候補の名前(Text+ の部品 text.plugin の中の文字列 PriorityBack)の順に試す。
-# 見つけた名前はマーカーのメモに「読み替え」と出す(次の版で名前を直すため)。重ね順が入らないと、太い黒ふち(要素5)が白ふちを覆って見た目が崩れる
+# 見つけた名前は結果の記録に「読み替え」と出す(次の版で名前を直すため)。重ね順が入らないと、太い黒ふち(要素5)が白ふちを覆って見た目が崩れる
 PRIORITY_LOOKUP = {"names": ["Priority", "優先順位"], "ids": ["PriorityBack%d"]}
 TEXT_STYLE = {
     "name": "けいふぉんと・黒い文字・白いふち・黒いふち",
@@ -363,7 +363,7 @@ def _style_data(color=None, kind="default", outlines=False):
 def importer_script(plan):
     """データを埋め込んだ自己完結Lua。Resolve FreeのI/O制限を避ける。
     決まり: プロジェクトは作らない・設定は変えない(API で作ったプロジェクトで編集ページの音が割れた)。
-    結果は print が見えない環境があるため、タイムライン名とマーカーで画面に出す"""
+    止まる失敗はタイムライン名(C2R_エラー_〜)と窓で出す。結果の記録は print とパックのフォルダの cut2resolve-result.txt(タイムラインに印は置かない。10-23)"""
     p = json.loads(json.dumps(plan))
     p["media"]["absolutePath"] = "__C2R_MEDIA_PATH__"
     p["template"] = {"absolutePath": "__C2R_TEMPLATE_PATH__"}
@@ -406,7 +406,7 @@ LUA_LANES = {
     local laneMiss = 0   -- 縦の位置(Center)を入れられなかった字幕の数''',
     # 字幕を置くトラック
     "__C2R_LANES_TRACK__": " + (cap.trackUp or 0)",
-    # 縦の位置: 雛形の位置(読めなければ真ん中)+ cap.dy。読み直して違えば数える(マーカーを黄色に)
+    # 縦の位置: 雛形の位置(読めなければ真ん中)+ cap.dy。読み直して違えば数える(結果の記録を要確認に)
     "__C2R_LANES_CENTER__": r'''
                 if cap.dy then
                     local okC, c = pcall(function() return tool:GetInput("Center") end)
@@ -417,7 +417,7 @@ LUA_LANES = {
                     end
                     if not trySet(tool, "Center", {cx, cy + cap.dy}) then laneMiss = laneMiss + 1 end
                 end''',
-    # マーカーのメモ
+    # 結果の記録
     "__C2R_LANES_NOTE__": r''' .. "・重なる字幕 V" .. captionTrack .. "〜V" .. (captionTrack + captionLanes - 1) .. "(" .. captionLanes .. " 段" ..
         (laneMiss > 0 and "。位置を変えられなかった " .. laneMiss or "") .. ")"''',
     # 位置を変えられなかった字幕があれば黄色
@@ -475,7 +475,7 @@ local ok, err = pcall(function()
     -- 0) 字幕のフォント: 指定のフォント(けいふぉんと)が Resolve(Fusion)のフォント一覧にあればそれ。
     --    無ければ、自動の候補(Windows の日本語フォント)のうち実際にある書体と太さ。一覧を読めなければ fallback
     local fontName, fontStyle, fontHow = DATA.style.fallback[1], DATA.style.fallback[2], "フォントの一覧を読めない"
-    local fontOk = false   -- 指定のフォントを使えたか(使えなければマーカーを黄色にする)
+    local fontOk = false   -- 指定のフォントを使えたか(使えなければ結果の記録を要確認にする)
     local okList, fontList = pcall(function()
         local fu = resolveApp:Fusion()
         local fm = fu and fu.FontManager
@@ -529,7 +529,7 @@ local ok, err = pcall(function()
     local tw = tonumber(project:GetSetting("timelineResolutionWidth"))
     local th = tonumber(project:GetSetting("timelineResolutionHeight"))
     -- 素材が 30fps(2026-10-04 から素材は 30fps にそろえる)のときは、プロジェクトの fps が 30 以外でも止めない
-    -- (止めると Resolve の設定を変えられない人が使えなくなる)。換算(下の ratio)で置いて、マーカーを黄色にして知らせる
+    -- (止めると Resolve の設定を変えられない人が使えなくなる)。換算(下の ratio)で置いて、結果の記録を要確認にして知らせる
     local media30 = math.abs(DATA.mediaFps - 30) <= 0.01   -- 29.97 は含めない(古い素材は今までどおり止める)
     local fpsWarn = nil
     if tfps and media30 and math.abs(tfps - 30) > 0.01 then
@@ -747,8 +747,10 @@ local ok, err = pcall(function()
         project:SetCurrentTimeline(cutTimeline)
     end
 
-    -- 6) 結果を画面に出す: CUT_TextPlus の先頭のマーカー(緑 = 問題なし / 黄 = 一部失敗)
-    -- 入力スケーリングの値は参考としてメモに出すだけ。実機で、画面は「最短辺をマッチ: 他をクロップ」(画面の外も見えた)なのに
+    -- 6) 結果を記録する: タイムラインには何も置かない(10-23 ユーザー「先頭の印いらない」。前は先頭のマーカー 緑 / 黄)。
+    -- 中身はコンソールの print と、パックのフォルダ(動画の隣)の cut2resolve-result.txt(書ければ)。要確認のときはタイムラインの名前を
+    -- CUT_TextPlus_要確認 に。止まる失敗は今までどおり showError の窓と C2R_エラー_〜
+    -- 入力スケーリングの値は参考として記録に出すだけ。実機で、画面は「最短辺をマッチ: 他をクロップ」(画面の外も見えた)なのに
     -- GetSetting は scaleToFit を返したので(2026-09-25)、この値で警告すると正しい設定でも黄色になってしまう
     local scaling = tostring(project:GetSetting("timelineInputResMismatchBehavior"))
     local styleOk = (styleMiss == nil or #styleMiss == 0)
@@ -763,11 +765,20 @@ local ok, err = pcall(function()
         "・復旧用 " .. (source and "あり" or "作れず") ..
         (fpsWarn and "・注意 " .. fpsWarn or "") ..
         "・" .. tfps .. "fps " .. tw .. "x" .. th .. "・拡大設定(参考) " .. scaling
-    pcall(function()
-        cutTimeline:AddMarker(0, good and "Green" or "Yellow", title, note, 1)
-    end)
     pm:SaveProject()
-    print("cut2resolve Text+: " .. note)
+    local verdict = good and "ok" or "check"
+    if not good then   -- 無料版は print も書き出しも見えないことがあるので、要確認のときだけ名前で知らせる(問題が無ければ何も足さない)
+        pcall(function() cutTimeline:SetName(uniqueTimelineName(project, "CUT_TextPlus_要確認")) end)
+    end
+    print("cut2resolve Text+: " .. verdict .. "|" .. title .. "|" .. note)
+    local dir = string.match(tostring(DATA.media.absolutePath or ""), "^(.*)[/\\][^/\\]+$")
+    if dir and io and io.open then
+        local okw, f = pcall(io.open, dir .. "\\cut2resolve-result.txt", "w")
+        if okw and f then
+            f:write(verdict .. "\t" .. title .. "\n" .. note .. "\n")
+            f:close()
+        end
+    end
 end)
 if not ok then
     local msg = tostring(err)
@@ -866,7 +877,7 @@ Resolve の中でスクリプトを実行すると、カット済みのタイム
 ・字幕のフォント「けいふぉんと」(Do-Font の無料フォント)を、先に Windows に入れておいてください
   (「けいふぉんと」で検索して配布元から入手 → keifont.ttf を右クリック →「インストール」→ Resolve を起動し直す)。
   このパックには入っていません。入っていないときは Windows の日本語フォント(游ゴシック・メイリオなど)で作り、
-  先頭のマーカーが黄色になります
+  タイムラインの名前が CUT_TextPlus_要確認 になります
 ・字幕の見た目: {look or TEXT_STYLE["name"]}(スクリプトが入れます)
 
 
@@ -896,7 +907,8 @@ Resolve の中でスクリプトを実行すると、カット済みのタイム
 
 ■ 3. できるもの
 ・CUT_TextPlus … 編集用。{tracks_desc}。
-    先頭のマーカー: 緑「cut2resolve 完了」= 問題なし / 黄 = 要確認(マーカーをダブルクリックするとメモに理由)
+    うまく入らなかった所があるときだけ、名前が CUT_TextPlus_要確認 になります(理由は下の cut2resolve-result.txt)
+・cut2resolve-result.txt(パックのフォルダ。Resolve によっては作られません)… 結果の記録。1 行目が ok = 問題なし / check = 要確認(2 行目に理由)
 ・SOURCE_WITH_HANDLES … 元動画の全体。削った部分を戻したいときに使う
 ・C2R_エラー_〜 … 失敗(理由は名前に書いてあります。空のタイムラインなので消してかまいません)
 ・同じプロジェクトでもう一度実行すると、名前の末尾に _2 などを付けて追加します(上書きしません)
@@ -919,8 +931,8 @@ Resolve の中でスクリプトを実行すると、カット済みのタイム
     → パックのフォルダを移した・名前を変えた。今の場所で bat をもう一度実行し、Resolve を起動し直す
 ・「C2R_エラー_Text+雛形を読めない」→ textplus-template.drb が無い。パックを受け取り直す
 ・実行してもタイムラインが1本も増えない → プロジェクトが開いていない。プロジェクトを開いてから実行
-・マーカーが黄色で、メモに「けいふぉんと が無いので自動で選択」→ けいふぉんと を入れて Resolve を起動し直し、もう一度スクリプトを実行
-・マーカーのメモに「反映できなかった: …」→ その見た目の項目がこの Resolve では入れられませんでした。送り主に、メモの文と
+・cut2resolve-result.txt に「けいふぉんと が無いので自動で選択」→ けいふぉんと を入れて Resolve を起動し直し、もう一度スクリプトを実行
+・cut2resolve-result.txt に「反映できなかった: …」→ その見た目の項目がこの Resolve では入れられませんでした。送り主に、その文と
     パックのフォルダにできた textplus-inputs.txt(入力の一覧)を渡してください
 ・字幕が四角(□)や別の字体になる、「Font Not Found」と出る → Text+ を選び、インスペクタで日本語のフォント
     (けいふぉんと・ＭＳ ゴシックなど)と太さを選び直す。1つ直したら「属性をペースト」でほかの字幕にも反映できます

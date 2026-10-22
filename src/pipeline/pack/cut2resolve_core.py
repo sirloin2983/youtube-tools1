@@ -460,7 +460,7 @@ def render_rough_cut(video, keeps, fps, has_audio, out_path, crf=DEFAULT_CRF, ta
     chains.append(f"{ins}concat=n={len(keeps)}:v=1:a={1 if has_audio else 0}"
                   + ("[outv][outa0]" if has_audio else "[outv]"))
     if has_audio:
-        chains.append("[outa0]" + (f"volume={gain_db:.2f}dB" if abs(gain_db) >= 0.01 else "anull") + "[outa]")
+        chains.append("[outa0]" + (_loud.pack_filter(gain_db) if abs(gain_db) >= 0.01 else "anull") + "[outa]")
     kept_sec = frames_to_sec(sum(e - s for s, e in keeps), fps)
     out_path = Path(S.arg_path(out_path))
     with S.staged(out_path, ".mp4") as tmp:   # 一時の名前に書いて、できたら付け替える(失敗・取り消しで書きかけを残さない)
@@ -627,7 +627,7 @@ def _gain_copy_opts(video, ext, gain_db, meta=None):
     """copy_video_gain の ffmpeg の出力の設定(入力・出力のパスを除く)。音量をかけた写しの記録の「書き出しの設定」もこれ(gain_copy_key)"""
     acodec = ["-c:a", "libopus", "-b:a", "160k"] if ext == ".webm" else ["-c:a", "aac", "-b:a", "192k"]
     tc = read_start_tc(video, meta)
-    opts = ["-map", "0:v?", "-map", "0:a?", "-map_metadata", "0", "-c:v", "copy", "-af", f"volume={gain_db:.2f}dB"] + acodec
+    opts = ["-map", "0:v?", "-map", "0:a?", "-map_metadata", "0", "-c:v", "copy", "-af", _loud.pack_filter(gain_db)] + acodec
     if ext in (".mp4", ".mov", ".m4v"):
         opts += ["-movflags", "+faststart"] + (["-timecode", tc] if tc and tc != "00:00:00:00" else [])
     return opts

@@ -26,6 +26,7 @@ end
 local function newTimeline(name)
   local t = { name = name, tracks = { {}, }, markers = {}, nextFrame = 108000 }
   function t:GetName() return self.name end
+  function t:SetName(n) self.name = n; return true end
   function t:GetStartFrame() return 108000 end
   function t:AddTrack(kind) table.insert(self.tracks, {}); return true end
   function t:AddMarker(f, color, name, note, dur) table.insert(self.markers, {f = f, color = color, name = name, note = note}); return true end

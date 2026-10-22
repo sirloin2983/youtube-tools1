@@ -885,9 +885,9 @@ def _pack_gain(loudness, volume, render, copy_video, same, m, task=None, log=Non
             spans = [(C.frames_to_sec(a, mf), C.frames_to_sec(b, mf)) for a, b in m["keeps"]]
             i, tp = C.measure_loudness(m["video"], spans, task, sum(b - a for a, b in spans) or None)
             if i is not None:
-                gain = LD.gain(loudness, i, tp)
+                gain = LD.pack_gain(loudness, i, tp)
                 gain = gain if abs(gain) >= LD.MIN_GAIN_DB else 0.0
-                return LD.result(loudness, i, gain), gain, []
+                return LD.pack_result(loudness, i, gain), gain, []
             loud = {"target": loudness, "skipped": "無音のため測れませんでした"}
         return loud, 0.0, ["音量はそろえませんでした(%s)。" % loud["skipped"]]
     if not volume or volume == 100 or not (render or copy_video):

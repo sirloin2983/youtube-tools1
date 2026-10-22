@@ -17,7 +17,7 @@
 import copy
 import re
 
-from ytt import marks as _marks, schemas
+from ytt import loudness as _loud, marks as _marks, schemas
 
 # ---------- 区間・マーク・採用数・重みの検査 ----------
 RANGE_MAX = _marks.MAX_REQUEST_RANGES   # 1本の配信の区間の数(スタジオと同じ = ytt/marks)
@@ -583,7 +583,7 @@ def tx_opts(bundle):
 
 def pack_output(bundle):
     """パックの要求(cut2resolve の POST /api/build)の作り方 -> (行から作るときの端の広げ方 rowEdge, output に足す物, 無音で削る値 cutSilence)。
-    1 段の文字数は大きさの向きに合わせる。音量は loudness(LUFS)が 0 なら volume(% が 100 なら書かない)。粗編集の動画・映像トラックは既定と違うときだけ書く。
+    1 段の文字数は大きさの向きに合わせる。音量は loudness(LUFS)。0 なら ytt/loudness.PACK_LEVEL のとき既定の目標・違えば volume(% が 100 なら書かない)。粗編集の動画・映像トラックは既定と違うときだけ書く。
     fps は固定の 30(FIXED。素材は 30fps にそろえる)"""
     p = bundle["pack"]
     size = p["size"]
@@ -592,8 +592,9 @@ def pack_output(bundle):
     if p["render"]:
         out["render"] = True
     out["speakerColors"] = p["speakerColors"]
-    if p["loudness"]:
-        out["loudness"] = p["loudness"]
+    loud = p["loudness"] or (_loud.DEFAULT if _loud.PACK_LEVEL else 0)   # そろえない(0)でも届ける動画は目標にそろえる(PACK_LEVEL。10-23)
+    if loud:
+        out["loudness"] = loud
     elif p["volume"] != 100:
         out["volume"] = p["volume"]
     if p["videoTracks"] != 1:

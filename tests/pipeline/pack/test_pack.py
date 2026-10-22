@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """パック(pipeline.pack)のテスト。正しく動く道・端の場合・時刻の計算・入力の誤りは、本物の ffmpeg の通し(TestPackRun)で見本に混ぜてまとめて確かめる。
 ほかのクラスは通しでは起こせない物だけ(Resolve の中の Lua・途中の失敗と中止・前の版の形・壊れた記録・後から書き換えた置き場所・安全の境目)。
@@ -131,7 +131,9 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
         self.assertIn('・見た目 けいふぉんと・黒い文字・白いふち・黒いふち・', out)
         self.assertIn('item track=2 start=108300 dur=60 text=二', out)
         self.assertIn('item track=2 start=108550 dur=51 text=三', out)
-        self.assertIn('marker=Green|cut2resolve 完了|字幕 3/3・カット 2/2・長さのずれ 0', out)
+        self.assertIn('cut2resolve Text+: ok|cut2resolve 完了|字幕 3/3・カット 2/2・長さのずれ 0', out)
+        self.assertNotIn('marker=', out)   # タイムラインに印を置かない(10-23 ユーザー「先頭の印いらない」)
+        self.assertNotIn('要確認', out)    # 問題が無ければ名前も CUT_TextPlus のまま
 
     def test_video_tracks_put_captions_on_top(self):
         """映像トラックの数 3: V1〜V3 = 同じカットの動画(V2・V3 は映像だけ = mediaType 1)・V4 = 字幕(一番上)。既定 1 は V2"""
@@ -144,19 +146,19 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
             self.assertIn('item track=%d start=108300 dur=301' % k, cut)
         self.assertEqual(cut.count('  mediaType=1'), 4)                         # V2・V3 の 2 区間ずつ = 映像だけ(音声は A1 だけ)
         self.assertIn('item track=4 start=108030 dur=120 text=一', cut)
-        self.assertIn('marker=Green|cut2resolve 完了|字幕 1/1(V4)・カット 2/2・同じ映像 V1〜V3・', cut)
+        self.assertIn('cut2resolve Text+: ok|cut2resolve 完了|字幕 1/1(V4)・カット 2/2・同じ映像 V1〜V3・', out)   # 結果の記録はタイムラインの外(print)
         out = self.run_lua(_textplus_plan([(60, 300, '一')], [(0, 600)]), s, fonts=self.KEI)
         cut = out.split('timeline=CUT_TextPlus\n')[1].split('timeline=')[0]
         self.assertIn('tracks=2\n', cut)
         self.assertIn('item track=2 start=108030 dur=120 text=一', cut)
-        self.assertIn('|字幕 1/1・カット 1/1・長さ', cut)
+        self.assertIn('|字幕 1/1・カット 1/1・長さ', out)
         self.assertNotIn('mediaType', cut)
 
     def test_scaling_value_is_only_reported(self):
         base = {'timelineFrameRate': '30', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'}
         plan = _textplus_plan([(60, 300, 'a')], [(0, 2064)])
         out = self.run_lua(plan, dict(base, timelineInputResMismatchBehavior='scaleToFit'), fonts=self.KEI)
-        self.assertIn('marker=Green|cut2resolve 完了|', out)             # 値が当てにならないので警告しない
+        self.assertIn('cut2resolve Text+: ok|cut2resolve 完了|', out)             # 値が当てにならないので警告しない
         self.assertIn('拡大設定(参考) scaleToFit', out)
 
     def test_font_is_chosen_from_resolve_font_list(self):
@@ -164,13 +166,14 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
         plan = _textplus_plan([(60, 300, 'a')], [(0, 2064)])
         out = self.run_lua(plan, s, fonts={'Keifont': ['Regular'], 'Meiryo': ['Regular']})   # 英語名の一覧
         self.assertIn('text=a font=Keifont', out)
-        self.assertIn('marker=Green|cut2resolve 完了|', out)
-        # けいふぉんと が無い PC: 自動選択(Windows の日本語フォント)にして、マーカーを黄色(要確認)に
+        self.assertIn('cut2resolve Text+: ok|cut2resolve 完了|', out)
+        # けいふぉんと が無い PC: 自動選択(Windows の日本語フォント)にして、結果の記録を要確認(check)に
         out = self.run_lua(plan, s, fonts={'Arial': ['Regular'], 'Meiryo': ['Regular', 'Bold', 'Italic'], 'MS Gothic': ['Regular']})
         self.assertIn('text=a font=Meiryo', out)                       # 候補の順: 游ゴシック が無いので メイリオ
         self.assertIn('  style=Bold ', out)
         self.assertIn('字体 Meiryo Bold(けいふぉんと が無いので自動で選択。入れると次から使えます)', out)
-        self.assertIn('marker=Yellow|cut2resolve 完了(要確認)|', out)
+        self.assertIn('cut2resolve Text+: check|cut2resolve 完了(要確認)|', out)
+        self.assertIn('timeline=CUT_TextPlus_要確認', out)   # 無料版でも見える知らせ = 要確認のときだけ名前で(印は置かない)
         self.assertIn('  style=Bold fill=0.0,0.0,0.0 outline=1:1.0,1.0,1.0', out)   # 見た目(色・ふち)は同じ
         out = self.run_lua(plan, s, fonts={'ＭＳ ゴシック': ['標準']})    # 日本語名しか無い環境
         self.assertIn('text=a font=ＭＳ ゴシック', out)
@@ -182,15 +185,15 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
         out = self.run_lua(plan, s)                                          # 一覧を読めない → 予備の書体・黄色
         self.assertIn('text=a font=MS Gothic', out)
         self.assertIn('字体 MS Gothic Regular(フォントの一覧を読めない)', out)
-        self.assertIn('marker=Yellow|', out)
+        self.assertIn('cut2resolve Text+: check|', out)
 
     def test_style_inputs_are_read_back(self):
-        """入れた値を読み直し、この Resolve に無い入力(名前が違う)はマーカーのメモに出して黄色にする(実機で名前を確かめるため)"""
+        """入れた値を読み直し、この Resolve に無い入力(名前が違う)は結果の記録に出して要確認(check)にする(実機で名前を確かめるため)"""
         s = {'timelineFrameRate': '30', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'}
         plan = _textplus_plan([(60, 300, 'a'), (400, 500, 'b')], [(0, 2064)])
         out = self.run_lua(plan, s, fonts=self.KEI, ignore=('Offset2', 'Priority5', 'PriorityBack5'))
         self.assertIn('(反映できなかった: Offset2, Priority5)', out)
-        self.assertIn('marker=Yellow|cut2resolve 完了(要確認)|字幕 2/2', out)
+        self.assertIn('cut2resolve Text+: check|cut2resolve 完了(要確認)|字幕 2/2', out)
         # 実機で Priority1/2/5 が入らなかった: 入力の一覧から表示名「Priority」と要素の番号で探す → 候補の名前、の順。
         # 見つけた名前は 2つ目の字幕でも使い、メモに「読み替え」と出す(緑のまま)。見つからなければ入力の一覧をパックのフォルダに書く
         no_prio = ('Priority1', 'Priority2', 'Priority5')
@@ -198,22 +201,25 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
         listed = [('ElementPriority%d' % n, 'Priority') for n in (1, 2, 5)] + [('Softness1', 'Softness')]
         out = self.run_lua(plan, s, fonts=self.KEI, ignore=no_prio, inputs=listed)
         self.assertIn('入力の名前を読み替え: Priority1→ElementPriority1, Priority2→ElementPriority2, Priority5→ElementPriority5', out)
-        self.assertIn('marker=Green|cut2resolve 完了|', out)
+        self.assertIn('cut2resolve Text+: ok|cut2resolve 完了|', out)
         self.assertNotIn('反映できなかった', out)
         # 一覧を読めない → 候補の名前(PriorityBack)
         out = self.run_lua(plan, s, fonts=self.KEI, ignore=no_prio)
         self.assertIn('入力の名前を読み替え: Priority1→PriorityBack1, Priority2→PriorityBack2, Priority5→PriorityBack5', out)
-        self.assertIn('marker=Green|', out)
+        self.assertIn('cut2resolve Text+: ok|', out)
         # どれも入らない → 黄色・入力の一覧をパックのフォルダ(動画の隣)に書く
         with tempfile.TemporaryDirectory() as d:
             video = Path(d) / 'clip.mp4'
             out = self.run_lua(plan, s, fonts=self.KEI, ignore=no_prio + ('PriorityBack1', 'PriorityBack2', 'PriorityBack5'),
                                inputs=[('Softness1', 'Softness'), ('Offset5', 'Offset')], media_path=video)
             self.assertIn('(反映できなかった: Priority1, Priority2, Priority5。入力の一覧: textplus-inputs.txt)', out)
-            self.assertIn('marker=Yellow|', out)
+            self.assertIn('cut2resolve Text+: check|', out)
             dump = (Path(d) / 'textplus-inputs.txt').read_text(encoding='utf-8')
             self.assertIn('Offset5\tOffset', dump)
             self.assertIn('Softness1\tSoftness', dump)
+            result = (Path(d) / 'cut2resolve-result.txt').read_text(encoding='utf-8')   # 結果の記録(タイムラインに印は置かない)
+            self.assertTrue(result.startswith('check\tcut2resolve 完了(要確認)\n字幕 2/2'), result)
+            self.assertNotIn('marker=', out)
 
     def test_wrong_project_settings_stop_without_changes(self):
         out = self.run_lua(_textplus_plan([(60, 300, 'a')], [(0, 2064)]),
@@ -224,18 +230,18 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
         self.assertIn('media=nil', out)                 # 動画も読み込まない
 
     def test_30fps_media_on_60fps_project_warns_without_stopping(self):
-        """素材が 30fps(Q1)のとき、プロジェクトが 60fps でも止めずに置く(換算 x2)。マーカーは黄色で注意を出す。大きさが違うときは止める"""
+        """素材が 30fps(Q1)のとき、プロジェクトが 60fps でも止めずに置く(換算 x2)。結果の記録は要確認(check)で注意を出す。大きさが違うときは止める"""
         plan = _textplus_plan([(30, 150, '一')], [(0, 300)], fps=(30, 1), total=900)
         out = self.run_lua(plan, {'timelineFrameRate': '60', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'},
                            media_fps=30, fonts=self.KEI)
         self.assertNotIn('C2R_エラー', out)
         self.assertIn('item track=1 start=108000 dur=600', out)                       # 300 コマ x (60/30)
         self.assertIn('item track=2 start=108060 dur=240 text=一', out)               # 字幕も換算(開始 30 コマ → 60、長さ 120 → 240)
-        self.assertIn('marker=Yellow|cut2resolve 完了(要確認)|', out)
+        self.assertIn('cut2resolve Text+: check|cut2resolve 完了(要確認)|', out)
         self.assertIn('・注意 素材は30fpsですがプロジェクトは60', out)
         out = self.run_lua(plan, {'timelineFrameRate': '30', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'},
                            media_fps=30, fonts=self.KEI)
-        self.assertIn('marker=Green|', out)                                            # 30fps のプロジェクトなら警告なし
+        self.assertIn('cut2resolve Text+: ok|', out)                                            # 30fps のプロジェクトなら警告なし
         self.assertNotIn('注意 素材は', out)
         out = self.run_lua(plan, {'timelineFrameRate': '30', 'timelineResolutionWidth': '1920', 'timelineResolutionHeight': '1080'}, media_fps=30)
         self.assertIn('timeline=C2R_エラー_プロジェクトのfps・解像度が違う', out)         # 大きさが違えば止める
@@ -258,7 +264,7 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
                            {'timelineFrameRate': '60', 'timelineResolutionWidth': '1920', 'timelineResolutionHeight': '1080'}, fonts=self.KEI)
         self.assertIn('item track=1 start=108000 dur=2064', out)
         self.assertIn('item track=2 start=108060 dur=240 text=a', out)
-        self.assertIn('marker=Green', out)
+        self.assertIn('cut2resolve Text+: ok|', out)
 
     def test_overlapping_captions_go_to_upper_lanes(self):
         """重なる字幕の段: 2 段目は字幕のトラックの 1 つ上・縦の位置を LANE_STEP_Y だけ上(偽物の Center は空 → 0.5 + 0.2)。
@@ -273,15 +279,15 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
         self.assertIn('item track=2 start=108150 dur=55 text=三', cut)   # 四 に 5 コマはみ出す → 切る
         self.assertIn('item track=2 start=108205 dur=55 text=四', cut)
         self.assertEqual(cut.count('  center=0.5,0.7'), 1)                # 2 段目の 二 だけ
-        self.assertIn('marker=Green|cut2resolve 完了|字幕 4/4・重なる字幕 V2〜V3(2 段)・カット 1/1・', cut)
+        self.assertIn('cut2resolve Text+: ok|cut2resolve 完了|字幕 4/4・重なる字幕 V2〜V3(2 段)・カット 1/1・', out)   # 結果の記録はタイムラインの外(print)
         out = self.run_lua(_textplus_plan(cues, [(0, 900)], fps=(30, 1), total=900, video_tracks=2), s, media_fps=30, fonts=self.KEI)
         cut = out.split('timeline=CUT_TextPlus\n')[1].split('timeline=')[0]
         self.assertIn('tracks=4\n', cut)
         self.assertIn('item track=3 start=108030 dur=90 text=一', cut)
         self.assertIn('item track=4 start=108060 dur=90 text=二', cut)
-        self.assertIn('|字幕 4/4(V3)・重なる字幕 V3〜V4(2 段)・カット 1/1・同じ映像 V1〜V2', cut)
+        self.assertIn('|字幕 4/4(V3)・重なる字幕 V3〜V4(2 段)・カット 1/1・同じ映像 V1〜V2', out)   # 結果の記録はタイムラインの外(print)
         out = self.run_lua(_textplus_plan(cues, [(0, 900)], fps=(30, 1), total=900), s, media_fps=30, fonts=self.KEI, ignore=('Center',))
-        self.assertIn('marker=Yellow|cut2resolve 完了(要確認)|字幕 4/4・重なる字幕 V2〜V3(2 段。位置を変えられなかった 1)', out)
+        self.assertIn('cut2resolve Text+: check|cut2resolve 完了(要確認)|字幕 4/4・重なる字幕 V2〜V3(2 段。位置を変えられなかった 1)', out)
 
 
 class TestParsingFixes(unittest.TestCase):
@@ -315,7 +321,7 @@ class TestGainCopyRecord(unittest.TestCase):
         self.assertEqual(key["source"], {"name": "clip.mp4", "size": 6, "mtime": self.T0 // 10 ** 9})
         self.assertEqual((key["v"], key["gainDb"]), (C.GAIN_COPY_V, -10.46))
         self.assertEqual(key["ffmpeg"], C._gain_copy_opts(self.src, ".mp4", -10.457, self.meta))   # 書き出しの設定 = copy_video_gain が使うもの
-        self.assertIn("volume=-10.46dB", key["ffmpeg"])
+        self.assertIn(loudness.pack_filter(-10.46), key["ffmpeg"])   # 上げ下げ + リミッター(PACK_LEVEL)
         self.assertEqual(key["ffmpeg"][-2:], ["-timecode", "01:00:00:00"])
         st = self.dst.stat()
         self.assertEqual(rec["output"], {"name": "clip.mp4", "size": st.st_size, "mtime": st.st_mtime_ns // 10 ** 9})
@@ -649,7 +655,7 @@ class TestPackRun(unittest.TestCase):
                   "local media30 = math.abs(DATA.mediaFps - 30) <= 0.01", "if tfps and media30 and math.abs(tfps - 30) > 0.01 then",
                   "(not media30 and math.abs(tfps - T.fps) > 0.01)", "tw ~= T.width or th ~= T.height", "fontOk and styleOk and fpsWarn == nil",
                   '(fpsWarn and "・注意 " .. fpsWarn or "")', "local ratio = tfps / DATA.mediaFps", 'tool:SetInput("Font", fontName)',
-                  'tool:SetInput("Style", fontStyle)', "GetFontList", "AddMarker"):
+                  'tool:SetInput("Style", fontStyle)', "GetFontList", "cut2resolve-result.txt"):
             self.assertIn(s, lua)   # 30fps の素材はプロジェクトの fps が違っても止めずに黄色で警告・大きさの違いは止める(動かす確かめは TestResolveTextPlusLuaRun)
         # 重なりが無いパックの Lua は、段のコードの印を消した雛形と 1 バイトも変わらない(Lua の本体を直したら、下の値も直す)
         bare = RTP.LUA_TEMPLATE
@@ -657,7 +663,7 @@ class TestPackRun(unittest.TestCase):
             self.assertEqual(bare.count(mark), 1, mark)
             bare = bare.replace(mark, '')
         self.assertEqual(re.findall(r'__C2R_[A-Z_]+__', bare), ['__C2R_DATA__'])
-        self.assertEqual(hashlib.sha256(bare.encode('utf-8')).hexdigest(), 'f0569df532d5e038eb863e37cbbff8dafd7e1d6d2b93853d3e55cc5e5b5a1ff6')
+        self.assertEqual(hashlib.sha256(bare.encode('utf-8')).hexdigest(), '890745b646533e5d059859aab0cc905203063db0451d9439eec829c6af432098')
         head, tail = bare.split('__C2R_DATA__')
         self.assertTrue(lua.startswith(head) and lua.endswith(tail))
         ip = RTP.read_script_plan(lua)
@@ -948,7 +954,9 @@ class TestPackRun(unittest.TestCase):
         self.assertEqual((rec["v"], rec["loudness"], rec["gainDb"]), (C.GAIN_COPY_V, -14.0, round(lo["gainDb"], 2)))
         self.assertEqual(rec["source"], {"name": "さくらみこ.mp4", "size": src.st_size, "mtime": src.st_mtime_ns // 10 ** 9})
         self.assertEqual(rec["output"], {"name": "さくらみこ.mp4", "size": dst.st_size, "mtime": dst.st_mtime_ns // 10 ** 9})
-        self.assertIn("volume=%.2fdB" % lo["gainDb"], rec["ffmpeg"])
+        self.assertIn(loudness.pack_filter(lo["gainDb"]), rec["ffmpeg"])
+        self.assertEqual(lo["limitDb"], loudness.LIMIT_DB)                                # どうそろえたかの印
+        self.assertLessEqual(C.measure_loudness(out / "さくらみこ.mp4")[1], -1.0)         # ピークはリミッターで -1 dBTP より下
         self.assertNotIn("volume", rec)
         # 同じフォルダにもう一度: force が無ければ断り、書いてあるファイルを知らせる
         with self.assertRaises(C.OutputExists) as cm:
@@ -977,7 +985,7 @@ class TestPackRun(unittest.TestCase):
         self.assertFalse(any("コピーを飛ばしました" in w for w in r["warnings"]))
         rec = json.loads(json.dumps(r["videoCopy"]))
         self.assertEqual((rec["volume"], rec["gainDb"]), (50, round(gain, 2)))
-        self.assertIn("volume=%.2fdB" % gain, rec["ffmpeg"])
+        self.assertIn(loudness.pack_filter(gain), rec["ffmpeg"])
         self.assertEqual(rec["output"]["mtime"], (out / "さくらみこ.mp4").stat().st_mtime_ns // 10 ** 9)
         self.assertIs(again(rec, volume=50)[1], False)                                    # 作り直した後の記録となら、次は飛ばす
         r, regain, _ = again(rec)                                                         # 音量を変えない(100%)に戻したら普通のコピー
@@ -1434,3 +1442,4 @@ class TestPackRun(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+

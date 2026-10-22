@@ -13,6 +13,12 @@ TRUE_PEAK_CEIL = -1.0   # 上げたときに音が割れないよう、ピーク
 MAX_GAIN_DB = 20.0      # 静かすぎる音を持ち上げすぎない(雑音まで大きくなる)
 MIN_GAIN_DB = 0.1       # これより小さい調整はしない(音声を作り直すだけ損)
 MAX_SPANS = 400         # 区間ごとに測るときの区間の数の上限(多すぎるときは全体で測る)
+# パックの届ける動画の音(10-23 ユーザー「音の大きさがバラバラ」。決定は保管庫 plan/decisions.md):
+# 配信の音はもとのピークが高く、ピークの手前で止める利得(gain)では静かな切り抜きも下げてしまい、届いた物が -15〜-19 LUFS・ピーク +2 dBTP とばらけていた。
+# PACK_LEVEL = True: 目標まで上げ(MAX_GAIN_DB まで)、ピークはリミッター(LIMIT_DB)で止める。圧縮はしない(抑揚は残す・Fable の判断)。
+# まとめて実行のパックは「そろえない(0)」でも DEFAULT にそろえる(flow/spec.pack_output)。False = 今までどおり(ピークの手前で止める利得・音量 %)
+PACK_LEVEL = True
+LIMIT_DB = -3.0         # リミッターの上限(dBFS)。AAC 192k で書き戻すとピークが 1.5〜2 dB ふくらむ(-2.0 では -0.2 dBTP の物があった。-3.0 で -2.2 以下)
 _FIELD = {k: re.compile(r'"%s"\s*:\s*"([^"]+)"' % k) for k in ("input_i", "input_tp")}   # loudnorm の JSON の値(文字列)
 
 
@@ -68,6 +74,11 @@ def gain(target, i, tp, *more_tps):
     return round(g, 2)
 
 
+def pack_gain(target, i, tp):
+    """パックの届ける動画を目標に合わせる量(dB)。PACK_LEVEL ならピークはリミッターで止めるので MAX_GAIN_DB だけで抑える・違えば gain と同じ"""
+    return round(min(target - i, MAX_GAIN_DB), 2) if PACK_LEVEL else gain(target, i, tp)
+
+
 def select_filter(spans):
     """区間 [(開始秒, 終了秒), …] だけの音を測る aselect(区間が無い・多すぎるときは '' = 全体)"""
     spans = [(a, b) for a, b in spans or () if b > a]
@@ -82,6 +93,11 @@ def result(target, i, g):
     return {"target": target, "measured": round(i, 1), "gainDb": g}
 
 
+def pack_result(target, i, g):
+    """パックの結果の形: result + PACK_LEVEL ならリミッターの印 "limitDb"(どうそろえたかの記録)"""
+    return dict(result(target, i, g), **({"limitDb": LIMIT_DB} if PACK_LEVEL else {}))
+
+
 # ---- ffmpeg の引数(OPT2: 音量・ラウドネスの引数の 1 か所。動かすのは各ツール = スタジオの exporter・ライブの書き出し)
 PROGRESS = ["-progress", "pipe:1", "-nostats"]
 
@@ -94,6 +110,13 @@ def volume_filter(pct):
 def gain_filter(db):
     """上げ下げ(dB)の -af"""
     return "volume=%.2fdB" % db
+
+
+def pack_filter(db):
+    """パックの届ける動画の音にかける -af(上げ下げ + PACK_LEVEL ならピークを LIMIT_DB で止めるリミッター。自動の音量の上げ下げ level は切る)"""
+    if not PACK_LEVEL:
+        return gain_filter(db)
+    return gain_filter(db) + ",alimiter=limit=%.4f:attack=5:release=100:level=false:asc=1" % (10 ** (LIMIT_DB / 20))
 
 
 def measure_args(ff, path):
