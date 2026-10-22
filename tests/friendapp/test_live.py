@@ -265,11 +265,14 @@ class LiveFlowTest(unittest.TestCase):
         self.assertEqual(self.box.row(rid)["groups"][-1]["label"], "配信後")
 
     def test_busy_or_after_stream_keeps_recording_row(self):
+        """録画が終わっても作る物・配信後の追加の待ちがあれば行は閉じない。そのとき途中の診断(kind live・stage ended)を 1 回、閉じたら close"""
+        box = self.use_diag()
         rid = self.send_live(live={"afterStream": True})["id"]
         self.rec.end(REC)
         with mock.patch.object(self.eng.live, "busy_recording", lambda rc, rec: True):
             self.eng.live_tick()
         self.assertEqual((self.box.row(rid)["state"], self.box.row(rid)["live"]["phase"]), ("recording", "making"))
+        self.assertEqual([(d["stage"], d["requestId"]) for d in self.diags(box)], [("ended", rid)])
         with mock.patch.object(self.eng.live, "after_hold", lambda rc, raw: "配信後の追加を待っています"):
             self.eng.live_tick()
         self.assertEqual((self.box.row(rid)["state"], self.box.row(rid)["live"]["phase"]), ("recording", "after"))
@@ -280,6 +283,7 @@ class LiveFlowTest(unittest.TestCase):
         r = self.box.row(rid)
         self.assertEqual(r["state"], "failed")
         self.assertIn("パックができませんでした", r["error"])
+        self.assertEqual([d["stage"] for d in self.diags(box)], ["ended", "close"])   # 途中の診断は 1 回だけ
 
     def use_diag(self):
         """本物の診断の係(送り返しの箱は一時フォルダ)-> 箱のパス"""

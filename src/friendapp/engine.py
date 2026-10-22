@@ -315,6 +315,8 @@ class Engine:
                 waiting = self.live.after_hold(rc, raw) or (hold(rc, raw) if hold is not None else "")
             closing = r["state"] == "recording" and not recording and not busy and not waiting and not lv.get("finished")
             facts = self._live_facts(rc, rec, raw) if closing else None
+            if not closing and not recording and lv.get("phase") == "recording":   # 録画が終わったが行はまだ閉じない(書き出し・配信後の追加の待ち):
+                self._live_ended(r, rc, rec, raw, waiting)                         # 途中の診断を 1 回(閉じる前にアプリを閉じても材料が残る)
             why = live_cause(facts, lv.get("lastError")) if closing and not r["packs"] else None
             warn = self._live_blocked(r["id"], raw) if recording else ""
             hint = getattr(self.live, "adopt_hint", lambda _rc, _rec: "")(rc, rec) if recording and not warn else ""
@@ -322,6 +324,19 @@ class Engine:
                 self._want_previews(r["id"])
             if closing:
                 self._live_closed(r["id"], facts, why)
+
+    def _live_ended(self, r, rc, rec, raw, waiting):
+        """録画が終わった見回り(行の phase が録画中から変わる 1 回): 診断 kind live・stage ended(閉じたときの close と同じ材料)。
+        診断は行を閉じたときにしか書いていなかったので、配信後のアーカイブ待ち(afterStream)が長い・閉じる前にアプリを閉じると、作る人に何も届かなかった"""
+        if self.diag is None:
+            return
+        mask = getattr(self.diag, "mask_tree", None)
+        facts = self._live_facts(rc, rec, raw)
+        lv = r.get("live") or {}
+        outcome = {"state": r.get("state"), "packs": len(r.get("packs") or []), "clipRuns": len(lv.get("done") or []), "errors": lv.get("errors") or 0,
+                   "lastError": lv.get("lastError") or "", "waiting": waiting or ""}
+        self._diag("live", rid=r["id"], summary="ライブ: 録画が終わりました(パック %d 本・%s)" % (outcome["packs"], waiting or "残りを作っています"),
+                   stage="ended", outcome=mask(outcome) if mask else outcome, live=mask(facts or {}) if mask else (facts or {}))
 
     def _live_blocked(self, rid, raw):
         """録画元が YouTube に断られ続けて BLOCKED_NOTICE 秒たった -> 行に出す知らせ(無ければ "")。初めて出すとき診断(kind live・stage blocked)を 1 回"""
