@@ -328,7 +328,8 @@ class LiveFlowTest(unittest.TestCase):
         now = time.time()
         for got, want in ((None, None), ({"count": 2, "dueAt": None}, "候補 2 件"),
                           ({"count": 2, "dueAt": now + 250}, "候補 2 件・約 4 分後に切り抜きます"),
-                          ({"count": 1, "dueAt": now + 10}, "候補 1 件・まもなく切り抜きます"), (None, None)):
+                          ({"count": 1, "dueAt": now + 10}, "候補 1 件・まもなく切り抜きます"),
+                          ({"capped": 3}, "自動で切り抜くのは 3 本まで(届きました)"), (None, None)):
             det.adopt_waiting = lambda _rc, _rec, g=got: g
             self.eng.live_tick()
             self.assertEqual(self.box.row(rid)["live"].get("hint"), want)

@@ -215,6 +215,9 @@ class DetectApiTest(unittest.TestCase):
         self.assertEqual((job["origin"], job["after"]), ("auto", "auto"))
         self.assertEqual(self.det.auto_tick(), 0)   # 1 回だけ
         self.assertIsNone(self.det.adopt_waiting("fake", REC))   # 採用した候補は待ちに数えない
+        self.det.auto_max = lambda _rc, _rec: 1
+        self.assertEqual(self.det.adopt_waiting("fake", REC), {"capped": 1})   # 上限に届いた
+        del self.det.auto_max
         self.rec.rel = 5000
         self.assertEqual(self.det.auto_tick(), 0)   # 見送った p1・控えの p2 は採用しない
         with open(os.path.join(self.tmp, "live", LX.FEEDBACK), encoding="utf-8") as f:

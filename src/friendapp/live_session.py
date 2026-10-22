@@ -231,6 +231,8 @@ class FriendLive(_ls.LiveSession):
             return ""
         if not w:
             return ""
+        if w.get("capped") is not None:   # 上限に届いたあと「録画中」だけが続いた(10-21 の友人の 41 分の録画。残りの候補 11 件)
+            return "自動で切り抜くのは %d 本まで(届きました)" % w["capped"]
         due = w.get("dueAt")
         if due is None:
             return "候補 %d 件" % w["count"]

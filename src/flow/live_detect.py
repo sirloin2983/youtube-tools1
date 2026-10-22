@@ -591,10 +591,11 @@ class Detector:
         return sum(1 for x in self._decisions(self.folder(rc, rec))["items"] if x.get("state") == "adopted" and x.get("origin") == "auto")
 
     def adopt_waiting(self, rc, rec):
-        """録画の、自動の採用を待っている枠の候補 -> {"count", "dueAt"(いちばん早く採用する時刻 epoch。まだ見ていなければ None)} か None
-        (待ちが無い・上限に達した)。読むだけ(友人のアプリの録画中の行に「候補 2 件・約 4 分後に切り抜きます」を出す)"""
-        if self.auto_count(rc, rec) >= self.auto_max(rc, rec):
-            return None
+        """録画の、自動の採用を待っている枠の候補 -> {"count", "dueAt"(いちばん早く採用する時刻 epoch。まだ見ていなければ None)}・
+        上限に達した = {"capped": 上限の本数} か None(待ちが無い)。読むだけ(友人のアプリの録画中の行に「候補 2 件・約 4 分後に切り抜きます」を出す)"""
+        cap = self.auto_max(rc, rec)
+        if self.auto_count(rc, rec) >= cap:
+            return {"capped": cap}
         _doc, peaks, _pending = self.view(rc, rec)
         given = {x.get("id") for x in self.given_up(rc, rec)}
         left = [pk for pk in peaks if pk.get("state") == "frame" and not pk.get("provisional") and pk.get("id") not in given
