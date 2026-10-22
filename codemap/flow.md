@@ -23,8 +23,8 @@
   - 名前: `record` :23・`origin_of` :39・`rows` :47・`delivered_requests` :69・`pack_name` :84・`delivered_marks` :92・`record_not_sent` :148・`not_sent_marks` :159
 - **delivery.py** (393 行) — ② 友人へ届ける: まとめて実行の「Dropbox へ届ける」段と、置けなかった自動の分の溜め(まとめて実行 AutoRunner が継ぐ mixin)。
   - 名前: `switched_off` :55・`class Delivery` :95
-- **diar.py** (299 行) — ② 管理の層 flow: 話者判別と声の段取り(RS6 a-4。決定 3-29)。
-  - 名前: `models_ready` :29・`default_embedding` :40・`embedding` :45・`embeddings` :50・`diarize` :56・`assign` :86・`record_run` :110・`record_single` :117・`latest_run` :127・`embed` :134・`match_known_voices` :150・`voice_learn_rows` :163・ほか 10
+- **diar.py** (314 行) — ② 管理の層 flow: 話者判別と声の段取り(RS6 a-4。決定 3-29)。
+  - 名前: `models_ready` :29・`default_embedding` :40・`embedding` :45・`embeddings` :50・`learn_embedding` :55・`match_embedding` :61・`diarize` :69・`assign` :99・`record_run` :123・`record_single` :130・`latest_run` :140・`embed` :147・ほか 12
 - **envelope.py** (170 行) — ② 管理の層 flow: 依頼の封筒(RS7-1 S3。決定 3-30・notes:plan/done/f1-friend-pc.md の決めたこと 9)。
   - 名前: `clean_pool` :44・`version_of` :135・`check` :143・`read` :167
 - **export.py** (147 行) — ② 書き出しの器(OPT2 の J2・J6。notes:docs/design/opt2-jobs-plan.md): ① の書き出し(pipeline/export/exporter.run)を 1 本ずつ動かすジョブの表。

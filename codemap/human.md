@@ -29,8 +29,8 @@
   - 名前: `_move` :19・`_check` :27・`_times` :39・`_apply_time` :43・`_revert_time` :65
 - **value.py** (167 行) — 「確かめる」の価値のカード(切り抜く価値があるか = 70 点以上か)の反映(notes:docs/design/v1-check-build.md・決定 3-41)。
   - 名前: `_code` :32・`_msg` :36・`_need` :40・`_auto_check` :50・`_auto_apply` :64・`_auto_revert` :75・`_studio` :87・`_set_status` :94・`_cand_apply` :123・`_cancel_export` :138・`_cand_revert` :153
-- **voice.py** (353 行) — 「確かめる」の誰の声のカード(voice:diar)の答えの形・選択肢・反映・声の覚え直し(notes:docs/design/v1-check-build.md の 3-2・5 節、
-  - 名前: `doc_embedding` :48・`registry` :52・`options_for` :67・`guess_for` :88
+- **voice.py** (354 行) — 「確かめる」の誰の声のカード(voice:diar)の答えの形・選択肢・反映・声の覚え直し(notes:docs/design/v1-check-build.md の 3-2・5 節、
+  - 名前: `doc_embedding` :48・`registry` :53・`options_for` :68・`guess_for` :89
 
 ## src/human/cut/
 
@@ -73,7 +73,7 @@
   - 名前: `record_rerun` :49・`apply_retranscribe` :85・`replace_original_multi` :154・`thin_rows` :173・`apply_range` :186・`run_retranscribe` :231・`rebuild_whole` :277・`validate_retranscribe` :361・`validate_whole` :397・`validate_rerun` :425
 - **retime.py** (32 行) — ③ 人の操作の層 human/proof: 行の時刻の候補の API の包み POST /api/retime {id, rows: [行の id…]}
   - 名前: `retime_engine` :12・`retime_doc` :18
-- **speakers.py** (672 行) — ③ 人の操作の層 human/proof: 話者判別の結果を文書へ(apply_diarization・1 人指定 single_speaker・守る行 diar_keep_row)・判別のジョブの受付と文書への書き込み(validate_diarize・
+- **speakers.py** (673 行) — ③ 人の操作の層 human/proof: 話者判別の結果を文書へ(apply_diarization・1 人指定 single_speaker・守る行 diar_keep_row)・判別のジョブの受付と文書への書き込み(validate_diarize・
   - 名前: `set_context_namer` :29・`check_context_namer` :38・`apply_diarization` :60・`diar_keep_row` :77・`validate_diarize` :169・`single_speaker` :192・`run_diarize` :220・`autodiar_enabled` :268・`autodiar_ready` :273・`autodiar_enqueue` :293・`autodiar_after_transcribe` :325・`is_generic_speaker_name` :406・ほか 7
 - **store.py** (1189 行) — ③ 文書の置き場: 文書を書く唯一の口 commit と機械の層・人の層(層が正 = 文書は組み立て済みの写し・古い写しの読み直し fresh_copy)・保存の錠 saving・
   - 名前: `tx_path` :37・`write_doc` :41・`read_layers` :81・`commit` :122・`layers_for` :179・`fresh_copy` :209・`snapshot` :259・`backup_doc` :267・`sanitize_sub_style` :286・`sanitize_transcript` :299・`doc_length` :381・`good_row` :402・ほか 38

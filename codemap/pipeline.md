@@ -70,8 +70,8 @@
   - 名前: `mode` :18・`is_fake` :23・`class Backend` :28・`set_selector` :106・`select` :111
 - **clipjob.py** (69 行) — ① 文字起こしのジョブの機械の文書の行を作る(make_doc_rows)。
   - 名前: `make_doc_rows` :17
-- **diarize.py** (542 行) — ① 自動の流れの層 pipeline/transcribe: 話者判別の計算(sherpa-onnx)と判別の記録・声の特徴と覚えた声との照らし合わせ。
-  - 名前: `diar_threads` :54・`has_sherpa` :60・`diar_models_dir` :66・`diar_info` :79・`ensure_diar_models` :109・`diar_tune` :140・`diarize_real` :156・`assign_speakers` :195・`label_ratio` :246・`smooth_labels` :254・`smooth_speakers` :276・`diar_path` :296・ほか 8
+- **diarize.py** (547 行) — ① 自動の流れの層 pipeline/transcribe: 話者判別の計算(sherpa-onnx)と判別の記録・声の特徴と覚えた声との照らし合わせ。
+  - 名前: `diar_threads` :59・`has_sherpa` :65・`diar_models_dir` :71・`diar_info` :84・`ensure_diar_models` :114・`diar_tune` :145・`diarize_real` :161・`assign_speakers` :200・`label_ratio` :251・`smooth_labels` :259・`smooth_speakers` :281・`diar_path` :301・ほか 8
 - **fill.py** (385 行) — 「編集」のサーバーの部品: 認識のあとの後処理(A・C・D。notes:plan/line-b-transcription.md の「10-08 の実験ループ」)。
   - 名前: `fill_norm` :63・`fill_chars` :68・`fill_sparse_row` :73・`fill_apply` :92・`fill_clean_tail` :122・`fill_stock` :135・`fill_voice_frac` :141・`fill_clean_turns` :149・`fill_spk_key` :174・`fill_spk_names` :179・`fill_spk_split` :195・`fill_strip_names` :224・ほか 7
 - **live_tx_worker.py** (71 行) — 配信中の候補の文字起こし(線 D の D-11 案 b。notes:plan/line-d-live-clipping.md の 0-11)の子プロセス。**入口のプロセスから import しない
