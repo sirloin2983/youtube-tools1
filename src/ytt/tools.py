@@ -465,7 +465,7 @@ def ytdlp_print_cmd(yd, url, template):
 
 # ---------- YouTube のログイン(友人の PC。notes:docs/spec/friend.md の 13-13)----------
 COOKIES_ENV = "YTT_YTDLP_COOKIES"   # yt-dlp に渡す cookies.txt(Netscape 形式)。友人のアプリ(friendapp/places)だけが入れる。無ければ今までどおり
-COOKIES_RUN = "run"                 # 呼ぶたびの写しを置く、cookies.txt の隣のフォルダ
+COOKIES_RUN = _ytcookies.RUN        # 呼ぶたびの写しを置く、cookies.txt の隣のフォルダ(名前の正は ytt/ytcookies。書き戻しが同じ所を見る)
 COOKIES_RUN_KEEP = 24 * 3600        # 写しを消すまでの秒(長い取得の途中の物は消さない)
 
 

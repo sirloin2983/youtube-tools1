@@ -7,7 +7,7 @@ Runner(flow/run.py)の段は、ツールの仕事を self.tools.<動詞>(...) �
                       (hosts(道具の id) が返す口。スタジオ = flow/studiobook の LocalStudio(スタジオの Store と Batch)・cut2resolve = PackHost)を
                       直に呼ぶ。口が無い(取り込まれていない・動いていない)ときと ③ の動詞・編集の文字起こしは HttpTools のまま。
                       export_free・pack_free(timeout) = 器が空くまで待つ(Runner の _call_when_free が 409 busy のあと BUSY_WAIT 秒の眠りの代わりに使う)
-  LocalTools()      … 入口なしで動かす最小の形(app の CLI が使う)。文字起こし = ② flow/tx の動詞を同じスレッドで(ジョブの表は通さない。
+  LocalTools()      … 入口なしで動かす最小の形(友人のアプリ friendapp/engine が使う)。文字起こし = ② flow/tx の動詞を同じスレッドで(ジョブの表は通さない。
                       重い処理の枠 ytt.jobs.SLOTS は取る)・パック = ① pipeline/pack の plan_cut → build_pack を直に。
                       配信の読み・解析・採用・書き出しは studio(② flow/studiobook の LocalStudio = スタジオなしの台帳。RS8 の「URL も CLI で」)を
                       渡したときだけ、その動詞に任せる(無ければ「入口に頼んでください」の StepError)。話者分離は作っていない(同じ StepError)。
@@ -262,10 +262,10 @@ class LocalTools:
     """入口なしで動かす最小の形(HttpTools と同じ動詞・同じ返す形)。仕事はその場で終わらせ、ジョブの id を返す(段は終わった状態を読む)"""
 
     def __init__(self, learning=None, studio=None):
-        """learning = 学習データを読む人(無ければ置換辞書と名簿の表だけ = 今まで)。呼ぶ側(app の CLI)が ③ の学習から作って渡す
+        """learning = 学習データを読む人(無ければ置換辞書と名簿の表だけ = 今まで)。呼ぶ側(友人のアプリ)が学習の束から作って渡す
         (② は ③ を読まない)。持つ口は 2 つ: glossary(ユーザーの用語) -> 自動で足す用語・learned() -> 確度「高」の学習済み置換の選び方か None。
         置き場所(machine の learningDir)は渡す側が決める(束には入れない = 決定 3-30)。
-        studio = 配信の段の動詞(flow/studiobook.LocalStudio。URL の実行で app の CLI が作って渡す。None = 配信の段は断る)"""
+        studio = 配信の段の動詞(flow/studiobook.LocalStudio。URL の実行で友人のアプリが作って渡す。None = 配信の段は断る)"""
         self.learning = learning
         self.studio = studio
         self._jobs = {}    # 文字起こしのジョブの id -> ジョブ

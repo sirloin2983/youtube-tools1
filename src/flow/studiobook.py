@@ -20,7 +20,7 @@
 - `LocalStudio(book)` = 段が頼む動詞(flow/tools の HttpTools の video・analyze_add・analyze_items・analyze_cancel・request_marks・export_start・
   export_job・export_cancel と同じ名前・同じ返す形)。解析の順番は flow/batch.Batch(台帳を store に)・書き出しは ② の器 flow/export(中身は ① pipeline/export/exporter)
   (書き出した 1 本ごとに台帳の mark_exported と flow/keys の export の鍵 = スタジオの serve の /api/export と同じ)。`close()` で解析・書き出し・子プロセスを止める
-置き場所(スタジオの作業データ・書き出し先)は呼ぶ側(app の CLI)が ytt/studio_env に入れてから作る。
+置き場所(スタジオの作業データ・書き出し先)は呼ぶ側(友人のアプリ friendapp/engine)が ytt/studio_env に入れてから作る。
 """
 import contextlib
 import copy

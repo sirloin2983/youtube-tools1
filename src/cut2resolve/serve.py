@@ -13,7 +13,7 @@ API(「編集」の cut.js・pack-tab.js・app-tools.js と、入口の「まと
   POST /api/build                {spec, output: {dir?, render, copyVideo, textplus, textplusFps?, textplusSize?, force}} → ジョブ。既存の出力があれば 409 exists。
                                   パックは最小限(Text+ パックは動画・Lua・雛形・登録用の ps1/bat。EDL・SRT は入れない。backup は受けて黙って無視 = 決定 3-34)。
                                   cut-plan.json はフォルダに置かず、作業データの packs/ に「パックを作った記録」を残す(書くのは ② flow/packrec.after_build =
-                                  入口なしの CLI と同じ口。④ manage.cases.txindex が読む)
+                                  入口なしの道(友人のアプリ)と同じ口。④ manage.cases.txindex が読む)
                                   spec.keeps = 残す区間の秒 [[a, b], …](「編集」のカットのとおり。pack.EDIT_KEEPS。preset とは一緒に使えない)
                                   spec.rowEdge = 行から作るとき(preset transcript-rows・keepSource transcript)に端を広げるか(省略 = 既定・false = 広げない)
                                   output.textplusWrap = Text+ 字幕の1段の文字数(省略 = 縦 8・横 14 = 2段、0 = 改行しない)
@@ -412,7 +412,7 @@ def start_build(app, o):
                               speaker_colors=spk_map or None, loudness=out["loudness"], volume=out["volume"],
                               video_tracks=out["videoTracks"], prev_copy=prev.get("videoCopy"), cache=app.cache)   # 余白つき素材の probe も覚える(O2)
         app.allow_out_dir(res["out_dir"])
-        # 作れたあとの記録(パックを作った記録 + <パック>/pack.key.json)は入口なしの CLI(flow/tools)と同じ ② の口(設計原則の指摘 3)
+        # 作れたあとの記録(パックを作った記録 + <パック>/pack.key.json)は入口なしの道(flow/tools)と同じ ② の口(設計原則の指摘 3)
         res["warnings"].extend(_packrec.after_build(res, plan.video, o.get("spec") or {}, o.get("output") or {}, out["textplus"],
                                                     out["textplusColor"], tool={"name": "cut2resolve", "version": SERVER_VERSION}, c2r_dir=CODE_DIR))
         files = [file_info(k, p) for k, p in res["files"]]

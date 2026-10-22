@@ -11,7 +11,7 @@ ytt.schemas.clip_offset)。.clip.json が無ければマークの開始を使う
 
 パックの有無(pack_info・is_pack_dir)もここ1か所で決める。cut2resolve の画面・API のパックはフォルダに cut-plan.json を置かず、
 cut2resolve の作業データ packs/ に「パックを作った記録」を残す(記録の形・置き場所・書くのは ② flow/packrec。cut2resolve の API も
-入口なしの CLI も同じ after_build を呼ぶ = OPT-M2。ここは ② の読み口を使うだけ)。記録だけを見る(フォルダの中の cut-plan.json は見ない)。
+入口なしの道(友人のアプリ)も同じ after_build を呼ぶ = OPT-M2。ここは ② の読み口を使うだけ)。記録だけを見る(フォルダの中の cut-plan.json は見ない)。
 """
 import os
 

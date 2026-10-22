@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """② 管理の層 flow: パックを作った記録(作業データの packs/<フォルダのハッシュ>.json)の持ち主(OPT-M2。notes:plan/done/opt-manage.md の 3b-1)。
 
-パックを作り終えたところで、入口(cut2resolve の POST /api/build)も入口なしの CLI(flow/tools の LocalTools.pack_start)も
+パックを作り終えたところで、入口(cut2resolve の POST /api/build)も入口なしの道(flow/tools の LocalTools.pack_start = 友人のアプリ)も
 同じ after_build を呼ぶ(設計原則の指摘 3: API と CLI が同じ「作れたあとの記録」)= 記録 + <パック>/pack.key.json(flow/keys.write_pack)。
 ① pipeline/pack は記録を知らない(作るだけ)。④ manage/cases/txindex はここの読み口(read_record・ready)で「パック済み」を決める。
 

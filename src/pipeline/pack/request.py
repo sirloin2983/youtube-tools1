@@ -1,6 +1,6 @@
 """パックの指定(JSON の spec・output)-> pack.Request と build_pack の引数。指定の読み方の 1 か所
 
-読み手は 2 つ: cut2resolve の API(src/cut2resolve/serve.py。画面から)・② の LocalTools(src/flow/tools.py。入口なしの CLI)。
+読み手は 2 つ: cut2resolve の API(src/cut2resolve/serve.py。画面から)・② の LocalTools(src/flow/tools.py。入口なしの道 = 友人のアプリ)。
 エラーは ytt.errors.ApiError(code, message)。画面から来る値を守る厳しさが正で、LocalTools も同じ検査を通る
 (動画・文字起こしは絶対パスで実在・拡張子を確かめる / keeps は時刻の順で重ならない / 数は範囲を確かめる)。
 パックの出力は変えない(読み方を 1 か所にしただけ)"""

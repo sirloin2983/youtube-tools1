@@ -11,7 +11,6 @@ yt-dlp には呼ぶたびの写し(<secrets>/run/)を渡す(ytt/tools.ytdlp_auth
 - 記録 <cookies の名前>.state.json: loginAt(ログインした時刻 = 外から元が書かれた時刻)・lostAt・merged・mergedAt・rejected・rejectedAt・rejectedWhy・wroteNs・loginNs
 cookie の値は読まない(行の名前・domain・期限だけ見る。値は行ごとそのまま運ぶ)・ログに出さない。スイッチ: 環境変数 YTT_COOKIES_MERGE=0 で戻さない(今までの形)。
 """
-import json
 import os
 import re
 import time
@@ -112,10 +111,6 @@ def _read(path):
         return f.read(MAX_BYTES + 1)
 
 
-def _done(path):
-    _fsio.unlink_quiet(path)
-
-
 def merge_back(src, now=None, env=None):
     """yt-dlp が書き戻した写しを元へ戻す(上の説明)-> {"merged", "rejected", "busy"}。失敗しても例外は出さない(次の回)"""
     out = {"merged": 0, "rejected": 0, "busy": False}
@@ -172,7 +167,7 @@ def _merge_locked(src, run, now, out):
             s.update(rejectedAt=int(now * 1000), rejectedWhy=why)
             if why == "lost":
                 s["lostAt"] = int(now * 1000)
-        _done(p)
+        _fsio.unlink_quiet(p)
     if changed or s != read_state(src):
         _write_state(src, s)
 
