@@ -9,7 +9,7 @@ numpy・sherpa_onnx は _voice_spans_local の中で読む(サーバーのプロ
 """
 import os
 
-from ytt import workdata as _workdata
+from ytt import jobs as _heavy, workdata as _workdata
 from . import backend as _backend, tx_engines, worker_client
 
 # 型は sherpa-onnx の公式の配布を URL・大きさ・SHA-256 固定で取る。SHA-256 は 10-22 に 2 回取った中身の値(測りに使った物と同じ。
@@ -72,10 +72,10 @@ def _voice_spans_real(job, wav):
 
 def _voice_spans_local(job, wav):
     """認識ワーカーの中だけで動く(numpy・sherpa-onnx)。SEP_CHUNK 秒ずつ分けて、分けた声の SEP_FRAME 秒ごとの音量から区間を作る"""
+    tx_engines._need_sherpa("install-diarize.bat")   # 部品が無い PC では生の ImportError でなく入れ方の案内
     import numpy as np
     import sherpa_onnx as so
     from . import diarize
-    tx_engines._need_sherpa("install-diarize.bat")
     spec = SEP_MODELS[SEP_MODEL]
     d = tx_engines._ensure_tar_model(spec, sep_model_dir(_workdata.DATA_DIR), None, {})
     sep = so.OfflineSourceSeparation(so.OfflineSourceSeparationConfig(model=so.OfflineSourceSeparationModelConfig(
@@ -84,6 +84,7 @@ def _voice_spans_local(job, wav):
     x = tx_engines._read_16k(wav, "声の分離")
     step, db = 16000 * SEP_CHUNK, []
     for k in range(0, len(x), step):
+        _heavy.check_cancel(job)
         c = x[k:k + step]
         r = sep.process(sample_rate=16000, samples=np.stack([c, c]))
         v = np.asarray(r.stems[0].data, dtype=np.float32).mean(axis=0)

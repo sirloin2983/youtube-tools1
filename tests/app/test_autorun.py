@@ -751,6 +751,21 @@ class TestPipeTx(Base):
         self.assertEqual((run["state"], self.tools.tx_at_export), ("done", "done"))
         self.assertNotIn("early", self.tx_step(run))
 
+    def test_doc_list_failure_does_not_fail_export(self):
+        """先に頼む所で文書の一覧が一時的に失敗しても、書き出しの段は落ちない(文字起こしの段が今の形で頼む)"""
+        docs = A.AutoRunner._docs
+        calls = []
+
+        def flaky(runner):
+            calls.append(1)
+            if len(calls) == 1:
+                raise OSError("文字起こしのサーバーが応答しません")
+            return docs(runner)
+        with mock.patch.object(A.AutoRunner, "_docs", flaky):
+            run = self.run_one("export")
+        self.assertGreater(len(calls), 1)
+        self.assertEqual((run["state"], self.states(run)), ("done", {"export": "done", "transcribe": "done", "pack": "done"}), run)
+
     def test_cancel_during_export_cancels_early_transcribe(self):
         self.tools.export_stop = 1
         run = start(self.r, VID, "export")

@@ -1174,15 +1174,21 @@ class Runner:
                and self._tx_path_key(i["path"]) not in run.tx_early and os.path.isfile(i["path"])]
         if not new:
             return
-        docs, opts, tx = self._docs(), self._tx_opts(run), run.step("transcribe")
+        try:
+            docs, opts, tx = self._docs(), self._tx_opts(run), run.step("transcribe")
+        except Exception as e:   # noqa: BLE001  一覧を読めなくても書き出しは続ける(この本は文字起こしの段が今の形で頼む)
+            for i in new:
+                run.tx_early[self._tx_path_key(i["path"])] = {"job": None, "redo": False}
+            self.log("流れ作業: 文字起こしを先に頼めませんでした(文書の一覧): %s" % e)
+            return
         for i in new:
             path, key = i["path"], self._tx_path_key(i["path"])
             run.tx_early[key] = {"job": None, "redo": False}
-            doc = self._pick_doc(docs, run.video_id, i.get("id"), path)
-            verdict = "skip" if self._made_here(run, path, doc) else tx_verdict(bool(doc), self._force(run))
-            if verdict not in ("make", "redo"):
-                continue
             try:
+                doc = self._pick_doc(docs, run.video_id, i.get("id"), path)
+                verdict = "skip" if self._made_here(run, path, doc) else tx_verdict(bool(doc), self._force(run))
+                if verdict not in ("make", "redo"):
+                    continue
                 self._tx_mark(run, [(path, [doc["id"]] if doc else [])])
                 job = self.tools.transcribe_start(dict(opts, sourcePath=path), bundle=self._bundle(run))
             except Exception as e:   # noqa: BLE001  先に頼めなくても、文字起こしの段が今の形で頼む

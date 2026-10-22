@@ -262,7 +262,7 @@ def _copy_runtime(manifest, runtime_dirs, tmp):
     srcs = {}
     for rel, sha in want.items():
         for d in runtime_dirs:
-            p = safe_join(d, rel[len("python/"):])
+            p = fsio.long_path(safe_join(d, rel[len("python/"):]))   # 読む側も長いパスで(包まないと深いファイルが「無い」= 毎回全部入り)
             if isinstance(sha, str) and os.path.isfile(p) and fsio.sha256_file(p) == sha.lower():
                 srcs[rel] = p
                 break
@@ -274,7 +274,7 @@ def _copy_runtime(manifest, runtime_dirs, tmp):
     for rel, p in srcs.items():
         dest = fsio.long_path(safe_join(tmp, rel))
         os.makedirs(os.path.dirname(dest), exist_ok=True)
-        shutil.copyfile(fsio.long_path(p), dest)
+        shutil.copyfile(p, dest)
 
 
 def install_update(zip_path, home, version, runtime_dirs=None):
@@ -305,7 +305,7 @@ def install_update(zip_path, home, version, runtime_dirs=None):
         for rel, want in files.items():
             if not (str(rel).startswith(("src/", "python/")) or rel in UPDATE_ROOT_FILES):
                 continue
-            p = safe_join(tmp, rel)
+            p = fsio.long_path(safe_join(tmp, rel))
             if not isinstance(want, str) or not os.path.isfile(p) or fsio.sha256_file(p) != want.lower():
                 raise ValueError("更新の zip の中身が manifest.json と違います: %s" % str(rel)[:120])
         for need in (("src", "friendapp", "server.py"), ("python", "python.exe")):

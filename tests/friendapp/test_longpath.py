@@ -64,6 +64,31 @@ class LongPathTest(unittest.TestCase):
         self.assertFalse(os.path.exists(fsio.long_path(os.path.join(dest, "evil.txt"))))
         self.assertFalse(os.path.exists(fsio.long_path(os.path.join(self.base, "evil.txt"))))
 
+    def test_update_into_deep_home(self):
+        """友人の home が深い: 軽い更新は今の python(深い)から写せる・全部入りも manifest の照合が通る(読む側も長いパスで開く)"""
+        import hashlib
+        import json
+        rel = "python/Lib/site-packages/" + "p" * 60 + "/__init__.py"
+        body = {"src/friendapp/server.py": b"# server", "python/python.exe": b"MZpy", rel: b"x = 1\n"}
+        files = {k: hashlib.sha256(v).hexdigest() for k, v in body.items()}
+        home = deep(self.tmp, 150)   # home は短い(フォルダは普通に作れる)・中の深いファイルで 260 字を超える
+        self.assertGreater(len(os.path.join(home, "app-0.2.0.tmp", rel)), 260)
+        runtime = os.path.join(home, "app-0.1.0", "python")
+        for k, v in body.items():
+            if k.startswith("python/"):
+                p = fsio.long_path(os.path.join(runtime, *k[len("python/"):].split("/")))
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+                with open(p, "wb") as f:
+                    f.write(v)
+        light = os.path.join(self.tmp, "light.zip")
+        zip_file(light, {"src/friendapp/server.py": b"# server", "manifest.json": json.dumps({"files": files, "light": True})})
+        got = S.install_update(light, home, "0.2.0", [runtime])
+        self.assertTrue(os.path.isfile(fsio.long_path(os.path.join(got, *rel.split("/")))))
+        full = os.path.join(self.tmp, "full.zip")
+        zip_file(full, dict(body, **{"manifest.json": json.dumps({"files": files})}))
+        got = S.install_update(full, home, "0.3.0")
+        self.assertTrue(os.path.isfile(fsio.long_path(os.path.join(got, *rel.split("/")))))
+
     def test_inbox_keep_trash_and_undo_in_deep_folders(self):
         cases = os.path.join(self.base, "cases")
         save = os.path.join(self.base, "save")

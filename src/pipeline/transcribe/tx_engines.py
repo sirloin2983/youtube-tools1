@@ -622,14 +622,17 @@ class WhisperCpp(Engine):
                               % ("CUDA" if self.device == "cuda" else "Vulkan", "GPU が見つからない" if used is not None else "GPU の初期化の記録が無い"))
 
 
-def _dtw_start(tok, a, prev, seg_from, seg_to, shift, dur=None):
+def _dtw_start(tok, a, prev, seg_from, seg_to, shift, dur=None, floor=None):
     """DTW の単語の始まり(秒)か None(使えない = 今の時刻のまま)。t_dtw は 10 ミリ秒の単位・-1 = 無し。行の範囲の前後 DTW_TOL 秒の外・音の長さ dur より後は崩れとみなす
-    (音のほとんど無い切り抜きで、音の長さを超える幻の行の単語が全部その行の終わりに集まり、音の長さで切る後処理に行ごと消された = 配る前の検査の区間 5 つ)"""
+    (音のほとんど無い切り抜きで、音の長さを超える幻の行の単語が全部その行の終わりに集まり、音の長さで切る後処理に行ごと消された = 配る前の検査の区間 5 つ)。
+    floor = 前の行の始まり: ずらした始まりがそこ以前なら崩れとみなす(行の順が逆になる・前の行が長さ 0 になるのを防ぐ)"""
     d = tok.get("t_dtw")
     if not isinstance(d, (int, float)) or isinstance(d, bool) or d < 0 or seg_from is None:
         return None
     t = d / 100.0
     if not (seg_from - DTW_TOL <= t <= seg_to + DTW_TOL) or (dur is not None and t > dur):
+        return None
+    if floor is not None and t - shift <= floor:
         return None
     return max(prev, 0.0, t - shift)
 
@@ -673,7 +676,7 @@ def parse_json(data, dtw_shift=None, dtw_counts=None, duration=None):
             w0, w1 = _ms(to.get("from")), _ms(to.get("to"))
             if w0 is not None and w1 is not None:
                 if dtw_shift is not None:
-                    d = _dtw_start(tok, w0, prev, a, b, dtw_shift, duration) if use_dtw else None
+                    d = _dtw_start(tok, w0, prev, a, b, dtw_shift, duration, out[-1].start if out else None) if use_dtw else None
                     if dtw_counts is not None:
                         dtw_counts["words"] = dtw_counts.get("words", 0) + 1
                         dtw_counts["dropped"] = dtw_counts.get("dropped", 0) + (d is None)

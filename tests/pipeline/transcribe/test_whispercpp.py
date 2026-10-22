@@ -258,6 +258,10 @@ class WhisperCppTest(unittest.TestCase):
                                  {"offsets": {"from": 2000, "to": 3000}, "text": "き", "tokens": [tok("き", 2000, 3000, 190)]}]}
         a, b = E.parse_json(two, 0.1, {})
         self.assertEqual((round(a.end, 2), round(a.words[0].end, 2), round(b.start, 2)), (1.8, 1.8, 1.8))   # 前の行と重ねない
+        back = {"transcription": [{"offsets": {"from": 10000, "to": 10800}, "text": "あ", "tokens": [tok("あ", 10000, 10800, 1000)]},
+                                  {"offsets": {"from": 10800, "to": 12000}, "text": "う", "tokens": [tok("う", 10800, 11400, 980), tok("え", 11400, 12000, 1150)]}]}
+        a, b = E.parse_json(back, 0.1, {})   # 次の行の DTW が前の行の始まりより前 = 崩れ(行の順を逆にしない)
+        self.assertEqual((round(a.start, 2), round(a.end, 2), round(b.start, 2), round(b.words[1].start, 2)), (9.9, 10.8, 10.8, 11.4))
         self.assertEqual((round(s.start, 2), s.end), (1.4, 4.0))
         self.assertEqual(counts, {"words": 4, "dropped": 2})
         self.assertEqual(E.parse_json(data)[0].words[0].start, 1.0)   # DTW なし = 今のまま

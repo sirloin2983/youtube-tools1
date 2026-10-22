@@ -124,6 +124,29 @@ class MergeBackTest(unittest.TestCase):
         self.assertIn("fake-a", s)   # a は b の後に戻る・期限が後なので勝つ
         self.assertFalse(os.path.exists(a) or os.path.exists(b))
 
+    def test_second_write_failure_keeps_state(self):
+        """2 つ目の写しの置き換えが失敗(ほかの読みとぶつかる)しても、1 つ目の書き戻しの記録は残る = 次の回にログインし直したと誤らず、残りも戻す"""
+        at = tools.ytdlp_login_at(self.env)
+        self.copy(text(*LOGIN, line("SIDCC", "fake-a", exp=FAR)), age=20)
+        b = self.copy(text(*LOGIN, line("SIDCC", "fake-a", exp=FAR), line("VISITOR_INFO1_LIVE", "fake-v")))
+        real, n = C._fsio.atomic_write, []
+
+        def flaky(p, data, **kw):
+            if p == self.src:
+                n.append(p)
+                if len(n) == 2:
+                    raise PermissionError(32, "使用中")
+            return real(p, data, **kw)
+        C._fsio.atomic_write = flaky
+        try:
+            C.merge_back(self.src)
+        finally:
+            C._fsio.atomic_write = real
+        self.assertTrue(os.path.exists(b))   # 失敗した写しは次の回へ
+        self.assertEqual(C.merge_back(self.src)["merged"], 1)
+        self.assertIn("VISITOR_INFO1_LIVE", self.read(self.src))
+        self.assertEqual(tools.ytdlp_login_at(self.env), at)
+
 
 if __name__ == "__main__":
     unittest.main()

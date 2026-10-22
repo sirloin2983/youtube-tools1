@@ -118,7 +118,10 @@ def merge_back(src, now=None, env=None):
     run = os.path.join(os.path.dirname(src), RUN)
     if not os.path.isdir(run):
         return out
-    lock = _fsio.try_lock(os.path.join(run, LOCK))
+    try:
+        lock = _fsio.try_lock(os.path.join(run, LOCK))
+    except OSError:   # ロックのファイルを開けない(消している最中など) = 取れないのと同じ(次の回)
+        lock = None
     if lock is None:
         out["busy"] = True
         return out
@@ -151,24 +154,23 @@ def _merge_locked(src, run, now, out):
             continue
         if mt * 1000 > int(m.group(1)) + WROTE_AFTER_MS and now - mt >= SETTLE_SEC:
             cands.append((mt, p, int(m.group(2))))
-    changed = False
-    for _mt, p, base in sorted(cands):
-        why = _merge_one(src, p, base, s, now)
-        if why == "merged":
-            out["merged"] += 1
-            changed = True
-            s["merged"] = int(s.get("merged") or 0) + 1
-            s["mergedAt"] = int(now * 1000)
-        elif why != "same":
-            out["rejected"] += 1
-            changed = True
-            s["rejected"] = int(s.get("rejected") or 0) + 1
-            s.update(rejectedAt=int(now * 1000), rejectedWhy=why)
-            if why == "lost":
-                s["lostAt"] = int(now * 1000)
-        _fsio.unlink_quiet(p)
-    if changed or s != read_state(src):
-        _write_state(src, s)
+    try:
+        for _mt, p, base in sorted(cands):
+            why = _merge_one(src, p, base, s, now)
+            if why == "merged":
+                out["merged"] += 1
+                s["merged"] = int(s.get("merged") or 0) + 1
+                s["mergedAt"] = int(now * 1000)
+            elif why != "same":
+                out["rejected"] += 1
+                s["rejected"] = int(s.get("rejected") or 0) + 1
+                s.update(rejectedAt=int(now * 1000), rejectedWhy=why)
+                if why == "lost":
+                    s["lostAt"] = int(now * 1000)
+            _fsio.unlink_quiet(p)
+    finally:   # 途中の写しの置き換えが失敗しても、それまでに書いた時刻(wroteNs)を残す(残さないと次の回に「ログインした」と誤って残りの写しを捨てる)
+        if s != read_state(src):
+            _write_state(src, s)
 
 
 def _merge_one(src, p, base, s, now):
