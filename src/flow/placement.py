@@ -464,7 +464,8 @@ def acquire(port=None, data_root=None):
         if _fsio.create_new(path, data):   # 無いときだけ作る(ほかの ② と同時でも 1 つだけが取れる)
             return {"path": path, "token": info["token"]}
         old = _read_lock(path)
-        if _alive(old):
+        mine = port is not None and isinstance(old, dict) and old.get("port") == port and old.get("pid") != os.getpid()
+        if _alive(old) and not mine:   # mine = 印のポートは自分が開いている = 持ち主は動いていない(pid はほかのプログラムの使い回し。再起動の後)
             raise LockBusy(old)
         log.info("取り残された %s を消します(pid %s)", LOCK_NAME, (old or {}).get("pid"))
         _fsio.unlink_quiet(path)

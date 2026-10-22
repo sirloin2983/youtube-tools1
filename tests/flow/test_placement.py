@@ -503,6 +503,21 @@ class TestLock(_Tmp):
         with self.assertRaises(ValueError):
             placement.acquire(80, self.tmp)
 
+    def test_reused_pid_on_my_own_port_is_stale(self):
+        """再起動の後: 印の pid はほかのプログラムが使い回している(生きている)・印のポートは自分が先に開いた = 取り残し(10-22 Discord で起動できなかった)"""
+        other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        self.addCleanup(other.kill)
+        s = socket.socket()
+        s.bind(("127.0.0.1", 0))
+        s.listen(16)
+        self.addCleanup(s.close)
+        port = s.getsockname()[1]
+        self.write({"pid": other.pid, "port": port, "at": 1, "token": "t"})
+        placement.release(placement.acquire(port, self.tmp))   # 自分のポートの印 = 持ち主は自分以外ではありえない
+        self.write({"pid": other.pid, "port": port, "at": 1, "token": "t"})
+        with self.assertRaises(placement.LockBusy):   # 別のポートで起きる ② から見れば、今まで通り動いている扱い
+            placement.acquire(data_root=self.tmp)
+
     def test_release_keeps_others_lock(self):
         h = placement.acquire(data_root=self.tmp)
         self.write({"pid": os.getpid(), "port": None, "at": 1, "token": "someone-else"})
