@@ -14,6 +14,8 @@
   3 報告の型: 入れるセッションの作業の記録(dev/worklog.py check。名前の既定 = ブランチの claude/ と末尾の -16 進を外した物)。
     見出しが欠けたら止める・英字の割合は警告だけ
 テストと検査は、ブランチをチェックアウトしている作業フォルダで流す(main と合わせた形ではない。main の新しい分を取り込んでいなければ警告)。
+検査(1)は単体テスト(2)と並べて流す。作業フォルダに未コミット・未追跡の物が無いときは、通った単体を木の hash ごとに控え(git の共通ディレクトリの
+ytt-gate-cache.json。新しい CACHE_TREES 個の木)、同じ木の流し直しでは通った物を飛ばす(1 バイトでも変われば木が変わる = 全部流す)。前回の秒で遅い順に始める。
 表(code.md の 6)と実際のフォルダがずれていたら警告する(止めない)。抜け道は --skip-* の明示だけ = land.py が記録(git の共通ディレクトリの ytt-land.log)に残す。
 """
 import argparse
@@ -57,6 +59,8 @@ MANUAL = {"friend-apps/holo-colors/": r"friend-apps\holo-colors\build.bat",
 NO_TESTS = ("codemap/", ".claude/", "README.txt", "AGENTS.md", "CLAUDE.md", ".gitignore", ".gitattributes", "push.bat")
 TABLE_HEAD = "## 6. フォルダと、変えたら通すテスト"
 TAIL = 12
+CACHE_NAME = "ytt-gate-cache.json"   # 通った単体の控え {"trees": {木の hash: [通った本]}, "secs": {本: 前回の秒}}
+CACHE_TREES = 20
 
 
 def layer_of_dir(path):
@@ -99,15 +103,48 @@ def pick_units(root, dirs):
     return [u for u in units if u.rel.startswith(tuple(dirs)) or u.rel in GUARDS]
 
 
-def run_units(units, jobs, log=print):
-    """並べて流す -> 落ちた Result の一覧"""
-    failed = []
+def run_units(units, jobs, log=print, secs=None):
+    """並べて流す(前回の秒 secs で遅い順。無い本は先頭)-> 全部の Result の一覧"""
+    secs, out = secs or {}, []
+    order = sorted(units, key=lambda u: -secs.get(u.rel, 1e9))
     with ThreadPoolExecutor(max_workers=max(1, jobs)) as ex:
-        for r in ex.map(run_unit.run_one, units):
+        for r in ex.map(run_unit.run_one, order):
+            out.append(r)
             if not r.ok:
-                failed.append(r)
                 log("  落ちた: %s(%.0f 秒)" % (r.unit.label, r.secs))
-    return failed
+    return out
+
+
+def cache_path(wt):
+    d = git(wt, "rev-parse", "--git-common-dir")[1].strip()
+    return os.path.join(wt, d, CACHE_NAME) if d else None
+
+
+def load_cache(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            c = json.load(f)
+    except (OSError, ValueError, TypeError):
+        c = {}
+    c = c if isinstance(c, dict) else {}
+    return {"trees": c.get("trees") if isinstance(c.get("trees"), dict) else {},
+            "secs": c.get("secs") if isinstance(c.get("secs"), dict) else {}}
+
+
+def save_cache(path, cache, tree, results):
+    """通った本を木 tree に足し(tree が空なら秒だけ)、古い木を捨てて書く"""
+    for r in results:
+        cache["secs"][r.unit.rel] = round(r.secs, 1)
+    if tree:
+        done = set(cache["trees"].pop(tree, [])) | {r.unit.rel for r in results if r.ok}
+        cache["trees"][tree] = sorted(done)
+        for old in list(cache["trees"])[:-CACHE_TREES]:
+            del cache["trees"][old]
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False)
+    except OSError:
+        pass
 
 
 def count_of(tail):
@@ -207,6 +244,7 @@ class Gate:
 
     def __init__(self):
         self.problems, self.warns, self.times, self.skipped = [], [], [], []
+        self.wall = None   # 流した全体の秒(検査と単体を並べたので times の和ではない)
 
     def step(self, name, t0):
         self.times.append((name, time.monotonic() - t0))
@@ -241,21 +279,32 @@ def run(branch, root=REPO, skip=(), worklog_name=None, jobs=None, list_only=Fals
         for u in units:
             log("  " + u.label)
         return g
-    if "checks" not in skip:
-        t0 = time.monotonic()
-        main_wt = worktree_of(root, "main")
-        for name, args in (("lint", ["dev/lint.py"]), ("画面の静的な検査", ["dev/ui_audit.py", "static"]), ("計画のデータ", ["dev/plan_data.py", "check"]),
-                           ("資料のパス", ["dev/notes_tool.py", "check"]), ("消した道具の名前", ["dev/spec_check.py", "--gone"])):
-            prob, warn = run_check(wt, main_wt, name, args)
-            g.problems += [prob] if prob else []
-            g.warns += [warn] if warn else []
-        g.step("検査", t0)
+    t_all = time.monotonic()
+    pool = ThreadPoolExecutor(max_workers=1)   # 検査は単体と並べる
+    checks = pool.submit(_checks, g, wt, root) if "checks" not in skip else None
     if "tests" not in skip:
         t0 = time.monotonic()
-        for r in run_units(units, jobs, log):
+        cpath = cache_path(wt)
+        cache = load_cache(cpath) if cpath else {"trees": {}, "secs": {}}
+        clean = not git(wt, "status", "--porcelain")[1].strip()
+        tree = git(wt, "rev-parse", "HEAD^{tree}")[1].strip() if clean else ""
+        done = set(cache["trees"].get(tree, [])) if tree else set()
+        todo = [u for u in units if u.rel not in done]
+        if len(todo) < len(units):
+            log("関所: 同じ木で通った単体 %d 本を飛ばす(%s の控え)" % (len(units) - len(todo), CACHE_NAME))
+        results = run_units(todo, jobs, log, cache["secs"])
+        if cpath:
+            save_cache(cpath, cache, tree, results)
+        for r in results:
+            if r.ok:
+                continue
             tail = "\n".join("    " + s for s in r.err.strip().splitlines()[-TAIL:])
             g.problems.append("単体テストが落ちた: %s\n%s" % (r.unit.label, tail))
-        g.step("単体テスト %d 本" % len(units), t0)
+        g.step("単体テスト %d 本" % len(todo), t0)
+    if checks:
+        checks.result()
+    pool.shutdown()
+    g.wall = time.monotonic() - t_all
     if "worklog" not in skip:
         name = worklog_name or session_name(branch)
         path = worklog.find_session(name, notes)
@@ -268,6 +317,18 @@ def run(branch, root=REPO, skip=(), worklog_name=None, jobs=None, list_only=Fals
     return g
 
 
+def _checks(g, wt, root):
+    """検査 5 本(直列。単体テストと並べて呼ぶ)"""
+    t0 = time.monotonic()
+    main_wt = worktree_of(root, "main")
+    for name, args in (("lint", ["dev/lint.py"]), ("画面の静的な検査", ["dev/ui_audit.py", "static"]), ("計画のデータ", ["dev/plan_data.py", "check"]),
+                           ("資料のパス", ["dev/notes_tool.py", "check"]), ("消した道具の名前", ["dev/spec_check.py", "--gone"])):
+        prob, warn = run_check(wt, main_wt, name, args)
+        g.problems += [prob] if prob else []
+        g.warns += [warn] if warn else []
+    g.step("検査", t0)
+
+
 def report(g, log=print):
     for w in g.warns:
         log("[警告] " + w)
@@ -275,7 +336,7 @@ def report(g, log=print):
         log("[落ちた] " + p)
     if g.skipped:
         log("[抜いた] " + "・".join(g.skipped))
-    total = sum(s for _n, s in g.times)
+    total = g.wall if g.wall is not None else sum(s for _n, s in g.times)
     log("関所: %s(%s・計 %.0f 秒)" % ("止めた" if g.problems else "通った",
                                    "・".join("%s %.0f 秒" % t for t in g.times) or "流した物なし", total))
 
@@ -283,7 +344,7 @@ def report(g, log=print):
 def record(common, branch, g, landed):
     """land の記録(git の共通ディレクトリの ytt-land.log。抜け道を使ったかを後から見る)"""
     line = {"at": time.strftime("%Y-%m-%d %H:%M:%S"), "branch": branch, "skipped": g.skipped,
-            "problems": len(g.problems), "secs": round(sum(s for _n, s in g.times)), "landed": landed}
+            "problems": len(g.problems), "secs": round(g.wall if g.wall is not None else sum(s for _n, s in g.times)), "landed": landed}
     try:
         with open(os.path.join(common, "ytt-land.log"), "a", encoding="utf-8") as f:
             f.write(json.dumps(line, ensure_ascii=False) + "\n")

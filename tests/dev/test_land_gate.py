@@ -154,9 +154,9 @@ class RunTest(unittest.TestCase):
         (land_gate.worktree_of, land_gate.git, land_gate.run_tool, land_gate.run_units, land_gate.table_drift) = self.saved
 
     def fake_units(self, fail):
-        def run_units(units, jobs, log=print):
+        def run_units(units, jobs, log=print, secs=None):
             self.ran = [u.rel for u in units]
-            return [land_gate.run_unit.Result(u, False, 1, 0.1, "AssertionError: x") for u in units if u.rel in fail]
+            return [land_gate.run_unit.Result(u, u.rel not in fail, 1, 0.1, "AssertionError: x") for u in units]
         land_gate.run_units = run_units
 
     def test_passes_and_times(self):
@@ -166,7 +166,21 @@ class RunTest(unittest.TestCase):
         self.assertIn("tests/ytt/test_ytt_core.py", self.ran)            # 見張りはいつも
         self.assertTrue(any(r.startswith("tests/manage/") for r in self.ran))
         self.assertFalse(any(r.startswith("tests/pipeline/") for r in self.ran))
-        self.assertEqual([n for n, _s in g.times][0], "検査")
+        self.assertIn("検査", [n for n, _s in g.times])   # 検査は単体と並べて流す
+
+    def test_passed_units_cached_per_tree(self):
+        """同じ木(未コミット無し)の流し直しは通った単体を飛ばし、落ちた物だけ流す。木が変われば全部"""
+        common, tree = testkit.tempdir(self), ["t1"]
+        out = {"diff": "src/manage/keep/trash.py\n", "--git-common-dir": common}
+        land_gate.git = lambda root, *a: (0, tree[0] if a[-1] == "HEAD^{tree}" else out.get(a[0], out.get(a[-1], "")))
+        self.fake_units({"tests/ytt/test_ytt_core.py"})
+        land_gate.run("claude/gate-abc123", notes=self.notes, log=lambda s: None)
+        first = list(self.ran)
+        g = land_gate.run("claude/gate-abc123", notes=self.notes, log=lambda s: None)
+        self.assertEqual((self.ran, len(g.problems)), (["tests/ytt/test_ytt_core.py"], 1))
+        tree[0] = "t2"
+        land_gate.run("claude/gate-abc123", notes=self.notes, log=lambda s: None)
+        self.assertEqual(sorted(self.ran), sorted(first))
 
     def test_other_layer_test_failure_stops(self):
         self.fake_units({"tests/ytt/test_ytt_core.py"})
