@@ -16,7 +16,7 @@ namespace HoloColors
     public static class AppInfo
     {
         public const string Name = "ホロカラー";
-        public const string Version = "1.4.3";
+        public const string Version = "1.4.4";
         public const string ToolId = "holo-colors";
         public const string MembersFile = "members.json";
     }

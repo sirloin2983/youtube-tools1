@@ -24,8 +24,8 @@
   - 名前: `class AppInfo` :16・`class ColorOption` :25・`Clone` :37・`CloneAll` :48・`ReadList` :54・`Validate` :69・`class ColorEntry` :87・`SetColors` :106・`class ColorGroup` :124・`class Branches` :137・`Short` :142・`IsSpecial` :157・ほか 59
 - **Dialogs.cs** (842 行) — 設定の画面・色の追加/編集の画面・呼び出しのキーを受け取る欄・コピーしたときの小さな知らせ
   - 名前: `class Ui` :16・`SystemScale` :28・`Px` :34・`Px` :39・`StyleDialog` :50・`Btn` :63・`FieldLabel` :69・`Note` :75・`ButtonRow` :81・`PickColor` :89・`class HotkeyBox` :101・`SetValue` :115・ほか 21
-- **MainForm.cs** (435 行) — 色の一覧の窓。呼び出しのキーで出し、コピーしたら(設定しだいで)隠して、呼び出す前の窓へ戻る。
-  - 名前: `class MainForm` :10・`OnHandleCreated` :122・`SetFilter` :162・`Refill` :174・`ApplySettings` :204・`SetStatus` :214・`ShowHint` :224・`ResetView` :260・`ProcessCmdKey` :303・`Swatch` :385・`OnFormClosing` :399・`OnActivated` :421・ほか 1
+- **MainForm.cs** (440 行) — 色の一覧の窓。呼び出しのキーで出し、コピーしたら(設定しだいで)隠して、呼び出す前の窓へ戻る。
+  - 名前: `class MainForm` :10・`OnHandleCreated` :124・`SetFilter` :164・`Refill` :176・`ApplySettings` :206・`SetStatus` :216・`ShowHint` :226・`ResetView` :262・`ProcessCmdKey` :305・`Swatch` :387・`OnFormClosing` :401・`OnActivated` :423・ほか 1
 - **PaletteView.cs** (698 行) — 色の札を並べて描く一覧(グループの見出し + 札の格子)。札の位置は Relayout で決め、描くのとクリックの判定で同じものを使う。
   - 名前: `class PaletteView` :13・`class Tile` :15・`class Header` :29・`OnFontChanged` :89・`SetGroups` :119・`OnResize` :139・`Relayout` :145・`BandRowsFor` :190・`HitTest` :242・`HitTestColor` :249・`OnPaint` :263・`FlashCopied` :326・ほか 17
 - **Program.cs** (818 行) — 起動・常駐(通知領域のアイコン・呼び出しのキー)・コピー。窓どうしのやりとりは AppController に集める。

@@ -103,6 +103,8 @@ namespace HoloColors
             view.FavoriteToggled += en => app.ToggleFavorite(en);
             view.ItemMoved += (en, to) => app.MoveItemTo(en, to);
             view.IsFavorite = en => app.Store.IsFavorite(en);
+            // 札を押してアクティブになったときも、そのまま文字を打てば検索できるように(OnActivated は押している間は移さない)
+            view.MouseUp += (s, e) => { if (e.Button == MouseButtons.Left && Visible && !search.Focused) search.Focus(); };
 
             Controls.Add(view);
             Controls.Add(top);
@@ -421,8 +423,11 @@ namespace HoloColors
         protected override void OnActivated(EventArgs e)
         {
             base.OnActivated(e);
-            // 設定・追加の画面から戻ったときも、すぐ検索できるように(WinForms が前のボタンへフォーカスを戻したあとで)
-            BeginInvoke(new Action(() => { if (Visible && !search.Focused) search.Focus(); }));
+            // 設定・追加の画面から戻ったときも、すぐ検索できるように(WinForms が前のボタンへフォーカスを戻したあとで)。
+            // マウスで押してアクティブになったときは移さない: 押している途中の札・ボタンからフォーカスを取ると押下が消え、
+            // 非アクティブの窓の最初のクリックが効かなくなる(ユーザー 10-23「使いにくい」)。札は押したあと自分で検索欄へ戻す。
+            // ボタンの状態は押した知らせを受け取ったあとで分かるので、後回しにした中で見る
+            BeginInvoke(new Action(() => { if (Visible && !search.Focused && MouseButtons == MouseButtons.None) search.Focus(); }));
         }
 
         protected override void OnResizeEnd(EventArgs e)
