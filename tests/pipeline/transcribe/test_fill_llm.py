@@ -120,6 +120,7 @@ class TestRealParts(unittest.TestCase):
             self.enterContext(mock.patch.object(mod, name, value))
         self.enterContext(mock.patch.dict(models._models, {}, clear=True))
         self.addCleanup(self._close_models)
+        self.addCleanup(backend.set_selector, backend._selector[0])   # 前の選び方に戻す(同じプロセスのあとのテストの疑似の登録を消さない)
         backend.set_selector(lambda: backend.REAL)
 
     @staticmethod
@@ -166,7 +167,7 @@ class _Base(unittest.TestCase):
         self.roster = os.path.join(self.tmp, "roster.json")
         testkit.write_json(self.roster, {"groups": [{"id": "t", "label": "試し", "names": ["テスト分子"]}],
                                          "members": [{"name": "テスト分子", "aliases": ["テスト分", "てすとぶん"]}]})
-        self.addCleanup(backend.set_selector, lambda: backend.REAL)
+        self.addCleanup(backend.set_selector, backend._selector[0])
         for mod, name, value in ((roster, "ROSTER", self.roster), (workdata, "TX_DIR", self.tmp), (studiodata, "studio_stream", lambda vid: {})):
             self.enterContext(mock.patch.object(mod, name, value))   # 試験の間だけ(終わったら元に戻す)
 

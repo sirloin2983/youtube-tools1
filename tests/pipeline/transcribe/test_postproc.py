@@ -109,8 +109,8 @@ class TestDocRowsRun(unittest.TestCase):
         path = os.path.join(tmp, "roster.json")
         testkit.write_json(path, {"groups": [], "members": MEMBERS})
         rich = _Rich()
+        self.addCleanup(backend.set_selector, backend._selector[0])   # 前の選び方に戻す(REAL に固定しない)
         backend.set_selector(lambda: rich)
-        self.addCleanup(backend.set_selector, lambda: backend.REAL)
         for mod, name, value in ((roster, "ROSTER", path), (studiodata, "studio_stream", lambda vid: None),
                                  (recognize, "extract_audio", lambda job, spec, wav: None), (recognize._tools, "media_duration", lambda p: DUR)):
             self.enterContext(mock.patch.object(mod, name, value))

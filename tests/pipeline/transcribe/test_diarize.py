@@ -91,7 +91,7 @@ class TestBackendAndWorker(unittest.TestCase):
     def setUp(self):
         self.enterContext(mock.patch.object(worker_client, "IN_WORKER", False))
         self.enterContext(mock.patch.object(worker_client, "WORKER", worker_client.WORKER))   # テストが入れた代わりのワーカーは終わりに外す
-        self.addCleanup(backend.set_selector, lambda: backend.REAL)
+        self.addCleanup(backend.set_selector, backend._selector[0])   # 前の選び方に戻す(REAL に固定すると、同じプロセスのあとのテストの疑似の登録が消える)
 
     def test_backend_and_worker_paths(self):
         """声の特徴は backend の口を通る(元の動画の秒 → 音声の頭からの秒)。本物の道は、ワーカーの外ならワーカーに頼む(設定を渡さなければ既定の形)"""
