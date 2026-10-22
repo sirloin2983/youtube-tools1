@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """パック(pipeline.pack)のテスト。正しく動く道・端の場合・時刻の計算・入力の誤りは、本物の ffmpeg の通し(TestPackRun)で見本に混ぜてまとめて確かめる。
 ほかのクラスは通しでは起こせない物だけ(Resolve の中の Lua・途中の失敗と中止・前の版の形・壊れた記録・後から書き換えた置き場所・安全の境目)。
@@ -1442,4 +1442,3 @@ class TestPackRun(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
-
