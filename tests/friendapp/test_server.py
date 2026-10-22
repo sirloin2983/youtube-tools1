@@ -675,6 +675,9 @@ class ServerTest(Base):
         rid = "20250615-130310-aaaaaa"
         stopped = []
         self.engine.live = types.SimpleNamespace(stop_recording=lambda rc, rec: stopped.append((rc, rec)) or True)
+        self.engine.live_row = lambda _rid: None if stopped else {"id": "rec-1", "firstPdt": "2025-06-15T04:00:00Z"}   # 止めた直後は読めない
+        diag = []
+        self.engine.live_cancelled = lambda _rid, before=None: diag.append(before)
         self.app.inbox.add(rid, {"url": URL, "kind": "live"}, {"url": URL, "videoId": VID, "title": "題", "channel": ""}, kind="live")
         self.app.inbox.live_started(rid, "local", "rec-1")
         q = self.engine.queue
@@ -683,6 +686,7 @@ class ServerTest(Base):
         st, _h, p = self.post("/api/friend/cancel", {"id": rid})
         self.assertEqual((st, self.js(p)["result"]), (200, {"id": rid, "state": "cancelled"}))
         self.assertEqual(stopped, [("local", "rec-1")])
+        self.assertEqual(diag, [{"id": "rec-1", "firstPdt": "2025-06-15T04:00:00Z"}])   # 診断には止める前に読んだ録画の行を渡す
         self.assertEqual(q.cancelled, ["c1", "c2"])
         self.assertIsNone(self.app.inbox.row(rid))
 

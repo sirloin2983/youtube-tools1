@@ -723,14 +723,16 @@ class Api:
             return {"id": rid, "state": "cancelled"}
         if r["state"] == "recording":
             lv = r.get("live") or {}
+            before = None
             if eng is not None and getattr(eng, "live", None) is not None:
+                before = getattr(eng, "live_row", lambda _rid: None)(rid)   # 止める前の録画の行(診断の録画の長さ。止めた直後は読めないことがある)
                 try:
                     eng.live.stop_recording(lv.get("recorder"), lv.get("recording"))
                 except ValueError as e:
                     raise FormError(str(e))
                 self._cancel_runs(eng, lambda x: x.get("requestId") == rid)   # 作りかけの切り抜きは捨てる
             try:
-                getattr(eng, "live_cancelled", lambda _rid: None)(rid)   # 診断(行が消える前に)
+                getattr(eng, "live_cancelled", lambda _rid, _before=None: None)(rid, before)   # 診断(行が消える前に)
             except Exception as e:   # noqa: BLE001  (診断で取り消しを止めない)
                 self.log("取り消したライブの診断を書けませんでした: %s" % e.__class__.__name__)
             self.inbox.cancelled(rid)

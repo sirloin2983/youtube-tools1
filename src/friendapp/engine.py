@@ -342,14 +342,20 @@ class Engine:
             self.log("ライブの診断の材料を読めませんでした: %s" % e.__class__.__name__)
             return {"factsError": e.__class__.__name__}
 
-    def live_cancelled(self, rid):
-        """録画中のライブを友人が [取り消す] で止めた(行は消えることがある = 消す前に): 閉じたときと同じ診断(パック 0 本で取り消したときの原因を残す)"""
+    def live_row(self, rid):
+        """ライブの行の録画の、録画元の今の行(生の行)か None(つながらない・無い)"""
+        lv = (self.inbox.row(rid) or {}).get("live") or {}
+        try:
+            return (self.live.recordings(lv.get("recorder")) or {}).get(lv.get("recording")) if self.live is not None else None
+        except Exception:   # noqa: BLE001
+            return None
+
+    def live_cancelled(self, rid, before=None):
+        """録画中のライブを友人が [取り消す] で止めた(行は消えることがある = 消す前に): 閉じたときと同じ診断(パック 0 本で取り消したときの原因を残す)。
+        before = 止める前に読んだ録画の行(止めた直後は録画元の一覧が読めず、友人の診断の録画の長さが空だった。10-21 の 2 本)"""
         lv = (self.inbox.row(rid) or {}).get("live") or {}
         rc, rec = lv.get("recorder"), lv.get("recording")
-        try:   # 録画元の今の状態(録画の長さ・取れなかった理由の材料。つながらなければ無しで書く)
-            raw = (self.live.recordings(rc) or {}).get(rec) if self.live is not None else None
-        except Exception:   # noqa: BLE001
-            raw = None
+        raw = self.live_row(rid) or before   # 録画元の今の状態(録画の長さ・取れなかった理由の材料。どちらも無ければ無しで書く)
         self._live_closed(rid, self._live_facts(rc, rec, raw), {"code": "cancelled", "text": "録画中に [取り消す] で止めました"})
 
     def _live_closed(self, rid, facts, why):
