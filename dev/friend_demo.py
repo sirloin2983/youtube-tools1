@@ -190,6 +190,7 @@ def seed(app, home):
     ib.live_started(rid, "local", "20261016-200000-" + LIVE_VID)
     for i, p in enumerate(packs(rid, 7)):
         ib.live_clip(rid, "demolive%02d" % i, "done", "", [p], "live", case=os.path.join(case_root, rid))
+    ib.live_update(rid, True, False, hint="候補 2 件・約 4 分後に切り抜きます")   # 切り抜く前の候補の知らせ(live.hint)
     # アーカイブ待ちの行(終わったばかりの配信を送った)
     ib.add("20261016-098000-ffff01", dict(form, url="https://www.youtube.com/watch?v=demo0000005", videoId="demo0000005", kind="wait", title="【朝活】おはよう!"),
            {"url": "https://www.youtube.com/watch?v=demo0000005", "videoId": "demo0000005", "title": "【朝活】おはよう!", "channel": ""}, state="waiting")

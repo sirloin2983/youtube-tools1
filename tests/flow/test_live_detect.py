@@ -200,7 +200,9 @@ class DetectApiTest(unittest.TestCase):
         self.rec.rel = 5000
         self.assertEqual(self.det.auto_tick(), 0)   # ワーカーが動いていない(心拍なし)間は採用しない
         t = self.worker_alive()
+        self.assertEqual(self.det.adopt_waiting("fake", REC), {"count": 1, "dueAt": None})   # 待つ候補(枠の p0 だけ)。まだ見ていない
         self.assertEqual(self.det.auto_tick(), 0)   # 最初に見た(ここから waitMin を数える)
+        self.assertEqual(self.det.adopt_waiting("fake", REC), {"count": 1, "dueAt": t[0] + 300})   # 友人の録画中の行の「約 5 分後に切り抜きます」
         t[0] += 299
         self.assertEqual(self.det.auto_tick(), 0)   # まだ 5 分たっていない
         t[0] += 1
@@ -212,6 +214,7 @@ class DetectApiTest(unittest.TestCase):
         job = self.live.exporter.snapshot("fake", REC)[0]
         self.assertEqual((job["origin"], job["after"]), ("auto", "auto"))
         self.assertEqual(self.det.auto_tick(), 0)   # 1 回だけ
+        self.assertIsNone(self.det.adopt_waiting("fake", REC))   # 採用した候補は待ちに数えない
         self.rec.rel = 5000
         self.assertEqual(self.det.auto_tick(), 0)   # 見送った p1・控えの p2 は採用しない
         with open(os.path.join(self.tmp, "live", LX.FEEDBACK), encoding="utf-8") as f:

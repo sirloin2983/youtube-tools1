@@ -590,6 +590,21 @@ class Detector:
         """その録画で自動(origin auto)で採用した数(decisions.json。D-13 の上限の分母)"""
         return sum(1 for x in self._decisions(self.folder(rc, rec))["items"] if x.get("state") == "adopted" and x.get("origin") == "auto")
 
+    def adopt_waiting(self, rc, rec):
+        """録画の、自動の採用を待っている枠の候補 -> {"count", "dueAt"(いちばん早く採用する時刻 epoch。まだ見ていなければ None)} か None
+        (待ちが無い・上限に達した)。読むだけ(友人のアプリの録画中の行に「候補 2 件・約 4 分後に切り抜きます」を出す)"""
+        if self.auto_count(rc, rec) >= self.auto_max(rc, rec):
+            return None
+        _doc, peaks, _pending = self.view(rc, rec)
+        given = {x.get("id") for x in self.given_up(rc, rec)}
+        left = [pk for pk in peaks if pk.get("state") == "frame" and not pk.get("provisional") and pk.get("id") not in given
+                and isinstance(pk.get("confirmedAt"), (int, float))]
+        if not left:
+            return None
+        wait = self.adopt_for(self.host.requests.get(rc, rec), rc, rec)["waitMin"] * 60
+        due = [self._seen[(rc, rec, pk.get("id"))] + wait for pk in left if (rc, rec, pk.get("id")) in self._seen]
+        return {"count": len(left), "dueAt": min(due) if due else None}
+
     def _target_recordings(self, now):
         """自動の採用の対象の録画 -> [(録画, 終わったか)]: 録画中(firstPdt・lastPdt あり)と、終わって END_GRACE_SEC 以内でワーカーが帳簿を締めたもの(D-14)"""
         out = []

@@ -222,6 +222,21 @@ class FriendLive(_ls.LiveSession):
         left = [p for p in peaks if p.get("state") == "frame" and not p.get("provisional") and p.get("id") not in given]
         return "配信中の候補 %d 件の自動の採用を待っています" % len(left) if left else ""
 
+    def adopt_hint(self, rc_id, rec, now=None):
+        """録画中の行に添える、切り抜く前の候補の知らせ(「候補 2 件・約 4 分後に切り抜きます」)か ""。
+        届いた物が無いまま「録画中」だけが続き、候補があるのに切り抜く前に取り消された(10-21 の友人の 13 分の録画)"""
+        try:
+            w = self.detector.adopt_waiting(rc_id, rec) if self.detector.enabled() else None
+        except Exception:   # noqa: BLE001  (分からなければ出さない)
+            return ""
+        if not w:
+            return ""
+        due = w.get("dueAt")
+        if due is None:
+            return "候補 %d 件" % w["count"]
+        left = due - (self.clock() if now is None else now)
+        return "候補 %d 件・%s切り抜きます" % (w["count"], "まもなく" if left <= 30 else "約 %d 分後に" % max(1, int(round(left / 60.0))))
+
     def live_facts(self, rc_id, rec, raw=None):
         """ライブの行を閉じたときの診断の材料(friendapp/diag の kind live。engine が伏せてから書く)。
         配信の記録(flow/live_report の build = 録画の長さ・候補と採用の数・遅れ・チャット・書き出しの数)から題と URL を除き、

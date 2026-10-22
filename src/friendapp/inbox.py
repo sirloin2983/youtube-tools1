@@ -404,8 +404,9 @@ class Inbox:
             self._save()
             return json.loads(json.dumps(r)), made
 
-    def live_update(self, rid, recording, busy, waiting="", why=None, warn=""):
+    def live_update(self, rid, recording, busy, waiting="", why=None, warn="", hint=""):
         """見回り: recording = 録画中か・busy = 書き出し・作っている切り抜きがあるか・waiting = 検出の採用・配信後の追加を待つ理由("" = 待たない)。
+        hint = 録画中の行に添える切り抜く前の候補の知らせ(live.hint。engine が live_session.adopt_hint で作る)。
         録画が終わって作る物が無ければ残りを組に・どれも待たなければ行を閉じる(パックがあれば「届いた」・全部決めていれば「決めた」・無ければ「失敗」)。
         why = パックが無いまま閉じるときの理由 {"code", "text"}(engine.live_cause。live.cause に残す)。-> 足した組の n のリスト"""
         with self.lock:
@@ -423,6 +424,10 @@ class Inbox:
                 lv["warn"] = warn
             else:
                 lv.pop("warn", None)
+            if hint and recording:
+                lv["hint"] = hint
+            else:
+                lv.pop("hint", None)
             if not recording and not busy and not waiting and not lv.get("finished"):
                 lv["finished"] = now
                 if r["state"] == "recording":
@@ -987,7 +992,8 @@ class Inbox:
                     f["file"] = {k: f["file"].get(k) for k in ("name", "size")}
                 lv = v.pop("live", None)
                 if isinstance(lv, dict):
-                    v["live"] = {"phase": lv.get("phase") or "recording", "ended": bool(lv.get("endedAt")), "errors": lv.get("errors") or 0}
+                    v["live"] = {"phase": lv.get("phase") or "recording", "ended": bool(lv.get("endedAt")), "errors": lv.get("errors") or 0,
+                                 **{k: lv[k] for k in ("warn", "hint") if lv.get(k)}}   # 録画できていない知らせ・切り抜く前の候補(画面の行の 1 行。10-22 まで warn が画面に届いていなかった)
                 v.pop("cases", None)
                 for p in v["packs"]:
                     for k in ("dir", "savedTo", "trash", "preview"):   # 画面に絶対パスを出さない(開くのは玄関の口から)

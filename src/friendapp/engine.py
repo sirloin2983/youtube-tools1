@@ -317,7 +317,8 @@ class Engine:
             facts = self._live_facts(rc, rec, raw) if closing else None
             why = live_cause(facts, lv.get("lastError")) if closing and not r["packs"] else None
             warn = self._live_blocked(r["id"], raw) if recording else ""
-            if self.inbox.live_update(r["id"], recording, busy, waiting, why=why, warn=warn):
+            hint = getattr(self.live, "adopt_hint", lambda _rc, _rec: "")(rc, rec) if recording and not warn else ""
+            if self.inbox.live_update(r["id"], recording, busy, waiting, why=why, warn=warn, hint=hint):
                 self._want_previews(r["id"])
             if closing:
                 self._live_closed(r["id"], facts, why)

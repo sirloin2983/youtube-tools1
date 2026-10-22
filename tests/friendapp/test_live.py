@@ -313,11 +313,27 @@ class LiveFlowTest(unittest.TestCase):
         self.eng.live_tick()
         self.eng.live_tick()
         self.assertEqual(self.box.row(rid)["live"]["warn"], E.BLOCKED_WARN)
+        self.assertEqual(next(v for v in self.box.view() if v["id"] == rid)["live"]["warn"], E.BLOCKED_WARN)   # 画面へ渡す行にも載る
         got = [d for d in self.diags(box) if d.get("stage") == "blocked"]
         self.assertEqual((len(got), got[0]["requestId"]), (1, rid))
         self.rec.recs[REC]["blockedAt"] = None
         self.eng.live_tick()
         self.assertNotIn("warn", self.box.row(rid)["live"])
+
+    def test_recording_row_shows_waiting_candidates(self):
+        """録画中の行: 自動の採用を待っている候補があれば「候補 N 件・約 M 分後に切り抜きます」(live.hint)。無くなれば消す"""
+        rid = self.send_live()["id"]
+        det = self.eng.live.detector
+        det.enabled = lambda: True
+        now = time.time()
+        for got, want in ((None, None), ({"count": 2, "dueAt": None}, "候補 2 件"),
+                          ({"count": 2, "dueAt": now + 250}, "候補 2 件・約 4 分後に切り抜きます"),
+                          ({"count": 1, "dueAt": now + 10}, "候補 1 件・まもなく切り抜きます"), (None, None)):
+            det.adopt_waiting = lambda _rc, _rec, g=got: g
+            self.eng.live_tick()
+            self.assertEqual(self.box.row(rid)["live"].get("hint"), want)
+            shown = next(v for v in self.box.view() if v["id"] == rid)["live"]   # 画面へ渡す行にも載る(sent.js の 1 行)
+            self.assertEqual(shown.get("hint"), want)
 
     def test_close_without_packs_writes_cause_and_diag_then_late_pack_revives(self):
         """パックが無いまま閉じた行: 理由は原因ごと(検出の記録が無い = 検出が動かない)・診断 kind live(録画の長さ・検出・ワーカー)・
