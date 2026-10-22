@@ -486,6 +486,17 @@ class E2E:
         if self.front_tk():
             self.pump(0.3)
             self.check(self.visible() and user32.GetForegroundWindow() == self.tk_hwnd, "閉じない設定でも、ほかの窓を押せばそちらが前に来る")
+            # 非アクティブの一覧の「コピーしたら閉じる」を 1 回押すだけで効く(アクティブにするだけで押下が消えない。10-23)
+            box = next((c for c in children(self.main) if window_text(c) == "コピーしたら閉じる"), None)
+            r = wintypes.RECT()
+            user32.GetWindowRect(box, ctypes.byref(r))
+            pt = wintypes.POINT((r.left + r.right) // 2, (r.top + r.bottom) // 2)
+            if user32.GetAncestor(user32.WindowFromPoint(pt), 2) != self.main:
+                raise Failure("クリックする場所に一覧の窓が無いので止めました")
+            click(pt.x, pt.y)
+            settings = os.path.join(self.data, "settings.json")
+            self.wait("1 回のクリックで効く", lambda: json.load(open(settings, encoding="utf-8")).get("closeAfterCopy") is True)
+            self.check(True, "非アクティブの一覧でも、チェックを 1 回押せば効く")
         self.close_button()
 
         log = os.path.join(self.data, "holo-colors.log")
