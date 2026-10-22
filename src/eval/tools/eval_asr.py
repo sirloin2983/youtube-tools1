@@ -8,6 +8,7 @@
         --repeat N = N 回認識して、全体の CER が中央の回を代表にする(温度のやり直しありは回ごとにぶれるので 3 回。既定 1。meta.repeat に各回の CER と幅)
         --context auto = 配信ごとの文脈(出る人の名前と呼び名。計画 段1-2)を文書ごとに作って渡す(既定 none = 渡さない = 基準)。
         --temp0 = 温度 0 に固定(雑音の多い音声で回ごとに結果が変わるのを抑える。比べるときは両方に付ける)
+        --post prod = 本番の文書と同じ後処理(A・C = SenseVoice で埋める・末尾の重複、名簿の表記ゆれ)まで当てた数(既定 none = 当てない基準。meta.post に印)
     py -3.12 -m eval.tools.eval_asr compare 結果A.json 結果B.json
         2つの結果を、同じ文書どうしで比べる(差と 95% の範囲。範囲が 0 をまたげば「差があるとは言えない」)
         両方の結果に出どころ別の小計(編集前・ショート。summary.origins)があれば、出どころごとの差も出し、全体の差と向きが食い違う出どころがあれば注意する(2 本の物差しが食い違ったら採らない。計画 3-3)
@@ -71,6 +72,8 @@ from pipeline.transcribe import worker_client as _worker_client  # noqa: E402
 from pipeline.transcribe import recognize as _recognize  # noqa: E402
 from pipeline.transcribe import records as _records  # noqa: E402
 from pipeline.transcribe import backend as _backend  # noqa: E402
+from pipeline.transcribe import fill as _fill  # noqa: E402
+from ytt import dictfmt as _dictfmt  # noqa: E402
 from human.proof import learn as _learn  # noqa: E402
 from human.proof import doc_jobs as _doc_jobs  # noqa: E402
 from eval.drill import drill as _drill, metrics as _metrics  # noqa: E402
@@ -537,7 +540,14 @@ def recognize_doc(doc, spec, data):
         gen = _fake_asr.transcribe_fake(job, spec, wav, audio_sec) if _backend.is_fake() else _recognize.transcribe_real(job, spec, wav, audio_sec)
         rows, prev = [], []
         # 文字起こしのジョブ(run_job)と同じ整え方(長さより後ろの行を捨てる・繰り返しをまとめる・続いている行をつなぐ)。
-        for s in _postproc.expand_segments(gen, spec, audio_sec):
+        segs = list(_postproc.expand_segments(gen, spec, audio_sec))
+        pairs = []
+        if spec.get("evalPost"):   # --post prod: 本番の後処理(clipjob と同じ A・C → 名簿の表記ゆれ)。学習した置換・D・LLM は入れない
+            segs, _rec, _read = _fill.fill_after_rows(job, dict(spec, autoFill=True), segs, wav, audio_sec)
+            pairs = _roster.variant_pairs(_roster.load(_roster.ROSTER))
+        for s in segs:
+            if pairs and s.get("text"):
+                s = dict(s, text=_dictfmt.apply_replacements(s["text"], pairs)[0])
             if not s["text"]:
                 continue
             row = {"start": round(s["start"] + offset, 2), "end": round(s["end"] + offset, 2), "text": s["text"][:_txbase.MAX_TEXT], **_postproc.machine_conf(s)}
@@ -564,7 +574,7 @@ def run_spec(args, settings, hint_free=False):
             "boost": (st.get("boost") is True) if args.boost is None else args.boost == "on",
             "wordSplit": st.get("wordSplit") is not False, "splitChars": _doc_jobs.split_chars_for({}, st),
             "stripPunct": st.get("stripPunct") is not False, "glossary": glossary, "device": args.device, "temp0": bool(args.temp0),
-            "engine": args.engine, "autoDict": False, "autoLearned": False}
+            "engine": args.engine, "autoDict": False, "autoLearned": False, "evalPost": getattr(args, "post", "none") == "prod"}
 
 
 # ---------------------------------------------------------------- 表示
@@ -666,6 +676,9 @@ def post_meta(spec):
     if wcpp:
         post["endTrim"] = rec["endTrim"]
     post["joinGap"] = rec["joinGap"]
+    if spec.get("evalPost"):
+        post["fill"] = "AC" if _fill.FILL_A_FIRST else "CA"   # --post prod(本番の後処理まで当てた数。当てない結果とは比べられない = compare が注意)
+        post["variants"] = True
     return post
 
 
@@ -965,6 +978,8 @@ def main(argv=None):
     p.add_argument("--context", choices=("none", "auto"), default="none", help="配信ごとの文脈(出る人の名前と呼び名)を渡すか(既定 none = 基準)")
     p.add_argument("--temp0", action="store_true", help="温度 0 に固定する(回ごとのぶれを抑える)")
     p.add_argument("--repeat", type=int, default=1, help="run を N 回繰り返し、全体の CER が中央の回を代表にする(既定 1 = 1 回。温度のやり直しありの認識は回ごとにぶれる。計画は 3 回)")
+    p.add_argument("--post", choices=("none", "prod"), default="none",
+                   help="認識のあとの後処理(既定 none = 当てない基準)。prod = 本番の文書と同じく A・C(SenseVoice で埋める・末尾の重複)と名簿の表記ゆれまで当てる(評価用の文書は変えない。測るだけ)")
     args = p.parse_args(argv)
     if args.repeat < 1:
         raise SystemExit("--repeat は 1 以上で指定してください")

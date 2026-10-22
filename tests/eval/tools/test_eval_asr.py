@@ -187,6 +187,12 @@ class EvalAsrTest(Base):
         saved = os.listdir(os.path.join(self.data, "evals", "asr"))
         self.assertEqual(len(saved), 1)
         self.assertTrue(saved[0].endswith("_fake-test.json"))
+        # --post prod: 本番の後処理(A・C・名簿の表記ゆれ)まで当てた数。文字の少ない行(4 秒で 5 字)を偽の別の読みで埋める・印は meta.post・文書は変えない
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_FAKE_FILL": "テスト文1テスト文1テスト文1"}):
+            post = quiet(E.main, ["run", "--data", self.data, "--docs", "ccccccccccc3", "--no-save", "--post", "prod"])
+        self.assertEqual(post["meta"]["post"], dict(POST_FW, fill="AC", variants=True))
+        self.assertGreater(post["summary"]["overall"]["ins"], 0)   # 埋めた行は正解より長い = 当たっている
+        self.assertEqual(self.snapshot(), before)
         # 元の動画が無ければ、保管データの全体の音声(文書の範囲の先頭 = 0 秒)で測る
         full = os.path.join(self.data, "dataset", "docs", "ccccccccccc3")
         os.makedirs(full)
