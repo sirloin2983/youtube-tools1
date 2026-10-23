@@ -309,3 +309,48 @@ class HealthTest(HealthBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestYtdlpLatest(unittest.TestCase):
+    """yt-dlp が古いか(10-23 取得の冗長化。ytt/ytdlpver・偽の GitHub。本物のネットは使わない)"""
+
+    def setUp(self):
+        from ytt import ytdlpver
+        self.V = ytdlpver
+        self.tmp = tempfile.mkdtemp(prefix="ytt-ytv-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.cache = os.path.join(self.tmp, H.YTDLP_LATEST)
+        self.asked = []
+
+    def http(self, tag):
+        def get(url, n):
+            self.asked.append(url)
+            return json.dumps({"tag_name": tag}).encode("utf-8")
+        return get
+
+    def test_once_a_day_and_old(self):
+        V = self.V
+        self.assertEqual(V.cached_latest(self.cache, now=1000, http=self.http("2026.10.20"), env={}), "2026.10.20")
+        self.assertEqual(V.cached_latest(self.cache, now=2000, http=self.http("2026.10.30"), env={}), "2026.10.20")   # 1 日は前の値
+        self.assertEqual(len(self.asked), 1)
+        self.assertTrue(V.is_old("2026.08.19", "2026.10.20"))
+        self.assertFalse(V.is_old("2026.10.20", "2026.10.20"))
+        self.assertFalse(V.is_old("2026.08.19", ""))   # 分からなければ古いと言わない
+
+    def test_network_error_keeps_old_value_and_switch(self):
+        V = self.V
+        V.cached_latest(self.cache, now=0, http=self.http("2026.10.20"), env={})
+
+        def broken(url, n):
+            raise OSError("つながらない")
+        self.assertEqual(V.cached_latest(self.cache, now=V.EVERY + 1, http=broken, env={}), "2026.10.20")
+        self.assertEqual(V.cached_latest(self.cache, now=0, http=broken, env={V.SWITCH_ENV: "0"}), "")
+        self.assertEqual(V.cached_latest(self.cache, now=10 * V.EVERY, http=self.http("bad tag"), env={}), "2026.10.20")
+
+    def test_tool_versions_marks_old(self):
+        with mock.patch.object(H, "tool_version", return_value={"path": "yt-dlp.exe", "version": "2026.08.19"}), \
+                mock.patch.object(H._ytdlpver, "cached_latest", return_value="2026.10.20"):
+            got = H.tool_versions(self.cache)["ytdlp"]
+        self.assertEqual((got["latest"], got["old"]), ("2026.10.20", True))
+        with mock.patch.object(H, "tool_version", return_value={"path": "yt-dlp.exe", "version": "2026.08.19"}):
+            self.assertNotIn("old", H.tool_versions()["ytdlp"])   # 記録の置き場所が無ければ見に行かない

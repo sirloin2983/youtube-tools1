@@ -14,7 +14,7 @@ import threading
 import time
 import xml.etree.ElementTree as ET
 
-from ytt import datadir, fsio, tools as ytools
+from ytt import datadir, fsio, tools as ytools, ytdlpver as _ytdlpver
 from flow import lengthhint
 from manage.ops import clientlog
 
@@ -112,9 +112,17 @@ def tool_version(name, env_var=None, args=("-version",), timeout=TOOL_TIMEOUT):
     return {"path": path, "version": ytools.tool_version(path, args, timeout=timeout, first_line=True)}
 
 
-def tool_versions():
-    return {"ffmpeg": tool_version("ffmpeg", "YTT_FFMPEG"), "ffprobe": tool_version("ffprobe", "YTT_FFPROBE"),
-            "ytdlp": tool_version("yt-dlp", "YTT_YTDLP", ("--version",))}
+YTDLP_LATEST = "ytdlp-latest.json"   # yt-dlp の最新の版の記録(記録の置き場所 logs_dir。ytt/ytdlpver。1 日 1 回まで GitHub を見る)
+
+
+def tool_versions(latest_cache=None):
+    """外部プログラムの版。latest_cache を渡すと yt-dlp に最新の版 latest と古いか old を足す(10-23 取得の冗長化: ユーザーの PC は winget の yt-dlp を自動では取り替えない)"""
+    out = {"ffmpeg": tool_version("ffmpeg", "YTT_FFMPEG"), "ffprobe": tool_version("ffprobe", "YTT_FFPROBE"),
+           "ytdlp": tool_version("yt-dlp", "YTT_YTDLP", ("--version",))}
+    if latest_cache and out["ytdlp"]["path"]:
+        latest = _ytdlpver.cached_latest(latest_cache)
+        out["ytdlp"].update(latest=latest, old=_ytdlpver.is_old(out["ytdlp"]["version"], latest))
+    return out
 
 
 # ---------- エラーの件数 ----------
@@ -306,7 +314,7 @@ class Health:
     def _compute_slow(self):
         try:
             data = data_sizes(self.repo_root, outside=[("書き出し先", p) for p in self.extra_dirs() if p])
-            tools = tool_versions()
+            tools = tool_versions(os.path.join(self.logs_dir, YTDLP_LATEST) if self.logs_dir else None)
             with self._lock:
                 self._slow = {"data": data, "tools": tools, "crashes": None, "at": self.clock()}   # 先に出せる物を出す
         except Exception as e:   # 数えられなくても画面は出す

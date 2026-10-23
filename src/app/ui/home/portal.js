@@ -1235,6 +1235,7 @@
     if (t) {
       var miss = ['ffmpeg', 'ffprobe', 'ytdlp'].filter(function (k) { return !(t[k] && t[k].path); });
       ul.appendChild(miss.length ? healthRow('bad', '外部プログラム', miss.map(function (k) { return k === 'ytdlp' ? 'yt-dlp' : k; }).join('・') + ' が見つかりません。インストールをやり直してください(setup の install.bat)', null, '場所を自分で指定するときは、環境変数 YTT_FFMPEG など(README)')
+        : t.ytdlp.old ? healthRow('warn', '外部プログラム', 'yt-dlp が古い版です(今 ' + t.ytdlp.version + '・最新 ' + t.ytdlp.latest + ')。YouTube に断られやすくなるので、PowerShell で winget upgrade yt-dlp を流して新しくしてください', [t.ytdlp.path])
         : healthRow('ok', '外部プログラム', 'ffmpeg ' + t.ffmpeg.version + '・ffprobe ' + t.ffprobe.version + '・yt-dlp ' + t.ytdlp.version, [t.ffmpeg.path, t.ytdlp.path]));
     }
     // 空き容量

@@ -62,6 +62,9 @@ HLS_TIME = 4
 SOURCE_TROUBLE = ("No new segments", "Reloading failed", "[error]", "Read timeout")   # streamlink の記録に出たら「切れた」(終わりではない)
 BLOCKED_MARKS = ("429", "Too Many Requests", "google.com/sorry", "not a bot", "Sign in to confirm")   # YouTube に bot と判定された(取得の記録・yt-dlp の出力)
 BLOCKED = "YouTube に bot と判定されて録画できません(アプリで YouTube にログインすると取れます)"
+# streamlink の YouTube の部品が壊れた(YouTube のページが変わった)印(10-23 取得の冗長化): bot ではないが streamlink では取れない =
+# yt-dlp で再生リストの URL を取って streamlink に渡す(bot と同じ取り直しの道。bot の知らせ・長い待ちにはしない)。配信の前の「No playable streams」は入れない
+PLUGIN_TROUBLE = ("Unable to validate", "PluginError", "Unable to parse", "No plugin can handle")
 HLS_FORMAT = {"best": "best[protocol^=m3u8]", "1080p": "best[protocol^=m3u8][height<=1080]/best[protocol^=m3u8]",
               "720p": "best[protocol^=m3u8][height<=720]/best[protocol^=m3u8]"}   # yt-dlp で取る再生リストの画質(QUALITIES と同じ選び方)
 BLOCKED_GIVE_UP = 1800         # 1 つも取れないまま bot と判定され続けたら、この秒で録画を「エラー」で止める。録れた後に断られ続けたときも、この秒で「終了」(BLOCKED_ENDED)
@@ -515,17 +518,21 @@ class Recording:
                          message="つないでいます…" if got_any else "配信を待っています(始まると自動で録画します)")
                 n, code, why = self._run_session(name)
                 hls_before = self._hls
-                if n == 0 and why != ARCHIVE and not self._stopping() and self._blocked(name):   # bot と判定された: yt-dlp(cookies)で再生リストを取って取り直す
-                    renew = bool(hls_before) and got_any and not self._log_blocked(name)   # 録れていた再生リストの期限切れなど = 取り直すだけ(bot の知らせ・長い待ちにしない)
+                broken = False
+                if n == 0 and why != ARCHIVE and not self._stopping() and (self._blocked(name) or self._plugin_broken(name)):   # bot と判定された・streamlink の部品が壊れた: yt-dlp(cookies)で再生リストを取って取り直す
+                    broken = not self._log_blocked(name) and self._plugin_broken(name)
+                    renew = (bool(hls_before) and got_any and not self._log_blocked(name)) or broken   # 録れていた再生リストの期限切れ・部品の故障 = 取り直すだけ(bot の知らせ・長い待ちにしない)
                     if not renew:
                         blocked_at = blocked_at or time.time()
                         self._mark_blocked(blocked_at)   # 記録の blockedAt(友人の行の知らせ・診断が読む)
                     if time.time() - self._hls_failed_at >= HLS_RETRY_SEC and self._resolve_hls() and not hls_before:   # 初めて = すぐ(取り直した再生リストでも取れなかったときは下の間を空ける)
                         self._drop_session(name)
                         continue
-                    if not renew:
+                    if broken:
+                        why = "streamlink で取れないので yt-dlp で取り直します"
+                    elif not renew:
                         why = BLOCKED   # yt-dlp でも取れない・取った再生リストでも録れない(10-21: 後者で何も出さずに待ち続けていた)
-                    if not got_any and time.time() - blocked_at > BLOCKED_GIVE_UP:   # 配信の前の 6 時間を待たない(行を閉じて理由を診断へ)
+                    if not got_any and blocked_at is not None and time.time() - blocked_at > BLOCKED_GIVE_UP:   # 配信の前の 6 時間を待たない(行を閉じて理由を診断へ)
                         self._drop_session(name)
                         return self._finish("error", BLOCKED, "bot と判定されたまま %d 分たったので止めました" % (BLOCKED_GIVE_UP // 60))
                     if got_any and not renew and time.time() - blocked_at > BLOCKED_GIVE_UP:   # 録れた後に断られ続けた: 「配信が終わった」とは言わない(10-23)
@@ -600,6 +607,16 @@ class Recording:
             self._hls = None
             return True
         return self._log_blocked(name)
+
+    def _plugin_broken(self, name):
+        """セッションの取得の記録に streamlink の YouTube の部品の故障の印(PLUGIN_TROUBLE)があるか(direct は見ない)"""
+        if self.mgr.source == "direct":
+            return False
+        try:
+            text = read_text(os.path.join(self.dir, name, "source.log"), 1024 * 1024) or ""
+        except (OSError, ValueError):
+            return False
+        return any(m in text for m in PLUGIN_TROUBLE)
 
     def _log_blocked(self, name):
         """セッションの取得の記録に bot 判定の印があるか"""

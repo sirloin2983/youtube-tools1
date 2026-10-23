@@ -574,6 +574,36 @@ class TestStreamlinkPipe(unittest.TestCase):
         self.assertEqual((r.meta["state"], r.meta["message"]), ("ended", R.BLOCKED_ENDED))
         self.assertGreater(runs[-1] - runs[1], 1.5)   # idle_end(0.5 秒)では止めず BLOCKED_GIVE_UP まで取り直した
 
+    def test_streamlink_plugin_broken_falls_back_to_ytdlp(self):
+        """streamlink の YouTube の部品が壊れた(Unable to validate。10-23 の取得の冗長化): bot ではないので知らせは出さず、yt-dlp で再生リストを取って続ける(偽の streamlink の記録)"""
+        r = R.Recording(self.rec, "20261023-160000-p", os.path.join(self.folder, "p"), {"url": "https://www.youtube.com/watch?v=p", "quality": "1080p"})
+        os.makedirs(r.dir, exist_ok=True)
+        runs, resolved = [], []
+
+        def session(name):
+            os.makedirs(os.path.join(r.dir, name), exist_ok=True)
+            runs.append(r._hls)
+            if r._hls:   # yt-dlp で取った再生リストなら録れる
+                r._stop.set()
+                return 5, 0, "切れました"
+            with open(os.path.join(r.dir, name, "source.log"), "w", encoding="utf-8") as f:
+                f.write("error: Unable to validate response text: ValidationError(dict):\n")
+            return 0, 1, "切れました"
+
+        def resolve():
+            resolved.append(1)
+            r._hls = "https://manifest.googlevideo.com/p/index.m3u8"
+            return True
+        with mock.patch.object(r, "_run_session", session), mock.patch.object(r, "_resolve_hls", resolve), \
+                mock.patch.object(r, "_session_mark", lambda *a, **k: None):
+            t = threading.Thread(target=r._run, daemon=True)
+            t.start()
+            t.join(20)
+        self.assertFalse(t.is_alive())
+        self.assertEqual(len(resolved), 1)
+        self.assertEqual(runs, [None, "https://manifest.googlevideo.com/p/index.m3u8"])   # 待たずに yt-dlp の再生リストで取り直した
+        self.assertIsNone(r.meta.get("blockedAt"))   # bot の知らせは出さない
+
     def test_expired_hls_after_recording_is_renewed_without_bot_mark(self):
         """取った再生リストで録れていたのに 0 になった(約 6 時間の期限切れなど・記録に bot の印なし)= 取り直すだけ。
         blockedAt(友人の知らせ)は出さず、つなぎ直しも BLOCKED_WAIT を待たない"""

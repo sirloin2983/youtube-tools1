@@ -494,6 +494,28 @@ def ytdlp_auth_args(env=None):
     return ["--cookies", dst]
 
 
+# ---------- 取得の冗長化(10-23。表は保管庫 plan/人の作業なしの候補-1023.md の 6 番)----------
+# いつものクライアントで googlevideo に 403・形式が無いと断られたとき、別のクライアント(player_client)で 1 回だけ取り直す。
+# tv・mweb は 2026.08.19 の yt-dlp で 360p の 1 本(18)しか出さない(10-23 に本物で確かめた)= 画質の要らない取得(解析の音声)だけに使う。
+# 書き出し(映像)には使わない(画質が落ちる。一部が下がる案)。環境変数 YTT_YTDLP_ALT_CLIENT で変える・空で使わない
+ALT_CLIENT_ENV = "YTT_YTDLP_ALT_CLIENT"
+ALT_CLIENT = "tv,mweb"
+ALT_WORDS = ("http error 403", "403 forbidden", "no video formats found", "requested format is not available")   # 小文字で照らす
+
+
+def ytdlp_alt_args(env=None):
+    """別のクライアントで取り直すときに足す引数(使わなければ [])"""
+    env = os.environ if env is None else env
+    c = env.get(ALT_CLIENT_ENV, ALT_CLIENT).strip()
+    return ["--extractor-args", "youtube:player_client=" + c] if c else []
+
+
+def ytdlp_alt_worth(text):
+    """yt-dlp の失敗の文が、別のクライアントで取り直す価値のある物か(403・形式なし。bot 判定・非公開などは違う)"""
+    low = str(text or "").lower()
+    return any(w in low for w in ALT_WORDS)
+
+
 def ytdlp_login_at(env=None):
     """YouTube にログインした時刻(ミリ秒)か 0(ログインしていない)。書き戻しで cookie を書き替えてもログインの時刻のまま(ytt/ytcookies)"""
     env = os.environ if env is None else env
