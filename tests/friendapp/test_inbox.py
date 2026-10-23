@@ -218,6 +218,10 @@ class InboxTest(unittest.TestCase):
     # ------------------------------------------------------------ 決める
     def test_decide_keep_moves_to_save_and_writes_verdict(self):
         r, case, dirs = self.arrive(RID, ["【雑談】テスト_pack"])
+        self.box.opened(RID, "【雑談】テスト_pack")   # 初めて再生した時刻(作業の時刻 D。2 回目は変えない)
+        first = self.box.row(RID)["packs"][0]["openedAt"]
+        self.box.opened(RID, "【雑談】テスト_pack")
+        self.assertEqual(self.box.row(RID)["packs"][0]["openedAt"], first)
         got = self.box.decide(RID, [], "keep")
         self.assertEqual(got["done"], ["【雑談】テスト_pack"])
         self.assertEqual(got["errors"], [])
@@ -229,6 +233,7 @@ class InboxTest(unittest.TestCase):
         self.assertEqual(got["row"]["packs"][0]["verdict"], "keep")
         v = self.read_verdict(RID, "【雑談】テスト_pack")
         self.assertEqual(v.pop("id").__class__, str)
+        self.assertEqual((v.pop("arrivedAt"), v.pop("openedAt")), (int(T0 * 1000), first))   # 届いた・初めて再生した(D)
         self.assertEqual(v, {"v": 2, "judge": "good", "zip": "【雑談】テスト_pack", "origin": "request", "at": int(T0 * 1000), "videoId": "dQw4w9WgXcQ"})
         self.assertEqual(self.box.saved_dir(RID, "【雑談】テスト_pack"), saved)
 

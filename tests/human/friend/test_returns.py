@@ -161,6 +161,8 @@ class TestVerdict(Base):
         """正常な形・配列は断る。at が大きすぎる・無限・NaN・0 以下・数でない = 時刻なし。
         大きすぎる at の採否も受付済みへ片付け、送り返しに残さない"""
         self.assertEqual(R.parse_verdict(b'{"v":2,"id":"a","judge":"good","at":5}'), {"v": 2, "judge": "good", "id": "a", "at": 5})
+        self.assertEqual(R.parse_verdict(b'{"v":2,"id":"a","judge":"good","at":5,"arrivedAt":3,"openedAt":"x"}'),
+                         {"v": 2, "judge": "good", "id": "a", "at": 5, "arrivedAt": 3})   # 友人の作業の時刻(D)。数でない時刻は捨てる
         with self.assertRaises(ValueError):
             R.parse_verdict(b"[]")
         for raw in ('1e15', '1000000000000000', 'Infinity', '-Infinity', 'NaN', '0', '-5', '"5"', 'true', 'null'):

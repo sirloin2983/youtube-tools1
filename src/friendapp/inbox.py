@@ -61,6 +61,7 @@ REASONS = ("boring", "cut")         # 届かなくてよかったの理由: つ�
 CLIP_RANGE_RE = re.compile(r"(\d{2,})h(\d{2})m(\d{2})s-(\d{2,})h(\d{2})m(\d{2})s")   # 書き出しの名前の <始まり>-<終わり>(ytt/names)
 TITLE_CUT = 40                      # 保存先のフォルダの名前に入れる配信の題の長さ(C-3-8)
 VERDICT_SUFFIX = ".verdict.json"
+WORKTIME = True   # 友人の作業の時刻(届いた arrivedAt・初めて再生した openedAt)を判断の記録に足す(新機能 D・10-23。False = 足さない)。何を見たかの細かい操作は残さない
 TRASH_NAME = trashbin.TRASH_DIR
 TRASH_KIND = "受信箱"   # ごみ箱の日付のフォルダの中の種類(受け取らなかった物・片付けた案件のフォルダ)
 ROW_ID_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}$")   # 依頼 id(flow/deliver.request_id の形。送り返しの名前にも入る)
@@ -890,6 +891,8 @@ class Inbox:
             doc["of"] = of or ""
         if by == "auto":
             doc["by"] = "auto"
+        if WORKTIME:   # 作業の時刻(D): 届いた・初めて再生した(ユーザーの PC が公開の時刻と結ぶ = dev/friend_worktime.py)
+            doc.update({k: p[k] for k in ("arrivedAt", "openedAt") if isinstance(p.get(k), int)})
         fsio.write_json(os.path.join(self.outbox, "%s__%s~%013d%s" % (r["id"], p["name"], at, VERDICT_SUFFIX)), doc, indent=None)
         if judge != "retract":
             p["verdictId"] = doc["id"]
@@ -1098,6 +1101,16 @@ class Inbox:
                 "videoId": info["videoId"], "auto": r.get("origin") == "auto",
                 "headline": (p.get("info") or {}).get("headline") or "", "headlineWhy": (p.get("info") or {}).get("headlineWhy") or "",
                 "overlapNote": (p.get("info") or {}).get("overlapNote") or ""}
+
+    def opened(self, rid, name):
+        """確認用の動画を初めて再生した時刻を残す(作業の時刻 D。2 回目からは何もしない)"""
+        if not WORKTIME:
+            return
+        with self.lock:
+            _r, p = self._pack(rid, name)
+            if p is not None and not p.get("openedAt"):
+                p["openedAt"] = self._now_ms()
+                self._save()
 
     def pack_preview(self, rid, name):
         """1 本の確認用の動画のパス(手元にあれば)か None"""

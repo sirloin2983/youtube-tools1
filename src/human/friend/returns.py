@@ -167,6 +167,9 @@ def _parse_v2(d):
     z = d.get("zip")
     if isinstance(z, str) and ZIP_NAME_RE.match(z) and z.lower().endswith(".zip"):
         out["zip"] = z
+    for k in ("arrivedAt", "openedAt"):   # 友人の作業の時刻(D。届いた・初めて再生した。あれば)
+        if _at(d.get(k)):
+            out[k] = _at(d[k])
     for k in ("videoId", "markId"):   # 届いた .meta.json の値を返す(友人の PC で処理した物は届けた記録に無いので、これで切り抜きを引く)
         if isinstance(d.get(k), str) and ID_RE.match(d[k]):
             out[k] = d[k]

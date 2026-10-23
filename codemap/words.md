@@ -20,13 +20,13 @@
   - コード: `speech_diar` src/app/check/speech_sources.py:41・`src/app/check/speech_sources.py`・`src/human/check/speech.py`
   - 画面: src/app/ui/check/check.js:276
 - **受け取る** — 友人のアプリの受け取る画面。残す判定と受信箱
-  - コード: `src/friendapp/inbox.py`・`receive_view` src/friendapp/inbox.py:1042・`src/friendapp/ui/receive.js`・`Inbox.decide` src/friendapp/inbox.py:739
+  - コード: `src/friendapp/inbox.py`・`receive_view` src/friendapp/inbox.py:1045・`src/friendapp/ui/receive.js`・`Inbox.decide` src/friendapp/inbox.py:740
   - 画面: src/app/ui/cases/panels/cut.js:176・src/app/ui/editor/pack-tab.js:546・src/app/ui/home/portal.js:475・src/friendapp/ui/friend.html:29 ほか 7
 - **見送った物** — 受け取る画面で 3 日は戻せる skip・bad の物
-  - コード: `Inbox.undo` src/friendapp/inbox.py:787・`Inbox.decide` src/friendapp/inbox.py:739・`VERDICTS` src/friendapp/inbox.py:58・`/api/friend/undo` src/friendapp/server.py:401
+  - コード: `Inbox.undo` src/friendapp/inbox.py:788・`Inbox.decide` src/friendapp/inbox.py:740・`VERDICTS` src/friendapp/inbox.py:58・`/api/friend/undo` src/friendapp/server.py:402
   - 画面: src/friendapp/ui/friend.html:169・src/friendapp/ui/guide.html:144・src/friendapp/ui/receive.js:71
 - **送る** — 友人のアプリの送る欄・受付の口。自動で送る判定は flow/sendpolicy
-  - コード: `src/friendapp/api.py`・`src/friendapp/ui/send-form.js`・`/api/friend/send` src/friendapp/server.py:388・`flow/sendpolicy.py` (無いパス)
+  - コード: `src/friendapp/api.py`・`src/friendapp/ui/send-form.js`・`/api/friend/send` src/friendapp/server.py:389・`flow/sendpolicy.py` (無いパス)
   - 画面: src/app/ui/cases/panels/cut.js:131・src/app/ui/check/cards/value.js:11・src/app/ui/editor/app-learn.js:132・src/app/ui/editor/app.js:278 ほか 16
 - **送った物** — 友人のアプリの送った物の行と、失敗の言葉・進み具合
   - コード: `src/friendapp/ui/sent.js`・`src/friendapp/progress.py`・`/api/friend/inbox` src/friendapp/server.py:282
@@ -140,7 +140,7 @@
   - コード: `src/manage/ops/analytics/render.py`・`src/manage/ops/analytics/service.py`
   - 画面: src/app/ui/home/portal.html:20・src/app/ui/settings/settings.js:78・src/manage/ops/analytics/web/app.js:4・src/manage/ops/analytics/web/index.html:6
 - **配色** — ホロカラーは C# の色の一覧アプリ。配色は友人の画面の A〜D
-  - コード: `friend-apps/holo-colors/src/Core.cs`・`src/friendapp/ui/palette.js`・`/api/friend/palette` src/friendapp/server.py:405
+  - コード: `friend-apps/holo-colors/src/Core.cs`・`src/friendapp/ui/palette.js`・`/api/friend/palette` src/friendapp/server.py:406
   - 画面: src/friendapp/ui/guide.html:167・src/friendapp/ui/palette.js:36・friend-apps/launcher/src/MainForm.cs:278・src/ui-kit/ui-kit.js:54
 - **起動** — 入口のランチャーと友人の FriendApp.exe。起動し直しは restart
   - コード: `src/app/server.py`・`Supervisor` src/app/server.py:317・`friend-apps/launcher/src/Launcher.cs`・`src/manage/ops/restart.py`

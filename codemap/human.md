@@ -53,8 +53,8 @@
   - 名前: `configured_folder` :77・`out_dir_of` :88・`submit_urls` :93・`submit_file` :117・`youtube_id` :127・`parse_lines` :133・`decode_text` :159・`probe_video` :173・`youtube_info` :185・`parse_ranges` :233・`class Intake` :262
 - **live_requests.py** (22 行) — 友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend.md の 2-15)。
   - 名前: `settings_label` :19
-- **returns.py** (476 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。notes:docs/design/f1-build.md の (f1d))。
-  - 名前: `returns_dir` :57・`extract` :95・`parse_verdict` :129・`parse_notice` :176・`scan` :211・`recent_notices` :402・`iter_requests` :441
+- **returns.py** (479 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。notes:docs/design/f1-build.md の (f1d))。
+  - 名前: `returns_dir` :57・`extract` :95・`parse_verdict` :129・`parse_notice` :179・`scan` :214・`recent_notices` :405・`iter_requests` :444
 
 ## src/human/proof/
 

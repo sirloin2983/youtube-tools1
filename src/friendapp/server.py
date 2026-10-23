@@ -316,6 +316,7 @@ class Handler(httpsec.LocalHandler):
             p = app.inbox.pack_preview(rid, name) if name else None
             if not p or not os.path.isfile(p) or not _fsio.is_inside(p, app.places["friend"]):
                 return self._fail(404, "not_found", "確認用の動画がまだありません")
+            app.inbox.opened(rid, name)   # 初めて再生した時刻(作業の時刻 D)
             try:
                 return httpsec.send_file(self, p, "video/mp4")
             except OSError:
