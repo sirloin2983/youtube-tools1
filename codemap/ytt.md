@@ -35,8 +35,8 @@
   - 名前: `limit_from_env` :42・`class HeavySlots` :51・`check_cancel` :190・`class Ctl` :198
 - **layout.py** (75 行) — リポジトリの中のフォルダの並び(段0 の改名は `notes:docs/design/phase0-restructure.md`)。
   - 名前: `src_root` :31・`repo_root` :36・`inplace_root` :41・`tool_dir` :49・`holo_colors_dir` :54・`notes_root` :62・`copy_shared_code` :68
-- **loudness.py** (158 行) — 聞こえ方の音量(ラウドネス。LUFS)をそろえる決まりの1か所(スタジオの書き出し・パック作りが共通で使う)。
-  - 名前: `check_target` :32・`check_volume` :45・`pct_to_db` :58・`measure_filter` :62・`parse` :67・`gain` :96・`pack_gain` :102・`select_filter` :107・`result` :116・`pack_result` :121・`volume_filter` :130・`gain_filter` :135・ほか 3
+- **loudness.py** (167 行) — 聞こえ方の音量(ラウドネス。LUFS)をそろえる決まりの1か所(スタジオの書き出し・パック作りが共通で使う)。
+  - 名前: `check_target` :36・`check_volume` :49・`pct_to_db` :62・`measure_filter` :66・`parse` :71・`gain` :100・`pack_gain` :106・`select_filter` :111・`result` :120・`pack_result` :125・`pack_aac` :130・`volume_filter` :139・ほか 4
 - **marks.py** (380 行) — マークの純粋な語彙(スタジオの data.json の配信のマーク)。
   - 名前: `pos_int` :43・`ms_or_now` :52・`class BadMark` :61・`fnum` :65・`num_strict` :76・`clean_reasons` :82・`clean_parts` :87・`clamp_end` :98・`check_times` :105・`auto0` :127・`collab_from` :136・`clean_server` :145・ほか 14
 - **mediainfo.py** (49 行) — ffmpeg -i で読むメディア情報と、その覚え。
