@@ -115,8 +115,8 @@
   - 名前: `$` :7・`mmss` :9・`entryHtml` :12・`settings` :49・`loadOpts` :53・`unquote` :58・`looksYt` :59・`entries` :60・`paintKinds` :70・`syncAdd` :75・`refocusForm` :85・`setMsg` :92・ほか 20
 - **rank.js** (777 行) — 切り抜きスタジオ: ① 探す(配信ランキング)。検索 → 結果(全部まとめて再生数の順 / 事務所ごと)→ チェックして「解析に追加」か「まとめて実行」(入口から開いたときだけ)
   - 名前: `$` :5・`lsGet` :8・`lsSet` :9・`fmtN` :10・`fmtDur` :11・`ymd` :12・`okThumb` :13・`atMs` :16・`saveReg` :27・`agKey` :32・`captureReg` :35・`restoreReg` :52・ほか 69
-- **review.js** (3438 行) — 切り抜きスタジオ ② 確認・書き出し(切り抜きマーカー由来)。
-  - 名前: `create` :9・`round1` :14・`uid` :15・`toast` :16・`parseTime` :20・`isAutoLike` :34・`marksPayload` :35・`sec1` :47・`sanitizeKeymap` :48・`spanLabel` :60・`momentSpan` :65・`momentSpanOf` :67・ほか 283
+- **review.js** (3425 行) — 切り抜きスタジオ ② 確認・書き出し(切り抜きマーカー由来)。
+  - 名前: `create` :9・`round1` :14・`uid` :15・`toast` :16・`parseTime` :20・`isAutoLike` :34・`marksPayload` :35・`sec1` :47・`sanitizeKeymap` :48・`spanLabel` :60・`momentSpan` :62・`momentSpanOf` :64・ほか 283
 
 ## テスト
 

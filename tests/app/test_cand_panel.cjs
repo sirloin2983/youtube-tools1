@@ -507,11 +507,11 @@ test('live export: one portal request per mark, saved first, busy marks skipped,
     S, LV, Studio: { token: 't', live: { api: async (rest, o) => { calls.push({ rest, body: o.body }); if (o.body.studio.mark === 'b') { const e = new Error('このマークは書き出しの途中です'); e.status = 409; throw e; } return { job: {} }; } } },
     toast: m => notes.push(m), flushSave: async () => { saved++; }, renderExportUI() {}, liveResume() {}, pollLiveJobs: async () => { polled++; },
     sortedMarks: () => v.marks.slice().sort((x, y) => x.start - y.start), exportTargets: () => v.marks.filter(m => m.status === 'adopted'), autoTxEnabled: () => true,
-    LIVE_AFTERS: ['none', 'auto'], liveWhoName: () => '兎田ぺこら' });
+    liveWhoName: () => '兎田ぺこら' });
   await ctx.startLiveExport();
   assert.equal(saved, 1, 'the studio marks are saved before asking the portal');
   assert.deepEqual(calls.map(c => c.rest), ['api/export', 'api/export'], 'the mark already being exported (c) is not sent again');
-  assert.deepEqual(plain(calls[0].body), { recorder: 'local', recording: 'R1', title: '配信', url: 'https://youtu.be/x', after: 'auto', transcribe: true,
+  assert.deepEqual(plain(calls[0].body), { recorder: 'local', recording: 'R1', title: '配信', url: 'https://youtu.be/x',
     streamer: '兎田ぺこら', studio: { video: 'V', mark: 'a', n: 1, label: 'A', start: 1, end: 5 } });   // 設定が無い = 全自動
   assert.equal(calls[1].body.studio.n, 2);
   assert.ok(notes.at(-1).includes('書き出しの途中です'));
@@ -663,19 +663,14 @@ test('the band line for the after-stream auto clipping: the portal text as is, w
 });
 
 // ---- 書き出したあと(after)と自動の文字起こし(autoTx)・前回の場所・書き出し完了の [編集で開く]・押せない理由 ----
-test('live after: the saved choice wins, else it follows autoTx; autoTx lives in the server settings and the old browser value is taken over once', () => {
+test('live after: the band no longer holds the choice (the home setting does); autoTx lives in the server settings and the old browser value is taken over once', () => {
   let legacy = null;
-  const ctx = load([['const LIVE_AFTERS', '/* ---------- 状態 ---------- */']], { autoTxLegacy: () => legacy, sec1: (v, d) => d, sanitizeKeymap: () => ({}), KEY_PRESETS: { standard: {} }, DEFAULT_QUICK_SPANS: [30, 60, 120, 180, 300] });
-  assert.equal(ctx.sanitizeSettings({}).liveAfter, 'auto');
-  assert.equal(ctx.sanitizeSettings({ autoTx: false }).liveAfter, 'none');
-  assert.equal(ctx.sanitizeSettings({ autoTx: false, liveAfter: 'auto' }).liveAfter, 'auto');
-  assert.equal(ctx.sanitizeSettings({ autoTx: false, liveAfter: 'auto' }).liveAfter, 'auto', 'a saved choice is kept even when autoTx is off');
-  assert.equal(ctx.sanitizeSettings({ autoTx: false, liveAfter: 'check' }).liveAfter, 'auto', 'the removed transcribe-only choice is read as full auto');
-  assert.equal(ctx.sanitizeSettings({ autoTx: false, liveAfter: 'full' }).liveAfter, 'none', 'unknown values fall back');
+  const ctx = load([['const MOMENT_SLOT', '/* ---------- 状態 ---------- */']], { autoTxLegacy: () => legacy, sec1: (v, d) => d, sanitizeKeymap: () => ({}), KEY_PRESETS: { standard: {} }, DEFAULT_QUICK_SPANS: [30, 60, 120, 180, 300] });
+  const gone = ctx.sanitizeSettings({ autoTx: false, liveAfter: 'auto', liveDuck: 'mute' });
+  assert.ok(!('liveAfter' in gone) && !('liveDuck' in gone), 'the removed band fields are not settings any more (old saved keys are ignored)');
   assert.equal(ctx.sanitizeSettings({}).autoTx, true, 'default on');
   legacy = false;
   assert.equal(ctx.sanitizeSettings({}).autoTx, false, 'nothing on the server yet: the old localStorage value');
-  assert.equal(ctx.sanitizeSettings({}).liveAfter, 'none');
   assert.equal(ctx.sanitizeSettings({ autoTx: true }).autoTx, true, 'once on the server, the server wins');
   assert.equal(ctx.sanitizeSettings({ autoTx: 'no' }).autoTx, false, 'a broken value falls back to the old value / default');
   const load2 = between('async function loadSettings(', 'function syncSettingsUI(');
@@ -790,17 +785,14 @@ test('"export all" always tells why it cannot be pressed', () => {
   assert.ok(dis && t.includes('採用にしたマークがある配信がありません'), t);
 });
 
-test('live export body: after / streamer follow the band (settings and the streamer field)', () => {
+test('live export body: streamer follows the band; after / transcribe are not sent (the portal uses the home setting)', () => {
   const v = { id: 'V', kind: 'live', title: 't', live: { recorder: 'local', recording: 'R1', url: 'u' }, marks: [{ id: 'a', start: 1, end: 2 }] };
-  const S = { cur: v, settings: { liveAfter: 'auto' } };
+  const S = { cur: v, settings: {} };
   const LV = { who: { vid: 'V', name: ' 兎田ぺこら ', match: true } };
   const ctx = load([['function liveWhoName(', '/* 録画を開いたとき'], ['function liveExportBody(', '/* ライブの録画の書き出し(']],
-    { S, LV, LIVE_AFTERS: ['none', 'auto'], sortedMarks: () => v.marks });
-  let b = ctx.liveExportBody(v, v.marks[0]);
-  assert.equal(b.after, 'auto'); assert.equal(b.transcribe, true); assert.equal(b.streamer, '兎田ぺこら');
-  S.settings.liveAfter = 'none';
-  b = ctx.liveExportBody(v, v.marks[0]);
-  assert.equal(b.after, 'none'); assert.equal(b.transcribe, false);
+    { S, LV, sortedMarks: () => v.marks });
+  const b = ctx.liveExportBody(v, v.marks[0]);
+  assert.ok(!('after' in b) && !('transcribe' in b), 'no after / transcribe: the portal falls back to live.auto.after'); assert.equal(b.streamer, '兎田ぺこら');
   LV.who = { vid: 'OTHER', name: '宝鐘マリン' };
   assert.equal(ctx.liveExportBody(v, v.marks[0]).streamer, '', 'the name for another recording is not used');
   LV.who = null;
@@ -921,7 +913,7 @@ test('the panels\' Studio API wrappers go through UIKit.http / homeApi with thei
 
 // ---- ② の設定と欄の対応は 1 つの表(欄から保存までのつなぎは e2e_live_studio の 15 が「書き出したあと」で見る) ----
 test('review settings: one table of field ↔ setting; every field value read back through sanitizeSettings gives the same setting', () => {
-  const ctx = load([['const LIVE_AFTERS', '/* ---------- 状態 ---------- */'], ['const SET_UI = [', 'function syncSettingsUI(']],
+  const ctx = load([['const MOMENT_SLOT', '/* ---------- 状態 ---------- */'], ['const SET_UI = [', 'function syncSettingsUI(']],
     { autoTxLegacy: () => null, sec1: (v, d) => d, sanitizeKeymap: () => ({}), KEY_PRESETS: { standard: {} }, DEFAULT_QUICK_SPANS: [30, 60, 120, 180, 300] });
   vm.runInContext('this.SET_UI = SET_UI;', ctx);
   const def = ctx.sanitizeSettings({}), sels = ctx.SET_UI.map(r => r[0]);
@@ -938,7 +930,7 @@ test('review settings: one table of field ↔ setting; every field value read ba
 
 // ---- 一瞬(C)は今をマークの 6 つ目(quickSpans[5])。前の形(momentBefore・momentAfter。10-24 まで)は平均を近い段に読み替える ----
 test('moment span: the sixth quick span; the old before/after seconds are read as their mean snapped to a step', () => {
-  const ctx = load([['const LIVE_AFTERS', '/* ---------- 状態 ---------- */']],
+  const ctx = load([['const MOMENT_SLOT', '/* ---------- 状態 ---------- */']],
     { autoTxLegacy: () => null, sec1: (v, d) => (Number.isFinite(Number(v)) && v !== null && v !== '' ? Number(v) : d), sanitizeKeymap: () => ({}), KEY_PRESETS: { standard: {} },
       DEFAULT_QUICK_SPANS: [30, 60, 120, 180, 300, 2.5] });
   assert.equal(ctx.sanitizeSettings({}).quickSpans[5], 2.5, 'default');
@@ -1064,7 +1056,7 @@ test('live peaks: the header line (count, this hour x/perHour, delay, chat, auto
 
 function peakHarness(respond) {
   const calls = [], notes = [], after = [];
-  const S = { cur: { id: 'R', kind: 'live', live: { recorder: 'local', recording: 'R' }, marks: [] }, settings: { liveAfter: 'auto' }, now: 0, duration: 120 };
+  const S = { cur: { id: 'R', kind: 'live', live: { recorder: 'local', recording: 'R' }, marks: [] }, settings: {}, now: 0, duration: 120 };
   const ctx = load([['const PEAK_PRE = 5;', '/* ---------- マーク操作 ---------- */']], {
     S, LV: { status: { active: true }, deletedShown: false },
     Studio: { token: 't', step: 'review', toast: m => notes.push(m), live: { api: async (url, o) => { const c = { url, body: o && o.body }; calls.push(c); return respond(c); } } },
@@ -1072,7 +1064,7 @@ function peakHarness(respond) {
     toast: m => notes.push(m), flushSave: async () => { after.push('save'); }, syncFromServer: async () => { after.push('sync'); }, pollLiveJobs: async () => { after.push('jobs'); }, liveResume: () => {},
     renderGraph: () => {}, previewClip: c => notes.push('preview ' + c.start + '-' + c.end), keybarScene: () => {}, liveSet: () => {},
     tickLabel: mmss, reasonTags: () => '', SVG: { play: '' }, esc: s => s, enc: encodeURIComponent, totalDur: () => 120, pct: t => t,
-    LIVE_AFTERS: ['none', 'auto'], liveWhoName: () => '兎田ぺこら', curKeymap: () => ({ nextPeak: 'p' }), keyText: k => k, Date, setTimeout, clearTimeout });
+    liveWhoName: () => '兎田ぺこら', curKeymap: () => ({ nextPeak: 'p' }), keyText: k => k, Date, setTimeout, clearTimeout });
   const PKV = vm.runInContext('PKV', ctx);
   return { ctx, S, PKV, calls, notes, after };
 }
@@ -1124,7 +1116,7 @@ test('live peaks: adopt sends one request (no double press) with the band settin
   await settle(); gate.resolve(); await first; await second;
   const posts = h.calls.filter(c => c.body);
   assert.equal(posts.length, 1, 'pressed twice before the answer: one request');
-  assert.deepEqual(plain(posts[0].body), { op: 'adopt', recorder: 'local', recording: 'R', id: 'a', after: 'auto', streamer: '兎田ぺこら' });
+  assert.deepEqual(plain(posts[0].body), { op: 'adopt', recorder: 'local', recording: 'R', id: 'a', streamer: '兎田ぺこら' });
   assert.deepEqual(h.after, ['save', 'sync', 'jobs'], 'saved first; then the new mark and the export row are read (② does not see server-side marks by itself)');
   assert.equal(h.PKV.list[0].state, 'adopted');
   assert.equal(h.PKV.list[0].text, '候補の文字', 'the POST answer has no text (the GET adds it): the text on the row stays');

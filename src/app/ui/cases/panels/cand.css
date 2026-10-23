@@ -417,9 +417,7 @@
 
 /* つなげて1本に(マークの行のチェック) */
 .rv-join{width:18px;height:18px;margin:0 2px 0 0;flex:none;cursor:pointer}
-/* ライブの録画: 編集で再生している間の配信の音(下げる / 消す / そのまま) */
-.rv-duck{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-2);white-space:nowrap}
-.rv-duck select{font-size:12.5px}
+/* ライブの録画: 編集で再生している間の配信の音を下げているときの案内 */
 .rv-ducknote{color:var(--ink-2);font-weight:600}
 /* ライブの録画: 帯の「配信者」(字幕の色)。押すと名前の欄(UIKit.streamer の候補と色の見本)が開く */
 .rv-livewho>summary{font-size:12.5px;max-width:28ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block}

@@ -404,19 +404,17 @@ def _scene_begin_and_play(cx):
           "3 ヘッダーに「録画中 1」の札")
     guide = pg.text_content("#rvLiveGuide") or ""
     check("マーク" in guide and pg.is_visible("#rvLiveGuide"), "3 次にすることの案内: %s" % guide)
-    # 15. 書き出したあと・配信者(帯)
-    check(pg.input_value("#rvAfter") == "auto" and pg.is_visible("#rvAfter") and pg.eval_on_selector_all("#rvAfter option", "o => o.map(x => x.value)") == ["none", "auto"],
-          "15 帯の「書き出したあと」は既定で「全自動」・選べるのは 何もしない / 全自動(文字起こしまでは 10-19 に消した)")
+    # 15. 配信者(帯)。「書き出したあと」「編集で再生中は」の欄は帯から外した(書き出したあとはホームの設定・再生中は音を下げる固定)
+    check(pg.locator("#rvAfter").count() == 0 and pg.locator("#rvDuck").count() == 0, "15 帯に「書き出したあと」「編集で再生中は」の欄は無い")
     check(wait_js(pg, "() => document.querySelector('#rvLiveWhoText').textContent === '配信者: 兎田ぺこら'", 8000),
           "15 帯の「配信者」はチャンネル名から自動で決まる: %s" % pg.text_content("#rvLiveWhoText"))
-    pg.select_option("#rvAfter", "auto")
     if shots:
         pg.evaluate("window.scrollTo(0, 0)")
         pg.locator("#rvLiveBar").screenshot(path=os.path.join(shots, "live_00_band.png"))
 
     # 8. 見回りで作り直されないか(ここで要素を掴んでおく)
     pg.evaluate("""() => { window.__keep = ['#rvLiveBar', '#rvRecState', '#rvAutoExp', '#rvRecStop', '#rvLiveGuide', '#rvEdge', '#rvTitle',
-                  '[data-ui-live] .ui-live-btn', '#rvAfter', '#rvLiveWho', '#rvLiveWhoIn', '#rvLiveWhoText'].map(s => [s, document.querySelector(s)]); }""")
+                  '[data-ui-live] .ui-live-btn', '#rvLiveWho', '#rvLiveWhoIn', '#rvLiveWhoText'].map(s => [s, document.querySelector(s)]); }""")
     keep_at = time.time()
     cx.keep_at, cx.pg = keep_at, pg
 
@@ -510,8 +508,8 @@ def _scene_seek_and_leave(cx):
     pg.wait_for_timeout(4000)
     gone = pg.evaluate("() => window.__keep.filter(([s, el]) => !el || !el.isConnected).map(([s]) => s).concat(window.__keepRow && window.__keepRow.isConnected ? [] : ['#rvExpList .rv-ejob'])")
     check(not gone, "8 見回り(10 秒余り)で帯・札・書き出しの行が作り直されない: %s" % gone)
-    check(pg.input_value("#rvAfter") == "auto" and pg.text_content("#rvLiveWhoText") == "配信者: 兎田ぺこら",
-          "15 見回りのあとも「書き出したあと」と配信者の値が戻らない: %s / %s" % (pg.input_value("#rvAfter"), pg.text_content("#rvLiveWhoText")))
+    check(pg.text_content("#rvLiveWhoText") == "配信者: 兎田ぺこら",
+          "15 見回りのあとも配信者の値が戻らない: %s" % pg.text_content("#rvLiveWhoText"))
 
 
 def _scene_gap(cx):
@@ -631,7 +629,7 @@ def _scene_settings_and_sound(cx):
     other.goto(base + "/")
     other.evaluate("() => { window.__got = []; window.__ch = new BroadcastChannel('ytt-sound'); window.__ch.onmessage = e => window.__got.push(e.data); }")
     say = "(on) => window.__ch.postMessage({ id: 'e2e-editor', tool: 'transcribe', playing: on })"
-    check(pg.evaluate("() => document.querySelector('#rvDuck').value") == "low" and pg.is_hidden("#rvDuckNote"), "8b 既定は「音を下げる」・鳴っていなければ案内なし")
+    check(pg.locator("#rvDuck").count() == 0 and pg.is_hidden("#rvDuckNote"), "8b 欄は無く(いつも「音を下げる」)・鳴っていなければ案内なし")
     if edge:
         pg.evaluate("() => { const v = %s; v.muted = false; v.play().catch(() => {}); }" % VIDEO)
         vol0 = pg.evaluate("() => %s.volume" % VIDEO)
@@ -641,12 +639,10 @@ def _scene_settings_and_sound(cx):
         other.evaluate(say, True)
         check(wait_js(pg, "() => Math.abs(%s.volume - %s * 0.2) < 0.02 && !%s.muted && !document.querySelector('#rvDuckNote').hidden" % (VIDEO, vol0, VIDEO), 5000),
               "8b 編集で再生中: 配信の音を 2 割に下げて、案内を出す: %s" % pg.evaluate("() => %s.volume" % VIDEO))
-        pg.select_option("#rvDuck", "mute")
-        check(wait_js(pg, "() => %s.muted" % VIDEO, 3000) and "消しています" in (pg.text_content("#rvDuckNote") or ""), "8b 「音を消す」に切り替えると消音")
         check((((api("GET", "/studio/api/settings")[1] or {}).get("settings") or {}).get("review") or {}).get("muted") is not True, "8b 設定の消音そのものは変えない")
         other.evaluate(say, False)
         check(wait_js(pg, "() => !%s.muted && Math.abs(%s.volume - %s) < 0.02 && document.querySelector('#rvDuckNote').hidden" % (VIDEO, VIDEO, vol0), 5000), "8b 編集の再生が止まると元の音に戻る")
-        pg.select_option("#rvDuck", "low")
+    pg.wait_for_timeout(3000)   # 欠けの検査(下)は録画がある長さになってから(音の欄の切り替えで待っていた分)
     other.close()
 
 
@@ -700,8 +696,7 @@ def _scene_after_end(cx):
     # ---------------- 10. 終わった録画でマークして「書き出す」 ----------------
     pg.click("#rvAutoExp")   # 「マークしたらすぐ書き出す」を外す(いつものスタジオと同じ: 採用 → 書き出す)
     check(not pg.is_checked("#rvAutoExp"), "10 「マークしたらすぐ書き出す」を外せる")
-    # 15. 帯で配信者を直し、書き出したあとを「全自動」に → 次の(手動の)書き出しに渡る(選んだ値が残るかは test_cand_panel.cjs の sanitizeSettings)
-    pg.select_option("#rvAfter", "auto")
+    # 15. 帯で配信者を直す → 次の(手動の)書き出しに渡る
     pg.click("#rvLiveWho > summary")
     check(wait_js(pg, "() => document.querySelector('#rvLiveWho').open && !!document.querySelector('#rvLiveWhoIn').offsetParent", 3000), "15 「配信者」を押すと名前の欄が開く")
     if shots:
@@ -750,8 +745,8 @@ def _scene_after_end(cx):
           "12 開き直すと、その録画が開いてマークが残っている")
     check(wait_js(pg, "() => /停止|終了/.test(document.querySelector('#rvRecState').textContent)", 10000), "12 開き直しても録画の状態は「停止」")
     check(pg.evaluate("() => document.querySelectorAll('#rvList .rv-chip.exported').length") == n_jobs + 1, "12 マークは全部「書き出し済み」")
-    check(pg.input_value("#rvAfter") == "auto" and wait_js(pg, "() => document.querySelector('#rvLiveWhoText').textContent === '配信者: 宝鐘マリン'", 8000),
-          "15 開き直しても「書き出したあと」と直した配信者のまま: %s / %s" % (pg.input_value("#rvAfter"), pg.text_content("#rvLiveWhoText")))
+    check(wait_js(pg, "() => document.querySelector('#rvLiveWhoText').textContent === '配信者: 宝鐘マリン'", 8000),
+          "15 開き直しても直した配信者のまま: %s" % pg.text_content("#rvLiveWhoText"))
 
 
 def _clock(s):

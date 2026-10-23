@@ -58,9 +58,6 @@ const QUICK_SPAN_CHOICES = [10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 420,
 /* 今をマーク ①〜⑤ と 一瞬(MOMENT_SLOT。採用のマーク「一瞬」になる。キー C)の前後の長さ。一瞬だけ短い段(MOMENT_SPAN_CHOICES) */
 const DEFAULT_QUICK_SPANS = [30, 60, 120, 180, 300, 2.5];
 const spanLabel = sec => sec >= 60 && sec % 60 === 0 ? sec / 60 + '分' : sec + '秒';
-/* ライブの録画: 書き出したあと(入口の POST /live/api/export の after)。何もしない / 全自動(文字起こし → パック。① 全自動)。
-   文字起こしまで(check)は 10-19 に消した = 保存済みの check は全自動として読む */
-const LIVE_AFTERS = ['none', 'auto'];
 const MOMENT_SLOT = 5, MOMENT_SPAN_CHOICES = [1, 1.5, 2, 2.5, 3, 4, 5];
 const momentSpan = v => MOMENT_SPAN_CHOICES.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a));
 /* 一瞬の長さ: 保存した quickSpans の 6 つ目。無ければ前の形(前の秒 momentBefore・後の秒 momentAfter。10-24 まで)の平均を、近い段に */
@@ -68,7 +65,7 @@ function momentSpanOf(x, v){
   if (Number.isFinite(v)) return momentSpan(v);
   return x.momentBefore != null || x.momentAfter != null ? momentSpan((sec1(x.momentBefore, 2) + sec1(x.momentAfter, 3)) / 2) : DEFAULT_QUICK_SPANS[MOMENT_SLOT];
 }
-const DEFAULT_SETTINGS = { volume: 100, muted: false, quickSpans: DEFAULT_QUICK_SPANS, keymap: KEY_PRESETS.standard, lag: 0, liveMode: 'auto', exportVolume: 75, exportLoudness: -14, theater: false, graphLines: false, autoPlay: true, autoNext: true, exportTarget: 'adopted', sortBy: 'time', foldDefault: false, liveAutoExport: true, liveDuck: 'low' };
+const DEFAULT_SETTINGS = { volume: 100, muted: false, quickSpans: DEFAULT_QUICK_SPANS, keymap: KEY_PRESETS.standard, lag: 0, liveMode: 'auto', exportVolume: 75, exportLoudness: -14, theater: false, graphLines: false, autoPlay: true, autoNext: true, exportTarget: 'adopted', sortBy: 'time', foldDefault: false, liveAutoExport: true };
 function sanitizeSettings(x){
   x = x && typeof x === 'object' ? x : {};
   const n = (v, lo, hi, d) => Number.isFinite(Number(v)) ? Math.min(hi, Math.max(lo, Math.round(Number(v)))) : d;
@@ -84,12 +81,9 @@ function sanitizeSettings(x){
     exportTarget: ['adopted', 'pending', 'all'].includes(x.exportTarget) ? x.exportTarget : 'adopted', sortBy: x.sortBy === 'score' ? 'score' : 'time',
     lag: [0, 2, 3, 5].includes(Number(x.lag)) ? Number(x.lag) : 0,
     liveAutoExport: x.liveAutoExport !== false,   // ライブの録画: マークしたらすぐ書き出す(既定オン)
-    liveDuck: ['low', 'mute', 'off'].includes(x.liveDuck) ? x.liveDuck : 'low',   // ライブの録画: ほかの窓(編集)で再生している間の配信の音(下げる / 消す / そのまま)
     /* 書き出しのあと自動で文字起こし(設定の「書き出し」節。入口から開いたときだけ効く。既定オン)。値はこの節(サーバー)に置く(窓とブラウザで値が変わらないように)。
        サーバーにまだ無いときは、このブラウザの古い値(localStorage の ytt:studio.autoTx)を引き継ぐ(loadSettings が1回だけ送る) */
-    autoTx,
-    /* ライブの録画: 書き出したあと。まだ選んでいなければ、「書き出しのあと自動で文字起こし」(autoTx)がオンなら全自動・オフなら何もしない */
-    liveAfter: x.liveAfter === 'check' ? 'auto' : LIVE_AFTERS.includes(x.liveAfter) ? x.liveAfter : (autoTx ? 'auto' : 'none')
+    autoTx
   };
 }
 
@@ -186,7 +180,7 @@ function playerHTML(){
         </div>
       </div>`;
 }
-/* LIVE の帯(ライブの録画: 録画の状態・すぐ書き出す・書き出したあと・配信者・アーカイブから書き出す・配信後の自動の切り抜きの進み具合) */
+/* LIVE の帯(ライブの録画: 録画の状態・すぐ書き出す・配信者・アーカイブから書き出す・配信後の自動の切り抜きの進み具合) */
 function liveBarHTML(){
   return `      <!-- LIVE の帯: 置き場所は placeQuickBar が決める(広い画面は右の列のマークの一覧の上・狭い画面とシアターは「今をマーク」の上) -->
       <div class="rv-livebar" id="rvLiveBar" hidden>
@@ -204,11 +198,9 @@ function liveBarHTML(){
           <span class="pill" id="rvRecState" role="status">確かめています…</span><span class="hint rv-recmsg" id="rvRecMsg"></span>
           <span class="rv-topsp"></span>
           <label class="rv-check" for="rvAutoExp" title="今をマーク ①〜⑤・一瞬・IN/OUT の追加で付けたマークを採用にして、すぐ書き出しに回します(録画が届くのを待ってから作ります)"><input type="checkbox" class="ui-switch" id="rvAutoExp">マークしたらすぐ書き出す</label>
-          <label class="rv-duck rv-after" for="rvAfter" title="書き出した切り抜きを、ホームの「まとめて実行」でどこまで進めるか(手動の「書き出す」にも効きます)。全自動 = 文字起こしのあとパックまで作る(字幕は校正前)">書き出したあと <select id="rvAfter"><option value="none">何もしない</option><option value="auto">全自動(パックまで)</option></select></label>
           <details class="ui-pop rv-livewho" id="rvLiveWho" hidden><summary class="btn small ghost" title="字幕の色を決める配信者です(覚えた名前か、チャンネル名から自動)。押すと直せます(直した名前は、この録画とこのチャンネルで次からも使います)"><span id="rvLiveWhoText">配信者: 未設定(字幕は既定の色)</span></summary>
             <div class="ui-pop-body rv-livewhobody" data-align="left"><label class="rv-fl" for="rvLiveWhoIn">配信者(字幕の色)</label><input type="text" id="rvLiveWhoIn" placeholder="例: 兎田ぺこら" aria-describedby="rvLiveWhoNote">
               <p class="hint" id="rvLiveWhoNote">次の書き出しから、この名前のメンバーカラーで字幕を作ります(空 = 既定の色)</p></div></details>
-          <label class="rv-duck" for="rvDuck" title="「編集」を別の窓で開いて再生している間、配信の音をどうするか(止めると元に戻ります)">編集で再生中は <select id="rvDuck"><option value="low">音を下げる</option><option value="mute">音を消す</option><option value="off">そのまま</option></select></label>
           <button class="btn small danger" id="rvRecStop" type="button" hidden title="録画を止めます(録れた所までは、このあとも再生・マーク・書き出しができます)">録画を止める</button>
         </div>
         <p class="rv-liveguide rv-ducknote" id="rvDuckNote" role="status" hidden></p>
@@ -979,9 +971,7 @@ const SET_UI = [
   ['#rvExpVol', 'exportVolume', 'value', () => { $('#rvExpVolOut').textContent = S.settings.exportVolume; expSetSummary(); }, 'input'],
   ['#rvExpLoud', 'exportLoudness', 'value', () => syncSettingsUI()],   // 書き出しの音量の欄を押せなくする・戻す
   ['#rvAutoExp', 'liveAutoExport', 'checked', () => renderLiveRec()],   // LIVE の帯(ライブの録画)
-  ['#rvDuck', 'liveDuck', 'value', () => applyToPlayer()],
   ['#rvLiveVol', 'volume', 'value', () => { const vo = $('#rvLiveVolOut'); if (vo) vo.textContent = S.settings.volume; applyToPlayer(); }, 'input'],   // LIVE の帯の音量(数字も合わせる)
-  ['#rvAfter', 'liveAfter', 'value'],
   ['#rvSort', 'sortBy', 'value', () => renderList()],
   ['#rvExpTarget', 'exportTarget', 'value', () => { renderExportUI(); expSetSummary(); }]
 ];
@@ -1005,19 +995,18 @@ function expSetSummary(){
   parts.push(s.exportLoudness ? s.exportLoudness + ' LUFS' : '音量 ' + s.exportVolume + '%');
   el.textContent = parts.filter(Boolean).join(' ・ ');
 }
-/* ライブの録画: ほかの窓(別の窓で開いた「編集」)で音が鳴っている間は、配信の音を下げる(2 割)か消す(UIKit.sound。設定 liveDuck)。
+/* ライブの録画: ほかの窓(別の窓で開いた「編集」)で音が鳴っている間は、配信の音を下げる(2 割。UIKit.sound。欄は 10-24 に外した = いつも下げる)。
    音が二重になって文字起こしを聞き取れない(ユーザー)。設定の音量・消音そのものは変えない(止まれば元の音に戻る) */
 const DUCK_RATIO = 0.2;
 function duckMode(){
-  if (!(S.cur && S.cur.kind === 'live') || S.settings.liveDuck === 'off') return 'off';
-  return UIKit.sound.other('studio') ? S.settings.liveDuck : 'off';
+  return S.cur && S.cur.kind === 'live' && UIKit.sound.other('studio') ? 'low' : 'off';
 }
 function applyToPlayer(){
   const mode = duckMode();
-  { const el = $('#rvDuckNote'); if (el){ el.hidden = mode === 'off'; if (mode !== 'off') liveSet('#rvDuckNote', mode === 'mute' ? '編集で再生中: 配信の音を消しています' : '編集で再生中: 配信の音を下げています'); } }
+  { const el = $('#rvDuckNote'); if (el){ el.hidden = mode === 'off'; if (mode !== 'off') liveSet('#rvDuckNote', '編集で再生中: 配信の音を下げています'); } }
   if (!yt) return;
   lastApplyAt = Date.now();
-  try { yt.setVolume(mode === 'low' ? Math.round(S.settings.volume * DUCK_RATIO) : S.settings.volume); if (S.settings.muted || mode === 'mute') yt.mute(); else yt.unMute(); } catch {}
+  try { yt.setVolume(mode === 'low' ? Math.round(S.settings.volume * DUCK_RATIO) : S.settings.volume); if (S.settings.muted) yt.mute(); else yt.unMute(); } catch {}
 }
 function syncVolumeFromPlayer(){ // プレーヤー側(標準UI)での変更を設定へ反映
   if (S.cur && S.cur.kind === 'live') return;   // ライブの録画は標準のコントロールを出さない(下げている間の音量を設定に書き戻さない)
@@ -1312,7 +1301,6 @@ function liveOpened(v){
   } else if (rec && ol && ol.dataset.job !== want){ ol.innerHTML = ''; ol.dataset.job = want; S.jobRows = []; }
   if (!rec) return;
   $('#rvAutoExp').checked = !!S.settings.liveAutoExport;
-  $('#rvAfter').value = S.settings.liveAfter;
   $('#rvLiveBar').hidden = false;
   liveWhoOpened(v);
   loadLiveAutoArchive(v);
@@ -1411,7 +1399,7 @@ function renderLiveRec(){
   if (pill.className !== pc) pill.className = pc;
   liveSet('#rvRecState', label); liveSet('#rvRecMsg', msg);
   $('#rvRecStop').hidden = !active;
-  for (const sel of ['label[for="rvAutoExp"]', 'label[for="rvDuck"]', 'label[for="rvAfter"]']){ const el = $(sel); if (el && el.hidden !== gone) el.hidden = gone; }   // 録画が無い: すぐ書き出す・音の扱い・書き出したあとは意味が無い
+  for (const sel of ['label[for="rvAutoExp"]']){ const el = $(sel); if (el && el.hidden !== gone) el.hidden = gone; }   // 録画が無い: すぐ書き出すは意味が無い
   { const w = $('#rvLiveWho'), can = !gone; if (w && w.hidden !== !can) w.hidden = !can; }
   const ended = (!!st && !err && !active) || gone;
   $('#rvLiveBar').classList.toggle('is-ended', ended);
@@ -1648,9 +1636,8 @@ function liveWhoOpened(v){
 }
 function liveExportBody(v, m){
   const n = sortedMarks().findIndex(x => x.id === m.id) + 1;
-  const after = LIVE_AFTERS.includes(S.settings.liveAfter) ? S.settings.liveAfter : 'auto';   // 古い check は sanitizeSettings が全自動に読み替え済み
   return { recorder: v.live.recorder, recording: v.live.recording, title: v.title || '', url: v.live.url || '',
-    after, transcribe: after !== 'none',   // 帯の「書き出したあと」(入口の書き出しがまとめて実行へ渡す。スタジオからは頼まない = 二重にしない)。transcribe は入口の書き出しの body の形
+    /* 書き出したあと(after・transcribe)は送らない = 入口がホームの設定「書き出したあと」(live.auto.after)を使う */
     streamer: liveWhoName(v),   // 配信者の名前(字幕の色)。帯の「配信者」= 覚えた名前かチャンネル名から。空 = まとめて実行が決める(たいてい既定の色)
     studio: { video: v.id, mark: m.id, n, label: m.label || '', start: m.start, end: m.end } };
 }
@@ -1937,7 +1924,7 @@ function peakFill(li, p){
   const tx = typeof p.text === 'string' ? p.text.trim() : '';   // 配信中の文字起こし(入口の D-11 案 b)。付いたときだけ出す
   setTxt(el.tx, tx ? '「' + (tx.length > 80 ? tx.slice(0, 80) + '…' : tx) + '」' : ''); setAttr(el.tx, 'title', tx || null); setHidden(el.tx, !tx);
   setAttr(el.play, 'aria-label', `${at}を再生(${PEAK_PRE} 秒前から)`); setAttr(el.play, 'title', `${PEAK_PRE} 秒前から区間の終わりまで再生します`);
-  peakBtn(el.adopt, vw.adopt, vw.why, at + 'を採用', 'マークにして、書き出しに回します(書き出したあとは帯の「書き出したあと」のとおり)');
+  peakBtn(el.adopt, vw.adopt, vw.why, at + 'を採用', 'マークにして、書き出しに回します(書き出したあとは設定の「書き出したあと」のとおり)');
   peakBtn(el.dismiss, vw.dismiss, sending, at + 'を見送る', '一覧から外します(「控えも見る」で見えます。戻せます)');
   peakBtn(el.restore, vw.restore, sending, at + 'を戻す', '見送りをやめて、候補に戻します');
 }
@@ -2034,7 +2021,7 @@ async function peakPost(v, id, body, before){
   } finally { PKV.busy.delete(id); }
 }
 /* [採用]: 入口がマークを足して書き出しを頼む(Live.adopt と同じ)。応答のあとスタジオのマークを読み直す(② を開いたままだとサーバー側で足したマークは自動では出ない)。
-   書き出したあと・配信者は帯の値を渡す(手で付けたマークの書き出しと同じ) */
+   配信者は帯の値を渡す(書き出したあとは設定のまま。手で付けたマークの書き出しと同じ) */
 async function adoptPeak(id){
   const v = S.cur, p = peakActable(v, id); if (!p) return;
   if (p.state === 'adopted') return toast('この候補はもう採用しています(マークの一覧にあります)', 4000);
@@ -2042,7 +2029,7 @@ async function adoptPeak(id){
   if (p.endPending) return toast('この候補は区間の終わりがまだ録れていません。録れると採用できます', 5000);
   let r = null;
   try {
-    r = await peakPost(v, id, { op: 'adopt', after: LIVE_AFTERS.includes(S.settings.liveAfter) ? S.settings.liveAfter : 'auto', streamer: liveWhoName(v) },
+    r = await peakPost(v, id, { op: 'adopt', streamer: liveWhoName(v) },
       flushSave);   // 手元のマークを先に保存する(入口がスタジオのマークに足すので、保存が重ならないように)
   } catch (e){ if (S.cur === v) toast('候補を採用できませんでした: ' + e.message, 0, 'err'); }
   if (S.cur !== v) return;
@@ -3192,7 +3179,7 @@ function wire(){
     if (d && typeof d.autoDelete === 'boolean'){ LV.autoDelete = d.autoDelete; renderLiveRec(); }
     if (d && (d.detect || d.autoAdopt)) peakPrefs(d, true);
   });
-  /* LIVE の帯の「マークしたらすぐ書き出す」「書き出したあと」「音の扱い」は設定の表(SET_UI)の wireSettings が受ける */
+  /* LIVE の帯の「マークしたらすぐ書き出す」は設定の表(SET_UI)の wireSettings が受ける */
   UIKit.sound.onChange(() => applyToPlayer());   // ほかの窓の再生が始まった・止まった
   $('#rvShift').addEventListener('click', () => {
     if (!S.cur) return;
