@@ -548,7 +548,7 @@ def recognize_doc(doc, spec, data):
         for s in segs:
             if pairs and s.get("text"):
                 s = dict(s, text=_dictfmt.apply_replacements(s["text"], pairs)[0])
-            if not s["text"]:
+            if not s["text"] or _postproc.drop_note(s["text"]):   # 音符だけの行は本番(clipjob)と同じく埋めのあとで捨てる
                 continue
             row = {"start": round(s["start"] + offset, 2), "end": round(s["end"] + offset, 2), "text": s["text"][:_txbase.MAX_TEXT], **_postproc.machine_conf(s)}
             row["flag"] = _postproc.make_flags({**s, "text": row["text"], "start": row["start"], "end": row["end"]}, prev, spec["language"], _roster.prompt_terms(spec))

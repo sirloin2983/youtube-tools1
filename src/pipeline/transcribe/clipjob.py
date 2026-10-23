@@ -46,7 +46,7 @@ def _rows_to_doc(job, spec, rows, pairs, learned=None):
     segs, prev, original, words, dict_n, learn_n = [], [], [], [], 0, 0
     terms = _roster.prompt_terms(spec)
     for s in rows:
-        if not s["text"]:
+        if not s["text"] or postproc.drop_note(s["text"]):   # 音符だけの行は字幕に出さない(埋め A の窓の手がかりに使い終えたあと)
             continue
         seg = {"id": "s%d" % (len(segs) + 1), "start": round(s["start"] + spec["start"], 2), "end": round(s["end"] + spec["start"], 2),
                "text": s["text"][:_txbase.MAX_TEXT], "speaker": "", "flag": ""}
