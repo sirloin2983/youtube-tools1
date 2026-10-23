@@ -58,28 +58,32 @@ class ProbeTest(unittest.TestCase):
         return stack
 
     def test_live_status_and_title(self):
-        with self.fake(out="is_live\tabcdefghijk\tPekora Ch. 兎田ぺこら\x07\t【雑談】配信の題\tつづき\x07\n"):
+        with self.fake(out="is_live\tabcdefghijk\tPekora Ch. 兎田ぺこら\x07\t1792700000\t【雑談】配信の題\tつづき\x07\n"):
             r = LS.probe_live("https://www.youtube.com/@pekora/live")
         self.assertEqual(r, {"status": "is_live", "title": "【雑談】配信の題つづき", "channel": "Pekora Ch. 兎田ぺこら", "message": "",
-                             "id": "abcdefghijk"})   # 題のタブは崩さない・/@名前/live でも動画の id が分かる
+                             "id": "abcdefghijk", "start": 1792700000})   # 題のタブは崩さない・/@名前/live でも動画の id が分かる・配信の開始時刻(10-23)
         with open(self.args, encoding="utf-8") as f:
             args = json.load(f)
         self.assertEqual(args[-2:], ["--", "https://www.youtube.com/@pekora/live"])   # URL は1つの引数・オプションとして読ませない
         for flag in ("--skip-download", "--no-playlist", "--ignore-no-formats-error"):
             self.assertIn(flag, args)
-        self.assertEqual(args[args.index("--print") + 1], "%(live_status)s\t%(id)s\t%(channel,uploader)s\t%(title)s")
+        self.assertEqual(args[args.index("--print") + 1], "%(live_status)s\t%(id)s\t%(channel,uploader)s\t%(release_timestamp)s\t%(title)s")
+        with self.fake(out="is_upcoming\tabcdefghijk\tCh\t1792700000\t題\n"):   # 配信の前の release_timestamp は予定の時刻 = 使わない
+            self.assertIsNone(LS.probe_live("https://www.youtube.com/watch?v=abcdefghijk")["start"])
+        with self.fake(out="is_live\tabcdefghijk\tCh\tNA\t題\n"):
+            self.assertIsNone(LS.probe_live("https://www.youtube.com/watch?v=abcdefghijk")["start"])
 
     def test_other_states(self):
-        with self.fake(out="was_live\tNA\tNA\tNA\n"):
+        with self.fake(out="was_live\tNA\tNA\tNA\tNA\n"):
             self.assertEqual(LS.probe_live("https://www.youtube.com/watch?v=abcdefghijk"),
-                             {"status": "was_live", "title": "", "channel": "", "message": "", "id": ""})
+                             {"status": "was_live", "title": "", "channel": "", "message": "", "id": "", "start": None})
         with self.fake(out="", err="ERROR: [youtube] x: This live event will begin in 3 hours.\n", code=1):
             self.assertEqual(LS.probe_live("https://www.youtube.com/watch?v=abcdefghijk")["status"], "is_upcoming")
         with self.fake(out="", err="ERROR: Video unavailable\n", code=1):
             r = LS.probe_live("https://www.youtube.com/watch?v=abcdefghijk")
         self.assertEqual(r["status"], "unknown")
         self.assertIn("Video unavailable", r["message"])
-        with self.fake(out="NA\tNA\tNA\tNA\n"):
+        with self.fake(out="NA\tNA\tNA\tNA\tNA\n"):
             self.assertEqual(LS.probe_live("https://www.youtube.com/watch?v=abcdefghijk")["status"], "unknown")
         with self.fake(out="is_live\tc\tx\n", sleep=3):
             r = LS.probe_live("https://www.youtube.com/watch?v=abcdefghijk", timeout=0.5)

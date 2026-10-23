@@ -405,7 +405,8 @@ class Recording:
                "segments": len(segs), "seconds": round(sum(x["dur"] for x in segs), 3),
                "firstPdt": next((x["pdt"] for x in segs if x.get("pdt")), None), "lastPdt": epoch_iso(e + segs[-1]["dur"]) if e else None,
                "active": m.get("state") in ACTIVE, "sessions": sum(1 for _, s in sess if s),
-               "blockedAt": m.get("blockedAt") if m.get("state") in ACTIVE else None}   # bot と判定され続けている始まり(ミリ秒)
+               "blockedAt": m.get("blockedAt") if m.get("state") in ACTIVE else None,   # bot と判定され続けている始まり(ミリ秒)
+               "streamStart": m.get("streamStart")}   # 配信の開始時刻(UTC の文字。無ければ None。録画の画面の「配信の時刻」)
         if detail:
             info = {x.get("name"): x for x in (m.get("sessions") or []) if isinstance(x, dict)}
             out["sessionList"] = [{"name": n, "segments": len(s), "seconds": round(sum(x["dur"] for x in s), 3),
@@ -870,7 +871,8 @@ class Recorder:
         return resumed
 
     # --- 操作 ---
-    def start(self, url, quality=DEFAULT_QUALITY, title=""):
+    def start(self, url, quality=DEFAULT_QUALITY, title="", stream_start=None):
+        """stream_start: 配信の開始時刻(エポック秒。入口が yt-dlp で取った物。無ければ None = 画面は最初に録れた時刻を配信の 0 秒とみなす)"""
         if self.closing:
             raise RecError("録画の部品は終了の途中です", 409)
         url = validate_url(url, allow_local=(self.source == "direct"))
@@ -896,6 +898,8 @@ class Recorder:
                 raise RecError("録画のフォルダを作れません: %s" % (e.strerror or e.__class__.__name__), 409)
             meta = {"schema": SCHEMA, "id": rid, "url": url, "quality": quality, "title": title, "state": "waiting",
                     "message": "", "created": now_iso(), "endedAt": None, "sessions": []}
+            if isinstance(stream_start, (int, float)) and not isinstance(stream_start, bool) and stream_start > 0:
+                meta["streamStart"] = epoch_iso(float(stream_start))
             rec = Recording(self, rid, path, meta)
             rec.save()
             self.recs[rid] = rec
