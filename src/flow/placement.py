@@ -331,14 +331,25 @@ def _doc_path(tid):
     return _existing(_docloc.doc_file(tid, ".json")) if _workdata.TX_DIR and _schemas.TID_RE.match(str(tid or "")) else None
 
 
+def _pack_notes(mark):
+    """パックの機械の見出し・区間のかぶり(run.pack_marks)-> 結果の束の pack の欄。届け先の無い実行(ユーザーの PC で確かめる)でも残す"""
+    out = {}
+    h = mark.get("headline")
+    if isinstance(h, dict) and h.get("text"):
+        out.update({"headline": str(h["text"]), "headlineWhy": str(h.get("why") or ""), "headlineBy": str(h.get("by") or "")})
+    if isinstance(mark.get("overlap"), str) and mark["overlap"]:
+        out["overlapNote"] = mark["overlap"]
+    return out
+
+
 def outputs(run, video=None):
     """段ごとの成果物のパスと鍵のパス(鍵は今あるものだけ。無ければ None)"""
     clips = _clip_paths(run, video) if run.video_id else []
     tids = list(dict.fromkeys(list(run.docs) + list(run.new_docs)))
     out = {"export": [{"path": p, "key": _existing(_keys.media_key_path(p, "export"))} for p in clips],
            "transcribe": [{"doc": t, "path": _doc_path(t), "key": _doc_key(t, "transcribe"), "post": _doc_key(t, "post")} for t in tids],
-           "pack": [{"path": p, "key": _existing(_keys.pack_key_path(p)), "clip": (run.pack_marks.get(p) or {}).get("path") or None}
-                    for p in run.all_packs()]}
+           "pack": [dict({"path": p, "key": _existing(_keys.pack_key_path(p)), "clip": (run.pack_marks.get(p) or {}).get("path") or None},
+                         **_pack_notes(run.pack_marks.get(p) or {})) for p in run.all_packs()]}
     if any(s["key"] == "diarize" for s in run.steps):
         out["diarize"] = [{"doc": t, "key": _doc_key(t, "diar")} for t in dict.fromkeys(run.new_docs)]
     return out
