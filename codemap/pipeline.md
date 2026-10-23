@@ -54,16 +54,16 @@
   - 名前: `class Cancelled` :47・`class OutputExists` :54・`class Task` :63・`parse_time` :78・`parse_cut_list` :116・`sec_to_frames` :147・`cue_frames` :151・`frames_to_sec` :157・`fps_label` :162・`cut_list_to_keeps` :167・`normalize` :182・`subtract` :200・ほか 35
 - **edge_pause.py** (104 行) — 切り抜きの両端を「話の間」へ寄せる(10-23。決定 3-153。notes:plan/heatmap-study.md の「切り抜きの端を話の間へ」)。
   - 名前: `levels` :26・`voice_level` :46・`pauses` :52・`snap_end` :66・`snap_start` :76・`snap` :86
-- **pack.py** (964 行) — カットの計算(試算)とパックの作成。画面(serve.py)と ② の自動の流れが呼ぶ共通部(処理を二重に持たない)。
-  - 名前: `class RowEdge` :42・`class Request` :77・`class Plan` :114・`class Cache` :138・`default_out_dir` :202・`row_edge_from` :206・`widen_row_edges` :230・`row_edge_pending` :273・`silence_pending` :282・`detect_pending` :290・`without_detect` :299・`plan_cut` :318・ほか 16
+- **pack.py** (970 行) — カットの計算(試算)とパックの作成。画面(serve.py)と ② の自動の流れが呼ぶ共通部(処理を二重に持たない)。
+  - 名前: `class RowEdge` :42・`class Request` :77・`class Plan` :114・`class Cache` :138・`default_out_dir` :202・`row_edge_from` :206・`widen_row_edges` :230・`row_edge_pending` :273・`silence_pending` :282・`detect_pending` :290・`without_detect` :299・`plan_cut` :318・ほか 17
 - **preview.py** (124 行) — ① 確認用の動画(友人が受け取るかを決める前に見る、1 本の切り抜きの 480p の動画)とパックの中の切り抜きの動画の引き方(ds1 = 要件 1-5。② flow/deliver から分けた)。
   - 名前: `pack_title` :24・`scratch_path` :30・`remove_quiet` :35・`pack_video` :41・`make_preview` :80・`clip_preview` :105・`pack_seconds` :118
 - **request.py** (336 行) — パックの指定(JSON の spec・output)-> pack.Request と build_pack の引数。指定の読み方の 1 か所
   - 名前: `clean_path` :33・`input_path` :58・`request_from_spec` :103・`clip_range_from_spec` :174・`row_edge_from_spec` :184・`advanced_from_spec` :193・`keeps_from_spec` :204・`speaker_color_map` :225・`speaker_styles_from` :244・`apply_speaker_styles` :267・`output_from_spec` :288・`speaker_colors_for` :327
 - **resolve_export.py** (378 行) — DaVinci Resolve への受け渡し(文字起こしツールの「Resolveパッケージ(zip)をダウンロード」)と、「残す行」の規則。
   - 名前: `srt_time` :37・`srt_text` :43・`is_kept` :49・`kept_spans` :55・`tool_info` :82・`sorted_segments` :86・`build_transcript_v1` :105・`build_cut_plan_v1` :133・`wrap_text` :146・`build_srt` :153・`pack_instructions` :176・`edit_draft` :236・ほか 3
-- **resolve_textplus.py** (1042 行) — Resolve Free向け Text+ 試験パック。Luaスクリプトを同梱する。
-  - 名前: `hex_rgba` :70・`text_style` :81・`style_inputs` :97・`video_tracks_value` :119・`parse_target` :126・`caption_segments` :149・`stack_captions` :180・`default_wrap` :252・`wrap_caption` :257・`build_import_plan` :306・`importer_script` :374・`installer_script` :803・ほか 6
+- **resolve_textplus.py** (1093 行) — Resolve Free向け Text+ 試験パック。Luaスクリプトを同梱する。
+  - 名前: `hex_rgba` :70・`text_style` :81・`style_inputs` :97・`video_tracks_value` :119・`parse_target` :126・`caption_segments` :149・`stack_captions` :180・`speaker_lanes` :241・`lay_captions` :273・`default_wrap` :300・`wrap_caption` :305・`build_import_plan` :354・ほか 8
 - **srt2resolve.py** (394 行) — パックの部品(動画の情報の読み取り・字幕の読み込み・フレームの計算・SRT の組み立ての小道具)。
   - 名前: `class ToolError` :27・`same_path` :31・`staged` :44・`write_text_atomic` :56・`tool` :65・`arg_path` :70・`clean_text` :94・`parse_subs` :101・`read_sub_file` :125・`snap_fps` :149・`codec_warnings` :161・`probe` :198・ほか 10
 

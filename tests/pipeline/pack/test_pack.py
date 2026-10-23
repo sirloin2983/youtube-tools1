@@ -64,14 +64,43 @@ def _lua_runtime():
     return None
 
 
-def _textplus_plan(cues_out, keeps, fps=(60, 1), total=2064, target=None, video_tracks=1):
+def _textplus_plan(cues_out, keeps, fps=(60, 1), total=2064, target=None, video_tracks=1, names=None, speaker_order=None):
     plan = mock.Mock()
     plan.video = Path('test.mp4')
     plan.req.name = 'test'
     plan.meta = {'fps': fps, 'w': 1920, 'h': 1080, 'total': total}
     plan.cues_out = cues_out
     plan.keeps = keeps
-    return RTP.build_import_plan(plan, Path('media/test.mp4'), target, video_tracks=video_tracks)
+    return RTP.build_import_plan(plan, Path('media/test.mp4'), target, video_tracks=video_tracks, names=names, speaker_order=speaker_order)
+
+
+class TestSpeakerLanes(unittest.TestCase):
+    """話者ごとの段(speaker_lanes): 話者の並びの 1 人目が 1 段目・2 人目が 2 段目…。4 人目からは 3 段目を分け合う・話者の無い字幕は 1 段目・
+    同じ段の重なりは前を切る(同じコマなら 1 コマ残して後ろへ)。話者が 1 人・分からないときは重なりの段(stack_captions)"""
+
+    def test_rules(self):
+        cues = [(0, 30, 'a'), (10, 40, 'b'), (20, 50, 'c'), (25, 60, 'd'), (40, 70, 'e'), (45, 80, 'f'), (80, 90, 'g'), (80, 95, 'h')]
+        names = ['A', 'B', 'C', 'D', None, 'A', 'B', 'B']
+        r = RTP.speaker_lanes(cues, names, ['B', 'A', 'C', 'D'])
+        self.assertEqual(r['lanes'], [2, 1, 3, 3, 1, 2, 1, 1])                       # 並びの 1 人目(B)が 1 段目・D は 3 段目を分け合う・話者なし = 1 段目
+        self.assertEqual(r['cues'][2][:2], (20, 25))                                 # 3 段目: C を D の始まりで切る
+        self.assertEqual(r['cues'][1][:2], (10, 40))                                 # 1 段目: b の後ろの e は 40 から = 切らない
+        self.assertEqual((r['cues'][6][:2], r['cues'][7][:2]), ((80, 81), (81, 95)))   # 同じコマに始まる: 前を 1 コマ残して後ろへ
+        self.assertEqual((r['count'], r['by'], r['trimmed']), (3, 'speaker', 3))
+        self.assertIsNone(RTP.speaker_lanes(cues, ['A'] * 8 , ['A']))                  # 1 人 = 重なりの段に戻る
+        self.assertIsNone(RTP.speaker_lanes(cues, None))
+        self.assertEqual(RTP.lay_captions(cues, (30, 1), None, ['A'] * 8)['by'], 'overlap')
+        self.assertEqual(RTP.speaker_lanes(cues[:2], ['X', 'Y'], [])['lanes'], [1, 2])   # 並びに無い話者は出てきた順
+        with mock.patch.object(RTP, 'SPEAKER_LANES', False):
+            self.assertEqual(RTP.lay_captions(cues, (30, 1), None, names, ['B', 'A'])['by'], 'overlap')
+
+    def test_import_plan(self):
+        """話者が 2 人以上なら重ならなくても話者の段(captionLanes・captionLanesBy speaker)"""
+        ip = _textplus_plan([(0, 30, 'a'), (40, 70, 'b'), (80, 90, 'c')], [(0, 2064)], names=['A', 'B', None], speaker_order=['A', 'B'])
+        self.assertEqual([c.get('trackUp') for c in ip['captions']], [None, 1, None])
+        self.assertEqual((ip['captionLanes'], ip['captionLanesBy']), (2, 'speaker'))
+        ip = _textplus_plan([(0, 30, 'a'), (40, 70, 'b')], [(0, 2064)], names=['A', 'A'], speaker_order=['A'])
+        self.assertNotIn('captionLanes', ip)                                          # 1 人 = 今まで(重ならなければ 1 段)
 
 
 class TestResolveTextPlusScript(unittest.TestCase):
@@ -278,6 +307,22 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
         self.assertIn('item track=1 start=108000 dur=2064', out)
         self.assertIn('item track=2 start=108060 dur=240 text=a', out)
         self.assertIn('cut2resolve Text+: ok|', out)
+
+    def test_speaker_lanes_on_tracks(self):
+        """話者ごとの段: 3 人のコラボは V2〜V4 にそれぞれの話者(重ならなくても)・話者の無い字幕は 1 段目・同じトラックに重なる字幕は無い"""
+        s = {'timelineFrameRate': '30', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'}
+        cues = [(30, 90, '一'), (90, 150, '二'), (120, 180, '三'), (180, 240, '四'), (240, 300, '五')]
+        plan = _textplus_plan(cues, [(0, 900)], fps=(30, 1), total=900, names=['マリン', 'ぺこら', 'リオナ', None, 'マリン'],
+                              speaker_order=['マリン', 'ぺこら', 'リオナ'])
+        out = self.run_lua(plan, s, media_fps=30, fonts=self.KEI)
+        cut = out.split('timeline=CUT_TextPlus\n')[1].split('timeline=')[0]
+        self.assertIn('tracks=4\n', cut)
+        for track, start, text in ((2, 108030, '一'), (3, 108090, '二'), (4, 108120, '三'), (2, 108180, '四'), (2, 108240, '五')):
+            self.assertIn('item track=%d start=%d dur=60 text=%s' % (track, start, text), cut)
+        self.assertEqual((cut.count('  center=0.5,0.7'), cut.count('  center=0.5,0.9')), (1, 1))   # 2 段目・3 段目は縦の位置も上へ
+        items = sorted((int(t), int(a), int(a) + int(d)) for t, a, d in re.findall(r'item track=(\d+) start=(\d+) dur=(\d+) text=', cut))
+        self.assertFalse([(x, y) for x, y in zip(items, items[1:]) if x[0] == y[0] and y[1] < x[2]])   # 同じトラックで重ならない
+        self.assertIn('字幕 5/5・重なる字幕 V2〜V4(3 段)', out)
 
     def test_overlapping_captions_go_to_upper_lanes(self):
         """重なる字幕の段: 2 段目は字幕のトラックの 1 つ上・縦の位置を LANE_STEP_Y だけ上(偽物の Center は空 → 0.5 + 0.2)。
@@ -628,6 +673,7 @@ class TestPackRun(unittest.TestCase):
             warns = plan.warnings + res["warnings"]
             self.assertTrue(any("字幕は付けません" in w or "字幕は作りません" in w for w in warns), (name, warns))
 
+    @mock.patch.object(RTP, "SPEAKER_LANES", False)   # 重なりの段の決まり(話者ごとの段は test_speaker_lanes_run)
     def test_textplus_run(self):
         """Text+ パック: 画面・API の既定(最小限・余白つき素材)・コマンドの既定・配信者の色と話者の色・簡易版・映像トラック・重なる字幕"""
         tr = self.spk_doc("plain", [(0.5, 2, "一", 0), (3, 5, "二", 1)])
@@ -836,6 +882,7 @@ class TestPackRun(unittest.TestCase):
             ("今日はいい天気ですね散歩\nに行こう", "今日はいい天気ですね散歩\nに行こう")]               # もう改行がある文はそのまま
     KEEP_CHARS = ["ABCDEFGHIJKLMNOPQRSTU", "、あいうえおかきくけこさしすせ", "ーーーーーーーーーーーーーーー", "あっっっっっっっっっっっっっっ"]
 
+    @mock.patch.object(RTP, "SPEAKER_LANES", False)   # 重なりの段の決まり(話者ごとの段は test_speaker_lanes_run)
     def test_captions_run(self):
         """字幕の通し(画面の指定から): 重なる字幕の段(30fps・60fps・29.97fps)・話者の色と並び順・映像トラック 3・Text+ の改行(縦 8・横 14・0 = しない)・
         置き先の指定と不正な指定・60fps の素材を 30fps の置き先へ(作り直さない)・1 コマの隙間をつなぐ"""
@@ -1416,6 +1463,7 @@ class TestPackRun(unittest.TestCase):
         finally:
             self.sidecar.write_text(orig, encoding="utf-8")
 
+    @mock.patch.object(RTP, "SPEAKER_LANES", False)   # 重なりの段の決まり(話者ごとの段は test_speaker_lanes_run)
     def test_no_sub_rows(self):
         """字幕に出さない行(noSub): 時間は残す区間に数えるが、字幕は作らない。話者・色は残りの字幕に合う。段は noSub を外してから数える"""
         rows = [(0.5, 2, "一", 0), (1.0, 2.5, "ゲームの声", 1), (2.5, 3, "まだ", 1), (3, 5, "二", 1)]
