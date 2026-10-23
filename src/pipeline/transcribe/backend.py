@@ -34,7 +34,11 @@ class Backend:
         return real(spec)
 
     def transcribe(self, job, spec, wav, total, real):
-        """文字起こしのジョブの行(faster-whisper の行と同じ形の辞書)の生成器。real(job, spec, wav, total)"""
+        """文字起こしのジョブの行(faster-whisper の行と同じ形の辞書)の生成器。real(job, spec, wav, total)。
+        後処理で声の無い行を捨てる(autoFill + dropSilent)なら、取り出した音の声の分離を認識の間に裏で始める(separate.prefetch。結果は同じ)"""
+        if isinstance(spec, dict) and spec.get("autoFill") and spec.get("dropSilent"):
+            from . import separate   # 遅く読む(separate が backend を読む)
+            separate.prefetch(job, wav)
         return real(job, spec, wav, total)
 
     def range_main(self, job, a, b, share, real):

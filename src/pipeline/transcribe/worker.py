@@ -239,6 +239,12 @@ def _op_voiced(m, rid, job, out, cancels):
     return [[float(a), float(b)] for a, b in separate._voice_spans_local(job, str(m.get("wav")))]
 
 
+def _op_voiced_prefetch(m, rid, job, out, cancels):
+    """声の分離を裏の糸で始めてすぐ返す(認識の前。あとの voiced が同じ音の結果を使う = separate.prefetch)"""
+    separate.prefetch_local(str(m.get("wav")))
+    return {"ok": True}
+
+
 def _op_complete(m, rid, job, out, cancels):
     """文字の LLM に聞く(LLM の後処理 = pipeline/transcribe/llm.py)。messages = [{"role", "content": 文字}](40 件・1 件 8000 字まで)-> {"content": 答え}"""
     name, dev, eng = str(m.get("name")), str(m.get("device") or "vulkan"), _engine(m)
@@ -259,7 +265,7 @@ def _op_complete(m, rid, job, out, cancels):
 
 
 OPS = {"load": _op_load, "transcribe": _op_transcribe, "diarize": _op_diarize, "embed": _op_embed,
-       "complete": _op_complete, "voiced": _op_voiced}   # 要求の種類 → 本体(結果 v を返す。途中の知らせは本体が送る)
+       "complete": _op_complete, "voiced": _op_voiced, "voicedPrefetch": _op_voiced_prefetch}   # 要求の種類 → 本体(結果 v を返す。途中の知らせは本体が送る)
 
 
 def handle(m, out, cancels):

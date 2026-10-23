@@ -70,8 +70,8 @@
 ## src/pipeline/transcribe/
 
 - **__init__.py** (2 行) — ① 文字起こし: 認識(エンジン・ワーカー)・話者・後処理(埋める・LLM・時刻)・名簿と辞書を読む。認識(重い)と後処理(軽い)で鍵を分ける
-- **backend.py** (119 行) — サーバー側の認識の本物と疑似の差し込み口。
-  - 名前: `mode` :18・`is_fake` :23・`class Backend` :28・`set_selector` :111・`select` :116
+- **backend.py** (123 行) — サーバー側の認識の本物と疑似の差し込み口。
+  - 名前: `mode` :18・`is_fake` :23・`class Backend` :28・`set_selector` :115・`select` :120
 - **clipjob.py** (71 行) — ① 文字起こしのジョブの機械の文書の行を作る(make_doc_rows)。
   - 名前: `make_doc_rows` :17
 - **diarize.py** (550 行) — ① 自動の流れの層 pipeline/transcribe: 話者判別の計算(sherpa-onnx)と判別の記録・声の特徴と覚えた声との照らし合わせ。
@@ -96,12 +96,12 @@
   - 名前: `retime_raw` :94・`retime_candidates` :141
 - **roster.py** (306 行) — 名簿(hololive-roster.json)と、配信ごとの文脈(文字起こしの改善の計画 段1。notes:plan/line-b-transcription.md(付録))。
   - 名前: `fold` :40・`load` :51・`channel_regions` :90・`find_in_text` :120・`match_name` :133・`build_context` :144・`member_terms` :168・`fit` :179・`prompt_terms` :194・`stream_context` :204・`leak_only` :229・`alias_variants` :263・ほか 1
-- **separate.py** (98 行) — 「編集」のサーバーの部品: 声を伴奏から分けて(Spleeter 2stems・sherpa-onnx・CPU)、分けた声の音量から声のある区間を作る(notes:plan/voice-separation-1022.md)。
-  - 名前: `sep_model_dir` :31・`spans_from_db` :35・`voice_spans` :61
+- **separate.py** (165 行) — 「編集」のサーバーの部品: 声を伴奏から分けて(Spleeter 2stems・sherpa-onnx・CPU)、分けた声の音量から声のある区間を作る(notes:plan/voice-separation-1022.md)。
+  - 名前: `sep_model_dir` :34・`spans_from_db` :38・`prefetch` :74・`prefetch_local` :90・`voice_spans` :110
 - **tx_engines.py** (1376 行) — 文字起こしの認識エンジンの口(精度改善の計画 段2。notes:plan/line-b-transcription.md(付録))。
   - 名前: `engine_home` :52・`engine_of` :61・`env_num` :66・`is_16k_mono` :75・`half_cpu` :80・`class EngineError` :85・`class Engine` :93・`class FasterWhisper` :146・`scan_timings` :225・`gpu_peek` :249・`wcpp_env` :264・`wcpp_bin_dir` :273・ほか 21
-- **worker.py** (334 行) — ① 文字起こしの認識ワーカー(統合計画の段階3-3)。編集のサーバーが別プロセスとして起動する(worker_client.WorkerClient)。人が直接起動するものではない。
-  - 名前: `class Out` :84・`class JobProxy` :94・`handle` :265・`main` :289
+- **worker.py** (340 行) — ① 文字起こしの認識ワーカー(統合計画の段階3-3)。編集のサーバーが別プロセスとして起動する(worker_client.WorkerClient)。人が直接起動するものではない。
+  - 名前: `class Out` :84・`class JobProxy` :94・`handle` :271・`main` :295
 - **worker_client.py** (735 行) — ① 認識ワーカー(別プロセス)とのやり取りとモデル: ワーカーの起動・要求・取り消し・強制終了(WorkerClient・WORKER)・モデルの代理(RemoteModel)・
   - 名前: `release_idle_models` :39・`worker_script` :68・`worker_log` :73・`worker_env` :90・`class WorkerError` :108・`class WorkerClient` :129・`class RemoteModel` :429・`req_engine` :481・`engines_info` :495・`check_engine` :502・`load_model` :515・`nvidia_gpu` :531・ほか 12
 

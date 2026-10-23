@@ -20,7 +20,7 @@ def make_doc_rows(job, spec, wav, pairs, learned=None):
     -> {"segs", "original", "words", "dictApplied", "learnApplied"・"raw"(生出力 asr.json の segments)・"total"(音声の長さ)・
         "t_rec"(認識を始めた time.monotonic())・"fill_rec"・"names_n"・"llm_rec"・"llm_items"・
         "secs"(段ごとの秒 {"recognize", "fill", "llm"}。記録用)}。取り消しは途中で Cancelled"""
-    res = recognize.transcribe_rows(job, spec, wav)
+    res = recognize.transcribe_rows(job, spec, wav)   # 本物の口は音を取り出したあと、声の分離を裏で始める(backend.Backend.transcribe・dropSilent)
     t_fill = time.monotonic()
     rows, total = res["rows"], res["total"]
     rows, names_n = fill.fill_strip_names(spec, rows)   # 行の頭の「名前:」を外す(設定 stripNames)

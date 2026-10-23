@@ -6,8 +6,11 @@
 口の形: voice_spans(job, wav) -> [(始め, 終わり)](wav の頭からの秒)。部品を足すとき(同時発話の研究の「人ごとに分ける」など)は SEP_MODELS に行を足し、
 同じ形(音のパス → 声の区間)で返す。本物と疑似は backend の口 voice_spans(疑似 = eval/fake/fake_asr の TRANSCRIBE_FAKE_VOICED)。
 numpy・sherpa_onnx は _voice_spans_local の中で読む(サーバーのプロセスでは読まない = tests/pipeline/transcribe/test_worker.py の検査)。
+先回り(prefetch。10-23): 認識の前に、ワーカーの裏の糸で分け始める(認識は whisper.cpp の子プロセスが GPU で動くので、その間 CPU で分ける)。
+あとの voice_spans は同じ音(パス・大きさ・更新日時)の結果を待って使う = 分け方も結果も同じで、待ち時間だけ認識と重なる。スイッチ SEP_PREFETCH
 """
 import os
+import threading
 
 from ytt import jobs as _heavy, workdata as _workdata
 from . import backend as _backend, tx_engines, worker_client
@@ -58,6 +61,52 @@ def spans_from_db(db, frame=SEP_FRAME, drop=SEP_DB, gap=SEP_GAP, min_len=SEP_MIN
     return [(a, b) for a, b in merged if b - a >= min_len]
 
 
+SEP_PREFETCH = True   # 認識の前に裏で分け始める(False = 後処理のときに分ける = 前のまま)
+PREFETCH_KEEP = 4     # 使われずに残った先回りの数の上限(古い物から捨てる)
+_pre, _pre_lock = {}, threading.Lock()   # 音の鍵 -> (糸, {"v": 区間 | "e": 例外})
+
+
+def _key(wav):
+    st = os.stat(wav)
+    return (os.path.normcase(os.path.abspath(wav)), st.st_size, st.st_mtime_ns)
+
+
+def prefetch(job, wav):
+    """認識の前に声の分離を裏で始める(サーバーからはワーカーの要求 voicedPrefetch・測る道具はこのプロセスの糸)。疑似・スイッチがオフなら何もしない。
+    始められなくても止めない(あとの voice_spans がその場で分ける)"""
+    if not SEP_PREFETCH or _backend.is_fake():
+        return
+    try:
+        if worker_client.IN_WORKER:
+            prefetch_local(wav)
+        else:
+            worker_client.WORKER.call("voicedPrefetch", {"wav": wav}, job)
+    except _heavy.Cancelled:
+        raise
+    except Exception:   # noqa: BLE001  (先回りは補助)
+        pass
+
+
+def prefetch_local(wav):
+    """ワーカーの中: 裏の糸で _separate_local を始める(同じ音がもう始まっていれば何もしない)"""
+    key = _key(wav)
+    box = {}
+
+    def run():
+        try:
+            box["v"] = _separate_local({"cancel": False, "progress": 0.0}, wav)
+        except BaseException as e:   # noqa: BLE001  (使う側がその場で分け直す)
+            box["e"] = e
+    with _pre_lock:
+        if key in _pre:
+            return
+        while len(_pre) >= PREFETCH_KEEP:
+            _pre.pop(next(iter(_pre)))
+        t = threading.Thread(target=run, daemon=True, name="sep-prefetch")
+        _pre[key] = (t, box)
+    t.start()
+
+
 def voice_spans(job, wav):
     """wav(16 kHz・モノラル)の分けた声の区間 [(始め, 終わり)]。本物はワーカーで分ける(型が無ければ取る)"""
     return _backend.select().voice_spans(job, wav, _voice_spans_real)
@@ -71,6 +120,24 @@ def _voice_spans_real(job, wav):
 
 
 def _voice_spans_local(job, wav):
+    """認識ワーカーの中だけで動く。先回りがあればその結果を待って使い(同じ音)、無ければ・失敗していればその場で分ける"""
+    try:
+        key = _key(wav)
+    except OSError:
+        key = None
+    with _pre_lock:
+        got = _pre.pop(key, None) if key else None
+    if got:
+        t, box = got
+        while t.is_alive():
+            _heavy.check_cancel(job)
+            t.join(0.2)
+        if "v" in box:
+            return box["v"]
+    return _separate_local(job, wav)
+
+
+def _separate_local(job, wav):
     """認識ワーカーの中だけで動く(numpy・sherpa-onnx)。SEP_CHUNK 秒ずつ分けて、分けた声の SEP_FRAME 秒ごとの音量から区間を作る"""
     tx_engines._need_sherpa("install-diarize.bat")   # 部品が無い PC では生の ImportError でなく入れ方の案内
     import numpy as np
