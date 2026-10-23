@@ -9,7 +9,8 @@
   var esc = UIKit.esc;
   var EXTRA = { other: { k: 'O', label: 'その他(ゲームの音など)' }, mixed: { k: 'M', label: '声が混ざっている' } };
   var NAME_PREFIX = 'name:';
-  var NOTE = { below_match: '覚えた声との似かたが弱い話者です', margin: '覚えた声の 2 人が近く、どちらか決めきれなかった話者です' };
+  var NOTE = { below_match: '覚えた声との似かたが弱い話者です', margin: '覚えた声の 2 人が近く、どちらか決めきれなかった話者です',
+    solo: 'ソロ配信と見た配信の行です(声を覚える材料を集めています)。ほかの人の声ならその人を、分からなければ [飛ばす]' };
   var WAIT = '再生が終わってから押せます(よく聞いてから答えるため)';
 
   function answerOf(id) {

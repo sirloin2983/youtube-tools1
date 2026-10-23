@@ -28,6 +28,7 @@ from human.proof import speakers as _speakers, store as _store
 from . import _doc, answerlog, apply as _apply   # 同じ human/check の兄弟
 
 KIND, SOURCE = "voice", "diar"
+SOURCES = (SOURCE, "solo")   # 答えの形・反映が同じ出どころ(solo = ソロ配信の行。入口 app/check/voice_solo。10-23)
 OTHER, MIXED = _yschemas.OTHER_SPK_ID, "mixed"   # その他 = 組み込みの話者「ゲーム音声など」の id・混ざり = 答えの印
 NAME_PREFIX = "name:"           # 選択肢の id: 登録簿の名前(文書にまだいない人)
 MAX_NAMED = 9                   # 名前の選択肢の数(数字キー 1〜9)
@@ -282,7 +283,7 @@ def _pending(ctx, extra=()):
     """まだ覚えていない材料 -> {(emb, 名前): {文書: {行: 秒}}}。extra = 記録にまだ書いていない今の答えの材料 [{doc, row, name, sec, emb}]"""
     items = []
     for r in answerlog.state(ctx.app_dir).effective():
-        if r.get("kind") != KIND or r.get("source") != SOURCE:
+        if r.get("kind") != KIND or r.get("source") not in SOURCES:
             continue
         lr = (r.get("applied") or {}).get("learn")
         if isinstance(lr, dict):
@@ -350,4 +351,5 @@ def _submit(tid, d):
     return {"names": names, "rows": len(rows), "job": job["id"]}
 
 
-_apply.register(KIND, SOURCE, _apply_voice, _revert_voice, _check_answer)
+for _src in SOURCES:
+    _apply.register(KIND, _src, _apply_voice, _revert_voice, _check_answer)

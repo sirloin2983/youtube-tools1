@@ -109,7 +109,7 @@
 
   var KIND_TEXT = { value: '切り抜く価値があるか', read: 'どちらの読みが正しいか', voice: 'これは誰の声?', time: '行の時刻が合っているか',
     speech: 'この行は声ですか?', cut: '機械のカットの確認', section: '区間を聞いて直す(評価用)' };
-  var SOURCE_TEXT = { auto: '自動で採った', cand: '候補のまま', fill: '後処理', alt: '別のエンジン', diar: '話者の判別', row: '文字が決まった行', eval: '評価用の動画', edge: '切れ目', gap: '消した所', whole: '仕上がり' };
+  var SOURCE_TEXT = { auto: '自動で採った', cand: '候補のまま', fill: '後処理', alt: '別のエンジン', diar: '話者の判別', solo: 'ソロ配信', row: '文字が決まった行', eval: '評価用の動画', edge: '切れ目', gap: '消した所', whole: '仕上がり' };
   var KEEP = 10, LOW = 3, SUM_EVERY = 10;
   var ID_RE = /^[\w:.#|\/-]{1,200}$/;
   var LOAD_TEXT = { offline: 'ホームにつながりませんでした(start.bat の黒い画面が閉じていないか確かめてください)' };
