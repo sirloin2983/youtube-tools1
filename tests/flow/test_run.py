@@ -970,6 +970,9 @@ class TestStepNormalize(unittest.TestCase):
         self.tmp = testkit.tempdir(self, "run-norm-")
         self.env = mock.patch.dict(os.environ, {"TRANSCRIBE_NORMALIZE": ""})
         self.env.start()
+        par = mock.patch.object(R, "NORM_PARALLEL", False)   # 段の中で作り直す形(並べる形は TestNormalizeParallel)
+        par.start()
+        self.addCleanup(par.stop)
         self.marks = []
 
         test = self
@@ -1098,6 +1101,90 @@ class TestStepNormalize(unittest.TestCase):
             slots.release(token)
         self.assertEqual(got, ["cancelled"])
         self.assertEqual(run.source_path, src)
+
+
+class TestNormalizeParallel(unittest.TestCase):
+    """30fps の作り直しと文字起こしを並べる(R.NORM_PARALLEL): 作り直しは裏の糸・元の写しで文字起こし・済んだら付け替えて元を消す"""
+
+    def setUp(self):
+        self.tmp = testkit.tempdir(self, "run-normpar-")
+        self.src = os.path.join(self.tmp, "依頼.mkv")
+        with open(self.src, "wb") as f:
+            f.write(b"x")
+        self.relinked = []
+        test = self
+
+        class Tools(T.HttpTools):
+            why = None
+
+            def relink(self, tid, path):
+                test.relinked.append((tid, path))
+                return self.why
+        self.tools = Tools(FakeClient())
+        self.runner = R.Runner(FakeClient(), poll=0.01, sleep=lambda s: None, tools=self.tools)
+        self.runner._checkpoint = lambda run: None
+        self.run = RF.run_of(None, "依頼", "file_auto", None, source_path=self.src, request_id="20261016-120000-abcdef", normalize=True)
+
+    def start(self, out):
+        """作り直しを始める(out = 作り直しの結果。パスなら写しを作る)-> 段"""
+        def fake_run(plan, cancelled=None, **kw):
+            self.plan = plan
+            if out[0]:
+                with open(plan["dst"], "wb") as f:
+                    f.write(b"30")
+                return plan["dst"], "作り直しました"
+            return out
+        st = self.run.step("normalize")
+        with mock.patch.object(R._norm, "plan", lambda path, replace=True: {"src": path, "dst": os.path.splitext(path)[0] + ".mp4", "why": ["60fps"], "replace": True}), \
+                mock.patch.object(R._norm, "run", fake_run):
+            self.runner._file_normalize(self.run, st)
+            self.run.norm_bg["thread"].join(10)
+        return st
+
+    def test_relinks_doc_and_removes_copy(self):
+        st = self.start((True,))
+        self.assertIs(self.plan["replace"], False)   # 元は付け替えが済むまで消さない(文字起こしが読む)
+        self.assertEqual(self.run.source_path, self.src)   # 文字起こしは元の写しで
+        self.run.doc_id = "t1"
+        self.runner._norm_join(self.run)
+        new = os.path.splitext(self.src)[0] + ".mp4"
+        self.assertEqual((self.relinked, self.run.source_path), ([("t1", new)], new))
+        self.assertFalse(os.path.exists(self.src))
+        self.assertIn("並べて", st["detail"])
+        self.assertIsNone(self.run.norm_bg)
+
+    def test_relink_refused_keeps_original(self):
+        """付け替えを断られたら、作った写しを消して元の写しのまま(警告)"""
+        self.start((True,))
+        self.tools.why = "先に更新されています"
+        self.run.doc_id = "t1"
+        self.runner._norm_join(self.run)
+        st = self.run.step("normalize")
+        self.assertEqual((st["state"], self.run.source_path), ("warn", self.src))
+        self.assertTrue(os.path.exists(self.src))
+        self.assertFalse(os.path.exists(os.path.splitext(self.src)[0] + ".mp4"))
+
+    def test_failure_keeps_original(self):
+        self.start((None, "30fps にそろえられませんでした(テスト)"))
+        self.run.doc_id = "t1"
+        self.runner._norm_join(self.run)
+        st = self.run.step("normalize")
+        self.assertEqual((st["state"], self.run.source_path, self.relinked), ("warn", self.src, []))
+        self.assertIn("テスト", st["detail"])
+
+    def test_same_name_gets_other_name(self):
+        """元が .mp4(作り直しの名前と同じ)なら別の名前に作る(読んでいる元を上書きしない)"""
+        self.src = self.run.source_path = os.path.join(self.tmp, "元.mp4")
+        with open(self.src, "wb") as f:
+            f.write(b"x")
+        self.start((True,))
+        self.assertNotEqual(os.path.normcase(self.plan["dst"]), os.path.normcase(self.src))
+
+    def test_switch_off_or_no_relink_is_inline(self):
+        with mock.patch.object(R, "NORM_PARALLEL", False):
+            self.assertFalse(self.runner._norm_parallel_ok(self.run))
+        self.runner.tools = object()   # 付け替えの口が無い(LocalTools)
+        self.assertFalse(self.runner._norm_parallel_ok(self.run))
 
 
 class TestEnvelopeV2(unittest.TestCase):
