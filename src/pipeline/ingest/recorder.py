@@ -255,7 +255,8 @@ class Handler(BaseHTTPRequestHandler):
         rec = self.server.rec
         try:
             if u.path == "/live/start":
-                return self._json(200, {"recording": rec.start(body.get("url"), body.get("quality") or rec_core.DEFAULT_QUALITY, body.get("title") or "")})
+                return self._json(200, {"recording": rec.start(body.get("url"), body.get("quality") or rec_core.DEFAULT_QUALITY, body.get("title") or "",
+                                                                     body.get("streamStart"))})
             if u.path == "/live/config":
                 folder = clean_folder(body.get("folder"))
                 if os.path.normcase(folder) != os.path.normcase(rec.folder or ""):

@@ -106,27 +106,38 @@ def _clean(s, n):
     return "" if s == "NA" else s[:n].strip()
 
 
+def _epoch(s):
+    """yt-dlp の release_timestamp の文字 -> エポック秒(int)か None(NA・形が違う・2020 年より前・今より 1 日以上先)"""
+    try:
+        v = int(float(str(s).strip()))
+    except (TypeError, ValueError):
+        return None
+    return v if 1577836800 <= v <= time.time() + 86400 else None
+
+
 def probe_live(url, timeout=PROBE_TIMEOUT):
     """yt-dlp で配信の状態・チャンネル名・題を調べる(ダウンロードしない・シェルを通さない・窓を出さない)。
     -> {"status": LIVE_STATUSES のどれか か "unknown", "title": 題, "channel": チャンネル名(無ければ投稿者。分からなければ ""), "message": 調べられなかった理由,
-        "id": 動画の id(分かれば。/@名前/live の URL を watch?v= にそろえる = 配信中のチャットを読めるように)}"""
+        "id": 動画の id(分かれば。/@名前/live の URL を watch?v= にそろえる = 配信中のチャットを読めるように),
+        "start": 配信の開始時刻(エポック秒。配信中だけ yt-dlp の release_timestamp。無ければ None。ライブの録画の画面の「配信の時刻」= 10-23)}"""
     yd = tools.find_tool("yt-dlp")
     if not yd:
         return {"status": "unknown", "title": "", "channel": "", "message": "yt-dlp が見つからないので、配信中か調べられませんでした"}
     try:   # 題は最後(題にタブが入っても崩れない)。%(channel,uploader)s = チャンネル名が無ければ投稿者(yt-dlp の書式の「代わり」)
-        r = tools.run(tools.ytdlp_print_cmd(yd, url, "%(live_status)s\t%(id)s\t%(channel,uploader)s\t%(title)s"), timeout=timeout, err_tail=40)
+        r = tools.run(tools.ytdlp_print_cmd(yd, url, "%(live_status)s\t%(id)s\t%(channel,uploader)s\t%(release_timestamp)s\t%(title)s"), timeout=timeout, err_tail=40)
     except OSError as e:
         return {"status": "unknown", "title": "", "channel": "", "message": "yt-dlp を起動できませんでした: %s" % (e.strerror or e.__class__.__name__)}
     if r.why == "timeout":
         return {"status": "unknown", "title": "", "channel": "", "message": "配信の状態を %d 秒で調べられませんでした" % int(timeout)}
     lines = r.out.decode("utf-8", "replace").strip().splitlines()
-    parts = (lines[-1] if lines else "").split("\t", 3)
+    parts = (lines[-1] if lines else "").split("\t", 4)
     st = parts[0].strip()
-    vid = parts[1].strip() if len(parts) > 3 and LX.YT_ID_RE.match(parts[1].strip()) else ""
-    channel = _clean(parts[2], CHANNEL_MAX) if len(parts) > 3 else ""
+    vid = parts[1].strip() if len(parts) > 4 and LX.YT_ID_RE.match(parts[1].strip()) else ""
+    channel = _clean(parts[2], CHANNEL_MAX) if len(parts) > 4 else ""
+    start = _epoch(parts[3]) if len(parts) > 4 and st == "is_live" else None   # 配信の前の release_timestamp は予定の時刻 = 使わない
     title = _clean(parts[-1], LX.TITLE_MAX) if len(parts) > 1 else ""
     if st in LIVE_STATUSES:
-        return {"status": st, "title": title, "channel": channel, "message": "", "id": vid}
+        return {"status": st, "title": title, "channel": channel, "message": "", "id": vid, "start": start}
     err = r.err.decode("utf-8", "replace")
     if "will begin" in err or "Premieres in" in err:   # 古い yt-dlp は配信の前をエラーで返す
         return {"status": "is_upcoming", "title": title, "channel": channel, "message": "", "id": vid}
@@ -810,8 +821,10 @@ class LiveSession:
             return view(found, True)
         q = self.cfg().get("quality")
         title = info.get("title") if isinstance(info.get("title"), str) else ""
-        code, d = self.call(rc, "POST", "/live/start", {"url": url, "quality": q if q in QUALITIES else DEFAULT_QUALITY, "title": title[:LX.TITLE_MAX]},
-                            timeout=15.0)
+        body = {"url": url, "quality": q if q in QUALITIES else DEFAULT_QUALITY, "title": title[:LX.TITLE_MAX]}
+        if info.get("start"):
+            body["streamStart"] = info["start"]   # 配信の開始時刻(録画の画面の「配信の時刻」)
+        code, d = self.call(rc, "POST", "/live/start", body, timeout=15.0)
         if code == 200 and isinstance(d, dict) and isinstance(d.get("recording"), dict):
             self._recent = None   # ヘッダーの札にすぐ出す
             self.log("リアルタイム切り抜き: 録画を始めました %s(%s)" % (d["recording"].get("id"), url))

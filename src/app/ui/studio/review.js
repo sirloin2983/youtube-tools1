@@ -150,11 +150,12 @@ function playerHTML(){
       <div class="rv-notice notice" id="rvNotice" hidden></div>
 
       <div class="rv-deck">
+        <div class="rv-recbar" id="rvRecBar" hidden aria-hidden="true"></div>
         <div class="rv-tl" id="rvTl" role="group" aria-label="タイムライン。クリックでその位置へ移動" data-ui-audit-allow="A-25">
-          <div id="rvPeakSegs" data-ui-audit-allow="A-21"></div><div id="rvSegs" data-ui-audit-allow="A-21"></div><div class="rv-draft" id="rvDraft" hidden></div><div class="rv-ph" id="rvPh"></div>
+          <div class="rv-recgaps" id="rvRecGaps" aria-hidden="true"></div><div id="rvPeakSegs" data-ui-audit-allow="A-21"></div><div id="rvSegs" data-ui-audit-allow="A-21"></div><div class="rv-draft" id="rvDraft" hidden></div><div class="rv-ph" id="rvPh"></div>
         </div>
         <div class="rv-graph" id="rvGraph" hidden><div class="rv-gsvg" id="rvGSvg"></div><div class="rv-gticks" id="rvGTicks" aria-hidden="true"></div><div class="rv-gcur" id="rvGCur"></div><div class="rv-ghover" id="rvGHover" hidden aria-hidden="true"><span></span></div><div class="rv-gpeaks" id="rvGPeaks"></div></div>
-        <div class="rv-scale" aria-hidden="true"><span>0:00.0</span><div class="rv-glegend" id="rvGLegend" hidden></div><span id="rvTlEnd">--</span></div>
+        <div class="rv-scale" aria-hidden="true"><span>0:00.0</span><div class="rv-glegend" id="rvGLegend" hidden></div><div class="rv-reclegend" id="rvRecLegend" hidden></div><span id="rvTlEnd">--</span></div>
 
         <div class="rv-transport">
           <div class="rv-nowbox">
@@ -185,6 +186,8 @@ function liveBarHTML(){
       <div class="rv-livebar" id="rvLiveBar" hidden>
         <div class="rv-live-l"><span class="rv-live-badge" id="rvLiveBadge">LIVE</span>
           <span class="rv-live-k" id="rvLiveElapsedK">配信経過</span><span class="mono" id="rvLiveElapsed">--</span>
+          <span class="rv-live-k" id="rvStreamAtK" hidden title="今の再生位置が、配信の頭から何時間何分か(YouTube のアーカイブの時刻と同じ数え方)">配信の時刻</span><span class="mono" id="rvStreamAt" hidden>--</span>
+          <span class="rv-live-k" id="rvGapsK" hidden title="録画のつなぎ直しの間で、録れていない所(タイムラインの斜線)">欠け</span><span class="mono" id="rvGaps" hidden>--</span>
           <span class="rv-live-k rv-live-edgeinfo">ライブ端との差</span><span class="mono rv-live-edgeinfo" id="rvLiveGap">--</span>
           <span class="rv-live-k">ライブ印のマーク</span><span class="mono" id="rvLiveMarks">0件</span></div>
         <div class="rv-live-r"><button class="btn small" id="rvEdge" type="button">ライブ端へ</button>
@@ -1131,6 +1134,7 @@ function updateLive(){
   let e = 0; try { e = yt.getDuration(); } catch {}
   if (e > 0 && Math.abs(e - S.duration) >= 1) setDuration(e);
   $('#rvLiveElapsed').textContent = fmt(S.duration);
+  renderStreamAt();
   const gap = S.duration - S.now;
   $('#rvLiveGap').textContent = (gap >= 0 ? '−' : '+') + Math.round(Math.abs(gap)) + '秒';
 }
@@ -1421,8 +1425,70 @@ function renderLiveRec(){
     if (LV.autoDelete === true && LV.jobs.length) guide += '。全部書き出して、アーカイブになったと確かめたら、録画はごみ箱へ移します(3 日で消えます)';   // 録画を自動で消す(設定 live.autoDelete)。驚かないように先に知らせる
   }
   liveSet('#rvLiveGuide', guide); $('#rvLiveGuide').hidden = !guide;
+  renderRecSpans(); renderStreamAt();
   renderLiveArch();
   renderPeaks();   // 配信中の候補(録画中 / 終わった で見出しが変わる)
+}
+/* ---------- 録画済みの範囲・欠け・配信の時刻(10-23。計画の 0-8 の残り。見本と項目表は保管庫 plan/ライブの録画の範囲と欠け-1023.md) ----------
+   録画の状態(r/…/status の sessionList)から、つなぎ直しごとの録れた範囲を「最初に録れた時刻」からの秒にして、その間を欠けとして描く
+   (スタジオの時間 = 受信時刻の幅なので、欠けの間も時間は進む = タイムラインにそのまま置ける)。録画が配信の途中で終わった(止めた・エラー)は、
+   帯の終わりに印。配信の時刻 = 再生位置 + (最初に録れた時刻 − 配信の開始時刻)。開始時刻は録画を始めたときに入口が yt-dlp で取った物(streamStart)。
+   無くても、配信の前から待っていた録画(作った時刻が最初に録れた時刻より前)なら、最初に録れた時刻 = 配信の 0 秒。どちらでもなければ出さない。
+   見回りでは、形が変わったときだけ描き直す(要素を毎回作らない。0-7 の 2) */
+const REC_GAP_MIN = 3;   // これより短い隙間は欠けにしない(秒。セグメントの区切りの揺れ)
+const REC_CUT = { stopped: '録画を止めたので、ここまでです', error: '録画がエラーで止まったので、ここまでです' };
+const REC_BLOCKED_ENDED = 'bot と判定されたまま';   // rec_core.BLOCKED_ENDED の一部(断られて終えた録画)
+function recSpans(st){
+  const base = st && Date.parse(st.firstPdt);
+  if (!Number.isFinite(base)) return null;
+  const list = (Array.isArray(st.sessionList) ? st.sessionList : []).filter(x => Number(x.segments) > 0 && Number.isFinite(Date.parse(x.firstPdt)))
+    .map(x => ({ a: (Date.parse(x.firstPdt) - base) / 1000, b: (Date.parse(x.firstPdt) - base) / 1000 + (Number(x.seconds) || 0) })).sort((p, q) => p.a - q.a);
+  const ranges = [], gaps = [];
+  for (const r of list){
+    const last = ranges[ranges.length - 1];
+    if (last && r.a - last.b < REC_GAP_MIN){ last.b = Math.max(last.b, r.b); continue; }
+    if (last) gaps.push({ a: last.b, b: r.a });
+    ranges.push({ a: Math.max(0, r.a), b: r.b });
+  }
+  const msg = String(st.message || '');
+  const cut = st.active ? '' : msg.includes(REC_BLOCKED_ENDED) ? 'YouTube に断られて録画を終えたので、ここまでです' : (REC_CUT[st.state] || '');
+  return { ranges, gaps, cut };
+}
+function streamOffset(st){
+  const base = st && Date.parse(st.firstPdt), start = st && Date.parse(st.streamStart), made = st && Date.parse(st.created);
+  if (!Number.isFinite(base)) return null;
+  if (Number.isFinite(start)) return Math.max(0, (base - start) / 1000);
+  return Number.isFinite(made) && made < base - 5000 ? 0 : null;   // 配信の前から待っていた = 最初に録れた時刻が配信の 0 秒
+}
+const RV_REC = { key: '' };
+function renderRecSpans(){
+  const v = S.cur, bar = $('#rvRecBar'), holes = $('#rvRecGaps'), leg = $('#rvRecLegend');
+  if (!bar) return;
+  const sp = v && v.kind === 'live' && LV.vid === v.id && !LV.err ? recSpans(LV.status) : null;
+  const tot = totalDur();
+  const key = sp && tot > 0 ? [Math.round(tot), JSON.stringify(sp)].join('|') : '';
+  if (key === RV_REC.key) return;
+  RV_REC.key = key;
+  bar.hidden = leg.hidden = !key;
+  for (const sel of ['#rvGapsK', '#rvGaps']) $(sel).hidden = !key;
+  if (!key){ bar.innerHTML = holes.innerHTML = leg.innerHTML = ''; return; }
+  const box = (cls, a, b, tip) => `<span class="${cls}" style="left:${pct(a)}%;width:${Math.max(0.15, pct(b) - pct(a))}%"${tip ? ` title="${esc(tip)}"` : ''}></span>`;
+  const gapTip = g => `欠け ${tickLabel(g.a)}〜${tickLabel(g.b)}(${tickLabel(g.b - g.a)}・つなぎ直しの間は録れていません)`;
+  const end = sp.ranges.length ? sp.ranges[sp.ranges.length - 1].b : 0;
+  bar.innerHTML = sp.ranges.map(r => box('rv-recon', r.a, r.b, `録画済み ${tickLabel(r.a)}〜${tickLabel(r.b)}`)).join('') +
+    sp.gaps.map(g => box('rv-rechole', g.a, g.b, gapTip(g))).join('') + (sp.cut ? `<span class="rv-reccut" style="left:${pct(end)}%" title="${esc(sp.cut)}"></span>` : '');
+  holes.innerHTML = sp.gaps.map(g => box('rv-rechole', g.a, g.b, gapTip(g))).join('');
+  const sum = sp.gaps.reduce((n, g) => n + (g.b - g.a), 0);
+  liveSet('#rvGaps', sp.gaps.length ? `${sp.gaps.length} か所(計 ${tickLabel(sum)})` : 'なし');
+  leg.innerHTML = '<span><i class="rv-sw on"></i>録画済み</span>' + (sp.gaps.length ? '<span><i class="rv-sw hole"></i>欠け</span>' : '') +
+    (sp.cut ? `<span title="${esc(sp.cut)}"><i class="rv-sw cut"></i>録画はここまで</span>` : '');
+}
+function renderStreamAt(){
+  const v = S.cur, k = $('#rvStreamAtK'), el = $('#rvStreamAt'); if (!el) return;
+  const off = v && v.kind === 'live' && LV.vid === v.id && !LV.err ? streamOffset(LV.status) : null;
+  const show = off != null && Number(LV.status && LV.status.segments) > 0;
+  if (k.hidden === show){ k.hidden = el.hidden = !show; }
+  if (show) liveSet('#rvStreamAt', tickLabel(S.now + off));
 }
 /* 終わった録画の帯の「アーカイブから書き出す」。録画中・状態が分からない間は出さない。文字と属性だけを直す */
 function renderLiveArch(){
@@ -2664,6 +2730,7 @@ function renderTimeline(){
     return `<button type="button" class="rv-seg ${isAutoLike(c) ? 'auto' : 'man'}${c.status ? ' st-' + esc(c.status) : ''}${S.sel === c.id ? ' sel' : ''}" style="left:${l}%;width:${w}%" data-id="${esc(c.id)}" aria-label="${esc(STATUS_LABEL[c.status || ''] || c.status)} ${esc(c.label || (c.src === 'auto' ? '自動' : '無題'))} ${fmt(c.start)}から${fmt(c.end)}"></button>`;
   }).join('');
   renderDuration(); renderPlayhead(); renderDraft(); renderGraph();
+  renderRecSpans();   // 録画済みの範囲と欠け(長さが変わると位置も変わる)
   renderPeakSegs();   // 配信中の候補の印(長さが変わると位置も変わる)
   placeNote();   // 選んだマークが変わった(選ぶ・足す・消すはどれもここを通る)
 }

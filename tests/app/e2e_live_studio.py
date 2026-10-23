@@ -238,7 +238,8 @@ def run(tmp, shots, force_chromium):
     fake_runner = FakeRunner()
     live.runner = lambda: fake_runner
     probes = []
-    live.probe = lambda url: probes.append(url) or {"status": "is_live", "title": TITLE, "channel": CHANNEL, "message": ""}
+    stream_start = int(time.time()) - 600   # 配信は 10 分前に始まっていた(録画の画面の「配信の時刻」= 録画の時刻 + 約 600 秒)
+    live.probe = lambda url: probes.append(url) or {"status": "is_live", "title": TITLE, "channel": CHANNEL, "message": "", "start": stream_start}
     # 入口 → 録画元の要求だけ、YouTube の形の URL を手元の HLS に読み替える(返ってきた値は YouTube の形に戻す)
     url_map = {YT1: live_src.url}
     back = {v: k for k, v in url_map.items()}
@@ -516,7 +517,7 @@ def _scene_seek_and_leave(cx):
 def _scene_gap(cx):
     """欠け(繋ぎ直し)をまたぐ: 状態の表示・欠けの中への seek・欠けのあとのマークの位置"""
     LX, api, check, edge, live_src, pg, rid = cx.LX, cx.api, cx.check, cx.edge, cx.live_src, cx.pg, cx.rid
-    skip = cx.skip
+    skip, shots = cx.skip, cx.shots
     # ---------------- 欠け(繋ぎ直し)をまたぐ: 状態の表示・欠けの中への seek・欠けのあとのマークの位置 ----------------
     live_src.down = True
     check(wait_js(pg, "() => /つなぎ直し中/.test(document.querySelector('#rvRecState').textContent)", 30000),
@@ -540,6 +541,28 @@ def _scene_gap(cx):
                 break
             time.sleep(0.5)
         check(gap, "欠け: 再生リストの受信時刻に欠けがある: %s" % gap)
+        # 録画済みの範囲と欠けを描く(10-23。計画の 0-8 の残り): タイムラインの上の帯に録れた所 2 つと欠け 1 つ・タイムラインの中に欠けの斜線・帯の「欠け 1 か所」
+        check(wait_js(pg, "() => !document.querySelector('#rvRecBar').hidden && document.querySelectorAll('#rvRecBar .rv-recon').length === 2"
+                          " && document.querySelectorAll('#rvRecBar .rv-rechole').length === 1 && document.querySelectorAll('#rvRecGaps .rv-rechole').length === 1"
+                          " && /1 か所/.test(document.querySelector('#rvGaps').textContent)", 15000),
+              "欠け: 録画済みの範囲 2 つと欠け 1 つを描く・帯に「欠け 1 か所」: %s・%s" % (pg.inner_html("#rvRecBar")[:300], pg.text_content("#rvGaps")))
+        hole = pg.evaluate("() => { const b = document.querySelector('#rvRecGaps .rv-rechole'); return b ? { left: parseFloat(b.style.left), title: b.title } : null; }")
+        if gap and hole:
+            dur = pg.evaluate("() => %s.duration" % VIDEO) or 0
+            tl = pg.evaluate("() => { const t = document.querySelector('#rvTlEnd').textContent.split(':').map(Number); return t.reduce((a, b) => a * 60 + b, 0); }")
+            want = gap["from"] / max(1.0, tl) * 100 if tl else None
+            check(want is None or abs(hole["left"] - want) < 6, "欠け: 斜線の位置 = 欠けの始まり(%.1f%% / 期待 %s%%)・%s" % (hole["left"], "%.1f" % want if want else "?", hole["title"]))
+        at = pg.evaluate("() => { const e = document.querySelector('#rvStreamAt'); return e && !e.hidden ? e.textContent : null; }")
+        rec_now = pg.evaluate("() => %s.currentTime" % VIDEO) or 0
+        def secs(t):
+            n = 0
+            for x in (t or "").split(":"):
+                n = n * 60 + int(x)
+            return n
+        check(at is not None and 590 <= secs(at) - rec_now <= 640 + gap["last"] if gap else at is not None,
+              "配信の時刻: 録画の時刻 + 約 600 秒(配信の開始は 10 分前): 配信の時刻 %s・再生位置 %.1f 秒" % (at, rec_now))
+        if shots:
+            pg.screenshot(path=os.path.join(shots, "live_04b_gap.png"))
         if gap:
             mid = (gap["from"] + gap["to"]) / 2
             pg.evaluate("() => %s.pause()" % VIDEO)   # 止めてから移す(再生を続けると位置が進んで比べられない)
@@ -653,6 +676,8 @@ def _scene_badge_stop(cx):
           "9 札が「録画終了」になる: %s" % pg.text_content("[data-ui-live] .ui-live-btn"))
     check(pg.evaluate("() => document.querySelector('.ui-live-panel').hidden"), "9 止めたら札の一覧は閉じる")
     check("停止しました" not in (pg.text_content("#rvRecMsg") or ""), "9 「停止」の札の横に「停止しました」を重ねない: %s" % pg.text_content("#rvRecMsg"))
+    check(wait_js(pg, "() => !!document.querySelector('#rvRecBar .rv-reccut') && /録画はここまで/.test(document.querySelector('#rvRecLegend').textContent)", 15000),
+          "9 配信の途中で録画を止めた = 帯の終わりに「録画はここまで」の印(10-23): %s" % pg.text_content("#rvRecLegend"))
     check(pg.evaluate("() => !document.querySelector('#rvMarkList .rv-chip.live, .rv-mark-row .rv-chip.live') && document.querySelector('#rvLiveMarks').hidden"),
           "9 録画ではマークの「ライブ」の印と件数を出さない")
     check(pg.evaluate("() => { const v = document.querySelector('#rvHost video'); return !!v && v.controls === false; }"), "9 録画のプレイヤーは標準のコントロールを出さない")

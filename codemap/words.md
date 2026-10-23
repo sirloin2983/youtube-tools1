@@ -66,7 +66,7 @@
   - 画面: src/app/ui/editor/pack-tab.js:37
 - **掲示板** — ② のジョブの掲示板(RS8 の口 S1)
   - コード: `src/flow/board.py`・`src/flow/jobs.py`
-  - 画面: src/app/ui/home/portal.js:632・src/app/ui/studio/review.js:3385
+  - 画面: src/app/ui/home/portal.js:632・src/app/ui/studio/review.js:3452
 - **調子** — 入口の「調子」。空き容量・失敗・道具の版などの集計
   - コード: `src/manage/ops/health.py`・`/api/health` src/app/server.py:734
   - 画面: src/app/ui/cases/panels/cand.js:104・src/app/ui/cases/panels/new.js:203・src/app/ui/home/portal.html:122・src/app/ui/home/portal.js:1186
@@ -160,7 +160,7 @@
 - 事務所の登録を開く(4)— src/app/ui/studio/rank.js:156
 - 取り消す(4)— src/app/ui/editor/app-tpl.js:45
 - 外す(4)— src/app/ui/studio/rank.js:78
-- 戻す(4)— src/app/ui/studio/review.js:1834
+- 戻す(4)— src/app/ui/studio/review.js:1900
 - 標準(4)— src/app/ui/cases/panels/cand.js:29
 - 詳しく(4)— src/app/ui/cases/cases.js:416
 - 読み込んでいます…(4)— src/app/ui/home/portal.html:44
@@ -180,7 +180,7 @@
 - 基準(3)— src/app/ui/studio/collab.js:153
 - 映像トラック(3)— src/friendapp/ui/friend.html:103
 - 更新(3)— src/app/ui/home/portal.html:209
-- 確かめています…(3)— src/app/ui/studio/review.js:195
+- 確かめています…(3)— src/app/ui/studio/review.js:198
 - 自動(3)— src/app/ui/editor/app-tpl.js:92
 - 良い(3)— src/app/ui/check/cards/cut.js:9
 - 読み込み直す(3)— src/app/ui/cases/panels/machpick.js:37
@@ -198,7 +198,7 @@
 - まだ検索していません(2)— src/app/ui/studio/rank.js:196
 - もう一度検索する(2)— src/app/ui/studio/rank.js:308
 - もっと見る(あと(2)— src/app/ui/home/portal.js:884
-- アーカイブ(2)— src/app/ui/studio/review.js:2424
+- アーカイブ(2)— src/app/ui/studio/review.js:2490
 - カット(2)— src/app/ui/cases/panels/cut.js:118
 - カット・パック(2)— src/app/ui/cases/cases.js:73
 - カット・パックへ(2)— src/app/ui/editor/app-core.js:37
@@ -237,6 +237,7 @@
 - 期間(2)— src/app/ui/studio/rank.js:161
 - 本数(2)— src/friendapp/ui/friend.html:85
 - 校正済み(2)— src/app/ui/editor/app-rows.js:426
+- 欠け(2)— src/app/ui/studio/review.js:190
 - 正解字(2)— src/app/ui/home/portal-edit.js:52
 - 残す(2)— src/app/ui/editor/cut.js:700
 - 消す(2)— src/app/ui/check/cards/section.js:35
@@ -259,7 +260,7 @@
 - 配信の URL(2)— src/app/ui/studio/queue.js:19
 - 配信を探す(2)— src/app/ui/studio/queue.js:41
 - 長さ(2)— src/app/ui/studio/rank.js:344
-- 音量(2)— src/app/ui/studio/review.js:192
+- 音量(2)— src/app/ui/studio/review.js:195
 - 音量のそろえ方((2)— src/app/ui/cases/panels/cut.js:148
 - (2本以上選ぶと選べます)(1)— src/app/ui/studio/collab.js:116
 - (Mac は(1)— src/app/ui/editor/app-jobs.js:120
@@ -274,18 +275,18 @@
 - )を実行して、ツールを起動し直してください。(1)— src/app/ui/editor/app-jobs.js:120
 - + 区間を足す(1)— src/friendapp/ui/friend.html:83
 - -11 LUFS(大きめ)(1)— src/app/ui/cases/panels/cut.js:149
-- -11(大きめ)(1)— src/app/ui/studio/review.js:300
-- -14(YouTube の目安・おすすめ)(1)— src/app/ui/studio/review.js:300
+- -11(大きめ)(1)— src/app/ui/studio/review.js:303
+- -14(YouTube の目安・おすすめ)(1)— src/app/ui/studio/review.js:303
 - -16 LUFS(少し小さめ)(1)— src/app/ui/cases/panels/cut.js:149
-- -16(控えめ)(1)— src/app/ui/studio/review.js:300
+- -16(控えめ)(1)— src/app/ui/studio/review.js:303
 - -18 LUFS(小さめ)(1)— src/app/ui/cases/panels/cut.js:149
-- -18(小さめ)(1)— src/app/ui/studio/review.js:300
+- -18(小さめ)(1)— src/app/ui/studio/review.js:303
 - / 元(1)— src/app/ui/editor/cut.js:700
 - 0.05秒(1)— src/app/ui/editor/app-tpl.js:212
 - 0.1秒(1)— src/app/ui/editor/app-tpl.js:212
 - 0.25秒(1)— src/app/ui/editor/app-tpl.js:212
 - 0.5秒(1)— src/app/ui/editor/app-tpl.js:212
-- 0件(1)— src/app/ui/studio/review.js:189
+- 0件(1)— src/app/ui/studio/review.js:192
 - 1 つ前に戻す(1)— src/app/ui/check/index.html:55
 - 1. 送る(1)— src/friendapp/ui/guide.html:46
 - 10 字/秒・短い(1)— src/app/ui/editor/app-rows.js:240
@@ -330,4 +331,3 @@
 - : 確認は出ずに、すぐ閉じます。(1)— src/friendapp/ui/guide.html:204
 - API の使用量(1)— src/app/ui/studio/rank.js:337
 - API キー(1)— src/app/ui/cases/panels/new.js:22
-- API キーを削除しますか?(1)— src/app/ui/cases/panels/new.js:173
