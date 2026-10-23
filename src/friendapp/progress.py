@@ -75,6 +75,8 @@ CODES = tuple((code, (LIVE_MARKS[code],), LIVE_MESSAGES[code], False) for code i
     ("net", ("ネット", "接続", "つながらな", "timed out", "timeout", "URLError", "ConnectionError", "HTTP Error 5",
              "getaddrinfo", "WinError 10060", "WinError 10061", "WinError 11001", "SSL"),
      "ネットにつながりませんでした。ネットを確かめてから [もう一度送る] を押してください", True),
+    ("gpuMemory", ("out of memory", "ErrorOutOfDeviceMemory", "cudaMalloc failed", "failed to allocate"),   # GPU のメモリ不足(ゲームなどが使っている。10-23 の見回り)
+     "GPU のメモリが足りませんでした。ゲームなど GPU を使うアプリを閉じてから [もう一度送る] を押してください", True),
     ("gpu", ("gpu_failed", "を使えませんでした。GPU のドライバ"),
      "GPU で文字起こしができませんでした。GPU のドライバを新しくして、パソコンを起動し直してから [もう一度送る] を押してください", False),
     ("busy", ("WinError 32", "別のプロセスが使用中", "being used by another process"),
