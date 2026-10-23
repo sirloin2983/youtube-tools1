@@ -167,7 +167,7 @@
 - 閉じる(4)— src/app/ui/cases/panels/machpick.js:36
 - 開く(4)— src/app/ui/editor/app-jobs.js:66
 - YouTube で開く(3)— src/app/ui/studio/review.js:128
-- YouTube にログイン(3)— friend-apps/launcher/src/YtLogin.cs:140
+- YouTube にログイン(3)— friend-apps/launcher/src/YtLogin.cs:143
 - すべて終了(3)— src/app/ui/home/portal.html:246
 - やり直す(3)— src/app/ui/cases/panels/cut.js:56
 - キャンセル(3)— src/app/ui/cases/panels/cut.js:199
