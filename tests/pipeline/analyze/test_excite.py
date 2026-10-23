@@ -15,6 +15,7 @@ import math
 import random
 import sys
 import unittest
+from unittest import mock
 
 REPO = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests の 3 つ上 = src
 sys.path.insert(0, REPO)
@@ -529,6 +530,22 @@ class TestScene(unittest.TestCase):
             self.assertLessEqual(c["end"] - c["start"], excite.SCENE["max"] * excite.SNAP_RATIO[1])
         cands = excite.candidates(scene, {"audio": total})
         self.assertEqual((cands[0]["shape"], cands[0]["fixed"]), (scene[0]["shape"], scene[0]["fixed"]))
+
+    def test_pick_clips_peak_and_scene_totals_apart(self):
+        n = 3000
+        scene_w = bump(n, 1000, 5.0, 200)   # 区間の形はこちら(広い場面)
+        peak_w = [a + b for a, b in zip(bump(n, 1000, 5.0, 200), bump(n, 2200, 9.0, 20))]   # 山の順位はこちら(2200 秒が上)
+        got = excite.pick_clips(peak_w, [-30.0] * n, dict(SPEC, shape="scene", count=4), n, scene_total=scene_w)
+        self.assertLessEqual(abs(got[0]["peak"] - 2200), 10)
+        self.assertEqual(got[0]["shape"], "fixed")   # 場面の点数では 2200 秒は平ら = 固定の長さ
+        wide = next(c for c in got if abs(c["peak"] - 1000) <= 100)
+        self.assertTrue(wide["start"] < 1000 - 100 and wide["end"] > 1000 + 100, wide)   # 1000 秒の場面は場面の点数で広く取る
+        stamps = [(500.0, 3, 1.0)]
+        self.assertIsNone(excite.peak_total([0.0] * n, [], n, 0.7))   # 書き込みが無ければ前の形
+        with mock.patch.object(excite, "PEAK_COMMENT", None):
+            self.assertIsNone(excite.peak_total([0.0] * n, stamps, n, 0.7))   # スイッチ
+        p = excite.peak_total([0.0] * n, stamps, n, 0.7)
+        self.assertGreater(p[530], 0.0)   # 重い形(後ろ 30 秒)の分だけ山の点数が足される
 
     def test_peakbook_scene_waits_for_settle(self):
         n = 1600

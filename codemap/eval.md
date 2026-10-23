@@ -37,8 +37,8 @@
 - **__init__.py** (2 行) — ⑤ 物差し(測る道具 eval_*・clipfit と共通の部品 _evalcommon)
 - **_evalcommon.py** (342 行) — 測る道具(src/eval/tools の eval_*.py・clipfit.py)の共通の部品。道具は src の中で `py -3.12 -m eval.tools.<名前>` で動かす(入口の accuracy.py も同じ)。
   - 名前: `add_period_args` :36・`split_ids` :45・`label_name` :50・`data_env` :55・`locate` :60・`day_ms` :67・`period` :78・`in_period` :83・`period_label` :92・`iter_docs` :100・`read_answers` :109・`short_pct` :127・ほか 14
-- **clipfit.py** (342 行) — 自動の区間が友人の区間にどれだけ合うかの物差し(LD-2a。notes:plan/done/ld2-clip-length.md の L-2)。⑤ eval_marks が表示に使い、単独でも動く。
-  - 名前: `load_material` :35・`rebuild` :51・`picks` :72・`fit` :81・`summarize` :93・`default_variants` :103・`friend_material` :111・`evaluate` :123・`edge_speech` :184・`scene_only` :242・`grid` :257・`print_fit` :289・ほか 1
+- **clipfit.py** (347 行) — 自動の区間が友人の区間にどれだけ合うかの物差し(LD-2a。notes:plan/done/ld2-clip-length.md の L-2)。⑤ eval_marks が表示に使い、単独でも動く。
+  - 名前: `load_material` :35・`rebuild` :51・`picks` :75・`fit` :86・`summarize` :98・`default_variants` :108・`friend_material` :116・`evaluate` :128・`edge_speech` :189・`scene_only` :247・`grid` :262・`print_fit` :294・ほか 1
 - **eval_alt.py** (533 行) — 「2つ目のエンジンとの食い違いの候補」(行に出る札「別」)が、校正を本当に速くしているかを数字で見る道具(候補の当たり率)。
   - 名前: `locate` :67・`name_checker` :72・`read_alt` :79・`read_feedback` :87・`read_answers` :98・`clean_rows` :121・`fold_text` :128・`class Group` :138・`map_span` :163・`judge_candidate` :181・`match_answer` :214・`judge_doc` :224・ほか 7
 - **eval_asr.py** (1003 行) — 文字起こしの精度を、校正済みの文字起こし(評価用)で測る道具(文字起こしの改善の計画 段0-2。notes:plan/line-b-transcription.md(付録))。

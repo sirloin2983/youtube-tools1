@@ -11,12 +11,12 @@
 - **__init__.py** (2 行) — ① 解析: 材料の取得(fetch。動画・チャット・コメント)・音量(levels)・盛り上がりの式(excite)・候補・話の切れ目(breaks)・自動採用・配信中の検出
 - **adopt.py** (73 行) — 採用の規則 F-5(notes:plan/done/role-restructure.md 5-5・決定 3-29 Q3。純粋な関数)。
   - 名前: `check_args` :18・`adopt` :35
-- **analyze.py** (405 行) — 解析(自動切り抜き ac/serve.py 由来。書き出し・手動の○×は持たない)。
+- **analyze.py** (408 行) — 解析(自動切り抜き ac/serve.py 由来。書き出し・手動の○×は持たない)。
   - 名前: `sig_cache_dir` :35・`validate_live` :42・`validate_source` :48・`validate_settings` :63・`make_spec` :78・`chat_public` :87・`sig_path` :94・`load_sig` :98・`save_sig` :115・`archive_path` :128・`load_archive` :132・`save_archive` :142・ほか 3
 - **breaks.py** (119 行) — 話の切れ目(breaks)。切り抜きの区間の両端を、文字起こしの話の切れ目へ寄せて言葉の途中で切らないための関数(線 LD-2c。notes:plan/done/ld2-clip-length.md)。
   - 名前: `cuts` :61・`snap` :106
-- **excite.py** (997 行) — 盛り上がり(excitement)の式。スタジオのアーカイブの解析(src/pipeline/analyze/analyze.py)と、配信中の検出(src/pipeline/analyze/live_excite_worker.py。線 D の L2)が同じ式を読む(線 D の L1。notes…
-  - 名前: `smooth` :77・`median` :88・`local_baseline` :94・`robust_scale` :113・`audio_score` :119・`chat_z` :131・`shift_chat` :140・`estimate_lag` :146・`ramp` :170・`head_ramp` :175・`comment_score` :182・`pick_clips` :197・ほか 13
+- **excite.py** (1012 行) — 盛り上がり(excitement)の式。スタジオのアーカイブの解析(src/pipeline/analyze/analyze.py)と、配信中の検出(src/pipeline/analyze/live_excite_worker.py。線 D の L2)が同じ式を読む(線 D の L1。notes…
+  - 名前: `smooth` :81・`median` :92・`local_baseline` :98・`robust_scale` :117・`audio_score` :123・`chat_z` :135・`shift_chat` :144・`estimate_lag` :150・`ramp` :174・`head_ramp` :179・`comment_score` :186・`peak_total` :201・ほか 14
 - **fetch.py** (548 行) — 解析の材料を取ってくる仕事(音声のダウンロード・チャットのリプレイの取得と先読み・コメント欄・動画の付加情報)と、そのキャッシュの置き場と掃除。
   - 名前: `work_dir` :32・`chat_cache_dir` :36・`download_audio` :51・`chat_cache_path` :77・`drop_chat_cache` :81・`chat_cache_limit` :98・`use_chat_cache` :113・`prune_chat_cache` :123・`download_chat` :171・`prefetch_chat` :253・`cancel_prefetch` :296・`cancel_all_prefetch` :303・ほか 9
 - **levels.py** (64 行) — 1 秒ごとの音量(RMS, dB)を、ffmpeg 1 回のデコードで全帯域と高音域(2kHz 超)の 2 系列に測る決まり(OPT1)。

@@ -50,6 +50,10 @@ ONLINE_CHAT_BACK = 1170
 # スイッチ: COMMENT_SHAPE = "sym" で前の形(左右同じ ±20 秒・幅 8 秒。golden は作り直し)。印: archive の解析の記録 commentShape(無い記録は sym)
 COMMENT_SHAPE = "fwd20"
 COMMENT_FORMS = {"sym": (-20, 20, 0, 8.0, 8.0), "fwd": (-5, 71, 5, 5.0, 30.0), "fwd20": (-5, 49, 5, 5.0, 20.0)}   # (時刻からの秒の から, まで, 山の位置, 前の幅, 後ろの幅)
+# 山を選ぶ点数だけコメントを重くする(10-23。notes:plan/heatmap-study.md の「順位と区間の形を分ける」。決定 3-147): (重み wComments に掛ける倍率, 形)。
+# 区間の形(場面の始まり・終わり)は今の合計のまま = pick_clips の scene_total。友人の 30 区間で使える候補の順位の逆数 .25 → .32(片側 p .04)・heatmap も両方の組で上
+# スイッチ: None で前の形(山も場面も同じ合計)。印: archive の解析の記録 peakComment(無い記録は前の形)
+PEAK_COMMENT = (2.0, "fwd")
 PICK_SMOOTH = 5                      # 山を探す前に合計をならす幅(秒)
 LEVEL_SMOOTH = 3                     # 区間を静かな所へ合わせる前に音量をならす幅(秒)
 SNAP_RADIUS = 4                      # 静かな所を探す前後の秒数(snap_quiet)
@@ -194,16 +198,27 @@ def comment_score(stamps, n, shape=None):
     return [min(CAP, v) for v in out]
 
 
-def pick_clips(total, level, spec, n):
+def peak_total(total, stamps, n, w):
+    """山を選ぶ点数(PEAK_COMMENT): 冒頭の減点の前の合計 total から、コメントの分(w × 今の形)を重い形に差し替える。スイッチが None・書き込みが無ければ None"""
+    if not PEAK_COMMENT or not stamps or w <= 0:
+        return None
+    f, shape = PEAK_COMMENT
+    now, heavy = comment_score(stamps, n), comment_score(stamps, n, shape)
+    return [total[i] + w * (f * heavy[i] - now[i]) for i in range(n)]
+
+
+def pick_clips(total, level, spec, n, scene_total=None):
     """合計スコアの山を高い順に選び、区間(開始・終了)にする。見つけた区間は重ならない。
     spec の shape が "scene" なら区間は場面ごと(scene_region。取れなければ固定の長さ)で、候補に shape と固定の長さの区間 fixed も付ける。
     shape が無い・"fixed" なら 固定の形(golden で固定)。
     spec の fill(数)があれば、しきい値を超える山が fill 個に届かないとき、しきい値の下の山(点数が 0 より上)で fill 個まで埋める(印 fill。
-    例: チャットが 0 件で音声だけ・山 1 つ。スイッチ FILL_ON)"""
+    例: チャットが 0 件で音声だけ・山 1 つ。スイッチ FILL_ON)。
+    scene_total を渡すと、山は total で選び、場面の区間は scene_total で取る(PEAK_COMMENT。選んだ区間はどちらも 0 にする)"""
     length, pre = spec["length"], spec["preRatio"]
     scene = spec.get("shape") == "scene"
     sp = scene_params(spec.get("scene")) if scene else None
     work = list(smooth(total, PICK_SMOOTH))
+    swork = work if scene_total is None else list(smooth(scene_total, PICK_SMOOTH))
     thr = SENS[spec["sensitivity"]]
     out = []
     lows = smooth(level, LEVEL_SMOOTH)
@@ -222,7 +237,7 @@ def pick_clips(total, level, spec, n):
             c["fill"] = True   # 印: しきい値に届かない山で埋めた(測る道具はこの印で外せる)
         if scene:
             c["fixed"] = [c["start"], c["end"]]
-            r = scene_region(work, peak, n, sp)   # 前に選んだ区間は 0 = 場面はそこで止まる(区間が重なりにくい)
+            r = scene_region(swork, peak, n, sp)   # 前に選んだ区間は 0 = 場面はそこで止まる(区間が重なりにくい)
             if r is not None and not r["open"]:
                 s, e = snap_region(lows, r["start"], r["end"], peak, n, r["end"] - r["start"])
                 c.update(start=round(s, 1), end=round(e, 1), shape="scene")
@@ -231,7 +246,7 @@ def pick_clips(total, level, spec, n):
         out.append(c)
         a, b = max(0, int(s) - EXCLUDE_BEFORE), min(n, int(e) + EXCLUDE_AFTER)
         for i in range(a, b):
-            work[i] = 0.0
+            work[i] = swork[i] = 0.0
     return sorted(out, key=lambda c: -c["score"])
 
 
