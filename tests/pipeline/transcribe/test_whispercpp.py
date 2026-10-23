@@ -273,6 +273,10 @@ class WhisperCppTest(unittest.TestCase):
         c = {}
         g = E.parse_json(lump, 0.1, c, duration=12.0)[0]   # 行の DTW の時刻が 1 か所に固まった(12 秒の動画で全部 11.86 秒)= 行ごと今の時刻
         self.assertEqual(([w.start for w in g.words], g.start, c["dropped"]), ([0.0, 3.0, 6.0], 0.0, 3))
+        lead = {"transcription": [{"offsets": {"from": 3980, "to": 12660}, "text": "インタ", "tokens": [tok("イ", 3980, 4780, 698), tok("ンタ", 4780, 6390, 1096)]}]}
+        c = {}
+        g = E.parse_json(lead, 0.1, c)[0]   # 無音のあとの段で最初のトークンの DTW だけ 4 秒早い(「イ/ンタビュー」の 1 字の行)= 2 番目の 0.1 秒前へ
+        self.assertEqual(([round(w.start, 2) for w in g.words], round(g.start, 2), c["lead"]), ([10.76, 10.86], 10.76, 1))
 
 
 def row(a, b, text, words=None):

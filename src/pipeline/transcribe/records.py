@@ -95,12 +95,13 @@ def recognition_run(spec, job, audio_sec, wall_sec, pairs=None):
 
 
 def dtw_record(timing):
-    """whisper.cpp の DTW の印 {"shift", "words", "dropped"}(engineTiming の dtwWords・dtwDropped から。無ければ None)。
-    dropped が words と同じ = DTW が黙って切れた(フラッシュアテンション・-dtw の通らない版)。eval_timing はこの印で組を分ける"""
+    """whisper.cpp の DTW の印 {"shift", "words", "dropped", "leadGap", "lead"}(engineTiming の dtwWords・dtwDropped・dtwLead から。無ければ None)。
+    dropped が words と同じ = DTW が黙って切れた(フラッシュアテンション・-dtw の通らない版)。lead = 段の最初の単語を寄せた数(leadGap 0 = 寄せない)。eval_timing はこの印で組を分ける"""
     if not isinstance(timing, dict) or "dtwWords" not in timing:
         return None
-    from .tx_engines import DTW_SHIFT   # 遅く読む(記録の部品はエンジンを読まずに使える)
-    return {"shift": DTW_SHIFT, "words": int(timing.get("dtwWords") or 0), "dropped": int(timing.get("dtwDropped") or 0)}
+    from .tx_engines import DTW_LEAD_GAP, DTW_SHIFT   # 遅く読む(記録の部品はエンジンを読まずに使える)
+    return {"shift": DTW_SHIFT, "words": int(timing.get("dtwWords") or 0), "dropped": int(timing.get("dtwDropped") or 0),
+            "leadGap": DTW_LEAD_GAP, "lead": int(timing.get("dtwLead") or 0)}
 
 
 def engine_timing(items):

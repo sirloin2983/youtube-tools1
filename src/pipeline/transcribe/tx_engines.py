@@ -189,6 +189,8 @@ class FasterWhisper(Engine):
 DTW_ENV = "TRANSCRIBE_WCPP_DTW"   # スイッチ: 0 で今の形(単語の時刻をトークンの時刻のまま)。既定オン(10-21 ユーザー「友人用にも入れていい」)
 DTW_MODELS = {"large-v3": "large.v3"}   # -dtw に渡す名前(モデルごと。表に無いモデルではかけない)
 DTW_SHIFT = 0.1                   # DTW の単語の始まりを前へずらす秒(DTW は約 0.1 秒遅れる。0.05・0.15 と比べて全部の行の ±0.2 秒以内がいちばん高い)
+DTW_LEAD_GAP = 0.8                # 段の最初と 2 番目の単語の始まりがこれ(秒)より空いたら、最初の単語を 2 番目の DTW_LEAD_BACK 秒前へ寄せる。0 = 寄せない
+DTW_LEAD_BACK = 0.1               # (無音のあとの段で最初のトークンの DTW だけ 1〜4 秒早く出て「イ/ンタビュー」と 1 字の行に分かれた。評価用 23 本で 18 か所)
 DTW_SPREAD = 0.15                 # 2 秒より長い行の DTW の時刻がこの秒より狭く固まっていたら、崩れたとみなして行ごと今の時刻
 DTW_TOL = 1.0                     # 行の範囲の前後この秒の外の DTW の時刻は崩れとみなす
 WHISPER_CPP = {"version": _txbase.WCPP_VERSION, "commit": "927cfce34f31707e17f2bff35c349632fb9e2c3a", "repo": "https://github.com/ggml-org/whisper.cpp.git"}
@@ -554,7 +556,7 @@ class WhisperCpp(Engine):
             dtw = {} if self.dtw() else None
             segs = parse_json(data, DTW_SHIFT if dtw is not None else None, dtw, duration)
             if dtw is not None:   # 印(recognition.runs の dtw・友人の診断の engineTiming)。dropped が words と同じ = 黙って切れた
-                timing.update(dtwWords=dtw.get("words", 0), dtwDropped=dtw.get("dropped", 0))
+                timing.update(dtwWords=dtw.get("words", 0), dtwDropped=dtw.get("dropped", 0), dtwLead=dtw.get("lead", 0))
             # duration_after_vad = None(声の検出をしない = 分からない。サーバーの「捨てすぎたら緩める」は見ない)。
             # Silero の声の区間の外の行は捨てない(評価用 18 本で 27.0% → 33.8% に悪化)
             info = types.SimpleNamespace(language=(data.get("result") or {}).get("language") or kw.get("language"),
@@ -662,7 +664,7 @@ def parse_json(data, dtw_shift=None, dtw_counts=None, duration=None):
         if a is None or b is None:
             continue
         text = str(seg.get("text") or "")
-        words, lps, prev = [], [], 0.0
+        words, lps, prev, lead_dtw = [], [], 0.0, False
         use_dtw = dtw_shift is not None and not _dtw_collapsed(seg, a, b, duration)
         for tok in seg.get("tokens") or []:
             t = str((tok or {}).get("text") or "")
@@ -680,9 +682,15 @@ def parse_json(data, dtw_shift=None, dtw_counts=None, duration=None):
                     if dtw_counts is not None:
                         dtw_counts["words"] = dtw_counts.get("words", 0) + 1
                         dtw_counts["dropped"] = dtw_counts.get("dropped", 0) + (d is None)
+                    lead_dtw = lead_dtw if words else d is not None
                     w0 = d if d is not None else w0
                     prev = w0
                 words.append(types.SimpleNamespace(start=w0, end=max(w0, w1), word=t, probability=p))
+        if lead_dtw and len(words) >= 2 and DTW_LEAD_GAP and words[1].start - words[0].start > DTW_LEAD_GAP:   # 段の最初のトークンだけ DTW が無音の間へ早く出る → 2 番目の手前へ寄せる
+            words[0].start = max(words[0].start, words[1].start - DTW_LEAD_BACK)
+            words[0].end = max(words[0].end, words[0].start)
+            if dtw_counts is not None:
+                dtw_counts["lead"] = dtw_counts.get("lead", 0) + 1
         if dtw_shift is not None and words:
             a = words[0].start
         raw = text.strip().encode("utf-8")
