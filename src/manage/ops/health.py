@@ -312,15 +312,35 @@ class Health:
             pass
         return {"events": events, "tool": tool, "windowSec": CRASH_WINDOW}
 
+    @staticmethod
+    def _compute_learned():
+        """学習の置き換え(10-24): {"count": 確度の高い置き換えの件数, "applied": 編集の設定 autoLearned で当てているか}。
+        編集を取り込んでいない(作業データが決まっていない)・読めなければ None = 行を出さない。中身の一覧は出さない"""
+        try:
+            from ytt import settings as ysettings, workdata
+            if not workdata.SETTINGS:
+                return None
+            from human.proof import learn   # 呼ぶときだけ(重い数えの側)
+            st = ysettings.load_settings()
+            return {"count": len(learn.export_rules(st).get("high") or []), "applied": st.get("autoLearned") is True}
+        except Exception:
+            return None
+
     def _compute_slow(self):
         try:
             data = data_sizes(self.repo_root, outside=[("書き出し先", p) for p in self.extra_dirs() if p])
             tools = tool_versions(os.path.join(self.logs_dir, YTDLP_LATEST) if self.logs_dir else None)
             with self._lock:
-                self._slow = {"data": data, "tools": tools, "crashes": None, "at": self.clock()}   # 先に出せる物を出す
+                self._slow = {"data": data, "tools": tools, "crashes": None, "learned": None, "at": self.clock()}   # 先に出せる物を出す
         except Exception as e:   # 数えられなくても画面は出す
             with self._lock:
                 self._slow = {"data": {"root": None, "dirs": [], "bytes": 0, "error": str(e)[:200]}, "tools": {}, "crashes": None, "at": self.clock()}
+        try:
+            learned = self._compute_learned()
+            with self._lock:
+                self._slow["learned"] = learned
+        except Exception:
+            pass
         try:
             crashes = self._compute_crashes()
             with self._lock:
@@ -391,6 +411,8 @@ class Health:
             out["data"] = slow["data"]
             out["tools"] = slow["tools"]
             out["crashes"] = slow.get("crashes")
+            if slow.get("learned") is not None:
+                out["learned"] = slow["learned"]
             out["countedAt"] = int(slow["at"] * 1000)
         else:
             out["data"] = None

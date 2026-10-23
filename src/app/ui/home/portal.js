@@ -1003,6 +1003,7 @@
     ul.appendChild(healthRow(e.clientLast24h ? 'warn' : 'ok', '画面のエラー(24 時間)', (e.clientLast24h || 0) + ' 件', [e.clientLog]));
     // 自動の切り抜きの長さの目安(友人の区間からその場で数える = flow/lengthhint。使う ⇄ 使わないが切り替わったら分かるように。OPT-E2)
     if (h.lengthHint) ul.appendChild(healthRow(h.lengthHint.used ? 'ok' : 'info', '自動の切り抜きの長さ', h.lengthHint.text));
+    if (h.learned) ul.appendChild(healthRow('info', '学習の置き換え', h.learned.count + ' 件(' + (h.learned.applied ? '当てている' : '当てていない') + ')'));
     // 異常終了(見張り役)。OS 側が増えたら PC の不安定、アプリ側だけならこのツールの不具合の目安
     var cr = h.crashes;
     if (!cr) ul.appendChild(healthRow('warn', '異常終了(7 日)', h.computing ? '数えています…' : '読めませんでした'));
