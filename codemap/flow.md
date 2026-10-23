@@ -19,8 +19,8 @@
   - 名前: `streamer_api` :12
 - **deliver.py** (304 行) — ② パックを友人へ届ける(Dropbox の見張るフォルダの 出力\ に zip で置く。友人のアプリの「受け取る」が読む)。
   - 名前: `outbox_ok` :42・`safe_name` :49・`request_id` :53・`delivery_name` :58・`face_origin` :63・`meta_path_for` :73・`meta_doc` :85・`write_meta_json` :99・`unique_zip` :105・`zip_packs` :113・`preview_path_for` :149・`place_preview` :154・ほか 2
-- **deliveries.py** (232 行) — ② 管理の層 flow: 友人へ届けた記録(入口の作業データの logs/deliveries.jsonl)の読み口(OPT-M2。notes:plan/done/opt-manage.md の 7x-2)。
-  - 名前: `record` :25・`clip_range` :41・`overlaps` :53・`overlap_note` :73・`origin_of` :84・`rows` :92・`delivered_requests` :114・`pack_name` :129・`delivered_marks` :137・`record_not_sent` :193・`not_sent_marks` :204
+- **deliveries.py** (231 行) — ② 管理の層 flow: 友人へ届けた記録(入口の作業データの logs/deliveries.jsonl)の読み口(OPT-M2。notes:plan/done/opt-manage.md の 7x-2)。
+  - 名前: `record` :25・`clip_range` :41・`overlaps` :52・`overlap_note` :72・`origin_of` :83・`rows` :91・`delivered_requests` :113・`pack_name` :128・`delivered_marks` :136・`record_not_sent` :192・`not_sent_marks` :203
 - **delivery.py** (405 行) — ② 友人へ届ける: まとめて実行の「Dropbox へ届ける」段と、置けなかった自動の分の溜め(まとめて実行 AutoRunner が継ぐ mixin)。
   - 名前: `switched_off` :55・`class Delivery` :95
 - **diar.py** (369 行) — ② 管理の層 flow: 話者判別と声の段取り(RS6 a-4。決定 3-29)。
@@ -84,8 +84,8 @@
 - **prio.py** (88 行) — ② 管理の層 flow: 処理の優先度の表(PRIO。決定 3-49・notes:plan/done/opt-series.md の 11)。
   - 名前: `name_ok` :35・`rank` :39・`idle_only` :43・`os_priority` :47・`label` :51・`slot_kw` :55・`of_run` :60・`of_spec` :69・`watch` :80・`idle_now` :85
 - **retention.py** (9 行) — ② 管理の層 flow: 物の終わりの日数の 1 か所(方針の数)。ユーザーのツールと友人のアプリが同じ値を読む。
-- **run.py** (1880 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
-  - 名前: `class Cancelled` :141・`class StepError` :145・`mode_of` :164・`steps_of` :198・`analyze_verdict` :242・`chat_missing` :260・`chat_retry_ok` :266・`stream_ended_at` :274・`redo_reason` :287・`short_why` :305・`adopted_ids` :317・`tx_verdict` :322・ほか 5
+- **run.py** (1879 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
+  - 名前: `class Cancelled` :140・`class StepError` :144・`mode_of` :163・`steps_of` :197・`analyze_verdict` :241・`chat_missing` :259・`chat_retry_ok` :265・`stream_ended_at` :273・`redo_reason` :286・`short_why` :304・`adopted_ids` :316・`tx_verdict` :321・ほか 5
 - **runlog.py** (93 行) — まとめて実行の「終わった実行の記録」の形と読み方(RS3-0B)。
   - 名前: `read_runs_log` :47・`read_result` :77
 - **runqueue.py** (839 行) — ② 管理の層 flow: 待ち行列と実行の糸(RS7-1 S5。決定 3-30・

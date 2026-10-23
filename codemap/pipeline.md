@@ -29,8 +29,8 @@
 - **__init__.py** (2 行) — ① 書き出し: 区間 → 動画(exporter)
 - **exporter.py** (1097 行) — ③ 書き出し(クリップマーカー cm/serve.py 由来): store の動画・マークから ffmpeg / yt-dlp でクリップを mp4 にする。
   - 名前: `class ExportError` :53・`log_export` :57・`reason` :73・`verify_output` :80・`pick_folder` :89・`promote` :98・`drop_partial` :115・`clean_partials` :121・`check_section_path` :217・`build_section_spec` :238・`spec_from_video` :264・`new_result` :316・ほか 14
-- **outcheck.py** (110 行) — ① 書き出しのあとの自動の点検(10-23。notes:plan/人の作業なしの候補-1023.md の 1)。書き出した切り抜き 1 本を測り、気になる所を返すだけ(出力は止めない・消さない)。
-  - 名前: `black_spans` :37・`edge_ratio` :42・`judge` :55・`check` :77
+- **outcheck.py** (109 行) — ① 書き出しのあとの自動の点検(10-23。notes:plan/人の作業なしの候補-1023.md の 1)。書き出した切り抜き 1 本を測り、気になる所を返すだけ(出力は止めない・消さない)。
+  - 名前: `black_spans` :37・`edge_ratio` :42・`judge` :55・`check` :76
 
 ## src/pipeline/ingest/
 
@@ -50,7 +50,7 @@
   - 名前: `read_cut_plan` :16・`default_handles` :71・`build_plan` :77・`removed_between` :98・`plan_from_keeps` :109・`finalize_plan` :117
 - **cut2resolve_core.py** (828 行) — cut2resolve 共通部
   - 名前: `class Cancelled` :46・`class OutputExists` :53・`class Task` :62・`parse_time` :77・`parse_cut_list` :115・`sec_to_frames` :146・`cue_frames` :150・`frames_to_sec` :156・`fps_label` :161・`cut_list_to_keeps` :166・`normalize` :181・`subtract` :199・ほか 34
-- **edge_pause.py** (104 行) — 切り抜きの両端を「話の間」へ寄せる(10-23。決定 3-153。notes:plan/heatmap-study.md の「切り抜きの端を話の間へ」)。
+- **edge_pause.py** (102 行) — 切り抜きの両端を「話の間」へ寄せる(10-23。決定 3-153。notes:plan/heatmap-study.md の「切り抜きの端を話の間へ」)。
   - 名前: `levels` :26・`voice_level` :46・`pauses` :52・`snap_end` :66・`snap_start` :76・`snap` :86
 - **pack.py** (958 行) — カットの計算(試算)とパックの作成。画面(serve.py)と ② の自動の流れが呼ぶ共通部(処理を二重に持たない)。
   - 名前: `class RowEdge` :42・`class Request` :77・`class Plan` :111・`class Cache` :135・`default_out_dir` :199・`row_edge_from` :203・`widen_row_edges` :227・`row_edge_pending` :270・`silence_pending` :279・`detect_pending` :287・`without_detect` :296・`plan_cut` :315・ほか 17
