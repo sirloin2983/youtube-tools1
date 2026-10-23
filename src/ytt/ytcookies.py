@@ -233,3 +233,19 @@ def facts(src):
 def forget(src):
     """ログアウトのとき記録も消す"""
     _fsio.unlink_quiet(state_path(src))
+
+
+def logout(src):
+    """ログアウト: cookie・記録・yt-dlp に渡した写し(隣の RUN)を消す -> 消したか。cookie が消せなければ OSError(写しは動いている yt-dlp の物 = 24 時間で消える)。
+    友人のアプリの設定(friendapp/settings)とユーザーの PC のホーム(app/ytlogin)が使う"""
+    if not src:
+        return False
+    had = os.path.isfile(src)
+    if had:
+        os.remove(src)
+    forget(src)
+    run = os.path.join(os.path.dirname(src), RUN)
+    if os.path.isdir(run):
+        for n in os.listdir(run):
+            _fsio.unlink_quiet(os.path.join(run, n))
+    return had

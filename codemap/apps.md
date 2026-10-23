@@ -37,8 +37,8 @@
 
 - **Core.cs** (530 行) — FriendApp.exe の決まり(版の選び方・版の記録・閉じるときの判断)。画面にも通信にも触らない = tests\friend-apps\launcher\Tests.cs で確かめる。C# 5 で書く
   - 名前: `class Layout` :12・`class VersionRecord` :18・`class Versions` :24・`Parse` :30・`Compare` :45・`LayoutOf` :57・`Complete` :63・`Installed` :69・`LegacyVersion` :83・`Pick` :101・`Read` :111・`Q` :128・ほか 29
-- **Launcher.cs** (480 行) — FriendApp.exe の起こし方: 窓 1 枚(MainForm = WebView2)を持ち、Python(src\friendapp\server.py)を子としてジョブオブジェクトで起こす。C# 5 で書く
-  - 名前: `class Job` :26・`Add` :40・`Kill` :45・`Dispose` :50・`class JOBOBJECT_BASIC_LIMIT_INFORMATION` :56・`class IO_COUNTERS` :67・`class JOBOBJECT_EXTENDED_LIMIT_INFORMATION` :73・`CreateJobObject` :81・`SetInformationJobObject` :83・`AssignProcessToJobObject` :85・`TerminateJobObject` :87・`CloseHandle` :89・ほか 22
+- **Launcher.cs** (500 行) — FriendApp.exe の起こし方: 窓 1 枚(MainForm = WebView2)を持ち、Python(src\friendapp\server.py)を子としてジョブオブジェクトで起こす。C# 5 で書く
+  - 名前: `class Job` :26・`Add` :40・`Kill` :45・`Dispose` :50・`class JOBOBJECT_BASIC_LIMIT_INFORMATION` :56・`class IO_COUNTERS` :67・`class JOBOBJECT_EXTENDED_LIMIT_INFORMATION` :73・`CreateJobObject` :81・`SetInformationJobObject` :83・`AssignProcessToJobObject` :85・`TerminateJobObject` :87・`CloseHandle` :89・ほか 23
 - **MainForm.cs** (934 行) — FriendApp.exe の窓 1 枚: WebView2 で Python の画面を出し、時計の横のアイコン・× と止める確認・スリープ止め・●n を持つ。C# 5 で書く
   - 名前: `class MainForm` :20・`OnHandleCreated` :97・`WebViewAvailable` :107・`ProbeWebView` :120・`SetVisibleCore` :134・`OnLoad` :140・`PrintWindow` :180・`class RECT` :183・`GetWindowRect` :186・`DwmGetWindowAttribute` :189・`Capture` :191・`TakeStepShots` :213・ほか 26
 - **YtLogin.cs** (242 行) — YouTube のログイン(notes:docs/spec/friend.md の 13-13)。友人の PC の yt-dlp が bot 判定で止められないように、アプリの小窓で

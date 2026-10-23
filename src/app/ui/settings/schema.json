@@ -3,6 +3,7 @@
   "version": 1,
   "sections": [
     { "id": "general", "title": "全体", "kind": "general", "hint": "このブラウザだけに覚える見た目(テーマ・文字の大きさ・キーの帯)。ほかの設定は作業データに保存し、どの窓・どのツールから見ても同じです。" },
+    { "id": "ytlogin", "title": "YouTube のログイン", "kind": "ytlogin", "hint": "YouTube に bot と判定されて取得・録画・チャットが止められないように、サブの Google アカウントでログインしておきます。ログインの情報はこの PC の作業データ(secrets)だけに置き、外へは出しません。ログインしていなければ今までどおりです。" },
     { "id": "home", "title": "ホーム", "store": "home", "groups": [
       { "id": "autorun", "title": "まとめて実行の既定", "hint": "案件の行の「設定を変える」で変えた値も、ここと同じ既定になります(どこで変えても同じ)。パックの出力(fps・大きさ・音量)は下の「パック」で。", "items": [
         { "key": "autorun.top", "type": "int", "label": "採用する数(解析から全部のとき)", "default": 3, "min": 1, "max": 20, "unit": "本" },

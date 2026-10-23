@@ -29,6 +29,8 @@
 - **__init__.py** (2 行) — ① 書き出し: 区間 → 動画(exporter)・サムネの案の絵(thumb_cards)
 - **exporter.py** (1097 行) — ③ 書き出し(クリップマーカー cm/serve.py 由来): store の動画・マークから ffmpeg / yt-dlp でクリップを mp4 にする。
   - 名前: `class ExportError` :53・`log_export` :57・`reason` :73・`verify_output` :80・`pick_folder` :89・`promote` :98・`drop_partial` :115・`clean_partials` :121・`check_section_path` :217・`build_section_spec` :238・`spec_from_video` :264・`new_result` :316・ほか 14
+- **outcheck.py** (110 行) — ① 書き出しのあとの自動の点検(10-23。notes:plan/人の作業なしの候補-1023.md の 1)。書き出した切り抜き 1 本を測り、気になる所を返すだけ(出力は止めない・消さない)。
+  - 名前: `black_spans` :37・`edge_ratio` :42・`judge` :55・`check` :77
 - **thumb_cards.py** (174 行) — サムネの案の描く部分(提案 P5 の S。notes:plan/thumb-ideas.md の 7・8)。ffmpeg で動画から 1 枚ずつ切り取って文字を載せ、6 案を 1 枚の PNG にまとめる。
   - 名前: `class ThumbError` :21・`ffmpeg_path` :28・`probe` :35・`loud_times` :44・`scene_times` :59・`font_path` :68・`fpath` :75・`text_filter` :80・`card_filters` :89・`crop_box` :119・`render_card` :137・`tile` :152・ほか 1
 
@@ -112,6 +114,7 @@
 - tests/pipeline/analyze/test_excite.py — pipeline/analyze/excite.py(盛り上がりの式)のテスト。  py -3.12 -m unittest tests/pipeline/analyze/test_excite.py -v
 - tests/pipeline/analyze/test_live_excite_worker.py — 配信中の盛り上がりの検出(線 D の L2)のワーカー src/pipeline/analyze/live_excite_worker.py のテスト(子プロセスの中身を直に)。
 - tests/pipeline/export/test_exporter.py — 書き出し(① pipeline/export/exporter)のテスト。
+- tests/pipeline/export/test_outcheck.py — 書き出しのあとの自動の点検(① pipeline/export/outcheck)のテスト。本物の ffmpeg で合成した壊れた動画(黒いコマ・無音・割れ・声の途中で切れる・長さ違い)を点検する。
 - tests/pipeline/ingest/hls_fixture.py — テスト用の「配信中のような HLS」(本物の YouTube には繋がない)。
 - tests/pipeline/ingest/test_recorder.py — 録画の部品(recorder/)のテスト。本物の YouTube には繋がない: ffmpeg の lavfi で作った HLS を、手元の HTTP サーバーで
 - tests/pipeline/pack/test_contracts.py — 別のプログラムが読む形の見本(tests/ytt/fixtures/contracts/ の clip/v1.json・transcript/v1.json)。書く側が書いた形は見本と同じ鍵・

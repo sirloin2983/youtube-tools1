@@ -15,9 +15,11 @@
   - 受ける口: `/api/ytt` :45
 - **prefs.py** (488 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
   - 名前: `class PrefsError` :95・`guess_streamer` :382・`class Prefs` :394
-- **server.py** (1648 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
-  - 名前: `runtime_dir` :177・`ping` :187・`tail` :195・`expected_version` :216・`tool_python` :222・`rel_or_abs` :232・`signal_stop` :240・`class Tool` :253・`app_data_dir` :303・`logs_dir_for` :309・`class Supervisor` :315・`query_int` :635・ほか 15
-  - 受ける口: `/api/drill/status` :145・`/api/eval-batch` :145・`/api/intake` :621・`/api/backup` :622・`/api/accuracy` :623・`/api/flow/runs` :624・`/api/cases/auto` :626・`/api/flow/submit` :627・`/api/flow/estimate` :627・`/api/flow/cancel` :628・`/api/intake/scan` :629・`/api/backup/run` :629・`/api/accuracy/run` :630・`/api/window` :630・`/api/check/answer` :631・`/api/check/skip` :631・`/api/check/flush` :631・`/api/cleanup` :632・`/api/shutdown` :632・`/api/ping` :721・`/api/status` :723・`/api/health` :733・`/api/log` :737・`/api/flow/status` :752・`/api/flow/history` :756・`/api/check/next` :759・`/api/cases` :765
+- **server.py** (1654 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
+  - 名前: `runtime_dir` :178・`ping` :188・`tail` :196・`expected_version` :217・`tool_python` :223・`rel_or_abs` :233・`signal_stop` :241・`class Tool` :254・`app_data_dir` :304・`logs_dir_for` :310・`class Supervisor` :316・`query_int` :636・ほか 15
+  - 受ける口: `/api/drill/status` :146・`/api/eval-batch` :146・`/api/intake` :622・`/api/backup` :623・`/api/accuracy` :624・`/api/flow/runs` :625・`/api/cases/auto` :627・`/api/flow/submit` :628・`/api/flow/estimate` :628・`/api/flow/cancel` :629・`/api/intake/scan` :630・`/api/backup/run` :630・`/api/accuracy/run` :631・`/api/window` :631・`/api/check/answer` :632・`/api/check/skip` :632・`/api/check/flush` :632・`/api/cleanup` :633・`/api/shutdown` :633・`/api/ping` :722・`/api/status` :724・`/api/health` :734・`/api/log` :738・`/api/flow/status` :753・`/api/flow/history` :757・`/api/check/next` :760・`/api/cases` :766
+- **ytlogin.py** (95 行) — ユーザーの PC の YouTube のログイン(10-23 ユーザー「ログインできる形にしといて」)。友人のアプリと同じ作り(notes:docs/spec/friend.md の 13-13)。
+  - 名前: `cookies_path` :23・`apply_env` :27・`class YtLogin` :35
 
 ## src/app/check/
 
@@ -101,7 +103,7 @@
 
 ## src/app/ui/settings/
 
-- **settings.js** (172 行) — 設定の画面(/settings = 入口の直下の 1 枚。部品は src/app/ui/settings/。設定を 1 つに S5。notes:docs/spec/data.md の 4)。
+- **settings.js** (212 行) — 設定の画面(/settings = 入口の直下の 1 枚。部品は src/app/ui/settings/。設定を 1 つに S5。notes:docs/spec/data.md の 4)。
 
 ## src/app/ui/studio/
 
@@ -141,6 +143,7 @@
 - tests/app/test_mount.py — 入口への取り込み(src/app/mount.py)のテスト。  python -m unittest tests/app/test_mount.py -v
 - tests/app/test_settings_schema.py — 設定の画面のスキーマ(src/app/ui/settings/schema.json。S5)と、ホームの設定の検査(prefs.py)が食い違っていないか。リポジトリ直下で:
 - tests/app/test_window.py — 窓で開く(src/ytt/appwindow.py)・画面のエラーの記録(本体は tests/manage/ops/test_clientlog.py)・入口の共通の API(api/ytt/…)。
+- tests/app/test_ytlogin.py — ユーザーの PC の YouTube のログイン(src/app/ytlogin.py)。本物の YouTube・本物の cookie・本物の窓は使わない(偽の cookie と偽の起動)。リポジトリ直下で:
 - tests/app/check/_checkkit.py — tests/app/check の共通の下ごしらえ。test_ で始めない(流す対象ではない)。
 - tests/app/check/test_cut_sources.py — 「確かめる」の自動カットのカードの出どころ(src/app/check/cut_sources.py)の単体テスト: スイッチが切れていれば空・評価用の文書は出ない・
 - tests/app/check/test_eval_sources.py — 評価のレーンの区間カードの出どころ(src/app/check/eval_sources.py。C-EVAL)の単体テスト: 区切り方・行の持ち主・スイッチ・

@@ -430,9 +430,29 @@ namespace FriendInbox
         // [更新する] で入れ替えたあと、Mutex を放してから新しい exe を起こす(放す前に起こすと「2 つ目」で終わってしまう)
         public static volatile bool RestartAfterExit;
 
-        [STAThread]
-        static int Main()
+        // ログインだけ(ユーザーの PC のホームの設定 [YouTube にログイン] が起こす。10-23): FriendApp.exe --yt-login <置き場所>
+        //   <置き場所>\secrets\youtube-cookies.txt に書く(友人の PC と同じ小窓 YtLogin.cs)。済めば 0・やめた / 書けなければ 1。
+        //   主の窓・更新・Python は起こさない(引数が無いときの動きは今までと同じ)
+        public const string YtLoginArg = "--yt-login";
+
+        static int YtLoginOnly(string dir)
         {
+            dir = Path.GetFullPath(dir);
+            Log.Init(Path.Combine(dir, "logs"), "ytlogin.log");
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            using (var f = new LoginForm(dir, System.Drawing.SystemIcons.Application) { StartPosition = FormStartPosition.CenterScreen })
+            {
+                Application.Run(f);
+                Log.Write("ログインだけ: " + f.Message);
+                return f.Ok ? 0 : 1;
+            }
+        }
+
+        [STAThread]
+        static int Main(string[] args)
+        {
+            if (args != null && args.Length == 2 && args[0] == YtLoginArg && args[1].Length > 0) return YtLoginOnly(args[1]);
             string home = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\', '/');
             Log.Init(Path.Combine(home, "data", "app", "friendapp", "logs"), "launcher.log");
             Diag.Home = home;
