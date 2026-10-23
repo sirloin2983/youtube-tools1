@@ -45,10 +45,12 @@
 - **__init__.py** (2 行) — ④ データの運用: 調子・起動し直し・エラーの記録・分析と日報(analytics/)。失敗の集約は ② にある
 - **clientlog.py** (78 行) — 画面(ブラウザ・窓)で起きたエラーの記録(統合計画の段階7-0)。
   - 名前: `clean` :27・`class ClientLog` :39
-- **health.py** (395 行) — 「調子」(全体の計画 段9 9-1)。
+- **health.py** (400 行) — 「調子」(全体の計画 段9 9-1)。
   - 名前: `top_items` :36・`data_sizes` :56・`disk_free` :87・`tool_version` :107・`tool_versions` :118・`count_jsonl` :141・`count_client_errors` :172・`crash_counts` :206・`count_worker_incidents` :251・`class Health` :280
 - **restart.py** (197 行) — 入口を起動し直す(段9 9-3)。
   - 名前: `launcher_script` :44・`restart_args` :49・`launcher_env` :63・`popen_kwargs` :68・`spawn_new_launcher` :83・`port_free` :109・`wait_port_free` :125・`wait_pid_gone` :136・`wait_old_launcher` :149・`can_restart` :172
+- **watch.py** (175 行) — 元の配信とガイドラインの見張り(10-23。提案 P7・人の作業なしの候補の 13 番。表は保管庫 plan/人の作業なしの候補-1023.md)。
+  - 名前: `enabled` :35・`delivered_sources` :40・`check_sources` :62・`terms_mark` :88・`class Watch` :95
 
 ## src/manage/ops/analytics/
 
@@ -84,4 +86,5 @@
 - tests/manage/ops/test_clientlog.py — 画面のエラーの記録(src/manage/ops/clientlog.py の ClientLog・clean)の単体テスト。一時フォルダだけを使う。
 - tests/manage/ops/test_health.py — src/manage/ops/health.py(「調子」)の単体テスト。
 - tests/manage/ops/test_restart.py — 入口を起動し直す部品(src/manage/ops/restart.py)のテスト。  python -m unittest tests/manage/ops/test_restart.py -v
+- tests/manage/ops/test_watch.py — 元の配信とガイドラインの見張り(src/manage/ops/watch.py。10-23 提案 P7)。本物の YouTube・ページには繋がない(偽の API と偽の取得)。リポジトリ直下で:
 - tests/manage/ops/analytics/test_analytics.py — 分析と日報(src/manage/ops/analytics)のテスト。本物のチャンネルの数字は使わない(リポジトリは Public)。make_raw が規則どおりに伸びる架空のチャンネルを作る。
