@@ -622,7 +622,11 @@ class Sync:
                                                                      "packs": [item]}])
             self.log("届いたパックを受信箱に入れました: %s" % name)
         for name, f in sorted(files.items()):
-            if f["kind"] != "failure" or name in known or not f["rid"]:
+            if f["kind"] != "failure" or not f["rid"]:
+                continue
+            if name in known:   # 取り込んだのに Dropbox に残っている = 前の回に消すのが通信で失敗した(10-23: 覚えたまま、ずっと消さずに残っていた)
+                if io.delete(self.out_path(name)) is not None:
+                    self.inbox.remote_fail_cleared(f["rid"], name)
                 continue
             got = io.read_small(self.out_path(name), SMALL_CAP)
             if got is None:
