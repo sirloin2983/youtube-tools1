@@ -5,16 +5,16 @@
 
 | 層 | md | ファイル | 行 |
 |---|---|---|---|
-| ytt(基盤) | [ytt.md](ytt.md) | 53 | 11610 |
-| ① pipeline(道具 = データを加工する) | [pipeline.md](pipeline.md) | 80 | 27333 |
-| ② flow(管理 = いつ・どの順で・どこに置くか) | [flow.md](flow.md) | 95 | 30300 |
+| ytt(基盤) | [ytt.md](ytt.md) | 55 | 11721 |
+| ① pipeline(道具 = データを加工する) | [pipeline.md](pipeline.md) | 80 | 27411 |
+| ② flow(管理 = いつ・どの順で・どこに置くか) | [flow.md](flow.md) | 95 | 30528 |
 | ③ human(人の操作) | [human.md](human.md) | 62 | 17550 |
 | ④ manage(データ) | [manage.md](manage.md) | 43 | 11176 |
 | ⑤ eval(検証) | [eval.md](eval.md) | 37 | 15562 |
-| src/app(入口と画面) | [app.md](app.md) | 85 | 32775 |
+| src/app(入口と画面) | [app.md](app.md) | 85 | 32798 |
 | src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 48 | 19092 |
 | その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 22 | 10997 |
-| dev・setup(開発の道具) | [dev.md](dev.md) | 59 | 16455 |
+| dev・setup(開発の道具) | [dev.md](dev.md) | 59 | 16458 |
 | friend-apps・chrome-ext(C# のアプリ・拡張) | [apps.md](apps.md) | 19 | 9016 |
 
 ## `/api/...` の口(受ける所 → 呼ぶ所)
@@ -139,7 +139,7 @@
 - `/api/rank/resolve` — src/studio/serve.py:408 ← rank.js
 - `/api/rank/search` — src/studio/serve.py:188・src/studio/serve.py:410 ← rank.js
 - `/api/rank/search/cancel` — src/studio/serve.py:411 ← rank.js
-- `/api/relink` — src/editor/serve.py:255 ← app.js
+- `/api/relink` — src/editor/serve.py:255 ← app.js・tools.py
 - `/api/relink/check` — src/editor/serve.py:254 ← app-tools.js
 - `/api/rerun` — src/editor/serve.py:248 ← app-jobs.js・app.js
 - `/api/resolve-package` — src/editor/serve.py:468 ← pack-tab.js

@@ -113,6 +113,15 @@ class HttpTools:
         st, obj = self.client.call("transcribe", "GET", "/api/transcript?id=" + urllib.parse.quote(str(tid)))
         return doc_row(str(tid), obj) if st == 200 and isinstance(obj, dict) else None
 
+    def relink(self, tid, path):
+        """文書の動画を付け替える(POST /api/relink。30fps の写しへ = 作り直しはしない・長さの小さな違いは受ける)-> None(付け替えた)か 付け替えなかった理由"""
+        d = self.doc(tid)
+        if d is None:
+            return "文書が見つかりませんでした"
+        st, obj = self.client.call("transcribe", "POST", "/api/relink", {"id": str(tid), "path": path, "baseUpdatedAt": d.get("updatedAt") or 0,
+                                                                         "acceptDiff": True, "normalize": False})
+        return None if st == 200 else str((obj or {}).get("message") or "付け替えに失敗しました(%s)" % st)
+
     # パック(cut2resolve)
     def pack_start(self, body):
         """パックを作り始める -> (HTTP の番号, {"job"})(409 exists = 同じ名前のパックがある・409 busy は段が待ってやり直す)"""

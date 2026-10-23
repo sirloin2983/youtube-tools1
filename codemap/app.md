@@ -85,8 +85,8 @@
   - 名前: `loadList` :10・`portalApi` :18・`applyNeedHome` :24・`runCls` :29・`runStepsText` :30・`pollRuns` :32・`startDocAuto` :46・`renderDocAuto` :63・`syncListItem` :75
 - **app-rows.js** (974 行) — app-rows.js — 「編集」の画面: 編集画面(保存・開く・行の描画と操作)・字幕の文字数・行の移動・話者の色・キー配置・用語の挿入・履歴・行の追加。
   - 名前: `spById` :8・`markDirty` :10・`setSaveState` :17・`paintSaveState` :20・`saveDoc` :26・`subNum` :62・`readSubtitle` :64・`fillSubtitle` :77・`subtitleReq` :87・`openDoc` :89・`docInfoText` :134・`opts` :145・ほか 102
-- **app-tools.js** (338 行) — app-tools.js — 「編集」の画面: 動画を選び直す・検索と置換・書き出し・受け渡し・確認のダイアログ・カット・パックのタブとのつなぎ。
-  - 名前: `rlSync` :8・`rlReset` :10・`openRelink` :16・`renderRlResult` :23・`rlCheck` :42・`pickPath` :58・`updateDocTitle` :64・`docLength` :70・`renderDocBar` :77・`renderDocBarNow` :79・`syncEval` :95・`evNote` :103・ほか 23
+- **app-tools.js** (361 行) — app-tools.js — 「編集」の画面: 動画を選び直す・検索と置換・書き出し・受け渡し・確認のダイアログ・カット・パックのタブとのつなぎ。
+  - 名前: `rlSync` :8・`rlReset` :10・`openRelink` :16・`renderRlResult` :23・`rlCheck` :42・`pickPath` :58・`updateDocTitle` :64・`docLength` :70・`renderDocBar` :77・`renderDocBarNow` :79・`syncEval` :95・`evNote` :103・ほか 24
 - **app-tpl.js** (232 行) — app-tpl.js — 「編集」の画面の HTML(window.EditProofTpl)。「校正」の欄(tx)・ダイアログ(dialogs)・題名の行(docbar)・⚙ の編集の節(settings)。
 - **app.js** (952 行) — 案件の画面(/cases)の校正のパネルの口。src/app/ui/cases/edhost.js が app.js より先に window.EditHost を置く = {base(API の頭), keybar(帯), tab(タブ), open(別の文書), opening}。
   - 名前: `$` :6・`apiUrl` :19・`spColor` :25・`norm` :26・`setSnap` :57・`setStatus` :58・`onLeave` :61・`pctOf` :75・`ago` :78・`runLabelOf` :82・`stepLabelOf` :83・`voiceSec` :93・ほか 29

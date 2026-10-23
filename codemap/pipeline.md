@@ -60,12 +60,12 @@
   - 名前: `pack_title` :24・`scratch_path` :30・`remove_quiet` :35・`pack_video` :41・`make_preview` :80・`clip_preview` :105・`pack_seconds` :118
 - **request.py** (336 行) — パックの指定(JSON の spec・output)-> pack.Request と build_pack の引数。指定の読み方の 1 か所
   - 名前: `clean_path` :33・`input_path` :58・`request_from_spec` :103・`clip_range_from_spec` :174・`row_edge_from_spec` :184・`advanced_from_spec` :193・`keeps_from_spec` :204・`speaker_color_map` :225・`speaker_styles_from` :244・`apply_speaker_styles` :267・`output_from_spec` :288・`speaker_colors_for` :327
-- **resolve_export.py** (375 行) — DaVinci Resolve への受け渡し(文字起こしツールの「Resolveパッケージ(zip)をダウンロード」)と、「残す行」の規則。
-  - 名前: `srt_time` :37・`srt_text` :43・`is_kept` :49・`kept_spans` :55・`tool_info` :82・`sorted_segments` :86・`build_transcript_v1` :105・`build_cut_plan_v1` :133・`wrap_text` :146・`build_srt` :153・`pack_instructions` :173・`edit_draft` :233・ほか 3
+- **resolve_export.py** (378 行) — DaVinci Resolve への受け渡し(文字起こしツールの「Resolveパッケージ(zip)をダウンロード」)と、「残す行」の規則。
+  - 名前: `srt_time` :37・`srt_text` :43・`is_kept` :49・`kept_spans` :55・`tool_info` :82・`sorted_segments` :86・`build_transcript_v1` :105・`build_cut_plan_v1` :133・`wrap_text` :146・`build_srt` :153・`pack_instructions` :176・`edit_draft` :236・ほか 3
 - **resolve_textplus.py** (1042 行) — Resolve Free向け Text+ 試験パック。Luaスクリプトを同梱する。
   - 名前: `hex_rgba` :70・`text_style` :81・`style_inputs` :97・`video_tracks_value` :119・`parse_target` :126・`caption_segments` :149・`stack_captions` :180・`default_wrap` :252・`wrap_caption` :257・`build_import_plan` :306・`importer_script` :374・`installer_script` :803・ほか 6
-- **srt2resolve.py** (353 行) — パックの部品(動画の情報の読み取り・字幕の読み込み・フレームの計算・SRT の組み立ての小道具)。
-  - 名前: `class ToolError` :27・`same_path` :31・`staged` :44・`write_text_atomic` :56・`tool` :65・`arg_path` :70・`clean_text` :94・`parse_subs` :101・`read_sub_file` :125・`snap_fps` :149・`codec_warnings` :161・`probe` :198・ほか 9
+- **srt2resolve.py** (394 行) — パックの部品(動画の情報の読み取り・字幕の読み込み・フレームの計算・SRT の組み立ての小道具)。
+  - 名前: `class ToolError` :27・`same_path` :31・`staged` :44・`write_text_atomic` :56・`tool` :65・`arg_path` :70・`clean_text` :94・`parse_subs` :101・`read_sub_file` :125・`snap_fps` :149・`codec_warnings` :161・`probe` :198・ほか 10
 
 ## src/pipeline/transcribe/
 
@@ -86,8 +86,8 @@
   - 名前: `models_touched` :31・`release_idle_local` :36・`setup_cuda_paths` :105・`cuda_count` :130・`cuda_libs_ok` :138・`cuda_compute` :159
 - **postproc.py** (333 行) — ① 文字起こしの行の後処理: 要確認の印(make_flags)・認識の出力を整える流れ(expand_segments = 行を単語の時刻で分ける split_segment・
   - 名前: `latin_suspect` :31・`sparse_row` :59・`stock_phrase` :74・`repeats_in_line` :91・`make_flags` :102・`note_only` :139・`note_nosub` :144・`expand_segments` :151・`post_values` :193・`clip_rows` :220・`merge_repeats` :237・`trim_ends` :286・ほか 4
-- **recognize.py** (364 行) — ① 音声の認識: 動画から音声を取り出す(extract_audio)・声の検出が捨てすぎたら緩めてやり直す(transcribe_vad_fallback)・文字起こしの行(transcribe_real)・
-  - 名前: `wav_args` :28・`extract_audio` :59・`seg_to_dict` :88・`vad_kept` :106・`vad_note` :114・`transcribe_vad_fallback` :128・`transcribe_real` :173・`transcribe_rows` :201・`audio_span` :220・`recognize_chunk` :230・`class ChunkModel` :252・`finish_range_lines` :272・ほか 1
+- **recognize.py** (365 行) — ① 音声の認識: 動画から音声を取り出す(extract_audio)・声の検出が捨てすぎたら緩めてやり直す(transcribe_vad_fallback)・文字起こしの行(transcribe_real)・
+  - 名前: `wav_args` :28・`extract_audio` :59・`seg_to_dict` :89・`vad_kept` :107・`vad_note` :115・`transcribe_vad_fallback` :129・`transcribe_real` :174・`transcribe_rows` :202・`audio_span` :221・`recognize_chunk` :231・`class ChunkModel` :253・`finish_range_lines` :273・ほか 1
 - **records.py** (210 行) — ① 文字起こしの記録: recognition.runs の 1 件(エンジンと版・設定・辞書の版・後処理)・配信ごとの文脈と声の検出の記録・
   - 名前: `set_dict_inputs` :24・`pkg_version` :37・`engine_version` :46・`run_engine` :60・`recognition_run` :77・`dtw_record` :97・`engine_timing` :107・`short_hash` :123・`roster_hash` :136・`dict_version` :144・`context_record` :168・`vad_record` :176・ほか 3
 - **replace.py** (59 行) — ① 自動の流れの層 pipeline/transcribe: 確度「高」の学習済み置換を機械の出力に当てる(`auto_learned_replace`)。純粋な関数だけ(ファイル・設定を読まない)。

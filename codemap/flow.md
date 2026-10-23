@@ -84,8 +84,8 @@
 - **prio.py** (88 行) — ② 管理の層 flow: 処理の優先度の表(PRIO。決定 3-49・notes:plan/done/opt-series.md の 11)。
   - 名前: `name_ok` :35・`rank` :39・`idle_only` :43・`os_priority` :47・`label` :51・`slot_kw` :55・`of_run` :60・`of_spec` :69・`watch` :80・`idle_now` :85
 - **retention.py** (9 行) — ② 管理の層 flow: 物の終わりの日数の 1 か所(方針の数)。ユーザーのツールと友人のアプリが同じ値を読む。
-- **run.py** (1795 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
-  - 名前: `class Cancelled` :151・`class StepError` :155・`mode_of` :174・`steps_of` :208・`analyze_verdict` :252・`chat_missing` :270・`chat_retry_ok` :276・`stream_ended_at` :284・`redo_reason` :297・`short_why` :315・`adopted_ids` :327・`tx_verdict` :332・ほか 5
+- **run.py** (1903 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
+  - 名前: `class Cancelled` :158・`class StepError` :162・`mode_of` :181・`steps_of` :215・`analyze_verdict` :259・`chat_missing` :277・`chat_retry_ok` :283・`stream_ended_at` :291・`redo_reason` :304・`short_why` :322・`adopted_ids` :334・`tx_verdict` :339・ほか 5
 - **runlog.py** (93 行) — まとめて実行の「終わった実行の記録」の形と読み方(RS3-0B)。
   - 名前: `read_runs_log` :47・`read_result` :77
 - **runqueue.py** (839 行) — ② 管理の層 flow: 待ち行列と実行の糸(RS7-1 S5。決定 3-30・
@@ -96,10 +96,10 @@
   - 名前: `class Ledger` :55・`class StudioBook` :266・`class LocalStudio` :381
 - **thumbs.py** (28 行) — ② サムネの案の口(OPT-H2 の組 A)。③ の editor/thumb_ideas.py(案の決め方・文字起こしを読む殻)が、① pipeline/export/thumb_cards を直に読まずに済むための動詞だけを出す。
   - 名前: `font` :13・`scan` :18・`render` :25
-- **tools.py** (471 行) — ② 管理の層 flow: 段が道具を呼ぶ継ぎ目 Tools(RS6 b-0)。
-  - 名前: `class HttpTools` :33・`class FlowTools` :128・`class PackHost` :186・`doc_row` :249・`class LocalTools` :261
-- **tx.py** (395 行) — ② 管理の層 flow: 文字起こしの動詞。RS6 a-3(決定 3-29)。
-  - 名前: `dict_pairs` :33・`rerun_base` :49・`roster_listing` :58・`pick_glossary_terms` :68・`check_model` :74・`request_engine` :83・`tx_spec` :91・`new_doc` :120・`transcribe_clip` :136・`write_clip_records` :182・`replace_span_words` :202・`write_machine_doc` :214・ほか 9
+- **tools.py** (480 行) — ② 管理の層 flow: 段が道具を呼ぶ継ぎ目 Tools(RS6 b-0)。
+  - 名前: `class HttpTools` :33・`class FlowTools` :137・`class PackHost` :195・`doc_row` :258・`class LocalTools` :270
+- **tx.py** (397 行) — ② 管理の層 flow: 文字起こしの動詞。RS6 a-3(決定 3-29)。
+  - 名前: `dict_pairs` :33・`rerun_base` :49・`roster_listing` :58・`pick_glossary_terms` :68・`check_model` :74・`request_engine` :83・`tx_spec` :91・`new_doc` :122・`transcribe_clip` :138・`write_clip_records` :184・`replace_span_words` :204・`write_machine_doc` :216・ほか 9
 - **wire.py** (90 行) — ② 管理の層 flow: 文字起こしの配線(ジョブの種類の登録・ジョブの表の設定・本物と疑似の選び方・① の口の登録)。RS6 a-5b(決定 3-29)。登録は 1 つの install にまとまっている。
   - 名前: `install` :40・`setup_places` :65・`setup_headless` :80
 

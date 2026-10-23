@@ -105,7 +105,9 @@ def tx_spec(req, post, learning=None, *, src=None, dur=None):
     glossary = _txtext.split_terms(req.get("glossary"))[:200]
     gauto = list(learning.glossary(glossary)) if learning is not None and post.get("autoGloss") is not False else []
     engine, ctx = request_engine(req, model, {"clip": clip, "title": title, "sourceName": os.path.basename(src), "sourcePath": src}, post["autoContext"])
-    return {"sourcePath": src, "sourceName": os.path.basename(src), "start": 0.0, "end": round(dur, 2) if dur else None, "intoDoc": None,
+    audio = _tools.check_source(req["audioPath"]) if req.get("audioPath") else None   # 音だけ先に作った物(② の 30fps の作り直しと並べるとき。無ければ動画から)
+    return {"sourcePath": src, "sourceName": os.path.basename(src), **({"audioPath": audio} if audio else {}),
+            "start": 0.0, "end": round(dur, 2) if dur else None, "intoDoc": None,
             "duration": dur, "whole": True, "model": model, "engine": engine, "language": lang, "beam": 1 if req.get("quality") == "fast" else 5,
             "device": req.get("device") if req.get("device") in ("auto", "cuda", "cpu", "vulkan") else "auto",
             "vadMode": req.get("vadMode") if req.get("vadMode") in ("weak", "normal", "off") else "weak",

@@ -799,11 +799,11 @@ class TestPackRun(unittest.TestCase):
         for s in ("V1 映像・A1 音声・V2〜V3 Text+ 字幕。同時にしゃべっている所の字幕は、重ならないように上のトラック(V3)に置き",
                   "V2〜V3 の Text+ を選び", "重なる字幕(V3)の高さを直す"):
             self.assertIn(s, res["readme"])
-        out = self.d / "over_edl"                                                          # EDL が本体のパック(Text+ でない)の SRT は段に分けない
+        out = self.d / "over_edl"                                                          # EDL が本体のパック(Text+ でない)の SRT も、重なる所は段に分ける(10-23)
         pack.build_pack(over, out, **self.SCREEN)
         cues = S.parse_subs((out / "さくらみこ_cut.srt").read_text(encoding="utf-8-sig"))
-        self.assertEqual(cues[1][2], "二")
-        self.assertGreater(cues[0][1], cues[1][0])                                         # 一 の終わり > 二 の始まり(重なったまま)
+        self.assertEqual(cues[1][2], "一\n二")                                             # 重なる間は両方を上下に(一 が上)
+        self.assertTrue(all(a[1] <= b[0] for a, b in zip(cues, cues[1:])))                 # SRT の字幕どうしは重ならない
 
         # 不正な見た目・映像トラックの数ではフォルダも作らない
         with self.assertRaises(C.ToolError):
@@ -1132,7 +1132,8 @@ class TestPackRun(unittest.TestCase):
         out = self.d / "list_remap"
         plan, res = self.spec_pack({"video": str(self.video), "srt": str(srt), "mode": "list", "listText": "1 3\n5 8\n"}, {"dir": str(out)})
         cues = [(S.ms_to_frames(a, FPS30), S.ms_to_frames(b, FPS30), t) for a, b, t in S.parse_subs((out / "さくらみこ_cut.srt").read_text(encoding="utf-8"))]
-        self.assertEqual(sorted(cues), sorted([(0, 30, "A"), (0, 3, "short"), (30, 60, "X"), (60, 90, "X"), (75, 120, "B")]))
+        # 付け直した字幕は (0, 30, A)・(0, 3, short)・(30, 60, X)・(60, 90, X)・(75, 120, B)。SRT は重なる所を段に分けて書く(10-23。決定の 10-05「書き出しまで」)
+        self.assertEqual(cues, [(0, 3, "short\nA"), (3, 30, "A"), (30, 75, "X"), (75, 90, "X\nB"), (90, 120, "B")])
         self.assertEqual([c[0] for c in cues], sorted(c[0] for c in cues))
         self.assertEqual(pack.summary(plan)["subtitles"]["vanished"], 2)
         # 削る区間・詳しい設定: 元の開始タイムコード(ドロップの書き方は直して知らせる)・タイムラインの開始・リール名・題の改行

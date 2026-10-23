@@ -342,7 +342,48 @@ def _srt_ts(ms):
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
+# 重なる字幕の段分け(10-23。人の作業なしの候補の 9 番): SRT は 1 本の帯なので、重なる所はその間だけ両方の文を上下に並べた字幕に分ける
+# (パック・画面の段分けと同じ見え方 = 先に始まった字幕が上)。短いはみ出し(STACK_SMALL_SEC 未満)は段にせず前の字幕を次の始まりで切る
+# (Text+ の resolve_textplus.LANE_OVERLAP_SEC と同じ 0.3 秒)。重なりが無ければ入力のまま。SRT_STACK = False で今までどおり(重なったまま)
+SRT_STACK = True
+STACK_SMALL_SEC = 0.3
+
+
+def stack_overlaps(cues, small):
+    """[(開始, 終了, 文)](秒でもコマでも)-> 重ならない [(開始, 終了, 文)]。small = 段にしない短いはみ出し(同じ単位)。
+    重なる間は、その時に出ている字幕の文を始まりの順に改行でつなぐ。同じ文が続く隣の切れ目はつなぐ"""
+    order = sorted(range(len(cues)), key=lambda i: (cues[i][0], cues[i][1], i))
+    out = [[cues[i][0], cues[i][1], cues[i][2], k] for k, i in enumerate(order)]
+    for j in range(1, len(out)):   # 短いはみ出し: 前の字幕を切る
+        p, c = out[j - 1], out[j]
+        if p[0] < c[0] < p[1] and p[1] - c[0] < small:
+            p[1] = c[0]
+    out = [c for c in out if c[1] > c[0]]
+    end, clash = None, False
+    for c in out:
+        if end is not None and c[0] < end:
+            clash = True
+            break
+        end = c[1] if end is None else max(end, c[1])
+    if not clash:
+        return [(a, b, t) for a, b, t, _k in out]
+    edges = sorted({x for c in out for x in (c[0], c[1])})
+    pieces = []
+    for a, b in zip(edges, edges[1:]):
+        on = [c for c in out if c[0] <= a and c[1] >= b]
+        if not on:
+            continue
+        text = "\n".join(c[2] for c in sorted(on, key=lambda c: c[3]))
+        if pieces and pieces[-1][1] == a and pieces[-1][2] == text:
+            pieces[-1][1] = b
+        else:
+            pieces.append([a, b, text])
+    return [tuple(p) for p in pieces]
+
+
 def build_srt(cues_f, fps):
+    if SRT_STACK:   # 重なる字幕を段に分ける(上の説明。コマの単位で)
+        cues_f = stack_overlaps(cues_f, max(1, int(round(STACK_SMALL_SEC * fps[0] / fps[1]))))
     parts = []
     for n, (sf, ef, text) in enumerate(cues_f, 1):
         parts.append(f"{n}\n{_srt_ts(frames_to_ms(sf, fps))} --> {_srt_ts(frames_to_ms(ef, fps))}\n{text}\n")

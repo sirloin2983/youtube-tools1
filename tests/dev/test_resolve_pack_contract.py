@@ -137,7 +137,10 @@ class LEGACY:
             if end > start:
                 caps.append((cls.frames(start, fps), max(cls.frames(start, fps) + 1, cls.frames(end, fps)),
                              str(seg.get("text") or "").strip()))
-        srt = resolve_export.srt_text((cls.seconds(a, fps), cls.seconds(b, fps), t) for a, b, t in caps)
+        sub = caps
+        if S.SRT_STACK:   # SRT の重なる字幕は段に分ける(10-23。区間と字幕は前と同じ・SRT の書き方だけが変わった。規則は srt2resolve.stack_overlaps)
+            sub = S.stack_overlaps(caps, max(1, int(round(S.STACK_SMALL_SEC * float(fps)))))
+        srt = resolve_export.srt_text((cls.seconds(a, fps), cls.seconds(b, fps), t) for a, b, t in sub)
         return [(c["sourceStartFrame"], c["sourceEndFrame"]) for c in cuts], caps, srt
 
 

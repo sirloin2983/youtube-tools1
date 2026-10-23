@@ -29,6 +29,8 @@
   - 名前: `replace_retry` :19・`unlink_quiet` :32・`temp_in` :40・`atomic_write` :59・`create_new` :77・`write_json` :99・`append_jsonl` :109・`sha256_file` :116・`class TooLarge` :125・`read_json_file` :133・`is_network_path` :153・`norm_path` :160・ほか 21
 - **gpuinfo.py** (165 行) — この PC の GPU の名前と VRAM を調べる(F1 F0-2。notes:docs/design/f1-build.md の 2 の F0-2・3 の (f1b))。標準ライブラリと ytt だけ。
   - 名前: `vendor_of` :28・`gb` :37・`parse_nvidia_smi` :46・`parse_cim` :62・`pick` :80・`from_nvidia_smi` :97・`from_registry` :104・`from_cim` :136・`probe` :144・`info` :158
+- **headline.py** (74 行) — 切り抜きの見出しと「選んだ理由」を規則で作る(人の作業なしの候補の新機能 C・10-23)。LLM は使わない。
+  - 名前: `excite_score` :23・`clean` :31・`headline` :38
 - **httpsec.py** (272 行) — ローカルサーバー(127.0.0.1)の安全検査。スタジオ・文字起こし・入口で同じ規則を1か所に持つ。
   - 名前: `allowed_hosts` :31・`host_ok` :35・`origin_ok` :39・`fetch_site_ok` :44・`navigation_ok` :48・`send_head` :53・`send` :66・`class LocalHandler` :74・`class BodyError` :108・`drain_body` :121・`read_json_body` :136・`inject_token` :174・ほか 5
 - **jobs.py** (266 行) — 重い処理の同時実行数の上限(統合計画の段階4)。
@@ -94,6 +96,7 @@
 - tests/ytt/test_docloc.py — ytt/docloc.py(文字起こしの文書の置き場所を引く口。RS8 B-2)のテスト。
 - tests/ytt/test_flags.py — 行の印(flag)のつなぎ方・探し方(ytt.schemas の join_flags・has_flag・flag_parts)のテスト。  py -3.12 -m unittest tests/ytt/test_flags.py -v
 - tests/ytt/test_gpuinfo.py — ytt/gpuinfo(この PC の GPU の名前と VRAM。F1 F0-2)のテスト。  py -3.12 -m unittest tests/ytt/test_gpuinfo.py -v
+- tests/ytt/test_headline.py — ytt/headline.py(届くパックの機械の見出しと選んだ理由。規則だけ。新機能 C・10-23)のテスト
 - tests/ytt/test_marks.py — ytt/marks.py(マークの純粋な語彙)の単体テスト。
 - tests/ytt/test_normalize.py — ytt.normalize(素材を 30fps にそろえる。Q1)のテスト。  py -3.12 -m unittest tests/ytt/test_normalize.py -v
 - tests/ytt/test_settings.py — ytt.settings(設定ファイルの共通部品。S4)のテスト。リポジトリ直下で:

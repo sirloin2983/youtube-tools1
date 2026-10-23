@@ -66,6 +66,38 @@ def tc2f(tc, nominal):
     return ((h * 60 + m) * 60 + s) * nominal + f
 
 
+class TestStackOverlaps(unittest.TestCase):
+    """重なる字幕の段分け(10-23 人の作業なしの候補の 9 番): SRT は 1 本の帯なので、重なる間は両方の文を上下に並べた字幕に分ける"""
+
+    def test_no_overlap_is_unchanged(self):
+        cues = [(0, 30, "あ"), (30, 60, "い"), (90, 120, "う")]
+        self.assertEqual(S.stack_overlaps(cues, 9), cues)
+
+    def test_small_overlap_trims_previous(self):
+        self.assertEqual(S.stack_overlaps([(0, 35, "あ"), (30, 60, "い")], 9), [(0, 30, "あ"), (30, 60, "い")])   # 5 コマ < 9 = 前を切る
+
+    def test_real_overlap_is_stacked(self):
+        got = S.stack_overlaps([(30, 90, "い"), (0, 60, "あ"), (100, 120, "う")], 9)   # 並びが前後しても始まりの順
+        self.assertEqual(got, [(0, 30, "あ"), (30, 60, "あ\nい"), (60, 90, "い"), (100, 120, "う")])
+        self.assertTrue(all(a[1] <= b[0] for a, b in zip(got, got[1:])))   # 重ならない
+
+    def test_three_and_contained(self):
+        got = S.stack_overlaps([(0, 100, "長い"), (20, 40, "中"), (30, 60, "後")], 3)
+        self.assertEqual(got, [(0, 20, "長い"), (20, 30, "長い\n中"), (30, 40, "長い\n中\n後"), (40, 60, "長い\n後"), (60, 100, "長い")])
+
+    def test_build_srt_stacks_and_switch(self):
+        fps = (30, 1)
+        text = S.build_srt([(0, 60, "あ"), (30, 90, "い")], fps)
+        self.assertEqual(text.count(" --> "), 3)
+        self.assertIn("00:00:01,000 --> 00:00:02,000\nあ\nい\n", text)
+        old = S.SRT_STACK
+        S.SRT_STACK = False
+        try:
+            self.assertEqual(S.build_srt([(0, 60, "あ"), (30, 90, "い")], fps).count(" --> "), 2)   # スイッチを切れば今までどおり
+        finally:
+            S.SRT_STACK = old
+
+
 class TestLongClipTimeouts(unittest.TestCase):
     """友人の依頼の区間は長さの上限なし(C-2-7・C-5-5)= 3 時間の切り抜きでも ffmpeg を決まった秒数で切らない(3 時間の動画は通しで作れない)"""
 
