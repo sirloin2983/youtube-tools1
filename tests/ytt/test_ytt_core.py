@@ -1156,6 +1156,27 @@ class TestTools(unittest.TestCase):
             with mock.patch.dict(os.environ, {"YTT_FFMPEG": os.path.join(other, "ffmpeg.exe")}):
                 same(studio_env.find_tool("ffprobe"), other, "ffprobe.exe")
 
+    @unittest.skipUnless(os.name == "nt", "winget の場所は Windows だけ")
+    def test_find_tool_prefers_release_over_dev_build(self):
+        """10-24: PATH の ffmpeg が開発版(N-)で winget の Gyan に正式版があれば正式版(ffprobe も同じ所)。YTT_FFMPEG は最優先のまま"""
+        tmp = tempfile.mkdtemp(prefix="ytt_find_rel_")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        dev = os.path.join(tmp, "dev")
+        rel = os.path.join(tmp, "Microsoft", "WinGet", "Packages", "Gyan.FFmpeg_x", "ffmpeg-9.0.2-full_build", "bin")
+        for d in (dev, rel):
+            os.makedirs(d)
+            for n in ("ffmpeg.exe", "ffprobe.exe"):
+                open(os.path.join(d, n), "wb").close()
+        ver = lambda p: "N-126374-g089a" if os.path.normcase(p).startswith(os.path.normcase(dev)) else "9.0.2-full_build-www.gyan.dev"
+        same = lambda p, d, n: self.assertEqual(os.path.normcase(p or ""), os.path.normcase(os.path.join(d, n)))
+        with mock.patch.dict(os.environ, {"LOCALAPPDATA": tmp, "PATH": dev, "YTT_FFMPEG": "", "YTT_FFPROBE": ""}), \
+                mock.patch.object(tools, "_ffmpeg_version", side_effect=ver):
+            same(tools.find_tool("ffmpeg"), rel, "ffmpeg.exe")
+            same(tools.find_tool("ffprobe"), rel, "ffprobe.exe")
+            with mock.patch.dict(os.environ, {"YTT_FFMPEG": os.path.join(dev, "ffmpeg.exe")}):
+                same(tools.find_tool("ffmpeg"), dev, "ffmpeg.exe")
+                same(tools.find_tool("ffprobe"), dev, "ffprobe.exe")
+
     def test_no_window_flags_priority(self):
         with self.assertRaises(ValueError):
             tools.no_window_flags(priority="realtime")

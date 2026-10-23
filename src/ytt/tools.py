@@ -1,6 +1,6 @@
 """外部プログラム(ffmpeg・ffprobe・yt-dlp)の場所と、子プロセスを動かすときの小道具。
 
-- find_tool … 外部プログラムの場所(固有の環境変数 → YTT_ → PATH → winget。全部の部品がここで探す)。tool_version / tool_output … その版を調べる
+- find_tool … 外部プログラムの場所(固有の環境変数 → YTT_ → PATH → winget。全部の部品がここで探す。ffmpeg は PATH が開発版なら winget の正式版 = pick_ffmpeg)。tool_version / tool_output … その版を調べる
 - no_window_flags … creationflags(窓を出さない・別グループ・優先度)。python_exe … 子プロセスに使う python.exe
 - start_logged … 常駐の子プロセスを、出力をログに足す形で起こす
 - run … 子プロセスを最後まで動かして出力を集める(取り消し・時間切れで止める)。run_progress … ffmpeg・yt-dlp の出力(-progress の進み具合)を 1 行ずつ読みながら動かす(取り消し・時間切れ・無出力で止める。窓なし・優先度「低」。ffmpeg を動かす形はこの 1 つ)
@@ -70,8 +70,9 @@ def find_tool(name, env_var=None):
     1. 引数 env_var で渡した環境変数(省くと見ない)
     2. 共通の環境変数 ytt_env(name)(YTT_FFMPEG・YTT_FFPROBE・YTT_YTDLP)
     3. ffprobe だけ: 1・2 の ffmpeg の環境変数(名前の FFPROBE を FFMPEG にした物)で決めた ffmpeg の隣
-    4. PATH
-    5. winget の場所(_winget_dirs。PATH に通っていない PC = winget だけで入れた友人の PC でも見つかる)
+    4. ffmpeg・ffprobe: pick_ffmpeg で決めた ffmpeg(PATH の物が開発版で、winget の Gyan に正式版があれば正式版)とその隣の ffprobe
+    5. PATH
+    6. winget の場所(_winget_dirs。PATH に通っていない PC = winget だけで入れた友人の PC でも見つかる)
     環境変数は実在するファイルのときだけ効く(PATH を通していない場所の道具を使うため・テストで偽物に差し替えるため)。見つからなければ None"""
     envs = [env_var, ytt_env(name)]
     p = _env_file(envs)
@@ -82,7 +83,50 @@ def find_tool(name, env_var=None):
         p = _in_dirs(name, [os.path.dirname(ff)]) if ff else None
         if p:
             return p
+    if name in ("ffmpeg", "ffprobe"):
+        ff = pick_ffmpeg()
+        p = ff if name == "ffmpeg" else (_in_dirs(name, [os.path.dirname(ff)]) if ff else None)
+        if p:
+            return p
     return shutil.which(name) or _in_dirs(name, _winget_dirs())
+
+
+_VERSIONS = {}   # (パス, 更新時刻) → ffmpeg -version の版の文字(find_tool のたびに動かさない)
+
+
+def _ffmpeg_version(path):
+    try:
+        key = (os.path.normcase(os.path.abspath(path)), os.stat(path).st_mtime_ns)
+    except OSError:
+        return ""
+    if key not in _VERSIONS:
+        _VERSIONS[key] = tool_version(path)
+    return _VERSIONS[key]
+
+
+def is_dev_build(path):
+    """ffmpeg の開発版(-version の版の文字が N- で始まる。毎晩の版 = 新しい符号化器が止まることがある。10-24 の N-126374 の aac)"""
+    return _ffmpeg_version(path).startswith("N-")
+
+
+def pick_ffmpeg():
+    """環境変数の指定が無いときの ffmpeg: PATH の物。ただしそれが開発版で、winget の Gyan(_release_dirs)に正式版があれば正式版。
+    PATH に無ければ winget の場所。見つからなければ None"""
+    ff = shutil.which("ffmpeg")
+    if ff and is_dev_build(ff):
+        for d in _release_dirs():
+            rel = _in_dirs("ffmpeg", [d])
+            if rel and not is_dev_build(rel) and _ffmpeg_version(rel):
+                return rel
+    return ff or _in_dirs("ffmpeg", _winget_dirs())
+
+
+def _release_dirs():
+    """正式版の ffmpeg がありそうな場所(winget の Gyan.FFmpeg の bin。新しい版が先)"""
+    base = os.environ.get("LOCALAPPDATA")
+    if not base:
+        return []
+    return sorted(glob.glob(os.path.join(base, "Microsoft", "WinGet", "Packages", "Gyan.FFmpeg*", "ffmpeg-*", "bin")), reverse=True)
 
 
 # ---------- 動画・音声のファイル(編集の文字起こし・波形・付け替え・保管が使う) ----------
@@ -103,7 +147,7 @@ def _winget_dirs():
         return []
     root = os.path.join(base, "Microsoft", "WinGet")
     pkgs = os.path.join(root, "Packages")
-    return ([os.path.join(root, "Links")] + sorted(glob.glob(os.path.join(pkgs, "Gyan.FFmpeg*", "ffmpeg-*", "bin")), reverse=True)
+    return ([os.path.join(root, "Links")] + _release_dirs()
             + sorted(glob.glob(os.path.join(pkgs, "yt-dlp.yt-dlp*")), reverse=True))
 
 
