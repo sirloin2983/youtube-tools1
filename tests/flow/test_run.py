@@ -475,6 +475,17 @@ class TestKeys(unittest.TestCase):
         getattr(rn, "_step_" + key)(run, st, self.video)
         return st, run
 
+    def test_pack_without_text_rows_makes_whole_clip(self):
+        """文字のある行が無い文書(声の無い切り抜き)も、字幕なしで区間の全体をパックにする(行が無いからと 1 本落とさない。配る前の検査の 5 本中 4 本)"""
+        c = FakeClient(full=[self.doc])
+        rn = R.Runner(c, poll=0, sleep=lambda s: None)
+        run = RF.run_of("abcdefghijk", "配信", "export", 3)
+        doc = dict(self.doc, segments=[])
+        with mock.patch.object(R, "_clip_span", lambda media: (10.0, 20.0)):
+            body, keeps, _rev = rn._pack_body(run, doc, self.media, rn._pack_settings(run))
+        self.assertEqual((body["spec"], body["output"]["textplus"], keeps), ({"video": self.media, "keeps": [[10.0, 20.0]]}, False, None))
+        self.assertNotIn(("transcribe", "POST", "/api/export-file"), c.calls)   # 字幕の受け渡しを頼まない
+
     def test_pack_state_writes_nothing_and_matches_written_key(self):
         """指摘 2: 鍵の比べ(見積もりも同じ関数)は字幕の受け渡しの JSON を書かない。書かずに作った材料の鍵は、書いたファイルから作った鍵と同じ"""
         c = FakeClient(full=[self.doc])

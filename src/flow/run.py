@@ -50,7 +50,7 @@ import threading
 import time
 import uuid
 
-from ytt import colors, fsio as _fsio, jobs as _slots, schemas as _schemas
+from ytt import colors, fsio as _fsio, jobs as _slots, schemas as _schemas, tools as _ytools
 from pipeline.analyze import excite as _excite   # 埋めた候補の理由の文(FILL_REASON)を数えるだけ
 from . import batch as _batch   # 解析の順番の断りの種類(queued_already)
 from . import envelope as _envelope, keys as _keys, order as _order, normalize as _norm, placement as _placement, prio as _prio, spec as _spec, tools as _tools
@@ -1345,6 +1345,9 @@ class Runner:
             tr = {"path": transcript()} if captions else {}
             spec = dict({"video": media, "keeps": keeps}, **({"transcript": tr.get("path")} if captions else {}))
             body = {"spec": spec, "output": dict({"textplus": captions, "copyVideo": True}, **wrap_out)}
+        elif not _has_captions(doc):   # 文字のある行が無い(声の無い切り抜き・BGM だけ)= 字幕なしで区間の全体をパックに(行が無いからと 1 本落とさない。10-23)
+            span = _clip_span(media) or (0.0, _ytools.media_duration(media) or 0.0)
+            body = {"spec": {"video": media, "keeps": [[float(span[0]), float(span[1])]]}, "output": dict({"textplus": False, "copyVideo": True}, **wrap_out)}
         else:   # カットを決めていない文書: カットの方法(ホームの設定。rows = 行から・none = カットしない・silence = 無音で削る)
             tr = {"path": transcript()}
             # 友人が選んだカット(① の依頼)・リアルタイム切り抜きの live.auto.cut(M2)= 束の pack.cut + run.pinned の cut。
