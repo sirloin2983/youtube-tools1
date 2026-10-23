@@ -621,7 +621,7 @@ class LiveSession:
 
     @property
     def cleaner(self):
-        """録画を自動で消す(入口が _make_cleaner で作る = manage/keep/live_cleanup.py。P4。設定 live.autoDelete)。作れなければ None"""
+        """録画を自動で消す(入口が _make_cleaner で作る = manage/keep/live_cleanup.py。P4。10-24 から設定なし = いつも)。作れなければ None"""
         with self._ex_lock:
             if self._cleaner is None:
                 self._cleaner = self._make_cleaner()
@@ -634,11 +634,6 @@ class LiveSession:
     def _cleaner_check(self, rc, rec):
         c = self.cleaner
         return c.check(rc, rec) if c is not None else None
-
-    def auto_delete(self):
-        """録画を自動で消してよいか(リアルタイム切り抜きがオンで、設定 live.autoDelete がオン。既定オン)"""
-        cfg = self.cfg()
-        return cfg.get("enabled") is True and cfg.get("autoDelete") is True   # 消すのは戻せないので、明示的に true のときだけ(既定の値は src/app/prefs.py の DEFAULTS)
 
     def studio_call(self, method, path, body=None):
         """取り込んだスタジオの API -> (HTTP の番号, JSON)。ここ(スタジオなし)は (None, {"message"})。入口の Live が埋める"""
@@ -821,7 +816,7 @@ class LiveSession:
             return view(found, True)
         q = self.cfg().get("quality")
         title = info.get("title") if isinstance(info.get("title"), str) else ""
-        body = {"url": url, "quality": q if q in QUALITIES else DEFAULT_QUALITY, "title": title[:LX.TITLE_MAX]}
+        body = {"url": url, "quality": q if q in QUALITIES else DEFAULT_QUALITY, "title": title[:LX.TITLE_MAX], "channel": ch}
         if info.get("start"):
             body["streamStart"] = info["start"]   # 配信の開始時刻(録画の画面の「配信の時刻」)
         code, d = self.call(rc, "POST", "/live/start", body, timeout=15.0)
@@ -1074,7 +1069,7 @@ class LiveSession:
             if self.exporter.pending():   # 入口を起動し直した: 途中の書き出しを続ける(空き待ちの受け渡しも。M4)
                 self.exporter.start()
             self.archiver.start()   # アーカイブからの書き出し: 途中のものを続ける・自動の見回り・配信後の全自動(M7)
-        if self.auto_delete():   # 録画を自動で消す(P4。設定 live.autoDelete。中で間隔を見る = 10 分ごと。不具合でも録画の部品の見回りは続ける)
+        if self.enabled():   # 録画を自動で消す(P4。アーカイブ化を確かめた録画だけ。中で間隔を見る = 10 分ごと。不具合でも録画の部品の見回りは続ける)
             self._guard("録画を消す見回りでエラー", lambda: self.cleaner is not None and self.cleaner.tick())
         local = next((r for r in self.recorders(cfg) if is_local_url(r.get("url") or "")), None)
         if local is None:

@@ -1154,7 +1154,7 @@ const ARCH_TITLE = 'アーカイブから書き出しました';
 const AFTER_END = ['done', 'none', 'error'];
 const LV = { vid: null, status: null, err: null, seq: 0, timer: 0, waitPlay: false, wasActive: null, endedShown: false,
   jobs: [], jobsKnown: false, jobsSeq: 0, jobsAt: 0, prevJobs: new Map(), busy: new Set(), queued: new Set(), applied: new Set(), chain: Promise.resolve(), starting: false,
-  archiveInfo: null, archStarting: false, archCancelling: false, archMsg: '', autoDelete: null, deletedShown: false,
+  archiveInfo: null, archStarting: false, archCancelling: false, archMsg: '', deletedShown: false,
   who: null };   // who: 帯の「配信者」(liveWhoOpened)
 const liveRest = (v, tail) => 'r/' + enc(v.live.recorder) + '/' + enc(v.live.recording) + '/' + tail;
 const liveRecId = v => (v && v.live && v.live.recording) || (v && v.id) || '';
@@ -1307,12 +1307,11 @@ function liveOpened(v){
   renderLiveRec();
   pollLiveStatus();
 }
-/* ホームの設定の live.autoDelete・配信中の候補(live.detect)・自動採用(live.autoAdopt)を読む。設定の引き出しで変えたら studio:liveprefs で届く */
+/* ホームの設定の 配信中の候補(live.detect)・自動採用(live.autoAdopt)を読む。設定の引き出しで変えたら studio:liveprefs で届く */
 function loadLiveAutoArchive(v){
   if (!UIKit.prefs.available()) return;
   UIKit.prefs.get(['live']).then(p => {
     if (LV.vid !== v.id) return;
-    LV.autoDelete = !!(p && p.live && p.live.autoDelete === true);   // 録画を自動で消す(入口と同じく true のときだけ)
     peakPrefs(p && p.live);   // 配信中の候補(live.detect)・自動採用(live.autoAdopt)。オンなら候補を読み始める
     renderLiveRec();
   }, () => {});
@@ -1417,8 +1416,9 @@ function renderLiveRec(){
     guide = `録画は終わりました(合計 ${tickLabel(Math.max(liveTotal(st), S.duration))})。最後まで再生・マーク・書き出しができます`;
     if (liveVideoId(v) && liveArchTargets(LV.jobs).some(j => !(j.archive && j.archive.state === 'done'))){   // アーカイブから書き出すマークがあるときだけ
       guide += '。録画に無い区間のマークは、アーカイブが用意できたら自動でアーカイブから書き出します';
-    } else if (LV.autoDelete === true && LV.jobsKnown && !LV.jobs.length && !(v.marks || []).length) guide += '。マークが無いまま 1 日たつと、録画は消します';
-    if (LV.autoDelete === true && LV.jobs.length) guide += '。全部書き出して、アーカイブになったと確かめたら、録画はごみ箱へ移します(3 日で消えます)';   // 録画を自動で消す(設定 live.autoDelete)。驚かないように先に知らせる
+    } else if (LV.jobsKnown && !LV.jobs.length && !(v.marks || []).length) guide += '。マークが無いまま 1 日たって、アーカイブになったと確かめたら、録画は消します';
+    if (LV.jobs.length) guide += '。全部書き出して、アーカイブになったと確かめたら、録画はごみ箱へ移します(3 日で消えます)';   // 録画を自動で消す(10-24 から設定なし)。驚かないように先に知らせる
+    guide += '。非公開・見られない配信なら、録画は消さずに 1 本につないで残します';
   }
   liveSet('#rvLiveGuide', guide); $('#rvLiveGuide').hidden = !guide;
   renderRecSpans(); renderStreamAt();
@@ -3175,8 +3175,7 @@ function wire(){
   $('#rvArchRun').addEventListener('click', startLiveArchive);
   $('#rvArchCancel').addEventListener('click', cancelLiveArchive);
   wirePeaks();   // 配信中の候補の一覧([再生][採用][見送り][戻す]・控えも見る・マウスとフォーカスで行を留める)
-  Studio.on('liveprefs', d => {   // 設定の引き出しで「録画を消す」「配信中の候補」「確定から待つ分」を変えた
-    if (d && typeof d.autoDelete === 'boolean'){ LV.autoDelete = d.autoDelete; renderLiveRec(); }
+  Studio.on('liveprefs', d => {   // 設定の引き出しで「配信中の候補」「確定から待つ分」を変えた
     if (d && (d.detect || d.autoAdopt)) peakPrefs(d, true);
   });
   /* LIVE の帯の「マークしたらすぐ書き出す」は設定の表(SET_UI)の wireSettings が受ける */

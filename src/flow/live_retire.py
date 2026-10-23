@@ -8,24 +8,44 @@
 親(host)は flow/livesession.py の LiveSession(exporter・marks・detector)。marks と detector は呼ぶときに読む(差し替えが効く)。
 
 消してよい条件(決定 3-73): マークが全部書き出し済み(録画に無い区間はアーカイブから)で、アーカイブ化を確かめたこと。アーカイブ化の確かめは src/flow/live_archive.py の Archiver.archived(④ が verdict に関数で渡す)。
+終わって 3 日たっても書き出していないマークは、アーカイブ化を確かめれば消してよい(アーカイブから書き出せる)。アーカイブ化を確かめられない録画は消さない(10-24 ユーザー決定。
+前の「確かめられないまま 3 日で消す」はやめた)。非公開・見られない配信と分かった録画は消さずに、1 本につないで名前に「非公開」(fate・private_name。録画の部品の keep)。
 消すのは ごみ箱へ(録画の部品の delete が ごみ箱/<日付>/録画/ へ改名する。3 日で消える)。マークの正本は消さない(あとでアーカイブから書き出すときに URL・題を読む)。
 """
 import collections
+import re
+import time
 
 from . import live_export as LX
 
-NOT_EXPORTED = "書き出していないマークがある"   # 消せない理由のうち、④ が期限(終わって 3 日)で消す理由(失敗・取り消し・アーカイブから書き出せない)
-NOT_ARCHIVED = "アーカイブ化をまだ確かめられていない"   # 同じく期限で消す理由(live_archive.NOT_ARCHIVED と同じ頭。後ろに理由が付く)
+NOT_EXPORTED = "書き出していないマークがある"   # 消せない理由のうち、終わって 3 日たったらアーカイブ化を確かめて消す理由(失敗・取り消し・アーカイブから書き出せない)
+NOT_ARCHIVED = "アーカイブ化をまだ確かめられていない"   # live_archive.NOT_ARCHIVED と同じ頭(後ろに理由が付く)。この理由の録画は消さない
 STUDIO_UNKNOWN = "スタジオに確かめられない"
+PRIVATE_MARK = "非公開"   # 非公開・見られない配信の録画を残す名前の終わり(日付_配信者_題_非公開)
+_NAME_BAD = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
 
 # 録画を消してよいかの答え: jobs = 書き出しのジョブがあるか(無ければ ④ はマークの無い録画の道へ)・why = 消せない理由(空 = 消してよい)・
-# archived = アーカイブ化を確かめて消してよい(偽で why が空 = 終わって 3 日の期限で消してよい)
+# archived = アーカイブ化を確かめた(why が空なら必ず真)
 Verdict = collections.namedtuple("Verdict", "jobs why archived")
 
 
-def stale_ok(why):
-    """終わって 3 日の期限を過ぎたら、この理由だけなら消してよいか(書き出していない・アーカイブ化を確かめられない)"""
-    return isinstance(why, str) and (why == NOT_EXPORTED or why.startswith(NOT_ARCHIVED))
+def fate(archived_why, unavailable, stale):
+    """終わった録画をどうするか(両方の PC で同じ。10-24): archived_why = Archiver.archived の答え("" = アーカイブ化を確かめた)・
+    unavailable = Archiver.unavailable の答え(非公開・見られないと分かった種類。分からなければ "")・stale = 終わって 3 日たったか。
+    -> "delete"(消す)・"private"(消さずに 1 本につないで名前に「非公開」。すぐに公開へ戻ることもあるので 3 日待つ)・""(残す = 見分けがつかない)"""
+    if archived_why == "":
+        return "delete"
+    if unavailable and stale:
+        return "private"
+    return ""
+
+
+def private_name(r):
+    """非公開の録画を残す名前(拡張子なし): 日付_配信者_題_非公開。r = 録画元の一覧の 1 行。分からない所は飛ばす"""
+    t = LX.iso_epoch(r.get("streamStart")) or LX.iso_epoch(r.get("firstPdt")) or LX.iso_epoch(r.get("created")) or LX.iso_epoch(r.get("endedAt"))
+    parts = [time.strftime("%Y-%m-%d", time.localtime(t)) if t else "", r.get("channel"), r.get("title")]
+    parts = [_NAME_BAD.sub("_", p).strip(" ._") for p in parts if isinstance(p, str)]
+    return "_".join([p[:60] for p in parts if p] + [PRIVATE_MARK])
 
 
 def near(a, b):
@@ -96,25 +116,22 @@ class Retire:
     def verdict(self, rc_id, rec, stale=False, archived=None):
         """この録画を消してよいか -> Verdict。stale: 録画が終わって ④ の期限(3 日)を過ぎたか。
         archived() -> アーカイブ化を確かめたか("" = 確かめた / 理由。live_archive.Archiver.archived。ほかの条件を満たしたときだけ呼ぶ = yt-dlp を むだに呼ばない)。
-        無ければ確かめられない。期限を過ぎて理由が stale_ok だけなら、採用のまま書き出していないマークが無ければ消してよい(archived は False)"""
+        無ければ確かめられない = 消さない。期限を過ぎて書き出していないマークがあるだけなら、アーカイブ化を確かめて消す(アーカイブから書き出せる)"""
         js = self._jobs(rc_id, rec)
         if not js:
             return Verdict(False, "", False)
         last = LX.latest_per_mark(js)
         why = exported_why(js)
-        if not why:
-            why = adopted_why(last, self._adopted(rc_id, rec))
-            if why:
-                return Verdict(True, why, False)
-            try:
-                why = archived() if archived is not None else NOT_ARCHIVED
-            except Exception:   # noqa: BLE001  (確かめられなければ期限まで消さない)
-                why = NOT_ARCHIVED
-            if not why:
-                return Verdict(True, "", True)
-        if stale_ok(why) and stale:
-            return Verdict(True, adopted_why(last, self._adopted(rc_id, rec)), False)
-        return Verdict(True, why, False)
+        if why and not (why == NOT_EXPORTED and stale):
+            return Verdict(True, why, False)
+        why = adopted_why(last, self._adopted(rc_id, rec))
+        if why:
+            return Verdict(True, why, False)
+        try:
+            why = archived() if archived is not None else NOT_ARCHIVED
+        except Exception:   # noqa: BLE001  (確かめられなければ消さない)
+            why = NOT_ARCHIVED
+        return Verdict(True, why, not why)
 
     def has_marks(self, rc_id, rec):
         """マークの正本(P2 の形)にマークが残っているか。読めなければ None(④ は消さない)"""

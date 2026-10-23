@@ -29,7 +29,7 @@ P3(計画の 0-8): 録画と再生・マークは**スタジオの中**(② 確�
        文は src/flow/live_failures.py の failure_of だけが作り、「調子」の live.failures と同じ)・
   GET  /live/api/exports の各ジョブの archive {state, label, message, progress, offset, residual, at, auto, …}・
        ?recorder=&recording= を付けたときは応答に archiveInfo {ready: true|false|null, checkedAt, message}(その録画のアーカイブの用意)
-  録画を自動で消す(中身は src/manage/keep/live_cleanup.py。設定 live.autoDelete・既定オン): 見回り(tick)と、アーカイブからの書き出しが済んだとき。
+  録画を自動で消す(中身は src/manage/keep/live_cleanup.py。10-24 から設定なし = いつも。アーカイブ化を確かめた録画だけ・非公開は 1 本につないで残す): 見回り(tick)と、アーカイブからの書き出しが済んだとき。
        消した録画のジョブには recordingDeleted(スタジオの画面が「録画は消しました」と出す)。録画元の …/delete は入口のこの処理だけが呼ぶ
   ディスクの見張り(線 D の M4): 「調子」の live.disk {state: ok|warn|low, rows, message}(書き出し先・パック・live\\work の空き。
        20 GB 未満で注意・5 GB 未満で新しい書き出し・文字起こしを「空き待ち」。中身は src/flow/live_export.py の Exporter.disk)
@@ -181,10 +181,11 @@ class Live(livesession.LiveSession):
         return batch.snapshot() if batch is not None else None
 
     def _make_cleaner(self):
-        """録画を自動で消す(src/manage/keep/live_cleanup.py。P4。設定 live.autoDelete)"""
-        kw = dict({"enabled": self.auto_delete, "studio": self.studio_call, "log": self.log,
+        """録画を自動で消す(src/manage/keep/live_cleanup.py。P4)"""
+        kw = dict({"enabled": self.enabled, "studio": self.studio_call, "log": self.log,
                    "hold": lambda rc, r: self.archiver.after_stream_hold(rc, r),   # 配信後の全自動(M7)がまだの録画は消さない
-                   "archived": lambda rc, r: self.archiver.archived(rc, r)}, **self.cleanup_opts)   # アーカイブ化を確かめた録画だけ消す(LD-1)
+                   "archived": lambda rc, r: self.archiver.archived(rc, r),   # アーカイブ化を確かめた録画だけ消す(LD-1)
+                   "unavailable": lambda rc, r: self.archiver.unavailable(rc, r)}, **self.cleanup_opts)   # 非公開・見られないと分かった録画は 1 本につないで残す(10-24)
         return live_cleanup.Cleaner(self, **kw)
 
     def _request_limit(self):

@@ -685,6 +685,45 @@ class TestStreamlinkPipe(unittest.TestCase):
             self.assertIn(q, R.QUALITIES)
 
 
+class TestKeepPrivate(unittest.TestCase):
+    """非公開・見られない配信の録画を残す(keep。10-24): 2 つのセッションのセグメントを本物の ffmpeg で 1 本の mp4 につなぎ(抜けは詰める)、
+    置き場所/非公開の録画/<名前>.mp4 に置いてから、録画のフォルダをごみ箱へ。名前の使えない字は _ に。録画中は断る"""
+
+    def test_keep_joins_sessions(self):
+        src_dir, segs = source(40)
+        tmp = testkit.tempdir(self, prefix="ytt-rec-keep-")
+        folder = os.path.join(tmp, "live-rec")
+        rid = "20261020-120000-abcdefghijk"
+        t0 = time.time() - 4 * 86400
+        for k, part in enumerate((segs[:4], segs[10:13])):   # 2 つのセッション(間は抜け)
+            d = os.path.join(folder, rid, "session_%03d" % (k + 1))
+            os.makedirs(d)
+            lines = ["#EXTM3U", "#EXT-X-TARGETDURATION:2"]
+            for i, (name, dur) in enumerate(part):
+                shutil.copy(os.path.join(src_dir, name), os.path.join(d, "seg_%06d.ts" % i))
+                lines += ["#EXT-X-PROGRAM-DATE-TIME:" + R.epoch_iso(t0 + 20 * k + i), "#EXTINF:%.3f," % dur, "seg_%06d.ts" % i]
+            with open(os.path.join(d, "index.m3u8"), "w", encoding="utf-8") as f:
+                f.write("\n".join(lines + ["#EXT-X-ENDLIST", ""]))
+        with open(os.path.join(folder, rid, "recording.json"), "w", encoding="utf-8") as f:
+            json.dump({"id": rid, "url": "https://www.youtube.com/watch?v=abcdefghijk", "title": "雑談", "state": "ended", "channel": "配信者", "schema": R.SCHEMA}, f)
+        logs = []
+        rec = R.Recorder(folder, log=logs.append, **FAST)
+        rec.load()
+        self.assertEqual(rec.get(rid).summary()["channel"], "配信者")
+        self.assertEqual(rec.keep(rid, 'x:配信者/雑談_非公開'), {"started": True})
+        out = os.path.join(folder, R.KEEP_DIR, "x_配信者_雑談_非公開.mp4")
+        self.assertTrue(wait_for(lambda: not os.path.exists(os.path.join(folder, rid)), 60), logs)
+        self.assertTrue(os.path.isfile(out), logs)
+        p = subprocess.run([F.FFMPEG.replace("ffmpeg", "ffprobe"), "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", out],
+                           capture_output=True, text=True, creationflags=F.NO_WINDOW)
+        want = sum(d for _, d in segs[:4] + segs[10:13])
+        self.assertAlmostEqual(float(p.stdout.strip()), want, delta=1.5)   # 2 つのセッションの長さの合計(抜けは詰める)
+        self.assertTrue(os.path.isfile(os.path.join(folder, R.TRASH_DIR, trashbin.day_name(), R.TRASH_KIND, rid, "recording.json")))   # 元はごみ箱へ
+        with self.assertRaises(R.RecError) as cm:
+            rec.keep(rid, "x")
+        self.assertEqual(cm.exception.status, 404)
+
+
 class TestTitle(unittest.TestCase):
     """名前なしで始めた録画に配信の題を付ける(fetch_title = YouTube の oEmbed。テストは手元の HTTP サーバーを endpoint にする)"""
 

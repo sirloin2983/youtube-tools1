@@ -87,6 +87,10 @@ RANGE_MAX_SEC = 3 * 3600       # /segments で一度に聞ける区間の長さ
 SEGMENTS_MAX = 5000
 TRASH_DIR = trashbin.TRASH_DIR   # 消した録画を移す先(置き場所の直下。録画の id の形ではないので録画として読まない)
 TRASH_KIND = "録画"
+KEEP_DIR = "非公開の録画"   # 非公開・見られない配信の録画を 1 本につないで残す先(置き場所の直下。録画の id の形ではないので録画として読まない。消さない。10-24)
+KEEP_TIMEOUT = 3 * 3600.0     # 1 本につなぐ ffmpeg の時間の上限(写すだけ = 長い配信でも数分)
+NAME_MAX = 120
+NAME_BAD_RE = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 PRIORITY = getattr(subprocess, "ABOVE_NORMAL_PRIORITY_CLASS", 0)   # 録画は「通常より上」(書き出し・文字起こしは「通常より下」)
 
 
@@ -419,7 +423,9 @@ class Recording:
                "firstPdt": next((x["pdt"] for x in segs if x.get("pdt")), None), "lastPdt": epoch_iso(e + segs[-1]["dur"]) if e else None,
                "active": m.get("state") in ACTIVE, "sessions": sum(1 for _, s in sess if s),
                "blockedAt": m.get("blockedAt") if m.get("state") in ACTIVE else None,   # bot と判定され続けている始まり(ミリ秒)
-               "streamStart": m.get("streamStart")}   # 配信の開始時刻(UTC の文字。無ければ None。録画の画面の「配信の時刻」)
+               "streamStart": m.get("streamStart"),   # 配信の開始時刻(UTC の文字。無ければ None。録画の画面の「配信の時刻」)
+               "channel": m.get("channel") or "",   # 配信者(始めるときに分かれば。非公開の録画の名前に使う)
+               "keeping": m.get("keeping") is True, "keepError": m.get("keepError") or ""}   # 非公開の録画を 1 本につないでいる・つなげなかった理由(keep)
         if detail:
             info = {x.get("name"): x for x in (m.get("sessions") or []) if isinstance(x, dict)}
             out["sessionList"] = [{"name": n, "segments": len(s), "seconds": round(sum(x["dur"] for x in s), 3),
@@ -885,8 +891,9 @@ class Recorder:
         return resumed
 
     # --- 操作 ---
-    def start(self, url, quality=DEFAULT_QUALITY, title="", stream_start=None):
-        """stream_start: 配信の開始時刻(エポック秒。入口が yt-dlp で取った物。無ければ None = 画面は最初に録れた時刻を配信の 0 秒とみなす)"""
+    def start(self, url, quality=DEFAULT_QUALITY, title="", stream_start=None, channel=""):
+        """stream_start: 配信の開始時刻(エポック秒。入口が yt-dlp で取った物。無ければ None = 画面は最初に録れた時刻を配信の 0 秒とみなす)。
+        channel: 配信者(入口が yt-dlp で取った物。非公開の録画を残す名前に使う。無ければ "")"""
         if self.closing:
             raise RecError("録画の部品は終了の途中です", 409)
         url = validate_url(url, allow_local=(self.source == "direct"))
@@ -912,6 +919,8 @@ class Recorder:
                 raise RecError("録画のフォルダを作れません: %s" % (e.strerror or e.__class__.__name__), 409)
             meta = {"schema": SCHEMA, "id": rid, "url": url, "quality": quality, "title": title, "state": "waiting",
                     "message": "", "created": now_iso(), "endedAt": None, "sessions": []}
+            if isinstance(channel, str) and channel.strip():
+                meta["channel"] = channel.strip()[:TITLE_MAX]
             if isinstance(stream_start, (int, float)) and not isinstance(stream_start, bool) and stream_start > 0:
                 meta["streamStart"] = epoch_iso(float(stream_start))
             rec = Recording(self, rid, path, meta)
@@ -1002,6 +1011,65 @@ class Recorder:
         self.log("録画 %s: ごみ箱へ移しました(%s。%d 日で消えます)" % (rid, dest, self.trash_days))
         self.purge_trash(now)
         return rid
+
+    def keep(self, rid, name):
+        """非公開・見られない配信の録画を残す(10-24 ユーザー決定。入口の manage/keep/live_cleanup.py と友人の玄関だけが呼ぶ):
+        全セッションのセグメントを ffmpeg で 1 本の動画(置き場所/非公開の録画/<name>.mp4。途中の抜けはそのまま詰める)につないでから、
+        録画のフォルダをごみ箱へ(delete と同じ)。つなぐのは裏の糸(長い配信は数分)。その間は記録の keeping = 一覧で分かる。
+        つなげなければ keepError を残して録画はそのまま(あとでまた呼べる)。-> {"started": True} か {"keeping": True}(もうつないでいる)"""
+        if not isinstance(rid, str) or not REC_ID_RE.match(rid):
+            raise RecError("録画の id が正しくありません")
+        name = NAME_BAD_RE.sub("_", name if isinstance(name, str) else "").strip(" .")[:NAME_MAX]
+        if not name:
+            raise RecError("残す名前が正しくありません")
+        rec = self.get(rid)
+        with rec.lock:
+            if rec.active:
+                raise RecError("録画中・配信待ち・つなぎ直し中の録画は残せません(終わってから)", 409)
+            if rec.meta.get("keeping") is True:
+                return {"keeping": True}
+            rec.set(keeping=True, keepError="")
+        threading.Thread(target=self._keep_run, args=(rec, name), daemon=True, name="keep-" + rid).start()
+        return {"started": True}
+
+    def _keep_run(self, rec, name):
+        why, done = "", rec.meta.get("kept")
+        try:
+            if not (isinstance(done, str) and os.path.isfile(done)):   # 前につなぎ終えて元をごみ箱へ移せなかったときは、移すだけやり直す
+                rec.set(kept=self._concat(rec, name))
+        except (RecError, OSError) as e:
+            why = getattr(e, "message", None) or str(e)
+        if why:
+            self.log("録画 %s: 非公開の録画を残せませんでした: %s" % (rec.id, why))
+            rec.set(keeping=False, keepError=why[:300])
+            return
+        rec.set(keeping=False)
+        try:
+            self.delete(rec.id)   # つないだ元(セグメント)はごみ箱へ(3 日で消える)
+        except RecError as e:
+            self.log("録画 %s: つないだ元をごみ箱へ移せませんでした: %s(あとで入口がまた頼みます)" % (rec.id, e.message))
+            rec.set(keepError="つないだ元をごみ箱へ移せませんでした")
+
+    def _concat(self, rec, name):
+        """録画の全セッションのセグメントを ffmpeg で 1 本の mp4 に(写すだけ・途中の抜けは詰める)-> 作ったファイルのパス"""
+        segs = [os.path.join(rec.dir, n, s["uri"]) for n, ss in rec.all_segments() for s in ss]
+        if not segs:
+            raise RecError("セグメントがありません")
+        out_dir = os.path.join(self.folder, KEEP_DIR)
+        os.makedirs(out_dir, exist_ok=True)
+        dest = trashbin.free_path(os.path.join(out_dir, name + ".mp4"))
+        lst, part = os.path.join(rec.dir, "keep-list.txt"), dest + ".part"
+        with open(lst, "w", encoding="utf-8") as f:   # ffmpeg の concat の一覧('…' の中の ' は '\'' で書く)
+            f.write("".join("file '%s'\n" % p.replace("'", "'\\''") for p in segs))
+        r = ytools.run([self.ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-f", "concat", "-safe", "0", "-i", lst,
+                        "-map", "0:v?", "-map", "0:a?", "-c", "copy", "-f", "mp4", part],
+                       timeout=KEEP_TIMEOUT, flags=ytools.no_window_flags(priority="low"), stdout=False, err_tail=5)
+        if r.why or r.code != 0 or not os.path.isfile(part) or os.path.getsize(part) <= 0:
+            raise RecError("ffmpeg でつなげませんでした(%s)" % (r.why or " ".join(r.err_lines(2)) or r.code))
+        os.replace(part, dest)
+        os.remove(lst)
+        self.log("録画 %s: 非公開の録画として 1 本につなぎました(%s。セグメント %d 本)" % (rec.id, dest, len(segs)))
+        return dest
 
     def purge_trash(self, now=None):
         """置き場所の ごみ箱 の、trash_days を過ぎた日付のフォルダを消す(起動時の load と、録画を移すたび)。-> 消した日付のフォルダの数"""

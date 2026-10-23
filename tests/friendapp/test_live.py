@@ -37,7 +37,7 @@ class FakeRecorder:
     """録画元の代わり(FriendLive.call に差し替える)。録画を始めると REC が録画中になる"""
 
     def __init__(self):
-        self.recs, self.calls, self.quit_code, self.gone = {}, [], 200, False
+        self.recs, self.calls, self.quit_code, self.gone, self.kept = {}, [], 200, False, []
 
     def __call__(self, rc, method, path, body=None, timeout=3.0):
         self.calls.append((method, path))
@@ -55,13 +55,16 @@ class FakeRecorder:
                  "firstPdt": LX.epoch_iso(T0), "lastPdt": LX.epoch_iso(T0 + 3600)}
             self.recs[REC] = r
             return 200, {"recording": dict(r)}
-        m = re.match(r"^/live/([^/?]+)/(stop|delete|status)", path)
+        m = re.match(r"^/live/([^/?]+)/(stop|delete|keep|status)", path)
         if m and m.group(1) in self.recs:
             if m.group(2) == "stop":
                 self.end(m.group(1))
             elif m.group(2) == "delete":
                 self.recs.pop(m.group(1))
                 return 200, {"ok": True, "deleted": True}
+            elif m.group(2) == "keep":   # 非公開の録画を 1 本につないで残す(つなぎ終えたら一覧から消える = ここではすぐ)
+                self.kept.append((self.recs.pop(m.group(1))["id"], body["name"]))
+                return 200, {"ok": True, "started": True}
             return 200, dict(self.recs.get(m.group(1)) or {})
         return 404, {"message": "ありません"}
 
@@ -518,13 +521,20 @@ class LiveFlowTest(unittest.TestCase):
         self.assertEqual(lv.studio_queue(), {"items": [{"qid": "q1"}]})
         self.assertIsNone(lv.studio_call("GET", "/api/settings")[0])
 
-    def test_clean_recordings_after_three_days(self):
+    def test_clean_recordings_by_archive(self):
+        """ユーザーの PC と同じ決まり(10-24): アーカイブ化を確かめた録画は消す・非公開と分かって 3 日たてば 1 本につないで名前に「非公開」・
+        見分けがつかない録画は 3 日たっても消さない"""
         self.send_live()
-        self.rec.recs["20261010-100000-old"] = {"id": "20261010-100000-old", "url": URL, "state": "ended", "active": False,
-                                                 "endedAt": LX.epoch_iso(time.time() - 4 * 86400)}
+        arch, priv, unk = "20261010-100000-arch", "20261010-110000-priv", "20261010-120000-unk"
+        for rid, days in ((arch, 0.5), (priv, 4), (unk, 4)):
+            self.rec.recs[rid] = {"id": rid, "url": URL, "state": "ended", "active": False, "title": "雑談", "endedAt": LX.epoch_iso(time.time() - days * 86400)}
         self.rec.end(REC, ago=3600)
-        self.assertEqual(self.eng.live.clean_recordings(force=True), ["20261010-100000-old"])
-        self.assertIn(REC, self.rec.recs)
+        lv = self.eng.live
+        lv.archiver.archived = lambda rc, r: "" if r["id"] == arch else "アーカイブ化をまだ確かめられていない(処理中)"
+        lv.archiver.unavailable = lambda rc, r: "private" if r["id"] == priv else ""
+        self.assertEqual(sorted(lv.clean_recordings(force=True)), [arch, priv])
+        self.assertEqual(sorted(self.rec.recs), sorted([REC, unk]))
+        self.assertEqual([(r, n.endswith("_雑談_非公開")) for r, n in self.rec.kept], [(priv, True)])
 
     def test_live_cfg_and_rec_folder(self):
         c = self.eng.live.cfg()

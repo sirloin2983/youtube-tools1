@@ -2,7 +2,8 @@
 """リアルタイム切り抜きのアーカイブ(録画に無い区間だけをアーカイブから書き出す・アーカイブ化を確かめて録画をごみ箱へ移す)の通しの確認。
 入口にスタジオを取り込み、録画の部品を別のプロセスで立て、ブラウザでホームの「新しい案件」(/#new)の URL の欄から録画を始め、
 案件の画面の候補のパネル(/cases?c=<録画 id>#cand。panels/cand.js がスタジオの review.js と LivePlayer を載せる)を操作する。本物の YouTube には繋がない。
-案件の画面の帯は開いたときに入口の設定 live.autoDelete を読む。アーカイブから書き出すのは録画に無い区間だけで、いつも自動。
+録画を消すのはいつも(10-24 に設定 live.autoDelete を外した)。ここでは 1〜4 の間だけ入口の片付けを止めておく(テストの差し替え)。
+アーカイブから書き出すのは録画に無い区間だけで、いつも自動。
 保存の形・API の拒否は下の層(test_live_archive.py・test_live_cleanup.py・test_live.py・test_cand_panel.cjs)で見る。
 帯の案内の文(設定とジョブの状態で変わる)は画面が組み立てるだけで下の層に無いので、ここで見る。
 録画を始めて案件の画面へ移る道・欠けの表示は e2e_live_studio.py が見るので、ここは前提として通るだけ。
@@ -419,8 +420,8 @@ def run(tmp, shots, force_chromium):
 
 
 def _scene_settings(cx):
-    """「録画を消す」(入口の設定 live.autoDelete。既定オン)を外した所から始める(5 で付ける)。帯は録画を開いたときに入口の設定を読む"""
-    cx.srv.prefs.patch("live", {"autoDelete": False})
+    """録画の片付けを止めた所から始める(5 で戻す。設定は無い = テストの差し替え)"""
+    cx.srv.live.cleaner.enabled = lambda: False
 
 
 def _begin_after_stream(cx):
@@ -494,8 +495,8 @@ def _scene_rebuild_by_hand(cx):
     check(wait_js(pg, "() => /録画は終わりました/.test(document.querySelector('#rvLiveGuide').textContent) && !document.querySelector('#rvArch').hidden", 20000),
           "2 終わった録画の帯に「アーカイブから書き出す」: %s" % pg.text_content("#rvLiveGuide"))
     guide = pg.text_content("#rvLiveGuide") or ""
-    check("録画に無い区間のマークは、アーカイブが用意できたら自動でアーカイブから書き出します" in guide and "ごみ箱" not in guide,
-          "2 帯の案内(録画に無い区間はアーカイブから書き出す・消す設定がオフなので「ごみ箱へ移します」は出さない): %s" % guide)
+    check("録画に無い区間のマークは、アーカイブが用意できたら自動でアーカイブから書き出します" in guide and "1 本につないで残します" in guide,
+          "2 帯の案内(録画に無い区間はアーカイブから書き出す・非公開なら 1 本につないで残す): %s" % guide)
     check(wait_js(pg, "() => !document.querySelector('#rvArchRun').disabled", 10000), "2 「アーカイブから書き出す」が押せる")
     probe["status"] = "post_live"
     pg.evaluate("() => { document.querySelector('#rvArchBox').open = true; }")   # 手で作り直すボタンは閉じた引き出しの中(10-24)
@@ -591,10 +592,10 @@ def _scene_chips_and_delete(cx):
         pg.click("#rvExpClose")
         pg.wait_for_timeout(300)
 
-    # ---------------- 5. 消す設定オフ → 残る / オン → 消える ----------------
+    # ---------------- 5. 片付けを止めている間 → 残る / 戻す → 消える ----------------
     watch_rounds(2)
-    check(rid1 in (rec_ids() or []) and os.path.isdir(os.path.join(rfolder, rid1)), "5 「録画を消す」がオフの間は、書き出しが済んでも録画は残る")
-    srv.prefs.patch("live", {"autoDelete": True})   # 設定の画面(prefs)で付ける(帯の案内は録画を開いたときに読む = 6 で見る)
+    check(rid1 in (rec_ids() or []) and os.path.isdir(os.path.join(rfolder, rid1)), "5 片付けを止めている間は、書き出しが済んでも録画は残る")
+    srv.live.cleaner.enabled = srv.live.enabled   # 片付けを戻す
     n_probe = len(probes)
     gone = wait_for(lambda: gone_from_list(rid1), 30, 0.5)
     if gone:
@@ -665,13 +666,14 @@ def _scene_auto_rebuild(cx):
     code, _v = api("POST", "/studio/api/videos/open", {"kind": "live", "recorder": "local", "recording": rid3, "url": YT3, "title": "マークなし"})
     check(rid3 and code == 200, "7 マークの無い録画を始めてスタジオに登録: %s" % rid3)
     wait_for(lambda: rec_len(rid3) > 3, 30, 0.5)
+    first["TESTarch003"] = LX.iso_epoch((rec_status(rid3)[1] or {}).get("firstPdt"))   # マークの無い録画もアーカイブ化を確かめてから消す(10-24)
     api("POST", "/api/ytt/live", {"op": "stop", "recorder": "local", "recording": rid3})
     watch_rounds(1)
     check(rid3 in (rec_ids() or []) and smarks(rid3) == [], "7 終わってすぐ(縮めた 1 日の前)は消さない")
     gone3 = wait_for(lambda: gone_from_list(rid3), 40, 0.5)
     if gone3:
         deleted_rids.add(rid3)
-    check(gone3 and api("GET", "/studio/api/video?id=%s" % rid3)[0] == 404, "7 マークが無いまま(縮めた)1 日たった録画とスタジオの行を消した")
+    check(gone3 and api("GET", "/studio/api/video?id=%s" % rid3)[0] == 404, "7 マークが無いまま(縮めた)1 日たって、アーカイブ化を確かめた録画とスタジオの行を消した")
     check(all(os.path.isfile(j["path"]) for j in jobs_of(rid1) + jobs_of(rid2)), "7 切り抜きはそのまま")
 
 

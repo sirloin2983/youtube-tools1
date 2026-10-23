@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """録画を自動で消す(線 D。notes:plan/line-d-live-clipping.md の 0-9 の最後。ユーザー決定。決定 3-73)の入口の側。
-設定 live.autoDelete(既定オン。src/app/prefs.py)。オフなら何も消さない。リアルタイム切り抜きがオフ(live.enabled)のときも何もしない。
+いつも動く(10-24 に設定 live.autoDelete を外した。友人の PC も同じ決まり = friendapp/live_session.py の clean_recordings)。リアルタイム切り抜きがオフ(live.enabled)のときは何もしない。
+アーカイブ化を確かめた録画だけ消す。見分けがつかない録画は消さない。非公開・見られない配信と分かった録画は、終わって 3 日で 1 本の動画につないで名前に「非公開」
+(録画元の POST /live/<録画>/keep。置き場所/非公開の録画/日付_配信者_題_非公開.mp4。つないだ元はごみ箱へ。判断は ② の live_retire.fate)。
 
 消すのは ごみ箱へ(録画の部品 src/pipeline/ingest/rec_core.py の delete が <置き場所>/ごみ箱/<日付>/録画/<録画の id> へ改名し、manifest.jsonl に元の場所。
 録画の部品が 3 日(flow/retention.KEEP_DAYS)より古い日付のフォルダを消す = その間は戻せる)。それでも戻すのは手間なので、条件は厳しめにする(迷ったら消さない・分からなければ消さない):
@@ -18,12 +20,12 @@
   2. マークが1つも無い録画(試しに始めて止めた・見ただけ)
      - 録画が終わって no_mark_sec(24 時間)たった・入口の書き出しのジョブもマークの正本(live/marks)も無い
      - スタジオにマークが1つも無い(GET /studio/api/video?id=<録画>。スタジオに登録が無い録画も「マークなし」。つながらない・答えが読めなければ消さない)
+     - アーカイブ化を確かめた(1 と同じ。10-24 から)
      → スタジオの一覧の行を先に消す(POST /studio/api/video/delete {ifNoMarks: true} = 調べてから消すまでの間にマークが付いたら 409 で消さない)
      → 録画を消す(使用中で消せなければ、次の見回りでまた消す。スタジオの行はもう無いので 2 の条件のまま)
-  3. 1 を満たさない録画(ユーザー決定「終わって 3 日で消す」= decisions 3-15 (fc)): 消せない理由が「書き出していないマークがある」
-     「アーカイブ化をまだ確かめられていない」だけ(live_retire.stale_ok)の録画は、終わって STALE_SEC(3 日)たったら消す。
-     スタジオに「採用のまま書き出していないマーク」がある・スタジオに確かめられないときは消さない。
-     消す 1 日前(WARN_SEC)から「調子」に予告(live_failures.delete_notice)。ほかの理由(書き出しの途中など)は消さずに知らせる(keep_failure)
+  3. 終わって STALE_SEC(3 日)たっても書き出していないマークがある録画は、アーカイブ化を確かめたら消す(アーカイブから書き出せる)。
+     アーカイブ化を確かめられない録画は消さない(10-24 ユーザー決定。前の「確かめられないまま 3 日で消す」= decisions 3-15 (fc) はやめた)。
+     非公開・見られないと分かれば 1 本につないで残す(上)。ほかは終わって 3 日から「調子」に知らせる(keep_failure)
 録画中・配信待ち・つなぎ直し中の録画は消さない(録画元も 409 で断る)。録画元につながらない・一覧を読めないときは何もしない。
 配信後の全自動(線 D の M7。設定 live.autoAfterStream)がオンで、その録画の自動の切り抜きがまだ済んでいない間も消さない(hold。src/flow/live_archive.py の after_stream_hold)。
 消したことは入口の記録(log)に1行ずつ残す。録画を消す API(録画元の …/delete)は入口のこの処理だけが呼ぶ(画面からの中継 /live/r/… は通さない)。
@@ -42,26 +44,28 @@ from flow import live_retire   # 録画を消してよいかの判断と、消�
 
 NO_MARK_SEC = 24 * 3600.0      # マークの無い録画を消すまで(録画が終わってから)
 INTERVAL = 600.0               # 見回り(入口の録画の見回り src/app/live.py の tick から)で調べる間隔
-STALE_SEC = float(retention.KEEP_SEC)   # D-14: 終わってからこれだけたっても消せない録画を「調子」に知らせる。理由が live_retire.stale_ok だけなら、このとき消す(ユーザー決定)
-WARN_SEC = 2 * 86400.0         # stale_ok の理由の録画を消す 1 日前から「調子」に予告する
+STALE_SEC = float(retention.KEEP_SEC)   # D-14: 終わってからこれだけたっても消せない録画を「調子」に知らせる・非公開と分かった録画を残す・書き出していないマークの録画をアーカイブ化を確かめて消す
+KEEP_TIMEOUT = 30.0            # 録画元が「1 本につなぐ」を受け付けるまで(つなぐのは録画元の裏)
 DELETE_TIMEOUT = 60.0          # 録画元が消し終えるまで(大きな録画は数秒かかる)
 REC_ACTIVE = ("waiting", "recording", "reconnecting")   # src/pipeline/ingest/rec_core.py の ACTIVE と同じ
 
 
 class Cleaner:
     def __init__(self, live, enabled=None, studio=None, log=None, no_mark_sec=NO_MARK_SEC, interval=INTERVAL, clock=time.time, hold=None,
-                 archived=None):
+                 archived=None, unavailable=None):
         """live: src/app/live.py の Live(録画元の一覧と要求。書き出しのジョブ・マーク・検出の記録は ② の口 live_retire.Retire(live) を通して読み書きする)。
-        enabled(): 消してよいか(リアルタイム切り抜きがオンで、設定 live.autoDelete がオン)。
+        enabled(): 見回るか(リアルタイム切り抜きがオン)。
         studio(method, path, body) -> (HTTP の番号 か None(つながらない), JSON): 取り込んだスタジオの API(Live.studio_call)。
         hold(録画元の id, 録画元の一覧の 1 行) -> 消すのを待つ理由(空 = 待たない。M7 の配信後の全自動がまだ)。
         archived(録画元の id, 録画元の一覧の 1 行) -> アーカイブ化を確かめたか("" = 確かめた / 理由。live_archive の Archiver.archived。
-        無ければ確かめられない = 終わって 3 日の期限まで消さない)。
+        無ければ確かめられない = 消さない)。unavailable(録画元の id, 録画元の一覧の 1 行) -> 非公開・見られないと分かった種類か ""
+        (live_archive の Archiver.unavailable。無ければ分からない = 残す)。
         時間(no_mark_sec・interval)はテストで縮める"""
         self.live = live
         self.enabled = enabled or (lambda: False)
         self.hold = hold or (lambda rc_id, r: "")
         self.archived = archived or (lambda rc_id, r: live_retire.NOT_ARCHIVED)
+        self.unavailable = unavailable or (lambda rc_id, r: "")
         self.studio = studio or (lambda method, path, body=None: (None, {}))
         self.log = log or (lambda m: None)
         self.retire = live_retire.Retire(live, studio_marks=lambda rec: self._studio_marks(rec)[0])   # 親がマークの置き場を持たなければスタジオに聞く
@@ -103,9 +107,11 @@ class Cleaner:
     def _consider(self, rc, r, now):
         """録画1本を消すか決めて、消す。-> 消したら True"""
         rec = r["id"]
-        if r.get("active") or r.get("state") in REC_ACTIVE:   # 録画中・配信待ち・つなぎ直し中
+        if r.get("active") or r.get("state") in REC_ACTIVE or r.get("keeping"):   # 録画中・配信待ち・つなぎ直し中・1 本につないでいる
             self._kept.pop(rec, None)
             return False
+        if r.get("keepError"):   # 非公開の録画を残す途中で止まった: やり直す(前に決めた。ジョブにはもう消したと記してある)
+            return self._keep_private(rc, r)
         try:
             why = self.hold(rc["id"], r)
         except Exception:   # 確かめられなければ消さない
@@ -115,13 +121,36 @@ class Cleaner:
             return self._keep(r, why)
         v = self.retire.verdict(rc["id"], rec, stale=self._stale(r, now), archived=lambda: self.archived(rc["id"], r))   # 消してよいか(② の判断)
         if v.jobs:
-            if v.why:
-                return self._keep(r, v.why)
             if v.archived:
                 return self._delete_recorded(rc, rec, "書き出し済みで、アーカイブ化を確かめた")
-            # 終わって 3 日たっても書き出せない・アーカイブ化を確かめられない: 採用のまま書き出していないマークが無ければ消す
-            return self._delete_recorded(rc, rec, "終わって %d 日たった" % int(STALE_SEC // 86400))
+            if v.why.startswith(live_retire.NOT_ARCHIVED):
+                return self._fate(rc, r, v.why, now)
+            return self._keep(r, v.why)
         return self._consider_no_jobs(rc, r, rec, now)
+
+    def _fate(self, rc, r, why, now):
+        """アーカイブ化を確かめられない録画: 非公開・見られないと分かって 3 日たてば 1 本につないで残す。ほかは残す(消さない)"""
+        try:
+            unav = self.unavailable(rc["id"], r)
+        except Exception:   # noqa: BLE001  (分からなければ残す)
+            unav = ""
+        if live_retire.fate(why, unav, self._stale(r, now)) == "private":
+            return self._keep_private(rc, r)
+        return self._keep(r, why)
+
+    def _keep_private(self, rc, r):
+        """録画元に「1 本につないで、名前に非公開を付けて残す」を頼む(つなぐのは録画元の裏。済めば一覧から消える)-> 頼めたら True"""
+        rec, name = r["id"], live_retire.private_name(r)
+        code, d = self.live.call(rc, "POST", "/live/%s/keep" % rec, {"name": name}, timeout=KEEP_TIMEOUT)
+        if code != 200 or not isinstance(d, dict) or not d.get("ok"):
+            if code is not None:
+                self._say(rec, "非公開の録画を残せませんでした(HTTP %s: %s)" % (code, (d or {}).get("message") if isinstance(d, dict) else ""))
+            return False
+        self._kept.pop(rec, None)
+        if d.get("started"):
+            self.log("リアルタイム切り抜き: 非公開・見られない配信の録画を 1 本につないで残します %s(%s。録画元「%s」)" % (rec, name, rc.get("name") or rc.get("id")))
+            self.retire.recording_deleted(rc["id"], rec)   # スタジオの画面は「録画は消しました」(つないだ 1 本は置き場所/非公開の録画 に残る)
+        return True
 
     def _stale(self, r, now):
         ended = LX.iso_epoch(r.get("endedAt")) or LX.iso_epoch(r.get("lastPdt"))
@@ -153,13 +182,19 @@ class Cleaner:
             return self._keep(r, "スタジオに確かめられない")
         if marks:
             return self._keep(r, "スタジオにマークがあるが書き出していない")
+        try:
+            why = self.archived(rc["id"], r)
+        except Exception:   # noqa: BLE001  (確かめられなければ消さない)
+            why = live_retire.NOT_ARCHIVED
+        if why:
+            return self._fate(rc, r, why, now)
         if registered:
             code, d = self.studio("POST", "/api/video/delete", {"id": rec, "ifNoMarks": True})
             if code != 200 and not (code == 404 and isinstance(d, dict) and d.get("error") == "not_found"):
                 self._say(rec, "スタジオの行を消せなかったので、録画も消しません(%s)" % ((d or {}).get("message") if isinstance(d, dict) else code))
                 return False
             self.log("リアルタイム切り抜き: マークの無い録画のスタジオの行を消しました %s" % rec)
-        return self._delete_recorded(rc, rec, "マークが無いまま %d 時間たった" % int(self.no_mark_sec // 3600))
+        return self._delete_recorded(rc, rec, "マークが無いまま %d 時間たって、アーカイブ化を確かめた" % int(self.no_mark_sec // 3600))
 
     def _keep(self, r, why):
         """終わっているのに消せない録画を覚える(D-14 の知らせ)。-> False(消していない)"""
@@ -173,9 +208,6 @@ class Cleaner:
         out = []
         for rec, k in sorted(self._kept.items()):
             ended = k.get("endedAt")
-            if isinstance(ended, (int, float)) and live_retire.stale_ok(k.get("why")) and WARN_SEC <= now - ended:   # 消す予告(消すのは STALE_SEC。消せなければ次の見回り)
-                out.append(live_failures.delete_notice(rec, max(0, int((ended + STALE_SEC - now) // 3600)), title=k.get("title") or "", at=LX.epoch_iso(ended)))
-                continue
             if not isinstance(ended, (int, float)) or now - ended < STALE_SEC:
                 continue
             out.append(live_failures.keep_failure(rec, int((now - ended) // 86400), k.get("why") or "", title=k.get("title") or "",

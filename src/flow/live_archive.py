@@ -138,7 +138,7 @@ BOARD_STATES = dict({s: "running" for s in RUN}, wait="queued", done="done", err
 AFTER_BOARD = {"wait": "queued", "analyze": "running", "export": "running", "done": "done", "none": "skipped", "measured": "done", "error": "error"}
 AFTER_PREFIX = "as-"   # 掲示板の id「la:as-<録画元>.<録画>」= 配信後の全自動(録画 1 本)。それ以外の la: は書き出しのジョブの id
 BUILD_DIR = "本番版の作りかけ"            # 作業用/本番版の作りかけ/<ジョブ>/(スタジオが書く先。済んだら消す)
-UNAVAILABLE = ("subscriber_only", "premium_only", "needs_auth", "private")
+UNAVAILABLE = ("subscriber_only", "premium_only", "needs_auth", "private", "removed")   # removed = 消された・見られない動画(10-24)
 
 
 CANCELLED_MSG = "取り消しました(アーカイブから書き出していません)"
@@ -235,6 +235,8 @@ def _probe_once(video_id, timeout):
             return {"status": "unknown", "availability": "subscriber_only", "message": "メンバー限定の配信なので、アーカイブを取れません"}
         if "private" in last.lower():
             return {"status": "unknown", "availability": "private", "message": "非公開の配信なので、アーカイブを取れません"}
+        if "video unavailable" in last.lower() or "has been removed" in last.lower():
+            return {"status": "unknown", "availability": "removed", "message": "見られない配信なので、アーカイブを取れません"}
         return {"status": "unknown", "message": "アーカイブを確かめられませんでした" + ("(%s)" % last[:160] if last else "")}
     p = lines[-1].split("\t")
     p += [""] * (5 - len(p))
@@ -684,6 +686,14 @@ class Archiver(LX.Patrol):
         if t0 + dur < ended - ARCHIVED_SLACK:
             return NOT_ARCHIVED + "(アーカイブが録画の終わりまで無い。%d 秒足りない)" % int(ended - t0 - dur)
         return ""
+
+    def unavailable(self, rc, r):
+        """非公開・見られないと分かった録画か(録画の片付けが「消さずに残す」を決める。src/flow/live_retire.py の fate)。
+        archived が確かめた最後の結果(archive.json)を読むだけ(yt-dlp は呼ばない)。-> 種類(UNAVAILABLE のどれか)か ""(分からない・見られる)"""
+        with self.lock:
+            i = dict(self.info.get(self.key(rc, str((r or {}).get("id") or ""))) or {})
+        av = i.get("availability") or ""
+        return av if av in UNAVAILABLE and i.get("ready") is not True else ""
 
     def _info_put(self, rc, rec, **kw):
         """録画ごとの記録に kw を足して archive.json に残す -> 足したあとの記録の写し"""

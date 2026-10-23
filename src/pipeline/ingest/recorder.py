@@ -15,6 +15,8 @@ API(/api/ping 以外は合言葉 `Authorization: Bearer <token>` が要る。tok
   POST /live/<id>/stop  {}                 手で止める
   POST /live/<id>/delete  {}               録画のフォルダを 置き場所/ごみ箱/<日付>/録画/ へ移して一覧から外す(3 日で消える。LD-1。入口の manage/keep/live_cleanup.py だけが呼ぶ。
                                            録画中・配信待ち・つなぎ直し中は 409・使用中で移せなければ 409 = あとでまた呼べる)
+  POST /live/<id>/keep  {name}             非公開・見られない配信の録画を 置き場所/非公開の録画/<name>.mp4 の 1 本につないでから、録画のフォルダをごみ箱へ
+                                           (裏で。つないでいる間は一覧の keeping・失敗は keepError。10-24)
   GET  /live/<id>/status?since=N           録画の状態・セッション・セグメント(N 個目から)
   GET  /live/<id>/segments?start=&end=    区間(UTC の時刻)にかかるセグメント(uri・pdt・dur)と欠け・録画済みの最後の時刻(P2 の書き出し)
   GET  /live/<id>/index.m3u8              全セッションをつないだ再生リスト(Cache-Control: no-cache)
@@ -256,7 +258,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if u.path == "/live/start":
                 return self._json(200, {"recording": rec.start(body.get("url"), body.get("quality") or rec_core.DEFAULT_QUALITY, body.get("title") or "",
-                                                                     body.get("streamStart"))})
+                                                                     body.get("streamStart"), body.get("channel") or "")})
             if u.path == "/live/config":
                 folder = clean_folder(body.get("folder"))
                 if os.path.normcase(folder) != os.path.normcase(rec.folder or ""):
@@ -275,6 +277,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, {"recording": rec.stop(m.group(1))})
             if m and m.group(2) == "delete":   # P4 の「録画を自動で消す」(入口の中の処理だけが呼ぶ。入口の中継は通さない)
                 return self._json(200, {"ok": True, "deleted": rec.delete(m.group(1))})
+            if m and m.group(2) == "keep":   # 非公開・見られない配信の録画を 1 本につないで残す(delete と同じく入口の中の処理だけ)
+                return self._json(200, dict({"ok": True}, **rec.keep(m.group(1), body.get("name"))))
         except rec_core.RecError as e:
             return self._fail(e.status, e.code, e.message)
         except OSError as e:

@@ -109,13 +109,11 @@ class PrefsLiveTest(unittest.TestCase):
 
     def test_default_off_and_validation(self):
         self.assertEqual(self.p.get(["live"])["live"], {"enabled": False, "folder": "", "recorders": [], "quality": "1080p",
-                                                        "autoDelete": P.DEFAULTS["live"]["autoDelete"],
                                                         "auto": {"after": "auto", "cut": "", "engine": "", "model": "", "pad": 2},   # pad = 自動・アーカイブの採用の前後の余白(M8)
                                                         "autoAfterStream": False, "afterStreamPerHour": 6,   # 配信後の全自動(M7)は既定オフ
                                                         "detect": {"enabled": True, "sens": "normal", "perHour": 6},   # 配信中の検出(L2)は既定オン(リアルタイム切り抜きがオンのときだけ動く)
                                                         "autoAdopt": {"waitMin": 5},   # 自動の採用(M11)はいつもオン = 待つ分だけ
                                                         "liveTx": {"enabled": True, "model": "large-v3"}})   # 配信中の候補の文字起こし(D-11 案 b)は既定オン(部品が無ければ何もしない)
-        self.assertIsInstance(P.DEFAULTS["live"]["autoDelete"], bool)
         self.assertEqual(self.p.patch("live", {"auto": {"pad": 0}})["auto"]["pad"], 0)   # 余白は 0〜5 秒(小数も可)。ほかの鍵はそのまま
         self.assertEqual(self.p.patch("live", {"auto": {"pad": 3.5}})["auto"], {"after": "auto", "cut": "", "engine": "", "model": "", "pad": 3.5})
         self.p.patch("live", {"auto": {"after": "none"}})
@@ -137,12 +135,7 @@ class PrefsLiveTest(unittest.TestCase):
         for q in ("720p", "best", "1080p"):   # 録画の画質(スタジオの URL の欄から始める録画)
             self.assertEqual(self.p.patch("live", {"quality": q})["quality"], q)
         self.assertEqual(self.p.patch("live", {"enabled": False})["quality"], "1080p")   # ほかのキーを直しても残る
-        for bad in ({"autoDelete": "no"}, {"autoDelete": 1}, {"autoDelete": None}):   # アーカイブ化を確かめたら録画を消す
-            with self.assertRaises(P.PrefsError, msg=repr(bad)):
-                self.p.patch("live", bad)
-        self.assertIs(self.p.patch("live", {"autoDelete": False})["autoDelete"], False)
-        self.assertIs(self.p.patch("live", {"quality": "720p"})["autoDelete"], False)   # ほかのキーを直しても残る
-        self.assertIs(self.p.patch("live", {"autoDelete": True})["autoDelete"], True)
+        self.assertNotIn("autoDelete", self.p.patch("live", {"autoDelete": False}))   # 10-24 に外した(古い画面・保存値は読み飛ばす = いつも消す)
         for bad in ({"autoAfterStream": "yes"}, {"autoAfterStream": 1}, {"afterStreamPerHour": True}, {"afterStreamPerHour": "6"}):   # 配信後の全自動(M7)。範囲の端は test_settings_schema.py
             with self.assertRaises(P.PrefsError, msg=repr(bad)):
                 self.p.patch("live", bad)
@@ -150,16 +143,6 @@ class PrefsLiveTest(unittest.TestCase):
         self.assertEqual((v["autoAfterStream"], v["afterStreamPerHour"]), (True, 10))
         self.assertEqual(self.p.patch("live", {"quality": "720p"})["afterStreamPerHour"], 10)   # ほかのキーを直しても残る
         self.assertIs(self.p.patch("live", {"autoAfterStream": False})["autoAfterStream"], False)
-        # 録画を消すのは、オンで live.autoDelete が明示的に true のときだけ(戻せないので)
-        class FP:
-            def __init__(self, v):
-                self.v = v
-
-            def get(self, keys):
-                return {"live": self.v}
-        for v, want in (({"enabled": True}, False), ({"enabled": True, "autoDelete": "yes"}, False), ({"enabled": False, "autoDelete": True}, False),
-                        ({"enabled": True, "autoDelete": True}, True)):
-            self.assertIs(LV.Live(FP(v), self.tmp, os.path.join(self.tmp, "logs")).auto_delete(), want, v)
 
     def test_live_auto_settings(self):
         """書き出したあとの自動の流れ live.auto(M2): 鍵ごとに直す・形の違う値は断る・ほかの鍵を直しても残る"""
@@ -420,7 +403,7 @@ class PortalLiveTest(unittest.TestCase):
         self.assertEqual(d, {"live": True, "recorder": "fake", "existing": False,
                              "recording": {"id": rec["id"], "url": rec["url"], "title": "配信の題", "state": "waiting", "channel": "Pekora Ch. 兎田ぺこら"}})
         self.assertEqual(calls, ["https://www.youtube.com/watch?v=abcdefghijk"])
-        self.assertEqual(started, [{"url": "https://www.youtube.com/watch?v=abcdefghijk", "quality": "1080p", "title": "配信の題"}])
+        self.assertEqual(started, [{"url": "https://www.youtube.com/watch?v=abcdefghijk", "quality": "1080p", "title": "配信の題", "channel": "Pekora Ch. 兎田ぺこら"}])
         # 同じ配信を録画中 → それを返す(始めない)
         listed["recordings"] = [dict(rec, state="recording")]
         code, d = self.jreq("POST", "/live/api/begin", {"url": "https://www.youtube.com/live/abcdefghijk"})

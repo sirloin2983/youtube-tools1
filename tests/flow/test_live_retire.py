@@ -85,7 +85,7 @@ class RetireTest(unittest.TestCase):
         self.assertEqual(self.rt.verdict("local", REC, archived=ok), V(True, "", True))
         self.assertEqual(self.rt.verdict("local", REC).why, LR.NOT_ARCHIVED)   # 確かめる口が無い = 確かめられない
         self.assertEqual(self.rt.verdict("local", REC, archived=lambda: LR.NOT_ARCHIVED + "(処理中)").why, LR.NOT_ARCHIVED + "(処理中)")
-        self.assertEqual(self.rt.verdict("local", REC, stale=True, archived=lambda: LR.NOT_ARCHIVED + "(x)"), V(True, "", False))   # 期限: 消してよい
+        self.assertEqual(self.rt.verdict("local", REC, stale=True, archived=lambda: LR.NOT_ARCHIVED + "(x)"), V(True, LR.NOT_ARCHIVED + "(x)", False))   # 期限でも確かめられなければ消さない(10-24)
         self.assertEqual(self.rt.verdict("local", REC, archived=lambda: 1 / 0).why, LR.NOT_ARCHIVED)   # 確かめる部品が落ちても消さない
         self.studio = [{"id": "m1", "status": "adopted", "start": 10.0, "end": 15.0}]   # 同じ区間の採用は数えない
         self.assertEqual(self.rt.verdict("local", REC, archived=ok), V(True, "", True))
@@ -97,7 +97,8 @@ class RetireTest(unittest.TestCase):
         self.studio = []
         self.job(2, state="error", arc=None)   # 書き出せなかった(失敗)
         self.assertEqual(self.rt.verdict("local", REC, archived=ok), V(True, LR.NOT_EXPORTED, False))
-        self.assertEqual(self.rt.verdict("local", REC, stale=True, archived=ok), V(True, "", False))   # 期限を過ぎた: 消してよい
+        self.assertEqual(self.rt.verdict("local", REC, stale=True, archived=ok), V(True, "", True))   # 期限を過ぎて、アーカイブ化を確かめた: 消してよい
+        self.assertEqual(self.rt.verdict("local", REC, stale=True).why, LR.NOT_ARCHIVED)   # 確かめられなければ消さない
         self.studio = [{"id": "m9", "status": "adopted", "start": 90.0, "end": 95.0}]
         self.assertEqual(self.rt.verdict("local", REC, stale=True, archived=ok), V(True, "採用のまま書き出していないマークがある", False))
         self.job(3, state="error", arc="fetch", needsArchive=True)
@@ -111,8 +112,15 @@ class RetireTest(unittest.TestCase):
         self.ex.jobs[:] = []
         self.job(1, recordingDeleted=LX.now_iso())
         self.assertEqual(self.rt.verdict("local", REC).why, "前に消しました")
-        self.assertTrue(LR.stale_ok(LR.NOT_EXPORTED) and LR.stale_ok(LR.NOT_ARCHIVED + "(x)"))
-        self.assertFalse(LR.stale_ok("書き出しの途中") or LR.stale_ok(None))
+
+    def test_fate_and_private_name(self):
+        """終わった録画をどうするか(両方の PC で同じ。10-24): 確かめた = 消す・非公開と分かって 3 日 = 残す・ほか = そのまま"""
+        no = LR.NOT_ARCHIVED + "(x)"
+        self.assertEqual([LR.fate("", "", False), LR.fate(no, "private", True), LR.fate(no, "private", False), LR.fate(no, "", True)],
+                         ["delete", "private", "", ""])
+        r = {"streamStart": "2026-10-20T12:00:00Z", "channel": "配信者/A", "title": "雑談: 夜"}
+        self.assertTrue(LR.private_name(r).startswith("2026-10-2") and LR.private_name(r).endswith("_配信者_A_雑談_ 夜_非公開"), LR.private_name(r))
+        self.assertEqual(LR.private_name({}), "非公開")
 
     def test_verdict_reads_marks_book(self):
         """親がマークの置き場(marks.adopted)を持てばそこを読み、studio_marks には聞かない。読めなければ確かめられない"""
