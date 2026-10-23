@@ -10,6 +10,7 @@
 接続先は下の固定の URL だけ。鍵・access token はログ・例外の文・画面に出さない(Config の repr も伏せる)。
 """
 import hashlib
+import http.client
 import json
 import os
 import time
@@ -397,7 +398,8 @@ class Client:
             have = os.path.getsize(part) if os.path.exists(part) else 0
             status, h, r = self._download_request(path, have)
             try:
-                got_rev = (_parse(h.get("dropbox-api-result", "").encode("utf-8")) or {}).get("rev")
+                meta = _parse(h.get("dropbox-api-result", "").encode("utf-8")) or {}
+                got_rev = meta.get("rev")
                 if rev and got_rev and got_rev != rev:
                     raise DropboxError("受け取っている間に、Dropbox の側で作り直されました。もう一度 [受け取る] を押してください", -1)
                 resume = have > 0 and status == 206
@@ -407,7 +409,7 @@ class Client:
                         self._check()
                         try:
                             buf = r.read(READ_STEP)
-                        except OSError as e:
+                        except (OSError, http.client.HTTPException) as e:   # IncompleteRead は OSError ではない
                             raise DropboxError("通信が切れました(%s)" % e.__class__.__name__, 0)
                         if not buf:
                             break
@@ -417,6 +419,9 @@ class Client:
                             progress(done)
             finally:
                 _close(r)
+            size = meta.get("size")
+            if isinstance(size, int) and not isinstance(size, bool) and done < size:   # 途中で切れて読みが短く終わった(10-23: 欠けた物を済みにしていた)= 続きから取り直す
+                raise DropboxError("通信が切れました(%d / %d バイトで終わりました)" % (done, size), 0)
             return True
         try:
             return self._with_retry("files/download", DOWNLOAD_RETRIES, once)
