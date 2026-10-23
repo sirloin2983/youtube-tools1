@@ -50,7 +50,7 @@
 - **__init__.py** (2 行) — ① パック: DaVinci Resolve に読ませるパック(pack・cut2resolve_core・srt2resolve)・Text+(resolve_textplus)・zip の受け渡し(resolve_export)・指定の読み(request)・自動のカット(auto_cut)・…
 - **auto_cut.py** (141 行) — カットの計画の部品(read_cut_plan・build_plan・plan_from_keeps・finalize_plan。pack.py が使う)。
   - 名前: `read_cut_plan` :16・`default_handles` :71・`build_plan` :77・`removed_between` :98・`plan_from_keeps` :109・`finalize_plan` :117
-- **cut2resolve_core.py** (875 行) — cut2resolve 共通部
+- **cut2resolve_core.py** (876 行) — cut2resolve 共通部
   - 名前: `class Cancelled` :47・`class OutputExists` :54・`class Task` :63・`parse_time` :78・`parse_cut_list` :116・`sec_to_frames` :147・`cue_frames` :151・`frames_to_sec` :157・`fps_label` :162・`cut_list_to_keeps` :167・`normalize` :182・`subtract` :200・ほか 35
 - **edge_pause.py** (104 行) — 切り抜きの両端を「話の間」へ寄せる(10-23。決定 3-153。notes:plan/heatmap-study.md の「切り抜きの端を話の間へ」)。
   - 名前: `levels` :26・`voice_level` :46・`pauses` :52・`snap_end` :66・`snap_start` :76・`snap` :86
