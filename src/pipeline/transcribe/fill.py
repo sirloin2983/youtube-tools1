@@ -156,8 +156,8 @@ def fill_clean_turns(doc, turns, offset):
     -> 捨てた数(doc["segments"] を書き換える。original はそのまま)"""
     if not (doc.get("params") if isinstance(doc.get("params"), dict) else {}).get("autoFill") or doc.get("evalSet") is True:
         return 0
-    spans = [(float(a) + offset, float(b) + offset) for a, b, *_rest in turns if float(b) > float(a)]
-    if not spans or not isinstance(doc.get("original"), list):
+    spans = [(float(a) + offset, float(b) + offset) for a, b, *_rest in turns if float(b) > float(a)]   # 空 = 判別は通ったが声が 1 つも無い(BGM だけの切り抜き)= 定型の文は全部声の外
+    if not isinstance(doc.get("original"), list):
         return 0
     machine = {(round(float(o["start"]), 2), round(float(o["end"]), 2)): o.get("text") for o in doc["original"] if isinstance(o, dict)}
     keep, n = [], 0

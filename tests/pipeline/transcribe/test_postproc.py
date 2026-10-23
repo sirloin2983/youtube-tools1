@@ -199,10 +199,12 @@ class TestPostValues(unittest.TestCase):
         self.assertEqual(postproc.post_values({"endTrim": 0.1, "joinGap": 0}), (0.1, 0.0))
         self.assertEqual(postproc.post_values({"endTrim": 0.9, "joinGap": True}), (postproc.END_TRIM, postproc.JOIN_GAP))
         with mock.patch.object(workdata, "SERVER_VERSION", "9.9.9"), mock.patch.object(postproc, "END_TRIM", 0.1):
-            self.assertEqual(postproc.post_record(), {"version": "9.9.9", "endTrim": 0.1, "joinGap": postproc.JOIN_GAP})
+            self.assertEqual(postproc.post_record(), {"version": "9.9.9", "endTrim": 0.1, "joinGap": postproc.JOIN_GAP, "barMax": 1})
         self.assertEqual(postproc.post_record({"joinGap": 1.0})["joinGap"], 1.0)
         gen = [W(0.0, 1.0, "あ"), W(1.3, 2.0, "い")]
         self.assertEqual(list(postproc.expand_segments(gen, {"joinGap": 0.0}))[0]["end"], 1.0)   # つながない
+        bars = list(postproc.expand_segments([W(0.0, 1.0, "アーーーーーーーーイエターーー")], {}))
+        self.assertEqual(bars[0]["text"], "アーイエター")   # whisper の長い ー の連なりは 1 つに(人の校正の書き方)
         gen = [W(0.0, 1.0, "あ"), W(1.2, 2.0, "い")]
         self.assertEqual(list(postproc.expand_segments(gen, {"engine": "whisper.cpp", "endTrim": 0.2, "joinGap": 0.0}))[0]["end"], 0.8)   # whisper.cpp の続いている行だけ早める
 

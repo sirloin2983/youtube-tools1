@@ -70,8 +70,8 @@
   - 名前: `day_name` :24・`free_path` :33・`append_manifest` :43・`old_day_dirs` :61・`purge` :79・`to_trash` :100・`record` :151・`put_back` :166
 - **txbase.py** (103 行) — 認識の部品が共有する小さな物: 記録(ロガー)・決まった値(文字・言語・長さの上限)・要確認の印の文と幻覚の決まり文句・ジョブの注意。
   - 名前: `char_class` :40・`alt_fold` :56・`add_warning` :71・`env_off` :76・`wcpp_flavor` :87・`wcpp_bin_dir` :92・`wcpp_exe` :97・`wcpp_model_dir` :101
-- **txtext.py** (94 行) — 文字起こしの文字の語彙(標準ライブラリと ytt/txbase だけの純粋な関数と決まった値)。
-  - 名前: `text_chars` :18・`strip_punct` :33・`split_segment` :64・`split_terms` :91
+- **txtext.py** (103 行) — 文字起こしの文字の語彙(標準ライブラリと ytt/txbase だけの純粋な関数と決まった値)。
+  - 名前: `text_chars` :18・`strip_punct` :33・`squeeze_bars` :41・`split_segment` :73・`split_terms` :100
 - **txwords.py** (42 行) — 文字起こしの単語の時刻 transcripts/<id>.words.json の読み書き(標準ライブラリ・ytt の fsio と workdata だけ = 純粋な形の記録)。
   - 名前: `words_path` :17・`read_words` :22・`write_words` :34
 - **version.py** (31 行) — 全体の版の 1 か所(決定 notes:plan/decisions.md の 3-28)。

@@ -401,7 +401,7 @@ class JoinRowsTest(unittest.TestCase):
 
     def test_post_record(self):
         post = _postproc.post_record()
-        self.assertEqual(post, {"version": S.SERVER_VERSION, "endTrim": 0.0, "joinGap": 0.5})
+        self.assertEqual(post, {"version": S.SERVER_VERSION, "endTrim": 0.0, "joinGap": 0.5, "barMax": 1})
         spec = {"engine": "whisper.cpp", "model": "large-v3", "beam": 5, "vadMode": "weak", "language": "ja", "glossary": []}
         with mock.patch.object(_roster, "prompt_terms", lambda s: []), mock.patch.object(_records, "dict_version", lambda s: {}):
             run = _records.recognition_run(spec, {"device": "vulkan"}, 40.0, 7.0)

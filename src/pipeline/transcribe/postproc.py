@@ -152,8 +152,11 @@ def expand_segments(gen, spec, dur=None, join=True):
         rows = trim_ends(rows, end_trim)
     if join and join_gap > 0:
         rows = join_rows(rows, join_gap)
-    for p in rows:
-        yield {**p, "text": _txtext.strip_punct(p["text"])} if strip and p.get("text") else p
+    for p in rows:   # 最後の 1 回だけ: ー の連なりを縮める(txtext.BAR_MAX)・句読点を外す
+        if p.get("text"):
+            t = _txtext.squeeze_bars(p["text"])
+            p = {**p, "text": _txtext.strip_punct(t) if strip else t}
+        yield p
 
 
 # ---------- 行の後処理(ユーザーの報告「行の終わりに次の行の頭の言葉が入る」「動画の長さより後ろに行がある」「ああああ…の行が大量」) ----------
@@ -305,7 +308,7 @@ def post_record(spec=None):
     古い記録には pullEnds(音の谷へ寄せるか)・retime(1 秒丸めの配り直しのモデル | False)の鍵もある(読むだけ)。
     runs[].retimed(配り直しの数)は書かない(古い記録に残るだけ)"""
     end_trim, join_gap = post_values(spec)
-    return {"version": str(_workdata.SERVER_VERSION or ""), "endTrim": end_trim, "joinGap": join_gap}
+    return {"version": str(_workdata.SERVER_VERSION or ""), "endTrim": end_trim, "joinGap": join_gap, "barMax": _txtext.BAR_MAX}
 
 
 def row_words(p, shift=0.0):

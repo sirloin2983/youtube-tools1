@@ -35,6 +35,15 @@ def strip_punct(text):
     return _strip_punct_re.sub("", text)
 
 
+BAR_MAX = 1   # 伸ばし棒 ー の連なりをこの数までに縮める(whisper が「アーーーーーーーー」と長く続ける。人の校正は「アー」と 1 つ)。0 = 縮めない
+
+
+def squeeze_bars(text, n=None):
+    """ー の連なりを n(既定 BAR_MAX)個までに縮める。n が 0 ならそのまま"""
+    n = BAR_MAX if n is None else n
+    return re.sub("ー{%d,}" % (n + 1), "ー" * n, text) if n and text else text
+
+
 def _squash(text):
     """空白を詰めた文字(単語の並びと行の文字が同じかを比べる)"""
     return re.sub(r"\s+", "", str(text or ""))

@@ -152,6 +152,9 @@ class TestCleanTurns(unittest.TestCase):
         doc4 = {"params": {"autoFill": True}, "segments": [dict(g) for g in seg], "original": orig}
         self.assertEqual(fill.fill_clean_turns(doc4, [(0.0, 5.0, 0)], 10.0), 1)   # offset で声の区間が 10〜15 秒 = s1 は声の中・s2 が声の外
         self.assertEqual([g["id"] for g in doc4["segments"]], ["s1", "s3", "s4", "s5"])
+        doc5 = {"params": {"autoFill": True}, "segments": [dict(g) for g in seg], "original": orig}
+        self.assertEqual(fill.fill_clean_turns(doc5, [], 0.0), 2)   # 声が 1 つも無い(BGM だけ)= 定型の文は声の外(10-23 f469fd で残っていた)
+        self.assertEqual([g["id"] for g in doc5["segments"]], ["s3", "s4", "s5"])
 
 
 class TestSenseVoiceEngine(unittest.TestCase):
