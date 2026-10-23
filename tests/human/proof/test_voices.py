@@ -228,6 +228,20 @@ class TestVoiceStore(VoiceDir):
             named = _speakers._recognize_voices(self.job({}), TID, "x.wav", 0.0, VE, ["兎田ぺこら", "宝鐘マリン"])
         self.assertEqual([(n["speaker"], n["name"], n["score"] is None) for n in named], [("S1", "兎田ぺこら", False), ("S2", "宝鐘マリン", True)])
 
+    def test_flow_diarize_keeps_row_voices(self):
+        """② の流れの判別(keepRowVoice)は、覚えた声で行の話者を当てた文書(diarization.speakerBy rowvoice)を上書きしない。人が頼んだ判別は今までどおり"""
+        doc = doc_with_speakers([("S1", "A"), ("S2", "B")], [(0, 5, "S1", ""), (6, 12, "S2", "")])
+        doc["diarization"] = {"engine": "rowvoice", "speakerBy": "rowvoice"}
+        self.put_doc(doc)
+        with mock.patch.object(_tools, "check_source", lambda p: p):
+            spec = _speakers.validate_diarize({"tid": TID, "numSpeakers": 2, "names": ["A", "B"], "keepRowVoice": True})
+            human = _speakers.validate_diarize({"tid": TID, "numSpeakers": 2})
+        self.assertEqual((spec["keepRowVoice"], human["keepRowVoice"]), (True, False))
+        j = self.job(spec)
+        _speakers.run_diarize(j)
+        self.assertEqual((j["state"], j.get("rowVoiceKept")), ("done", True))
+        self.assertEqual([g["speaker"] for g in self.read()["segments"]], ["S1", "S2"])
+
     def test_single_speaker(self):
         """1人: 判別せずに全部の行をその人に(編集の「人数」の 1人・友人の依頼の話す人 1人)"""
         self.put_doc(doc_with_speakers([("S1", "話者1"), ("S2", "話者2")], [(0, 5, "S1", ed_state.MIXED_FLAG), (6, 12, "S2", ""), (13, 14, "", ed_state.NONE_FLAG)]))

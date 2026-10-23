@@ -1665,7 +1665,8 @@ class Runner:
         b = self._bundle(run)   # 人数 = 束の transcribe.diarize・名前 = hints.people(Run の欄 speakers はここへ写っている。RS7-1 S3)
         hp = _spec.hint_people(b)
         sp = {"count": b["transcribe"]["diarize"] or hp["count"], "names": [p["name"] for p in hp["people"]]}
-        body = {"numSpeakers": sp["count"], "names": list(sp["names"]), "recognize": True}
+        body = {"numSpeakers": sp["count"], "names": list(sp["names"]), "recognize": True,
+                "keepRowVoice": True}   # 文字起こしで覚えた声で行の話者を当てた文書(flow/diar.row_voices)は上書きしない(短いコラボは判別が人を分けられない)
         styles = self._speaker_styles(run)   # 友人が指定した字幕の色(あれば話者分離のあと、文書に覚える)
         bad, no_color = [], []
         for i, tid in enumerate(tids, 1):

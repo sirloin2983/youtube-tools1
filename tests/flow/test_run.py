@@ -657,7 +657,7 @@ class TestFieldsToBundle(unittest.TestCase):
         self.assertTrue(rq["weightsDiffer"])
         self.assertEqual((rq["pack"]["spec"]["mode"], rq["pack"]["output"]["videoTracks"]), ("silence", 1))   # 1 でも書く
         self.assertEqual(rq["pack"]["output"]["speakerStyles"], {"A": {"color": "#112233"}})
-        self.assertEqual(rq["diarize"], [{"numSpeakers": 2, "names": ["A"], "recognize": True, "tid": "t1"}])
+        self.assertEqual(rq["diarize"], [{"numSpeakers": 2, "names": ["A"], "recognize": True, "keepRowVoice": True, "tid": "t1"}])
         self.assertEqual((rq["force"], rq["repack"]), (False, False))
         lv = got["live_file"]
         self.assertEqual((lv["tx"]["engine"], lv["tx"]["model"]), ("whisper.cpp", "large-v3"))

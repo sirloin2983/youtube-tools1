@@ -186,7 +186,8 @@ def validate_diarize(req):
             names.append(s)
     return {"tid": tid, "numSpeakers": n if 1 <= n <= 10 else 0, "names": names[:10], "embedding": emb, "title": _heavy.job_title("話者判別: ", doc),
             "recognize": req.get("recognize") is not False,   # A-3: 覚えている声と照らし合わせる(既定オン)
-            "smooth": req["smooth"] if isinstance(req.get("smooth"), bool) else _diar_smooth_setting()}   # S2: 細切れをならす(要求に無ければ設定 diarSmooth。既定オフ)
+            "smooth": req["smooth"] if isinstance(req.get("smooth"), bool) else _diar_smooth_setting(),   # S2: 細切れをならす(要求に無ければ設定 diarSmooth。既定オフ)
+            "keepRowVoice": req.get("keepRowVoice") is True}   # ② の流れの判別: 覚えた声で行の話者を当てた文書(rowvoice)は上書きしない
 
 
 def single_speaker(tid, name):
@@ -220,6 +221,10 @@ def single_speaker(tid, name):
 def run_diarize(job):
     spec = job["spec"]
     if spec.get("auto") and _autodiar_skip_at_start(job):   # 自動の判別: 待っている間に人が話者を付けた・確かめ済みにしたなら何もしない
+        return
+    if spec.get("keepRowVoice") and _rowvoice_doc(spec["tid"]):   # ② の流れの判別: 覚えた声で当てた話者を残す(短いコラボは判別が人を分けられない。notes:plan/行ごとの声の当て-1023.md)
+        job["speakers"], job["unsure"], job["rowVoiceKept"] = len(store.read_transcript(spec["tid"]).get("speakers") or []), 0, True
+        _heavy.job_done(job, spec["tid"], "判別しませんでした(覚えた声で行の話者を当ててあります)")
         return
     if spec.get("numSpeakers") == 1:   # 1人なら判別しない(音声も取り出さない)。失敗は ② のジョブの器が受ける(ほかの道と同じ)
         single_speaker(spec["tid"], (spec.get("names") or [""])[0])
@@ -333,6 +338,12 @@ def autodiar_after_transcribe(job, spec, tid):
         _txbase.add_warning(job, "話者の自動判別を始められませんでした: " + e.message)
     except Exception as e:   # 想定外でも、書き終えた文字起こしのジョブを失敗にしない
         _txbase.log.warning("話者の自動判別を始められませんでした: %s %s %s", tid, e.__class__.__name__, str(e)[:150])
+
+
+def _rowvoice_doc(tid):
+    """文書の話者を覚えた声で当てたか(flow/diar.row_voices の印 diarization.speakerBy rowvoice)"""
+    d = store.read_transcript(tid).get("diarization")
+    return isinstance(d, dict) and d.get("speakerBy") == "rowvoice"
 
 
 def _autodiar_skip_at_start(job):

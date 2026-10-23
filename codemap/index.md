@@ -7,8 +7,8 @@
 |---|---|---|---|
 | ytt(基盤) | [ytt.md](ytt.md) | 55 | 11721 |
 | ① pipeline(道具 = データを加工する) | [pipeline.md](pipeline.md) | 82 | 27798 |
-| ② flow(管理 = いつ・どの順で・どこに置くか) | [flow.md](flow.md) | 95 | 30689 |
-| ③ human(人の操作) | [human.md](human.md) | 62 | 17557 |
+| ② flow(管理 = いつ・どの順で・どこに置くか) | [flow.md](flow.md) | 95 | 30690 |
+| ③ human(人の操作) | [human.md](human.md) | 62 | 17582 |
 | ④ manage(データ) | [manage.md](manage.md) | 43 | 11185 |
 | ⑤ eval(検証) | [eval.md](eval.md) | 37 | 15562 |
 | src/app(入口と画面) | [app.md](app.md) | 87 | 33090 |
