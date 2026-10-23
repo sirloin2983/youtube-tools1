@@ -526,7 +526,7 @@ class RealWhisperTest(LiveTxBase):
         if wav is None:
             shutil.rmtree(cls.dir, ignore_errors=True)
             raise unittest.SkipTest("日本語の音声合成が無い")
-        LF.ff("-i", wav, "-c:a", "aac", "-f", "segment", "-segment_time", "4", "-segment_format", "mpegts", os.path.join(cls.dir, "seg_%03d.ts"))
+        LF.ff("-i", wav, "-ar", "48000", "-c:a", "aac", "-f", "segment", "-segment_time", "4", "-segment_format", "mpegts", os.path.join(cls.dir, "seg_%03d.ts"))   # 48kHz へ(10-24: この PC の ffmpeg N-126374 の aac は 16kHz の入力で止まる)
         cls.segs = sorted(os.path.join(cls.dir, n) for n in os.listdir(cls.dir) if n.endswith(".ts"))
 
     @classmethod
