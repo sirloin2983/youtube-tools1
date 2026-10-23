@@ -75,7 +75,7 @@
   - 画面: src/app/ui/home/portal.html:122・src/app/ui/home/portal.js:464
 - **バックアップ** — 作業データの自動バックアップ。設定の節 backup
   - コード: `src/manage/keep/backup.py`・`/api/backup` src/app/server.py:625
-  - 画面: src/app/ui/editor/app-tpl.js:147・src/app/ui/home/portal.html:122・src/app/ui/home/portal.js:1774
+  - 画面: src/app/ui/editor/app-tpl.js:147・src/app/ui/home/portal.html:122・src/app/ui/home/portal.js:1776
 - **精度の自動測定** — 夜に 1 日 1 回、校正済みで認識の精度を測る。設定の節 accuracy
   - コード: `src/eval/drill/accuracy.py`・`/api/accuracy` src/app/server.py:626・`/api/accuracy/run` src/app/server.py:633
   - 画面: src/app/ui/home/portal.html:289・src/app/ui/home/portal.js:1377
