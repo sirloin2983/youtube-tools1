@@ -93,6 +93,17 @@ class TestPieces(unittest.TestCase):
         self.assertEqual(R.pick_segments(flat2, base, base + 8)[1], [])
         self.assertEqual(R.iso_epoch("2026-10-04T06:00:00.250Z"), base + 0.25)
         self.assertEqual(R.iso_epoch("2026-10-04T06:00:00+00:00"), base)
+
+    def test_rec_spans_overlapping_reconnect(self):
+        """録画済みの範囲(画面の帯): つなぎ直しの頭が前の録画と重なり、その中に穴があっても欠けが残る(10-24。録画ごとの頭 + 秒では 1 つにまとまった)"""
+        base = R.iso_epoch("2026-10-04T06:00:00Z")
+        flat = [{"pdt": R.epoch_iso(base + i * 4), "dur": 4.0} for i in range(5)]                                  # 1 回目 0〜20 秒
+        flat += [{"pdt": R.epoch_iso(base + 16 + i * 4), "dur": 4.0} for i in range(2)]                            # 2 回目の頭は窓の残り 16〜24 秒(重なる)
+        flat += [{"pdt": R.epoch_iso(base + 34 + i * 4), "dur": 4.0} for i in range(3)]                            # 穴 24〜34 のあと 34〜46 秒
+        flat.append({"pdt": R.epoch_iso(base + 46.5), "dur": 4.0})                                                 # 1 秒より短い揺れはつなげる
+        self.assertEqual(R.rec_spans(flat), [{"from": R.epoch_iso(base), "to": R.epoch_iso(base + 24)},
+                                             {"from": R.epoch_iso(base + 34), "to": R.epoch_iso(base + 50.5)}])
+        self.assertEqual(R.rec_spans([{"pdt": None, "dur": 4.0}]), [])
         for bad in (None, "", "2026-10-04 06:00:00", "x" * 50, 5):
             self.assertIsNone(R.iso_epoch(bad))
 

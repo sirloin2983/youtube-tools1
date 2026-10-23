@@ -112,6 +112,19 @@ def to_utc(pdt):
     return s
 
 
+def rec_spans(segs, tol=GAP_TOL):
+    """録画済みの範囲(録画の画面の帯)。全部のつなぎ直しのセグメントを時刻で重ねて、tol 秒より空いた所で分ける。
+    つなぎ直しの頭が前の録画と重なる・つなぎ直しの中に穴がある、でも合う(10-24: 録画ごとの頭 + 秒の足し算では、重なると欠けが消えた)。
+    segs: [{"pdt", "dur", …}]。-> [{"from", "to"}](UTC の文字。時刻の順)"""
+    out = []
+    for e, d in sorted((iso_epoch(s.get("pdt")), s.get("dur") or 0) for s in segs if iso_epoch(s.get("pdt")) is not None):
+        if out and e - out[-1][1] <= tol:
+            out[-1][1] = max(out[-1][1], e + d)
+        else:
+            out.append([e, e + d])
+    return [{"from": epoch_iso(a), "to": epoch_iso(b)} for a, b in out]
+
+
 def pick_segments(flat, start, end, tol=GAP_TOL):
     """区間 [start, end)(epoch 秒)にかかるセグメントと欠け(P2 の書き出しの「取得」。計画の 6 の segments_for)。
     flat: [{"uri", "pdt", "dur", …}](pdt は UTC の "…Z")。-> (時刻順のセグメント, 欠け [(from, to)])。
@@ -412,6 +425,7 @@ class Recording:
             out["sessionList"] = [{"name": n, "segments": len(s), "seconds": round(sum(x["dur"] for x in s), 3),
                                    "state": info.get(n, {}).get("state", ""), "started": info.get(n, {}).get("started"),
                                    "firstPdt": s[0]["pdt"] if s else None} for n, s in sess]
+            out["spanList"] = rec_spans(segs)   # 録画済みの範囲(画面の帯と欠けはこれを描く)
             try:
                 since = max(0, int(since))
             except (TypeError, ValueError):

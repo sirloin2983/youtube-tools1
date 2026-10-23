@@ -1430,7 +1430,7 @@ function renderLiveRec(){
   renderPeaks();   // 配信中の候補(録画中 / 終わった で見出しが変わる)
 }
 /* ---------- 録画済みの範囲・欠け・配信の時刻(10-23。計画の 0-8 の残り。見本と項目表は保管庫 plan/ライブの録画の範囲と欠け-1023.md) ----------
-   録画の状態(r/…/status の sessionList)から、つなぎ直しごとの録れた範囲を「最初に録れた時刻」からの秒にして、その間を欠けとして描く
+   録画の状態(r/…/status の spanList)から、録れた範囲を「最初に録れた時刻」からの秒にして、その間を欠けとして描く
    (スタジオの時間 = 受信時刻の幅なので、欠けの間も時間は進む = タイムラインにそのまま置ける)。録画が配信の途中で終わった(止めた・エラー)は、
    帯の終わりに印。配信の時刻 = 再生位置 + (最初に録れた時刻 − 配信の開始時刻)。開始時刻は録画を始めたときに入口が yt-dlp で取った物(streamStart)。
    無くても、配信の前から待っていた録画(作った時刻が最初に録れた時刻より前)なら、最初に録れた時刻 = 配信の 0 秒。どちらでもなければ出さない。
@@ -1441,8 +1441,13 @@ const REC_BLOCKED_ENDED = 'bot と判定されたまま';   // rec_core.BLOCKED_
 function recSpans(st){
   const base = st && Date.parse(st.firstPdt);
   if (!Number.isFinite(base)) return null;
-  const list = (Array.isArray(st.sessionList) ? st.sessionList : []).filter(x => Number(x.segments) > 0 && Number.isFinite(Date.parse(x.firstPdt)))
-    .map(x => ({ a: (Date.parse(x.firstPdt) - base) / 1000, b: (Date.parse(x.firstPdt) - base) / 1000 + (Number(x.seconds) || 0) })).sort((p, q) => p.a - q.a);
+  /* 録画済みの範囲は録画元が全部のセグメントの時刻から作った spanList(10-24。つなぎ直しが前と重なっても欠けが消えない)。
+     無い録画元(前の版)は、つなぎ直しごとの頭 + 秒(sessionList) */
+  const list = (Array.isArray(st.spanList)
+    ? st.spanList.filter(x => Number.isFinite(Date.parse(x.from)) && Number.isFinite(Date.parse(x.to)))
+      .map(x => ({ a: (Date.parse(x.from) - base) / 1000, b: (Date.parse(x.to) - base) / 1000 }))
+    : (Array.isArray(st.sessionList) ? st.sessionList : []).filter(x => Number(x.segments) > 0 && Number.isFinite(Date.parse(x.firstPdt)))
+      .map(x => ({ a: (Date.parse(x.firstPdt) - base) / 1000, b: (Date.parse(x.firstPdt) - base) / 1000 + (Number(x.seconds) || 0) }))).sort((p, q) => p.a - q.a);
   const ranges = [], gaps = [];
   for (const r of list){
     const last = ranges[ranges.length - 1];
