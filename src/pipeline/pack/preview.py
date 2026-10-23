@@ -39,7 +39,7 @@ def remove_quiet(path):
 
 
 def pack_video(d):
-    """パックのフォルダの中の切り抜きの動画(フォルダ直下でいちばん大きい動画。粗編集の _roughcut は除く)。無ければ None"""
+    """パックのフォルダの中の切り抜きの動画(フォルダ直下でいちばん大きい動画。古いパックの粗編集の動画 _roughcut は除く)。無ければ None"""
     best = None
     try:
         names = os.listdir(fsio.long_path(d))   # 友人の動画の題は長い = 題が 2 回入るパックのパスは 260 文字を超えうる(Windows)

@@ -33,7 +33,6 @@ JOB_KINDS = {
     "retranscribe": dict(exclusive=DOC_LOCK, has_tid=True),
     "normalize": dict(has_tid=True),   # 動画を選び直したあとの 30fps の作り直し(Q1)
     "alt": dict(priority=2, exclusive=("alt",), has_tid=True),   # 2つ目のエンジンで聞いて <id>.alt.json に(文書は書き換えない。D1-b)
-    "thumb": dict(exclusive=("thumb",), has_tid=True),   # サムネの案を 1 枚に(文書は読むだけ。P5)
 }
 
 

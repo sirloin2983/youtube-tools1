@@ -314,8 +314,8 @@ class SyncTest(unittest.TestCase):
         r = self.box.row(AUTO)
         self.assertEqual(r["state"], "done")
         saved = r["packs"][1]["savedTo"]
-        # 保存先 = <保存先>/<日付>_<配信の題>/#番号(配信者・配信の日付が無い = 届いた日。番号は 2 本目)
-        self.assertEqual(saved, os.path.join(self.tmp, "save", "%s_朝活" % self.iso_day(), "#2"))
+        # 保存先 = <保存先>/<日付>_<配信の題>_#番号(平らに。配信者・配信の日付が無い = 届いた日。番号は 2 本目)
+        self.assertEqual(saved, os.path.join(self.tmp, "save", "%s_朝活_#2" % self.iso_day()))
         self.assertTrue(os.path.isfile(os.path.join(saved, "clip.mp4")))
         self.assertEqual(self.uploaded(AUTO, names[1])["judge"], "good")
         # 見送った物は戻せる 3 日の間は Dropbox の出力に残す(受け取った物は先に消す)
@@ -509,7 +509,7 @@ class SyncTest(unittest.TestCase):
                                           "seconds": 31.5, "title": "パックの題"}).encode())
         self.assertEqual(d, {"videoId": "dQw4w9WgXcQ", "markId": "m1", "streamTitle": "枠の題", "streamer": "星見ルナ", "seconds": 31.5})
         d = S.parse_meta_info(json.dumps({"v": 1, "headline": "「うわ最悪だね」", "headlineWhy": "チャットが急増", "overlapNote": "前に届けた…"}).encode())
-        self.assertEqual(d, {"headline": "「うわ最悪だね」", "headlineWhy": "チャットが急増", "overlapNote": "前に届けた…"})   # 機械の見出し・かぶり(新機能 C・E)
+        self.assertEqual(d, {"overlapNote": "前に届けた…"})   # かぶり(新機能 E)。古い .meta.json の機械の見出し(10-24 に無くした)は読まない
         d = S.parse_meta_info(json.dumps({"v": 1, "videoId": "short", "markId": "", "streamTitle": "", "seconds": 0}).encode())
         self.assertEqual(d, {})   # 分からない欄は入れない
         for raw in (json.dumps({"v": 1, "seconds": 86400}), json.dumps({"v": 1, "seconds": True}), json.dumps({"v": 2, "videoId": "dQw4w9WgXcQ"}), "{broken"):
@@ -517,7 +517,7 @@ class SyncTest(unittest.TestCase):
                 self.assertEqual(S.parse_meta_info(raw.encode()), {})
 
     def test_single_pack_meta_fills_stream_info_and_keep_place(self):
-        """.meta.json の配信の欄がパックの info に入り、受け取るの保存先 <日付>_<配信者>_<題> の中の #番号 になる。判断の記録にも videoId・markId"""
+        """.meta.json の配信の欄がパックの info に入り、受け取るの保存先の直下の <日付>_<配信者>_<題>_#番号 になる。判断の記録にも videoId・markId"""
         self.key()
         meta = {"v": 1, "kind": "clip", "origin": "request", "videoId": "dQw4w9WgXcQ", "markId": "mk1", "streamTitle": "耐久/配信:前編", "streamer": "星見ルナ",
                 "seconds": 42.0, "title": "見どころ"}
@@ -538,8 +538,8 @@ class SyncTest(unittest.TestCase):
         self.run_sync()
         r = self.box.row(RID)
         folder = os.path.join(self.tmp, "save", "%s_星見ルナ_耐久_配信_前編" % self.iso_day())   # 使えない文字は _
-        self.assertEqual([p["savedTo"] for p in r["packs"]], [os.path.join(folder, "#1"), os.path.join(folder, "#2")])
-        self.assertTrue(os.path.isfile(os.path.join(folder, "#2", "a.mp4")))
+        self.assertEqual([p["savedTo"] for p in r["packs"]], [folder + "_#1", folder + "_#2"])
+        self.assertTrue(os.path.isfile(os.path.join(folder + "_#2", "a.mp4")))
         self.assertEqual(r["state"], "done")
         v = self.uploaded(RID, names[0])
         self.assertEqual((v["judge"], v["videoId"], v["markId"], v["zip"]), ("good", "dQw4w9WgXcQ", "mk1", "%s__見どころ1.zip" % RID))

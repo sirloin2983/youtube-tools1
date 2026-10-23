@@ -38,9 +38,8 @@ MAX_JSON_BYTES = 32 * 1024 * 1024   # 文字起こし・cut-plan の上限(3時�
 DEFAULT_NOISE_DB = -35.0            # 無音とみなす音量 dB
 DEFAULT_SILENCE_MIN = 0.6           # この秒数以上続く無音だけ削る
 DEFAULT_SILENCE_PAD = 0.15          # 話の前後に残す秒数
-DEFAULT_CRF = 18                    # 粗編集の画質
-DEFAULT_REC_START = "01:00:00:00"   # タイムラインの開始タイムコード
-DEFAULT_REEL = "AX"                 # EDL のリール名
+DEFAULT_REC_START = "01:00:00:00"   # タイムラインの開始タイムコード(EDL。決まった値)
+DEFAULT_REEL = "AX"                 # EDL のリール名(決まった値)
 MAX_EDL_EVENTS = 999                # CMX3600 のイベント番号は 3 桁
 
 
@@ -335,16 +334,13 @@ tc_to_frames = S.tc_to_frames
 frames_to_tc = S.frames_to_tc
 
 
-def check_timecodes(fps, rec_start=DEFAULT_REC_START, src_start="00:00:00:00"):
-    """重い処理(無音の検出・粗編集の書き出し)の前に、タイムコードの指定を確かめる。
-    EDL を書く直前まで待つと、粗編集の動画だけ書き出してから失敗するため"""
-    nom = nominal_rate(fps)
-    for label, tc in (("タイムラインの開始タイムコード(--rec-start)", rec_start),
-                      ("元動画の開始タイムコード(--src-start-tc)", src_start)):
-        try:
-            tc_to_frames(str(tc), nom)
-        except ToolError as e:
-            raise ToolError(f"{label}: {e}")
+def check_timecodes(fps, src_start="00:00:00:00"):
+    """重い処理(無音の検出・動画の書き出し)の前に、元動画の開始タイムコード(動画に埋め込まれた値)を確かめる。
+    EDL を書く直前まで待つと、動画だけ書き出してから失敗するため"""
+    try:
+        tc_to_frames(str(src_start), nominal_rate(fps))
+    except ToolError as e:
+        raise ToolError(f"元動画の開始タイムコード: {e}")
 
 
 def read_start_tc(video, meta=None):
@@ -365,17 +361,14 @@ def read_start_tc(video, meta=None):
     return S.start_tc_from(S.timecode_tags(info))
 
 
-def resolve_src_start(video, override=None, meta=None):
+def resolve_src_start(video, meta=None):
     """EDL の元動画側の開始タイムコード -> (値, 由来の説明, 警告リスト)。
-    指定があればそれ、無ければ動画に埋め込まれた値、それも無ければ 00:00:00:00。
+    動画に埋め込まれた値、無ければ 00:00:00:00。
     meta(srt2resolve.probe の結果)を渡すと、そこで読んだ値を使う(ffprobe をもう一度呼ばない)"""
-    if override and str(override).strip():
-        tc, desc = str(override).strip(), "指定"
-    else:
-        tc = read_start_tc(video, meta)
-        desc = "動画に埋め込まれた値"
-        if not tc:
-            return "00:00:00:00", "動画に埋め込みなし", []
+    tc = read_start_tc(video, meta)
+    desc = "動画に埋め込まれた値"
+    if not tc:
+        return "00:00:00:00", "動画に埋め込みなし", []
     warns = []
     if ";" in tc:
         warns.append(f"開始タイムコード {tc} はドロップフレーム表記です。ノンドロップとして扱うため、"
@@ -444,40 +437,6 @@ def remap_cues(cues_ms, keeps, fps, min_piece_frames=6, with_src=False):
     return [c[:3] for c in out], vanished
 
 
-# ---------------------------------------------------------------- 粗編集の動画(EDL が通らないときの代替)
-
-def render_rough_cut(video, keeps, fps, has_audio, out_path, crf=DEFAULT_CRF, task=None, gain_db=0.0):
-    """残す区間だけをつないだ H.264 の mp4 を作る(再エンコード。フレーム単位で切る)。
-    一時ファイルに書き出してから置き換える(途中で失敗・取り消しても、書きかけの mp4 を残さない)。
-    gain_db: 音量をそろえるとき(パックの loudness)に、つないだ音にかける量(dB。0 = そのまま)"""
-    if not keeps:
-        raise ToolError("残す区間がありません。")
-    chains = []
-    for i, (s, e) in enumerate(keeps):
-        chains.append(f"[0:v]trim=start_frame={s}:end_frame={e},setpts=PTS-STARTPTS[v{i}]")
-        if has_audio:
-            chains.append(f"[0:a]atrim=start={frames_to_sec(s, fps):.6f}:end={frames_to_sec(e, fps):.6f},asetpts=PTS-STARTPTS[a{i}]")
-    ins = "".join(f"[v{i}][a{i}]" if has_audio else f"[v{i}]" for i in range(len(keeps)))
-    chains.append(f"{ins}concat=n={len(keeps)}:v=1:a={1 if has_audio else 0}"
-                  + ("[outv][outa0]" if has_audio else "[outv]"))
-    if has_audio:
-        chains.append("[outa0]" + (_loud.pack_filter(gain_db) if abs(gain_db) >= 0.01 else "anull") + "[outa]")
-    kept_sec = frames_to_sec(sum(e - s for s, e in keeps), fps)
-    out_path = Path(S.arg_path(out_path))
-    with S.staged(out_path, ".mp4") as tmp:   # 一時の名前に書いて、できたら付け替える(失敗・取り消しで書きかけを残さない)
-        out_opts = ["-map", "[outv]"] + (["-map", "[outa]"] if has_audio else []) + [
-            "-c:v", "libx264", "-crf", str(crf), "-preset", "medium", "-pix_fmt", "yuv420p",
-            "-r", f"{fps[0]}/{fps[1]}"]
-        if has_audio:
-            out_opts += ["-c:a", "aac", "-b:a", _loud.pack_aac()]
-        out_opts += ["-movflags", "+faststart", "-f", "mp4", tmp]
-        r = _ffmpeg_script(";\n".join(chains), ("-/filter_complex", "-filter_complex_script"),
-                           lambda opt, sp: [S.tool("ffmpeg"), "-y", "-nostdin", "-v", "error", "-i", S.arg_path(video), opt, sp] + out_opts,
-                           span_timeout(7200, kept_sec, 3.0), task, kept_sec)
-        if r.returncode != 0:
-            raise ToolError("粗編集の動画を書き出せませんでした: " + (r.stderr or "").strip()[-300:])
-
-
 # ---------------------------------------------------------------- 表示・手順書・出力
 
 def fmt_sec(sec):
@@ -504,7 +463,7 @@ def describe_keeps(keeps, fps, total, limit=40):
     return "\n".join(lines)
 
 
-def build_readme(video_name, meta, keeps, edl_name, srt_name, rough_name, rec_start, src_start, extras=None):
+def build_readme(video_name, meta, keeps, edl_name, srt_name, src_start, extras=None, rec_start=DEFAULT_REC_START):
     """友人へ.txt。extras: [(ファイル名, 説明)](cut-plan.json・FCPXML など、追加で入れたもの)"""
     fps = meta["fps"]
     nom = nominal_rate(fps)
@@ -513,11 +472,8 @@ def build_readme(video_name, meta, keeps, edl_name, srt_name, rough_name, rec_st
     rows = "\n".join(
         f"  {i:>3}   {frames_to_tc(src0 + s, nom)}  →  {frames_to_tc(src0 + e, nom)}   ({fmt_frames(e - s, fps)})"
         for i, (s, e) in enumerate(keeps, 1))
-    rough = (f"\n  ・{rough_name}  … 残す区間をつないだ粗編集の動画(EDLが通らないとき用)" if rough_name else "")
-    alt = (f"\nA. 粗編集の動画 {rough_name} をタイムラインに置き、手順4で字幕だけ読み込む。"
-           if rough_name else "")
     srt_item = (f"\n  ・{srt_name}  … 字幕(カット後の時刻に直してあります)" if srt_name else "")
-    rough += "".join(f"\n  ・{n}  … {d}" for n, d in (extras or []))
+    more = "".join(f"\n  ・{n}  … {d}" for n, d in (extras or []))
     step4 = (f"""4. File > Import > Subtitle で {srt_name} を読み込み、メディアプールから
    字幕トラックの一番左(タイムラインの先頭)へドラッグします。
    ・字幕が見えない・ずれるときは、タイムラインの開始タイムコード({rec_start})とずれています。
@@ -528,7 +484,7 @@ def build_readme(video_name, meta, keeps, edl_name, srt_name, rough_name, rec_st
 
 入っているもの
   ・{edl_name}  … カット(残す区間)のリスト(EDL){srt_item}
-  ・{video_name}  … 元動画(このフォルダに入っているか、別に送られてきます。ファイル名は変えないでください){rough}
+  ・{video_name}  … 元動画(このフォルダに入っているか、別に送られてきます。ファイル名は変えないでください){more}
 
 元動画の情報:  {meta['w']}x{meta['h']} / {rate} fps / 映像 {meta.get('codec', '?')}
 
@@ -544,7 +500,7 @@ def build_readme(video_name, meta, keeps, edl_name, srt_name, rough_name, rec_st
 {step4}
 
 うまく開けないとき
-{alt if alt else ''}
+
 B. 下の表のとおりに、元動画をカットする(数か所なら手作業でもできます)。
    元動画のタイムコード(開始 → 終了)を残す区間です。
 C. EDLの読み込みで「ファイルが見つからない」と出るときは、元動画のファイル名に日本語や
@@ -554,8 +510,6 @@ D. 「タイムコードの範囲が一致しない(timecode extents do not matc
    ・Video Frame Rate が {rate} で、プロジェクトのタイムラインのフレームレートと同じか
    ・Timecode の Start TC が {src_start} か
    違うときは Start TC を {src_start} に書き換えて(Apply)、EDLを読み込み直します。
-   (Start TC が別の値のままにしたいときは、ツールの画面の「元動画の開始タイムコード」
-    またはコマンドの --src-start-tc にその値を入れて、作り直してください)
 
 残す区間(元動画のタイムコード)
    #    開始           終了
@@ -563,9 +517,9 @@ D. 「タイムコードの範囲が一致しない(timecode extents do not matc
 """
 
 
-def write_pack(out_dir, video, meta, keeps, cues_out, args_reel=DEFAULT_REEL, rec_start=DEFAULT_REC_START,
-               src_start="00:00:00:00", rough_path=None, edl_title=None, extras=None, readme_path=None, stem=None):
+def write_pack(out_dir, video, meta, keeps, cues_out, src_start="00:00:00:00", edl_title=None, extras=None, readme_path=None, stem=None):
     """EDL・字幕・手順書を書く(どれも一時ファイル経由で置き換える)。書いたファイルのパス辞書を返す。
+    EDL のリール名・タイムラインの開始タイムコードは決まった値(DEFAULT_REEL・DEFAULT_REC_START)。
     extras: 友人へ.txt に載せる追加のファイル [(名前, 説明)](書くのは呼び出し側)
     readme_path: EDL の手順書の置き場所(既定は 友人へ.txt。False = 書かない。Text+ パックは EDL を入れないので呼ばない = 決定 3-34)
     stem: EDL・SRT の名前(既定は video の名前。余白つき素材を使うときも、名前は元の切り抜きにそろえる)
@@ -576,15 +530,13 @@ def write_pack(out_dir, video, meta, keeps, cues_out, args_reel=DEFAULT_REEL, re
     stem = stem or video.stem
     edl_p = out_dir / f"{stem}.edl"
     srt_p = out_dir / f"{stem}_cut.srt"
-    S.write_text_atomic(edl_p, build_edl(edl_title or stem, video.name, keeps, fps, bool(meta["audio"]),
-                                         args_reel, rec_start, src_start),
+    S.write_text_atomic(edl_p, build_edl(edl_title or stem, video.name, keeps, fps, bool(meta["audio"]), src_start=src_start),
                         encoding="utf-8", newline="")
     files = {"edl": edl_p}
     if cues_out is not None:
         S.write_text_atomic(srt_p, S.build_srt(cues_out, fps), encoding="utf-8", newline="\n")
         files["srt"] = srt_p
-    text = build_readme(video.name, meta, keeps, edl_p.name, srt_p.name if cues_out is not None else None,
-                        rough_path.name if rough_path else None, rec_start, src_start, extras)
+    text = build_readme(video.name, meta, keeps, edl_p.name, srt_p.name if cues_out is not None else None, src_start, extras)
     if readme_path is not False:
         txt_p = Path(readme_path) if readme_path else out_dir / "友人へ.txt"
         S.write_text_atomic(txt_p, text, encoding="utf-8-sig", newline="\n")

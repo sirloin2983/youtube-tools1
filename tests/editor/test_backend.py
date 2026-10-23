@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """サーバー側のバグ直し・機能のテスト。
 
-    python3 -m unittest test_metrics test_resolve_export -q   # test_metrics がこのファイルのテストも読み込む
+    python3 -m unittest test_metrics -q   # test_metrics がこのファイルのテストも読み込む
     python3 -m unittest test_backend -q                        # これだけ
 
 受け渡しの約束(notes:docs/spec/pipeline.md)の API(export-file(transcript-v1)/ siblings)は、
@@ -412,14 +412,6 @@ class TestFormats(unittest.TestCase):
         d.update({"whole": False, "start": 100.0, "end": 160.0})
         self.assertEqual(RE.build_transcript_v1(d, "1")["transcribedRange"], {"start": 100.0, "end": 160.0})
 
-    def test_cut_plan_v1_uses_resolve_rule(self):
-        t = RE.build_cut_plan_v1(sample_doc("/x/動画.mp4"), "1")
-        self.assertEqual(t["schema"], "youtube-tools-cut-plan/v1")
-        self.assertEqual([(g["start"], g["end"], g["status"], g["lines"]) for g in t["segments"]],
-                         [(0.5, 4.0, "adopted", ["s1", "s2"]), (9.5, 11.0, "adopted", ["s5"])])   # カット済(s3)・空(s4)は除き、接する行はまとめる
-        self.assertEqual(t["segments"][0]["label"], "一行目二行目")
-        self.assertEqual(t["media"]["path"], "/x/動画.mp4")
-
     def test_srt_matches_screen_rules(self):
         text, n = RE.build_srt(sample_doc("/x/a.mp4"))
         self.assertEqual(n, 4)
@@ -687,7 +679,7 @@ class TestPipelineHttp(unittest.TestCase):
         self.assertEqual(self.call("POST", "/api/export-file", {"id": tid, "format": "pdf"}).get("error"), "bad_format")
         self.assertEqual(self.call("POST", "/api/export-file", {"id": "../x", "format": "srt"}).get("_status"), 404)
 
-    def test_export_file_srt_and_cut_plan(self):
+    def test_export_file_srt(self):
         tid, _upd, segs = self.make_edited()
         self.assertEqual(self.call("POST", "/api/export-file", {"id": tid, "format": "srt"})["name"], "動画_0012.srt")
         with open(os.path.join(self.media_dir, "作業用", "動画_0012.srt"), encoding="utf-8") as f:
@@ -696,19 +688,9 @@ class TestPipelineHttp(unittest.TestCase):
         r = self.call("POST", "/api/export-file", {"id": tid, "format": "srt", "speakerNames": True, "wrap": 3})
         with open(r["path"], encoding="utf-8") as f:
             self.assertIn("テスト\n文1\n", f.read())
-        r = self.call("POST", "/api/export-file", {"id": tid, "format": "cut-plan-v1"})
-        self.assertEqual(r["name"], "動画_0012.cut-plan.json")
-        plan = testkit.read_json(r["path"])
-        self.assertEqual(plan["schema"], "youtube-tools-cut-plan/v1")
-        cut = next(g for g in segs if g.get("cutState") == "cut")
-        self.assertEqual(plan["segments"][0]["end"], cut["start"])                   # カット済の行の手前で区切れる
-        self.assertEqual(plan["segments"][1]["start"], cut["end"])
-        self.assertTrue(all(g["status"] == "adopted" for g in plan["segments"]))
-        # 全部カット済 → 残す区間なし
-        for g in segs:
-            g["cutState"] = "cut"
-        self.call("PUT", "/api/transcript?id=" + tid, {"title": "x", "speakers": [], "segments": segs})
-        self.assertEqual(self.call("POST", "/api/export-file", {"id": tid, "format": "cut-plan-v1"}).get("error"), "empty")
+        r = self.call("POST", "/api/export-file", {"id": tid, "format": "cut-plan-v1"})   # 残す区間の保存(10-24 に無くした)は知らない形式
+        self.assertEqual((r["_status"], r.get("error")), (400, "bad_format"))
+        self.assertFalse(os.path.exists(os.path.join(self.media_dir, "作業用", "動画_0012.cut-plan.json")))
 
     def test_export_file_without_media(self):
         tmp2 = os.path.join(self.tmp, "gone")

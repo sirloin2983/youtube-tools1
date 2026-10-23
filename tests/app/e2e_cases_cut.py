@@ -6,17 +6,16 @@
 行からのたたき台・波形・区間の選択と削る / 戻す / 元に戻す・自動保存・
 殻のキー(Alt+1/2)とパネルのキーの両立・下の帯・字幕の一覧の「残す / カット」・カットしない・パックの設定(大きさ・音量・行の後の余白)が編集の設定に残る・
 パックを作る(区間 = カットのとおり・左の一覧の札)・別の切り抜きを選んでも未保存のカットが残る・コンソールにエラーが無い。
-パックの記録と「作り直しが要る」の理由(カット・字幕)・同じ場所は確認なしで作り直す・別の場所は 3 択・zip でダウンロード /
+パックの記録と「作り直しが要る」の理由(カット・字幕)・同じ場所は確認なしで作り直す・別の場所は 3 択 /
 カット・パックで行を分けてすぐ校正へ(閉じる側の保存を待つ)・区間があるときの校正の行の「カット」は案内だけ /
 キーボードだけで区間と端を選んで 1 コマ動かす・2 つの窓の 409 と読み直す・文書の競合の案内。
-パックと zip の中身(動画は直下・EDL・SRT を入れない・zip の区間)は単体の test_resolve_export が見る。"""
+パックの中身(動画は直下・EDL・SRT を入れない)は単体の tests/pipeline/pack/test_pack.py が見る。"""
 import json
 import os
 import shutil
 import sys
 import time
 import types
-import zipfile
 
 from playwright.sync_api import sync_playwright
 
@@ -73,7 +72,6 @@ def main():
             _scene_pack_settings(cx)
             _scene_build(cx)
             _scene_pack_stale(cx)
-            _scene_zip(cx)
             _scene_switch(cx)
             _scene_rows_to_proof(cx)
             _scene_edge_keys(cx)
@@ -263,21 +261,6 @@ def _scene_pack_stale(cx):
     pg.keyboard.press("Alt+2")
     check(wait_js(pg, "CasesShell.state().tab === 'cut' && ((document.querySelector('#pkLastWhen') || {}).textContent || '').indexOf('字幕が変わった') >= 0", 30000),
           "カット・パックへ戻ると理由「字幕が変わった」: %s" % pg.inner_text("#pkLastWhen"))
-
-
-def _scene_zip(cx):
-    """「zip でダウンロード」で Text+ のスクリプトの入った zip が落ち、知らせが出る(zip の中身の決まりは test_resolve_export)"""
-    check, pg, srv = cx.check, cx.pg, cx.srv
-    pg.evaluate("document.querySelector('#pkMore').open = true")
-    with pg.expect_download(timeout=60000) as dl:
-        pg.click("#pkZip")
-    zpath = os.path.join(srv.tmp, "dl-resolve.zip")
-    dl.value.save_as(zpath)
-    with zipfile.ZipFile(zpath) as z:
-        names = z.namelist()
-    check(any(n.endswith("/" + LUA) for n in names), "zip に Text+ のスクリプトが入る: %s" % names[:5])
-    check(wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(e => e.textContent.indexOf('パック(zip)を作成しました') >= 0)", 10000), "作成できたことを知らせる")
-    pg.evaluate("document.querySelector('#pkMore').open = false")
 
 
 def _scene_edge_keys(cx):

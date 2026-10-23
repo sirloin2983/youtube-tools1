@@ -2,7 +2,7 @@
 """カットの計算(試算)とパックの作成。画面(serve.py)と ② の自動の流れが呼ぶ共通部(処理を二重に持たない)。
 
   plan_cut(Request)   … 動画を調べ、カットの決め方を組み合わせて「残す区間」を出す。ファイルは作らない(= --dry-run)
-  build_pack(Plan, …) … EDL・カット後の字幕・友人へ.txt・cut-plan.json(+ 任意で粗編集 mp4・元動画のコピー・Text+パック)を作る。
+  build_pack(Plan, …) … EDL・カット後の字幕・友人へ.txt・cut-plan.json(+ 任意で元動画のコピー・Text+パック)を作る。
                         Text+ パックには EDL・カット後の SRT を入れない(「予備」の道は無い = 決定 3-34。Text+ でないパックは EDL が本体)。
                         plan_file=False: cut-plan.json を書かない = 画面・API。記録は作業データ側。notes:docs/design/edit-tool-design.md の 12 ④)
 
@@ -67,7 +67,7 @@ TRANSCRIPT_ROWS = {"base": "rows", "handles": 0.0, "min_len": 0.0, "join_frames"
 # とても短い区間は捨てずに注意だけ出す(warn_short 秒)。notes:docs/design/edit-tool-design.md の 5
 EDIT_KEEPS = {"base": "list", "handles": 0.0, "min_len": 0.0, "join_frames": 0, "silence": False, "drop_cut_rows": False, "warn_short": 0.5}
 MAX_KEEPS = 5000
-PACK_FILE_KINDS = ("edl", "srt", "readme", "plan", "roughcut", "video",
+PACK_FILE_KINDS = ("edl", "srt", "readme", "plan", "video",
                    "textplus_script", "textplus_install", "textplus_launcher", "textplus_readme", "textplus_template")
 OLD_MEDIA_DIR = "media"                       # 古い Text+ パックの動画のフォルダ(今はパックの直下)
 OLD_BACKUP_README = "予備_EDLで開く手順.txt"   # 古い Text+ パックの「予備」の手順書(EDL・SRT と組。決定 3-34)
@@ -95,9 +95,6 @@ class Request:
     join_frames: Optional[int] = None     # つなぐ隙間をフレームで(指定すると join_gap より優先)
     fps: Optional[str] = None
     frames: Optional[int] = None
-    src_start_tc: Optional[str] = None
-    rec_start: str = C.DEFAULT_REC_START
-    reel: str = C.DEFAULT_REEL
     name: Optional[str] = None
     extra_inputs: tuple = ()               # カットリストなど、出力で上書きしてはいけない入力ファイル
     edit_media: bool = True               # 動画を同梱するパックで、スタジオの余白つき素材(.edit.json)があればそれを入れる
@@ -322,8 +319,8 @@ def plan_cut(req, task=None, cache=None, log=None):
     min_len, join_gap = _check_request(req, video)
     meta = cache.probe(video, req.fps, req.frames) if cache else S.probe(video, req.fps, req.frames)
     fps = meta["fps"]
-    src_start, src_desc, tc_warns = C.resolve_src_start(video, req.src_start_tc, meta)
-    C.check_timecodes(fps, req.rec_start, src_start)   # 無音の検出・書き出しの前に確かめる
+    src_start, src_desc, tc_warns = C.resolve_src_start(video, meta)
+    C.check_timecodes(fps, src_start)   # 無音の検出・書き出しの前に確かめる
     warns = [m for m in meta["warnings"] if "開始タイムコード" not in m] + tc_warns
 
     tr = C.read_transcript(req.transcript) if req.transcript else None
@@ -643,7 +640,7 @@ def describe(plan, lay=None):
     return out
 
 
-def pack_paths(video, out_dir, has_subs, render=False, copy_video=False, textplus=False, media=None,
+def pack_paths(video, out_dir, has_subs, copy_video=False, textplus=False, media=None,
                plan_file=True, readme_file=True):
     """パックに書くファイル {種類: パス}。media: 同梱する動画が video と違うとき(スタジオの余白つき素材)。名前は video にそろえる。
     EDL・カット後の SRT・EDL の手順書(友人へ.txt)は Text+ でないパックだけ(EDL が本体)。Text+ パックには入れない
@@ -662,8 +659,6 @@ def pack_paths(video, out_dir, has_subs, render=False, copy_video=False, textplu
             p["srt"] = out_dir / f"{video.stem}_cut.srt"
     if plan_file:
         p["plan"] = out_dir / "cut-plan.json"
-    if render:
-        p["roughcut"] = out_dir / f"{video.stem}_roughcut.mp4"
     if copy_video or textplus:
         p["video"] = out_dir / media.name
     if textplus:
@@ -717,7 +712,7 @@ def media_for_pack(plan, include_video, cache=None):
     if keeps[-1][1] > meta["total"]:
         base["warnings"].append(f"余白つき素材 {name} が元の動画より短いため使わず、元の動画を入れました。")
         return base
-    src_start, _, w = C.resolve_src_start(em["path"], None, meta)
+    src_start, _, w = C.resolve_src_start(em["path"], meta)
     before = C.frames_to_sec(off, fps)
     after = C.frames_to_sec(meta["total"] - off - plan.meta["total"], fps)
     info = {"path": str(em["path"]), "name": name, "selectionIn": em["selectionIn"],
@@ -727,21 +722,21 @@ def media_for_pack(plan, include_video, cache=None):
                              f"後ろへ {max(0.0, after):.1f} 秒まで延ばせます)。"]}
 
 
-def expected_paths(req, out_dir, has_subs, render=False, copy_video=False, textplus=False, plan_file=True, readme_file=True):
+def expected_paths(req, out_dir, has_subs, copy_video=False, textplus=False, plan_file=True, readme_file=True):
     """作る予定のファイル {種類: パス}(pack_paths。同梱する余白つき素材の名前も。ffprobe を使わない下見)"""
     copy_video = normalize_outputs(copy_video, textplus)
     media = edit_media_path(req.video, req, copy_video)
-    return pack_paths(req.video, out_dir, has_subs, render, copy_video, textplus, media, plan_file, readme_file)
+    return pack_paths(req.video, out_dir, has_subs, copy_video, textplus, media, plan_file, readme_file)
 
 
-def planned_outputs(plan, out_dir=None, render=False, copy_video=False, textplus=False, plan_file=True, readme_file=True):
+def planned_outputs(plan, out_dir=None, copy_video=False, textplus=False, plan_file=True, readme_file=True):
     """作る予定のファイルと、すでにあるもの(画面の上書き確認用)"""
     out_dir = Path(out_dir) if out_dir else default_out_dir(plan.video)
-    paths = expected_paths(plan.req, out_dir, plan.cues_out is not None, render, copy_video, textplus, plan_file, readme_file)
+    paths = expected_paths(plan.req, out_dir, plan.cues_out is not None, copy_video, textplus, plan_file, readme_file)
     return out_dir, paths, [p for p in paths.values() if p.exists()]
 
 
-def build_pack(plan, out_dir=None, render=False, copy_video=False, textplus=False, force=False, crf=C.DEFAULT_CRF,
+def build_pack(plan, out_dir=None, copy_video=False, textplus=False, force=False,
                task=None, log=None, textplus_target=None, plan_file=True, textplus_wrap=None, readme_file=True,
                textplus_color=None, speaker_colors=None, loudness=None, volume=None, textplus_style="default", speaker_outlines=None,
                video_tracks=1, prev_copy=None, cache=None):
@@ -754,29 +749,27 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, textplus=Fals
     speaker_outlines: {話者の名前: "#RRGGBB"}(簡易版)。speaker_colors と同じ決め方で、字幕ごとのふちの色にする。
     video_tracks: Text+ のタイムラインの映像トラックの数(1〜5。V1 = 動画・V2〜 = 空)。字幕はその上のトラックに置く。
     loudness: 聞こえ方の音量をそろえる目標(LUFS。ytt/loudness.py の CHOICES。None = そろえない)。**カットで残す区間だけ**を測り、
-    同梱する動画は音声だけ作り直して(映像はそのまま)、粗編集の動画も同じ量で書き出す。元の動画は書き換えない。
+    同梱する動画は音声だけ作り直す(映像はそのまま)。元の動画は書き換えない。
     volume: 音量(%。元 = 100)。loudness が無いときだけ、測らずにその量をかける(LUFS が分からない人向け。スタジオの書き出しの「音量 %」と同じ)
     prev_copy: 前にこのフォルダへ作ったパックの記録の videoCopy(serve.py が作業データの packs/ から読んで渡す。コマンドは渡さない = 毎回作り直す)。
     音量をかけて写すとき、これと今の条件(元の動画・かける量・書き出しの設定)が同じで、置き場所の動画も記録のままなら作り直さない(E-15 の続き。_stage_video)
     cache: 画面用の Cache(余白つき素材の媒体情報を覚えた物)。media_for_pack に渡す。None = 毎回調べる
-    重いもの(粗編集の mp4・元動画のコピー)は出力フォルダの中の一時的な名前で作り、最後に名前を付け替える
+    重いもの(元動画のコピー)は出力フォルダの中の一時的な名前で作り、最後に名前を付け替える
     (途中で失敗・取り消したとき、以前のパックを半端に壊さない・書きかけを残さない)"""
-    if isinstance(crf, bool) or not isinstance(crf, int) or not 0 <= crf <= 51:
-        raise ToolError("粗編集の画質(--crf)は 0〜51 の整数で指定してください。")
     try:
         video_tracks = TP.video_tracks_value(video_tracks)
     except ValueError as e:
         raise ToolError(str(e))
     if textplus_style not in TP.TEXT_STYLES:
         raise ToolError("Text+ の字幕の見た目 %r は使えません(%s のどれか)。" % (textplus_style, " / ".join(TP.TEXT_STYLES)))
-    video, meta, fps = plan.video, plan.meta, plan.meta["fps"]
+    video, meta = plan.video, plan.meta
     out_dir = Path(out_dir) if out_dir else default_out_dir(video)
     if out_dir.exists() and not out_dir.is_dir():
         raise ToolError(f"出力先がフォルダではありません: {out_dir}")
     copy_video = normalize_outputs(copy_video, textplus)
     m = media_for_pack(plan, copy_video, cache)   # 同梱する動画(余白つき素材なら、残す区間もそれに合わせる)。cache は画面用(probe を覚える)
     mvideo, mmeta, mkeeps = m["video"], m["meta"], m["keeps"]
-    paths = pack_paths(video, out_dir, plan.cues_out is not None, render, copy_video, textplus, mvideo, plan_file, readme_file)
+    paths = pack_paths(video, out_dir, plan.cues_out is not None, copy_video, textplus, mvideo, plan_file, readme_file)
     C.validate_output_paths(list(paths.values()), force, protected=plan.req.inputs() + ((mvideo,) if m["edit"] else ()))
     req = plan.req
     warnings = list(m["warnings"])
@@ -793,13 +786,8 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, textplus=Fals
     same = copy_video and S.same_path(paths["video"], mvideo)
     copy_key = None   # 音量をかけて写したときの条件(パックの記録の videoCopy にする)
     try:
-        loud, gain, w = _pack_gain(loudness, volume, render, copy_video, same, m, task, log)   # 画面に出す結果と、かける量(dB)
+        loud, gain, w = _pack_gain(loudness, volume, copy_video, same, m, task, log)   # 画面に出す結果と、かける量(dB)
         warnings += w
-        if render:
-            _say(log, task, "粗編集の動画を書き出しています…(時間がかかります)")
-            tmp = out_dir / f".c2r-{tag}-{paths['roughcut'].name}"
-            C.render_rough_cut(video, plan.keeps, fps, bool(meta["audio"]), tmp, crf, task, gain_db=gain)
-            staged.append((tmp, paths["roughcut"], "roughcut"))
         if copy_video and not same:
             paths["video"].parent.mkdir(parents=True, exist_ok=True)
             tmp, skipped, copy_key = _stage_video(m, out_dir, paths["video"], out_dir / f".c2r-{tag}-{mvideo.name}", gain, prev_copy,
@@ -815,9 +803,8 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, textplus=Fals
             extras.append(("cut-plan.json", "カットの記録(残す・削る区間)。ツールで読み直す用で、Resolve では使いません"))
         files = {}
         if "edl" in paths:   # EDL・カット後の SRT・EDL の手順書(Text+ でないパックだけ = EDL が本体)
-            files = C.write_pack(out_dir, mvideo, mmeta, mkeeps, plan.cues_out, req.reel, req.rec_start,
-                                 m["src_start"], paths.get("roughcut"), req.name, extras, readme_path=paths.get("readme", False),
-                                 stem=video.stem)
+            files = C.write_pack(out_dir, mvideo, mmeta, mkeeps, plan.cues_out, m["src_start"], req.name, extras,
+                                 readme_path=paths.get("readme", False), stem=video.stem)
         doc = AC.finalize_plan(plan.doc, video, meta, plan.src_start, copy_video, plan.cues_out)
         if m["edit"]:   # 区間(segments)は元の切り抜きの時刻のまま(ツールで読み直す用)。同梱した素材はこちらに書く
             doc["editMedia"] = {"name": m["edit"]["name"], "selectionInSeconds": m["edit"]["selectionIn"],
@@ -876,7 +863,8 @@ def _stage_video(m, out_dir, final, tmp, gain, prev_copy, task=None, log=None):
 
 def _stale_warning(video, out_dir, paths, mvideo):
     """前に作ったかもしれない・今回は作らないファイルがフォルダに残っていれば、その注意の文(無ければ None)"""
-    known = pack_paths(video, out_dir, True, render=True, textplus=True)
+    known = pack_paths(video, out_dir, True, textplus=True)
+    known["old_roughcut"] = out_dir / f"{video.stem}_roughcut.mp4"     # 古いパックの粗編集の動画(今は作らない)
     known["old_fcpxml"] = out_dir / f"{video.stem}_cut.fcpxml"           # 古いパックの FCPXML(今は作らない)
     known["old_video"] = out_dir / OLD_MEDIA_DIR / mvideo.name        # 古い Text+ パックの動画の場所
     # 古い Text+ パックの予備(EDL・カット後の SRT・予備の手順書。決定 3-34)。Text+ でないパックでは EDL・SRT は今の中身
@@ -889,14 +877,14 @@ def _stale_warning(video, out_dir, paths, mvideo):
     return None
 
 
-def _pack_gain(loudness, volume, render, copy_video, same, m, task=None, log=None):
-    """同梱の動画・粗編集の動画の音量。loudness(目標の LUFS)= 残す区間だけ測ってそろえる、volume(%)= 測らずにその量をかける。
+def _pack_gain(loudness, volume, copy_video, same, m, task=None, log=None):
+    """同梱の動画の音量。loudness(目標の LUFS)= 残す区間だけ測ってそろえる、volume(%)= 測らずにその量をかける。
     same: パックの動画が元の動画と同じ場所(元の動画は書き換えないので、写さない動画にはかけない)。m: media_for_pack の結果。
     -> (画面に出す結果 か None, かける量(dB), 注意の文の list)"""
     same_msg = "パックの動画が元の動画と同じ場所です(元の動画は書き換えません)"
     mmeta = m["meta"]
     if loudness is not None:
-        if not (render or (copy_video and not same)):
+        if not (copy_video and not same):
             if not same:
                 return None, 0.0, []
             loud = {"target": loudness, "skipped": same_msg}
@@ -913,9 +901,9 @@ def _pack_gain(loudness, volume, render, copy_video, same, m, task=None, log=Non
                 return LD.pack_result(loudness, i, gain), gain, []
             loud = {"target": loudness, "skipped": "無音のため測れませんでした"}
         return loud, 0.0, ["音量はそろえませんでした(%s)。" % loud["skipped"]]
-    if not volume or volume == 100 or not (render or copy_video):
+    if not volume or volume == 100 or not copy_video:
         return None, 0.0, []
-    if same and not render:
+    if same:
         return {"volume": volume, "skipped": same_msg}, 0.0, ["音量は変えませんでした(%s)。" % same_msg]
     if not mmeta["audio"]:
         return {"volume": volume, "skipped": "音声の無い動画です"}, 0.0, []
@@ -960,7 +948,7 @@ def summary(plan, limit=5000):
         "count": len(plan.keeps), "keptFrames": kept, "keptSec": _sec(kept, fps), "removedSec": _sec(total - kept, fps),
         "keptPercent": round(kept * 100 / total, 1),
         "handles": plan.handles, "baseKind": plan.req.base,
-        "srcStart": plan.src_start, "srcStartDesc": plan.src_desc, "recStart": plan.req.rec_start,
+        "srcStart": plan.src_start, "srcStartDesc": plan.src_desc,
         "subtitles": subs, "transcriptRows": rows, "warnings": plan.warnings,
         "text": text,
         # Text+ のパックでの字幕の段(重なる字幕。resolve_textplus.stack_captions): 段の数(字幕が無ければ 0)・上の段へ分けた字幕の数・終わりを切った字幕の数

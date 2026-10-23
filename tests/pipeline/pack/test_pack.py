@@ -497,26 +497,6 @@ class TestPackWithFfmpeg(unittest.TestCase):
             pack.build_pack(plan, out, copy_video=True, task=task)
         self.assertEqual(list(out.iterdir()), [])   # 途中の一時ファイルも、半端なパックも残さない
 
-    def test_cancel_during_render_kills_ffmpeg_and_cleans_up(self):
-        long_v = self.dir / "long.mp4"
-        make_video(long_v, 20, size="960x540")
-        task = C.Task()
-        task._on = lambda f, m: task.cancel() if isinstance(f, float) and f > 0 else None
-        out = self.dir / "r"
-        out.mkdir()
-        with self.assertRaises(C.Cancelled):
-            C.render_rough_cut(long_v, [(0, 1200)], FPS30, True, out / "x.mp4", 18, task)
-        self.assertEqual(list(out.iterdir()), [])
-
-    def test_render_failure_leaves_no_partial_file(self):
-        noa = self.dir / "noaudio.mp4"
-        make_video(noa, 2, audio=None)
-        out = self.dir / "f"
-        out.mkdir()
-        with self.assertRaises(C.ToolError):
-            C.render_rough_cut(noa, [(0, 30)], FPS30, True, out / "x.mp4")   # 音声が無いのに音声ありで書き出す → ffmpeg が失敗
-        self.assertEqual(list(out.iterdir()), [])
-
 
 class TestEditMediaLookup(unittest.TestCase):
     """切り抜きスタジオの余白つき素材(.edit.json)を探す規則のうち、通しでは作れない形(壊れた・外を指す・2 か所にある)。ffmpeg なし"""
@@ -644,7 +624,7 @@ class TestPackRun(unittest.TestCase):
         out = R.output_from_spec(output or {}, req.video)
         plan = pack.plan_cut(req)
         spk, _ = R.speaker_colors_for(plan, out)
-        res = pack.build_pack(plan, out["dir"], render=out["render"], copy_video=out["copyVideo"], textplus=out["textplus"],
+        res = pack.build_pack(plan, out["dir"], copy_video=out["copyVideo"], textplus=out["textplus"],
                               textplus_target=out["textplusTarget"], force=out["force"], textplus_wrap=out["textplusWrap"],
                               textplus_color=out["textplusColor"], speaker_colors=spk or None, loudness=out["loudness"], volume=out["volume"],
                               video_tracks=out["videoTracks"], **self.SCREEN)
@@ -992,9 +972,8 @@ class TestPackRun(unittest.TestCase):
         self.assertAlmostEqual(sm["keptSec"] + sm["removedSec"], 10.0, places=3)
         json.dumps(sm)                                                                    # そのまま JSON にできる
         out = self.d / "edl_a"
-        res = pack.build_pack(plan, out, render=True, copy_video=True, loudness=-14.0)
-        self.assertEqual(self.names(out), sorted(["さくらみこ.edl", "さくらみこ_cut.srt", "さくらみこ_roughcut.mp4", "さくらみこ.mp4",
-                                                  "cut-plan.json", "友人へ.txt"]))
+        res = pack.build_pack(plan, out, copy_video=True, loudness=-14.0)
+        self.assertEqual(self.names(out), sorted(["さくらみこ.edl", "さくらみこ_cut.srt", "さくらみこ.mp4", "cut-plan.json", "友人へ.txt"]))
         self.assertEqual(self.name_warnings(res["warnings"]), 1)                           # EDL はファイル名で元の動画と結び付く
         raw = (out / "さくらみこ.edl").read_bytes()
         self.assertTrue(raw.startswith(b"TITLE: \xe3\x81\x95") and b"\r\nFCM: NON-DROP FRAME\r\n" in raw)   # EDL は CRLF・BOM なし
@@ -1008,9 +987,6 @@ class TestPackRun(unittest.TestCase):
             self.assertEqual(tc2f(ro, 30) - tc2f(ri, 30), tc2f(so, 30) - tc2f(si, 30))
             self.assertIn("FROM CLIP NAME: さくらみこ.mp4", com)
             rec = tc2f(ro, 30)
-        rough = S.probe(out / "さくらみこ_roughcut.mp4")
-        self.assertLessEqual(abs(rough["total"] - (tc2f(ev[-1][6], 30) - tc2f(ev[0][5], 30))), 3)   # 粗編集の長さ = EDL の長さ
-        self.assertIsNotNone(rough["audio"])
         self.assertEqual([c[2] for c in S.parse_subs((out / "さくらみこ_cut.srt").read_text(encoding="utf-8"))], ["あ", "い", "う"])   # 字幕は全て音のある区間
         self.assertTrue((out / "友人へ.txt").read_text(encoding="utf-8-sig").startswith("DaVinci Resolve"))
         lo = res["loudness"]
@@ -1019,7 +995,6 @@ class TestPackRun(unittest.TestCase):
         self.assertAlmostEqual(lo["measured"], C.measure_loudness(self.video, spans)[0], delta=0.2)   # 測るのは残す区間だけ
         want = lo["measured"] + lo["gainDb"]
         self.assertAlmostEqual(C.measure_loudness(out / "さくらみこ.mp4", spans)[0], want, delta=1.0)  # 同梱の動画は その分だけ変わった
-        self.assertAlmostEqual(C.measure_loudness(out / "さくらみこ_roughcut.mp4")[0], want, delta=1.0)  # 粗編集の動画にも同じ量
         self.assertEqual(self.video.read_bytes(), before)                                 # 元の動画は書き換えない
         rec, dst = res["videoCopy"], (out / "さくらみこ.mp4").stat()
         src = self.video.stat()
@@ -1047,11 +1022,12 @@ class TestPackRun(unittest.TestCase):
             return r, cg.called, ml.called
         mtime = (out / "さくらみこ.mp4").stat().st_mtime_ns
         rec = json.loads(json.dumps(rec))
+        (out / "さくらみこ_roughcut.mp4").write_bytes(b"old")                              # 古いパックの粗編集の動画(今は作らない)
         r, regain, measured = again(rec, loudness=-14.0)
         self.assertEqual((regain, measured, (out / "さくらみこ.mp4").stat().st_mtime_ns), (False, True, mtime))
         self.assertEqual(r["warnings"][-1], C.GAIN_COPY_SKIPPED.format("さくらみこ.mp4", r["loudness"]["gainDb"]))   # 注意に 1 行(ほかの注意の後ろ)
         self.assertIn("コピーを飛ばしました", r["warnings"][-1])                          # serve.py が info に分ける言葉
-        self.assertTrue(any("さくらみこ_roughcut.mp4" in w for w in r["warnings"]))         # 今回書かない前の粗編集は消さずに知らせる
+        self.assertTrue(any("さくらみこ_roughcut.mp4" in w for w in r["warnings"]))         # 前のパックの粗編集は消さずに知らせる
         self.assertEqual((r["videoCopy"], dict(r["files"])["video"]), (rec, out / "さくらみこ.mp4"))   # 次のパックの記録にも同じ条件を残す
         gain = loudness.pct_to_db(50)
         r, regain, measured = again(rec, volume=50)                                       # 量が違う → 作り直す(% は測らない)
@@ -1128,16 +1104,13 @@ class TestPackRun(unittest.TestCase):
         self.assertNotEqual((out / "さくらみこ.mp4").read_bytes(), before)
         self.assertNotIn(C.COPY_SKIPPED.format("さくらみこ.mp4"), res["warnings"])
 
-        # 音声の無い動画: 無音で削れない(断る)・EDL は映像だけ(V)・粗編集も映像だけ
+        # 音声の無い動画: 無音で削れない(断る)・EDL は映像だけ(V)
         with self.assertRaises(C.ToolError):
             pack.plan_cut(pack.Request(video=self.mute, silence=True))
         plan = pack.plan_cut(pack.Request(video=self.mute, base="list", keep_pairs=[(0, 1), (2, 3)]))
         out = self.d / "mute_pack"
-        pack.build_pack(plan, out, render=True)
+        pack.build_pack(plan, out)
         self.assertEqual({e[2] for e in parse_edl((out / "mute.edl").read_text(encoding="utf-8"))}, {"V"})
-        rough = S.probe(out / "mute_roughcut.mp4")
-        self.assertLessEqual(abs(rough["total"] - 60), 2)
-        self.assertIsNone(rough["audio"])
         self.assertIn("字幕は付いていません", (out / "友人へ.txt").read_text(encoding="utf-8-sig"))
         self.assertFalse((out / "mute_cut.srt").exists())
         # ずっと音のある動画を無音で自動: 削れる所が無い → 注意(ほかの決め方を勧める)。時刻リストで結果的にカットが無いのは対象外
@@ -1167,7 +1140,7 @@ class TestPackRun(unittest.TestCase):
 
     def test_list_run(self):
         """時刻リストの通し(画面の指定から): 書き方の全部(BOM・コメント・空行・区切り・全角・CSV・小数のコンマ・60 以上の先頭の欄・動画の外)・
-        字幕の付け直し・削る区間・詳しい設定(タイムコード・リール・題)・埋め込みのタイムコード・29.97 / 23.976fps・入力の誤り"""
+        字幕の付け直し・削る区間・詳しい設定(題。タイムコード・リールは決まった値)・埋め込みのタイムコード・29.97 / 23.976fps・入力の誤り"""
         out = self.d / "list_a"
         spec = {"video": str(self.video), "srt": str(self.srt), "mode": "list", "listText": self.LIST}
         plan, res = self.spec_pack(spec, {"dir": str(out), "copyVideo": False})
@@ -1188,24 +1161,20 @@ class TestPackRun(unittest.TestCase):
         self.assertEqual(cues, [(0, 3, "short\nA"), (3, 30, "A"), (30, 75, "X"), (75, 90, "X\nB"), (90, 120, "B")])
         self.assertEqual([c[0] for c in cues], sorted(c[0] for c in cues))
         self.assertEqual(pack.summary(plan)["subtitles"]["vanished"], 2)
-        # 削る区間・詳しい設定: 元の開始タイムコード(ドロップの書き方は直して知らせる)・タイムラインの開始・リール名・題の改行
+        # 削る区間・詳しい設定: 題の改行。元の開始・タイムラインの開始・リール名は決まった値(古い要求の srcStartTc・recStart・reel は黙って無視。10-24)
         out = self.d / "list_drop"
         adv = {"srcStartTc": "01:00:00;00", "recStart": "02:00:00:00", "reel": "日本語 x-1", "name": "a\nb"}
         plan, res = self.spec_pack({"video": str(self.video), "mode": "list", "listKind": "drop", "listText": "0 1\n9 10\n", "advanced": adv},
                                    {"dir": str(out)})
-        self.assertTrue(any(";" in w or "ドロップ" in w for w in plan.warnings), plan.warnings)
         text = (out / "さくらみこ.edl").read_text(encoding="utf-8")
         self.assertTrue(text.startswith("TITLE: a b\n"))
         ev = parse_edl(text)
-        self.assertEqual([(e[1], e[2], e[3], e[4], e[5]) for e in ev], [("X1", "AA/V", "01:00:01:00", "01:00:09:00", "02:00:00:00")])
-        out = self.d / "list_reel"
-        self.spec_pack({"video": str(self.video), "mode": "list", "listText": "0 1", "advanced": {"reel": "日本語"}}, {"dir": str(out)})
-        self.assertEqual(parse_edl((out / "さくらみこ.edl").read_text(encoding="utf-8"))[0][1], "AX")
+        self.assertEqual([(e[1], e[2], e[3], e[4], e[5]) for e in ev], [("AX", "AA/V", "00:00:01:00", "00:00:09:00", "01:00:00:00")])
         # 字幕の行を削る(drop_lines)・試算だけ(ファイルを作らない)・上書きは force
         plan = pack.plan_cut(pack.Request(video=self.video, sub=self.srt, drop_lines={2}))
         self.assertEqual(plan.keeps, [(0, 150), (180, 300)])                               # 5-6 秒の字幕の時間帯が抜ける
         self.assertFalse((self.d / "さくらみこ_pack").exists())
-        # 動画に埋め込まれた開始タイムコード(EDL の元の側はその範囲)・指定が優先・埋め込みが無ければ 0
+        # 動画に埋め込まれた開始タイムコード(EDL の元の側はその範囲)・古い要求の指定は無視・埋め込みが無ければ 0
         out = self.d / "tc_pack"
         _, res = self.spec_pack({"video": str(self.tc), "mode": "list", "listText": "1 2\n3 5\n"}, {"dir": str(out)})
         self.assertEqual(self.name_warnings(res["warnings"]), 0)                           # 英字の名前なら名前の注意は出さない
@@ -1216,19 +1185,15 @@ class TestPackRun(unittest.TestCase):
                                                      self.d / "tc_readme")["readme"])
         out = self.d / "tc_override"
         self.spec_pack({"video": str(self.tc), "mode": "list", "listText": "1 2", "advanced": {"srcStartTc": "00:00:00:00"}}, {"dir": str(out)})
-        self.assertEqual(parse_edl((out / "tc.edl").read_text(encoding="utf-8"))[0][3], "00:00:01:00")
+        self.assertEqual(parse_edl((out / "tc.edl").read_text(encoding="utf-8"))[0][3], "10:00:01:00")
         self.assertEqual(pack.plan_cut(pack.Request(video=self.mute)).src_start, "00:00:00:00")
-        # 29.97fps(埋め込みはドロップの書き方 → 直して使う): EDL は呼び名の 30 で数える・粗編集のコマ数と fps は元のまま。23.976 は 24 で数える
+        # 29.97fps(埋め込みはドロップの書き方 → 直して使う): EDL は呼び名の 30 で数える。23.976 は 24 で数える
         out = self.d / "v2997_list"
-        plan, res = self.spec_pack({"video": str(self.v2997), "mode": "list", "listText": "1 2\n3 4\n"}, {"dir": str(out), "render": True})
+        plan, res = self.spec_pack({"video": str(self.v2997), "mode": "list", "listText": "1 2\n3 4\n"}, {"dir": str(out)})
         self.assertEqual(plan.meta["fps"], (30000, 1001))
         self.assertTrue(any(";" in w or "ドロップ" in w for w in plan.warnings), plan.warnings)
         ev = parse_edl((out / "v2997.edl").read_text(encoding="utf-8"))
         self.assertEqual([(e[3], e[4]) for e in ev], [("01:00:01:00", "01:00:02:00"), ("01:00:03:00", "01:00:04:00")])
-        n = sum(tc2f(e[4], 30) - tc2f(e[3], 30) for e in ev)
-        rough = S.probe(out / "v2997_roughcut.mp4")
-        self.assertLessEqual(abs(rough["total"] - n), 2)
-        self.assertEqual(rough["fps"], (30000, 1001))
         out = self.d / "v23976_list"
         self.spec_pack({"video": str(self.v23976), "mode": "list", "listText": "1 2"}, {"dir": str(out)})
         self.assertEqual([(e[3], e[4]) for e in parse_edl((out / "v23976.edl").read_text(encoding="utf-8"))], [("00:00:01:00", "00:00:02:00")])
@@ -1258,13 +1223,7 @@ class TestPackRun(unittest.TestCase):
         for kw in ({"keep_pairs": [(0, 10)], "drop_pairs": [(0, 10)]}, {"drop_lines": {1}, "sub": None}):   # 全部削る・字幕が無いのに行を削る
             with self.assertRaises(C.ToolError):
                 pack.plan_cut(pack.Request(video=self.video, base="list", **dict({"keep_pairs": [(0, 10)]}, **kw)))
-        for adv, msg in (({"srcStartTc": "00:00:00:45"}, None), ({"srcStartTc": "00:00:00:30"}, "--src-start-tc"), ({"recStart": "1:00:00"}, "--rec-start")):
-            with self.subTest(adv=adv), self.assertRaises(C.ToolError) as cm:
-                self.spec_pack(dict(spec, listText="1 2\n", advanced=adv), {"dir": str(self.d / "tc_bad"), "render": True})
-            if msg:
-                self.assertIn(msg, str(cm.exception))
-        self.assertFalse((self.d / "tc_bad").exists() or (self.d / "list_out").exists())    # 粗編集も書き出さずに失敗する
-        self.spec_pack(dict(spec, listText="1 2\n", advanced={"recStart": "10:00:00:29"}), {"dir": str(self.d / "tc_max")})
+        self.assertFalse((self.d / "list_out").exists())
 
     def test_plan_run(self):
         """採用区間 JSON(cut-plan)からの通し: 出どころごとの余白の既定・採用の区間だけ・余白が重なれば 1 つに・削った所の記録・4 つのファイル・

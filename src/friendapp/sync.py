@@ -132,8 +132,8 @@ def parse_meta(data):
 
 
 def parse_meta_info(data):
-    """<zip>.meta.json の配信の欄(notes:docs/spec/friend.md の 12-1)-> {videoId, markId, streamTitle, streamer, seconds, headline, headlineWhy}(無い欄は入れない。
-    headline・headlineWhy = 作る側の機械の見出しと選んだ理由 = flow/deliver.meta_doc)"""
+    """<zip>.meta.json の配信の欄(notes:docs/spec/friend.md の 12-1)-> {videoId, markId, streamTitle, streamer, seconds, overlapNote}(無い欄は入れない。
+    overlapNote = 前に届けた区間とのかぶり = flow/deliver.meta_doc。古い .meta.json の headline・headlineWhy は読まない)"""
     d = _json_bytes(data)
     if not isinstance(d, dict) or d.get("v") != 1:
         return {}
@@ -141,7 +141,7 @@ def parse_meta_info(data):
     vid = d.get("videoId")
     if isinstance(vid, str) and VIDEO_ID_RE.match(vid):
         out["videoId"] = vid
-    for k, cap in (("markId", 80), ("streamTitle", 200), ("streamer", 60), ("headline", 60), ("headlineWhy", 160), ("overlapNote", 160)):
+    for k, cap in (("markId", 80), ("streamTitle", 200), ("streamer", 60), ("overlapNote", 160)):
         t = clean_text(d.get(k), cap)
         if t:
             out[k] = t
@@ -675,7 +675,7 @@ class Sync:
             if not name_ok(zname):
                 self.inbox.remote_keep_failed(rid, name, "名前が正しくないので受け取れません")
                 continue
-            save, num = self.inbox.keep_place(rid, name) or (self.places["save"](), None)   # <保存先>\<日付>_<配信者>_<題>\#番号(C-3-8)
+            save, num = self.inbox.keep_place(rid, name) or (self.places["save"](), None)   # <保存先>\<日付>_<配信者>_<題>_#番号(C-3-8。平らに並べる)
             try:
                 os.makedirs(fsio.long_path(save), exist_ok=True)
             except OSError as e:   # 抜いた USB・消えたドライブ・書けないフォルダ: このパックだけ押す前に戻す(後ろのパックは進める)

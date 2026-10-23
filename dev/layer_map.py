@@ -69,8 +69,6 @@ FILES = {
     # ---- ed_drill・ed_evalbatch は eval/drill の drill・evalbatch(殻なし。決定 3-25 #7。DIRS で読む)
     # ---- resolve_export は pipeline/pack(受け渡しの JSON と SRT の組み立て build_* も一緒)・handoff_io は manage/cases(.clip.json の動画・動画の隣への保存)。どちらも DIRS で読む
     "src/editor/ed_media.py": ("app", "app", "動画の配信"),
-    "src/editor/ed_thumb.py": ("app", "app", "サムネの配信"),
-    "src/editor/thumb_ideas.py": ("human", "human/cut", "サムネの案(P5)"),
     "src/editor/ed_state.py": ("app", "app", "split: 設定は ytt/settings、backend_name は eval/fake の登録"),
     "src/editor/serve.py": ("app", "app", "API の配線"),
     # ---- 入口の部品(src/app)

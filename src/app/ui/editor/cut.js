@@ -335,7 +335,7 @@ function create(h){
     await h.patchSettings({ cutSilence: v }, '無音の値を保存できませんでした(今回のたたき台には使います)');   // 送ったキーだけ直す(ほかの窓の設定を消さない)。失敗しても v は今回に使う
     return v;
   }
-  /* 「行から」の設定(行の端を声の止まる所まで広げる。サーバーの設定 rowEdge = zip・まとめて実行も同じ。規則は pack.py) */
+  /* 「行から」の設定(行の端を声の止まる所まで広げる。サーバーの設定 rowEdge = まとめて実行も同じ。規則は pack.py) */
   function edgeSetting(){
     const v = (h.S.settings || {}).rowEdge, o = v && typeof v === 'object' ? v : {};
     const num = (x, dv) => { const n = Number(x); return Number.isFinite(n) && n >= 0 && n <= 2 ? n : dv; };

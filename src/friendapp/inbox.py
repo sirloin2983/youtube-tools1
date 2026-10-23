@@ -59,7 +59,7 @@ VERDICTS = ("keep", "skip", "bad")  # 受け取る / 見送る / 届かなくて
 JUDGE = {"keep": "good", "skip": "unknown", "bad": "bad"}   # 送り返しの判断の記録 v 2 の言葉(notes:docs/spec/friend.md の 12-2)
 REASONS = ("boring", "cut")         # 届かなくてよかったの理由: つまらない(場面の選び方)/ 切り方が変(区間の決め方)
 CLIP_RANGE_RE = re.compile(r"(\d{2,})h(\d{2})m(\d{2})s-(\d{2,})h(\d{2})m(\d{2})s")   # 書き出しの名前の <始まり>-<終わり>(ytt/names)
-TITLE_CUT = 40                      # 保存先のフォルダの名前に入れる配信の題の長さ(C-3-8)
+TITLE_CUT = 40                      # 受け取った物のフォルダの名前に入れる配信の題の長さ(C-3-8)
 VERDICT_SUFFIX = ".verdict.json"
 WORKTIME = True   # 友人の作業の時刻(届いた arrivedAt・初めて再生した openedAt)を判断の記録に足す(新機能 D・10-23。False = 足さない)。何を見たかの細かい操作は残さない
 TRASH_NAME = trashbin.TRASH_DIR
@@ -621,7 +621,7 @@ class Inbox:
                     r["packs"].append({"name": name, "dir": None, "title": str(it.get("title") or pack_title(name)),
                                        "seconds": it.get("seconds") if it.get("seconds") is not None else info.get("seconds"),
                                        "verdict": None, "at": None, "by": None, "want": None, "error": "", "arrivedAt": now,
-                                       "info": {k: info[k] for k in ("videoId", "markId", "streamTitle", "streamer", "headline", "headlineWhy", "overlapNote") if info.get(k)},
+                                       "info": {k: info[k] for k in ("videoId", "markId", "streamTitle", "streamer", "overlapNote") if info.get(k)},
                                        "remote": {k: it.get(k) for k in ("zip", "size", "rev", "hash", "meta")}})
                     self._number(r, r["packs"][-1])
                     got.append(name)
@@ -851,12 +851,13 @@ class Inbox:
         return True
 
     def keep_dest(self, r, p):
-        """受け取った物の置き場所(C-3-8)-> (<保存先>\\<配信の日付>_<配信者名>_<配信タイトル 40 文字>, "#番号")"""
+        """受け取った物の置き場所(C-3-8)-> (<保存先>, "<配信の日付>_<配信者名>_<配信タイトル 40 文字>_#番号")。
+        保存先の直下に 1 本ずつ平らに並べる(10-24 ユーザー「同じ配信を 1 つのフォルダにまとめる機能はいらない」。0.99.169 までは
+        <保存先>\\<日付>_<配信者>_<題>\\#番号 = 前に受け取った物はその場所のまま savedTo で読む)。同じ名前は呼ぶ側の unique_dest がずらす"""
         info = self.stream_of(r, p)
         day = datetime.datetime.fromtimestamp((info["startAt"] or p.get("arrivedAt") or r["createdAt"]) / 1000.0).strftime("%Y-%m-%d")
-        parts = [day] + [x for x in (info["streamer"], info["title"][:TITLE_CUT]) if x]
-        folder = BAD_NAME.sub("_", "_".join(parts)).strip(" .") or day
-        return os.path.join(self.save_dir(), folder), "#%d" % (p.get("num") or 0)
+        parts = [day] + [x for x in (info["streamer"], info["title"][:TITLE_CUT]) if x] + ["#%d" % (p.get("num") or 0)]
+        return self.save_dir(), BAD_NAME.sub("_", "_".join(parts)).strip(" .") or day
 
     def saved_dir(self, rid, name):
         """受け取った物のフォルダ(手元にあれば)か None([フォルダを開く])"""
@@ -866,7 +867,7 @@ class Inbox:
             return d if d and os.path.isdir(fsio.long_path(d)) else None
 
     def keep_place(self, rid, name):
-        """Dropbox のパックを受け取る置き場所(同期が使う)-> (配信のフォルダ, "#番号") か None"""
+        """Dropbox のパックを受け取る置き場所(同期が使う)-> (保存先, "<日付>_<配信者>_<題>_#番号") か None"""
         with self.lock:
             r, p = self._pack(rid, name)
             return self.keep_dest(r, p) if p is not None else None
@@ -1099,7 +1100,6 @@ class Inbox:
                 "preview": bool(p.get("preview")), "remote": bool(p.get("remote")), "want": p.get("want"), "error": p.get("error") or "",
                 "verdict": p["verdict"], "reason": p.get("reason"), "at": p.get("at"), "arrivedAt": p.get("arrivedAt"),
                 "videoId": info["videoId"], "auto": r.get("origin") == "auto",
-                "headline": (p.get("info") or {}).get("headline") or "", "headlineWhy": (p.get("info") or {}).get("headlineWhy") or "",
                 "overlapNote": (p.get("info") or {}).get("overlapNote") or ""}
 
     def opened(self, rid, name):
@@ -1127,7 +1127,7 @@ class Inbox:
 def _local_info(p):
     """この PC で作ったパックの機械の見出し・かぶり(engine._pack_info)-> {"info": {...}} か {}(無い)"""
     info = p.get("info") if isinstance(p.get("info"), dict) else {}
-    keep = {k: str(info[k]) for k in ("headline", "headlineWhy", "overlapNote") if isinstance(info.get(k), str) and info[k]}
+    keep = {k: str(info[k]) for k in ("overlapNote",) if isinstance(info.get(k), str) and info[k]}
     return {"info": keep} if keep else {}
 
 

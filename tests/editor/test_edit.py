@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """「編集」ツールのサーバー側(notes:docs/design/edit-tool-design.md の 4・5・9)のテスト。
 
-    python -m unittest test_metrics test_resolve_export -q   # test_metrics がこのファイルのテストも読み込む
+    python -m unittest test_metrics -q   # test_metrics がこのファイルのテストも読み込む
     python -m unittest test_edit -q                          # これだけ
 
 編集の内容(<id>.edit.json)の検査・rev と 409・行の cutState の同期(どの書き込みでも編集の内容から決まる)・パックの記録と「作り直し」、
@@ -240,9 +240,8 @@ class TestEditStore(StoreDir):
         """4-3: パックを作ったときの出力の設定(output)。決まった鍵だけ・型と長さを確かめる。壊れていれば output なしで記録する(エラーにしない)"""
         _store.save_edit(TID, {"edit": edit_obj(), "baseRev": 0})
         out = os.path.join(self.tmp, "clip_pack")
-        full = {"fps": "30", "size": "1080x1920", "wrap": 8, "textplus": True, "render": False, "speakerColors": True,
-                "streamer": "さくらみこ", "loudness": -14, "volume": 100,
-                "advanced": {"srcStartTc": "01:00:00:00", "recStart": "01:00:00:00", "reel": "A001"}}
+        full = {"fps": "30", "size": "1080x1920", "wrap": 8, "textplus": True, "speakerColors": True,
+                "streamer": "さくらみこ", "loudness": -14, "volume": 100}
 
         def rec(output, **kw):
             body = {"id": TID, "rev": 1, "docUpdatedAt": 1000, "dir": out}
@@ -253,24 +252,22 @@ class TestEditStore(StoreDir):
             return _store.get_edit(TID)["edit"]["pack"]
         KEEP_OFF = object()
         self.assertEqual(rec(full).get("output"), full)                                     # 全部の鍵が入る
-        p = rec(dict(full, junk=1, advanced=dict(full["advanced"], other="x")))
+        p = rec(dict(full, junk=1))
         self.assertEqual(p["output"], full)                                                 # 余計な鍵は黙って捨てる(全体は捨てない)
-        for old in (True, False, "yes"):                                                    # 古い画面の backup(予備。今は持たない)も黙って捨てる
-            self.assertEqual(rec(dict(full, backup=old))["output"], full)
-        mini = {"fps": "60", "size": "1920x1080", "wrap": 0, "textplus": False, "render": True, "speakerColors": False}
-        self.assertEqual(rec(mini)["output"], mini)                                         # 任意の鍵(streamer・loudness・volume・advanced)は無くてよい
-        self.assertEqual(rec(dict(mini, loudness=0, volume=200, streamer="", advanced={}))["output"],
-                         dict(mini, loudness=0, volume=200, streamer="", advanced={}))
+        for old in (True, False, "yes"):   # 古い画面の backup(予備)・render(粗編集の動画)・advanced(開始タイムコード・リール名)も黙って捨てる(今は持たない)
+            self.assertEqual(rec(dict(full, backup=old, render=old, advanced={"reel": old}))["output"], full)
+        mini = {"fps": "60", "size": "1920x1080", "wrap": 0, "textplus": False, "speakerColors": False}
+        self.assertEqual(rec(mini)["output"], mini)                                         # 任意の鍵(streamer・loudness・volume)は無くてよい
+        self.assertEqual(rec(dict(mini, loudness=0, volume=200, streamer=""))["output"],
+                         dict(mini, loudness=0, volume=200, streamer=""))
         # output が無い・壊れている → 記録はできて output は入らない
         self.assertNotIn("output", rec(KEEP_OFF))                                           # 古い画面・まとめて実行(app/autorun.py)
         self.assertEqual(_store.get_edit(TID)["packStale"], False)
         for bad in (None, "x", [], 3, dict(full, fps=30), dict(full, fps="1000"), dict(full, fps="3a"), dict(full, fps="3\n"), dict(full, size="abc"),
                     dict(full, size="1080x1080"), dict(full, wrap=41), dict(full, wrap=-1), dict(full, wrap="8"), dict(full, wrap=True), dict(full, wrap=8.5),
-                    dict(full, textplus=None), dict(full, render=0), dict(full, speakerColors="true"),
+                    dict(full, textplus=None), dict(full, speakerColors="true"),
                     dict(full, streamer="あ" * 201), dict(full, streamer=5), dict(full, streamer="a\nb"), dict(full, loudness=-20), dict(full, loudness="-14"),
                     dict(full, loudness=True), dict(full, volume=500), dict(full, volume=0), dict(full, volume=True), dict(full, volume=100.5),
-                    dict(full, advanced="x"), dict(full, advanced={"reel": "a\nb"}), dict(full, advanced={"reel": "x" * 41}),
-                    dict(full, advanced={"srcStartTc": 5}), dict(full, advanced={"recStart": "a\x00"}),
                     {k: v for k, v in full.items() if k != "fps"}):
             self.assertNotIn("output", rec(bad), bad)
         self.assertEqual(rec(dict(full, streamer="あ" * 200))["output"]["streamer"], "あ" * 200)   # 上限ちょうどは通る
@@ -545,10 +542,8 @@ class TestEditHttp(unittest.TestCase):
         r = resolve_export.edit_draft(doc, "t", heavy=busy)
         self.assertEqual((r["keepsSec"], len(asked)), ([[0.4, 1.5]], 2))              # 調べた無音は覚えている(順番を待たない)
 
-    def test_pack_preview_readme_zip_and_cut_plan(self):
-        """3 パック のタブの見積もり(ファイルを作らない)・前回のパックの手順書・zip と「残す区間の保存」もカットのとおり"""
-        import io
-        import zipfile
+    def test_pack_preview_and_readme(self):
+        """3 パック のタブの見積もり(ファイルを作らない)・前回のパックの手順書"""
         video = os.path.join(self.media_dir, "パック.mkv")
         shutil.copy(self.video, video)
         tid = self.empty_doc(video)["id"]
@@ -558,24 +553,6 @@ class TestEditHttp(unittest.TestCase):
         clips = [(0.5, 1.5), (1.5, 1.8), (2.0, 2.2), (3.0, 5.1)]   # 2つめは1つめと接している(分割しただけ)・3つめは 0.2 秒
         self.assertEqual(self.call("PUT", "/api/edit?id=" + tid, {"baseRev": 0, "edit": edit_obj(clips=clips, duration=6.0)})["rev"], 1)
         keeps = [[a, b] for a, b in clips]
-        segs2 = [dict(g) for g in segs]
-        segs2[2]["text"] = "今日はいい天気ですね散歩に行こう"      # Text+ の改行(12 ②)を見るための長い字幕
-        segs2[2]["speaker"] = 0   # 文書の話者の名前 → 字幕の色(A-2。既定はオン)
-        d2 = self.call("GET", "/api/transcript?id=" + tid)
-        self.call("PUT", "/api/transcript?id=" + tid, {"title": d2["title"], "speakers": [{"id": 0, "name": "兎田ぺこら"}], "segments": segs2, "baseUpdatedAt": d2["updatedAt"]})
-        NL = chr(10)
-        from pipeline.pack import resolve_textplus
-
-        def zip_plan(extra=None):
-            st, hd, body = self.call("POST", "/api/resolve-package", dict({"tid": tid, "fps": "30", "size": "1080x1920"}, **(extra or {})), raw=True)
-            with zipfile.ZipFile(io.BytesIO(body)) as z:
-                return resolve_textplus.read_script_plan(z.read(next(n for n in z.namelist() if n.endswith("/create_resolve_textplus_project.lua"))).decode("utf-8"))
-        ipw = zip_plan()
-        long_cap = next(c for c in ipw["captions"] if c["text"] == "今日はいい天気ですね" + NL + "散歩に行こう")   # zip も設定の縦 8 で2段
-        self.assertTrue(long_cap.get("fill"), long_cap)   # 話者の色が字幕に入る
-        self.assertFalse(next(c for c in zip_plan({"speakerColors": False})["captions"] if c["text"] == long_cap["text"]).get("fill"))   # 切れば入らない
-        self.call("PUT", "/api/transcript?id=" + tid, {"title": d2["title"], "speakers": [], "segments": segs,
-                                                       "baseUpdatedAt": self.call("GET", "/api/transcript?id=" + tid)["updatedAt"]})
         r = self.call("POST", "/api/edit/preview", {"id": tid, "keeps": keeps})
         self.assertEqual((r["_status"], r["count"], r["captions"], r["fps"]), (200, 3, 3, [30, 1]))   # 接している区間は1つに数える
         self.assertAlmostEqual(r["keptSec"], 1.3 + 0.2 + 2.1, places=3)
@@ -584,18 +561,6 @@ class TestEditHttp(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(os.path.dirname(video), "作業用")))      # 作業用\ も作らない
         for bad in ([], [[1, 0.5]], [[0, 1], [0.5, 2]], "x", [[0, True]]):
             self.assertEqual(self.call("POST", "/api/edit/preview", {"id": tid, "keeps": bad}).get("error"), "bad_keeps", bad)
-        # zip もカットのとおり(3区間・30fps のフレーム)
-        st, hd, body = self.call("POST", "/api/resolve-package", {"tid": tid, "fps": "30", "size": "1080x1920"}, raw=True)
-        self.assertEqual((st, hd["X-Resolve-Cuts"]), (200, "3"))
-        with zipfile.ZipFile(io.BytesIO(body)) as z:
-            from pipeline.pack import resolve_textplus
-            ip =resolve_textplus.read_script_plan(z.read(next(n for n in z.namelist() if n.endswith("/create_resolve_textplus_project.lua"))).decode("utf-8"))
-        self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(15, 54), (60, 66), (90, 153)])
-        # 残す区間(.cut-plan.json)の保存もカットのとおり
-        r = self.call("POST", "/api/export-file", {"id": tid, "format": "cut-plan-v1"})
-        with open(r["path"], encoding="utf-8") as f:
-            plan = json.load(f)
-        self.assertEqual([(g["start"], g["end"]) for g in plan["segments"]], [(0.5, 1.8), (2.0, 2.2), (3.0, 5.1)])
         # 前回のパックの手順書: 記録したフォルダが cut2resolve のパック(パックを作った記録がある)のときだけ読む。
         # フォルダの中の cut-plan.json の形は読まない
         out = os.path.join(self.media_dir, "パック_pack")

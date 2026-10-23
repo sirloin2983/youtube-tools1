@@ -332,11 +332,8 @@ def _doc_path(tid):
 
 
 def _pack_notes(mark):
-    """パックの機械の見出し・区間のかぶり(run.pack_marks)-> 結果の束の pack の欄。届け先の無い実行(ユーザーの PC で確かめる)でも残す"""
+    """パックの区間のかぶり(run.pack_marks)-> 結果の束の pack の欄。届け先の無い実行(ユーザーの PC で確かめる)でも残す"""
     out = {}
-    h = mark.get("headline")
-    if isinstance(h, dict) and h.get("text"):
-        out.update({"headline": str(h["text"]), "headlineWhy": str(h.get("why") or ""), "headlineBy": str(h.get("by") or "")})
     if isinstance(mark.get("overlap"), str) and mark["overlap"]:
         out["overlapNote"] = mark["overlap"]
     return out

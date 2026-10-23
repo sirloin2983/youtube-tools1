@@ -14,13 +14,9 @@
   - 名前: `peaks_rate` :31・`compute_peaks` :52・`get_peaks` :121
 - **ed_state.py** (143 行) — 「編集」のサーバーの部品: 置き場所・設定の値・共通の小道具・記録(落ちたときの手がかり)・作業データの切り替え。
   - 名前: `atomic_write` :52・`runtime_path_dir` :76・`setup_logging` :81・`write_mark` :107・`check_previous_run` :116・`clear_mark` :127・`backend_name` :135
-- **ed_thumb.py** (90 行) — 「編集」のサムネの案(提案 P5 の S。notes:plan/thumb-ideas.md の 7・8)。作る本体は thumb_ideas.py(コマンドとしても使える独立の部品)。
-  - 名前: `thumb_paths` :25・`thumb_spec` :37・`run_thumb` :52・`thumb_info` :70・`thumb_image_path` :83
-- **serve.py** (752 行) — 文字起こしツール用のローカルサーバー(標準ライブラリ + faster-whisper)。
-  - 名前: `class Handler` :316・`probe` :544・`make_server` :550・`startup_checks` :572・`set_data_dir` :601・`studio_data_path` :612・`choose_data_dir` :620・`prepare` :632・`busy` :676・`finish` :681・`mounted_elsewhere` :695・`main` :704・ほか 1
-  - 受ける口: `/api/ping` :191・`/api/siblings` :192・`/api/roster` :193・`/api/tools` :194・`/api/voices` :195・`/api/voices/preview` :196・`/api/jobs` :197・`/api/transcripts` :198・`/api/suggest` :199・`/api/metrics` :200・`/api/drill/status` :201・`/api/drill/candidates` :202・`/api/history` :203・`/api/transcript` :204・`/api/eval-folders` :205・`/api/eval-batch` :206・`/api/edit` :207・`/api/edit/draft` :208・`/api/thumb-ideas` :209・`/api/edit/pack-readme` :210・`/api/doc-for` :211・`/api/mach-changes` :212・`/api/transcribe` :236・`/api/diarize` :237・`/api/voices/learn` :238・`/api/speakers/sub` :239・`/api/voices/delete` :240・`/api/rerun` :241・`/api/settings/patch` :243・`/api/restore` :244・`/api/suggest/feedback` :245・`/api/export-file` :246・`/api/relink/check` :247・`/api/relink` :248・`/api/eval-folders/organize` :249・`/api/eval-folders/settle` :250・`/api/eval-batch/start` :251・`/api/eval-batch/stop` :252・`/api/eval-batch/redo-one` :253・`/api/pick` :254・`/api/retime` :255・`/api/edit/pack` :256・`/api/edit/preview` :257・`/api/effort` :258・`/api/doc-diarnum` :259・`/api/mach-changes/pick` :260・`/api/drill/reviewed` :261・`/api/drill/unreviewed` :262・`/api/transcribe/cancel` :263・`/api/jobs/retry` :264・`/api/settings` :422・`/api/peaks` :424・`/api/thumb-ideas/image` :428・`/api/resolve-package` :461
-- **thumb_ideas.py** (234 行) — サムネの案を 6 つ並べた 1 枚を作る試作(提案 P5 の S = LLM なし。notes:plan/thumb-ideas.md)。完成品ではなく、サムネを作るときの参照。
-  - 名前: `lines_of` :45・`one_word` :63・`row_at` :69・`select_times` :79・`card_texts` :99・`find_doc` :115・`doc_rows` :140・`member_color` :149・`mmss` :163・`crops_for` :167・`make` :176・`main` :197
+- **serve.py** (701 行) — 文字起こしツール用のローカルサーバー(標準ライブラリ + faster-whisper)。
+  - 名前: `class Handler` :306・`probe` :493・`make_server` :499・`startup_checks` :521・`set_data_dir` :550・`studio_data_path` :561・`choose_data_dir` :569・`prepare` :581・`busy` :625・`finish` :630・`mounted_elsewhere` :644・`main` :653・ほか 1
+  - 受ける口: `/api/ping` :187・`/api/siblings` :188・`/api/roster` :189・`/api/tools` :190・`/api/voices` :191・`/api/voices/preview` :192・`/api/jobs` :193・`/api/transcripts` :194・`/api/suggest` :195・`/api/metrics` :196・`/api/drill/status` :197・`/api/drill/candidates` :198・`/api/history` :199・`/api/transcript` :200・`/api/eval-folders` :201・`/api/eval-batch` :202・`/api/edit` :203・`/api/edit/draft` :204・`/api/edit/pack-readme` :205・`/api/doc-for` :206・`/api/mach-changes` :207・`/api/transcribe` :227・`/api/diarize` :228・`/api/voices/learn` :229・`/api/speakers/sub` :230・`/api/voices/delete` :231・`/api/rerun` :232・`/api/settings/patch` :233・`/api/restore` :234・`/api/suggest/feedback` :235・`/api/export-file` :236・`/api/relink/check` :237・`/api/relink` :238・`/api/eval-folders/organize` :239・`/api/eval-folders/settle` :240・`/api/eval-batch/start` :241・`/api/eval-batch/stop` :242・`/api/eval-batch/redo-one` :243・`/api/pick` :244・`/api/retime` :245・`/api/edit/pack` :246・`/api/edit/preview` :247・`/api/effort` :248・`/api/doc-diarnum` :249・`/api/mach-changes/pick` :250・`/api/drill/reviewed` :251・`/api/drill/unreviewed` :252・`/api/transcribe/cancel` :253・`/api/jobs/retry` :254・`/api/settings` :406・`/api/peaks` :408
 
 ## src/studio/
 
@@ -41,7 +37,6 @@
 - tests/editor/test_backend.py — サーバー側のバグ直し・機能のテスト。
 - tests/editor/test_edit.py — 「編集」ツールのサーバー側(notes:docs/design/edit-tool-design.md の 4・5・9)のテスト。
 - tests/editor/test_settings_schema.py — 設定の画面のスキーマ(src/app/ui/settings/schema.json)の編集の分(store editor)が、ytt/settings の検査(SETTINGS_PATCH_KEYS・CUT_SILENCE_RANGE)と
-- tests/editor/test_thumb_job.py — サムネの案(ジョブ ed_thumb.py → thumb_ideas.py → ① thumb_cards)のテスト。
 - tests/studio/test_api.py — serve.py の HTTP 層のテスト(疑似モード・実サーバーを別スレッドで起動)。 実行: python3 test_api.py
 - tests/studio/test_board_s2.py — RS8 の ② の口 S2: スタジオの解析(an)・書き出し(ex)・配信の検索(se)が掲示板(flow/board.py)に載る。  py -3.12 -m unittest tests/studio/test_board_s2.py
 - tests/studio/test_file_recovery.py — 書き出しの途中の失敗(マークへの記録・名前を決める・使用中のファイル)。通しでは起こせないので ① を差し替えて起こす。実データやネットワークは使用しない。

@@ -21,8 +21,7 @@ from . import srt2resolve as S
 MEDIA_EXTS = {".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi", ".mxf", ".ts", ".mts", ".m2ts", ".flv", ".wmv"}
 # 指定を省いたときの値(正は pack.Request の既定と cut2resolve_core の DEFAULT_*。コマンドも同じものを読む)
 _REQ = {f.name: f.default for f in dataclasses.fields(pack.Request)}
-DEFAULTS = {"noise": _REQ["noise"], "silenceMin": _REQ["silence_min"], "silencePad": _REQ["silence_pad"], "minLen": _REQ["min_len"],
-            "recStart": _REQ["rec_start"], "reel": _REQ["reel"]}
+DEFAULTS = {"noise": _REQ["noise"], "silenceMin": _REQ["silence_min"], "silencePad": _REQ["silence_pad"], "minLen": _REQ["min_len"]}
 
 # ---------------------------------------------------------------- 入力のパス
 
@@ -191,14 +190,14 @@ def row_edge_from_spec(spec):
 
 
 def advanced_from_spec(spec):
-    """「詳しい設定」(fps・フレーム数・タイムコード・リール名・EDL のタイトル)-> pack.Request の引数"""
+    """「詳しい設定」(fps・フレーム数・EDL のタイトル)-> pack.Request の引数。
+    元の動画・タイムラインの開始タイムコードとリール名(srcStartTc・recStart・reel)は受けない(送っても黙って無視する。
+    EDL は動画に埋め込まれた開始タイムコード(無ければ 00:00:00:00)・C.DEFAULT_REC_START・C.DEFAULT_REEL の決まった値)"""
     adv = spec.get("advanced") if isinstance(spec.get("advanced"), dict) else {}
     frames = adv.get("frames")
     return {"fps": _str(adv.get("fps"), "フレームレート", 20) or None,
             "frames": None if frames in (None, "") else _num(frames, "フレーム数", 1, 10**9, integer=True),
-            "src_start_tc": _str(adv.get("srcStartTc"), "元動画の開始タイムコード", 20) or None,
-            "rec_start": _str(adv.get("recStart"), "タイムラインの開始タイムコード", 20) or DEFAULTS["recStart"],
-            "reel": _str(adv.get("reel"), "リール名", 40) or DEFAULTS["reel"], "name": _str(adv.get("name"), "EDL のタイトル", 200) or None}
+            "name": _str(adv.get("name"), "EDL のタイトル", 200) or None}
 
 
 def keeps_from_spec(v):
@@ -286,9 +285,9 @@ def apply_speaker_styles(plan, styles, color_map, shown):
 
 
 def output_from_spec(o, video):
-    """出力の指定(JSON)→ build_pack の引数のもと。fcpxml(補助の FCPXML)・crf(粗編集の画質)・
+    """出力の指定(JSON)→ build_pack の引数のもと。fcpxml(補助の FCPXML)・render と crf(粗編集の動画。10-24 に無くした)・
     backup(Text+ パックの予備 EDL・SRT。決定 3-34)は受けない
-    (送っても黙って無視する = 古い要求は断らない。FCPXML・予備は作らない・粗編集は既定の画質 C.DEFAULT_CRF)"""
+    (送っても黙って無視する = 古い要求は断らない。FCPXML・予備・粗編集の動画は作らない)"""
     o = o if isinstance(o, dict) else {}
     out = clean_path(o.get("dir"), "out")
     textplus = bool(o.get("textplus"))
@@ -312,7 +311,7 @@ def output_from_spec(o, video):
     except ValueError as e:
         raise ApiError("bad_tracks", str(e))
     return {"videoTracks": tracks, "textplusColor": {"hex": hex_, "who": who} if hex_ else None,
-            "dir": Path(out) if out else pack.default_out_dir(video), "render": bool(o.get("render")),
+            "dir": Path(out) if out else pack.default_out_dir(video),
             "copyVideo": copy_video,
             "textplus": textplus, "textplusTarget": target, "force": o.get("force") is True,
             # 話者の名前がメンバーと合えば、その話者の字幕をその色に(A-2。既定はオン。false で配信者の色 / 黒のまま)

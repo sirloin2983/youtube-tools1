@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Resolve パックの契約テスト(文字起こしの「Resolveパッケージ(zip)」と cut2resolve の Text+ パック)。zip とパックのタブは同じ部品(pack.py)で作る。
+"""Resolve パックの契約テスト(文字起こしの文書から cut2resolve の Text+ パックを作る経路。作るのは pack.py だけ。
+文字起こしの「Resolveパッケージ(zip)」は 10-24 に無くした)。
 
 このテストが守ること:
   A. 区間と字幕の計算 … 凍結した計算(下の LEGACY)と、今の文字起こしツールの経路(pack.plan_cut + pack.TRANSCRIPT_ROWS)で、残す区間・字幕・SRT が同じ。
      TRANSCRIPT_ROWS は行の端を声の止まる所まで広げる(pack.ROW_EDGE)ので、A は「広げない」(row_edge=None)で比べる。広げ方の契約は RowEdgeContract
-  B. 同じ入力から同じパック … 文字起こしツールの zip の中身と、cut2resolve で同じ文字起こしから作った Text+ パックが同じ
-     (Lua・雛形・登録用の bat/ps1・手順書・動画のすべてのファイル。どちらも行の端を広げる既定・画面の既定の最小限(④))。
-     textplus-import.json は出さない(中身は Lua に埋め込み済み。区間と字幕は resolve_textplus.read_script_plan で読む)
+  B. 文字起こしから作る Text+ パック … 画面の既定の最小限(④): Lua・雛形・登録用の bat/ps1・動画だけ。
+     textplus-import.json・cut-plan.json・EDL・SRT・手順書は出さない(区間と字幕は resolve_textplus.read_script_plan で Lua から読む)
 
-  B'. 重なる行のある文書 … zip とパックが同じ(Text+ の字幕の段分け・切った終わりも同じ)。重なりの無い文書は計画に段の項目が無い
-     (test_same_pack_with_overlapping_rows。重なりの無いパックの Lua の本体が段のコードの印を消した雛形と同じことは tests/pipeline/pack/test_pack.py の TestPackRun.test_textplus_run)
-
-  F. zip に渡らない設定 … 粗編集の動画・開始タイムコード・タイムラインの開始タイムコード・リール名は zip に渡らない(ZipSkipsContract。画面の説明の元。
-     渡すようにしたらこのテストが落ちる = pack-tab.js の zip の説明も直す合図)
+  B'. 重なる行のある文書 … Text+ の字幕の段分け・切った終わり。重なりの無い文書は計画に段の項目が無い
+     (test_pack_with_overlapping_rows。重なりの無いパックの Lua の本体が段のコードの印を消した雛形と同じことは tests/pipeline/pack/test_pack.py の TestPackRun.test_textplus_run)
 
 A の入力の範囲: 行は時刻順(開始が同じなら終わりの早い順)・動画の中に収まる・時刻は 0.02 秒刻み(faster-whisper の時刻の刻み。25fps を除く)・
 選んだ fps = 動画の fps。この範囲の外では、旧 resolve_export に不具合があり、一本化で直した(KnownFixes に固定。詳しくは notes:docs/design/resolve-pack-unification.md):
@@ -35,7 +32,6 @@ import subprocess
 import sys
 import tempfile
 import unittest
-import zipfile
 from fractions import Fraction
 from pathlib import Path
 
@@ -49,7 +45,6 @@ from pipeline.pack import resolve_textplus as TP  # noqa: E402
 from pipeline.pack import srt2resolve as S  # noqa: E402
 from pipeline.pack import resolve_export  # noqa: E402
 from human.proof import store as _store  # noqa: E402   (行の「カット済」を編集の内容から決める edit_cut_flags)
-from ytt import errors as _errors  # noqa: E402
 
 HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 FPS_RATE = {"24": "24", "25": "25", "29.97": "30000/1001", "30": "30", "50": "50", "59.94": "60000/1001", "60": "60"}
@@ -184,10 +179,10 @@ class ResolvePackContract(unittest.TestCase):
         tp.write_text(json.dumps(resolve_export.build_transcript_v1(doc, "contract"), ensure_ascii=False), encoding="utf-8")
         return tp
 
-    # ---- 今の文字起こしツールの経路(create_package と同じ: 文書 → transcript/v1 → pack.plan_cut(TRANSCRIPT_ROWS))
+    # ---- 今の文字起こしツールの経路(文書 → transcript/v1 → pack.plan_cut(TRANSCRIPT_ROWS))
 
     def current(self, doc, row_edge=None):
-        """row_edge=None: 行の端を広げない(A の LEGACY と比べる)。pack.ROW_EDGE: 今の既定(zip・まとめて実行・「行から」)"""
+        """row_edge=None: 行の端を広げない(A の LEGACY と比べる)。pack.ROW_EDGE: 今の既定(まとめて実行・「行から」)"""
         p = pack.plan_cut(pack.Request(video=Path(doc["sourcePath"]), transcript=self.write_v1(doc),
                                        **dict(pack.TRANSCRIPT_ROWS, row_edge=row_edge)), cache=self.cache)
         caps = [tuple(c) for c in (p.cues_out or [])]
@@ -201,26 +196,19 @@ class ResolvePackContract(unittest.TestCase):
         self.assertEqual(old[2], new[2], "SRT が変わった %s" % msg)
         return new
 
-    # ---- B: 文字起こしの zip と cut2resolve の Text+ パック
+    # ---- B: 文字起こしから作る cut2resolve の Text+ パック
 
-    def pack_files(self, doc, fps_text="30", size=None):
-        """-> (文字起こしの zip の中身 {名前: bytes}, cut2resolve のパックの中身 {名前: bytes})。日時を含む cut-plan.json は除く"""
-        zp, tmp_dir, _ = resolve_export.create_package(doc, fps_text, size)
-        self.addCleanup(shutil.rmtree, tmp_dir, True)
-        with zipfile.ZipFile(zp) as z:
-            a = {n.split("/", 1)[1]: z.read(n) for n in z.namelist() if not n.endswith("/")}
+    def pack_files(self, doc, fps_text="30", size=None, row_edge=pack.ROW_EDGE):
+        """cut2resolve の API(画面)と同じ作り方のパックの中身 {名前: bytes}(cut-plan.json・手順書(友人へ.txt)はフォルダに書かない)"""
         out = Path(tempfile.mkdtemp(dir=self.tmp)) / "pack"
-        plan = pack.plan_cut(pack.Request(video=Path(doc["sourcePath"]), transcript=self.write_v1(doc), **pack.TRANSCRIPT_ROWS))
-        # cut2resolve の API(画面)と同じ: cut-plan.json・手順書(友人へ.txt)はフォルダに書かない
+        plan = pack.plan_cut(pack.Request(video=Path(doc["sourcePath"]), transcript=self.write_v1(doc),
+                                          **dict(pack.TRANSCRIPT_ROWS, row_edge=row_edge)))
         res = pack.build_pack(plan, out, textplus=True, textplus_target=TP.parse_target(fps_text, size), plan_file=False, readme_file=False)
-        b = {p.relative_to(out).as_posix(): p.read_bytes() for _, p in res["files"]}
-        return a, b
+        return {p.relative_to(out).as_posix(): p.read_bytes() for _, p in res["files"]}
 
-    def assertSamePack(self, doc, fps_text="30", size=None):
-        a, b = self.pack_files(doc, fps_text, size)
-        self.assertEqual(sorted(a), sorted(b))
-        for name in sorted(a):
-            self.assertEqual(a[name], b[name], "%s が違う" % name)
+    def assertPack(self, doc, fps_text="30", size=None, row_edge=pack.ROW_EDGE):
+        """Text+ パックの中身の決まり(最小限)を確かめて、Lua に埋め込んだ計画を返す"""
+        a = self.pack_files(doc, fps_text, size, row_edge)
         self.assertNotIn("textplus-import.json", a)
         self.assertNotIn("cut-plan.json", a)
         self.assertFalse([n for n in a if n.endswith((".edl", ".srt", ".txt"))])   # 予備(EDL・SRT・予備の手順書)は入れない(決定 3-34)
@@ -300,56 +288,55 @@ class ResolvePackContract(unittest.TestCase):
 
     def test_nothing_to_keep_is_an_error(self):
         d = self.doc([seg(1, 1, 2, "a", cut=True), seg(2, 3, 4, " ")])
-        with self.assertRaises(_errors.ResolveExportError):
-            resolve_export.create_package(d)
         with self.assertRaises(pack.ToolError):
             self.current(d)
 
-    # ---- B: 文字起こしの zip = cut2resolve の Text+ パック
+    # ---- B: 文字起こしから作る Text+ パック
 
-    def test_same_pack_as_cut2resolve(self):
-        ip = self.assertSamePack(self.doc([seg(1, 0, 2, "残す"), seg(2, 2, 4, "切る", cut=True), seg(3, 4, 8, "もう一度")]))
+    def test_pack_from_transcript(self):
+        ip = self.assertPack(self.doc([seg(1, 0, 2, "残す"), seg(2, 2, 4, "切る", cut=True), seg(3, 4, 8, "もう一度")]))
         # 行の端を広げる(⑥): 契約の動画はずっと音(無音が無い)→ 後ろに決まった余白 0.2 秒(6 フレーム)。カット済の行(2〜4 秒)は越えない
         self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(0, 60), (120, 246)])
 
-    def test_zip_uses_transcribe_rules(self):
-        """zip の区間も TRANSCRIPT_ROWS(短い行を残す・1フレームの隙間はつなぐ・端を広げる)。文字起こし側が別の規則で pack を呼ぶと、ここで分かる"""
+    def test_pack_uses_transcribe_rules(self):
+        """パックの区間も TRANSCRIPT_ROWS(短い行を残す・1フレームの隙間はつなぐ・端を広げる)"""
         d = self.doc([seg(1, 1, 1.2, "短い"), seg(2, 3, 4, "a"), seg(3, 4.034, 5, "b"), seg(4, 6, 7, "c", cut=True)])
-        ip = self.assertSamePack(d)
+        ip = self.assertPack(d)
         cuts, caps, _ = self.current(d, pack.ROW_EDGE)
         self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], cuts)
         self.assertEqual([(c["startFrame"], c["endFrame"], c["text"]) for c in ip["captions"]], caps)
         self.assertEqual(cuts, [(27, 42), (87, 156)])   # 広げる前(LEGACY)は [(30, 36), (90, 150)]。無音が無い動画なので決まった余白(前 3・後 6)
         self.assertEqual(LEGACY.plan(d, "30")[0], [(30, 36), (90, 150)])
 
-    def test_same_pack_other_targets_and_rates(self):
+    def test_pack_other_targets_and_rates(self):
         rows = [seg(1, 0.52, 2.2, "a"), seg(2, 2.2, 3.4, "b", cut=True), seg(3, 3.4, 4.4, "c"), seg(4, 11, 13, "終わりをまたぐ")]
         for fps_text, target, size in (("29.97", "30", "1080x1920"), ("60", "30", None), ("24", "24", "1920x1080")):
             with self.subTest(fps=fps_text, target=target, size=size):
-                self.assertSamePack(self.doc(rows, fps_text), target, size)
+                ip = self.assertPack(self.doc(rows, fps_text), target, size)
+                self.assertEqual(ip["target"]["fps"], int(target))
 
-    def test_same_pack_with_overlapping_rows(self):
-        """重なる行(同時にしゃべっている所)のある文書(notes:plan/done/line-b-overlap.md の 6-2 の 4): 文字起こしの zip と
-        cut2resolve のパックが同じ(重なる字幕の段・切った字幕の終わりも同じ)。区間・字幕・SRT は段分けの前と同じ(A。SRT は重なったまま)。
+    def test_pack_with_overlapping_rows(self):
+        """重なる行(同時にしゃべっている所)のある文書(notes:plan/done/line-b-overlap.md の 6-2 の 4): Text+ パックの
+        重なる字幕の段・切った字幕の終わり。区間・字幕・SRT は段分けの前と同じ(A。SRT は重なったまま)。
         重なりの無い文書は、計画に段の項目が無い(Lua・手順書は今までと同じ。resolve_textplus の印を消しただけ)"""
         rows = [seg(1, 0.5, 2.5, "一"), seg(2, 1.0, 3.0, "二"), seg(3, 2.9, 4.0, "三"), seg(4, 3.9, 4.6, "四"), seg(5, 5, 6, "五")]
         d = self.doc(rows)
         self.assertUnchanged(d)                     # 残す区間・字幕・SRT(Text+ 以外)は変わらない
         for fps_text, size in (("30", None), ("60", "1920x1080")):
             with self.subTest(fps=fps_text, size=size):
-                ip = self.assertSamePack(self.doc(rows, fps_text), "30" if fps_text == "60" else fps_text, size)
+                ip = self.assertPack(self.doc(rows, fps_text), "30" if fps_text == "60" else fps_text, size)
                 caps = ip["captions"]
                 self.assertEqual(ip["captionLanes"], 2)
                 self.assertEqual([c["text"] for c in caps], ["一", "二", "三", "四", "五"])
                 self.assertEqual([c.get("trackUp") for c in caps], [None, 1, None, None, None])   # 二 は 一 に 1.5 秒重なる → 2 段目
                 self.assertEqual(caps[1]["dy"], TP.LANE_STEP_Y)
                 self.assertEqual(caps[2]["endFrame"], caps[3]["startFrame"])                       # 三 は 四 に 0.1 秒はみ出す → 切る
-                plain = self.assertSamePack(self.doc([seg(1, 0.5, 2.5, "一"), seg(2, 2.5, 3.0, "二")], fps_text),
+                plain = self.assertPack(self.doc([seg(1, 0.5, 2.5, "一"), seg(2, 2.5, 3.0, "二")], fps_text),
                                             "30" if fps_text == "60" else fps_text, size)   # 接するだけ(重ならない)
                 self.assertNotIn("captionLanes", plain)
                 self.assertFalse(any("trackUp" in c or "dy" in c for c in plain["captions"]))
 
-    def test_same_pack_with_studio_edit_media(self):
+    def test_pack_with_studio_edit_media(self):
         d = Path(self.tmp) / "studio"
         d.mkdir(exist_ok=True)
         clip, edit = d / "clip.mp4", d / "clip_edit.mp4"
@@ -360,84 +347,17 @@ class ResolvePackContract(unittest.TestCase):
         (d / "clip.edit.json").write_text(json.dumps({"schema": "clip-studio/edit-media/v1", "media": "clip_edit.mp4",
                                                       "selectionIn": 10, "handleBefore": 10, "handleAfter": 10}), encoding="utf-8")
         doc = self.doc([seg(1, 0, 2, "残す"), seg(2, 2, 4, "切る", cut=True), seg(3, 4, 8, "もう一度")], sourcePath=str(clip))
-        ip = self.assertSamePack(doc)
+        ip = self.assertPack(doc)
         # 凍結した計算の値は [(300, 360), (420, 540)]。終わりに決まった余白 6 フレーム(無音が無い動画)
         self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(300, 360), (420, 546)])
         self.assertEqual([c["startFrame"] for c in ip["captions"]], [0, 60])
         self.assertEqual(ip["media"]["file"], "clip_edit.mp4")      # 動画はパックの直下
 
-
-@unittest.skipUnless(HAVE_FFMPEG, "ffmpeg / ffprobe が無い")
-class ZipSkipsContract(unittest.TestCase):
-    """F. zip に渡らない出力の設定(ユーザー決定: zip の中身は変えず、画面に書く)。
-    zip(src/editor/resolve_export.create_package)は、粗編集の動画(render → _roughcut.mp4)・元の動画の開始タイムコード(advanced.srcStartTc)・
-    タイムラインの開始タイムコード(advanced.recStart)・リール名(advanced.reel)を受け取らない。パックのタブ(pack-tab.js の ZIP_SKIPS)がそれを画面に書く。
-    ここで「渡らない」ことを固定する: 将来 zip に渡すようにしてこのテストが落ちたら、画面の説明(pack-tab.js の zip の説明・注意、index.html)も直す合図。
-    なお、開始タイムコード・リール名が効くのは EDL だけ(Lua は元動画のフレーム番号で区間を持つので変わらない)。Text+ パックには EDL が無い
-    ので、Text+ パックでは zip とパックのタブで同じ中身"""
-    setUpClass = ResolvePackContract.__dict__["setUpClass"]
-    tearDownClass = ResolvePackContract.__dict__["tearDownClass"]
-    video, doc, write_v1 = ResolvePackContract.video, ResolvePackContract.doc, ResolvePackContract.write_v1
-
-    ROWS = [seg(1, 0, 2, "残す"), seg(2, 2, 4, "切る", cut=True), seg(3, 4, 8, "もう一度")]
-    ADVANCED = dict(src_start_tc="00:10:00:00", rec_start="02:00:00:00", reel="ZZ")   # api/build の advanced(srcStartTc・recStart・reel)と同じ Request の欄
-
-    def zip_files(self, doc, fps_text="30", **kw):
-        """今の zip の中身 {パックの中の名前: bytes}"""
-        zp, tmp_dir, _ = resolve_export.create_package(doc, fps_text, None, **kw)
-        self.addCleanup(shutil.rmtree, tmp_dir, True)
-        with zipfile.ZipFile(zp) as z:
-            return {n.split("/", 1)[1]: z.read(n) for n in z.namelist() if not n.endswith("/")}
-
-    def screen_pack_files(self, doc, render=False, fps_text="30", **request_kw):
-        """パックのタブ(api/build)と同じ作り方のパックの中身 {名前: bytes}(cut-plan.json・手順書は書かない。request_kw は Request の欄 = advanced)"""
-        out = Path(tempfile.mkdtemp(dir=self.tmp)) / "pack"
-        plan = pack.plan_cut(pack.Request(video=Path(doc["sourcePath"]), transcript=self.write_v1(doc),
-                                          **dict(pack.TRANSCRIPT_ROWS, **request_kw)))
-        res = pack.build_pack(plan, out, render=render, textplus=True, textplus_target=TP.parse_target(fps_text, None),
-                              plan_file=False, readme_file=False)
-        return {p.relative_to(out).as_posix(): p.read_bytes() for _, p in res["files"]}
-
-    def test_zip_has_no_render_or_advanced_parameters(self):
-        """create_package の引数に、粗編集・開始タイムコード・リール名が無い(zip はそれらを受け取れない)"""
-        import inspect
-        params = set(inspect.signature(resolve_export.create_package).parameters)
-        for name in ("render", "crf", "advanced", "src_start_tc", "srcStartTc", "rec_start", "recStart", "reel", "roughcut"):
-            self.assertNotIn(name, params, "%s を zip に渡すようになった。画面の説明(pack-tab.js の ZIP_SKIPS・index.html)も直す" % name)
-        with self.assertRaises(TypeError):
-            resolve_export.create_package(self.doc(self.ROWS), "30", None, reel="ZZ")
-
-    def test_zip_and_screen_pack_have_same_files_except_roughcut(self):
-        """zip とパックのタブのパックのファイルの名前・中身が同じ。違うのは粗編集の動画(_roughcut.mp4)だけ"""
-        doc = self.doc(self.ROWS)
-        a = self.zip_files(doc)
-        b = self.screen_pack_files(doc, render=True)
-        roughcut = {n for n in b if n.endswith("_roughcut.mp4")}
-        self.assertEqual(roughcut, {"v30_roughcut.mp4"})   # パックには出来る
-        self.assertEqual(sorted(set(b) - roughcut), sorted(a))
-        for name in a:
-            self.assertEqual(a[name], b[name], "%s が違う" % name)
-        self.assertFalse([n for n in a if n.endswith(".edl")])
-        self.assertEqual(a, self.screen_pack_files(doc, render=False))
-
-    def test_textplus_pack_has_no_edl_so_advanced_has_no_effect_anywhere(self):
-        """Text+ パックには EDL が無い。開始タイムコード・リール名だけを変えたパックも、zip とすべて同じ(効くのは Text+ でないパックの EDL だけ)"""
-        doc = self.doc(self.ROWS)
-        zipped = self.zip_files(doc)
-        changed = self.screen_pack_files(doc, **self.ADVANCED)
-        self.assertEqual(zipped, changed)
-        self.assertFalse([n for n in zipped if n.endswith(".edl")])
-
-    def test_zip_without_captions_makes_textplus_without_captions_and_pack_tab_makes_edl_only(self):
-        """字幕の無い文書(残す行が無い。カットは keeps で決めている): パックのタブは Text+ を作らず EDL だけのパック(textplus = hasRows)を作り、
-        zip(常に Text+)は字幕 0 本の Text+ パック(動画とカットだけ)を作る(10-23 まとめ役の決定「字幕が 0 本でもパックを作る」= 前は エラー)"""
+    def test_pack_without_captions_is_edl_only(self):
+        """字幕の無い文書(残す行が無い。カットは keeps で決めている): パックのタブは Text+ を作らず EDL だけのパック(textplus = hasRows)"""
         for name, rows in (("行が無い", []), ("残す行が無い", [seg(1, 0, 2, "a", cut=True), seg(2, 3, 4, " ")])):
             with self.subTest(doc=name):
                 doc = self.doc(rows)
-                zip_path, tmp, info = resolve_export.create_package(doc, "30", None, keeps=[(1.0, 3.0)])
-                self.addCleanup(shutil.rmtree, tmp, True)
-                self.assertEqual((info["captions"], os.path.isfile(zip_path)), (0, True))
-                # パックのタブ: 字幕なし(文字起こしは渡さない)→ Text+ でないパック。EDL(本体)ができる
                 out = Path(tempfile.mkdtemp(dir=self.tmp)) / "pack"
                 plan = pack.plan_cut(pack.Request(video=Path(doc["sourcePath"]), keep_pairs=[(1.0, 3.0)], **pack.EDIT_KEEPS))
                 res = pack.build_pack(plan, out, textplus=False, plan_file=False, readme_file=False)
@@ -562,10 +482,7 @@ class KnownFixes(ResolvePackContract):
         """60fps の動画で 30 を選ぶと、旧は 30fps でフレームを数えた(Resolve の元クリップは 60fps で数えるので、半分の位置になった)"""
         d = self.doc([seg(1, 2, 4, "a")], "60")
         self.assertEqual(LEGACY.plan(d, "30")[0], [(60, 120)])
-        zp, tmp_dir, _ = resolve_export.create_package(d, "30", row_edge=False)   # 行の端を広げない(fps の数え方だけを見る)
-        self.addCleanup(shutil.rmtree, tmp_dir, True)
-        with zipfile.ZipFile(zp) as z:
-            ip = TP.read_script_plan(z.read("契約_pack/create_resolve_textplus_project.lua").decode("utf-8"))
+        ip = self.assertPack(d, "30", row_edge=None)   # 行の端を広げない(fps の数え方だけを見る)
         self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], [(120, 240)])
         self.assertEqual((ip["fps"], ip["target"]["fps"]), ("60/1", 30))   # 計画の fps は動画の fps・置き先は選んだ fps
 
@@ -693,11 +610,9 @@ class RowEdgeContract(unittest.TestCase):
     def test_rowedge_false_is_legacy(self):
         d = {"title": "契約", "sourcePath": self.gappy("30"), "whole": True, "duration": VIDEO_SEC,
              "segments": [seg(1, 0.2, 0.5, "a"), seg(2, 1.5, 1.9, "b"), seg(3, 2.0, 2.3, "c", cut=True)]}
-        zp, tmp_dir, _ = resolve_export.create_package(d, "30", row_edge=False)
-        self.addCleanup(shutil.rmtree, tmp_dir, True)
-        with zipfile.ZipFile(zp) as z:
-            ip = TP.read_script_plan(z.read("契約_pack/create_resolve_textplus_project.lua").decode("utf-8"))
-        self.assertEqual([(c["sourceStartFrame"], c["sourceEndFrame"]) for c in ip["cuts"]], LEGACY.plan(d, "30")[0])
+        plan = pack.plan_cut(pack.Request(video=Path(d["sourcePath"]), transcript=self.write_v1(d),
+                                          **dict(pack.TRANSCRIPT_ROWS, row_edge=pack.row_edge_from(False))), cache=self.cache)   # 設定の rowEdge false
+        self.assertEqual([tuple(k) for k in plan.keeps], LEGACY.plan(d, "30")[0])
 
 
 class RoundingRule(unittest.TestCase):

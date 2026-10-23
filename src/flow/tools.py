@@ -428,7 +428,7 @@ class LocalTools:
             return 400, {"error": "bad_value", "message": str(e)}
         out_dir = out["dir"]
         if not out["force"]:
-            names = _pack.expected_paths(req, out_dir, bool(req.sub or req.transcript), render=out["render"], copy_video=out["copyVideo"],
+            names = _pack.expected_paths(req, out_dir, bool(req.sub or req.transcript), copy_video=out["copyVideo"],
                                          textplus=out["textplus"], plan_file=False, readme_file=False)
             existing = [p.name for p in names.values() if p.exists()]
             if existing:
@@ -472,7 +472,7 @@ def _build(req, out_dir, out):
     """① plan_cut → build_pack -> build_pack の結果(out_dir・files・warnings・plan・editMedia・videoCopy)"""
     plan = _pack.plan_cut(req)
     spk_map, _shown = _packreq.speaker_colors_for(plan, out)
-    res = _pack.build_pack(plan, out_dir, render=out["render"], copy_video=out["copyVideo"], textplus=out["textplus"], textplus_target=out["textplusTarget"],
+    res = _pack.build_pack(plan, out_dir, copy_video=out["copyVideo"], textplus=out["textplus"], textplus_target=out["textplusTarget"],
                            force=out["force"], plan_file=False, readme_file=False, textplus_wrap=out["textplusWrap"],
                            textplus_color=out["textplusColor"], speaker_colors=spk_map or None,
                            loudness=out["loudness"], volume=out["volume"], video_tracks=out["videoTracks"])

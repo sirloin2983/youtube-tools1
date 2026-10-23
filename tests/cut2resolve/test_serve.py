@@ -93,9 +93,8 @@ class TestGuards(ServerBase):
         self.assertEqual((st, j), (200, {"app": "cut2resolve", "version": serve.SERVER_VERSION}))
         # 指定を省いたときの値は pack.Request(コマンドと同じ)の既定と同じ
         r = serve.pack.Request(video=Path("x.mp4"))
-        self.assertEqual({k: serve.DEFAULTS[k] for k in ("noise", "silenceMin", "silencePad", "minLen", "recStart")},
-                         {"noise": r.noise, "silenceMin": r.silence_min, "silencePad": r.silence_pad, "minLen": r.min_len,
-                          "recStart": r.rec_start})
+        self.assertEqual({k: serve.DEFAULTS[k] for k in ("noise", "silenceMin", "silencePad", "minLen")},
+                         {"noise": r.noise, "silenceMin": r.silence_min, "silencePad": r.silence_pad, "minLen": r.min_len})
 
     def test_host_header_is_checked(self):
         st, _, body = self.c.req("GET", "/api/ping", headers={"Host": "evil.example:%d" % self.port})
@@ -402,37 +401,38 @@ class TestJobs(ServerBase):
             self.assertEqual((st, e["error"]), (400, "bad_keeps"), str(keeps)[:40])
         st, e = self.c.json("POST", "/api/plan", {"spec": dict(spec, preset="transcript-rows")})
         self.assertEqual((st, e["error"]), (400, "bad_value"))                 # どちらかを黙って使わない
-        req = serve.request_from_spec(dict(spec, advanced={"reel": "B1", "recStart": "00:00:00:00"}))
-        self.assertEqual((req.base, req.handles, req.min_len, req.join_frames, req.silence, req.drop_cut_rows, req.warn_short, req.reel, req.rec_start),
-                         ("list", 0.0, 0.0, 0, False, False, 0.5, "B1", "00:00:00:00"))
+        req = serve.request_from_spec(dict(spec, advanced={"reel": "B1", "recStart": "00:00:00:00", "srcStartTc": "x"}))   # 開始タイムコード・リール名は黙って無視(10-24)
+        self.assertEqual((req.base, req.handles, req.min_len, req.join_frames, req.silence, req.drop_cut_rows, req.warn_short),
+                         ("list", 0.0, 0.0, 0, False, False, 0.5))
+        self.assertFalse(any(hasattr(req, k) for k in ("reel", "rec_start", "src_start_tc")))
 
-    def test_build_overwrite_confirm_open_folder_and_roughcut(self):
+    def test_build_overwrite_confirm_open_folder(self):
         out = self.dir / "out1"
-        # fcpxml・crf は受けない(送っても無視する: FCPXML は作らない・範囲外の crf でも 400 にしない)
+        # fcpxml・render・crf は受けない(送っても無視する: FCPXML・粗編集の動画は作らない・範囲外の crf でも 400 にしない)
         body = {"spec": self.spec(), "output": {"dir": str(out), "render": True, "fcpxml": True, "crf": 99}}
         j = self.run_job("/api/build", body)
         self.assertEqual(j["state"], "done", j)
         r = j["result"]
         # cut-plan.json はフォルダに置かず、作業データの packs/ に記録する(④)
-        self.assertEqual([f["name"] for f in r["files"]], ["clip.edl", "clip_cut.srt", "clip_roughcut.mp4"])   # 手順書は書かない(画面で見る)
+        self.assertEqual([f["name"] for f in r["files"]], ["clip.edl", "clip_cut.srt"])   # 手順書は書かない(画面で見る)
         self.assertFalse((out / "cut-plan.json").exists())
         self.assertFalse((out / "友人へ.txt").exists())
         rec = json.loads((Path(packrec.packs_dir(c2r_dir=serve.CODE_DIR)) / packrec.record_name(out)).read_text(encoding="utf-8"))
         self.assertEqual((rec["schema"], os.path.normcase(rec["dir"])), ("youtube-tools-pack-record/v1", os.path.normcase(str(out))))
         self.assertIn("DaVinci Resolve", r["readme"])
-        self.assertGreater((out / "clip_roughcut.mp4").stat().st_size, 0)
         # 2回目: 上書きの確認
         st, j2 = self.c.json("POST", "/api/build", body)
         self.assertEqual((st, j2["error"]), (409, "exists"))
         self.assertIn("clip.edl", j2["files"])
-        self.assertIn("clip_roughcut.mp4", j2["files"])
+        self.assertNotIn("clip_roughcut.mp4", j2["files"])
+        (out / "clip_roughcut.mp4").write_bytes(b"old")   # 古いパックの粗編集の動画(今は作らない)
         before = (out / "clip.edl").stat().st_mtime_ns
         body["output"]["force"] = True
-        body["output"]["render"] = False
         j3 = self.run_job("/api/build", body)
         self.assertEqual(j3["state"], "done", j3)
         self.assertNotEqual((out / "clip.edl").stat().st_mtime_ns, before)
-        self.assertTrue(any("clip_roughcut.mp4" in w for w in j3["result"]["warnings"]))   # 前の粗編集が残っている注意
+        self.assertTrue(any("clip_roughcut.mp4" in w for w in j3["result"]["warnings"]))   # 前の粗編集が残っている注意(消さない)
+        self.assertTrue((out / "clip_roughcut.mp4").exists())
         # フォルダを開く(このサーバーが書いたフォルダだけ)
         st, j4 = self.c.json("POST", "/api/open-folder", {"path": str(out)})
         self.assertEqual(st, 200, j4)
@@ -550,8 +550,16 @@ class TestJobs(ServerBase):
     def test_cancel_and_busy(self):
         long_v = self.dir / "long.mp4"
         make_video(long_v, 20, size="960x540")
+        def slow_copy(video, out_dir, task=None, dst=None, final=None):   # 取り消すまで終わらない動画の写し(時間のかかる段の代わり)
+            while True:
+                task.report(0.5, None)
+                task.check()
+                time.sleep(0.02)
+        copy_patch = mock.patch.object(serve.pack.C, "copy_video", slow_copy)
+        copy_patch.start()
+        self.addCleanup(copy_patch.stop)
         st, j = self.c.json("POST", "/api/build", {"spec": {"video": str(long_v), "mode": "list", "listKind": "drop", "listText": ""},
-                                                   "output": {"dir": str(self.dir / "out_c"), "render": True}})
+                                                   "output": {"dir": str(self.dir / "out_c"), "copyVideo": True}})
         self.assertEqual(st, 200, j)
         job = j["job"]
         st, busy = self.c.json("POST", "/api/plan", {"spec": self.spec()})

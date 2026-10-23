@@ -226,10 +226,9 @@ class TestResult(_Tmp):
         run.cancel = True
         self.assertEqual(placement.result(run, run_mod.Cancelled())["state"], "cancelled")
         self.assertEqual(placement.result(run, KeyError("x"))["error"], "想定外の失敗(KeyError)")
-        # 機械の見出し・かぶりは届け先の無い実行でも束の pack の欄に残る(ユーザーの PC で確かめる)
+        # かぶりは届け先の無い実行でも束の pack の欄に残る(ユーザーの PC で確かめる)。古い記録の機械の見出し(10-24 に無くした)は出さない
         run.packs, run.pack_marks = ["P"], {"P": {"path": "c.mp4", "headline": {"text": "見出し", "why": "山", "by": "rule"}, "overlap": "かぶり"}}
-        self.assertEqual(placement.result(run)["outputs"]["pack"][0],
-                         {"path": "P", "key": None, "clip": "c.mp4", "headline": "見出し", "headlineWhy": "山", "headlineBy": "rule", "overlapNote": "かぶり"})
+        self.assertEqual(placement.result(run)["outputs"]["pack"][0], {"path": "P", "key": None, "clip": "c.mp4", "overlapNote": "かぶり"})
 
     def test_video_run_outputs_and_keys(self):
         out = os.path.join(self.tmp, "exports")

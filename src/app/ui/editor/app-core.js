@@ -76,11 +76,6 @@ function api(path, opt = {}){
   return UIKit.http(apiUrl(path), { method: opt.method, body: opt.body, keepalive: opt.keepalive, offline: NO_SERVER, fail: httpFailText });
 }
 
-/* ファイル(zip)を受け取る POST。失敗時は api() と同じ形のエラー。成功時は Response(ヘッダーと blob を使う) */
-function apiBlob(path, body){
-  return UIKit.http(apiUrl(path), { body, raw: true, offline: NO_SERVER, fail: httpFailText });
-}
-
 /* ---------- ボタンの処理の決まった形(同じ書き方を 1 か所に。保存できていなければ知らせて false) ---------- */
 /* 押している間はボタンを押せなくし(label があれば文字も)、終わったら(失敗しても)戻す。押せるかを計算し直す所は busy(...).finally(renderX) */
 async function busy(btn, fn, label){
