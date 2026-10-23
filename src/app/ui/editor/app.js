@@ -902,7 +902,7 @@ window.addEventListener('beforeunload', e => { if (S.dirty || S.saving){ e.preve
 const YT_PREFIX = 'https://www.youtube.com/';
 const CLIP_IC = '<span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></svg></span>';
 /* 開いた文書の「元の配信」と、「動画の隣に保存」の結果の表示 */
-S.handoff = null;   // { id, transcript, srt, plan }: 開いている文書を、動画の隣に保存したパス
+S.handoff = null;   // { id, transcript, srt }: 開いている文書を、動画の隣に保存したパス
 const HANDOFF_KEY = { 'transcript-v1': 'transcript', srt: 'srt' };
 const handoffRow = (h, k, l) => `<div><span class="hint">${l}:</span> <span class="path">${esc(h[k])}</span> <button type="button" class="btn ghost small" data-act="copy" data-k="${k}" title="このパスをコピー">コピー</button></div>`;
 document.querySelectorAll('[data-beside]').forEach(b => b.addEventListener('click', () => exportBeside(b.dataset.beside, b)));

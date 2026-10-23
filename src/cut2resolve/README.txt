@@ -19,7 +19,7 @@ cut2resolve(「編集」の部品・API。版は全体で 1 つ = ytt/version.py
     ② 残す区間(文字起こし・スタジオ)     2 カット のタブの「行から」「スタジオ」(スタジオの残す区間があるときだけ出る)
     ③ 時刻リスト                          2 カット のタブの「たたき台: 時刻リスト ▾」
     試算・カット後の見え方                 2 カット のタブのプレビュー(削った所を飛ばして再生)と、3 パック のタブの「これから作るパック」
-    書き出し(Text+ パック・粗編集の動画)   3 パック のタブ(置き先の fps・大きさ・粗編集の動画・タイムコード・リール名・出力先・上書きの確認・中止)
+    書き出し(Text+ パック)                 3 パック のタブ(置き先の fps・大きさ・出力先・上書きの確認・中止)
   たたき台は区間を決める出発点で、そのあとタイムラインで手で直せます。
   パックを作る部品(pack.py)は src/pipeline/pack/ にあります。パックを作るのは pack.py だけです。
   単独のコマンドはありません(パックを作る道は入口(API)だけ。auto_cut.py・srt2resolve.py は pack.py の部品)。
@@ -29,10 +29,12 @@ cut2resolve(「編集」の部品・API。版は全体で 1 つ = ytt/version.py
   - あるのは GET api/ping・api/siblings・api/job?id=(ジョブの状態)と、POST api/plan(試算。ジョブ)・api/build(パックを作る。ジョブ)・
     api/job/cancel・api/open-folder(パックのフォルダだけ)。書き込み系は合言葉(X-YTT-Token)が要る。呼ぶのは「編集」(2 カット・3 パック)と入口の「まとめて実行」
   - ない API(画面のためのもので、使う側が無い): api/state・api/inspect・api/upload・media/<合言葉>(動画の配信)と、
-    plan・build の結果の mediaUrl・roughcutUrl。ない API は 404 を返す
+    plan・build の結果の mediaUrl。ない API は 404 を返す
   - 受けない指定(画面のためのもので、送る側が無い): spec.silenceExtra(②③に無音を重ねる)・spec.handles(② の前後の余白)・
-    spec.joinGap(近い区間をつなぐ隙間)・output.fcpxml(補助の FCPXML)・output.crf(粗編集の画質)。送っても黙って無視する(知らない鍵と同じ。400 にしない)。
-    API では余白・つなぐ隙間は既定の 0、FCPXML は作らない、粗編集は既定の画質(crf 18)。変える道は無い。
+    spec.joinGap(近い区間をつなぐ隙間)・spec.advanced の srcStartTc・recStart・reel(開始タイムコード・リール名)・output.fcpxml(補助の FCPXML)・
+    output.render・output.crf(粗編集の動画。10-24 に無くした)。送っても黙って無視する(知らない鍵と同じ。400 にしない)。
+    API では余白・つなぐ隙間は既定の 0、FCPXML・粗編集の動画は作らない。EDL の開始タイムコードは動画に埋め込まれた値(無ければ 00:00:00:00)・
+    タイムラインの先頭 01:00:00:00・リール AX の決まった値。変える道は無い。
     spec.listKind "drop"(時刻リストを削る区間として読む)は、入口のまとめて実行の「カットしない」(listText 空 = 動画全体)が使うので受ける
   - spec.keeps: 残す区間を秒の組 [[開始, 終了], …] でそのまま渡す(「編集」のカット)。余白・最短・つなぎ・無音検出はしない(pack.EDIT_KEEPS)。
     preset と一緒には使えない。0.5 秒より短い区間は注意を出す。上限 5000 区間
@@ -82,7 +84,7 @@ cut2resolve(「編集」の部品・API。版は全体で 1 つ = ytt/version.py
     他のツールの重い処理の順番(ytt_core.jobs の SLOTS)を待つ(待っている間は「他のツールの処理が終わるのを待っています」。「取り消す」で止められる)。
     検出が要らない試算(時刻リスト・残す区間・検出結果が覚えてある試算)は待たない
   - 一時ファイルの付け替えのやり直し(srt2resolve の _replace_retry)は、ytt_core の fsio と同じ規則(Windows の一時的なロック winerror 5・32・33 だけ 0.1 → 0.2 → 0.4 秒で 4 回まで)
-  - 指定を省いたときの値(無音 -35 dB・0.6 秒・0.15 秒、画質 crf 18、開始タイムコード 01:00:00:00、リール AX)の正は cut2resolve_core の DEFAULT_* と pack.Request の 1 か所
+  - 指定を省いたときの値(無音 -35 dB・0.6 秒・0.15 秒、開始タイムコード 01:00:00:00、リール AX)の正は cut2resolve_core の DEFAULT_* と pack.Request の 1 か所
 
 ■ 音量をかけた写しも飛ばす(E-15)
   - 「編集」の既定(音量 30%)のように音量をかけて動画を写すとき(音量 %・音量をそろえる。cut2resolve_core.copy_video_gain)も、前と同じ条件なら
@@ -127,7 +129,7 @@ cut2resolve(「編集」の部品・API。版は全体で 1 つ = ytt/version.py
 ■ 動画の形式の注意
   - 動画の形式の注意(srt2resolve.codec_warnings。試算・パックの結果の warnings に出る)に、そのほかのコーデックの 10bit(pix_fmt が 10le / 10be で終わる・p010 で始まる)も出す
     (vp9 / av1 / H.265 / H.264 の 10bit・4:2:2・4:4:4 も出す)。ProRes・DNxHD/HR・CineForm などの編集用の形式は 10bit でも Resolve が読めるので出さない
-  - 可変フレームレート(VFR)の注意は試算(plan_cut の warnings)に入る。開始タイムコードの ; 表記の注意も出る(画面の欄の下にも出る = 編集側)
+  - 可変フレームレート(VFR)の注意は試算(plan_cut の warnings)に入る。動画に埋め込まれた開始タイムコードの ; 表記の注意も出る
 
 ■ ファイル名の注意は EDL を書くときだけ
   - 「動画のファイル名に日本語などが含まれています…」の注意(EDL がファイル名で元動画と結び付くための案内)は、EDL を書くときだけ出す
@@ -136,7 +138,7 @@ cut2resolve(「編集」の部品・API。版は全体で 1 つ = ytt/version.py
 
 ■ パックの音量(output.loudness・output.volume)
   - API の output.loudness(LUFS: -11 / -14 / -16 / -18。省略・0 = そろえない): カットで残す区間だけ測って、同梱の動画は音声だけ作り直す
-    (映像はそのまま)。粗編集の動画にも同じ量。結果の loudness = {target, measured, gainDb}。測り方・上げる量の決まりはスタジオの書き出しと同じ(ytt_core/loudness.py)
+    (映像はそのまま)。結果の loudness = {target, measured, gainDb}。測り方・上げる量の決まりはスタジオの書き出しと同じ(ytt_core/loudness.py)
   - API の output.volume(%。1〜200。元 = 100): loudness が無いときだけ、測らずにその量をかける。結果の loudness = {volume, gainDb}
 
 ■ 話者ごとの字幕の色
@@ -187,7 +189,7 @@ cut2resolve(「編集」の部品・API。版は全体で 1 つ = ytt/version.py
   - 入口の「案件」の画面が、切り抜きの隣の <名前>_pack フォルダを見て「パックを作ったか」を表示する(読むだけ)
 
 ■ 文字起こしツールの Resolve パッケージとの一本化
-  - 文字起こしツールの「Resolveパッケージ(zip)」は、このツールの Text+ パックを作る(pack.py が唯一の実装)。
+  - パックを作るのは pack.py だけ(文字起こしツールの「Resolveパッケージ(zip)」は 10-24 に無くした)。
     文字起こしの行を残すときの規則は pack.TRANSCRIPT_ROWS(行の時間だけ・短い行も残す・1フレームの隙間はつなぐ)。
     同じ入力から同じ中身になることは tests/dev/test_resolve_pack_contract.py が確かめる。詳しくは notes:docs/design/resolve-pack-unification.md
   - 切り抜きスタジオの前後の余白つき素材(.edit.json)を、動画を入れるパックで使う(上の「3. 書き出し」)

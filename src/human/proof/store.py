@@ -920,12 +920,6 @@ def edit_draft(tid, rows=False):
     return out
 
 
-def edit_keeps_sec(edit):
-    """編集の内容の残す区間(秒)。接している区間(分割しただけ)は1つにまとめる(パックと同じ)。
-    区間は sanitize_edit が 3 桁に丸めて時刻の順に並べてあるので、つなぎ方は _yschemas.union_spans(接していればつなぐ)と同じ"""
-    return _yschemas.union_spans((c["in"], c["out"]) for c in edit["clips"])
-
-
 def keeps_arg(v):
     """画面から来た残す区間 [[開始, 終了], ...](秒)の検査(① pipeline/pack/request.keeps_from_spec と同じ決まり)"""
     if not isinstance(v, list) or not 1 <= len(v) <= MAX_CLIPS:
@@ -1025,8 +1019,8 @@ def _pack_text(v, limit):
 _PACK_REQUIRED = (("fps", lambda v: isinstance(v, str) and re.fullmatch(r"\d{1,3}", v, re.A) is not None),
                   ("size", lambda v: v in ("1080x1920", "1920x1080")),
                   ("wrap", lambda v: _yschemas.int_in(v, 0, 40) is not None),
-                  *((k, lambda v: isinstance(v, bool)) for k in ("textplus", "render", "speakerColors")))
-# backup(Text+ パックの予備)は、古い画面が送っても余計な鍵として黙って捨てる
+                  *((k, lambda v: isinstance(v, bool)) for k in ("textplus", "speakerColors")))
+# backup(Text+ パックの予備)・render(粗編集の動画)・advanced(開始タイムコード・リール名)は、古い画面が送っても余計な鍵として黙って捨てる
 _PACK_OPTIONAL = (("streamer", lambda v: _pack_text(v, 200) is not None),
                   ("loudness", lambda v: _yschemas.is_num(v) and v in PACK_OUTPUT_LOUDNESS),
                   ("volume", lambda v: _yschemas.int_in(v, 1, 200) is not None))
@@ -1051,18 +1045,6 @@ def sanitize_pack_output(o):
             if not ok(o[k]):
                 return None
             out[k] = o[k]
-    if "advanced" in o:
-        adv = o["advanced"]
-        if not isinstance(adv, dict):
-            return None
-        a = {}
-        for k in ("srcStartTc", "recStart", "reel"):
-            if k in adv:
-                t = _pack_text(adv[k], 40)
-                if t is None:
-                    return None
-                a[k] = t
-        out["advanced"] = a
     if "speakerStyles" in o:   # 話者ごとの字幕の見た目 {話者の名前: {"color": "#RRGGBB"}}(文書の話者の sub)
         ss = o["speakerStyles"]
         styles = {}

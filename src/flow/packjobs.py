@@ -95,7 +95,7 @@ class PackJobs:
 
     @staticmethod
     def _slot(rec):
-        # パックの作成(粗編集・動画のコピー)と、無音の検出が要る試算(動画の音声を全部読む)は重いので、他のツールの重い処理と順番を待つ(ytt.jobs)
+        # パックの作成(動画のコピー)と、無音の検出が要る試算(動画の音声を全部読む)は重いので、他のツールの重い処理と順番を待つ(ytt.jobs)
         if rec["kind"] == "build":
             return "パックの作成"
         heavy = rec.get("heavy")

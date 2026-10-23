@@ -4,7 +4,7 @@
 
 - clip/v1 の検証・読み・原子的な書き込み・.runtime の中身は ytt(schemas・fsio・runtime)。ここは .clip.json が指す動画を探す・
   動画の隣への保存の名前の規則(上書き / 別名)だけを持つ
-- 受け渡しの JSON(transcript/v1・cut-plan/v1)と SRT の組み立ては flow/pack
+- 受け渡しの JSON(transcript/v1)と SRT の組み立ては flow/pack
 
 - .runtime の置き場所 runtime_path_dir は app(editor/ed_state.py)
 - 名前 handoff_io はスタジオの handoff(配信 → 編集の受け渡しの書き手)と重ねないため
@@ -26,7 +26,6 @@ MAX_OWN_FILE_BYTES = 64 * 1024 * 1024   # 「前にこのツールが書いた�
 EXPORT_FORMATS = {                      # 動画の隣に保存するときの名前の後ろ(拡張子を置き換える)
     "transcript-v1": ".transcript.json",
     "srt": ".srt",
-    "cut-plan-v1": ".cut-plan.json",
 }
 MAX_ALT_NAMES = 999
 
@@ -45,7 +44,7 @@ _beside_lock = threading.Lock()
 
 def written_by_us(path, schema):
     """path が、このツールが前に書いた schema のファイルか(schema が同じで、tool.name が transcribe-tool)。
-    cut-plan/v1 は他のツールも書ける形式なので、schema だけでなく書いたツールも確かめる(他のツールのファイルを上書きしない)。"""
+    schema だけでなく書いたツールも確かめる(同じ形式を他のツールが書いたファイルを上書きしない)。"""
     try:
         d = _fsio.read_json_file(path, MAX_OWN_FILE_BYTES)
     except (OSError, UnicodeError, ValueError):
@@ -96,13 +95,13 @@ def _pipeline_error(e):
 
 
 def export_file(req):
-    """POST /api/export-file {"id", "format": transcript-v1|srt|cut-plan-v1, "baseUpdatedAt"?, "wrap"?, "speakerNames"?}
+    """POST /api/export-file {"id", "format": transcript-v1|srt, "baseUpdatedAt"?, "wrap"?, "speakerNames"?}
     → 動画の隣に保存して {"path", "name", "overwritten", "format", "count"}。保存済みの内容を書き出す(画面は先に保存してから呼ぶ)。
     baseUpdatedAt を付けると、保存済みの版と違うとき 409(画面の表示と違う内容を書き出さないため)。"""
     tid = str(req.get("id") or "")
     fmt = req.get("format")
     if fmt not in EXPORT_FORMATS:
-        raise _errors.ApiError("bad_format", "format は transcript-v1 / srt / cut-plan-v1 のどれかにしてください", 400)
+        raise _errors.ApiError("bad_format", "format は transcript-v1 / srt のどちらかにしてください", 400)
     doc = _store.read_transcript(tid)
     b = req.get("baseUpdatedAt")
     if b is not None and doc.get("updatedAt") and b != doc.get("updatedAt"):
@@ -118,14 +117,6 @@ def export_file(req):
         schema = _schemas.TRANSCRIPT_SCHEMA
         if not count:
             raise _errors.ApiError("empty", "書き出す行がありません(文字のある行がありません)", 400)
-        data = (json.dumps(obj, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
-    elif fmt == "cut-plan-v1":
-        ed, _broken = _store.read_edit(tid)
-        # 「編集」のカットがあれば、残す区間はそのとおり(行の区間ではなく)
-        obj, count = _flowpack.handoff_files(doc, fmt, keeps=_store.edit_keeps_sec(ed) if ed else None)
-        schema = _schemas.CUT_PLAN_SCHEMA
-        if not count:
-            raise _errors.ApiError("empty", "残す区間がありません(すべての行が「カット済」か、文字のある行がありません)", 400)
         data = (json.dumps(obj, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
     else:
         try:

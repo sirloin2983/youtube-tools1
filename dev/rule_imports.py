@@ -408,7 +408,7 @@ def c_accuracy_areas():
     return out
 
 
-@check("C-13", "パックの既定(ノイズ・無音・先頭・リール・CRF)が cut2resolve_core の 1 か所・自動カットの SCHEMA が CUT_PLAN_SCHEMA と同じ",
+@check("C-13", "パックの既定(ノイズ・無音・先頭・リール)が cut2resolve_core の 1 か所・自動カットの SCHEMA が CUT_PLAN_SCHEMA と同じ",
        "tests/pipeline/pack/test_cut2resolve.py test_defaults_agree")
 def c_pack_defaults():
     import dataclasses
@@ -423,12 +423,11 @@ def c_pack_defaults():
     def eq(what, a, b):
         if a != b:
             out.append("%s: %r != %r" % (what, a, b))
-    eq("Request の既定", (req["noise"], req["silence_min"], req["silence_pad"], req["rec_start"], req["reel"]),
-       (C.DEFAULT_NOISE_DB, C.DEFAULT_SILENCE_MIN, C.DEFAULT_SILENCE_PAD, C.DEFAULT_REC_START, C.DEFAULT_REEL))
+    eq("Request の既定", (req["noise"], req["silence_min"], req["silence_pad"]),
+       (C.DEFAULT_NOISE_DB, C.DEFAULT_SILENCE_MIN, C.DEFAULT_SILENCE_PAD))
     eq("detect_silence の既定", [param(C.detect_silence, n) for n in ("noise_db", "min_sec", "pad_sec")], [C.DEFAULT_NOISE_DB, C.DEFAULT_SILENCE_MIN, C.DEFAULT_SILENCE_PAD])
-    eq("リール・先頭の既定", (param(C.build_edl, "reel"), param(C.build_edl, "rec_start"), param(C.write_pack, "args_reel"), param(C.write_pack, "rec_start"), param(C.check_timecodes, "rec_start")),
-       (C.DEFAULT_REEL, C.DEFAULT_REC_START, C.DEFAULT_REEL, C.DEFAULT_REC_START, C.DEFAULT_REC_START))
-    eq("CRF の既定", (param(C.render_rough_cut, "crf"), param(pack.build_pack, "crf")), (C.DEFAULT_CRF, C.DEFAULT_CRF))
+    eq("リール・先頭の既定", (param(C.build_edl, "reel"), param(C.build_edl, "rec_start"), param(C.build_readme, "rec_start")),
+       (C.DEFAULT_REEL, C.DEFAULT_REC_START, C.DEFAULT_REC_START))
     eq("_reel('')", C._reel(""), C.DEFAULT_REEL)
     eq("auto_cut.SCHEMA", AC.SCHEMA, C.CUT_PLAN_SCHEMA)
     return out

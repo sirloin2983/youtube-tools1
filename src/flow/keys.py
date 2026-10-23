@@ -290,8 +290,8 @@ def _pack_settings(o):
     who, hex_ = _colors.resolve(o.get("streamer") if isinstance(o.get("streamer"), str) else "")
     styles = o.get("speakerStyles") if isinstance(o.get("speakerStyles"), dict) else {}
     loud = _loud.check_target(o.get("loudness"))
-    return {"textplus": textplus, "copyVideo": _pack.normalize_outputs(o.get("copyVideo"), textplus), "render": bool(o.get("render")),
-            # backup は常に False で鍵の形に残す(決定 3-34): 外すと鍵の hash が変わり、作ったパックが全部「作り直し」に見える
+    return {"textplus": textplus, "copyVideo": _pack.normalize_outputs(o.get("copyVideo"), textplus), "render": False,
+            # render(粗編集の動画。10-24 に無くした)・backup は常に False で鍵の形に残す(決定 3-34): 外すと鍵の hash が変わり、作ったパックが全部「作り直し」に見える
             "backup": False, "target": [target["fps"], target["width"], target["height"]],
             "textplusWrap": None if o.get("textplusWrap") in (None, "") else int(o["textplusWrap"]), "color": hex_ or None, "who": who if hex_ else None,
             "speakerColors": o.get("speakerColors") is not False,

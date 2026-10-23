@@ -10,7 +10,7 @@ API(「編集」の cut.js・pack-tab.js・app-tools.js と、入口の「まと
   GET  /api/ping                 {"app": "cut2resolve", "version"}
   GET  /api/siblings             {"tools": {"studio": 8800, "transcribe": 8775, "cut2resolve": 8810}}(notes:docs/spec/pipeline.md の 4)
   POST /api/plan                 {spec} → ジョブ(試算。ファイルは作らない。無音の検出が要る試算は、build と同じく他のツールの重い処理と順番を待つ)。結果の warnings と同じ順番・同じ長さの warningLevels("warn"|"info")付き(問題5)
-  POST /api/build                {spec, output: {dir?, render, copyVideo, textplus, textplusFps?, textplusSize?, force}} → ジョブ。既存の出力があれば 409 exists。
+  POST /api/build                {spec, output: {dir?, copyVideo, textplus, textplusFps?, textplusSize?, force}} → ジョブ。既存の出力があれば 409 exists。
                                   パックは最小限(Text+ パックは動画・Lua・雛形・登録用の ps1/bat。EDL・SRT は入れない。backup は受けて黙って無視 = 決定 3-34)。
                                   cut-plan.json はフォルダに置かず、作業データの packs/ に「パックを作った記録」を残す(書くのは ② flow/packrec.after_build =
                                   入口なしの道(友人のアプリ)と同じ口。④ manage.cases.txindex が読む)
@@ -27,9 +27,9 @@ API(「編集」の cut.js・pack-tab.js・app-tools.js と、入口の「まと
   POST /api/job/cancel           {id}
   POST /api/open-folder          {path}(このサーバーがパックを書いたフォルダだけ)
 持たない API: /api/state・/api/inspect・/api/upload・/media/<token>
-(plan・build の結果に mediaUrl・roughcutUrl も無い)。これらは 404
-受けない指定: spec.silenceExtra・spec.handles・spec.joinGap・
-output.fcpxml・output.crf。送っても黙って無視する(知らない鍵と同じ)。補助の FCPXML・粗編集の画質・余白・つなぐ隙間は受けない
+(plan・build の結果に mediaUrl も無い)。これらは 404
+受けない指定: spec.silenceExtra・spec.handles・spec.joinGap・spec.advanced の srcStartTc・recStart・reel・
+output.fcpxml・output.render・output.crf。送っても黙って無視する(知らない鍵と同じ)。補助の FCPXML・粗編集の動画・開始タイムコードとリール名・余白・つなぐ隙間は受けない
 
 入口(start.bat)の統合サーバーに取り込まれたときは http://localhost:8700/cut2resolve/ で動く(app/mount.py。段階3-2)。
 そのときは prepare() / finish() が起動・終了の準備を行い、状態は MOUNT に持つ。書き込み系の API には合言葉(X-YTT-Token)が要る(mount.py が検査)
@@ -196,7 +196,7 @@ def open_folder(path):
 
 
 FILE_NOTES = {"edl": "カット(EDL)", "srt": "カット後の字幕", "readme": "EDL で開く手順", "plan": "カットの記録",
-              "roughcut": "粗編集の動画", "video": "元動画のコピー",
+              "video": "元動画のコピー",
               "textplus_script": "Resolve内で実行するLua Text+生成スクリプト",
               "textplus_install": "Luaスクリプト登録用PowerShell", "textplus_launcher": "Luaスクリプト登録バッチ",
               "textplus_readme": "友人向けの手順(Text+)"}
@@ -358,7 +358,7 @@ class Handler(httpsec.LocalHandler):
 
         def work(task):
             plan = pack.plan_cut(req, task=task, cache=app.cache)
-            out_dir, paths, existing = pack.planned_outputs(plan, out_opts["dir"], render=out_opts["render"], copy_video=out_opts["copyVideo"],
+            out_dir, paths, existing = pack.planned_outputs(plan, out_opts["dir"], copy_video=out_opts["copyVideo"],
                                                             textplus=out_opts["textplus"], plan_file=False, readme_file=False)
             res = with_warning_levels(pack.summary(plan))
             res["outputs"] = {"dir": str(out_dir), "files": [p.name for p in paths.values()], "existing": [p.name for p in existing]}
@@ -394,7 +394,7 @@ def start_build(app, o):
     if out["dir"].exists() and not out["dir"].is_dir():
         raise ApiError("bad_out", "出力先がフォルダではありません: %s" % out["dir"])
     if not out["force"]:   # 先に分かる範囲で上書きの確認(字幕の有無は入力から見積もる。最終的な確認はジョブの中でも行う)
-        names = pack.expected_paths(req, out["dir"], bool(req.sub or req.transcript), render=out["render"], copy_video=out["copyVideo"],
+        names = pack.expected_paths(req, out["dir"], bool(req.sub or req.transcript), copy_video=out["copyVideo"],
                                     textplus=out["textplus"], plan_file=False, readme_file=False)
         existing = [p for p in names.values() if p.exists()]
         if existing:
@@ -405,7 +405,7 @@ def start_build(app, o):
         # 字幕の文字の色の決まり方: 話者ごとの指定(speakerStyles)→ メンバーカラー(speakerColors が真)→ 配信者の色(textplusColor)→ 黒
         spk_map, spk_shown = speaker_colors_for(plan, out)
         prev = _packrec.read_record(str(out["dir"]), c2r_dir=CODE_DIR) or {}   # 前にこのフォルダへ作ったパックの記録(音量をかけた写しを比べる)
-        res = pack.build_pack(plan, out["dir"], render=out["render"], copy_video=out["copyVideo"],
+        res = pack.build_pack(plan, out["dir"], copy_video=out["copyVideo"],
                               textplus=out["textplus"], textplus_target=out["textplusTarget"],
                               force=out["force"], task=task, plan_file=False,
                               textplus_wrap=out["textplusWrap"], readme_file=False, textplus_color=out["textplusColor"],

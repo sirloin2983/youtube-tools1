@@ -122,14 +122,13 @@
         { "key": "replacements", "type": "textarea", "label": "置換辞書(1 行に「誤=>正」)", "default": "", "maxlength": 20000, "placeholder": "例:\nふぶき=>フブキ", "hint": "どの文字起こしにも使えます。|誤|=>正 と縦棒で挟むと、カタカナ・漢字・英数字の並びの途中には当てません。" }
       ] }
     ] },
-    { "id": "pack", "title": "パック(DaVinci Resolve へ渡す)・カット", "store": "editor", "hint": "パックを作るときの値。出力先・開始 TC・リール名・zip は作るたびに 2 カット の「これから作るパック」で。", "groups": [
+    { "id": "pack", "title": "パック(DaVinci Resolve へ渡す)・カット", "store": "editor", "hint": "パックを作るときの値。出力先は作るたびに 2 カット の「これから作るパック」で。", "groups": [
       { "id": "pack-out", "title": "置き先のプロジェクト(Resolve で作るもの)", "items": [
         { "key": "packSize", "type": "enum", "label": "画面の大きさ", "default": "1080x1920", "options": [["1080x1920", "縦 1080×1920(ショート)"], ["1920x1080", "横 1920×1080"]], "validated": true, "hint": "字幕の位置・大きさをこれに合わせます。縦に切り取る作業は Resolve で。" }
       ] },
       { "id": "pack-in", "title": "パックに入れるもの", "items": [
         { "key": "packLoudness", "type": "enum", "label": "音量のそろえ方(LUFS)", "default": 0, "options": [[0, "音量を % で決める(今までの動き)"], [-14, "-14 LUFS(YouTube と同じくらい)"], [-11, "-11(大きめ)"], [-16, "-16(少し小さめ)"], [-18, "-18(小さめ)"]], "validated": true, "hint": "カットで残す部分だけを測って、パックに入れる動画の音量をそろえます(映像はそのまま)。" },
         { "key": "packVolume", "type": "int", "label": "音量(元の音量 = 100)", "default": 30, "min": 1, "max": 200, "step": 5, "unit": "%", "validated": true, "when": { "key": "packLoudness", "eq": 0 } },
-        { "key": "packRender", "type": "bool", "label": "粗編集の動画(mp4)も作る", "default": false, "validated": true, "hint": "カットだけした確認用の動画。時間と容量がかかります。" },
         { "key": "speakerColors", "type": "bool", "label": "話者の名前がメンバーと合えば、その話者の字幕をその色にする", "default": true, "validated": true },
         { "key": "thumbCrop", "type": "enum", "label": "サムネの案の切り取り", "default": "alt", "options": [["alt", "中央と右下を交互"], ["center", "中央"], ["right", "右下"]], "validated": true }
       ] },

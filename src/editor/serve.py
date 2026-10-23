@@ -45,7 +45,7 @@
   GET  /api/doc-for?path=    その動画の文書 → {"doc": {"id", "rows"} | null}(?media= で開いたとき。パスを比べるだけ)
   GET  /api/peaks?id=        音の波形(0〜255 の1バイトの並び。X-Peaks-Rate・X-Peaks-Duration)。作っている間は 202
   受け渡し(notes:docs/spec/pipeline.md。読み・保存は manage/cases/handoff_io.py・.runtime は ytt/runtime.py・JSON と SRT の組み立ては flow/pack.py):
-  POST /api/export-file      {"id", "format": transcript-v1|srt|cut-plan-v1} 動画の隣に保存 → {"path", "name", "overwritten", "format", "count"}
+  POST /api/export-file      {"id", "format": transcript-v1|srt} 動画の隣に保存 → {"path", "name", "overwritten", "format", "count"}
   GET  /api/siblings         実行中の他のツールのポート {"tools": {"transcribe": 8775, ...}}
   評価ドリル(マスタープラン Q4。本体は eval/drill/drill.py。画面は編集の ?doc=<id>&drill=1):
   POST /api/drill/reviewed   {id, baseUpdatedAt, via?} 「全部聞いて直した」印 evalReviewed と残りの行の校正済み(updatedAt が違えば 409)
@@ -92,7 +92,6 @@ from ytt import version as _version  # noqa: E402
 from ytt import settings as _settings  # noqa: E402  (編集の設定の読み書きと鍵の検査・評価用のフォルダの判定)
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402  (置き場所と版の今の値・動画と音声の小道具)
 import ed_state, ed_media  # noqa: E402,F401  (分けた部品)
-from pipeline.pack import resolve_export  # noqa: E402  (Resolve パッケージ(zip)と受け渡しの JSON・SRT の組み立て)
 from ytt import errors as _errors  # noqa: E402
 import ed_thumb  # noqa: E402,F401  (サムネの案のジョブ。提案 P5)
 from eval.fake import fake_asr  # noqa: E402  (疑似の文字起こし。app だけが ④ を読んで差し込み口に登録する。RS2-2)
@@ -238,7 +237,7 @@ def _cancel(o):
     return {"ok": True}
 
 
-# POST の API: パス → 関数(o = 送られた JSON のオブジェクト)→ 応答の JSON(zip を返す /api/resolve-package は Handler の _resolve_package)
+# POST の API: パス → 関数(o = 送られた JSON のオブジェクト)→ 応答の JSON
 POST_API = {
     "/api/transcribe": lambda o: _job(_docjobs.validate_job(o)),
     "/api/diarize": lambda o: _job(_speakers.validate_diarize(o), "diarize"),
@@ -340,12 +339,6 @@ class Handler(httpsec.LocalHandler):
     def _send_path(self, path, ctype, extra=None):
         with open(path, "rb") as f:
             return self._send(200, f.read(), ctype, extra)
-
-    def _send_zip(self, path, name, extra):
-        """作った zip を添付で返す(ファイルを消すのは呼び出し側。見出しは httpsec.send_head)"""
-        httpsec.send_head(self, 200, "application/zip", os.path.getsize(path), dict({"Content-Disposition": 'attachment; filename="%s"' % name}, **extra))
-        with open(path, "rb") as f:
-            shutil.copyfileobj(f, self.wfile, 65536)
 
     def _err(self, e):
         self._json(e.status, dict(e.extra, error=e.code, message=e.message))
@@ -465,42 +458,9 @@ class Handler(httpsec.LocalHandler):
             fn = POST_API.get(path)
             if fn is not None:
                 return self._json(200, fn(obj))
-            if path == "/api/resolve-package":
-                return self._resolve_package(obj)
         except ed_state.ApiError as e:
             return self._err(e)
         self._fail(404, "not_found", "その操作はありません")
-
-    def _resolve_package(self, obj):
-        tid = str(obj.get("tid") or "")
-        if not ed_state.TID_RE.match(tid):
-            raise ed_state.ApiError("bad_request", "文字起こしの指定が正しくありません", 400)
-        tmp_dir = None
-        try:
-            try:   # 配信者の名前 → 字幕の文字の色(ytt/colors.py)
-                from ytt import colors as _colors
-                who, hex_ = _colors.resolve(obj.get("streamer") if isinstance(obj.get("streamer"), str) else "")
-            except ValueError as e:
-                raise ed_state.ApiError("bad_streamer", str(e), 400)
-            tdoc = _store.read_transcript(tid)
-            spk_map = _colors.speaker_colors(s.get("name") for s in tdoc.get("speakers") or [] if isinstance(s, dict))[0] \
-                if obj.get("speakerColors") is not False else {}   # A-2: 話者の名前ごとの字幕の色(既定はオン)
-            ed, _broken = _store.read_edit(tid)   # 「編集」のカットがあれば、そのとおりに(3 パック のタブのパックと同じ区間)
-            zp, tmp_dir, info = resolve_export.create_package(tdoc, str(obj.get("fps") or "30"), str(obj.get("size") or "") or None, _workdata.SERVER_VERSION,
-                                                              keeps=_store.edit_keeps_sec(ed) if ed and ed["clips"] else None,
-                                                              row_edge=_settings.load_settings().get("rowEdge"),   # backup(予備)は黙って無視(決定 3-34)
-                                                              wrap=_store.wrap_arg(obj.get("wrap"), obj.get("size")),
-                                                              color={"hex": hex_, "who": who} if hex_ else None, speaker_colors=spk_map)
-            self._send_zip(zp, "resolve-package.zip", {"X-Resolve-Cuts": str(info["cuts"]), "X-Resolve-Captions": str(info["captions"]),
-                                                        "X-Resolve-Handles": "1" if info["media"]["hasEditHandles"] else "0",
-                                                        "Access-Control-Expose-Headers": "X-Resolve-Cuts, X-Resolve-Captions, X-Resolve-Handles"})
-        except _errors.ResolveExportError as e:
-            raise ed_state.ApiError("resolve_export", str(e), 400)
-        except (BrokenPipeError, ConnectionError):
-            pass
-        finally:
-            if tmp_dir:
-                shutil.rmtree(tmp_dir, ignore_errors=True)
 
     def _put(self):
         if not self._guard(True):

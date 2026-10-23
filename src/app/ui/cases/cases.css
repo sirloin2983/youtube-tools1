@@ -174,7 +174,6 @@
 .tt-pack-h{margin:0 0 10px;font:650 16px/1.35 var(--font-display)}
 #edSetPack .tt-pk-row{margin:6px 0}
 #edSetPack .tt-pk-l{min-width:9em}
-#edSetPack .tt-pk-item{padding:8px 0}
 .tt-pk-off{margin:0 0 12px}
 .tt-pk-sumrow{display:flex;align-items:center;gap:7px;margin:0}   /* 前回の設定の要約 + 配信者の色の丸(段3。既定は色が無いので隠す) */
 .tt-pk-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
@@ -187,11 +186,6 @@
 .tt-pk-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:8px 0}
 .tt-pk-l{min-width:7em;color:var(--ink-2);font-size:13px}
 .tt-pk-p{margin:8px 0 0;line-height:1.6}
-.tt-pk-item{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}
-.tt-pk-item:first-of-type{border-top:0}
-.tt-pk-item b{display:block;font-weight:650}
-.tt-pk-item .hint{display:block;margin-top:2px;line-height:1.5}
-.tt-pk-item input{margin-top:3px}
 .tt-pk-more{margin-top:6px;border-top:1px solid var(--line);padding-top:8px}
 .tt-pk-more .fld{margin-top:10px}
 .tt-pk-more .fld>label,.tt-pk-more .fld>.l{display:block;font-size:12.5px;font-weight:550;color:var(--ink-2);margin-bottom:4px}
@@ -218,7 +212,6 @@
 .tt-pk-place{margin:6px 0 0;overflow-wrap:anywhere}
 .tt-pk-diff{margin:0 0 8px;font-size:13px;line-height:1.55;overflow-wrap:anywhere}
 .tt-pk-notes{margin:0 0 8px;padding-left:1.2em;font-size:12.5px;overflow-wrap:anywhere}   /* 作ったときの案内(cut2resolve の warningLevels が info のもの。段7) */
-.tt-pk-zipwarn{margin:6px 0 0;font-size:12.5px}
 .tt-pk-warn li{margin:2px 0;line-height:1.5}
 .tt-pk-go{margin-top:14px;gap:10px}
 .tt-pk-dir{margin:0 0 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

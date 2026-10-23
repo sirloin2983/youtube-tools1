@@ -1,37 +1,25 @@
-"""DaVinci Resolve への受け渡し(文字起こしツールの「Resolveパッケージ(zip)をダウンロード」)と、「残す行」の規則。
+"""文字起こしの文書から Resolve のパックへの受け渡し(カットのたたき台・パックの見積もり・手順)と、「残す行」の規則。
 
 パックの中身は pipeline/pack の pack.py で作る。
-zip の中身は cut2resolve の Text+ パックと同じ:
-  動画(パックの直下。スタジオの余白つき素材があればそれ)・Text+ を作る Lua と雛形・登録用の bat と ps1(最小限。④。手順書は画面で見る)。
-  EDL・SRT は入れない(予備は決定 3-34 で入れない)。cut-plan.json も入れない(zip はダウンロードなので記録も残さない)
 残す区間の決め方は pack.TRANSCRIPT_ROWS(行の時間・短い行も残す・1フレームの隙間はつなぐ・端を声の止まる所まで広げる)。
 端を広げるか(設定の rowEdge)は pack.row_edge_from で読む(規則はここに書かない)。
-同じ入力から同じ中身になることは tests/dev/test_resolve_pack_contract.py が確かめる。
 
 このファイルに持っているもの: 「残す行」の規則(is_kept / kept_spans)・SRT の書式・受け渡しの JSON の組み立て
-(transcript/v1・cut-plan/v1・SRT = build_*。パックが読む形を作る側がここなので、
+(transcript/v1・SRT = build_*。パックが読む形を作る側がここなので、
 manage/cases の handoff_io は .clip.json の動画と保存の名前だけで、pipeline → manage の向きの違反が無い)。
-パックの部品(同じフォルダの pack・resolve_textplus)は create_package などを呼んだときに初めて読み込む(文字起こしの他の機能はそれが無くても動く)。
+パックの部品(同じフォルダの pack・resolve_textplus)は edit_draft などを呼んだときに初めて読み込む(文字起こしの他の機能はそれが無くても動く)。
 """
 from __future__ import annotations
 
 import json
 import math
 import os
-import re
-import shutil
 import tempfile
-import zipfile
 from pathlib import Path
 
 from ytt import errors as _errors, runtime as _runtime, schemas as _schemas
 
 TOOL_NAME = _runtime.TOOL_APPS["transcribe"]   # 受け渡しの tool.name(互換のため値は変えない。manage/cases/handoff_io も同じ値を持つ)
-
-
-def _safe_name(value: str, fallback: str = "resolve-package") -> str:
-    value = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', "_", str(value or "")).strip(" ._")
-    return value[:80] or fallback
 
 
 def srt_time(seconds: float) -> str:
@@ -48,7 +36,7 @@ def srt_text(cues) -> str:
 
 def is_kept(seg: dict) -> bool:
     """この行を「残す」か。画面の「カット済」(cutState == "cut")の行と、文字が空の行は残さない。
-    cut-plan/v1(動画の隣に保存)がこの規則を使う。cut2resolve の row_is_kept も同じ規則(契約テストが確かめる)。"""
+    cut2resolve の row_is_kept も同じ規則(契約テストが確かめる)。"""
     return seg.get("cutState") != "cut" and bool(str(seg.get("text") or "").strip())
 
 
@@ -97,7 +85,7 @@ def sorted_segments(doc):
 
 
 def _media_of(doc):
-    """受け渡しの JSON の media(動画のパス・名前・長さ。transcript/v1 と cut-plan/v1 で同じ)"""
+    """受け渡しの JSON の media(動画のパス・名前・長さ。transcript/v1)"""
     return {"path": str(doc.get("sourcePath") or ""), "name": str(doc.get("sourceName") or os.path.basename(str(doc.get("sourcePath") or ""))),
             "durationSec": _schemas.num(doc.get("duration"))}
 
@@ -130,19 +118,6 @@ def build_transcript_v1(doc, version):
     return out
 
 
-def build_cut_plan_v1(doc, version):
-    """文書 → youtube-tools-cut-plan/v1。区間 = kept_spans(「カット済」でない・文字のある行を、重なる・接するものでまとめる)。
-    行と行の間のすき間は残さない(Resolve パッケージと同じ)。時刻は動画ファイルの先頭基準の秒(フレームへの変換は受け取る側)。"""
-    spans = kept_spans(sorted_segments(doc))
-    segs = []
-    for i, sp in enumerate(spans, 1):
-        label = "".join(str(g.get("text") or "").strip() for g in sp["segments"])
-        segs.append({"id": "segment-%03d" % i, "start": round(sp["start"], 3), "end": round(sp["end"], 3), "status": "adopted",
-                     "label": label[:40] + ("…" if len(label) > 40 else ""), "lines": [str(g.get("id") or "") for g in sp["segments"]]})
-    return {"schema": _schemas.CUT_PLAN_SCHEMA, "tool": tool_info(version), "createdAt": _schemas.iso_now(), "media": _media_of(doc),
-            "title": str(doc.get("title") or ""), "segments": segs}
-
-
 def wrap_text(text, n):
     """n 文字ごとに改行(画面の wrapText と同じ。文字はコードポイント単位で数える)。n=0 は折り返さない。"""
     if not n:
@@ -154,7 +129,7 @@ def build_srt(doc, wrap=0, speaker_names=False, base=0.0):
     """画面の SRT 書き出し(index.html の exportRows / buildExport)と同じ規則:
     文字が空の行は出さない・終わりが基準より前の行は出さない・開始は 0 未満にしない・話者名は「[名前] 」を頭に付ける。
     動画の隣に保存する SRT は、その動画の先頭を 0 秒にする(base=0。範囲指定の文書でも動画の時刻のまま)。
-    カット済の行も出す(字幕は動画全体に対するもの。カットは cut-plan と一緒に cut2resolve が適用する)。
+    カット済の行も出す(字幕は動画全体に対するもの。カットは受け取る側が当てる)。
     字幕に出さない行(noSub。ゲームの声など)は出さない。"""
     names = {s.get("id"): str(s.get("name") or "") for s in doc.get("speakers") or [] if isinstance(s, dict)}
     cues = []
@@ -235,7 +210,7 @@ def _rows_request(pack, source, tpath, row_edge, warnings):
 
 def edit_draft(doc: dict, version: str = "", rows: bool = True, row_edge=None, heavy=None) -> dict:
     """「編集」のカットのたたき台(開いたときの下書き・「行から」)と、動画の fps・長さ(notes:docs/design/edit-tool-design.md の 4)。
-    残す区間は pack.TRANSCRIPT_ROWS(今の「カットとパック」・zip・入口のまとめて実行と同じ規則。ここに規則を書かない)。
+    残す区間は pack.TRANSCRIPT_ROWS(今の「カットとパック」・入口のまとめて実行と同じ規則。ここに規則を書かない)。
     文字起こしの一時ファイルは一時フォルダに作る(開いただけで動画の隣にファイルを増やさない)。残す行が無ければ動画全体。
     rows=False: 「行から」を計算しない(カットが保存済みの文書を開いたとき。行の端の無音を調べる重い処理をしない)。
     row_edge: 設定の rowEdge(pack.row_edge_from)。heavy(label): 重い処理の順番を待つ文脈(ytt.jobs.SLOTS.slot。真なら取れた)。
@@ -315,63 +290,3 @@ def edit_preview(doc: dict, keeps, version: str = "", wrap=None) -> dict:
                 "sampleSpeakers": sample_speakers,
                 # 重なる字幕の段分けと字幕に出さない行(cut2resolve の pack.summary のまま渡す。古い cut2resolve なら 0)
                 **{k: int(sm.get(k) or 0) for k in ("captionLanes", "captionsStacked", "captionsTrimmed", "noSubRows")}}
-
-
-_SUB_COLOR_RE = re.compile(r"#?([0-9A-Fa-f]{6})")
-
-
-def speaker_sub_colors(doc: dict) -> dict:
-    """文書の話者の字幕の見た目(sub)のうち色がある人 -> {話者の名前: "#RRGGBB"}。
-    組み込みの話者「ゲーム音声など」(builtin)は字幕に出さないので除く。保存のときに human/proof/store.py の sanitize_transcript が検査済みだが、
-    Lua に入る値なのでここでも 16 進 6 桁だけを通す"""
-    out = {}
-    for s in (doc or {}).get("speakers") or []:
-        if not isinstance(s, dict) or s.get("builtin"):
-            continue
-        sub = s.get("sub") if isinstance(s.get("sub"), dict) else {}
-        m = _SUB_COLOR_RE.fullmatch(sub["color"].strip()) if isinstance(sub.get("color"), str) else None
-        name = str(s.get("name") or "").strip()
-        if m and name:
-            out[name] = "#" + m.group(1).upper()
-    return out
-
-
-def create_package(doc: dict, fps_text: str = "30", size_text: str | None = None, version: str = "", keeps=None,
-                   row_edge=None, wrap=None, color=None, speaker_colors=None) -> tuple[str, str, dict]:
-    """文字起こしの文書 → Resolve 用の Text+ パック(zip)。-> (zip のパス, 一時フォルダ, 情報)。一時フォルダは呼び出し側が消す。
-    fps_text・size_text: Text+ を置くプロジェクト(友人が手で作る)の fps・解像度。既定 30fps・1080x1920(縦)。
-    情報: {"cuts": 残す区間の数, "captions": 字幕の数, "media": {"file", "hasEditHandles"}, "warnings": [...]}
-    keeps: 「編集」のカット(残す区間の秒)。あればそのとおりに作る(3 パック のタブのパックと同じ区間)。無ければ文字起こしの行から
-    (row_edge: 設定の rowEdge。行の端を声の止まる所まで広げるか)。color: 字幕の文字の色 {"hex", "who"}(配信者の名前を入れたとき)。
-    speaker_colors: {話者の名前: "#RRGGBB"}(A-2。その話者の字幕だけその色。ytt/colors.speaker_colors で決める)。
-    文書の話者の字幕の色(sub.color。speaker_sub_colors)はこれより優先して足す(メンバーの色のスイッチを切っていても効く = 3 パック の speakerStyles と同じ)"""
-    speaker_colors = dict(speaker_colors or {}, **speaker_sub_colors(doc))
-    source, pack, tp = _source_and_pack(doc)
-    try:
-        target = tp.parse_target(fps_text, size_text)
-    except ValueError as e:
-        raise _errors.ResolveExportError(str(e))
-    tmp_dir = tempfile.mkdtemp(prefix="resolve-package-")
-    try:
-        tpath = _write_transcript(doc, version, tmp_dir)
-        folder = _safe_name(doc.get("title") or Path(source).stem) + "_pack"
-        out_dir = Path(tmp_dir) / folder
-        warns = []
-        try:
-            plan = pack.plan_cut(_edit_request(pack, source, tpath, keeps, row_edge, warns))
-            res = pack.build_pack(plan, out_dir, textplus=True, textplus_target=target, plan_file=False, textplus_wrap=wrap,
-                                  readme_file=False, textplus_color=color, speaker_colors=speaker_colors or None)
-        except pack.ToolError as e:
-            raise _errors.ResolveExportError(str(e))
-        zip_path = os.path.join(tmp_dir, _safe_name(doc.get("title")) + "-resolve.zip")
-        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as z:
-            for kind, p in res["files"]:   # zip を展開するとフォルダが1つできる(Text+ の登録は、そのフォルダの場所を覚える)
-                z.write(p, folder + "/" + p.relative_to(out_dir).as_posix())
-        media = dict(res["files"])["video"]
-        info = {"cuts": len(plan.keeps), "captions": len(plan.cues_out or []), "warnings": warns + res["warnings"],
-                "media": {"file": media.relative_to(out_dir).as_posix(), "hasEditHandles": bool(res["editMedia"])}}
-        shutil.rmtree(out_dir, ignore_errors=True)   # 動画のコピーを早めに消す(zip に入れた)
-        return zip_path, tmp_dir, info
-    except BaseException:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        raise

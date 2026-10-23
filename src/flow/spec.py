@@ -237,7 +237,7 @@ DEFAULTS = {
         "size": "1080x1920",
         "loudness": 0,        # パックの音量をそろえる目標(LUFS)。0 = そろえない(volume で決める)
         "volume": 30,         # loudness が 0 のときの音量(%)
-        "render": False, "speakerColors": True,
+        "speakerColors": True,
         "wrapChars": {"vertical": 8, "horizontal": 14},   # 字幕 1 段の文字数(src/human/proof/doc_jobs.py の SUBTITLE_DEFAULT)
         "rowEdge": True,      # 行から作るときの端の広げ方。True = 既定・False = 広げない・{on?, after?, before?}
         "snapEdges": True,    # 切り抜きの両端を話の切れ目へ詰める(LD-2c = src/pipeline/analyze/breaks.py。スイッチ。「編集」でカットを決めた文書には効かない)
@@ -300,8 +300,9 @@ def _merge_into(out, spec):
 
 
 RENAMED_KEYS = {"run": {"pinned": "requested"}}   # 改名した鍵(run.pinned → run.requested)。旧い名前は merge が今の名前に読み替える
-# 使わない項目(kotoba のときの redoLarge・autoRedo・パックの予備 pack.backup = 決定 3-34)。旧い束・待ちの記録・保存した要求にあれば黙って捨てる
-RETIRED_KEYS = {"post": ("redoLarge", "autoRedo"), "pack": ("backup",)}
+# 使わない項目(kotoba のときの redoLarge・autoRedo・パックの予備 pack.backup = 決定 3-34・粗編集の動画 pack.render = 10-24)。
+# 旧い束・待ちの記録・保存した要求にあれば黙って捨てる
+RETIRED_KEYS = {"post": ("redoLarge", "autoRedo"), "pack": ("backup", "render")}
 
 
 def read_legacy_tx(field, value):
@@ -460,7 +461,7 @@ SCHEMA = {
     "pack": {"size": (_one_of("1080x1920", "1920x1080"), "1080x1920 か 1920x1080"),
              "loudness": (_one_of(0, *_LUFS), "0 か %s のどれか" % "・".join(map(str, _LUFS))),
              "volume": (_int_in(1, 200), "1〜200 の整数(%)"),
-             "render": (_is_bool, "true か false"), "speakerColors": (_is_bool, "true か false"),
+             "speakerColors": (_is_bool, "true か false"),
              "wrapChars": (_dict_of(**_WRAP_ORIENT), "{vertical, horizontal}(どちらも 0〜40 の整数。0 = 改行しない)"),
              "rowEdge": (row_edge_ok, "true か false か {on?, after?, before?}(0〜2 秒)"),
              "snapEdges": (_is_bool, "true か false"),
@@ -584,14 +585,12 @@ def tx_opts(bundle):
 
 def pack_output(bundle):
     """パックの要求(cut2resolve の POST /api/build)の作り方 -> (行から作るときの端の広げ方 rowEdge, output に足す物, 無音で削る値 cutSilence)。
-    1 段の文字数は大きさの向きに合わせる。音量は loudness(LUFS)。0 なら ytt/loudness.PACK_LEVEL のとき既定の目標・違えば volume(% が 100 なら書かない)。粗編集の動画・映像トラックは既定と違うときだけ書く。
+    1 段の文字数は大きさの向きに合わせる。音量は loudness(LUFS)。0 なら ytt/loudness.PACK_LEVEL のとき既定の目標・違えば volume(% が 100 なら書かない)。映像トラックは既定と違うときだけ書く。
     fps は固定の 30(FIXED。素材は 30fps にそろえる)"""
     p = bundle["pack"]
     size = p["size"]
     out = {"textplusWrap": p["wrapChars"]["horizontal" if size == "1920x1080" else "vertical"], "textplusSize": size,
            "textplusFps": str(FIXED["fps"])}
-    if p["render"]:
-        out["render"] = True
     out["speakerColors"] = p["speakerColors"]
     loud = p["loudness"] or (_loud.DEFAULT if _loud.PACK_LEVEL else 0)   # そろえない(0)でも届ける動画は目標にそろえる(PACK_LEVEL。10-23)
     if loud:

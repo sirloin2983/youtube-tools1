@@ -128,7 +128,7 @@ def pack_result(target, i, g):
 
 
 def pack_aac():
-    """パックの届ける動画(写し・粗編集)の AAC のビットレート(PACK_TP_SAFE なら PACK_ABITRATE・違えば 192k)"""
+    """パックの届ける動画(写し)の AAC のビットレート(PACK_TP_SAFE なら PACK_ABITRATE・違えば 192k)"""
     return PACK_ABITRATE if PACK_TP_SAFE else "192k"
 
 

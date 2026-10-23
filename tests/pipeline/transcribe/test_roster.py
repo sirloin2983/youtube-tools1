@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """名簿の呼び名(pipeline/transcribe/roster.py)と同梱の名簿のテスト。
 
-    python -m unittest test_metrics test_resolve_export -q   # test_metrics がこのファイルのテストも読み込む
+    python -m unittest test_metrics -q   # test_metrics がこのファイルのテストも読み込む
     python -m unittest test_roster -q                        # これだけ
 
 小さな名簿の見本(壊れた行・普通の言葉と重なる呼び名・長音の呼び名・英字の名前)を読み、配信の名前・題名・話者から出る人を決める入口(build_context)に通してまとめて確かめる。

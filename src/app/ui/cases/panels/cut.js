@@ -62,7 +62,7 @@
      <p class="hint">語頭・語尾が切れないように、残す区間の端を無音の所まで広げます(字幕の時刻は変えません)。無音が見つからないときは 前 0.1 秒・<span id="cutEdgePad">後 0.2 秒</span>(後ろの余白は下の「パックの設定」で変えられます)。カット済の行は越えません</p>
      <div class="fld"><label for="cutEdgeAfter">終わりを広げる上限(秒)</label><input id="cutEdgeAfter" type="number" value="0.5" min="0" max="2" step="0.05"></div>
      <div class="fld"><label for="cutEdgeBefore">始まりを広げる上限(秒)</label><input id="cutEdgeBefore" type="number" value="0.3" min="0" max="2" step="0.05"></div>
-     <p class="hint">この設定は、zip と、まとめて実行で「行から」を選んだときにも使います(まとめて実行のカットの決め方はホームの設定)</p>
+     <p class="hint">この設定は、まとめて実行で「行から」を選んだときにも使います(まとめて実行のカットの決め方はホームの設定)</p>
      <div class="row" style="margin-top:8px"><button type="button" class="btn small primary" id="cutEdgeGo">この設定で「行から」のたたき台にする</button></div></div></details></span>
    <button type="button" class="btn small ghost" id="cutNone" title="カットせずに動画全体を残します(カット済の行の字幕も全部出ます)。「元に戻す」(Ctrl+Z)で戻せます">カットしない</button>
    <details class="pop" id="cutDraftSilence"><summary class="btn small ghost" title="しゃべっていない所(無音)を自動で削ります(cut2resolve で計算)">無音 <span class="ui-caret" aria-hidden="true"></span></summary><div class="vpop">
@@ -122,19 +122,9 @@
        <div class="row tt-pk-go"><button type="button" class="btn primary lg" id="pkBuild">パックを作る</button><span class="hint" id="pkBuildHint"></span></div>
        <div class="tt-cp-job" id="pkJob" hidden role="status" aria-live="polite"></div>
        <div class="notice err" id="pkErr" hidden role="alert"></div>
-       <details class="ui-disclosure tt-pk-more" id="pkMore"><summary>詳しく(出力先・タイムコード・zip)</summary>
+       <details class="ui-disclosure tt-pk-more" id="pkMore"><summary>詳しく(出力先)</summary>
          <div class="fld"><label for="pkDir">出力先のフォルダ</label><input id="pkDir" type="text" autocomplete="off" spellcheck="false" title="空欄なら、動画と同じフォルダの「動画名_pack」に作ります">
            <span class="hint">空欄なら動画の隣の「&lt;動画名&gt;_pack」。<b>出力先は覚えません</b>(文書を開くたびに空欄に戻ります。別の案件へ間違って出さないため)。前に作ったパックがあれば、作る前に上書きしてよいか聞きます。</span></div>
-         <div class="fld"><label for="pkSrcTc">元の動画の開始タイムコード</label><input id="pkSrcTc" type="text" placeholder="空欄なら動画から読む(ふつうは 00:00:00:00)" autocomplete="off" spellcheck="false"><span class="hint" id="pkSrcTcHint" hidden>ドロップフレーム表記(;)はノンドロップとして扱います</span></div>
-         <div class="fld"><label for="pkRecTc">タイムラインの開始タイムコード</label><input id="pkRecTc" type="text" placeholder="01:00:00:00" autocomplete="off" spellcheck="false"><span class="hint" id="pkRecTcHint" hidden>ドロップフレーム表記(;)はノンドロップとして扱います</span></div>
-         <div class="fld"><label for="pkReel">リール名(EDL)</label><input id="pkReel" type="text" placeholder="AX" maxlength="40" autocomplete="off" spellcheck="false"></div>
-         <div class="fld"><span class="l">zip でダウンロード(人に送るとき)</span>
-           <div class="row"><button type="button" class="btn small" id="pkZip">zip でダウンロード</button></div>
-           <span class="notice tt-pk-zipwarn" id="pkZipWarn" hidden></span>
-           <span class="hint"><span id="pkZipNote"></span>1つの zip にしてダウンロードします。ホームから開いていなくても使えます。</span></div>
-         <div class="fld"><span class="l">残す区間だけを作業用フォルダに保存</span>
-           <div class="row"><button type="button" class="btn small" data-beside="cut-plan-v1" title="残す区間を、動画のフォルダの「作業用」に「動画名.cut-plan.json」で保存します(cut2resolve でカットに使えます)">残す区間(.cut-plan.json)を保存</button></div>
-           <div class="tt-handoff" id="cpPlanOut" hidden role="status"></div></div>
        </details>
      </div>
      <section class="card tt-pk-card" id="edSetPack" aria-labelledby="edSetPackT">
@@ -149,12 +139,11 @@
          <select id="pkLoud" title="カットで残す部分だけを測って、パックに入れる動画の音量をそろえます(映像はそのまま)"><option value="-14">-14 LUFS(YouTube と同じくらい・おすすめ)</option><option value="-11">-11 LUFS(大きめ)</option><option value="-16">-16 LUFS(少し小さめ)</option><option value="-18">-18 LUFS(小さめ)</option><option value="0">音量を % で決める</option></select>
          <span id="pkVolBox" hidden><input id="pkVol" type="number" min="1" max="200" step="5" style="width:4.5em" aria-label="音量(%。元の音量 = 100)" title="元の音量を 100 としたときの大きさ(%)。小さくするなら 100 より下">%</span></div>
        <p class="hint tt-pk-p">LUFS = 聞こえ方の大きさ(数字が小さいほど小さい音)。カットで残す部分だけを測って、パックに入れる動画の音声をその大きさにそろえます。単位が分かりにくいときは「音量を % で決める」(元の音量 = 100%)。映像はそのまま・元の動画は書き換えません。</p>
-       <label class="tt-pk-item"><input type="checkbox" id="pkRender"><span><b>粗編集の動画(mp4)</b><span class="hint">カットだけした確認用の動画。時間と容量がかかります</span></span></label>
        <label class="lag tt-pk-spk" title="話者の名前がメンバーと1人に合えば、その話者の字幕だけ文字をその人の色にします。合わない話者は配信者の色(無ければ黒)のままです">
          <input type="checkbox" class="ui-switch" id="pkSpk" checked>話者の名前がメンバーと合えば、その話者の字幕をその色に</label>
        <div class="hint tt-pk-spklist" id="pkSpkList"></div>
        <div class="fld" style="margin-top:10px"><label for="pkPadAfter">行の後の余白(秒)</label><input id="pkPadAfter" type="number" min="0" max="2" step="0.05" value="0.2" style="width:5em" title="語尾が切れるときに延ばします。「行から」のたたき台で、行の終わりに無音が見つからないときの決まった余白(既定 0.2 秒)">
-         <span class="hint">語尾が切れるときに延ばします(既定 0.2 秒)。「行から」のたたき台・zip と、まとめて実行で「行から」を選んだときに効きます。前の余白 0.1 秒は変わりません</span>
+         <span class="hint">語尾が切れるときに延ばします(既定 0.2 秒)。「行から」のたたき台と、まとめて実行で「行から」を選んだときに効きます。前の余白 0.1 秒は変わりません</span>
          <span class="hint" id="pkPadAfterNote"></span></div>
      </section>
    </div>
@@ -226,7 +215,6 @@
       return ctx.api(tool, path, { method: o.method, body: o.body, keepalive: o.keepalive });
     }
     function apiUrl(path) { return new URL('transcribe' + path, location.href).href; }
-    function apiBlob(path, body) { return ctx.api('transcribe', path, { body: body, raw: true, timeout: 300000 }); }
     function c2rBase() { return c2rOk ? 'cut2resolve/' : ''; }
     function c2rApi(path, opt) {
       if (!c2rOk) { var e = new Error('cut2resolve を使えません(ホーム(start.bat)から開いてください)'); e.code = 'unavailable'; return Promise.reject(e); }
@@ -407,11 +395,6 @@
       catch (e) { if (e.status === 409) e.code = 'saving'; throw e; }
       return r.path;
     }
-    async function savedAll() {
-      if ((await saveDoc()) && !(CUT && !(await CUT.flush()))) return true;
-      toast('保存が追いついていません。少し待ってから、もう一度押してください', 5000, 'err');
-      return false;
-    }
     function onPacked() {
       if (ctx && ctx.reload) ctx.reload();   // 左の一覧の札(パック済み)を読み直す
     }
@@ -435,7 +418,7 @@
       return {
         root: root, S: S, $: q, esc: UIKit.esc, TOKEN: metaToken(),
         words: { tx: '校正のタブ', txName: '校正', cut: 'カットの欄', cutName: 'カット', conflict: 'カットの上の案内' },   // cut.js・pack-tab.js の案内文の「ほかの欄」の呼び名
-        fmtT: D.fmtT, fmtCs: D.fmtCs, toast: toast, api: hApi, apiUrl: apiUrl, apiBlob: apiBlob,
+        fmtT: D.fmtT, fmtCs: D.fmtCs, toast: toast, api: hApi, apiUrl: apiUrl,
         patchSettings: patchSettings, putSettings: putSettings, setKeybar: setKeybar,
         player: function () { return { currentTime: 0, readyState: 0 }; },   // 校正の欄の動画は無い(カットの動画は #cutPlayer)
         isTextEntry: function (t) { return UIKit.keys.isTyping(t); },
@@ -461,10 +444,9 @@
         capStack: function (segs, t, opt) { return D.capStack(segs, t, Object.assign({ speakers: S.doc ? S.doc.speakers : [] }, opt)); },   // 重なる行は上下に積む(校正の映像の上と同じ規則)
         paintCaps: function (box, idxs, segs) { D.paintCaps(box, idxs, segs, function (g) { return speakerColor(g.speaker).hex; }); },
         toTx: function () { location.hash = '#proof'; }, toPack: toPack, docConflictGo: reloadDoc,
-        download: D.download, safeName: D.safeName,
         ago: function (ms) { return UIKit.fmt.ago(ms); }, cpExport: cpExport,
         copyPath: function (text) { return UIKit.copy(text, { ok: 'パスをコピーしました', fail: 'コピーできませんでした(パスを選んでコピーしてください)' }); },
-        savedAll: savedAll, onPacked: onPacked, isOtherSp: D.isOtherSp, subColorOf: D.subColorOf
+        onPacked: onPacked, isOtherSp: D.isOtherSp, subColorOf: D.subColorOf
       };
     }
 

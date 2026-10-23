@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """話者の声を覚える(A-3)のサーバー側のテスト。
 
-    python -m unittest test_metrics test_resolve_export -q   # test_metrics がこのファイルのテストも読み込む
+    python -m unittest test_metrics -q   # test_metrics がこのファイルのテストも読み込む
     python -m unittest test_voices -q                        # これだけ
 
 声の特徴そのもの(sherpa-onnx)は使わず、embed_groups を差し替えて、行の選び方・覚え方(混ぜ方)・照らし合わせの決まり
