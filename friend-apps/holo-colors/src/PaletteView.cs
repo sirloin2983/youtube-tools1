@@ -54,6 +54,9 @@ namespace HoloColors
         float scale = 1f;
         readonly ToolTip tip = new ToolTip { InitialDelay = 600, ReshowDelay = 200 };
         Font nameFont, hexFont, headerFont, emptyFont, pillFont, countFont, wordFont;
+        // 描くたびに作らないよう使い回す色つきの筆(色が決まっているもの。MakeFonts で作り、DisposeFonts で捨てる)
+        Pen edgePen, edgeDragPen, bandLinePen, headerLinePen, dropPen;
+        Brush pillBrush, wordBrush, wordHoverBrush;
         // 選んでいる札の枠を出すか。検索の文字を打ったか、矢印キーを使ったときだけ(開いた直後に先頭だけ枠があると迷うため)
         public bool ShowSelection;
         ColorEntry flashEntry;   // 「コピーしました」を重ねて出している札(閉じない設定のとき)
@@ -105,12 +108,21 @@ namespace HoloColors
             pillFont = new Font(family, 7.5f, FontStyle.Bold);
             countFont = new Font(family, 9f);
             wordFont = new Font(family, 8.5f);
+            edgePen = new Pen(Color.FromArgb(45, 0, 0, 0), 1f);
+            edgeDragPen = new Pen(Color.FromArgb(90, 0, 0, 0), 1f);
+            bandLinePen = new Pen(Color.FromArgb(70, 255, 255, 255));
+            headerLinePen = new Pen(Color.FromArgb(222, 222, 230));
+            dropPen = new Pen(Color.FromArgb(40, 110, 230), S(3));
+            pillBrush = new SolidBrush(Color.FromArgb(228, 228, 236));
+            wordBrush = new SolidBrush(Color.FromArgb(240, 240, 244));
+            wordHoverBrush = new SolidBrush(Color.FromArgb(232, 232, 238));
         }
 
         void DisposeFonts()
         {
-            foreach (var f in new[] { nameFont, hexFont, headerFont, emptyFont, pillFont, countFont, wordFont })
-                if (f != null) f.Dispose();
+            foreach (IDisposable d in new IDisposable[] { nameFont, hexFont, headerFont, emptyFont, pillFont, countFont, wordFont,
+                edgePen, edgeDragPen, bandLinePen, headerLinePen, dropPen, pillBrush, wordBrush, wordHoverBrush })
+                if (d != null) d.Dispose();
         }
 
         int S(float v) { return (int)Math.Round(v * scale); }
@@ -158,7 +170,7 @@ namespace HoloColors
                 if (g.Items.Count == 0) continue;
                 headers.Add(new Header
                 {
-                    Pill = Branches.IsSpecial(g.Branch) || g.Branch == "GRAD" ? null : Branches.Short(g.Branch),
+                    Pill = Branches.IsPlain(g.Branch) ? null : Branches.Short(g.Branch),
                     Name = g.Name,
                     Count = g.Items.Count,
                     Unit = g.Branch == "MY" ? " 色" : g.Branch == "WORD" ? " 件" : g.Branch == "FAV" ? "" : " 人",
@@ -277,14 +289,12 @@ namespace HoloColors
             }
             foreach (var h in headers)
             {
-                var r = h.Rect;
-                r.Offset(off);
+                var r = Off(h.Rect, off);
                 if (r.IntersectsWith(e.ClipRectangle)) DrawHeader(g, h, r);
             }
             for (int i = 0; i < tiles.Count; i++)
             {
-                Rectangle r = tiles[i].Rect;
-                r.Offset(off);
+                Rectangle r = Off(tiles[i].Rect, off);
                 // 見えていない札は描かない(選択の枠の分だけ広めに判定)
                 if (Rectangle.Inflate(r, S(4), S(4)).IntersectsWith(e.ClipRectangle))
                     DrawTile(g, tiles[i], off, i == selected && ShowSelection, i == hover ? hoverColor : -1, i == dragTile);
@@ -302,8 +312,7 @@ namespace HoloColors
             {
                 Size ps = TextRenderer.MeasureText(g, h.Pill, pillFont, Size.Empty, F);
                 var pr = new Rectangle(x, band.Y + (band.Height - S(16)) / 2, ps.Width + S(10), S(16));
-                using (var path = RoundRect(pr, S(8)))
-                using (var b = new SolidBrush(Color.FromArgb(228, 228, 236))) g.FillPath(b, path);
+                using (var path = RoundRect(pr, S(8))) g.FillPath(pillBrush, path);
                 TextRenderer.DrawText(g, h.Pill, pillFont, pr, Color.FromArgb(70, 70, 86), F | TextFormatFlags.HorizontalCenter);
                 x = pr.Right + S(6);
             }
@@ -318,8 +327,7 @@ namespace HoloColors
                 x += cs.Width + S(10);
             }
             if (x < band.Right)
-                using (var pen = new Pen(Color.FromArgb(222, 222, 230)))
-                    g.DrawLine(pen, x, band.Y + band.Height / 2, band.Right, band.Y + band.Height / 2);
+                g.DrawLine(headerLinePen, x, band.Y + band.Height / 2, band.Right, band.Y + band.Height / 2);
         }
 
         // 閉じない設定でコピーしたとき、押した帯(ワードは札の下段)に少しのあいだ「コピーしました」を重ねる
@@ -350,10 +358,10 @@ namespace HoloColors
                 // 下段の帯は札の角丸の中に切り抜いて描く
                 var oldClip = g.Clip;
                 g.SetClip(path, CombineMode.Intersect);
-                using (var white = new SolidBrush(Color.White)) g.FillRectangle(white, r);
+                g.FillRectangle(Brushes.White, r);
                 DrawBands(g, tile, off, hoverColor);
                 g.Clip = oldClip;
-                using (var pen = new Pen(Color.FromArgb(dragging ? 90 : 45, 0, 0, 0), 1f)) g.DrawPath(pen, path);
+                g.DrawPath(dragging ? edgeDragPen : edgePen, path);
             }
             if (isSelected || isHover)
             {
@@ -386,7 +394,7 @@ namespace HoloColors
             if (entry.IsWord)
             {
                 Rectangle b = Off(tile.Bands[0], off);
-                using (var br = new SolidBrush(Color.FromArgb(hoverColor >= 0 ? 232 : 240, hoverColor >= 0 ? 232 : 240, hoverColor >= 0 ? 238 : 244))) g.FillRectangle(br, b);
+                g.FillRectangle(hoverColor >= 0 ? wordHoverBrush : wordBrush, b);
                 string first = FirstLine(entry.Text);
                 bool flash = entry == flashEntry;
                 TextRenderer.DrawText(g, flash ? "✓ コピーしました" : first, flash ? nameFont : wordFont, Rectangle.Inflate(b, -S(8), 0),
@@ -402,11 +410,8 @@ namespace HoloColors
                 Color fg = dark ? Color.FromArgb(24, 24, 28) : Color.White;
                 using (var br = new SolidBrush(c)) g.FillRectangle(br, b);
                 // 帯どうしの境目(左と上)に細い線
-                using (var pen = new Pen(Color.FromArgb(70, 255, 255, 255)))
-                {
-                    if (b.X > tile.Rect.X + off.X) g.DrawLine(pen, b.X, b.Y, b.X, b.Bottom);
-                    if (b.Y > tile.Bands[0].Y + off.Y) g.DrawLine(pen, b.X, b.Y, b.Right, b.Y);
-                }
+                if (b.X > tile.Rect.X + off.X) g.DrawLine(bandLinePen, b.X, b.Y, b.X, b.Bottom);
+                if (b.Y > tile.Bands[0].Y + off.Y) g.DrawLine(bandLinePen, b.X, b.Y, b.Right, b.Y);
                 if (hoverColor == i)
                 {
                     var inner = Rectangle.Inflate(b, -S(2), -S(2));
@@ -499,7 +504,7 @@ namespace HoloColors
             // 前へ動かすなら落とす札の左、後ろへなら右に線
             Rectangle r = Off(same[dropIndex].Rect, off);
             int x = dropIndex < from ? r.X - S(5) : r.Right + S(4);
-            using (var pen = new Pen(Color.FromArgb(40, 110, 230), S(3))) g.DrawLine(pen, x, r.Y, x, r.Bottom);
+            g.DrawLine(dropPen, x, r.Y, x, r.Bottom);
         }
 
         // ---- マウス ----

@@ -148,7 +148,7 @@
 
 ## 候補(画面の文字列。多く出る順。手で整える前)
 
-- 設定(14)— friend-apps/holo-colors/src/MainForm.cs:88
+- 設定(14)— friend-apps/holo-colors/src/MainForm.cs:93
 - もう一度(10)— src/app/ui/cases/panels/cut.js:262
 - 元に戻す(7)— src/app/ui/cases/panels/cut.js:55
 - ホームへ(6)— src/app/ui/cases/cases.js:418

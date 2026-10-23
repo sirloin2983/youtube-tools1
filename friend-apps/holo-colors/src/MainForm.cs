@@ -17,7 +17,9 @@ namespace HoloColors
         readonly CheckBox closeAfter = new CheckBox();
         readonly Button addButton = new Button();
         readonly Button settingsButton = new Button();
+        static readonly Color ChipDark = Color.FromArgb(40, 40, 48);   // 絞り込みの札の濃い色(選んだ札の地・ほかの札の文字)
         readonly ContextMenuStrip menu = new ContextMenuStrip();
+        ContextMenuStrip addMenu;   // 「＋ 追加」のメニュー(初めて押したときに作る)
         readonly Dictionary<string, RadioButton> chipByFilter = new Dictionary<string, RadioButton>();
         string filter = "ALL";
         bool loading;
@@ -80,10 +82,13 @@ namespace HoloColors
             addButton.AutoSize = true;
             addButton.Click += (s, e) =>
             {
-                var m = new ContextMenuStrip();
-                m.Items.Add("色を追加…(マイカラー)", null, (s2, e2) => app.AddColor(this, null));
-                m.Items.Add("ワードを追加…(マイワード)", null, (s2, e2) => app.AddWord(this));
-                m.Show(addButton, new Point(0, addButton.Height));
+                if (addMenu == null)
+                {
+                    addMenu = new ContextMenuStrip();
+                    addMenu.Items.Add("色を追加…(マイカラー)", null, (s2, e2) => app.AddColor(this, null));
+                    addMenu.Items.Add("ワードを追加…(マイワード)", null, (s2, e2) => app.AddWord(this));
+                }
+                addMenu.Show(addButton, new Point(0, addButton.Height));
             };
             settingsButton.Text = "設定";
             settingsButton.AutoSize = true;
@@ -142,20 +147,20 @@ namespace HoloColors
                 UseMnemonic = false,
             };
             rb.FlatAppearance.BorderColor = Color.FromArgb(210, 210, 218);
-            rb.FlatAppearance.CheckedBackColor = Color.FromArgb(40, 40, 48);
+            rb.FlatAppearance.CheckedBackColor = ChipDark;
             // 選んである札をもう一度押したとき(CheckedChanged が来ない)も、検索欄へ戻す
             rb.Click += (s, e) => search.Focus();
             rb.CheckedChanged += (s, e) =>
             {
-                rb.ForeColor = rb.Checked ? Color.White : Color.FromArgb(40, 40, 48);
-                rb.BackColor = rb.Checked ? Color.FromArgb(40, 40, 48) : Color.White;
+                rb.ForeColor = rb.Checked ? Color.White : ChipDark;
+                rb.BackColor = rb.Checked ? ChipDark : Color.White;
                 if (rb.Checked && !loading)
                 {
                     SetFilter(f, true);
                     search.Focus();   // 札を押したあとも、そのまま文字を打てば検索できるように
                 }
             };
-            rb.ForeColor = Color.FromArgb(40, 40, 48);
+            rb.ForeColor = ChipDark;
             rb.BackColor = Color.White;
             chipByFilter[f] = rb;
             return rb;
@@ -163,7 +168,7 @@ namespace HoloColors
 
         public void SetFilter(string f, bool save)
         {
-            if (Array.IndexOf(Branches.Filters, f) < 0) f = "ALL";
+            if (!Branches.IsFilter(f)) f = "ALL";
             filter = f;
             loading = true;
             chipByFilter[f].Checked = true;
@@ -322,9 +327,18 @@ namespace HoloColors
             return base.ProcessCmdKey(ref msg, keyData);
         }
 
+        // 項目を空にする。色の見本の絵は Items.Clear では捨てられないので、メニューが閉じているときは先に捨てる
+        void ClearMenu()
+        {
+            if (!menu.Visible)
+                foreach (ToolStripItem item in menu.Items)
+                    if (item.Image != null) item.Image.Dispose();
+            menu.Items.Clear();
+        }
+
         void ShowEntryMenu(ColorEntry en, Point screen)
         {
-            menu.Items.Clear();
+            ClearMenu();
             if (en.IsWord)
             {
                 menu.Items.Add("コピー(本文)", null, (s, e) => app.Copy(en, 0));
@@ -431,6 +445,18 @@ namespace HoloColors
         {
             base.OnResizeEnd(e);
             app.RememberSize(Size);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                statusBold.Dispose();
+                ClearMenu();
+                menu.Dispose();
+                if (addMenu != null) addMenu.Dispose();
+            }
+            base.Dispose(disposing);
         }
     }
 }

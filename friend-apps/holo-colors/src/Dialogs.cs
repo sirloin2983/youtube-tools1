@@ -17,13 +17,19 @@ namespace HoloColors
     {
         public static readonly Font Normal = new Font("Yu Gothic UI", 9f);
         public static readonly Font Search = new Font("Yu Gothic UI", 11f);
-        public static readonly Font Mono = new Font("Consolas", 10f);
         public static readonly Font Toast = new Font("Yu Gothic UI", 9.5f);
         public static readonly float Scale = SystemScale();
         public static readonly Color Muted = Color.FromArgb(110, 110, 120), Error = Color.FromArgb(190, 30, 30), Ok = Color.FromArgb(20, 120, 60);
         // 1行の文字(左寄せ・縦は中央・はみ出したら … にする)
         public const TextFormatFlags LeftText = TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine;
         static Icon small;
+        static Font mono;
+
+        // カラーコードの欄の字(色の画面を開くまで作らない)
+        public static Font Mono
+        {
+            get { return mono ?? (mono = new Font("Consolas", 10f)); }
+        }
 
         static float SystemScale()
         {
@@ -116,7 +122,13 @@ namespace HoloColors
         {
             Mods = mods;
             Key = key;
-            Text = Hotkey.Format(mods, key);
+            ShowValue();
+        }
+
+        // 欄の表示を今のキーに戻す
+        void ShowValue()
+        {
+            Text = Hotkey.Format(Mods, Key);
         }
 
         protected override bool IsInputKey(Keys keyData)
@@ -153,33 +165,31 @@ namespace HoloColors
             // キーボードだけでも欄から出られるように: Tab / Shift+Tab / Enter で移る、Esc は入力をやめる(もう一度で閉じる)
             if ((e.KeyCode == Keys.Tab && (mods == 0 || mods == Hotkey.MOD_SHIFT)) || (e.KeyCode == Keys.Return && mods == 0))
             {
-                Text = Hotkey.Format(Mods, Key);
+                ShowValue();
                 Parent.SelectNextControl(this, mods != Hotkey.MOD_SHIFT, true, true, true);
                 return;
             }
             if (e.KeyCode == Keys.Escape && mods == 0)
             {
                 if (Text == Hotkey.Format(Mods, Key)) { var f = FindForm(); if (f != null) f.Close(); }
-                else Text = Hotkey.Format(Mods, Key);
+                else ShowValue();
                 return;
             }
             string problem = Hotkey.Problem(mods, vk);
             if (problem != null)
             {
-                Text = Hotkey.Format(Mods, Key);
+                ShowValue();
                 if (Rejected != null) Rejected(problem);
                 return;
             }
-            Mods = mods;
-            Key = vk;
-            Text = Hotkey.Format(mods, vk);
+            SetValue(mods, vk);
             if (Captured != null) Captured();
         }
 
         protected override void OnKeyUp(KeyEventArgs e)
         {
             e.Handled = true;
-            if (Text.EndsWith("…")) Text = Hotkey.Format(Mods, Key);
+            if (Text.EndsWith("…")) ShowValue();
         }
 
         protected override void OnKeyPress(KeyPressEventArgs e)
@@ -200,6 +210,14 @@ namespace HoloColors
         readonly Label autostartNote = Ui.Note(Ui.Muted, 380);
         readonly LinkLabel fixAutostart = new LinkLabel();
         bool loading;
+
+        // 設定の1行のチェック(読み込み中は反映しない)
+        void InitCheck(CheckBox box, string text, Action<bool> apply)
+        {
+            box.Text = text;
+            box.AutoSize = true;
+            box.CheckedChanged += (s, e) => { if (!loading) apply(box.Checked); };
+        }
 
         public SettingsForm(AppController app)
         {
@@ -230,25 +248,17 @@ namespace HoloColors
             hotkeyNote.Margin = new Padding(3, 2, 0, 10);
             t.Controls.Add(hotkeyNote, 1, 1);
 
-            closeAfter.Text = "コピーしたら窓を閉じる";
-            closeAfter.AutoSize = true;
-            closeAfter.CheckedChanged += (s, e) => { if (!loading) app.SetCloseAfterCopy(closeAfter.Checked); };
+            InitCheck(closeAfter, "コピーしたら窓を閉じる", app.SetCloseAfterCopy);
             t.Controls.Add(closeAfter, 1, 2);
 
-            includeHash.Text = "先頭に # を付けてコピーする(#FF6699 / FF6699)";
-            includeHash.AutoSize = true;
-            includeHash.CheckedChanged += (s, e) => { if (!loading) app.SetIncludeHash(includeHash.Checked); };
+            InitCheck(includeHash, "先頭に # を付けてコピーする(#FF6699 / FF6699)", app.SetIncludeHash);
             t.Controls.Add(includeHash, 1, 3);
 
-            onTop.Text = "一覧をいつも一番手前に表示する(外すと、ほかのアプリを押せば後ろへ回る)";
-            onTop.AutoSize = true;
-            onTop.CheckedChanged += (s, e) => { if (!loading) app.SetAlwaysOnTop(onTop.Checked); };
+            InitCheck(onTop, "一覧をいつも一番手前に表示する(外すと、ほかのアプリを押せば後ろへ回る)", app.SetAlwaysOnTop);
             t.Controls.Add(onTop, 1, 4);
 
-            autostart.Text = "Windows にサインインしたら裏で起動しておく";
-            autostart.AutoSize = true;
+            InitCheck(autostart, "Windows にサインインしたら裏で起動しておく", SetAutostart);
             autostart.Margin = new Padding(3, 10, 3, 0);
-            autostart.CheckedChanged += (s, e) => { if (!loading) SetAutostart(autostart.Checked); };
             t.Controls.Add(autostart, 1, 5);
             autostartNote.Margin = new Padding(20, 0, 0, 8);
             t.Controls.Add(autostartNote, 1, 6);
@@ -629,7 +639,7 @@ namespace HoloColors
             string h;
             if (!HexColor.TryNormalize(hex.Text, out h))
             {
-                error.Text = "カラーコードは #FF6699 のような 6 桁の 16 進数で入れてください";
+                error.Text = ColorOption.HexError;
                 return null;
             }
             return new ColorOption(h, label.Text.Trim());
@@ -820,8 +830,9 @@ namespace HoloColors
 
         void UpdateCount()
         {
-            int lines = body.Text.Length == 0 ? 0 : body.Text.Replace("\r\n", "\n").Split('\n').Length;
-            count.Text = body.Text.Replace("\r\n", "\n").Length + " 文字・" + lines + " 行(" + Store.MaxWordText + " 文字まで)";
+            string flat = body.Text.Replace("\r\n", "\n");
+            int lines = flat.Length == 0 ? 0 : flat.Split('\n').Length;
+            count.Text = flat.Length + " 文字・" + lines + " 行(" + Store.MaxWordText + " 文字まで)";
         }
 
         void Save()

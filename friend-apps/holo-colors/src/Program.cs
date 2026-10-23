@@ -74,7 +74,6 @@ namespace HoloColors
                 using (var ctx = new AppController(opt, exeDir, dataDir, key))
                     Application.Run(ctx);
                 Log.Write("exit");
-                GC.KeepAlive(mutex);
             }
             return 0;
         }
@@ -180,7 +179,7 @@ namespace HoloColors
             }
             catch (Exception ex)
             {
-                if (!(ex is IOException || ex is FormatException || ex is ArgumentException || ex is InvalidOperationException || ex is UnauthorizedAccessException)) throw;
+                if (!Json.IsReadError(ex)) throw;
                 paletteError = RunningFromTemp
                     ? "メンバーの色が読めません。zip を右クリック →「すべて展開」してから、展開したフォルダの HoloColors.exe を起動してください"
                     : AppInfo.MembersFile + " が読めません(" + ex.Message + ")。HoloColors.exe と同じフォルダに置いてください";
@@ -336,7 +335,7 @@ namespace HoloColors
         bool IsOurs(IntPtr h)
         {
             if (h == IntPtr.Zero || main == null) return false;
-            if (h == main.Handle || h == toast.Handle) return true;
+            if (h == main.Handle || (toast.IsHandleCreated && h == toast.Handle)) return true;   // 知らせの窓は、出すまで作らない
             return modal != null && modal.IsHandleCreated && h == modal.Handle;
         }
 
@@ -468,9 +467,8 @@ namespace HoloColors
         // ---- お気に入り・並べ替え ----
         public void ToggleFavorite(ColorEntry e)
         {
-            bool on;
-            try { on = Store.ToggleFavorite(e); }
-            catch (Exception ex) { SaveFailed(ex); return; }
+            bool on = false;
+            if (!TrySave(() => on = Store.ToggleFavorite(e))) return;
             main.Refill(true);
             main.SetStatus((on ? "お気に入りに入れました: " : "お気に入りから外しました: ") + e.Name, false, e.IsWord ? null : e.Hex);
         }
@@ -478,8 +476,7 @@ namespace HoloColors
         // ドラッグで動かした(target = 落とした先にあったマイカラー・マイワード。その位置へ)
         public void MoveItemTo(ColorEntry e, ColorEntry target)
         {
-            try { Store.MoveToEntry(e, target); }
-            catch (Exception ex) { SaveFailed(ex); return; }
+            if (!TrySave(() => Store.MoveToEntry(e, target))) return;
             main.Refill(true);
             main.View.SelectEntryIn(e, e.Group.Branch);
         }
@@ -557,13 +554,9 @@ namespace HoloColors
             string hex = basedOn == null ? "" : basedOn.Hex;
             string r1, r2;
             if (!EditDialog("色を追加", name, hex, owner, out r1, out r2)) return;
-            ColorEntry added;
-            try { added = Store.Add(r1, r2); }
-            catch (Exception ex) { SaveFailed(ex); return; }
-            // 足した色が見えるように: 「すべて」「マイカラー」以外なら「マイカラー」へ、検索は空に
-            if (main.Filter != "ALL" && main.Filter != "MY") main.SetFilter("MY", true);
-            main.SearchBox.Text = "";
-            main.Refill(false);
+            ColorEntry added = null;
+            if (!TrySave(() => added = Store.Add(r1, r2))) return;
+            ShowBranch("MY");
             main.SetStatus("マイカラーに追加しました: " + added.Name + "  " + added.Hex, false, added.Hex);
         }
 
@@ -571,18 +564,15 @@ namespace HoloColors
         {
             string r1, r2;
             if (!EditDialog("色を編集", e.Name, e.Hex, owner, out r1, out r2)) return;
-            try { Store.Update(e, r1, r2); }
-            catch (Exception ex) { SaveFailed(ex); return; }
+            if (!TrySave(() => Store.Update(e, r1, r2))) return;
             main.Refill(true);
             main.SetStatus("保存しました: " + e.Name + "  " + e.Hex, false, e.Hex);
         }
 
         public void RemoveColor(IWin32Window owner, ColorEntry e)
         {
-            if (MessageBox.Show(owner, "「" + e.Name + "」(" + e.Hex + ")をマイカラーから消しますか?", AppInfo.Name,
-                    MessageBoxButtons.OKCancel, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.OK) return;
-            try { Store.Remove(e); }
-            catch (Exception ex) { SaveFailed(ex); return; }
+            if (!Confirm(owner, "「" + e.Name + "」(" + e.Hex + ")をマイカラーから消しますか?")) return;
+            if (!TrySave(() => Store.Remove(e))) return;
             main.Refill(false);
             main.SetStatus("消しました: " + e.Name, false);
         }
@@ -599,12 +589,11 @@ namespace HoloColors
                 result = f.Result;
                 reset = f.ResetToOriginal;
             }
-            try
+            if (!TrySave(() =>
             {
                 if (reset) Store.ResetMemberColors(e);
                 else Store.SetMemberColors(e, result);
-            }
-            catch (Exception ex) { SaveFailed(ex); return; }
+            })) return;
             main.Refill(true);
             main.SetStatus((e.Customized ? "色を直しました: " : "元の色に戻しました: ") + e.Name + "  " + e.Hex, false, e.Hex);
         }
@@ -612,8 +601,7 @@ namespace HoloColors
         // 前へ・後ろへ(右クリック・Alt+矢印)。マイカラーでもマイワードでも
         public void MoveColor(ColorEntry e, int delta)
         {
-            try { Store.Move(e, delta); }
-            catch (Exception ex) { SaveFailed(ex); return; }
+            if (!TrySave(() => Store.Move(e, delta))) return;
             main.Refill(true);
             main.View.SelectEntryIn(e, e.Group.Branch);
         }
@@ -623,12 +611,9 @@ namespace HoloColors
         {
             string name, text;
             if (!WordDialog("ワードを追加", "", "", owner, out name, out text)) return;
-            ColorEntry added;
-            try { added = Store.AddWord(name, text); }
-            catch (Exception ex) { SaveFailed(ex); return; }
-            if (main.Filter != "ALL" && main.Filter != "WORD") main.SetFilter("WORD", true);
-            main.SearchBox.Text = "";
-            main.Refill(false);
+            ColorEntry added = null;
+            if (!TrySave(() => added = Store.AddWord(name, text))) return;
+            ShowBranch("WORD");
             main.View.SelectEntryIn(added, "WORD");
             main.SetStatus("マイワードに追加しました: 「" + added.Name + "」", false);
         }
@@ -637,18 +622,15 @@ namespace HoloColors
         {
             string name, text;
             if (!WordDialog("ワードを編集", e.Name, e.Text, owner, out name, out text)) return;
-            try { Store.UpdateWord(e, name, text); }
-            catch (Exception ex) { SaveFailed(ex); return; }
+            if (!TrySave(() => Store.UpdateWord(e, name, text))) return;
             main.Refill(true);
             main.SetStatus("保存しました: 「" + e.Name + "」", false);
         }
 
         public void RemoveWord(IWin32Window owner, ColorEntry e)
         {
-            if (MessageBox.Show(owner, "「" + e.Name + "」をマイワードから消しますか?", AppInfo.Name,
-                    MessageBoxButtons.OKCancel, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.OK) return;
-            try { Store.Remove(e); }
-            catch (Exception ex) { SaveFailed(ex); return; }
+            if (!Confirm(owner, "「" + e.Name + "」をマイワードから消しますか?")) return;
+            if (!TrySave(() => Store.Remove(e))) return;
             main.Refill(false);
             main.SetStatus("消しました: 「" + e.Name + "」", false);
         }
@@ -679,16 +661,38 @@ namespace HoloColors
             }
             var list = ColorOption.CloneAll(e.AllColors);
             list.Add(new ColorOption(hex, label.Length > ColorOption.MaxLabel ? label.Substring(0, ColorOption.MaxLabel) : label));
-            try { Store.SetMemberColors(e, list); }
-            catch (Exception ex) { SaveFailed(ex); return; }
+            if (!TrySave(() => Store.SetMemberColors(e, list))) return;
             main.Refill(true);
             main.SetStatus(e.Name + " に色を追加しました: " + hex, false, hex);
         }
 
-        void SaveFailed(Exception ex)
+        // 色・ワード・お気に入りの保存を伴う操作を流す。保存できなければ下の段に出して false
+        bool TrySave(Action action)
         {
-            Log.Write("save colors: " + ex);
-            main.SetStatus("保存できませんでした: " + ex.Message, true);
+            try
+            {
+                action();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Write("save colors: " + ex);
+                main.SetStatus("保存できませんでした: " + ex.Message, true);
+                return false;
+            }
+        }
+
+        // 足したものが見えるように: 「すべて」と足した先以外なら、その区分へ。検索は空にして並べ直す
+        void ShowBranch(string branch)
+        {
+            if (main.Filter != "ALL" && main.Filter != branch) main.SetFilter(branch, true);
+            main.SearchBox.Text = "";
+            main.Refill(false);
+        }
+
+        static bool Confirm(IWin32Window owner, string text)
+        {
+            return MessageBox.Show(owner, text, AppInfo.Name, MessageBoxButtons.OKCancel, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) == DialogResult.OK;
         }
 
         bool EditDialog(string title, string name, string hex, IWin32Window owner, out string rName, out string rHex)
@@ -739,24 +743,25 @@ namespace HoloColors
                     return;
                 }
                 Directory.CreateDirectory(target);
-                Shot(main, Path.Combine(target, "main.png"));
+                Action<string> shot = name => Shot(main, Path.Combine(target, name));
+                shot("main.png");
                 main.View.AutoScrollPosition = new Point(0, Ui.Px(430));
-                Shot(main, Path.Combine(target, "scrolled.png"));
+                shot("scrolled.png");
                 main.View.AutoScrollPosition = Point.Empty;
                 var first = main.View.Tiles[1].Entry;
                 main.SetStatus("コピーしました: " + CopyText(first.Hex) + "  " + first.Name, false, first.Hex);
                 main.View.FlashCopied(first, 0);
-                Shot(main, Path.Combine(target, "copied-open.png"));
+                shot("copied-open.png");
                 main.ShowHint();
                 main.SearchBox.Text = "ぺこ";
-                Shot(main, Path.Combine(target, "search.png"));
+                shot("search.png");
                 main.SearchBox.Text = "";
                 main.SetFilter("GRAD", false);
-                Shot(main, Path.Combine(target, "graduated.png"));
+                shot("graduated.png");
                 main.SetFilter("MY", false);
-                Shot(main, Path.Combine(target, "my-empty.png"));
+                shot("my-empty.png");
                 main.SetFilter("WORD", false);
-                Shot(main, Path.Combine(target, "words.png"));
+                shot("words.png");
                 main.SetFilter("ALL", false);
                 ShotForm(new SettingsForm(this), Path.Combine(target, "settings.png"));
                 ShotForm(new EditColorForm("色を追加", "自分の赤", "#E53935"), Path.Combine(target, "edit.png"));

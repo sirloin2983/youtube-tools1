@@ -25,6 +25,12 @@ namespace FriendApps
             return o;
         }
 
+        // 読み込みの失敗(開けない・つかまれている・JSON が壊れている)。これ以外の例外は握りつぶさない
+        public static bool IsReadError(Exception ex)
+        {
+            return ex is IOException || ex is FormatException || ex is ArgumentException || ex is InvalidOperationException || ex is UnauthorizedAccessException;
+        }
+
         // ファイルの JSON。無い・開けない・壊れているときは null(呼ぶ側は空として扱う)
         public static IDictionary<string, object> ReadFileOrNull(string path)
         {
@@ -34,7 +40,7 @@ namespace FriendApps
             }
             catch (Exception ex)
             {
-                if (!(ex is IOException || ex is FormatException || ex is ArgumentException || ex is InvalidOperationException || ex is UnauthorizedAccessException)) throw;
+                if (!IsReadError(ex)) throw;
                 return null;
             }
         }

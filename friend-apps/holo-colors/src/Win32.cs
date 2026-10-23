@@ -115,8 +115,8 @@ namespace HoloColors
 
         public MessageWindow(string instanceKey)
         {
-            showMsg = Native.RegisterWindowMessage("YTT.HoloColors.Show." + instanceKey);
-            quitMsg = Native.RegisterWindowMessage("YTT.HoloColors.Quit." + instanceKey);
+            showMsg = MessageId(false, instanceKey);
+            quitMsg = MessageId(true, instanceKey);
             // 親の無い見えない窓(メッセージ専用の窓は HWND_BROADCAST を受けられないので使わない)
             CreateHandle(new CreateParams { Caption = "HoloColors.Messages", ExStyle = Native.WS_EX_TOOLWINDOW });
         }
@@ -158,9 +158,14 @@ namespace HoloColors
             base.WndProc(ref m);
         }
 
+        static int MessageId(bool quit, string instanceKey)
+        {
+            return Native.RegisterWindowMessage((quit ? "YTT.HoloColors.Quit." : "YTT.HoloColors.Show.") + instanceKey);
+        }
+
         public static void Broadcast(string instanceKey, bool quit)
         {
-            int msg = Native.RegisterWindowMessage((quit ? "YTT.HoloColors.Quit." : "YTT.HoloColors.Show.") + instanceKey);
+            int msg = MessageId(quit, instanceKey);
             Native.AllowSetForegroundWindow(Native.ASFW_ANY);   // 動いているほうが前面に出られるように
             Native.PostMessage(Native.HWND_BROADCAST, msg, IntPtr.Zero, IntPtr.Zero);
         }

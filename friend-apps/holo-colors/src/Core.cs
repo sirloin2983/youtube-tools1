@@ -16,7 +16,7 @@ namespace HoloColors
     public static class AppInfo
     {
         public const string Name = "ホロカラー";
-        public const string Version = "1.4.4";
+        public const string Version = "1.5.0";
         public const string ToolId = "holo-colors";
         public const string MembersFile = "members.json";
     }
@@ -25,6 +25,7 @@ namespace HoloColors
     public class ColorOption
     {
         public const int MaxLabel = 12;
+        public const string HexError = "カラーコードは #FF6699 のような 6 桁の 16 進数で入れてください";
         public string Hex;
         public string Label;
 
@@ -73,7 +74,7 @@ namespace HoloColors
             {
                 if (c == null) continue;
                 string hex;
-                if (!HexColor.TryNormalize(c.Hex, out hex)) return "カラーコードは #FF6699 のような 6 桁の 16 進数で入れてください: " + c.Hex;
+                if (!HexColor.TryNormalize(c.Hex, out hex)) return HexError + ": " + c.Hex;
                 string label = (c.Label ?? "").Trim();
                 if (label.Length > MaxLabel) return "ラベルは " + MaxLabel + " 文字までです: " + label;
                 if (result.Any(x => x.Hex == hex)) continue;
@@ -110,6 +111,12 @@ namespace HoloColors
             SearchKey = SearchText.SearchKey(this);
         }
 
+        // 1色だけにする(マイカラー)
+        public void SetColor(string hex)
+        {
+            SetColors(new List<ColorOption> { new ColorOption(hex, "") });
+        }
+
         // 色の一覧(Colors が空の作り方でも Hex の1色)
         public List<ColorOption> AllColors
         {
@@ -130,7 +137,7 @@ namespace HoloColors
 
         public string Label
         {
-            get { return Branches.IsSpecial(Branch) || Branch == "GRAD" ? Name : Branches.Short(Branch) + "  " + Name; }
+            get { return Branches.IsPlain(Branch) ? Name : Branches.Short(Branch) + "  " + Name; }
         }
     }
 
@@ -158,6 +165,18 @@ namespace HoloColors
             return b == "MY" || b == "WORD" || b == "FAV";
         }
 
+        // 区分の札(JP・EN など)を付けない区分
+        public static bool IsPlain(string b)
+        {
+            return IsSpecial(b) || b == "GRAD";
+        }
+
+        // 絞り込みの札にある名前(ALL を含む)
+        public static bool IsFilter(string b)
+        {
+            return Array.IndexOf(Filters, b) >= 0;
+        }
+
         public static bool IsKnown(string b)
         {
             return Array.IndexOf(Filters, b) > 0;
@@ -172,6 +191,8 @@ namespace HoloColors
         {
             hex = null;
             if (s == null) return false;
+            // すでに "#RRGGBB" の形なら正規化は要らない(描くたびに呼ばれるので、割り当てを避ける)
+            if (s.Length == 7 && s[0] == '#' && IsHex(s, 1)) { hex = s.ToUpperInvariant(); return true; }
             s = s.Normalize(NormalizationForm.FormKC).Trim();
             if (s.StartsWith("#")) s = s.Substring(1).Trim();
             if (s.Length == 3 && IsHex(s))
@@ -181,10 +202,10 @@ namespace HoloColors
             return true;
         }
 
-        static bool IsHex(string s)
+        static bool IsHex(string s, int start = 0)
         {
-            foreach (char c in s)
-                if (!Uri.IsHexDigit(c)) return false;
+            for (int i = start; i < s.Length; i++)
+                if (!Uri.IsHexDigit(s[i])) return false;
             return true;
         }
 
@@ -316,8 +337,7 @@ namespace HoloColors
         public static string KeyName(int vk)
         {
             Keys k = (Keys)vk;
-            if (k >= Keys.A && k <= Keys.Z) return ((char)vk).ToString();
-            if (k >= Keys.D0 && k <= Keys.D9) return ((char)vk).ToString();
+            if ((k >= Keys.A && k <= Keys.Z) || (k >= Keys.D0 && k <= Keys.D9)) return ((char)vk).ToString();
             if (k >= Keys.NumPad0 && k <= Keys.NumPad9) return "テンキー" + (vk - (int)Keys.NumPad0);
             if (IsFunctionKey(vk)) return "F" + (vk - (int)Keys.F1 + 1);
             switch (k)
@@ -543,7 +563,7 @@ namespace HoloColors
             s.WindowWidth = Math.Max(0, Math.Min(8000, Json.Int(d, "windowWidth", 0)));
             s.WindowHeight = Math.Max(0, Math.Min(8000, Json.Int(d, "windowHeight", 0)));
             string f = Json.Str(d, "filter");
-            s.Filter = f != null && Array.IndexOf(Branches.Filters, f) >= 0 ? f : "ALL";
+            s.Filter = Branches.IsFilter(f) ? f : "ALL";
             s.Welcomed = Json.Bool(d, "welcomed", false);
             s.AlwaysOnTop = Json.Bool(d, "alwaysOnTop", false);
             object fv;
@@ -605,7 +625,7 @@ namespace HoloColors
             var w = ReadJson(WordsPath, out wordsLocked);
             foreach (var m in Json.List(w, "words"))
             {
-                string text = (Json.Str(m, "text") ?? "").Replace("\r\n", "\n").Replace("\r", "\n");
+                string text = Lf(Json.Str(m, "text"));
                 if (text.Trim().Length == 0) continue;
                 string name = (Json.Str(m, "name") ?? "").Trim();
                 if (name.Length == 0) name = DefaultWordName(text);
@@ -763,9 +783,15 @@ namespace HoloColors
                 Words.Items.Select(e => (object)new Dictionary<string, object> { { "id", e.Id }, { "name", e.Name }, { "text", e.Text } }).ToList());
         }
 
+        // 改行は "\n" にそろえて持つ(クリップボードへ入れるときだけ Windows の改行)
+        static string Lf(string s)
+        {
+            return (s ?? "").Replace("\r\n", "\n").Replace("\r", "\n");
+        }
+
         static string DefaultWordName(string text)
         {
-            foreach (string line in text.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n'))
+            foreach (string line in Lf(text).Split('\n'))
             {
                 string t = line.Trim();
                 if (t.Length > 0) return t.Length > MaxName ? t.Substring(0, MaxName) : t;
@@ -784,7 +810,7 @@ namespace HoloColors
         public static string ValidateWord(string name, string text, out string cleanName)
         {
             cleanName = null;
-            string t = (text ?? "").Replace("\r\n", "\n").Replace("\r", "\n");
+            string t = Lf(text);
             if (t.Trim().Length == 0) return "本文を入れてください";
             if (t.Length > MaxWordText) return "本文は " + MaxWordText + " 文字までです(いまは " + t.Length + " 文字)";
             name = (name ?? "").Trim();
@@ -797,7 +823,7 @@ namespace HoloColors
         // クリップボードに入れる形(Windows の改行)
         public static string ClipboardText(string text)
         {
-            return (text ?? "").Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", "\r\n");
+            return Lf(text).Replace("\n", "\r\n");
         }
 
         public ColorEntry AddWord(string name, string text)
@@ -805,7 +831,7 @@ namespace HoloColors
             string clean;
             string err = ValidateWord(name, text, out clean);
             if (err != null) throw new ArgumentException(err);
-            var e = MakeWord(NewId("word/"), clean, text.Replace("\r\n", "\n").Replace("\r", "\n"));
+            var e = MakeWord(NewId("word/"), clean, Lf(text));
             Words.Items.Add(e);
             try { SaveWords(); }
             catch { Words.Items.Remove(e); throw; }
@@ -820,7 +846,7 @@ namespace HoloColors
             if (err != null) throw new ArgumentException(err);
             string oldName = e.Name, oldText = e.Text;
             e.Name = clean;
-            e.Text = text.Replace("\r\n", "\n").Replace("\r", "\n");
+            e.Text = Lf(text);
             e.SearchKey = SearchText.SearchKey(e);
             try { SaveWords(); }
             catch
@@ -899,7 +925,7 @@ namespace HoloColors
         ColorEntry MakeEntry(string id, string name, string hex)
         {
             var e = new ColorEntry { Id = id, Name = name, Sub = "", Hex = hex, Note = "", Group = Mine, IsUser = true };
-            e.SetColors(new List<ColorOption> { new ColorOption(hex, "") });   // マイカラーは1色
+            e.SetColor(hex);   // マイカラーは1色
             return e;
         }
 
@@ -910,7 +936,7 @@ namespace HoloColors
             name = (name ?? "").Trim();
             if (name.Length == 0) return "名前を入れてください";
             if (name.Length > MaxName) return "名前は " + MaxName + " 文字までです";
-            if (!HexColor.TryNormalize(hexText, out hex)) return "カラーコードは #FF6699 のような 6 桁の 16 進数で入れてください";
+            if (!HexColor.TryNormalize(hexText, out hex)) return ColorOption.HexError;
             return null;
         }
 
@@ -933,12 +959,12 @@ namespace HoloColors
             if (err != null) throw new ArgumentException(err);
             string oldName = e.Name, oldHex = e.Hex;
             e.Name = name.Trim();
-            e.SetColors(new List<ColorOption> { new ColorOption(hex, "") });
+            e.SetColor(hex);
             try { SaveColors(); }
             catch
             {
                 e.Name = oldName;
-                e.SetColors(new List<ColorOption> { new ColorOption(oldHex, "") });
+                e.SetColor(oldHex);
                 throw;
             }
         }

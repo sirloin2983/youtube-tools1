@@ -8,8 +8,8 @@
 
 ## friend-apps/common/
 
-- **Json.cs** (136 行) — 2 つの友人用アプリ(ホロカラー・切り抜き依頼)で共通の JSON の読み書き。各アプリの build.bat が src と一緒に ../common/*.cs をコンパイルする。
-  - 名前: `class Json` :12・`Serializer` :14・`Parse` :21・`ReadFileOrNull` :29・`Str` :42・`Bool` :48・`Int` :55・`Long` :66・`Dict` :76・`List` :82・`Pretty` :96・`NewLine` :130
+- **Json.cs** (142 行) — 2 つの友人用アプリ(ホロカラー・切り抜き依頼)で共通の JSON の読み書き。各アプリの build.bat が src と一緒に ../common/*.cs をコンパイルする。
+  - 名前: `class Json` :12・`Serializer` :14・`Parse` :21・`IsReadError` :29・`ReadFileOrNull` :35・`Str` :48・`Bool` :54・`Int` :61・`Long` :72・`Dict` :82・`List` :88・`Pretty` :102・ほか 1
 - **Log.cs** (34 行) — 2 つの友人用アプリ(ホロカラー・切り抜き依頼)で共通の手元の記録。各アプリの build.bat が src と一緒に ../common/*.cs をコンパイルする。
   - 名前: `class Log` :9・`Init` :14・`Write` :19
 
@@ -20,18 +20,18 @@
 
 ## friend-apps/holo-colors/src/
 
-- **Core.cs** (1025 行) — ホロカラーの中身(画面と Windows に依存しない部分)。tests\friend-apps\holo-colors\CoreTests.cs で確かめる。
-  - 名前: `class AppInfo` :16・`class ColorOption` :25・`Clone` :37・`CloneAll` :48・`ReadList` :54・`Validate` :69・`class ColorEntry` :87・`SetColors` :106・`class ColorGroup` :124・`class Branches` :137・`Short` :142・`IsSpecial` :157・ほか 59
-- **Dialogs.cs** (842 行) — 設定の画面・色の追加/編集の画面・呼び出しのキーを受け取る欄・コピーしたときの小さな知らせ
-  - 名前: `class Ui` :16・`SystemScale` :28・`Px` :34・`Px` :39・`StyleDialog` :50・`Btn` :63・`FieldLabel` :69・`Note` :75・`ButtonRow` :81・`PickColor` :89・`class HotkeyBox` :101・`SetValue` :115・ほか 21
-- **MainForm.cs** (440 行) — 色の一覧の窓。呼び出しのキーで出し、コピーしたら(設定しだいで)隠して、呼び出す前の窓へ戻る。
-  - 名前: `class MainForm` :10・`OnHandleCreated` :124・`SetFilter` :164・`Refill` :176・`ApplySettings` :206・`SetStatus` :216・`ShowHint` :226・`ResetView` :262・`ProcessCmdKey` :305・`Swatch` :387・`OnFormClosing` :401・`OnActivated` :423・ほか 1
-- **PaletteView.cs** (698 行) — 色の札を並べて描く一覧(グループの見出し + 札の格子)。札の位置は Relayout で決め、描くのとクリックの判定で同じものを使う。
-  - 名前: `class PaletteView` :13・`class Tile` :15・`class Header` :29・`OnFontChanged` :89・`SetGroups` :119・`OnResize` :139・`Relayout` :145・`BandRowsFor` :190・`HitTest` :242・`HitTestColor` :249・`OnPaint` :263・`FlashCopied` :326・ほか 17
-- **Program.cs** (818 行) — 起動・常駐(通知領域のアイコン・呼び出しのキー)・コピー。窓どうしのやりとりは AppController に集める。
-  - 名前: `class Options` :20・`Parse` :25・`class Program` :42・`Main` :45・`Fatal` :82・`class AppController` :94・`TakeProblem` :210・`IsUnder` :220・`AllGroups` :243・`ChangeHotkey` :259・`SuspendHotkey` :276・`ResumeHotkey` :283・ほか 26
-- **Win32.cs** (283 行) — Windows の API(呼び出しのキー・前面の窓・起動時の常駐)
-  - 名前: `class Native` :13・`RegisterHotKey` :23・`UnregisterHotKey` :26・`GetForegroundWindow` :29・`SetForegroundWindow` :32・`IsWindow` :35・`IsWindowVisible` :38・`AllowSetForegroundWindow` :41・`RegisterWindowMessage` :44・`PostMessage` :47・`SendMessage` :50・`GetKeyState` :53・ほか 28
+- **Core.cs** (1024 行) — ホロカラーの中身(画面と Windows に依存しない部分)。tests\friend-apps\holo-colors\CoreTests.cs で確かめる。
+  - 名前: `class AppInfo` :16・`class ColorOption` :25・`Clone` :38・`CloneAll` :49・`ReadList` :55・`Validate` :70・`class ColorEntry` :88・`SetColors` :107・`SetColor` :115・`class ColorGroup` :131・`class Branches` :144・`Short` :149・ほか 61
+- **Dialogs.cs** (853 行) — 設定の画面・色の追加/編集の画面・呼び出しのキーを受け取る欄・コピーしたときの小さな知らせ
+  - 名前: `class Ui` :16・`SystemScale` :34・`Px` :40・`Px` :45・`StyleDialog` :56・`Btn` :69・`FieldLabel` :75・`Note` :81・`ButtonRow` :87・`PickColor` :95・`class HotkeyBox` :107・`SetValue` :121・ほか 21
+- **MainForm.cs** (463 行) — 色の一覧の窓。呼び出しのキーで出し、コピーしたら(設定しだいで)隠して、呼び出す前の窓へ戻る。
+  - 名前: `class MainForm` :10・`OnHandleCreated` :129・`SetFilter` :169・`Refill` :181・`ApplySettings` :208・`SetStatus` :218・`ShowHint` :228・`ResetView` :264・`ProcessCmdKey` :307・`Swatch` :398・`OnFormClosing` :412・`OnActivated` :434・ほか 2
+- **PaletteView.cs** (703 行) — 色の札を並べて描く一覧(グループの見出し + 札の格子)。札の位置は Relayout で決め、描くのとクリックの判定で同じものを使う。
+  - 名前: `class PaletteView` :13・`class Tile` :15・`class Header` :29・`OnFontChanged` :92・`SetGroups` :131・`OnResize` :151・`Relayout` :157・`BandRowsFor` :202・`HitTest` :254・`HitTestColor` :261・`OnPaint` :275・`FlashCopied` :334・ほか 17
+- **Program.cs** (815 行) — 起動・常駐(通知領域のアイコン・呼び出しのキー)・コピー。窓どうしのやりとりは AppController に集める。
+  - 名前: `class Options` :20・`Parse` :25・`class Program` :42・`Main` :45・`Fatal` :81・`class AppController` :93・`TakeProblem` :209・`IsUnder` :219・`AllGroups` :242・`ChangeHotkey` :258・`SuspendHotkey` :275・`ResumeHotkey` :282・ほか 27
+- **Win32.cs** (288 行) — Windows の API(呼び出しのキー・前面の窓・起動時の常駐)
+  - 名前: `class Native` :13・`RegisterHotKey` :23・`UnregisterHotKey` :26・`GetForegroundWindow` :29・`SetForegroundWindow` :32・`IsWindow` :35・`IsWindowVisible` :38・`AllowSetForegroundWindow` :41・`RegisterWindowMessage` :44・`PostMessage` :47・`SendMessage` :50・`GetKeyState` :53・ほか 29
 
 ## friend-apps/launcher/src/
 
@@ -48,6 +48,6 @@
 
 - tests/chrome-ext/yt-studio-time/e2e_fake_studio.py — YouTube Studio 投稿時刻(Chrome 拡張)の通しの確認。
 - tests/friend-apps/holo-colors/CoreTests.cs — ホロカラーのテスト(build.bat が HoloColors.exe を参照して作り、流す)。失敗が1つでもあれば終了コード 1。
-- tests/friend-apps/holo-colors/WordsTests.cs — マイワード・お気に入り・最近使ったものの中身のテスト(CoreTests.Main から WordsTests.RunAll(Run); で呼ぶ)
+- tests/friend-apps/holo-colors/WordsTests.cs — マイワード・お気に入りの中身のテスト(CoreTests.Main から WordsTests.RunAll(Run); で呼ぶ)
 - tests/friend-apps/holo-colors/e2e_holo_colors.py — ホロカラーの通しの確認(Windows だけ)。本物のキー入力とクリックで exe を動かす。
 - tests/friend-apps/launcher/Tests.cs — FriendApp.exe のテスト(build.bat が FriendApp.exe を参照して作り、流す)。窓・玄関のプロセス・通信は使わない。失敗が 1 つでもあれば終了コード 1。
