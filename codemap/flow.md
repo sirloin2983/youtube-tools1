@@ -139,6 +139,7 @@
 - tests/flow/test_packjobs.py — flow/packjobs.py(パックのジョブの器。OPT2 J3): 同時 1 本・取り消し・履歴・SLOTS・掲示板の形
 - tests/flow/test_packrec.py — flow/packrec.py(パックを作った記録)の整理: 記録が MAX_RECORDS を超えたときに消す物・残す物
 - tests/flow/test_placement.py — flow/placement(② 置き場所の持ち主・結果の束・.flow.lock。RS6 b-B0)のテスト。
+- tests/flow/test_prefetch.py — 解析の先回り(flow/run.PREFETCH_ANALYZE・runqueue.Queue._prefetch_next。notes:plan/解析の先回り-設計.md)のテスト。
 - tests/flow/test_prio.py — flow/prio(処理の優先度の 1 つの表。PRIO・決定 3-49): 表・級の決め方・重い処理の枠の順番と「空いているときだけ」・
 - tests/flow/test_run.py — pipeline/run.py(① の経路。RS1-7)のテスト。  py -3.12 -m unittest tests/flow/test_run.py -v
 - tests/flow/test_runlog.py — pipeline/runlog.py(終わった実行の記録の形と読み方。RS3-0B)のテスト。  py -3.12 -m unittest tests/flow/test_runlog.py -v
