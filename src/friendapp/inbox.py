@@ -1125,7 +1125,7 @@ class Inbox:
 
 
 def _local_info(p):
-    """この PC で作ったパックの機械の見出し・かぶり(engine._pack_info)-> {"info": {...}} か {}(無い)"""
+    """この PC で作ったパックのかぶりの知らせ overlapNote(engine._pack_info。機械の見出しは 10-24 に消した)-> {"info": {...}} か {}(無い)"""
     info = p.get("info") if isinstance(p.get("info"), dict) else {}
     keep = {k: str(info[k]) for k in ("overlapNote",) if isinstance(info.get(k), str) and info[k]}
     return {"info": keep} if keep else {}

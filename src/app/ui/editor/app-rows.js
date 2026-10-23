@@ -961,6 +961,6 @@ function renderPlayerMsg(){
   const m = $('#playerMsg');
   if (!S.doc || S.playerErr !== S.docId){ m.hidden = true; return; }
   const tail = '文字の編集と書き出しは、再生できなくても使えます。', path = S.doc.sourcePath;
-  $('#playerMsgText').textContent = path ? `元のファイルを再生できません(動画が見つからないか、再生できない形式です: ${path})。${tail}動画を移したときは、⚙ の「困ったとき」の「動画を選び直す」で付け替えられます。` : `元のファイルを再生できません。${tail}`;
+  $('#playerMsgText').textContent = path ? `元のファイルを再生できません(動画が見つからないか、再生できない形式です: ${path})。${tail}動画を移したときは、右上の設定の「困ったとき」の「動画を選び直す」で付け替えられます。` : `元のファイルを再生できません。${tail}`;
   m.hidden = false;
 }

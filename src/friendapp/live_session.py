@@ -68,10 +68,10 @@ class FriendLive(_ls.LiveSession):
         return os.path.join(self.places["cases"], REC_FOLDER)
 
     def live_cfg(self):
-        """ライブの設定(ホームの設定 live の代わり)。検出・採用は依頼の設定で動く(結びつきのある録画だけ)・P4 の作り直しはしない(A-14)・
+        """ライブの設定(ホームの設定 live の代わり)。検出・採用は依頼の設定で動く(結びつきのある録画だけ)・
         配信後の追加は依頼の afterStream で(autoAfterStream は依頼でない録画の物 = 使わない)・書き出したあとはパックまで"""
         return {"enabled": True, "folder": self.rec_folder(), "recorders": recorders(), "quality": _ls.DEFAULT_QUALITY,
-                "autoArchive": False, "autoAfterStream": False, "auto": {"after": "auto"}}
+                "autoAfterStream": False, "auto": {"after": "auto"}}
 
     def _request_label(self, item):
         """依頼を録画に結びつけたときの記録の 1 行(ライブの 6 つの設定)"""

@@ -11,7 +11,7 @@
   live     … リアルタイム切り抜き(線 D。src/app/live.py。**既定はオフ**): enabled・録画の置き場所 folder(空 = 録画の部品の前回の設定か既定 E:/Video/live-rec)・
              録画元の一覧 recorders(空 = 手元の1つ。[{id, name, url, token}]。token が空の手元の録画元は録画の部品の token.txt を読む)・
              録画の画質 quality(best|1080p|720p。既定 1080p。スタジオの URL の欄から始める録画 = POST /live/api/begin)・
-             書き出し済みでアーカイブ化を確かめたら録画を消す(ごみ箱へ。3 日で消える。マークの無い録画は 1 日で・確かめられない録画は終わって 3 日で)
+             書き出し済みでアーカイブ化を確かめたら録画を消す(ごみ箱へ。3 日で消える。マークの無い録画は 1 日で。確かめられない録画は消さずに調子に知らせる・非公開の録画は終わって 3 日で 1 本につないで残す)
              書き出したあとの自動の流れ auto {after: none|check|auto(既定 check)・cut: ""(ホームの autorun.cut)|none|silence・
              engine: ""(編集の設定)|whisper.cpp・model: ""(編集の設定)|large-v3}(線 D の M2)。
              after は画面・API が書き出したあとを指定しないとき(自動の採用など)の既定。cut・engine・model は書き出しを頼んだときに覚えてまとめて実行へ渡す・

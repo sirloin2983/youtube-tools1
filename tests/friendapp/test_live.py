@@ -538,7 +538,8 @@ class LiveFlowTest(unittest.TestCase):
 
     def test_live_cfg_and_rec_folder(self):
         c = self.eng.live.cfg()
-        self.assertEqual((c["enabled"], c["autoArchive"], c["folder"]), (True, False, os.path.join(self.places["cases"], L.REC_FOLDER)))
+        self.assertEqual((c["enabled"], c["folder"]), (True, os.path.join(self.places["cases"], L.REC_FOLDER)))
+        self.assertNotIn("autoArchive", c)   # 本番版への入れ替え(P4)の設定は 10-16 に無くした(残りかすを 10-24 に外した)
         self.assertTrue(self.eng.live.request_all)
 
 

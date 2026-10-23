@@ -270,14 +270,7 @@ def _mounted_open_tools(cx):
     for tid in SHOWN:
         href = pg.get_attribute(".pt-tool[data-tool=%s] .pt-open" % tid, "href") or ""
         check(href.startswith("http://127.0.0.1:%d/" % port), "[A] %s の「開く」は同じアドレス: %s" % (tid, href))
-    with ctx.expect_page() as info:
-        pg.click(".pt-tool[data-tool=studio] .pt-open")
-    tab = info.value
-    tab.wait_for_load_state()
-    check(tab.url.startswith(base) and tab.evaluate("location.pathname") in ("/", "/cases"),
-          "[A] カードの「開く」は同じアドレスの画面に着く(スタジオは新しい案件 /#new): %s" % tab.url)
-    check(tab.evaluate("window.opener") is None, "[A] 開いたタブからホームを操作できない(noopener)")
-    tab.close()
+    # ツールの起動状態の欄は 10-24 に画面から隠した(portal.html の #flow)ので、カードの「開く」を押す確かめはしない(行き先のアドレスは上で見る)
 
     # 2b. 引数なし(ヘッダーの「案件」)は、このブラウザで前に開いた案件を開く
     tab = ctx.new_page()
@@ -914,6 +907,7 @@ def run_child_process_phase(browser, tmp, shots, check, events):
             check(wait_card(pg, tid, "running"), "[B] %s が動作中" % tid)
         check(pg.evaluate("document.querySelectorAll('.pt-tool').length") == 2, "[B] カードは2枚(cut2resolve は動いている間は出さない)")
         open_advanced(pg)
+        pg.evaluate("document.querySelector('#flow').hidden = false")   # ツールの起動状態の欄は 10-24 から画面に出さない(裏の描き方・ログ・異常終了の表示はそのまま)。ここで確かめるために出す
 
         meta = pg.text_content(".pt-tool[data-tool=transcribe] .pt-meta")
         check(("ポート %d" % ports["transcribe"]) in meta and TX_VER in meta and "ホームに取り込み" not in meta,
