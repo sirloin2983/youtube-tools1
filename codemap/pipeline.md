@@ -52,7 +52,7 @@
   - 名前: `class Cancelled` :46・`class OutputExists` :53・`class Task` :62・`parse_time` :77・`parse_cut_list` :115・`sec_to_frames` :146・`cue_frames` :150・`frames_to_sec` :156・`fps_label` :161・`cut_list_to_keeps` :166・`normalize` :181・`subtract` :199・ほか 34
 - **edge_pause.py** (102 行) — 切り抜きの両端を「話の間」へ寄せる(10-23。決定 3-153。notes:plan/heatmap-study.md の「切り抜きの端を話の間へ」)。
   - 名前: `levels` :26・`voice_level` :46・`pauses` :52・`snap_end` :66・`snap_start` :76・`snap` :86
-- **pack.py** (958 行) — カットの計算(試算)とパックの作成。画面(serve.py)と ② の自動の流れが呼ぶ共通部(処理を二重に持たない)。
+- **pack.py** (964 行) — カットの計算(試算)とパックの作成。画面(serve.py)と ② の自動の流れが呼ぶ共通部(処理を二重に持たない)。
   - 名前: `class RowEdge` :42・`class Request` :77・`class Plan` :111・`class Cache` :135・`default_out_dir` :199・`row_edge_from` :203・`widen_row_edges` :227・`row_edge_pending` :270・`silence_pending` :279・`detect_pending` :287・`without_detect` :296・`plan_cut` :315・ほか 17
 - **preview.py** (124 行) — ① 確認用の動画(友人が受け取るかを決める前に見る、1 本の切り抜きの 480p の動画)とパックの中の切り抜きの動画の引き方(ds1 = 要件 1-5。② flow/deliver から分けた)。
   - 名前: `pack_title` :24・`scratch_path` :30・`remove_quiet` :35・`pack_video` :41・`make_preview` :80・`clip_preview` :105・`pack_seconds` :118
