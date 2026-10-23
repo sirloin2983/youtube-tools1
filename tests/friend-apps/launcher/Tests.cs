@@ -325,6 +325,21 @@ static class Tests
         Eq(2, Updater.CleanOld(h), ".old を消す");
         True(!File.Exists(Path.Combine(h, "FriendApp.exe.old")), "消えた");
         Eq(0, Updater.Swap(h, "0.99.99"), "版のフォルダに exe が無ければ写さない");
+        // 写す途中で落ちた(*.new だけ残った)= 本体は前の版のまま・次の起動の CleanOld が *.new を消す(10-23 の見回り)
+        File.WriteAllText(Path.Combine(h, "FriendApp.exe.new"), "half");
+        Eq("new-exe", File.ReadAllText(Path.Combine(h, "FriendApp.exe")), "本体はそのまま");
+        Updater.CleanOld(h);
+        True(!File.Exists(Path.Combine(h, "FriendApp.exe.new")), "*.new を消す");
+        // 写せなかった(版のフォルダの DLL を開けない)= 本体は元のまま・*.new も残さない
+        Directory.CreateDirectory(Path.Combine(h, "app-0.99.15"));
+        File.WriteAllText(Path.Combine(h, "app-0.99.15", "FriendApp.exe"), "v15");
+        Directory.CreateDirectory(Path.Combine(h, "WebView2Loader.dll.new"));   // *.new に写せない
+        File.WriteAllText(Path.Combine(h, "app-0.99.15", "WebView2Loader.dll"), "dll15");
+        bool threw = false;
+        try { Updater.Swap(h, "0.99.15"); } catch (Exception) { threw = true; }
+        True(threw, "写せなければ例外");
+        Eq("new-exe", File.ReadAllText(Path.Combine(h, "FriendApp.exe")), "写せなくても本体は元のまま");
+        True(!File.Exists(Path.Combine(h, "FriendApp.exe.new")), "写しかけの *.new を残さない");
     }
 
     static void DiagRules()
