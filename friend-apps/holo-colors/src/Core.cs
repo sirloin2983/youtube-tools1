@@ -124,7 +124,7 @@ namespace HoloColors
     public class ColorGroup
     {
         public string Id;
-        public string Branch;     // MY / WORD / JP / DEV_IS / EN / ID / GRAD(FAV / RECENT は画面が作る一覧)
+        public string Branch;     // MY / WORD / JP / DEV_IS / EN / ID / GRAD(FAV は画面が作る一覧)
         public string Name;
         public List<ColorEntry> Items = new List<ColorEntry>();
 
@@ -147,7 +147,6 @@ namespace HoloColors
                 case "MY": return "マイカラー";
                 case "WORD": return "マイワード";
                 case "FAV": return "お気に入り";
-                case "RECENT": return "最近使ったもの";
                 case "GRAD": return "卒業";
                 default: return b;
             }
@@ -156,7 +155,7 @@ namespace HoloColors
         // 一覧の絞り込みではなく、自分の側で持つ・画面が作る一覧(members.json には書けない)
         public static bool IsSpecial(string b)
         {
-            return b == "MY" || b == "WORD" || b == "FAV" || b == "RECENT";
+            return b == "MY" || b == "WORD" || b == "FAV";
         }
 
         public static bool IsKnown(string b)
@@ -500,13 +499,6 @@ namespace HoloColors
         }
     }
 
-    // 最近使ったもの1件(項目の id と、コピーした色の番号)
-    public class RecentItem
-    {
-        public string Id;
-        public int ColorIndex;
-    }
-
     // ---- 設定(settings.json) ----
     public class Settings
     {
@@ -519,9 +511,8 @@ namespace HoloColors
         public string Filter = "ALL";
         public bool Welcomed;      // 初めての起動の案内を出したか
         public bool AlwaysOnTop;   // 一覧をいつも一番手前に(既定は外す。キーで呼んだときは外していても前に出る)
-        public const int MaxFavorites = 300, MaxRecent = 5, MaxColorIndex = 20;
+        public const int MaxFavorites = 300;
         public List<string> Favorites = new List<string>();      // お気に入りの項目の id(足した順)
-        public List<RecentItem> Recent = new List<RecentItem>(); // 最近使ったもの(新しい順)
 
         public IDictionary<string, object> ToJson()
         {
@@ -538,7 +529,6 @@ namespace HoloColors
                 { "welcomed", Welcomed },
                 { "alwaysOnTop", AlwaysOnTop },
                 { "favorites", Favorites.Cast<object>().ToList() },
-                { "recent", Recent.Select(r => (object)new Dictionary<string, object> { { "id", r.Id }, { "color", r.ColorIndex } }).ToList() },
             };
         }
 
@@ -565,13 +555,7 @@ namespace HoloColors
                     if (s.Favorites.Count >= MaxFavorites) break;
                     s.Favorites.Add(id);
                 }
-            foreach (var r in Json.List(d, "recent"))
-            {
-                string id = Json.Str(r, "id");
-                if (string.IsNullOrEmpty(id) || s.Recent.Any(x => x.Id == id)) continue;
-                if (s.Recent.Count >= MaxRecent) break;
-                s.Recent.Add(new RecentItem { Id = id, ColorIndex = Math.Max(0, Math.Min(MaxColorIndex, Json.Int(r, "color", 0))) });
-            }
+            // 1.4.4 までの「最近使ったもの」(recent)は読まない(次に保存したときに消える)
             return s;
         }
     }
@@ -861,7 +845,7 @@ namespace HoloColors
             if (g == Words) SaveWords(); else SaveColors();
         }
 
-        // ---- お気に入り・最近使ったもの(settings.json) ----
+        // ---- お気に入り(settings.json) ----
         public bool IsFavorite(ColorEntry e)
         {
             return e != null && e.Id != null && Settings.Favorites.Contains(e.Id);
@@ -885,22 +869,11 @@ namespace HoloColors
             return now;
         }
 
-        public void NoteRecent(ColorEntry e, int colorIndex)
-        {
-            if (e == null || e.Id == null) return;
-            Settings.Recent.RemoveAll(r => r.Id == e.Id);
-            Settings.Recent.Insert(0, new RecentItem { Id = e.Id, ColorIndex = Math.Max(0, Math.Min(Settings.MaxColorIndex, colorIndex)) });
-            if (Settings.Recent.Count > Settings.MaxRecent) Settings.Recent.RemoveRange(Settings.MaxRecent, Settings.Recent.Count - Settings.MaxRecent);
-            SaveSettings();
-        }
-
-        // 消した項目をお気に入り・最近使ったものからも外す
+        // 消した項目をお気に入りからも外す
         public void Forget(ColorEntry e)
         {
             if (e == null || e.Id == null) return;
-            int a = Settings.Favorites.RemoveAll(x => x == e.Id);
-            int b = Settings.Recent.RemoveAll(r => r.Id == e.Id);
-            if (a + b > 0) SaveSettings();
+            if (Settings.Favorites.RemoveAll(x => x == e.Id) > 0) SaveSettings();
         }
 
         // id の並びを項目にする(順番はそのまま・知らない id は飛ばす)

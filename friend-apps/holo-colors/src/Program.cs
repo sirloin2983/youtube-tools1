@@ -430,10 +430,9 @@ namespace HoloColors
             }
         }
 
-        // コピーしたあとの共通の動き: 最近使ったものに記録し、閉じる設定なら隠して知らせを出す。開いたままなら、押した帯に「✓」を少し出す
+        // コピーしたあとの共通の動き: 閉じる設定なら隠して知らせを出す。開いたままなら、押した帯に「✓」を少し出す
         void AfterCopy(ColorEntry e, int colorIndex, string toastText, string toastHex)
         {
-            NoteRecent(e, colorIndex);
             if (Store.Settings.CloseAfterCopy && Shown)
             {
                 HideMain(true);
@@ -464,13 +463,6 @@ namespace HoloColors
             if (!SetClipboard(Store.ClipboardText(e.Text))) return;
             main.SetStatus("コピーしました: 「" + e.Name + "」", false);
             AfterCopy(e, 0, "「" + e.Name + "」をコピーしました", "#E8E8EE");
-        }
-
-        // 最近使ったものに記録する。閉じない設定のときに押すたびに並びが変わると押し間違えるので、画面は次に開いたとき(ResetView)に直す
-        void NoteRecent(ColorEntry e, int colorIndex)
-        {
-            try { Store.NoteRecent(e, colorIndex); }
-            catch (Exception ex) { Log.Write("recent: " + ex); }
         }
 
         // ---- お気に入り・並べ替え ----

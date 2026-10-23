@@ -178,16 +178,13 @@ namespace HoloColors
             string q = search.Text;
             view.ShowSelection = q.Trim().Length > 0;
             var visible = new List<ColorGroup>();
-            // 「すべて」で検索していないときは、お気に入りと最近使ったものを一番上に(写し。元のグループにもそのまま残る)
+            // 「すべて」で検索していないときは、お気に入りを一番上に(写し。元のグループにもそのまま残る)
             if (filter == "ALL" && string.IsNullOrWhiteSpace(q))
             {
                 var all = app.AllGroups().SelectMany(g => g.Items).ToList();
                 var fav = new ColorGroup { Id = "fav", Branch = "FAV", Name = Branches.Short("FAV") };
                 fav.Items.AddRange(app.Store.ResolveIds(app.Store.Settings.Favorites, all));
                 if (fav.Items.Count > 0) visible.Add(fav);
-                var recent = new ColorGroup { Id = "recent", Branch = "RECENT", Name = Branches.Short("RECENT") };
-                recent.Items.AddRange(app.Store.ResolveIds(app.Store.Settings.Recent.Select(r => r.Id), all));
-                if (recent.Items.Count > 0) visible.Add(recent);
             }
             foreach (var g in app.AllGroups())
             {

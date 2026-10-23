@@ -15,7 +15,7 @@ namespace HoloColors
         public class Tile
         {
             public ColorEntry Entry;
-            public ColorGroup Group;   // この札を並べたグループ(お気に入り・最近使ったものの写しは、元のグループと別)
+            public ColorGroup Group;   // この札を並べたグループ(お気に入りの写しは、元のグループと別)
             public Rectangle Rect;     // スクロールしていないときの座標
             public Rectangle Top;      // 上段(名前)
             // 下段の色の帯。Bands[i] = Entry.AllColors[i](0 = 主な色)。1段に入りきらなければ2段・3段に折り返す
@@ -161,7 +161,7 @@ namespace HoloColors
                     Pill = Branches.IsSpecial(g.Branch) || g.Branch == "GRAD" ? null : Branches.Short(g.Branch),
                     Name = g.Name,
                     Count = g.Items.Count,
-                    Unit = g.Branch == "MY" ? " 色" : g.Branch == "WORD" ? " 件" : g.Branch == "FAV" || g.Branch == "RECENT" ? "" : " 人",
+                    Unit = g.Branch == "MY" ? " 色" : g.Branch == "WORD" ? " 件" : g.Branch == "FAV" ? "" : " 人",
                     Rect = new Rectangle(pad, y, width - 2 * pad, headH),
                 });
                 y += headH;

@@ -1,4 +1,4 @@
-// マイワード・お気に入り・最近使ったものの中身のテスト(CoreTests.Main から WordsTests.RunAll(Run); で呼ぶ)
+// マイワード・お気に入りの中身のテスト(CoreTests.Main から WordsTests.RunAll(Run); で呼ぶ)
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -17,9 +17,8 @@ public static class WordsTests
         run("マイワード: 開けないファイルは上書きしない", Locked);
         run("マイカラー: MoveTo と Remove(マイワードと同じ道)", ColorsMove);
         run("お気に入り: 切り替え・残る・消したら外れる", Favorites);
-        run("最近使ったもの: 順番・重なり・5件・残る", Recent);
-        run("設定: お気に入り・最近の壊れた値に耐える", Garbage);
-        run("branch: WORD/FAV/RECENT は members.json に書けない・札に WORD", Branch);
+        run("設定: お気に入りの壊れた値に耐える・1.4.4 までの最近使ったものは読まない", Garbage);
+        run("branch: WORD/FAV は members.json に書けない・札に WORD", Branch);
         run("検索: マイワードは本文で当たる・色は空", SearchAndColors);
     }
 
@@ -215,11 +214,9 @@ public static class WordsTests
             True(!s.ToggleFavorite(w), "外す");
             Eq(1, Reload(dir).Settings.Favorites.Count, "外したのが残る");
             s.ToggleFavorite(w);
-            s.NoteRecent(w, 2);
             s.Remove(w);
             r = Reload(dir);
             True(!r.Settings.Favorites.Contains(w.Id), "消したらお気に入りから外れる");
-            True(r.Settings.Recent.All(x => x.Id != w.Id), "最近からも外れる");
             Eq(1, r.Settings.Favorites.Count, "色のお気に入りは残る");
             s.Remove(c);
             Eq(0, Reload(dir).Settings.Favorites.Count, "色を消してもお気に入りから外れる");
@@ -237,72 +234,38 @@ public static class WordsTests
         });
     }
 
-    static void Recent()
-    {
-        WithDir(dir =>
-        {
-            var s = Reload(dir);
-            var list = new List<ColorEntry>();
-            for (int i = 0; i < 7; i++) list.Add(s.AddWord("w" + i, "t" + i));
-            for (int i = 0; i < 7; i++) s.NoteRecent(list[i], i);
-            Eq(5, s.Settings.Recent.Count, "最大5件");
-            Eq(list[6].Id, s.Settings.Recent[0].Id, "新しい順");
-            Eq(list[2].Id, s.Settings.Recent[4].Id, "古いものから落ちる");
-            s.NoteRecent(list[4], 3);   // 途中のものを前へ・色の番号は新しい方
-            Eq(list[4].Id, s.Settings.Recent[0].Id, "前へ移る");
-            Eq(3, s.Settings.Recent[0].ColorIndex, "色の番号");
-            Eq(5, s.Settings.Recent.Count, "重ならない");
-            Eq(1, s.Settings.Recent.Count(x => x.Id == list[4].Id), "1件だけ");
-            s.NoteRecent(list[0], 99);
-            Eq(Settings.MaxColorIndex, s.Settings.Recent[0].ColorIndex, "番号は範囲に収める");
-            var r = Reload(dir);
-            Eq(5, r.Settings.Recent.Count, "残る");
-            Eq(list[0].Id, r.Settings.Recent[0].Id, "順番が残る");
-            Eq(list[4].Id, r.Settings.Recent[1].Id, "順番が残る");
-            Eq(3, r.Settings.Recent[1].ColorIndex, "番号が残る");
-        });
-    }
-
     static void Garbage()
     {
-        var d = Json.Parse("{\"favorites\": \"abc\", \"recent\": 5}");
+        var d = Json.Parse("{\"favorites\": \"abc\"}");
         var s = Settings.FromJson(d);
         Eq(0, s.Favorites.Count, "favorites が文字列");
-        Eq(0, s.Recent.Count, "recent が数");
-        s = Settings.FromJson(Json.Parse("{\"favorites\": {\"a\": 1}, \"recent\": {\"id\": \"x\"}}"));
+        s = Settings.FromJson(Json.Parse("{\"favorites\": {\"a\": 1}}"));
         Eq(0, s.Favorites.Count, "オブジェクト");
-        Eq(0, s.Recent.Count, "オブジェクト");
         s = Settings.FromJson(Json.Parse("{}"));
-        Eq(0, s.Favorites.Count + s.Recent.Count, "キー無し");
-        s = Settings.FromJson(Json.Parse("{\"favorites\": [\"a\", 1, null, \"\", \"a\", \"b\", [\"z\"], true], "
-            + "\"recent\": [\"str\", {\"id\": 3}, {\"color\": 2}, {\"id\": \"p\", \"color\": -4}, {\"id\": \"q\", \"color\": 999}, "
-            + "{\"id\": \"p\", \"color\": 1}, {\"id\": \"r\", \"color\": \"x\"}]}"));
+        Eq(0, s.Favorites.Count, "キー無し");
+        s = Settings.FromJson(Json.Parse("{\"favorites\": [\"a\", 1, null, \"\", \"a\", \"b\", [\"z\"], true]}"));
         Eq("a,b", string.Join(",", s.Favorites), "favorites の不正・重なりを落とす");
-        Eq("p,q,r", string.Join(",", s.Recent.Select(x => x.Id)), "recent の不正・重なりを落とす");
-        Eq(0, s.Recent[0].ColorIndex, "負は 0");
-        Eq(Settings.MaxColorIndex, s.Recent[1].ColorIndex, "大きすぎは上限");
-        Eq(0, s.Recent[2].ColorIndex, "型違いは 0");
         var many = new List<object>();
         for (int i = 0; i < 400; i++) many.Add("id" + i);
         var big = new Dictionary<string, object> { { "favorites", many } };
         Eq(Settings.MaxFavorites, Settings.FromJson(big).Favorites.Count, "300 件まで");
-        var rec = new List<object>();
-        for (int i = 0; i < 9; i++) rec.Add(new Dictionary<string, object> { { "id", "r" + i }, { "color", 0 } });
-        Eq(Settings.MaxRecent, Settings.FromJson(new Dictionary<string, object> { { "recent", rec } }).Recent.Count, "5 件まで");
+        // 1.4.4 までの settings.json の「最近使ったもの」(recent)は読まずに無視し、書き直すと消える
+        var old = Settings.FromJson(Json.Parse("{\"favorites\": [\"my/abc\"], \"recent\": [{\"id\": \"my/abc\", \"color\": 2}], \"closeAfterCopy\": false}"));
+        Eq("my/abc", old.Favorites[0], "古い設定のほかの値は読む");
+        True(!old.CloseAfterCopy, "古い設定のほかの値は読む");
+        True(!old.ToJson().ContainsKey("recent"), "書き直すと recent は消える");
         // JSON 往復
         var t = new Settings();
         t.Favorites.Add("my/abc");
-        t.Recent.Add(new RecentItem { Id = "my/abc", ColorIndex = 2 });
         var back = Settings.FromJson(Json.Parse(Json.Pretty(t.ToJson())));
         Eq("my/abc", back.Favorites[0], "往復");
-        Eq(2, back.Recent[0].ColorIndex, "往復");
     }
 
     static void Branch()
     {
         WithDir(dir =>
         {
-            foreach (string b in new[] { "WORD", "FAV", "RECENT", "MY" })
+            foreach (string b in new[] { "WORD", "FAV", "MY" })
             {
                 string path = Path.Combine(dir, "m-" + b + ".json");
                 File.WriteAllText(path, "{\"groups\": [{\"id\": \"g\", \"branch\": \"" + b + "\", \"name\": \"x\", \"members\": [{\"name\": \"a\", \"hex\": \"#FF0000\"}]}]}", new UTF8Encoding(false));
@@ -311,11 +274,10 @@ public static class WordsTests
             True(Array.IndexOf(Branches.Filters, "WORD") > 0, "札に WORD");
             Eq("マイワード", Branches.Short("WORD"), "Short WORD");
             Eq("お気に入り", Branches.Short("FAV"), "Short FAV");
-            Eq("最近使ったもの", Branches.Short("RECENT"), "Short RECENT");
-            True(Branches.IsSpecial("MY") && Branches.IsSpecial("WORD") && Branches.IsSpecial("FAV") && Branches.IsSpecial("RECENT"), "IsSpecial");
+            True(Branches.IsSpecial("MY") && Branches.IsSpecial("WORD") && Branches.IsSpecial("FAV"), "IsSpecial");
             True(!Branches.IsSpecial("JP") && !Branches.IsSpecial("GRAD") && !Branches.IsSpecial("ALL"), "IsSpecial でない");
             True(Branches.IsKnown("JP") && !Branches.IsKnown("ALL"), "IsKnown");
-            foreach (string b in new[] { "MY", "WORD", "FAV", "RECENT", "GRAD" })
+            foreach (string b in new[] { "MY", "WORD", "FAV", "GRAD" })
                 Eq("名前", new ColorGroup { Branch = b, Name = "名前" }.Label, "Label は名前だけ: " + b);
             True(new ColorGroup { Branch = "JP", Name = "名前" }.Label.StartsWith("JP"), "メンバーの Label は branch 付き");
         });
