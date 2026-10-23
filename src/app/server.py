@@ -70,6 +70,7 @@
 """
 import argparse
 import http.client
+import json
 import os
 import queue
 import re
@@ -109,6 +110,7 @@ from human.friend import intake as intake_mod  # noqa: E402  (src/human/friend/i
 from manage.keep import backup as backup_mod  # noqa: E402  (src/manage/keep/backup.py: 作業データのバックアップ)
 from eval.drill import accuracy as accuracy_mod  # noqa: E402  (src/eval/drill/accuracy.py: 精度の自動測定 = src/eval/tools/eval_*.py を手が空いた夜に子プロセスで)
 from app.check import deck as check_deck, lineup as check_lineup  # noqa: E402  (src/app/check: 「確かめる」の待ち行列。V1)
+from human.check import answerlog as check_answerlog  # noqa: E402  (答えた札 = 自動の片付けで、価値のカードを待っている切り抜きを残す)
 from human.check import apply as check_apply  # noqa: E402  (src/human/check/apply.py: 「確かめる」の答えの記録と反映。V1)
 from human.check import read as check_read  # noqa: E402,F401  (読みのカードの反映を apply に登録する。V2b)
 from human.check import timerow as _check_timerow  # noqa: E402,F401  (時刻のカードの反映を apply に登録する。V2d)
@@ -1145,13 +1147,54 @@ class PortalServer(httpsec.ExclusiveServer):
         return 200, dict({"ok": True}, **({"notice": notice} if notice else {}))
 
     def purge_trash(self):
-        """起動時: 日数(cleanup.TRASH_DAYS)を過ぎたごみ箱フォルダの日付を消す(裏で)"""
+        """起動時: 日数(cleanup.TRASH_DAYS)を過ぎたごみ箱フォルダの日付を消す(裏で)。そのあと、届けた切り抜きの動画とパックを
+        届けて KEEP_DAYS 日で自動でごみ箱へ(cleanup.AUTO_DELIVERED。起動のすぐあとと AUTO_EVERY_SEC ごと)"""
         try:
             n = self.cleanup.purge()
             if n:
                 self.sup.log("ごみ箱フォルダから %d 日ぶんを消しました(%d 日を過ぎた)" % (n, self.cleanup.trash_days))
         except Exception as e:
             self.sup.log("ごみ箱フォルダを片付けられませんでした: %r" % (e,))
+        while not self.closing.is_set():
+            self.auto_clean_delivered()
+            if self.closing.wait(cleanup_mod.AUTO_EVERY_SEC):
+                return
+
+    def value_waiting_paths(self):
+        """確かめるの「切り抜く価値」(自動でできた切り抜き)で答えを待っている切り抜きの動画(自動の片付けで残す。答えは精度の材料)"""
+        cases = cases_mod.snapshot(self.sup.root).get("cases") or []
+        answered = set(check_answerlog.state(self.cleanup.app_dir).by_card)
+        out = []
+        for c in cases:
+            for cl in (c.get("clips") or ()) if isinstance(c, dict) else ():
+                if isinstance(cl, dict) and cl.get("auto") and cl.get("path") and \
+                        check_lineup.card_id("value", "auto", c.get("id"), cl.get("markId") or "") not in answered:
+                    out.append(cl["path"])
+        return out
+
+    def auto_clean_delivered(self, dry_run=False):
+        """届けて KEEP_DAYS 日たった切り抜きの動画とパックをごみ箱へ。移した物の一覧を logs/cleanup-auto.jsonl に 1 行(何が移ったかを後で見る)。
+        確かめるで答えを待っている物が分からないとき(案件が読めない)は移さない"""
+        try:
+            keep = self.value_waiting_paths()
+        except Exception as e:
+            self.sup.log("自動の片付け: 確かめるで待っている切り抜きが分からないので、移しませんでした: %r" % (e,))
+            return None
+        try:
+            with self.cleanup_lock:
+                r = self.cleanup.auto_delivered(keep, dry_run=dry_run)
+        except Exception as e:
+            self.sup.log("自動の片付けができませんでした: %r" % (e,))
+            return None
+        if r["items"] and not dry_run:
+            self.sup.log("自動の片付け: 届けて %d 日たった切り抜きの動画とパック %d 件(%.1f GB)をごみ箱へ(失敗 %d)" % (
+                self.cleanup.keep_days, r["moved"], r["bytes"] / 1e9, r["failed"]))
+            try:
+                fsio.append_line(os.path.join(self.sup.logs_dir, "cleanup-auto.jsonl"), json.dumps(
+                    {"at": int(time.time() * 1000), "moved": r["moved"], "failed": r["failed"], "bytes": r["bytes"], "items": r["items"]}, ensure_ascii=False) + "\n", 4 * 1024 * 1024)
+            except OSError:
+                pass
+        return r
 
     def _worker_probe(self):
         """「編集」の /api/ping の worker(認識ワーカーの状態)。動いていなければ None"""

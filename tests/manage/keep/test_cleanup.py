@@ -133,6 +133,54 @@ class CleanupTest(unittest.TestCase):
     def write_deliveries(self, rows):
         write_text(os.path.join(self.app, "logs", C.DELIVERIES_LOG), "".join(json.dumps(r) + "\n" for r in rows))
 
+    def test_auto_delivered(self):
+        """届けて keep_days 日たった切り抜き(届けた記録のパック + 切り抜きの動画 + _edit.mp4)と、届けた依頼の置き場所の動画とパックを
+        自動でごみ箱へ。届けていない・日数がたっていない・確かめるで待っている・手で置いた依頼の動画・文書と字幕は残す。依頼の置き場所と
+        届けた記録のパックが同じ物は 1 回だけ"""
+        out = os.path.join(self.tmp, "出力")
+        cl = self.cleanup(keep_days=3, out_dirs=[out])
+        old, recent = int((self.now[0] - 5 * 86400) * 1000), int((self.now[0] - 1 * 86400) * 1000)
+        case = os.path.join(out, "配信の題")
+        clip = touch(os.path.join(case, "01_a.mp4"), 30)
+        edit = touch(os.path.join(case, "作業用", "01_a_edit.mp4"), 4)
+        doc = touch(os.path.join(case, "作業用", "01_a.transcript.json"), 2)   # 文書 = 残す
+        pack = os.path.join(case, "01_a_pack")
+        touch(os.path.join(pack, "01_a_edit.mp4"), 8)
+        wait_clip = touch(os.path.join(case, "02_b.mp4"), 30)                 # 確かめるで待っている
+        wait_pack = os.path.join(case, "02_b_pack")
+        touch(os.path.join(wait_pack, "x.mp4"), 8)
+        new_clip = touch(os.path.join(case, "03_c.mp4"), 30)                  # 届けたばかり
+        new_pack = os.path.join(case, "03_c_pack")
+        touch(os.path.join(new_pack, "x.mp4"), 8)
+        undelivered = os.path.join(case, "04_d_pack")                         # 届けていない
+        touch(os.path.join(undelivered, "x.mp4"), 8)
+        req = os.path.join(out, C.REQUEST_DIR, "%s_題_aaaaaa" % self.ymd(20))   # 届けた依頼の置き場所(パックは届けた記録にもある)
+        touch(os.path.join(req, "v.mp4"), 20)
+        touch(os.path.join(req, "v_pack", "v.mp4"), 6)
+        self.write_case(req, "20261001-120000-aaaaaa")
+        manual = os.path.join(out, C.REQUEST_DIR, "%s_題_123abc" % self.ymd(20))   # 手で置いた動画 = 届けていない
+        touch(os.path.join(manual, "m.mp4"), 11)
+        self.write_case(manual, "")
+        self.write_deliveries([{"requestId": "", "at": old, "packs": [{"dir": pack, "path": clip}, {"dir": wait_pack, "path": wait_clip}]},
+                               {"requestId": "", "at": recent, "packs": [{"dir": new_pack, "path": new_clip}]},
+                               {"requestId": "20261001-120000-aaaaaa", "at": old, "packs": [{"dir": os.path.join(req, "v_pack"), "path": ""}]}])
+        dry = cl.auto_delivered([wait_clip], dry_run=True)
+        self.assertEqual(sorted(sorted(os.path.basename(p) for p in it["parts"]) for it in dry["items"]),
+                         [["01_a.mp4", "01_a_edit.mp4", "01_a_pack"], ["v.mp4", "v_pack"]])
+        self.assertEqual((dry["moved"], dry["bytes"]), (0, 30 + 4 + 8 + 20 + 6))
+        self.assertTrue(os.path.isfile(clip))                                 # dry_run は移さない
+        r = cl.auto_delivered([wait_clip])
+        self.assertEqual((r["moved"], r["failed"]), (2, 0))
+        for gone in (clip, edit, pack, os.path.join(req, "v.mp4")):
+            self.assertFalse(os.path.exists(gone), gone)
+        for kept in (doc, wait_clip, wait_pack, new_clip, new_pack, undelivered, os.path.join(manual, "m.mp4")):
+            self.assertTrue(os.path.exists(kept), kept)
+        self.assertEqual(cl.auto_delivered([wait_clip])["items"], [])         # 2 回目は何も無い
+        from unittest import mock
+        with mock.patch.object(C, "AUTO_DELIVERED", False):                   # スイッチ
+            touch(os.path.join(case, "01_a.mp4"), 30)
+            self.assertEqual(cl.auto_delivered([])["items"], [])
+
     def test_request_folders_from_last_delivery_or_receipt(self):
         """書き出し先の 依頼/<日付>_<題>_<id6>/ は、最後に届けてから keep_days 日(手で置いた動画 = case.json に requestId が無い は受け付けてから)。
         届けていない・case.json の無いフォルダは出さない。移すのは動画とパックだけ(作業用の文書は残す)"""

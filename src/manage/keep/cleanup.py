@@ -49,6 +49,8 @@ KINDS = (("export", "スタジオの書き出しの元動画(パックから %d 
          ("intake", "受け付けた依頼の動画・友人の送り返しの受付済み(届けてから・手で置いた物は受け付けてから %d 日。文書は残す)" % KEEP_DAYS),
          ("failed", "断って失敗\\ に置いた物(受付と送り返し。更新から %d 日・理由の .txt つき)" % KEEP_DAYS))
 VIDEO_EXTS = (".mp4", ".mkv", ".mov", ".webm", ".m4v", ".avi", ".ts")
+AUTO_DELIVERED = True   # 友人へ届けて KEEP_DAYS 日たった切り抜きの動画とパックを、自動でごみ箱へ(ユーザー 10-24。False = 今までどおり候補に出すだけ)
+AUTO_EVERY_SEC = 12 * 3600   # 自動で移す間隔(起動のすぐあとと、そのあと 12 時間ごと)
 MAX_ITEMS = 500
 
 
@@ -406,6 +408,66 @@ class Cleanup:
                 if it:
                     out.append(it)
         return out
+
+    # ---------- 届けた物を自動で移す(ユーザー 10-24「精度改善以外で、自分用に動画を保存する意味がない」) ----------
+    def delivered_items(self, keep_paths=()):
+        """自動で移す物 -> [item](parts = 動画とパックのフォルダだけ)。友人へ届けて keep_days 日たった切り抜き(届けた記録のパックのフォルダ・
+        切り抜きの動画・その _edit.mp4)と、依頼の置き場所の動画とパック(_requests)。届けていない物・keep_paths(確かめるで答えを待っている
+        切り抜きの動画)は出さない。文書・作業用の記録・字幕は移さない(精度の材料)"""
+        got = _deliveries.rows(os.path.join(self.app_dir, "logs"))
+        if got is None:
+            return []   # 届けたかが分からない = 何も移さない
+        now, days = self.clock(), self.keep_days * 86400
+        keep = {os.path.normcase(os.path.abspath(p)) for p in keep_paths or () if isinstance(p, str) and p}
+        last = {}   # パックのフォルダ -> (最後に届けた時刻 秒, フォルダ, 切り抜きの動画)
+        for d in got:
+            at = d.get("at")
+            sec = at / 1000.0 if isinstance(at, (int, float)) and not isinstance(at, bool) and at > 0 else 0.0
+            for pk in d.get("packs") or ():
+                if not isinstance(pk, dict) or not isinstance(pk.get("dir"), str) or not pk["dir"]:
+                    continue
+                k = os.path.normcase(os.path.abspath(pk["dir"]))
+                if k not in last or sec > last[k][0]:
+                    last[k] = (sec, pk["dir"], pk.get("path") if isinstance(pk.get("path"), str) else "")
+        out, taken = [], set()
+        for it in self._requests():   # 依頼の置き場所(依頼\\)の動画とパック。下の届けた記録のパックと同じ物は 1 回だけ
+            if it["kind"] == "intake" and "届けてから" in it["note"]:   # 届けた依頼だけ(手で置いた動画 = 届けていない は残す)
+                it["parts"] = [p for p in it["parts"] if os.path.normcase(os.path.abspath(p)) not in keep]
+                if it["parts"]:
+                    it["bytes"] = sum(_size(p) for p in it["parts"])
+                    taken.update(os.path.normcase(os.path.abspath(p)) for p in it["parts"])
+                    out.append(it)
+        for sec, pdir, clip in last.values():
+            if not sec or now - sec <= days or os.path.normcase(os.path.abspath(pdir)) in taken:
+                continue   # 時刻の無い古い行・まだ日数がたっていない・依頼の置き場所で移す
+            clip = clip if clip and os.path.isfile(clip) else ""
+            if clip and os.path.normcase(os.path.abspath(clip)) in keep:
+                continue   # 確かめるで答えを待っている(パックも残す = 案件の画面から同じ物を見られる)
+            parts = ([pdir] if os.path.isdir(pdir) else []) + ([clip] if clip else [])
+            parts += [p for p in _trash.existing_sidecars(clip) if p.lower().endswith(VIDEO_EXTS)] if clip else []
+            if not parts:
+                continue
+            name = "%s_%s" % (os.path.basename(os.path.dirname(pdir.rstrip("\\/"))), os.path.basename(pdir.rstrip("\\/")))
+            it = _parts_item("export", os.path.dirname(pdir.rstrip("\\/")), "届けてから %d 日" % int((now - sec) // 86400), parts)
+            it.update(id=_id(pdir), name=name[:120])
+            out.append(it)
+        return out
+
+    def auto_delivered(self, keep_paths=(), dry_run=False):
+        """届けた物を自動でごみ箱へ(AUTO_DELIVERED)。-> {"items": [{name, path, bytes, parts}], "moved": 数, "failed": 数, "bytes"}。
+        dry_run = 一覧だけ(移さない)。移した物は ごみ箱\\<日付>\\<種類>\\ に入り、trash_days 日で消える(今の決まり)"""
+        if not AUTO_DELIVERED:
+            return {"items": [], "moved": 0, "failed": 0, "bytes": 0}
+        items = self.delivered_items(keep_paths)
+        res = {"items": [{"name": it["name"], "path": it["path"], "bytes": it["bytes"], "parts": list(it["parts"]), "note": it["note"]} for it in items],
+               "moved": 0, "failed": 0, "bytes": sum(it["bytes"] for it in items)}
+        if dry_run or not items:
+            return res
+        for it in items:
+            self._known[it["id"]] = it
+        r = self.move([it["id"] for it in items])
+        res["moved"], res["failed"] = len(r["moved"]), len(r["failed"])
+        return res
 
     # ---------- 移す・消す ----------
     def move(self, ids):
