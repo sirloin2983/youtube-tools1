@@ -19,6 +19,9 @@
 .st-sec .ui-settings-sec{margin:0}
 .st-sec .ui-settings-sec>h3{display:none}
 .st-sec.st-nomatch{display:none}
+.st-yt>p{margin:0 0 8px}
+.st-yt-line{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px}
+.st-yt-bad{color:var(--danger-ink);font-weight:600}   /* YouTube のログインが切れた可能性(友人のアプリの .fs-yt-bad と同じ) */
 @media (max-width:760px){
   .st-body{grid-template-columns:1fr}
   .st-nav{position:static;flex-direction:row;flex-wrap:wrap;gap:4px 6px}

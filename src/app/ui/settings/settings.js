@@ -89,6 +89,45 @@
   };
   var STORES = { home: HOME, studio: STUDIO, editor: EDITOR, analytics: ANALYTICS };
 
+  /* ---- YouTube のログイン(入口の api/ytt/ytlogin = src/app/ytlogin.py。言い方は友人のアプリの ⚙ と同じ = src/friendapp/ui/settings.js の fillYt) ---- */
+  var yt = null;
+  function ytLoginBlock() {
+    var box = document.createElement('div'); box.className = 'st-yt';
+    var state = document.createElement('p'); state.setAttribute('aria-live', 'polite'); state.id = 'stYtState';
+    var line = document.createElement('div'); line.className = 'st-yt-line';
+    var login = document.createElement('button'); login.type = 'button'; login.className = 'btn small'; login.id = 'stYtLogin'; login.textContent = 'YouTube にログイン';
+    var logout = document.createElement('button'); logout.type = 'button'; logout.className = 'btn ghost small'; logout.id = 'stYtLogout'; logout.textContent = 'ログアウト';
+    var why = document.createElement('p'); why.className = 'hint';
+    line.appendChild(login); line.appendChild(logout);
+    box.appendChild(state); box.appendChild(line); box.appendChild(why);
+    yt = { state: state, login: login, logout: logout, why: why, timer: 0, shown: '' };
+    login.addEventListener('click', function () { ytCall('login'); });
+    logout.addEventListener('click', function () { ytCall('logout'); });
+    ytCall('status');
+    return box;
+  }
+  function dayText(ms) { var d = new Date(ms); return (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日'; }
+  function ytFill(y) {
+    yt.state.className = y.state === 'expired' ? 'st-yt-bad' : '';
+    yt.state.textContent = y.running ? 'ログインの小窓で続けてください…' : y.state === 'ok' ? 'ログインしています(' + dayText(y.at) + ')' :
+      y.state === 'expired' ? 'ログインが切れた可能性があります。もう一度ログインしてください' : 'まだログインしていません';
+    yt.login.textContent = y.state === 'none' ? 'YouTube にログイン' : 'もう一度ログイン';
+    yt.login.disabled = !y.canLogin || !!y.running;
+    yt.login.title = y.running ? 'ログインの小窓が開いています' : y.canLogin ? 'ログインの小窓を開きます。済むと自動で閉じます' : (y.why || 'ログインの置き場所が決まっていません(ホームを起動し直してください)');
+    yt.logout.hidden = y.state === 'none';
+    yt.why.textContent = y.why || '';
+    if (y.message && y.message !== yt.shown && !y.running) { yt.shown = y.message; UIKit.toast(y.message, { ms: 4000 }); }
+    clearTimeout(yt.timer);
+    if (y.running) yt.timer = setTimeout(function () { ytCall('status'); }, 2000);   /* 小窓が閉じるまで見る */
+  }
+  function ytCall(op) {
+    if (op !== 'status') { yt.login.disabled = true; yt.shown = ''; }
+    return home('api/ytt/ytlogin', { op: op }).then(ytFill, function (e) {
+      yt.state.textContent = 'ログインの状態を読めませんでした: ' + ((e && e.message) || '');
+      yt.login.disabled = false;
+    });
+  }
+
   /* ---- 描く ---- */
   var SCHEMA = null, forms = [];
   function io(store) { return { get: store.get, set: store.set, disabled: store.disabled }; }
@@ -105,6 +144,7 @@
       var el = secEl(sec), store = sec.store ? STORES[sec.store] : null;
       if (store && store.off) { var pill = document.createElement('span'); pill.className = 'pill'; pill.textContent = '動いていません'; el.querySelector('h2').appendChild(pill); }
       if (sec.kind === 'general') el.appendChild(UIKit.settings.general());
+      if (sec.kind === 'ytlogin') el.appendChild(ytLoginBlock());
       (sec.groups || []).forEach(function (g) {
         var st = g.store ? STORES[g.store] : store;
         g.items.forEach(function (it) { if (it.validated && st === EDITOR) EDITOR.validated[it.key.split('.')[0]] = true; });

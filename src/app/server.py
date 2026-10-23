@@ -128,6 +128,7 @@ from ytt import autorestart as autorestart_mod  # noqa: E402  (src/ytt/autoresta
 from manage.ops import restart as restart_mod  # noqa: E402  (src/manage/ops/restart.py: 入口ごと起動し直す。段9 9-3)
 from app import prefs as prefs_mod  # noqa: E402  (src/app/prefs.py: ホームの設定。まとめて実行の既定・配信者の記憶・共通の再生キー)
 from app import live as live_mod  # noqa: E402  (src/app/live.py: リアルタイム切り抜き(線 D)。既定はオフ)
+from app import ytlogin as ytlogin_mod  # noqa: E402  (src/app/ytlogin.py: YouTube のログイン。yt-dlp に cookie を渡す)
 try:   # src/manage/ops/analytics: 分析と日報(/analytics/ を受け持つ。notes:plan/done/analytics-daily-report.md)。入口を一時フォルダに写すテストでは無いことがある
     from manage.ops.analytics import service as analytics_mod  # noqa: E402
 except ImportError:
@@ -973,6 +974,7 @@ class PortalServer(httpsec.ExclusiveServer):
         self.client_log = clientlog_mod.ClientLog(sup.logs_dir)   # 画面のエラーの記録(段階7-0)
         self.window = appwindow_mod.Opener(app_dir, fsio.atomic_write, log=sup.log)   # 窓で開く(段階7-3)
         self.prefs = prefs_mod.Prefs(os.path.join(app_dir, "prefs.json"), fsio.atomic_write)   # ホームの設定(気が利く画面へ 段1)
+        self.ytlogin = ytlogin_mod.YtLogin(app_dir, os.path.dirname(sup.root), log=sup.log)   # 設定の「YouTube のログイン」(置き場所は _main が環境変数へ)
         # 友人からの依頼の受付(見張りは main で start。テストで作る入口では動かさない)
         self.intake = intake_mod.Intake(self.prefs, lambda: self.autorun, app_dir, log=sup.log,
                                         feedback=lambda fb: friend_feedback_mod.apply(sup.logs_dir, fb, trash=self.cleanup, log=sup.log,
@@ -1196,6 +1198,9 @@ class PortalServer(httpsec.ExclusiveServer):
                 return 200, {"ok": True, "job": self.deliveries.start(body.get("dir"), body.get("title"))}
             if sub == "live":   # リアルタイム切り抜き(線 D の P3): 全ツールのヘッダーの録画の札 {op: "status"} / 札の「停止」{op: "stop", recorder, recording}(src/app/live.py)
                 return self.live.ytt(body)
+            if sub == "ytlogin":   # 設定の「YouTube のログイン」{op: status|login|logout}(src/app/ytlogin.py)
+                op = body.get("op")
+                return 200, dict({"login": self.ytlogin.login, "logout": self.ytlogin.logout}.get(op, self.ytlogin.status)(), ok=True)
             if sub == "prefs":   # ホームの設定(src/app/prefs.py。節ごとに読む・直す。全体を上書きしない)
                 return 200, self.prefs_api(body)
             if sub == "streamer-colors":   # 配信者の名前の欄(字幕の色): 候補の一覧と、入れた名前に合う人(規則は src/ytt/colors.py)
@@ -1556,6 +1561,7 @@ def main(argv=None):
 def _main(opts):
     """起動の本体"""
     datadir.register("app", app_data_dir(ROOT))   # 同じプロセスの案件など(datadir.resolve)が同じ場所を読む
+    ytlogin_mod.apply_env(app_data_dir(ROOT))   # YouTube のログインの cookie の置き場所(無ければ yt-dlp に何も渡さない)。ツールを起こす前に
     log = make_logger(os.path.join(logs_dir_for(ROOT), "launcher.log"))
     sup = Supervisor(ROOT, only=opts.only, log=log, mounts=() if opts.no_mount else tuple(mount_mod.MOUNTS))
     if opts.wait_port:   # 「起動し直す」で起こされた: 古い入口が終わり・ポートを離すまで待つ。期限が来ても次の番号には逃げない(RS7-1 1d)

@@ -210,24 +210,10 @@ class Settings:
 
     def yt_logout(self):
         """cookie と yt-dlp に渡した写しを消す -> 消したか"""
-        src = (self.env.get(_tools.COOKIES_ENV) or "").strip()
-        if not src:
-            return False
-        had = os.path.isfile(src)
         try:
-            if had:
-                os.remove(src)
+            return _ytcookies.logout((self.env.get(_tools.COOKIES_ENV) or "").strip())
         except OSError as e:
             raise SettingsError("ログアウトできませんでした(%s)" % (e.strerror or e.__class__.__name__))
-        _ytcookies.forget(src)
-        run = os.path.join(os.path.dirname(src), _tools.COOKIES_RUN)
-        if os.path.isdir(run):
-            for n in os.listdir(run):
-                try:
-                    os.remove(os.path.join(run, n))
-                except OSError:
-                    pass   # 動いている yt-dlp の写し = 24 時間で消える
-        return had
 
     def _form_view(self):
         f = self.api.form()
