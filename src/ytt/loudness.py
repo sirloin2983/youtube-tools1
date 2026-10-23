@@ -19,7 +19,14 @@ MAX_SPANS = 400         # 区間ごとに測るときの区間の数の上限(�
 # まとめて実行のパックは「そろえない(0)」でも DEFAULT にそろえる(flow/spec.pack_output)。False = 今までどおり(ピークの手前で止める利得・音量 %)
 PACK_LEVEL = True
 LIMIT_DB = -3.0         # リミッターの上限(dBFS)。AAC 192k で書き戻すとピークが 1.5〜2 dB ふくらむ(-2.0 では -0.2 dBTP の物があった。-3.0 で -2.2 以下)
+# 測り方(10-23。決定は保管庫 plan/decisions.md): loudnorm は中で 192kHz に上げてから測るので 3 分の切り抜きで 9〜12 秒かかる。
+# FAST_MEASURE = True: ebur128(同じ BS.1770・48kHz のまま。トゥルーピークは 4 倍で見る)で測る = 約 1 秒。値の差は I で 0.1 LU 以内・上げ下げの量で 0.04 dB 以内
+# (実データ 3 本)。ebur128 の要約は小数 1 桁なので、ピークは丸めの分(PEAK_ROUND)を足して高めに見る(上限を超えない側)。False = 今までどおり loudnorm
+FAST_MEASURE = True
+PEAK_ROUND = 0.05
+SILENT_LUFS = -70.0     # ebur128 は無音・短すぎる音を -70.0 と出す = 測れない
 _FIELD = {k: re.compile(r'"%s"\s*:\s*"([^"]+)"' % k) for k in ("input_i", "input_tp")}   # loudnorm の JSON の値(文字列)
+_EBUR = {"i": re.compile(r"\bI:\s+(-?[\d.]+|-?inf) LUFS"), "tp": re.compile(r"\bPeak:\s+(-?[\d.]+|-?inf) dBFS")}   # ebur128 の要約
 
 
 def check_target(v):
@@ -52,9 +59,19 @@ def pct_to_db(pct):
     return round(20 * math.log10(pct / 100.0), 2)
 
 
+def measure_filter():
+    """測るだけのフィルタ(FAST_MEASURE = ebur128・違えば loudnorm)。出力は parse で読む"""
+    return "ebur128=peak=true:framelog=quiet" if FAST_MEASURE else "loudnorm=print_format=json"
+
+
 def parse(text):
-    """loudnorm の出力 -> (統合ラウドネス LUFS, トゥルーピーク dBTP)。無音・測れないときは (None, None)"""
+    """測った出力(loudnorm の JSON か ebur128 の要約)-> (統合ラウドネス LUFS, トゥルーピーク dBTP)。無音・測れないときは (None, None)"""
     i, tp = _field(text, "input_i"), _field(text, "input_tp")
+    if i is None:
+        i, tp = _last(text, "i"), _last(text, "tp")
+        if i is not None and i <= SILENT_LUFS:
+            return None, None
+        tp = tp + PEAK_ROUND if tp is not None else None
     if i is None or not (-70.0 <= i <= 10.0) or tp is None or not math.isfinite(tp):
         return None, None
     return i, tp
@@ -64,6 +81,14 @@ def _field(text, key):
     m = _FIELD[key].search(text or "")
     try:
         return float(m.group(1)) if m else None
+    except ValueError:
+        return None
+
+
+def _last(text, key):
+    found = _EBUR[key].findall(text or "")
+    try:
+        return float(found[-1]) if found else None
     except ValueError:
         return None
 
@@ -120,8 +145,8 @@ def pack_filter(db):
 
 
 def measure_args(ff, path):
-    """loudnorm で測るだけ(書き換えない)の引数。出力(標準エラー)を parse に渡す"""
-    return [ff, "-hide_banner", "-nostdin", "-i", path, "-vn", "-af", "loudnorm=print_format=json", "-f", "null", "-"] + PROGRESS
+    """測るだけ(書き換えない)の引数(measure_filter)。出力(標準エラー)を parse に渡す"""
+    return [ff, "-hide_banner", "-nostdin", "-i", path, "-vn", "-af", measure_filter(), "-f", "null", "-"] + PROGRESS
 
 
 def reencode_args(ff, path, out, afilter, first_streams=False):

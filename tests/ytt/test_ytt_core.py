@@ -2076,7 +2076,7 @@ class TestLoudness(unittest.TestCase):
         from ytt import loudness as L
         P = ["-progress", "pipe:1", "-nostats"]
         self.assertEqual((L.volume_filter(75), L.gain_filter(-3.456)), ("volume=0.750", "volume=-3.46dB"))
-        self.assertEqual(L.measure_args("ff", "a.mp4"), ["ff", "-hide_banner", "-nostdin", "-i", "a.mp4", "-vn", "-af", "loudnorm=print_format=json", "-f", "null", "-"] + P)
+        self.assertEqual(L.measure_args("ff", "a.mp4"), ["ff", "-hide_banner", "-nostdin", "-i", "a.mp4", "-vn", "-af", L.measure_filter(), "-f", "null", "-"] + P)
         tail = ["-c:v", "copy", "-af", "volume=1.000", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"] + P + ["o.mp4"]
         self.assertEqual(L.reencode_args("ff", "a.mp4", "o.mp4", "volume=1.000"), ["ff", "-hide_banner", "-nostdin", "-y", "-i", "a.mp4"] + tail)
         self.assertEqual(L.reencode_args("ff", "a.mp4", "o.mp4", "volume=1.000", first_streams=True),
@@ -2100,7 +2100,10 @@ class TestLoudness(unittest.TestCase):
         self.assertEqual(L.parse(text), (-18.8, -4.1))
         self.assertEqual(L.parse('{"input_i" : "-inf", "input_tp" : "-inf"}'), (None, None))   # 無音
         self.assertEqual(L.parse(""), (None, None))
-        self.assertEqual(L.gain(-14, -18.8, -4.1), 3.1)            # ピーク(-1 dBTP)で止まる
+        ebur = "Summary:\n  Integrated loudness:\n    I:         -16.5 LUFS\n    Threshold: -30.1 LUFS\n  True peak:\n    Peak:       -1.6 dBFS"
+        self.assertEqual(L.parse(ebur), (-16.5, -1.55))   # ebur128 の要約(ピークは丸めの分だけ高めに見る)
+        self.assertEqual(L.parse(ebur.replace("-16.5", "-70.0").replace("-1.6", "-inf")), (None, None))   # 無音
+        self.assertEqual(L.gain(-14, -18.8, -4.1), 3.1)           # ピーク(-1 dBTP)で止まる
         self.assertEqual(L.gain(-18, -18.8, -4.1), 0.8)            # 実例: 「小さめ」でも元より少し上がる
         self.assertEqual(L.gain(-14, -50, -45), 20.0)              # 上げる量の上限
         self.assertEqual(L.gain(-14, -10, -2), -4.0)               # 下げる

@@ -311,7 +311,7 @@ def _weights(run, spec, warnings):
     return wts, meta
 
 
-def _save_record(src, spec, dur, n, levels, chat, stamps, ctexts, meta, info, cands):
+def _save_record(src, spec, dur, n, levels, chat, stamps, ctexts, meta, info, cands, peak_used=False):
     """後から実データで見直すための記録(save_archive)。levels = (full, band)・chat = _chat_signal の結果(使わなかったときは None)。失敗しても解析は続ける"""
     try:
         full, band = levels
@@ -322,6 +322,7 @@ def _save_record(src, spec, dur, n, levels, chat, stamps, ctexts, meta, info, ca
         run = {"at": payload["at"], "spec": {k: spec.get(k) for k in SPEC_KEYS},
                "lagUsed": spec.get("lagUsed"), "signals": info, "chatHalf": excite.CHAT_HALF,   # 印: チャットのふだんの幅(決定 3-135。無い記録は 150)
                "commentShape": excite.COMMENT_SHAPE,   # 印: コメント欄の時刻の点数の形(決定 3-137。無い記録は sym)
+               "peakComment": list(excite.PEAK_COMMENT) if peak_used else None,   # 印: 山を選ぶ点数だけコメントを重くした(決定 3-147。無い記録・None は前の形)
                "candidates": [dict({"start": c["start"], "end": c["end"], "peak": c["peak"], "score": c["score"], "parts": c["parts"]},
                                **{k: c[k] for k in ("shape", "fixed", "fill") if k in c}) for c in cands]}   # 生の結果(固定の長さの区間・埋めた印)も残す(LD-2b)
         save_archive(src["videoId"], payload, run)
@@ -378,10 +379,12 @@ def run(spec, ctl=None):
         ctl.report(0.6, "盛り上がりの区間を決定中")
         wts, meta = _weights(run_, spec, warnings)
         total = [sum(wts[k] * comps[k][i] for k in comps) for i in range(n)]
+        peak = excite.peak_total(total, stamps, n, wts["comments"]) if info["comments"] else None   # 山を選ぶ点数だけコメントを重く(区間の形は total)
         total = head_ramp(total, spec["headSec"])   # 冒頭は誤検出が多いので、なだらかに減点
         # 材料が重なるほど合計が大きくなる(音声・チャット・コメントが同じ場面を指すと強い)
-        cands = excite.candidates(pick_clips(total, full, spec, n), comps)   # 山の前後の材料ごとの点数(parts)と理由の文(配信中の候補と同じ式)
-        _save_record(src, spec, dur, n, (full, band), chat if info["chat"] else None, stamps, ctexts, meta, info, cands)
+        picked = pick_clips(head_ramp(peak, spec["headSec"]), full, spec, n, scene_total=total) if peak else pick_clips(total, full, spec, n)
+        cands = excite.candidates(picked, comps)   # 山の前後の材料ごとの点数(parts)と理由の文(配信中の候補と同じ式)
+        _save_record(src, spec, dur, n, (full, band), chat if info["chat"] else None, stamps, ctexts, meta, info, cands, peak_used=peak is not None)
         series = {"n": n, "step": max(1.0, n / 600), "total": downsample(total), **{k: downsample(v) for k, v in comps.items()}}
         ctl.check()
         result = {"source": {**src, "duration": round(dur, 1)}, "candidates": cands, "series": series, "signals": info,

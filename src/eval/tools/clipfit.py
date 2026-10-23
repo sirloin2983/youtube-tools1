@@ -53,7 +53,7 @@ def rebuild(m):
     n, sp, sig = m["n"], m["spec"], m["signals"]
     full = (list(m["full"]) + [m["full"][-1]] * n)[:n]
     band = (list(m["band"]) + [m["band"][-1]] * n)[:n]
-    comps = {}
+    comps, stamps = {}, None
     if sig.get("audio", True):
         comps["audio"] = excite.audio_score(full, band)
     if sig.get("chat") and m["act"]:
@@ -61,11 +61,14 @@ def rebuild(m):
         lag = m["lag"] if isinstance(m["lag"], (int, float)) else sp.get("lag", 8)
         comps["chat"] = excite.shift_chat(excite.chat_z(act), lag)
     if sig.get("comments") and m["stamps"]:
-        comps["comments"] = excite.comment_score([s[:3] for s in m["stamps"] if isinstance(s, list) and len(s) >= 3], n)
+        stamps = [s[:3] for s in m["stamps"] if isinstance(s, list) and len(s) >= 3]
+        comps["comments"] = excite.comment_score(stamps, n)
     if not comps:
         return None, full
     wts = {"audio": sp.get("wAudio", 1.0), "chat": sp.get("wChat", 1.0), "comments": sp.get("wComments", 0.7)}
     total = [sum(wts[k] * comps[k][i] for k in comps) for i in range(n)]
+    peak = excite.peak_total(total, stamps, n, wts["comments"])   # 山を選ぶ点数(本番と同じ。picks が使う)
+    m["_peak"] = excite.head_ramp(peak, sp.get("headSec", 180)) if peak else None
     return excite.head_ramp(total, sp.get("headSec", 180)), full
 
 
@@ -75,6 +78,8 @@ def picks(total, full, m, variant, count=COUNT):
     spec = {"length": float(variant.get("length") or BASE_LENGTH), "preRatio": float(variant.get("pre") or BASE_PRE),
             "sensitivity": sp.get("sensitivity") if sp.get("sensitivity") in excite.SENS else "normal", "count": count,
             "shape": variant.get("shape", "fixed"), "scene": variant.get("scene")}
+    if m.get("_peak"):
+        return excite.pick_clips(m["_peak"], full, spec, m["n"], scene_total=total)
     return excite.pick_clips(total, full, spec, m["n"])
 
 
