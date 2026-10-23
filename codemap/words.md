@@ -20,10 +20,10 @@
   - コード: `speech_diar` src/app/check/speech_sources.py:41・`src/app/check/speech_sources.py`・`src/human/check/speech.py`
   - 画面: src/app/ui/check/check.js:276
 - **受け取る** — 友人のアプリの受け取る画面。残す判定と受信箱
-  - コード: `src/friendapp/inbox.py`・`receive_view` src/friendapp/inbox.py:1030・`src/friendapp/ui/receive.js`・`Inbox.decide` src/friendapp/inbox.py:727
+  - コード: `src/friendapp/inbox.py`・`receive_view` src/friendapp/inbox.py:1042・`src/friendapp/ui/receive.js`・`Inbox.decide` src/friendapp/inbox.py:739
   - 画面: src/app/ui/cases/panels/cut.js:176・src/app/ui/editor/pack-tab.js:546・src/app/ui/home/portal.js:475・src/friendapp/ui/friend.html:29 ほか 7
 - **見送った物** — 受け取る画面で 3 日は戻せる skip・bad の物
-  - コード: `Inbox.undo` src/friendapp/inbox.py:775・`Inbox.decide` src/friendapp/inbox.py:727・`VERDICTS` src/friendapp/inbox.py:58・`/api/friend/undo` src/friendapp/server.py:401
+  - コード: `Inbox.undo` src/friendapp/inbox.py:787・`Inbox.decide` src/friendapp/inbox.py:739・`VERDICTS` src/friendapp/inbox.py:58・`/api/friend/undo` src/friendapp/server.py:401
   - 画面: src/friendapp/ui/friend.html:169・src/friendapp/ui/guide.html:144・src/friendapp/ui/receive.js:65
 - **送る** — 友人のアプリの送る欄・受付の口。自動で送る判定は flow/sendpolicy
   - コード: `src/friendapp/api.py`・`src/friendapp/ui/send-form.js`・`/api/friend/send` src/friendapp/server.py:388・`flow/sendpolicy.py` (無いパス)
@@ -42,7 +42,7 @@
   - 画面: src/app/ui/home/portal.html:228・src/app/ui/home/portal.js:483
 - **初回の準備** — 友人のアプリの初回の取得と道具の確かめ
   - コード: `src/friendapp/setup.py`・`src/friendapp/ui/setup.js`・`src/friendapp/toolcheck.py`・`/api/friend/setup` src/friendapp/server.py:292
-  - 画面: src/friendapp/ui/guide.html:40・src/friendapp/ui/setup.html:6・friend-apps/launcher/src/Core.cs:297
+  - 画面: src/friendapp/ui/guide.html:40・src/friendapp/ui/setup.html:6・friend-apps/launcher/src/Core.cs:312
 - **新しい版** — 友人のアプリの新しい版の帯と、exe の側の版の選び方
   - コード: `src/friendapp/ui/update.js`・`/api/friend/update` src/friendapp/server.py:289・`friend-apps/launcher/src/Core.cs`
   - 画面: src/friendapp/ui/friend.js:77・src/friendapp/ui/update.js:2・friend-apps/launcher/src/Launcher.cs:412・friend-apps/launcher/src/MainForm.cs:568
