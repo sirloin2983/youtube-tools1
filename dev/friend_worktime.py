@@ -5,7 +5,7 @@
 
 材料(どれも今ある記録。友人の画面の操作の中身・個人の情報は入っていない):
   - 友人の判断の記録(送り返しの受け取り = app/friend-returns/<月>/<依頼 id>/verdicts/*.verdict.json。human/friend/returns が並べる)
-    judge(good = 使う・unknown = 見送り・bad = 届かなくてよかった・retract = 取り消し)・at(決めた時刻)・arrivedAt(届いた)・openedAt(初めて再生した。0.99.149 から)
+    judge(good = 使う・unknown = 見送り・bad = 届かなくてよかった・retract = 取り消し)・at(決めた時刻)・arrivedAt(届いた)・openedAt(初めて再生した。0.99.150 から)
   - 届けた記録(app/logs/deliveries.jsonl)= ユーザーの PC が届けた時刻(友人のアプリが arrivedAt を送らない古い判断の代わり)
   - パックの配信者(cut2resolve/packs/*.json の streamer・友人の PC の分は friend-returns/<月>/<依頼 id>/<実行 id>/run.json の input.streamer)
   - 公開したショート(analytics/raw/ のいちばん新しい物。published・title)
@@ -165,7 +165,7 @@ def main(argv=None):
     print("  届いた %d 本・決めた %d 本 %s(うち 3 日の自動の見送り %d)" % (r["arrived"], r["decided"], r["judges"], r["autoSkip"]))
     pc = lambda x: "-" if x is None else "%.0f%%" % (100 * x)
     print("  使われなかった割合 %s(見送り・届かなくてよかった・3 日決めていない %d 本)・決めた物の中だけなら %s" % (pc(r["unusedRate"]), r["unused"], pc(r["unusedOfDecided"])))
-    print("  届いてから再生まで 中央値 %s 時間(再生の記録 %d 本・0.99.149 から)・決めるまで %s 時間" % (r["toOpenHours"], r["opened"], r["toDecideHours"]))
+    print("  届いてから再生まで 中央値 %s 時間(再生の記録 %d 本・0.99.150 から)・決めるまで %s 時間" % (r["toOpenHours"], r["opened"], r["toDecideHours"]))
     print("  届いてから公開まで 中央値 %s 時間(結べた %d 本)" % (r["toPublishHours"], r["published"]))
     print("  週ごとの届いた本数 %s" % r["weeks"])
     return 0
