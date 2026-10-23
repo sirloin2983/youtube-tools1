@@ -135,6 +135,7 @@
 - tests/pipeline/transcribe/test_recognize.py — pipeline/transcribe/recognize(音声の取り出し・認識・範囲の行・)を、編集の serve を読まずに使うテスト。
 - tests/pipeline/transcribe/test_records.py — 記録の土台のテスト。
 - tests/pipeline/transcribe/test_roster.py — 名簿の呼び名(pipeline/transcribe/roster.py)と同梱の名簿のテスト。
+- tests/pipeline/transcribe/test_separate_prefetch.py — pipeline/transcribe/separate.py の先回り(認識の前に裏の糸で声を分け始め、あとの voice_spans が同じ音の結果を使う。10-23)のテスト。
 - tests/pipeline/transcribe/test_txbackend.py — pipeline/transcribe の本物と疑似の差し込み口 backend のテスト(役割で組み直す RS2-2)。
 - tests/pipeline/transcribe/test_txrecords.py — pipeline/transcribe/records(認識の記録・辞書の版・生出力・単語の時刻)を、編集の serve を読まずに使うテスト。
 - tests/pipeline/transcribe/test_txroster.py — pipeline/transcribe/roster の配信ごとの文脈 stream_context と用語の区切り split_terms(ytt/txtext)を、編集の serve を読まずに使うテスト。
