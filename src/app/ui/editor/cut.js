@@ -1153,8 +1153,6 @@ function create(h){
     active: () => ready(),
     refresh: () => render(),   // cut2resolve が使えるか分かったとき(たたき台のボタン)
     refreshCaption(){ capIdx = -2; if (ready()) showCaption(V().currentTime || 0); },   // 話者の色が変わったとき(panels/cut.js の onSpeakerColors)
-    /* 3 パック の「行の後の余白」を変えたとき(段6 6-2): たたき台のまま(手で直していない)なら「行から」を作り直す(→ true)。手で直したカットは触らない(→ false) */
-    redraftPristine(){ if (!ready() || !redraftable()) return false; M.lastDraftSig = ''; docChanged(); return true; },
     summary(){ return ready() ? { count: mergedCount(M.clips), keptSec: f2s(keptFrames(M.clips)), durSec: M.dur, pristine: M.pristine } : null; },
     state(){ return { dirty: M.dirty, saving: !!M.saving, conflict: !!M.conflict, rev: M.rev, off: M.off, offCode: M.offCode, loaded: M.loaded, docId: M.docId, pristine: M.pristine, origin: M.origin }; },
     keepsSec(){ return ready() ? M.clips.map(([a, b]) => [sec3(a), sec3(b)]) : null; },

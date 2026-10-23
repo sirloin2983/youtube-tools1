@@ -51,7 +51,13 @@ class FakeSys:
 
 
 def opener(tmp, fake):
-    return W.Opener(tmp, fsio.atomic_write, popen=fake.popen, browser_open=fake.browser_open, find=fake.find, clock=fake.clock)
+    return W.Opener(tmp, popen=fake.popen, browser_open=fake.browser_open, find=fake.find, clock=fake.clock)
+
+
+def set_mode(o, mode):
+    """入口の settings.json の window を書く(10-24 から画面の切り替えは無い。前の版が残した値を読むことを確かめる)"""
+    with open(o.settings_path, "w", encoding="utf-8") as f:
+        json.dump({"window": mode}, f)
 
 
 class FakeUser32:
@@ -220,27 +226,18 @@ class TestOpener(unittest.TestCase):
 
     def test_mode_setting(self):
         self.assertEqual(self.o.mode, "app")   # 既定は窓(ユーザー決定)
-        self.o.set_mode("browser")
-        self.assertEqual(W.Opener(self.tmp, fsio.atomic_write).mode, "browser")   # オフにしたら、ファイルに残る(次の起動で使う)
-        self.o.set_mode("app")
-        self.assertEqual(W.Opener(self.tmp, fsio.atomic_write).mode, "app")
-        with self.assertRaises(ValueError):
-            self.o.set_mode("pywebview")
+        set_mode(self.o, "browser")
+        self.assertEqual(W.Opener(self.tmp).mode, "browser")   # 前の版で保存したオフは読む
+        set_mode(self.o, "pywebview")
+        self.assertEqual(self.o.mode, "app")   # 知らない値は既定(窓)
         with open(self.o.settings_path, "w", encoding="utf-8") as f:
             f.write("{壊れた")
         self.assertEqual(self.o.mode, "app")   # 読めなければ既定(窓)
 
-    def test_mode_keeps_other_keys(self):
-        with open(self.o.settings_path, "w", encoding="utf-8") as f:
-            json.dump({"other": 1}, f)
-        self.o.set_mode("app")
-        with open(self.o.settings_path, encoding="utf-8") as f:
-            self.assertEqual(json.load(f), {"other": 1, "window": "app"})
-
     def test_open_start(self):
-        self.o.set_mode("browser")
+        set_mode(self.o, "browser")
         self.assertEqual(self.o.open_start("http://localhost:8700/"), "browser")   # オフにしていればブラウザ
-        self.o.set_mode("app")
+        set_mode(self.o, "app")
         self.assertEqual(self.o.open_start("http://localhost:8700/"), "app")
         cmd, kw = self.fake.spawned[-1]
         self.assertEqual(cmd, W.app_command(EDGE, "http://localhost:8700/", self.o.profile))
@@ -253,7 +250,7 @@ class TestOpener(unittest.TestCase):
     def test_open_start_without_edge(self):
         fake = FakeSys(exe=None)
         o = opener(self.tmp, fake)
-        o.set_mode("app")
+        set_mode(o, "app")
         self.assertEqual(o.open_start("http://localhost:8700/"), "browser")
         self.assertEqual(o.status()["available"], False)
         with self.assertRaises(W.Unavailable):

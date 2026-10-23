@@ -645,7 +645,7 @@
     /api/log?tool=client で末尾を読める
   - 画面の共通の API(api/ytt/client-log・open-window・open-external): 入口の画面は /api/ytt/…、取り込んだツールの画面は /studio/api/ytt/… などの
     相対パスで呼び、どちらも入口が受け持つ(src/home/mount.py がツールに渡さず入口へ回す)。検査は入口の API と同じ(POST・Host・Origin・Sec-Fetch-Site・合言葉・16KB まで)
-  - POST /api/window {mode: browser|app}(合言葉つき)、/api/status に window {mode, available, browser, profile}
+  - /api/status に window {mode, available, browser, profile}(窓で開くに固定。切り替えの POST /api/window は 10-24 に無くした)
   - まとめて実行の「解析から全部」は、スタジオの ② で保存した解析の設定(スタジオの /api/settings の analyze)で解析する
 
 ■ まとめて実行・コミット前の検査

@@ -179,9 +179,6 @@
 .tt-pk-col{display:flex;flex-direction:column;gap:14px;min-width:0}
 .tt-pk-card{padding:14px 16px}
 .tt-pk-h{display:flex;align-items:center;gap:8px;margin:0 0 10px;font:650 15px/1.35 var(--font-display)}
-.tt-pk-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:8px 0}
-.tt-pk-l{min-width:7em;color:var(--ink-2);font-size:13px}
-.tt-pk-p{margin:8px 0 0;line-height:1.6}
 .tt-pk-more{margin-top:6px;border-top:1px solid var(--line);padding-top:8px}
 .tt-pk-more .fld{margin-top:10px}
 .tt-pk-more .fld>label,.tt-pk-more .fld>.l{display:block;font-size:12.5px;font-weight:550;color:var(--ink-2);margin-bottom:4px}
@@ -222,7 +219,6 @@
 .tt-set-sub{margin:16px 0 6px;font-size:12px;color:var(--ink-2);font-weight:600}
 .tt-set-col{display:flex;flex-direction:column;gap:8px;align-items:flex-start}
 /* パック: 話者ごとの字幕の色(A-2) */
-.tt-pk-spk{margin-top:8px}
 .tt-pk-spklist{margin:4px 0 0;line-height:1.7}
 .tt-pk-spk-i{display:inline-flex;align-items:center;gap:5px}
 .tt-pk-spk-sw{display:inline-block;width:12px;height:12px;border-radius:50%;border:1px solid var(--line-strong)}

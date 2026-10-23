@@ -55,6 +55,17 @@ VIDEO_SEC = 12
 # 928c3b1 の src/editor/resolve_export.py の build_plan と _build_srt から、区間と字幕の計算だけを写したもの
 # (余白つき素材が無い場合。余白つき素材の場合の旧の結果は、test_same_pack_with_studio_edit_media に値で残す)
 
+def srt_time(seconds):
+    """旧の SRT の時刻(HH:MM:SS,mmm)。ミリ秒は四捨五入(0.5 は切り上げ)。SRT の書き出しを 10-24 に無くしたので、旧の書式はここだけに置く"""
+    ms = max(0, int(math.floor(float(seconds) * 1000 + 0.5)))
+    return "%02d:%02d:%02d,%03d" % (ms // 3600000, ms // 60000 % 60, ms // 1000 % 60, ms % 1000)
+
+
+def srt_text(cues):
+    """[(開始秒, 終了秒, 文章)] → 旧の SRT の本文。番号は1から。ブロックの間は空行1つ、末尾は改行1つ"""
+    return "\n".join("%d\n%s --> %s\n%s\n" % (i, srt_time(a), srt_time(b), text) for i, (a, b, text) in enumerate(cues, 1))
+
+
 class LEGACY:
     SUPPORTED_FPS = {"24": Fraction(24), "25": Fraction(25), "29.97": Fraction(30000, 1001),
                      "30": Fraction(30), "50": Fraction(50), "59.94": Fraction(60000, 1001), "60": Fraction(60)}
@@ -135,7 +146,7 @@ class LEGACY:
         sub = caps
         if S.SRT_STACK:   # SRT の重なる字幕は段に分ける(10-23。区間と字幕は前と同じ・SRT の書き方だけが変わった。規則は srt2resolve.stack_overlaps)
             sub = S.stack_overlaps(caps, max(1, int(round(S.STACK_SMALL_SEC * float(fps)))))
-        srt = resolve_export.srt_text((cls.seconds(a, fps), cls.seconds(b, fps), t) for a, b, t in sub)
+        srt = srt_text((cls.seconds(a, fps), cls.seconds(b, fps), t) for a, b, t in sub)
         return [(c["sourceStartFrame"], c["sourceEndFrame"]) for c in cuts], caps, srt
 
 

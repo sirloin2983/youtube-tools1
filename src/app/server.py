@@ -953,7 +953,7 @@ class PortalServer(httpsec.ExclusiveServer):
         # 学習の束を置く見回り(いつ・どこには ② の flow/learning。中身は ④ の learnpack。F1 F6a)
         self.learnpack = learning_mod.PackPatrol(lambda: self.intake.folder(), lambda d: learnpack_mod.build(d, roster_path=roster_mod.ROSTER), lambda m: self.sup.log(m), self.closing)
         self.client_log = clientlog_mod.ClientLog(sup.logs_dir)   # 画面のエラーの記録(段階7-0)
-        self.window = appwindow_mod.Opener(app_dir, fsio.atomic_write, log=sup.log)   # 窓で開く(段階7-3)
+        self.window = appwindow_mod.Opener(app_dir, log=sup.log)   # 窓で開く(段階7-3)
         self.prefs = prefs_mod.Prefs(os.path.join(app_dir, "prefs.json"), fsio.atomic_write)   # ホームの設定(気が利く画面へ 段1)
         self.ytlogin = ytlogin_mod.YtLogin(app_dir, os.path.dirname(sup.root), log=sup.log)   # 設定の「YouTube のログイン」(置き場所は _main が環境変数へ)
         # 友人からの依頼の受付(見張りは main で start。テストで作る入口では動かさない)
@@ -1599,7 +1599,7 @@ def _main(opts):
     if srv is None:
         print("ホームはすでに起動しています。画面を開きます:", url)
         if not opts.no_open:
-            op = appwindow_mod.Opener(app_data_dir(ROOT), fsio.atomic_write, log=log)
+            op = appwindow_mod.Opener(app_data_dir(ROOT), log=log)
             if opts.app_window:
                 op.force_mode = "app"
             op.open_start(url)

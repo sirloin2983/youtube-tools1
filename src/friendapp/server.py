@@ -973,7 +973,7 @@ def say(msg, log=None):
 
 
 def open_window(friend_dir, url, log):
-    op = _appwindow.Opener(friend_dir, _fsio.atomic_write, log=log)
+    op = _appwindow.Opener(friend_dir, log=log)
     op.force_mode = "app"
     return op.open_start(url)
 

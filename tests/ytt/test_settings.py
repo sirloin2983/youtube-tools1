@@ -176,28 +176,28 @@ class TestEditorSettings(unittest.TestCase):
     def test_follows_workdata_and_patch_keys(self):
         from ytt import errors
         self.assertEqual(self.st.load_settings(), {})
-        self.assertEqual(self.st.patch_settings({"values": {"packSize": "1920x1080"}}), {"ok": True, "values": {"packSize": "1920x1080"}})
+        self.assertEqual(self.st.patch_settings({"values": {"diarSmooth": True}}), {"ok": True, "values": {"diarSmooth": True}})
         with self.assertRaises(errors.ApiError) as cm:
-            self.st.patch_settings({"values": {"packSize": "1080"}})
+            self.st.patch_settings({"values": {"diarSmooth": "yes"}})
         self.assertEqual(cm.exception.status, 400)
-        self.st.merge_settings({"patch": {"glossary": "みこ", "packSize": "1080x1920"}})   # 検査のある鍵は merge では変えない
-        self.assertEqual(self.st.load_settings(), {"packSize": "1920x1080", "glossary": "みこ"})
-        self.st.replace_settings({"other": 1, "packSize": "1080x1920"})                   # 丸ごとでも検査のある鍵はサーバーの値
-        self.assertEqual(self.st.load_settings(), {"other": 1, "packSize": "1920x1080"})
+        self.st.merge_settings({"patch": {"glossary": "みこ", "diarSmooth": False}})   # 検査のある鍵は merge では変えない
+        self.assertEqual(self.st.load_settings(), {"diarSmooth": True, "glossary": "みこ"})
+        self.st.replace_settings({"other": 1, "diarSmooth": False})                   # 丸ごとでも検査のある鍵はサーバーの値
+        self.assertEqual(self.st.load_settings(), {"other": 1, "diarSmooth": True})
         with open(self.path, encoding="utf-8") as f:
-            self.assertEqual(json.load(f), {"other": 1, "packSize": "1920x1080"})
-        # 廃止した鍵(packFps・packBackup): 直させない。古い設定ファイルに残っていても断らず、読み飛ばして消さない。
-        # 古い画面が api/settings/patch で送っても断らずに黙って捨てる(packBackup = パックの予備 = 決定 3-34)
+            self.assertEqual(json.load(f), {"other": 1, "diarSmooth": True})
+        # 廃止した鍵(packFps・packBackup・packLoudness・packVolume・packSize): 直させない。古い設定ファイルに残っていても断らず、読み飛ばして消さない。
+        # 古い画面が api/settings/patch で送っても断らずに黙って捨てる(packBackup = パックの予備 = 決定 3-34・パックの音量と大きさ = 10-24 から固定)
         with open(self.path, "w", encoding="utf-8") as f:
-            json.dump({"other": 1, "packSize": "1920x1080", "packFps": "30", "packBackup": True}, f)
-        self.assertEqual(self.st.patch_settings({"values": {"packFps": "60"}}), {"ok": True, "values": {}})
-        self.assertEqual(self.st.patch_settings({"values": {"packBackup": False, "packSize": "1080x1920"}}),
-                         {"ok": True, "values": {"packSize": "1080x1920"}})
+            json.dump({"other": 1, "diarSmooth": True, "packFps": "30", "packBackup": True, "packSize": "1920x1080"}, f)
+        self.assertEqual(self.st.patch_settings({"values": {"packFps": "60", "packLoudness": -11, "packVolume": 70}}), {"ok": True, "values": {}})
+        self.assertEqual(self.st.patch_settings({"values": {"packBackup": False, "packSize": "1080x1920", "diarSmooth": False}}),
+                         {"ok": True, "values": {"diarSmooth": False}})
         with self.assertRaises(errors.ApiError):
             self.st.patch_settings({"values": {"nope": 1}})                              # 知らない鍵は今までどおり断る
-        self.st.merge_settings({"patch": {"packFps": "60", "packBackup": False, "glossary": "みこ"}})
+        self.st.merge_settings({"patch": {"packFps": "60", "packBackup": False, "packSize": "1080x1920", "glossary": "みこ"}})
         self.st.replace_settings({"other": 2})
-        self.assertEqual(self.st.load_settings(), {"other": 2, "packSize": "1080x1920", "packFps": "30", "packBackup": True})
+        self.assertEqual(self.st.load_settings(), {"other": 2, "diarSmooth": False, "packFps": "30", "packBackup": True, "packSize": "1920x1080"})
 
     def test_register_patch_key(self):
         from ytt import errors

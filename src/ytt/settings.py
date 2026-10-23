@@ -11,7 +11,7 @@
     d = sf.read()                                  # 中身(新しい dict。壊れていれば {})
     sf.set_section("review", {...})                # 節を丸ごと置き換える(名前は SECTION_RE)
     sf.patch_section("autorun", value, cleaner)    # cleaner(value, cur) -> new を節に入れる(検査はツール側の関数)
-    sf.update_keys({"packSize": "1920x1080"}, allow)       # 最上位の鍵を、allow[key](value) が真のものだけ直す
+    sf.update_keys({"diarSmooth": True}, allow)            # 最上位の鍵を、allow[key](value) が真のものだけ直す
     sf.merge_top({"glossary": "...", "old": None}, skip=allow)   # 最上位の鍵を合わせる(None = 消す。skip の鍵は触らない)
     with sf.lock: d, broken = sf.load(); ...; sf.save(d, broken)   # 自分で読み書きするとき(ホームの remember・hide など)
 
@@ -208,11 +208,8 @@ def load_settings():
 
 # ほかの画面から直してよい設定と、その値の検査(送ったキーだけ直す。全体を上書きしない = 窓を並べても他の値を消さない。気が利く画面へ 1)。
 # 編集のほかの部品が持つ値で検査する鍵は、その持ち主が register_patch_key で足す(altEngine = human/proof/alt の ALT_ENGINES)。evalDirs は下の評価用の節
-SETTINGS_PATCH_KEYS = {"packLoudness": lambda v: not isinstance(v, bool) and v in (0, -11, -14, -16, -18),   # パックの音量(LUFS。0 = % で決める)
-                       "packVolume": lambda v: isinstance(v, int) and not isinstance(v, bool) and 1 <= v <= 200,   # packLoudness が 0 のときの音量(%)
-                       # パックの出力(3 パック のタブ・まとめて実行の欄が同じ値を読み書きする。気が利く画面へ 段4)
-                       "packSize": lambda v: v in ("1080x1920", "1920x1080"),
-                       "speakerColors": lambda v: isinstance(v, bool),
+# 話者の字幕の色 speakerColors は 10-24 から欄なし(いつもオン。手で false にしたときだけ切れる = 編集の pack-tab.js の spkOn)
+SETTINGS_PATCH_KEYS = {"speakerColors": lambda v: isinstance(v, bool),
                        # キー配置(校正のキー。キーの一覧 = 設定の部品 UIKit.keymap が送る。気が利く画面へ 段6)
                        "keymap": lambda v: _keymap_ok(v),
                        # 話者判別のあと、短い 1 行だけ別の人になるのをならす(S2。試験中・既定オフ。pipeline/transcribe/diarize の smooth_)
@@ -255,9 +252,10 @@ def _settings_error(e):
     return _errors.ApiError("bad_request", str(e), 400)
 
 
-# 画面の欄の無い鍵(packFps・packBackup = パックの予備 = 決定 3-34 は読まない)。
+# 画面の欄の無い鍵(packFps・packBackup = パックの予備 = 決定 3-34 は読まない。packLoudness・packVolume・packSize = パックの音量と大きさは
+# 10-24 から -14 LUFS・縦に固定 = flow/spec.pack_output)。
 # 直させない・読まない・消さない = 古い設定ファイルに残っていても断らず、そのまま残す。api/settings/patch で送られても断らずに黙って捨てる(古い画面)
-RETIRED_SETTINGS_KEYS = ("packFps", "packBackup")
+RETIRED_SETTINGS_KEYS = ("packFps", "packBackup", "packLoudness", "packVolume", "packSize")
 
 
 def _guarded_keys():

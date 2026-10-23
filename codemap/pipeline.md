@@ -48,8 +48,8 @@
 - **__init__.py** (2 行) — ① パック: DaVinci Resolve に読ませるパック(pack・cut2resolve_core・srt2resolve)・Text+(resolve_textplus)・zip の受け渡し(resolve_export)・指定の読み(request)・自動のカット(auto_cut)・…
 - **auto_cut.py** (141 行) — カットの計画の部品(read_cut_plan・build_plan・plan_from_keeps・finalize_plan。pack.py が使う)。
   - 名前: `read_cut_plan` :16・`default_handles` :71・`build_plan` :77・`removed_between` :98・`plan_from_keeps` :109・`finalize_plan` :117
-- **cut2resolve_core.py** (828 行) — cut2resolve 共通部
-  - 名前: `class Cancelled` :46・`class OutputExists` :53・`class Task` :62・`parse_time` :77・`parse_cut_list` :115・`sec_to_frames` :146・`cue_frames` :150・`frames_to_sec` :156・`fps_label` :161・`cut_list_to_keeps` :166・`normalize` :181・`subtract` :199・ほか 34
+- **cut2resolve_core.py** (827 行) — cut2resolve 共通部
+  - 名前: `class Cancelled` :45・`class OutputExists` :52・`class Task` :61・`parse_time` :76・`parse_cut_list` :114・`sec_to_frames` :145・`cue_frames` :149・`frames_to_sec` :155・`fps_label` :160・`cut_list_to_keeps` :165・`normalize` :180・`subtract` :198・ほか 34
 - **edge_pause.py** (102 行) — 切り抜きの両端を「話の間」へ寄せる(10-23。決定 3-153。notes:plan/heatmap-study.md の「切り抜きの端を話の間へ」)。
   - 名前: `levels` :26・`voice_level` :46・`pauses` :52・`snap_end` :66・`snap_start` :76・`snap` :86
 - **pack.py** (964 行) — カットの計算(試算)とパックの作成。画面(serve.py)と ② の自動の流れが呼ぶ共通部(処理を二重に持たない)。
@@ -58,8 +58,8 @@
   - 名前: `pack_title` :24・`scratch_path` :30・`remove_quiet` :35・`pack_video` :41・`make_preview` :80・`clip_preview` :105・`pack_seconds` :118
 - **request.py** (335 行) — パックの指定(JSON の spec・output)-> pack.Request と build_pack の引数。指定の読み方の 1 か所
   - 名前: `clean_path` :32・`input_path` :57・`request_from_spec` :102・`clip_range_from_spec` :173・`row_edge_from_spec` :183・`advanced_from_spec` :192・`keeps_from_spec` :203・`speaker_color_map` :224・`speaker_styles_from` :243・`apply_speaker_styles` :266・`output_from_spec` :287・`speaker_colors_for` :326
-- **resolve_export.py** (265 行) — 文字起こしの文書から Resolve のパックへの受け渡し(カットのたたき台・パックの見積もり・手順)と、「残す行」の規則。
-  - 名前: `srt_time` :25・`srt_text` :31・`is_kept` :37・`kept_spans` :43・`tool_info` :70・`sorted_segments` :74・`build_transcript_v1` :93・`pack_instructions` :123・`edit_draft` :183・`edit_preview` :239
+- **resolve_export.py** (253 行) — 文字起こしの文書から Resolve のパックへの受け渡し(カットのたたき台・パックの見積もり・手順)と、「残す行」の規則。
+  - 名前: `is_kept` :25・`kept_spans` :31・`tool_info` :58・`sorted_segments` :62・`build_transcript_v1` :81・`pack_instructions` :111・`edit_draft` :171・`edit_preview` :227
 - **resolve_textplus.py** (1093 行) — Resolve Free向け Text+ 試験パック。Luaスクリプトを同梱する。
   - 名前: `hex_rgba` :70・`text_style` :81・`style_inputs` :97・`video_tracks_value` :119・`parse_target` :126・`caption_segments` :149・`stack_captions` :180・`speaker_lanes` :241・`lay_captions` :273・`default_wrap` :300・`wrap_caption` :305・`build_import_plan` :354・ほか 8
 - **srt2resolve.py** (394 行) — パックの部品(動画の情報の読み取り・字幕の読み込み・フレームの計算・SRT の組み立ての小道具)。

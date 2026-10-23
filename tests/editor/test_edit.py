@@ -366,20 +366,20 @@ class TestEditHttp(unittest.TestCase):
             return dict(json.loads(d or b"{}"), _status=e.code)
 
     def test_settings_http(self):
-        """設定の HTTP のつなぎ(1 本): 丸ごとの保存(PUT)は patch の鍵(パックの音量・キー配置)を戻さない・差分の保存(PUT patch・POST patch)・
+        """設定の HTTP のつなぎ(1 本): 丸ごとの保存(PUT)は patch の鍵(細切れをならす・キー配置)を戻さない・差分の保存(PUT patch・POST patch)・
         device は machine.json(この PC の設定)に書いて GET が返す・400/413。値の検査そのものは tests/editor/test_settings_schema.py・tests/ytt/test_settings.py"""
         def machine_files():
             return [os.path.join(d, "machine.json") for d, _n, fs in os.walk(self.tmp) if "machine.json" in fs]
         orig = {k: v for k, v in self.call("GET", "/api/settings").items() if k != "_status"}
         try:
-            self.assertEqual(self.call("PUT", "/api/settings", dict(orig, packLoudness=-11))["_status"], 200)
-            self.assertNotIn("packLoudness", self.call("GET", "/api/settings"))           # 丸ごとの保存では直せない
-            r = self.call("POST", "/api/settings/patch", {"values": {"packLoudness": 0, "packVolume": 70, "keymap": {"rowNext": "h"}}})
-            self.assertEqual((r["_status"], r["values"]), (200, {"packLoudness": 0, "packVolume": 70, "keymap": {"rowNext": "h"}}))
-            self.call("PUT", "/api/settings", dict(orig, quality="fast", packLoudness=-14, packVolume=100, keymap={"rowNext": "s"}))   # 開いたままの古い画面の保存
+            self.assertEqual(self.call("PUT", "/api/settings", dict(orig, diarSmooth=True))["_status"], 200)
+            self.assertNotIn("diarSmooth", self.call("GET", "/api/settings"))           # 丸ごとの保存では直せない
+            r = self.call("POST", "/api/settings/patch", {"values": {"diarSmooth": False, "checkCutCardsOn": False, "keymap": {"rowNext": "h"}}})
+            self.assertEqual((r["_status"], r["values"]), (200, {"diarSmooth": False, "checkCutCardsOn": False, "keymap": {"rowNext": "h"}}))
+            self.call("PUT", "/api/settings", dict(orig, quality="fast", diarSmooth=True, checkCutCardsOn=True, keymap={"rowNext": "s"}))   # 開いたままの古い画面の保存
             st = self.call("GET", "/api/settings")
-            self.assertEqual((st.get("quality"), st["packLoudness"], st["packVolume"], st["keymap"]), ("fast", 0, 70, {"rowNext": "h"}))   # ほかの値は直り、patch の鍵は残る
-            for bad in ({"values": {"packLoudness": -20}}, {"values": {"keymap": {"rowNext": "Ctrl+s"}}}, {"values": {"model": "x"}}, {"values": {}}, {}):
+            self.assertEqual((st.get("quality"), st["diarSmooth"], st["checkCutCardsOn"], st["keymap"]), ("fast", False, False, {"rowNext": "h"}))   # ほかの値は直り、patch の鍵は残る
+            for bad in ({"values": {"diarSmooth": "yes"}}, {"values": {"keymap": {"rowNext": "Ctrl+s"}}}, {"values": {"model": "x"}}, {"values": {}}, {}):
                 self.assertEqual(self.call("POST", "/api/settings/patch", bad)["_status"], 400, bad)
             # 2 つの窓が別々の鍵を保存しても消し合わない
             self.assertEqual(self.call("PUT", "/api/settings", dict(orig, glossary="元", replacements="元=>元"))["_status"], 200)

@@ -127,7 +127,7 @@ def external_url(url):
 
 
 def _read_settings(path):
-    """入口の settings.json(辞書)。無い・読めない・辞書でなければ {}(read_mode と write_mode で同じ読み方)"""
+    """入口の settings.json(辞書)。無い・読めない・辞書でなければ {}"""
     try:
         with open(path, encoding="utf-8") as f:
             d = json.load(f)
@@ -139,16 +139,6 @@ def _read_settings(path):
 def read_mode(path):
     m = _read_settings(path).get("window")
     return m if m in MODES else DEFAULT_MODE
-
-
-def write_mode(path, mode, atomic_write):
-    if mode not in MODES:
-        raise ValueError("mode は browser か app です")
-    d = _read_settings(path)
-    d["window"] = mode
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    atomic_write(path, json.dumps(d, ensure_ascii=False, indent=1).encode("utf-8"))
-    return mode
 
 
 def focus_window(title, user32=None):
@@ -211,11 +201,11 @@ def focus_window(title, user32=None):
 class Opener:
     """窓・いつものブラウザで開く係(入口に1つ)。data_dir は作業データの置き場所の app フォルダ"""
 
-    def __init__(self, data_dir, atomic_write, env=None, popen=subprocess.Popen, browser_open=webbrowser.open,
+    def __init__(self, data_dir, env=None, popen=subprocess.Popen, browser_open=webbrowser.open,
                  find=find_edge, clock=time.monotonic, log=None):
         self.settings_path = os.path.join(data_dir, SETTINGS_NAME)
         self.profile = os.path.join(data_dir, PROFILE_NAME)
-        self._atomic_write, self._popen, self._browser_open = atomic_write, popen, browser_open
+        self._popen, self._browser_open = popen, browser_open
         self._find, self._env, self._clock, self._log = find, env, clock, log or (lambda msg: None)
         self._lock = threading.Lock()
         self._times = []
@@ -226,9 +216,6 @@ class Opener:
     @property
     def mode(self):
         return self.force_mode or read_mode(self.settings_path)
-
-    def set_mode(self, mode):
-        return write_mode(self.settings_path, mode, self._atomic_write)
 
     def exe(self):
         if not self._looked:   # 一度だけ探す(Edge の場所は起動中に変わらない)

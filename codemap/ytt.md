@@ -7,8 +7,8 @@
 - **__init__.py** (30 行) — ytt — 基盤(役割で組み直す計画 notes:plan/done/role-restructure.md の 3 節。どの層からも読める)。
 - **apikey.py** (37 行) — YouTube Data API のキー。
   - 名前: `get_api_key` :16・`set_api_key` :27
-- **appwindow.py** (296 行) — 画面を「窓」(Edge のアプリモード)で開く(統合計画の段階7-3。ユーザー決定で既定は窓 = 専用の窓。pywebview は使わない)。
-  - 名前: `class Unavailable` :41・`class TooMany` :45・`find_edge` :49・`app_command` :86・`local_url` :99・`external_url` :122・`read_mode` :139・`write_mode` :144・`focus_window` :154・`class Opener` :211
+- **appwindow.py** (283 行) — 画面を「窓」(Edge のアプリモード)で開く(統合計画の段階7-3。ユーザー決定で既定は窓 = 専用の窓。pywebview は使わない)。
+  - 名前: `class Unavailable` :41・`class TooMany` :45・`find_edge` :49・`app_command` :86・`local_url` :99・`external_url` :122・`read_mode` :139・`focus_window` :144・`class Opener` :201
 - **autorestart.py** (48 行) — 自動の起動し直し・入れ替え(新しい版があるとき、何も処理していない間に自分で新しい版にする)の判定。純粋な部品(入口と友人のアプリの両方が使う)。
   - 名前: `read_tried` :22・`write_tried` :28・`decide` :33・`editor_in_use` :45
 - **casefiles.py** (315 行) — 案件の 候補.json・採用.json の純粋な部分(決定 3-37 の (r8j)〜(r8q))。
@@ -56,8 +56,8 @@
   - 受ける口: `/api/ping` :116
 - **schemas.py** (472 行) — 受け渡しの形式(notes:docs/spec/pipeline.md の 1・2)。youtube-tools-clip/v1 は、スタジオが書き(build_clip)、文字起こしが読む(load_clip_file)。
   - 名前: `iso_now` :21・`now_ms` :26・`num` :31・`is_num` :42・`is_int` :47・`plain_int` :52・`int_in` :57・`num_or` :62・`union_spans` :71・`fmt_hms` :82・`other_speaker` :105・`no_sub_row` :110・ほか 27
-- **settings.py** (370 行) — 設定ファイル(JSON の辞書)の読み書きの共通部品(設定を 1 つにまとめる 段 2 = S4。notes:docs/spec/data.md の 4)。
-  - 名前: `class SettingsError` :37・`class SettingsTooLarge` :41・`section_name_ok` :45・`retire_broken` :50・`class SettingsFile` :62・`analyze_user` :198・`load_settings` :203・`register_patch_key` :232・`patch_settings` :268・`merge_settings` :283・`replace_settings` :298・`eval_dirs` :335・ほか 2
+- **settings.py** (368 行) — 設定ファイル(JSON の辞書)の読み書きの共通部品(設定を 1 つにまとめる 段 2 = S4。notes:docs/spec/data.md の 4)。
+  - 名前: `class SettingsError` :37・`class SettingsTooLarge` :41・`section_name_ok` :45・`retire_broken` :50・`class SettingsFile` :62・`analyze_user` :198・`load_settings` :203・`register_patch_key` :229・`patch_settings` :266・`merge_settings` :281・`replace_settings` :296・`eval_dirs` :333・ほか 2
 - **studio_env.py** (205 行) — スタジオの環境: データの置き場所・書き出し先・疑似の旗・外部の道具・失敗の記録。
   - 名前: `set_code_dir` :29・`code_dir` :35・`set_home` :40・`home` :48・`p` :60・`fake` :65・`fake_file` :70・`fake_media` :76・`find_tool` :84・`old_log_name` :93・`rotate_log` :100・`log_failure` :105・ほか 7
 - **studiodata.py** (176 行) — 切り抜きスタジオの data.json の配信の情報(読む側。書くのは盛り上がりグラフの save_series だけ)。

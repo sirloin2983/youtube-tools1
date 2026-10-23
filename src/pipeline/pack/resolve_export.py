@@ -4,8 +4,8 @@
 残す区間の決め方は pack.TRANSCRIPT_ROWS(行の時間・短い行も残す・1フレームの隙間はつなぐ・端を声の止まる所まで広げる)。
 端を広げるか(設定の rowEdge)は pack.row_edge_from で読む(規則はここに書かない)。
 
-このファイルに持っているもの: 「残す行」の規則(is_kept / kept_spans)・SRT の書式・受け渡しの JSON の組み立て
-(transcript/v1・SRT = build_*。パックが読む形を作る側がここなので、
+このファイルに持っているもの: 「残す行」の規則(is_kept / kept_spans)・受け渡しの JSON の組み立て
+(transcript/v1 = build_*。パックが読む形を作る側がここなので、
 manage/cases の handoff_io は .clip.json の動画と保存の名前だけで、pipeline → manage の向きの違反が無い)。
 パックの部品(同じフォルダの pack・resolve_textplus)は edit_draft などを呼んだときに初めて読み込む(文字起こしの他の機能はそれが無くても動く)。
 """
@@ -20,18 +20,6 @@ from pathlib import Path
 from ytt import errors as _errors, runtime as _runtime, schemas as _schemas
 
 TOOL_NAME = _runtime.TOOL_APPS["transcribe"]   # 受け渡しの tool.name(互換のため値は変えない。manage/cases/handoff_io も同じ値を持つ)
-
-
-def srt_time(seconds: float) -> str:
-    """SRT の時刻(HH:MM:SS,mmm)。ミリ秒は四捨五入(0.5 は切り上げ)。"""
-    ms = max(0, int(math.floor(float(seconds) * 1000 + 0.5)))
-    return "%02d:%02d:%02d,%03d" % (ms // 3600000, ms // 60000 % 60, ms // 1000 % 60, ms % 1000)
-
-
-def srt_text(cues) -> str:
-    """[(開始秒, 終了秒, 文章)] → SRT の本文。番号は1から。ブロックの間は空行1つ、末尾は改行1つ
-    (画面の書き出し・動画の隣への保存が、同じ書式になるよう1か所にまとめる)。"""
-    return "\n".join("%d\n%s --> %s\n%s\n" % (i, srt_time(a), srt_time(b), text) for i, (a, b, text) in enumerate(cues, 1))
 
 
 def is_kept(seg: dict) -> bool:
@@ -135,7 +123,7 @@ def pack_instructions(folder):
 
 def _load_pack():
     """パックの部品(同じフォルダの pack と resolve_textplus)。
-    呼ばれたときに初めて読む(重い部品なので、残す行の規則・SRT・受け渡しの JSON だけ使うときは読まない)。
+    呼ばれたときに初めて読む(重い部品なので、残す行の規則・受け渡しの JSON だけ使うときは読まない)。
     resolve_export 自体が pipeline/pack にあるので、sys.path を探す必要は無い"""
     from . import pack, resolve_textplus
     return pack, resolve_textplus

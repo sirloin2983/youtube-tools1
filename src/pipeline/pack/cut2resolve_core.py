@@ -5,7 +5,6 @@
   ・EDL(カットリスト。動画の場所は書かず、ファイル名で元動画と結び付ける)
   ・カット後の時刻に直した字幕(SRT)
   ・友人向けの手順書
-  ・(任意) ffmpeg で粗編集した動画(EDL が通らなかったときの代替)
 を作る。動画の情報の読み取り・字幕の読み込みは srt2resolve.py を使い回す。
 カットの決め方を組み合わせて「残す区間」を出す流れ(試算とパック作成)は pack.py(CLI と画面の共通部)。
 
@@ -60,7 +59,7 @@ class OutputExists(ToolError):
 
 
 class Task(_jobs.Ctl):
-    """長い処理(無音の検出・粗編集の書き出し・動画のコピー)の進み具合の報告と取り消し = ytt/jobs.Ctl(OPT2 の J0 で上げた)。
+    """長い処理(無音の検出・音量をそろえた動画の書き出し・動画のコピー)の進み具合の報告と取り消し = ytt/jobs.Ctl(OPT2 の J0 で上げた)。
     取り消しは core の Cancelled(ToolError の仲間 = CLI 側の扱いは他のエラーと同じ)。画面(serve.py)はジョブごとに1つ作って渡す。CLI は渡さない"""
 
     def __init__(self, on_progress=None, cancel_event=None):
@@ -139,7 +138,7 @@ def parse_cut_list(text):
 
 
 def _sec_to_ms(sec):
-    """秒 -> ミリ秒(四捨五入。0.5 は大きい方へ = 文字起こしツールの srt_time と同じ)"""
+    """秒 -> ミリ秒(四捨五入。0.5 は大きい方へ)"""
     return math.floor(sec * 1000 + 0.5)
 
 
@@ -299,7 +298,7 @@ _SILENCE_LINE = re.compile(r"silence_(start|end):\s*(-?[\d.]+)")   # ffmpeg の 
 
 def detect_silence(video, fps, total, noise_db=DEFAULT_NOISE_DB, min_sec=DEFAULT_SILENCE_MIN, pad_sec=DEFAULT_SILENCE_PAD, task=None):
     """無音区間 -> 削る区間[(開始f, 終了f)]。話の前後に pad_sec だけ残す。
-    音声は最初の音声トラック(粗編集の書き出しと同じ)。複数の音声トラックがある録画でも、どちらを調べたか食い違わないように"""
+    音声は最初の音声トラック。複数の音声トラックがある録画でも、どちらを調べたか食い違わないように"""
     check_silence_params(noise_db, min_sec, pad_sec)
     cmd = [S.tool("ffmpeg"), "-hide_banner", "-nostdin", "-nostats", "-i", S.arg_path(video), "-map", "0:a:0", "-vn", "-sn", "-dn",
            "-af", f"silencedetect=noise={noise_db}dB:d={min_sec}", "-f", "null", "-"]
