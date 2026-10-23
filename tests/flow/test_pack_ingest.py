@@ -28,16 +28,13 @@ DOC = {"sourcePath": "C:\\x\\clip.mp4", "title": "t", "duration": 3700.0,
 
 class TestPack(unittest.TestCase):
     def test_handoff_run(self):
-        """受け渡しの中身: 行は時刻順・文字の無い行は入れない・字幕に出さない行は印を載せて SRT から外す・区間には数える"""
+        """受け渡しの中身: 行は時刻順・文字の無い行は入れない・字幕に出さない行は印を載せる・区間には数える"""
         obj, n = pack.handoff_files(DOC, "transcript-v1")
         self.assertEqual(n, 4)
         self.assertEqual([(g["id"], g.get("noSub"), g["cut"], g["speaker"]) for g in obj["segments"]],
                          [("a", None, False, 0), ("b", True, False, 1), ("c", None, True, None), ("d", None, False, None)])
         self.assertEqual(([s["name"] for s in obj["speakers"]], obj["tool"]["version"]), (["ぺこら", "ゲーム音声など"], workdata.SERVER_VERSION))
-        text, n = pack.handoff_files(DOC, "srt", 0, False)                              # カット済の行も出す(カットは受け取る側が当てる)
-        self.assertEqual((text, n), ("1\n00:00:00,000 --> 00:00:01,500\n一\n\n2\n00:00:02,000 --> 00:00:04,000\n切る\n\n"
-                                     "3\n01:01:01,001 --> 01:01:02,000\n二\n行\n", 3))
-        for fmt in ("nope", "cut-plan-v1"):   # 残す区間の保存(cut-plan-v1)は 10-24 に無くした
+        for fmt in ("nope", "srt", "cut-plan-v1"):   # 字幕の書き出し(srt)・残す区間の保存(cut-plan-v1)は 10-24 に無くした
             with self.assertRaises(ValueError):
                 pack.handoff_files(DOC, fmt)
         with tempfile.TemporaryDirectory() as d:                                       # 前回のパックの手順: 作れなければ空の文字

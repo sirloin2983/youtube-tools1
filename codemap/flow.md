@@ -73,8 +73,8 @@
   - 名前: `new_id` :30・`speakers_arg` :60・`cut_arg` :86・`video_tracks_arg` :91・`people_of` :96・`spec_diff` :114・`request_top` :165・`order` :170
 - **outbox.py** (219 行) — ② 管理の層 flow: 送り返しの zip(F1 の F2。docs/design/f1-build.md の 2・3 の (f1d)(f1m)・plan/f1-friend-pc.md の決めたこと 11)。
   - 名前: `outbox_dir` :46・`scrub` :55・`default_health` :90・`build` :129
-- **pack.py** (59 行) — ② パックの口(RS6 a-5a)。人とデータの層(③・④)が Resolve のパックの部品(① pipeline/pack/resolve_export)を直に読まずに済む動詞。
-  - 名前: `cut_draft` :25・`cut_preview` :31・`handoff_files` :36・`media_plan` :47・`instructions` :54
+- **pack.py** (57 行) — ② パックの口(RS6 a-5a)。人とデータの層(③・④)が Resolve のパックの部品(① pipeline/pack/resolve_export)を直に読まずに済む動詞。
+  - 名前: `cut_draft` :25・`cut_preview` :31・`handoff_files` :36・`media_plan` :45・`instructions` :52
 - **packjobs.py** (127 行) — ② 管理の層 flow: パックのジョブの器(OPT2 後半 J3・J6)。cut2resolve/serve.py の Job・AppState のジョブの部分。
   - 名前: `class Job` :23・`board_job` :51・`class PackJobs` :78
 - **packrec.py** (131 行) — ② 管理の層 flow: パックを作った記録(作業データの packs/<フォルダのハッシュ>.json)の持ち主(OPT-M2。notes:plan/done/opt-manage.md の 3b-1)。

@@ -19,7 +19,7 @@
         <details class="ui-pop" id="jumpMenu"><summary class="btn ghost small icon" id="btnSpk" aria-label="話者・文字をまとめて直す・書き出し・以前の版" title="話者・文字をまとめて直す・書き出し・以前の版"><span class="ui-icon" data-icon="more" aria-hidden="true"></span></summary><div class="ui-pop-body" data-align="left">
           <button type="button" data-jump="spDetails">話者(自動判別・名前)</button>
           <button type="button" data-jump="fixDetails">文字をまとめて直す(置換・再認識)</button>
-          <button type="button" data-jump="exDetails">書き出し(字幕・テキスト)</button>
+          <button type="button" data-jump="exDetails">次のツールへ渡す(文字起こし)</button>
           <button type="button" data-jump="hiDetails">以前の版に戻す</button></div></details>
         <span class="pill warn tt-read-count" id="readCount" hidden title="字幕として読みにくい行(1 秒あたりの文字が多い・表示が短い)の数。絞り込みの「読みにくい行だけ」で、その行だけを出せます(知らせるだけ。校正済みにはできます)"></span>
         <span class="ui-count" id="qCount" aria-live="polite"></span>
@@ -128,20 +128,11 @@
           聞いている間も編集できます。評価用の文字起こしには出しません。</span></div>
     </details>
 
-    <details class="card tt-tool" id="exDetails"><summary>書き出し <span class="hint">字幕・テキスト・次のツールへ</span></summary>
-      <div class="fld"><span class="l">ダウンロード</span>
-        <div class="row">
-          <label class="lag">時刻の基準 <select id="exBase" style="width:auto"><option value="rel">範囲の開始を0秒にする(切り抜き用)</option><option value="abs">元動画の時刻のまま</option></select></label>
-          <label class="lag">折り返し <select id="exWrap" style="width:auto"><option value="0">しない</option><option value="12">12文字</option><option value="16">16文字</option><option value="20">20文字</option><option value="24">24文字</option><option value="32">32文字</option></select></label></div>
-        <div class="row" style="margin-top:6px"><label class="lag"><input type="checkbox" id="exSpk">話者名を付ける</label>
-          <label class="lag"><input type="checkbox" id="exSel">選択した行だけ</label><label class="lag"><input type="checkbox" id="exTs">テキストに時刻を付ける</label></div>
-        <div class="row tt-exbtns" style="margin-top:8px"><button type="button" class="btn small" data-ex="srt">SRT</button><button type="button" class="btn small" data-ex="vtt">VTT</button><button type="button" class="btn small" data-ex="txt">テキスト</button><button type="button" class="btn small" data-ex="json">JSON</button></div>
-        <p class="hint tt-nosub-count" id="exNoSub" hidden></p>
-        <span class="hint">「範囲の開始を0秒」は、切り抜き動画に字幕を付けるときの設定です。「高速」で書き出した動画は開始が数秒手前にずれるため、字幕もずれます。</span></div>
+    <details class="card tt-tool" id="exDetails"><summary>次のツールへ渡す <span class="hint">文字起こしを作業用フォルダに</span></summary>
       <div class="fld" id="handoffBox"><span class="l">作業用フォルダに保存(次のツールへ渡す)</span>
-        <div class="tt-exbtns"><button type="button" class="btn small" data-beside="transcript-v1" title="校正した文字起こし(話者・校正済み・カット済の印つき)を、動画のフォルダの「作業用」に「動画名.transcript.json」で保存します。cut2resolve はこれを読みます">文字起こし(.transcript.json)</button><button type="button" class="btn small" data-beside="srt" title="字幕を、動画と同じフォルダに「動画名.srt」で保存します(プレーヤーが自動で読む名前)">字幕(.srt)</button></div>
+        <div class="tt-exbtns"><button type="button" class="btn small" data-beside="transcript-v1" title="校正した文字起こし(話者・校正済み・カット済の印つき)を、動画のフォルダの「作業用」に「動画名.transcript.json」で保存します。cut2resolve はこれを読みます">文字起こし(.transcript.json)</button></div>
         <div id="handoffOut" class="tt-handoff" hidden role="status"></div>
-        <span class="hint">ダウンロードフォルダではなく、元の動画のフォルダの中の「作業用」フォルダに保存します(出力先に途中のファイルを並べないため)。先に自動保存が終わるのを待ってから書き出します。字幕は「元動画の時刻のまま」で、カット済の行も含みます(折り返し・話者名は上の設定を使います)。同じ名前のファイルがあるときは、このツールが前に書いたものだけ上書きし、それ以外は「(2)」を付けた別名にします(字幕は常に別名)。</span></div>
+        <span class="hint">ダウンロードフォルダではなく、元の動画のフォルダの中の「作業用」フォルダに保存します(出力先に途中のファイルを並べないため)。先に自動保存が終わるのを待ってから書き出します。同じ名前のファイルがあるときは、このツールが前に書いたものだけ上書きし、それ以外は「(2)」を付けた別名にします。</span></div>
     </details>
 
     <details class="card tt-tool tt-lockable" id="hiDetails"><summary>以前の版に戻す <span class="hint">自動バックアップ</span></summary>

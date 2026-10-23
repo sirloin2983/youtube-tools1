@@ -15,9 +15,9 @@
   - 受ける口: `/api/ytt` :45
 - **prefs.py** (488 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
   - 名前: `class PrefsError` :95・`guess_streamer` :382・`class Prefs` :394
-- **server.py** (1691 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
-  - 名前: `runtime_dir` :181・`ping` :191・`tail` :199・`expected_version` :220・`tool_python` :226・`rel_or_abs` :236・`signal_stop` :244・`class Tool` :257・`app_data_dir` :307・`logs_dir_for` :313・`class Supervisor` :319・`query_int` :639・ほか 15
-  - 受ける口: `/api/drill/status` :149・`/api/eval-batch` :149・`/api/intake` :625・`/api/backup` :626・`/api/accuracy` :627・`/api/flow/runs` :628・`/api/cases/auto` :630・`/api/flow/submit` :631・`/api/flow/estimate` :631・`/api/flow/cancel` :632・`/api/intake/scan` :633・`/api/backup/run` :633・`/api/accuracy/run` :634・`/api/window` :634・`/api/check/answer` :635・`/api/check/skip` :635・`/api/check/flush` :635・`/api/shutdown` :636・`/api/ping` :725・`/api/status` :727・`/api/health` :737・`/api/log` :739・`/api/flow/status` :754・`/api/flow/history` :758・`/api/check/next` :761・`/api/cases` :767
+- **server.py** (1690 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
+  - 名前: `runtime_dir` :181・`ping` :191・`tail` :199・`expected_version` :220・`tool_python` :226・`rel_or_abs` :236・`signal_stop` :244・`class Tool` :257・`app_data_dir` :307・`logs_dir_for` :313・`class Supervisor` :319・`query_int` :638・ほか 15
+  - 受ける口: `/api/drill/status` :149・`/api/eval-batch` :149・`/api/intake` :624・`/api/backup` :625・`/api/accuracy` :626・`/api/flow/runs` :627・`/api/cases/auto` :629・`/api/flow/submit` :630・`/api/flow/estimate` :630・`/api/flow/cancel` :631・`/api/intake/scan` :632・`/api/backup/run` :632・`/api/accuracy/run` :633・`/api/window` :633・`/api/check/answer` :634・`/api/check/skip` :634・`/api/check/flush` :634・`/api/shutdown` :635・`/api/ping` :724・`/api/status` :726・`/api/health` :736・`/api/log` :738・`/api/flow/status` :753・`/api/flow/history` :757・`/api/check/next` :760・`/api/cases` :766
 - **ytlogin.py** (95 行) — ユーザーの PC の YouTube のログイン(10-23 ユーザー「ログインできる形にしといて」)。友人のアプリと同じ作り(notes:docs/spec/friend.md の 13-13)。
   - 名前: `cookies_path` :23・`apply_env` :27・`class YtLogin` :35
 
@@ -77,7 +77,7 @@
 
 ## src/app/ui/editor/
 
-- **app-core.js** (305 行) — app-core.js — 「編集」の画面: 共通の小道具・表示の好み・⚙・取り込まれたツールの場所・設定。
+- **app-core.js** (303 行) — app-core.js — 「編集」の画面: 共通の小道具・表示の好み・⚙・取り込まれたツールの場所・設定。
   - 名前: `uiIcon` :12・`toast` :15・`showErr` :22・`undoToast` :36・`stopAtEnd` :48・`armPlayEnd` :69・`httpFailText` :74・`api` :75・`busy` :81・`kickJobs` :85・`saveFirst` :86・`saveDone` :91・ほか 32
 - **app-jobs.js** (339 行) — app-jobs.js — 「編集」の画面: 文字起こしの要求・ジョブの進捗・話者の自動判別・声を覚える・再認識。
   - 名前: `recogOpts` :10・`jobOpts` :16・`startPolling` :22・`pollJobs` :24・`namedBy` :73・`transcribeInto` :77・`renderIntoState` :88・`jobProg` :99・`jobPhase` :100・`jobFailText` :101・`retryJob` :106・`renderDiarSetup` :113・ほか 26
@@ -85,23 +85,23 @@
   - 名前: `scheduleSuggest` :8・`sugList` :12・`sugHTML` :14・`renderChips` :23・`loadSuggest` :33・`sugFeedback` :40・`altJob` :47・`renderAlt` :50・`applySug` :69・`acceptSug` :74・`rejectSug` :83・`setProof` :87・ほか 17
 - **app-list.js** (81 行) — app-list.js — 「編集」の画面: 保存済み一覧の読み込み・題名の行の「まとめて実行」。
   - 名前: `loadList` :10・`portalApi` :18・`applyNeedHome` :24・`runCls` :29・`runStepsText` :30・`pollRuns` :32・`startDocAuto` :46・`renderDocAuto` :63・`syncListItem` :75
-- **app-rows.js** (974 行) — app-rows.js — 「編集」の画面: 編集画面(保存・開く・行の描画と操作)・字幕の文字数・行の移動・話者の色・キー配置・用語の挿入・履歴・行の追加。
-  - 名前: `spById` :8・`markDirty` :10・`setSaveState` :17・`paintSaveState` :20・`saveDoc` :26・`subNum` :62・`readSubtitle` :64・`fillSubtitle` :77・`subtitleReq` :87・`openDoc` :89・`docInfoText` :134・`opts` :145・ほか 102
-- **app-tools.js** (361 行) — app-tools.js — 「編集」の画面: 動画を選び直す・検索と置換・書き出し・受け渡し・確認のダイアログ・カット・パックのタブとのつなぎ。
-  - 名前: `rlSync` :8・`rlReset` :10・`openRelink` :16・`renderRlResult` :23・`rlCheck` :42・`pickPath` :58・`updateDocTitle` :64・`docLength` :70・`renderDocBar` :77・`renderDocBarNow` :79・`syncEval` :95・`evNote` :103・ほか 24
-- **app-tpl.js** (232 行) — app-tpl.js — 「編集」の画面の HTML(window.EditProofTpl)。「校正」の欄(tx)・ダイアログ(dialogs)・題名の行(docbar)・⚙ の編集の節(settings)。
-- **app.js** (952 行) — 案件の画面(/cases)の校正のパネルの口。src/app/ui/cases/edhost.js が app.js より先に window.EditHost を置く = {base(API の頭), keybar(帯), tab(タブ), open(別の文書), opening}。
+- **app-rows.js** (967 行) — app-rows.js — 「編集」の画面: 編集画面(保存・開く・行の描画と操作)・字幕の文字数・行の移動・話者の色・キー配置・用語の挿入・履歴・行の追加。
+  - 名前: `spById` :8・`markDirty` :10・`setSaveState` :17・`paintSaveState` :20・`saveDoc` :26・`subNum` :62・`readSubtitle` :64・`fillSubtitle` :77・`subtitleReq` :87・`openDoc` :89・`docInfoText` :134・`opts` :145・ほか 100
+- **app-tools.js** (294 行) — app-tools.js — 「編集」の画面: 動画を選び直す・検索と置換・受け渡し・確認のダイアログ・カット・パックのタブとのつなぎ。
+  - 名前: `rlSync` :8・`rlReset` :10・`openRelink` :16・`renderRlResult` :23・`rlCheck` :42・`pickPath` :58・`updateDocTitle` :64・`docLength` :70・`renderDocBar` :77・`renderDocBarNow` :79・`syncEval` :95・`evNote` :103・ほか 19
+- **app-tpl.js** (223 行) — app-tpl.js — 「編集」の画面の HTML(window.EditProofTpl)。「校正」の欄(tx)・ダイアログ(dialogs)・題名の行(docbar)・⚙ の編集の節(settings)。
+- **app.js** (942 行) — 案件の画面(/cases)の校正のパネルの口。src/app/ui/cases/edhost.js が app.js より先に window.EditHost を置く = {base(API の頭), keybar(帯), tab(タブ), open(別の文書), opening}。
   - 名前: `$` :6・`apiUrl` :19・`spColor` :25・`norm` :26・`setSnap` :57・`setStatus` :58・`onLeave` :61・`pctOf` :75・`ago` :78・`runLabelOf` :82・`stepLabelOf` :83・`voiceSec` :93・ほか 29
 - **cut.js** (1184 行) — 「編集」2 カット のタブ(notes:docs/design/edit-tool-design.md の 3・4・8)。app.js より先に読み込み、app.js が EditCut.create(host) で起動する。
   - 名前: `create` :24
-- **doc-kit.js** (98 行) — doc-kit.js — 文書(文字起こしの行・話者)の小さな部品(window.EditDoc)。状態は持たない。
+- **doc-kit.js** (91 行) — doc-kit.js — 文書(文字起こしの行・話者)の小さな部品(window.EditDoc)。状態は持たない。
 - **pack-tab.js** (504 行) — 「編集」のパック(2 カット の末尾 #packArea。notes:docs/design/edit-tool-design.md の 3・5)。app.js より先に読み、app.js が EditPack.create(host) で起動する。
   - 名前: `create` :11
 
 ## src/app/ui/home/
 
 - **portal-edit.js** (67 行) — ホームの運用の中の「編集の精度」(src/app/ui/home/portal.html の #editOpsBox。RS8 C3)。
-- **portal.js** (1779 行) — ホーム(src/app/ui/home/portal.html。段階5で入口 + 案件を1つにした)。
+- **portal.js** (1774 行) — ホーム(src/app/ui/home/portal.html。段階5で入口 + 案件を1つにした)。
 
 ## src/app/ui/settings/
 
@@ -115,8 +115,8 @@
   - 名前: `$` :7・`mmss` :9・`entryHtml` :12・`settings` :49・`loadOpts` :53・`unquote` :58・`looksYt` :59・`entries` :60・`paintKinds` :70・`syncAdd` :75・`refocusForm` :85・`setMsg` :92・ほか 20
 - **rank.js** (774 行) — 切り抜きスタジオ: ① 探す(配信ランキング)。検索 → 結果(全部まとめて再生数の順 / 事務所ごと)→ チェックして「解析に追加」か「まとめて実行」(入口から開いたときだけ)
   - 名前: `$` :5・`lsGet` :8・`lsSet` :9・`fmtN` :10・`fmtDur` :11・`ymd` :12・`okThumb` :13・`atMs` :16・`saveReg` :27・`agKey` :32・`captureReg` :35・`restoreReg` :51・ほか 69
-- **review.js** (3490 行) — 切り抜きスタジオ ② 確認・書き出し(切り抜きマーカー由来)。
-  - 名前: `create` :9・`round1` :14・`uid` :15・`toast` :16・`parseTime` :20・`isAutoLike` :34・`marksPayload` :35・`sec1` :48・`sanitizeKeymap` :49・`spanLabel` :60・`sanitizeSettings` :65・`marks` :101・ほか 286
+- **review.js** (3435 行) — 切り抜きスタジオ ② 確認・書き出し(切り抜きマーカー由来)。
+  - 名前: `create` :9・`round1` :14・`uid` :15・`toast` :16・`parseTime` :20・`isAutoLike` :34・`marksPayload` :35・`sec1` :47・`sanitizeKeymap` :48・`spanLabel` :60・`momentSpan` :65・`momentSpanOf` :67・ほか 283
 
 ## テスト
 

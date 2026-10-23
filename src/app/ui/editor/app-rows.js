@@ -165,7 +165,7 @@ function setSegSpeaker(s, id, row){
   if (id === OTHER_SP.id) s.noSub = true; else if (was) delete s.noSub;
   if (row){ const sel = row.querySelector('.spk'); if (sel) sel.value = id; setRowSp(row, spById(id)); paintNoSub(row, s); }
   const i = S.doc.segments.indexOf(s); if (row && i >= 0) markOvl(i);   // 重なりの赤は話者で変わる(別の話者どうし・字幕に出さない行は赤くしない)
-  if (row){ renderNoSubCount(); updateCaption(); }
+  if (row) updateCaption();
 }
 
 /* 行の「字幕に出さない」を切り替える(行のボタン・右クリックのメニュー)。どの話者の行でも使える(NPC のセリフを出したい・独り言を出したくない) */
@@ -173,19 +173,12 @@ function setNoSub(s, on, row){
   if (on) s.noSub = true; else delete s.noSub;
   if (row) paintNoSub(row, s);
   const i = S.doc.segments.indexOf(s); if (i >= 0) markOvl(i);   // 字幕に出さない行との重なりは赤くしない
-  updateCaption(); renderNoSubCount();
+  updateCaption();
 }
 
 function paintNoSub(row, s){
   row.classList.toggle('nosub', !!s.noSub);
   const b = row.querySelector('[data-act=nosub]'); if (b) b.setAttribute('aria-pressed', s.noSub ? 'true' : 'false');
-}
-
-/* 字幕に出さない行の数(書き出しのカード・3 パック の「これから作るパック」に出す。0 なら出さない) */
-function noSubCount(){ return S.doc ? S.doc.segments.filter(g => g.noSub && hasText(g)).length : 0; }
-function renderNoSubCount(){
-  const n = noSubCount(), el = $('#exNoSub');
-  if (el){ el.hidden = !n; el.textContent = n ? `字幕に出さない行: ${n} 行(SRT・VTT・パックの字幕に入りません。テキスト・JSON には入ります)` : ''; }
 }
 
 function setSubColor(sp, hex){
@@ -424,7 +417,7 @@ function segHTML(s, i, T = rowTitles()){
     <select class="spk" data-f="speaker" aria-label="話者">${opts(s.speaker)}</select>
     <textarea data-f="text" rows="1" spellcheck="false" aria-label="文字" placeholder="(空の行)文字を入力。不要なら「削除」">${esc(s.text)}</textarea>
     <span class="ops">${keepCutHTML(cut)}<button type="button" class="btn small pf" data-act="proof" aria-pressed="${s.proofed ? 'true' : 'false'}" title="${T.proof}">校正済み</button></span>
-    <span class="pill info tt-nosub-pill" title="この行は字幕(映像の上・書き出しの SRT・パック)に出しません。カットでは今までどおり残します">字幕に出さない</span>
+    <span class="pill info tt-nosub-pill" title="この行は字幕(映像の上・パック)に出しません。カットでは今までどおり残します">字幕に出さない</span>
     ${readHTML(s, T.lim)}
     <div class="sug">${sugHTML(s)}</div>
     <div class="tg">${tagsHTML(s, T.tag)}</div>
@@ -448,7 +441,7 @@ function renderDoc(){
   S.curIdx = -1;   // 描き直すと「再生中」の印(.cur)も消えるので、次の timeupdate で付け直す
   if (S.navIdx >= segs.length) S.navIdx = segs.length - 1;
   { const r = rowsEl()[S.navIdx]; if (S.navIdx >= 0 && r && r.classList && r.classList.contains('seg')) r.classList.add('nav'); }
-  renderSpeakers(); applyFilter(); updateSel(); updatePfStat(); renderCutPack(); updateCaption(); renderNoSubCount();
+  renderSpeakers(); applyFilter(); updateSel(); updatePfStat(); renderCutPack(); updateCaption();
   syncRead(true); rtPaint(); rtSoon();   // 読む速さの件数・選んだ行の「時刻を言葉に合わせる」
 }
 
@@ -798,8 +791,8 @@ function renderKeyUI(){
   if (flow){
     const k = id => km[id] ? kbdHTML(km[id]) : '<span class="muted">(キーなし)</span>';
     flow.innerHTML = `基本の流れ: ${k('rowNext')}(<kbd>↓</kbd>)で行を選ぶ → 聞く(${k('replay')}) → 合っていれば ${k('proof')} / 直すなら ${k('edit')}(<kbd>Tab</kbd>)で入力 → <kbd>Esc</kbd>(<kbd>Tab</kbd>) → ${k('proof')}。` +
-      `「移動したら自動で再生」(${k('autoNext')} か設定の引き出しで切り替え)をオンにすると、${k('proof')} を押すたびに「聞く → 確認 → 次を聞く」が続きます。` +
-      `聞き取れない・重なり・BGM は ${k('tagUnclear')} / ${k('tagOverlap')} / ${k('tagBgm')} でメモしておくと、あとで学習に使うかどうかを選べます。`;
+      `「移動したら自動で再生」(設定の引き出しで切り替え)をオンにすると、${k('proof')} を押すたびに「聞く → 確認 → 次を聞く」が続きます。` +
+      `聞き取れない・重なりは ${k('tagUnclear')} / ${k('tagOverlap')}(BGM は行のボタン)でメモしておくと、あとで学習に使うかどうかを選べます。`;
   }
   /* 行のボタンのツールチップ(描き直さずに title だけ合わせる) */
   const tt = { play: titlePlay(), proof: titleProof(), adda: titleAddAfter(), del: titleDel() }, tg = Object.fromEntries(Object.keys(TAG_LABEL).map(t => [t, titleTag(t)]));

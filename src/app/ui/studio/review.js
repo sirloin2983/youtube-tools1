@@ -36,14 +36,13 @@ const marksPayload = ms => ms.map(m => { const { auto0, ...r } = m; return r; })
 /* markIn/markOut/playPause/back5/fwd5/back1/fwd1 は全ツール共通の再生キー(Space・J/K/L・← →・I/O。UIKit.keys.playback)に
    含まれるので、ここでは変更できる操作に入れない(共通キーと別のキーを割り当てても、共通キーが先に処理して silently 上書きされるため) */
 const ACTION_DEFS = [
-  ['addClip', 'マーク追加'], ['quickMark', '今をマーク①'], ['quickMark2', '今をマーク②'], ['quickMark3', '今をマーク③'], ['quickMark4', '今をマーク④'], ['quickMark5', '今をマーク⑤'],
-  ['volUp', '音量+'], ['volDown', '音量−'], ['mute', 'ミュート'], ['theater', 'シアター表示'],
-  ['prevMark', '前のマークへ'], ['nextMark', '次のマークへ'], ['adopt', '採用'], ['reject', '不採用'], ['moment', '一瞬をマーク'],
-  ['nextPeak', '次の候補'], ['adoptPeak', '候補を採用']   // 配信中の候補(ライブの録画で検出がオンのとき)
-];
+  ['addClip', 'マーク追加'], ['quickMark', '今をマーク①'], ['quickMark2', '今をマーク②'], ['quickMark3', '今をマーク③'], ['quickMark4', '今をマーク④'], ['quickMark5', '今をマーク⑤'], ['moment', '今をマーク 一瞬'],
+  ['volUp', '音量+'], ['volDown', '音量−'],
+  ['prevMark', '前のマークへ'], ['nextMark', '次のマークへ'], ['adopt', '採用'], ['reject', '不採用']
+];   // ミュート(M)・シアター表示(T)・配信中の候補の次・採用(P・Z)のキーは 10-24 に外した(ボタンは残す。保存した割り当てに残っていても読み飛ばす)
 const KEY_PRESETS = {
-  standard: { addClip: 'a', quickMark: 'n', quickMark2: '2', quickMark3: '3', quickMark4: '4', quickMark5: '5', volUp: 'ArrowUp', volDown: 'ArrowDown', mute: 'm', theater: 't', prevMark: '[', nextMark: ']', adopt: 'y', reject: 'u', moment: 'c', nextPeak: 'p', adoptPeak: 'z' },
-  left: { addClip: 'e', quickMark: 'r', quickMark2: '2', quickMark3: '3', quickMark4: '4', quickMark5: '5', volUp: 'f', volDown: 'v', mute: 'x', theater: 't', prevMark: 'g', nextMark: 'b', adopt: '1', reject: '6', moment: 'c', nextPeak: 'p', adoptPeak: 'z' }
+  standard: { addClip: 'a', quickMark: 'n', quickMark2: '2', quickMark3: '3', quickMark4: '4', quickMark5: '5', volUp: 'ArrowUp', volDown: 'ArrowDown', prevMark: '[', nextMark: ']', adopt: 'y', reject: 'u', moment: 'c' },
+  left: { addClip: 'e', quickMark: 'r', quickMark2: '2', quickMark3: '3', quickMark4: '4', quickMark5: '5', volUp: 'f', volDown: 'v', prevMark: 'g', nextMark: 'b', adopt: '1', reject: '6', moment: 'c' }
 };
 const sec1 = (v, d) => (Number.isFinite(Number(v)) && v !== null && v !== '' ? Math.min(60, Math.max(0, Math.round(Number(v) * 10) / 10)) : d);
 function sanitizeKeymap(x){
@@ -56,11 +55,19 @@ function sanitizeKeymap(x){
   return out;
 }
 const QUICK_SPAN_CHOICES = [10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 300, 420, 600];
-const DEFAULT_QUICK_SPANS = [30, 60, 120, 180, 300];
+/* 今をマーク ①〜⑤ と 一瞬(MOMENT_SLOT。採用のマーク「一瞬」になる。キー C)の前後の長さ。一瞬だけ短い段(MOMENT_SPAN_CHOICES) */
+const DEFAULT_QUICK_SPANS = [30, 60, 120, 180, 300, 2.5];
 const spanLabel = sec => sec >= 60 && sec % 60 === 0 ? sec / 60 + '分' : sec + '秒';
 /* ライブの録画: 書き出したあと(入口の POST /live/api/export の after)。何もしない / 全自動(文字起こし → パック。① 全自動)。
    文字起こしまで(check)は 10-19 に消した = 保存済みの check は全自動として読む */
 const LIVE_AFTERS = ['none', 'auto'];
+const MOMENT_SLOT = 5, MOMENT_SPAN_CHOICES = [1, 1.5, 2, 2.5, 3, 4, 5];
+const momentSpan = v => MOMENT_SPAN_CHOICES.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a));
+/* 一瞬の長さ: 保存した quickSpans の 6 つ目。無ければ前の形(前の秒 momentBefore・後の秒 momentAfter。10-24 まで)の平均を、近い段に */
+function momentSpanOf(x, v){
+  if (Number.isFinite(v)) return momentSpan(v);
+  return x.momentBefore != null || x.momentAfter != null ? momentSpan((sec1(x.momentBefore, 2) + sec1(x.momentAfter, 3)) / 2) : DEFAULT_QUICK_SPANS[MOMENT_SLOT];
+}
 const DEFAULT_SETTINGS = { volume: 100, muted: false, quickSpans: DEFAULT_QUICK_SPANS, keymap: KEY_PRESETS.standard, lag: 0, liveMode: 'auto', exportVolume: 75, exportLoudness: -14, theater: false, graphLines: false, autoPlay: true, autoNext: true, exportTarget: 'adopted', sortBy: 'time', foldDefault: false, liveAutoExport: true, liveDuck: 'low' };
 function sanitizeSettings(x){
   x = x && typeof x === 'object' ? x : {};
@@ -68,7 +75,7 @@ function sanitizeSettings(x){
   const autoTx = typeof x.autoTx === 'boolean' ? x.autoTx : autoTxLegacy() !== false;
   return {
     volume: n(x.volume, 0, 100, 100), muted: !!x.muted,
-    quickSpans: DEFAULT_QUICK_SPANS.map((d, i) => { const v = Array.isArray(x.quickSpans) ? Number(x.quickSpans[i]) : NaN; return Number.isFinite(v) ? Math.min(600, Math.max(5, Math.round(v))) : d; }),
+    quickSpans: DEFAULT_QUICK_SPANS.map((d, i) => { const v = Array.isArray(x.quickSpans) && x.quickSpans[i] != null ? Number(x.quickSpans[i]) : NaN; if (i === MOMENT_SLOT) return momentSpanOf(x, v); return Number.isFinite(v) ? Math.min(600, Math.max(5, Math.round(v))) : d; }),
     liveMode: ['auto', 'on', 'off'].includes(x.liveMode) ? x.liveMode : 'auto',
     exportVolume: n(x.exportVolume, 1, 200, 75),
     exportLoudness: [0, -11, -14, -16, -18].includes(Number(x.exportLoudness)) ? Number(x.exportLoudness) : -14,   // 0 = そろえない(音量(%)を使う)
@@ -76,7 +83,6 @@ function sanitizeSettings(x){
     autoPlay: x.autoPlay !== false, autoNext: x.autoNext !== false, foldDefault: x.foldDefault === true,
     exportTarget: ['adopted', 'pending', 'all'].includes(x.exportTarget) ? x.exportTarget : 'adopted', sortBy: x.sortBy === 'score' ? 'score' : 'time',
     lag: [0, 2, 3, 5].includes(Number(x.lag)) ? Number(x.lag) : 0,
-    momentBefore: sec1(x.momentBefore, 2), momentAfter: sec1(x.momentAfter, 3),   // 一瞬をマーク(C)の前・後の秒数
     liveAutoExport: x.liveAutoExport !== false,   // ライブの録画: マークしたらすぐ書き出す(既定オン)
     liveDuck: ['low', 'mute', 'off'].includes(x.liveDuck) ? x.liveDuck : 'low',   // ライブの録画: ほかの窓(編集)で再生している間の配信の音(下げる / 消す / そのまま)
     /* 書き出しのあと自動で文字起こし(設定の「書き出し」節。入口から開いたときだけ効く。既定オン)。値はこの節(サーバー)に置く(窓とブラウザで値が変わらないように)。
@@ -223,11 +229,7 @@ function liveBarHTML(){
 }
 /* 今をマーク・一瞬をマーク・細かく決める(IN・OUT・追加) */
 function markToolsHTML(){
-  return `      <div class="rv-quickbar" id="rvQuickbar"><div class="rv-fl">今をマーク <span class="muted">押した位置の前後を、そのままマークにします。− ＋ で前後の長さを切り替え</span></div><div class="rv-qrow" id="rvQuickSlots"></div>
-        <div class="rv-qrow rv-momrow"><button class="btn soft" type="button" id="rvMomBtn" title="今の位置の前後(下の秒数)を、マーク「一瞬」(採用)にします">一瞬をマーク<kbd class="ui-kbd" data-kbd="moment">C</kbd></button>
-          <label class="rv-momset">前 <input type="number" id="rvMomBefore" min="0" max="60" step="0.1" inputmode="decimal" aria-label="一瞬の前の秒数"> 秒</label>
-          <label class="rv-momset">後 <input type="number" id="rvMomAfter" min="0" max="60" step="0.1" inputmode="decimal" aria-label="一瞬の後の秒数"> 秒</label>
-          <span class="hint">0.1 秒単位。押すとすぐマークになります(ライブ中も)</span></div></div>
+  return `      <div class="rv-quickbar" id="rvQuickbar"><div class="rv-fl">今をマーク <span class="muted">押した位置の前後を、そのままマークにします(一瞬 は採用のマーク「一瞬」。ライブ中も)。− ＋ で前後の長さを切り替え</span></div><div class="rv-qrow" id="rvQuickSlots"></div></div>
 
       <details class="rv-markdetails ui-disclosure" id="rvMarkDetails">
         <summary>細かく決める <span class="muted">IN・OUT・追加(今をマークの代わりに、時刻を決めて追加)</span></summary>
@@ -1043,16 +1045,15 @@ const comboOf = e => UIKit.keys.comboOf(e);
 /* ACTION_DEFS の操作 → 実行(I/O・再生・移動は共通の再生キー UIKit.keys.playback が受け持つ) */
 const ACTION_FN = {
   addClip: () => addClip(), quickMark: () => quickMark(0), quickMark2: () => quickMark(1), quickMark3: () => quickMark(2), quickMark4: () => quickMark(3), quickMark5: () => quickMark(4),
-  volUp: () => adjustVolume(5), volDown: () => adjustVolume(-5), mute: () => toggleMute(), theater: () => toggleTheater(),
+  volUp: () => adjustVolume(5), volDown: () => adjustVolume(-5),
   prevMark: () => goMark(-1, false), nextMark: () => goMark(1, false), adopt: () => decideSel('adopted'), reject: () => decideSel('rejected'),
-  moment: () => momentMark(), nextPeak: () => peakKeyNext(), adoptPeak: () => peakKeyAdopt()
+  moment: () => quickMark(MOMENT_SLOT)
 };
 function currentPreset(){
   const km = S.settings.keymap;
   return Object.keys(KEY_PRESETS).find(n => ACTION_DEFS.every(([id]) => (KEY_PRESETS[n][id] || '') === (km[id] || ''))) || 'custom';
 }
-const KEY_GROUPS = [['マークの操作', ['addClip', 'moment']], ['今をマーク(長さは ② のボタンの横の − ＋ で変更)', ['quickMark', 'quickMark2', 'quickMark3', 'quickMark4', 'quickMark5']], ['判定・移動', ['prevMark', 'nextMark', 'adopt', 'reject']], ['音量・表示', ['volUp', 'volDown', 'mute', 'theater']],
-  ['配信中の候補(ライブの録画で「配信中の候補」をオンにしたとき)', ['nextPeak', 'adoptPeak']]];
+const KEY_GROUPS = [['マークの操作', ['addClip']], ['今をマーク(長さは ② のボタンの横の − ＋ で変更。一瞬は採用のマーク「一瞬」)', ['quickMark', 'quickMark2', 'quickMark3', 'quickMark4', 'quickMark5', 'moment']], ['判定・移動', ['prevMark', 'nextMark', 'adopt', 'reject']], ['音量', ['volUp', 'volDown']]];
 /* 割り当てられないキー(固定の意味がある)。値は使い道 */
 const STUDIO_FIXED = { Escape: '閉じる・取り消し', Enter: '確定', Tab: 'フォーカスの移動', 'Shift+Tab': 'フォーカスの移動', '?': 'キー操作の一覧' };
 const PRESET_NAMES = { standard: '標準', left: '左手だけ' };
@@ -1071,30 +1072,34 @@ const KM = UIKit.keymap.create({
   fixed: [{ title: '全体', rows: [['?', 'この一覧を開く・閉じる', '一覧を開くキー'], ['Esc', '一覧・設定を閉じる', '閉じるキー']] },
     { title: 'その他', why: '入力欄のキー', rows: [['Enter', '時刻の欄: 確定して移動 / ラベル: 確定']] }],
   /* 今をマークの長さは見せるだけ(変えるのは ② のボタンの横の − ＋ の1か所。設定の場所を重ねない) */
-  extra: id => { const m = /^quickMark(\d?)$/.exec(id); return m ? `<span class="muted rv-kmspan">前後${spanLabel((S.settings ? S.settings.quickSpans : DEFAULT_QUICK_SPANS)[m[1] ? Number(m[1]) - 1 : 0])}</span>` : ''; },
+  extra: id => { const i = slotOf(id); return i >= 0 ? `<span class="muted rv-kmspan">前後${spanLabel((S.settings ? S.settings.quickSpans : DEFAULT_QUICK_SPANS)[i])}</span>` : ''; },
   footNote: '「すべて標準に戻す」は共通の再生キーも標準に戻します(編集も同じ割り当てです)。',
   load: () => (S.settings && S.settings.keymap) || {},
   save: km => { S.settings.keymap = km; touchSettings(); },
   onChange: () => renderKeyUI()
 });
 const curKeymap = () => KM.map();
+/* 今をマークの操作 id → 長さの番号(quickMark = 0・quickMark2〜5 = 1〜4・moment = MOMENT_SLOT。ほかは -1) */
+function slotOf(id){ if (id === 'moment') return MOMENT_SLOT; const m = /^quickMark(\d?)$/.exec(id); return m ? (m[1] ? Number(m[1]) - 1 : 0) : -1; }
+const slotKey = i => (i === MOMENT_SLOT ? 'moment' : i ? 'quickMark' + (i + 1) : 'quickMark');
+const slotName = i => (i === MOMENT_SLOT ? '一瞬' : String(i + 1));
 function spanSelHTML(i){
   const cur = S.settings.quickSpans[i];
-  return `<span class="rv-stepper"><button type="button" class="rv-step" data-slot="${i}" data-d="-1" aria-label="ボタン${i + 1}の長さを短く">−</button><span class="rv-stv"><span class="rv-pre">前後</span>${spanLabel(cur)}</span><button type="button" class="rv-step" data-slot="${i}" data-d="1" aria-label="ボタン${i + 1}の長さを長く">＋</button></span>`;
+  return `<span class="rv-stepper"><button type="button" class="rv-step" data-slot="${i}" data-d="-1" aria-label="ボタン${slotName(i)}の長さを短く">−</button><span class="rv-stv"><span class="rv-pre">前後</span>${spanLabel(cur)}</span><button type="button" class="rv-step" data-slot="${i}" data-d="1" aria-label="ボタン${slotName(i)}の長さを長く">＋</button></span>`;
 }
 function onSpanStep(e){
   const b = e.target.closest('.rv-step'); if (!b) return;
   const i = Number(b.dataset.slot), d = Number(b.dataset.d), cur = S.settings.quickSpans[i];
-  const L = QUICK_SPAN_CHOICES; let idx = L.findIndex(x => x >= cur); if (idx < 0) idx = L.length; // 一覧にない値は最寄りの段へ
+  const L = i === MOMENT_SLOT ? MOMENT_SPAN_CHOICES : QUICK_SPAN_CHOICES; let idx = L.findIndex(x => x >= cur); if (idx < 0) idx = L.length; // 一覧にない値は最寄りの段へ
   idx = L[idx] === cur ? idx + d : (d > 0 ? idx : idx - 1);
   idx = Math.min(L.length - 1, Math.max(0, idx));
-  const q = S.settings.quickSpans.slice(); q[i] = QUICK_SPAN_CHOICES[idx]; S.settings.quickSpans = q;
+  const q = S.settings.quickSpans.slice(); q[i] = L[idx]; S.settings.quickSpans = q;
   renderKeyUI(); touchSettings();
 }
 function renderKeyUI(){
   const km = curKeymap();
   $('#rvQuickSlots').innerHTML = S.settings.quickSpans.map((sp, i) =>
-    `<div class="rv-qslot"><button class="btn${i === 0 ? ' soft' : ''}" type="button" data-slot="${i}" title="今の位置の前後${spanLabel(sp)}をマーク"><span class="rv-qn">${i + 1}</span><kbd class="ui-kbd" data-kbd="${i ? 'quickMark' + (i + 1) : 'quickMark'}"></kbd></button>${spanSelHTML(i)}</div>`).join('');
+    `<div class="rv-qslot"><button class="btn${i === 0 || i === MOMENT_SLOT ? ' soft' : ''}" type="button" data-slot="${i}" title="今の位置の前後${spanLabel(sp)}を${i === MOMENT_SLOT ? '、マーク「' + MOMENT_LABEL + '」(採用)に' : 'マーク'}"><span class="rv-qn">${slotName(i)}</span><kbd class="ui-kbd" data-kbd="${slotKey(i)}"></kbd></button>${spanSelHTML(i)}</div>`).join('');
   for (const el of $$('#rvRoot kbd[data-kbd]')){ el.textContent = km[el.dataset.kbd] ? keyText(km[el.dataset.kbd]) : ''; el.hidden = !km[el.dataset.kbd]; }   // 割り当てを外したら、ボタンの横のキーも出さない
   const pre = $('#rvKeyPreset');
   if (pre){
@@ -1783,11 +1788,6 @@ function peakView(p, busy){
     pending: p.endPending && p.state !== 'adopted', adopt: open, dismiss: open, restore: p.state === 'dismissed',
     why: busy ? PEAK_SENDING : p.endPending ? '区間の終わりがまだ録れていません(録れると採用できます)' : '' };
 }
-/* p キー: 一覧の順で、いまの候補(cur)の次(見送りは飛ばす)。cur が一覧に無ければ最初。最後なら null */
-function peakNext(shown, cur){
-  const l = (shown || []).filter(p => p.state !== 'dismissed'), i = l.findIndex(p => p.id === cur);
-  return i < 0 ? l[0] || null : l[i + 1] || null;
-}
 /* 入口の series({step, total, audio, chat}。600 点)→ グラフの形({n, step, total, audio, chat}。解析の S.series と同じ) */
 function peakSeries(s){
   if (!s || typeof s !== 'object' || !Array.isArray(s.total) || !s.total.length) return null;
@@ -2066,34 +2066,6 @@ async function setPeakState(id, op){
   if (ok && op === 'dismiss') Studio.toast(`候補 ${tickLabel(p.start)} を見送りました`, { ms: 6000, action: { label: '元に戻す', fn: () => setPeakState(id, 'restore') } });
   if (ok && PKV.needFull) pollPeaks(v);   // 戻した候補が枠か控えかは入口が決める(答えに peak が無ければ読み直す)
 }
-/* p・z が効かないときの理由(知らせ) */
-function peakOffWhy(v){
-  if (!(v && v.kind === 'live')) return '配信中の候補は、ライブの録画を開いているときだけ使えます';
-  if (!(PKV.detect && PKV.detect.enabled)) return '配信中の候補はオフです(設定の「ライブの録画」の「配信中の候補」でオンにできます)';
-  if (PKV.missing) return 'ホームが古いため、配信中の候補を使えません(「すべて終了」→ start.bat で起動し直してください)';
-  return 'この録画には、まだ配信中の候補がありません';
-}
-/* p・z を押せるか(候補が出ていなければ理由を知らせて false) */
-function peakKeysReady(){
-  if (peaksShownNow(S.cur)) return true;
-  toast(peakOffWhy(S.cur), 5000);
-  return false;
-}
-/* p キー: 次の候補を再生(いまの候補の次) */
-function peakKeyNext(){
-  if (!peakKeysReady()) return;
-  const nx = peakNext(peakShown(PKV.list, PKV.bench), peakCurrent());
-  if (!nx) return toast(PKV.list.length ? 'これより後の候補はありません' : 'まだ候補はありません', 4000);
-  playPeak(nx.id);
-  const li = peakRowOf(nx.id); if (li) li.scrollIntoView({ block: 'nearest' });
-}
-/* z キー: いまの候補を採用 */
-function peakKeyAdopt(){
-  if (!peakKeysReady()) return;
-  const id = peakCurrent(), k = curKeymap().nextPeak, key = k ? keyText(k) : '';
-  if (!id || !peakById(id)) return toast(`先に${key ? ' ' + key + ' か' : ''}一覧の「再生」で候補を再生してください`, 5000);
-  adoptPeak(id);
-}
 function wirePeaks(){
   const ol = $('#rvPeakList'); if (!ol) return;
   ol.addEventListener('click', e => {
@@ -2143,40 +2115,19 @@ function quickMark(slot = 0){
   if (!S.cur) return toast('先に配信を開いてください');
   if (marks().length >= MAX_MARKS) return toast(`1本の配信に登録できるのは${MAX_MARKS}件までです`);
   const center = lagNow();
-  const span = S.settings.quickSpans[slot] || 30;
+  const span = S.settings.quickSpans[slot] || DEFAULT_QUICK_SPANS[slot] || 30;
   const r = checkRange(center - span, center + span);
   if (typeof r === 'string') return toast(r);
   const [start, end] = r;
-  pushMark(newMark(start, end, markLive()));
-  toast(`マーク ${fmt(start)} – ${fmt(end)}(前後${spanLabel(span)})`);
-}
-/* ---------- 一瞬を切り取る: 今の位置の前 2 秒・後 3 秒から始め、始まり・終わりを 0.1 秒刻みで合わせて、
-   マーク「一瞬」(採用)を作り、そのマークだけを書き出す。マークとして残すのは、書き出しのあとの自動の文字起こし・「この後を」・
-   入口の案件がマークを手がかりに動くため(ユーザー決定)。書き出しの設定(方式・画質・音量)は「書き出しの設定」のとおり ---------- */
-const MOMENT_LABEL = '一瞬';
-function momentMark(){
-  if (!S.cur) return toast('先に配信を開いてください');
-  if (marks().length >= MAX_MARKS) return toast(`1本の配信に登録できるのは${MAX_MARKS}件までです`);
-  const c = lagNow();   // 今をマークと同じく、遅れ(lag)を引いた位置
-  const b = S.settings.momentBefore, a = S.settings.momentAfter;
-  const r = checkRange(c - b, c + a);
-  if (typeof r === 'string') return toast(r);
-  const mk = newMark(r[0], r[1], markLive());   // ライブ中のマークには、今をマークと同じくライブの印
-  mk.label = MOMENT_LABEL; mk.status = 'adopted';
+  const mk = newMark(start, end, markLive());
+  if (slot !== MOMENT_SLOT){ pushMark(mk); return toast(`マーク ${fmt(start)} – ${fmt(end)}(前後${spanLabel(span)})`); }
+  mk.label = MOMENT_LABEL; mk.status = 'adopted';   // 一瞬 = 採用のマーク「一瞬」(ライブ中のマークには、ほかと同じくライブの印)
   pushMark(mk);
-  toast(`マーク「${MOMENT_LABEL}」${fmt(r[0])} – ${fmt(r[1])}(前${b.toFixed(1)}秒・後${a.toFixed(1)}秒)`, 3000, 'ok');
+  toast(`マーク「${MOMENT_LABEL}」${fmt(start)} – ${fmt(end)}(前後${spanLabel(span)})`, 3000, 'ok');
 }
-function renderMomentSet(){
-  const f = (id, v) => { const el = $(id); if (el && document.activeElement !== el) el.value = v.toFixed(1); };
-  f('#rvMomBefore', S.settings.momentBefore); f('#rvMomAfter', S.settings.momentAfter);
-}
-function setMomentSec(key, el){
-  const v = Number(el.value);
-  if (!Number.isFinite(v)) return renderMomentSet();
-  S.settings[key] = Math.min(60, Math.max(0, Math.round(v * 10) / 10));
-  if (S.settings.momentBefore + S.settings.momentAfter < 0.2) S.settings[key] = Math.round((0.2 - (key === 'momentBefore' ? S.settings.momentAfter : S.settings.momentBefore)) * 10) / 10;
-  touchSettings(); el.value = S.settings[key].toFixed(1);
-}
+/* ---------- 一瞬: 今をマークの 6 つ目(MOMENT_SLOT)。マーク「一瞬」(採用)を作る。マークとして残すのは、書き出しのあとの自動の文字起こし・
+   「この後を」・入口の案件がマークを手がかりに動くため(ユーザー決定)。前の記録(label 一瞬・status adopted)と同じ形 ---------- */
+const MOMENT_LABEL = '一瞬';
 function markIn(){
   if (!S.cur) return toast('先に配信を開いてください');
   S.draft.start = round1(lagNow());
@@ -3047,10 +2998,8 @@ const handlePlayback = UIKit.keys.playback({
 function keybarScene(){
   { const ex = $('#rvExport'); if (ex && UIKit.drawer.isOpen(ex) && ex.getAttribute('aria-modal') === 'true'){ env.keybar([{ k: 'Tab', l: '次の項目' }, { k: 'Esc', l: '書き出しの欄を閉じる' }]); return; } }
   const km = curKeymap(), t = id => (km[id] ? keyText(km[id]) : ''), row = (k, label) => (k ? { k, l: label } : null);   // 今の割り当てから(固定の文字を持たない)
-  /* ライブの録画で配信中の候補が出ている間は、マークの採用・不採用の代わりに候補のキー(7 個までに収める) */
-  const pb = $('#rvPeaks'), pk = !!pb && !pb.hidden;
   env.keybar([row(t('playPause'), '再生/停止'), row([t('seekBack'), t('seekFwd')].filter(Boolean).join(' '), '1秒(Shift 5秒)'), row(t('quickMark'), '今をマーク①'),
-    row([t('markIn'), t('markOut')].filter(Boolean).join(' / '), 'IN / OUT'), pk ? row(t('nextPeak'), '次の候補') : row(t('adopt'), '採用'), pk ? row(t('adoptPeak'), '候補を採用') : row(t('reject'), '不採用'),
+    row([t('markIn'), t('markOut')].filter(Boolean).join(' / '), 'IN / OUT'), row(t('adopt'), '採用'), row(t('reject'), '不採用'),
     { k: '?', l: 'キー操作' }].filter(Boolean));
 }
 
@@ -3223,10 +3172,6 @@ function wire(){
   $('#rvNow').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); e.target.dispatchEvent(new Event('change')); e.target.blur(); } });
   $('#rvQuickSlots').addEventListener('click', e => { const b = e.target.closest('.rv-qslot > button[data-slot]'); if (b) quickMark(Number(b.dataset.slot)); });
   $('#rvQuickSlots').addEventListener('click', onSpanStep);
-  $('#rvMomBtn').addEventListener('click', momentMark);
-  $('#rvMomBefore').addEventListener('change', e => setMomentSec('momentBefore', e.target));
-  $('#rvMomAfter').addEventListener('change', e => setMomentSec('momentAfter', e.target));
-  renderMomentSet();
   /* キー配置は ? の一覧の1か所(② の「操作の設定」には置かない)。組み合わせの選択も一覧の上(index.html の #keyPresetRow) */
   $('#rvKeysOpen').addEventListener('click', () => Studio.openKeyHelp());
   $('#keyPresetRow').hidden = false;
@@ -3235,7 +3180,7 @@ function wire(){
     KM.setMany(sanitizeKeymap(pr), `キー配置を「${PRESET_NAMES[e.target.value]}」にしました`);
   });
   $('#rvEdge').addEventListener('click', () => { if (yt && yt.goLive) yt.goLive(); else if (yt && S.duration) seek(S.duration); });   // ライブの録画はライブ端の少し手前へ(終わりちょうどだと読み込みを待ち続ける)
-  $('#rvLiveMute').addEventListener('click', () => toggleMute());   // LIVE の帯の消音(M キーと同じ)
+  $('#rvLiveMute').addEventListener('click', () => toggleMute());   // LIVE の帯の消音
   $('#rvRecStop').addEventListener('click', e => stopLiveRec(e.currentTarget));
   $('#rvArchRun').addEventListener('click', startLiveArchive);
   $('#rvArchCancel').addEventListener('click', cancelLiveArchive);

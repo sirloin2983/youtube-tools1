@@ -855,17 +855,21 @@ class ServerTest(Base):
         self.assertEqual((len(d2["rows"]), d2["skipped"], d2["rows"][0]["id"]), (1, [], d2["row"]["id"]))
         self.assertTrue(self.wait_until(lambda: self.engine.queue.submitted))   # 写し終えて ② へ(封筒は test_live の FileTest)
 
-    def test_palette_is_remembered_and_put_in_meta_at_head_top(self):
-        """配色(A〜D): 覚えて次に開いたとき meta ytt-palette に(palette.js が <head> の中で読む = meta は <head> の頭)"""
-        page = self.get("/friend/")[2].decode("utf-8")
-        self.assertIn('<meta name="ytt-palette" content="A">', page)   # 初めは A(ネオンシアン)
-        self.assertLess(page.index('name="ytt-palette"'), page.index('src="palette.js"'))
-        st, _h, p = self.post("/api/friend/palette", {"name": "C"})
-        self.assertEqual((st, self.js(p)["palette"]), (200, "C"))
-        self.assertIn('<meta name="ytt-palette" content="C">', self.get("/friend/")[2].decode("utf-8"))
-        self.assertEqual(self.post("/api/friend/palette", {"name": "Z"})[0], 400)
-        self.assertEqual(self.post("/api/friend/palette", {"name": "B"}, headers={TOKEN: None})[0], 403)
-        self.assertEqual(self.get("/friend/palette.js")[0], 200)
+    def test_palette_fixed_pink_ignores_old_choice(self):
+        """配色はピンク(シンセウェーブ)に固定(10-24 に 4 つの切り替えを無くした): 前に選んだ palette.json が残っていても読まない・meta も口も無い"""
+        with open(os.path.join(self.places["friend"], "palette.json"), "w", encoding="utf-8") as f:
+            f.write('{"name": "C"}')
+        st, _h, page = self.get("/friend/")
+        page = page.decode("utf-8")
+        self.assertEqual(st, 200)
+        self.assertNotIn("ytt-palette", page)
+        self.assertNotIn("data-fr-palette", page)
+        self.assertIn('src="palette.js"', page)
+        self.assertEqual(self.post("/api/friend/palette", {"name": "C"})[0], 404)
+        st, _h, js = self.get("/friend/palette.js")
+        self.assertEqual(st, 200)
+        self.assertIn("UIKit.theme.palette('synth')", js.decode("utf-8"))
+        self.assertEqual(self.get("/friend/guide/palette.png")[0], 404)
 
     def test_player_prefs_remembered(self):
         """再生画面の音量・消音・速度(前回の値。YouTube と同じ速度の段だけ)"""

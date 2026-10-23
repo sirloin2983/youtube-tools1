@@ -58,8 +58,8 @@
   - 名前: `pack_title` :24・`scratch_path` :30・`remove_quiet` :35・`pack_video` :41・`make_preview` :80・`clip_preview` :105・`pack_seconds` :118
 - **request.py** (335 行) — パックの指定(JSON の spec・output)-> pack.Request と build_pack の引数。指定の読み方の 1 か所
   - 名前: `clean_path` :32・`input_path` :57・`request_from_spec` :102・`clip_range_from_spec` :173・`row_edge_from_spec` :183・`advanced_from_spec` :192・`keeps_from_spec` :203・`speaker_color_map` :224・`speaker_styles_from` :243・`apply_speaker_styles` :266・`output_from_spec` :287・`speaker_colors_for` :326
-- **resolve_export.py** (293 行) — 文字起こしの文書から Resolve のパックへの受け渡し(カットのたたき台・パックの見積もり・手順)と、「残す行」の規則。
-  - 名前: `srt_time` :25・`srt_text` :31・`is_kept` :37・`kept_spans` :43・`tool_info` :70・`sorted_segments` :74・`build_transcript_v1` :93・`wrap_text` :121・`build_srt` :128・`pack_instructions` :151・`edit_draft` :211・`edit_preview` :267
+- **resolve_export.py** (265 行) — 文字起こしの文書から Resolve のパックへの受け渡し(カットのたたき台・パックの見積もり・手順)と、「残す行」の規則。
+  - 名前: `srt_time` :25・`srt_text` :31・`is_kept` :37・`kept_spans` :43・`tool_info` :70・`sorted_segments` :74・`build_transcript_v1` :93・`pack_instructions` :123・`edit_draft` :183・`edit_preview` :239
 - **resolve_textplus.py** (1093 行) — Resolve Free向け Text+ 試験パック。Luaスクリプトを同梱する。
   - 名前: `hex_rgba` :70・`text_style` :81・`style_inputs` :97・`video_tracks_value` :119・`parse_target` :126・`caption_segments` :149・`stack_captions` :180・`speaker_lanes` :241・`lay_captions` :273・`default_wrap` :300・`wrap_caption` :305・`build_import_plan` :354・ほか 8
 - **srt2resolve.py** (394 行) — パックの部品(動画の情報の読み取り・字幕の読み込み・フレームの計算・SRT の組み立ての小道具)。

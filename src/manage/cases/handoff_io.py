@@ -25,7 +25,6 @@ TOOL_NAME = _runtime.TOOL_APPS["transcribe"]   # 受け渡しの tool.name(互�
 MAX_OWN_FILE_BYTES = 64 * 1024 * 1024   # 「前にこのツールが書いたか」を確かめるときに読む上限
 EXPORT_FORMATS = {                      # 動画の隣に保存するときの名前の後ろ(拡張子を置き換える)
     "transcript-v1": ".transcript.json",
-    "srt": ".srt",
 }
 MAX_ALT_NAMES = 999
 
@@ -95,39 +94,28 @@ def _pipeline_error(e):
 
 
 def export_file(req):
-    """POST /api/export-file {"id", "format": transcript-v1|srt, "baseUpdatedAt"?, "wrap"?, "speakerNames"?}
+    """POST /api/export-file {"id", "format": transcript-v1, "baseUpdatedAt"?}
     → 動画の隣に保存して {"path", "name", "overwritten", "format", "count"}。保存済みの内容を書き出す(画面は先に保存してから呼ぶ)。
     baseUpdatedAt を付けると、保存済みの版と違うとき 409(画面の表示と違う内容を書き出さないため)。"""
     tid = str(req.get("id") or "")
     fmt = req.get("format")
     if fmt not in EXPORT_FORMATS:
-        raise _errors.ApiError("bad_format", "format は transcript-v1 / srt のどちらかにしてください", 400)
+        raise _errors.ApiError("bad_format", "format は transcript-v1 にしてください", 400)
     doc = _store.read_transcript(tid)
     b = req.get("baseUpdatedAt")
     if b is not None and doc.get("updatedAt") and b != doc.get("updatedAt"):
         raise _errors.ApiError("conflict", "保存されていない変更があるか、別の場所で更新されています。保存してから、もう一度書き出してください", 409)
     src = str(doc.get("sourcePath") or "")
     if not src:
-        raise _errors.ApiError("no_media", "この文字起こしには元の動画のパスがありません(動画の隣には保存できません。ダウンロードを使ってください)", 400)
+        raise _errors.ApiError("no_media", "この文字起こしには元の動画のパスがありません(動画の隣には保存できません)", 400)
     if not os.path.isfile(src):
         raise _errors.ApiError("no_media", "元の動画が見つかりません(移動・削除した可能性があります): %s" % src, 400)
     suffix = EXPORT_FORMATS[fmt]
-    if fmt == "transcript-v1":
-        obj, count = _flowpack.handoff_files(doc, fmt)
-        schema = _schemas.TRANSCRIPT_SCHEMA
-        if not count:
-            raise _errors.ApiError("empty", "書き出す行がありません(文字のある行がありません)", 400)
-        data = (json.dumps(obj, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
-    else:
-        try:
-            wrap = max(0, min(200, int(req.get("wrap") or 0)))
-        except (TypeError, ValueError):
-            wrap = 0
-        text, count = _flowpack.handoff_files(doc, fmt, wrap, req.get("speakerNames") is True)
-        schema = None   # SRT は中身で「前にこのツールが書いたか」を判断できないので、同名があれば常に別名にする
-        if not count:
-            raise _errors.ApiError("empty", "書き出す行がありません(文字のある行がありません)", 400)
-        data = text.encode("utf-8")   # BOM なし(notes:docs/spec/pipeline.md の 1)
+    obj, count = _flowpack.handoff_files(doc, fmt)
+    schema = _schemas.TRANSCRIPT_SCHEMA
+    if not count:
+        raise _errors.ApiError("empty", "書き出す行がありません(文字のある行がありません)", 400)
+    data = (json.dumps(obj, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
     try:
         path, overwritten = save_beside(src, suffix, data, schema)
     except PipelineError as e:

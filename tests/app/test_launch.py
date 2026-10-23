@@ -550,7 +550,7 @@ class PortalHttpTest(Base):
         self.assertEqual(self.req("GET", "/server.py")[0].status, 404)   # コードや他のファイルは配らない
         code, st = self.get_json("/api/status", headers={"Sec-Fetch-Site": "same-origin"})   # 入口の画面が読む形
         self.assertEqual((code, st["app"], st["version"]), (200, L.APP_ID, L.VERSION))
-        self.assertIn("dataDir", st)
+        self.assertNotIn("dataDir", st)   # 作業データの置き場所の欄は 10-24 に無くした
         self.assertEqual({t["id"] for t in st["tools"]}, set(L.TOOL_IDS))
         for t in st["tools"]:
             self.assertTrue({"state", "port"} <= set(t), t["id"])

@@ -259,7 +259,6 @@
       setConn(true);
       $('#ver').textContent = 'ホーム v' + st.version;
       UIKit.appnav.setVersion('v' + st.version);
-      if (st.dataDir) { $('#dataDir').textContent = st.dataDir; $('#dataBox').hidden = false; }
       if (st.window) renderWin(st.window);
       if (st.autoPushed !== autoPushed) {   /* まとめて実行に積まれた(友人の依頼の受付など)= 15 秒を待たずに一覧を読む */
         if (autoPushed !== null) pollAuto();
@@ -1731,10 +1730,6 @@
     if (adv) { adv.addEventListener('toggle', function () { if (adv.open) loadHealth(false); }); if (adv.open) loadHealth(false); }
     $('#winMode').addEventListener('change', function () { setWin(this.checked ? 'app' : 'browser'); });
     $('#btnWinNow').addEventListener('click', openWinNow);
-    $('#btnCopyData').addEventListener('click', function () {
-      var t = $('#dataDir').textContent;
-      if (t) UIKit.copy(t, { ok: 'パスをコピーしました', fail: 'コピーできませんでした。パスを選んでコピーしてください' });
-    });
 
     $('#fText').addEventListener('input', function () { resetPaging(); });
     $('#fSort').addEventListener('change', function () { lsSet('sort', $('#fSort').value); resetPaging(); });

@@ -936,6 +936,19 @@ test('review settings: one table of field ↔ setting; every field value read ba
   assert.equal(ctx.sanitizeSettings({ liveMode: 'x' }).liveMode, 'auto', 'an unknown field value falls back like the saved settings do');
 });
 
+// ---- 一瞬(C)は今をマークの 6 つ目(quickSpans[5])。前の形(momentBefore・momentAfter。10-24 まで)は平均を近い段に読み替える ----
+test('moment span: the sixth quick span; the old before/after seconds are read as their mean snapped to a step', () => {
+  const ctx = load([['const LIVE_AFTERS', '/* ---------- 状態 ---------- */']],
+    { autoTxLegacy: () => null, sec1: (v, d) => (Number.isFinite(Number(v)) && v !== null && v !== '' ? Number(v) : d), sanitizeKeymap: () => ({}), KEY_PRESETS: { standard: {} },
+      DEFAULT_QUICK_SPANS: [30, 60, 120, 180, 300, 2.5] });
+  assert.equal(ctx.sanitizeSettings({}).quickSpans[5], 2.5, 'default');
+  assert.equal(ctx.sanitizeSettings({ quickSpans: [30, 60, 120, 180, 300, 4] }).quickSpans[5], 4);
+  assert.equal(ctx.sanitizeSettings({ quickSpans: [30, 60, 120, 180, 300, 3.3] }).quickSpans[5], 3, 'snapped to a step');
+  assert.equal(ctx.sanitizeSettings({ quickSpans: [30, 60, 120, 180, 300], momentBefore: 1.5, momentAfter: 2.5 }).quickSpans[5], 2, 'old shape: mean of before/after');
+  assert.equal(ctx.sanitizeSettings({ momentBefore: 'x' }).quickSpans[5], 2.5, 'broken old values fall back to 2 / 3 (mean 2.5)');
+  assert.equal(ctx.sanitizeSettings({ quickSpans: [10, 15, 20, 30, 45] }).quickSpans.join(), '10,15,20,30,45,2.5', 'the first five stay as saved');
+});
+
 test('buildDOM: the parts put together keep every id exactly once', () => {
   const box = {};
   const ctx = { $: sel => (box[sel] ||= {}) };
@@ -1009,13 +1022,6 @@ test('live peaks: normalize, the full list and the since-changes (unknown ids an
   assert.equal(m.full, false);
   assert.deepEqual(plain(m.list.map(p => [p.id, p.state, p.end, p.endPending, p.peak])), [['a', 'frame', 14, false, 12], ['b', 'frame', 34, false, 32], ['c', 'frame', 56.5, false, 52], ['y', 'bench', 84, false, 82]]);
   assert.equal(plain(ctx.peakSeries({ n: 3600, step: 6, total: [1] })).n, 3600, 'n from the portal when given');
-});
-
-test('live peaks: p after the last one finds nothing; when the current one left the list, it starts from the first', () => {
-  const ctx = load([PEAK_FNS], { tickLabel: mmss });
-  const list = ctx.peakList([pk('a', 10, 14, { state: 'adopted' }), pk('b', 30, 34, { state: 'bench' }), pk('c', 50, 58), pk('d', 70, 74, { state: 'dismissed' })]);
-  assert.equal(ctx.peakNext(ctx.peakShown(list, true), 'c'), null, 'dismissed ones are skipped; after the last there is no next');
-  assert.equal(ctx.peakNext(ctx.peakShown(list, false), 'gone').id, 'a');
 });
 
 test('live peaks: the header line (count, this hour x/perHour, delay, chat, auto adopt) and what each row shows', () => {
@@ -1131,13 +1137,6 @@ test('live peaks: adopt sends one request (no double press) with the band settin
   assert.ok(h.notes.some(m => String(m).includes('を見送りました')), 'dismissing is undone from the notice (no confirmation)');
   await h.ctx.setPeakState('b', 'restore');
   assert.equal(h.PKV.list[1].state, 'frame');
-  // p / z
-  h.ctx.peakKeyNext();
-  assert.equal(h.notes.at(-1), 'preview 5-14', 'p: nothing played yet → the first candidate from 5 s before');
-  h.ctx.peakKeyNext();
-  assert.equal(h.notes.at(-1), 'preview 25-34', 'p again: the next one');
-  h.ctx.peakKeyAdopt();
-  assert.ok(h.notes.at(-1).includes('終わりがまだ録れていません'), 'z: the one just played (end pending here)');
 });
 
 // ---- 書き出しのあと自動で(autoTx)・マークの行の「この後を」= 書き出しから全部(mode full + run.from export + marks。10-19) ----

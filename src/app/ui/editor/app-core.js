@@ -6,7 +6,7 @@
 /* ---------- 共通 ---------- */
 
 /* 文書の小さな部品は doc-kit.js(カット・パックのパネルと共用。この後の部品より先に読む) */
-const { OTHER_SP, isOtherSp, fmtT, fmtCs, hasText, uid, segIndexAt, subColorOf, safeName, download, keepCutHTML } = EditDoc;
+const { OTHER_SP, isOtherSp, fmtT, fmtCs, hasText, uid, segIndexAt, subColorOf, keepCutHTML } = EditDoc;
 
 /* SVG の線のアイコン(UIKit.icon)の文字列。文字記号(✓ × ⋮ ▶)の代わり。ui-kit は必ず先に読み込む */
 function uiIcon(name, opts){ return UIKit.icon(name, opts); }
@@ -266,7 +266,6 @@ const OPT_CHECKS = [['boost', 'optBoost', null], ['autoDict', 'optAutoDict', tru
   ['autoFill', 'optAutoFill', true],   // autoFill = 認識のあとの後処理(文字の少ない行を別の読みで埋める。既定オン)
   ['autoLlm', 'optAutoLlm', true],   // autoLlm = 名簿の呼び名の聞き違いらしい所だけを手元の LLM で直す(既定オン)
   ['stripNames', 'optStripNames', true]];   // stripNames = 行の頭の話者名(「名前:」)を外す(既定オン。欄は設定の画面だけ)
-const SET_CHECKS = OPT_CHECKS.concat([['exSpk', 'exSpk', null], ['exTs', 'exTs', null]]);
 /* 欄の無い鍵(認識の設定の自動の後処理 = 設定の画面にある)は、保存した設定 S.settings の値(無いときの扱い dv で既定)を使う */
 const checksOf = list => Object.fromEntries(list.map(([k, id, dv]) => {
   const el = $('#' + id);
@@ -282,19 +281,18 @@ function readOpts(){
   const s = S.settings;
   if ($('#optVad')) s.vadMode = $('#optVad').value;
   s.subtitle = readSubtitle();
-  Object.assign(s, checksOf(SET_CHECKS));
+  Object.assign(s, checksOf(OPT_CHECKS));
   if ($('#rtModel').value){ s.rtModel = $('#rtModel').value; s.rtTarget = $('#rtTarget').value; }
   s.replacements = $('#repDict').value.slice(0, 20000);
-  s.exBase = $('#exBase').value; s.exWrap = $('#exWrap').value; s.diarEmb = $('#diarEmb').value;   // 話者の人数は文書ごと(diarNumChanged。欄の値は開いている文書のもの)
+  s.diarEmb = $('#diarEmb').value;   // 話者の人数は文書ごと(diarNumChanged。欄の値は開いている文書のもの)
   saveSettings(); if (S.doc) renderTerms();
 }
 
 function applySettings(){
   const s = S.settings;
   { const vd = $('#optVad'); if (vd) vd.value = ['normal', 'off'].includes(s.vadMode) ? s.vadMode : 'weak'; } fillSubtitle(s.subtitle);
-  for (const [k, id, dv] of SET_CHECKS){ const el = $('#' + id); if (el) el.checked = dv === true ? s[k] !== false : dv === false ? s[k] === true : !!s[k]; }   // 欄の無い鍵(設定の画面にある)は飛ばす
+  for (const [k, id, dv] of OPT_CHECKS){ const el = $('#' + id); if (el) el.checked = dv === true ? s[k] !== false : dv === false ? s[k] === true : !!s[k]; }   // 欄の無い鍵(設定の画面にある)は飛ばす
   $('#repDict').value = s.replacements || '';
-  if (s.exBase) $('#exBase').value = s.exBase; if (s.exWrap) $('#exWrap').value = s.exWrap;
   fillDiarNum();   // 話者の人数: 開いている文書の人数(無ければ話者の数 → 全体の既定 s.diarNum)
 }
 

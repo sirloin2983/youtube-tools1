@@ -23,7 +23,7 @@ TOOL_NAME = _runtime.TOOL_APPS["transcribe"]   # 受け渡しの tool.name(互�
 
 
 def srt_time(seconds: float) -> str:
-    """SRT の時刻(HH:MM:SS,mmm)。画面の書き出し(index.html の tcode)と同じく、ミリ秒は四捨五入(0.5 は切り上げ)。"""
+    """SRT の時刻(HH:MM:SS,mmm)。ミリ秒は四捨五入(0.5 は切り上げ)。"""
     ms = max(0, int(math.floor(float(seconds) * 1000 + 0.5)))
     return "%02d:%02d:%02d,%03d" % (ms // 3600000, ms // 60000 % 60, ms // 1000 % 60, ms % 1000)
 
@@ -65,7 +65,7 @@ def kept_spans(segments: list[dict]) -> list[dict]:
     return out
 
 
-# ---------------------------------------------------------------- 受け渡しの JSON と SRT の組み立て
+# ---------------------------------------------------------------- 受け渡しの JSON の組み立て
 
 def tool_info(version):
     return {"name": TOOL_NAME, "version": str(version)}
@@ -116,34 +116,6 @@ def build_transcript_v1(doc, version):
     if doc.get("whole") is False:   # 範囲を指定して文字起こしした文書は、その範囲も示す(約束に無い項目。読む側は無視してよい)
         out["transcribedRange"] = {"start": _schemas.num(doc.get("start")) or 0.0, "end": _schemas.num(doc.get("end"))}
     return out
-
-
-def wrap_text(text, n):
-    """n 文字ごとに改行(画面の wrapText と同じ。文字はコードポイント単位で数える)。n=0 は折り返さない。"""
-    if not n:
-        return text
-    return "\n".join(text[i:i + n] for i in range(0, len(text), n))
-
-
-def build_srt(doc, wrap=0, speaker_names=False, base=0.0):
-    """画面の SRT 書き出し(index.html の exportRows / buildExport)と同じ規則:
-    文字が空の行は出さない・終わりが基準より前の行は出さない・開始は 0 未満にしない・話者名は「[名前] 」を頭に付ける。
-    動画の隣に保存する SRT は、その動画の先頭を 0 秒にする(base=0。範囲指定の文書でも動画の時刻のまま)。
-    カット済の行も出す(字幕は動画全体に対するもの。カットは受け取る側が当てる)。
-    字幕に出さない行(noSub。ゲームの声など)は出さない。"""
-    names = {s.get("id"): str(s.get("name") or "") for s in doc.get("speakers") or [] if isinstance(s, dict)}
-    cues = []
-    for g in sorted_segments(doc):
-        text = str(g.get("text") or "").strip()
-        a, b = float(g["start"]) - base, float(g["end"]) - base
-        if not text or b <= 0 or g.get("noSub") is True:
-            continue
-        name = names.get(g.get("speaker"), "") if speaker_names and g.get("speaker") else ""
-        cues.append((max(0.0, a), b, ("[%s] " % name if name else "") + wrap_text(text, wrap)))
-    from . import srt2resolve as _s2r   # 重なる字幕の段分け(規則の 1 か所。画面の app-tools.js の stackRows も同じ)
-    if _s2r.SRT_STACK:
-        cues = _s2r.stack_overlaps(cues, _s2r.STACK_SMALL_SEC)
-    return srt_text(cues), len(cues)
 
 
 # ---------------------------------------------------------------- パック(同じフォルダの pack.py で作る)

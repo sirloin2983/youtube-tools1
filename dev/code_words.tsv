@@ -46,5 +46,5 @@
 解析の順番待ち	flow/batch.py,app/ui/studio/queue.js	解析の待ち(最大 10 本)と、スタジオの URL から入れる欄
 事務所の登録	mountRegistry,app/ui/studio/rank.js,flow/live_watch.py	新しい案件の探す設定の事務所の登録(#new?set=reg)
 日報	manage/ops/analytics/render.py,manage/ops/analytics/service.py	分析と日報(週報・月報も)。LINE の文面と HTML。設定の節 analytics
-配色	friend-apps/holo-colors/src/Core.cs,friendapp/ui/palette.js,/api/friend/palette	ホロカラーは C# の色の一覧アプリ。配色は友人の画面の A〜D
+配色	friend-apps/holo-colors/src/Core.cs,friendapp/ui/palette.js	ホロカラーは C# の色の一覧アプリ。友人の画面の配色はピンク(シンセウェーブ)に固定
 起動	app/server.py,Supervisor,friend-apps/launcher/src/Launcher.cs,manage/ops/restart.py	入口のランチャーと友人の FriendApp.exe。起動し直しは restart

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>使い方 - 切り抜き</title>
 <!-- 友人のアプリの説明(F3。notes:plan/f1-friend-requirements.md の C、notes:docs/design/friend-history.md の 7 章)。静的な 1 枚。インラインの script・onclick は無し。
-     ui-kit.js と palette.js は外の読み込みだけ(選んだ配色で表示する = 明るい・暗いの両方で読める。色は ui-kit.css の変数)。
+     ui-kit.js と palette.js は外の読み込みだけ(アプリと同じピンクの配色で表示する。色は ui-kit.css の変数)。
      [?] が指す節の id: send・receive・settings・setup・close(変えない)。画像は guide/ に置く(玄関が配る。server.py の STATIC)。 -->
 <script src="ui-kit.js"></script>
 <script src="palette.js"></script>
@@ -164,11 +164,6 @@
     <h2 id="settings-h">3. ⚙ 設定</h2>
     <p>右上の歯車(⚙)を押すと、右から設定が出ます。<kbd>Esc</kbd> か [閉じる] で閉じます。</p>
     <ul>
-      <li><strong>配色</strong>: 右上の 4 つの丸で、画面の色を選べます。選んだ色は次に開いたときも使われます。この説明のページにも同じ色が付きます。
-        <figure>
-          <img src="guide/palette.png" width="960" height="600" alt="別の配色(緑)で表示した再生画面。右上の 4 つの丸のうち 3 つ目が選ばれている">
-          <figcaption>配色の例(ターミナルグリーン)。</figcaption>
-        </figure></li>
       <li><strong>処理する PC</strong>: 「この PC で処理する」か「依頼する」(作る人の PC に頼む)を選びます。初めは「この PC で処理する」です。</li>
       <li><strong>YouTube のログイン</strong>: YouTube に「ロボットではないか」の確認で止められたら、[YouTube にログイン] を押し、出てきた小さな窓で Google にログインします。
         済むと窓は自動で閉じ、止まっていた物は自動でやり直します。メインではなく、<strong>サブの Google アカウント</strong>でログインしてください(止められても困らないように)。

@@ -51,7 +51,7 @@
   var KEY = 'ytt:theme';
   /* 暗いときの配色(cyan = ネオンシアン・steel = 鋼の白・green = ターミナルグリーン・synth = シンセウェーブ)。明るいときはアイスライト(ice)だけ。
      明るい/暗い(ytt:theme)と分けて持つ = 切り替えボタン・OSに合わせる */
-  var PAL_KEY = 'ytt:palette', DARK_PALETTES = { cyan: 'ネオンシアン', steel: '鋼の白', green: 'ターミナルグリーン', synth: 'シンセウェーブ' };   /* synth = 友人のアプリの配色 B */
+  var PAL_KEY = 'ytt:palette', DARK_PALETTES = { cyan: 'ネオンシアン', steel: '鋼の白', green: 'ターミナルグリーン', synth: 'シンセウェーブ' };   /* synth = 友人のアプリの配色(ピンクに固定) */
   function darkPalette() {
     try { var v = localStorage.getItem(PAL_KEY); return DARK_PALETTES[v] ? v : 'cyan'; } catch (e) { return 'cyan'; }
   }

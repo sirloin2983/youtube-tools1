@@ -2,7 +2,7 @@
 
 - `cut_draft(doc, rows, row_edge)` : カットのたたき台。② が足すこと = 版(workdata)・無音の検出(ffmpeg)の順番待ち(SLOTS。待つのは DRAFT_SLOT_WAIT 秒まで)
 - `cut_preview(doc, keeps, wrap)` : カットのとおりに作ったときのパックの見積もり。② が足すこと = 版
-- `handoff_files(doc, fmt, ...)` : 受け渡しの JSON / SRT の中身。② が足すこと = 版・形式の見分け
+- `handoff_files(doc, fmt)` : 受け渡しの JSON の中身。② が足すこと = 版・形式の見分け
 - `media_plan(doc, path)` : 別の動画に付け替えるときの fps と長さ。② が足すこと = 版・「行から」を計算しない指定(rows=False)
 - `instructions(folder)` : 前回のパックの Resolve での手順。② が足すこと = 無いときは None でなく空の文字
 置き場所・版は `ytt.workdata` の今の値を呼ぶたびに読む。重い処理の札の名前は `flow.jobs` の configure(tool=)(編集の serve が入れる)。
@@ -33,14 +33,12 @@ def cut_preview(doc, keeps, wrap=None):
     return resolve_export.edit_preview(doc, keeps, workdata.SERVER_VERSION, wrap)
 
 
-def handoff_files(doc, fmt, wrap=0, speaker_names=False):
-    """受け渡しの中身 -> (obj または text, 行の数)。transcript-v1 は dict(segments を持つ)、srt は文字。
+def handoff_files(doc, fmt):
+    """受け渡しの中身 -> (obj, 行の数)。transcript-v1 は dict(segments を持つ)。
     ② が足すこと: 版・形式の検査(知らない形式は ValueError)"""
     if fmt == "transcript-v1":
         obj = resolve_export.build_transcript_v1(doc, workdata.SERVER_VERSION)
         return obj, len(obj["segments"])
-    if fmt == "srt":
-        return resolve_export.build_srt(doc, wrap, speaker_names)
     raise ValueError("知らない形式です: %r" % (fmt,))
 
 

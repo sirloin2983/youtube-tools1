@@ -36,13 +36,6 @@
     const c = sp && sp.sub && typeof sp.sub === 'object' ? String(sp.sub.color || '') : '';
     return /^#[0-9a-fA-F]{6}$/.test(c) ? c.toUpperCase() : '';
   }
-  const safeName = (t, fb = 'transcript') => String(t || '').replace(/[\\/:*?"<>|\x00-\x1f]+/g, '_').trim().slice(0, 80) || fb;
-  function download(blob, name) {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = name;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
-  }
 
   /* 行の「残す / カット」の 2 択のボタン。act = [残す側, カット側] の data-act、dis = ' disabled' など */
   const KEEP_TITLE = 'この行を残す', CUT_TITLE = 'この行をカット済にする(Resolve の仮編集から外します。元の素材は残るので、あとで「残す」に戻せます)';
@@ -93,5 +86,5 @@
     el.innerHTML = items.slice().reverse().map(x => `<span class="tt-cap-line"${/^#[0-9a-fA-F]{6}$/.test(x.hex) ? ` style="--tt-cap-color:${x.hex}"` : ''}>${UIKit.esc(x.text)}</span>`).join('');
   }
 
-  window.EditDoc = { OTHER_SP, isOtherSp, fmtT, fmtCs, hasText, uid, segIndexAt, subColorOf, safeName, download, keepCutHTML, capStack, paintCaps };
+  window.EditDoc = { OTHER_SP, isOtherSp, fmtT, fmtCs, hasText, uid, segIndexAt, subColorOf, keepCutHTML, capStack, paintCaps };
 })();

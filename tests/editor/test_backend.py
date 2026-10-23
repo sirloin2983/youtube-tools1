@@ -412,16 +412,6 @@ class TestFormats(unittest.TestCase):
         d.update({"whole": False, "start": 100.0, "end": 160.0})
         self.assertEqual(RE.build_transcript_v1(d, "1")["transcribedRange"], {"start": 100.0, "end": 160.0})
 
-    def test_srt_matches_screen_rules(self):
-        text, n = RE.build_srt(sample_doc("/x/a.mp4"))
-        self.assertEqual(n, 4)
-        self.assertEqual(text, "1\n00:00:00,500 --> 00:00:02,000\n一行目\n\n2\n00:00:02,000 --> 00:00:04,000\n二行目\n\n"
-                               "3\n00:00:06,000 --> 00:00:08,000\n三行目\n\n4\n00:00:09,500 --> 00:00:11,000\nとても長い行なので折り返されます\n")
-        text, _ = RE.build_srt(sample_doc("/x/a.mp4"), wrap=8, speaker_names=True)
-        self.assertIn("[ぺこら] 一行目\n", text)
-        self.assertIn("[トワ] とても長い行なの\nで折り返されます\n", text)   # 8文字ごと(名前は数えない)
-        self.assertIn("\n2\n00:00:02,000 --> 00:00:04,000\n二行目\n", text)   # 話者なしの行は名前を付けない
-
 
 class TestSaveBeside(unittest.TestCase):
     def setUp(self):
@@ -675,21 +665,16 @@ class TestPipelineHttp(unittest.TestCase):
         t = json.loads(raw)
         self.assertEqual((t["schema"], t["media"]["name"], len(t["segments"])), ("youtube-tools-transcript/v1", "動画_0012.wav", r["count"]))
         # 画面の表示が保存済みと違う(古い版を土台にしている)→ 409
-        self.assertEqual(self.call("POST", "/api/export-file", {"id": tid, "format": "srt", "baseUpdatedAt": upd - 1}).get("_status"), 409)
+        self.assertEqual(self.call("POST", "/api/export-file", {"id": tid, "format": "transcript-v1", "baseUpdatedAt": upd - 1}).get("_status"), 409)
         self.assertEqual(self.call("POST", "/api/export-file", {"id": tid, "format": "pdf"}).get("error"), "bad_format")
-        self.assertEqual(self.call("POST", "/api/export-file", {"id": "../x", "format": "srt"}).get("_status"), 404)
+        self.assertEqual(self.call("POST", "/api/export-file", {"id": "../x", "format": "transcript-v1"}).get("_status"), 404)
 
-    def test_export_file_srt(self):
+    def test_export_file_unknown_formats(self):
         tid, _upd, segs = self.make_edited()
-        self.assertEqual(self.call("POST", "/api/export-file", {"id": tid, "format": "srt"})["name"], "動画_0012.srt")
-        with open(os.path.join(self.media_dir, "作業用", "動画_0012.srt"), encoding="utf-8") as f:
-            srt = f.read()
-        self.assertTrue(srt.startswith("1\n00:00:00,000 --> 00:00:04,000\nテスト文1\n\n2\n"))   # カット済の行も字幕には出す
-        r = self.call("POST", "/api/export-file", {"id": tid, "format": "srt", "speakerNames": True, "wrap": 3})
-        with open(r["path"], encoding="utf-8") as f:
-            self.assertIn("テスト\n文1\n", f.read())
-        r = self.call("POST", "/api/export-file", {"id": tid, "format": "cut-plan-v1"})   # 残す区間の保存(10-24 に無くした)は知らない形式
-        self.assertEqual((r["_status"], r.get("error")), (400, "bad_format"))
+        for fmt in ("srt", "cut-plan-v1"):   # 字幕の書き出し(SRT)・残す区間の保存は 10-24 に無くした = 知らない形式
+            r = self.call("POST", "/api/export-file", {"id": tid, "format": fmt})
+            self.assertEqual((r["_status"], r.get("error")), (400, "bad_format"))
+        self.assertFalse(os.path.exists(os.path.join(self.media_dir, "作業用", "動画_0012.srt")))
         self.assertFalse(os.path.exists(os.path.join(self.media_dir, "作業用", "動画_0012.cut-plan.json")))
 
     def test_export_file_without_media(self):

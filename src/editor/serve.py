@@ -42,7 +42,7 @@
   GET  /api/doc-for?path=    その動画の文書 → {"doc": {"id", "rows"} | null}(?media= で開いたとき。パスを比べるだけ)
   GET  /api/peaks?id=        音の波形(0〜255 の1バイトの並び。X-Peaks-Rate・X-Peaks-Duration)。作っている間は 202
   受け渡し(notes:docs/spec/pipeline.md。読み・保存は manage/cases/handoff_io.py・.runtime は ytt/runtime.py・JSON と SRT の組み立ては flow/pack.py):
-  POST /api/export-file      {"id", "format": transcript-v1|srt} 動画の隣に保存 → {"path", "name", "overwritten", "format", "count"}
+  POST /api/export-file      {"id", "format": transcript-v1} 動画の隣に保存 → {"path", "name", "overwritten", "format", "count"}
   GET  /api/siblings         実行中の他のツールのポート {"tools": {"transcribe": 8775, ...}}
   評価ドリル(マスタープラン Q4。本体は eval/drill/drill.py。画面は編集の ?doc=<id>&drill=1):
   POST /api/drill/reviewed   {id, baseUpdatedAt, via?} 「全部聞いて直した」印 evalReviewed と残りの行の校正済み(updatedAt が違えば 409)

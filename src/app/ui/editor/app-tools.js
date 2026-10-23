@@ -1,4 +1,4 @@
-/* app-tools.js — 「編集」の画面: 動画を選び直す・検索と置換・書き出し・受け渡し・確認のダイアログ・カット・パックのタブとのつなぎ。
+/* app-tools.js — 「編集」の画面: 動画を選び直す・検索と置換・受け渡し・確認のダイアログ・カット・パックのタブとのつなぎ。
    ここは関数の定義だけ。状態(S・V など)・定数・ボタンの配線・起動は app.js(この後に読む)。
    関数はトップレベルの宣言なので、ほかの app-*.js・app.js から名前で呼べる(読む順番は src/app/ui/cases/edhost.js の ED_SCRIPTS の1か所) */
 'use strict';
@@ -185,73 +185,6 @@ function withUndoReplace(pairs){
   return n;
 }
 
-/* ---------- 書き出し ---------- */
-
-function tcode(t, sep){
-  t = Math.max(0, t); const ms = Math.round(t * 1000), h = Math.floor(ms / 3600000), m = Math.floor(ms % 3600000 / 60000), s = Math.floor(ms % 60000 / 1000);
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}${sep}${String(ms % 1000).padStart(3, '0')}`;
-}
-
-function wrapText(text, n){
-  if (!n) return text;
-  const chars = [...text], lines = [];
-  for (let i = 0; i < chars.length; i += n) lines.push(chars.slice(i, i + n).join(''));
-  return lines.join('\n');
-}
-
-/* sub = 字幕の形(SRT・VTT)。字幕に出さない行(noSub)は入れない(テキスト・JSON には入れる = 読み物・データとしては残す) */
-function exportRows(sub){
-  const d = S.doc, only = $('#exSel').checked;
-  const base = $('#exBase').value === 'rel' && !d.whole ? d.start : 0;
-  const wrap = Number($('#exWrap').value) || 0, spk = $('#exSpk').checked;
-  const rows = [];
-  for (const s of d.segments){
-    if (only && !S.sel.has(s.id)) continue;
-    if (!s.text.trim() || s.end - base <= 0 || (sub && s.noSub)) continue;
-    const sp = spById(s.speaker);
-    rows.push({ start: Math.max(0, s.start - base), end: s.end - base, text: wrapText(s.text.trim(), wrap), name: spk && sp ? sp.name : '', noSub: !!s.noSub });
-  }
-  return rows;
-}
-
-/* 重なる字幕の段分け(SRT・VTT。10-23。規則は src/pipeline/pack/srt2resolve.py の stack_overlaps と同じ): 重なる間は、その時に出ている字幕の文を
-   始まりの順に改行でつないだ 1 つの字幕に分ける。0.3 秒未満のはみ出しは前の字幕を次の始まりで切る。話者名は文の頭に付けてからつなぐ */
-const STACK_SMALL = 0.3;
-function stackRows(rows){
-  const out = rows.map((r, k) => ({ start: r.start, end: r.end, text: (r.name ? '[' + r.name + '] ' : '') + r.text, k }))
-    .sort((a, b) => a.start - b.start || a.end - b.end || a.k - b.k);
-  out.forEach((r, k) => { r.k = k; });
-  for (let j = 1; j < out.length; j++){ const p = out[j - 1], c = out[j]; if (p.start < c.start && c.start < p.end && p.end - c.start < STACK_SMALL) p.end = c.start; }
-  const live = out.filter(r => r.end > r.start);
-  let end = null, clash = false;
-  for (const r of live){ if (end != null && r.start < end){ clash = true; break; } end = end == null ? r.end : Math.max(end, r.end); }
-  if (!clash) return live.map(r => ({ start: r.start, end: r.end, text: r.text, name: '' }));
-  const edges = [...new Set(live.flatMap(r => [r.start, r.end]))].sort((a, b) => a - b), pieces = [];
-  for (let i = 0; i + 1 < edges.length; i++){
-    const a = edges[i], b = edges[i + 1], on = live.filter(r => r.start <= a && r.end >= b);
-    if (!on.length) continue;
-    const text = on.sort((x, y) => x.k - y.k).map(r => r.text).join('\n'), last = pieces[pieces.length - 1];
-    if (last && last.end === a && last.text === text) last.end = b; else pieces.push({ start: a, end: b, text, name: '' });
-  }
-  return pieces;
-}
-
-function buildExport(kind){
-  let rows = exportRows(kind === 'srt' || kind === 'vtt'), d = S.doc;
-  if (!rows.length) return null;
-  if (kind === 'srt' || kind === 'vtt') rows = stackRows(rows);   // 重なる字幕は段に分ける(話者名は文に入れた)
-  if (kind === 'srt') return rows.map((r, i) => `${i + 1}\n${tcode(r.start, ',')} --> ${tcode(r.end, ',')}\n${r.name ? '[' + r.name + '] ' : ''}${r.text}\n`).join('\n');
-  if (kind === 'vtt'){
-    const e = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    return 'WEBVTT\n\n' + rows.map(r => `${tcode(r.start, '.')} --> ${tcode(r.end, '.')}\n${r.name ? e('[' + r.name + '] ') : ''}${e(r.text)}\n`).join('\n');
-  }
-  if (kind === 'txt'){
-    const ts = $('#exTs').checked;
-    return rows.map(r => `${ts ? '[' + fmtT(r.start) + '] ' : ''}${r.name ? r.name + ': ' : ''}${r.text.replace(/\n/g, '')}`).join('\n') + '\n';
-  }
-  return JSON.stringify({ title: d.title, source: d.sourceName, start: d.start, end: d.end, speakers: d.speakers, segments: rows.map(r => ({ start: r.start, end: r.end, speaker: r.name, text: r.text.replace(/\n/g, ''), ...(r.noSub ? { noSub: true } : {}) })) }, null, 1);
-}
-
 /* ---------- 受け渡し(notes:docs/spec/pipeline.md 2・3・6): 元の配信(.clip.json)・URL で渡された動画・動画の隣に保存 ---------- */
 
 /* youtube-tools-clip/v1 の「元の配信: タイトル 12:34〜13:20」。中の文字列(配信タイトル・マークの名前・URL・パス)は外から来るので必ずエスケープし、
@@ -279,7 +212,7 @@ function renderDocExtras(d){
 function renderHandoff(){
   const box = $('#handoffOut'), h = S.handoff;
   if (!S.doc || !h || h.id !== S.docId){ box.hidden = true; box.innerHTML = ''; return; }
-  const rows = [['transcript', '文字起こし'], ['srt', '字幕']].filter(([k]) => h[k]).map(([k, l]) => handoffRow(h, k, l)).join('');
+  const rows = [['transcript', '文字起こし']].filter(([k]) => h[k]).map(([k, l]) => handoffRow(h, k, l)).join('');
   box.innerHTML = rows + '<div class="row"><span class="hint">Resolve へ渡すパックは <b>カット・パック</b> のタブで作ります</span></div>';
   box.hidden = !rows;
 }
@@ -295,7 +228,7 @@ async function exportBeside(fmt, btn){
     const ok = await saveDoc();
     if (S.docId !== id) return;
     if (!ok || S.dirty || S.saving) return toast(S.conflict ? '保存が競合しています。映像の上の案内から選んでから、もう一度押してください' : '保存が追いついていません。少し待ってから、もう一度押してください', 6000, 'err');
-    const r = await api('/api/export-file', { body: { id, format: fmt, baseUpdatedAt: S.baseUpdatedAt, wrap: Number($('#exWrap').value) || 0, speakerNames: $('#exSpk').checked } });
+    const r = await api('/api/export-file', { body: { id, format: fmt, baseUpdatedAt: S.baseUpdatedAt } });
     if (S.docId !== id) return;
     S.handoff = { ...(S.handoff && S.handoff.id === id ? S.handoff : {}), id, [HANDOFF_KEY[fmt]]: r.path };
     renderHandoff();

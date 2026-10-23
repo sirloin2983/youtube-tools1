@@ -309,9 +309,8 @@ def main():
                       "セリフの行を押すと、その時刻から再生する")
                 pg.evaluate("document.querySelector('#rvHost video').pause()")
 
-                # 6b. 一瞬をマーク(C。前・後の秒数は設定に保存)・つなげて1本に
-                pg.fill("#rvMomBefore", "1.5")
-                pg.press("#rvMomBefore", "Tab")
+                # 6b. 今をマークの 6 つ目「一瞬」(C。前後の長さは今をマークと同じ quickSpans に保存)・つなげて1本に
+                pg.click("#rvQuickSlots .rv-step[data-slot='5'][data-d='-1']")   # 2.5 → 2 秒
                 pg.evaluate("document.activeElement && document.activeElement.blur()")
                 pg.evaluate("document.querySelector('#rvHost video').currentTime = 20")
                 wait_js(pg, "(() => { const v = document.querySelector('#rvHost video'); return !v.seeking && Math.abs(v.currentTime - 20) < 0.1; })()", 3000)
@@ -321,12 +320,12 @@ def main():
                 while time.time() < end and not any(m.get("label") == "一瞬" for m in marks()):
                     time.sleep(0.2)
                 mom = [m for m in marks() if m.get("label") == "一瞬"]
-                check(len(marks()) == n_marks + 1 and len(mom) == 1 and abs((mom[0]["end"] - mom[0]["start"]) - 4.5) < 0.01 and mom[0]["status"] == "adopted",
-                      "C でマーク「一瞬」(採用)が前 1.5 秒・後 3.0 秒でできる: %s" % [(m["start"], m["end"], m["status"]) for m in mom])
+                check(len(marks()) == n_marks + 1 and len(mom) == 1 and abs((mom[0]["end"] - mom[0]["start"]) - 4.0) < 0.01 and mom[0]["status"] == "adopted",
+                      "C でマーク「一瞬」(採用)が前後 2 秒でできる: %s" % [(m["start"], m["end"], m["status"]) for m in mom])
                 end = time.time() + 5
-                while time.time() < end and (serve.STORE.get_ui().get("review") or {}).get("momentBefore") != 1.5:
+                while time.time() < end and ((serve.STORE.get_ui().get("review") or {}).get("quickSpans") or [0] * 6)[5] != 2:
                     time.sleep(0.2)
-                check((serve.STORE.get_ui().get("review") or {}).get("momentBefore") == 1.5, "前の秒数はスタジオの設定に保存される")
+                check(((serve.STORE.get_ui().get("review") or {}).get("quickSpans") or [0] * 6)[5] == 2, "一瞬の長さは今をマークと同じ設定(quickSpans)に保存される")
                 if mom:
                     before_st = {m["id"]: m["status"] for m in marks()}
                     wait_js(pg, "!!document.querySelector('#rvList .rv-mark-row[data-id=\"%s\"]')" % mom[0]["id"], 5000)

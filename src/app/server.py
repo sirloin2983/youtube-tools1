@@ -39,7 +39,7 @@
   POST /api/check/answer                  {card, answer, ms?, skip?} カードに答える(カードはサーバーが引き直す。反映は src/human/check/apply.py に登録した部品)
                                           → {ok, answer, card, applied, held, flushed, next} / {undo: 答えの id} Z で戻す → {ok, answer, card, reverted}
   POST /api/check/skip                    {card} 今日の間だけ後ろへ(保留を先に確定)・POST /api/check/flush {} 保留(1 枚遅れの [送る])を確定(画面を離れたとき)
-  GET  /api/status                        {"app", "version", "tools": [...], "dataDir"}(ツールごとの状態・作業データの置き場所)
+  GET  /api/status                        {"app", "version", "tools": [...], "heavy"}(ツールごとの状態・重い処理)
   GET  /api/health[?refresh=1]            「調子」(段9 9-1。src/manage/ops/health.py): 版の期待と実際・認識ワーカー・ffmpeg/ffprobe/yt-dlp・空き容量・作業データの大きさ・エラーの件数
   GET  /api/log?tool=<ID>&lines=N         ツールの出力(<作業データ>/app/logs/<ID>.log)の末尾
   POST /api/shutdown                      {} → この入口から起動したツールを止めて、入口も終わる。録画中でなければ録画の部品も止める
@@ -344,7 +344,6 @@ class Supervisor:
     # --- 状態 ---
     def status(self):
         return {"app": APP_ID, "version": VERSION, "tools": [t.snapshot() for t in self.tools],
-                "dataDir": datadir.data_root(),   # 作業データの置き場所(画面に出す。inplace のときは null)
                 "heavy": jobs.SLOTS.snapshot()}   # 重い処理の実行中・順番待ち(入口の中に取り込んだツールの分)
 
     def _find_external(self, t, scan=False):

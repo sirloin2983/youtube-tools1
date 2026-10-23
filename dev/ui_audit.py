@@ -947,10 +947,6 @@ def friend_scenes(base, setup_base=None, update_base=None):
             {"name": "friend-open", "url": page + "#receive", "actions": [("wait", 900)]},   # F3-4: 受け取る(配信ごとの段)
             {"name": "friend-play", "url": page + "#receive", "actions": [("wait", 900), ("click", ".fr-rcard-btn"), ("wait", 500)]},   # 再生画面
             {"name": "friend-bulk", "url": page + "#receive", "actions": [("wait", 900), ("click", ".fr-pick"), ("wait", 300)]},   # まとめて決める帯
-            # 配色(B シンセウェーブ・C ターミナルグリーン。A = 暗い・D = 明るいは上の場面の dark・light で見ている)
-            {"name": "friend-pal-b", "url": page, "actions": [("wait", 800), ("click", ".fr-pal[data-name='B']"), ("click", ".fr-card[data-vid='demo0000007']"), ("wait", 500)]},
-            {"name": "friend-pal-b-rcv", "url": page + "#receive", "actions": [("wait", 800), ("click", ".fr-pal[data-name='B']"), ("click", ".fr-pick"), ("wait", 400)]},
-            {"name": "friend-pal-c", "url": page, "actions": [("wait", 800), ("click", ".fr-pal[data-name='C']"), ("click", ".fr-card[data-vid='demo0000001']"), ("wait", 500)]},
             # F2-5: ⚙ の引き出し(見本は本物の窓を開かない)・初回の準備(--missing の見本 = 部品が足りない形の確認)
             {"name": "friend-settings", "url": page, "actions": [("wait", 500), ("click", "#btnSettings"), ("wait", 800)],
              "modal": {"root": "#settingsDrawer", "opener": "#btnSettings"}}] + \

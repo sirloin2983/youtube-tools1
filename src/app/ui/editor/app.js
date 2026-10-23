@@ -503,8 +503,8 @@ let zArm = null;
 const TX_ACTIONS = [   // [id, 既定のキー(UIKit.keys.comboOf の表記), 説明, まとまり]
   ['rowNext', 's', '次の行', 'move'], ['rowPrev', 'w', '前の行', 'move'], ['unNext', 'd', '次の未校正', 'move'], ['unPrev', 'a', '前の未校正', 'move'], ['flagNext', 'f', '次の要確認', 'move'],
   ['replay', 'r', 'この行をもう一度聞く', 'listen'], ['back3', 'q', '3秒戻る', 'listen'], ['fwd3', 'e', '3秒進む', 'listen'], ['proof', 'Shift+Space', '校正済みにして次へ', 'listen'],
-  ['edit', 't', 'この行の文字を直す(入力欄へ)', 'listen'], ['autoNext', 'b', '「移動したら自動で再生」のオン/オフ', 'listen'],
-  ['tagUnclear', 'x', '聞き取れない', 'memo'], ['tagOverlap', 'c', '声が重なる', 'memo'], ['tagBgm', 'v', 'BGM・音が大きい', 'memo'], ['insert', 'n', '後ろに行を追加', 'memo'], ['del', 'z', 'この行を削除(2回押し)', 'memo'],
+  ['edit', 't', 'この行の文字を直す(入力欄へ)', 'listen'],
+  ['tagUnclear', 'x', '聞き取れない', 'memo'], ['tagOverlap', 'c', '声が重なる', 'memo'], ['insert', 'n', '後ろに行を追加', 'memo'], ['del', 'z', 'この行を削除(2回押し)', 'memo'],
   /* つなぐ・分ける(校正でいちばん時間を食う操作) */
   ['mergeNext', 'm', '次の行とつなぐ', 'memo'], ['mergePrev', 'Shift+m', '前の行とつなぐ', 'memo'], ['splitPlay', 'y', '再生位置で行を分ける', 'memo']
 ];
@@ -530,7 +530,7 @@ const KM = UIKit.keymap.create({
   fixed: [
     { group: 'listen', why: '入力欄の出入りに使うキー', rows: [['Tab', '選んだ行の入力欄へ'], ['Esc / Tab', '入力欄から抜ける']] },
     { group: 'memo', why: 'Ctrl つきのキー', rows: [['Ctrl+Z', '元に戻す']] },
-    { group: 'screen', rows: [['Alt+1 / Alt+2', 'タブ(校正・カット・パック)を切り替える', 'Alt つきのキー'], ['Shift+N', '次の案件へ', '案件の画面のキー'], ['?', 'この一覧を開く・閉じる', '一覧を開くキー']] },
+    { group: 'screen', rows: [['Alt+1 / Alt+2', 'タブ(校正・カット)を切り替える', 'Alt つきのキー'], ['Shift+N', '次の案件へ', '案件の画面のキー'], ['?', 'この一覧を開く・閉じる', '一覧を開くキー']] },
     { title: '話者', why: '数字は話者の番号', rows: [['1…9', 'この行の話者を n 番目に'], ['0', '話者なし']] },
     { title: '入力中に使えるキー', why: '入力欄の中で使うキー', rows: [['Alt+Enter', '校正済みにして次の行の入力欄へ'], ['Ctrl+Enter', 'この行を聞き直す'], ['Alt+1…9', 'この行の話者'], ['Shift+右クリック', '行のメニュー(普通の右クリックはコピー・貼り付け)']] },
     { title: '2 カット のタブ', note: '(共通の再生キーに加えて)', why: '2 カット のタブの操作', rows: CUT_KEY_ROWS }
@@ -544,8 +544,7 @@ const KM = UIKit.keymap.create({
 const KEY_FN = {
   rowNext: () => navigate(null, 1), rowPrev: () => navigate(null, -1), unNext: () => navigate('unproofed', 1), unPrev: () => navigate('unproofed', -1), flagNext: () => navigate('flag', 1),
   replay: () => replayCur(), back3: () => seek(-3), fwd3: () => seek(3), proof: () => proofOk(), edit: () => editCur(),
-  autoNext: () => { V.autoNext = !V.autoNext; saveView(); applyView(); toast('移動したら自動で再生: ' + (V.autoNext ? 'オン' : 'オフ'), 1500); },
-  tagUnclear: () => tagCur('unclear'), tagOverlap: () => tagCur('overlap'), tagBgm: () => tagCur('bgm'),
+  tagUnclear: () => tagCur('unclear'), tagOverlap: () => tagCur('overlap'),
   insert: () => { const c = rowAndSeg(); if (c) insertAfter(c.i); else insertAtTime(player().currentTime); },
   del: () => deleteCur(),
   mergeNext: () => mergeKey(1), mergePrev: () => mergeKey(-1), splitPlay: () => splitKey()   // app-rows.js
@@ -862,20 +861,11 @@ $('#repDictGo').addEventListener('click', () => {
   const n = withUndoReplace(pairs); $('#repMsg').textContent = n ? `${n}箇所を置換しました(元に戻せます)` : '該当する文字がありませんでした';
 });
 
-/* ---------- 書き出し ---------- */
-document.querySelectorAll('[data-ex]').forEach(b => b.addEventListener('click', () => {
-  const kind = b.dataset.ex, text = buildExport(kind);
-  if (text === null) return toast('書き出す行がありません');
-  const mime = { srt: 'application/x-subrip', vtt: 'text/vtt', txt: 'text/plain', json: 'application/json' }[kind];
-  download(new Blob([text], { type: mime + ';charset=utf-8' }), safeName(S.doc.title) + '.' + kind);
-}));
-['exBase', 'exWrap'].forEach(id => $('#' + id).addEventListener('change', readOpts));   // exSpk・exTs のチェックは下の SET_CHECKS の配線で
-
 /* ---------- 左パネルのイベント ---------- */
 $('#diarNum').addEventListener('change', diarNumChanged);   // 文書ごとに覚える
 $('#diarEmb').addEventListener('change', () => { readOpts(); renderDiarSetup(); });
-// 設定のチェックは表(app-core.js の SET_CHECKS)から配線する。手で並べると表に足したチェックが漏れるため
-SET_CHECKS.map(c => c[1]).concat(['optVad', 'optSubOrient', 'optMaxV', 'optMaxH', 'optWrapV', 'optWrapH', 'rtModel', 'rtTarget']).forEach(id => { const e = $('#' + id); if (e) e.addEventListener('change', readOpts); });
+// 設定のチェックは表(app-core.js の OPT_CHECKS)から配線する。手で並べると表に足したチェックが漏れるため
+OPT_CHECKS.map(c => c[1]).concat(['optVad', 'optSubOrient', 'optMaxV', 'optMaxH', 'optWrapV', 'optWrapH', 'rtModel', 'rtTarget']).forEach(id => { const e = $('#' + id); if (e) e.addEventListener('change', readOpts); });
 $('#repDict').addEventListener('input', readOpts);
 $('#docAutoGo').addEventListener('click', startDocAuto);
 {   // まとめて実行の設定の要約と「設定を変える」・上書きのチェックはホームの設定(どの入口で変えても同じ)
@@ -902,8 +892,8 @@ window.addEventListener('beforeunload', e => { if (S.dirty || S.saving){ e.preve
 const YT_PREFIX = 'https://www.youtube.com/';
 const CLIP_IC = '<span class="ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></svg></span>';
 /* 開いた文書の「元の配信」と、「動画の隣に保存」の結果の表示 */
-S.handoff = null;   // { id, transcript, srt }: 開いている文書を、動画の隣に保存したパス
-const HANDOFF_KEY = { 'transcript-v1': 'transcript', srt: 'srt' };
+S.handoff = null;   // { id, transcript }: 開いている文書を、動画の隣に保存したパス
+const HANDOFF_KEY = { 'transcript-v1': 'transcript' };
 const handoffRow = (h, k, l) => `<div><span class="hint">${l}:</span> <span class="path">${esc(h[k])}</span> <button type="button" class="btn ghost small" data-act="copy" data-k="${k}" title="このパスをコピー">コピー</button></div>`;
 document.querySelectorAll('[data-beside]').forEach(b => b.addEventListener('click', () => exportBeside(b.dataset.beside, b)));
 $('#handoffOut').addEventListener('click', e => {
