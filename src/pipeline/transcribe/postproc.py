@@ -180,6 +180,9 @@ def expand_segments(gen, spec, dur=None, join=True):
 REP_ROWS = 3          # 同じ1文字だけの行(「ああああ」)がこの数以上続いたら1行にまとめる(本当に叫んでいることもあるので消さない。印「繰り返しの可能性」)
 REP_ROW_GAP = 1.0     # まとめる行の間のすき間の上限(秒)
 REP_CHAR_KEEP = 10    # 1行の中の同じ文字の続きは、ここまでに縮める(「あああ…」×40 → 10 文字)
+REP_UNIT = True       # 2〜3 字のかなの繰り返しだけの行(「どう」「どうどうどう」)も、続いた行の繰り返しの合計が REP_UNIT_MIN 回以上ならまとめる(10-23 さくらみこの配信で「どう」の幻が 150 行)。False = 1 字だけ
+REP_UNIT_MIN = 8      # 2〜3 字の単位をまとめる、続いた行の繰り返しの合計の下限(「はい」が 3 行続く本物の受け答えはまとめない)
+REP_UNIT_KEEP = 4     # 2〜3 字のかなが 1 行の中で REP_UNIT_MIN 回以上続いたら、ここまでの回数に縮める(5〜6 回の「げんげん…」「ぱんぱん…」は本物の言い方でありうるので変えない)
 # whisper.cpp の続いている行の終わりを早める秒(ユーザーの目安 0.1 秒)。既定は 0: 行の時刻の原則の ①
 # 「言葉の末を切らない」に反する(人は字幕の終わりを機械より平均 0.15 秒後ろへ直していた。0.1 秒の目安は「この行だけ再生」で聞くための値)。
 # 測り直すときは spec の endTrim で渡す(notes:plan/done/line-b-row-timing.md の 7-1)
@@ -202,6 +205,8 @@ def post_values(spec=None):
 TRIM_GAP = 0.3        # trim_ends: 次の行の始まりとのすき間がこの秒以下の行(続いている行)だけ、終わりを早める
 TRIM_MIN = 0.3        # trim_ends: 早めたあとの行の長さの下限(秒)
 _SAME_CHAR_RUN = re.compile(r"(.)\1{%d,}" % REP_CHAR_KEEP)
+_KANA = re.compile(r"^[ぁ-ゖァ-ヺー]+$")
+_UNIT_RUN = re.compile(r"([ぁ-ゖァ-ヺー]{2,3}?)\1{%d,}" % (REP_UNIT_MIN - 1))   # 2〜3 字のかなが REP_UNIT_MIN 回以上続く所
 
 
 def _clip_words(p, lo, hi):
@@ -229,19 +234,29 @@ def clip_rows(rows, dur):
 
 
 def _one_char(text):
-    """行の文字(句読点・空白を除く)が同じ1文字の2つ以上の続きなら、その文字。そうでなければ None"""
+    """行の文字(句読点・空白を除く)の繰り返しの単位: 同じ1文字の2つ以上の続きならその文字、REP_UNIT なら 2〜3 字のかなの 1 回以上の続きならその単位。
+    そうでなければ None"""
     k = _letters(text)
-    return k[0] if len(k) >= 2 and k == k[0] * len(k) else None
+    if len(k) >= 2 and k == k[0] * len(k):
+        return k[0]
+    for n in (2, 3) if REP_UNIT else ():
+        u = k[:n]
+        if len(k) >= n and len(k) % n == 0 and u * (len(k) // n) == k and _KANA.match(u) and len(set(u)) > 1:
+            return u
+    return None
 
 
 def merge_repeats(rows):
     """同じ1文字だけの行(「ああ」「ああああああ」)が REP_ROWS 行以上続いたら(すき間 REP_ROW_GAP 秒以下)、1行にまとめる(始まり = 最初・終わり = 最後・
     単語はつなぐ・"_rep" = まとめた行の数 → make_flags が「繰り返しの可能性」)。どの行も、同じ文字の続きは REP_CHAR_KEEP 文字までに縮める。
+    2〜3 字のかなの繰り返しだけの行(「どう」)は、続いた行の繰り返しの合計が REP_UNIT_MIN 回以上のときだけまとめ、REP_UNIT_KEEP 回に縮める(REP_UNIT)。
     「早く!早く!…」のように意味のある語の繰り返しの行は、本当に言っていることが多いのでまとめない(印は従来どおり)"""
     buf = []
 
     def flush():
-        if len(buf) >= REP_ROWS:
+        unit = _one_char(buf[0].get("text")) if buf else None
+        many = len(buf) >= REP_ROWS and (len(unit) == 1 or sum(len(_letters(p.get("text"))) // len(unit) for p in buf) >= REP_UNIT_MIN)
+        if many:
             words = [w for p in buf for w in (p.get("_words") if p.get("_words") is not None else p.get("words") or [])]
             m = {**buf[0], "end": max(p["end"] for p in buf), "text": "".join(p["text"] for p in buf), "_rep": len(buf)}
             m.pop("words", None)
@@ -267,6 +282,8 @@ def _squash_row(p):
     """行の中の同じ文字の続きを REP_CHAR_KEEP 文字までに縮める(縮めたら "_rep")"""
     t = p.get("text") or ""
     s = _SAME_CHAR_RUN.sub(lambda m: m.group(1) * REP_CHAR_KEEP, t)
+    if REP_UNIT:
+        s = _UNIT_RUN.sub(lambda m: m.group(1) * REP_UNIT_KEEP if len(set(m.group(1))) > 1 else m.group(0), s)
     if s == t:
         return p
     return {**p, "text": s, "_rep": p.get("_rep") or 1}

@@ -78,7 +78,7 @@ def fill_chars(text):
 
 
 def fill_sparse_row(row):
-    """A の対象の行か: FILL_MIN_SEC 秒以上で、縮めた文字数が FILL_MAX_CPS 字/秒 未満、または同じ字の繰り返しで縮む行(FILL_RUNNY)"""
+    """A の対象の行か: FILL_MIN_SEC 秒以上で、縮めた文字数が FILL_MAX_CPS 字/秒 未満、または同じ字の繰り返しで縮む行(FILL_RUNNY)・繰り返しをまとめた行(_rep)"""
     try:
         dur = float(row["end"]) - float(row["start"])
     except (KeyError, TypeError, ValueError):
@@ -87,7 +87,7 @@ def fill_sparse_row(row):
         return False
     raw = fill_norm(row.get("text"))
     n = fill_chars(row.get("text"))
-    runny = len(raw) >= 4 and n <= FILL_RUNNY * len(raw)
+    runny = len(raw) >= 4 and n <= FILL_RUNNY * len(raw) or bool(row.get("_rep"))   # 繰り返しをまとめた・縮めた行(postproc.merge_repeats。「どう」×150 の幻)も
     return runny or n / max(dur, 0.01) < FILL_MAX_CPS
 
 

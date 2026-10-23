@@ -84,8 +84,8 @@
   - 名前: `llm_fold` :57・`llm_dist` :68・`llm_members` :79・`llm_targets` :92・`llm_near` :105・`llm_gloss` :130・`llm_pick` :142・`llm_messages` :166・`llm_parse` :178・`llm_names` :196・`llm_guard` :206・`llm_cap` :227・ほか 8
 - **models.py** (163 行) — ① 認識ワーカーの中で動く物: 読み込んだモデルの使い回し(_models)と読み込み(_load_model_local)・しばらく使わなければ手放す(release_idle_local)・
   - 名前: `models_touched` :31・`release_idle_local` :36・`setup_cuda_paths` :105・`cuda_count` :130・`cuda_libs_ok` :138・`cuda_compute` :159
-- **postproc.py** (333 行) — ① 文字起こしの行の後処理: 要確認の印(make_flags)・認識の出力を整える流れ(expand_segments = 行を単語の時刻で分ける split_segment・
-  - 名前: `latin_suspect` :31・`sparse_row` :59・`stock_phrase` :74・`repeats_in_line` :91・`make_flags` :102・`note_only` :139・`note_nosub` :144・`expand_segments` :151・`post_values` :193・`clip_rows` :220・`merge_repeats` :237・`trim_ends` :286・ほか 4
+- **postproc.py** (350 行) — ① 文字起こしの行の後処理: 要確認の印(make_flags)・認識の出力を整える流れ(expand_segments = 行を単語の時刻で分ける split_segment・
+  - 名前: `latin_suspect` :31・`sparse_row` :59・`stock_phrase` :74・`repeats_in_line` :91・`make_flags` :102・`note_only` :139・`note_nosub` :144・`expand_segments` :151・`post_values` :196・`clip_rows` :225・`merge_repeats` :249・`trim_ends` :303・ほか 4
 - **recognize.py** (365 行) — ① 音声の認識: 動画から音声を取り出す(extract_audio)・声の検出が捨てすぎたら緩めてやり直す(transcribe_vad_fallback)・文字起こしの行(transcribe_real)・
   - 名前: `wav_args` :28・`extract_audio` :59・`seg_to_dict` :89・`vad_kept` :107・`vad_note` :115・`transcribe_vad_fallback` :129・`transcribe_real` :174・`transcribe_rows` :202・`audio_span` :221・`recognize_chunk` :231・`class ChunkModel` :253・`finish_range_lines` :273・ほか 1
 - **records.py** (210 行) — ① 文字起こしの記録: recognition.runs の 1 件(エンジンと版・設定・辞書の版・後処理)・配信ごとの文脈と声の検出の記録・
