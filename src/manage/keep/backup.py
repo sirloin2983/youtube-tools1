@@ -500,21 +500,26 @@ def _restore_media(src_root, out, stop=None, dry_run=False):
         if not os.path.isdir(drive):
             out["mediaSkipped"] += 1
             continue
-        dst = os.path.join(drive, parts[1])
-        try:
-            if same(dst, size, mtime):
-                out["mediaSame"] += 1
-                continue
-            if os.path.lexists(dst):
-                out["mediaKept"] += 1
-                continue
+        _put_back(os.path.join(base, rel), os.path.join(drive, parts[1]), size, mtime, out, "media", os.path.lexists, os.path.join(MEDIA_DIR, rel), dry_run)
+
+
+def _put_back(src, dst, size, mtime, out, key, keep, label, dry_run):
+    """1 つのファイルを写し戻す: 同じなら <key>Same、keep(dst) なら <key>Kept(上書きしない)、ほかは写して <key>Copied と bytes。
+    key が "" なら same・newer・copied(作業データの根)。失敗は errors へ(MAX_ERRORS まで)"""
+    names = ("same", "newer", "copied") if not key else (key + "Same", key + "Kept", key + "Copied")
+    try:
+        if same(dst, size, mtime):
+            out[names[0]] += 1
+        elif keep(dst):
+            out[names[1]] += 1
+        else:
             if not dry_run:
-                copy_one(os.path.join(base, rel), dst, None)
-            out["mediaCopied"] += 1
+                copy_one(src, dst, None)
+            out[names[2]] += 1
             out["bytes"] += size
-        except OSError as e:
-            if len(out["errors"]) < MAX_ERRORS:
-                out["errors"].append("%s: %s" % (os.path.join(MEDIA_DIR, rel), tools.why(e)))
+    except OSError as e:
+        if len(out["errors"]) < MAX_ERRORS:
+            out["errors"].append("%s: %s" % (label, tools.why(e)))
 
 
 def _restore_cases(src_root, out_dir, out, stop=None, dry_run=False):
@@ -524,21 +529,7 @@ def _restore_cases(src_root, out_dir, out, stop=None, dry_run=False):
     for rel, size, mtime in plan_cases(os.path.join(src_root, CASES_DIR)):
         if stop is not None and stop():
             break
-        dst = os.path.join(out_dir, rel)
-        try:
-            if same(dst, size, mtime):
-                out["casesSame"] += 1
-                continue
-            if os.path.lexists(dst):
-                out["casesKept"] += 1
-                continue
-            if not dry_run:
-                copy_one(os.path.join(src_root, CASES_DIR, rel), dst, None)
-            out["casesCopied"] += 1
-            out["bytes"] += size
-        except OSError as e:
-            if len(out["errors"]) < MAX_ERRORS:
-                out["errors"].append("%s: %s" % (os.path.join(CASES_DIR, rel), tools.why(e)))
+        _put_back(os.path.join(src_root, CASES_DIR, rel), os.path.join(out_dir, rel), size, mtime, out, "cases", os.path.lexists, os.path.join(CASES_DIR, rel), dry_run)
 
 
 def _check_out_dir(out_dir, src_root):
@@ -586,21 +577,8 @@ def restore_once(folder, target, stop=None, dry_run=False, out_dir=None, media=T
     for rel, size, mtime in _walk_backup(src_root):
         if stop is not None and stop():
             break
-        dst = os.path.join(target, rel)
-        if same(dst, size, mtime):
-            out["same"] += 1
-            continue
-        try:
-            if os.path.exists(dst) and os.stat(dst).st_mtime > mtime + 2.0:   # target のほうが新しい(バックアップのあとで直した)
-                out["newer"] += 1
-                continue
-            if not dry_run:
-                copy_one(os.path.join(src_root, rel), dst, None)
-            out["copied"] += 1
-            out["bytes"] += size
-        except OSError as e:
-            if len(out["errors"]) < MAX_ERRORS:
-                out["errors"].append("%s: %s" % (rel, tools.why(e)))
+        _put_back(os.path.join(src_root, rel), os.path.join(target, rel), size, mtime, out, "",
+                  lambda dst: os.path.exists(dst) and os.stat(dst).st_mtime > mtime + 2.0, rel, dry_run)   # newer = target のほうが新しい(バックアップのあとで直した)
     return out
 
 

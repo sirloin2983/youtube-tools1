@@ -164,11 +164,12 @@ def _from_ref(g, vid, t_ref):
     return best
 
 
-def _new_group_id(existing):
+def _new_id(prefix, existing):
+    """まだ使われていない id(prefix + 12 桁の 16 進)"""
     while True:
-        gid = "g" + os.urandom(6).hex()
-        if gid not in existing:
-            return gid
+        nid = prefix + os.urandom(6).hex()
+        if nid not in existing:
+            return nid
 
 
 def _load_each(raw, out, load, what):
@@ -292,15 +293,10 @@ class Store(_studiobook.Ledger):
         if skipped or gskipped:
             name = self._quarantine(copy_only=True)
             self.corrupt_backup = name
-            parts = []
-            if skipped:
-                parts.append("配信の記録 %d 件" % skipped)
-            if gskipped:
-                parts.append("コラボの記録 %d 件" % gskipped)
+            parts = [fmt % n for fmt, n in (("配信の記録 %d 件", skipped), ("コラボの記録 %d 件", gskipped)) if n]
             self.warning = "作業データ(マークの記録)の一部(%s)が壊れていたので、読み飛ばしました。" % "・".join(parts) + (RESTORE_STEPS if name else "")
             _warn("data.json の壊れた%sを読み飛ばしました。元のファイルは %s" % ("・".join(parts), name or "(退避に失敗)"))
 
-    _load_live = staticmethod(_studiodata.load_live)     # 録画の live の検査(ytt/studiodata。flow/studiobook と同じ 1 つ)
     _load_video = staticmethod(_studiodata.load_video)   # data.json の行 -> メモリの形(ytt/studiodata。外からこの名前で読む所は無い = 外は ytt を直に)
 
     @staticmethod
@@ -611,10 +607,7 @@ class Store(_studiobook.Ledger):
                 want = hit["id"]
                 new = [dict(m, status="adopted") if m["id"] == want else m for m in v["marks"]]
             else:
-                taken = {m["id"] for m in v["marks"]}
-                want = "m" + os.urandom(6).hex()
-                while want in taken:
-                    want = "m" + os.urandom(6).hex()
+                want = _new_id("m", {m["id"] for m in v["marks"]})
                 new = v["marks"] + [{"id": want, "start": a, "end": b, "label": str(label or "")[:120], "status": "adopted"}]
             snap = self.put_video(vid, None, new, base_rev=v["rev"], judged=False)   # 同じロックの中 = 版がぶつからない。人の判断の行は案件の道(S3)が書く
             mark = next(m for m in snap["marks"] if m["id"] == want)
@@ -691,7 +684,7 @@ class Store(_studiobook.Ledger):
             if len(self.groups) >= MAX_GROUPS:
                 raise ApiError("too_many", "グループは%d件までです" % MAX_GROUPS, 400)
             self._check_free(ids)
-            gid = _new_group_id(self.groups)
+            gid = _new_id("g", self.groups)
             now = schemas.now_ms()
             g = {"id": gid, "name": str(name or "").strip()[:120], "base": base, "members": ids,
                  "offsets": {vid: [] for vid in ids if vid != base}, "createdAt": now, "updatedAt": now}

@@ -31,17 +31,8 @@ PORT = 8775
 ALLOWED_HOSTS = set()
 BASE_PATH = "/"   # 画面の場所。入口の統合サーバーに取り込まれたときは "/transcribe/"(app/mount.py が prepare() で入れる)
 MAX_BODY = 32 * 1024 * 1024
-MAX_SEGMENTS = _yschemas.MAX_SEGMENTS   # 別名(RS3-E5a。正は ytt/schemas = 文書の置き場 human/proof/store が読む。差し替えない値)
-TAGS = _yschemas.ROW_TAGS   # 別名(RS3-E5a。正は ytt/schemas の ROW_TAGS)= 行に付けるメモ。unclear(聞き取れない)の行は、精度測定・学習の正解に使わない
-MAX_TEXT = _txbase.MAX_TEXT   # 別名(下の別名も同じ: 差し替えない名前なので、認識の部品が読む正と同じ物)
-# 組み込みの話者「ゲーム音声など」・行の印 noSub(字幕に出さない)・文書の id の形の正は ytt/schemas.py(話者の部品が ed_state を読まずに済む)。
-# どれも差し替えない名前なので別名(同じ物)
-OTHER_SPK_ID, OTHER_SPK_NAME, OTHER_SPK_BUILTIN, OTHER_SPK_COLOR = _yschemas.OTHER_SPK_ID, _yschemas.OTHER_SPK_NAME, _yschemas.OTHER_SPK_BUILTIN, _yschemas.OTHER_SPK_COLOR
-other_speaker = _yschemas.other_speaker       # lint: keep 別名 = 文書の話者が組み込みの「ゲーム音声など」か
-no_sub_row = _yschemas.no_sub_row             # lint: keep 別名 = 行の印 noSub(字幕に出さない)
-
-
-MAX_SPAN_SEC = _txbase.MAX_SPAN_SEC
+# 組み込みの話者「ゲーム音声など」・文書の id の形の正は ytt/schemas.py。差し替えない名前なので別名(同じ物。テストが読む)
+OTHER_SPK_ID, OTHER_SPK_NAME, OTHER_SPK_COLOR = _yschemas.OTHER_SPK_ID, _yschemas.OTHER_SPK_NAME, _yschemas.OTHER_SPK_COLOR
 MAX_QUEUE = 200   # フォルダ一括で入れる分も含めた、待機できる最大件数
 TID_RE = _yschemas.TID_RE   # lint: keep 別名 = 文書の id の形
 # モデル名の検査 valid_model・MODEL_RE の正は pipeline/transcribe/worker_client(ワーカーの cwd = ROOT と対の決まり)
@@ -51,47 +42,20 @@ MODELS = [
     ("large-v3", "large-v3"),
 ]
 LANGS = _txbase.LANGS
-# 幻覚の決まり文句・要確認の印の文(正は ytt/txbase.py。RS2-1a)
-HALLUC, HALLUC_LINE, HALLUC_LINE_REST, MUSIC_ONLY = _txbase.HALLUC, _txbase.HALLUC_LINE, _txbase.HALLUC_LINE_REST, _txbase.MUSIC_ONLY
-LEAK_FLAG, LEAK_MAX_SEC, REP_MIN, REP_RE = _txbase.LEAK_FLAG, _txbase.LEAK_MAX_SEC, _txbase.REP_MIN, _txbase.REP_RE
+LEAK_FLAG = _txbase.LEAK_FLAG   # 要確認の印の文(正は ytt/txbase.py。RS2-1a)
 
 
 ApiError = _errors.ApiError   # 別名(正は ytt/errors.py。RS2-1a。同じクラス = except ed_state.ApiError も ytt の物を捕まえる)
 
 
 # ---------- ユーティリティ ----------
-def replace_retry(src, dst):
-    """os.replace。Windows でウイルス対策ソフト・検索インデックスが一瞬ファイルを開いていて失敗したときは、少し待ってやり直す
-    (自動保存がたまに「保存できません」になるのを防ぐ。規則は ytt.fsio.replace_retry)。"""
-    _fsio.replace_retry(src, dst)
-
-
 def atomic_write(path, data: bytes):
     """一時ファイルに書き、ディスクへ確実に書き出して(fsync)から置き換える(ytt.fsio.atomic_write)。
     fsync に失敗したら保存も失敗にする: 停電・強制終了のあとに「中身が空の文字起こし」が残るのを防ぐため(校正の成果を失わないことを優先)。"""
     _fsio.atomic_write(path, data, fsync_required=True)
 
 
-# 共通の小道具は ytt の物(名前は ed_state.名前 で呼べる)
-# (下の 4 つは写しではなく別名。lint の dup-helper には `lint: keep` で印を付けた)
-unlink_quiet = _fsio.unlink_quiet   # lint: keep 別名 = 消せなくても(無い・使用中)止めない(一時ファイル・付き物の後片付け)
-file_stamp = _fsio.stamp            # lint: keep 別名 = (更新日時ns, 大きさ)。無い・読めなければ None(読み直しを省くキャッシュの鍵)
-plain_int = _yschemas.plain_int     # lint: keep 別名 = JSON の整数(真偽値は数えない)か None
-rss_mb = _tools.process_memory_mb   # lint: keep 別名 = このプロセスが使っているメモリ(MB)。取れなければ None
-
-
-read_schema_json = _fsio.read_schema_json   # lint: keep 別名(RS2-1a)= 付き物の JSON(words・asr・diar・alt)を読む。形が違えば None
-union_spans = _yschemas.union_spans         # lint: keep 別名(RS2-1a)= 区間をつなぐ
-add_warning = _txbase.add_warning           # lint: keep 別名(RS2-1a)= ジョブの注意を付け直す
-
-
-norm_path = _fsio.norm_path   # lint: keep 別名(RS3-E5a。正は ytt/fsio)= 同じ動画かを比べる鍵(normcase(abspath))。ファイルには触らない
-
-
-now_ms = _yschemas.now_ms   # lint: keep 別名(正は ytt/schemas)
-
-
-env_off = _txbase.env_off   # lint: keep 別名(RS2-9)= 環境変数が「止める」の値(off・0・no・false)か(裏の処理を止めるスイッチ)
+unlink_quiet = _fsio.unlink_quiet   # lint: keep 別名(正は ytt/fsio)= 消せなくても(無い・使用中)止めない(一時ファイル・付き物の後片付け)
 
 
 # ---------- 記録(落ちたときの手がかり) ----------
@@ -162,10 +126,6 @@ _NO_MARK = object()   # check_previous_run: 印が無い・読めない
 
 def clear_mark():
     unlink_quiet(RUN_MARK)
-
-
-num = _yschemas.num_or        # lint: keep 別名(RS2-1a)= 数にできれば float、違えば default
-fmt_hms = _yschemas.fmt_hms   # lint: keep 別名(RS2-1a)= 秒 → 時:分:秒
 
 
 # GPU と部品の有無(nvidia_gpu・has_faster_whisper・worker_has・gpu_ready・_probe_gpu)・ワーカーの Python(worker_python)・

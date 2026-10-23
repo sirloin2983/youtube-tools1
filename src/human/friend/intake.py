@@ -40,7 +40,7 @@ import uuid
 from flow import order as _order, placement
 from flow.deliver import BAD_NAME_CHARS, OUT_DIR   # ファイル名に使えない文字・出力\ の名前(届ける側 ② と同じ 1 か所。ds1)
 from flow import spec as _spec   # 区間・重みの理由つきの検査(まとめて実行と同じ。opt-human 9b-2)
-from ytt import colors, fsio, names as ytt_names, normalize, studio_env, tools, yturl
+from ytt import colors, fsio, names as ytt_names, normalize, schemas, studio_env, tools, yturl
 from . import live_requests  # noqa: E402  (ライブ配信の依頼の設定の検査と一覧の文。結びつきは入口が live_begin= で渡す Live.submit_request が書く。2-15)
 from . import returns  # noqa: E402  (友人の送り返し 送り返し\ の zip と採否を app/friend-returns へ並べる。F1 の F2)
 
@@ -90,11 +90,6 @@ def out_dir_of(folder):
     return os.path.join(folder, OUT_DIR) if folder else None
 
 
-def _yt_id_ok(v):
-    """YouTube の配信 ID(11文字。スタジオの common.VID_RE と同じ)"""
-    return isinstance(v, str) and len(v) == 11 and all(c.isascii() and (c.isalnum() or c in "-_") for c in v)
-
-
 def submit_urls(runner, items, request_id=None, deliver_dir=None, speakers=None, video_tracks=None, cut=None, streamer=None):
     """友人からの依頼(配信の URL)を、配信ごとに ② の口 submit へ(RV A1。欄 → 封筒 + 束の差分は flow/order.py)。いつも ① 全自動 = パックまで・送り直しは作り直す。
     items = [{"id": 配信 ID, "top": 1〜30, "title", "channel", "ranges"?, "duration"?}]。
@@ -108,7 +103,7 @@ def submit_urls(runner, items, request_id=None, deliver_dir=None, speakers=None,
         title, channel = str(it.get("title") or "").strip()[:120], str(it.get("channel") or "").strip()[:100]
         try:
             ranges = _spec.clean_ranges(it.get("ranges"))
-            if not _yt_id_ok(vid) or not _spec.key_ok("adopt", "top", top):   # 本数の範囲は束の検査と同じ(spec.top_arg)
+            if not (isinstance(vid, str) and yturl.VID_RE.match(vid)) or not _spec.key_ok("adopt", "top", top):   # 本数の範囲は束の検査と同じ(spec.top_arg)
                 raise ValueError("配信の指定が正しくありません")
             env, diff = _order.order("url", video_id=vid, title=title or vid, fresh={"title": title, "channel": channel}, duration=it.get("duration"),
                                      upto="pack", top=top, ranges=ranges, cut=cut, video_tracks=video_tracks, speakers=speakers,
@@ -232,9 +227,7 @@ def _is_os_file(name, path=None):
 CUT_LABELS = {"none": "カットしない", "silence": "無音で削る"}   # 受付の記録の文(カットの検査は ② flow/order.cut_arg = spec.CUTS)
 
 
-def _hms(sec):
-    sec = int(sec)
-    return "%d:%02d:%02d" % (sec // 3600, sec % 3600 // 60, sec % 60)
+_hms = schemas.fmt_hms
 
 
 def parse_ranges(v):
@@ -592,13 +585,12 @@ class Intake:
         ended = bool(info) and info.get("live") not in ("is_live", "is_upcoming")   # 状態が分かって、終わっている
         # 状態を確かめられなかった(info が空 = yt-dlp が無い・失敗・時間切れ)ときは、ここで諦めずに録画を試す(Live.begin が自分でもう一度調べる。
         # 配信前・配信中なら録画が始まる)。録画も始められなければ、今までどおりアーカイブから ① 全自動(終わった配信ならそれで切り抜ける)。
+        def archive(why):   # アーカイブから ① 全自動(今までの流れ)
+            self._process_urls(folder, n, moved, "%s %d" % (yturl.watch_url(vid), int(cfg["top"])), cfg, "app", rid, speakers, tracks,
+                               ranges={}, cut=cut, streamer=who, streamer_note=note,
+                               notes=[{"label": "ライブ配信", "state": "accepted", "reason": why + "、アーカイブから ① 全自動で切り抜きます(%s届けます)" % how}])
         if ended or (not info and self.live_begin is None):
-            notes = [{"label": "ライブ配信", "state": "accepted",
-                      "reason": ("配信は終わっていたので、アーカイブから ① 全自動で切り抜きます(%s届けます)" if ended else
-                                 "配信の状態を確かめられなかったので、アーカイブから ① 全自動で切り抜きます(%s届けます)") % how}]
-            self._process_urls(folder, n, moved, "https://www.youtube.com/watch?v=%s %d" % (vid, int(cfg["top"])), cfg, "app", rid, speakers, tracks,
-                               ranges={}, cut=cut, streamer=who, streamer_note=note, notes=notes)
-            return
+            return archive("配信は終わっていたので" if ended else "配信の状態を確かめられなかったので")
         ctx = {"rid": rid, "deliverDir": os.path.join(folder, OUT_DIR), "url": "https://www.youtube.com/watch?v=" + vid, "title": title, "streamer": who or "",
                "speakers": speakers, "videoTracks": tracks, "cut": cut, "settings": settings}
         if self.live_begin is None:
@@ -611,11 +603,7 @@ class Intake:
             except Exception as e:   # noqa: BLE001  (録画元が動いていない・オフ・URL の形など。理由を友人に返す)
                 msg = str(e)[:160]   # Live.begin の LiveError はもう「録画を始められませんでした: …」で始まる(二重にしない)
                 if not info:   # 状態を確かめられず、録画も始められない(配信が終わっていた・録画元が動いていないなど)→ アーカイブから ① 全自動(今までの流れ)
-                    notes = [{"label": "ライブ配信", "state": "accepted",
-                              "reason": "配信の状態を確かめられず、録画も始められなかったので(%s)、アーカイブから ① 全自動で切り抜きます(%s届けます)" % (msg, how)}]
-                    self._process_urls(folder, n, moved, "https://www.youtube.com/watch?v=%s %d" % (vid, int(cfg["top"])), cfg, "app", rid, speakers,
-                                       tracks, ranges={}, cut=cut, streamer=who, streamer_note=note, notes=notes)
-                    return
+                    return archive("配信の状態を確かめられず、録画も始められなかったので(%s)" % msg)
                 res = {"label": label, "state": "rejected", "reason": msg if msg.startswith("録画を始められませんでした") else "録画を始められませんでした: " + msg}
         items = [res, {"label": "ライブ配信", "state": "accepted", "reason": live_requests.settings_label(settings)}]
         if note:

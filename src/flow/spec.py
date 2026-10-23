@@ -50,9 +50,7 @@ def num_ok(v):
     return schemas.is_num(v) and abs(v) < 1e7
 
 
-def _hms(sec):
-    sec = int(sec)
-    return "%d:%02d:%02d" % (sec // 3600, sec % 3600 // 60, sec % 60)
+_hms = schemas.fmt_hms
 
 
 def check_range(r):

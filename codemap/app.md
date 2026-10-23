@@ -15,9 +15,9 @@
   - 受ける口: `/api/ytt` :45
 - **prefs.py** (488 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
   - 名前: `class PrefsError` :95・`guess_streamer` :382・`class Prefs` :394
-- **server.py** (1655 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
-  - 名前: `runtime_dir` :177・`ping` :187・`port_open` :192・`tail` :198・`expected_version` :219・`tool_python` :225・`rel_or_abs` :235・`signal_stop` :243・`class Tool` :256・`app_data_dir` :306・`logs_dir_for` :312・`class Supervisor` :318・ほか 16
-  - 受ける口: `/api/drill/status` :145・`/api/eval-batch` :145・`/api/intake` :624・`/api/backup` :625・`/api/accuracy` :626・`/api/flow/runs` :627・`/api/cases/auto` :629・`/api/flow/submit` :630・`/api/flow/estimate` :630・`/api/flow/cancel` :631・`/api/intake/scan` :632・`/api/backup/run` :632・`/api/accuracy/run` :633・`/api/window` :633・`/api/check/answer` :634・`/api/check/skip` :634・`/api/check/flush` :634・`/api/cleanup` :635・`/api/shutdown` :635・`/api/ping` :724・`/api/status` :726・`/api/health` :736・`/api/log` :740・`/api/flow/status` :755・`/api/flow/history` :759・`/api/check/next` :762・`/api/cases` :768
+- **server.py** (1648 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
+  - 名前: `runtime_dir` :177・`ping` :187・`tail` :195・`expected_version` :216・`tool_python` :222・`rel_or_abs` :232・`signal_stop` :240・`class Tool` :253・`app_data_dir` :303・`logs_dir_for` :309・`class Supervisor` :315・`query_int` :635・ほか 15
+  - 受ける口: `/api/drill/status` :145・`/api/eval-batch` :145・`/api/intake` :621・`/api/backup` :622・`/api/accuracy` :623・`/api/flow/runs` :624・`/api/cases/auto` :626・`/api/flow/submit` :627・`/api/flow/estimate` :627・`/api/flow/cancel` :628・`/api/intake/scan` :629・`/api/backup/run` :629・`/api/accuracy/run` :630・`/api/window` :630・`/api/check/answer` :631・`/api/check/skip` :631・`/api/check/flush` :631・`/api/cleanup` :632・`/api/shutdown` :632・`/api/ping` :721・`/api/status` :723・`/api/health` :733・`/api/log` :737・`/api/flow/status` :752・`/api/flow/history` :756・`/api/check/next` :759・`/api/cases` :765
 
 ## src/app/check/
 

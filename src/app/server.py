@@ -189,10 +189,7 @@ def ping(port, timeout=PING_TIMEOUT, path="/"):
     return runtime.ping(port, timeout, path)
 
 
-def port_open(port, timeout=0.3):
-    """そのポートで何かが待ち受けているか(つないですぐ切る)。動作中の確認はこれで行う:
-    /api/ping を数秒ごとに送ると、アクセスを記録するツール(文字起こし)の黒い画面・ログが埋まるため。"""
-    return runtime.port_open(port, timeout)
+port_open = runtime.port_open   # そのポートで何かが待ち受けているか。動作中の確認はこれで行う(/api/ping を数秒ごとに送ると、文字起こしのログが埋まるため)
 
 
 def tail(path, lines=200, max_bytes=256 * 1024):
@@ -1072,10 +1069,6 @@ class PortalServer(httpsec.ExclusiveServer):
     def _busy_tools(self):
         """取り込んだツールのうち処理の途中の物 -> [(id, 名前)]"""
         return [(t.id, t.spec["name"]) for t in self.sup.tools if t.mounted and t.mount and t.mount.busy()]
-
-    def tools_busy(self):
-        """取り込んだツールのどれかが処理の途中か(書き出し先を変えられるかの判定)"""
-        return bool(self._busy_tools())
 
     def auto_busy(self):
         """自動の起動し直しを待つ理由の文(処理が無ければ None)。手の起動し直しより厳しい: まとめて実行の待ち・実行中・ライブの録画中・検出中・

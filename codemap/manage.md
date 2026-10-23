@@ -27,8 +27,8 @@
 ## src/manage/keep/
 
 - **__init__.py** (2 行) — ④ 置き場所・バックアップ・ごみ箱・録画の片付け
-- **backup.py** (670 行) — 作業データのバックアップ(notes:docs/spec/data.md の「バックアップ」)。
-  - 名前: `skip` :71・`plan` :138・`plan_cases` :174・`default_media_dirs` :201・`media_rel` :215・`plan_media` :232・`same` :239・`copy_one` :247・`run_once` :279・`class Backup` :329・`restore_once` :557・`main` :618
+- **backup.py** (648 行) — 作業データのバックアップ(notes:docs/spec/data.md の「バックアップ」)。
+  - 名前: `skip` :71・`plan` :138・`plan_cases` :174・`default_media_dirs` :201・`media_rel` :215・`plan_media` :232・`same` :239・`copy_one` :247・`run_once` :279・`class Backup` :329・`restore_once` :548・`main` :596
 - **cleanup.py** (472 行) — 作業データの片付け(全体の計画 段9 9-2。ユーザー決定: 元動画も候補に・ごみ箱フォルダ経由・日数を決めて消す)。
   - 名前: `class Cleanup` :99
 - **evalfolders.py** (514 行) — ④ 評価用のフォルダの整理: 動画の名前を「フォルダ名_番号_状態」にそろえる・仮置きからメンバーのフォルダへ移す・評価用にした文書の動画を外から取り込む
@@ -55,8 +55,8 @@
 - **__init__.py** (15 行) — analytics — チャンネルの分析と日報・週報・月報(設計 notes:plan/done/analytics-daily-report.md)。
 - **bridge.py** (108 行) — Apps Script の連携(gas/Code.gs のウェブアプリ)との通信。標準ライブラリだけ。
   - 名前: `class BridgeError` :20・`check_url` :26・`check_secret` :33・`class Bridge` :50
-- **calc.py** (1142 行) — 計算(notes:plan/done/analytics-daily-report.md の 4 節と 12-4 の方針)。入力は data.Dataset、出力は JSON にできる dict。
-  - 名前: `confirmed` :40・`points` :50・`cum_at` :65・`covered` :75・`shorts_with_days` :80・`class Curve` :84・`quality` :148・`count_posts` :162・`posts_summary` :167・`ypp_now` :179・`class Model` :189・`ypp_checks` :259・ほか 34
+- **calc.py** (1130 行) — 計算(notes:plan/done/analytics-daily-report.md の 4 節と 12-4 の方針)。入力は data.Dataset、出力は JSON にできる dict。
+  - 名前: `confirmed` :40・`points` :50・`cum_at` :65・`covered` :75・`shorts_with_days` :80・`class Curve` :84・`quality` :148・`count_posts` :162・`posts_summary` :167・`ypp_now` :179・`class Model` :189・`ypp_checks` :259・ほか 35
 - **data.py** (206 行) — raw(ブックマークが Studio の内部 API から取った JSON)→ 形をそろえたデータ。
   - 名前: `class DataError` :31・`class Video` :35・`class Dataset` :73・`member_matcher` :109・`parse` :129
 - **render.py** (574 行) — 日報・週報・月報の LINE の文面と HTML(calc の結果 → 文字列)。

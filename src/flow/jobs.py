@@ -266,12 +266,6 @@ def board_job(j):
             "canCancel": active, "canRetry": can_retry(j)}
 
 
-def board_jobs():
-    """表の今のジョブ(入れた順)を掲示板の Job に(引く形の source)"""
-    with _jobs_lock:
-        return [board_job(j) for j in _jobs.values()]
-
-
 def board_cancel(jid):
     """掲示板の cancel(器の中の id)。無い id は LookupError"""
     try:
@@ -282,7 +276,7 @@ def board_cancel(jid):
 
 def attach_board(board):
     """掲示板(flow/board.Board)に頭 tx で載せる(app が 1 回)。やり直し(retry)は RETRY_KINDS の失敗だけ(can_retry)"""
-    board.register("tx", source=board_jobs, cancel=board_cancel)
+    board.register("tx", source=TX_TABLE.board_jobs, cancel=board_cancel)
 
 
 # ---------- ② の 1 つの器 Table(OPT2 後半 J6。notes:docs/design/opt2-jobs-plan.md の 3) ----------
@@ -380,8 +374,6 @@ class Table:
                         self.log("idle で例外: %s" % e)
                 continue
             self.work(rec)
-
-    _lane = lane
 
     def _begin(self, rec):
         """動かし始める印(cv の中)"""

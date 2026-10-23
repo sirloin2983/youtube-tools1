@@ -65,16 +65,8 @@ LAYER_MAX_BYTES = 64 * 1024 * 1024   # 層のファイルを読む上限(測る�
 
 
 def _read_layer(tid, suffix, schema):
-    """機械の層・人の層のファイル(無い・大きすぎる・壊れている・形が違えば None)。
-    読む上限はファイルの大きさにする(read_json_or は上限の分の入れ物を先に取るので、大きな上限のままだと保存のたびに遅い)"""
-    path = _doc_file(tid, suffix)
-    try:
-        size = os.path.getsize(path)
-    except OSError:
-        return None
-    if size > LAYER_MAX_BYTES:
-        return None
-    d = _fsio.read_json_or(path, None, size, kind=dict)
+    """機械の層・人の層のファイル(無い・大きすぎる・壊れている・形が違えば None)"""
+    d = _fsio.read_json_or(_doc_file(tid, suffix), None, LAYER_MAX_BYTES, kind=dict)
     return d if d is not None and d.get("schema") == schema else None
 
 

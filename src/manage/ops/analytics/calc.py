@@ -515,8 +515,7 @@ def cannibalization(ds, conf, days=120):
     週の中で比べるので、チャンネル全体の調子の変化は除かれる。日の本数の幅が狭いと推定はぶれる"""
     end = T.day_end_utc(conf["ev"])
     lo = end - datetime.timedelta(days=days)
-    vids = [(v, video_metric(v, conf, 72)) for v in ds.public_videos(short=True) if lo <= v.pub < end]
-    vids = [(v, x) for v, x in vids if x and x > 0]
+    vids = [(v, x) for v, x in metric_rows(ds, conf, lo, end, 72) if x > 0]
     per_day = {}
     for v in ds.public_videos(short=True):
         per_day[v.pub_jst.date()] = per_day.get(v.pub_jst.date(), 0) + 1
@@ -555,8 +554,7 @@ def strength_trend(ds, conf, boundary, months=6):
     """② 1 本あたりの強さの推移: 公開した月(日本時間)ごとと、境目以降の公開 7 日の EV(平均と中央値・平均の 80% の幅)"""
     rnd = random.Random(11)
     end = T.day_end_utc(conf["ev"])
-    items = [(v, video_metric(v, conf, WEEK_HOURS)) for v in ds.public_videos(short=True) if v.pub < end]
-    items = [(v, x) for v, x in items if x is not None]
+    items = metric_rows(ds, conf, None, end, WEEK_HOURS)
     first = T.add_months(conf["ev"].replace(day=1), -(months - 1))
 
     def summ(xs, name):
@@ -728,6 +726,11 @@ def day_report_numbers(ds, conf):
     return out
 
 
+def metric_rows(ds, conf, lo, hi, hours):
+    """lo(None = 下限なし)〜 hi に公開したショートのうち、公開 hours 時間の値が確定した物 -> [(動画, 値)]"""
+    return [(v, x) for v in ds.public_videos(short=True) if (lo is None or lo <= v.pub) and v.pub < hi for x in [video_metric(v, conf, hours)] if x is not None]
+
+
 def video_metric(v, conf, hours):
     if not covered(v):
         return None
@@ -804,13 +807,7 @@ def week_report(ds, conf, posts, outlook=None):
             wk.append({"id": v.id, "title": v.short_title(), "member": v.member, "value": round(x) if x is not None else None,
                        "pct": pct(b72, x) if x is not None else None, "vtr": v.vtr})
     wk.sort(key=lambda r: -(r["value"] or -1))
-    rec = []
-    lo28 = hi - datetime.timedelta(days=28)
-    for v in ds.public_videos(short=True):
-        if lo28 <= v.pub < hi:
-            x = video_metric(v, conf, 72)
-            if x is not None:
-                rec.append((v, x))
+    rec = metric_rows(ds, conf, hi - datetime.timedelta(days=28), hi, 72)
     vt_now = [v.vtr for v in ds.public_videos(short=True) if v.vtr and lo <= v.pub < hi]
     vt_prev = [v.vtr for v in ds.public_videos(short=True) if v.vtr and lo - datetime.timedelta(days=28) <= v.pub < lo]
     return {"start": days[-1].isoformat(), "end": end.isoformat(), "totals": cur, "prev": pv, "avg4": f4, "posts": week_posts,
@@ -825,13 +822,7 @@ def effect_table(ds, conf, end_day, days=90, hours=WEEK_HOURS):
     群ごとに本数・中央値・全体との比・期間の前半と後半で同じ向きか・同じ配信者の中で比べた比"""
     hi = T.day_end_utc(end_day)
     lo = hi - datetime.timedelta(days=days)
-    rows = []
-    for v in ds.public_videos(short=True):
-        if lo <= v.pub < hi:
-            x = video_metric(v, conf, hours)
-            if x is not None:
-                rows.append((v, x))
-    rows.sort(key=lambda r: r[0].pub)
+    rows = sorted(metric_rows(ds, conf, lo, hi, hours), key=lambda r: r[0].pub)
     by_day = {}
     for v in ds.public_videos(short=True):
         by_day.setdefault(v.pub_jst.date(), []).append(v)
@@ -988,11 +979,8 @@ def regime_compare(ds, conf, boundary):
     hit_line = bench(ds, conf, 72)
     top = hit_line[int(0.8 * (len(hit_line) - 1))] if hit_line else None
 
-    def vids(lo, hi):
-        xs = [(v, video_metric(v, conf, 72)) for v in ds.public_videos(short=True) if lo <= v.pub < hi]
-        return [(v, x) for v, x in xs if x is not None]
-    va = vids(b, end)
-    vb = vids(b - datetime.timedelta(days=n), b)
+    va = metric_rows(ds, conf, b, end, 72)
+    vb = metric_rows(ds, conf, b - datetime.timedelta(days=n), b, 72)
 
     def side(days, rdays, vs, start, stop):
         xs = [x for _, x in vs]

@@ -47,7 +47,7 @@ HISTORY_DEFAULT, HISTORY_MAX = 50, 200   # history の limit の既定と上限
 PAST_KEYS = ("id", "kind", "docId", "videoId", "title", "mode", "modeLabel", "state", "stateLabel", "nothing", "message", "error",
              "created", "finished", "steps")   # past に入れる項目(2〜15 秒ごとの問い合わせを重くしない。全部は history で)
 MAX_WAITING = 20       # 順番待ちの上限
-CLOSED_MSG = "終了しているところです。起動し直してから入れてください"   # close のあとは新しく積まない(submit・_enqueue)
+CLOSED_MSG = "終了しているところです。起動し直してから入れてください"   # close のあとは新しく積まない(submit)
 ACTIVE_FILE = "autorun-active.json"  # 待ち・実行中の実行(log_dir の中。runlog.RUNS_LOG の隣)
 ACTIVE_VERSION = 2     # 中身は Run.saved()(封筒 + 束 + 状態)。2 = RS7-1 S4 から(束は受けたときに組んだ物・受付で決めた物も入る)
 ACTIVE_READ_MAX = 4 * 1024 * 1024
@@ -334,25 +334,6 @@ class Queue(run_mod.Runner):
         self._trim()
         self._wake()
         return run.public()
-
-    def _enqueue(self, items, make):
-        """items を 1 つずつ make(item, 順番待ち・実行中の一覧) -> Run(入れる)か飛ばした理由 {"id", "title", "reason"}。
-        -> {"runs": [作った実行], "skipped": [飛ばしたもの]}"""
-        made, skipped = [], []
-        with self.cv:
-            if self.closed:
-                raise ValueError(CLOSED_MSG)
-            active = self._active_runs()
-            for it in items:
-                r = make(it, active)
-                if isinstance(r, Run):
-                    active.append(r)
-                    made.append(self._push(r))
-                else:
-                    skipped.append(r)
-        if made:
-            self._save_active()
-        return {"runs": made, "skipped": skipped}
 
     def _bundle_for(self, envelope, spec):
         """封筒 + 束の差分 -> (版 2 の封筒, 受付の束, 知らせ)。土台 = hook の build_spec(_base)に差分を重ね(spec.merge_onto)、

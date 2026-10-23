@@ -12,8 +12,8 @@
 
 - **ed_media.py** (154 行) — 「編集」のサーバーの部品: 音の波形(カットのタイムライン)。
   - 名前: `peaks_rate` :31・`compute_peaks` :52・`get_peaks` :121
-- **ed_state.py** (183 行) — 「編集」のサーバーの部品: 置き場所・設定の値・共通の小道具・記録(落ちたときの手がかり)・作業データの切り替え。
-  - 名前: `replace_retry` :63・`atomic_write` :69・`runtime_path_dir` :112・`setup_logging` :117・`write_mark` :143・`check_previous_run` :152・`clear_mark` :163・`backend_name` :175
+- **ed_state.py** (143 行) — 「編集」のサーバーの部品: 置き場所・設定の値・共通の小道具・記録(落ちたときの手がかり)・作業データの切り替え。
+  - 名前: `atomic_write` :52・`runtime_path_dir` :76・`setup_logging` :81・`write_mark` :107・`check_previous_run` :116・`clear_mark` :127・`backend_name` :135
 - **ed_thumb.py** (90 行) — 「編集」のサムネの案(提案 P5 の S。notes:plan/thumb-ideas.md の 7・8)。作る本体は thumb_ideas.py(コマンドとしても使える独立の部品)。
   - 名前: `thumb_paths` :25・`thumb_spec` :37・`run_thumb` :52・`thumb_info` :70・`thumb_image_path` :83
 - **serve.py** (759 行) — 文字起こしツール用のローカルサーバー(標準ライブラリ + faster-whisper)。

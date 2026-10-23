@@ -31,8 +31,8 @@
   - 名前: `build_spec` :24・`class ExportJobs` :38・`default` :140
 - **ingest.py** (23 行) — ② 取り込みの口(RS6 a-5a)。人とデータの層(③・④)が入力の判定(① pipeline/analyze・ingest)を直に読まずに済む動詞。
   - 名前: `probe` :13
-- **jobs.py** (704 行) — ジョブの表・待機列・種類の登録・ワーカーの繰り返し・取り消しの受付(② 管理。RS6 a-2)。
-  - 名前: `configure` :38・`tool_slot` :50・`register` :56・`set_cancelled` :70・`set_internal_error` :74・`job_errors` :81・`job_temp_wav` :102・`job_done` :111・`job_title` :115・`tid_busy` :125・`doc_busy` :139・`active_jobs` :151・ほか 12
+- **jobs.py** (696 行) — ジョブの表・待機列・種類の登録・ワーカーの繰り返し・取り消しの受付(② 管理。RS6 a-2)。
+  - 名前: `configure` :38・`tool_slot` :50・`register` :56・`set_cancelled` :70・`set_internal_error` :74・`job_errors` :81・`job_temp_wav` :102・`job_done` :111・`job_title` :115・`tid_busy` :125・`doc_busy` :139・`active_jobs` :151・ほか 11
 - **keys.py** (397 行) — ② 管理の層 flow: 成果物の鍵を書く・読む(RS6 b-K1。決定 3-29 / notes:plan/done/role-restructure.md 4 節の決まり 4・5-2)。
   - 名前: `media_key_path` :40・`doc_key_path` :45・`pack_key_path` :55・`write` :60・`read` :71・`stale` :83・`remove` :95・`key_hash` :107・`export_inputs` :114・`transcribe_inputs` :122・`post_inputs` :134・`diar_inputs` :142・ほか 15
 - **learning.py** (214 行) — ② 管理: 学習データを読む側(F1。notes:docs/design/f1-build.md の 2 の F1・3 の (f1c))。
@@ -88,10 +88,10 @@
   - 名前: `class Cancelled` :124・`class StepError` :128・`mode_of` :147・`steps_of` :181・`analyze_verdict` :225・`chat_missing` :243・`chat_retry_ok` :249・`stream_ended_at` :257・`redo_reason` :270・`short_why` :288・`adopted_ids` :300・`tx_verdict` :305・ほか 5
 - **runlog.py** (93 行) — まとめて実行の「終わった実行の記録」の形と読み方(RS3-0B)。
   - 名前: `read_runs_log` :47・`read_result` :77
-- **runqueue.py** (817 行) — ② 管理の層 flow: 待ち行列と実行の糸(RS7-1 S5。決定 3-30・
+- **runqueue.py** (798 行) — ② 管理の層 flow: 待ち行列と実行の糸(RS7-1 S5。決定 3-30・
   - 名前: `class SpecVersionError` :64・`class BadSpecError` :68・`check_spec` :72・`disk_blocked` :86・`gpu_info` :100・`busy_reason` :114・`doc_id_ok` :123・`result_case` :171・`board_job` :182・`class Queue` :200
-- **spec.py** (603 行) — ① に渡す指定の束(spec)の形・既定値・検査(RS1-6。計画 notes:plan/done/role-restructure.md の 5-4)。
-  - 名前: `num_ok` :48・`check_range` :58・`check_ranges` :73・`clean_ranges` :92・`pad_range` :108・`check_weights` :116・`clean_weights` :127・`top_arg` :136・`marks_arg` :145・`row_edge_ok` :155・`merge` :262・`merge_onto` :270・ほか 11
+- **spec.py** (601 行) — ① に渡す指定の束(spec)の形・既定値・検査(RS1-6。計画 notes:plan/done/role-restructure.md の 5-4)。
+  - 名前: `num_ok` :48・`check_range` :56・`check_ranges` :71・`clean_ranges` :90・`pad_range` :106・`check_weights` :114・`clean_weights` :125・`top_arg` :134・`marks_arg` :143・`row_edge_ok` :153・`merge` :260・`merge_onto` :268・ほか 11
 - **studiobook.py** (476 行) — ② 管理の層 flow: スタジオなしの配信の台帳と、URL の段の動詞(RS8 の「URL も CLI で」)。
   - 名前: `class Ledger` :55・`class StudioBook` :266・`class LocalStudio` :381
 - **thumbs.py** (28 行) — ② サムネの案の口(OPT-H2 の組 A)。③ の editor/thumb_ideas.py(案の決め方・文字起こしを読む殻)が、① pipeline/export/thumb_cards を直に読まずに済むための動詞だけを出す。

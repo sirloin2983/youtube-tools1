@@ -182,14 +182,12 @@ class TestSubmit(Base):
         tools.gate.set()
         _until(lambda: q.status()["idle"], "待ち・実行中が 0")
 
-    def test_closed_rejects_submit_and_enqueue(self):
-        """終了(close)のあとの submit と _enqueue は理由つきの ValueError(待ちに積まず、待ちの記録も作らない)"""
+    def test_closed_rejects_submit(self):
+        """終了(close)のあとの submit は理由つきの ValueError(待ちに積まず、待ちの記録も作らない)"""
         q = self.queue()
         q.close()
         with self.assertRaisesRegex(ValueError, "終了しているところです"):
             self.sub(q, self.env_of(self.media[0]))
-        with self.assertRaisesRegex(ValueError, "終了しているところです"):
-            q._enqueue([1], lambda it, active: {"id": "x", "title": "", "reason": "x"})
         self.assertEqual(q.status()["runs"], [])
         self.assertFalse(os.path.exists(os.path.join(self.logs, Q.ACTIVE_FILE)))
 

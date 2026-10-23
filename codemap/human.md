@@ -49,8 +49,8 @@
 - **__init__.py** (2 行) — ③ 友人: 受付(Dropbox)→ まとめて実行(②)に流す → 届ける。友人の返事・送り返し・ライブの依頼の結びつき
 - **friend_feedback.py** (118 行) — 友人の「要らない」を PC 側で片付ける(notes:docs/spec/friend.md の 2-14。ユーザー「不採用の場合こちらにフィードバック」)。
   - 名前: `record_delivery` :24・`find_delivery` :29・`apply` :82
-- **intake.py** (826 行) — 友人からの依頼の受付(notes:docs/spec/friend.md)。
-  - 名前: `configured_folder` :77・`out_dir_of` :88・`submit_urls` :98・`submit_file` :122・`youtube_id` :132・`parse_lines` :138・`decode_text` :164・`probe_video` :178・`youtube_info` :190・`parse_ranges` :240・`class Intake` :269
+- **intake.py** (814 行) — 友人からの依頼の受付(notes:docs/spec/friend.md)。
+  - 名前: `configured_folder` :77・`out_dir_of` :88・`submit_urls` :93・`submit_file` :117・`youtube_id` :127・`parse_lines` :133・`decode_text` :159・`probe_video` :173・`youtube_info` :185・`parse_ranges` :233・`class Intake` :262
 - **live_requests.py** (22 行) — 友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend.md の 2-15)。
   - 名前: `settings_label` :19
 - **returns.py** (476 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。notes:docs/design/f1-build.md の (f1d))。
@@ -75,16 +75,16 @@
   - 名前: `retime_engine` :12・`retime_doc` :18
 - **speakers.py** (673 行) — ③ 人の操作の層 human/proof: 話者判別の結果を文書へ(apply_diarization・1 人指定 single_speaker・守る行 diar_keep_row)・判別のジョブの受付と文書への書き込み(validate_diarize・
   - 名前: `set_context_namer` :29・`check_context_namer` :38・`apply_diarization` :60・`diar_keep_row` :77・`validate_diarize` :169・`single_speaker` :192・`run_diarize` :220・`autodiar_enabled` :268・`autodiar_ready` :273・`autodiar_enqueue` :293・`autodiar_after_transcribe` :325・`is_generic_speaker_name` :406・ほか 7
-- **store.py** (1189 行) — ③ 文書の置き場: 文書を書く唯一の口 commit と機械の層・人の層(層が正 = 文書は組み立て済みの写し・古い写しの読み直し fresh_copy)・保存の錠 saving・
-  - 名前: `tx_path` :37・`write_doc` :41・`read_layers` :81・`commit` :122・`layers_for` :179・`fresh_copy` :209・`snapshot` :259・`backup_doc` :267・`sanitize_sub_style` :286・`sanitize_transcript` :299・`doc_length` :381・`good_row` :402・ほか 38
+- **store.py** (1181 行) — ③ 文書の置き場: 文書を書く唯一の口 commit と機械の層・人の層(層が正 = 文書は組み立て済みの写し・古い写しの読み直し fresh_copy)・保存の錠 saving・
+  - 名前: `tx_path` :37・`write_doc` :41・`read_layers` :73・`commit` :114・`layers_for` :171・`fresh_copy` :201・`snapshot` :251・`backup_doc` :259・`sanitize_sub_style` :278・`sanitize_transcript` :291・`doc_length` :373・`good_row` :394・ほか 38
 
 ## src/human/review/
 
 - **__init__.py** (2 行) — ③ 候補の確認(手動マーク・採用と不採用・端の調整・その記録)
 - **machinelog.py** (102 行) — スタジオのマークの機械の記録(machine_marks.jsonl。10-19 ③ の統合 Q2 で feedback.jsonl から名前を変えた)。
   - 名前: `path` :33・`record` :63・`nearest_auto` :81
-- **store.py** (858 行) — ③ 動画とマークの保存(data.json)。スレッドセーフ・原子的に書き込む。スタジオの `Store` が書き手(スタジオなしの書き手は ② flow/studiobook の StudioBook)。
-  - 名前: `offset_from_anchors` :97・`class SeriesCache` :196・`class Store` :235
+- **store.py** (851 行) — ③ 動画とマークの保存(data.json)。スレッドセーフ・原子的に書き込む。スタジオの `Store` が書き手(スタジオなしの書き手は ② flow/studiobook の StudioBook)。
+  - 名前: `offset_from_anchors` :97・`class SeriesCache` :197・`class Store` :236
 
 ## テスト
 
