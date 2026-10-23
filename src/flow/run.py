@@ -91,6 +91,9 @@ DOC_MODE = "doc"
 DOC_LABEL = "文字起こし → パック"
 BUSY_WAIT = 5.0        # スタジオの書き出しが別の書き出しで塞がっているときの待ち間隔
 PIPE_TX = True         # スイッチ: 流れ作業 = 書き出しの 1 本が済むたびに、その本の文字起こしを先に頼む(False = 書き出しが全部済んでから頼む)
+# 解析の先回り(10-23。notes:plan/解析の先回り-設計.md): 今の実行が文字起こしの段に入る直前に、次に始まる実行の解析をスタジオの順番に頼む(Queue._prefetch_next)。
+# 次の実行の番が来たら、その解析を待つ・済んでいれば飛ばす(印 = 段の prefetched)。スイッチ: False = 今の形(解析は自分の番で)
+PREFETCH_ANALYZE = True
 # mode post_analyze は無い(区間だけの依頼の最後の段 analyze_later がその役目。OPT-E2)。
 # 待ちの記録に mode post_analyze が残っていても、MODE_STEPS に無いので restore が読み飛ばす
 CANCEL_WAIT = 30.0                   # 取り消したスタジオの解析が止まるのを待つ秒(次の実行が同じ配信の解析を始められるように)
@@ -367,6 +370,7 @@ class Run:
         self.friend_plan = None            # 受付で決めた友人の区間の長さ(friend_length の形 + "base" = 重ねる前の束の値。束の analyze に入れてある。RS7-1 S4)
         self.notes = []                    # 受付で束を組んだときの知らせ(入口が画面の設定を直した所。パックの段の文と結果の束に出す。RS7-1 S4)
         self.new_docs = []               # この実行で文字起こしした文書(話者分離はこれだけ。前からある文書の話者は人が直したかもしれない)
+        self.prefetch = None             # 解析の先回り(PREFETCH_ANALYZE): 前の実行の間に頼んだ解析 {"qid", "at", "chat", "settings"}(メモリだけ)
         self.tx_early = {}               # 流れ作業(PIPE_TX): 書き出しの段で見た本の動画のパスの鍵 -> {"job": 先に頼んだ文字起こしのジョブ か None, "redo"}(メモリだけ)
         self.tx_before = {}              # 文字起こしを頼む直前に、動画ごとに前からあった文書(文字のある物)の id(F2。再開でこの外の文書 = この実行が作った物)
         self.packs = []                  # この実行で作ったパックのフォルダ
@@ -873,6 +877,11 @@ class Runner:
             st.pop("finishedAt", None)
             run.message = st["label"]
             self._checkpoint(run)   # どの段の途中か(M5。起動し直したらこの段から)
+            if key == "transcribe":   # 書き出しが済んだ = 枠が 1 つ空く: 次の実行の解析を先に頼む(失敗しても今の実行は続ける)
+                try:
+                    self._prefetch_next(run)
+                except Exception as e:   # noqa: BLE001
+                    self.log("まとめて実行: 次の解析の先回りを頼めませんでした(%s)" % e.__class__.__name__)
             try:
                 result = call(key, st)
             finally:
@@ -888,6 +897,10 @@ class Runner:
                         s["state"], s["detail"] = "skip", s["detail"] or "前の段で止めました"
                 break
         self._finish_message(run)
+
+    def _prefetch_next(self, run):
+        """次の実行の解析の先回り(待ち行列 Queue が埋める。素の Runner = 次の実行が無いので何もしない)"""
+        return None
 
     def _finish_message(self, run):
         """どの段も飛ばした = やることが無かった(「完了」と言わない。段4 S-4)"""
@@ -920,18 +933,22 @@ class Runner:
 
     def _step_analyze(self, run, st, v):
         verdict, redo = self._analyze_plan(run, v)
+        pre, run.prefetch = run.prefetch, None
         if verdict == "skip":
             st["state"], st["detail"] = "skip", "解析済み(前の結果を使います)" if run.request_id else "解析済み"
+            if pre:
+                st["prefetched"], st["detail"] = True, "解析済み(前の実行の間に先に始めました)"
             return None
-        item = {"kind": v.get("kind") or "youtube", "videoId": run.video_id}
-        if run.fresh and item["kind"] == "youtube":   # ① 探す から: 題名・配信者はスタジオの一覧にそのまま出る(解析の前に分かっている分)
-            item.update({k: run.fresh[k] for k in ("title", "channel") if run.fresh.get(k)})
-        if item["kind"] == "file":
-            path = self._studio_video(run.video_id).get("path")
-            if not path:
-                raise StepError("元の動画ファイルの場所が分かりません")
-            item = {"kind": "file", "path": path}
-        settings = self._analyze_item(run, st, item, run.video_id)
+        item = self._analysis_target(run, v)
+        if pre and self._prefetch_alive(pre["qid"]):   # 先回りの解析がまだ順番にある = それを自分の仕事として待つ(済む・失敗は read が見る)
+            st["prefetched"] = True
+            if pre.get("chat"):
+                st["chatReuse"] = True
+            st["detail"] = "解析中(前の実行の間に先に始めました)"
+            self._await_analysis(run, st, pre["qid"], run.video_id, "")
+            settings = pre.get("settings")
+        else:   # 先回りが無い・消えた・失敗した = 今の形で頼む
+            settings = self._analyze_item(run, st, item, run.video_id)
         if redo:
             st["detail"] = (REDO_TEXT[redo] % self._fill_top(run) if redo == "short" else REDO_TEXT[redo]) + "。" + st["detail"]
         self._after_analysis(run, st, item, settings)
@@ -1008,8 +1025,29 @@ class Runner:
             st["state"], st["detail"] = "skip", ("解析はもう順番に入っています" if _batch.queued_already(res) else "解析を順番に入れられませんでした: %s" % rej)
         return None
 
-    def _analyze_item(self, run, st, item, video_id):
-        """スタジオの解析のキューに入れて、終わるまで待つ(配信の解析と、依頼 ③ の動画の解析で共通)"""
+    def _analysis_target(self, run, v):
+        """解析に渡す配信 item(本番の段と先回りで共通)"""
+        item = {"kind": v.get("kind") or "youtube", "videoId": run.video_id}
+        if run.fresh and item["kind"] == "youtube":   # ① 探す から: 題名・配信者はスタジオの一覧にそのまま出る(解析の前に分かっている分)
+            item.update({k: run.fresh[k] for k in ("title", "channel") if run.fresh.get(k)})
+        if item["kind"] == "file":
+            path = self._studio_video(run.video_id).get("path")
+            if not path:
+                raise StepError("元の動画ファイルの場所が分かりません")
+            item = {"kind": "file", "path": path}
+        return item
+
+    def _prefetch_alive(self, qid):
+        """先回りの解析が順番に残っていて、失敗・取り消しでないか"""
+        try:
+            it = next((i for i in self.tools.analyze_items() if i.get("qid") == qid), None)
+        except Exception:   # noqa: BLE001  読めない = 今の形で頼み直す
+            return False
+        return it is not None and it.get("status") in ("waiting", "running", "done")
+
+    def _analysis_request(self, run, item):
+        """解析の設定を組んでスタジオの順番に頼む(本番の段と先回りで共通 = 設定がずれない)。
+        -> (analyze_add の答え, 送った設定, ライブのチャットを渡したか, (重みの指定, 画面で変えた設定か, 友人の長さ))"""
         # 解析の設定は束の analyze 節(入口はスタジオの画面で保存したもの = 段階7-1 から組む。RS6 b-0)。
         # 友人が指定した重みも束の analyze.w* に写っている(run.pinned の weights。ほかの解析の設定はスタジオのまま)
         b = self._bundle(run)
@@ -1027,6 +1065,11 @@ class Runner:
             saved["fill"] = self._fill_top(run)
         chat = self._live_chat_file(item)
         res = self.tools.analyze_add(dict(item, chatFile=chat) if chat else item, saved)
+        return res, saved, bool(chat), (weights, own, fl)
+
+    def _analyze_item(self, run, st, item, video_id):
+        """スタジオの解析のキューに入れて、終わるまで待つ(配信の解析と、依頼 ③ の動画の解析で共通)"""
+        res, saved, chat, (weights, own, fl) = self._analysis_request(run, item)
         if chat:
             st["chatReuse"] = True   # 印: ライブで取ったチャットを渡した(リプレイを取らない)
         added = res.get("added") or []
@@ -1039,6 +1082,11 @@ class Runner:
                                     else "スタジオで保存した解析の設定" if own else "解析の設定は既定値。スタジオの ② で設定を変えると次から使います")
         fl_note = ("。長さ %d 秒%s(友人の区間の実績から)" % (fl["length"], "・山の前 %.2f" % fl["preRatio"] if "preRatio" in fl else "")) if fl else ""
         st["detail"] += fl_note
+        self._await_analysis(run, st, qid, video_id, fl_note)
+        return saved   # 送った設定(チャットの取り直しが同じ設定で解析し直す)
+
+    def _await_analysis(self, run, st, qid, video_id, fl_note):
+        """解析(qid。None = 人が入れた同じ配信の解析)が終わるまで待つ。中止なら自分の入れた分だけ取り消す"""
         def read():
             items = self.tools.analyze_items()
             it = next((i for i in items if (i.get("qid") == qid if qid else i.get("videoId") == video_id)), None)
@@ -1053,7 +1101,6 @@ class Runner:
             return None
         # 人が入れた解析(qid なし)を待つときは自分の仕事にしない・中止しても止めない(この実行が入れた解析だけ取り消す)
         self._poll(run, ("studio", [qid]) if qid else None, read, (lambda: self._cancel_analysis(qid)) if qid else None)
-        return saved   # 送った設定(チャットの取り直しが同じ設定で解析し直す)
 
     def _live_chat_file(self, item):
         """配信の解析に渡すライブで取ったチャット(どれを渡すかはライブ係 = flow/chatreuse・live_archive が決める)。分からない・失敗は None = リプレイを取る今の形"""

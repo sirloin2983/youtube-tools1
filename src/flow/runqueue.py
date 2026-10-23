@@ -545,6 +545,9 @@ class Queue(run_mod.Runner):
                 run.cancel = True
                 run.message = "中止しています…"
             out = run.public()
+            pre, run.prefetch = (run.prefetch, None) if ended else (None, run.prefetch)
+        if pre:   # 先回りで頼んだ解析も取り消す(順番待ちの中止。実行中なら段の _poll が止める)
+            self._cancel_analysis(pre["qid"])
         if ended:   # 順番待ちの中止はここで終わる(実行中の分は _loop の終わりで書く)
             self._log(run)
         self._save_active()   # 中止した実行は起動し直しても戻さない
@@ -718,6 +721,31 @@ class Queue(run_mod.Runner):
         自分の配信のまとめて実行、同じなら入れた順(PRIO。動いている実行は止めない)"""
         queued = [r for r in self.runs if r.state == "queued"]
         return min(queued, key=lambda r: _prio.rank(_prio.of_run(r))) if queued else None
+
+    def _prefetch_next(self, cur):
+        """解析の先回り(run.PREFETCH_ANALYZE。notes:plan/解析の先回り-設計.md): 今の実行 cur が文字起こしの段に入るとき、次に始まる実行 B(1 本だけ)の
+        解析をスタジオの順番に頼む。B に済んでいない解析の段があり・別の配信・束が組んである・空き容量が下限より上・解析が要る(make)ときだけ。
+        頼んだら B.prefetch に印(B の番で _step_analyze が待つ・済んでいれば飛ばす)。順番を決めるのは ② だけ(① の解析の順番・枠は変えない)"""
+        if not run_mod.PREFETCH_ANALYZE:
+            return None
+        with self.cv:
+            b = self._next_queued()
+            if b is None or b is cur or b.prefetch or b.spec is None or b.source_path or b.doc_id or not b.video_id or b.video_id == cur.video_id:
+                return None
+            if not any(s["key"] == "analyze" and s["state"] not in run_mod.DONE_STEPS for s in b.steps):
+                return None
+        if self.disk_check() is not None:
+            return None
+        v = self._video(b)
+        if self._analyze_plan(b, v)[0] != "make":
+            return None
+        res, saved, chat, _notes = self._analysis_request(b, self._analysis_target(b, v))
+        added = res.get("added") or []
+        if not added:   # 同じ配信がもう順番にある・断られた = B の番で今の形に
+            return None
+        b.prefetch = {"qid": added[0]["qid"], "at": time.time(), "chat": chat, "settings": saved}
+        self.log("まとめて実行: 次の実行(%s)の解析を先に始めました" % b.video_id)
+        return b.prefetch
 
     def idle_for_later(self):
         """後回しの仕事(flow/prio.py の later)を始めてよいか: 待ち・実行中の実行が無く、録画中の録画が無い(status の hook の recording)。
