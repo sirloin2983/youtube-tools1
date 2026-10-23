@@ -9,19 +9,19 @@
 - 非公開になった配信の切り抜きをどうするかは決まっていない(提案 P7 の「議論」)= ここは知らせるだけ
 - スイッチ: 環境変数 YTT_WATCH=0 で見ない。作業データを切り離したテスト・見本(YTT_DATA_DIR=inplace)でも見ない
 """
-import json
 import os
 import re
 import threading
 import time
 import urllib.request
 
+from flow import deliveries as _deliveries
 from ytt import fsio as _fsio, version as _version, ytapi as _ytapi
 from ytt.errors import ApiError
 
 SWITCH_ENV = "YTT_WATCH"
 STATE = "watch.json"
-DELIVERIES = "deliveries.jsonl"
+DELIVERIES = _deliveries.LOG
 SOURCE_EVERY = 7 * 86400
 TERMS_EVERY = 30 * 86400
 SOURCE_MAX = 200               # 見る元の配信の本数(新しい物から。4 ユニット)
@@ -40,17 +40,8 @@ def enabled(env=None):
 def delivered_sources(logs_dir, limit=SOURCE_MAX):
     """届けた切り抜きの元の配信 -> [(videoId, 題)](新しい順・重なりなし)"""
     out, seen = [], set()
-    try:
-        with open(os.path.join(logs_dir, DELIVERIES), encoding="utf-8", errors="replace") as f:
-            lines = f.readlines()
-    except OSError:
-        return []
-    for line in reversed(lines):
-        try:
-            d = json.loads(line)
-        except ValueError:
-            continue
-        vid = d.get("videoId") if isinstance(d, dict) else None
+    for d in reversed(_deliveries.rows(logs_dir) or []):   # 届けた記録の読みは ② flow/deliveries の 1 か所(壊れた行は飛ばす)
+        vid = d.get("videoId")
         if isinstance(vid, str) and re.fullmatch(r"[\w-]{11}", vid) and vid not in seen:
             seen.add(vid)
             out.append((vid, str(d.get("title") or "")[:200]))

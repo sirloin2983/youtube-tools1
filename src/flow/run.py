@@ -131,8 +131,7 @@ def _clip_span(media):
     if not isinstance(media, str) or not media or _fsio.is_network_path(media):
         return None
     try:
-        cp = _schemas.find_clip_path(media)
-        clip, _ = _schemas.load_clip_file(cp) if cp else (None, None)
+        clip = _schemas.find_clip(media)[0]
     except (OSError, ValueError):
         return None
     return _schemas.clip_mark_span(clip) if clip else None

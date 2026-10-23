@@ -41,8 +41,7 @@ def record(log_dir, zip_path, run, packs, marks=None, origin="request"):
 def clip_range(path):
     """切り抜きの動画の .clip.json の区間(元の配信の秒)-> (始まり, 終わり) か None(無い・読めない)"""
     try:
-        cp = schemas.find_clip_path(path) if path else None
-        clip, _ = schemas.load_clip_file(cp) if cp else (None, None)
+        clip = schemas.find_clip(path)[0] if path else None
         r = (clip or {}).get("range") or {}
         a, b = float(r["start"]), float(r["end"])
     except (OSError, ValueError, TypeError, KeyError):
@@ -50,8 +49,8 @@ def clip_range(path):
     return (a, b) if b > a else None
 
 
-def overlaps(log_dir, video_id, rng, run_id="", share=OVERLAP_SHARE, ranges=None):
-    """同じ配信のほかの実行(前の依頼・送り直し)で届けた切り抜きのうち、区間 rng(元の配信の秒)と短い方の share 以上重なる物
+def overlaps(log_dir, video_id, rng, run_id="", ranges=None):
+    """同じ配信のほかの実行(前の依頼・送り直し)で届けた切り抜きのうち、区間 rng(元の配信の秒)と短い方の OVERLAP_SHARE 以上重なる物
     -> [{"zip", "at", "requestId", "share"}](古い順)。ranges = 切り抜きの動画 -> 区間 を引く関数(既定 clip_range)"""
     if not OVERLAP_ON or not video_id or not rng:
         return []
@@ -65,7 +64,7 @@ def overlaps(log_dir, video_id, rng, run_id="", share=OVERLAP_SHARE, ranges=None
                 continue
             ov = min(rng[1], r[1]) - max(rng[0], r[0])
             short = min(rng[1] - rng[0], r[1] - r[0])
-            if short > 0 and ov / short >= share:
+            if short > 0 and ov / short >= OVERLAP_SHARE:
                 out.append({"zip": str(row.get("zip") or ""), "at": row.get("at"), "requestId": str(row.get("requestId") or ""), "share": round(ov / short, 2)})
     return out
 

@@ -83,21 +83,19 @@ def snap_start(t, ps):
     return max(p[0], p[1] - PAD)   # 間の中にあっても話し始めの直前へ
 
 
-def snap(video, a, b, dur, lo=0.0, hi=None):
-    """区間 [a, b](秒)の両端を話の間へ -> (a2, b2, info)。info = {"in": 動いた秒, "out": 動いた秒} か None(音が読めない・スイッチ)。
-    lo・hi = 動かせる外の限り(動画の範囲)"""
-    hi = dur if hi is None else hi
+def snap(video, a, b, dur):
+    """区間 [a, b](秒)の両端を話の間へ(動画の範囲 0〜dur の中で)-> (a2, b2, info)。info = {"in": 動いた秒, "out": 動いた秒} か None(音が読めない・スイッチ)"""
     if not ON or b - a <= 2 * REACH:
         return a, b, None
-    x0, x1 = max(lo, a - REACH - HOP), min(hi, b + REACH + HOP)
+    x0, x1 = max(0.0, a - REACH - HOP), min(dur, b + REACH + HOP)
     db = levels(video, x0, x1)
     if not db:
         return a, b, None
     t_at = lambda t: max(0, min(len(db), int(round((t - x0) / HOP))))
     lv = voice_level(db[t_at(a):t_at(b)])
     ps = pauses(db, x0, lv)
-    a2 = max(lo, snap_start(a, [p for p in ps if p[1] <= a + REACH + HOP]))
-    b2 = min(hi, snap_end(b, [p for p in ps if p[0] >= b - REACH - HOP]))
+    a2 = max(0.0, snap_start(a, [p for p in ps if p[1] <= a + REACH + HOP]))
+    b2 = min(dur, snap_end(b, [p for p in ps if p[0] >= b - REACH - HOP]))
     if b2 - a2 < (b - a) * 0.5:
         return a, b, None
     return a2, b2, {"in": round(a2 - a, 2), "out": round(b2 - b, 2)}

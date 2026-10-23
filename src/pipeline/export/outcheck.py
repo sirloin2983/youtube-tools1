@@ -52,7 +52,7 @@ def edge_ratio(samples, rate=OC_RATE, edge=OC_EDGE_SEC):
     return round(sum(rms[:n]) / n / loud, 3), round(sum(rms[-n:]) / n / loud, 3)
 
 
-def judge(dur, expected, has_audio, mean_db, max_db, blacks, total=None):
+def judge(dur, expected, has_audio, mean_db, max_db, blacks):
     """測った値 -> 気になる所 [{"kind", "text"}](純粋)。blacks = [(始め, 終わり)]"""
     out = []
     if expected and dur is not None:
@@ -65,9 +65,8 @@ def judge(dur, expected, has_audio, mean_db, max_db, blacks, total=None):
         out.append({"kind": "silent", "text": "音がほとんど無音です(平均 %s dB)" % ("-∞" if mean_db == -math.inf else "%.0f" % mean_db)})
     elif max_db is not None and max_db >= OC_PEAK_DB:
         out.append({"kind": "clip", "text": "音が割れている恐れがあります(ピーク %.1f dB)" % max_db})
-    end = total if total is not None else dur
     for a, b in blacks:
-        edge = a <= 0.1 or (end is not None and b >= end - 0.1)
+        edge = a <= 0.1 or (dur is not None and b >= dur - 0.1)
         if b - a >= (0.5 if edge else OC_BLACK_SEC):
             out.append({"kind": "black", "text": "黒いコマが %.1f〜%.1f 秒に %.1f 秒" % (a, b, b - a)})
             break
