@@ -214,9 +214,32 @@ function exportRows(sub){
   return rows;
 }
 
+/* 重なる字幕の段分け(SRT・VTT。10-23。規則は src/pipeline/pack/srt2resolve.py の stack_overlaps と同じ): 重なる間は、その時に出ている字幕の文を
+   始まりの順に改行でつないだ 1 つの字幕に分ける。0.3 秒未満のはみ出しは前の字幕を次の始まりで切る。話者名は文の頭に付けてからつなぐ */
+const STACK_SMALL = 0.3;
+function stackRows(rows){
+  const out = rows.map((r, k) => ({ start: r.start, end: r.end, text: (r.name ? '[' + r.name + '] ' : '') + r.text, k }))
+    .sort((a, b) => a.start - b.start || a.end - b.end || a.k - b.k);
+  out.forEach((r, k) => { r.k = k; });
+  for (let j = 1; j < out.length; j++){ const p = out[j - 1], c = out[j]; if (p.start < c.start && c.start < p.end && p.end - c.start < STACK_SMALL) p.end = c.start; }
+  const live = out.filter(r => r.end > r.start);
+  let end = null, clash = false;
+  for (const r of live){ if (end != null && r.start < end){ clash = true; break; } end = end == null ? r.end : Math.max(end, r.end); }
+  if (!clash) return live.map(r => ({ start: r.start, end: r.end, text: r.text, name: '' }));
+  const edges = [...new Set(live.flatMap(r => [r.start, r.end]))].sort((a, b) => a - b), pieces = [];
+  for (let i = 0; i + 1 < edges.length; i++){
+    const a = edges[i], b = edges[i + 1], on = live.filter(r => r.start <= a && r.end >= b);
+    if (!on.length) continue;
+    const text = on.sort((x, y) => x.k - y.k).map(r => r.text).join('\n'), last = pieces[pieces.length - 1];
+    if (last && last.end === a && last.text === text) last.end = b; else pieces.push({ start: a, end: b, text, name: '' });
+  }
+  return pieces;
+}
+
 function buildExport(kind){
-  const rows = exportRows(kind === 'srt' || kind === 'vtt'), d = S.doc;
+  let rows = exportRows(kind === 'srt' || kind === 'vtt'), d = S.doc;
   if (!rows.length) return null;
+  if (kind === 'srt' || kind === 'vtt') rows = stackRows(rows);   // 重なる字幕は段に分ける(話者名は文に入れた)
   if (kind === 'srt') return rows.map((r, i) => `${i + 1}\n${tcode(r.start, ',')} --> ${tcode(r.end, ',')}\n${r.name ? '[' + r.name + '] ' : ''}${r.text}\n`).join('\n');
   if (kind === 'vtt'){
     const e = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

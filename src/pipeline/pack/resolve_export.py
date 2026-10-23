@@ -165,6 +165,9 @@ def build_srt(doc, wrap=0, speaker_names=False, base=0.0):
             continue
         name = names.get(g.get("speaker"), "") if speaker_names and g.get("speaker") else ""
         cues.append((max(0.0, a), b, ("[%s] " % name if name else "") + wrap_text(text, wrap)))
+    from . import srt2resolve as _s2r   # 重なる字幕の段分け(規則の 1 か所。画面の app-tools.js の stackRows も同じ)
+    if _s2r.SRT_STACK:
+        cues = _s2r.stack_overlaps(cues, _s2r.STACK_SMALL_SEC)
     return srt_text(cues), len(cues)
 
 
