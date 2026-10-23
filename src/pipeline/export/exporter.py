@@ -23,6 +23,7 @@ from ytt import mediainfo as _media, procs as _procs, studio_env as _env   # RS3
 from ytt import marks as _marks   # 余白の上限(LD-2f)
 from ytt.errors import ApiError
 from ytt.textutil import fmt_ts, permission_message, redact   # 純粋な関数(差し替えない)
+from . import outcheck as _outcheck   # 書き出しのあとの自動の点検(知らせるだけ)
 
 
 MAX_EXPORT_CLIPS = 50
@@ -328,7 +329,7 @@ def result_public(res):
         return {k: (it.get(k) if done else None) for k in PUBLIC_PATHS}
     return {"state": res["state"], "folder": res.get("folder", ""),
             "items": [{**{k: it[k] for k in ("id", "start", "end", "title", "status", "progress", "file", "error")},
-                       "warning": it.get("warning", ""), "loudness": it.get("loudness"), "encoder": it.get("encoder"), **paths(it)}
+                       "warning": it.get("warning", ""), "loudness": it.get("loudness"), "encoder": it.get("encoder"), "check": it.get("check"), **paths(it)}
                       for it in res["items"]],
             "combined": _combined_public(res.get("combined"))}
 
@@ -440,6 +441,8 @@ def _encode(ctl, spec, it, build, outs, what, span=(0.0, 1.0), log_cmd=None, tri
             tail = _pump(ctl, cmd, it, dur, span)
             for p, d in outs:
                 verify_output(p, d, tail)
+                if p == it.get("path"):
+                    it["expectSec"] = d   # 点検の長さの期待(outcheck)
             it["encoder"] = how
             _secs(it, "encode", time.monotonic() - t0)
             return
@@ -915,7 +918,7 @@ def write_manifests(spec, it, mark_status):
         return min(end, lim) if lim and lim > 0 else end
     media = it["path"]
     dur = _media.media_info(media)[0]
-    ex = _clip_export_info(spec, it.get("method"), it.get("loudness"), it.get("encoder"), {k: it[k] for k in ("input", "secs", "gpuError") if it.get(k)})
+    ex = _clip_export_info(spec, it.get("method"), it.get("loudness"), it.get("encoder"), {k: it[k] for k in ("input", "secs", "gpuError", "check") if it.get(k)})
     end = end_of(it["end"], it.get("srcLen"))
     if it.get("clipRange"):   # 余白つき(LD-2f): range はマークのまま・動画の 0 秒 = actualStart(schemas.clip_offset が読む)・margin = 実際に足せた前後の秒(印)
         cf, ct = it["clipRange"]
@@ -1076,6 +1079,10 @@ def _export_clip(ctl, spec, it, idx, on_done):
         except Exception as e:   # 動画はできているが、マークへの記録失敗は通知する
             _env.log_failure("書き出し済みマークの保存", e)
             warnings.append("動画は保存できましたが、書き出し済みの記録に失敗しました。再実行前に出力ファイルを確認してください。")
+    try:   # 書き出しのあとの自動の点検(長さ・音・黒いコマ・声の途中の切れ)。気になる所は .clip.json の export.check と結果の check に残すだけ(止めない)
+        it["check"] = _outcheck.check(it["path"], it.get("expectSec"), _env.find_tool("ffmpeg"))
+    except Exception as e:   # 点検は補助。読めなくても書き出しは済んでいる
+        _env.log_failure("書き出しのあとの点検", e)
     try:
         # 書き出し中にマークを動かした等で記録されなかったときは、書き出しを始めた時点の判定を入れる
         write_manifests(spec, it, "exported" if recorded else (it.get("markStatus") or ""))

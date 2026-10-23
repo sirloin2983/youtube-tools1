@@ -108,6 +108,13 @@ def _has_captions(doc):
     return any(s.get("text", "").strip() and not s.get("cut") for s in doc.get("segments") or [])
 
 
+def _check_note(items):
+    """書き出しのあとの自動の点検(① export/outcheck)で気になる所があった本の知らせ(段の文に足す。止めない)。無ければ空の文字"""
+    hit = [(i.get("file") or "").rsplit("/", 1)[-1] + ": " + "・".join(x["text"] for x in i["check"]["issues"][:2])
+           for i in items if isinstance(i.get("check"), dict) and i["check"].get("issues")]
+    return "。点検で気になる所 %d 本(%s)" % (len(hit), " / ".join(hit[:3])) if hit else ""
+
+
 def _clip_span(media):
     """余白つき(LD-2f)で書き出した切り抜きの、動画の中のマークの区間(.clip.json の export.actualStart・range。作業用/ か隣)。
     -> (始まり, 終わり)(秒)か None(余白なし・.clip.json が無い・読めない・ネットワーク上のパス)"""
@@ -1153,7 +1160,7 @@ class Runner:
         done = sum(1 for i in items if i.get("status") == "done")
         bad = [i for i in items if i.get("status") == "error"]
         encs = sorted({i["encoder"] for i in items if isinstance(i.get("encoder"), str) and i["encoder"]})   # 作り方の印(友人の診断の段の detail に出る)
-        st["detail"] = "%d 本を書き出しました" % done + ("(%d 本失敗)" % len(bad) if bad else "") + ("・%s" % "・".join(encs) if encs else "")
+        st["detail"] = "%d 本を書き出しました" % done + ("(%d 本失敗)" % len(bad) if bad else "") + ("・%s" % "・".join(encs) if encs else "") + _check_note(items)
         if bad and (not done or run.on_fail == "stop"):
             self._tx_early_drop(run)
             raise StepError("書き出しに失敗しました(%d 本): %s" % (len(bad), bad[0].get("error") or ""))

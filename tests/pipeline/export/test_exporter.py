@@ -284,6 +284,7 @@ class TestExportThrough(unittest.TestCase):
         self.assertEqual(d["export"].pop("encodeSet"), normalize.enc_set())   # 画質の設定の版の印
         self.assertGreater(d["export"].pop("secs")["encode"], 0)   # 段ごとの秒(友人の診断で読む)
         d["export"].pop("gpuError", None)   # GPU で作れなかった PC だけ
+        self.assertEqual(d["export"].pop("check")["issues"], [])   # 書き出しのあとの自動の点検(合成の見本は気になる所なし)
         self.assertEqual(d["export"], {"mode": "precise", "volume": 50})   # 余白なしは actualStart なし(= range.start)
         self.assertEqual(exporter.src_shape("Stream #0:0[0x1](und): Video: av1 (libdav1d) (Main), yuv420p(tv), 1920x1080 [SAR 1:1 DAR 16:9], 1472 kb/s, 60 fps"),
                          {"vcodec": "av1", "height": 1080, "fps": 60.0})
