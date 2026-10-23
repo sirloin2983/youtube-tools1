@@ -79,7 +79,7 @@
   - 名前: `class Job` :23・`board_job` :51・`class PackJobs` :78
 - **packrec.py** (131 行) — ② 管理の層 flow: パックを作った記録(作業データの packs/<フォルダのハッシュ>.json)の持ち主(OPT-M2。notes:plan/done/opt-manage.md の 3b-1)。
   - 名前: `norm` :28・`packs_dir` :33・`record_name` :42・`read_record` :52・`ready` :68・`write_record` :89・`after_build` :119
-- **placement.py** (484 行) — ② 管理の層 flow: 置き場所の持ち主(RS6 b-B0。決定 3-29。B-0 = 案件ごとのフォルダ(b2)の第 1 段)。
+- **placement.py** (495 行) — ② 管理の層 flow: 置き場所の持ち主(RS6 b-B0。決定 3-29。B-0 = 案件ごとのフォルダ(b2)の第 1 段)。
   - 名前: `studio_data` :50・`case_root` :63・`doc_home` :91・`request_id6` :130・`request_folder` :135・`configured_out_dir` :148・`request_root` :156・`case_parents` :177・`case_roots` :183・`find_request_dir` :204・`work_dir` :225・`runs_dir` :231・ほか 12
 - **prio.py** (88 行) — ② 管理の層 flow: 処理の優先度の表(PRIO。決定 3-49・notes:plan/done/opt-series.md の 11)。
   - 名前: `name_ok` :35・`rank` :39・`idle_only` :43・`os_priority` :47・`label` :51・`slot_kw` :55・`of_run` :60・`of_spec` :69・`watch` :80・`idle_now` :85
