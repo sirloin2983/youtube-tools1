@@ -520,7 +520,7 @@ def _scene_gap(cx):
     live_src.down = True
     check(wait_js(pg, "() => /つなぎ直し中/.test(document.querySelector('#rvRecState').textContent)", 30000),
           "欠け: 配信が切れると「つなぎ直し中」: %s" % pg.text_content("#rvRecState"))
-    pg.wait_for_timeout(3000)
+    pg.wait_for_timeout(6000)   # 欠けを画面の決まり(review.js の REC_GAP_MIN = 3 秒)より確かに長くする(3 秒では窓の残りで 2 秒ほどの欠けになる回があった。10-24)
     live_src.down = False
     check(wait_js(pg, "() => /録画中/.test(document.querySelector('#rvRecState').textContent) && /つなぎ直し 1 回/.test(document.querySelector('#rvRecMsg').textContent)", 45000),
           "欠け: 戻ると「録画中」と「つなぎ直し 1 回」: %s %s" % (pg.text_content("#rvRecState"), pg.text_content("#rvRecMsg")))
