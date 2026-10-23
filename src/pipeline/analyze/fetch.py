@@ -61,14 +61,20 @@ def download_audio(ctl, vid, wdir):
         m = re.search(r"\[download\]\s+([\d.]+)%", line)
         if m:
             ctl.report(0.02 + 0.10 * float(m.group(1)) / 100)
-    for n in range(AUDIO_DL_TRIES):   # YouTube がときどき 1 回目だけ断る(HTTP 403)ので、同じ取り方で取り直す
+    alt = _tools.ytdlp_alt_args()
+    for n in range(AUDIO_DL_TRIES + (1 if alt else 0)):   # YouTube がときどき 1 回目だけ断る(HTTP 403)ので、同じ取り方で取り直す
+        if n == AUDIO_DL_TRIES:   # 同じ取り方で駄目: 403・形式なしなら別のクライアントで 1 回(音だけなので 360p の形式でよい。10-23 取得の冗長化)
+            if not _tools.ytdlp_alt_worth(err):
+                break
+            cmd = cmd[:3] + alt + cmd[3:]
+            ctl.report(message="いつもの取り方で断られたので、別のクライアントで音声を取り直しています")
         rc, err = _procs.run_capture(ctl, cmd, on, idle_timeout=AUDIO_DL_IDLE, what="音声の取得")
         files = [f for f in glob.glob(glob.escape(os.path.join(wdir, "audio")) + ".*") if not f.endswith((".part", ".ytdl", ".temp"))]
         if rc == 0 and files:
             return files[0]
+        for f in glob.glob(glob.escape(os.path.join(wdir, "audio")) + ".*"):
+            _fsio.unlink_quiet(f)
         if n + 1 < AUDIO_DL_TRIES:
-            for f in glob.glob(glob.escape(os.path.join(wdir, "audio")) + ".*"):
-                _fsio.unlink_quiet(f)
             ctl.cancel_event.wait(AUDIO_DL_RETRY_WAIT)
             ctl.check()
     raise ApiError("download", "音声を取得できませんでした: " + (tail_reason(err) or "不明なエラー"), 502)

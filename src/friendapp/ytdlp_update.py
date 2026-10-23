@@ -18,19 +18,19 @@ import time
 import urllib.request
 from http.client import HTTPException   # 引数 http(取る関数)と名前が重ならないように
 
-from ytt import fsio as _fsio, tools as _tools, version as _version
+from ytt import fsio as _fsio, tools as _tools, version as _version, ytdlpver as _ytdlpver
 
 SWITCH_ENV = "YTT_YTDLP_UPDATE"
 RECORD = "ytdlp-update.json"
 EXE = "yt-dlp.exe"
 MARK = ".replaced-" + EXE
-API = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest"
+API = _ytdlpver.API   # 版の名前の形・比べ方はユーザーの PC の「調子」と 1 つ(ytt/ytdlpver)
 DL = "https://github.com/yt-dlp/yt-dlp/releases/download/%s/%s"
 EVERY = 24 * 3600
 MAX_BYTES = 64 * 1024 * 1024
 TIMEOUT = 60
 RUN_TIMEOUT = 90
-TAG_RE = re.compile(r"^\d{4}\.\d{2}\.\d{2}(?:\.\d+)?$")
+TAG_RE = _ytdlpver.TAG_RE
 SHA_RE = re.compile(r"^([0-9a-f]{64})\s+\*?(\S+)$")
 PROBE_URL = "https://www.youtube.com/watch?v=jNQXAC9IVRw"   # 短い公開の動画(Me at the zoo)
 PROBE_ID = "jNQXAC9IVRw"
@@ -57,8 +57,7 @@ def record_path(friend_dir):
     return os.path.join(friend_dir, RECORD)
 
 
-def ver_key(v):
-    return tuple(int(x) for x in re.findall(r"\d+", v or ""))
+ver_key = _ytdlpver.ver_key
 
 
 def latest(http=_http):

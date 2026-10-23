@@ -94,6 +94,48 @@ class TestFetchComments(unittest.TestCase):
         self.assertIn("上限", why)
 
 
+class TestAudioAltClient(unittest.TestCase):
+    """解析の音声の取得: いつもの取り方で 403 が続いたら、別のクライアント(player_client)で 1 回だけ取り直す(10-23 取得の冗長化。偽の yt-dlp)"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ytt-alt-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.calls = []
+
+    def run_with(self, results, env=None):
+        def fake(ctl, cmd, on, idle_timeout=None, what=None):
+            self.calls.append(cmd)
+            rc, err = results[len(self.calls) - 1]
+            if rc == 0:
+                open(os.path.join(self.tmp, "audio.m4a"), "wb").close()
+            return rc, err
+        with mock.patch.object(fetch._env, "fake", lambda: False), mock.patch.object(fetch._env, "find_tool", lambda n, *a: "yt-dlp"), \
+                mock.patch.object(fetch._procs, "run_capture", fake), mock.patch.object(fetch, "AUDIO_DL_RETRY_WAIT", 0), \
+                mock.patch.dict(os.environ, env or {}, clear=False):
+            return fetch.download_audio(Ctl(), "abcdefghijk", self.tmp)
+
+    def test_403_then_alt_client(self):
+        e403 = "ERROR: unable to download video data: HTTP Error 403: Forbidden"
+        got = self.run_with([(1, e403), (1, e403), (0, "")])
+        self.assertTrue(got.endswith("audio.m4a"))
+        self.assertEqual(len(self.calls), fetch.AUDIO_DL_TRIES + 1)
+        self.assertNotIn("--extractor-args", self.calls[0])
+        self.assertIn("youtube:player_client=" + tools.ALT_CLIENT, self.calls[-1])
+
+    def test_bot_or_private_does_not_try_alt(self):
+        """bot 判定・非公開などは別のクライアントでも変わらない = 取り直さない"""
+        bot = "ERROR: [youtube] x: Sign in to confirm you're not a bot"
+        with self.assertRaises(ApiError):
+            self.run_with([(1, bot), (1, bot)])
+        self.assertEqual(len(self.calls), fetch.AUDIO_DL_TRIES)
+
+    def test_switch_off(self):
+        e403 = "HTTP Error 403: Forbidden"
+        with self.assertRaises(ApiError):
+            self.run_with([(1, e403), (1, e403)], env={tools.ALT_CLIENT_ENV: ""})
+        self.assertEqual(len(self.calls), fetch.AUDIO_DL_TRIES)
+
+
 class TestComments(unittest.TestCase):
     def test_comment_score_accepts_legacy_pairs(self):
         out = excite.comment_score([(100, 5)], 300)
