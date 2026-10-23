@@ -392,7 +392,7 @@ class ChatFeedTest(unittest.TestCase):
     def feed(self, runs, **kw):
         with open(self.spec, "w", encoding="utf-8") as f:
             json.dump({"log": self.log, "t0": T0, "runs": runs}, f)
-        opts = dict(limit=W.CHAT_LIMIT, stall=5.0, backoff=(0.3, 0.6, 4.0), max_per_hour=6)   # 止まりの見張りを確かめるテストだけ stall=1.0(並べて流す負荷で偽の yt-dlp が 1 秒止まっても起動し直さない)
+        opts = dict(limit=W.CHAT_LIMIT, stall=5.0, backoff=(0.3, 0.6, 4.0), max_per_hour=6)   # 止まりの見張りを確かめるテストだけ stall=3.0(並べて流す負荷で偽の yt-dlp の起動が 1 秒を超えても起動し直さない)
         opts.update(kw)
         f = W.ChatFeed(VID, URL, self.folder, FAKE_CHAT, log=lambda m: None, **opts)
         self.feeds.append(f)
@@ -413,8 +413,9 @@ class ChatFeedTest(unittest.TestCase):
             return [json.loads(x) for x in fh]
 
     def test_stall_restarts_with_backoff_and_new_file(self):
-        """5 行書いて黙って止まる → chatStallSec(1 秒)で止めて間隔をあけて起動し直す(新しいファイル)・前のファイルは読み切って消す・行は重ねない"""
-        f = self.feed([{"mode": "stall", "lines": 5, "interval": 0.02}, {"mode": "write", "interval": 0.05}], stall=1.0)
+        """5 行書いて黙って止まる → chatStallSec(3 秒)で止めて間隔をあけて起動し直す(新しいファイル)・前のファイルは読み切って消す・行は重ねない。
+        stall は 3 秒(1 秒だと並べて流す負荷で 2 回目の偽の yt-dlp の起動が 1 秒を超え、もう 1 回起動し直した。10-23)"""
+        f = self.feed([{"mode": "stall", "lines": 5, "interval": 0.02}, {"mode": "write", "interval": 0.05}], stall=3.0)
         msgs = self.drive(f, lambda f, m: f.launches >= 2 and len(m) >= 10)
         self.assertEqual(f.total_restarts, 1)
         self.assertEqual(f.state, "ok")
@@ -489,7 +490,11 @@ class ChatFeedTest(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(self.folder, VID + ".1.log")))   # 失敗の中身は残す
         f.close()
         self.assertTrue(os.path.isfile(os.path.join(self.folder, VID + ".1.log")))
-        self.assertEqual(W.purge_chat_logs(self.folder, time.time() + W.CHAT_LOG_KEEP + 60), 2)
+        gone, end = 0, time.time() + 15.0   # 止めた偽の yt-dlp が負荷で遅れてログを掴んだままだと消せない = 消えるまで待つ(10-23)
+        while gone < 2 and time.time() < end:
+            gone += W.purge_chat_logs(self.folder, time.time() + W.CHAT_LOG_KEEP + 60)
+            time.sleep(0.1)
+        self.assertEqual(gone, 2)
 
     def test_delay_p90_ignores_backlog(self):
         """遅れ(PC の時計 − timestampUsec)は、起動して最初に読む束(過去の分)を数えない"""
@@ -534,7 +539,7 @@ class ChatFeedTest(unittest.TestCase):
 
     def test_stop_kills_child_of_ytdlp(self):
         """本物の yt-dlp(PyInstaller の 1 ファイルの exe)は起動すると子を作る: 止めたら子も終わる(前の番号の .part に書き続けない)"""
-        f = self.feed([{"mode": "stall", "lines": 3, "interval": 0.02, "child": True}, {"mode": "write", "interval": 0.05, "child": True}], stall=1.0)
+        f = self.feed([{"mode": "stall", "lines": 3, "interval": 0.02, "child": True}, {"mode": "write", "interval": 0.05, "child": True}], stall=3.0)
         msgs = self.drive(f, lambda f, m: f.launches >= 2 and len(m) >= 6 and len(self.child_pids()) >= 2)
         pids = self.child_pids()
         self.assertTrue(self.wait_dead(pids[0]), "止まった yt-dlp の子が残っている")
