@@ -244,6 +244,59 @@ def record_context(tid, name, hit, reason):
         _txbase.log.warning("動画の手がかりの名前の記録を書けませんでした: %s %s", e.__class__.__name__, str(e)[:150])
 
 
+# ---------- 覚えた声で 1 行ずつ話者を当てる(notes:plan/行ごとの声の当て-1023.md) ----------
+ROWVOICE = True           # スイッチ。出る人(spec の people)が 2 人以上で、全員の声が帳にあるときだけ動く(帳が足りなければ何もしない = 今のまま)
+ROWVOICE_MARGIN = 0.05    # 1 位と 2 位の差がこれ未満の行は配信者(出る人の先頭)のまま
+ROWVOICE_MIN = 0.5        # 声の特徴を取る行の長さの下限(秒)。短い行は配信者のまま
+ROWVOICE_COLORS = ["#2f62d6", "#d9534f", "#2e9e5b", "#c98a12", "#8a4fd6", "#0f9aa8", "#d6479a", "#6b7280"]   # 話者の色(③ speakers.SPK_COLORS と同じ並び)
+ROWVOICE_KEEP = 200       # 記録に残す行の点数の数
+
+
+def row_voices(job, spec, wav, segs):
+    """文字起こしの後処理の最後(文書を書く前)に、行ごとに声の特徴を取り、出る人の覚えた声と比べていちばん近い人を行の話者にする。
+    segs を書き換え -> {"speakers": 文書の話者, "diarization": 文書の印, "record": 生の点数} か None(動かない・動けない)。
+    wav = 文字起こしの音(spec["start"] 秒から)。出る人の先頭 = 配信者 = 声で決まらない行の話者。字幕に出さない行・話者の付いた行は変えない。
+    ② が足すこと: 帳の確かめ(全員そろうときだけ)・行の選び方・照合(1 位と 2 位の差)・記録の形(声の特徴は ① の embed_groups)"""
+    people = list(dict.fromkeys(p for p in spec.get("people") or [] if isinstance(p, str) and p))
+    if not ROWVOICE or len(people) < 2:
+        return None
+    emb = learn_embedding(default_embedding())
+    voices = load_voices(emb)
+    if any(p not in voices for p in people):
+        return None
+    dim = len(voices[people[0]]["vec"])
+    if any(len(voices[p]["vec"]) != dim for p in people):
+        return None
+    rows = [g for g in segs if isinstance(g, dict) and str(g.get("text") or "").strip() and not _yschemas.no_sub_row(g) and not g.get("speaker")]
+    if not rows:
+        return None
+    groups = []
+    for g in rows:
+        a, b = _yschemas.num_or(g.get("start")), _yschemas.num_or(g.get("end"))
+        groups.append([(a, b)] if a is not None and b is not None and b - a >= ROWVOICE_MIN else [])
+    job["phase"] = "覚えた声で行の話者を当てています"
+    vecs = embed(job, {"embedding": emb}, wav, groups, {"start": _yschemas.num_or(spec.get("start"), 0.0) or 0.0})
+    ids = {p: "S%d" % (i + 1) for i, p in enumerate(people)}
+    count = {"voice": 0, "low": 0, "short": 0}
+    scores = []
+    for g, v in zip(rows, vecs):
+        who, why = people[0], "short"
+        if v:
+            sc = sorted(((sum(x * y for x, y in zip(v, voices[p]["vec"])), p) for p in people), reverse=True)
+            if sc[0][0] - sc[1][0] >= ROWVOICE_MARGIN:
+                who, why = sc[0][1], "voice"
+            else:
+                why = "low"
+            if len(scores) < ROWVOICE_KEEP:
+                scores.append({"id": str(g.get("id")), "top": sc[0][1], "score": round(sc[0][0], 4), "second": round(sc[1][0], 4)})
+        count[why] += 1
+        g["speaker"] = ids[who]
+    speakers = [{"id": ids[p], "name": p, "color": ROWVOICE_COLORS[i % len(ROWVOICE_COLORS)]} for i, p in enumerate(people)]
+    mark = dict({"engine": "rowvoice", "speakerBy": "rowvoice", "embedding": emb, "requested": len(people), "found": len(people),
+                 "margin": ROWVOICE_MARGIN, "unsure": count["low"] + count["short"], "at": int(time.time() * 1000)}, **count)
+    return {"speakers": speakers, "diarization": mark, "record": dict(mark, people=people, rows=scores)}
+
+
 # ---------- 覚えた声の置き場所(A-3。声の特徴は個人を見分けられる情報なので作業データの voices/ にだけ置く) ----------
 # 置き場所は呼ぶたびに作業データ(ytt/workdata の DATA_DIR)の voices(voices_dir)。VOICES_DIR は上書き用(テストが一時フォルダを入れる)。None なら作業データの中。
 # 置き場所は読み込みのときに固定せず呼ぶたびに求める(入口から起動しても作業データの voices に読み書きするため)

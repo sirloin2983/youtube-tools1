@@ -308,6 +308,8 @@ class TestBodies(unittest.TestCase):
         self.assertNotIn("engine", spec.tx_opts(spec.merge({"transcribe": {"engine": "faster-whisper", "device": "cpu"}})))   # 旧い値も GPU に読む
         self.assertNotIn("glossary", o)   # 用語集は書かない(編集の受付が自分の設定から読む。RS7-1 S4)
         self.assertNotIn("redoLarge", o)   # 使わない項目
+        self.assertNotIn("people", spec.tx_opts(spec.merge({"hints": {"people": [{"name": "A"}]}})))   # 1 人は今と同じ本文
+        self.assertEqual(spec.tx_opts(spec.merge({"hints": {"people": [{"name": "A"}, {"name": "B"}]}}))["people"], ["A", "B"])   # 2 人以上 = 行ごとの声の名前
         for dev in ("vulkan", "cuda", "cpu", "auto", None):
             self.assertEqual(spec.implied_engine(dev), "whisper.cpp")
         o = spec.tx_opts(spec.merge({"transcribe": {"device": "cuda"}}))   # F1 F0-2: 機器 cuda は本文に残り、エンジンは書かない(受付が whisper.cpp に決める)

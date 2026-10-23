@@ -70,6 +70,29 @@ class TestTranscribe(_Env):
         for key in ("title", "sourcePath", "clip", "evalSet", "id"):
             self.assertNotIn(key, clip["fields"])
 
+    def test_row_voices_into_the_doc(self):
+        """出る人が 2 人以上で全員の声が帳にあれば、文書の行に話者・話者の一覧・印(diarization.speakerBy rowvoice)・生の点数(runs の rowVoice)。
+        失敗しても文字起こしは止めない(話者なしのまま)"""
+        from flow import diar
+        tmp_voices = os.path.join(self.tmp, "voices")
+        with mock.patch.object(diar, "VOICES_DIR", tmp_voices), \
+                mock.patch.object(diar, "embed", lambda job, spec, wav, groups, hints: [[0.0, 1.0], [1.0, 0.0]]):
+            diar.save_voices(diar.learn_embedding(diar.default_embedding()), {"A": {"vec": [1.0, 0.0]}, "B": {"vec": [0.0, 1.0]}})
+            job = {"id": "j1", "cancel": False, "state": "queued"}
+            clip = tx.transcribe_clip(job, dict(SPEC, people=["A", "B"]), os.path.join(self.tmp, "w.wav"), [])
+        f = clip["fields"]
+        self.assertEqual([g["speaker"] for g in f["segments"]], ["S2", "S1"])
+        self.assertEqual([s["name"] for s in f["speakers"]], ["A", "B"])
+        self.assertEqual(f["diarization"]["speakerBy"], "rowvoice")
+        self.assertEqual(f["recognition"]["runs"][-1]["rowVoice"]["voice"], 2)
+
+        def boom(*a, **k):
+            raise RuntimeError("x")
+        with mock.patch.object(diar, "row_voices", boom):
+            clip = tx.transcribe_clip({"id": "j2", "cancel": False}, dict(SPEC, people=["A", "B"]), os.path.join(self.tmp, "w.wav"), [])
+        self.assertEqual(clip["fields"]["speakers"], [])
+        self.assertNotIn("diarization", clip["fields"])
+
     def test_machine_doc(self):
         """write_machine_doc(入口なしの道 = CLI・まとめて実行。編集の画面のジョブは ③ が書く)"""
         _job, clip = self.clip()

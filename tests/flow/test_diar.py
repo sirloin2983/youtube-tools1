@@ -84,5 +84,48 @@ class TestMergeVoice(unittest.TestCase):
         self.assertEqual(v["learnedFrom"][0]["rows"], ["s1", "s2", "s3"])
 
 
+class TestRowVoices(unittest.TestCase):
+    """覚えた声で 1 行ずつ話者を当てる(row_voices): 出る人が 2 人以上・全員の声が帳にあるときだけ。差が小さい行・短い行は配信者(先頭)。
+    字幕に出さない行・話者の付いた行は変えない"""
+    VOICES = {"A": {"vec": [1.0, 0.0, 0.0]}, "B": {"vec": [0.0, 1.0, 0.0]}, "C": {"vec": [0.0, 0.0, 1.0]}}
+
+    def run_rv(self, people, segs, vecs, voices=None):
+        import tempfile
+        from unittest import mock
+        tmp = tempfile.mkdtemp()
+        got = {}
+
+        def fake_embed(job, spec, wav, groups, hints):
+            got["groups"], got["emb"] = groups, spec["embedding"]
+            return vecs[:len(groups)]
+        with mock.patch.object(diar, "VOICES_DIR", tmp), mock.patch.object(diar, "embed", fake_embed):
+            diar.save_voices(diar.learn_embedding(diar.default_embedding()), self.VOICES if voices is None else voices)
+            return diar.row_voices({}, {"people": people, "start": 0.0}, "x.wav", segs), got
+
+    def test_assigns_rows_to_nearest_of_the_people(self):
+        segs = [seg(0, 2, "", text="あ", id="r1"), seg(2, 4, "", text="い", id="r2"), seg(4, 6, "", text="う", id="r3"),
+                seg(6, 6.3, "", text="え", id="r4"),                                  # 短い -> 配信者
+                seg(7, 9, "", text="お", id="r5", noSub=True),                        # 字幕に出さない -> 変えない
+                seg(9, 11, "S9", text="か", id="r6")]                                 # 話者の付いた行 -> 変えない
+        vecs = [[0.1, 0.9, 0.0], [0.6, 0.58, 0.0], [0.0, 0.2, 0.95], None]          # B / 差 0.02(配信者) / C / 短い
+        rv, got = self.run_rv(["A", "B", "C"], segs, vecs)
+        self.assertEqual([g["speaker"] for g in segs], ["S2", "S1", "S3", "S1", "", "S9"])
+        self.assertEqual(got["groups"], [[(0, 2)], [(2, 4)], [(4, 6)], []])
+        self.assertEqual([s["name"] for s in rv["speakers"]], ["A", "B", "C"])
+        d = rv["diarization"]
+        self.assertEqual((d["speakerBy"], d["voice"], d["low"], d["short"]), ("rowvoice", 2, 1, 1))
+        self.assertEqual([r["top"] for r in rv["record"]["rows"]], ["B", "A", "C"])
+
+    def test_does_nothing_unless_all_people_are_in_the_book(self):
+        segs = [seg(0, 2, "", text="あ")]
+        self.assertIsNone(self.run_rv(["A", "Z"], segs, [[1.0, 0.0, 0.0]])[0])     # Z の声が無い
+        self.assertIsNone(self.run_rv(["A"], segs, [[1.0, 0.0, 0.0]])[0])          # 1 人
+        self.assertIsNone(self.run_rv([], segs, [[1.0, 0.0, 0.0]])[0])
+        self.assertEqual(segs[0]["speaker"], "")
+        from unittest import mock
+        with mock.patch.object(diar, "ROWVOICE", False):                           # スイッチ
+            self.assertIsNone(self.run_rv(["A", "B"], segs, [[1.0, 0.0, 0.0]])[0])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -576,6 +576,9 @@ def tx_opts(bundle):
         out["learningVersion"] = p["learning"]["version"]   # 空(既定)のときは書かない = 鍵も今と同じ
     if p.get("llmModel", DEFAULTS["post"]["llmModel"]) != DEFAULTS["post"]["llmModel"]:   # LLM のモデルも既定と違うときだけ(既定の本文は今と同じ。RS7-1 S1)
         out["llmModel"] = p["llmModel"]
+    names = [x["name"] for x in hint_people(bundle)["people"]]
+    if len(names) >= 2:   # 出る人が 2 人以上 = 覚えた声で行の話者を当てる(flow/diar.row_voices。1 人・指定なしの本文は今と同じ)
+        out["people"] = names
     return out
 
 

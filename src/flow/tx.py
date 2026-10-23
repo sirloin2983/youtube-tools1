@@ -116,7 +116,13 @@ def tx_spec(req, post, learning=None, *, src=None, dur=None):
             "autoFill": post["autoFill"], "autoLlm": post["autoLlm"], "stripNames": post["stripNames"], "dropSilent": post.get("dropSilent") is True, "endSnap": post.get("endSnap") is True,
             "stripPunct": req.get("stripPunct") is not False, "glossary": glossary + gauto, "glossAuto": gauto,
             "learningVersion": post["learning"]["version"], "context": ctx, "evalSet": False, "autoLearned": post["autoLearned"], "clip": clip,
-            "warnings": [clip_warn] if clip_warn else [], "title": title}
+            "warnings": [clip_warn] if clip_warn else [], "title": title, **_people(req)}
+
+
+def _people(req):
+    """要求の出る人(束の hints.people の名前。先頭 = 配信者)-> {"people": [...]}(2 人以上のときだけ = 覚えた声で行の話者を当てる flow/diar.row_voices)"""
+    ps = list(dict.fromkeys(p.strip()[:60] for p in req.get("people") or [] if isinstance(p, str) and p.strip() and not any(ord(c) < 32 for c in p)))[:10]
+    return {"people": ps} if len(ps) >= 2 else {}
 
 
 def new_doc(tid, fields, spec=None):
@@ -145,8 +151,12 @@ def transcribe_clip(job, spec, wav, pairs, learned=None):
         if m:
             spec["llmModel"] = m
     res = clipjob.make_doc_rows(job, spec, wav, pairs, learned)
+    rv = _row_voices(job, spec, wav, res["segs"])
     fields = _doc_fields(job, spec, res, res["total"], res["t_rec"], pairs)
     run = fields["recognition"]["runs"][-1]
+    if rv:   # 覚えた声で行の話者を当てた(出る人が 2 人以上・全員の声が帳にあるとき)
+        fields["speakers"], fields["diarization"] = rv["speakers"], rv["diarization"]
+        run["rowVoice"] = rv["record"]
     if res.get("secs"):
         run["secs"] = res["secs"]   # 段ごとの秒(認識・後処理の埋める・LLM。wallSec の内訳)
     if res["fill_rec"]:
@@ -156,6 +166,21 @@ def transcribe_clip(job, spec, wav, pairs, learned=None):
     if res["llm_rec"]:
         run["llm"] = res["llm_rec"]   # LLM の後処理の記録(選んだ所・案・当てた数・断った理由)
     return dict(res, fields=fields)
+
+
+def _row_voices(job, spec, wav, segs):
+    """flow/diar.row_voices(行ごとの声の名前)。失敗しても文字起こしは止めない(話者なしのまま)"""
+    from . import diar as _diar   # diar は判別の部品を読むので、呼ぶときだけ
+    try:
+        return _diar.row_voices(job, spec, wav, segs)
+    except _slots.Cancelled:
+        raise
+    except Exception as e:
+        _txbase.log.warning("覚えた声で行の話者を当てられませんでした: %s %s", e.__class__.__name__, str(e)[:150])
+        for g in segs:   # 途中まで付けた話者を戻す(この段で付けた物だけ = もとは話者なし)
+            if isinstance(g, dict) and g.get("speaker") in {"S%d" % i for i in range(1, 11)}:
+                g["speaker"] = ""
+        return None
 
 
 def _doc_fields(job, spec, out, total, t_rec, pairs=None):

@@ -23,8 +23,8 @@
   - 名前: `record` :25・`clip_range` :41・`overlaps` :53・`overlap_note` :73・`origin_of` :84・`rows` :92・`delivered_requests` :114・`pack_name` :129・`delivered_marks` :137・`record_not_sent` :193・`not_sent_marks` :204
 - **delivery.py** (405 行) — ② 友人へ届ける: まとめて実行の「Dropbox へ届ける」段と、置けなかった自動の分の溜め(まとめて実行 AutoRunner が継ぐ mixin)。
   - 名前: `switched_off` :55・`class Delivery` :95
-- **diar.py** (316 行) — ② 管理の層 flow: 話者判別と声の段取り(RS6 a-4。決定 3-29)。
-  - 名前: `models_ready` :29・`default_embedding` :40・`embedding` :45・`embeddings` :50・`learn_embedding` :55・`match_embedding` :61・`diarize` :69・`assign` :99・`record_run` :123・`record_single` :130・`latest_run` :140・`embed` :147・ほか 12
+- **diar.py** (369 行) — ② 管理の層 flow: 話者判別と声の段取り(RS6 a-4。決定 3-29)。
+  - 名前: `models_ready` :29・`default_embedding` :40・`embedding` :45・`embeddings` :50・`learn_embedding` :55・`match_embedding` :61・`diarize` :69・`assign` :99・`record_run` :123・`record_single` :130・`latest_run` :140・`embed` :147・ほか 13
 - **envelope.py** (170 行) — ② 管理の層 flow: 依頼の封筒(RS7-1 S3。決定 3-30・notes:plan/done/f1-friend-pc.md の決めたこと 9)。
   - 名前: `clean_pool` :44・`version_of` :135・`check` :143・`read` :167
 - **export.py** (147 行) — ② 書き出しの器(OPT2 の J2・J6。notes:docs/design/opt2-jobs-plan.md): ① の書き出し(pipeline/export/exporter.run)を 1 本ずつ動かすジョブの表。
@@ -90,7 +90,7 @@
   - 名前: `read_runs_log` :47・`read_result` :77
 - **runqueue.py** (839 行) — ② 管理の層 flow: 待ち行列と実行の糸(RS7-1 S5。決定 3-30・
   - 名前: `class SpecVersionError` :64・`class BadSpecError` :68・`check_spec` :72・`disk_blocked` :86・`gpu_info` :110・`busy_reason` :124・`doc_id_ok` :133・`result_case` :181・`board_job` :192・`class Queue` :210
-- **spec.py** (601 行) — ① に渡す指定の束(spec)の形・既定値・検査(RS1-6。計画 notes:plan/done/role-restructure.md の 5-4)。
+- **spec.py** (604 行) — ① に渡す指定の束(spec)の形・既定値・検査(RS1-6。計画 notes:plan/done/role-restructure.md の 5-4)。
   - 名前: `num_ok` :48・`check_range` :56・`check_ranges` :71・`clean_ranges` :90・`pad_range` :106・`check_weights` :114・`clean_weights` :125・`top_arg` :134・`marks_arg` :143・`row_edge_ok` :153・`merge` :260・`merge_onto` :268・ほか 11
 - **studiobook.py** (476 行) — ② 管理の層 flow: スタジオなしの配信の台帳と、URL の段の動詞(RS8 の「URL も CLI で」)。
   - 名前: `class Ledger` :55・`class StudioBook` :266・`class LocalStudio` :381
@@ -98,8 +98,8 @@
   - 名前: `font` :13・`scan` :18・`render` :25
 - **tools.py** (480 行) — ② 管理の層 flow: 段が道具を呼ぶ継ぎ目 Tools(RS6 b-0)。
   - 名前: `class HttpTools` :33・`class FlowTools` :137・`class PackHost` :195・`doc_row` :258・`class LocalTools` :270
-- **tx.py** (397 行) — ② 管理の層 flow: 文字起こしの動詞。RS6 a-3(決定 3-29)。
-  - 名前: `dict_pairs` :33・`rerun_base` :49・`roster_listing` :58・`pick_glossary_terms` :68・`check_model` :74・`request_engine` :83・`tx_spec` :91・`new_doc` :122・`transcribe_clip` :138・`write_clip_records` :184・`replace_span_words` :204・`write_machine_doc` :216・ほか 9
+- **tx.py** (422 行) — ② 管理の層 flow: 文字起こしの動詞。RS6 a-3(決定 3-29)。
+  - 名前: `dict_pairs` :33・`rerun_base` :49・`roster_listing` :58・`pick_glossary_terms` :68・`check_model` :74・`request_engine` :83・`tx_spec` :91・`new_doc` :128・`transcribe_clip` :144・`write_clip_records` :209・`replace_span_words` :229・`write_machine_doc` :241・ほか 9
 - **wire.py** (90 行) — ② 管理の層 flow: 文字起こしの配線(ジョブの種類の登録・ジョブの表の設定・本物と疑似の選び方・① の口の登録)。RS6 a-5b(決定 3-29)。登録は 1 つの install にまとまっている。
   - 名前: `install` :40・`setup_places` :65・`setup_headless` :80
 
