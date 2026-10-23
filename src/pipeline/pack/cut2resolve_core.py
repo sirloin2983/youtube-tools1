@@ -270,7 +270,8 @@ def span_timeout(base, sec, per_sec):
 def _ffmpeg_script(script, opts, make_cmd, timeout, task=None, duration=None):
     """フィルタをファイルで渡して ffmpeg を動かす(区間が多くても Windows のコマンド長の制限に当たらないように)。-> 最後の結果。
     opts: フィルタのファイルを渡すオプションの名前の候補。新しい ffmpeg では -filter_complex_script が -/filter_complex に
-    (-filter_script が -/af に)置き換わっているので、前から順に試し、知らないオプションと言われたときだけ次を試す。make_cmd(opt, ファイル) -> コマンド"""
+    (-filter_script が -/af に)置き換わっているので、前から順に試し、知らないオプションと言われたときだけ次を試す。make_cmd(opt, ファイル) -> コマンド。
+    呼ぶ側は新しい書き方を先に渡す(10-23: 両方の PC の ffmpeg 9 で古い書き方が毎回 1 回失敗し、友人の診断に「失敗 1」が出ていた)"""
     with tempfile.TemporaryDirectory() as d:
         sp = Path(d) / "filter.txt"
         sp.write_text(script, encoding="utf-8")
@@ -470,7 +471,7 @@ def render_rough_cut(video, keeps, fps, has_audio, out_path, crf=DEFAULT_CRF, ta
         if has_audio:
             out_opts += ["-c:a", "aac", "-b:a", _loud.pack_aac()]
         out_opts += ["-movflags", "+faststart", "-f", "mp4", tmp]
-        r = _ffmpeg_script(";\n".join(chains), ("-filter_complex_script", "-/filter_complex"),
+        r = _ffmpeg_script(";\n".join(chains), ("-/filter_complex", "-filter_complex_script"),
                            lambda opt, sp: [S.tool("ffmpeg"), "-y", "-nostdin", "-v", "error", "-i", S.arg_path(video), opt, sp] + out_opts,
                            span_timeout(7200, kept_sec, 3.0), task, kept_sec)
         if r.returncode != 0:
@@ -615,7 +616,7 @@ def measure_loudness(video, spans_sec=None, task=None, duration=None):
     """(統合ラウドネス LUFS, トゥルーピーク dBTP)。spans_sec = 測る区間 [(開始秒, 終了秒)](残す区間だけ。None = 全体)。
     無音・測れないときは (None, None)。読み方・区間の選び方は ytt/loudness.py の1か所(スタジオの書き出しと共通)"""
     sel = _loud.select_filter(spans_sec)
-    r = _ffmpeg_script((sel + "," if sel else "") + _loud.measure_filter(), ("-filter_script:a", "-/af"),
+    r = _ffmpeg_script((sel + "," if sel else "") + _loud.measure_filter(), ("-/af", "-filter_script:a"),
                        lambda opt, sp: [S.tool("ffmpeg"), "-nostdin", "-hide_banner", "-i", S.arg_path(video), "-vn", opt, sp, "-f", "null", "-"],
                        span_timeout(3600, duration, 1.0), task, duration)
     if r.returncode != 0:
