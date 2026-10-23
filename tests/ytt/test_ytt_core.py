@@ -1289,6 +1289,10 @@ class TestTools(unittest.TestCase):
         self.assertEqual(tools.run_progress(self.py(many), tail=2)[1], ["e28", "e29"])
         sleeper = self.py("import time; time.sleep(60)")
         self.assertEqual(tools.run_progress(sleeper, idle_sec=0.5)[2], "idle")
+        stuck = self.py("import sys, time\nwhile True:\n    print('out_time_us=2000000\\nframe=1\\nprogress=continue', flush=True); time.sleep(0.1)\n")
+        t0 = time.monotonic()
+        self.assertEqual(tools.run_progress(stuck, idle_sec=0.8)[2], "idle")   # 同じ時刻の -progress の塊を出し続ける = 止まった ffmpeg(10-24 の aac)
+        self.assertLess(time.monotonic() - t0, 20)
         self.assertEqual(tools.run_progress(sleeper, cancelled=lambda: True)[2], "cancel")
         calls = []
 

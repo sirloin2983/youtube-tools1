@@ -45,8 +45,8 @@
   - 名前: `from_archive` :148・`needs_archive` :153・`class ArchiveError` :159・`class Later` :163・`run_proc` :172・`probe_archive` :204・`readiness` :248・`fetch_full_audio` :266・`worker_python` :296・`run_align` :301・`inside` :315・`ended_at` :321・ほか 5
 - **live_detect.py** (781 行) — 配信中の盛り上がりの検出(線 D の L2)と自動の採用(M11)の入口の側。計画は notes:plan/line-d-detect.md(3 の「候補の API の約束」は線 2 = スタジオの画面との境目。変えない)。
   - 名前: `clean_spec` :83・`overlay` :97・`merge_spans` :117・`measured_holes` :128・`class Detector` :148
-- **live_export.py** (1393 行) — リアルタイム切り抜き(線 D の P2: マークと書き出し。notes:plan/line-d-live-clipping.md の 0・5・6)の入口の側の中身。
-  - 名前: `read_after` :92・`class LiveError` :121・`pick_folder` :133・`rec_list` :142・`latest_per_mark` :151・`cleaned_up` :161・`check_after` :172・`check_origin` :184・`clean_auto` :193・`check_streamer` :199・`deliver_pool` :211・`job_after` :222・ほか 7
+- **live_export.py** (1394 行) — リアルタイム切り抜き(線 D の P2: マークと書き出し。notes:plan/line-d-live-clipping.md の 0・5・6)の入口の側の中身。
+  - 名前: `read_after` :92・`class LiveError` :122・`pick_folder` :134・`rec_list` :143・`latest_per_mark` :152・`cleaned_up` :162・`check_after` :173・`check_origin` :185・`clean_auto` :194・`check_streamer` :200・`deliver_pool` :212・`job_after` :223・ほか 7
 - **live_failures.py** (164 行) — リアルタイム切り抜き(線 D)の失敗の集約(M3。notes:plan/line-d-auto-pack.md の 4)。
   - 名前: `failure_of` :49・`after_stream_failure` :74・`detect_failure` :91・`keep_failure` :107・`class Reader` :117・`collect` :145
 - **live_patrol.py** (64 行) — ライブの見回りの糸の骨組み(OPT2。live_export.Exporter・live_archive.Archiver・live_tx.LiveTx が継ぐ)と中止の例外 1 組。

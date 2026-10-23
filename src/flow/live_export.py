@@ -104,6 +104,7 @@ READY_PAD = 1.0            # 終わりの時刻よりこの秒数先まで録れ
 POLL = 2.0                 # 録画待ちの見回りの間隔(秒)
 DOWN_SEC = 60.0            # 録画元にこの秒数つながらなければ、予備を探して、無ければ失敗
 FETCH_TIMEOUT = 30.0
+IDLE_SEC = normalize.IDLE_SEC   # ffmpeg の進み具合がこの秒数進まなければ止める(10-24: この PC の ffmpeg の aac が止まったまま待ち続けないように)
 ACTIVE = ("wait", "fetch", "encode")
 STATE_LABELS = {"wait": "録画待ち", "fetch": "取得中", "encode": "作り直し中", "done": "済み", "error": "失敗", "cancelled": "取り消し"}
 GB = 1024 ** 3
@@ -1221,7 +1222,7 @@ class Exporter(Patrol):
             if dur > 0:
                 job["progress"] = round(0.2 + 0.8 * min(0.99, sec / dur), 3)
         try:
-            return tools.run_progress(cmd, flags=flags, cancelled=self._stopper(job), on_time=on_time)
+            return tools.run_progress(cmd, flags=flags, cancelled=self._stopper(job), on_time=on_time, idle_sec=IDLE_SEC)
         except OSError as e:
             raise LiveError("ffmpeg を起動できませんでした: %s" % e)
 

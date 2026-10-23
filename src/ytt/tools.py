@@ -26,6 +26,8 @@ from . import errors as _errors, fsio as _fsio, ytcookies as _ytcookies
 PRIORITY = {"low": "BELOW_NORMAL_PRIORITY_CLASS", "high": "ABOVE_NORMAL_PRIORITY_CLASS", "idle": "IDLE_PRIORITY_CLASS"}   # no_window_flags の priority(idle = 後回しの仕事。PRIO)
 KILL_TREE_TIMEOUT = 15   # taskkill /T /F を待つ秒数
 OUT_TIME = re.compile(r"^out_time_(?:us|ms)=(\d+)$")    # ffmpeg の -progress の進み具合の行(us も ms もマイクロ秒)
+PROGRESS_KV = re.compile(r"^(?:frame|fps|stream_\d+_\d+_q|bitrate|total_size|out_time|dup_frames|drop_frames|speed|progress)=[^=]*$")
+# ↑ -progress の塊の 1 行(= が 1 つだけ。統計の行「frame=  1 fps=… time=…」は = が多いので入らない = yt-dlp の区間取得の進みは数える)
 RECENT = collections.deque(maxlen=40)   # 最近動かした道具の記録(remember)
 RECENT_TAIL = 8                         # 失敗したときに覚える最後の行数
 
@@ -351,7 +353,8 @@ def run_progress(cmd, flags=None, cancelled=None, idle_sec=None, on_time=None, p
     (OPT2。exporter._pump・cut2resolve_core._ffmpeg_stream・procs.run_capture・recognize.extract_audio・
     live_excite_worker.measure_levels が使う)。シェルを通さない・標準入力なし・文字は UTF-8(壊れた文字は置き換える。行の区切りは改行と CR)。
     -> (終了コード, 行, 止めた理由)。止めた理由: None | "cancel"(cancelled() が真)| "timeout"(timeout 秒を過ぎた)|
-    "idle"(idle_sec 秒なにも出力しなかった)。0.3 秒ごとにこの順で見る。timeout・idle_sec は 0・None なら見ない。
+    "idle"(idle_sec 秒なにも出力しなかった。-progress の塊は out_time が進んだときだけ出力に数える = 10-24 この PC の ffmpeg N-126374 の
+    aac は無音→音で止まり、同じ時刻の塊を出し続けた)。0.3 秒ごとにこの順で見る。timeout・idle_sec は 0・None なら見ない。
     - 行(2 つ目): split=False(既定)は標準出力と標準エラーを 1 本で読み、進み具合の行と key=value の行(頭の 20 字に = がある)を除いた
       空でない行(前後の空白を除く)。split=True は標準エラーを別に読み、その行をそのまま(行末の空白を除く。空の行も)。
       どちらも最後の tail 行だけ持つ(tail=None は全部)
@@ -373,7 +376,7 @@ def run_progress(cmd, flags=None, cancelled=None, idle_sec=None, on_time=None, p
     proc = (popen or (procs.spawn if spawn else subprocess.Popen))(cmd, **kw)
     lines = collections.deque(maxlen=tail) if tail is not None else []
     t0 = time.monotonic()
-    state = {"last": t0, "why": None}
+    state = {"last": t0, "why": None, "t": -1}
     done = threading.Event()
 
     def stop():
@@ -411,13 +414,17 @@ def run_progress(cmd, flags=None, cancelled=None, idle_sec=None, on_time=None, p
         if on_start is not None:
             on_start(proc)
         for raw in proc.stdout:
-            state["last"] = time.monotonic()
             line = raw.strip()
             m = OUT_TIME.match(line)
             if m:
+                us = int(m.group(1))
+                if us > state["t"]:   # 進んだときだけ「出力あり」(止まった ffmpeg も -progress の塊は 0.5 秒ごとに同じ時刻で出し続ける)
+                    state["t"], state["last"] = us, time.monotonic()
                 if on_time is not None:
-                    on_time(int(m.group(1)) / 1e6)
+                    on_time(us / 1e6)
                 continue
+            if not PROGRESS_KV.match(line):   # -progress の塊のほかの行(frame=・progress=continue など)は「出力あり」に数えない
+                state["last"] = time.monotonic()
             if on_line is not None:
                 on_line(line)
             if not split and line and "=" not in line[:20]:
