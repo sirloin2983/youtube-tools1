@@ -242,24 +242,28 @@ class SetupTest(HomeBase):
     def test_cancel_keeps_part(self):
         gate = threading.Event()
         started = threading.Event()
+        lock, began = threading.Lock(), []
 
         class Slow(FakeDownloader):
             def get(self, url, part, expect, progress, cancelled):
                 os.makedirs(os.path.dirname(part), exist_ok=True)
                 with open(part, "ab") as f:
                     f.write(b"m")
-                started.set()
-                gate.wait(5)
+                with lock:
+                    began.append(part)
+                    if len(began) >= S.PARALLEL:   # 同時に始める物が全部書いてから取り消す(10-23: 1 本目で取り消すと、負荷で残りが書く前に止まり 2 != 3 で揺れた)
+                        started.set()
+                gate.wait(60)
                 if cancelled():
                     raise S.Cancelled()
         st = self.make(downloader=Slow(self.files))
         self.start_job(st)
-        started.wait(5)
+        self.assertTrue(started.wait(60), began)
         self.assertTrue(st.running())
         self.assertIn("取っています", st.block_reason())
         st.cancel()
         gate.set()
-        st.wait(5)
+        st.wait(60)
         self.assertTrue(st.result["cancelled"])
         parts = [n for _, _, fs in os.walk(self.home) for n in fs if n.endswith(".part")]
         self.assertEqual(len(parts), S.PARALLEL, parts)   # 同時に始めた物の途中は残す・残りは始めない
