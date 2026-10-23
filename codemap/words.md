@@ -104,7 +104,7 @@
   - コード: `src/flow/casebook.py`・`src/ytt/casefiles.py`・`src/app/ui/cases/panels/cand.js`・`src/human/review/store.py`
   - 画面: src/app/ui/cases/cases.js:73・src/app/ui/cases/index.html:48・src/app/ui/cases/panels/cand.js:25・src/app/ui/cases/panels/studio-shim.js:4 ほか 13
 - **文字起こし** — ② の文字起こしの動詞と ① の認識の部品
-  - コード: `src/flow/tx.py`・`src/pipeline/transcribe/worker.py`・`transcribe_clip` src/flow/tx.py:136
+  - コード: `src/flow/tx.py`・`src/pipeline/transcribe/worker.py`・`transcribe_clip` src/flow/tx.py:138
   - 画面: src/app/ui/cases/cases.js:75・src/app/ui/cases/edhost.js:19・src/app/ui/cases/panels/cut.js:31・src/app/ui/cases/panels/proof.js:64 ほか 19
 - **校正** — 案件の校正パネルと「編集」。人の直しを書く ③
   - コード: `src/app/ui/cases/panels/proof.js`・`src/human/proof/store.py`・`src/editor/serve.py`

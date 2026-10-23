@@ -1134,11 +1134,17 @@ class TestNormalizeParallel(unittest.TestCase):
                     f.write(b"30")
                 return plan["dst"], "作り直しました"
             return out
+        def fake_audio(src, dst):
+            with open(dst, "wb") as f:
+                f.write(b"aac")
+            return True
         st = self.run.step("normalize")
         with mock.patch.object(R._norm, "plan", lambda path, replace=True: {"src": path, "dst": os.path.splitext(path)[0] + ".mp4", "why": ["60fps"], "replace": True}), \
-                mock.patch.object(R._norm, "run", fake_run):
+                mock.patch.object(R._norm, "run", fake_run), mock.patch.object(R, "_vnorm_audio", fake_audio):
             self.runner._file_normalize(self.run, st)
             self.run.norm_bg["thread"].join(10)
+        self.audio = self.run.norm_bg["audio"]
+        self.assertTrue(os.path.isfile(self.audio))   # 文字起こしに渡す音(作り直しと同じ AAC)
         return st
 
     def test_relinks_doc_and_removes_copy(self):
@@ -1150,8 +1156,18 @@ class TestNormalizeParallel(unittest.TestCase):
         new = os.path.splitext(self.src)[0] + ".mp4"
         self.assertEqual((self.relinked, self.run.source_path), ([("t1", new)], new))
         self.assertFalse(os.path.exists(self.src))
+        self.assertFalse(os.path.exists(self.audio))   # 音は片付ける
         self.assertIn("並べて", st["detail"])
         self.assertIsNone(self.run.norm_bg)
+
+    def test_audio_failure_falls_back_inline(self):
+        """音を作れなければ並べずに段の中で作り直す(今の形)"""
+        st = self.run.step("normalize")
+        with mock.patch.object(R._norm, "plan", lambda path, replace=True: {"src": path, "dst": os.path.splitext(path)[0] + ".mp4", "why": ["60fps"], "replace": True}), \
+                mock.patch.object(R._norm, "run", lambda plan, **kw: (None, "テストの失敗")), mock.patch.object(R, "_vnorm_audio", lambda s, d: False):
+            self.runner._file_normalize(self.run, st)
+        self.assertIsNone(self.run.norm_bg)
+        self.assertEqual(st["state"], "warn")
 
     def test_relink_refused_keeps_original(self):
         """付け替えを断られたら、作った写しを消して元の写しのまま(警告)"""
@@ -1179,6 +1195,12 @@ class TestNormalizeParallel(unittest.TestCase):
             f.write(b"x")
         self.start((True,))
         self.assertNotEqual(os.path.normcase(self.plan["dst"]), os.path.normcase(self.src))
+        self.run.doc_id = "t1"
+        self.runner._norm_join(self.run)   # 済んだら元の名前へ戻す(文書は元のパスのまま = 付け替えない)
+        self.assertEqual((self.run.source_path, self.relinked), (self.src, []))
+        with open(self.src, "rb") as f:
+            self.assertEqual(f.read(), b"30")
+        self.assertFalse(os.path.exists(self.plan["dst"]))
 
     def test_switch_off_or_no_relink_is_inline(self):
         with mock.patch.object(R, "NORM_PARALLEL", False):

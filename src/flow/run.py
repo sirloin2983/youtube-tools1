@@ -45,6 +45,7 @@ force(Run.force か束の run.force)なら作り直す。パック = 違えば�
 import copy
 import os
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -97,7 +98,8 @@ PREFETCH_ANALYZE = True
 # 30fps の作り直しと文字起こしを並べる(10-23。notes:plan/人の作業なしの候補-1023.md の 3): 動画ファイルの実行で、作り直しを裏の糸で進めながら
 # 元の写しの音で文字起こしを始め、文字起こしが済んだら作り直した動画へ文書を付け替える(付け替えられなければ元の写しのまま)。
 # 作り直しは映像の作り直し(GPU のエンコーダー)なので認識と取り合わない(この PC: 作り直し 15 秒 + 認識 37 秒 → 並べて 38.5 秒)。
-# 音は元の写しのまま認識する(作り直しの AAC 192k と同じ結果 = 評価用で確かめた)。スイッチ: False = 今の形(そろえてから文字起こし)
+# 音は作り直しと同じ AAC 192k を先に作って認識に渡す(audioPath。取り出した音が作り直しの動画と同じ = 結果は今と同じ。元の音のままでは評価用 23 本の
+# 文書ごとの結果が揺れた = 8 本良く 9 本悪く)。スイッチ: False = 今の形(そろえてから文字起こし)
 NORM_PARALLEL = True
 # mode post_analyze は無い(区間だけの依頼の最後の段 analyze_later がその役目。OPT-E2)。
 # 待ちの記録に mode post_analyze が残っていても、MODE_STEPS に無いので restore が読み飛ばす
@@ -382,7 +384,7 @@ class Run:
         self.friend_plan = None            # 受付で決めた友人の区間の長さ(friend_length の形 + "base" = 重ねる前の束の値。束の analyze に入れてある。RS7-1 S4)
         self.notes = []                    # 受付で束を組んだときの知らせ(入口が画面の設定を直した所。パックの段の文と結果の束に出す。RS7-1 S4)
         self.new_docs = []               # この実行で文字起こしした文書(話者分離はこれだけ。前からある文書の話者は人が直したかもしれない)
-        self.norm_bg = None              # 30fps の作り直しを文字起こしと並べている間の {"thread", "res", "src", "dst"}(NORM_PARALLEL。メモリだけ)
+        self.norm_bg = None              # 30fps の作り直しを文字起こしと並べている間の {"thread", "res", "src", "dst", "audio"}(NORM_PARALLEL。メモリだけ)
         self.prefetch = None             # 解析の先回り(PREFETCH_ANALYZE): 前の実行の間に頼んだ解析 {"qid", "at", "chat", "settings"}(メモリだけ)
         self.tx_early = {}               # 流れ作業(PIPE_TX): 書き出しの段で見た本の動画のパスの鍵 -> {"job": 先に頼んだ文字起こしのジョブ か None, "redo"}(メモリだけ)
         self.tx_before = {}              # 文字起こしを頼む直前に、動画ごとに前からあった文書(文字のある物)の id(F2。再開でこの外の文書 = この実行が作った物)
@@ -646,6 +648,22 @@ class Run:
                 "message": self.message, "error": self.error, "created": int(self.created * 1000),
                 "finished": int(self.finished * 1000) if self.finished else None, "resultPath": self.result_path,
                 "steps": [dict(s, stateLabel=STEP_STATE_LABELS.get(s["state"], s["state"])) for s in self.steps]}
+
+
+def _vnorm_audio(src, dst):
+    """30fps の作り直しと同じ音(AAC 192k・周波数は元のまま = ytt/normalize の encode_args)だけを dst に作る。-> できたか"""
+    ff = _ytools.find_ffmpeg()
+    if not ff:
+        return False
+    try:
+        r = subprocess.run([ff, "-hide_banner", "-nostdin", "-loglevel", "error", "-y", "-i", src, "-map", "0:a:0", "-vn", "-c:a", "aac", "-b:a", "192k", dst],
+                           stdin=subprocess.DEVNULL, capture_output=True, timeout=600, creationflags=_ytools.no_window_flags(priority="low"))
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    if r.returncode != 0 or not os.path.isfile(dst):
+        _fsio.unlink_quiet(dst)
+        return False
+    return True
 
 
 class Runner:
@@ -1667,6 +1685,10 @@ class Runner:
             return None
         if self._norm_parallel_ok(run):
             return self._norm_start_bg(run, st, p)
+        return self._step_normalize_inline(run, st, p)
+
+    def _step_normalize_inline(self, run, st, p):
+        """段の中で作り直して置き換える(今の形)"""
         st["detail"] = "重い処理の枠が空くのを待っています"
         last = [-1]
 
@@ -1706,6 +1728,9 @@ class Runner:
         """作り直しを裏の糸で始める(枠はその糸が取る)。写しは別の名前に作り、元は付け替えが済むまで消さない(文字起こしが元の音を読む)"""
         src = p["src"]
         dst = p["dst"] if os.path.normcase(p["dst"]) != os.path.normcase(src) else "%s-%s.mp4" % (os.path.splitext(src)[0], os.urandom(3).hex())
+        audio = "%s-aac-%s.m4a" % (os.path.splitext(src)[0], os.urandom(3).hex())
+        if not _vnorm_audio(src, audio):   # 音を作れない = 並べずに今の形(段の中で作り直す)
+            return self._step_normalize_inline(run, st, p)
         plan = dict(p, dst=dst, replace=False)
         stop = lambda: run.cancel or self.closed   # noqa: E731
         res = {}
@@ -1717,7 +1742,7 @@ class Runner:
             except Exception as e:   # noqa: BLE001  作り直せなくても元の写しのまま進む
                 res["out"] = (None, "30fps にそろえられませんでした(%s)" % e.__class__.__name__)
         th = threading.Thread(target=work, name="normalize-bg", daemon=True)
-        run.norm_bg = {"thread": th, "res": res, "src": src, "dst": dst}
+        run.norm_bg = {"thread": th, "res": res, "src": src, "dst": dst, "audio": audio, "same": os.path.normcase(p["dst"]) == os.path.normcase(src)}
         th.start()
         self.log("30fps にそろえます(文字起こしと並べて): %s(%s)" % (run.title, " / ".join(p.get("why") or [])))
         st["detail"] = "30fps にそろえています(文字起こしと並べて。%s)" % " / ".join(p.get("why") or [])[:100]
@@ -1728,6 +1753,12 @@ class Runner:
         bg, run.norm_bg = run.norm_bg, None
         if bg is None:
             return
+        try:
+            self._norm_join_bg(run, bg)
+        finally:
+            _fsio.unlink_quiet(bg["audio"])
+
+    def _norm_join_bg(self, run, bg):
         st = run.step(NORMALIZE_STEP)
         while bg["thread"].is_alive():
             bg["thread"].join(0.2)
@@ -1737,7 +1768,13 @@ class Runner:
                 self._check(run)
         path, note = bg["res"].get("out") or (None, "")
         why = None
-        if path and run.doc_id:
+        if path and bg["same"]:   # 元が同じ名前の .mp4: 元を消して写しを元の名前へ(文書は元のパスのまま = 付け替え不要)
+            try:
+                os.replace(path, bg["src"])
+                path = bg["src"]
+            except OSError as e:
+                why = "作り直した写しを元の名前にできませんでした(%s)" % e.__class__.__name__
+        elif path and run.doc_id:
             why = self.tools.relink(run.doc_id, path)
         if not path or why:
             if path:
@@ -1745,7 +1782,8 @@ class Runner:
             st["state"], st["detail"] = "warn", why or note or "30fps にそろえられませんでした。元の動画のまま進めます"
             self.log("30fps にできませんでした。写しのまま進めます: %s(%s)" % (run.title, st["detail"]))
             return
-        _fsio.unlink_quiet(bg["src"])   # 置き換え = 古い写しを消す(文書はもう付け替えた)
+        if not bg["same"]:
+            _fsio.unlink_quiet(bg["src"])   # 置き換え = 古い写しを消す(文書はもう付け替えた)
         run.source_path = path
         self._checkpoint(run)
         st["detail"] = "30fps にそろえました(文字起こしと並べて)"
@@ -1792,7 +1830,8 @@ class Runner:
             tid = doc["id"]
         else:
             self._tx_mark(run, [(run.source_path, [doc["id"]] if doc and doc.get("count") else [])])
-            jid = self.tools.transcribe_start(dict(opts, sourcePath=run.source_path), bundle=self._bundle(run))
+            audio = {"audioPath": run.norm_bg["audio"]} if run.norm_bg else {}   # 並べた作り直しと同じ音(NORM_PARALLEL)
+            jid = self.tools.transcribe_start(dict(opts, sourcePath=run.source_path, **audio), bundle=self._bundle(run))
             j = self._wait_job(run, jid, st)
             if j.get("state") != "done":
                 raise StepError("文字起こしに失敗しました: %s" % _job_why(j))
