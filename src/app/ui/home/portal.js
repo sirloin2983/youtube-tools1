@@ -1853,22 +1853,12 @@
   }
   function loadNewPanel() {
     if (newLoad) return newLoad;
-    newLoad = new Promise(function (resolve, reject) {
-      var css = document.createElement('link');
-      css.rel = 'stylesheet'; css.href = 'cases-panels/new.css';
-      document.head.appendChild(css);
-      var shim = document.createElement('script');
-      shim.src = 'cases-panels/studio-shim.js';
-      shim.onload = function () {
-        var tag = document.createElement('script');
-        tag.src = 'cases-panels/new.js';
-        tag.onload = function () { if (window.NewCasePanel) resolve(); else reject(new Error('部品の形が違います')); };
-        tag.onerror = function () { reject(new Error('部品を読み込めませんでした')); };
-        document.head.appendChild(tag);
-      };
-      shim.onerror = function () { reject(new Error('部品を読み込めませんでした')); };
-      document.head.appendChild(shim);
-    }).catch(function (e) { newLoad = null; throw e; });
+    var css = document.createElement('link');
+    css.rel = 'stylesheet'; css.href = 'cases-panels/new.css';
+    document.head.appendChild(css);
+    newLoad = UIKit.loadScript('cases-panels/studio-shim.js')
+      .then(function () { return UIKit.loadScript('cases-panels/new.js', { ready: function () { return !!window.NewCasePanel; } }); })
+      .catch(function (e) { newLoad = null; throw e; });
     return newLoad;
   }
   function openNewCase(opener, opts) {

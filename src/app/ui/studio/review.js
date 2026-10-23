@@ -709,14 +709,7 @@ let hlsP = null;
 function loadHls(){
   if (window.Hls) return Promise.resolve();
   if (hlsP) return hlsP;
-  hlsP = new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = Studio.live.url('hls.min.js'); s.dataset.hls = '1';
-    const timer = setTimeout(() => reject(new Error('timeout')), 15000);
-    s.onload = () => { clearTimeout(timer); window.Hls ? resolve() : reject(new Error('no Hls')); };
-    s.onerror = () => { clearTimeout(timer); reject(new Error('load')); };
-    document.head.appendChild(s);
-  }).catch(e => { hlsP = null; document.querySelectorAll('script[data-hls]').forEach(x => x.remove()); throw e; });
+  hlsP = UIKit.loadScript(Studio.live.url('hls.min.js'), { ready: () => !!window.Hls, timeout: 15000 }).catch(e => { hlsP = null; throw e; });
   return hlsP;
 }
 /* ライブの録画: YT.Player と同じ最小インターフェースを持つ <video> + hls.js のアダプタ(LocalPlayer と同じ形)。時刻は LT の「録画の秒」。

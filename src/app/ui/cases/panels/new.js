@@ -27,15 +27,7 @@
     '</div></details>';
   var SET_SECS = { setKey: '#nwSetKey', setReg: '#nwSetReg', setCollab: '#nwSetCollab' };
 
-  function loadScript(src) {
-    return new Promise(function (resolve, reject) {
-      var tag = document.createElement('script');
-      tag.src = src;
-      tag.onload = function () { resolve(); };
-      tag.onerror = function () { tag.remove(); reject(new Error('部品を読み込めませんでした: ' + src)); };
-      document.head.appendChild(tag);
-    });
-  }
+  var loadScript = UIKit.loadScript;   // 失敗したらタグを消して「<src> を読み込めませんでした」
 
   function create() {
     var box = null, dead = false, started = false, visible = false, params = {};

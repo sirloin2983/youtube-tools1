@@ -124,8 +124,7 @@ function create(h){
   /* 積むときに操作の通し番号(app.js の nextOp。文字起こしの履歴と同じ番号)を付ける = 1 文字起こし の「元に戻す」が新しい方を選ぶ(段3 3-5)。やり直しも新しい番号 */
   const opSeq = () => h.nextOp();
   function pushCutUndo(clips, origin, seq){ M.undo.push({ clips, origin, seq }); if (M.undo.length > UNDO_MAX) M.undo.shift(); M.redo = []; }   // 新しい操作(やり直しは消える)
-  /* 2 カット の Ctrl+Z・元に戻すボタン: 文書(行の時刻・分割)とカットのうち新しい方を戻す(app.js の doUndo と同じ順。段6 6-4。字幕の段からは文書も変えるため) */
-  function undoNewest(){ h.doUndo(); }
+  /* 2 カット の Ctrl+Z・元に戻すボタンは h.doUndo: 文書(行の時刻・分割)とカットのうち新しい方を戻す(app.js の doUndo と同じ順。段6 6-4。字幕の段からは文書も変えるため) */
   function undo(){
     const u = M.undo.pop(); if (!u) return;
     M.redo.push({ clips: M.clips, origin: M.origin }); M.clips = u.clips; M.origin = u.origin; M.sel = null; afterChange();
@@ -1044,30 +1043,18 @@ function create(h){
       if (b.dataset.act === 'go') seekTo(g.start + 0.0005);
       else if (b.dataset.act === 'cutrow' || b.dataset.act === 'keeprow'){ const want = b.dataset.act === 'cutrow'; if (!!M.rowFlags[i] !== want) rowsCut([i], want); }   // 押した側の状態に(M1)
     });
-    $('#cutPlay').addEventListener('click', togglePlay);
-    $('#cutSplit').addEventListener('click', split);
-    $('#cutDel').addEventListener('click', delOrRestore);
-    $('#cutIO').addEventListener('click', cutIO);
-    $('#cutUndo').addEventListener('click', undoNewest);
+    for (const [id, fn] of [['#cutPlay', togglePlay], ['#cutSplit', split], ['#cutDel', delOrRestore], ['#cutIO', cutIO], ['#cutUndo', () => h.doUndo()], ['#cutRedo', redo],
+      ['#cutZoomIn', () => zoom(1.5)], ['#cutZoomOut', () => zoom(1 / 1.5)], ['#cutZoomFit', () => { M.fit = true; render(); }], ['#cutDraftRows', draftRows], ['#cutNone', draftWhole],
+      ['#cutDraftSilenceGo', () => draftC2R('silence')], ['#cutDraftListGo', () => draftC2R('list')], ['#cutDraftPlan', () => draftC2R('plan')], ['#cutReload', reloadFromServer]]) $(id).addEventListener('click', fn);
     $('#cutSplitText').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing){ e.preventDefault(); commitSplit(); } });   // Enter = 分ける(暗黙の送信に頼らない)
-    $('#cutRedo').addEventListener('click', redo);
-    $('#cutZoomIn').addEventListener('click', () => zoom(1.5));
-    $('#cutZoomOut').addEventListener('click', () => zoom(1 / 1.5));
-    $('#cutZoomFit').addEventListener('click', () => { M.fit = true; render(); });
     $('#cutSnap').addEventListener('change', e => { M.snap = e.target.checked; renderStatus(); });
     for (const [id, mode] of [['#cutModeSrc', 'src'], ['#cutModeCut', 'cut']]) $(id).addEventListener('click', () => { M.mode = mode; capIdx = -2; renderTools(); moveHead(); });
-    $('#cutDraftRows').addEventListener('click', draftRows);
-    $('#cutNone').addEventListener('click', draftWhole);
     $('#cutRowEdge').addEventListener('toggle', () => { if ($('#cutRowEdge').open) fillEdge(); });
     for (const id of ['#cutEdgeOn', '#cutEdgeAfter', '#cutEdgeBefore']) $(id).addEventListener('change', saveEdge);
     $('#cutEdgeGo').addEventListener('click', async () => { if (!(await saveEdge())) return; $('#cutRowEdge').open = false; draftRows(); });
-    $('#cutDraftSilenceGo').addEventListener('click', () => draftC2R('silence'));
     $('#cutDraftSilence').addEventListener('toggle', () => { if ($('#cutDraftSilence').open) fillSil(); });   // 覚えた値を入れる(段7 E-5)
     for (const [, id] of SIL_FIELDS) $(id).addEventListener('change', saveSil);
-    $('#cutDraftListGo').addEventListener('click', () => draftC2R('list'));
-    $('#cutDraftPlan').addEventListener('click', () => draftC2R('plan'));
     QA('#tabCut details.pop > summary').forEach(s => { s.dataset.title = s.title; s.addEventListener('click', e => { if (s.classList.contains('disabled')){ e.preventDefault(); h.toast(s.title || '今は使えません', 3000); } }); });
-    $('#cutReload').addEventListener('click', reloadFromServer);
     $('#cutForce').addEventListener('click', e => { if (!M.conflict) return; UIKit.confirmTwice(e.currentTarget, () => { if (M.conflict) save(true); }); });   // 保存済みのカットを上書きする(戻せない)= 二度押し(1 文字起こし の #cfForce と同じ。M4)
     const v = V();
     v.addEventListener('play', startLoop);
@@ -1111,7 +1098,7 @@ function create(h){
     if (h.tab() !== 'cut' || !h.S.doc || h.imeKey(e) || h.modalOpen() || h.isTextEntry(e.target)) return;
     if (e.altKey && !e.ctrlKey && !e.metaKey && /^Digit/.test(e.code)) return;   // Alt+1/2 はタブ(殻)
     const k = e.key, ctrl = e.ctrlKey || e.metaKey;
-    if (ctrl && (k === 'z' || k === 'Z')){ e.preventDefault(); if (e.shiftKey) redo(); else undoNewest(); return; }
+    if (ctrl && (k === 'z' || k === 'Z')){ e.preventDefault(); if (e.shiftKey) redo(); else h.doUndo(); return; }
     if (ctrl && (k === 'y' || k === 'Y')){ e.preventDefault(); redo(); return; }
     if (ctrl || e.altKey) return;
     if (!ready()) return;
@@ -1189,8 +1176,7 @@ function create(h){
       if (ro) ro.disconnect();
       cancelAnimationFrame(rq); cancelAnimationFrame(sq); rq = sq = 0; clearTimeout(docChanged.t); clearTimeout(M.saveT);
       try { V().pause(); } catch {}
-    },
-    _debug: M
+    }
   };
 }
 window.EditCut = { create, KEY_ROWS, FIXED_KEYS };

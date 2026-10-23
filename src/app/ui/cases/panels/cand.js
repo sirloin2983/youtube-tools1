@@ -16,13 +16,7 @@
   function loadReview() {
     if (window.StudioReview) return Promise.resolve();
     if (reviewP) return reviewP;
-    var tag = document.createElement('script');
-    reviewP = new Promise(function (resolve, reject) {
-      tag.src = REVIEW_JS;
-      tag.onload = function () { if (window.StudioReview) resolve(); else reject(new Error('部品の形が違います')); };
-      tag.onerror = function () { reject(new Error('部品を読み込めませんでした')); };
-      document.head.appendChild(tag);
-    }).catch(function (e) { reviewP = null; tag.remove(); throw e; });
+    reviewP = UIKit.loadScript(REVIEW_JS, { ready: function () { return !!window.StudioReview; } }).catch(function (e) { reviewP = null; throw e; });
     return reviewP;
   }
 

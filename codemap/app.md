@@ -49,10 +49,10 @@
 
 ## src/app/ui/cases/panels/
 
-- **cand.js** (197 行) — 案件の画面の「候補」のパネル(#cand。配信全体の候補の採用・不採用・書き出し・LIVE の帯)。口の形は cases.js の先頭の説明。
+- **cand.js** (191 行) — 案件の画面の「候補」のパネル(#cand。配信全体の候補の採用・不採用・書き出し・LIVE の帯)。口の形は cases.js の先頭の説明。
 - **cut.js** (566 行) — 案件の画面の「カット・パック」のパネル(#cut。残す区間を決めて、末尾で DaVinci Resolve へ渡すパックを作る)。口の形は cases.js の先頭の説明。RS8 C2c。
 - **machpick.js** (159 行) — 校正のパネルの 3 択(RS8 C2b。作り方 notes:docs/design/rs8-cases-build.md の 4 節・決定 3-37 の案 A)。
-- **new.js** (265 行) — 新しい案件のパネル(ホームの引き出し #newDrawer で開く。配信を探す・URL から入れる・解析の順番待ち。RS8 C3)。
+- **new.js** (257 行) — 新しい案件のパネル(ホームの引き出し #newDrawer で開く。配信を探す・URL から入れる・解析の順番待ち。RS8 C3)。
 - **proof.js** (188 行) — 案件の画面の「校正」のパネル(#proof。切り抜き 1 本の文字起こしの行を直す)。口の形は cases.js の先頭の説明。RS8 C2b。
 - **studio-shim.js** (50 行) — スタジオの部品(review.js・rank.js・queue.js・collab.js)が使う window.Studio の代わりのうち、2 つのパネル(panels/cand.js・panels/new.js)で同じ部分。
 
@@ -88,7 +88,7 @@
 - **app-tpl.js** (232 行) — app-tpl.js — 「編集」の画面の HTML(window.EditProofTpl)。「校正」の欄(tx)・ダイアログ(dialogs)・題名の行(docbar)・⚙ の編集の節(settings)。
 - **app.js** (952 行) — 案件の画面(/cases)の校正のパネルの口。src/app/ui/cases/edhost.js が app.js より先に window.EditHost を置く = {base(API の頭), keybar(帯), tab(タブ), open(別の文書), opening}。
   - 名前: `$` :6・`apiUrl` :19・`spColor` :25・`norm` :26・`setSnap` :57・`setStatus` :58・`onLeave` :61・`pctOf` :75・`ago` :78・`runLabelOf` :82・`stepLabelOf` :83・`voiceSec` :93・ほか 29
-- **cut.js** (1198 行) — 「編集」2 カット のタブ(notes:docs/design/edit-tool-design.md の 3・4・8)。app.js より先に読み込み、app.js が EditCut.create(host) で起動する。
+- **cut.js** (1184 行) — 「編集」2 カット のタブ(notes:docs/design/edit-tool-design.md の 3・4・8)。app.js より先に読み込み、app.js が EditCut.create(host) で起動する。
   - 名前: `create` :24
 - **doc-kit.js** (98 行) — doc-kit.js — 文書(文字起こしの行・話者)の小さな部品(window.EditDoc)。状態は持たない。
 - **pack-tab.js** (604 行) — 「編集」のパック(2 カット の末尾 #packArea。notes:docs/design/edit-tool-design.md の 3・5)。app.js より先に読み、app.js が EditPack.create(host) で起動する。
@@ -97,7 +97,7 @@
 ## src/app/ui/home/
 
 - **portal-edit.js** (162 行) — ホームの運用の中の「編集の精度と学習」(src/app/ui/home/portal.html の #editOpsBox。RS8 C3)。
-- **portal.js** (2010 行) — ホーム(src/app/ui/home/portal.html。段階5で入口 + 案件を1つにした)。
+- **portal.js** (2000 行) — ホーム(src/app/ui/home/portal.html。段階5で入口 + 案件を1つにした)。
 
 ## src/app/ui/settings/
 
@@ -111,7 +111,7 @@
   - 名前: `$` :7・`mmss` :9・`entryHtml` :12・`settings` :49・`loadOpts` :53・`unquote` :58・`looksYt` :59・`entries` :60・`paintKinds` :70・`syncAdd` :75・`refocusForm` :85・`setMsg` :92・ほか 20
 - **rank.js** (774 行) — 切り抜きスタジオ: ① 探す(配信ランキング)。検索 → 結果(全部まとめて再生数の順 / 事務所ごと)→ チェックして「解析に追加」か「まとめて実行」(入口から開いたときだけ)
   - 名前: `$` :5・`lsGet` :8・`lsSet` :9・`fmtN` :10・`fmtDur` :11・`ymd` :12・`okThumb` :13・`atMs` :16・`saveReg` :27・`agKey` :32・`captureReg` :35・`restoreReg` :51・ほか 69
-- **review.js** (3425 行) — 切り抜きスタジオ ② 確認・書き出し(切り抜きマーカー由来)。
+- **review.js** (3418 行) — 切り抜きスタジオ ② 確認・書き出し(切り抜きマーカー由来)。
   - 名前: `create` :9・`round1` :14・`uid` :15・`toast` :16・`parseTime` :20・`isAutoLike` :34・`marksPayload` :35・`sec1` :48・`sanitizeKeymap` :49・`spanLabel` :60・`sanitizeSettings` :65・`marks` :101・ほか 282
 
 ## テスト
