@@ -425,14 +425,15 @@ class ZipSkipsContract(unittest.TestCase):
         self.assertEqual(zipped, changed)
         self.assertFalse([n for n in zipped if n.endswith(".edl")])
 
-    def test_zip_without_captions_is_an_error_but_pack_tab_makes_edl_only(self):
-        """字幕の無い文書(残す行が無い。カットは keeps で決めている): パックのタブは Text+ を作らず EDL だけのパック(textplus = hasRows)を作るが、
-        zip は常に Text+ なので「Text+ パックには字幕が必要です」のエラーになる(zip の中身は変えない決定なので画面の説明に足す)"""
+    def test_zip_without_captions_makes_textplus_without_captions_and_pack_tab_makes_edl_only(self):
+        """字幕の無い文書(残す行が無い。カットは keeps で決めている): パックのタブは Text+ を作らず EDL だけのパック(textplus = hasRows)を作り、
+        zip(常に Text+)は字幕 0 本の Text+ パック(動画とカットだけ)を作る(10-23 まとめ役の決定「字幕が 0 本でもパックを作る」= 前は エラー)"""
         for name, rows in (("行が無い", []), ("残す行が無い", [seg(1, 0, 2, "a", cut=True), seg(2, 3, 4, " ")])):
             with self.subTest(doc=name):
                 doc = self.doc(rows)
-                with self.assertRaises(_errors.ResolveExportError):
-                    resolve_export.create_package(doc, "30", None, keeps=[(1.0, 3.0)])
+                zip_path, tmp, info = resolve_export.create_package(doc, "30", None, keeps=[(1.0, 3.0)])
+                self.addCleanup(shutil.rmtree, tmp, True)
+                self.assertEqual((info["captions"], os.path.isfile(zip_path)), (0, True))
                 # パックのタブ: 字幕なし(文字起こしは渡さない)→ Text+ でないパック。EDL(本体)ができる
                 out = Path(tempfile.mkdtemp(dir=self.tmp)) / "pack"
                 plan = pack.plan_cut(pack.Request(video=Path(doc["sourcePath"]), keep_pairs=[(1.0, 3.0)], **pack.EDIT_KEEPS))

@@ -11,6 +11,8 @@
     行に当たる層を選び、dev/run_unit.py と同じ流し方(1 本ずつ別のプロセス・YTT_DATA_DIR=inplace・窓なし)で並べて流す。
     層を変えたら、その層を import してよい上の層(dev/layer_map.py の ALLOWED)のテストも流す。ytt(基盤)を変えたら全部。
     層のテスト(tests/<層>/)を変えたら、その層を変えたのと同じ。dev/・setup/・tests/dev/ を変えたら tests/dev/ の全部。いつも流す見張り(GUARDS)= 層の向き・YTT_DATA_DIR の切り離し・src に作業データを残さない
+    BY_IMPORTS(既定。10-23)= 層の決まりの代わりに、変えたファイルを import(と道・ファイル名の文字列)でたどって使うテストだけ(dev/test_deps.py)。
+    たどれないファイル(消した・.py でなく名前がどこにも出ない)はそのファイルだけ層の決まりで選ぶ。--all = 全部(大きな区切り)
   3 報告の型: 入れるセッションの作業の記録(dev/worklog.py check。名前の既定 = ブランチの claude/ と末尾の -16 進を外した物)。
     見出しが欠けたら止める・英字の割合は警告だけ
 テストと検査は、ブランチをチェックアウトしている作業フォルダで流す(main と合わせた形ではない。main の新しい分を取り込んでいなければ警告)。
@@ -32,6 +34,7 @@ REPO = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(REPO, "src"))
 import run_unit  # noqa: E402
+import test_deps  # noqa: E402
 import worklog  # noqa: E402
 from layer_map import ALLOWED  # noqa: E402
 from ytt import layout  # noqa: E402
@@ -58,6 +61,7 @@ MANUAL = {"friend-apps/holo-colors/": r"friend-apps\holo-colors\build.bat",
 # テストの要らない場所(lint・notes_tool が見る)
 NO_TESTS = ("codemap/", ".claude/", "README.txt", "AGENTS.md", "CLAUDE.md", ".gitignore", ".gitattributes", "push.bat")
 TABLE_HEAD = "## 6. フォルダと、変えたら通すテスト"
+BY_IMPORTS = True   # 単体テストを import のつながりで選ぶ(False = 層の決まりだけ = 前のまま。抜けの検査 = py -3.12 dev/test_deps.py --history 200)
 TAIL = 12
 CACHE_NAME = "ytt-gate-cache.json"   # 通った単体の控え {"trees": {木の hash: [通った本]}, "secs": {本: 前回の秒}}
 CACHE_TREES = 20
@@ -101,6 +105,16 @@ def pick_units(root, dirs):
     if dirs == ALL:
         return units
     return [u for u in units if u.rel.startswith(tuple(dirs)) or u.rel in GUARDS]
+
+
+def pick_by_imports(root, paths):
+    """変えたファイル → 単体の一覧(import のつながりで使うテスト + 見張り。たどれないファイルの分は層の決まり)と、層の決まりに戻したファイルの数"""
+    units = run_unit.build_units(root)
+    sel, unknown = test_deps.Graph(root).select(paths, {u.rel for u in units})
+    if unknown:
+        dirs, _m, _u = select(unknown)
+        sel |= {u.rel for u in pick_units(root, dirs)} if dirs else set()
+    return [u for u in units if u.rel in sel or u.rel in GUARDS], len(unknown)
 
 
 def run_units(units, jobs, log=print, secs=None):
@@ -250,7 +264,7 @@ class Gate:
         self.times.append((name, time.monotonic() - t0))
 
 
-def run(branch, root=REPO, skip=(), worklog_name=None, jobs=None, list_only=False, notes=None, log=print):
+def run(branch, root=REPO, skip=(), worklog_name=None, jobs=None, list_only=False, notes=None, log=print, all_tests=False):
     """branch の関所を流す -> Gate。root はどの作業フォルダでもよい(ブランチの作業フォルダを探す)"""
     g = Gate()
     g.skipped = sorted(skip)
@@ -266,10 +280,16 @@ def run(branch, root=REPO, skip=(), worklog_name=None, jobs=None, list_only=Fals
         g.warns.append("main の新しい分を取り込んでいない(合わせた形はテストしていない。git rebase main を勧める)")
     paths = [p for p in git(wt, "diff", "--name-only", "main..." + branch)[1].splitlines() if p]
     dirs, manual, unknown = select(paths)
-    units = pick_units(wt, dirs)
+    if all_tests:
+        units, how = pick_units(wt, ALL), "全部"
+    elif BY_IMPORTS:
+        units, back = pick_by_imports(wt, paths)
+        how = "import のつながり" + ("・層の決まりに戻した %d ファイル" % back if back else "")
+    else:
+        units = pick_units(wt, dirs)
+        how = "全部" if dirs == ALL else "・".join(sorted(d.rstrip("/") for d in dirs))
     jobs = jobs or max(2, min(8, (os.cpu_count() or 4) // 3))
-    log("関所: 変えたファイル %d・単体テスト %d 本(%s)・並べる数 %d" %
-        (len(paths), len(units), "全部" if dirs == ALL else "・".join(sorted(d.rstrip("/") for d in dirs)) or "見張りだけ", jobs))
+    log("関所: 変えたファイル %d・単体テスト %d 本(%s)・並べる数 %d" % (len(paths), len(units), how or "見張りだけ", jobs))
     for m in manual:
         g.warns.append("単体テストの外の物を変えた。手で流す: " + m)
     for p in unknown[:5]:
@@ -358,6 +378,7 @@ def add_args(ap):
     ap.add_argument("--skip-worklog", action="store_true", help="作業の記録の検査を抜く(記録に残る)")
     ap.add_argument("--worklog", default=None, help="作業の記録の名前かパス(既定はブランチから)")
     ap.add_argument("-j", dest="jobs", type=int, default=None, help="テストを並べて流す数")
+    ap.add_argument("--all", dest="all_tests", action="store_true", help="単体テストを全部流す(大きな区切り。import のつながりで選ばない)")
 
 
 def skips(a):
@@ -375,7 +396,7 @@ def main(argv):
     add_args(ap)
     a = ap.parse_args(argv)
     branch = a.branch or git(REPO, "rev-parse", "--abbrev-ref", "HEAD")[1].strip()
-    g = run(branch, skip=skips(a), worklog_name=a.worklog, jobs=a.jobs, list_only=a.list)
+    g = run(branch, skip=skips(a), worklog_name=a.worklog, jobs=a.jobs, list_only=a.list, all_tests=a.all_tests)
     report(g)
     return 1 if g.problems else 0
 

@@ -273,7 +273,7 @@ def main(argv):
     try:
         branch = None if a.repair else (a.branch or git("rev-parse", "--abbrev-ref", "HEAD").strip())
         if branch and branch not in ("main", "HEAD") and git("rev-list", "main.." + branch).strip():
-            gate = land_gate.run(branch, REPO, land_gate.skips(a), a.worklog, a.jobs)
+            gate = land_gate.run(branch, REPO, land_gate.skips(a), a.worklog, a.jobs, all_tests=getattr(a, "all_tests", False))
             land_gate.report(gate)
             if gate.problems:
                 raise Stop("関所で止めた(上の [落ちた] を直して流し直す)")

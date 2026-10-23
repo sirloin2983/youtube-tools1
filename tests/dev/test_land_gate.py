@@ -61,6 +61,19 @@ class SelectTest(unittest.TestCase):
         units = land_gate.pick_units(REPO, land_gate.select(["codemap/dev.md"])[0])
         self.assertEqual(sorted(u.rel for u in units), sorted(land_gate.GUARDS))
 
+    def test_by_imports_on_real_repo(self):
+        """import のつながりで選ぶ(今のリポジトリで): 使うテストは入り・使わない層のテストは入らない・説明の文の中のファイル名ではつながらない・
+        たどれないファイルは層の決まり"""
+        units, back = land_gate.pick_by_imports(REPO, ["src/pipeline/export/outcheck.py"])
+        rel = {u.rel for u in units}
+        self.assertTrue({"tests/pipeline/export/test_outcheck.py", "tests/pipeline/export/test_exporter.py"} <= rel, sorted(rel)[:20])
+        self.assertNotIn("tests/human/proof/test_layers.py", rel)
+        self.assertTrue(set(land_gate.GUARDS) <= rel)
+        self.assertEqual(back, 0)
+        units, back = land_gate.pick_by_imports(REPO, ["src/flow/gone_away.py"])   # 消したファイル = 層の決まり(flow とその上)
+        self.assertEqual(back, 1)
+        self.assertIn("tests/flow/test_run.py", {u.rel for u in units})
+
     def test_session_name(self):
         self.assertEqual(land_gate.session_name("claude/land-gate-c990b8"), "land-gate")
         self.assertEqual(land_gate.session_name("friend-preflight"), "friend-preflight")
@@ -161,6 +174,8 @@ class RunTest(unittest.TestCase):
 
     def test_passes_and_times(self):
         self.fake_units(set())
+        self.addCleanup(setattr, land_gate, "BY_IMPORTS", land_gate.BY_IMPORTS)
+        land_gate.BY_IMPORTS = False   # 層の決まりの選び方(import のつながりは test_by_imports_on_real_repo)
         g = land_gate.run("claude/gate-abc123", notes=self.notes, log=lambda s: None)
         self.assertEqual(g.problems, [])
         self.assertIn("tests/ytt/test_ytt_core.py", self.ran)            # 見張りはいつも

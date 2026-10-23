@@ -33,8 +33,8 @@
   - 名前: `class Tok` :51・`tok` :56・`tokenize` :62・`pipelines` :137・`word_of` :155・`norm_path` :171・`is_main_checkout` :184・`generated_kind` :198・`check_kill` :216・`check_sed` :242・`git_sub` :255・`check_git` :271・ほか 9
 - **land.py** (297 行) — 作業のブランチを main に入れ、版(src/ytt/version.py の VERSION と README.txt の見出し)を道具が 1 つ上げる。
   - 名前: `class Stop` :40・`git` :44・`main_worktree` :53・`bump` :64・`read_version` :69・`set_version` :76・`set_readme` :80・`needs_bump` :90・`pid_alive` :95・`class Lock` :113・`pending_paths` :160・`commit` :168・ほか 3
-- **land_gate.py** (385 行) — main に入れる前の関所(dev/land.py が版を上げる前に流す)。単独でも流せる:
-  - 名前: `layer_of_dir` :66・`dependents` :73・`select` :78・`pick_units` :99・`run_units` :106・`cache_path` :118・`load_cache` :123・`save_cache` :134・`count_of` :150・`run_check` :156・`run_tool` :170・`table_folders` :182・ほか 11
+- **land_gate.py** (406 行) — main に入れる前の関所(dev/land.py が版を上げる前に流す)。単独でも流せる:
+  - 名前: `layer_of_dir` :70・`dependents` :77・`select` :82・`pick_units` :103・`pick_by_imports` :110・`run_units` :120・`cache_path` :132・`load_cache` :137・`save_cache` :148・`count_of` :164・`run_check` :170・`run_tool` :184・ほか 12
 - **layer_map.py** (134 行) — 役割の層と、今のファイルの行き先(役割で組み直す計画 `notes:plan/done/role-restructure.md` の 7 節を機械で読める形にしたもの)。
   - 名前: `layer_of` :114・`allowed` :124
 - **lint.py** (395 行) — コードの見直しの合格の基準を測る道具(読むだけ。基準は `notes:docs/spec/code.md`)。
