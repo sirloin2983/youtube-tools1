@@ -65,8 +65,8 @@
   - 名前: `set_learning` :39・`glossary_of` :44・`validate_job` :61・`public_job` :130・`subtitle_settings` :168・`split_chars_for` :182・`learned_finder` :200・`dict_learned` :211・`carry_overrides` :229・`run_job` :268・`run_transcribe_job` :278・`redo_targets` :336
 - **layers.py** (1056 行) — ③ 文書を「機械の層 + 人の層」から組み立てる純粋な関数(O2-1。RS8。決定 3-37 の (r8r)〜(r8u)・notes:plan/done/rs8-cases-ui.md の決めたこと 3)。
   - 名前: `match` :65・`compose_rows` :323・`compose` :419・`split_meta` :440・`diff` :546・`mach_changes` :631・`pick` :651・`assign_speakers` :687・`carry` :742・`mach_from_doc` :824・`advance_mach` :865・`replace_mach_span` :913・ほか 4
-- **learn.py** (469 行) — ③ 人の操作の層 human/proof: 人が直した内容からの学習(機械の出力と人の行の対応づけ・「誤=>正」の統計・確度)と、行への修正の提案・
-  - 名前: `align_groups` :28・`prep_rows` :47・`is_nosub` :62・`split_nosub` :66・`row_text` :91・`learn_events` :102・`learn_groups` :144・`learned_candidates` :197・`load_feedback` :227・`unrecord_feedback` :257・`record_feedback` :279・`forget_doc` :301・ほか 7
+- **learn.py** (450 行) — ③ 人の操作の層 human/proof: 人が直した内容からの学習(機械の出力と人の行の対応づけ・「誤=>正」の統計・確度)と、行への修正の提案・
+  - 名前: `align_groups` :28・`prep_rows` :47・`is_nosub` :62・`split_nosub` :66・`row_text` :91・`learn_events` :102・`learn_groups` :144・`load_feedback` :208・`unrecord_feedback` :238・`record_feedback` :260・`forget_doc` :282・`learn_rules` :301・ほか 6
 - **machpick.py** (46 行) — ③ 3 択の口(RS8 O2-4。決定 3-37・notes:plan/done/rs8-cases-ui.md の決めたこと 3 の案 A): 機械の結果が変わって人の直しと食い違う行(印 layers.MACH_CHANGED)を
   - 名前: `changes` :15・`pick` :24
 - **rerun.py** (454 行) — ③ 人の操作の層 human/proof: 再認識(選んだ行 each・範囲 range)のジョブの本体と、文書への反映・

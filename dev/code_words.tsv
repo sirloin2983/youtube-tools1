@@ -11,7 +11,7 @@
 送る	friendapp/api.py,friendapp/ui/send-form.js,/api/friend/send,flow/sendpolicy.py	友人のアプリの送る欄・受付の口。自動で送る判定は flow/sendpolicy
 送った物	friendapp/ui/sent.js,friendapp/progress.py,/api/friend/inbox	友人のアプリの送った物の行と、失敗の言葉・進み具合
 片付ける	friendapp/tidy.py,Tidy,/api/friend/tidy	友人のアプリのフォルダの整理(新しい版の後と ⚙)。ごみ箱へ移す
-片付け	manage/keep/cleanup.py,Cleanup,/api/cleanup	入口の作業データの片付けの候補。ごみ箱フォルダへ移す
+片付け	manage/keep/cleanup.py,Cleanup,auto_clean	入口の作業データの自動の片付け。届けて 3 日たった動画とパックなどをごみ箱フォルダへ移す
 ごみ箱フォルダ	manage/keep/trash.py,to_trash,put_back,trash_days	④ ごみ箱へ移す・戻すの 1 か所。片付けが通る
 初回の準備	friendapp/setup.py,friendapp/ui/setup.js,friendapp/toolcheck.py,/api/friend/setup	友人のアプリの初回の取得と道具の確かめ
 新しい版	friendapp/ui/update.js,/api/friend/update,friend-apps/launcher/src/Core.cs	友人のアプリの新しい版の帯と、exe の側の版の選び方

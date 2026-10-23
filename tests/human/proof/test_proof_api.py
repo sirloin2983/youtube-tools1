@@ -4,7 +4,7 @@
     py -3.12 -m unittest tests/eval/drill/test_metrics.py     # test_metrics がこのファイルのテストも読み込む
     py -3.12 -m unittest tests/human/proof/test_proof_api.py   # これだけ
 
-- 学習の候補 GET /api/learned(human/proof/learn.py。評価用は数えない・登録済みは出さない)
+- 学習の規則 learn_rules(human/proof/learn.py。評価用は数えない・登録済み・無視した組は規則にしない)
 - 精度の測定 all_metrics の scope(eval/drill/metrics.py)
 - 範囲の再認識 mode=range(human/proof/rerun.py・doc_jobs.validate_retranscribe)
 - 話者の色の整形(sanitize_transcript。CSS を差し込めない)
@@ -71,50 +71,38 @@ class _ProofStore(StoreDir):
         self.addCleanup(learn._rules_cache.update, key=None, val=None)
 
 
-class TestLearnedCandidates(_ProofStore):
-    """評価用の修正は学習の元にしない(答えを見てから測ることになるため)"""
+class TestLearnedRules(_ProofStore):
+    """修正から作る学習の規則(learn_rules。確度「高」が自動置換 autoLearned の元)。評価用の修正は学習の元にしない(答えを見てから測ることになるため)"""
 
     def pair(self):
-        """学習の候補 [(誤, 正)]。1 文字だけの違いは前後 1 文字を足す(learn_events)ので、中身は固定の文字でなく出てきた物を見る"""
-        return [(x["wrong"], x["right"]) for x in learn.learned_candidates(1)["items"]]
+        """学習の規則 [(誤, 正)]。1 文字だけの違いは前後 1 文字を足す(learn_events)ので、中身は固定の文字でなく出てきた物を見る"""
+        return list(learn.learn_rules())
 
     def test_train_docs_are_counted_and_eval_doc_is_not(self):
         self.put_doc(fixed_doc(TID_A), TID_A)
         self.put_doc(fixed_doc(TID_B), TID_B)
         self.put_doc(fixed_doc(TID_C, eval_set=True), TID_C)
-        r = learn.learned_candidates(1)
-        self.assertEqual(r["docs"], 2)                                             # 評価用の 1 本は対象に数えない
-        self.assertEqual(len(r["items"]), 1)
-        it = r["items"][0]
-        self.assertIn("テ", it["wrong"] + it["right"])                             # 「テスト → テスタ」の修正
-        self.assertIn("ト", it["wrong"])
-        self.assertIn("タ", it["right"])
-        self.assertEqual((it["count"], it["docs"]), (2, 2))                        # 学習用 2 本の分だけ(評価用の分は足さない)
-        self.assertEqual(learn.learned_candidates(2)["items"], r["items"])             # min=2 でも出る(2 回直された)
-        self.assertEqual(learn.learned_candidates(3)["items"], [])                 # 3 回以上直された物は無い
+        r = learn.learn_rules()
+        self.assertEqual(len(r), 1)
+        (w, rt), x = next(iter(r.items()))
+        self.assertIn("テ", w + rt)                                                 # 「テスト → テスタ」の修正
+        self.assertIn("ト", w)
+        self.assertIn("タ", rt)
+        self.assertEqual((x["pos"], len(x["docs"])), (2, 2))                        # 学習用 2 本の分だけ(評価用の分は足さない)
 
-    def test_eval_only_gives_no_candidates(self):
+    def test_eval_only_gives_no_rules(self):
         self.put_doc(fixed_doc(TID_C, eval_set=True), TID_C)
-        self.assertEqual(learn.learned_candidates(1), {"items": [], "docs": 0, "lines": 0})
+        self.assertEqual(learn.learn_rules(), {})
 
-    def test_registered_replacement_is_not_offered(self):
+    def test_registered_replacement_is_not_learned(self):
         self.put_doc(fixed_doc(TID_A), TID_A)
         (wrong, right), = self.pair()
-        write_json(_workdata.SETTINGS, {"replacements": "%s=>%s\n" % (wrong, right)})     # 置換辞書に入れた候補は、もう出さない
+        write_json(_workdata.SETTINGS, {"replacements": "%s=>%s\n" % (wrong, right)})     # 置換辞書に入れた組は、もう規則にしない
         self.assertEqual(self.pair(), [])
         write_json(_workdata.SETTINGS, {"replacements": "%s=>%s\n" % ("別の誤り", right)})  # 別の誤りの登録は影響しない
         self.assertEqual(self.pair(), [(wrong, right)])
-        write_json(_workdata.SETTINGS, {"learnIgnore": ["%s=>%s" % (wrong, right)]})      # 「無視」にした候補も出さない
+        write_json(_workdata.SETTINGS, {"learnIgnore": ["%s=>%s" % (wrong, right)]})      # 「無視」にした組も規則にしない
         self.assertEqual(self.pair(), [])
-
-    def test_http_min_parameter_goes_through_serve(self):
-        """GET /api/learned?min= の受け口(serve の _learned)。範囲外の min は 1〜20 に丸める"""
-        self.put_doc(fixed_doc(TID_A), TID_A)
-        def q(m):
-            return lambda k, d="": {"min": m}.get(k, d)
-        self.assertEqual(len(S._learned(q("1"))["items"]), 1)
-        self.assertEqual(S._learned(q("99"))["items"], [])
-        self.assertEqual(len(S._learned(q("x"))["items"]), 1)   # 数でなければ 1
 
 
 class TestMetricsScope(_ProofStore):

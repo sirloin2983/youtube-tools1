@@ -41,7 +41,6 @@
   POST /api/check/skip                    {card} 今日の間だけ後ろへ(保留を先に確定)・POST /api/check/flush {} 保留(1 枚遅れの [送る])を確定(画面を離れたとき)
   GET  /api/status                        {"app", "version", "tools": [...], "dataDir"}(ツールごとの状態・作業データの置き場所)
   GET  /api/health[?refresh=1]            「調子」(段9 9-1。src/manage/ops/health.py): 版の期待と実際・認識ワーカー・ffmpeg/ffprobe/yt-dlp・空き容量・作業データの大きさ・エラーの件数
-  GET  /api/cleanup                       片付けの候補(段9 9-2。src/manage/keep/cleanup.py)。POST /api/cleanup {ids} で候補に出した物だけをごみ箱フォルダへ移す(TRASH_DAYS 日で起動時に消える)
   GET  /api/log?tool=<ID>&lines=N         ツールの出力(<作業データ>/app/logs/<ID>.log)の末尾
   POST /api/shutdown                      {} → この入口から起動したツールを止めて、入口も終わる。録画中でなければ録画の部品も止める
                                           (録画中なら残して、応答に recorderKept・notice)
@@ -126,7 +125,7 @@ from human.friend import friend_feedback as friend_feedback_mod  # noqa: E402  (
 from ytt import appwindow as appwindow_mod  # noqa: E402  (src/ytt/appwindow.py: 窓(Edge のアプリモード)で開く。段階7-3)
 from manage.ops import clientlog as clientlog_mod  # noqa: E402  (src/manage/ops/clientlog.py: 画面のエラーの記録。段階7-0)
 from manage.ops import health as health_mod  # noqa: E402  (src/manage/ops/health.py: 「調子」。段9 9-1)
-from manage.keep import cleanup as cleanup_mod  # noqa: E402  (src/manage/keep/cleanup.py: 片付け。段9 9-2)
+from manage.keep import cleanup as cleanup_mod  # noqa: E402  (src/manage/keep/cleanup.py: ごみ箱フォルダ・届けた物の自動の片付け。段9 9-2)
 from ytt import autorestart as autorestart_mod  # noqa: E402  (src/ytt/autorestart.py: 版が違うとき処理の合間に自分で起動し直す判定)
 from manage.ops import restart as restart_mod  # noqa: E402  (src/manage/ops/restart.py: 入口ごと起動し直す。段9 9-3)
 from app import prefs as prefs_mod  # noqa: E402  (src/app/prefs.py: ホームの設定。まとめて実行の既定・配信者の記憶・共通の再生キー)
@@ -634,7 +633,7 @@ POST_ROUTES = {"/api/cases/auto": ("_post_case_auto", True),
                "/api/intake/scan": ("_post_intake_scan", True), "/api/backup/run": ("_post_backup_run", True),
                "/api/accuracy/run": ("_post_accuracy_run", True), "/api/window": ("_post_window", False),
                "/api/check/answer": ("_post_check", True), "/api/check/skip": ("_post_check", True), "/api/check/flush": ("_post_check", True),
-               "/api/cleanup": ("_post_cleanup", False), "/api/shutdown": ("_post_shutdown", False)}
+               "/api/shutdown": ("_post_shutdown", False)}
 
 
 def query_int(q, key, default):
@@ -737,8 +736,6 @@ class PortalHandler(httpsec.LocalHandler):
             return self._json(200, st)
         if u.path == "/api/health":   # 「調子」(段9 9-1。重い物は別のスレッドで数え、10 分は前の値。?refresh=1 で数え直す)
             return self._json(200, self.server.health.snapshot(refresh=(q.get("refresh") or ["0"])[0] == "1"))
-        if u.path == "/api/cleanup":   # 片付けの候補(段9 9-2。候補の一覧は入口が持ち、POST は候補に出した物だけ)
-            return self._json(200, self.server.cleanup_candidates())
         if u.path == "/api/log":
             tid = (q.get("tool") or [""])[0]
             if tid == "client":   # 画面のエラーの記録(段階7-0。1行 = 1件の JSON)
@@ -906,14 +903,6 @@ class PortalHandler(httpsec.LocalHandler):
             return self._fail(500, "write", "設定を書けませんでした: %s" % tools.why(e))
         return self._json(200, {"window": self.server.window.status()})
 
-    def _post_cleanup(self, path, body):
-        """候補に出した物を ごみ箱フォルダ へ移す(すぐには消さない。cleanup.TRASH_DAYS で起動時に消える)"""
-        ids = body.get("ids")
-        if not isinstance(ids, list) or not ids or len(ids) > cleanup_mod.MAX_ITEMS * 5:
-            return self._fail(400, "bad_request", "移す物を選んでください")
-        with self.server.cleanup_lock:
-            return self._json(200, self.server.cleanup.move(ids))
-
     def _post_shutdown(self, path, body):
         """すべて終了(応答を返してから後始末)"""
         out = {"ok": True}
@@ -1062,17 +1051,6 @@ class PortalServer(httpsec.ExclusiveServer):
                     return None
         return newest
 
-    def cleanup_candidates(self):
-        """片付けの候補(案件 = スタジオと文字起こしの紐づけ・依頼の受付のフォルダから)"""
-        try:
-            cases = cases_mod.snapshot(self.sup.root).get("cases") or []
-        except Exception as e:   # 案件を読めなくても、キャッシュ・ログの候補は出す
-            self.sup.log("片付け: 案件を読めませんでした: %r" % (e,))
-            cases = []
-        folder = self.intake.folder() or None
-        with self.cleanup_lock:
-            return self.cleanup.candidates(cases, intake_dir=folder)
-
     def _busy_tools(self):
         """取り込んだツールのうち処理の途中の物 -> [(id, 名前)]"""
         return [(t.id, t.spec["name"]) for t in self.sup.tools if t.mounted and t.mount and t.mount.busy()]
@@ -1147,8 +1125,8 @@ class PortalServer(httpsec.ExclusiveServer):
         return 200, dict({"ok": True}, **({"notice": notice} if notice else {}))
 
     def purge_trash(self):
-        """起動時: 日数(cleanup.TRASH_DAYS)を過ぎたごみ箱フォルダの日付を消す(裏で)。そのあと、届けた切り抜きの動画とパックを
-        届けて KEEP_DAYS 日で自動でごみ箱へ(cleanup.AUTO_DELIVERED。起動のすぐあとと AUTO_EVERY_SEC ごと)"""
+        """起動時: 日数(cleanup.TRASH_DAYS)を過ぎたごみ箱フォルダの日付を消す(裏で)。そのあと、届けた切り抜きの動画とパック・
+        依頼の動画・受付済みと失敗の物を、日数で自動でごみ箱へ(cleanup.auto_clean・AUTO_DELIVERED。起動のすぐあとと AUTO_EVERY_SEC ごと)"""
         try:
             n = self.cleanup.purge()
             if n:
@@ -1156,7 +1134,7 @@ class PortalServer(httpsec.ExclusiveServer):
         except Exception as e:
             self.sup.log("ごみ箱フォルダを片付けられませんでした: %r" % (e,))
         while not self.closing.is_set():
-            self.auto_clean_delivered()
+            self.auto_clean()
             if self.closing.wait(cleanup_mod.AUTO_EVERY_SEC):
                 return
 
@@ -1172,8 +1150,8 @@ class PortalServer(httpsec.ExclusiveServer):
                     out.append(cl["path"])
         return out
 
-    def auto_clean_delivered(self, dry_run=False):
-        """届けて KEEP_DAYS 日たった切り抜きの動画とパックをごみ箱へ。移した物の一覧を logs/cleanup-auto.jsonl に 1 行(何が移ったかを後で見る)。
+    def auto_clean(self, dry_run=False):
+        """自動の片付け(cleanup.Cleanup.auto_clean)。移した物の一覧を logs/cleanup-auto.jsonl に 1 行(何が移ったかを後で見る)。
         確かめるで答えを待っている物が分からないとき(案件が読めない)は移さない"""
         try:
             keep = self.value_waiting_paths()
@@ -1182,12 +1160,12 @@ class PortalServer(httpsec.ExclusiveServer):
             return None
         try:
             with self.cleanup_lock:
-                r = self.cleanup.auto_delivered(keep, dry_run=dry_run)
+                r = self.cleanup.auto_clean(keep, self.intake.folder() or None, dry_run=dry_run)
         except Exception as e:
             self.sup.log("自動の片付けができませんでした: %r" % (e,))
             return None
         if r["items"] and not dry_run:
-            self.sup.log("自動の片付け: 届けて %d 日たった切り抜きの動画とパック %d 件(%.1f GB)をごみ箱へ(失敗 %d)" % (
+            self.sup.log("自動の片付け: %d 日たった動画とパックなど %d 件(%.1f GB)をごみ箱へ(失敗 %d)" % (
                 self.cleanup.keep_days, r["moved"], r["bytes"] / 1e9, r["failed"]))
             try:
                 fsio.append_line(os.path.join(self.sup.logs_dir, "cleanup-auto.jsonl"), json.dumps(

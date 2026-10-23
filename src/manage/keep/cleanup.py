@@ -1,57 +1,41 @@
-"""作業データの片付け(全体の計画 段9 9-2。ユーザー決定: 元動画も候補に・ごみ箱フォルダ経由・日数を決めて消す)。
+"""作業データの片付け(全体の計画 段9 9-2。ユーザー決定: ごみ箱フォルダ経由・日数を決めて消す。10-24: 手で選ぶ画面をやめて自動だけ)。
 
-候補を種類ごとに出し(候補の一覧はここが持つ)、画面で確かめた物だけを **ごみ箱フォルダ**(<入口の作業データ>\\ごみ箱\\<日付>\\)へ**移す**。
-すぐには消さない。TRASH_DAYS を過ぎた日付のフォルダは入口の起動時に purge で消す(戻したいときは、それまでにエクスプローラーで戻す。manifest.jsonl に元の場所)。
-候補として出していないパスは move で受け付けない(API に好きなパスを渡しても消せない)。
+物は **ごみ箱フォルダ**(動画と同じドライブ。作業データ・書き出し先\\ごみ箱\\<日付>\\)へ**移す**。すぐには消さない。
+TRASH_DAYS を過ぎた日付のフォルダは入口の起動時に purge で消す(戻したいときは、それまでにエクスプローラーで戻す。manifest.jsonl に元の場所)。
 
-候補の種類:
-- export … スタジオの書き出しの元動画のうち、Text+ のパック(動画のコピー入り)から PACK_AGE_DAYS 日たったもの(案件は src/manage/cases/cases.snapshot の cases)と、
-  届けたあとパックだけが片付いた自動の切り抜き(届けてから PACK_AGE_DAYS 日)。日数で出すのは**このパックだけで編集できるとき**だけ(flow/packrec.ready =
-  記録したファイルが全部あって空でない・動画と Lua が入っている。部品 M1。移す直前にもう一度見る)。案件の状態(投稿済み・見送り)は条件にしない(MARKS-3)
-- work   … 動画の「作業用」フォルダの途中のファイルのうち、元の動画がもう無いもの(記録から辿れない)
-- cache  … 「編集」の波形のキャッシュ(いつでも作り直せる)
-- log    … 回したログ(*.old.log・*.log.old・*.1・*.old)
-- intake … 依頼の受付の 受付済み\\<日付>\\ のうち KEEP_DAYS より古い日付のもの(受け取った動画。動画は 受付済み に残る決まり)と、
-  友人の送り返しの 送り返し\\受付済み\\<日付>\\ のうち KEEP_DAYS より古い日付のもの(同じ決まり。9g-2)と、
-  友人の依頼の動画の置き場所 = 書き出し先の 依頼\\<日付>_<題>_<id6>\\(1 依頼 = 1 案件)・作業データの app\\intake\\<日付>\\<依頼 id>\\(書き出し先が固定ディスクでない PC)。
-  届けた記録(logs/deliveries.jsonl)にその依頼があれば**最後に届けてから** KEEP_DAYS 日、手で置いた動画(依頼 id が無い)は受け付けた日から KEEP_DAYS 日
-  (Q15。decisions 3-48)。届けていない依頼は日数がたっても出さない(文書・パックの元になる動画のため)。
-  移すのは**動画とパックだけ**(作業用\\ の文書と履歴は残す = Q4。人が直した行を失わない・文書はバックアップの学習データに入る)
-- failed … 受付の 失敗\\ と 送り返しの 送り返し\\失敗\\ の中の物(ファイルもフォルダも更新日時から KEEP_DAYS 日。理由の .txt は一緒に。9g-2)
+自動で移す物(auto_clean。入口の起動のすぐあとと AUTO_EVERY_SEC ごと。ユーザー 10-24「精度改善以外で、自分用に動画を保存する意味がない」):
+- 友人へ届けて KEEP_DAYS 日たった切り抜き(届けた記録 logs/deliveries.jsonl のパックのフォルダ・切り抜きの動画・その _edit.mp4)
+- 友人の依頼の動画の置き場所 = 書き出し先の 依頼\\<日付>_<題>_<id6>\\(1 依頼 = 1 案件)・作業データの app\\intake\\<日付>\\<依頼 id>\\
+  (書き出し先が固定ディスクでない PC)の動画とパック。**最後に届けてから** KEEP_DAYS 日(Q15。decisions 3-48)。届けていない依頼・手で置いた動画は移さない
+- 依頼の受付の 受付済み\\<日付>\\・友人の送り返しの 送り返し\\受付済み\\<日付>\\ のうち KEEP_DAYS より古い日付のもの(ただの控え。9g-2)
+- 受付の 失敗\\ と 送り返しの 送り返し\\失敗\\ の中の物(更新日時から KEEP_DAYS 日。理由の .txt は一緒に)
+移さない物: 文書・作業用の記録・字幕(.transcript.json・.clip.json・.edit.json・.srt。精度の材料 = Q4)・届けていない切り抜き・
+確かめるの「切り抜く価値」で答えを待っている切り抜き(keep_paths。入口が渡す)
 """
 import hashlib
 import os
 import time
 
 from flow import deliveries as _deliveries   # 届けた記録の読み口(持ち主は ②。7x-2)
-from flow import packrec as _packrec   # パックの中身の確かめ(部品 M1)
 from flow import retention   # 物の終わりの日数(1 か所)
 from flow import placement   # 依頼のフォルダの名前・案件の身分証 case.json・案件の根の置き場所の読み方(④ は ② を読める)
 from human.friend import returns as _returns   # 友人の送り返し(同期フォルダの 送り返し\\ と その 受付済み・失敗 の名前。持ち主は ③ human/friend/returns)
-from ytt import datadir, fsio, schemas, trashbin
+from ytt import fsio, trashbin
 
 from . import trash as _trash   # 動画と一緒に動かす途中のファイル
 
 # 日数は「精度のデータは残す・ただの控えは早めに消す」の方針(notes:docs/spec/data.md)。値は flow/retention.KEEP_DAYS の 1 か所
-KEEP_DAYS = retention.KEEP_DAYS       # 受け付けた依頼の動画(受付済み。作業データに写しがある = ただの控え)を候補に出すまでの日数
+KEEP_DAYS = retention.KEEP_DAYS       # 届けてから・受け付けてから、自動で移すまでの日数
 TRASH_DAYS = retention.KEEP_DAYS      # ごみ箱フォルダの日付のフォルダを起動時に消すまでの日数
-PACK_AGE_DAYS = retention.KEEP_DAYS   # パック(Text+ = 動画のコピー入り)を作ってからこの日数たった元動画も候補(案件の状態を変えなくても出る)
 REQUEST_DIR = placement.REQUEST_DIR   # 書き出し先の下の友人の依頼のフォルダ(依頼)
 APP_INTAKE = "intake"     # 作業データ app の下の、友人の依頼の動画の写し(app\intake\<日付>\<依頼 id>\。書き出し先が固定ディスクでない PC)
 DELIVERIES_LOG = _deliveries.LOG      # 届けた記録(持ち主は ② flow/deliveries。logs の中)
 ROOTS_FILE = "trash-roots.json"   # 作業データの外に作ったごみ箱フォルダの一覧(起動時の purge が見る)
 DRIVE_TRASH = "youtube-tools ごみ箱"   # 動画のドライブに書き出し先が無いときのごみ箱(<ドライブ>\youtube-tools ごみ箱\)
 REASON_SUFFIX = ".理由.txt"   # 失敗\\ の物に添える断った理由(受付・送り返しとも。returns._move と intake の決まり)
-KINDS = (("export", "スタジオの書き出しの元動画(パックから %d 日・届けてから %d 日でパックなし)" % (PACK_AGE_DAYS, PACK_AGE_DAYS)),
-         ("work", "作業用の途中のファイル(元の動画が無い)"),
-         ("cache", "波形のキャッシュ(作り直せる)"),
-         ("log", "古いログ"),
-         ("intake", "受け付けた依頼の動画・友人の送り返しの受付済み(届けてから・手で置いた物は受け付けてから %d 日。文書は残す)" % KEEP_DAYS),
-         ("failed", "断って失敗\\ に置いた物(受付と送り返し。更新から %d 日・理由の .txt つき)" % KEEP_DAYS))
 VIDEO_EXTS = (".mp4", ".mkv", ".mov", ".webm", ".m4v", ".avi", ".ts")
-AUTO_DELIVERED = True   # 友人へ届けて KEEP_DAYS 日たった切り抜きの動画とパックを、自動でごみ箱へ(ユーザー 10-24。False = 今までどおり候補に出すだけ)
+AUTO_DELIVERED = True   # 自動で移す(ユーザー 10-24。False = 何も移さない。ごみ箱の古い日付は今までどおり消す)
 AUTO_EVERY_SEC = 12 * 3600   # 自動で移す間隔(起動のすぐあとと、そのあと 12 時間ごと)
-MAX_ITEMS = 500
 
 
 def _id(path):
@@ -108,7 +92,7 @@ class Cleanup:
         self.repo_root, self.env = repo_root, env
         self.log = log or (lambda m: None)
         self.clock, self.keep_days, self.trash_days = clock, keep_days, trash_days
-        self._known = {}          # id → item(直前に出した候補だけ move できる)
+        self._known = {}          # id → item(auto_clean が出した物だけ move できる)
 
     @property
     def trash_dir(self):
@@ -149,157 +133,6 @@ class Cleanup:
             fsio.write_json(os.path.join(self.app_dir, ROOTS_FILE), v + [root], indent=None)
 
     # ---------- 候補 ----------
-    def candidates(self, cases=None, intake_dir=None):
-        """-> {"kinds": [{kind, label, count, bytes, items}], "bytes", "trash": ごみ箱フォルダ, "trashRoots", "keepDays", "trashDays", "packAgeDays", "at"}"""
-        found = {k: [] for k, _ in KINDS}
-        try:
-            found["export"] = self._exports(cases or [])
-        except Exception as e:
-            self.log("片付けの候補(元動画)を調べられませんでした: %r" % (e,))
-        try:
-            found["work"] = self._work_orphans(cases or [])
-        except Exception as e:
-            self.log("片付けの候補(作業用)を調べられませんでした: %r" % (e,))
-        found["cache"] = self._cache()
-        found["log"] = self._logs()
-        found["intake"] = self._intake(intake_dir)
-        try:
-            found["intake"] += self._requests()
-        except Exception as e:
-            self.log("片付けの候補(友人の依頼の案件)を調べられませんでした: %r" % (e,))
-        try:
-            found["intake"] += self._app_intake()
-        except Exception as e:
-            self.log("片付けの候補(受付の写し)を調べられませんでした: %r" % (e,))
-        try:
-            found["failed"] = self._failed(intake_dir)
-        except Exception as e:
-            self.log("片付けの候補(失敗の物)を調べられませんでした: %r" % (e,))
-        self._known = {}
-        kinds, total = [], 0
-        for k, label in KINDS:
-            items = sorted(found[k], key=lambda x: x["mtime"])[:MAX_ITEMS]
-            for it in items:
-                self._known[it["id"]] = it
-            b = sum(x["bytes"] for x in items)
-            total += b
-            kinds.append({"kind": k, "label": label, "count": len(items), "bytes": b, "items": items})
-        return {"kinds": kinds, "bytes": total, "trash": self.trash_dir, "trashRoots": self.trash_roots(), "keepDays": self.keep_days,
-                "trashDays": self.trash_days, "packAgeDays": PACK_AGE_DAYS, "at": int(self.clock() * 1000)}
-
-    def _exports(self, cases):
-        """パックがある元動画のうち、Text+ のパック(動画のコピー入り。元動画が無くても Resolve で開ける)を作って PACK_AGE_DAYS 日たったもの・
-        届けたあとパックだけが片付いた自動の切り抜き。_edit.mp4・作業用の途中のファイルも一緒に(extra)"""
-        out, seen, now = [], set(), self.clock()
-        for c in cases:
-            if not isinstance(c, dict):
-                continue
-            for cl in c.get("clips") or []:
-                p = cl.get("path") if isinstance(cl, dict) else None
-                if not p or not cl.get("exists") or not os.path.isfile(p):
-                    continue
-                pk = cl.get("pack")
-                if not pk:
-                    # 自動の切り抜きで、届けたあとパックだけが片付いた物(友人の「要らない」はパックしか消さない = mp4 が残る。
-                    # notes:plan/done/opt-manage.md の 2a-1)。届けてから PACK_AGE_DAYS 日で候補に出す
-                    rv = cl.get("review") if cl.get("auto") else None
-                    sent = rv.get("deliveredAt") if isinstance(rv, dict) else 0
-                    if isinstance(sent, (int, float)) and sent > 0 and now - sent / 1000.0 > PACK_AGE_DAYS * 86400:
-                        key = os.path.normcase(p)
-                        if key not in seen:
-                            seen.add(key)
-                            title = str(c.get("title") or c.get("id") or "")[:40]
-                            out.append(_item("export", p, "案件「%s」(届けてから %d 日・パックなし)" % (
-                                title, int((now - sent / 1000.0) // 86400)), _trash.existing_sidecars(p)))
-                    continue
-                at = pk.get("updatedAt") if isinstance(pk, dict) else 0
-                aged = isinstance(pk, dict) and pk.get("textplus") is True and isinstance(at, (int, float)) and at > 0 \
-                    and now - at / 1000.0 > PACK_AGE_DAYS * 86400
-                if not aged:
-                    continue
-                key = os.path.normcase(p)
-                if key in seen:
-                    continue
-                pack_dir = pk.get("dir")
-                if pack_dir and not self._pack_ready(pack_dir):
-                    continue   # パックの動画などが欠けている = 元の素材がまだ要る(部品 M1)
-                seen.add(key)
-                title = str(c.get("title") or c.get("id") or "")[:40]
-                why = "パックから %d 日" % int((now - at / 1000.0) // 86400)
-                it = _item("export", p, "案件「%s」(%s)" % (title, why), _trash.existing_sidecars(p))
-                if pack_dir:
-                    it["packDir"] = pack_dir   # move の直前にもう一度見る
-                out.append(it)
-        return out
-
-    def _pack_ready(self, pack_dir):
-        """このパックだけで編集できるか(packrec.ready。調べられなければ偽 = 元の素材を残す側)"""
-        try:
-            return _packrec.ready(pack_dir, self.env)[0]
-        except Exception as e:
-            self.log("片付け: パック %s を確かめられませんでした: %r" % (pack_dir, e))
-            return False
-
-    def _work_orphans(self, cases):
-        """案件の動画のフォルダにある 作業用\\ の中で、対応する動画が無いファイル"""
-        folders, out = set(), []
-        for c in cases:
-            for cl in (c.get("clips") or []) if isinstance(c, dict) else []:
-                p = cl.get("path") if isinstance(cl, dict) else None
-                if p:
-                    folders.add(os.path.dirname(p))
-        for folder in sorted(folders):
-            wd = os.path.join(folder, schemas.WORK_DIR)
-            if not os.path.isdir(wd):
-                continue
-            try:
-                names = os.listdir(wd)
-            except OSError:
-                continue
-            for n in names:
-                fp = os.path.join(wd, n)
-                if not os.path.isfile(fp):
-                    continue
-                stem = _media_stem(n)
-                if stem is None:
-                    continue
-                if not any(os.path.isfile(os.path.join(folder, stem + ext)) for ext in VIDEO_EXTS):
-                    out.append(_item("work", fp, "元の動画「%s」が見つからない" % stem))
-        return out
-
-    def _cache(self):
-        try:
-            d = os.path.join(datadir.resolve("transcribe", self.repo_root, self.env), "cache", "peaks")
-        except Exception:
-            return []
-        if not os.path.isdir(d):
-            return []
-        try:
-            return [_item("cache", os.path.join(d, n)) for n in os.listdir(d) if os.path.isfile(os.path.join(d, n))]
-        except OSError:
-            return []
-
-    def _logs(self):
-        out = []
-        dirs = [os.path.join(self.app_dir, "logs")]
-        for tool in ("studio", "transcribe", "cut2resolve"):
-            try:
-                dirs.append(datadir.resolve(tool, self.repo_root, self.env))
-            except Exception:
-                pass
-        for d in dirs:
-            try:
-                names = os.listdir(d)
-            except OSError:
-                continue
-            for n in names:
-                low = n.lower()
-                if low.endswith((".old.log", ".log.old", ".log.1", ".jsonl.1", ".old")) or (low.endswith(".1") and ".log" in low):
-                    p = os.path.join(d, n)
-                    if os.path.isfile(p):
-                        out.append(_item("log", p))
-        return out
-
     def _intake(self, intake_dir):
         """受付済み\\<日付>\\ と 送り返し\\受付済み\\<日付>\\ の、受け取った日から keep_days 日たった日付のフォルダ"""
         if not intake_dir:
@@ -453,25 +286,38 @@ class Cleanup:
             out.append(it)
         return out
 
-    def auto_delivered(self, keep_paths=(), dry_run=False):
-        """届けた物を自動でごみ箱へ(AUTO_DELIVERED)。-> {"items": [{name, path, bytes, parts}], "moved": 数, "failed": 数, "bytes"}。
+    def auto_items(self, keep_paths=(), intake_dir=None):
+        """自動で移す物の全部: 届けた切り抜き・依頼の置き場所(delivered_items)・受付の写し(_app_intake の届けた物)・受付済みと失敗(_intake・_failed)"""
+        keep = {os.path.normcase(os.path.abspath(p)) for p in keep_paths or () if isinstance(p, str) and p}
+        out = self.delivered_items(keep_paths)
+        for it in self._app_intake():
+            if "届けてから" in it["note"]:
+                it["parts"] = [p for p in it["parts"] if os.path.normcase(os.path.abspath(p)) not in keep]
+                if it["parts"]:
+                    it["bytes"] = sum(_size(p) for p in it["parts"])
+                    out.append(it)
+        out += self._intake(intake_dir) + self._failed(intake_dir)
+        self._known = {it["id"]: it for it in out}   # move はここで出した物だけ
+        return out
+
+    def auto_clean(self, keep_paths=(), intake_dir=None, dry_run=False):
+        """自動でごみ箱へ(AUTO_DELIVERED)。-> {"items": [{kind, name, path, bytes, parts, note}], "moved": 数, "failed": 数, "bytes"}。
         dry_run = 一覧だけ(移さない)。移した物は ごみ箱\\<日付>\\<種類>\\ に入り、trash_days 日で消える(今の決まり)"""
         if not AUTO_DELIVERED:
             return {"items": [], "moved": 0, "failed": 0, "bytes": 0}
-        items = self.delivered_items(keep_paths)
-        res = {"items": [{"name": it["name"], "path": it["path"], "bytes": it["bytes"], "parts": list(it["parts"]), "note": it["note"]} for it in items],
+        items = self.auto_items(keep_paths, intake_dir)
+        res = {"items": [{"kind": it["kind"], "name": it["name"], "path": it["path"], "bytes": it["bytes"], "parts": list(it.get("parts") or [it["path"]] + list(it.get("extra") or [])),
+                          "note": it["note"]} for it in items],
                "moved": 0, "failed": 0, "bytes": sum(it["bytes"] for it in items)}
         if dry_run or not items:
             return res
-        for it in items:
-            self._known[it["id"]] = it
         r = self.move([it["id"] for it in items])
         res["moved"], res["failed"] = len(r["moved"]), len(r["failed"])
         return res
 
     # ---------- 移す・消す ----------
     def move(self, ids):
-        """候補として出した物だけを ごみ箱\\<日付>\\<種類>\\ へ移す。-> {"moved": [...], "failed": [{id, path, error}], "unknown": [ids], "trash": ...}"""
+        """auto_clean が出した物だけを ごみ箱\\<日付>\\<種類>\\ へ移す。-> {"moved": [...], "failed": [{id, path, error}], "unknown": [ids], "trash": ...}"""
         moved, failed, unknown = [], [], []
         for i in ids if isinstance(ids, list) else []:
             it = self._known.get(str(i))
@@ -479,9 +325,6 @@ class Cleanup:
                 unknown.append(str(i)[:40])
                 continue
             src = it["path"]
-            if it.get("packDir") and not self._pack_ready(it["packDir"]):   # 候補を出したあとでパックの中身が欠けた(部品 M1)
-                failed.append({"id": it["id"], "path": src, "error": "パックの動画などが欠けているので、元の動画は移しませんでした"})
-                continue
             if it.get("parts"):
                 self._move_parts(it, moved, failed)
                 continue
@@ -518,16 +361,3 @@ class Cleanup:
 
 
 _old_day_dirs = trashbin.old_day_dirs   # 日付のフォルダの決まりは ytt/trashbin の 1 か所(受付済み と ごみ箱フォルダ。① の録画の部品も)
-
-
-def _media_stem(name):
-    """作業用の途中のファイル名 → 元の動画の名前(拡張子なし)。知らない形なら None。
-    名前が文字起こしの文書の id(schemas.TID_RE。`<tid>.edit.json` など)なら None: 作業用に置く文字起こしの文書とその付き物(RS8 B2)は
-    動画の付き物ではない(動画の名前と比べると、いつも「元の動画が無い」になって片付けの候補に出てしまう)。
-    名前が空(作業用/.studio-id = 案件の持ち主の印)も None。
-    名前の終わりは長い物から比べる(X_edit.clip.json を .clip.json で先に切ると X_edit になり、元の X.mp4 があっても「無い」の候補に出た = 7d-1)"""
-    for suffix in ("_edit.clip.json", ".transcript.json", ".clip.json", ".edit.json", ".cut-plan.json", ".studio-id", "_edit.mp4", ".srt"):
-        if name.endswith(suffix):
-            stem = name[:-len(suffix)]
-            return None if not stem or schemas.TID_RE.match(stem) else stem
-    return None

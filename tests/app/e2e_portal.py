@@ -117,7 +117,7 @@ def seed_unlinked(tmp):
 
 
 def seed_more_cases(studio_json, n=34, base_ts=None):
-    """案件の一覧(1件1行)の道具(検索・絞り込み・並び替え・まとめ方・「もっと見る」)を確かめるため、配信を n 本足す。
+    """案件の一覧(1件1行)の道具(検索・絞り込み・並び替え・「もっと見る」)を確かめるため、配信を n 本足す。
     実物の動画ファイルは要らない(マークを「採用」までにしておけば、案件には出るが書き出しは要らない)"""
     with open(studio_json, encoding="utf-8") as f:
         doc = json.load(f)
@@ -249,10 +249,7 @@ def _mounted_cards_and_health(cx):
           "[A] 確かめる: [始める] は /check へのリンク")
     pg.click("#btnHealthRefresh")
     check(wait_js(pg, "document.querySelector('#healthWhen').textContent.indexOf('数えた') >= 0", 20000), "[A] 「数え直す」で数え直して、いつ数えたかが出る: %s" % pg.text_content("#healthWhen"))
-    # 「片付け」の節。候補を探すと種類ごと(6 種類)に出て、何も選ばなければ移せない
-    pg.click("#btnCleanFind")
-    check(wait_js(pg, "document.querySelectorAll('#cleanKinds details').length === 6", 20000), "[A] 「片付け」の候補が種類ごとに出る: %d" % pg.locator("#cleanKinds details").count())
-    check(pg.is_disabled("#btnCleanMove") and "候補" in pg.text_content("#cleanWhen"), "[A] 何も選んでいなければ「ごみ箱フォルダへ移す」は押せない")
+    check(pg.locator("#cleanBox").count() == 0, "[A] 片付けを手で選ぶ欄は無い(10-24 から自動だけ)")
 
     for tid, verfrag in (("studio", STUDIO_VER), ("transcribe", TX_VER)):
         meta = pg.text_content(".pt-tool[data-tool=%s] .pt-meta" % tid)
@@ -401,29 +398,18 @@ def _mounted_todo_and_unlinked(cx):
           "[A] 行の 2 行目に依頼の内容。実行中でも行は勝手に開かない: %s" % p.text_content("#case-e2eCase0001 .pt-case-sub"))
     p.close()
 
-    # 2f. 単体の文字起こし(どの配信にも紐づかない文字起こし)。「編集」の文書の一覧と突き合わせて詳しく見せる
-    check(wait_js(pg, "!document.getElementById('unlinkedGroup').hidden && !document.getElementById('unlinkedHead').hidden", 10000), "[A] 単体の文字起こしの1行とまとまりが出た")
+    # 2f. 単体の文字起こし(どの配信にも紐づかない文字起こし)。件数と「案件の画面で見る」だけ(選んでまとめて実行する一覧は 10-24 に消した)
+    check(wait_js(pg, "!document.getElementById('unlinkedHead').hidden", 10000), "[A] 単体の文字起こしの1行が出た")
     check(pg.text_content("#unlinkedCount").strip() == "1件", "[A] 単体の文字起こしの件数(ホームの数): %s" % pg.text_content("#unlinkedCount"))
     link = pg.get_attribute("#unlinkedOpen", "href")
     check(link == "/cases?c=orphan#proof", "[A] 「案件の画面で見る」は仮の案件「どの案件にも入らない文字起こし」を開く: %s" % link)
-    check(pg.evaluate("document.getElementById('unlinkedGroup').open") is False, "[A] 単体の文字起こしのまとまりは既定で閉じている")
-    pg.click("#unlinkedGroup summary")
-    check(wait_js(pg, "!!document.querySelector('.pt-doc')", 10000), "[A] 単体の文字起こしの行が出た")
-    docTx = pg.text_content(".pt-doc-tx")
-    check("校正" in docTx and "パック" in docTx, "[A] 単体の文字起こしも校正・パックの進み具合を見せる: %s" % docTx)
-    open_href = pg.get_attribute(".pt-doc-open", "href")
-    check(bool(open_href) and open_href.startswith("/cases?d=") and open_href.endswith("#proof"), "[A] 単体の文字起こしも「校正で開く」(案件の画面へ文書 ID で): %s" % open_href)
-    pg.check(".pt-doc-check")
-    check(wait_js(pg, "!document.getElementById('docRunBtn').disabled", 5000), "[A] 選ぶと「まとめて実行」が押せる")
-    pg.uncheck(".pt-doc-check")
-    check(pg.is_disabled("#docRunBtn"), "[A] 選びを外すとまた押せない")
-
+    check(pg.locator("#unlinkedGroup, #docRunBtn").count() == 0, "[A] 単体の文字起こしを選んでまとめて実行する一覧は無い")
 
 def _mounted_list_tools(cx):
     """[A] 2g. 一覧の件数と「もっと見る」"""
     check, errors, pg = cx.check, cx.errors, cx.pg
     # 2g. 一覧の件数と「もっと見る」。配信をたくさんに増やして確かめる(後の場面 2i もこの配信を使う)。
-    # 検索・並び替え・まとめ方・非表示の細かい操作は画面の道に入れない(写真の関所 ui_audit で見る)
+    # 検索・並び替え・非表示の細かい操作は画面の道に入れない(写真の関所 ui_audit で見る)
     studio_home = os.environ["STUDIO_HOME"]
     seed_more_cases(os.path.join(studio_home, "data.json"), n=34)
     pg.click("#btnReload")
@@ -515,14 +501,13 @@ def _mounted_new_case_and_ops(cx):
     r = ctx.new_page()
     r.on("pageerror", lambda e: cx.errors.append(str(e)))
     r.goto(cx.base)
-    check(wait_js(r, "!!document.getElementById('editOpsBox')", 15000), "[A] 2j: 運用の中に「編集の精度と学習」")
+    check(wait_js(r, "!!document.getElementById('editOpsBox')", 15000), "[A] 2j: 運用の中に「編集の精度」")
     check(r.evaluate("document.getElementById('opsBox').open === false && document.getElementById('editOpsBox').open === false"), "[A] 2j: 運用の枠は既定で畳んである")
-    check(r.evaluate("document.getElementById('accOut').textContent === '' && document.getElementById('lnList').textContent === ''"), "[A] 2j: 精度と学習は開くまで読まない")
+    check(r.evaluate("document.getElementById('accOut').textContent === '' && !document.getElementById('lnList')"), "[A] 2j: 精度は開くまで読まない(学習の候補の一覧は無い)")
     r.evaluate("document.getElementById('editOpsBox').open = true")
     check(wait_js(r, "document.getElementById('opsBox').open === true", 5000), "[A] 2j: 中の欄を開くと運用の枠も開く")
-    check(wait_js(r, "/校正済みの行がまだありません|文字誤り率/.test(document.getElementById('accOut').textContent)"
-                     " && /候補はありません|学習します|誤/.test(document.getElementById('lnList').textContent) && !document.querySelector('#editOpsBox .pt-edit-err')", 20000),
-          "[A] 2j: 認識精度の測定・修正から学習した候補が読めた: %s" % r.evaluate("[document.getElementById('accOut').textContent.slice(0, 60), document.getElementById('lnList').textContent.slice(0, 60)]"))
+    check(wait_js(r, "/校正済みの行がまだありません|文字誤り率/.test(document.getElementById('accOut').textContent) && !document.querySelector('#editOpsBox .pt-edit-err')", 20000),
+          "[A] 2j: 認識精度の測定が読めた: %s" % r.evaluate("document.getElementById('accOut').textContent.slice(0, 60)"))
     r.select_option("#accScope", "eval")
     check(wait_js(r, "/校正済みの行がまだありません|文字誤り率/.test(document.getElementById('accOut').textContent) && !document.querySelector('#editOpsBox .pt-edit-err')", 10000), "[A] 2j: 対象を変えて測り直せる")
     r.close()
@@ -702,14 +687,10 @@ def _new_case_queue(cx):
 
 
 def _next_todo(cx):
-    """処理の状況に採用待ち(確認前の候補)を出さない / 紐づかない文書の副題"""
+    """処理の状況に採用待ち(確認前の候補)を出さない"""
     check, pg = cx.check, cx.pg
     check(not pg.eval_on_selector_all(".pt-todo-pill", "els => els.filter(p => /待ち$/.test(p.textContent) && p.textContent !== '待ち').length"),
           "[A] 確認前の候補の配信があっても、処理の状況に採用待ち・校正待ちは出ない")
-    check(wait_js(pg, "!!document.querySelector('.pt-doc-sub') && document.querySelector('.pt-doc-sub').textContent.indexOf('solo.mp4') >= 0", 10000)
-          and "更新 " in pg.text_content(".pt-doc-sub") and "ytt-portal-e2e" not in pg.text_content(".pt-doc-sub")
-          and "solo.mp4" in (pg.get_attribute(".pt-doc-sub", "title") or ""),
-          "[A] 単体の文字起こしの行にも副題(ファイル名だけ。フルパスは title): %s" % pg.text_content(".pt-doc-sub"))
 
 
 def _next_case_buttons(cx):
@@ -719,7 +700,7 @@ def _next_case_buttons(cx):
         pg.click("#btnMore")
     check(pg.eval_on_selector_all(".pt-case-next", "e => e.length") == 0 and "校正 1/2行" in (pg.text_content("#case-e2eCase0001 .pt-case-row") or ""),
           "[A] 行に次の一手のボタンは無く、結果(校正の済み具合)だけ: %s" % pg.text_content("#case-e2eCase0001 .pt-case-row"))
-    tg = pg.evaluate("""() => ({ content: [...document.querySelectorAll('.pt-clip a, .pt-case-studio a, #unlinkedOpen, .pt-doc-open, .pt-todo-link')]
+    tg = pg.evaluate("""() => ({ content: [...document.querySelectorAll('.pt-clip a, .pt-case-studio a, #unlinkedOpen, .pt-todo-link')]
                                       .filter(a => a.hasAttribute('target')).map(a => a.textContent),
                                  open: [...document.querySelectorAll('.pt-tool .pt-open')].map(a => a.target) })""")
     check(tg["content"] == [] and tg["open"] and all(t == "_blank" for t in tg["open"]),

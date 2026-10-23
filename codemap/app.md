@@ -15,9 +15,9 @@
   - 受ける口: `/api/ytt` :45
 - **prefs.py** (488 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
   - 名前: `class PrefsError` :95・`guess_streamer` :382・`class Prefs` :394
-- **server.py** (1706 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
-  - 名前: `runtime_dir` :182・`ping` :192・`tail` :200・`expected_version` :221・`tool_python` :227・`rel_or_abs` :237・`signal_stop` :245・`class Tool` :258・`app_data_dir` :308・`logs_dir_for` :314・`class Supervisor` :320・`query_int` :640・ほか 15
-  - 受ける口: `/api/drill/status` :150・`/api/eval-batch` :150・`/api/intake` :626・`/api/backup` :627・`/api/accuracy` :628・`/api/flow/runs` :629・`/api/cases/auto` :631・`/api/flow/submit` :632・`/api/flow/estimate` :632・`/api/flow/cancel` :633・`/api/intake/scan` :634・`/api/backup/run` :634・`/api/accuracy/run` :635・`/api/window` :635・`/api/check/answer` :636・`/api/check/skip` :636・`/api/check/flush` :636・`/api/cleanup` :637・`/api/shutdown` :637・`/api/ping` :726・`/api/status` :728・`/api/health` :738・`/api/log` :742・`/api/flow/status` :757・`/api/flow/history` :761・`/api/check/next` :764・`/api/cases` :770
+- **server.py** (1684 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
+  - 名前: `runtime_dir` :181・`ping` :191・`tail` :199・`expected_version` :220・`tool_python` :226・`rel_or_abs` :236・`signal_stop` :244・`class Tool` :257・`app_data_dir` :307・`logs_dir_for` :313・`class Supervisor` :319・`query_int` :639・ほか 15
+  - 受ける口: `/api/drill/status` :149・`/api/eval-batch` :149・`/api/intake` :625・`/api/backup` :626・`/api/accuracy` :627・`/api/flow/runs` :628・`/api/cases/auto` :630・`/api/flow/submit` :631・`/api/flow/estimate` :631・`/api/flow/cancel` :632・`/api/intake/scan` :633・`/api/backup/run` :633・`/api/accuracy/run` :634・`/api/window` :634・`/api/check/answer` :635・`/api/check/skip` :635・`/api/check/flush` :635・`/api/shutdown` :636・`/api/ping` :725・`/api/status` :727・`/api/health` :737・`/api/log` :739・`/api/flow/status` :754・`/api/flow/history` :758・`/api/check/next` :761・`/api/cases` :767
 - **ytlogin.py** (95 行) — ユーザーの PC の YouTube のログイン(10-23 ユーザー「ログインできる形にしといて」)。友人のアプリと同じ作り(notes:docs/spec/friend.md の 13-13)。
   - 名前: `cookies_path` :23・`apply_env` :27・`class YtLogin` :35
 
@@ -81,7 +81,7 @@
   - 名前: `uiIcon` :12・`toast` :15・`showErr` :22・`undoToast` :36・`stopAtEnd` :48・`armPlayEnd` :69・`httpFailText` :74・`api` :75・`apiBlob` :80・`busy` :86・`kickJobs` :90・`saveFirst` :91・ほか 33
 - **app-jobs.js** (339 行) — app-jobs.js — 「編集」の画面: 文字起こしの要求・ジョブの進捗・話者の自動判別・声を覚える・再認識。
   - 名前: `recogOpts` :10・`jobOpts` :16・`startPolling` :22・`pollJobs` :24・`namedBy` :73・`transcribeInto` :77・`renderIntoState` :88・`jobProg` :99・`jobPhase` :100・`jobFailText` :101・`retryJob` :106・`renderDiarSetup` :113・ほか 26
-- **app-learn.js** (259 行) — app-learn.js — 「編集」の画面: 修正から学習した候補・修正の提案・校正済み・進み具合の帯・認識精度の測定・名簿・保存データへの保管・評価用の確かめ済み。
+- **app-learn.js** (259 行) — app-learn.js — 「編集」の画面: 修正の提案・校正済み・進み具合の帯・認識精度の測定・名簿・保存データへの保管・評価用の確かめ済み。
   - 名前: `scheduleSuggest` :8・`sugList` :12・`sugHTML` :14・`renderChips` :23・`loadSuggest` :33・`sugFeedback` :40・`altJob` :47・`renderAlt` :50・`applySug` :69・`acceptSug` :74・`rejectSug` :83・`setProof` :87・ほか 17
 - **app-list.js** (81 行) — app-list.js — 「編集」の画面: 保存済み一覧の読み込み・題名の行の「まとめて実行」。
   - 名前: `loadList` :10・`portalApi` :18・`applyNeedHome` :24・`runCls` :29・`runStepsText` :30・`pollRuns` :32・`startDocAuto` :46・`renderDocAuto` :63・`syncListItem` :75
@@ -100,12 +100,12 @@
 
 ## src/app/ui/home/
 
-- **portal-edit.js** (162 行) — ホームの運用の中の「編集の精度と学習」(src/app/ui/home/portal.html の #editOpsBox。RS8 C3)。
-- **portal.js** (2022 行) — ホーム(src/app/ui/home/portal.html。段階5で入口 + 案件を1つにした)。
+- **portal-edit.js** (67 行) — ホームの運用の中の「編集の精度」(src/app/ui/home/portal.html の #editOpsBox。RS8 C3)。
+- **portal.js** (1782 行) — ホーム(src/app/ui/home/portal.html。段階5で入口 + 案件を1つにした)。
 
 ## src/app/ui/settings/
 
-- **settings.js** (212 行) — 設定の画面(/settings = 入口の直下の 1 枚。部品は src/app/ui/settings/。設定を 1 つに S5。notes:docs/spec/data.md の 4)。
+- **settings.js** (207 行) — 設定の画面(/settings = 入口の直下の 1 枚。部品は src/app/ui/settings/。設定を 1 つに S5。notes:docs/spec/data.md の 4)。
 
 ## src/app/ui/studio/
 

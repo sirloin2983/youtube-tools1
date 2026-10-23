@@ -180,10 +180,6 @@
     });
     $('#stCount').textContent = q.trim() ? n + ' 件' : '';
   }
-  function copyJson() {
-    var out = { home: HOME.data, studio: STUDIO.data, editor: EDITOR.data, analytics: ANALYTICS.data, outDir: STUDIO.state.outDir || '' };
-    UIKit.copy(JSON.stringify(out, null, 1), { ok: '今の設定を JSON の文字でコピーしました', fail: 'コピーできませんでした(ブラウザが拒みました)' });
-  }
   function load() {
     var stores = [HOME, STUDIO, EDITOR, ANALYTICS];
     return Promise.all(stores.map(function (s) { return s.load().then(null, function () { /* off に理由を入れた */ }); })).then(function () {
@@ -203,7 +199,6 @@
     var timer = 0;
     $('#stSearch').addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(applyFilter, 120); });
     document.addEventListener('ui-set-changed', function () { forms.forEach(function (f) { f.refresh(); }); applyFilter(); });   /* ほかの節の when も描き直す */
-    $('#stCopy').addEventListener('click', copyJson);
     UIKit.http(new URL('settings-schema.json', location.href).href, { timeout: 8000 }).then(function (j) { SCHEMA = j; return load(); }).then(null, function (e) {
       $('#stLoading').textContent = '設定を読み込めませんでした: ' + ((e && e.message) || '');
     });

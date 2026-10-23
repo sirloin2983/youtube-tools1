@@ -3,11 +3,11 @@
    - 案件(配信ごと)の一覧は /api/cases を読んで組み立てる。状態・メモは持たない(MARKS-3)
    - 「処理の状況」は、まとめて実行(/api/flow/runs)の実行中(今の段・全体の進み)・待ち・失敗と、失敗の文がある自動の切り抜き(案件の一覧の failed)。
      案件の一覧の行は依頼(誰の・何を)と結果(切り抜き・校正・パック・失敗)だけ。「確かめる」は api/check/next?n=0 の goal から今いちばん効く確認を 1 つ・[始める] は /check(V1 確かめる)。
-     「新しい案件」は引き出し(cases-panels/new.js = スタジオ ① のつなぎ)。受付・バックアップ・記録・編集の精度と学習・調子は「運用」の枠に畳む
+     「新しい案件」は引き出し(cases-panels/new.js = スタジオ ① のつなぎ)。受付・バックアップ・記録・編集の精度・調子は「運用」の枠に畳む
    - 画面の移り方(S-15): ツールの画面へのリンクは同じ窓で移る(target を付けない。新しい窓は Ctrl・中クリック = 窓の中なら UIKit.win)。
      「詳しく」のツールのカードの「開く」(サーバーの管理)だけは新しい窓
-   - 「単体の文字起こし」は、案件の一覧が返す unlinked(どの配信にも紐づかない文字起こし。src/manage/cases/txindex の規則そのまま)を、
-     「編集」の文書の一覧と id で突き合わせて、校正の進み具合・パックの有無まで見せる。読めないときは案件の一覧の項目だけで表示する
+   - 「単体の文字起こし」は、案件の一覧が返す unlinked(どの配信にも紐づかない文字起こし)の件数と「案件の画面で見る」だけ
+     (選んでまとめて実行する一覧は 10-24 ユーザーの OK で消した。「編集」の履歴の「選んで、まとめて実行」は残る)
    ツール名・ログ・メッセージ・配信のタイトルなどはすべて textContent で入れる(HTML として解釈させない)。 */
 (function () {
   'use strict';
@@ -15,13 +15,12 @@
   var PILL = { starting: 'run', running: 'ok', external: 'info', stopping: 'wait', stopped: 'wait', crashed: 'err', missing: 'err' };
   var STEP_PILL = { wait: 'wait', run: 'run', done: 'ok', skip: 'wait', warn: 'warn', error: 'err' };
   var POLL_MS = 1500, POLL_HIDDEN_MS = 5000;
-  var PAGE_SIZE = 30, DOC_PAGE = 20, TODO_CAP = 8;
+  var PAGE_SIZE = 30, TODO_CAP = 8;
 
   var cards = {};        // ツールID → {el, data}
   var fails = 0, closed = false, timer = null, quitNotice = '';
 
   var casesData = null;                 // /api/cases の中身
-  var txList = null, txById = {};       // /transcribe/api/transcripts(読めないときは null。次にやること・単体の文字起こしの詳しい表示に使う)
   var casesRev = null, casesRevAt = 0, casesRevTimer = 0;   // /api/status の casesRev(案件の一覧の元の更新の印)・最後に一覧を読んだ時刻
   var autoPushed = null;              // /api/status の autoPushed(まとめて実行に積んだ回数。増えたら pollAuto をすぐ)
   var runsByVideo = {}, runsByDoc = {}; // /api/flow/runs の実行(配信単位・文書単位)。最新のものだけ
@@ -31,12 +30,9 @@
   var wasActiveVideo = {}, wasActiveDoc = {}, wasActiveFile = {};
   var autoTimer = null;
   var visibleCount = PAGE_SIZE;         // 案件の一覧の「もっと見る」
-  var docVisibleCount = DOC_PAGE;       // 単体の文字起こしの「もっと見る」
-  var docPicked = {};                   // 単体の文字起こしで選んだ文書の id
   var openCases = {};                   // この画面を開いてから自分で開閉した案件(id → bool)
   var caseDrafts = {};                  // 保存していない入力(配信者)。id → {streamer}(再描画(alt-tab で戻ったときなど)でも保つ)
   function draftFor(id) { return caseDrafts[id] || (caseDrafts[id] = {}); }
-  var groupOpenCache = null;
   var termShown = {};
   var todoShowAll = false;
 
@@ -101,7 +97,7 @@
   /* 押したボタンが描き直しで消えても、フォーカスを失わない(M6。キーボードの人が画面の先頭から Tab し直さないように)。
      行には data-fkey(一覧の名前:id)を付けてあるので、描き直したあとで引く: その行がまだあれば行の中の「非表示にする」・
      隠れて無くなったら次の行(無ければ前の行)の最初の操作・それも無ければその一覧の「非表示 n件を表示」 */
-  var HIDE_TOGGLE = { cases: '#casesHidden', transcripts: '#docHidden', todo: '#todoHidden', intake: '#intakeHidden', runs: '#historyHidden' };
+  var HIDE_TOGGLE = { cases: '#casesHidden', todo: '#todoHidden', intake: '#intakeHidden', runs: '#historyHidden' };
   function rowByKey(k) { return k ? $all('[data-fkey]').filter(function (n) { return n.getAttribute('data-fkey') === k; })[0] || null : null; }
   function firstFocusable(root) {
     return root ? (root.querySelector('a[href], summary, button:not([disabled]), input:not([disabled]), select, textarea') || null) : null;
@@ -109,7 +105,7 @@
   function focusFallback(list, near) {
     var t = near || (HIDE_TOGGLE[list] ? $(HIDE_TOGGLE[list]) : null), box = t && t.hidden ? null : t;
     if (box) { box.focus({ preventScroll: true }); return; }
-    var h = $(list === 'cases' ? '#fText' : list === 'transcripts' ? '#docSearch' : '#todoBox h2');
+    var h = $(list === 'cases' ? '#fText' : '#todoBox h2');
     if (h) { if (!/INPUT|BUTTON|A|SUMMARY/.test(h.tagName)) h.setAttribute('tabindex', '-1'); h.focus({ preventScroll: true }); }
   }
   function hidePlan(btn, list) {
@@ -361,11 +357,6 @@
 
   function lsGet(k, d) { try { var v = localStorage.getItem('ytt.cases.' + k); return v === null ? d : v; } catch (e) { return d; } }
   function lsSet(k, v) { try { localStorage.setItem('ytt.cases.' + k, v); } catch (e) { /* 保存できなくても動く */ } }
-  function groupOpenMap() {
-    if (!groupOpenCache) { try { groupOpenCache = JSON.parse(lsGet('groupOpen', '{}')) || {}; } catch (e) { groupOpenCache = {}; } }
-    return groupOpenCache;
-  }
-  function setGroupOpen(key, open) { groupOpenMap()[key] = !!open; lsSet('groupOpen', JSON.stringify(groupOpenCache)); }
 
   function clipRow(c, kase) {
     var li = el('li', 'pt-clip');
@@ -754,11 +745,6 @@
     return null;
   }
 
-  function wireGroup(g, key) {
-    $('summary', g).addEventListener('click', function (e) {
-      setTimeout(function () { setGroupOpen(key, g.open); }, 0);
-    });
-  }
 
   /* noHide: 非表示かどうかを見ない(「非表示 n件を表示」の数を数えるため)。実行中の案件は隠していても出す */
   function visible(c, noHide) {
@@ -772,11 +758,6 @@
     if (key === 'channel') list.sort(function (a, b) { return (a.channel || '').localeCompare(b.channel || '', 'ja') || (a.title || '').localeCompare(b.title || '', 'ja'); });
     else if (key === 'title') list.sort(function (a, b) { return (a.title || '').localeCompare(b.title || '', 'ja'); });
     else list.sort(function (a, b) { return (b.streamedAt || 0) - (a.streamedAt || 0); });
-  }
-  function groupKeyOf(c) {
-    var g = $('#fGroup').value;
-    if (g === 'channel') return c.channel || '(配信者不明)';
-    return '';
   }
 
   /* 再描画で入力中のフォーカス・カーソル位置を失わないように、一覧を作り直す前後で保つ(E2 finding 1:
@@ -813,35 +794,18 @@
     var focusInfo = captureFocus($('#list'));
     var full = casesData.cases.filter(visible);
     sortList(full);
-    var totalCount = full.length, gval = $('#fGroup').value;
-    var fullCount = {};
-    if (gval) full.forEach(function (c) { var k = groupKeyOf(c); fullCount[k] = (fullCount[k] || 0) + 1; });
+    var totalCount = full.length;
     var shown = full.slice(0, Math.max(0, visibleCount));
 
     var list = $('#list');
     list.textContent = '';
     if (!shown.length) {
       list.appendChild(casesData.cases.length ? emptyFiltered() : emptyCases());
-    } else if (!gval) {
-      shown.forEach(function (c) { list.appendChild(caseCard(c)); });
     } else {
-      var order = [], bucket = {};
-      shown.forEach(function (c) { var k = groupKeyOf(c); if (!bucket[k]) { bucket[k] = []; order.push(k); } bucket[k].push(c); });
-      order.forEach(function (k) {
-        var key = gval + ':' + k;
-        var g = $('#tplGroup').content.firstElementChild.cloneNode(true);
-        g.dataset.key = key;
-        $('.pt-group-label', g).textContent = k;
-        $('.ui-group-n', g).textContent = (fullCount[k] || bucket[k].length) + '件';
-        var body = $('.pt-group-body', g);
-        bucket[k].forEach(function (c) { body.appendChild(caseCard(c)); });
-        g.open = !!groupOpenMap()[key];
-        wireGroup(g, key);
-        list.appendChild(g);
-      });
+      shown.forEach(function (c) { list.appendChild(caseCard(c)); });
     }
 
-    var narrowed = gval || $('#fText').value.trim();
+    var narrowed = $('#fText').value.trim();
     paintCount('#count', '#moreBox', '#btnMore', narrowed, totalCount, casesData.cases.length, shown.length);
     hideToggle('#casesHidden', 'cases', casesData.cases.filter(function (c) { return visible(c, true) && isHid('cases', c.id) && !active(runsByVideo[c.id]); }).length);
     restoreFocus(focusInfo);
@@ -961,7 +925,7 @@
   /* 案件の一覧・文字起こしの一覧を読み直す(ヘッダーの「読み込み直す」と、読めなかったときのボタン) */
   function reloadAll() {
     loadCheck();
-    return Promise.all([loadCases(), loadTxList()]).then(function () { renderDocs(); buildTodo(); if (!casesLoadFailed) toast('読み込み直しました'); });
+    return loadCases().then(function () { renderDocs(); buildTodo(); if (!casesLoadFailed) toast('読み込み直しました'); });
   }
   function refreshCases() {
     // render() だけでなく、案件の一覧から組み立てる「次にやること」・「単体の文字起こし」も一緒に作り直す
@@ -972,207 +936,26 @@
   }
 
   function restoreFilters() {
-    var so = lsGet('sort', 'new'), gr = lsGet('group', '');
+    var so = lsGet('sort', 'new');
     if ($('#fSort').querySelector('option[value="' + so + '"]')) $('#fSort').value = so;   // 無くなった並び方(次にやることが多い順など)を覚えていたら新しい順
-    if ($('#fGroup').querySelector('option[value="' + gr + '"]')) $('#fGroup').value = gr;
   }
 
   /* ================================================================ 単体の文字起こし(紐づかない文書) ================================================================ */
 
-  function loadTxList() {
-    return api('transcribe/api/transcripts').then(function (j) {
-      txList = (j && j.items) || [];
-      txById = {};
-      txList.forEach(function (it) { txById[it.id] = it; });
-    }).catch(function () { txList = null; txById = {}; });   // 「編集」が動いていない・取り込まれていないときは、案件の一覧の項目だけで表示する
-  }
-
-  function mergedDoc(u) {
-    var tx = txById[u.id];
-    if (!tx) return { id: u.id, title: u.title || u.id, rows: u.segments, proofed: u.proofed, pack: null, packKnown: false, updatedAt: u.updatedAt || 0, sourcePath: u.sourcePath,
-                      fileName: baseName(u.sourcePath) };
-    return { id: u.id, title: tx.streamTitle || tx.clipTitle || tx.title || u.title || u.id, rows: tx.rows, proofed: tx.proofed, pack: tx.pack, packStale: tx.packStale,
-             packKnown: true, updatedAt: tx.updatedAt || u.updatedAt || 0, sourcePath: u.sourcePath, fileName: tx.sourceName || baseName(u.sourcePath) };
-  }
-  /* 同じ題名の文書を見分ける副題(S-26): 元のファイル名・更新日時 */
-  function docSubText(fileName, updatedAt) { return [fileName || '', updatedAt ? '更新 ' + ago(updatedAt) : ''].filter(Boolean).join(' ・ '); }
-
-  /* 単体の文字起こしの一覧(検索で絞り、更新の新しい順)。mergedDoc は 1 件に 1 回だけ作る(並べ替えの比較のたびに作らない) */
-  function docSearchList(noHide) {
-    var q = $('#docSearch').value.trim().toLowerCase();
-    var rows = ((casesData && casesData.unlinked) || []).filter(function (u) { return noHide || !isHid('transcripts', u.id) || showHid('transcripts'); })
-      .map(function (u) { return { u: u, d: mergedDoc(u) }; });
-    if (q) rows = rows.filter(function (x) { return (x.d.title || '').toLowerCase().indexOf(q) >= 0; });
-    rows.sort(function (a, b) { return (b.d.updatedAt || 0) - (a.d.updatedAt || 0); });
-    return rows.map(function (x) { return x.u; });
-  }
-
-  function docCard(u) {
-    var d = mergedDoc(u);
-    var li = $('#tplDoc').content.firstElementChild.cloneNode(true);
-    li.id = 'doc-' + d.id;
-    li.dataset.id = d.id;
-    li.setAttribute('data-fkey', 'transcripts:' + d.id);
-    $('.pt-doc-title', li).textContent = d.title;
-    var sub = $('.pt-doc-sub', li);
-    sub.textContent = docSubText(d.fileName, d.updatedAt);
-    sub.title = d.sourcePath || '';   // フルパスは title だけ(ui-guidelines 4)
-    var txt = d.rows ? ('校正 ' + (d.proofed || 0) + '/' + d.rows + '行') : '文字起こし まだ';
-    if (d.packKnown) txt += d.pack ? (d.packStale ? ' ・ パック 作り直しが要る' : ' ・ パック済み') : ' ・ パック まだ';
-    $('.pt-doc-tx', li).textContent = txt;
-    var chk = $('.pt-doc-check', li);
-    chk.checked = !!docPicked[d.id];
-    chk.addEventListener('change', function () { if (chk.checked) docPicked[d.id] = true; else delete docPicked[d.id]; syncDocRunButton(); });
-    var openA = $('.pt-doc-open', li);
-    openA.href = docHref(d.id, '', 'proof'); openA.removeAttribute('aria-disabled');   // 文書 ID で開く(動画が無くても文書は開ける)
-    if (hideApi()) $('.pt-doc-steps', li).appendChild(hideBtn('transcripts', d.id, d.title));
-    markHid(li, 'transcripts', d.id, $('.pt-doc-main', li).parentNode);
-    return li;
-  }
-
-  function renderDocRun(id) {
-    var li = document.getElementById('doc-' + id); if (!li) return;
-    var r = runsByDoc[id], past = r ? null : pastByDoc[id], pill = $('.pt-doc-runpill', li), msg = $('.pt-doc-runmsg', li);
-    if (msg) { msg.hidden = !past; msg.textContent = past ? pastText(past) : ''; }   // 前回の結果(入口を起動し直したあと。段2 B-6)
-    if (!r && past && past.state === 'error') r = past;
-    if (r && r.state === 'error') {   // 失敗は札に残す(終わっても消さない。S-5)
-      pill.hidden = false; pill.className = 'pill pt-doc-runpill err'; pill.textContent = '失敗'; pill.title = r.error || ''; return;
-    }
-    if (!active(r)) { pill.hidden = true; return; }
-    pill.hidden = false;
-    pill.className = 'pill pt-doc-runpill ' + (r.state === 'running' ? 'run' : 'wait');
-    pill.textContent = r.state === 'running' ? '実行中' : '待ち';
-  }
-
-  /* 押せないボタンには理由を title に(A-34)。押せるときは title を外す */
-  function offBtn(b, off, why) { b.disabled = !!off; if (off) b.title = why; else b.removeAttribute('title'); }
-  var DOC_BATCH_MAX = 20;   // まとめて実行に一度に入れられる文書の数(src/app/autorun.py の MAX_WAITING)
-  function syncDocRunButton() {
-    var n = Object.keys(docPicked).length;
-    offBtn($('#docRunBtn'), !n || n > DOC_BATCH_MAX, n ? '一度に ' + DOC_BATCH_MAX + ' 本までです。選びを減らすと押せます' : '文字起こしを選ぶと押せます(一覧の左のチェック)');
-    $('#docPickHint').textContent = n > DOC_BATCH_MAX ? n + '本を選んでいます(一度に ' + DOC_BATCH_MAX + ' 本までです)'
-      : n ? (n + '本を選んでいます(' + DOC_BATCH_MAX + ' 本まで)') : '文字起こしを選んでください(一覧の左のチェック。' + DOC_BATCH_MAX + ' 本まで)';
-  }
-  /* 表示中を全部選ぶ / パックが無いものだけ選ぶ(S-11)。20 本までにして、あふれたら知らせる */
-  function pickDocs(onlyNoPack) {
-    var shown = docSearchList().slice(0, Math.max(0, docVisibleCount)).map(mergedDoc).filter(function (d) { return !onlyNoPack || (d.packKnown && !d.pack); });
-    docPicked = {};
-    shown.slice(0, DOC_BATCH_MAX).forEach(function (d) { docPicked[d.id] = true; });
-    renderDocs();
-    if (shown.length > DOC_BATCH_MAX) toast('一度に選べるのは ' + DOC_BATCH_MAX + ' 本までです(上から ' + DOC_BATCH_MAX + ' 本を選びました)', 'info');
-    else if (!shown.length) toast(onlyNoPack ? 'パックが無い文字起こしはありません' : '選べる文字起こしがありません', 'info');
-  }
-
+  /* 件数と「案件の画面で見る」の 1 行(一覧は案件の画面の「どの案件にも入らない文字起こし」) */
   function renderDocs() {
     var total = (casesData && casesData.unlinked && casesData.unlinked.length) || 0;
-    $('#unlinkedGroup').hidden = !total; $('#unlinkedHead').hidden = !total;
-    if (!total) return;
-    $('#unlinkedCount').textContent = total + '件';   // ホームの数(txindex の unlinked)。「編集」の履歴の「それ以外」(!hasClip)とは集合が少し違うので、あちらの件数とは比べない
-    var full = docSearchList();
-    var shown = full.slice(0, Math.max(0, docVisibleCount));
-    var ul = $('#docList');
-    ul.textContent = '';
-    shown.forEach(function (u) { ul.appendChild(docCard(u)); });
-    var de = $('#docEmpty'); de.hidden = !!shown.length;   // 検索で 0 件のとき(M5)
-    if (!shown.length) {
-      if ($('#docSearch').value.trim()) emptyBox('条件に合う文字起こしはありません', '検索を消すと、全部の文字起こしが出ます。', { label: '検索を消す', fn: function () { $('#docSearch').value = ''; resetDocPaging(); $('#docSearch').focus(); } }, de);
-      else emptyBox('表示できる文字起こしはありません', 'すべて非表示にしています。「非表示のものも出す」と、また見られます。', { label: '非表示のものも出す', fn: function () { UIKit.hide.setShowing('transcripts', true); } }, de);
-    }
-    Object.keys(runsByDoc).concat(Object.keys(pastByDoc)).forEach(renderDocRun);
-    hideToggle('#docHidden', 'transcripts', docSearchList(true).filter(function (u) { return isHid('transcripts', u.id); }).length);
-    paintCount('#docCount', '#docMoreBox', '#docMore', $('#docSearch').value.trim(), full.length, total, shown.length);
-    syncDocRunButton();
+    $('#unlinkedHead').hidden = !total;
+    if (total) $('#unlinkedCount').textContent = total + '件';   // ホームの数(txindex の unlinked)
   }
-  function resetDocPaging() { docVisibleCount = DOC_PAGE; renderDocs(); }
 
-  function runDocsBatch() {
-    var ids = Object.keys(docPicked);
-    if (!ids.length) return;
-    var over = $('#docOverwrite').checked, who = $('#docWho').value.trim();
-    var orders = ids.map(function (id) {   // 文書 1 本ずつ封筒にして submit(見積もりも 1 本ずつ足す。RV A1)
-      var f = { kind: 'docs', docId: id, repack: over };
-      if (who) f.streamer = who;
-      return UIKit.flow.order(f);
-    });
-    offBtn($('#docRunBtn'), true, '始めています。少し待ってください');
-    UIKit.autorun.start(orders).then(function (r) {
-      if (!r) { syncDocRunButton(); return; }   // やることが無い(見積もり)
-      (r.runs || []).forEach(function (run) { runsByDoc[run.docId] = run; });
-      docPicked = {};
-      renderDocs();
-      pollAuto();
-    }).catch(function (e) { failToast('まとめて実行を始められませんでした', 'もう一度「選んだ文字起こしをまとめて実行」を押してください', e); syncDocRunButton(); });
-  }
+
 
   /* ================================================================ 調子(段9 9-1。/api/health。数字は入口、良い/注意/悪い の判定はここ) ================================================================ */
   var GB = 1024 * 1024 * 1024;
   function fmtBytes(b) { b = Number(b) || 0; return b >= GB ? (b / GB).toFixed(b >= 10 * GB ? 0 : 1) + ' GB' : b >= 1048576 ? Math.round(b / 1048576) + ' MB' : b >= 1024 ? Math.round(b / 1024) + ' KB' : b + ' B'; }
   function fmtAgo(sec) { sec = Number(sec) || 0; return sec < 90 ? Math.round(sec) + ' 秒前' : sec < 5400 ? Math.round(sec / 60) + ' 分前' : sec < 172800 ? Math.round(sec / 3600) + ' 時間前' : Math.round(sec / 86400) + ' 日前'; }
   var healthBusy = false, healthTimer = 0;
-  /* ================================================================ 片付け(段9 9-2。/api/cleanup。候補 → 選ぶ → ごみ箱フォルダへ移す) ================================================================ */
-  var cleanData = null, cleanBusy = false;
-  function loadCleanup() {
-    if (cleanBusy) return;
-    cleanBusy = true;
-    $('#cleanWhen').textContent = '探しています…';
-    api('api/cleanup').then(renderCleanup, function (e) {
-      $('#cleanWhen').textContent = '';
-      var box = $('#cleanKinds'); box.textContent = '';
-      var p = el('p', 'hint', failText('候補を読めませんでした', '「候補を探す」をもう一度押してください', e)); p.title = detailOf(e);
-      box.appendChild(p);
-    }).then(function () { cleanBusy = false; });
-  }
-  function cleanPicked() { return Array.prototype.map.call(document.querySelectorAll('#cleanKinds input[data-id]:checked'), function (c) { return c.getAttribute('data-id'); }); }
-  function cleanSync() {
-    var ids = cleanPicked(), bytes = 0;
-    (cleanData && cleanData.kinds || []).forEach(function (k) { k.items.forEach(function (i) { if (ids.indexOf(i.id) >= 0) bytes += i.bytes; }); });
-    $('#cleanSel').textContent = ids.length ? ids.length + ' 件・' + fmtBytes(bytes) + ' を選んでいます' : '';
-    offBtn($('#btnCleanMove'), !ids.length, '先に「候補を探す」を押し、移す物にチェックを付けると押せます');
-  }
-  function renderCleanup(d) {
-    cleanData = d;
-    $('#cleanWhen').textContent = '候補 ' + fmtBytes(d.bytes);
-    $('#cleanDays').textContent = d.trashDays;   // ごみ箱フォルダが消えるまでの日数(keepDays は候補に出すまでの日数で別の値)
-    var box = $('#cleanKinds'); box.textContent = '';
-    d.kinds.forEach(function (k) {
-      var det = el('details'), sum = el('summary');
-      var all = el('input'); all.type = 'checkbox'; all.disabled = !k.count; all.setAttribute('aria-label', k.label + 'をすべて選ぶ');
-      sum.appendChild(all); sum.appendChild(document.createTextNode(' ' + k.label + ' — ' + k.count + ' 件・' + fmtBytes(k.bytes)));
-      det.appendChild(sum);
-      var ul = el('ul');
-      k.items.forEach(function (i) {
-        var li = el('li'), lb = el('label'), cb = el('input');
-        cb.type = 'checkbox'; cb.setAttribute('data-id', i.id);
-        lb.appendChild(cb);
-        lb.appendChild(el('span', '', i.name + '(' + fmtBytes(i.bytes) + (i.extra && i.extra.length ? '・途中のファイル ' + i.extra.length + ' 個も' : '') + ')'));
-        if (i.note) lb.appendChild(el('span', 'hint', i.note));
-        lb.title = i.path;
-        li.appendChild(lb); ul.appendChild(li);
-      });
-      if (!k.count) ul.appendChild(el('li', 'hint', 'ありません'));
-      det.appendChild(ul);
-      all.addEventListener('click', function (e) { e.stopPropagation(); });
-      all.addEventListener('change', function () { ul.querySelectorAll('input[data-id]').forEach(function (c) { c.checked = all.checked; }); cleanSync(); });
-      ul.addEventListener('change', cleanSync);
-      box.appendChild(det);
-    });
-    cleanSync();
-  }
-  function moveCleanup() {
-    var ids = cleanPicked();
-    if (!ids.length) return;
-    UIKit.dialog.confirm({ title: 'ごみ箱フォルダへ移す', ok: '移す',
-      body: $('#cleanSel').textContent + '。ごみ箱フォルダ(動画と同じドライブ)へ移し、' + cleanData.trashDays + ' 日たつとホームの起動時に消えます。それまではエクスプローラーで元の場所へ戻せます(元の場所は、ごみ箱フォルダの中の記録のファイルに書いてあります)。' }).then(function (ok) {
-      if (!ok) return;
-      offBtn($('#btnCleanMove'), true, '移しています。少し待ってください');
-      return api('api/cleanup', 'POST', { ids: ids }).then(function (r) {
-        var msg = r.moved.length + ' 件をごみ箱フォルダへ移しました' + (r.failed.length ? '。' + r.failed.length + ' 件は移せませんでした(使っているツールを閉じてから、もう一度「候補を探す」で選び直してください)' : '');
-        if (r.failed.length) UIKit.toast(msg, { kind: 'err', detail: String(r.failed[0].error || '') });
-        else toast(msg);
-        loadCleanup();
-      }, function (e) { failToast('ごみ箱フォルダへ移せませんでした', 'もう一度選んで「移す」を押してください', e); cleanSync(); });
-    });
-  }
 
   function loadHealth(refresh) {
     if (healthBusy) return;
@@ -1241,7 +1024,7 @@
     // 空き容量
     (h.disk || []).forEach(function (d) {
       var st = diskState(d.freeBytes);
-      ul.appendChild(healthRow(st, '空き容量 ' + (d.drive || d.path), fmtBytes(d.freeBytes) + ' / ' + fmtBytes(d.totalBytes) + (st !== 'ok' ? '。片付けを考えてください' : ''), [d.path]));
+      ul.appendChild(healthRow(st, '空き容量 ' + (d.drive || d.path), fmtBytes(d.freeBytes) + ' / ' + fmtBytes(d.totalBytes) + (st !== 'ok' ? '。要らない動画を消して空きを作ってください' : ''), [d.path]));
     });
     // 作業データの大きさ
     if (h.data) {
@@ -1469,9 +1252,9 @@
     function vHref(id) { return known[id] ? '#case-' + id : '#intake'; }   // 依頼の解析は、案件の行がまだ無いことがある
     Object.keys(runsByVideo).forEach(function (id) { add(runsByVideo[id], vHref(id)); });
     Object.keys(runsByFile).forEach(function (id) { add(runsByFile[id], '#intake'); });
-    Object.keys(runsByDoc).forEach(function (id) { add(runsByDoc[id], '#doc-' + id); });
+    Object.keys(runsByDoc).forEach(function (id) { add(runsByDoc[id], docHref(id, '', 'proof')); });
     Object.keys(pastByVideo).forEach(function (id) { if (!runsByVideo[id]) add(pastByVideo[id], vHref(id)); });
-    Object.keys(pastByDoc).forEach(function (id) { if (!runsByDoc[id]) add(pastByDoc[id], '#doc-' + id); });
+    Object.keys(pastByDoc).forEach(function (id) { if (!runsByDoc[id]) add(pastByDoc[id], docHref(id, '', 'proof')); });
     var queued = runs.filter(function (x) { return x.r.state === 'queued'; }).sort(function (a, b) { return (a.r.created || 0) - (b.r.created || 0); });
     var items = [];
     runs.filter(function (x) { return x.r.state === 'running'; }).forEach(function (x) {
@@ -1572,20 +1355,16 @@
         if (p.kind === 'doc') { if (p.docId && !pastD[p.docId]) pastD[p.docId] = p; }
         else if (p.videoId && !pastV[p.videoId]) pastV[p.videoId] = p;
       });
-      var goneD = Object.keys(pastByDoc).filter(function (id) { return !pastD[id]; });   // 前回の表示を消す行
       pastByVideo = pastV; pastByDoc = pastD;
-      goneD.forEach(renderDocRun);
       $all('#list .pt-case').forEach(function (node) {
         renderAuto(node, node.dataset.id);
         var c = caseById(node.dataset.id);
         if (c) $('.pt-case-sub', node).textContent = caseSubText(c);   // 依頼の内容は最後のまとめて実行から
       });
-      Object.keys(runsByDoc).concat(Object.keys(pastByDoc)).forEach(renderDocRun);
       pollIntake();   // 依頼の受付も同じ周期で読む(別のタイマーは持たない)
       pollBackup();
       if (finished) {
         refreshCases();
-        loadTxList().then(function () { renderDocs(); buildTodo(); });
         if ($('#historyBox').open) loadHistory(true);   // 開いている記録にも、終わった実行を足す
       } else {
         buildTodo();
@@ -1913,24 +1692,22 @@
     });
   }
 
-  /* ================================================================ ハッシュ(#cases・#case-<id>・#doc-<id>): 次にやることのリンク先へ移る ================================================================ */
+  /* ================================================================ ハッシュ(#cases・#case-<id>): 次にやることのリンク先へ移る ================================================================ */
 
   function focusHash() {
     var h = location.hash;
     if (!h) return;
     if (h === '#intake') { var ib = $('#intakeBox'); if (ib) { openOps(); ib.open = true; ib.scrollIntoView({ behavior: 'smooth', block: 'start' }); } return; }
     if (h === '#new' || h.indexOf('#new?') === 0) { openNewCase(null, newCaseArgs()); return; }
-    if (h === '#edit-acc' || h === '#edit-learn') { openOps(); var eb = $('#editOpsBox'); if (eb) { eb.open = true; eb.scrollIntoView({ behavior: 'smooth', block: 'start' }); } return; }
+    if (h === '#edit-acc') { openOps(); var eb = $('#editOpsBox'); if (eb) { eb.open = true; eb.scrollIntoView({ behavior: 'smooth', block: 'start' }); } return; }
     if (h === '#cases') { var sec = $('#caseListSection'); if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
-    var m = /^#(case|doc)-(.+)$/.exec(h);
+    var m = /^#case-(.+)$/.exec(h);
     if (!m) return;
-    var id = decodeURIComponent(m[2]);
-    if (m[1] === 'case') { visibleCount = Math.max(visibleCount, 10000); render(); }
-    else { docVisibleCount = Math.max(docVisibleCount, 10000); $('#unlinkedGroup').open = true; renderDocs(); }
-    var target = document.getElementById(m[1] + '-' + id);
+    var id = decodeURIComponent(m[1]);
+    visibleCount = Math.max(visibleCount, 10000); render();
+    var target = document.getElementById('case-' + id);
     if (!target) return;
-    // 対象自身(details なら)だけでなく、まとめ方(配信者でまとめる。.ui-group)で包まれているときは
-    // その details も開く。閉じたままだと target が非表示のまま scrollIntoView されてしまう(E2 finding 3)
+    // 対象自身(details なら)と、それを包む details も開く。閉じたままだと target が非表示のまま scrollIntoView されてしまう(E2 finding 3)
     for (var node = target; node; node = node.parentElement) { if (node.tagName === 'DETAILS') node.open = true; }
     target.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
@@ -1949,15 +1726,12 @@
     var hs = $('#homeSettings');
     if (hs) hs.hidden = false;
     UIKit.settings.mount(hs ? { title: '設定', tool: hs } : { title: '設定' });
-    UIKit.streamer.attach($('#docWho'));
 
     $('#btnQuit').addEventListener('click', quit);
     $('#btnHealthRefresh').addEventListener('click', function () { loadHealth(true); });
     $('#btnAccuracyNow').addEventListener('click', accuracyNow);
     var adv = $('#healthBox') && $('#healthBox').closest('details');
     if (adv) { adv.addEventListener('toggle', function () { if (adv.open) loadHealth(false); }); if (adv.open) loadHealth(false); }
-    $('#btnCleanFind').addEventListener('click', loadCleanup);
-    $('#btnCleanMove').addEventListener('click', moveCleanup);
     $('#winMode').addEventListener('change', function () { setWin(this.checked ? 'app' : 'browser'); });
     $('#btnWinNow').addEventListener('click', openWinNow);
     $('#btnCopyData').addEventListener('click', function () {
@@ -1967,24 +1741,11 @@
 
     $('#fText').addEventListener('input', function () { resetPaging(); });
     $('#fSort').addEventListener('change', function () { lsSet('sort', $('#fSort').value); resetPaging(); });
-    $('#fGroup').addEventListener('change', function () { lsSet('group', $('#fGroup').value); resetPaging(); });
-    /* 紐づかない文書の「パックがあれば作り直す(上書き)」も、まとめて実行の設定(ホームの設定)と同じ値(どの入口で変えても同じ。段4) */
-    UIKit.autorun.load().then(function (st) { $('#docOverwrite').checked = st.overwrite; }, function () {});
-    document.addEventListener('ui-autorun-settings', function (e) { if (e.detail) $('#docOverwrite').checked = e.detail.overwrite; });
-    $('#docPickAll').addEventListener('click', function () { pickDocs(false); });
-    $('#docPickNoPack').addEventListener('click', function () { pickDocs(true); });
-    $('#docOverwrite').addEventListener('change', function () { UIKit.prefs.patch('autorun', { overwrite: $('#docOverwrite').checked }).catch(function () {}); });
     $('#btnMore').addEventListener('click', function () {
       var from = $all('#list .pt-case').length; visibleCount += PAGE_SIZE; render(); focusNewRow('#list .pt-case', from);
     });
     $('#btnReload').addEventListener('click', reloadAll);
 
-    $('#docSearch').addEventListener('input', function () { resetDocPaging(); });
-    $('#docMore').addEventListener('click', function () {
-      var from = $all('#docList .pt-doc').length; docVisibleCount += DOC_PAGE; renderDocs(); focusNewRow('#docList .pt-doc', from);
-    });
-    $('#docRunBtn').addEventListener('click', runDocsBatch);
-    UIKit.onEnter($('#docWho'), $('#docRunBtn'), { plain: true });   // 配信者の欄の Enter で実行(S-24)
 
     $('#todoMore').addEventListener('click', function () {   // すべて見る ⇄ 少なく表示。広げたら最初に増えた行へフォーカス(M6・S10)
       todoShowAll = !todoShowAll; buildTodo();
@@ -1995,15 +1756,14 @@
     wireIntake();
     wireBackup();
     wireNewCase();
-    /* 運用の枠: 中の欄(受付・バックアップ・記録・編集の精度と学習・調子)が開いたら枠も開く(コードで開く「まだ決めていない」の受付・バックアップも見える) */
+    /* 運用の枠: 中の欄(受付・バックアップ・記録・編集の精度・調子)が開いたら枠も開く(コードで開く「まだ決めていない」の受付・バックアップも見える) */
     ['intakeBox', 'backupBox', 'historyBox', 'editOpsBox', 'advancedBox'].forEach(function (id) {
       var b = $('#' + id);
       if (b) b.addEventListener('toggle', function () { if (b.open) openOps(); });
     });
     UIKit.hide.onChange(function (list) {   // 非表示にした項目を読んだら・変えたら、その一覧を描き直す(別の窓で変えた分は戻ったときに部品が読み直す)
       if (!list || list === 'cases') render();
-      if (!list || list === 'transcripts') renderDocs();
-      if (!list || list === 'cases' || list === 'transcripts' || list === 'todo') buildTodo();
+      if (!list || list === 'cases' || list === 'todo') buildTodo();
       if ((!list || list === 'intake') && intakeData) renderIntake(intakeData);
       if (!list || list === 'runs') applyHistoryHidden();
     });
@@ -2016,6 +1776,6 @@
 
     poll();
     loadCheck();
-    loadCases().then(function () { return loadTxList(); }).then(function () { renderDocs(); buildTodo(); pollAuto(); focusHash(); });
+    loadCases().then(function () { renderDocs(); buildTodo(); pollAuto(); focusHash(); });
   });
 })();

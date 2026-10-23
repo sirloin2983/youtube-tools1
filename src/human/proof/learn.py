@@ -194,25 +194,6 @@ def _all_infos():
     return out
 
 
-def learned_candidates(min_count=1):
-    settings = _settings.load_settings()
-    have = {(_dictfmt.wb_split(w)[0], r) for w, r in _dictfmt.parse_replacements(settings.get("replacements"))}
-    ignore = {str(x) for x in (settings.get("learnIgnore") or [])[:1000]}
-    counts, docs, ctxs, used, lines = {}, {}, {}, 0, 0
-    for tid, info in _all_infos():
-        used += 1
-        lines += info["lines"]
-        for w, r, ctx, _l, _r in info["events"]:
-            pr = (w, r)
-            counts[pr] = counts.get(pr, 0) + 1
-            docs.setdefault(pr, set()).add(tid)
-            ctxs[pr] = ctx
-    items = [{"wrong": w, "right": r, "count": c, "docs": len(docs[(w, r)]), "ctx": ctxs[(w, r)]} for (w, r), c in counts.items()
-             if c >= min_count and (w, r) not in have and "%s=>%s" % (w, r) not in ignore]
-    items.sort(key=lambda x: (-x["count"], -len(x["wrong"]), x["wrong"]))
-    return {"items": items[:100], "docs": used, "lines": lines}
-
-
 # ---------- 文脈つきの統計 → 修正の提案 / 自動置換 / 用語集 ----------
 # 「直された回数」と「同じ語をそのまま残した回数」を数え、確度で3段階に分ける。
 #   高: 3回以上・2件以上の文字起こしで直され、そのまま残した例が1つもなく、却下も 0 → 自動置換の対象(設定 autoLearned でオン時のみ。既定オフ)

@@ -20,7 +20,6 @@
   POST /api/voices/delete    覚えている声を消す {embedding, name}
   POST /api/rerun            認識し直し(X-RERUN): {tid, target: rows|span|whole|flagged, engine: main|alt, result: replace|propose, ids?, 設定} = human/proof/rerun.validate_rerun
   POST /api/retime           {"id", "rows": [行の id…]} 行の時刻を単語の時刻(words.json)に合わせる候補(読むだけ。文書は書き換えない。本体は human/proof/retime.py の包み + pipeline/transcribe/retime.py の計算)
-  GET  /api/learned          修正から学習した「誤=>正」の候補
   GET  /api/suggest?id=      この文字起こしの各行への「修正の提案」(文脈つきの統計)
   POST /api/suggest/feedback 提案の採用・却下を記録(項目の tier "alt" = 2つ目のエンジンの候補は学習の統計に入れず、数だけ数える)
   GET  /api/metrics?id=&scope=  校正済みの行を正解とした文字誤り率(CER)。id 省略で全件
@@ -177,11 +176,6 @@ def _jobs_list():
     return {"jobs": [_docjobs.public_job(j) for j in _heavy_jobs.all_jobs()]}
 
 
-def _learned(a):
-    mc = a("min", "1")
-    return _learn.learned_candidates(max(1, min(20, int(mc))) if mc.isdigit() else 1)
-
-
 def _metrics(a):
     sc = a("scope", "all")
     return _evmetrics.all_metrics(_tid_arg(a("id"), False) or None, sc if sc in ("all", "eval", "train") else "all")
@@ -202,7 +196,6 @@ GET_API = {
     "/api/voices/preview": lambda a: _speakers.voice_preview(a("tid"), a("embedding")),   # 段1: 覚える前の確認(読むだけ。話者の名前を返すので、ほかの GET と同じ Host/Origin 検査の下)
     "/api/jobs": lambda a: _jobs_list(),
     "/api/transcripts": lambda a: {"items": _doclist.list_transcripts()},
-    "/api/learned": _learned,
     "/api/suggest": lambda a: _learn.suggest_for_doc(_tid_arg(a("id"))),
     "/api/metrics": _metrics,
     "/api/drill/status": lambda a: _drill.drill_status(),   # 評価ドリル(Q4): 定点の「あと何分」と条件

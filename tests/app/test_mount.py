@@ -308,7 +308,7 @@ class TestCut2ResolveMounted(unittest.TestCase):
         self.assertEqual(r.status, 403)
         r, body = self.req("POST", "/cut2resolve/api/job/cancel", b"{}", {"Content-Type": "application/json"})
         self.assertEqual(r.status, 403)   # 合言葉のないものは、ツールの処理まで届かない
-        r, _ = self.req("POST", "/api/cleanup", b"{}", {"Content-Type": "application/json"})
+        r, _ = self.req("POST", "/api/cases/auto", b"{}", {"Content-Type": "application/json"})
         self.assertEqual(r.status, 403)   # 入口の API も合言葉が要る
 
     def test_mounted_state_runtime_and_siblings(self):

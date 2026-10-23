@@ -1,9 +1,9 @@
-/* app-learn.js — 「編集」の画面: 修正から学習した候補・修正の提案・校正済み・進み具合の帯・認識精度の測定・名簿・保存データへの保管・評価用の確かめ済み。
+/* app-learn.js — 「編集」の画面: 修正の提案・校正済み・進み具合の帯・認識精度の測定・名簿・保存データへの保管・評価用の確かめ済み。
    ここは関数の定義だけ。状態(S・V など)・定数・ボタンの配線・起動は app.js(この後に読む)。
    関数はトップレベルの宣言なので、ほかの app-*.js・app.js から名前で呼べる(読む順番は src/app/ui/cases/edhost.js の ED_SCRIPTS の1か所) */
 'use strict';
 
-/* ---------- 修正の提案の読み直し(保存のあと。学習した候補の一覧と登録はホームの運用の「編集の精度と学習」= src/app/ui/home/portal-edit.js) ---------- */
+/* ---------- 修正の提案の読み直し(保存のあと。学習した候補の一覧は 10-24 に消した) ---------- */
 
 function scheduleSuggest(){ clearTimeout(scheduleSuggest.t); scheduleSuggest.t = setTimeout(loadSuggest, 4000); }
 

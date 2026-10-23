@@ -76,7 +76,7 @@ DAILY_KEEP_DAYS = 7   # 日ごとの数(受け付けた件数・友人の「要�
 
 def configured_folder(prefs, defaults=None):
     """ホームの設定の受付のフォルダ(intake.folder。オンかオフかは見ない)。決まっていない・設定が読めなければ ""。
-    受付・手で届ける・ライブの自動の届け先・片付けの候補・学習の束が同じ読み方をする 1 か所"""
+    受付・手で届ける・ライブの自動の届け先・自動の片付け・学習の束が同じ読み方をする 1 か所"""
     try:
         cfg = prefs.get(["intake"])["intake"] or {}
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
@@ -410,7 +410,7 @@ class Intake:
             return dict(self.defaults or {})
 
     def folder(self):
-        """受付のフォルダ(ホームの設定 intake.folder。オフでも返す)。決まっていなければ ""。入口の手で届ける・片付けの候補・学習の束が使う"""
+        """受付のフォルダ(ホームの設定 intake.folder。オフでも返す)。決まっていなければ ""。入口の手で届ける・自動の片付け・学習の束が使う"""
         return configured_folder(self.prefs, self.defaults)
 
     def out_dir(self):

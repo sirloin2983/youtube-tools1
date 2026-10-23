@@ -564,7 +564,7 @@ class PortalHttpTest(Base):
 
     def test_host_check(self):
         self.assertEqual(self.req("GET", "/api/status", headers={"Host": "evil.example:%d" % self.port})[0].status, 403)
-        self.assertEqual(self.post("/api/cleanup", headers={"Host": "evil.example"})[0].status, 403)
+        self.assertEqual(self.post("/api/cases/auto", headers={"Host": "evil.example"})[0].status, 403)
 
     def test_cross_site_reads_and_navigation(self):
         self.assertEqual(self.req("GET", "/api/status", headers={"Sec-Fetch-Site": "cross-site"})[0].status, 403)
@@ -574,12 +574,12 @@ class PortalHttpTest(Base):
         self.assertEqual(self.req("GET", "/", headers=dict(nav, **{"Sec-Fetch-Dest": "iframe"}))[0].status, 403)
 
     def test_post_guards(self):
-        self.assertEqual(self.req("POST", "/api/cleanup", b"{}", {"Content-Type": "text/plain", "X-YTT-Token": self.srv.token})[0].status, 415)
-        self.assertEqual(self.post("/api/cleanup", headers={"Origin": "http://evil.example"})[0].status, 403)
-        self.assertEqual(self.post("/api/cleanup", headers={"Sec-Fetch-Site": "cross-site"})[0].status, 403)
-        self.assertEqual(self.post("/api/cleanup", headers={"Origin": "http://localhost:%d" % (self.port + 1)})[0].status, 403)
-        self.assertEqual(self.post("/api/cleanup", body=b"[1]")[0].status, 400)
-        self.assertEqual(self.post("/api/cleanup", body=b"x" * 5000)[0].status, 413)
+        self.assertEqual(self.req("POST", "/api/cases/auto", b"{}", {"Content-Type": "text/plain", "X-YTT-Token": self.srv.token})[0].status, 415)
+        self.assertEqual(self.post("/api/cases/auto", headers={"Origin": "http://evil.example"})[0].status, 403)
+        self.assertEqual(self.post("/api/cases/auto", headers={"Sec-Fetch-Site": "cross-site"})[0].status, 403)
+        self.assertEqual(self.post("/api/cases/auto", headers={"Origin": "http://localhost:%d" % (self.port + 1)})[0].status, 403)
+        self.assertEqual(self.post("/api/cases/auto", body=b"[1]")[0].status, 400)
+        self.assertEqual(self.post("/api/cases/auto", body=b"x" * 5000)[0].status, 413)
         self.assertEqual(self.post("/api/nope")[0].status, 404)
 
     def test_post_body_edges(self):
@@ -593,7 +593,7 @@ class PortalHttpTest(Base):
         self.assertEqual(err(*self.post("/api/cases/auto", body=b'{"a": 1')), (400, "json"))
         self.assertEqual(err(*self.post("/api/cases/auto", body=b"[" * 3000)), (400, "json"))   # 深い入れ子でも落ちずに 400
         self.assertEqual(err(*self.post("/api/cases/auto", headers={"Content-Type": "text/plain"})), (415, "content_type"))
-        self.assertEqual(self.post("/api/cleanup", headers={"X-YTT-Token": "é" * 10})[0].status, 403)   # ASCII 以外の合言葉でも落ちずに 403
+        self.assertEqual(self.post("/api/cases/auto", headers={"X-YTT-Token": "é" * 10})[0].status, 403)   # ASCII 以外の合言葉でも落ちずに 403
 
     def test_extra_dirs(self):
         """空き容量・ごみ箱フォルダの書き出し先(読み方の場合分けは datadir.studio_out_dir の単体)。settings.json が無ければ []"""
@@ -630,14 +630,6 @@ class PortalHttpTest(Base):
         h = H(ok)
         self.srv.ytt_request(h, "studio", "1")
         self.assertEqual(h.sent, [(200, None)])
-
-    def test_cleanup_api(self):
-        """片付け: 候補の一覧・移す物が無い/候補に出していない物は移さない(候補の中身は tests/manage/keep/test_cleanup.py)"""
-        r, body = self.req("GET", "/api/cleanup")
-        self.assertEqual((r.status, "kinds" in json.loads(body)), (200, True))
-        self.assertEqual(self.post("/api/cleanup", body=json.dumps({"ids": []}).encode())[0].status, 400)
-        r, body = self.post("/api/cleanup", body=json.dumps({"ids": ["nope"]}).encode())
-        self.assertEqual((r.status, json.loads(body)["unknown"], json.loads(body)["moved"]), (200, ["nope"], []))
 
     def test_restart_self(self):
         """起動し直す: 重い処理の最中は 409 で断る。空いていれば新しい入口を --wait-port で起こし、後始末を頼む"""
@@ -776,7 +768,7 @@ class PortalHttpTest(Base):
         r, body = self.req("GET", "/")
         self.assertIn(('<meta name="ytt-token" content="%s">' % self.srv.token).encode(), body)
         for bad in ("", "x" * len(self.srv.token), self.srv.token + "x"):
-            self.assertEqual(self.post("/api/cleanup", headers={"X-YTT-Token": bad})[0].status, 403, bad)
+            self.assertEqual(self.post("/api/cases/auto", headers={"X-YTT-Token": bad})[0].status, 403, bad)
         h = {"Content-Type": "application/json", "Origin": "http://" + self.host}
         self.assertEqual(self.req("POST", "/api/shutdown", b"{}", h)[0].status, 403)   # 合言葉なし
         self.assertFalse(self.srv.closing.is_set())
