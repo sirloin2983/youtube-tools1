@@ -504,6 +504,24 @@ class TestFriendIntake(Base):
         self.assertIsNone(q.status()["blocked"])
         self.assertEqual(len(tools.started), 1)
 
+    def test_disk_full_while_running_says_disk(self):
+        """段の途中で空きが尽きた(OSError ENOSPC。10-23 の見回り): 想定外の不具合ではなく空き容量の文(友人の行で disk に当たる)"""
+        q = self.queue(Tools())
+        with mock.patch.object(q, "_execute", side_effect=OSError(28, "No space left on device")):
+            self.sub(q, self.env_of(self.media[0]))
+            _until(lambda: q.status()["idle"], "止まる")
+        run = q.status()["runs"][0]
+        self.assertEqual(run["state"], "error")
+        self.assertIn("空き容量が足りません", run["error"])
+        self.assertTrue(Q._disk_full(RuntimeError("包んだ")) is False)
+        try:
+            try:
+                raise OSError(112, "ディスクに十分な空き領域がありません。", None, 112)
+            except OSError as inner:
+                raise RuntimeError("書き出しに失敗しました") from inner
+        except RuntimeError as outer:
+            self.assertTrue(Q._disk_full(outer))   # 包まれた元(Windows の 112)も見る
+
     def test_status_machine(self):
         """status.machine = この PC の設定の engine・device・llmModel と GPU(ytt/gpuinfo が無い・失敗 = null)"""
         with mock.patch.object(Q, "gpu_info", return_value={"name": "RTX 3060", "vramGB": 12}):

@@ -88,8 +88,8 @@
   - 名前: `class Cancelled` :124・`class StepError` :128・`mode_of` :147・`steps_of` :181・`analyze_verdict` :225・`chat_missing` :243・`chat_retry_ok` :249・`stream_ended_at` :257・`redo_reason` :270・`short_why` :288・`adopted_ids` :300・`tx_verdict` :305・ほか 5
 - **runlog.py** (93 行) — まとめて実行の「終わった実行の記録」の形と読み方(RS3-0B)。
   - 名前: `read_runs_log` :47・`read_result` :77
-- **runqueue.py** (798 行) — ② 管理の層 flow: 待ち行列と実行の糸(RS7-1 S5。決定 3-30・
-  - 名前: `class SpecVersionError` :64・`class BadSpecError` :68・`check_spec` :72・`disk_blocked` :86・`gpu_info` :100・`busy_reason` :114・`doc_id_ok` :123・`result_case` :171・`board_job` :182・`class Queue` :200
+- **runqueue.py** (811 行) — ② 管理の層 flow: 待ち行列と実行の糸(RS7-1 S5。決定 3-30・
+  - 名前: `class SpecVersionError` :64・`class BadSpecError` :68・`check_spec` :72・`disk_blocked` :86・`gpu_info` :110・`busy_reason` :124・`doc_id_ok` :133・`result_case` :181・`board_job` :192・`class Queue` :210
 - **spec.py** (601 行) — ① に渡す指定の束(spec)の形・既定値・検査(RS1-6。計画 notes:plan/done/role-restructure.md の 5-4)。
   - 名前: `num_ok` :48・`check_range` :56・`check_ranges` :71・`clean_ranges` :90・`pad_range` :106・`check_weights` :114・`clean_weights` :125・`top_arg` :134・`marks_arg` :143・`row_edge_ok` :153・`merge` :260・`merge_onto` :268・ほか 11
 - **studiobook.py** (476 行) — ② 管理の層 flow: スタジオなしの配信の台帳と、URL の段の動詞(RS8 の「URL も CLI で」)。

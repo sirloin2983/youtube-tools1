@@ -97,6 +97,16 @@ def disk_blocked(case_root, min_gb, usage=None):
     return {"reason": "disk", "freeGB": round(free / GB, 1), "minGB": min_gb}
 
 
+def _disk_full(e):
+    """例外(とその元)が空き容量の不足か(ENOSPC = 28・Windows の ERROR_DISK_FULL = 112・ERROR_HANDLE_DISK_FULL = 39)"""
+    seen = 0
+    while e is not None and seen < 5:
+        if isinstance(e, OSError) and (e.errno == 28 or getattr(e, "winerror", None) in (39, 112)):
+            return True
+        e, seen = e.__cause__ or e.__context__, seen + 1
+    return False
+
+
 def gpu_info():
     """GPU の情報(ytt/gpuinfo。F1 の F0-2 が作る)-> {name, vramGB, ...} か None(まだ無い・読めない・調べに失敗)"""
     try:
@@ -764,7 +774,10 @@ class Queue(run_mod.Runner):
                 run.state, run.error, run.message = "error", str(e), "止まりました"
             except Exception as e:   # 想定外でも、次の配信の処理は続ける
                 self.log("まとめて実行: 内部エラー: %s %s" % (e.__class__.__name__, str(e)[:200]))   # 例外の名前・原文はログへ(UI の見直し M9)
-                run.state, run.error, run.message = "error", "ホームの想定外の不具合で止まりました。もう一度「実行」を押してください(済んだ段は飛ばします)。続くときは、詳しくの「ログ」を見てください", "止まりました"
+                if _disk_full(e):   # 段の途中で空きが尽きた(10-23 の見回り: 想定外の不具合の文になり、友人の行で空きの文に当たらなかった)
+                    run.state, run.error, run.message = "error", "空き容量が足りません(No space left)。いらないファイルを消してから、もう一度「実行」を押してください(済んだ段は飛ばします)", "止まりました"
+                else:
+                    run.state, run.error, run.message = "error", "ホームの想定外の不具合で止まりました。もう一度「実行」を押してください(済んだ段は飛ばします)。続くときは、詳しくの「ログ」を見てください", "止まりました"
             if self.closed and not run.cancel and run.state != "done":
                 # 終了で止まった(M5): 記録には「中止」と書かず、待ちの記録(最後に書いた段の形)のまま次の起動で続ける
                 run.state, run.error, run.message = "queued", "", "ホームを終了したので、次の起動で続けます"

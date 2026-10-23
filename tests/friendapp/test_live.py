@@ -314,6 +314,28 @@ class LiveFlowTest(unittest.TestCase):
         self.eng.live_tick()
         self.assertNotIn("warn", self.box.row(rid)["live"])
 
+    def test_recorder_not_answering_warns_row_and_diag_once(self):
+        """録画元が答えない(一覧が None。10-23 の見回り: 行が録画中のまま何も出なかった)= 3 分で行に知らせ・診断 kind live stage lost を 1 回。
+        行は閉じない(分からないので)。答えたら知らせは消える"""
+        box = self.use_diag()
+        rid = self.send_live()["id"]
+        real = self.eng.live.recordings
+        self.eng.live.recordings = lambda rc: None
+        t = [time.time()]
+        with mock.patch.object(E.time, "time", lambda: t[0]):
+            self.eng.live_tick()
+            self.assertNotIn("warn", self.box.row(rid)["live"])   # まだ
+            t[0] += E.LOST_NOTICE + 5
+            self.eng.live_tick()
+            self.eng.live_tick()
+        self.assertEqual(self.box.row(rid)["state"], "recording")
+        self.assertEqual(self.box.row(rid)["live"]["warn"], E.LOST_WARN)
+        got = [d for d in self.diags(box) if d.get("stage") == "lost"]
+        self.assertEqual((len(got), got[0]["requestId"]), (1, rid))
+        self.eng.live.recordings = real
+        self.eng.live_tick()
+        self.assertNotIn("warn", self.box.row(rid)["live"])
+
     def test_recording_row_shows_waiting_candidates(self):
         """録画中の行: 自動の採用を待っている候補があれば「候補 N 件・約 M 分後に切り抜きます」(live.hint)。無くなれば消す"""
         rid = self.send_live()["id"]
@@ -400,7 +422,8 @@ class LiveFlowTest(unittest.TestCase):
         cases = [({}, "boom", "error"), (dict(base, exportFailures=["01.mp4: 書き出しに失敗しました: x"]), "", "liveExport"),
                  (dict(base, givenUp=[{"message": "502"}]), "", "liveAdopt"), (dict(base, peaksDoc=None), "", "liveNoDetect"),
                  (dict(base, peaksDoc={"measuredSec": 0}), "", "liveNoDetect"), (dict(base, detect={"frame": 2}), "", "liveLate"),
-                 (dict(base, peaksDoc={"measuredSec": 1800, "chat": "restarting"}), "", "liveNoChat"), (base, "", "liveNone")]
+                 (dict(base, peaksDoc={"measuredSec": 1800, "chat": "restarting"}), "", "liveNoChat"), (base, "", "liveNone"),
+                 (dict(base, peaksDoc=None, recording={"sec": 600.0, "blocked": True}), "", "liveBlocked")]   # bot で止めた = 「検出が動かない」にしない
         for facts, err, code in cases:
             with self.subTest(code=code):
                 got = E.live_cause(facts, err)

@@ -27,6 +27,8 @@ from . import inbox as _inbox, progress as _progress
 PREVIEW_DIR = "previews"
 BLOCKED_NOTICE = 180   # 録画元が YouTube に断られ続けてこの秒たったら友人の行に出す(録画元の記録の blockedAt。pipeline/ingest/rec_core)
 BLOCKED_WARN = "YouTube に断られて録画できていません(⚙ で YouTube にログインするか、しばらく待ってください)"
+LOST_NOTICE = 180      # 録画の部品が答えないままこの秒たったら友人の行に出す(10-23 の見回り: 前は行が録画中のまま何も出なかった)
+LOST_WARN = "録画の部品が応答していません。続くときはアプリを起動し直してください(録れた分は残ります)"
 
 
 ENGINE_OF_DEVICE = {"vulkan": "A", "cuda": "C"}   # 文字起こしのエンジン A = whisper.cpp の Vulkan・C = CUDA(⚙ と同じ名前)
@@ -158,6 +160,7 @@ class Engine:
             self.queue.set_live_hook(self.live_submit)
             self.live.on_tick = self.live_tick
         self._previews = []
+        self._rec_lost = {}   # 録画元 id -> 答えなくなった時刻(秒。LOST_NOTICE)
         self._pv_lock = threading.Condition()
         self._mk_lock = threading.Lock()
         self._pv_thread = threading.Thread(target=self._preview_loop, name="friend-preview", daemon=True)
@@ -304,8 +307,10 @@ class Engine:
             if rc not in lists:
                 lists[rc] = self.live.recordings(rc)
             recs = lists[rc]
-            if recs is None:
+            if recs is None:   # 録画元が答えない = 分からないので閉じない。長く続けば知らせる
+                self._live_lost(r["id"], rc)
                 continue
+            self._rec_lost.pop(rc, None)
             raw = recs.get(rec)
             recording = bool(raw and raw.get("active"))
             busy = self.live.busy_recording(rc, rec) or any(x.get("requestId") == r["id"] and x.get("state") in ("queued", "running") for x in runs)
@@ -341,6 +346,14 @@ class Engine:
                    "lastError": lv.get("lastError") or "", "waiting": waiting or ""}
         self._diag("live", rid=r["id"], summary="ライブ: 録画が終わりました(パック %d 本・%s)" % (outcome["packs"], waiting or "残りを作っています"),
                    stage="ended", outcome=self._masked(outcome), live=self._masked(facts or {}))
+
+    def _live_lost(self, rid, rc):
+        """録画元 rc が答えない見回り: LOST_NOTICE 秒続いたら行に LOST_WARN・診断(kind live・stage lost)を 1 回。答えたら次の見回りで消える"""
+        since = self._rec_lost.setdefault(rc, time.time())
+        if time.time() - since < LOST_NOTICE:
+            return
+        if self.inbox.live_warn(rid, LOST_WARN) and self.diag is not None:
+            self.diag.once("lost-" + rid, 6 * 3600, "live", rid=rid, summary=LOST_WARN, stage="lost", live={"recorder": rc, "sinceSec": int(time.time() - since)})
 
     def _live_blocked(self, rid, raw):
         """録画元が YouTube に断られ続けて BLOCKED_NOTICE 秒たった -> 行に出す知らせ(無ければ "")。初めて出すとき診断(kind live・stage blocked)を 1 回"""
@@ -494,13 +507,15 @@ def live_cause(facts, last_error=""):
 
     def say(code, text):
         return {"code": code, "text": "%s %s、パックができませんでした%s" % (_progress.LIVE_MARKS[code], text, tail)}
+    mins = _minutes(rec.get("sec"))
+    if rec.get("blocked"):   # 録画元が bot と判定されて止めた(10-23: 前は「検出が動かない・起動し直して」と誤って出ていた)
+        return say("liveBlocked", "YouTube に bot と判定されて録画できず(録れた長さ %s)" % mins)
     ex = [x for x in f.get("exportFailures") or [] if x]
     if ex:
         return say("liveExport", "切り抜く所を録画から書き出せず(%s)" % str(ex[0])[:200])
     gu = [x for x in f.get("givenUp") or [] if isinstance(x, dict)]
     if gu:
         return say("liveAdopt", "切り抜く所を自動で採用できず(%s)" % str(gu[-1].get("message") or "")[:200])
-    mins = _minutes(rec.get("sec"))
     if pd is None or not pd.get("measuredSec"):
         why = wk.get("error") or wk.get("message") or ("ワーカーが動いていません" if not wk.get("running") else "")
         return say("liveNoDetect", "録画 %s の盛り上がりを測った記録が無く(%s)" % (mins, str(why)[:200] or "理由が分かりません"))

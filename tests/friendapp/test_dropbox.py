@@ -179,6 +179,29 @@ class DropboxTest(unittest.TestCase):
         self.assertFalse(os.path.exists(part))
         self.assertFalse(self.client(FakeNet(NOT_FOUND)).download("/出力/a.zip", part))
 
+    def test_download_short_read_is_not_done(self):
+        """通信が切れて読みが黙って短く終わった(例外なしに空が返る・IncompleteRead)= 済みにせず、大きさ(size)まで続きから取り直す(10-23 の見回り)"""
+        import http.client
+        data = b"0123456789" * 100
+        res = json.dumps({"rev": "r1", "size": len(data)})
+
+        def short(url, h, body):
+            return 200, {"dropbox-api-result": res}, data[:400]   # 400 バイトで黙って終わる
+
+        def broken(url, h, body):
+            self.assertEqual(h.get("Range"), "bytes=400-")
+            s = Stream(data[400:], fail_after=100)
+            s.read = lambda n=-1, s=s: (_ for _ in ()).throw(http.client.IncompleteRead(b"")) if s.tell() >= 100 else io.BytesIO.read(s, min(n, 100 - s.tell()))
+            return 206, {"dropbox-api-result": res}, s
+
+        def rest(url, h, body):
+            self.assertEqual(h.get("Range"), "bytes=500-")
+            return 206, {"dropbox-api-result": res}, data[500:]
+        part = os.path.join(self.tmp, "s.part")
+        self.assertTrue(self.client(FakeNet(short, broken, rest)).download("/出力/s.zip", part, rev="r1"))
+        with open(part, "rb") as f:
+            self.assertEqual(f.read(), data)
+
     def test_read_small_truncates(self):
         got = self.client(FakeNet((200, {}, b"abcdef"))).read_small("/a", 4)
         self.assertEqual(got, (b"abcd", True))

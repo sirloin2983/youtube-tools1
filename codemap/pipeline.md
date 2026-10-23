@@ -37,8 +37,8 @@
 - **__init__.py** (2 行) — ① 取り込み: 配信中の録画(recorder・rec_core)と、録画とアーカイブの音の照合(live_align_worker)。YouTube からの取得は export/exporter と analyze/fetch
 - **live_align_worker.py** (133 行) — 音の照合(線 D の P4。notes:plan/line-d-live-clipping.md の 0-9)の子プロセス。**入口のプロセスから import しない
   - 名前: `fail` :34・`read_wav` :39・`next_pow2` :54・`xcorr_valid` :59・`align` :79・`main` :103
-- **rec_core.py** (990 行) — 録画の中身(線 D の P1。notes:plan/line-d-live-clipping.md の 0・2〜4)。HTTP は recorder.py。
-  - 名前: `class RecError` :88・`to_utc` :99・`pick_segments` :110・`validate_url` :130・`fetch_title` :152・`folder_state` :171・`parse_playlist` :195・`keep_order` :218・`build_playlist` :239・`read_text` :261・`clean_tmp` :290・`new_rec_id` :305・ほか 2
+- **rec_core.py** (995 行) — 録画の中身(線 D の P1。notes:plan/line-d-live-clipping.md の 0・2〜4)。HTTP は recorder.py。
+  - 名前: `class RecError` :90・`to_utc` :101・`pick_segments` :112・`validate_url` :132・`fetch_title` :154・`folder_state` :173・`parse_playlist` :197・`keep_order` :220・`build_playlist` :241・`read_text` :263・`clean_tmp` :292・`new_rec_id` :307・ほか 2
 - **recorder.py** (382 行) — 録画の部品(線 D: リアルタイム切り抜きの P1。notes:plan/line-d-live-clipping.md の 0)。入口とは別のプロセスで動く。
   - 名前: `data_dir` :58・`load_token` :65・`read_settings` :80・`save_folder` :84・`clean_folder` :91・`make_logger` :105・`raise_priority` :129・`class Handler` :141・`class Server` :284・`parse_args` :295・`main` :323
   - 受ける口: `/api/ping` :181
@@ -80,8 +80,8 @@
   - 名前: `llm_fold` :57・`llm_dist` :68・`llm_members` :79・`llm_targets` :92・`llm_near` :105・`llm_gloss` :130・`llm_pick` :142・`llm_messages` :166・`llm_parse` :178・`llm_names` :196・`llm_guard` :206・`llm_cap` :227・ほか 8
 - **models.py** (163 行) — ① 認識ワーカーの中で動く物: 読み込んだモデルの使い回し(_models)と読み込み(_load_model_local)・しばらく使わなければ手放す(release_idle_local)・
   - 名前: `models_touched` :31・`release_idle_local` :36・`setup_cuda_paths` :105・`cuda_count` :130・`cuda_libs_ok` :138・`cuda_compute` :159
-- **postproc.py** (317 行) — ① 文字起こしの行の後処理: 要確認の印(make_flags)・認識の出力を整える流れ(expand_segments = 行を単語の時刻で分ける split_segment・
-  - 名前: `latin_suspect` :31・`sparse_row` :59・`stock_phrase` :74・`repeats_in_line` :91・`make_flags` :102・`expand_segments` :135・`post_values` :177・`clip_rows` :204・`merge_repeats` :221・`trim_ends` :270・`join_rows` :283・`machine_conf` :294・ほか 2
+- **postproc.py** (332 行) — ① 文字起こしの行の後処理: 要確認の印(make_flags)・認識の出力を整える流れ(expand_segments = 行を単語の時刻で分ける split_segment・
+  - 名前: `latin_suspect` :31・`sparse_row` :59・`stock_phrase` :74・`repeats_in_line` :91・`make_flags` :102・`note_only` :139・`drop_note` :144・`expand_segments` :150・`post_values` :192・`clip_rows` :219・`merge_repeats` :236・`trim_ends` :285・ほか 4
 - **recognize.py** (364 行) — ① 音声の認識: 動画から音声を取り出す(extract_audio)・声の検出が捨てすぎたら緩めてやり直す(transcribe_vad_fallback)・文字起こしの行(transcribe_real)・
   - 名前: `wav_args` :28・`extract_audio` :59・`seg_to_dict` :88・`vad_kept` :106・`vad_note` :114・`transcribe_vad_fallback` :128・`transcribe_real` :173・`transcribe_rows` :201・`audio_span` :220・`recognize_chunk` :230・`class ChunkModel` :252・`finish_range_lines` :272・ほか 1
 - **records.py** (210 行) — ① 文字起こしの記録: recognition.runs の 1 件(エンジンと版・設定・辞書の版・後処理)・配信ごとの文脈と声の検出の記録・

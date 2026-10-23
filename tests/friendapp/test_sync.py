@@ -371,6 +371,28 @@ class SyncTest(unittest.TestCase):
         self.run_sync()
         self.assertEqual(self.box.row(AUTO)["state"], "failed")
 
+    def test_failure_text_delete_retried_after_network_error(self):
+        """失敗の知らせを取り込んだあと、Dropbox から消すのが通信で失敗した: 次の回に消し直す(覚えたまま残さない。10-23 の見回り)"""
+        self.key()
+        self.box.add(RID, FORM, {"title": "題"}, pc="user")
+        self.run_sync()
+        name = "/出力/%s__題.失敗.txt" % RID
+        self.io.put(name, "取れませんでした".encode("utf-8"))
+        real = self.io.delete
+
+        def broken(path):
+            if path == name:
+                raise D.DropboxError("通信が切れました(ConnectionResetError)", 0)
+            return real(path)
+        self.io.delete = broken
+        self.run_sync()
+        self.assertEqual(self.box.row(RID)["state"], "failed")
+        self.assertIsNotNone(self.io.data(name))   # 消せなかった
+        self.io.delete = real
+        self.run_sync()
+        self.assertIsNone(self.io.data(name))      # 次の回に消した
+        self.assertEqual(self.box.row(RID).get("remoteFails") or [], [])
+
     def test_bad_names_are_ignored(self):
         self.key()
         for n in ("../%s__x.zip" % AUTO, ".%s__x.zip" % AUTO, "%s__a:b.zip" % AUTO, "readme.txt", "CON.zip"):

@@ -132,6 +132,21 @@ def make_flags(seg, prev_texts, lang=None, terms=()):
 # 行を単語の時刻で分ける split_segment(と SPLIT_GAP・SPLIT_SEC・SPLIT_CHARS・SPLIT_SLACK・_cut_words)・句読点の除去 strip_punct(STRIP_PUNCT_CHARS)・空白を詰める _squash は ytt/txtext.py にある(③ が ① を読まずに使えるように。ここは _txtext.名前 で呼ぶたびに読む)
 
 
+NOTE_DROP = True   # 文字が音符(♪♫♬♩)と記号・空白だけの行を字幕に出さない = 文書の行にしない(ユーザー 10-23「音符一つだけの行もいらない」。False = 残す)
+_NOTE_ONLY = re.compile(r"^[\s♪♫♬♩～~〜・.。、ー]*[♪♫♬♩][\s♪♫♬♩～~〜・.。、ー]*$")
+
+
+def note_only(text):
+    """文字が音符と記号・空白だけか(「〜だよ♪」のように文字が混ざる行・「(音楽)」の行は違う)"""
+    return bool(text) and bool(_NOTE_ONLY.match(str(text)))
+
+
+def drop_note(text):
+    """文書の行にしない音符だけの行か(NOTE_DROP)。捨てるのは行を文書にする所(clipjob・範囲の再認識・eval_asr)= 埋め A のあと:
+    whisper が BGM の所に書いた ♪ の行は、A が SenseVoice で窓を読み直す手がかり(f469fd で ♪ の窓から本当の声「ただいやー」を拾った)"""
+    return NOTE_DROP and note_only(text)
+
+
 def expand_segments(gen, spec, dur=None, join=True):
     """認識の出力を、split_segment で整えながら流す(wordSplit が無効なら、そのまま)。
     句読点の除去(stripPunct、既定オン)は、単語分割が句読点を判断材料に使い終えたあとの、最後の1回だけにかける
@@ -308,7 +323,7 @@ def post_record(spec=None):
     古い記録には pullEnds(音の谷へ寄せるか)・retime(1 秒丸めの配り直しのモデル | False)の鍵もある(読むだけ)。
     runs[].retimed(配り直しの数)は書かない(古い記録に残るだけ)"""
     end_trim, join_gap = post_values(spec)
-    return {"version": str(_workdata.SERVER_VERSION or ""), "endTrim": end_trim, "joinGap": join_gap, "barMax": _txtext.BAR_MAX}
+    return {"version": str(_workdata.SERVER_VERSION or ""), "endTrim": end_trim, "joinGap": join_gap, "barMax": _txtext.BAR_MAX, "noteDrop": NOTE_DROP}
 
 
 def row_words(p, shift=0.0):

@@ -35,7 +35,7 @@
 
 ## friend-apps/launcher/src/
 
-- **Core.cs** (515 行) — FriendApp.exe の決まり(版の選び方・版の記録・閉じるときの判断)。画面にも通信にも触らない = tests\friend-apps\launcher\Tests.cs で確かめる。C# 5 で書く
+- **Core.cs** (530 行) — FriendApp.exe の決まり(版の選び方・版の記録・閉じるときの判断)。画面にも通信にも触らない = tests\friend-apps\launcher\Tests.cs で確かめる。C# 5 で書く
   - 名前: `class Layout` :12・`class VersionRecord` :18・`class Versions` :24・`Parse` :30・`Compare` :45・`LayoutOf` :57・`Complete` :63・`Installed` :69・`LegacyVersion` :83・`Pick` :101・`Read` :111・`Q` :128・ほか 29
 - **Launcher.cs** (480 行) — FriendApp.exe の起こし方: 窓 1 枚(MainForm = WebView2)を持ち、Python(src\friendapp\server.py)を子としてジョブオブジェクトで起こす。C# 5 で書く
   - 名前: `class Job` :26・`Add` :40・`Kill` :45・`Dispose` :50・`class JOBOBJECT_BASIC_LIMIT_INFORMATION` :56・`class IO_COUNTERS` :67・`class JOBOBJECT_EXTENDED_LIMIT_INFORMATION` :73・`CreateJobObject` :81・`SetInformationJobObject` :83・`AssignProcessToJobObject` :85・`TerminateJobObject` :87・`CloseHandle` :89・ほか 22

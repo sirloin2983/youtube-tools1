@@ -278,7 +278,7 @@ def finish_range_lines(raw, spec, shift):
         note = None
         if split is not None:
             s["text"], note = split(s["text"])
-        if not s["text"]:
+        if not s["text"] or postproc.drop_note(s["text"]):
             continue
         st, en = max(a, s["start"] + shift), min(b, s["end"] + shift)
         if en - st < 0.05:

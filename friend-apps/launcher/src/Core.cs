@@ -204,7 +204,8 @@ namespace FriendInbox
     }
 
     // 更新の入れ替え(画面の [更新する] → 作業と預かりが無くなったら): app-<版>\ の FriendApp.exe と DLL をアプリのフォルダへ写す。
-    // 動いている exe と DLL は名前なら変えられる = *.old にしてから写す・次の起動で *.old を消す。exe と DLL が版のフォルダに無ければ写さない(Python だけ新しい版)
+    // 動いている exe と DLL は名前なら変えられる = *.old にしてから写す・次の起動で *.old を消す。exe と DLL が版のフォルダに無ければ写さない(Python だけ新しい版)。
+    // 写すのは先に *.new へ全部写し切ってから、名前の付け替え 2 回(本体 → *.old・*.new → 本体)だけにする(10-23 の見回り: 写す途中で電源が落ちると exe が無い・欠けたまま起動できなかった)
     public static class Updater
     {
         public static readonly string[] Files = { "FriendApp.exe", "Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.WinForms.dll", "WebView2Loader.dll" };
@@ -216,14 +217,21 @@ namespace FriendInbox
             var done = new List<string>();
             try
             {
-                foreach (var f in Files)
+                var ready = new List<string>();
+                foreach (var f in Files)   // 1. 全部を *.new へ(ここで落ちても本体はそのまま)
                 {
-                    string src = Path.Combine(from, f), dst = Path.Combine(home, f), old = dst + ".old";
+                    string src = Path.Combine(from, f), tmp = Path.Combine(home, f) + ".new";
                     if (!File.Exists(src)) continue;
+                    File.Copy(src, tmp, true);
+                    ready.Add(f);
+                }
+                foreach (var f in ready)   // 2. 名前の付け替えだけ
+                {
+                    string dst = Path.Combine(home, f), old = dst + ".old", tmp = dst + ".new";
                     if (File.Exists(old)) File.Delete(old);
                     if (File.Exists(dst)) File.Move(dst, old);
                     done.Add(f);
-                    File.Copy(src, dst);
+                    File.Move(tmp, dst);
                 }
                 return done.Count;
             }
@@ -235,6 +243,11 @@ namespace FriendInbox
                     try { if (File.Exists(old)) { if (File.Exists(dst)) File.Delete(dst); File.Move(old, dst); } }
                     catch (Exception ex2) { if (!(ex2 is IOException || ex2 is UnauthorizedAccessException)) throw; }
                 }
+                foreach (var f in Files)   // 写しかけの *.new を残さない
+                {
+                    try { string tmp = Path.Combine(home, f) + ".new"; if (File.Exists(tmp)) File.Delete(tmp); }
+                    catch (Exception ex3) { if (!(ex3 is IOException || ex3 is UnauthorizedAccessException)) throw; }
+                }
                 throw;
             }
         }
@@ -245,8 +258,10 @@ namespace FriendInbox
             int n = 0;
             foreach (var f in Files)
             {
-                string old = Path.Combine(home, f + ".old");
+                string old = Path.Combine(home, f + ".old"), tmp = Path.Combine(home, f + ".new");
                 try { if (File.Exists(old)) { File.Delete(old); n++; } }
+                catch (Exception ex) { if (!(ex is IOException || ex is UnauthorizedAccessException)) throw; }
+                try { if (File.Exists(tmp)) File.Delete(tmp); }   // 写す途中で落ちた残り(本体は前の版のまま)
                 catch (Exception ex) { if (!(ex is IOException || ex is UnauthorizedAccessException)) throw; }
             }
             return n;

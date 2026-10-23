@@ -68,7 +68,7 @@ FILL_ON = True
 FILL_REASON = "本数に届かないので埋めた(点数は低め)"
 SHAPE_DEFAULT = "scene"   # スイッチ: "scene" = 場面ごと / "fixed" = 山から固定の長さ(0.88 まで)。解析の設定・配信中の spec の shape が上書きする
 SHAPES = ("scene", "fixed")
-# 場面を長くつなぐ(10-23 ユーザー「切り抜きたいところが欠けるのを減らす方が良い」。決定 3-148。notes:plan/heatmap-study.md の「区間の形」):
+# 場面を長くつなぐ(10-23 ユーザー「切り抜きたいところが欠けるのを減らす方が良い」。決定 3-151。notes:plan/heatmap-study.md の「区間の形」):
 # hold 10 → 30 秒・rise 0.3 → 0.4。友人の 30 区間で 7 割を覆う候補が上位 20 本に入る割合が 4 組すべてで上がる(組 A .50 → .69)・余分は平均 +13 秒。
 # 配信中(PeakBook)も同じ形(L-5)= 収まりの見極めが 20 秒長い。スイッチ: False で前の形(hold 10・rise 0.3)。印: archive の解析の記録 sceneForm・配信中の peaks.json の sceneForm
 SCENE_LONG = True

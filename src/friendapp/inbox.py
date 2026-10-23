@@ -437,6 +437,18 @@ class Inbox:
                 self._save()
             return made
 
+    def live_warn(self, rid, warn):
+        """録画中の行に知らせだけを出す(録画元が答えず、ほかは分からないとき。engine._live_lost)-> 変えたか"""
+        with self.lock:
+            r = self.row(rid)
+            lv = (r or {}).get("live")
+            if r is None or not isinstance(lv, dict) or r["state"] != "recording" or lv.get("warn") == warn:
+                return False
+            lv["warn"] = warn
+            r["updatedAt"] = self._now_ms()
+            self._save()
+            return True
+
     def _live_close(self, r, now, why=None):
         lv = r["live"]
         if not r["packs"]:

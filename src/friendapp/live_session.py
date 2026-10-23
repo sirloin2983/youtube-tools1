@@ -254,7 +254,8 @@ class FriendLive(_ls.LiveSession):
             first, last = row["firstPdt"], row["lastPdt"]
             out.update(recording={"sec": round(last - first, 1) if first is not None and last is not None and last >= first else None,
                                   "hours": info.get("hours"), "firstPdt": info.get("firstPdt"), "lastPdt": info.get("lastPdt"), "endedAt": info.get("endedAt"),
-                                  "state": raw.get("state")},
+                                  "state": raw.get("state"), "message": raw.get("message"),
+                                  "blocked": raw.get("message") in (_rec_core.BLOCKED, _rec_core.BLOCKED_ENDED)},   # bot と判定されて止めた(行の理由 liveBlocked)
                        samples=rep.get("samples"), detect=rep.get("detect"), tx=rep.get("tx"), exports=rep.get("exports"), disk=rep.get("disk"))
         except Exception as e:   # noqa: BLE001  (材料の一部が読めなくても残りは書く)
             out["reportError"] = e.__class__.__name__
