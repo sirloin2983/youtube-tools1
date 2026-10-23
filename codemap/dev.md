@@ -29,6 +29,8 @@
   - 名前: `class Preflight` :84・`class Report` :88・`free_port` :114・`link_or_copy` :120・`unpack` :129・`break_fetch` :148・`place_models` :158・`mirror_map` :182・`lay_shim` :198・`friend_env` :209・`fake_media` :239・`check_imports` :246・ほか 38
 - **friend_preflight_shim.py** (287 行) — 配る前の検査(dev/friend_preflight.py)の通信の差し替え。検査が、展開した写しの python/Lib/site-packages/sitecustomize.py として置く
   - 名前: `install` :262
+- **friend_worktime.py** (176 行) — 友人の作業の時刻の集計(新機能 D・10-23。notes:plan/人の作業なしの候補-1023.md の D)。ユーザーの PC で流す。作業データは読むだけ。
+  - 名前: `data_root` :33・`verdicts` :45・`delivered` :62・`streamers` :82・`shorts` :97・`collect` :112・`main` :150
 - **guard_hook.py** (434 行) — Claude Code の PreToolUse のフック: 事故のもとになる操作を機械が断る。標準ライブラリだけ・速く。
   - 名前: `class Tok` :51・`tok` :56・`tokenize` :62・`pipelines` :137・`word_of` :155・`norm_path` :171・`is_main_checkout` :184・`generated_kind` :198・`check_kill` :216・`check_sed` :242・`git_sub` :255・`check_git` :271・ほか 9
 - **land.py** (297 行) — 作業のブランチを main に入れ、版(src/ytt/version.py の VERSION と README.txt の見出し)を道具が 1 つ上げる。
@@ -91,6 +93,7 @@
 - tests/dev/test_dropbox_auth.py — dev/dropbox_auth.py(切り抜き依頼の鍵を作る)のテスト。通信はしない(urlopen を差し替える)。
 - tests/dev/test_friend_diag.py — dev/friend_diag.py(届いた診断を読む道具)のテスト。一時フォルダだけ(本物の Dropbox は読まない)。
 - tests/dev/test_friend_preflight.py — 配る前の検査(dev/friend_preflight.py・dev/friend_preflight_shim.py)と、build_friend_zip.py --publish の関所のテスト。
+- tests/dev/test_friend_worktime.py — dev/friend_worktime.py(友人の作業の時刻の集計。新機能 D)のテスト。一時フォルダの作業データだけを読む
 - tests/dev/test_guard_hook.py — dev/guard_hook.py(PreToolUse のフックの守り)のテスト。よくある命令を並べて、通す / 断るを確かめる。一時フォルダだけを使う
 - tests/dev/test_land.py — dev/land.py(main に入れる・版を道具が上げる)のテスト。一時フォルダの git リポジトリと worktree だけを使う
 - tests/dev/test_land_gate.py — dev/land_gate.py(main に入れる前の関所)と dev/worklog.py check(報告の型)のテスト。一時フォルダだけを使う(テストは流さない)
