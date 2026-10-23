@@ -40,8 +40,11 @@ namespace FriendInbox
         // youtube.com のページで、ログインの cookie(LOGIN_INFO と SAPISID の仲間)が揃ったか
         public static bool LoggedIn(IEnumerable<string> names)
         {
+            // SAPISID の仲間(yt-dlp が使う)と、ログインの本体(LOGIN_INFO か、Google の SID の仲間)。LOGIN_INFO は YouTube が後から付けることがある
+            // (10-23: ログイン済みの画面なのに閉じなかった。LOGIN_INFO だけを待たない)
             var set = new HashSet<string>(names ?? new string[0]);
-            return set.Contains("LOGIN_INFO") && (set.Contains("SAPISID") || set.Contains("__Secure-3PAPISID"));
+            return (set.Contains("SAPISID") || set.Contains("__Secure-3PAPISID")) &&
+                   (set.Contains("LOGIN_INFO") || set.Contains("__Secure-3PSID") || set.Contains("SID"));
         }
 
         public static bool IsYouTube(string uri)
@@ -181,7 +184,11 @@ namespace FriendInbox
                         if (Uri.TryCreate(e.Uri, UriKind.Absolute, out u) && u.Scheme == "https") core.Navigate(u.AbsoluteUri);
                     };
                     core.NavigationCompleted += OnCompleted;
+                    core.SourceChanged += (s, e) => Check();
+                    core.HistoryChanged += (s, e) => Check();
+                    poll.Tick += (s, e) => Check();
                     core.Navigate(YtCookies.LoginUrl);
+                    poll.Start();
                 }
                 catch (Exception ex)
                 {
@@ -192,16 +199,36 @@ namespace FriendInbox
             };
         }
 
-        async void OnCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
+        // ログインが済んだかを確かめる時(10-23: ユーザーの PC で、ログインのあと YouTube の画面になっても閉じなかった。YouTube は SPA なので、
+        // ログインのあとの移動が NavigationCompleted を出さない・出た時点ではまだ cookie がそろっていないことがある):
+        // 移動が済んだとき・アドレスが変わったとき・履歴が変わったとき・2 秒ごと。同時に 1 つだけ
+        readonly System.Windows.Forms.Timer poll = new System.Windows.Forms.Timer { Interval = 2000 };
+        bool checking, namesLogged;
+        DateTime onYouTubeSince = DateTime.MinValue;
+
+        void OnCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e) { Check(); }
+
+        async void Check()
         {
-            if (saving || view.CoreWebView2 == null) return;
+            if (saving || checking || view.CoreWebView2 == null) return;
             var core = view.CoreWebView2;
             string src = core.Source;
-            if (!YtCookies.IsYouTube(src)) return;
+            if (!YtCookies.IsYouTube(src)) { onYouTubeSince = DateTime.MinValue; return; }
+            if (onYouTubeSince == DateTime.MinValue) onYouTubeSince = DateTime.Now;
+            checking = true;
             try
             {
                 var yt = await core.CookieManager.GetCookiesAsync("https://www.youtube.com");
-                if (!YtCookies.LoggedIn(yt.Select(c => c.Name))) return;
+                if (!YtCookies.LoggedIn(yt.Select(c => c.Name)))
+                {
+                    if (!namesLogged && (DateTime.Now - onYouTubeSince).TotalSeconds > 30)   // 原因を追えるように、名前だけを 1 回(値は書かない)
+                    {
+                        namesLogged = true;
+                        Log.Write("YouTube のログイン: YouTube の画面のまま 30 秒、ログインの cookie がそろいません(名前: " +
+                                  string.Join(" ", yt.Select(c => c.Name).Distinct().OrderBy(x => x, StringComparer.Ordinal)) + ")");
+                    }
+                    return;
+                }
                 if (!YtCookies.IsRobots(src))
                 {
                     core.Navigate(YtCookies.RobotsUrl);   // 静かなページへ移ってから書き出す(普通のページは開くたびに cookie を回す)
@@ -224,6 +251,10 @@ namespace FriendInbox
                 Log.Write("YouTube のログインを書けませんでした: " + ex.GetType().Name);
                 Message = "ログインの情報を書けませんでした。もう一度試してください";
             }
+            finally
+            {
+                checking = false;
+            }
         }
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
@@ -235,6 +266,8 @@ namespace FriendInbox
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
             base.OnFormClosed(e);
+            poll.Stop();
+            poll.Dispose();
             view.Dispose();   // ブラウザの処理が終わると BrowserProcessExited でプロファイルを消す(消せなければ次に開く前・次の起動で)
         }
     }

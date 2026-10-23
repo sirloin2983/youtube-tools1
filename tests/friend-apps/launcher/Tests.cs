@@ -383,6 +383,8 @@ static class Tests
         True(YtCookies.LoggedIn(new[] { "LOGIN_INFO", "__Secure-3PAPISID" }), "__Secure-3PAPISID でもよい");
         True(!YtCookies.LoggedIn(new[] { "YSC", "VISITOR_INFO1_LIVE" }), "ログイン前");
         True(!YtCookies.LoggedIn(null), "無い");
+        True(YtCookies.LoggedIn(new[] { "SAPISID", "__Secure-3PSID" }), "LOGIN_INFO がまだでも Google の SID があればよい(10-23)");
+        True(!YtCookies.LoggedIn(new[] { "LOGIN_INFO", "SID" }), "SAPISID の仲間が無いと yt-dlp が使えない");
         True(YtCookies.IsYouTube("https://www.youtube.com/") && !YtCookies.IsYouTube("http://www.youtube.com/") && !YtCookies.IsYouTube("https://accounts.google.com/x"), "youtube のページ");
         True(YtCookies.IsRobots("https://www.youtube.com/robots.txt") && !YtCookies.IsRobots("https://www.youtube.com/"), "robots.txt");
         var rows = new List<CookieRow> {
