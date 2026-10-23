@@ -17,8 +17,8 @@
   - 名前: `cuts` :61・`snap` :106
 - **excite.py** (1016 行) — 盛り上がり(excitement)の式。スタジオのアーカイブの解析(src/pipeline/analyze/analyze.py)と、配信中の検出(src/pipeline/analyze/live_excite_worker.py。線 D の L2)が同じ式を読む(線 D の L1。notes…
   - 名前: `smooth` :85・`median` :96・`local_baseline` :102・`robust_scale` :121・`audio_score` :127・`chat_z` :139・`shift_chat` :148・`estimate_lag` :154・`ramp` :178・`head_ramp` :183・`comment_score` :190・`peak_total` :205・ほか 14
-- **fetch.py** (548 行) — 解析の材料を取ってくる仕事(音声のダウンロード・チャットのリプレイの取得と先読み・コメント欄・動画の付加情報)と、そのキャッシュの置き場と掃除。
-  - 名前: `work_dir` :32・`chat_cache_dir` :36・`download_audio` :51・`chat_cache_path` :77・`drop_chat_cache` :81・`chat_cache_limit` :98・`use_chat_cache` :113・`prune_chat_cache` :123・`download_chat` :171・`prefetch_chat` :253・`cancel_prefetch` :296・`cancel_all_prefetch` :303・ほか 9
+- **fetch.py** (554 行) — 解析の材料を取ってくる仕事(音声のダウンロード・チャットのリプレイの取得と先読み・コメント欄・動画の付加情報)と、そのキャッシュの置き場と掃除。
+  - 名前: `work_dir` :32・`chat_cache_dir` :36・`download_audio` :51・`chat_cache_path` :83・`drop_chat_cache` :87・`chat_cache_limit` :104・`use_chat_cache` :119・`prune_chat_cache` :129・`download_chat` :177・`prefetch_chat` :259・`cancel_prefetch` :302・`cancel_all_prefetch` :309・ほか 9
 - **levels.py** (64 行) — 1 秒ごとの音量(RMS, dB)を、ffmpeg 1 回のデコードで全帯域と高音域(2kHz 超)の 2 系列に測る決まり(OPT1)。
   - 名前: `args` :23・`clear` :30・`level` :36・`read` :47・`collect` :56
 - **live_excite_worker.py** (1658 行) — 配信中の盛り上がりの検出のワーカー(線 D の L2。notes:plan/line-d-detect.md・notes:plan/line-d-live-clipping.md の 0-10)。入口(src/flow/live_detect.py)が起動する子プロセス。
@@ -37,8 +37,8 @@
 - **__init__.py** (2 行) — ① 取り込み: 配信中の録画(recorder・rec_core)と、録画とアーカイブの音の照合(live_align_worker)。YouTube からの取得は export/exporter と analyze/fetch
 - **live_align_worker.py** (133 行) — 音の照合(線 D の P4。notes:plan/line-d-live-clipping.md の 0-9)の子プロセス。**入口のプロセスから import しない
   - 名前: `fail` :34・`read_wav` :39・`next_pow2` :54・`xcorr_valid` :59・`align` :79・`main` :103
-- **rec_core.py** (995 行) — 録画の中身(線 D の P1。notes:plan/line-d-live-clipping.md の 0・2〜4)。HTTP は recorder.py。
-  - 名前: `class RecError` :90・`to_utc` :101・`pick_segments` :112・`validate_url` :132・`fetch_title` :154・`folder_state` :173・`parse_playlist` :197・`keep_order` :220・`build_playlist` :241・`read_text` :263・`clean_tmp` :292・`new_rec_id` :307・ほか 2
+- **rec_core.py** (1012 行) — 録画の中身(線 D の P1。notes:plan/line-d-live-clipping.md の 0・2〜4)。HTTP は recorder.py。
+  - 名前: `class RecError` :93・`to_utc` :104・`pick_segments` :115・`validate_url` :135・`fetch_title` :157・`folder_state` :176・`parse_playlist` :200・`keep_order` :223・`build_playlist` :244・`read_text` :266・`clean_tmp` :295・`new_rec_id` :310・ほか 2
 - **recorder.py** (382 行) — 録画の部品(線 D: リアルタイム切り抜きの P1。notes:plan/line-d-live-clipping.md の 0)。入口とは別のプロセスで動く。
   - 名前: `data_dir` :58・`load_token` :65・`read_settings` :80・`save_folder` :84・`clean_folder` :91・`make_logger` :105・`raise_priority` :129・`class Handler` :141・`class Server` :284・`parse_args` :295・`main` :323
   - 受ける口: `/api/ping` :181

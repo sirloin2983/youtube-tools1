@@ -64,8 +64,8 @@
   - 名前: `load_live` :24・`load_video` :35・`save_series` :82・`read` :96・`load_all` :108・`videos` :116・`video` :121・`studio_videos` :157・`studio_stream` :162
 - **textutil.py** (69 行) — ログ・画面に出す文と数の小物(標準ライブラリだけ)。
   - 名前: `redact` :18・`permission_message` :23・`tail_reason` :31・`fmt_ts` :38・`fmt_ms` :44・`num` :50・`person_key` :64
-- **tools.py** (648 行) — 外部プログラム(ffmpeg・ffprobe・yt-dlp)の場所と、子プロセスを動かすときの小道具。
-  - 名前: `remember` :33・`recent` :47・`ytt_env` :52・`find_tool` :66・`find_ffmpeg` :116・`media_tool` :121・`ffmpeg_info` :127・`parse_ffmpeg_info` :141・`duration_in` :152・`media_duration` :157・`check_source` :163・`probe_media` :173・ほか 18
+- **tools.py** (670 行) — 外部プログラム(ffmpeg・ffprobe・yt-dlp)の場所と、子プロセスを動かすときの小道具。
+  - 名前: `remember` :33・`recent` :47・`ytt_env` :52・`find_tool` :66・`find_ffmpeg` :116・`media_tool` :121・`ffmpeg_info` :127・`parse_ffmpeg_info` :141・`duration_in` :152・`media_duration` :157・`check_source` :163・`probe_media` :173・ほか 20
 - **trashbin.py** (195 行) — ごみ箱フォルダの 1 か所(形と、移す・戻す・古い日付を消す動作)。どの層からも使う(① の録画の部品・④ の片付けと「要らない」・友人のアプリ)ので ytt に置く。
   - 名前: `day_name` :24・`free_path` :33・`append_manifest` :43・`old_day_dirs` :61・`purge` :79・`to_trash` :100・`record` :151・`put_back` :166
 - **txbase.py** (103 行) — 認識の部品が共有する小さな物: 記録(ロガー)・決まった値(文字・言語・長さの上限)・要確認の印の文と幻覚の決まり文句・ジョブの注意。
@@ -82,6 +82,8 @@
   - 名前: `used` :37・`set_fake` :48・`get` :54・`soft` :102・`parse_dt` :115・`cache_get` :129・`cache_put` :137・`cached` :144・`oembed` :155
 - **ytcookies.py** (252 行) — YouTube のログインの cookie を長持ちさせる(友人の PC。notes:docs/spec/friend.md の 13-13)。
   - 名前: `enabled` :33・`state_path` :38・`read_state` :42・`copy_name` :53・`parse` :58・`merge_rows` :87・`merge_back` :113・`login_at` :204・`facts` :218・`forget` :233・`logout` :238
+- **ytdlpver.py** (66 行) — yt-dlp の版が古いかを確かめる(10-23 取得の冗長化。表は保管庫 plan/人の作業なしの候補-1023.md の 6 番)。
+  - 名前: `ver_key` :24・`latest_tag` :34・`cached_latest` :42・`is_old` :63
 - **yturl.py** (103 行) — YouTube の URL・動画 ID の形(語彙。標準ライブラリだけ・状態を持たない)。
   - 名前: `parse_video_id` :22・`watch_url` :49・`check_live` :61・`check_media_path` :85・`file_video_id` :93・`ytdlp_out` :98
 
