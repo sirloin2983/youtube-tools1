@@ -257,11 +257,22 @@ def default_wrap(target=None):
 def wrap_caption(text, per_line):
     """字幕の文字を、1段 per_line 文字前後で改行する(ふつうは2段。長ければ3段以上)。per_line + 2 文字までは改行しない。
     改行する所は、理想の位置(均等に分けた所)の近くで: 句読点・空白のあと > 助詞(は・が・を…)のあと・漢字/カタカナ/英数字が始まる所。
-    カタカナ・漢字・英数字の並びの途中と、行の頭に来ない文字(、。ー・小さい ゃ など)の前は避ける。per_line が 0 なら改行しない"""
+    カタカナ・漢字・英数字の並びの途中と、行の頭に来ない文字(、。ー・小さい ゃ など)の前は避ける。per_line が 0 なら改行しない。
+    どこかの段が per_line + 2 文字を超えたら、段を 1 つずつ増やして(2 回まで)分け直す(10-23: 段の数を固定すると 11〜15 字の段ができた = 縦ではみ出す)"""
     t = str(text or "").strip()
     if not per_line or per_line <= 0 or "\n" in t or len(t) <= per_line + WRAP_SLACK:
         return t
-    n = -(-len(t) // (per_line + WRAP_SLACK))   # 段の数
+    cap = per_line + WRAP_SLACK
+    n0 = -(-len(t) // cap)   # 段の数
+    for n in range(n0, n0 + 3):
+        lines = _wrap_lines(t, n)
+        if max(len(x) for x in lines) <= cap:
+            break
+    return "\n".join(lines)
+
+
+def _wrap_lines(t, n):
+    """t を n 段に分ける(wrap_caption の本体。改行する所の選び方は wrap_caption の説明)-> [段]"""
     cuts, start = [], 0
     for k in range(1, n):
         ideal = round(len(t) * k / n)
@@ -289,7 +300,7 @@ def wrap_caption(text, per_line):
     for c in cuts + [len(t)]:
         lines.append(t[prev:c].strip())
         prev = c
-    return "\n".join(x for x in lines if x)
+    return [x for x in lines if x]
 
 
 def build_import_plan(plan, media_file, target=None, wrap=None, color=None, fills=None, outlines=None, style="default", video_tracks=1,

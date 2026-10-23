@@ -62,8 +62,8 @@
   - 名前: `clean_path` :33・`input_path` :58・`request_from_spec` :103・`clip_range_from_spec` :174・`row_edge_from_spec` :184・`advanced_from_spec` :193・`keeps_from_spec` :204・`speaker_color_map` :225・`speaker_styles_from` :244・`apply_speaker_styles` :267・`output_from_spec` :288・`speaker_colors_for` :327
 - **resolve_export.py** (375 行) — DaVinci Resolve への受け渡し(文字起こしツールの「Resolveパッケージ(zip)をダウンロード」)と、「残す行」の規則。
   - 名前: `srt_time` :37・`srt_text` :43・`is_kept` :49・`kept_spans` :55・`tool_info` :82・`sorted_segments` :86・`build_transcript_v1` :105・`build_cut_plan_v1` :133・`wrap_text` :146・`build_srt` :153・`pack_instructions` :173・`edit_draft` :233・ほか 3
-- **resolve_textplus.py** (1031 行) — Resolve Free向け Text+ 試験パック。Luaスクリプトを同梱する。
-  - 名前: `hex_rgba` :70・`text_style` :81・`style_inputs` :97・`video_tracks_value` :119・`parse_target` :126・`caption_segments` :149・`stack_captions` :180・`default_wrap` :252・`wrap_caption` :257・`build_import_plan` :295・`importer_script` :363・`installer_script` :792・ほか 6
+- **resolve_textplus.py** (1042 行) — Resolve Free向け Text+ 試験パック。Luaスクリプトを同梱する。
+  - 名前: `hex_rgba` :70・`text_style` :81・`style_inputs` :97・`video_tracks_value` :119・`parse_target` :126・`caption_segments` :149・`stack_captions` :180・`default_wrap` :252・`wrap_caption` :257・`build_import_plan` :306・`importer_script` :374・`installer_script` :803・ほか 6
 - **srt2resolve.py** (353 行) — パックの部品(動画の情報の読み取り・字幕の読み込み・フレームの計算・SRT の組み立ての小道具)。
   - 名前: `class ToolError` :27・`same_path` :31・`staged` :44・`write_text_atomic` :56・`tool` :65・`arg_path` :70・`clean_text` :94・`parse_subs` :101・`read_sub_file` :125・`snap_fps` :149・`codec_warnings` :161・`probe` :198・ほか 9
 
