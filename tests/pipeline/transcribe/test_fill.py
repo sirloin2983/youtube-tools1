@@ -152,6 +152,14 @@ class TestCleanTurns(unittest.TestCase):
         doc4 = {"params": {"autoFill": True}, "segments": [dict(g) for g in seg], "original": orig}
         self.assertEqual(fill.fill_clean_turns(doc4, [(0.0, 5.0, 0)], 10.0), 1)   # offset で声の区間が 10〜15 秒 = s1 は声の中・s2 が声の外
         self.assertEqual([g["id"] for g in doc4["segments"]], ["s1", "s3", "s4", "s5"])
+        # 判別が無くても: 正弦波だけの音で whisper が書いた定型の文(単語の間で 3 行に分かれた)は、別の読みで読めなければ捨てる(10-23 配る前の検査)
+        sine = [{"start": 0.0, "end": 1.87, "text": "ご"}, {"start": 1.87, "end": 9.35, "text": "視聴"}, {"start": 9.35, "end": 29.98, "text": "ありがとうございました"}]
+        self.assertEqual(fill.fill_clean_read(sine, lambda a, b: []), ([], [{"start": r["start"], "end": r["end"], "text": r["text"]} for r in sine]))
+        said = [{"start": 0.0, "end": 2.0, "text": "今日は"}, {"start": 2.1, "end": 4.0, "text": "ありがとうございました"}]
+        self.assertEqual(fill.fill_clean_read(said, lambda a, b: [{"start": 2.0, "end": 4.0, "text": "ありがとうございました。"}])[0], said)   # 別の読みも同じ文 = 本当の声
+        self.assertEqual(fill.fill_clean_read(said, lambda a, b: [])[0], said[:1])   # 定型の文だけの行だけを捨てる(前の行は残す)
+        notes = sine + [{"start": 29.98, "end": 31.0, "text": "♪"}]
+        self.assertEqual(fill.fill_clean_read(notes, lambda a, b: [])[0], notes[3:])   # 続く ♪ だけの行はつながない(字幕に出さない印に任せる)
         doc5 = {"params": {"autoFill": True}, "segments": [dict(g) for g in seg], "original": orig}
         self.assertEqual(fill.fill_clean_turns(doc5, [], 0.0), 2)   # 声が 1 つも無い(BGM だけ)= 定型の文は声の外(10-23 f469fd で残っていた)
         self.assertEqual([g["id"] for g in doc5["segments"]], ["s3", "s4", "s5"])

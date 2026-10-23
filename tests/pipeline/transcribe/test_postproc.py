@@ -112,7 +112,8 @@ class TestDocRowsRun(unittest.TestCase):
         self.addCleanup(backend.set_selector, backend._selector[0])   # 前の選び方に戻す(REAL に固定しない)
         backend.set_selector(lambda: rich)
         for mod, name, value in ((roster, "ROSTER", path), (studiodata, "studio_stream", lambda vid: None),
-                                 (recognize, "extract_audio", lambda job, spec, wav: None), (recognize._tools, "media_duration", lambda p: DUR)):
+                                 (recognize, "extract_audio", lambda job, spec, wav: None), (recognize._tools, "media_duration", lambda p: DUR),
+                                 (fill, "FILL_STOCK_READ", False)):   # 見本の定型の文の行は札を確かめる用(読み直して捨てる規則は test_fill)
             self.enterContext(mock.patch.object(mod, name, value))
         spec = {"start": 0.0, "end": 0, "language": "ja", "glossary": ["ホロライブ", "大空スバル", "スバル"], "context": {"terms": []}, "stripNames": True,
                 "autoFill": True, "autoLlm": True, "title": "雪花ラミィ・常闇トワ・尾丸ポルカの配信", "sourcePath": "E:/v.mp4", "wordSplit": True, "engine": "faster-whisper"}

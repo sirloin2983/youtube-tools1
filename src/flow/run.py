@@ -1644,9 +1644,6 @@ class Runner:
             self._keep_pack(run, doc["sourcePath"])
             st["state"], st["detail"] = "skip", "パック済み(「作り直す」を選ぶと上書きします)"
             return None
-        if not _has_captions(doc) and not self._edit_keeps(doc)[0]:
-            st["state"], st["detail"] = "skip", "残す字幕の行もカットも無いので、パックを作れません(2 カット のタブで区間を決めると作れます)"
-            return None
         run.pack_hint = doc_pack_hint(doc)   # 届けた先(_step_pack と同じ形。無いと届けた印が案件に残らない = opt-manage 2a-1)
         res, cut = self._pack_one(run, st, doc, doc["sourcePath"], opts, force=force or state == "differ", built=built)
         if res == "exists":   # find_pack で見つからない名前違いのパック(以前の版で作ったもの)など

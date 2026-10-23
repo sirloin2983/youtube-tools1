@@ -47,6 +47,9 @@ FILL_FLAG = "別の読みで埋めた(元の文字は「別の読み」の札)"
 FILL_NAME_FLAG = "名簿の呼び名に直した(別のエンジンも同じ呼び名)"
 FILL_STOCK = ("ご視聴ありがとうございました", "チャンネル登録", "ありがとうございました", "おやすみなさい", "字幕", "最後まで", "ご視聴")   # C: 定型の幻覚
 FILL_MIN_VOICE = 0.3     # C: 行の長さのうち声の区間と重なる割合がこれ未満なら幻覚
+FILL_STOCK_READ = True   # C: 判別が無くても、定型の文だけの行を別の読みで読み直し、読めなければ捨てる(fill_clean_read。記録 fill.stockRead。10-23)
+FILL_STOCK_GAP = 0.3     # C: 定型の文が分かれた行をつなぐすき間(秒)
+FILL_STOCK_ROWS = 4      # C: つなぐ行の数の上限
 FILL_SILENT_VOICE = 0.1  # 声の無い行: 分けた声の区間と重なる割合がこれ未満の行を捨てる(dropSilent。3 割では本当の声を捨てた)
 FILL_SNAP_END = 0.3      # 行の終わりを分けた声の区間の終わりへ寄せる幅(秒。endSnap。row-start-study の物差しで ±0.2〜0.3 が良かった)
 FILL_DUP_MIN = 6       # C: 前の行の末尾の重複とみなす最小の文字数
@@ -140,6 +143,43 @@ def fill_stock(text):
     """定型の幻覚の文か(FILL_STOCK のどれかを含む)"""
     n = fill_norm(text)
     return bool(n) and any(fill_norm(x) in n for x in FILL_STOCK)
+
+
+def _fill_stock_only(text):
+    """文字が定型の文だけか(FILL_STOCK を取り除くと 1 字以下しか残らない)"""
+    n = fill_norm(text)
+    if not fill_stock(n):
+        return False
+    for x in sorted(FILL_STOCK, key=len, reverse=True):
+        n = n.replace(fill_norm(x), "")
+    return len(n) <= 1
+
+
+def fill_clean_read(rows, read):
+    """判別が無くても: 続いた行(すき間 FILL_STOCK_GAP 秒まで・FILL_STOCK_ROWS 行まで)をつないだ文字が定型の文だけで、
+    その窓(前後 FILL_PAD 秒)を別の読み read で読んでも定型の文が出ない所は、幻覚として捨てる
+    (正弦波だけの音で whisper が 30 秒に「ご視聴ありがとうございました」と書き、単語の間で「ご / 視聴 / ありがとうございました」の 3 行に分かれた)。
+    別の読みで埋めた行(fill)は見ない。-> (行, 捨てた行 [{start, end, text}])"""
+    if not FILL_STOCK_READ or read is None:
+        return rows, []
+    drop, i = set(), 0
+    while i < len(rows):
+        best = None
+        for j in range(i, min(len(rows), i + FILL_STOCK_ROWS)):
+            if (j > i and float(rows[j]["start"]) - float(rows[j - 1]["end"]) > FILL_STOCK_GAP or isinstance(rows[j].get("fill"), dict)
+                    or not fill_norm(rows[j].get("text"))):   # 文字の無い行(♪ だけ。字幕に出さない印は postproc.note_nosub)はつながない
+                break
+            if _fill_stock_only("".join(str(r.get("text") or "") for r in rows[i:j + 1])):
+                best = j
+        if best is None:
+            i += 1
+            continue
+        s0, e0 = max(0.0, float(rows[i]["start"]) - FILL_PAD), float(rows[best]["end"]) + FILL_PAD
+        if not fill_stock("".join(str(c.get("text") or "") for c in read(s0, e0))):
+            drop.update(range(i, best + 1))
+        i = best + 1
+    gone = [{"start": round(float(rows[k]["start"]), 2), "end": round(float(rows[k]["end"]), 2), "text": str(rows[k].get("text") or "")[:200]} for k in sorted(drop)]
+    return [r for k, r in enumerate(rows) if k not in drop], gone
 
 
 def fill_voice_frac(g, spans):
@@ -361,6 +401,16 @@ def fill_after_rows(job, spec, rows, wav, total):
     job["phase"] = phase
     if order == "AC":
         rows, rec["dup"] = fill_clean_tail(rows)
+    if read is not None:   # 定型の文だけの行を読み直して、読めなければ捨てる(判別の無い文書でも。fill_clean_read)
+        try:
+            rows, gone = fill_clean_read(rows, read)
+        except _heavy.Cancelled:
+            raise
+        except (_errors.ApiError, tx_engines.EngineError) as e:
+            gone = []
+            _txbase.add_warning(job, "定型の文を別の読みで確かめられませんでした: " + str(getattr(e, "message", e))[:200])
+        if gone:
+            rec["stockRead"] = {"n": len(gone), "rows": gone[:50]}
     if spec.get("dropSilent") or spec.get("endSnap"):
         rows = fill_drop_silent(job, rows, wav, rec, drop=bool(spec.get("dropSilent")), snap=bool(spec.get("endSnap")))
     return rows, rec, read
