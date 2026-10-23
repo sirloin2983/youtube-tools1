@@ -33,10 +33,11 @@ const agKey = (a, i) => a.id || 'new-' + i;
 /* 作り直しの前後で、入力途中の文字・フォーカス・開閉を引き継ぐ。
    「公式チャンネル」欄の自動保存(0.5秒後)で全体を作り直しても、入力中のカーソルと「チャンネルを追加」欄の書きかけが消えないように */
 function captureReg(el){
-  const st = { open: new Set(), paste: new Map(), off: new Map(), focus: null, newAgency: '' };
+  const st = { open: new Set(), offOpen: new Set(), paste: new Map(), off: new Map(), focus: null, newAgency: '' };
   el.querySelectorAll('.ag').forEach(d => {
     const k = d.dataset.key;
     if (d.open) st.open.add(k);
+    const oo = d.querySelector('.ag-official'); if (oo && oo.open) st.offOpen.add(k);   // 「公式から取り込む」の引き出し(10-24 に畳んだ)
     const p = d.querySelector('.paste'); if (p && p.value) st.paste.set(k, p.value);
     const o = d.querySelector('.off'); if (o && document.activeElement === o) st.off.set(k, o.value);
   });
@@ -53,6 +54,7 @@ function restoreReg(el, st){
     const k = d.dataset.key;
     if (st.paste.has(k)) d.querySelector('.paste').value = st.paste.get(k);
     if (st.off.has(k)) d.querySelector('.off').value = st.off.get(k);
+    if (st.offOpen.has(k) || st.off.has(k)) d.querySelector('.ag-official').open = true;
   });
   const na = el.querySelector('.newAgency'); if (na && st.newAgency) na.value = st.newAgency;
   const f = st.focus;
@@ -71,8 +73,9 @@ function renderReg(){
     const bad = a.channels.filter(c => c.status !== 'ok').length, k = agKey(a, i), busy = R.busy.has(a.id) ? ' disabled' : '';
     return `<details class="ag" data-i="${i}" data-key="${esc(k)}"><summary><span class="ag-name">${esc(a.name)}</span>${a.channels.length ? `<span class="pill ok">${a.channels.length - bad}件 解決済み</span>` : '<span class="pill">チャンネル未登録</span>'}${bad ? `<span class="pill warn">${bad}件 未解決</span>` : ''}${R.busy.has(a.id) ? '<span class="pill run">確認中</span>' : ''}</summary>
     <div class="ag-body">
+    <details class="ui-disclosure ag-official"><summary>公式から取り込む</summary>
     <div class="fld"><label class="l">公式チャンネル(所属チャンネルの取り込みに使います。@ハンドルかURL。空白区切りで複数可)<input type="text" class="off" value="${esc(a.official.join(' '))}" maxlength="200" placeholder="@hololive"></label>
-      <div class="row ag-acts"><button type="button" class="btn small" data-act="imp"${busy}>公式から取り込む</button></div></div>
+      <div class="row ag-acts"><button type="button" class="btn small" data-act="imp"${busy}>公式から取り込む</button></div></div></details>
     <div class="fld"><label class="l">チャンネルを追加(1行に1つ)<textarea class="paste" rows="3" placeholder="@handle&#10;https://www.youtube.com/@handle&#10;UCxxxxxxxxxxxxxxxxxxxxxx"></textarea></label>
       <div class="row ag-acts"><button type="button" class="btn small primary" data-act="add"${busy}>追加して解決</button><button type="button" class="btn small" data-act="res"${busy}>未解決を解決</button><span class="spacer"></span><button type="button" class="btn small danger" data-act="delag">この事務所を削除</button></div></div>
     <div class="ch-list">${a.channels.map((c, j) => `<div class="ch" data-k="${j}"><span class="st ${c.status === 'ok' ? 'ok' : c.status === 'error' ? 'error' : 'pending'}">${c.status === 'ok' ? '解決済み' : c.status === 'error' ? '失敗' : '未解決'}</span><span class="ch-name">${esc(c.title || c.ref)}${c.note ? ` <span class="hint">${esc(c.note)}</span>` : ''}</span><span class="rf hide-s">${esc(c.ref)}</span>${c.status === 'ok' ? regionSel(c) : ''}<button type="button" class="btn small ghost" data-act="delch">外す</button></div>`).join('') || '<p class="hint ch-empty">まだチャンネルがありません。「公式から取り込む」か、上の欄に @ハンドル・URL を入れて「追加して解決」すると、ここに出ます</p>'}</div></div></details>`;
@@ -153,7 +156,7 @@ function mountRegistry(el){
 /* ================= 検索条件 ================= */
 function paneHtml(){
   return `
-  <div id="rkSetupNotice" class="notice info cs-notice-act" hidden><div><b>最初に、対象の事務所のチャンネルを登録します。</b><br>設定 → 事務所の登録 →「公式から取り込む」(ホロライブ・にじさんじ・ぶいすぽっ!)。ネオポルテは公式の一覧がないので、チャンネルのURL(または @ハンドル)を入れて「追加して解決」</div><button type="button" class="btn small primary" id="rkOpenReg">事務所の登録を開く</button></div>
+  <div id="rkSetupNotice" class="notice info cs-notice-act" hidden><div><b>最初に、対象の事務所のチャンネルを登録します。</b><br>設定 → 事務所の登録 → 事務所を開いて「公式から取り込む」(ホロライブ・にじさんじ・ぶいすぽっ!)。ネオポルテは公式の一覧がないので、チャンネルのURL(または @ハンドル)を入れて「追加して解決」</div><button type="button" class="btn small primary" id="rkOpenReg">事務所の登録を開く</button></div>
   <div id="rkKeyNotice" class="notice cs-notice-act" hidden><div><b>YouTube Data API のキーが未設定です。</b> 配信を検索するにはキーが必要です(URLを直接入れて解析する場合は不要です)。</div><button type="button" class="btn small" id="rkOpenSet">設定を開く</button></div>
   <section class="card cs-search" id="rkCond">
     <div class="card-head"><h2 class="card-title">配信を探す</h2><span class="card-sub">登録した事務所の、期間内の配信アーカイブを再生数の多い順に並べます</span></div>

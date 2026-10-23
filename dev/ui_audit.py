@@ -32,7 +32,7 @@ static で見るもの(ID は基準の文書と同じ):
                        どちらも document.getElementById/querySelector で引かない(root・el から引く)。殻は keydown 1 本・UIKit.life.onLeave・API は相対パス・保留の [送る] は blur で確定しない。編集の口 edhost.js は相対パス + window.EditHost
   A-18 id-collision  … ホームの HTML の id が、新しい案件の引き出し(rank.js・queue.js)の id とぶつからない(querySelector で引くため)
   A-19 help-links    … 友人の画面の [?] が guide.html#send・#receive(主画面)・#settings(設定)・#setup(初回の準備)へ
-  A-37 guide         … 友人の説明ページ guide.html: インラインの script・on〇〇= なし・旧い言葉なし・画像は 6 枚以上で PNG・300KB 以内
+  A-37 guide         … 友人の説明ページ guide.html: インラインの script・on〇〇= なし・旧い言葉なし・画像は 2 枚以上で PNG・300KB 以内
   (target="_blank" は見ない: 窓の中では UIKit.win が自動で「このパソコンの画面 → 窓・外のサイト → ブラウザ」に振り分ける決まり)
 
 live で見るもの(場面 × 幅 390/960/1440(主な作業の場面は 1920 も)× 明・暗。文字「大きい」は 390/960 で はみ出し・縦割れ だけ):
@@ -495,15 +495,15 @@ def help_links_problems(pages):
 
 def guide_problems(page, images):
     """友人の説明ページ(guide.html): インラインの script・on〇〇= が無い(説明ページは A-09/A-10 の対象外なので A-02 と同じ見方をここで)・
-    旧い言葉が無い・画像は 6 枚以上で PNG・300KB 以内。images = {src: bytes か None(実在しない)}"""
+    旧い言葉が無い・画像は 2 枚以上で PNG・300KB 以内。images = {src: bytes か None(実在しない)}"""
     out = ["guide.html に使わない言葉「%s」" % w for w in GUIDE_OLD_WORDS if w in page]
     if re.search(r"<script(?![^>]*\ssrc=)", page):
         out.append("guide.html にインラインの script")
     if re.search(r"\son[a-z]+=", page):
         out.append("guide.html に on〇〇= 属性")
     srcs = re.findall(r'<img[^>]*\ssrc="(guide/[^"]+\.png)"', page)
-    if len(srcs) < 6:
-        out.append("guide.html の画像が 6 枚未満(%d)" % len(srcs))
+    if len(srcs) < 2:
+        out.append("guide.html の画像が 2 枚未満(%d)" % len(srcs))
     for src in srcs:
         body = images.get(src)
         if body is None:

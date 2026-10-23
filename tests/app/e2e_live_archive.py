@@ -498,6 +498,7 @@ def _scene_rebuild_by_hand(cx):
           "2 帯の案内(録画に無い区間はアーカイブから書き出す・消す設定がオフなので「ごみ箱へ移します」は出さない): %s" % guide)
     check(wait_js(pg, "() => !document.querySelector('#rvArchRun').disabled", 10000), "2 「アーカイブから書き出す」が押せる")
     probe["status"] = "post_live"
+    pg.evaluate("() => { document.querySelector('#rvArchBox').open = true; }")   # 手で作り直すボタンは閉じた引き出しの中(10-24)
     pg.click("#rvArchRun")
     check(wait_js(pg, "() => /処理中/.test(document.querySelector('#rvArchMsg').textContent)", 15000),
           "2 用意がまだ(post_live)→ 入口の 409 の文が帯に出る: %s" % pg.text_content("#rvArchMsg"))
@@ -537,6 +538,7 @@ def _scene_rebuild_by_hand(cx):
     poller = threading.Thread(target=poll_jobs, daemon=True)
     poller.start()
     probe["status"] = "was_live"   # 用意ができた(busy の書き出しを始めたあとに。見回りが先に始めて待ちを見逃さないように)
+    pg.evaluate("() => { document.querySelector('#rvArchBox').open = true; }")
     pg.click("#rvArchRun")
     shot_taken = False
     deadline = time.time() + 300

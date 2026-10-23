@@ -214,8 +214,11 @@ function liveBarHTML(){
         <p class="rv-liveguide rv-ducknote" id="rvDuckNote" role="status" hidden></p>
         <p class="rv-liveguide" id="rvLiveGuide" hidden></p>
         <div class="rv-liverec rv-arch" id="rvArch" hidden>
+          <!-- 手でアーカイブから作り直すボタンは閉じた引き出しに(10-24 ユーザー。ふだんは配信後の全自動が同じ部品で作り直す)。進み具合の文は外に出したまま -->
+          <details class="ui-disclosure rv-archbox" id="rvArchBox"><summary>手でアーカイブから作り直す</summary>
           <button class="btn small" id="rvArchRun" type="button">アーカイブから書き出す</button>
           <button class="btn small ghost" id="rvArchCancel" type="button" hidden title="アーカイブからの書き出しを止めます">取り消す</button>
+          </details>
           <span class="hint rv-archmsg" id="rvArchMsg" role="status"></span>
         </div>
         <div class="rv-peaks" id="rvPeaks" hidden>

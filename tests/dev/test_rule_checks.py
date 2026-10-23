@@ -260,7 +260,7 @@ class TestUiContracts(Table):
             ("説明ページ: インラインの script", UA.guide_problems, (guide + "<script>x</script>", {"guide/%d.png" % i: png for i in range(6)}), "インライン"),
             ("説明ページ: 画像が PNG でない", UA.guide_problems, (guide, dict({"guide/%d.png" % i: png for i in range(6)}, **{"guide/0.png": b"GIF"})), "PNG でない"),
             ("説明ページ: 画像が 300KB 超", UA.guide_problems, (guide, dict({"guide/%d.png" % i: png for i in range(6)}, **{"guide/0.png": b"\x89PNG" + b"0" * 300 * 1024})), "300KB"),
-            ("説明ページ: 画像が足りない", UA.guide_problems, ("<img src=\"guide/0.png\">", {"guide/0.png": png}), "6 枚未満"),
+            ("説明ページ: 画像が足りない", UA.guide_problems, ("<img src=\"guide/0.png\">", {"guide/0.png": png}), "2 枚未満"),
         ])
 
 

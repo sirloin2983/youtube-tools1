@@ -89,7 +89,7 @@ STATIC = {"/friend/": ("friend.html", UI_DIR), "/friend/index.html": ("friend.ht
           "/friend/guide.html": ("guide.html", UI_DIR),   # 説明([?]。本体は別の段が書く = 無ければ 404)
           "/friend/setup.html": ("setup.html", UI_DIR), "/friend/setup.js": ("setup.js", UI_DIR), "/friend/host.js": ("host.js", UI_DIR),
           "/friend/settings.js": ("settings.js", UI_DIR), "/friend/update.js": ("update.js", UI_DIR), "/friend/settings.css": ("settings.css", UI_DIR)}   # F3-1・F3-5(窓と画面の境目)
-for _n in ("send-empty", "send-ranges", "send-live", "sent-failed", "receive-list", "receive-player", "receive-bulk"):   # 説明 guide.html の画像
+for _n in ("send-ranges", "receive-player"):   # 説明 guide.html の画像(10-24 に 2 枚に減らした)
     STATIC["/friend/guide/%s.png" % _n] = ("guide/%s.png" % _n, UI_DIR)
 TYPES = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".png": "image/png"}
 PAGES = ("/", "/friend/", "/friend/index.html", "/friend/guide.html", "/friend/setup.html")
