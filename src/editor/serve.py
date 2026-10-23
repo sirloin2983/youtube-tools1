@@ -35,8 +35,6 @@
   POST /api/doc-diarnum      {"id", "diarNum"} 文書ごとの話者判別の人数(0 = 自動・1〜8。updatedAt は変えない。段7 E-6)
   GET  /api/mach-changes?id=&row=  機械の結果が変わって人の直しと食い違う行(印 MACH_CHANGED)の 前の機械・今の機械・人の直し(RS8 O2-4)
   POST /api/mach-changes/pick {"id", "row", "pick": mine|machine, "baseUpdatedAt"?} 自分の直しのまま / 今の機械にする(本体は human/proof/machpick.py)
-  POST /api/thumb-ideas      {"id", "crop"?: alt|center|right} サムネの案(6 案を 1 枚の PNG に。作業用/<名前>_thumb-ideas.png。ジョブ kind thumb。文書は読むだけ。P5。本体は ed_thumb.py → thumb_ideas.py)
-  GET  /api/thumb-ideas?id=   その文書のサムネの案の有無・作った時刻・案ごとの型と文字 / GET /api/thumb-ideas/image?id= で PNG
   GET  /api/edit/draft?id=&rows=1  動画の fps・長さと、たたき台「行から」(pack.TRANSCRIPT_ROWS。残す行が無ければ全部)・隣の .cut-plan.json。
                              「行から」はカットが無い文書か rows=1 のときだけ計算する(設定の rowEdge = 行の端を声の止まる所まで広げるか)
   POST /api/edit/pack        {"id", "rev", "docUpdatedAt", "dir", "files", "output"?} パックを作り終えた記録(packRev)。output = 作ったときの出力の設定(壊れていれば保存しない)
@@ -93,7 +91,6 @@ from ytt import settings as _settings  # noqa: E402  (編集の設定の読み�
 from ytt import tools as _tools, workdata as _workdata  # noqa: E402  (置き場所と版の今の値・動画と音声の小道具)
 import ed_state, ed_media  # noqa: E402,F401  (分けた部品)
 from ytt import errors as _errors  # noqa: E402
-import ed_thumb  # noqa: E402,F401  (サムネの案のジョブ。提案 P5)
 from eval.fake import fake_asr  # noqa: E402  (疑似の文字起こし。app だけが ④ を読んで差し込み口に登録する。RS2-2)
 from eval.fake import fake_worker  # noqa: E402  (認識ワーカーの中の疑似。ワーカーへはモジュールの名前だけを渡す = worker_client.FAKES_MODULE。RS2-9)
 from pipeline.transcribe import models as _txmodels, worker_client as _txworker  # noqa: E402  (認識ワーカー・モデル・エンジンの確かめと wav の形。RS2-6)
@@ -125,14 +122,14 @@ _workdata.SERVER_VERSION = SERVER_VERSION   # 部品が読む版(持ち主は yt
 
 # ---------- 文字起こしの配線(RS6 a-5b。ジョブの種類の登録・ジョブの表の設定・本物と疑似の選び方・① の口の登録は ② flow/wire.install。表と待機列は flow/jobs) ----------
 # 種類ごとの優先度・同時に入れない組・やり直せるかは flow/wire の表が正。本体は lambda の中で呼ぶたびに読む(テストの差し替えが効く)。
-# ③ ⑤ の関数(doc_jobs・speakers・rerun・alt・relink・ed_thumb・疑似の本体)は ② が読めないので、ここから渡す。
+# ③ ⑤ の関数(doc_jobs・speakers・rerun・alt・relink・疑似の本体)は ② が読めないので、ここから渡す。
 # 置き場所(ytt/workdata)・動画と音声の小道具(ytt/tools)・ワーカーと GPU とモデル名の検査(worker_client)・名簿のファイル(roster.ROSTER)・スタジオの配信の情報(ytt/studiodata)は、
 # 下の層の部品が持ち主を呼ぶたびに直に読む(テストは持ち主のモジュールを差し替える)
 _flowwire.install(
     bodies={"transcribe": lambda job: _docjobs.run_job(job), "diarize": lambda job: _speakers.run_diarize(job), "voice-learn": lambda job: _speakers.run_voice_learn(job),
             "retranscribe": lambda job: _rerun.run_retranscribe(job),
             "normalize": lambda job: _flownorm.run_job(job, swap=lambda tid, src, dst: _relink.norm_swap(tid, src, dst)),   # 動画を選び直したあとの 30fps の作り直し(Q1。本体は ② flow/normalize・付け替えは ④)
-            "alt": lambda job: _alt.run_alt(job), "thumb": lambda job: ed_thumb.run_thumb(job)},
+            "alt": lambda job: _alt.run_alt(job)},
     tool=ed_state.TOOL_ID, log=ed_state.log, tmp_dir=lambda: _workdata.TMP_DIR, max_queue=lambda: ed_state.MAX_QUEUE,
     mark=lambda info: ed_state.write_mark(info), no_retry=lambda: _docjobs.NO_RETRY,
     backend_name=lambda: ed_state.backend_name(), fake_backend=fake_asr.FAKE,   # 呼ぶたびに決める(テストの ed_state.backend_name の差し替えが効く)
@@ -212,7 +209,6 @@ GET_API = {
     "/api/eval-batch": lambda a: _evalbatch.eval_batch_status(),   # 評価用の動画のまとめての文字起こしの状態(Q4)
     "/api/edit": lambda a: _store.get_edit(a("id")),
     "/api/edit/draft": lambda a: _store.edit_draft(a("id"), a("rows") == "1"),
-    "/api/thumb-ideas": lambda a: ed_thumb.thumb_info(a("id")),   # サムネの案の有無・作った時刻・案ごとの型と文字(P5)
     "/api/edit/pack-readme": lambda a: _doclist.pack_readme(a("id")),
     "/api/doc-for": lambda a: {"doc": _store.find_doc_for_media(a("path"))},
     "/api/mach-changes": lambda a: _machpick.changes(a("id"), a("row", "")),   # 3 択: 機械の結果が変わった人の行(前の機械・今の機械・人の直し。RS8 O2-4)
@@ -221,10 +217,6 @@ GET_API = {
 
 def _job(spec, kind="transcribe"):
     return _docjobs.public_job(_heavy_jobs.add_job(spec, kind))
-
-
-def _id_of(o):
-    return str(o.get("id") or o.get("tid") or "")
 
 
 def _delete_voice(o):
@@ -245,7 +237,6 @@ POST_API = {
     "/api/speakers/sub": lambda o: _speakers.speakers_sub_apply(o),   # 話者ごとの字幕の見た目(今は色)を名前で入れる(入口のまとめて実行が友人の指定を覚える)
     "/api/voices/delete": _delete_voice,
     "/api/rerun": lambda o: _job(*_rerun.validate_rerun(o)),   # 認識し直しの受付は 1 つ(X-RERUN。対象 × エンジン × 結果の扱い)
-    "/api/thumb-ideas": lambda o: _job(ed_thumb.thumb_spec(_id_of(o), o), "thumb"),   # サムネの案を 1 枚に(P5)。文書は読むだけなので、編集は止めない
     "/api/settings/patch": lambda o: _settings.patch_settings(o),   # ほかの画面(ホーム・スタジオのまとめて実行の欄)から、決まった項目だけを直す
     "/api/restore": lambda o: {"ok": True, "updatedAt": _store.restore_history(str(o.get("id", "")), o.get("ts"))["updatedAt"]},
     "/api/suggest/feedback": lambda o: {"ok": True, "n": _learn.record_feedback(o)},
@@ -425,8 +416,6 @@ class Handler(httpsec.LocalHandler):
                 return self._peaks(arg("id"))
             if u.path == "/media":
                 return self._media(arg("id"))
-            if u.path == "/api/thumb-ideas/image":   # サムネの案の PNG(パスは文書の動画から作る。P5)
-                return httpsec.send_file(self, ed_thumb.thumb_image_path(arg("id")), "image/png")
         except ed_state.ApiError as e:
             return self._err(e)
         self._fail(404, "not_found", "そのページ・操作はありません")

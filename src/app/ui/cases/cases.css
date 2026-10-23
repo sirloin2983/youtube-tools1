@@ -178,9 +178,6 @@
 .tt-pk-sumrow{display:flex;align-items:center;gap:7px;margin:0}   /* 前回の設定の要約 + 配信者の色の丸(段3。既定は色が無いので隠す) */
 .tt-pk-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
 .tt-pk-col{display:flex;flex-direction:column;gap:14px;min-width:0}
-/* サムネの案(P5) */
-.tt-th-row{gap:8px;align-items:center;flex-wrap:wrap}
-.tt-th-img{display:block;width:100%;height:auto;margin-top:8px;border:1px solid var(--line);border-radius:var(--r)}
 .tt-pk-card{padding:14px 16px}
 .tt-pk-h{display:flex;align-items:center;gap:8px;margin:0 0 10px;font:650 15px/1.35 var(--font-display)}
 .tt-pk-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:8px 0}

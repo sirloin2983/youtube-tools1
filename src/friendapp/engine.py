@@ -482,11 +482,10 @@ class Engine:
 
 
 def _pack_info(mark):
-    """② の実行のパックの印(run.pack_marks の 1 つ)-> 受信箱の info の機械の見出し・かぶりの欄(届ける .meta.json と同じ名前。無ければ {})"""
+    """② の実行のパックの印(run.pack_marks の 1 つ)-> 受信箱の info のかぶりの欄(届ける .meta.json と同じ名前。無ければ {})"""
     m = mark if isinstance(mark, dict) else {}
-    h = m.get("headline") if isinstance(m.get("headline"), dict) else {}
-    out = {"headline": str(h.get("text") or "")[:60], "headlineWhy": str(h.get("why") or "")[:160], "overlapNote": str(m.get("overlap") or "")[:160]}
-    return {k: v for k, v in out.items() if v}
+    note = str(m.get("overlap") or "")[:160]
+    return {"overlapNote": note} if note else {}
 
 
 def _case_from(result_path):

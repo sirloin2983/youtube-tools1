@@ -247,7 +247,7 @@ def _tx_after(job):
 
 
 # ---------- ② のジョブの掲示板に見せる(RS8 の ② の口 S2。flow/board.py。器の本体と今の API(/api/jobs など)は変えない) ----------
-# 掲示板の kind の語彙(board.KINDS)に載せる写し: 文字起こし・話者(声を覚えるも)・それ以外の作り直し(再認識・疑わしい所・比較・30fps・字幕・サムネ)。仮の分け方
+# 掲示板の kind の語彙(board.KINDS)に載せる写し: 文字起こし・話者(声を覚えるも)・それ以外の作り直し(再認識・疑わしい所・比較・30fps・字幕)。仮の分け方
 BOARD_KIND = {"transcribe": "transcribe", "diarize": "diarize", "voice-learn": "diarize"}
 BOARD_STATE = {"queued": "queued", "loading": "running", "extracting": "running", "running": "running", "done": "done", "error": "error", "cancelled": "cancelled"}
 

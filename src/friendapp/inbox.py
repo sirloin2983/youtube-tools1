@@ -621,7 +621,7 @@ class Inbox:
                     r["packs"].append({"name": name, "dir": None, "title": str(it.get("title") or pack_title(name)),
                                        "seconds": it.get("seconds") if it.get("seconds") is not None else info.get("seconds"),
                                        "verdict": None, "at": None, "by": None, "want": None, "error": "", "arrivedAt": now,
-                                       "info": {k: info[k] for k in ("videoId", "markId", "streamTitle", "streamer", "headline", "headlineWhy", "overlapNote") if info.get(k)},
+                                       "info": {k: info[k] for k in ("videoId", "markId", "streamTitle", "streamer", "overlapNote") if info.get(k)},
                                        "remote": {k: it.get(k) for k in ("zip", "size", "rev", "hash", "meta")}})
                     self._number(r, r["packs"][-1])
                     got.append(name)
@@ -1100,7 +1100,6 @@ class Inbox:
                 "preview": bool(p.get("preview")), "remote": bool(p.get("remote")), "want": p.get("want"), "error": p.get("error") or "",
                 "verdict": p["verdict"], "reason": p.get("reason"), "at": p.get("at"), "arrivedAt": p.get("arrivedAt"),
                 "videoId": info["videoId"], "auto": r.get("origin") == "auto",
-                "headline": (p.get("info") or {}).get("headline") or "", "headlineWhy": (p.get("info") or {}).get("headlineWhy") or "",
                 "overlapNote": (p.get("info") or {}).get("overlapNote") or ""}
 
     def opened(self, rid, name):
@@ -1128,7 +1127,7 @@ class Inbox:
 def _local_info(p):
     """この PC で作ったパックの機械の見出し・かぶり(engine._pack_info)-> {"info": {...}} か {}(無い)"""
     info = p.get("info") if isinstance(p.get("info"), dict) else {}
-    keep = {k: str(info[k]) for k in ("headline", "headlineWhy", "overlapNote") if isinstance(info.get(k), str) and info[k]}
+    keep = {k: str(info[k]) for k in ("overlapNote",) if isinstance(info.get(k), str) and info[k]}
     return {"info": keep} if keep else {}
 
 

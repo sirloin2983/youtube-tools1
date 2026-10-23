@@ -509,7 +509,7 @@ class SyncTest(unittest.TestCase):
                                           "seconds": 31.5, "title": "パックの題"}).encode())
         self.assertEqual(d, {"videoId": "dQw4w9WgXcQ", "markId": "m1", "streamTitle": "枠の題", "streamer": "星見ルナ", "seconds": 31.5})
         d = S.parse_meta_info(json.dumps({"v": 1, "headline": "「うわ最悪だね」", "headlineWhy": "チャットが急増", "overlapNote": "前に届けた…"}).encode())
-        self.assertEqual(d, {"headline": "「うわ最悪だね」", "headlineWhy": "チャットが急増", "overlapNote": "前に届けた…"})   # 機械の見出し・かぶり(新機能 C・E)
+        self.assertEqual(d, {"overlapNote": "前に届けた…"})   # かぶり(新機能 E)。古い .meta.json の機械の見出し(10-24 に無くした)は読まない
         d = S.parse_meta_info(json.dumps({"v": 1, "videoId": "short", "markId": "", "streamTitle": "", "seconds": 0}).encode())
         self.assertEqual(d, {})   # 分からない欄は入れない
         for raw in (json.dumps({"v": 1, "seconds": 86400}), json.dumps({"v": 1, "seconds": True}), json.dumps({"v": 2, "videoId": "dQw4w9WgXcQ"}), "{broken"):

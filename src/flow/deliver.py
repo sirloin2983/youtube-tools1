@@ -82,12 +82,10 @@ def _text(v):
     return str(v or "")[:TEXT_MAX] if isinstance(v, str) else ""
 
 
-def meta_doc(zip_path, origin, preview=None, title="", video_id="", mark_id="", stream_title="", streamer="", seconds=None, now=None, headline=None,
-             overlap=""):
+def meta_doc(zip_path, origin, preview=None, title="", video_id="", mark_id="", stream_title="", streamer="", seconds=None, now=None, overlap=""):
     """届く物の .meta.json の中身:
     {"v":1, "kind":"clip", "origin": request|auto, "sentAt", "requestId"(zip の名前の頭), "zip", "preview"(名前か None), "title"(パックの題),
      "videoId", "markId", "streamTitle", "streamer"(分からなければ ""), "seconds"(切り抜きの長さ。分からなければ None)}。
-    headline = 機械の見出し {"text", "why", "by"}(ytt/headline。あれば "headline"・"headlineWhy"・"headlineBy" を足す。古い友人のアプリは読み飛ばす)。
     overlap = 前に届けた区間とのかぶりの 1 行(flow/deliveries.overlap_note。あれば "overlapNote")
     #番号(配信ごとの通し番号)は友人のアプリが付ける(友人の PC で処理した物も同じ受信箱に入るため)"""
     name = os.path.basename(zip_path)
@@ -95,8 +93,6 @@ def meta_doc(zip_path, origin, preview=None, title="", video_id="", mark_id="", 
     return {"v": 1, "kind": "clip", "origin": origin, "sentAt": _local_iso(now), "requestId": name.split("__", 1)[0] if "__" in name else "",
             "zip": name, "preview": os.path.basename(preview) if preview else None, "title": _text(title), "videoId": _text(video_id),
             "markId": _text(mark_id), "streamTitle": _text(stream_title), "streamer": _text(streamer), "seconds": round(float(seconds), 2) if ok else None,
-            **({"headline": _text(headline.get("text")), "headlineWhy": _text(headline.get("why")), "headlineBy": _text(headline.get("by"))}
-               if isinstance(headline, dict) and headline.get("text") else {}),
             **({"overlapNote": _text(overlap)} if isinstance(overlap, str) and overlap else {})}
 
 
@@ -185,7 +181,7 @@ def deliver_one(d, out_dir, name, log_dir=None, run=None, marks=None, check=None
         meta = meta_path_for(dest)
         write_meta_json(meta, meta_doc(dest, face_origin(origin), placed, _preview.pack_title(d), getattr(run, "video_id", None) or "",
                                        str(mark.get("markId") or ""), getattr(run, "title", "") if stream_title is None else stream_title,
-                                       getattr(run, "streamer", None) or "", _preview.pack_seconds(d), headline=mark.get("headline"),
+                                       getattr(run, "streamer", None) or "", _preview.pack_seconds(d),
                                        overlap=mark.get("overlap") or ""))
         zip_packs([d], out_dir, name, check=check, progress=progress, dest=dest)
     except BaseException:

@@ -140,9 +140,6 @@ class DemoStreams:
         pass
 
 
-DEMO_HEADS = [{"headline": "「うわ最悪だね!」", "headlineWhy": "音量が急上昇・チャットが急増・山の 3 秒前の行・叫び・驚き"},
-              {"headline": "「あはははははははは」", "headlineWhy": "チャットが急増・山の近くの行・笑い"},
-              {"headline": "「無印良品PR配信みたいになっちゃった」", "headlineWhy": "目立つ行が無いので長めの行"}]
 DEMO_OVERLAP = "前に届けた切り抜きと区間が 8 割重なっています(20261015-210000-aaaa00__01_00h12m03s-00h14m10s・10-15 に届けた)"
 
 
@@ -158,8 +155,7 @@ def seed(app, home):
             os.makedirs(d, exist_ok=True)
             with open(os.path.join(d, "clip.mp4"), "wb") as f:
                 f.write(b"\0" * 1024)
-            head = DEMO_HEADS[i % len(DEMO_HEADS)]   # 機械の見出し(新機能 C)・かぶり(E)の見本
-            out.append({"dir": d, "seconds": 60.0 + i * 15, "info": dict(head, overlapNote=DEMO_OVERLAP) if i == 1 else head})
+            out.append(dict({"dir": d, "seconds": 60.0 + i * 15}, **({"info": {"overlapNote": DEMO_OVERLAP}} if i == 1 else {})))   # かぶり(新機能 E)の見本
         return out
 
     form = {"url": "https://www.youtube.com/watch?v=demo0000001", "videoId": "demo0000001", "ranges": [], "top": 5, "streamer": "星見ルナ",

@@ -565,13 +565,12 @@ class TestExclusive(StoreDir):
 
     def test_table_is_symmetric(self):
         """a が b を断るなら b も a を断る(表の全組)。再認識も声を覚えるの最中は断る(声を覚える途中で行の時刻が変わると、
-        覚える区間がずれる)。サムネの案 thumb は文書を読むだけなので同じ種類どうしだけ(ほかと同時でよい)"""
+        覚える区間がずれる)"""
         for a, others in _jobs.EXCLUSIVE.items():
             for b in others:
                 self.assertIn(b, _jobs.EXCLUSIVE, (a, b))
                 self.assertIn(a, _jobs.EXCLUSIVE[b], "%s は %s を断るが、%s は %s を断らない" % (a, b, b, a))
         self.assertEqual(set(_jobs.EXCLUSIVE["voice-learn"]), {"diarize", "retranscribe", "voice-learn"})
-        self.assertEqual(_jobs.EXCLUSIVE["thumb"], ("thumb",))
         with self.active("voice-learn"):   # 登録(add_job)も声を覚えるの最中は断る
             self.busy(lambda: _jobs.add_job({"tid": TID, "title": "t"}, "retranscribe"))
 

@@ -166,15 +166,6 @@
        <p class="hint" id="pkDeliverMsg" role="status" hidden></p>
        <pre class="tt-cp-readme" id="pkReadmeText" hidden></pre>
      </div>
-     <div class="card tt-pk-card" id="thCard" hidden>
-       <h3 class="tt-pk-h">サムネの案(参照)</h3>
-       <p class="hint tt-pk-p">音の大きい瞬間・場面の切り替わり・字幕から時刻を 6 つ選び、型の違う縦長の案を 1 枚に並べます。完成品ではなく、サムネを作るときの参照です。動画のフォルダの「作業用」に保存します(友人へ届けるパックには入りません)。</p>
-       <div class="row tt-th-row"><label for="thCrop">切り取り</label>
-         <select id="thCrop"><option value="alt">中央と右下を交互</option><option value="center">全部中央(アバターが中央の配信)</option><option value="right">全部右下</option></select>
-         <button type="button" class="btn" id="thGo">サムネの案を作る</button></div>
-       <p class="hint" id="thMsg" role="status" aria-live="polite"></p>
-       <a id="thLink" hidden target="_blank" rel="noopener" title="大きく見る(新しいタブ)"><img id="thImg" class="tt-th-img" alt="サムネの案 6 つ(番号・型・時刻つき)"></a>
-     </div>
    </div>
  </div>
  </section>

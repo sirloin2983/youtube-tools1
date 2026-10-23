@@ -167,7 +167,7 @@
 .fr-video{display:block;width:100%;max-height:calc(100vh - 360px);aspect-ratio:16/9;background:var(--stage-bg);border-radius:var(--r-lg)}
 .fr-player-title{margin:0;font:650 17px/1.4 var(--font-display);overflow-wrap:anywhere}
 .fr-player-meta{color:var(--ink-3);font-size:var(--fs-sm)}
-/* 機械の見出し(作る側が文字起こしの行から規則で選んだ 1 行。flow/deliver の headline)。人の題と見分けるため灰色・小さめ */
+/* 前に届けた区間とのかぶりの 1 行(flow/deliver の overlapNote)。人の題と見分けるため灰色・小さめ */
 .fr-player-head{color:var(--ink-3);font-size:var(--fs-sm);overflow-wrap:anywhere;white-space:pre-line}
 .fr-card-overlap{color:var(--warn-ink,var(--ink-2))}
 .fr-card-head{display:block;color:var(--ink-3);font-size:var(--fs-xs,12px);line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

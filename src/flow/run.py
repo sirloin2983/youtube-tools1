@@ -51,7 +51,7 @@ import threading
 import time
 import uuid
 
-from ytt import colors, fsio as _fsio, headline as _headline, jobs as _slots, schemas as _schemas, tools as _ytools
+from ytt import colors, fsio as _fsio, jobs as _slots, schemas as _schemas, tools as _ytools
 from pipeline.analyze import excite as _excite   # 埋めた候補の理由の文(FILL_REASON)を数えるだけ
 from . import batch as _batch   # 解析の順番の断りの種類(queued_already)
 from . import envelope as _envelope, keys as _keys, order as _order, normalize as _norm, placement as _placement, prio as _prio, spec as _spec, tools as _tools
@@ -123,23 +123,6 @@ def _check_note(items):
     hit = [(i.get("file") or "").rsplit("/", 1)[-1] + ": " + "・".join(x["text"] for x in i["check"]["issues"][:2])
            for i in items if isinstance(i.get("check"), dict) and i["check"].get("issues")]
     return "。点検で気になる所 %d 本(%s)" % (len(hit), " / ".join(hit[:3])) if hit else ""
-
-
-def _pack_head(doc, hint):
-    """パック 1 本の機械の見出し(ytt/headline。規則だけ)-> {"text", "why", "by"} か None。山の時刻は切り抜きの中の秒へ(clip_offset)・余白つきはマークの区間の行だけ"""
-    clip = doc.get("clip") if isinstance(doc.get("clip"), dict) else None
-    peak, span = hint.get("peak"), None
-    try:
-        if clip:
-            span = _schemas.clip_mark_span(clip)
-            off = _schemas.clip_offset(clip)
-            peak = float(peak) - off if isinstance(peak, (int, float)) and not isinstance(peak, bool) else None
-        else:
-            peak = None
-        h = _headline.headline(doc.get("segments") or [], peak, span, hint.get("reasons") if isinstance(hint.get("reasons"), list) else None)
-    except (KeyError, TypeError, ValueError):
-        return None
-    return {k: h[k] for k in ("text", "why", "by")} if h else None
 
 
 def _clip_span(media):
@@ -603,7 +586,6 @@ class Run:
         run.kept_packs = strs("keptPacks")
         pm = d.get("packMarks") if isinstance(d.get("packMarks"), dict) else {}
         run.pack_marks = {str(k): dict({"path": str(v.get("path") or ""), "markId": str(v.get("markId") or "")},
-                                       **({"headline": v["headline"]} if isinstance(v.get("headline"), dict) else {}),
                                        **({"overlap": v["overlap"]} if isinstance(v.get("overlap"), str) else {})) for k, v in pm.items() if isinstance(v, dict)}
         old = {x.get("key"): x for x in d.get("steps") or [] if isinstance(x, dict)}
         for st in run.steps:
@@ -1514,9 +1496,6 @@ class Runner:
             run.packs.append(out)   # ① 全自動で Dropbox へ届けるもの
             hint = dict(run.pack_hint or {})
             run.pack_marks[out] = {k: hint[k] for k in ("path", "markId") if k in hint}   # どの切り抜き・どのマークのパックか(_step_pack が hint を置く。友人の「要らない」で引く)
-            head = _pack_head(doc, hint)
-            if head:
-                run.pack_marks[out]["headline"] = head   # 機械の見出しと選んだ理由(届ける .meta.json の headline・受け取りの画面)
             note = self._overlap_note(run, doc)
             if note:
                 run.pack_marks[out]["overlap"] = note   # 依頼をまたいだ区間のかぶり(段の文・届ける .meta.json の overlapNote)
@@ -1558,7 +1537,7 @@ class Runner:
             prefix = "%d / %d 本 ・ " % (i - 1, len(todo))
             st["detail"] = prefix.rstrip(" ・ ")
             try:
-                run.pack_hint = {"path": m["path"], "markId": str(m.get("id") or ""), "peak": m.get("peak"), "reasons": m.get("reasons")}   # 山・理由 = 見出し(_pack_head)
+                run.pack_hint = {"path": m["path"], "markId": str(m.get("id") or "")}
                 res, cut = self._pack_one(run, st, doc, m["path"], opts, force=force, prefix=prefix, built=built)
             except StepError as e:
                 if run.on_fail == "stop":
