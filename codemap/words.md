@@ -66,7 +66,7 @@
   - 画面: src/app/ui/editor/pack-tab.js:37
 - **掲示板** — ② のジョブの掲示板(RS8 の口 S1)
   - コード: `src/flow/board.py`・`src/flow/jobs.py`
-  - 画面: src/app/ui/home/portal.js:632・src/app/ui/studio/review.js:3452
+  - 画面: src/app/ui/home/portal.js:632・src/app/ui/studio/review.js:3457
 - **調子** — 入口の「調子」。空き容量・失敗・道具の版などの集計
   - コード: `src/manage/ops/health.py`・`/api/health` src/app/server.py:736
   - 画面: src/app/ui/cases/panels/cand.js:104・src/app/ui/cases/panels/new.js:203・src/app/ui/home/portal.html:122・src/app/ui/home/portal.js:1186
@@ -160,7 +160,7 @@
 - 事務所の登録を開く(4)— src/app/ui/studio/rank.js:156
 - 取り消す(4)— src/app/ui/editor/app-tpl.js:45
 - 外す(4)— src/app/ui/studio/rank.js:78
-- 戻す(4)— src/app/ui/studio/review.js:1900
+- 戻す(4)— src/app/ui/studio/review.js:1905
 - 標準(4)— src/app/ui/cases/panels/cand.js:29
 - 詳しく(4)— src/app/ui/cases/cases.js:416
 - 読み込んでいます…(4)— src/app/ui/home/portal.html:44
@@ -198,7 +198,7 @@
 - まだ検索していません(2)— src/app/ui/studio/rank.js:196
 - もう一度検索する(2)— src/app/ui/studio/rank.js:308
 - もっと見る(あと(2)— src/app/ui/home/portal.js:884
-- アーカイブ(2)— src/app/ui/studio/review.js:2490
+- アーカイブ(2)— src/app/ui/studio/review.js:2495
 - カット(2)— src/app/ui/cases/panels/cut.js:118
 - カット・パック(2)— src/app/ui/cases/cases.js:73
 - カット・パックへ(2)— src/app/ui/editor/app-core.js:37
