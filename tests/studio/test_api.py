@@ -356,7 +356,8 @@ class TestExportApi(Base):
         self.assertEqual(st, 200, j)
         st, job, *_ = self.req("POST", "/api/export", {"id": vid, "markIds": ["m1"], "precision": "accurate"})
         self.assertEqual(st, 200, job)
-        for _ in range(300):
+        end = time.time() + 120.0   # 単独では 2 秒ほど。関所で並べて流す負荷では 30 秒で足りず 'running' のまま落ちた = 済むまで待つ上限を広げる(10-23)
+        while time.time() < end:
             st, job, *_ = self.req("GET", "/api/export?id=" + job["id"])
             if job["state"] != "running":
                 break

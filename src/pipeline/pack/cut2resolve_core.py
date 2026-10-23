@@ -468,7 +468,7 @@ def render_rough_cut(video, keeps, fps, has_audio, out_path, crf=DEFAULT_CRF, ta
             "-c:v", "libx264", "-crf", str(crf), "-preset", "medium", "-pix_fmt", "yuv420p",
             "-r", f"{fps[0]}/{fps[1]}"]
         if has_audio:
-            out_opts += ["-c:a", "aac", "-b:a", "192k"]
+            out_opts += ["-c:a", "aac", "-b:a", _loud.pack_aac()]
         out_opts += ["-movflags", "+faststart", "-f", "mp4", tmp]
         r = _ffmpeg_script(";\n".join(chains), ("-filter_complex_script", "-/filter_complex"),
                            lambda opt, sp: [S.tool("ffmpeg"), "-y", "-nostdin", "-v", "error", "-i", S.arg_path(video), opt, sp] + out_opts,
@@ -625,7 +625,7 @@ def measure_loudness(video, spans_sec=None, task=None, duration=None):
 
 def _gain_copy_opts(video, ext, gain_db, meta=None):
     """copy_video_gain の ffmpeg の出力の設定(入力・出力のパスを除く)。音量をかけた写しの記録の「書き出しの設定」もこれ(gain_copy_key)"""
-    acodec = ["-c:a", "libopus", "-b:a", "160k"] if ext == ".webm" else ["-c:a", "aac", "-b:a", "192k"]
+    acodec = ["-c:a", "libopus", "-b:a", "160k"] if ext == ".webm" else ["-c:a", "aac", "-b:a", _loud.pack_aac()]
     tc = read_start_tc(video, meta)
     opts = ["-map", "0:v?", "-map", "0:a?", "-map_metadata", "0", "-c:v", "copy", "-af", _loud.pack_filter(gain_db)] + acodec
     if ext in (".mp4", ".mov", ".m4v"):

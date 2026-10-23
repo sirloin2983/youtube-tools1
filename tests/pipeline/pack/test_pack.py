@@ -956,6 +956,8 @@ class TestPackRun(unittest.TestCase):
         self.assertEqual(rec["output"], {"name": "さくらみこ.mp4", "size": dst.st_size, "mtime": dst.st_mtime_ns // 10 ** 9})
         self.assertIn(loudness.pack_filter(lo["gainDb"]), rec["ffmpeg"])
         self.assertEqual(lo["limitDb"], loudness.LIMIT_DB)                                # どうそろえたかの印
+        self.assertEqual(lo["aac"], loudness.PACK_ABITRATE)                               # 音の符号化の印(192k は膨らんで -1 dBTP を超えた)
+        self.assertIn(loudness.PACK_ABITRATE, rec["ffmpeg"])
         self.assertLessEqual(C.measure_loudness(out / "さくらみこ.mp4")[1], -1.0)         # ピークはリミッターで -1 dBTP より下
         self.assertNotIn("volume", rec)
         # 同じフォルダにもう一度: force が無ければ断り、書いてあるファイルを知らせる
