@@ -227,7 +227,7 @@ DEFAULTS = {
         "splitChars": 24,
         "autoDict": True, "autoGloss": True, "autoContext": False, "autoLearned": False,
         "autoFill": True, "stripNames": True, "autoLlm": True,
-        "dropSilent": False,  # 声を分けて声の無い行を捨てる(pipeline/transcribe/fill.fill_drop_silent。既定オフ = 配る前の検査が通ったら次の版で)
+        "dropSilent": True,   # 声を分けて声の無い行を捨てる(pipeline/transcribe/fill.fill_drop_silent。10-23 に今の基準で測り直して下がる数なし = 既定オン。印 fill.dropped・False で前のまま)
         "endSnap": False,     # 行の終わりを分けた声の区間の終わりへ寄せる(fill.fill_snap_ends。既定オフ = 末が切れるは減るが黙っている間の字幕が少し増える)
         "llmModel": "qwen3-8b",   # LLM の後処理のモデル(src/pipeline/transcribe/llm.py の LLM_MODEL。この PC の設定 flow/machine.py が重ねる。RS7-1 S1)
         "diarSmooth": False,  # 試験中・既定オフ(src/ytt/settings.py の SETTINGS_PATCH_KEYS の説明)
