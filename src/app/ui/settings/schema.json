@@ -104,8 +104,8 @@
       { "id": "post", "title": "自動の後処理(文字起こしが終わったら)", "items": [
         { "key": "stripPunct", "type": "bool", "label": "句読点(、。？！)を取り除く(テロップ向け)", "default": true },
         { "key": "autoDict", "type": "bool", "label": "置換辞書を自動で適用する", "default": true },
-        { "key": "autoGloss", "type": "bool", "label": "よく直される語を、認識のヒント(用語集)に自動で足す", "default": true },
-        { "key": "autoContext", "type": "bool", "label": "配信に出る人の名前と呼び名を、認識のヒントに自動で足す(名簿から)", "default": false },
+        { "key": "autoGloss", "type": "bool", "label": "よく直される語を、用語集に自動で足す", "default": true },
+        { "key": "autoContext", "type": "bool", "label": "配信に出る人の名前と呼び名を、用語集の語として自動で使う(名簿から。認識には渡りません)", "default": false },
         { "key": "autoLearned", "type": "bool", "label": "学習済みの置換のうち確度が高いものを自動で適用する(慣れるまではオフ推奨)", "default": false },
         { "key": "autoFill", "type": "bool", "label": "文字の少ない行を別のエンジンの読みで埋め、名簿の呼び名に直す", "default": true, "hint": "初回は 163MB のモデルを取得します。評価用の文書には何もしません。" },
         { "key": "stripNames", "type": "bool", "label": "行の頭の話者名(「リリー:」のような形)を外す", "default": true, "hint": "whisper が字幕の形をまねて名前を付けることがあります。外した行は「別の読み」の札で戻せます。評価用の文書には何もしません。" },
@@ -117,7 +117,7 @@
         { "key": "checkCutCardsOn", "type": "bool", "label": "確かめるに機械のカットのカードを出す", "default": true, "validated": true, "hint": "自動で切った切れ目・消した所・仕上がりを 1 本 5 枚まで聞いて答えます。答えは機械のカットの物差しの記録になるだけで、カットもパックも変えません。" }
       ] },
       { "id": "text", "title": "用語集・置換辞書", "items": [
-        { "key": "glossary", "type": "textarea", "label": "用語集(1 行に 1 語。名前や固有名詞)", "default": "", "maxlength": 4000, "placeholder": "例:\n白上フブキ\nホロライブ", "hint": "認識のヒントとして渡します。効き目は限定的なので、直らないものは置換辞書で直します。名前や呼び名はここに 1 行ずつ足します。" },
+        { "key": "glossary", "type": "textarea", "label": "用語集(1 行に 1 語。名前や固有名詞)", "default": "", "maxlength": 4000, "placeholder": "例:\n白上フブキ\nホロライブ", "hint": "今の文字起こし(GPU の whisper.cpp)では、認識には渡しません(渡すと声の少ない所で名前を書き写して精度が下がるため)。行の頭の話者名を外す・英字の注意を出さない語として使います。直したい名前は置換辞書に足します。名前や呼び名はここに 1 行ずつ足します。" },
         { "key": "replacements", "type": "textarea", "label": "置換辞書(1 行に「誤=>正」)", "default": "", "maxlength": 20000, "placeholder": "例:\nふぶき=>フブキ", "hint": "どの文字起こしにも使えます。|誤|=>正 と縦棒で挟むと、カタカナ・漢字・英数字の並びの途中には当てません。" }
       ] }
     ] },
