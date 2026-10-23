@@ -82,6 +82,7 @@
 
 ## テスト
 
+- dev/test_deps.py — 単体テストを、変えたファイルとの import のつながりから選ぶ(dev/land_gate.py の関所が使う。人の作業なしの候補 5・10-23)。
 - tests/dev/plan_fixture.py — 計画のデータ plan/data/ をテストの一時フォルダに置く道具(tests/dev/test_plan_data.py・test_plan_artifact.py が使う)。
 - tests/dev/test_build_friend_zip.py — dev/build_friend_zip.py(友人の PC に配る zip を作る。F1 の F4a)のテスト。ネットは使わない(偽のキャッシュ・取る関数は差し替えて呼ばれたら落とす)。
 - tests/dev/test_code_map.py — dev/code_map.py(コードの地図と言葉の索引を作る道具)の古さの判定と書き出しのテスト。リポジトリ直下で:
