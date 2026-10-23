@@ -29,6 +29,7 @@ from typing import List, Optional
 from ytt import fsio, loudness as LD
 from . import auto_cut as AC
 from . import cut2resolve_core as C
+from . import edge_pause
 from . import srt2resolve as S
 from . import resolve_textplus as TP
 from ..analyze import breaks   # 話の切れ目(LD-2c。横動画の H3 と共有)
@@ -335,6 +336,8 @@ def plan_cut(req, task=None, cache=None, log=None):
         base = snap_base(base, tr["rows"], fps, meta["total"], warns, req.clip_range)
     elif req.clip_range:   # 余白つきの動画(LD-2f)で寄せないとき: マークの区間だけ
         base = clip_base(base, fps, meta["total"], req.clip_range, warns)
+    if req.snap_edges and base:   # 両端を話の間(音の小さな所)へ(文字起こしの行の切れ目の後に。行の時刻のずれ・拾い損ねた語で声の途中が残る)
+        base = pause_base(video, base, fps, meta["total"], warns)
     drops = _drop_spans(req, meta, cues, tr, warns, task, cache, log)
 
     keeps = C.subtract(base, [x for v in drops.values() for x in v])
@@ -450,6 +453,20 @@ def snap_base(base, rows, fps, total, warns, span=None):
     else:
         warns.append("話の切れ目に合わせて両端を決めました(マークより始まり %s・終わり %s。切れ目: %s / %s)。%s" % (
             _moved(x0, a, True), _moved(x1, b, False), info["in"][2] or "なし", info["out"][2] or "なし", margin_note(x0, dur - x1)))
+    return out
+
+
+def pause_base(video, base, fps, total, warns):
+    """土台の最初の始まり・最後の終わりを edge_pause で話の間へ寄せる(動画の中だけ)。動いたら注意に 1 行(印)"""
+    dur = C.frames_to_sec(total, fps)
+    a, b = C.frames_to_sec(base[0][0], fps), C.frames_to_sec(base[-1][1], fps)
+    a2, b2, info = edge_pause.snap(video, a, b, dur)
+    fa, fb = C.sec_to_frames(a2, fps), C.sec_to_frames(b2, fps)
+    if info is None or (fa == base[0][0] and fb == base[-1][1]) or fa >= base[0][1] or fb <= base[-1][0]:
+        return base
+    out = [(fa, base[0][1])] + list(base[1:]) if len(base) > 1 else [(fa, fb)]
+    out[-1] = (out[-1][0], fb)
+    warns.append("両端を話の間に合わせました(始まり %+.2f 秒・終わり %+.2f 秒)" % (a2 - a, b2 - b))
     return out
 
 

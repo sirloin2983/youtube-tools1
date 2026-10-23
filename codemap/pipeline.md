@@ -50,8 +50,10 @@
   - 名前: `read_cut_plan` :16・`default_handles` :71・`build_plan` :77・`removed_between` :98・`plan_from_keeps` :109・`finalize_plan` :117
 - **cut2resolve_core.py** (875 行) — cut2resolve 共通部
   - 名前: `class Cancelled` :47・`class OutputExists` :54・`class Task` :63・`parse_time` :78・`parse_cut_list` :116・`sec_to_frames` :147・`cue_frames` :151・`frames_to_sec` :157・`fps_label` :162・`cut_list_to_keeps` :167・`normalize` :182・`subtract` :200・ほか 35
-- **pack.py** (947 行) — カットの計算(試算)とパックの作成。画面(serve.py)と ② の自動の流れが呼ぶ共通部(処理を二重に持たない)。
-  - 名前: `class RowEdge` :41・`class Request` :76・`class Plan` :113・`class Cache` :137・`default_out_dir` :201・`row_edge_from` :205・`widen_row_edges` :229・`row_edge_pending` :272・`silence_pending` :281・`detect_pending` :289・`without_detect` :298・`plan_cut` :317・ほか 15
+- **edge_pause.py** (104 行) — 切り抜きの両端を「話の間」へ寄せる(10-23。決定 3-153。notes:plan/heatmap-study.md の「切り抜きの端を話の間へ」)。
+  - 名前: `levels` :26・`voice_level` :46・`pauses` :52・`snap_end` :66・`snap_start` :76・`snap` :86
+- **pack.py** (964 行) — カットの計算(試算)とパックの作成。画面(serve.py)と ② の自動の流れが呼ぶ共通部(処理を二重に持たない)。
+  - 名前: `class RowEdge` :42・`class Request` :77・`class Plan` :114・`class Cache` :138・`default_out_dir` :202・`row_edge_from` :206・`widen_row_edges` :230・`row_edge_pending` :273・`silence_pending` :282・`detect_pending` :290・`without_detect` :299・`plan_cut` :318・ほか 16
 - **preview.py** (124 行) — ① 確認用の動画(友人が受け取るかを決める前に見る、1 本の切り抜きの 480p の動画)とパックの中の切り抜きの動画の引き方(ds1 = 要件 1-5。② flow/deliver から分けた)。
   - 名前: `pack_title` :24・`scratch_path` :30・`remove_quiet` :35・`pack_video` :41・`make_preview` :80・`clip_preview` :105・`pack_seconds` :118
 - **request.py** (336 行) — パックの指定(JSON の spec・output)-> pack.Request と build_pack の引数。指定の読み方の 1 か所
@@ -114,6 +116,7 @@
 - tests/pipeline/ingest/test_recorder.py — 録画の部品(recorder/)のテスト。本物の YouTube には繋がない: ffmpeg の lavfi で作った HLS を、手元の HTTP サーバーで
 - tests/pipeline/pack/test_contracts.py — 別のプログラムが読む形の見本(tests/ytt/fixtures/contracts/ の clip/v1.json・transcript/v1.json)。書く側が書いた形は見本と同じ鍵・
 - tests/pipeline/pack/test_cut2resolve.py — パックのテストの道具(見本の動画・EDL の読み方・採用区間からのパック)と、通しでは起こせない物の単体
+- tests/pipeline/pack/test_edge_pause.py — 切り抜きの両端を話の間へ寄せる(pipeline/pack/edge_pause)の純粋な部分
 - tests/pipeline/pack/test_pack.py — パック(pipeline.pack)のテスト。正しく動く道・端の場合・時刻の計算・入力の誤りは、本物の ffmpeg の通し(TestPackRun)で見本に混ぜてまとめて確かめる。
 - tests/pipeline/pack/test_resolve_export.py — resolve_export(Resolve パッケージ = cut2resolve の Text+ パックを zip にしたもの)の通し(本物の ffmpeg)と HTTP の口。
 - tests/pipeline/transcribe/fake_llama_server.py — テスト用の偽の llama-server(tx_engines.LlamaQwen3.COMMAND に [python, このファイル] を入れて使う)。
