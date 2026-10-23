@@ -1,8 +1,6 @@
 /* 案件の画面(/cases)の「候補」のパネル(src/app/ui/cases/panels/cand.js)の見た目。クラス名は rv-。
    パネルの形: 配信の選択(探す一覧・開く)の規則は持たない(パネルでは案件を左の一覧で選ぶ)・幅の区切りは左の一覧(280px)の分だけ広げてある(1240/1241・1460)・シアター表示の列の幅は 100vw でなく 100%(パネルの幅)から */
-:root{--cs-head:var(--header-h,52px);--cs-in:#0a6e78;--cs-out:#a8420e;--cs-auto:var(--c-4);--cs-cand:var(--warn)}
-:root[data-theme=dark]{--cs-in:var(--c-5);--cs-out:#ff9358}
-@media (prefers-color-scheme:dark){:root:not([data-theme]){--cs-in:var(--c-5);--cs-out:#ff9358}}
+:root{--cs-head:var(--header-h,52px);--cs-in:var(--c-in);--cs-out:var(--c-out);--cs-auto:var(--c-4);--cs-cand:var(--warn)}
 .rv-root{max-width:1760px;margin:0 auto;color:var(--ink)}
 .rv-root.theater-wide{max-width:none}
 .rv-root kbd{margin-left:6px}
@@ -81,14 +79,14 @@
 .rv-chip.arch{color:var(--info-ink);border-color:color-mix(in srgb,var(--info-ink) 35%,transparent);background:var(--info-soft)}   /* 本番版(アーカイブから作り直した物) */
 
 /* ---- プレーヤー(映像の背景は常に黒) ---- */
-.rv-player{aspect-ratio:16/9;max-width:100%;background:#000;border-radius:var(--r-lg);overflow:hidden;position:relative;box-shadow:var(--shadow-2)}
+.rv-player{aspect-ratio:16/9;max-width:100%;background:var(--stage-bg);border-radius:var(--r-lg);overflow:hidden;position:relative;box-shadow:var(--shadow-2)}
 .rv-player:focus{outline:none}
 .rv-player:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}   /* キーボードで来たときは輪を出す(A-07。クリックでは出さない) */
 .rv-host{position:absolute;inset:0}
 .rv-host iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
-.rv-host video{display:block;width:100%;height:100%;background:#000;object-fit:contain}
+.rv-host video{display:block;width:100%;height:100%;background:var(--stage-bg);object-fit:contain}
 .rv-host iframe:focus,.rv-host iframe:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}   /* YouTube の埋め込み(iframe)にもフォーカスの輪(A-26) */
-.rv-phmsg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:10px;color:#c9d0dc;padding:16px;font-size:13px;pointer-events:none}
+.rv-phmsg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:10px;color:var(--stage-ink);padding:16px;font-size:13px;pointer-events:none}
 .rv-notice{margin:0}
 .rv-notice .hint{display:inline-block;margin-top:2px}
 .rv-notice a{white-space:nowrap;font-weight:600}
