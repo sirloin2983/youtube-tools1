@@ -391,7 +391,7 @@ class Inbox:
                     name, i = "%s-%d" % (base[:NAME_MAX - 4], i), i + 1
                 names.add(name)
                 r["packs"].append({"name": name, "dir": d, "title": pack_title(base), "seconds": p.get("seconds"), "verdict": None, "at": None, "by": None,
-                                   "phase": phase if phase in PHASES else "live", "arrivedAt": now})
+                                   "phase": phase if phase in PHASES else "live", "arrivedAt": now, **_local_info(p)})
                 self._number(r, r["packs"][-1])
                 added += 1
             if not added and state in ("error", "cancelled"):
@@ -542,7 +542,7 @@ class Inbox:
                     continue
                 name = pack_name(d)
                 items.append({"name": name, "dir": d, "title": pack_title(name), "seconds": p.get("seconds"), "verdict": None, "at": None, "by": None,
-                              "arrivedAt": now})
+                              "arrivedAt": now, **_local_info(p)})
             if items:
                 for it in items:
                     self._number(r, it)
@@ -620,7 +620,7 @@ class Inbox:
                     r["packs"].append({"name": name, "dir": None, "title": str(it.get("title") or pack_title(name)),
                                        "seconds": it.get("seconds") if it.get("seconds") is not None else info.get("seconds"),
                                        "verdict": None, "at": None, "by": None, "want": None, "error": "", "arrivedAt": now,
-                                       "info": {k: info[k] for k in ("videoId", "markId", "streamTitle", "streamer") if info.get(k)},
+                                       "info": {k: info[k] for k in ("videoId", "markId", "streamTitle", "streamer", "headline", "headlineWhy", "overlapNote") if info.get(k)},
                                        "remote": {k: it.get(k) for k in ("zip", "size", "rev", "hash", "meta")}})
                     self._number(r, r["packs"][-1])
                     got.append(name)
@@ -1095,7 +1095,9 @@ class Inbox:
         return {"id": r["id"], "name": p["name"], "num": num, "title": title, "clip": Inbox._clip_label(p), "seconds": p.get("seconds"),
                 "preview": bool(p.get("preview")), "remote": bool(p.get("remote")), "want": p.get("want"), "error": p.get("error") or "",
                 "verdict": p["verdict"], "reason": p.get("reason"), "at": p.get("at"), "arrivedAt": p.get("arrivedAt"),
-                "videoId": info["videoId"], "auto": r.get("origin") == "auto"}
+                "videoId": info["videoId"], "auto": r.get("origin") == "auto",
+                "headline": (p.get("info") or {}).get("headline") or "", "headlineWhy": (p.get("info") or {}).get("headlineWhy") or "",
+                "overlapNote": (p.get("info") or {}).get("overlapNote") or ""}
 
     def pack_preview(self, rid, name):
         """1 本の確認用の動画のパス(手元にあれば)か None"""
@@ -1107,6 +1109,13 @@ class Inbox:
                 return p["preview"]
             g = next((g for g in r.get("groups") or [] if g.get("names") == [name] and g.get("preview")), None)
             return g["preview"] if g else None
+
+
+def _local_info(p):
+    """この PC で作ったパックの機械の見出し・かぶり(engine._pack_info)-> {"info": {...}} か {}(無い)"""
+    info = p.get("info") if isinstance(p.get("info"), dict) else {}
+    keep = {k: str(info[k]) for k in ("headline", "headlineWhy", "overlapNote") if isinstance(info.get(k), str) and info[k]}
+    return {"info": keep} if keep else {}
 
 
 def _hms(sec):

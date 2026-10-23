@@ -18,13 +18,13 @@ import json
 import os
 import re
 import sys
-import unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)   # src(ツールの親 = ytt の置き場所。ytt.layout の src_root と同じ)
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
 from ytt import datadir, docloc  # noqa: E402
+from ytt import headline as _headline  # noqa: E402  (感情の強さ・キャッチの文字の規則の正)
 from flow import thumbs as _thumbs  # noqa: E402  (描く部分 = ② の口 flow/thumbs。① pipeline/export/thumb_cards を直に読まない = ③ の層の向き)
 ThumbError = _thumbs.ThumbError   # ed_thumb が thumb_ideas.ThumbError で捕まえる
 
@@ -32,26 +32,14 @@ MIN_GAP = 3.0                   # 時刻の候補どうしの間(秒)
 N_CARDS = 6
 LAYOUTS = [("A", "型A 状況 + キャッチ", "center"), ("B", "型B 大きい 2 行", "right"), ("C", "型C 吹き出し", "center"),
            ("D", "型D 一語ドン", "right"), ("E", "今の型(3〜4 行)", "center"), ("F", "今の型(右寄り)", "right")]
-# ひらがなで始まる言葉は、前がひらがななら語の途中(「において」の「おい」・「好きなんです」の「なんで」)なので当てない。「おい」は後ろがひらがなでも当てない(「おいしい」)
-WORD_RE = re.compile(r"(?:(?<![ぁ-ん])(?:なんで|うそ|やば|待って|まって|ちょ|えぇ+|えっ|は[?？]|ん[?？]|あれ|おい(?![ぁ-ん])|うわ+|ぎゃ+)|嘘|誰|最高|無理|好き)")
+WORD_RE = _headline.WORD_RE   # 感情の言葉(正は ytt/headline = 届くパックの見出しと同じ規則)
 DOC_RE = re.compile(r"^[0-9a-f]{12}\.json\Z")
 
 
 # ---------------------------------------------------------------- 文字起こし・キャッチ(純粋な部分)
 
-def excite_score(text):
-    """行の感情の強さ(！？・伸ばし棒・笑い・同じ字の繰り返し・感情の言葉)"""
-    t = str(text or "")
-    s = 2 * len(re.findall(r"[!！?？]", t)) + len(re.findall(r"ー{2,}|～", t)) + 2 * len(re.findall(r"笑|[wｗ]{2,}|草", t))
-    s += 2 * len(re.findall(r"(.)\1{2,}", t)) + 3 * len(WORD_RE.findall(t))
-    return s
-
-
-def clean(text):
-    """キャッチにする文字(空白と記号の続きを詰める)"""
-    t = unicodedata.normalize("NFKC", str(text or "")).strip()
-    t = re.sub(r"\s+", "", t)
-    return re.sub(r"([!?。、…])\1+", r"\1", t)
+excite_score = _headline.excite_score   # 行の感情の強さ(正は ytt/headline)
+clean = _headline.clean                 # キャッチにする文字(正は ytt/headline)
 
 
 def lines_of(text, width, max_lines):

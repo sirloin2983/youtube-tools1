@@ -240,7 +240,7 @@ class Engine:
         except Exception:   # 長さが分からなくても届ける
             secs = [None] * len(dirs)
         error = run.error if run.state == "error" else ""
-        packs = [{"dir": d, "seconds": s} for d, s in zip(dirs, secs)]
+        packs = [{"dir": d, "seconds": s, "info": _pack_info((getattr(run, "pack_marks", None) or {}).get(d))} for d, s in zip(dirs, secs)]
         if clip:
             meta = ((getattr(run, "pool", None) or {}).get("meta") or {})
             _got, made = self.inbox.live_clip(row["id"], run.id, run.state, error, packs, meta.get("phase") or "live", case=_case_from(run.result_path))
@@ -479,6 +479,14 @@ class Engine:
         with self._pv_lock:
             self._previews.append(None)
             self._pv_lock.notify()
+
+
+def _pack_info(mark):
+    """② の実行のパックの印(run.pack_marks の 1 つ)-> 受信箱の info の機械の見出し・かぶりの欄(届ける .meta.json と同じ名前。無ければ {})"""
+    m = mark if isinstance(mark, dict) else {}
+    h = m.get("headline") if isinstance(m.get("headline"), dict) else {}
+    out = {"headline": str(h.get("text") or "")[:60], "headlineWhy": str(h.get("why") or "")[:160], "overlapNote": str(m.get("overlap") or "")[:160]}
+    return {k: v for k, v in out.items() if v}
 
 
 def _case_from(result_path):

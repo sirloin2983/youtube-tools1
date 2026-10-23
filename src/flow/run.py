@@ -50,7 +50,7 @@ import threading
 import time
 import uuid
 
-from ytt import colors, fsio as _fsio, jobs as _slots, schemas as _schemas, tools as _ytools
+from ytt import colors, fsio as _fsio, headline as _headline, jobs as _slots, schemas as _schemas, tools as _ytools
 from pipeline.analyze import excite as _excite   # 埋めた候補の理由の文(FILL_REASON)を数えるだけ
 from . import batch as _batch   # 解析の順番の断りの種類(queued_already)
 from . import envelope as _envelope, keys as _keys, order as _order, normalize as _norm, placement as _placement, prio as _prio, spec as _spec, tools as _tools
@@ -116,6 +116,23 @@ def _check_note(items):
     hit = [(i.get("file") or "").rsplit("/", 1)[-1] + ": " + "・".join(x["text"] for x in i["check"]["issues"][:2])
            for i in items if isinstance(i.get("check"), dict) and i["check"].get("issues")]
     return "。点検で気になる所 %d 本(%s)" % (len(hit), " / ".join(hit[:3])) if hit else ""
+
+
+def _pack_head(doc, hint):
+    """パック 1 本の機械の見出し(ytt/headline。規則だけ)-> {"text", "why", "by"} か None。山の時刻は切り抜きの中の秒へ(clip_offset)・余白つきはマークの区間の行だけ"""
+    clip = doc.get("clip") if isinstance(doc.get("clip"), dict) else None
+    peak, span = hint.get("peak"), None
+    try:
+        if clip:
+            span = _schemas.clip_mark_span(clip)
+            off = _schemas.clip_offset(clip)
+            peak = float(peak) - off if isinstance(peak, (int, float)) and not isinstance(peak, bool) else None
+        else:
+            peak = None
+        h = _headline.headline(doc.get("segments") or [], peak, span, hint.get("reasons") if isinstance(hint.get("reasons"), list) else None)
+    except (KeyError, TypeError, ValueError):
+        return None
+    return {k: h[k] for k in ("text", "why", "by")} if h else None
 
 
 def _clip_span(media):
@@ -577,7 +594,9 @@ class Run:
         run.packs, run.delivered = strs("packs"), strs("delivered")
         run.kept_packs = strs("keptPacks")
         pm = d.get("packMarks") if isinstance(d.get("packMarks"), dict) else {}
-        run.pack_marks = {str(k): {"path": str(v.get("path") or ""), "markId": str(v.get("markId") or "")} for k, v in pm.items() if isinstance(v, dict)}
+        run.pack_marks = {str(k): dict({"path": str(v.get("path") or ""), "markId": str(v.get("markId") or "")},
+                                       **({"headline": v["headline"]} if isinstance(v.get("headline"), dict) else {}),
+                                       **({"overlap": v["overlap"]} if isinstance(v.get("overlap"), str) else {})) for k, v in pm.items() if isinstance(v, dict)}
         old = {x.get("key"): x for x in d.get("steps") or [] if isinstance(x, dict)}
         for st in run.steps:
             o = old.get(st["key"]) or {}
@@ -720,6 +739,10 @@ class Runner:
 
     def _after_pack(self, run, st, prefix):
         """パックが 1 本できたとき(① 全自動はできるたびに 1 本ずつ届ける)。既定は何もしない"""
+
+    def _overlap_note(self, run, doc):
+        """前の依頼・送り直しで届けた区間とのかぶりの知らせ(flow/deliveries.overlap_note)か ""。既定は届けた記録を持たない = ""(Delivery が埋める)"""
+        return ""
 
     def _remember_styles(self, tid, styles):
         """字幕の色を文書の話者に覚える。-> 覚えたか。既定は False"""
@@ -1465,7 +1488,15 @@ class Runner:
         out = os.path.normpath(r["outDir"]) if r.get("outDir") else ""   # 届けた印(run.delivered)と同じ書き方にそろえる
         if out and out not in run.packs:
             run.packs.append(out)   # ① 全自動で Dropbox へ届けるもの
-            run.pack_marks[out] = dict(run.pack_hint or {})   # どの切り抜き・どのマークのパックか(_step_pack が hint を置く。友人の「要らない」で引く)
+            hint = dict(run.pack_hint or {})
+            run.pack_marks[out] = {k: hint[k] for k in ("path", "markId") if k in hint}   # どの切り抜き・どのマークのパックか(_step_pack が hint を置く。友人の「要らない」で引く)
+            head = _pack_head(doc, hint)
+            if head:
+                run.pack_marks[out]["headline"] = head   # 機械の見出しと選んだ理由(届ける .meta.json の headline・受け取りの画面)
+            note = self._overlap_note(run, doc)
+            if note:
+                run.pack_marks[out]["overlap"] = note   # 依頼をまたいだ区間のかぶり(段の文・届ける .meta.json の overlapNote)
+                run.pack_overlaps = getattr(run, "pack_overlaps", 0) + 1
             run.pack_hint = None
             self._after_pack(run, st, prefix)   # ① 全自動: できるたびに 1 本ずつ届ける(全部を待たない。AutoRunner)
         if keeps:   # 作った記録(packRev)を「編集」に残す(カット・字幕を直したら「作り直し」と知らせるため)。残せなくてもパックはできている
@@ -1503,7 +1534,7 @@ class Runner:
             prefix = "%d / %d 本 ・ " % (i - 1, len(todo))
             st["detail"] = prefix.rstrip(" ・ ")
             try:
-                run.pack_hint = {"path": m["path"], "markId": str(m.get("id") or "")}
+                run.pack_hint = {"path": m["path"], "markId": str(m.get("id") or ""), "peak": m.get("peak"), "reasons": m.get("reasons")}   # 山・理由 = 見出し(_pack_head)
                 res, cut = self._pack_one(run, st, doc, m["path"], opts, force=force, prefix=prefix, built=built)
             except StepError as e:
                 if run.on_fail == "stop":
@@ -1529,6 +1560,8 @@ class Runner:
             st["detail"] += "。失敗した %d 本: %s" % (len(failed), "・".join(failed[:3]))
         for n in opts[3]:
             st["detail"] += "。" + n
+        if getattr(run, "pack_overlaps", 0):
+            st["detail"] += "。前に届けた切り抜きと区間が重なる %d 本(届ける情報と友人の画面に出します)" % run.pack_overlaps
         if run.streamer_from:   # 自動で入れた配信者は進み具合に出す(コラボで相手の色になることがあるため。段5)
             st["detail"] += "。字幕の色: %s(%s)" % (run.streamer, "自動: チャンネル名から" if run.streamer_from == "auto" else "前回の名前")
         return None

@@ -25,6 +25,21 @@ class TestDeliveries(unittest.TestCase):
     def setUp(self):
         self.tmp = testkit.tempdir(self, "ytt-deliv-")
 
+    def test_overlaps_across_requests(self):
+        """依頼をまたいだ区間のかぶり(新機能 E): 同じ配信のほかの実行で届けた区間と、短い方の半分以上重なれば知らせる。同じ実行・別の配信・重なりが少ない物は数えない"""
+        rows = [{"at": 1, "zip": "r1__01_a.zip", "requestId": "r1", "runId": "A", "videoId": "VID1", "packs": [{"path": "a.mp4"}]},
+                {"at": 2, "zip": "r2__01_b.zip", "requestId": "r2", "runId": "B", "videoId": "VID1", "packs": [{"path": "b.mp4"}]},
+                {"at": 3, "zip": "r3__01_c.zip", "requestId": "r3", "runId": "C", "videoId": "VID2", "packs": [{"path": "c.mp4"}]}]
+        with open(os.path.join(self.tmp, D.LOG), "w", encoding="utf-8") as f:
+            f.write("".join(json.dumps(r) + "\n" for r in rows))
+        ranges = {"a.mp4": (100.0, 160.0), "b.mp4": (150.0, 400.0), "c.mp4": (100.0, 160.0)}.get
+        hit = D.overlaps(self.tmp, "VID1", (110.0, 170.0), run_id="NEW", ranges=ranges)
+        self.assertEqual([(h["zip"], h["share"]) for h in hit], [("r1__01_a.zip", 0.83)])   # b は 20/60 = 1/3(半分未満)・c は別の配信
+        self.assertEqual(D.overlaps(self.tmp, "VID1", (110.0, 170.0), run_id="A", ranges=ranges), [])   # 同じ実行(作り直し)は数えない
+        D.OVERLAP_ON = False
+        self.addCleanup(setattr, D, "OVERLAP_ON", True)
+        self.assertEqual(D.overlaps(self.tmp, "VID1", (110.0, 170.0), ranges=ranges), [])
+
     def test_switched_off(self):
         self.assertTrue(DL.switched_off({"YTT_AUTO_SEND": " OFF "}))
         self.assertFalse(DL.switched_off({"YTT_AUTO_SEND": "on"}))

@@ -24,13 +24,13 @@
   - 画面: src/app/ui/cases/panels/cut.js:176・src/app/ui/editor/pack-tab.js:546・src/app/ui/home/portal.js:475・src/friendapp/ui/friend.html:29 ほか 7
 - **見送った物** — 受け取る画面で 3 日は戻せる skip・bad の物
   - コード: `Inbox.undo` src/friendapp/inbox.py:787・`Inbox.decide` src/friendapp/inbox.py:739・`VERDICTS` src/friendapp/inbox.py:58・`/api/friend/undo` src/friendapp/server.py:401
-  - 画面: src/friendapp/ui/friend.html:169・src/friendapp/ui/guide.html:144・src/friendapp/ui/receive.js:65
+  - 画面: src/friendapp/ui/friend.html:169・src/friendapp/ui/guide.html:144・src/friendapp/ui/receive.js:71
 - **送る** — 友人のアプリの送る欄・受付の口。自動で送る判定は flow/sendpolicy
   - コード: `src/friendapp/api.py`・`src/friendapp/ui/send-form.js`・`/api/friend/send` src/friendapp/server.py:388・`flow/sendpolicy.py` (無いパス)
   - 画面: src/app/ui/cases/panels/cut.js:131・src/app/ui/check/cards/value.js:11・src/app/ui/editor/app-learn.js:132・src/app/ui/editor/app.js:278 ほか 16
 - **送った物** — 友人のアプリの送った物の行と、失敗の言葉・進み具合
   - コード: `src/friendapp/ui/sent.js`・`src/friendapp/progress.py`・`/api/friend/inbox` src/friendapp/server.py:282
-  - 画面: src/app/ui/home/portal.html:150・src/friendapp/ui/friend.html:134・src/friendapp/ui/guide.html:37・src/friendapp/ui/receive.js:65
+  - 画面: src/app/ui/home/portal.html:150・src/friendapp/ui/friend.html:134・src/friendapp/ui/guide.html:37・src/friendapp/ui/receive.js:71
 - **片付ける** — 友人のアプリのフォルダの整理(新しい版の後と ⚙)。ごみ箱へ移す
   - コード: `src/friendapp/tidy.py`・`Tidy` src/friendapp/tidy.py:161・`/api/friend/tidy` src/friendapp/server.py:287
   - 画面: src/friendapp/ui/settings.js:77・src/friendapp/ui/update.js:81
@@ -105,7 +105,7 @@
   - 画面: src/app/ui/cases/cases.js:73・src/app/ui/cases/index.html:48・src/app/ui/cases/panels/cand.js:25・src/app/ui/cases/panels/studio-shim.js:4 ほか 13
 - **文字起こし** — ② の文字起こしの動詞と ① の認識の部品
   - コード: `src/flow/tx.py`・`src/pipeline/transcribe/worker.py`・`transcribe_clip` src/flow/tx.py:136
-  - 画面: src/app/ui/cases/cases.js:75・src/app/ui/cases/edhost.js:19・src/app/ui/cases/panels/cut.js:31・src/app/ui/cases/panels/proof.js:64 ほか 19
+  - 画面: src/app/ui/cases/cases.js:75・src/app/ui/cases/edhost.js:19・src/app/ui/cases/panels/cut.js:31・src/app/ui/cases/panels/proof.js:64 ほか 20
 - **校正** — 案件の校正パネルと「編集」。人の直しを書く ③
   - コード: `src/app/ui/cases/panels/proof.js`・`src/human/proof/store.py`・`src/editor/serve.py`
   - 画面: src/app/ui/cases/cases.js:73・src/app/ui/cases/index.html:42・src/app/ui/cases/panels/cand.js:8・src/app/ui/cases/panels/cut.js:47 ほか 17
@@ -194,7 +194,7 @@
 - すべて(2)— src/app/ui/editor/app-tpl.js:32
 - すべての行(2)— src/app/ui/editor/app-tpl.js:14
 - すべて止めて終了(2)— src/friendapp/ui/friend.html:38
-- つまらない(2)— src/friendapp/ui/friend.html:200
+- つまらない(2)— src/friendapp/ui/friend.html:201
 - まだ検索していません(2)— src/app/ui/studio/rank.js:196
 - もう一度検索する(2)— src/app/ui/studio/rank.js:308
 - もっと見る(あと(2)— src/app/ui/home/portal.js:884
@@ -217,7 +217,7 @@
 - 元のメッセージ(2)— src/app/ui/studio/queue.js:225
 - 分割(2)— src/app/ui/cases/panels/cut.js:51
 - 分析と日報(2)— src/app/ui/home/portal.html:20
-- 切り方が変(2)— src/friendapp/ui/friend.html:200
+- 切り方が変(2)— src/friendapp/ui/friend.html:201
 - 動画を選び直す(2)— src/app/ui/editor/app-tpl.js:56
 - 友人へ自動で送る(2)— src/app/ui/home/portal.html:366
 - 失敗(2)— src/app/ui/home/portal.js:729
@@ -226,7 +226,7 @@
 - 対象(2)— src/app/ui/editor/app-tpl.js:120
 - 対象の事務所(2)— src/app/ui/studio/rank.js:166
 - 対象の事務所を選ぶ(2)— src/app/ui/studio/rank.js:274
-- 届かなくてよかった:(2)— src/friendapp/ui/friend.html:200
+- 届かなくてよかった:(2)— src/friendapp/ui/friend.html:201
 - 採用する数(2)— src/app/ui/home/portal.html:363
 - 探す地域(2)— src/app/ui/studio/rank.js:167
 - 探す地域を選ぶ(2)— src/app/ui/studio/rank.js:275

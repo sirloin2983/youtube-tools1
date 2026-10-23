@@ -26,11 +26,17 @@
     if (src) th.appendChild(el('img', { alt: '', loading: 'lazy', src: src }));
     th.appendChild(el('span', { cls: 'fr-num-badge', text: '#' + it.num + (it.seconds ? ' ' + FR.dur(it.seconds) : '') }));
     if (it.want === 'keep') th.appendChild(el('span', { cls: 'fr-badge', text: '受け取っています' }));
-    var b = el('button', { type: 'button', cls: 'fr-rcard-btn', title: it.title, on: { click: function () { play(key); } } }, [th,
-      el('span', { cls: 'fr-card-title', text: small ? '#' + it.num + ' ' + (it.clip || '') : it.clip || it.title })]);
+    var bk = [th, el('span', { cls: 'fr-card-title', text: small ? '#' + it.num + ' ' + (it.clip || '') : it.clip || it.title })];
+    if (it.headline && !small) bk.push(el('span', { cls: 'fr-card-head', text: '機械の見出し' + it.headline, title: headTitle(it) }));
+    if (it.overlapNote && !small) bk.push(el('span', { cls: 'fr-card-head fr-card-overlap', text: '⚠ ' + it.overlapNote, title: it.overlapNote }));
+    var b = el('button', { type: 'button', cls: 'fr-rcard-btn', title: it.title + (it.headline ? '\n' + headTitle(it) : ''), on: { click: function () { play(key); } } }, bk);
     var kids = [b, el('label', { cls: 'fr-pick-wrap' }, [cb])];
     if (it.error) kids.push(el('span', { cls: 'fr-bad fr-rcard-err', text: it.error }));
     return el('div', { cls: 'fr-rcard' + (my.cur === key ? ' on' : '') + (small ? ' small' : ''), 'data-key': key }, kids);
+  }
+  /* 機械の見出しの説明(作る側が文字起こしの行から規則で選んだ行。人が付けた題ではない) */
+  function headTitle(it) {
+    return '機械の見出し' + it.headline + (it.headlineWhy ? '\n選んだ理由: ' + it.headlineWhy : '') + '\n(作る人の PC が文字起こしの行から自動で選んだ 1 行です)';
   }
   function secHead(s) {
     var th = el('span', { cls: 'fr-sec-thumb' });
@@ -212,6 +218,11 @@
   function meta(it, dur) {
     var sec = dur > 0 ? dur : it.seconds;
     $('playerMeta').textContent = (it.clip ? it.clip + '・' : '') + (sec ? '長さ ' + FR.dur(sec) : '') + (it.auto ? '・自動で届いた' : '');
+    var h = $('playerHead');
+    h.hidden = !it.headline && !it.overlapNote;
+    h.textContent = (it.headline ? '機械の見出し' + it.headline + (it.headlineWhy ? '(選んだ理由: ' + it.headlineWhy + ')' : '') : '') +
+      (it.overlapNote ? (it.headline ? '\n' : '') + '⚠ ' + it.overlapNote : '');
+    h.title = it.headline ? headTitle(it) : '';
   }
   function buttons() {
     var x = find(my.cur), can = !!x && open(x.it);

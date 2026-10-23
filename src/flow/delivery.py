@@ -101,6 +101,18 @@ class Delivery:
         self._pool_lock = threading.RLock()   # 溜めの読み書きと溜めから届ける間(これを持ったまま self.cv を取ってよい。逆に self.cv を持ったまま取らない)
         self._pools = None                    # {溜めの鍵: {rid, title, deliverDir, meta, packs, delivered, marks, created, updated, (tag, origin, mode)}}(初めて使うときに読む)
 
+    def _overlap_note(self, run, doc):
+        """同じ配信の前の依頼・送り直しで届けた区間と重なれば 1 行(flow/deliveries.overlap_note)。届けた記録が無ければ ""。区間 = 文書の切り抜きの .clip.json"""
+        if not self.log_path:
+            return ""
+        clip = doc.get("clip") if isinstance(doc.get("clip"), dict) else {}
+        r = clip.get("range") if isinstance(clip.get("range"), dict) else {}
+        try:
+            rng = (float(r["start"]), float(r["end"]))
+        except (KeyError, TypeError, ValueError):
+            return ""
+        return deliveries_mod.overlap_note(os.path.dirname(self.log_path), doc.get("videoId") or run.video_id, rng, run.id)
+
     def _after_pack(self, run, st, prefix):
         """① 全自動: パックができるたびに 1 本ずつ届ける(全部を待たない)。まとめて実行(依頼の番号の無い配信)は段 deliver で
         (届け済みのパックを除いてから)まとめて置く"""
