@@ -1308,7 +1308,26 @@
     var hv = h.heavy;
     if (hv) ul.appendChild(healthRow('ok', '重い処理', '実行中 ' + (hv.active || []).length + '・順番待ち ' + (hv.waiting || []).length + '(同時に ' + hv.limit + ' まで)'));
     if (h.places) ul.appendChild(placesHealthRow(h.places));
+    if (h.watch) watchHealthRows(h.watch).forEach(function (r) { ul.appendChild(r); });
     renderAccuracy(h.accuracy, ul);
+  }
+  /* 見張り(src/manage/ops/watch.py。10-23): 届けた切り抜きの元の配信が公開でなくなった(週 1 回)・ガイドラインの改定の日付が変わった(月 1 回) */
+  function watchHealthRows(w) {
+    var out = [], s = w.sources, t = w.terms;
+    function day(ms) { var d = new Date(ms); return (d.getMonth() + 1) + '/' + d.getDate(); }
+    if (s) {
+      var ch = s.changed || [];
+      if (ch.length) out.push(healthRow('warn', '元の配信', '届けた切り抜きの元の配信のうち ' + ch.length + ' 本が公開でなくなりました。投稿した切り抜きをどうするか確かめてください',
+        ch.slice(0, 8).map(function (x) { return x.state + '(' + day(x.since) + 'に気づいた): ' + (x.title || x.videoId); })));
+      else if (s.error) out.push(healthRow('warn', '元の配信', '見張れませんでした: ' + s.error));
+      else out.push(healthRow('ok', '元の配信', '届けた切り抜きの元の配信 ' + (s.checked || 0) + ' 本は公開のままです(' + day(s.at * 1000) + 'に確かめた・週 1 回)'));
+    }
+    if (t) {
+      if (t.changedAt) out.push(healthRow('warn', 'ガイドライン', '二次創作のガイドラインの改定の日付が変わりました(' + day(t.changedAt) + 'に気づいた)。読んで、決まりが変わっていないか確かめてください',
+        ['今: ' + (t.mark || '?'), '前: ' + (t.prev || '?'), t.url || '']));
+      else if (t.error) out.push(healthRow('warn', 'ガイドライン', t.error));
+    }
+    return out;
   }
   /* 置き場所の 1 行(src/manage/cases/outdirs.py の status): 案件のフォルダが見えない文書・配信の数と、書き出し先を変えて繋ぎ直した本数。出す物が無ければ出さない */
   function placesHealthRow(pl) {
