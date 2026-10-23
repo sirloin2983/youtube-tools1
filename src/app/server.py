@@ -1126,7 +1126,7 @@ class PortalServer(httpsec.ExclusiveServer):
 
     def purge_trash(self):
         """起動時: 日数(cleanup.TRASH_DAYS)を過ぎたごみ箱フォルダの日付を消す(裏で)。そのあと、届けた切り抜きの動画とパック・
-        依頼の動画・受付済みと失敗の物を、日数で自動でごみ箱へ(cleanup.auto_clean・AUTO_DELIVERED。起動のすぐあとと AUTO_EVERY_SEC ごと)"""
+        届けていない書き出し・依頼の動画・受付済みと失敗の物を、日数で自動でごみ箱へ(cleanup.auto_clean・AUTO_DELIVERED。起動のすぐあとと AUTO_EVERY_SEC ごと)"""
         try:
             n = self.cleanup.purge()
             if n:
@@ -1138,29 +1138,36 @@ class PortalServer(httpsec.ExclusiveServer):
             if self.closing.wait(cleanup_mod.AUTO_EVERY_SEC):
                 return
 
-    def value_waiting_paths(self):
-        """確かめるの「切り抜く価値」(自動でできた切り抜き)で答えを待っている切り抜きの動画(自動の片付けで残す。答えは精度の材料)"""
-        cases = cases_mod.snapshot(self.sup.root).get("cases") or []
+    def clean_inputs(self):
+        """自動の片付けに渡す物 -> (案件, 残す動画, 今動いている配信の id)。残す動画 = 確かめるの「切り抜く価値」(自動でできた切り抜き)で
+        答えを待っている物(答えは精度の材料)と評価用の文書の動画(案件の一覧の virtual の eval)。今動いている = まとめて実行の待ち・実行中"""
+        snap = cases_mod.snapshot(self.sup.root)
+        cases = snap.get("cases") or []
         answered = set(check_answerlog.state(self.cleanup.app_dir).by_card)
-        out = []
+        keep = []
         for c in cases:
             for cl in (c.get("clips") or ()) if isinstance(c, dict) else ():
                 if isinstance(cl, dict) and cl.get("auto") and cl.get("path") and \
                         check_lineup.card_id("value", "auto", c.get("id"), cl.get("markId") or "") not in answered:
-                    out.append(cl["path"])
-        return out
+                    keep.append(cl["path"])
+        for v in snap.get("virtual") or ():
+            if isinstance(v, dict) and v.get("caseKind") == "eval":
+                keep += [cl["path"] for cl in v.get("clips") or () if isinstance(cl, dict) and cl.get("path")]
+        runs = (self._autorun.snapshot().get("runs") or []) if self._autorun is not None else []
+        busy = {r.get("videoId") for r in runs if r.get("state") in ("queued", "running") and r.get("videoId")}
+        return cases, keep, busy
 
     def auto_clean(self, dry_run=False):
         """自動の片付け(cleanup.Cleanup.auto_clean)。移した物の一覧を logs/cleanup-auto.jsonl に 1 行(何が移ったかを後で見る)。
         確かめるで答えを待っている物が分からないとき(案件が読めない)は移さない"""
         try:
-            keep = self.value_waiting_paths()
+            cases, keep, busy = self.clean_inputs()
         except Exception as e:
-            self.sup.log("自動の片付け: 確かめるで待っている切り抜きが分からないので、移しませんでした: %r" % (e,))
+            self.sup.log("自動の片付け: 案件・確かめるで待っている切り抜きが分からないので、移しませんでした: %r" % (e,))
             return None
         try:
             with self.cleanup_lock:
-                r = self.cleanup.auto_clean(keep, self.intake.folder() or None, dry_run=dry_run)
+                r = self.cleanup.auto_clean(keep, self.intake.folder() or None, dry_run=dry_run, cases=cases, busy_ids=busy)
         except Exception as e:
             self.sup.log("自動の片付けができませんでした: %r" % (e,))
             return None

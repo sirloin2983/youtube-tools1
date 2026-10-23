@@ -29,8 +29,8 @@
 - **__init__.py** (2 行) — ④ 置き場所・バックアップ・ごみ箱・録画の片付け
 - **backup.py** (648 行) — 作業データのバックアップ(notes:docs/spec/data.md の「バックアップ」)。
   - 名前: `skip` :71・`plan` :138・`plan_cases` :174・`default_media_dirs` :201・`media_rel` :215・`plan_media` :232・`same` :239・`copy_one` :247・`run_once` :279・`class Backup` :329・`restore_once` :548・`main` :596
-- **cleanup.py** (364 行) — 作業データの片付け(全体の計画 段9 9-2。ユーザー決定: ごみ箱フォルダ経由・日数を決めて消す。10-24: 手で選ぶ画面をやめて自動だけ)。
-  - 名前: `class Cleanup` :85
+- **cleanup.py** (406 行) — 作業データの片付け(全体の計画 段9 9-2。ユーザー決定: ごみ箱フォルダ経由・日数を決めて消す。10-24: 手で選ぶ画面をやめて自動だけ)。
+  - 名前: `class Cleanup` :95
 - **evalfolders.py** (514 行) — ④ 評価用のフォルダの整理: 動画の名前を「フォルダ名_番号_状態」にそろえる・仮置きからメンバーのフォルダへ移す・評価用にした文書の動画を外から取り込む
   - 名前: `eval_videos` :68・`norm_member` :99・`member_name` :104・`organizing` :111・`eval_members` :116・`eval_organize` :330・`eval_settle` :406・`eval_folders_info` :502
 - **learnpack.py** (144 行) — ④ データ: 学習の束を作る側(F1。notes:docs/design/f1-build.md の 2 の F1・3 の (f1c))。

@@ -9,9 +9,9 @@
 | ① pipeline(道具 = データを加工する) | [pipeline.md](pipeline.md) | 80 | 27281 |
 | ② flow(管理 = いつ・どの順で・どこに置くか) | [flow.md](flow.md) | 94 | 30621 |
 | ③ human(人の操作) | [human.md](human.md) | 62 | 17532 |
-| ④ manage(データ) | [manage.md](manage.md) | 43 | 10998 |
+| ④ manage(データ) | [manage.md](manage.md) | 43 | 11068 |
 | ⑤ eval(検証) | [eval.md](eval.md) | 37 | 15562 |
-| src/app(入口と画面) | [app.md](app.md) | 87 | 32599 |
+| src/app(入口と画面) | [app.md](app.md) | 87 | 32606 |
 | src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 48 | 19115 |
 | その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 19 | 10388 |
 | dev・setup(開発の道具) | [dev.md](dev.md) | 61 | 16607 |

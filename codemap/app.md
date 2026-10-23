@@ -15,7 +15,7 @@
   - 受ける口: `/api/ytt` :45
 - **prefs.py** (488 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
   - 名前: `class PrefsError` :95・`guess_streamer` :382・`class Prefs` :394
-- **server.py** (1684 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
+- **server.py** (1691 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
   - 名前: `runtime_dir` :181・`ping` :191・`tail` :199・`expected_version` :220・`tool_python` :226・`rel_or_abs` :236・`signal_stop` :244・`class Tool` :257・`app_data_dir` :307・`logs_dir_for` :313・`class Supervisor` :319・`query_int` :639・ほか 15
   - 受ける口: `/api/drill/status` :149・`/api/eval-batch` :149・`/api/intake` :625・`/api/backup` :626・`/api/accuracy` :627・`/api/flow/runs` :628・`/api/cases/auto` :630・`/api/flow/submit` :631・`/api/flow/estimate` :631・`/api/flow/cancel` :632・`/api/intake/scan` :633・`/api/backup/run` :633・`/api/accuracy/run` :634・`/api/window` :634・`/api/check/answer` :635・`/api/check/skip` :635・`/api/check/flush` :635・`/api/shutdown` :636・`/api/ping` :725・`/api/status` :727・`/api/health` :737・`/api/log` :739・`/api/flow/status` :754・`/api/flow/history` :758・`/api/check/next` :761・`/api/cases` :767
 - **ytlogin.py** (95 行) — ユーザーの PC の YouTube のログイン(10-23 ユーザー「ログインできる形にしといて」)。友人のアプリと同じ作り(notes:docs/spec/friend.md の 13-13)。

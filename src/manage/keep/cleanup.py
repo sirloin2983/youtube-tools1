@@ -9,8 +9,10 @@ TRASH_DAYS を過ぎた日付のフォルダは入口の起動時に purge で�
   (書き出し先が固定ディスクでない PC)の動画とパック。**最後に届けてから** KEEP_DAYS 日(Q15。decisions 3-48)。届けていない依頼・手で置いた動画は移さない
 - 依頼の受付の 受付済み\\<日付>\\・友人の送り返しの 送り返し\\受付済み\\<日付>\\ のうち KEEP_DAYS より古い日付のもの(ただの控え。9g-2)
 - 受付の 失敗\\ と 送り返しの 送り返し\\失敗\\ の中の物(更新日時から KEEP_DAYS 日。理由の .txt は一緒に)
-移さない物: 文書・作業用の記録・字幕(.transcript.json・.clip.json・.edit.json・.srt。精度の材料 = Q4)・届けていない切り抜き・
-確かめるの「切り抜く価値」で答えを待っている切り抜き(keep_paths。入口が渡す)
+- 届けていない書き出し(ユーザー 10-24「自動でいい」): 案件(配信)の切り抜きの動画・_edit.mp4・パックのフォルダが、どれも KEEP_DAYS 日より前の物
+移さない物: 文書・作業用の記録・字幕(.transcript.json・.clip.json・.edit.json・.srt。精度の材料 = Q4)・評価用の動画と
+確かめるの「切り抜く価値」で答えを待っている切り抜き(keep_paths。入口が渡す)・まとめて実行が動いている配信(busy_ids)・
+手で置いた依頼の動画・録画(書き出し先の案件の切り抜きでない物は見ない)
 """
 import hashlib
 import os
@@ -52,6 +54,14 @@ def _mtime(path):
         return int(os.path.getmtime(path))
     except OSError:
         return 0
+
+
+def _newest(path):
+    """ファイルの更新時刻・フォルダなら中の一番新しいファイルの更新時刻(秒。ファイルが無ければフォルダ自身)"""
+    if not os.path.isdir(path):
+        return _mtime(path)
+    times = [_mtime(os.path.join(d, f)) for d, _dirs, files in os.walk(path) for f in files]
+    return max(times) if times else _mtime(path)
 
 
 def _item(kind, path, note="", extra=()):
@@ -286,10 +296,42 @@ class Cleanup:
             out.append(it)
         return out
 
-    def auto_items(self, keep_paths=(), intake_dir=None):
-        """自動で移す物の全部: 届けた切り抜き・依頼の置き場所(delivered_items)・受付の写し(_app_intake の届けた物)・受付済みと失敗(_intake・_failed)"""
+    def stale_exports(self, cases, keep_paths=(), busy_ids=(), taken=()):
+        """届けていない書き出し(ユーザー 10-24「自動でいい」): 案件(配信)の切り抜きの動画・その _edit.mp4・パックのフォルダの、
+        どれも keep_days 日より前に書いた物(パックの中の一番新しいファイルまで見る = 作っている途中・作り直したばかりは移さない)。
+        keep_paths(評価用の動画・確かめるで待っている物)・busy_ids(まとめて実行が今動いている配信)・taken(ほかの決まりで移す物)は除く"""
+        now, days = self.clock(), self.keep_days * 86400
+        keep = {os.path.normcase(os.path.abspath(p)) for p in keep_paths or () if isinstance(p, str) and p}
+        taken = set(taken)
+        out = []
+        for c in cases or ():
+            if not isinstance(c, dict) or c.get("id") in busy_ids:
+                continue
+            for cl in c.get("clips") or ():
+                p = cl.get("path") if isinstance(cl, dict) else None
+                if not isinstance(p, str) or not p or not os.path.isfile(p):
+                    continue
+                key = os.path.normcase(os.path.abspath(p))
+                if key in keep or key in taken:
+                    continue
+                pk = cl.get("pack") if isinstance(cl.get("pack"), dict) else {}
+                pdir = pk.get("dir") if isinstance(pk.get("dir"), str) else ""
+                parts = [p] + [x for x in _trash.existing_sidecars(p) if x.lower().endswith(VIDEO_EXTS)] + ([pdir] if pdir and os.path.isdir(pdir) else [])
+                if any(os.path.normcase(os.path.abspath(x)) in taken for x in parts) or now - max(_newest(x) for x in parts) <= days:
+                    continue
+                it = _parts_item("export", os.path.dirname(p), "書き出してから %d 日・届けていない" % int((now - max(_newest(x) for x in parts)) // 86400), parts)
+                it.update(id=_id(p), name=("%s_%s" % (os.path.basename(os.path.dirname(p)), os.path.basename(p)))[:120])
+                taken.update(os.path.normcase(os.path.abspath(x)) for x in parts)
+                out.append(it)
+        return out
+
+    def auto_items(self, keep_paths=(), intake_dir=None, cases=None, busy_ids=()):
+        """自動で移す物の全部: 届けた切り抜き・依頼の置き場所(delivered_items)・届けていない書き出し(stale_exports。cases があるとき)・
+        受付の写し(_app_intake の届けた物)・受付済みと失敗(_intake・_failed)"""
         keep = {os.path.normcase(os.path.abspath(p)) for p in keep_paths or () if isinstance(p, str) and p}
         out = self.delivered_items(keep_paths)
+        if cases:
+            out += self.stale_exports(cases, keep_paths, busy_ids, {os.path.normcase(os.path.abspath(x)) for it in out for x in it["parts"]})
         for it in self._app_intake():
             if "届けてから" in it["note"]:
                 it["parts"] = [p for p in it["parts"] if os.path.normcase(os.path.abspath(p)) not in keep]
@@ -300,12 +342,12 @@ class Cleanup:
         self._known = {it["id"]: it for it in out}   # move はここで出した物だけ
         return out
 
-    def auto_clean(self, keep_paths=(), intake_dir=None, dry_run=False):
+    def auto_clean(self, keep_paths=(), intake_dir=None, dry_run=False, cases=None, busy_ids=()):
         """自動でごみ箱へ(AUTO_DELIVERED)。-> {"items": [{kind, name, path, bytes, parts, note}], "moved": 数, "failed": 数, "bytes"}。
         dry_run = 一覧だけ(移さない)。移した物は ごみ箱\\<日付>\\<種類>\\ に入り、trash_days 日で消える(今の決まり)"""
         if not AUTO_DELIVERED:
             return {"items": [], "moved": 0, "failed": 0, "bytes": 0}
-        items = self.auto_items(keep_paths, intake_dir)
+        items = self.auto_items(keep_paths, intake_dir, cases, busy_ids)
         res = {"items": [{"kind": it["kind"], "name": it["name"], "path": it["path"], "bytes": it["bytes"], "parts": list(it.get("parts") or [it["path"]] + list(it.get("extra") or [])),
                           "note": it["note"]} for it in items],
                "moved": 0, "failed": 0, "bytes": sum(it["bytes"] for it in items)}

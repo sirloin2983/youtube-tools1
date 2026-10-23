@@ -149,6 +149,34 @@ class CleanupTest(unittest.TestCase):
             touch(os.path.join(case, "01_a.mp4"), 30)
             self.assertEqual(cl.auto_clean([])["items"], [])
 
+    def test_stale_exports(self):
+        """届けていない書き出し: 案件の切り抜きの動画・_edit.mp4・パックが、どれも keep_days 日より前なら移す(パックの中の一番新しいファイルまで見る)。
+        残す物(評価用・確かめるで待っている)・まとめて実行が動いている配信・届けた記録で移す物は除く。文書は残す"""
+        out = os.path.join(self.tmp, "出力")
+        cl = self.cleanup(keep_days=3, out_dirs=[out])
+        old = self.now[0] - 5 * 86400
+        case = os.path.join(out, "配信")
+
+        def clip(name, pack_new=False):
+            m = touch(os.path.join(case, name + ".mp4"), 10, mtime=old)
+            touch(os.path.join(case, "作業用", name + "_edit.mp4"), 3, mtime=old)
+            touch(os.path.join(case, "作業用", name + ".transcript.json"), 1, mtime=old)
+            pk = os.path.join(case, name + "_pack")
+            touch(os.path.join(pk, "a.mp4"), 4, mtime=self.now[0] - 3600 if pack_new else old)
+            return {"path": m, "exists": True, "pack": {"dir": pk}}
+        a, b, c, d = clip("01_a"), clip("02_b", pack_new=True), clip("03_c"), clip("04_d")
+        cases = [{"id": "v1", "clips": [a, b, c, d]}, {"id": "busy", "clips": [clip("05_e")]}]
+        self.write_deliveries([{"requestId": "", "at": int(old * 1000), "packs": [{"dir": d["pack"]["dir"], "path": d["path"]}]}])   # 届けた = 別の決まりで 1 回だけ
+        items = [i for i in cl.auto_items([c["path"]], None, cases, {"busy"}) if i["kind"] == "export"]
+        by = {os.path.basename(p) for i in items for p in i["parts"]}
+        self.assertEqual(by, {"01_a.mp4", "01_a_edit.mp4", "01_a_pack", "04_d.mp4", "04_d_edit.mp4", "04_d_pack"})   # b = パックが新しい・c = 残す・05_e = 動いている
+        self.assertEqual(sum(1 for i in items if "書き出してから 5 日" in i["note"]), 1)
+        r = cl.auto_clean([c["path"]], None, cases=cases, busy_ids={"busy"})
+        self.assertEqual((r["moved"], r["failed"]), (2, 0))
+        self.assertFalse(os.path.exists(a["path"]) or os.path.exists(a["pack"]["dir"]))
+        self.assertTrue(os.path.isfile(os.path.join(case, "作業用", "01_a.transcript.json")))   # 文書は残る
+        self.assertTrue(all(os.path.exists(x["path"]) for x in (b, c)))
+
     def test_request_folders_from_last_delivery_or_receipt(self):
         """書き出し先の 依頼/<日付>_<題>_<id6>/ は、最後に届けてから keep_days 日で自動で移す。手で置いた動画(case.json に requestId が無い)・
         届けていない・case.json の無いフォルダは移さない。移すのは動画とパックだけ(作業用の文書は残す)"""
