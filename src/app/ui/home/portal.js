@@ -1529,8 +1529,10 @@
     if (!all.length) {
       empty.hidden = false;
       // casesData が無い(案件の一覧をまだ読めていない)ときは「無い」ではなく、読めていないと分かる文言にする(自動の切り抜きの失敗が数えられない)
-      $('b', empty).textContent = casesData ? 'いま動いている処理・待っている処理・失敗はありません' : '案件の一覧を読み込めていません';
-      $('#todoEmptyText').textContent = casesData ? 'まとめて実行や友人の依頼が始まると、ここに今の段と進み具合が出ます。' : '案件の一覧の欄に、直し方が出ています(「読み込み直す」を押してください)。';
+      // 読み込みの途中(まだ答えが無い・失敗もしていない)は「読み込んでいます」(失敗の文を一瞬出さない)
+      var loading = !casesData && !casesLoadFailed;
+      $('b', empty).textContent = casesData ? 'いま動いている処理・待っている処理・失敗はありません' : loading ? '読み込んでいます…' : '案件の一覧を読み込めていません';
+      $('#todoEmptyText').textContent = casesData ? 'まとめて実行や友人の依頼が始まると、ここに今の段と進み具合が出ます。' : loading ? '' : '案件の一覧の欄に、直し方が出ています(「読み込み直す」を押してください)。';
       more.hidden = true;
       return;
     }
