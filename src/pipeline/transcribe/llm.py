@@ -39,6 +39,7 @@ LLM_NONE = "none"   # 要求の llmModel がこれなら LLM の後処理を飛�
 LLM_SCHEMA = "youtube-tools-llm/v1"
 LLM_FLAG = "名簿の呼び名に直した(LLM。元の文字は「別の読み」の札)"   # 頭を fill の FILL_NAME_FLAG とそろえる(画面の「戻す」が同じ規則で印を外す)
 LLM_MIN_ALIAS = 3        # 近い所を探す呼び名の最小の文字数(かなに寄せたあと)
+LLM_EDGE_GUARD = True    # 違う 1 字が選んだ所の端にあり、外側にもかなが続く所(語の途中)は選ばない(「はいこちら」→「はみこちら」。10-23)
 LLM_FROM_TEXT = True     # 出る人に、行の文字にそのまま名前か呼び名が出る人も足す(False = 題名・パス・文脈だけ。10-23)
 LLM_GLOSSARY = True      # 用語集の語(ゲームの言葉・地名など)も呼び名と同じ探し方の候補にする(False = 名簿だけ。10-23)
 LLM_GLOSS_MIN = 4        # 用語集の語はかなに寄せてこの字数から(3 字の語は「ナイス → ナイフ」「トップ → マップ」と普通の言葉を自信 0.8 で直した)
@@ -123,8 +124,28 @@ def llm_near(text, targets):
                     continue
                 if any(a < i + n and i < b and not (alias == who == w) for a, b, w in spans):
                     continue
+                if LLM_EDGE_GUARD and _llm_mid_word(text, i, n, fs, f):
+                    continue
                 found.append((sub, alias))
     return found
+
+
+def _llm_mid_word(text, i, n, fs, f):
+    """選んだ所(text[i:i+n])の違う 1 字が端にあり、その外側にも同じ種類のかな(ひらがなどうし・カタカナどうし)が続く = 語の途中から切り出した所か
+    (「はいこちらどうぞ」の「いこち」→「みこち」= 「は|い」をまたいだ。「なったら|メコちゃん」はかなの種類が替わる = 語の切れ目なので選ぶ。
+    頭・末尾の 1 字の置き換え・抜け・足しを見る =「こち」→「みこち」も同じ)"""
+    sub = text[i:i + n]
+    head = fs[1:] == f[1:] or fs == f[1:] or fs[1:] == f   # 違いが頭の 1 字(置き換え・抜け・足し)
+    tail = fs[:-1] == f[:-1] or fs == f[:-1] or fs[:-1] == f
+    if head and i > 0 and _llm_same_kana(text[i - 1], sub[0]):
+        return True
+    return tail and i + n < len(text) and _llm_same_kana(sub[-1], text[i + n])
+
+
+def _llm_same_kana(a, b):
+    """2 字が同じ種類のかなか(ひらがなどうし・カタカナどうし。伸ばし ー は前の字の種類に数えない)"""
+    kind = lambda c: "h" if "ぁ" <= c <= "ゖ" else "k" if "ァ" <= c <= "ヺ" else None
+    return kind(a) is not None and kind(a) == kind(b)
 
 
 def llm_gloss(terms):

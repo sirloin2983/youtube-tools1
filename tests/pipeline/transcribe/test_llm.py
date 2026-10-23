@@ -56,6 +56,8 @@ class TestLlmNames(unittest.TestCase):
         self.assertEqual(llm.llm_near("はあちゃまが来た", t), [])        # すでに書かれた呼び名を別の呼び名に言い換えない
         self.assertEqual(llm.llm_near("ラミィちゃん来た", t), [])        # 書かれた名前の中の「ミィち」を「みこち」にしない
         self.assertIn(("き花ラミィ", "雪花ラミィ"), llm.llm_near("き花ラミィだよ", t))   # 同じ人の名前(姓と名)には直せる
+        self.assertEqual(llm.llm_near("はいこちらどうぞ", t), [])   # 語の途中(「は|い」)から切り出した「いこち」を「みこち」にしない(10-23)
+        self.assertIn(("メコち", "みこち"), llm.llm_near("なったらメコちゃん", t))   # かなの種類が替わる所は語の切れ目 = 直せる
 
     def test_glossary_terms(self):
         from pipeline.transcribe import llm
