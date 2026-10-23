@@ -495,6 +495,13 @@ class CacheTest(Base):
             self.build(downloader=downloader)
         self.assertEqual(seen, [B.wheel_pins()])
 
+    def test_old_certifi_stops_build(self):
+        """古い認証局の一覧(certifi が CERTIFI_MIN より前)の wheel では作らない・新しい版と certifi の無い組は通る"""
+        with self.assertRaisesRegex(B.BuildError, "certifi 2026.7.22"):
+            B.check_certifi(["x/certifi-2026.7.22-py3-none-any.whl", "x/numpy-2.2.6-cp312-cp312-win_amd64.whl"])
+        B.check_certifi(["x/certifi-2026.10.19-py3-none-any.whl"])
+        B.check_certifi(["x/numpy-2.2.6-cp312-cp312-win_amd64.whl"])
+
     def test_wcpp_mismatch(self):
         with open(os.path.join(self.wcpp, "ggml.dll"), "ab") as f:
             f.write(b"x")

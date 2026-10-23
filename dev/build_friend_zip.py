@@ -91,8 +91,8 @@ TOOLS = (
     # yt-dlp: 今の安定版(GitHub の releases/latest の安定版。新しいのは nightly だけ)。大きさと SHA-256 は公式の SHA2-256SUMS の値
     # (この PC の winget の yt-dlp.exe も同じ値)。版を上げるときは url と一緒に size・sha256 も公式の値へ
     {"name": "yt-dlp", "file": "yt-dlp.exe", "unzip": None, "dest": "tools/yt-dlp",
-     "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp.exe",
-     "size": 17840399, "sha256": "66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a"},
+     "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.21/yt-dlp.exe",   # 中の certifi 2026.10.19(認証局の一覧の急ぎの直し。10-23)
+     "size": 17880111, "sha256": "33121d192d706e62f684a06f80918e3f3a8ba52ac3a65213b6951c39c7d9f555"},
     {"name": "deno", "file": "deno-x86_64-pc-windows-msvc.zip", "unzip": "zip", "dest": "tools/deno",
      "url": "https://github.com/denoland/deno/releases/download/v2.9.7/deno-x86_64-pc-windows-msvc.zip"},
 )
@@ -218,7 +218,22 @@ def wheels(cache, reqs, fetch, downloader=pip_download):
         out.append(p)
     if not out:
         raise BuildError("キャッシュに wheel がありません")
+    check_certifi(out)
     return out
+
+
+# 認証局の一覧(certifi)の下限(10-23。eMudhra / emSign の認証局の問題で 2026.10.19 に出た急ぎの直し = Python 3.13〜3.15 の 10-21 の版と同じ)。
+# streamlink の依存の requests が使う。版は pip download の時の最新(固定しない)なので、キャッシュが古いままだと古い一覧が入る = ここで止める
+CERTIFI_MIN = (2026, 10, 19)
+
+
+def check_certifi(files):
+    """wheel の中の certifi が CERTIFI_MIN 以上か(無ければ何もしない)。古ければ BuildError(キャッシュの wheels を消して取り直す)"""
+    for p in files:
+        m = re.match(r"certifi-(\d+)\.(\d+)\.(\d+)-", os.path.basename(p))
+        if m and tuple(int(x) for x in m.groups()) < CERTIFI_MIN:
+            raise BuildError("certifi %s は古い認証局の一覧です(%d.%02d.%02d 以上が要る)。キャッシュの wheels フォルダを消して取り直してください" % (
+                ".".join(m.groups()), *CERTIFI_MIN))
 
 
 # ---------------------------------------------------------------- 展開
