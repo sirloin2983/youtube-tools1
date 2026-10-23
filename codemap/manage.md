@@ -35,8 +35,8 @@
   - 名前: `eval_videos` :68・`norm_member` :99・`member_name` :104・`organizing` :111・`eval_members` :116・`eval_organize` :330・`eval_settle` :406・`eval_folders_info` :502
 - **learnpack.py** (144 行) — ④ データ: 学習の束を作る側(F1。notes:docs/design/f1-build.md の 2 の F1・3 の (f1c))。
   - 名前: `roster_names` :41・`filter_voices` :51・`collect` :58・`content_sha8` :87・`versions` :95・`build` :104
-- **live_cleanup.py** (214 行) — 録画を自動で消す(線 D。notes:plan/line-d-live-clipping.md の 0-9 の最後。ユーザー決定。決定 3-73)の入口の側。
-  - 名前: `class Cleaner` :51
+- **live_cleanup.py** (246 行) — 録画を自動で消す(線 D。notes:plan/line-d-live-clipping.md の 0-9 の最後。ユーザー決定。決定 3-73)の入口の側。
+  - 名前: `class Cleaner` :53
 - **trash.py** (19 行) — ④ データの keep: 動画と一緒にごみ箱フォルダへ動かす途中のファイル(何を一緒に動かすか)。
   - 名前: `existing_sidecars` :16
 
@@ -45,7 +45,7 @@
 - **__init__.py** (2 行) — ④ データの運用: 調子・起動し直し・エラーの記録・分析と日報(analytics/)。失敗の集約は ② にある
 - **clientlog.py** (78 行) — 画面(ブラウザ・窓)で起きたエラーの記録(統合計画の段階7-0)。
   - 名前: `clean` :27・`class ClientLog` :39
-- **health.py** (400 行) — 「調子」(全体の計画 段9 9-1)。
+- **health.py** (422 行) — 「調子」(全体の計画 段9 9-1)。
   - 名前: `top_items` :36・`data_sizes` :56・`disk_free` :87・`tool_version` :107・`tool_versions` :118・`count_jsonl` :141・`count_client_errors` :172・`crash_counts` :206・`count_worker_incidents` :251・`class Health` :280
 - **restart.py** (206 行) — 入口を起動し直す(段9 9-3)。
   - 名前: `live_warning` :43・`launcher_script` :53・`restart_args` :58・`launcher_env` :72・`popen_kwargs` :77・`spawn_new_launcher` :92・`port_free` :118・`wait_port_free` :134・`wait_pid_gone` :145・`wait_old_launcher` :158・`can_restart` :181

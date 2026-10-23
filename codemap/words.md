@@ -66,7 +66,7 @@
   - 画面: src/app/ui/editor/pack-tab.js:37
 - **掲示板** — ② のジョブの掲示板(RS8 の口 S1)
   - コード: `src/flow/board.py`・`src/flow/jobs.py`
-  - 画面: src/app/ui/home/portal.js:584・src/app/ui/studio/review.js:3392
+  - 画面: src/app/ui/home/portal.js:584・src/app/ui/studio/review.js:3391
 - **調子** — 入口の「調子」。空き容量・失敗・道具の版などの集計
   - コード: `src/manage/ops/health.py`・`/api/health` src/app/server.py:735
   - 画面: src/app/ui/cases/panels/cand.js:104・src/app/ui/cases/panels/new.js:203・src/app/ui/home/portal.html:94・src/app/ui/home/portal.js:928
@@ -75,10 +75,10 @@
   - 画面: src/app/ui/home/portal.html:94・src/app/ui/home/portal.js:416
 - **バックアップ** — 作業データの自動バックアップ。設定の節 backup
   - コード: `src/manage/keep/backup.py`・`/api/backup` src/app/server.py:624
-  - 画面: src/app/ui/editor/app-tpl.js:139・src/app/ui/home/portal.html:94・src/app/ui/home/portal.js:1514
+  - 画面: src/app/ui/editor/app-tpl.js:139・src/app/ui/home/portal.html:94・src/app/ui/home/portal.js:1515
 - **精度の自動測定** — 夜に 1 日 1 回、校正済みで認識の精度を測る。設定の節 accuracy
   - コード: `src/eval/drill/accuracy.py`・`/api/accuracy` src/app/server.py:625・`/api/accuracy/run` src/app/server.py:632
-  - 画面: src/app/ui/home/portal.html:229・src/app/ui/home/portal.js:1119
+  - 画面: src/app/ui/home/portal.html:229・src/app/ui/home/portal.js:1120
 - **作業データ** — 置き場所の持ち主は flow/placement。入口と友人の玄関に各々ある
   - コード: `src/flow/placement.py`・`app_data_dir` src/app/server.py:306・`src/flow/machine.py`
   - 画面: src/app/ui/cases/panels/new.js:21・src/app/ui/cases/panels/studio-shim.js:43・src/app/ui/home/portal.html:127・src/app/ui/home/portal.js:994 ほか 3
@@ -93,7 +93,7 @@
   - 画面: src/app/ui/cases/cases.js:66・src/app/ui/cases/index.html:42・src/app/ui/cases/panels/cut.js:449・src/app/ui/cases/panels/proof.js:64 ほか 17
 - **リアルタイム切り抜き** — 配信中の録画〜採用の線 D。設定の節 live(既定オフ)
   - コード: `src/app/live.py`・`src/flow/livesession.py`
-  - 画面: src/app/ui/home/portal.html:229・src/app/ui/home/portal.js:1036・src/app/ui/studio/rank.js:483
+  - 画面: src/app/ui/home/portal.html:229・src/app/ui/home/portal.js:1037・src/app/ui/studio/rank.js:483
 - **マーク** — マークの語彙・ライブの「マーク + 書き出し」・盛り上がりの評価
   - コード: `src/flow/live_export.py`・`src/flow/live_adopt.py`・`src/ytt/marks.py`・`src/eval/tools/eval_marks.py`
   - 画面: src/app/ui/cases/panels/cand.js:26・src/app/ui/cases/panels/new.js:26・src/app/ui/home/portal.html:129・src/app/ui/home/portal.js:366 ほか 5
@@ -122,7 +122,7 @@
   - コード: `pick_glossary_terms` src/flow/tx.py:68・`src/app/ui/editor/app-learn.js`
   - 画面: (画面の文字列に無い)
 - **書き出し** — 書き出しの ① と ② のジョブ表。スタジオの確認の画面から頼む
-  - コード: `src/pipeline/export/exporter.py`・`src/flow/export.py`・`ExportJobs` src/flow/export.py:38・`/api/export` src/app/live.py:308
+  - コード: `src/pipeline/export/exporter.py`・`src/flow/export.py`・`ExportJobs` src/flow/export.py:38・`/api/export` src/app/live.py:309
   - 画面: src/app/ui/cases/cases.js:79・src/app/ui/cases/panels/cand.js:25・src/app/ui/cases/panels/new.js:114・src/app/ui/check/cards/value.js:10 ほか 9
 - **スタジオ** — 切り抜きスタジオ(解析・確認・コラボ)
   - コード: `src/studio/serve.py`・`src/app/ui/studio`・`src/human/review/store.py`・`src/flow/studiobook.py`

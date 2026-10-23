@@ -7,14 +7,14 @@
 - **__init__.py** (2 行) — 入口と画面。起動・1 つのポート・API の配線・設定の画面の API。全部の層を使ってよい
 - **autorun.py** (480 行) — まとめて実行(統合計画の段階5)。入口の「案件」の画面から、配信1本ぶんの作業を順に自動で流す。
   - 名前: `class ToolClient` :103・`spec_from_settings` :184・`live_auto_origin` :202・`class AutoRunner` :213
-- **live.py** (495 行) — リアルタイム切り抜き(線 D。notes:plan/line-d-live-clipping.md の 0)の入口の側。**既定はオフ**(ホームの設定の節 live.enabled)。
+- **live.py** (496 行) — リアルタイム切り抜き(線 D。notes:plan/line-d-live-clipping.md の 0)の入口の側。**既定はオフ**(ホームの設定の節 live.enabled)。
   - 名前: `studio_review` :98・`studio_audio` :105・`studio_lag` :123・`class Live` :132
-  - 受ける口: `/api/peaks` :250・`/api/exports` :257・`/api/info` :269・`/api/begin` :305・`/api/export` :308・`/api/export/cancel` :317・`/api/archive/cancel` :319・`/api/archive` :322
+  - 受ける口: `/api/peaks` :251・`/api/exports` :258・`/api/info` :270・`/api/begin` :306・`/api/export` :309・`/api/export/cancel` :318・`/api/archive/cancel` :320・`/api/archive` :323
 - **mount.py** (208 行) — 統合サーバーへのツールの取り込み(統合計画の段階3。notes:docs/design/integration-plan.md)。
   - 名前: `class MountError` :52・`tool_modules` :56・`check_no_collision` :66・`load_serve` :76・`send_redirect` :103・`make_handler` :113・`class Mount` :160
   - 受ける口: `/api/ytt` :45
-- **prefs.py** (488 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
-  - 名前: `class PrefsError` :95・`guess_streamer` :382・`class Prefs` :394
+- **prefs.py** (485 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
+  - 名前: `class PrefsError` :94・`guess_streamer` :379・`class Prefs` :391
 - **server.py** (1679 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
   - 名前: `runtime_dir` :180・`ping` :190・`tail` :198・`expected_version` :219・`tool_python` :225・`rel_or_abs` :235・`signal_stop` :243・`class Tool` :256・`app_data_dir` :306・`logs_dir_for` :312・`class Supervisor` :318・`query_int` :637・ほか 15
   - 受ける口: `/api/drill/status` :148・`/api/eval-batch` :148・`/api/intake` :623・`/api/backup` :624・`/api/accuracy` :625・`/api/flow/runs` :626・`/api/cases/auto` :628・`/api/flow/submit` :629・`/api/flow/estimate` :629・`/api/flow/cancel` :630・`/api/intake/scan` :631・`/api/backup/run` :631・`/api/accuracy/run` :632・`/api/check/answer` :633・`/api/check/skip` :633・`/api/check/flush` :633・`/api/shutdown` :634・`/api/ping` :723・`/api/status` :725・`/api/health` :735・`/api/log` :737・`/api/flow/status` :752・`/api/flow/history` :756・`/api/check/next` :759・`/api/cases` :765
@@ -101,7 +101,7 @@
 ## src/app/ui/home/
 
 - **portal-edit.js** (67 行) — ホームの運用の中の「編集の精度」(src/app/ui/home/portal.html の #editOpsBox。RS8 C3)。
-- **portal.js** (1735 行) — ホーム(src/app/ui/home/portal.html。段階5で入口 + 案件を1つにした)。
+- **portal.js** (1736 行) — ホーム(src/app/ui/home/portal.html。段階5で入口 + 案件を1つにした)。
 
 ## src/app/ui/settings/
 
@@ -115,7 +115,7 @@
   - 名前: `$` :7・`mmss` :9・`entryHtml` :12・`settings` :49・`loadOpts` :53・`unquote` :58・`looksYt` :59・`entries` :60・`paintKinds` :70・`syncAdd` :75・`refocusForm` :85・`setMsg` :92・ほか 20
 - **rank.js** (777 行) — 切り抜きスタジオ: ① 探す(配信ランキング)。検索 → 結果(全部まとめて再生数の順 / 事務所ごと)→ チェックして「解析に追加」か「まとめて実行」(入口から開いたときだけ)
   - 名前: `$` :5・`lsGet` :8・`lsSet` :9・`fmtN` :10・`fmtDur` :11・`ymd` :12・`okThumb` :13・`atMs` :16・`saveReg` :27・`agKey` :32・`captureReg` :35・`restoreReg` :52・ほか 69
-- **review.js** (3425 行) — 切り抜きスタジオ ② 確認・書き出し(切り抜きマーカー由来)。
+- **review.js** (3424 行) — 切り抜きスタジオ ② 確認・書き出し(切り抜きマーカー由来)。
   - 名前: `create` :9・`round1` :14・`uid` :15・`toast` :16・`parseTime` :20・`isAutoLike` :34・`marksPayload` :35・`sec1` :47・`sanitizeKeymap` :48・`spanLabel` :60・`momentSpan` :62・`momentSpanOf` :64・ほか 283
 
 ## テスト

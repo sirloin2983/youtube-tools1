@@ -41,20 +41,20 @@
   - 名前: `run_ranges` :73・`friend_ranges` :81・`read_archive` :92・`load_archive` :109・`candidates` :119・`peak_ratio` :143・`samples` :155・`suggest` :172・`compute` :195・`usable` :215・`describe` :225・`change` :237・ほか 1
 - **live_adopt.py** (276 行) — ライブの採用 = サーバー側の「マーク + 書き出し」(線 D の M1。RS7-2 G1b)。
   - 名前: `adopt_secs` :42・`pad_secs` :63・`top_of` :75・`class StudioMarks` :85・`class LocalMarks` :128・`class Adopter` :220
-- **live_archive.py** (1600 行) — 録画に無い区間をアーカイブ(YouTube)から書き出す(線 D の P4 の残り。notes:plan/line-d-live-clipping.md の 0-9)と、配信後の全自動(M7)の入口の側の中身。
-  - 名前: `from_archive` :148・`needs_archive` :153・`class ArchiveError` :159・`class Later` :163・`run_proc` :172・`probe_archive` :204・`readiness` :246・`fetch_full_audio` :264・`worker_python` :294・`run_align` :299・`inside` :313・`ended_at` :319・ほか 5
+- **live_archive.py** (1610 行) — 録画に無い区間をアーカイブ(YouTube)から書き出す(線 D の P4 の残り。notes:plan/line-d-live-clipping.md の 0-9)と、配信後の全自動(M7)の入口の側の中身。
+  - 名前: `from_archive` :148・`needs_archive` :153・`class ArchiveError` :159・`class Later` :163・`run_proc` :172・`probe_archive` :204・`readiness` :248・`fetch_full_audio` :266・`worker_python` :296・`run_align` :301・`inside` :315・`ended_at` :321・ほか 5
 - **live_detect.py** (781 行) — 配信中の盛り上がりの検出(線 D の L2)と自動の採用(M11)の入口の側。計画は notes:plan/line-d-detect.md(3 の「候補の API の約束」は線 2 = スタジオの画面との境目。変えない)。
   - 名前: `clean_spec` :83・`overlay` :97・`merge_spans` :117・`measured_holes` :128・`class Detector` :148
 - **live_export.py** (1393 行) — リアルタイム切り抜き(線 D の P2: マークと書き出し。notes:plan/line-d-live-clipping.md の 0・5・6)の入口の側の中身。
   - 名前: `read_after` :92・`class LiveError` :121・`pick_folder` :133・`rec_list` :142・`latest_per_mark` :151・`cleaned_up` :161・`check_after` :172・`check_origin` :184・`clean_auto` :193・`check_streamer` :199・`deliver_pool` :211・`job_after` :222・ほか 7
-- **live_failures.py** (173 行) — リアルタイム切り抜き(線 D)の失敗の集約(M3。notes:plan/line-d-auto-pack.md の 4)。
-  - 名前: `failure_of` :49・`after_stream_failure` :74・`detect_failure` :91・`keep_failure` :107・`delete_notice` :117・`class Reader` :126・`collect` :154
+- **live_failures.py** (164 行) — リアルタイム切り抜き(線 D)の失敗の集約(M3。notes:plan/line-d-auto-pack.md の 4)。
+  - 名前: `failure_of` :49・`after_stream_failure` :74・`detect_failure` :91・`keep_failure` :107・`class Reader` :117・`collect` :145
 - **live_patrol.py** (64 行) — ライブの見回りの糸の骨組み(OPT2。live_export.Exporter・live_archive.Archiver・live_tx.LiveTx が継ぐ)と中止の例外 1 組。
   - 名前: `class Halted` :14・`class Patrol` :18
 - **live_report.py** (242 行) — 配信(録画)ごとの結果の記録(線 D の D-12。ユーザー決定。長い配信の確かめ U4 と、数の決め直し D-15・当たり具合 L5 の材料)。
   - 名前: `key_of` :60・`class Reporter` :64
-- **live_retire.py** (155 行) — 録画の片付けの ② の口(OPT2 の 7x-1。plan/opt-manage.md の 7e・7f): 「この録画を消してよいか(理由)」の読み口と、
-  - 名前: `stale_ok` :26・`near` :31・`exported_why` :36・`adopted_why` :51・`class Retire` :65
+- **live_retire.py** (172 行) — 録画の片付けの ② の口(OPT2 の 7x-1。plan/opt-manage.md の 7e・7f): 「この録画を消してよいか(理由)」の読み口と、
+  - 名前: `fate` :32・`private_name` :43・`near` :51・`exported_why` :56・`adopted_why` :71・`class Retire` :85
 - **live_rules.py** (147 行) — 友人のライブ配信の依頼の設定の決まりと、依頼と録画の結びつきの記録(notes:docs/spec/friend.md の 2-15)。範囲・既定・読み直しの 1 か所。
   - 名前: `num_in` :29・`clean_settings` :33・`settings_text` :52・`class RequestBook` :63
 - **live_tx.py** (481 行) — 配信中の候補の文字起こし(線 D の D-11 案 b。notes:plan/line-d-live-clipping.md の 0-11。ユーザー決定)。
@@ -63,7 +63,7 @@
   - 名前: `channel_regions` :37・`live_row` :55・`live_list` :150
 - **livehost.py** (87 行) — ライブの親(host)の口(RS7-2 G0)。
   - 名前: `class RequestBook` :25・`class MarkBook` :37・`class LiveHost` :47
-- **livesession.py** (1179 行) — ② 管理の層 flow: ライブ係(RS7-2 G2b。notes:plan/done/f1-friend-pc.md)。
+- **livesession.py** (1174 行) — ② 管理の層 flow: ライブ係(RS7-2 G2b。notes:plan/done/f1-friend-pc.md)。
   - 名前: `validate_url` :81・`probe_live` :118・`rec_view` :148・`recorder_data_dir` :164・`is_local_url` :177・`stream_url` :185・`live_envelope` :191・`cfg_bundle` :201・`now_bundle` :222・`request_bundle` :241・`request_settings` :274・`speakers_of` :281・ほか 4
 - **machine.py** (303 行) — ② 管理の層 flow: この PC の設定(機械の都合)を 1 か所に(RS7-1 の S1。決定 3-30 の Q1・notes:plan/done/f1-friend-pc.md の決めたこと 8・9)。
   - 名前: `check` :68・`root` :102・`path` :107・`read_file` :119・`read_env` :136・`llm_for_vram` :163・`auto_llm` :173・`overlay_llm` :179・`explicit` :212・`load` :221・`get` :239・`save` :247・ほか 1
