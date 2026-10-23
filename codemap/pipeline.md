@@ -70,7 +70,7 @@
 - **__init__.py** (2 行) — ① 文字起こし: 認識(エンジン・ワーカー)・話者・後処理(埋める・LLM・時刻)・名簿と辞書を読む。認識(重い)と後処理(軽い)で鍵を分ける
 - **backend.py** (119 行) — サーバー側の認識の本物と疑似の差し込み口。
   - 名前: `mode` :18・`is_fake` :23・`class Backend` :28・`set_selector` :111・`select` :116
-- **clipjob.py** (69 行) — ① 文字起こしのジョブの機械の文書の行を作る(make_doc_rows)。
+- **clipjob.py** (74 行) — ① 文字起こしのジョブの機械の文書の行を作る(make_doc_rows)。
   - 名前: `make_doc_rows` :17
 - **diarize.py** (550 行) — ① 自動の流れの層 pipeline/transcribe: 話者判別の計算(sherpa-onnx)と判別の記録・声の特徴と覚えた声との照らし合わせ。
   - 名前: `diar_threads` :59・`has_sherpa` :65・`diar_models_dir` :71・`diar_info` :84・`ensure_diar_models` :114・`diar_tune` :145・`diarize_real` :161・`assign_speakers` :203・`label_ratio` :254・`smooth_labels` :262・`smooth_speakers` :284・`diar_path` :304・ほか 8
@@ -82,8 +82,8 @@
   - 名前: `llm_fold` :57・`llm_dist` :68・`llm_members` :79・`llm_targets` :92・`llm_near` :105・`llm_gloss` :130・`llm_pick` :142・`llm_messages` :166・`llm_parse` :178・`llm_names` :196・`llm_guard` :206・`llm_cap` :227・ほか 8
 - **models.py** (163 行) — ① 認識ワーカーの中で動く物: 読み込んだモデルの使い回し(_models)と読み込み(_load_model_local)・しばらく使わなければ手放す(release_idle_local)・
   - 名前: `models_touched` :31・`release_idle_local` :36・`setup_cuda_paths` :105・`cuda_count` :130・`cuda_libs_ok` :138・`cuda_compute` :159
-- **postproc.py** (332 行) — ① 文字起こしの行の後処理: 要確認の印(make_flags)・認識の出力を整える流れ(expand_segments = 行を単語の時刻で分ける split_segment・
-  - 名前: `latin_suspect` :31・`sparse_row` :59・`stock_phrase` :74・`repeats_in_line` :91・`make_flags` :102・`note_only` :139・`drop_note` :144・`expand_segments` :150・`post_values` :192・`clip_rows` :219・`merge_repeats` :236・`trim_ends` :285・ほか 4
+- **postproc.py** (333 行) — ① 文字起こしの行の後処理: 要確認の印(make_flags)・認識の出力を整える流れ(expand_segments = 行を単語の時刻で分ける split_segment・
+  - 名前: `latin_suspect` :31・`sparse_row` :59・`stock_phrase` :74・`repeats_in_line` :91・`make_flags` :102・`note_only` :139・`note_nosub` :144・`expand_segments` :151・`post_values` :193・`clip_rows` :220・`merge_repeats` :237・`trim_ends` :286・ほか 4
 - **recognize.py** (364 行) — ① 音声の認識: 動画から音声を取り出す(extract_audio)・声の検出が捨てすぎたら緩めてやり直す(transcribe_vad_fallback)・文字起こしの行(transcribe_real)・
   - 名前: `wav_args` :28・`extract_audio` :59・`seg_to_dict` :88・`vad_kept` :106・`vad_note` :114・`transcribe_vad_fallback` :128・`transcribe_real` :173・`transcribe_rows` :201・`audio_span` :220・`recognize_chunk` :230・`class ChunkModel` :252・`finish_range_lines` :272・ほか 1
 - **records.py** (210 行) — ① 文字起こしの記録: recognition.runs の 1 件(エンジンと版・設定・辞書の版・後処理)・配信ごとの文脈と声の検出の記録・

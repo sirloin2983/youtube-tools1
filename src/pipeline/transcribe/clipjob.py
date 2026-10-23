@@ -46,10 +46,12 @@ def _rows_to_doc(job, spec, rows, pairs, learned=None):
     segs, prev, original, words, dict_n, learn_n = [], [], [], [], 0, 0
     terms = _roster.prompt_terms(spec)
     for s in rows:
-        if not s["text"] or postproc.drop_note(s["text"]):   # 音符だけの行は字幕に出さない(埋め A の窓の手がかりに使い終えたあと)
+        if not s["text"]:
             continue
         seg = {"id": "s%d" % (len(segs) + 1), "start": round(s["start"] + spec["start"], 2), "end": round(s["end"] + spec["start"], 2),
                "text": s["text"][:_txbase.MAX_TEXT], "speaker": "", "flag": ""}
+        if postproc.note_nosub(s["text"]):   # 音符だけの行は字幕に出さない印(行は残す = パックは BGM だけの区間も作れる・画面で外せる)
+            seg["noSub"] = True
         seg["flag"] = postproc.make_flags({**s, "text": seg["text"], "start": seg["start"], "end": seg["end"]}, prev, spec["language"], terms)
         if isinstance(s.get("fill"), dict):   # 別の読みで埋めた行(fill の A): 印と元の文字を残す(画面の「別の読み」の札で戻せる)
             seg["fill"] = {"from": str(s["fill"].get("from") or "")[:_txbase.MAX_TEXT], "by": str(s["fill"].get("by") or "")[:20]}
@@ -65,4 +67,7 @@ def _rows_to_doc(job, spec, rows, pairs, learned=None):
         dict_n += n
         segs.append(seg)
         job["segments"] = len(segs)
+    if segs and all(g.get("noSub") for g in segs):   # 字幕に出る行が 1 本も無くなる(BGM だけの区間)ときは付けない: パックの Text+ は字幕が 0 本だと作れない(配る前の検査の区間 5 つ)
+        for g in segs:
+            g.pop("noSub", None)
     return {"segs": segs, "original": original, "words": words, "dictApplied": dict_n, "learnApplied": learn_n}

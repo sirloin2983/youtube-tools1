@@ -132,7 +132,7 @@ def make_flags(seg, prev_texts, lang=None, terms=()):
 # 行を単語の時刻で分ける split_segment(と SPLIT_GAP・SPLIT_SEC・SPLIT_CHARS・SPLIT_SLACK・_cut_words)・句読点の除去 strip_punct(STRIP_PUNCT_CHARS)・空白を詰める _squash は ytt/txtext.py にある(③ が ① を読まずに使えるように。ここは _txtext.名前 で呼ぶたびに読む)
 
 
-NOTE_DROP = True   # 文字が音符(♪♫♬♩)と記号・空白だけの行を字幕に出さない = 文書の行にしない(ユーザー 10-23「音符一つだけの行もいらない」。False = 残す)
+NOTE_NOSUB = True   # 文字が音符(♪♫♬♩)と記号・空白だけの行に「字幕に出さない」(noSub)を付ける(ユーザー 10-23「音符一つだけの行もいらない」。False = 付けない)
 _NOTE_ONLY = re.compile(r"^[\s♪♫♬♩～~〜・.。、ー]*[♪♫♬♩][\s♪♫♬♩～~〜・.。、ー]*$")
 
 
@@ -141,10 +141,11 @@ def note_only(text):
     return bool(text) and bool(_NOTE_ONLY.match(str(text)))
 
 
-def drop_note(text):
-    """文書の行にしない音符だけの行か(NOTE_DROP)。捨てるのは行を文書にする所(clipjob・範囲の再認識・eval_asr)= 埋め A のあと:
-    whisper が BGM の所に書いた ♪ の行は、A が SenseVoice で窓を読み直す手がかり(f469fd で ♪ の窓から本当の声「ただいやー」を拾った)"""
-    return NOTE_DROP and note_only(text)
+def note_nosub(text):
+    """字幕に出さない印を付ける音符だけの行か(NOTE_NOSUB)。付けるのは文書の行を作る所(clipjob)= 埋め A のあと。行は捨てない:
+    whisper が BGM の所に書いた ♪ の行は A が SenseVoice で窓を読み直す手がかり(f469fd で本当の声「ただいやー」を拾った)で、
+    行が ♪ だけの区間を捨てるとパックが「渡す文字のある行がありません」で作れなかった(配る前の検査の区間 5 つ)。機械の出力 original は変えない"""
+    return NOTE_NOSUB and note_only(text)
 
 
 def expand_segments(gen, spec, dur=None, join=True):
@@ -323,7 +324,7 @@ def post_record(spec=None):
     古い記録には pullEnds(音の谷へ寄せるか)・retime(1 秒丸めの配り直しのモデル | False)の鍵もある(読むだけ)。
     runs[].retimed(配り直しの数)は書かない(古い記録に残るだけ)"""
     end_trim, join_gap = post_values(spec)
-    return {"version": str(_workdata.SERVER_VERSION or ""), "endTrim": end_trim, "joinGap": join_gap, "barMax": _txtext.BAR_MAX, "noteDrop": NOTE_DROP}
+    return {"version": str(_workdata.SERVER_VERSION or ""), "endTrim": end_trim, "joinGap": join_gap, "barMax": _txtext.BAR_MAX, "noteNoSub": NOTE_NOSUB}
 
 
 def row_words(p, shift=0.0):

@@ -133,8 +133,8 @@ class TestDocRowsRun(unittest.TestCase):
         self.assertEqual(by["ああああああ"]["flag"], REP)
         self.assertEqual([(by[t]["start"], by[t]["end"]) for t in ("あい", "うえお", "最後")], [(47.0, 47.5), (48.8, 49.4), (218.5, 220.0)])
         self.assertNotIn("外", by)
-        self.assertEqual(len(segs), 97)
-        self.assertNotIn("♪～", by)   # 音符だけの行は文書の行にしない(postproc.drop_note。埋め A のあと)
+        self.assertEqual(len(segs), 98)
+        self.assertEqual((by["♪～"].get("noSub"), by["(音楽)"].get("noSub"), by["♪～"]["flag"]), (True, None, STOCK))   # 音符だけの行は字幕に出さない印(行と札は残す)
         self.assertEqual((by["this is a random english line"]["end"], by["白神フブキ"]["end"]), (40.5, 46.2))   # すき間 0.5 秒まではつなぐ・空の行の始まりへも
         # 頭の「名前:」(B): 名簿・用語集の名前か、かな・カタカナだけの短い語で、直後に本文があるときだけ。単語の時刻も名前の分を除く
         self.assertEqual(at("もう一回")[2:], (fill.FILL_SPK_FLAG, {"from": "リリー:もう一回", "by": fill.FILL_SPK_BY}))
@@ -158,7 +158,7 @@ class TestDocRowsRun(unittest.TestCase):
         self.assertEqual([g["flag"] for g in segs if g["text"] == "やばいやばい"], ["", "", SAME])   # 前の 5 行に同じ文が 2 回で 3 回目(句読点は除いて比べる)
         self.assertEqual([g["flag"] for g in segs if 121 <= g["start"] < 126], ["", "", "", "", SAME])   # 短い文は続けて 3 回のときだけ
         stock = {"ご視聴いただきありがとうございました": True, "高評価よろしくお願いします": True, "では次の動画でお会いしましょう": True,
-                 "みんな高評価よろしくお願いしますね今日も": False, "えっと字幕つけて": True, "(音楽)": True, "【 BGM 】": True,
+                 "みんな高評価よろしくお願いしますね今日も": False, "えっと字幕つけて": True, "♪～": True, "(音楽)": True, "【 BGM 】": True,
                  "音楽いいね": False, "～": False}
         self.assertEqual({t: by[t]["flag"] == STOCK for t in stock}, stock)
         self.assertEqual([g["flag"] for g in segs if g["text"] == "ご覧いただきありがとうございました"], [STOCK, ""])   # 8 秒以上は対象外
@@ -200,13 +200,13 @@ class TestPostValues(unittest.TestCase):
         self.assertEqual(postproc.post_values({"endTrim": 0.1, "joinGap": 0}), (0.1, 0.0))
         self.assertEqual(postproc.post_values({"endTrim": 0.9, "joinGap": True}), (postproc.END_TRIM, postproc.JOIN_GAP))
         with mock.patch.object(workdata, "SERVER_VERSION", "9.9.9"), mock.patch.object(postproc, "END_TRIM", 0.1):
-            self.assertEqual(postproc.post_record(), {"version": "9.9.9", "endTrim": 0.1, "joinGap": postproc.JOIN_GAP, "barMax": 1, "noteDrop": True})
+            self.assertEqual(postproc.post_record(), {"version": "9.9.9", "endTrim": 0.1, "joinGap": postproc.JOIN_GAP, "barMax": 1, "noteNoSub": True})
         self.assertEqual(postproc.post_record({"joinGap": 1.0})["joinGap"], 1.0)
         gen = [W(0.0, 1.0, "あ"), W(1.3, 2.0, "い")]
         self.assertEqual(list(postproc.expand_segments(gen, {"joinGap": 0.0}))[0]["end"], 1.0)   # つながない
         bars = list(postproc.expand_segments([W(0.0, 1.0, "アーーーーーーーーイエターーー")], {}))
         self.assertEqual(bars[0]["text"], "アーイエター")   # whisper の長い ー の連なりは 1 つに(人の校正の書き方)
-        self.assertEqual([t for t in ("♪", "♪〜♫", "だよ♪", "(音楽)") if postproc.drop_note(t)], ["♪", "♪〜♫"])   # 音符だけの行は文書の行にしない(10-23)
+        self.assertEqual([t for t in ("♪", "♪〜♫", "だよ♪", "(音楽)") if postproc.note_nosub(t)], ["♪", "♪〜♫"])   # 音符だけの行(10-23)
         gen = [W(0.0, 1.0, "あ"), W(1.2, 2.0, "い")]
         self.assertEqual(list(postproc.expand_segments(gen, {"engine": "whisper.cpp", "endTrim": 0.2, "joinGap": 0.0}))[0]["end"], 0.8)   # whisper.cpp の続いている行だけ早める
 
