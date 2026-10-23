@@ -676,7 +676,15 @@ def _scene_auto_rebuild(cx):
 
 
 def _scene_after_stream(cx):
-    """9. 配信後の全自動: 人は触らない(録画は _begin_after_stream が最初に始めた。採用の出どころ・.clip.json・記録・帯の 1 行は test_live_archive.py の AfterStreamTest と test_cand_panel.cjs)"""
+    """9. 配信後の全自動: 人は触らない(録画は _begin_after_stream が最初に始めた。採用の出どころ・.clip.json・記録・帯の 1 行は test_live_archive.py の AfterStreamTest と test_cand_panel.cjs)。
+    場面の形は前の短い形(hold 10・rise 0.3 = excite.SCENE_LONG が偽の形)に留める: 録画は 2 分ほどで、10-23 の長い形(hold 30)だと
+    25 秒おきの山が 1 つの場面(300 秒)につながり、録画に半分以上入る候補が 1 本しか作れない(上位 N 本を採用するのを確かめられない)"""
+    from pipeline.analyze import excite   # noqa: E402  (解析はこのプロセスの中 = STUDIO_FAKE)
+    with mock.patch.dict(excite.SCENE, {"hold": 10, "rise": 0.3}):
+        _after_stream_body(cx)
+
+
+def _after_stream_body(cx):
     LX, api, check, deleted_rids, first, gone_from_list = cx.LX, cx.api, cx.check, cx.deleted_rids, cx.first, cx.gone_from_list
     handed, jobs_of, live, rec_ids, rec_len, rec_status = cx.handed, cx.jobs_of, cx.live, cx.rec_ids, cx.rec_len, cx.rec_status
     rid4, srv, tmp = cx.rid4, cx.srv, cx.tmp

@@ -616,8 +616,8 @@ def _scene_settings_and_sound(cx):
     pg.click("#rvLiveMute")
     check(wait_js(pg, "() => %s.muted && document.querySelector('#rvLiveMute').getAttribute('aria-pressed') === 'true'" % VIDEO, 3000)
           and pg.text_content("#rvLiveMute") == "音を戻す", "11a 「消音」で消音(押した状態・文字は「音を戻す」)")
-    pg.keyboard.press("m")
-    check(wait_js(pg, "() => !%s.muted && document.querySelector('#rvLiveMute').getAttribute('aria-pressed') === 'false'" % VIDEO, 3000), "11a M キーで戻る")
+    pg.click("#rvLiveMute")  # M キーの割り当ては 0.99.175 で外した(ボタンは残す)
+    check(wait_js(pg, "() => !%s.muted && document.querySelector('#rvLiveMute').getAttribute('aria-pressed') === 'false'" % VIDEO, 3000), "11a もう一度押すと戻る")
     pg.evaluate(set_vol, 100)
     check(wait_js(pg, "() => Math.abs(%s.volume - 1) < 0.01" % VIDEO, 3000), "11a 100 に戻す")
     # ---------------- 11. 置き場所と空き(本物の録画元 → 入口の中継 → 「調子」の /api/health の live) ----------------
@@ -875,25 +875,17 @@ def _scene_peaks(cx):
     check(wait_js(pg, "() => { const r = document.querySelector('%s'); return r.querySelector('[data-pf=\"pill\"]').textContent === '枠' && r.querySelector('[data-pact=\"restore\"]').hidden; }" % row("p4-30"), 8000),
           "L3 [戻す] で枠に戻る(ワーカーが当てる)")
 
-    # p = 次の候補を再生・z = いまの候補を採用
-    pg.evaluate("() => document.activeElement && document.activeElement.blur()")
-    pg.mouse.move(2, 2)
-    pg.keyboard.press("p")
+    # 2 本目も行のボタンで再生 → 採用(p・z のキーは 0.99.175 で外した。ボタンは残す)
+    pg.click(row("p2-20") + ' [data-pact="play"]')
     pg.wait_for_timeout(400)
     now = _clock(pg.input_value("#rvNow"))
     p2 = peaks["p2-20"]
     check(abs(now - max(0, p2["start"] - 5)) < 2.5 and wait_js(pg, "() => document.querySelector('%s').classList.contains('is-playing')" % row("p2-20"), 3000),
-          "L3 p で次の候補(直前に再生した候補の次)を 5 秒前から再生: %.1f(候補 %.1f)" % (now, p2["start"]))
-    pg.keyboard.press("z")
+          "L3 2 本目も [再生] で 5 秒前から再生: %.1f(候補 %.1f)" % (now, p2["start"]))
+    pg.click(row("p2-20") + ' [data-pact="adopt"]')
     check(wait_js(pg, "() => document.querySelectorAll('#rvList .rv-mark-row').length === %d" % (n0 + 2), 15000),
-          "L3 z でいま再生している候補を採用(マークが増える)")
-    check(wait_js(pg, "() => document.querySelector('%s [data-pf=\"pill\"]').textContent === '採用'" % row("p2-20"), 8000), "L3 z で採用した候補は「採用」の札")
-    pg.keyboard.press("p")
-    pg.wait_for_timeout(400)
-    now = _clock(pg.input_value("#rvNow"))
-    check(abs(now - max(0, peaks["p3-26"]["start"] - 5)) < 2.5, "L3 もう一度 p で次の候補(控え): %.1f" % now)
-    check(pg.evaluate("() => { const k = document.querySelector('.ui-keybar'); return !k || k.hidden || /次の候補/.test(k.textContent); }"),
-          "L3 下のキーの帯に「次の候補」(帯を出しているとき)")
+          "L3 2 本目も [採用] でマークが増える")
+    check(wait_js(pg, "() => document.querySelector('%s [data-pf=\"pill\"]').textContent === '採用'" % row("p2-20"), 8000), "L3 2 本目も「採用」の札")
     _scene_peak_text(cx, row)
 
     # 採用した 2 本の書き出しが済む(入口の adopt の書き出し)
