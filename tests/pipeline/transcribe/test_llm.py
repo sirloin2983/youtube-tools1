@@ -42,6 +42,22 @@ class TestLlmLearn(unittest.TestCase):
         self.assertTrue(any("ト" in w for w, *_ in ev), ev)                                     # 人が直した行は今までどおり
 
 
+class TestLlmNames(unittest.TestCase):
+    MEMBERS = [{"name": "雪花ラミィ", "aliases": ["ラミィ", "ラミィちゃん"]}, {"name": "赤井はあと", "aliases": ["はあちゃま", "はあちゃん"]},
+               {"name": "さくらみこ", "aliases": ["みこち"]}]
+
+    def test_members_from_text_and_keep_written_names(self):
+        from pipeline.transcribe import llm
+        doc = {"title": "配信", "text": "はあちゃまと ラミィちゃん来た みこちー"}
+        self.assertEqual([m["name"] for m in llm.llm_members(doc, self.MEMBERS)], ["雪花ラミィ", "赤井はあと", "さくらみこ"])   # 行の文字に出た人も足す
+        with mock.patch.object(llm, "LLM_FROM_TEXT", False):
+            self.assertEqual(llm.llm_members(doc, self.MEMBERS), [])
+        t = llm.llm_targets(self.MEMBERS)
+        self.assertEqual(llm.llm_near("はあちゃまが来た", t), [])        # すでに書かれた呼び名を別の呼び名に言い換えない
+        self.assertEqual(llm.llm_near("ラミィちゃん来た", t), [])        # 書かれた名前の中の「ミィち」を「みこち」にしない
+        self.assertIn(("き花ラミィ", "雪花ラミィ"), llm.llm_near("き花ラミィだよ", t))   # 同じ人の名前(姓と名)には直せる
+
+
 class TestLlamaTextEngine(unittest.TestCase):
     def test_registered(self):
         self.assertTrue(E.valid("llama-text"))

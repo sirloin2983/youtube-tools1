@@ -3,7 +3,8 @@
 
 ねらい: 認識の結果のうち「名簿の呼び名の聞き違い」らしい所だけを、ローカルの LLM(Qwen3-8B。llama-server・Vulkan)に直させて校正を短くする。
   1 選ぶ llm_pick      名簿の呼び名(LLM_MIN_ALIAS 字以上・普通の言葉と重なるものは除く)に、かなに寄せて 1 字違いの所と、名簿の誤りやすい形(misrecognitions)。
-                       名簿は、その文書に出る人(題名・動画のパス・話者の名前に名前か呼び名があるメンバー)だけ。カタカナの呼び名に近い所は元の文字にもカタカナがあるときだけ
+                       名簿は、その文書に出る人(題名・動画のパス・話者の名前・行の文字に名前か呼び名があるメンバー)だけ。すでに書かれた名前は直さない。
+                       カタカナの呼び名に近い所は元の文字にもカタカナがあるときだけ
                        (測定で、ひらがなの普通の言葉「みるか」を「ポルカ」に変えた)。後処理 A・D が直した行(fill)は選ばない。1 文書 LLM_MAX_PICKS 箇所まで
   2 聞く llm_messages  行ごとに 前後 LLM_CTX_ROWS 行・疑わしい所・候補・出る人を渡し、差分だけを JSON で答えさせる(行を書き直させない。思考はオフ・温度 0)
   3 検査 llm_guard     置き換え前の文字が行にある・候補の呼び名そのものか、かなに寄せた音が近い・字数の差が 2 字か 2 割以内・自信が LLM_MIN_CONF 以上・
@@ -38,6 +39,7 @@ LLM_NONE = "none"   # 要求の llmModel がこれなら LLM の後処理を飛�
 LLM_SCHEMA = "youtube-tools-llm/v1"
 LLM_FLAG = "名簿の呼び名に直した(LLM。元の文字は「別の読み」の札)"   # 頭を fill の FILL_NAME_FLAG とそろえる(画面の「戻す」が同じ規則で印を外す)
 LLM_MIN_ALIAS = 3        # 近い所を探す呼び名の最小の文字数(かなに寄せたあと)
+LLM_FROM_TEXT = True     # 出る人に、行の文字にそのまま名前か呼び名が出る人も足す(False = 題名・パス・文脈だけ。10-23)
 LLM_MAX_PICKS = 30       # 1 文書で選ぶ所の上限
 LLM_MIN_CONF = 0.5       # LLM の自信がこれ未満の案は当てない
 LLM_MAX_EDIT_SHARE = 0.15   # 1 文書で直す行の割合の上限
@@ -73,33 +75,40 @@ def llm_dist(a, b):
 
 
 def llm_members(doc, members):
-    """その文書に出る人(話者の名前・題名・動画のパスに名前か LLM_MIN_ALIAS 字以上の呼び名があるメンバー)-> [メンバー]"""
+    """その文書に出る人(話者の名前・題名・動画のパスに名前か LLM_MIN_ALIAS 字以上の呼び名があるメンバー)-> [メンバー]。
+    LLM_FROM_TEXT なら、行の文字(doc の text)にそのまま出る人も足す(呼ばれた・話題に出た人。10-23 の測定 plan/llm-claude-postfix-1023.md)"""
     hay = " ".join([str(doc.get("title") or ""), str(doc.get("sourcePath") or "")] + [str(s.get("name") or "") for s in doc.get("speakers") or [] if isinstance(s, dict)])
+    text = str(doc.get("text") or "") if LLM_FROM_TEXT else ""
     out = []
     for m in members:
         keys = [m["name"]] + [a for a in m.get("aliases") or [] if len(a) >= LLM_MIN_ALIAS and a not in (m.get("common") or [])]
-        if any(k and k in hay for k in keys):
+        if any(k and (k in hay or k in text) for k in keys):
             out.append(m)
     return out
 
 
 def llm_targets(mems):
-    """近い所を探す呼び名(LLM_MIN_ALIAS 字以上・普通の言葉と重なるものは除く)-> [(かなに寄せた形, 呼び名)]"""
+    """近い所を探す呼び名(LLM_MIN_ALIAS 字以上・普通の言葉と重なるものは除く)-> [(かなに寄せた形, 呼び名, その人の名前)]"""
     out = []
     for m in mems:
         for a in [m["name"]] + list(m.get("aliases") or []):
             if a in (m.get("common") or []):
                 continue
             f = llm_fold(a)
-            if len(f) >= LLM_MIN_ALIAS and (f, a) not in out:
-                out.append((f, a))
+            if len(f) >= LLM_MIN_ALIAS and not any(t[:2] == (f, a) for t in out):
+                out.append((f, a, m["name"]))
     return out
 
 
 def llm_near(text, targets):
-    """行の文字の中で、呼び名に 1 字違い(同じ形は除く)の所 -> [(元の文字の一部, 呼び名)]。カタカナの呼び名はカタカナを含む所だけ"""
+    """行の文字の中で、呼び名に 1 字違い(同じ形は除く)の所 -> [(元の文字の一部, 呼び名)]。カタカナの呼び名はカタカナを含む所だけ。
+    すでに書かれた名前は守る: 元の文字がだれかの呼び名そのものの所と、行にそのまま出ている呼び名に重なる所は選ばない
+    (「はあちゃま」→「はあちゃん」・「ルーナが」→「ルーナ姫が」= 呼び方の言い換え・「ラミィちゃん」の中の「ミィち」→「みこち」。
+    重なる呼び名と同じ人の名前(姓と名)が候補なら残す =「き花ラミィ」→「雪花ラミィ」)"""
+    folds = {t[0] for t in targets}
+    spans = [(k, k + len(a), who) for _f, a, who in targets for k in range(len(text)) if text.startswith(a, k)]
     found = []
-    for f, alias in targets:
+    for f, alias, who in targets:
         if llm_fold(alias) in llm_fold(text):
             continue
         for n in (len(alias) - 1, len(alias), len(alias) + 1):
@@ -108,8 +117,11 @@ def llm_near(text, targets):
                 if _LLM_KATA.search(alias) and not _LLM_KATA.search(sub):
                     continue
                 fs = llm_fold(sub)
-                if len(fs) >= 2 and fs != f and llm_dist(fs, f) == 1 and (sub, alias) not in found:
-                    found.append((sub, alias))
+                if len(fs) < 2 or fs == f or llm_dist(fs, f) != 1 or (sub, alias) in found or fs in folds:
+                    continue
+                if any(a < i + n and i < b and not (alias == who == w) for a, b, w in spans):
+                    continue
+                found.append((sub, alias))
     return found
 
 
@@ -292,7 +304,7 @@ def llm_after_doc(job, spec, segs):
     except (OSError, ValueError, TypeError, KeyError) as e:
         _txbase.log.warning("名簿を読めないので LLM の直しはしません: %s", e)
         return rec, None
-    doc = {"title": spec.get("title"), "sourcePath": spec.get("sourcePath")}
+    doc = {"title": spec.get("title"), "sourcePath": spec.get("sourcePath"), "text": " ".join(str(s.get("text") or "") for s in segs)}
     try:   # 出る人は、題名・動画のパスに加えて配信ごとの文脈(チャンネル名・コラボ相手・動画のフォルダ = roster.stream_context)からも(文字起こしの時点では話者がまだいない)
         ctx = _roster.stream_context({"clip": spec.get("clip"), "title": spec.get("title"), "sourceName": os.path.basename(str(spec.get("sourcePath") or "")),
                                      "sourcePath": spec.get("sourcePath")}, True)

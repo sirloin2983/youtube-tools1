@@ -76,8 +76,8 @@
   - 名前: `fill_norm` :67・`fill_chars` :72・`fill_sparse_row` :77・`fill_apply` :96・`fill_clean_tail` :126・`fill_stock` :139・`fill_voice_frac` :145・`fill_clean_turns` :153・`fill_spk_key` :178・`fill_spk_names` :183・`fill_spk_split` :199・`fill_strip_names` :228・ほか 9
 - **live_tx_worker.py** (71 行) — 配信中の候補の文字起こし(線 D の D-11 案 b。notes:plan/line-d-live-clipping.md の 0-11)の子プロセス。**入口のプロセスから import しない
   - 名前: `recognize` :28・`main` :53
-- **llm.py** (340 行) — 「編集」のサーバーの部品: LLM の後処理(提案 P18。notes:plan/done/llm-postfix.md)。
-  - 名前: `llm_fold` :53・`llm_dist` :64・`llm_members` :75・`llm_targets` :86・`llm_near` :99・`llm_pick` :116・`llm_messages` :137・`llm_parse` :149・`llm_names` :167・`llm_guard` :177・`llm_cap` :198・`llm_apply` :211・ほか 7
+- **llm.py** (352 行) — 「編集」のサーバーの部品: LLM の後処理(提案 P18。notes:plan/done/llm-postfix.md)。
+  - 名前: `llm_fold` :55・`llm_dist` :66・`llm_members` :77・`llm_targets` :90・`llm_near` :103・`llm_pick` :128・`llm_messages` :149・`llm_parse` :161・`llm_names` :179・`llm_guard` :189・`llm_cap` :210・`llm_apply` :223・ほか 7
 - **models.py** (163 行) — ① 認識ワーカーの中で動く物: 読み込んだモデルの使い回し(_models)と読み込み(_load_model_local)・しばらく使わなければ手放す(release_idle_local)・
   - 名前: `models_touched` :31・`release_idle_local` :36・`setup_cuda_paths` :105・`cuda_count` :130・`cuda_libs_ok` :138・`cuda_compute` :159
 - **postproc.py** (317 行) — ① 文字起こしの行の後処理: 要確認の印(make_flags)・認識の出力を整える流れ(expand_segments = 行を単語の時刻で分ける split_segment・
