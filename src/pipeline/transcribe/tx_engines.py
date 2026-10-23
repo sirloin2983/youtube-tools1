@@ -316,7 +316,7 @@ def fetch_wcpp_binary(flavor, data_dir, log=None, cancelled=None, progress=None)
         shutil.rmtree(tmp, ignore_errors=True)
     _fsio.write_json(os.path.join(bdir, "build.json"), {"commit": WHISPER_CPP["commit"], "version": WHISPER_CPP["version"], "flavor": flavor,
                                                         "source": spec["url"], "sha256": spec["sha256"]})
-    _fsio.unlink_quiet(z)
+    _fsio.unlink_quiet(z); _fsio.unlink_quiet(z + ".ok")   # 展開した圧縮ファイルとその確かめた印
     return bdir
 
 
@@ -328,12 +328,40 @@ def no_fetch():
     return os.environ.get(NO_FETCH_ENV) == "1"
 
 
+VERIFY_STAMP = True   # 確かめた印 <file>.ok(SHA-256・大きさ・更新日時)が今のファイルと合えば、読み込みのたびに SHA-256 を計り直さない
+# (10-23 測定: 8B の LLM 5GB で 7.7 秒・whisper の large-v3 3GB も毎回。ワーカーを起こすたびに掛かっていた)。False = 毎回計る(前のまま)
+
+
+def _stamp_of(path, spec):
+    st = os.stat(path)
+    return {"sha256": spec["sha256"], "size": st.st_size, "mtime": st.st_mtime_ns}
+
+
+def _verified(path, spec):
+    """確かめた印が今のファイル(大きさ・更新日時)と spec の SHA-256 に合うか"""
+    try:
+        return VERIFY_STAMP and _fsio.read_json_or(path + ".ok", None, 4096, kind=dict) == _stamp_of(path, spec)
+    except OSError:
+        return False
+
+
+def _mark_verified(path, spec):
+    """SHA-256 が合ったファイルに印を付ける(書けなくても次に計り直すだけ)"""
+    try:
+        _fsio.write_json(path + ".ok", _stamp_of(path, spec))
+    except OSError:
+        pass
+
+
 def fetch_file(spec, folder, log=None, cancelled=None, progress=None):
-    """spec(url・size・sha256・file)のファイルを folder に用意してパスを返す。あれば大きさと SHA-256 を確かめるだけ。
+    """spec(url・size・sha256・file)のファイルを folder に用意してパスを返す。あれば大きさと SHA-256 を確かめるだけ(確かめた印が合えば計り直さない)。
     取るときは .part に書き、大きさと SHA-256 が合ったときだけ名前を付ける(違えば消して EngineError)。URL は https の固定のものだけ"""
     path = os.path.join(folder, spec["file"])
     if os.path.isfile(path) and os.path.getsize(path) == spec["size"]:
+        if _verified(path, spec):
+            return path
         if _fsio.sha256_file(path) == spec["sha256"]:
+            _mark_verified(path, spec)
             return path
         if log:
             log.warning("ファイルの中身が違うので取り直します: %s", path)
@@ -374,6 +402,7 @@ def fetch_file(spec, folder, log=None, cancelled=None, progress=None):
         _fsio.unlink_quiet(part)
         raise EngineError("fetch_failed", "取得した %s の中身が想定と違うので使いません(大きさ %d / SHA-256 が一致しない)" % (spec["file"], got))
     _fsio.replace_retry(part, path)
+    _mark_verified(path, spec)
     return path
 
 
@@ -867,7 +896,7 @@ def _ensure_tar_model(spec, folder, log, hooks):
     if not all(os.path.isfile(os.path.join(mdir, p)) for p in spec["parts"]):
         tar = fetch_file(spec, folder, log, hooks.get("cancelled"), hooks.get("download"))
         _safe_extract(tar, folder, spec["dir"])
-        _fsio.unlink_quiet(tar)
+        _fsio.unlink_quiet(tar); _fsio.unlink_quiet(tar + ".ok")   # 展開した圧縮ファイルとその確かめた印
         if not all(os.path.isfile(os.path.join(mdir, p)) for p in spec["parts"]):
             raise EngineError("fetch_failed", "モデルのファイルがそろいませんでした: %s" % spec["dir"])
     return mdir
@@ -1137,7 +1166,7 @@ class LlamaQwen3(_Qwen3Chunked):
             z = fetch_file(LLAMA_CPP, os.path.dirname(bdir), log, hooks.get("cancelled"))
             os.makedirs(bdir, exist_ok=True)
             _safe_unzip(z, bdir)
-            _fsio.unlink_quiet(z)
+            _fsio.unlink_quiet(z); _fsio.unlink_quiet(z + ".ok")   # 展開した圧縮ファイルとその確かめた印
         mdir = os.path.join(data_dir, "models", cls.MODEL_SUBDIR)
         model = fetch_file(spec["model"], mdir, log, hooks.get("cancelled"), hooks.get("download"))
         mmproj = fetch_file(spec["mmproj"], mdir, log, hooks.get("cancelled")) if "mmproj" in spec else None   # 文字の LLM は音声の部品(mmproj)なし

@@ -168,6 +168,11 @@ class WhisperCppTest(unittest.TestCase):
         self.assertEqual(open(p, "rb").read(), body)
         with mock.patch("urllib.request.urlopen", side_effect=AssertionError("通信しない")):
             self.assertEqual(E.fetch_file(spec, folder), p)                  # あって中身が合えば取らない
+            with mock.patch.object(E._fsio, "sha256_file", side_effect=AssertionError("計り直さない")):
+                self.assertEqual(E.fetch_file(spec, folder), p)              # 確かめた印が合えば SHA-256 を計り直さない
+        os.utime(p, ns=(1, 1))                                              # 更新日時が変われば印は使わず計り直す
+        with mock.patch.object(E._fsio, "sha256_file", return_value="0" * 64), mock.patch("urllib.request.urlopen", lambda url, timeout=0: Resp(body)):
+            self.assertEqual(E.fetch_file(spec, folder), p)                  # (計った値が違う = 取り直した)
         with self.assertRaises(E.EngineError):
             E.fetch_file(dict(spec, url="http://example.invalid/x.bin", sha256="0" * 64), folder)   # https 以外からは取らない
 
