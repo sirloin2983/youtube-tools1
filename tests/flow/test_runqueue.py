@@ -88,8 +88,16 @@ class Base(unittest.TestCase):
         return q.submit(env, spec)
 
     def active_file(self):
-        with open(os.path.join(self.logs, Q.ACTIVE_FILE), encoding="utf-8") as f:
-            return json.load(f)
+        """動いている印のファイル。待ちの列の糸が置き換え(os.replace)ている瞬間は Windows が開くのを断る = 少し待って読み直す(関所の負荷で揺れた。10-23)"""
+        end = time.time() + 5.0
+        while True:
+            try:
+                with open(os.path.join(self.logs, Q.ACTIVE_FILE), encoding="utf-8") as f:
+                    return json.load(f)
+            except PermissionError:
+                if time.time() > end:
+                    raise
+                time.sleep(0.05)
 
 
 class TestSubmitLive(Base):
