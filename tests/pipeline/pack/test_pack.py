@@ -52,11 +52,15 @@ def ffmpeg_video(path, dur, rate, size="160x90", audio=True, extra=()):
 
 
 def _lua_runtime():
+    """Lua を流すコマンド(引数の前まで)。無ければ None"""
+    import importlib.util
     import shutil as _sh
     for name in ("luajit", "lua5.1", "lua", "texlua"):   # Resolve は LuaJIT。無ければ構文の近い Lua 5.3(texlua)で代用
         p = _sh.which(name)
         if p:
-            return p
+            return [p]
+    if importlib.util.find_spec("lupa"):                  # Lua の実行環境が無い PC(開発用の依存の lupa の LuaJIT)
+        return [sys.executable, str(TESTS / "run_lua.py")]
     return None
 
 
@@ -108,9 +112,10 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             f = Path(d) / 'run.lua'
             f.write_text(pre + body + '\nMOCK.dump()\n', encoding='utf-8')
-            r = subprocess.run([_lua_runtime(), str(f)], capture_output=True, text=True, encoding='utf-8', timeout=30)
+            r = subprocess.run(_lua_runtime() + [str(f)], capture_output=True, text=True, encoding='utf-8', timeout=30,
+                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         self.assertEqual(r.returncode, 0, r.stderr)
-        return r.stdout
+        return re.sub(r'(?<![\d.])(\d+)\.0(?![\d.])', r'\1', r.stdout)   # 数の書き方を LuaJIT(Resolve)の形に(Lua 5.3 は 1.0・LuaJIT は 1)
 
     def test_60fps_media_on_30fps_vertical_project(self):
         keeps = [(0, 600), (1000, 1601)]            # 2区間目は奇数コマ(601)
@@ -125,8 +130,8 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
         self.assertIn('item track=1 start=108000 dur=300', out)
         self.assertIn('item track=1 start=108300 dur=301', out)
         self.assertIn('item track=2 start=108030 dur=120 text=一 font=けいふぉんと', out)   # 指定のフォント(ユーザーの指定)
-        self.assertIn('  style=Regular fill=0.0,0.0,0.0 outline=1:1.0,1.0,1.0', out)       # 黒い文字 + 白いふち
-        self.assertIn('  size=0.14 anchor=1.0,0.0 thick=0.12,0.18 shape=0,1,1 prio=8,7,4 offset2=0.015,-0.02 outer=1:0.0,0.0,0.0', out)   # + 外側の黒いふち
+        self.assertIn('  style=Regular fill=0,0,0 outline=1:1,1,1', out)       # 黒い文字 + 白いふち
+        self.assertIn('  size=0.14 anchor=1,0 thick=0.12,0.18 shape=0,1,1 prio=8,7,4 offset2=0.015,-0.02 outer=1:0,0,0', out)   # + 外側の黒いふち
         self.assertIn('字体 けいふぉんと Regular(指定のフォント)', out)
         self.assertIn('・見た目 けいふぉんと・黒い文字・白いふち・黒いふち・', out)
         self.assertIn('item track=2 start=108300 dur=60 text=二', out)
@@ -182,7 +187,7 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
         self.assertIn('字体 Meiryo Bold(けいふぉんと が無いので自動で選択。入れると次から使えます)', out)
         self.assertIn('cut2resolve Text+: check|cut2resolve 完了(要確認)|', out)
         self.assertIn('timeline=CUT_TextPlus_要確認', out)   # 無料版でも見える知らせ = 要確認のときだけ名前で(印は置かない)
-        self.assertIn('  style=Bold fill=0.0,0.0,0.0 outline=1:1.0,1.0,1.0', out)   # 見た目(色・ふち)は同じ
+        self.assertIn('  style=Bold fill=0,0,0 outline=1:1,1,1', out)   # 見た目(色・ふち)は同じ
         out = self.run_lua(plan, s, fonts={'ＭＳ ゴシック': ['標準']})    # 日本語名しか無い環境
         self.assertIn('text=a font=ＭＳ ゴシック', out)
         self.assertIn('  style=標準 ', out)
