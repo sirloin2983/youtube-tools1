@@ -122,7 +122,7 @@
 - `/api/outdir` — src/studio/serve.py:432 ← settings.js
 - `/api/peaks` — src/app/live.py:250・src/app/live.py:315・src/editor/serve.py:408 ← cut.js・review.js
 - `/api/pick` — src/editor/serve.py:244 ← app-tools.js
-- `/api/ping` — src/app/server.py:723・src/cut2resolve/serve.py:330・src/cut2resolve/serve.py:95 ← server.py・cut.js・app.js・portal.js・livesession.py ほか 2
+- `/api/ping` — src/app/server.py:723・src/app/server.py:148・src/cut2resolve/serve.py:330 ← server.py・cut.js・app.js・portal.js・livesession.py ほか 2
 - `/api/plan` — src/cut2resolve/serve.py:347 ← cut.js
 - `/api/queue` — src/friendapp/live_session.py:95・src/studio/serve.py:190 ← autorun.py・queue.js・rank.js・live_archive.py・tools.py
 - `/api/queue/add` — src/friendapp/live_session.py:92・src/studio/serve.py:412 ← cand.js・queue.js・live_archive.py・tools.py
