@@ -85,7 +85,7 @@
   - 名前: `scheduleSuggest` :8・`sugList` :12・`sugHTML` :14・`renderChips` :23・`loadSuggest` :33・`sugFeedback` :40・`altJob` :47・`renderAlt` :50・`applySug` :69・`acceptSug` :74・`rejectSug` :83・`setProof` :87・ほか 17
 - **app-list.js** (81 行) — app-list.js — 「編集」の画面: 保存済み一覧の読み込み・題名の行の「まとめて実行」。
   - 名前: `loadList` :10・`portalApi` :18・`applyNeedHome` :24・`runCls` :29・`runStepsText` :30・`pollRuns` :32・`startDocAuto` :46・`renderDocAuto` :63・`syncListItem` :75
-- **app-rows.js** (966 行) — app-rows.js — 「編集」の画面: 編集画面(保存・開く・行の描画と操作)・字幕の文字数・行の移動・話者の色・キー配置・用語の挿入・履歴・行の追加。
+- **app-rows.js** (967 行) — app-rows.js — 「編集」の画面: 編集画面(保存・開く・行の描画と操作)・字幕の文字数・行の移動・話者の色・キー配置・用語の挿入・履歴・行の追加。
   - 名前: `spById` :8・`markDirty` :10・`setSaveState` :17・`paintSaveState` :20・`saveDoc` :26・`subNum` :62・`readSubtitle` :64・`fillSubtitle` :77・`subtitleReq` :87・`openDoc` :89・`docInfoText` :134・`opts` :145・ほか 100
 - **app-tools.js** (294 行) — app-tools.js — 「編集」の画面: 動画を選び直す・検索と置換・受け渡し・確認のダイアログ・カット・パックのタブとのつなぎ。
   - 名前: `rlSync` :8・`rlReset` :10・`openRelink` :16・`renderRlResult` :23・`rlCheck` :42・`pickPath` :58・`updateDocTitle` :64・`docLength` :70・`renderDocBar` :77・`renderDocBarNow` :79・`syncEval` :95・`evNote` :103・ほか 19
@@ -113,9 +113,9 @@
   - 名前: `$` :8・`durText` :10・`paneHtml` :19・`emptyGroupsHtml` :49・`vlabel` :57・`who` :58・`vById` :59・`vmeta` :60・`videoRowHtml` :68・`matchV` :77・`groupsOf` :84・`isOpenG` :85・ほか 21
 - **queue.js** (350 行) — 切り抜きスタジオ: 解析(① の先頭の「URL から入れる」と順番待ち)。Studio.enqueue(items) もここで定義する。
   - 名前: `$` :7・`mmss` :9・`entryHtml` :12・`settings` :49・`loadOpts` :53・`unquote` :58・`looksYt` :59・`entries` :60・`paintKinds` :70・`syncAdd` :75・`refocusForm` :85・`setMsg` :92・ほか 20
-- **rank.js** (774 行) — 切り抜きスタジオ: ① 探す(配信ランキング)。検索 → 結果(全部まとめて再生数の順 / 事務所ごと)→ チェックして「解析に追加」か「まとめて実行」(入口から開いたときだけ)
-  - 名前: `$` :5・`lsGet` :8・`lsSet` :9・`fmtN` :10・`fmtDur` :11・`ymd` :12・`okThumb` :13・`atMs` :16・`saveReg` :27・`agKey` :32・`captureReg` :35・`restoreReg` :51・ほか 69
-- **review.js** (3435 行) — 切り抜きスタジオ ② 確認・書き出し(切り抜きマーカー由来)。
+- **rank.js** (777 行) — 切り抜きスタジオ: ① 探す(配信ランキング)。検索 → 結果(全部まとめて再生数の順 / 事務所ごと)→ チェックして「解析に追加」か「まとめて実行」(入口から開いたときだけ)
+  - 名前: `$` :5・`lsGet` :8・`lsSet` :9・`fmtN` :10・`fmtDur` :11・`ymd` :12・`okThumb` :13・`atMs` :16・`saveReg` :27・`agKey` :32・`captureReg` :35・`restoreReg` :52・ほか 69
+- **review.js** (3438 行) — 切り抜きスタジオ ② 確認・書き出し(切り抜きマーカー由来)。
   - 名前: `create` :9・`round1` :14・`uid` :15・`toast` :16・`parseTime` :20・`isAutoLike` :34・`marksPayload` :35・`sec1` :47・`sanitizeKeymap` :48・`spanLabel` :60・`momentSpan` :65・`momentSpanOf` :67・ほか 283
 
 ## テスト

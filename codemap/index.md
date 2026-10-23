@@ -11,7 +11,7 @@
 | ③ human(人の操作) | [human.md](human.md) | 62 | 17532 |
 | ④ manage(データ) | [manage.md](manage.md) | 43 | 11047 |
 | ⑤ eval(検証) | [eval.md](eval.md) | 37 | 15562 |
-| src/app(入口と画面) | [app.md](app.md) | 87 | 32401 |
+| src/app(入口と画面) | [app.md](app.md) | 87 | 32410 |
 | src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 48 | 19043 |
 | その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 19 | 10385 |
 | dev・setup(開発の道具) | [dev.md](dev.md) | 61 | 16603 |
