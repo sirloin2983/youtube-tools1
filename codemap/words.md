@@ -69,19 +69,19 @@
   - 画面: src/app/ui/home/portal.js:623・src/app/ui/studio/review.js:3457
 - **調子** — 入口の「調子」。空き容量・失敗・道具の版などの集計
   - コード: `src/manage/ops/health.py`・`/api/health` src/app/server.py:737
-  - 画面: src/app/ui/cases/panels/cand.js:104・src/app/ui/cases/panels/new.js:203・src/app/ui/home/portal.html:94・src/app/ui/home/portal.js:969
+  - 画面: src/app/ui/cases/panels/cand.js:104・src/app/ui/cases/panels/new.js:203・src/app/ui/home/portal.html:94・src/app/ui/home/portal.js:967
 - **依頼の受付** — 友人の依頼を見張るフォルダ。入口の設定の節 intake
   - コード: `src/human/friend/intake.py`・`src/flow/envelope.py`・`/api/intake` src/app/server.py:625
   - 画面: src/app/ui/home/portal.html:94・src/app/ui/home/portal.js:455
 - **バックアップ** — 作業データの自動バックアップ。設定の節 backup
   - コード: `src/manage/keep/backup.py`・`/api/backup` src/app/server.py:626
-  - 画面: src/app/ui/editor/app-tpl.js:147・src/app/ui/home/portal.html:94・src/app/ui/home/portal.js:1555
+  - 画面: src/app/ui/editor/app-tpl.js:147・src/app/ui/home/portal.html:94・src/app/ui/home/portal.js:1553
 - **精度の自動測定** — 夜に 1 日 1 回、校正済みで認識の精度を測る。設定の節 accuracy
   - コード: `src/eval/drill/accuracy.py`・`/api/accuracy` src/app/server.py:627・`/api/accuracy/run` src/app/server.py:634
-  - 画面: src/app/ui/home/portal.html:244・src/app/ui/home/portal.js:1160
+  - 画面: src/app/ui/home/portal.html:244・src/app/ui/home/portal.js:1158
 - **作業データ** — 置き場所の持ち主は flow/placement。入口と友人の玄関に各々ある
   - コード: `src/flow/placement.py`・`app_data_dir` src/app/server.py:307・`src/flow/machine.py`
-  - 画面: src/app/ui/cases/panels/new.js:21・src/app/ui/cases/panels/studio-shim.js:43・src/app/ui/home/portal.html:122・src/app/ui/home/portal.js:1035 ほか 3
+  - 画面: src/app/ui/cases/panels/new.js:21・src/app/ui/cases/panels/studio-shim.js:43・src/app/ui/home/portal.html:122・src/app/ui/home/portal.js:1033 ほか 3
 - **パック** — Resolve へ渡すパック。作る ①・口 ②・作った記録・ジョブ
   - コード: `src/pipeline/pack/pack.py`・`src/flow/pack.py`・`src/flow/packrec.py`・`src/flow/packjobs.py`
   - 画面: src/app/ui/cases/cases.js:73・src/app/ui/cases/edhost.js:14・src/app/ui/cases/panels/cut.js:62・src/app/ui/editor/app-core.js:37 ほか 13
@@ -93,7 +93,7 @@
   - 画面: src/app/ui/cases/cases.js:66・src/app/ui/cases/index.html:42・src/app/ui/cases/panels/cut.js:476・src/app/ui/cases/panels/proof.js:64 ほか 18
 - **リアルタイム切り抜き** — 配信中の録画〜採用の線 D。設定の節 live(既定オフ)
   - コード: `src/app/live.py`・`src/flow/livesession.py`
-  - 画面: src/app/ui/home/portal.html:244・src/app/ui/home/portal.js:1077・src/app/ui/studio/rank.js:480
+  - 画面: src/app/ui/home/portal.html:244・src/app/ui/home/portal.js:1075・src/app/ui/studio/rank.js:480
 - **マーク** — マークの語彙・ライブの「マーク + 書き出し」・盛り上がりの評価
   - コード: `src/flow/live_export.py`・`src/flow/live_adopt.py`・`src/ytt/marks.py`・`src/eval/tools/eval_marks.py`
   - 画面: src/app/ui/cases/panels/cand.js:26・src/app/ui/cases/panels/new.js:26・src/app/ui/home/portal.html:135・src/app/ui/home/portal.js:405 ほか 5
