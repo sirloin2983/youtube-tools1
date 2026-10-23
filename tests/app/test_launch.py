@@ -646,7 +646,15 @@ class PortalHttpTest(Base):
             r, body = self.post("/api/ytt/restart-self")
         self.assertEqual((r.status, json.loads(body)["error"]), (409, "busy"))
         self.assertEqual(calls, [])
-        r, body = self.post("/api/ytt/restart-self")
+        # ライブの録画中(偽の録画): 手で押しても 409 の live で止まることを言う(10-23)。画面が確かめて force で送り直したときだけ起こす
+        with mock.patch.object(self.srv, "live_activity", lambda: {"recording": 1, "detecting": 0, "exporting": 0}):
+            r, body = self.post("/api/ytt/restart-self")
+            self.assertEqual((r.status, json.loads(body)["error"], calls), (409, "live", []), body)
+            self.assertIn("録画が止まります", json.loads(body)["message"])
+            self.assertIn("録画 1 本", json.loads(body)["message"])
+            r, body = self.post("/api/ytt/restart-self", body=json.dumps({"force": "yes"}).encode())   # true だけを認める
+            self.assertEqual((r.status, calls), (409, []), body)
+            r, body = self.post("/api/ytt/restart-self", body=json.dumps({"force": True}).encode())
         self.assertEqual(r.status, 200, body)
         self.assertEqual(len(calls), 1)
         self.assertIn("--wait-port", calls[0])

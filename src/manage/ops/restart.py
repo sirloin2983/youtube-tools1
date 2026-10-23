@@ -38,6 +38,15 @@ BUSY_LOCK_MESSAGE = ("ほかのホーム・管理の処理(pid %s・ポート %s
                      "「すべて終了」してから、start.bat で起動してください")
 BUSY_MESSAGE = "実行中の処理があります%s。終わってから起動し直してください"   # %s = (何が動いているか)
 RESUME_NOTICE = "まとめて実行の待ち・実行中の %d 件は、起動し直したあとに続きから進めます"   # 起動し直す応答の notice(M5)
+
+
+def live_warning(live):
+    """手の「起動し直す」をライブの最中に押したときの確認の文(live = server.py の live_activity: recording・detecting・exporting の数)"""
+    parts = [("録画 %d 本" % live.get("recording")) if live.get("recording") else "",
+             ("検出 %d 本" % live.get("detecting")) if live.get("detecting") else "",
+             ("書き出し %d 本" % live.get("exporting")) if live.get("exporting") else ""]
+    shown = "・".join(p for p in parts if p)
+    return "ライブの処理が動いています(%s)。今起動し直すと、録画が止まります。録画が終わってから起動し直してください" % shown
 SW_SHOWMINNOACTIVE = 7     # 見えるコンソールで起動するとき: 最小化して、前に出さない(画面の操作を邪魔しない)
 
 

@@ -50,6 +50,7 @@
                                           streamer-colors: 配信者の名前 → メンバーカラーの候補)。入口の画面(/api/ytt/…)と、取り込んだツールの画面
                                           (/studio/api/ytt/… など。src/app/mount.py が入口へ回す)のどちらからも同じ(段階7。PortalServer.ytt_request)
   POST api/ytt/restart-self               {} → 入口ごと起動し直す(段9 9-3。src/manage/ops/restart.py)。重い処理・人が始めた処理・書き出しの最中は 409 と理由の文。
+                                          ライブの録画・検出・書き出しの最中は 409 の live(画面が確かめて {force: true} で送り直す)。
                                           まとめて実行の待ち・実行中は断らずに、応答に notice(何件が起動し直したあとに続くか)
   GET  /live/…・POST /live/…              リアルタイム切り抜き(線 D。src/app/live.py)。**設定 live.enabled がオンのときだけ**(オフなら 404):
                                           録画を始める /live/api/begin・録画元(src/pipeline/ingest/recorder.py)への中継 /live/r/<録画元>/<残り>・マークと書き出し。
@@ -1113,9 +1114,11 @@ class PortalServer(httpsec.ExclusiveServer):
             return autorestart_mod.NOTHING
         return act
 
-    def restart_self(self, auto=False):
+    def restart_self(self, auto=False, force=False):
         """新しい入口(同じポートが空くのを待つ)を起こしてから、この入口は「すべて終了」と同じ後始末をして終わる。
         重い処理・取り込んだツールの処理(人が始めたもの・まとめて実行の書き出し)が動いていれば 409 で断る(理由の文)。
+        ライブの録画・検出・書き出しが動いていれば、force(画面の確認で「止めて起動し直す」)が無いかぎり 409 の live で断る
+        (10-23: 手の「起動し直す」は録画を見ていなかった。起動し直すと録画の部品も終わり、録画が止まる。自動は auto_busy が待つ)。
         まとめて実行の待ち・実行中は断らない(M5 で起動し直したあとに続きから進む): 応答の notice と記録で何件続くかを知らせる。
         -> (HTTP の番号, JSON)"""
         if self.closing.is_set():
@@ -1126,6 +1129,10 @@ class PortalServer(httpsec.ExclusiveServer):
         why = restart_mod.can_restart(self.sup.status(), busy, None if auto else info.get("redo"))
         if why:
             return 409, {"ok": False, "error": "busy", "message": why}
+        if not force:
+            live = self.live_activity()
+            if any(live.values()):
+                return 409, {"ok": False, "error": "live", "live": live, "message": restart_mod.live_warning(live)}
         notice = restart_mod.RESUME_NOTICE % info["runs"] if info.get("runs") else ""
         only = [t.id for t in self.sup.tools] if len(self.sup.tools) < len(TOOLS) else ()
         try:
@@ -1188,7 +1195,7 @@ class PortalServer(httpsec.ExclusiveServer):
             if sub == "open-external":
                 return 200, {"ok": True, "url": self.window.open_external(body.get("url"))}
             if sub == "restart-self":   # 版の赤い帯の「起動し直す」(段9 9-3。ui-kit の UIKit.restart)
-                return self.restart_self()
+                return self.restart_self(force=body.get("force") is True)
             if sub == "focus-portal":   # ツールの窓の「入口」: 入口の窓がほかにあれば前に出す(入口を二つにしない)
                 return 200, {"ok": True, "focused": self.window.focus(PORTAL_TITLE)}
             if sub == "streamer-guess":   # 配信者の名前を自動で(覚えた名前 → チャンネル名から。段5)。{docId?, videoId?, channel?}

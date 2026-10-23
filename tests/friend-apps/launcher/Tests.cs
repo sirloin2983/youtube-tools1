@@ -304,6 +304,7 @@ static class Tests
         s.Making = 1;
         True(!Rules.ShouldApplyUpdate(s), "作っている間は待つ");
         True(!Rules.ShouldApplyUpdate(new HostState { Update = "0.99.14", UpdateRequested = true, Reserved = 1 }), "予約の間も待つ");
+        True(!Rules.ShouldApplyUpdate(new HostState { Update = "0.99.14", UpdateRequested = true, Recording = 1 }), "録画中は [更新する] を押しても待つ(10-23)");
         True(!Rules.ShouldApplyUpdate(new HostState { Update = "0.99.14" }), "押していない");
         True(!Rules.ShouldApplyUpdate(new HostState { Update = "", UpdateRequested = true }), "新しい版が無い");
         True(!Rules.ShouldApplyUpdate(null), "状態なし");

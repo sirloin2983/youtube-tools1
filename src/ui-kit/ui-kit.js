@@ -2156,7 +2156,7 @@
     var say = typeof opts.onState === 'function' ? opts.onState : function () {};
     var from = opts.from == null ? null : String(opts.from);
     var reload = typeof opts.reload === 'function' ? opts.reload : function () { location.reload(); };
-    return yttPost('restart-self', {}).then(function (j) {
+    return yttPost('restart-self', opts.force ? { force: true } : {}).then(function (j) {
       /* 入口からの知らせ(notice。まとめて実行の待ち・実行中の N 件は起動し直したあとに続きから進む)も帯に出す(黙って止めたように見せない) */
       var note = j && j.notice ? String(j.notice) : '';
       say('waiting', '起動し直しています…(戻ったら画面を読み込み直します)' + (note ? '。' + note : ''));
@@ -2192,11 +2192,11 @@
     el.setAttribute('data-ui-restart', 'ready');
     var b = document.createElement('button'); b.type = 'button'; b.className = 'btn small ui-restart-btn'; b.textContent = '起動し直す';
     el.appendChild(b);
-    b.addEventListener('click', function () {
+    function send(force) {
       b.disabled = true;
       el.setAttribute('data-ui-restart', 'sending');
       msg.textContent = '起動し直すように頼んでいます…';
-      restartRun({ from: serverVersion, interval: opts.interval, timeout: opts.timeout, reload: opts.reload, onState: function (state, text) {
+      restartRun({ from: serverVersion, interval: opts.interval, timeout: opts.timeout, reload: opts.reload, force: force, onState: function (state, text) {
         el.setAttribute('data-ui-restart', state);
         msg.textContent = text;
         if (state === 'timeout') b.hidden = true;   // 古い入口はもういない(合言葉も古い)。もう一度押しても届かない
@@ -2204,8 +2204,14 @@
         el.setAttribute('data-ui-restart', 'refused');
         msg.textContent = head + (e && e.message ? e.message : '起動し直せませんでした');
         b.disabled = false;
+        /* ライブの録画中(入口の 409 live): 止まることを言って確かめる。既定は待つ(安全な方) */
+        if (!force && e && e.body && e.body.error === 'live') {
+          dialogConfirm({ title: '録画が止まります', body: e.message, ok: '録画を止めて起動し直す', cancel: '録画が終わるまで待つ', danger: true })
+            .then(function (ok) { if (ok) send(true); });
+        }
       });
-    });
+    }
+    b.addEventListener('click', function () { send(false); });
     return el;
   }
   var restart = {
