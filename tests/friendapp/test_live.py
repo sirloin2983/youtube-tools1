@@ -400,7 +400,8 @@ class LiveFlowTest(unittest.TestCase):
         cases = [({}, "boom", "error"), (dict(base, exportFailures=["01.mp4: 書き出しに失敗しました: x"]), "", "liveExport"),
                  (dict(base, givenUp=[{"message": "502"}]), "", "liveAdopt"), (dict(base, peaksDoc=None), "", "liveNoDetect"),
                  (dict(base, peaksDoc={"measuredSec": 0}), "", "liveNoDetect"), (dict(base, detect={"frame": 2}), "", "liveLate"),
-                 (dict(base, peaksDoc={"measuredSec": 1800, "chat": "restarting"}), "", "liveNoChat"), (base, "", "liveNone")]
+                 (dict(base, peaksDoc={"measuredSec": 1800, "chat": "restarting"}), "", "liveNoChat"), (base, "", "liveNone"),
+                 (dict(base, peaksDoc=None, recording={"sec": 600.0, "blocked": True}), "", "liveBlocked")]   # bot で止めた = 「検出が動かない」にしない
         for facts, err, code in cases:
             with self.subTest(code=code):
                 got = E.live_cause(facts, err)

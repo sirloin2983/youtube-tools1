@@ -547,6 +547,33 @@ class TestStreamlinkPipe(unittest.TestCase):
         self.assertGreaterEqual(len(resolved), 2)   # 取り直しはする
         self.assertIsNone(r.summary()["blockedAt"])   # 止めたあとは出さない
 
+    def test_bot_block_after_recording_waits_and_does_not_say_ended(self):
+        """録れた後に bot と判定され続けた(10-23 の見回り): IDLE_END(10 分)で「配信が終わった」と止めず、BLOCKED_GIVE_UP まで粘ってから
+        BLOCKED_ENDED(配信は続いていたかもしれない)で終える(偽の 429・時間は縮める)"""
+        r = R.Recording(self.rec, "20261023-150000-z", os.path.join(self.folder, "z"), {"url": "https://www.youtube.com/watch?v=z", "quality": "1080p"})
+        os.makedirs(r.dir, exist_ok=True)
+        runs = []
+
+        def session(name):
+            os.makedirs(os.path.join(r.dir, name), exist_ok=True)
+            runs.append(time.time())
+            if len(runs) == 1:
+                return 5, 1, "切れました"   # 最初は録れた
+            with open(os.path.join(r.dir, name, "source.log"), "w", encoding="utf-8") as f:
+                f.write("error: Unable to open URL (429 Client Error: Too Many Requests)\n")
+            return 0, 1, "切れました"
+        with mock.patch.object(r, "_run_session", session), mock.patch.object(r, "_resolve_hls", lambda: False), \
+                mock.patch.object(r, "_session_mark", lambda *a, **k: None), \
+                mock.patch.object(r, "all_segments", lambda: [("s", [1])] if runs else []), \
+                mock.patch.object(R, "BLOCKED_GIVE_UP", 2.0), mock.patch.object(R, "BLOCKED_WAIT", 0), \
+                mock.patch.object(self.rec, "idle_end", 0.5), mock.patch.object(self.rec, "backoff", [0.05]):
+            t = threading.Thread(target=r._run, daemon=True)
+            t.start()
+            t.join(20)
+        self.assertFalse(t.is_alive())
+        self.assertEqual((r.meta["state"], r.meta["message"]), ("ended", R.BLOCKED_ENDED))
+        self.assertGreater(runs[-1] - runs[1], 1.5)   # idle_end(0.5 秒)では止めず BLOCKED_GIVE_UP まで取り直した
+
     def test_expired_hls_after_recording_is_renewed_without_bot_mark(self):
         """取った再生リストで録れていたのに 0 になった(約 6 時間の期限切れなど・記録に bot の印なし)= 取り直すだけ。
         blockedAt(友人の知らせ)は出さず、つなぎ直しも BLOCKED_WAIT を待たない"""

@@ -64,7 +64,9 @@ BLOCKED_MARKS = ("429", "Too Many Requests", "google.com/sorry", "not a bot", "S
 BLOCKED = "YouTube に bot と判定されて録画できません(アプリで YouTube にログインすると取れます)"
 HLS_FORMAT = {"best": "best[protocol^=m3u8]", "1080p": "best[protocol^=m3u8][height<=1080]/best[protocol^=m3u8]",
               "720p": "best[protocol^=m3u8][height<=720]/best[protocol^=m3u8]"}   # yt-dlp で取る再生リストの画質(QUALITIES と同じ選び方)
-BLOCKED_GIVE_UP = 1800         # 1 つも取れないまま bot と判定され続けたら、この秒で録画を「エラー」で止める
+BLOCKED_GIVE_UP = 1800         # 1 つも取れないまま bot と判定され続けたら、この秒で録画を「エラー」で止める。録れた後に断られ続けたときも、この秒で「終了」(BLOCKED_ENDED)
+# 録れた後に bot と判定され続けて止めた(10-23: 前は IDLE_END の 10 分で「配信が終わった」と出して、続いている配信を録り損ねていた)
+BLOCKED_ENDED = "YouTube に bot と判定されたまま録画できなくなったので、録画を終えました(配信は続いていたかもしれません)"
 HLS_RESOLVE_SEC = 90          # yt-dlp で再生リストの URL を取る上限(秒)
 HLS_RETRY_SEC = 300           # yt-dlp でも断られたら、この秒は取り直さない(10-21 19:00: 35 秒ごとに問い合わせを重ねていた)
 BLOCKED_WAIT = 120            # bot と判定されている間につなぎ直すまでの最短(秒。短い間で問い合わせを重ねない)
@@ -526,6 +528,9 @@ class Recording:
                     if not got_any and time.time() - blocked_at > BLOCKED_GIVE_UP:   # 配信の前の 6 時間を待たない(行を閉じて理由を診断へ)
                         self._drop_session(name)
                         return self._finish("error", BLOCKED, "bot と判定されたまま %d 分たったので止めました" % (BLOCKED_GIVE_UP // 60))
+                    if got_any and not renew and time.time() - blocked_at > BLOCKED_GIVE_UP:   # 録れた後に断られ続けた: 「配信が終わった」とは言わない(10-23)
+                        self._drop_session(name)
+                        return self._finish("ended", BLOCKED_ENDED, "録れた後に bot と判定されたまま %d 分たったので止めました" % (BLOCKED_GIVE_UP // 60))
                 else:
                     blocked_at = None
                     self._mark_blocked(None)
@@ -542,7 +547,7 @@ class Recording:
                 got_any = got_any or n > 0
                 if n > 0 and self._source_ended(code, name):   # 取得がきれいに終わった = 配信が終わった
                     return self._finish("ended", ENDED, "配信が終わりました")
-                if time.time() - last_data > (mgr.idle_end if got_any else mgr.wait_start):
+                if (blocked_at is None or not got_any) and time.time() - last_data > (mgr.idle_end if got_any else mgr.wait_start):   # 録れた後に断られている間は上の BLOCKED_GIVE_UP で止める
                     msg = ENDED if got_any else "配信が始まらないので待つのをやめました"
                     return self._finish("ended", msg, "終了(%s)" % msg)
                 delay = mgr.backoff[min(backoff_i, len(mgr.backoff) - 1)]

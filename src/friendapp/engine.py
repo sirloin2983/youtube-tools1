@@ -494,13 +494,15 @@ def live_cause(facts, last_error=""):
 
     def say(code, text):
         return {"code": code, "text": "%s %s、パックができませんでした%s" % (_progress.LIVE_MARKS[code], text, tail)}
+    mins = _minutes(rec.get("sec"))
+    if rec.get("blocked"):   # 録画元が bot と判定されて止めた(10-23: 前は「検出が動かない・起動し直して」と誤って出ていた)
+        return say("liveBlocked", "YouTube に bot と判定されて録画できず(録れた長さ %s)" % mins)
     ex = [x for x in f.get("exportFailures") or [] if x]
     if ex:
         return say("liveExport", "切り抜く所を録画から書き出せず(%s)" % str(ex[0])[:200])
     gu = [x for x in f.get("givenUp") or [] if isinstance(x, dict)]
     if gu:
         return say("liveAdopt", "切り抜く所を自動で採用できず(%s)" % str(gu[-1].get("message") or "")[:200])
-    mins = _minutes(rec.get("sec"))
     if pd is None or not pd.get("measuredSec"):
         why = wk.get("error") or wk.get("message") or ("ワーカーが動いていません" if not wk.get("running") else "")
         return say("liveNoDetect", "録画 %s の盛り上がりを測った記録が無く(%s)" % (mins, str(why)[:200] or "理由が分かりません"))
