@@ -128,7 +128,8 @@ from ytt import autorestart as autorestart_mod  # noqa: E402  (src/ytt/autoresta
 from manage.ops import restart as restart_mod  # noqa: E402  (src/manage/ops/restart.py: 入口ごと起動し直す。段9 9-3)
 from app import prefs as prefs_mod  # noqa: E402  (src/app/prefs.py: ホームの設定。まとめて実行の既定・配信者の記憶・共通の再生キー)
 from app import live as live_mod  # noqa: E402  (src/app/live.py: リアルタイム切り抜き(線 D)。既定はオフ)
-from app import ytlogin as ytlogin_mod  # noqa: E402  (src/app/ytlogin.py: YouTube のログイン。yt-dlp に cookie を渡す)
+from app import ytlogin as ytlogin_mod  # noqa: E402
+from manage.ops import watch as watch_mod  # noqa: E402  (src/manage/ops/watch.py: 元の配信とガイドラインの見張り。「調子」の行)  (src/app/ytlogin.py: YouTube のログイン。yt-dlp に cookie を渡す)
 try:   # src/manage/ops/analytics: 分析と日報(/analytics/ を受け持つ。notes:plan/done/analytics-daily-report.md)。入口を一時フォルダに写すテストでは無いことがある
     from manage.ops.analytics import service as analytics_mod  # noqa: E402
 except ImportError:
@@ -995,7 +996,8 @@ class PortalServer(httpsec.ExclusiveServer):
         self.live = live_mod.Live(self.prefs, sup.root, sup.logs_dir, log=sup.log, server=self)   # server: P4 の作り直しがスタジオの API を呼ぶ
         self.health = health_mod.Health(sup, sup.logs_dir, sup.root, worker_probe=self._worker_probe, extra_dirs=self._extra_dirs,
                                         live_probe=self.live.health, accuracy_probe=self.accuracy.snapshot,
-                                        places_probe=self._places_probe)   # 「調子」(段9 9-1。録画の行はオンのときだけ・精度の行・置き場所の行)
+                                        places_probe=self._places_probe,   # 「調子」(段9 9-1。録画の行はオンのときだけ・精度の行・置き場所の行)
+                                        watch_probe=watch_mod.Watch(app_dir, sup.logs_dir, log=sup.log).view)   # 見張りの行(週 1 回・月 1 回を裏で)
         # 片付け(段9 9-2)。ごみ箱フォルダは動画と同じドライブ(書き出し先\ごみ箱。ユーザー決定)
         self.cleanup = cleanup_mod.Cleanup(app_dir, repo_root=sup.root, log=sup.log, out_dirs=self._extra_dirs)
         self.cleanup_lock = threading.Lock()

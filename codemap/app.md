@@ -15,9 +15,9 @@
   - 受ける口: `/api/ytt` :45
 - **prefs.py** (488 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
   - 名前: `class PrefsError` :95・`guess_streamer` :382・`class Prefs` :394
-- **server.py** (1654 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
-  - 名前: `runtime_dir` :178・`ping` :188・`tail` :196・`expected_version` :217・`tool_python` :223・`rel_or_abs` :233・`signal_stop` :241・`class Tool` :254・`app_data_dir` :304・`logs_dir_for` :310・`class Supervisor` :316・`query_int` :636・ほか 15
-  - 受ける口: `/api/drill/status` :146・`/api/eval-batch` :146・`/api/intake` :622・`/api/backup` :623・`/api/accuracy` :624・`/api/flow/runs` :625・`/api/cases/auto` :627・`/api/flow/submit` :628・`/api/flow/estimate` :628・`/api/flow/cancel` :629・`/api/intake/scan` :630・`/api/backup/run` :630・`/api/accuracy/run` :631・`/api/window` :631・`/api/check/answer` :632・`/api/check/skip` :632・`/api/check/flush` :632・`/api/cleanup` :633・`/api/shutdown` :633・`/api/ping` :722・`/api/status` :724・`/api/health` :734・`/api/log` :738・`/api/flow/status` :753・`/api/flow/history` :757・`/api/check/next` :760・`/api/cases` :766
+- **server.py** (1656 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
+  - 名前: `runtime_dir` :179・`ping` :189・`tail` :197・`expected_version` :218・`tool_python` :224・`rel_or_abs` :234・`signal_stop` :242・`class Tool` :255・`app_data_dir` :305・`logs_dir_for` :311・`class Supervisor` :317・`query_int` :637・ほか 15
+  - 受ける口: `/api/drill/status` :147・`/api/eval-batch` :147・`/api/intake` :623・`/api/backup` :624・`/api/accuracy` :625・`/api/flow/runs` :626・`/api/cases/auto` :628・`/api/flow/submit` :629・`/api/flow/estimate` :629・`/api/flow/cancel` :630・`/api/intake/scan` :631・`/api/backup/run` :631・`/api/accuracy/run` :632・`/api/window` :632・`/api/check/answer` :633・`/api/check/skip` :633・`/api/check/flush` :633・`/api/cleanup` :634・`/api/shutdown` :634・`/api/ping` :723・`/api/status` :725・`/api/health` :735・`/api/log` :739・`/api/flow/status` :754・`/api/flow/history` :758・`/api/check/next` :761・`/api/cases` :767
 - **ytlogin.py** (95 行) — ユーザーの PC の YouTube のログイン(10-23 ユーザー「ログインできる形にしといて」)。友人のアプリと同じ作り(notes:docs/spec/friend.md の 13-13)。
   - 名前: `cookies_path` :23・`apply_env` :27・`class YtLogin` :35
 
@@ -99,7 +99,7 @@
 ## src/app/ui/home/
 
 - **portal-edit.js** (162 行) — ホームの運用の中の「編集の精度と学習」(src/app/ui/home/portal.html の #editOpsBox。RS8 C3)。
-- **portal.js** (2001 行) — ホーム(src/app/ui/home/portal.html。段階5で入口 + 案件を1つにした)。
+- **portal.js** (2020 行) — ホーム(src/app/ui/home/portal.html。段階5で入口 + 案件を1つにした)。
 
 ## src/app/ui/settings/
 

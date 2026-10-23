@@ -282,7 +282,7 @@ class Health:
     extra_dirs() = 空き容量を見る追加の場所(スタジオの書き出し先など)"""
 
     def __init__(self, sup, logs_dir, repo_root=None, worker_probe=None, extra_dirs=None, clock=time.time, cache_sec=CACHE_SEC, crash_fn=None,
-                 live_probe=None, accuracy_probe=None, places_probe=None):
+                 live_probe=None, accuracy_probe=None, places_probe=None, watch_probe=None):
         """live_probe() = リアルタイム切り抜きの録画元ごとの状態と空き容量(src/app/live.py の Live.health)。オフなら None を返す = 「調子」に出さない。
         accuracy_probe() = 精度の自動測定の状態と領域ごとの直近・前回(src/eval/drill/accuracy.py の Accuracy.snapshot。軽い。無ければ「調子」に出さない)。
         places_probe() = 置き場所(見えない文書・見えない案件・繋ぎ直した本数。src/manage/cases/outdirs.py の status。何も無ければ None = 行を出さない)"""
@@ -290,6 +290,7 @@ class Health:
         self.live_probe = live_probe
         self.accuracy_probe = accuracy_probe
         self.places_probe = places_probe
+        self.watch_probe = watch_probe   # 元の配信とガイドラインの見張り(src/manage/ops/watch.py の view。何も無ければ None = 行を出さない)
         self.crash_fn = crash_fn or crash_counts
         self.worker_probe = worker_probe or (lambda: None)
         self.extra_dirs = extra_dirs or (lambda: [])
@@ -382,6 +383,10 @@ class Health:
             pl = _try(self.places_probe)
             if pl is not None:
                 out["places"] = pl
+        if self.watch_probe is not None:   # 見張り: 届けた切り抜きの元の配信が公開でなくなった・ガイドラインの改定(10-23)
+            w = _try(self.watch_probe)
+            if w is not None:
+                out["watch"] = w
         if slow:
             out["data"] = slow["data"]
             out["tools"] = slow["tools"]
