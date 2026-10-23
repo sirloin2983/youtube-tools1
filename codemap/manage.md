@@ -47,8 +47,8 @@
   - 名前: `clean` :27・`class ClientLog` :39
 - **health.py** (400 行) — 「調子」(全体の計画 段9 9-1)。
   - 名前: `top_items` :36・`data_sizes` :56・`disk_free` :87・`tool_version` :107・`tool_versions` :118・`count_jsonl` :141・`count_client_errors` :172・`crash_counts` :206・`count_worker_incidents` :251・`class Health` :280
-- **restart.py** (197 行) — 入口を起動し直す(段9 9-3)。
-  - 名前: `launcher_script` :44・`restart_args` :49・`launcher_env` :63・`popen_kwargs` :68・`spawn_new_launcher` :83・`port_free` :109・`wait_port_free` :125・`wait_pid_gone` :136・`wait_old_launcher` :149・`can_restart` :172
+- **restart.py** (206 行) — 入口を起動し直す(段9 9-3)。
+  - 名前: `live_warning` :43・`launcher_script` :53・`restart_args` :58・`launcher_env` :72・`popen_kwargs` :77・`spawn_new_launcher` :92・`port_free` :118・`wait_port_free` :134・`wait_pid_gone` :145・`wait_old_launcher` :158・`can_restart` :181
 - **watch.py** (175 行) — 元の配信とガイドラインの見張り(10-23。提案 P7・人の作業なしの候補の 13 番。表は保管庫 plan/人の作業なしの候補-1023.md)。
   - 名前: `enabled` :35・`delivered_sources` :40・`check_sources` :62・`terms_mark` :88・`class Watch` :95
 
