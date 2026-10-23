@@ -70,7 +70,7 @@ def snap_end(t, ps):
     p = min(after, key=lambda p: p[0]) if after else (max(near, key=lambda p: p[1]) if near else None)
     if p is None:
         return t
-    return t if p[0] + PAD <= t <= p[1] - PAD else min(p[1], p[0] + PAD)
+    return min(p[1], p[0] + PAD)   # 間の中にあっても言い終わりの直後へ(無音を残さない = 友人の終わりの余白 中央 0.04 秒)
 
 
 def snap_start(t, ps):
@@ -80,7 +80,7 @@ def snap_start(t, ps):
     p = max(before, key=lambda p: p[1]) if before else (min(near, key=lambda p: p[0]) if near else None)
     if p is None:
         return t
-    return t if p[0] + PAD <= t <= p[1] - PAD else max(p[0], p[1] - PAD)
+    return max(p[0], p[1] - PAD)   # 間の中にあっても話し始めの直前へ
 
 
 def snap(video, a, b, dur, lo=0.0, hi=None):
