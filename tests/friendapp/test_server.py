@@ -512,7 +512,7 @@ class ServerTest(Base):
         self.assertEqual({x["id"] for x in d["done"]}, {rid})
         self.assertEqual(d["errors"], [])
         # 入口の保存先・判定の記録の置き場所が受信箱へ渡っている(保存先の名前・行の状態・記録の中身の細部は test_inbox)
-        self.assertTrue(os.path.isdir(os.path.join(self.saved_folder(), "#1")))
+        self.assertTrue(os.path.isdir(self.saved_folder() + "_#1"))   # 保存先の直下に平らに(10-24)
         self.assertEqual({v["judge"] for v in self.verdict_docs(rid)}, {"good"})
         # ここから: items 形で複数の行・見送る(ごみ箱)
         r1, r2 = "20250615-130010-aaaaaa", "20250615-130011-aaaaaa"
@@ -770,7 +770,7 @@ class ServerTest(Base):
         self.post("/api/friend/decide", {"items": [{"id": rid, "name": "a_pack"}], "verdict": "keep"})
         st, _h, p = self.post("/api/friend/open", {"id": rid, "name": "a_pack"})
         self.assertEqual((st, self.js(p)), (200, {"ok": True}))
-        self.assertEqual(self.opened, [os.path.join(self.saved_folder(), "#1")])
+        self.assertEqual(self.opened, [self.saved_folder() + "_#1"])
         self.assertEqual(self.post("/api/friend/open", {"id": rid, "name": "b_pack"})[0], 404)
         self.assertEqual(self.post("/api/friend/open", {"id": "nope", "name": "a_pack"})[0], 404)
         self.assertEqual(len(self.opened), 1)

@@ -112,7 +112,7 @@ class InboxTest(unittest.TestCase):
             return json.load(f)
 
     def kept_path(self, folder, num):
-        return os.path.join(self.save, folder, "#%d" % num)
+        return os.path.join(self.save, "%s_#%d" % (folder, num))   # 保存先の直下に平らに(10-24)
 
     # ------------------------------------------------------------ 名前・形
     def test_pack_name_and_title(self):
@@ -309,8 +309,8 @@ class InboxTest(unittest.TestCase):
         self.assertTrue(os.path.isdir(os.path.join(self.cases, inbox.TRASH_NAME, day_of(T0 + 60 + 3 * 86400), "案件-" + RID)))
         self.assertIsNone(self.box.row(RID))
 
-    def test_decide_numbers_continue_in_the_same_stream_folder(self):
-        """同じ配信の 2 回目の依頼は番号の続き・同じ配信のフォルダの中に並ぶ。同じ名前の物が既にあれば末尾に -xxxx"""
+    def test_decide_numbers_continue_in_the_same_stream(self):
+        """同じ配信の 2 回目の依頼は番号の続き・保存先の直下に平らに並ぶ(配信のフォルダは作らない)。同じ名前の物が既にあれば末尾に -xxxx"""
         self.arrive(RID, ["a_pack"])
         self.box.decide(RID, [], "keep")
         self.arrive(RID2, ["a_pack"])
@@ -322,25 +322,37 @@ class InboxTest(unittest.TestCase):
         self.arrive("20250615-120200-cccccc", ["a_pack"], vid="aaaaaaaaaaa")   # 別の配信 = 番号は 1 から → 同じフォルダの #1 とぶつかる
         got = self.box.decide("20250615-120200-cccccc", [], "keep")
         saved = got["row"]["packs"][0]["savedTo"]
-        self.assertEqual(os.path.dirname(saved), os.path.dirname(self.kept_path(folder, 1)))
-        self.assertTrue(os.path.basename(saved).startswith("#1-"))
+        self.assertEqual(os.path.dirname(saved), self.save)
+        self.assertTrue(os.path.basename(saved).startswith("%s_#1-" % folder))
         self.assertTrue(os.path.isdir(saved))
 
+    def test_old_stream_folder_still_opens(self):
+        """0.99.169 までの形(<保存先>\\<日付>_<題>\\#番号)で受け取った物も開ける(置き場所は記録 savedTo で読む。受け取った物は戻す・片付けの対象外)"""
+        self.arrive(RID, ["a_pack"])
+        self.box.decide(RID, [], "keep")
+        p = self.box.row(RID)["packs"][0]
+        old = os.path.join(self.save, "%s_題" % iso_day(T0), "#1")
+        os.makedirs(os.path.dirname(old))
+        shutil.move(p["savedTo"], old)
+        p["savedTo"] = old   # 前の版が書いた記録の形
+        self.assertEqual(self.box.saved_dir(RID, "a_pack"), old)
+        self.arrive(RID2, ["a_pack"])   # 同じ配信の次の 1 本は、前の形のフォルダに混ぜず直下に平らに
+        self.box.decide(RID2, [], "keep")
+        self.assertEqual(self.box.row(RID2)["packs"][0]["savedTo"], self.kept_path("%s_題" % iso_day(T0), 2))
+
     def test_keep_dest_uses_streamer_title_cut_and_safe_name(self):
-        """<日付>_<配信者>_<題 40 文字>(使えない文字は _)。日付は配信が始まった日(一覧の写し)"""
+        """<日付>_<配信者>_<題 40 文字>_#番号(使えない文字は _)を保存先の直下に。日付は配信が始まった日(一覧の写し)"""
         start = datetime.datetime(2025, 1, 2, 3, 4).timestamp()
         self.box.stream_info = lambda vid: {"title": "一覧の題", "streamer": "一覧の人", "startAt": int(start * 1000)} if vid == "dQw4w9WgXcQ" else None
         title = "a/b:c" + "あ" * 60
         self.arrive(RID, ["a_pack"], title=title, streamer="配信者")
         r = self.box.row(RID)
-        folder, num = self.box.keep_dest(r, r["packs"][0])
-        self.assertEqual((os.path.basename(folder), num), ("2025-01-02_配信者_a_b_c" + "あ" * 35, "#1"))
-        self.assertEqual(os.path.dirname(folder), self.save)
+        folder, name = self.box.keep_dest(r, r["packs"][0])
+        self.assertEqual((folder, name), (self.save, "2025-01-02_配信者_a_b_c" + "あ" * 35 + "_#1"))
         # 行に題も配信者も無ければ一覧の写しから
         self.arrive(RID2, ["b_pack"], title="", streamer="")
         r2 = self.box.row(RID2)
-        self.assertEqual(os.path.basename(self.box.keep_dest(r2, r2["packs"][0])[0]), "2025-01-02_一覧の人_一覧の題")
-        self.assertEqual(self.box.keep_dest(r2, r2["packs"][0])[1], "#2")
+        self.assertEqual(self.box.keep_dest(r2, r2["packs"][0]), (self.save, "2025-01-02_一覧の人_一覧の題_#2"))
 
     def test_decide_error_is_reported_and_not_decided(self):
         for verdict, exc, said in (("keep", PermissionError("denied"), "保存先へ移せませんでした"), ("skip", OSError("busy"), "片付けられませんでした")):

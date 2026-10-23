@@ -675,7 +675,7 @@ class Sync:
             if not name_ok(zname):
                 self.inbox.remote_keep_failed(rid, name, "名前が正しくないので受け取れません")
                 continue
-            save, num = self.inbox.keep_place(rid, name) or (self.places["save"](), None)   # <保存先>\<日付>_<配信者>_<題>\#番号(C-3-8)
+            save, num = self.inbox.keep_place(rid, name) or (self.places["save"](), None)   # <保存先>\<日付>_<配信者>_<題>_#番号(C-3-8。平らに並べる)
             try:
                 os.makedirs(fsio.long_path(save), exist_ok=True)
             except OSError as e:   # 抜いた USB・消えたドライブ・書けないフォルダ: このパックだけ押す前に戻す(後ろのパックは進める)
