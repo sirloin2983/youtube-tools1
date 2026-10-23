@@ -615,7 +615,7 @@ def measure_loudness(video, spans_sec=None, task=None, duration=None):
     """(統合ラウドネス LUFS, トゥルーピーク dBTP)。spans_sec = 測る区間 [(開始秒, 終了秒)](残す区間だけ。None = 全体)。
     無音・測れないときは (None, None)。読み方・区間の選び方は ytt/loudness.py の1か所(スタジオの書き出しと共通)"""
     sel = _loud.select_filter(spans_sec)
-    r = _ffmpeg_script((sel + "," if sel else "") + "loudnorm=print_format=json", ("-filter_script:a", "-/af"),
+    r = _ffmpeg_script((sel + "," if sel else "") + _loud.measure_filter(), ("-filter_script:a", "-/af"),
                        lambda opt, sp: [S.tool("ffmpeg"), "-nostdin", "-hide_banner", "-i", S.arg_path(video), "-vn", opt, sp, "-f", "null", "-"],
                        span_timeout(3600, duration, 1.0), task, duration)
     if r.returncode != 0:
