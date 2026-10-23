@@ -1,5 +1,5 @@
 /* ホーム(src/app/ui/home/portal.html。段階5で入口 + 案件を1つにした)。
-   - ツールの起動状態は /api/status を定期的に読んで「詳しく」の中のカードに出す(開く・起動・停止・再起動・すべて終了)
+   - ツールの起動状態は /api/status を定期的に読んでカードを作る(10-24 から画面には出さない = #flow は hidden。すべて終了は「詳しく」の別の欄)
    - 案件(配信ごと)の一覧は /api/cases を読んで組み立てる。状態・メモは持たない(MARKS-3)
    - 「処理の状況」は、まとめて実行(/api/flow/runs)の実行中(今の段・全体の進み)・待ち・失敗と、失敗の文がある自動の切り抜き(案件の一覧の failed)。
      案件の一覧の行は依頼(誰の・何を)と結果(切り抜き・校正・パック・失敗)だけ。「確かめる」は api/check/next?n=0 の goal から今いちばん効く確認を 1 つ・[始める] は /check(V1 確かめる)。
@@ -163,7 +163,7 @@
     return a;
   }
 
-  /* ================================================================ ツールの起動状態(「詳しく」の中) ================================================================ */
+  /* ================================================================ ツールの起動状態(画面には出さない #flow) ================================================================ */
 
   /* ホームに取り込んだツールの画面のページは無い = 「開く」は今その仕事をする画面へ(スタジオ = 新しい案件・編集 = 案件の画面) */
   var MOUNTED_OPEN = { studio: '/#new', transcribe: '/cases' };
@@ -259,7 +259,6 @@
       setConn(true);
       $('#ver').textContent = 'ホーム v' + st.version;
       UIKit.appnav.setVersion('v' + st.version);
-      if (st.window) renderWin(st.window);
       if (st.autoPushed !== autoPushed) {   /* まとめて実行に積まれた(友人の依頼の受付など)= 15 秒を待たずに一覧を読む */
         if (autoPushed !== null) pollAuto();
         autoPushed = st.autoPushed;
@@ -278,42 +277,6 @@
     }).then(function () {
       if (!closed) timer = setTimeout(poll, document.hidden ? POLL_HIDDEN_MS : POLL_MS);
     });
-  }
-
-  /* 窓で開く(段階7-3。既定は窓) */
-  var winBusy = false;
-  function inApp() { return UIKit.win.isApp(); }
-  function renderWin(w) {
-    if (winBusy) return;
-    var box = $('#winBox'), sw = $('#winMode'), now = $('#btnWinNow');
-    box.hidden = false;
-    sw.checked = w.mode === 'app';
-    sw.disabled = !w.available && w.mode !== 'app';
-    var text = w.available
-      ? 'オン(既定)のとき、start.bat で起動すると、ブラウザのタブではなく Microsoft Edge の専用の窓で開きます。' +
-        '窓の中のリンクも窓で開き、YouTube などの外のサイトはいつものブラウザで開きます。窓の設定・拡張機能・ログインは、いつものブラウザと別です。' +
-        'オフにすると、次の起動からいつものブラウザのタブで開きます。'
-      : 'Microsoft Edge が見つからないので、窓では開けません(いつものブラウザで開きます)。';
-    if (inApp()) text += '(いまは窓で開いています)';
-    $('#winHint').textContent = text;
-    now.hidden = !w.available || inApp();
-  }
-  function setWin(mode) {
-    winBusy = true;
-    api('api/window', 'POST', { mode: mode }).then(function (j) {
-      winBusy = false;
-      renderWin(j.window);
-      toast(mode === 'app' ? '次に起動したときから、窓で開きます(いま開くなら「いま窓で開く」)' : '次に起動したときから、いつものブラウザで開きます', 'ok');
-    }).catch(function (e) {
-      winBusy = false;
-      failToast('窓で開く設定を保存できませんでした', 'もう一度切り替えてください', e);
-      poll();
-    });
-  }
-  function openWinNow() {
-    UIKit.win.open(location.origin + '/').then(function () {
-      toast('窓で開きました。このタブは閉じてかまいません', 'ok');
-    }, function (e) { failToast('窓で開けませんでした', 'いつものブラウザのタブのまま使えます', e); });
   }
 
   /* すべて終了: 誤操作を防ぐため 2 回押し(UIKit.confirmTwice。ほかの画面の「取り消せない操作」と同じ形・3 秒以内。S7) */
@@ -1718,7 +1681,7 @@
   UIKit.portal.listen();
 
   document.addEventListener('DOMContentLoaded', function () {
-    /* ⚙ 設定の「ホーム」の節(M10): 窓で開く と、設定の画面へのリンク(まとめて実行の既定・試験中の機能・受付・バックアップの欄は設定の画面にある) */
+    /* ⚙ 設定の「ホーム」の節(M10): 設定の画面へのリンク(窓で開くは 10-24 から固定 = 欄なし)(まとめて実行の既定・試験中の機能・受付・バックアップの欄は設定の画面にある) */
     var hs = $('#homeSettings');
     if (hs) hs.hidden = false;
     UIKit.settings.mount(hs ? { title: '設定', tool: hs } : { title: '設定' });
@@ -1728,8 +1691,6 @@
     $('#btnAccuracyNow').addEventListener('click', accuracyNow);
     var adv = $('#healthBox') && $('#healthBox').closest('details');
     if (adv) { adv.addEventListener('toggle', function () { if (adv.open) loadHealth(false); }); if (adv.open) loadHealth(false); }
-    $('#winMode').addEventListener('change', function () { setWin(this.checked ? 'app' : 'browser'); });
-    $('#btnWinNow').addEventListener('click', openWinNow);
 
     $('#fText').addEventListener('input', function () { resetPaging(); });
     $('#fSort').addEventListener('change', function () { lsSet('sort', $('#fSort').value); resetPaging(); });

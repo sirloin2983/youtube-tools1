@@ -15,12 +15,11 @@
         <!-- 「次の未校正」・「…」・件数は1つの箱に入れ、折り返すときは3つ一緒に次の行へ(「…」だけが落ちない) -->
         <span class="tt-rb-end">
         <button type="button" class="btn small" id="btnNextUn" title="次の未校正の行へ移動します(Shift+↓。前へは Shift+↑)">次の未校正 <kbd class="ui-kbd">Shift</kbd><kbd class="ui-kbd">↓</kbd></button>
-        <!-- 話者・まとめて直す・書き出し・以前の版は、同じ操作の置き場をほかに残さずここへ1つにまとめる -->
-        <details class="ui-pop" id="jumpMenu"><summary class="btn ghost small icon" id="btnSpk" aria-label="話者・文字をまとめて直す・書き出し・以前の版" title="話者・文字をまとめて直す・書き出し・以前の版"><span class="ui-icon" data-icon="more" aria-hidden="true"></span></summary><div class="ui-pop-body" data-align="left">
+        <!-- 話者・まとめて直す・書き出しは、同じ操作の置き場をほかに残さずここへ1つにまとめる(以前の版・動画を選び直すは ⚙ の「困ったとき」。10-24) -->
+        <details class="ui-pop" id="jumpMenu"><summary class="btn ghost small icon" id="btnSpk" aria-label="話者・文字をまとめて直す・書き出し" title="話者・文字をまとめて直す・書き出し"><span class="ui-icon" data-icon="more" aria-hidden="true"></span></summary><div class="ui-pop-body" data-align="left">
           <button type="button" data-jump="spDetails">話者(自動判別・名前)</button>
-          <button type="button" data-jump="fixDetails">文字をまとめて直す(置換・再認識)</button>
-          <button type="button" data-jump="exDetails">次のツールへ渡す(文字起こし)</button>
-          <button type="button" data-jump="hiDetails">以前の版に戻す</button></div></details>
+          <button type="button" data-jump="fixDetails">文字をまとめて直す(置換)</button>
+          <button type="button" data-jump="exDetails">次のツールへ渡す(文字起こし)</button></div></details>
         <span class="pill warn tt-read-count" id="readCount" hidden title="字幕として読みにくい行(1 秒あたりの文字が多い・表示が短い)の数。絞り込みの「読みにくい行だけ」で、その行だけを出せます(知らせるだけ。校正済みにはできます)"></span>
         <span class="ui-count" id="qCount" aria-live="polite"></span>
         </span>
@@ -53,7 +52,7 @@
           <!-- 映像の上に今の行を字幕として重ねる。止まっているときは選んだ行、再生中は再生位置の行。装飾扱い(同じ情報は一覧から読める) -->
           <div class="tt-caption tt-cap-look" id="playerCaption" aria-hidden="true" hidden></div>
         </div>
-        <p class="hint" id="playerMsg" hidden><span id="playerMsgText"></span><button type="button" class="btn small" id="playerRelink" hidden>動画を選び直す</button></p>
+        <p class="hint" id="playerMsg" hidden><span id="playerMsgText"></span></p>
         <div class="tools tools-play" role="group" aria-label="再生">
           <label class="lag" title="再生の速さ">速さ <select id="rate" class="mini"><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="1.75">1.75×</option><option value="2">2×</option></select></label>
         </div>
@@ -115,11 +114,13 @@
         <label for="repDict" class="hint" style="margin-top:6px">置換辞書(1行に「誤=>正」。保存され、どの文字起こしにも使えます。|誤|=>正 と縦棒で挟むと、カタカナ・漢字・英数字の並びの途中には当てません)</label>
         <textarea id="repDict" rows="3" placeholder="例:&#10;ふぶき=>フブキ"></textarea>
         <div class="row"><button type="button" class="btn small" id="repDictGo">辞書を全体に適用</button><span class="hint" id="repMsg"></span></div></div>
+      <details class="ui-disclosure tt-rerun"><summary>認識し直す(行を別のモデルで聞き直す。あまり使わない)</summary>
       <div class="fld"><span class="l">再認識(文字の間違いを、別のモデルで直す)</span>
         <div class="row"><label class="lag">モデル <select id="rtModel" style="width:auto;max-width:300px"></select></label>
           <label class="lag">対象 <select id="rtTarget" style="width:auto"><option value="text">文字の要確認の行</option><option value="flagged">疑わしい行(文字が少ない = 抜けの可能性)</option><option value="sel">選択した行</option><option value="all">すべての行</option><option value="range">選択した行の最初〜最後を、まとめて(間の行も含む)</option><option value="whole">動画全体(直した行は残す)</option></select></label>
           <button type="button" class="btn small primary" id="rtGo">再認識</button><span class="hint" id="rtHint"></span></div>
         <span class="hint">認識の失敗が多い行を、重いモデル(large-v3 など)で認識し直します。対象の行の音声だけを処理します(CPU では、行数に応じて時間がかかります)。BGM が大きい・声が重なった行は、直らないこともあります。直した行は残り、機械の結果が変わった行には印「機械の結果が変わりました」を付けてお知らせします。直していない行は新しい文字になります(直前の状態は「以前の版に戻す」に残ります)。判別中・再認識中は編集できません。</span></div>
+      </details>
       <div class="fld"><span class="l">別のエンジンの候補(試験中)</span>
         <div class="row"><label class="lag keep">エンジン <select id="altEngine" style="width:auto;max-width:300px"></select></label>
           <button type="button" class="btn small" id="altGo">別のエンジンでも聞く</button></div>
@@ -210,6 +211,9 @@
   <div class="fld"><label for="evDirs">フォルダ(1行に1つ・10個まで)</label><textarea id="evDirs" rows="2" class="mono" spellcheck="false" autocomplete="off" placeholder="例: E:\\動画\\評価用データ"></textarea></div>
   <div class="row" style="margin-top:6px;gap:6px"><button type="button" class="btn small" id="evSave">保存</button><button type="button" class="btn small" id="evRun" title="名前をそろえて、文書を付け替えます(処理中の動画・開いている動画は飛ばします)">今すぐ整理</button></div>
   <p class="hint" id="evNote" style="margin:6px 0 0" role="status"></p>
+  <h3 style="margin-top:18px">困ったとき</h3>
+  <p class="hint" style="margin:0 0 6px">動画を移した・名前を変えて再生できないときは「動画を選び直す」。間違えて直した・消したときは「以前の版に戻す」(10 分ごと・再認識や話者判別の前に自動で残した版)。</p>
+  <div class="row" style="gap:6px"><button type="button" class="btn small" id="setRelink">動画を選び直す</button><button type="button" class="btn small" id="setHistory">以前の版に戻す</button></div>
   <h3 style="margin-top:18px">キー配置</h3>
   <p class="hint" style="margin:0 0 6px">キーを変えるのは、キー操作の一覧(?)の中です。</p>
   <button type="button" class="btn small" id="setKeysOpen">キー配置を変える(?)</button>

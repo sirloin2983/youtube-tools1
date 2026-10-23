@@ -140,17 +140,27 @@ $('#diarEmb').addEventListener('change', () => { if ($('#spDetails').open) loadV
 try { $('#diarRecog').checked = localStorage.getItem('tx.voiceRecog') !== '0'; } catch {}
 $('#diarRecog').addEventListener('change', () => { try { localStorage.setItem('tx.voiceRecog', $('#diarRecog').checked ? '1' : '0'); } catch {} });
 
-/* 「道具 ▾」: 映像の下のカード(話者・置換と再認識・書き出し・以前の版)へ移動して開く(映像の列の中でスクロールする) */
-document.querySelectorAll('[data-jump]').forEach(b => b.addEventListener('click', () => {
-  const el = $('#' + b.dataset.jump); if (!el) return;
+/* 「道具 ▾」: 映像の下のカード(話者・置換と再認識・書き出し)へ移動して開く(映像の列の中でスクロールする)。以前の版は ⚙ の「困ったとき」から */
+function openCard(id){
+  const el = $('#' + id); if (!el) return;
   $('#jumpMenu').open = false;
   el.hidden = false;   // 4枚のカードは閉じている間は隠している(下)。ここで出してから開く
   if (el.tagName === 'DETAILS') el.open = true;
   const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
   el.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
   const sm = el.querySelector('summary'); if (sm) sm.focus({ preventScroll: true });
-}));
-/* 話者・文字をまとめて直す・書き出し・以前の版の4枚は、一覧の上の「…」からだけ開く(ブリーフ: 操作の入口は役割ごとに1つ)。
+}
+document.querySelectorAll('[data-jump]').forEach(b => b.addEventListener('click', () => openCard(b.dataset.jump)));
+/* ⚙ の「困ったとき」(10-24): 動画を選び直す・以前の版に戻す。引き出しを閉じてから開く */
+function fromSettings(fn){
+  const dw = document.getElementById('uiSettingsDrawer');
+  if (dw && UIKit.drawer.isOpen(dw)) UIKit.drawer.close(dw);
+  if (!S.doc) return toast('文字起こしを開いてから使えます', 3000, 'err');
+  fn();
+}
+$('#setRelink').addEventListener('click', () => fromSettings(() => openRelink()));
+$('#setHistory').addEventListener('click', () => fromSettings(() => openCard('hiDetails')));
+/* 話者・文字をまとめて直す・書き出しの3枚は一覧の上の「…」から、以前の版は ⚙ の「困ったとき」から開く(ブリーフ: 操作の入口は役割ごとに1つ)。
    閉じている間は隠し、どこから開いても(「…」・ほかの画面の案内・覚えていた開閉)出す。閉じればまた隠す */
 for (const id of ['spDetails', 'fixDetails', 'exDetails', 'hiDetails']){
   const d = $('#' + id); if (!d) continue;
@@ -698,7 +708,6 @@ player().addEventListener('timeupdate', () => {
   if ($('#follow').checked && !el.hidden && !typing) ensureVisible(el, 0.35);
 });
 player().addEventListener('error', () => { if (!S.doc) return; S.playerErr = S.docId; renderPlayerMsg(); });
-$('#playerRelink').addEventListener('click', () => openRelink());
 
 /* ---------- 動画を選び直す(付け替えの API は POST だけ(URL の引数では付け替えない) ---------- */
 const RL = { id: null, seq: 0, check: null, path: '' };

@@ -18,7 +18,7 @@
   <div class="ui-header-actions">
     <span class="pill wait" id="conn">つないでいます…</span>
     <a class="btn ghost small" href="/analytics/" title="チャンネルの分析と日報・週報・月報(LINE に届くものと同じ)">分析と日報</a>
-    <button type="button" class="btn ghost small" id="btnSettings" data-ui-settings title="設定(窓で開く・まとめて実行の既定・テーマ・文字の大きさ)"><span class="ui-icon" data-icon="gear" aria-hidden="true"></span>設定</button>
+    <button type="button" class="btn ghost small" id="btnSettings" data-ui-settings title="設定(まとめて実行の既定・テーマ・文字の大きさ)"><span class="ui-icon" data-icon="gear" aria-hidden="true"></span>設定</button>
   </div>
 </header>
 <div class="errbar" id="errbar" role="alert" hidden></div>
@@ -117,12 +117,6 @@
         </div>
       </div>
 
-      <div class="pt-notices" id="intakeNotices" hidden>
-        <h3 class="pt-h3">友人から知らせ</h3>
-        <p class="hint">友人のアプリで同じ失敗が 2 回続いたときに、友人が [作る人に知らせる] で送った物です(7 日の分)。ログの全文は作業データの friend-returns の notices に残っています。</p>
-        <ol class="pt-intake-list ui-list" id="intakeNoticeList"></ol>
-      </div>
-
       <div class="row"><h3 class="pt-h3 grow">届いた依頼</h3><button type="button" class="btn small ghost" id="intakeHidden" hidden></button></div>
       <div class="empty pt-empty" id="intakeEmpty" hidden></div>
       <ol class="pt-intake-list ui-list" id="intakeList"></ol>
@@ -183,8 +177,15 @@
       <section class="card flat pt-foot pt-health" id="healthBox">
         <div class="row"><b class="grow">調子</b><span class="hint" id="healthWhen"></span><button type="button" class="btn small ghost" id="btnAccuracyNow" hidden title="人が直した記録に対する精度(文字起こし・盛り上がり・話者)を、手が空くのを待って測ります。夜に自動でも測ります">精度を今すぐ測る</button><button type="button" class="btn small ghost" id="btnHealthRefresh">数え直す</button></div>
         <ul class="pt-health-list" id="healthList" aria-live="polite"><li class="hint">読み込んでいます…</li></ul>
+        <!-- 友人から知らせ(10-24 にホームの依頼の欄から調子の中へ。知らせがあるときだけ出る) -->
+        <div class="pt-notices" id="intakeNotices" hidden>
+          <h3 class="pt-h3">友人から知らせ</h3>
+          <p class="hint">友人のアプリで同じ失敗が 2 回続いたときに、友人が [作る人に知らせる] で送った物です(7 日の分)。ログの全文は作業データの friend-returns の notices に残っています。</p>
+          <ol class="pt-intake-list ui-list" id="intakeNoticeList"></ol>
+        </div>
       </section>
-      <ol class="pt-flow" id="flow" aria-label="ツールの起動状態"></ol>
+      <!-- ツールの起動状態は画面に出さない(10-24。裏の起動・停止・状態の読み取りはそのまま。portal.js が描く先として残す) -->
+      <ol class="pt-flow" id="flow" aria-label="ツールの起動状態" hidden></ol>
 
       <section class="card flat pt-foot">
         <div class="row">
@@ -219,16 +220,9 @@
 </aside>
 
 <!-- ⚙ 設定の「ホーム」の節(M10。UIKit.settings.mount の tool に渡して、設定の引き出しの中へ移す)。
-     窓で開く・試験中の機能と、まとめて実行の既定。依頼の受付・バックアップは状態と一覧を持つ欄なので今の場所に残し、ここからは開くボタンだけ -->
+     試験中の機能と、まとめて実行の既定(窓で開くは 10-24 から固定 = 欄なし)。依頼の受付・バックアップは状態と一覧を持つ欄なので今の場所に残し、ここからは開くボタンだけ -->
 <section id="homeSettings" class="pt-settings" hidden>
   <h3>ホーム</h3>
-  <div class="pt-set-block" id="winBox" hidden>
-    <div class="ui-settings-row">
-      <label class="lag pt-win-sw"><input type="checkbox" class="ui-switch" id="winMode">窓で開く</label>
-      <button type="button" class="btn small" id="btnWinNow" hidden>いま窓で開く</button>
-    </div>
-    <p class="hint" id="winHint"></p>
-  </div>
   <!-- まとめて実行の既定・試験中の機能(リアルタイム切り抜き)・受付・バックアップの欄は設定の画面(/settings)にある(notes:docs/spec/data.md の 6) -->
   <div class="pt-set-block" id="setPageBox">
     <div class="pt-set-head">ほかの設定</div>

@@ -1162,7 +1162,8 @@
   /* ---- settingsForm(設定を 1 つに S5。notes:docs/spec/data.md の 4)---- 宣言的なスキーマから設定の節を描く。
      ラベル・1 行の説明・範囲と形の検査・「標準に戻す」・保存の印が自動で付く(入口の /settings の画面が使う。各ツールの ⚙ は別の作り)。
      UIKit.settingsForm.render(host, group, io) -> {refresh()}
-       group = {title, hint, items: [{key, type, label, hint, default, min, max, step, options: [[値, 表示]], unit, scale, placeholder, maxlength, pattern, when, link}]}
+       group = {title, hint, items: [{key, type, label, hint, default, min, max, step, options: [[値, 表示]], unit, scale, placeholder, maxlength, pattern, when, link, advanced}]}
+         advanced: true の行は節の終わりの閉じた「詳しい調整」に入れる(値・保存は同じ。探すと開く)
          type: 'bool'(スイッチ)/ 'enum'(select)/ 'int' / 'number' / 'text' / 'folder'(フルパスの欄)/ 'textarea' / 'link'(別の画面で直すもの。ボタンだけ)
          scale: 欄に出す値 = 保存の値 × scale(0.65 を 65% と出すとき 100)。when: {key, eq} か {key, ne}(その鍵の値で行を出す・隠す)
        io = {get(key) -> 今の値(undefined = 無い), set(key, 値) -> Promise(保存して io.get が新しい値を返すようにする), disabled() -> 文(あれば欄を無効にして理由を出す)}
@@ -1258,7 +1259,15 @@
     if (group.hint) sec.appendChild(setFormEl('p', 'hint ui-set-ghint', group.hint));
     var off = typeof io.disabled === 'function' ? io.disabled() : '';
     if (off) sec.appendChild(setFormEl('p', 'notice ui-set-off', off));
-    var rows = [];
+    var rows = [], more = null;
+    function moreBody() {   /* item.advanced の行の置き場所(節の終わりの閉じた「詳しい調整」。値と受け口は同じ) */
+      if (!more) {
+        more = setFormEl('details', 'ui-disclosure ui-set-more');
+        more.appendChild(setFormEl('summary', null, '詳しい調整'));
+        sec.appendChild(more);
+      }
+      return more;
+    }
     for (var i = 0; i < (group.items || []).length; i++) {
       (function (item) {
         var id = setFormId(item.key), row = setFormEl('div', 'ui-set-item');
@@ -1277,7 +1286,7 @@
         if (item.type === 'link' || item['default'] === undefined || off) reset.hidden = true;
         row.appendChild(main); row.appendChild(side);
         if (item.hint) row.appendChild(setFormEl('p', 'hint ui-set-hint', item.hint));
-        sec.appendChild(row);
+        (item.advanced ? moreBody() : sec).appendChild(row);
         var markTimer = 0;
         function showMark(text, err) {
           clearTimeout(markTimer);
@@ -1318,6 +1327,7 @@
         rows.push(paint);
       })(group.items[i]);
     }
+    if (more) sec.appendChild(more);   /* 「詳しい調整」はいつも節の終わり */
     function paintAll() { for (var k = 0; k < rows.length; k++) rows[k](false); }
     paintAll();
     host.appendChild(sec);
@@ -1334,6 +1344,8 @@
         if (hit && !items[i].hidden) shown++;
       }
       groups[g].classList.toggle('ui-set-nomatch', !!q && shown === 0);
+      var more = groups[g].querySelector('.ui-set-more');   /* 探した語が「詳しい調整」の中にあれば開いて見せる */
+      if (more && q && more.querySelector('[data-ui-set-key]:not(.ui-set-nomatch)')) more.open = true;
       n += shown;
     }
     return n;

@@ -955,12 +955,11 @@ function curIndex(t){
   return ans >= 0 && t < segs[ans].end + 0.4 ? ans : -1;
 }
 
-/* 再生できないときの案内。カットの欄は別のパネル = 見つからないのか形式なのかを読めないので、パスがあれば「動画を選び直す」を出す(確かめは選び直しのダイアログ) */
+/* 再生できないときの案内。カットの欄は別のパネル = 見つからないのか形式なのかを読めないので、パスがあれば ⚙ の「困ったとき」の「動画を選び直す」を案内する(確かめは選び直しのダイアログ) */
 function renderPlayerMsg(){
   const m = $('#playerMsg');
   if (!S.doc || S.playerErr !== S.docId){ m.hidden = true; return; }
   const tail = '文字の編集と書き出しは、再生できなくても使えます。', path = S.doc.sourcePath;
-  $('#playerMsgText').textContent = path ? `元のファイルを再生できません(動画が見つからないか、再生できない形式です: ${path})。${tail}` : `元のファイルを再生できません。${tail}`;
-  $('#playerRelink').hidden = !path;
+  $('#playerMsgText').textContent = path ? `元のファイルを再生できません(動画が見つからないか、再生できない形式です: ${path})。${tail}動画を移したときは、⚙ の「困ったとき」の「動画を選び直す」で付け替えられます。` : `元のファイルを再生できません。${tail}`;
   m.hidden = false;
 }

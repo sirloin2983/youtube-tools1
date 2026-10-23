@@ -56,22 +56,22 @@
       ] }
     ] },
     { "id": "studio", "title": "切り抜きスタジオ", "store": "studio", "groups": [
-      { "id": "analyze", "title": "解析(盛り上がりの候補の出し方)", "hint": "既定のままで使えます。変えると次に解析に追加する分から使います(ホームの「まとめて実行」も同じ設定で解析します)。", "items": [
-        { "key": "analyze.useAudio", "type": "bool", "label": "材料: 音声(音量・笑い声や叫びの高音域)", "default": true },
-        { "key": "analyze.useChat", "type": "bool", "label": "材料: チャットのリプレイ(量・「草」など)", "default": true },
-        { "key": "analyze.useComments", "type": "bool", "label": "材料: コメント欄の時刻(「12:34 ここ最高」)", "default": true },
+      { "id": "analyze", "title": "解析(盛り上がりの候補の出し方)", "hint": "既定のままで使えます。変えると次に解析に追加する分から使います(ホームの「まとめて実行」も同じ設定で解析します)。ふだん使うのは本数と感度だけ。ほかは「詳しい調整」の中。", "items": [
+        { "key": "analyze.useAudio", "advanced": true, "type": "bool", "label": "材料: 音声(音量・笑い声や叫びの高音域)", "default": true },
+        { "key": "analyze.useChat", "advanced": true, "type": "bool", "label": "材料: チャットのリプレイ(量・「草」など)", "default": true },
+        { "key": "analyze.useComments", "advanced": true, "type": "bool", "label": "材料: コメント欄の時刻(「12:34 ここ最高」)", "default": true },
         { "key": "analyze.count", "type": "int", "label": "本数(最大)", "default": 8, "min": 1, "max": 30, "unit": "本" },
-        { "key": "analyze.shape", "type": "enum", "label": "区間の形", "default": "scene", "options": [["scene", "場面ごと(盛り上がりの始まり〜収まり。60〜300 秒)"], ["fixed", "固定の長さ(下の「1 本の長さ」)"]], "hint": "場面ごとでも、山が平らで場面が取れないときは「1 本の長さ」で切ります。候補には固定の長さの区間も残ります。" },
-        { "key": "analyze.length", "type": "number", "label": "1 本の長さ", "default": 45, "min": 10, "max": 300, "step": 1, "unit": "秒", "hint": "区間の形が「固定の長さ」のとき・場面が取れないときの長さ。" },
+        { "key": "analyze.shape", "advanced": true, "type": "enum", "label": "区間の形", "default": "scene", "options": [["scene", "場面ごと(盛り上がりの始まり〜収まり。60〜300 秒)"], ["fixed", "固定の長さ(下の「1 本の長さ」)"]], "hint": "場面ごとでも、山が平らで場面が取れないときは「1 本の長さ」で切ります。候補には固定の長さの区間も残ります。" },
+        { "key": "analyze.length", "advanced": true, "type": "number", "label": "1 本の長さ", "default": 45, "min": 10, "max": 300, "step": 1, "unit": "秒", "hint": "区間の形が「固定の長さ」のとき・場面が取れないときの長さ。" },
         { "key": "analyze.sensitivity", "type": "enum", "label": "感度", "default": "normal", "options": [["high", "高(多めに拾う)"], ["normal", "標準"], ["low", "低(強い場面だけ)"]] },
-        { "key": "analyze.preRatio", "type": "number", "label": "ピークより前に置く割合", "default": 0.65, "min": 0.3, "max": 0.9, "scale": 100, "step": 1, "unit": "%", "hint": "区間のどこに山を置くか。" },
-        { "key": "analyze.headSec", "type": "number", "label": "冒頭の減点", "default": 180, "min": 0, "max": 600, "step": 1, "unit": "秒", "hint": "0 で無効。冒頭は挨拶や BGM で誤検出しやすいため、この秒数かけて少しずつ通常の点数に戻します。" },
-        { "key": "analyze.lagAuto", "type": "bool", "label": "チャットの遅れを自動で推定する", "default": true },
-        { "key": "analyze.lag", "type": "number", "label": "チャットの遅れ補正(自動で推定できないとき)", "default": 8, "min": 0, "max": 30, "step": 1, "unit": "秒" },
-        { "key": "analyze.chatTimeout", "type": "int", "label": "チャット取得の待ち時間(上限)", "default": 20, "min": 1, "max": 120, "unit": "分" },
-        { "key": "analyze.wAudio", "type": "number", "label": "重み: 音声", "default": 1, "min": 0, "max": 3, "step": 0.1 },
-        { "key": "analyze.wChat", "type": "number", "label": "重み: チャット", "default": 1, "min": 0, "max": 3, "step": 0.1 },
-        { "key": "analyze.wComments", "type": "number", "label": "重み: コメント", "default": 0.7, "min": 0, "max": 3, "step": 0.1 }
+        { "key": "analyze.preRatio", "advanced": true, "type": "number", "label": "ピークより前に置く割合", "default": 0.65, "min": 0.3, "max": 0.9, "scale": 100, "step": 1, "unit": "%", "hint": "区間のどこに山を置くか。" },
+        { "key": "analyze.headSec", "advanced": true, "type": "number", "label": "冒頭の減点", "default": 180, "min": 0, "max": 600, "step": 1, "unit": "秒", "hint": "0 で無効。冒頭は挨拶や BGM で誤検出しやすいため、この秒数かけて少しずつ通常の点数に戻します。" },
+        { "key": "analyze.lagAuto", "advanced": true, "type": "bool", "label": "チャットの遅れを自動で推定する", "default": true },
+        { "key": "analyze.lag", "advanced": true, "type": "number", "label": "チャットの遅れ補正(自動で推定できないとき)", "default": 8, "min": 0, "max": 30, "step": 1, "unit": "秒" },
+        { "key": "analyze.chatTimeout", "advanced": true, "type": "int", "label": "チャット取得の待ち時間(上限)", "default": 20, "min": 1, "max": 120, "unit": "分" },
+        { "key": "analyze.wAudio", "advanced": true, "type": "number", "label": "重み: 音声", "default": 1, "min": 0, "max": 3, "step": 0.1 },
+        { "key": "analyze.wChat", "advanced": true, "type": "number", "label": "重み: チャット", "default": 1, "min": 0, "max": 3, "step": 0.1 },
+        { "key": "analyze.wComments", "advanced": true, "type": "number", "label": "重み: コメント", "default": 0.7, "min": 0, "max": 3, "step": 0.1 }
       ] },
       { "id": "review", "title": "確認・書き出し(② の操作)", "hint": "音量・ミュート・並び順・今をマークの長さなど、操作の中で変える値は ② の画面で。", "items": [
         { "key": "review.autoPlay", "type": "bool", "label": "前後のマークへ移動したら、その区間を自動で再生する", "default": true },

@@ -427,10 +427,7 @@ class TestPortalApi(unittest.TestCase):
         st, j = self.req("GET", "/api/status")
         self.assertEqual(j["window"]["mode"], "app")   # 既定は窓
         self.assertTrue(j["window"]["available"])
-        st, j = self.req("POST", "/api/window", {"mode": "app"})
-        self.assertEqual((st, j["window"]["mode"]), (200, "app"))
-        self.assertEqual(self.req("POST", "/api/window", {"mode": "x"})[0], 400)
-        self.assertEqual(self.req("POST", "/api/window", {"mode": "browser"}, {"X-YTT-Token": "wrong"})[0], 403)
+        self.assertEqual(self.req("POST", "/api/window", {"mode": "browser"})[0], 404)   # 窓で開くに固定(10-24。切り替えの口は無い)
         self.assertEqual(self.req("GET", "/api/status")[1]["window"]["mode"], "app")
 
     def test_open_window_and_external(self):

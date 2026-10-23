@@ -44,7 +44,6 @@
   GET  /api/log?tool=<ID>&lines=N         ツールの出力(<作業データ>/app/logs/<ID>.log)の末尾
   POST /api/shutdown                      {} → この入口から起動したツールを止めて、入口も終わる。録画中でなければ録画の部品も止める
                                           (録画中なら残して、応答に recorderKept・notice)
-  POST /api/window                        {mode: browser|app} 画面を窓(Edge のアプリモード)で開くか(段階7-3。src/ytt/appwindow.py)
   POST api/ytt/client-log|open-window|open-external|focus-portal|streamer-colors   画面の共通の API(focus-portal: 入口の窓を前に出す・
                                           streamer-colors: 配信者の名前 → メンバーカラーの候補)。入口の画面(/api/ytt/…)と、取り込んだツールの画面
                                           (/studio/api/ytt/… など。src/app/mount.py が入口へ回す)のどちらからも同じ(段階7。PortalServer.ytt_request)
@@ -630,7 +629,7 @@ POST_ROUTES = {"/api/cases/auto": ("_post_case_auto", True),
                "/api/flow/submit": ("_post_flow_submit", True), "/api/flow/estimate": ("_post_flow_submit", True),
                "/api/flow/cancel": ("_post_flow_cancel", True),
                "/api/intake/scan": ("_post_intake_scan", True), "/api/backup/run": ("_post_backup_run", True),
-               "/api/accuracy/run": ("_post_accuracy_run", True), "/api/window": ("_post_window", False),
+               "/api/accuracy/run": ("_post_accuracy_run", True),
                "/api/check/answer": ("_post_check", True), "/api/check/skip": ("_post_check", True), "/api/check/flush": ("_post_check", True),
                "/api/shutdown": ("_post_shutdown", False)}
 
@@ -891,16 +890,6 @@ class PortalHandler(httpsec.LocalHandler):
         if not self.server.accuracy.run_now():
             return self._fail(409, "off", "精度の自動測定がオフです")
         return self._json(200, self.server.accuracy.snapshot())
-
-    def _post_window(self, path, body):
-        """画面を窓で開くか(次に起動したときから。段階7-3)"""
-        try:
-            self.server.window.set_mode(body.get("mode"))
-        except ValueError as e:
-            return self._fail(400, "bad_request", str(e))
-        except OSError as e:
-            return self._fail(500, "write", "設定を書けませんでした: %s" % tools.why(e))
-        return self._json(200, {"window": self.server.window.status()})
 
     def _post_shutdown(self, path, body):
         """すべて終了(応答を返してから後始末)"""
