@@ -70,11 +70,6 @@ class TestEditorSchema(unittest.TestCase):
                 self.assertTrue(ok(True) and ok(False), it["key"])
                 self.assertFalse(ok("x"), it["key"])
 
-    def test_cut_silence_range(self):
-        for k, (lo, hi) in _settings.CUT_SILENCE_RANGE.items():
-            it = self.by_key["cutSilence." + k]
-            self.assertEqual((it["min"], it["max"]), (lo, hi), k)
-
     def test_defaults_are_sane(self):
         for it in self.items:
             if it["type"] in ("int", "number"):

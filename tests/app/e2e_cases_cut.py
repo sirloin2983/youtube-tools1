@@ -146,33 +146,16 @@ def _scene_rows_whole(cx):
 
 
 def _scene_pack_settings(cx):
-    """パックの設定(パネルの中): 大きさ・音量(%)・行の後の余白が編集の設定に残る"""
-    check, pg, srv = cx.check, cx.pg, cx.srv
-    check("30fps" in pg.inner_text("#pkSummaryText"), "前回の設定の要約(30fps): " + pg.inner_text("#pkSummaryText"))
+    """パックの決まり(パネルの中。10-24 から設定の欄なし): 30fps・縦・-14 LUFS・話者の色・行の後の余白 0.2 秒を一覧で見せる"""
+    check, pg = cx.check, cx.pg
+    s = pg.inner_text("#pkSummaryText")
+    check("30fps" in s and "縦 1080×1920" in s and "-14 LUFS" in s, "前回の設定の要約(30fps・縦・-14 LUFS): " + s)
     pg.click("#pkSettingsBtn")
-    check(wait_js(pg, "document.activeElement && document.activeElement.closest('#edSetPack') !== null", 5000), "「設定を変える」でパネルの中の「パックの設定」へ移る")
-    pg.click("#pkSize [data-v='1920x1080']")
-    pg.select_option("#pkLoud", "0")
-    wait_js(pg, "!document.querySelector('#pkVolBox').hidden", 5000)
-    pg.fill("#pkVol", "70")
-    pg.press("#pkVol", "Tab")
-    pg.fill("#pkPadAfter", "0.5")
-    pg.press("#pkPadAfter", "Tab")
-    end = time.time() + 10
-    while time.time() < end:
-        st = srv.get("/api/settings")
-        if st.get("packSize") == "1920x1080" and st.get("packVolume") == 70 and (st.get("rowEdge") or {}).get("padAfter") == 0.5:
-            break
-        time.sleep(0.2)
-    check(st.get("packSize") == "1920x1080" and st.get("packVolume") == 70 and (st.get("rowEdge") or {}).get("padAfter") == 0.5,
-          "編集の設定に残る(大きさ・音量 70%%・行の後の余白 0.5): %s" % {k: st.get(k) for k in ("packSize", "packVolume", "rowEdge")})
-    pg.click("#pkSize [data-v='1080x1920']")
-    pg.fill("#pkPadAfter", "0.2")
-    pg.press("#pkPadAfter", "Tab")
-    end = time.time() + 10
-    while time.time() < end and (srv.get("/api/settings").get("rowEdge") or {}).get("padAfter") != 0.2:
-        time.sleep(0.2)
-    check(srv.get("/api/settings").get("packSize") == "1080x1920", "縦に戻した")
+    check(wait_js(pg, "(() => { const r = document.querySelector('#edSetPack').getBoundingClientRect(); return r.top < innerHeight && r.bottom > 0; })()", 5000),
+          "「パックの決まり」でパネルの中の決まりの節へ移る")
+    t = pg.inner_text("#edSetPack")
+    check(all(w in t for w in ("30fps", "縦 1080×1920", "-14 LUFS", "話者の名前", "0.2 秒")) and not pg.query_selector("#edSetPack input, #edSetPack select"),
+          "決まりの一覧だけ(変える欄は無い): " + t[:120])
 
 
 def _scene_build(cx):

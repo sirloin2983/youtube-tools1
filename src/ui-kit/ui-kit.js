@@ -22,7 +22,6 @@
    UIKit.autorun(まとめて実行の部品: panel(el, {kind}) = 要約1行と「設定を変える」・start(orders, opts) = 見積もり → 始める → 終わったら知らせ・
        stepLabel / runLabel = 状態の言葉)。受付は ② の口 POST api/flow/submit {envelope, spec} の 1 本。UIKit.flow.order(欄 → 封筒 + 束の差分。
        Python の src/flow/order.py と同じ変換)・start は見積もり api/flow/estimate を 1 本ずつ足す → 1 本ずつ submit → 終わるまで api/flow/runs を見て知らせる。README.md の「v28」
-   UIKit.packLoud(パックの音量: LUFS でそろえる か % で決める。値は編集の設定 packLoudness・packVolume の1か所。mount(select) で選択の欄と % の欄にする・get()・set(values))
    UIKit.keymap(キーの一覧 = キー配置の設定。README.md の「v8」)。キーを変える場所は ? の一覧の 1 か所(⚙ にはボタンだけ)
    UIKit.settings.status(state, message, retry, label)(設定の保存・読み込みの失敗を ⚙ の印と引き出しの先頭に)・statusOf()
    UIKit.restart(版の赤い帯に「起動し直す」: check(el, 画面の版, サーバーの版) / band / run / available。入口の api/ytt/restart-self)。
@@ -178,7 +177,6 @@
       var out = {};
       if (p && typeof p === 'object') for (var k in p) if (Object.prototype.hasOwnProperty.call(p, k) && typeof p[k] === 'string' && PATH_RE.test(p[k])) out[k] = p[k];
       tools.paths = out;
-      if (typeof loudRefresh === 'function') loudRefresh();   /* パックの音量の欄(編集の場所が分かってから出す) */
       /* ツールの場所が分かったら、先に描いた appnav のリンクを描き直す(appnav は DOMContentLoaded で1回描くが、場所は /api/siblings・/api/status の答えで後から来る) */
       if (document.readyState !== 'loading') renderAppNav();
       if (typeof live !== 'undefined' && live && live.last) liveRender();   /* 録画の札の「開く」のリンクも(スタジオの場所を使う) */
@@ -1162,8 +1160,7 @@
   /* ---- settingsForm(設定を 1 つに S5。notes:docs/spec/data.md の 4)---- 宣言的なスキーマから設定の節を描く。
      ラベル・1 行の説明・範囲と形の検査・「標準に戻す」・保存の印が自動で付く(入口の /settings の画面が使う。各ツールの ⚙ は別の作り)。
      UIKit.settingsForm.render(host, group, io) -> {refresh()}
-       group = {title, hint, items: [{key, type, label, hint, default, min, max, step, options: [[値, 表示]], unit, scale, placeholder, maxlength, pattern, when, link, advanced}]}
-         advanced: true の行は節の終わりの閉じた「詳しい調整」に入れる(値・保存は同じ。探すと開く)
+       group = {title, hint, items: [{key, type, label, hint, default, min, max, step, options: [[値, 表示]], unit, scale, placeholder, maxlength, pattern, when, link}]}
          type: 'bool'(スイッチ)/ 'enum'(select)/ 'int' / 'number' / 'text' / 'folder'(フルパスの欄)/ 'textarea' / 'link'(別の画面で直すもの。ボタンだけ)
          scale: 欄に出す値 = 保存の値 × scale(0.65 を 65% と出すとき 100)。when: {key, eq} か {key, ne}(その鍵の値で行を出す・隠す)
        io = {get(key) -> 今の値(undefined = 無い), set(key, 値) -> Promise(保存して io.get が新しい値を返すようにする), disabled() -> 文(あれば欄を無効にして理由を出す)}
@@ -1259,15 +1256,7 @@
     if (group.hint) sec.appendChild(setFormEl('p', 'hint ui-set-ghint', group.hint));
     var off = typeof io.disabled === 'function' ? io.disabled() : '';
     if (off) sec.appendChild(setFormEl('p', 'notice ui-set-off', off));
-    var rows = [], more = null;
-    function moreBody() {   /* item.advanced の行の置き場所(節の終わりの閉じた「詳しい調整」。値と受け口は同じ) */
-      if (!more) {
-        more = setFormEl('details', 'ui-disclosure ui-set-more');
-        more.appendChild(setFormEl('summary', null, '詳しい調整'));
-        sec.appendChild(more);
-      }
-      return more;
-    }
+    var rows = [];
     for (var i = 0; i < (group.items || []).length; i++) {
       (function (item) {
         var id = setFormId(item.key), row = setFormEl('div', 'ui-set-item');
@@ -1286,7 +1275,7 @@
         if (item.type === 'link' || item['default'] === undefined || off) reset.hidden = true;
         row.appendChild(main); row.appendChild(side);
         if (item.hint) row.appendChild(setFormEl('p', 'hint ui-set-hint', item.hint));
-        (item.advanced ? moreBody() : sec).appendChild(row);
+        sec.appendChild(row);
         var markTimer = 0;
         function showMark(text, err) {
           clearTimeout(markTimer);
@@ -1327,7 +1316,6 @@
         rows.push(paint);
       })(group.items[i]);
     }
-    if (more) sec.appendChild(more);   /* 「詳しい調整」はいつも節の終わり */
     function paintAll() { for (var k = 0; k < rows.length; k++) rows[k](false); }
     paintAll();
     host.appendChild(sec);
@@ -1344,8 +1332,6 @@
         if (hit && !items[i].hidden) shown++;
       }
       groups[g].classList.toggle('ui-set-nomatch', !!q && shown === 0);
-      var more = groups[g].querySelector('.ui-set-more');   /* 探した語が「詳しい調整」の中にあれば開いて見せる */
-      if (more && q && more.querySelector('[data-ui-set-key]:not(.ui-set-nomatch)')) more.open = true;
       n += shown;
     }
     return n;
@@ -1814,91 +1800,10 @@
   };
   document.addEventListener('DOMContentLoaded', function () { icon.fill(document); });
 
-  /* ---- packLoud(パックの音量のそろえ方)---- 値は編集の設定 packLoudness の1か所(パックのタブ・まとめて実行のパックと同じ)。
-     どの画面のまとめて実行の欄からも同じ値を読み書きする: 読む = 編集の api/settings、直す = api/settings/patch(送ったキーだけ。
-     編集の画面の丸ごとの保存では、この値はサーバーのものが残る)。編集が同じ入口に取り込まれていないとき(paths に無い)は欄を隠す */
-  var LOUD_OPTS = [[-14, '-14 LUFS(YouTube と同じくらい・おすすめ)'], [-11, '-11 LUFS(大きめ)'], [-16, '-16 LUFS(少し小さめ)'], [-18, '-18 LUFS(小さめ)'], [0, '音量を % で決める']];
-  var loudGet = null;
-  function txApiUrl(p) { var b = tools.paths && tools.paths.transcribe; return b ? b + p : ''; }
-  /* 編集の設定の、送ったキーだけを直す(api/settings/patch。編集の画面の丸ごとの保存とは別)。失敗は Error(サーバーの文) */
-  function txPatch(values) {
-    return http(txApiUrl('api/settings/patch'), { body: { values: values }, fail: httpCodeText }).then(function () {});
-  }
-  function loudNorm(raw) {
-    if (raw === undefined || raw === null || raw === '') return 0;   // 既定はそろえない = 音量 30%
-    var v = +raw;
-    return v === 0 ? 0 : (v === -11 || v === -14 || v === -16 || v === -18) ? v : -14;
-  }
-  function volNorm(raw) { var v = Math.round(+raw); return v >= 1 && v <= 200 ? v : 30; }
-  /* 値 {loud: LUFS か 0(= % で決める), vol: %(元 = 100)} を、画面のすべての欄に反映して知らせる */
-  function loudPaint(st) {
-    var els = document.querySelectorAll('select[data-ui-packloud]');
-    for (var i = 0; i < els.length; i++) {
-      if (document.activeElement !== els[i]) els[i].value = String(st.loud);
-      var vi = els[i].parentNode && els[i].parentNode.querySelector('input[data-ui-packvol]');
-      if (vi) { if (document.activeElement !== vi) vi.value = String(st.vol); vi.parentNode.hidden = st.loud !== 0; }   /* vi の親 = % の欄(span.ui-packvol) */
-    }
-    try { document.dispatchEvent(new CustomEvent('ui-packloud', { detail: st })); } catch (e) { /* 古いブラウザ: 知らせないだけ */ }
-  }
-  var loudMounted = [];
-  function loudWrap(sel) { return sel.closest ? (sel.closest('label') || sel) : sel; }
-  function loudRefresh() {
-    /* まとめて実行の「設定を変える」は、欄を組み立ててから文書に入れる(arForm)。入る前の select を落とすと値が一度も入らない(M3)ので、
-       一度でも文書に入ったあとで外れたものだけ落とす */
-    loudMounted = loudMounted.filter(function (sel) { if (sel.isConnected) sel.setAttribute('data-ui-packloud-seen', '1'); return sel.isConnected || !sel.getAttribute('data-ui-packloud-seen'); });
-    if (!loudMounted.length) return;
-    var ok = !!(txApiUrl('api/settings') && token());
-    for (var i = 0; i < loudMounted.length; i++) loudWrap(loudMounted[i]).hidden = !ok;
-    if (ok) packLoud.get().then(function (st) { loudPaint(st); }, function () { for (var j = 0; j < loudMounted.length; j++) loudWrap(loudMounted[j]).hidden = true; });
-  }
-  var packLoud = {
-    norm: loudNorm,
-    get: function () {
-      var u = txApiUrl('api/settings');
-      if (!u || !window.fetch) return Promise.reject(new Error('編集が動いていません'));
-      if (!loudGet) {
-        loudGet = http(u, { fail: httpCodeText })
-          .then(function (j) { return { loud: loudNorm(j.packLoudness), vol: volNorm(j.packVolume) }; });
-        loudGet.then(function () { setTimeout(function () { loudGet = null; }, 3000); }, function () { loudGet = null; });   /* 続けて読むときは1回に */
-      }
-      return loudGet;
-    },
-    /* values: {packLoudness?, packVolume?}(送った方だけ直す) */
-    set: function (values) {
-      var v = {};
-      if ('packLoudness' in values) v.packLoudness = loudNorm(values.packLoudness);
-      if ('packVolume' in values) v.packVolume = volNorm(values.packVolume);
-      if (!txApiUrl('api/settings/patch') || !window.fetch) return Promise.reject(new Error('編集が動いていません'));
-      return txPatch(v)
-        .then(function () { loudGet = null; return packLoud.get(); })
-        .then(function (st) { loudPaint(st); return st; }, function (e) {
-          toastFn('パックの音量を保存できませんでした: ' + e.message, { kind: 'err', ms: 0, action: { label: 'もう一度', fn: function () { packLoud.set(values); } } });
-          throw e;
-        });
-    },
-    /* <select data-ui-packloud> を選択の欄にする(選択肢と「%」の欄を入れ・今の値を読み・変えたら保存)。使えなければ、欄を包む label ごと隠す */
-    mount: function (sel) {
-      if (!sel || sel.getAttribute('data-ui-packloud-on')) return;
-      sel.setAttribute('data-ui-packloud', ''); sel.setAttribute('data-ui-packloud-on', '1');
-      sel.title = sel.title || 'パックに入れる動画の音量(パックのタブと同じ設定)。LUFS = 聞こえ方の大きさ(数字が小さいほど小さい音)。% = 元の音量を 100 としたときの大きさ';
-      sel.innerHTML = '';
-      for (var i = 0; i < LOUD_OPTS.length; i++) { var o = document.createElement('option'); o.value = String(LOUD_OPTS[i][0]); o.textContent = LOUD_OPTS[i][1]; sel.appendChild(o); }
-      var box = document.createElement('span'); box.className = 'ui-packvol'; box.hidden = true;
-      var vi = document.createElement('input'); vi.type = 'number'; vi.min = '1'; vi.max = '200'; vi.step = '5'; vi.style.width = '4.5em';
-      vi.setAttribute('data-ui-packvol', ''); vi.setAttribute('aria-label', '音量(%。元の音量 = 100)'); vi.title = '元の音量を 100 としたときの大きさ(%)。小さくするなら 100 より下';
-      box.appendChild(vi); box.appendChild(document.createTextNode('%'));
-      sel.parentNode.insertBefore(box, sel.nextSibling);
-      sel.addEventListener('change', function () { box.hidden = sel.value !== '0'; packLoud.set({ packLoudness: sel.value }).catch(function () {}); });
-      vi.addEventListener('change', function () { packLoud.set({ packVolume: vi.value }).catch(function () {}); });
-      loudMounted.push(sel);
-      loudRefresh();   /* 編集の場所がまだ分からなければ隠しておき、setPaths のときに出す */
-    }
-  };
-
   /* ---- autorun(まとめて実行の部品)----
      どの入口(ホームの案件・紐づかない文書・スタジオ ①/③・編集の題名の行・履歴)でも、同じ設定の要約1行 +「設定を変える」+ 始める前の見積もり +
      終わったときの知らせ(ボタンつき)。値は1か所: まとめて実行の形・採用数・カットの方法・上書き・失敗したとき = ホームの設定 autorun(UIKit.prefs)、
-     パックの出力(fps・縦横・話者の色・音量)= 編集の設定(3 パック のタブと同じ。送ったキーだけ直す api/settings/patch)。
+     パックの出力(fps・縦横・話者の色・音量)は決まった形(10-24 から欄なし。flow/spec.pack_output)。
      状態の言葉もここ(サーバーの stateLabel が正。無いときの予備) */
   var AR_STEP = { wait: '待ち', run: '実行中', done: '済み', skip: '飛ばした', warn: '一部失敗', error: '失敗' };
   var AR_RUN = { queued: '待ち', running: '実行中', done: '済み', error: '失敗', cancelled: '中止', nothing: 'やることがありませんでした' };
@@ -1944,13 +1849,8 @@
   var flow = { order: flowOrder, again: flowAgain };
   function arLoad() {
     var pr = prefs.available() ? prefs.get(['autorun']).then(function (p) { return p.autorun || {}; }, function () { return {}; }) : Promise.resolve({});
-    var u = txApiUrl('api/settings');
-    var tx = u ? http(u).catch(function () { return {}; }) : Promise.resolve({});
-    return Promise.all([pr, tx]).then(function (x) {
-      var a = x[0], t = x[1] || {};
-      arState = { mode: a.mode || null, top: +a.top || 3, cut: AR_CUT[a.cut] ? a.cut : 'rows', overwrite: a.overwrite === true, onFail: a.onFail === 'stop' ? 'stop' : 'next',
-                  size: t.packSize === '1920x1080' ? '1920x1080' : '1080x1920', spk: t.speakerColors !== false,
-                  loud: loudNorm(t.packLoudness), vol: volNorm(t.packVolume), pack: !!u };
+    return pr.then(function (a) {
+      arState = { mode: a.mode || null, top: +a.top || 3, cut: AR_CUT[a.cut] ? a.cut : 'rows', overwrite: a.overwrite === true, onFail: a.onFail === 'stop' ? 'stop' : 'next' };
       return arState;
     });
   }
@@ -1959,11 +1859,6 @@
     var bits = [];
     if (kind === 'new' || kind === 'video') bits.push('採用 ' + st.top);   // まとめて実行の形は解析から全部だけ(10-19)
     bits.push(AR_CUT[st.cut]);
-    if (st.pack) {
-      bits.push((st.size === '1920x1080' ? '横' : '縦'));
-      bits.push(st.spk ? '話者の色あり' : '話者の色なし');
-      bits.push(st.loud ? '音量 ' + st.loud + ' LUFS' : '音量 ' + st.vol + '%');
-    }
     bits.push(st.overwrite ? 'パックがあれば作り直す' : 'パックがあれば飛ばす');
     bits.push(st.onFail === 'stop' ? '失敗したら止める' : '失敗したら次へ');
     return bits.join(' ・ ');
@@ -1972,10 +1867,9 @@
     arPanels = arPanels.filter(function (p) { return p.el.isConnected; });
     for (var i = 0; i < arPanels.length; i++) arPanels[i].paint();
   }
-  function arSave(where, values) {
-    var done = where === 'prefs' ? prefs.patch('autorun', values) : txPatch(values);   /* ホームの設定(失敗は UIKit.prefs が知らせる)/ 編集の設定 */
-    return done.then(function () { return arLoad(); }).then(function () { arRepaint(); try { document.dispatchEvent(new CustomEvent('ui-autorun-settings', { detail: arState })); } catch (e) {} },
-      function (e) { if (where !== 'prefs') toastFn('パックの設定を保存できませんでした: ' + e.message, { kind: 'err', ms: 0 }); });
+  function arSave(where, values) {   /* ホームの設定 autorun(失敗は UIKit.prefs が知らせる) */
+    return prefs.patch('autorun', values).then(function () { return arLoad(); }).then(function () { arRepaint(); try { document.dispatchEvent(new CustomEvent('ui-autorun-settings', { detail: arState })); } catch (e) {} },
+      function () {});
   }
   function arEl(tag, attrs, text) {
     var el = document.createElement(tag);
@@ -2007,20 +1901,7 @@
     var c = arSelect([['rows', '行から(文字起こしの行を残す)'], ['none', 'カットしない(動画全体)'], ['silence', '無音で削る']], st.cut);
     c.addEventListener('change', function () { arSave('prefs', { cut: c.value }); });
     box.appendChild(arField('カットの方法', c, 'カットを決めてある文書は、そのカットのとおり。細かい値は「編集」の 2 カット で'));
-    if (st.pack) {
-      var size = arSelect([['1080x1920', '縦 1080×1920'], ['1920x1080', '横 1920×1080']], st.size);
-      size.addEventListener('change', function () { arSave('tx', { packSize: size.value }); });
-      box.appendChild(arField('画面の大きさ', size));
-      var loud = arEl('select');
-      var lf = arField('パックの音量', loud); box.appendChild(lf);
-      packLoud.mount(loud);
-      var spk = arEl('input', { type: 'checkbox' }); spk.checked = st.spk;
-      spk.addEventListener('change', function () { arSave('tx', { speakerColors: spk.checked }); });
-      var sl = arEl('label', { 'class': 'ui-ar-c' }); sl.appendChild(spk); sl.appendChild(document.createTextNode('話者の名前がメンバーと合えば、その話者の字幕をその色に'));
-      box.appendChild(sl);
-    } else {
-      box.appendChild(arEl('p', { 'class': 'ui-ar-h' }, 'パックの出力(fps・縦横・話者の色・音量)は、「編集」が動いていると ここでも変えられます'));
-    }
+    box.appendChild(arEl('p', { 'class': 'ui-ar-h' }, 'パックは決まった形(30fps・縦 1080×1920・音量 -14 LUFS・話者の色)で作ります'));
     var ow = arEl('input', { type: 'checkbox' }); ow.checked = st.overwrite;
     ow.addEventListener('change', function () { arSave('prefs', { overwrite: ow.checked }); });
     var ol = arEl('label', { 'class': 'ui-ar-c' }); ol.appendChild(ow); ol.appendChild(document.createTextNode('パックがあれば作り直す(上書き)'));
@@ -2111,7 +1992,7 @@
         body.textContent = '読み込んでいます…';
         /* 開いた直後(fitPop)は「読み込んでいます…」の 1 行の大きさで置き場所を決めるので、中身を入れたらもう一度置き直す
            (置き直さないと下にはみ出したままになる) */
-        arLoad().then(function () { body.innerHTML = ''; body.appendChild(arForm(kind, opts)); loudRefresh(); p.paint(); if (det.open) fitPop(det); });   /* 文書に入れてから音量の欄に値を入れる(M3) */
+        arLoad().then(function () { body.innerHTML = ''; body.appendChild(arForm(kind, opts)); p.paint(); if (det.open) fitPop(det); });   /* 文書に入れてから音量の欄に値を入れる(M3) */
       });
       arPanels.push(p);
       if (arState) p.paint(); else arLoad().then(arRepaint, function () {});
@@ -2760,7 +2641,7 @@
 
   window.UIKit = { version: 37, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, settingsForm: settingsForm, keys: keysApi, keymap: keymapApi, icon: icon,
-                   confirmTwice: confirmTwice, prefs: prefs, packLoud: packLoud, autorun: autorun, flow: flow, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge, menuOff: menuOff,
+                   confirmTwice: confirmTwice, prefs: prefs, autorun: autorun, flow: flow, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge, menuOff: menuOff,
                    http: http, homeApi: homeApi, homeUrl: homeUrl, copy: copyText, tokenStale: tokenStale, loadScript: loadScript,
                    state: uiState, onEnter: onEnter, armDelete: armDelete, emptyHtml: emptyHtml };
 })();

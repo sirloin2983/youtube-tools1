@@ -55,8 +55,8 @@
   - 名前: `git` :61・`read_removals` :70・`tracked` :90・`apply_removals` :95・`staged_files` :115・`staged_blob` :121・`problems_for` :125・`check` :160・`notes_root` :179・`push_notes` :186・`main` :232
 - **rule_checks.py** (474 行) — 規則(書き方・置き場所・ファイルの形)の見張り。test-trim の規則の担当。
   - 名前: `rule` :27・`read_text` :34・`read_bytes` :39・`rel` :44・`repo_files` :48・`src_py_files` :57・`non_ascii_lines` :67・`bat_problems` :72・`requirements_problems` :83・`rule_bat_ascii_crlf` :97・`rule_requirements_ascii` :108・`push_bat_problems` :117・ほか 22
-- **rule_imports.py** (718 行) — 規則の見張りのうち、ソースを import して突き合わせる物(`dev/rule_checks.py` の続き)。
-  - 名前: `check` :37・`c_adopt_defaults` :86・`c_live_tx_constants` :99・`c_port_ranges` :127・`c_tool_module_names` :134・`schema_shape_problems` :153・`schema_items` :208・`c_settings_schema` :223・`c_studio_schema` :248・`c_portal_title` :263・`c_static_table` :270・`c_spec_consistency` :278・ほか 21
+- **rule_imports.py** (722 行) — 規則の見張りのうち、ソースを import して突き合わせる物(`dev/rule_checks.py` の続き)。
+  - 名前: `check` :37・`c_adopt_defaults` :86・`c_live_tx_constants` :99・`c_port_ranges` :127・`c_tool_module_names` :134・`schema_shape_problems` :155・`schema_items` :210・`c_settings_schema` :225・`c_studio_schema` :250・`c_portal_title` :267・`c_static_table` :274・`c_spec_consistency` :282・ほか 21
 - **run_e2e.py** (132 行) — 画面テスト(e2e)の一式を 1 本ずつ流して、1 本 1 行(所要秒・OK/FAIL の数)で出す。一式の正はこのファイルの SUITE。
   - 名前: `label` :57・`summary` :62・`selected` :69・`run_one` :82・`main` :96
 - **run_unit.py** (191 行) — unittest を層ごと・フォルダごとに流す道具(1 本ずつ別のプロセス)。リポジトリ直下で:

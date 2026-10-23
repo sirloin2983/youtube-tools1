@@ -147,7 +147,9 @@ def c_tool_module_names():
 
 
 SCHEMA_TYPES = ("bool", "enum", "int", "number", "text", "folder", "textarea", "link")
-NO_UI = {"autorun.mode", "live.recorders", "live.liveTx.model"}   # 画面に出さない鍵(mode は案件ごと・recorders は一覧・liveTx.model は固定)
+NO_UI = {"autorun.mode", "live.recorders", "live.liveTx.model",   # 画面に出さない鍵(mode は案件ごと・recorders は一覧・liveTx.model は固定)
+         # 10-24 夜に設定の欄を外して既定に固定した細かい設定(決定 3-161。値は設定のファイルで変えられる)
+         "intake.interval", "backup.everyHours", "accuracy.nightFrom", "accuracy.nightTo", "live.auto.engine", "live.auto.model", "live.auto.pad"}
 
 
 def schema_shape_problems(sc):
@@ -253,7 +255,9 @@ def c_studio_schema():
     if not items:
         out.append("studio の analyze の項目が無い")
     keys = {it["key"].split(".", 1)[1] for it in items}
-    out += ["画面に無い解析の設定: %s" % k for k in analyze.validate_settings({}) if k not in keys and k not in ("noCache", "fill")]   # noCache は 1 回だけの印・fill は自動の流れが採用の本数を渡す(どちらも保存しない)
+    from ytt import settings as _ys
+    out += ["画面に無い解析の設定: %s" % k for k in analyze.validate_settings({}) if k not in keys and k not in ("noCache", "fill") and k not in _ys.ANALYZE_FIXED]   # noCache は 1 回だけの印・fill は自動の流れが採用の本数を渡す(どちらも保存しない)・ANALYZE_FIXED は既定に固定(10-24)
+    out += ["画面に出す解析の設定が ytt/settings.ANALYZE_USER_KEYS と違う: %s" % sorted(keys)] if keys != set(_ys.ANALYZE_USER_KEYS) else []
     out += ["review の項目 %s の型が決まった 4 種でない: %s" % (it["key"], it["type"]) for it in schema_items(sc, "studio")
             if it["key"].startswith("review.") and it["type"] not in ("bool", "enum", "int", "number")]
     return out

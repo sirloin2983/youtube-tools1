@@ -821,7 +821,11 @@ class Store(_studiobook.Ledger):
 
     # ---- 画面の設定(不透明な辞書。self.ui_file = ytt.settings.SettingsFile) ----
     def get_ui(self):
-        return self.ui_file.read()   # 読めなければ空(呼ぶ側が書き換えるので {} は毎回作る)
+        """読めなければ空(呼ぶ側が書き換えるので {} は毎回作る)。解析の節は本数と感度だけ(ほかは既定に固定。10-24 = ytt/settings.analyze_user)"""
+        d = self.ui_file.read()
+        if "analyze" in d:
+            d["analyze"] = _settings.analyze_user(d["analyze"])
+        return d
 
     def set_ui_section(self, name, value):
         """画面の設定のうち1つの節(例: review)だけを置き換える。読み込み→書き込みをロックの中で行うので、

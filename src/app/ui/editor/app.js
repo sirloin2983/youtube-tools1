@@ -883,10 +883,6 @@ $('#docAutoGo').addEventListener('click', startDocAuto);
   $('#docAutoOverwrite').addEventListener('change', e => { UIKit.prefs.patch('autorun', { overwrite: e.target.checked }).catch(() => {}); syncOw(Object.assign({}, UIKit.autorun.state() || {}, { overwrite: e.target.checked })); });
   $('#docAuto').addEventListener('toggle', () => { if ($('#docAuto').open && TOKEN){ UIKit.autorun.panel($('#docAutoPanel'), { kind: 'docs' }); UIKit.autorun.load().then(syncOw, () => {}); } });
 }
-{   // パックの音量(編集の設定 packLoudness の1か所。ほかの画面のまとめて実行の欄で変えたときも、この画面の値を合わせる)
-  UIKit.packLoud.mount($('#docAutoLoud'));
-  document.addEventListener('ui-packloud', e => { if (S.settings && e.detail){ S.settings.packLoudness = e.detail.loud; S.settings.packVolume = e.detail.vol; } });
-}
 $('#docAuto').addEventListener('toggle', () => {   // 開いたとき、配信者の欄を入れ直す(パックのタブで直した名前も覚えた名前になっている)
   if ($('#docAuto').open && S.docId) UIKit.streamer.autoFill($('#docAutoWho'), { docId: S.docId });
 });

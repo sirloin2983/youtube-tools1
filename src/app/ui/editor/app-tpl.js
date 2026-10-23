@@ -184,7 +184,6 @@
            <input id="docAutoWho" type="text" size="14" placeholder="例: さくらみこ" data-ui-streamer></label>
          <label class="lag"><input type="checkbox" id="docAutoOverwrite">パックがあれば作り直す(上書き)</label>
          <div id="docAutoPanel"></div>
-         <label class="lag" title="パックに入れる動画の音量を、カットで残す部分だけ測ってそろえます(パックのタブと同じ設定。どこで変えても同じ値)" hidden>パックの音量 <select id="docAutoLoud" data-ui-packloud></select></label>
          <div class="row"><button type="button" class="btn small primary" id="docAutoGo" title="この文書の残りを、ホームの順番待ちで最後まで進めます">まとめて実行</button></div>
        </div>
      </details>

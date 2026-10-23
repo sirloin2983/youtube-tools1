@@ -5,8 +5,8 @@
 ## src/app/
 
 - **__init__.py** (2 行) — 入口と画面。起動・1 つのポート・API の配線・設定の画面の API。全部の層を使ってよい
-- **autorun.py** (480 行) — まとめて実行(統合計画の段階5)。入口の「案件」の画面から、配信1本ぶんの作業を順に自動で流す。
-  - 名前: `class ToolClient` :103・`spec_from_settings` :184・`live_auto_origin` :202・`class AutoRunner` :213
+- **autorun.py** (470 行) — まとめて実行(統合計画の段階5)。入口の「案件」の画面から、配信1本ぶんの作業を順に自動で流す。
+  - 名前: `class ToolClient` :102・`spec_from_settings` :174・`live_auto_origin` :192・`class AutoRunner` :203
 - **live.py** (496 行) — リアルタイム切り抜き(線 D。notes:plan/line-d-live-clipping.md の 0)の入口の側。**既定はオフ**(ホームの設定の節 live.enabled)。
   - 名前: `studio_review` :98・`studio_audio` :105・`studio_lag` :123・`class Live` :132
   - 受ける口: `/api/peaks` :251・`/api/exports` :258・`/api/info` :270・`/api/begin` :306・`/api/export` :309・`/api/export/cancel` :318・`/api/archive/cancel` :320・`/api/archive` :323
@@ -54,7 +54,7 @@
 ## src/app/ui/cases/panels/
 
 - **cand.js** (191 行) — 案件の画面の「候補」のパネル(#cand。配信全体の候補の採用・不採用・書き出し・LIVE の帯)。口の形は cases.js の先頭の説明。
-- **cut.js** (539 行) — 案件の画面の「カット・パック」のパネル(#cut。残す区間を決めて、末尾で DaVinci Resolve へ渡すパックを作る)。口の形は cases.js の先頭の説明。RS8 C2c。
+- **cut.js** (532 行) — 案件の画面の「カット・パック」のパネル(#cut。残す区間を決めて、末尾で DaVinci Resolve へ渡すパックを作る)。口の形は cases.js の先頭の説明。RS8 C2c。
 - **machpick.js** (159 行) — 校正のパネルの 3 択(RS8 C2b。作り方 notes:docs/design/rs8-cases-build.md の 4 節・決定 3-37 の案 A)。
 - **new.js** (257 行) — 新しい案件のパネル(ホームの引き出し #newDrawer で開く。配信を探す・URL から入れる・解析の順番待ち。RS8 C3)。
 - **proof.js** (188 行) — 案件の画面の「校正」のパネル(#proof。切り抜き 1 本の文字起こしの行を直す)。口の形は cases.js の先頭の説明。RS8 C2b。
@@ -89,13 +89,13 @@
   - 名前: `spById` :8・`markDirty` :10・`setSaveState` :17・`paintSaveState` :20・`saveDoc` :26・`subNum` :62・`readSubtitle` :64・`fillSubtitle` :77・`subtitleReq` :87・`openDoc` :89・`docInfoText` :134・`opts` :145・ほか 100
 - **app-tools.js** (294 行) — app-tools.js — 「編集」の画面: 動画を選び直す・検索と置換・受け渡し・確認のダイアログ・カット・パックのタブとのつなぎ。
   - 名前: `rlSync` :8・`rlReset` :10・`openRelink` :16・`renderRlResult` :23・`rlCheck` :42・`pickPath` :58・`updateDocTitle` :64・`docLength` :70・`renderDocBar` :77・`renderDocBarNow` :79・`syncEval` :95・`evNote` :103・ほか 19
-- **app-tpl.js** (227 行) — app-tpl.js — 「編集」の画面の HTML(window.EditProofTpl)。「校正」の欄(tx)・ダイアログ(dialogs)・題名の行(docbar)・⚙ の編集の節(settings)。
-- **app.js** (951 行) — 案件の画面(/cases)の校正のパネルの口。src/app/ui/cases/edhost.js が app.js より先に window.EditHost を置く = {base(API の頭), keybar(帯), tab(タブ), open(別の文書), opening}。
+- **app-tpl.js** (226 行) — app-tpl.js — 「編集」の画面の HTML(window.EditProofTpl)。「校正」の欄(tx)・ダイアログ(dialogs)・題名の行(docbar)・⚙ の編集の節(settings)。
+- **app.js** (947 行) — 案件の画面(/cases)の校正のパネルの口。src/app/ui/cases/edhost.js が app.js より先に window.EditHost を置く = {base(API の頭), keybar(帯), tab(タブ), open(別の文書), opening}。
   - 名前: `$` :6・`apiUrl` :19・`spColor` :25・`norm` :26・`setSnap` :57・`setStatus` :58・`onLeave` :61・`pctOf` :75・`ago` :78・`runLabelOf` :82・`stepLabelOf` :83・`voiceSec` :93・ほか 31
 - **cut.js** (1184 行) — 「編集」2 カット のタブ(notes:docs/design/edit-tool-design.md の 3・4・8)。app.js より先に読み込み、app.js が EditCut.create(host) で起動する。
   - 名前: `create` :24
 - **doc-kit.js** (91 行) — doc-kit.js — 文書(文字起こしの行・話者)の小さな部品(window.EditDoc)。状態は持たない。
-- **pack-tab.js** (504 行) — 「編集」のパック(2 カット の末尾 #packArea。notes:docs/design/edit-tool-design.md の 3・5)。app.js より先に読み、app.js が EditPack.create(host) で起動する。
+- **pack-tab.js** (464 行) — 「編集」のパック(2 カット の末尾 #packArea。notes:docs/design/edit-tool-design.md の 3・5)。app.js より先に読み、app.js が EditPack.create(host) で起動する。
   - 名前: `create` :11
 
 ## src/app/ui/home/

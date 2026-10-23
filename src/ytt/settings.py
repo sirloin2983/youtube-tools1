@@ -188,6 +188,18 @@ def _settings_file():
     return SettingsFile(_workdata.SETTINGS, max_bytes=SETTINGS_MAX, writer=_write_fsync, indent=1, lock=_settings_lock)
 
 
+# スタジオの解析の設定のうち、画面で変える物(10-24。ほかの 13 項目は設定の欄を外して束の既定 flow/spec.DEFAULTS["analyze"] に固定。
+# 予備 1 の盛り上がりの評価で既定が一番良い・長さと山の前の割合は場面ごとの区間では効かない。保存してある古い値は読み飛ばす)
+ANALYZE_USER_KEYS = ("count", "sensitivity")
+ANALYZE_FIXED = ("useAudio", "useChat", "useComments", "shape", "length", "preRatio", "headSec", "lagAuto", "lag", "chatTimeout",
+                 "wAudio", "wChat", "wComments")   # 画面に出さない(既定に固定)13 項目。dev/rule_imports の C-06 が過不足を見る
+
+
+def analyze_user(an):
+    """スタジオの画面の設定の analyze -> 画面で変える鍵だけ(本数と感度。ほかは読み飛ばす = 既定)"""
+    return {k: an[k] for k in ANALYZE_USER_KEYS if k in an} if isinstance(an, dict) else {}
+
+
 def load_settings():
     """編集の設定(settings.json)。無い・壊れている・dict でなければ {}(毎回新しい dict = 呼ぶ側が書き換えてよい)。
     BOM 付きも読む(メモ帳の「UTF-8 (BOM 付き)」で直されても読めるように)。1 回の要求で何度も使うときは、頭で 1 回読んで渡す"""

@@ -5,7 +5,7 @@
     { "id": "general", "title": "全体", "kind": "general", "hint": "このブラウザだけに覚える見た目(テーマ・文字の大きさ・キーの帯)。ほかの設定は作業データに保存し、どの窓・どのツールから見ても同じです。" },
     { "id": "ytlogin", "title": "YouTube のログイン", "kind": "ytlogin", "hint": "YouTube に bot と判定されて取得・録画・チャットが止められないように、サブの Google アカウントでログインしておきます。ログインの情報はこの PC の作業データ(secrets)だけに置き、外へは出しません。ログインしていなければ今までどおりです。" },
     { "id": "home", "title": "ホーム", "store": "home", "groups": [
-      { "id": "autorun", "title": "まとめて実行の既定", "hint": "案件の行の「設定を変える」で変えた値も、ここと同じ既定になります(どこで変えても同じ)。パックの出力(fps・大きさ・音量)は下の「パック」で。", "items": [
+      { "id": "autorun", "title": "まとめて実行の既定", "hint": "案件の行の「設定を変える」で変えた値も、ここと同じ既定になります(どこで変えても同じ)。パックの出力は決まった形(30fps・縦 1080×1920・音量 -14 LUFS・話者の色・行の後の余白 0.2 秒。10-24 から設定なし)。", "items": [
         { "key": "autorun.top", "type": "int", "label": "採用する数(解析から全部のとき)", "default": 3, "min": 1, "max": 20, "unit": "本" },
         { "key": "autorun.cut", "type": "enum", "label": "カットの方法", "default": "none", "options": [["rows", "行から(文字起こしの行を残す)"], ["none", "カットしない(動画全体)"], ["silence", "無音で削る"]], "hint": "カットを決めてある文書は、そのカットのとおり。無音の細かい値は「パック」の「無音で削る」で。" },
         { "key": "autorun.overwrite", "type": "bool", "label": "パックがあれば作り直す(上書き)", "default": false },
@@ -17,18 +17,14 @@
         { "key": "intake.folder", "type": "folder", "label": "見張るフォルダ", "default": "", "placeholder": "例: C:\\Users\\(あなた)\\Dropbox\\アプリ\\切り抜き依頼", "maxlength": 260, "hint": "友人と共有しているフォルダの場所(ドライブ名からの全部のパス)。Dropbox で「オフラインで利用可能」にしておきます。" },
         { "key": "intake.top", "type": "int", "label": "既定の切り抜く数", "default": 3, "min": 1, "max": 10, "unit": "本", "hint": "依頼に数が書いてないときの数。" },
         { "key": "intake.maxHours", "type": "number", "label": "配信の長さの上限", "default": 8, "min": 1, "max": 24, "step": 1, "unit": "時間", "hint": "これより長い配信の依頼は断ります。" },
-        { "key": "intake.maxGB", "type": "number", "label": "動画の大きさの上限", "default": 20, "min": 1, "max": 200, "step": 1, "unit": "GB" },
-        { "key": "intake.interval", "type": "int", "label": "見る間隔", "default": 30, "min": 10, "max": 600, "step": 5, "unit": "秒" }
+        { "key": "intake.maxGB", "type": "number", "label": "動画の大きさの上限", "default": 20, "min": 1, "max": 200, "step": 1, "unit": "GB" }
       ] },
       { "id": "backup", "title": "作業データのバックアップ", "hint": "作業データ(文字起こし・案件・設定)を別のドライブへ写します。「今すぐ写す」と最後に写した時刻はホームの「バックアップ」で。", "items": [
         { "key": "backup.enabled", "type": "bool", "label": "自動でバックアップする", "default": false, "hint": "写す先のフォルダを決めてからオンにします。" },
-        { "key": "backup.folder", "type": "folder", "label": "写す先のフォルダ", "default": "", "placeholder": "例: D:\\backup", "maxlength": 260, "hint": "作業データとは別のドライブのフォルダ。その中の youtube-tools-data に写します。API キーの設定も写るので、共有のフォルダやクラウドのフォルダは避けてください。" },
-        { "key": "backup.everyHours", "type": "int", "label": "間隔", "default": 24, "min": 1, "max": 168, "unit": "時間" }
+        { "key": "backup.folder", "type": "folder", "label": "写す先のフォルダ", "default": "", "placeholder": "例: D:\\backup", "maxlength": 260, "hint": "作業データとは別のドライブのフォルダ。その中の youtube-tools-data に写します。API キーの設定も写るので、共有のフォルダやクラウドのフォルダは避けてください。" }
       ] },
       { "id": "accuracy", "title": "精度の自動測定", "hint": "校正が済んだ文書で、文字起こしの精度を夜に 1 日 1 回測ります(読むだけで軽い)。結果はホームの「調子」。", "items": [
-        { "key": "accuracy.enabled", "type": "bool", "label": "自動で測る", "default": true },
-        { "key": "accuracy.nightFrom", "type": "int", "label": "夜の窓の開始", "default": 1, "min": 0, "max": 23, "unit": "時", "hint": "開始と終わりは違う時刻にします。開始が終わりより後なら日をまたぎます。" },
-        { "key": "accuracy.nightTo", "type": "int", "label": "夜の窓の終わり", "default": 6, "min": 1, "max": 24, "unit": "時" }
+        { "key": "accuracy.enabled", "type": "bool", "label": "自動で測る", "default": true }
       ] }
     ] },
     { "id": "live", "title": "リアルタイム切り抜き", "store": "home", "hint": "配信中の録画 → 盛り上がりの検出 → 自動の採用 → 書き出し → 文字起こし → パック(線 D)。ここが 1 か所の置き場所です(スタジオの ⚙ の「ライブの録画」も同じ値を直します)。", "groups": [
@@ -41,9 +37,6 @@
       { "id": "live-after", "title": "書き出したあとの自動の流れ", "hint": "新しく頼んだ書き出しから効きます(書き出しを頼んだときの値を覚えて、まとめて実行へ渡します)。", "items": [
         { "key": "live.auto.after", "type": "enum", "label": "書き出したあと(画面・API が指定しないとき)", "default": "auto", "options": [["none", "何もしない"], ["auto", "文字起こし → パック"]], "when": { "key": "live.enabled", "eq": true } },
         { "key": "live.auto.cut", "type": "enum", "label": "パックのカット", "default": "", "options": [["", "ホームの設定のまま"], ["none", "カットしない"], ["silence", "無音で削る"]], "when": { "key": "live.enabled", "eq": true } },
-        { "key": "live.auto.engine", "type": "enum", "label": "文字起こしのエンジン", "default": "", "options": [["", "「編集」の設定のまま"], ["whisper.cpp", "whisper.cpp(GPU)"]], "when": { "key": "live.enabled", "eq": true } },
-        { "key": "live.auto.model", "type": "enum", "label": "モデル", "default": "", "options": [["", "「編集」の設定のまま"], ["large-v3", "large-v3"]], "when": { "key": "live.enabled", "eq": true } },
-        { "key": "live.auto.pad", "type": "number", "label": "自動の採用の前後の余白", "default": 2, "min": 0, "max": 5, "step": 0.5, "unit": "秒", "when": { "key": "live.enabled", "eq": true }, "hint": "配信中の候補の自動の採用と、アーカイブの自動の切り抜きの区間の前後に足します(人が採用した区間には足しません)。" },
         { "key": "live.autoAfterStream", "type": "bool", "label": "配信が終わったら、アーカイブの解析で自動で切り抜く(パックまで)", "default": false, "when": { "key": "live.enabled", "eq": true }, "hint": "アーカイブを解析して点数の高い順に「録画の長さ(時間)× 1 時間あたり」本を採用し、パックまで進めます(依頼の受付のフォルダが決まっていれば、友人へも 1 本ずつ届けます)。" },
         { "key": "live.afterStreamPerHour", "type": "int", "label": "1 時間あたり", "default": 6, "min": 1, "max": 30, "unit": "本", "when": { "key": "live.enabled", "eq": true } }
       ] },
@@ -55,32 +48,15 @@
       ] }
     ] },
     { "id": "studio", "title": "切り抜きスタジオ", "store": "studio", "groups": [
-      { "id": "analyze", "title": "解析(盛り上がりの候補の出し方)", "hint": "既定のままで使えます。変えると次に解析に追加する分から使います(ホームの「まとめて実行」も同じ設定で解析します)。ふだん使うのは本数と感度だけ。ほかは「詳しい調整」の中。", "items": [
-        { "key": "analyze.useAudio", "advanced": true, "type": "bool", "label": "材料: 音声(音量・笑い声や叫びの高音域)", "default": true },
-        { "key": "analyze.useChat", "advanced": true, "type": "bool", "label": "材料: チャットのリプレイ(量・「草」など)", "default": true },
-        { "key": "analyze.useComments", "advanced": true, "type": "bool", "label": "材料: コメント欄の時刻(「12:34 ここ最高」)", "default": true },
+      { "id": "analyze", "title": "解析(盛り上がりの候補の出し方)", "hint": "既定のままで使えます。変えると次に解析に追加する分から使います(ホームの「まとめて実行」も同じ設定で解析します)。画面で変えるのは本数と感度だけ(ほかの値は評価で一番良かった今の既定に固定。10-24)。", "items": [
         { "key": "analyze.count", "type": "int", "label": "本数(最大)", "default": 8, "min": 1, "max": 30, "unit": "本" },
-        { "key": "analyze.shape", "advanced": true, "type": "enum", "label": "区間の形", "default": "scene", "options": [["scene", "場面ごと(盛り上がりの始まり〜収まり。60〜300 秒)"], ["fixed", "固定の長さ(下の「1 本の長さ」)"]], "hint": "場面ごとでも、山が平らで場面が取れないときは「1 本の長さ」で切ります。候補には固定の長さの区間も残ります。" },
-        { "key": "analyze.length", "advanced": true, "type": "number", "label": "1 本の長さ", "default": 45, "min": 10, "max": 300, "step": 1, "unit": "秒", "hint": "区間の形が「固定の長さ」のとき・場面が取れないときの長さ。" },
-        { "key": "analyze.sensitivity", "type": "enum", "label": "感度", "default": "normal", "options": [["high", "高(多めに拾う)"], ["normal", "標準"], ["low", "低(強い場面だけ)"]] },
-        { "key": "analyze.preRatio", "advanced": true, "type": "number", "label": "ピークより前に置く割合", "default": 0.65, "min": 0.3, "max": 0.9, "scale": 100, "step": 1, "unit": "%", "hint": "区間のどこに山を置くか。" },
-        { "key": "analyze.headSec", "advanced": true, "type": "number", "label": "冒頭の減点", "default": 180, "min": 0, "max": 600, "step": 1, "unit": "秒", "hint": "0 で無効。冒頭は挨拶や BGM で誤検出しやすいため、この秒数かけて少しずつ通常の点数に戻します。" },
-        { "key": "analyze.lagAuto", "advanced": true, "type": "bool", "label": "チャットの遅れを自動で推定する", "default": true },
-        { "key": "analyze.lag", "advanced": true, "type": "number", "label": "チャットの遅れ補正(自動で推定できないとき)", "default": 8, "min": 0, "max": 30, "step": 1, "unit": "秒" },
-        { "key": "analyze.chatTimeout", "advanced": true, "type": "int", "label": "チャット取得の待ち時間(上限)", "default": 20, "min": 1, "max": 120, "unit": "分" },
-        { "key": "analyze.wAudio", "advanced": true, "type": "number", "label": "重み: 音声", "default": 1, "min": 0, "max": 3, "step": 0.1 },
-        { "key": "analyze.wChat", "advanced": true, "type": "number", "label": "重み: チャット", "default": 1, "min": 0, "max": 3, "step": 0.1 },
-        { "key": "analyze.wComments", "advanced": true, "type": "number", "label": "重み: コメント", "default": 0.7, "min": 0, "max": 3, "step": 0.1 }
+        { "key": "analyze.sensitivity", "type": "enum", "label": "感度", "default": "normal", "options": [["high", "高(多めに拾う)"], ["normal", "標準"], ["low", "低(強い場面だけ)"]] }
       ] },
       { "id": "review", "title": "確認・書き出し(② の操作)", "hint": "音量・ミュート・並び順・今をマークの長さなど、操作の中で変える値は ② の画面で。", "items": [
         { "key": "review.autoPlay", "type": "bool", "label": "前後のマークへ移動したら、その区間を自動で再生する", "default": true },
         { "key": "review.autoNext", "type": "bool", "label": "「採用」「不採用」を押したら、次の候補へ進む", "default": true },
-        { "key": "review.lag", "type": "enum", "label": "反応の遅れ補正(IN・「今をマーク」)", "default": 0, "options": [[0, "なし"], [2, "2 秒前にずらす"], [3, "3 秒前にずらす"], [5, "5 秒前にずらす"]], "hint": "面白い場面を見てから押すまでの遅れの分だけ、開始を前にずらします。" },
-        { "key": "review.liveMode", "type": "enum", "label": "ライブ判定", "default": "auto", "options": [["auto", "自動(おすすめ)"], ["on", "常にライブとして扱う"], ["off", "常に通常の配信(アーカイブ)として扱う"]], "hint": "ライブなのにライブ用の帯が出ないときだけ「常にライブ」を選びます。" },
         { "key": "review.autoTx", "type": "bool", "label": "書き出しのあと自動でパックまで進める(友人へも送る)", "default": true, "hint": "② の書き出しが終わった切り抜きを、ホームの「まとめて実行」と同じ仕組みで文字起こし → パックまで進めます。依頼の受付のフォルダが決まっていれば、できたパックを友人へ送ります(同じパックは 2 回送りません)。" },
-        { "key": "review.exportTarget", "type": "enum", "label": "書き出す対象", "default": "adopted", "options": [["adopted", "採用のみ(おすすめ)"], ["pending", "採用 + 候補"], ["all", "不採用以外すべて(書き出し済みも)"]] },
-        { "key": "review.exportLoudness", "type": "enum", "label": "音量のそろえ方(LUFS)", "default": -14, "options": [[-14, "-14(YouTube の目安・おすすめ)"], [-11, "-11(大きめ)"], [-16, "-16(控えめ)"], [-18, "-18(小さめ)"], [0, "そろえない(音量 % で指定)"]] },
-        { "key": "review.exportVolume", "type": "int", "label": "書き出しの音量(そろえないとき)", "default": 75, "min": 1, "max": 200, "unit": "%", "when": { "key": "review.exportLoudness", "eq": 0 } }
+        { "key": "review.exportTarget", "type": "enum", "label": "書き出す対象", "default": "adopted", "options": [["adopted", "採用のみ(おすすめ)"], ["pending", "採用 + 候補"], ["all", "不採用以外すべて(書き出し済みも)"]] }
       ] },
       { "id": "studio-other", "title": "出力先・API キー", "items": [
         { "key": "outDir", "type": "folder", "label": "書き出した切り抜き(mp4)の保存先", "default": "", "placeholder": "空 = 標準(作業データの exports)", "maxlength": 400, "hint": "フルパス。ドライブの直下は選べません。何かを処理している間は変えられません。次の書き出しから使います。" },
@@ -90,65 +66,26 @@
     { "id": "editor", "title": "編集(文字起こし)", "store": "editor", "groups": [
       { "id": "recog", "title": "認識の設定", "hint": "次の文字起こしから使います。", "items": [
         { "key": "model", "type": "enum", "label": "モデル", "default": "large-v3", "options": [["large-v3", "large-v3"]], "hint": "初回だけモデルのダウンロード(約 3GB)があります。" },
-        { "key": "language", "type": "enum", "label": "言語", "default": "ja", "options": [["ja", "日本語"], ["en", "英語"], ["ko", "韓国語"], ["zh", "中国語"], ["auto", "自動判定"]] },
-        { "key": "quality", "type": "enum", "label": "品質", "default": "best", "options": [["best", "精度優先"], ["fast", "速度優先"]] },
         { "key": "device", "type": "enum", "label": "処理方式", "default": "vulkan", "options": [["vulkan", "GPU(whisper.cpp)"]], "hint": "GPU の whisper.cpp(Vulkan)で文字起こしします(setup の build-whisper-vulkan.bat で作ります)。用語集は渡りません。" },
-        { "key": "vadMode", "type": "enum", "label": "無音・BGM の扱い(声の検出)", "default": "weak", "options": [["weak", "弱め(声が抜けにくい・おすすめ)"], ["normal", "標準(BGM での誤認識が減る)"], ["off", "使わない"]], "hint": "「抜ける」ときは「弱め」か「使わない」、「無い文が出る」ときは「標準」を試します。" },
-        { "key": "boost", "type": "bool", "label": "小さい声を持ち上げる(音量をそろえる)", "default": false },
-        { "key": "wordSplit", "type": "bool", "label": "単語の時刻で、長い行を分ける・行の時刻を声のある所にそろえる", "default": true, "hint": "認識は少し遅くなります(数%〜2 割程度)。" },
         { "key": "subtitle.orientation", "type": "enum", "label": "字幕の向き", "default": "vertical", "options": [["vertical", "縦(ショート)"], ["horizontal", "横"]], "hint": "長い行は、選んだ向きの文字数を超えないように分けます。" },
         { "key": "subtitle.maxChars.vertical", "type": "int", "label": "行の文字数の上限(縦)", "default": 16, "min": 4, "max": 80, "unit": "文字" },
-        { "key": "subtitle.maxChars.horizontal", "type": "int", "label": "行の文字数の上限(横)", "default": 28, "min": 4, "max": 80, "unit": "文字" },
-        { "key": "subtitle.splitChars", "type": "int", "label": "行を分ける文字数", "default": 24, "min": 8, "max": 80, "unit": "文字", "hint": "認識のあと、これより長い行を間・句読点で分けます(10-08 の実験で 24 に。線 B)。" }
+        { "key": "subtitle.maxChars.horizontal", "type": "int", "label": "行の文字数の上限(横)", "default": 28, "min": 4, "max": 80, "unit": "文字" }
       ] },
       { "id": "post", "title": "自動の後処理(文字起こしが終わったら)", "items": [
-        { "key": "stripPunct", "type": "bool", "label": "句読点(、。？！)を取り除く(テロップ向け)", "default": true },
-        { "key": "autoDict", "type": "bool", "label": "置換辞書を自動で適用する", "default": true },
-        { "key": "autoGloss", "type": "bool", "label": "よく直される語を、用語集に自動で足す", "default": true },
         { "key": "autoContext", "type": "bool", "label": "配信に出る人の名前と呼び名を、用語集の語として自動で使う(名簿から。認識には渡りません)", "default": false },
         { "key": "autoLearned", "type": "bool", "label": "学習済みの置換のうち確度が高いものを自動で適用する(慣れるまではオフ推奨)", "default": false },
-        { "key": "autoFill", "type": "bool", "label": "文字の少ない行を別のエンジンの読みで埋め、名簿の呼び名に直す", "default": true, "hint": "初回は 163MB のモデルを取得します。評価用の文書には何もしません。" },
-        { "key": "stripNames", "type": "bool", "label": "行の頭の話者名(「リリー:」のような形)を外す", "default": true, "hint": "whisper が字幕の形をまねて名前を付けることがあります。外した行は「別の読み」の札で戻せます。評価用の文書には何もしません。" },
-        { "key": "autoLlm", "type": "bool", "label": "名前の聞き違いらしい所を手元の LLM で直す(GPU)", "default": true, "hint": "名簿の呼び名と 1 字違いの所だけ Qwen3-8B で直します。モデルは作業データの models/llm-gguf。" },
         { "key": "autoAlt", "type": "bool", "label": "別のエンジンでも聞いて、食い違う所に候補を出す(試験中)", "default": false },
-        { "key": "altEngine", "type": "enum", "label": "別のエンジン", "default": "llama.cpp", "options": [["llama.cpp", "Qwen3-ASR 1.7B(GPU)"]], "validated": true, "when": { "key": "autoAlt", "eq": true } },
-        { "key": "diarSmooth", "type": "bool", "label": "短い 1 行だけ別の人になるのをならす(試験中)", "default": false, "validated": true },
-        { "key": "checkSectionCardsOn", "type": "bool", "label": "確かめるの評価のレーンに区間カードを出す", "default": true, "validated": true, "hint": "評価用の動画を頭から 20〜40 秒の区間に分けて聞き、行を直す・足す・話者を選ぶカードです。答えた行は正解(校正済み)になります。編集の画面の評価ドリルはそのまま使えます。" },
-        { "key": "checkCutCardsOn", "type": "bool", "label": "確かめるに機械のカットのカードを出す", "default": true, "validated": true, "hint": "自動で切った切れ目・消した所・仕上がりを 1 本 5 枚まで聞いて答えます。答えは機械のカットの物差しの記録になるだけで、カットもパックも変えません。" }
+        { "key": "diarSmooth", "type": "bool", "label": "短い 1 行だけ別の人になるのをならす(試験中)", "default": false, "validated": true }
       ] },
       { "id": "text", "title": "用語集・置換辞書", "items": [
         { "key": "glossary", "type": "textarea", "label": "用語集(1 行に 1 語。名前や固有名詞)", "default": "", "maxlength": 4000, "placeholder": "例:\n白上フブキ\nホロライブ", "hint": "今の文字起こし(GPU の whisper.cpp)では、認識には渡しません(渡すと声の少ない所で名前を書き写して精度が下がるため)。かなに寄せて 4 字以上の語は、LLM の後処理で聞き違い(1 字違い)を直す候補に使います。行の頭の話者名を外す・英字の注意を出さない語にも使います。直らない名前は置換辞書に足します。名前や呼び名はここに 1 行ずつ足します。" },
         { "key": "replacements", "type": "textarea", "label": "置換辞書(1 行に「誤=>正」)", "default": "", "maxlength": 20000, "placeholder": "例:\nふぶき=>フブキ", "hint": "どの文字起こしにも使えます。|誤|=>正 と縦棒で挟むと、カタカナ・漢字・英数字の並びの途中には当てません。" }
       ] }
     ] },
-    { "id": "pack", "title": "パック(DaVinci Resolve へ渡す)・カット", "store": "editor", "hint": "パックを作るときの値。出力先は作るたびに 2 カット の「これから作るパック」で。", "groups": [
-      { "id": "pack-out", "title": "置き先のプロジェクト(Resolve で作るもの)", "items": [
-        { "key": "packSize", "type": "enum", "label": "画面の大きさ", "default": "1080x1920", "options": [["1080x1920", "縦 1080×1920(ショート)"], ["1920x1080", "横 1920×1080"]], "validated": true, "hint": "字幕の位置・大きさをこれに合わせます。縦に切り取る作業は Resolve で。" }
-      ] },
-      { "id": "pack-in", "title": "パックに入れるもの", "items": [
-        { "key": "packLoudness", "type": "enum", "label": "音量のそろえ方(LUFS)", "default": 0, "options": [[0, "音量を % で決める(今までの動き)"], [-14, "-14 LUFS(YouTube と同じくらい)"], [-11, "-11(大きめ)"], [-16, "-16(少し小さめ)"], [-18, "-18(小さめ)"]], "validated": true, "hint": "カットで残す部分だけを測って、パックに入れる動画の音量をそろえます(映像はそのまま)。" },
-        { "key": "packVolume", "type": "int", "label": "音量(元の音量 = 100)", "default": 30, "min": 1, "max": 200, "step": 5, "unit": "%", "validated": true, "when": { "key": "packLoudness", "eq": 0 } },
-        { "key": "speakerColors", "type": "bool", "label": "話者の名前がメンバーと合えば、その話者の字幕をその色にする", "default": true, "validated": true }
-      ] },
-      { "id": "pack-sub", "title": "字幕(Text+)", "items": [
-        { "key": "subtitle.wrapChars.vertical", "type": "int", "label": "1 段の文字数(縦)", "default": 8, "min": 2, "max": 40, "unit": "文字", "hint": "置き先が縦なら縦の値、横なら横の値で 2 段にします(文字起こしの行を分ける文字数とは別)。" },
-        { "key": "subtitle.wrapChars.horizontal", "type": "int", "label": "1 段の文字数(横)", "default": 14, "min": 2, "max": 40, "unit": "文字" },
-        { "key": "rowEdge.padAfter", "type": "number", "label": "行の後の余白", "default": 0.2, "min": 0, "max": 2, "step": 0.05, "unit": "秒", "hint": "語尾が切れるときに延ばします。「行から」のカットと、まとめて実行で「行から」を選んだときに効きます。" }
-      ] },
-      { "id": "cut", "title": "カット(2 カット のたたき台)", "items": [
-        { "key": "rowEdge.on", "type": "bool", "label": "行の端を声の止まる所まで広げる", "default": true, "hint": "語頭・語尾が切れないように、残す区間の端を無音の所まで広げます(字幕の時刻は変えません)。" },
-        { "key": "rowEdge.after", "type": "number", "label": "終わりを広げる上限", "default": 0.5, "min": 0, "max": 2, "step": 0.05, "unit": "秒", "when": { "key": "rowEdge.on", "eq": true } },
-        { "key": "rowEdge.before", "type": "number", "label": "始まりを広げる上限", "default": 0.3, "min": 0, "max": 2, "step": 0.05, "unit": "秒", "when": { "key": "rowEdge.on", "eq": true } },
-        { "key": "cutSilence.noise", "type": "number", "label": "無音で削る: 無音とみなす音量", "default": -35, "min": -90, "max": 0, "step": 1, "unit": "dB", "validated": true, "hint": "大きくする(-30 など)と、小さな音も無音として削ります。" },
-        { "key": "cutSilence.min", "type": "number", "label": "無音で削る: 無音の長さ", "default": 0.6, "min": 0.05, "max": 60, "step": 0.05, "unit": "秒", "validated": true },
-        { "key": "cutSilence.pad", "type": "number", "label": "無音で削る: 話の前後に残す秒数", "default": 0.15, "min": 0, "max": 10, "step": 0.05, "unit": "秒", "validated": true }
-      ] }
-    ] },
     { "id": "analytics", "title": "分析と日報", "store": "analytics", "hint": "チャンネルの数字を Apps Script の連携から受け取り、日報・週報・月報を作って LINE へ。URL と合言葉は「分析と日報」の画面で入れます。", "groups": [
       { "id": "analytics-main", "title": "日報", "items": [
         { "key": "enabled", "type": "bool", "label": "新しいデータが来たら自動で作って送る", "default": true },
         { "key": "planPerWeek", "type": "int", "label": "予定の週のショートの本数", "default": 28, "min": 1, "max": 140, "unit": "本" },
-        { "key": "boundary", "type": "text", "label": "境目の日(見込みを前後 2 通りで出す日)", "default": "2026-10-01", "pattern": "^20(2[6-9]|30)-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$", "patternText": "2026-01-01 〜 2030-12-31 の日付(YYYY-MM-DD)", "placeholder": "YYYY-MM-DD" },
         { "key": "connect", "type": "link", "label": "ウェブアプリの URL・合言葉・つながるか確かめる", "link": { "href": "analytics/", "label": "分析と日報を開く" } }
       ] }
     ] },

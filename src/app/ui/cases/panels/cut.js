@@ -59,7 +59,7 @@
    <span class="tt-split" role="group" aria-label="行からのたたき台"><button type="button" class="btn small ghost" id="cutDraftRows" title="文字起こしの行(カット済でない・文字のある行)の時間を残します。端は声の止まる所まで広げます(zip と、まとめて実行で「行から」を選んだときと同じ規則)">行から</button>
    <details class="pop" id="cutRowEdge"><summary class="btn small ghost icon" aria-label="「行から」の設定" title="「行から」の設定(行の端を声の止まる所まで広げる)"><span class="ui-caret" aria-hidden="true"></span></summary><div class="vpop">
      <label class="lag"><input type="checkbox" id="cutEdgeOn" checked>行の端を声の止まる所まで広げる</label>
-     <p class="hint">語頭・語尾が切れないように、残す区間の端を無音の所まで広げます(字幕の時刻は変えません)。無音が見つからないときは 前 0.1 秒・<span id="cutEdgePad">後 0.2 秒</span>(後ろの余白は下の「パックの設定」で変えられます)。カット済の行は越えません</p>
+     <p class="hint">語頭・語尾が切れないように、残す区間の端を無音の所まで広げます(字幕の時刻は変えません)。無音が見つからないときは 前 0.1 秒・<span id="cutEdgePad">後 0.2 秒</span>(後ろの余白は決まった値)。カット済の行は越えません</p>
      <div class="fld"><label for="cutEdgeAfter">終わりを広げる上限(秒)</label><input id="cutEdgeAfter" type="number" value="0.5" min="0" max="2" step="0.05"></div>
      <div class="fld"><label for="cutEdgeBefore">始まりを広げる上限(秒)</label><input id="cutEdgeBefore" type="number" value="0.3" min="0" max="2" step="0.05"></div>
      <p class="hint">この設定は、まとめて実行で「行から」を選んだときにも使います(まとめて実行のカットの決め方はホームの設定)</p>
@@ -105,7 +105,7 @@
        <h3 class="tt-pk-h">前回の設定</h3>
        <p class="hint tt-pk-sumrow"><span class="ui-streamer-sw" id="pkSummarySw" hidden aria-hidden="true"></span><span id="pkSummaryText"></span></p>
        <p class="hint tt-pk-place" id="pkPlace"></p>
-       <div class="row" style="margin-top:8px"><button type="button" class="btn" id="pkSettingsBtn" title="下の「パックの設定」へ移ります(大きさ・音量・字幕の色・行の後の余白)"><span class="ui-icon" data-icon="gear" aria-hidden="true"></span> 設定を変える</button></div>
+       <div class="row" style="margin-top:8px"><button type="button" class="btn" id="pkSettingsBtn" title="下の「パックの決まり」へ移ります(大きさ・音量・字幕の色・行の後の余白。10-24 から設定なし)">パックの決まり</button></div>
      </div>
      <div class="card tt-pk-card">
        <h3 class="tt-pk-h">これから作るパック</h3>
@@ -128,23 +128,16 @@
        </details>
      </div>
      <section class="card tt-pk-card" id="edSetPack" aria-labelledby="edSetPackT">
-       <h3 class="tt-pk-h" id="edSetPackT">パックの設定</h3>
-       <p class="hint" style="margin:0 0 6px">Resolve へ渡すパックの決まり。変えるとすぐ保存し、ここの「パックを作る」とホームのまとめて実行の両方に効きます。字幕の 1 段の文字数・字幕の向きは、ホームの設定の編集の節にあります。</p>
-       <div class="tt-pk-row" id="pkFpsFixedRow"><span class="tt-pk-l"><abbr class="ui-term" title="1秒あたりのコマ数。素材は 30fps にそろえてあるので、Resolve のプロジェクトも 30fps で作ります">フレームレート</abbr></span>
-         <span id="pkFpsFixed">素材とプロジェクトは 30fps</span></div>
-       <div class="tt-pk-row"><span class="tt-pk-l">画面の大きさ</span>
-         <div class="ui-seg" id="pkSize" role="group" aria-label="画面の大きさ"><button type="button" data-v="1080x1920">縦 1080×1920</button><button type="button" data-v="1920x1080">横 1920×1080</button></div></div>
-       <p class="hint tt-pk-p">字幕の位置・大きさをこれに合わせます。縦に切り取る作業(クロップ)は Resolve で行います。</p>
-       <div class="tt-pk-row"><label class="tt-pk-l" for="pkLoud">音量のそろえ方(<abbr class="ui-term" title="聞こえ方の音量(ラウドネス)の単位。YouTube は再生時に約 -14 LUFS に下げます">LUFS</abbr>)</label>
-         <select id="pkLoud" title="カットで残す部分だけを測って、パックに入れる動画の音量をそろえます(映像はそのまま)"><option value="-14">-14 LUFS(YouTube と同じくらい・おすすめ)</option><option value="-11">-11 LUFS(大きめ)</option><option value="-16">-16 LUFS(少し小さめ)</option><option value="-18">-18 LUFS(小さめ)</option><option value="0">音量を % で決める</option></select>
-         <span id="pkVolBox" hidden><input id="pkVol" type="number" min="1" max="200" step="5" style="width:4.5em" aria-label="音量(%。元の音量 = 100)" title="元の音量を 100 としたときの大きさ(%)。小さくするなら 100 より下">%</span></div>
-       <p class="hint tt-pk-p">LUFS = 聞こえ方の大きさ(数字が小さいほど小さい音)。カットで残す部分だけを測って、パックに入れる動画の音声をその大きさにそろえます。単位が分かりにくいときは「音量を % で決める」(元の音量 = 100%)。映像はそのまま・元の動画は書き換えません。</p>
-       <label class="lag tt-pk-spk" title="話者の名前がメンバーと1人に合えば、その話者の字幕だけ文字をその人の色にします。合わない話者は配信者の色(無ければ黒)のままです">
-         <input type="checkbox" class="ui-switch" id="pkSpk" checked>話者の名前がメンバーと合えば、その話者の字幕をその色に</label>
+       <h3 class="tt-pk-h" id="edSetPackT">パックの決まり</h3>
+       <p class="hint" style="margin:0 0 6px">Resolve へ渡すパックは、いつもこの形で作ります(ここの「パックを作る」とホームのまとめて実行で同じ。10-24 から設定なし)。</p>
+       <ul class="hint tt-pk-fixed">
+         <li>素材とプロジェクトは 30fps</li>
+         <li>縦 1080×1920(縦に切り取る作業(クロップ)は Resolve で)</li>
+         <li>音量: カットで残す部分だけを測って -14 LUFS にそろえる(YouTube と同じくらい。映像と元の動画はそのまま)</li>
+         <li>話者の名前がメンバーと合えば、その話者の字幕をその色に</li>
+         <li>行の後の余白 0.2 秒(「行から」のたたき台で、行の終わりに無音が見つからないとき)</li>
+       </ul>
        <div class="hint tt-pk-spklist" id="pkSpkList"></div>
-       <div class="fld" style="margin-top:10px"><label for="pkPadAfter">行の後の余白(秒)</label><input id="pkPadAfter" type="number" min="0" max="2" step="0.05" value="0.2" style="width:5em" title="語尾が切れるときに延ばします。「行から」のたたき台で、行の終わりに無音が見つからないときの決まった余白(既定 0.2 秒)">
-         <span class="hint">語尾が切れるときに延ばします(既定 0.2 秒)。「行から」のたたき台と、まとめて実行で「行から」を選んだときに効きます。前の余白 0.1 秒は変わりません</span>
-         <span class="hint" id="pkPadAfterNote"></span></div>
      </section>
    </div>
    <div class="tt-pk-col">

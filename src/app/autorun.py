@@ -86,7 +86,6 @@ RESUME_WAIT = 120.0                  # 戻した実行は、使うツールが�
 # 指定の束を画面の設定から組む(RS6 b-0。build_spec)。段は GET /api/settings を読まず、実行を始めるときに組んだ束を読む
 STUDIO_UI_FILE = "settings-ui.json"   # スタジオの画面の設定(スタジオの作業データ。human/review/store の ui_file と同じ名前)
 EDIT_SETTINGS_FILE = "settings.json"  # 編集の設定(編集の作業データ。ytt/workdata の SETTINGS と同じ名前)
-LUFS = (-11, -14, -16, -18)           # 聞こえ方をそろえる目標(スタジオの書き出し・編集のパックの選択肢)
 ROW_EDGE_NOTE = "「行から」の設定の形が正しくないので、既定の広げ方で作りました(「編集」の 2 カット の「行から」で直せます)"
 STEP_TOOLS = {"analyze": ("studio",), "adopt": ("studio",), "export": ("studio",), "transcribe": ("transcribe",), "diarize": ("transcribe",),
               "pack": ("transcribe", "cut2resolve"), "deliver": ()}
@@ -146,30 +145,21 @@ class ToolClient:
         return obj
 
 
-def _lufs(v):
-    return v in LUFS and not isinstance(v, bool)
-
-
 def _settings_want(studio, editor, autorun):
     """画面の設定 -> 束の節ごとの値(検査の前)と、直した所の知らせ。
-    切り出しの精密・画質の上限・パックの fps は読まない(固定 = 決定 3-30 Q2。RS7-1 S4)・用語集も読まない(編集の受付が自分の設定から読む)"""
+    切り出しの精密・画質の上限・パックの fps は読まない(固定 = 決定 3-30 Q2。RS7-1 S4)・用語集も読まない(編集の受付が自分の設定から読む)。
+    書き出しの音量・パックの大きさ・音量・話者の色も読まない(10-24 から設定の欄なし = 束の既定に固定。パックの音は flow/spec.pack_output が -14 LUFS)"""
     an = studio.get("analyze") if isinstance(studio.get("analyze"), dict) else {}
-    rv = studio.get("review") if isinstance(studio.get("review"), dict) else {}
     tx = editor
     sub = tx.get("subtitle") if isinstance(tx.get("subtitle"), dict) else {}
     wrap = sub.get("wrapChars") if isinstance(sub.get("wrapChars"), dict) else {}
     cs = tx.get("cutSilence") if isinstance(tx.get("cutSilence"), dict) else {}
-    vol, loud, pack_loud = rv.get("exportVolume"), rv.get("exportLoudness", -14), tx.get("packLoudness", 0)
     post_keys = _spec.TX_POST_KEYS + ("autoFill", "stripNames", "autoLlm", "autoContext", "diarSmooth")
     want = {
-        "analyze": {k: an[k] for k in _spec.DEFAULTS["analyze"] if k in an},   # スタジオの画面で保存した解析の設定(段階7-1)
-        "export": dict({"loudness": loud if _lufs(loud) else None},             # スタジオの ③ の書き出しの設定
-                       **({"volume": int(vol)} if _num(vol) and 1 <= vol <= 200 else {})),
+        "analyze": _settings.analyze_user(an),   # スタジオの画面で保存した解析の設定は本数と感度だけ(ほかは束の既定に固定。10-24)
         "transcribe": dict({k: tx[k] for k in _spec.TX_TRANSCRIBE_KEYS if k in tx}, engine=_spec.implied_engine(tx.get("device"))),
         "post": dict({k: tx[k] for k in post_keys if k in tx}, **({"splitChars": sub["splitChars"]} if "splitChars" in sub else {})),
-        "pack": {"size": tx.get("packSize"), "loudness": pack_loud if _lufs(pack_loud) else 0, "volume": tx.get("packVolume", 30),
-                 "speakerColors": tx.get("speakerColors") is not False,
-                 "wrapChars": {k: wrap[k] for k in ("vertical", "horizontal") if k in wrap},
+        "pack": {"wrapChars": {k: wrap[k] for k in ("vertical", "horizontal") if k in wrap},
                  "cutSilence": {k: cs[k] for k in ("noise", "min", "pad") if _num(cs.get(k))}, "cut": autorun.get("cut")},
     }
     notes = []

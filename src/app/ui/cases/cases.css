@@ -172,8 +172,7 @@
 /* パック(2 カット の末尾。設定は ⚙ の「パック」の節 #edSetPack) */
 .tt-pack{margin-top:22px;padding-top:16px;border-top:1px solid var(--line)}
 .tt-pack-h{margin:0 0 10px;font:650 16px/1.35 var(--font-display)}
-#edSetPack .tt-pk-row{margin:6px 0}
-#edSetPack .tt-pk-l{min-width:9em}
+#edSetPack .tt-pk-fixed{margin:0 0 6px;padding-left:1.2em}
 .tt-pk-off{margin:0 0 12px}
 .tt-pk-sumrow{display:flex;align-items:center;gap:7px;margin:0}   /* 前回の設定の要約 + 配信者の色の丸(段3。既定は色が無いので隠す) */
 .tt-pk-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}

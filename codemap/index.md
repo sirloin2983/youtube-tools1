@@ -5,16 +5,16 @@
 
 | 層 | md | ファイル | 行 |
 |---|---|---|---|
-| ytt(基盤) | [ytt.md](ytt.md) | 53 | 11683 |
+| ytt(基盤) | [ytt.md](ytt.md) | 53 | 11619 |
 | ① pipeline(道具 = データを加工する) | [pipeline.md](pipeline.md) | 80 | 27367 |
-| ② flow(管理 = いつ・どの順で・どこに置くか) | [flow.md](flow.md) | 94 | 30636 |
-| ③ human(人の操作) | [human.md](human.md) | 62 | 17532 |
+| ② flow(管理 = いつ・どの順で・どこに置くか) | [flow.md](flow.md) | 94 | 30635 |
+| ③ human(人の操作) | [human.md](human.md) | 62 | 17536 |
 | ④ manage(データ) | [manage.md](manage.md) | 43 | 11114 |
 | ⑤ eval(検証) | [eval.md](eval.md) | 37 | 15562 |
-| src/app(入口と画面) | [app.md](app.md) | 87 | 32386 |
+| src/app(入口と画面) | [app.md](app.md) | 87 | 32308 |
 | src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 48 | 19063 |
-| その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 19 | 10385 |
-| dev・setup(開発の道具) | [dev.md](dev.md) | 61 | 16603 |
+| その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 19 | 10261 |
+| dev・setup(開発の道具) | [dev.md](dev.md) | 61 | 16607 |
 | friend-apps・chrome-ext(C# のアプリ・拡張) | [apps.md](apps.md) | 19 | 9060 |
 
 ## `/api/...` の口(受ける所 → 呼ぶ所)
@@ -142,8 +142,8 @@
 - `/api/restore` — src/editor/serve.py:234 ← app.js
 - `/api/retime` — src/editor/serve.py:245 ← app-rows.js
 - `/api/roster` — src/editor/serve.py:189 ← app-learn.js
-- `/api/settings` — src/editor/serve.py:406・src/editor/serve.py:455・src/studio/serve.py:186 ← cand.js・cut.js・app-core.js・pack-tab.js・settings.js ほか 6
-- `/api/settings/patch` — src/editor/serve.py:233 ← cut.js・app-core.js・settings.js・ui-kit.js
+- `/api/settings` — src/editor/serve.py:406・src/editor/serve.py:455・src/studio/serve.py:186 ← cand.js・cut.js・app-core.js・settings.js・queue.js ほか 4
+- `/api/settings/patch` — src/editor/serve.py:233 ← cut.js・app-core.js・settings.js
 - `/api/shutdown` — src/app/server.py:634・src/friendapp/server.py:468 ← friend_preflight.py・Launcher.cs・portal.js・host.js
 - `/api/siblings` — src/cut2resolve/serve.py:331・src/cut2resolve/serve.py:95・src/editor/serve.py:188 ← app-core.js
 - `/api/speakers/sub` — src/editor/serve.py:230 ← autorun.py

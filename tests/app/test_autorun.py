@@ -610,7 +610,7 @@ class TestModes(Base):
         run = self.run_one("export")
         self.assertEqual(run["state"], "done", run)
         self.assertEqual(self.states(run), {"export": "done", "transcribe": "done", "pack": "done"})
-        self.assertEqual((self.tools.export_body["markIds"], self.tools.export_body["volume"]), (["m1"], 60))   # スタジオの設定の音量
+        self.assertEqual((self.tools.export_body["markIds"], self.tools.export_body["volume"]), (["m1"], 75))   # 書き出しの音量は束の既定(10-24 から設定の欄なし = スタジオの保存値は読まない)
         self.assertEqual(self.tools.tx_jobs["t1"]["body"]["sourcePath"], self.tools.clip_path("m1"))
         self.assertNotIn("secret", self.tools.tx_jobs["t1"]["body"])   # 知らない設定は渡さない
         self.assertEqual(self.tools.c2r["body"]["spec"]["preset"], "transcript-rows")
@@ -1615,10 +1615,11 @@ class TestSpecFromSettings(unittest.TestCase):
                   "speakerColors": False, "packLoudness": 0, "packVolume": 70, "packSize": "1920x1080", "packFps": "60", "packBackup": True,
                   "secret": "使わない"}
         b, notes = A.spec_from_settings(studio, editor, {"cut": "silence"})
-        self.assertEqual(({k: b["analyze"][k] for k in studio["analyze"]}, b["export"]["volume"], notes), (studio["analyze"], 60, []))
+        self.assertEqual((b["analyze"]["count"], b["analyze"]["sensitivity"], b["export"]["volume"], notes), (5, "high", 75, []))
+        self.assertEqual((b["analyze"]["length"], b["analyze"]["useChat"]), (45, True))   # 解析は本数と感度だけ読む・書き出しの音量は読まない(10-24 から固定)
         p = b["pack"]
         self.assertEqual((p["rowEdge"], p["wrapChars"], p["speakerColors"], p["loudness"], p["volume"], p["size"], p["cut"]),
-                         (editor["rowEdge"], {"vertical": 9, "horizontal": 14}, False, 0, 70, "1920x1080", "silence"))
+                         (editor["rowEdge"], {"vertical": 9, "horizontal": 14}, True, 0, 30, "1080x1920", "silence"))   # 大きさ・音量・話者の色は読まない(10-24 から固定)
         self.assertEqual(SP.pack_output(b)[1]["textplusFps"], "30")   # fps・画質の上限は読まない(固定)
         self.assertNotIn("backup", p)
         self.assertNotIn("secret", json.dumps(b, ensure_ascii=False))   # 知らない設定は束に入れない
@@ -1646,7 +1647,7 @@ class TestToolSettingsFiles(Base):
         with mock.patch.object(A.AutoRunner, "_tool_settings", _REAL_TOOL_SETTINGS):
             bundle, notes = self.r.build_spec()
         # 画質の上限(review.maxHeight)は読まない(固定 = 上限なし)
-        self.assertEqual((bundle["analyze"]["count"], bundle["transcribe"]["model"], bundle["pack"]["size"], notes), (5, "large-v3", "1920x1080", []))
+        self.assertEqual((bundle["analyze"]["count"], bundle["transcribe"]["model"], bundle["pack"]["size"], notes), (5, "large-v3", "1080x1920", []))   # パックの大きさは縦に固定(10-24)
 
     def test_build_spec_uses_home_cut(self):
         self.set_prefs(cut="silence")
@@ -1858,7 +1859,7 @@ class TestSubmitBase(Base):
         self.tools.tx_extra = {"model": "large-v3", "quality": "fast"}
         with mock.patch.object(self.r, "_wake", lambda: None):
             run = self.queued(self.r.submit(*O.order("url", video_id=VID, from_="export")))
-        self.assertEqual((run.spec["export"]["loudness"], run.spec["export"]["volume"], run.spec["transcribe"]["quality"]), (-16, 60, "fast"))
+        self.assertEqual((run.spec["export"]["loudness"], run.spec["export"]["volume"], run.spec["transcribe"]["quality"]), (-14, 75, "fast"))   # 書き出しの音量は束の既定(10-24)
         self.assertEqual((run.mode, run.spec["run"]["upto"], run.spec["run"]["onFail"]), ("full", "pack", "next"))   # 書き出しからパックまで = 書き出しから全部(full + run.from export)
 
     def test_full_bundle_wins_over_base(self):
