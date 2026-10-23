@@ -949,8 +949,6 @@
     if (total) $('#unlinkedCount').textContent = total + '件';   // ホームの数(txindex の unlinked)
   }
 
-
-
   /* ================================================================ 調子(段9 9-1。/api/health。数字は入口、良い/注意/悪い の判定はここ) ================================================================ */
   var GB = 1024 * 1024 * 1024;
   function fmtBytes(b) { b = Number(b) || 0; return b >= GB ? (b / GB).toFixed(b >= 10 * GB ? 0 : 1) + ' GB' : b >= 1048576 ? Math.round(b / 1048576) + ' MB' : b >= 1024 ? Math.round(b / 1024) + ' KB' : b + ' B'; }
