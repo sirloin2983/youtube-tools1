@@ -72,7 +72,7 @@
 - **__init__.py** (2 行) — ① 文字起こし: 認識(エンジン・ワーカー)・話者・後処理(埋める・LLM・時刻)・名簿と辞書を読む。認識(重い)と後処理(軽い)で鍵を分ける
 - **backend.py** (119 行) — サーバー側の認識の本物と疑似の差し込み口。
   - 名前: `mode` :18・`is_fake` :23・`class Backend` :28・`set_selector` :111・`select` :116
-- **clipjob.py** (74 行) — ① 文字起こしのジョブの機械の文書の行を作る(make_doc_rows)。
+- **clipjob.py** (71 行) — ① 文字起こしのジョブの機械の文書の行を作る(make_doc_rows)。
   - 名前: `make_doc_rows` :17
 - **diarize.py** (550 行) — ① 自動の流れの層 pipeline/transcribe: 話者判別の計算(sherpa-onnx)と判別の記録・声の特徴と覚えた声との照らし合わせ。
   - 名前: `diar_threads` :59・`has_sherpa` :65・`diar_models_dir` :71・`diar_info` :84・`ensure_diar_models` :114・`diar_tune` :145・`diarize_real` :161・`assign_speakers` :203・`label_ratio` :254・`smooth_labels` :262・`smooth_speakers` :284・`diar_path` :304・ほか 8

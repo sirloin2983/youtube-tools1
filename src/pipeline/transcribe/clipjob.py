@@ -67,7 +67,4 @@ def _rows_to_doc(job, spec, rows, pairs, learned=None):
         dict_n += n
         segs.append(seg)
         job["segments"] = len(segs)
-    if segs and all(g.get("noSub") for g in segs):   # 字幕に出る行が 1 本も無くなる(BGM だけの区間)ときは付けない: パックの Text+ は字幕が 0 本だと作れない(配る前の検査の区間 5 つ)
-        for g in segs:
-            g.pop("noSub", None)
     return {"segs": segs, "original": original, "words": words, "dictApplied": dict_n, "learnApplied": learn_n}

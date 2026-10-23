@@ -154,6 +154,14 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
         self.assertIn('|字幕 1/1・カット 1/1・長さ', out)
         self.assertNotIn('mediaType', cut)
 
+    def test_no_captions(self):
+        """字幕 0 本(BGM だけの切り抜き・行が全部「字幕に出さない」。10-23)でも止めずに、動画とカットだけ置く"""
+        s = {'timelineFrameRate': '30', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'}
+        out = self.run_lua(_textplus_plan(None, [(0, 600)]), s, fonts=self.KEI)
+        self.assertNotIn('C2R_エラー', out)
+        self.assertIn('item track=1 start=108000 dur=300', out)
+        self.assertIn('cut2resolve Text+: ok|cut2resolve 完了|字幕 0/0・カット 1/1・', out)
+
     def test_scaling_value_is_only_reported(self):
         base = {'timelineFrameRate': '30', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'}
         plan = _textplus_plan([(60, 300, 'a')], [(0, 2064)])
@@ -602,6 +610,18 @@ class TestPackRun(unittest.TestCase):
     @staticmethod
     def name_warnings(lines):
         return sum("ファイル名に日本語" in w for w in lines)
+
+    def test_textplus_without_captions(self):
+        """字幕 0 本の Text+ パック(BGM だけの切り抜き。10-23 まとめ役の決定 = 止めずに動画とカットだけ):
+        文字起こしの行が全部「字幕に出さない」(♪ だけ)・文字起こしを渡さない(② は文字のある行が無い文書をこの形で頼む)"""
+        tr = self.spk_doc("notes", [(0.5, 4, "♪", None), (5, 9, "♪", None)], {0: {"noSub": True}, 1: {"noSub": True}})
+        for name, spec in (("nosub", {"video": str(self.video), "transcript": str(tr), "preset": "transcript-rows"}),
+                           ("notr", {"video": str(self.video), "mode": "list", "listKind": "drop", "listText": "", "dropCutRows": False, "minLen": 0})):
+            plan, res = self.spec_pack(spec, {"textplus": True, "dir": str(self.d / ("tp0_" + name))})
+            self.assertFalse(RTP.read_script_plan(self.lua(self.d / ("tp0_" + name)))["captions"], name)   # 空の表(Lua では {})
+            self.assertTrue(plan.keeps, name)
+            warns = plan.warnings + res["warnings"]
+            self.assertTrue(any("字幕は付けません" in w or "字幕は作りません" in w for w in warns), (name, warns))
 
     def test_textplus_run(self):
         """Text+ パック: 画面・API の既定(最小限・余白つき素材)・コマンドの既定・配信者の色と話者の色・簡易版・映像トラック・重なる字幕"""
@@ -1419,8 +1439,7 @@ class TestPackRun(unittest.TestCase):
         p1 = self.plan(self.spk_doc("nosub_all", rows[:2], {0: {"noSub": True}, 1: {"noSub": True}}))
         self.assertEqual((p1.cues_out, p1.keeps, pack.summary(p1)["noSubRows"]), (None, [(15, 75)], 2))
         self.assertTrue(any("字幕に出さない" in w for w in p1.warnings))
-        with self.assertRaises(C.ToolError):
-            pack.build_pack(p1, self.d / "nosub_all", textplus=True, **self.SCREEN)
+        self.assertFalse(RTP.read_script_plan(self.lua(pack.build_pack(p1, self.d / "nosub_all", textplus=True, **self.SCREEN)["out_dir"]))["captions"])   # 止めずに字幕なし(10-23)
 
     def test_overwrite_check_and_leftovers(self):
         """上書きの確認は今回書くものだけ。前に作ったパックの残り(前の置き方・消した予備)は消さずに知らせる"""

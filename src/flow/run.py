@@ -1401,7 +1401,7 @@ class Runner:
             body = {"spec": spec, "output": dict({"textplus": captions, "copyVideo": True}, **wrap_out)}
         elif not _has_captions(doc):   # 文字のある行が無い(声の無い切り抜き・BGM だけ)= 字幕なしで区間の全体をパックに(行が無いからと 1 本落とさない。10-23)
             span = _clip_span(media) or (0.0, _ytools.media_duration(media) or 0.0)
-            body = {"spec": {"video": media, "keeps": [[float(span[0]), float(span[1])]]}, "output": dict({"textplus": False, "copyVideo": True}, **wrap_out)}
+            body = {"spec": {"video": media, "keeps": [[float(span[0]), float(span[1])]]}, "output": dict({"textplus": True, "copyVideo": True}, **wrap_out)}   # Text+ の字幕を作らずに動画とカットだけ(pack.build_pack。10-23 まとめ役の決定)
         else:   # カットを決めていない文書: カットの方法(ホームの設定。rows = 行から・none = カットしない・silence = 無音で削る)
             tr = {"path": transcript()}
             # 友人が選んだカット(① の依頼)・リアルタイム切り抜きの live.auto.cut(M2)= 束の pack.cut + run.pinned の cut。

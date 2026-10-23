@@ -483,7 +483,7 @@ class TestKeys(unittest.TestCase):
         doc = dict(self.doc, segments=[])
         with mock.patch.object(R, "_clip_span", lambda media: (10.0, 20.0)):
             body, keeps, _rev = rn._pack_body(run, doc, self.media, rn._pack_settings(run))
-        self.assertEqual((body["spec"], body["output"]["textplus"], keeps), ({"video": self.media, "keeps": [[10.0, 20.0]]}, False, None))
+        self.assertEqual((body["spec"], body["output"]["textplus"], keeps), ({"video": self.media, "keeps": [[10.0, 20.0]]}, True, None))   # Text+ の字幕なし(10-23)
         self.assertNotIn(("transcribe", "POST", "/api/export-file"), c.calls)   # 字幕の受け渡しを頼まない
 
     def test_pack_state_writes_nothing_and_matches_written_key(self):

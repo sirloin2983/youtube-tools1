@@ -763,8 +763,6 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, textplus=Fals
         raise ToolError(str(e))
     if textplus_style not in TP.TEXT_STYLES:
         raise ToolError("Text+ の字幕の見た目 %r は使えません(%s のどれか)。" % (textplus_style, " / ".join(TP.TEXT_STYLES)))
-    if textplus and not plan.cues_out:
-        raise ToolError("Text+ 用パックには字幕が必要です。SRT または文字起こしを指定してください。")
     video, meta, fps = plan.video, plan.meta, plan.meta["fps"]
     out_dir = Path(out_dir) if out_dir else default_out_dir(video)
     if out_dir.exists() and not out_dir.is_dir():
@@ -776,6 +774,8 @@ def build_pack(plan, out_dir=None, render=False, copy_video=False, textplus=Fals
     C.validate_output_paths(list(paths.values()), force, protected=plan.req.inputs() + ((mvideo,) if m["edit"] else ()))
     req = plan.req
     warnings = list(m["warnings"])
+    if textplus and not plan.cues_out and plan.transcript is None:   # 字幕が 0 本でも止めない(BGM だけの切り抜き = 文字の行が無い。10-23 まとめ役の決定)。文字起こしがあるときは _subtitles が理由を書いた
+        warnings.append("字幕が無いので、Text+ の字幕は作りません(動画とカットだけ)。")
     if "edl" in paths:   # 動画のファイル名の注意は EDL を書くときだけ(EDL がファイル名で元動画と結び付くため。ユーザー決定。試算 plan_cut には入れない)
         warnings += C.name_warnings(video)
     stale = _stale_warning(video, out_dir, paths, mvideo)
