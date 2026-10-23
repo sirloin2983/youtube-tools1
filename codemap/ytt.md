@@ -29,8 +29,6 @@
   - 名前: `replace_retry` :19・`unlink_quiet` :32・`temp_in` :40・`atomic_write` :59・`create_new` :77・`write_json` :99・`append_jsonl` :109・`sha256_file` :116・`class TooLarge` :125・`read_json_file` :133・`is_network_path` :153・`norm_path` :160・ほか 21
 - **gpuinfo.py** (165 行) — この PC の GPU の名前と VRAM を調べる(F1 F0-2。notes:docs/design/f1-build.md の 2 の F0-2・3 の (f1b))。標準ライブラリと ytt だけ。
   - 名前: `vendor_of` :28・`gb` :37・`parse_nvidia_smi` :46・`parse_cim` :62・`pick` :80・`from_nvidia_smi` :97・`from_registry` :104・`from_cim` :136・`probe` :144・`info` :158
-- **headline.py** (74 行) — 切り抜きの見出しと「選んだ理由」を規則で作る(人の作業なしの候補の新機能 C・10-23)。LLM は使わない。
-  - 名前: `excite_score` :23・`clean` :31・`headline` :38
 - **httpsec.py** (272 行) — ローカルサーバー(127.0.0.1)の安全検査。スタジオ・文字起こし・入口で同じ規則を1か所に持つ。
   - 名前: `allowed_hosts` :31・`host_ok` :35・`origin_ok` :39・`fetch_site_ok` :44・`navigation_ok` :48・`send_head` :53・`send` :66・`class LocalHandler` :74・`class BodyError` :108・`drain_body` :121・`read_json_body` :136・`inject_token` :174・ほか 5
 - **jobs.py** (266 行) — 重い処理の同時実行数の上限(統合計画の段階4)。
@@ -58,8 +56,8 @@
   - 受ける口: `/api/ping` :116
 - **schemas.py** (472 行) — 受け渡しの形式(notes:docs/spec/pipeline.md の 1・2)。youtube-tools-clip/v1 は、スタジオが書き(build_clip)、文字起こしが読む(load_clip_file)。
   - 名前: `iso_now` :21・`now_ms` :26・`num` :31・`is_num` :42・`is_int` :47・`plain_int` :52・`int_in` :57・`num_or` :62・`union_spans` :71・`fmt_hms` :82・`other_speaker` :105・`no_sub_row` :110・ほか 27
-- **settings.py** (361 行) — 設定ファイル(JSON の辞書)の読み書きの共通部品(設定を 1 つにまとめる 段 2 = S4。notes:docs/spec/data.md の 4)。
-  - 名前: `class SettingsError` :37・`class SettingsTooLarge` :41・`section_name_ok` :45・`retire_broken` :50・`class SettingsFile` :62・`load_settings` :191・`register_patch_key` :223・`patch_settings` :259・`merge_settings` :274・`replace_settings` :289・`eval_dirs` :326・`in_eval_dir` :342・ほか 1
+- **settings.py** (358 行) — 設定ファイル(JSON の辞書)の読み書きの共通部品(設定を 1 つにまとめる 段 2 = S4。notes:docs/spec/data.md の 4)。
+  - 名前: `class SettingsError` :37・`class SettingsTooLarge` :41・`section_name_ok` :45・`retire_broken` :50・`class SettingsFile` :62・`load_settings` :191・`register_patch_key` :220・`patch_settings` :256・`merge_settings` :271・`replace_settings` :286・`eval_dirs` :323・`in_eval_dir` :339・ほか 1
 - **studio_env.py** (205 行) — スタジオの環境: データの置き場所・書き出し先・疑似の旗・外部の道具・失敗の記録。
   - 名前: `set_code_dir` :29・`code_dir` :35・`set_home` :40・`home` :48・`p` :60・`fake` :65・`fake_file` :70・`fake_media` :76・`find_tool` :84・`old_log_name` :93・`rotate_log` :100・`log_failure` :105・ほか 7
 - **studiodata.py** (176 行) — 切り抜きスタジオの data.json の配信の情報(読む側。書くのは盛り上がりグラフの save_series だけ)。
@@ -96,7 +94,6 @@
 - tests/ytt/test_docloc.py — ytt/docloc.py(文字起こしの文書の置き場所を引く口。RS8 B-2)のテスト。
 - tests/ytt/test_flags.py — 行の印(flag)のつなぎ方・探し方(ytt.schemas の join_flags・has_flag・flag_parts)のテスト。  py -3.12 -m unittest tests/ytt/test_flags.py -v
 - tests/ytt/test_gpuinfo.py — ytt/gpuinfo(この PC の GPU の名前と VRAM。F1 F0-2)のテスト。  py -3.12 -m unittest tests/ytt/test_gpuinfo.py -v
-- tests/ytt/test_headline.py — ytt/headline.py(届くパックの機械の見出しと選んだ理由。規則だけ。新機能 C・10-23)のテスト
 - tests/ytt/test_marks.py — ytt/marks.py(マークの純粋な語彙)の単体テスト。
 - tests/ytt/test_normalize.py — ytt.normalize(素材を 30fps にそろえる。Q1)のテスト。  py -3.12 -m unittest tests/ytt/test_normalize.py -v
 - tests/ytt/test_settings.py — ytt.settings(設定ファイルの共通部品。S4)のテスト。リポジトリ直下で:

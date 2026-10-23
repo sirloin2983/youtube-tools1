@@ -17,8 +17,8 @@
   - 名前: `keep_dir` :34・`files_of` :39・`prepare` :51・`compare` :78・`ok` :101・`mode_now` :107・`log` :117・`prune` :126
 - **colors_api.py** (24 行) — ② 管理の層 flow: api/ytt/streamer-colors の口(入口 src/app/server.py も友人のアプリ src/friendapp/server.py も同じ物を呼ぶ)。
   - 名前: `streamer_api` :12
-- **deliver.py** (308 行) — ② パックを友人へ届ける(Dropbox の見張るフォルダの 出力\ に zip で置く。友人のアプリの「受け取る」が読む)。
-  - 名前: `outbox_ok` :42・`safe_name` :49・`request_id` :53・`delivery_name` :58・`face_origin` :63・`meta_path_for` :73・`meta_doc` :85・`write_meta_json` :103・`unique_zip` :109・`zip_packs` :117・`preview_path_for` :153・`place_preview` :158・ほか 2
+- **deliver.py** (304 行) — ② パックを友人へ届ける(Dropbox の見張るフォルダの 出力\ に zip で置く。友人のアプリの「受け取る」が読む)。
+  - 名前: `outbox_ok` :42・`safe_name` :49・`request_id` :53・`delivery_name` :58・`face_origin` :63・`meta_path_for` :73・`meta_doc` :85・`write_meta_json` :99・`unique_zip` :105・`zip_packs` :113・`preview_path_for` :149・`place_preview` :154・ほか 2
 - **deliveries.py** (232 行) — ② 管理の層 flow: 友人へ届けた記録(入口の作業データの logs/deliveries.jsonl)の読み口(OPT-M2。notes:plan/done/opt-manage.md の 7x-2)。
   - 名前: `record` :25・`clip_range` :41・`overlaps` :53・`overlap_note` :73・`origin_of` :84・`rows` :92・`delivered_requests` :114・`pack_name` :129・`delivered_marks` :137・`record_not_sent` :193・`not_sent_marks` :204
 - **delivery.py** (405 行) — ② 友人へ届ける: まとめて実行の「Dropbox へ届ける」段と、置けなかった自動の分の溜め(まとめて実行 AutoRunner が継ぐ mixin)。
@@ -73,35 +73,33 @@
   - 名前: `new_id` :30・`speakers_arg` :60・`cut_arg` :86・`video_tracks_arg` :91・`people_of` :96・`spec_diff` :114・`request_top` :165・`order` :170
 - **outbox.py** (219 行) — ② 管理の層 flow: 送り返しの zip(F1 の F2。docs/design/f1-build.md の 2・3 の (f1d)(f1m)・plan/f1-friend-pc.md の決めたこと 11)。
   - 名前: `outbox_dir` :46・`scrub` :55・`default_health` :90・`build` :129
-- **pack.py** (65 行) — ② パックの口(RS6 a-5a)。人とデータの層(③・④)が Resolve のパックの部品(① pipeline/pack/resolve_export)を直に読まずに済む動詞。
-  - 名前: `cut_draft` :25・`cut_preview` :31・`handoff_files` :36・`media_plan` :53・`instructions` :60
+- **pack.py** (59 行) — ② パックの口(RS6 a-5a)。人とデータの層(③・④)が Resolve のパックの部品(① pipeline/pack/resolve_export)を直に読まずに済む動詞。
+  - 名前: `cut_draft` :25・`cut_preview` :31・`handoff_files` :36・`media_plan` :47・`instructions` :54
 - **packjobs.py** (127 行) — ② 管理の層 flow: パックのジョブの器(OPT2 後半 J3・J6)。cut2resolve/serve.py の Job・AppState のジョブの部分。
   - 名前: `class Job` :23・`board_job` :51・`class PackJobs` :78
 - **packrec.py** (131 行) — ② 管理の層 flow: パックを作った記録(作業データの packs/<フォルダのハッシュ>.json)の持ち主(OPT-M2。notes:plan/done/opt-manage.md の 3b-1)。
   - 名前: `norm` :28・`packs_dir` :33・`record_name` :42・`read_record` :52・`ready` :68・`write_record` :89・`after_build` :119
-- **placement.py** (495 行) — ② 管理の層 flow: 置き場所の持ち主(RS6 b-B0。決定 3-29。B-0 = 案件ごとのフォルダ(b2)の第 1 段)。
+- **placement.py** (492 行) — ② 管理の層 flow: 置き場所の持ち主(RS6 b-B0。決定 3-29。B-0 = 案件ごとのフォルダ(b2)の第 1 段)。
   - 名前: `studio_data` :50・`case_root` :63・`doc_home` :91・`request_id6` :130・`request_folder` :135・`configured_out_dir` :148・`request_root` :156・`case_parents` :177・`case_roots` :183・`find_request_dir` :204・`work_dir` :225・`runs_dir` :231・ほか 12
 - **prio.py** (88 行) — ② 管理の層 flow: 処理の優先度の表(PRIO。決定 3-49・notes:plan/done/opt-series.md の 11)。
   - 名前: `name_ok` :35・`rank` :39・`idle_only` :43・`os_priority` :47・`label` :51・`slot_kw` :55・`of_run` :60・`of_spec` :69・`watch` :80・`idle_now` :85
 - **retention.py** (9 行) — ② 管理の層 flow: 物の終わりの日数の 1 か所(方針の数)。ユーザーのツールと友人のアプリが同じ値を読む。
-- **run.py** (1901 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
-  - 名前: `class Cancelled` :158・`class StepError` :162・`mode_of` :181・`steps_of` :215・`analyze_verdict` :259・`chat_missing` :277・`chat_retry_ok` :283・`stream_ended_at` :291・`redo_reason` :304・`short_why` :322・`adopted_ids` :334・`tx_verdict` :339・ほか 5
+- **run.py** (1880 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
+  - 名前: `class Cancelled` :141・`class StepError` :145・`mode_of` :164・`steps_of` :198・`analyze_verdict` :242・`chat_missing` :260・`chat_retry_ok` :266・`stream_ended_at` :274・`redo_reason` :287・`short_why` :305・`adopted_ids` :317・`tx_verdict` :322・ほか 5
 - **runlog.py** (93 行) — まとめて実行の「終わった実行の記録」の形と読み方(RS3-0B)。
   - 名前: `read_runs_log` :47・`read_result` :77
 - **runqueue.py** (839 行) — ② 管理の層 flow: 待ち行列と実行の糸(RS7-1 S5。決定 3-30・
   - 名前: `class SpecVersionError` :64・`class BadSpecError` :68・`check_spec` :72・`disk_blocked` :86・`gpu_info` :110・`busy_reason` :124・`doc_id_ok` :133・`result_case` :181・`board_job` :192・`class Queue` :210
-- **spec.py** (604 行) — ① に渡す指定の束(spec)の形・既定値・検査(RS1-6。計画 notes:plan/done/role-restructure.md の 5-4)。
+- **spec.py** (603 行) — ① に渡す指定の束(spec)の形・既定値・検査(RS1-6。計画 notes:plan/done/role-restructure.md の 5-4)。
   - 名前: `num_ok` :48・`check_range` :56・`check_ranges` :71・`clean_ranges` :90・`pad_range` :106・`check_weights` :114・`clean_weights` :125・`top_arg` :134・`marks_arg` :143・`row_edge_ok` :153・`merge` :260・`merge_onto` :268・ほか 11
 - **studiobook.py** (476 行) — ② 管理の層 flow: スタジオなしの配信の台帳と、URL の段の動詞(RS8 の「URL も CLI で」)。
   - 名前: `class Ledger` :55・`class StudioBook` :266・`class LocalStudio` :381
-- **thumbs.py** (28 行) — ② サムネの案の口(OPT-H2 の組 A)。③ の editor/thumb_ideas.py(案の決め方・文字起こしを読む殻)が、① pipeline/export/thumb_cards を直に読まずに済むための動詞だけを出す。
-  - 名前: `font` :13・`scan` :18・`render` :25
 - **tools.py** (480 行) — ② 管理の層 flow: 段が道具を呼ぶ継ぎ目 Tools(RS6 b-0)。
   - 名前: `class HttpTools` :33・`class FlowTools` :137・`class PackHost` :195・`doc_row` :258・`class LocalTools` :270
 - **tx.py** (422 行) — ② 管理の層 flow: 文字起こしの動詞。RS6 a-3(決定 3-29)。
   - 名前: `dict_pairs` :33・`rerun_base` :49・`roster_listing` :58・`pick_glossary_terms` :68・`check_model` :74・`request_engine` :83・`tx_spec` :91・`new_doc` :128・`transcribe_clip` :144・`write_clip_records` :209・`replace_span_words` :229・`write_machine_doc` :241・ほか 9
-- **wire.py** (90 行) — ② 管理の層 flow: 文字起こしの配線(ジョブの種類の登録・ジョブの表の設定・本物と疑似の選び方・① の口の登録)。RS6 a-5b(決定 3-29)。登録は 1 つの install にまとまっている。
-  - 名前: `install` :40・`setup_places` :65・`setup_headless` :80
+- **wire.py** (89 行) — ② 管理の層 flow: 文字起こしの配線(ジョブの種類の登録・ジョブの表の設定・本物と疑似の選び方・① の口の登録)。RS6 a-5b(決定 3-29)。登録は 1 つの install にまとまっている。
+  - 名前: `install` :39・`setup_places` :64・`setup_headless` :79
 
 ## テスト
 

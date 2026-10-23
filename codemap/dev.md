@@ -21,8 +21,8 @@
   - 名前: `make_verifier` :40・`challenge_for` :47・`authorize_url` :53・`token_request_body` :65・`exchange` :74・`extra_scopes` :95・`missing_scopes` :101・`write_config` :109・`main` :114
 - **fetch_webview2.py** (75 行) — 友人のアプリ FriendApp.exe が使う WebView2 の部品(DLL 3 つ)を NuGet の公式パッケージから取る(F3-1。notes:plan/f1-friend-requirements.md の C-1-1)。
   - 名前: `have` :29・`extract` :38・`main` :54
-- **friend_demo.py** (335 行) — 友人の受信箱(src/friendapp)を見本のデータで動かす(画面の見直し・ui_audit・手での確認用)。本物の作業データ・② には触らない。
-  - 名前: `demo_fetch` :33・`demo_probe` :38・`class StubQueue` :43・`class StubEngine` :68・`demo_thumb` :95・`class DemoStreams` :104・`seed` :149・`write_demo_fetch` :222・`class DemoDownloader` :236・`demo_file` :249・`write_demo_update` :259・`main` :271
+- **friend_demo.py** (331 行) — 友人の受信箱(src/friendapp)を見本のデータで動かす(画面の見直し・ui_audit・手での確認用)。本物の作業データ・② には触らない。
+  - 名前: `demo_fetch` :33・`demo_probe` :38・`class StubQueue` :43・`class StubEngine` :68・`demo_thumb` :95・`class DemoStreams` :104・`seed` :146・`write_demo_fetch` :218・`class DemoDownloader` :232・`demo_file` :245・`write_demo_update` :255・`main` :267
 - **friend_diag.py** (251 行) — 友人のアプリから届いた診断の記録を読む(ユーザーの PC。notes:docs/spec/friend.md の 13-11)。AI が原因を調べるときに流す。
   - 名前: `default_dir` :36・`prune` :47・`load` :61・`is_error` :84・`live_lines` :95・`lines_of` :145・`main` :208
 - **friend_preflight.py** (1257 行) — 友人に配る zip を、配る前にこの PC で「友人の PC と同じ状態」にして通しで試す(配る前の検査。notes:docs/spec/friend.md の 13-11)。
@@ -37,8 +37,8 @@
   - 名前: `class Stop` :40・`git` :44・`main_worktree` :53・`bump` :64・`read_version` :69・`set_version` :76・`set_readme` :80・`needs_bump` :90・`pid_alive` :95・`class Lock` :113・`pending_paths` :160・`commit` :168・ほか 3
 - **land_gate.py** (406 行) — main に入れる前の関所(dev/land.py が版を上げる前に流す)。単独でも流せる:
   - 名前: `layer_of_dir` :70・`dependents` :77・`select` :82・`pick_units` :103・`pick_by_imports` :110・`run_units` :120・`cache_path` :132・`load_cache` :137・`save_cache` :148・`count_of` :164・`run_check` :170・`run_tool` :184・ほか 12
-- **layer_map.py** (134 行) — 役割の層と、今のファイルの行き先(役割で組み直す計画 `notes:plan/done/role-restructure.md` の 7 節を機械で読める形にしたもの)。
-  - 名前: `layer_of` :114・`allowed` :124
+- **layer_map.py** (132 行) — 役割の層と、今のファイルの行き先(役割で組み直す計画 `notes:plan/done/role-restructure.md` の 7 節を機械で読める形にしたもの)。
+  - 名前: `layer_of` :112・`allowed` :122
 - **lint.py** (395 行) — コードの見直しの合格の基準を測る道具(読むだけ。基準は `notes:docs/spec/code.md`)。
   - 名前: `walk` :64・`read` :72・`rel` :80・`is_test` :84・`class Corpus` :88・`py_files` :109・`has_mark` :116・`unused_imports` :121・`dead_names` :145・`long_functions` :160・`dup_helpers` :171・`js_dead` :187・ほか 7
 - **loc.py** (356 行) — コードの行数を数える共通の道具(ユーザーと決めた数え方。セッションごとの数の食い違いを無くす)。
@@ -55,7 +55,7 @@
   - 名前: `git` :61・`read_removals` :70・`tracked` :90・`apply_removals` :95・`staged_files` :115・`staged_blob` :121・`problems_for` :125・`check` :160・`notes_root` :179・`push_notes` :186・`main` :232
 - **rule_checks.py** (474 行) — 規則(書き方・置き場所・ファイルの形)の見張り。test-trim の規則の担当。
   - 名前: `rule` :27・`read_text` :34・`read_bytes` :39・`rel` :44・`repo_files` :48・`src_py_files` :57・`non_ascii_lines` :67・`bat_problems` :72・`requirements_problems` :83・`rule_bat_ascii_crlf` :97・`rule_requirements_ascii` :108・`push_bat_problems` :117・ほか 22
-- **rule_imports.py** (719 行) — 規則の見張りのうち、ソースを import して突き合わせる物(`dev/rule_checks.py` の続き)。
+- **rule_imports.py** (718 行) — 規則の見張りのうち、ソースを import して突き合わせる物(`dev/rule_checks.py` の続き)。
   - 名前: `check` :37・`c_adopt_defaults` :86・`c_live_tx_constants` :99・`c_port_ranges` :127・`c_tool_module_names` :134・`schema_shape_problems` :153・`schema_items` :208・`c_settings_schema` :223・`c_studio_schema` :248・`c_portal_title` :263・`c_static_table` :270・`c_spec_consistency` :278・ほか 21
 - **run_e2e.py** (132 行) — 画面テスト(e2e)の一式を 1 本ずつ流して、1 本 1 行(所要秒・OK/FAIL の数)で出す。一式の正はこのファイルの SUITE。
   - 名前: `label` :57・`summary` :62・`selected` :69・`run_one` :82・`main` :96
@@ -105,7 +105,7 @@
 - tests/dev/test_plan_artifact.py — dev/plan_artifact.py(計画のページ plan/ を 1 枚の公開用 HTML に組む道具)のテスト。目次と Artifact 用の 1 枚・ホームの自動の部分・版と参照・図を見る。
 - tests/dev/test_plan_data.py — dev/plan_data.py(計画のデータ plan/data/ の 1 件 1 ファイルと data.js の生成・仮決めの自動の確定)のテスト。一時フォルダだけを使う
 - tests/dev/test_push_helper.py — dev/push_helper.py(push.bat の補助: ファイルの削除・コミット前の検査)のテスト。一時フォルダの git リポジトリだけを使う。
-- tests/dev/test_resolve_pack_contract.py — Resolve パックの契約テスト(文字起こしの「Resolveパッケージ(zip)」と cut2resolve の Text+ パック)。zip とパックのタブは同じ部品(pack.py)で作る。
+- tests/dev/test_resolve_pack_contract.py — Resolve パックの契約テスト(文字起こしの文書から cut2resolve の Text+ パックを作る経路。作るのは pack.py だけ。
 - tests/dev/test_rule_checks.py — 規則の見張り(dev/rule_checks.py・dev/rule_imports.py・dev/ui_audit.py の A-16〜A-19・A-37)が、破った見本で止まり、正しい見本で通ることを確かめる。
 - tests/dev/test_run_e2e.py — dev/run_e2e.py(e2e の一式)の一覧が、リポジトリの e2e_*.py と食い違っていないかを確かめる。
 - tests/dev/test_run_unit.py — dev/run_unit.py(層ごとに unittest を流す道具)の一覧の作り方と、1 本だけの実行。リポジトリ直下で:

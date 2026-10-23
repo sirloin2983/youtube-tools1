@@ -54,7 +54,7 @@
 ## src/app/ui/cases/panels/
 
 - **cand.js** (191 行) — 案件の画面の「候補」のパネル(#cand。配信全体の候補の採用・不採用・書き出し・LIVE の帯)。口の形は cases.js の先頭の説明。
-- **cut.js** (566 行) — 案件の画面の「カット・パック」のパネル(#cut。残す区間を決めて、末尾で DaVinci Resolve へ渡すパックを作る)。口の形は cases.js の先頭の説明。RS8 C2c。
+- **cut.js** (539 行) — 案件の画面の「カット・パック」のパネル(#cut。残す区間を決めて、末尾で DaVinci Resolve へ渡すパックを作る)。口の形は cases.js の先頭の説明。RS8 C2c。
 - **machpick.js** (159 行) — 校正のパネルの 3 択(RS8 C2b。作り方 notes:docs/design/rs8-cases-build.md の 4 節・決定 3-37 の案 A)。
 - **new.js** (257 行) — 新しい案件のパネル(ホームの引き出し #newDrawer で開く。配信を探す・URL から入れる・解析の順番待ち。RS8 C3)。
 - **proof.js** (188 行) — 案件の画面の「校正」のパネル(#proof。切り抜き 1 本の文字起こしの行を直す)。口の形は cases.js の先頭の説明。RS8 C2b。
@@ -77,8 +77,8 @@
 
 ## src/app/ui/editor/
 
-- **app-core.js** (310 行) — app-core.js — 「編集」の画面: 共通の小道具・表示の好み・⚙・取り込まれたツールの場所・設定。
-  - 名前: `uiIcon` :12・`toast` :15・`showErr` :22・`undoToast` :36・`stopAtEnd` :48・`armPlayEnd` :69・`httpFailText` :74・`api` :75・`apiBlob` :80・`busy` :86・`kickJobs` :90・`saveFirst` :91・ほか 33
+- **app-core.js** (305 行) — app-core.js — 「編集」の画面: 共通の小道具・表示の好み・⚙・取り込まれたツールの場所・設定。
+  - 名前: `uiIcon` :12・`toast` :15・`showErr` :22・`undoToast` :36・`stopAtEnd` :48・`armPlayEnd` :69・`httpFailText` :74・`api` :75・`busy` :81・`kickJobs` :85・`saveFirst` :86・`saveDone` :91・ほか 32
 - **app-jobs.js** (339 行) — app-jobs.js — 「編集」の画面: 文字起こしの要求・ジョブの進捗・話者の自動判別・声を覚える・再認識。
   - 名前: `recogOpts` :10・`jobOpts` :16・`startPolling` :22・`pollJobs` :24・`namedBy` :73・`transcribeInto` :77・`renderIntoState` :88・`jobProg` :99・`jobPhase` :100・`jobFailText` :101・`retryJob` :106・`renderDiarSetup` :113・ほか 26
 - **app-learn.js** (259 行) — app-learn.js — 「編集」の画面: 修正から学習した候補・修正の提案・校正済み・進み具合の帯・認識精度の測定・名簿・保存データへの保管・評価用の確かめ済み。
@@ -95,7 +95,7 @@
 - **cut.js** (1184 行) — 「編集」2 カット のタブ(notes:docs/design/edit-tool-design.md の 3・4・8)。app.js より先に読み込み、app.js が EditCut.create(host) で起動する。
   - 名前: `create` :24
 - **doc-kit.js** (98 行) — doc-kit.js — 文書(文字起こしの行・話者)の小さな部品(window.EditDoc)。状態は持たない。
-- **pack-tab.js** (604 行) — 「編集」のパック(2 カット の末尾 #packArea。notes:docs/design/edit-tool-design.md の 3・5)。app.js より先に読み、app.js が EditPack.create(host) で起動する。
+- **pack-tab.js** (504 行) — 「編集」のパック(2 カット の末尾 #packArea。notes:docs/design/edit-tool-design.md の 3・5)。app.js より先に読み、app.js が EditPack.create(host) で起動する。
   - 名前: `create` :11
 
 ## src/app/ui/home/
