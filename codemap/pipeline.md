@@ -117,6 +117,7 @@
 - tests/pipeline/export/test_outcheck.py — 書き出しのあとの自動の点検(① pipeline/export/outcheck)のテスト。本物の ffmpeg で合成した壊れた動画(黒いコマ・無音・割れ・声の途中で切れる・長さ違い)を点検する。
 - tests/pipeline/ingest/hls_fixture.py — テスト用の「配信中のような HLS」(本物の YouTube には繋がない)。
 - tests/pipeline/ingest/test_recorder.py — 録画の部品(recorder/)のテスト。本物の YouTube には繋がない: ffmpeg の lavfi で作った HLS を、手元の HTTP サーバーで
+- tests/pipeline/pack/run_lua.py — Lua のファイルを lupa の LuaJIT で流す(Lua の実行環境が無い PC で、test_pack の Lua の通しに使う。開発用の依存 = setup/requirements-dev.txt)。
 - tests/pipeline/pack/test_contracts.py — 別のプログラムが読む形の見本(tests/ytt/fixtures/contracts/ の clip/v1.json・transcript/v1.json)。書く側が書いた形は見本と同じ鍵・
 - tests/pipeline/pack/test_cut2resolve.py — パックのテストの道具(見本の動画・EDL の読み方・採用区間からのパック)と、通しでは起こせない物の単体
 - tests/pipeline/pack/test_edge_pause.py — 切り抜きの両端を話の間へ寄せる(pipeline/pack/edge_pause)の純粋な部分
