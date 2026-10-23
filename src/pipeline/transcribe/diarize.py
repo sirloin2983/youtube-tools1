@@ -197,6 +197,9 @@ def _diarize_local(job, wav, num, emb=DIAR_EMB_DEFAULT, threshold=None, min_on=N
     return [(float(r.start), float(r.end), int(r.speaker)) for r in res]
 
 
+DIAR_NEAR_SEC = 5.0   # 話者の区間と重ならない行は、前後この秒以内でいちばん近い区間の話者に(不確か)。10-23 に 1.5 → 5(評価用 23 本で組 B の行の正しさ 79.6 → 81.0%・組 A と人数は同じ。1.5 で前のまま)
+
+
 def assign_speakers(segs, turns, offset):
     """各行に、重なりがいちばん長い話者を割り当てる。戻り値: [(話者番号 or None, 声が混ざっているか, 話者が不確か)]。
     不確か = 短い行(0.8秒未満。声の特徴が取りにくい)、行の半分以上が話者区間の外、または最寄りの区間で代用した行。
@@ -225,8 +228,8 @@ def _assign(segs, ts):
             second = ranked[1][1] if len(ranked) > 1 else 0.0
             out.append((ranked[0][0], second >= max(1.0, 0.3 * dur), dur < 0.8 or ranked[0][1] / dur < 0.5, min(1.0, ranked[0][1] / dur)))
             continue
-        near, best = None, 1.5   # 重なりがなければ、前後1.5秒以内でいちばん近い区間
-        for x, y, s in ts[lo:hi + 20]:
+        near, best = None, DIAR_NEAR_SEC   # 重なりがなければ、前後 DIAR_NEAR_SEC 秒以内でいちばん近い区間
+        for x, y, s in ts[bisect.bisect_left(starts, a - dmax - best):bisect.bisect_right(starts, b + best)]:
             gap = max(x - b, a - y, 0.0)
             if gap < best:
                 near, best = s, gap
