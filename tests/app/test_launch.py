@@ -709,6 +709,17 @@ class PortalHttpTest(Base):
             self.assertEqual(self.srv.auto_restart_check(), A.GO)
             self.assertEqual(len(calls), 2)
 
+    def test_editor_seen_ignores_polls(self):
+        """開いたままの画面の版の見回り(/api/ping)などは「編集を使っている」に数えない(10-24: ping だけで自動の起動し直しが 6 時間待った)"""
+        pre = L.mount_mod.MOUNTS["transcribe"]["prefix"]
+        with mock.patch.object(self.srv, "mounts", {pre: object()}):
+            self.srv.editor_seen = None
+            for p in ("/api/ping", "/api/drill/status", "/api/eval-batch"):
+                self.srv.handler_for(pre + p)
+            self.assertIsNone(self.srv.editor_seen)
+            self.srv.handler_for(pre + "/api/settings")
+            self.assertIsNotNone(self.srv.editor_seen)
+
     def test_flow_status_live(self):
         """GET /api/flow/status の live 欄 = PortalServer.live_activity(ライブの録画中・検出中・書き出しの途中の数)。どれかが 0 でなければ idle は偽。
         リアルタイム切り抜きがオフなら全部 0 で、録画元に問い合わせない(読めないときの扱いは tests/flow/test_runqueue.py の TestStatusLive)"""
