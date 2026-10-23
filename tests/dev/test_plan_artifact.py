@@ -122,11 +122,11 @@ class PlanArtifactTest(unittest.TestCase):
                 f.write("消した git:cbe1a64:docs/spec/gone.md を読む。一文目。\n")
             r = run(plan, os.path.join(tmp, "out"))
             self.assertEqual(r.returncode, 0, r.stderr)
-            sys.path.insert(0, os.path.join(REPO, "src"))
-            from ytt.version import VERSION
+            sys.path[:0] = [os.path.join(REPO, "src"), os.path.join(REPO, "dev")]
+            import plan_data   # 入れるのは main ブランチの版(worktree の枝の版ではない)= 枝の version.py と比べると main が進んだだけで落ちた(10-23)
             with open(os.path.join(plan, "data.js"), encoding="utf-8") as f:
                 after = f.read()
-            self.assertIn('"%s"' % VERSION, after)   # 全体の版だけ version.py から
+            self.assertIn('"%s"' % plan_data.main_version(), after)   # 全体の版だけ version.py から
             self.assertNotIn("0.0.1", after)
             self.assertIn('"ui-kit"', after)
             self.assertNotIn("gone.md", r.stderr)   # git:<コミット>: の後ろは消した資料 = 警告しない
