@@ -57,6 +57,16 @@ class TestLlmNames(unittest.TestCase):
         self.assertEqual(llm.llm_near("ラミィちゃん来た", t), [])        # 書かれた名前の中の「ミィち」を「みこち」にしない
         self.assertIn(("き花ラミィ", "雪花ラミィ"), llm.llm_near("き花ラミィだよ", t))   # 同じ人の名前(姓と名)には直せる
 
+    def test_glossary_terms(self):
+        from pipeline.transcribe import llm
+        rows = [_seg(0, "リスカーが来た"), _seg(1, "リッカーだ"), _seg(2, "ナイスー")]
+        picks = llm.llm_pick(rows, self.MEMBERS, {"title": "配信"}, gloss=["リッカー", "ナイフ"])   # 用語集の語の 1 字違いを候補に(3 字の語は探さない)
+        self.assertEqual([(p["row"], p["span"], p["why"], p["cands"]) for p in picks], [(0, "リスカー", "gloss", ["リッカー"])])   # 書かれた語は直さない
+        self.assertEqual(llm.llm_pick(rows, self.MEMBERS, {"title": "配信"}), [])            # 用語集が空なら今までどおり
+        with mock.patch.object(llm, "LLM_GLOSSARY", False):
+            self.assertEqual(llm.llm_pick(rows, self.MEMBERS, {"title": "配信"}, gloss=["リッカー"]), [])
+        self.assertEqual(llm.llm_guard("トップ下", {"from": "トップ", "to": "リッカー", "confidence": 0.9}, [], llm.llm_names(llm.llm_gloss(["リッカー"]))), "newName")   # 候補に無い所へ持ち込まない
+
 
 class TestLlamaTextEngine(unittest.TestCase):
     def test_registered(self):

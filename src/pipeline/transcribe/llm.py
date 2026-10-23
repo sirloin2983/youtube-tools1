@@ -4,7 +4,7 @@
 ねらい: 認識の結果のうち「名簿の呼び名の聞き違い」らしい所だけを、ローカルの LLM(Qwen3-8B。llama-server・Vulkan)に直させて校正を短くする。
   1 選ぶ llm_pick      名簿の呼び名(LLM_MIN_ALIAS 字以上・普通の言葉と重なるものは除く)に、かなに寄せて 1 字違いの所と、名簿の誤りやすい形(misrecognitions)。
                        名簿は、その文書に出る人(題名・動画のパス・話者の名前・行の文字に名前か呼び名があるメンバー)だけ。すでに書かれた名前は直さない。
-                       カタカナの呼び名に近い所は元の文字にもカタカナがあるときだけ
+                       用語集の語(かなに寄せて LLM_GLOSS_MIN 字以上)も同じ探し方の候補(LLM_GLOSSARY)。カタカナの呼び名に近い所は元の文字にもカタカナがあるときだけ
                        (測定で、ひらがなの普通の言葉「みるか」を「ポルカ」に変えた)。後処理 A・D が直した行(fill)は選ばない。1 文書 LLM_MAX_PICKS 箇所まで
   2 聞く llm_messages  行ごとに 前後 LLM_CTX_ROWS 行・疑わしい所・候補・出る人を渡し、差分だけを JSON で答えさせる(行を書き直させない。思考はオフ・温度 0)
   3 検査 llm_guard     置き換え前の文字が行にある・候補の呼び名そのものか、かなに寄せた音が近い・字数の差が 2 字か 2 割以内・自信が LLM_MIN_CONF 以上・
@@ -40,6 +40,8 @@ LLM_SCHEMA = "youtube-tools-llm/v1"
 LLM_FLAG = "名簿の呼び名に直した(LLM。元の文字は「別の読み」の札)"   # 頭を fill の FILL_NAME_FLAG とそろえる(画面の「戻す」が同じ規則で印を外す)
 LLM_MIN_ALIAS = 3        # 近い所を探す呼び名の最小の文字数(かなに寄せたあと)
 LLM_FROM_TEXT = True     # 出る人に、行の文字にそのまま名前か呼び名が出る人も足す(False = 題名・パス・文脈だけ。10-23)
+LLM_GLOSSARY = True      # 用語集の語(ゲームの言葉・地名など)も呼び名と同じ探し方の候補にする(False = 名簿だけ。10-23)
+LLM_GLOSS_MIN = 4        # 用語集の語はかなに寄せてこの字数から(3 字の語は「ナイス → ナイフ」「トップ → マップ」と普通の言葉を自信 0.8 で直した)
 LLM_MAX_PICKS = 30       # 1 文書で選ぶ所の上限
 LLM_MIN_CONF = 0.5       # LLM の自信がこれ未満の案は当てない
 LLM_MAX_EDIT_SHARE = 0.15   # 1 文書で直す行の割合の上限
@@ -125,11 +127,26 @@ def llm_near(text, targets):
     return found
 
 
-def llm_pick(rows, members, doc, limit=LLM_MAX_PICKS):
-    """疑わしい所 -> [{"row": 行の番号, "span": 元の文字の一部, "why": "mis" | "name", "cands": [候補]}](limit 箇所まで)。
+def llm_gloss(terms):
+    """用語集の語 -> 名簿のメンバーと同じ形の [{"name": 語, "aliases": [], "gloss": True}](LLM_GLOSSARY・かなに寄せて LLM_GLOSS_MIN 字以上・重なりは除く)"""
+    if not LLM_GLOSSARY:
+        return []
+    out = []
+    for t in terms or ():
+        t = str(t).strip()
+        if len(llm_fold(t)) >= max(LLM_MIN_ALIAS, LLM_GLOSS_MIN) and not any(m["name"] == t for m in out):
+            out.append({"name": t, "aliases": [], "gloss": True})
+    return out
+
+
+def llm_pick(rows, members, doc, limit=LLM_MAX_PICKS, gloss=()):
+    """疑わしい所 -> [{"row": 行の番号, "span": 元の文字の一部, "why": "mis" | "name" | "gloss", "cands": [候補]}](limit 箇所まで)。
+    gloss = 用語集の語(llm_gloss。出る人に関わらず全部の文書で探す)。
     後処理 A・D が直した行(fill)・文字の無い行は選ばない。同じ行で、ほかの選んだ所に含まれる短い所は外す"""
     mems = llm_members(doc, members)
-    targets = llm_targets(mems)
+    gl = llm_gloss(gloss)
+    targets = llm_targets(mems + gl)
+    gwords = {m["name"] for m in gl}
     mis = [(x["wrong"], x["right"]) for m in mems for x in m.get("misrecognitions") or []]
     picks = []
     for i, r in enumerate(rows):
@@ -140,7 +157,7 @@ def llm_pick(rows, members, doc, limit=LLM_MAX_PICKS):
             if wrong in text:
                 picks.append({"row": i, "span": wrong, "why": "mis", "cands": [right]})
         for sub, alias in llm_near(text, targets):
-            picks.append({"row": i, "span": sub, "why": "name", "cands": [alias]})
+            picks.append({"row": i, "span": sub, "why": "gloss" if alias in gwords else "name", "cands": [alias]})
     picks = [p for p in picks if not any(q is not p and q["row"] == p["row"] and p["span"] in q["span"] and len(q["span"]) > len(p["span"]) for q in picks)]
     picks.sort(key=lambda p: (0 if p["why"] == "mis" else 1, p["row"]))
     return picks[:limit]
@@ -232,12 +249,13 @@ def llm_apply(rows, keep, mark=True):
     return rows
 
 
-def llm_run(rows, members, doc, ask, limit=LLM_MAX_PICKS, mark=True, picks=None):
+def llm_run(rows, members, doc, ask, limit=LLM_MAX_PICKS, mark=True, picks=None, gloss=()):
     """選ぶ → 聞く → 検査 → 当てる(rows を書き換える)。ask = messages -> 答えの文字(選んだ所が無ければ呼ばない)。
+    用語集の語(gloss)も、候補に無い所へ新しく持ち込む案は断る(名前と同じ newName)。
     -> 記録 {"picked", "proposed", "applied", "rejected": {理由: 数}, "items": [{row, from, to, confidence, rejected}]}"""
-    picks = llm_pick(rows, members, doc, limit) if picks is None else picks
+    picks = llm_pick(rows, members, doc, limit, gloss) if picks is None else picks
     people = [m["name"] for m in llm_members(doc, members)]
-    names = llm_names(members)
+    names = llm_names(members + llm_gloss(gloss))
     rec = {"picked": len(picks), "proposed": 0, "applied": 0, "rejected": {}, "items": []}
     accepted, item_of = [], {}
     for i in sorted({p["row"] for p in picks}):
@@ -311,15 +329,17 @@ def llm_after_doc(job, spec, segs):
         doc["speakers"] = [{"name": m["name"]} for m in ctx.get("members") or []]
     except Exception as e:   # 文脈は補助。読めなくても題名とパスで選ぶ
         _txbase.log.warning("配信ごとの文脈を読めませんでした(LLM の後処理は題名とパスだけで): %s", e)
-    picks = llm_pick(segs, members, doc)
+    gloss = list(spec.get("glossary") or [])
+    picks = llm_pick(segs, members, doc, gloss=gloss)
     rec["picked"] = len(picks)
+    rec["gloss"] = sum(1 for p in picks if p["why"] == "gloss")   # 印: 用語集の語で選んだ所の数(LLM_GLOSSARY)
     if not picks:
         return rec, None   # 選んだ所が無ければ LLM を読み込まない
     phase = job.get("phase")
     try:
         ask = llm_ask_fn(job, spec)
         job["phase"] = "名簿の呼び名を LLM で確かめ中"
-        out = llm_run(segs, members, doc, ask, picks=picks)
+        out = llm_run(segs, members, doc, ask, picks=picks, gloss=gloss)
     except _heavy.Cancelled:
         raise
     except Exception as e:   # LLM は補助。読めない・失敗しても文字起こしは失敗にしない(ApiError・EngineError・ワーカーの失敗)

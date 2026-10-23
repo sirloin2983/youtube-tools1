@@ -174,7 +174,7 @@ class TestDocRowsRun(unittest.TestCase):
         # LLM(E): 選ぶ(呼び名に近い所・誤りやすい形・カタカナの規則。そのまま出ている行・後処理の行・普通の言葉は選ばない・30 か所まで)→ 聞く → 検査 → 上限 → 当てる
         rec = out["llm_rec"]
         self.assertEqual(rec, {"engine": "llama-text", "model": "qwen3-8b", "picked": llm.LLM_MAX_PICKS, "proposed": 33, "applied": 14,
-                               "rejected": {"length": 1, "newName": 1, "lowConfidence": 1, "notInRow": 1, "cap": 15}})
+                               "rejected": {"length": 1, "newName": 1, "lowConfidence": 1, "notInRow": 1, "cap": 15}, "gloss": 0})
         self.assertEqual(at("生き花ラミィちゃんが好き")[3], {"from": "生き花ラミーちゃんが好き", "by": "llm"})
         self.assertTrue(by["生き花ラミィちゃんが好き"]["flag"].startswith(llm.LLM_FLAG))
         self.assertEqual((at("トワ様こんばんは")[3]["from"], "fill" in by["トルカ来た"], "fill" in by["言ってみるか"], "fill" in by["ラミィちゃん来た"]),
