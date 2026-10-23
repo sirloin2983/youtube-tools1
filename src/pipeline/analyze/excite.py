@@ -68,9 +68,13 @@ FILL_ON = True
 FILL_REASON = "本数に届かないので埋めた(点数は低め)"
 SHAPE_DEFAULT = "scene"   # スイッチ: "scene" = 場面ごと / "fixed" = 山から固定の長さ(0.88 まで)。解析の設定・配信中の spec の shape が上書きする
 SHAPES = ("scene", "fixed")
-SCENE = {"rise": 0.3,      # 上りの始まり = 点数が「ふだん」+ この割合 ×(山 − ふだん)を超え始めた秒
+# 場面を長くつなぐ(10-23 ユーザー「切り抜きたいところが欠けるのを減らす方が良い」。決定 3-148。notes:plan/heatmap-study.md の「区間の形」):
+# hold 10 → 30 秒・rise 0.3 → 0.4。友人の 30 区間で 7 割を覆う候補が上位 20 本に入る割合が 4 組すべてで上がる(組 A .50 → .69)・余分は平均 +13 秒。
+# 配信中(PeakBook)も同じ形(L-5)= 収まりの見極めが 20 秒長い。スイッチ: False で前の形(hold 10・rise 0.3)。印: archive の解析の記録 sceneForm・配信中の peaks.json の sceneForm
+SCENE_LONG = True
+SCENE = {"rise": 0.4 if SCENE_LONG else 0.3,   # 上りの始まり = 点数が「ふだん」+ この割合 ×(山 − ふだん)を超え始めた秒
          "settle": 0.3,    # 収まり = 山のあと、同じく決まった割合を下回って hold 秒続いた所の手前
-         "hold": 10,       # 上り・収まりの判定で、下回りがこの秒数続いたら場面の外(短い谷は同じ場面にまとめる)
+         "hold": 30 if SCENE_LONG else 10,     # 上り・収まりの判定で、下回りがこの秒数続いたら場面の外(短い谷は同じ場面にまとめる)
          "lead": 90.0,     # 前振りの余白(秒)。lead・tail・rise・settle は LD-2a の物差し(src/eval/tools/clipfit.py --grid)で配信を 2 組に分けて選んだ
          "tail": 45.0,     # 余韻(秒。粗い系列で見た友人の終わり = 収まりの 27 秒あと より、1 秒の点数で測ると長めが合った)
          "min": 60.0, "max": 300.0,   # 長さの守り(L-3)

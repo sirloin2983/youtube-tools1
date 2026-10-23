@@ -322,7 +322,8 @@ def _save_record(src, spec, dur, n, levels, chat, stamps, ctexts, meta, info, ca
         run = {"at": payload["at"], "spec": {k: spec.get(k) for k in SPEC_KEYS},
                "lagUsed": spec.get("lagUsed"), "signals": info, "chatHalf": excite.CHAT_HALF,   # 印: チャットのふだんの幅(決定 3-135。無い記録は 150)
                "commentShape": excite.COMMENT_SHAPE,   # 印: コメント欄の時刻の点数の形(決定 3-137。無い記録は sym)
-               "peakComment": list(excite.PEAK_COMMENT) if peak_used else None,   # 印: 山を選ぶ点数だけコメントを重くした(決定 3-147。無い記録・None は前の形)
+               "peakComment": list(excite.PEAK_COMMENT) if peak_used else None,
+               "sceneForm": {k: excite.SCENE[k] for k in ("rise", "hold")},   # 印: 場面のつなぎ方(決定 3-148。無い記録は rise 0.3・hold 10)   # 印: 山を選ぶ点数だけコメントを重くした(決定 3-147。無い記録・None は前の形)
                "candidates": [dict({"start": c["start"], "end": c["end"], "peak": c["peak"], "score": c["score"], "parts": c["parts"]},
                                **{k: c[k] for k in ("shape", "fixed", "fill") if k in c}) for c in cands]}   # 生の結果(固定の長さの区間・埋めた印)も残す(LD-2b)
         save_archive(src["videoId"], payload, run)

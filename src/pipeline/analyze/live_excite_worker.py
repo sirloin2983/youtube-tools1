@@ -1014,6 +1014,7 @@ class RecState:
                 "lateChat": self.late, "chatInfo": self.chat_info, "ended": self.finished, "message": self.message,
                 "length": self.book.length, "preRatio": self.book.pre, "lengthFrom": self.spec.get("lengthFrom") or "studio",   # M10: 候補の長さの出どころ
                 "shape": self.book.shape,   # 区間の形(LD-2b。scene = 場面ごと・fixed = 山から固定の長さ)
+                "sceneForm": {k: self.book.scene[k] for k in ("rise", "hold")},   # 印: 場面のつなぎ方(決定 3-148)
                 "moodShifts": self.mood_shifts, "provisional": self.fast is not None,   # 雰囲気の変わり目の数・仮の候補を出しているか
                 "lateFrom": self.late_from,   # 録画の途中から測り始めた秒(それより前の候補は無い)
                 "thr": round(self.book.thr, 3), "thrBase": self.thr_base, "audioOnly": self.audio_only(),   # 今のしきい値・感度のしきい値・音だけか(AUDIO_ONLY_SCALE)
