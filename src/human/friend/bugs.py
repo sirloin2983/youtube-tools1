@@ -26,7 +26,7 @@ notes:plan/友人の不具合の自動対応-1025.md)。
   諦めた依頼(final = gaveUp・yt_fetch_gave_up・delivered false)は、その依頼 id がまだ届いていなければ(delivered = 出力\\ の zip・届けた記録・
   友人の送り返し)、`診断\\引き継ぎ\\<依頼 id>.takeover.json` を置く。友人のアプリが同じ id・同じ欄でこちらへ依頼を上げ直し、受付が作って届ける。
   受付は guard で、引き継いだ id の 2 通目・もう届いた物を断る(届け元を 1 つに)
-- 結果: 起こした AI がまとめ役のセッションへ SendMessage で送る。送れないときに備えて、結果は必ず `ai\\<時刻>.result.md` に書かせる
+- 結果: 起こした AI が `ai\\<時刻>.result.md` に必ず書く。まとめ役のセッションへ届けるのは知らせの部品(human/friend/notify が result を読んで 1 通にまとめる)
 - スイッチ: 環境変数 YTT_FRIEND_BUG_AI=1 で起こす(既定は起こさない。受け取りと仕分けは続ける)。起こした AI には
   最初から小さな直しの land と zip の配布(重要の印・直す対象つき・--skip-preflight なし)まで任せる。触ってはいけないファイルの直しは案だけ。
   YTT_FRIEND_BUG_AI_LAND=0 で案だけ(調べて直し方の案を結果のファイルに残すだけ)。リポジトリ(.git と dev/land.py)が無い PC
@@ -81,7 +81,6 @@ TIMEOUT_SEC = 45 * 60
 LOGIN_WAIT_SEC = 6 * 3600           # claude がログインしていなかったら、この秒数は起こし直さない(ユーザーが 1 回 /login する)
 LOGIN_RE = re.compile(r"Not logged in|Please run /login", re.I)
 WT_PREFIX = "friend-bug-"           # <repo>/.claude/worktrees/friend-bug-<時刻>(その回専用)
-COORDINATOR = "local_3c7c3e34-c0a4-4271-8347-5e060b6960a7"   # 結果を送るまとめ役のセッション(ユーザーの決め 10-25)
 LIVE_STAGES = ("record", "recording", "chat", "live", "close", "ended", "submit", "blocked", "lost")   # 友人の detect は依頼の「見どころを探す」= 1(known-bugs 10-25)
 START_STAGES = ("start", "launch", "update", "setup", "rollback")
 SYNC_STAGES = ("sync", "deliver", "upload", "receive", "outbox")
@@ -127,7 +126,7 @@ PROMPT = """あなたは youtube-tools の道具が自動で起こした Claude 
 結果:
 - 結果のファイルに、頭の 1 行で「直して配った / 直した(配っていない)/ 案だけ / 原因が分からない」のどれかを書き、続けて原因・したこと・
   land のコミットと版・残り を短く書きます。友人に何かしてもらう必要があるときは、その旨(友人へのお願いの文)を一番上に書きます。
-- SendMessage が使えるなら、同じ中身を短くまとめて {coordinator} へ送ります(使えなければ結果のファイルだけでよい)。
+- まとめ役への知らせは道具が結果のファイルから届けます。SendMessage は使いません(同じ知らせを二重にしない)。
 """
 SCOPE_PLAN = """- 今は案だけです(YTT_FRIEND_BUG_AI_LAND=0): 調べる・テストを流す・直し方の案を書く、だけ。
   land・友人の zip の配布・こちらの PC で作って届けること・Dropbox の物を置き直すことはしません(案に書く)。
@@ -565,7 +564,7 @@ def wake(app_dir, clock=None, log=None, spawn=None, repo=None, claude=None):
         except (OSError, ValueError):   # 囲めなければ元の写し(前置きは指示文にある)
             files.append(raw)
     kind = todo[0].get("kind") or 1
-    prompt = PROMPT.format(kind_name=KINDS[kind][0], guide=KINDS[kind][2], files="、".join(files), result=result, coordinator=COORDINATOR,
+    prompt = PROMPT.format(kind_name=KINDS[kind][0], guide=KINDS[kind][2], files="、".join(files), result=result,
                            scope=SCOPE_PLAN if os.environ.get(LAND_ENV) == "0" else SCOPE_LAND)
     try:
         if spawn is None:
