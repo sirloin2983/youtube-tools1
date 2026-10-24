@@ -42,12 +42,12 @@
   - 名前: `register` :49・`registered` :63・`has_media` :82・`class View` :92・`value_auto` :263・`value_cand` :289・`read_fill` :318・`voice_diar` :335・`time_row` :373・`collect` :398
 - **speech_sources.py** (66 行) — 「確かめる」の普段のレーンの「この行は声ですか?」カードの出どころ speech:diar(C-EVAL (3))。
   - 名前: `speech_diar` :41
-- **voice_solo.py** (201 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
-  - 名前: `people` :164・`clip_targets` :176・`voice_solo` :185
-- **voicefetch.py** (207 行) — 誰の声の材料が無いメンバーの音を YouTube から少しだけ取る(10-25。ユーザー「全メンバー揃えてほしい」の 2。1 = 手元の学習用データ は voicefill)。
-  - 名前: `extra_channels` :49・`members` :56・`slot_free` :68・`parse_rss` :91・`choose` :105・`wants` :147・`tick` :156
-- **voicefill.py** (106 行) — 誰の声の材料を全メンバーぶんそろえる(10-25。ユーザー「誰の声を全部やったが本当に数人しかいなかった。全メンバー揃えてほしい」)。
-  - 名前: `learn_dirs` :25・`eval_like` :38・`in_learn_dir` :43・`targets` :48・`pick` :73・`tick` :85
+- **voice_solo.py** (214 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
+  - 名前: `stream_counts` :164・`people` :177・`clip_targets` :189・`voice_solo` :198
+- **voicefetch.py** (274 行) — 誰の声の材料の配信の音を YouTube から少しだけ取る(10-25。ユーザー「全メンバー揃えてほしい」「ショートだけでは足りない。配信からの材料も要る」。
+  - 名前: `extra_channels` :57・`members` :64・`slot_free` :76・`parse_rss` :99・`choose` :113・`wants` :201・`tick` :210
+- **voicefill.py** (107 行) — 誰の声の材料を全メンバーぶんそろえる(10-25。ユーザー「誰の声を全部やったが本当に数人しかいなかった。全メンバー揃えてほしい」)。
+  - 名前: `learn_dirs` :25・`eval_like` :38・`in_learn_dir` :44・`targets` :49・`pick` :74・`tick` :86
 
 ## src/app/ui/
 
