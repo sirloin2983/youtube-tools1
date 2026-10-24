@@ -19,8 +19,8 @@ import os
 import subprocess
 import time
 
-from ytt import fsio, procs, tools
-from . import upwatch as _upwatch
+from ytt import fsio, tools
+from . import bugs as _bugs, upwatch as _upwatch
 
 DIR = "friend-publish"
 QUEUE_NAME, STATE_NAME, LOCK_NAME = "queue.json", "state.json", "queue.lock"
@@ -28,7 +28,7 @@ SLOT_HOURS = 3
 RUN_MAX_SEC = 2 * 3600              # 配る道具(検査つき)がこれより長ければ、起こした PID を止める
 SWITCH_ENV = "YTT_FRIEND_PUBLISH_QUEUE"
 NOTE_MAX = 200
-_running = {}                       # 起こした配る道具(pid → Popen)
+_running = _bugs._running           # 起こした子(pid → Popen。AI と同じ覚え・同じ起こし方 _bugs._spawn・_bugs._alive)
 
 
 def _dir(app_dir):
@@ -86,22 +86,6 @@ def slot_of(t):
     return "%s-%02d" % (d.strftime("%Y%m%d"), d.hour // SLOT_HOURS * SLOT_HOURS)
 
 
-def _alive(pid):
-    p = _running.get(pid)
-    if p is not None:
-        if p.poll() is None:
-            return True
-        _running.pop(pid, None)
-        return False
-    return procs.pid_alive(pid)
-
-
-def _spawn(cmd, cwd, out):
-    with open(out, "ab") as f:
-        return subprocess.Popen(cmd, cwd=cwd, stdin=subprocess.DEVNULL, stdout=f, stderr=subprocess.STDOUT,
-                                creationflags=tools.no_window_flags(new_group=True, priority="low"))
-
-
 def tick(app_dir, repo, clock=None, log=None, spawn=None):
     """見回りの 1 回: 区切りを越えて最初なら、列に積まれていれば配る道具を 1 回起こす -> 起こした {pid, started, slot} か None。
     失敗しても見回りは止めない(ログに 1 行)"""
@@ -119,7 +103,7 @@ def _tick(app_dir, repo, clock, log, spawn):
     now = clock()
     run = st.get("run")
     if run:
-        if _alive(run.get("pid")):
+        if _bugs._alive(run.get("pid")):
             if now - (run.get("started") or now) <= RUN_MAX_SEC:
                 return None
             if run["pid"] in _running:   # 自分が起こした物だけ止める(入口が起こし直した後の PID は止めずに記録だけ)
@@ -147,7 +131,7 @@ def _tick(app_dir, repo, clock, log, spawn):
     out = os.path.join(_dir(app_dir), "publish-%s.log" % slot)
     cmd = [tools.python_exe(), os.path.join(repo, "dev", "build_friend_zip.py"), "--publish", "--from-queue"]
     try:
-        proc = (spawn or _spawn)(cmd, repo, out)
+        proc = (spawn or _bugs._spawn)(cmd, repo, out)
     except (OSError, subprocess.SubprocessError) as e:
         _upwatch.add_alert(app_dir, "warn", "publish-spawn:%s" % slot, "まとめて配る回(%s)で配る道具を起こせませんでした: %s" % (slot, str(e)[:200]), now=now)
         return None
