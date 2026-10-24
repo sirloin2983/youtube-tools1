@@ -108,8 +108,15 @@ class VoiceSoloTest(unittest.TestCase):
         self.assertEqual(got & set(bad) | (got & {"b00000000006"}), set())
 
     def test_learned_and_answered_reduce(self):
-        self.reg = {MIKO: {"sec": NEED}}
-        self.assertEqual(self.cards(), [])                                       # 覚え終わった人は出ない
+        self.reg = {MIKO: {"sec": NEED, "learnedFrom": [{"doc": "a0000000000%d" % i, "rows": []} for i in range(5)]}}
+        cards = self.cards()
+        self.assertEqual(len(cards), voice_solo.LEARNED_CARDS)                   # 覚えた人も止めない(10-24 夜)= 少しだけ
+        self.assertIn("a00000000005", {c["target"]["docId"] for c in cards})     # まだ材料に入っていない配信が先(並びの順なら a0〜a2)
+        self.reg[MIKO]["sec"] = NEED * 6
+        with mock.patch.object(voice_solo.random, "random", lambda: 0.9):
+            self.assertEqual(len(self.cards()), 0)                               # 材料が多いほど少ない(3 × 1/6 = 0.5 枚 = くじ)
+        with mock.patch.object(voice_solo.random, "random", lambda: 0.1):
+            self.assertEqual(len(self.cards()), 1)
         self.reg = {MIKO: {"sec": NEED - 8.0, "learnedFrom": [{"doc": "a00000000000", "rows": ["s0"]}]}}
         cards = self.cards()
         self.assertEqual(len(cards), 2)                                          # 残り 8 秒 = 4 秒の行 2 本

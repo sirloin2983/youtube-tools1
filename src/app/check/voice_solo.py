@@ -6,9 +6,12 @@
                判別の記録の行がある文書は voice:diar が出すので出さない(同じ行を 2 度聞かない)
   行の選び方    覚える材料の決まり(human/check/voice の _learn_of と同じ = 1 秒以上・混ざりの印・音のメモ overlap/bgm/unclear が無い・
                字幕に出さない行とゲームの音の話者でない)に合う行。1 本の文書から PER_DOC 行まで・文書を順に 1 行ずつ回して、いろいろな配信から取る
-  量            ソロの文書の多い人から MAX_PEOPLE 人。1 人ぶんは「覚えた秒(登録簿の sec)+ 名前で答えた行の秒 + まだ答えていないカードの秒」が
-               設定 check.voiceRelearnSec × MARGIN に届くまで(MAX_PER_PERSON 枚まで)。覚え終われば(登録簿の sec が届けば)その人のカードは出ない。
-               混ざり・その他・別の人で答えた行は数えないので、足りない分だけ次の行が出る
+  量            材料の少ない人から MAX_PEOPLE 人。まだ覚えていない人(登録簿の sec が設定 check.voiceRelearnSec × MARGIN に届かない人)は、
+               「覚えた秒 + 名前で答えた行の秒 + まだ答えていないカードの秒」がそれに届くまで(MAX_PER_PERSON 枚まで)。
+               混ざり・その他・別の人で答えた行は数えないので、足りない分だけ次の行が出る。
+               覚えた人も止めない(10-24 夜の決め直し = 配信ごとのマイク・部屋の違いも平均に入れる): LEARNED_CARDS × 届く秒 / 覚えた秒 枚
+               (材料が多いほど少ない。端数はくじ)。どの人も、まだ材料に入っていない配信(文書)の行が先。
+               覚え直しは新しい行だけを前の声に混ぜる(flow/diar.merge_voice・前の重みは 1 時間まで)ので、材料が増えても 1 回の重さは変わらない = 上限は置かない
 答えの形・反映・覚え直しは voice:diar と同じ(human/check/voice。予想 = 配信者・選択肢 = 配信者 + ほかの対象の人 + その他 + 混ざり。
 分からないときは画面の [飛ばす])。カードは voice:diar より先に並ぶ(`_order` の頭 -1)。人をまたいでランダムに混ぜる
 (同じ人が続くと聞き分けにならない。集め直すたびに混ざる)。
@@ -33,8 +36,9 @@ from . import sources   # 同じ app/check の兄弟(register・_doc_card・_row
 SOURCE = "solo"
 MAX_PEOPLE = 80          # 対象の人数(まだ覚えていない人が先・ソロの文書の多い順。10-24 夜に 10 → 80 = ホロライブのメンバー全員)
 MAX_PER_PERSON = 15      # 1 人ぶんのカードの上限
+LEARNED_CARDS = 3        # 覚えた人(届く秒ちょうど)のカードの数。覚えた秒が 2 倍なら半分(端数はくじ)
 PER_DOC = 3              # 1 本の文書から出す行の上限
-MARGIN = _vm.DONE_MARGIN  # 覚え直す秒(check.voiceRelearnSec)に掛ける余裕(覚えるジョブが重心を作れる量に、少し多めに)
+MARGIN = 1.5             # 覚え直す秒(check.voiceRelearnSec)に掛ける余裕(覚えるジョブが重心を作れる量に、少し多めに)
 MAX_ROW_SEC = _vm.MAX_ROW_SEC
 GOOD_SEC = _vm.GOOD_SEC
 SONG_RE, NOTE_RE, COLLAB_RE = _vm.SONG_RE, _vm.NOTE_RE, _vm.COLLAB_RE   # 選び方の決まりは ② flow/voicematerial(友人の PC と同じ)
@@ -54,6 +58,12 @@ def _options(doc, who, others):
 def _playable(tid, doc, g):
     """行を聞けるか: 切り出して残した音がある(voiceclips)か、元の動画がある"""
     return bool(_voiceclips.clip_path(tid, g["id"])) or sources.has_media(doc)
+
+
+def _learned_quota(sec, need):
+    """覚えた人のカードの数(LEARNED_CARDS × need / sec。端数はくじ)"""
+    q = LEARNED_CARDS * need / max(sec, need)
+    return int(q) + (1 if random.random() < q - int(q) else 0)
 
 
 def _select(view):
@@ -80,20 +90,23 @@ def _select(view):
         reg = voice_mod.registry(voice_mod.doc_embedding(docs[0][1]), cache)
         mine = next((v for n, v in reg.items() if _person_key(n) == _person_key(who)), {}) or {}
         info[who] = (docs, sources._num(mine.get("sec")),
-                     {(str(x.get("doc")), str(r)) for x in mine.get("learnedFrom") or () if isinstance(x, dict) for r in x.get("rows") or ()})
-    people = sorted(info, key=lambda n: (info[n][1] >= need, -len(info[n][0]), n))[:MAX_PEOPLE]   # まだ覚えていない人が先
+                     {(str(x.get("doc")), str(r)) for x in mine.get("learnedFrom") or () if isinstance(x, dict) for r in x.get("rows") or ()},
+                     {str(x.get("doc")) for x in mine.get("learnedFrom") or () if isinstance(x, dict)})
+    people = sorted(info, key=lambda n: (info[n][1] >= need, info[n][1], -len(info[n][0]), n))[:MAX_PEOPLE]   # まだ覚えていない人・材料の少ない人が先
     out = []
     for rank, who in enumerate(people):
-        docs, got, learned = info[who]
-        picks = []   # 文書ごとの行(GOOD_SEC に近い順)
-        for tid, doc in docs:
+        docs, got, learned, seen = info[who]   # seen = 材料に入っている配信(登録簿の learnedFrom の文書)
+        done = got >= need
+        limit = _learned_quota(got, need) if done else MAX_PER_PERSON
+        picks = []   # 文書ごとの行(GOOD_SEC に近い順)。まだ材料に入っていない配信が先
+        for tid, doc in sorted(docs, key=lambda x: x[0] in seen):
             skips["songRows"] += sum(1 for g in sources._rows(doc) if song_row(g))
             rows = _vm.pick(doc, lambda g: _playable(tid, doc, g))
             picks.append((tid, doc, rows[:PER_DOC]))
         n = 0
         for i in range(PER_DOC):   # 文書を順に 1 行ずつ回す(いろいろな配信から)
             for tid, doc, rows in picks:
-                if got >= need or n >= MAX_PER_PERSON:
+                if (not done and got >= need) or n >= limit:
                     break
                 if i >= len(rows) or (tid, rows[i]["id"]) in learned:
                     continue

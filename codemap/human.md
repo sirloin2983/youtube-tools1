@@ -53,10 +53,10 @@
   - 名前: `configured_folder` :77・`out_dir_of` :88・`submit_urls` :93・`submit_file` :117・`youtube_id` :127・`parse_lines` :133・`decode_text` :159・`probe_video` :173・`youtube_info` :185・`parse_ranges` :233・`class Intake` :262
 - **live_requests.py** (22 行) — 友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend.md の 2-15)。
   - 名前: `settings_label` :19
-- **returns.py** (490 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。notes:docs/design/f1-build.md の (f1d))。
-  - 名前: `returns_dir` :58・`extract` :96・`parse_verdict` :130・`parse_notice` :180・`scan` :215・`recent_notices` :416・`iter_requests` :455
-- **voicein.py** (154 行) — 友人の PC から届いた声の材料の受け取り(10-24 夜。作る側 = friendapp/voicesend。案 = notes:plan/声の材料を友人のPCから-1024.md)。
-  - 名前: `class Refused` :36・`done_names` :40・`write_done` :51・`take` :89
+- **returns.py** (486 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。notes:docs/design/f1-build.md の (f1d))。
+  - 名前: `returns_dir` :58・`extract` :96・`parse_verdict` :130・`parse_notice` :180・`scan` :215・`recent_notices` :412・`iter_requests` :451
+- **voicein.py** (122 行) — 友人の PC から届いた声の材料の受け取り(10-24 夜。作る側 = friendapp/voicesend。案 = notes:plan/声の材料を友人のPCから-1024.md)。
+  - 名前: `class Refused` :33・`take` :59
 
 ## src/human/proof/
 

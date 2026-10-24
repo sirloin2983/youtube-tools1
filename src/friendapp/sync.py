@@ -753,15 +753,14 @@ class Sync:
             raise SyncError("上げられなかった物 %d 件(次の回でもう一度)" % len(failed))
 
     def _voice(self, io):
-        """声の材料(friendapp/voicesend): 録画中は作らない。覚え終えた人の一覧はユーザーの PC が /送り返し/声/ に置く(読めなければ外さない)"""
+        """声の材料(friendapp/voicesend): 録画中は作らない"""
         if not VOICE_SEND:
             return
         eng = self.engine_fn()
         live = getattr(eng, "live", None) if eng is not None else None
         if live is not None and live.active_count() > 0:
             return
-        done = _voicesend.parse_done(io.read_small(_voicesend.DONE_PATH, _voicesend.DONE_CAP))
-        _voicesend.build(self.places["outbox"], os.path.join(self.places["friend"], _voicesend.SENT_NAME), done=done, now=self.clock(), log=self.log)
+        _voicesend.build(self.places["outbox"], os.path.join(self.places["friend"], _voicesend.SENT_NAME), now=self.clock(), log=self.log)
 
     def _prune_diag(self, io):
         """Dropbox の /診断/ の 3 日より古い診断を消す(名前の時刻で決める。DIAG_PRUNE_EVERY 秒に 1 回)"""

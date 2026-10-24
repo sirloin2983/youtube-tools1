@@ -1,6 +1,6 @@
 """友人の PC から送る声の材料の通し(src/friendapp/voicesend.py → src/human/friend/voicein.py。10-24 夜)。
 友人の PC がソロ配信の文書の行を切り出して送り返しの zip にし、ユーザーの PC の受付(returns.scan)が小さな文書と行の音にする。
-歌の配信・歌の行・覚え終えた人は外す。本物の ffmpeg で 30 秒の音を作って通す(30 秒以下の工程は本物の通し 1 本)。
+歌の配信・歌の行は外す。本物の ffmpeg で 30 秒の音を作って通す(30 秒以下の工程は本物の通し 1 本)。
 実行(リポジトリ直下から): py -3.12 -m unittest tests/friendapp/test_voicesend.py -v
 """
 import json
@@ -60,12 +60,11 @@ class VoiceSendTest(unittest.TestCase):
                   mock.patch.object(voice_mod, "_relearn_sec", lambda: 30.0)):
             p.start()
             self.addCleanup(p.stop)
-        VI._last_done.clear()
 
     def test_friend_to_user(self):
         outbox, sent = os.path.join(self.tmp, "outbox"), os.path.join(self.tmp, "voice-sent.json")
         logs = []
-        self.assertEqual(VS.build(outbox, sent, done={"兎田ぺこら"}, now=10 ** 6, log=logs.append, data_dir=self.friend), 1)
+        self.assertEqual(VS.build(outbox, sent, now=10 ** 6, log=logs.append, data_dir=self.friend), 1)
         self.assertEqual(os.listdir(outbox), ["voice__aaaaaaaaaaaa.voice.zip"])   # 歌枠の配信は外す
         self.assertIn("歌の配信で外した 1 本", logs[-1])
         with zipfile.ZipFile(os.path.join(outbox, "voice__aaaaaaaaaaaa.voice.zip")) as z:
@@ -74,8 +73,6 @@ class VoiceSendTest(unittest.TestCase):
             self.assertNotIn("m1", meta["rows"])   # 歌の行は外す
             self.assertEqual((meta["streamer"], meta["doc"]), (MIKO, "aaaaaaaaaaaa"))
         self.assertEqual(VS.build(outbox, sent, now=10 ** 6, data_dir=self.friend), 0)   # 送った文書は 2 回作らない
-        os.remove(sent)
-        self.assertEqual(VS.build(os.path.join(self.tmp, "o2"), sent, done={MIKO}, now=10 ** 6, data_dir=self.friend), 0)   # 覚え終えた人は送らない
 
         # ユーザーの PC: 同期フォルダの 送り返し\ に届いた
         user = os.path.join(self.tmp, "user")
@@ -94,17 +91,14 @@ class VoiceSendTest(unittest.TestCase):
         g = doc["segments"][0]
         self.assertIsNotNone(voiceclips.media("aaaaaaaaaaaa", g["id"], g["start"], g["end"]))   # 送られた音でカードを流せる
         self.assertFalse(os.path.exists(z))   # 受付済みへ
-        self.assertFalse(os.path.exists(os.path.join(sync, R.IN_DIR, VI.DONE_DIR)))   # まだ誰も覚え終えていない = 置かない(友人の PC は全部送る)
 
-        # 覚え終えた人の材料は写さない・覚え終わり.json に名前が出る
+        # 覚えた人の材料も写す(どれをカードにするかは voice_solo の並べ方。10-24 夜の決め直し)
         self.reg = {MIKO: {"sec": 60.0}}
-        VI._last_done.clear()
         shutil.copy(os.path.join(outbox, "voice__aaaaaaaaaaaa.voice.zip"), os.path.join(sync, R.IN_DIR, "x__cccccccccccc.voice.zip"))
         os.utime(os.path.join(sync, R.IN_DIR, "x__cccccccccccc.voice.zip"), (1000, 1000))
         got = R.scan(sync, os.path.join(self.tmp, "app"), clock=lambda: 10 ** 6)
-        self.assertEqual([(r["state"], r["reason"]) for r in got], [("accepted", "覚え終えた人")])
-        self.assertFalse(os.path.exists(store.tx_path("cccccccccccc")))
-        self.assertEqual(VS.parse_done((json.dumps(read_json(os.path.join(sync, R.IN_DIR, VI.DONE_DIR, VI.DONE_NAME))).encode(), False)), {MIKO})
+        self.assertEqual([(r["state"], r["reason"]) for r in got], [("accepted", "")])
+        self.assertTrue(os.path.exists(store.tx_path("cccccccccccc")))
 
     def test_bad_zip_refused(self):
         user = os.path.join(self.tmp, "user")
@@ -116,8 +110,6 @@ class VoiceSendTest(unittest.TestCase):
             z.writestr("meta.json", json.dumps({"format": VS.FORMAT, "streamer": MIKO, "rows": {}}))
             z.writestr("../evil.wav", b"x")
         self.assertEqual(VI.take("x__dddddddddddd.voice.zip", p, lambda m: None)[0], "rejected")
-        self.assertEqual(VS.parse_done(None), None)
-        self.assertEqual(VS.parse_done((b"{broken", False)), None)
 
 
 if __name__ == "__main__":

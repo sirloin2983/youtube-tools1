@@ -33,14 +33,14 @@
   - 名前: `class FetchError` :61・`class Cancelled` :65・`safe_relative` :74・`problem` :90・`parse_item` :117・`load` :127・`archive_name` :151・`expect` :159・`folder` :164・`marker` :168・`label` :172・`is_done` :181・ほか 11
 - **streams.py** (559 行) — 友人のアプリの「送る」画面の左に並べる、ホロライブ JP(と DEV_IS)の配信の一覧(F3-2)。API キー無し。
   - 名前: `parse_rss` :159・`classify` :191・`class Streams` :261
-- **sync.py** (946 行) — 友人の玄関の Dropbox の同期(notes:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-14〜2-17・5-1)。
+- **sync.py** (945 行) — 友人の玄関の Dropbox の同期(notes:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-14〜2-17・5-1)。
   - 名前: `class SyncError` :91・`name_ok` :96・`out_kind` :102・`clean_text` :114・`clean_origin` :119・`parse_meta` :130・`parse_meta_info` :136・`failure_text` :156・`server_time` :163・`safe_rel` :171・`safe_join` :178・`local_name` :188・ほか 10
 - **tidy.py** (596 行) — アプリのフォルダの整理(形は Fable と相談 = 共有のメモ f3a-tidy-design.md。決定 3-86)。新しい版に入れ替えて起動できたあとと ⚙ から。
   - 名前: `keep_floor` :76・`class Tidy` :161
 - **toolcheck.py** (111 行) — 友人の PC の初回の準備の最後の「道具を動かして確かめる」(F3-5。notes:plan/f1-friend-requirements.md の C-5-2・C-0)。
   - 名前: `run_cmd` :26・`check_tool` :37・`check_tools` :53・`make_wav` :58・`whisper_run` :68・`check_whisper` :76・`signature` :97・`failed` :109
-- **voicesend.py** (142 行) — 友人の PC から送る声の材料(10-24 夜。ユーザー「誰の声をメンバー全員分」。案 = notes:plan/声の材料を友人のPCから-1024.md)。
-  - 名前: `zip_name` :36・`parse_done` :40・`build` :61
+- **voicesend.py** (124 行) — 友人の PC から送る声の材料(10-24 夜。ユーザー「誰の声をメンバー全員分」。案 = notes:plan/声の材料を友人のPCから-1024.md)。
+  - 名前: `zip_name` :33・`build` :46
 - **ytdlp_update.py** (186 行) — 友人の PC の yt-dlp をいつも新しく(YouTube の bot 判定・仕様の変更に古い yt-dlp は当たりやすい。notes:docs/spec/friend.md の 13-13)。
   - 名前: `record_path` :56・`latest` :63・`probe` :75・`version_of` :85・`mark_ok` :93・`update` :98・`enabled` :151・`maybe_start` :155・`facts` :179
 

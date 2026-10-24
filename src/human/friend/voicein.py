@@ -5,8 +5,7 @@
   - 小さな文字起こしの文書(id = 文書の印・origin = friend-voice・元の動画なし・話者 = 配信者 1 人・行 = 送られた行)を作る
   - 行の音を誰の声の材料の置き場所(human/proof/voiceclips)へ写す
 誰の声のカード(app/check/voice_solo)は、この文書も今の文書と同じに出し、送られた音で再生する。答えると覚え直しも送られた音で動く。
-外す物(写さない): 歌の配信(題名)・歌の行(音符)・名簿に無い人・覚え終えた人(登録簿の秒が覚え直しの秒 × DONE_MARGIN に届いた人)。
-覚え終えた人の名前は write_done が `送り返し\\声\\覚え終わり.json` に置き、友人の PC はその人の文書を送らない(受付の見回りごと・変わったときだけ書く)。
+外す物(写さない): 歌の配信(題名)・歌の行(音符)・名簿に無い人。覚えた人の分も写す(どれをカードにするかは voice_solo の並べ方。10-24 夜の決め直し)。
 """
 import io
 import json
@@ -17,7 +16,6 @@ import wave
 import zipfile
 
 from flow import voicematerial as _vm
-from human.check import voice as _voice
 from human.proof import store as _store, voiceclips as _voiceclips
 from ytt import fsio, schemas as _yschemas
 
@@ -25,7 +23,6 @@ SUFFIX = ".voice.zip"
 NAME_RE = re.compile(r"^([0-9A-Za-z_-]{1,64})__([0-9a-f]{12})" + re.escape(SUFFIX) + r"\Z")
 FORMAT = "youtube-tools-voice/v1"
 ORIGIN = "friend-voice"
-DONE_DIR, DONE_NAME = "声", "覚え終わり.json"
 MAX_ZIP = 8 * 1024 * 1024
 MAX_WAV = 2 * 1024 * 1024
 MAX_ROWS = 6
@@ -35,33 +32,6 @@ WAV_RE = re.compile(r"^([A-Za-z0-9_-]{1,16})\.wav\Z")
 
 class Refused(ValueError):
     pass
-
-
-def done_names(cache=None):
-    """覚え終えた人の名前(登録簿の秒が覚え直しの秒 × DONE_MARGIN に届いた人)"""
-    need = _voice._relearn_sec() * _vm.DONE_MARGIN
-    reg = _voice.registry(_voice.doc_embedding({}), cache)
-    return sorted(n for n, v in reg.items() if isinstance(v, dict) and _vm.num(v.get("sec")) >= need)
-
-
-_last_done = {}
-DONE_EVERY = 600   # 覚え終わり.json を見直す間隔(秒。登録簿を読むので見回りごとにはしない)
-
-
-def write_done(sync_folder, in_dir, clock=time.time):
-    """`<同期フォルダ>\\送り返し\\声\\覚え終わり.json` を置く(DONE_EVERY 秒に 1 回・中身が変わったときだけ)。-> 書いたか"""
-    now = clock()
-    if now - _last_done.get(sync_folder, -DONE_EVERY) < DONE_EVERY:
-        return False
-    _last_done[sync_folder] = now
-    names = done_names()
-    path = os.path.join(sync_folder, in_dir, DONE_DIR, DONE_NAME)
-    cur = fsio.read_json_or(path, None, kind=dict)
-    if (isinstance(cur, dict) and cur.get("names") == names) or (cur is None and not names):
-        return False   # 変わらない・まだ誰も覚え終えていない(ファイルが無い = 友人の PC は全部送る、と同じ)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    fsio.write_json(path, {"names": names, "at": int(now * 1000)}, indent=None)
-    return True
 
 
 def _read(p):
@@ -103,8 +73,6 @@ def take(n, p, log):
     if _vm.song_title(title):
         log("声の材料: %s は歌の配信なので写しませんでした" % n)
         return "accepted", "歌の配信"
-    if who in done_names():
-        return "accepted", "覚え終えた人"
     have = _store.tx_path(tid)
     old = fsio.read_json_or(have, None, kind=dict) if have and os.path.isfile(have) else None
     if old is not None and old.get("origin") != ORIGIN:

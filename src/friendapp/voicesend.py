@@ -4,8 +4,7 @@
 友人の PC で文字起こしたソロ配信の文書から、話し声の行の短い音を切り出して、送り返しの zip にする。同期(friendapp/sync)が
 いつもの送り返しの道で Dropbox の `/送り返し/` へ上げ、ユーザーの PC の受付(human/friend/returns)が誰の声のカードの材料にする。
   選び方    ② flow/voicematerial(ユーザーの PC のカードと同じ): ソロの文書・歌の配信と歌の行は外す・1 本の文書から PER_DOC 行
-  外す人    ユーザーの PC が `/送り返し/声/覚え終わり.json`(声を覚え終えた人の名前の一覧)を置く。そこにいる人の文書は送らない
-           (読めなければ全部送る = 受け取る側でも外す)
+  外す物    歌の配信と歌の行だけ。覚えた人の分も送る(どれをカードにするかはユーザーの PC の並べ方。10-24 夜の決め直し = 送る側を複雑にしない)
   名前      `voice__<文書の印>.voice.zip`(文書の印 = 友人の PC の文書 id の頭 12 字)。中身 = meta.json と <行 id>.wav(16kHz・モノラル)
            meta.json = {"format": FORMAT, "doc", "streamer", "title", "appVersion", "rows": {行 id: {"start", "end", "a", "b", "text"}}}
   時機      同期の 1 回ごとに BATCH 本まで。録画中(ライブの録画)は作らない。文書が書かれて STABLE_SEC 秒たってから(書きかけを読まない)。
@@ -28,25 +27,11 @@ BATCH = 4                 # 同期の 1 回で作る zip の上限
 STABLE_SEC = 300
 SENT_NAME = "voice-sent.json"
 SENT_KEEP = 3000          # 覚えておく文書の数(古い順に忘れる)
-DONE_PATH = "/送り返し/声/覚え終わり.json"
-DONE_CAP = 64 * 1024
 MAX_DOC_BYTES = 32 * 1024 * 1024
 
 
 def zip_name(tid):
     return "voice__%s.voice.zip" % tid[:12]
-
-
-def parse_done(got):
-    """read_small の結果 -> 覚え終えた人の名前の集合か None(読めない = 外さない)"""
-    if not got or got[1]:
-        return None
-    try:
-        d = json.loads(got[0].decode("utf-8"))
-    except (ValueError, UnicodeDecodeError):
-        return None
-    names = d.get("names") if isinstance(d, dict) else None
-    return {str(n) for n in names if isinstance(n, str)} if isinstance(names, list) else None
 
 
 def _read(path):
@@ -58,13 +43,13 @@ def _read(path):
         return None
 
 
-def build(outbox, sent_path, done=None, now=None, log=None, ffmpeg=None, data_dir=None):
-    """まだ送っていない文書の声の材料の zip を outbox に作る -> 作った数。done = 外す人の名前(None = 外さない)"""
+def build(outbox, sent_path, now=None, log=None, ffmpeg=None, data_dir=None):
+    """まだ送っていない文書の声の材料の zip を outbox に作る -> 作った数"""
     log = log or (lambda m: None)
     now = time.time() if now is None else now
     sent = fsio.read_json_or(sent_path, {}, kind=dict)
     ff = ffmpeg or _tools.find_tool("ffmpeg")
-    made, skips, seen = 0, {"song": 0, "learned": 0}, 0
+    made, skips, seen = 0, {"song": 0}, 0
     for tid, path in sorted(_docloc.doc_files(data_dir).items(), key=lambda x: -_mtime(x[1])):
         if made >= BATCH:
             break
@@ -73,7 +58,7 @@ def build(outbox, sent_path, done=None, now=None, log=None, ffmpeg=None, data_di
         doc = _read(path)
         if doc is None:
             continue
-        why = _one(tid, doc, outbox, done, ff, skips)
+        why = _one(tid, doc, outbox, ff, skips)
         if why == "later":
             continue
         sent[tid] = {"at": int(now), "why": why}
@@ -83,8 +68,8 @@ def build(outbox, sent_path, done=None, now=None, log=None, ffmpeg=None, data_di
         if len(sent) > SENT_KEEP:
             sent = dict(sorted(sent.items(), key=lambda x: (x[1] or {}).get("at") or 0)[-SENT_KEEP:])
         fsio.write_json(sent_path, sent, indent=None)
-    if made or skips["song"] or skips["learned"]:
-        log("声の材料: %d 本を送り返しに置きました(歌の配信で外した %d 本・覚え終えた人で外した %d 本)" % (made, skips["song"], skips["learned"]))
+    if made or skips["song"]:
+        log("声の材料: %d 本を送り返しに置きました(歌の配信で外した %d 本)" % (made, skips["song"]))
     return made
 
 
@@ -95,7 +80,7 @@ def _mtime(p):
         return 0.0
 
 
-def _one(tid, doc, outbox, done, ff, skips):
+def _one(tid, doc, outbox, ff, skips):
     """1 本の文書 -> "sent"(置いた)・"later"(あとで。ffmpeg が無い)・ほかは置かない理由(覚えて見直さない)"""
     who = _vm.solo_person(doc)
     if not who:
@@ -104,9 +89,6 @@ def _one(tid, doc, outbox, done, ff, skips):
     if _vm.song_title(_vm.titles(doc)):
         skips["song"] += 1
         return "song"
-    if done is not None and who in done:
-        skips["learned"] += 1
-        return "learned"
     src = doc.get("sourcePath")
     if not isinstance(src, str) or not os.path.isfile(src):
         return "noMedia"

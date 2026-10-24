@@ -225,10 +225,6 @@ def scan(sync_folder, app_dir, clock=None, log=None, feedback=None):
         names = sorted(os.listdir(folder))
     except OSError:
         return results
-    try:
-        voicein.write_done(sync_folder, IN_DIR, clock)   # 声を覚え終えた人の名前(友人の PC がその人の声の材料を送らない)
-    except Exception as e:   # 書けなくても受付は止めない(友人の PC は読めなければ全部送る = 受け取る側で外す)
-        log("送り返し: 覚え終わり.json を書けませんでした(%s: %s)" % (e.__class__.__name__, str(e)[:100]))
     for n in names:
         p = os.path.join(folder, n)
         low = n.lower()

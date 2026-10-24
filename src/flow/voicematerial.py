@@ -29,7 +29,6 @@ PAD = 1.0                # 切り出す行の前後に足す秒(カードの余�
 RATE = 16000
 CUT_TIMEOUT = 60.0
 MAX_CUT_SEC = 30.0       # これより長い行は切り出さない
-DONE_MARGIN = 1.5        # 覚え直す秒(check.voiceRelearnSec)に掛ける余裕。登録簿の秒がこれに届いた人 = 覚え終えた人(カードを出さない・友人の PC から受け取らない)
 
 
 def num(x, default=0.0):
