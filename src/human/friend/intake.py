@@ -43,6 +43,7 @@ from flow import spec as _spec   # 区間・重みの理由つきの検査(ま�
 from ytt import colors, fsio, names as ytt_names, normalize, schemas, studio_env, tools, yturl
 from . import live_requests  # noqa: E402  (ライブ配信の依頼の設定の検査と一覧の文。結びつきは入口が live_begin= で渡す Live.submit_request が書く。2-15)
 from . import bugs  # noqa: E402  (友人の不具合の書き出し 診断\ の *.state.json を仕分けて、要対応なら AI を起こす。10-25)
+from . import upwatch  # noqa: E402  (友人のアプリの更新の見張り: 配った版・友人の今の版・起動できなかった の知らせ。10-25)
 from . import returns  # noqa: E402  (友人の送り返し 送り返し\ の zip と採否を app/friend-returns へ並べる。F1 の F2)
 
 VIDEO_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v")
@@ -483,6 +484,7 @@ class Intake:
                 self._record(folder, "video", "manual", n, [n], "", [], [{"label": n, "state": "rejected", "reason": MANUAL_REASON}])
             returns.scan(folder, self.data_dir, self.clock, self.log, feedback=self.feedback)   # 送り返し\(友人の PC の ② の結果と採否。F1 の F2。失敗しても見回りは止めない)
             bugs.scan(folder, self.data_dir, self.clock, self.log)   # 診断\ の不具合の書き出し(失敗しても見回りは止めない)
+            upwatch.scan(folder, self.data_dir, self.clock, self.log)   # 更新の見張り(失敗しても見回りは止めない)
             self._stop_taken(bugs.friend_first(self.data_dir, self.clock, self.log))   # 引き継いだ依頼に友人の物が先に届いた = こちらは届けない
 
     def _stop_taken(self, rids):

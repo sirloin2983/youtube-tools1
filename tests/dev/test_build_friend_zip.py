@@ -551,5 +551,15 @@ class AuditTest(unittest.TestCase):
         self.assertEqual(sorted(bad), ["消した道具の名前: FriendApp-はじめに.txt", "消した道具の名前: src/friendapp/ui/a.js"])
 
 
+class UpdateMarkTest(unittest.TestCase):
+    def test_mark(self):
+        """「重要」の印と直す対象(友人のアプリの更新の決め): 付けなければ欄を書かない・形が違えば断る"""
+        self.assertEqual(B.update_mark(), {})
+        self.assertEqual(B.update_mark(True, ["20261025-010203-abcdef"], [2, 1, 2]),
+                         {"important": True, "fixes": {"requests": ["20261025-010203-abcdef"], "kinds": [1, 2]}})
+        for bad in (["x"], None), (None, [8]):
+            with self.assertRaises(B.BuildError):
+                B.update_mark(False, *bad)
+
 if __name__ == "__main__":
     unittest.main()

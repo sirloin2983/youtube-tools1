@@ -19,6 +19,9 @@ config.json(Dropbox の鍵)は入れない。--first --with-key のときだけ 
     ふだんの出力(--first 以外)は FriendApp-<版>.zip(全部入り)に加えて FriendApp-<版>-light.zip(python/・tools/ を入れない軽い更新。manifest.json は同じ files + light = 真)を作り、
         latest.json に light {file, size, sha256} を足す(file は全部入りのまま。友人のアプリは light が写せなければ file を取る。src/friendapp/sync.py)。
     --publish(--out なし): <ホームの設定の intake.folder>/更新/ へ light → 全部入り → latest.json → versions.json の順(古い zip は全部入り 3 版・軽い 10 版を残して消す。(f1h))。
+        台帳の行に配った時刻 publishedAt(ミリ秒。版の見張り human/friend/upwatch が「配って 24 時間」を数える)
+    --important・--fix-request <依頼 id>・--fix-kind <1〜7>: latest.json と台帳の行に「重要」の印 important と直す対象
+        fixes {requests, kinds}(失敗の種類 = human/friend/bugs の KINDS)を付ける(友人のアプリの更新の決め・10-25。付けなければ欄を書かない)
         versions.json = 版の台帳(版・builtAt・notes・全部入りと light の file/size/sha256・python の印 runtime)を新しい順に 20 版。zip が消えた版は file/light を null にして行は残す
         intake.folder は Dropbox の中 = 友人のアプリが「更新」で取る場所。ユーザーの OK のあとだけ。--out も --first も無い呼び出しは断る。
         置く前に必ず配る前の検査(dev/friend_preflight.py = 友人の PC と同じ状態で通しで試す)を流し、落ちたら置かない(抜けるのは --skip-preflight の明示だけ)
@@ -41,6 +44,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 import zipfile
 
@@ -644,8 +648,9 @@ def default_out(first, publish=False):
 
 
 def build(out_dir, cache, wcpp_dir, first=False, with_key=False, fetch=True, notes="", fetcher=download, downloader=pip_download,
-          launcher_build=LAUNCHER_BUILD, members_src=MEMBERS_SRC, key_src=KEY_SRC):  # lint: long 一本の流れ(置く → 表 → 検査 → zip)
-    """zip を作って {zip, size, sha256, files, light} を返す(light = 軽い更新の {zip, size, sha256}。--first は無し)。失敗は BuildError"""
+          launcher_build=LAUNCHER_BUILD, members_src=MEMBERS_SRC, key_src=KEY_SRC, mark=None):  # lint: long 一本の流れ(置く → 表 → 検査 → zip)
+    """zip を作って {zip, size, sha256, files, light} を返す(light = 軽い更新の {zip, size, sha256}。--first は無し)。失敗は BuildError。
+    mark = latest.json と台帳の行に足す {important, fixes}(update_mark。None = 足さない)"""
     if with_key and not first:
         raise BuildError("--with-key は --first のときだけ(更新の zip に鍵を入れない)")
     ver = _version.VERSION
@@ -695,14 +700,26 @@ def build(out_dir, cache, wcpp_dir, first=False, with_key=False, fetch=True, not
     got = {"zip": path, "size": os.path.getsize(path), "sha256": sha256_file(path), "files": len(files) + 1, "light": light}
     if not first:
         light_entry = {"file": os.path.basename(light["zip"]), "size": light["size"], "sha256": light["sha256"]}
-        latest = {"version": ver, "file": name, "size": got["size"], "sha256": got["sha256"], "notes": notes, "light": light_entry}
+        latest = dict({"version": ver, "file": name, "size": got["size"], "sha256": got["sha256"], "notes": notes, "light": light_entry}, **(mark or {}))
         with open(os.path.join(out_dir, "latest.json"), "w", encoding="utf-8") as f:
             json.dump(latest, f, ensure_ascii=False, indent=1)
         got["row"] = {"version": ver, "builtAt": manifest["builtAt"], "notes": notes, "file": name, "size": got["size"], "sha256": got["sha256"],
-                      "light": light_entry, "runtime": runtime_mark(files)}
+                      "light": light_entry, "runtime": runtime_mark(files), **(mark or {})}
         update_versions(out_dir, got["row"])
         prune(out_dir)
     return got
+
+
+def update_mark(important=False, requests=None, kinds=None):
+    """「重要」の印と直す対象 -> latest.json に足す欄({} = 足さない)。依頼 id の形・種類 1〜7 でなければ BuildError"""
+    reqs, kinds = list(requests or []), list(kinds or [])
+    bad = [r for r in reqs if not re.fullmatch(r"\d{8}-\d{6}-[0-9a-f]{6}", r)] + [str(k) for k in kinds if k not in range(1, 8)]
+    if bad:
+        raise BuildError("直す対象の形が違います: %s(依頼 id は YYYYMMDD-HHMMSS-6 文字・種類は 1〜7)" % ", ".join(bad))
+    out = {"important": True} if important else {}
+    if reqs or kinds:
+        out["fixes"] = {"requests": reqs, "kinds": sorted(set(kinds))}
+    return out
 
 
 def default_cache():
@@ -720,7 +737,7 @@ def publish(a, out):
     落ちたら置かない。検査を抜けるのは --skip-preflight の明示だけ -> build と同じ形"""
     tmp = tempfile.mkdtemp(prefix="friend-publish-")
     try:
-        got = build(tmp, a.cache, a.wcpp, with_key=False, fetch=not a.no_fetch)
+        got = build(tmp, a.cache, a.wcpp, with_key=False, fetch=not a.no_fetch, mark=getattr(a, "mark", None))
         if a.skip_preflight:
             say("[警告] 配る前の検査を飛ばします(--skip-preflight)")
         else:
@@ -735,7 +752,7 @@ def publish(a, out):
             shutil.copy2(z, os.path.join(out, n + ".part"))
             os.replace(os.path.join(out, n + ".part"), os.path.join(out, n))
         shutil.copy2(os.path.join(tmp, "latest.json"), os.path.join(out, "latest.json"))
-        update_versions(out, got["row"])   # 台帳 → 古い zip を消す(消える zip の行は台帳で先に null にする)
+        update_versions(out, dict(got["row"], publishedAt=int(time.time() * 1000)))   # 台帳 → 古い zip を消す(消える zip の行は台帳で先に null にする)
         prune(out)
         got["zip"] = os.path.join(out, name)
         return got
@@ -753,6 +770,9 @@ def main(argv=None):
     ap.add_argument("--with-key", action="store_true", help="--first のときだけ: friend-apps/launcher/config.json(Dropbox の鍵)を入れる")
     ap.add_argument("--no-fetch", action="store_true", help="キャッシュに無い物を取りに行かない(無ければ失敗)")
     ap.add_argument("--withdraw", default="", help="配った版を取り下げる(更新の置き場所から zip を外して手元へ移す・台帳から消す・latest.json を前の良い版へ)")
+    ap.add_argument("--important", action="store_true", help="latest.json に「重要」の印を付ける(友人のアプリの更新の決め)")
+    ap.add_argument("--fix-request", action="append", default=[], metavar="RID", help="この版で直す依頼 id(何度でも)")
+    ap.add_argument("--fix-kind", action="append", default=[], type=int, metavar="N", help="この版で直す失敗の種類 1〜7(何度でも)")
     ap.add_argument("--skip-preflight", action="store_true", help="--publish のときだけ: 配る前の検査(dev/friend_preflight.py)を飛ばす(明示のときだけ)")
     a = ap.parse_args(argv)
     if a.skip_preflight and not a.publish:
@@ -765,13 +785,16 @@ def main(argv=None):
         if a.withdraw:   # 取り下げ: --out が無ければ更新の置き場所(Dropbox)・外した zip は作る PC の手元へ
             withdraw(a.out or default_out(False, True), a.withdraw, os.path.join(datadir.locate("app", SRC), "friend-withdrawn"))
             return 0
+        a.mark = update_mark(a.important, a.fix_request, a.fix_kind)
+        if a.mark and a.first:
+            raise BuildError("--important・--fix-* は --first では使えません(latest.json を書かない)")
         out = a.out or default_out(a.first, a.publish)
         a.cache = a.cache or default_cache()
         a.wcpp = default_wcpp()
         if a.publish:
             got = publish(a, out)
         else:
-            got = build(out, a.cache, a.wcpp, first=a.first, with_key=a.with_key, fetch=not a.no_fetch)
+            got = build(out, a.cache, a.wcpp, first=a.first, with_key=a.with_key, fetch=not a.no_fetch, mark=a.mark)
     except (BuildError, OSError) as e:
         say("[失敗] %s" % e)
         return 1
