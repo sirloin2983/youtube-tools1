@@ -23,7 +23,7 @@
   - 名前: `record` :25・`clip_range` :41・`overlaps` :52・`overlap_note` :72・`origin_of` :83・`rows` :91・`delivered_requests` :113・`pack_name` :128・`delivered_marks` :136・`record_not_sent` :192・`not_sent_marks` :203
 - **delivery.py** (405 行) — ② 友人へ届ける: まとめて実行の「Dropbox へ届ける」段と、置けなかった自動の分の溜め(まとめて実行 AutoRunner が継ぐ mixin)。
   - 名前: `switched_off` :55・`class Delivery` :95
-- **diar.py** (370 行) — ② 管理の層 flow: 話者判別と声の段取り(RS6 a-4。決定 3-29)。
+- **diar.py** (390 行) — ② 管理の層 flow: 話者判別と声の段取り(RS6 a-4。決定 3-29)。
   - 名前: `models_ready` :29・`default_embedding` :40・`embedding` :45・`embeddings` :50・`learn_embedding` :55・`match_embedding` :61・`diarize` :69・`assign` :99・`record_run` :123・`record_single` :130・`latest_run` :140・`embed` :147・ほか 13
 - **envelope.py** (170 行) — ② 管理の層 flow: 依頼の封筒(RS7-1 S3。決定 3-30・notes:plan/done/f1-friend-pc.md の決めたこと 9)。
   - 名前: `clean_pool` :44・`version_of` :135・`check` :143・`read` :167
@@ -98,8 +98,8 @@
   - 名前: `class HttpTools` :33・`class FlowTools` :137・`class PackHost` :195・`doc_row` :258・`class LocalTools` :270
 - **tx.py** (422 行) — ② 管理の層 flow: 文字起こしの動詞。RS6 a-3(決定 3-29)。
   - 名前: `dict_pairs` :33・`rerun_base` :49・`roster_listing` :58・`pick_glossary_terms` :68・`check_model` :74・`request_engine` :83・`tx_spec` :91・`new_doc` :128・`transcribe_clip` :144・`write_clip_records` :209・`replace_span_words` :229・`write_machine_doc` :241・ほか 9
-- **voicematerial.py** (184 行) — ② 管理の層 flow: 声を覚える材料の選び方と切り出し(10-24 夜。ユーザー「誰の声をメンバー全員分」)。
-  - 名前: `num` :34・`rows` :38・`song_title` :45・`song_row` :50・`titles` :55・`group_block` :79・`solo_person` :90・`roster_file` :115・`roster_people` :120・`roster_data` :130・`member` :140・`row_ok` :150・ほか 2
+- **voicematerial.py** (192 行) — ② 管理の層 flow: 声を覚える材料の選び方と切り出し(10-24 夜。ユーザー「誰の声をメンバー全員分」)。
+  - 名前: `is_short` :37・`num` :42・`rows` :46・`song_title` :53・`song_row` :58・`titles` :63・`group_block` :87・`solo_person` :98・`roster_file` :123・`roster_people` :128・`roster_data` :138・`member` :148・ほか 3
 - **wire.py** (89 行) — ② 管理の層 flow: 文字起こしの配線(ジョブの種類の登録・ジョブの表の設定・本物と疑似の選び方・① の口の登録)。RS6 a-5b(決定 3-29)。登録は 1 つの install にまとまっている。
   - 名前: `install` :39・`setup_places` :64・`setup_headless` :79
 

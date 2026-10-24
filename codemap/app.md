@@ -44,10 +44,10 @@
   - 名前: `speech_diar` :41
 - **voice_solo.py** (198 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
   - 名前: `people` :161・`clip_targets` :173・`voice_solo` :182
-- **voicefetch.py** (195 行) — 誰の声の材料が無いメンバーの音を YouTube から少しだけ取る(10-25。ユーザー「全メンバー揃えてほしい」の 2。1 = 手元の学習用データ は voicefill)。
-  - 名前: `members` :46・`slot_free` :58・`parse_rss` :81・`choose` :95・`wants` :137・`tick` :146
-- **voicefill.py** (107 行) — 誰の声の材料を全メンバーぶんそろえる(10-25。ユーザー「誰の声を全部やったが本当に数人しかいなかった。全メンバー揃えてほしい」)。
-  - 名前: `learn_dirs` :25・`eval_like` :38・`in_learn_dir` :43・`targets` :49・`pick` :74・`tick` :86
+- **voicefetch.py** (200 行) — 誰の声の材料が無いメンバーの音を YouTube から少しだけ取る(10-25。ユーザー「全メンバー揃えてほしい」の 2。1 = 手元の学習用データ は voicefill)。
+  - 名前: `members` :47・`slot_free` :61・`parse_rss` :84・`choose` :98・`wants` :140・`tick` :149
+- **voicefill.py** (106 行) — 誰の声の材料を全メンバーぶんそろえる(10-25。ユーザー「誰の声を全部やったが本当に数人しかいなかった。全メンバー揃えてほしい」)。
+  - 名前: `learn_dirs` :25・`eval_like` :38・`in_learn_dir` :43・`targets` :48・`pick` :73・`tick` :85
 
 ## src/app/ui/
 
