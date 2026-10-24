@@ -109,7 +109,7 @@ from app import homereq  # noqa: E402  (src/app/homereq.py: ホームの「友�
 from human.friend import intake as intake_mod  # noqa: E402  (src/human/friend/intake.py: 友人からの依頼の受付)
 from manage.keep import backup as backup_mod  # noqa: E402  (src/manage/keep/backup.py: 作業データのバックアップ)
 from eval.drill import accuracy as accuracy_mod  # noqa: E402  (src/eval/drill/accuracy.py: 精度の自動測定 = src/eval/tools/eval_*.py を手が空いた夜に子プロセスで)
-from app.check import deck as check_deck, lineup as check_lineup  # noqa: E402  (src/app/check: 「確かめる」の待ち行列。V1)
+from app.check import deck as check_deck, lineup as check_lineup, sources as check_sources  # noqa: E402  (src/app/check: 「確かめる」の待ち行列。V1)
 from human.check import answerlog as check_answerlog  # noqa: E402  (答えた札 = 自動の片付けで、価値のカードを待っている切り抜きを残す)
 from human.check import apply as check_apply  # noqa: E402  (src/human/check/apply.py: 「確かめる」の答えの記録と反映。V1)
 from human.check import read as check_read  # noqa: E402,F401  (読みのカードの反映を apply に登録する。V2b)
@@ -937,6 +937,26 @@ def peek_path(sock, timeout=10.0):
     return parts[1] if len(parts) >= 3 else None
 
 
+_MEDIA_ID = re.compile(r"[?&]id=([0-9a-f]{12})\b")
+
+
+def pending_check_docs(cards, answered):
+    """確かめるにまだ出ているカード(答えていない)が見ている文書の id の集合(target.docId と、動画の口 transcribe/media?id= の id)。
+    自動の片付けがこの文書の切り抜きの動画とパックを残す(10-24)"""
+    out = set()
+    for c in cards or ():
+        if not isinstance(c, dict) or c.get("id") in answered:
+            continue
+        tid = (c.get("target") or {}).get("docId") if isinstance(c.get("target"), dict) else None
+        if isinstance(tid, str) and tid:
+            out.add(tid)
+        url = (c.get("media") or {}).get("url") if isinstance(c.get("media"), dict) else None
+        m = _MEDIA_ID.search(url) if isinstance(url, str) else None
+        if m:
+            out.add(m.group(1))
+    return out
+
+
 class PortalServer(httpsec.ExclusiveServer):
     """入口のサーバー。取り込んだツール(mounts: {"/studio": Handler})の要求は、そのツールの Handler に渡す。
     Windows では SO_REUSEADDR だと使用中のポートにも bind できてしまうので、代わりに SO_EXCLUSIVEADDRUSE で独占する(httpsec.ExclusiveServer。各ツールと同じ)。"""
@@ -1137,16 +1157,25 @@ class PortalServer(httpsec.ExclusiveServer):
                 return
 
     def clean_inputs(self):
-        """自動の片付けに渡す物 -> (案件, 残す動画, 今動いている配信の id)。残す動画 = 確かめるの「切り抜く価値」(自動でできた切り抜き)で
-        答えを待っている物(答えは精度の材料)と評価用の文書の動画(案件の一覧の virtual の eval)。今動いている = まとめて実行の待ち・実行中"""
+        """自動の片付けに渡す物 -> (案件, 残す動画, 今動いている配信の id)。残す動画 = 確かめるにまだ出ているカード(種類に関わらず = 声・読み・時刻・
+        声かどうか・価値・カット。10-24 の直し: 前は「切り抜く価値」だけを見て、ほかのカードの元の動画を移した)の文書の切り抜きの動画と、
+        「切り抜く価値」で答えを待っている自動の切り抜き(答えは精度の材料)と、評価用の文書の動画(案件の一覧の virtual の eval)。
+        今動いている = まとめて実行の待ち・実行中。カードを集められない出どころがあれば例外(= 何も移さない)"""
         snap = cases_mod.snapshot(self.sup.root)
         cases = snap.get("cases") or []
-        answered = set(check_answerlog.state(self.cleanup.app_dir).by_card)
+        st = check_answerlog.state(self.cleanup.app_dir)
+        answered = set(st.by_card)
+        cards, view = check_sources.collect(self.check_ctx(), st)
+        if view.errors:
+            raise RuntimeError("確かめるのカードを集められない出どころがある: %s" % "・".join(view.errors[:3]))
+        docs = pending_check_docs(cards, answered)
         keep = []
-        for c in cases:
+        for c in cases + (snap.get("virtual") or []):
             for cl in (c.get("clips") or ()) if isinstance(c, dict) else ():
-                if isinstance(cl, dict) and cl.get("auto") and cl.get("path") and \
-                        check_lineup.card_id("value", "auto", c.get("id"), cl.get("markId") or "") not in answered:
+                if not isinstance(cl, dict) or not cl.get("path"):
+                    continue
+                tids = set(cl.get("transcriptIds") or ()) | {(cl.get("transcript") or {}).get("id")}
+                if tids & docs or (cl.get("auto") and check_lineup.card_id("value", "auto", c.get("id"), cl.get("markId") or "") not in answered):
                     keep.append(cl["path"])
         for v in snap.get("virtual") or ():
             if isinstance(v, dict) and v.get("caseKind") == "eval":

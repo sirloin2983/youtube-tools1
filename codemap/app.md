@@ -17,8 +17,8 @@
   - 受ける口: `/api/ytt` :45
 - **prefs.py** (485 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
   - 名前: `class PrefsError` :94・`guess_streamer` :379・`class Prefs` :391
-- **server.py** (1689 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
-  - 名前: `runtime_dir` :182・`ping` :192・`tail` :200・`expected_version` :221・`tool_python` :227・`rel_or_abs` :237・`signal_stop` :245・`class Tool` :258・`app_data_dir` :308・`logs_dir_for` :314・`class Supervisor` :320・`query_int` :639・ほか 15
+- **server.py** (1718 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
+  - 名前: `runtime_dir` :182・`ping` :192・`tail` :200・`expected_version` :221・`tool_python` :227・`rel_or_abs` :237・`signal_stop` :245・`class Tool` :258・`app_data_dir` :308・`logs_dir_for` :314・`class Supervisor` :320・`query_int` :639・ほか 16
   - 受ける口: `/api/drill/status` :150・`/api/eval-batch` :150・`/api/intake` :625・`/api/backup` :626・`/api/accuracy` :627・`/api/flow/runs` :628・`/api/cases/auto` :630・`/api/flow/submit` :631・`/api/flow/estimate` :631・`/api/flow/cancel` :632・`/api/intake/scan` :633・`/api/backup/run` :633・`/api/accuracy/run` :634・`/api/check/answer` :635・`/api/check/skip` :635・`/api/check/flush` :635・`/api/shutdown` :636・`/api/ping` :725・`/api/status` :727・`/api/health` :737・`/api/log` :739・`/api/flow/status` :754・`/api/flow/history` :758・`/api/check/next` :761・`/api/home/requests` :767・`/api/cases` :775
 - **ytlogin.py** (95 行) — ユーザーの PC の YouTube のログイン(10-23 ユーザー「ログインできる形にしといて」)。友人のアプリと同じ作り(notes:docs/spec/friend.md の 13-13)。
   - 名前: `cookies_path` :23・`apply_env` :27・`class YtLogin` :35
@@ -138,6 +138,7 @@
 - tests/app/test_cases_page.py — 案件の画面(/cases。src/app/ui/cases/)とホーム(/)の配り方の安全の境目のテスト。  python -m unittest tests/app/test_cases_page.py -v
 - tests/app/test_check_api.py — 入口の「確かめる」の口(GET api/check/next・POST api/check/answer(undo も)・skip・flush。V1 の V0)のつなぎ。
 - tests/app/test_check_page.py — 確かめる(/check。src/app/ui/check/)の配り方の安全の境目のテスト。  python -m unittest tests/app/test_check_page.py -v
+- tests/app/test_clean_keep.py — 自動の片付けが残す動画(src/app/server.py の clean_inputs・pending_check_docs。10-24 の直し):
 - tests/app/test_deliver_api.py — 入口の ytt_api("deliver") の受け渡し(src/app/server.py の PortalServer.ytt_api)のテスト。deliver の本体のテストは tests/flow/test_deliver.py。
 - tests/app/test_homereq.py — ホームの「友人の依頼」の行(src/app/homereq.py): 受付の記録と実行の記録を結んで、札・済んだ・案件の画面への道を決める。
 - tests/app/test_intake_prefs.py — 入口の設定 prefs の intake の節(src/app/prefs.py。入口の側に残した検査)。intake の本体のテストは tests/human/friend/test_intake.py。
