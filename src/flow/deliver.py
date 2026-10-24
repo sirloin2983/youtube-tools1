@@ -27,7 +27,7 @@ import uuid
 import zipfile
 
 from pipeline.pack import preview as _preview   # ① 確認用の動画・パックの中の切り抜きの動画と題・長さ
-from ytt import fsio, tools
+from ytt import datadir as _datadir, fsio, tools, version as _version
 from . import deliveries   # 届けた記録 deliveries.jsonl の書く口(友人の「要らない」が来たときに引く)
 
 OUT_DIR = "出力"   # 見張るフォルダの 出力\ = 友人のアプリの「受け取る」が読む(③ 受付 human/friend/intake もここを読む = 名前の 1 か所)
@@ -87,7 +87,9 @@ def _text(v):
 def meta_doc(zip_path, origin, preview=None, title="", video_id="", mark_id="", stream_title="", streamer="", seconds=None, now=None, overlap=""):
     """届く物の .meta.json の中身:
     {"v":1, "kind":"clip", "origin": request|auto, "sentAt", "requestId"(zip の名前の頭), "zip", "preview"(名前か None), "title"(パックの題),
-     "videoId", "markId", "streamTitle", "streamer"(分からなければ ""), "seconds"(切り抜きの長さ。分からなければ None)}。
+     "videoId", "markId", "streamTitle", "streamer"(分からなければ ""), "seconds"(切り抜きの長さ。分からなければ None),
+     "madeOn"(user = 作る人の PC・friend = 友人の PC。made_on), "appVersion"(作った版)}(madeOn・appVersion は問題点 10・10-25。
+     こちらで後追い・引き継ぎで作った物は友人の PC の物と中身が違いうる = 見分けるため)。
     overlap = 前に届けた区間とのかぶりの 1 行(flow/deliveries.overlap_note。あれば "overlapNote")
     #番号(配信ごとの通し番号)は友人のアプリが付ける(友人の PC で処理した物も同じ受信箱に入るため)"""
     name = os.path.basename(zip_path)
@@ -95,7 +97,17 @@ def meta_doc(zip_path, origin, preview=None, title="", video_id="", mark_id="", 
     return {"v": 1, "kind": "clip", "origin": origin, "sentAt": _local_iso(now), "requestId": name.split("__", 1)[0] if "__" in name else "",
             "zip": name, "preview": os.path.basename(preview) if preview else None, "title": _text(title), "videoId": _text(video_id),
             "markId": _text(mark_id), "streamTitle": _text(stream_title), "streamer": _text(streamer), "seconds": round(float(seconds), 2) if ok else None,
+            "madeOn": made_on(), "appVersion": _version.VERSION,
             **({"overlapNote": _text(overlap)} if isinstance(overlap, str) and overlap else {})}
+
+
+def made_on(env=None):
+    """この PC は作る人の PC(user)か友人の PC(friend)か = ホームの設定 <作業データ>/app/prefs.json の intake.folder が空でなければ user
+    (flow/learning.maker_pc と同じ条件。読めなければ friend)"""
+    d = fsio.read_json_or(os.path.join(_datadir.locate("app", env=env), "prefs.json"), None, kind=dict)
+    intake = d.get("intake") if d else None
+    folder = intake.get("folder") if isinstance(intake, dict) else None
+    return "user" if isinstance(folder, str) and folder.strip() else "friend"
 
 
 def write_meta_json(path, doc):

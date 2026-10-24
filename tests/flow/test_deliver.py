@@ -139,6 +139,7 @@ class DeliverRun(unittest.TestCase):
         doc = self.meta(os.path.join(self.out, j["name"]))
         self.assertRegex(doc.pop("sentAt"), r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d\d:\d\d$")
         self.assertAlmostEqual(doc.pop("seconds"), 2.0, delta=0.1)              # 切り抜きの長さ(本物の ffprobe)
+        self.assertEqual((doc.pop("madeOn"), doc.pop("appVersion")), (deliver.made_on(), deliver._version.VERSION))   # どの PC の何の版で作ったか(問題点 10)
         self.assertEqual(doc, {"v": 1, "kind": "clip", "origin": "auto", "requestId": stem.split("__")[0], "zip": j["name"],   # 手で届ける = 依頼なし(auto)
                                "preview": stem + ".preview.mp4", "title": "一本目", "videoId": "abcdefghijk", "markId": "m1",
                                "streamTitle": "", "streamer": ""})
