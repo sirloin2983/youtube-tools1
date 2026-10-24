@@ -13,7 +13,7 @@
 import os
 import re
 
-VERSION = "0.99.224"
+VERSION = "0.99.225"
 
 _RE = re.compile(r'^VERSION\s*=\s*"([^"]+)"', re.M)
 
