@@ -17,10 +17,10 @@
   - 名前: `keep_dir` :34・`files_of` :39・`prepare` :51・`compare` :78・`ok` :101・`mode_now` :107・`log` :117・`prune` :126
 - **colors_api.py** (24 行) — ② 管理の層 flow: api/ytt/streamer-colors の口(入口 src/app/server.py も友人のアプリ src/friendapp/server.py も同じ物を呼ぶ)。
   - 名前: `streamer_api` :12
-- **deliver.py** (304 行) — ② パックを友人へ届ける(Dropbox の見張るフォルダの 出力\ に zip で置く。友人のアプリの「受け取る」が読む)。
-  - 名前: `outbox_ok` :42・`safe_name` :49・`request_id` :53・`delivery_name` :58・`face_origin` :63・`meta_path_for` :73・`meta_doc` :85・`write_meta_json` :99・`unique_zip` :105・`zip_packs` :113・`preview_path_for` :149・`place_preview` :154・ほか 2
-- **deliveries.py** (231 行) — ② 管理の層 flow: 友人へ届けた記録(入口の作業データの logs/deliveries.jsonl)の読み口(OPT-M2。notes:plan/done/opt-manage.md の 7x-2)。
-  - 名前: `record` :25・`clip_range` :41・`overlaps` :52・`overlap_note` :72・`origin_of` :83・`rows` :91・`delivered_requests` :113・`pack_name` :128・`delivered_marks` :136・`record_not_sent` :192・`not_sent_marks` :203
+- **deliver.py** (333 行) — ② パックを友人へ届ける(Dropbox の見張るフォルダの 出力\ に zip で置く。友人のアプリの「受け取る」が読む)。
+  - 名前: `outbox_ok` :44・`safe_name` :51・`request_id` :55・`delivery_name` :60・`face_origin` :65・`meta_path_for` :75・`meta_doc` :87・`write_meta_json` :101・`unique_zip` :107・`zip_packs` :115・`preview_path_for` :151・`place_preview` :156・ほか 2
+- **deliveries.py** (232 行) — ② 管理の層 flow: 友人へ届けた記録(入口の作業データの logs/deliveries.jsonl)の読み口(OPT-M2。notes:plan/done/opt-manage.md の 7x-2)。
+  - 名前: `record` :25・`clip_range` :41・`overlaps` :52・`overlap_note` :73・`origin_of` :84・`rows` :92・`delivered_requests` :114・`pack_name` :129・`delivered_marks` :137・`record_not_sent` :193・`not_sent_marks` :204
 - **delivery.py** (405 行) — ② 友人へ届ける: まとめて実行の「Dropbox へ届ける」段と、置けなかった自動の分の溜め(まとめて実行 AutoRunner が継ぐ mixin)。
   - 名前: `switched_off` :55・`class Delivery` :95
 - **diar.py** (390 行) — ② 管理の層 flow: 話者判別と声の段取り(RS6 a-4。決定 3-29)。

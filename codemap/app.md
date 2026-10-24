@@ -7,7 +7,7 @@
 - **__init__.py** (2 行) — 入口と画面。起動・1 つのポート・API の配線・設定の画面の API。全部の層を使ってよい
 - **autorun.py** (471 行) — まとめて実行(統合計画の段階5)。入口の「案件」の画面から、配信1本ぶんの作業を順に自動で流す。
   - 名前: `class ToolClient` :102・`spec_from_settings` :175・`live_auto_origin` :193・`class AutoRunner` :204
-- **homereq.py** (112 行) — ホームの「友人の依頼」(10-24。ホームの見直しの 1・5): 受付の記録(human/friend/intake の snapshot の requests)に、
+- **homereq.py** (114 行) — ホームの「友人の依頼」(10-24。ホームの見直しの 1・5): 受付の記録(human/friend/intake の snapshot の requests)に、
   - 名前: `rows` :87
 - **live.py** (496 行) — リアルタイム切り抜き(線 D。notes:plan/line-d-live-clipping.md の 0)の入口の側。**既定はオフ**(ホームの設定の節 live.enabled)。
   - 名前: `studio_review` :98・`studio_audio` :105・`studio_lag` :123・`class Live` :132
