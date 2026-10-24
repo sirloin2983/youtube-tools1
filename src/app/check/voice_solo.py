@@ -23,7 +23,9 @@
 歌は外す(10-24 夜。ユーザー「歌のシーンはどうする?」= 歌の声は話し声と響きが違い、伴奏も入る): 題名に歌の印(SONG_RE)がある配信の文書と、
 文字に音符(♪♫♬♩)がある行。外した数は LAST_SKIPS(入口の voice_clips_tick が記録に 1 行)。友人の PC から受け取る声の材料も同じ決まり(song_title・song_row)。
 """
+import os
 import random
+import time
 
 from flow import voicematerial as _vm
 from human.check import voice as voice_mod
@@ -55,9 +57,38 @@ def _options(doc, who, others):
     return opts + [{"id": voice_mod.OTHER, "name": "その他"}, {"id": voice_mod.MIXED, "name": "混ざり"}], {"id": me["id"], "name": who}
 
 
-def _playable(tid, doc, g):
-    """行を聞けるか: 切り出して残した音がある(voiceclips)か、元の動画がある"""
-    return bool(_voiceclips.clip_path(tid, g["id"])) or sources.has_media(doc)
+def _playable_fn(tid, doc):
+    """行を聞けるかの関数: 元の動画がある(文書ごとに 1 回だけ確かめる)か、切り出して残した音がある(voiceclips の索引を 1 回読む)。
+    行ごとにファイルを確かめると、確かめるの集めが遅かった(10-25 測った: 4,400 行で 0.6 秒)"""
+    if sources.has_media(doc):
+        return lambda g: True
+    have = set(_voiceclips.index(tid))
+    return lambda g: g["id"] in have
+
+
+SOLO_CACHE_SEC = 3600.0   # ソロの見分けを覚えておく秒(文書が書き換わる・名簿が変わる・この秒が過ぎたら見直す)
+_solo_cache = {}          # 文書のパス -> (印, (名前か None, 歌の配信か))
+
+
+def _solo_of(path, doc):
+    """(ソロの配信者の名前か None, 歌の配信か)。名簿の照らし合わせが重い(10-25 測った: 185 本で 2.8 秒)ので、文書のファイルの更新時刻と大きさ・
+    名簿のファイルが同じあいだは覚えた答えを使う"""
+    try:
+        stt = os.stat(path)
+        stamp = (stt.st_mtime_ns, stt.st_size, _vm.roster_file())
+    except (OSError, TypeError):
+        stamp = None
+    now = time.monotonic()
+    hit = _solo_cache.get(path) if stamp else None
+    if hit and hit[0] == stamp and now - hit[1] < SOLO_CACHE_SEC:
+        return hit[2]
+    who = solo_person(doc)
+    got = (who, bool(who) and song_title(_titles(doc)))
+    if stamp:
+        if len(_solo_cache) > 20000:
+            _solo_cache.clear()
+        _solo_cache[path] = (stamp, now, got)
+    return got
 
 
 def _learned_quota(sec, need):
@@ -73,8 +104,8 @@ def _select(view):
         latest = view.diar(tid, path)
         if isinstance(latest, dict) and isinstance(latest.get("rows"), dict) and latest["rows"]:
             continue   # voice:diar が出す
-        who = solo_person(doc)
-        if who and song_title(_titles(doc)):
+        who, song = _solo_of(path, doc)
+        if who and song:
             skips["songDocs"] += 1   # 歌の配信(声を覚える材料にしない)
             continue
         if who:
@@ -101,7 +132,7 @@ def _select(view):
         picks = []   # 文書ごとの行(GOOD_SEC に近い順)。まだ材料に入っていない配信が先
         for tid, doc in sorted(docs, key=lambda x: x[0] in seen):
             skips["songRows"] += sum(1 for g in sources._rows(doc) if song_row(g))
-            rows = _vm.pick(doc, lambda g: _playable(tid, doc, g))
+            rows = _vm.pick(doc, _playable_fn(tid, doc))
             picks.append((tid, doc, rows[:PER_DOC]))
         n = 0
         for i in range(PER_DOC):   # 文書を順に 1 行ずつ回す(いろいろな配信から)

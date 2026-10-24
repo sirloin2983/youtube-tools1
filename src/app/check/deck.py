@@ -3,17 +3,21 @@
 集める(sources.collect)→ 答えたカードを外す(answers.jsonl)→ 案件・種類で絞る → 並べる(lineup.order。目標は ctx.goals())→ n 枚。
 読むだけ(書くのは ③ human/check)。ctx = human/check/apply の Context(app_dir・root・env・goals?(入口の条件の一覧を返す関数)・eval_dirs?)。
 集めた結果は CACHE_SEC だけ覚える(ホームと案件の画面が数だけを 15 秒ごとに聞く。答え・飛ばす・戻すのあとは invalidate)。
+文字起こしの文書のフォルダが変わった(文書が書かれた・足された)ら CACHE_SEC の前でも集め直す(_docs_stamp。10-25: 集め直しは 0.6〜1.5 秒かかり、
+3 秒で切れて画面の 1 回ごとに集め直していた = 「読み込みが遅い」)。
 """
+import os
 import re
 import threading
 import time
 
 from human.check import answerlog
+from ytt import workdata as _workdata
 from eval.check import goals as goals_mod   # ⑤ の確かめるの数え方(goals は eval/check に残る)
 from human.check import section as section_mod   # 区間カードのスイッチ(評価のレーンの帯に出す。C-EVAL)
 from . import lineup, sources   # 同じ app/check の兄弟
 
-CACHE_SEC = 3.0
+CACHE_SEC = 30.0
 MAX_SKIP_PARAM = 200
 CASE_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}\Z")
 SERVED_SEC = 30 * 60   # 画面へ出したカードを、読みの失敗のときの控えとして覚える長さ(find)
@@ -28,8 +32,16 @@ def invalidate():
         _cache.update(key=None, cards=None, errors=None)
 
 
+def _docs_stamp():
+    """文字起こしの文書のフォルダの更新時刻(文書の書き込みは置き換えなのでフォルダの時刻が動く)。読めなければ None"""
+    try:
+        return os.stat(_workdata.TX_DIR).st_mtime_ns if _workdata.TX_DIR else None
+    except OSError:
+        return None
+
+
 def _collect(ctx, st):
-    key = (getattr(ctx, "app_dir", None), getattr(ctx, "root", None), st.rev)
+    key = (getattr(ctx, "app_dir", None), getattr(ctx, "root", None), st.rev, _docs_stamp())
     now = time.monotonic()
     with _cache_lock:
         if _cache["key"] == key and _cache["cards"] is not None and now - _cache["at"] < CACHE_SEC:

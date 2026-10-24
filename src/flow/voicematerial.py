@@ -112,6 +112,11 @@ def solo_person(doc):
     return who if len(used) <= 1 else None
 
 
+def roster_file():
+    """今読む名簿のファイル(見分けの答えを覚える側が、名簿が変わったら見直すための印)"""
+    return roster.ROSTER
+
+
 def member(name):
     """名簿のメンバーの名前(名簿の書き方に直す)か None(名簿に無い・名簿が決まっていない)"""
     if roster.ROSTER is None or not isinstance(name, str) or not name.strip():
