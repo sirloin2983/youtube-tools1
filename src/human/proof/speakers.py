@@ -618,7 +618,8 @@ def run_voice_learn(job):
                     continue
                 voices[at] = _diar.merge_voice(old, v, len(grp[n][0]), grp[n][1], spec["tid"],   # 前に覚えた声とは使った長さで重みを付けて混ぜる
                                               by=spec.get("by"), row_ids=plan["rowIds"].get(n) if spec.get("rows") is not None else None,
-                                              short=_vm.is_short(doc.get("sourcePath")))   # ショート由来は重み半分・ショートだけなら仮(10-25)
+                                              short=_vm.is_short(doc.get("sourcePath")),   # ショート由来は重み半分・ショートだけなら仮(10-25)
+                                              provisional=n in (spec.get("provisional") or ()))   # まだ声が無い人を少しの材料で = 仮(10-25)
                 learned.append(n)
             if len(voices) > _VOICE_MAX_PEOPLE:
                 raise _errors.ApiError("too_many", "覚えられる声は %d 人までです(使わない声を消してください)" % _VOICE_MAX_PEOPLE, 400)

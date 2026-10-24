@@ -167,3 +167,48 @@ def timeline_wav(tid, out, start, end=None):
             w.setframerate(RATE)
             w.writeframes(bytes(buf))
     return placed
+
+
+def _bgm_of(path):
+    """行の音の BGM・効果音らしさ 0〜1(軽い目安・重い分離はしない。10-25)。None = 測れない(numpy が無い・読めない)。
+    埋まり(声の間が無く音が続く割合)・大きさの揺れの小ささ・声の帯の外(3.5kHz より上)の強さを合わせる。話し声は間があり揺れが大きい"""
+    try:
+        import numpy as np
+        with wave.open(path, "rb") as w:
+            if w.getsampwidth() != 2 or w.getnchannels() != 1:
+                return None
+            rate = w.getframerate()
+            x = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32) / 32768.0
+    except (ImportError, OSError, wave.Error, EOFError, ValueError):
+        return None
+    hop, win = int(rate * 0.01), int(rate * 0.025)
+    if len(x) < win * 10:
+        return None
+    frames = np.lib.stride_tricks.sliding_window_view(x, win)[::hop]
+    rms = np.sqrt((frames ** 2).mean(axis=1)) + 1e-9
+    top = np.percentile(rms, 95)
+    fill = float((rms > top * 0.1).mean())                   # 音が埋まっている割合(話し声は間がある)
+    cv = float(rms.std() / rms.mean())                        # 大きさの揺れ(話し声は大きい)
+    spec = np.abs(np.fft.rfft(frames * np.hanning(win), axis=1)) ** 2
+    freqs = np.fft.rfftfreq(win, 1.0 / rate)
+    hf = float(spec[:, freqs > 3500].sum() / (spec.sum() + 1e-9))   # 声の帯の外の強さ
+    score = 0.5 * fill + 0.3 * (1.0 - min(cv, 1.2) / 1.2) + 0.2 * min(1.0, hf * 5.0)
+    return round(max(0.0, min(1.0, score)), 3)
+
+
+def bgm(tid, rid):
+    """行の音の BGM らしさ(索引に覚える。無ければ測って覚える)か None(音が無い・測れない)"""
+    d = _doc_dir(tid)
+    it = index(tid).get(rid) if d else None
+    if not it:
+        return None
+    if isinstance(it.get("bgm"), (int, float)):
+        return float(it["bgm"])
+    got = _bgm_of(os.path.join(d, rid + ".wav"))
+    if got is not None:
+        with _lock:
+            cur = fsio.read_json_or(os.path.join(d, INDEX), {}, kind=dict)
+            if isinstance(cur.get(rid), dict):
+                cur[rid]["bgm"] = got
+                fsio.write_json(os.path.join(d, INDEX), cur, indent=1)
+    return got

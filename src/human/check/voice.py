@@ -40,6 +40,7 @@ MAX_PEOPLE = 400                # 「メンバーを選ぶ」の欄の候補の�
 NAME_MAX = 30                   # 文書の話者の名前の上限(store.sanitize_transcript と同じ)
 MIN_LEARN_SEC = 1.0             # 覚える材料にする行の最短(flow/diar の voice_learn_rows と同じ 1 秒)
 RELEARN_SEC_DEFAULT = 30.0      # 覚え直すまでの 1 人の材料の合計(秒。編集の設定 check.voiceRelearnSec で変える)
+FIRST_SEC = 10.0                # まだ声が無い人は、この秒で「仮」の声として覚える(初回だけ。10-25: 答え 214 枚で覚えた人が 6 人だけだった)
 RELEARN_SEC_RANGE = (5.0, 3600.0)
 DIAR_SETTING, DIAR_ENV = "checkVoiceDiarOn", "YTT_CHECK_VOICE_DIAR"   # 判別の記録から作る声のカード(voice:diar)のスイッチ(既定オフ)
 SPK_COLORS = _speakers.SPK_COLORS
@@ -374,15 +375,18 @@ def _maybe_relearn(ctx, extra=()):
     if "voice-learn" not in _heavy.JOB_RUNNERS or not _diar.models_ready():
         return []   # 編集を取り込んでいない入口・話者判別の部品が無い = 材料は残して次に
     need = _relearn_sec()
-    by_doc = {}
+    by_doc, cache = {}, {}
     for (emb, name), docs in _pending(ctx, extra).items():
-        if sum(sum(rows.values()) for rows in docs.values()) < need:
+        first = not any(_person_key(n) == _person_key(name) for n in registry(emb, cache))   # まだ声が無い人 = FIRST_SEC で仮に覚える(10-25)
+        if sum(sum(rows.values()) for rows in docs.values()) < (min(FIRST_SEC, need) if first else need):
             continue
         for tid, rows in docs.items():
-            d = by_doc.setdefault(tid, {"emb": emb, "names": [], "rows": []})
+            d = by_doc.setdefault(tid, {"emb": emb, "names": [], "rows": [], "first": []})
             if d["emb"] == emb:
                 d["names"].append(name)
                 d["rows"] += list(rows)
+                if first:
+                    d["first"].append(name)
     out, failed = [], _failed_rows()
     for tid, d in sorted(by_doc.items()):
         if set(d["rows"]) <= failed.get(tid, set()):   # 前に失敗した行だけ = 足しても同じ失敗(材料が増えたらまた試す。6g-1)
@@ -407,7 +411,8 @@ def _submit(tid, d):
         raise _apply.Refused("覚えられる行がありません(答えたあとに行・名前が変わった可能性があります)", 409, "no_rows")
     rows = sorted({r for n in names for r in plan["rowIds"].get(n) or ()})
     spec = {"tid": tid, "embedding": d["emb"], "names": names, "confirmSame": names,   # カードで名前を選んだ = 同じ人(confirmSame を省く。5 節)
-            "rows": rows, "by": "check", "title": _heavy.job_title("声を覚え直す(確かめる): ", doc)}
+            "rows": rows, "by": "check", "title": _heavy.job_title("声を覚え直す(確かめる): ", doc),
+            "provisional": [n for n in d.get("first") or () if n in names]}   # まだ声が無い人 = 仮の声として覚える(flow/diar.merge_voice)
     job = _heavy.add_job(spec, "voice-learn")
     return {"names": names, "rows": len(rows), "job": job["id"]}
 

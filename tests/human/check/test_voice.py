@@ -208,6 +208,16 @@ class RelearnTest(Base):
                   mock.patch.object(voice._tools, "check_source", return_value="x.mp4"), mock.patch.object(_heavy, "add_job", side_effect=add_job)):
             p.start()
             self.addCleanup(p.stop)
+        with _diar.voices_edit(EMB) as v:   # 声がもうある人 = 30 秒ごとに覚え直す(まだ声が無い人の初回は test_first_voice_at_10_sec)
+            v["ぺこら"] = _diar.merge_voice(None, [1.0, 0.0], 1, 5.0)
+
+    def test_first_voice_at_10_sec(self):
+        """まだ声が無い人は FIRST_SEC(10 秒)で仮の声として覚える(10-25)"""
+        with _diar.voices_edit(EMB) as v:
+            v.pop("ぺこら", None)
+        self.answer("s1", {"choice": "S1"})                              # ぺこら 12 秒 ≥ 10
+        self.assertEqual(len(self.jobs), 1)
+        self.assertEqual(self.jobs[0][1]["provisional"], ["ぺこら"])
 
     def test_learn_after_30_sec(self):
         self.answer("s1", {"choice": "S1"})                              # ぺこら 12 秒

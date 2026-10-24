@@ -88,6 +88,16 @@ class TestMergeVoice(unittest.TestCase):
         p = diar.merge_voice(None, [1.0, 0.0], 3, 10.0, "d1")              # 配信だけの声は印なし(今までの形)
         self.assertEqual(("provisional" in p, "shortSec" in p), (False, False))
 
+    def test_first_provisional_from_stream(self):
+        """まだ声が無い人を配信の材料 10 秒で覚えた仮の声: 30 秒に届くまで仮・前の重みは薄めない(別の文書の続きの材料と普通に混ぜる)"""
+        v = diar.merge_voice(None, [1.0, 0.0], 2, 10.0, "d1", provisional=True)
+        self.assertEqual((v.get("provisional"), "shortSec" in v), (True, False))
+        w = diar.merge_voice(v, [0.0, 1.0], 2, 10.0, "d2")
+        self.assertAlmostEqual(w["vec"][0], w["vec"][1], places=3)       # 10 対 10(薄めない)
+        self.assertTrue(w.get("provisional"))                             # 20 秒 < 30 = まだ仮
+        x = diar.merge_voice(w, [0.0, 1.0], 2, 15.0, "d3")
+        self.assertNotIn("provisional", x)                                # 35 秒 = 仮でなくなる
+
     def test_learned_rows_from_check(self):
         """確かめるの声のカード(V2c): by と使った行の id を控え、同じ文書は行を合わせて秒を足す。普通の「声を覚える」でも控えは消さない"""
         v = diar.merge_voice(None, [1.0, 0.0], 2, 12.0, "d1", by="check", row_ids=["s1", "s2"])

@@ -1221,10 +1221,17 @@ class PortalServer(httpsec.ExclusiveServer):
         app/check/voice_solo.clip_targets。10-24 夜)。片付けの直前と VOICE_CLIPS_EVERY ごと。-> 作った数"""
         if not voiceclips.root():
             return 0   # 編集を取り込んでいない入口
+        try:   # 答えを待たずに、届いた材料で覚え直す(まだ声が無い人は 10 秒で仮に。10-25: 答えのたびにしか見ていなかった)
+            got = [x for x in _check_voice._maybe_relearn(self.check_ctx()) if x.get("job")]
+            if got:
+                self.sup.log("誰の声: 声を覚えるジョブを %d 本足しました(%s)" % (len(got), "・".join(n for x in got for n in x.get("names") or ())))
+        except Exception as e:   # noqa: BLE001  (覚え直せなくても切り出しは続ける)
+            self.sup.log("誰の声: 覚え直しを足せませんでした: %r" % (e,))
         view = check_sources.View(self.check_ctx(), check_answerlog.state(self.cleanup.app_dir))
         made = sum(voiceclips.make(tid, doc, rows) for tid, doc, rows in check_voice_solo.clip_targets(view))
         skips = dict(check_voice_solo.LAST_SKIPS)
         if made:
+            check_voice_solo._bgm_seen.clear()   # 新しい行の音の BGM らしさを次の集めで測る
             check_deck.invalidate()
             self.sup.log("誰の声のカード: 行の音を %d 本切り出して残しました(元の動画が片付いても聞ける・覚えられる。歌として外した 配信 %d 本・行 %d)"
                          % (made, skips["songDocs"], skips["songRows"]))

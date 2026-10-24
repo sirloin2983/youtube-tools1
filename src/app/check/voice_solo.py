@@ -97,6 +97,24 @@ def _learned_quota(sec, need):
     return int(q) + (1 if random.random() < q - int(q) else 0)
 
 
+_bgm_seen = {}   # (文書, 行) -> BGM らしさか None(音がまだ無い行は次の集めで測り直さないよう None も覚える。切り出しの見回りで行の音ができたら voice_clips_tick が消す)
+GOOD_BAND = (3.0, 8.0)   # 長めの行(声の特徴が取りやすい)= 先に出す(10-25: 答え 214 枚でも覚えた人が 6 人だけ・混ざりとその他が 4 割)
+
+
+def _later(tid, g):
+    """後ろに回す度合い(0 = 先): 長めの行(GOOD_BAND)でなければ +1・BGM・効果音らしさ(切り出した行の音の目安 voiceclips.bgm)× 2。
+    並びはランダムのまま、この重みでランダムの幅を広げる = 長めで BGM の少ない行が先に出やすい"""
+    sec = sources._num(g.get("end")) - sources._num(g.get("start"))
+    band = 0.0 if GOOD_BAND[0] <= sec <= GOOD_BAND[1] else 1.0
+    key = (tid, g["id"])
+    if key not in _bgm_seen:   # 1 行 1 回だけ(索引に覚え、ここでも覚える = 集めを遅くしない)
+        if len(_bgm_seen) > 50000:
+            _bgm_seen.clear()
+        _bgm_seen[key] = _voiceclips.bgm(tid, g["id"]) if _voiceclips.clip_path(tid, g["id"]) else None
+    b = _bgm_seen[key]
+    return band + 2.0 * (b or 0.0)
+
+
 def _select(view):
     """カードに出す行を選ぶ(並び・量の決まりは先頭の説明)-> [(rank, 名前, 人の一覧, 文書 id, 文書, 行, i)]。聞けない行(音も動画も無い)は飛ばす"""
     by_person, skips = {}, {"songDocs": 0, "songRows": 0}
@@ -137,7 +155,7 @@ def _select(view):
         picks = []   # 文書ごとの行(GOOD_SEC に近い順)。まだ材料に入っていない配信が先
         for tid, doc in sorted(docs, key=lambda x: x[0] in seen):
             skips["songRows"] += sum(1 for g in sources._rows(doc) if song_row(g))
-            rows = _vm.pick(doc, _playable_fn(tid, doc))
+            rows = sorted(_vm.pick(doc, _playable_fn(tid, doc)), key=lambda g: _later(tid, g))   # 長めの行・BGM の少ない行が先(10-25)
             picks.append((tid, doc, rows[:PER_DOC]))
         n = 0
         for i in range(PER_DOC):   # 文書を順に 1 行ずつ回す(いろいろな配信から)
@@ -202,7 +220,7 @@ def voice_solo(view):
         card = sources._doc_card(view, "voice", SOURCE, tid, doc, g, 0.3, {
             "guess": guess, "options": voice_mod.buttons(opts, [guess["id"]]),
             "people": voice_mod.people_for(doc, {}, [who] + list(people) + members), "note": SOURCE,
-            "_order": [-1, random.random(), rank, i, int(records.output_old(doc)), -sources._num(doc.get("updatedAt")), sources._num(g.get("start"))]}, tight=True)
+            "_order": [-1, random.random() * (1.0 + _later(tid, g)), rank, i, int(records.output_old(doc)), -sources._num(doc.get("updatedAt")), sources._num(g.get("start"))]}, tight=True)
         clip = None if sources.has_media(doc) else _voiceclips.media(tid, g["id"], card["media"]["start"], card["media"]["end"])
         if clip:   # 元の動画が無い(片付いた・友人から届いた)ときだけ、切り出して残した行の音で再生する。動画があれば映像つきのまま(10-25 直し)
             card["media"] = dict(card["media"], **clip)
