@@ -64,8 +64,8 @@
   - 名前: `hex_rgba` :70・`text_style` :81・`style_inputs` :97・`video_tracks_value` :119・`parse_target` :126・`caption_segments` :149・`stack_captions` :180・`speaker_lanes` :241・`lay_captions` :273・`default_wrap` :300・`wrap_caption` :305・`build_import_plan` :354・ほか 8
 - **srt2resolve.py** (394 行) — パックの部品(動画の情報の読み取り・字幕の読み込み・フレームの計算・SRT の組み立ての小道具)。
   - 名前: `class ToolError` :27・`same_path` :31・`staged` :44・`write_text_atomic` :56・`tool` :65・`arg_path` :70・`clean_text` :94・`parse_subs` :101・`read_sub_file` :125・`snap_fps` :149・`codec_warnings` :161・`probe` :198・ほか 10
-- **tidy.py** (88 行) — 編集カットの形「言いよどみと長い間を詰める」(10-24。研究のセッションの試作 v2 = C:/dev/overlap-research/notes/autocut-findings.md を製品の部品で)。
-  - 名前: `is_filler` :47・`drops` :52・`keeps` :78
+- **tidy.py** (86 行) — 編集カットの形「無音を詰める」(10-24。ユーザー「言葉を削るんじゃなくて、無音を削ってほしい。ただ不自然になるから調整が必要」。
+  - 名前: `drops` :45・`keeps` :76
 
 ## src/pipeline/transcribe/
 
@@ -122,7 +122,7 @@
 - tests/pipeline/pack/test_cut2resolve.py — パックのテストの道具(見本の動画・EDL の読み方・採用区間からのパック)と、通しでは起こせない物の単体
 - tests/pipeline/pack/test_edge_pause.py — 切り抜きの両端を話の間へ寄せる(pipeline/pack/edge_pause)の純粋な部分
 - tests/pipeline/pack/test_pack.py — パック(pipeline.pack)のテスト。正しく動く道・端の場合・時刻の計算・入力の誤りは、本物の ffmpeg の通し(TestPackRun)で見本に混ぜてまとめて確かめる。
-- tests/pipeline/pack/test_tidy.py — 編集カットの形「言いよどみと長い間を詰める」(pipeline/pack/tidy)。音は偽の 20 ms の音量(edge_pause.levels を差し替え)
+- tests/pipeline/pack/test_tidy.py — 編集カットの形「無音を詰める」(pipeline/pack/tidy)。音は偽の 20 ms の音量(edge_pause.levels を差し替え)
 - tests/pipeline/transcribe/fake_llama_server.py — テスト用の偽の llama-server(tx_engines.LlamaQwen3.COMMAND に [python, このファイル] を入れて使う)。
 - tests/pipeline/transcribe/fake_whisper_cli.py — テスト用の偽の whisper-cli(tx_engines.WhisperCpp.COMMAND に [python, このファイル] を入れて使う)。
 - tests/pipeline/transcribe/test_clipjob.py — pipeline/transcribe/clipjob(文字起こしのジョブの機械の文書の行)を、編集の serve を読まずに疑似のエンジンで使うテスト。
