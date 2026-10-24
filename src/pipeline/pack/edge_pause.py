@@ -49,15 +49,15 @@ def voice_level(db):
     return s[int(len(s) * 0.7)] if s else -60.0
 
 
-def pauses(db, t0, lv):
-    """音量の並び db(t0 秒から 20 ms ごと)の中の間 [(始まり, 終わり)](秒)"""
+def pauses(db, t0, lv, quiet_db=QUIET_DB, min_gap=MIN_GAP):
+    """音量の並び db(t0 秒から 20 ms ごと)の中の間 [(始まり, 終わり)](秒)= lv より quiet_db 以上静かな所が min_gap 秒以上続く所"""
     out, s = [], None
     for k, v in enumerate(list(db) + [0.0]):
-        quiet = k < len(db) and v < lv - QUIET_DB
+        quiet = k < len(db) and v < lv - quiet_db
         if quiet and s is None:
             s = k
         elif not quiet and s is not None:
-            if (k - s) * HOP >= MIN_GAP:
+            if (k - s) * HOP >= min_gap:
                 out.append((t0 + s * HOP, t0 + k * HOP))
             s = None
     return out

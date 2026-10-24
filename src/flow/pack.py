@@ -10,7 +10,7 @@
 import time
 
 from pipeline.pack import resolve_export
-from ytt import workdata
+from ytt import txwords, workdata
 
 from . import jobs
 
@@ -22,10 +22,13 @@ def _draft_slot(label):
     return jobs.tool_slot(label, cancelled=lambda: time.monotonic() > deadline)
 
 
-def cut_draft(doc, rows=True, row_edge=None):
-    """カットのたたき台と動画の fps・長さ(① resolve_export.edit_draft)。② が足すこと: 版・無音の検出の順番待ち(DRAFT_SLOT_WAIT 秒)。
-    -> {"fps", "durationSec", "keepsSec", "base", "warnings", "skipped"?}。動画が読めなければ ytt.errors.ResolveExportError"""
-    return resolve_export.edit_draft(doc, workdata.SERVER_VERSION, rows=rows, row_edge=row_edge, heavy=_draft_slot)
+def cut_draft(doc, rows=True, row_edge=None, form="auto", tid=None):
+    """カットのたたき台と動画の fps・長さ(① resolve_export.edit_draft)。② が足すこと: 版・無音の検出の順番待ち(DRAFT_SLOT_WAIT 秒)・
+    文字起こしの単語の時刻(*.words.json。form が rows 以外のとき = 「言いよどみと間を詰める」の材料)。
+    -> {"fps", "durationSec", "keepsSec", "base", "warnings", "drops"?, "skipped"?}。動画が読めなければ ytt.errors.ResolveExportError"""
+    tid = tid or doc.get("id")
+    words = txwords.read_words(tid) if rows and form != "rows" and tid else None
+    return resolve_export.edit_draft(doc, workdata.SERVER_VERSION, rows=rows, row_edge=row_edge, heavy=_draft_slot, words=words, form=form)
 
 
 def cut_preview(doc, keeps, wrap=None):

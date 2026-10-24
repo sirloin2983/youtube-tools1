@@ -718,7 +718,7 @@ EDIT_SCHEMA = "youtube-tools-edit/v1"
 MAX_EDIT_BYTES = 1024 * 1024
 MAX_CLIPS = 5000
 MAX_MEDIA_SEC = 24 * 3600
-EDIT_ORIGINS = ("rows", "silence", "list", "plan", "manual", "all", "whole")   # whole = 「カットしない(動画全体)」を選んだ(気が利く画面へ 段3)
+EDIT_ORIGINS = ("rows", "tidy", "silence", "list", "plan", "manual", "all", "whole")   # whole = 「カットしない(動画全体)」を選んだ(気が利く画面へ 段3)
 CUT_TOLERANCE_FRAMES = 0.75   # 行の時間のうち、残す区間に入るのがこれ未満(フレーム)なら「カット済」。区間の端はフレームに、行の時刻は 0.01 秒に丸めてあるため
 _edit_cache = {}   # tid -> ((更新日時ns, 大きさ), 一覧用の要約)
 
@@ -779,7 +779,7 @@ def sanitize_edit(obj):
     return res
 
 
-DRAFT_ORIGINS = ("rows", "all", "whole", "silence", "list", "plan")   # 機械が作るたたき台(manual は人の操作なので入れない)
+DRAFT_ORIGINS = ("rows", "tidy", "all", "whole", "silence", "list", "plan")   # 機械が作るたたき台(manual は人の操作なので入れない)
 
 
 def sanitize_draft(v):
@@ -894,8 +894,9 @@ def media_reason(doc):
     return None
 
 
-def edit_draft(tid, rows=False):
-    """GET /api/edit/draft?id=&rows=1 : 動画の fps・長さと、たたき台「行から」(残す行が無ければ全部残す)。計算は ② flow/pack.cut_draft(→ ① の resolve_export)。
+def edit_draft(tid, rows=False, tidy=False):
+    """GET /api/edit/draft?id=&rows=1|tidy=1 : 動画の fps・長さと、たたき台(既定 = 単語の時刻があれば「言いよどみと間を詰める」・無ければ「行から」。
+    rows=1 =「行から」・tidy=1 =「言いよどみと間を詰める」のボタン。残す行が無ければ全部残す)。計算は ② flow/pack.cut_draft(→ ① の resolve_export)。
     「行から」を計算するのは、カットが無い(壊れている)文書か rows=1(「行から」のボタン)のときだけ(行の端の無音を調べるのは重いので、開くたびにしない)。
     行の端を広げるかは設定の rowEdge(notes:docs/design/edit-tool-design.md の 12 ⑥)。無音の検出は SLOTS を通す(flow.pack.DRAFT_SLOT_WAIT 秒待っても空かなければ決まった余白)。
     カット・パックに使えないとき(動画が無い・ネットワーク上・音声だけ = media_reason と映像の無いファイル)は {"unavailable": {"code", "message"}}。
@@ -909,8 +910,9 @@ def edit_draft(tid, rows=False):
     if why:
         return unavailable(*why)
     try:
-        need = bool(rows) or not read_edit(tid)[0]
-        out = _flowpack.cut_draft(doc, rows=need, row_edge=_settings.load_settings().get("rowEdge"))
+        need = bool(rows) or bool(tidy) or not read_edit(tid)[0]
+        out = _flowpack.cut_draft(doc, rows=need, row_edge=_settings.load_settings().get("rowEdge"),
+                                  form="rows" if rows else "tidy" if tidy else "auto", tid=tid)
     except _errors.ResolveExportError as e:
         msg = str(e)
         if "動画ストリーム" in msg:
