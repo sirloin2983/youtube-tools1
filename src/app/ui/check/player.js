@@ -45,7 +45,7 @@
       '<div class="chk-screen" data-chk-screen></div>' +
       (opt.wave ? '<div class="chk-wave"><canvas data-chk-wave height="72" aria-hidden="true"></canvas><p class="hint chk-wave-msg" data-chk-wavemsg></p></div>' : '') +
       (opt.text ? '<p class="chk-cap">' + esc(opt.text) + '</p>' : '') +
-      '<div class="chk-replay-row" data-chk-replayrow hidden><button type="button" class="btn" data-chk-replay title="区間の頭から流し直します">↻ もう一度聞く <kbd class="ui-kbd">R</kbd></button>' +
+      '<div class="chk-replay-row" data-chk-replayrow hidden><button type="button" class="btn" data-chk-replay title="区間の頭から流し直します">もう一度聞く <kbd class="ui-kbd">R</kbd></button>' +
       '<p class="hint chk-play-msg" data-chk-msg role="status"></p></div></div>';   // 知らせはボタンの横(縦を使わない = 答えのボタンを上に保つ)
     var screen = el.querySelector('[data-chk-screen]'), msg = el.querySelector('[data-chk-msg]');
     function say(t) { if (msg) msg.textContent = t || ''; }
