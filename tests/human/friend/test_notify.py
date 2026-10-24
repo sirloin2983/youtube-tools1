@@ -107,6 +107,26 @@ class NotifyTest(unittest.TestCase):
         self.tick()
         self.assertTrue(proc.killed)
 
+    def test_not_delivered_leaves_warn_once(self):
+        """起こした側の最後の行が SENT でなければ、知らせの一覧に warn「まとめ役へ届かなかった」(その warn は送らない = 輪にならない)・送り先は環境変数で直せる"""
+        self.bug("a")
+        self.tick()
+        self.now += N.BATCH_SEC
+        with mock.patch.dict(os.environ, {N.TO_ENV: "新しいまとめ役"}):
+            self.tick()
+        self.assertIn("「新しいまとめ役」", self.calls[0][self.calls[0].index("-p") + 1])
+        N._running[1001].code = 0
+        with open(os.path.join(self.root, "notify.log"), "a", encoding="utf-8") as f:
+            f.write("FAILED: 相手が見つからない\n")
+        self.now += 5
+        self.tick()
+        al = [json.loads(ln) for ln in open(os.path.join(self.root, "alerts.jsonl"), encoding="utf-8")]
+        self.assertEqual([(a["level"], a["key"].startswith(N.FAIL_KEY)) for a in al], [("warn", True)])
+        self.assertIn("まとめ役へ届かなかった", al[0]["text"])
+        self.now += N.BATCH_SEC * 2
+        self.assertEqual(self.tick(), 0)   # 届かなかった知らせ自体は送らない
+        self.assertEqual(len(self.calls), 1)
+
     def test_switch_daily_max_and_no_claude(self):
         self.bug("a")
         self.now += N.BATCH_SEC
