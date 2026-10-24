@@ -78,7 +78,8 @@
   var ACTIVE = { queued: 1, running: 1 };
   var KIND_TEXT = { run: 'まとめて実行', analyze: '解析', adopt: '採用', 'export': '書き出し', transcribe: '文字起こし', diarize: '話者の判別', pack: 'パック',
     deliver: '届ける', rerun: '再認識', search: '配信の検索', live_export: 'ライブの書き出し', live_archive: 'アーカイブで作り直し', live_tx: '配信中の文字起こし' };
-  /* 切り抜きの進み具合(④ の clips[].state。C0)→ 札。無ければ文書の校正済みの行の数とパックの有無から殻が読む */
+  /* 切り抜きの進み具合(④ の clips[].state。C0)→ 札の title(校正はユーザーがしないので、札の文字は友人へ渡したか = deliveryPill。10-24 画面の見直し)。
+     無ければ文書の校正済みの行の数とパックの有無から殻が読む */
   var STATE_PILL = { none: ['wait', '文字起こし前'], todo: ['', '未校正'], proofing: ['accent', '校正中'], proofed: ['ok', '校正済み'], packed: ['ok', 'パック済み'] };
   var LOAD_TEXT = { offline: 'ホームにつながりませんでした(start.bat の黒い画面が閉じていないか確かめてください)' };
 
@@ -144,12 +145,7 @@
   }
   /* 送らなかった理由の文(自動の切り抜き。review.notSent.code → 文。text が来ていればそれを優先)。文はこの 1 か所だけ */
   var NOT_SENT = { unchecked: 'チェックを外した', stale: '古い配信', requested: '友人の依頼あり', expired: '古くなった', unknown_end: '終わった時刻が分からない' };
-  function notSentText(ns) { return (ns && ns.text) || NOT_SENT[ns && ns.code] || '理由が分かりません'; }
-  function notSentPill(it) {
-    var ns = it.kind === 'clip' && it.clip && it.clip.review && it.clip.review.notSent;
-    if (!ns) return '';
-    return '<span class="pill info" data-ui-audit-allow="A-33" title="' + esc(notSentText(ns)) + '">' + esc('送らなかった: ' + notSentText(ns)) + '</span>';
-  }
+  function notSentText(ns) { return (ns && ns.text) || NOT_SENT[ns && ns.code] || '理由が分かりません'; }   // 札「送れなかった」の title(deliveryOf)
   function clipState(cl) {
     var tx = cl.transcript || null, st = typeof cl.state === 'string' ? cl.state : '';
     if (st === 'proofing' && tx && !(tx.proofed > 0)) return 'todo';   // C0 の proofing は「校正済みが足りない」= 1 行も済んでいなければ未校正
@@ -231,8 +227,21 @@
     if (act) return jobPill(act);
     if (err) return jobPill(err);
     if (it.kind !== 'clip') return '';
-    var p = STATE_PILL[it.state] || STATE_PILL.none, ratio = it.state === 'proofing' && it.tx && it.tx.segments ? ' ' + it.tx.proofed + '/' + it.tx.segments : '';
-    return '<span class="pill ' + p[0] + '" data-ui-audit-allow="A-33">' + esc(p[1] + ratio) + '</span>';
+    var d = deliveryOf(it.clip), tip = [proofText(it)].concat(d[2] ? [d[2]] : []).join(' ・ ');
+    return '<span class="pill ' + d[0] + '" data-ui-audit-allow="A-33" data-cs-deliver="' + d[3] + '" data-cs-proof="' + esc(it.state || 'none') + '" title="' + esc(tip) + '">' + esc(d[1]) + '</span>';
+  }
+  /* 札の文字 = 友人へ渡したか(④ の clip.review。届けた記録 deliveredAt・失敗の文 failure・送らなかった理由 notSent。review は自動の切り抜きだけに付く)
+     -> [札の色, 文字, title に足す理由, data-cs-deliver] */
+  function deliveryOf(cl) {
+    var rv = (cl && cl.review) || {};
+    if (rv.deliveredAt) return ['ok', '友人へ渡した', rv.deliveredAt > 1 ? '渡した日時 ' + UIKit.fmt.date(rv.deliveredAt) : '', 'done'];
+    if (rv.failure || rv.notSent) return ['warn', '送れなかった', rv.notSent ? '送らなかった理由: ' + notSentText(rv.notSent) : String(typeof rv.failure === 'string' ? rv.failure : (rv.failure && rv.failure.text) || ''), 'fail'];
+    return ['', 'まだ', '', 'none'];
+  }
+  /* 札の title = 校正の進み具合(校正 7/25 など)*/
+  function proofText(it) {
+    if (it.state === 'proofing' && it.tx && it.tx.segments) return '校正 ' + it.tx.proofed + '/' + it.tx.segments;
+    return (STATE_PILL[it.state] || STATE_PILL.none)[1];
   }
   function renderRail() {
     var html = '', clipSep = false;
@@ -240,7 +249,7 @@
       var it = S.items[i];
       if (it.kind === 'clip' && !clipSep) { html += '<div class="ui-rail-sep">切り抜き</div>'; clipSep = true; }
       html += '<button type="button" class="ui-rail-item" data-cs-key="' + esc(it.key) + '" aria-current="' + (it.key === S.sel) + '" title="' + esc(it.label + (it.sub ? ' ・ ' + it.sub : '')) + '">' +
-        '<span class="ui-rail-t"><b>' + esc(it.label) + '</b><span class="ui-rail-s">' + esc(it.sub || '') + '</span></span>' + pillOf(it) + notSentPill(it) + '</button>';
+        '<span class="ui-rail-t"><b>' + esc(it.label) + '</b><span class="ui-rail-s">' + esc(it.sub || '') + '</span></span>' + pillOf(it) + '</button>';
     }
     if (!clipSep) html += '<div class="ui-rail-sep">切り抜き</div><p class="hint cs-rail-none">' + (NO_CAND[caseKind(S.kase)] ? 'この案件にはまだ文字起こしがありません。' : 'まだ書き出した切り抜きはありません。候補を採用して書き出すと、ここに 1 本 1 行で出ます。') + '</p>';
     if (html === S.railHtml) return;   // 変わっていなければ描き直さない(フォーカス・スクロールを保つ)
@@ -268,9 +277,10 @@
     return null;
   }
   function renderNext() {
-    var b = $('#csNext'), nx = S.kase ? nextTarget() : null;
+    var b = $('#csNext'), nx = S.kase ? nextTarget() : null;   // 押せないとき(次が無い・案件が無い)は出さない(10-24 画面の見直し)
+    b.hidden = !nx;
     b.disabled = !nx;
-    b.title = nx ? '「' + nx.label + '」を開きます(Shift+N)' : (S.kase ? 'この案件に、ほかの未校正の切り抜きはありません' : '案件を開くと使えます');
+    b.title = nx ? '「' + nx.label + '」を開きます(Shift+N)' : '';
   }
   /* 確かめると効く物 n 件(V1 確かめる V3)。入口の GET api/check/next?c=<案件>&n=0 の total。殻の問い合わせ(poll)に合わせて 15 秒ごと(案件を開いたときにも 1 回)。
      0 件・読めないときは出さない。押すと /check?c=<案件>&back=cases(終わったら案件へ戻るボタンが出る) */
@@ -354,7 +364,7 @@
     try { own = (S.panel && S.panel.keybar && S.panel.keybar()) || []; } catch (e) { own = []; }
     var ts = tabsOf(curItem()), shell = [];
     if (ts.length > 1) shell.push({ k: 'Alt+1', l: TABS[ts[0]].label }, { k: 'Alt+2', l: TABS[ts[1]].label });
-    if (S.kase) shell.push({ k: 'Shift+N', l: '次の未校正の切り抜き' });
+    if (S.kase && nextTarget()) shell.push({ k: 'Shift+N', l: '次の未校正の切り抜き' });   // ボタンと同じく、次が無いときは出さない
     UIKit.keybar.set(own.concat(shell));
   }
 

@@ -926,6 +926,9 @@ test('review settings: one table of field ↔ setting; every field value read ba
   }
   assert.equal(ctx.sanitizeSettings({ lag: '3' }).lag, 3); assert.equal(ctx.sanitizeSettings({ exportLoudness: '0' }).exportLoudness, 0);
   assert.equal(ctx.sanitizeSettings({ liveMode: 'x' }).liveMode, 'auto', 'an unknown field value falls back like the saved settings do');
+  assert.equal(def.foldMarks, true, 'the marks list is folded by default (10-24)');
+  assert.equal(ctx.sanitizeSettings({ foldMarks: false }).foldMarks, false, 'a saved false is kept');
+  assert.equal(ctx.sanitizeSettings({ foldDefault: false }).foldMarks, true, 'the old key saved before 10-24 is not read (folded once)');
 });
 
 // ---- 一瞬(C)は今をマークの 6 つ目(quickSpans[5])。前の形(momentBefore・momentAfter。10-24 まで)は平均を近い段に読み替える ----
@@ -949,8 +952,17 @@ test('buildDOM: the parts put together keep every id exactly once', () => {
   const html = box['#paneReview'].innerHTML;
   const ids = [...html.matchAll(/\sid="([^"$]+)"/g)].map(m => m[1]);
   assert.equal(new Set(ids).size, ids.length, 'ids are unique: ' + ids.filter((x, i) => ids.indexOf(x) !== i));
-  for (const id of ['rvRoot', 'rvJump', 'rvMain', 'rvPlayerBox', 'rvLiveBar', 'rvQuickbar', 'rvMarkDetails', 'rvExport', 'rvClipbox', 'rvList'])
+  for (const id of ['rvRoot', 'rvJump', 'rvMain', 'rvSum', 'rvPlayerBox', 'rvLiveBar', 'rvLiveOps', 'rvManual', 'rvQuickbar', 'rvMarkDetails', 'rvExport', 'rvClipbox', 'rvList'])
     assert.ok(ids.includes(id), id);
+  // 手でマークする道具(今をマーク・細かく決める・±5 / ±10 秒)は 1 つの畳んだ欄の中。再生 / 停止と現在位置の欄は外(10-24 の見直し 2)
+  const manual = html.slice(html.indexOf('id="rvManual"'), html.indexOf('</details>', html.indexOf('id="rvMarkDetails"')) + 30);
+  for (const s of ['id="rvQuickbar"', 'id="rvMarkDetails"', 'data-seek="-10"', 'data-seek="10"']) assert.ok(manual.includes(s), s + ' is inside 手でマークする');
+  for (const s of ['id="rvToggle"', 'id="rvNow"']) assert.ok(!manual.includes(s) && html.includes(s), s + ' stays outside');
+  assert.ok(!/<details[^>]*id="rvManual"[^>]*\sopen/.test(html), '手でマークする is closed by default');
+  // LIVE の帯: 1 行目に録画の状態と「録画を止める」、操作(ライブ端へ・音量・すぐ書き出す・配信者・控えも見る・案内)は畳んだ「操作」の中(10-24 の見直し 5)
+  const ops = html.slice(html.indexOf('id="rvLiveOps"'), html.indexOf('id="rvArch"'));
+  for (const s of ['id="rvEdge"', 'id="rvLiveVol"', 'id="rvAutoExp"', 'id="rvLiveWho"', 'id="rvPeakBench"', 'id="rvLiveGuide"']) assert.ok(ops.includes(s), s + ' is inside 操作');
+  for (const s of ['id="rvRecState"', 'id="rvRecStop"', 'id="rvLiveElapsed"', 'id="rvGaps"', 'id="rvLiveSumExp"']) assert.ok(!ops.includes(s) && html.includes(s), s + ' stays on the first line');
   assert.equal((html.match(/<section /g) || []).length, (html.match(/<\/section>/g) || []).length);
 });
 

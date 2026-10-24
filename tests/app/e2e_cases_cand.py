@@ -179,6 +179,8 @@ def main():
                 check(pg.evaluate("CasesShell.state().panel") == "cand" and pg.evaluate("location.search + location.hash") == "?c=%s#cand" % VID, "殻: 候補のタブ・URL")
                 check(pg.evaluate("document.querySelector('[data-ui-appnav-item][aria-current=\"page\"]').dataset.uiAppnavItem") == "cases", "appnav の今の場所は「案件」")
                 check(pg.evaluate("document.querySelectorAll('#csPane #rvList .rv-mark-row').length") == 5, "マーク 5 件(手 2 + 自動 3)")
+                check(pg.evaluate("document.querySelectorAll('#csPane #rvList .rv-mark-row.folded').length") >= 1, "マークの一覧は既定で畳んだ形(10-24)")
+                pg.evaluate("[...document.querySelectorAll('#csPane button')].find(b => /すべて開く/.test(b.textContent)).click()")   # 下の欄の確かめのために開く
                 check(pg.is_hidden("[data-cd-status]"), "読み込めたら案内は消える")
                 # 1b. 外から来る文字列(題名・ラベル)は文字のまま
                 check(pg.input_value("#rvTitle") == XSS_TITLE, "配信の題名は文字のまま")
@@ -310,6 +312,7 @@ def main():
                 pg.evaluate("document.querySelector('#rvHost video').pause()")
 
                 # 6b. 今をマークの 6 つ目「一瞬」(C。前後の長さは今をマークと同じ quickSpans に保存)・つなげて1本に
+                pg.evaluate("document.querySelector('#rvManual').open = true")   # 今をマークは畳んだ「手でマークする」の中(既定で閉じる)
                 pg.click("#rvQuickSlots .rv-step[data-slot='5'][data-d='-1']")   # 2.5 → 2 秒
                 pg.evaluate("document.activeElement && document.activeElement.blur()")
                 pg.evaluate("document.querySelector('#rvHost video').currentTime = 20")

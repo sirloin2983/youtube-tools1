@@ -146,13 +146,16 @@ def _scene_rows_whole(cx):
 
 
 def _scene_pack_settings(cx):
-    """パックの決まり(パネルの中。10-24 から設定の欄なし): 30fps・縦・-14 LUFS・話者の色・行の後の余白 0.2 秒を一覧で見せる"""
+    """パックの決まり(パネルの中。10-24 から設定の欄なし): 30fps・縦・-14 LUFS・話者の色・行の後の余白 0.2 秒を一覧で見せる。
+    10-24 画面の見直し: 様子の帯(前に作った・友人へ渡した)・パックの設定と字幕の見本は閉じた 1 行(要約は畳んだ行に)"""
     check, pg = cx.check, cx.pg
-    s = pg.inner_text("#pkSummaryText")
-    check("30fps" in s and "縦 1080×1920" in s and "-14 LUFS" in s, "前回の設定の要約(30fps・縦・-14 LUFS): " + s)
-    pg.click("#pkSettingsBtn")
-    check(wait_js(pg, "(() => { const r = document.querySelector('#edSetPack').getBoundingClientRect(); return r.top < innerHeight && r.bottom > 0; })()", 5000),
-          "「パックの決まり」でパネルの中の決まりの節へ移る")
+    st = pg.inner_text("#pkStatus")
+    check("前に作った" in st and "まだ作っていません" in st and "友人へ渡した" in st and "0 本" in st, "様子の帯(まだ作っていない・0 本): " + st)
+    check(pg.evaluate("['pkSetFold', 'pkLookFold', 'pkMore'].every(id => !document.getElementById(id).open)"), "パックの設定・字幕の見本・詳しくは閉じている")
+    s = pg.inner_text("#pkSetFold > summary")
+    check("30fps" in s and "縦 1080×1920" in s and "-14 LUFS" in s, "畳んだ行に今の設定の要約(30fps・縦・-14 LUFS): " + s)
+    pg.click("#pkSetFold > summary")
+    check(wait_js(pg, "document.getElementById('pkSetFold').open && document.getElementById('edSetPack').offsetParent !== null", 5000), "押すと「パックの決まり」が開く")
     t = pg.inner_text("#edSetPack")
     check(all(w in t for w in ("30fps", "縦 1080×1920", "-14 LUFS", "話者の名前", "0.2 秒")) and not pg.query_selector("#edSetPack input, #edSetPack select"),
           "決まりの一覧だけ(変える欄は無い): " + t[:120])
@@ -173,7 +176,9 @@ def _scene_build(cx):
     want = [(round(a * FPS), round(b * FPS)) for a, b in ROWS]
     check(len(got) == 5 and all(abs(g[0] - w[0]) <= 15 and abs(g[1] - w[1]) <= 15 for g, w in zip(got, want)), "パックの区間 = カットのタブの区間(行から広げた 5 区間): %s" % got)
     check(wait_js(pg, "!document.querySelector('#pkLast').hidden && document.querySelector('#pkLastDir').textContent.indexOf('_pack') > 0", 5000), "前回のパックの欄が出る: " + pg.inner_text("#pkLastDir"))
-    check(wait_js(pg, "document.querySelector('#csRail [data-cs-key=\"d:%s\"] .pill').textContent === 'パック済み'" % cx.tid, 20000), "左の一覧の札が「パック済み」に変わる")
+    check(wait_js(pg, "document.querySelector('#csRail [data-cs-key=\"d:%s\"] .pill').title.indexOf('パック済み') >= 0" % cx.tid, 20000), "左の一覧の札の title が「パック済み」に変わる")
+    check(pg.evaluate("document.querySelector('#csRail [data-cs-key=\"d:%s\"] .pill').textContent" % cx.tid) == "まだ", "札の文字は友人へ渡したか(まだ)")
+    check(wait_js(pg, "!/まだ作っていません/.test(document.getElementById('pkStatusMade').textContent)", 20000), "様子の帯の「前に作った」に時刻: " + pg.inner_text("#pkStatus"))
 
 
 def _scene_switch(cx):

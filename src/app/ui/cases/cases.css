@@ -179,7 +179,17 @@
 .tt-pk-col{display:flex;flex-direction:column;gap:14px;min-width:0}
 .tt-pk-card{padding:14px 16px}
 .tt-pk-h{display:flex;align-items:center;gap:8px;margin:0 0 10px;font:650 15px/1.35 var(--font-display)}
-.tt-pk-more{margin-top:6px;border-top:1px solid var(--line);padding-top:8px}
+/* 様子の帯(前に作った・友人へ渡した)→ 作るボタン → これから作るパック → 畳んだ 3 つ(パックの設定・字幕の見本・詳しく)。10-24 画面の見直し */
+.tt-pk-strip{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px;margin:0;padding:10px 16px}
+.tt-pk-strip .hint{font-size:12.5px}
+.tt-pk-strip .hint:not(:first-of-type){margin-left:6px}
+.tt-pk-bad{color:var(--warn-ink)}
+.tt-pack>.tt-pk-go{margin:10px 0 14px}
+.tt-pk-fold{padding:6px 16px}
+.tt-pk-fold>summary{flex-wrap:wrap;column-gap:10px}
+.tt-pk-fold>summary>.hint{font-weight:400;font-size:12.5px;min-width:0;overflow-wrap:anywhere}
+.tt-pk-fold[open]>summary{margin-bottom:8px}
+.tt-pk-fold[open]{padding-bottom:12px}
 .tt-pk-more .fld{margin-top:10px}
 .tt-pk-more .fld>label,.tt-pk-more .fld>.l{display:block;font-size:12.5px;font-weight:550;color:var(--ink-2);margin-bottom:4px}
 .tt-pk-more .fld>input,.tt-pk-more .fld>select{width:100%}

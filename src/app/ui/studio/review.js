@@ -3,7 +3,8 @@
    RS8 C2a で部品にした: window.StudioReview.create(env) が ② を 1 つ作る。スタジオの画面はこのファイルの最後で document の env を渡して作る(動きは今までと同じ)。
    案件の画面の「候補」のパネル(src/app/ui/cases/panels/cand.js)も、このファイルを読んで自分の env で作る(DOM はパネルの箱の中だけ・keydown は殻の 1 本から・離れた / 戻ったは殻から)。
    env = { Studio(core.js の window.Studio と同じ形), $(sel)・$$(sel)(DOM を引く場所), listen(target, type, fn, opt)(見張りを付ける。document の keydown も),
-           keybar(list | null)(下のキーの帯), life(onLeave, onReturn)(画面を離れた・戻った), wide(広い画面の media query。省略 = 961px 以上) } */
+           keybar(list | null)(下のキーの帯), life(onLeave, onReturn)(画面を離れた・戻った), wide(広い画面の media query。省略 = 961px 以上),
+           delivered()(任意。様子の帯の「友人へ渡した」= {n, total} か null。案件の画面のパネルだけが渡す) } */
 (() => {
 'use strict';
 function create(env){
@@ -65,7 +66,7 @@ function momentSpanOf(x, v){
   if (Number.isFinite(v)) return momentSpan(v);
   return x.momentBefore != null || x.momentAfter != null ? momentSpan((sec1(x.momentBefore, 2) + sec1(x.momentAfter, 3)) / 2) : DEFAULT_QUICK_SPANS[MOMENT_SLOT];
 }
-const DEFAULT_SETTINGS = { volume: 100, muted: false, quickSpans: DEFAULT_QUICK_SPANS, keymap: KEY_PRESETS.standard, lag: 0, liveMode: 'auto', exportVolume: 75, exportLoudness: -14, theater: false, graphLines: false, autoPlay: true, autoNext: true, exportTarget: 'adopted', sortBy: 'time', foldDefault: false, liveAutoExport: true };
+const DEFAULT_SETTINGS = { volume: 100, muted: false, quickSpans: DEFAULT_QUICK_SPANS, keymap: KEY_PRESETS.standard, lag: 0, liveMode: 'auto', exportVolume: 75, exportLoudness: -14, theater: false, graphLines: false, autoPlay: true, autoNext: true, exportTarget: 'adopted', sortBy: 'time', foldMarks: true, liveAutoExport: true };
 function sanitizeSettings(x){
   x = x && typeof x === 'object' ? x : {};
   const n = (v, lo, hi, d) => Number.isFinite(Number(v)) ? Math.min(hi, Math.max(lo, Math.round(Number(v)))) : d;
@@ -77,7 +78,7 @@ function sanitizeSettings(x){
     exportVolume: n(x.exportVolume, 1, 200, 75),
     exportLoudness: [0, -11, -14, -16, -18].includes(Number(x.exportLoudness)) ? Number(x.exportLoudness) : -14,   // 0 = そろえない(音量(%)を使う)
     keymap: sanitizeKeymap(x.keymap), theater: x.theater === true, graphLines: x.graphLines === true,
-    autoPlay: x.autoPlay !== false, autoNext: x.autoNext !== false, foldDefault: x.foldDefault === true,
+    autoPlay: x.autoPlay !== false, autoNext: x.autoNext !== false, foldMarks: x.foldMarks !== false,   // マークの一覧は既定で畳む(10-24 の見直し 3)。前の鍵 foldDefault の保存値は読まない = 一度だけ畳んだ形に戻る。押した「すべて開く」は foldMarks に覚える
     exportTarget: ['adopted', 'pending', 'all'].includes(x.exportTarget) ? x.exportTarget : 'adopted', sortBy: x.sortBy === 'score' ? 'score' : 'time',
     lag: [0, 2, 3, 5].includes(Number(x.lag)) ? Number(x.lag) : 0,
     liveAutoExport: x.liveAutoExport !== false,   // ライブの録画: マークしたらすぐ書き出す(既定オン)
@@ -146,7 +147,10 @@ function jumpHTML(){
    区間のボタン(#rvSegs の .rv-seg)の幅は時間で決まるので 28px より細いことがある(A-21 の例外): 同じマークは一覧の行(と前後移動キー)から選べる。
    配信中の候補の印(#rvPeakSegs の .rv-seg.cand。マークの下に重ねる)も同じ: 同じ候補は LIVE の帯の候補の一覧の [再生](と p キー)から選べる */
 function playerHTML(){
-  return `      <div class="rv-player" id="rvPlayerBox"><div class="rv-host" id="rvHost" data-ui-audit-allow="A-26"></div><div class="rv-phmsg" id="rvPhMsg" hidden></div></div>
+  /* 様子の帯(10-24 の見直し 1): この配信がどこまで進んだか。数は renderSum が入れる。「解析」は YouTube の配信だけ・「友人へ渡した」は案件の画面から開いたときだけ(env.delivered) */
+  const item = (id, k, extra) => `<span class="rv-sum-i" id="${id}"${extra || ''}><span class="rv-sum-k">${k}</span><b class="rv-sum-v num" id="${id}V">--</b></span>`;
+  return `      <p class="rv-sum" id="rvSum" aria-label="この配信の様子">${item('rvSumAna', '解析', ' hidden')}${item('rvSumCand', '候補')}${item('rvSumAdopt', '採用')}${item('rvSumExp', '書き出し')}${item('rvSumSent', '友人へ渡した', ' hidden title="この案件の切り抜きのうち、友人へ渡した(届けた)本数"')}</p>
+      <div class="rv-player" id="rvPlayerBox"><div class="rv-host" id="rvHost" data-ui-audit-allow="A-26"></div><div class="rv-phmsg" id="rvPhMsg" hidden></div></div>
       <div class="rv-notice notice" id="rvNotice" hidden></div>
 
       <div class="rv-deck">
@@ -163,15 +167,7 @@ function playerHTML(){
             <input id="rvNow" type="text" value="0:00.0" inputmode="decimal" autocomplete="off" title="現在位置。時刻を入れて Enter でジャンプ(例: 1:23.5 / 5025)"><span class="rv-dur mono" id="rvDur">/ --</span>
           </div>
           <div class="rv-tbtns">
-            <div class="btn-group" role="group" aria-label="戻る">
-              <button class="btn small" type="button" data-seek="-10">−10s</button>
-              <button class="btn small" type="button" data-seek="-5">−5s</button>
-            </div>
             <button class="btn small primary rv-playbtn" type="button" id="rvToggle">${SVG.play}再生 / 停止</button>
-            <div class="btn-group" role="group" aria-label="進む">
-              <button class="btn small" type="button" data-seek="5">+5s</button>
-              <button class="btn small" type="button" data-seek="10">+10s</button>
-            </div>
             <select id="rvRate" aria-label="再生速度" title="再生速度">
               <option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option>
               <option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option>
@@ -183,28 +179,36 @@ function playerHTML(){
 /* LIVE の帯(ライブの録画: 録画の状態・すぐ書き出す・配信者・アーカイブから書き出す・配信後の自動の切り抜きの進み具合) */
 function liveBarHTML(){
   return `      <!-- LIVE の帯: 置き場所は placeQuickBar が決める(広い画面は右の列のマークの一覧の上・狭い画面とシアターは「今をマーク」の上) -->
+      <!-- 1 行目は様子だけ(録画の状態・録画の長さ・欠け・候補・書き出しの数)と「録画を止める」。操作と案内は畳んだ「操作」(#rvLiveOps。既定で閉じる。10-24 の見直し 5) -->
       <div class="rv-livebar" id="rvLiveBar" hidden>
         <div class="rv-live-l"><span class="rv-live-badge" id="rvLiveBadge">LIVE</span>
+          <span class="rv-live-recst" id="rvLiveRec" hidden><span class="pill" id="rvRecState" role="status">確かめています…</span><span class="hint rv-recmsg" id="rvRecMsg"></span></span>
           <span class="rv-live-k" id="rvLiveElapsedK">配信経過</span><span class="mono" id="rvLiveElapsed">--</span>
-          <span class="rv-live-k" id="rvStreamAtK" hidden title="今の再生位置が、配信の頭から何時間何分か(YouTube のアーカイブの時刻と同じ数え方)">配信の時刻</span><span class="mono" id="rvStreamAt" hidden>--</span>
           <span class="rv-live-k" id="rvGapsK" hidden title="録画のつなぎ直しの間で、録れていない所(タイムラインの斜線)">欠け</span><span class="mono" id="rvGaps" hidden>--</span>
+          <span class="rv-live-k" id="rvLiveSumCandK" hidden>候補</span><span class="mono" id="rvLiveSumCand" hidden>0</span>
+          <span class="rv-live-k">書き出し</span><span class="mono" id="rvLiveSumExp">0</span></div>
+        <button class="btn small danger" id="rvRecStop" type="button" hidden title="録画を止めます(録れた所までは、このあとも再生・マーク・書き出しができます)">録画を止める</button>
+        <details class="ui-disclosure rv-liveops" id="rvLiveOps"><summary>操作 <span class="muted">ライブ端へ・音量・すぐ書き出す・配信者・次にすること</span></summary>
+          <div class="rv-liveopsbody">
+        <div class="rv-live-info">
+          <span class="rv-live-k" id="rvStreamAtK" hidden title="今の再生位置が、配信の頭から何時間何分か(YouTube のアーカイブの時刻と同じ数え方)">配信の時刻</span><span class="mono" id="rvStreamAt" hidden>--</span>
           <span class="rv-live-k rv-live-edgeinfo">ライブ端との差</span><span class="mono rv-live-edgeinfo" id="rvLiveGap">--</span>
           <span class="rv-live-k">ライブ印のマーク</span><span class="mono" id="rvLiveMarks">0件</span></div>
         <div class="rv-live-r"><button class="btn small" id="rvEdge" type="button">ライブ端へ</button>
           <!-- 音量と消音: 録画のプレーヤーは標準のコントロールを出さない(時間が食い違う)ので、音量を変える口はここと ↑↓・M のキー。値は ② の設定 volume・muted -->
           <span class="rv-livevol"><label for="rvLiveVol">音量</label><input type="range" id="rvLiveVol" min="0" max="100" step="5" value="100" title="配信の音量(↑ ↓ キーでも 5 ずつ変わります)"><output class="mono" id="rvLiveVolOut" for="rvLiveVol">100</output>
             <button class="btn small ghost" id="rvLiveMute" type="button" aria-pressed="false" title="配信の音を消す・戻す(M キー)">消音</button></span></div>
-        <div class="rv-liverec" id="rvLiveRec" hidden>
-          <span class="pill" id="rvRecState" role="status">確かめています…</span><span class="hint rv-recmsg" id="rvRecMsg"></span>
-          <span class="rv-topsp"></span>
+        <div class="rv-liverec" id="rvLiveRecOps" hidden>
           <label class="rv-check" for="rvAutoExp" title="今をマーク ①〜⑤・一瞬・IN/OUT の追加で付けたマークを採用にして、すぐ書き出しに回します(録画が届くのを待ってから作ります)"><input type="checkbox" class="ui-switch" id="rvAutoExp">マークしたらすぐ書き出す</label>
           <details class="ui-pop rv-livewho" id="rvLiveWho" hidden><summary class="btn small ghost" title="字幕の色を決める配信者です(覚えた名前か、チャンネル名から自動)。押すと直せます(直した名前は、この録画とこのチャンネルで次からも使います)"><span id="rvLiveWhoText">配信者: 未設定(字幕は既定の色)</span></summary>
             <div class="ui-pop-body rv-livewhobody" data-align="left"><label class="rv-fl" for="rvLiveWhoIn">配信者(字幕の色)</label><input type="text" id="rvLiveWhoIn" placeholder="例: 兎田ぺこら" aria-describedby="rvLiveWhoNote">
               <p class="hint" id="rvLiveWhoNote">次の書き出しから、この名前のメンバーカラーで字幕を作ります(空 = 既定の色)</p></div></details>
-          <button class="btn small danger" id="rvRecStop" type="button" hidden title="録画を止めます(録れた所までは、このあとも再生・マーク・書き出しができます)">録画を止める</button>
+          <label class="rv-check" for="rvPeakBench" hidden title="枠からあふれた候補(控え)と、見送った候補も一覧に出します"><input type="checkbox" class="ui-switch" id="rvPeakBench">控えも見る<span class="ui-count" id="rvPeakBenchN"></span></label>
         </div>
         <p class="rv-liveguide rv-ducknote" id="rvDuckNote" role="status" hidden></p>
         <p class="rv-liveguide" id="rvLiveGuide" hidden></p>
+          </div>
+        </details>
         <div class="rv-liverec rv-arch" id="rvArch" hidden>
           <!-- 手でアーカイブから作り直すボタンは閉じた引き出しに(10-24 ユーザー。ふだんは配信後の全自動が同じ部品で作り直す)。進み具合の文は外に出したまま -->
           <details class="ui-disclosure rv-archbox" id="rvArchBox"><summary>手でアーカイブから作り直す</summary>
@@ -214,17 +218,31 @@ function liveBarHTML(){
           <span class="hint rv-archmsg" id="rvArchMsg" role="status"></span>
         </div>
         <div class="rv-peaks" id="rvPeaks" hidden>
-          <div class="rv-peakhead"><b class="rv-peakcount" id="rvPeakCount">候補</b><span class="hint rv-peakinfo" id="rvPeakInfo"></span><span class="rv-topsp"></span>
-            <label class="rv-check" for="rvPeakBench" title="枠からあふれた候補(控え)と、見送った候補も一覧に出します"><input type="checkbox" class="ui-switch" id="rvPeakBench">控えも見る<span class="ui-count" id="rvPeakBenchN"></span></label></div>
+          <div class="rv-peakhead"><b class="rv-peakcount" id="rvPeakCount">候補</b><span class="hint rv-peakinfo" id="rvPeakInfo"></span></div>
           <p class="hint rv-peakmsg" id="rvPeakMsg" role="status" hidden></p>
           <ol class="rv-peaklist" id="rvPeakList" aria-label="配信中の候補"></ol>
         </div>
         <p class="rv-liveguide" id="rvAfterStream" role="status" hidden></p>
       </div>`;
 }
-/* 今をマーク・一瞬をマーク・細かく決める(IN・OUT・追加) */
+/* 今をマーク・一瞬をマーク・細かく決める(IN・OUT・追加)・±5 / ±10 秒。
+   手でマークする道具は 1 つの畳んだ欄「手でマークする」(#rvManual)にまとめる(10-24 の見直し 2。既定で閉じる・開閉はこのブラウザに覚える)。
+   畳んでいてもキー(①〜⑤・C・I・O・A・← →)はそのまま効く。再生 / 停止・速度・現在位置の欄・タイムラインは外に出したまま */
 function markToolsHTML(){
-  return `      <div class="rv-quickbar" id="rvQuickbar"><div class="rv-fl">今をマーク <span class="muted">押した位置の前後を、そのままマークにします(一瞬 は採用のマーク「一瞬」。ライブ中も)。− ＋ で前後の長さを切り替え</span></div><div class="rv-qrow" id="rvQuickSlots"></div></div>
+  return `      <details class="ui-disclosure rv-manual" id="rvManual">
+        <summary>手でマークする <span class="muted">今をマーク ①〜⑤・一瞬・IN / OUT・±5 / ±10 秒(開いた状態は覚えます)</span></summary>
+        <div class="rv-manualbody">
+      <div class="rv-seekrow" role="group" aria-label="少し戻る・進む">
+        <div class="btn-group" role="group" aria-label="戻る">
+          <button class="btn small" type="button" data-seek="-10">−10s</button>
+          <button class="btn small" type="button" data-seek="-5">−5s</button>
+        </div>
+        <div class="btn-group" role="group" aria-label="進む">
+          <button class="btn small" type="button" data-seek="5">+5s</button>
+          <button class="btn small" type="button" data-seek="10">+10s</button>
+        </div>
+      </div>
+      <div class="rv-quickbar" id="rvQuickbar"><div class="rv-fl">今をマーク <span class="muted">押した位置の前後を、そのままマークにします(一瞬 は採用のマーク「一瞬」。ライブ中も)。− ＋ で前後の長さを切り替え</span></div><div class="rv-qrow" id="rvQuickSlots"></div></div>
 
       <details class="rv-markdetails ui-disclosure" id="rvMarkDetails">
         <summary>細かく決める <span class="muted">IN・OUT・追加(今をマークの代わりに、時刻を決めて追加)</span></summary>
@@ -241,6 +259,8 @@ function markToolsHTML(){
             <button class="btn primary" id="rvAdd" type="button">マーク追加<kbd class="ui-kbd" data-kbd="addClip">A</kbd></button>
             <span class="hint" id="rvDraftDur">IN と OUT を押すと追加できます</span>
           </div>
+        </div>
+      </details>
         </div>
       </details>`;
 }
@@ -608,14 +628,23 @@ function showNotice(t, opts){
   const n = $('#rvNotice'), v = S.cur;
   const yt0 = v && v.kind === 'youtube' ? Studio.watchUrl(v.id) : liveYtHref(v);
   const retry = opts && opts.retry ? '<button type="button" class="btn small" data-act="ytretry">もう一度試す</button> ' : '';   // 押したときの動きは #rvNotice のクリックで受ける(CSP: インラインの onclick は動かない)
-  n.innerHTML = `<b>この画面では再生できません。</b> ${esc(t)}<br><span class="hint">判定・時刻の入力・書き出しは続けられます(マークを移っても自動では再生しません)。</span>${retry || yt0 ? ' ' : ''}${retry}${yt0 ? `<a class="btn small" href="${esc(yt0)}" target="_blank" rel="noopener noreferrer" data-yt-now>YouTube で開く</a>` : ''}`;
-  n.hidden = false; phMsg('');
+  /* 1 行にする(10-24 の見直し 4): 長い説明(理由・続けられること)は title と画面の読み上げ用の文(sr-only)に */
+  const why = `${t} 判定・時刻の入力・書き出しは続けられます(マークを移っても自動では再生しません)。`;
+  noticeLine(n, 'この配信はここで再生できません', why, retry + (yt0 ? `<a class="btn small" href="${esc(yt0)}" target="_blank" rel="noopener noreferrer" data-yt-now>YouTube で開く</a>` : ''));
+  phMsg('');
+}
+/* プレーヤーの下の 1 行の知らせ(見出し + ボタン)。説明は title と sr-only に置く(#rvNotice の文字には入るので、読み上げと検索では読める) */
+function noticeLine(n, head, why, acts){
+  n.classList.add('rv-notice1');
+  n.title = why;
+  n.innerHTML = `<b class="rv-notice-h">${esc(head)}</b><span class="sr-only">${esc(why)}</span>${acts ? ' ' + acts : ''}`;
+  n.hidden = false;
 }
 const canPlay = () => !!(yt && S.playerAlive && !S.playerErr);
 function noPlayerToast(){ toast(S.playerErr ? 'この画面では再生できません(プレーヤーの下の案内を見てください)' : 'プレーヤーを準備しています。少し待ってからもう一度押してください', 5000); }
 /* プレーヤーの上の「読み込み中」表示(準備できたら・失敗したら消す) */
 function phMsg(t){ const m = $('#rvPhMsg'); if (!m) return; m.hidden = !t; m.innerHTML = t ? `<span class="ui-spin" aria-hidden="true"></span><span>${esc(t)}</span>` : ''; }
-function hideNotice(){ $('#rvNotice').hidden = true; }
+function hideNotice(){ const n = $('#rvNotice'); n.hidden = true; n.title = ''; }
 function ytErrorMessage(code){
   if (code === 'local') return 'この動画ファイルはブラウザで再生できません(mkvや一部コーデックなど)。mp4(H.264/AAC)に変換して開き直すか、時刻の手入力で記録してください。書き出しは元ファイルからそのまま行えます。';
   if (code === 100) return 'この配信は見つからないか、非公開です(エラー100)。';
@@ -1289,7 +1318,8 @@ function liveOpened(v){
   $('#rvArch').hidden = true;
   renderLiveAfter();   // 前に開いていた録画の「配信後の自動の切り抜き」を残さない(archiveInfo は空にした)
   peaksOpened(LV.vid);   // 配信中の候補: 前に開いていた録画の一覧を残さない
-  $('#rvLiveRec').hidden = !rec; $('#rvLiveGuide').hidden = true;
+  $('#rvLiveRec').hidden = $('#rvLiveRecOps').hidden = !rec; $('#rvLiveGuide').hidden = true;
+  if (!rec) $('#rvRecStop').hidden = true;   // 停止は 1 行目の右(録画の行の外)。録画でない配信では出さない
   $('#rvLiveBar').classList.toggle('is-rec', rec); $('#rvLiveBar').classList.remove('is-ended');
   liveSet('#rvLiveBadge', 'LIVE'); liveSet('#rvLiveElapsedK', rec ? '録画の長さ' : '配信経過');
   for (const el of $$('#rvLiveBar .rv-live-edgeinfo')) el.hidden = false;
@@ -1371,8 +1401,9 @@ function liveDeletedShown(v){
   if (yt) unmountPlayer();   // 開いている間に消えた: 読めなくなった再生リストを読み続けない
   S.playerErr = true;
   const n = $('#rvNotice'), href = liveYtHref(v);
-  n.innerHTML = `<b>${esc(LIVE_DELETED)}</b><br><span class="hint">録画が無いので、この画面では再生できません。書き出した切り抜きは書き出し先にあります(文字起こし・カット・パックもそのまま使えます)。</span>${href ? ` <a class="btn small" href="${esc(href)}" target="_blank" rel="noopener noreferrer" data-yt-now>YouTube で開く</a>` : ''}`;
-  n.hidden = false; phMsg('');
+  noticeLine(n, LIVE_DELETED, '録画が無いので、この画面では再生できません。書き出した切り抜きは書き出し先にあります(文字起こし・カット・パックもそのまま使えます)。',
+    href ? `<a class="btn small" href="${esc(href)}" target="_blank" rel="noopener noreferrer" data-yt-now>YouTube で開く</a>` : '');
+  phMsg('');
 }
 /* 録画が終わった(録画中 → 終わり)ときの知らせ(1回)。ヘッダーの札(UIKit.liveBadge)が動いているなら、札が同じ知らせを出すので重ねない */
 function liveEndedNotice(){
@@ -1958,7 +1989,10 @@ function renderPeaks(){
   const on = peaksShownNow(S.cur);
   if (box.hidden !== !on){ box.hidden = !on; if (Studio.step === 'review') keybarScene(); }   // 下のキーの帯に p・z を出す / 戻す
   renderPeakSegs();
+  /* 帯の 1 行目の「候補 n」(枠と採用の候補の数)と、「操作」の中の「控えも見る」は、候補を出しているときだけ */
+  for (const sel of ['#rvLiveSumCandK', '#rvLiveSumCand', 'label[for="rvPeakBench"]']) setHidden($(sel), !on);
   if (!on) return;
+  liveSet('#rvLiveSumCand', String(PKV.list.filter(peakCounted).length));
   const h = peakHead(PKV.list, PKV.hour, PKV.worker, PKV.auto, { hour: Math.floor(Math.max(0, S.duration - 0.5) / 3600), active: !!(LV.status && LV.status.active), tx: PKV.tx });
   liveSet('#rvPeakCount', h.count); liveSet('#rvPeakInfo', h.info);
   liveSet('#rvPeakBenchN', String(PKV.list.filter(p => !peakCounted(p)).length));   // 「控えも見る」で増える数(控えと見送り)
@@ -2161,7 +2195,7 @@ function refresh(keyToFocus){
 }
 const armDelete = UIKit.armDelete;   // 2回押しの確認(戻せない操作だけ。実行したらすぐ元に戻る)
 const statusOf = c => c.status || '';
-const isFolded = id => (S.fold.has(id) ? S.fold.get(id) : S.settings.foldDefault);
+const isFolded = id => (S.fold.has(id) ? S.fold.get(id) : S.settings.foldMarks);
 /* 表示するマーク(絞り込み + 並び替え)。前後移動もこの順で動く */
 const byScore = (a, b) => (b.score == null ? -1 : b.score) - (a.score == null ? -1 : a.score) || a.start - b.start || (a.id < b.id ? -1 : 1);
 /* 並び順(時刻順 / 点数順)だけを適用した全マーク */
@@ -2217,7 +2251,7 @@ function bulkAdopt(){
     markDirty(); refresh(); renderMeta(); toast(`${n}件を候補に戻しました`);
   } } });
 }
-function foldAll(on){ S.settings.foldDefault = on; S.fold = new Map(); touchSettings(); renderList(); }
+function foldAll(on){ S.settings.foldMarks = on; S.fold = new Map(); touchSettings(); renderList(); }
 
 /* ---------- 動画名の自動設定 ---------- */
 function setAutoTitle(v, title){
@@ -2877,7 +2911,22 @@ function renderStats(){
   }
   { const b = $('#rvBulkAdopt'); b.disabled = !cnt[''];   // 押せないときは理由を
     b.title = cnt[''] ? `候補のマーク ${cnt['']}件をすべて採用にします` : '候補がありません(自動のマークか「今をマーク」で増えます)'; }
+  renderSum(cnt);
   renderExportUI();
+}
+/* プレーヤーの上の様子の帯(#rvSum)と LIVE の帯の「書き出し n」。数はマークの絞り込み(全部・候補・採用…)と同じ数え方(cnt = renderStats の数)。
+   友人へ渡した = 案件の切り抜きのうち届けた(clip.review.deliveredAt)本数。案件の画面のパネルだけが env.delivered で渡す(スタジオの画面では出さない) */
+function renderSum(cnt){
+  const v = S.cur; if (!v) return;
+  if (!cnt){ cnt = { '': 0, adopted: 0, rejected: 0, exported: 0 }; for (const m of v.marks) cnt[statusOf(m)]++; }
+  const put = (id, t) => { liveSet('#' + id + 'V', String(t)); };
+  { const ana = v.kind === 'youtube'; setHidden($('#rvSumAna'), !ana); if (ana) put('rvSumAna', v.analysis ? '済み' : 'まだ'); }
+  put('rvSumCand', cnt['']); put('rvSumAdopt', cnt.adopted); put('rvSumExp', cnt.exported);
+  liveSet('#rvLiveSumExp', String(cnt.exported));
+  let sent = null; try { sent = typeof env.delivered === 'function' ? env.delivered() : null; } catch { sent = null; }
+  const has = !!sent && Number.isFinite(sent.n);
+  setHidden($('#rvSumSent'), !has);
+  if (has) put('rvSumSent', sent.total > 0 ? `${sent.n} / ${sent.total} 本` : `${sent.n} 本`);
 }
 function renderAll(){
   renderMeta(); renderDraft();
@@ -2887,15 +2936,25 @@ function renderAll(){
 }
 const WIDE = env.wide || '(min-width:961px)';
 function placeQuickBar(){
-  const qb = $('#rvQuickbar'), cb = $('#rvClipbox'), lb = $('#rvLiveBar'), anchor = $('#rvMarkDetails'); if (!qb || !cb || !lb || !anchor) return;
+  /* 動かすのは「手でマークする」の欄ごと(#rvManual。今をマーク・細かく決める・±5 / ±10 秒が入っている)。シアターの広い画面は右の列のいちばん上、ほかはプレーヤーの下 */
+  const man = $('#rvManual'), cb = $('#rvClipbox'), lb = $('#rvLiveBar'), stage = $('#rvStage'); if (!man || !cb || !lb || !stage) return;
   const wide = window.matchMedia(WIDE).matches, side = !!S.settings.theater && wide;
-  if (side) cb.prepend(qb); else if (anchor.previousElementSibling !== qb) anchor.before(qb);
+  if (side){ if (cb.firstElementChild !== man) cb.prepend(man); }
+  else if (man.parentElement !== stage || stage.lastElementChild !== man) stage.append(man);
   /* LIVE の帯(ライブの録画の状態・停止・「マークしたらすぐ書き出す」・次にすることの案内。YouTube のライブ配信の帯も同じ):
-     広い画面(シアター以外)は右の列のマークの一覧の上(プレーヤーの横・右の列は貼り付くのでスクロールしても見える)、それ以外は「今をマーク」の上。
+     広い画面(シアター以外)は右の列のマークの一覧の上(プレーヤーの横・右の列は貼り付くのでスクロールしても見える)、
+     狭い画面は「手でマークする」の上、シアターの広い画面はプレーヤーの下(手でマークするは右の列へ移したので)。
      (「今をマーク」の下だと、1440×900 でもスクロールしないと録画の状態・停止が見えないため。線 D の P3) */
   if (wide && !side){ if (cb.previousElementSibling !== lb) cb.before(lb); }
-  else { const at = side ? anchor : qb; if (at.previousElementSibling !== lb) at.before(lb); }
+  else if (side){ if (lb.parentElement !== stage || stage.lastElementChild !== lb) stage.append(lb); }
+  else if (man.previousElementSibling !== lb) man.before(lb);
 }
+/* 「手でマークする」(#rvManual)の開閉をこのブラウザに覚える(既定で閉じる。読み書きできないときは覚えないだけ) */
+const MANUAL_KEY = 'ytt:studio.manualOpen';
+function manualOpenSaved(){ try { return localStorage.getItem(MANUAL_KEY) === '1'; } catch { return false; } }
+function manualRemember(open){ try { localStorage.setItem(MANUAL_KEY, open ? '1' : '0'); } catch { /* 保存できない: 覚えないだけ */ } }
+/* 畳んだ中の道具へ案内するとき(空の一覧の「今をマーク」など)は開いてから */
+function openManual(){ const d = $('#rvManual'); if (d && !d.open){ d.open = true; manualRemember(true); } }
 /* 画面の中の移動(プレーヤー・マーク・書き出し)。広い画面では上の行の右端(書き出しへの入口だけ)、
    狭い画面では上の行の下に置いて、スクロールしても上に残す(ヘッダーの下に貼り付く) */
 function placeJump(){
@@ -3031,7 +3090,7 @@ function wire(){
     const b = e.target.closest('[data-empty]'); if (!b) return;
     if (b.dataset.empty === 'analyze') runAnalyze();
     else if (b.dataset.empty === 'all'){ S.filter = 'all'; renderStats(); renderList(); const f = $('#rvFilters [data-filter="all"]'); if (f) f.focus(); }
-    else { const q = $('#rvQuickbar'), first = $('#rvQuickSlots button[data-slot]'); if (q) q.scrollIntoView({ block: 'center', behavior: 'smooth' }); if (first) first.focus({ preventScroll: true }); }
+    else { openManual(); const q = $('#rvQuickbar'), first = $('#rvQuickSlots button[data-slot]'); if (q) q.scrollIntoView({ block: 'center', behavior: 'smooth' }); if (first) first.focus({ preventScroll: true }); }
   });
   list.addEventListener('toggle', e => {   // セリフの開閉を覚える(一覧を描き直しても閉じない)。toggle は泡立たないので capture で受ける
     const d = e.target; if (!d.classList || !d.classList.contains('rv-tx')) return;
@@ -3152,6 +3211,7 @@ function wire(){
   $('#rvOut').addEventListener('click', markOut);
   $('#rvAdd').addEventListener('click', addClip);
   $('#rvToggle').addEventListener('click', togglePlay);
+  { const man = $('#rvManual'); man.open = manualOpenSaved(); man.addEventListener('toggle', () => manualRemember(man.open)); }   // 手でマークする: 開閉をこのブラウザに覚える
   $$('#rvRoot [data-seek]').forEach(b => b.addEventListener('click', () => seek(S.now + Number(b.dataset.seek))));
   $('#rvRate').addEventListener('change', e => { S.rate = Number(e.target.value); if (yt) yt.setPlaybackRate(S.rate); });
   $('#rvNow').addEventListener('change', e => {
@@ -3295,6 +3355,7 @@ Studio.review = {
     return p;
   },
   refresh: refreshList,
+  refreshSum: () => renderSum(),   // 様子の帯を描き直す(案件の画面のパネルが、案件を読み直して友人へ渡した数が変わったときに呼ぶ)
   keymap: KM,   // キーの一覧(? の一覧も同じ部品を出す。core.js)
   /* 書き出しのあと自動でパックまで進める(設定の「書き出し」節のスイッチ。settings.js)。値は review の節(サーバー)の autoTx(名前は前のまま) */
   autoTx: () => S.settings.autoTx !== false,

@@ -390,6 +390,9 @@ def _scene_begin_and_play(cx):
     check(wait_js(pg, "() => /録画中/.test(document.querySelector('#rvRecState').textContent)", 20000),
           "3 録画の状態が「録画中」: %s" % pg.text_content("#rvRecState"))
     check(pg.is_visible("#rvLiveBar") and pg.text_content("#rvLiveBadge") == "LIVE", "3 LIVE の帯が出る")
+    check(pg.is_visible("#rvRecStop") and not pg.evaluate("() => document.querySelector('#rvLiveOps').open"),
+          "3 帯の 1 行目に「録画を止める」・操作(ライブ端へ・音量・すぐ書き出す・配信者・案内)は畳んだ「操作」(既定で閉じる)")
+    pg.evaluate("() => { document.querySelector('#rvLiveOps').open = true; }")   # このあとの操作(ライブ端へ・音量・配信者…)は「操作」を開いて押す
     if edge:
         check(wait_js(pg, "() => { const v = %s; return v && !v.paused && v.currentTime > 0.5; }" % VIDEO, 25000), "3 数秒で再生が自動で始まる(Edge)")
         t1 = pg.evaluate("() => %s.currentTime" % VIDEO)
@@ -861,6 +864,7 @@ def _scene_peaks(cx):
     pg.evaluate("() => document.activeElement && document.activeElement.blur()")
     pg.mouse.move(2, 2)
     check(wait_js(pg, "() => !document.querySelector('%s')" % row("p4-30"), 7000), "L3 見送った行は一覧から消える")
+    pg.evaluate("() => { document.querySelector('#rvLiveOps').open = true; }")   # 「控えも見る」は畳んだ「操作」の中
     pg.click("#rvPeakBench")
     check(wait_js(pg, "() => document.querySelectorAll('#rvPeakList .rv-peak:not(.is-gone)').length === 4", 5000),
           "L3 「控えも見る」で控えと見送りも出る: %s" % pg.evaluate(live_rows))

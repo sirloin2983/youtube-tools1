@@ -92,6 +92,13 @@
         listeners.push([target, type, fn, opt]);
       },
       keybar: function (list) { kb = list || []; if (!dead && started && cctx) cctx.refreshKeys(); },
+      /* 様子の帯の「友人へ渡した」: この案件の切り抜きのうち届けた(clip.review.deliveredAt。cases.py の clip["review"])本数 {n, total}。切り抜きの一覧が無ければ null(出さない) */
+      delivered: function () {
+        var clips = cctx && cctx.case && cctx.case.clips;
+        if (!Array.isArray(clips)) return null;
+        var n = clips.filter(function (c) { return !!(c && c.review && c.review.deliveredAt); }).length;
+        return { n: n, total: clips.length };
+      },
       life: function (onLeave, onReturn) { lifeFns = [onLeave, onReturn]; }
     };
 
@@ -163,6 +170,7 @@
         cctx = ctx;
         var v = ctx.videoId || '';
         if (v !== vid) { vid = v; activeJobs = {}; if (started) openVideo(); }
+        else if (started && Studio.review && Studio.review.refreshSum) Studio.review.refreshSum();   // 案件を読み直した = 友人へ渡した数が変わったかもしれない
         watchJobs(ctx);
       },
       unmount: function () {

@@ -1,6 +1,7 @@
 /* 案件の画面の「カット・パック」のパネル(#cut。残す区間を決めて、末尾で DaVinci Resolve へ渡すパックを作る)。口の形は cases.js の先頭の説明。RS8 C2c。
    中身は 2 カット(src/app/ui/editor/cut.js = EditCut)とパック(src/app/ui/editor/pack-tab.js = EditPack)。
-   ここが持つのは (1) 画面の骨組み(パックの設定の節 #edSetPack も画面の中に置く。「予備」の欄は決定 3-34 で置かない)、
+   ここが持つのは (1) 画面の骨組み(パックの設定の節 #edSetPack も画面の中に置く。「予備」の欄は決定 3-34 で置かない。10-24 画面の見直し: パックは
+       様子の帯 #pkStatus → 「パックを作る」→ これから作るパック → 閉じた 1 行 3 つ(パックの設定 #pkSetFold・字幕の見本 #pkLookFold・詳しく #pkMore))、
    (2) cut.js / pack-tab.js に渡す「host」(文書 S・保存・元に戻す・字幕の積み方・話者の色・cut2resolve の口)、
    (3) 殻の口(mount / update / unmount / keys / keybar / leave / back)との橋。
    パネルの中の要素は root.querySelector で引く(document.getElementById・document.querySelector は使わない)。API は ctx.api('transcribe' | 'cut2resolve' | 'home', …) の相対パス。
@@ -99,14 +100,12 @@
  <section class="tt-pack" id="packArea" aria-labelledby="packAreaTitle">
  <h3 class="tt-pack-h" id="packAreaTitle">パック(DaVinci Resolve へ渡す)</h3>
  <div class="notice tt-pk-off" id="pkOff" hidden role="status"></div>
+ <p class="card tt-pk-strip" id="pkStatus" role="status"><b>パック</b><span class="hint">前に作った</span><b id="pkStatusMade">–</b><span class="hint">友人へ渡した</span><b id="pkStatusSent">–</b></p>
+ <div class="row tt-pk-go"><button type="button" class="btn primary lg" id="pkBuild">パックを作る</button><span class="hint" id="pkBuildHint"></span></div>
+ <div class="tt-cp-job" id="pkJob" hidden role="status" aria-live="polite"></div>
+ <div class="notice err" id="pkErr" hidden role="alert"></div>
  <div class="tt-pk-grid">
    <div class="tt-pk-col">
-     <div class="card tt-pk-card">
-       <h3 class="tt-pk-h">前回の設定</h3>
-       <p class="hint tt-pk-sumrow"><span class="ui-streamer-sw" id="pkSummarySw" hidden aria-hidden="true"></span><span id="pkSummaryText"></span></p>
-       <p class="hint tt-pk-place" id="pkPlace"></p>
-       <div class="row" style="margin-top:8px"><button type="button" class="btn" id="pkSettingsBtn" title="下の「パックの決まり」へ移ります(大きさ・音量・字幕の色・行の後の余白。10-24 から設定なし)">パックの決まり</button></div>
-     </div>
      <div class="card tt-pk-card">
        <h3 class="tt-pk-h">これから作るパック</h3>
        <div class="tt-pk-stats">
@@ -119,36 +118,37 @@
        <p class="hint tt-pk-p" id="pkNoSub" hidden></p>
        <p class="notice info tt-pk-pvstate" id="pkPvState" hidden role="status" aria-live="polite"><span></span><button type="button" class="btn small" id="pkPvRetry" hidden>もう一度</button></p>
        <ul class="notice tt-pk-warn" id="pkWarn" hidden></ul>
-       <div class="row tt-pk-go"><button type="button" class="btn primary lg" id="pkBuild">パックを作る</button><span class="hint" id="pkBuildHint"></span></div>
-       <div class="tt-cp-job" id="pkJob" hidden role="status" aria-live="polite"></div>
-       <div class="notice err" id="pkErr" hidden role="alert"></div>
-       <details class="ui-disclosure tt-pk-more" id="pkMore"><summary>詳しく(出力先)</summary>
-         <div class="fld"><label for="pkDir">出力先のフォルダ</label><input id="pkDir" type="text" autocomplete="off" spellcheck="false" title="空欄なら、動画と同じフォルダの「動画名_pack」に作ります">
-           <span class="hint">空欄なら動画の隣の「&lt;動画名&gt;_pack」。<b>出力先は覚えません</b>(文書を開くたびに空欄に戻ります。別の案件へ間違って出さないため)。前に作ったパックがあれば、作る前に上書きしてよいか聞きます。</span></div>
-       </details>
      </div>
-     <section class="card tt-pk-card" id="edSetPack" aria-labelledby="edSetPackT">
-       <h3 class="tt-pk-h" id="edSetPackT">パックの決まり</h3>
-       <p class="hint" style="margin:0 0 6px">Resolve へ渡すパックは、いつもこの形で作ります(ここの「パックを作る」とホームのまとめて実行・友人の依頼で同じ。画面の大きさだけ設定で選ぶ)。</p>
-       <ul class="hint tt-pk-fixed">
-         <li>素材とプロジェクトは 30fps</li>
-         <li>画面の大きさ: <span id="pkSizeNow">縦 1080×1920</span>(縦か横かは<a href="/settings#uiSetGroup-pack-out">設定の「パック」</a>で選ぶ。縦に切り取る作業(クロップ)は Resolve で)</li>
-         <li>音量: カットで残す部分だけを測って -14 LUFS にそろえる(YouTube と同じくらい。映像と元の動画はそのまま)</li>
-         <li>話者の名前がメンバーと合えば、その話者の字幕をその色に</li>
-         <li>行の後の余白 0.2 秒(「行から」のたたき台で、行の終わりに無音が見つからないとき)</li>
-       </ul>
-       <div class="hint tt-pk-spklist" id="pkSpkList"></div>
-     </section>
-   </div>
-   <div class="tt-pk-col">
-     <div class="card tt-pk-card tt-pk-lookcard">
-       <h3 class="tt-pk-h">字幕の見本</h3>
-       <div class="tt-pk-sub">字幕の見た目(<span id="pkLookName">けいふぉんと・黒い文字・白いふち・黒いふち</span>)</div>
+     <!-- パックの設定(大きさ + 「パックの決まり」)は 1 行に畳む。要約 #pkSummaryText は pack-tab.js が今の値で書く(10-24 画面の見直し 3) -->
+     <details class="card ui-disclosure tt-pk-fold" id="pkSetFold"><summary><b>パックの設定</b><span class="hint tt-pk-sumrow"><span class="ui-streamer-sw" id="pkSummarySw" hidden aria-hidden="true"></span><span id="pkSummaryText"></span></span></summary>
+       <section id="edSetPack" aria-labelledby="edSetPackT">
+         <h3 class="tt-pk-h" id="edSetPackT">パックの決まり</h3>
+         <p class="hint" style="margin:0 0 6px">Resolve へ渡すパックは、いつもこの形で作ります(ここの「パックを作る」とホームのまとめて実行・友人の依頼で同じ。画面の大きさだけ設定で選ぶ)。</p>
+         <ul class="hint tt-pk-fixed">
+           <li>素材とプロジェクトは 30fps</li>
+           <li>画面の大きさ: <span id="pkSizeNow">縦 1080×1920</span>(縦か横かは<a href="settings#uiSetGroup-pack-out">設定の「パック」</a>で選ぶ。縦に切り取る作業(クロップ)は Resolve で)</li>
+           <li>音量: カットで残す部分だけを測って -14 LUFS にそろえる(YouTube と同じくらい。映像と元の動画はそのまま)</li>
+           <li>話者の名前がメンバーと合えば、その話者の字幕をその色に</li>
+           <li>行の後の余白 0.2 秒(「行から」のたたき台で、行の終わりに無音が見つからないとき)</li>
+         </ul>
+         <div class="hint tt-pk-spklist" id="pkSpkList"></div>
+         <p class="hint tt-pk-place" id="pkPlace"></p>
+         <button type="button" class="btn" id="pkSettingsBtn" hidden>パックの決まり</button>
+       </section>
+     </details>
+     <!-- 字幕の見本も 1 行に畳む(10-24 画面の見直し 4)。要約は字幕の見た目の名前 #pkLookName -->
+     <details class="card ui-disclosure tt-pk-fold tt-pk-lookcard" id="pkLookFold"><summary><b>字幕の見本</b><span class="hint" id="pkLookName">けいふぉんと・黒い文字・白いふち・黒いふち</span></summary>
        <p class="hint tt-pk-p" id="pkWhoNote" style="margin:0 0 8px">配信者(字幕の色)は、この文書に覚えている名前(友人の依頼の指定・まとめて実行で選んだ名前)をそのまま使います。</p>
        <div hidden><input id="pkWho" type="text" aria-label="配信者(字幕の色)" data-ui-streamer tabindex="-1"></div>
        <div class="tt-pk-look"><div class="tt-pk-phone" id="pkPhone"><span class="tt-pk-phone-cap tt-cap-look" id="pkPhoneCap"></span></div>
          <div class="tt-pk-looktxt"><div id="pkSamples"></div><p class="hint" id="pkLookNote"></p></div></div>
-     </div>
+     </details>
+     <details class="card ui-disclosure tt-pk-fold tt-pk-more" id="pkMore"><summary><b>詳しく</b><span class="hint">出力先のフォルダ(空欄なら動画の隣)</span></summary>
+       <div class="fld"><label for="pkDir">出力先のフォルダ</label><input id="pkDir" type="text" autocomplete="off" spellcheck="false" title="空欄なら、動画と同じフォルダの「動画名_pack」に作ります">
+         <span class="hint">空欄なら動画の隣の「&lt;動画名&gt;_pack」。<b>出力先は覚えません</b>(文書を開くたびに空欄に戻ります。別の案件へ間違って出さないため)。前に作ったパックがあれば、作る前に上書きしてよいか聞きます。</span></div>
+     </details>
+   </div>
+   <div class="tt-pk-col">
      <div class="card tt-pk-card" id="pkLast" hidden>
        <h3 class="tt-pk-h"><span class="pill ok" id="pkLastPill">前回のパック</span> <span class="hint" id="pkLastWhen"></span></h3>
        <p class="mono hint tt-pk-dir" id="pkLastDir"></p>
@@ -380,7 +380,21 @@
       return r.path;
     }
     function onPacked() {
-      if (ctx && ctx.reload) ctx.reload();   // 左の一覧の札(パック済み)を読み直す
+      if (ctx && ctx.reload) ctx.reload();   // 左の一覧の札・パックの様子の帯(前に作った時刻)を読み直す
+    }
+    /* パックの様子の帯 #pkStatus(10-24 画面の見直し 1): 前に作った = ④ の clip.pack.updatedAt(txindex.pack_info = パックの記録の builtAt)・
+       友人へ渡した = ④ の clip.review(届けた記録 deliveredAt。1 = 時刻の無い古い行・失敗の文 failure・送らなかった理由 notSent)。
+       作り終えると onPacked の ctx.reload() → update でここも描き直す */
+    function paintStatus() {
+      var made = q('#pkStatusMade'), sent = q('#pkStatusSent');
+      if (!made || !sent || !ctx) return;
+      var cl = (ctx.item && ctx.item.clip) || {}, pk = cl.pack, rv = cl.review || {}, fmt = UIKit.fmt;
+      made.textContent = !pk ? 'まだ作っていません' : pk.updatedAt ? fmt.date(pk.updatedAt) : 'あり(時刻は分かりません)';
+      made.title = pk && pk.updatedAt ? fmt.ago(pk.updatedAt) : '';
+      var bad = !rv.deliveredAt && !!(rv.failure || rv.notSent);
+      sent.textContent = rv.deliveredAt ? '1 本' + (rv.deliveredAt > 1 ? '(' + fmt.date(rv.deliveredAt) + ')' : '') : bad ? '0 本(送れなかった)' : '0 本';
+      sent.className = bad ? 'tt-pk-bad' : '';
+      sent.title = rv.delivered ? String(rv.delivered) : '';
     }
 
     /* ---- 殻の下の帯・タブの横の説明 ---- */
@@ -471,6 +485,7 @@
         PACK.load(docId);
         CUT.onShown();
         PACK.shown();
+        paintStatus();
         if (ctx.refreshKeys) ctx.refreshKeys();
       }).catch(function (e) {
         if (!alive || my !== seq) return;
@@ -511,6 +526,7 @@
         if (wasLocked && !locked) reloadDoc();   // 話者判別・再認識が終わった = 文書がサーバーで変わった
         else { CUT.refresh(); PACK.changed(); }
         wasLocked = locked;
+        paintStatus();
       },
       unmount: function () { alive = false; if (running) teardown(); el = null; },
       keys: function (e) {
