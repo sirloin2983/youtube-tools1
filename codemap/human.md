@@ -55,6 +55,8 @@
   - 名前: `configured_folder` :80・`out_dir_of` :91・`submit_urls` :96・`submit_file` :120・`youtube_id` :130・`parse_lines` :136・`decode_text` :162・`probe_video` :176・`youtube_info` :188・`parse_ranges` :236・`class Intake` :265
 - **live_requests.py** (22 行) — 友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend.md の 2-15)。
   - 名前: `settings_label` :19
+- **notify.py** (187 行) — 友人の不具合・更新の知らせを、ツールが読んだその時にまとめ役のセッションへ届ける「知らせだけの軽い起こし」(10-25 ユーザーの決め)。
+  - 名前: `collect` :71・`message` :97・`tick` :131
 - **pubqueue.py** (143 行) — ③ 人の層: 友人の zip を配る待ちの列と、3 時間ごとの配る回(ユーザーの PC。友人の zip はまとめて配る決め・10-25 ユーザーの OK。
   - 名前: `items` :51・`add` :61・`take` :69・`changes` :78・`slot_of` :83・`tick` :89
 - **returns.py** (486 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。notes:docs/design/f1-build.md の (f1d))。
@@ -111,6 +113,7 @@
 - tests/human/friend/test_bugs.py — src/human/friend/bugs.py(友人の不具合の書き出しの受け取り・仕分け・AI を起こす口)のテスト。リポジトリ直下で:
 - tests/human/friend/test_friend_feedback.py — 友人の「要らない」を PC 側で片付ける(src/human/friend/friend_feedback.py)の単体テスト。ごみ箱は本物の cleanup.Cleanup(一時フォルダ)。
 - tests/human/friend/test_intake.py — 友人からの依頼の受付(src/human/friend/intake.py)の単体テスト。まとめて実行・ffprobe・yt-dlp は偽物。
+- tests/human/friend/test_notify.py — src/human/friend/notify.py(友人の知らせをまとめ役へ届ける軽い起こし)のテスト。リポジトリ直下で:
 - tests/human/friend/test_pubqueue.py — src/human/friend/pubqueue.py(友人の zip を配る待ちの列と 3 時間ごとの配る回)のテスト。リポジトリ直下で:
 - tests/human/friend/test_returns.py — src/human/friend/returns.py(友人の送り返しの受け取り。F1 の F2)のテスト。リポジトリ直下で:
 - tests/human/friend/test_upwatch.py — src/human/friend/upwatch.py(友人のアプリの更新の見張り)のテスト。リポジトリ直下で:
