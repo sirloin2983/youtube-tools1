@@ -49,6 +49,16 @@ class RowsTest(unittest.TestCase):
         self.assertEqual((by["q"]["link"], by["q"]["why"]), (None, "録画の記録が無い(古い依頼)"))
         self.assertEqual(by["n"]["state"], "live")
 
+    def test_live_after_recording_ended(self):
+        """録画が終わったら道は動画の id の案件へ・札は届けた記録で 送った / 候補なし(録画中は録画の案件・ライブのまま)"""
+        rec = {"recorder": "local", "recording": "20261024-193147-N3z6TI4ED7o"}
+        reqs = [req("s", kind="live", live=rec, requestId="20261024-193027-fe9dc7"), req("t", kind="live", live=rec, requestId="20261024-000000-aaaaaa")]
+        on = {r["id"]: r for r in H.rows(reqs, [], NOW, active={"local/20261024-193147-N3z6TI4ED7o"})}
+        self.assertEqual((on["s"]["state"], on["s"]["link"]["c"]), ("live", "20261024-193147-N3z6TI4ED7o"))
+        off = {r["id"]: r for r in H.rows(reqs, [], NOW, active=set(), delivered={"20261024-193027-fe9dc7": 1.0})}
+        self.assertEqual(off["s"]["link"], {"c": "N3z6TI4ED7o", "tab": "cand", "ended": True})
+        self.assertEqual((off["s"]["state"], off["t"]["state"], off["t"]["label"]), ("sent", "nocand", "候補なし"))
+
 
 if __name__ == "__main__":
     unittest.main()

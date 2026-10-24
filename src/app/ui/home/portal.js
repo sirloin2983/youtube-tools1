@@ -1398,7 +1398,7 @@
      新しい順に 5 件(「すべて見る」で全部)・済んだ物(断った・送って 3 日など)は 1 行に畳む。行を押すと案件の画面(ライブは録画の候補)。
      道があっても案件の一覧に無い(片付いた)ときは押せない形で理由 */
   var FREQ_CAP = 5, FREQ_POLL_MS = 15000, freqRows = null, freqShowAll = false, freqTimer = 0, freqSig = '';
-  var FREQ_PILL = { live: 'err', received: 'info', making: 'wait', sent: 'ok', done: 'ok', rejected: 'warn', error: 'err' };
+  var FREQ_PILL = { live: 'err', received: 'info', making: 'wait', sent: 'ok', done: 'ok', rejected: 'warn', error: 'err', nocand: 'warn' };
   var FREQ_KIND = { url: 'URL', video: '動画ファイル', live: 'ライブ' };
   function pollFriendReqs() {
     clearTimeout(freqTimer);
@@ -1407,7 +1407,8 @@
   }
   function freqGo(r) {
     /* -> {href, label} か {why}(押せない理由)。案件の一覧を読んだあとは、一覧に無い案件を「片付いた」とする(文書 d だけの道は照らせないので押せる)。
-       録画中のライブの案件は、録画が終わるまで案件の一覧に載らないので照らさない(録画中の札の「開く」と同じ案件の画面へ) */
+       録画中のライブの案件は、録画が終わるまで案件の一覧に載らないので照らさない(録画中の札の「開く」と同じ案件の画面へ)。
+       録画が終わったライブは入口が道を動画の id に移す(l.ended。案件は動画の id で載る = 照らして無ければ片付いた) */
     var l = r.link;
     if (!l) return { why: r.why || '案件が分からない' };
     if (l.c && casesData && !caseById(l.c) && !(l.live && r.state === 'live')) return { why: l.live ? '録画が片付いた' : '案件が片付いた' };

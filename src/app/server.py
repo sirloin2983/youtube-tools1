@@ -123,6 +123,7 @@ from human.check import cutcard as _check_cutcard  # noqa: E402,F401  (自動カ
 from human.check import section as _check_section  # noqa: E402,F401  (評価のレーンの区間カードの反映を apply に登録する。C-EVAL)
 from human.check import voice as _check_voice  # noqa: E402,F401  (誰の声のカードの反映と声の覚え直し。読み込みで apply に登録する。V2c)
 from flow import deliver as deliver_mod  # noqa: E402 (src/flow/deliver.py: パックを友人へ届ける = Dropbox の 出力 に zip で置く。ds1 で ② へ)
+from flow import deliveries as deliveries_mod  # noqa: E402 (届けた記録の読み口。ホームの「友人の依頼」の終わったライブの札)
 from manage.cases import cases as cases_mod  # noqa: E402  (src/manage/cases/cases.py: 案件(配信1本)ごとの紐づけ)
 from manage.cases import outdirs as outdirs_mod  # noqa: E402  (src/manage/cases/outdirs.py: 書き出し先を変えたあとの案件の繋ぎ直し・「調子」の置き場所の行。RS8 B3-8 の残り)
 from human.friend import friend_feedback as friend_feedback_mod  # noqa: E402  (src/human/friend/friend_feedback.py: 友人の「要らない」= 切り抜きとパックを ごみ箱 へ・記録を残す。マークは変えない)
@@ -776,11 +777,15 @@ class PortalHandler(httpsec.LocalHandler):
         if u.path == "/api/home/requests":   # ホームの「友人の依頼」(10-24): 受付の記録に、メモリの実行と記録のファイルの実行を結ぶ
             ar = self.server.autorun
             runs = (ar.snapshot().get("runs") or []) + (ar.history(autorun_mod.HISTORY_MAX).get("runs") or [])
+            book, active = {}, None   # active = 録画中の "<録画元>/<録画>"(None = 分からない = ライブの行は録画中のまま)
             try:
-                book = self.server.live.requests.all() if self.server.live.enabled() else {}
+                if self.server.live.enabled():
+                    book = self.server.live.requests.all()
+                    active = {"%s/%s" % (r["recorder"], r["id"]) for r in self.server.live.recent() if r.get("active")}   # 3 秒の覚えつき
             except Exception:   # noqa: BLE001  (ライブの記録が読めなくても行は出す)
-                book = {}
-            return self._json(200, {"rows": homereq.rows(self.server.intake.snapshot().get("requests") or [], runs, int(time.time() * 1000), book)})
+                pass
+            return self._json(200, {"rows": homereq.rows(self.server.intake.snapshot().get("requests") or [], runs, int(time.time() * 1000), book,
+                                                         active, deliveries_mod.delivered_requests(self.server.sup.logs_dir))})
         if u.path == "/api/cases":   # 案件の一覧(各ツールのデータを読んで組み立て直す。src/manage/cases/cases.py)
             if "doc" in q:   # 文書 1 本から案件を引く(案件の画面が d だけの URL を開いたとき。無ければ 404)
                 try:

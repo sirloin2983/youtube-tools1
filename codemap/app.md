@@ -7,8 +7,8 @@
 - **__init__.py** (2 行) — 入口と画面。起動・1 つのポート・API の配線・設定の画面の API。全部の層を使ってよい
 - **autorun.py** (471 行) — まとめて実行(統合計画の段階5)。入口の「案件」の画面から、配信1本ぶんの作業を順に自動で流す。
   - 名前: `class ToolClient` :102・`spec_from_settings` :175・`live_auto_origin` :193・`class AutoRunner` :204
-- **homereq.py** (98 行) — ホームの「友人の依頼」(10-24。ホームの見直しの 1・5): 受付の記録(human/friend/intake の snapshot の requests)に、
-  - 名前: `rows` :77
+- **homereq.py** (112 行) — ホームの「友人の依頼」(10-24。ホームの見直しの 1・5): 受付の記録(human/friend/intake の snapshot の requests)に、
+  - 名前: `rows` :87
 - **live.py** (496 行) — リアルタイム切り抜き(線 D。notes:plan/line-d-live-clipping.md の 0)の入口の側。**既定はオフ**(ホームの設定の節 live.enabled)。
   - 名前: `studio_review` :98・`studio_audio` :105・`studio_lag` :123・`class Live` :132
   - 受ける口: `/api/peaks` :251・`/api/exports` :258・`/api/info` :270・`/api/begin` :306・`/api/export` :309・`/api/export/cancel` :318・`/api/archive/cancel` :320・`/api/archive` :323
@@ -17,9 +17,9 @@
   - 受ける口: `/api/ytt` :45
 - **prefs.py** (487 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
   - 名前: `class PrefsError` :95・`guess_streamer` :381・`class Prefs` :393
-- **server.py** (1821 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
-  - 名前: `runtime_dir` :185・`ping` :195・`tail` :203・`expected_version` :224・`tool_python` :230・`rel_or_abs` :240・`signal_stop` :248・`class Tool` :261・`app_data_dir` :311・`logs_dir_for` :317・`class Supervisor` :323・`query_int` :642・ほか 16
-  - 受ける口: `/api/drill/status` :153・`/api/eval-batch` :153・`/api/intake` :628・`/api/backup` :629・`/api/accuracy` :630・`/api/flow/runs` :631・`/api/cases/auto` :633・`/api/flow/submit` :634・`/api/flow/estimate` :634・`/api/flow/cancel` :635・`/api/intake/scan` :636・`/api/backup/run` :636・`/api/accuracy/run` :637・`/api/check/answer` :638・`/api/check/unknown` :638・`/api/check/skip` :638・`/api/check/flush` :638・`/api/shutdown` :639・`/api/ping` :728・`/api/status` :730・`/api/health` :740・`/api/log` :742・`/api/flow/status` :757・`/api/flow/history` :761・`/api/check/next` :764・`/api/check/voiceclip` :770・`/api/home/requests` :776・`/api/cases` :784
+- **server.py** (1826 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
+  - 名前: `runtime_dir` :186・`ping` :196・`tail` :204・`expected_version` :225・`tool_python` :231・`rel_or_abs` :241・`signal_stop` :249・`class Tool` :262・`app_data_dir` :312・`logs_dir_for` :318・`class Supervisor` :324・`query_int` :643・ほか 16
+  - 受ける口: `/api/drill/status` :154・`/api/eval-batch` :154・`/api/intake` :629・`/api/backup` :630・`/api/accuracy` :631・`/api/flow/runs` :632・`/api/cases/auto` :634・`/api/flow/submit` :635・`/api/flow/estimate` :635・`/api/flow/cancel` :636・`/api/intake/scan` :637・`/api/backup/run` :637・`/api/accuracy/run` :638・`/api/check/answer` :639・`/api/check/unknown` :639・`/api/check/skip` :639・`/api/check/flush` :639・`/api/shutdown` :640・`/api/ping` :729・`/api/status` :731・`/api/health` :741・`/api/log` :743・`/api/flow/status` :758・`/api/flow/history` :762・`/api/check/next` :765・`/api/check/voiceclip` :771・`/api/home/requests` :777・`/api/cases` :789
 - **ytlogin.py** (95 行) — ユーザーの PC の YouTube のログイン(10-23 ユーザー「ログインできる形にしといて」)。友人のアプリと同じ作り(notes:docs/spec/friend.md の 13-13)。
   - 名前: `cookies_path` :23・`apply_env` :27・`class YtLogin` :35
 
@@ -109,7 +109,7 @@
 ## src/app/ui/home/
 
 - **portal-edit.js** (67 行) — ホームの運用の中の「編集の精度」(src/app/ui/home/portal.html の #editOpsBox。RS8 C3)。
-- **portal.js** (1805 行) — ホーム(src/app/ui/home/portal.html。段階5で入口 + 案件を1つにした)。
+- **portal.js** (1806 行) — ホーム(src/app/ui/home/portal.html。段階5で入口 + 案件を1つにした)。
 
 ## src/app/ui/settings/
 
