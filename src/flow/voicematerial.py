@@ -127,6 +127,16 @@ def roster_people():
         return []
 
 
+def roster_data():
+    """今の名簿の中身({}= 名簿が決まっていない・読めない)"""
+    if roster.ROSTER is None:
+        return {}
+    try:
+        return roster.load(roster.ROSTER)
+    except Exception:
+        return {}
+
+
 def member(name):
     """名簿のメンバーの名前(名簿の書き方に直す)か None(名簿に無い・名簿が決まっていない)"""
     if roster.ROSTER is None or not isinstance(name, str) or not name.strip():

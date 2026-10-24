@@ -111,7 +111,7 @@ from app import homereq  # noqa: E402  (src/app/homereq.py: ホームの「友�
 from human.friend import intake as intake_mod  # noqa: E402  (src/human/friend/intake.py: 友人からの依頼の受付)
 from manage.keep import backup as backup_mod  # noqa: E402  (src/manage/keep/backup.py: 作業データのバックアップ)
 from eval.drill import accuracy as accuracy_mod  # noqa: E402  (src/eval/drill/accuracy.py: 精度の自動測定 = src/eval/tools/eval_*.py を手が空いた夜に子プロセスで)
-from app.check import deck as check_deck, lineup as check_lineup, refresh as check_refresh, sources as check_sources, voice_solo as check_voice_solo, voicefill as check_voicefill  # noqa: E402  (src/app/check: 「確かめる」の待ち行列。V1)
+from app.check import deck as check_deck, lineup as check_lineup, refresh as check_refresh, sources as check_sources, voice_solo as check_voice_solo, voicefetch as check_voicefetch, voicefill as check_voicefill  # noqa: E402  (src/app/check: 「確かめる」の待ち行列。V1)
 from human.proof import voiceclips  # noqa: E402  (誰の声のカードの行の短い音。元の動画が片付いても聞ける・覚えられる。10-24 夜)
 from human.check import answerlog as check_answerlog  # noqa: E402  (答えた札 = 自動の片付けで、価値のカードを待っている切り抜きを残す)
 from human.check import apply as check_apply  # noqa: E402  (src/human/check/apply.py: 「確かめる」の答えの記録と反映。V1)
@@ -1247,6 +1247,23 @@ class PortalServer(httpsec.ExclusiveServer):
             except Exception as e:   # noqa: BLE001  (頼めなくても入口は止めない)
                 self.sup.log("誰の声の材料を頼めませんでした: %r" % (e,))
 
+    def voice_fetch_loop(self):
+        """誰の声の材料が無いメンバーの音を YouTube から 4 分だけ(app/check/voicefetch。10-25)。枠は研究と分け合う(yt-slot.json)"""
+        from flow import voicematerial as _vm
+        client = lambda: autorun_mod.ToolClient(self.tool_endpoint, self.token, timeout=30)   # noqa: E731
+        busy = lambda: self._accuracy_busy() or ("ライブ" if any(self.live_activity().values()) else None)   # noqa: E731
+        while not self.closing.wait(check_voicefetch.EVERY):
+            try:
+                r = _vm.roster_data()
+                if not r or busy():
+                    continue
+                view = check_sources.View(self.check_ctx(), check_answerlog.state(self.cleanup.app_dir))
+                have = check_voice_solo.people(view) | {w for w, _p in check_voicefill.targets()}
+                check_voicefetch.tick(self.cleanup.app_dir, r, have, busy,
+                                      lambda req: client().ok("transcribe", "POST", "/api/transcribe", req).get("id"), self.sup.log)
+            except Exception as e:   # noqa: BLE001  (取れなくても入口は止めない)
+                self.sup.log("誰の声の材料(YouTube)を取れませんでした: %r" % (e,))
+
     def auto_clean(self, dry_run=False):
         """自動の片付け(cleanup.Cleanup.auto_clean)。移した物の一覧を logs/cleanup-auto.jsonl に 1 行(何が移ったかを後で見る)。
         確かめるで答えを待っている物が分からないとき(案件が読めない)は移さない。先に誰の声のカードの行の音を切り出す(切り出せた行は動画が無くても聞ける)"""
@@ -1760,6 +1777,7 @@ def _main(opts):
         threading.Thread(target=srv.purge_trash, daemon=True, name="trash-purge").start()   # 日数を過ぎたごみ箱フォルダ(段9 9-2)
         threading.Thread(target=srv.voice_clips_loop, daemon=True, name="voice-clips").start()   # 誰の声のカードの行の音(10-24 夜)
         threading.Thread(target=srv.voice_fill_loop, daemon=True, name="voice-fill").start()   # 誰の声の材料を学習用データのショートから(10-25)
+        threading.Thread(target=srv.voice_fetch_loop, daemon=True, name="voice-fetch").start()   # 材料の無いメンバーを YouTube から 4 分だけ(10-25)
         threading.Thread(target=srv.learnpack.loop, daemon=True, name="learnpack").start()   # 学習の束を <依頼の受付のフォルダ>/学習 へ(起動の少しあとと 1 日ごと。F1 F6a)
         if opts.app_window:   # 設定にかかわらず窓で開く(設定には保存しない)
             srv.window.force_mode = "app"

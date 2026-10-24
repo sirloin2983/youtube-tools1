@@ -156,6 +156,18 @@ def _select(view):
     return out
 
 
+def people(view):
+    """誰の声の材料のある人の名前(ソロと見た文書の配信者・覚えた声の登録簿の人)。voicefetch が材料の無い人を選ぶ"""
+    out = set()
+    for tid, path, doc in view.docs(need_media=False):
+        who, song = _solo_of(path, doc)
+        if who and not song:
+            out.add(who)
+    for n in voice_mod.registry(voice_mod.doc_embedding({})):
+        out.add(_vm.member(n) or n)
+    return out
+
+
 def clip_targets(view):
     """まだ切り出していない、カードに出す行 -> [(文書 id, 文書, [行…])](元の動画がある文書だけ。入口の voice_clips_tick が切り出す)"""
     by_doc = {}

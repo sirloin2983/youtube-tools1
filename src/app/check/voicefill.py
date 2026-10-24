@@ -31,10 +31,13 @@ def learn_dirs():
     return list(dict.fromkeys(out))
 
 
+FETCH_DIR_NAME = "voice-fetch"   # YouTube から取った誰の声の材料の音(app/check/voicefetch.DIR_NAME)
+
+
 def in_learn_dir(path):
-    """動画のパスが 学習用データ の下か(パスの名前で見るだけ)"""
-    parts = os.path.normpath(str(path or "")).split(os.sep)
-    return LEARN_NAME in parts[:-1]
+    """動画のパスが 学習用データ か、YouTube から取った誰の声の材料(voicefetch)の下か(パスの名前で見るだけ)= 誰の声のカードだけに使う文書"""
+    parts = os.path.normpath(str(path or "")).split(os.sep)[:-1]
+    return LEARN_NAME in parts or FETCH_DIR_NAME in parts
 
 
 def targets(dirs=None):
