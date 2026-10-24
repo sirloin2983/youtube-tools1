@@ -34,9 +34,7 @@ def night_of(now):
     return time.strftime("%Y-%m-%d", time.localtime(now - 12 * 3600))
 
 
-def has_media(doc):
-    p = str(doc.get("sourcePath") or "")
-    return bool(p) and not fsio.is_network_path(p) and os.path.isfile(p)
+has_media = sources.has_media   # 元の動画がある(View.docs も同じ判定で外す)
 
 
 def targets(cards, view):

@@ -55,7 +55,10 @@ class SourcesTest(unittest.TestCase):
         tx = os.path.join(self.tmp, "transcribe", "transcripts")
         self.evaldir = os.path.join(self.tmp, "評価用")
         os.makedirs(self.evaldir)
-        write(os.path.join(tx, DOC + ".json"), doc(200))
+        self.media = os.path.join(self.tmp, "clip.mp4")   # 元の動画(空のファイル。元の動画が無い文書のカードは出さない)
+        open(self.media, "wb").close()
+        self.tx = tx
+        write(os.path.join(tx, DOC + ".json"), doc(200, src=self.media))
         write(os.path.join(tx, EVAL_DOC + ".json"), doc(300, eval_set=True))
         write(os.path.join(tx, EVAL_DIR_DOC + ".json"), doc(400, src=os.path.join(self.evaldir, "x.mp4")))
         rows = {"s2": {"speaker": "S1", "ratio": 0.9}, "s3": {"speaker": "S2", "ratio": 0.6, "weak": True}, "s4": {"speaker": "S2", "ratio": 0.9},
@@ -86,6 +89,19 @@ class SourcesTest(unittest.TestCase):
             self.assertNotIn(EVAL_DOC, c["id"])
             self.assertNotIn(EVAL_DIR_DOC, c["id"])
             self.assertNotIn((c.get("target") or {}).get("docId"), (EVAL_DOC, EVAL_DIR_DOC))
+
+    def test_missing_media_doc_gives_no_cards(self):
+        """元の動画が無い文書(片付けで消えた・ネットワークのパス)はどの種類のカードも出さない。YouTube の埋め込み(value:cand)は出す(10-24)"""
+        gone = "dddddddddddd"
+        write(os.path.join(self.tx, gone + ".json"), doc(900, src=os.path.join(self.tmp, "gone.mp4")))
+        write(os.path.join(self.tx, gone + ".diar.json"), diar({"s3": {"speaker": "S2", "ratio": 0.6}}))
+        cards = self.collect()
+        self.assertFalse([c for c in cards if (c.get("target") or {}).get("docId") == gone])
+        self.assertTrue([c for c in cards if (c.get("target") or {}).get("docId") == DOC])
+        self.assertTrue([c for c in cards if c["source"] == "cand"])
+        self.assertFalse(sources.has_media({"sourcePath": r"\\server\share\x.mp4"}))
+        self.assertFalse(sources.has_media({"sourcePath": ""}))
+        self.assertTrue(sources.has_media({"sourcePath": self.media}))
 
     def test_is_eval_failure_leans_to_eval(self):
         """OPT-E1 3e-1: 評価用のフォルダの判定が例外を出したら評価用として扱う(出さない側)"""

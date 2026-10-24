@@ -43,6 +43,7 @@ def rows():
 class SpeechSourcesTest(unittest.TestCase):
     def setUp(self):
         self.tmp = kit.tempdir(self, "ytt-check-speech-")
+        kit.media_present(self)
         self.env = {"YTT_DATA_DIR": self.tmp}
         tx = os.path.join(self.tmp, "transcribe", "transcripts")
         for tid, ev in ((DOC, False), (EVAL_DOC, True), (NODIAR_DOC, False)):

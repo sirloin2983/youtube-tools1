@@ -23,3 +23,12 @@ tempdir = testkit.tempdir    # tempdir(case, prefix): case の間だけある一
 
 class Ctx(apply.Context):
     pass
+
+
+def media_present(case):
+    """元の動画がある扱いにする(View.docs は元の動画が無い文書を外す。動画の有無を確かめないテスト用。境目は test_sources)"""
+    from unittest import mock
+    from app.check import sources
+    p = mock.patch.object(sources, "has_media", lambda doc: True)
+    p.start()
+    case.addCleanup(p.stop)

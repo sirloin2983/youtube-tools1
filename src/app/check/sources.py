@@ -4,6 +4,8 @@
 view(View)は 1 回の集め(collect)の間だけ読んだ物を共有する: 案件の一覧(cases.snapshot)・評価用でない文字起こしの文書・.diar.json・
 スタジオの data.json・答えの記録(answers)。
 **評価用(文書の evalSet・評価用のフォルダ evalDirs の中の動画)は View.docs の 1 か所で外す**(出どころは View.docs だけを使う)。
+**元の動画が無い文書(has_media が偽)も View.docs・View.eval_docs で外す**: 文書のカードは動画の口 MEDIA(元の動画 sourcePath を返す)で流すので、
+片付けで消えた動画のカードは流せない(10-24: 読みのカード 20 枚中 2 枚)。どの種類も同じ。YouTube の埋め込みで流すカード(value:cand)は文書を見ないので外れない。
 V0 で入れた出どころ(細部は V2 で直す):
   value:auto  自動でできた切り抜きの品質(案件の clips[].auto。送った物も送らなかった物も・pending とごみ箱の物と評価用は外す)
   value:cand  候補のまま(スタジオの YouTube の配信で、まだ 1 本も採用・書き出ししていない配信の、状態が空のマーク。点数の高い順)
@@ -75,6 +77,12 @@ def _load_doc(path):
     return d if isinstance(d, dict) and isinstance(d.get("segments"), list) else None
 
 
+def has_media(doc):
+    """文書の元の動画が手元にあるか(動画の口 MEDIA で流せるか)。ネットワークのパスは見ない(届かないと止まるため)= 無い扱い"""
+    p = str(doc.get("sourcePath") or "") if isinstance(doc, dict) else ""
+    return bool(p) and not fsio.is_network_path(p) and os.path.isfile(p)
+
+
 def _load_diar(path):
     return fsio.read_schema_json(path, MAX_DIAR_BYTES, DIAR_SCHEMA, "latest", dict)
 
@@ -134,7 +142,7 @@ class View:
 
     # ---- 文字起こしの文書(評価用は外す)
     def docs(self):
-        """[(tid, 文書のパス, 文書)] 評価用でない物。新しい順(updatedAt)。返した文書は書き換えない(キャッシュと共有)"""
+        """[(tid, 文書のパス, 文書)] 評価用でない・元の動画がある物。新しい順(updatedAt)。返した文書は書き換えない(キャッシュと共有)"""
         if self._docs is None:
             out = []
             try:
@@ -148,7 +156,7 @@ class View:
                 if not m or not os.path.isfile(paths[name]):
                     continue
                 d = _docs.get(paths[name], _load_doc)
-                if d is None or self.is_eval(d):
+                if d is None or self.is_eval(d) or not has_media(d):
                     continue
                 out.append((m.group(1), paths[name], d))
             out.sort(key=lambda x: -_num(x[2].get("updatedAt")))
@@ -171,7 +179,7 @@ class View:
                 if not m or not os.path.isfile(paths[name]):
                     continue
                 d = _docs.get(paths[name], _load_doc)
-                if d is not None and d.get("evalSet") is True:
+                if d is not None and d.get("evalSet") is True and has_media(d):
                     out.append((m.group(1), paths[name], d))
             out.sort(key=lambda x: -_num(x[2].get("updatedAt")))
             self._eval_docs = out

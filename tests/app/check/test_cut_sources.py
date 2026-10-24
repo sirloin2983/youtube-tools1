@@ -42,6 +42,7 @@ Ctx = kit.Ctx
 class CutSourcesTest(unittest.TestCase):
     def setUp(self):
         self.tmp = kit.tempdir(self, "ytt-check-cut-")
+        kit.media_present(self)
         self.env = {"YTT_DATA_DIR": self.tmp}
         tx = os.path.join(self.tmp, "transcribe", "transcripts")
         docs = ((DOC, 300, False, edit("rows", KEEPS_DOC)), (SHORT, 200, False, edit("silence", KEEPS_SHORT)),

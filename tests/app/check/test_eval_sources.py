@@ -48,6 +48,7 @@ class CutTest(unittest.TestCase):
 class SectionSourceTest(unittest.TestCase):
     def setUp(self):
         self.tmp = kit.tempdir(self, "ytt-check-eval-")
+        kit.media_present(self)
         self.env = {"YTT_DATA_DIR": self.tmp}
         tx = os.path.join(self.tmp, "transcribe", "transcripts")
         base = {"title": "t", "start": 0.0, "end": 100.0, "updatedAt": 200, "speakers": [{"id": "S1", "name": "話者 1"}], "segments": ROWS}

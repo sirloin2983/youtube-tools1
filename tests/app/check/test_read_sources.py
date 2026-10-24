@@ -49,6 +49,7 @@ Ctx = kit.Ctx
 class ReadSourcesTest(unittest.TestCase):
     def setUp(self):
         self.tmp = kit.tempdir(self, "ytt-check-readsrc-")
+        kit.media_present(self)
         saved = {n: getattr(workdata, n) for n in ("DATA_DIR", "TX_DIR", "TMP_DIR", "SETTINGS", "FEEDBACK")}
         self.addCleanup(lambda: [setattr(workdata, n, v) for n, v in saved.items()])
         workdata.set_data_dir(os.path.join(self.tmp, "data"))   # learn-feedback.json の置き場所(読むだけ)
