@@ -355,16 +355,18 @@ class Api:
         return self._keep_file({"path": dest, "name": name, "size": size, "copy": dest})
 
     def sweep_uploads(self):
-        """落としたまま送らなかった動画を 1 日で消す(送った物は依頼のフォルダへ移している)"""
+        """落としたまま送らなかった動画を 1 日で消す。この PC で作る物は依頼のフォルダへ移すが、ユーザーの PC に頼んだ物はここから上げるので、
+        受信箱の行が指している間(届くまで・上げ直しに備えて)は消さない(10-25 まで 1 日で消えて、上げる前・上げ直しで動画が無くなることがあった)"""
         folder = self.upload_dir()
         if not os.path.isdir(folder):
             return
         with self._lock:
-            held = {os.path.normcase(e["path"]) for e in self._files.values()}
+            held = {os.path.normcase(os.path.abspath(e["path"])) for e in self._files.values()}
+        held |= self.inbox.held_files()
         for n in os.listdir(folder):
             p = os.path.join(folder, n)
             try:
-                if os.path.isfile(p) and os.path.normcase(p) not in held and self.clock() - os.path.getmtime(p) >= UPLOAD_KEEP:
+                if os.path.isfile(p) and os.path.normcase(os.path.abspath(p)) not in held and self.clock() - os.path.getmtime(p) >= UPLOAD_KEEP:
                     os.remove(p)
             except OSError:
                 pass
@@ -561,6 +563,9 @@ class Api:
             dest = self._copy_video(rid, f["title"], fi["path"])
         fi["copy"] = dest
         _placement.ensure_case({"kind": "file", "path": dest}, channel=f.get("streamer") or "", root=os.path.dirname(dest), request_id=rid)
+        if (self.inbox.row(rid) or {}).get("pc") != "this":   # 写している間にユーザーの PC が引き継いだ = この PC では作らない(写しは上げる物に使う)
+            self.inbox.keep_copy(rid, dest)
+            return
         if self.stopping():
             return   # 終わる途中 = 行は「送った」のまま(次に開いたとき失敗の行 = [もう一度送る] で写しを使う)
         eng = self.engine_fn()
@@ -627,10 +632,12 @@ class Api:
 
     # ------------------------------------------------------------ やり直す・取り消す・知らせる
     def retry(self, rid, auto=False):
-        """失敗の行の [もう一度送る](同じ欄で。済んだ段は ② が飛ばす)。auto = 自動のやり直し(回数を数える)"""
+        """失敗の行の [もう一度送る](同じ欄で。済んだ段は ② が飛ばす)。auto = 自動のやり直し(回数を数える)。
+        ユーザーの PC が引き継いだ行(takeover)は作っている途中でも押せる(画面が二重に届くかもの確かめを出してから。同じ id で上げ直す)"""
         eng = self.engine_fn()
         r = self.inbox.row(rid)
-        if r is None or r["state"] != "failed" or not r.get("form"):
+        taken = r is not None and r.get("takeover") and r.get("pc") == "user" and r["state"] in ("sent", "making")
+        if r is None or not (r["state"] == "failed" or (taken and not auto)) or not r.get("form"):
             raise FormError("もう一度送れる行ではありません")
         if r.get("pc") == "user":   # 依頼した行は、同じ id の依頼を上げ直す
             self._need_key()
@@ -651,7 +658,7 @@ class Api:
         """[この PC でやり直す]: ユーザーの PC の受付が 1 時間読まない依頼を、直下から消してから同じ欄でこの PC の ② へ"""
         eng = self.engine_fn()
         r = self.inbox.row(rid)
-        if r is None or r.get("pc") != "user" or not r.get("form"):
+        if r is None or r.get("pc") != "user" or not r.get("form") or r.get("takeover"):   # 引き継いだ行は作る人の PC だけが作る
             raise FormError("この PC でやり直せる行ではありません")
         if eng is None:
             raise FormError("準備中です。少し待ってから、もう一度押してください")
@@ -802,7 +809,7 @@ class Api:
                 self._start_waited(r["id"])
         login = self.login_at()
         for r in self.inbox.view():
-            if r["state"] != "failed" or r.get("cancelled") or not r.get("form"):
+            if r["state"] != "failed" or r.get("cancelled") or not r.get("form") or r.get("takeover"):   # 引き継いだ行は自動でやり直さない(作るのはユーザーの PC)
                 continue
             cls = self.classify(r)
             if login and cls["code"] in _progress.LOGIN_CODES and r.get("pc") != "user" and (r.get("failedAt") or 0) < login:
@@ -905,7 +912,7 @@ class Api:
                 r["steps"] = self._progress(r, runs, blocked, stats, eng)
             if r["state"] == "failed":
                 cls = self.classify(r)
-                retrying = cls["retry"] and (r.get("autoRetries") or 0) < cls.get("retryMax", RETRY_MAX) and not r.get("cancelled")
+                retrying = cls["retry"] and (r.get("autoRetries") or 0) < cls.get("retryMax", RETRY_MAX) and not r.get("cancelled") and not r.get("takeover")
                 r["fail"] = {"code": cls["code"], "detail": cls["detail"], "retrying": retrying,
                              "message": _progress.waiting_message(cls["message"]) if retrying else cls["message"],   # 待つ間は「押してください」を出さない
                              "retryNote": _progress.retry_note(cls) if retrying else "",

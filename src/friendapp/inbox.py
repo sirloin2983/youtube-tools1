@@ -72,7 +72,8 @@ PCS = ("this", "user")              # 処理する PC(A-2)。行の pc にはほ
 LOCAL_AFTER = 3600                  # ユーザーの PC の受付がこの秒数読まなければ [この PC でやり直す](A-2 の仮 = 1 時間)
 REMOTE_FAILS_MAX = 20
 RETRY_MAX = 3                       # 直る見込みのある失敗の自動のやり直しの回数(C-2-16。api が数える)
-STATS_KEEP = 5                      # 段ごとにかかった秒を覚える数(残り時間の見積もり = progress.eta)
+TAKEN_RE = re.compile(r"もう作っています")   # 受付が引き継いだ依頼の 2 通目を断る言葉(human/friend/bugs.guard)
+STATS_KEEP = 5                     # 段ごとにかかった秒を覚える数(残り時間の見積もり = progress.eta)
 
 
 def pack_name(d):
@@ -225,6 +226,27 @@ class Inbox:
             self._save()
             return r
 
+    def held_files(self):
+        """行が指している動画ファイル(form.file の path・copy)の normcase の集まり。行がある間(届いて決めるまで・失敗の 3 日)は片付けで消さない"""
+        with self.lock:
+            out = set()
+            for r in self.rows:
+                fi = (r.get("form") or {}).get("file")
+                for k in ("path", "copy"):
+                    if isinstance(fi, dict) and isinstance(fi.get(k), str) and fi[k]:
+                        out.add(os.path.normcase(os.path.abspath(fi[k])))
+            return out
+
+    def keep_copy(self, rid, copy):
+        """動画ファイルの行: 一時保管の写しを覚える(写し終えたが ② に積まない = ユーザーの PC が引き継いだ。上げる物に使う)。
+        写しのフォルダを行の案件にする = 行の終わり(3 日の片付け)でごみ箱へ"""
+        with self.lock:
+            r = self.row(rid)
+            if r is not None and isinstance((r.get("form") or {}).get("file"), dict):
+                r["form"]["file"]["copy"] = copy
+                r["case"] = r.get("case") or os.path.dirname(copy)
+                self._save()
+
     def fail(self, rid, text):
         """送った・作っている行を失敗にする(写せなかった・Dropbox へ上げる動画が無い など。理由は画面にそのまま)"""
         with self.lock:
@@ -282,6 +304,25 @@ class Inbox:
                 r.update(pc="user", remote={"state": "pending", "uploadedAt": None}, updatedAt=self._now_ms())
                 self._save()
             return r
+
+    def take_over(self, rid):
+        """引き継ぎの印(やり直しも尽きた依頼をユーザーの PC が作る = 作る PC は 1 つ): 行を同じ id・同じ欄のユーザーの PC への依頼にし、
+        印 takeover を付ける(自動のやり直しはしない)。この PC の待ち・送った・作っている・失敗の行と、ユーザーの PC の失敗の行は上げ直す(remote pending。
+        アーカイブ待ちは待ちのまま = 出たら上げる)。ユーザーの PC で作っている行は印だけ。-> (行の写し, 止めるこの PC の実行の id か None)か None(移す行が無い)"""
+        with self.lock:
+            r = self.row(rid)
+            if r is None or not r.get("form") or r.get("pc") not in ("this", "user") or r["state"] not in ("waiting", "sent", "making", "failed"):
+                return None
+            now = self._now_ms()
+            run = r.get("runId") if r.get("pc") == "this" else None
+            again = r["state"] == "failed" or (r.get("pc") == "this" and r["state"] != "waiting")
+            r.update(takeover={"at": now}, updatedAt=now)
+            if again:
+                r.update(pc="user", runId=None, state="sent", error="", note="", failedAt=None, remote={"state": "pending", "uploadedAt": None})
+            elif r["state"] == "waiting":
+                r["pc"] = "user"
+            self._save()
+            return json.loads(json.dumps(r)), run
 
     def cancelled(self, rid, drop=False):
         """[取り消す]: 届いた物が無ければ(か drop)行を消す。あれば送った物の一覧から外し、届いた物は受け取るに残す -> 行か None"""
@@ -646,6 +687,10 @@ class Inbox:
             if r is None:
                 r = self._remote_row(rid, "request", title, now)
                 r.update(state="failed", failedAt=now, error=text)
+            elif r.get("takeover") and r["state"] in ("sent", "making") and TAKEN_RE.search(text or ""):
+                # 引き継いだ依頼を [もう一度] で上げ直した 2 通目を受付が断った = 1 通目をユーザーの PC が作っている(行は作っているのまま)
+                r.update(state="making", note=text[:500])
+                (r.get("remote") or {}).update(state="accepted")
             elif r["state"] in ("sent", "making", "failed"):
                 r.update(state="failed", failedAt=now, error=text)
             elif r["state"] == "arrived":
@@ -1021,8 +1066,8 @@ class Inbox:
                 v.pop("remoteFails", None)
                 v.setdefault("pc", "this")
                 w = self.waited(r)
-                if w is not None:
-                    v["waitHours"], v["canLocal"] = int(w // 3600), w >= LOCAL_AFTER
+                if w is not None:   # 引き継いだ行は [この PC で作る] を出さない(作る PC は 1 つ)
+                    v["waitHours"], v["canLocal"] = int(w // 3600), w >= LOCAL_AFTER and not r.get("takeover")
                 if r["state"] in ("sent", "making") and status_of and r.get("runId"):
                     v["run"] = status_of(r["runId"])
                 out.append(v)

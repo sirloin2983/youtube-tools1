@@ -25,8 +25,8 @@
     }
     if (r.pc === 'user') {
       var rs = (r.remote || {}).state;
-      if (r.state === 'making' || rs === 'accepted') return ['作る人の PC で作っています', null];
       if (rs === 'pending' && r.progress) return ['Dropbox へ動画を上げています(' + pct(r.progress) + '%)', pct(r.progress) / 100];
+      if (r.state === 'making' || rs === 'accepted' || r.takeover) return ['作る人の PC で作っています', null];   /* 引き継いだ行(この PC は止めた)も同じ言葉 */
       return [rs === 'pending' ? '依頼を送っています' : '作る人の PC の受付を待っています' + (r.waitHours >= 1 ? '(' + r.waitHours + ' 時間)' : ''), null];
     }
     if (r.kind === 'file' && !r.runId) return ['動画を写しています(' + pct(r.progress) + '%)', pct(r.progress) / 100];
@@ -43,6 +43,19 @@
       if (!yes) return;
       api('cancel', { id: r.id }).then(FR.refresh, function (e) { FR.fail('取り消せませんでした', e); });
     });
+  }
+  /* [もう一度送る]。作る人の PC が引き継いだ行は、二重に届くかもしれないことを確かめてから(押せなくはしない。同じ id で上げ直す) */
+  function againBtn(r) {
+    return el('button', { type: 'button', cls: 'btn small', on: { click: function (e) {
+      var b = e.currentTarget;
+      var go = r.takeover ? UIKit.dialog.confirm({ title: 'もう一度送ります', body: '作る人の PC でも作っているので、二重に届くかもしれません。続けますか?',
+        ok: '続ける', cancel: 'やめる' }) : Promise.resolve(true);
+      go.then(function (yes) {
+        if (!yes) return;
+        b.disabled = true;
+        api('retry', { id: r.id }).then(FR.refresh, function (er) { FR.fail('送れませんでした', er); FR.refresh(); });
+      });
+    } } }, ['もう一度送る']);
   }
   function failBox(r, kids, acts) {
     var fl = r.fail || { message: r.error || 'うまくいきませんでした', detail: r.error || '' };
@@ -68,10 +81,7 @@
       } } }, ['コピー']));
       kids.push(d);
     }
-    if ((!fl.retrying || fl.code === 'bot') && r.form) acts.unshift(el('button', { type: 'button', cls: 'btn small', on: { click: function (e) {
-      e.currentTarget.disabled = true;
-      api('retry', { id: r.id }).then(FR.refresh, function (er) { FR.fail('送れませんでした', er); FR.refresh(); });
-    } } }, ['もう一度送る']));
+    if ((!fl.retrying || fl.code === 'bot') && r.form) acts.unshift(againBtn(r));
     /* 失敗の行を消すと依頼の記録も消える(もう一度送れない)= 取り消せない操作は二度押し(ui.md B-10) */
     acts.push(el('button', { type: 'button', cls: 'btn ghost small', on: { click: function (e) {
       UIKit.confirmTwice(e.currentTarget, function () {
@@ -97,6 +107,7 @@
         bar.firstChild.style.width = Math.round(ln[1] * 100) + '%';
         kids.push(bar);
       }
+      if (r.takeover && r.form) acts.push(againBtn(r));
       if (r.canLocal) acts.push(el('button', { type: 'button', cls: 'btn small', title: '作る人の PC への依頼をやめて、この PC で作ります', on: { click: function () {
         api('local', { id: r.id }).then(FR.refresh, function (e) { FR.fail('この PC でやり直せませんでした', e); });
       } } }, ['この PC で作る']));

@@ -99,7 +99,9 @@ class FakeDropbox:
         return self.files.pop(path, None) is not None
 
     def list_folder(self, path):
-        return None
+        pre = path.rstrip("/") + "/"
+        got = [{".tag": "file", "name": k[len(pre):]} for k in self.files if k.startswith(pre) and "/" not in k[len(pre):]]
+        return got or None
 
     def read_small(self, path, cap=1024 * 1024):
         return None
@@ -1028,6 +1030,40 @@ class ServerTest(Base):
         self.app.api.sweep_uploads()
         self.assertEqual(os.listdir(up), [])   # 送らなかった物は 1 日で消える
 
+    def test_upload_for_user_pc_kept_until_row_ends(self):
+        """ユーザーの PC に頼んだ落とした動画は、行がある間(届くまで・上げ直しに備えて)は 1 日たっても消さない。行が終われば消える"""
+        self.use_fake_dropbox()
+        self.prefs(pc="user")
+        _st, d = self.put("a.mp4", b"v" * 100)
+        up = self.app.api.upload_dir()
+        path = os.path.join(up, os.listdir(up)[0])
+        rid = self.send(source="files", files=[{"fileId": d["file"]["id"]}], url=None)[1]["row"]["id"]
+        self.assertEqual(self.app.inbox.row(rid)["pc"], "user")
+        now = [os.path.getmtime(path) + 2 * 86400]
+        self.app.api.clock = lambda: now[0]
+        self.app.api.sweep_uploads()
+        self.assertTrue(os.path.isfile(path))
+        self.app.inbox.drop(rid)
+        self.app.api.sweep_uploads()
+        self.assertFalse(os.path.exists(path))
+
+    def test_takeover_mark_moves_file_row_and_uploads_kept_copy(self):
+        """引き継ぎの印: この PC で作っていた動画ファイルの行は、受け付けたときに確保した写しを同じ id で上げる(落とした元はもう無い)"""
+        dbx = self.use_fake_dropbox()
+        _st, d = self.put("a.mp4", b"v" * 100)
+        rid = self.send(source="files", files=[{"fileId": d["file"]["id"]}], url=None)[1]["row"]["id"]
+        self.assertTrue(self.wait_until(lambda: self.engine.queue.submitted))
+        copy = self.app.inbox.row(rid)["form"]["file"]["copy"]
+        self.app.inbox.finished(self.app.inbox.row(rid)["runId"], "error", "ネットにつながりませんでした", [])
+        dbx.files["/診断/引き継ぎ/%s.takeover.json" % rid] = b"{}"
+        self.app.sync.run_once()
+        r = self.app.inbox.row(rid)
+        self.assertEqual((r["pc"], r["remote"]["state"], bool(r["takeover"])), ("user", "uploaded", True))
+        self.assertEqual(json.loads(dbx.files["/%s.request.json" % rid])["files"], ["%s__a.mp4" % rid])
+        self.assertEqual(dbx.files["/%s__a.mp4" % rid], b"v" * 100)
+        self.assertNotIn("/診断/引き継ぎ/%s.takeover.json" % rid, dbx.files)
+        self.assertTrue(os.path.isfile(copy))   # 届くまで写しは残す
+
     def test_pick_file_busy(self):
         self.app.pick_lock.acquire()
         try:
@@ -1551,6 +1587,52 @@ class ApiTest(Base):
         t[0] += 10 * A.RETRY_EVERY
         self.app.api.tick()
         self.assertEqual(self.engine.queue.submitted, [])   # 自動で作り直さない
+
+    def test_takeover_mark_stops_this_pc_and_uploads_same_id(self):
+        """引き継ぎの印: この PC の実行を止め、行を同じ id・同じ欄のユーザーの PC への依頼にして上げ、印を消す。自動ではやり直さない。
+        [もう一度送る] は作っている途中でも押せて、同じ id で上げ直す。受付の「もう作っています」の断りでは失敗にしない"""
+        dbx = self.use_fake_dropbox()
+        t = self.fake_clock()
+        rid = self.failing_row()
+        self.app.api.retry(rid)   # 友人が押した = この PC で作っている途中
+        run = self.app.inbox.row(rid)["runId"]
+        mark = "/診断/引き継ぎ/%s.takeover.json" % rid
+        dbx.files[mark] = b"{}"
+        self.app.sync.run_once()
+        self.assertEqual(self.engine.queue.cancelled, [run])
+        r = self.app.inbox.row(rid)
+        self.assertEqual((r["pc"], r["state"], r["runId"], r["remote"]["state"]), ("user", "sent", None, "uploaded"))
+        doc = json.loads(dbx.files["/%s.request.json" % rid])
+        self.assertEqual((doc["id"], doc["items"][0]["url"]), (rid, URL))
+        self.assertNotIn(mark, dbx.files)
+        self.assertIsNone(self.app.inbox.finished(run, "cancelled", "", []))   # 止めた実行の終わりは行に来ない
+        t[0] += 2 * 3600
+        self.assertFalse(self.view_row(rid)["canLocal"])   # 1 時間待っても [この PC で作る] は出さない
+        n = len(self.engine.queue.submitted)
+        self.app.inbox.remote_failure(rid, "題", "ネットにつながりませんでした", "x.失敗.txt")
+        t[0] += 10 * A.RETRY_EVERY
+        self.app.api.tick()
+        self.assertEqual((len(self.engine.queue.submitted), self.app.inbox.row(rid)["state"]), (n, "failed"))   # 自動でやり直さない
+        self.assertFalse(self.view_row(rid)["fail"]["retrying"])
+        del dbx.files["/%s.request.json" % rid]
+        self.app.sync.run_once()
+        self.app.api.retry(rid)
+        self.app.sync.run_once()
+        self.assertIn("/%s.request.json" % rid, dbx.files)   # 同じ id で上げ直す
+        del dbx.files["/%s.request.json" % rid]
+        self.app.sync.run_once()
+        self.assertEqual(self.app.inbox.row(rid)["state"], "making")
+        self.app.api.retry(rid)   # 作っている途中の [もう一度送る](画面は確かめてから)
+        self.assertEqual(self.app.inbox.row(rid)["remote"]["state"], "pending")
+        self.app.inbox.remote_failure(rid, "題", "引き継いだ依頼は、作る人の PC でもう作っています(二重に届けないため)", "y.失敗.txt")
+        self.assertEqual(self.app.inbox.row(rid)["state"], "making")
+        self.assertEqual(self.engine.queue.submitted[n:], [])
+
+    def test_takeover_mark_for_missing_or_arrived_row_is_just_cleared(self):
+        dbx = self.use_fake_dropbox()
+        dbx.files["/診断/引き継ぎ/20261025-010000-abcdef.takeover.json"] = b"{}"
+        self.app.sync.run_once()
+        self.assertEqual(dbx.files, {})
 
     def test_failure_words_and_auto_retry_up_to_max(self):
         t = self.fake_clock()

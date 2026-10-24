@@ -9,6 +9,8 @@
   1. ユーザーの PC に頼む(A-2): 受信箱のユーザーの PC の行の依頼の JSON(5-1 の形 = request_doc。url・video・live)を直下 /<依頼 id>.request.json へ上げる。
      動画ファイルは先に動画を直下 /<依頼 id>__<元の名前> へ(進み具合 = upload_progress)。
      上げた依頼が直下から消えたら「受け付けられた」(行は「作っている」)。1 時間残っていれば画面に [この PC でやり直す](withdraw で直下から消す)
+     その前に /診断/引き継ぎ/<依頼 id>.takeover.json の印(やり直しも尽きた依頼をユーザーの PC が作る = 形の正は notes:plan/友人の不具合の自動対応-1025.md の問題 1)を見て、
+     その行を同じ id・同じ欄のユーザーの PC への依頼に移し、この PC の実行を止める(_takeovers)。上げたら印を消す
   2. /出力/ の取り込み: パックは 1 本ずつ(zip + 同じ名前の .preview.mp4(確認用の動画)と .meta.json(出どころと配信の欄))・.失敗.txt を
      受信箱の行へ(依頼 id の行か、無ければ新しい行)。作る側は 確認用の動画 → .meta.json → zip の順に置くので、zip は .meta.json か
      .preview.mp4 が見えたらすぐ取り込む(どちらも無い zip は NO_META_WAIT 秒待ってから出どころ「依頼」として取り込む)。
@@ -54,6 +56,9 @@ DIAG_ERROR_EVERY = 6 * 3600        # 同じ段の同じ失敗の診断を書く�
 LEARNING = "/学習"
 UPDATES = "/更新"
 REQ_SUFFIX = ".request.json"
+TAKE_DIR = DIAG + "/引き継ぎ"      # 引き継ぎの印 <依頼 id>.takeover.json(ユーザーの PC の human/friend/bugs が置く・上げ直したらここが消す)
+TAKE_SUFFIX = ".takeover.json"
+TAKE_RE = re.compile(r"^([0-9A-Za-z_-]{1,64})\.takeover\.json$")
 FAIL_SUFFIX, PREVIEW_SUFFIX, META_SUFFIX, ZIP_SUFFIX = ".失敗.txt", ".preview.mp4", ".meta.json", ".zip"
 KINDS = (("failure", FAIL_SUFFIX), ("preview", PREVIEW_SUFFIX), ("meta", META_SUFFIX), ("pack", ZIP_SUFFIX))
 OUT_NAME_RE = re.compile(r"^(\d{8}-\d{6}-[0-9a-f]{6})__(.+)$")        # 出力の名前 <依頼 id>__<題>
@@ -500,7 +505,7 @@ class Sync:
             if io is None:
                 return None
             problems = []
-            for label, step in (("ユーザーの PC への依頼", self._requests), ("届いた物", self._intake),
+            for label, step in (("引き継ぎ", self._takeovers), ("ユーザーの PC への依頼", self._requests), ("届いた物", self._intake),
                                 ("確認用の動画", self._previews), ("受け取る", self._receive), ("片付け", self._cleanup),
                                 ("声の材料", self._voice), ("診断の頼み", self._asks), ("送り返し", self._returns), ("学習", self._learning),
                                 ("更新", self._update)):
@@ -545,16 +550,57 @@ class Sync:
                 self.sent_at = int(self.clock() * 1000)
                 self.inbox.remote_mark(r["id"], "uploaded")
                 self.log("ユーザーの PC への依頼を上げました: %s" % r["id"])
+                if cur.get("takeover"):
+                    io.delete(self.take_path(r["id"]))
         for r in self.inbox.remote_rows("uploaded"):
             if io.get_metadata(self.request_path(r["id"])) is None:
                 self.inbox.remote_mark(r["id"], "accepted")
                 self.log("ユーザーの PC が依頼を受け付けました: %s" % r["id"])
 
+    @staticmethod
+    def take_path(rid):
+        return "%s/%s%s" % (TAKE_DIR, rid, TAKE_SUFFIX)
+
+    def _takeovers(self, io):
+        """/診断/引き継ぎ/ の印(ユーザーの PC が置く = やり直しも尽きた依頼をユーザーの PC が作る。作る PC は 1 つ):
+        行を同じ id・同じ欄のユーザーの PC への依頼に移し(inbox.take_over)、この PC の実行は止める。印は上げたら消す(_requests)。
+        上げる物が無い(行が無い・もう届いた・ユーザーの PC で作っている・アーカイブ待ち)なら印はすぐ消す"""
+        for e in io.list_folder(TAKE_DIR) or []:
+            m = TAKE_RE.match(e.get("name") or "")
+            if e.get(".tag", "file") != "file" or not m:
+                continue
+            rid = m.group(1)
+            with self.req_lock:
+                r = self.inbox.row(rid)
+                if r is not None and not r.get("takeover"):
+                    got = self.inbox.take_over(rid)
+                    if got is not None:
+                        r = got[0]
+                        if got[1]:
+                            self._stop_run(got[1])
+                        self.log("ユーザーの PC が引き継ぐので、この PC では作りません: %s" % rid)
+                if r is None or not r.get("takeover") or (r.get("remote") or {}).get("state") != "pending":
+                    io.delete(self.take_path(rid))
+
+    def _stop_run(self, run_id):
+        """引き継いだ依頼のこの PC の実行(待ち・作っている)を止める(二重に作らない)"""
+        eng = self.engine_fn()
+        q = getattr(eng, "queue", None) if eng is not None else None
+        if q is None:
+            return
+        for x in q.status().get("runs") or []:
+            if x.get("id") == run_id and x.get("state") in ("queued", "running"):
+                try:
+                    q.cancel(run_id)
+                except Exception as e:   # noqa: BLE001  (もう終わった = 止める物が無い)
+                    self.log("引き継いだ依頼の実行を止められませんでした %s: %s" % (run_id, e.__class__.__name__))
+
     def _upload_video(self, io, row):
         """ユーザーの PC に頼む動画ファイルを直下へ上げる -> [置かれた名前] か None(動画が無い = 行を失敗に)。
+        確保した写し(form.file.copy = この PC で作るときに一時保管へ写した物・落とした動画)があればそれを、無ければ元の動画を上げる。
         前の回に上げ終えた同じ大きさの物が直下にあれば上げ直さない。通信の問題は DropboxError(次の回にもう一度)"""
         rid, fi = row["id"], (row["form"].get("file") or {})
-        path = fi.get("path")
+        path = fi.get("copy") if isinstance(fi.get("copy"), str) and os.path.isfile(fi["copy"]) else fi.get("path")
         if not isinstance(path, str) or not os.path.isfile(path):
             self.inbox.fail(rid, "送る動画ファイルが見つかりません(移動・削除した可能性があります)。選び直して送ってください")
             return None

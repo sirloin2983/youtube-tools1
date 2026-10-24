@@ -8,9 +8,11 @@
 流れ: 偽の配信の一覧のカードを押す → 区間 2 つ(数字だけで打つ・Enter で次の欄・[+30秒])→ [送る] → 送った物の行(順番待ち → 進み具合)→
       [取り消す](確認の窓)/ URL を貼って送る / 失敗(上の段 = 友人の言葉・下の段 = 詳しく)→ [もう一度送る] →
       録画中の配信のカード = 「録画しています」と [録画を取り消す](録画の部品は偽物)/ Esc で送る欄を閉じる /
+      引き継ぎの印(偽の Dropbox)→ 行が「作る人の PC で作っています」・[もう一度送る] は二重に届くかもの確かめ /
       動画ファイルを落とす(1 回で 1 つ・同じ物をもう一度でも 1 つのまま)
 外に作用する口は全部偽物(配信の一覧・oEmbed・配信中か・窓・フォルダ・Dropbox・exe)。待ちは「表示されるまで待つ」。
 """
+import os
 import sys
 import time
 
@@ -18,7 +20,7 @@ from playwright.sync_api import expect, sync_playwright
 
 from friend_e2e_kit import CHANNEL, WAIT, Rig, check, wait_until
 
-V_ARCH, V_LIVE, V_URL = "e2eArchive1", "e2eLiveNow1", "e2eUrlPaste"
+V_ARCH, V_LIVE, V_URL, V_TAKE = "e2eArchive1", "e2eLiveNow1", "e2eUrlPaste", "e2eTakeovr1"
 T_ARCH, T_LIVE, T_URL = "テストの配信(アーカイブ)", "テストの配信(ライブ中)", "貼った URL の配信"
 
 
@@ -28,6 +30,38 @@ def card(vid, title, state, **kw):
           "thumb": "", "state": state, "startAt": now - 3600 * 1000, "endAt": None, "duration": 3600 if state != "live" else None}
     it.update(kw)
     return it
+
+
+class FakeDropbox:
+    """Dropbox の口の偽物(つながない。引き継ぎの印を置いて同期を 1 回回すため)"""
+
+    def __init__(self, files):
+        self.files = dict(files)
+
+    def list_folder(self, path):
+        pre = path.rstrip("/") + "/"
+        got = [{".tag": "file", "name": k[len(pre):]} for k in self.files if k.startswith(pre) and "/" not in k[len(pre):]]
+        return got or None
+
+    def upload_bytes(self, data, path, overwrite=False):
+        self.files[path] = bytes(data)
+        return path.rsplit("/", 1)[1]
+
+    def upload(self, local, path, overwrite=False, progress=None):
+        with open(local, "rb") as f:
+            return self.upload_bytes(f.read(), path)
+
+    def get_metadata(self, path):
+        return {"name": path} if path in self.files else None
+
+    def delete(self, path):
+        return self.files.pop(path, None) is not None
+
+    def read_small(self, path, cap=1024 * 1024):
+        return None
+
+    def download(self, path, part, rev=None, progress=None):
+        return False
 
 
 def fake_oembed(vid):
@@ -154,6 +188,39 @@ def main():
                 pg.keyboard.press("Escape")
                 expect(pg.locator("#formEmpty")).to_be_visible(timeout=WAIT)
                 ok &= check(True, "Esc で送る欄を閉じる")
+
+                # 7. 引き継ぎの印(作る人の PC がやり直しも尽きた依頼を作る): 行が「作る人の PC で作っています」・[もう一度送る] は確かめてから
+                pg.fill("#url", "https://www.youtube.com/watch?v=" + V_TAKE)
+                pg.press("#url", "Enter")
+                expect(pg.locator("#btnSend")).to_be_enabled(timeout=WAIT)
+                pg.click("#btnSend")
+                row = pg.locator(".fr-sent-row", has_text=T_URL).first
+                expect(row).to_be_visible(timeout=WAIT)
+                rid7 = q.latest()
+                q.start(rid7)
+                q.fail(rid7, "ネットにつながりませんでした")
+                expect(row.locator(".fr-sent-line, .fr-fail-top").first).to_be_visible(timeout=WAIT)
+                take_rid = rig.app.inbox.rows[0]["id"]
+                with open(os.path.join(rig.places["home"], "config.json"), "w", encoding="utf-8") as fh:
+                    fh.write('{"appKey": "k", "refreshToken": "r"}')
+                dbx = FakeDropbox({"/診断/引き継ぎ/%s.takeover.json" % take_rid: b"{}"})
+                rig.app.sync.client_factory = lambda cfg, cancelled: dbx
+                rig.app.sync.run_once()
+                expect(row.locator(".fr-sent-line")).to_have_text("作る人の PC で作っています", timeout=WAIT)
+                r7 = rig.app.inbox.row(take_rid)
+                ok &= check(r7["pc"] == "user" and "/%s.request.json" % take_rid in dbx.files and "/診断/引き継ぎ/%s.takeover.json" % take_rid not in dbx.files,
+                            "引き継ぎの印で行が「作る人の PC で作っています」になり、同じ id の依頼を上げて印を消す")
+                row.get_by_role("button", name="もう一度送る").click()
+                dlg = pg.locator("dialog[open]")
+                expect(dlg).to_contain_text("二重に届くかもしれません", timeout=WAIT)
+                dlg.get_by_role("button", name="やめる").click()
+                expect(dlg).to_have_count(0, timeout=WAIT)
+                ok &= check(rig.app.inbox.row(take_rid)["remote"]["state"] == "uploaded", "確かめの [やめる] では上げ直さない")
+                row.get_by_role("button", name="もう一度送る").click()
+                pg.locator("dialog[open]").get_by_role("button", name="続ける").click()
+                wait_until(lambda: rig.app.inbox.row(take_rid)["remote"]["state"] == "pending", what="上げ直しの待ち")
+                ok &= check(True, "[もう一度送る] → 確かめの [続ける] で同じ id の依頼を上げ直す")
+                rig.app.inbox.drop(take_rid)
 
                 # 6. 動画ファイルを落とす: 1 回で 1 つ・同じ物をもう一度でも 1 つのまま(落とす所が入れ子でも二重にならない)
                 drop_js = """(n) => {
