@@ -158,11 +158,30 @@ class YtQueueTest(unittest.TestCase):
         Q.tidy(self.app, NOON)
         self.assertEqual(os.listdir(Q.qdir(self.app, Q.KEEP_DIR)), ["HOLDVIDEO01"])   # 研究が hold を置いた物だけ残る
 
+    def test_served_request_never_again(self):
+        """済ませた頼みは req から消し、研究が done を消してももう取らない(10-25: 同じショートを 2 回取った)"""
+        self.put_req("r1", {"purpose": "research", "kind": "audio", "url": "https://www.youtube.com/watch?v=REQAUDIO001"})
+        self.assertEqual(self.tick(NOON, {"ときのそら": 2, "ロボ子さん": 2}), "research")
+        self.assertFalse(os.path.exists(Q.qdir(self.app, "req", "r1.json")))
+        os.remove(Q.qdir(self.app, "done", "r1.json"))                          # 研究が読んで消した
+        self.put_req("r1", {"purpose": "research", "kind": "audio", "url": "https://www.youtube.com/watch?v=REQAUDIO001"})   # 頼みが残っていても
+        self.assertEqual(Q.requests(self.app), [])
+        self.assertIn("r1", Q._state(self.app)["served"])
+
+    def test_orphan_media_removed(self):
+        """結果の json の無い古い音(取っている途中で止まった)は消す"""
+        os.makedirs(Q.qdir(self.app, "done"))
+        p = Q.qdir(self.app, "done", "cand--IroUWmemE4.webm")
+        open(p, "wb").close()
+        os.utime(p, (NOON - 7200, NOON - 7200))
+        Q.tidy(self.app, NOON)
+        self.assertFalse(os.path.exists(p))
+
     def test_tidy_removes_partial(self):
         os.makedirs(Q.qdir(self.app, "done"))
         open(Q.qdir(self.app, "done", "x.m4a.part"), "wb").close()
         Q.tidy(self.app, NOON)
-        self.assertEqual(os.listdir(Q.qdir(self.app, "done")), [])
+        self.assertEqual([x for x in os.listdir(Q.qdir(self.app, "done")) if x != Q.STAGE], [])
 
 
 if __name__ == "__main__":

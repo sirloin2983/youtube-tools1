@@ -43,6 +43,8 @@ LADDER = [1.0, 1.5, 2.0, 3.0, 4.0, 6.0]
 AROUND = (300, 600)                  # 候補の ?t= の前 5 分〜後 10 分を取る(研究の今の幅)
 API_DAILY = 2000                     # 列が 1 日に使う YouTube Data API の量の上限(1 日 10,000 をスタジオと分け合う)
 DONE_DAYS = 3
+SERVED_KEEP = 5000   # 済んだ頼みの id を覚える数
+STAGE = ".dl"        # 取っている途中の音の置き場(done/.dl/。済んだら done へ移す = 止まっても途中の音が done に残らない)
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}\Z")
 URL_RE = re.compile(r"^https://(www\.|m\.)?(youtube\.com|youtu\.be)/[\w\-./?=&%:@+]{1,300}\Z")
 KINDS = ("info", "audio", "list", "subs", "chat")
@@ -57,13 +59,17 @@ def _state(app_dir):
 
 
 def _save(app_dir, st):
+    """状態を書く。済んだ頼みの印(served)は、書いてある物と合わせる(_write_done が先に書いた印を、手元の古い状態で消さない)"""
     os.makedirs(qdir(app_dir), exist_ok=True)
+    on_disk = _state(app_dir).get("served") or []
+    st["served"] = list(dict.fromkeys(list(on_disk) + list(st.get("served") or [])))[-SERVED_KEEP:]
     fsio.write_json(qdir(app_dir, "state.json"), st, indent=None)
 
 
 def requests(app_dir):
     """研究の頼み(形の正しい物だけ。done がある物は済み)-> [頼み](priority の高い順 → 頼んだ順)"""
     out = []
+    served = set(_state(app_dir).get("served") or [])
     try:
         names = sorted(os.listdir(qdir(app_dir, "req")))
     except OSError:
@@ -73,7 +79,7 @@ def requests(app_dir):
             continue
         rid = n[:-5]
         p = qdir(app_dir, "req", n)
-        if not ID_RE.match(rid) or os.path.exists(qdir(app_dir, "done", rid + ".json")):
+        if not ID_RE.match(rid) or os.path.exists(qdir(app_dir, "done", rid + ".json")) or rid in served:
             continue
         r = fsio.read_json_or(p, {}, kind=dict)
         if r.get("kind") not in KINDS:
@@ -193,10 +199,15 @@ def _api_count(st, today, n):
 
 
 def _write_done(app_dir, rid, body):
+    """結果を done/<rid>.json に。頼み(req/<rid>.json)は消し、済んだ印を state の served に覚える = 研究が done を消しても二度取らない(10-25)"""
     os.makedirs(qdir(app_dir, "done"), exist_ok=True)
     p = qdir(app_dir, "done", rid + ".json")
     fsio.write_json(p + ".tmp", dict(body, id=rid, at=int(time.time())), indent=None)
     os.replace(p + ".tmp", p)
+    fsio.unlink_quiet(qdir(app_dir, "req", rid + ".json"))
+    st = _state(app_dir)
+    st["served"] = (list(st.get("served") or []) + [rid])[-SERVED_KEEP:]
+    _save(app_dir, st)
 
 
 def _info_api(ids):
@@ -236,7 +247,9 @@ def _audio(app_dir, rid, url, section):
     if not yd:
         return None, "yt-dlp が見つかりません"
     os.makedirs(qdir(app_dir, "done"), exist_ok=True)
-    base = qdir(app_dir, "done", rid)
+    stage = qdir(app_dir, "done", STAGE)
+    os.makedirs(stage, exist_ok=True)
+    base = os.path.join(stage, rid)
     keep = qdir(app_dir, KEEP_DIR, "%(id)s")
     cmd = [yd, "--encoding", "utf-8", "--no-warnings", "--no-playlist", "--no-part", "--force-overwrites", "--no-progress", "-f", "ba",
            "-o", base + ".%(ext)s", "--no-simulate", "--print", "%(id)s\t%(channel_id)s\t%(upload_date)s\t%(duration)s\t%(title)s",
@@ -249,15 +262,21 @@ def _audio(app_dir, rid, url, section):
     if ff:
         cmd += ["--ffmpeg-location", ff]
     r, tail = _vf._run(cmd + ["--", url], _vf.FETCH_TIMEOUT * 2)
-    files = [qdir(app_dir, "done", x) for x in os.listdir(qdir(app_dir, "done")) if x.startswith(rid + ".") and not x.endswith((".json", ".tmp", ".part", ".ytdl"))]
-    if r is None or r.returncode != 0 or not files:
+    files = [os.path.join(stage, x) for x in os.listdir(stage) if x.startswith(rid + ".")]
+    if r is None or r.returncode != 0 or not [f for f in files if not f.endswith((".part", ".ytdl", ".tmp"))]:
         for f in files:
             fsio.unlink_quiet(f)
         return None, tail or "取れませんでした"
+    got = max((f for f in files if not f.endswith((".part", ".ytdl", ".tmp"))), key=os.path.getsize)
+    dst = qdir(app_dir, "done", os.path.basename(got))
+    os.replace(got, dst)
+    for f in files:
+        if f != got:
+            fsio.unlink_quiet(f)
     parts = ((r.stdout or "").strip().splitlines() or [""])[0].split("\t")
     info = dict(zip(("id", "channel_id", "upload_date", "duration", "title"), parts + [""] * 5))
     info["bundle"] = bundle(app_dir, info.get("id"))
-    return max(files, key=os.path.getsize), info
+    return dst, info
 
 
 KEEP_DIR = "keep"
@@ -345,19 +364,29 @@ def _hit(app_dir, now, err, log):
     log("YouTube の取得の列: bot 判定・ログインを求められたので今日は止めます(翌日から間隔を伸ばします)")
 
 
+_first_tidy = {}
+
+
 def tidy(app_dir, now=None):
     """起動の後と見回りごと: 途中の物(.part・.tmp・.ytdl)を消す・DONE_DAYS 日より古い結果を消す・ready.json を置く"""
     now = time.time() if now is None else now
     d = qdir(app_dir, "done")
     os.makedirs(d, exist_ok=True)
     os.makedirs(qdir(app_dir, "req"), exist_ok=True)
-    for x in os.listdir(d):
+    if _first_tidy.get(app_dir, True):   # 起動の後の 1 回 = 途中で止まった取得の音を消す
+        shutil.rmtree(os.path.join(d, STAGE), ignore_errors=True)
+        _first_tidy[app_dir] = False
+    names = set(os.listdir(d))
+    for x in names:
         p = os.path.join(d, x)
+        if os.path.isdir(p):
+            continue
         try:
-            old = now - os.path.getmtime(p) > DONE_DAYS * 86400
+            age = now - os.path.getmtime(p)
         except OSError:
             continue
-        if x.endswith((".part", ".tmp", ".ytdl")) or old:
+        orphan = not x.endswith(".json") and (x.split(".", 1)[0] + ".json") not in names and age > 3600   # 結果の json の無い古い音 = 途中で止まった物
+        if x.endswith((".part", ".tmp", ".ytdl")) or age > DONE_DAYS * 86400 or orphan:
             fsio.unlink_quiet(p)
     k = qdir(app_dir, KEEP_DIR)
     for v in (os.listdir(k) if os.path.isdir(k) else ()):
