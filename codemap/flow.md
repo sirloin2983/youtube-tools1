@@ -98,8 +98,8 @@
   - 名前: `class HttpTools` :33・`class FlowTools` :137・`class PackHost` :195・`doc_row` :258・`class LocalTools` :270
 - **tx.py** (422 行) — ② 管理の層 flow: 文字起こしの動詞。RS6 a-3(決定 3-29)。
   - 名前: `dict_pairs` :33・`rerun_base` :49・`roster_listing` :58・`pick_glossary_terms` :68・`check_model` :74・`request_engine` :83・`tx_spec` :91・`new_doc` :128・`transcribe_clip` :144・`write_clip_records` :209・`replace_span_words` :229・`write_machine_doc` :241・ほか 9
-- **voicematerial.py** (174 行) — ② 管理の層 flow: 声を覚える材料の選び方と切り出し(10-24 夜。ユーザー「誰の声をメンバー全員分」)。
-  - 名前: `num` :34・`rows` :38・`song_title` :45・`song_row` :50・`titles` :55・`group_block` :79・`solo_person` :90・`roster_file` :115・`roster_people` :120・`member` :130・`row_ok` :140・`pick` :151・ほか 1
+- **voicematerial.py** (184 行) — ② 管理の層 flow: 声を覚える材料の選び方と切り出し(10-24 夜。ユーザー「誰の声をメンバー全員分」)。
+  - 名前: `num` :34・`rows` :38・`song_title` :45・`song_row` :50・`titles` :55・`group_block` :79・`solo_person` :90・`roster_file` :115・`roster_people` :120・`roster_data` :130・`member` :140・`row_ok` :150・ほか 2
 - **wire.py** (89 行) — ② 管理の層 flow: 文字起こしの配線(ジョブの種類の登録・ジョブの表の設定・本物と疑似の選び方・① の口の登録)。RS6 a-5b(決定 3-29)。登録は 1 つの install にまとまっている。
   - 名前: `install` :39・`setup_places` :64・`setup_headless` :79
 

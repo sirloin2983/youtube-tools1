@@ -17,7 +17,7 @@
   - 受ける口: `/api/ytt` :45
 - **prefs.py** (487 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
   - 名前: `class PrefsError` :95・`guess_streamer` :381・`class Prefs` :393
-- **server.py** (1788 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
+- **server.py** (1806 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
   - 名前: `runtime_dir` :185・`ping` :195・`tail` :203・`expected_version` :224・`tool_python` :230・`rel_or_abs` :240・`signal_stop` :248・`class Tool` :261・`app_data_dir` :311・`logs_dir_for` :317・`class Supervisor` :323・`query_int` :642・ほか 16
   - 受ける口: `/api/drill/status` :153・`/api/eval-batch` :153・`/api/intake` :628・`/api/backup` :629・`/api/accuracy` :630・`/api/flow/runs` :631・`/api/cases/auto` :633・`/api/flow/submit` :634・`/api/flow/estimate` :634・`/api/flow/cancel` :635・`/api/intake/scan` :636・`/api/backup/run` :636・`/api/accuracy/run` :637・`/api/check/answer` :638・`/api/check/unknown` :638・`/api/check/skip` :638・`/api/check/flush` :638・`/api/shutdown` :639・`/api/ping` :728・`/api/status` :730・`/api/health` :740・`/api/log` :742・`/api/flow/status` :757・`/api/flow/history` :761・`/api/check/next` :764・`/api/check/voiceclip` :770・`/api/home/requests` :776・`/api/cases` :784
 - **ytlogin.py** (95 行) — ユーザーの PC の YouTube のログイン(10-23 ユーザー「ログインできる形にしといて」)。友人のアプリと同じ作り(notes:docs/spec/friend.md の 13-13)。
@@ -42,10 +42,12 @@
   - 名前: `register` :49・`registered` :63・`has_media` :82・`class View` :92・`value_auto` :263・`value_cand` :289・`read_fill` :318・`voice_diar` :335・`time_row` :373・`collect` :398
 - **speech_sources.py** (66 行) — 「確かめる」の普段のレーンの「この行は声ですか?」カードの出どころ speech:diar(C-EVAL (3))。
   - 名前: `speech_diar` :41
-- **voice_solo.py** (184 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
-  - 名前: `clip_targets` :159・`voice_solo` :168
-- **voicefill.py** (98 行) — 誰の声の材料を全メンバーぶんそろえる(10-25。ユーザー「誰の声を全部やったが本当に数人しかいなかった。全メンバー揃えてほしい」)。
-  - 名前: `learn_dirs` :24・`in_learn_dir` :34・`targets` :40・`pick` :65・`tick` :77
+- **voice_solo.py** (196 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
+  - 名前: `people` :159・`clip_targets` :171・`voice_solo` :180
+- **voicefetch.py** (182 行) — 誰の声の材料が無いメンバーの音を YouTube から少しだけ取る(10-25。ユーザー「全メンバー揃えてほしい」の 2。1 = 手元の学習用データ は voicefill)。
+  - 名前: `members` :46・`slot_free` :58・`parse_rss` :81・`choose` :95・`tick` :132
+- **voicefill.py** (101 行) — 誰の声の材料を全メンバーぶんそろえる(10-25。ユーザー「誰の声を全部やったが本当に数人しかいなかった。全メンバー揃えてほしい」)。
+  - 名前: `learn_dirs` :24・`in_learn_dir` :37・`targets` :43・`pick` :68・`tick` :80
 
 ## src/app/ui/
 
@@ -163,4 +165,5 @@
 - tests/app/check/test_sources.py — 「確かめる」のカードの出どころ(src/app/check/sources.py)と組み立て(deck.py)の単体テスト。一時フォルダの文書・.diar.json・スタジオの data.json だけを使う。
 - tests/app/check/test_speech_sources.py — 「確かめる」の「この行は声ですか?」の出どころ(src/app/check/speech_sources.py)の単体テスト: 声の区間との重なりの割合・除外(校正済み・noSub・短い・空)・
 - tests/app/check/test_voice_solo.py — 「確かめる」の誰の声のカードの出どころ voice:solo(src/app/check/voice_solo.py)の単体テスト: ソロの見分け(コラボの題名・2 人の題名・
+- tests/app/check/test_voicefetch.py — 誰の声の材料が無いメンバーの音を YouTube から(src/app/check/voicefetch.py。10-25)。RSS と yt-dlp は偽物(ネットに出ない)。
 - tests/app/check/test_voicefill.py — 誰の声の材料を学習用データのショートから(src/app/check/voicefill.py。10-25)。
