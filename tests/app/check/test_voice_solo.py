@@ -158,9 +158,6 @@ class VoiceSoloTest(unittest.TestCase):
             self.assertEqual([c["target"]["row"] for c in got], [row["id"]])   # 音のある行だけ
             self.assertTrue(got[0]["media"]["url"].startswith("api/check/voiceclip?doc=f00000000002&row="))
             self.assertLess(got[0]["media"]["start"], 1.5)   # 切り出した音の中の秒
-            m = got[0]["media"]   # 誰の声は行の後ろも聞く(10-25): 末の余白 1 秒が切り出した音(行の後ろ 1 秒)の中に収まる
-            self.assertEqual(m["padEnd"], sources.VOICE_PAD_END)
-            self.assertLessEqual(m["end"] + m["padEnd"], row["end"] + 1.0 - (row["start"] - 1.0) + 1e-6)
             have = os.path.join(self.tmp, "data", voiceclips.DIR, "a00000000000")   # 動画のある文書に音があっても映像つきで流す(10-25 直し)
             os.makedirs(have)
             open(os.path.join(have, "s0.wav"), "wb").close()

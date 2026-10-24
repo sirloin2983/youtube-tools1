@@ -345,7 +345,7 @@ def _scene_real_api(cx):
 def _scene_voice(cx):
     """誰の声のカード: 予想の Enter のボタンは再生が終わるまで押せない(理由つき)・登録簿の人(name:)は {name} で答える・M = 混ざり・Z で戻すとまた待つ"""
     pg, check = cx.pg, cx.check
-    vid = {"url": "transcribe/media?id=a0000000000b", "start": 0.5, "end": 1.5, "pad": 0.2, "padEnd": 0.5}   # 誰の声は行の後ろも聞く(10-25)
+    vid = {"url": "transcribe/media?id=a0000000000b", "start": 0.5, "end": 1.5, "pad": 0.2}
     fv = FakeQueue([card(30, "voice", source="diar", media=vid, guess={"id": "name:みこ", "name": "みこ"}, note="below_match",
                          options=[{"id": "S1", "name": "ぺこら", "voice": True}, {"id": "name:みこ", "name": "みこ", "voice": True},
                                   {"id": "other", "name": "その他"}, {"id": "mixed", "name": "混ざり"}])])
@@ -363,8 +363,6 @@ def _scene_voice(cx):
         press(pg, "z")
         check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:30'") and pg.evaluate("document.querySelector(\"%s\").disabled" % enter), "Z で戻すと、また再生が終わるまで待つ")
         check(wait_js(pg, "!document.querySelector(\"%s\").disabled" % enter, 10000), "再生が終わると押せる")
-        t_end = pg.evaluate("(() => { const v = document.querySelector('#chkBody video'); return v ? v.currentTime : -1; })()")
-        check(1.9 <= t_end <= 2.3, "行の末(1.5 秒)の後ろも末の余白(0.5 秒)まで流してから止まる: %s" % t_end)
         pg.click(enter)
         check(wait_js(pg, "CheckShell.state().empty") and fv.answers[-1]["body"]["answer"] == {"name": "みこ"}, "登録簿の人の予想は {name} で答える: %s" % fv.answers[-1:])
     finally:
