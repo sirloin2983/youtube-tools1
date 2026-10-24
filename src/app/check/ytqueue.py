@@ -329,10 +329,10 @@ def tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None):
     if not ENABLED:
         return None
     tidy(app_dir, now)
+    _api_infos(app_dir, log, now)        # API の読み込みは軽いので処理中でも読む(枠も使わない)
+    fill_candidates(app_dir, now, log)
     if busy():
         return None
-    _api_infos(app_dir, log, now)
-    fill_candidates(app_dir, now, log)
     ok, _why = due(app_dir, now)
     if not ok:
         return None
