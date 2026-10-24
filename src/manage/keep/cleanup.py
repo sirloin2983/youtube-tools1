@@ -10,6 +10,9 @@ TRASH_DAYS を過ぎた日付のフォルダは入口の起動時に purge で�
 - 依頼の受付の 受付済み\\<日付>\\・友人の送り返しの 送り返し\\受付済み\\<日付>\\ のうち KEEP_DAYS より古い日付のもの(ただの控え。9g-2)
 - 受付の 失敗\\ と 送り返しの 送り返し\\失敗\\ の中の物(更新日時から KEEP_DAYS 日。理由の .txt は一緒に)
 - 届けていない書き出し(ユーザー 10-24「自動でいい」): 案件(配信)の切り抜きの動画・_edit.mp4・パックのフォルダが、どれも KEEP_DAYS 日より前の物
+- 完成品のパック(ユーザー 10-24「E に置いてある完成品のパックも、3 日待って消して」): 書き出し先(out_dirs)の下の <名前>_pack のフォルダと、
+  その書き出しの動画(<名前>.mp4・<名前>_edit.mp4)。作ってから(中の一番新しいファイルから)KEEP_DAYS 日。届けたかは見ない。
+  学習用データ・評価用データのフォルダの下(KEEP_FOLDERS)・確かめるで待っている切り抜き・評価用は外す
 移さない物: 文書・作業用の記録・字幕(.transcript.json・.clip.json・.edit.json・.srt。精度の材料 = Q4)・評価用の動画と
 確かめるの「切り抜く価値」で答えを待っている切り抜き(keep_paths。入口が渡す)・まとめて実行が動いている配信(busy_ids)・
 手で置いた依頼の動画・録画(書き出し先の案件の切り抜きでない物は見ない)
@@ -38,6 +41,9 @@ REASON_SUFFIX = ".理由.txt"   # 失敗\\ の物に添える断った理由(受
 VIDEO_EXTS = (".mp4", ".mkv", ".mov", ".webm", ".m4v", ".avi", ".ts")
 AUTO_DELIVERED = True   # 自動で移す(ユーザー 10-24。False = 何も移さない。ごみ箱の古い日付は今までどおり消す)
 AUTO_EVERY_SEC = 12 * 3600   # 自動で移す間隔(起動のすぐあとと、そのあと 12 時間ごと)
+OLD_PACKS = True        # 完成品のパックを作ってから KEEP_DAYS 日で移す(10-24。False = 案件・届けた記録で分かる物だけ = 前の形)
+KEEP_FOLDERS = ("学習用データ", "評価用データ")   # この名前のフォルダの下は、完成品のパックでも移さない(研究と学習の材料・精度の評価)
+PACK_DEPTH = 4          # 書き出し先から <名前>_pack を探す深さ(書き出し先\<配信>\<名前>_pack が 2。依頼のフォルダの分の余裕)
 
 
 def _id(path):
@@ -325,6 +331,48 @@ class Cleanup:
                 out.append(it)
         return out
 
+    def old_packs(self, keep_paths=(), taken=(), busy_dirs=()):
+        """完成品のパック(10-24): 書き出し先の下の <名前>_pack と、隣の書き出しの動画(<名前>.mp4 と _edit.mp4)。
+        中の一番新しいファイルから keep_days 日たった物。KEEP_FOLDERS の下・ごみ箱・keep_paths(確かめるで待っている切り抜き・評価用の動画)・
+        taken(ほかの決まりで移す物)・busy_dirs(まとめて実行が今動いている配信の切り抜きのあるフォルダ)は除く"""
+        if not OLD_PACKS:
+            return []
+        now, days = self.clock(), self.keep_days * 86400
+        keep = {os.path.normcase(os.path.abspath(p)) for p in keep_paths or () if isinstance(p, str) and p}
+        taken = set(taken)
+        out, seen = [], set()
+        for root in self._out_dirs():
+            base = root.rstrip("\\/").count(os.sep)
+            for cur, dirs, _files in os.walk(root):
+                if any(k in cur for k in KEEP_FOLDERS) or os.path.basename(cur) in (trashbin.TRASH_DIR, DRIVE_TRASH) or os.path.normcase(cur) in busy_dirs:
+                    dirs[:] = []
+                    continue
+                if cur.count(os.sep) - base >= PACK_DEPTH:
+                    dirs[:] = []
+                packs = [d for d in dirs if d.lower().endswith("_pack")]
+                dirs[:] = [d for d in dirs if d not in packs and d not in KEEP_FOLDERS and d != trashbin.TRASH_DIR]
+                for d in packs:
+                    pdir = os.path.join(cur, d)
+                    key = os.path.normcase(os.path.abspath(pdir))
+                    if key in seen or key in taken or os.path.islink(pdir) or os.path.isjunction(pdir):
+                        continue
+                    seen.add(key)
+                    stem = os.path.join(cur, d[:-5])
+                    clips = [p for p in (stem + e for e in VIDEO_EXTS) if os.path.isfile(p)]
+                    clips += [x for c in clips for x in _trash.existing_sidecars(c) if x.lower().endswith(VIDEO_EXTS)]
+                    parts = [pdir] + clips
+                    if any(os.path.normcase(os.path.abspath(x)) in keep or os.path.normcase(os.path.abspath(x)) in taken for x in parts):
+                        continue
+                    age = now - max(_newest(x) for x in parts)
+                    if age <= days:
+                        continue
+                    it = _parts_item("export", cur, "作ってから %d 日・完成品のパック" % int(age // 86400), parts)
+                    if it:
+                        it.update(id=_id(pdir), name=("%s_%s" % (os.path.basename(cur), d))[:120])
+                        taken.update(os.path.normcase(os.path.abspath(x)) for x in parts)
+                        out.append(it)
+        return out
+
     def auto_items(self, keep_paths=(), intake_dir=None, cases=None, busy_ids=()):
         """自動で移す物の全部: 届けた切り抜き・依頼の置き場所(delivered_items)・届けていない書き出し(stale_exports。cases があるとき)・
         受付の写し(_app_intake の届けた物)・受付済みと失敗(_intake・_failed)"""
@@ -332,6 +380,9 @@ class Cleanup:
         out = self.delivered_items(keep_paths)
         if cases:
             out += self.stale_exports(cases, keep_paths, busy_ids, {os.path.normcase(os.path.abspath(x)) for it in out for x in it["parts"]})
+        busy_dirs = {os.path.normcase(os.path.dirname(os.path.abspath(cl["path"]))) for c in cases or () if isinstance(c, dict) and c.get("id") in busy_ids
+                     for cl in c.get("clips") or () if isinstance(cl, dict) and isinstance(cl.get("path"), str) and cl["path"]}
+        out += self.old_packs(keep_paths, {os.path.normcase(os.path.abspath(x)) for it in out for x in it["parts"]}, busy_dirs)   # 完成品のパック(10-24)
         for it in self._app_intake():
             if "届けてから" in it["note"]:
                 it["parts"] = [p for p in it["parts"] if os.path.normcase(os.path.abspath(p)) not in keep]

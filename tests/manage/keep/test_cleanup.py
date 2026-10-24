@@ -177,6 +177,37 @@ class CleanupTest(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(case, "作業用", "01_a.transcript.json")))   # 文書は残る
         self.assertTrue(all(os.path.exists(x["path"]) for x in (b, c)))
 
+    def test_old_packs(self):
+        """完成品のパック(10-24): 書き出し先の下の <名前>_pack と隣の書き出しの動画は、作ってから keep_days 日で届けたかに関わらず移す。
+        中のファイルが新しい・学習用データと評価用データの下・確かめるで待っている切り抜き・動いている配信のフォルダは残す"""
+        out = os.path.join(self.tmp, "出力")
+        cl = self.cleanup(keep_days=3, out_dirs=[out])
+        old = self.now[0] - 5 * 86400
+
+        def pack(folder, name, new=False):
+            touch(os.path.join(out, folder, name + ".mp4"), 10, mtime=old)
+            touch(os.path.join(out, folder, name + "_pack", "a.mp4"), 4, mtime=self.now[0] - 3600 if new else old)
+            return os.path.join(out, folder, name + ".mp4")
+        pack("配信A", "01_a")
+        pack("配信A", "02_b", new=True)
+        wait = pack("配信A", "03_c")
+        pack(os.path.join("学習用データ", "ショート"), "01_x")
+        pack(os.path.join("評価用データ", "1_JP", "評価用データ35"), "01_y")
+        busy = pack("配信B", "01_z")
+        touch(os.path.join(out, "配信A", "作業用", "01_a.transcript.json"), 1, mtime=old)
+        items = [i for i in cl.auto_items([wait], None, [{"id": "busy", "clips": [{"path": busy}]}], {"busy"}) if i["kind"] == "export"]
+        self.assertEqual({os.path.basename(p) for i in items for p in i["parts"]}, {"01_a.mp4", "01_a_pack"})
+        self.assertIn("作ってから 5 日・完成品のパック", items[0]["note"])
+        r = cl.auto_clean([wait], None, cases=[{"id": "busy", "clips": [{"path": busy}]}], busy_ids={"busy"})
+        self.assertEqual((r["moved"], r["failed"]), (1, 0))
+        self.assertTrue(os.path.isfile(os.path.join(out, "配信A", "作業用", "01_a.transcript.json")))   # 文書は残る
+        self.assertTrue(os.path.isdir(os.path.join(out, "学習用データ", "ショート", "01_x_pack")))
+        C.OLD_PACKS = False
+        try:
+            self.assertEqual(cl.old_packs(), [])
+        finally:
+            C.OLD_PACKS = True
+
     def test_request_folders_from_last_delivery_or_receipt(self):
         """書き出し先の 依頼/<日付>_<題>_<id6>/ は、最後に届けてから keep_days 日で自動で移す。手で置いた動画(case.json に requestId が無い)・
         届けていない・case.json の無いフォルダは移さない。移すのは動画とパックだけ(作業用の文書は残す)"""
