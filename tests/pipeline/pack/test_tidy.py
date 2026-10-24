@@ -23,13 +23,13 @@ class TidyTest(unittest.TestCase):
             return T.drops("v.mp4", words, 0.0, sec)
 
     def test_never_cuts_words(self):
-        """言葉は削らない: どの単語(つなぎの言葉も・音量で声に見えない小さな声も・長さ 0 も)も、詰める所にかからない"""
+        """言葉は削らない: 声のある単語(つなぎの言葉も・間の中の小さな声も)と長さ 0 の単語は、詰める所にかからない"""
         voice = [(0.0, 2.0), (4.0, 6.0), (8.5, 10.0)]
         words = [[0.2, 0.6, "今日は"], [1.0, 1.4, "えー"], [1.5, 1.9, "ゲーム"],
-                 [3.0, 3.06, "ん"],       # 2〜4 秒の間の中の小さな声
+                 [3.0, 3.06, "ん"],       # 2〜4 秒の間の中の小さな声(声より 20 dB 小さい)
                  [7.2, 7.2, "や"],        # 6〜8.5 秒の間の中の長さ 0 の単語
                  [4.2, 5.8, "やります"], [8.6, 9.5, "あの"]]
-        ds = self.drops(voice, words)
+        ds = self.drops(voice, words, faint=[(3.0, 3.06)])
         for a, b, t in words:
             self.assertFalse(any(x < b + 1e-9 and y > a - 1e-9 for x, y, _k in ds), (t, ds))
         self.assertEqual({k for *_x, k in ds}, {"pause"})
@@ -45,6 +45,11 @@ class TidyTest(unittest.TestCase):
         voice, words = [(0.0, 1.0), (3.0, 4.0)], [[0.1, 0.9, "はい"], [3.1, 3.9, "そう"]]
         self.assertEqual(self.drops(voice, words, 4.0, faint=[(1.5, 1.6)]), [])
         self.assertEqual(len(self.drops(voice, words, 4.0, faint=[(1.5, 1.52)])), 1)   # 0.02 秒は守らない
+
+    def test_word_time_without_voice_is_not_guarded(self):
+        """単語の時刻が後ろの無音まで長く付いていても、声の無い部分は詰める(研究: 単語の範囲をそのまま守ると 3 本で 0 か所しか詰められなかった)"""
+        ds = self.drops([(0.0, 1.0), (3.0, 4.0)], [[0.1, 2.5, "かった"], [3.1, 3.9, "そう"]], 4.0)
+        self.assertEqual(ds, [(round(1.0 + T.TAIL, 3), round(3.0 - T.HEAD, 3), "pause")])
 
     def test_switch_and_no_words(self):
         with mock.patch.object(T, "ON", False):
