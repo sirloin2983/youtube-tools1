@@ -3,7 +3,8 @@
 研究(overlap-research の m2)と誰の声の材料(voicefetch)が別々に YouTube へ問い合わせていたのを、入口のこの列 1 本にまとめる。
 置き場 <app>/check/yt-queue/:
   req/<id>.json        研究の頼み {"id", "purpose": "research", "kind": "info"|"audio"|"list", "priority", "hint": {"channel", "title"}, ...}
-                       info: "urls"(10 本まで。説明欄など)/ audio: "url", "section": [始め, 終わり] か null / list: "url", "items"
+                       info: "urls"(10 本まで。説明欄など)/ audio: "url", "section": [始め, 終わり] か null / list: "url", "items" /
+                       subs: "url"(自動字幕だけ。研究が手元のショートの文字と突き合わせて ?t= の無い候補の位置を出す = 全体の音を取らずに済む)
   done/<id>.json       結果 {"id", "state": "done"|"error", "error", "at", "infos" | "file" + "info" | "entries"}。音は done/<id>.<拡張子>。
                        読む側が消す(DONE_DAYS 日残っていれば列が消す)
   candidates.json      研究が置く候補 = 友人のショートの元の配信 [{"video", "t"(?t= の秒か null), "channel", "title", "uploadDate", "research"(研究に効く度合い 0〜1)}]
@@ -40,7 +41,7 @@ API_DAILY = 2000                     # 列が 1 日に使う YouTube Data API �
 DONE_DAYS = 3
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}\Z")
 URL_RE = re.compile(r"^https://(www\.|m\.)?(youtube\.com|youtu\.be)/[\w\-./?=&%:@+]{1,300}\Z")
-KINDS = ("info", "audio", "list")
+KINDS = ("info", "audio", "list", "subs")
 
 
 def qdir(app_dir, *sub):
@@ -73,7 +74,7 @@ def requests(app_dir):
         r = fsio.read_json_or(p, {}, kind=dict)
         if r.get("kind") not in KINDS:
             continue
-        urls = [r.get("url")] if r.get("kind") in ("audio", "list") else (r.get("urls") or [])[:10]
+        urls = [r.get("url")] if r.get("kind") in ("audio", "list", "subs") else (r.get("urls") or [])[:10]
         if not urls or not all(isinstance(u, str) and URL_RE.match(u) for u in urls):
             continue
         try:
@@ -250,6 +251,20 @@ def _audio(app_dir, rid, url, section):
     return max(files, key=os.path.getsize), info
 
 
+def _subs(app_dir, rid, url):
+    """自動字幕だけ(日本語・json3)を done/<rid>.ja.json3 に -> (パス, "") か (None, 失敗の文)。字幕が無ければ失敗の文"""
+    yd = _vf._tools.find_tool("yt-dlp")
+    if not yd:
+        return None, "yt-dlp が見つかりません"
+    os.makedirs(qdir(app_dir, "done"), exist_ok=True)
+    r, tail = _vf._run([yd, "--encoding", "utf-8", "--no-warnings", "--no-playlist", "--skip-download", "--write-auto-subs", "--sub-langs", "ja",
+                        "--sub-format", "json3", "-o", qdir(app_dir, "done", rid) + ".%(ext)s", "--", url], 300)
+    got = [qdir(app_dir, "done", x) for x in os.listdir(qdir(app_dir, "done")) if x.startswith(rid + ".") and x.endswith((".json3", ".vtt"))]
+    if r is not None and r.returncode == 0 and got:
+        return got[0], ""
+    return None, tail or "自動字幕がありません"
+
+
 def _to_voice(app_dir, path, info, chan_of):
     """取った音が日本の対象のメンバーの配信なら、声の置き場(voice-inbox)へ写す。ソロかどうか・要るかは voicefetch.intake が決める"""
     if str(info.get("channel_id") or "") not in chan_of or not _vf.VIDEO_RE.match(str(info.get("id") or "")):
@@ -392,6 +407,9 @@ def tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None):
                 body = {"state": "done", "infos": _info_ytdlp(r["urls"]), "via": "yt-dlp"}
             except Exception as e:   # noqa: BLE001
                 body = {"state": "error", "error": str(e)[:300]}
+        elif r["kind"] == "subs":
+            path, err = _subs(app_dir, r["id"], r["urls"][0])
+            body = {"state": "done", "file": path} if path else {"state": "error", "error": err[:300]}
         elif r["kind"] == "list":
             items, err = _list_url(r["urls"][0], int(_vm.num(r.get("items"), 50)))
             body = {"state": "done", "entries": items} if items else {"state": "error", "error": err[:300]}

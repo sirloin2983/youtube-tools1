@@ -123,6 +123,21 @@ class YtQueueTest(unittest.TestCase):
             self.assertEqual(Q._api_infos(self.app, self.logs.append, NOON), 0)   # キーが無い = 今日は枠の yt-dlp で
         self.assertFalse(os.path.exists(Q.qdir(self.app, "done", "i2.json")))
 
+    def test_subs_request(self):
+        """研究の subs の頼み = 自動字幕だけ(枠を 1 つ使う)"""
+        self.put_req("r-subs-1", {"purpose": "research", "kind": "subs", "url": "https://www.youtube.com/watch?v=SUBSVIDEO01"})
+
+        def subs(app_dir, rid, url):
+            p = Q.qdir(app_dir, "done", rid + ".ja.json3")
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            open(p, "w").close()
+            return p, ""
+        with mock.patch.object(Q, "_subs", subs):
+            self.assertEqual(self.tick(NOON, {"ときのそら": 2, "ロボ子さん": 2}), "research")
+        with open(Q.qdir(self.app, "done", "r-subs-1.json"), encoding="utf-8") as f:
+            d = json.load(f)
+        self.assertTrue(d["state"] == "done" and d["file"].endswith(".ja.json3"))
+
     def test_tidy_removes_partial(self):
         os.makedirs(Q.qdir(self.app, "done"))
         open(Q.qdir(self.app, "done", "x.m4a.part"), "wb").close()
