@@ -141,8 +141,8 @@ def voice_solo(view):
         card = sources._doc_card(view, "voice", SOURCE, tid, doc, g, 0.3, {
             "guess": guess, "options": opts, "note": SOURCE,
             "_order": [-1, random.random(), rank, i, int(records.output_old(doc)), -sources._num(doc.get("updatedAt")), sources._num(g.get("start"))]}, tight=True)
-        clip = _voiceclips.media(tid, g["id"], card["media"]["start"], card["media"]["end"])
-        if clip:   # 切り出して残した行の音で再生する(元の動画が片付いても聞ける)
+        clip = None if sources.has_media(doc) else _voiceclips.media(tid, g["id"], card["media"]["start"], card["media"]["end"])
+        if clip:   # 元の動画が無い(片付いた・友人から届いた)ときだけ、切り出して残した行の音で再生する。動画があれば映像つきのまま(10-25 直し)
             card["media"] = dict(card["media"], **clip)
         out.append(card)
     return out

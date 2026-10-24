@@ -32,6 +32,11 @@ class CleanKeepTest(unittest.TestCase):
         self.assertEqual(S.pending_check_docs(cards, {"speech:x:d1:r1"}), {"aaaaaaaaaaa1", "bbbbbbbbbbb1", "ccccccccccc1"})   # 答えたカードは外す
         clip = dict(card("voice:solo:e1:r1", "voice", "eeeeeeeeeee1"), media={"url": "api/check/voiceclip?doc=eeeeeeeeeee1&row=r1"})
         self.assertNotIn("eeeeeeeeeee1", S.pending_check_docs([clip], set()))   # 切り出した行の音で流すカード = 動画は要らない(10-24 夜)
+        vid = dict(card("voice:solo:f1:r1", "voice", "fffffffffff1"), media={"url": "transcribe/media?id=fffffffffff1"})
+        vid["target"]["row"] = "r1"
+        with mock.patch.object(S.voiceclips, "clip_path", lambda tid, rid: "x.wav" if (tid, rid) == ("fffffffffff1", "r1") else None):
+            self.assertNotIn("fffffffffff1", S.pending_check_docs([vid], set()))   # 動画で流していても行の音が残してあれば守らない(10-25)
+        self.assertIn("fffffffffff1", S.pending_check_docs([vid], set()))
 
     def _srv(self):
         return types.SimpleNamespace(sup=types.SimpleNamespace(root="R"), cleanup=types.SimpleNamespace(app_dir="A"), check_ctx=lambda: None, _autorun=None)

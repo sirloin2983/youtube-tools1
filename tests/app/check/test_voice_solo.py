@@ -158,6 +158,12 @@ class VoiceSoloTest(unittest.TestCase):
             self.assertEqual([c["target"]["row"] for c in got], [row["id"]])   # 音のある行だけ
             self.assertTrue(got[0]["media"]["url"].startswith("api/check/voiceclip?doc=f00000000002&row="))
             self.assertLess(got[0]["media"]["start"], 1.5)   # 切り出した音の中の秒
+            have = os.path.join(self.tmp, "data", voiceclips.DIR, "a00000000000")   # 動画のある文書に音があっても映像つきで流す(10-25 直し)
+            os.makedirs(have)
+            open(os.path.join(have, "s0.wav"), "wb").close()
+            kit.write(os.path.join(have, voiceclips.INDEX), {"s0": {"a": -1.0, "b": 5.0}})
+            vid = [c for c in self.cards() if c["target"]["docId"] == "a00000000000"]
+            self.assertTrue(vid and all(c["media"]["url"].startswith("transcribe/media?id=") for c in vid))
             targets = voice_solo.clip_targets(sources.View(self.ctx, State()))
             self.assertNotIn("f00000000002", {t for t, _d, _r in targets})   # 動画が無い文書は切り出せない
             self.assertTrue(targets and all(r for _t, _d, r in targets))

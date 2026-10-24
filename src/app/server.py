@@ -950,12 +950,16 @@ _MEDIA_ID = re.compile(r"[?&]id=([0-9a-f]{12})\b")
 
 def pending_check_docs(cards, answered):
     """確かめるにまだ出ているカード(答えていない)が見ている文書の id の集合(target.docId と、動画の口 transcribe/media?id= の id)。
-    自動の片付けがこの文書の切り抜きの動画とパックを残す(10-24)。切り出した行の音で流すカード(誰の声。voiceclips)は動画を要らないので数えない"""
+    自動の片付けがこの文書の切り抜きの動画とパックを残す(10-24)。切り出した行の音で流すカード・行の音を残してある誰の声のカード(voiceclips)は
+    動画が片付いても音で流せるので数えない(動画があるうちは映像つきで流す)"""
     out = set()
     for c in cards or ():
         if not isinstance(c, dict) or c.get("id") in answered:
             continue
         if str((c.get("media") or {}).get("url") or "").startswith("api/check/voiceclip"):
+            continue
+        tg = c.get("target") if isinstance(c.get("target"), dict) else {}
+        if c.get("kind") == "voice" and tg.get("docId") and voiceclips.clip_path(str(tg.get("docId")), str(tg.get("row") or "")):
             continue
         tid = (c.get("target") or {}).get("docId") if isinstance(c.get("target"), dict) else None
         if isinstance(tid, str) and tid:

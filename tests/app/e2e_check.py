@@ -5,7 +5,7 @@
 計画 notes:docs/design/v1-check-build.md 2-3 の形の偽物(Playwright の route)で答える。動画は ffmpeg で作った webm を transcribe/media の偽物で返す。
 見るもの: 開く(帯 = 今日 n 件・この確認で決まる物・このあと・最初のカード)・URL の c / kind を口へ渡す / A で答える → 送った中身・すぐ次へ /
 Z で 1 つ前に戻す(undo の id・カードが戻る・今日の数)/ N で飛ばす(skip を送る・Z では戻らない)/ 答えのボタン = キーと同じ道 /
-読みのカード(1 / 2・3 で打って答える)/ 誰の声のカード = 再生が終わるまで Enter は効かない・自動で再生して区間で止まる・登録簿の人・混ざり・G(ゲーム音・BGM が大きい)/ 答えに 404 gone(戻さず次へ)/
+読みのカード(1 / 2・3 で打って答える)/ 誰の声のカード = 再生が終わるまで Enter は効かない・動画のある文書は映像つき・切り出した音は音だけ・自動で再生して区間で止まる・登録簿の人・混ざり・G(ゲーム音・BGM が大きい)/ 答えに 404 gone(戻さず次へ)/
 時刻のカード = 波形の帯・単語の時刻の候補・H と ← で端を動かして答える / 声ですか(speech)/ 自動カット(cut)の 3 つの問い /
 種類の切り替え(残りの枚数・覚える・URL の kind が先)/ 評価のレーン(lane=eval・まとめて文字起こし・区間カード)/ 10 件答えても止めない(答えた数・目標は端に)/
 全部答えた空の状態(back=cases なら案件へ戻る)/ 答えを記録できない(カードが戻る)・離れたら保留を確定 / 一覧を読めない(もう一度)・反映できなかった数 /
@@ -47,6 +47,14 @@ def make_video(path, sec=4):
                     "-f", "lavfi", "-i", "sine=frequency=440:duration=%s" % sec, "-shortest", "-pix_fmt", "yuv420p", "-c:v", "libvpx-vp9",
                     "-deadline", "realtime", "-cpu-used", "8", "-b:v", "200k", "-c:a", "libopus", path],
                    check=True, timeout=120, creationflags=tools.no_window_flags())
+    with open(path, "rb") as f:
+        return f.read()
+
+
+def make_wav(path, sec=3):
+    """切り出した行の音の形(16kHz・モノラル・16bit。human/proof/voiceclips と同じ)"""
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=300:sample_rate=16000:duration=%s" % sec,
+                    "-ac", "1", "-c:a", "pcm_s16le", path], check=True, timeout=60, creationflags=tools.no_window_flags())
     with open(path, "rb") as f:
         return f.read()
 
@@ -381,6 +389,33 @@ def _scene_voice_bgm_and_gone(cx):
         _restore_queue(cx)
 
 
+def _scene_voice_video_or_clip(cx):
+    """誰の声(ソロ)のカード: 元の動画がある文書は映像つき(transcribe/media の <video> に映像の大きさがある)・切り出した行の音(api/check/voiceclip)は
+    音だけ(映像の大きさ 0)で流れる(10-25: 0.99.207 から動画のある文書も音だけになっていた)。どちらの形を出すかは app/check/voice_solo(単体で確かめる)"""
+    pg, check = cx.pg, cx.check
+    opts = [{"id": "S1", "name": "ぺこら"}, {"id": "other", "name": "その他"}, {"id": "mixed", "name": "混ざり"}]
+    fv = FakeQueue([card(50, "voice", source="solo", options=opts, media={"url": "transcribe/media?id=a0000000000b", "start": 0.5, "end": 1.5, "pad": 0.2}),
+                    card(51, "voice", source="solo", options=opts, media={"url": "api/check/voiceclip?doc=a0000000000b&row=r51", "start": 1.0, "end": 2.0, "pad": 0.2})])
+    clip_re = re.compile(r".*/api/check/voiceclip.*")
+    _swap_queue(cx, fv)
+    cx.ctx.route(clip_re, lambda route: route.fulfill(status=200, body=cx.wav, headers={"Content-Type": "audio/wav", "Accept-Ranges": "none"}))
+    size = "(() => { const v = document.querySelector('#chkBody video'); return v && v.readyState >= 1 ? [v.videoWidth, v.videoHeight] : null; })()"
+    try:
+        pg.goto(cx.base + "check?kind=voice")
+        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:50'"), "声のカード(ソロ・動画あり)を開く: %s" % state(pg))
+        check(wait_js(pg, "(() => { const v = document.querySelector('#chkBody video'); return !!v && v.videoWidth > 0; })()", 10000),
+              "元の動画がある文書は映像つきで流れる: %s" % pg.evaluate(size))
+        press(pg, "1")
+        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:51'"), "次のカード(切り出した音): %s" % state(pg))
+        check(wait_js(pg, "(() => { const v = document.querySelector('#chkBody video'); return !!v && v.readyState >= 1 && v.src.includes('api/check/voiceclip'); })()", 10000)
+              and pg.evaluate("document.querySelector('#chkBody video').videoWidth") == 0, "切り出した音は音だけで流れる: %s" % pg.evaluate(size))
+        press(pg, "1")
+        check(wait_js(pg, "CheckShell.state().empty"), "全部答えた")
+    finally:
+        cx.ctx.unroute(clip_re)
+        _restore_queue(cx)
+
+
 def _swap_queue(cx, fq2, eval_routes=None):
     """api/check/ の偽物を fq2 に差し替える(戻すのは _restore_queue)。eval_routes = transcribe/api/drill/status・eval-batch の偽物(あれば)"""
     cx.ctx.unroute(re.compile(r".*/api/check/.*"))
@@ -600,6 +635,7 @@ def main():
 
     tmp = tempfile.mkdtemp(prefix="ytt-check-ui-")
     video = make_video(os.path.join(tmp, "v.webm"))
+    wav = make_wav(os.path.join(tmp, "clip.wav"))
     patches = [mock.patch.dict(os.environ, {"YTT_RUNTIME_DIR": os.path.join(tmp, ".runtime")})]
     for p in patches:
         p.start()
@@ -633,7 +669,7 @@ def main():
                 pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
                 pg.on("pageerror", lambda e: errors.append(str(e)))
                 pg.on("response", lambda r: bad_status.append("%s %s" % (r.status, r.url)) if r.status >= 400 else None)
-                cx = types.SimpleNamespace(pg=pg, check=check, fq=fq, base="http://127.0.0.1:%d/" % port, peaks_hits=peaks_hits, retime_hits=retime_hits, ctx=ctx)
+                cx = types.SimpleNamespace(pg=pg, check=check, fq=fq, base="http://127.0.0.1:%d/" % port, peaks_hits=peaks_hits, retime_hits=retime_hits, ctx=ctx, wav=wav)
                 _scene_open(cx)
                 _scene_answer_undo_skip(cx)
                 _scene_kinds(cx)
@@ -642,6 +678,7 @@ def main():
                 _scene_read_type(cx)
                 _scene_voice(cx)
                 _scene_voice_bgm_and_gone(cx)
+                _scene_voice_video_or_clip(cx)
                 _scene_speech(cx)
                 _scene_cut(cx)
                 _scene_kind_pick(cx)
