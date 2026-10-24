@@ -519,15 +519,16 @@ class Inbox:
         else:
             r.update(state="arrived", arrivedAt=now)
 
-    def resent(self, rid, run_id, auto=False):
+    def resent(self, rid, run_id, auto=False, retries=None):
         """失敗した行をもう一度送った(同じ行を「送った」に戻す。ユーザーの PC の行は依頼を上げ直す)。
-        auto = 自動のやり直し(回数を数える)/ 友人が押した = 数え直す(C-2-16)"""
+        auto = 自動のやり直し(回数を数える)/ 友人が押した = 数え直す(C-2-16)。retries = 自動のやり直しの回数をこの値にする(直しの版の 1 回だけ)"""
         with self.lock:
             r = self.row(rid)
             if r is None:
                 raise KeyError(rid)
+            n = retries if retries is not None else ((r.get("autoRetries") or 0) + 1 if auto else 0)
             r.update(state="sent", runId=run_id, error="", note="", failedAt=None, updatedAt=self._now_ms(),
-                     autoRetries=(r.get("autoRetries") or 0) + 1 if auto else 0, reportedAt=None if not auto else r.get("reportedAt"))
+                     autoRetries=n, reportedAt=None if not auto else r.get("reportedAt"))
             if r.get("pc") == "user":
                 r["remote"] = {"state": "pending", "uploadedAt": None}
             self._save()

@@ -118,6 +118,19 @@ class ReportTest(unittest.TestCase):
         self.assertTrue(any(n.endswith(".diag.json") for n in doc["diag"]))
         self.assertEqual([n.split("-", 1)[1] for n in self.locals()], ["request_end.state.json"])
 
+    def test_update_trigger_for_rollback_and_fetch_failure(self):
+        """前の版で起こした(rollback)・新しい版を取れない(同期の 更新)は trigger update(すぐ送る・stage rollback / update・codes unknown)"""
+        self.diag.write("rollback", summary="戻した")
+        self.diag.write("sync", summary="取れない", stage="更新")
+        self.rep.tick()
+        docs = [self.read(n) for n in self.states()]
+        self.assertEqual(sorted((d["trigger"], d["facts"].get("stage"), d["codes"][0]) for d in docs),
+                         [("update", "rollback", "unknown")])   # 同じきっかけは 5 分に 1 回
+        self.t[0] += 301
+        self.diag.write("sync", summary="取れない", stage="更新")
+        self.rep.tick()
+        self.assertIn("update", [self.read(n)["facts"].get("stage") for n in self.states()])
+
     def test_trouble_three_clicks(self):
         self.rep.ui_ops({"ops": [{"kind": "click", "target": "#btnSend", "at": int(NOW * 1000) - i * 1000} for i in (3, 2, 1)]})
         self.rep.tick()

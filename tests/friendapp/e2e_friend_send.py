@@ -9,16 +9,18 @@
       [取り消す](確認の窓)/ URL を貼って送る / 失敗(上の段 = 友人の言葉・下の段 = 詳しく)→ [もう一度送る] →
       録画中の配信のカード = 「録画しています」と [録画を取り消す](録画の部品は偽物)/ Esc で送る欄を閉じる /
       引き継ぎの印(偽の Dropbox)→ 行が「作る人の PC で作っています」・[もう一度送る] は二重に届くかもの確かめ /
-      動画ファイルを落とす(1 回で 1 つ・同じ物をもう一度でも 1 つのまま)
+      動画ファイルを落とす(1 回で 1 つ・同じ物をもう一度でも 1 つのまま)/ 更新の帯(重要な直しの [今すぐ]・溜まった更新の [今すぐ更新])
 外に作用する口は全部偽物(配信の一覧・oEmbed・配信中か・窓・フォルダ・Dropbox・exe)。待ちは「表示されるまで待つ」。
 """
 import os
+import shutil
 import sys
 import time
 
 from playwright.sync_api import expect, sync_playwright
 
 from friend_e2e_kit import CHANNEL, WAIT, Rig, check, wait_until
+from friendapp import upgrade as up_mod
 
 V_ARCH, V_LIVE, V_URL, V_TAKE = "e2eArchive1", "e2eLiveNow1", "e2eUrlPaste", "e2eTakeovr1"
 T_ARCH, T_LIVE, T_URL = "テストの配信(アーカイブ)", "テストの配信(ライブ中)", "貼った URL の配信"
@@ -231,6 +233,46 @@ def main():
                 expect(row.locator(".hint", has_text="元の動画を動かさないでください")).to_be_visible(timeout=WAIT)
                 ok &= check(True, "写しを取れなかった依頼の行に「元の動画を動かさないでください」が出る")
                 rig.app.inbox.drop(keep_rid)
+
+                # 9. 更新の帯: 重要な直しを待っている間は「大事な直しが届きました…」と [今すぐ]・24 時間溜まった更新は「更新が溜まっています」と [今すぐ更新]
+                newer = "999.0.0"
+                for d in (os.path.join("src", "friendapp"), "python"):
+                    os.makedirs(os.path.join(rig.places["home"], "app-" + newer, d), exist_ok=True)
+                for f in (os.path.join("src", "friendapp", "server.py"), os.path.join("python", "python.exe")):
+                    open(os.path.join(rig.places["home"], "app-" + newer, f), "w").close()
+                os.environ["YTT_FRIEND_HOST"] = "webview2"   # exe の窓の中の形(帯の [今すぐ] は exe が入れ替えるときだけ)
+                os.environ["YTT_FRIEND_AUTO_UPDATE"] = "0"
+                up = rig.app.upgrade
+                try:
+                    rig.app.sync.state["latest"] = {"version": newer, "important": True, "fixes": {"requests": [], "kinds": []}, "cancel": []}
+                    up.wait_code = lambda st, v: "busy"   # 作っている 1 本が終わるのを待っている
+                    up.tick()
+                    pg.evaluate("window.FriendUpdate.refresh()")
+                    band = pg.locator("[data-fr-update]")
+                    expect(band).to_contain_text("大事な直しが届きました。今の処理が終わったら更新します", timeout=WAIT)
+                    band.get_by_role("button", name="今すぐ", exact=True).click()
+                    expect(band.get_by_role("button", name="今すぐ", exact=True)).to_have_count(0, timeout=WAIT)
+                    ok &= check(up.now_pressed and "に更新します" in band.text_content(), "重要な直しの帯の [今すぐ] で入れ替えを頼む(録画中だけは待つ): %s" % band.text_content())
+                    up.now_pressed, rig.app.update_requested = False, False
+                    rig.app.sync.state["latest"]["important"] = False
+                    up.state.setdefault("seen", {})[newer] = int((time.time() - up_mod.OVERDUE_SEC - 60) * 1000)
+                    pg.evaluate("window.FriendUpdate.refresh()")
+                    expect(band).to_contain_text("更新が溜まっています", timeout=WAIT)
+                    ok &= check(band.get_by_role("button", name="今すぐ更新").count() == 1, "24 時間入れ替えられない更新は「更新が溜まっています [今すぐ更新]」")
+                    rig.app.sync.state["latest"]["notes"] = [{"v": newer, "at": int(time.time() * 1000), "items": ["録画が止まる不具合を直しました"]}]
+                    pg.evaluate("window.FriendSettings.open()")
+                    notes = pg.locator("#settingsDrawer section", has_text="最近の更新")
+                    expect(notes).to_contain_text("録画が止まる不具合を直しました", timeout=WAIT)
+                    ok &= check(("版 " + newer) in notes.text_content(), "⚙ の「最近の更新」に配った版の直したことが出る(知らせ・印は出さない)")
+                    pg.keyboard.press("Escape")
+                finally:
+                    os.environ.pop("YTT_FRIEND_HOST", None)
+                    os.environ.pop("YTT_FRIEND_AUTO_UPDATE", None)
+                    rig.app.sync.state.pop("latest", None)
+                    del up.wait_code
+                    up.now_pressed, rig.app.update_requested = False, False
+                    shutil.rmtree(os.path.join(rig.places["home"], "app-" + newer), ignore_errors=True)
+                    pg.evaluate("window.FriendUpdate.refresh()")
 
                 # 6. 動画ファイルを落とす: 1 回で 1 つ・同じ物をもう一度でも 1 つのまま(落とす所が入れ子でも二重にならない)
                 drop_js = """(n) => {
