@@ -271,3 +271,69 @@ def tick(app_dir, roster_r, counts, busy, start_job, log, now=None, rss=None, fe
     log("誰の声の材料(YouTube): %s の「%s」(%s)の %d〜%d 秒の音を取りました(配信の材料 %d 本目・まだ %d 本に届かない人 %d 人)"
         % (who, it["title"][:40], it.get("month") or "月不明", SECTION[0], SECTION[1], _have(who, counts, state), TARGET, len(todo) - (1 if _have(who, counts, state) >= TARGET else 0)))
     return who
+
+
+# ---------------------------------------------------------------- 研究が取った元の配信の音(10-25 ユーザー「1 回の取得で 2 つの目的」)
+INBOX_NAME = "voice-inbox"     # <app>/check/voice-inbox/: 研究(overlap-research の m2)が当て終えた元の配信の音 <動画 id>.<拡張子> と meta <動画 id>.json を置く
+AUDIO_EXTS = (".m4a", ".opus", ".webm", ".wav", ".mp3", ".mp4", ".mkv", ".ogg", ".aac")
+MAX_META = 64 * 1024
+
+
+def _pseudo(who, title):
+    """ソロの見分け(flow/voicematerial.solo_person)に通す仮の文書(話者 = 配信者 1 人・題名)"""
+    return {"title": title, "sourceName": "", "speakers": [{"id": "S1", "name": who}], "segments": []}
+
+
+def intake(app_dir, roster_r, start_job, log, extra=None, now=None):
+    """研究の置き場の音を拾う: 日本の対象のメンバーのソロ(題名・名簿・solo_person)だけ自分の置き場へ移して文字起こしに頼み、取った配信に数える。
+    ほかは消す(研究の置き場を大きくしない)。meta(<id>.json)のある物だけ(音 → meta の順に書かれる)。-> 拾った数"""
+    box = os.path.join(app_dir, "check", INBOX_NAME)
+    try:
+        names = sorted(os.listdir(box))
+    except OSError:
+        return 0
+    chan_of = {c: n for n, c in members(roster_r, extra)}   # 日本の対象のチャンネル -> 名前
+    st_path = os.path.join(app_dir, "check", STATE_NAME)
+    state = _read(st_path)
+    took = 0
+    for meta_name in [n for n in names if n.endswith(".json")]:
+        vid = meta_name[:-5]
+        mp = os.path.join(box, meta_name)
+        audio = next((os.path.join(box, n) for n in names if n.startswith(vid + ".") and n.lower().endswith(AUDIO_EXTS)), None)
+        try:
+            meta = fsio.read_json_or(mp, {}, kind=dict) if os.path.getsize(mp) <= MAX_META else {}
+        except OSError:
+            continue
+        title = str(meta.get("title") or "")[:200]
+        who = chan_of.get(str(meta.get("channel") or "")) or (_vm.member(meta.get("streamer")) if _vm.member(meta.get("streamer")) in chan_of.values() else None)
+        why = ("動画の id の形" if not VIDEO_RE.match(vid) else "音が無い" if not audio else "日本の対象のメンバーでない" if not who
+               else "評価用" if "評価用" in title else "歌" if _vm.song_title(title) else "ショート" if SHORT_RE.search(title)
+               else "ソロでない" if _vm.solo_person(_pseudo(who, title)) != who else "")
+        rec = state.setdefault(who, {"tried": []}) if who else None
+        if not why and vid in {x.get("video") for x in _got(rec)}:
+            why = "もう取った配信"
+        if why:
+            log("誰の声の材料(研究の音): %s を使いませんでした(%s)" % (vid, why))
+        else:
+            folder = os.path.join(app_dir, "check", DIR_NAME, who)
+            os.makedirs(folder, exist_ok=True)
+            safe = re.sub(r'[\/:*?"<>|\x00-\x1f]', "_", title)[:60]
+            dst = os.path.join(folder, "%s_%s_%s%s" % (who, vid, safe, os.path.splitext(audio)[1].lower()))
+            try:
+                os.replace(audio, dst)
+                audio = None
+                rec["got"] = _got(rec)
+                one = {"path": dst, "video": vid, "month": (lambda d: d[:4] + "-" + d[4:6] if len(d) >= 6 else "")(str(meta.get("uploadDate") or "")),
+                       "title": title, "at": int(time.time() if now is None else now), "by": "research"}
+                one["job"] = start_job({"sourcePath": dst, "autoLlm": False, "title": "%s %s" % (who, title[:150])})
+                rec["got"].append(one)
+                took += 1
+                log("誰の声の材料(研究の音): %s の「%s」を文字起こしに頼みました" % (who, title[:40]))
+            except Exception as e:   # noqa: BLE001  (頼めなければ消す = 研究の置き場を残さない。取り直しはこちらの取得が埋める)
+                log("誰の声の材料(研究の音): %s を頼めませんでした(%s)" % (vid, str(e)[:120]))
+        for p in (audio, mp):
+            if p:
+                fsio.unlink_quiet(p)
+    if took:
+        fsio.write_json(st_path, state, indent=None)
+    return took

@@ -1274,9 +1274,11 @@ class PortalServer(httpsec.ExclusiveServer):
                 r = _vm.roster_data()
                 if not r:
                     continue
+                extra = check_voicefetch.extra_channels(self.sup.root)
+                check_voicefetch.intake(self.cleanup.app_dir, r, lambda req: client().ok("transcribe", "POST", "/api/transcribe", req).get("id"),
+                                        self.sup.log, extra=extra)   # 研究が取った元の配信の音(1 回の取得で 2 つの目的。10-25)
                 view = check_sources.View(self.check_ctx(), check_answerlog.state(self.cleanup.app_dir))
                 counts = check_voice_solo.stream_counts(view)   # 配信の材料の本数(ショートだけでは足りない。10-25)
-                extra = check_voicefetch.extra_channels(self.sup.root)
                 self._voice_fetch_wants = check_voicefetch.wants(self.cleanup.app_dir, r, counts, extra=extra)
                 if not self._voice_fetch_wants or busy():
                     continue

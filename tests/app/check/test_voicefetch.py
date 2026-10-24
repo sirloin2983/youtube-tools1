@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _checkkit as kit  # noqa: E402
@@ -70,6 +71,29 @@ class VoiceFetchTest(unittest.TestCase):
         self.assertEqual(dict(VF.members(r, {"轟はじめ": "UC" + "e" * 22}))["轟はじめ"], "UC" + "e" * 22)
         got = VF.extra_channels(os.path.dirname(kit.ROOT))   # リポジトリの本物の控え
         self.assertTrue(got and all(VF.CHANNEL_RE.match(c) for c in got.values()))
+
+    def test_intake_from_research(self):
+        """研究が置いた元の配信の音: 日本の対象のソロだけ自分の置き場へ移して頼み、取った配信に数える。ほかは消す(10-25)"""
+        box = os.path.join(self.app, "check", VF.INBOX_NAME)
+        os.makedirs(box)
+
+        def put(vid, meta, audio=True):
+            if audio:
+                open(os.path.join(box, vid + ".m4a"), "wb").close()
+            with open(os.path.join(box, vid + ".json"), "w", encoding="utf-8") as f:
+                json.dump(dict(meta, videoId=vid), f, ensure_ascii=False)
+        put("RRRRRRRRRR1", {"channel": "UC" + "b" * 22, "title": "【雑談】ゆっくり", "uploadDate": "20260901"})   # ロボ子さん
+        put("RRRRRRRRRR2", {"channel": "UC" + "a" * 22, "title": "【歌枠】うたう"})                         # 歌
+        put("RRRRRRRRRR3", {"channel": "UC" + "d" * 22, "title": "chatting"})                                # IRyS = EN
+        put("RRRRRRRRRR4", {"channel": "UC" + "a" * 22, "title": "【雑談】ロボ子さんと"})                    # 題名にほかのメンバー
+        put("RRRRRRRRRR5", {"channel": "UC" + "a" * 22, "title": "まだ書いている"}, audio=False)
+        from pipeline.transcribe import roster
+        with mock.patch.object(roster, "ROSTER", roster.BUNDLED):   # ソロの見分けは名簿を使う
+            self.assertEqual(VF.intake(self.app, R, lambda req: self.jobs.append(req) or "j", self.logs.append), 1, self.logs)
+        self.assertEqual(os.listdir(box), [])                                        # 研究の置き場には残さない
+        self.assertIn("ロボ子さん", os.path.basename(self.jobs[-1]["sourcePath"]))
+        self.assertTrue(voicefill.in_learn_dir(self.jobs[-1]["sourcePath"]))
+        self.assertEqual(self.tick(counts={"ときのそら": 0}), "ときのそら")          # 研究の分で入ったロボ子さんは後ろへ
 
     def test_bot_stops_the_day(self):
         got = self.tick(fetch=lambda vid, base: (None, "ERROR: Sign in to confirm you're not a bot"))
