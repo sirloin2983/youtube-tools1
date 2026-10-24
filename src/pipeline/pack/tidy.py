@@ -5,7 +5,7 @@
   間     … 声の中央より QUIET_DB 以上静かな所が GAP 秒以上続く所
   残す   … 言い終わりの後に TAIL 秒(余韻)・話し始めの前に HEAD 秒(息)を残して、真ん中を削る(友人の切れ目のつなぎ目の無音 中央 0.04 / 90% 0.20 秒)
 守り(言葉の頭と終わりを欠かない):
-  - 単語(文字起こしの単語の時刻)の範囲のうち声のあるこま(声の中央から GUARD_DB 以内)は削らない。長さ 0 の単語はその時刻の前後 ZERO_PAD 秒
+  - 単語(文字起こしの単語の時刻)の範囲のうち声のあるこま(声の中央から GUARD_DB 以内)は削らない。長さ 0 の単語はその時刻の前後 ZERO_PAD 秒の中の声のあるこま
     (単語の時刻は後ろの無音まで含んで長く付くことがある = 範囲をそのまま守ると間を詰められない。声の無い部分は下の音の守りに任せる)
   - 削る所に、声の中央から GUARD_DB 以内の音(小さい声・息・語尾のかすれ)が GUARD_RUN 秒以上続けば、その間は詰めない
 声の中央 = 単語のある所の 20 ms の音量(RMS)の中央値。音は edge_pause の levels(20 ms ごとの dB)・pauses を使う。
@@ -68,9 +68,8 @@ def drops(video, words, lo, hi):
         return False
     guard = []
     for a, b, _t in ws:
-        if b - a < E.HOP:
-            guard.append((a - ZERO_PAD, b + ZERO_PAD))
-            continue
+        if b - a < E.HOP:   # 長さ 0: 前後 ZERO_PAD 秒に声があるときだけ(無音の中に付いた時刻の怪しい単語で間を分けない)
+            a, b = a - ZERO_PAD, b + ZERO_PAD
         for i in range(at(a), max(at(a) + 1, at(b))):
             if i < len(db) and db[i] >= lv - GUARD_DB:
                 guard.append((lo + i * E.HOP, lo + (i + 1) * E.HOP))
