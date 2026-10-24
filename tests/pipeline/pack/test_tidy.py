@@ -56,5 +56,18 @@ class TidyTest(unittest.TestCase):
         self.assertEqual(T.keeps(0.0, 4.0, [(1.08, 2.92, "pause")]), [(0.0, 1.08), (2.92, 4.0)])
 
 
+class TidyRequestTest(unittest.TestCase):
+    def test_request_mode_tidy_keeps_clip_range(self):
+        """まとめて実行のカットの方法 tidy(spec.mode "tidy"・words): 区間 = clipRange の中だけを詰めて残す区間にする"""
+        from pipeline.pack import request as R, srt2resolve as S
+        voice = [(0.0, 3.0), (5.0, 9.0)]
+        with mock.patch.object(S, "probe", lambda v, *a, **k: {"fps": (30, 1), "total": 300}), \
+                mock.patch.object(E, "levels", lambda video, a, b: db_of([(x - a, y - a) for x, y in voice], b - a)), \
+                mock.patch.object(R, "input_path", lambda v, f: v):
+            req = R.request_from_spec({"video": "v.mp4", "mode": "tidy", "clipRange": [1.0, 9.0],
+                                       "words": [[1.2, 2.5, "今日は"], [5.2, 8.0, "ゲーム"], "壊れた単語"]})
+        self.assertEqual(req.keep_pairs, [(1.0, round(3.0 + T.KEEP, 3)), (round(5.0 - T.KEEP, 3), 9.0)])
+
+
 if __name__ == "__main__":
     unittest.main()

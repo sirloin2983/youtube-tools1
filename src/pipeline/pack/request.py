@@ -22,6 +22,7 @@ MEDIA_EXTS = {".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi", ".mxf", ".ts", ".
 # 指定を省いたときの値(正は pack.Request の既定と cut2resolve_core の DEFAULT_*。コマンドも同じものを読む)
 _REQ = {f.name: f.default for f in dataclasses.fields(pack.Request)}
 DEFAULTS = {"noise": _REQ["noise"], "silenceMin": _REQ["silence_min"], "silencePad": _REQ["silence_pad"], "minLen": _REQ["min_len"]}
+MAX_WORDS = 200000   # spec.words の数の上限(単語の時刻。10 時間の配信でも足りる)
 
 # ---------------------------------------------------------------- 入力のパス
 
@@ -128,8 +129,10 @@ def request_from_spec(spec):
         return pack.Request(video=video, sub=sub, transcript=tr, keep_pairs=keeps_from_spec(spec.get("keeps")),
                             **pack.EDIT_KEEPS, **advanced_from_spec(spec))
     mode = spec.get("mode") or "silence"
-    if mode not in ("silence", "keep", "list"):
+    if mode not in ("silence", "keep", "list", "tidy"):
         raise ApiError("bad_value", "カットの決め方が正しくありません")
+    if mode == "tidy":
+        return _tidy_request(spec, video, sub, tr)
     sil = spec.get("silence") if isinstance(spec.get("silence"), dict) else {}
     noise = _num(sil.get("noise"), "無音とみなす音量", -90, 0, DEFAULTS["noise"])
     smin = _num(sil.get("min"), "無音の長さ", 0.05, 60, DEFAULTS["silenceMin"])
@@ -198,6 +201,30 @@ def advanced_from_spec(spec):
     return {"fps": _str(adv.get("fps"), "フレームレート", 20) or None,
             "frames": None if frames in (None, "") else _num(frames, "フレーム数", 1, 10**9, integer=True),
             "name": _str(adv.get("name"), "EDL のタイトル", 200) or None}
+
+
+def words_from_spec(v):
+    """spec.words = [[開始秒, 終了秒, 文字], ...](② が文字起こしの単語の時刻 *.words.json から送る)の検査。形の違う単語は捨てる"""
+    if not isinstance(v, list) or len(v) > MAX_WORDS:
+        raise ApiError("bad_words", "単語の時刻(words)は %d 個までの並びにしてください" % MAX_WORDS)
+    return [[float(w[0]), float(w[1]), w[2][:40]] for w in v
+            if isinstance(w, list) and len(w) == 3 and C.num(w[0]) is not None and C.num(w[1]) is not None and isinstance(w[2], str)]
+
+
+def _tidy_request(spec, video, sub, tr):
+    """mode tidy: 言いよどみと長い間を詰める(pipeline/pack/tidy。② のまとめて実行のカットの方法 tidy)。
+    区間 = clipRange(余白つきの動画のマークの区間)か動画全体。単語が無い・削る所が無ければ区間の全体"""
+    from . import tidy
+    words = words_from_spec(spec.get("words"))
+    try:
+        meta = S.probe(video)
+    except S.ToolError as e:
+        raise ApiError("bad_video", str(e))
+    dur = meta["total"] * meta["fps"][1] / meta["fps"][0]
+    lo, hi = clip_range_from_spec(spec) or (0.0, dur)
+    hi = min(hi, dur)
+    keeps = tidy.keeps(lo, hi, tidy.drops(str(video), words, lo, hi)) or [(lo, hi)]
+    return pack.Request(video=video, sub=sub, transcript=tr, keep_pairs=keeps, **pack.EDIT_KEEPS)
 
 
 def keeps_from_spec(v):

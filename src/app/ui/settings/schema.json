@@ -7,7 +7,7 @@
     { "id": "home", "title": "ホーム", "store": "home", "groups": [
       { "id": "autorun", "title": "まとめて実行の既定", "hint": "案件の行の「設定を変える」で変えた値も、ここと同じ既定になります(どこで変えても同じ)。パックの画面の大きさ(縦・横)は下の「パック」で。ほかの出力は決まった形(30fps・音量 -14 LUFS・話者の色・行の後の余白 0.2 秒)。", "items": [
         { "key": "autorun.top", "type": "int", "label": "採用する数(解析から全部のとき)", "default": 3, "min": 1, "max": 20, "unit": "本" },
-        { "key": "autorun.cut", "type": "enum", "label": "カットの方法", "default": "none", "options": [["rows", "行から(文字起こしの行を残す)"], ["none", "カットしない(動画全体)"], ["silence", "無音で削る"]], "hint": "カットを決めてある文書は、そのカットのとおり。無音の細かい値は「パック」の「無音で削る」で。" },
+        { "key": "autorun.cut", "type": "enum", "label": "カットの方法", "default": "none", "options": [["rows", "行から(文字起こしの行を残す)"], ["tidy", "言いよどみと長い間を詰める"], ["none", "カットしない(動画全体)"], ["silence", "無音で削る"]], "hint": "カットを決めてある文書は、そのカットのとおり。無音の細かい値は「パック」の「無音で削る」で。" },
         { "key": "autorun.overwrite", "type": "bool", "label": "パックがあれば作り直す(上書き)", "default": false },
         { "key": "autorun.onFail", "type": "enum", "label": "1 本が失敗したとき", "default": "next", "options": [["next", "残りを続ける"], ["stop", "そこで止める"]] },
         { "key": "autorun.friendLength", "type": "bool", "label": "友人の依頼の候補の長さは、友人の区間の記録から決める", "default": true, "hint": "オフにすると、スタジオの既定の長さを使います。" }

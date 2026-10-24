@@ -51,7 +51,7 @@ import threading
 import time
 import uuid
 
-from ytt import colors, fsio as _fsio, jobs as _slots, schemas as _schemas, tools as _ytools
+from ytt import colors, fsio as _fsio, jobs as _slots, schemas as _schemas, tools as _ytools, txwords as _txwords
 from pipeline.analyze import excite as _excite   # 埋めた候補の理由の文(FILL_REASON)を数えるだけ
 from . import batch as _batch   # 解析の順番の断りの種類(queued_already)
 from . import envelope as _envelope, keys as _keys, order as _order, normalize as _norm, placement as _placement, prio as _prio, spec as _spec, tools as _tools
@@ -1441,6 +1441,8 @@ class Runner:
                 spec = {"video": media, "transcript": tr.get("path"), "mode": "list", "listKind": "drop", "listText": "", "dropCutRows": False, "minLen": 0}
             elif method == "silence":   # 無音で削る(値は編集の設定 cutSilence。無ければ cut2resolve の既定)
                 spec = {"video": media, "transcript": tr.get("path"), "mode": "silence", "silence": cut_silence}
+            elif method == "tidy":   # 言いよどみと長い間を詰める(① pipeline/pack/tidy。材料 = 文字起こしの単語の時刻。無ければ区間の全体)
+                spec = {"video": media, "transcript": tr.get("path"), "mode": "tidy", "words": _txwords.read_words(doc["id"]) or []}
             else:
                 spec = {"video": media, "transcript": tr.get("path"), "preset": "transcript-rows"}
                 if isinstance(row_edge, (bool, dict)):

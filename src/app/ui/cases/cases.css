@@ -140,6 +140,7 @@
 .tt-x{position:absolute;top:6px;height:52px;border-radius:6px;cursor:pointer;box-sizing:border-box;
   background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--danger) 26%,transparent) 0 6px,transparent 6px 12px);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--danger) 30%,transparent)}
 .tt-x.sel{outline:2px dashed var(--danger);outline-offset:1px}
+.tt-x-tidy{background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--warn) 30%,transparent) 0 6px,transparent 6px 12px);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--warn) 40%,transparent)}   /* 言いよどみと長い間を詰めた所(自動の印) */
 .tt-s{position:absolute;top:5px;height:24px;border-radius:5px;padding:0 6px;font:12px/24px var(--font);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   background:color-mix(in srgb,var(--info) 12%,var(--panel));border:1px solid color-mix(in srgb,var(--info) 35%,transparent);color:var(--ink);cursor:pointer;box-sizing:border-box}
 .tt-s.cut{opacity:.45;text-decoration:line-through}

@@ -46,7 +46,7 @@ NAME_MAX = 60
 KEY_MAX = 120
 SECTIONS = ("autorun", "streamer", "keymap", "intake", "backup", "hidden", "live", "accuracy")
 PATCHABLE = ("autorun", "keymap", "intake", "backup", "live", "accuracy")
-CUT_METHODS = ("rows", "none", "silence")
+CUT_METHODS = ("rows", "tidy", "none", "silence")
 ON_FAIL = ("next", "stop")
 STREAMER_KINDS = ("docs", "videos", "channels")
 # 非表示にできる一覧(UIKit.hide の list と同じ名前): 案件(ホーム。配信の id)・次にやること(ホーム。"<種類>:<id>")・

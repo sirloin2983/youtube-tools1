@@ -58,8 +58,8 @@ class TestPack(unittest.TestCase):
         """たたき台の重い処理は順番待ちの札を通す(ほかの重い処理と並ぶ状態は通しでは作れない)"""
         seen = {}
 
-        def fake(doc, version, rows=True, row_edge=None, heavy=None):
-            seen.update(version=version, rows=rows, row_edge=row_edge, heavy=heavy)
+        def fake(doc, version, rows=True, row_edge=None, heavy=None, words=None, form="auto"):
+            seen.update(version=version, rows=rows, row_edge=row_edge, heavy=heavy, form=form)
             return {}
         with mock.patch.object(pack.resolve_export, "edit_draft", fake):
             pack.cut_draft(DOC, rows=True, row_edge={"x": 1})

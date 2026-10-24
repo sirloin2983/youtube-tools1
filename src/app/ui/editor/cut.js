@@ -33,7 +33,7 @@ function create(h){
   /* 文書ごとの状態(作るときと reset で同じ値。タブの見た目の状態 = 倍率 pps・吸着 snap・表示 mode・shown・seekingOut・読み込みの番号 loading は文書を替えても残す) */
   const fresh = docId => ({ docId, loaded: false, fps: null, dur: 0, total: 0, clips: [], rev: 0, origin: 'manual', pristine: true, off: '', offCode: '', sel: null, edge: null,
     io: { i: null, o: null }, undo: [], redo: [], dirty: false, saving: null, conflict: null, saveT: 0, peaks: null, peaksAudio: true, peaksMsg: '', silence: [],
-    planBeside: '', draftBusy: false, lastDraftSig: '', draft: null, fit: true, mediaFor: null, drag: null, rdrag: null, rowFlags: [] });
+    planBeside: '', draftBusy: false, lastDraftSig: '', draft: null, drops: [], fit: true, mediaFor: null, drag: null, rdrag: null, rowFlags: [] });
   const M = { ...fresh(null), loading: 0, peaksRate: 100, pps: 0, snap: true, vis: [0, 0], mode: 'cut', shown: false, seekingOut: false };
   const V = () => $('#cutPlayer');
   /* ---------- フレームと秒 ---------- */
@@ -165,6 +165,7 @@ function create(h){
     M.total = Math.max(1, Math.round(M.dur * M.fps[0] / M.fps[1]));
     if (e){
       M.rev = ed.rev; M.origin = e.origin || 'manual'; M.pristine = false; M.untouched = !!e.draftUntouched;
+      if (e.draft && e.draft.origin === 'tidy'){ const k = e.draft.keepsSec || []; M.drops = k.slice(1).map(([a], i) => [k[i][1], a, 'auto']); }   // 開き直しても、言いよどみと間を詰めた所の印を残す
       M.clips = norm(e.clips.map(c => [s2f(c.in), s2f(c.out)]));
       if (dr){   // 動画の長さが変わった(同じパスの動画を書き出し直した): 後ろの区間を切って知らせる
         const over = M.clips.some(([, b]) => b > M.total + 1);
@@ -196,7 +197,7 @@ function create(h){
   /* 始めたたき台の記録(マスタープラン Q2。機械の最初の結果 = たたき台と、人の最終 = 保存したカット・パックを並べて、たたき台の規則を直すため)。
      まだ1回も保存していない間は、最後に作ったたたき台(種類・設定・区間の秒)を覚えておき、初めての保存に添える。保存済みのカットがあれば送らない */
   /* たたき台の応答(api/edit/draft の keepsSec・base)を区間にする(開いたとき・行が変わったときの作り直し) */
-  function takeDraft(r){ M.clips = norm(r.keepsSec.map(([a, b]) => [s2f(a), s2f(b)])); M.origin = r.base === 'rows' ? 'rows' : 'all'; noteDraft(M.origin, r.keepsSec, M.origin === 'rows' ? edgeSetting() : {}); }
+  function takeDraft(r){ M.clips = norm(r.keepsSec.map(([a, b]) => [s2f(a), s2f(b)])); M.origin = r.base === 'rows' || r.base === 'tidy' ? r.base : 'all'; M.drops = r.drops || []; noteDraft(M.origin, r.keepsSec, M.origin === 'rows' ? edgeSetting() : {}); }
   /* たたき台のまま(手で直していない)= 行が変わったら「行から」を作り直してよい */
   const redraftable = () => M.pristine && (M.origin === 'rows' || M.origin === 'all');
   function noteDraft(origin, keepsSec, settings){
@@ -268,6 +269,21 @@ function create(h){
       for (const w of (r.warnings || []).slice(0, 2)) h.toast(w, 7000);
       noteDraft(r.base === 'rows' ? 'rows' : 'all', r.keepsSec, r.base === 'rows' ? edgeSetting() : {});
       applyKeeps(r.keepsSec, 'rows', r.base === 'rows' ? '文字起こしの行から' : '(残す行が無いので)動画全体');
+    } catch (e){ h.toast('たたき台を作れませんでした: ' + e.message, 6000, 'err'); }
+    finally { M.draftBusy = false; renderTools(); }
+  }
+  /* 言いよどみと長い間を詰める(pipeline/pack/tidy。話した言葉は全部残す。材料 = 文字起こしの単語の時刻。削った所はタイムラインに印 = 選んで Del で戻す) */
+  async function draftTidy(){
+    if (!editable() || M.draftBusy) return;
+    if (!(await confirmReplace())) return;
+    M.draftBusy = true; renderTools();
+    try {
+      const r = await h.api('/api/edit/draft?tidy=1&id=' + encodeURIComponent(M.docId));
+      if (r.unavailable) return h.toast(r.unavailable.message, 6000, 'err');
+      if (r.base !== 'tidy') return h.toast('単語の時刻が無いので作れません(文字起こしし直すと作れます)。今のカットはそのままです', 7000, 'err');
+      M.drops = r.drops || [];
+      noteDraft('tidy', r.keepsSec, {});
+      applyKeeps(r.keepsSec, 'tidy', '言いよどみと長い間を詰めた');
     } catch (e){ h.toast('たたき台を作れませんでした: ' + e.message, 6000, 'err'); }
     finally { M.draftBusy = false; renderTools(); }
   }
@@ -418,8 +434,11 @@ function create(h){
   }
   /* 見えている所(前後に1画面ずつ)だけ描く(区間・字幕が数千あっても重くしない) */
   const clipHTML = (a, b, i) => `<div class="tt-k" data-i="${i}" style="left:${X(a)}px;width:${Math.max(1, X(b) - X(a))}px" title="残す区間 ${fmtF(a)}〜${fmtF(b)}(${fmtF(b - a)})"></div>`;
-  const gapsHTML = () => gaps().filter(([a, b]) => !(b < M.vis[0] || a > M.vis[1])).map(([a, b]) =>
-    `<div class="tt-x" data-a="${a}" data-b="${b}" style="left:${X(a)}px;width:${Math.max(1, X(b) - X(a))}px" title="削る区間 ${fmtF(a)}〜${fmtF(b)}。選んで Del で戻す"></div>`).join('');
+  /* 削る区間が「言いよどみと長い間を詰める」のたたき台の削った所なら印(色と名前) */
+  const DROP_NAMES = { pause: '長い間を詰めた所', filler: '言いよどみ', auto: '言いよどみか長い間を詰めた所' };
+  const dropKind = (a, b) => { const d = M.drops.find(([x, y]) => Math.abs(s2f(x) - a) <= 1 && Math.abs(s2f(y) - b) <= 1); return d ? d[2] : ''; };
+  const gapsHTML = () => gaps().filter(([a, b]) => !(b < M.vis[0] || a > M.vis[1])).map(([a, b]) => { const k = dropKind(a, b);
+    return `<div class="tt-x${k ? ' tt-x-tidy' : ''}" data-a="${a}" data-b="${b}" style="left:${X(a)}px;width:${Math.max(1, X(b) - X(a))}px" title="${k ? DROP_NAMES[k] + '(自動)' : '削る区間'} ${fmtF(a)}〜${fmtF(b)}。選んで Del で戻す"></div>`; }).join('');
   function renderRange(){
     const sc = scroller(), l = sc.scrollLeft, w = viewW();
     const f0 = Math.max(0, s2f((l - w) / M.pps)), f1 = s2f((l + 2 * w) / M.pps);
@@ -698,7 +717,7 @@ function create(h){
     }
     const snapTo = M.snap ? '吸い付く先: 字幕の行の端・無音の境目・再生位置・隣の区間の端(Alt を押している間は吸い付かない)' : '吸着: 切';
     st.innerHTML = `<span>残す <b>${n}区間</b></span><span>カット後 <b class="mono">${fmtF(kf)}</b> / 元 <span class="mono">${h.fmtCs(M.dur)}</span></span>${sel ? `<span>${sel}</span>` : ''}<span class="hint">${snapTo}</span>` +
-      (M.origin && M.pristine ? `<span class="hint">(${M.origin === 'rows' ? '文字起こしの行から作ったたたき台' : '動画全体のたたき台'}。手で直すと保存します)</span>`
+      (M.origin && M.pristine ? `<span class="hint">(${({ rows: '文字起こしの行から作ったたたき台', tidy: `言いよどみと長い間を詰めたたたき台(詰めた所 ${M.drops.length} か所 = 色の違う印)` })[M.origin] || '動画全体のたたき台'}。手で直すと保存します)</span>`
         : M.origin === 'whole' && M.clips.length === 1 ? '<span class="hint">(カットしない = 動画全体)</span>' : '') +
       (n > 0 ? '<button type="button" class="btn small ui-next-btn tt-cut-next" data-act="topack" title="カットを決めたら、下の「パック」で Resolve へ渡すパックを作ります">パックを作る</button>' : '');   // 次の一手(M6)
   }
@@ -1044,7 +1063,7 @@ function create(h){
       else if (b.dataset.act === 'cutrow' || b.dataset.act === 'keeprow'){ const want = b.dataset.act === 'cutrow'; if (!!M.rowFlags[i] !== want) rowsCut([i], want); }   // 押した側の状態に(M1)
     });
     for (const [id, fn] of [['#cutPlay', togglePlay], ['#cutSplit', split], ['#cutDel', delOrRestore], ['#cutIO', cutIO], ['#cutUndo', () => h.doUndo()], ['#cutRedo', redo],
-      ['#cutZoomIn', () => zoom(1.5)], ['#cutZoomOut', () => zoom(1 / 1.5)], ['#cutZoomFit', () => { M.fit = true; render(); }], ['#cutDraftRows', draftRows], ['#cutNone', draftWhole],
+      ['#cutZoomIn', () => zoom(1.5)], ['#cutZoomOut', () => zoom(1 / 1.5)], ['#cutZoomFit', () => { M.fit = true; render(); }], ['#cutDraftRows', draftRows], ['#cutDraftTidy', draftTidy], ['#cutNone', draftWhole],
       ['#cutDraftSilenceGo', () => draftC2R('silence')], ['#cutDraftListGo', () => draftC2R('list')], ['#cutDraftPlan', () => draftC2R('plan')], ['#cutReload', reloadFromServer]]) $(id).addEventListener('click', fn);
     $('#cutSplitText').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing){ e.preventDefault(); commitSplit(); } });   // Enter = 分ける(暗黙の送信に頼らない)
     $('#cutSnap').addEventListener('change', e => { M.snap = e.target.checked; renderStatus(); });
