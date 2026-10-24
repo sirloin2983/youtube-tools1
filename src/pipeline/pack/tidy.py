@@ -7,7 +7,8 @@
 守り(言葉の頭と終わりを欠かない):
   - 単語(文字起こしの単語の時刻)の範囲のうち声のあるこま(声の中央から GUARD_DB 以内)は削らない。長さ 0 の単語はその時刻の前後 ZERO_PAD 秒の中の声のあるこま
     (単語の時刻は後ろの無音まで含んで長く付くことがある = 範囲をそのまま守ると間を詰められない。声の無い部分は下の音の守りに任せる)
-  - 削る所に、声の中央から GUARD_DB 以内の音(小さい声・息・語尾のかすれ)が GUARD_RUN 秒以上続けば、その間は詰めない
+  - 削る所に、声の中央から GUARD_DB 以内の音(小さい声・息・語尾のかすれ)が GUARD_RUN 秒以上続けば、その音の前後 FAINT_PAD 秒は詰めず、
+    その両側の静かな所を、それぞれ SPLIT_GAP 秒以上あれば詰める(研究の 39 本: 間を丸ごと残すより 欠けの疑い 33 → 11・詰めた 272 → 328 秒。もとの間は GAP 以上)
   - 削る所の端が単語の声の端から EDGE_NEAR 秒以内なら、その端だけ EDGE_PAD 秒多く残す(言葉の端の近くの欠けの疑いを減らす)
 声の中央 = 単語のある所の 20 ms の音量(RMS)の中央値。音は edge_pause の levels(20 ms ごとの dB)・pauses を使う。
 単語は呼ぶ側(② flow)が文字起こしの単語の時刻(*.words.json)から渡す(① は単語の時刻のファイルを読まない)。単語が無い文書は詰めない([])。
@@ -26,6 +27,8 @@ QUIET_DB = 15.0    # 間 = 声の中央よりこれだけ静か
 GUARD_DB = 27.0    # 削る所に、声の中央からこの dB 以内の音が(研究の 39 本: 25 では内容を失った 1・27 で 0)
 GUARD_RUN = 0.06   # この秒以上続けば、その間は詰めない
 ZERO_PAD = 0.05    # 長さ 0 の単語を守る前後の秒
+FAINT_PAD = 0.05   # 小さい声・息の続きを守る前後の秒
+SPLIT_GAP = 0.3    # 小さい声・息で分けた静かな所を詰める最短(秒)
 EDGE_NEAR = 0.15   # 削る所の端が単語の声の端からこの秒以内なら
 EDGE_PAD = 0.05    # その端だけこの秒多く残す(研究の 39 本: 言葉の端の近くの欠けの疑い 9 → 3・詰める秒は 2 割減)
 
@@ -61,14 +64,14 @@ def drops(video, words, lo, hi):
     at = lambda t: max(0, min(len(db), int(round((t - lo) / E.HOP))))
     lv = statistics.median(_rms_db(db[at(a):max(at(a) + 1, at(b))]) for a, b, _t in ws)
     run = max(1, int(round(GUARD_RUN / E.HOP)))
-
-    def faint(a, b):   # 削る所に小さい声・息が run 個(20 ms)以上続くか
+    faint, n, s0 = [], 0, 0   # 小さい声・息の続き(run こま以上)の前後 FAINT_PAD 秒
+    for i, d in enumerate(list(db) + [-120.0]):
+        if d >= lv - GUARD_DB:
+            s0, n = (i if n == 0 else s0), n + 1
+            continue
+        if n >= run:
+            faint.append((lo + s0 * E.HOP - FAINT_PAD, lo + i * E.HOP + FAINT_PAD))
         n = 0
-        for d in db[at(a):at(b)]:
-            n = n + 1 if d >= lv - GUARD_DB else 0
-            if n >= run:
-                return True
-        return False
     guard = []
     for a, b, _t in ws:
         if b - a < E.HOP:   # 長さ 0: 前後 ZERO_PAD 秒に声があるときだけ(無音の中に付いた時刻の怪しい単語で間を分けない)
@@ -80,13 +83,18 @@ def drops(video, words, lo, hi):
     out = []
     for p0, p1 in E.pauses(db, lo, lv, QUIET_DB, GAP):
         for s, e in _free(p0, p1, guard):
-            a, b = s + TAIL, e - HEAD
-            if EDGE_PAD and any(0 <= a - g <= EDGE_NEAR for g in ends):
-                a += EDGE_PAD
-            if EDGE_PAD and any(0 <= g - b <= EDGE_NEAR for g in starts):
-                b -= EDGE_PAD
-            if e - s >= GAP and b > a and not faint(a, b):
-                out.append((round(a, 3), round(b, 3), "pause"))
+            if e - s < GAP:
+                continue
+            inner = [(fa, fb) for fa, fb in faint if fb - FAINT_PAD > s + TAIL and fa + FAINT_PAD < e - HEAD]   # 詰める所の中の物だけ
+            for s2, e2 in _free(s, e, inner):
+                a = s2 + (TAIL if s2 == s else 0)   # TAIL・HEAD は間のもとの端の側だけ(小さい声の側は FAINT_PAD で残してある)
+                b = e2 - (HEAD if e2 == e else 0)
+                if EDGE_PAD and any(0 <= a - g <= EDGE_NEAR for g in ends):
+                    a += EDGE_PAD
+                if EDGE_PAD and any(0 <= g - b <= EDGE_NEAR for g in starts):
+                    b -= EDGE_PAD
+                if e2 - s2 >= SPLIT_GAP and b > a:
+                    out.append((round(a, 3), round(b, 3), "pause"))
     return sorted(out)
 
 

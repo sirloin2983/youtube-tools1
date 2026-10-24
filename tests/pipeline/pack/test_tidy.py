@@ -48,12 +48,14 @@ class TidyTest(unittest.TestCase):
             ds = self.drops([(0.0, 1.0), (3.0, 4.0)], [[0.1, 1.0, "はい"], [3.0, 3.9, "そう"]], 4.0)
         self.assertEqual(ds, [(round(1.0 + T.TAIL + 0.05, 3), round(3.0 - T.HEAD - 0.05, 3), "pause")])
 
-    def test_faint_voice_keeps_the_pause(self):
-        """詰める所に小さい声・息・語尾のかすれ(声の中央から 25 dB 以内)が 0.06 秒以上続けば、その間は詰めない"""
+    def test_faint_voice_is_kept_and_both_sides_trimmed(self):
+        """詰める所に小さい声・息・語尾のかすれ(声の中央から 27 dB 以内)が 0.06 秒以上続けば、その音と前後 FAINT_PAD 秒は残し、
+        両側の静かな所(SPLIT_GAP 秒以上)だけ詰める。0.06 秒未満の音は守らない"""
         voice, words = [(0.0, 1.0), (3.0, 4.0)], [[0.1, 0.9, "はい"], [3.1, 3.9, "そう"]]
-        self.assertEqual(self.drops(voice, words, 4.0, faint=[(1.5, 1.6)]), [])
-        self.assertEqual(len(self.drops(voice, words, 4.0, faint=[(1.5, 1.52)])), 1)   # 0.02 秒は守らない
-
+        self.assertEqual(self.drops(voice, words, 4.0, faint=[(1.5, 1.6)]),
+                         [(round(1.0 + T.TAIL, 3), round(1.5 - T.FAINT_PAD, 3), "pause"), (round(1.6 + T.FAINT_PAD, 3), round(3.0 - T.HEAD, 3), "pause")])
+        self.assertEqual(self.drops(voice, words, 4.0, faint=[(1.2, 1.3)]), [(round(1.3 + T.FAINT_PAD, 3), round(3.0 - T.HEAD, 3), "pause")])   # 片側が SPLIT_GAP 未満なら詰めない
+        self.assertEqual(len(self.drops(voice, words, 4.0, faint=[(1.5, 1.52)])), 1)
     def test_word_time_without_voice_is_not_guarded(self):
         """単語の時刻が後ろの無音まで長く付いていても・無音の中に長さ 0 の単語があっても、声の無い部分は 1 つに詰める
         (研究: 単語の範囲をそのまま守ると 3 本で 0 か所・長さ 0 の単語で間が分かれてつなぎ目に 1 秒を超える無音が残った)"""
