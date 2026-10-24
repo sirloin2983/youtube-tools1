@@ -38,9 +38,8 @@
   - 名前: `read_alt` :84
 - **refresh.py** (102 行) — 「確かめる」のカードの元の文書を、今の版の文字起こしで作り直す(夜の見回り)。
   - 名前: `night_of` :32・`targets` :40・`read_state` :55・`tick` :62
-- **sources.py** (419 行) — (頭の説明なし)
-- **sources.py** (419 行) — (頭の説明なし)
-- **sources.py** (419 行) — (頭の説明なし)
+- **sources.py** (415 行) — 「確かめる」のカードの出どころ(V1 の V0。notes:docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
+  - 名前: `register` :49・`registered` :63・`has_media` :82・`class View` :92・`value_auto` :263・`value_cand` :289・`read_fill` :318・`voice_diar` :335・`time_row` :373・`collect` :398
 - **speech_sources.py** (66 行) — 「確かめる」の普段のレーンの「この行は声ですか?」カードの出どころ speech:diar(C-EVAL (3))。
   - 名前: `speech_diar` :41
 - **voice_solo.py** (184 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
