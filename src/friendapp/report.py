@@ -84,6 +84,10 @@ def fit(doc, target=TARGET_BYTES, hard=MAX_BYTES):
     return json.dumps(doc, ensure_ascii=False).encode("utf-8")
 
 
+# 友人の段の名前(progress.FRIEND_OF・動画を取得)-> 受け取り側が見分ける段の名前(plan/友人の不具合の自動対応-1025.md)
+STAGE_NAME = {"動画を取得": "fetch", "見どころを探す": "detect", "切り抜き": "export", "文字起こし": "transcribe", "仕上げ": "pack"}
+
+
 def judge(trigger, row, rows=(), live=None):
     """受け取り側の仕分けの欄 -> (codes, facts)。row = 送った物の行(api.view の形)・live = ライブの材料(diag の live の形)"""
     codes, facts = [], {}
@@ -94,7 +98,7 @@ def judge(trigger, row, rows=(), live=None):
         if fail.get("code"):
             facts["cause"] = fail["code"]
         label = (row.get("steps") or {}).get("label") if isinstance(row.get("steps"), dict) else ""
-        facts["stage"] = label or st or ""
+        facts["stage"] = STAGE_NAME.get(label, label) or st or ""
         packs = len(row.get("packs") or [])
         if packs or st in ("arrived", "done"):
             facts["delivered"] = True
