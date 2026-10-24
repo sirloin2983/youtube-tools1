@@ -15,7 +15,6 @@ import threading
 import wave
 
 from ytt import fsio, tools as _tools, workdata as _workdata
-from pipeline.transcribe import recognize as _recognize
 
 DIR = "voice-clips"
 INDEX = "index.json"
@@ -91,7 +90,8 @@ def make(tid, doc, rows, ffmpeg=None):
             continue
         a, b = max(0.0, a0 - PAD), b0 + PAD
         out = os.path.join(d, g["id"] + ".wav")
-        cmd = _recognize.wav_args(ff, src, out + ".part", ss=a, t=b - a, rate=RATE, fmt="wav")
+        cmd = [ff, "-hide_banner", "-nostdin", "-y", "-v", "error", "-ss", "%.3f" % a, "-i", src, "-t", "%.3f" % (b - a),
+               "-vn", "-ac", "1", "-ar", str(RATE), "-c:a", "pcm_s16le", "-f", "wav", out + ".part"]   # 認識の音と同じ形(16kHz・モノラル・16bit)
         try:
             r = _tools.run(cmd, timeout=CUT_TIMEOUT, flags=_tools.no_window_flags(priority="low"), stdout=False, err_tail=5)
         except OSError:

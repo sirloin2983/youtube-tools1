@@ -78,7 +78,7 @@
 - **store.py** (1165 行) — ③ 文書の置き場: 文書を書く唯一の口 commit と機械の層・人の層(層が正 = 文書は組み立て済みの写し・古い写しの読み直し fresh_copy)・保存の錠 saving・
   - 名前: `tx_path` :37・`write_doc` :41・`read_layers` :73・`commit` :114・`layers_for` :171・`fresh_copy` :201・`snapshot` :251・`backup_doc` :259・`sanitize_sub_style` :278・`sanitize_transcript` :291・`doc_length` :373・`good_row` :394・ほか 37
 - **voiceclips.py** (146 行) — 声を覚える材料の短い音(10-24 夜。ユーザー「誰の声をメンバー全員分」・「精度に関係する物は残す」)。
-  - 名前: `root` :29・`index` :41・`clip_path` :55・`media` :64・`make` :73・`timeline_wav` :111
+  - 名前: `root` :28・`index` :40・`clip_path` :54・`media` :63・`make` :72・`timeline_wav` :111
 
 ## src/human/review/
 
