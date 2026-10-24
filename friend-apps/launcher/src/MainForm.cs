@@ -448,6 +448,11 @@ namespace FriendInbox
                     Log.Write("Python が先に終わりました(終了コード " + SafeExit(g) + ")");
                     Diag.Note("crash", "Python が途中で終わりました(終了コード " + SafeExit(g) + ")", null, g.ErrTail(),
                               new Dictionary<string, object> { { "exitCode", SafeExit(g) }, { "stage", "running" } });
+                    if (verify == "pending")   // 新しい版の確かめの途中で落ちた = 確かに動いた版へ戻す(戻す先が無ければ今までどおり起こし直す)
+                    {
+                        string why;
+                        if (TryRollback(null, "新しい版の確かめの途中で処理の部品が落ちました(終了コード " + SafeExit(g) + ")", out why)) return;
+                    }
                     if (be.Restart()) Ui(Reload);
                     else
                     {
@@ -458,9 +463,55 @@ namespace FriendInbox
                 }
                 var st = be.State();
                 Ui(() => Apply(st));
+                if (st != null)
+                {
+                    if (st.Verify == "ok" && verify != "ok") be.MarkGood();
+                    verify = st.Verify;
+                    string why;
+                    if (st.HasRollback && !rollbackRefused && TryRollback(st.RollbackTo, st.RollbackWhy, out why)) return;
+                }
                 if (Rules.ShouldApplyUpdate(st)) { Ui(() => ApplyUpdate(st.Update)); return; }
                 Thread.Sleep(PollMs);
             }
+        }
+
+        string verify = "";            // 玄関の確かめの最後の値(pending の間に落ちたら戻す)
+        volatile bool rollbackRefused;  // 戻せなかった(この起動の間は頼まれても戻さない = 知らせを 1 回だけ)
+
+        // 戻す: 戻す先があれば Python を止めて戻し、知らせて開き直す(true)。無ければ知らせだけ(false)。録画中かは玄関が見てから頼む
+        bool TryRollback(string to, string why, out string refused)
+        {
+            string from = be.Version;
+            var rec = Versions.Read(home);
+            if (Versions.RollbackTarget(home, rec, from, to, out refused) == null)
+            {
+                rollbackRefused = true;
+                be.SendFail("rollback", from, to, "戻せませんでした: " + refused + "(" + why + ")");
+                return false;
+            }
+            Ui(() =>
+            {
+                if (quitting) return;
+                quitting = true;
+                SaveBounds();
+                if (Visible) Hide();
+                ThreadPool.QueueUserWorkItem(delegate
+                {
+                    be.Stop();
+                    string w;
+                    string target = be.Rollback(to, out w);
+                    if (target != null) be.SendFail("rollback", from, target, why);
+                    else be.SendFail("rollback", from, to, "戻せませんでした: " + w + "(" + why + ")");
+                    Program.RestartAfterExit = true;
+                    Ui(() =>
+                    {
+                        tray.Visible = false;
+                        SetThreadExecutionState(ES_CONTINUOUS);
+                        Close();
+                    });
+                });
+            });
+            return true;
         }
 
         static string SafeExit(Gateway g)

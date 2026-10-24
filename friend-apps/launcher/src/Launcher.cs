@@ -238,6 +238,69 @@ namespace FriendInbox
         }
     }
 
+    // Dropbox へ小さなファイルを直に上げる(Python が起きないときの「起動できなかった」用。鍵は Python と同じ <home>\config.json の appKey + refreshToken)。
+    // 接続先は Dropbox の固定の URL だけ・鍵と access token はログに出さない。上げられなければ false(呼ぶ側が送り返しの箱へ)
+    public static class DropboxDirect
+    {
+        const string TokenUrl = "https://api.dropboxapi.com/oauth2/token", UploadUrl = "https://content.dropboxapi.com/2/files/upload";
+
+        public static bool Upload(string home, string path, byte[] data, int timeoutMs, Action<string> log)
+        {
+            try
+            {
+                var cfg = Json.ReadFileOrNull(Path.Combine(home, "config.json"));
+                string key = (Json.Str(cfg, "appKey") ?? "").Trim(), refresh = (Json.Str(cfg, "refreshToken") ?? "").Trim();
+                if (key.Length == 0 || refresh.Length == 0) { log("Dropbox の鍵が無いので直には上げません"); return false; }
+                ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
+                string form = "grant_type=refresh_token&refresh_token=" + Uri.EscapeDataString(refresh) + "&client_id=" + Uri.EscapeDataString(key);
+                string tok = Json.Str(Json.Parse(Send(TokenUrl, "application/x-www-form-urlencoded", Encoding.ASCII.GetBytes(form), null, timeoutMs)), "access_token");
+                if (string.IsNullOrEmpty(tok)) { log("Dropbox の鍵を取り直せませんでした"); return false; }
+                var hdr = new Dictionary<string, string>
+                {
+                    { "Authorization", "Bearer " + tok },
+                    { "Dropbox-API-Arg", "{\"path\":" + AsciiJson(path) + ",\"mode\":\"add\",\"autorename\":false,\"mute\":true}" }
+                };
+                Send(UploadUrl, "application/octet-stream", data, hdr, timeoutMs);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                if (!(ex is WebException || ex is IOException || ex is FormatException || ex is ArgumentException || ex is InvalidOperationException ||
+                      ex is NotSupportedException || ex is UnauthorizedAccessException)) throw;
+                log("Dropbox へ直に上げられませんでした: " + ex.GetType().Name);
+                return false;
+            }
+        }
+
+        static string Send(string url, string type, byte[] body, IDictionary<string, string> headers, int timeoutMs)
+        {
+            var req = (HttpWebRequest)WebRequest.Create(url);
+            req.Method = "POST";
+            req.Timeout = timeoutMs;
+            req.ReadWriteTimeout = timeoutMs;
+            req.ContentType = type;
+            if (headers != null) foreach (var kv in headers) req.Headers[kv.Key] = kv.Value;
+            req.ContentLength = body.Length;
+            using (var s = req.GetRequestStream()) s.Write(body, 0, body.Length);
+            using (var res = (HttpWebResponse)req.GetResponse())
+            using (var rd = new StreamReader(res.GetResponseStream(), Encoding.UTF8))
+                return rd.ReadToEnd();
+        }
+
+        // Dropbox-API-Arg は ASCII だけ(日本語は \uXXXX)
+        public static string AsciiJson(string s)
+        {
+            var sb = new StringBuilder("\"");
+            foreach (char c in s)
+            {
+                if (c == '"' || c == '\\') sb.Append('\\').Append(c);
+                else if (c < 0x20 || c > 0x7e) sb.Append("\\u").Append(((int)c).ToString("x4"));
+                else sb.Append(c);
+            }
+            return sb.Append('"').ToString();
+        }
+    }
+
     // Python を起こし・起こし直し・止める係(窓とは別。MainForm が持つ)
     public sealed class Backend
     {
@@ -269,8 +332,58 @@ namespace FriendInbox
             return BitConverter.ToString(b).Replace("-", "").ToLowerInvariant();
         }
 
+        // 「起動できなかった」「前の版へ戻した」を送る(Dropbox へ直に・だめなら送り返しの箱へ)。スイッチは診断と同じ
+        public void SendFail(string kind, string from, string to, string why)
+        {
+            if (Diag.Off(home)) return;
+            long at = FailFile.Ms(DateTime.UtcNow);
+            string name = FailFile.Name(at), text = FailFile.Text(kind, at, from, to, why, home);
+            Log.Write("知らせ " + kind + ": " + (from ?? "?") + " -> " + (to ?? "-") + " " + why);
+            if (DropboxDirect.Upload(home, "/診断/" + name, new UTF8Encoding(false).GetBytes(text), 20000, Log.Write)) { Log.Write("Dropbox へ直に上げました: " + name); return; }
+            if (FailFile.WriteOutbox(home, name, text) != null) Log.Write("送り返しの箱へ書きました: " + name);
+        }
+
+        // 玄関の確かめが ok と言った版を「確かに動いた版」に(戻す先・片付けで消さない)
+        public void MarkGood()
+        {
+            if (Versions.Parse(Version) == null || !Directory.Exists(Path.Combine(home, Versions.Prefix + Version))) return;
+            var rec = Versions.Read(home);
+            if (rec.Good == Version) return;
+            rec.Good = Version;
+            SaveQuietly(rec);
+            Log.Write("版 " + Version + " を確かに動いた版にしました");
+        }
+
+        // 戻す(玄関の rollback・確かめの途中で落ちた): 戻す先より新しい版を bad にして、戻す先の exe と DLL を写す。-> 戻した先か null(戻せない。理由は why)
+        public string Rollback(string to, out string why)
+        {
+            var rec = Versions.Read(home);
+            string target = Versions.RollbackTarget(home, rec, Version, to, out why);
+            if (target == null) return null;
+            Versions.ApplyRollback(home, rec, target);
+            SaveQuietly(rec);
+            try { Log.Write("戻す版の exe と部品を写しました(" + Updater.Swap(home, target) + " 個)"); }
+            catch (Exception ex)
+            {
+                if (!(ex is IOException || ex is UnauthorizedAccessException)) throw;
+                Log.Write("戻す版の exe を写せませんでした(Python だけ戻します): " + ex.Message);
+            }
+            return target;
+        }
+
         // 版を選んで起こす(起動できない版は bad に足して前の版へ)。起こせなければ理由の文を返す(null = 起きた)
         public string StartFirst()
+        {
+            string err = StartLoop();
+            if (err != null && !err.StartsWith(LockBusyText)) SendFail("launch_fail", firstFail ?? Diag.AppVersion, null, err + (firstWhy != null ? "(" + firstWhy + ")" : ""));
+            else if (err == null && firstFail != null) SendFail("rollback", firstFail, Version, firstWhy);
+            return err;
+        }
+
+        const string LockBusyText = "ほかの処理が同じ作業データを使っています";
+        string firstFail, firstWhy;   // 最初に起動できなかった版と理由(知らせへ)
+
+        string StartLoop()
         {
             var rec = Versions.Read(home);
             Layout used;
@@ -284,9 +397,14 @@ namespace FriendInbox
                 if (g == null) return "受信箱を起動できませんでした(番号を 3 回選び直しても使えませんでした)";
                 if (g.Ready) { Gw = g; break; }
                 g.Kill();
+                if (firstFail == null && g.ExitCode != Gateway.LockBusyExit)
+                {
+                    firstFail = Diag.AppVersion;
+                    firstWhy = "版 " + (Diag.AppVersion ?? "?") + " の Python が起きませんでした(終了コード " + g.ExitCode + ")";
+                }
                 Diag.Note("start", "版 " + (Diag.AppVersion ?? "?") + " の Python が起きませんでした(終了コード " + g.ExitCode + ")", null, g.ErrTail(),
                           new Dictionary<string, object> { { "exitCode", g.ExitCode }, { "stage", "start" }, { "bad", BadWith(rec, used) }, { "installed", Versions.Installed(home).ToArray() } });
-                if (g.ExitCode == Gateway.LockBusyExit) return "ほかの処理が同じ作業データを使っています。閉じてから開き直してください";
+                if (g.ExitCode == Gateway.LockBusyExit) return LockBusyText + "。閉じてから開き直してください";
                 if (used.Version == null)   // 前の形が起動できない: 版のフォルダがあればそちらで(無ければ止める)
                 {
                     if (skipLegacy || Versions.Pick(home, rec.Bad, true) == null) return "起動できませんでした(終了コード " + g.ExitCode + ")";

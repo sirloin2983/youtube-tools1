@@ -37,7 +37,13 @@
     Dropbox の /更新/ に残す数: 全部入り 3 版(約 70 MB ずつ)・light 10 版(約 3 MB ずつ)= 約 240 MB(-first.zip は触らない)。versions.json = 作る側の版の台帳
     (新しい順 20 版・zip が消えた版は file/light が null)。友人のアプリは読まない。取る前に空き(320 MB + 作業データが同じドライブなら diskMinGB)を見て、
     足りなければ取らずに次の回へ(診断 update:space)
-  - 知らせる: 画面の帯の 1 行(src\friendapp\ui\update.js。画面は帯に <div data-fr-update></div> を置くだけ)に「新しい版 n があります [更新する]」
+  - 知らせる: 画面の帯の 1 行(src\friendapp\ui\update.js。画面は帯に <div data-fr-update></div> を置くだけ)に「新しい版 n があります [更新する]」。
+    重要な直しを待っている間は「大事な直しが届きました。今の処理が終わったら更新します [今すぐ]」・24 時間入れ替えられなければ「更新が溜まっています [今すぐ更新]」
+  - いつ入れ替えるか・確かめ・戻すかは玄関(src\friendapp\upgrade.py)が決め、GET /api/friend/state の swap・verify・rollback で伝える
+    (形の正は資料 plan\友人の不具合の自動対応-1025.md の「更新(友人側)」)。exe は swap があればそれに従い(無い前の玄関は作業と預かりが無いときだけ)、
+    verify が ok になった版を app-versions.json の good(確かに動いた版。片付けで消さない)にし、rollback {to, why} か確かめの途中で Python が落ちたら
+    戻す先より新しい版を全部 bad にして戻す先の exe と DLL を写し、開き直す。起動できなかった・戻したは launcher__fail-<13 桁>.fail.json を
+    Dropbox の /診断/ へ直に上げる(config.json の鍵。だめなら送り返しの箱 = 次に起きた Python の同期が上げる)
   - 入れ替える: [更新する] → 作業と預かりが無ければすぐ・あれば終わってから、exe が Python を止め、app-<版>\ の FriendApp.exe と DLL を写し
     (動いている exe と DLL は *.old に名前を変えてから。次の起動で消す)、閉じて新しい exe を起こす
   - 版のフォルダ: 一番新しい版を選ぶ(前の形 <アプリのフォルダ>\src・python も src\ytt\version.py の版で比べる)。1 回起動できた版を current・その前を

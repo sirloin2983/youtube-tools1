@@ -21,9 +21,11 @@
 口(書き込み系は合言葉。全部 JSON):
   GET  /api/ping                          {app, version}
   GET  /api/friend/state                  exe が見回る {making, recording, waiting, reserved, archiveWait, setup, undecided, awake, busy, label,
-                                          update(入れてある新しい版 or ""), updateRequested}(合言葉つき)
-  GET  /api/friend/update                 新しい版があるか {available, version, requested, waiting, label, hosted}(画面の帯の 1 行 = ui/update.js)
+                                          update(入れてある新しい版 or ""), updateRequested,
+                                          swap(今入れ替えてよい)・verify(新しい版の確かめ)・rollback?{to, why}(今戻す)= friendapp/upgrade}(合言葉つき)
+  GET  /api/friend/update                 新しい版があるか {available, version, requested, waiting, label, hosted, auto, important, overdue, now}(画面の帯の 1 行 = ui/update.js)
   POST /api/friend/update/apply           [更新する]。作業と預かりが無くなったら exe が入れ替えて開き直す(exe の無い開発の PC は開き直しの案内だけ)
+  POST /api/friend/update/now             [今すぐ](重要な直し)・[今すぐ更新](24 時間溜まった)。録画中だけ待つ
   GET  /api/friend/tidy                   フォルダの整理(friendapp/tidy.py。新しい版で起動できたあとの 1 回と ⚙)の候補と結果
   POST /api/friend/tidy/scan・apply {ids?}・later・open-trash   調べ直す・片付ける(ごみ箱へ)・この版ではもう聞かない・ごみ箱を開く
   GET  /api/friend/inbox                  受信箱の行・前回の値・保存先・空き容量で止めているか・準備中か・前の版で開いた知らせ
@@ -73,7 +75,7 @@ if SRC not in sys.path:
 from flow import colors_api as _colors_api, placement as _placement, runqueue as _runqueue  # noqa: E402
 from ytt import appwindow as _appwindow, autorestart as _autorestart, clientlog_rule as _clientlog_rule, fsio as _fsio, gpuinfo as _gpuinfo, httpsec, version as _version  # noqa: E402
 from friendapp import api as _api, diag as _diag, inbox as _inbox, places as _places, settings as _settings, setup as _setup, streams as _streams, sync as _sync  # noqa: E402
-from friendapp import oplog as _oplog, report as _report, tidy as _tidy, ytdlp_update as _ytdlp_update  # noqa: E402
+from friendapp import oplog as _oplog, report as _report, tidy as _tidy, upgrade as _upgrade, ytdlp_update as _ytdlp_update  # noqa: E402
 
 APP_ID = "ytt-friend"
 DEFAULT_PORT = 8720
@@ -109,7 +111,6 @@ ROLLBACK_ENV = "YTT_FRIEND_ROLLBACK"  # exe が前の版へ戻したとき、起
 SWEEP_EVERY = 3600        # 受信箱の 3 日の片付けを見る間隔(秒)
 AUTO_UPDATE_FILE = "auto-update.json"   # 自動で入れ替えを試した版(ytt/autorestart の記録。1 版につき 1 回)
 AUTO_UPDATE_ENV = "YTT_FRIEND_AUTO_UPDATE"   # "0" で自動の入れ替えをしない([更新する] だけ)
-AUTO_INPUT_IDLE = 300     # 画面で最後に入力してからこの秒数たつまでは自動で入れ替えない
 TIDY_EVERY = 180          # 新しい版のあとのフォルダの整理を見直す間隔(秒。版ごとに 1 回走れば以後は何もしない)
 SAVE_DEFAULT = _settings.SAVE_DEFAULT   # 受け取るの保存先の既定(%USERPROFILE% の下。⚙ で選ぶ)
 SAVE_FILE = _settings.SAVE_FILE
@@ -273,6 +274,8 @@ class Handler(httpsec.LocalHandler):
         q = urllib.parse.parse_qs(u.query)
         path = path[len("/friend"):] if path.startswith("/friend/api/") else path
         app = self.server.app
+        if path.startswith("/api/friend/") and path != "/api/friend/state":   # 画面が返事をした(新しい版の確かめ = friendapp/upgrade)
+            app.upgrade.saw_screen()
         if path == "/api/ping":
             return self._json(200, {"app": APP_ID, "version": _version.VERSION})
         if path == "/api/friend/inbox":
@@ -282,8 +285,7 @@ class Handler(httpsec.LocalHandler):
             return self._json(200, out)
         if path == "/api/friend/tidy":   # フォルダの整理(帯の 1 行と ⚙)
             return self._json(200, app.tidy_view())
-        if path == "/api/friend/update":   # 新しい版があるか(帯の 1 行 = ui/update.js。input = 画面で最後に入力してからの秒)
-            app.note_input((q.get("input") or [""])[0])
+        if path == "/api/friend/update":   # 新しい版があるか(帯の 1 行 = ui/update.js)
             return self._json(200, app.update_view())
         if path == "/api/friend/setup":   # 初回の準備の進み具合(F3-5)
             return self._json(200, {"ok": True, "setup": app.setup.view(), "done": app.setup_done()})
@@ -318,7 +320,7 @@ class Handler(httpsec.LocalHandler):
             except OSError:
                 return self._fail(404, "not_found", "確認用の動画を読めませんでした")
         if path == "/api/friend/settings":   # ⚙
-            return self._json(200, {"ok": True, "settings": app.settings.view()})
+            return self._json(200, {"ok": True, "settings": dict(app.settings.view(), updateNotes=app.upgrade.notes(), version=_version.VERSION)})
         if path == "/api/friend/streams":   # 配信の一覧(F3-2。friendapp/streams.py の写し + 送った物の印)
             return self._json(200, app.streams_view())
         if path == "/api/flow/status":
@@ -442,6 +444,9 @@ class Handler(httpsec.LocalHandler):
                 return self._fail(409, "refused", "新しい版はありません")
             app.update_requested = True
             app.log("[更新する] を押されました(%s)" % app.update_version())
+            return self._json(200, {"ok": True, "update": app.update_view()})
+        if path == "/api/friend/update/now":   # [今すぐ]・[今すぐ更新]: 録画中だけ待つ
+            app.upgrade.press_now()
             return self._json(200, {"ok": True, "update": app.update_view()})
         if path.startswith("/api/friend/setup/"):   # 初回の取得(9-1)
             return self._setup(path[len("/api/friend/setup/"):])
@@ -580,7 +585,6 @@ class FriendApp:
         self.closing = threading.Event()
         self.server = None
         self.update_requested = False   # 画面の [更新する](exe が見回りで見て、作業が無ければ入れ替える)。auto_update も立てる
-        self.input_at = None            # 画面で最後に入力した時刻(帯の見回りが知らせる。自動の入れ替えは入力の途中にしない)
         # exe が前の版へ戻した = 起動できなかった版("72,71" = 新しい方から起きなかった順。数字と . 以外の名前は捨てる)
         self.rollback_versions = [v for v in (x.strip() for x in (os.environ.get(ROLLBACK_ENV) or "").split(",")) if re.fullmatch(r"\d+(\.\d+){0,3}", v)][:5]
         self.rollback = "・".join(self.rollback_versions)
@@ -603,7 +607,9 @@ class FriendApp:
         # 操作の記録と状態の書き出し(friendapp/oplog・report。友人の不具合を受け取り側が自動で見るため)。書くのは見回り(watch)と同期の回だけ
         self.oplog = _oplog.OpLog(places["data"], clock=clock, log=self.log)
         self.report = _report.Reporter(self, places, self.diag, self.oplog, clock=clock, log=self.log)
-        self.diag.on_write = self.report.on_diag
+        self.upgrade = _upgrade.Upgrade(self, places, clock=clock, log=self.log)   # 更新の決まり(いつ入れ替える・確かめと戻し・心拍・固まり)
+        self.diag.on_write = self._on_diag
+        self.sync.rollbacks = self.upgrade.take_marks
         self.sync.asks = self.report.answer_asks
         self.sync.securing, self.sync.arrived = self.api.securing, self.api.release_copy
         self.inbox.on_fail = lambda r: self.diag.write("error", rid=r.get("id"), summary=(r.get("error") or "").splitlines()[0] if r.get("error") else "",
@@ -620,6 +626,10 @@ class FriendApp:
         # 配信の一覧(F3-2。キー無し = 名簿の channel・RSS・動画のページ)。糸を起こすのは main だけ(テストと見本は fetch を差し替える)
         self.streams = _streams.Streams(os.path.join(places["friend"], STREAMS_NAME), clock=clock, log=self.log)
         self.inbox.stream_info = lambda vid: self.streams.lookup(vid)   # 受け取った物の置き場所の日付・段の見出し(C-3-8)
+
+    def _on_diag(self, kind, doc, path):
+        self.report.on_diag(kind, doc, path)
+        self.upgrade.on_diag(kind, doc, path)
 
     def decide(self, body):
         """[受け取る] / [見送る] / 届かなくてよかった(1 本でもまとめてでも。行ごとに受信箱へ)"""
@@ -755,7 +765,7 @@ class FriendApp:
         best = ""
         for n in os.listdir(home):
             v = n[4:] if n.startswith("app-") else ""
-            if not _sync.APP_VERSION_RE.match(v) or v in bad:
+            if not _sync.APP_VERSION_RE.match(v) or v in bad or (getattr(self, "upgrade", None) is not None and self.upgrade.cancelled(v)):
                 continue
             d = os.path.join(home, n)
             if not (os.path.isfile(os.path.join(d, "src", "friendapp", "server.py")) and os.path.isfile(os.path.join(d, "python", "python.exe"))):
@@ -766,41 +776,29 @@ class FriendApp:
 
     def update_view(self):
         """画面の帯の 1 行: {available, version, requested(押した・自動で頼んだ), waiting(作業が終わるのを待っている), label(待っている作業),
-        hosted(exe の窓か), auto(処理が終わったら自動で入れ替える = exe の窓で、まだ自動で試していない版)}"""
+        hosted(exe の窓か), auto(処理が終わったら自動で入れ替える = exe の窓で、まだ自動で試していない版),
+        important(重要な直し)・overdue(24 時間入れ替えられていない)・now([今すぐ] を押した)}"""
         v = self.update_version()
         st = self.state() if v and self.update_requested else None
-        hold = st and (st["making"] + st["recording"] + st["waiting"] + st["reserved"] + st["archiveWait"] + (1 if st["setup"] else 0))
+        hold = st and self.upgrade.wait_code(st, v)   # 入れ替えを待つ理由(friendapp/upgrade.wait_reason)
         hosted = (os.environ.get(HOST_ENV) or "").strip() == "webview2"
         return {"available": bool(v), "version": v, "requested": bool(v and self.update_requested), "waiting": bool(hold),
                 "label": (st or {}).get("label") or "", "hosted": hosted,
-                "auto": bool(v and hosted and os.environ.get(AUTO_UPDATE_ENV, "").strip() != "0" and _autorestart.read_tried(self._auto_path()) != v)}
-
-    def note_input(self, secs):
-        """画面の帯の見回りが知らせた「最後に入力してからの秒」を覚える(読めなければ何もしない)"""
-        try:
-            s = float(secs)
-        except (TypeError, ValueError):
-            return
-        if 0 <= s < 86400:
-            self.input_at = self.clock() - s
+                "auto": bool(v and hosted and os.environ.get(AUTO_UPDATE_ENV, "").strip() != "0" and _autorestart.read_tried(self._auto_path()) != v),
+                **self.upgrade.view(v)}
 
     def _auto_path(self):
         return os.path.join(self.places["friend"], AUTO_UPDATE_FILE)
 
     def auto_busy(self):
-        """自動の入れ替えを待つ理由(処理中・預かり・準備・同期の上げ下ろし・画面で入力中)か None"""
+        """自動の入れ替えを待つ理由(録画中・待機中の配信の枠・処理中・順番待ち・準備・Dropbox の上げ下ろし。画面に触っているかは見ない)か None"""
         st = self.state()
-        if st["recording"]:
-            return "ライブを録画しています"
-        if st["making"] or st["waiting"] or self.busy():
-            return st["label"] or "処理しています"
-        if st["reserved"] or st["archiveWait"]:
-            return "予約・アーカイブ待ちがあります"
-        if st["setup"]:
-            return "初回の準備をしています"
-        if self.input_at is not None and self.clock() - self.input_at < AUTO_INPUT_IDLE:
-            return "画面で入力しています"
-        return None
+        why = _upgrade.wait_reason(st, _upgrade.NORMAL, self.upgrade.stalled(), self.busy())
+        if not why:
+            return None
+        if why == _upgrade.RECORDING:
+            return "ライブを録画しています" if st["recording"] else "予約の配信を待っています"
+        return st["label"] or ("初回の準備をしています" if st["setup"] else "処理しています")
 
     def auto_update(self):
         """新しい版を入れてあり、何も処理していないとき、exe に入れ替えを頼む([更新する] を押したのと同じ。1 版につき 1 回 = 試す版を先に書く。
@@ -851,11 +849,18 @@ class FriendApp:
         setup = self.setup.awake()
         busy = self.busy() or rec > 0
         parts = (["録画中 %d 本" % rec] if rec else []) + (["作っている %d 本" % making] if making else []) + (["待ち %d 本" % waiting] if waiting else [])
-        return {"busy": busy, "recording": rec, "making": making, "waiting": waiting, "reserved": hold["reserved"], "archiveWait": hold["archiveWait"],
-                "setup": bool(setup), "undecided": self.undecided(),
-                "awake": bool(rec or making or waiting or setup or hold["archiveWait"] or hold["soon"]),
-                "label": "・".join(parts) if parts else ("準備しています" if busy else ""),
-                "update": self.update_version(), "updateRequested": bool(self.update_requested)}
+        st = {"busy": busy, "recording": rec, "making": making, "waiting": waiting, "reserved": hold["reserved"], "archiveWait": hold["archiveWait"],
+              "setup": bool(setup), "undecided": self.undecided(),
+              "awake": bool(rec or making or waiting or setup or hold["archiveWait"] or hold["soon"]),
+              "label": "・".join(parts) if parts else ("準備しています" if busy else ""),
+              "update": self.update_version(), "updateRequested": bool(self.update_requested)}
+        up = getattr(self, "upgrade", None)
+        if up is not None:   # exe への欄(前の exe は読まない = 作業が無いときだけ入れ替える前の決まりのまま)
+            st["swap"], st["verify"] = up.swap(st), up.verify
+            rb = up.rollback_due(st)
+            if rb is not None:
+                st["rollback"] = rb
+        return st
 
     def prepare(self):
         """裏の糸: 初回の準備(F3-5。取る → 浅く置く → 全部の道具を動かして確かめる。済んでいれば確かめず済み)を
@@ -889,6 +894,10 @@ class FriendApp:
         last_sweep = last_tidy = 0
         while not self.closing.wait(10):
             now = self.clock()
+            try:
+                self.upgrade.tick()   # 更新の決まり(重要な直し・取り消し・確かめ・直しの版のやり直し・固まり・30 分ごとの心拍)
+            except Exception as e:   # noqa: BLE001  (更新の見回りで玄関を止めない)
+                self.log("更新の見回りに失敗しました: %s %s" % (e.__class__.__name__, str(e)[:160]))
             try:
                 self.report.tick()   # 状態の書き出しのきっかけ(印の付いた物を書く・固まったかの見直し・30 分ごと)
             except Exception as e:   # noqa: BLE001  (書き出しで玄関を止めない)

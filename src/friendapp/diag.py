@@ -32,6 +32,9 @@ V = 1
 SWITCH_ENV = "YTT_FRIEND_DIAG"
 NAME_RE = re.compile(r"^([0-9A-Za-z_-]{1,64})__diag-(\d{13})\.diag\.json$")
 STATE_NAME_RE = re.compile(r"^([0-9A-Za-z_-]{1,64})__state-(\d{13})\.state\.json$")   # 状態の書き出し(friendapp/report)。同じ箱から /診断/ へ
+BEAT_NAME_RE = re.compile(r"^([0-9A-Za-z_-]{1,64})__beat-(\d{13})\.beat\.json$")   # 30 分ごとの心拍(friendapp/upgrade)。/診断/ では 1 日で消す
+FAIL_NAME_RE = re.compile(r"^([0-9A-Za-z_-]{1,64})__fail-(\d{13})\.fail\.json$")   # 起動できなかった・戻した(exe の Core.cs FailFile と friendapp/upgrade)
+BEAT_KEEP_SEC = 86400
 SAFE_ID = re.compile(r"^[0-9A-Za-z_-]{1,64}$")
 MAX_BYTES = 128 * 1024              # 1 つの大きさの上限(超えたら道具の行と詳しい文を削る)
 DETAIL_MAX = 4000
@@ -128,11 +131,12 @@ def probe_only(row):
 
 
 def prune_names(names, now_ms):
-    """Dropbox の /診断/ の名前のうち、消す物(3 日より古い診断と状態の書き出し・名前が違う物は触らない)"""
+    """Dropbox の /診断/ の名前のうち、消す物(3 日より古い診断・状態の書き出し・失敗の知らせと、1 日より古い心拍・名前が違う物は触らない)"""
     out = []
     for n in names:
-        m = NAME_RE.match(n or "") or STATE_NAME_RE.match(n or "")
-        if m and now_ms - int(m.group(2)) >= KEEP_SEC * 1000:
+        b = BEAT_NAME_RE.match(n or "")
+        m = b or NAME_RE.match(n or "") or STATE_NAME_RE.match(n or "") or FAIL_NAME_RE.match(n or "")
+        if m and now_ms - int(m.group(2)) >= (BEAT_KEEP_SEC if b else KEEP_SEC) * 1000:
             out.append(n)
     return out
 

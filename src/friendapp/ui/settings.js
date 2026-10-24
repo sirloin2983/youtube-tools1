@@ -87,6 +87,11 @@
     ui.tidyApply.addEventListener('click', function () { tidyCall('apply', { ids: selectedIds() }); });
     ui.tidyTrash.addEventListener('click', openTrash);
 
+    /* 最近の更新(配った版で直したこと)。見に来れば見られるだけ(知らせ・印は出さない)。latest.json に notes が無ければ節ごと出さない */
+    ui.notesList = h('div', { class: 'fs-notes' });
+    ui.notesSec = section('fsNotesH', '最近の更新', [ui.notesList]);
+    ui.notesSec.hidden = true;
+
     var body = h('div', { class: 'ui-drawer-body' }, [
       section('fsPcH', '処理する PC', [radios('fsPc', 'fsPcH', [['local', 'この PC で処理する'], ['remote', '依頼する']]), ui.remoteWhy],
               '「依頼する」にすると、この PC では処理せず、作る人の PC に頼みます(Dropbox で送ります)。'),
@@ -106,7 +111,8 @@
         h('div', { class: 'fs-line' }, [h('label', { class: 'fs-radio' }, ['待ち ', num('fsLiveWait', 1, 60, 1, '待ち(分)'), ' 分'])]),
         h('div', { class: 'fs-line' }, [h('label', { class: 'fs-radio' }, ['余白 ', num('fsLivePad', 0, 5, 0.5, '余白(秒)'), ' 秒'])])
       ], '録画しながら切り抜くときの細かい設定です。次の録画から使います。'),
-      ui.tidySec
+      ui.tidySec,
+      ui.notesSec
     ]);
     var help = h('a', { class: 'btn ghost small fs-help', href: 'guide.html#settings', target: '_blank', rel: 'noopener', 'aria-label': '設定の説明を新しい窓で開く', title: '設定の説明', text: '?' });
     drawer = h('aside', { class: 'ui-drawer', id: 'settingsDrawer', hidden: '', 'aria-labelledby': 'fsSetTitle' }, [
@@ -170,6 +176,19 @@
     if (document.activeElement !== ui.fsLiveWait) ui.fsLiveWait.value = lv.waitMin == null ? '' : lv.waitMin;
     if (document.activeElement !== ui.fsLivePad) ui.fsLivePad.value = lv.pad == null ? '' : lv.pad;
     fillYt(s.ytLogin || {});
+    if (Array.isArray(s.updateNotes)) fillNotes(s.updateNotes, s.version || '');
+  }
+
+  /* 版ごとに「版 n(日付)」と直したことの箇条。外から来た文字は textContent で */
+  function fillNotes(notes, now) {
+    ui.notesList.textContent = '';
+    notes.forEach(function (n) {
+      if (!n || !Array.isArray(n.items) || !n.items.length) return;
+      var head = '版 ' + n.v + (typeof n.at === 'number' ? '(' + dayText(n.at) + ')' : '') + (n.v === now ? '・今の版' : '');
+      ui.notesList.appendChild(h('p', { class: 'fs-path', text: head }));
+      ui.notesList.appendChild(h('ul', { class: 'fs-items' }, n.items.map(function (t) { return h('li', { text: String(t) }); })));
+    });
+    ui.notesSec.hidden = !ui.notesList.childNodes.length;
   }
 
   function dayText(ms) { var d = new Date(ms); return (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日'; }

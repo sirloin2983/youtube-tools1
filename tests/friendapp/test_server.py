@@ -1408,7 +1408,7 @@ class ServerTest(Base):
         self.assertIn("作っている", u["label"])
 
     def test_auto_update_when_idle_once_per_version(self):
-        """[更新する] を押さなくても、何も処理していなければ自分で頼む: 処理中・録画中・入力中は待つ → 済めば頼む → 同じ版は 2 回頼まない"""
+        """[更新する] を押さなくても、何も処理していなければ自分で頼む: 処理中・録画中・予約の枠は待つ・画面に触っているかは見ない → 同じ版は 2 回頼まない"""
         t = self.fake_clock()
         self.app.clock = lambda: t[0]
         self.make_version("999.0.0")
@@ -1419,9 +1419,9 @@ class ServerTest(Base):
             self.engine.queue.status = lambda: {"idle": True, "runs": []}
             with mock.patch.object(self.app, "recording_count", lambda: 1):
                 self.assertFalse(self.app.auto_update())   # ライブの録画中は入れ替えない
-            self.get("/api/friend/update?input=10")   # 画面で入力している途中
-            self.assertFalse(self.app.auto_update())
-            t[0] += S.AUTO_INPUT_IDLE
+            with mock.patch.object(self.app, "holdings", lambda: {"reserved": 1, "archiveWait": 0, "soon": False}):
+                self.assertFalse(self.app.auto_update())   # 待機中の配信の枠がある
+            self.get("/api/friend/update?input=10")   # 画面で入力している途中でも待たない(10-25)
             self.assertTrue(self.app.auto_update())
             d = self.js(self.get("/api/friend/state", headers={TOKEN: self.srv.token})[2])
             self.assertEqual((d["update"], d["updateRequested"]), ("999.0.0", True))   # exe が入れ替える

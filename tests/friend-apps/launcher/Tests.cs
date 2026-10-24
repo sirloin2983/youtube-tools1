@@ -31,6 +31,9 @@ static class Tests
         Run("更新: 前の形の版も比べる・起動できなければ飛ばす・版のフォルダが 2 つそろえば前の形を消す", LegacyRules);
         Run("更新: [更新する] は作業と預かりが無いときだけ入れ替える・状態の読み取り", UpdateRules);
         Run("更新: exe と DLL を写す(動いている物は *.old に)・次の起動で *.old を消す", SwapRules);
+        Run("更新: 玄関の swap があれば作業中でも入れ替える・無い前の玄関は作業なしのときだけ・verify と rollback の読み取り", SwapFieldRules);
+        Run("戻す: 確かに動いた版 good の読み書き・片付けで消さない・戻す先と bad にする版", RollbackRules);
+        Run("知らせ: 起動できなかった・戻したの小さなファイルの名前と形・Dropbox の引数は ASCII", FailFileRules);
         Run("診断: 名前と形・ユーザー名と合言葉を伏せる・最後の 20 行・3 日で消す・ユーザーの PC では書かない", DiagRules);
         Run("YouTube のログイン: ログインの印・書く cookie を選ぶ・Netscape 形式・入れ替えて書く・小窓のプロファイルを消す(偽の cookie)", YtCookieRules);
         foreach (var d in temps)   // Temp() で作った物を片付ける(失敗しても結果は変えない)
@@ -309,6 +312,57 @@ static class Tests
         True(!Rules.ShouldApplyUpdate(new HostState { Update = "", UpdateRequested = true }), "新しい版が無い");
         True(!Rules.ShouldApplyUpdate(null), "状態なし");
         Eq("", HostState.Parse("{}").Update, "欄なし");
+    }
+
+    static void SwapFieldRules()
+    {
+        var s = HostState.Parse("{\"update\":\"0.99.14\",\"updateRequested\":true,\"making\":1,\"waiting\":2,\"swap\":true,\"verify\":\"pending\"}");
+        True(s.HasSwap && Rules.ShouldApplyUpdate(s), "swap があれば作っている間でも入れ替える(重要な直し)");
+        True(!Rules.ShouldApplyUpdate(HostState.Parse("{\"update\":\"0.99.14\",\"updateRequested\":true,\"swap\":false}")), "swap false は作業が無くても待つ(録画中など)");
+        True(!Rules.ShouldApplyUpdate(HostState.Parse("{\"update\":\"0.99.14\",\"updateRequested\":false,\"swap\":true}")), "頼まれていなければ入れ替えない");
+        True(!Rules.ShouldApplyUpdate(HostState.Parse("{\"update\":\"0.99.14\",\"updateRequested\":true,\"making\":1}")), "swap の無い前の玄関は作業なしのときだけ");
+        Eq("pending", s.Verify, "verify"); True(!s.HasRollback, "rollback なし");
+        var r = HostState.Parse("{\"rollback\":{\"to\":null,\"why\":\"確かめに通りませんでした\"}}");
+        True(r.HasRollback && r.RollbackTo == null && r.RollbackWhy.Length > 0, "rollback to null");
+        Eq("0.99.10", HostState.Parse("{\"rollback\":{\"to\":\"0.99.10\"}}").RollbackTo, "rollback to 版");
+    }
+
+    static void RollbackRules()
+    {
+        string h = Temp();
+        foreach (var v in new[] { "0.99.10", "0.99.11", "0.99.12", "0.99.13" }) Install(h, v);
+        var r = new VersionRecord { Current = "0.99.13", Previous = "0.99.12", Good = "0.99.10" };
+        Versions.Write(h, r);
+        Eq("0.99.10", Versions.Read(h).Good, "good の読み書き");
+        File.WriteAllText(Path.Combine(h, "app-versions.json"), "{\"current\":\"0.99.13\",\"good\":\"x\"}");
+        Eq("", Versions.Read(h).Good, "版でない good は捨てる");
+        string why;
+        Eq("0.99.10", Versions.RollbackTarget(h, r, "0.99.13", null, out why), "to なし = good");
+        Eq("0.99.12", Versions.RollbackTarget(h, new VersionRecord { Current = "0.99.13", Previous = "0.99.12" }, "0.99.13", null, out why), "good が無ければ previous");
+        Eq("0.99.11", Versions.RollbackTarget(h, r, "0.99.13", "0.99.11", out why), "to の版");
+        Eq(null, Versions.RollbackTarget(h, r, "0.99.13", "0.99.9", out why), "残っていない版"); True(why.Contains("残っていません"), why);
+        Eq(null, Versions.RollbackTarget(h, r, "0.99.10", null, out why), "今の版へは戻さない");
+        Eq(null, Versions.RollbackTarget(h, new VersionRecord(), "0.99.13", null, out why), "戻す先なし");
+        r.Bad.Add("0.99.10");
+        Versions.ApplyRollback(h, r, "0.99.10");
+        Eq("0.99.11,0.99.12,0.99.13", string.Join(",", r.Bad.OrderBy(x => x).ToArray()), "戻す先より新しい版を全部 bad・戻す先は外す");
+        Eq("0.99.10", Versions.Pick(h, r.Bad).Version, "次の起動は戻す先");
+        string p = Temp();
+        foreach (var v in new[] { "0.99.5", "0.99.10", "0.99.11", "0.99.12", "0.99.13" }) Install(p, v);
+        Versions.Prune(p, new VersionRecord { Current = "0.99.13", Previous = "0.99.12", Good = "0.99.5" }, null);
+        True(Directory.Exists(Path.Combine(p, "app-0.99.5")), "確かに動いた版は古くても消さない");
+        True(!Directory.Exists(Path.Combine(p, "app-0.99.10")), "ほかの古い版は消す");
+    }
+
+    static void FailFileRules()
+    {
+        Eq("launcher__fail-1700000000000.fail.json", FailFile.Name(1700000000000L), "名前");
+        Eq("launcher__fail-0000000000005.fail.json", FailFile.Name(5), "13 桁");
+        True(FailFile.NameRx.IsMatch(FailFile.Name(1700000000000L)), "名前の形");
+        var j = FriendApps.Json.Parse(FailFile.Text("rollback", 5, "0.99.13", null, new string('あ', 400), null));
+        Eq(1, FriendApps.Json.Int(j, "v", 0), "v"); Eq("rollback", FriendApps.Json.Str(j, "kind"), "kind"); Eq("0.99.13", FriendApps.Json.Str(j, "from"), "from");
+        True(j["to"] == null, "to null"); Eq(300, FriendApps.Json.Str(j, "why").Length, "why は 300 字まで");
+        Eq("\"/\\u8a3a\\u65ad/a.json\"", DropboxDirect.AsciiJson("/診断/a.json"), "ASCII だけ");
     }
 
     static void SwapRules()

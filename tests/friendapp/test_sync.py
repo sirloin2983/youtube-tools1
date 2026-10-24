@@ -9,6 +9,7 @@ import os
 import shutil
 import sys
 import time
+import types
 import unittest
 import zipfile
 from unittest import mock
@@ -603,6 +604,50 @@ class SyncTest(unittest.TestCase):
         e.update(extra)
         return e
 
+    def test_update_notes_latest_marks_and_skips_cancelled(self):
+        """latest.json の important・fixes・cancel を覚える(形の違う欄は捨てる)・cancel に入った版は取らない"""
+        self.key()
+        self.env[S.LAUNCHER_ENV] = "1"
+        self.put_update("0.91.0", self.update_entries())
+        doc = json.loads(self.io.data("/更新/latest.json"))
+        doc.update(important=True, fixes={"requests": ["20261025-010203-abcdef", "../x"], "kinds": [1, 9, True]}, cancel=["0.91.0", "x"],
+                   notes=[{"v": "0.91.0", "at": 5, "items": ["直した\x00こと", 3, ""]}, {"v": "x", "items": ["捨てる"]}])
+        self.io.put("/更新/latest.json", json.dumps(doc).encode())
+        self.assertEqual(self.run_sync(), [])
+        self.assertEqual(self.sync.state["latest"], {"version": "0.91.0", "important": True, "cancel": ["0.91.0"],
+                                                     "fixes": {"requests": ["20261025-010203-abcdef"], "kinds": [1]},
+                                                     "notes": [{"v": "0.91.0", "at": 5, "items": ["直したこと"]}]})
+        self.assertFalse(os.path.exists(os.path.join(self.places["home"], "app-0.91.0")))   # 取り消された版は取らない
+
+    def test_update_gone_only_when_folder_readable(self):
+        """latest.json が外された(/更新/ は読めて latest.json だけ無い)ときだけ gone。フォルダごと見えない・読めないのは取り違えない"""
+        self.key()
+        self.env[S.LAUNCHER_ENV] = "1"
+        self.run_sync()
+        self.assertNotIn("latest", self.sync.state)   # /更新/ が無い
+        self.io.fail["/更新/latest.json"] = S._dropbox.DropboxError("つながりません", 0)
+        self.io.put("/更新/FriendApp-0.90.0.zip", b"z")
+        self.run_sync()
+        self.assertNotIn("latest", self.sync.state)   # 読めなかった
+        del self.io.fail["/更新/latest.json"]
+        self.run_sync()
+        self.assertEqual(self.sync.state["latest"], {"gone": True})
+
+    def test_returns_upload_beat_and_fail_to_diag(self):
+        """心拍 .beat.json と失敗の知らせ .fail.json も /診断/ へ。/診断/ の心拍は 1 日・失敗の知らせは 3 日で消す"""
+        self.key()
+        os.makedirs(self.places["outbox"], exist_ok=True)
+        at = int(NOW * 1000)
+        for n in ("app__beat-%013d.beat.json" % at, "launcher__fail-%013d.fail.json" % at):
+            with open(os.path.join(self.places["outbox"], n), "w") as f:
+                f.write("{}")
+        self.run_sync()
+        self.assertIsNotNone(self.io.data("/診断/app__beat-%013d.beat.json" % at))
+        self.assertIsNotNone(self.io.data("/診断/launcher__fail-%013d.fail.json" % at))
+        old = at - 2 * 86400 * 1000
+        self.assertEqual(S._diag.prune_names(["app__beat-%013d.beat.json" % old, "launcher__fail-%013d.fail.json" % old], at),
+                         ["app__beat-%013d.beat.json" % old])
+
     def test_update_installs_new_version_folder(self):
         self.key()
         self.put_update("0.91.0", self.update_entries())
@@ -686,6 +731,25 @@ class SyncTest(unittest.TestCase):
         doc = {"version": ver, "file": name, "size": len(full), "sha256": hashlib.sha256(full).hexdigest(), "notes": "", "light": entry}
         self.io.put("/更新/latest.json", json.dumps(doc).encode())
         return name, lname
+
+    def test_heavy_zip_waits_for_recording_but_light_does_not(self):
+        """録画中: 軽い zip は取る・全部入りは録画が終わってから(update_wait = recording)"""
+        self.key()
+        self.env[S.LAUNCHER_ENV] = "1"
+        live = types.SimpleNamespace(active_count=lambda: 1)
+        self.sync.engine_fn = lambda: types.SimpleNamespace(live=live)
+        self.put_update("0.91.0", self.update_entries())   # 軽い zip の無い版
+        self.assertEqual(self.run_sync(), [])
+        self.assertEqual((self.sync.update_wait, [p for p in self.io.downloads if "FriendApp-" in p]), ("recording", []))
+        live.active_count = lambda: 0
+        self.run_sync()
+        self.assertTrue(os.path.isdir(os.path.join(self.places["home"], "app-0.91.0")))
+        self.assertIsNone(self.sync.update_wait)
+        live.active_count = lambda: 1
+        self.runtime()
+        _name, lname = self.put_light("0.95.0")
+        self.assertEqual(self.run_sync(), [])
+        self.assertEqual([p for p in self.io.downloads if "0.95.0" in p], ["/更新/" + lname])   # 軽い zip は録画中でも取る
 
     def test_light_update_copies_python_from_runtime(self):
         self.key()

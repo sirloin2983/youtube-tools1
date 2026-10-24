@@ -25,7 +25,9 @@
      今の版より新しければ zip を取り SHA-256 を確かめ、src/・python/ と直下の
      FriendApp.exe・WebView2 の DLL・fetch.json・members.json を <home>/app-<版>.tmp/ に展開 → src/friendapp/server.py と python/python.exe があれば
      <home>/app-<版>/ へ。zip は latest.json の light(FriendApp-<版>-light.zip。python/ なし)があれば先にそれ = python/ は今動いている Python から
-     manifest の SHA-256 を確かめて写す(1 つでも無い・違えば同じ回で file の全部入り FriendApp-<版>.zip を取る)。入れ替える(exe を写して開き直す)のは画面の [更新する] から exe が(作業と預かりが無いとき)
+     manifest の SHA-256 を確かめて写す(1 つでも無い・違えば同じ回で file の全部入り FriendApp-<版>.zip を取る)。入れ替える(exe を写して開き直す)のは exe(いつかは friendapp/upgrade)。
+     latest.json の important・fixes・cancel は state の latest に覚える(latest_mark)。cancel の版は取らない。/更新/ は読めて latest.json だけ無ければ latest は gone
+     (取ってある版を捨てる = friendapp/upgrade)。/診断/戻して/ の印は friendapp/upgrade が受ける(rollbacks)
 """
 import datetime
 import json
@@ -88,7 +90,8 @@ UPDATE_NEED = 320 * 1024 ** 2      # 新しい版を取る前に要る空き(版
 LAUNCHER_ENV = "YTT_FRIEND_LAUNCHER"
 STATE_NAME = "sync.json"
 VERSIONS_NAME = "app-versions.json"
-UPDATE_RETRY_SEC = 3600            # 同じ新しい版の zip の中身が違ったとき、取り直さない秒(約 70 MB を 3 分ごとに取り続けない)
+NOTES_MAX, NOTE_ITEMS_MAX, NOTE_ITEM_MAX = 10, 20, 200   # 「最近の更新」に覚える版の数・1 版の項目の数・1 項目の字数
+UPDATE_RETRY_SEC = 3600           # 同じ新しい版の zip の中身が違ったとき、取り直さない秒(約 70 MB を 3 分ごとに取り続けない)
 PROBLEM_SHOW = 600                  # 同期の問題がこの秒より続いたら帯に出す(一時の通信の切れは数分で戻るので出さない)
 PROBLEM_TEXT = "Dropbox とのやり取りが 10 分以上うまくいっていません。ネットを確かめてください。続くときは作る人に伝えてください(%s)"
 NO_KEY = "Dropbox の鍵がありません。作る人の PC に依頼する・作る人の PC から届く物を受け取ることはできません(この PC で作る物は使えます)"   # 友人の画面の言葉(作る側の「ユーザーの PC」は出さない)
@@ -404,6 +407,9 @@ class Sync:
         self.diag = None                        # 診断の係(friendapp/diag.Diag。玄関が入れる。None = 同期の失敗を診断に書かない)
         self._diag_pruned = 0.0
         self.asks = None                        # 「送って」の印への返事 asks(io)(friendapp/report.Reporter.answer_asks。玄関が入れる)
+        self.rollbacks = None                   # 戻す印 rollbacks(io)(friendapp/upgrade.Upgrade.take_marks。玄関が入れる)
+        self.passes = 0                         # 全部の段が通った回の数
+        self.update_wait = None                 # 新しい版を取るのを待っている理由("recording" = 録画中なので重い zip を後で)
         self.securing = lambda rid: False       # 依頼の動画を確保している途中か(api.Api.securing。その間は上げない。玄関が入れる)
         self.arrived = lambda rid: None         # 依頼の物が届いた(api.Api.release_copy = 確保した動画を消す。玄関が入れる)
         self.sent_at = self.arrived_at = None   # 最後に上げた・届いた物を取り込んだミリ秒(状態の書き出しの sync 欄)
@@ -509,8 +515,8 @@ class Sync:
             problems = []
             for label, step in (("引き継ぎ", self._takeovers), ("ユーザーの PC への依頼", self._requests), ("届いた物", self._intake),
                                 ("確認用の動画", self._previews), ("受け取る", self._receive), ("片付け", self._cleanup),
-                                ("声の材料", self._voice), ("診断の頼み", self._asks), ("送り返し", self._returns), ("学習", self._learning),
-                                ("更新", self._update)):
+                                ("声の材料", self._voice), ("診断の頼み", self._asks), ("戻す印", self._rollbacks), ("送り返し", self._returns),
+                                ("学習", self._learning), ("更新", self._update)):
                 if self._stop.is_set():
                     break
                 try:
@@ -524,6 +530,8 @@ class Sync:
                         self.diag.once("sync:%s:%s" % (label, str(e)[:80]), DIAG_ERROR_EVERY, "sync", summary="同期の %s: %s" % (label, str(e)[:200]),
                                        detail="%s %s" % (e.__class__.__name__, e), stage=label, status=getattr(e, "status", None))
             now = int(self.clock() * 1000)
+            if not problems and not self._stop.is_set():
+                self.passes += 1   # 全部の段が通った回の数(新しい版の確かめ = friendapp/upgrade)
             since = (self.last.get("since") or now) if problems else None
             self.last = {"at": now, "problem": problems[0] if problems else "", "since": since}
             return problems
@@ -792,7 +800,7 @@ class Sync:
         failed = []
         for name in sorted(os.listdir(box)):
             p = os.path.join(box, name)
-            diag = bool(_diag.NAME_RE.match(name) or _diag.STATE_NAME_RE.match(name))
+            diag = bool(_diag.NAME_RE.match(name) or _diag.STATE_NAME_RE.match(name) or _diag.BEAT_NAME_RE.match(name) or _diag.FAIL_NAME_RE.match(name))
             if not os.path.isfile(p) or not (RETURN_ZIP_RE.match(name) or VERDICT_NAME_RE.match(name) or NOTICE_NAME_RE.match(name)
                                              or VOICE_NAME_RE.match(name) or diag):
                 continue
@@ -824,6 +832,11 @@ class Sync:
         """/診断/送って/ の印に答える(返事は送り返しの箱へ = 同じ回の送り返しで上げる)"""
         if self.asks is not None:
             self.asks(io)
+
+    def _rollbacks(self, io):
+        """/診断/戻して/ の印(受け取り側が置く)を受ける(戻すのは exe。exe から動いているときだけ)"""
+        if self.rollbacks is not None and (self.env.get(LAUNCHER_ENV) or "").strip() == "1":
+            self.rollbacks(io)
 
     def _prune_diag(self, io):
         """Dropbox の /診断/ の 3 日より古い診断を消す(名前の時刻で決める。DIAG_PRUNE_EVERY 秒に 1 回)"""
@@ -874,13 +887,23 @@ class Sync:
     def _update(self, io):
         if (self.env.get(LAUNCHER_ENV) or "").strip() != "1":
             return
+        self.update_wait = None
         got = io.read_small(UPDATES + "/latest.json", SMALL_CAP)
-        d = _json_bytes(got[0]) if got and not got[1] else None
+        if got is None:   # 配布を外した = フォルダは読めて latest.json だけ無いときだけ(読めない・フォルダごと見えないのは取り違えない)
+            entries = io.list_folder(UPDATES)
+            if entries is not None and not any((e.get("name") or "") == "latest.json" for e in entries):
+                self._note_latest({"gone": True})
+            return
+        d = _json_bytes(got[0]) if not got[1] else None
         if not isinstance(d, dict):
             return
         ver, name, sha = d.get("version"), d.get("file"), str(d.get("sha256") or "").lower()
+        if isinstance(ver, str) and APP_VERSION_RE.match(ver):
+            self._note_latest(latest_mark(d))
         if not (isinstance(ver, str) and APP_VERSION_RE.match(ver)) or version_tuple(ver) <= version_tuple(self.version):
             return
+        if ver in (d.get("cancel") if isinstance(d.get("cancel"), list) else []):
+            return   # 取り消された版は取らない
         if not (isinstance(name, str) and UPDATE_FILE_RE.match(name)) or not SHA_RE.match(sha):
             raise SyncError("更新の latest.json の形が違います")
         home = self.places["home"]
@@ -908,6 +931,12 @@ class Sync:
         if self.diag is not None:
             self.diag.write("update", summary="新しい版 %s を取って入れました" % ver, toVersion=ver, light=placed)
 
+    def _note_latest(self, mark):
+        """latest.json の印を覚える(friendapp/upgrade が読む = 重要な直し・直す対象・取り消し)。変わったときだけ書く"""
+        if self.state.get("latest") != mark:
+            self.state["latest"] = mark
+            self._save_state()
+
     def _update_from(self, io, home, d, ver, name, sha):
         """軽い zip(あれば)→ だめなら全部入り -> 軽い方で入れたか(真偽)か None(取れなかった = 次の回)"""
         light = self._light_entry(d, ver)
@@ -920,9 +949,19 @@ class Sync:
             else:
                 if placed:
                     self.log("軽い更新(python は今の版から写した)")
+        if not placed and self._recording():   # 重い zip(python ごと約 70MB)は録画中は取らない(録画の書き込みと回線を取り合わない)。軽い zip は録画中でも取る
+            if self.update_wait != "recording":
+                self.log("録画中なので、新しい版 %s の全部入りの zip は録画が終わってから取ります" % ver)
+            self.update_wait = "recording"
+            return None
         if not placed and not self._fetch_install(io, home, ver, (name, sha, d.get("size"))):
             return None
         return placed
+
+    def _recording(self):
+        eng = self.engine_fn()
+        live = getattr(eng, "live", None) if eng is not None else None
+        return live is not None and live.active_count() > 0
 
     def _update_space_ok(self, home):
         """新しい版を取る前の空き(UPDATE_NEED。作業データと同じドライブなら diskMinGB も足す)。足りなければ取らずに次の回へ(.part も作らない)"""
@@ -963,6 +1002,23 @@ class Sync:
         finally:
             fsio.unlink_quiet(part)
         return True
+
+
+def latest_mark(d):
+    """latest.json -> 覚える印 {version, important, fixes: {requests, kinds}, cancel}(形の違う欄は捨てる)"""
+    f = d.get("fixes") if isinstance(d.get("fixes"), dict) else {}
+    reqs = [r for r in (f.get("requests") if isinstance(f.get("requests"), list) else []) if isinstance(r, str) and _diag.SAFE_ID.match(r)][:50]
+    kinds = [k for k in (f.get("kinds") if isinstance(f.get("kinds"), list) else []) if isinstance(k, int) and not isinstance(k, bool) and 1 <= k <= 7]
+    cancel = [c for c in (d.get("cancel") if isinstance(d.get("cancel"), list) else []) if isinstance(c, str) and APP_VERSION_RE.match(c)][:50]
+    notes = []
+    for n in (d.get("notes") if isinstance(d.get("notes"), list) else [])[:NOTES_MAX]:   # 「最近の更新」(仮の形 [{v, at, items}]。文字列の notes は前の形 = 出さない)
+        if isinstance(n, dict) and isinstance(n.get("v"), str) and APP_VERSION_RE.match(n["v"]) and isinstance(n.get("items"), list):
+            items = [clean_text(x, NOTE_ITEM_MAX) for x in n["items"][:NOTE_ITEMS_MAX] if isinstance(x, str) and x.strip()]
+            at = n.get("at") if isinstance(n.get("at"), int) and not isinstance(n.get("at"), bool) else None
+            if items:
+                notes.append({"v": n["v"], "at": at, "items": items})
+    return {"version": d["version"], "important": d.get("important") is True, "fixes": {"requests": reqs, "kinds": kinds}, "cancel": cancel,
+            "notes": notes}
 
 
 def fetch_learning(io, root, log):

@@ -54,6 +54,7 @@ CHANNEL_LIVE_RE = re.compile(r"^https?://(?:www\.|m\.)?youtube\.com/(?:@[^/?#\s]
 ARCHIVE_OK = ("was_live", "not_live")   # 調べた結果がこれならアーカイブが見られる(post_live = まだ)
 RETRY_MAX = _inbox.RETRY_MAX         # 直る見込みのある失敗の自動のやり直しの回数(C-2-16)
 RETRY_EVERY = 180                   # 自動のやり直しの間隔(秒 = 数分おき)
+FINAL_RETRIES = 99                  # 直しの版の 1 回だけのやり直し = 自動のやり直しの回数を使い切った印(どの種類の retryMax より大きい)
 NOTICE_MAX = 250 * 1024             # [作る人に知らせる] の 1 つの大きさ(12-4 = 256KB 未満)
 NOTICE_LOG_MAX = 120 * 1024         # その中のログ(12-4 = 128KB まで)
 UPLOAD_DIR = "受け取った動画"       # 画面に落とした動画の置き場所(一時保管の中。送らなければ 1 日で消す)
@@ -697,8 +698,9 @@ class Api:
         return dest
 
     # ------------------------------------------------------------ やり直す・取り消す・知らせる
-    def retry(self, rid, auto=False):
+    def retry(self, rid, auto=False, final=False):
         """失敗の行の [もう一度送る](同じ欄で。済んだ段は ② が飛ばす)。auto = 自動のやり直し(回数を数える)。
+        final = 重要な直しの版での 1 回だけのやり直し(自動のやり直しを使い切った印にする = また落ちたら gaveUp で引き継ぎへ。friendapp/upgrade)。
         ユーザーの PC が引き継いだ行(takeover)は作っている途中でも押せる(画面が二重に届くかもの確かめを出してから。同じ id で上げ直す)"""
         eng = self.engine_fn()
         r = self.inbox.row(rid)
@@ -713,7 +715,7 @@ class Api:
         if eng is None:
             raise FormError("準備中です。少し待ってから、もう一度押してください")
         self._need_parts()
-        self.inbox.resent(rid, None, auto=auto)
+        self.inbox.resent(rid, None, auto=auto, retries=FINAL_RETRIES if final else None)
         try:
             return self._submit_this(eng, self.inbox.row(rid))
         except FormError as e:

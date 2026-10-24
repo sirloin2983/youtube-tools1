@@ -14,10 +14,11 @@ namespace FriendInbox
         public string Version, Python, Script;
     }
 
-    // <home>\app-versions.json = {"v":1, "current":"0.90.0", "previous":"0.89.0", "bad":["…"]}。書くのは起動役だけ(玄関は読むだけ)
+    // <home>\app-versions.json = {"v":1, "current":"0.90.0", "previous":"0.89.0", "good":"0.89.0", "bad":["…"]}。書くのは起動役だけ(玄関は読むだけ)。
+    // good = 確かに動いた版(玄関の確かめ verify が ok と言った版。戻す先・片付けで消さない)。前の exe は good を知らない(読み飛ばし、書くと消える = 戻す先は previous)
     public sealed class VersionRecord
     {
-        public string Current = "", Previous = "";
+        public string Current = "", Previous = "", Good = "";
         public List<string> Bad = new List<string>();
     }
 
@@ -115,6 +116,7 @@ namespace FriendInbox
             if (j == null) return r;
             r.Current = Json.Str(j, "current") ?? "";
             r.Previous = Json.Str(j, "previous") ?? "";
+            r.Good = Parse(Json.Str(j, "good")) != null ? Json.Str(j, "good") : "";
             var bad = j.ContainsKey("bad") ? j["bad"] as System.Collections.IEnumerable : null;
             if (bad != null)
                 foreach (var o in bad)
@@ -132,7 +134,7 @@ namespace FriendInbox
 
         public static void Write(string home, VersionRecord r)
         {
-            string text = "{\"v\":1,\"current\":" + Q(r.Current) + ",\"previous\":" + Q(r.Previous) + ",\"bad\":[" + string.Join(",", r.Bad.Select(Q).ToArray()) + "]}";
+            string text = "{\"v\":1,\"current\":" + Q(r.Current) + ",\"previous\":" + Q(r.Previous) + ",\"good\":" + Q(r.Good) + ",\"bad\":[" + string.Join(",", r.Bad.Select(Q).ToArray()) + "]}";
             string path = Path.Combine(home, RecordName), tmp = path + ".tmp";
             File.WriteAllText(tmp, text, new UTF8Encoding(false));
             if (File.Exists(path)) File.Replace(tmp, path, null); else File.Move(tmp, path);
@@ -145,6 +147,25 @@ namespace FriendInbox
             if (!string.IsNullOrEmpty(r.Current) && !r.Bad.Contains(r.Current)) r.Previous = r.Current;
             r.Current = v;
             if (r.Previous == v) r.Previous = "";
+        }
+
+        // 戻す先(玄関が頼んだ to。null なら確かに動いた版 good・無ければ previous)。置いてあって今の版と違う物だけ。戻せなければ null と理由
+        public static string RollbackTarget(string home, VersionRecord r, string current, string to, out string why)
+        {
+            string t = !string.IsNullOrEmpty(to) ? to : (!string.IsNullOrEmpty(r.Good) ? r.Good : r.Previous);
+            why = "";
+            if (string.IsNullOrEmpty(t) || Parse(t) == null) { why = "戻す先の確かに動いた版がありません"; return null; }
+            if (t == current) { why = "もう版 " + t + " で動いています"; return null; }
+            if (!Installed(home).Contains(t)) { why = "戻す先の版 " + t + " が残っていません"; return null; }
+            return t;
+        }
+
+        // 戻す: 戻す先より新しい置いてある版を全部 bad にする(次の起動で Pick が戻す先を選ぶ。間に置いたまま確かめていない版も飛ばす)。戻す先は bad から外す
+        public static void ApplyRollback(string home, VersionRecord r, string target)
+        {
+            r.Bad.Remove(target);
+            foreach (var v in Installed(home))
+                if (Compare(v, target) > 0 && !r.Bad.Contains(v)) r.Bad.Add(v);
         }
 
         // 残す版の数(current から古い方へ数える)。src/friendapp/tidy.py の KEEP_VERSIONS と同じ値にする
@@ -174,7 +195,7 @@ namespace FriendInbox
             foreach (var d in Directory.GetDirectories(home, Prefix + "*"))
             {
                 string name = Path.GetFileName(d).Substring(Prefix.Length);
-                if (Parse(name) == null || Compare(name, floor) >= 0 || name == r.Current || name == r.Previous) continue;
+                if (Parse(name) == null || Compare(name, floor) >= 0 || name == r.Current || name == r.Previous || name == r.Good) continue;
                 try { Directory.Delete(d, true); gone.Add(name); }
                 catch (Exception ex)
                 {
@@ -274,12 +295,19 @@ namespace FriendInbox
         public int Making, Recording, Waiting, Reserved, ArchiveWait, Undecided;
         public bool Setup, Awake, UpdateRequested;
         public string Label = "", Update = "";
+        // 玄関が決める欄(前の玄関は書かない = 欄が無ければ前の決まり): swap = 今入れ替えてよい・verify = 新しい版の確かめ(pending / ok / fail)・
+        // rollback = 今戻す {to: 版か null(確かに動いた版), why}
+        public bool HasSwap, Swap, HasRollback;
+        public string Verify = "", RollbackTo, RollbackWhy = "";
 
         public static HostState Parse(string text)
         {
             var j = Json.Parse(text);
+            var rb = Json.Dict(j, "rollback");
             return new HostState
             {
+                HasSwap = j.ContainsKey("swap"), Swap = Json.Bool(j, "swap", false), Verify = Json.Str(j, "verify") ?? "",
+                HasRollback = rb != null, RollbackTo = rb != null ? Json.Str(rb, "to") : null, RollbackWhy = rb != null ? (Json.Str(rb, "why") ?? "") : "",
                 Making = Json.Int(j, "making", 0), Recording = Json.Int(j, "recording", 0), Waiting = Json.Int(j, "waiting", 0),
                 Reserved = Json.Int(j, "reserved", 0), ArchiveWait = Json.Int(j, "archiveWait", 0), Undecided = Json.Int(j, "undecided", 0),
                 Setup = Json.Bool(j, "setup", false), Awake = Json.Bool(j, "awake", false), Label = Json.Str(j, "label") ?? "",
@@ -363,10 +391,12 @@ namespace FriendInbox
             return undecided > 0 ? AppTitle + " ●" + undecided : AppTitle;
         }
 
-        // [更新する] を押され、新しい版があり、作業も預かりも無い = 入れ替えてよい
+        // 入れ替えを頼まれ、新しい版がある。いつ入れ替えるかは玄関の swap(重要な直し・[今すぐ] は作業があっても入れ替える。録画中は待つ)。
+        // swap の無い前の玄関は、作業も預かりも無いときだけ
         public static bool ShouldApplyUpdate(HostState s)
         {
-            return s != null && s.UpdateRequested && Versions.Parse(s.Update) != null && s.Holdings == 0;
+            if (s == null || !s.UpdateRequested || Versions.Parse(s.Update) == null) return false;
+            return s.HasSwap ? s.Swap : s.Holdings == 0;
         }
 
         // 裏で続けている間に仕事が無くなったら自分で終わる
@@ -431,7 +461,7 @@ namespace FriendInbox
             return "Windows " + (v.Major == 10 && v.Build >= 22000 ? "11" : v.Major.ToString()) + " " + v.Major + "." + v.Minor + "." + v.Build;
         }
 
-        static bool Off(string home)
+        public static bool Off(string home)
         {
             string sw = (Environment.GetEnvironmentVariable("YTT_FRIEND_DIAG") ?? "").Trim().ToLowerInvariant();
             if (sw == "0" || sw == "off" || sw == "false" || sw == "no") return true;
@@ -524,6 +554,52 @@ namespace FriendInbox
                 catch (UnauthorizedAccessException) { }
             }
             return n;
+        }
+    }
+
+    // 「起動できなかった」「前の版へ戻した」の小さなファイル(形の正は notes:plan/友人の不具合の自動対応-1025.md の「更新」)。
+    // launcher__fail-<ミリ秒 13 桁>.fail.json = {v:1, kind:"launch_fail"|"rollback", at, from, to, why}(版・時刻・理由だけ)。
+    // Python が起きなくても届くよう、exe が Dropbox へ直に上げる(Launcher.cs の DropboxDirect)。上げられなければ送り返しの箱へ(次に起きた Python の同期が上げる)
+    public static class FailFile
+    {
+        public const int WhyMax = 300;
+        public static readonly System.Text.RegularExpressions.Regex NameRx = new System.Text.RegularExpressions.Regex(@"^[0-9A-Za-z_-]{1,64}__fail-(\d{13})\.fail\.json$");
+
+        public static long Ms(DateTime utc) { return (long)(utc - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds; }
+
+        public static string Name(long at) { return "launcher__fail-" + at.ToString("D13") + ".fail.json"; }
+
+        // 中身(why は伏せて 300 字まで)
+        public static string Text(string kind, long at, string from, string to, string why, string home)
+        {
+            string w = Diag.Mask(why ?? "", home, Environment.GetEnvironmentVariable("USERPROFILE"), Environment.UserName, Diag.Token);
+            if (w.Length > WhyMax) w = w.Substring(0, WhyMax);
+            var doc = new Dictionary<string, object>
+            {
+                { "v", 1 }, { "kind", kind }, { "at", at }, { "from", string.IsNullOrEmpty(from) ? null : from }, { "to", string.IsNullOrEmpty(to) ? null : to }, { "why", w }
+            };
+            return Json.Pretty(doc);
+        }
+
+        // 送り返しの箱へ書く -> パスか null(スイッチ・書けない)
+        public static string WriteOutbox(string home, string name, string text)
+        {
+            if (string.IsNullOrEmpty(home) || Diag.Off(home)) return null;
+            try
+            {
+                string box = Diag.Box(home);
+                Directory.CreateDirectory(box);
+                string path = Path.Combine(box, name), tmp = path + ".tmp";
+                File.WriteAllText(tmp, text, new UTF8Encoding(false));
+                if (File.Exists(path)) File.Delete(path);
+                File.Move(tmp, path);
+                return path;
+            }
+            catch (Exception ex)
+            {
+                if (!(ex is IOException || ex is UnauthorizedAccessException)) throw;
+                return null;
+            }
         }
     }
 }

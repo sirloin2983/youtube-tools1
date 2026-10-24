@@ -5,9 +5,7 @@
 (function () {
   'use strict';
   var POLL = 30000, POLL_WAIT = 3000, timer = 0, busy = false;
-  var curU = null, curT = null, tidyBusy = false;
-  var lastInput = 0;   /* 画面で最後に入力した時刻(0 = まだ。玄関は入力の途中に自動で入れ替えない) */
-  ['input', 'keydown', 'pointerdown', 'drop'].forEach(function (ev) { document.addEventListener(ev, function () { lastInput = Date.now(); }, true); });   /* 新しい版の知らせ・フォルダの整理の view(口が無い・失敗のときは null) */
+  var curU = null, curT = null, tidyBusy = false;   /* 新しい版の知らせ・フォルダの整理の view(口が無い・失敗のときは null) */
 
   function api(path, body) { return UIKit.http('api/friend/' + path, body === undefined ? {} : { body: body }); }
 
@@ -23,6 +21,19 @@
     box.hidden = false;
     box.setAttribute('role', 'status');
     var msg = el('span', 'fr-update-text');
+    /* 重要な直し(待っている間)・24 時間溜まった更新: 端の 1 行と [今すぐ](録画中だけは録画が終わるまで待つ) */
+    var urgent = u.hosted && !u.now && ((u.important && u.requested && u.waiting) || (u.overdue && !(u.requested && !u.waiting)));
+    if (urgent) {
+      msg.textContent = u.important ? '大事な直しが届きました。今の処理が終わったら更新します' : '更新が溜まっています';
+      box.appendChild(msg);
+      var now = el('button', 'btn primary small', u.important ? '今すぐ' : '今すぐ更新');
+      now.type = 'button';
+      now.setAttribute('data-fr-update-now', '');
+      now.title = '今の処理を止めて新しい版に入れ替えます(止めた処理は開き直したあと続きから。録画中は録画が終わってから)';
+      now.addEventListener('click', function () { apply(box, now, 'update/now'); });
+      box.appendChild(now);
+      return;
+    }
     if (!u.requested) {
       msg.textContent = '新しい版 ' + u.version + ' があります' + (u.auto ? '。処理が終わったら自動で新しい版にします(今すぐ:' : '');
       box.appendChild(msg);
@@ -40,11 +51,11 @@
     box.appendChild(msg);
   }
 
-  function apply(box, b) {
+  function apply(box, b, path) {
     if (busy) return;
     busy = true;
     b.disabled = true;
-    api('update/apply', {}).then(function (j) { curU = j.update; redraw(); }, function (e) {
+    api(path || 'update/apply', {}).then(function (j) { curU = j.update; redraw(); }, function (e) {
       UIKit.toast('更新できませんでした: ' + ((e && e.message) || ''), { kind: 'err', ms: 5000 });
       b.disabled = false;
     }).then(function () { busy = false; poll(); });
@@ -121,7 +132,7 @@
   function poll() {
     clearTimeout(timer);
     if (!document.querySelector('[data-fr-update]')) return;
-    var u = api('update' + (lastInput ? '?input=' + Math.round((Date.now() - lastInput) / 1000) : '')).then(function (x) { curU = x; return x; }, function () { return curU; });
+    var u = api('update').then(function (x) { curU = x; return x; }, function () { return curU; });
     var t = api('tidy').then(function (j) { curT = viewOf(j); return curT; }, function () { curT = null; return null; });
     Promise.all([u, t]).then(function (r) {
       redraw();

@@ -25,7 +25,7 @@ from ytt import fsio as _fsio, tools as _tools, version as _version, ytcookies a
 from . import diag as _diag, oplog as _oplog
 
 V = 1
-URGENT = ("error", "stuck", "live_end", "crash", "ask")
+URGENT = ("error", "stuck", "live_end", "crash", "ask", "update")   # update = 新しい版を取れない・起動しない・確かめに通らない・前の版へ戻した(facts.stage)
 LOCAL = ("trouble", "request_end", "periodic")
 FULL = ("env", "screen", "requests", "jobs", "live", "sync", "settings", "log", "yt")
 PARTS = {"live_end": ("env", "live", "requests", "jobs"), "request_end": ("env", "requests", "jobs", "sync"), "periodic": ("jobs", "live")}
@@ -124,7 +124,7 @@ def judge(trigger, row, rows=(), live=None):
             codes.append("zero_cand_filled")
     if not codes and trigger in ("live_end", "request_end") and facts.get("delivered") is not False and (row or {}).get("state") != "failed":
         codes.append("ok")   # 問題なく終わった(空にすると受け取り側が要対応と読む)
-    if not codes and trigger in ("error", "stuck", "crash"):
+    if not codes and trigger in ("error", "stuck", "crash", "update"):
         codes.append("unknown")
     return codes, facts
 
@@ -198,7 +198,11 @@ class Reporter:
             trig = "error" if (doc.get("request") or {}).get("state") == "error" else "request_end"
         elif kind == "live":
             trig = {"close": "live_end", "ended": "live_end", "submit": "error", "blocked": "error", "lost": "stuck"}.get(stage)
-        elif kind in ("error", "sync", "setup", "start", "exception", "rollback"):
+        elif kind == "rollback":   # exe が起動できない版を飛ばして前の版で起こした
+            trig, stage = "update", "rollback"
+        elif (kind == "sync" and stage == "更新") or (kind == "update" and stage == "space"):   # 新しい版を取れない
+            trig, stage = "update", "update"
+        elif kind in ("error", "sync", "setup", "start", "exception"):
             trig = "error"
         if trig:
             self.mark(trig, rid, doc.get("summary") or "", live=doc.get("live"), code=doc.get("code"), stage=stage)
