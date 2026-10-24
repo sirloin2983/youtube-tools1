@@ -1362,11 +1362,11 @@ class PortalServer(httpsec.ExclusiveServer):
                 return 200, {"ok": True, "focused": self.window.focus(PORTAL_TITLE)}
             if sub == "streamer-guess":   # 配信者の名前を自動で(覚えた名前 → チャンネル名から。段5)。{docId?, videoId?, channel?}
                 return 200, self.streamer_guess(body.get("docId"), body.get("videoId"), body.get("channel"))
-            if sub == "deliver":   # 「編集」の ③ パックの「友人へ届ける」。{op: "start", dir, title} → 裏で zip / {op: "status", job}
+            if sub == "deliver":   # 「編集」の ③ パックの「友人へ届ける」。{op: "start", dir, title, requestId?(元の依頼 id。後追い・引き継ぎ)} → 裏で zip / {op: "status", job}
                 if body.get("op") == "status":
                     j = self.deliveries.status(body.get("job"))
                     return (200, {"ok": True, "job": j}) if j else (404, {"error": "not_found", "message": "その仕事はありません(ホームを起動し直しましたか)"})
-                return 200, {"ok": True, "job": self.deliveries.start(body.get("dir"), body.get("title"))}
+                return 200, {"ok": True, "job": self.deliveries.start(body.get("dir"), body.get("title"), rid=body.get("requestId") or None)}
             if sub == "live":   # リアルタイム切り抜き(線 D の P3): 全ツールのヘッダーの録画の札 {op: "status"} / 札の「停止」{op: "stop", recorder, recording}(src/app/live.py)
                 return self.live.ytt(body)
             if sub == "ytlogin":   # 設定の「YouTube のログイン」{op: status|login|logout}(src/app/ytlogin.py)

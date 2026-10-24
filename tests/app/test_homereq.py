@@ -59,6 +59,13 @@ class RowsTest(unittest.TestCase):
         self.assertEqual(off["s"]["link"], {"c": "N3z6TI4ED7o", "tab": "cand", "ended": True})
         self.assertEqual((off["s"]["state"], off["t"]["state"], off["t"]["label"]), ("sent", "nocand", "候補なし"))
 
+    def test_failed_run_later_delivered_by_original_id(self):
+        """実行は失敗でも、元の依頼 id で後から届けた(後追い・引き継ぎ)なら 送った"""
+        reqs = [req("u", runs=("r1",), requestId="20261025-010203-abcdef")]
+        runs = [{"id": "r1", "state": "error"}]
+        self.assertEqual(H.rows(reqs, runs, NOW)[0]["state"], "error")
+        self.assertEqual(H.rows(reqs, runs, NOW, delivered={"20261025-010203-abcdef": 1.0})[0]["state"], "sent")
+
 
 if __name__ == "__main__":
     unittest.main()

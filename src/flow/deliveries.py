@@ -49,14 +49,15 @@ def clip_range(path):
     return (a, b) if b > a else None
 
 
-def overlaps(log_dir, video_id, rng, run_id="", ranges=None):
-    """同じ配信のほかの実行(前の依頼・送り直し)で届けた切り抜きのうち、区間 rng(元の配信の秒)と短い方の OVERLAP_SHARE 以上重なる物
-    -> [{"zip", "at", "requestId", "share"}](古い順)。ranges = 切り抜きの動画 -> 区間 を引く関数(既定 clip_range)"""
-    if not OVERLAP_ON or not video_id or not rng:
+def overlaps(log_dir, video_id, rng, run_id="", ranges=None, request_id="", share=None):
+    """同じ配信のほかの実行(前の依頼・送り直し)で届けた切り抜きのうち、区間 rng(元の配信の秒)と短い方の share(既定 OVERLAP_SHARE)以上重なる物
+    -> [{"zip", "at", "requestId", "share"}](古い順)。ranges = 切り抜きの動画 -> 区間 を引く関数(既定 clip_range)。
+    request_id = その依頼 id の行だけ(手で届ける道の二重の守り Deliveries.start。OVERLAP_ON に関わらず見る)"""
+    if (not OVERLAP_ON and not request_id) or not video_id or not rng:
         return []
-    ranges, out = ranges or clip_range, []
+    ranges, out, share = ranges or clip_range, [], OVERLAP_SHARE if share is None else share
     for row in rows(log_dir) or []:
-        if row.get("videoId") != video_id or (run_id and row.get("runId") == run_id):
+        if row.get("videoId") != video_id or (run_id and row.get("runId") == run_id) or (request_id and row.get("requestId") != request_id):
             continue
         for p in row.get("packs") or []:
             r = ranges(p.get("path") or "") if isinstance(p, dict) else None
@@ -64,7 +65,7 @@ def overlaps(log_dir, video_id, rng, run_id="", ranges=None):
                 continue
             ov = min(rng[1], r[1]) - max(rng[0], r[0])
             short = min(rng[1] - rng[0], r[1] - r[0])
-            if short > 0 and ov / short >= OVERLAP_SHARE:
+            if short > 0 and ov / short >= share:
                 out.append({"zip": str(row.get("zip") or ""), "at": row.get("at"), "requestId": str(row.get("requestId") or ""), "share": round(ov / short, 2)})
     return out
 

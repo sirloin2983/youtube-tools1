@@ -76,7 +76,7 @@ LOGIN_WAIT_SEC = 6 * 3600           # claude がログインしていなかっ�
 LOGIN_RE = re.compile(r"Not logged in|Please run /login", re.I)
 WT_PREFIX = "friend-bug-"           # <repo>/.claude/worktrees/friend-bug-<時刻>(その回専用)
 COORDINATOR = "local_3c7c3e34-c0a4-4271-8347-5e060b6960a7"   # 結果を送るまとめ役のセッション(ユーザーの決め 10-25)
-LIVE_STAGES = ("record", "recording", "chat", "detect", "live")
+LIVE_STAGES = ("record", "recording", "chat", "live", "close", "ended", "submit", "blocked", "lost")   # 友人の detect は依頼の「見どころを探す」= 1(known-bugs 10-25)
 START_STAGES = ("start", "launch", "update", "setup", "rollback")
 SYNC_STAGES = ("sync", "deliver", "upload", "receive", "outbox")
 ENV_CAUSES = ("disk", "space", "vram", "gpu", "memory", "login", "auth", "bot", "permission", "smartapp")

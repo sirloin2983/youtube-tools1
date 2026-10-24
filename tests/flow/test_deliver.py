@@ -267,6 +267,28 @@ class FailureTest(unittest.TestCase):
         self.assertFalse(dl.running(self.pack))
         self.assertEqual(wait(dl, dl.start(self.pack, "t"))["state"], "done")
 
+    def test_start_with_original_request_id(self):
+        """元の依頼 id で届ける(問題 2): zip の頭と届けた記録が元の id・出どころ request。同じ id・同じ配信で 8 割重なる物はもう置かない"""
+        from flow import deliveries as DL
+        dl = deliver.Deliveries(lambda: self.folder, lambda d: os.path.normpath(d) == os.path.normpath(self.pack), log_dir=self.log_dir)
+        rid = "20261024-193027-fe9dc7"
+        with self.assertRaises(ValueError):
+            dl.start(self.pack, "t", rid="bad id")
+        clip = {"path": "c.mp4", "markId": "m1", "videoId": "N3z6TI4ED7o"}
+        with mock.patch.object(DL, "clip_range", lambda p: (100.0, 200.0)):
+            j = wait(dl, dl.start(self.pack, "t", clip=clip, rid=rid))
+            self.assertEqual(j["state"], "done", j)
+            self.assertTrue(j["name"].startswith(rid + "__"))
+            row = DL.rows(self.log_dir)[-1]
+            self.assertEqual((row["requestId"], row["origin"]), (rid, "request"))
+            with self.assertRaisesRegex(ValueError, "区間が重なる"):
+                dl.start(self.pack, "t", clip=clip, rid=rid)
+            os.remove(os.path.join(self.log_dir, DL.LOG))
+            with self.assertRaisesRegex(ValueError, "出力 にもう置いて"):       # 記録が無くても 出力 の .meta.json で分かる
+                dl.start(self.pack, "t", clip=clip, rid=rid)
+            j2 = wait(dl, dl.start(self.pack, "t", clip=clip))                  # 元の依頼の無い届けは今どおり新しい id
+            self.assertFalse(j2["name"].startswith(rid))
+
     def test_meta_that_cannot_be_written_leaves_nothing(self):
         out = os.path.join(self.tmp, "出力")
         os.makedirs(out)

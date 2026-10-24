@@ -552,7 +552,7 @@ def auto_review(repo_root, body, deliveries=None, studio=None, trash=None, hide=
             raise ReviewError("切り抜きの指定(markId)が正しくありません", 400, "bad_request")
         c, cl = _find_auto(repo_root, case_id, mark_id, env)
         if op == "deliver":
-            return 200, _deliver(repo_root, c, cl, deliveries, env)
+            return 200, _deliver(repo_root, c, cl, deliveries, env, body.get("requestId") or None)
         return 200, _discard(repo_root, c, cl, studio, trash, hide, deliveries, env)
     except ReviewError as e:
         return e.code, {"error": e.error, "message": str(e)}
@@ -728,11 +728,11 @@ def _judge(repo_root, row, env):
         return False
 
 
-def _deliver(repo_root, c, cl, deliveries, env):
+def _deliver(repo_root, c, cl, deliveries, env, rid=None):
     """採用 = 友人へ届ける(M12)。パックを zip にして Dropbox の 出力 へ(deliver.Deliveries。置き場所の確かめ outbox_ok と 1 本を届ける deliver_one は
     まとめて実行の届ける段と同じ部品。数 GB は時間がかかるので裏で。画面は
     api/ytt/deliver の status で聞き直す)。届けた記録は Deliveries が ② の deliveries.jsonl に書く(一覧の「届けた」はそこから引く)。
-    受け付けたら人の判断(adopt)を 1 行。-> {ok, job, judged}"""
+    rid = 元の依頼 id(元の依頼がある届け。Deliveries.start の rid)。受け付けたら人の判断(adopt)を 1 行。-> {ok, job, judged}"""
     rv = cl.get("review") or {}
     if rv.get("deliveredAt"):
         raise ReviewError("この切り抜きはもう届けました(%s)" % (rv.get("delivered") or "Dropbox の 出力"))
@@ -744,7 +744,7 @@ def _deliver(repo_root, c, cl, deliveries, env):
     row = _judgment(c, cl, "adopt", "deliver")
     try:
         job = deliveries.start(pack["dir"], "",   # 題は空 = パックのフォルダの名前(友人のアプリの「受け取る」に出る)
-                               clip={"path": cl.get("path") or "", "markId": cl["markId"], "videoId": c["id"]})   # 届けた記録に切り抜きも(友人の「要らない」で mp4 も片付く。Q16)
+                               clip={"path": cl.get("path") or "", "markId": cl["markId"], "videoId": c["id"]}, **({"rid": rid} if rid else {}))   # 届けた記録に切り抜きも(友人の「要らない」で mp4 も片付く。Q16)
     except ValueError as e:   # Dropbox のフォルダが決まっていない・見つからない・届けている途中 など(文はそのまま画面へ)
         raise ReviewError(str(e))
     return {"ok": True, "job": job, "judged": _judge(repo_root, row, env)}

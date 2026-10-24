@@ -102,6 +102,8 @@ def rows(requests, runs, now_ms, book=None, active=None, delivered=None):
             st = "sent" if q.get("requestId") and q["requestId"] in (delivered or {}) else "nocand"
         else:
             st = _state(dict(q, live=q.get("live") or (link if link and link.get("live") else None)), rr)
+            if st in ("error", "done", "received") and q.get("requestId") and q["requestId"] in (delivered or {}):
+                st = "sent"   # 実行は失敗・届ける段なしでも、元の依頼 id で後から届けた(後追い・引き継ぎ・手で届ける。問題 2・10-25)
         rec = q.get("received") if isinstance(q.get("received"), (int, float)) else 0
         out.append({"id": q.get("id") or "", "kind": q.get("kind") or "", "title": q.get("title") or "", "streamer": q.get("streamer") or "",
                     "received": rec, "state": st, "label": LABELS[st], "reason": q.get("reason") or "",

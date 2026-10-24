@@ -37,6 +37,8 @@ PREVIEW_SUFFIX = ".preview.mp4"        # zip の隣の名前(<zip の名前>.pre
 META_SUFFIX = ".meta.json"             # 1 本のパックのメタ(<zip の名前>.meta.json。友人のアプリの OutputFolder.MetaSuffix と同じ)
 BAD_CHARS = BAD_NAME_CHARS   # 同じ物の別名(受付と同じ決まり)
 KEEP_JOBS = 20
+RID_RE = re.compile(r"^\d{8}-\d{6}-[0-9a-f]{6}\Z")   # 友人のアプリの依頼の id の形(request_id と同じ)
+SAME_SHARE = 0.8                       # 元の依頼 id で手で届けるとき、同じ依頼・同じ配信でこの割合以上重なる物があれば置かない(問題 2・10-25)
 
 
 def outbox_ok(out_dir):
@@ -207,8 +209,11 @@ class Deliveries:
         self.busy = threading.Lock()   # 同時に作るのは1本
         self._finished = {}            # 仕事の id -> 終わった時刻(ms)。掲示板が読む(status には出さない)
 
-    def start(self, d, title="", on_done=None, clip=None):
+    def start(self, d, title="", on_done=None, clip=None, rid=None):
         """-> 仕事の状態。断るときは ValueError(画面にそのまま出す文)。
+        rid: 元の依頼 id(後追い・引き継ぎ・急ぎの届けなど、元の依頼がある届けは必ず渡す = 友人の行に結びつく・出どころ request)。
+        無ければ今どおり新しい id(依頼なしで届ける = manual)。渡したときは、同じ id・同じ配信で区間が SAME_SHARE 以上重なる物が
+        届けた記録か 出力\\ にもうあれば断る(二重に届けない。10-24 の二重の再発防止)
         on_done(仕事の状態): 置き終えたときに 1 回だけ呼ぶ(今の呼び手は使わない。案件の「届けた」は届けた記録から引く = MARKS-3)。
         clip: 届けた記録に残す切り抜き {"path", "markId", "videoId"}(分かるとき。友人の「要らない」で切り抜きの動画も片付けるため。無ければパックだけ)"""
         if not isinstance(d, str) or not d.strip() or len(d) > 1024:
@@ -223,13 +228,20 @@ class Deliveries:
         if not outbox_ok(out_dir):
             raise ValueError("Dropbox のフォルダが見つかりません: %s" % folder)
         title = (title.strip() if isinstance(title, str) else "") or _preview.pack_title(d) or "pack"
-        rid = request_id(self.clock())
+        clip = clip if isinstance(clip, dict) else {}
+        if rid is not None and not (isinstance(rid, str) and RID_RE.match(rid)):
+            raise ValueError("元の依頼 id の形が違います(YYYYMMDD-HHMMSS-6 文字)")
+        given = bool(rid)
+        if given:
+            self._refuse_same(rid, out_dir, clip)
+        rid = rid or request_id(self.clock())
         name = delivery_name(rid, title)
         job = {"id": uuid.uuid4().hex[:10], "state": "running", "message": "zip にしています", "progress": 0.0,
                "dir": d, "name": name + ".zip", "error": "", "startedAt": int(self.clock() * 1000)}
-        clip = clip if isinstance(clip, dict) else {}
-        # 届けた記録の行の「実行」の代わり(依頼 id = zip の名前の頭・実行 id = 仕事の id)。出どころは manual(友人には「依頼なし」= D-SEND 2-8)
-        run = types.SimpleNamespace(request_id=rid, id="dl" + job["id"], video_id=str(clip.get("videoId") or ""), title=title, deliver_origin="manual",
+        # 届けた記録の行の「実行」の代わり(依頼 id = zip の名前の頭・実行 id = 仕事の id)。出どころは元の依頼があれば request・無ければ manual
+        # (友人には「依頼なし」= D-SEND 2-8)
+        run = types.SimpleNamespace(request_id=rid, id="dl" + job["id"], video_id=str(clip.get("videoId") or ""), title=title,
+                                    deliver_origin="request" if given else "manual",
                                     stream_title="", streamer="")   # 配信のタイトル・配信者は手で届けるときは分からない(友人のアプリが videoId から引く)
         marks = {d: {"path": str(clip.get("path") or ""), "markId": str(clip.get("markId") or "")}}
         with self.lock:
@@ -241,6 +253,23 @@ class Deliveries:
                 self._finished.pop(k, None)
         threading.Thread(target=self._run, args=(job, out_dir, on_done, run, marks), daemon=True, name="deliver").start()
         return dict(job)
+
+    def _refuse_same(self, rid, out_dir, clip):
+        """元の依頼 id で届ける前の二重の守り: 届けた記録に同じ id・同じ配信で区間が SAME_SHARE 以上重なる物、出力\\ に同じ id・同じ配信・
+        同じマークの .meta.json があれば ValueError"""
+        vid, path, mark = str(clip.get("videoId") or ""), str(clip.get("path") or ""), str(clip.get("markId") or "")
+        rng = deliveries.clip_range(path) if path else None
+        hit = deliveries.overlaps(self.log_dir, vid, rng, request_id=rid, share=SAME_SHARE) if self.log_dir else []
+        if hit:
+            raise ValueError("同じ依頼に、区間が重なる切り抜き(%d 割)をもう届けてあります(%s)" % (round(hit[-1]["share"] * 10), hit[-1]["zip"]))
+        try:
+            names = [n for n in os.listdir(out_dir) if n.startswith(rid + "__") and n.endswith(META_SUFFIX)]
+        except OSError:
+            names = []
+        for n in names:
+            m = fsio.read_json_or(os.path.join(out_dir, n), None) or {}
+            if vid and m.get("videoId") == vid and (not mark or m.get("markId") == mark):
+                raise ValueError("同じ依頼・同じ切り抜きが 出力 にもう置いてあります(%s)" % n[:-len(META_SUFFIX)])
 
     def running(self, d):
         """そのパックのフォルダを今 zip にしているか(届けている途中のパックを「要らない」で動かさない。src/manage/cases/cases.py)"""

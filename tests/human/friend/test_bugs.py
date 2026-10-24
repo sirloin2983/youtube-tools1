@@ -160,6 +160,8 @@ class BugsTest(unittest.TestCase):
         self.assertEqual(B.kind_of({"facts": {"stage": "transcribe", "cause": "disk"}}), 5)
         self.assertEqual(B.kind_of({"yt": {"login": False}}), 5)
         self.assertEqual(B.kind_of({"facts": {"stage": "pack"}}), 1)
+        self.assertEqual(B.kind_of({"facts": {"stage": "detect"}}), 1)
+        self.assertEqual(B.kind_of({"facts": {"stage": "lost"}}), 2)
 
     def test_pick_order_bundle_and_friend_live(self):
         now = int(self.now * 1000)
