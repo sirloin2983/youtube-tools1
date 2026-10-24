@@ -48,8 +48,8 @@
   - 名前: `extra_channels` :57・`members` :64・`slot_free` :76・`parse_rss` :99・`choose` :113・`wants` :201・`tick` :210・`intake` :310
 - **voicefill.py** (107 行) — 誰の声の材料を全メンバーぶんそろえる(10-25。ユーザー「誰の声を全部やったが本当に数人しかいなかった。全メンバー揃えてほしい」)。
   - 名前: `learn_dirs` :25・`eval_like` :38・`in_learn_dir` :44・`targets` :49・`pick` :74・`tick` :86
-- **ytqueue.py** (517 行) — YouTube の取得の列(10-25。ユーザー「取り方 1 と 2 を統一しよう」「取得する配信を選ぶ段階で効率化できるはず」)。
-  - 名前: `qdir` :51・`requests` :64・`candidates` :97・`score` :103・`fill_candidates` :132・`due` :166・`bundle` :268・`tidy` :348・`wants` :398・`tick` :407
+- **ytqueue.py** (546 行) — YouTube の取得の列(10-25。ユーザー「取り方 1 と 2 を統一しよう」「取得する配信を選ぶ段階で効率化できるはず」)。
+  - 名前: `qdir` :53・`requests` :69・`candidates` :103・`score` :109・`fill_candidates` :138・`due` :172・`bundle` :287・`tidy` :370・`wants` :427・`tick` :436
 
 ## src/app/ui/
 
