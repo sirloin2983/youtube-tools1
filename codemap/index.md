@@ -11,7 +11,7 @@
 | ③ human(人の操作) | [human.md](human.md) | 65 | 18099 |
 | ④ manage(データ) | [manage.md](manage.md) | 43 | 11197 |
 | ⑤ eval(検証) | [eval.md](eval.md) | 37 | 15603 |
-| src/app(入口と画面) | [app.md](app.md) | 92 | 33613 |
+| src/app(入口と画面) | [app.md](app.md) | 96 | 34644 |
 | src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 50 | 19363 |
 | その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 19 | 10316 |
 | dev・setup(開発の道具) | [dev.md](dev.md) | 61 | 16674 |
@@ -156,7 +156,7 @@
 - `/api/suggest/feedback` — src/editor/serve.py:235 ← app-learn.js
 - `/api/title` — src/studio/serve.py:194 ← review.js
 - `/api/tools` — src/editor/serve.py:190 ← app-jobs.js・app.js
-- `/api/transcribe` — src/editor/serve.py:227 ← app-jobs.js・tools.py
+- `/api/transcribe` — src/editor/serve.py:227 ← server.py・app-jobs.js・tools.py
 - `/api/transcribe/cancel` — src/editor/serve.py:253 ← tools.py
 - `/api/transcript` — src/editor/serve.py:200・src/editor/serve.py:463・src/editor/serve.py:481 ← cut.js・app-rows.js
 - `/api/transcripts` — src/editor/serve.py:194・src/studio/serve.py:193 ← app-list.js・review.js・tools.py

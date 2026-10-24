@@ -25,7 +25,7 @@ from flow import voicematerial as _vm   # 名簿の全員(誰の声のカード�
 from manage.cases import cases as cases_mod, txindex
 from ytt import fsio, settings
 from ytt.textutil import person_key as _person_key
-from . import lineup   # 同じ app/check の兄弟
+from . import lineup, voicefill   # 同じ app/check の兄弟
 
 DOC_NAME_RE = re.compile(r"^([0-9a-f]{12})\.json\Z")
 MAX_DOC_BYTES = 64 * 1024 * 1024
@@ -145,7 +145,7 @@ class View:
     # ---- 文字起こしの文書(評価用は外す)
     def docs(self, need_media=True):
         """[(tid, 文書のパス, 文書)] 評価用でない・元の動画がある物。新しい順(updatedAt)。返した文書は書き換えない(キャッシュと共有)。
-        need_media=False = 元の動画が片付いた文書も(誰の声のカードが、切り出して残した行の音で出す。voice_solo)"""
+        need_media=False = 元の動画が片付いた文書と、学習用データのショートの文書も(誰の声のカードだけが使う。voice_solo・voicefill)"""
         if not need_media:
             if getattr(self, "_all_docs", None) is None:
                 self._docs = None   # 両方を 1 回で作る
@@ -168,7 +168,7 @@ class View:
                 if d is None or self.is_eval(d):
                     continue
                 every.append((m.group(1), paths[name], d))
-                if has_media(d):
+                if has_media(d) and not voicefill.in_learn_dir(d.get("sourcePath")):   # 学習用データのショートは誰の声の材料だけ(voicefill。10-25)
                     out.append(every[-1])
             out.sort(key=lambda x: -_num(x[2].get("updatedAt")))
             every.sort(key=lambda x: -_num(x[2].get("updatedAt")))
