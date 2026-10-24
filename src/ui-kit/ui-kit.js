@@ -581,6 +581,60 @@
     }
   }
   document.addEventListener('DOMContentLoaded', renderAppNav);
+
+  /* ---- すべて終了(10-24 ホームの見直しの 3): 入口の画面(上の帯に data-ui-appnav がある = ホーム・案件・確かめる・設定)の右端に赤い枠のボタン。
+     押すと確かめの文 → POST /api/shutdown(入口がこの入口から起こしたツールを止めて終わる)→ 応答が無くなるまで待って、閉じてよいと出す。
+     ホームから開いていない(合言葉が無い)画面には出さない */
+  function quitCover(title, text) {
+    var c = document.getElementById('uiQuitCover');
+    if (!c) {
+      c = document.createElement('div'); c.id = 'uiQuitCover'; c.className = 'ui-quit-cover'; c.setAttribute('role', 'status');
+      c.innerHTML = '<div class="card raised ui-quit-card"><h2></h2><p class="hint"></p></div>';
+      document.body.appendChild(c);
+    }
+    c.querySelector('h2').textContent = title; c.querySelector('p').textContent = text;
+  }
+  function quitWait(n, notice) {
+    function alive() {
+      if (n < 40) setTimeout(function () { quitWait(n + 1, notice); }, 700);
+      else quitCover('終了に時間がかかっています', '黒い画面が残っていれば、その画面を閉じてください。' + notice);
+    }
+    http('/api/ping', { timeout: 2000 }).then(alive, function (e) {
+      if (e && e.status) { alive(); return; }
+      quitCover('すべて終了しました', 'この画面(タブ・窓)は閉じてかまいません。もう一度使うときは start.bat をダブルクリックしてください。' + notice);
+    });
+  }
+  function quitRun(btn) {
+    dialogConfirm({ title: 'すべて終了しますか', ok: 'すべて終了', danger: true,
+                    body: 'このホームから起動したツールを止めて、ホームも終わります(録画中なら録画の部品は残し、次に開いたときに続けます)。別の黒い画面で起動したツールは止めません。' })
+      .then(function (ok) {
+        if (!ok) return;
+        btn.disabled = true;
+        quitCover('終了しています…', '起動したツールを止めています。少し待ってください。');
+        http('/api/shutdown', { body: {} }).then(function (r) {
+          quitWait(0, r && r.notice ? ' ' + r.notice : '');
+        }, function (e) {
+          btn.disabled = false;
+          var c = document.getElementById('uiQuitCover'); if (c) c.parentNode.removeChild(c);
+          toastFn('終了できませんでした: ' + ((e && e.message) || '') + '(もう一度「すべて終了」を押すか、黒い画面を閉じてください)', { kind: 'err', ms: 0 });
+        });
+      });
+  }
+  function addQuit() {
+    if (!token()) return;
+    var heads = document.querySelectorAll('.ui-header');
+    for (var i = 0; i < heads.length; i++) {
+      var h = heads[i], acts = h.querySelector('.ui-header-actions');
+      if (!h.querySelector('[data-ui-appnav]') || !acts || h.querySelector('.ui-quit')) continue;
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'btn danger small ui-quit'; b.id = 'uiQuit';
+      b.title = 'このホームから起動したツールを止めて、ホームも終わります(押すと確かめます)';
+      b.innerHTML = icon('power', { size: 14 }) + 'すべて終了';
+      b.addEventListener('click', function (e) { quitRun(e.currentTarget); });
+      acts.appendChild(b);
+    }
+  }
+  document.addEventListener('DOMContentLoaded', addQuit);
   var appnav = {
     /* 今の場所の項目の title に版を出す */
     setVersion: function (text) {
@@ -1735,6 +1789,7 @@
   /* ---- icon(SVG の線のアイコン。24x24・stroke currentColor・stroke-width 2・角丸) ---- UIKit.icon(name, opts) は文字列を返す。
      <span class="ui-icon" data-icon="play"></span> は読み込み後に中身が入る(UIKit.icon.fill(root)) */
   var ICONS = {
+    power: '<path d="M12 3v9M6.3 6.3a8 8 0 1 0 11.4 0"/>',
     play: '<path d="M7 4.5v15l13-7.5z"/>',
     pause: '<path d="M8 5v14M16 5v14"/>',
     back: '<path d="M11 5 4 12l7 7M4 12h16"/>',

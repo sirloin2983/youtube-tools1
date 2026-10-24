@@ -29,6 +29,7 @@
   POST /api/flow/estimate                 {envelope, spec?}(submit と同じ本文)実行と同じ規則の見積もり → {steps, total, nothing, reason, notes}(段ごとの本数と飛ばす理由。書き込まない)
   GET  /api/intake                        友人からの依頼の受付の状態・設定・最近の依頼(src/human/friend/intake.py。notes:docs/spec/friend.md)
   POST /api/intake/scan                   {} 今すぐフォルダを見る(裏で。応答は今の状態)
+  GET  /api/home/requests                 ホームの「友人の依頼」: 受付の記録に実行の記録を結んだ行 {rows: [{id, title, state, label, done, link, why, ...}]}(src/app/homereq.py)
   GET  /api/backup                        作業データのバックアップの状態・設定(src/manage/keep/backup.py。notes:docs/spec/data.md の「バックアップ」)
   POST /api/backup/run                    {} 今すぐ写す(裏で。応答は今の状態)
   GET  /api/accuracy                      精度の自動測定の状態・領域ごとの直近と前回・入口の条件 goals(今 / 目標 / あと)(src/eval/drill/accuracy.py)
@@ -104,6 +105,7 @@ from ytt import colors as colors_mod, datadir, docloc, fsio, httpsec, jobs, layo
 from ytt import errors as _yerrors  # noqa: E402  (確かめるの部品が上げる ApiError を状態の番号で返す)
 from app import mount as mount_mod  # noqa: E402  (src/app/mount.py: 統合サーバーへのツールの取り込み)
 from app import autorun as autorun_mod
+from app import homereq  # noqa: E402  (src/app/homereq.py: ホームの「友人の依頼」の行。受付の記録 + 実行の記録)
 from human.friend import intake as intake_mod  # noqa: E402  (src/human/friend/intake.py: 友人からの依頼の受付)
 from manage.keep import backup as backup_mod  # noqa: E402  (src/manage/keep/backup.py: 作業データのバックアップ)
 from eval.drill import accuracy as accuracy_mod  # noqa: E402  (src/eval/drill/accuracy.py: 精度の自動測定 = src/eval/tools/eval_*.py を手が空いた夜に子プロセスで)
@@ -762,6 +764,14 @@ class PortalHandler(httpsec.LocalHandler):
                 return self._json(200, check_deck.next_cards(self.server.check_ctx(), c, kind, n, skip, lane))
             except ValueError as e:
                 return self._fail(400, "bad_request", str(e))
+        if u.path == "/api/home/requests":   # ホームの「友人の依頼」(10-24): 受付の記録に、メモリの実行と記録のファイルの実行を結ぶ
+            ar = self.server.autorun
+            runs = (ar.snapshot().get("runs") or []) + (ar.history(autorun_mod.HISTORY_MAX).get("runs") or [])
+            try:
+                book = self.server.live.requests.all() if self.server.live.enabled() else {}
+            except Exception:   # noqa: BLE001  (ライブの記録が読めなくても行は出す)
+                book = {}
+            return self._json(200, {"rows": homereq.rows(self.server.intake.snapshot().get("requests") or [], runs, int(time.time() * 1000), book)})
         if u.path == "/api/cases":   # 案件の一覧(各ツールのデータを読んで組み立て直す。src/manage/cases/cases.py)
             if "doc" in q:   # 文書 1 本から案件を引く(案件の画面が d だけの URL を開いたとき。無ければ 404)
                 try:

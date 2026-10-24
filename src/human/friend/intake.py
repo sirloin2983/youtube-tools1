@@ -593,11 +593,16 @@ class Intake:
             return archive("配信は終わっていたので" if ended else "配信の状態を確かめられなかったので")
         ctx = {"rid": rid, "deliverDir": os.path.join(folder, OUT_DIR), "url": "https://www.youtube.com/watch?v=" + vid, "title": title, "streamer": who or "",
                "speakers": speakers, "videoTracks": tracks, "cut": cut, "settings": settings}
+        rec_ref = None   # 結びつけた録画 {recorder, recording}(ホームの「友人の依頼」の行からライブの画面へ移る鍵。10-24)
         if self.live_begin is None:
             res = {"label": label, "state": "rejected", "reason": "この PC ではライブ配信の依頼を受け付けられません(リアルタイム切り抜きが使えません)"}
         else:
             try:
                 out = self.live_begin(ctx["url"], ctx) or {}
+                got = out.get("recording")
+                got = got.get("id") if isinstance(got, dict) else got   # 入口の begin_request は録画の id・ほかの口は録画の要約
+                if isinstance(out.get("recorder"), str) and isinstance(got, str) and got:
+                    rec_ref = {"recorder": out["recorder"], "recording": got}
                 res = {"label": label, "state": "accepted",
                        "reason": "録画を%s(切り抜きは%s届けます)" % ("始めました" if not out.get("existing") else "しています(前から録画中)", how)}
             except Exception as e:   # noqa: BLE001  (録画元が動いていない・オフ・URL の形など。理由を友人に返す)
@@ -610,7 +615,7 @@ class Intake:
             items.append({"label": "配信者", "state": "accepted", "reason": note})
         if res["state"] == "accepted":
             self._count()
-        self._record(folder, "live", "app", title, moved, who or "", [], items, "auto", speakers, rid=rid, tracks=tracks, cut=cut)
+        self._record(folder, "live", "app", title, moved, who or "", [], items, "auto", speakers, rid=rid, tracks=tracks, cut=cut, live=rec_ref)
 
     def _process_urls(self, folder, title, moved, text, cfg, source, rid, speakers=None, tracks=None, ranges=None, cut=None,
                       streamer=None, streamer_note="", notes=None, flow_orig=""):
@@ -745,8 +750,9 @@ class Intake:
 
     # ------------------------------------------------------------ 後始末と記録
     def _record(self, folder, kind, source, title, moved, streamer, runs, items, flow="", speakers=None, rid=None, tracks=None, cut=None,
-                ranges_label="", flow_orig=""):
-        """受付の記録(最近の依頼)に 1 件。flow は依頼の流れが分かるときだけ渡す(空 = 行に「① 全自動」などを出さない。依頼の形が読めないときなど)"""
+                ranges_label="", flow_orig="", live=None):
+        """受付の記録(最近の依頼)に 1 件。flow は依頼の流れが分かるときだけ渡す(空 = 行に「① 全自動」などを出さない。依頼の形が読めないときなど)。
+        rid = 友人のアプリの依頼の id(requestId に残す)・live = ライブの依頼で結びつけた録画 {recorder, recording}(ホームの行の鍵。10-24)"""
         accepted = _accepted(items)
         state = "accepted" if accepted else "rejected"
         reason = "" if accepted else next((i["reason"] for i in items if i["state"] == "rejected"), "")
@@ -758,7 +764,8 @@ class Intake:
                                  ("・色の指定 %d人" % len(speakers["styles"]) if speakers.get("styles") else "")) if speakers else "",
                "tracksLabel": "映像トラック: %d本" % tracks if tracks else "",
                "rangesLabel": ranges_label, "cutLabel": "カット: %s" % CUT_LABELS[cut] if cut in CUT_LABELS else "",
-               "runIds": runs, "items": [{k: i.get(k, "") for k in ("label", "state", "reason")} for i in items][:30]}
+               "runIds": runs, "items": [{k: i.get(k, "") for k in ("label", "state", "reason")} for i in items][:30],
+               **({"requestId": rid} if isinstance(rid, str) and rid else {}), **({"live": dict(live)} if isinstance(live, dict) else {})}
         self.st["requests"] = ([rec] + self.st["requests"])[:KEEP_REQUESTS]
         self._move(folder, moved, state, items)
         self._notify_rejected(folder, rid, rec["title"], items)

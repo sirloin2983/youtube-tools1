@@ -11,8 +11,8 @@
 - **code_map.py** (466 行) — コードの地図と言葉の索引を作る道具(AI のセッションがコードの場所を早く見つけるため)。
   - 名前: `git_files` :53・`skipped` :57・`is_test` :61・`read` :65・`one_line` :73・`comment_head` :85・`py_info` :112・`js_info` :143・`cs_info` :164・`info` :186・`layer_of` :199・`norm_route` :206・ほか 12
   - 受ける口: 
-- **demo_env.py** (303 行) — 見本のデータで入口と3ツールを動かす(画面の見直し・画面の写真・手での確認用)。本物の作業データには触らない。
-  - 名前: `run` :47・`make_media` :51・`seed` :65・`seed_check` :180・`main` :248
+- **demo_env.py** (346 行) — 見本のデータで入口と3ツールを動かす(画面の見直し・画面の写真・手での確認用)。本物の作業データには触らない。
+  - 名前: `run` :47・`make_media` :51・`seed` :65・`seed_check` :180・`seed_requests` :248・`main` :289
 - **doc_state.py** (237 行) — 計画の資料の頭の `状態`・`線` を計画の正(保管庫の plan/data/)から決めて書く・食い違いを止める。
   - 名前: `plan_data` :28・`task_lines` :34・`decide` :43・`derived` :51・`front` :75・`read_props` :86・`write_props` :110・`write` :143・`plan_docs` :152・`check` :162・`sync` :199・`main` :217
 - **drift_report.py** (179 行) — 資料どうし・資料とコードの食い違いをまとめて流し、1 枚の一覧(保管庫の plan/食い違いの一覧.md。自動)に出す。
@@ -66,9 +66,9 @@
 - **spec_check.py** (220 行) — 仕様(保管庫の docs/spec/)とコードの食い違いを探す。
   - 名前: `git_files` :45・`read` :49・`class Code` :57・`spec_files` :75・`live_lines` :84・`norm_api` :101・`clean_path` :109・`setting_keys` :114・`check` :130・`gone` :181・`main` :198
   - 受ける口: 
-- **ui_audit.py** (1046 行) — 画面(UI)の見直しの合格の基準のうち、機械で測れるものを測る道具(読むだけ。基準は `notes:docs/spec/ui.md` の A)。
-  - 名前: `class Findings` :106・`read` :122・`rel` :130・`screen_files` :134・`allowed` :143・`each_line` :148・`regex_starts` :156・`scan_string` :166・`scan_code` :180・`strip_js_comments` :230・`html_texts` :237・`py_strings` :252・ほか 31
-  - 受ける口: `/api/info` :99
+- **ui_audit.py** (1049 行) — 画面(UI)の見直しの合格の基準のうち、機械で測れるものを測る道具(読むだけ。基準は `notes:docs/spec/ui.md` の A)。
+  - 名前: `class Findings` :107・`read` :123・`rel` :131・`screen_files` :135・`allowed` :144・`each_line` :149・`regex_starts` :157・`scan_string` :167・`scan_code` :181・`strip_js_comments` :231・`html_texts` :238・`py_strings` :253・ほか 31
+  - 受ける口: `/api/info` :100
 - **worklog.py** (280 行) — 作業の記録(保管庫の docs/worklog/)をセッションごとのファイルに分けて書き、週のまとめを集めて作る。
   - 名前: `worklog_dir` :56・`monday` :60・`week_name` :64・`read` :68・`write` :73・`front_matter` :78・`session_entry` :91・`sessions` :101・`auto_block` :108・`merge_week` :121・`update_index` :135・`build` :150・ほか 7
 

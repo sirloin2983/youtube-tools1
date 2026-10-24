@@ -118,6 +118,9 @@ hr{border:0;border-top:1px solid var(--line);margin:var(--sp-3) 0}
 .ui-brand-mark[data-tool=portal]{background:#5a46e0}
 .ui-ver{font:500 11px/1 var(--font);font-variant-numeric:tabular-nums;color:var(--ink-3);background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r-pill);padding:3px 7px;white-space:nowrap}   /* 等幅にしない(「ホーム」など、かなの字間が空いて見えるため) */
 .ui-header-actions{display:flex;align-items:center;gap:6px;margin-left:auto}
+.ui-quit{border-color:var(--danger)}   /* すべて終了(上の帯の右端。赤い枠) */
+.ui-quit-cover{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;background:var(--bg)}
+.ui-quit-card{max-width:520px;padding:24px 28px}
 .ui-header .ui-tabs{margin-left:8px}
 @media (max-width:720px){.ui-header{padding:6px 10px;gap:6px 10px}.ui-header .ui-tabs{margin-left:0;order:3;width:100%}}
 

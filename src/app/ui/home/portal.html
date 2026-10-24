@@ -26,7 +26,20 @@
 <main class="pt-main" id="main">
   <h1 class="pt-h1">ホーム</h1>
 
-  <!-- 処理の状況(まとめて実行の実行中・待ち・失敗と、自動の切り抜きの失敗。押すと案件の行・案件の画面へ)と 確かめる(今いちばん効く確認) -->
+  <!-- 友人の依頼(10-24 ホームの見直しの 1・5): 新しい順に 5 件・済んだ物は 1 行に畳む・行から案件の画面(ライブはライブの画面)へ。
+       行は入口の GET /api/home/requests(src/app/homereq.py)。受付がオフで依頼も無ければ出さない -->
+  <section class="pt-freq-box" id="freqBox" hidden aria-labelledby="freqTitle">
+    <div class="row pt-freq-head"><h2 class="pt-h2" id="freqTitle">友人の依頼</h2>
+      <span class="hint grow">新しい順・5 件まで・行を押すと案件の画面(ライブはライブの画面)へ</span>
+      <button type="button" class="btn small ghost" id="freqAll" hidden></button></div>
+    <div class="card pt-freq-card">
+      <div class="empty pt-empty" id="freqEmpty" hidden></div>
+      <ul class="pt-freq-list ui-list" id="freqList"></ul>
+      <details class="ui-disclosure pt-freq-done" id="freqDone" hidden><summary id="freqDoneSum"></summary><ul class="pt-freq-list ui-list" id="freqDoneList"></ul></details>
+    </div>
+  </section>
+
+  <!-- 処理の状況(まとめて実行の実行中・待ち・失敗と、自動の切り抜きの失敗。押すと案件の行・案件の画面へ)と 確かめる(今いちばん効く確認)と 調子(注意だけ) -->
   <div class="pt-top">
   <section class="pt-todo-box" id="todoBox">
     <h2 class="pt-h2">処理の状況</h2>
@@ -51,6 +64,15 @@
         <ul class="pt-health-list" id="checkGoals"></ul></details>
     </div>
   </section>
+
+  <!-- 調子(10-24 ホームの見直しの 2): 注意・要対応の項目だけ(無ければ「問題なし」の 1 行)。全部は「調子を開く」= 運用 › 詳しく › 調子 -->
+  <section class="pt-health-top" id="healthTop" aria-labelledby="healthTopTitle">
+    <h2 class="pt-h2" id="healthTopTitle">調子</h2>
+    <div class="card pt-health-mini">
+      <ul class="pt-health-list" id="healthTopList" aria-live="polite"><li class="hint">読み込んでいます…</li></ul>
+      <button type="button" class="btn small ghost" id="healthOpen">調子を開く</button>
+    </div>
+  </section>
   </div>
 
   <section class="pt-cases-box" id="caseListSection">
@@ -72,6 +94,8 @@
     <p class="hint" id="summary"></p>
 
     <div id="list" class="stack"></div>
+    <!-- 切り抜きの無い配信(直近 30 日)は 1 行に畳む(10-24 ホームの見直しの 4。開いたときに並べる) -->
+    <details class="ui-disclosure pt-noclip" id="noclipBox" hidden><summary id="noclipSum"></summary><div id="noclipList" class="stack"></div></details>
     <div class="row" id="moreBox" hidden><button type="button" class="btn" id="btnMore"></button></div>
     <!-- 配信の案件に入らない文書の入れ物(動画ファイルの案件・評価用・案件の分からない文書)。開くとふつうの案件と同じ案件の画面(portal.js の renderVirtual) -->
     <div class="pt-vlist" id="vlistBox" hidden>
@@ -186,29 +210,13 @@
       </section>
       <!-- ツールの起動状態は画面に出さない(10-24。裏の起動・停止・状態の読み取りはそのまま。portal.js が描く先として残す) -->
       <ol class="pt-flow" id="flow" aria-label="ツールの起動状態" hidden></ol>
-
-      <section class="card flat pt-foot">
-        <div class="row">
-          <div class="grow">
-            <b>すべて終了</b>
-            <div class="hint">このホームから起動したツールを止めて、ホームも終わります。別の黒い画面で起動したツールは止めません。</div>
-          </div>
-          <button type="button" class="btn danger" id="btnQuit">すべて終了</button>
-        </div>
-      </section>
+      <!-- すべて終了は 10-24 から上の帯の右端(ui-kit の UIKit の addQuit。どの画面からも 1 回で押せる) -->
     </div>
   </details>
 
     </div>
   </details>
 </main>
-
-<section class="pt-done" id="done" hidden>
-  <div class="card raised pt-done-card">
-    <h1 id="doneTitle">終了しています…</h1>
-    <p class="hint" id="doneText">起動したツールを止めています。少し待ってください。</p>
-  </div>
-</section>
 
 <div class="toast" id="toast" role="status" hidden></div>
 

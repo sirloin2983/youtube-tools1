@@ -189,15 +189,16 @@ def run_mounted_phase(browser, tmp, shots, check, events):
         mob = cx.mob   # 8. の別のタブ(10. で使う)
         _mounted_auto_clips(cx)   # スタジオの data.json を書き直すので最後に(前の場面が足した配信はスタジオが知らないので消える)
 
-        # 9. すべて終了(2回押し)。3つとも取り込みなので、この形には子プロセスは無い
-        pg.click("#btnQuit")
-        check(pg.text_content("#btnQuit").startswith("もう一度押すと終了します"), "[A] 1回目は確認だけ(UIKit.confirmTwice): %s" % pg.text_content("#btnQuit"))
-        pg.click("#btnQuit")
-        check(wait_js(pg, "!document.getElementById('done').hidden", 5000), "[A] 終了中の表示")
+        # 9. すべて終了(10-24 から上の帯の右端。押すと確かめの文)。3つとも取り込みなので、この形には子プロセスは無い
+        pg.click("#uiQuit")
+        check(wait_js(pg, "!!document.querySelector('dialog[open]') && /すべて終了しますか/.test(document.querySelector('dialog[open]').textContent)", 5000),
+              "[A] 押すと確かめの文が出る(まだ止めない)")
+        pg.click("dialog[open] .btn.danger")
+        check(wait_js(pg, "!!document.getElementById('uiQuitCover')", 5000), "[A] 終了中の表示")
         th.join(30)
         check(not th.is_alive(), "[A] ホームのサーバーが止まった")
         srv.server_close()   # server.main() と同じく、待ち受けを閉じる
-        check(wait_js(pg, "document.getElementById('doneTitle').textContent === 'すべて終了しました'", 20000), "[A] 終了の表示")
+        check(wait_js(pg, "/すべて終了しました/.test(document.getElementById('uiQuitCover').textContent)", 20000), "[A] 終了の表示")
         sup.unmount_all()   # server.main() の終了処理と同じ(request_shutdown でも呼ばれる)
         check(not any(os.path.exists(os.path.join(sup.rdir, t + ".json")) for t in L.TOOL_IDS), "[A] .runtime が片付いた(3つとも取り込みでも)")
 
@@ -399,19 +400,26 @@ def _mounted_todo_and_unlinked(cx):
     check(pg.locator("#unlinkedGroup, #docRunBtn").count() == 0, "[A] 単体の文字起こしを選んでまとめて実行する一覧は無い")
 
 def _mounted_list_tools(cx):
-    """[A] 2g. 一覧の件数と「もっと見る」"""
+    """[A] 2g. 一覧の件数と「もっと見る」・切り抜きの無い配信は 1 行に畳む(10-24)"""
     check, errors, pg = cx.check, cx.errors, cx.pg
     # 2g. 一覧の件数と「もっと見る」。配信をたくさんに増やして確かめる(後の場面 2i もこの配信を使う)。
     # 検索・並び替え・非表示の細かい操作は画面の道に入れない(写真の関所 ui_audit で見る)
     studio_home = os.environ["STUDIO_HOME"]
-    seed_more_cases(os.path.join(studio_home, "data.json"), n=34)
+    seed_more_cases(os.path.join(studio_home, "data.json"), n=34)   # 切り抜きの無い直近の配信 34 本
     pg.click("#btnReload")
-    check(wait_js(pg, "document.querySelectorAll('#list .pt-case').length === 30", 15000),
-          "[A] 配信が35本でも、最初は30件だけ描く(絞り込んだ分だけ描く): %s"
-          % pg.evaluate("document.querySelectorAll('#list .pt-case').length"))
-    check("35" in pg.text_content("#count"), "[A] 件数の表示に全体の件数が出る: %s" % pg.text_content("#count"))
+    check(wait_js(pg, "!document.getElementById('noclipBox').hidden && /まだ切り抜きの無い配信 34 本/.test(document.getElementById('noclipSum').textContent)", 15000),
+          "[A] 切り抜きの無い直近の配信は 1 行に畳む: %s" % pg.text_content("#noclipSum"))
+    check(pg.evaluate("document.querySelectorAll('#list .pt-case').length") == 1, "[A] 一覧に出すのは切り抜きのある配信だけ")
+    pg.click("#noclipSum")
+    check(wait_js(pg, "document.querySelectorAll('#noclipList .pt-case').length === 34", 5000), "[A] 畳んだ行を開くと並ぶ")
+    pg.click("#noclipSum")
+    pg.fill("#fText", "一覧テスト")   # 絞り込むと切り抜きの有無で分けず、最初は 8 件
+    check(wait_js(pg, "document.querySelectorAll('#list .pt-case').length === 8", 10000),
+          "[A] 絞り込んだ 34 本は最初 8 件だけ描く: %s" % pg.evaluate("document.querySelectorAll('#list .pt-case').length"))
+    check("34" in pg.text_content("#count"), "[A] 件数の表示に合う数が出る: %s" % pg.text_content("#count"))
     pg.click("#btnMore")
-    check(wait_js(pg, "document.querySelectorAll('#list .pt-case').length === 35", 10000), "[A] 「もっと見る」で残りも描く")
+    check(wait_js(pg, "document.querySelectorAll('#list .pt-case').length === 34", 10000), "[A] 「もっと見る」で残りも描く")
+    pg.fill("#fText", "")
 
     real = [e for e in errors if "Failed to load resource" not in e and "ERR_CONNECTION_REFUSED" not in e]
     check(not real, "[A] 一覧の道具を操作しても画面のエラーなし: %s" % real[:3])
@@ -744,7 +752,8 @@ def _mounted_second_tab(cx):
     """[A] 8. ホームの別のタブを開いておく(10. の切断の表示に使う)"""
     mob = cx.ctx.new_page()
     mob.goto(cx.base)
-    cx.check(wait_js(mob, "document.querySelectorAll('.pt-case').length >= 2"), "[A] 別のタブでも案件の一覧が出る")
+    cx.check(wait_js(mob, "document.querySelectorAll('#list .pt-case').length >= 1 && !document.getElementById('noclipBox').hidden"),
+             "[A] 別のタブでも案件の一覧が出る(切り抜きの無い配信は 1 行に畳む)")
     cx.mob = mob
 
 

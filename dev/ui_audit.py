@@ -45,7 +45,8 @@ live で見るもの(場面 × 幅 390/960/1440(主な作業の場面は 1920 �
   A-25 focusable     … cursor:pointer の要素は Tab で届く(button・a[href]・input・summary・tabindex≥0 か、その中)
   A-26 focus-ring    … Tab で移った要素に見えるフォーカスの輪がある(outline か box-shadow か border-color の変化)
   A-27 console       … 画面の読み込み・操作でエラー(pageerror・console.error・同じサーバーへの要求の 4xx/5xx・CSP 違反)が出ない(録画の部品が無いときの /live/api/info の 404 は除く。外のサイトの失敗は見ない)
-  A-28 header        … ホームと案件の画面のヘッダーに同じ部品が同じ順にある(nav[data-ui-appnav] → .ui-ver → .ui-header-actions の最後が [data-ui-settings])
+  A-28 header        … ホームと案件の画面のヘッダーに同じ部品が同じ順にある(nav[data-ui-appnav] → .ui-ver → .ui-header-actions の最後が [data-ui-settings]。
+                       ただし「すべて終了」(.ui-quit。10-24)があれば、それが右端で ⚙ 設定はその左)
   A-29 tap-link      … 文の中以外のリンク(a)が 28px 以上(Should)
   A-30 wrap-split    … 文字が 1 文字ずつ縦に割れない(390・960。3 文字以上の文字で、行の数が文字の数以上なら不可)
   A-31 modal         … 重ねる欄(設定の引き出し・キー操作の一覧・新しい案件・候補の書き出し(1680 未満))は、開いたらフォーカスが中・Tab で外へ出ない・aria-modal・Esc で閉じる・閉じたら開いたボタンへ戻る
@@ -690,7 +691,9 @@ LIVE_JS = r"""
         const all = [...h.querySelectorAll('*')]; const idx = all.indexOf(e); if (idx < last) push('A-28', 'header', sel + ' の順が違う'); last = idx; }
       const acts = h.querySelector('.ui-header-actions'); const st = acts && acts.querySelector('[data-ui-settings]');
       if (!st) push('A-28', 'header', '[data-ui-settings] が無い');
-      else { const kids = [...acts.children].filter(vis); if (kids[kids.length - 1] !== st && !kids[kids.length - 1].contains(st)) push('A-28', 'header', '⚙ 設定が右端ではない: ' + kids.map(desc).join(' / ')); } } }
+      else { const kids = [...acts.children].filter(vis).filter(k => !k.matches('.ui-quit')); const q = acts.querySelector('.ui-quit');
+        if (kids[kids.length - 1] !== st && !kids[kids.length - 1].contains(st)) push('A-28', 'header', '⚙ 設定が右端ではない: ' + kids.map(desc).join(' / '));
+        if (q && vis(q) && acts.lastElementChild !== q) push('A-28', 'header', '「すべて終了」が右端ではない'); } } }
   // A-32 ずっと動き続ける表示
   for (const an of document.getAnimations()) { if (an.playState !== 'running') continue; const ef = an.effect; const t = ef && ef.target; if (!t || !vis(t)) continue;
     const tm = ef.getTiming(); const nm = an.animationName || ''; if (tm.iterations === Infinity && !/spin|rot|indet|skel|busy|pulse-run/.test(nm) && !t.matches('.ui-spin, .ui-spin *, .pill.run, .pill.run *, .ui-skel, .ui-indet, .indet, .ui-miniprogress.indet, [class*=spin], [class*=rot]') && !allow(t, 'A-32'))

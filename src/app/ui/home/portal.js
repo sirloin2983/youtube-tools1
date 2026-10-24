@@ -16,9 +16,10 @@
   var STEP_PILL = { wait: 'wait', run: 'run', done: 'ok', skip: 'wait', warn: 'warn', error: 'err' };
   var POLL_MS = 1500, POLL_HIDDEN_MS = 5000;
   var PAGE_SIZE = 30, TODO_CAP = 8;
+  var CASE_FIRST = 8, RECENT_DAYS = 30;   // 案件の一覧: 最初は直近 30 日の切り抜きのある配信を 8 本(10-24 ホームの見直しの 4)
 
   var cards = {};        // ツールID → {el, data}
-  var fails = 0, closed = false, timer = null, quitNotice = '';
+  var fails = 0, closed = false, timer = null;
 
   var casesData = null;                 // /api/cases の中身
   var casesRev = null, casesRevAt = 0, casesRevTimer = 0;   // /api/status の casesRev(案件の一覧の元の更新の印)・最後に一覧を読んだ時刻
@@ -29,7 +30,7 @@
   var runsByFile = {};                  // /api/flow/runs の kind "file"(依頼の文字起こしだけ。videoId・docId が無いので実行の id で持つ)
   var wasActiveVideo = {}, wasActiveDoc = {}, wasActiveFile = {};
   var autoTimer = null;
-  var visibleCount = PAGE_SIZE;         // 案件の一覧の「もっと見る」
+  var visibleCount = CASE_FIRST;        // 案件の一覧の「もっと見る」
   var openCases = {};                   // この画面を開いてから自分で開閉した案件(id → bool)
   var caseDrafts = {};                  // 保存していない入力(配信者)。id → {streamer}(再描画(alt-tab で戻ったときなど)でも保つ)
   function draftFor(id) { return caseDrafts[id] || (caseDrafts[id] = {}); }
@@ -279,40 +280,7 @@
     });
   }
 
-  /* すべて終了: 誤操作を防ぐため 2 回押し(UIKit.confirmTwice。ほかの画面の「取り消せない操作」と同じ形・3 秒以内。S7) */
-  function doQuit() {
-    var b = $('#btnQuit');
-    b.disabled = true;
-    b.textContent = '終了しています…';
-    api('api/shutdown', 'POST').then(function (r) {
-      quitNotice = (r && r.notice) || '';   // 録画中なので録画の部品を残した、など
-      closed = true;
-      clearTimeout(timer);
-      $('#main').hidden = true;
-      $('#done').hidden = false;
-      waitGone(0);
-    }).catch(function (e) {
-      b.disabled = false;
-      b.textContent = 'すべて終了';
-      failToast('終了できませんでした', 'もう一度「すべて終了」を押すか、黒い画面を閉じてください', e);
-    });
-  }
-  function quit() {
-    var b = $('#btnQuit');
-    UIKit.confirmTwice(b, doQuit, 'もう一度押すと終了します');
-  }
-  /* 入口が止まるまで待つ: 応答があれば(エラーの応答 = e.status があるときも)まだ動いている。応答が無くなったら終わった */
-  function waitGone(n) {
-    function alive() {
-      if (n < 40) setTimeout(function () { waitGone(n + 1); }, 700);
-      else doneText('終了に時間がかかっています', '黒い画面が残っていれば、その画面を閉じてください。');
-    }
-    api('api/ping', 'GET', null, { timeout: 2000 }).then(alive, function (e) {
-      if (e.status) { alive(); return; }
-      doneText('すべて終了しました', 'この画面(タブ・窓)は閉じてかまいません。もう一度使うときは start.bat をダブルクリックしてください。');
-    });
-  }
-  function doneText(title, text) { $('#doneTitle').textContent = title; $('#doneText').textContent = text + (quitNotice ? ' ' + quitNotice : ''); }
+  /* すべて終了は 10-24 から上の帯の右端(ui-kit の addQuit。どの画面からも同じ。確かめの文 → /api/shutdown → 止まるまで待つ) */
 
   /* ================================================================ 案件(配信ごと)の一覧 ================================================================ */
 
@@ -642,7 +610,7 @@
     var r = runsByVideo[c.id] || pastByVideo[c.id];
     if (r) return whoOf(r) + ' ・ ' + (r.modeLabel || '');
     var a = (c.clips || []).filter(function (cl) { return cl.auto; })[0];
-    return a ? '自動(' + (a.auto.originLabel || '自動の候補') + ')' : '依頼の記録なし';
+    return a ? '自動(' + (a.auto.originLabel || '自動の候補') + ')' : '';   // 依頼が無ければ何も書かない(10-24 見直しの 4)
   }
   function caseSubText(c) {
     var parts = [c.channel || '(配信者不明)'];
@@ -750,24 +718,36 @@
     if (info.selStart != null && target.setSelectionRange) { try { target.setSelectionRange(info.selStart, info.selEnd); } catch (e) { /* select 等は対象外 */ } }
   }
 
+  function hasClips(c) { return !!((c.marks && c.marks.exported) || (c.clips || []).length); }
+  function recent(c) { return !c.streamedAt || Date.now() - c.streamedAt <= RECENT_DAYS * 86400000; }
   function render() {
     if (!casesData) return;
     var focusInfo = captureFocus($('#list'));
     var full = casesData.cases.filter(visible);
     sortList(full);
-    var totalCount = full.length;
-    var shown = full.slice(0, Math.max(0, visibleCount));
+    var narrowed = $('#fText').value.trim();
+    /* 絞り込んでいないとき: 直近 30 日の切り抜きのある配信(実行中の配信も)を先に・切り抜きの無い直近の配信は 1 行に畳む・30 日より前は「もっと見る」のあと */
+    var main = full, noclip = [];
+    if (!narrowed) {
+      var keep = function (c) { return hasClips(c) || active(runsByVideo[c.id]); };
+      noclip = full.filter(function (c) { return recent(c) && !keep(c); });
+      main = full.filter(function (c) { return recent(c) && keep(c); }).concat(full.filter(function (c) { return !recent(c); }));
+    }
+    var totalCount = main.length;
+    var shown = main.slice(0, Math.max(0, visibleCount));
 
     var list = $('#list');
     list.textContent = '';
-    if (!shown.length) {
+    if (!shown.length && !noclip.length) {
       list.appendChild(casesData.cases.length ? emptyFiltered() : emptyCases());
     } else {
       shown.forEach(function (c) { list.appendChild(caseCard(c)); });
     }
+    renderNoclip(noclip);
 
-    var narrowed = $('#fText').value.trim();
     paintCount('#count', '#moreBox', '#btnMore', narrowed, totalCount, casesData.cases.length, shown.length);
+    if (!narrowed && shown.length < totalCount && !recent(main[shown.length])) $('#btnMore').textContent += '・30 日より前を含む';
+    renderFriendReqs();   // 案件が片付いたかを照らし直す
     hideToggle('#casesHidden', 'cases', casesData.cases.filter(function (c) { return visible(c, true) && isHid('cases', c.id) && !active(runsByVideo[c.id]); }).length);
     restoreFocus(focusInfo);
     updateSummaryLine();
@@ -801,6 +781,17 @@
       ul.appendChild(li);
     });
   }
+  var noclipSig = '';
+  function renderNoclip(list) {
+    var box = $('#noclipBox');
+    box.hidden = !list.length;
+    $('#noclipSum').textContent = 'まだ切り抜きの無い配信 ' + list.length + ' 本(直近 ' + RECENT_DAYS + ' 日)';
+    var sig = list.map(function (c) { return c.id; }).join(',');
+    var paint = function () { var l = $('#noclipList'); l.textContent = ''; list.forEach(function (c) { l.appendChild(caseCard(c)); }); };
+    box.ontoggle = function () { if (box.open) paint(); };
+    if (box.open && sig !== noclipSig) paint();
+    noclipSig = sig;
+  }
   /* 一覧の件数の文と「もっと見る(あと n 件)」(案件・単体の文字起こし)。絞り込んだときは「合う数 / 全体の数」(分母は全体。
      「もっと見る」で隠れている分は「(m 件を表示)」と別に書く。S5) */
   function paintCount(countSel, moreBoxSel, moreBtnSel, narrowed, n, total, shownN) {
@@ -809,7 +800,7 @@
     if (rest > 0) $(moreBtnSel).textContent = 'もっと見る(あと ' + rest + ' 件)';
     $(countSel).textContent = (narrowed ? n + ' / ' + total + ' 件' : n + ' 件') + (rest > 0 ? '(' + shownN + ' 件を表示)' : '');
   }
-  function resetPaging() { visibleCount = PAGE_SIZE; render(); }
+  function resetPaging() { visibleCount = CASE_FIRST; render(); }
   /* 絞り込みで 0 件のとき(M5): 条件を消すボタン。条件が空なのに 0 件 = 全部が非表示 → 非表示を出すボタン */
   function emptyFiltered() {
     var filtered = $('#fText').value.trim();
@@ -921,12 +912,26 @@
     healthBusy = true;
     api('api/health' + (refresh ? '?refresh=1' : '')).then(function (h) {
       renderHealth(h);
+      paintHealthTop();
       clearTimeout(healthTimer);
       if (h.computing) healthTimer = setTimeout(function () { loadHealth(false); }, 1500);   // 数えている途中: 少し待って読み直す
     }).catch(function (e) {
       var ul = $('#healthList'); ul.textContent = '';
       ul.appendChild(healthRow('bad', '調子を読めませんでした', '「数え直す」をもう一度押してください。続くときは「すべて終了」→ start.bat で起動し直してください', null, detailOf(e)));
     }).then(function () { healthBusy = false; });
+  }
+  /* 上段の「調子」(10-24 見直しの 2): 運用 › 詳しく › 調子 の行のうち注意・要対応だけを写す。無ければ「問題なし」の 1 行 */
+  function paintHealthTop() {
+    var ul = $('#healthTopList'); if (!ul) return;
+    var all = $all('#healthList > li[data-health]'), bad = all.filter(function (li) { return /^(warn|bad)$/.test(li.getAttribute('data-health')); });
+    ul.textContent = '';
+    bad.forEach(function (li) { ul.appendChild(li.cloneNode(true)); });
+    if (!bad.length) ul.appendChild(healthRow('ok', '問題なし', all.length ? '(' + all.length + ' 項目)' : ''));
+    else if (all.length > bad.length) ul.appendChild(el('li', 'hint', 'ほかの ' + (all.length - bad.length) + ' 項目は問題なし'));
+  }
+  function openHealth() {
+    openOps(); $('#advancedBox').open = true;
+    var b = $('#healthBox'); if (b) { b.scrollIntoView({ block: 'start' }); var f = $('#btnHealthRefresh'); if (f) f.focus({ preventScroll: true }); }
   }
   /* 調子の 1 行。札の言葉は決まりの言葉(ok = 問題なし・warn = 注意・err = 要対応・info = 測った数字。S13)。
      subs の項目は文字か {text, title}。tip は行の title(開発者向けの細かい説明・pid・環境変数など。本文には出さない。S9) */
@@ -942,6 +947,7 @@
       body.appendChild(ul);
     }
     if (tip) li.title = tip;
+    li.setAttribute('data-health', state);   // 上段の「調子」が注意・要対応だけを写す(paintHealthTop)
     li.appendChild(pill); li.appendChild(body);
     return li;
   }
@@ -1388,6 +1394,63 @@
     $(sec.enabled).addEventListener('change', function () { sectionSave(sec, { enabled: $(sec.enabled).checked }); });   // スイッチは押したらすぐ効く
   }
 
+  /* ================================================================ 友人の依頼(10-24 ホームの見直しの 1・5。GET /api/home/requests = src/app/homereq.py) ================================================================
+     新しい順に 5 件(「すべて見る」で全部)・済んだ物(断った・送って 3 日など)は 1 行に畳む。行を押すと案件の画面(ライブは録画の候補)。
+     道があっても案件の一覧に無い(片付いた)ときは押せない形で理由 */
+  var FREQ_CAP = 5, FREQ_POLL_MS = 15000, freqRows = null, freqShowAll = false, freqTimer = 0, freqSig = '';
+  var FREQ_PILL = { live: 'err', received: 'info', making: 'wait', sent: 'ok', done: 'ok', rejected: 'warn', error: 'err' };
+  var FREQ_KIND = { url: 'URL', video: '動画ファイル', live: 'ライブ' };
+  function pollFriendReqs() {
+    clearTimeout(freqTimer);
+    api('api/home/requests').then(function (d) { freqRows = (d && d.rows) || []; renderFriendReqs(); }, function () {})
+      .then(function () { freqTimer = setTimeout(pollFriendReqs, document.hidden ? FREQ_POLL_MS * 4 : FREQ_POLL_MS); });
+  }
+  function freqGo(r) {
+    /* -> {href, label} か {why}(押せない理由)。案件の一覧を読んだあとは、一覧に無い案件を「片付いた」とする(文書 d だけの道は照らせないので押せる) */
+    var l = r.link;
+    if (!l) return { why: r.why || '案件が分からない' };
+    if (l.c && casesData && !caseById(l.c)) return { why: l.live ? '録画が片付いた' : '案件が片付いた' };
+    return { href: CaseLink.href({ c: l.c, d: l.d, tab: l.tab }), label: l.live ? 'ライブを開く' : '開く' };
+  }
+  function freqRow(r) {
+    var li = el('li', 'pt-freq-row'), go = freqGo(r);
+    li.setAttribute('data-freq', r.id || '');
+    li.appendChild(el('span', 'pill ' + (FREQ_PILL[r.state] || 'info'), r.state === 'live' ? 'ライブ' : r.label));
+    var main = el(go.href ? 'a' : 'span', 'pt-freq-main');
+    if (go.href) main.href = go.href;
+    main.appendChild(el('span', 'pt-freq-title', r.title || '(題名なし)'));
+    var sub = [r.streamer, FREQ_KIND[r.kind] || '', r.state === 'rejected' && r.reason ? r.reason : ''].filter(Boolean).join(' ・ ');
+    if (sub) main.appendChild(el('span', 'hint pt-freq-sub', sub));
+    main.title = r.title || '';
+    li.appendChild(main);
+    var t = el('span', 'hint pt-freq-when', ago(r.received)); t.title = r.received ? when(r.received) : '';
+    li.appendChild(t);
+    if (go.href) {
+      var a = el('a', 'pt-freq-go' + (r.link && r.link.live ? ' live' : ''), go.label + ' ›'); a.href = go.href;
+      li.appendChild(a);
+    } else li.appendChild(el('span', 'hint pt-freq-go', '開けません(' + go.why + ')'));
+    return li;
+  }
+  function renderFriendReqs() {
+    var box = $('#freqBox'); if (!box || !freqRows) return;
+    var open = freqRows.filter(function (r) { return !r.done; }), done = freqRows.filter(function (r) { return r.done; });
+    var sig = JSON.stringify(freqRows) + '|' + freqShowAll + '|' + (casesData ? casesData.cases.length : -1) + '|' + !!(intakeData && intakeData.enabled);
+    if (sig === freqSig) return;
+    freqSig = sig;
+    box.hidden = !freqRows.length && !(intakeData && intakeData.enabled);
+    var ul = $('#freqList'); ul.textContent = '';
+    (freqShowAll ? open : open.slice(0, FREQ_CAP)).forEach(function (r) { ul.appendChild(freqRow(r)); });
+    $('#freqEmpty').hidden = !!open.length;
+    if (!open.length) emptyBox('進んでいる依頼はありません', '友人のアプリから依頼が届くと、ここに出ます。', null, $('#freqEmpty'));
+    var allBtn = $('#freqAll');
+    allBtn.hidden = open.length <= FREQ_CAP;
+    allBtn.textContent = freqShowAll ? FREQ_CAP + ' 件にもどす' : 'すべて見る(' + open.length + ' 件)';
+    var dd = $('#freqDone'); dd.hidden = !done.length;
+    $('#freqDoneSum').textContent = '済んだ依頼 ' + done.length + ' 件(断った・送って 3 日たった など)';
+    var dl = $('#freqDoneList'); dl.textContent = '';
+    done.forEach(function (r) { dl.appendChild(freqRow(r)); });
+  }
+
   var intakeData = null, intakeSig = '', noticeSig = '', intakeOpened = false;
   /* 見張るフォルダ・数の欄は設定の画面(/settings。範囲は app/prefs.py の INTAKE_RANGES とスキーマを test_settings_schema が突き合わせる)。ここはスイッチと今のフォルダだけ */
   function fillIntakeSettings(d) {
@@ -1460,6 +1523,7 @@
   }
   function renderIntake(d) {
     intakeData = d;
+    renderFriendReqs();   // 受付がオンなら依頼が 0 件でも「友人の依頼」の欄を出す
     renderNotices(d.notices);
     $all('.pt-auto[data-auto-send]').forEach(function (b) { paintSendBox(b); });   // 受付のフォルダが分かったら注を出し直す
     var had = deliverFolder;
@@ -1687,8 +1751,9 @@
     if (hs) hs.hidden = false;
     UIKit.settings.mount(hs ? { title: '設定', tool: hs } : { title: '設定' });
 
-    $('#btnQuit').addEventListener('click', quit);
     $('#btnHealthRefresh').addEventListener('click', function () { loadHealth(true); });
+    $('#healthOpen').addEventListener('click', openHealth);
+    $('#freqAll').addEventListener('click', function () { freqShowAll = !freqShowAll; renderFriendReqs(); });
     $('#btnAccuracyNow').addEventListener('click', accuracyNow);
     var adv = $('#healthBox') && $('#healthBox').closest('details');
     if (adv) { adv.addEventListener('toggle', function () { if (adv.open) loadHealth(false); }); if (adv.open) loadHealth(false); }
@@ -1726,10 +1791,13 @@
     restoreFilters();
     /* タブ・窓に戻ったらすぐ読み直す(ui-kit の UIKit.life。窓を並べて使うとタブの切り替えは来ないため。visibilitychange は直接使わない) */
     /* 依頼の受付・バックアップも(設定の画面でフォルダを決めて戻ったとき、受付のフォルダで決まる「採用」がすぐ押せる) */
-    UIKit.life.onReturn(function () { poll(); refreshCases(); loadCheck(); pollIntake(); pollBackup(); });
+    UIKit.life.onReturn(function () { poll(); refreshCases(); loadCheck(); pollIntake(); pollBackup(); pollFriendReqs(); });
 
     poll();
     loadCheck();
+    loadHealth(false);   // 上段の調子(注意だけ)。数えている途中なら loadHealth が読み直す
+    setInterval(function () { if (!document.hidden) loadHealth(false); }, 60000);
+    pollFriendReqs();
     loadCases().then(function () { renderDocs(); buildTodo(); pollAuto(); focusHash(); });
   });
 })();

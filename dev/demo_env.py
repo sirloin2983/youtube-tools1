@@ -245,6 +245,47 @@ def seed_check(tmp, txdir, samples, videos, write_tx, now):
               "speakers": [{"id": "S1", "name": "話者 1"}], "segments": ev_rows, "createdAt": created, "updatedAt": created})
 
 
+def seed_requests(app_dir, logs_dir, studio_home, now=None):
+    """ホームの「友人の依頼」の見本(10-24): 受付の記録(intake-state.json)と終わった実行の記録(autorun-runs.jsonl)。
+    ライブ・届いた・送った・できた・断った・3 日より前に送った(済んだ)を 1 件ずつ。案件はスタジオの見本の配信に結ぶ"""
+    now = now or time.time()
+    try:
+        with open(os.path.join(studio_home, "data.json"), encoding="utf-8") as f:
+            vids = [k for k, v in (json.load(f).get("videos") or {}).items() if (v or {}).get("kind") == "youtube"]
+    except (OSError, ValueError):
+        vids = []
+    if len(vids) < 3:
+        return 0
+    ms = lambda ago: int((now - ago) * 1000)   # noqa: E731
+    reqs, runs = [], []
+
+    def add(rid, kind, title, ago, state="accepted", run=None, live=None, reason=""):
+        r = {"id": rid, "kind": kind, "source": "app", "title": title, "streamer": "星見ルナ", "received": ms(ago), "state": state,
+             "stateLabel": "受け付けた" if state == "accepted" else "断った", "reason": reason, "flow": "auto", "flowLabel": "① 全自動",
+             "runIds": [run["id"]] if run else [], "items": []}
+        if live:
+            r["live"] = live
+        reqs.append(r)
+        if run:
+            runs.append(dict({"v": 1, "kind": "video", "state": "done", "stateLabel": "済み", "created": ms(ago - 60), "finished": ms(ago - 900), "requestId": "demo-" + rid},
+                             **run))
+
+    add("dreq000001", "live", "【雑談】まったり話そう", 600, live={"recorder": "local", "recording": CHECK_LIVE})
+    add("dreq000002", "url", "【歌枠】アニソン縛り 164曲", 1800, run={"id": "drun000002", "videoId": vids[0], "steps": [{"key": "deliver", "state": "done"}]})
+    add("dreq000003", "url", "【コラボ】4人で協力プレイ!", 3600)
+    add("dreq000004", "url", "【雑談】158回目の朝活!", 7200, run={"id": "drun000004", "videoId": vids[1], "steps": [{"key": "pack", "state": "done"}]})
+    add("dreq000005", "url", "【マイクラ】拠点づくり #176", 86400 + 3600, run={"id": "drun000005", "videoId": "gonegonegon", "steps": [{"key": "deliver", "state": "done"}]})
+    add("dreq000006", "url", "(題名なし)", 86400 * 2, state="rejected", reason="YouTube の URL ではありません")
+    add("dreq000007", "url", "【ゲーム】ホラー耐久", 86400 * 4, run={"id": "drun000007", "videoId": vids[2], "steps": [{"key": "deliver", "state": "done"}]})
+    os.makedirs(logs_dir, exist_ok=True)
+    with open(os.path.join(app_dir, "intake-state.json"), "w", encoding="utf-8") as f:
+        json.dump({"daily": {}, "requests": reqs}, f, ensure_ascii=False)
+    with open(os.path.join(logs_dir, "autorun-runs.jsonl"), "a", encoding="utf-8") as f:
+        for r in reversed(runs):   # 記録は書いた順(古い順)
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    return len(reqs)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--port", type=int, default=8750)
@@ -272,6 +313,8 @@ def main(argv=None):
         print("見本のデータ: 配信 %d 本・文字起こし %d 件" % (nv, nt), flush=True)
     ports = dict(zip(L.TOOL_IDS, (a.port + 1, a.port + 2, a.port + 3)))
     sup = L.Supervisor(tmp, ready_timeout=60, stop_timeout=10, poll=0.3, log=lambda m: print(m, flush=True), ports=ports, mounts=tuple(M.MOUNTS))
+    if fresh:
+        print("見本の友人の依頼: %d 件" % seed_requests(os.path.dirname(sup.logs_dir), sup.logs_dir, os.path.join(tmp, "studio-home")), flush=True)
     srv, port = L.make_server(a.port, sup)
     if srv is None:
         raise SystemExit("ポート %d は使用中です" % a.port)

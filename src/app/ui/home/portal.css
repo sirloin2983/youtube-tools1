@@ -152,10 +152,6 @@
 .pt-health-sub{margin:2px 0 0;padding:0 0 0 1em;list-style:none;font-size:12px;color:var(--ink-3)}
 .pt-health-sub li{overflow-wrap:anywhere}
 
-.pt-done{max-width:560px;margin:0 auto;padding:64px 16px}
-.pt-done-card{text-align:center;padding:28px 24px}
-.pt-done-card h1{font-size:20px;margin:0 0 6px}
-.pt-done-card .hint{margin:0}
 
 @media (prefers-reduced-motion:reduce){.pt-tool{transition:none}}
 
@@ -194,7 +190,30 @@
   width:auto;max-height:none!important;overflow:visible!important;margin-top:6px;padding:10px 0 0;border:0;border-top:1px solid var(--line);border-radius:0;box-shadow:none;background:transparent;animation:none}
 
 /* ---- RS8 C3: ホームの組み替え(やること | 確かめる の 2 列・配信のない案件・運用の枠・編集の精度と学習) ---- */
-.pt-top{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:16px 20px;align-items:start;margin:0 0 26px}
+.pt-top{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,3fr) minmax(0,2.4fr);gap:16px 20px;align-items:start;margin:0 0 26px}
+/* 友人の依頼(10-24 見直しの 1・5) */
+.pt-freq-box{margin:0 0 22px}
+.pt-freq-head{align-items:baseline;margin:0 0 6px}
+.pt-freq-head .pt-h2{margin:0}
+.pt-freq-card{padding:4px 12px}
+.pt-freq-list{list-style:none;margin:0;padding:0}
+.pt-freq-row{display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid var(--line)}
+.pt-freq-list>.pt-freq-row:last-child{border-bottom:0}
+.pt-freq-main{flex:1;min-width:0;display:flex;align-items:baseline;gap:8px;color:inherit;text-decoration:none}
+.pt-freq-title{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pt-freq-sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pt-freq-when{white-space:nowrap}
+.pt-freq-go{white-space:nowrap;min-width:8em;text-align:right}
+.pt-freq-row .pill{flex:none}
+.pt-freq-done{margin:2px 0 6px}
+.pt-freq-done>summary{font-size:var(--fs-sm);color:var(--ink-3);padding:8px 2px}
+/* 調子(10-24 見直しの 2): 注意だけ */
+.pt-health-top{min-width:0}
+.pt-health-mini{padding:10px 12px}
+.pt-health-mini .pt-health-list{margin:0 0 6px}
+.pt-health-mini .pt-health-body .hint{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}   /* 長い説明は 3 行まで(全部は「調子を開く」) */
+.pt-noclip{margin:10px 0 0}
+.pt-noclip>summary{color:var(--ink-3)}
 .pt-top .pt-todo-box{margin:0}
 .pt-check-box{min-width:0}
 .pt-check{padding:14px 16px}
@@ -203,7 +222,7 @@
 .pt-check-acts{gap:8px 12px;align-items:center;flex-wrap:wrap}
 .pt-check-all{margin-top:12px}
 .pt-check-all .pt-health-list{margin-top:8px}
-@media (max-width:860px){.pt-top{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:860px){.pt-top{grid-template-columns:minmax(0,1fr)}.pt-freq-sub{display:none}}
 .pt-case-clips{white-space:nowrap}
 .pt-vlist{margin:14px 0 0}
 .pt-vlist .pt-h3{margin:0 0 8px}
