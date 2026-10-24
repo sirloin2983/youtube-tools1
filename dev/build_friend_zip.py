@@ -832,6 +832,8 @@ def main(argv=None):
     ap.add_argument("--queue", action="store_true", help="友人の zip を配る待ちの列に積むだけ(ふだんはこれ。3 時間ごとにまとめて配る)")
     ap.add_argument("--note", default="", help="--queue・--publish: この版で直した一言(友人のアプリの「最近の更新」にそのまま出る = 友人に見せる短い言葉で。"
                     "「ユーザーの PC」・内部の名前を使わない。200 字まで)")
+    ap.add_argument("--hold", default=None, metavar="WHY", help="配る列に「止めておく」印を置く(配る回でも --from-queue でも配らない)")
+    ap.add_argument("--release", action="store_true", help="配る列の「止めておく」印を外す")
     ap.add_argument("--from-queue", action="store_true", help="--publish のときだけ: 入口の配る回が使う(列の分を配る)")
     ap.add_argument("--rollback", default="", metavar="VER", help="友人の PC へ「この版に戻して」の印を置く(版 X.Y.Z か prev = 友人の PC に残る確かに動いた版)")
     ap.add_argument("--why", default="", help="--rollback の理由(300 字まで)")
@@ -849,6 +851,12 @@ def main(argv=None):
     if a.from_queue and not a.publish:
         ap.error("--from-queue は --publish のときだけ使えます")
     app = datadir.locate("app", SRC)
+    if a.hold is not None or a.release:
+        if a.hold is not None and not a.hold.strip():
+            ap.error("--hold には理由が要ります")
+        h = _pubqueue.set_hold(app, None if a.release else a.hold)
+        say("配る列の止めておく印を%s(%s)" % ("置きました" if h else "外しました", h["why"] if h else "配る回で配ります"))
+        return 0
     if a.queue:
         if a.publish or a.first or a.out:
             ap.error("--queue は積むだけです(--publish・--first・--out と一緒に使えません)")
@@ -859,6 +867,9 @@ def main(argv=None):
         return 0
     if a.publish and not a.from_queue and not (a.important and set(a.fix_kind) & {2, 4}):
         ap.error("友人の zip はふだん --queue で積みます。すぐ配るのは --publish --important --fix-kind 4(起動しない・更新で壊れた)か 2(録画そのものが動かない)だけです")
+    if a.from_queue and _pubqueue.hold_of(app):
+        say("配る列に止めておく印があるので配りません(%s)" % _pubqueue.hold_of(app).get("why"))
+        return 0
     started = int(time.time() * 1000)
     try:
         if a.rollback:   # 戻す印: 置き場所は受付のフォルダ(Dropbox)の 診断/戻して/

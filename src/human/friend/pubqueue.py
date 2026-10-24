@@ -11,6 +11,8 @@ notes:plan/友人の不具合の自動対応-1025.md の「まとめて配る」
   列はそのまま残り、次の回にまた配る
 - 配れたら: 道具が積んだ一言を latest.json と台帳の changes(この版で直したこと)に入れて、その分を列から外す(take)
 - すぐ配る例外(種類 4 と、種類 2 の録画そのものが動かない直し)は `--publish --important --fix-kind 4|2`。列に積んだ物も一緒に乗る
+- 止めておく印(hold): queue.json の hold {why, at}(`build_friend_zip.py --hold "<理由>"`・外すのは --release)。印がある間は、配る回でも
+  `--publish --from-queue` でも配らず、区切りごとに note を 1 つ残すだけ(10-26 まとめ役: 友人のアプリの更新の作りの本物の通しが済むまで)
 - スイッチ: 環境変数 YTT_FRIEND_PUBLISH_QUEUE=0 で配る回を起こさない(積むのは続く)。リポジトリが無い PC(友人の PC)でも起こさない
 標準ライブラリと ytt だけ。
 """
@@ -54,8 +56,24 @@ def items(app_dir):
     return [x for x in d.get("items") or [] if isinstance(x, dict)]
 
 
-def _write(app_dir, rows):
-    fsio.write_json(os.path.join(_dir(app_dir), QUEUE_NAME), {"v": 1, "items": rows})
+def hold_of(app_dir):
+    """止めておく印 {why, at} か None"""
+    h = (fsio.read_json_or(os.path.join(_dir(app_dir), QUEUE_NAME), None) or {}).get("hold")
+    return h if isinstance(h, dict) else None
+
+
+def set_hold(app_dir, why, now=None):
+    """止めておく印を置く(why = None で外す)-> 置いた印か None"""
+    h = {"why": str(why).strip()[:300], "at": int((time.time() if now is None else now) * 1000)} if why is not None else None
+    os.makedirs(_dir(app_dir), exist_ok=True)
+    _locked(app_dir, lambda: _write(app_dir, items(app_dir), hold=h))
+    return h
+
+
+def _write(app_dir, rows, hold=False):
+    """列を書く(hold False = 今の印をそのまま残す)"""
+    h = hold_of(app_dir) if hold is False else hold
+    fsio.write_json(os.path.join(_dir(app_dir), QUEUE_NAME), dict({"v": 1, "items": rows}, **({"hold": h} if h else {})))
 
 
 def add(app_dir, note, version, by="", now=None):
@@ -127,6 +145,11 @@ def _tick(app_dir, repo, clock, log, spawn):
     os.makedirs(_dir(app_dir), exist_ok=True)
     fsio.write_json(sp, st)
     if not items(app_dir) or os.environ.get(SWITCH_ENV, "1") == "0" or not repo:
+        return None
+    h = hold_of(app_dir)
+    if h:   # 止めておく印: 配らずに記録だけ(区切りごとに 1 つ)
+        _upwatch.add_alert(app_dir, "note", "publish-hold:%s" % slot, "まとめて配る回(%s)は止めてあります(%s)。列の %d 件は残しました" % (slot, h.get("why"), len(items(app_dir))), now=now)
+        log("まとめて配る回(%s): 止めておく印があるので配りません(%s)" % (slot, h.get("why")))
         return None
     out = os.path.join(_dir(app_dir), "publish-%s.log" % slot)
     cmd = [tools.python_exe(), os.path.join(repo, "dev", "build_friend_zip.py"), "--publish", "--from-queue"]

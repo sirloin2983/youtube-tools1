@@ -106,5 +106,22 @@ class PubQueueTest(unittest.TestCase):
         self.assertEqual(self.spawned, [])
 
 
+    def test_hold_blocks_publish(self):
+        """止めておく印がある間は配らず note を残すだけ・列は残る・外せば次の区切りで配る"""
+        Q.add(self.app, "直した", "0.99.1", now=self.now)
+        Q.set_hold(self.app, "本物の通しの前", now=self.now)
+        self.tick()
+        self.now = datetime.datetime(2026, 10, 25, 12, 1).timestamp()
+        self.tick()
+        self.assertEqual(self.spawned, [])
+        self.assertEqual([a["level"] for a in U.alerts(self.app, self.now)], ["note"])
+        self.assertEqual(len(Q.items(self.app)), 1)
+        Q.add(self.app, "もう一つ", "0.99.2", now=self.now)
+        self.assertTrue(Q.hold_of(self.app))                                 # 積んでも印は消えない
+        Q.set_hold(self.app, None)
+        self.now = datetime.datetime(2026, 10, 25, 15, 1).timestamp()
+        self.tick()
+        self.assertEqual(len(self.spawned), 1)
+
 if __name__ == "__main__":
     unittest.main()

@@ -82,7 +82,7 @@ LOGIN_WAIT_SEC = 6 * 3600           # claude がログインしていなかっ�
 LOGIN_RE = re.compile(r"Not logged in|Please run /login", re.I)
 WT_PREFIX = "friend-bug-"           # <repo>/.claude/worktrees/friend-bug-<時刻>(その回専用)
 LIVE_STAGES = ("record", "recording", "chat", "live", "close", "ended", "submit", "blocked", "lost")   # 友人の detect は依頼の「見どころを探す」= 1(known-bugs 10-25)
-START_STAGES = ("start", "launch", "update", "setup", "rollback")
+START_STAGES = ("start", "launch", "update", "setup", "rollback", "verify")   # verify = 新しい版の確かめに通らない(known-bugs 10-26)
 SYNC_STAGES = ("sync", "deliver", "upload", "receive", "outbox")
 ENV_CAUSES = ("disk", "space", "vram", "gpu", "memory", "login", "auth", "bot", "permission", "smartapp")
 KINDS = {   # 種類 → (名前, 緊急度 0 が一番急ぐ, 指示文に入れる対応)
@@ -206,7 +206,7 @@ def kind_of(d):
     stage, cause = str(facts.get("stage") or "").lower(), str(facts.get("cause") or "").lower()
     codes = [c for c in d.get("codes") or [] if isinstance(c, str)]
     yt = d.get("yt") if isinstance(d.get("yt"), dict) else {}
-    if d.get("trigger") == "crash" or stage in START_STAGES:
+    if d.get("trigger") in ("crash", "update") or stage in START_STAGES:
         return 4
     if d.get("trigger") == "trouble":
         return 6
