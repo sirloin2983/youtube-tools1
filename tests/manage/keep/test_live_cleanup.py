@@ -136,18 +136,18 @@ class CleanupTest(unittest.TestCase):
         return {"id": "m%d" % n, "status": status, "start": n * 10.0 if start is None else start, "end": n * 10.0 + 5}
 
     def test_kept_recordings_are_reported(self):
-        """消すのはアーカイブ化を確かめた録画だけ(10-24)。確かめられない録画は 3 日たっても消さずに「調子」に出す。
-        非公開・見られないと分かった録画は、終わって 3 日で録画元に「1 本につないで残す」(keep・名前の終わりは 非公開)を頼む。
-        3 日たって書き出していないマークがある録画は、アーカイブ化を確かめれば消す。採用のまま書き出していないマーク・書き出しの途中は消さない。録画中は出さない"""
+        """消すのはアーカイブ化を確かめた録画だけ(10-24)。非公開・見られないと分かった録画はすぐ、確かめられないまま終わって 24 時間たった録画も、
+        録画元に「1 本につないで残す」(keep・名前の終わりは 非公開)を頼む。24 時間より前は待つ。
+        3 日たって書き出していないマークがある録画は、アーカイブ化を確かめれば消す。採用のまま書き出していないマーク・書き出しの途中は消さずに「調子」に出す。録画中は出さない"""
         C = LC
-        R4, R5, R6, R7 = ("20261005-%02d0000-abcdefghijk" % h for h in (15, 16, 17, 18))
+        R4, R5, R6, R7, R8 = ("20261005-%02d0000-abcdefghijk" % h for h in (15, 16, 17, 18, 19))
         no = C.live_retire.NOT_ARCHIVED + "(処理中)"
         self.live.add(self.R1, ended_ago=C.STALE_SEC + 100)
         self.job(self.R1, 1)
-        self.arch[self.R1] = no                             # 確かめられない・3 日たった → 消さずに知らせる
+        self.arch[self.R1] = no                             # 確かめられないまま 24 時間を過ぎた → 非公開と同じ扱い(つないで残す)
         self.live.add(self.R2, ended_ago=C.STALE_SEC + 100, title="雑談", channel="配信者")
         self.job(self.R2, 1)
-        self.arch[self.R2], self.unav[self.R2] = no, "private"   # 非公開・3 日たった → 1 本につないで残す
+        self.arch[self.R2], self.unav[self.R2] = no, "private"   # 非公開 → 1 本につないで残す
         self.live.add(self.R3, state="recording")
         self.live.add(R4, ended_ago=C.STALE_SEC + 100)
         self.job(R4, 1, state="encode", arc=None)           # 書き出しの途中 → 消さずに知らせる
@@ -158,29 +158,30 @@ class CleanupTest(unittest.TestCase):
         self.job(R6, 1, state="error", arc="error", needs=True)   # アーカイブから書き出せなかった・3 日たった・アーカイブ化を確かめた → 消す
         self.live.add(R7, ended_ago=100)
         self.job(R7, 1)
-        self.arch[R7], self.unav[R7] = no, "private"        # 非公開でもまだ 3 日たっていない → 待つ
+        self.arch[R7], self.unav[R7] = no, "private"        # 非公開と分かった → 終わってすぐでも残す
+        self.live.add(R8, ended_ago=100)
+        self.job(R8, 1)
+        self.arch[R8] = no                                  # 確かめられない・まだ 24 時間前 → 待つ(消さない・残さない)
         self.cl.tick(force=True)
         self.assertEqual(sorted(self.live.deleted()), [R6])
-        self.assertEqual([r for r, _ in self.live.kept], [self.R2])
-        self.assertTrue(self.live.kept[0][1].endswith("_配信者_雑談_非公開"), self.live.kept)
+        self.assertEqual(sorted(r for r, _ in self.live.kept), sorted([self.R1, self.R2, R7]))
+        self.assertTrue(dict(self.live.kept)[self.R2].endswith("_配信者_雑談_非公開"), self.live.kept)
         self.assertTrue(all(j.get("recordingDeleted") for j in self.live.exporter.jobs if j["recording"] == self.R2))
+        self.assertIn(R8, self.live.recs)
         f = {x["recording"]: x for x in self.cl.kept_failures()}
-        self.assertEqual(sorted(f), sorted([self.R1, R4, R5]))
-        self.assertEqual((f[self.R1]["kind"], f[self.R1]["kindLabel"], f[self.R1]["at"] is not None), ("keep", "録画の片付け", True))
-        for s in ("自動では消えません", "処理中"):
-            self.assertIn(s, f[self.R1]["text"])
+        self.assertEqual(sorted(f), sorted([R4, R5]))
+        self.assertEqual((f[R4]["kind"], f[R4]["kindLabel"], f[R4]["at"] is not None), ("keep", "録画の片付け", True))
         for s in ("書き出しの途中", "3 日", R4, "自動では消えません"):
             self.assertIn(s, f[R4]["text"])
         self.assertIn("採用のまま書き出していないマークがある", f[R5]["text"])
         self.assertNotIn(self.R3, self.cl._kept)
-        self.arch[self.R1] = ""   # R1 のアーカイブ化を確かめられたら消えて、知らせも消える
+        self.arch[R8] = ""   # R8 のアーカイブ化を確かめられたら消す
         self.cl.tick(force=True)
-        self.assertEqual(sorted(self.live.deleted()), sorted([R6, self.R1]))
-        self.assertEqual(sorted(x["recording"] for x in self.cl.kept_failures()), sorted([R4, R5]))
+        self.assertEqual(sorted(self.live.deleted()), sorted([R6, R8]))
         self.live.recs[self.R2] = dict(self.live.recs.get(self.R2) or {"id": self.R2, "state": "stopped", "active": False,
                                                                        "endedAt": LX.epoch_iso(time.time() - C.STALE_SEC - 100)}, keepError="ffmpeg")
         self.cl.tick(force=True)   # 残す途中で止まった録画は、もう一度頼む
-        self.assertEqual([r for r, _ in self.live.kept], [self.R2, self.R2])
+        self.assertEqual(sorted(r for r, _ in self.live.kept), sorted([self.R1, self.R2, R7, self.R2]))
 
     def test_replaced_recording_is_deleted(self):
         self.live.add(self.R1)

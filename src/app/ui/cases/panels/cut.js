@@ -129,10 +129,10 @@
      </div>
      <section class="card tt-pk-card" id="edSetPack" aria-labelledby="edSetPackT">
        <h3 class="tt-pk-h" id="edSetPackT">パックの決まり</h3>
-       <p class="hint" style="margin:0 0 6px">Resolve へ渡すパックは、いつもこの形で作ります(ここの「パックを作る」とホームのまとめて実行で同じ。10-24 から設定なし)。</p>
+       <p class="hint" style="margin:0 0 6px">Resolve へ渡すパックは、いつもこの形で作ります(ここの「パックを作る」とホームのまとめて実行・友人の依頼で同じ。画面の大きさだけ設定で選ぶ)。</p>
        <ul class="hint tt-pk-fixed">
          <li>素材とプロジェクトは 30fps</li>
-         <li>縦 1080×1920(縦に切り取る作業(クロップ)は Resolve で)</li>
+         <li>画面の大きさ: <span id="pkSizeNow">縦 1080×1920</span>(縦か横かは<a href="/settings#uiSetGroup-pack-out">設定の「パック」</a>で選ぶ。縦に切り取る作業(クロップ)は Resolve で)</li>
          <li>音量: カットで残す部分だけを測って -14 LUFS にそろえる(YouTube と同じくらい。映像と元の動画はそのまま)</li>
          <li>話者の名前がメンバーと合えば、その話者の字幕をその色に</li>
          <li>行の後の余白 0.2 秒(「行から」のたたき台で、行の終わりに無音が見つからないとき)</li>

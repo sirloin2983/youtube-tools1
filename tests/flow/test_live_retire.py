@@ -114,10 +114,13 @@ class RetireTest(unittest.TestCase):
         self.assertEqual(self.rt.verdict("local", REC).why, "前に消しました")
 
     def test_fate_and_private_name(self):
-        """終わった録画をどうするか(両方の PC で同じ。10-24): 確かめた = 消す・非公開と分かって 3 日 = 残す・ほか = そのまま"""
+        """終わった録画をどうするか(両方の PC で同じ。10-24): 確かめた = 消す・非公開と分かった / 24 時間でアーカイブにならない = 残す・ほか = 待つ"""
         no = LR.NOT_ARCHIVED + "(x)"
-        self.assertEqual([LR.fate("", "", False), LR.fate(no, "private", True), LR.fate(no, "private", False), LR.fate(no, "", True)],
-                         ["delete", "private", "", ""])
+        self.assertEqual([LR.fate("", "", False), LR.fate(no, "private", False), LR.fate(no, "", True), LR.fate(no, "", False)],
+                         ["delete", "private", "private", ""])
+        now = 2000000000.0
+        self.assertEqual([LR.overdue({"endedAt": LX.epoch_iso(now - LR.ARCHIVE_WAIT_SEC - 1)}, now), LR.overdue({"endedAt": LX.epoch_iso(now - 60)}, now),
+                          LR.overdue({}, now)], [True, False, False])
         r = {"streamStart": "2026-10-20T12:00:00Z", "channel": "配信者/A", "title": "雑談: 夜"}
         self.assertTrue(LR.private_name(r).startswith("2026-10-2") and LR.private_name(r).endswith("_配信者_A_雑談_ 夜_非公開"), LR.private_name(r))
         self.assertEqual(LR.private_name({}), "非公開")

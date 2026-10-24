@@ -18,8 +18,8 @@ function create(h){
   /* 画面に出す「ほかの欄」の呼び名(校正・カットの言い方。panels/cut.js の makeHost が渡す) */
   const N = h.words;
   /* 「予備」(Text+ パックに足す EDL・SRT)は無い(決定 3-34)。字幕の無いパックは EDL が本体(サーバーが入れる) */
-  /* 大きさは縦・音量は -14 LUFS に固定(10-24 から設定なし。まとめて実行のパックと同じ = flow/spec.pack_output と ytt/loudness.DEFAULT) */
-  const sizeOf = () => '1080x1920';
+  /* 大きさは設定の画面の「パック」で選ぶ(縦・横。既定は縦)・音量は -14 LUFS に固定(10-24。まとめて実行のパックと同じ = flow/spec.pack_output と ytt/loudness.DEFAULT) */
+  const sizeOf = () => h.S.settings.packSize === '1920x1080' ? '1920x1080' : '1080x1920';
   const loudOf = () => -14;
   /* Text+ 字幕の1段の文字数(字幕の文字数の設定 subtitle.wrapChars。置き先が横なら横の値。規則(どこで改行するか)は cut2resolve の resolve_textplus.wrap_caption) */
   const wrapOf = () => { const w = (h.S.settings.subtitle || {}).wrapChars || {}, o = sizeOf() === '1920x1080' ? 'horizontal' : 'vertical', n = Number(w[o]);
@@ -258,6 +258,7 @@ function create(h){
   }
   /* 前回の設定の要約(段3。詳しい設定は「設定を変える」の右の欄)。配信者の色の丸は、字幕があるときだけ(無いときは字幕そのものが無いので色も出ない) */
   function renderSummaryText(fps, size, hasRows){
+    const sn = $('#pkSizeNow'); if (sn) sn.textContent = size === '1920x1080' ? '横 1920×1080' : '縦 1080×1920';   // 「パックの決まり」の今の大きさ
     const bits = [`${fps}fps(1 秒のコマ数)`, size === '1920x1080' ? '横 1920×1080' : '縦 1080×1920'];
     bits.push(`音量 ${loudOf()} LUFS`);
     if (padOf() !== 0.2) bits.push(`行の後の余白 ${padOf()}秒`);   // 設定のファイルで変えたときだけ(覚えている設定だけを出す。監査 09)

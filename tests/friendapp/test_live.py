@@ -522,19 +522,19 @@ class LiveFlowTest(unittest.TestCase):
         self.assertIsNone(lv.studio_call("GET", "/api/settings")[0])
 
     def test_clean_recordings_by_archive(self):
-        """ユーザーの PC と同じ決まり(10-24): アーカイブ化を確かめた録画は消す・非公開と分かって 3 日たてば 1 本につないで名前に「非公開」・
-        見分けがつかない録画は 3 日たっても消さない"""
+        """ユーザーの PC と同じ決まり(10-24): アーカイブ化を確かめた録画は消す・非公開と分かったら 1 本につないで名前に「非公開」・
+        確かめられないまま 24 時間たった録画も同じ・それより前は待つ"""
         self.send_live()
-        arch, priv, unk = "20261010-100000-arch", "20261010-110000-priv", "20261010-120000-unk"
-        for rid, days in ((arch, 0.5), (priv, 4), (unk, 4)):
+        arch, priv, unk, late = "20261010-100000-arch", "20261010-110000-priv", "20261010-120000-unk", "20261010-130000-late"
+        for rid, days in ((arch, 0.5), (priv, 0.1), (unk, 0.5), (late, 1.5)):
             self.rec.recs[rid] = {"id": rid, "url": URL, "state": "ended", "active": False, "title": "雑談", "endedAt": LX.epoch_iso(time.time() - days * 86400)}
         self.rec.end(REC, ago=3600)
         lv = self.eng.live
         lv.archiver.archived = lambda rc, r: "" if r["id"] == arch else "アーカイブ化をまだ確かめられていない(処理中)"
         lv.archiver.unavailable = lambda rc, r: "private" if r["id"] == priv else ""
-        self.assertEqual(sorted(lv.clean_recordings(force=True)), [arch, priv])
+        self.assertEqual(sorted(lv.clean_recordings(force=True)), sorted([arch, priv, late]))
         self.assertEqual(sorted(self.rec.recs), sorted([REC, unk]))
-        self.assertEqual([(r, n.endswith("_雑談_非公開")) for r, n in self.rec.kept], [(priv, True)])
+        self.assertEqual(sorted((r, n.endswith("_雑談_非公開")) for r, n in self.rec.kept), [(priv, True), (late, True)])
 
     def test_live_cfg_and_rec_folder(self):
         c = self.eng.live.cfg()

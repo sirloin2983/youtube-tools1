@@ -186,18 +186,21 @@ class TestEditorSettings(unittest.TestCase):
         self.assertEqual(self.st.load_settings(), {"other": 1, "diarSmooth": True})
         with open(self.path, encoding="utf-8") as f:
             self.assertEqual(json.load(f), {"other": 1, "diarSmooth": True})
-        # 廃止した鍵(packFps・packBackup・packLoudness・packVolume・packSize): 直させない。古い設定ファイルに残っていても断らず、読み飛ばして消さない。
-        # 古い画面が api/settings/patch で送っても断らずに黙って捨てる(packBackup = パックの予備 = 決定 3-34・パックの音量と大きさ = 10-24 から固定)
+        # 廃止した鍵(packFps・packBackup・packLoudness・packVolume): 直させない。古い設定ファイルに残っていても断らず、読み飛ばして消さない。
+        # 古い画面が api/settings/patch で送っても断らずに黙って捨てる(packBackup = パックの予備 = 決定 3-34・パックの音量 = 10-24 から固定)。
+        # パックの画面の大きさ packSize は直せる鍵(10-24 夜に戻した。縦か横だけ)
         with open(self.path, "w", encoding="utf-8") as f:
             json.dump({"other": 1, "diarSmooth": True, "packFps": "30", "packBackup": True, "packSize": "1920x1080"}, f)
         self.assertEqual(self.st.patch_settings({"values": {"packFps": "60", "packLoudness": -11, "packVolume": 70}}), {"ok": True, "values": {}})
         self.assertEqual(self.st.patch_settings({"values": {"packBackup": False, "packSize": "1080x1920", "diarSmooth": False}}),
-                         {"ok": True, "values": {"diarSmooth": False}})
+                         {"ok": True, "values": {"packSize": "1080x1920", "diarSmooth": False}})
+        with self.assertRaises(errors.ApiError):
+            self.st.patch_settings({"values": {"packSize": "1080"}})
         with self.assertRaises(errors.ApiError):
             self.st.patch_settings({"values": {"nope": 1}})                              # 知らない鍵は今までどおり断る
         self.st.merge_settings({"patch": {"packFps": "60", "packBackup": False, "packSize": "1080x1920", "glossary": "みこ"}})
         self.st.replace_settings({"other": 2})
-        self.assertEqual(self.st.load_settings(), {"other": 2, "diarSmooth": False, "packFps": "30", "packBackup": True, "packSize": "1920x1080"})
+        self.assertEqual(self.st.load_settings(), {"other": 2, "diarSmooth": False, "packFps": "30", "packBackup": True, "packSize": "1080x1920"})
 
     def test_register_patch_key(self):
         from ytt import errors

@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """録画を自動で消す(線 D。notes:plan/line-d-live-clipping.md の 0-9 の最後。ユーザー決定。決定 3-73)の入口の側。
 いつも動く(10-24 に設定 live.autoDelete を外した。友人の PC も同じ決まり = friendapp/live_session.py の clean_recordings)。リアルタイム切り抜きがオフ(live.enabled)のときは何もしない。
-アーカイブ化を確かめた録画だけ消す。見分けがつかない録画は消さない。非公開・見られない配信と分かった録画は、終わって 3 日で 1 本の動画につないで名前に「非公開」
-(録画元の POST /live/<録画>/keep。置き場所/非公開の録画/日付_配信者_題_非公開.mp4。つないだ元はごみ箱へ。判断は ② の live_retire.fate)。
+アーカイブ化を確かめた録画だけ消す。非公開・見られない配信と分かった録画と、終わって 24 時間たってもアーカイブにならない録画は、消さずに 1 本の動画に
+つないで名前に「非公開」(録画元の POST /live/<録画>/keep。置き場所/非公開の録画/日付_配信者_題_非公開.mp4。つないだ元はごみ箱へ。判断は ② の live_retire.fate・overdue)。
 
 消すのは ごみ箱へ(録画の部品 src/pipeline/ingest/rec_core.py の delete が <置き場所>/ごみ箱/<日付>/録画/<録画の id> へ改名し、manifest.jsonl に元の場所。
 録画の部品が 3 日(flow/retention.KEEP_DAYS)より古い日付のフォルダを消す = その間は戻せる)。それでも戻すのは手間なので、条件は厳しめにする(迷ったら消さない・分からなければ消さない):
@@ -25,7 +25,7 @@
      → 録画を消す(使用中で消せなければ、次の見回りでまた消す。スタジオの行はもう無いので 2 の条件のまま)
   3. 終わって STALE_SEC(3 日)たっても書き出していないマークがある録画は、アーカイブ化を確かめたら消す(アーカイブから書き出せる)。
      アーカイブ化を確かめられない録画は消さない(10-24 ユーザー決定。前の「確かめられないまま 3 日で消す」= decisions 3-15 (fc) はやめた)。
-     非公開・見られないと分かれば 1 本につないで残す(上)。ほかは終わって 3 日から「調子」に知らせる(keep_failure)
+     非公開・見られないと分かるか、終わって 24 時間たてば 1 本につないで残す(上)。ほかの理由で残る録画は終わって 3 日から「調子」に知らせる(keep_failure)
 録画中・配信待ち・つなぎ直し中の録画は消さない(録画元も 409 で断る)。録画元につながらない・一覧を読めないときは何もしない。
 配信後の全自動(線 D の M7。設定 live.autoAfterStream)がオンで、その録画の自動の切り抜きがまだ済んでいない間も消さない(hold。src/flow/live_archive.py の after_stream_hold)。
 消したことは入口の記録(log)に1行ずつ残す。録画を消す API(録画元の …/delete)は入口のこの処理だけが呼ぶ(画面からの中継 /live/r/… は通さない)。
@@ -129,12 +129,12 @@ class Cleaner:
         return self._consider_no_jobs(rc, r, rec, now)
 
     def _fate(self, rc, r, why, now):
-        """アーカイブ化を確かめられない録画: 非公開・見られないと分かって 3 日たてば 1 本につないで残す。ほかは残す(消さない)"""
+        """アーカイブ化を確かめられない録画: 非公開・見られないと分かるか、終わって 24 時間たてば 1 本につないで残す。ほかは待つ(消さない)"""
         try:
             unav = self.unavailable(rc["id"], r)
         except Exception:   # noqa: BLE001  (分からなければ残す)
             unav = ""
-        if live_retire.fate(why, unav, self._stale(r, now)) == "private":
+        if live_retire.fate(why, unav, live_retire.overdue(r, now)) == "private":
             return self._keep_private(rc, r)
         return self._keep(r, why)
 

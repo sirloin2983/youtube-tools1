@@ -210,6 +210,8 @@ def load_settings():
 # 編集のほかの部品が持つ値で検査する鍵は、その持ち主が register_patch_key で足す(altEngine = human/proof/alt の ALT_ENGINES)。evalDirs は下の評価用の節
 # 話者の字幕の色 speakerColors は 10-24 から欄なし(いつもオン。手で false にしたときだけ切れる = 編集の pack-tab.js の spkOn)
 SETTINGS_PATCH_KEYS = {"speakerColors": lambda v: isinstance(v, bool),
+                       # パックの画面の大きさ(縦・横。10-24 夜のユーザーの答え「横の動画にも対応できるままに」= 設定の画面の「パック」で選ぶ 1 か所)
+                       "packSize": lambda v: v in ("1080x1920", "1920x1080"),
                        # キー配置(校正のキー。キーの一覧 = 設定の部品 UIKit.keymap が送る。気が利く画面へ 段6)
                        "keymap": lambda v: _keymap_ok(v),
                        # 話者判別のあと、短い 1 行だけ別の人になるのをならす(S2。試験中・既定オフ。pipeline/transcribe/diarize の smooth_)
@@ -252,10 +254,10 @@ def _settings_error(e):
     return _errors.ApiError("bad_request", str(e), 400)
 
 
-# 画面の欄の無い鍵(packFps・packBackup = パックの予備 = 決定 3-34 は読まない。packLoudness・packVolume・packSize = パックの音量と大きさは
-# 10-24 から -14 LUFS・縦に固定 = flow/spec.pack_output)。
+# 画面の欄の無い鍵(packFps・packBackup = パックの予備 = 決定 3-34 は読まない。packLoudness・packVolume = パックの音量は
+# 10-24 から -14 LUFS に固定 = flow/spec.pack_output)。
 # 直させない・読まない・消さない = 古い設定ファイルに残っていても断らず、そのまま残す。api/settings/patch で送られても断らずに黙って捨てる(古い画面)
-RETIRED_SETTINGS_KEYS = ("packFps", "packBackup", "packLoudness", "packVolume", "packSize")
+RETIRED_SETTINGS_KEYS = ("packFps", "packBackup", "packLoudness", "packVolume")
 
 
 def _guarded_keys():

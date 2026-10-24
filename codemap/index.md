@@ -5,14 +5,14 @@
 
 | 層 | md | ファイル | 行 |
 |---|---|---|---|
-| ytt(基盤) | [ytt.md](ytt.md) | 53 | 11680 |
+| ytt(基盤) | [ytt.md](ytt.md) | 53 | 11685 |
 | ① pipeline(道具 = データを加工する) | [pipeline.md](pipeline.md) | 80 | 27354 |
-| ② flow(管理 = いつ・どの順で・どこに置くか) | [flow.md](flow.md) | 94 | 30636 |
+| ② flow(管理 = いつ・どの順で・どこに置くか) | [flow.md](flow.md) | 94 | 30647 |
 | ③ human(人の操作) | [human.md](human.md) | 62 | 17536 |
-| ④ manage(データ) | [manage.md](manage.md) | 43 | 11114 |
+| ④ manage(データ) | [manage.md](manage.md) | 43 | 11115 |
 | ⑤ eval(検証) | [eval.md](eval.md) | 37 | 15562 |
-| src/app(入口と画面) | [app.md](app.md) | 87 | 32295 |
-| src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 48 | 19064 |
+| src/app(入口と画面) | [app.md](app.md) | 87 | 32297 |
+| src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 48 | 19062 |
 | その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 19 | 10261 |
 | dev・setup(開発の道具) | [dev.md](dev.md) | 61 | 16618 |
 | friend-apps・chrome-ext(C# のアプリ・拡張) | [apps.md](apps.md) | 19 | 9060 |
@@ -124,8 +124,8 @@
 - `/api/pick` — src/editor/serve.py:244 ← app-tools.js
 - `/api/ping` — src/app/server.py:723・src/app/server.py:148・src/cut2resolve/serve.py:330 ← server.py・cut.js・app.js・portal.js・livesession.py ほか 2
 - `/api/plan` — src/cut2resolve/serve.py:347 ← cut.js
-- `/api/queue` — src/friendapp/live_session.py:96・src/studio/serve.py:190 ← autorun.py・queue.js・rank.js・live_archive.py・tools.py
-- `/api/queue/add` — src/friendapp/live_session.py:93・src/studio/serve.py:412 ← cand.js・queue.js・live_archive.py・tools.py
+- `/api/queue` — src/friendapp/live_session.py:94・src/studio/serve.py:190 ← autorun.py・queue.js・rank.js・live_archive.py・tools.py
+- `/api/queue/add` — src/friendapp/live_session.py:91・src/studio/serve.py:412 ← cand.js・queue.js・live_archive.py・tools.py
 - `/api/queue/cancel` — src/studio/serve.py:413 ← queue.js・tools.py
 - `/api/queue/clear` — src/studio/serve.py:416 ← queue.js
 - `/api/queue/retry` — src/studio/serve.py:415 ← queue.js

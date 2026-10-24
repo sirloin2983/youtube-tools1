@@ -5,8 +5,8 @@
 ## src/app/
 
 - **__init__.py** (2 行) — 入口と画面。起動・1 つのポート・API の配線・設定の画面の API。全部の層を使ってよい
-- **autorun.py** (470 行) — まとめて実行(統合計画の段階5)。入口の「案件」の画面から、配信1本ぶんの作業を順に自動で流す。
-  - 名前: `class ToolClient` :102・`spec_from_settings` :174・`live_auto_origin` :192・`class AutoRunner` :203
+- **autorun.py** (471 行) — まとめて実行(統合計画の段階5)。入口の「案件」の画面から、配信1本ぶんの作業を順に自動で流す。
+  - 名前: `class ToolClient` :102・`spec_from_settings` :175・`live_auto_origin` :193・`class AutoRunner` :204
 - **live.py** (496 行) — リアルタイム切り抜き(線 D。notes:plan/line-d-live-clipping.md の 0)の入口の側。**既定はオフ**(ホームの設定の節 live.enabled)。
   - 名前: `studio_review` :98・`studio_audio` :105・`studio_lag` :123・`class Live` :132
   - 受ける口: `/api/peaks` :251・`/api/exports` :258・`/api/info` :270・`/api/begin` :306・`/api/export` :309・`/api/export/cancel` :318・`/api/archive/cancel` :320・`/api/archive` :323
@@ -95,7 +95,7 @@
 - **cut.js** (1182 行) — 「編集」2 カット のタブ(notes:docs/design/edit-tool-design.md の 3・4・8)。app.js より先に読み込み、app.js が EditCut.create(host) で起動する。
   - 名前: `create` :24
 - **doc-kit.js** (91 行) — doc-kit.js — 文書(文字起こしの行・話者)の小さな部品(window.EditDoc)。状態は持たない。
-- **pack-tab.js** (464 行) — 「編集」のパック(2 カット の末尾 #packArea。notes:docs/design/edit-tool-design.md の 3・5)。app.js より先に読み、app.js が EditPack.create(host) で起動する。
+- **pack-tab.js** (465 行) — 「編集」のパック(2 カット の末尾 #packArea。notes:docs/design/edit-tool-design.md の 3・5)。app.js より先に読み、app.js が EditPack.create(host) で起動する。
   - 名前: `create` :11
 
 ## src/app/ui/home/

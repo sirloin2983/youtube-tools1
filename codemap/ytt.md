@@ -56,8 +56,8 @@
   - 受ける口: `/api/ping` :116
 - **schemas.py** (472 行) — 受け渡しの形式(notes:docs/spec/pipeline.md の 1・2)。youtube-tools-clip/v1 は、スタジオが書き(build_clip)、文字起こしが読む(load_clip_file)。
   - 名前: `iso_now` :21・`now_ms` :26・`num` :31・`is_num` :42・`is_int` :47・`plain_int` :52・`int_in` :57・`num_or` :62・`union_spans` :71・`fmt_hms` :82・`other_speaker` :105・`no_sub_row` :110・ほか 27
-- **settings.py** (368 行) — 設定ファイル(JSON の辞書)の読み書きの共通部品(設定を 1 つにまとめる 段 2 = S4。notes:docs/spec/data.md の 4)。
-  - 名前: `class SettingsError` :37・`class SettingsTooLarge` :41・`section_name_ok` :45・`retire_broken` :50・`class SettingsFile` :62・`analyze_user` :198・`load_settings` :203・`register_patch_key` :229・`patch_settings` :266・`merge_settings` :281・`replace_settings` :296・`eval_dirs` :333・ほか 2
+- **settings.py** (370 行) — 設定ファイル(JSON の辞書)の読み書きの共通部品(設定を 1 つにまとめる 段 2 = S4。notes:docs/spec/data.md の 4)。
+  - 名前: `class SettingsError` :37・`class SettingsTooLarge` :41・`section_name_ok` :45・`retire_broken` :50・`class SettingsFile` :62・`analyze_user` :198・`load_settings` :203・`register_patch_key` :231・`patch_settings` :268・`merge_settings` :283・`replace_settings` :298・`eval_dirs` :335・ほか 2
 - **studio_env.py** (205 行) — スタジオの環境: データの置き場所・書き出し先・疑似の旗・外部の道具・失敗の記録。
   - 名前: `set_code_dir` :29・`code_dir` :35・`set_home` :40・`home` :48・`p` :60・`fake` :65・`fake_file` :70・`fake_media` :76・`find_tool` :84・`old_log_name` :93・`rotate_log` :100・`log_failure` :105・ほか 7
 - **studiodata.py** (176 行) — 切り抜きスタジオの data.json の配信の情報(読む側。書くのは盛り上がりグラフの save_series だけ)。

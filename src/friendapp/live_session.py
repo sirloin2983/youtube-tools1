@@ -13,8 +13,8 @@
     次に開いたとき録画の部品が起動して(見回り)、同じ録画を新しいセッションで続ける(pipeline/ingest/rec_core の load)
   - 配信後のアーカイブからの追加(M7)の解析は、② の道具のスタジオなしの台帳(flow/studiobook.LocalStudio)へ(studio_call の 3 つの口だけを写す)
   - 録画中に依頼の設定(1 時間の枠・長さ・配信後の追加)を差し替えられる(change_request。C-2-11)
-  - 録画の片付けはユーザーの PC と同じ決まり(10-24。flow/live_retire.fate): アーカイブ化を確かめたら消す・非公開・見られないと分かれば
-    終わって 3 日で 1 本につないで名前に「非公開」(録画元の keep)・見分けがつかない録画は消さない(配信後の追加が済んでから。前の「3 日で消す」はやめた)
+  - 録画の片付けはユーザーの PC と同じ決まり(10-24。flow/live_retire.fate): アーカイブ化を確かめたら消す・非公開・見られないと分かるか
+    終わって 24 時間たってもアーカイブにならなければ 1 本につないで名前に「非公開」(録画元の keep)・それまでは消さない(配信後の追加が済んでから)
 受信箱の行と録画を結ぶ見回り(行の状態・組)は engine が持つ(on_tick)。録画が終わっても検出がまだ採用しうる間は行を閉じさせない(detect_hold)・
 閉じたときの診断の材料(live_facts)はここが集める。
 """
@@ -24,12 +24,10 @@ import time
 from flow import live_export as _lx, live_retire as _retire, livesession as _ls
 from pipeline.ingest import rec_core as _rec_core
 from ytt import layout, tools
-from flow import retention   # 物の終わりの日数
 
 from flow.live_rules import RequestBook
 from .live import REC_FOLDER, REQUESTS_NAME, STORE_DIR, settings_label
 
-REC_KEEP_DAYS = retention.KEEP_DAYS  # 非公開と分かった録画を 1 本につないで残すまでの日数(すぐ公開に戻ることもあるので待つ)
 CLEAN_EVERY = 600.0                 # 録画の片付けを見る間隔(秒)
 RECORDER_WAIT = 20.0                # 送ったとき、録画の部品が起動するまで待つ秒
 REC_PORT_ENV = "YTT_FRIEND_REC_PORT"   # 録画の部品の番号(exe が選ぶ。無ければ 8730)
@@ -306,7 +304,7 @@ class FriendLive(_ls.LiveSession):
 
     def clean_recordings(self, force=False):
         """終わった録画を片付ける(配信後の追加を待つ録画・書き出しの途中の録画は残す。決まりは flow/live_retire.fate):
-        アーカイブ化を確かめたら消す・非公開・見られないと分かって REC_KEEP_DAYS 日たてば 1 本につないで残す・ほかは残す -> 消した(残した)録画の id"""
+        アーカイブ化を確かめたら消す・非公開・見られないと分かるか終わって 24 時間たてば 1 本につないで残す・ほかは待つ -> 消した(残した)録画の id"""
         now = self.clock()
         if not force and now - self._clean_at < CLEAN_EVERY:
             return []
@@ -321,8 +319,8 @@ class FriendLive(_ls.LiveSession):
                 ended = _lx.iso_epoch(r.get("endedAt")) or _lx.iso_epoch(r.get("lastPdt"))
                 if ended is None or self.busy_recording(rc["id"], rec) or self.after_hold(rc["id"], r):
                     continue
-                stale = now - ended >= REC_KEEP_DAYS * 86400
-                fate = "private" if r.get("keepError") else _retire.fate(self.archiver.archived(rc["id"], r), self.archiver.unavailable(rc["id"], r), stale)
+                fate = "private" if r.get("keepError") else _retire.fate(self.archiver.archived(rc["id"], r), self.archiver.unavailable(rc["id"], r),
+                                                                         _retire.overdue(r, now))
                 if fate == "delete":
                     code, _d = self.call(rc, "POST", "/live/%s/delete" % rec, {}, timeout=30.0)
                     if code == 200:

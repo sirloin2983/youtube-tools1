@@ -21,7 +21,7 @@
   - 画面: src/app/ui/check/check.js:276
 - **受け取る** — 友人のアプリの受け取る画面。残す判定と受信箱
   - コード: `src/friendapp/inbox.py`・`receive_view` src/friendapp/inbox.py:1046・`src/friendapp/ui/receive.js`・`Inbox.decide` src/friendapp/inbox.py:740
-  - 画面: src/app/ui/cases/panels/cut.js:158・src/app/ui/editor/pack-tab.js:424・src/app/ui/home/portal.js:427・src/friendapp/ui/friend.html:29 ほか 7
+  - 画面: src/app/ui/cases/panels/cut.js:158・src/app/ui/editor/pack-tab.js:425・src/app/ui/home/portal.js:427・src/friendapp/ui/friend.html:29 ほか 7
 - **見送った物** — 受け取る画面で 3 日は戻せる skip・bad の物
   - コード: `Inbox.undo` src/friendapp/inbox.py:788・`Inbox.decide` src/friendapp/inbox.py:740・`VERDICTS` src/friendapp/inbox.py:58・`/api/friend/undo` src/friendapp/server.py:397
   - 画面: src/friendapp/ui/friend.html:168・src/friendapp/ui/receive.js:66
@@ -53,13 +53,13 @@
   - コード: `src/manage/cases/cases.py`・`src/flow/casebook.py`・`src/app/ui/cases/cases.js`・`/api/cases` src/app/server.py:765
   - 画面: src/app/ui/cases/caselink.js:2・src/app/ui/cases/cases.js:2・src/app/ui/cases/index.html:6・src/app/ui/cases/panels/cand.js:8 ほか 14
 - **まとめて実行** — 入口の案件から配信 1 本ぶんを順に自動で流す
-  - コード: `src/app/autorun.py`・`AutoRunner` src/app/autorun.py:203・`/api/flow/submit` src/app/server.py:629・`src/flow/runqueue.py`
+  - コード: `src/app/autorun.py`・`AutoRunner` src/app/autorun.py:204・`/api/flow/submit` src/app/server.py:629・`src/flow/runqueue.py`
   - 画面: src/app/ui/cases/cases.js:79・src/app/ui/cases/panels/cut.js:59・src/app/ui/editor/app-list.js:23・src/app/ui/editor/app-rows.js:126 ほか 7
 - **封筒** — ② の依頼の封筒の形と検査。欄から封筒への変換は order
   - コード: `src/flow/envelope.py`・`src/flow/order.py`
   - 画面: (画面の文字列に無い)
 - **束** — ① に渡す指定の束(spec)の形・既定値・検査
-  - コード: `src/flow/spec.py`・`spec_from_settings` src/app/autorun.py:174
+  - コード: `src/flow/spec.py`・`spec_from_settings` src/app/autorun.py:175
   - 画面: (画面の文字列に無い)
 - **見積もり** — ② の実行と同じ規則の見積もり(書き込まない)
   - コード: `/api/flow/estimate` src/app/server.py:629・`src/flow/runqueue.py`
@@ -152,7 +152,7 @@
 - もう一度(8)— src/app/ui/cases/panels/cut.js:234
 - 元に戻す(7)— src/app/ui/cases/panels/cut.js:55
 - ホームへ(6)— src/app/ui/cases/cases.js:418
-- 中止(6)— src/app/ui/editor/pack-tab.js:326
+- 中止(6)— src/app/ui/editor/pack-tab.js:327
 - もう一度読み込む(5)— src/app/ui/cases/cases.js:418
 - ホーム(5)— src/app/ui/cases/index.html:37
 - まだ検索できません(4)— src/app/ui/studio/rank.js:275
@@ -268,6 +268,7 @@
 - (チャンネルの登録は「設定」の「事務所の登録」)(1)— src/app/ui/studio/rank.js:169
 - (任意)(1)— src/app/ui/studio/rank.js:167
 - (前の設定での見積もり)(1)— src/app/ui/editor/pack-tab.js:241
+- (縦か横かは(1)— src/app/ui/cases/panels/cut.js:135
 - (送った物の見方もここです)(1)— src/friendapp/ui/guide.html:37
 - )で入力 →(1)— src/app/ui/editor/app-rows.js:794
 - )も補正できます。(1)— src/app/ui/studio/collab.js:149
@@ -331,4 +332,3 @@
 - URL を受け取りました。(1)— src/app/ui/studio/queue.js:15
 - URL を貼る(1)— src/friendapp/ui/guide.html:52
 - YouTube Data API キー(1)— src/app/ui/cases/panels/new.js:20
-- YouTube の API キー(1)— src/friendapp/ui/guide.html:155

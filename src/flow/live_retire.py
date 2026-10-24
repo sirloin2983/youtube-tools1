@@ -9,7 +9,8 @@
 
 消してよい条件(決定 3-73): マークが全部書き出し済み(録画に無い区間はアーカイブから)で、アーカイブ化を確かめたこと。アーカイブ化の確かめは src/flow/live_archive.py の Archiver.archived(④ が verdict に関数で渡す)。
 終わって 3 日たっても書き出していないマークは、アーカイブ化を確かめれば消してよい(アーカイブから書き出せる)。アーカイブ化を確かめられない録画は消さない(10-24 ユーザー決定。
-前の「確かめられないまま 3 日で消す」はやめた)。非公開・見られない配信と分かった録画は消さずに、1 本につないで名前に「非公開」(fate・private_name。録画の部品の keep)。
+前の「確かめられないまま 3 日で消す」はやめた)。非公開・見られない配信と分かった録画と、終わって 24 時間たってもアーカイブにならない録画は、消さずに 1 本につないで名前に「非公開」
+(fate・overdue・private_name。録画の部品の keep。10-24 夜のユーザーの答え「未公開と分かった段階で行えばいい。24 時間でアーカイブ化されない場合は未公開扱いしていい」)。
 消すのは ごみ箱へ(録画の部品の delete が ごみ箱/<日付>/録画/ へ改名する。3 日で消える)。マークの正本は消さない(あとでアーカイブから書き出すときに URL・題を読む)。
 """
 import collections
@@ -22,6 +23,7 @@ NOT_EXPORTED = "書き出していないマークがある"   # 消せない理�
 NOT_ARCHIVED = "アーカイブ化をまだ確かめられていない"   # live_archive.NOT_ARCHIVED と同じ頭(後ろに理由が付く)。この理由の録画は消さない
 STUDIO_UNKNOWN = "スタジオに確かめられない"
 PRIVATE_MARK = "非公開"   # 非公開・見られない配信の録画を残す名前の終わり(日付_配信者_題_非公開)
+ARCHIVE_WAIT_SEC = 24 * 3600.0   # 終わってこれだけたってもアーカイブにならない録画は非公開と同じ扱い(1 本につないで残す)
 _NAME_BAD = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
 
 # 録画を消してよいかの答え: jobs = 書き出しのジョブがあるか(無ければ ④ はマークの無い録画の道へ)・why = 消せない理由(空 = 消してよい)・
@@ -29,15 +31,21 @@ _NAME_BAD = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
 Verdict = collections.namedtuple("Verdict", "jobs why archived")
 
 
-def fate(archived_why, unavailable, stale):
+def fate(archived_why, unavailable, late):
     """終わった録画をどうするか(両方の PC で同じ。10-24): archived_why = Archiver.archived の答え("" = アーカイブ化を確かめた)・
-    unavailable = Archiver.unavailable の答え(非公開・見られないと分かった種類。分からなければ "")・stale = 終わって 3 日たったか。
-    -> "delete"(消す)・"private"(消さずに 1 本につないで名前に「非公開」。すぐに公開へ戻ることもあるので 3 日待つ)・""(残す = 見分けがつかない)"""
+    unavailable = Archiver.unavailable の答え(非公開・見られないと分かった種類。分からなければ "")・late = overdue(終わって 24 時間たった)。
+    -> "delete"(消す = アーカイブがはっきり見られるときだけ)・"private"(消さずに 1 本につないで名前に「非公開」。分かったらすぐ)・""(まだ待つ)"""
     if archived_why == "":
         return "delete"
-    if unavailable and stale:
+    if unavailable or late:
         return "private"
     return ""
+
+
+def overdue(r, now):
+    """録画が終わって ARCHIVE_WAIT_SEC(24 時間)たったか(終わりの時刻が分からなければ False = 待つ)。r = 録画元の一覧の 1 行"""
+    ended = LX.iso_epoch(r.get("endedAt")) or LX.iso_epoch(r.get("lastPdt"))
+    return isinstance(ended, (int, float)) and now - ended >= ARCHIVE_WAIT_SEC
 
 
 def private_name(r):

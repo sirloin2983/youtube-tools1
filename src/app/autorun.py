@@ -148,7 +148,8 @@ class ToolClient:
 def _settings_want(studio, editor, autorun):
     """画面の設定 -> 束の節ごとの値(検査の前)と、直した所の知らせ。
     切り出しの精密・画質の上限・パックの fps は読まない(固定 = 決定 3-30 Q2。RS7-1 S4)・用語集も読まない(編集の受付が自分の設定から読む)。
-    書き出しの音量・パックの大きさ・音量・話者の色も読まない(10-24 から設定の欄なし = 束の既定に固定。パックの音は flow/spec.pack_output が -14 LUFS)"""
+    書き出しの音量・パックの音量・話者の色も読まない(10-24 から設定の欄なし = 束の既定に固定。パックの音は flow/spec.pack_output が -14 LUFS)。
+    パックの画面の大きさ(縦・横)は読む(設定の画面の「パック」の 1 か所。友人の依頼もこの束で作る)"""
     an = studio.get("analyze") if isinstance(studio.get("analyze"), dict) else {}
     tx = editor
     sub = tx.get("subtitle") if isinstance(tx.get("subtitle"), dict) else {}
@@ -159,7 +160,7 @@ def _settings_want(studio, editor, autorun):
         "analyze": _settings.analyze_user(an),   # スタジオの画面で保存した解析の設定は本数と感度だけ(ほかは束の既定に固定。10-24)
         "transcribe": dict({k: tx[k] for k in _spec.TX_TRANSCRIBE_KEYS if k in tx}, engine=_spec.implied_engine(tx.get("device"))),
         "post": dict({k: tx[k] for k in post_keys if k in tx}, **({"splitChars": sub["splitChars"]} if "splitChars" in sub else {})),
-        "pack": {"wrapChars": {k: wrap[k] for k in ("vertical", "horizontal") if k in wrap},
+        "pack": {"size": tx.get("packSize"), "wrapChars": {k: wrap[k] for k in ("vertical", "horizontal") if k in wrap},
                  "cutSilence": {k: cs[k] for k in ("noise", "min", "pad") if _num(cs.get(k))}, "cut": autorun.get("cut")},
     }
     notes = []

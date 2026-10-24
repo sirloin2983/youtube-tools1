@@ -53,8 +53,8 @@
   - 名前: `class Halted` :14・`class Patrol` :18
 - **live_report.py** (242 行) — 配信(録画)ごとの結果の記録(線 D の D-12。ユーザー決定。長い配信の確かめ U4 と、数の決め直し D-15・当たり具合 L5 の材料)。
   - 名前: `key_of` :60・`class Reporter` :64
-- **live_retire.py** (172 行) — 録画の片付けの ② の口(OPT2 の 7x-1。plan/opt-manage.md の 7e・7f): 「この録画を消してよいか(理由)」の読み口と、
-  - 名前: `fate` :32・`private_name` :43・`near` :51・`exported_why` :56・`adopted_why` :71・`class Retire` :85
+- **live_retire.py** (180 行) — 録画の片付けの ② の口(OPT2 の 7x-1。plan/opt-manage.md の 7e・7f): 「この録画を消してよいか(理由)」の読み口と、
+  - 名前: `fate` :34・`overdue` :45・`private_name` :51・`near` :59・`exported_why` :64・`adopted_why` :79・`class Retire` :93
 - **live_rules.py** (147 行) — 友人のライブ配信の依頼の設定の決まりと、依頼と録画の結びつきの記録(notes:docs/spec/friend.md の 2-15)。範囲・既定・読み直しの 1 か所。
   - 名前: `num_in` :29・`clean_settings` :33・`settings_text` :52・`class RequestBook` :63
 - **live_tx.py** (481 行) — 配信中の候補の文字起こし(線 D の D-11 案 b。notes:plan/line-d-live-clipping.md の 0-11。ユーザー決定)。

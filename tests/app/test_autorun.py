@@ -1619,7 +1619,7 @@ class TestSpecFromSettings(unittest.TestCase):
         self.assertEqual((b["analyze"]["length"], b["analyze"]["useChat"]), (45, True))   # 解析は本数と感度だけ読む・書き出しの音量は読まない(10-24 から固定)
         p = b["pack"]
         self.assertEqual((p["rowEdge"], p["wrapChars"], p["speakerColors"], p["loudness"], p["volume"], p["size"], p["cut"]),
-                         (editor["rowEdge"], {"vertical": 9, "horizontal": 14}, True, 0, 30, "1080x1920", "silence"))   # 大きさ・音量・話者の色は読まない(10-24 から固定)
+                         (editor["rowEdge"], {"vertical": 9, "horizontal": 14}, True, 0, 30, "1920x1080", "silence"))   # 大きさは読む・音量・話者の色は読まない(10-24 から固定)
         self.assertEqual(SP.pack_output(b)[1]["textplusFps"], "30")   # fps・画質の上限は読まない(固定)
         self.assertNotIn("backup", p)
         self.assertNotIn("secret", json.dumps(b, ensure_ascii=False))   # 知らない設定は束に入れない
@@ -1647,7 +1647,7 @@ class TestToolSettingsFiles(Base):
         with mock.patch.object(A.AutoRunner, "_tool_settings", _REAL_TOOL_SETTINGS):
             bundle, notes = self.r.build_spec()
         # 画質の上限(review.maxHeight)は読まない(固定 = 上限なし)
-        self.assertEqual((bundle["analyze"]["count"], bundle["transcribe"]["model"], bundle["pack"]["size"], notes), (5, "large-v3", "1080x1920", []))   # パックの大きさは縦に固定(10-24)
+        self.assertEqual((bundle["analyze"]["count"], bundle["transcribe"]["model"], bundle["pack"]["size"], notes), (5, "large-v3", "1920x1080", []))   # パックの大きさは設定の画面で選んだ物
 
     def test_build_spec_uses_home_cut(self):
         self.set_prefs(cut="silence")

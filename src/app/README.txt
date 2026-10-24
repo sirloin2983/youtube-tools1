@@ -404,7 +404,7 @@
     ずれは録画の音とアーカイブの音を照らし合わせて求める = src\pipeline\ingest\live_align_worker.py)。速報版を本番版に入れ替える動き(P4)と設定 live.autoArchive は 10-16 に無くしました(決定 3-73)。
     スタジオの LIVE の帯の「手でアーカイブから作り直す」の引き出し(10-24 に畳んだ)からも頼めます。API: POST /live/api/archive・/live/api/archive/cancel、GET /live/api/exports の archive・archiveInfo
   - 録画を自動で消す(src\manage\keep\live_cleanup.py。10-24 から設定なし = いつも。友人の PC も同じ): アーカイブ化を確かめた録画だけ消す(マークの無い録画は 24 時間たってから)。
-    非公開・見られない配信の録画は消さずに、終わって 3 日で 1 本の動画(録画の置き場所\非公開の録画\日付_配信者_題_非公開.mp4)につなぐ。見分けがつかない録画は消さない。
+    非公開・見られない配信と分かった録画と、終わって 24 時間たってもアーカイブにならない録画は、消さずに 1 本の動画(録画の置き場所\非公開の録画\日付_配信者_題_非公開.mp4)につなぐ。
     録画の部品の POST /live/<録画>/delete を使います(画面からは呼べません)
   - 書き出しのあとの流れ(POST /live/api/export の after: none / auto。古い画面・保存値の check = 文字起こしまでは auto として読みます)と配信者の名前(streamer)を、まとめて実行に渡します。
     POST /live/api/begin は配信のチャンネル名も返します
