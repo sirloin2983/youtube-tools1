@@ -408,6 +408,7 @@ class BuildTest(Base):
         with open(os.path.join(self.out, "latest.json"), encoding="utf-8") as f:
             latest = json.load(f)
         self.assertEqual((latest["version"], latest["file"], latest["light"]["file"]), ("0.99.91", "FriendApp-0.99.91.zip", "FriendApp-0.99.91-light.zip"))
+        self.assertIn("cancel", latest)   # 取り消した版を友人のアプリが捨てる印(問題 5)
 
     def test_wheel_python_mismatch_stops(self):
         """埋め込みの Python(python310._pth)と違う cpXY の wheel では作らない(0.99.92 = 3.10 と cp312)"""
@@ -560,6 +561,21 @@ class UpdateMarkTest(unittest.TestCase):
         for bad in (["x"], None), (None, [8]):
             with self.assertRaises(B.BuildError):
                 B.update_mark(False, *bad)
+
+    def test_rollback_marker(self):
+        """戻す印(問題 4): 診断/戻して/ に {v, id, at, to, why}。prev は to = None・形の違う版は断る"""
+        d = tempfile.mkdtemp()
+        try:
+            p = B.rollback(d, None, "起動しない", now=1792900000.0)
+            self.assertEqual(os.path.dirname(p), os.path.join(d, "診断", "戻して"))
+            with open(p, encoding="utf-8") as f:
+                got = json.load(f)
+            self.assertEqual((got["v"], got["to"], got["why"], got["id"] + ".rollback.json"), (1, None, "起動しない", os.path.basename(p)))
+            self.assertEqual(json.load(open(B.rollback(d, "0.99.240", now=1792900001.0), encoding="utf-8"))["to"], "0.99.240")
+            with self.assertRaises(B.BuildError):
+                B.rollback(d, "latest")
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
 
 if __name__ == "__main__":
     unittest.main()

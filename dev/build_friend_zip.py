@@ -20,6 +20,11 @@ config.json(Dropbox の鍵)は入れない。--first --with-key のときだけ 
         latest.json に light {file, size, sha256} を足す(file は全部入りのまま。友人のアプリは light が写せなければ file を取る。src/friendapp/sync.py)。
     --publish(--out なし): <ホームの設定の intake.folder>/更新/ へ light → 全部入り → latest.json → versions.json の順(古い zip は全部入り 3 版・軽い 10 版を残して消す。(f1h))。
         台帳の行に配った時刻 publishedAt(ミリ秒。版の見張り human/friend/upwatch が「配って 24 時間」を数える)
+    --rollback <版 か prev> [--why 文]: 友人の PC へ「この版に戻して」の印 <intake.folder>/診断/戻して/rollback-<ミリ秒>.rollback.json
+        {v:1, id, at, to(版 か null = 友人の PC に残る確かに動いた版), why} を置く(問題 4・10-25。友人のアプリが戻して印を消し、
+        結果を 診断/ の launcher__fail-<13 桁>.fail.json(kind rollback)で返す = 版の見張り human/friend/upwatch が最上の急ぎで知らせる)
+    --withdraw <版>: 配布の取り消し。latest.json を前の良い版へ戻すとき cancel:[<版>] を付ける(友人のアプリは、取ってあってまだ入れていない
+        その版を入れ替えずに捨てる。捨てたことは心拍の pending が null になることで分かる)
     --important・--fix-request <依頼 id>・--fix-kind <1〜7>: latest.json と台帳の行に「重要」の印 important と直す対象
         fixes {requests, kinds}(失敗の種類 = human/friend/bugs の KINDS)を付ける(友人のアプリの更新の決め・10-25。付けなければ欄を書かない)
         versions.json = 版の台帳(版・builtAt・notes・全部入りと light の file/size/sha256・python の印 runtime)を新しい順に 20 版。zip が消えた版は file/light を null にして行は残す
@@ -621,7 +626,9 @@ def withdraw(out_dir, version, keep_dir):
             shutil.move(latest_path, os.path.join(keep_dir, "latest-%s.json" % version))
         else:
             light = prev.get("light") if isinstance(prev.get("light"), dict) and os.path.isfile(os.path.join(out_dir, prev["light"].get("file") or "")) else None
-            new = {"version": prev["version"], "file": prev["file"], "size": prev["size"], "sha256": prev["sha256"], "notes": prev.get("notes") or "", "light": light}
+            cancel = [v for v in (latest.get("cancel") or []) if isinstance(v, str)] + [version]   # 友人のアプリが取ってある取り下げた版を捨てる
+            new = {"version": prev["version"], "file": prev["file"], "size": prev["size"], "sha256": prev["sha256"], "notes": prev.get("notes") or "", "light": light,
+                   "cancel": sorted(set(cancel))}
             with open(latest_path + ".part", "w", encoding="utf-8") as f:
                 json.dump(new, f, ensure_ascii=False, indent=1)
             os.replace(latest_path + ".part", latest_path)
@@ -629,6 +636,22 @@ def withdraw(out_dir, version, keep_dir):
     say("取り下げました: %s(移した zip: %s → %s。latest.json: %s)" % (version, ", ".join(moved) or "無し", keep_dir,
                                                                     "版 %s に戻した" % back if back else ("置き場所から外した" if latest and latest.get("version") == version else "そのまま")))
     return back
+
+
+def rollback(sync_folder, to, why="", now=None):
+    """友人の PC へ「この版に戻して」の印を置く -> 置いたファイルのパス。to = 版(X.Y.Z)か None(友人の PC に残る確かに動いた版)"""
+    if to is not None and not re.fullmatch(r"\d+\.\d+\.\d+", to):
+        raise BuildError("戻す版の形が違います: %s(X.Y.Z か prev)" % to)
+    at = int((time.time() if now is None else now) * 1000)
+    d = os.path.join(sync_folder, "診断", "戻して")
+    os.makedirs(d, exist_ok=True)
+    rid = "rollback-%d" % at
+    path = os.path.join(d, rid + ".rollback.json")
+    with open(path + ".part", "w", encoding="utf-8") as f:
+        json.dump({"v": 1, "id": rid, "at": at, "to": to, "why": str(why or "")[:300]}, f, ensure_ascii=False)
+    os.replace(path + ".part", path)
+    say("戻す印を置きました: %s(戻す版: %s)" % (path, to or "友人の PC に残る確かに動いた版"))
+    return path
 
 
 def default_out(first, publish=False):
@@ -770,6 +793,8 @@ def main(argv=None):
     ap.add_argument("--with-key", action="store_true", help="--first のときだけ: friend-apps/launcher/config.json(Dropbox の鍵)を入れる")
     ap.add_argument("--no-fetch", action="store_true", help="キャッシュに無い物を取りに行かない(無ければ失敗)")
     ap.add_argument("--withdraw", default="", help="配った版を取り下げる(更新の置き場所から zip を外して手元へ移す・台帳から消す・latest.json を前の良い版へ)")
+    ap.add_argument("--rollback", default="", metavar="VER", help="友人の PC へ「この版に戻して」の印を置く(版 X.Y.Z か prev = 友人の PC に残る確かに動いた版)")
+    ap.add_argument("--why", default="", help="--rollback の理由(300 字まで)")
     ap.add_argument("--important", action="store_true", help="latest.json に「重要」の印を付ける(友人のアプリの更新の決め)")
     ap.add_argument("--fix-request", action="append", default=[], metavar="RID", help="この版で直す依頼 id(何度でも)")
     ap.add_argument("--fix-kind", action="append", default=[], type=int, metavar="N", help="この版で直す失敗の種類 1〜7(何度でも)")
@@ -782,6 +807,9 @@ def main(argv=None):
     if a.publish and (a.out or a.first):
         ap.error("--publish は --out・--first と一緒に使えません")
     try:
+        if a.rollback:   # 戻す印: 置き場所は受付のフォルダ(Dropbox)の 診断/戻して/
+            rollback(os.path.dirname(default_out(False, True)), None if a.rollback == "prev" else a.rollback, a.why)
+            return 0
         if a.withdraw:   # 取り下げ: --out が無ければ更新の置き場所(Dropbox)・外した zip は作る PC の手元へ
             withdraw(a.out or default_out(False, True), a.withdraw, os.path.join(datadir.locate("app", SRC), "friend-withdrawn"))
             return 0

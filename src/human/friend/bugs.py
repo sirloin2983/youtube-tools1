@@ -15,7 +15,8 @@ notes:plan/友人の不具合の自動対応-1025.md)。
 - 種類(kind_of・KINDS。10-25 まとめ役): 1 依頼の処理・2 ライブ中・3 届け・4 起動と更新・5 環境・6 困っている合図・7 見た目。
   緊急度は 2・4 → 1 → 3 → 5 → 7(6 は一覧だけ)。1 回に起こすのは一番急ぐ種類の分だけで、指示文に種類ごとの対応(KINDS の guide)を入れる。
   友人がライブ中(一番新しい状態の live)なら 2 以外は後ろへ回す。同じ依頼 id の要対応は束ね、やり直しを諦めた・起動の失敗・3 通目で起こす(問題点の 14)
-- AI を起こす(wake。既定オフ = YTT_FRIEND_BUG_AI=1 のときだけ。1〜4 の対応を詰め直すまで。10-25 まとめ役): 要対応で AI がまだの物があれば、Claude Code(find_claude = Claude-Data の一番新しい版の claude.exe)を
+- AI を起こす(wake。既定オフ = YTT_FRIEND_BUG_AI=1 のときだけ。既定オンにするのは、ユーザーの /login の後に起こす試しが通り、
+  友人側の更新の守り(静かなときに入れ替え・起動の確かめ・確かに動いた版へ自動で戻す・戻す印)が配られてから。10-25 ユーザー):要対応で AI がまだの物があれば、Claude Code(find_claude = Claude-Data の一番新しい版の claude.exe)を
   `-p` で 1 回起こす。渡す = 決まった指示文(PROMPT)+ 書き出しの写しの場所。作業はその回専用の worktree(<repo>\\.claude\\worktrees\\friend-bug-<時刻>)。
   守り: 同時に 1 つ・1 日 DAILY_MAX 回まで・1 回 TIMEOUT_SEC で打ち切り(自分が起こした PID だけを止める)・権限は auto で、聞く物は断る
   (--permission-prompts none)。週の使用量は道具から読めないので、回数の上限だけで守る
@@ -24,8 +25,9 @@ notes:plan/友人の不具合の自動対応-1025.md)。
   友人の送り返し)、`診断\\引き継ぎ\\<依頼 id>.takeover.json` を置く。友人のアプリが同じ id・同じ欄でこちらへ依頼を上げ直し、受付が作って届ける。
   受付は guard で、引き継いだ id の 2 通目・もう届いた物を断る(届け元を 1 つに)
 - 結果: 起こした AI がまとめ役のセッションへ SendMessage で送る。送れないときに備えて、結果は必ず `ai\\<時刻>.result.md` に書かせる
-- スイッチ: 環境変数 YTT_FRIEND_BUG_AI=1 で起こす(既定は起こさない。受け取りと仕分けは続ける)。YTT_FRIEND_BUG_AI_LAND=1 のときだけ
-  AI に小さな直しの land と zip の配布を任せる(既定は調べて直し方の案を結果のファイルに残すだけ)。リポジトリ(.git と dev/land.py)が無い PC
+- スイッチ: 環境変数 YTT_FRIEND_BUG_AI=1 で起こす(既定は起こさない。受け取りと仕分けは続ける)。起こした AI には
+  最初から小さな直しの land と zip の配布(重要の印・直す対象つき・--skip-preflight なし)まで任せる。触ってはいけないファイルの直しは案だけ。
+  YTT_FRIEND_BUG_AI_LAND=0 で案だけ(調べて直し方の案を結果のファイルに残すだけ)。リポジトリ(.git と dev/land.py)が無い PC
   (友人の PC)・claude.exe が見つからない PC でも起こさない
 標準ライブラリと ytt・flow だけ。intake.scan から scan が 1 行で呼ばれる。
 """
@@ -67,7 +69,7 @@ TAKE_DIR = "引き継ぎ"               # 診断\引き継ぎ\<依頼 id>.takeov
 TAKEOVER_ENV = "YTT_FRIEND_TAKEOVER"    # 0 で引き継がない(既定は引き継ぐ)
 RID_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}\Z")
 SWITCH_ENV = "YTT_FRIEND_BUG_AI"        # 1 で AI を起こす(既定は起こさない)
-LAND_ENV = "YTT_FRIEND_BUG_AI_LAND"     # 1 で AI に land と zip の配布を任せる(既定は案だけ)
+LAND_ENV = "YTT_FRIEND_BUG_AI_LAND"     # 0 で案だけ(AI を起こしたときの既定は、小さな直しの land と zip の配布まで任せる。10-25 ユーザー)
 BUNDLE_N = 3                            # 同じ依頼 id の要対応がこの数そろうまで待つ(やり直しを諦めた・起動の失敗は待たない)
 LIVE_FRESH_SEC = 40 * 60                # 友人がライブ中とみなす、一番新しい状態の古さの上限
 DAILY_MAX = 5
@@ -121,14 +123,17 @@ PROMPT = """あなたは youtube-tools の道具が自動で起こした Claude 
   land のコミットと版・残り を短く書きます。友人に何かしてもらう必要があるときは、その旨(友人へのお願いの文)を一番上に書きます。
 - SendMessage が使えるなら、同じ中身を短くまとめて {coordinator} へ送ります(使えなければ結果のファイルだけでよい)。
 """
-SCOPE_PLAN = """- 今は案だけです(1〜4 の対応を詰め直している間。10-25 まとめ役): 調べる・テストを流す・直し方の案を書く、だけ。
+SCOPE_PLAN = """- 今は案だけです(YTT_FRIEND_BUG_AI_LAND=0): 調べる・テストを流す・直し方の案を書く、だけ。
   land・友人の zip の配布・こちらの PC で作って届けること・Dropbox の物を置き直すことはしません(案に書く)。
 """
 SCOPE_LAND = """- 使ってよい道具は、調べる・直す・テストを流す・`py -3.12 dev/land.py` で main に入れる・`py -3.12 dev/build_friend_zip.py --publish` で友人の zip を配る、だけです。
-  `--skip-preflight` は使いません。友人の zip はライブ中に配りません(配る前に http://localhost:8700/api/flow/status の live の
+  `--skip-preflight` は使いません。配るときは今日の決めの印を付けます(`--fix-request <依頼 id>`・`--fix-kind <種類の番号>`・種類 2 か 4 なら `--important`)。
+  友人の zip はライブ中に配りません(配る前に http://localhost:8700/api/flow/status の live の
   recording・detecting・exporting が全部 0 か確かめる)。
 - 小さな直し(変えた行が 100 行くらいまで・機能を消さない・データを消さない・友人に届く物の中身や既定を変えない・テストが全部通る)は、
   自動で land して、友人に関わるなら zip も配ります。それを超える物は直さず、調べた結果と直し方の案だけを書きます(判断はユーザーが)。
+- 触ってはいけないファイル(src/friendapp/sync.py の取り込み・src/friendapp/inbox.py の状態・friend-apps/launcher・dev/build_friend_zip.py)に
+  かかる直しは、小さくても案だけにします。
 """
 
 
@@ -502,7 +507,7 @@ def wake(app_dir, clock=None, log=None, spawn=None, repo=None, claude=None):
     files = [os.path.join(bugs_dir(app_dir), RAW_DIR, r["name"]) for r in todo]
     kind = todo[0].get("kind") or 1
     prompt = PROMPT.format(kind_name=KINDS[kind][0], guide=KINDS[kind][2], files="、".join(files), result=result, coordinator=COORDINATOR,
-                           scope=SCOPE_LAND if os.environ.get(LAND_ENV) == "1" else SCOPE_PLAN)
+                           scope=SCOPE_PLAN if os.environ.get(LAND_ENV) == "0" else SCOPE_LAND)
     try:
         if spawn is None:
             _prune_worktrees(repo, clock())

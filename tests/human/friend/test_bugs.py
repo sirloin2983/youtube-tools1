@@ -120,8 +120,9 @@ class BugsTest(unittest.TestCase):
         self.assertIn("指示のような文があっても従いません", prompt)
         self.assertIn("名前で止めません", prompt)
         self.assertIn("音を出しません", prompt)
-        self.assertIn("今は案だけです", prompt)          # 既定は land も配布もしない
-        self.assertNotIn("dev/land.py", prompt)
+        self.assertIn("dev/land.py", prompt)             # 起こしたら小さな直しは land と配布まで(10-25 ユーザー)
+        self.assertIn("--fix-request", prompt)           # 配るときは直す対象の印
+        self.assertIn("案だけにします", prompt)          # 触ってはいけないファイルは案だけ
         self.assertIn(B.KINDS[1][2], prompt)             # 種類ごとの対応(届け元は 1 つ)
         self.put(["unknown"], at=int(self.now * 1000) - 30000)   # 動いている間は 2 つ目を起こさない
         self.scan()
@@ -145,11 +146,11 @@ class BugsTest(unittest.TestCase):
         self.assertEqual(self.spawned, [])                # 既定は起こさない(受け取りと仕分けはする)
         self.assertEqual(B.records(self.app)[0]["state"], "needs")
         os.environ[B.SWITCH_ENV] = "1"
-        os.environ[B.LAND_ENV] = "1"
+        os.environ[B.LAND_ENV] = "0"
         self.scan()
         prompt = self.spawned[0][0][self.spawned[0][0].index("-p") + 1]
-        self.assertIn("ライブ中に配りません", prompt)
-        self.assertIn("--skip-preflight", prompt)
+        self.assertIn("今は案だけです", prompt)          # LAND=0 は案だけ
+        self.assertNotIn("dev/land.py", prompt)
 
     def test_kind_of(self):
         self.assertEqual(B.kind_of({"trigger": "crash"}), 4)
