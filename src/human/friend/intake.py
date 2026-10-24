@@ -42,6 +42,7 @@ from flow.deliver import BAD_NAME_CHARS, OUT_DIR   # ファイル名に使えな
 from flow import spec as _spec   # 区間・重みの理由つきの検査(まとめて実行と同じ。opt-human 9b-2)
 from ytt import colors, fsio, names as ytt_names, normalize, schemas, studio_env, tools, yturl
 from . import live_requests  # noqa: E402  (ライブ配信の依頼の設定の検査と一覧の文。結びつきは入口が live_begin= で渡す Live.submit_request が書く。2-15)
+from . import bugs  # noqa: E402  (友人の不具合の書き出し 診断\ の *.bug.json を仕分けて、要対応なら AI を起こす。10-25)
 from . import returns  # noqa: E402  (友人の送り返し 送り返し\ の zip と採否を app/friend-returns へ並べる。F1 の F2)
 
 VIDEO_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v")
@@ -481,6 +482,7 @@ class Intake:
                 # 依頼の JSON の無いファイル(手で置いた動画・.txt・JSON が来ないまま WAIT_FILES たった友人の動画)は受け付けない
                 self._record(folder, "video", "manual", n, [n], "", [], [{"label": n, "state": "rejected", "reason": MANUAL_REASON}])
             returns.scan(folder, self.data_dir, self.clock, self.log, feedback=self.feedback)   # 送り返し\(友人の PC の ② の結果と採否。F1 の F2。失敗しても見回りは止めない)
+            bugs.scan(folder, self.data_dir, self.clock, self.log)   # 診断\ の不具合の書き出し(失敗しても見回りは止めない)
 
     def _settled(self, p):
         try:
