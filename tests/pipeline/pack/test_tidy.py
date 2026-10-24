@@ -18,6 +18,11 @@ def db_of(spans, sec, loud=-20.0, quiet=-60.0, faint=()):
 
 
 class TidyTest(unittest.TestCase):
+    def setUp(self):   # 残す秒を数で確かめるので、言葉の端の近くの足し(EDGE_PAD)は切って測る(test_keeps_tail_and_head が入れて確かめる)
+        p = mock.patch.object(T, "EDGE_PAD", 0.0)
+        p.start()
+        self.addCleanup(p.stop)
+
     def drops(self, voice, words, sec=10.0, faint=()):
         with mock.patch.object(E, "levels", lambda video, a, b: db_of(voice, sec, faint=faint)):
             return T.drops("v.mp4", words, 0.0, sec)
@@ -63,6 +68,7 @@ class TidyTest(unittest.TestCase):
 
 
 class TidyRequestTest(unittest.TestCase):
+    @mock.patch.object(T, "EDGE_PAD", 0.0)
     def test_request_mode_tidy_keeps_clip_range(self):
         """まとめて実行のカットの方法 tidy(spec.mode "tidy"・words): 区間 = clipRange の中だけを詰めて残す区間にする"""
         from pipeline.pack import request as R, srt2resolve as S
