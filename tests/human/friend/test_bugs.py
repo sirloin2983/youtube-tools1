@@ -174,6 +174,55 @@ class BugsTest(unittest.TestCase):
         self.assertEqual(B.pick(live, now), [])                                    # 友人がライブ中は 2 だけ
         self.assertEqual([x["name"] for x in B.pick(live + [r("n", 2, at=now - 50, live=True)], now)], ["n"])
 
+    def test_takeover_marker_and_guard(self):
+        os.environ.pop(B.SWITCH_ENV, None)                 # AI は起こさない(引き継ぎは AI なし)
+        rid = "20261025-010203-abcdef"
+        n = "%s__state-%d.state.json" % (rid, int(self.now * 1000) - 60000)
+        p = os.path.join(self.sync, B.IN_DIR, n)
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump({"v": 1, "kind": "state", "trigger": "error", "rid": rid, "codes": ["yt_fetch_gave_up"], "facts": {"retry": {"gaveUp": True}}}, f)
+        os.utime(p, (self.now - 60, self.now - 60))
+        self.scan()
+        mark = os.path.join(self.sync, B.IN_DIR, B.TAKE_DIR, rid + ".takeover.json")
+        with open(mark, encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["rid"], rid)
+        self.assertEqual(B.records(self.app)[0]["takeover"]["state"], "asked")
+        os.remove(mark)
+        self.scan()
+        self.assertFalse(os.path.exists(mark))             # 1 つの依頼 id に 1 回
+        self.assertEqual(B.guard(self.sync, self.app, rid, self.clock), "")     # 上げ直された 1 通目は受ける
+        self.assertIn("もう作って", B.guard(self.sync, self.app, rid, self.clock))   # 2 通目は断る
+        self.assertEqual(B.guard(self.sync, self.app, "20261025-000000-zzzzzz", self.clock), "")   # 引き継いでいない依頼は触らない
+        self.assertEqual(B.friend_first(self.app, self.clock), [])
+        run = os.path.join(self.app, "friend-returns", "2026-10", rid, "run1")
+        os.makedirs(run)                                    # 友人の PC で作った結果が後から届いた
+        os.utime(run, (self.now + 5, self.now + 5))
+        self.assertEqual(B.friend_first(self.app, self.clock), [rid])
+        self.assertEqual(B.friend_first(self.app, self.clock), [])     # 1 回だけ
+        self.assertIn("もう届いて", B.guard(self.sync, self.app, rid, self.clock))   # 友人の PC で作れた = 届いた扱い
+        shutil.rmtree(os.path.join(self.app, "friend-returns"))
+        os.makedirs(os.path.join(self.sync, "出力"))
+        open(os.path.join(self.sync, "出力", rid + "__題.zip"), "w").close()
+        self.assertEqual(B.delivered(self.sync, self.app, rid), "出力 にもう置いてあります")
+
+    def test_takeover_skips_already_delivered(self):
+        rid = "20261025-010203-bbbbbb"
+        os.makedirs(os.path.join(self.app, "logs"))
+        with open(os.path.join(self.app, "logs", "deliveries.jsonl"), "w", encoding="utf-8") as f:
+            f.write(json.dumps({"requestId": rid, "zip": rid + "__a.zip"}) + "\n")
+        n = "%s__state-%d.state.json" % (rid, int(self.now * 1000) - 60000)
+        p = os.path.join(self.sync, B.IN_DIR, n)
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump({"v": 1, "kind": "state", "rid": rid, "codes": ["undelivered"], "facts": {"delivered": False}}, f)
+        os.utime(p, (self.now - 60, self.now - 60))
+        os.environ[B.TAKEOVER_ENV] = "1"
+        try:
+            self.scan()
+        finally:
+            os.environ.pop(B.TAKEOVER_ENV, None)
+        self.assertEqual(B.records(self.app)[0]["takeover"]["state"], "already")
+        self.assertFalse(os.path.isdir(os.path.join(self.sync, B.IN_DIR, B.TAKE_DIR)))
+
     def test_timeout_kills_own_pid(self):
         self.put(["unknown"])
         self.scan()

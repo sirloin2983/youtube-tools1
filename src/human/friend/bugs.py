@@ -19,6 +19,10 @@ notes:plan/友人の不具合の自動対応-1025.md)。
   `-p` で 1 回起こす。渡す = 決まった指示文(PROMPT)+ 書き出しの写しの場所。作業はその回専用の worktree(<repo>\\.claude\\worktrees\\friend-bug-<時刻>)。
   守り: 同時に 1 つ・1 日 DAILY_MAX 回まで・1 回 TIMEOUT_SEC で打ち切り(自分が起こした PID だけを止める)・権限は auto で、聞く物は断る
   (--permission-prompts none)。週の使用量は道具から読めないので、回数の上限だけで守る
+- 引き継ぎ(問題 1 の形 C・10-25 ユーザー。AI なし・既定オン = YTT_FRIEND_TAKEOVER=0 で止まる): 友人の PC が自動のやり直し(3 回)を
+  諦めた依頼(final = gaveUp・yt_fetch_gave_up・delivered false)は、その依頼 id がまだ届いていなければ(delivered = 出力\\ の zip・届けた記録・
+  友人の送り返し)、`診断\\引き継ぎ\\<依頼 id>.takeover.json` を置く。友人のアプリが同じ id・同じ欄でこちらへ依頼を上げ直し、受付が作って届ける。
+  受付は guard で、引き継いだ id の 2 通目・もう届いた物を断る(届け元を 1 つに)
 - 結果: 起こした AI がまとめ役のセッションへ SendMessage で送る。送れないときに備えて、結果は必ず `ai\\<時刻>.result.md` に書かせる
 - スイッチ: 環境変数 YTT_FRIEND_BUG_AI=1 で起こす(既定は起こさない。受け取りと仕分けは続ける)。YTT_FRIEND_BUG_AI_LAND=1 のときだけ
   AI に小さな直しの land と zip の配布を任せる(既定は調べて直し方の案を結果のファイルに残すだけ)。リポジトリ(.git と dev/land.py)が無い PC
@@ -33,7 +37,7 @@ import re
 import subprocess
 import time
 
-from flow import retention
+from flow import deliver as _deliver, deliveries, retention
 from ytt import fsio, procs, tools
 
 BUGS_DIR = "friend-bugs"            # <app>/friend-bugs/
@@ -59,6 +63,9 @@ NEEDS = {   # 要対応の形(どれか 1 つでもあれば要対応)
     "undelivered": "友人の依頼が届かなかった",
     "unknown": "友人のアプリが分類できなかった",
 }
+TAKE_DIR = "引き継ぎ"               # 診断\引き継ぎ\<依頼 id>.takeover.json(受け取り側が置く・友人側が上げ直したら消す)
+TAKEOVER_ENV = "YTT_FRIEND_TAKEOVER"    # 0 で引き継がない(既定は引き継ぐ)
+RID_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}\Z")
 SWITCH_ENV = "YTT_FRIEND_BUG_AI"        # 1 で AI を起こす(既定は起こさない)
 LAND_ENV = "YTT_FRIEND_BUG_AI_LAND"     # 1 で AI に land と zip の配布を任せる(既定は案だけ)
 BUNDLE_N = 3                            # 同じ依頼 id の要対応がこの数そろうまで待つ(やり直しを諦めた・起動の失敗は待たない)
@@ -217,6 +224,7 @@ def scan(sync_folder, app_dir, clock=None, log=None, spawn=None, repo=None):
     log = log or (lambda m: None)
     try:
         _receive(os.path.join(sync_folder, IN_DIR), app_dir, clock, log)
+        _takeover(sync_folder, app_dir, clock, log)
         _prune(app_dir, clock)
         wake(app_dir, clock, log, spawn=spawn, repo=repo)
     except Exception as e:   # noqa: BLE001  (不具合の受け取りが壊れても依頼の受付は止めない)
@@ -267,6 +275,85 @@ def _receive(src, app_dir, clock, log):
         os.makedirs(bugs_dir(app_dir), exist_ok=True)
         fsio.write_json(_record_path(app_dir, n), rec)
         log("友人の不具合の書き出しを受け取りました: %s(%s: %s)" % (n, {"handled": "対応済み", "needs": "要対応", "material": "材料", "report": "報告", "broken": "壊れている"}[rec["state"]], rec["why"]))
+
+
+def delivered(sync_folder, app_dir, rid):
+    """その依頼 id がもう届いているか -> 理由の文(届いていなければ "")。出力\\ の <id>__*・届けた記録・友人の送り返し(友人の PC で作れた)を見る"""
+    try:
+        if any(n.startswith(rid + "__") for n in os.listdir(os.path.join(sync_folder, _deliver.OUT_DIR))):
+            return "出力 にもう置いてあります"
+    except OSError:
+        pass
+    if any((r.get("requestId") or "") == rid for r in deliveries.rows(os.path.join(app_dir, "logs")) or []):
+        return "届けた記録にあります"
+    for d in glob.glob(os.path.join(app_dir, "friend-returns", "*", rid)):
+        if any(os.path.isdir(os.path.join(d, n)) and n != "verdicts" and n != "notices" for n in os.listdir(d)):
+            return "友人の PC で作った結果が届いています"
+    return ""
+
+
+def _takeover(sync_folder, app_dir, clock, log):
+    """やり直しも尽きた友人の依頼を引き継ぐ: まだ届いていなければ 引き継ぎ\\ に印を置く(1 つの依頼 id に 1 回)"""
+    if os.environ.get(TAKEOVER_ENV, "1") == "0":
+        return
+    done = {r.get("rid") for r in records(app_dir) if r.get("takeover")}
+    for r in records(app_dir):
+        rid = r.get("rid") or ""
+        if not (r.get("final") and r.get("state") == "needs" and RID_RE.match(rid)) or rid in done:
+            continue
+        done.add(rid)
+        why = delivered(sync_folder, app_dir, rid)
+        if why:
+            take = {"state": "already", "why": why}
+        else:
+            d = os.path.join(sync_folder, IN_DIR, TAKE_DIR)
+            os.makedirs(d, exist_ok=True)
+            fsio.write_json(os.path.join(d, rid + ".takeover.json"), {"v": 1, "rid": rid, "at": _now_ms(clock), "why": (r.get("why") or "")[:200]})
+            take = {"state": "asked", "at": _now_ms(clock)}
+            log("友人の依頼 %s を引き継ぎます(印を置きました: %s)" % (rid, r.get("why")))
+        r["takeover"] = take
+        fsio.write_json(_record_path(app_dir, r["name"]), r)
+
+
+def guard(sync_folder, app_dir, rid, clock=None):
+    """受付が依頼の JSON を受ける前に呼ぶ: 引き継いだ依頼 id なら、もう届いた・もう作っている物を断る -> 断る理由(受けてよければ "")。
+    引き継いだ id の 1 通目は受けて、作っている(making)と覚える"""
+    recs = [r for r in records(app_dir) if r.get("rid") == rid and (r.get("takeover") or {}).get("state") in ("asked", "making", "friend_first")]
+    if not recs:
+        return ""
+    why = delivered(sync_folder, app_dir, rid)
+    if why:
+        return "引き継いだ依頼はもう届いています(%s)" % why
+    if any(r["takeover"]["state"] == "making" for r in recs):
+        return "引き継いだ依頼は、作る人の PC でもう作っています(二重に届けないため)"
+    for r in recs:
+        r["takeover"] = dict(r["takeover"], state="making", madeAt=_now_ms(clock or time.time))
+        fsio.write_json(_record_path(app_dir, r["name"]), r)
+    return ""
+
+
+def friend_first(app_dir, clock=None, log=None):
+    """引き継いで作っている依頼に、友人の PC で作った結果(送り返しの実行のフォルダ)が後から届いた -> その依頼 id の並び。
+    受付が、こちらの実行を取り消す(作りかけを届けない)。1 つの依頼 id に 1 回(state を friend_first にする)"""
+    out = []
+    for r in records(app_dir):
+        take = r.get("takeover") or {}
+        if take.get("state") != "making":
+            continue
+        made = (take.get("madeAt") or 0) / 1000.0
+        try:
+            runs = [os.path.join(d, n) for d in glob.glob(os.path.join(app_dir, "friend-returns", "*", r["rid"])) for n in os.listdir(d)
+                    if n not in ("verdicts", "notices") and os.path.isdir(os.path.join(d, n))]
+            newer = any(os.path.getmtime(x) > made for x in runs)
+        except OSError:   # 並べている途中など(次の見回りでまた見る)
+            newer = False
+        if newer:
+            r["takeover"] = dict(take, state="friend_first")
+            fsio.write_json(_record_path(app_dir, r["name"]), r)
+            if r["rid"] not in out:
+                out.append(r["rid"])
+                (log or (lambda m: None))("友人の PC の結果が先に届いたので、引き継いだ依頼 %s のこちらの実行を止めます" % r["rid"])
+    return out
 
 
 def ask(sync_folder, note="", clock=None):

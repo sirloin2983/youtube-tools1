@@ -483,6 +483,17 @@ class Intake:
                 self._record(folder, "video", "manual", n, [n], "", [], [{"label": n, "state": "rejected", "reason": MANUAL_REASON}])
             returns.scan(folder, self.data_dir, self.clock, self.log, feedback=self.feedback)   # 送り返し\(友人の PC の ② の結果と採否。F1 の F2。失敗しても見回りは止めない)
             bugs.scan(folder, self.data_dir, self.clock, self.log)   # 診断\ の不具合の書き出し(失敗しても見回りは止めない)
+            self._stop_taken(bugs.friend_first(self.data_dir, self.clock, self.log))   # 引き継いだ依頼に友人の物が先に届いた = こちらは届けない
+
+    def _stop_taken(self, rids):
+        """引き継いだ依頼 rids のこちらの実行を取り消す(友人の PC の物が先に届いた。もう終わった実行・取り消せない受け手は飛ばす)"""
+        for rec in self.st.get("requests") or []:
+            if rec.get("requestId") in rids:
+                for run_id in rec.get("runIds") or []:
+                    try:
+                        self.runner.cancel(run_id)
+                    except (AttributeError, ValueError) as e:   # 受け手に取り消しが無い・もう無い実行
+                        self.log("引き継いだ依頼の実行 %s を止められませんでした: %s" % (run_id, e))
 
     def _settled(self, p):
         try:
@@ -520,6 +531,10 @@ class Intake:
             return {n}
         if not isinstance(d, dict) or d.get("v") != 1 or d.get("kind") not in REQ_KINDS or not REQ_ID_RE.match(rid):
             self._record(folder, "url", "app", n, [n], "", [], [{"label": n, "state": "rejected", "reason": "依頼の形が正しくありません"}], rid=rid)
+            return {n}
+        taken = bugs.guard(folder, self.data_dir, rid, self.clock)   # 引き継いだ依頼の 2 通目・もう届いた物は断る(届け元を 1 つに。10-25)
+        if taken:
+            self._record(folder, "video" if d["kind"] == "video" else "url", "app", n, [n], "", [], [{"label": n, "state": "rejected", "reason": taken}], rid=rid)
             return {n}
         flow = "auto"   # 友人の依頼は全部 ① 全自動(flow が check・manual・無しでも断らず ① として扱う)
         flow_orig = d.get("flow") if d.get("flow") in OLD_FLOWS else ""   # 元の値は受付の記録に残す(後で分かるように)
