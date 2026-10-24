@@ -43,6 +43,7 @@ from flow import spec as _spec   # 区間・重みの理由つきの検査(ま�
 from ytt import colors, fsio, names as ytt_names, normalize, schemas, studio_env, tools, yturl
 from . import live_requests  # noqa: E402  (ライブ配信の依頼の設定の検査と一覧の文。結びつきは入口が live_begin= で渡す Live.submit_request が書く。2-15)
 from . import bugs  # noqa: E402  (友人の不具合の書き出し 診断\ の *.state.json を仕分けて、要対応なら AI を起こす。10-25)
+from . import notify  # noqa: E402  (見張りが新しく書いた知らせをまとめ役のセッションへ届ける。予備 1・10-25)
 from . import pubqueue  # noqa: E402  (友人の zip を配る待ちの列と 3 時間ごとの配る回。10-25)
 from . import upwatch  # noqa: E402  (友人のアプリの更新の見張り: 配った版・友人の今の版・起動できなかった の知らせ。10-25)
 from . import notify  # noqa: E402  (友人の知らせ(見張り・不具合・AI の結果)をまとめ役のセッションへ 1 通にまとめて届ける。10-25)
@@ -489,6 +490,7 @@ class Intake:
             upwatch.scan(folder, self.data_dir, self.clock, self.log)   # 更新の見張り(失敗しても見回りは止めない)
             notify.tick(self.data_dir, self.clock, self.log)   # 上の 2 つが書いた知らせをまとめ役へ(失敗しても見回りは止めない)
             pubqueue.tick(self.data_dir, bugs.repo_root(), self.clock, self.log)   # まとめて配る回(区切りを越えて最初の見回りで 1 回)
+            notify.tick(self.data_dir, self.clock, self.log)   # 知らせを届ける(upwatch・bugs の後。失敗しても見回りは止めない)
             self._stop_taken(bugs.friend_first(self.data_dir, self.clock, self.log))   # 引き継いだ依頼に友人の物が先に届いた = こちらは届けない
 
     def _stop_taken(self, rids):
