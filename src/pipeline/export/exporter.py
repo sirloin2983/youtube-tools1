@@ -502,8 +502,12 @@ def expected_len(spec, it):
     return end - it["start"]
 
 
-def _fsel(spec):
+def _fsel(spec, hls=False):
+    """yt-dlp の -f。hls = HLS(m3u8)の形式だけ(方法3。DASH の形式で中身が届かないときの別の道)"""
     mh = spec["maxHeight"]
+    if hls:
+        h = "[height<=%d]" % mh if mh else ""
+        return "bv*[protocol^=m3u8]%s+ba[protocol^=m3u8]/b[protocol^=m3u8]%s" % (h, h)
     return "bv*+ba/b" if not mh else "bv*[height<=%d]+ba/b[height<=%d]/b" % (mh, mh)
 
 
@@ -523,8 +527,8 @@ def _drop_glob(prefix):
     _rm(*glob.glob(glob.escape(prefix) + ".*"))
 
 
-def _ytdlp_sections(ctl, spec, it, base):
-    """方法1: 2段で作る。
+def _ytdlp_sections(ctl, spec, it, base, hls=False):
+    """方法1(hls = 方法3: 同じ 2 段を HLS の形式で): 2段で作る。
     1) yt-dlp で区間を**そのまま**取る(作り直さない・前後に SECTION_PAD 秒の余裕。作業用/<base>_dl.partial.mp4)
     2) ffmpeg で正確な区間に切り、30fps に作り直す(書き出しと同じ _encs)。取った区間のファイルは最後に消す。
     yt-dlp は区間を ffmpeg の入力側の -ss + コピーで取るので、取ったファイルの 0 秒 = 頼んだ開始(手前のキーフレームからの分は
@@ -549,7 +553,7 @@ def _ytdlp_sections(ctl, spec, it, base):
     def dl_cmd(extra):
         return _ytdlp_cmd() + ["--no-playlist", "--no-warnings", "--newline", "--ffmpeg-location", ff,
                                "--download-sections", "*%s-%s" % (fmt_ts(dl_start), fmt_ts(dl_end))] + extra + [
-                               "-f", _fsel(spec), "--merge-output-format", "mp4", "-o", _yturl.ytdlp_out(work, os.path.basename(raw_base) + ".%(ext)s"),
+                               "-f", _fsel(spec, hls), "--merge-output-format", "mp4", "-o", _yturl.ytdlp_out(work, os.path.basename(raw_base) + ".%(ext)s"),
                                "--", _yturl.watch_url(spec["videoId"])]
     cmd = dl_cmd(chunk)
     tail, stage = [], "dl"
@@ -666,7 +670,18 @@ def run_ytdlp(ctl, spec, it, base):
         except ExportError as e2:
             if ctl.cancelled:
                 raise
-            raise ExportError("方法1(区間取得): %s / 方法2(直接指定): %s" % (str(e1)[:200], str(e2)[:200]))
+            both = "方法1(区間取得): %s / 方法2(直接指定): %s" % (str(e1)[:200], str(e2)[:200])
+            if blocked(e2):
+                raise ExportError(both + " / 方法3(HLS): YouTube に止められたので試していません")
+            # 方法3: DASH の形式(方法1・2 が使う)で中身が届かないとき、HLS の形式(別の URL から届く)で同じ 2 段をもう 1 回
+            # (10-24 友人の PC で方法1 が 2 秒・音なし、方法2 が空になった。画質は DASH と同じくらいまで選べる)
+            it["progress"] = 0
+            try:
+                out = _ytdlp_sections(ctl, spec, it, base, hls=True)
+            except ExportError as e3:
+                if ctl.cancelled:
+                    raise
+                raise ExportError(both + " / 方法3(HLS): %s" % str(e3)[:200])
     return spec["folder"] + "/" + os.path.basename(out)
 
 

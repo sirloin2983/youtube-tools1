@@ -1558,7 +1558,8 @@ class ApiTest(Base):
         f = self.view_row(rid)["fail"]
         self.assertEqual((f["code"], f["retrying"], f["repeat"], f["reported"]), ("net", True, False, False))
         self.assertIn("ネットにつながりませんでした", f["message"])
-        self.assertIn("もう一度送る", f["message"])
+        self.assertNotIn("もう一度送る", f["message"])   # 自動のやり直しを待つ間は「押してください」を出さない(10-24 の食い違い)
+        self.assertIn("自動でもう一度試します", f["retryNote"])
         self.assertEqual(f["detail"], "ネットにつながりませんでした")
         self.app.api.tick()
         self.assertEqual(len(self.engine.queue.submitted), 1)   # RETRY_EVERY までは待つ
@@ -1575,6 +1576,7 @@ class ApiTest(Base):
             self.fail_again(rid)
             f = self.view_row(rid)["fail"]
             self.assertEqual(f["retrying"], i < A.RETRY_MAX)   # 使い切るまでは「やり直しています」
+            self.assertEqual("もう一度送る" in f["message"], i == A.RETRY_MAX)   # 使い切ったら手で送り直す言葉
             self.assertFalse(f["repeat"])
         t[0] += 10 * A.RETRY_EVERY
         self.app.api.tick()

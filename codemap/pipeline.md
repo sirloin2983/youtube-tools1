@@ -27,7 +27,7 @@
 ## src/pipeline/export/
 
 - **__init__.py** (2 行) — ① 書き出し: 区間 → 動画(exporter)
-- **exporter.py** (1097 行) — ③ 書き出し(クリップマーカー cm/serve.py 由来): store の動画・マークから ffmpeg / yt-dlp でクリップを mp4 にする。
+- **exporter.py** (1112 行) — ③ 書き出し(クリップマーカー cm/serve.py 由来): store の動画・マークから ffmpeg / yt-dlp でクリップを mp4 にする。
   - 名前: `class ExportError` :53・`log_export` :57・`reason` :73・`verify_output` :80・`pick_folder` :89・`promote` :98・`drop_partial` :115・`clean_partials` :121・`check_section_path` :217・`build_section_spec` :238・`spec_from_video` :264・`new_result` :316・ほか 14
 - **outcheck.py** (109 行) — ① 書き出しのあとの自動の点検(10-23。notes:plan/人の作業なしの候補-1023.md の 1)。書き出した切り抜き 1 本を測り、気になる所を返すだけ(出力は止めない・消さない)。
   - 名前: `black_spans` :37・`edge_ratio` :42・`judge` :55・`check` :76

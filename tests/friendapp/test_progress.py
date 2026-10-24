@@ -68,6 +68,24 @@ class ClassifyTest(unittest.TestCase):
         self.assertEqual(P.LOGIN_CODES, ("bot", "age"))
         self.assertNotIn("retryMax", P.classify("timed out"))
 
+    def test_youtube_fetch_failed_and_waiting_words(self):
+        """YouTube の書き出しの方法が全部だめ(10-24 友人の PC の文)= ytFetch・30 分おきに 2 回。
+        自動のやり直しを待つ間の言葉は、どの種類でも手で [もう一度送る] を押す指示を含まない(「自動で試します」と同時に出ていた)"""
+        real = ("書き出しに失敗しました(1 本): 方法1(区間取得): 書き出したファイルが空か短すぎます(長さ 2.0 秒 / 期待 414 秒)。"
+                " 詳細: [out#0/mp4 @ 0] video:13KiB audio:0KiB / 方法2(直接指定): 書き出したファイルが空か短すぎます(長さ 不明 秒 / 期待 414 秒)。"
+                " 詳細: Output file is empty, nothing was encoded / [aac @ 00000")
+        r = self.check(real, "ytFetch")
+        self.assertEqual((r["retry"], r["retryMax"], r["retryEvery"]), (True, 2, 1800))
+        self.check(real.replace("期待 414 秒", "HTTP Error 429: Too Many Requests"), "rate")   # 止められた種類が先
+        for code, _pats, msg, retry in P.CODES + (("unknown", (), P.UNKNOWN_MSG, True),):
+            if retry:
+                with self.subTest(code=code):
+                    w = P.waiting_message(msg)
+                    self.assertNotIn("もう一度送る", w)
+                    self.assertTrue(w and msg.startswith(w[:6]))
+        self.assertEqual(P.retry_note({"retryEvery": 1800, "retryMax": 1}), "30 分ほどあとに、自動で 1 回だけもう一度試します")
+        self.assertEqual(P.retry_note({}), "少し待ってから、自動でもう一度試します")
+
     def test_range_over_not_for_file(self):
         r = self.check("区間が配信の長さを超えています", "unknown", kind="file")
         self.assertTrue(r["retry"])   # 当たらない失敗は「もう一度送る」を出す

@@ -906,7 +906,9 @@ class Api:
             if r["state"] == "failed":
                 cls = self.classify(r)
                 retrying = cls["retry"] and (r.get("autoRetries") or 0) < cls.get("retryMax", RETRY_MAX) and not r.get("cancelled")
-                r["fail"] = {"code": cls["code"], "message": cls["message"], "detail": cls["detail"], "retrying": retrying,
+                r["fail"] = {"code": cls["code"], "detail": cls["detail"], "retrying": retrying,
+                             "message": _progress.waiting_message(cls["message"]) if retrying else cls["message"],   # 待つ間は「押してください」を出さない
+                             "retryNote": _progress.retry_note(cls) if retrying else "",
                              "repeat": not retrying and (r.get("failCodes") or []).count(cls["code"]) >= 2, "reported": bool(r.get("reportedAt"))}
         with self._lock:   # 作っていない行の段の覚えを捨てる
             for k in [k for k in self._stages if k not in live_ids]:

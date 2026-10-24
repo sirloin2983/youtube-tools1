@@ -559,6 +559,8 @@ if "-g" in args:
     print("ERROR: fake", file=sys.stderr)
     sys.exit(1)
 val = lambda k: args[args.index(k) + 1]
+if os.environ.get("FAKE_YTDLP_DASH_BROKEN") == "1" and "m3u8" not in val("-f"):
+    sys.exit(0)   # DASH の形式では中身が届かない(何も書かずに正常終了)
 def secs(t):
     h, m, s = t.split(":")
     return int(h) * 3600 + int(m) * 60 + float(s)
@@ -639,6 +641,18 @@ class TestYoutubeTwoStage(unittest.TestCase):
             self.assertNotEqual(p.returncode, 0)
             self.assertIn("テスト’you're【】", p.stderr)
 
+    def test_dash_gives_nothing_then_hls_makes_it(self):
+        """DASH の形式で中身が届かない(方法1 が空・方法2 も失敗。10-24 友人の PC)とき、方法3 = HLS の形式の区間取得で作れる"""
+        clip = {"id": "m1", "start": 7.0, "end": 12.0, "title": "t", "label": "", "src": "manual", "markStatus": ""}
+        job = _job([clip])
+        env = {"FAKE_YTDLP_LOG": self.log, "FAKE_YTDLP_SRC": self.src, "FAKE_YTDLP_DASH_BROKEN": "1"}
+        with patch.dict(os.environ, env), patch.object(exporter, "_ytdlp_cmd", return_value=[sys.executable, self.fake]):
+            _run(job, _youtube_spec([clip]), lambda *a: True)
+        self.assertEqual(job["items"][0]["status"], "done", job["items"][0].get("error"))
+        fmts = ["-g" if "-g" in c else c[c.index("-f") + 1] for c in self.calls()]
+        self.assertEqual(fmts[-2:], ["-g", exporter._fsel({"maxHeight": 0}, hls=True)])
+        self.assertTrue(all("m3u8" not in f for f in fmts[:-1]))
+
     def test_unknown_start_falls_back_and_cleans_up(self):
         """取ったファイルが頼んだより長い(手前のキーフレームから見えている)ときは、位置が分からないので方法2(直接指定)へ回す"""
         clip = {"id": "m1", "start": 15.0, "end": 17.5, "title": "t", "label": "", "src": "manual", "markStatus": ""}   # 取る始まり 5 秒より手前から取れる所
@@ -649,7 +663,9 @@ class TestYoutubeTwoStage(unittest.TestCase):
         it = job["items"][0]
         self.assertEqual(it["status"], "error")
         self.assertIn("開始の位置", it["error"])
-        self.assertIn("-g", self.calls()[-1])   # 方法2 を試した
+        calls = self.calls()
+        self.assertIn("-g", calls[-2])   # 方法2 を試した
+        self.assertIn("m3u8", calls[-1][calls[-1].index("-f") + 1])   # 最後に方法3(HLS)
         folder = os.path.join(studio_env.get_out_dir(), job["folder"])
         left = [n for dd in (folder, os.path.join(folder, schemas.WORK_DIR)) if os.path.isdir(dd) for n in os.listdir(dd)
                 if os.path.isfile(os.path.join(dd, n)) and n != ".studio-id"]

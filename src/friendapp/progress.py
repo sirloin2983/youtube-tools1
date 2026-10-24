@@ -32,7 +32,12 @@ UNKNOWN_MSG = "うまくいきませんでした。[もう一度送る] を押�
 # 自動のやり直しの回数と間隔(秒)を表の既定(玄関の RETRY_MAX 回・RETRY_EVERY 秒おき)から変える種類。
 # bot = YouTube の bot 判定・rate = 429: 重ねるほど長引くので、間を空けて 1 回だけ。
 # bot はログインで直るので、ログインし直したときにも 1 回やり直す(api.tick。回数に数えない)
-RETRY_PLAN = {"bot": (1, 1800), "rate": (1, 1800)}
+# ytFetch = YouTube から区間の中身が届かない(方法1〜3 が全部だめ。10-24 友人の PC で 3 分おきの 3 回が同じに落ち、20 分後この PC では取れた): 30 分おきに 2 回
+RETRY_PLAN = {"bot": (1, 1800), "rate": (1, 1800), "ytFetch": (2, 1800)}
+# message は自動のやり直しを使い切った後の言葉(手で [もう一度送る])。やり直しを待っている間は retry_note の 1 行と、
+# message から手で送り直す指示を外した言葉(waiting_message)を出す(「自動で試します」と「押してください」を同時に出さない)
+_RESEND_ONLY = re.compile(r"^(?:(?:少し待って|しばらく待って|数時間おいて|\d+ 分ほど待って)から\s*)?\[もう一度送る\]\s*を押してください$")
+_RESEND_AFTER = re.compile(r"てから\s*\[もう一度送る\]\s*を押してください$")
 
 # bot の言葉(login = ログインしてあるか)。ログインの情報が切れたときの yt-dlp の字句(LOGIN_EXPIRED)は、ログインしてあっても「切れた」の言葉
 BOT_LOGIN_MSG = "YouTube に「ロボットではないか」の確認で止められました。⚙ の [YouTube にログイン] でログインしてください(ログインすると自動でやり直します)"
@@ -59,7 +64,7 @@ LIVE_MESSAGES = {
 CODES = tuple((code, (LIVE_MARKS[code],), LIVE_MESSAGES[code], False) for code in LIVE_MARKS) + (
     ("bot", ("not a bot", "cookies are no longer valid"), BOT_LOGIN_MSG, True),
     ("rate", ("HTTP Error 429", "Too Many Requests"),
-     "YouTube に一時的に止められました。30 分ほどあとに自動でやり直します", True),
+     "YouTube に一時的に止められました。30 分ほど待ってから [もう一度送る] を押してください", True),
     ("age", ("confirm your age", "age-restricted", "inappropriate for some users"),
      "年齢の確認が要る動画です。⚙ の [YouTube にログイン] で、年齢の確認が済んだアカウントでログインしてください", False),
     ("members", ("メンバー限定", "members only", "Join this channel"),
@@ -75,6 +80,9 @@ CODES = tuple((code, (LIVE_MARKS[code],), LIVE_MESSAGES[code], False) for code i
     ("net", ("ネット", "接続", "つながらな", "timed out", "timeout", "URLError", "ConnectionError", "HTTP Error 5",
              "getaddrinfo", "WinError 10060", "WinError 10061", "WinError 11001", "SSL"),
      "ネットにつながりませんでした。ネットを確かめてから [もう一度送る] を押してください", True),
+    ("ytFetch", ("方法1(区間取得)",),   # YouTube の書き出しの方法が全部だめ(止められた・非公開・429 は上で当たる)
+     "YouTube から配信の映像を取れませんでした(配信が終わって間もないと、アーカイブの準備中で取れないことがあります)。"
+     "数時間おいてから [もう一度送る] を押してください", True),
     ("gpuMemory", ("out of memory", "ErrorOutOfDeviceMemory", "cudaMalloc failed", "failed to allocate"),   # GPU のメモリ不足(ゲームなどが使っている。10-23 の見回り)
      "GPU のメモリが足りませんでした。ゲームなど GPU を使うアプリを閉じてから [もう一度送る] を押してください", True),
     ("gpu", ("gpu_failed", "を使えませんでした。GPU のドライバ"),
@@ -115,6 +123,23 @@ def classify(text, kind="url", login=False):
             out["retryMax"], out["retryEvery"] = RETRY_PLAN[code]
         return out
     return {"code": "unknown", "message": UNKNOWN_MSG, "retry": True, "detail": detail}
+
+
+def waiting_message(message):
+    """自動のやり直しを待っている間の言葉 = message から手で [もう一度送る] を押す指示を外した物
+    (「…を閉じてから [もう一度送る] を押してください」-> 「…を閉じてください」・「少し待ってから […]」-> 外す)"""
+    m = str(message or "")
+    head, dot, last = m.rpartition("。")
+    if dot and _RESEND_ONLY.match(last):   # 最後の文が「(待ってから)押してください」だけ = その文を外す
+        return head
+    return _RESEND_AFTER.sub("てください", m)
+
+
+def retry_note(cls):
+    """自動のやり直しを待っている間の 1 行(間隔と回数は cls の retryEvery・retryMax、無ければ玄関の既定 = 数分おき)"""
+    every, most = cls.get("retryEvery"), cls.get("retryMax")
+    when = "%d 分ほどあとに" % (every // 60) if every and every >= 600 else "少し待ってから"
+    return "%s、自動で%sもう一度試します" % (when, " 1 回だけ" if most == 1 else "")
 
 
 def _labels(kind, ranged):
