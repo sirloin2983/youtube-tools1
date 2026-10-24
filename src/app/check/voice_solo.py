@@ -42,11 +42,6 @@ LAST_SKIPS = {"songDocs": 0, "songRows": 0}   # 最後の選びで歌として�
 song_title, song_row, solo_person, _titles = _vm.song_title, _vm.song_row, _vm.solo_person, _vm.titles
 
 
-def _row_ok(g):
-    """覚える材料になりうる行か(flow/voicematerial.row_ok。human/check/voice の _learn_of と同じ決まり + 長すぎない・歌でない)"""
-    return _vm.row_ok(g)
-
-
 def _options(doc, who, others):
     """配信者(文書にその名前の話者がいればその id・いなければ name:)→ ほかの対象の人(name:)→ その他 → 混ざり。-> (選択肢, 予想)"""
     sid = next((str(s["id"]) for s in doc.get("speakers") or () if isinstance(s, dict) and s.get("id") and not _yschemas.other_speaker(s)
