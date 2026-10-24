@@ -33,8 +33,8 @@
   - 名前: `class FetchError` :61・`class Cancelled` :65・`safe_relative` :74・`problem` :90・`parse_item` :117・`load` :127・`archive_name` :151・`expect` :159・`folder` :164・`marker` :168・`label` :172・`is_done` :181・ほか 11
 - **streams.py** (559 行) — 友人のアプリの「送る」画面の左に並べる、ホロライブ JP(と DEV_IS)の配信の一覧(F3-2)。API キー無し。
   - 名前: `parse_rss` :159・`classify` :191・`class Streams` :261
-- **sync.py** (932 行) — 友人の玄関の Dropbox の同期(notes:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-14〜2-17・5-1)。
-  - 名前: `class SyncError` :89・`name_ok` :94・`out_kind` :100・`clean_text` :112・`clean_origin` :117・`parse_meta` :128・`parse_meta_info` :134・`failure_text` :154・`server_time` :161・`safe_rel` :169・`safe_join` :176・`local_name` :186・ほか 10
+- **sync.py** (946 行) — 友人の玄関の Dropbox の同期(notes:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-14〜2-17・5-1)。
+  - 名前: `class SyncError` :91・`name_ok` :96・`out_kind` :102・`clean_text` :114・`clean_origin` :119・`parse_meta` :130・`parse_meta_info` :136・`failure_text` :156・`server_time` :163・`safe_rel` :171・`safe_join` :178・`local_name` :188・ほか 10
 - **tidy.py** (596 行) — アプリのフォルダの整理(形は Fable と相談 = 共有のメモ f3a-tidy-design.md。決定 3-86)。新しい版に入れ替えて起動できたあとと ⚙ から。
   - 名前: `keep_floor` :76・`class Tidy` :161
 - **toolcheck.py** (111 行) — 友人の PC の初回の準備の最後の「道具を動かして確かめる」(F3-5。notes:plan/f1-friend-requirements.md の C-5-2・C-0)。

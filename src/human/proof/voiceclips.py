@@ -9,19 +9,19 @@
 (行 id -> {"a", "b"} = 切り出した所の元の動画の秒)。作業データの中なので、片付けの外(評価用・学習用と同じく消さない)。
 切り出すのは行の前後 PAD 秒まで(1 行数秒)。1 本の文書・1 行は 1 回だけ(作り直さない)。
 """
+import io
 import json
 import os
 import threading
 import wave
 
+from flow import voicematerial as _vm
 from ytt import fsio, tools as _tools, workdata as _workdata
 
 DIR = "voice-clips"
 INDEX = "index.json"
-PAD = 1.0             # 行の前後に足す秒(カードの余白 0.3 秒・覚える行の時刻の揺れの分)
-RATE = 16000
-CUT_TIMEOUT = 60.0
-MAX_ROW_SEC = 30.0    # これより長い行は切り出さない(カードは 12 秒まで)
+PAD = _vm.PAD         # 行の前後に足す秒(切り出しは ② flow/voicematerial.cut。友人の PC の声の材料と同じ形)
+RATE = _vm.RATE
 _lock = threading.Lock()
 
 
@@ -85,26 +85,50 @@ def make(tid, doc, rows, ffmpeg=None):
     os.makedirs(d, exist_ok=True)
     made = {}
     for g in todo:
-        a0, b0 = float(g.get("start") or 0), float(g.get("end") or 0)
-        if b0 <= a0 or b0 - a0 > MAX_ROW_SEC:
-            continue
-        a, b = max(0.0, a0 - PAD), b0 + PAD
-        out = os.path.join(d, g["id"] + ".wav")
-        cmd = [ff, "-hide_banner", "-nostdin", "-y", "-v", "error", "-ss", "%.3f" % a, "-i", src, "-t", "%.3f" % (b - a),
-               "-vn", "-ac", "1", "-ar", str(RATE), "-c:a", "pcm_s16le", "-f", "wav", out + ".part"]   # 認識の音と同じ形(16kHz・モノラル・16bit)
         try:
-            r = _tools.run(cmd, timeout=CUT_TIMEOUT, flags=_tools.no_window_flags(priority="low"), stdout=False, err_tail=5)
+            got = _vm.cut(ff, src, float(g.get("start") or 0), float(g.get("end") or 0), os.path.join(d, g["id"] + ".wav"))
         except OSError:
             break
-        if r.why or r.code != 0 or not os.path.isfile(out + ".part"):
-            continue
-        os.replace(out + ".part", out)
-        made[g["id"]] = {"a": round(a, 3), "b": round(b, 3)}
+        if got:
+            made[g["id"]] = {"a": got[0], "b": got[1]}
+    _add_index(d, made)
+    return len(made)
+
+
+def _add_index(d, made):
     if made:
         with _lock:
             cur = fsio.read_json_or(os.path.join(d, INDEX), {}, kind=dict)
             cur.update(made)
             fsio.write_json(os.path.join(d, INDEX), cur, indent=1)
+
+
+def put_bytes(tid, clips):
+    """よそで切り出した行の音(友人の PC から届いた声の材料。human/friend/voicein)を写す。clips = {行 id: (wav の中身, a, b)}。
+    形の合う wav(16kHz・モノラル・16bit)だけ・まだ無い行だけ。-> 写した数"""
+    d = _doc_dir(tid)
+    if not d:
+        return 0
+    have = index(tid)
+    made = {}
+    for rid, (raw, a, b) in clips.items():
+        if not _rid_ok(rid) or rid in have or not (0 <= a < b):
+            continue
+        try:
+            with wave.open(io.BytesIO(raw), "rb") as w:
+                if w.getframerate() != RATE or w.getnchannels() != 1 or w.getsampwidth() != 2:
+                    continue
+                data = w.readframes(w.getnframes())
+        except (OSError, wave.Error, EOFError):
+            continue
+        os.makedirs(d, exist_ok=True)
+        with wave.open(os.path.join(d, rid + ".wav"), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(RATE)
+            w.writeframes(data)
+        made[rid] = {"a": round(float(a), 3), "b": round(float(b), 3)}
+    _add_index(d, made)
     return len(made)
 
 

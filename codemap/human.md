@@ -53,8 +53,8 @@
   - 名前: `configured_folder` :77・`out_dir_of` :88・`submit_urls` :93・`submit_file` :117・`youtube_id` :127・`parse_lines` :133・`decode_text` :159・`probe_video` :173・`youtube_info` :185・`parse_ranges` :233・`class Intake` :262
 - **live_requests.py** (22 行) — 友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend.md の 2-15)。
   - 名前: `settings_label` :19
-- **returns.py** (479 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。notes:docs/design/f1-build.md の (f1d))。
-  - 名前: `returns_dir` :57・`extract` :95・`parse_verdict` :129・`parse_notice` :179・`scan` :214・`recent_notices` :405・`iter_requests` :444
+- **returns.py** (490 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。notes:docs/design/f1-build.md の (f1d))。
+  - 名前: `returns_dir` :58・`extract` :96・`parse_verdict` :130・`parse_notice` :180・`scan` :215・`recent_notices` :416・`iter_requests` :455
 
 ## src/human/proof/
 
@@ -77,8 +77,8 @@
   - 名前: `set_context_namer` :30・`check_context_namer` :39・`apply_diarization` :61・`diar_keep_row` :78・`validate_diarize` :170・`single_speaker` :194・`run_diarize` :222・`autodiar_enabled` :274・`autodiar_ready` :279・`autodiar_enqueue` :299・`autodiar_after_transcribe` :331・`is_generic_speaker_name` :418・ほか 7
 - **store.py** (1165 行) — ③ 文書の置き場: 文書を書く唯一の口 commit と機械の層・人の層(層が正 = 文書は組み立て済みの写し・古い写しの読み直し fresh_copy)・保存の錠 saving・
   - 名前: `tx_path` :37・`write_doc` :41・`read_layers` :73・`commit` :114・`layers_for` :171・`fresh_copy` :201・`snapshot` :251・`backup_doc` :259・`sanitize_sub_style` :278・`sanitize_transcript` :291・`doc_length` :373・`good_row` :394・ほか 37
-- **voiceclips.py** (146 行) — 声を覚える材料の短い音(10-24 夜。ユーザー「誰の声をメンバー全員分」・「精度に関係する物は残す」)。
-  - 名前: `root` :28・`index` :40・`clip_path` :54・`media` :63・`make` :72・`timeline_wav` :111
+- **voiceclips.py** (170 行) — 声を覚える材料の短い音(10-24 夜。ユーザー「誰の声をメンバー全員分」・「精度に関係する物は残す」)。
+  - 名前: `root` :28・`index` :40・`clip_path` :54・`media` :63・`make` :72・`put_bytes` :106・`timeline_wav` :135
 
 ## src/human/review/
 

@@ -14,7 +14,7 @@
      .preview.mp4 が見えたらすぐ取り込む(どちらも無い zip は NO_META_WAIT 秒待ってから出どころ「依頼」として取り込む)。
      確認用の動画は先に取って見られるように。zip は [受け取る] のときだけ取り(大きさと content_hash を確かめ)保存先へ展開(zip slip を断る)。
      決めたら /出力/ の zip・確認用の動画・.meta.json を消す
-  3. 送り返し: <data>/app/outbox の zip と .verdict.json を /送り返し/ へ上げ、上がった物は outbox から消す(失敗は次の回・3 日上がらなければ消す = 6 章)。
+  3. 送り返し: 先に声の材料(friendapp/voicesend。録画中は作らない)を outbox に置く。<data>/app/outbox の zip・.verdict.json・.voice.zip を /送り返し/ へ上げ、上がった物は outbox から消す(失敗は次の回・3 日上がらなければ消す = 6 章)。
      診断(.diag.json = friendapp/diag)だけは /診断/ へ。/診断/ の 3 日より古い物は DIAG_PRUNE_EVERY 秒に 1 回消す
   4. 学習の束: /学習/latest.json が新しければ /学習/<版>/ を sha256 を確かめて <data>/learning/<版>/ へ・machine の learningDir を向ける・直近 3 版
      (束を作る側の PC = places.is_maker_data では取らない)
@@ -37,9 +37,10 @@ import zipfile
 from flow import learning as _learning, machine as _machine, order as _order
 from ytt import fsio, version as _version
 
-from . import diag as _diag, dropbox as _dropbox, inbox as _inbox, places as _places
+from . import diag as _diag, dropbox as _dropbox, inbox as _inbox, places as _places, voicesend as _voicesend
 
 EVERY = 180                        # 見回りの間隔(秒。数分ごと)
+VOICE_SEND = True                  # スイッチ: 声の材料(ソロ配信の行の短い音)を送り返しに置く(friendapp/voicesend。10-24 夜)
 WATCH = True                       # スイッチ: Dropbox の変化を長く待ってすぐ見回る(False = 前の通り EVERY 秒ごとと kick だけ)
 WATCH_TIMEOUT = 480                # 長く待つ 1 回の秒(Dropbox の上限)
 WATCH_GAP = 5                      # 変化で見回ったあと次に待ち始めるまでの秒(自分が上げた物の変化で回り続けない)
@@ -58,6 +59,7 @@ OUT_NAME_RE = re.compile(r"^(\d{8}-\d{6}-[0-9a-f]{6})__(.+)$")        # 出力�
 VERSION_DIR_RE = re.compile(r"^\d{8}-\d{6}-[0-9a-f]{8}$")             # 学習の束の版
 RETURN_ZIP_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}__[0-9A-Za-z_-]{1,64}\.zip$")                      # 送り返しの zip
 VERDICT_NAME_RE = re.compile(r'^[0-9A-Za-z_-]{1,64}__[^\\/:*?"<>|\x00-\x1f]{1,100}(~\d{13})?\.verdict\.json$')  # 判断の記録(~<at> = 判断ごとに別のファイル)
+VOICE_NAME_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}__[0-9a-f]{12}\.voice\.zip$")   # 声の材料(friendapp/voicesend)
 NOTICE_NAME_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}__notice-\d{13}\.notice\.json$")   # [作る人に知らせる](notes:docs/spec/friend.md の 12-4)
 APP_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 UPDATE_FILE_RE = re.compile(r"^FriendApp-\d+\.\d+\.\d+\.zip$")   # dev/build_friend_zip.py の名前
@@ -497,7 +499,7 @@ class Sync:
             problems = []
             for label, step in (("ユーザーの PC への依頼", self._requests), ("届いた物", self._intake),
                                 ("確認用の動画", self._previews), ("受け取る", self._receive), ("片付け", self._cleanup),
-                                ("送り返し", self._returns), ("学習", self._learning), ("更新", self._update)):
+                                ("声の材料", self._voice), ("送り返し", self._returns), ("学習", self._learning), ("更新", self._update)):
                 if self._stop.is_set():
                     break
                 try:
@@ -734,7 +736,8 @@ class Sync:
         for name in sorted(os.listdir(box)):
             p = os.path.join(box, name)
             diag = bool(_diag.NAME_RE.match(name))
-            if not os.path.isfile(p) or not (RETURN_ZIP_RE.match(name) or VERDICT_NAME_RE.match(name) or NOTICE_NAME_RE.match(name) or diag):
+            if not os.path.isfile(p) or not (RETURN_ZIP_RE.match(name) or VERDICT_NAME_RE.match(name) or NOTICE_NAME_RE.match(name)
+                                             or VOICE_NAME_RE.match(name) or diag):
                 continue
             try:
                 io.upload(p, "%s/%s" % (DIAG if diag else RETURNS, name))
@@ -748,6 +751,17 @@ class Sync:
         self._prune_diag(io)
         if failed:
             raise SyncError("上げられなかった物 %d 件(次の回でもう一度)" % len(failed))
+
+    def _voice(self, io):
+        """声の材料(friendapp/voicesend): 録画中は作らない。覚え終えた人の一覧はユーザーの PC が /送り返し/声/ に置く(読めなければ外さない)"""
+        if not VOICE_SEND:
+            return
+        eng = self.engine_fn()
+        live = getattr(eng, "live", None) if eng is not None else None
+        if live is not None and live.active_count() > 0:
+            return
+        done = _voicesend.parse_done(io.read_small(_voicesend.DONE_PATH, _voicesend.DONE_CAP))
+        _voicesend.build(self.places["outbox"], os.path.join(self.places["friend"], _voicesend.SENT_NAME), done=done, now=self.clock(), log=self.log)
 
     def _prune_diag(self, io):
         """Dropbox の /診断/ の 3 日より古い診断を消す(名前の時刻で決める。DIAG_PRUNE_EVERY 秒に 1 回)"""

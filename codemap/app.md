@@ -17,7 +17,7 @@
   - 受ける口: `/api/ytt` :45
 - **prefs.py** (487 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
   - 名前: `class PrefsError` :95・`guess_streamer` :381・`class Prefs` :393
-- **server.py** (1766 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
+- **server.py** (1771 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
   - 名前: `runtime_dir` :184・`ping` :194・`tail` :202・`expected_version` :223・`tool_python` :229・`rel_or_abs` :239・`signal_stop` :247・`class Tool` :260・`app_data_dir` :310・`logs_dir_for` :316・`class Supervisor` :322・`query_int` :641・ほか 16
   - 受ける口: `/api/drill/status` :152・`/api/eval-batch` :152・`/api/intake` :627・`/api/backup` :628・`/api/accuracy` :629・`/api/flow/runs` :630・`/api/cases/auto` :632・`/api/flow/submit` :633・`/api/flow/estimate` :633・`/api/flow/cancel` :634・`/api/intake/scan` :635・`/api/backup/run` :635・`/api/accuracy/run` :636・`/api/check/answer` :637・`/api/check/skip` :637・`/api/check/flush` :637・`/api/shutdown` :638・`/api/ping` :727・`/api/status` :729・`/api/health` :739・`/api/log` :741・`/api/flow/status` :756・`/api/flow/history` :760・`/api/check/next` :763・`/api/check/voiceclip` :769・`/api/home/requests` :775・`/api/cases` :783
 - **ytlogin.py** (95 行) — ユーザーの PC の YouTube のログイン(10-23 ユーザー「ログインできる形にしといて」)。友人のアプリと同じ作り(notes:docs/spec/friend.md の 13-13)。
@@ -42,8 +42,8 @@
   - 名前: `register` :47・`registered` :61・`has_media` :80・`class View` :90・`value_auto` :261・`value_cand` :287・`read_fill` :316・`voice_diar` :333・`time_row` :367・`collect` :392
 - **speech_sources.py** (66 行) — 「確かめる」の普段のレーンの「この行は声ですか?」カードの出どころ speech:diar(C-EVAL (3))。
   - 名前: `speech_diar` :41
-- **voice_solo.py** (206 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
-  - 名前: `solo_person` :80・`clip_targets` :182・`voice_solo` :191
+- **voice_solo.py** (144 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
+  - 名前: `clip_targets` :120・`voice_solo` :129
 
 ## src/app/ui/
 

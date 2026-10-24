@@ -20,14 +20,13 @@
 歌は外す(10-24 夜。ユーザー「歌のシーンはどうする?」= 歌の声は話し声と響きが違い、伴奏も入る): 題名に歌の印(SONG_RE)がある配信の文書と、
 文字に音符(♪♫♬♩)がある行。外した数は LAST_SKIPS(入口の voice_clips_tick が記録に 1 行)。友人の PC から受け取る声の材料も同じ決まり(song_title・song_row)。
 """
-import os
 import random
-import re
 
+from flow import voicematerial as _vm
 from human.check import voice as voice_mod
-from human.proof import speakers as _speakers, voiceclips as _voiceclips
-from pipeline.transcribe import records, roster
-from ytt import schemas as _yschemas, studiodata as _studiodata, txbase as _txbase
+from human.proof import voiceclips as _voiceclips
+from pipeline.transcribe import records
+from ytt import schemas as _yschemas
 from ytt.textutil import person_key as _person_key
 from . import sources   # 同じ app/check の兄弟(register・_doc_card・_rows・View を読む)
 
@@ -35,99 +34,17 @@ SOURCE = "solo"
 MAX_PEOPLE = 80          # 対象の人数(まだ覚えていない人が先・ソロの文書の多い順。10-24 夜に 10 → 80 = ホロライブのメンバー全員)
 MAX_PER_PERSON = 15      # 1 人ぶんのカードの上限
 PER_DOC = 3              # 1 本の文書から出す行の上限
-MARGIN = 1.5             # 覚え直す秒(check.voiceRelearnSec)に掛ける余裕(覚えるジョブが重心を作れる量に、少し多めに)
-MAX_ROW_SEC = 12.0       # 長すぎる行は聞くのが重いので出さない
-GOOD_SEC = 4.0           # この長さに近い行を先に(短すぎず・長すぎず)
-SONG_RE = re.compile(r"歌枠|歌配信|歌ってみた|歌唱|カラオケ|弾き語り|うたわく|歌リレー|歌雑|歌謡|karaoke|singing|\bsing\b|\bcover\b|unarchived", re.I)
-NOTE_RE = re.compile(r"[♪♫♬♩]")
+MARGIN = _vm.DONE_MARGIN  # 覚え直す秒(check.voiceRelearnSec)に掛ける余裕(覚えるジョブが重心を作れる量に、少し多めに)
+MAX_ROW_SEC = _vm.MAX_ROW_SEC
+GOOD_SEC = _vm.GOOD_SEC
+SONG_RE, NOTE_RE, COLLAB_RE = _vm.SONG_RE, _vm.NOTE_RE, _vm.COLLAB_RE   # 選び方の決まりは ② flow/voicematerial(友人の PC と同じ)
 LAST_SKIPS = {"songDocs": 0, "songRows": 0}   # 最後の選びで歌として外した文書と行の数(記録用)
-
-
-def song_title(titles):
-    """題名(の一覧)に歌の配信の印があるか"""
-    return any(SONG_RE.search(str(t or "")) for t in (titles if isinstance(titles, (list, tuple)) else [titles]))
-
-
-def song_row(g):
-    """歌の行か(文字に音符がある)"""
-    return bool(NOTE_RE.search(str((g or {}).get("text") or "")))
-
-
-COLLAB_RE = re.compile(r"コラボ|collab|\bwith\b|[×✕✖]|凸|ゲスト|guest|対談|参加型|合同|オフ会|みんなで|\bfeat|\bft\.", re.I)   # みんなで = 10-24 に足した(「ホロドリみんなで遊ぼ!」)
-
-
-def _titles(doc):
-    """ソロの見分けに使う題名の文字(切り抜きの元の配信の題名・スタジオの配信の題名・文書の題名・元の名前・動画の入ったフォルダ)"""
-    clip = doc.get("clip") if isinstance(doc.get("clip"), dict) else {}
-    src = clip.get("source") if isinstance(clip.get("source"), dict) else {}
-    info = None
-    if src.get("videoId"):
-        try:
-            info = _studiodata.studio_stream(src.get("videoId"))
-        except Exception:   # スタジオの情報が読めなくても、ほかの題名で見る
-            info = None
-    path = str(doc.get("sourcePath") or "")
-    return [str(t or "") for t in (src.get("title"), (info or {}).get("title"), doc.get("title"), doc.get("sourceName"),
-                                    os.path.basename(os.path.dirname(path)) if path else "")]
-
-
-BLOCK_RE = re.compile(r"【([^】]{1,80})】")
-
-
-def _group_names(r):
-    """名簿のグループ・ユニット・番組の名前(照らし合わせる形。ユニットの組 units の名前と、ほかの組の見出しの括弧の前)"""
-    out = set()
-    for g in r.get("groups") or ():
-        names = g.get("names") if g.get("id") == "units" else [re.sub(r"[(（].*$", "", str(g.get("label") or ""))]
-        out.update(roster.fold(n) for n in names if len(roster.fold(n)) >= 3)
-    return out
-
-
-def _group_block(title, r):
-    """題名の【】の中に名簿のグループの名前があり、メンバーの名前が無い = グループの配信(10-24: 「【アソビ★まわり隊!】クイズ!」がソロに混ざった)。
-    【宙科そぴあ/ホロライブ/アソビ★まわり隊!】のような所属の札はメンバーの名前があるので当たらない"""
-    groups = _group_names(r)
-    for blk in BLOCK_RE.findall(str(title or "")):
-        f = roster.fold(blk)
-        if any(g in f for g in groups) and not roster.find_in_text(blk, r):
-            return True
-    return False
-
-
-def solo_person(doc):
-    """ソロ配信と見た文書の配信者の名前か None(見分けの決まりは先頭の説明)"""
-    if roster.ROSTER is None:   # 名簿が決まっていない(編集を取り込んでいない入口)= 見分けない
-        return None
-    try:
-        ctx = roster.stream_context(doc)
-    except Exception:
-        return None
-    mem = [m["name"] for m in ctx.get("members") or ()]
-    titles = _titles(doc)
-    if len(mem) != 1 or any(COLLAB_RE.search(t) for t in titles):
-        return None
-    who = mem[0]
-    r = roster.load(roster.ROSTER)
-    if any(_group_block(t, r) for t in titles):
-        return None
-    for s in doc.get("speakers") or ():
-        if isinstance(s, dict) and not _yschemas.other_speaker(s):
-            hit = roster.match_name(str(s.get("name") or ""), r)
-            if hit and hit != who:
-                return None   # 名簿のほかの人の名前の話者がいる = コラボ
-    used = {g.get("speaker") for g in sources._rows(doc) if g.get("speaker") and g.get("speaker") != _yschemas.OTHER_SPK_ID}
-    return who if len(used) <= 1 else None
+song_title, song_row, solo_person, _titles = _vm.song_title, _vm.song_row, _vm.solo_person, _vm.titles
 
 
 def _row_ok(g):
-    """覚える材料になりうる行か(human/check/voice の _learn_of と同じ決まり + 字幕に出さない行・ゲームの音の話者でない・長すぎない)"""
-    if _yschemas.no_sub_row(g) or g.get("speaker") == _yschemas.OTHER_SPK_ID or not str(g.get("text") or "").strip():
-        return False
-    a, b = sources._num(g.get("start")), sources._num(g.get("end"))
-    if b - a < voice_mod.MIN_LEARN_SEC or b - a > MAX_ROW_SEC or _yschemas.has_flag(g.get("flag"), _txbase.MIXED_FLAG):
-        return False
-    tags = g.get("tags") if isinstance(g.get("tags"), list) else []
-    return not any(t in tags for t in _speakers.VOICE_LEARN_TAGS)
+    """覚える材料になりうる行か(flow/voicematerial.row_ok。human/check/voice の _learn_of と同じ決まり + 長すぎない・歌でない)"""
+    return _vm.row_ok(g)
 
 
 def _options(doc, who, others):
@@ -176,8 +93,7 @@ def _select(view):
         picks = []   # 文書ごとの行(GOOD_SEC に近い順)
         for tid, doc in docs:
             skips["songRows"] += sum(1 for g in sources._rows(doc) if song_row(g))
-            rows = sorted((g for g in sources._rows(doc) if _row_ok(g) and not song_row(g) and _playable(tid, doc, g)),
-                          key=lambda g: (abs(sources._num(g.get("end")) - sources._num(g.get("start")) - GOOD_SEC), sources._num(g.get("start"))))
+            rows = _vm.pick(doc, lambda g: _playable(tid, doc, g))
             picks.append((tid, doc, rows[:PER_DOC]))
         n = 0
         for i in range(PER_DOC):   # 文書を順に 1 行ずつ回す(いろいろな配信から)

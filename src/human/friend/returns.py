@@ -24,6 +24,7 @@ import zipfile
 
 from flow import deliveries, outbox
 from human import judgments
+from human.friend import voicein
 from ytt import errors, fsio, tools
 
 RETURNS_DIR = "friend-returns"      # <app>/friend-returns/<YYYY-MM>/<requestId>/
@@ -224,6 +225,10 @@ def scan(sync_folder, app_dir, clock=None, log=None, feedback=None):
         names = sorted(os.listdir(folder))
     except OSError:
         return results
+    try:
+        voicein.write_done(sync_folder, IN_DIR, clock)   # 声を覚え終えた人の名前(友人の PC がその人の声の材料を送らない)
+    except Exception as e:   # 書けなくても受付は止めない(友人の PC は読めなければ全部送る = 受け取る側で外す)
+        log("送り返し: 覚え終わり.json を書けませんでした(%s: %s)" % (e.__class__.__name__, str(e)[:100]))
     for n in names:
         p = os.path.join(folder, n)
         low = n.lower()
@@ -249,10 +254,16 @@ def scan(sync_folder, app_dir, clock=None, log=None, feedback=None):
 
 
 def _kind(low):
-    return "verdict" if low.endswith(VERDICT_SUFFIX) else "notice" if low.endswith(NOTICE_SUFFIX) else "run"
+    return "verdict" if low.endswith(VERDICT_SUFFIX) else "notice" if low.endswith(NOTICE_SUFFIX) else "voice" if low.endswith(voicein.SUFFIX) else "run"
 
 
 def _one(folder, app_dir, n, p, clock, log, feedback=None):
+    if n.lower().endswith(voicein.SUFFIX):   # 声の材料(友人の PC の friendapp/voicesend。10-24 夜)
+        state, why = voicein.take(n, p, log)
+        _move(folder, n, state, why if state == "rejected" else "", clock())
+        if state == "rejected":
+            log("送り返し: 声の材料 %s を断りました(%s)" % (n, why))
+        return {"name": n, "kind": "voice", "state": state, "reason": why}
     if n.lower().endswith(NOTICE_SUFFIX):
         return _one_notice(folder, app_dir, n, p, clock, log)
     if n.lower().endswith(VERDICT_SUFFIX):
