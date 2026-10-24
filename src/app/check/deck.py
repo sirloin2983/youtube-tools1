@@ -72,14 +72,15 @@ def check_args(case=None, kind=None, n=None, skip=None, lane=None):
 
 def next_cards(ctx, case=None, kind=None, n=None, skip=None, lane=None):
     """-> {rev, lane, cards, counts: {today, perKind, failed}, goal, goals, total, held, failed, errors}。引数の誤りは ValueError。
-    lane のカードの種類だけを出す(評価のレーンの区間カードは普段のレーンに出ない・その逆も)"""
+    lane のカードの種類だけを出す(評価のレーンの区間カードは普段のレーンに出ない・その逆も)。
+    perKind は kind で絞る前の数(画面の種類の切り替えが、選んでいない種類の残りも出すため)。total は絞った後"""
     case, kind, n, skipset, lane = check_args(case, kind, n, skip, lane)
     kinds = lineup.LANES[lane]
     st = answerlog.state(ctx.app_dir)
     cards, errors = _collect(ctx, st)
     answered = set(st.by_card)
-    pool = [c for c in cards if c["id"] not in answered and (case is None or (c.get("case") or {}).get("id") == case)
-            and c.get("kind") in kinds and (kind is None or c.get("kind") == kind)]
+    every = [c for c in cards if c["id"] not in answered and (case is None or (c.get("case") or {}).get("id") == case) and c.get("kind") in kinds]
+    pool = every if kind is None else [c for c in every if c.get("kind") == kind]
     gk = goals_mod.by_kind(_goals(ctx))
     later = answerlog.read_skips(ctx.app_dir)
     if n:
@@ -92,7 +93,7 @@ def next_cards(ctx, case=None, kind=None, n=None, skip=None, lane=None):
     failed = st.failed()
     _remember(rest[:n])
     return {"rev": st.rev, "lane": lane, "cards": [lineup.public(c) for c in rest[:n]],
-            "counts": {"today": st.today(), "perKind": lineup.per_kind(pool, kinds), "failed": len(failed)},
+            "counts": {"today": st.today(), "perKind": lineup.per_kind(every, kinds), "failed": len(failed)},
             "goal": goals_mod.view(gk.get(first), first) if first else None,
             "goals": {k: goals_mod.view(g, k) for k, g in gk.items()},
             "total": len(pool),

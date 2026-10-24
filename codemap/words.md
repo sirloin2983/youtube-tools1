@@ -6,19 +6,19 @@
 
 - **区間カード** — ③ 確かめる(評価のレーン)の区間カード。設定の鍵と反映・出どころ
   - コード: `checkSectionCardsOn` src/human/check/section.py:242・`src/human/check/section.py`・`src/app/check/eval_sources.py`・`section_eval` src/app/check/eval_sources.py:62
-  - 画面: src/app/ui/check/check.js:275
+  - 画面: src/app/ui/check/check.js:319
 - **機械のカットのカード** — ③ 確かめるの自動カットのカード。鍵・反映・出どころ
   - コード: `checkCutCardsOn` src/human/check/cutcard.py:8・`src/human/check/cutcard.py`・`src/app/check/cut_sources.py`・`cut_edge` src/app/check/cut_sources.py:150
   - 画面: (画面の文字列に無い)
 - **確かめる** — 確かめるの待ち行列(GET /api/check/next)・答えの反映。画面は src/app/ui/check/
   - コード: `src/human/check/apply.py`・`src/app/check/deck.py`・`src/app/check/sources.py`・`next_cards` src/app/check/deck.py:73
-  - 画面: src/app/ui/cases/cases.js:10・src/app/ui/cases/index.html:26・src/app/ui/cases/panels/new.js:10・src/app/ui/check/check.js:275 ほか 10
+  - 画面: src/app/ui/cases/cases.js:10・src/app/ui/cases/index.html:26・src/app/ui/cases/panels/new.js:10・src/app/ui/check/check.js:319 ほか 10
 - **評価のレーン** — 確かめるのうち評価用動画の区間カードの流れ
   - コード: `section_eval` src/app/check/eval_sources.py:62・`src/app/check/eval_sources.py`・`src/app/check/lineup.py`・`src/eval/check/goals.py`
-  - 画面: src/app/ui/check/check.js:273
+  - 画面: src/app/ui/check/check.js:317
 - **普段のレーン** — 確かめるの普段のレーン(この行は声ですか)のカード
   - コード: `speech_diar` src/app/check/speech_sources.py:41・`src/app/check/speech_sources.py`・`src/human/check/speech.py`
-  - 画面: src/app/ui/check/check.js:276
+  - 画面: src/app/ui/check/check.js:320
 - **受け取る** — 友人のアプリの受け取る画面。残す判定と受信箱
   - コード: `src/friendapp/inbox.py`・`receive_view` src/friendapp/inbox.py:1046・`src/friendapp/ui/receive.js`・`Inbox.decide` src/friendapp/inbox.py:740
   - 画面: src/app/ui/cases/panels/cut.js:159・src/app/ui/editor/pack-tab.js:425・src/app/ui/home/portal.js:395・src/friendapp/ui/friend.html:29 ほか 7
@@ -230,7 +230,7 @@
 - 探す地域を選ぶ(2)— src/app/ui/studio/rank.js:278
 - 新しい案件(2)— src/app/ui/home/portal.html:89
 - 既定に戻す(2)— src/friendapp/ui/settings.js:56
-- 普段のレーンへ(2)— src/app/ui/check/check.js:276
+- 普段のレーンへ(2)— src/app/ui/check/check.js:320
 - 更新(2)— src/app/ui/studio/rank.js:482
 - 月報(2)— src/manage/ops/analytics/web/index.html:27
 - 期間(2)— src/app/ui/studio/rank.js:164
@@ -283,7 +283,7 @@
 - 0.25秒(1)— src/app/ui/editor/app-tpl.js:203
 - 0.5秒(1)— src/app/ui/editor/app-tpl.js:203
 - 0件(1)— src/app/ui/studio/review.js:196
-- 1 つ前に戻す(1)— src/app/ui/check/index.html:55
+- 1 つ前に戻す(1)— src/app/ui/check/index.html:56
 - 1. 送る(1)— src/friendapp/ui/guide.html:46
 - 10 字/秒・短い(1)— src/app/ui/editor/app-rows.js:233
 - 100本(1)— src/app/ui/studio/rank.js:175

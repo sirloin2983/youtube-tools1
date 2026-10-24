@@ -179,6 +179,8 @@ class SourcesTest(unittest.TestCase):
         self.assertEqual(deck.next_cards(self.ctx, n=0)["cards"], [])
         only = deck.next_cards(self.ctx, kind="voice", n=50)
         self.assertEqual({c["kind"] for c in only["cards"]}, {"voice"})
+        self.assertEqual(only["counts"]["perKind"], got["counts"]["perKind"])   # 種類で絞っても、種類ごとの数は絞る前(画面の切り替えの数)
+        self.assertEqual(only["total"], got["counts"]["perKind"]["voice"])
         self.assertEqual(only["goal"]["kind"] if only["goal"] else "voice", "voice")
         mine = deck.next_cards(self.ctx, case=VID, n=50)
         self.assertEqual({c["case"]["id"] for c in mine["cards"]}, {VID})

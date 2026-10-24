@@ -7,7 +7,7 @@
 Z で 1 つ前に戻す(undo の id・カードが戻る・今日の数)/ N で飛ばす(skip を送る・Z では戻らない)/ 答えのボタン = キーと同じ道 /
 読みのカード(1 / 2・3 で打って答える)/ 誰の声のカード = 再生が終わるまで Enter は効かない・自動で再生して区間で止まる・登録簿の人・混ざり /
 時刻のカード = 波形の帯・単語の時刻の候補・H と ← で端を動かして答える / 声ですか(speech)/ 自動カット(cut)の 3 つの問い /
-評価のレーン(lane=eval・まとめて文字起こし・区間カード)/ 10 件ごとのまとめ(Enter で続ける)/
+種類の切り替え(残りの枚数・覚える・URL の kind が先)/ 評価のレーン(lane=eval・まとめて文字起こし・区間カード)/ 10 件ごとのまとめ(Enter で続ける)/
 全部答えた空の状態(back=cases なら案件へ戻る)/ 答えを記録できない(カードが戻る)・離れたら保留を確定 / 一覧を読めない(もう一度)・反映できなかった数 /
 本物の口(src/app/check/deck.py)で空 / 版と appnav の今の場所(ヘッダーの部品の並びは ui_audit の A-28)/ コンソールにエラーが無い。"""
 import json
@@ -91,10 +91,13 @@ class FakeQueue:
                 done = {a["body"]["card"] for a in self.live_answers()} | set(self.skipped)
                 skip = set((q.get("skip") or [""])[0].split(",")) if q.get("skip") else set()
                 n = int((q.get("n") or ["10"])[0])
-                rest = [c for c in self.cards if c["id"] not in done and c["id"] not in skip]
+                every = [c for c in self.cards if c["id"] not in done and c["id"] not in skip]
+                kind = (q.get("kind") or [""])[0]
+                rest = [c for c in every if not kind or c["kind"] == kind]
+                per = {k: len([c for c in self.cards if c["kind"] == k and c["id"] not in done]) for k in ("value", "read", "voice", "time", "speech", "cut")}   # 本物と同じく skip は数から外さない
                 values = len([a for a in self.live_answers() if a["body"]["card"].startswith("value:")])
                 body = {"rev": len(self.answers), "cards": rest[:n], "total": len(rest),
-                        "counts": {"today": len(self.live_answers()), "perKind": {}, "failed": self.failed},
+                        "counts": {"today": len(self.live_answers()), "perKind": per, "failed": self.failed},
                         "goal": {"kind": "value", "id": "marks", "label": "採用の記録 配信 10 本", "left": max(0, 2 - values), "target": 10, "unit": "本",
                                  "opens": "C1 盛り上がりの重み(I-4a)", "now": 8 + values, "reached": False},
                         "goals": {"value": {"kind": "value", "id": "marks", "label": "採用の記録 配信 10 本", "left": max(0, 2 - values), "target": 10, "unit": "本",
@@ -506,6 +509,40 @@ def _scene_eval_lane(cx):
         _restore_queue(cx, eval_routes)
 
 
+def _scene_kind_pick(cx):
+    """種類の切り替え: 残りの枚数(0 は薄い)・押すと口へ kind を渡してその種類だけ・押した後のキーはカードへ・次に開いても同じ種類・URL の kind が先"""
+    pg, check = cx.pg, cx.check
+    fk = FakeQueue([card(81, "value", options=["good", "bad"]), card(82, "value", options=["good", "bad"]),
+                    card(83, "read", source="fill", guess="1", options=[{"id": "1", "text": "負けないからね"}, {"id": "2", "text": "まけないからね"}]),
+                    card(84, "speech", source="diar", options=["keep", "drop"])])
+    _swap_queue(cx, fk)
+    pills = "[...document.querySelectorAll('#chkKinds [data-chk-kind]')].map(b => [b.dataset.chkKind, b.querySelector('.chk-kn').textContent, b.getAttribute('aria-pressed'), b.classList.contains('chk-k0')])"
+    try:
+        pg.goto(cx.base + "check")
+        check(wait_js(pg, "CheckShell.state().cur === 'value:e2e:81'"), "全部の種類で開く: %s" % state(pg))
+        got = pg.evaluate(pills)
+        check(got == [["", "4", "true", False], ["voice", "0", "false", True], ["read", "1", "false", False], ["time", "0", "false", True],
+                      ["speech", "1", "false", False], ["value", "2", "false", False], ["cut", "0", "false", True]],
+              "切り替え: 全部が選ばれ、残りの枚数・0 の種類は薄い: %s" % got)
+        pg.click("#chkKinds [data-chk-kind=read]")
+        check(wait_js(pg, "CheckShell.state().cur === 'read:e2e:83'") and fk.next_q[-1].get("kind") == ["read"], "読みを押すと kind=read で読み直す: %s" % fk.next_q[-1:])
+        check(pg.evaluate("document.activeElement === document.body") and "kind=read" in pg.url, "押した後は切り替えから外れる・URL も読み: %s" % pg.url)
+        press(pg, "1")
+        check(wait_for(lambda: fk.answers and fk.answers[-1]["body"]["card"] == "read:e2e:83"), "押した後の数字キーはカードの答え: %s" % fk.answers[-1:])
+        check(wait_js(pg, "CheckShell.state().empty"), "読みが尽きたら空の状態: %s" % state(pg))
+        pg.goto(cx.base + "check")
+        check(wait_js(pg, "CheckShell.state().want.kind === 'read'") and pg.get_attribute("#chkKinds [data-chk-kind=read]", "aria-pressed") == "true",
+              "次に開いても読みのまま(覚えている): %s" % state(pg)["want"])
+        pg.goto(cx.base + "check?kind=speech")
+        check(wait_js(pg, "CheckShell.state().cur === 'speech:e2e:84'"), "URL の kind が覚えた種類より先: %s" % state(pg))
+        pg.click("#chkKinds [data-chk-kind='']")
+        check(wait_js(pg, "CheckShell.state().cur === 'value:e2e:81'") and "kind" not in fk.next_q[-1], "全部に戻す: %s" % fk.next_q[-1:])
+        pg.goto(cx.base + "check")
+        check(wait_js(pg, "CheckShell.state().want.kind === ''"), "全部も覚える")
+    finally:
+        _restore_queue(cx)
+
+
 def wait_for(fn, timeout=8):
     return testkit.wait_for(fn, timeout, 0.1)
 
@@ -575,6 +612,7 @@ def main():
                 _scene_voice(cx)
                 _scene_speech(cx)
                 _scene_cut(cx)
+                _scene_kind_pick(cx)
                 _scene_eval_lane(cx)
                 check(all("lane" not in q for q in fq.next_q), "普段のレーンは lane=eval を渡さない")
                 _scene_real_api(cx)

@@ -1,6 +1,8 @@
 /* 確かめる(/check = 入口の直下の 1 枚。部品は src/app/ui/check/。RS8 V1 = 殻。作り方 notes:docs/design/v1-check-build.md・何を作るか notes:docs/design/briefs/rs8-cases/DESIGN_BRIEF.md 2-3・3)。
    案件をまたいだ軽い確認の待ち行列を 1 枚ずつカードで出し、答えたらすぐ次へ。Z で 1 つ前に戻す・[飛ばす](N)はその日は後ろへ・10 件ごとに小さなまとめ。
-   URL: /check?c=<案件 id>(その案件だけ)&kind=value|read|voice|time|speech(この種類だけ)&back=cases(終わったら案件へ戻るボタン)。URL を開いただけでは何も書かない。
+   URL: /check?c=<案件 id>(その案件だけ)&kind=value|read|voice|time|speech|cut(この種類だけ)&back=cases(終わったら案件へ戻るボタン)。URL を開いただけでは何も書かない。
+   種類の切り替え(普段のレーンの上): 全部・誰の声・読み・時刻・声かどうか・価値・カット と残りの枚数(counts.perKind = 種類で絞る前の数)。
+   押した種類はこのブラウザに覚える(localStorage の check.kind)。URL の kind があればそちらが先(覚えた物は変えない)。
    レーン(C-EVAL): 普段(既定)/ 評価(?lane=eval = 評価用の動画の区間カード section だけ。頭に評価用の一括の 始める / 止める / 進み具合・定点の「あと何分」・
    未確認の本数。transcribe/api/eval-batch・transcribe/api/drill/status を直に読む)。評価のカードは普段に出ない・その逆も。
    読む口・書く口(入口。入口 src/app/check/ が数えて並べ、③ src/human/check/apply.py が実物に反映する。V0):
@@ -121,7 +123,9 @@
     queue: [], seen: {}, cur: null, view: null, players: [], shownAt: 0,
     hist: [],            // 答えたカード [{card, p: 答えの id の Promise}](Z で新しい方から戻す)
     today: 0, answered: 0, goal: null, goals: {}, failedCount: 0, sum: false,
-    loading: null, exhausted: false, failed: null, keys: null
+    loading: null, exhausted: false, failed: null, keys: null,
+    perKind: null,       // 種類ごとの残り(種類で絞る前。切り替えの数)
+    gen: 0               // 種類を切り替えた回数(切り替える前に出した読み込みの返事を捨てる)
   };
 
   function api(path, opt) {
@@ -136,6 +140,41 @@
     var q = new URLSearchParams(location.search), c = q.get('c') || '', kind = q.get('kind') || '', lane = q.get('lane') === 'eval' ? 'eval' : '';
     if (KIND_TEXT[kind] && !!EVAL_KINDS[kind] !== (lane === 'eval')) kind = '';   // レーンの種類だけ(違えば種類の指定を捨てる)
     return { c: lane ? '' : (/^[A-Za-z0-9_-]{1,64}$/.test(c) ? c : ''), kind: KIND_TEXT[kind] ? kind : '', back: !lane && q.get('back') === 'cases' ? 'cases' : '', lane: lane };
+  }
+  /* ---- 種類の切り替え(普段のレーンだけ。評価のレーンは区間カードの 1 種類)---- */
+  var KIND_PICK = [['', '全部'], ['voice', '誰の声'], ['read', '読み'], ['time', '時刻'], ['speech', '声かどうか'], ['value', '価値'], ['cut', 'カット']];
+  var KIND_KEY = 'check.kind';
+  function savedKind() {
+    try { var v = localStorage.getItem(KIND_KEY) || ''; return KIND_TEXT[v] && !EVAL_KINDS[v] ? v : ''; } catch (e) { return ''; }
+  }
+  function saveKind(k) { try { localStorage.setItem(KIND_KEY, k); } catch (e) { /* 覚えられなくても今の画面は変える */ } }
+  function renderKinds() {
+    var box = $('#chkKinds');
+    if (S.want.lane === 'eval') { box.hidden = true; return; }
+    var per = S.perKind || {}, all = 0;
+    KIND_PICK.forEach(function (p) { if (p[0]) all += Math.max(0, +per[p[0]] || 0); });
+    box.innerHTML = KIND_PICK.map(function (p) {
+      var n = p[0] ? Math.max(0, +per[p[0]] || 0) : all, known = !!S.perKind;
+      return '<button type="button" data-chk-kind="' + esc(p[0]) + '" aria-pressed="' + (S.want.kind === p[0]) + '"' + (known && !n ? ' class="chk-k0"' : '') +
+        ' title="' + esc((p[0] ? KIND_TEXT[p[0]] : 'どの種類も') + (known ? '(残り ' + n + ' 枚)' : '')) + '">' + esc(p[1]) +
+        '<span class="chk-kn">' + (known ? n : '–') + '</span></button>';
+    }).join('');
+    box.hidden = false;
+  }
+  function pickKind(k) {
+    if (k === S.want.kind) return;
+    S.want.kind = k;
+    saveKind(k);
+    try {   // 再読み込みでも同じ種類に(URL の kind は覚えた物より先なので書き換えておく)
+      var u = new URL(location.href);
+      if (k) u.searchParams.set('kind', k); else u.searchParams.delete('kind');
+      history.replaceState(history.state, '', u.pathname + u.search + u.hash);
+    } catch (e) { /* URL が古いだけ */ }
+    S.gen++;
+    unmountCard();
+    S.cur = null; S.queue = []; S.loading = null; S.exhausted = false; S.failed = null; S.sum = false; S.goal = null;
+    renderKinds();
+    show();
   }
   function backHref() { return S.want.back === 'cases' && S.want.c ? 'cases?c=' + encodeURIComponent(S.want.c) : ''; }
   function nextQuery(n) {
@@ -177,6 +216,7 @@
     if ('goal' in j) S.goal = j.goal && typeof j.goal === 'object' ? j.goal : null;
     if (j.goals && typeof j.goals === 'object') S.goals = j.goals;
     if ('sectionCards' in j) S.sectionCards = j.sectionCards === true;
+    if (j.counts && j.counts.perKind && typeof j.counts.perKind === 'object') { S.perKind = j.counts.perKind; renderKinds(); }
     renderBand();
   }
 
@@ -185,7 +225,9 @@
     if (S.loading || S.exhausted) return S.loading || Promise.resolve();
     var want = KEEP - S.queue.length;
     if (want <= 0) return Promise.resolve();
+    var gen = S.gen;
     S.loading = api(nextQuery(want)).then(function (j) {
+      if (gen !== S.gen) return;   // 切り替える前の種類の返事
       S.loading = null; S.failed = null;
       takeCounts(j);
       var got = (Array.isArray(j.cards) ? j.cards : []).filter(function (c) {
@@ -196,6 +238,7 @@
       S.queue = S.queue.concat(got);
       renderQueue();
     }, function (e) {
+      if (gen !== S.gen) return;
       S.loading = null; S.failed = e;
       throw e;
     });
@@ -237,7 +280,8 @@
       if (S.loading || (!S.exhausted && !S.failed)) {
         $('#chkEmpty').innerHTML = '<p class="hint chk-loading" role="status">確認を読み込んでいます…</p>';
         $('#chkEmpty').hidden = false;
-        fill().then(show, showFail);
+        var gen = S.gen;
+        fill().then(function () { if (gen === S.gen) show(); }, function (e) { if (gen === S.gen) showFail(e); });
         return renderKeys();
       }
       if (S.failed) return showFail(S.failed);
@@ -496,6 +540,14 @@
       if (j && j.version) { $('#ver').textContent = 'v' + j.version; if (UIKit.appnav && UIKit.appnav.setVersion) UIKit.appnav.setVersion('v' + j.version); }
     }, function () { /* 版が出ないだけ */ });
     S.want = readUrl();
+    if (!S.want.lane && !S.want.kind) S.want.kind = savedKind();
+    renderKinds();
+    $('#chkKinds').addEventListener('click', function (e) {
+      var b = e.target.closest ? e.target.closest('[data-chk-kind]') : null;
+      if (!b) return;
+      b.blur();   // 押したあとの Space・Enter・数字キーを切り替えに取らせない(カードと再生のキーへ)
+      pickKind(b.getAttribute('data-chk-kind') || '');
+    });
     Array.prototype.forEach.call(document.querySelectorAll('[data-chk-lane]'), function (a) {
       if ((a.getAttribute('data-chk-lane') === 'eval') === (S.want.lane === 'eval')) a.setAttribute('aria-current', 'page');
     });

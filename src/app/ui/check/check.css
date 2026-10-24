@@ -72,6 +72,16 @@
 
 /* レーン(普段 / 評価。C-EVAL)と評価のレーンの頭(評価用の一括・定点) */
 .chk-lanes{display:inline-flex;margin:0 0 10px}
+
+/* 種類の切り替え(普段のレーンだけ)。レーンのタブと同じ行に置く(縦に積むと 960×800 で答えのボタンの下が詰まる)・
+   狭いと折り返す・残り 0 の種類は薄く(選べる) */
+.chk-kinds{display:inline-flex;flex-wrap:wrap;vertical-align:top;margin:0 0 10px 12px}
+.chk-kinds[hidden]{display:none}
+.chk-kinds>button{display:inline-flex;align-items:center;gap:6px}
+.chk-kinds .chk-kn{font:600 11.5px/1 var(--mono);font-variant-numeric:tabular-nums;color:var(--ink-3)}
+.chk-kinds>button[aria-pressed=true] .chk-kn{color:var(--accent)}
+.chk-kinds>button.chk-k0{color:var(--ink-3)}
+.chk-kinds>button.chk-k0:not([aria-pressed=true]){opacity:.6}
 .chk-evalhead{margin:0 0 12px;padding:12px 14px}
 .chk-evalhead p{margin:4px 0}
 .chk-evalbatch{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
