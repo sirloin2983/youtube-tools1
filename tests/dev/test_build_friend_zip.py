@@ -577,5 +577,19 @@ class UpdateMarkTest(unittest.TestCase):
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
+    def test_queue_and_publish_exceptions(self):
+        """ふだんは --queue で積むだけ・--publish は配る回(--from-queue)か種類 4・2 の --important だけ(まとめて配る決め)"""
+        from human.friend import pubqueue
+        d = tempfile.mkdtemp()
+        try:
+            with mock.patch.object(B.datadir, "locate", return_value=d):
+                self.assertEqual(B.main(["--queue", "--note", "直した"]), 0)
+                self.assertEqual([x["note"] for x in pubqueue.items(d)], ["直した"])
+                for argv in (["--queue"], ["--publish"], ["--publish", "--important", "--fix-kind", "1"], ["--from-queue"]):
+                    with self.assertRaises(SystemExit):
+                        B.main(argv)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
 if __name__ == "__main__":
     unittest.main()

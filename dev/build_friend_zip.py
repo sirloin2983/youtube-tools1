@@ -20,6 +20,12 @@ config.json(Dropbox の鍵)は入れない。--first --with-key のときだけ 
         latest.json に light {file, size, sha256} を足す(file は全部入りのまま。友人のアプリは light が写せなければ file を取る。src/friendapp/sync.py)。
     --publish(--out なし): <ホームの設定の intake.folder>/更新/ へ light → 全部入り → latest.json → versions.json の順(古い zip は全部入り 3 版・軽い 10 版を残して消す。(f1h))。
         台帳の行に配った時刻 publishedAt(ミリ秒。版の見張り human/friend/upwatch が「配って 24 時間」を数える)
+    --queue --note "<直した一言>": 友人の zip を配る待ちの列に積むだけ(作らない・配らない。友人の zip はまとめて配る決め・10-25 ユーザー)。
+        入口の見回り(human/friend/pubqueue)が 3 時間ごと(0・3・6・9・12・15・18・21 時)に、積まれていれば main の今の版を 1 回だけ
+        --publish --from-queue で配る。子のセッション・AI はふだんこれを使う
+    --publish はすぐ配る例外だけ: --from-queue(配る回)か、--important --fix-kind 4(起動しない・更新で壊れた)/ 2(録画そのものが動かない)。
+        どちらも列に積んだ物を一緒に乗せ、積んだ一言の一覧を latest.json と台帳の changes(この版で直したこと)に入れて、配れたら列から外す。
+        --from-queue で配れなかったら知らせの一覧(human/friend/upwatch の alerts.jsonl)へ書く
     --rollback <版 か prev> [--why 文]: 友人の PC へ「この版に戻して」の印 <intake.folder>/診断/戻して/rollback-<ミリ秒>.rollback.json
         {v:1, id, at, to(版 か null = 友人の PC に残る確かに動いた版), why} を置く(問題 4・10-25。友人のアプリが戻して印を消し、
         結果を 診断/ の launcher__fail-<13 桁>.fail.json(kind rollback)で返す = 版の見張り human/friend/upwatch が最上の急ぎで知らせる)
@@ -61,6 +67,7 @@ DEV = os.path.dirname(os.path.abspath(__file__))
 if DEV not in sys.path:
     sys.path.insert(0, DEV)
 from ytt import datadir, fsio as _fsio, version as _version, workdata  # noqa: E402
+from human.friend import pubqueue as _pubqueue, upwatch as _upwatch  # noqa: E402  配る待ちの列と知らせの一覧
 from pipeline.transcribe import diarize as _diarize, separate as _separate, tx_engines as _tx  # noqa: E402  取る物の表の正(写さない)
 import _common  # noqa: E402
 import push_helper  # noqa: E402  個人データの名前の表を流用する
@@ -793,6 +800,9 @@ def main(argv=None):
     ap.add_argument("--with-key", action="store_true", help="--first のときだけ: friend-apps/launcher/config.json(Dropbox の鍵)を入れる")
     ap.add_argument("--no-fetch", action="store_true", help="キャッシュに無い物を取りに行かない(無ければ失敗)")
     ap.add_argument("--withdraw", default="", help="配った版を取り下げる(更新の置き場所から zip を外して手元へ移す・台帳から消す・latest.json を前の良い版へ)")
+    ap.add_argument("--queue", action="store_true", help="友人の zip を配る待ちの列に積むだけ(ふだんはこれ。3 時間ごとにまとめて配る)")
+    ap.add_argument("--note", default="", help="--queue・--publish: この版で直した一言(友人のアプリの「最近の更新」に出る。200 字まで)")
+    ap.add_argument("--from-queue", action="store_true", help="--publish のときだけ: 入口の配る回が使う(列の分を配る)")
     ap.add_argument("--rollback", default="", metavar="VER", help="友人の PC へ「この版に戻して」の印を置く(版 X.Y.Z か prev = 友人の PC に残る確かに動いた版)")
     ap.add_argument("--why", default="", help="--rollback の理由(300 字まで)")
     ap.add_argument("--important", action="store_true", help="latest.json に「重要」の印を付ける(友人のアプリの更新の決め)")
@@ -806,6 +816,20 @@ def main(argv=None):
         ap.error("--with-key は --first のときだけ使えます")
     if a.publish and (a.out or a.first):
         ap.error("--publish は --out・--first と一緒に使えません")
+    if a.from_queue and not a.publish:
+        ap.error("--from-queue は --publish のときだけ使えます")
+    app = datadir.locate("app", SRC)
+    if a.queue:
+        if a.publish or a.first or a.out:
+            ap.error("--queue は積むだけです(--publish・--first・--out と一緒に使えません)")
+        if not a.note.strip():
+            ap.error("--queue には --note \"<直した一言>\" が要ります")
+        row = _pubqueue.add(app, a.note, _version.VERSION, by=os.environ.get("CLAUDE_SESSION_NAME", ""))
+        say("配る待ちの列に積みました(版 %s・%s)。3 時間ごとの配る回でまとめて配ります(今の列: %d 件)" % (row["version"], row["note"], len(_pubqueue.items(app))))
+        return 0
+    if a.publish and not a.from_queue and not (a.important and set(a.fix_kind) & {2, 4}):
+        ap.error("友人の zip はふだん --queue で積みます。すぐ配るのは --publish --important --fix-kind 4(起動しない・更新で壊れた)か 2(録画そのものが動かない)だけです")
+    started = int(time.time() * 1000)
     try:
         if a.rollback:   # 戻す印: 置き場所は受付のフォルダ(Dropbox)の 診断/戻して/
             rollback(os.path.dirname(default_out(False, True)), None if a.rollback == "prev" else a.rollback, a.why)
@@ -814,6 +838,10 @@ def main(argv=None):
             withdraw(a.out or default_out(False, True), a.withdraw, os.path.join(datadir.locate("app", SRC), "friend-withdrawn"))
             return 0
         a.mark = update_mark(a.important, a.fix_request, a.fix_kind)
+        if a.publish:   # 列に積んだ物も一緒に乗せる(この版で直したこと)
+            done = _pubqueue.changes([x for x in _pubqueue.items(app) if (x.get("at") or 0) <= started] + [{"note": a.note.strip()[:_pubqueue.NOTE_MAX]}])
+            if done:
+                a.mark["changes"] = done
         if a.mark and a.first:
             raise BuildError("--important・--fix-* は --first では使えません(latest.json を書かない)")
         out = a.out or default_out(a.first, a.publish)
@@ -825,7 +853,11 @@ def main(argv=None):
             got = build(out, a.cache, a.wcpp, first=a.first, with_key=a.with_key, fetch=not a.no_fetch, mark=a.mark)
     except (BuildError, OSError) as e:
         say("[失敗] %s" % e)
+        if a.from_queue:
+            _upwatch.add_alert(app, "warn", "publish-fail:%d" % started, "まとめて配る回で友人の zip を配れませんでした(列は残しました・次の回にまた配ります): %s" % str(e)[:300])
         return 1
+    if a.publish:
+        _pubqueue.take(app, started)   # 配れた分を列から外す(配っている間に積んだ物は次の回へ)
     say("できました: %s(%.1f MB・%d ファイル)" % (got["zip"], got["size"] / 1e6, got["files"]))
     if got.get("light"):
         say("軽い更新: %s(%.1f MB)" % (got["light"]["zip"], got["light"]["size"] / 1e6))

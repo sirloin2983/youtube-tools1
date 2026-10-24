@@ -108,6 +108,16 @@ def alerts(app_dir, now=None, days=KEEP_DAYS):
     return sorted(out, key=lambda r: r.get("at") or 0, reverse=True)
 
 
+def add_alert(app_dir, level, key, text, now=None):
+    """知らせを 1 行足す(ほかの見張り = 配る回 human/friend/pubqueue・配る道具が使う。1 つの鍵に 1 回)-> 足したら True"""
+    root = _root(app_dir)
+    os.makedirs(root, exist_ok=True)
+    if any(a.get("key") == key for a in fsio.iter_jsonl(os.path.join(root, ALERTS_NAME))):
+        return False
+    fsio.append_jsonl(os.path.join(root, ALERTS_NAME), [{"at": int((time.time() if now is None else now) * 1000), "level": level, "key": key, "text": text}])
+    return True
+
+
 def scan(sync_folder, app_dir, clock=None, log=None):
     """見張りの 1 回: 配った版・友人の今の版・最後に届いた時刻を並べて持ち、知らせる物があれば alerts.jsonl に 1 行(1 つの鍵に 1 回)"""
     clock, log = clock or time.time, log or (lambda m: None)

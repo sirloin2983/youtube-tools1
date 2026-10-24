@@ -132,10 +132,11 @@ PROMPT = """あなたは youtube-tools の道具が自動で起こした Claude 
 SCOPE_PLAN = """- 今は案だけです(YTT_FRIEND_BUG_AI_LAND=0): 調べる・テストを流す・直し方の案を書く、だけ。
   land・友人の zip の配布・こちらの PC で作って届けること・Dropbox の物を置き直すことはしません(案に書く)。
 """
-SCOPE_LAND = """- 使ってよい道具は、調べる・直す・テストを流す・`py -3.12 dev/land.py` で main に入れる・`py -3.12 dev/build_friend_zip.py --publish` で友人の zip を配る、だけです。
-  `--skip-preflight` は使いません。配るときは今日の決めの印を付けます(`--fix-request <依頼 id>`・`--fix-kind <種類の番号>`・種類 2 か 4 なら `--important`)。
-  友人の zip はライブ中に配りません(配る前に http://localhost:8700/api/flow/status の live の
-  recording・detecting・exporting が全部 0 か確かめる)。
+SCOPE_LAND = """- 使ってよい道具は、調べる・直す・テストを流す・`py -3.12 dev/land.py` で main に入れる・友人の zip を配る待ちの列に積む、だけです。
+  友人の zip は `py -3.12 dev/build_friend_zip.py --queue --note "<直した一言>"` で積みます(入口が 3 時間ごとにまとめて配る)。
+  すぐ配るのは、種類 4(起動しない・更新で壊れた)と種類 2 の録画そのものが動かない直しだけで、
+  `py -3.12 dev/build_friend_zip.py --publish --important --fix-kind <4 か 2> --fix-request <依頼 id> --note "<直した一言>"` を使います。
+  `--skip-preflight` は使いません。
 - 小さな直し(変えた行が 100 行くらいまで・機能を消さない・データを消さない・友人に届く物の中身や既定を変えない・テストが全部通る)は、
   自動で land して、友人に関わるなら zip も配ります。それを超える物は直さず、調べた結果と直し方の案だけを書きます(判断はユーザーが)。
 - 触ってはいけないファイル(src/friendapp/sync.py の取り込み・src/friendapp/inbox.py の状態・friend-apps/launcher・dev/build_friend_zip.py)に
