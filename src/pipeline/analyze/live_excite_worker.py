@@ -87,6 +87,12 @@ ANCHOR_TOL = 2             # 測った値の箱の位置が、受信時刻から
 GAP_MIN = 5                # これより長い飛びを「欠け」として覚える(短い飛びは埋めるだけ)
 GAP_MARGIN = 5             # 欠けの前後この秒数は帳簿に 0 を渡す(山を作らない。仮決め)。配信の終わりの本数の埋め(QUOTA)も同じ幅を外す
 GAPS_KEEP = 2000           # 本数の埋めのために state.json に残す欠けの数の上限(古い方から捨てる)
+# チャットの穴(yt-dlp が止まって起動し直す間 = チャットの状態が restarting のうちに、チャットが届かないまま grace で進めた秒が続いた所)。
+# 穴の間はチャットが 0 で、チャットの「ふだん」が下がるので、つながり直したあとのふつうのチャットで点数が上がる
+# (本物の series に穴を作って配信中の式で測った: 穴 120 秒で合計の増え 最大 0.28・300 秒で 0.52・600 秒で 1.33・900 秒で 3.06。0.5 以上の増えは穴のあと最長 773 秒)。
+# 本数の埋め(QUOTA)は CHAT_HOLE_MIN 秒以上の穴の GAP_MARGIN 秒前から、穴のあと CHAT_HOLE_AFTER 秒までの山を使わない
+CHAT_HOLE_MIN = 120
+CHAT_HOLE_AFTER = 780
 CHAT_GRACE = 40.0          # チャットの続きが来なくても、受信時刻からこれだけたった秒は進める(静かなチャットで止まらない。yt-dlp の書き出しは約 21 秒遅れる = L0 の実測)
 LAG_FIRST, LAG_EVERY, LAG_SPAN, LAG_STEP = 600, 300, 1800, 3   # 遅れの推定(0-10-3 の 4)
 CHAT_LIMIT = 64 * 1024 * 1024    # チャットのファイルがこれを超えたら新しいファイルへ(0-10-5)
@@ -759,6 +765,8 @@ class RecState:
         self.gaps = []              # [[から, まで)](欠け。帳簿の前後 GAP_MARGIN 秒に使うので、過ぎたものは数だけ残す)
         self.gap_count = 0
         self.gaps_all = []          # [[から, まで)](欠けの全部。配信中は過ぎた欠けを gaps から捨てるので、締めの本数の埋めはこちらを見る)
+        self.chat_holes = []        # [[から, まで)](チャットの穴。上の CHAT_HOLE_MIN 以上の物)
+        self.chat_run = None        # [から, まで, 起動し直しを見たか](チャットが届かないまま進めている秒の続き)
         self.skipped = []           # [{from, to, since, until, done, pos?, sec?, capped?}](遅れて飛ばした区間。配信が終わったら測り直す。pos = 測り直したセグメントの数)
         self.late_from = None       # 録画の途中から受け持ったとき、測り始めた秒(それより前は測らない)
         self.last_error = ""        # 最後にログに書いた内部エラー(同じものは 1 回だけ書く)
@@ -783,6 +791,7 @@ class RecState:
                 "useChat": self.use_chat, "chatState": self.chat_state, "online": self.online.to_json(), "book": self.book.to_json(),
                 "segSince": self.seg_since, "nextBox": self.next_box, "nextPush": self.next_push, "audio": self.audio, "lastAudio": self.last_audio,
                 "chatBins": self.chat_bins, "chatWm": self.chat_wm, "raw": self.raw, "gaps": self.gaps, "gapCount": self.gap_count, "gapsAll": self.gaps_all,
+                "chatHoles": self.chat_holes, "chatRun": self.chat_run,
                 "skipped": self.skipped, "minute": self.minute, "lagA": self.lag_a, "lagC": self.lag_c, "nextLagAt": self.next_lag_at,
                 "decN": self.dec_n, "chat": self.chat_snap, "chatInfo": self.chat_info, "late": self.late, "errors": self.errors, "ending": self.ending,
                 "bookDone": self.book_done, "finished": self.finished, "message": self.message,
@@ -813,6 +822,8 @@ class RecState:
         st.gaps = [list(x) for x in d.get("gaps") or []]
         st.gap_count = int(d.get("gapCount") or 0)
         st.gaps_all = [list(x) for x in (d["gapsAll"] if isinstance(d.get("gapsAll"), list) else st.gaps)]   # 無い = 前の版の状態(残っている欠けだけ)
+        st.chat_holes = [list(x) for x in d.get("chatHoles") or []]
+        st.chat_run = list(d["chatRun"]) if isinstance(d.get("chatRun"), list) and len(d["chatRun"]) == 3 else None
         st.skipped = [dict(x) for x in d.get("skipped") or []]
         st.minute = d.get("minute")
         st.lag_a, st.lag_c = list(d.get("lagA") or []), list(d.get("lagC") or [])
@@ -861,6 +872,7 @@ class RecState:
         if not self.use_chat:
             return
         d = self.online.to_json()
+        self.close_chat_hole()
         self.use_chat = False
         self.online = excite.Online(use_chat=False, **self.args).load(d)
         self.fast = None   # 本番がチャットを待たなくなったので、先回りは要らない(出ている仮の候補は本番が置き換えるか、外す)
@@ -991,6 +1003,8 @@ class RecState:
                 break
             if t % 10 == 0:
                 self.apply_thr()
+            if self.use_chat:
+                self.track_chat_hole(t)
             full, band = self.audio.pop(t)
             act = self.chat_bins.pop(t, 0.0) if self.use_chat else 0.0
             self.raw[t] = [full, band, act]
@@ -999,6 +1013,23 @@ class RecState:
             self.next_push = t + 1
             n += 1
         return n
+
+    def track_chat_hole(self, t):
+        """チャットを使う録画で秒 t を Online へ渡すとき: チャットが t まで届いていなければ続きに足し(起動し直し中かも覚える)、届いていれば閉じる"""
+        if self.chat_wm >= t + 1:
+            self.close_chat_hole()
+            return
+        if self.chat_run is None:
+            self.chat_run = [t, t + 1, False]
+        self.chat_run[1] = t + 1
+        self.chat_run[2] = self.chat_run[2] or self.chat_state == "restarting"
+
+    def close_chat_hole(self):
+        """続きを閉じる: 起動し直しを見ていて CHAT_HOLE_MIN 秒以上ならチャットの穴として残す(静かなだけのチャットは穴にしない)"""
+        r, self.chat_run = self.chat_run, None
+        if r is not None and r[2] and r[1] - r[0] >= CHAT_HOLE_MIN:
+            self.chat_holes.append([r[0], r[1]])
+            del self.chat_holes[:-GAPS_KEEP]
 
     def emit(self, t, total, parts):
         """Online が確定した秒: 帳簿・series・遅れの推定へ"""
@@ -1057,11 +1088,14 @@ class RecState:
         need = max(1, int(math.ceil(self.book.per_hour * self.next_box / 3600.0 - 1e-9)))
         have = self.book.have()
         added = []
+        self.close_chat_hole()
         if on and have < need:
             cols = read_series(os.path.join(self.folder, "series.jsonl"), self.series_out)
             if cols is not None:
-                for a, b in self.gaps_all:   # 欠けの前後は配信中と同じく 0(帳簿に渡した値。欠けの直後は点数が跳ねやすく、中身の無い場面を埋めないため)
-                    for i in range(max(0, a - GAP_MARGIN), min(cols["n"], b + GAP_MARGIN)):
+                cut = [(a - GAP_MARGIN, b + GAP_MARGIN) for a, b in self.gaps_all]   # 欠けの前後は配信中と同じく 0(帳簿に渡した値)
+                cut += [(a - GAP_MARGIN, b + CHAT_HOLE_AFTER) for a, b in self.chat_holes]   # チャットの穴のあとは点数が上がる(上の CHAT_HOLE_MIN)
+                for a, b in cut:
+                    for i in range(max(0, a), min(cols["n"], b)):
                         cols["total"][i] = 0.0
                 added = self.book.fill_quota(cols["total"], cols["full"], {"audio": cols["audio"], "chat": cols["chat"]}, need)
         self.quota = {"need": need, "have": have, "added": len(added), "on": bool(on)}

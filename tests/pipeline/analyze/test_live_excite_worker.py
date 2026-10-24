@@ -1140,6 +1140,36 @@ class WorkerRestTest(unittest.TestCase):
         st.next_box = n
         self.assertEqual([st.book.peaks[i]["peak"] for i in st.quota_fill(True)], [2000])
 
+    def test_quota_fill_skips_chat_holes(self):
+        """チャットの穴(起動し直し中にチャットが届かないまま CHAT_HOLE_MIN 秒以上進めた)のあと CHAT_HOLE_AFTER 秒の山は埋めに使わない。
+        静かなだけ(起動し直しを見ていない)・短い続きは穴にしない。穴は起動し直しても残る"""
+        folder = testkit.tempdir(self, prefix="ytt-quota-chat-")
+        st = W.RecState(folder, "fake", REC, URL, T0, dict(W.SPEC_DEFAULT), {"sens": "normal", "perHour": 1}, True)
+        for t in range(100, 400):   # 静かなだけ
+            st.track_chat_hole(t)
+        st.chat_wm = 401.0
+        st.track_chat_hole(400)
+        st.chat_state = "restarting"
+        for t in range(500, 500 + W.CHAT_HOLE_MIN - 1):   # 起動し直し中でも短い
+            st.track_chat_hole(t)
+        st.chat_wm = 700.0
+        st.track_chat_hole(699)
+        for t in range(1000, 1200):
+            st.track_chat_hole(t)
+        st = W.RecState.from_json(folder, st.to_json(), {"sens": "normal", "perHour": 1})
+        st.chat_wm = 5000.0
+        st.track_chat_hole(1200)
+        self.assertEqual(st.chat_holes, [[1000, 1200]])
+        n = 3600
+        total = [0.0] * n
+        for t in range(1300, 1305):
+            total[t] = 1.8   # 穴のあと(ふだんが下がって跳ねた)
+        for d in range(-6, 7):
+            total[1200 + W.CHAT_HOLE_AFTER + 300 + d] = 1.0 - abs(d) * 0.05
+        st.series_out = [{"t0": m, "total": total[m:m + 60], "audio": total[m:m + 60], "chat": [0.0] * 60, "full": [-30.0] * 60} for m in range(0, n, 60)]
+        st.next_box = n
+        self.assertEqual([st.book.peaks[i]["peak"] for i in st.quota_fill(True)], [1200 + W.CHAT_HOLE_AFTER + 300])
+
     def test_bad_numbers(self):
         self.assertEqual([levels.level(x) for x in ("nan", "inf", "-inf", "1e400", "50", "-12.5", "-120", "x")], [-90.0, -90.0, -90.0, -90.0, levels.LEVEL_MAX, -12.5, -90.0, -90.0])
         with self.assertRaises(ValueError):
