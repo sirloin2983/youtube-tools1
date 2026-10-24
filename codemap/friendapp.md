@@ -39,6 +39,8 @@
   - 名前: `keep_floor` :76・`class Tidy` :161
 - **toolcheck.py** (111 行) — 友人の PC の初回の準備の最後の「道具を動かして確かめる」(F3-5。notes:plan/f1-friend-requirements.md の C-5-2・C-0)。
   - 名前: `run_cmd` :26・`check_tool` :37・`check_tools` :53・`make_wav` :58・`whisper_run` :68・`check_whisper` :76・`signature` :97・`failed` :109
+- **voicesend.py** (142 行) — 友人の PC から送る声の材料(10-24 夜。ユーザー「誰の声をメンバー全員分」。案 = notes:plan/声の材料を友人のPCから-1024.md)。
+  - 名前: `zip_name` :36・`parse_done` :40・`build` :61
 - **ytdlp_update.py** (186 行) — 友人の PC の yt-dlp をいつも新しく(YouTube の bot 判定・仕様の変更に古い yt-dlp は当たりやすい。notes:docs/spec/friend.md の 13-13)。
   - 名前: `record_path` :56・`latest` :63・`probe` :75・`version_of` :85・`mark_ok` :93・`update` :98・`enabled` :151・`maybe_start` :155・`facts` :179
 
@@ -76,4 +78,5 @@
 - tests/friendapp/test_sync.py — src/friendapp/sync.py のテスト(本物の Dropbox につながない = 偽の io。受信箱は本物の一時フォルダ)。
 - tests/friendapp/test_tidy.py — フォルダの整理(friendapp/tidy.py)のテスト。一時フォルダに見本のアプリのフォルダを作る(本物の友人のフォルダ・作業データには触らない)。
 - tests/friendapp/test_toolcheck.py — src/friendapp/toolcheck.py と places の道具の置き方(F3-5)のテスト。本物の道具・文字起こし・ネットは動かさない(偽の run・偽の transcribe)。
+- tests/friendapp/test_voicesend.py — 友人の PC から送る声の材料の通し(src/friendapp/voicesend.py → src/human/friend/voicein.py。10-24 夜)。
 - tests/friendapp/test_ytdlp_update.py — src/friendapp/ytdlp_update.py(yt-dlp をいつも新しく)のテスト。ネットと yt-dlp は偽物(偽の http・偽の run)。
