@@ -1276,11 +1276,12 @@ class PortalServer(httpsec.ExclusiveServer):
                     continue
                 view = check_sources.View(self.check_ctx(), check_answerlog.state(self.cleanup.app_dir))
                 have = check_voice_solo.people(view) | {w for w, _p in check_voicefill.targets()}
-                self._voice_fetch_wants = check_voicefetch.wants(self.cleanup.app_dir, r, have)
+                extra = check_voicefetch.extra_channels(self.sup.root)
+                self._voice_fetch_wants = check_voicefetch.wants(self.cleanup.app_dir, r, have, extra=extra)
                 if not self._voice_fetch_wants or busy():
                     continue
                 check_voicefetch.tick(self.cleanup.app_dir, r, have, busy,
-                                      lambda req: client().ok("transcribe", "POST", "/api/transcribe", req).get("id"), self.sup.log)
+                                      lambda req: client().ok("transcribe", "POST", "/api/transcribe", req).get("id"), self.sup.log, extra=extra)
             except Exception as e:   # noqa: BLE001  (取れなくても入口は止めない)
                 self.sup.log("誰の声の材料(YouTube)を取れませんでした: %r" % (e,))
 

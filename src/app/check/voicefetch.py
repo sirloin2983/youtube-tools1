@@ -1,13 +1,13 @@
 """誰の声の材料が無いメンバーの音を YouTube から少しだけ取る(10-25。ユーザー「全メンバー揃えてほしい」の 2。1 = 手元の学習用データ は voicefill)。
 
-名簿の今のメンバー(ユニットの組・卒業の組は除く)のうち、材料が無い人(手元のソロの文書・覚えた声の登録簿・学習用データ・ここで取った物のどれにも無い)を
+名簿の日本の今のメンバー(EN・ID・ユニット・卒業の組は除く。10-25 ユーザー「EN・ID は外す」)のうち、材料が無い人(手元のソロの文書・覚えた声の登録簿・学習用データ・ここで取った物のどれにも無い)を
 1 人ずつ: チャンネルの RSS(最近の 15 本)から雑談らしい配信を 1 本選び(歌・コラボ・ショートは外す)、その SECTION 秒の所の音だけを
 yt-dlp の --download-sections で取って(音だけ・cookie なし)、「編集」の文字起こしに頼む。できた文書は誰の声のカードだけに使う
 (sources.View.docs が外す = voicefill.in_learn_dir と同じ決まり。見立て = 名前を付けたファイルの名前の人)。
 YouTube の枠は研究と分け合う(印のファイル <app>/check/yt-slot.json):
   last から GAP 秒たっていない・stopDay が今日・last が自分(相手の番を待つ。OWN_WAIT 秒たてば自分でもよい)なら問い合わせない。
   問い合わせたら last・by を書く。bot 判定・ログインを求められたら stopDay = 今日(その日は両方止める)。
-日本のメンバーを先に(友人の切り抜きは日本のメンバーが中心)。途中で残ったファイル(PC の再起動など)は次の回に消して取り直す。
+途中で残ったファイル(PC の再起動など)は次の回に消して取り直す。
 動かす時刻 HOURS。手が空いていない(入口の _accuracy_busy)・ライブの録画中は飛ばす。1 回に 1 人・取った音は <app>/check/voice-fetch/<名前>/ に残す。
 """
 import datetime
@@ -40,18 +40,25 @@ VIDEO_RE = re.compile(r"^[A-Za-z0-9_-]{11}\Z")
 BOT = ("sign in to confirm", "not a bot", "login required", "http error 429", "use --cookies")
 TALK_RE = re.compile(r"雑談|ざつだん|freetalk|free talk|chatting|zatsudan|talk|おしゃべり|朝活|morning", re.I)
 SHORT_RE = re.compile(r"#shorts?\b|\bshorts?\b", re.I)
-SKIP_GROUPS = ("units", "alum")
 NS = {"a": "http://www.w3.org/2005/Atom", "yt": "http://www.youtube.com/xml/schemas/2015"}
 
 
-def members(r):
-    """名簿の今のメンバー [(名前, チャンネル id)](ユニットの組・卒業の組を除く・チャンネルのある人だけ・日本のメンバーが先)"""
-    skip = {n for g in r.get("groups") or () if g.get("id") in SKIP_GROUPS for n in g.get("names") or ()}
-    now = [n for g in r.get("groups") or () if g.get("id") not in SKIP_GROUPS for n in g.get("names") or ()]
-    chan = {m.get("name"): m.get("channel") for m in r.get("members") or () if isinstance(m, dict)}
-    region = {m.get("name"): m.get("region") for m in r.get("members") or () if isinstance(m, dict)}
-    out = [(n, chan[n]) for n in dict.fromkeys(now) if n not in skip and CHANNEL_RE.match(str(chan.get(n) or ""))]
-    return sorted(out, key=lambda x: region.get(x[0]) != "JP")   # 並びの安定 = 名簿の順のまま日本が先
+COLORS_PATH = os.path.join("friend-apps", "holo-colors", "members.json")   # 配信者の色の名簿(リポジトリ。名簿にチャンネルの無い人の控え)
+
+
+def extra_channels(root):
+    """配信者の色の名簿のチャンネル {名前: チャンネル id}(名簿 = 文字起こしの名簿にチャンネルが無い人のため。読めなければ {})"""
+    d = fsio.read_json_or(os.path.join(root, COLORS_PATH), {}, kind=dict) if root else {}
+    return {m["name"]: m["channel"] for g in d.get("groups") or () if isinstance(g, dict) for m in g.get("members") or ()
+            if isinstance(m, dict) and isinstance(m.get("name"), str) and CHANNEL_RE.match(str(m.get("channel") or ""))}
+
+
+def members(r, extra=None):
+    """日本の今のメンバー [(名前, チャンネル id)](flow/voicematerial.jp_members・チャンネルのある人だけ)。r = 名簿のファイルの中身(roster_data)・
+    extra = 名簿にチャンネルが無い人の控え(extra_channels)。EN・ID は外す(10-25 ユーザー)"""
+    chan = dict(extra or {})
+    chan.update({m.get("name"): m.get("channel") for m in r.get("members") or () if isinstance(m, dict) and CHANNEL_RE.match(str(m.get("channel") or ""))})
+    return [(n, chan[n]) for n in _vm.jp_members(r) if CHANNEL_RE.match(str(chan.get(n) or ""))]
 
 
 def _read(path):
@@ -132,28 +139,28 @@ def _fetch(video_id, out_base, timeout=FETCH_TIMEOUT):
     return None, ((r.stderr or "") + (r.stdout or ""))[-400:].strip() or "終了コード %s" % r.returncode
 
 
-def _todo(roster_r, have, state):
-    return [(n, c) for n, c in members(roster_r) if n not in have and not (state.get(n) or {}).get("got")
+def _todo(roster_r, have, state, extra=None):
+    return [(n, c) for n, c in members(roster_r, extra) if n not in have and not (state.get(n) or {}).get("got")
             and len((state.get(n) or {}).get("tried") or []) < MAX_TRIES]
 
 
-def wants(app_dir, roster_r, have, now=None):
+def wants(app_dir, roster_r, have, now=None, extra=None):
     """今 YouTube から取りたいか(動かす時刻・材料の無い人が残っている・枠が空いている)。学習用データの文字起こし(voicefill)はこの間は休む
     = 入口の手の空いた合間をこちらに譲る(10-25: 文字起こしが続いて、こちらがいつ見ても処理中だった)"""
     now = time.time() if now is None else now
     if not ENABLED or not (HOURS[0] <= datetime.datetime.fromtimestamp(now).hour < HOURS[1]):
         return False
-    return bool(_todo(roster_r, have, _read(os.path.join(app_dir, "check", STATE_NAME)))) and slot_free(app_dir, now)[0]
+    return bool(_todo(roster_r, have, _read(os.path.join(app_dir, "check", STATE_NAME)), extra)) and slot_free(app_dir, now)[0]
 
 
-def tick(app_dir, roster_r, have, busy, start_job, log, now=None, rss=None, fetch=None):
+def tick(app_dir, roster_r, have, busy, start_job, log, now=None, rss=None, fetch=None, extra=None):
     """1 回分: 材料の無い人を 1 人取って文字起こしに頼む。-> 頼んだ人の名前か None。have = 材料のある人の名前の集合"""
     now = time.time() if now is None else now
     if not ENABLED or not (HOURS[0] <= datetime.datetime.fromtimestamp(now).hour < HOURS[1]) or busy():
         return None
     st_path = os.path.join(app_dir, "check", STATE_NAME)
     state = _read(st_path)
-    todo = _todo(roster_r, have, state)
+    todo = _todo(roster_r, have, state, extra)
     if not todo:
         return None
     free, why = slot_free(app_dir, now)

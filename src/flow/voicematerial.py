@@ -136,13 +136,33 @@ def roster_people():
 
 
 def roster_data():
-    """今の名簿の中身({}= 名簿が決まっていない・読めない)"""
+    """今の名簿のファイルの中身そのまま({}= 名簿が決まっていない・読めない)。roster.load はチャンネルと地域の欄を落とすので、元のファイルを読む
+    (誰の声の材料を YouTube から取る voicefetch がチャンネルを使う)"""
     if roster.ROSTER is None:
         return {}
-    try:
-        return roster.load(roster.ROSTER)
-    except Exception:
-        return {}
+    from ytt import fsio as _fsio
+    return _fsio.read_json_or(roster.ROSTER, {}, kind=dict)
+
+
+NOT_JP_GROUPS = ("units", "alum")   # 人でない組・卒業の組(と EN・ID の組 en_* / id*)は日本の今のメンバーに数えない
+
+
+def jp_members(raw=None):
+    """日本の今のメンバーの名前(名簿の組の順)。誰の声の全メンバー = この人たち(10-25 ユーザー「EN・ID は外す」)"""
+    raw = roster_data() if raw is None else raw
+    out = []
+    for g in raw.get("groups") or ():
+        gid = str((g or {}).get("id") or "")
+        if gid in NOT_JP_GROUPS or gid.startswith(("en_", "id")):
+            continue
+        out += [n for n in g.get("names") or () if isinstance(n, str) and n not in out]
+    return out
+
+
+def foreign_members(raw=None):
+    """EN・ID の組の人の名前(誰の声のカードに出さない)"""
+    raw = roster_data() if raw is None else raw
+    return {n for g in raw.get("groups") or () if str((g or {}).get("id") or "").startswith(("en_", "id")) for n in g.get("names") or () if isinstance(n, str)}
 
 
 def member(name):

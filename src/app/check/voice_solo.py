@@ -125,6 +125,9 @@ def _select(view):
         info[who] = (docs, sources._num(mine.get("sec")),
                      {(str(x.get("doc")), str(r)) for x in mine.get("learnedFrom") or () if isinstance(x, dict) for r in x.get("rows") or ()},
                      {str(x.get("doc")) for x in mine.get("learnedFrom") or () if isinstance(x, dict)})
+    foreign = _vm.foreign_members()
+    for n in [n for n in info if n in foreign]:   # EN・ID の人のカードは出さない(10-25 ユーザー「EN・ID は外す」。取った音は消さない)
+        info.pop(n)
     people = sorted(info, key=lambda n: (info[n][1] >= need, info[n][1], -len(info[n][0]), n))[:MAX_PEOPLE]   # まだ覚えていない人・材料の少ない人が先
     out = []
     for rank, who in enumerate(people):

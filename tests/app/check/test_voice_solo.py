@@ -168,6 +168,12 @@ class VoiceSoloTest(unittest.TestCase):
             self.assertNotIn("f00000000002", {t for t, _d, _r in targets})   # 動画が無い文書は切り出せない
             self.assertTrue(targets and all(r for _t, _d, r in targets))
 
+    def test_en_id_members_have_no_cards(self):
+        """EN・ID の組の人のカードは出さない(10-25 ユーザー「EN・ID は外す」)"""
+        self.put("e00000000001", doc("IRyS の雑談", updated=999, speakers=[{"id": "S1", "name": "IRyS"}]))
+        self.assertIn("IRyS", voice_solo._vm.foreign_members())
+        self.assertNotIn("e00000000001", {c["target"]["docId"] for c in self.cards()})
+
     def test_songs_are_skipped(self):
         """歌は声を覚える材料にしない(10-24 夜): 題名に歌の印がある配信の文書と、音符のある行。外した数は LAST_SKIPS"""
         self.put("b00000000001", doc("【歌枠】%s のアニソン" % MIKO, updated=999))

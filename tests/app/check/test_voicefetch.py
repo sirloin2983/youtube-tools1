@@ -13,7 +13,7 @@ import _checkkit as kit  # noqa: E402
 
 from app.check import voicefetch as VF, voicefill  # noqa: E402
 
-R = {"groups": [{"id": "gen0", "names": ["ときのそら", "ロボ子さん"]}, {"id": "en", "names": ["IRyS"]}, {"id": "alum", "names": ["桐生ココ"]}, {"id": "units", "names": ["ホロライブ"]}],
+R = {"groups": [{"id": "gen0", "names": ["ときのそら", "ロボ子さん"]}, {"id": "en_myth", "names": ["IRyS"]}, {"id": "alum", "names": ["桐生ココ"]}, {"id": "units", "names": ["ホロライブ"]}],
      "members": [{"name": "ときのそら", "channel": "UC" + "a" * 22, "region": "JP"}, {"name": "ロボ子さん", "channel": "UC" + "b" * 22, "region": "JP"}, {"name": "桐生ココ", "channel": "UC" + "c" * 22}, {"name": "IRyS", "channel": "UC" + "d" * 22, "region": "EN"}]}
 RSS = """<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom" xmlns:yt="http://www.youtube.com/xml/schemas/2015">
 <entry><yt:videoId>AAAAAAAAAA1</yt:videoId><title>【歌枠】うたう</title></entry>
@@ -40,10 +40,10 @@ class VoiceFetchTest(unittest.TestCase):
                        now=now, rss=lambda ch: RSS, fetch=fetch or self.fetch)
 
     def test_fetch_one_and_share_slot(self):
-        self.assertEqual([n for n, _c in VF.members(R)], ["ときのそら", "ロボ子さん", "IRyS"])   # 卒業・ユニットの組は外す・日本が先
+        self.assertEqual([n for n, _c in VF.members(R)], ["ときのそら", "ロボ子さん"])   # 卒業・ユニット・EN・ID の組は外す(10-25)
         self.assertTrue(VF.wants(self.app, R, {"ときのそら", "IRyS"}, now=NOON))              # 取りたい = 学習用データの文字起こしは休む
         self.assertFalse(VF.wants(self.app, R, {"ときのそら", "ロボ子さん", "IRyS"}, now=NOON))   # 材料の無い人がいなければ取らない
-        self.assertEqual(self.tick(have={"ときのそら"}), "ロボ子さん")            # 日本のメンバーが先(IRyS は後)              # 材料のある人は取らない
+        self.assertEqual(self.tick(have={"ときのそら"}), "ロボ子さん")              # 材料のある人は取らない
         self.assertFalse(VF.wants(self.app, R, set(), now=NOON + 60))             # 取った直後は枠が埋まる = 文字起こしに戻る
         self.assertEqual(self.got, ["AAAAAAAAAA5"])                                  # 雑談の印のある物(歌・ショート・コラボは外す)
         src = self.jobs[-1]["sourcePath"]
@@ -54,9 +54,16 @@ class VoiceFetchTest(unittest.TestCase):
             json.dump({"last": NOON + 2000, "by": "research"}, f)                    # 研究が問い合わせた
         self.assertIsNone(self.tick(now=NOON + 3000))
         self.assertEqual(self.tick(now=NOON + 3900), "ときのそら")
-        self.assertEqual(self.tick(now=NOON + 3900 + 5500), "IRyS")
-        self.assertIsNone(self.tick(now=NOON + 3900 + 11000))                        # 全員取れた
+        self.assertIsNone(self.tick(now=NOON + 3900 + 11000))                        # 全員取れた(EN・ID は取らない)
         self.assertIsNotNone(VF.slot_free(self.app, datetime.datetime(2026, 10, 26, 3, 0).timestamp()))   # 夜中も動く
+
+    def test_extra_channels(self):
+        """名簿にチャンネルが無い人は、配信者の色の名簿(friend-apps/holo-colors/members.json)の控えで引く"""
+        r = dict(R, groups=R["groups"] + [{"id": "regloss", "names": ["轟はじめ"]}])
+        self.assertNotIn("轟はじめ", dict(VF.members(r)))
+        self.assertEqual(dict(VF.members(r, {"轟はじめ": "UC" + "e" * 22}))["轟はじめ"], "UC" + "e" * 22)
+        got = VF.extra_channels(os.path.dirname(kit.ROOT))   # リポジトリの本物の控え
+        self.assertTrue(got and all(VF.CHANNEL_RE.match(c) for c in got.values()))
 
     def test_bot_stops_the_day(self):
         got = self.tick(fetch=lambda vid, base: (None, "ERROR: Sign in to confirm you're not a bot"))
