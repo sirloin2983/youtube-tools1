@@ -1122,6 +1122,24 @@ class WorkerRestTest(unittest.TestCase):
         self.assertIs(w.cfg["quotaFill"], False)
         w.close()
 
+    def test_quota_fill_skips_gaps(self):
+        """欠けの直後(帳簿に 0 を渡した前後 GAP_MARGIN 秒)の山は埋めに使わない。欠けは配信中に gaps から捨てても state.json の gapsAll に残る"""
+        n = 3600
+        total = [0.0] * n
+        for t in range(1010, 1015):
+            total[t] = 1.8   # 欠け [1000, 1010) の直後に跳ねた点数
+        for d in range(-6, 7):
+            total[2000 + d] = 1.0 - abs(d) * 0.05
+        folder = testkit.tempdir(self, prefix="ytt-quota-gap-")
+        st = W.RecState(folder, "fake", REC, URL, T0, dict(W.SPEC_DEFAULT), {"sens": "normal", "perHour": 1}, False)
+        st.add_gap(1000, 1010)
+        st.gaps = []   # 配信中に過ぎた欠けは捨てる(emit)
+        st = W.RecState.from_json(folder, st.to_json(), {"sens": "normal", "perHour": 1})
+        self.assertEqual(st.gaps_all, [[1000, 1010]])
+        st.series_out = [{"t0": m, "total": total[m:m + 60], "audio": total[m:m + 60], "chat": [0.0] * 60, "full": [-30.0] * 60} for m in range(0, n, 60)]
+        st.next_box = n
+        self.assertEqual([st.book.peaks[i]["peak"] for i in st.quota_fill(True)], [2000])
+
     def test_bad_numbers(self):
         self.assertEqual([levels.level(x) for x in ("nan", "inf", "-inf", "1e400", "50", "-12.5", "-120", "x")], [-90.0, -90.0, -90.0, -90.0, levels.LEVEL_MAX, -12.5, -90.0, -90.0])
         with self.assertRaises(ValueError):
