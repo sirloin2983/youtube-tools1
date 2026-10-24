@@ -50,13 +50,13 @@
 ## src/app/ui/cases/
 
 - **caselink.js** (31 行) — 案件の画面へのリンクと切り抜きの校正の進み(ホームの案件の一覧 portal.js と案件の画面 cases.js の両方が読む。/cases-caselink.js)。
-- **cases.js** (587 行) — 案件の画面(/cases = 入口の直下の 1 枚。部品は src/app/ui/cases/。RS8 C1 = 殻。作り方 notes:docs/design/rs8-cases-build.md・何を作るか notes:docs/design/briefs/rs8-cases/)。
+- **cases.js** (597 行) — 案件の画面(/cases = 入口の直下の 1 枚。部品は src/app/ui/cases/。RS8 C1 = 殻。作り方 notes:docs/design/rs8-cases-build.md・何を作るか notes:docs/design/briefs/rs8-cases/)。
 - **edhost.js** (127 行) — 案件の画面に「編集」の校正(1 文字起こし)をそのまま載せる台(RS8 C2b。作り方 notes:docs/design/rs8-cases-build.md の C2b)。
 
 ## src/app/ui/cases/panels/
 
-- **cand.js** (191 行) — 案件の画面の「候補」のパネル(#cand。配信全体の候補の採用・不採用・書き出し・LIVE の帯)。口の形は cases.js の先頭の説明。
-- **cut.js** (532 行) — 案件の画面の「カット・パック」のパネル(#cut。残す区間を決めて、末尾で DaVinci Resolve へ渡すパックを作る)。口の形は cases.js の先頭の説明。RS8 C2c。
+- **cand.js** (199 行) — 案件の画面の「候補」のパネル(#cand。配信全体の候補の採用・不採用・書き出し・LIVE の帯)。口の形は cases.js の先頭の説明。
+- **cut.js** (548 行) — 案件の画面の「カット・パック」のパネル(#cut。残す区間を決めて、末尾で DaVinci Resolve へ渡すパックを作る)。口の形は cases.js の先頭の説明。RS8 C2c。
 - **machpick.js** (159 行) — 校正のパネルの 3 択(RS8 C2b。作り方 notes:docs/design/rs8-cases-build.md の 4 節・決定 3-37 の案 A)。
 - **new.js** (257 行) — 新しい案件のパネル(ホームの引き出し #newDrawer で開く。配信を探す・URL から入れる・解析の順番待ち。RS8 C3)。
 - **proof.js** (188 行) — 案件の画面の「校正」のパネル(#proof。切り抜き 1 本の文字起こしの行を直す)。口の形は cases.js の先頭の説明。RS8 C2b。
@@ -117,8 +117,8 @@
   - 名前: `$` :7・`mmss` :9・`entryHtml` :12・`settings` :49・`loadOpts` :53・`unquote` :58・`looksYt` :59・`entries` :60・`paintKinds` :70・`syncAdd` :75・`refocusForm` :85・`setMsg` :92・ほか 20
 - **rank.js** (777 行) — 切り抜きスタジオ: ① 探す(配信ランキング)。検索 → 結果(全部まとめて再生数の順 / 事務所ごと)→ チェックして「解析に追加」か「まとめて実行」(入口から開いたときだけ)
   - 名前: `$` :5・`lsGet` :8・`lsSet` :9・`fmtN` :10・`fmtDur` :11・`ymd` :12・`okThumb` :13・`atMs` :16・`saveReg` :27・`agKey` :32・`captureReg` :35・`restoreReg` :52・ほか 69
-- **review.js** (3424 行) — 切り抜きスタジオ ② 確認・書き出し(切り抜きマーカー由来)。
-  - 名前: `create` :9・`round1` :14・`uid` :15・`toast` :16・`parseTime` :20・`isAutoLike` :34・`marksPayload` :35・`sec1` :47・`sanitizeKeymap` :48・`spanLabel` :60・`momentSpan` :62・`momentSpanOf` :64・ほか 283
+- **review.js** (3485 行) — 切り抜きスタジオ ② 確認・書き出し(切り抜きマーカー由来)。
+  - 名前: `create` :10・`round1` :15・`uid` :16・`toast` :17・`parseTime` :21・`isAutoLike` :35・`marksPayload` :36・`sec1` :48・`sanitizeKeymap` :49・`spanLabel` :61・`momentSpan` :63・`momentSpanOf` :65・ほか 288
 
 ## テスト
 
