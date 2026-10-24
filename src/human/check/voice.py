@@ -25,7 +25,7 @@ import re
 from ytt import errors as _errors, schemas as _yschemas, settings as _settings, tools as _tools, txbase as _txbase
 from ytt.textutil import person_key as _person_key
 from flow import diar as _diar, jobs as _heavy
-from human.proof import speakers as _speakers, store as _store
+from human.proof import speakers as _speakers, store as _store, voiceclips as _voiceclips
 from . import _doc, answerlog, apply as _apply   # 同じ human/check の兄弟
 
 KIND, SOURCE = "voice", "diar"
@@ -366,7 +366,8 @@ def _submit(tid, d):
     doc = _store.read_transcript(tid)
     if doc.get("evalSet") is True:
         raise _apply.Refused(_speakers.EVAL_SET_VOICE_MSG, 409, "eval_set")
-    _tools.check_source(doc.get("sourcePath"))   # 元の動画が無ければ足さない(足しても失敗するだけ = 答えのたびに失敗のジョブを作らない)
+    if not _voiceclips.index(tid):   # 切り出した行の音があれば元の動画が無くても覚えられる(human/proof/voiceclips。10-24)
+        _tools.check_source(doc.get("sourcePath"))   # 元の動画が無ければ足さない(足しても失敗するだけ = 答えのたびに失敗のジョブを作らない)
     plan = _speakers.voice_learn_plan(doc, d["rows"])
     names = [n for n in d["names"] if n in plan["groups"]]
     if not names:

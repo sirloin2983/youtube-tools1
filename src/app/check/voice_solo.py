@@ -14,20 +14,23 @@
 (同じ人が続くと聞き分けにならない。集め直すたびに混ざる)。
 古い版の文字起こしの文書(① records.output_old)は後回し: 1 人ぶんの枠は今の版の文書の行から埋め、カードの並びも同じ回りでは今の版が先
 (古い版は夜の作り直し app/check/refresh で今の版になる)。
+行の音(10-24 夜。ユーザー「誰の声をメンバー全員分」): カードに出す行の音は、元の動画があるうちに短く切り出して作業データに残す
+(human/proof/voiceclips。clip_targets が選んだ行を入口の voice_clips_tick が切り出す)。音があるカードはその音で再生するので、
+元の動画が片付いた文書の行もカードになる。人の並びは、まだ覚えていない人(登録簿の秒が足りない人)が先・全員(MAX_PEOPLE まで)。
 """
 import os
 import random
 import re
 
 from human.check import voice as voice_mod
-from human.proof import speakers as _speakers
+from human.proof import speakers as _speakers, voiceclips as _voiceclips
 from pipeline.transcribe import records, roster
 from ytt import schemas as _yschemas, studiodata as _studiodata, txbase as _txbase
 from ytt.textutil import person_key as _person_key
 from . import sources   # 同じ app/check の兄弟(register・_doc_card・_rows・View を読む)
 
 SOURCE = "solo"
-MAX_PEOPLE = 10          # 対象の人数(ソロの文書の多い順)
+MAX_PEOPLE = 80          # 対象の人数(まだ覚えていない人が先・ソロの文書の多い順。10-24 夜に 10 → 80 = ホロライブのメンバー全員)
 MAX_PER_PERSON = 15      # 1 人ぶんのカードの上限
 PER_DOC = 3              # 1 本の文書から出す行の上限
 MARGIN = 1.5             # 覚え直す秒(check.voiceRelearnSec)に掛ける余裕(覚えるジョブが重心を作れる量に、少し多めに)
@@ -119,31 +122,40 @@ def _options(doc, who, others):
     return opts + [{"id": voice_mod.OTHER, "name": "その他"}, {"id": voice_mod.MIXED, "name": "混ざり"}], {"id": me["id"], "name": who}
 
 
-def voice_solo(view):
+def _playable(tid, doc, g):
+    """行を聞けるか: 切り出して残した音がある(voiceclips)か、元の動画がある"""
+    return bool(_voiceclips.clip_path(tid, g["id"])) or sources.has_media(doc)
+
+
+def _select(view):
+    """カードに出す行を選ぶ(並び・量の決まりは先頭の説明)-> [(rank, 名前, 人の一覧, 文書 id, 文書, 行, i)]。聞けない行(音も動画も無い)は飛ばす"""
     by_person = {}
-    for tid, path, doc in view.docs():
+    for tid, path, doc in view.docs(need_media=False):
         latest = view.diar(tid, path)
         if isinstance(latest, dict) and isinstance(latest.get("rows"), dict) and latest["rows"]:
             continue   # voice:diar が出す
         who = solo_person(doc)
         if who:
             by_person.setdefault(who, []).append((tid, doc))
-    people = sorted(by_person, key=lambda n: (-len(by_person[n]), n))[:MAX_PEOPLE]
     answered = {}   # (文書, 行) -> 答えの記録の applied(どの出どころの答えでも)
     for r in view.answered("voice"):
         a = r.get("applied") or {}
         answered[(str(a.get("doc") or ""), str(a.get("row") or ""))] = a
     need = voice_mod._relearn_sec() * MARGIN
-    cache, out = {}, []
-    for rank, who in enumerate(people):
-        docs = sorted(by_person[who], key=lambda x: records.output_old(x[1]))   # 今の版の文字起こしの文書から(古い版は夜の作り直し app/check/refresh を待つ)
+    cache, info = {}, {}
+    for who, docs in by_person.items():
+        docs = sorted(docs, key=lambda x: records.output_old(x[1]))   # 今の版の文字起こしの文書から(古い版は夜の作り直し app/check/refresh を待つ)
         reg = voice_mod.registry(voice_mod.doc_embedding(docs[0][1]), cache)
         mine = next((v for n, v in reg.items() if _person_key(n) == _person_key(who)), {}) or {}
-        got = sources._num(mine.get("sec"))
-        learned = {(str(x.get("doc")), str(r)) for x in mine.get("learnedFrom") or () if isinstance(x, dict) for r in x.get("rows") or ()}
+        info[who] = (docs, sources._num(mine.get("sec")),
+                     {(str(x.get("doc")), str(r)) for x in mine.get("learnedFrom") or () if isinstance(x, dict) for r in x.get("rows") or ()})
+    people = sorted(info, key=lambda n: (info[n][1] >= need, -len(info[n][0]), n))[:MAX_PEOPLE]   # まだ覚えていない人が先
+    out = []
+    for rank, who in enumerate(people):
+        docs, got, learned = info[who]
         picks = []   # 文書ごとの行(GOOD_SEC に近い順)
         for tid, doc in docs:
-            rows = sorted((g for g in sources._rows(doc) if _row_ok(g)),
+            rows = sorted((g for g in sources._rows(doc) if _row_ok(g) and _playable(tid, doc, g)),
                           key=lambda g: (abs(sources._num(g.get("end")) - sources._num(g.get("start")) - GOOD_SEC), sources._num(g.get("start"))))
             picks.append((tid, doc, rows[:PER_DOC]))
         n = 0
@@ -161,12 +173,32 @@ def voice_solo(view):
                     if _person_key(lr.get("name")) == _person_key(who):
                         got += sources._num(lr.get("sec"))
                     continue
-                opts, guess = _options(doc, who, people)
-                out.append(sources._doc_card(view, "voice", SOURCE, tid, doc, g, 0.3, {
-                    "guess": guess, "options": opts, "note": SOURCE,
-                    "_order": [-1, random.random(), rank, i, int(records.output_old(doc)), -sources._num(doc.get("updatedAt")), sources._num(g.get("start"))]}, tight=True))
+                out.append((rank, who, people, tid, doc, g, i))
                 got += sec
                 n += 1
+    return out
+
+
+def clip_targets(view):
+    """まだ切り出していない、カードに出す行 -> [(文書 id, 文書, [行…])](元の動画がある文書だけ。入口の voice_clips_tick が切り出す)"""
+    by_doc = {}
+    for _rank, _who, _people, tid, doc, g, _i in _select(view):
+        if sources.has_media(doc) and not _voiceclips.clip_path(tid, g["id"]):
+            by_doc.setdefault(tid, (doc, []))[1].append(g)
+    return [(tid, doc, rows) for tid, (doc, rows) in by_doc.items()]
+
+
+def voice_solo(view):
+    out = []
+    for rank, who, people, tid, doc, g, i in _select(view):
+        opts, guess = _options(doc, who, people)
+        card = sources._doc_card(view, "voice", SOURCE, tid, doc, g, 0.3, {
+            "guess": guess, "options": opts, "note": SOURCE,
+            "_order": [-1, random.random(), rank, i, int(records.output_old(doc)), -sources._num(doc.get("updatedAt")), sources._num(g.get("start"))]}, tight=True)
+        clip = _voiceclips.media(tid, g["id"], card["media"]["start"], card["media"]["end"])
+        if clip:   # 切り出して残した行の音で再生する(元の動画が片付いても聞ける)
+            card["media"] = dict(card["media"], **clip)
+        out.append(card)
     return out
 
 

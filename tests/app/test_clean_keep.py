@@ -30,6 +30,8 @@ class CleanKeepTest(unittest.TestCase):
         cards = [card("voice:solo:a1:r1", "voice", "aaaaaaaaaaa1"), card("read:x:b1:r1", "read", "bbbbbbbbbbb1"),
                  card("time:x:c1:r1", "time", None, "transcribe/media?id=ccccccccccc1"), card("speech:x:d1:r1", "speech", "ddddddddddd1")]
         self.assertEqual(S.pending_check_docs(cards, {"speech:x:d1:r1"}), {"aaaaaaaaaaa1", "bbbbbbbbbbb1", "ccccccccccc1"})   # 答えたカードは外す
+        clip = dict(card("voice:solo:e1:r1", "voice", "eeeeeeeeeee1"), media={"url": "api/check/voiceclip?doc=eeeeeeeeeee1&row=r1"})
+        self.assertNotIn("eeeeeeeeeee1", S.pending_check_docs([clip], set()))   # 切り出した行の音で流すカード = 動画は要らない(10-24 夜)
 
     def _srv(self):
         return types.SimpleNamespace(sup=types.SimpleNamespace(root="R"), cleanup=types.SimpleNamespace(app_dir="A"), check_ctx=lambda: None, _autorun=None)

@@ -134,6 +134,27 @@ class VoiceSoloTest(unittest.TestCase):
         self.put("f00000000001", doc("%s の雑談" % MIKO, updated=999, sourcePath=os.path.join(self.tmp, "gone.mp4")))
         self.assertNotIn("f00000000001", {c["target"]["docId"] for c in self.cards()})
 
+    def test_kept_clip_plays_without_media(self):
+        """切り出して残した行の音があれば、元の動画が片付いた文書の行もカードになり、その音で流す(10-24 夜)。clip_targets は動画のある文書の
+        まだ切り出していない行だけを返す"""
+        from human.proof import voiceclips
+        from ytt import workdata
+        gone = doc("兎田ぺこら の雑談", updated=999, speakers=[{"id": "S1", "name": "兎田ぺこら"}], sourcePath=os.path.join(self.tmp, "gone.mp4"))   # 別の人(枠が空いている)
+        self.put("f00000000002", gone)
+        clip_dir = os.path.join(self.tmp, "data", voiceclips.DIR, "f00000000002")
+        os.makedirs(clip_dir)
+        row = gone["segments"][0]   # s0(覚える材料になる行)
+        open(os.path.join(clip_dir, row["id"] + ".wav"), "wb").close()
+        kit.write(os.path.join(clip_dir, voiceclips.INDEX), {row["id"]: {"a": row["start"] - 1.0, "b": row["end"] + 1.0}})
+        with mock.patch.object(workdata, "DATA_DIR", os.path.join(self.tmp, "data")):
+            got = [c for c in self.cards() if c["target"]["docId"] == "f00000000002"]
+            self.assertEqual([c["target"]["row"] for c in got], [row["id"]])   # 音のある行だけ
+            self.assertTrue(got[0]["media"]["url"].startswith("api/check/voiceclip?doc=f00000000002&row="))
+            self.assertLess(got[0]["media"]["start"], 1.5)   # 切り出した音の中の秒
+            targets = voice_solo.clip_targets(sources.View(self.ctx, State()))
+            self.assertNotIn("f00000000002", {t for t, _d, _r in targets})   # 動画が無い文書は切り出せない
+            self.assertTrue(targets and all(r for _t, _d, r in targets))
+
     def test_group_streams_are_not_solo(self):
         """題名の【】がグループの名前(メンバーの名前なし)・「みんなで」は外す。所属の札【名前/グループ】は外さない(10-24)"""
         self.put("d00000000001", doc("【アソビ★まわり隊!】クイズ!【%s/ホロライブ】" % MIKO))

@@ -29,6 +29,7 @@
   POST /api/flow/estimate                 {envelope, spec?}(submit と同じ本文)実行と同じ規則の見積もり → {steps, total, nothing, reason, notes}(段ごとの本数と飛ばす理由。書き込まない)
   GET  /api/intake                        友人からの依頼の受付の状態・設定・最近の依頼(src/human/friend/intake.py。notes:docs/spec/friend.md)
   POST /api/intake/scan                   {} 今すぐフォルダを見る(裏で。応答は今の状態)
+  GET  /api/check/voiceclip?doc=&row=     誰の声のカードの行の短い音(wav。src/human/proof/voiceclips.py。元の動画が片付いた文書の行も聞ける)
   GET  /api/home/requests                 ホームの「友人の依頼」: 受付の記録に実行の記録を結んだ行 {rows: [{id, title, state, label, done, link, why, ...}]}(src/app/homereq.py)
   GET  /api/backup                        作業データのバックアップの状態・設定(src/manage/keep/backup.py。notes:docs/spec/data.md の「バックアップ」)
   POST /api/backup/run                    {} 今すぐ写す(裏で。応答は今の状態)
@@ -109,7 +110,8 @@ from app import homereq  # noqa: E402  (src/app/homereq.py: ホームの「友�
 from human.friend import intake as intake_mod  # noqa: E402  (src/human/friend/intake.py: 友人からの依頼の受付)
 from manage.keep import backup as backup_mod  # noqa: E402  (src/manage/keep/backup.py: 作業データのバックアップ)
 from eval.drill import accuracy as accuracy_mod  # noqa: E402  (src/eval/drill/accuracy.py: 精度の自動測定 = src/eval/tools/eval_*.py を手が空いた夜に子プロセスで)
-from app.check import deck as check_deck, lineup as check_lineup, refresh as check_refresh, sources as check_sources  # noqa: E402  (src/app/check: 「確かめる」の待ち行列。V1)
+from app.check import deck as check_deck, lineup as check_lineup, refresh as check_refresh, sources as check_sources, voice_solo as check_voice_solo  # noqa: E402  (src/app/check: 「確かめる」の待ち行列。V1)
+from human.proof import voiceclips  # noqa: E402  (誰の声のカードの行の短い音。元の動画が片付いても聞ける・覚えられる。10-24 夜)
 from human.check import answerlog as check_answerlog  # noqa: E402  (答えた札 = 自動の片付けで、価値のカードを待っている切り抜きを残す)
 from human.check import apply as check_apply  # noqa: E402  (src/human/check/apply.py: 「確かめる」の答えの記録と反映。V1)
 from human.check import read as check_read  # noqa: E402,F401  (読みのカードの反映を apply に登録する。V2b)
@@ -764,6 +766,12 @@ class PortalHandler(httpsec.LocalHandler):
                 return self._json(200, check_deck.next_cards(self.server.check_ctx(), c, kind, n, skip, lane))
             except ValueError as e:
                 return self._fail(400, "bad_request", str(e))
+        if u.path == "/api/check/voiceclip":   # 誰の声のカードの行の短い音(10-24 夜。画面の player.js が <video> で流す)
+            p = voiceclips.clip_path((q.get("doc") or [""])[0], (q.get("row") or [""])[0])
+            if not p:
+                return self._fail(404, "not_found", "その行の音はありません")
+            with open(p, "rb") as f:
+                return self._send(200, f.read(), "audio/wav", {"Cache-Control": "private, max-age=3600"})
         if u.path == "/api/home/requests":   # ホームの「友人の依頼」(10-24): 受付の記録に、メモリの実行と記録のファイルの実行を結ぶ
             ar = self.server.autorun
             runs = (ar.snapshot().get("runs") or []) + (ar.history(autorun_mod.HISTORY_MAX).get("runs") or [])
@@ -942,10 +950,12 @@ _MEDIA_ID = re.compile(r"[?&]id=([0-9a-f]{12})\b")
 
 def pending_check_docs(cards, answered):
     """確かめるにまだ出ているカード(答えていない)が見ている文書の id の集合(target.docId と、動画の口 transcribe/media?id= の id)。
-    自動の片付けがこの文書の切り抜きの動画とパックを残す(10-24)"""
+    自動の片付けがこの文書の切り抜きの動画とパックを残す(10-24)。切り出した行の音で流すカード(誰の声。voiceclips)は動画を要らないので数えない"""
     out = set()
     for c in cards or ():
         if not isinstance(c, dict) or c.get("id") in answered:
+            continue
+        if str((c.get("media") or {}).get("url") or "").startswith("api/check/voiceclip"):
             continue
         tid = (c.get("target") or {}).get("docId") if isinstance(c.get("target"), dict) else None
         if isinstance(tid, str) and tid:
@@ -1193,9 +1203,37 @@ class PortalServer(httpsec.ExclusiveServer):
         busy = {r.get("videoId") for r in runs if r.get("state") in ("queued", "running") and r.get("videoId")}
         return cases, keep, busy
 
+    VOICE_CLIPS_EVERY = 600   # 誰の声のカードの行の音を切り出す見回りの間隔(秒。文字起こしが済んだ文書を待たずに拾う)
+
+    def voice_clips_tick(self):
+        """誰の声のカードに出す行の音を、元の動画があるうちに短く切り出して作業データに残す(human/proof/voiceclips・
+        app/check/voice_solo.clip_targets。10-24 夜)。片付けの直前と VOICE_CLIPS_EVERY ごと。-> 作った数"""
+        if not voiceclips.root():
+            return 0   # 編集を取り込んでいない入口
+        view = check_sources.View(self.check_ctx(), check_answerlog.state(self.cleanup.app_dir))
+        made = sum(voiceclips.make(tid, doc, rows) for tid, doc, rows in check_voice_solo.clip_targets(view))
+        if made:
+            check_deck.invalidate()
+            self.sup.log("誰の声のカード: 行の音を %d 本切り出して残しました(元の動画が片付いても聞ける・覚えられる)" % made)
+        return made
+
+    def voice_clips_loop(self):
+        while not self.closing.is_set():
+            try:
+                self.voice_clips_tick()
+            except Exception as e:   # noqa: BLE001  (切り出せなくても入口は止めない。カードは元の動画で出る)
+                self.sup.log("誰の声のカードの行の音を切り出せませんでした: %r" % (e,))
+            if self.closing.wait(self.VOICE_CLIPS_EVERY):
+                return
+
     def auto_clean(self, dry_run=False):
         """自動の片付け(cleanup.Cleanup.auto_clean)。移した物の一覧を logs/cleanup-auto.jsonl に 1 行(何が移ったかを後で見る)。
-        確かめるで答えを待っている物が分からないとき(案件が読めない)は移さない"""
+        確かめるで答えを待っている物が分からないとき(案件が読めない)は移さない。先に誰の声のカードの行の音を切り出す(切り出せた行は動画が無くても聞ける)"""
+        if not dry_run:
+            try:
+                self.voice_clips_tick()
+            except Exception as e:   # noqa: BLE001  (切り出せなかった行のカードは元の動画で出るので、その動画は下の決まりで残る)
+                self.sup.log("片付けの前に誰の声のカードの行の音を切り出せませんでした: %r" % (e,))
         try:
             cases, keep, busy = self.clean_inputs()
         except Exception as e:
@@ -1699,6 +1737,7 @@ def _main(opts):
         if srv.analytics:
             srv.analytics.start()   # 分析と日報(連携の設定が無ければ何もしない。新しいデータが来たら日報を作って LINE へ)
         threading.Thread(target=srv.purge_trash, daemon=True, name="trash-purge").start()   # 日数を過ぎたごみ箱フォルダ(段9 9-2)
+        threading.Thread(target=srv.voice_clips_loop, daemon=True, name="voice-clips").start()   # 誰の声のカードの行の音(10-24 夜)
         threading.Thread(target=srv.learnpack.loop, daemon=True, name="learnpack").start()   # 学習の束を <依頼の受付のフォルダ>/学習 へ(起動の少しあとと 1 日ごと。F1 F6a)
         if opts.app_window:   # 設定にかかわらず窓で開く(設定には保存しない)
             srv.window.force_mode = "app"

@@ -18,6 +18,7 @@ from flow import jobs as _heavy  # noqa: E402
 from ytt import jobs as _slots  # noqa: E402
 from ytt import txbase as _txbase  # noqa: E402
 from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings
+from human.proof import voiceclips as _voiceclips  # noqa: E402   声を覚える材料の短い音(元の動画が片付いたあとの覚え直し。10-24)
 from flow import diar as _diar  # noqa: E402   ② 判別と声の段取り(判別・割り当て・判別の記録・声の特徴と照合・覚えた声の置き場所。呼ぶたびに _diar.名前 で読む)
 from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(呼ぶたびに store.名前 で読む)
 from . import layers as _layers  # noqa: E402   話者の判別(機械の層・話者の対応表)
@@ -580,7 +581,12 @@ def run_voice_learn(job):
         doc = store.read_transcript(spec["tid"])
         if doc.get("evalSet") is True:   # 待っている間に評価用へ変えた場合も断る(監査02)
             raise _errors.ApiError("eval_set", EVAL_SET_VOICE_MSG, 400)
-        src = _tools.check_source(doc.get("sourcePath"))
+        try:
+            src = _tools.check_source(doc.get("sourcePath"))
+        except _errors.ApiError:
+            if not _voiceclips.index(spec["tid"]):
+                raise
+            src = None   # 元の動画は片付いた: 切り出して残した行の音で覚える(voiceclips。10-24)
         start, end = _yschemas.num_or(doc.get("start"), 0.0) or 0.0, _yschemas.num_or(doc.get("end"))
         plan = voice_learn_plan(doc, spec.get("rows"))   # 読み直した文書で決め直し、確認した人(spec["names"])との積だけを覚える(確認のあとで名前を付けた人を黙って覚えない)。
         # spec["rows"] = 確かめるの声のカードで名前を答えた行(by "check"。V1 V2c)
@@ -590,7 +596,13 @@ def run_voice_learn(job):
         if not _diar.models_ready():
             raise _errors.ApiError("no_sherpa", "声を覚えるには話者判別の部品(sherpa-onnx)が要ります。フォルダ内の install-diarize.bat を実行してください", 400)
         people = sorted(grp)
-        vecs = _diar.embed(job, spec, wav, [grp[n][0] for n in people], {"sourcePath": src, "start": start, "end": end})   # 音声の取り出し → モデルの取得 → 声の特徴
+        if src:
+            hints = {"sourcePath": src, "start": start, "end": end}
+        else:
+            if not _voiceclips.timeline_wav(spec["tid"], wav, start, end):
+                raise _errors.ApiError("no_file", "元の動画も、切り出した行の音もありません", 400)
+            hints = {"start": start, "wavReady": True}
+        vecs = _diar.embed(job, spec, wav, [grp[n][0] for n in people], hints)   # 音声の取り出し → モデルの取得 → 声の特徴
         _slots.check_cancel(job)
         learned = []
         with _diar.voices_edit(spec["embedding"]) as voices:   # 変わったときだけ書く(登録簿のロックの中。上限を超えたら書かない)

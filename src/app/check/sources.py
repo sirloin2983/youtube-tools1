@@ -141,8 +141,14 @@ class View:
             return True   # 判定が例外のときは評価用として扱う(出さない側。印の無い評価用の動画を、読みのカードの答えとして学習の記録へ入れない。OPT-E1 3e-1)
 
     # ---- 文字起こしの文書(評価用は外す)
-    def docs(self):
-        """[(tid, 文書のパス, 文書)] 評価用でない・元の動画がある物。新しい順(updatedAt)。返した文書は書き換えない(キャッシュと共有)"""
+    def docs(self, need_media=True):
+        """[(tid, 文書のパス, 文書)] 評価用でない・元の動画がある物。新しい順(updatedAt)。返した文書は書き換えない(キャッシュと共有)。
+        need_media=False = 元の動画が片付いた文書も(誰の声のカードが、切り出して残した行の音で出す。voice_solo)"""
+        if not need_media:
+            if getattr(self, "_all_docs", None) is None:
+                self._docs = None   # 両方を 1 回で作る
+                self.docs()
+            return self._all_docs
         if self._docs is None:
             out = []
             try:
@@ -151,16 +157,20 @@ class View:
             except Exception as e:
                 self.errors.append("docs: %s" % e.__class__.__name__)
                 paths = {}
+            every = []
             for name in sorted(paths):
                 m = DOC_NAME_RE.match(name)
                 if not m or not os.path.isfile(paths[name]):
                     continue
                 d = _docs.get(paths[name], _load_doc)
-                if d is None or self.is_eval(d) or not has_media(d):
+                if d is None or self.is_eval(d):
                     continue
-                out.append((m.group(1), paths[name], d))
+                every.append((m.group(1), paths[name], d))
+                if has_media(d):
+                    out.append(every[-1])
             out.sort(key=lambda x: -_num(x[2].get("updatedAt")))
-            self._docs = out
+            every.sort(key=lambda x: -_num(x[2].get("updatedAt")))
+            self._docs, self._all_docs = out, every
         return self._docs
 
     def eval_docs(self):

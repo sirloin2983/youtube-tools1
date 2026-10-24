@@ -152,9 +152,10 @@ def embed(job, spec, wav, groups, hints):
     def fetch(j, emb):
         j["state"] = "loading"
         _calc.ensure_diar_models(j, emb)
-    if hints.get("sourcePath"):
-        job["state"], job["phase"], job["device"] = "extracting", "音声を取り出し中", "cpu"
-        _recognize.extract_audio(job, {"sourcePath": hints["sourcePath"], "start": hints["start"], "end": hints.get("end")}, wav)
+    if hints.get("sourcePath") or hints.get("wavReady"):   # wavReady = 呼ぶ側が wav を用意した(元の動画が片付いた文書の、切り出した行の音。human/proof/voiceclips)
+        if hints.get("sourcePath"):
+            job["state"], job["phase"], job["device"] = "extracting", "音声を取り出し中", "cpu"
+            _recognize.extract_audio(job, {"sourcePath": hints["sourcePath"], "start": hints["start"], "end": hints.get("end")}, wav)
         _backend.select().diar_models(job, spec["embedding"], fetch)   # 疑似は取らない(backend の口。OPT-E2 1a-2)
         job["state"], job["phase"], job["progress"] = "running", "声の特徴を取り出し中(CPU)", 0.0
     elif spec["embedding"] != _calc.DIAR_EMB_DEFAULT:
