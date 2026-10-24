@@ -134,6 +134,7 @@ SCOPE_PLAN = """- 今は案だけです(YTT_FRIEND_BUG_AI_LAND=0): 調べる・�
 """
 SCOPE_LAND = """- 使ってよい道具は、調べる・直す・テストを流す・`py -3.12 dev/land.py` で main に入れる・友人の zip を配る待ちの列に積む、だけです。
   友人の zip は `py -3.12 dev/build_friend_zip.py --queue --note "<直した一言>"` で積みます(入口が 3 時間ごとにまとめて配る)。
+  一言は友人のアプリの「最近の更新」にそのまま出るので、友人に見せる短い言葉で書きます(「ユーザーの PC」・内部の名前・ファイル名を使わない)。
   すぐ配るのは、種類 4(起動しない・更新で壊れた)と種類 2 の録画そのものが動かない直しだけで、
   `py -3.12 dev/build_friend_zip.py --publish --important --fix-kind <4 か 2> --fix-request <依頼 id> --note "<直した一言>"` を使います。
   `--skip-preflight` は使いません。

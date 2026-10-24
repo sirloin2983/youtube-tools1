@@ -26,6 +26,9 @@ config.json(Dropbox の鍵)は入れない。--first --with-key のときだけ 
     --publish はすぐ配る例外だけ: --from-queue(配る回)か、--important --fix-kind 4(起動しない・更新で壊れた)/ 2(録画そのものが動かない)。
         どちらも列に積んだ物を一緒に乗せ、積んだ一言の一覧を latest.json と台帳の changes(この版で直したこと)に入れて、配れたら列から外す。
         --from-queue で配れなかったら知らせの一覧(human/friend/upwatch の alerts.jsonl)へ書く
+        --note の一言は友人のアプリの「最近の更新」にそのまま出る = 友人に見せる短い言葉で(「ユーザーの PC」・内部の名前・ファイル名を使わない)
+    latest.json の history(--publish のとき): 最近の更新 [{v: 版, at: 配った時刻(ミリ秒), items: [一言]}](新しい順・HISTORY_MAX 版。台帳の changes から)・
+        runtime(python/ の中身の印。友人のアプリが軽い zip で入れられるか = 今の python/ と同じかを先に知る)
     --rollback <版 か prev> [--why 文]: 友人の PC へ「この版に戻して」の印 <intake.folder>/診断/戻して/rollback-<ミリ秒>.rollback.json
         {v:1, id, at, to(版 か null = 友人の PC に残る確かに動いた版), why} を置く(問題 4・10-25。友人のアプリが戻して印を消し、
         結果を 診断/ の launcher__fail-<13 桁>.fail.json(kind rollback)で返す = 版の見張り human/friend/upwatch が最上の急ぎで知らせる)
@@ -762,6 +765,31 @@ def default_wcpp():
     return _tx.wcpp_bin_dir(datadir.tool_dir(TX_TOOL, os.path.join(SRC, "editor")))
 
 
+HISTORY_MAX = 10
+
+
+def add_history(out_dir):
+    """配った後: latest.json に history(台帳の changes のある版の最近の更新)と runtime(この版の python/ の印)を足して書き直す"""
+    path = os.path.join(out_dir, "latest.json")
+    with open(path, encoding="utf-8") as f:
+        latest = json.load(f)
+    try:
+        with open(os.path.join(out_dir, VERSIONS_NAME), encoding="utf-8") as f:
+            rows = json.load(f).get("versions") or []
+    except (OSError, ValueError, AttributeError):
+        rows = []
+    rows = [r for r in rows if isinstance(r, dict)]
+    latest["history"] = [{"v": r["version"], "at": r.get("publishedAt"), "items": [str(x) for x in r["changes"]]}
+                         for r in rows if isinstance(r.get("changes"), list) and r["changes"]][:HISTORY_MAX]
+    me = next((r for r in rows if r.get("version") == latest.get("version")), {})
+    if me.get("runtime"):
+        latest["runtime"] = me["runtime"]
+    with open(path + ".part", "w", encoding="utf-8") as f:
+        json.dump(latest, f, ensure_ascii=False, indent=1)
+    os.replace(path + ".part", path)
+    return latest
+
+
 def publish(a, out):
     """--publish: 一時のフォルダに作り、配る前の検査(dev/friend_preflight.py)に通ったら更新の置き場所へ写す(light → 全部入り → latest.json → 古い zip を消す)。
     落ちたら置かない。検査を抜けるのは --skip-preflight の明示だけ -> build と同じ形"""
@@ -784,6 +812,7 @@ def publish(a, out):
         shutil.copy2(os.path.join(tmp, "latest.json"), os.path.join(out, "latest.json"))
         update_versions(out, dict(got["row"], publishedAt=int(time.time() * 1000)))   # 台帳 → 古い zip を消す(消える zip の行は台帳で先に null にする)
         prune(out)
+        add_history(out)   # 最近の更新(友人のアプリが見せる)と python/ の印
         got["zip"] = os.path.join(out, name)
         return got
     finally:
@@ -801,7 +830,8 @@ def main(argv=None):
     ap.add_argument("--no-fetch", action="store_true", help="キャッシュに無い物を取りに行かない(無ければ失敗)")
     ap.add_argument("--withdraw", default="", help="配った版を取り下げる(更新の置き場所から zip を外して手元へ移す・台帳から消す・latest.json を前の良い版へ)")
     ap.add_argument("--queue", action="store_true", help="友人の zip を配る待ちの列に積むだけ(ふだんはこれ。3 時間ごとにまとめて配る)")
-    ap.add_argument("--note", default="", help="--queue・--publish: この版で直した一言(友人のアプリの「最近の更新」に出る。200 字まで)")
+    ap.add_argument("--note", default="", help="--queue・--publish: この版で直した一言(友人のアプリの「最近の更新」にそのまま出る = 友人に見せる短い言葉で。"
+                    "「ユーザーの PC」・内部の名前を使わない。200 字まで)")
     ap.add_argument("--from-queue", action="store_true", help="--publish のときだけ: 入口の配る回が使う(列の分を配る)")
     ap.add_argument("--rollback", default="", metavar="VER", help="友人の PC へ「この版に戻して」の印を置く(版 X.Y.Z か prev = 友人の PC に残る確かに動いた版)")
     ap.add_argument("--why", default="", help="--rollback の理由(300 字まで)")

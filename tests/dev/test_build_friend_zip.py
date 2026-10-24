@@ -591,5 +591,20 @@ class UpdateMarkTest(unittest.TestCase):
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
+    def test_history_in_latest(self):
+        """配った後の latest.json に最近の更新(changes のある版・新しい順)と python/ の印"""
+        d = tempfile.mkdtemp()
+        try:
+            with open(os.path.join(d, "latest.json"), "w", encoding="utf-8") as f:
+                json.dump({"version": "0.99.3", "file": "x.zip"}, f)
+            with open(os.path.join(d, B.VERSIONS_NAME), "w", encoding="utf-8") as f:
+                json.dump({"versions": [{"version": "0.99.3", "publishedAt": 3, "changes": ["録画が止まるのを直しました"], "runtime": "r3"},
+                                        {"version": "0.99.2", "publishedAt": 2}, {"version": "0.99.1", "publishedAt": 1, "changes": ["a", "b"]}]}, f)
+            got = B.add_history(d)
+            self.assertEqual(got["history"], [{"v": "0.99.3", "at": 3, "items": ["録画が止まるのを直しました"]}, {"v": "0.99.1", "at": 1, "items": ["a", "b"]}])
+            self.assertEqual(got["runtime"], "r3")
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
 if __name__ == "__main__":
     unittest.main()
