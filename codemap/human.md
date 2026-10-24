@@ -47,8 +47,8 @@
 ## src/human/friend/
 
 - **__init__.py** (2 行) — ③ 友人: 受付(Dropbox)→ まとめて実行(②)に流す → 届ける。友人の返事・送り返し・ライブの依頼の結びつき
-- **bugs.py** (588 行) — ③ 人の層: 友人の PC の不具合の書き出しを受け取って仕分けし、要対応があれば Claude Code を画面なしで 1 回起こす(10-25 ユーザーの OK。
-  - 名前: `bugs_dir` :140・`parse` :148・`triage` :161・`kind_of` :190・`records` :215・`scan` :225・`delivered` :285・`guard` :323・`friend_first` :340・`ask` :364・`find_claude` :395・`repo_root` :405・ほか 2
+- **bugs.py** (645 行) — ③ 人の層: 友人の PC の不具合の書き出しを受け取って仕分けし、要対応があれば Claude Code を画面なしで 1 回起こす(10-25 ユーザーの OK。
+  - 名前: `bugs_dir` :147・`parse` :155・`triage` :168・`kind_of` :202・`context` :234・`wrap` :247・`records` :263・`scan` :273・`delivered` :336・`guard` :374・`friend_first` :391・`ask` :415・ほか 4
 - **friend_feedback.py** (118 行) — 友人の「要らない」を PC 側で片付ける(notes:docs/spec/friend.md の 2-14。ユーザー「不採用の場合こちらにフィードバック」)。
   - 名前: `record_delivery` :24・`find_delivery` :29・`apply` :82
 - **intake.py** (840 行) — 友人からの依頼の受付(notes:docs/spec/friend.md)。
