@@ -36,12 +36,12 @@
   - 名前: `card_id` :26・`parse_id` :30・`kind_rank` :40・`order` :67・`first` :72・`per_kind` :77・`public` :86・`check_n` :91
 - **read_sources.py** (89 行) — 「確かめる」の読みのカードの出どころ read:alt(V1 の V2b。notes:docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
   - 名前: `read_alt` :84
-- **sources.py** (389 行) — 「確かめる」のカードの出どころ(V1 の V0。notes:docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
-  - 名前: `register` :45・`registered` :59・`class View` :82・`value_auto` :243・`value_cand` :269・`read_fill` :298・`voice_diar` :315・`time_row` :347・`collect` :372
+- **sources.py** (391 行) — 「確かめる」のカードの出どころ(V1 の V0。notes:docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
+  - 名前: `register` :45・`registered` :59・`class View` :82・`value_auto` :243・`value_cand` :269・`read_fill` :298・`voice_diar` :315・`time_row` :349・`collect` :374
 - **speech_sources.py** (66 行) — 「確かめる」の普段のレーンの「この行は声ですか?」カードの出どころ speech:diar(C-EVAL (3))。
   - 名前: `speech_diar` :41
-- **voice_solo.py** (144 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
-  - 名前: `solo_person` :50・`voice_solo` :92
+- **voice_solo.py** (170 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
+  - 名前: `solo_person` :73・`voice_solo` :118
 
 ## src/app/ui/
 
