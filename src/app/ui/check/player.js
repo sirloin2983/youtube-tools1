@@ -1,12 +1,13 @@
 /* 確かめるのカード用の軽い再生部品(/check-player.js。RS8 V1。作り方 notes:docs/design/v1-check-build.md の 4・5 節)。
    案件のパネル(編集の全画面・review.js)は丸ごと載せず、口・見た目・キーを共用する:
-     切り抜き・文書 = 編集の transcribe/media?id=<文書 id>(Range つき。ホームの続けて確認と同じ口)を <video> で、行の区間 ± pad 秒だけ再生して止まる
+     切り抜き・文書 = 編集の transcribe/media?id=<文書 id>(Range つき。ホームの続けて確認と同じ口)を <video> で、出したときの自動再生は行の区間 ± pad 秒だけ流して止まる
      候補のまま(配信の区間)= YouTube の埋め込み(youtube-nocookie.com。校正の小さい配信プレーヤーと同じ形)
      波形(行の時刻のカード)= 編集の transcribe/api/peaks?id=(0〜255 の 1 バイトの並び + X-Peaks-Rate。作っている間は 202)を区間だけ描く
      キー = 殻が UIKit.keys.playback に media() を渡す(Space・J/K/L・← →・, .)。R = もう一度聞く(殻が replay() を呼ぶ。編集の「この行をもう一度聞く」と同じキー)
      もう一度聞く = 画面の下のボタン(data-chk-replay)と R。区間の頭(win[0] = 行の頭 - pad)から流し直す。足す余白は無し
      (編集の「この行をもう一度聞く」も行の頭から = 余白 0。カードの pad はカードを作る側が決めた物をそのまま使う)。
-     区間の終わりで止まった後の Space・L・動画の再生ボタンも頭から(止まった位置から再生するとすぐ止まって聞けなかった)
+     区間の頭へ戻して末で止めるのは、最初の自動再生と もう一度聞く だけ。ほかの Space・L・再生ボタン・シーク・再生バーのクリック・一時停止の後の再生は、
+     今の位置から止めずに流す(行の後ろも聞ける。10-25 ユーザー「もう一度聞くボタンがあるんだから使い分ければいい」)
    CheckPlayer.mount(el, media, opt) -> 手
      media = {url: 'transcribe/media?id=…'(入口の直下からの相対。絶対パス・ほかのサイトは断る) | youtube: '<動画 id 11 文字>', start, end, pad, padEnd}(秒。pad 既定 0 = 頭の余白・padEnd = 末の余白(無ければ pad))
      opt   = {text(字幕 1 行), wave(true = 波形の帯), docId(波形の文書 id), autoplay(既定 true = 出したら自動で再生)}
@@ -52,6 +53,10 @@
     var ytId = YT_RE.test(media.youtube || '') ? media.youtube : ((String(media.url || '').match(YT_URL_RE) || [])[1] || '');
     var src = ytId ? '' : localUrl(media.url);
     var video = null, frame = null, endedOnce = false, endFns = [], raf = 0, timer = 0, endTimer = 0, gone = false, wave = null;
+    /* bounded = 区間の頭から流して末で止める再生の最中(最初の自動再生と「もう一度聞く」だけ。10-25 ユーザー「もう一度聞くボタンがあるんだから使い分ければいい」)。
+       それ以外の再生ボタン・Space・シーク・再生バーのクリックは、選んだ位置から止めずに流す(区間へ戻さない)。ownSeek = こちらが動かした位置(ユーザーのシークと見分ける) */
+    var bounded = false, ownSeek = false;
+    function seekTo(t) { if (!video) return; ownSeek = true; try { video.currentTime = t; } catch (e) { ownSeek = false; /* 読み込みの途中 */ } }
 
     el.innerHTML = '<div class="chk-player">' +
       '<div class="chk-screen" data-chk-screen></div>' +
@@ -66,16 +71,19 @@
       endedOnce = true;
       endFns.slice().forEach(function (f) { try { f(); } catch (e) { UIKit.report('再生の終わりの知らせで失敗しました: ' + (e && e.message)); } });
     }
-    /* 区間の終わりで止める: 残りの時間に合わせたタイマー(重いときにコマが遅れても・窓が隠れてコマが止まっても止まる)・毎コマ・timeupdate のどれでも */
+    /* 区間の終わり: 末を過ぎたら「聞いた」(finish)。止めるのは bounded の再生だけ。
+       残りの時間に合わせたタイマー(重いときにコマが遅れても・窓が隠れてコマが止まっても止まる)・毎コマ・timeupdate のどれでも */
     function atEnd() {
       if (gone || !video || !(win[1] > win[0]) || video.paused) return false;
       if (video.currentTime < win[1]) return false;
-      video.pause(); finish();
+      finish();
+      if (!bounded) return false;
+      bounded = false; video.pause();
       return true;
     }
     function armEnd() {
       clearTimeout(endTimer); endTimer = 0;
-      if (gone || !video || !(win[1] > win[0]) || video.paused || atEnd()) return;
+      if (gone || !video || !(win[1] > win[0]) || video.paused || !bounded || atEnd()) return;
       var ms = (win[1] - video.currentTime) / (video.playbackRate || 1) * 1000;
       endTimer = setTimeout(armEnd, Math.max(10, Math.min(ms, 250)));   // 近づくほど細かく見直す(タイマーの遅れを詰める)
     }
@@ -86,13 +94,11 @@
       if (wave) drawWave();
       if (!video.paused) raf = requestAnimationFrame(watch);
     }
-    function play() {
-      if (video) {
-        if (win[1] > win[0] && (video.currentTime >= win[1] - 0.05 || video.currentTime < win[0] - 0.5)) video.currentTime = win[0];
-        var p = video.play();
-        if (p && p.catch) p.catch(function () { say('Space で再生します'); });
-      }
-    }
+    function start(p) { if (p && p.catch) p.catch(function () { bounded = false; say('Space で再生します'); }); }
+    /* 区間の頭から流して末で止める(最初の自動再生・もう一度聞く) */
+    function playBounded() { if (!video) return; bounded = true; seekTo(win[0]); start(video.play()); }
+    /* 再生(Space など): 今の位置から止めずに流す */
+    function play() { if (!video) return; bounded = false; start(video.play()); }
     function stop() { if (video) { try { video.pause(); } catch (e) { /* 無視 */ } } }
     function ytSrc(auto) {
       return 'https://www.youtube-nocookie.com/embed/' + ytId + '?start=' + Math.floor(win[0]) + (win[1] > win[0] ? '&end=' + Math.ceil(win[1]) : '') +
@@ -102,9 +108,7 @@
     function replay() {
       if (gone) return;
       if (video) {
-        try { video.currentTime = win[0]; } catch (e) { /* 読み込みの途中 = 読み込み後に win[0] へ動く */ }
-        var p = video.play();
-        if (p && p.catch) p.catch(function () { say('Space で再生します'); });
+        playBounded();
       } else if (frame) {
         frame.src = ytSrc(true);
       }
@@ -118,15 +122,13 @@
       video.volume = vol.volume; video.muted = vol.muted;
       video.addEventListener('volumechange', function () { saveVolume(video); });
       video.addEventListener('loadedmetadata', function () {
-        if (win[0] > 0) { try { video.currentTime = win[0]; } catch (e) { /* 読み込みの途中 */ } }
-        if (opt.autoplay !== false) play();
+        if (opt.autoplay !== false) playBounded();
+        else if (win[0] > 0) seekTo(win[0]);
       });
-      video.addEventListener('play', function () {
-        say('');
-        if (win[1] > win[0] && video.currentTime >= win[1] - 0.05) { try { video.currentTime = win[0]; } catch (e) { /* 無視 */ } }   // 終わりで止まった後の再生 = 頭から
-        armEnd(); if (!raf) raf = requestAnimationFrame(watch); });
+      video.addEventListener('play', function () { say(''); armEnd(); if (!raf) raf = requestAnimationFrame(watch); });
       video.addEventListener('playing', armEnd);
-      video.addEventListener('seeked', armEnd);
+      video.addEventListener('pause', function () { if (!video.ended && video.currentTime < win[1]) bounded = false; });   // ユーザーの一時停止の後は止めずに流す
+      video.addEventListener('seeked', function () { if (!ownSeek) bounded = false; ownSeek = false; armEnd(); });   // ユーザーのシーク = 止めずに流す
       video.addEventListener('ratechange', armEnd);
       video.addEventListener('timeupdate', atEnd);
       video.addEventListener('ended', finish);

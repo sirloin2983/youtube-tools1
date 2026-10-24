@@ -236,9 +236,17 @@ def _scene_kinds(cx):
     check(wait_js(pg, replayed, 5000), "[もう一度聞く] のボタンも頭から")
     check(wait_js(pg, stopped, 10000), "ボタンの流し直しも末で止まる")
     pg.evaluate("document.activeElement && document.activeElement.blur()")
-    press(pg, "Space")
-    check(wait_js(pg, replayed, 5000), "末で止まった後の Space も頭から(すぐ止まらない)")
-    check(wait_js(pg, stopped, 10000), "Space の再生も末で止まる")
+    press(pg, "Space")   # 10-25 ユーザー: 区間の頭へ戻して末で止めるのは最初の自動再生と もう一度聞く だけ
+    check(wait_js(pg, "(() => { const v = document.querySelector('#chkBody video'); return v && !v.paused && v.currentTime > 2.3; })()", 5000),
+          "末で止まった後の Space = 今の位置から止めずに流す(行の後ろも聞ける): %s" % pg.evaluate("document.querySelector('#chkBody video').currentTime"))
+    t_pause = pg.evaluate("(() => { const v = document.querySelector('#chkBody video'); v.pause(); return v.currentTime; })()")   # 区間(末 1.7 秒)の後ろで一時停止
+    pg.wait_for_timeout(200)
+    pg.evaluate("document.querySelector('#chkBody video').play()")   # 動画の再生ボタン
+    pg.wait_for_timeout(300)
+    t_play = pg.evaluate("document.querySelector('#chkBody video').currentTime")
+    check(t_play >= t_pause and not pg.evaluate("document.querySelector('#chkBody video').paused"),
+          "区間の後ろで止めて再生ボタン = その位置から流す(区間の頭へ戻さない・止めない): %s → %s" % (t_pause, t_play))   # シークはこの試しの動画の配り方(Range なし)では 0 秒へ戻るので見ない
+    pg.evaluate("document.querySelector('#chkBody video').pause()")
     press(pg, "Enter")
     check(wait_js(pg, "CheckShell.state().kind === 'time'") and fq.answers[-1]["body"]["answer"] == {"choice": "B"}, "再生のあとの Enter = 機械の予想どおり")
     n_before = len(fq.answers)
