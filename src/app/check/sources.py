@@ -232,14 +232,18 @@ def _tight(doc, row, a, b, pad):
     return a, b, round(pad, 3)
 
 
+VOICE_PAD_END = 1.0   # 誰の声のカードの末の余白(秒。行の後ろの声も聞いて判断する = ユーザー 10-25。声の音 voice-clips は行の前後 1 秒を切り出してある)
+
+
 def _doc_card(view, kind, source, tid, doc, row, pad, extra, tight=False):
-    """tight = 行の時刻にきっちり(次の行の発言を入れない。_tight。読み・誰の声のカード)。media.padEnd = 末の余白(無ければ pad と同じ)"""
+    """tight = 行の時刻にきっちり(次の行の発言を入れない。_tight。読み・誰の声のカード)。media.padEnd = 末の余白(無ければ pad と同じ)。
+    誰の声のカード(kind voice)は末にも VOICE_PAD_END 秒(行の後ろも聞く)"""
     case = view.case_of_doc(tid) or {"id": "", "title": str(doc.get("title") or "")[:120]}
     a, b = _num(row.get("start")), _num(row.get("end"))
     media = {"url": MEDIA % tid, "start": a, "end": b, "pad": pad}
     if tight:
         a, b, head = _tight(doc, row, a, b, pad)
-        media.update({"end": b, "pad": head, "padEnd": 0.0})
+        media.update({"end": b, "pad": head, "padEnd": VOICE_PAD_END if kind == "voice" else 0.0})
     card = {"id": lineup.card_id(kind, source, tid, row["id"]), "kind": kind, "source": source, "case": case,
             "target": {"docId": tid, "row": row["id"], "videoId": case["id"] or None},
             "media": media, "text": str(row.get("text") or ""),
