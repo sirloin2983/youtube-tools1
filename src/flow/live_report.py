@@ -9,7 +9,7 @@
 中身(数えるだけ。どのファイルも書き換えない。壊れていれば None):
   recorder・recording(id)と info {title, url, firstPdt, lastPdt, endedAt, hours}
   samples    {ticks, behindMax, behindLast, memMaxMB, memLastMB, lagMax, lagLast, restarts, chatRestarts, chat(いちばん悪い状態)}   ← 遅れ・メモリ(D-12)
-  detect     {frame, bench, dismissed, adopted, adoptedAuto, adoptedManual, givenUp, gaps, perHour, counts(時間ごとの枠の数), ended}   ← 候補と採用の数
+  detect     {frame, bench, dismissed, adopted, adoptedAuto, adoptedManual, givenUp, gaps, perHour, counts(時間ごとの枠の数), ended, filled, quota}   ← 候補と採用の数
   tx         {ok, error, empty, secMedian, secMax, pending}                                                                   ← 配信中の文字起こしの成否
   exports    {total, byState, failures, waitSecMedian, waitSecMax, origins}   ← 書き出しの待ち(ジョブを作ってから済むまでの秒。done のジョブだけ)
   disk       {state, rows: [{label, drive, freeGB}]}                           ← 空き(最後に見たとき)
@@ -163,7 +163,9 @@ class Reporter:
                   "dismissed": sum(1 for p in peaks if p.get("state") == "dismissed"), "adopted": sum(1 for p in peaks if p.get("state") == "adopted"),
                   "adoptedAuto": sum(1 for x in adopted if x.get("origin") == "auto"), "adoptedManual": sum(1 for x in adopted if x.get("origin") != "auto"),
                   "givenUp": len(fails), "gaps": doc.get("gaps"), "perHour": doc.get("perHour"), "counts": doc.get("counts") if isinstance(doc.get("counts"), dict) else {},
-                  "ended": bool(doc.get("ended")), "measured": doc is not None and bool(doc)}
+                  "ended": bool(doc.get("ended")), "measured": doc is not None and bool(doc),
+                  "filled": sum(1 for p in peaks if p.get("fill")),   # 配信の終わりに本数に届かず埋めた候補(印 fill)
+                  "quota": doc.get("quota") if isinstance(doc.get("quota"), dict) else None}   # 埋めの記録 {need, have, added, on}(ワーカーの QUOTA)
         txv = host.livetx.items(rc, rec) or {}
         secs = [v.get("sec") for v in txv.values() if isinstance(v, dict) and "error" not in v]
         tx = {"ok": sum(1 for v in txv.values() if isinstance(v, dict) and "error" not in v and (v.get("text") or "").strip()),

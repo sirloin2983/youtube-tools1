@@ -608,5 +608,53 @@ class TestFill(unittest.TestCase):
         self.assertEqual(len(excite.pick_clips(w, lv, dict(SPEC, sensitivity="low", fill=8, count=2), n)), 2)   # 解析の数 count が上限
 
 
+class TestQuota(unittest.TestCase):
+    """配信の終わりの本数の埋め(PeakBook.fill_quota): しきい値を超える山 1 つ(500)としきい値の下の山 3 つ(520 は近すぎる・1500・2500)"""
+
+    def book(self):
+        n = 3000
+        total = series_with_peaks([(500, 5.0), (520, 1.4), (1500, 1.5), (2500, 1.2)], n)
+        level = [-30.0] * n
+        b = excite.PeakBook(length=45, pre=0.65, sens="normal", per_hour=1)
+        feed(b, total, level)
+        b.finish()
+        return b, total, level
+
+    def test_fills_when_short_with_mark(self):
+        b, total, level = self.book()
+        self.assertEqual([p["peak"] for p in b.list()], [500])
+        added = b.fill_quota(total, level, {"audio": total, "chat": [0.0] * len(total)}, 3)
+        got = [b.peaks[i] for i in added]
+        self.assertEqual([p["peak"] for p in got], [1500, 2500])   # 足りない 2 本を高い順に(結果は時刻の順)
+        for p in got:
+            self.assertTrue(p["fill"])
+            self.assertIn(excite.FILL_REASON, p["reasons"])
+            self.assertEqual(p["state"], "frame")   # 1 時間の枠(1 本)が埋まっていても枠へ
+            self.assertFalse(p["endPending"])
+        self.assertEqual(b.have(), 3)
+        self.assertEqual(b.fill_quota(total, level, {"audio": total}, 3), [])   # 届いたらもう埋めない
+
+    def test_no_fill_when_enough(self):
+        b, total, level = self.book()
+        self.assertEqual(b.fill_quota(total, level, {"audio": total}, 1), [])
+
+    def test_bench_not_counted(self):
+        n = 3000
+        total = series_with_peaks([(500, 5.0), (1000, 4.0), (2000, 1.5)], n)
+        level = [-30.0] * n
+        b = excite.PeakBook(length=45, pre=0.65, sens="normal", per_hour=1)
+        feed(b, total, level)
+        b.finish()
+        self.assertEqual(sorted(p["state"] for p in b.list()), ["bench", "frame"])   # 1 時間の枠 1 本 = 1000 は控え
+        added = b.fill_quota(total, level, {"audio": total}, 2)
+        self.assertEqual([b.peaks[i]["peak"] for i in added], [2000])   # 控えは届かないので数えず、枠 + 採用の 1 本に 1 本足す
+
+    def test_near_peak_excluded(self):
+        b, total, level = self.book()
+        added = b.fill_quota(total, level, {"audio": total}, 4)
+        self.assertNotIn(520, [b.peaks[i]["peak"] for i in added])   # 今の候補(500)の区間と前後の山は使わない
+        self.assertEqual(len(added), 2)   # 平ら(点数 0)は埋めに使わない
+
+
 if __name__ == "__main__":
     unittest.main()

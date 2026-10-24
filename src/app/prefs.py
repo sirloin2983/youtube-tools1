@@ -18,7 +18,7 @@
              after は画面・API が書き出したあとを指定しないとき(自動の採用など)の既定。cut・engine・model は書き出しを頼んだときに覚えてまとめて実行へ渡す・
              配信が終わったらアーカイブの解析で自動で切り抜いてパックまで作る autoAfterStream(**既定オフ**。線 D の M7。src/flow/live_archive.py)と
              その数 afterStreamPerHour(1 時間あたり。1〜30。既定 6)・
-             配信中の盛り上がりの検出 detect {enabled(**既定オン**。ユーザー決定), sens: high|normal|low(既定 normal), perHour: 1〜30(1 時間の候補の枠。既定 6)}
+             配信中の盛り上がりの検出 detect {enabled(**既定オン**。ユーザー決定), sens: high|normal|low(既定 normal), perHour: 1〜30(1 時間の候補の枠。既定 6), fill(**既定オン**。配信の終わりに候補が perHour × 時間に届かなければしきい値の下の山で埋める。印 fill)}
              (線 D の L2。src/flow/live_detect.py・live_excite_worker.py)と、その候補の自動の採用 autoAdopt {waitMin: 1〜60(入口が候補を最初に見てから待つ分。既定 5)}(自動の採用はいつもオン。オフのスイッチ enabled は 10-19 に消した = 保存してある enabled は読み捨て)
              (M11)。どちらも節の中の鍵ごとに直す(送らなかった鍵は今のまま)
   hidden   … 一覧で非表示にした項目: 一覧の名前(HIDE_LISTS)→ {項目の id: 非表示にした時刻(ms)}。
@@ -66,7 +66,7 @@ DEFAULTS = {"autorun": {"top": 3, "cut": "none", "friendLength": True,   # 既�
             "hidden": {k: {} for k in HIDE_LISTS},
             "live": {"enabled": False, "folder": "", "recorders": [], "quality": "1080p",
                      "auto": {"after": "auto", "cut": "", "engine": "", "model": "", "pad": _ADOPT["pad"]}, "autoAfterStream": False, "afterStreamPerHour": _ADOPT["perHour"],
-                     "detect": {"enabled": True, "sens": "normal", "perHour": _ADOPT["perHour"]}, "autoAdopt": {"waitMin": _ADOPT["waitMin"]},
+                     "detect": {"enabled": True, "sens": "normal", "perHour": _ADOPT["perHour"], "fill": True}, "autoAdopt": {"waitMin": _ADOPT["waitMin"]},
                      "liveTx": {"enabled": True, "model": "large-v3"}},   # 配信中の候補の文字起こし(D-11 案 b。whisper.cpp の GPU。既定オン = 部品が無ければ何もしない)
             # live.autoDeliver(自動の切り抜きを友人へ届けるか)は 10-19 に消した: 受付のフォルダが決まっていればいつも届ける。保存済みの値・古い画面が送る値は読み捨て
             "accuracy": {"enabled": True, "nightFrom": 1, "nightTo": 6, "retranscribe": False}}
@@ -260,7 +260,8 @@ def _clean_live_detect(v, cur, strict=True):
     return _clean_keys(v, cur, DEFAULTS["live"]["detect"], {
         "enabled": (lambda x: isinstance(x, bool), "「配信中の候補」は true か false で指定してください"),
         "sens": (lambda x: x in LIVE_SENS, "感度(sens)は high・normal・low のどれかにしてください"),
-        "perHour": (lambda x: _int_in(x, *LIVE_PER_HOUR), "1 時間の候補の数(perHour)は %d〜%d の整数で指定してください" % LIVE_PER_HOUR)}, strict)
+        "perHour": (lambda x: _int_in(x, *LIVE_PER_HOUR), "1 時間の候補の数(perHour)は %d〜%d の整数で指定してください" % LIVE_PER_HOUR),
+        "fill": (lambda x: isinstance(x, bool), "「本数に届かないときに埋める」(fill)は true か false で指定してください")}, strict)
 
 
 def _clean_live_tx(v, cur, strict=True):

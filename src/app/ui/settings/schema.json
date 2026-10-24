@@ -45,6 +45,7 @@
         { "key": "live.detect.enabled", "type": "bool", "label": "配信中の候補を出す", "default": true, "when": { "key": "live.enabled", "eq": true } },
         { "key": "live.detect.sens", "type": "enum", "label": "感度", "default": "normal", "options": [["high", "高い(多めに出す)"], ["normal", "ふつう"], ["low", "低い(少なめに出す)"]], "when": { "key": "live.enabled", "eq": true } },
         { "key": "live.detect.perHour", "type": "int", "label": "1 時間の本数", "default": 6, "min": 1, "max": 30, "unit": "本", "when": { "key": "live.enabled", "eq": true }, "hint": "この数を超えたら、点数の低い候補を「控え」にします。" },
+        { "key": "live.detect.fill", "type": "bool", "label": "本数に届かないときは埋める", "default": true, "when": { "key": "live.enabled", "eq": true }, "hint": "配信が終わったとき、候補が「1 時間の本数 × 配信の時間」に届かなければ、感度に届かなかった山を点数の高い順に足します(理由に「本数に届かないので埋めた」と出ます)。" },
         { "key": "live.autoAdopt.waitMin", "type": "int", "label": "確定から待つ分", "default": 5, "min": 1, "max": 60, "unit": "分", "when": { "key": "live.enabled", "eq": true }, "hint": "候補はいつも自動で採用します。候補が確定してからこの分だけ待って、まだ枠に残っている候補を採用し、書き出し → 文字起こし → パックまで進めます(待つ間に見送れば採用しません)。" }
       ] }
     ] },

@@ -15,8 +15,8 @@
 - **mount.py** (208 行) — 統合サーバーへのツールの取り込み(統合計画の段階3。notes:docs/design/integration-plan.md)。
   - 名前: `class MountError` :52・`tool_modules` :56・`check_no_collision` :66・`load_serve` :76・`send_redirect` :103・`make_handler` :113・`class Mount` :160
   - 受ける口: `/api/ytt` :45
-- **prefs.py** (487 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
-  - 名前: `class PrefsError` :95・`guess_streamer` :381・`class Prefs` :393
+- **prefs.py** (488 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
+  - 名前: `class PrefsError` :95・`guess_streamer` :382・`class Prefs` :394
 - **server.py** (1826 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
   - 名前: `runtime_dir` :186・`ping` :196・`tail` :204・`expected_version` :225・`tool_python` :231・`rel_or_abs` :241・`signal_stop` :249・`class Tool` :262・`app_data_dir` :312・`logs_dir_for` :318・`class Supervisor` :324・`query_int` :643・ほか 16
   - 受ける口: `/api/drill/status` :154・`/api/eval-batch` :154・`/api/intake` :629・`/api/backup` :630・`/api/accuracy` :631・`/api/flow/runs` :632・`/api/cases/auto` :634・`/api/flow/submit` :635・`/api/flow/estimate` :635・`/api/flow/cancel` :636・`/api/intake/scan` :637・`/api/backup/run` :637・`/api/accuracy/run` :638・`/api/check/answer` :639・`/api/check/unknown` :639・`/api/check/skip` :639・`/api/check/flush` :639・`/api/shutdown` :640・`/api/ping` :729・`/api/status` :731・`/api/health` :741・`/api/log` :743・`/api/flow/status` :758・`/api/flow/history` :762・`/api/check/next` :765・`/api/check/voiceclip` :771・`/api/home/requests` :777・`/api/cases` :789

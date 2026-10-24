@@ -111,7 +111,7 @@ class PrefsLiveTest(unittest.TestCase):
         self.assertEqual(self.p.get(["live"])["live"], {"enabled": False, "folder": "", "recorders": [], "quality": "1080p",
                                                         "auto": {"after": "auto", "cut": "", "engine": "", "model": "", "pad": 2},   # pad = 自動・アーカイブの採用の前後の余白(M8)
                                                         "autoAfterStream": False, "afterStreamPerHour": 6,   # 配信後の全自動(M7)は既定オフ
-                                                        "detect": {"enabled": True, "sens": "normal", "perHour": 6},   # 配信中の検出(L2)は既定オン(リアルタイム切り抜きがオンのときだけ動く)
+                                                        "detect": {"enabled": True, "sens": "normal", "perHour": 6, "fill": True},   # 配信中の検出(L2)は既定オン(リアルタイム切り抜きがオンのときだけ動く)
                                                         "autoAdopt": {"waitMin": 5},   # 自動の採用(M11)はいつもオン = 待つ分だけ
                                                         "liveTx": {"enabled": True, "model": "large-v3"}})   # 配信中の候補の文字起こし(D-11 案 b)は既定オン(部品が無ければ何もしない)
         self.assertEqual(self.p.patch("live", {"auto": {"pad": 0}})["auto"]["pad"], 0)   # 余白は 0〜5 秒(小数も可)。ほかの鍵はそのまま

@@ -1090,6 +1090,38 @@ class WorkerRestTest(unittest.TestCase):
         self.assertEqual([(p["state"], p.get("audioOnly")) for p in got], [("frame", True)])
         self.assertEqual(peaks(1.0), [])   # 前の動き = 候補 0
 
+    def test_quota_fill(self):
+        """QUOTA: 締めたとき候補が perHour × 時間(切り上げ)に届かなければ、series(書いた分 + まだ書いていない分)のしきい値の下の山で埋める。
+        スイッチ quotaFill false なら埋めない。記録は peaks.json の quota・state.json で起動し直しに耐える"""
+        n = 4320   # 1.2 時間 × perHour 2 = 2.4 → 3 本
+        total = [0.0] * n
+        for c in (600, 2000, 3500, 4000):
+            for d in range(-6, 7):
+                total[c + d] = 1.0 + c / 10000.0 - abs(d) * 0.05   # しきい値(2.0)に届かない山。後ろほど高い
+        rows = [{"t0": m, "total": total[m:m + 60], "audio": total[m:m + 60], "chat": [0.0] * 60, "full": [-30.0] * 60} for m in range(0, n, 60)]
+
+        def rec():
+            folder = testkit.tempdir(self, prefix="ytt-quota-")
+            s = W.RecState(folder, "fake", REC, URL, T0, dict(W.SPEC_DEFAULT), {"sens": "normal", "perHour": 2}, False)
+            fsio.append_jsonl(os.path.join(folder, "series.jsonl"), rows[:40])
+            s.series_out = rows[40:]
+            s.next_box = n
+            return s
+        off = rec()
+        self.assertEqual(off.quota_fill(False), [])
+        self.assertEqual(off.quota, {"need": 3, "have": 0, "added": 0, "on": False})
+        st = rec()
+        added = st.quota_fill(True)
+        self.assertEqual([st.book.peaks[i]["peak"] for i in added], [2000, 3500, 4000])   # 高い 3 本(まだ書いていない分の山も)
+        self.assertTrue(all(st.book.peaks[i]["fill"] for i in added))
+        self.assertEqual(st.peaks_doc(T0)["quota"], {"need": 3, "have": 0, "added": 3, "on": True})
+        self.assertEqual(W.RecState.from_json(st.folder, st.to_json(), {}).quota["added"], 3)
+        cfg = write_config(self.dir, quotaFill=False)
+        w = make_worker(cfg, Clock(T0), SimRecorder(Clock(T0)))
+        w.load_config(force=True)
+        self.assertIs(w.cfg["quotaFill"], False)
+        w.close()
+
     def test_bad_numbers(self):
         self.assertEqual([levels.level(x) for x in ("nan", "inf", "-inf", "1e400", "50", "-12.5", "-120", "x")], [-90.0, -90.0, -90.0, -90.0, levels.LEVEL_MAX, -12.5, -90.0, -90.0])
         with self.assertRaises(ValueError):

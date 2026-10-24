@@ -7,7 +7,8 @@
   跳ね上がりの尺度 = 直近 window 秒の MAD(アーカイブは全体)。これを持つのが Online(1 秒ずつ足す。一括の答え合わせは test_excite の windowed_scores)
 - 候補の帳簿 PeakBook: 山の確定(0-10-3 の 5)・1 時間の枠と入れ替え(0-10-3 の 6)・採用と見送りの除外。純粋(時計・ファイルを持たない)で、JSON にして起動し直しに耐える。
   配信中だけの足し(どれも呼ばなければ候補は同じ): しきい値を上げる区間 thr_scale(雰囲気の変わり目 MoodShift のあと 60 秒は 1.3 倍。0-10-5)・
-  仮の候補 fast_push(チャットを待たない音だけの先回り。候補が出るまでの遅れを縮める。本番の候補は変わらない)
+  仮の候補 fast_push(チャットを待たない音だけの先回り。候補が出るまでの遅れを縮める。本番の候補は変わらない)・
+  配信の終わりの本数の埋め fill_quota(候補が 1 時間の本数 × 配信の時間に届かなければ、しきい値の下の山で埋める。印 fill)
 - 標準ライブラリだけ(numpy は使わない。入口の子プロセスでも足さずに済む)
 
 使い方:
@@ -880,6 +881,52 @@ class PeakBook:
             changed.append(pid)
         self.fast["rising"] = None
         return changed + self._expire(force=True)
+
+    def have(self):
+        """本数に数える候補(実際に届く枠と採用だけ。控え・仮の候補・見送りは数えない = 10-24 決定・欠けを減らす方)の数"""
+        return sum(1 for pk in self.peaks.values() if pk["state"] in ("frame", "adopted") and not pk.get("provisional"))
+
+    def fill_quota(self, total, level, comps, need):
+        """配信の終わり(finish のあと)に、候補が need 本に届かなければ、しきい値の下の山を高い順に足して埋める -> 足した候補の id の一覧。
+        total・level・comps({audio, chat})は録画の頭からの 1 秒ずつの合計・音量(dB)・内訳(配信中の series)。帳簿は直近しか持たないので呼ぶ側が渡す。
+        今の候補(見送り・仮も)の区間とその前後(pick_clips の [s-5, e+6))と、そこから続く下りの裾の山は使わない。区間・内訳・理由はアーカイブの解析と同じ pick_clips・candidates で、
+        印もアーカイブと同じ fill: True と理由の文 FILL_REASON。足した候補は 1 時間の枠を見ずに枠(frame)へ入れる(本数を埋めるための候補なので控えにしない)"""
+        short = int(need) - self.have()
+        n = len(total)
+        if short <= 0 or n == 0:
+            return []
+        work = [float(v) for v in total]
+        sm = smooth(work, PICK_SMOOTH)
+        for pk in self.peaks.values():
+            a, b = max(0, int(pk["start"]) - EXCLUDE_BEFORE), min(n, int(pk["end"]) + EXCLUDE_AFTER)
+            while b < n and sm[b] <= sm[b - 1]:   # 頂が区間の中にある山の下りの裾も使わない(裾が区間のすぐ外の「山」に見えるため)
+                b += 1
+            while a > 0 and sm[a - 1] <= sm[a]:
+                a -= 1
+            for i in range(a, b):
+                work[i] = 0.0
+        spec = {"length": self.length, "preRatio": self.pre, "sensitivity": "normal", "count": short, "fill": short,
+                "shape": self.shape, "scene": self.scene}
+        def fit(x):
+            return [float(v) for v in x][:n] + [0.0] * max(0, n - len(x))
+        picks = pick_clips(work, fit(level), spec, n)
+        for c in picks:
+            c["fill"] = True   # 枠に入らなかった山 = 配信中のしきい値(気分の変わり目・音だけの倍を含む)に届かなかった山
+        added = []
+        for c in sorted(candidates(picks, {k: fit(v) for k, v in comps.items()}), key=lambda c: c["peak"]):
+            pk = {"id": "p%d-%d" % (self.n_ids, c["peak"]), "start": c["start"], "end": c["end"], "peak": c["peak"], "score": c["score"],
+                  "parts": c["parts"], "reasons": c["reasons"], "confirmedAt": self.last_t, "hour": c["peak"] // 3600, "state": "frame",
+                  "endPending": False, "origin": None, "seq": 0, "fill": True}
+            if self.shape == "scene":
+                pk.update(shape=c.get("shape", "fixed"), fixed=c.get("fixed", [c["start"], c["end"]]), sceneOpen=False)
+            if self.tag:
+                pk.update(self.tag)
+            self.n_ids += 1
+            self.peaks[pk["id"]] = pk
+            self.order.append(pk["id"])
+            self._mark(pk["id"])
+            added.append(pk["id"])
+        return added
 
     def _finish_pending(self):
         done = []

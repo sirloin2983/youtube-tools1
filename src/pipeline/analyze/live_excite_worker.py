@@ -10,7 +10,8 @@ queued と worker.json の queued)で、受け持っている録画の検出が�
   config.json    入口が書く。{"v":1, "dir", "recorders": [{"id","url","token"}], "detect": {"sens","perHour"}, "spec": {"length","preRatio","lag","lagAuto",
                  "wAudio","wChat","headSec"}, "ffmpeg", "ytdlp", "chatLimitBytes", "chatStallSec", "chatKeepDir"?, "lengthHint"?, "provisional"?}。30 秒ごとに更新の時刻を見て読み直す。
                  lengthHint = M10 の人が選んだ長さの目安(入口が ② flow/lengthhint でその場で数える。enough のときだけ、新しく受け持つ
-                 録画の長さ・前の割合に使う。無い・足りない = スタジオの解析の設定)。provisional = 仮の候補(既定オン。false で出さない)
+                 録画の長さ・前の割合に使う。無い・足りない = スタジオの解析の設定)。provisional = 仮の候補(既定オン。false で出さない)。
+                 quotaFill = 配信の終わりの本数の埋め(既定オン。false で埋めない。下の QUOTA)
                  bundles?(RS7-2 G2b)= 束のある録画ごとの {"<録画元>/<録画>": {spec, sens, perHour}}(録画を始めたときの束。新しく受け持つ録画の spec と
                  感度・枠に使う。友人の依頼の録画は requests の感度・枠・長さが先)
                  chatKeepDir?= 読み終えた・配信が終わった生のチャットを消さずに移す先(入口が決める。無い = 今までどおり消す)
@@ -33,7 +34,7 @@ queued と worker.json の queued)で、受け持っている録画の検出が�
   7. ライブ端から 120 秒超遅れたら 60 秒分ずつまとめ、600 秒超なら古い所を飛ばす(配信が終わったら飛ばした区間の音だけ測り直す。60 秒分ずつ・
      まとまりごとに心拍・時間切れなら次の周期で続き(進みは state)・1 つの区間で REMEASURE_MAX_SEC まで)
   8. 60 秒ごとに state.json・series.jsonl、候補が変わったら peaks.json、30 秒ごとに worker.json。メモリが 512MB を超えたら状態を保存して終了コード 3
-配信が終わった録画: 残りを測る → 上り中・終わり待ちの候補を確定(PeakBook.finish)→ 飛ばした区間の測り直し → 最後の保存 → yt-dlp を止めて生のチャットを消す。そのあとは触らない。
+配信が終わった録画: 残りを測る → 上り中・終わり待ちの候補を確定(PeakBook.finish)→ 本数の埋め(下の QUOTA)→ 飛ばした区間の測り直し → 最後の保存 → yt-dlp を止めて生のチャットを消す。そのあとは触らない。
 
 標準ライブラリだけ(numpy は使わない)。優先度は「通常より下」(入口が起動するときに指定。子の ffmpeg・yt-dlp も)。ffmpeg・yt-dlp は KillJob に入れる
 (ワーカーが落ちたら子も消える)。yt-dlp を止めるときは子ごと(kill_tree。PyInstaller の 1 ファイルの exe は子を作る)。
@@ -47,6 +48,7 @@ import functools
 import glob
 import http.client
 import json
+import math
 import os
 import re
 import signal
@@ -113,6 +115,10 @@ LENGTH_HINT_MIN_SAMPLES, LENGTH_HINT_MIN_VIDEOS = 20, 5   # enough の条件(flo
 # 長さの目安(M10)が使えて極端でない(excite.SCENE の min〜max)ならそれ、ほかは 150 秒。依頼の length は見ない。
 # スイッチ: None = 前の動き(依頼の length。友人の画面の既定 45 秒)
 LIVE_AUTO_LENGTH = 150.0
+# QUOTA 配信の終わりの本数の埋め(10-24 決定。感度のしきい値は変えない): 帳簿を締めたとき、届く候補(枠・採用。控えは数えない)が
+# 1 時間の本数 × 配信の時間(切り上げ・最低 1)に届かなければ、series の点数でしきい値の下の山を高い順に足す(excite.PeakBook.fill_quota)。
+# 足した候補は配信中の候補と同じ枠(frame)に入り、入口の自動の採用(live_detect.auto_tick の配信の終わり D-14)が同じ待ちで採用して届ける。
+# 印: 候補の fill と理由の文(アーカイブの fill と同じ)・peaks.json の quota {need, have, added}。スイッチ: config.json の quotaFill(入口の設定 live.detect.fill。既定オン)
 # スタジオの解析の設定(spec)の範囲(src/pipeline/analyze/analyze.py の validate_settings と同じ)。入口の live_detect.clean_spec と、ここの clean_hint が読む
 SPEC_RANGES = {"length": (10.0, 300.0), "preRatio": (0.3, 0.9), "lag": (0.0, 30.0), "wAudio": (0.0, 3.0), "wChat": (0.0, 3.0), "headSec": (0.0, 600.0)}
 # 録画元との約束(録画元・録画・セグメントの id の形、時刻の書き方、動画の id)は ytt/recproto.py の 1 か所(入口の live_export と同じ物)
@@ -236,6 +242,40 @@ def clean_detect(det):
     入口(live_detect.Detector.config)が書くときとワーカーが読むときの両方で通す"""
     det = det if isinstance(det, dict) else {}
     return {"sens": det.get("sens") if det.get("sens") in excite.SENS else "normal", "perHour": det["perHour"] if schemas.is_int(det.get("perHour")) else 6}
+
+
+SERIES_COLS = ("total", "audio", "chat", "full")
+
+
+def read_series(path, extra=()):
+    """series.jsonl(1 分 1 行)と、まだ書いていない行 extra -> {"n", 列: [1 秒ずつ]}(列は SERIES_COLS。無い秒は 0・同じ分が 2 回あれば後 =
+    起動し直しで書き直した)か None(1 秒も無い)。入口の live_detect.series(画面の 600 点)と本数の埋め(QUOTA)が読む"""
+    rows = {}
+
+    def take(d):
+        if isinstance(d, dict) and isinstance(d.get("t0"), int) and isinstance(d.get("total"), list):
+            rows[d["t0"]] = d
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                try:
+                    take(json.loads(line))
+                except ValueError:
+                    continue
+    except OSError:
+        pass
+    for d in extra:
+        take(d)
+    n = max((t0 + len(d["total"]) for t0, d in rows.items()), default=0)
+    if not n:
+        return None
+    cols = {k: [0.0] * n for k in SERIES_COLS}
+    for t0, d in rows.items():
+        for k in SERIES_COLS:
+            for i, v in enumerate(d.get(k) or []):
+                if 0 <= t0 + i < n and schemas.is_num(v):
+                    cols[k][t0 + i] = float(v)
+    return dict(cols, n=n)
 
 
 def measure_levels(ffmpeg, path, wdir, job=None, timeout=FFMPEG_TIMEOUT):
@@ -732,6 +772,7 @@ class RecState:
         self.behind = 0.0
         self.last_pdt = None
         self.message = ""
+        self.quota = None           # 本数の埋め(QUOTA)の記録 {need, have, added}。締めるまでは None
         self.peaks_dirty = True
 
     # ---- 保存と再開
@@ -744,7 +785,7 @@ class RecState:
                 "decN": self.dec_n, "chat": self.chat_snap, "chatInfo": self.chat_info, "late": self.late, "errors": self.errors, "ending": self.ending,
                 "bookDone": self.book_done, "finished": self.finished, "message": self.message,
                 "fast": self.fast.to_json() if self.fast is not None else None, "mood": self.mood.to_json(), "moodShifts": self.mood_shifts,
-                "nextScan": self.next_scan, "lateFrom": self.late_from, "thrBase": self.thr_base}
+                "nextScan": self.next_scan, "lateFrom": self.late_from, "thrBase": self.thr_base, "quota": self.quota}
 
     @classmethod
     def from_json(cls, folder, d, detect, grace=CHAT_GRACE):
@@ -779,6 +820,7 @@ class RecState:
         st.late, st.errors = int(d.get("late") or 0), int(d.get("errors") or 0)
         st.ending, st.book_done, st.finished = bool(d.get("ending")), bool(d.get("bookDone")), bool(d.get("finished"))
         st.message = str(d.get("message") or "")
+        st.quota = d["quota"] if isinstance(d.get("quota"), dict) else None
         return st
 
     def set_detect(self, detect):
@@ -1003,6 +1045,20 @@ class RecState:
             self.series_out.append(self.minute)
         self.minute = None
 
+    def quota_fill(self, on=True):
+        """QUOTA: 締めた帳簿の候補が 1 時間の本数 × 配信の時間(録画の頭から測った秒。切り上げ・最低 1)に届かなければ、
+        series(書いた分と、まだ書いていない分)の点数でしきい値の下の山を足す -> 足した候補の id の一覧。記録は self.quota。
+        on = False(スイッチ quotaFill)なら埋めない(記録は added 0)"""
+        need = max(1, int(math.ceil(self.book.per_hour * self.next_box / 3600.0 - 1e-9)))
+        have = self.book.have()
+        added = []
+        if on and have < need:
+            cols = read_series(os.path.join(self.folder, "series.jsonl"), self.series_out)
+            if cols is not None:
+                added = self.book.fill_quota(cols["total"], cols["full"], {"audio": cols["audio"], "chat": cols["chat"]}, need)
+        self.quota = {"need": need, "have": have, "added": len(added), "on": bool(on)}
+        return added
+
     # ---- 書く
     def peaks_doc(self, now):
         ch = [{"seq": s, "id": i, "state": st} for s, i, st in self.book.changes]
@@ -1019,6 +1075,7 @@ class RecState:
                 "lateFrom": self.late_from,   # 録画の途中から測り始めた秒(それより前の候補は無い)
                 "thr": round(self.book.thr, 3), "thrBase": self.thr_base, "audioOnly": self.audio_only(),   # 今のしきい値・感度のしきい値・音だけか(AUDIO_ONLY_SCALE)
                 "chatBack": self.online.ch_chat.back if self.online.ch_chat else None,   # 印: チャットのふだんの前の幅(決定 3-135。無い記録は 270)
+                "quota": self.quota,   # 本数の埋め(QUOTA){need, have, added, on}。締める前は None
                 "peaks": self.book.list(), "changes": ch}
 
     def save(self, now, peaks=True):
@@ -1132,6 +1189,7 @@ class Worker:
                     "chatKeepDir": d.get("chatKeepDir") if isinstance(d.get("chatKeepDir"), str) and d.get("chatKeepDir") else None,
                     "lengthHint": clean_hint(d.get("lengthHint")),         # M10(入口が書く。無ければスタジオの設定の長さ)
                     "provisional": d.get("provisional") is not False,      # 仮の候補(既定オン。false = 本番の候補だけ)
+                    "quotaFill": d.get("quotaFill") is not False,        # 配信の終わりの本数の埋め(QUOTA。既定オン)
                     "detectAll": d.get("detectAll") is not False,         # false = 友人の依頼の録画(requests)だけ測る(ホームの検出がオフのとき。2-15)
                     "requests": clean_requests(d.get("requests")),       # 友人の依頼の録画ごとの設定(感度・枠・長さ)
                     "bundles": clean_bundles(d.get("bundles"))}         # 束のある録画ごとの解析の設定・感度・枠(RS7-2 G2b。無ければ {})
@@ -1531,6 +1589,10 @@ class Worker:
             if st.book.finish():
                 st.peaks_dirty = True
             st.flush_minute()
+            added = st.quota_fill(self.cfg.get("quotaFill", True))
+            if added:
+                st.peaks_dirty = True
+                self.log("盛り上がりの検出: %s は候補が %d 本に届かないので、しきい値の下の山 %d 本で埋めました" % (st.rec, st.quota["need"], len(added)))
             st.book_done = True
         for sk in st.skipped:
             if sk.get("done"):

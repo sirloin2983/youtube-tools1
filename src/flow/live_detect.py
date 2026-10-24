@@ -3,7 +3,7 @@
 計算はワーカー(src/pipeline/analyze/live_excite_worker.py。入口の子プロセス)。ここは起動・見張り・候補の API・人の採用と見送り・自動の採用・「調子」の行。
 ライブ係 src/flow/livesession.py の LiveSession(入口の Live はそれを継ぐ)が持ち(live.detector)、見回り(tick。30 秒ごと)・API の振り分け・「調子」から呼ぶ(live.py を大きくしない。仮決め (br))。
 
-設定(ホームの設定の節 live。src/app/prefs.py): detect {enabled(既定オン。ユーザー決定), sens: high|normal|low, perHour: 1〜30(既定 6)}・
+設定(ホームの設定の節 live。src/app/prefs.py): detect {enabled(既定オン。ユーザー決定), sens: high|normal|low, perHour: 1〜30(既定 6), fill(既定オン = 配信の終わりの本数の埋め。EW の QUOTA)}・
 autoAdopt {waitMin: 1〜60(既定 5)}(自動の採用はいつもオン。オフのスイッチは 10-19 に消した)。検出はリアルタイム切り抜き(live.enabled)もオンのときだけ動く。
 束のある録画(親の bundles = live/bundles.json。RS7-2 G2b)は、録画を始めたときの束の解析の設定(analyze)・感度・枠(adopt.sens・perHour)を
 config.json の bundles に、自動の採用の待ちは束の adopt.waitMin(決定 3-31 の仮 b1)。束の無い録画は上の設定とスタジオの解析の設定のまま。
@@ -32,6 +32,7 @@ API(src/app/live.py の handle_get / _api_post から。書き込みは入口の
 スタジオにつながらない(502)・書き出しの途中など(409)は次の見回りでやり直し、1 候補 AUTO_TRIES 回で諦めて「調子」の失敗(kind detect。auto_failures.json)に出す。
 配信の終わり(D-14): 録画が終わっても、ワーカーが帳簿を締めた(peaks.json の ended)あと END_GRACE_SEC の間は、待ち中だった候補(waitMin がまだ・
 終わり待ちだった候補が締めで確定したもの)を同じ待ちで採用する(終わった瞬間に待ち中だった候補を取りこぼさない)。
+締めで本数に届かず埋めた候補(印 fill。EW の QUOTA)も枠の候補なので同じ道(origin auto = 配信中の検出の続き。依頼の afterStream は見ない)で採用して届ける。
 安全弁(D-13。仮の数 = 使いながら直す): 1 つの録画の自動の採用は AUTO_MAX_PER_REC 本まで(decisions.json の adopted/auto を数える。
 友人の依頼の録画・確認なしに届く自分の配信の自動の分にも効く)。
 (「人が見ていない」ことを理由に自動の採用を休むことはしない = 採用は全部届ける。opt-manage Q1・2a-1・2a-2)
@@ -70,7 +71,7 @@ LOG_MAX = 2 * 1024 * 1024  # logs/excite.log がこれを超えていたら、�
 OPS = ("adopt", "dismiss", "restore")
 DECISIONS_MAX = 5000
 PEAKS_MAX = 16 * 1024 * 1024
-DETECT_DEFAULT = {"enabled": True, "sens": "normal", "perHour": _spec.DEFAULTS["adopt"]["perHour"]}
+DETECT_DEFAULT = {"enabled": True, "sens": "normal", "perHour": _spec.DEFAULTS["adopt"]["perHour"], "fill": True}   # fill = 配信の終わりの本数の埋め(EW の QUOTA)
 ADOPT_DEFAULT = {"waitMin": _spec.DEFAULTS["adopt"]["waitMin"]}
 CHAT_ORDER = ("none", "restarting", "ok", "off")   # 「調子」に出すチャットの状態(悪い順)
 
@@ -259,6 +260,7 @@ class Detector:
                 "detect": EW.clean_detect(self.detect_cfg()), "spec": self.spec(), "ffmpeg": self.ffmpeg(), "ytdlp": self.ytdlp(),
                 "chatLimitBytes": self.chat_limit, "chatStallSec": self.chat_stall, "lengthHint": self._length_hint(),
                 "detectAll": self.detect_cfg().get("enabled") is True, "requests": self.requests_cfg(),   # 友人の依頼の録画(2-15)
+                "quotaFill": self.detect_cfg().get("fill") is not False,   # 配信の終わりの本数の埋め(EW の QUOTA。友人の PC は設定が無い = オン)
                 **({"bundles": bc} if bc else {}),   # 束のある録画(RS7-2 G2b。無ければ書かない = 今までの config.json のまま)
                 **({"chatKeepDir": keep} if (keep := _chatreuse.keep_dir(self.host.store_dir)) else {})}   # 生のチャットを移す先(決定 3-117。② が決める)
 
@@ -419,27 +421,12 @@ class Detector:
 
     @staticmethod
     def _load_series(p):
-        """series.jsonl を読んで 600 点にする(series の読み直し)。読めなければ None"""
-        rows = {}
-        try:
-            with open(p, "r", encoding="utf-8", errors="replace") as f:
-                for line in f:
-                    try:
-                        d = json.loads(line)
-                    except ValueError:
-                        continue
-                    if isinstance(d, dict) and isinstance(d.get("t0"), int) and isinstance(d.get("total"), list):
-                        rows[d["t0"]] = d   # 同じ分が 2 回あれば後(起動し直しで書き直した)
-        except OSError:
+        """series.jsonl を読んで 600 点にする(series の読み直し。読み方はワーカーと 1 か所 = EW.read_series)。読めなければ None"""
+        cols = EW.read_series(p)
+        if cols is None:
             return None
-        n = max((t0 + len(d["total"]) for t0, d in rows.items()), default=0)
-        cols = {k: [0.0] * n for k in ("total", "audio", "chat")}
-        for t0, d in rows.items():
-            for k in cols:
-                for i, v in enumerate(d.get(k) or []):
-                    if 0 <= t0 + i < n and isinstance(v, (int, float)):
-                        cols[k][t0 + i] = float(v)
-        return {"n": n, "step": max(1.0, n / 600.0), **{k: excite.downsample(v) for k, v in cols.items()}} if n else None
+        n = cols["n"]
+        return {"n": n, "step": max(1.0, n / 600.0), **{k: excite.downsample(cols[k]) for k in ("total", "audio", "chat")}}
 
     def worker_view(self, doc):
         hb = self.heartbeat() or {}
