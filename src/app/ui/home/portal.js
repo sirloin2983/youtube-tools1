@@ -1406,10 +1406,11 @@
       .then(function () { freqTimer = setTimeout(pollFriendReqs, document.hidden ? FREQ_POLL_MS * 4 : FREQ_POLL_MS); });
   }
   function freqGo(r) {
-    /* -> {href, label} か {why}(押せない理由)。案件の一覧を読んだあとは、一覧に無い案件を「片付いた」とする(文書 d だけの道は照らせないので押せる) */
+    /* -> {href, label} か {why}(押せない理由)。案件の一覧を読んだあとは、一覧に無い案件を「片付いた」とする(文書 d だけの道は照らせないので押せる)。
+       録画中のライブの案件は、録画が終わるまで案件の一覧に載らないので照らさない(録画中の札の「開く」と同じ案件の画面へ) */
     var l = r.link;
     if (!l) return { why: r.why || '案件が分からない' };
-    if (l.c && casesData && !caseById(l.c)) return { why: l.live ? '録画が片付いた' : '案件が片付いた' };
+    if (l.c && casesData && !caseById(l.c) && !(l.live && r.state === 'live')) return { why: l.live ? '録画が片付いた' : '案件が片付いた' };
     return { href: CaseLink.href({ c: l.c, d: l.d, tab: l.tab }), label: l.live ? 'ライブを開く' : '開く' };
   }
   function freqRow(r) {
