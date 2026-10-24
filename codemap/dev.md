@@ -6,8 +6,8 @@
 
 - **_common.py** (48 行) — dev/ の道具が共通で使う小物(標準ライブラリだけ)。guard_hook.py・push_helper.py は単独で動く条件なので、ここを読まない。
   - 名前: `console_utf8` :9・`find_node` :18・`read_utf8` :31・`write_utf8` :37・`tracked_files` :43
-- **build_friend_zip.py** (811 行) — 友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(設計 notes:docs/design/f1-build.md の 2・3 節)。
-  - 名前: `class BuildError` :106・`say` :110・`download` :122・`cached` :134・`wheel_pins` :169・`pip_download` :187・`wheels` :197・`check_certifi` :234・`unzip_into` :250・`lay_python` :275・`src_files` :300・`lay_src` :315・ほか 24
+- **build_friend_zip.py** (839 行) — 友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(設計 notes:docs/design/f1-build.md の 2・3 節)。
+  - 名前: `class BuildError` :111・`say` :115・`download` :127・`cached` :139・`wheel_pins` :174・`pip_download` :192・`wheels` :202・`check_certifi` :239・`unzip_into` :255・`lay_python` :280・`src_files` :305・`lay_src` :320・ほか 25
 - **code_map.py** (466 行) — コードの地図と言葉の索引を作る道具(AI のセッションがコードの場所を早く見つけるため)。
   - 名前: `git_files` :53・`skipped` :57・`is_test` :61・`read` :65・`one_line` :73・`comment_head` :85・`py_info` :112・`js_info` :143・`cs_info` :164・`info` :186・`layer_of` :199・`norm_route` :206・ほか 12
   - 受ける口: 
