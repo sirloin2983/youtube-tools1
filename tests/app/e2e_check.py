@@ -5,9 +5,9 @@
 計画 notes:docs/design/v1-check-build.md 2-3 の形の偽物(Playwright の route)で答える。動画は ffmpeg で作った webm を transcribe/media の偽物で返す。
 見るもの: 開く(帯 = 今日 n 件・この確認で決まる物・このあと・最初のカード)・URL の c / kind を口へ渡す / A で答える → 送った中身・すぐ次へ /
 Z で 1 つ前に戻す(undo の id・カードが戻る・今日の数)/ N で飛ばす(skip を送る・Z では戻らない)/ 答えのボタン = キーと同じ道 /
-読みのカード(1 / 2・3 で打って答える)/ 誰の声のカード = 再生が終わるまで Enter は効かない・自動で再生して区間で止まる・登録簿の人・混ざり /
+読みのカード(1 / 2・3 で打って答える)/ 誰の声のカード = 再生が終わるまで Enter は効かない・自動で再生して区間で止まる・登録簿の人・混ざり・G(ゲーム音・BGM が大きい)/ 答えに 404 gone(戻さず次へ)/
 時刻のカード = 波形の帯・単語の時刻の候補・H と ← で端を動かして答える / 声ですか(speech)/ 自動カット(cut)の 3 つの問い /
-種類の切り替え(残りの枚数・覚える・URL の kind が先)/ 評価のレーン(lane=eval・まとめて文字起こし・区間カード)/ 10 件ごとのまとめ(Enter で続ける)/
+種類の切り替え(残りの枚数・覚える・URL の kind が先)/ 評価のレーン(lane=eval・まとめて文字起こし・区間カード)/ 10 件答えても止めない(答えた数・目標は端に)/
 全部答えた空の状態(back=cases なら案件へ戻る)/ 答えを記録できない(カードが戻る)・離れたら保留を確定 / 一覧を読めない(もう一度)・反映できなかった数 /
 本物の口(src/app/check/deck.py)で空 / 版と appnav の今の場所(ヘッダーの部品の並びは ui_audit の A-28)/ コンソールにエラーが無い。"""
 import json
@@ -69,7 +69,9 @@ class FakeQueue:
         self.next_q = []       # 受けた next の引数
         self.fail_next = 0     # 次の n 回の next を 500 に
         self.fail_answer = 0
-        self.failed = 0        # counts.failed(前に答えたのに反映できなかった数)
+        self.gone = set()      # 答えると 404 gone を返すカードの id(一度答えたあとは一覧にも出さない = 一覧のあとで確かめる物でなくなった)
+        self.gone_hit = set()
+        self.failed = 0       # counts.failed(前に答えたのに反映できなかった数)
         self.flushed = 0
         self.section_cards = None   # 評価のレーンの next に付ける sectionCards(None = 付けない)
         self.lock = threading.RLock()   # 経路の処理は同じ糸の中で入れ子に呼ばれることがある(fulfill の待ちの間に次の要求)= 入れ子でも止まらない鍵
@@ -88,7 +90,7 @@ class FakeQueue:
                 if self.fail_next:
                     self.fail_next -= 1
                     return route.fulfill(status=500, content_type="application/json", body=json.dumps({"error": "boom", "message": "待ち行列を作れませんでした(テスト)"}))
-                done = {a["body"]["card"] for a in self.live_answers()} | set(self.skipped)
+                done = {a["body"]["card"] for a in self.live_answers()} | set(self.skipped) | self.gone_hit
                 skip = set((q.get("skip") or [""])[0].split(",")) if q.get("skip") else set()
                 n = int((q.get("n") or ["10"])[0])
                 every = [c for c in self.cards if c["id"] not in done and c["id"] not in skip]
@@ -126,6 +128,9 @@ class FakeQueue:
                 if self.fail_answer:
                     self.fail_answer -= 1
                     return route.fulfill(status=500, content_type="application/json", body=json.dumps({"error": "boom", "message": "記録に失敗しました(テスト)"}))
+                if body.get("card") in self.gone:
+                    self.gone_hit.add(body["card"])
+                    return route.fulfill(status=404, content_type="application/json", body=json.dumps({"error": "gone", "message": "そのカードはもう確かめる物ではありません(テスト)"}))
                 aid = "ans%03d" % (len(self.answers) + 1)
                 self.answers.append({"id": aid, "body": body})
                 return route.fulfill(status=200, content_type="application/json",
@@ -245,17 +250,13 @@ def _scene_summary_and_end(cx):
     pg, check = cx.pg, cx.check
     pg.goto(cx.base + "check?c=v1&back=cases")
     check(wait_js(pg, "!!CheckShell.state().cur"), "開き直すと続きから")
-    for _ in range(10):   # まとめはこの画面で答えた数の 10 件ごと
+    for _ in range(10):
         press(pg, "a" if state(pg)["kind"] == "value" else "1")
-    check(wait_js(pg, "CheckShell.state().summary") and not pg.is_hidden("#chkSum"), "10 件ごとのまとめ: %s" % state(pg))
-    check("件答えました" in pg.text_content("#chkSum") and "C1 盛り上がりの重み(I-4a)" in pg.text_content("#chkSum"), "まとめの文: %r" % pg.text_content("#chkSum"))
-    press(pg, "Enter")
-    check(wait_js(pg, "!CheckShell.state().summary && !!CheckShell.state().cur"), "Enter で続ける")
+    check(wait_js(pg, "!!CheckShell.state().cur") and pg.locator("#chkSum").count() == 0, "10 件答えても止めずに次のカード: %s" % state(pg))
+    check("10 件答えました" in pg.text_content("#chkAnswered") and "この確認で決まる物" in pg.text_content("#chkGoal"),
+          "答えた数と目標は端に出したまま: %r %r" % (pg.text_content("#chkAnswered"), pg.text_content("#chkGoal")))
     for _ in range(40):
-        if not state(pg)["cur"] or state(pg)["summary"]:
-            if state(pg)["summary"]:
-                press(pg, "Enter")
-                continue
+        if not state(pg)["cur"]:
             break
         press(pg, "a" if state(pg)["kind"] == "value" else "1")
     check(wait_js(pg, "CheckShell.state().empty"), "全部答えたら空の状態: %s" % state(pg))
@@ -352,6 +353,32 @@ def _scene_voice(cx):
     finally:
         cx.ctx.unroute(re.compile(r".*/api/check/.*"))
         cx.ctx.route(re.compile(r".*/api/check/.*"), cx.fq.handle)
+
+
+def _scene_voice_bgm_and_gone(cx):
+    """誰の声: G(ゲーム音・BGM が大きい)を入れて名前で答える = {choice, bgm: true}。答えに 404 gone が返ったカードは戻さず次へ・もう出ない"""
+    pg, check = cx.pg, cx.check
+    opts = [{"id": "S1", "name": "ぺこら"}, {"id": "other", "name": "その他"}, {"id": "mixed", "name": "混ざり"}]
+    fv = FakeQueue([card(i, "voice", source="solo", options=opts) for i in (40, 41, 42)])
+    fv.gone.add("voice:e2e:41")
+    _swap_queue(cx, fv)
+    try:
+        pg.goto(cx.base + "check?kind=voice")
+        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:40'"), "声のカード(ソロ)を開く: %s" % state(pg))
+        press(pg, "g")
+        check(pg.get_attribute("#chkBody [data-chk-k='G']", "aria-pressed") == "true" and pg.is_visible("#chkBody [data-chk-bgm]"),
+              "G で「ゲーム音・BGM が大きい」が入る(押した状態と一言)")
+        press(pg, "1")
+        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:41'") and fv.answers[-1]["body"]["answer"] == {"choice": "S1", "bgm": True},
+              "G のあと 1 = {choice: S1, bgm: true}: %s" % fv.answers[-1:])
+        check(pg.get_attribute("#chkBody [data-chk-k='G']", "aria-pressed") == "false", "次のカードでは G は切れている")
+        press(pg, "1")
+        check(wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.includes('次へ進みます'))"), "gone: 次へ進む知らせ")
+        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:42'"), "gone: 戻さずに次のカード: %s" % state(pg))
+        press(pg, "1")
+        check(wait_js(pg, "CheckShell.state().empty") and "voice:e2e:41" not in [a["body"]["card"] for a in fv.answers], "gone のカードはもう出ない: %s" % state(pg))
+    finally:
+        _restore_queue(cx)
 
 
 def _swap_queue(cx, fq2, eval_routes=None):
@@ -614,15 +641,16 @@ def main():
                 _scene_failures(cx)
                 _scene_read_type(cx)
                 _scene_voice(cx)
+                _scene_voice_bgm_and_gone(cx)
                 _scene_speech(cx)
                 _scene_cut(cx)
                 _scene_kind_pick(cx)
                 _scene_eval_lane(cx)
                 check(all("lane" not in q for q in fq.next_q), "普段のレーンは lane=eval を渡さない")
                 _scene_real_api(cx)
-                unexpected = [s for s in bad_status if not s.startswith("500 ")]
-                check(not unexpected, "4xx/5xx が出ない(試しに起こした 500 を除く): %s" % unexpected[:5])
-                errs = [e for e in errors if "500" not in e and "Internal Server Error" not in e]
+                unexpected = [s for s in bad_status if not s.startswith("500 ") and not (s.startswith("404 ") and "/api/check/answer" in s)]
+                check(not unexpected, "4xx/5xx が出ない(試しに起こした 500・答えの 404 gone を除く): %s" % unexpected[:5])
+                errs = [e for e in errors if "500" not in e and "Internal Server Error" not in e and "status of 404" not in e]
                 check(not errs, "コンソールにエラーが無い: %s" % errs[:5])
             finally:
                 browser.close()

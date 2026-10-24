@@ -6,19 +6,19 @@
 
 - **区間カード** — ③ 確かめる(評価のレーン)の区間カード。設定の鍵と反映・出どころ
   - コード: `checkSectionCardsOn` src/human/check/section.py:242・`src/human/check/section.py`・`src/app/check/eval_sources.py`・`section_eval` src/app/check/eval_sources.py:62
-  - 画面: src/app/ui/check/check.js:319
+  - 画面: src/app/ui/check/check.js:321
 - **機械のカットのカード** — ③ 確かめるの自動カットのカード。鍵・反映・出どころ
   - コード: `checkCutCardsOn` src/human/check/cutcard.py:8・`src/human/check/cutcard.py`・`src/app/check/cut_sources.py`・`cut_edge` src/app/check/cut_sources.py:150
   - 画面: (画面の文字列に無い)
 - **確かめる** — 確かめるの待ち行列(GET /api/check/next)・答えの反映。画面は src/app/ui/check/
   - コード: `src/human/check/apply.py`・`src/app/check/deck.py`・`src/app/check/sources.py`・`next_cards` src/app/check/deck.py:73
-  - 画面: src/app/ui/cases/cases.js:10・src/app/ui/cases/index.html:26・src/app/ui/cases/panels/new.js:10・src/app/ui/check/check.js:319 ほか 10
+  - 画面: src/app/ui/cases/cases.js:10・src/app/ui/cases/index.html:26・src/app/ui/cases/panels/new.js:10・src/app/ui/check/check.js:321 ほか 10
 - **評価のレーン** — 確かめるのうち評価用動画の区間カードの流れ
   - コード: `section_eval` src/app/check/eval_sources.py:62・`src/app/check/eval_sources.py`・`src/app/check/lineup.py`・`src/eval/check/goals.py`
-  - 画面: src/app/ui/check/check.js:317
+  - 画面: src/app/ui/check/check.js:319
 - **普段のレーン** — 確かめるの普段のレーン(この行は声ですか)のカード
   - コード: `speech_diar` src/app/check/speech_sources.py:41・`src/app/check/speech_sources.py`・`src/human/check/speech.py`
-  - 画面: src/app/ui/check/check.js:320
+  - 画面: src/app/ui/check/check.js:322
 - **受け取る** — 友人のアプリの受け取る画面。残す判定と受信箱
   - コード: `src/friendapp/inbox.py`・`receive_view` src/friendapp/inbox.py:1046・`src/friendapp/ui/receive.js`・`Inbox.decide` src/friendapp/inbox.py:740
   - 画面: src/app/ui/cases/panels/cut.js:159・src/app/ui/editor/pack-tab.js:425・src/app/ui/home/portal.js:395・src/friendapp/ui/friend.html:29 ほか 7
@@ -117,7 +117,7 @@
   - 画面: src/app/ui/cases/cases.js:79・src/app/ui/cases/panels/cut.js:132・src/app/ui/cases/panels/machpick.js:35・src/app/ui/cases/panels/proof.js:64 ほか 15
 - **声を覚える** — 「編集」の話者に名前を付けて声を覚えるジョブ
   - コード: `validate_voice_learn` src/human/proof/speakers.py:550・`run_voice_learn` src/human/proof/speakers.py:577・`/api/voices/learn` src/editor/serve.py:229
-  - 画面: src/app/ui/check/cards/voice.js:13・src/app/ui/editor/app-jobs.js:97・src/app/ui/editor/app-rows.js:482・src/app/ui/editor/app-tools.js:98 ほか 2
+  - 画面: src/app/ui/check/cards/voice.js:14・src/app/ui/editor/app-jobs.js:97・src/app/ui/editor/app-rows.js:482・src/app/ui/editor/app-tools.js:98 ほか 2
 - **用語集** — 編集の設定の用語集(1 行 1 語)。② tx が選び ① が使う
   - コード: `pick_glossary_terms` src/flow/tx.py:68・`src/app/ui/editor/app-learn.js`
   - 画面: (画面の文字列に無い)
@@ -230,7 +230,7 @@
 - 探す地域を選ぶ(2)— src/app/ui/studio/rank.js:278
 - 新しい案件(2)— src/app/ui/home/portal.html:89
 - 既定に戻す(2)— src/friendapp/ui/settings.js:56
-- 普段のレーンへ(2)— src/app/ui/check/check.js:320
+- 普段のレーンへ(2)— src/app/ui/check/check.js:322
 - 更新(2)— src/app/ui/studio/rank.js:482
 - 月報(2)— src/manage/ops/analytics/web/index.html:27
 - 期間(2)— src/app/ui/studio/rank.js:164

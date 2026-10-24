@@ -10,11 +10,13 @@
                設定 check.voiceRelearnSec × MARGIN に届くまで(MAX_PER_PERSON 枚まで)。覚え終われば(登録簿の sec が届けば)その人のカードは出ない。
                混ざり・その他・別の人で答えた行は数えないので、足りない分だけ次の行が出る
 答えの形・反映・覚え直しは voice:diar と同じ(human/check/voice。予想 = 配信者・選択肢 = 配信者 + ほかの対象の人 + その他 + 混ざり。
-分からないときは画面の [飛ばす])。カードは voice:diar より先に並ぶ(`_order` の頭 -1)。
+分からないときは画面の [飛ばす])。カードは voice:diar より先に並ぶ(`_order` の頭 -1)。人をまたいでランダムに混ぜる
+(同じ人が続くと聞き分けにならない。集め直すたびに混ざる)。
 古い版の文字起こしの文書(① records.output_old)は後回し: 1 人ぶんの枠は今の版の文書の行から埋め、カードの並びも同じ回りでは今の版が先
 (古い版は夜の作り直し app/check/refresh で今の版になる)。
 """
 import os
+import random
 import re
 
 from human.check import voice as voice_mod
@@ -162,7 +164,7 @@ def voice_solo(view):
                 opts, guess = _options(doc, who, people)
                 out.append(sources._doc_card(view, "voice", SOURCE, tid, doc, g, 0.3, {
                     "guess": guess, "options": opts, "note": SOURCE,
-                    "_order": [-1, rank, i, int(records.output_old(doc)), -sources._num(doc.get("updatedAt")), sources._num(g.get("start"))]}, tight=True))
+                    "_order": [-1, random.random(), rank, i, int(records.output_old(doc)), -sources._num(doc.get("updatedAt")), sources._num(g.get("start"))]}, tight=True))
                 got += sec
                 n += 1
     return out

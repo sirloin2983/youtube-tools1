@@ -1,5 +1,5 @@
 /* 確かめる(/check = 入口の直下の 1 枚。部品は src/app/ui/check/。RS8 V1 = 殻。作り方 notes:docs/design/v1-check-build.md・何を作るか notes:docs/design/briefs/rs8-cases/DESIGN_BRIEF.md 2-3・3)。
-   案件をまたいだ軽い確認の待ち行列を 1 枚ずつカードで出し、答えたらすぐ次へ。Z で 1 つ前に戻す・[飛ばす](N)はその日は後ろへ・10 件ごとに小さなまとめ。
+   案件をまたいだ軽い確認の待ち行列を 1 枚ずつカードで出し、答えたらすぐ次へ。Z で 1 つ前に戻す・[飛ばす](N)はその日は後ろへ。区切りで止めずに続けて出す(答えた数と目標は帯と「このあと」の欄に出したまま。10-24 ユーザー)。
    URL: /check?c=<案件 id>(その案件だけ)&kind=value|read|voice|time|speech|cut(この種類だけ)&back=cases(終わったら案件へ戻るボタン)。URL を開いただけでは何も書かない。
    種類の切り替え(普段のレーンの上): 全部・誰の声・読み・時刻・声かどうか・価値・カット と残りの枚数(counts.perKind = 種類で絞る前の数)。
    押した種類はこのブラウザに覚える(localStorage の check.kind)。URL の kind があればそちらが先(覚えた物は変えない)。
@@ -13,7 +13,7 @@
      page = この画面の印(開くたびに作る)。保留(1 枚遅れの [送る])の確定は、この画面の次の答え・飛ばす・タブを閉じる / 隠すときに、この画面の分だけ
      (別の窓へ移っただけ = blur では確定しない。決定 Q12 (a))
    カード = {id, kind, source, case: {id, title}, target, media: {url | youtube, start, end, pad}, text, guess, options, score, note}。
-   殻が持つ物: 上の帯(今日 n 件・この確認で決まる物)・カードの枠・keydown 1 本・Z・[飛ばす]・10 件のまとめ・先読み(10 枚を持ち、3 枚を切ったら補充)・
+   殻が持つ物: 上の帯(今日 n 件・この確認で決まる物)・カードの枠・keydown 1 本・Z・[飛ばす]・先読み(10 枚を持ち、3 枚を切ったら補充)・
    空の状態・失敗・UIKit.life(見えなくなったら再生を止める)・カードの再生部品の後始末。CSP(script-src 'self')の下で動く: インラインの script・on〇〇= は書かない。
 
    ---- カードの登録の口(V2 の 4 本 = cards/value.js・read.js・voice.js・time.js が同じ形で作る)----
@@ -50,7 +50,8 @@
     return '<button type="button" class="btn lg ' + esc(cls || '') + '" data-chk-k="' + esc(key) + '">' + esc(label) +
       ' <kbd class="ui-kbd">' + esc(key) + '</kbd></button>';
   }
-  /* 決まった形の描き手: 問い・再生(card.media)・字幕 1 行・答えのボタン。options(card, st) = [{k, label, answer, primary, title}]。
+  /* 決まった形の描き手: 問い・再生(card.media)・字幕 1 行・答えのボタン。options(card, st) = [{k, label, answer, primary, title, pressed}]
+     (pressed = 切り替えのボタンの今の状態。true / false のとき aria-pressed を付ける)。
      answer が関数なら押したときに answer(card, 再生の手, st, repaint) を呼ぶ(null を返すと答えない = 再生が終わるまで Enter を効かせない、など)。
      段のあるカードは st(カードごとの入れ物)に段を持ち、answer の中で変えて repaint() すると、ボタン(options と hint)だけ描き直す。
      spec: question(card)・body(card)(情報欄)・after(card)(備考のあとの情報)・hint(card, st)(ボタンの前の 1 行)・keybar(card, st)(下の帯。省略 = options の先頭 5 つ)・
@@ -61,7 +62,8 @@
       function acts() {
         cur.opts = (spec.options && spec.options(cur.card, cur.st)) || [];
         return (spec.hint ? spec.hint(cur.card, cur.st) : '') + cur.opts.map(function (o) {
-          return answerBtn(o.label, o.k, o.primary ? 'primary' : '').replace('<button ', '<button title="' + esc(o.title || '') + '" ');
+          return answerBtn(o.label, o.k, o.primary ? 'primary' : '').replace('<button ', '<button title="' + esc(o.title || '') + '" ' +
+            (typeof o.pressed === 'boolean' ? 'aria-pressed="' + o.pressed + '" ' : ''));
         }).join('');
       }
       function repaint() {
@@ -112,7 +114,7 @@
   var KIND_TEXT = { value: '切り抜く価値があるか', read: 'どちらの読みが正しいか', voice: 'これは誰の声?', time: '行の時刻が合っているか',
     speech: 'この行は声ですか?', cut: '機械のカットの確認', section: '区間を聞いて直す(評価用)' };
   var SOURCE_TEXT = { auto: '自動で採った', cand: '候補のまま', fill: '後処理', alt: '別のエンジン', diar: '話者の判別', solo: 'ソロ配信', row: '文字が決まった行', eval: '評価用の動画', edge: '切れ目', gap: '消した所', whole: '仕上がり' };
-  var KEEP = 10, LOW = 3, SUM_EVERY = 10;
+  var KEEP = 10, LOW = 3;
   var ID_RE = /^[\w:.#|\/-]{1,200}$/;
   var LOAD_TEXT = { offline: 'ホームにつながりませんでした(start.bat の黒い画面が閉じていないか確かめてください)' };
   var PAGE = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);   // この画面の印(秘密ではない。保留の確定を画面ごとに分けるだけ)
@@ -122,7 +124,7 @@
     want: { c: '', kind: '', back: '', lane: '' },
     queue: [], seen: {}, cur: null, view: null, players: [], shownAt: 0,
     hist: [],            // 答えたカード [{card, p: 答えの id の Promise}](Z で新しい方から戻す)
-    today: 0, answered: 0, goal: null, goals: {}, failedCount: 0, sum: false,
+    today: 0, answered: 0, goal: null, goals: {}, failedCount: 0,
     loading: null, exhausted: false, failed: null, keys: null,
     perKind: null,       // 種類ごとの残り(種類で絞る前。切り替えの数)
     gen: 0               // 種類を切り替えた回数(切り替える前に出した読み込みの返事を捨てる)
@@ -172,7 +174,7 @@
     } catch (e) { /* URL が古いだけ */ }
     S.gen++;
     unmountCard();
-    S.cur = null; S.queue = []; S.loading = null; S.exhausted = false; S.failed = null; S.sum = false; S.goal = null;
+    S.cur = null; S.queue = []; S.loading = null; S.exhausted = false; S.failed = null; S.goal = null;
     renderKinds();
     show();
   }
@@ -205,6 +207,7 @@
   function renderBand() {
     $('#chkToday').textContent = String(S.today);
     $('#chkGoal').innerHTML = goalHtml(curGoal());
+    $('#chkAnswered').textContent = S.answered ? 'この画面で ' + S.answered + ' 件答えました' : '';
     var f = $('#chkFailed'), n = S.failedCount;
     f.hidden = !n;
     f.textContent = n ? '前に答えた ' + n + ' 件を実物に反映できませんでした(案件の画面で確かめてください)' : '';
@@ -274,8 +277,7 @@
   function show() {
     unmountCard();
     S.cur = null;
-    $('#chkCard').hidden = true; $('#chkSum').hidden = true; $('#chkEmpty').hidden = true;
-    if (S.sum) return showSummary();
+    $('#chkCard').hidden = true; $('#chkEmpty').hidden = true;
     if (!S.queue.length) {
       if (S.loading || (!S.exhausted && !S.failed)) {
         $('#chkEmpty').innerHTML = '<p class="hint chk-loading" role="status">確認を読み込んでいます…</p>';
@@ -337,20 +339,6 @@
     e.hidden = false;
     renderKeys();
   }
-  /* 10 件ごとのまとめ(「10 件答えた・C1 まであと 1 配信」)。目標の数は ⑤ に数え直してもらってから描き直す */
-  function paintSummary() {
-    var el = $('#chkSum'), g = curGoal() || S.goal;
-    el.innerHTML = '<div class="chk-q">' + S.answered + ' 件答えました</div>' +
-      '<p class="hint" data-chk-sumgoal>' + (g ? goalHtml(g) + '。' : '') + 'ひと息ついてから続けられます。</p>' +
-      '<div class="chk-acts"><button type="button" class="btn primary lg" data-chk-go>続ける <kbd class="ui-kbd">Enter</kbd></button>' + endActs().replace(/btn primary/, 'btn') + '</div>';
-    el.hidden = false;
-  }
-  function showSummary() {
-    paintSummary();
-    renderUndo(); renderQueue(); renderKeys();
-    clearTimeout(countsTimer);
-    api(nextQuery(0)).then(function (j) { takeCounts(j); if (S.sum && !$('#chkSum').hidden) paintSummary(); }, function () { /* 数が古いだけ */ });
-  }
 
   /* ---- 評価のレーンの頭(C-EVAL。評価用の一括 = 編集の ⑤ eval/drill/evalbatch・定点 = eval/drill/drill.drill_status。編集を取り込んだ入口の transcribe/ を直に読む)---- */
   var evalTimer = 0, evalBusy = false;
@@ -406,16 +394,22 @@
       var i = S.hist.indexOf(entry);
       if (i >= 0) S.hist.splice(i, 1);
       S.today = Math.max(0, S.today - 1); S.answered = Math.max(0, S.answered - 1);
+      if (e && e.status === 404 && e.code === 'gone') {   // カードがもう一覧に無い = 戻さずに先へ・持っている一覧も古いので読み直す
+        S.queue = []; S.exhausted = false; S.failed = null;
+        renderBand(); renderUndo(); renderQueue(); refreshCounts();
+        if (!S.cur) show(); else fill().then(null, function () { /* 次に要るときにもう一度 */ });
+        UIKit.toast('このカードはもう確かめる物ではないので、次へ進みます', { ms: 3000 });
+        return;
+      }
       delete S.seen[card.id];
       S.queue.unshift(card);
       renderBand(); renderUndo(); renderQueue();
-      if (!S.cur && !S.sum) show();
+      if (!S.cur) show();
       UIKit.toast('答えを記録できませんでした: ' + e.message + '(このカードはもう一度出ます)', { kind: 'err', detail: e.detail });
     });
     S.hist.push(entry);
     S.seen[card.id] = 1;
     S.today++; S.answered++;
-    if (S.answered % SUM_EVERY === 0) S.sum = true;
     renderBand();
     show();
   }
@@ -429,7 +423,6 @@
       if (i >= 0) S.hist.splice(i, 1);
       S.today = Math.max(0, S.today - 1); S.answered = Math.max(0, S.answered - 1);
       if (S.cur) S.queue.unshift(S.cur);
-      S.sum = false;
       delete S.seen[last.card.id];
       S.queue.unshift(last.card);
       renderBand(); refreshCounts();
@@ -488,8 +481,7 @@
   }
   function renderKeys() {
     var items = [];
-    if (S.sum) items = [{ k: 'Enter', l: '続ける' }];
-    else if (S.cur && S.view && S.view.keybar) { try { items = S.view.keybar(S.cur) || []; } catch (e) { items = []; } }
+    if (S.cur && S.view && S.view.keybar) { try { items = S.view.keybar(S.cur) || []; } catch (e) { items = []; } }
     if (S.cur) items = items.concat([{ k: 'N', l: '飛ばす' }, { k: 'Space', l: '再生・停止' }]);
     if (S.cur && replayable()) items.push({ k: 'R', l: 'もう一度聞く' });
     if (S.hist.length) items.push({ k: 'Z', l: '1 つ前に戻す' });
@@ -519,10 +511,6 @@
     if (inOverlay(e.target)) return;
     var typing = UIKit.keys.isTyping(e.target), plain = !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey, k = keyOf(e);
     if (!typing && plain && k === 'Z') { e.preventDefault(); undo(); return; }
-    if (S.sum) {
-      if (!typing && plain && k === 'Enter') { e.preventDefault(); goOn(); }
-      return;
-    }
     if (!typing && plain && k === 'N' && S.cur) { e.preventDefault(); skip(); return; }
     if (!typing && plain && k === 'R' && S.cur && replayable()) { e.preventDefault(); if (!e.repeat) { UIKit.keybar.flash('R'); replay(); } return; }
     if (typing && !(S.view && S.view.typingKeys)) return;
@@ -531,7 +519,6 @@
     if (r === true) { e.preventDefault(); return; }
     if (!typing && S.keys && S.keys(e)) return;
   }
-  function goOn() { S.sum = false; show(); }
 
   /* ---- 起動 ---- */
   document.addEventListener('DOMContentLoaded', function () {
@@ -566,7 +553,6 @@
     });
     $('#chkSkip').addEventListener('click', skip);
     $('#chkUndo').addEventListener('click', undo);
-    $('#chkSum').addEventListener('click', function (e) { if (e.target.closest && e.target.closest('[data-chk-go]')) goOn(); });
     $('#chkEmpty').addEventListener('click', function (e) {
       if (!(e.target.closest && e.target.closest('[data-chk-retry]'))) return;
       S.failed = null; S.exhausted = false; show();
@@ -586,7 +572,7 @@
   window.CheckShell = {
     state: function () {
       return { cur: S.cur ? S.cur.id : '', kind: S.cur ? S.cur.kind : '', queue: S.queue.map(function (c) { return c.id; }), today: S.today, answered: S.answered,
-        hist: S.hist.length, summary: S.sum, empty: !$('#chkEmpty').hidden && !!$('#chkEmpty .chk-empty:not([data-chk-fail])'),
+        hist: S.hist.length, empty: !$('#chkEmpty').hidden && !!$('#chkEmpty .chk-empty:not([data-chk-fail])'),
         failed: !$('#chkEmpty').hidden && !!$('#chkEmpty [data-chk-fail]'), want: S.want };
     }
   };

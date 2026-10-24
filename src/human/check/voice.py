@@ -6,6 +6,7 @@
   {"name": <名前>}               その人の声(覚えた声の登録簿にいて、この文書の speakers[] にまだいない人 = 名前の話者を足す。選択肢の id は "name:<名前>")
   {"choice": "other"}            その他(ゲームの音など)= 組み込みの話者「ゲーム音声など」+ 字幕に出さない(編集の画面で選んだときと同じ)
   {"choice": "mixed"}            声が混ざっている = 行の印 MIXED_FLAG と音のメモ overlap(話者はそのまま)
+  上のどれにも "bgm": true を足せる  ゲーム音・BGM が大きい = 行の音のメモ bgm も付ける(覚える材料にしない。Z で音のメモも戻る)
 反映(_apply_voice): _doc.edit_row(保存の錠・処理中と評価用は断る・履歴は 10 分に 1 つ)の中で、行の speaker・flag(話者の印 SPK_FLAGS を外す /
   混ざりは付ける)・tags・noSub を直して why="check:voice"。**行は proofed にしない**(文字は確かめていない)・時刻は触らない・層(O2)には commit の今の道で載る(hum は渡さない)。
   Z(_revert_voice)= 逆の commit(行が答えたあとのままのときだけ。もう答える前のままなら書かない。足した話者は誰も使っていなければ外す)。
@@ -123,9 +124,13 @@ def guess_for(doc, speaker, match, options):
 # ---------------------------------------------------------------- 答えの検査
 
 def _check_answer(ans):
-    """答えを整える -> {"choice": id} か {"name": 名前}。違えば ValueError(400)"""
+    """答えを整える -> {"choice": id} か {"name": 名前}(+ "bgm": True)。違えば ValueError(400)"""
     if not isinstance(ans, dict):
         raise ValueError("答えは {choice} か {name} の形で送ってください")
+    if "bgm" in ans:
+        if ans["bgm"] is not True:
+            raise ValueError("bgm は true だけ送れます")
+        return dict(_check_answer({k: v for k, v in ans.items() if k != "bgm"}), bgm=True)
     keys = set(ans)
     if keys == {"choice"} and isinstance(ans["choice"], str):
         c = ans["choice"]
@@ -171,6 +176,10 @@ def _set_row(g, st):
         g["noSub"] = True
     else:
         g.pop("noSub", None)
+
+
+def _with_tags(tags, *add):
+    return list(dict.fromkeys(list(tags or []) + list(add)))
 
 
 def _speaker_for(doc, ans):
@@ -231,12 +240,13 @@ def _apply_voice(ctx, card, ans):
 
     def change(doc, g, before):
         if ans.get("choice") == MIXED:
-            after, added = dict(before, flag=_spk_flag(before["flag"], True),
-                                tags=list(dict.fromkeys((before["tags"] or []) + ["overlap"]))), None
+            after, added = dict(before, flag=_spk_flag(before["flag"], True), tags=_with_tags(before["tags"], "overlap")), None
         else:
             sid, added = _speaker_for(doc, ans)
             after = dict(before, speaker=sid, flag=_spk_flag(before["flag"], False),
                          noSub=True if sid == OTHER else (before["noSub"] and before["speaker"] != OTHER))
+        if ans.get("bgm"):   # ゲーム音・BGM が大きい = 音のメモ bgm(この印の行は _learn_of が覚える材料から外す)
+            after["tags"] = _with_tags(after["tags"], "bgm")
         _set_row(g, after)
         return added, _learn_of(doc, g, g["speaker"], ans), doc
     before, after, (added, learn, doc) = _doc.edit_fields(tid, rid, "check:voice", _row_state, change)

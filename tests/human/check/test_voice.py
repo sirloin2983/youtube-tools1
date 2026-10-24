@@ -78,7 +78,9 @@ class AnswerFormTest(unittest.TestCase):
         self.assertEqual(voice._check_answer({"choice": "S1"}), {"choice": "S1"})
         self.assertEqual(voice._check_answer({"choice": "name:みこ"}), {"name": "みこ"})
         self.assertEqual(voice._check_answer({"name": " みこ "}), {"name": "みこ"})
-        for bad in ("S1", {"choice": "S1", "x": 1}, {"choice": "a b"}, {"name": ""}, {"name": "x" * 31}, {"name": "a\nb"}, {}, {"choice": 3}):
+        self.assertEqual(voice._check_answer({"choice": "name:みこ", "bgm": True}), {"name": "みこ", "bgm": True})
+        for bad in ("S1", {"choice": "S1", "x": 1}, {"choice": "a b"}, {"name": ""}, {"name": "x" * 31}, {"name": "a\nb"}, {}, {"choice": 3},
+                    {"choice": "S1", "bgm": 1}, {"bgm": True}):
             with self.assertRaises(ValueError, msg=repr(bad)):
                 voice._check_answer(bad)
 
@@ -228,6 +230,18 @@ class RelearnTest(Base):
         self.assertEqual((got[0]["names"], self.jobs[0][1]["rows"]), (["ぺこら"], ["s4"]))
         with mock.patch.object(voice._settings, "load_settings", return_value={"check": {"voiceRelearnSec": 1}}):
             self.assertEqual(voice._relearn_sec(), voice.RELEARN_SEC_DEFAULT)   # 範囲の外は既定
+
+    def test_bgm_answer_and_undo(self):
+        """ゲーム音・BGM が大きい: 話者はその人・音のメモ bgm・覚える材料にしない。Z で話者・音のメモが戻り、材料にも数えない"""
+        got = self.answer("s2", {"choice": "S1", "bgm": True})
+        g = self.seg("s2")
+        self.assertEqual((g["speaker"], g["tags"]), ("S1", ["bgm"]))
+        self.assertNotIn("learn", got["applied"])
+        self.answer("s4", {"choice": "S1"})                              # 20 秒だけ(s2 の 12 秒は数えない = 30 秒に届かない)
+        self.assertEqual((self.jobs, voice._pending(self.ctx)), ([], {(EMB, "ぺこら"): {TID: {"s4": 20.0}}}))
+        apply.undo(self.ctx, got["answer"])
+        g = self.seg("s2")
+        self.assertEqual((g["speaker"], g.get("tags")), ("S2", None))
 
     def test_failed_relearn_is_not_repeated(self):
         """失敗した覚え直しと同じ行だけなら、答えるたびに足し直さない(材料が増えたらまた試す)"""

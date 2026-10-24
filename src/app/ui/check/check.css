@@ -33,7 +33,7 @@
 .chk-type .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .chk-text{flex:1 1 240px;min-width:0}
 .chk-foot{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
-.chk-sum .chk-q{margin-top:0}
+.chk-answered:empty{display:none}
 .chk-empty .row{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:12px}
 .chk-empty>b,.chk-empty>span{display:block}
 .chk-loading{margin:24px 0;text-align:center}
