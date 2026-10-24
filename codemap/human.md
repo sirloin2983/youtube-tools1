@@ -57,8 +57,8 @@
   - 名前: `settings_label` :19
 - **notify.py** (225 行) — 友人の不具合・更新の知らせを、ツールが読んだその時にまとめ役のセッションへ届ける「知らせだけの軽い起こし」(10-25 ユーザーの決め)。
   - 名前: `collect` :75・`message` :101・`to_name` :116・`tick` :165
-- **pubqueue.py** (143 行) — ③ 人の層: 友人の zip を配る待ちの列と、3 時間ごとの配る回(ユーザーの PC。友人の zip はまとめて配る決め・10-25 ユーザーの OK。
-  - 名前: `items` :51・`add` :61・`take` :69・`changes` :78・`slot_of` :83・`tick` :89
+- **pubqueue.py** (166 行) — ③ 人の層: 友人の zip を配る待ちの列と、3 時間ごとの配る回(ユーザーの PC。友人の zip はまとめて配る決め・10-25 ユーザーの OK。
+  - 名前: `items` :53・`hold_of` :59・`set_hold` :65・`add` :79・`take` :87・`changes` :96・`slot_of` :101・`tick` :107
 - **returns.py** (486 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。notes:docs/design/f1-build.md の (f1d))。
   - 名前: `returns_dir` :58・`extract` :96・`parse_verdict` :130・`parse_notice` :180・`scan` :215・`recent_notices` :412・`iter_requests` :451
 - **upwatch.py** (166 行) — ③ 人の層: 友人のアプリの更新の見張り(ユーザーの PC。友人のアプリの更新の決め・10-25 ユーザーの OK。notes:plan/友人の不具合の自動対応-1025.md の「更新」)。
