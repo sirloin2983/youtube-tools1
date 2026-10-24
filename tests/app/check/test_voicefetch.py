@@ -24,6 +24,7 @@ RSS = """<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom" xmlns:yt
 <entry><yt:videoId>AAAAAAAAAA5</yt:videoId><title>【雑談】おはなし</title><published>2026-10-20T10:00:00+00:00</published></entry></feed>""".encode("utf-8")
 OLD = [{"id": "NEWNEWNEW%02d" % i, "title": "【雑談】さいきん %d" % i, "month": "2026-10"} for i in range(VF.LIST_SKIP)] + [
     {"id": "OLDOLDOLD01", "title": "【雑談】同じ月", "month": "2026-10"}, {"id": "OLDOLDOLD02", "title": "【雑談】先月", "month": "2026-09"}]
+SECTION_LEN = VF.SECTION[1] - VF.SECTION[0]
 NOON = datetime.datetime(2026, 10, 25, 12, 0).timestamp()
 
 
@@ -94,6 +95,18 @@ class VoiceFetchTest(unittest.TestCase):
         self.assertIn("ロボ子さん", os.path.basename(self.jobs[-1]["sourcePath"]))
         self.assertTrue(voicefill.in_learn_dir(self.jobs[-1]["sourcePath"]))
         self.assertEqual(self.tick(counts={"ときのそら": 0}), "ときのそら")          # 研究の分で入ったロボ子さんは後ろへ
+
+    @unittest.skipUnless(VF._tools.find_tool("ffmpeg"), "ffmpeg が無い")
+    def test_long_research_audio_is_cut(self):
+        """研究の音が配信の全部(長い)なら SECTION の 4 分だけ残す。短ければ写さない(呼び手がそのまま移す)。本物の ffmpeg"""
+        import subprocess
+        src, dst = os.path.join(self.app, "long.m4a"), os.path.join(self.app, "cut.m4a")
+        subprocess.run([VF._tools.find_tool("ffmpeg"), "-hide_banner", "-nostdin", "-y", "-v", "error", "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono",
+                        "-t", "1500", "-c:a", "aac", "-b:a", "16k", src], check=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        self.assertTrue(VF._shorten(src, dst))
+        self.assertFalse(os.path.exists(src))
+        self.assertAlmostEqual(VF._tools.media_duration(dst), SECTION_LEN, delta=2)
+        self.assertFalse(VF._shorten(dst, dst + ".x.m4a"))   # 4 分は短い = そのまま
 
     def test_bot_stops_the_day(self):
         got = self.tick(fetch=lambda vid, base: (None, "ERROR: Sign in to confirm you're not a bot"))

@@ -279,6 +279,28 @@ AUDIO_EXTS = (".m4a", ".opus", ".webm", ".wav", ".mp3", ".mp4", ".mkv", ".ogg", 
 MAX_META = 64 * 1024
 
 
+LONG_SEC = 20 * 60   # これより長い研究の音は SECTION の所だけを切り出して残す(配信の全部 = 大きい・文字起こしが重い)
+MID_START = 300      # 研究の音の ?t= の頭(前 5 分〜後 10 分の音 = 300 秒の所が切り抜きの所)
+
+
+def _shorten(src, dst):
+    """研究の音が長ければ一部だけ dst に写して元を消す -> 写したか(短ければ False = 呼び手がそのまま移す)。
+    LONG_SEC より長い = 配信の全部 → SECTION(10〜14 分)。それ以下(?t= の前 5 分〜後 10 分)は MID_START から 4 分。ffmpeg が無ければ写さない"""
+    dur = _tools.media_duration(src)
+    ff = _tools.find_tool("ffmpeg")
+    if not dur or not ff or dur <= (SECTION[1] - SECTION[0]) + 60:
+        return False
+    a = SECTION[0] if dur > LONG_SEC else MID_START
+    a = min(a, max(0.0, dur - (SECTION[1] - SECTION[0])))
+    r, _tail = _run([ff, "-hide_banner", "-nostdin", "-y", "-v", "error", "-ss", "%.3f" % a, "-i", src, "-t", "%d" % (SECTION[1] - SECTION[0]),
+                     "-vn", "-c:a", "copy", dst], 300)
+    if r is None or r.returncode != 0 or not os.path.isfile(dst):
+        fsio.unlink_quiet(dst)
+        return False
+    fsio.unlink_quiet(src)
+    return True
+
+
 def _pseudo(who, title):
     """ソロの見分け(flow/voicematerial.solo_person)に通す仮の文書(話者 = 配信者 1 人・題名)"""
     return {"title": title, "sourceName": "", "speakers": [{"id": "S1", "name": who}], "segments": []}
@@ -320,8 +342,9 @@ def intake(app_dir, roster_r, start_job, log, extra=None, now=None):
             safe = re.sub(r'[\/:*?"<>|\x00-\x1f]', "_", title)[:60]
             dst = os.path.join(folder, "%s_%s_%s%s" % (who, vid, safe, os.path.splitext(audio)[1].lower()))
             try:
-                os.replace(audio, dst)
-                audio = None
+                if not _shorten(audio, dst):   # 長い音(?t= の無い配信の全部)は SECTION の 4 分だけにする
+                    os.replace(audio, dst)
+                audio = None if not os.path.exists(audio) else audio
                 rec["got"] = _got(rec)
                 one = {"path": dst, "video": vid, "month": (lambda d: d[:4] + "-" + d[4:6] if len(d) >= 6 else "")(str(meta.get("uploadDate") or "")),
                        "title": title, "at": int(time.time() if now is None else now), "by": "research"}
