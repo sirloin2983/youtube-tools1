@@ -11,7 +11,7 @@
 | ③ human(人の操作) | [human.md](human.md) | 65 | 17982 |
 | ④ manage(データ) | [manage.md](manage.md) | 43 | 11197 |
 | ⑤ eval(検証) | [eval.md](eval.md) | 37 | 15603 |
-| src/app(入口と画面) | [app.md](app.md) | 92 | 33370 |
+| src/app(入口と画面) | [app.md](app.md) | 92 | 33422 |
 | src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 50 | 19363 |
 | その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 19 | 10316 |
 | dev・setup(開発の道具) | [dev.md](dev.md) | 61 | 16674 |
@@ -36,7 +36,7 @@
 - `/api/check/flush` — src/app/server.py:637 ← check.js
 - `/api/check/next` — src/app/server.py:763 ← cases.js・check.js・portal.js
 - `/api/check/skip` — src/app/server.py:637 ← check.js
-- `/api/check/voiceclip` — src/app/server.py:769・src/app/server.py:958
+- `/api/check/voiceclip` — src/app/server.py:769・src/app/server.py:959
 - `/api/collab/anchor` — src/studio/serve.py:428 ← collab.js
 - `/api/collab/group` — src/studio/serve.py:197・src/studio/serve.py:424 ← collab.js・queue.js
 - `/api/collab/group/add` — src/studio/serve.py:425 ← collab.js
