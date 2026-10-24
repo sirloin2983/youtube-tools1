@@ -311,6 +311,7 @@ def main(argv=None):
     from test_launch import _copy_tool  # noqa: E402
     fresh = not os.path.isdir(os.path.join(tmp, "studio"))
     os.environ["STUDIO_FAKE_MEDIA"] = os.path.join(tmp, "media", "sample0.mp4")   # 疑似モードの解析・書き出しに使う動画(② 解析も動く)
+    os.environ.setdefault("YTT_CHECK_VOICE_DIAR", "1")   # 見本の文書にソロの配信が無いので、判別の声のカード(本物では既定オフ。10-24)を出して声のカードの画面を点検する
     for s in L.TOOLS:
         if fresh:
             _copy_tool(os.path.join(REPO, s["dir"]), os.path.join(tmp, s["dir"]))

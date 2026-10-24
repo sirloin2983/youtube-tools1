@@ -29,7 +29,7 @@ PER_DOC = 3              # 1 本の文書から出す行の上限
 MARGIN = 1.5             # 覚え直す秒(check.voiceRelearnSec)に掛ける余裕(覚えるジョブが重心を作れる量に、少し多めに)
 MAX_ROW_SEC = 12.0       # 長すぎる行は聞くのが重いので出さない
 GOOD_SEC = 4.0           # この長さに近い行を先に(短すぎず・長すぎず)
-COLLAB_RE = re.compile(r"コラボ|collab|\bwith\b|[×✕✖]|凸|ゲスト|guest|対談|参加型|合同|オフ会|\bfeat|\bft\.", re.I)
+COLLAB_RE = re.compile(r"コラボ|collab|\bwith\b|[×✕✖]|凸|ゲスト|guest|対談|参加型|合同|オフ会|みんなで|\bfeat|\bft\.", re.I)   # みんなで = 10-24 に足した(「ホロドリみんなで遊ぼ!」)
 
 
 def _titles(doc):
@@ -47,6 +47,29 @@ def _titles(doc):
                                     os.path.basename(os.path.dirname(path)) if path else "")]
 
 
+BLOCK_RE = re.compile(r"【([^】]{1,80})】")
+
+
+def _group_names(r):
+    """名簿のグループ・ユニット・番組の名前(照らし合わせる形。ユニットの組 units の名前と、ほかの組の見出しの括弧の前)"""
+    out = set()
+    for g in r.get("groups") or ():
+        names = g.get("names") if g.get("id") == "units" else [re.sub(r"[(（].*$", "", str(g.get("label") or ""))]
+        out.update(roster.fold(n) for n in names if len(roster.fold(n)) >= 3)
+    return out
+
+
+def _group_block(title, r):
+    """題名の【】の中に名簿のグループの名前があり、メンバーの名前が無い = グループの配信(10-24: 「【アソビ★まわり隊!】クイズ!」がソロに混ざった)。
+    【宙科そぴあ/ホロライブ/アソビ★まわり隊!】のような所属の札はメンバーの名前があるので当たらない"""
+    groups = _group_names(r)
+    for blk in BLOCK_RE.findall(str(title or "")):
+        f = roster.fold(blk)
+        if any(g in f for g in groups) and not roster.find_in_text(blk, r):
+            return True
+    return False
+
+
 def solo_person(doc):
     """ソロ配信と見た文書の配信者の名前か None(見分けの決まりは先頭の説明)"""
     if roster.ROSTER is None:   # 名簿が決まっていない(編集を取り込んでいない入口)= 見分けない
@@ -56,10 +79,13 @@ def solo_person(doc):
     except Exception:
         return None
     mem = [m["name"] for m in ctx.get("members") or ()]
-    if len(mem) != 1 or any(COLLAB_RE.search(t) for t in _titles(doc)):
+    titles = _titles(doc)
+    if len(mem) != 1 or any(COLLAB_RE.search(t) for t in titles):
         return None
     who = mem[0]
     r = roster.load(roster.ROSTER)
+    if any(_group_block(t, r) for t in titles):
+        return None
     for s in doc.get("speakers") or ():
         if isinstance(s, dict) and not _yschemas.other_speaker(s):
             hit = roster.match_name(str(s.get("name") or ""), r)

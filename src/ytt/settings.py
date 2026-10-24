@@ -220,6 +220,8 @@ SETTINGS_PATCH_KEYS = {"speakerColors": lambda v: isinstance(v, bool),
                        "checkSectionCardsOn": lambda v: isinstance(v, bool),
                        # 確かめるに自動カットのカードを出す(CUT-CARD。既定オン = human/check/cutcard.enabled。同じく checkCutCards は読まない)
                        "checkCutCardsOn": lambda v: isinstance(v, bool),
+                       # 確かめるに、判別の記録から作る誰の声のカード(voice:diar)を出す(既定オフ = human/check/voice.diar_enabled。10-24 ユーザーの「ソロ配信限定」)
+                       "checkVoiceDiarOn": lambda v: isinstance(v, bool),
                        # 2 カット の「無音 ▾」の値(気が利く画面へ 段7 E-5)。まとめて実行(flow/run.py の _pack_settings)も同じ鍵を読む
                        "cutSilence": lambda v: _cut_silence_ok(v)}
 # 無音で削るときの値の範囲(cut2resolve の serve.py の spec_to_request と同じ。範囲の外は cut2resolve が 400 にする)

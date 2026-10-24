@@ -36,8 +36,25 @@ NAME_MAX = 30                   # 文書の話者の名前の上限(store.saniti
 MIN_LEARN_SEC = 1.0             # 覚える材料にする行の最短(flow/diar の voice_learn_rows と同じ 1 秒)
 RELEARN_SEC_DEFAULT = 30.0      # 覚え直すまでの 1 人の材料の合計(秒。編集の設定 check.voiceRelearnSec で変える)
 RELEARN_SEC_RANGE = (5.0, 3600.0)
+DIAR_SETTING, DIAR_ENV = "checkVoiceDiarOn", "YTT_CHECK_VOICE_DIAR"   # 判別の記録から作る声のカード(voice:diar)のスイッチ(既定オフ)
 SPK_COLORS = _speakers.SPK_COLORS
 _CTRL_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def diar_enabled():
+    """判別の記録から作る誰の声のカード(voice:diar)を出すか。既定オフ(10-24 ユーザー「声のカードはソロ配信限定」: コラボの声は混ざりやすく、
+    覚える声を汚すおそれがある・覚えた声が 0 人の今はソロ(voice:solo)から覚えるのが先)。環境変数 YTT_CHECK_VOICE_DIAR の on 系か、
+    編集の設定 checkVoiceDiarOn を明示でオンにしたときだけ出す。カードの作り方・答えの反映は残す"""
+    import os
+    v = str(os.environ.get(DIAR_ENV) or "").strip().lower()
+    if v in ("1", "on", "true", "yes"):
+        return True
+    if v in ("0", "off", "false", "no"):
+        return False
+    try:
+        return _settings.load_settings().get(DIAR_SETTING) is True
+    except Exception:
+        return False
 
 
 def _learnable_name(name):

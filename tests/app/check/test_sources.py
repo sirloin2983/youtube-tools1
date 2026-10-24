@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _checkkit as kit  # noqa: E402  (src を sys.path へ・YTT_DATA_DIR の既定・write・Ctx)
@@ -48,6 +49,9 @@ class SourcesTest(unittest.TestCase):
     def setUp(self):
         self.tmp = kit.tempdir(self, "ytt-check-src-")
         self.env = {"YTT_DATA_DIR": self.tmp}
+        p = mock.patch.dict(os.environ, {"YTT_CHECK_VOICE_DIAR": "1"})   # 判別の声のカード(voice:diar)は既定オフ(10-24)。ここではオンにして作り方を確かめる
+        p.start()
+        self.addCleanup(p.stop)
         tx = os.path.join(self.tmp, "transcribe", "transcripts")
         self.evaldir = os.path.join(self.tmp, "評価用")
         os.makedirs(self.evaldir)

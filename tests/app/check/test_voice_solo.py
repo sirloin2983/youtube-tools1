@@ -122,6 +122,25 @@ class VoiceSoloTest(unittest.TestCase):
         self.assertIn(("voice", "solo"), apply._REG)
         self.assertIs(apply._REG[("voice", "solo")].apply, apply._REG[("voice", "diar")].apply)
 
+    def test_group_streams_are_not_solo(self):
+        """題名の【】がグループの名前(メンバーの名前なし)・「みんなで」は外す。所属の札【名前/グループ】は外さない(10-24)"""
+        self.put("d00000000001", doc("【アソビ★まわり隊!】クイズ!【%s/ホロライブ】" % MIKO))
+        self.put("d00000000002", doc("【ゲーム】みんなで遊ぼ!【%s】" % MIKO))
+        self.put("d00000000003", doc("【雑談】おしゃべり【%s/ホロライブ/アソビ★まわり隊!】" % MIKO, updated=900))
+        got = {c["target"]["docId"] for c in self.cards()}
+        self.assertNotIn("d00000000001", got)
+        self.assertNotIn("d00000000002", got)
+        self.assertIn("d00000000003", got)
+
+    def test_diar_cards_off_by_default(self):
+        """判別の記録から作る声のカードは既定で出さない(ソロ配信限定)。環境変数でオン"""
+        self.put("e00000000001", doc("%s の雑談" % MIKO), diar={"rows": {"s0": {"speaker": "S1", "ratio": 0.9}}})
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("YTT_CHECK_VOICE_DIAR", None)
+            self.assertEqual(sources.voice_diar(sources.View(self.ctx, State())), [])
+        with mock.patch.dict(os.environ, {"YTT_CHECK_VOICE_DIAR": "1"}):
+            self.assertTrue(sources.voice_diar(sources.View(self.ctx, State())))
+
     def test_no_roster_no_cards(self):
         with mock.patch.object(roster, "ROSTER", None):
             self.assertEqual(self.cards(), [])

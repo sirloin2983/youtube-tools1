@@ -314,6 +314,8 @@ def read_fill(view):
 
 def voice_diar(view):
     out, voices = [], {}
+    if not voice_mod.diar_enabled():   # 既定オフ(10-24 声のカードはソロ配信限定 = voice:solo だけ)
+        return out
     for tid, path, doc in view.docs():
         latest = view.diar(tid, path)
         rows = latest.get("rows") if isinstance(latest, dict) else None
