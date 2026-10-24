@@ -42,8 +42,8 @@
   - 名前: `register` :47・`registered` :61・`has_media` :80・`class View` :90・`value_auto` :261・`value_cand` :287・`read_fill` :316・`voice_diar` :333・`time_row` :367・`collect` :392
 - **speech_sources.py** (66 行) — 「確かめる」の普段のレーンの「この行は声ですか?」カードの出どころ speech:diar(C-EVAL (3))。
   - 名前: `speech_diar` :41
-- **voice_solo.py** (144 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
-  - 名前: `clip_targets` :120・`voice_solo` :129
+- **voice_solo.py** (139 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
+  - 名前: `clip_targets` :115・`voice_solo` :124
 
 ## src/app/ui/
 
