@@ -8,6 +8,7 @@
   - 単語(文字起こしの単語の時刻)の範囲のうち声のあるこま(声の中央から GUARD_DB 以内)は削らない。長さ 0 の単語はその時刻の前後 ZERO_PAD 秒の中の声のあるこま
     (単語の時刻は後ろの無音まで含んで長く付くことがある = 範囲をそのまま守ると間を詰められない。声の無い部分は下の音の守りに任せる)
   - 削る所に、声の中央から GUARD_DB 以内の音(小さい声・息・語尾のかすれ)が GUARD_RUN 秒以上続けば、その間は詰めない
+  - 削る所の端が単語の声の端から EDGE_NEAR 秒以内なら、その端だけ EDGE_PAD 秒多く残す(言葉の端の近くの欠けの疑いを減らす)
 声の中央 = 単語のある所の 20 ms の音量(RMS)の中央値。音は edge_pause の levels(20 ms ごとの dB)・pauses を使う。
 単語は呼ぶ側(② flow)が文字起こしの単語の時刻(*.words.json)から渡す(① は単語の時刻のファイルを読まない)。単語が無い文書は詰めない([])。
 スイッチ: ON = False で使わない。つなぎ目のクロスフェード(研究は 10 ms)はパック・画面ではまだ付けていない
@@ -25,6 +26,8 @@ QUIET_DB = 15.0    # 間 = 声の中央よりこれだけ静か
 GUARD_DB = 25.0    # 削る所に、声の中央からこの dB 以内の音が
 GUARD_RUN = 0.06   # この秒以上続けば、その間は詰めない
 ZERO_PAD = 0.05    # 長さ 0 の単語を守る前後の秒
+EDGE_NEAR = 0.15   # 削る所の端が単語の声の端からこの秒以内なら
+EDGE_PAD = 0.0     # その端だけこの秒多く残す(研究の 39 本で値を決める)
 
 
 def _rms_db(fr):
@@ -73,10 +76,15 @@ def drops(video, words, lo, hi):
         for i in range(at(a), max(at(a) + 1, at(b))):
             if i < len(db) and db[i] >= lv - GUARD_DB:
                 guard.append((lo + i * E.HOP, lo + (i + 1) * E.HOP))
+    ends, starts = [g[1] for g in guard], [g[0] for g in guard]
     out = []
     for p0, p1 in E.pauses(db, lo, lv, QUIET_DB, GAP):
         for s, e in _free(p0, p1, guard):
             a, b = s + TAIL, e - HEAD
+            if EDGE_PAD and any(0 <= a - g <= EDGE_NEAR for g in ends):
+                a += EDGE_PAD
+            if EDGE_PAD and any(0 <= g - b <= EDGE_NEAR for g in starts):
+                b -= EDGE_PAD
             if e - s >= GAP and b > a and not faint(a, b):
                 out.append((round(a, 3), round(b, 3), "pause"))
     return sorted(out)

@@ -39,6 +39,9 @@ class TidyTest(unittest.TestCase):
         """言い終わりの後に TAIL 秒・話し始めの前に HEAD 秒を残す"""
         ds = self.drops([(0.0, 1.0), (3.0, 4.0)], [[0.1, 0.9, "はい"], [3.1, 3.9, "そう"]], 4.0)
         self.assertEqual(ds, [(round(1.0 + T.TAIL, 3), round(3.0 - T.HEAD, 3), "pause")])
+        with mock.patch.object(T, "EDGE_PAD", 0.05):   # 端が単語の声の端から EDGE_NEAR 秒以内なら、その端だけ多く残す
+            ds = self.drops([(0.0, 1.0), (3.0, 4.0)], [[0.1, 1.0, "はい"], [3.0, 3.9, "そう"]], 4.0)
+        self.assertEqual(ds, [(round(1.0 + T.TAIL + 0.05, 3), round(3.0 - T.HEAD - 0.05, 3), "pause")])
 
     def test_faint_voice_keeps_the_pause(self):
         """詰める所に小さい声・息・語尾のかすれ(声の中央から 25 dB 以内)が 0.06 秒以上続けば、その間は詰めない"""
