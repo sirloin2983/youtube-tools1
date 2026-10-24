@@ -782,6 +782,27 @@ class SyncTest(unittest.TestCase):
             self.assertEqual([n for n in os.listdir(self.places["home"]) if n.endswith((".tmp", ".part"))], [])
             shutil.rmtree(app)
 
+    def test_runtime_mark_decides_light_or_full(self):
+        """latest.json の runtime と今の版の manifest.json の印が同じなら軽い zip だけ・違えば全部入りだけ(軽い方を試さない)。入れた版に manifest.json が残る"""
+        self.key()
+        self.env[S.LAUNCHER_ENV] = "1"
+        rt = self.runtime()
+        files = {"python/" + rel: hashlib.sha256(data).hexdigest() for rel, data in self.RUNTIME.items()}
+        with open(os.path.join(os.path.dirname(rt), "manifest.json"), "w", encoding="utf-8") as f:
+            json.dump({"files": dict(files, **{"src/ytt/version.py": "0" * 64})}, f)
+        mark = S.runtime_mark(files)
+        self.assertEqual(S.current_runtime([rt]), mark)
+        for runtime, want_light in ((mark, True), ("f" * 64, False)):
+            name, lname = self.put_light("0.95.0")
+            doc = json.loads(self.io.data("/更新/latest.json"))
+            self.io.put("/更新/latest.json", json.dumps(dict(doc, runtime=runtime)).encode())
+            self.io.downloads.clear()
+            self.assertEqual(self.run_sync(), [])
+            self.assertEqual([p for p in self.io.downloads if "FriendApp-" in p], ["/更新/" + (lname if want_light else name)], runtime)
+            app = os.path.join(self.places["home"], "app-0.95.0")
+            self.assertEqual(S.current_runtime([os.path.join(app, "python")]), mark)   # 次の更新で比べる印(入れた版のフォルダの manifest.json)
+            shutil.rmtree(app)
+
     def test_malformed_light_entry_takes_full(self):
         self.key()
         self.env[S.LAUNCHER_ENV] = "1"

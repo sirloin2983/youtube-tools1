@@ -30,6 +30,7 @@
      (取ってある版を捨てる = friendapp/upgrade)。/診断/戻して/ の印は friendapp/upgrade が受ける(rollbacks)
 """
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -257,6 +258,26 @@ class RuntimeChanged(ValueError):
     """軽い更新で python/ を今の版から写せない(無い・SHA-256 が違う = python が変わった)。呼ぶ側は全部入りの zip を取り直す"""
 
 
+def runtime_mark(files):
+    """python/ の中身の印 = python/* の相対パスと SHA-256 を並べた SHA-256(配る道具が latest.json の runtime に付ける物と同じ計算。
+    dev/build_friend_zip.py もこれを使う)"""
+    h = hashlib.sha256()
+    for rel in sorted(k for k in files if str(k).startswith("python/")):
+        h.update(("%s %s;" % (rel, files[rel])).encode("utf-8"))
+    return h.hexdigest()
+
+
+def current_runtime(runtime_dirs):
+    """今動いている版の python/ の印(版のフォルダの manifest.json の files から runtime_mark)か None(manifest が無い・形が違う)。
+    版のフォルダ = 今の python のフォルダの 1 つ上(展開したままの前の形はアプリのフォルダ・更新で入れた版は app-<版>)"""
+    for d in runtime_dirs or []:
+        man = fsio.read_json_or(os.path.join(os.path.dirname(os.path.abspath(d)), "manifest.json"), None, kind=dict)
+        files = man.get("files") if isinstance(man, dict) else None
+        if isinstance(files, dict) and any(str(k).startswith("python/") for k in files):
+            return runtime_mark(files)
+    return None
+
+
 def free_ok(folder, need):
     try:
         return shutil.disk_usage(fsio.existing_parent(folder) or folder).free >= need + 64 * 1024 * 1024
@@ -306,7 +327,11 @@ def install_update(zip_path, home, version, runtime_dirs=None):
             for info in infos:
                 n = info.filename.replace("\\", "/")
                 if n == "manifest.json":
-                    manifest = _json_bytes(z.read(info))
+                    raw = z.read(info)
+                    manifest = _json_bytes(raw)
+                    if isinstance(manifest, dict):   # 版のフォルダにも残す(次の更新で軽い zip を使えるかを latest.json の runtime と比べる = current_runtime)
+                        with open(os.path.join(tmp, "manifest.json"), "wb") as f:
+                            f.write(raw)
                     continue
                 if n.endswith("/") or not (n.startswith(("src/", "python/")) or n in UPDATE_ROOT_FILES):
                     continue
@@ -938,8 +963,14 @@ class Sync:
             self._save_state()
 
     def _update_from(self, io, home, d, ver, name, sha):
-        """軽い zip(あれば)→ だめなら全部入り -> 軽い方で入れたか(真偽)か None(取れなかった = 次の回)"""
+        """軽い zip(あれば)→ だめなら全部入り -> 軽い方で入れたか(真偽)か None(取れなかった = 次の回)。
+        軽い zip を使うかは latest.json の runtime(新しい版の python/ の印)と今の版の manifest.json の印(current_runtime)で決める:
+        同じなら軽い・違えば全部入りだけ。どちらかが無い(前の配る道具・前の版のフォルダ)ときは軽い方を試して、写せなければ全部入り"""
         light = self._light_entry(d, ver)
+        want, have = d.get("runtime"), current_runtime(self.runtime_dirs)
+        if light is not None and isinstance(want, str) and SHA_RE.match(want.lower()) and have and want.lower() != have:
+            self.log("新しい版 %s は python が変わったので全部入りで取ります" % ver)
+            light = None
         placed = False
         if light is not None:
             try:

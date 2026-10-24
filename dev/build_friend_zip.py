@@ -50,7 +50,6 @@ Python の本体・wheel・ffmpeg などはキャッシュのフォルダ(--cach
 import argparse
 import datetime
 import getpass
-import hashlib
 import json
 import os
 import re
@@ -71,6 +70,7 @@ if DEV not in sys.path:
     sys.path.insert(0, DEV)
 from ytt import datadir, fsio as _fsio, version as _version, workdata  # noqa: E402
 from human.friend import pubqueue as _pubqueue, upwatch as _upwatch  # noqa: E402  配る待ちの列と知らせの一覧
+from friendapp import sync as _fsync  # noqa: E402  python/ の印(runtime_mark)は友人のアプリと同じ 1 か所
 from pipeline.transcribe import diarize as _diarize, separate as _separate, tx_engines as _tx  # noqa: E402  取る物の表の正(写さない)
 import _common  # noqa: E402
 import push_helper  # noqa: E402  個人データの名前の表を流用する
@@ -561,12 +561,7 @@ def prune(out_dir, keep_full=KEEP_FULL, keep_light=KEEP_LIGHT):
     return gone
 
 
-def runtime_mark(files):
-    """python/ の中身の印 = python/* の相対パスと SHA-256 を並べた SHA-256(軽い更新で python を写せるかの目安。版ごとに台帳へ)"""
-    h = hashlib.sha256()
-    for rel in sorted(k for k in files if k.startswith("python/")):
-        h.update(("%s %s;" % (rel, files[rel])).encode("utf-8"))
-    return h.hexdigest()
+runtime_mark = _fsync.runtime_mark   # python/ の中身の印(友人のアプリが今の版の manifest.json から同じ計算をして、軽い zip で入れられるかを決める)
 
 
 def update_versions(out_dir, row, plan=None):

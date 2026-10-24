@@ -36,6 +36,7 @@ RECORDING, BUSY, DOWNLOADING = "recording", "busy", "downloading"
 BEAT_EVERY = 1800
 BEAT_MAX = 1024
 VERIFY_SEC = 600
+VERIFY_SEC_ENV = "YTT_FRIEND_VERIFY_SEC"   # 確かめの秒を短くする(本物の exe での通しの確かめ用。無い・数でない・10 未満は VERIFY_SEC)
 OVERDUE_SEC = 24 * 3600
 STUCK_EVERY = 60
 STUCK_FACTOR = 3
@@ -74,6 +75,14 @@ def wait_reason(st, mode, stalled=0, busy=False):
     return ""
 
 
+def verify_sec(env):
+    try:
+        n = int(str(env.get(VERIFY_SEC_ENV) or "").strip())
+    except ValueError:
+        return VERIFY_SEC
+    return n if n >= 10 else VERIFY_SEC
+
+
 def typical(vals):
     """段の時間の記録の目安(中央値)。少なければ None"""
     xs = [float(v) for v in vals or [] if isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 0]
@@ -105,6 +114,7 @@ class Upgrade:
         self.screen_at = None
         self.verify = "pending" if self._verifying() else ("ok" if self.good() == self.version and self._launched() else "")
         self.verify_why = ""
+        self.verify_sec = verify_sec(self.env)
         self._v_clock, self._v_last = 0.0, None
         self._v_errors = []
         self._v_sync_noted = False
@@ -258,10 +268,10 @@ class Upgrade:
         self._v_last = now
         if self._v_errors:
             return self._verify_fail("新しい版 %s で起動の失敗か思わぬ例外が出ました: %s" % (self.version, self._v_errors[0]))
-        if self._v_clock < VERIFY_SEC:
+        if self._v_clock < self.verify_sec:
             return
         if self.screen_at is None:
-            return self._verify_fail("新しい版 %s で画面が %d 分のあいだ返事をしませんでした" % (self.version, VERIFY_SEC // 60))
+            return self._verify_fail("新しい版 %s で画面が %d 分のあいだ返事をしませんでした" % (self.version, max(1, self.verify_sec // 60)))
         sync = getattr(self.app, "sync", None)
         if sync is not None and sync.has_key() and not getattr(sync, "passes", 0):
             if not self._v_sync_noted:
