@@ -325,7 +325,7 @@ def guard(sync_folder, app_dir, rid, clock=None):
     if why:
         return "引き継いだ依頼はもう届いています(%s)" % why
     if any(r["takeover"]["state"] == "making" for r in recs):
-        return "引き継いだ依頼は、作る人の PC でもう作っています(二重に届けないため)"
+        return "引き継いだ依頼は、作る人の PC でもう作っています(二重に届けないため)"   # 「もう作っています」は友人のアプリが読む(friendapp/inbox.TAKEN_RE。変えるときは両方)
     for r in recs:
         r["takeover"] = dict(r["takeover"], state="making", madeAt=_now_ms(clock or time.time))
         fsio.write_json(_record_path(app_dir, r["name"]), r)

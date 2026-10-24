@@ -193,7 +193,8 @@ class BugsTest(unittest.TestCase):
         self.scan()
         self.assertFalse(os.path.exists(mark))             # 1 つの依頼 id に 1 回
         self.assertEqual(B.guard(self.sync, self.app, rid, self.clock), "")     # 上げ直された 1 通目は受ける
-        self.assertIn("もう作って", B.guard(self.sync, self.app, rid, self.clock))   # 2 通目は断る
+        from friendapp import inbox as _inbox
+        self.assertTrue(_inbox.TAKEN_RE.search(B.guard(self.sync, self.app, rid, self.clock)))   # 2 通目は断る(友人のアプリが「作っている」のままにする言葉)
         self.assertEqual(B.guard(self.sync, self.app, "20261025-000000-zzzzzz", self.clock), "")   # 引き継いでいない依頼は触らない
         self.assertEqual(B.friend_first(self.app, self.clock), [])
         run = os.path.join(self.app, "friend-returns", "2026-10", rid, "run1")
