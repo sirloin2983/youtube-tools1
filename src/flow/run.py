@@ -1441,7 +1441,7 @@ class Runner:
                 spec = {"video": media, "transcript": tr.get("path"), "mode": "list", "listKind": "drop", "listText": "", "dropCutRows": False, "minLen": 0}
             elif method == "silence":   # 無音で削る(値は編集の設定 cutSilence。無ければ cut2resolve の既定)
                 spec = {"video": media, "transcript": tr.get("path"), "mode": "silence", "silence": cut_silence}
-            elif method == "tidy":   # 言いよどみと長い間を詰める(① pipeline/pack/tidy。材料 = 文字起こしの単語の時刻。無ければ区間の全体)
+            elif method == "tidy":   # 無音を詰める(① pipeline/pack/tidy。言葉は削らない。材料 = 文字起こしの単語の時刻。無ければ区間の全体)
                 spec = {"video": media, "transcript": tr.get("path"), "mode": "tidy", "words": _txwords.read_words(doc["id"]) or []}
             else:
                 spec = {"video": media, "transcript": tr.get("path"), "preset": "transcript-rows"}

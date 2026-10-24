@@ -895,8 +895,8 @@ def media_reason(doc):
 
 
 def edit_draft(tid, rows=False, tidy=False):
-    """GET /api/edit/draft?id=&rows=1|tidy=1 : 動画の fps・長さと、たたき台(既定 = 単語の時刻があれば「言いよどみと間を詰める」・無ければ「行から」。
-    rows=1 =「行から」・tidy=1 =「言いよどみと間を詰める」のボタン。残す行が無ければ全部残す)。計算は ② flow/pack.cut_draft(→ ① の resolve_export)。
+    """GET /api/edit/draft?id=&rows=1|tidy=1 : 動画の fps・長さと、たたき台(既定 = 単語の時刻があれば「無音を詰める」・無ければ「行から」。
+    rows=1 =「行から」・tidy=1 =「無音を詰める」のボタン。残す行が無ければ全部残す)。計算は ② flow/pack.cut_draft(→ ① の resolve_export)。
     「行から」を計算するのは、カットが無い(壊れている)文書か rows=1(「行から」のボタン)のときだけ(行の端の無音を調べるのは重いので、開くたびにしない)。
     行の端を広げるかは設定の rowEdge(notes:docs/design/edit-tool-design.md の 12 ⑥)。無音の検出は SLOTS を通す(flow.pack.DRAFT_SLOT_WAIT 秒待っても空かなければ決まった余白)。
     カット・パックに使えないとき(動画が無い・ネットワーク上・音声だけ = media_reason と映像の無いファイル)は {"unavailable": {"code", "message"}}。

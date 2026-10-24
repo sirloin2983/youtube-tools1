@@ -1953,7 +1953,7 @@
       t.addEventListener('change', function () { var n = Math.round(+t.value); if (n >= 1 && n <= 20) arSave('prefs', { top: n }); });
       box.appendChild(arField('採用する数(解析から全部)', t));
     }
-    var c = arSelect([['rows', '行から(文字起こしの行を残す)'], ['tidy', '言いよどみと長い間を詰める'], ['none', 'カットしない(動画全体)'], ['silence', '無音で削る']], st.cut);
+    var c = arSelect([['rows', '行から(文字起こしの行を残す)'], ['tidy', '無音を詰める(話の間を短く。言葉は削らない)'], ['none', 'カットしない(動画全体)'], ['silence', '無音で削る']], st.cut);
     c.addEventListener('change', function () { arSave('prefs', { cut: c.value }); });
     box.appendChild(arField('カットの方法', c, 'カットを決めてある文書は、そのカットのとおり。細かい値は「編集」の 2 カット で'));
     box.appendChild(arEl('p', { 'class': 'ui-ar-h' }, 'パックは決まった形(30fps・縦 1080×1920・音量 -14 LUFS・話者の色)で作ります'));

@@ -24,7 +24,7 @@ def _draft_slot(label):
 
 def cut_draft(doc, rows=True, row_edge=None, form="auto", tid=None):
     """カットのたたき台と動画の fps・長さ(① resolve_export.edit_draft)。② が足すこと: 版・無音の検出の順番待ち(DRAFT_SLOT_WAIT 秒)・
-    文字起こしの単語の時刻(*.words.json。form が rows 以外のとき = 「言いよどみと間を詰める」の材料)。
+    文字起こしの単語の時刻(*.words.json。form が rows 以外のとき = 「無音を詰める」の材料)。
     -> {"fps", "durationSec", "keepsSec", "base", "warnings", "drops"?, "skipped"?}。動画が読めなければ ytt.errors.ResolveExportError"""
     tid = tid or doc.get("id")
     words = txwords.read_words(tid) if rows and form != "rows" and tid else None

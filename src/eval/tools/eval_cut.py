@@ -48,7 +48,7 @@ MAX_EDIT_BYTES = 8 * 1024 * 1024
 MAX_DOC_BYTES = C.DOC_BYTES
 MAX_PACK_RECORD_BYTES = 16 * 1024 * 1024
 EDIT_RE = re.compile(r"^([0-9a-f]{12})\.edit\.json\Z")
-ORIGIN_LABELS = {"rows": "行から", "tidy": "言いよどみと間を詰める", "silence": "無音", "list": "時刻リスト", "plan": "スタジオ(cut-plan)", "all": "動画全体(行が無い)", "whole": "カットしない"}
+ORIGIN_LABELS = {"rows": "行から", "tidy": "無音を詰める", "silence": "無音", "list": "時刻リスト", "plan": "スタジオ(cut-plan)", "all": "動画全体(行が無い)", "whole": "カットしない"}
 
 
 # ---------------------------------------------------------------- 読み込み(読むだけ)

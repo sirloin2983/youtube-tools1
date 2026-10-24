@@ -57,7 +57,7 @@
    <button type="button" class="btn small ghost" id="cutRedo" title="やり直す(Ctrl+Shift+Z)"><span class="ui-icon" data-icon="redo" aria-hidden="true"></span>やり直す</button>
    <span class="tt-sep" aria-hidden="true"></span>
    <span class="hint">たたき台:</span>
-   <button type="button" class="btn small ghost" id="cutDraftTidy" title="話した言葉は全部残し、言いよどみ(えー・あの など)と長い間だけを詰めます(文字起こしの単語の時刻から)。削った所は色の違う印 = 選んで Del で 1 か所ずつ戻せます">言いよどみと間</button>
+   <button type="button" class="btn small ghost" id="cutDraftTidy" title="言葉は削らず、話の間の無音(0.4 秒以上)だけを短くします。言い終わりの後 0.1 秒・話し始めの前 0.05 秒は残し、小さい声や息のある間は詰めません(文字起こしの単語の時刻から)。詰めた所は色の違う印 = 選んで Del で 1 か所ずつ戻せます">無音を詰める</button>
    <span class="tt-split" role="group" aria-label="行からのたたき台"><button type="button" class="btn small ghost" id="cutDraftRows" title="文字起こしの行(カット済でない・文字のある行)の時間を残します。端は声の止まる所まで広げます(zip と、まとめて実行で「行から」を選んだときと同じ規則)">行から</button>
    <details class="pop" id="cutRowEdge"><summary class="btn small ghost icon" aria-label="「行から」の設定" title="「行から」の設定(行の端を声の止まる所まで広げる)"><span class="ui-caret" aria-hidden="true"></span></summary><div class="vpop">
      <label class="lag"><input type="checkbox" id="cutEdgeOn" checked>行の端を声の止まる所まで広げる</label>

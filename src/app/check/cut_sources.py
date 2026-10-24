@@ -15,7 +15,7 @@ from . import lineup, sources   # 同じ app/check の兄弟(register・MEDIA・
 
 EDIT_SCHEMA = "youtube-tools-edit/v1"   # human/proof/store.py の EDIT_SCHEMA と同じ
 EDIT_MAX_BYTES = 1024 * 1024
-ORIGINS = ("rows", "tidy", "silence")   # たたき台の出どころ(行の境目・言いよどみと間を詰めた所・無音の境目)
+ORIGINS = ("rows", "tidy", "silence")   # たたき台の出どころ(行の境目・無音を詰めた所・無音の境目)
 MIN_GAP = 0.05                          # これより短い消した所は切れ目にしない(秒)
 GAP_CARD_MIN = 2.0                      # 消した所カードは 2 秒以上の所だけ(秒)
 WHOLE_MAX = 120.0                       # 仕上がりカードは残した合計がこれ以下の本だけ(秒)

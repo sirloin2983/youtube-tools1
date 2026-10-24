@@ -79,7 +79,7 @@ def seed(tmp, rnd, streams, samples):
         nonlocal n_tx
         with open(os.path.join(txdir, doc["id"] + ".json"), "w", encoding="utf-8") as f:
             json.dump(doc, f, ensure_ascii=False)
-        words = []   # 単語の時刻(*.words.json。カットのたたき台「言いよどみと間を詰める」の材料): 行の文字を句読点で分け、行の時間に等しく並べる
+        words = []   # 単語の時刻(*.words.json。カットのたたき台「無音を詰める」の材料): 行の文字を句読点で分け、行の時間に等しく並べる
         for s in doc.get("segments") or []:
             parts = [x for x in re.split(r"[、。!?！？ ]+", s.get("text") or "") if x]
             step = (s["end"] - s["start"]) / max(1, len(parts))

@@ -212,7 +212,7 @@ def words_from_spec(v):
 
 
 def _tidy_request(spec, video, sub, tr):
-    """mode tidy: 言いよどみと長い間を詰める(pipeline/pack/tidy。② のまとめて実行のカットの方法 tidy)。
+    """mode tidy: 無音を詰める(pipeline/pack/tidy。② のまとめて実行のカットの方法 tidy)。
     区間 = clipRange(余白つきの動画のマークの区間)か動画全体。単語が無い・削る所が無ければ区間の全体"""
     from . import tidy
     words = words_from_spec(spec.get("words"))

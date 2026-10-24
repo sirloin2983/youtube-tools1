@@ -34,7 +34,7 @@
   POST /api/doc-diarnum      {"id", "diarNum"} 文書ごとの話者判別の人数(0 = 自動・1〜8。updatedAt は変えない。段7 E-6)
   GET  /api/mach-changes?id=&row=  機械の結果が変わって人の直しと食い違う行(印 MACH_CHANGED)の 前の機械・今の機械・人の直し(RS8 O2-4)
   POST /api/mach-changes/pick {"id", "row", "pick": mine|machine, "baseUpdatedAt"?} 自分の直しのまま / 今の機械にする(本体は human/proof/machpick.py)
-  GET  /api/edit/draft?id=&rows=1|tidy=1  動画の fps・長さと、たたき台(既定 = 単語の時刻があれば「言いよどみと間を詰める」pipeline/pack/tidy・無ければ「行から」)・隣の .cut-plan.json。
+  GET  /api/edit/draft?id=&rows=1|tidy=1  動画の fps・長さと、たたき台(既定 = 単語の時刻があれば「無音を詰める」pipeline/pack/tidy・無ければ「行から」)・隣の .cut-plan.json。
                              「行から」はカットが無い文書か rows=1 のときだけ計算する(設定の rowEdge = 行の端を声の止まる所まで広げるか)
   POST /api/edit/pack        {"id", "rev", "docUpdatedAt", "dir", "files", "output"?} パックを作り終えた記録(packRev)。output = 作ったときの出力の設定(壊れていれば保存しない)
   POST /api/edit/preview     {"id", "keeps", "wrap"?} カットのとおりに作ったときのパックの見積もり(ファイルは作らない)

@@ -165,7 +165,7 @@ function create(h){
     M.total = Math.max(1, Math.round(M.dur * M.fps[0] / M.fps[1]));
     if (e){
       M.rev = ed.rev; M.origin = e.origin || 'manual'; M.pristine = false; M.untouched = !!e.draftUntouched;
-      if (e.draft && e.draft.origin === 'tidy'){ const k = e.draft.keepsSec || []; M.drops = k.slice(1).map(([a], i) => [k[i][1], a, 'auto']); }   // 開き直しても、言いよどみと間を詰めた所の印を残す
+      if (e.draft && e.draft.origin === 'tidy'){ const k = e.draft.keepsSec || []; M.drops = k.slice(1).map(([a], i) => [k[i][1], a, 'auto']); }   // 開き直しても、無音を詰めた所の印を残す
       M.clips = norm(e.clips.map(c => [s2f(c.in), s2f(c.out)]));
       if (dr){   // 動画の長さが変わった(同じパスの動画を書き出し直した): 後ろの区間を切って知らせる
         const over = M.clips.some(([, b]) => b > M.total + 1);
@@ -272,7 +272,7 @@ function create(h){
     } catch (e){ h.toast('たたき台を作れませんでした: ' + e.message, 6000, 'err'); }
     finally { M.draftBusy = false; renderTools(); }
   }
-  /* 言いよどみと長い間を詰める(pipeline/pack/tidy。話した言葉は全部残す。材料 = 文字起こしの単語の時刻。削った所はタイムラインに印 = 選んで Del で戻す) */
+  /* 無音を詰める(pipeline/pack/tidy。言葉は削らず、話の間の無音だけを短くする。材料 = 文字起こしの単語の時刻。削った所はタイムラインに印 = 選んで Del で戻す) */
   async function draftTidy(){
     if (!editable() || M.draftBusy) return;
     if (!(await confirmReplace())) return;
@@ -283,7 +283,7 @@ function create(h){
       if (r.base !== 'tidy') return h.toast('単語の時刻が無いので作れません(文字起こしし直すと作れます)。今のカットはそのままです', 7000, 'err');
       M.drops = r.drops || [];
       noteDraft('tidy', r.keepsSec, {});
-      applyKeeps(r.keepsSec, 'tidy', '言いよどみと長い間を詰めた');
+      applyKeeps(r.keepsSec, 'tidy', '無音を詰めた');
     } catch (e){ h.toast('たたき台を作れませんでした: ' + e.message, 6000, 'err'); }
     finally { M.draftBusy = false; renderTools(); }
   }
@@ -434,8 +434,8 @@ function create(h){
   }
   /* 見えている所(前後に1画面ずつ)だけ描く(区間・字幕が数千あっても重くしない) */
   const clipHTML = (a, b, i) => `<div class="tt-k" data-i="${i}" style="left:${X(a)}px;width:${Math.max(1, X(b) - X(a))}px" title="残す区間 ${fmtF(a)}〜${fmtF(b)}(${fmtF(b - a)})"></div>`;
-  /* 削る区間が「言いよどみと長い間を詰める」のたたき台の削った所なら印(色と名前) */
-  const DROP_NAMES = { pause: '長い間を詰めた所', filler: '言いよどみ', auto: '言いよどみか長い間を詰めた所' };
+  /* 削る区間が「無音を詰める」のたたき台の詰めた所なら印(色と名前) */
+  const DROP_NAMES = { pause: '無音を詰めた所', auto: '無音を詰めた所' };
   const dropKind = (a, b) => { const d = M.drops.find(([x, y]) => Math.abs(s2f(x) - a) <= 1 && Math.abs(s2f(y) - b) <= 1); return d ? d[2] : ''; };
   const gapsHTML = () => gaps().filter(([a, b]) => !(b < M.vis[0] || a > M.vis[1])).map(([a, b]) => { const k = dropKind(a, b);
     return `<div class="tt-x${k ? ' tt-x-tidy' : ''}" data-a="${a}" data-b="${b}" style="left:${X(a)}px;width:${Math.max(1, X(b) - X(a))}px" title="${k ? DROP_NAMES[k] + '(自動)' : '削る区間'} ${fmtF(a)}〜${fmtF(b)}。選んで Del で戻す"></div>`; }).join('');
@@ -717,7 +717,7 @@ function create(h){
     }
     const snapTo = M.snap ? '吸い付く先: 字幕の行の端・無音の境目・再生位置・隣の区間の端(Alt を押している間は吸い付かない)' : '吸着: 切';
     st.innerHTML = `<span>残す <b>${n}区間</b></span><span>カット後 <b class="mono">${fmtF(kf)}</b> / 元 <span class="mono">${h.fmtCs(M.dur)}</span></span>${sel ? `<span>${sel}</span>` : ''}<span class="hint">${snapTo}</span>` +
-      (M.origin && M.pristine ? `<span class="hint">(${({ rows: '文字起こしの行から作ったたたき台', tidy: `言いよどみと長い間を詰めたたたき台(詰めた所 ${M.drops.length} か所 = 色の違う印)` })[M.origin] || '動画全体のたたき台'}。手で直すと保存します)</span>`
+      (M.origin && M.pristine ? `<span class="hint">(${({ rows: '文字起こしの行から作ったたたき台', tidy: `無音を詰めたたたき台(詰めた所 ${M.drops.length} か所 = 色の違う印)` })[M.origin] || '動画全体のたたき台'}。手で直すと保存します)</span>`
         : M.origin === 'whole' && M.clips.length === 1 ? '<span class="hint">(カットしない = 動画全体)</span>' : '') +
       (n > 0 ? '<button type="button" class="btn small ui-next-btn tt-cut-next" data-act="topack" title="カットを決めたら、下の「パック」で Resolve へ渡すパックを作ります">パックを作る</button>' : '');   // 次の一手(M6)
   }

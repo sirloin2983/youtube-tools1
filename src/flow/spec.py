@@ -27,7 +27,7 @@ MARGIN_DEFAULT, MARGIN_MAX = _marks.CLIP_MARGIN_DEFAULT, _marks.CLIP_MARGIN_MAX 
 RANGE_TIME_MAX = 360000  # 区間の時刻の上限(秒 = 100 時間。これより後は形が違う扱い。友人の受付の検査から)
 RANGE_PAD = 2.0          # 区間の前後に足す秒(ぴったり指定すると頭の一言が欠けやすいため。ユーザー決定: 自動で付ける)
 CUTS = ("none", "silence")          # 友人が選べるカットの方法(① 全自動のパック)
-PACK_CUTS = ("rows", "tidy") + CUTS   # 束の pack.cut で選べる方法(rows = 行から・tidy = 言いよどみと長い間を詰める = ホームの設定 autorun.cut の選択肢。run.py の _cut_method と同じ)
+PACK_CUTS = ("rows", "tidy") + CUTS   # 束の pack.cut で選べる方法(rows = 行から・tidy = 無音を詰める = ホームの設定 autorun.cut の選択肢。run.py の _cut_method と同じ)
 # 文字起こしのエンジン・モデル・機器(束の transcribe 節・リアルタイム切り抜きの live.auto(M2)・この PC の設定 machine)。editor の tx_engines の id。
 # 束から選べるのは whisper.cpp・large-v3・vulkan(cuda)だけ(ユーザー決定「普段よく使っているモデル以外は要らない」)。
 # faster-whisper は ① の中の CPU の逃げ道(GPU が実行時に失敗したとき・再認識など)として残るが、束からは選ばない。
