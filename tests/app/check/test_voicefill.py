@@ -32,6 +32,7 @@ class VoiceFillTest(unittest.TestCase):
             for i in range(n):
                 open(os.path.join(d, "26-0%d-01_%s.mov" % (i + 1, who)), "wb").close()
         open(os.path.join(self.learn, "さくらみこ", "メモ.txt"), "wb").close()
+        open(os.path.join(self.learn, "さくらみこ", "評価用データ37_さくらみこ_01_済.mkv"), "wb").close()   # 混ざった評価用の写しは頼まない(10-25)
         p = mock.patch.object(roster, "ROSTER", roster.BUNDLED)
         p.start()
         self.addCleanup(p.stop)
@@ -46,7 +47,7 @@ class VoiceFillTest(unittest.TestCase):
             VF.tick(self.app, start, lambda: None, logs.append, dirs=[self.learn])
         who = [os.path.basename(os.path.dirname(r["sourcePath"])) for r in asked]
         self.assertEqual(who[:2], ["さくらみこ", "兎田ぺこら"])                  # 頼んだ数の少ない人から回る
-        self.assertEqual(len(asked), 4)                                          # 4 本で全部。2 度は頼まない
+        self.assertEqual(len(asked), 4)                                          # 4 本で全部(評価用の写しは除く)。2 度は頼まない
         self.assertEqual(len({r["sourcePath"] for r in asked}), 4)
         self.assertIn("残り 0 本", logs[-1])
         with open(os.path.join(self.app, "check", VF.STATE_NAME), encoding="utf-8") as f:

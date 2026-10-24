@@ -1237,13 +1237,20 @@ class PortalServer(httpsec.ExclusiveServer):
             if self.closing.wait(self.VOICE_CLIPS_EVERY):
                 return
 
+    def _voice_busy(self):
+        """誰の声の材料を頼まない理由か None: 新しい版が出ている(自動の起動し直しに合間を空ける)・入口の手が空いていない(_accuracy_busy)"""
+        disk = _version.on_disk(self.sup.root)
+        if disk and disk != VERSION:
+            return "新しい版 v%s を待っています" % disk
+        return self._accuracy_busy()
+
     def voice_fill_loop(self):
         """誰の声の材料を全メンバーぶんそろえる(app/check/voicefill。10-25): 手が空いているとき、学習用データのショートを 1 分に 1 本文字起こしに頼む"""
         client = lambda: autorun_mod.ToolClient(self.tool_endpoint, self.token, timeout=30)   # noqa: E731
         while not self.closing.wait(check_voicefill.EVERY):
             try:
                 check_voicefill.tick(self.cleanup.app_dir, lambda req: client().ok("transcribe", "POST", "/api/transcribe", req).get("id"),
-                                     self._accuracy_busy, self.sup.log)
+                                     self._voice_busy, self.sup.log)
             except Exception as e:   # noqa: BLE001  (頼めなくても入口は止めない)
                 self.sup.log("誰の声の材料を頼めませんでした: %r" % (e,))
 
@@ -1251,7 +1258,7 @@ class PortalServer(httpsec.ExclusiveServer):
         """誰の声の材料が無いメンバーの音を YouTube から 4 分だけ(app/check/voicefetch。10-25)。枠は研究と分け合う(yt-slot.json)"""
         from flow import voicematerial as _vm
         client = lambda: autorun_mod.ToolClient(self.tool_endpoint, self.token, timeout=30)   # noqa: E731
-        busy = lambda: self._accuracy_busy() or ("ライブ" if any(self.live_activity().values()) else None)   # noqa: E731
+        busy = lambda: self._voice_busy() or ("ライブ" if any(self.live_activity().values()) else None)   # noqa: E731
         while not self.closing.wait(check_voicefetch.EVERY):
             try:
                 r = _vm.roster_data()

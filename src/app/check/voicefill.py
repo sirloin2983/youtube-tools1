@@ -6,7 +6,8 @@
   ほかの種類のカード(読み・時刻・声ですか など)には出さない(View.docs が外す = sources.voice_material)。
   .mov は読むだけ(動かさない・書かない。片付けも 学習用データ の下は移さない = manage/keep/cleanup の KEEP_FOLDERS)。
 頼む順: まだ頼んだ数の少ない人から 1 本ずつ回る(全員に早く材料が入る)。頼んだ物は <app>/check/voice-material.json に覚え、2 度は頼まない。
-手が空いているか = 入口の重い処理の順番・まとめて実行・編集の文字起こしのジョブが無い(入口の _accuracy_busy と同じ)。スイッチ ENABLED。
+手が空いているか = 入口の重い処理の順番・まとめて実行・編集の文字起こしのジョブが無い(入口の _accuracy_busy と同じ)・新しい版が出ていない
+(出ていれば頼むのを休んで、入口の自動の起動し直しに合間を空ける)。ファイルの名前に「評価用」がある物(評価用データの写し)は頼まない。スイッチ ENABLED。
 """
 import os
 import time
@@ -34,6 +35,11 @@ def learn_dirs():
 FETCH_DIR_NAME = "voice-fetch"   # YouTube から取った誰の声の材料の音(app/check/voicefetch.DIR_NAME)
 
 
+def eval_like(path):
+    """評価用データの写し(ファイルの名前に「評価用」。学習用データに混ざっている)か = 声の材料にしない(評価の答えを学習に混ぜない。10-25)"""
+    return "評価用" in os.path.basename(str(path or ""))
+
+
 def in_learn_dir(path):
     """動画のパスが 学習用データ か、YouTube から取った誰の声の材料(voicefetch)の下か(パスの名前で見るだけ)= 誰の声のカードだけに使う文書"""
     parts = os.path.normpath(str(path or "")).split(os.sep)[:-1]
@@ -57,7 +63,7 @@ def targets(dirs=None):
                 files = sorted(os.listdir(d))
             except OSError:
                 continue
-            out += [(who, os.path.join(d, f)) for f in files if f.lower().endswith(EXTS) and os.path.isfile(os.path.join(d, f))]
+            out += [(who, os.path.join(d, f)) for f in files if f.lower().endswith(EXTS) and not eval_like(f) and os.path.isfile(os.path.join(d, f))]
     return out
 
 

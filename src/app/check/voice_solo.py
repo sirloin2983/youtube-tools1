@@ -33,7 +33,7 @@ from human.proof import voiceclips as _voiceclips
 from pipeline.transcribe import records
 from ytt import schemas as _yschemas
 from ytt.textutil import person_key as _person_key
-from . import sources   # 同じ app/check の兄弟(register・_doc_card・_rows・View を読む)
+from . import sources, voicefill   # 同じ app/check の兄弟(register・_doc_card・_rows・View を読む)
 
 SOURCE = "solo"
 MAX_PEOPLE = 80          # 対象の人数(まだ覚えていない人が先・ソロの文書の多い順。10-24 夜に 10 → 80 = ホロライブのメンバー全員)
@@ -104,6 +104,8 @@ def _select(view):
         latest = view.diar(tid, path)
         if isinstance(latest, dict) and isinstance(latest.get("rows"), dict) and latest["rows"]:
             continue   # voice:diar が出す
+        if voicefill.eval_like(doc.get("sourcePath")):
+            continue   # 評価用データの写し(学習用データに混ざっていた)は声の材料にしない
         who, song = _solo_of(path, doc)
         if who and song:
             skips["songDocs"] += 1   # 歌の配信(声を覚える材料にしない)
