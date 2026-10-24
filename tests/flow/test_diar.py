@@ -72,6 +72,22 @@ class TestMergeVoice(unittest.TestCase):
         self.assertEqual(sorted(x["doc"] for x in v["learnedFrom"]), ["d1", "d2"])
         self.assertEqual(v["rows"], 12)
 
+    def test_short_material_weight_and_provisional(self):
+        """ショート由来(学習用データ)の材料は重み半分・ショートだけの声は仮。仮の声に配信の材料が来たら上書きに近い(10-25)"""
+        v = diar.merge_voice(None, [1.0, 0.0], 3, 10.0, "s1", short=True)
+        self.assertEqual((v.get("provisional"), v["shortSec"], v["sec"]), (True, 10.0, 10.0))
+        v = diar.merge_voice(v, [0.0, 1.0], 3, 10.0, "d1")              # 配信の材料: 前の重み 10 × 0.1 = 1 対 10
+        self.assertNotIn("provisional", v)
+        self.assertGreater(v["vec"][1], 0.99)                            # ほぼ配信の声
+        self.assertEqual((v["sec"], v["shortSec"]), (20.0, 10.0))
+        w = diar.merge_voice(v, [1.0, 0.0], 3, 20.0, "s2", short=True)  # 仮でない声にショート: 重み半分(前 20 − 10×0.5 = 15 対 20×0.5 = 10)
+        x, y = 15.0 * v["vec"][0] + 10.0, 15.0 * v["vec"][1]
+        self.assertAlmostEqual(w["vec"][0] / w["vec"][1], x / y, places=3)
+        self.assertNotIn("provisional", w)
+        self.assertEqual(w["shortSec"], 30.0)
+        p = diar.merge_voice(None, [1.0, 0.0], 3, 10.0, "d1")              # 配信だけの声は印なし(今までの形)
+        self.assertEqual(("provisional" in p, "shortSec" in p), (False, False))
+
     def test_learned_rows_from_check(self):
         """確かめるの声のカード(V2c): by と使った行の id を控え、同じ文書は行を合わせて秒を足す。普通の「声を覚える」でも控えは消さない"""
         v = diar.merge_voice(None, [1.0, 0.0], 2, 12.0, "d1", by="check", row_ids=["s1", "s2"])

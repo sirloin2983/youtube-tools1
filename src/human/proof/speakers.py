@@ -18,7 +18,8 @@ from flow import jobs as _heavy  # noqa: E402
 from ytt import jobs as _slots  # noqa: E402
 from ytt import txbase as _txbase  # noqa: E402
 from ytt import settings as _settings  # noqa: E402   編集の設定の読み書き load_settings
-from human.proof import voiceclips as _voiceclips  # noqa: E402   声を覚える材料の短い音(元の動画が片付いたあとの覚え直し。10-24)
+from human.proof import voiceclips as _voiceclips  # noqa: E402
+from flow import voicematerial as _vm  # noqa: E402   ショート由来の材料か(学習用データ。is_short)   声を覚える材料の短い音(元の動画が片付いたあとの覚え直し。10-24)
 from flow import diar as _diar  # noqa: E402   ② 判別と声の段取り(判別・割り当て・判別の記録・声の特徴と照合・覚えた声の置き場所。呼ぶたびに _diar.名前 で読む)
 from . import store  # noqa: E402   文書の読み書き・保存のロック・控え(呼ぶたびに store.名前 で読む)
 from . import layers as _layers  # noqa: E402   話者の判別(機械の層・話者の対応表)
@@ -616,7 +617,8 @@ def run_voice_learn(job):
                     _txbase.add_warning(job, "「%s」の声は、待っている間にほかで覚えられたので足しませんでした(同じ人なら、もう一度「声を覚える」を押してください)" % n)
                     continue
                 voices[at] = _diar.merge_voice(old, v, len(grp[n][0]), grp[n][1], spec["tid"],   # 前に覚えた声とは使った長さで重みを付けて混ぜる
-                                              by=spec.get("by"), row_ids=plan["rowIds"].get(n) if spec.get("rows") is not None else None)
+                                              by=spec.get("by"), row_ids=plan["rowIds"].get(n) if spec.get("rows") is not None else None,
+                                              short=_vm.is_short(doc.get("sourcePath")))   # ショート由来は重み半分・ショートだけなら仮(10-25)
                 learned.append(n)
             if len(voices) > _VOICE_MAX_PEOPLE:
                 raise _errors.ApiError("too_many", "覚えられる声は %d 人までです(使わない声を消してください)" % _VOICE_MAX_PEOPLE, 400)

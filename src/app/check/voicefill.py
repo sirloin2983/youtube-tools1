@@ -16,7 +16,7 @@ from flow import voicematerial as _vm
 from ytt import fsio, settings as _settings
 
 ENABLED = True
-LEARN_NAME = "学習用データ"
+LEARN_NAME = _vm.SHORT_DIR_NAME
 STATE_NAME = "voice-material.json"
 EXTS = (".mov", ".mp4", ".mkv", ".webm", ".m4v")
 EVERY = 60          # 見回りの間隔(秒)。1 回に 1 本だけ頼む
@@ -42,8 +42,7 @@ def eval_like(path):
 
 def in_learn_dir(path):
     """動画のパスが 学習用データ か、YouTube から取った誰の声の材料(voicefetch)の下か(パスの名前で見るだけ)= 誰の声のカードだけに使う文書"""
-    parts = os.path.normpath(str(path or "")).split(os.sep)[:-1]
-    return LEARN_NAME in parts or FETCH_DIR_NAME in parts
+    return _vm.is_short(path) or FETCH_DIR_NAME in os.path.normpath(str(path or "")).split(os.sep)[:-1]
 
 
 def targets(dirs=None):

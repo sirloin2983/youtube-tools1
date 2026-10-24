@@ -31,6 +31,14 @@ CUT_TIMEOUT = 60.0
 MAX_CUT_SEC = 30.0       # これより長い行は切り出さない
 
 
+SHORT_DIR_NAME = "学習用データ"   # 友人の仕上げたショート(編集後の音 = BGM・効果音・加工があり、普段の声と少し違うかも。app/check/voicefill)
+
+
+def is_short(path):
+    """元の動画がショート(学習用データの下)か = 声を覚える材料としては「ショート由来」(flow/diar.merge_voice が重みを半分にする)"""
+    return SHORT_DIR_NAME in os.path.normpath(str(path or "")).split(os.sep)[:-1]
+
+
 def num(x, default=0.0):
     return float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) and x == x and abs(x) != float("inf") else default
 

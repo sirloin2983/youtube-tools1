@@ -342,11 +342,17 @@ def voices_edit(emb):
 LEARNED_ROWS_MAX = 2000   # learnedFrom の 1 文書に控える行の id の上限(古い物から捨てる)
 
 
-def merge_voice(old, vec, rows, sec, doc=None, by=None, row_ids=None):
+SHORT_WEIGHT = 0.5       # ショート由来(学習用データ。編集後の音)の材料を混ぜる重み(配信の材料の半分。10-25)
+PROVISIONAL_KEEP = 0.1   # ショートだけで覚えた「仮」の声に、配信の材料が初めて来たとき前の声に残す重み(上書きに近い = 普段の声に直る)
+
+
+def merge_voice(old, vec, rows, sec, doc=None, by=None, row_ids=None, short=False):
     """覚える声の 1 人分 -> {"vec", "rows", "sec", "updatedAt", "learnedFrom"}。前に覚えた声 old(同じ次元のとき)とは、使った長さで重みを付けて混ぜる
     (配信ごとの声の揺れをならす。前の重みは 1 時間まで)。doc = 覚えた文書の id(learnedFrom に {doc, at} を足す。同じ文書は重ねず at だけ新しくする。
     古い形(learnedFrom が無い声)もそのまま読める)。by = 何が覚えさせたか(例 "check" = 確かめるの声のカード。V1 V2c)・
     row_ids = 使った行の id(learnedFrom の rows に前の分と合わせて控え、sec に足す = 同じ行を 2 度覚えないための印。確かめるが読む)。
+    short = ショート由来の材料(学習用データ。voicematerial.is_short)= 重み SHORT_WEIGHT で混ぜ、shortSec に足す。ショートだけで覚えた声は
+    provisional(仮)。仮の声に配信の材料が来たら、前の声の重みを PROVISIONAL_KEEP 倍にして混ぜる(上書きに近い)。配信の材料が増えるほど普段の声に寄る。
     ② が足すこと: 登録簿の 1 人分の形・行の控え・どの文書から覚えたかの記録(混ぜる計算は ① の blend_voice)"""
     now = int(time.time() * 1000)
     src = [x for x in (old or {}).get("learnedFrom") or [] if isinstance(x, dict) and x.get("doc")]
@@ -360,10 +366,24 @@ def merge_voice(old, vec, rows, sec, doc=None, by=None, row_ids=None):
             entry["rows"] = list(dict.fromkeys(ids))[-LEARNED_ROWS_MAX:]
             entry["sec"] = round(float(_yschemas.num_or((prev or {}).get("sec"), 0.0) or 0.0) + float(sec), 1)
         src = [x for x in src if x["doc"] != str(doc)] + [entry]
+    short_sec = float(sec) if short else 0.0
+    provisional = bool(short)
     if old and len(old["vec"]) == len(vec):
-        vec, sec = _calc.blend_voice(old["vec"], old.get("sec"), vec, sec)   # 混ぜる計算は ① の blend_voice
+        old_sec = float(_yschemas.num_or(old.get("sec"), 0.0) or 0.0)
+        old_short = min(old_sec, float(_yschemas.num_or(old.get("shortSec"), 0.0) or 0.0))
+        w_old = old_sec - old_short * (1.0 - SHORT_WEIGHT)   # ショート由来の分は半分に数える
+        if old.get("provisional") is True and not short:
+            w_old *= PROVISIONAL_KEEP   # 仮の声(ショートだけ)に配信の材料 = 上書きに近い
+        vec, _w = _calc.blend_voice(old["vec"], w_old, vec, float(sec) * (SHORT_WEIGHT if short else 1.0))   # 混ぜる計算は ① の blend_voice
+        sec = min(old_sec, _calc.BLEND_MAX_SEC) + float(sec)   # 覚えた秒(覚え直しの量の決まりが読む)は重みと別に今までどおり
         rows = rows + int(old.get("rows") or 0)
+        short_sec += old_short
+        provisional = old.get("provisional") is True and bool(short)
     out = {"vec": [round(x, 6) for x in vec], "rows": rows, "sec": round(sec, 1), "updatedAt": now}
+    if short_sec:
+        out["shortSec"] = round(short_sec, 1)
+    if provisional:
+        out["provisional"] = True
     if src:
         out["learnedFrom"] = src
     return out
