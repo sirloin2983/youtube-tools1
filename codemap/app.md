@@ -67,7 +67,7 @@
 ## src/app/ui/check/
 
 - **check.js** (594 行) — 確かめる(/check = 入口の直下の 1 枚。部品は src/app/ui/check/。RS8 V1 = 殻。作り方 notes:docs/design/v1-check-build.md・何を作るか …
-- **player.js** (216 行) — 確かめるのカード用の軽い再生部品(/check-player.js。RS8 V1。作り方 notes:docs/design/v1-check-build.md の 4・5 節)。
+- **player.js** (231 行) — 確かめるのカード用の軽い再生部品(/check-player.js。RS8 V1。作り方 notes:docs/design/v1-check-build.md の 4・5 節)。
 
 ## src/app/ui/check/cards/
 

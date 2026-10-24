@@ -198,6 +198,9 @@ def _scene_kinds(cx):
     press(pg, "2")
     check(wait_js(pg, "CheckShell.state().kind === 'voice'") and fq.answers[-1]["body"]["answer"] == {"choice": "2"}, "2 で答える")
     check(wait_js(pg, "!!document.querySelector('#chkBody video')"), "誰の声のカードは動画を出す")
+    check(pg.evaluate("document.querySelector('#chkBody video').volume") == 0.5, "音量の既定は半分")
+    pg.evaluate("document.querySelector('#chkBody video').volume = 0.3")
+    check(wait_js(pg, "JSON.parse(localStorage.getItem('check.volume') || '{}').volume === 0.3"), "変えた音量を覚える(次のカードで使う)")
     press(pg, "Enter")
     pg.wait_for_timeout(200)
     check(state(pg)["kind"] == "voice", "再生が終わるまで Enter は効かない")
@@ -219,6 +222,7 @@ def _scene_kinds(cx):
     press(pg, "Enter")
     check(wait_js(pg, "CheckShell.state().kind === 'time'") and fq.answers[-1]["body"]["answer"] == {"choice": "B"}, "再生のあとの Enter = 機械の予想どおり")
     n_before = len(fq.answers)
+    check(wait_js(pg, "(() => { const v = document.querySelector('#chkBody video'); return !v || v.volume === 0.3; })()"), "次のカードも覚えた音量")
     check(wait_js(pg, "!!document.querySelector('#chkBody canvas[data-chk-wave]')") and wait_js(pg, "!document.querySelector('[data-chk-wavemsg]').textContent"),
           "時刻のカードに波形の帯(peaks を読めた)")
     check(cx.retime_hits and cx.retime_hits[0] == {"id": "a0000000000c", "rows": ["r6"]}, "単語の印は POST transcribe/api/retime {id, rows:[行]}: %s" % cx.retime_hits[:1])

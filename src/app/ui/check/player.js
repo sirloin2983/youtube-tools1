@@ -26,6 +26,18 @@
     try { var x = new URL(u, location.href); return x.origin === location.origin ? x.href : ''; } catch (e) { return ''; }
   }
   function num(v, d) { v = +v; return isFinite(v) ? v : d; }
+  /* 音量と消音はカードをまたいで引き継ぐ(既定は半分 = 動画の素の音は大きい)。読めない・書けない環境では既定のまま */
+  var VOL_KEY = 'check.volume', VOL_DEFAULT = 0.5;
+  function loadVolume() {
+    try {
+      var v = JSON.parse(localStorage.getItem(VOL_KEY) || 'null');
+      if (v && isFinite(+v.volume) && +v.volume >= 0 && +v.volume <= 1) return { volume: +v.volume, muted: v.muted === true };
+    } catch (e) { /* 既定へ */ }
+    return { volume: VOL_DEFAULT, muted: false };
+  }
+  function saveVolume(v) {
+    try { localStorage.setItem(VOL_KEY, JSON.stringify({ volume: v.volume, muted: v.muted })); } catch (e) { /* 覚えられないだけ */ }
+  }
   function cssVar(name, fallback) {
     var v = getComputedStyle(document.documentElement).getPropertyValue(name);
     return (v && v.trim()) || fallback;
@@ -102,6 +114,9 @@
       video = document.createElement('video');
       video.className = 'chk-video'; video.preload = 'auto'; video.playsInline = true; video.controls = true;
       video.setAttribute('aria-label', '確かめる区間の再生');
+      var vol = loadVolume();
+      video.volume = vol.volume; video.muted = vol.muted;
+      video.addEventListener('volumechange', function () { saveVolume(video); });
       video.addEventListener('loadedmetadata', function () {
         if (win[0] > 0) { try { video.currentTime = win[0]; } catch (e) { /* 読み込みの途中 */ } }
         if (opt.autoplay !== false) play();
