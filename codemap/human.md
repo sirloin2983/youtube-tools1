@@ -47,18 +47,20 @@
 ## src/human/friend/
 
 - **__init__.py** (2 行) — ③ 友人: 受付(Dropbox)→ まとめて実行(②)に流す → 届ける。友人の返事・送り返し・ライブの依頼の結びつき
-- **bugs.py** (645 行) — ③ 人の層: 友人の PC の不具合の書き出しを受け取って仕分けし、要対応があれば Claude Code を画面なしで 1 回起こす(10-25 ユーザーの OK。
-  - 名前: `bugs_dir` :147・`parse` :155・`triage` :168・`kind_of` :202・`context` :234・`wrap` :247・`records` :263・`scan` :273・`delivered` :336・`guard` :374・`friend_first` :391・`ask` :415・ほか 4
+- **bugs.py** (646 行) — ③ 人の層: 友人の PC の不具合の書き出しを受け取って仕分けし、要対応があれば Claude Code を画面なしで 1 回起こす(10-25 ユーザーの OK。
+  - 名前: `bugs_dir` :148・`parse` :156・`triage` :169・`kind_of` :203・`context` :235・`wrap` :248・`records` :264・`scan` :274・`delivered` :337・`guard` :375・`friend_first` :392・`ask` :416・ほか 4
 - **friend_feedback.py** (118 行) — 友人の「要らない」を PC 側で片付ける(notes:docs/spec/friend.md の 2-14。ユーザー「不採用の場合こちらにフィードバック」)。
   - 名前: `record_delivery` :24・`find_delivery` :29・`apply` :82
-- **intake.py** (840 行) — 友人からの依頼の受付(notes:docs/spec/friend.md)。
-  - 名前: `configured_folder` :79・`out_dir_of` :90・`submit_urls` :95・`submit_file` :119・`youtube_id` :129・`parse_lines` :135・`decode_text` :161・`probe_video` :175・`youtube_info` :187・`parse_ranges` :235・`class Intake` :264
+- **intake.py** (842 行) — 友人からの依頼の受付(notes:docs/spec/friend.md)。
+  - 名前: `configured_folder` :80・`out_dir_of` :91・`submit_urls` :96・`submit_file` :120・`youtube_id` :130・`parse_lines` :136・`decode_text` :162・`probe_video` :176・`youtube_info` :188・`parse_ranges` :236・`class Intake` :265
 - **live_requests.py** (22 行) — 友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend.md の 2-15)。
   - 名前: `settings_label` :19
+- **pubqueue.py** (159 行) — ③ 人の層: 友人の zip を配る待ちの列と、3 時間ごとの配る回(ユーザーの PC。友人の zip はまとめて配る決め・10-25 ユーザーの OK。
+  - 名前: `items` :51・`add` :61・`take` :69・`changes` :78・`slot_of` :83・`tick` :105
 - **returns.py** (486 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。notes:docs/design/f1-build.md の (f1d))。
   - 名前: `returns_dir` :58・`extract` :96・`parse_verdict` :130・`parse_notice` :180・`scan` :215・`recent_notices` :412・`iter_requests` :451
-- **upwatch.py** (156 行) — ③ 人の層: 友人のアプリの更新の見張り(ユーザーの PC。友人のアプリの更新の決め・10-25 ユーザーの OK。notes:plan/友人の不具合の自動対応-1025.md の「更新」)。
-  - 名前: `published` :54・`friend_now` :69・`last_seen` :91・`alerts` :104・`scan` :111
+- **upwatch.py** (166 行) — ③ 人の層: 友人のアプリの更新の見張り(ユーザーの PC。友人のアプリの更新の決め・10-25 ユーザーの OK。notes:plan/友人の不具合の自動対応-1025.md の「更新」)。
+  - 名前: `published` :54・`friend_now` :69・`last_seen` :91・`alerts` :104・`add_alert` :111・`scan` :121
 - **voicein.py** (122 行) — 友人の PC から届いた声の材料の受け取り(10-24 夜。作る側 = friendapp/voicesend。案 = notes:plan/声の材料を友人のPCから-1024.md)。
   - 名前: `class Refused` :33・`take` :59
 
@@ -109,6 +111,7 @@
 - tests/human/friend/test_bugs.py — src/human/friend/bugs.py(友人の不具合の書き出しの受け取り・仕分け・AI を起こす口)のテスト。リポジトリ直下で:
 - tests/human/friend/test_friend_feedback.py — 友人の「要らない」を PC 側で片付ける(src/human/friend/friend_feedback.py)の単体テスト。ごみ箱は本物の cleanup.Cleanup(一時フォルダ)。
 - tests/human/friend/test_intake.py — 友人からの依頼の受付(src/human/friend/intake.py)の単体テスト。まとめて実行・ffprobe・yt-dlp は偽物。
+- tests/human/friend/test_pubqueue.py — src/human/friend/pubqueue.py(友人の zip を配る待ちの列と 3 時間ごとの配る回)のテスト。リポジトリ直下で:
 - tests/human/friend/test_returns.py — src/human/friend/returns.py(友人の送り返しの受け取り。F1 の F2)のテスト。リポジトリ直下で:
 - tests/human/friend/test_upwatch.py — src/human/friend/upwatch.py(友人のアプリの更新の見張り)のテスト。リポジトリ直下で:
 - tests/human/proof/test_alt.py — 2つ目のエンジンとの食い違いに候補を出す機能のテスト。
