@@ -148,7 +148,7 @@
 
 ## 候補(画面の文字列。多く出る順。手で整える前)
 
-- 設定(13)— friend-apps/holo-colors/src/MainForm.cs:93
+- 設定(11)— friend-apps/holo-colors/src/MainForm.cs:93
 - もう一度(8)— src/app/ui/cases/panels/cut.js:234
 - 元に戻す(7)— src/app/ui/cases/panels/cut.js:56
 - ホームへ(6)— src/app/ui/cases/cases.js:428
@@ -168,6 +168,7 @@
 - 開く(4)— src/app/ui/editor/app-jobs.js:66
 - YouTube で開く(3)— src/app/ui/studio/review.js:129
 - YouTube にログイン(3)— friend-apps/launcher/src/YtLogin.cs:143
+- この画面の設定(3)— src/app/ui/cases/index.html:29
 - やり直す(3)— src/app/ui/cases/panels/cut.js:57
 - キャンセル(3)— src/app/ui/cases/panels/cut.js:172
 - フォルダを開く(3)— src/app/ui/cases/panels/cut.js:158
@@ -329,4 +330,3 @@
 - URL から配信を入れる(1)— src/app/ui/studio/collab.js:51
 - URL を受け取りました。(1)— src/app/ui/studio/queue.js:15
 - URL を貼る(1)— src/friendapp/ui/guide.html:52
-- YouTube Data API キー(1)— src/app/ui/cases/panels/new.js:20
