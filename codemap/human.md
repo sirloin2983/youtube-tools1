@@ -55,8 +55,8 @@
   - 名前: `configured_folder` :80・`out_dir_of` :91・`submit_urls` :96・`submit_file` :120・`youtube_id` :130・`parse_lines` :136・`decode_text` :162・`probe_video` :176・`youtube_info` :188・`parse_ranges` :236・`class Intake` :265
 - **live_requests.py** (22 行) — 友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend.md の 2-15)。
   - 名前: `settings_label` :19
-- **pubqueue.py** (159 行) — ③ 人の層: 友人の zip を配る待ちの列と、3 時間ごとの配る回(ユーザーの PC。友人の zip はまとめて配る決め・10-25 ユーザーの OK。
-  - 名前: `items` :51・`add` :61・`take` :69・`changes` :78・`slot_of` :83・`tick` :105
+- **pubqueue.py** (143 行) — ③ 人の層: 友人の zip を配る待ちの列と、3 時間ごとの配る回(ユーザーの PC。友人の zip はまとめて配る決め・10-25 ユーザーの OK。
+  - 名前: `items` :51・`add` :61・`take` :69・`changes` :78・`slot_of` :83・`tick` :89
 - **returns.py** (486 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。notes:docs/design/f1-build.md の (f1d))。
   - 名前: `returns_dir` :58・`extract` :96・`parse_verdict` :130・`parse_notice` :180・`scan` :215・`recent_notices` :412・`iter_requests` :451
 - **upwatch.py** (166 行) — ③ 人の層: 友人のアプリの更新の見張り(ユーザーの PC。友人のアプリの更新の決め・10-25 ユーザーの OK。notes:plan/友人の不具合の自動対応-1025.md の「更新」)。
