@@ -41,7 +41,10 @@ class VoiceFetchTest(unittest.TestCase):
 
     def test_fetch_one_and_share_slot(self):
         self.assertEqual([n for n, _c in VF.members(R)], ["ときのそら", "ロボ子さん"])   # 卒業・ユニットの組は外す
+        self.assertTrue(VF.wants(self.app, R, {"ときのそら"}, now=NOON))              # 取りたい = 学習用データの文字起こしは休む
+        self.assertFalse(VF.wants(self.app, R, {"ときのそら", "ロボ子さん"}, now=NOON))   # 材料の無い人がいなければ取らない
         self.assertEqual(self.tick(have={"ときのそら"}), "ロボ子さん")              # 材料のある人は取らない
+        self.assertFalse(VF.wants(self.app, R, set(), now=NOON + 60))             # 取った直後は枠が埋まる = 文字起こしに戻る
         self.assertEqual(self.got, ["AAAAAAAAAA5"])                                  # 雑談の印のある物(歌・ショート・コラボは外す)
         src = self.jobs[-1]["sourcePath"]
         self.assertTrue(voicefill.in_learn_dir(src) and "ロボ子さん" in os.path.basename(src))   # 誰の声のカードだけ・見立ての名前

@@ -1239,6 +1239,11 @@ class PortalServer(httpsec.ExclusiveServer):
 
     def _voice_busy(self):
         """誰の声の材料を頼まない理由か None: 新しい版が出ている(自動の起動し直しに合間を空ける)・入口の手が空いていない(_accuracy_busy)"""
+        if getattr(self, "_voice_fetch_wants", False):
+            return "YouTube の材料の番"   # 学習用データの文字起こしは休んで、手の空いた合間を YouTube の取り込みに譲る(voicefetch.wants)
+        return self._fetch_busy()
+
+    def _fetch_busy(self):
         disk = _version.on_disk(self.sup.root)
         if disk and disk != VERSION:
             return "新しい版 v%s を待っています" % disk
@@ -1258,14 +1263,17 @@ class PortalServer(httpsec.ExclusiveServer):
         """誰の声の材料が無いメンバーの音を YouTube から 4 分だけ(app/check/voicefetch。10-25)。枠は研究と分け合う(yt-slot.json)"""
         from flow import voicematerial as _vm
         client = lambda: autorun_mod.ToolClient(self.tool_endpoint, self.token, timeout=30)   # noqa: E731
-        busy = lambda: self._voice_busy() or ("ライブ" if any(self.live_activity().values()) else None)   # noqa: E731
+        busy = lambda: self._fetch_busy() or ("ライブ" if any(self.live_activity().values()) else None)   # noqa: E731
         while not self.closing.wait(check_voicefetch.EVERY):
             try:
                 r = _vm.roster_data()
-                if not r or busy():
+                if not r:
                     continue
                 view = check_sources.View(self.check_ctx(), check_answerlog.state(self.cleanup.app_dir))
                 have = check_voice_solo.people(view) | {w for w, _p in check_voicefill.targets()}
+                self._voice_fetch_wants = check_voicefetch.wants(self.cleanup.app_dir, r, have)
+                if not self._voice_fetch_wants or busy():
+                    continue
                 check_voicefetch.tick(self.cleanup.app_dir, r, have, busy,
                                       lambda req: client().ok("transcribe", "POST", "/api/transcribe", req).get("id"), self.sup.log)
             except Exception as e:   # noqa: BLE001  (取れなくても入口は止めない)

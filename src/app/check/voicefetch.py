@@ -22,7 +22,7 @@ from flow import voicematerial as _vm
 from ytt import fsio, tools as _tools
 
 ENABLED = True
-EVERY = 300                   # 見回りの間隔(秒)
+EVERY = 60                    # 見回りの間隔(秒)
 SLOT_NAME = "yt-slot.json"
 STATE_NAME = "voice-fetch.json"
 DIR_NAME = "voice-fetch"
@@ -129,6 +129,20 @@ def _fetch(video_id, out_base, timeout=FETCH_TIMEOUT):
     return None, ((r.stderr or "") + (r.stdout or ""))[-400:].strip() or "終了コード %s" % r.returncode
 
 
+def _todo(roster_r, have, state):
+    return [(n, c) for n, c in members(roster_r) if n not in have and not (state.get(n) or {}).get("got")
+            and len((state.get(n) or {}).get("tried") or []) < MAX_TRIES]
+
+
+def wants(app_dir, roster_r, have, now=None):
+    """今 YouTube から取りたいか(動かす時刻・材料の無い人が残っている・枠が空いている)。学習用データの文字起こし(voicefill)はこの間は休む
+    = 入口の手の空いた合間をこちらに譲る(10-25: 文字起こしが続いて、こちらがいつ見ても処理中だった)"""
+    now = time.time() if now is None else now
+    if not ENABLED or not (HOURS[0] <= datetime.datetime.fromtimestamp(now).hour < HOURS[1]):
+        return False
+    return bool(_todo(roster_r, have, _read(os.path.join(app_dir, "check", STATE_NAME)))) and slot_free(app_dir, now)[0]
+
+
 def tick(app_dir, roster_r, have, busy, start_job, log, now=None, rss=None, fetch=None):
     """1 回分: 材料の無い人を 1 人取って文字起こしに頼む。-> 頼んだ人の名前か None。have = 材料のある人の名前の集合"""
     now = time.time() if now is None else now
@@ -136,8 +150,7 @@ def tick(app_dir, roster_r, have, busy, start_job, log, now=None, rss=None, fetc
         return None
     st_path = os.path.join(app_dir, "check", STATE_NAME)
     state = _read(st_path)
-    todo = [(n, c) for n, c in members(roster_r) if n not in have and not (state.get(n) or {}).get("got")
-            and len((state.get(n) or {}).get("tried") or []) < MAX_TRIES]
+    todo = _todo(roster_r, have, state)
     if not todo:
         return None
     free, why = slot_free(app_dir, now)
