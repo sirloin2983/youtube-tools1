@@ -35,9 +35,12 @@ def rows(n=5, **extra):
     return out
 
 
+MEDIA = []   # 元の動画(setUp が一時フォルダに空のファイルを作る。元の動画が無い文書は出さない = 10-24)
+
+
 def doc(title, updated=100, speakers=None, segs=None, **kw):
     return dict({"title": title, "updatedAt": updated, "speakers": speakers if speakers is not None else [{"id": "S1", "name": MIKO}],
-                 "segments": segs if segs is not None else rows()}, **kw)
+                 "segments": segs if segs is not None else rows(), "sourcePath": MEDIA[0] if MEDIA else ""}, **kw)
 
 
 class State:
@@ -52,6 +55,10 @@ class VoiceSoloTest(unittest.TestCase):
     def setUp(self):
         self.tmp = kit.tempdir(self, "ytt-check-solo-")
         self.tx = os.path.join(self.tmp, "transcribe", "transcripts")
+        media = os.path.join(self.tmp, "clip.mp4")
+        open(media, "wb").close()
+        MEDIA[:] = [media]
+        self.addCleanup(MEDIA.clear)
         self.ctx = kit.Ctx(os.path.join(self.tmp, "app"), kit.ROOT, env={"YTT_DATA_DIR": self.tmp}, eval_dirs=[])
         self.reg = {}
         for p in (mock.patch.object(roster, "ROSTER", roster.BUNDLED), mock.patch.object(voice_mod, "registry", lambda emb, cache=None: self.reg),
@@ -121,6 +128,11 @@ class VoiceSoloTest(unittest.TestCase):
     def test_answers_are_applied_like_diar(self):
         self.assertIn(("voice", "solo"), apply._REG)
         self.assertIs(apply._REG[("voice", "solo")].apply, apply._REG[("voice", "diar")].apply)
+
+    def test_missing_media_is_skipped(self):
+        """元の動画が無い文書は聞けないので出さない(10-24)"""
+        self.put("f00000000001", doc("%s の雑談" % MIKO, updated=999, sourcePath=os.path.join(self.tmp, "gone.mp4")))
+        self.assertNotIn("f00000000001", {c["target"]["docId"] for c in self.cards()})
 
     def test_group_streams_are_not_solo(self):
         """題名の【】がグループの名前(メンバーの名前なし)・「みんなで」は外す。所属の札【名前/グループ】は外さない(10-24)"""

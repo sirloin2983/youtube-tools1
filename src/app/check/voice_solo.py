@@ -121,6 +121,9 @@ def voice_solo(view):
         latest = view.diar(tid, path)
         if isinstance(latest, dict) and isinstance(latest.get("rows"), dict) and latest["rows"]:
             continue   # voice:diar が出す
+        src = str(doc.get("sourcePath") or "")
+        if not src or not os.path.isfile(src):
+            continue   # 元の動画が無い文書は聞けないので出さない(10-24: 片付け・前の入れ替えで消えた動画のカードが 120 枚中 120 枚で再生できなかった)
         who = solo_person(doc)
         if who:
             by_person.setdefault(who, []).append((tid, doc))
