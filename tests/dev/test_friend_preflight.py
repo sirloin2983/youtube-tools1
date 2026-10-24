@@ -4,6 +4,7 @@
 実行(リポジトリ直下): py -3.12 -m unittest tests/dev/test_friend_preflight.py"""
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 全テストの決まり(作業データに触らない)
+import hashlib
 import json
 import sys
 import unittest
@@ -120,7 +121,7 @@ class ToolTest(unittest.TestCase):
         """版を上げた更新の zip: version.py と差し替えを足しても manifest の SHA-256 が合う(友人のアプリが確かめる)"""
         src = os.path.join(self.tmp, "a.zip")
         ver = b'VERSION = "1.2.3"\n'
-        man = {"version": "1.2.3", "files": {"src/ytt/version.py": B.hashlib.sha256(ver).hexdigest()}}
+        man = {"version": "1.2.3", "files": {"src/ytt/version.py": hashlib.sha256(ver).hexdigest()}}
         with zipfile.ZipFile(src, "w") as z:
             z.writestr("src/ytt/version.py", ver)
             z.writestr("python/python.exe", b"MZ")
@@ -144,7 +145,7 @@ class ToolTest(unittest.TestCase):
             m = json.loads(z.read("manifest.json"))
             self.assertEqual(m["version"], "1.2.4")
             for rel, sha in m["files"].items():
-                self.assertEqual(B.hashlib.sha256(z.read(rel)).hexdigest(), sha, rel)
+                self.assertEqual(hashlib.sha256(z.read(rel)).hexdigest(), sha, rel)
             self.assertIn(b'"1.2.4"', z.read("src/ytt/version.py"))
 
 
