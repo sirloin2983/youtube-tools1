@@ -21,13 +21,13 @@
   - 画面: src/app/ui/check/check.js:276
 - **受け取る** — 友人のアプリの受け取る画面。残す判定と受信箱
   - コード: `src/friendapp/inbox.py`・`receive_view` src/friendapp/inbox.py:1046・`src/friendapp/ui/receive.js`・`Inbox.decide` src/friendapp/inbox.py:740
-  - 画面: src/app/ui/cases/panels/cut.js:158・src/app/ui/editor/pack-tab.js:425・src/app/ui/home/portal.js:395・src/friendapp/ui/friend.html:29 ほか 7
+  - 画面: src/app/ui/cases/panels/cut.js:159・src/app/ui/editor/pack-tab.js:425・src/app/ui/home/portal.js:395・src/friendapp/ui/friend.html:29 ほか 7
 - **見送った物** — 受け取る画面で 3 日は戻せる skip・bad の物
   - コード: `Inbox.undo` src/friendapp/inbox.py:788・`Inbox.decide` src/friendapp/inbox.py:740・`VERDICTS` src/friendapp/inbox.py:58・`/api/friend/undo` src/friendapp/server.py:397
   - 画面: src/friendapp/ui/friend.html:168・src/friendapp/ui/receive.js:66
 - **送る** — 友人のアプリの送る欄・受付の口。自動で送る判定は flow/sendpolicy
   - コード: `src/friendapp/api.py`・`src/friendapp/ui/send-form.js`・`/api/friend/send` src/friendapp/server.py:384・`flow/sendpolicy.py` (無いパス)
-  - 画面: src/app/ui/check/cards/value.js:11・src/app/ui/editor/app-learn.js:132・src/app/ui/editor/app.js:288・src/app/ui/editor/cut.js:1021 ほか 15
+  - 画面: src/app/ui/check/cards/value.js:11・src/app/ui/editor/app-learn.js:132・src/app/ui/editor/app.js:288・src/app/ui/editor/cut.js:1040 ほか 15
 - **送った物** — 友人のアプリの送った物の行と、失敗の言葉・進み具合
   - コード: `src/friendapp/ui/sent.js`・`src/friendapp/progress.py`・`/api/friend/inbox` src/friendapp/server.py:277
   - 画面: src/app/ui/home/portal.html:207・src/friendapp/ui/friend.html:133・src/friendapp/ui/guide.html:37・src/friendapp/ui/receive.js:66
@@ -54,7 +54,7 @@
   - 画面: src/app/ui/cases/caselink.js:2・src/app/ui/cases/cases.js:2・src/app/ui/cases/index.html:6・src/app/ui/cases/panels/cand.js:8 ほか 14
 - **まとめて実行** — 入口の案件から配信 1 本ぶんを順に自動で流す
   - コード: `src/app/autorun.py`・`AutoRunner` src/app/autorun.py:204・`/api/flow/submit` src/app/server.py:631・`src/flow/runqueue.py`
-  - 画面: src/app/ui/cases/cases.js:79・src/app/ui/cases/panels/cut.js:60・src/app/ui/editor/app-list.js:23・src/app/ui/editor/app-rows.js:126 ほか 7
+  - 画面: src/app/ui/cases/cases.js:79・src/app/ui/cases/panels/cut.js:61・src/app/ui/editor/app-list.js:23・src/app/ui/editor/app-rows.js:126 ほか 7
 - **封筒** — ② の依頼の封筒の形と検査。欄から封筒への変換は order
   - コード: `src/flow/envelope.py`・`src/flow/order.py`
   - 画面: (画面の文字列に無い)
@@ -84,13 +84,13 @@
   - 画面: src/app/ui/cases/panels/new.js:21・src/app/ui/cases/panels/studio-shim.js:43・src/app/ui/home/portal.html:151・src/app/ui/home/portal.js:1000 ほか 3
 - **パック** — Resolve へ渡すパック。作る ①・口 ②・作った記録・ジョブ
   - コード: `src/pipeline/pack/pack.py`・`src/flow/pack.py`・`src/flow/packrec.py`・`src/flow/packjobs.py`
-  - 画面: src/app/ui/cases/cases.js:73・src/app/ui/cases/edhost.js:14・src/app/ui/cases/panels/cut.js:101・src/app/ui/editor/app-core.js:37 ほか 13
+  - 画面: src/app/ui/cases/cases.js:73・src/app/ui/cases/edhost.js:14・src/app/ui/cases/panels/cut.js:102・src/app/ui/editor/app-core.js:37 ほか 13
 - **自動カット** — パックの自動カットの ① と、確かめるの自動カットのカード
   - コード: `src/pipeline/pack/auto_cut.py`・`src/human/check/cutcard.py`
   - 画面: (画面の文字列に無い)
 - **切り抜き** — 切り抜きスタジオ = studio、パック = cut2resolve、ライブの書き出しは flow
   - コード: `src/flow/live_export.py`・`src/cut2resolve/serve.py`・`src/studio/serve.py`
-  - 画面: src/app/ui/cases/cases.js:66・src/app/ui/cases/index.html:42・src/app/ui/cases/panels/cut.js:456・src/app/ui/cases/panels/proof.js:64 ほか 17
+  - 画面: src/app/ui/cases/cases.js:66・src/app/ui/cases/index.html:42・src/app/ui/cases/panels/cut.js:457・src/app/ui/cases/panels/proof.js:64 ほか 17
 - **リアルタイム切り抜き** — 配信中の録画〜採用の線 D。設定の節 live(既定オフ)
   - コード: `src/app/live.py`・`src/flow/livesession.py`
   - 画面: src/app/ui/home/portal.html:237・src/app/ui/home/portal.js:1043・src/app/ui/studio/rank.js:483
@@ -114,7 +114,7 @@
   - 画面: (画面の文字列に無い)
 - **話者** — 話者の判別の段取り(②)・人の直し(③)・判別の部品(①)
   - コード: `src/flow/diar.py`・`src/human/proof/speakers.py`・`src/pipeline/transcribe/diarize.py`
-  - 画面: src/app/ui/cases/cases.js:79・src/app/ui/cases/panels/cut.js:131・src/app/ui/cases/panels/machpick.js:35・src/app/ui/cases/panels/proof.js:64 ほか 15
+  - 画面: src/app/ui/cases/cases.js:79・src/app/ui/cases/panels/cut.js:132・src/app/ui/cases/panels/machpick.js:35・src/app/ui/cases/panels/proof.js:64 ほか 15
 - **声を覚える** — 「編集」の話者に名前を付けて声を覚えるジョブ
   - コード: `validate_voice_learn` src/human/proof/speakers.py:550・`run_voice_learn` src/human/proof/speakers.py:577・`/api/voices/learn` src/editor/serve.py:229
   - 画面: src/app/ui/check/cards/voice.js:13・src/app/ui/editor/app-jobs.js:97・src/app/ui/editor/app-rows.js:482・src/app/ui/editor/app-tools.js:98 ほか 2
@@ -126,7 +126,7 @@
   - 画面: src/app/ui/cases/cases.js:79・src/app/ui/cases/panels/cand.js:25・src/app/ui/cases/panels/new.js:114・src/app/ui/check/cards/value.js:10 ほか 9
 - **スタジオ** — 切り抜きスタジオ(解析・確認・コラボ)
   - コード: `src/studio/serve.py`・`src/app/ui/studio`・`src/human/review/store.py`・`src/flow/studiobook.py`
-  - 画面: src/app/ui/cases/cases.js:23・src/app/ui/cases/panels/cand.js:13・src/app/ui/cases/panels/cut.js:77・src/app/ui/cases/panels/new.js:35 ほか 11
+  - 画面: src/app/ui/cases/cases.js:23・src/app/ui/cases/panels/cand.js:13・src/app/ui/cases/panels/cut.js:78・src/app/ui/cases/panels/new.js:35 ほか 11
 - **編集** — 文字起こしを直す「編集」の画面とサーバー
   - コード: `src/editor/serve.py`・`src/app/ui/editor`・`src/editor/ed_state.py`・`/api/edit` src/editor/serve.py:203
   - 画面: src/app/ui/cases/cases.js:3・src/app/ui/cases/edhost.js:19・src/app/ui/cases/index.html:6・src/app/ui/cases/panels/machpick.js:127 ほか 24
@@ -149,7 +149,7 @@
 ## 候補(画面の文字列。多く出る順。手で整える前)
 
 - 設定(11)— friend-apps/holo-colors/src/MainForm.cs:93
-- もう一度(8)— src/app/ui/cases/panels/cut.js:234
+- もう一度(8)— src/app/ui/cases/panels/cut.js:235
 - 元に戻す(7)— src/app/ui/cases/panels/cut.js:56
 - ホームへ(6)— src/app/ui/cases/cases.js:428
 - 中止(6)— src/app/ui/editor/pack-tab.js:327
@@ -170,12 +170,12 @@
 - YouTube にログイン(3)— friend-apps/launcher/src/YtLogin.cs:143
 - この画面の設定(3)— src/app/ui/cases/index.html:29
 - やり直す(3)— src/app/ui/cases/panels/cut.js:57
-- キャンセル(3)— src/app/ui/cases/panels/cut.js:172
-- フォルダを開く(3)— src/app/ui/cases/panels/cut.js:158
+- キャンセル(3)— src/app/ui/cases/panels/cut.js:173
+- フォルダを開く(3)— src/app/ui/cases/panels/cut.js:159
 - 保存(3)— src/app/ui/cases/panels/new.js:23
-- 全体(3)— src/app/ui/cases/panels/cut.js:82
-- 再生位置(3)— src/app/ui/cases/panels/cut.js:170
-- 区間(3)— src/app/ui/cases/panels/cut.js:86
+- 全体(3)— src/app/ui/cases/panels/cut.js:83
+- 再生位置(3)— src/app/ui/cases/panels/cut.js:171
+- 区間(3)— src/app/ui/cases/panels/cut.js:87
 - 基準(3)— src/app/ui/studio/collab.js:153
 - 映像トラック(3)— src/friendapp/ui/friend.html:102
 - 確かめています…(3)— src/app/ui/studio/review.js:185
@@ -196,7 +196,7 @@
 - もう一度検索する(2)— src/app/ui/studio/rank.js:311
 - もっと見る(あと(2)— src/app/ui/home/portal.js:800
 - アーカイブ(2)— src/app/ui/studio/review.js:2470
-- カット(2)— src/app/ui/cases/panels/cut.js:117
+- カット(2)— src/app/ui/cases/panels/cut.js:118
 - カット・パック(2)— src/app/ui/cases/cases.js:73
 - カット・パックへ(2)— src/app/ui/editor/app-core.js:37
 - カット後(2)— src/app/ui/cases/panels/cut.js:42
@@ -204,9 +204,9 @@
 - キー配置(2)— src/app/ui/editor/app-tpl.js:216
 - キー配置を変える(?)(2)— src/app/ui/editor/app-tpl.js:218
 - コピー(2)— src/app/ui/editor/app-tpl.js:161
-- パスをコピー(2)— src/app/ui/cases/panels/cut.js:158
-- パックの決まり(2)— src/app/ui/cases/panels/cut.js:125
-- パックを作る(2)— src/app/ui/cases/panels/cut.js:104
+- パスをコピー(2)— src/app/ui/cases/panels/cut.js:159
+- パックの決まり(2)— src/app/ui/cases/panels/cut.js:126
+- パックを作る(2)— src/app/ui/cases/panels/cut.js:105
 - ファイルを選ぶ(2)— src/friendapp/ui/friend.html:62
 - ホームから開くと使えます(2)— src/app/ui/editor/pack-tab.js:126
 - ログアウト(2)— src/app/ui/settings/settings.js:99
@@ -238,7 +238,7 @@
 - 校正済み(2)— src/app/ui/editor/app-rows.js:419
 - 欠け(2)— src/app/ui/studio/review.js:187
 - 正解字(2)— src/app/ui/home/portal-edit.js:44
-- 残す(2)— src/app/ui/editor/cut.js:700
+- 残す(2)— src/app/ui/editor/cut.js:719
 - 消す(2)— src/app/ui/check/cards/section.js:35
 - 確かめると効く物(2)— src/app/ui/cases/cases.js:292
 - 確認中…(2)— src/app/ui/home/portal.html:122
@@ -262,12 +262,12 @@
 - 音量(2)— src/app/ui/studio/review.js:199
 - (2本以上選ぶと選べます)(1)— src/app/ui/studio/collab.js:116
 - (Mac は(1)— src/app/ui/editor/app-jobs.js:120
-- (カットしない = 動画全体)(1)— src/app/ui/editor/cut.js:702
+- (カットしない = 動画全体)(1)— src/app/ui/editor/cut.js:721
 - (キーなし)(1)— src/app/ui/editor/app-rows.js:793
 - (チャンネルの登録は「設定」の「事務所の登録」)(1)— src/app/ui/studio/rank.js:169
 - (任意)(1)— src/app/ui/studio/rank.js:167
 - (前の設定での見積もり)(1)— src/app/ui/editor/pack-tab.js:241
-- (縦か横かは(1)— src/app/ui/cases/panels/cut.js:129
+- (縦か横かは(1)— src/app/ui/cases/panels/cut.js:130
 - (送った物の見方もここです)(1)— src/friendapp/ui/guide.html:37
 - )で入力 →(1)— src/app/ui/editor/app-rows.js:794
 - )も補正できます。(1)— src/app/ui/studio/collab.js:149
@@ -277,7 +277,7 @@
 - -14(YouTube の目安・おすすめ)(1)— src/app/ui/studio/review.js:320
 - -16(控えめ)(1)— src/app/ui/studio/review.js:320
 - -18(小さめ)(1)— src/app/ui/studio/review.js:320
-- / 元(1)— src/app/ui/editor/cut.js:700
+- / 元(1)— src/app/ui/editor/cut.js:719
 - 0.05秒(1)— src/app/ui/editor/app-tpl.js:203
 - 0.1秒(1)— src/app/ui/editor/app-tpl.js:203
 - 0.25秒(1)— src/app/ui/editor/app-tpl.js:203
@@ -324,9 +324,9 @@
 - IN(開始)(1)— src/app/ui/studio/review.js:251
 - I〜O を削る(1)— src/app/ui/cases/panels/cut.js:54
 - OUT(終了)(1)— src/app/ui/studio/review.js:255
-- Resolve での手順を見る(1)— src/app/ui/cases/panels/cut.js:158
+- Resolve での手順を見る(1)— src/app/ui/cases/panels/cut.js:159
 - Resolve へ渡すパックは(1)— src/app/ui/editor/app-tools.js:216
-- Text+ 字幕(1)— src/app/ui/cases/panels/cut.js:114
+- Text+ 字幕(1)— src/app/ui/cases/panels/cut.js:115
 - URL から配信を入れる(1)— src/app/ui/studio/collab.js:51
 - URL を受け取りました。(1)— src/app/ui/studio/queue.js:15
 - URL を貼る(1)— src/friendapp/ui/guide.html:52

@@ -11,8 +11,8 @@
 - **code_map.py** (466 行) — コードの地図と言葉の索引を作る道具(AI のセッションがコードの場所を早く見つけるため)。
   - 名前: `git_files` :53・`skipped` :57・`is_test` :61・`read` :65・`one_line` :73・`comment_head` :85・`py_info` :112・`js_info` :143・`cs_info` :164・`info` :186・`layer_of` :199・`norm_route` :206・ほか 12
   - 受ける口: 
-- **demo_env.py** (346 行) — 見本のデータで入口と3ツールを動かす(画面の見直し・画面の写真・手での確認用)。本物の作業データには触らない。
-  - 名前: `run` :47・`make_media` :51・`seed` :65・`seed_check` :180・`seed_requests` :248・`main` :289
+- **demo_env.py** (355 行) — 見本のデータで入口と3ツールを動かす(画面の見直し・画面の写真・手での確認用)。本物の作業データには触らない。
+  - 名前: `run` :48・`make_media` :52・`seed` :66・`seed_check` :189・`seed_requests` :257・`main` :298
 - **doc_state.py** (237 行) — 計画の資料の頭の `状態`・`線` を計画の正(保管庫の plan/data/)から決めて書く・食い違いを止める。
   - 名前: `plan_data` :28・`task_lines` :34・`decide` :43・`derived` :51・`front` :75・`read_props` :86・`write_props` :110・`write` :143・`plan_docs` :152・`check` :162・`sync` :199・`main` :217
 - **drift_report.py** (179 行) — 資料どうし・資料とコードの食い違いをまとめて流し、1 枚の一覧(保管庫の plan/食い違いの一覧.md。自動)に出す。

@@ -73,8 +73,8 @@
   - 名前: `new_id` :30・`speakers_arg` :60・`cut_arg` :86・`video_tracks_arg` :91・`people_of` :96・`spec_diff` :114・`request_top` :165・`order` :170
 - **outbox.py** (219 行) — ② 管理の層 flow: 送り返しの zip(F1 の F2。docs/design/f1-build.md の 2・3 の (f1d)(f1m)・plan/f1-friend-pc.md の決めたこと 11)。
   - 名前: `outbox_dir` :46・`scrub` :55・`default_health` :90・`build` :129
-- **pack.py** (57 行) — ② パックの口(RS6 a-5a)。人とデータの層(③・④)が Resolve のパックの部品(① pipeline/pack/resolve_export)を直に読まずに済む動詞。
-  - 名前: `cut_draft` :25・`cut_preview` :31・`handoff_files` :36・`media_plan` :45・`instructions` :52
+- **pack.py** (60 行) — ② パックの口(RS6 a-5a)。人とデータの層(③・④)が Resolve のパックの部品(① pipeline/pack/resolve_export)を直に読まずに済む動詞。
+  - 名前: `cut_draft` :25・`cut_preview` :34・`handoff_files` :39・`media_plan` :48・`instructions` :55
 - **packjobs.py** (127 行) — ② 管理の層 flow: パックのジョブの器(OPT2 後半 J3・J6)。cut2resolve/serve.py の Job・AppState のジョブの部分。
   - 名前: `class Job` :23・`board_job` :51・`class PackJobs` :78
 - **packrec.py** (131 行) — ② 管理の層 flow: パックを作った記録(作業データの packs/<フォルダのハッシュ>.json)の持ち主(OPT-M2。notes:plan/done/opt-manage.md の 3b-1)。
@@ -84,7 +84,7 @@
 - **prio.py** (88 行) — ② 管理の層 flow: 処理の優先度の表(PRIO。決定 3-49・notes:plan/done/opt-series.md の 11)。
   - 名前: `name_ok` :35・`rank` :39・`idle_only` :43・`os_priority` :47・`label` :51・`slot_kw` :55・`of_run` :60・`of_spec` :69・`watch` :80・`idle_now` :85
 - **retention.py** (9 行) — ② 管理の層 flow: 物の終わりの日数の 1 か所(方針の数)。ユーザーのツールと友人のアプリが同じ値を読む。
-- **run.py** (1879 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
+- **run.py** (1881 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
   - 名前: `class Cancelled` :140・`class StepError` :144・`mode_of` :163・`steps_of` :197・`analyze_verdict` :241・`chat_missing` :259・`chat_retry_ok` :265・`stream_ended_at` :273・`redo_reason` :286・`short_why` :304・`adopted_ids` :316・`tx_verdict` :321・ほか 5
 - **runlog.py** (93 行) — まとめて実行の「終わった実行の記録」の形と読み方(RS3-0B)。
   - 名前: `read_runs_log` :47・`read_result` :77

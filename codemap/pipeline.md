@@ -56,14 +56,16 @@
   - 名前: `class RowEdge` :42・`class Request` :77・`class Plan` :111・`class Cache` :135・`default_out_dir` :199・`row_edge_from` :203・`widen_row_edges` :227・`row_edge_pending` :270・`silence_pending` :279・`detect_pending` :287・`without_detect` :296・`plan_cut` :315・ほか 17
 - **preview.py** (124 行) — ① 確認用の動画(友人が受け取るかを決める前に見る、1 本の切り抜きの 480p の動画)とパックの中の切り抜きの動画の引き方(ds1 = 要件 1-5。② flow/deliver から分けた)。
   - 名前: `pack_title` :24・`scratch_path` :30・`remove_quiet` :35・`pack_video` :41・`make_preview` :80・`clip_preview` :105・`pack_seconds` :118
-- **request.py** (335 行) — パックの指定(JSON の spec・output)-> pack.Request と build_pack の引数。指定の読み方の 1 か所
-  - 名前: `clean_path` :32・`input_path` :57・`request_from_spec` :102・`clip_range_from_spec` :173・`row_edge_from_spec` :183・`advanced_from_spec` :192・`keeps_from_spec` :203・`speaker_color_map` :224・`speaker_styles_from` :243・`apply_speaker_styles` :266・`output_from_spec` :287・`speaker_colors_for` :326
-- **resolve_export.py** (253 行) — 文字起こしの文書から Resolve のパックへの受け渡し(カットのたたき台・パックの見積もり・手順)と、「残す行」の規則。
-  - 名前: `is_kept` :25・`kept_spans` :31・`tool_info` :58・`sorted_segments` :62・`build_transcript_v1` :81・`pack_instructions` :111・`edit_draft` :171・`edit_preview` :227
+- **request.py** (362 行) — パックの指定(JSON の spec・output)-> pack.Request と build_pack の引数。指定の読み方の 1 か所
+  - 名前: `clean_path` :33・`input_path` :58・`request_from_spec` :103・`clip_range_from_spec` :176・`row_edge_from_spec` :186・`advanced_from_spec` :195・`words_from_spec` :206・`keeps_from_spec` :230・`speaker_color_map` :251・`speaker_styles_from` :270・`apply_speaker_styles` :293・`output_from_spec` :314・ほか 1
+- **resolve_export.py** (260 行) — 文字起こしの文書から Resolve のパックへの受け渡し(カットのたたき台・パックの見積もり・手順)と、「残す行」の規則。
+  - 名前: `is_kept` :25・`kept_spans` :31・`tool_info` :58・`sorted_segments` :62・`build_transcript_v1` :81・`pack_instructions` :111・`edit_draft` :171・`edit_preview` :234
 - **resolve_textplus.py** (1093 行) — Resolve Free向け Text+ 試験パック。Luaスクリプトを同梱する。
   - 名前: `hex_rgba` :70・`text_style` :81・`style_inputs` :97・`video_tracks_value` :119・`parse_target` :126・`caption_segments` :149・`stack_captions` :180・`speaker_lanes` :241・`lay_captions` :273・`default_wrap` :300・`wrap_caption` :305・`build_import_plan` :354・ほか 8
 - **srt2resolve.py** (394 行) — パックの部品(動画の情報の読み取り・字幕の読み込み・フレームの計算・SRT の組み立ての小道具)。
   - 名前: `class ToolError` :27・`same_path` :31・`staged` :44・`write_text_atomic` :56・`tool` :65・`arg_path` :70・`clean_text` :94・`parse_subs` :101・`read_sub_file` :125・`snap_fps` :149・`codec_warnings` :161・`probe` :198・ほか 10
+- **tidy.py** (88 行) — 編集カットの形「言いよどみと長い間を詰める」(10-24。研究のセッションの試作 v2 = C:/dev/overlap-research/notes/autocut-findings.md を製品の部品で)。
+  - 名前: `is_filler` :47・`drops` :52・`keeps` :78
 
 ## src/pipeline/transcribe/
 
@@ -120,6 +122,7 @@
 - tests/pipeline/pack/test_cut2resolve.py — パックのテストの道具(見本の動画・EDL の読み方・採用区間からのパック)と、通しでは起こせない物の単体
 - tests/pipeline/pack/test_edge_pause.py — 切り抜きの両端を話の間へ寄せる(pipeline/pack/edge_pause)の純粋な部分
 - tests/pipeline/pack/test_pack.py — パック(pipeline.pack)のテスト。正しく動く道・端の場合・時刻の計算・入力の誤りは、本物の ffmpeg の通し(TestPackRun)で見本に混ぜてまとめて確かめる。
+- tests/pipeline/pack/test_tidy.py — 編集カットの形「言いよどみと長い間を詰める」(pipeline/pack/tidy)。音は偽の 20 ms の音量(edge_pause.levels を差し替え)
 - tests/pipeline/transcribe/fake_llama_server.py — テスト用の偽の llama-server(tx_engines.LlamaQwen3.COMMAND に [python, このファイル] を入れて使う)。
 - tests/pipeline/transcribe/fake_whisper_cli.py — テスト用の偽の whisper-cli(tx_engines.WhisperCpp.COMMAND に [python, このファイル] を入れて使う)。
 - tests/pipeline/transcribe/test_clipjob.py — pipeline/transcribe/clipjob(文字起こしのジョブの機械の文書の行)を、編集の serve を読まずに疑似のエンジンで使うテスト。
