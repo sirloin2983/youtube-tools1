@@ -611,7 +611,7 @@ class SyncTest(unittest.TestCase):
         self.put_update("0.91.0", self.update_entries())
         doc = json.loads(self.io.data("/更新/latest.json"))
         doc.update(important=True, fixes={"requests": ["20261025-010203-abcdef", "../x"], "kinds": [1, 9, True]}, cancel=["0.91.0", "x"],
-                   notes=[{"v": "0.91.0", "at": 5, "items": ["直した\x00こと", 3, ""]}, {"v": "x", "items": ["捨てる"]}])
+                   notes="この版の一言(文字列)", history=[{"v": "0.91.0", "at": 5, "items": ["直した\x00こと", 3, ""]}, {"v": "x", "items": ["捨てる"]}])
         self.io.put("/更新/latest.json", json.dumps(doc).encode())
         self.assertEqual(self.run_sync(), [])
         self.assertEqual(self.sync.state["latest"], {"version": "0.91.0", "important": True, "cancel": ["0.91.0"],

@@ -1011,7 +1011,8 @@ def latest_mark(d):
     kinds = [k for k in (f.get("kinds") if isinstance(f.get("kinds"), list) else []) if isinstance(k, int) and not isinstance(k, bool) and 1 <= k <= 7]
     cancel = [c for c in (d.get("cancel") if isinstance(d.get("cancel"), list) else []) if isinstance(c, str) and APP_VERSION_RE.match(c)][:50]
     notes = []
-    for n in (d.get("notes") if isinstance(d.get("notes"), list) else [])[:NOTES_MAX]:   # 「最近の更新」(仮の形 [{v, at, items}]。文字列の notes は前の形 = 出さない)
+    src = d.get("history") if isinstance(d.get("history"), list) else (d.get("notes") if isinstance(d.get("notes"), list) else [])
+    for n in src[:NOTES_MAX]:   # 「最近の更新」= 配る道具の history [{v, at, items}](新しい順)。notes は文字列(この版の一言)なので使わない
         if isinstance(n, dict) and isinstance(n.get("v"), str) and APP_VERSION_RE.match(n["v"]) and isinstance(n.get("items"), list):
             items = [clean_text(x, NOTE_ITEM_MAX) for x in n["items"][:NOTE_ITEMS_MAX] if isinstance(x, str) and x.strip()]
             at = n.get("at") if isinstance(n.get("at"), int) and not isinstance(n.get("at"), bool) else None
