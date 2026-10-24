@@ -109,7 +109,7 @@ from app import homereq  # noqa: E402  (src/app/homereq.py: ホームの「友�
 from human.friend import intake as intake_mod  # noqa: E402  (src/human/friend/intake.py: 友人からの依頼の受付)
 from manage.keep import backup as backup_mod  # noqa: E402  (src/manage/keep/backup.py: 作業データのバックアップ)
 from eval.drill import accuracy as accuracy_mod  # noqa: E402  (src/eval/drill/accuracy.py: 精度の自動測定 = src/eval/tools/eval_*.py を手が空いた夜に子プロセスで)
-from app.check import deck as check_deck, lineup as check_lineup, sources as check_sources  # noqa: E402  (src/app/check: 「確かめる」の待ち行列。V1)
+from app.check import deck as check_deck, lineup as check_lineup, refresh as check_refresh, sources as check_sources  # noqa: E402  (src/app/check: 「確かめる」の待ち行列。V1)
 from human.check import answerlog as check_answerlog  # noqa: E402  (答えた札 = 自動の片付けで、価値のカードを待っている切り抜きを残す)
 from human.check import apply as check_apply  # noqa: E402  (src/human/check/apply.py: 「確かめる」の答えの記録と反映。V1)
 from human.check import read as check_read  # noqa: E402,F401  (読みのカードの反映を apply に登録する。V2b)
@@ -998,7 +998,8 @@ class PortalServer(httpsec.ExclusiveServer):
                                      out_dir=lambda: datadir.studio_out_dir(sup.root), media_dirs=backup_mod.default_media_dirs)   # 評価用・学習用の動画も
         # 精度の自動測定(見張りは main で start。テストで作る入口では動かさない)。手が空いた判定は _accuracy_busy・_accuracy_last_edit
         self.accuracy = accuracy_mod.Accuracy(self.prefs, app_dir, sup.root, busy=self._accuracy_busy,
-                                              last_edit=self._accuracy_last_edit, log=sup.log, defaults=prefs_mod.DEFAULTS["accuracy"])
+                                              last_edit=self._accuracy_last_edit, log=sup.log, defaults=prefs_mod.DEFAULTS["accuracy"],
+                                              night=self._night_retranscribe)
         self.deliveries = deliver_mod.Deliveries(self.intake.folder, txindex.is_pack_dir, log=sup.log,
                                                  log_dir=sup.logs_dir)   # 手で「友人へ届ける」(api/ytt/deliver・案件の採用)。届けた記録は全自動と同じ logs/deliveries.jsonl
         self.deliveries.attach_board(self.board)   # 届ける(頭 dl)を掲示板へ(RS8 の ② の口 S2)
@@ -1026,6 +1027,14 @@ class PortalServer(httpsec.ExclusiveServer):
         return check_apply.Context(os.path.dirname(self.sup.logs_dir), self.sup.root,
                                    hooks={"auto_review": self.auto_review, "studio": self.live.studio_call},
                                    goals=lambda: self.accuracy.snapshot()["goals"])
+
+    def _night_retranscribe(self, cfg):
+        """夜の窓に、確かめるのカードの元の古い版の文書を 1 本ずつ今の版で作り直す(src/app/check/refresh.py。スイッチ accuracy.retranscribe・既定オフ)"""
+        if cfg.get("retranscribe") is not True:
+            return None
+        client = autorun_mod.ToolClient(self.tool_endpoint, self.token, timeout=30)
+        ctx = self.check_ctx()
+        return check_refresh.tick(ctx, lambda body: client.call("transcribe", "POST", "/api/rerun", body), ctx.app_dir, log=self.sup.log)
 
     def _accuracy_busy(self):
         """精度の自動測定の「手が空いているか」。空いていなければ理由の文、空いていれば None。

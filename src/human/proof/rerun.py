@@ -284,7 +284,8 @@ def rebuild_whole(job, spec, fields, eval_set=True):
       replacedRun = 前の最初の認識の記録)。話者の判別の記録・確かめ済み・分け直しの印は外す(話者は run_job の続きの自動の判別がもう一度付ける)。
     eval_set=False(校正の全体の再認識。spec["redo"] = validate_whole): **人の層はいつも残す**(machineOnly は見ない)。
       新しい認識でほぼ空だった機械の行は印 EMPTY_FLAG を付けて残す。前の機械の出力は kind "whole"。話者は前の機械の行から(判別の記録は残す)。
-      確かめ済み・分け直しの印は外す。文書の retranscribed と、ジョブの kept・emptyKept(画面の知らせ)"""
+      確かめ済み・分け直しの印は外す。文書の retranscribed と、ジョブの kept・emptyKept(画面の知らせ)。
+      夜の古い版の作り直し(spec["redo"]["refresh"]。validate_whole の refresh): 入れたあとに文書が変わっていれば書かない・retranscribed に refresh"""
     tid = str(spec.get("tid") or spec.get("intoDoc") or "")
     red = spec.get("evalRedo") if isinstance(spec.get("evalRedo"), dict) else {}
     what = "作り直し" if eval_set else "全体を再認識し"
@@ -298,6 +299,11 @@ def rebuild_whole(job, spec, fields, eval_set=True):
         if _fsio_norm(doc.get("sourcePath")) != _fsio_norm(spec.get("sourcePath")):
             job["redoSkipped"] = "moved"
             _heavy.job_done(job, tid, "%sませんでした(動画が変わっていました)" % what)
+            return None
+        refresh = not eval_set and isinstance(spec.get("redo"), dict) and spec["redo"].get("refresh") is True
+        if refresh and doc.get("updatedAt") != spec["redo"].get("base"):   # 夜の作り直し: 入れたあとに人が直した文書は書かない(次の夜にもう一度選ばれる)
+            job["redoSkipped"] = "changed"
+            _heavy.job_done(job, tid, "%sませんでした(作り直しの間に直されました)" % what)
             return None
         machine_only = eval_set and red.get("machineOnly") is True and doc.get("updatedAt") == red.get("base")
         segs = list(fields.get("segments") or [])
@@ -332,8 +338,9 @@ def rebuild_whole(job, spec, fields, eval_set=True):
             _commit_rerun(tid, doc, layers0, [(-1e18, 1e18)], segs, "eval_rebuild")
         else:
             st = _commit_rerun(tid, doc, layers0, [(-1e18, 1e18)], segs, "rerun_range",
-                               lambda st: {"retranscribed": {"model": spec["model"], "lines": len(segs), "range": [a, b], "whole": True,
-                                                             "kept": st["machChanged"], "emptyKept": st["emptyKept"], "at": int(time.time() * 1000)}},
+                               lambda st: {"retranscribed": dict({"model": spec["model"], "lines": len(segs), "range": [a, b], "whole": True,
+                                                                  "kept": st["machChanged"], "emptyKept": st["emptyKept"], "at": int(time.time() * 1000)},
+                                                                 **({"refresh": True} if refresh else {}))},
                                EMPTY_COVER)
             job["segments"], job["kept"], job["emptyKept"] = len(segs), st["machChanged"], st["emptyKept"]
     _txbase.log.info("%s: %s(%d 行%s)", "評価用の文書を作り直しました" if eval_set else "文書の全体を再認識しました", tid, len(segs),
@@ -413,6 +420,8 @@ def validate_whole(req):
         q.update(start=_yschemas.num_or(doc.get("start"), 0.0) or 0.0, end=_yschemas.num_or(doc.get("end")))
     spec = doc_jobs.validate_job(q)
     spec.update(intoDoc=tid, tid=tid, autoAlt=False, redo={"base": doc.get("updatedAt")}, title=_heavy.job_title("全体を再認識: ", doc))
+    if req.get("refresh") is True:   # 夜の古い版の作り直し(app/check/refresh): 空いているときだけ動く級・文書の印・入れたあとに直された文書は書かない
+        spec.update(prio="later", redo=dict(spec["redo"], refresh=True), title=_heavy.job_title("古い版を作り直し: ", doc))
     return spec
 
 

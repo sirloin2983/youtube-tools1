@@ -157,8 +157,10 @@ class AccuracyTest(unittest.TestCase):
 
     # ---- 設定
     def test_prefs_section(self):
-        self.assertEqual(self.prefs.get(["accuracy"])["accuracy"], {"enabled": True, "nightFrom": 1, "nightTo": 6})   # 既定はオン
-        self.assertEqual(self.prefs.patch("accuracy", {"nightFrom": 23, "nightTo": 5}), {"enabled": True, "nightFrom": 23, "nightTo": 5})
+        self.assertEqual(self.prefs.get(["accuracy"])["accuracy"], {"enabled": True, "nightFrom": 1, "nightTo": 6, "retranscribe": False})   # 既定はオン・作り直しはオフ
+        self.assertEqual(self.prefs.patch("accuracy", {"nightFrom": 23, "nightTo": 5}), {"enabled": True, "nightFrom": 23, "nightTo": 5, "retranscribe": False})
+        self.assertIs(self.prefs.patch("accuracy", {"retranscribe": True})["retranscribe"], True)
+        self.assertIs(self.prefs.patch("accuracy", {"retranscribe": "yes"})["retranscribe"], False)
         for bad in ({"nightFrom": 24}, {"nightTo": 0}, {"nightFrom": "1"}, {"nightFrom": True}, {"nightFrom": 5, "nightTo": 5}):
             with self.assertRaises(prefs_mod.PrefsError):
                 self.prefs.patch("accuracy", bad)
@@ -287,6 +289,27 @@ class AccuracyTest(unittest.TestCase):
         self.acc.last["day"] = "2026-10-06"
         self.assertTrue(self.acc.run_now())
         self.assertIsNotNone(self.acc.tick())            # 同じ日でも「今すぐ」は測る
+
+    def test_night_job_only_in_window_when_idle_and_after_measuring(self):
+        """夜の仕事(古い版の作り直し)は、夜の窓で・手が空いて・文書の編集が止まり・その日の測定が済んだ(か測定がオフの)ときだけ"""
+        got = []
+        acc = self.make(night=lambda cfg: got.append(cfg.get("retranscribe")))
+        self.assertIsNotNone(acc.tick())                 # 測定が要る晩は測るだけ
+        self.assertEqual(got, [])
+        acc.tick()
+        self.assertEqual(got, [False])                   # 測ったあと = 夜の仕事(スイッチは呼ばれた側が見る)
+        self.busy.why = "文字起こしのジョブ"
+        acc.tick()
+        self.busy.why, self.last_edit = None, self.clock.t - 60
+        acc.tick()
+        self.last_edit = None
+        self.clock.t = at(5, 15)
+        acc.tick()
+        self.assertEqual(len(got), 1)                    # 忙しい・編集の直後・昼は呼ばない
+        self.prefs.patch("accuracy", {"enabled": False, "retranscribe": True})
+        self.clock.t = at(6, 3)
+        acc.tick()
+        self.assertEqual(got, [False, True])             # 測定がオフでも夜の仕事は呼ぶ
 
     def test_disabled(self):
         self.prefs.patch("accuracy", {"enabled": False})

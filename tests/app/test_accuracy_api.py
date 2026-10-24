@@ -66,7 +66,7 @@ class AccuracyApiTest(TL.Base):
         r, body = self.post("/api/accuracy/run")
         self.assertEqual((r.status, json.loads(body)["error"]), (409, "off"))     # オフのときは受け付けない
         r, body = self.post("/api/ytt/prefs", body=json.dumps({"op": "get", "sections": ["accuracy"]}).encode())
-        self.assertEqual(json.loads(body)["prefs"]["accuracy"], {"enabled": False, "nightFrom": 1, "nightTo": 6})
+        self.assertEqual(json.loads(body)["prefs"]["accuracy"], {"enabled": False, "nightFrom": 1, "nightTo": 6, "retranscribe": False})
 
 
 class AccuracyProbeTest(TL.Base):

@@ -446,6 +446,25 @@ class WorkerTest(unittest.TestCase):
         self.assertEqual((got[0]["text"], got[0].get("proofed"), got[1]["text"]), ("人が直した一行目", True, "直したが校正済みでない行"))
         self.assertEqual(doc_jobs.public_job(job)["kept"], job["kept"])
 
+    def test_whole_refresh_keeps_human_rows_and_skips_docs_changed_after_submit(self):
+        """夜の古い版の作り直し(refresh): 空いているときだけの級・人の層は残す・印 retranscribed.refresh。入れたあとに直された文書は書かない"""
+        tid = self.transcribe()["tid"]
+        self._proof_first(tid)
+        spec, job = self._whole(tid, refresh=True)
+        self.assertEqual((spec["prio"], spec["redo"]["refresh"]), ("later", True))
+        self.assertEqual(job["state"], "done", job.get("error"))
+        d = self.doc(tid)
+        self.assertEqual((d["segments"][0]["text"], d["segments"][0].get("proofed")), ("人が直した一行目", True))
+        self.assertIs(d["retranscribed"]["refresh"], True)
+        spec, kind = _rerun.validate_rerun({"tid": tid, "target": "whole", "model": "small", "refresh": True})
+        job = _jobs.add_job(spec, kind)
+        self._proof_first(tid, "入れたあとに直した")                          # 待っている間に人が直した
+        with mock.patch.object(ed_state, "backend_name", lambda: "fake"):
+            _jobs.work_one(job["id"])
+        self.assertEqual(job.get("redoSkipped"), "changed")
+        self.assertEqual(self.doc(tid)["segments"][0]["text"], "入れたあとに直した")
+        self.assertNotIn("prio", _rerun.validate_whole({"tid": tid, "prio": "later"}))   # 級は refresh のときだけ(受付の欄では変えられない)
+
     def test_whole_rules(self):
         with mock.patch.object(ed_state, "backend_name", lambda: "fake"):            # 下ごしらえの文字起こしはワーカーを起こさない
             tid = self.transcribe()["tid"]

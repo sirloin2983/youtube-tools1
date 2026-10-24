@@ -24,7 +24,8 @@
         { "key": "backup.folder", "type": "folder", "label": "写す先のフォルダ", "default": "", "placeholder": "例: D:\\backup", "maxlength": 260, "hint": "作業データとは別のドライブのフォルダ。その中の youtube-tools-data に写します。API キーの設定も写るので、共有のフォルダやクラウドのフォルダは避けてください。" }
       ] },
       { "id": "accuracy", "title": "精度の自動測定", "hint": "校正が済んだ文書で、文字起こしの精度を夜に 1 日 1 回測ります(読むだけで軽い)。結果はホームの「調子」。", "items": [
-        { "key": "accuracy.enabled", "type": "bool", "label": "自動で測る", "default": true }
+        { "key": "accuracy.enabled", "type": "bool", "label": "自動で測る", "default": true },
+        { "key": "accuracy.retranscribe", "type": "bool", "label": "古い版の文字起こしを夜に作り直す", "default": false, "hint": "確かめるのカードの元の文書のうち、古い版で文字起こしした物を、同じ夜の時間に手が空いていれば 1 本ずつ今の版で認識し直します(1 晩 5 本まで・GPU を使う)。直した行・答えた話者は残り、前の結果は「以前の版に戻す」で戻せます。元の動画が無い文書はできません。" }
       ] }
     ] },
     { "id": "live", "title": "リアルタイム切り抜き", "store": "home", "hint": "配信中の録画 → 盛り上がりの検出 → 自動の採用 → 書き出し → 文字起こし → パック(線 D)。ここが 1 か所の置き場所です(スタジオの ⚙ の「ライブの録画」も同じ値を直します)。", "groups": [

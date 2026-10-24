@@ -11,13 +11,15 @@
                混ざり・その他・別の人で答えた行は数えないので、足りない分だけ次の行が出る
 答えの形・反映・覚え直しは voice:diar と同じ(human/check/voice。予想 = 配信者・選択肢 = 配信者 + ほかの対象の人 + その他 + 混ざり。
 分からないときは画面の [飛ばす])。カードは voice:diar より先に並ぶ(`_order` の頭 -1)。
+古い版の文字起こしの文書(① records.output_old)は後回し: 1 人ぶんの枠は今の版の文書の行から埋め、カードの並びも同じ回りでは今の版が先
+(古い版は夜の作り直し app/check/refresh で今の版になる)。
 """
 import os
 import re
 
 from human.check import voice as voice_mod
 from human.proof import speakers as _speakers
-from pipeline.transcribe import roster
+from pipeline.transcribe import records, roster
 from ytt import schemas as _yschemas, studiodata as _studiodata, txbase as _txbase
 from ytt.textutil import person_key as _person_key
 from . import sources   # 同じ app/check の兄弟(register・_doc_card・_rows・View を読む)
@@ -135,7 +137,7 @@ def voice_solo(view):
     need = voice_mod._relearn_sec() * MARGIN
     cache, out = {}, []
     for rank, who in enumerate(people):
-        docs = by_person[who]
+        docs = sorted(by_person[who], key=lambda x: records.output_old(x[1]))   # 今の版の文字起こしの文書から(古い版は夜の作り直し app/check/refresh を待つ)
         reg = voice_mod.registry(voice_mod.doc_embedding(docs[0][1]), cache)
         mine = next((v for n, v in reg.items() if _person_key(n) == _person_key(who)), {}) or {}
         got = sources._num(mine.get("sec"))
@@ -163,7 +165,7 @@ def voice_solo(view):
                 opts, guess = _options(doc, who, people)
                 out.append(sources._doc_card(view, "voice", SOURCE, tid, doc, g, 0.3, {
                     "guess": guess, "options": opts, "note": SOURCE,
-                    "_order": [-1, rank, i, -sources._num(doc.get("updatedAt")), sources._num(g.get("start"))]}, tight=True))
+                    "_order": [-1, rank, i, int(records.output_old(doc)), -sources._num(doc.get("updatedAt")), sources._num(g.get("start"))]}, tight=True))
                 got += sec
                 n += 1
     return out

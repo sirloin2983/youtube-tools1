@@ -94,6 +94,36 @@ def recognition_run(spec, job, audio_sec, wall_sec, pairs=None):
     return run
 
 
+# 文字起こしの出力(行の文字・時刻・後処理)が変わる直しを入れたら、その版に上げる。これより前の版で文字起こしした文書は「古い版」
+# (確かめるのカードの元を、今の出力で作り直す対象。app/check/refresh)。エンジン・モデルの違いは版と別に output_old が見る
+OUTPUT_SINCE = "0.99.159"
+
+
+def _ver_key(v):
+    try:
+        return tuple(int(x) for x in str(v or "").split("."))
+    except ValueError:
+        return ()
+
+
+def output_version(doc):
+    """文書の今の機械の行を出した認識の記録 -> {version(編集の版。分からなければ ""), engine, model}。
+    最初の認識の記録(kind の無い物)の最後 = 全体の再認識と作り直しのあとは新しい認識の記録(rerun.rebuild_whole が先頭に入れる)"""
+    rec = doc.get("recognition") if isinstance(doc, dict) and isinstance(doc.get("recognition"), dict) else {}
+    first = [r for r in rec.get("runs") or () if isinstance(r, dict) and not r.get("kind")]
+    r = first[-1] if first else {}
+    post = r.get("post") if isinstance(r.get("post"), dict) else {}
+    return {"version": str(post.get("version") or ""), "engine": str(r.get("engine") or ""), "model": str(r.get("model") or "")}
+
+
+def output_old(doc, engine=None, model=None):
+    """文書の機械の行が古い版の文字起こしか(版が OUTPUT_SINCE より前・版が分からない・engine / model を渡せばそれと違う)"""
+    v = output_version(doc)
+    if _ver_key(v["version"]) < _ver_key(OUTPUT_SINCE):
+        return True
+    return bool((engine and v["engine"] != engine) or (model and v["model"] != model))
+
+
 def dtw_record(timing):
     """whisper.cpp の DTW の印 {"shift", "words", "dropped", "leadGap", "lead"}(engineTiming の dtwWords・dtwDropped・dtwLead から。無ければ None)。
     dropped が words と同じ = DTW が黙って切れた(フラッシュアテンション・-dtw の通らない版)。lead = 段の最初の単語を寄せた数(leadGap 0 = 寄せない)。eval_timing はこの印で組を分ける"""

@@ -7,7 +7,8 @@
   intake   … 友人からの依頼の受付(src/human/friend/intake.py。notes:docs/spec/friend.md): 見張るフォルダ・オン/オフ・既定の切り抜く数・
              配信の長さと動画の大きさの上限・見る間隔
   backup   … 作業データのバックアップ(src/manage/keep/backup.py。notes:docs/spec/data.md): オン/オフ・写す先のフォルダ・間隔(時間)
-  accuracy … 精度の自動測定(src/eval/drill/accuracy.py): enabled(**既定オン**。読むだけで軽い)・夜の窓 nightFrom〜nightTo(時。既定 1〜6。from > to は日をまたぐ)
+  accuracy … 精度の自動測定(src/eval/drill/accuracy.py): enabled(**既定オン**。読むだけで軽い)・夜の窓 nightFrom〜nightTo(時。既定 1〜6。from > to は日をまたぐ)・
+             同じ夜の窓で確かめるのカードの元の古い版の文書を作り直す retranscribe(**既定オフ**。本物の文書の機械の行を書き換える。src/app/check/refresh.py)
   live     … リアルタイム切り抜き(線 D。src/app/live.py。**既定はオフ**): enabled・録画の置き場所 folder(空 = 録画の部品の前回の設定か既定 E:/Video/live-rec)・
              録画元の一覧 recorders(空 = 手元の1つ。[{id, name, url, token}]。token が空の手元の録画元は録画の部品の token.txt を読む)・
              録画の画質 quality(best|1080p|720p。既定 1080p。スタジオの URL の欄から始める録画 = POST /live/api/begin)・
@@ -68,7 +69,7 @@ DEFAULTS = {"autorun": {"top": 3, "cut": "none", "friendLength": True,   # 既�
                      "detect": {"enabled": True, "sens": "normal", "perHour": _ADOPT["perHour"]}, "autoAdopt": {"waitMin": _ADOPT["waitMin"]},
                      "liveTx": {"enabled": True, "model": "large-v3"}},   # 配信中の候補の文字起こし(D-11 案 b。whisper.cpp の GPU。既定オン = 部品が無ければ何もしない)
             # live.autoDeliver(自動の切り抜きを友人へ届けるか)は 10-19 に消した: 受付のフォルダが決まっていればいつも届ける。保存済みの値・古い画面が送る値は読み捨て
-            "accuracy": {"enabled": True, "nightFrom": 1, "nightTo": 6}}
+            "accuracy": {"enabled": True, "nightFrom": 1, "nightTo": 6, "retranscribe": False}}
 INTAKE_RANGES = {"top": (1, 10, "既定の切り抜く数"), "maxHours": (1, 24, "配信の長さの上限(時間)"),
                  "maxGB": (1, 200, "動画の大きさの上限(GB)"), "interval": (10, 600, "見る間隔(秒)")}
 INTAKE_INTS = ("top", "interval")   # INTAKE_RANGES のうち整数だけのもの(ほかは小数も可)
@@ -151,8 +152,9 @@ def _clean_backup(v, cur):
 def _clean_accuracy(v, cur):
     """精度の自動測定の設定(src/eval/drill/accuracy.py)。夜の窓は時(開始 0〜23・終わり 1〜24。0 → 24 は一日中)。開始と終わりが同じだと窓が無いので断る(日をまたぐ 22 → 6 は可)"""
     out = dict(cur)
-    if "enabled" in v:
-        out["enabled"] = v["enabled"] is True
+    for k in ("enabled", "retranscribe"):
+        if k in v:
+            out[k] = v[k] is True
     for k, lo, hi, label in (("nightFrom", 0, 23, "夜の窓の開始(時)"), ("nightTo", 1, 24, "夜の窓の終わり(時)")):
         if k in v:
             if not _int_in(v[k], lo, hi):

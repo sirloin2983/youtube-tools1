@@ -6,12 +6,12 @@
 | 層 | md | ファイル | 行 |
 |---|---|---|---|
 | ytt(基盤) | [ytt.md](ytt.md) | 53 | 11687 |
-| ① pipeline(道具 = データを加工する) | [pipeline.md](pipeline.md) | 82 | 27550 |
+| ① pipeline(道具 = データを加工する) | [pipeline.md](pipeline.md) | 82 | 27599 |
 | ② flow(管理 = いつ・どの順で・どこに置くか) | [flow.md](flow.md) | 94 | 30652 |
-| ③ human(人の操作) | [human.md](human.md) | 62 | 17576 |
+| ③ human(人の操作) | [human.md](human.md) | 62 | 17585 |
 | ④ manage(データ) | [manage.md](manage.md) | 43 | 11197 |
-| ⑤ eval(検証) | [eval.md](eval.md) | 37 | 15565 |
-| src/app(入口と画面) | [app.md](app.md) | 90 | 32902 |
+| ⑤ eval(検証) | [eval.md](eval.md) | 37 | 15603 |
+| src/app(入口と画面) | [app.md](app.md) | 94 | 36571 |
 | src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 48 | 19062 |
 | その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 19 | 10316 |
 | dev・setup(開発の道具) | [dev.md](dev.md) | 61 | 16674 |
@@ -139,7 +139,7 @@
 - `/api/rank/search/cancel` — src/studio/serve.py:411 ← rank.js
 - `/api/relink` — src/editor/serve.py:238 ← app.js・tools.py
 - `/api/relink/check` — src/editor/serve.py:237 ← app-tools.js
-- `/api/rerun` — src/editor/serve.py:232 ← app-jobs.js・app.js
+- `/api/rerun` — src/editor/serve.py:232 ← server.py・app-jobs.js・app.js
 - `/api/restore` — src/editor/serve.py:234 ← app.js
 - `/api/retime` — src/editor/serve.py:245 ← app-rows.js
 - `/api/roster` — src/editor/serve.py:189 ← app-learn.js
