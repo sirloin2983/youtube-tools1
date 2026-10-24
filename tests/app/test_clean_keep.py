@@ -8,6 +8,7 @@ import types
 import unittest
 from unittest import mock
 
+os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 入口を読むテストは作業データを切り離す(test_ytt_core の決まり)
 SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src")
 if SRC not in sys.path:
     sys.path.insert(0, SRC)
