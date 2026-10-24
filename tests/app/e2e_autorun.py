@@ -132,6 +132,9 @@ def main():
                 pg.on("pageerror", lambda e: errors.append(str(e)))
                 pg.goto(base + "/")
                 card = '.pt-case[data-id="%s"]' % vid_a
+                # 切り抜きのまだ無い配信は「まだ切り抜きの無い配信 n 本」の畳みの中(10-24 ホームの見直し)。開くと行が並ぶ
+                check(wait_js(pg, "!document.querySelector('#noclipBox').hidden", 15000), "切り抜きの無い配信は 1 行に畳む")
+                pg.click("#noclipBox > summary")
                 check(wait_js(pg, "!!document.querySelector('%s')" % card.replace("'", "\\'"), 15000), "ホームの案件の一覧に配信が1行出た")
                 check(pg.evaluate("document.querySelector('%s').open" % card.replace("'", "\\'")) is False,
                       "行は既定で閉じている(1件1行)")
