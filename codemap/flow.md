@@ -23,7 +23,7 @@
   - 名前: `record` :25・`clip_range` :41・`overlaps` :52・`overlap_note` :73・`origin_of` :84・`rows` :92・`delivered_requests` :114・`pack_name` :129・`delivered_marks` :137・`record_not_sent` :193・`not_sent_marks` :204
 - **delivery.py** (405 行) — ② 友人へ届ける: まとめて実行の「Dropbox へ届ける」段と、置けなかった自動の分の溜め(まとめて実行 AutoRunner が継ぐ mixin)。
   - 名前: `switched_off` :55・`class Delivery` :95
-- **diar.py** (390 行) — ② 管理の層 flow: 話者判別と声の段取り(RS6 a-4。決定 3-29)。
+- **diar.py** (395 行) — ② 管理の層 flow: 話者判別と声の段取り(RS6 a-4。決定 3-29)。
   - 名前: `models_ready` :29・`default_embedding` :40・`embedding` :45・`embeddings` :50・`learn_embedding` :55・`match_embedding` :61・`diarize` :69・`assign` :99・`record_run` :123・`record_single` :130・`latest_run` :140・`embed` :147・ほか 13
 - **envelope.py** (170 行) — ② 管理の層 flow: 依頼の封筒(RS7-1 S3。決定 3-30・notes:plan/done/f1-friend-pc.md の決めたこと 9)。
   - 名前: `clean_pool` :44・`version_of` :135・`check` :143・`read` :167
