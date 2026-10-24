@@ -64,8 +64,8 @@
   - 名前: `hex_rgba` :70・`text_style` :81・`style_inputs` :97・`video_tracks_value` :119・`parse_target` :126・`caption_segments` :149・`stack_captions` :180・`speaker_lanes` :241・`lay_captions` :273・`default_wrap` :300・`wrap_caption` :305・`build_import_plan` :354・ほか 8
 - **srt2resolve.py** (394 行) — パックの部品(動画の情報の読み取り・字幕の読み込み・フレームの計算・SRT の組み立ての小道具)。
   - 名前: `class ToolError` :27・`same_path` :31・`staged` :44・`write_text_atomic` :56・`tool` :65・`arg_path` :70・`clean_text` :94・`parse_subs` :101・`read_sub_file` :125・`snap_fps` :149・`codec_warnings` :161・`probe` :198・ほか 10
-- **tidy.py** (103 行) — 編集カットの形「無音を詰める」(10-24。ユーザー「言葉を削るんじゃなくて、無音を削ってほしい。ただ不自然になるから調整が必要」。
-  - 名前: `drops` :50・`keeps` :93
+- **tidy.py** (111 行) — 編集カットの形「無音を詰める」(10-24。ユーザー「言葉を削るんじゃなくて、無音を削ってほしい。ただ不自然になるから調整が必要」。
+  - 名前: `drops` :53・`keeps` :101
 
 ## src/pipeline/transcribe/
 
