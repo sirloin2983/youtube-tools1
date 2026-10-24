@@ -207,24 +207,25 @@ def wants(app_dir, roster_r, counts, now=None, extra=None):
     return bool(_todo(roster_r, counts, _read(os.path.join(app_dir, "check", STATE_NAME)), extra)) and slot_free(app_dir, now)[0]
 
 
-def tick(app_dir, roster_r, counts, busy, start_job, log, now=None, rss=None, fetch=None, extra=None, lister=None):
-    """1 回分: 配信の材料の少ない人を 1 人取って文字起こしに頼む。-> 頼んだ人の名前か None。counts = {名前: 手元の配信の材料の本数}"""
+def tick(app_dir, roster_r, counts, busy, start_job, log, now=None, rss=None, fetch=None, extra=None, lister=None, use_slot=True, only=None):
+    """1 回分: 配信の材料の少ない人を 1 人取って文字起こしに頼む。-> 頼んだ人の名前か None。counts = {名前: 手元の配信の材料の本数}。
+    use_slot=False = 枠の見張りは呼び手(YouTube の取得の列 app/check/ytqueue)がする。only = この名前の人だけから選ぶ(列が、友人のショートの元に無い人だけを渡す)"""
     now = time.time() if now is None else now
     if not ENABLED or not (HOURS[0] <= datetime.datetime.fromtimestamp(now).hour < HOURS[1]) or busy():
         return None
     st_path = os.path.join(app_dir, "check", STATE_NAME)
     state = _read(st_path)
-    todo = _todo(roster_r, counts, state, extra)
+    todo = [x for x in _todo(roster_r, counts, state, extra) if only is None or x[0] in only]
     if not todo:
         return None
-    free, why = slot_free(app_dir, now)
-    if not free:
+    if use_slot and not slot_free(app_dir, now)[0]:
         return None
     who, chan = todo[0]
     rec = state.setdefault(who, {"tried": []})
     rec["got"] = _got(rec)
     first = _have(who, counts, state) == 0
-    _mark_slot(app_dir, now)
+    if use_slot:
+        _mark_slot(app_dir, now)
     if first:   # 1 本目 = 最近の配信(RSS。軽い)
         try:
             items = parse_rss((rss or _rss)(chan))

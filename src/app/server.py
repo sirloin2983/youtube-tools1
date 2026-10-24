@@ -111,7 +111,7 @@ from app import homereq  # noqa: E402  (src/app/homereq.py: ホームの「友�
 from human.friend import intake as intake_mod  # noqa: E402  (src/human/friend/intake.py: 友人からの依頼の受付)
 from manage.keep import backup as backup_mod  # noqa: E402  (src/manage/keep/backup.py: 作業データのバックアップ)
 from eval.drill import accuracy as accuracy_mod  # noqa: E402  (src/eval/drill/accuracy.py: 精度の自動測定 = src/eval/tools/eval_*.py を手が空いた夜に子プロセスで)
-from app.check import deck as check_deck, lineup as check_lineup, refresh as check_refresh, sources as check_sources, voice_solo as check_voice_solo, voicefetch as check_voicefetch, voicefill as check_voicefill  # noqa: E402  (src/app/check: 「確かめる」の待ち行列。V1)
+from app.check import deck as check_deck, lineup as check_lineup, refresh as check_refresh, sources as check_sources, voice_solo as check_voice_solo, voicefetch as check_voicefetch, voicefill as check_voicefill, ytqueue as check_ytqueue  # noqa: E402  (src/app/check: 「確かめる」の待ち行列。V1)
 from human.proof import voiceclips  # noqa: E402  (誰の声のカードの行の短い音。元の動画が片付いても聞ける・覚えられる。10-24 夜)
 from human.check import answerlog as check_answerlog  # noqa: E402  (答えた札 = 自動の片付けで、価値のカードを待っている切り抜きを残す)
 from human.check import apply as check_apply  # noqa: E402  (src/human/check/apply.py: 「確かめる」の答えの記録と反映。V1)
@@ -1265,7 +1265,8 @@ class PortalServer(httpsec.ExclusiveServer):
                 self.sup.log("誰の声の材料を頼めませんでした: %r" % (e,))
 
     def voice_fetch_loop(self):
-        """誰の声の材料が無いメンバーの音を YouTube から 4 分だけ(app/check/voicefetch。10-25)。枠は研究と分け合う(yt-slot.json)"""
+        """YouTube の取得の列(app/check/ytqueue。10-25 ユーザー「取り方 1 と 2 を統一しよう」): 研究の頼みと候補・誰の声の材料を 1 本の列で取る。
+        研究が置いた・列が回した声の音(voice-inbox)を拾う(voicefetch.intake)"""
         from flow import voicematerial as _vm
         client = lambda: autorun_mod.ToolClient(self.tool_endpoint, self.token, timeout=30)   # noqa: E731
         busy = lambda: self._fetch_busy() or ("ライブ" if any(self.live_activity().values()) else None)   # noqa: E731
@@ -1279,11 +1280,9 @@ class PortalServer(httpsec.ExclusiveServer):
                                         self.sup.log, extra=extra)   # 研究が取った元の配信の音(1 回の取得で 2 つの目的。10-25)
                 view = check_sources.View(self.check_ctx(), check_answerlog.state(self.cleanup.app_dir))
                 counts = check_voice_solo.stream_counts(view)   # 配信の材料の本数(ショートだけでは足りない。10-25)
-                self._voice_fetch_wants = check_voicefetch.wants(self.cleanup.app_dir, r, counts, extra=extra)
-                if not self._voice_fetch_wants or busy():
-                    continue
-                check_voicefetch.tick(self.cleanup.app_dir, r, counts, busy,
-                                      lambda req: client().ok("transcribe", "POST", "/api/transcribe", req).get("id"), self.sup.log, extra=extra)
+                self._voice_fetch_wants = check_ytqueue.wants(self.cleanup.app_dir, r, counts, extra=extra)
+                check_ytqueue.tick(self.cleanup.app_dir, r, counts, busy,
+                                   lambda req: client().ok("transcribe", "POST", "/api/transcribe", req).get("id"), self.sup.log, extra=extra)
             except Exception as e:   # noqa: BLE001  (取れなくても入口は止めない)
                 self.sup.log("誰の声の材料(YouTube)を取れませんでした: %r" % (e,))
 
