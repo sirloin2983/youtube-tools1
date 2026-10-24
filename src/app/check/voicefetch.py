@@ -1,9 +1,14 @@
-"""誰の声の材料が無いメンバーの音を YouTube から少しだけ取る(10-25。ユーザー「全メンバー揃えてほしい」の 2。1 = 手元の学習用データ は voicefill)。
+"""誰の声の材料の配信の音を YouTube から少しだけ取る(10-25。ユーザー「全メンバー揃えてほしい」「ショートだけでは足りない。配信からの材料も要る」。
+ショート = 手元の学習用データ は voicefill)。
 
-名簿の日本の今のメンバー(EN・ID・ユニット・卒業の組は除く。10-25 ユーザー「EN・ID は外す」)のうち、材料が無い人(手元のソロの文書・覚えた声の登録簿・学習用データ・ここで取った物のどれにも無い)を
-1 人ずつ: チャンネルの RSS(最近の 15 本)から雑談らしい配信を 1 本選び(歌・コラボ・ショートは外す)、その SECTION 秒の所の音だけを
-yt-dlp の --download-sections で取って(音だけ・cookie なし)、「編集」の文字起こしに頼む。できた文書は誰の声のカードだけに使う
-(sources.View.docs が外す = voicefill.in_learn_dir と同じ決まり。見立て = 名前を付けたファイルの名前の人)。
+対象 = 名簿の日本の今のメンバー(EN・ID・ホロアナ・ユニット・卒業の組は除く = flow/voicematerial.jp_members)の全員。1 人あたり配信の材料 TARGET 本まで:
+  配信の材料の本数 = 手元のソロの配信の文書(ショート・評価用・ここで取った物を除く。app/check/voice_solo.stream_counts)+ ここで取った本数。
+  本数の少ない人から 1 人ずつ(0 本 = ショートだけ・何も無い人 → 1 本 → …)。同じ本数なら試した数の少ない人・名簿の順。
+  1 本目: チャンネルの RSS(最近の 15 本)から雑談らしい配信(歌・コラボ・ショートは外す・雑談の印が先)。
+  2 本目から: 配信の一覧(yt-dlp --flat-playlist の /streams・LIST_ITEMS 本)の古い方(RSS の外)から、取った配信と別の月の物
+  (配信の材料が 1〜2 本の配信に偏らない = 配信ごとのマイク・部屋の違いを平均に入れる)。
+  その SECTION 秒の所の音だけを yt-dlp の --download-sections で取り(音だけ・cookie なし)、「編集」の文字起こしに頼む。
+  できた文書は誰の声のカードだけに使う(sources.View.docs が外す = voicefill.in_learn_dir。見立て = 名前を付けたファイルの名前の人)。
 YouTube の枠は研究と分け合う(印のファイル <app>/check/yt-slot.json):
   last から GAP 秒たっていない・stopDay が今日・last が自分(相手の番を待つ。OWN_WAIT 秒たてば自分でもよい)なら問い合わせない。
   問い合わせたら last・by を書く。bot 判定・ログインを求められたら stopDay = 今日(その日は両方止める)。
@@ -33,7 +38,10 @@ OWN_WAIT = 5400               # 自分が続けて問い合わせてよいまで
 HOURS = (0, 24)               # 1 日中(10-25: 研究にそろえた。枠の分け合いと判定で止める決まりはそのまま)
 SECTION = (600, 840)          # 取る所(配信の 10〜14 分。頭の待機画面と BGM を避ける)
 FETCH_TIMEOUT = 900
-MAX_TRIES = 4                 # 1 人につき試す配信の数(取れなければ次の回に次の配信)
+MAX_TRIES = 8                 # 1 人につき試す配信の数(取れなければ次の回に次の配信)
+TARGET = 2                    # 1 人あたりの配信の材料の本数(この本数に届くまで取る)
+LIST_ITEMS = 80               # 2 本目からの配信の一覧の本数(古い方から選ぶ)
+LIST_SKIP = 15                # 一覧の頭のこの本数は RSS と同じ頃なので 2 本目には使わない
 RSS_URL = "https://www.youtube.com/feeds/videos.xml?channel_id=%s"
 CHANNEL_RE = re.compile(r"^UC[A-Za-z0-9_-]{22}\Z")
 VIDEO_RE = re.compile(r"^[A-Za-z0-9_-]{11}\Z")
@@ -89,7 +97,7 @@ def _mark_slot(app_dir, now, stop_why=None):
 
 
 def parse_rss(body):
-    """RSS -> [{"id", "title"}](新しい順)"""
+    """RSS -> [{"id", "title", "month"}](新しい順。month = 公開の年月 "YYYY-MM")"""
     try:
         root = ET.fromstring(body)
     except (ET.ParseError, ValueError):
@@ -98,14 +106,14 @@ def parse_rss(body):
     for e in root.findall("a:entry", NS):
         vid = (e.findtext("yt:videoId", "", NS) or "").strip()
         if VIDEO_RE.match(vid):
-            out.append({"id": vid, "title": (e.findtext("a:title", "", NS) or "").strip()})
+            out.append({"id": vid, "title": (e.findtext("a:title", "", NS) or "").strip(), "month": (e.findtext("a:published", "", NS) or "")[:7]})
     return out
 
 
-def choose(items, tried):
-    """雑談らしい配信を 1 本(歌・コラボ・ショート・試した物を外す。雑談の印がある物が先)か None"""
+def choose(items, tried, months=()):
+    """雑談らしい配信を 1 本(歌・コラボ・ショート・試した物・取った配信と同じ月の物を外す。雑談の印がある物が先)か None"""
     ok = [it for it in items if it["id"] not in tried and not SHORT_RE.search(it["title"]) and not _vm.song_title(it["title"])
-          and not _vm.COLLAB_RE.search(it["title"])]
+          and not _vm.COLLAB_RE.search(it["title"]) and not (it.get("month") and it["month"] in months)]
     ok.sort(key=lambda it: not TALK_RE.search(it["title"]))
     return ok[0] if ok else None
 
@@ -114,6 +122,40 @@ def _rss(channel, timeout=20):
     req = urllib.request.Request(RSS_URL % channel, headers={"User-Agent": "Mozilla/5.0"})
     with urllib.request.urlopen(req, timeout=timeout) as r:   # noqa: S310  (決まった youtube.com の RSS だけ)
         return r.read(2 * 1024 * 1024)
+
+
+def _run(cmd, timeout):
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, stdin=subprocess.DEVNULL,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return None, "%s" % e.__class__.__name__
+    return r, ((r.stderr or "") + (r.stdout or ""))[-400:].strip()
+
+
+def _list(channel, timeout=180):
+    """配信の一覧(/streams の LIST_ITEMS 本・中身は読まない)-> ([{"id", "title", "month"}](新しい順), 失敗の文)。cookie は使わない"""
+    yd = _tools.find_tool("yt-dlp")
+    if not yd:
+        return [], "yt-dlp が見つかりません"
+    r, tail = _run([yd, "--encoding", "utf-8", "--no-warnings", "--flat-playlist", "-J", "--playlist-items", "1:%d" % LIST_ITEMS,
+                    "--", "https://www.youtube.com/channel/%s/streams" % channel], timeout)
+    if r is None or r.returncode != 0:
+        return [], tail or "一覧を読めませんでした"
+    try:
+        d = json.loads(r.stdout)
+    except ValueError:
+        return [], "一覧の形が違います"
+    out = []
+    for e in d.get("entries") or ():
+        if not isinstance(e, dict) or not VIDEO_RE.match(str(e.get("id") or "")):
+            continue
+        ts = e.get("release_timestamp") or e.get("timestamp")
+        month = datetime.datetime.fromtimestamp(ts).strftime("%Y-%m") if isinstance(ts, (int, float)) else str(e.get("upload_date") or "")[:6]
+        if len(month) == 6:
+            month = month[:4] + "-" + month[4:]
+        out.append({"id": e["id"], "title": str(e.get("title") or ""), "month": month})
+    return out, ""
 
 
 def _fetch(video_id, out_base, timeout=FETCH_TIMEOUT):
@@ -127,64 +169,88 @@ def _fetch(video_id, out_base, timeout=FETCH_TIMEOUT):
     if ff:
         cmd += ["--ffmpeg-location", ff]
     cmd += ["--", "https://www.youtube.com/watch?v=" + video_id]
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, stdin=subprocess.DEVNULL,
-                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    except (OSError, subprocess.TimeoutExpired) as e:
-        return None, "%s" % e.__class__.__name__
+    r, tail = _run(cmd, timeout)
+    if r is None:
+        return None, tail
     d, base = os.path.dirname(out_base), os.path.basename(out_base)
     got = [os.path.join(d, x) for x in os.listdir(d) if x.startswith(base + ".") and not x.endswith((".part", ".ytdl"))]
     if r.returncode == 0 and got:
         return max(got, key=os.path.getsize), ""
-    return None, ((r.stderr or "") + (r.stdout or ""))[-400:].strip() or "終了コード %s" % r.returncode
+    return None, tail or "終了コード %s" % r.returncode
 
 
-def _todo(roster_r, have, state, extra=None):
-    return [(n, c) for n, c in members(roster_r, extra) if n not in have and not (state.get(n) or {}).get("got")
-            and len((state.get(n) or {}).get("tried") or []) < MAX_TRIES]
+def _got(rec):
+    """取った配信の一覧(古い形 = got がパスの文字は 1 本に読む)"""
+    g = (rec or {}).get("got")
+    if isinstance(g, str):
+        return [{"path": g, "video": rec.get("video"), "month": rec.get("month") or ""}]
+    return [x for x in g or () if isinstance(x, dict)]
 
 
-def wants(app_dir, roster_r, have, now=None, extra=None):
-    """今 YouTube から取りたいか(動かす時刻・材料の無い人が残っている・枠が空いている)。学習用データの文字起こし(voicefill)はこの間は休む
+def _have(n, counts, state):
+    return int(counts.get(n) or 0) + len(_got(state.get(n)))
+
+
+def _todo(roster_r, counts, state, extra=None):
+    """取る人 [(名前, チャンネル)](配信の材料の本数の少ない人・試した数の少ない人・名簿の順)"""
+    out = [(n, c) for n, c in members(roster_r, extra) if _have(n, counts, state) < TARGET
+           and len((state.get(n) or {}).get("tried") or []) < MAX_TRIES]
+    return sorted(out, key=lambda x: (_have(x[0], counts, state), len((state.get(x[0]) or {}).get("tried") or [])))
+
+
+def wants(app_dir, roster_r, counts, now=None, extra=None):
+    """今 YouTube から取りたいか(動かす時刻・配信の材料が TARGET 本に届かない人が残っている・枠が空いている)。学習用データの文字起こし(voicefill)はこの間は休む
     = 入口の手の空いた合間をこちらに譲る(10-25: 文字起こしが続いて、こちらがいつ見ても処理中だった)"""
     now = time.time() if now is None else now
     if not ENABLED or not (HOURS[0] <= datetime.datetime.fromtimestamp(now).hour < HOURS[1]):
         return False
-    return bool(_todo(roster_r, have, _read(os.path.join(app_dir, "check", STATE_NAME)), extra)) and slot_free(app_dir, now)[0]
+    return bool(_todo(roster_r, counts, _read(os.path.join(app_dir, "check", STATE_NAME)), extra)) and slot_free(app_dir, now)[0]
 
 
-def tick(app_dir, roster_r, have, busy, start_job, log, now=None, rss=None, fetch=None, extra=None):
-    """1 回分: 材料の無い人を 1 人取って文字起こしに頼む。-> 頼んだ人の名前か None。have = 材料のある人の名前の集合"""
+def tick(app_dir, roster_r, counts, busy, start_job, log, now=None, rss=None, fetch=None, extra=None, lister=None):
+    """1 回分: 配信の材料の少ない人を 1 人取って文字起こしに頼む。-> 頼んだ人の名前か None。counts = {名前: 手元の配信の材料の本数}"""
     now = time.time() if now is None else now
     if not ENABLED or not (HOURS[0] <= datetime.datetime.fromtimestamp(now).hour < HOURS[1]) or busy():
         return None
     st_path = os.path.join(app_dir, "check", STATE_NAME)
     state = _read(st_path)
-    todo = _todo(roster_r, have, state, extra)
+    todo = _todo(roster_r, counts, state, extra)
     if not todo:
         return None
     free, why = slot_free(app_dir, now)
     if not free:
         return None
-    who, chan = min(todo, key=lambda x: (len((state.get(x[0]) or {}).get("tried") or []), todo.index(x)))   # 試した数の少ない人・日本が先
+    who, chan = todo[0]
     rec = state.setdefault(who, {"tried": []})
+    rec["got"] = _got(rec)
+    first = _have(who, counts, state) == 0
     _mark_slot(app_dir, now)
-    try:
-        items = parse_rss((rss or _rss)(chan))
-    except Exception as e:   # noqa: BLE001  (RSS が読めなければ次の回)
-        log("誰の声の材料(YouTube): %s のチャンネルの一覧を読めませんでした(%s)" % (who, e.__class__.__name__))
-        return None
-    it = choose(items, set(rec["tried"]))
+    if first:   # 1 本目 = 最近の配信(RSS。軽い)
+        try:
+            items = parse_rss((rss or _rss)(chan))
+        except Exception as e:   # noqa: BLE001  (RSS が読めなければ次の回)
+            log("誰の声の材料(YouTube): %s のチャンネルの一覧を読めませんでした(%s)" % (who, e.__class__.__name__))
+            return None
+    else:       # 2 本目から = 配信の一覧の古い方・取った配信と別の月
+        items, err = (lister or _list)(chan)
+        if not items and any(b in err.lower() for b in BOT):
+            _mark_slot(app_dir, now, stop_why=err[:200])
+            log("誰の声の材料(YouTube): bot 判定・ログインを求められたので今日は止めます(研究も止まる)")
+            return None
+        items = items[LIST_SKIP:]
+    it = choose(items, set(rec["tried"]), {x.get("month") for x in rec["got"] if x.get("month")})
     if it is None:
         rec["tried"].append("none")
         fsio.write_json(st_path, state, indent=None)
-        log("誰の声の材料(YouTube): %s の最近の配信に雑談らしい物がありませんでした" % who)
+        log("誰の声の材料(YouTube): %s の%s配信に雑談らしい物がありませんでした" % (who, "最近の" if first else "古い方の"))
         return None
     rec["tried"].append(it["id"])
     folder = os.path.join(app_dir, "check", DIR_NAME, who)
     os.makedirs(folder, exist_ok=True)
-    for x in os.listdir(folder):   # 途中で残った物(PC の再起動・止まった取得)= 消して取り直す。取れた音は state の got にあり、ここへは来ない
-        fsio.unlink_quiet(os.path.join(folder, x))
+    keep = {os.path.normcase(x["path"]) for x in rec["got"] if x.get("path")}
+    for x in os.listdir(folder):   # 途中で残った物(PC の再起動・止まった取得)= 消して取り直す。取れた音(got)は残す
+        if os.path.normcase(os.path.join(folder, x)) not in keep:
+            fsio.unlink_quiet(os.path.join(folder, x))
     safe = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", it["title"])[:60]
     path, err = (fetch or _fetch)(it["id"], os.path.join(folder, "%s_%s_%s" % (who, it["id"], safe)))
     if path is None:
@@ -195,12 +261,13 @@ def tick(app_dir, roster_r, have, busy, start_job, log, now=None, rss=None, fetc
             log("誰の声の材料(YouTube): %s の %s の音を取れませんでした(%s)" % (who, it["id"], err.splitlines()[-1][:160] if err else ""))
         fsio.write_json(st_path, state, indent=None)
         return None
-    rec.update(got=path, video=it["id"], title=it["title"][:200], at=int(now))
+    one = {"path": path, "video": it["id"], "month": it.get("month") or "", "title": it["title"][:200], "at": int(now)}
     try:
-        rec["job"] = start_job({"sourcePath": path, "autoLlm": False, "title": "%s %s" % (who, it["title"][:150])})
-    except Exception as e:   # noqa: BLE001  (取った音は残る = 次に頼み直せるよう got を消す)
-        rec.pop("got", None)
+        one["job"] = start_job({"sourcePath": path, "autoLlm": False, "title": "%s %s" % (who, it["title"][:150])})
+        rec["got"].append(one)
+    except Exception as e:   # noqa: BLE001  (頼めなければ got に入れない = 次の回に取り直す)
         log("誰の声の材料(YouTube): %s の音を文字起こしに頼めませんでした(%s)" % (who, str(e)[:120]))
     fsio.write_json(st_path, state, indent=None)
-    log("誰の声の材料(YouTube): %s の「%s」の %d〜%d 秒の音を取りました(残り %d 人)" % (who, it["title"][:40], SECTION[0], SECTION[1], len(todo) - 1))
+    log("誰の声の材料(YouTube): %s の「%s」(%s)の %d〜%d 秒の音を取りました(配信の材料 %d 本目・まだ %d 本に届かない人 %d 人)"
+        % (who, it["title"][:40], it.get("month") or "月不明", SECTION[0], SECTION[1], _have(who, counts, state), TARGET, len(todo) - (1 if _have(who, counts, state) >= TARGET else 0)))
     return who

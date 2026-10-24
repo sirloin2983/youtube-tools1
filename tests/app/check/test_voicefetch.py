@@ -20,7 +20,9 @@ RSS = """<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom" xmlns:yt
 <entry><yt:videoId>AAAAAAAAAA2</yt:videoId><title>すこしだけ #shorts</title></entry>
 <entry><yt:videoId>AAAAAAAAAA3</yt:videoId><title>【コラボ】みんなで</title></entry>
 <entry><yt:videoId>AAAAAAAAAA4</yt:videoId><title>【マイクラ】建築</title></entry>
-<entry><yt:videoId>AAAAAAAAAA5</yt:videoId><title>【雑談】おはなし</title></entry></feed>""".encode("utf-8")
+<entry><yt:videoId>AAAAAAAAAA5</yt:videoId><title>【雑談】おはなし</title><published>2026-10-20T10:00:00+00:00</published></entry></feed>""".encode("utf-8")
+OLD = [{"id": "NEWNEWNEW%02d" % i, "title": "【雑談】さいきん %d" % i, "month": "2026-10"} for i in range(VF.LIST_SKIP)] + [
+    {"id": "OLDOLDOLD01", "title": "【雑談】同じ月", "month": "2026-10"}, {"id": "OLDOLDOLD02", "title": "【雑談】先月", "month": "2026-09"}]
 NOON = datetime.datetime(2026, 10, 25, 12, 0).timestamp()
 
 
@@ -35,17 +37,18 @@ class VoiceFetchTest(unittest.TestCase):
         open(p, "wb").close()
         return p, ""
 
-    def tick(self, now=NOON, have=frozenset(), fetch=None):
-        return VF.tick(self.app, R, set(have), lambda: None, lambda req: self.jobs.append(req) or "j", self.logs.append,
-                       now=now, rss=lambda ch: RSS, fetch=fetch or self.fetch)
+    def tick(self, now=NOON, counts=None, fetch=None):
+        return VF.tick(self.app, R, dict(counts or {}), lambda: None, lambda req: self.jobs.append(req) or "j", self.logs.append,
+                       now=now, rss=lambda ch: RSS, fetch=fetch or self.fetch, lister=lambda ch: (OLD, ""))
 
     def test_fetch_one_and_share_slot(self):
         self.assertEqual([n for n, _c in VF.members(R)], ["ときのそら", "ロボ子さん"])   # 卒業・ユニット・EN・ID の組は外す(10-25)
-        self.assertTrue(VF.wants(self.app, R, {"ときのそら", "IRyS"}, now=NOON))              # 取りたい = 学習用データの文字起こしは休む
-        self.assertFalse(VF.wants(self.app, R, {"ときのそら", "ロボ子さん", "IRyS"}, now=NOON))   # 材料の無い人がいなければ取らない
-        self.assertEqual(self.tick(have={"ときのそら"}), "ロボ子さん")              # 材料のある人は取らない
-        self.assertFalse(VF.wants(self.app, R, set(), now=NOON + 60))             # 取った直後は枠が埋まる = 文字起こしに戻る
-        self.assertEqual(self.got, ["AAAAAAAAAA5"])                                  # 雑談の印のある物(歌・ショート・コラボは外す)
+        full = {"ときのそら": VF.TARGET, "ロボ子さん": VF.TARGET}
+        self.assertTrue(VF.wants(self.app, R, {"ときのそら": 1}, now=NOON))             # 取りたい = 学習用データの文字起こしは休む
+        self.assertFalse(VF.wants(self.app, R, full, now=NOON))                         # 全員 TARGET 本あれば取らない
+        self.assertEqual(self.tick(counts={"ときのそら": 1}), "ロボ子さん")            # 配信の材料が 0 本の人が先
+        self.assertFalse(VF.wants(self.app, R, {}, now=NOON + 60))                       # 取った直後は枠が埋まる = 文字起こしに戻る
+        self.assertEqual(self.got, ["AAAAAAAAAA5"])                                  # 1 本目 = RSS の雑談の印のある物(歌・ショート・コラボは外す)
         src = self.jobs[-1]["sourcePath"]
         self.assertTrue(voicefill.in_learn_dir(src) and "ロボ子さん" in os.path.basename(src))   # 誰の声のカードだけ・見立ての名前
         self.assertIsNone(self.tick(now=NOON + 600))                                 # 30 分たっていない
@@ -53,8 +56,11 @@ class VoiceFetchTest(unittest.TestCase):
         with open(os.path.join(self.app, "check", VF.SLOT_NAME), "w", encoding="utf-8") as f:
             json.dump({"last": NOON + 2000, "by": "research"}, f)                    # 研究が問い合わせた
         self.assertIsNone(self.tick(now=NOON + 3000))
-        self.assertEqual(self.tick(now=NOON + 3900), "ときのそら")
-        self.assertIsNone(self.tick(now=NOON + 3900 + 11000))                        # 全員取れた(EN・ID は取らない)
+        self.assertEqual(self.tick(now=NOON + 3900, counts={"ときのそら": 1}), "ときのそら")   # どちらも 1 本 = 試した数の少ない人
+        self.assertEqual(self.got[-1], "OLDOLDOLD01")                                 # 2 本目 = 一覧の古い方(頭の LIST_SKIP 本は使わない)
+        self.assertEqual(self.tick(now=NOON + 9500, counts={"ときのそら": 1}), "ロボ子さん")
+        self.assertEqual(self.got[-1], "OLDOLDOLD02")                                 # 取った配信(2026-10)と別の月
+        self.assertIsNone(self.tick(now=NOON + 15100, counts={"ときのそら": 1}))       # 全員 TARGET 本(EN・ID は取らない)
         self.assertIsNotNone(VF.slot_free(self.app, datetime.datetime(2026, 10, 26, 3, 0).timestamp()))   # 夜中も動く
 
     def test_extra_channels(self):

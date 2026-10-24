@@ -161,6 +161,19 @@ def _select(view):
     return out
 
 
+def stream_counts(view):
+    """{名前: 手元の配信の材料の本数}(ソロと見た配信の文書。ショート・評価用・YouTube から取った音の文書は数えない)。voicefetch が取る人を選ぶ"""
+    out = {}
+    for tid, path, doc in view.docs(need_media=False):
+        src = doc.get("sourcePath")
+        if voicefill.eval_like(src) or voicefill.in_learn_dir(src):
+            continue
+        who, song = _solo_of(path, doc)
+        if who and not song:
+            out[who] = out.get(who, 0) + 1
+    return out
+
+
 def people(view):
     """誰の声の材料のある人の名前(ソロと見た文書の配信者・覚えた声の登録簿の人)。voicefetch が材料の無い人を選ぶ"""
     out = set()

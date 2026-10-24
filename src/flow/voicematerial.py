@@ -145,6 +145,7 @@ def roster_data():
 
 
 NOT_JP_GROUPS = ("units", "alum")   # 人でない組・卒業の組(と EN・ID の組 en_* / id*)は日本の今のメンバーに数えない
+LEFT_OUT_GROUPS = ("announcer",)    # 誰の声に入れない組(ホロアナ。10-25 ユーザー: EN・ID と一緒に外す = 取らない・カードに出さない)
 
 
 def jp_members(raw=None):
@@ -153,16 +154,21 @@ def jp_members(raw=None):
     out = []
     for g in raw.get("groups") or ():
         gid = str((g or {}).get("id") or "")
-        if gid in NOT_JP_GROUPS or gid.startswith(("en_", "id")):
+        if gid in NOT_JP_GROUPS or gid in LEFT_OUT_GROUPS or gid.startswith(("en_", "id")):
             continue
         out += [n for n in g.get("names") or () if isinstance(n, str) and n not in out]
     return out
 
 
 def foreign_members(raw=None):
-    """EN・ID の組の人の名前(誰の声のカードに出さない)"""
+    """EN・ID の組とホロアナの人の名前(誰の声のカードに出さない)"""
     raw = roster_data() if raw is None else raw
-    return {n for g in raw.get("groups") or () if str((g or {}).get("id") or "").startswith(("en_", "id")) for n in g.get("names") or () if isinstance(n, str)}
+    out = set()
+    for g in raw.get("groups") or ():
+        gid = str((g or {}).get("id") or "")
+        if gid.startswith(("en_", "id")) or gid in LEFT_OUT_GROUPS:
+            out.update(n for n in g.get("names") or () if isinstance(n, str))
+    return out
 
 
 def member(name):

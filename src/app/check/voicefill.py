@@ -36,8 +36,9 @@ FETCH_DIR_NAME = "voice-fetch"   # YouTube から取った誰の声の材料の�
 
 
 def eval_like(path):
-    """評価用データの写し(ファイルの名前に「評価用」。学習用データに混ざっている)か = 声の材料にしない(評価の答えを学習に混ぜない。10-25)"""
-    return "評価用" in os.path.basename(str(path or ""))
+    """評価用データ(ファイルかフォルダの名前に「評価用」。学習用データに混ざった写し・評価用_仮置き など)か = 声の材料にしない
+    (評価の答えを学習に混ぜない。10-25)"""
+    return any("評価用" in p for p in os.path.normpath(str(path or "")).split(os.sep))
 
 
 def in_learn_dir(path):
