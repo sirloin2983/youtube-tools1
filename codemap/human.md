@@ -47,11 +47,11 @@
 ## src/human/friend/
 
 - **__init__.py** (2 行) — ③ 友人: 受付(Dropbox)→ まとめて実行(②)に流す → 届ける。友人の返事・送り返し・ライブの依頼の結びつき
-- **bugs.py** (496 行) — ③ 人の層: 友人の PC の不具合の書き出しを受け取って仕分けし、要対応があれば Claude Code を画面なしで 1 回起こす(10-25 ユーザーの OK。
-  - 名前: `bugs_dir` :128・`parse` :136・`triage` :149・`kind_of` :178・`records` :203・`scan` :213・`ask` :272・`find_claude` :303・`repo_root` :313・`wake` :377・`pick` :443
+- **bugs.py** (583 行) — ③ 人の層: 友人の PC の不具合の書き出しを受け取って仕分けし、要対応があれば Claude Code を画面なしで 1 回起こす(10-25 ユーザーの OK。
+  - 名前: `bugs_dir` :135・`parse` :143・`triage` :156・`kind_of` :185・`records` :210・`scan` :220・`delivered` :280・`guard` :318・`friend_first` :335・`ask` :359・`find_claude` :390・`repo_root` :400・ほか 2
 - **friend_feedback.py** (118 行) — 友人の「要らない」を PC 側で片付ける(notes:docs/spec/friend.md の 2-14。ユーザー「不採用の場合こちらにフィードバック」)。
   - 名前: `record_delivery` :24・`find_delivery` :29・`apply` :82
-- **intake.py** (823 行) — 友人からの依頼の受付(notes:docs/spec/friend.md)。
+- **intake.py** (838 行) — 友人からの依頼の受付(notes:docs/spec/friend.md)。
   - 名前: `configured_folder` :78・`out_dir_of` :89・`submit_urls` :94・`submit_file` :118・`youtube_id` :128・`parse_lines` :134・`decode_text` :160・`probe_video` :174・`youtube_info` :186・`parse_ranges` :234・`class Intake` :263
 - **live_requests.py** (22 行) — 友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend.md の 2-15)。
   - 名前: `settings_label` :19
