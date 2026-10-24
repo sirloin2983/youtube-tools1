@@ -7,6 +7,8 @@
 - **__init__.py** (2 行) — 入口と画面。起動・1 つのポート・API の配線・設定の画面の API。全部の層を使ってよい
 - **autorun.py** (471 行) — まとめて実行(統合計画の段階5)。入口の「案件」の画面から、配信1本ぶんの作業を順に自動で流す。
   - 名前: `class ToolClient` :102・`spec_from_settings` :175・`live_auto_origin` :193・`class AutoRunner` :204
+- **homereq.py** (98 行) — ホームの「友人の依頼」(10-24。ホームの見直しの 1・5): 受付の記録(human/friend/intake の snapshot の requests)に、
+  - 名前: `rows` :77
 - **live.py** (496 行) — リアルタイム切り抜き(線 D。notes:plan/line-d-live-clipping.md の 0)の入口の側。**既定はオフ**(ホームの設定の節 live.enabled)。
   - 名前: `studio_review` :98・`studio_audio` :105・`studio_lag` :123・`class Live` :132
   - 受ける口: `/api/peaks` :251・`/api/exports` :258・`/api/info` :270・`/api/begin` :306・`/api/export` :309・`/api/export/cancel` :318・`/api/archive/cancel` :320・`/api/archive` :323
@@ -137,6 +139,7 @@
 - tests/app/test_check_api.py — 入口の「確かめる」の口(GET api/check/next・POST api/check/answer(undo も)・skip・flush。V1 の V0)のつなぎ。
 - tests/app/test_check_page.py — 確かめる(/check。src/app/ui/check/)の配り方の安全の境目のテスト。  python -m unittest tests/app/test_check_page.py -v
 - tests/app/test_deliver_api.py — 入口の ytt_api("deliver") の受け渡し(src/app/server.py の PortalServer.ytt_api)のテスト。deliver の本体のテストは tests/flow/test_deliver.py。
+- tests/app/test_homereq.py — ホームの「友人の依頼」の行(src/app/homereq.py): 受付の記録と実行の記録を結んで、札・済んだ・案件の画面への道を決める。
 - tests/app/test_intake_prefs.py — 入口の設定 prefs の intake の節(src/app/prefs.py。入口の側に残した検査)。intake の本体のテストは tests/human/friend/test_intake.py。
 - tests/app/test_launch.py — 入口(src/app/server.py)のテスト。  python -m unittest tests/app/test_launch.py -v
 - tests/app/test_live.py — リアルタイム切り抜き(線 D の P1)の入口の側(src/app/live.py・prefs の節 live・server.py の /live/…・「調子」の行)のテスト。
