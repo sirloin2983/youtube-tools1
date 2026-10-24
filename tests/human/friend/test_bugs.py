@@ -50,12 +50,17 @@ class BugsTest(unittest.TestCase):
         self.spawned.append((cmd, cwd, out, p))
         return p
 
-    def put(self, codes, facts=None, rid="20261024-193027-fe9dc7", at=None):
+    def put(self, codes, facts=None, rid="20261024-193027-fe9dc7", at=None, trigger="error", shot=False):
         at = at or int(self.now * 1000) - 60000
-        n = "%s__bug-%d.bug.json" % (rid, at)
+        n = "%s__state-%d.state.json" % (rid, at)
         p = os.path.join(self.sync, B.IN_DIR, n)
+        d = {"v": 1, "kind": "state", "at": at, "trigger": trigger, "codes": codes, "facts": facts or {}, "summary": "s", "app": {"version": "0.99.1"}}
+        if shot:
+            d["shot"] = n[:-len(B.SUFFIX)] + ".png"
+            with open(os.path.join(self.sync, B.IN_DIR, d["shot"]), "wb") as f:
+                f.write(b"\x89PNG")
         with open(p, "w", encoding="utf-8") as f:
-            json.dump({"v": 1, "kind": "bug", "at": at, "codes": codes, "facts": facts or {}, "summary": "s"}, f)
+            json.dump(d, f)
         os.utime(p, (self.now - 60, self.now - 60))
         return n
 
@@ -69,6 +74,26 @@ class BugsTest(unittest.TestCase):
         self.assertEqual(B.triage({"codes": ["yt_fetch_retry"], "facts": {"delivered": False}})[0], "needs")
         self.assertEqual(B.triage({"codes": ["what_is_this"]})[0], "needs")
         self.assertEqual(B.triage({"codes": []})[0], "needs")
+        self.assertEqual(B.triage({"codes": ["unknown"], "trigger": "periodic"})[0], "material")
+        self.assertEqual(B.triage({"codes": ["yt_fetch_retry"], "trigger": "ask"})[0], "needs")
+
+    def test_material_and_shot(self):
+        n = self.put(["unknown"], trigger="trouble")
+        m = self.put(["unknown"], at=int(self.now * 1000) - 30000, shot=True)
+        self.scan()
+        recs = {x["name"]: x for x in B.records(self.app)}
+        self.assertEqual(recs[n]["state"], "material")
+        self.assertNotIn("ai", recs[n])
+        self.assertEqual(recs[m]["appVersion"], "0.99.1")
+        self.assertTrue(os.path.isfile(os.path.join(self.app, B.BUGS_DIR, B.RAW_DIR, recs[m]["shot"])))
+        self.assertEqual(len(self.spawned), 1)
+
+    def test_ask_marker(self):
+        p = B.ask(self.sync, "録画の前後", clock=self.clock)
+        self.assertEqual(os.path.dirname(p), os.path.join(self.sync, B.IN_DIR, B.ASK_DIR))
+        with open(p, encoding="utf-8") as f:
+            d = json.load(f)
+        self.assertEqual((d["v"], d["note"], d["id"] + ".ask.json"), (1, "録画の前後", os.path.basename(p)))
 
     def test_known_only_marks_handled_without_ai(self):
         n = self.put(["yt_fetch_retry"])
@@ -153,7 +178,7 @@ class BugsTest(unittest.TestCase):
             os.environ.pop(B.SWITCH_ENV, None)
 
     def test_broken_and_prune(self):
-        p = os.path.join(self.sync, B.IN_DIR, "app__bug-1792899990000.bug.json")
+        p = os.path.join(self.sync, B.IN_DIR, "app__state-1792899990000.state.json")
         with open(p, "w", encoding="utf-8") as f:
             f.write("{not json")
         os.utime(p, (self.now - 60, self.now - 60))

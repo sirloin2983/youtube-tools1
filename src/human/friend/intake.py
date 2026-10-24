@@ -42,7 +42,7 @@ from flow.deliver import BAD_NAME_CHARS, OUT_DIR   # ファイル名に使えな
 from flow import spec as _spec   # 区間・重みの理由つきの検査(まとめて実行と同じ。opt-human 9b-2)
 from ytt import colors, fsio, names as ytt_names, normalize, schemas, studio_env, tools, yturl
 from . import live_requests  # noqa: E402  (ライブ配信の依頼の設定の検査と一覧の文。結びつきは入口が live_begin= で渡す Live.submit_request が書く。2-15)
-from . import bugs  # noqa: E402  (友人の不具合の書き出し 診断\ の *.bug.json を仕分けて、要対応なら AI を起こす。10-25)
+from . import bugs  # noqa: E402  (友人の不具合の書き出し 診断\ の *.state.json を仕分けて、要対応なら AI を起こす。10-25)
 from . import returns  # noqa: E402  (友人の送り返し 送り返し\ の zip と採否を app/friend-returns へ並べる。F1 の F2)
 
 VIDEO_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v")

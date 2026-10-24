@@ -2,10 +2,13 @@
 """③ 人の層: 友人の PC の不具合の書き出しを受け取って仕分けし、要対応があれば Claude Code を画面なしで 1 回起こす(10-25 ユーザーの OK。
 notes:plan/友人の不具合の自動対応-1025.md)。
 
-- 届く物: 友人のアプリが書く `<依頼 id か app>__bug-<ミリ秒 13 桁>.bug.json`(friendapp の同期が診断と同じ Dropbox の /診断/ へ上げる。
-  ユーザーの PC では受付のフォルダ(intake.folder)の `診断\\`)。元は動かさない(/診断/ の 3 日より古い物は友人の側が消す)
+- 届く物: 友人のアプリが書く状態の書き出し `<依頼 id か app>__state-<ミリ秒 13 桁>.state.json`(と、エラーのときの画像 `shot`。
+  friendapp の同期が診断と同じ Dropbox の /診断/ へ上げる。ユーザーの PC では受付のフォルダ(intake.folder)の `診断\\`)。
+  元は動かさない(/診断/ の 3 日より古い物は友人の側が消す)。足りなければ ask が `診断\\送って\\<id>.ask.json` を置き、友人の PC が
+  trigger ask で手元の分(local)ごと送ってくる
 - 仕分け(AI なし。triage): 原因が分かっている形(KNOWN = YouTube から中身が届かず自動のやり直しに乗った・候補 0 件で埋めた・同じ物の重複)
-  だけなら「対応済み」(handled)の印だけ。知らない形・友人の依頼が自動のやり直しでも届かなかった物(NEEDS)は「要対応」(needs)
+  だけなら「対応済み」(handled)の印だけ。知らない形・友人の依頼が自動のやり直しでも届かなかった物(NEEDS)・送ってへの返事は「要対応」(needs)。
+  trigger が MATERIAL(困っている合図・定期・依頼の終わり)の物は「材料」(material)= AI は起こさず、次に起こした AI が読む
 - 一覧: 作業データの `<app>\\friend-bugs\\<書き出しの名前>.json`(1 件 1 ファイル = 受け取った時刻・仕分け・AI の結果)と、
   元の写し `raw\\`・AI の記録 `ai\\`。どれも KEEP_DAYS(3 日)で消す
 - AI を起こす(wake): 要対応で AI がまだの物があれば、Claude Code(find_claude = Claude-Data の一番新しい版の claude.exe)を
@@ -31,8 +34,12 @@ from ytt import fsio, procs, tools
 BUGS_DIR = "friend-bugs"            # <app>/friend-bugs/
 RAW_DIR, AI_DIR = "raw", "ai"
 IN_DIR = "診断"                     # 受付のフォルダの下(Dropbox の /診断/)
-SUFFIX = ".bug.json"
-NAME_RE = re.compile(r"^([0-9A-Za-z_-]{1,64})__bug-(\d{13})\.bug\.json\Z")
+SUFFIX = ".state.json"
+NAME_RE = re.compile(r"^([0-9A-Za-z_-]{1,64})__state-(\d{13})\.state\.json\Z")
+SHOT_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}__state-\d{13}\.png\Z")   # 画像(状態と同じ頭)
+ASK_DIR = "送って"                  # 診断\送って\<id>.ask.json(受け取り側が置く・友人側が返したら消す)
+MAX_SHOT = 4 * 1024 * 1024
+MATERIAL = ("trouble", "periodic", "request_end")   # 仕分けの材料だけの trigger(AI は起こさない)
 MAX_BYTES = 1024 * 1024
 SETTLE_SEC = 5                      # 更新から何秒たった物を受け取るか(同期の途中を触らない)
 KEEP_DAYS = retention.KEEP_DAYS
@@ -59,6 +66,8 @@ PROMPT = """あなたは youtube-tools の道具が自動で起こした Claude 
 返事と書く物は全部日本語。最初に `py -3.12 dev/session_start.py` で今の状態を見て、AGENTS.md・CLAUDE.md の決まりに従います。
 
 書き出しの写し(読むだけ): {files}
+同じ場所(raw)にある材料(trigger が trouble・periodic・request_end の物)と画像(.png)も、関係があれば読みます。
+足りない情報があれば `py -3.12 dev/friend_ask.py --note "<何が要るか>"` で友人の PC に状態を送ってもらえます(届くのは後。次の回で読まれる)。
 結果のファイル(必ず書く): {result}
 
 守ること(必ず):
@@ -92,8 +101,8 @@ def _now_ms(clock):
 def parse(raw):
     """書き出しの JSON の文字 → 辞書(形が違えば ValueError)"""
     d = json.loads(raw)
-    if not isinstance(d, dict) or d.get("kind") != "bug":
-        raise ValueError("kind が bug ではありません")
+    if not isinstance(d, dict) or d.get("kind") != "state":
+        raise ValueError("kind が state ではありません")
     codes = d.get("codes")
     if codes is not None and (not isinstance(codes, list) or not all(isinstance(c, str) for c in codes)):
         raise ValueError("codes が文字の並びではありません")
@@ -103,7 +112,12 @@ def parse(raw):
 
 
 def triage(d):
-    """仕分け: (handled か needs, 理由の文)。KNOWN の印だけなら handled・NEEDS か知らない印か印なし・届かなかった・やり直しを諦めた なら needs"""
+    """仕分け: (handled・needs・material, 理由の文)。trigger が MATERIAL なら material・ask(送ってへの返事)なら needs・
+    KNOWN の印だけなら handled・NEEDS か知らない印か印なし・届かなかった・やり直しを諦めた なら needs"""
+    if d.get("trigger") in MATERIAL:
+        return "material", "仕分けの材料(%s)" % d["trigger"]
+    if d.get("trigger") == "ask":
+        return "needs", "送ってへの返事"
     codes = [c for c in (d.get("codes") or []) if isinstance(c, str)]
     facts = d.get("facts") if isinstance(d.get("facts"), dict) else {}
     retry = facts.get("retry") if isinstance(facts.get("retry"), dict) else {}
@@ -173,15 +187,34 @@ def _receive(src, app_dir, clock, log):
                 raw = f.read(MAX_BYTES + 1)
             d = parse(raw.decode("utf-8"))
             rec["state"], rec["why"] = triage(d)
+            app = d.get("app") if isinstance(d.get("app"), dict) else {}
             rec.update(summary=str(d.get("summary") or "")[:300], codes=[c[:40] for c in d.get("codes") or []][:20],
-                       rid=str(d.get("rid") or "")[:64], appVersion=str(d.get("appVersion") or "")[:40])
+                       rid=str(d.get("rid") or "")[:64], trigger=str(d.get("trigger") or "")[:20], appVersion=str(app.get("version") or "")[:40])
             os.makedirs(os.path.join(bugs_dir(app_dir), RAW_DIR), exist_ok=True)
             fsio.atomic_write(os.path.join(bugs_dir(app_dir), RAW_DIR, n), raw)
+            shot = d.get("shot")
+            sp = os.path.join(src, shot) if isinstance(shot, str) and SHOT_RE.match(shot) else ""
+            if sp and os.path.isfile(sp) and os.path.getsize(sp) <= MAX_SHOT:
+                with open(sp, "rb") as f:
+                    fsio.atomic_write(os.path.join(bugs_dir(app_dir), RAW_DIR, shot), f.read())
+                rec["shot"] = shot
         except (ValueError, UnicodeDecodeError, OSError) as e:
             rec["state"], rec["why"] = "broken", "読めない書き出し: %s" % str(e)[:200]
         os.makedirs(bugs_dir(app_dir), exist_ok=True)
         fsio.write_json(_record_path(app_dir, n), rec)
-        log("友人の不具合の書き出しを受け取りました: %s(%s: %s)" % (n, {"handled": "対応済み", "needs": "要対応", "broken": "壊れている"}[rec["state"]], rec["why"]))
+        log("友人の不具合の書き出しを受け取りました: %s(%s: %s)" % (n, {"handled": "対応済み", "needs": "要対応", "material": "材料", "broken": "壊れている"}[rec["state"]], rec["why"]))
+
+
+def ask(sync_folder, note="", clock=None):
+    """友人の PC に「送って」(状態と手元の分を送ってもらう)の印を置く -> 置いたファイルのパス(⑧。友人側は trigger ask で返し、印を消す)"""
+    clock = clock or time.time
+    at = _now_ms(clock)
+    aid = "ask-%d" % at
+    d = os.path.join(sync_folder, IN_DIR, ASK_DIR)
+    os.makedirs(d, exist_ok=True)
+    p = os.path.join(d, aid + ".ask.json")
+    fsio.write_json(p, dict({"v": 1, "id": aid, "at": at}, **({"note": str(note)[:300]} if note else {})))
+    return p
 
 
 def _prune(app_dir, clock):
