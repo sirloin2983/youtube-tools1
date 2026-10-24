@@ -28,6 +28,9 @@ def extra_counter(rows):
     """効いている答えの行 -> f(目標の id, 直近の測定の時刻 ms か None) -> その目標に足す数"""
     per = {}
     for r in rows:
+        ans = r.get("answer")
+        if isinstance(ans, dict) and ans.get("choice") == "shift":   # 読みのカードの「区間がずれている」= 判定ではない(数えない)
+            continue
         gid = goal_of(r.get("kind"), r.get("source"))
         if gid:
             per.setdefault(gid, []).append(r)

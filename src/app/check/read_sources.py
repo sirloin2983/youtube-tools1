@@ -75,7 +75,7 @@ def _cards(view, tier):
                 "guess": None, "options": [{"id": "1", "text": text}, {"id": "2", "text": _replaced(text, x)}], "note": note,
                 "score": len(x["wrong"]) + len(x["right"]),
                 "_cand": {"i": x["i"], "wrong": x["wrong"], "right": x["right"], "tier": tier, "also": []},
-                "_order": [len(x["wrong"]) + len(x["right"]), -sources._num(doc.get("updatedAt")), sources._num(g.get("start"))]}))
+                "_order": [len(x["wrong"]) + len(x["right"]), -sources._num(doc.get("updatedAt")), sources._num(g.get("start"))]}, tight=True))
             if len(out) >= sources.MAX_PER_SOURCE:
                 return out
     return out

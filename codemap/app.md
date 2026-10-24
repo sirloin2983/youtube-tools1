@@ -36,8 +36,8 @@
   - 名前: `card_id` :26・`parse_id` :30・`kind_rank` :40・`order` :67・`first` :72・`per_kind` :77・`public` :86・`check_n` :91
 - **read_sources.py** (89 行) — 「確かめる」の読みのカードの出どころ read:alt(V1 の V2b。notes:docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
   - 名前: `read_alt` :84
-- **sources.py** (366 行) — 「確かめる」のカードの出どころ(V1 の V0。notes:docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
-  - 名前: `register` :45・`registered` :59・`class View` :82・`value_auto` :220・`value_cand` :246・`read_fill` :275・`voice_diar` :292・`time_row` :324・`collect` :349
+- **sources.py** (389 行) — 「確かめる」のカードの出どころ(V1 の V0。notes:docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
+  - 名前: `register` :45・`registered` :59・`class View` :82・`value_auto` :243・`value_cand` :269・`read_fill` :298・`voice_diar` :315・`time_row` :347・`collect` :372
 - **speech_sources.py** (66 行) — 「確かめる」の普段のレーンの「この行は声ですか?」カードの出どころ speech:diar(C-EVAL (3))。
   - 名前: `speech_diar` :41
 - **voice_solo.py** (144 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
@@ -64,13 +64,13 @@
 
 ## src/app/ui/check/
 
-- **check.js** (535 行) — 確かめる(/check = 入口の直下の 1 枚。部品は src/app/ui/check/。RS8 V1 = 殻。作り方 notes:docs/design/v1-check-build.md・何を作るか …
-- **player.js** (189 行) — 確かめるのカード用の軽い再生部品(/check-player.js。RS8 V1。作り方 notes:docs/design/v1-check-build.md の 4・5 節)。
+- **check.js** (542 行) — 確かめる(/check = 入口の直下の 1 枚。部品は src/app/ui/check/。RS8 V1 = 殻。作り方 notes:docs/design/v1-check-build.md・何を作るか …
+- **player.js** (216 行) — 確かめるのカード用の軽い再生部品(/check-player.js。RS8 V1。作り方 notes:docs/design/v1-check-build.md の 4・5 節)。
 
 ## src/app/ui/check/cards/
 
 - **cut.js** (68 行) — 確かめるの自動カットのカード(/check-cards/cut.js。CUT-CARD。口は check.js の先頭・出どころは src/app/check/cut_sources.py・反映は src/human/check/cutcard.py)。
-- **read.js** (93 行) — 確かめるのカード「どちらの読みが正しいか」(/check-cards/read.js。V2b)。比べる欄は ui-kit の .ui-pair(3 択と共用)・口は check.js の先頭。
+- **read.js** (98 行) — 確かめるのカード「どちらの読みが正しいか」(/check-cards/read.js。V2b)。比べる欄は ui-kit の .ui-pair(3 択と共用)・口は check.js の先頭。
 - **section.js** (134 行) — 確かめるのカード「区間を聞いて直す(評価用)」(/check-cards/section.js。C-EVAL (2)。口は check.js の先頭・出どころは src/app/check/eval_sources.py・
 - **speech.js** (20 行) — 確かめるのカード「この行は声ですか?」(/check-cards/speech.js。C-EVAL (3)。口は check.js の先頭・反映は src/human/check/speech.py)。
 - **time.js** (107 行) — 確かめるのカード「行の時刻が合っているか」(/check-cards/time.js。RS8 V1 の V2d。作り方 notes:docs/design/v1-check-build.md の 3-2・5 節・決定 3-41)。

@@ -99,6 +99,16 @@ class ReadTest(unittest.TestCase):
         s = self.seg("s1")
         self.assertEqual((s["text"], s["fill"], s["flag"]), ("埋めた文", {"from": "うめたぶん", "by": "llm"}, FLAG + "、要確認"))
 
+    def test_shift_changes_nothing_and_records_no_feedback(self):
+        self.assertEqual(read._check({"choice": "shift", "text": "x"}), {"choice": "shift"})
+        got = apply.answer(self.ctx, card("alt", "s2", CAND), {"answer": {"choice": "shift"}})
+        self.assertTrue(got["ok"])
+        self.assertEqual(self.seg("s2")["text"], "今日は晴れです")
+        self.assertNotIn("feedback", got.get("applied") or {})
+        self.assertFalse(self.fb().get("dismissed"))   # 候補は却下しない(編集の「提案」に残る)
+        apply.undo(self.ctx, got["answer"])
+        self.assertEqual(self.seg("s2")["text"], "今日は晴れです")
+
     def test_fill_typed_text(self):
         apply.answer(self.ctx, card("fill", "s1"), {"answer": {"choice": "other", "text": "梅田分"}})
         s = self.seg("s1")

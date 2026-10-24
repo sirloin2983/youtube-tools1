@@ -201,6 +201,18 @@ def _scene_kinds(cx):
     check(wait_js(pg, "(() => { const v = document.querySelector('#chkBody video'); return v && !v.paused && v.currentTime > 0.4; })()", 10000), "出したら自動で再生(区間の頭から)")
     check(wait_js(pg, "(() => { const v = document.querySelector('#chkBody video'); return v && v.paused && v.currentTime >= 1.6 && v.currentTime < 2.3; })()", 10000),
           "区間の末 + pad で止まる: %s" % pg.evaluate("document.querySelector('#chkBody video').currentTime"))
+    stopped = "(() => { const v = document.querySelector('#chkBody video'); return v && v.paused && v.currentTime >= 1.6; })()"
+    replayed = "(() => { const v = document.querySelector('#chkBody video'); return v && !v.paused && v.currentTime < 1.2; })()"
+    press(pg, "r")
+    check(wait_js(pg, replayed, 5000) and state(pg)["kind"] == "voice", "終わった後の R = 区間の頭から流し直す(答えない)")
+    check(wait_js(pg, stopped, 10000), "流し直しも区間の末で止まる")
+    pg.click("[data-chk-replay]")
+    check(wait_js(pg, replayed, 5000), "[もう一度聞く] のボタンも頭から")
+    check(wait_js(pg, stopped, 10000), "ボタンの流し直しも末で止まる")
+    pg.evaluate("document.activeElement && document.activeElement.blur()")
+    press(pg, "Space")
+    check(wait_js(pg, replayed, 5000), "末で止まった後の Space も頭から(すぐ止まらない)")
+    check(wait_js(pg, stopped, 10000), "Space の再生も末で止まる")
     press(pg, "Enter")
     check(wait_js(pg, "CheckShell.state().kind === 'time'") and fq.answers[-1]["body"]["answer"] == {"choice": "B"}, "再生のあとの Enter = 機械の予想どおり")
     n_before = len(fq.answers)

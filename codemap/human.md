@@ -19,8 +19,8 @@
   - 名前: `class Context` :45・`register` :68・`flush` :206・`answer` :213・`undo` :254・`skip` :275
 - **cutcard.py** (54 行) — 「確かめる」の自動カットのカードの答えの記録(CUT-CARD。決定: plan/opt-eval.md の Q4 自動カットのカード)。
   - 名前: `enabled` :27
-- **read.py** (141 行) — 「確かめる」の読みのカード(どちらの読みが正しいか)の反映(notes:docs/design/v1-check-build.md の 2-2・3-2。import で apply に登録する)。
-  - 名前: `_check` :23・`_tid` :37・`_unflag` :41・`_row_state` :45・`_feedback` :50・`_cand_of` :62・`_apply` :69・`_same` :111・`_revert` :116
+- **read.py** (145 行) — 「確かめる」の読みのカード(どちらの読みが正しいか)の反映(notes:docs/design/v1-check-build.md の 2-2・3-2。import で apply に登録する)。
+  - 名前: `_check` :25・`_tid` :39・`_unflag` :43・`_row_state` :47・`_feedback` :52・`_cand_of` :64・`_apply` :71・`_same` :115・`_revert` :120
 - **section.py** (261 行) — 「確かめる」の評価のレーンの区間カードの反映(C-EVAL (2)。決定 3-47「確かめると評価をまとめる」・3-49 Q2。設計の相談は Fable)。
   - 名前: `enabled` :245
 - **speech.py** (60 行) — 「確かめる」の「この行は声ですか?」の反映(notes:docs/design/v1-check-build.md・C-EVAL (3))。

@@ -21,7 +21,7 @@
      keys(e, card) -> 答え | true | null   殻の keydown から 1 回だけ。答え(object)を返すと殻が送ってすぐ次のカードへ。true = 使ったが答えではない
                        (印を動かすなど。殻が preventDefault)。null = 使わない(殻が再生のキー UIKit.keys.playback に回す)。
                        el の中の <button data-chk-k="A"> を押したときも、同じ keys が {key: 'A', fromButton: true, target: ボタン} で呼ばれる(ボタンとキーは 1 本の道)
-     keybar(card) -> [{k, l}]   下の帯の分(殻が [N 飛ばす][Z 戻す][Space 再生] を後ろに足す)。変わったら ctx.refreshKeys()
+     keybar(card) -> [{k, l}]   下の帯の分(殻が [N 飛ばす][Space 再生][R もう一度聞く][Z 戻す] を後ろに足す。N・Z・R は殻が先に取る = カードで使わない)。変わったら ctx.refreshKeys()
      unmount()        (任意)カードを離れる。ctx.player で作った再生部品は殻が止めて外す
      leave(reason)    (任意)画面を離れた(UIKit.life。'blur' = 隣の窓へ / 'hidden'・'pagehide')
      typingKeys       (任意)true なら入力中(UIKit.keys.isTyping)のキーも keys に渡す(「どちらも違う(打つ)」の欄)
@@ -447,6 +447,7 @@
     if (S.sum) items = [{ k: 'Enter', l: '続ける' }];
     else if (S.cur && S.view && S.view.keybar) { try { items = S.view.keybar(S.cur) || []; } catch (e) { items = []; } }
     if (S.cur) items = items.concat([{ k: 'N', l: '飛ばす' }, { k: 'Space', l: '再生・停止' }]);
+    if (S.cur && replayable()) items.push({ k: 'R', l: 'もう一度聞く' });
     if (S.hist.length) items.push({ k: 'Z', l: '1 つ前に戻す' });
     UIKit.keybar.set(items);
   }
@@ -456,6 +457,11 @@
   function curMedia() {
     for (var i = 0; i < S.players.length; i++) { var m = S.players[i].media && S.players[i].media(); if (m) return m; }
     return null;
+  }
+  /* もう一度聞く(R = 編集の「この行をもう一度聞く」と同じキー。カードのキーより先 = どのカードでも効く。ボタンは再生部品の中) */
+  function replayable() { return S.players.some(function (p) { return p.canReplay && p.canReplay(); }); }
+  function replay() {
+    for (var i = 0; i < S.players.length; i++) if (S.players[i].canReplay && S.players[i].canReplay()) { S.players[i].replay(); return; }
   }
   function viewKeys(e) {
     var v = S.view, r = null;
@@ -474,6 +480,7 @@
       return;
     }
     if (!typing && plain && k === 'N' && S.cur) { e.preventDefault(); skip(); return; }
+    if (!typing && plain && k === 'R' && S.cur && replayable()) { e.preventDefault(); if (!e.repeat) { UIKit.keybar.flash('R'); replay(); } return; }
     if (typing && !(S.view && S.view.typingKeys)) return;
     var r = viewKeys(e);
     if (r && typeof r === 'object') { e.preventDefault(); UIKit.keybar.flash(k); answer(r); return; }

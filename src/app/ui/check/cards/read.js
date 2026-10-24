@@ -1,12 +1,15 @@
 /* 確かめるのカード「どちらの読みが正しいか」(/check-cards/read.js。V2b)。比べる欄は ui-kit の .ui-pair(3 択と共用)・口は check.js の先頭。
    カード: options = [{id: "1", text}, {id: "2", text}]。read:fill は 1 = 後処理のあと・2 = 認識のまま / read:alt は 1 = 今の字幕・2 = その読みを入れた行。
-   答え = {choice: "1" | "2"} か {choice: "other", text: 打った正しい文字}(1 / 2 / 3 で答える。3 = どちらも違う = 入力欄が開き、Enter で決める・Esc でやめる)。
+   答え = {choice: "1" | "2"} か {choice: "other", text: 打った正しい文字}(1 / 2 / 3 で答える。3 = どちらも違う = 入力欄が開き、Enter で決める・Esc でやめる)/
+   {choice: "shift"}(4 = 区間がずれている・ほかの発言が入っている。文字は変えず、行は時刻のカードに回る)。
+   流す区間は行の時刻にきっちり(頭の余白は前の行の終わりまで・末の余白 0 = 次の行の発言を入れない。src/app/check/sources.py の _tight)。
    **文字だけの判定**: 行を校正済みにしない・行の時刻の正解には使わない(反映は src/human/check/read.py)。 */
 (function () {
   'use strict';
   var esc = UIKit.esc;
   var LABELS = { fill: ['後処理のあと', '認識のまま'], alt: ['今の字幕', '2 つ目のエンジン'] };
   var MAX_TEXT = 1000;
+  var SHIFT_TITLE = '流れた区間が行とずれている・次の発言が入っていて読みを決められない(文字は変えず、行の時刻のカードに回します)';
 
   function opts(card) {
     return (Array.isArray(card.options) ? card.options : []).filter(function (x) { return x && typeof x === 'object'; }).slice(0, 2);
@@ -61,7 +64,8 @@
           '<div class="chk-media"><div class="chk-stagebox" data-chk-media></div><div class="chk-info">' + pair(card) +
           (card.note ? '<p class="hint">' + esc(noteText(card)) + '</p>' : '') +
           '<p class="hint">文字だけの判定です(行を校正済みにしない・時刻の正解には使わない)。</p></div></div>' +
-          '<div class="chk-acts">' + CheckCards.btn('1 が正しい', '1', '') + CheckCards.btn('2 が正しい', '2', '') + CheckCards.btn('どちらも違う(打つ)', '3', '') + '</div>' +
+          '<div class="chk-acts">' + CheckCards.btn('1 が正しい', '1', '') + CheckCards.btn('2 が正しい', '2', '') + CheckCards.btn('どちらも違う(打つ)', '3', '') +
+          CheckCards.btn('区間がずれている・ほかの発言が入っている', '4', '').replace('<button ', '<button title="' + esc(SHIFT_TITLE) + '" ') + '</div>' +
           '<div class="chk-type" data-chk-type hidden><label class="hint" for="chkReadText">正しい文字(行の全体を打ち直します)</label>' +
           '<div class="row"><input type="text" id="chkReadText" class="chk-text" data-chk-text maxlength="' + MAX_TEXT + '" value="' + esc(card.text || '') + '" autocomplete="off">' +
           CheckCards.btn('決める', 'Enter', 'primary') + '</div></div>';
@@ -81,10 +85,11 @@
         if (k === 'Escape' && typing) { close(); return true; }
         if (k === '1' || k === '2') { var o = opts(cur)[Number(k) - 1]; return o ? { choice: String(o.id || k) } : null; }
         if (k === '3') { open(); return true; }
+        if (k === '4') return { choice: 'shift' };
         return null;
       },
       keybar: function () {
-        return typing ? [{ k: 'Enter', l: '決める' }, { k: 'Esc', l: 'やめる' }] : [{ k: '1', l: '1 が正しい' }, { k: '2', l: '2 が正しい' }, { k: '3', l: '打つ' }];
+        return typing ? [{ k: 'Enter', l: '決める' }, { k: 'Esc', l: 'やめる' }] : [{ k: '1', l: '1 が正しい' }, { k: '2', l: '2 が正しい' }, { k: '3', l: '打つ' }, { k: '4', l: '区間がずれている' }];
       },
       unmount: function () { cur = null; root = null; ctxRef = null; typing = false; }
     };

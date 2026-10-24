@@ -1,6 +1,8 @@
 """「確かめる」の読みのカード(どちらの読みが正しいか)の反映(notes:docs/design/v1-check-build.md の 2-2・3-2。import で apply に登録する)。
 出どころ: fill = 後処理が直した行(1 = 今の文字・2 = 認識のまま)/ alt = 2 つ目のエンジンの読み(1 = 今の字幕・2 = その読みを入れた行)。
-答え = {choice: "1" | "2" | "other", text?: 打った正しい文字}(other = 画面の 3 のキー)。**文字だけの判定**: 行を校正済み(proofed)にしない・行の時刻には触れない(時刻の正解に使わない)。
+答え = {choice: "1" | "2" | "other" | "shift", text?: 打った正しい文字}(other = 画面の 3 のキー・shift = 4 のキー「区間がずれている・ほかの発言が入っている」)。
+  shift = 何も変えない・候補の採否も記録しない(編集の「提案」に残る)。答えた行は time_row が時刻のカードに回す(読みの答えのある行 = 時刻を確かめる行)。
+  ⑤ の eval_alt・eval_fill は答えを choices で絞るので shift は読み飛ばす・目標の数(eval/check/goals.py)も数えない。**文字だけの判定**: 行を校正済み(proofed)にしない・行の時刻には触れない(時刻の正解に使わない)。
   fill  1 = 何も変えない(後処理の札を残す)/ 2 = 認識のままに戻す(編集の「別の読み」の札と同じ。fill と後処理の印を外す)/ other = 打った文字(fill と印を外す)
   alt  1 = 何も変えない・候補を却下 / 2 = 食い違う所を直す・候補を採る / other = 打った文字・候補を却下
   採否は編集の「提案」と同じ記録(learn-feedback.json の alt の数と dismissed)に残す。当たり率は ⑤ の eval_alt・eval_fill が答えの記録(answers.jsonl)を読んで数える(fill は 1 = 残した・2 = 戻した・打つ = 直した)。
@@ -15,14 +17,14 @@ from ytt import errors as _errors, schemas as _yschemas, txbase as _txbase
 from . import _doc, apply   # 同じ human/check の兄弟
 from human.proof import learn
 
-CHOICES = ("1", "2", "other")
+CHOICES = ("1", "2", "other", "shift")   # shift = 区間がずれている・ほかの発言が入っている(読みは判定しない)
 FILL_FLAG_RE = re.compile(r"^(別の読みで埋めた|名簿の呼び名に直した|話者名を外した)")   # 編集の「別の読み」の札が外す印(src/app/ui/editor/app.js の unfill と同じ)
 TIERS = ("alt",)
 
 
 def _check(ans):
     if not isinstance(ans, dict) or ans.get("choice") not in CHOICES:
-        raise ValueError("choice は 1・2・other のどれかです")
+        raise ValueError("choice は 1・2・other・shift のどれかです")
     if ans["choice"] != "other":
         return {"choice": ans["choice"]}
     text = ans.get("text")
@@ -68,6 +70,8 @@ def _cand_of(card):
 
 def _apply(ctx, card, ans):
     tid, row_id, source, choice = _tid(card), (card.get("target") or {}).get("row"), card.get("source"), ans["choice"]
+    if choice == "shift":   # 区間がずれている = 文字は判定しない(文書も採否の記録も触らない)。行は時刻のカード(app/check/sources.py の time_row)に回る
+        return {"docId": tid, "row": row_id, "source": source, "choice": "shift"}
     if source == "fill" and choice == "1":
         return {"docId": tid, "row": row_id, "source": source, "choice": "1"}   # 後処理の札を残す = 文書は何も変えない
     cand = None if source == "fill" else _cand_of(card)

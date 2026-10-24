@@ -72,6 +72,14 @@ class ReadSourcesTest(unittest.TestCase):
         self.assertEqual((c["_cand"]["wrong"], c["_cand"]["right"], c["_cand"]["i"]), ("晴", "腫", 3))
         self.assertEqual(c["_cand"]["tier"], "alt")
 
+    def test_media_is_tight_to_the_row(self):
+        m = self.cards("alt")[0]["media"]   # s1 = 0〜4・次の行 s2 が 4 から = 末の余白 0(次の発言を入れない)・前の行が無い = 頭の余白はそのまま
+        self.assertEqual((m["start"], m["end"], m["pad"], m["padEnd"]), (0.0, 4.0, 0.5, 0.0))
+
+    def test_tight_clamps_to_neighbours(self):
+        d = {"segments": [{"id": "a", "start": 0.0, "end": 2.0}, {"id": "b", "start": 2.2, "end": 5.0}, {"id": "c", "start": 4.5, "end": 6.0}]}
+        self.assertEqual(sources._tight(d, d["segments"][1], 2.2, 5.0, 0.5), (2.2, 4.5, 0.2))   # 末 = 次の行の頭まで・頭の余白 = 前の行の終わりまで
+
     def test_find_returns_card_with_inner_key(self):
         card = deck.find(self.ctx, "read:alt:%s#s1" % DOC)
         self.assertEqual(card["_cand"]["right"], "腫")   # 答える前の引き直しは内側の鍵も持つ

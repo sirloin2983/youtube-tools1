@@ -194,12 +194,35 @@ class View:
         return [r for r in self.state.effective() if kind is None or r.get("kind") == kind]
 
 
-def _doc_card(view, kind, source, tid, doc, row, pad, extra):
+def _tight(doc, row, a, b, pad):
+    """行の文字・声を確かめるカード(読み・誰の声)の区間: 次の行の発言を入れない。
+    末の余白 0・末は次の行の頭まで(行が重なっていれば詰める)・頭の余白は pad まで、ただし前の行の終わりより前へ出ない。
+    -> (頭, 末, 頭の余白)。並びは文書の segments の順(時刻の順)"""
+    segs = [g for g in doc.get("segments") or () if isinstance(g, dict)]
+    i = next((k for k, g in enumerate(segs) if g is row), -1)
+    if i < 0:
+        return a, b, pad
+    if i + 1 < len(segs):
+        nxt = _num(segs[i + 1].get("start"))
+        if a < nxt < b:
+            b = nxt
+    if i > 0:
+        prev_end = _num(segs[i - 1].get("end"))
+        pad = max(0.0, min(pad, a - prev_end)) if prev_end > 0 else pad
+    return a, b, round(pad, 3)
+
+
+def _doc_card(view, kind, source, tid, doc, row, pad, extra, tight=False):
+    """tight = 行の時刻にきっちり(次の行の発言を入れない。_tight。読み・誰の声のカード)。media.padEnd = 末の余白(無ければ pad と同じ)"""
     case = view.case_of_doc(tid) or {"id": "", "title": str(doc.get("title") or "")[:120]}
     a, b = _num(row.get("start")), _num(row.get("end"))
+    media = {"url": MEDIA % tid, "start": a, "end": b, "pad": pad}
+    if tight:
+        a, b, head = _tight(doc, row, a, b, pad)
+        media.update({"end": b, "pad": head, "padEnd": 0.0})
     card = {"id": lineup.card_id(kind, source, tid, row["id"]), "kind": kind, "source": source, "case": case,
             "target": {"docId": tid, "row": row["id"], "videoId": case["id"] or None},
-            "media": {"url": MEDIA % tid, "start": a, "end": b, "pad": pad}, "text": str(row.get("text") or ""),
+            "media": media, "text": str(row.get("text") or ""),
             "guess": None, "options": [], "score": None, "note": ""}
     card.update(extra)
     return card
@@ -283,7 +306,7 @@ def read_fill(view):
                 continue
             out.append(_doc_card(view, "read", "fill", tid, doc, g, 0.5, {
                 "guess": "1", "options": [{"id": "1", "text": str(g.get("text") or "")}, {"id": "2", "text": f["from"]}],
-                "note": str(f.get("by") or ""), "_order": [-_num(doc.get("updatedAt")), _num(g.get("start"))]}))
+                "note": str(f.get("by") or ""), "_order": [-_num(doc.get("updatedAt")), _num(g.get("start"))]}, tight=True))
             if len(out) >= MAX_PER_SOURCE:
                 return out
     return out
@@ -315,7 +338,7 @@ def voice_diar(view):
             out.append(_doc_card(view, "voice", "diar", tid, doc, g, 0.3, {
                 "guess": voice_mod.guess_for(doc, sp, v, opts), "options": opts, "score": r.get("ratio"),
                 "note": str(v.get("reason") or ""),
-                "_order": [low, 0 if r.get("weak") else 1, novoice, _num(r.get("ratio"), 1.0), margin, -_num(doc.get("updatedAt")), _num(g.get("start"))]}))
+                "_order": [low, 0 if r.get("weak") else 1, novoice, _num(r.get("ratio"), 1.0), margin, -_num(doc.get("updatedAt")), _num(g.get("start"))]}, tight=True))
             if len(out) >= MAX_PER_SOURCE:
                 return out
     return out

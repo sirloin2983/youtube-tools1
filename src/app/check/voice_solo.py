@@ -134,7 +134,7 @@ def voice_solo(view):
                 opts, guess = _options(doc, who, people)
                 out.append(sources._doc_card(view, "voice", SOURCE, tid, doc, g, 0.3, {
                     "guess": guess, "options": opts, "note": SOURCE,
-                    "_order": [-1, rank, i, -sources._num(doc.get("updatedAt")), sources._num(g.get("start"))]}))
+                    "_order": [-1, rank, i, -sources._num(doc.get("updatedAt")), sources._num(g.get("start"))]}, tight=True))
                 got += sec
                 n += 1
     return out
