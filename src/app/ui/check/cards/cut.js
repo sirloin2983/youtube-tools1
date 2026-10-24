@@ -57,6 +57,7 @@
     question: function (card) { return QUESTION[card.source] || '機械のカットの確認'; },
     options: function (card) { return OPTS[card.source] || []; },
     text: false,
+    confine: true,   // 切れ目の自然さを聞く区間が決まっている = 窓の中だけ流す
     mounted: function (card, handle) {
       var v = handle && handle.media ? handle.media() : null, fn = v ? skipper(card, v) : null;
       if (!v || !fn) return null;

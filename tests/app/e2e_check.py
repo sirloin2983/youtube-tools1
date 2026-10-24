@@ -257,6 +257,14 @@ def _scene_kinds(cx):
     check(cx.peaks_hits and "id=a0000000000c" in cx.peaks_hits[0], "波形は transcribe/api/peaks?id=<文書 id>: %s" % cx.peaks_hits[:1])
     check("B1 行の時刻" in pg.text_content("#chkGoal") and "目標に届きました" in pg.text_content("#chkGoal"), "帯はカードの種類の目標(goals): %r" % pg.text_content("#chkGoal"))
     check(wait_js(pg, "!!document.querySelector('[data-chk-tguide]').textContent"), "単語の時刻の候補(api/retime)を点線の参考の印と文で出す: %r" % pg.text_content("[data-chk-tguide]"))
+    tv = "document.querySelector('#chkBody video')"   # 時刻のカード = 窓(0.5〜2.5 秒)の中だけ流す(波形と再生位置を合わせたまま)
+    check(wait_js(pg, "(() => { const v = %s; return v && v.paused && v.currentTime >= 2.3; })()" % tv, 10000), "時刻: 自動再生は窓の末で止まる")
+    pg.evaluate("document.activeElement && document.activeElement.blur()")
+    press(pg, "Space")
+    check(wait_js(pg, "(() => { const v = %s; return v && !v.paused && v.currentTime < 1.2; })()" % tv, 5000),
+          "時刻: 末で止まった後の Space は窓の頭から(窓の外へ出さない): %s" % pg.evaluate("%s.currentTime" % tv))
+    check(wait_js(pg, "(() => { const v = %s; return v && v.paused && v.currentTime >= 2.3 && v.currentTime < 2.8; })()" % tv, 10000),
+          "時刻: 自分で流しても窓の末で止まる: %s" % pg.evaluate("%s.currentTime" % tv))
     press(pg, "ArrowLeft")
     check(wait_js(pg, "CheckShell.state().kind === 'time'") and "ちょうどいい" in pg.text_content("[data-chk-tstate]"), "印を選ぶ前の ← は再生の移動(答えない・印も動かない)")
     press(pg, "h")

@@ -7,10 +7,12 @@
      もう一度聞く = 画面の下のボタン(data-chk-replay)と R。区間の頭(win[0] = 行の頭 - pad)から流し直す。足す余白は無し
      (編集の「この行をもう一度聞く」も行の頭から = 余白 0。カードの pad はカードを作る側が決めた物をそのまま使う)。
      区間の頭へ戻して末で止めるのは、最初の自動再生と もう一度聞く だけ。ほかの Space・L・再生ボタン・シーク・再生バーのクリック・一時停止の後の再生は、
-     今の位置から止めずに流す(行の後ろも聞ける。10-25 ユーザー「もう一度聞くボタンがあるんだから使い分ければいい」)
+     今の位置から止めずに流す(誰の声・声かどうか・価値・読み・区間 = 前後や流れが答えの手がかり。10-25 ユーザー「性質ごとにちゃんと考えて」)。
+     opt.confine(時刻・カット)は窓の中だけ: 窓の外からの再生・窓の外へのシークは窓の頭へ戻し、末で必ず止める
+     (時刻 = 印を動かして端を合わせる波形と再生位置を合わせたまま・カット = 切れ目の自然さを聞く区間が決まっている)
    CheckPlayer.mount(el, media, opt) -> 手
      media = {url: 'transcribe/media?id=…'(入口の直下からの相対。絶対パス・ほかのサイトは断る) | youtube: '<動画 id 11 文字>', start, end, pad, padEnd}(秒。pad 既定 0 = 頭の余白・padEnd = 末の余白(無ければ pad))
-     opt   = {text(字幕 1 行), wave(true = 波形の帯), docId(波形の文書 id), autoplay(既定 true = 出したら自動で再生)}
+     opt   = {text(字幕 1 行), wave(true = 波形の帯), docId(波形の文書 id), autoplay(既定 true = 出したら自動で再生), confine(true = 窓の中だけ流す)}
    手 = {media() = <video> か null(埋め込み), play(), replay()(区間の頭から流し直す), stop(), ended() = 区間の終わりまで 1 度は再生したか, onEnded(fn), range() = [頭, 末](再生する窓),
          marks() = [行の始まり, 行の終わり], setMarks(a, b)(波形の頭・末の印を動かす = 時刻のカード),
          setGuides([頭, 末] | null)(波形に点線の参考の印 = 単語の時刻の候補。時刻のカード), destroy()}
@@ -55,7 +57,8 @@
     var video = null, frame = null, endedOnce = false, endFns = [], raf = 0, timer = 0, endTimer = 0, gone = false, wave = null;
     /* bounded = 区間の頭から流して末で止める再生の最中(最初の自動再生と「もう一度聞く」だけ。10-25 ユーザー「もう一度聞くボタンがあるんだから使い分ければいい」)。
        それ以外の再生ボタン・Space・シーク・再生バーのクリックは、選んだ位置から止めずに流す(区間へ戻さない)。ownSeek = こちらが動かした位置(ユーザーのシークと見分ける) */
-    var bounded = false, ownSeek = false;
+    var bounded = false, ownSeek = false, confine = opt.confine === true;
+    function inWin(t) { return !(win[1] > win[0]) || (t >= win[0] - 0.5 && t < win[1] - 0.05); }
     function seekTo(t) { if (!video) return; ownSeek = true; try { video.currentTime = t; } catch (e) { ownSeek = false; /* 読み込みの途中 */ } }
 
     el.innerHTML = '<div class="chk-player">' +
@@ -78,7 +81,7 @@
       if (video.currentTime < win[1]) return false;
       finish();
       if (!bounded) return false;
-      bounded = false; video.pause();
+      bounded = confine; video.pause();
       return true;
     }
     function armEnd() {
@@ -98,7 +101,11 @@
     /* 区間の頭から流して末で止める(最初の自動再生・もう一度聞く) */
     function playBounded() { if (!video) return; bounded = true; seekTo(win[0]); start(video.play()); }
     /* 再生(Space など): 今の位置から止めずに流す */
-    function play() { if (!video) return; bounded = false; start(video.play()); }
+    function play() {
+      if (!video) return;
+      if (confine) { bounded = true; if (!inWin(video.currentTime)) seekTo(win[0]); } else bounded = false;
+      start(video.play());
+    }
     function stop() { if (video) { try { video.pause(); } catch (e) { /* 無視 */ } } }
     function ytSrc(auto) {
       return 'https://www.youtube-nocookie.com/embed/' + ytId + '?start=' + Math.floor(win[0]) + (win[1] > win[0] ? '&end=' + Math.ceil(win[1]) : '') +
@@ -125,10 +132,18 @@
         if (opt.autoplay !== false) playBounded();
         else if (win[0] > 0) seekTo(win[0]);
       });
-      video.addEventListener('play', function () { say(''); armEnd(); if (!raf) raf = requestAnimationFrame(watch); });
+      video.addEventListener('play', function () {
+        say('');
+        if (confine) { bounded = true; if (!inWin(video.currentTime)) seekTo(win[0]); }   // 窓の外(末で止まった後も)からの再生 = 窓の頭から
+        armEnd(); if (!raf) raf = requestAnimationFrame(watch); });
       video.addEventListener('playing', armEnd);
-      video.addEventListener('pause', function () { if (!video.ended && video.currentTime < win[1]) bounded = false; });   // ユーザーの一時停止の後は止めずに流す
-      video.addEventListener('seeked', function () { if (!ownSeek) bounded = false; ownSeek = false; armEnd(); });   // ユーザーのシーク = 止めずに流す
+      video.addEventListener('pause', function () { if (!confine && !video.ended && video.currentTime < win[1]) bounded = false; });   // ユーザーの一時停止の後は止めずに流す
+      video.addEventListener('seeked', function () {   // ユーザーのシーク = 止めずに流す(confine は窓の中へ戻す)
+        var mine = ownSeek; ownSeek = false;
+        if (!mine && confine && !inWin(video.currentTime) && video.currentTime < win[1]) seekTo(win[0]);
+        else if (!mine && confine && video.currentTime >= win[1] - 0.05) seekTo(Math.max(win[0], win[1] - 0.1));
+        else if (!mine && !confine) bounded = false;
+        armEnd(); });
       video.addEventListener('ratechange', armEnd);
       video.addEventListener('timeupdate', atEnd);
       video.addEventListener('ended', finish);

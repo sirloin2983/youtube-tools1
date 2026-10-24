@@ -82,7 +82,7 @@
             '<div class="chk-acts">' + acts() + '</div>';
           var m = card.media || {};
           if (spec.media !== false && (m.url || m.youtube)) {
-            handle = ctx.player(el.querySelector('[data-chk-media]'), card.media, { text: spec.text === false ? '' : card.text, wave: !!spec.wave, docId: card.target && card.target.docId });
+            handle = ctx.player(el.querySelector('[data-chk-media]'), card.media, { text: spec.text === false ? '' : card.text, wave: !!spec.wave, docId: card.target && card.target.docId, confine: !!spec.confine });
             if (spec.mounted) unbind = spec.mounted(card, handle) || null;
           }
         },

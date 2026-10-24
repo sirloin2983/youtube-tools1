@@ -71,7 +71,7 @@
           CheckCards.btn('末がずれている', 'E') + CheckCards.btn('両方', 'B') + '</div>';
         var m = card.media || {};
         if (m.url || m.youtube) {
-          st.handle = ctx.player(el.querySelector('[data-chk-media]'), card.media, { text: card.text, wave: true, docId: card.target && card.target.docId });
+          st.handle = ctx.player(el.querySelector('[data-chk-media]'), card.media, { text: card.text, wave: true, docId: card.target && card.target.docId, confine: true });   // 波形の窓の中だけ流す(窓の外へ出ると波形と再生位置が合わない)
         }
         paint();
         loadGuides(card);
