@@ -51,8 +51,8 @@
   - 名前: `bugs_dir` :149・`parse` :157・`triage` :170・`kind_of` :204・`context` :236・`wrap` :249・`records` :265・`scan` :275・`delivered` :338・`guard` :376・`friend_first` :393・`ask` :417・ほか 4
 - **friend_feedback.py** (118 行) — 友人の「要らない」を PC 側で片付ける(notes:docs/spec/friend.md の 2-14。ユーザー「不採用の場合こちらにフィードバック」)。
   - 名前: `record_delivery` :24・`find_delivery` :29・`apply` :82
-- **intake.py** (846 行) — 友人からの依頼の受付(notes:docs/spec/friend.md)。
-  - 名前: `configured_folder` :82・`out_dir_of` :93・`submit_urls` :98・`submit_file` :122・`youtube_id` :132・`parse_lines` :138・`decode_text` :164・`probe_video` :178・`youtube_info` :190・`parse_ranges` :238・`class Intake` :267
+- **intake.py** (844 行) — 友人からの依頼の受付(notes:docs/spec/friend.md)。
+  - 名前: `configured_folder` :81・`out_dir_of` :92・`submit_urls` :97・`submit_file` :121・`youtube_id` :131・`parse_lines` :137・`decode_text` :163・`probe_video` :177・`youtube_info` :189・`parse_ranges` :237・`class Intake` :266
 - **live_requests.py** (22 行) — 友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend.md の 2-15)。
   - 名前: `settings_label` :19
 - **notify.py** (225 行) — 友人の不具合・更新の知らせを、ツールが読んだその時にまとめ役のセッションへ届ける「知らせだけの軽い起こし」(10-25 ユーザーの決め)。
