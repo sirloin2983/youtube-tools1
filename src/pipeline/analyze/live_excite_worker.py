@@ -85,7 +85,8 @@ LOG_LIMIT = 4 * 1024 * 1024   # 標準出力(入口の logs/excite.log)がこれ
 SEG_TOL = 1.5              # セグメントがつながっているとみなす受信時刻のずれ(秒)
 ANCHOR_TOL = 2             # 測った値の箱の位置が、受信時刻からの位置とこれだけずれるまでは続けて置く(丸めのずれ)
 GAP_MIN = 5                # これより長い飛びを「欠け」として覚える(短い飛びは埋めるだけ)
-GAP_MARGIN = 5             # 欠けの前後この秒数は帳簿に 0 を渡す(山を作らない。仮決め)
+GAP_MARGIN = 5             # 欠けの前後この秒数は帳簿に 0 を渡す(山を作らない。仮決め)。配信の終わりの本数の埋め(QUOTA)も同じ幅を外す
+GAPS_KEEP = 2000           # 本数の埋めのために state.json に残す欠けの数の上限(古い方から捨てる)
 CHAT_GRACE = 40.0          # チャットの続きが来なくても、受信時刻からこれだけたった秒は進める(静かなチャットで止まらない。yt-dlp の書き出しは約 21 秒遅れる = L0 の実測)
 LAG_FIRST, LAG_EVERY, LAG_SPAN, LAG_STEP = 600, 300, 1800, 3   # 遅れの推定(0-10-3 の 4)
 CHAT_LIMIT = 64 * 1024 * 1024    # チャットのファイルがこれを超えたら新しいファイルへ(0-10-5)
@@ -757,6 +758,7 @@ class RecState:
         self.raw = {}               # 秒 -> [全帯域, 2kHz 超, チャット](Online に渡したが、まだ点数が出ていない分)
         self.gaps = []              # [[から, まで)](欠け。帳簿の前後 GAP_MARGIN 秒に使うので、過ぎたものは数だけ残す)
         self.gap_count = 0
+        self.gaps_all = []          # [[から, まで)](欠けの全部。配信中は過ぎた欠けを gaps から捨てるので、締めの本数の埋めはこちらを見る)
         self.skipped = []           # [{from, to, since, until, done, pos?, sec?, capped?}](遅れて飛ばした区間。配信が終わったら測り直す。pos = 測り直したセグメントの数)
         self.late_from = None       # 録画の途中から受け持ったとき、測り始めた秒(それより前は測らない)
         self.last_error = ""        # 最後にログに書いた内部エラー(同じものは 1 回だけ書く)
@@ -780,7 +782,7 @@ class RecState:
         return {"v": 1, "recorder": self.rc, "recording": self.rec, "url": self.url, "first": self.first, "spec": self.spec, "args": self.args,
                 "useChat": self.use_chat, "chatState": self.chat_state, "online": self.online.to_json(), "book": self.book.to_json(),
                 "segSince": self.seg_since, "nextBox": self.next_box, "nextPush": self.next_push, "audio": self.audio, "lastAudio": self.last_audio,
-                "chatBins": self.chat_bins, "chatWm": self.chat_wm, "raw": self.raw, "gaps": self.gaps, "gapCount": self.gap_count,
+                "chatBins": self.chat_bins, "chatWm": self.chat_wm, "raw": self.raw, "gaps": self.gaps, "gapCount": self.gap_count, "gapsAll": self.gaps_all,
                 "skipped": self.skipped, "minute": self.minute, "lagA": self.lag_a, "lagC": self.lag_c, "nextLagAt": self.next_lag_at,
                 "decN": self.dec_n, "chat": self.chat_snap, "chatInfo": self.chat_info, "late": self.late, "errors": self.errors, "ending": self.ending,
                 "bookDone": self.book_done, "finished": self.finished, "message": self.message,
@@ -810,6 +812,7 @@ class RecState:
         st.raw = {int(k): list(v) for k, v in (d.get("raw") or {}).items()}
         st.gaps = [list(x) for x in d.get("gaps") or []]
         st.gap_count = int(d.get("gapCount") or 0)
+        st.gaps_all = [list(x) for x in (d["gapsAll"] if isinstance(d.get("gapsAll"), list) else st.gaps)]   # 無い = 前の版の状態(残っている欠けだけ)
         st.skipped = [dict(x) for x in d.get("skipped") or []]
         st.minute = d.get("minute")
         st.lag_a, st.lag_c = list(d.get("lagA") or []), list(d.get("lagC") or [])
@@ -950,10 +953,12 @@ class RecState:
 
     def add_gap(self, a, b):
         self.gap_count += 1
-        if self.gaps and a <= self.gaps[-1][1]:
-            self.gaps[-1][1] = max(self.gaps[-1][1], b)
-        else:
-            self.gaps.append([a, b])
+        for gs in (self.gaps, self.gaps_all):
+            if gs and a <= gs[-1][1]:
+                gs[-1][1] = max(gs[-1][1], b)
+            else:
+                gs.append([a, b])
+        del self.gaps_all[:-GAPS_KEEP]
 
     def near_gap(self, t):
         return any(a - GAP_MARGIN <= t < b + GAP_MARGIN for a, b in self.gaps)
@@ -1055,6 +1060,9 @@ class RecState:
         if on and have < need:
             cols = read_series(os.path.join(self.folder, "series.jsonl"), self.series_out)
             if cols is not None:
+                for a, b in self.gaps_all:   # 欠けの前後は配信中と同じく 0(帳簿に渡した値。欠けの直後は点数が跳ねやすく、中身の無い場面を埋めないため)
+                    for i in range(max(0, a - GAP_MARGIN), min(cols["n"], b + GAP_MARGIN)):
+                        cols["total"][i] = 0.0
                 added = self.book.fill_quota(cols["total"], cols["full"], {"audio": cols["audio"], "chat": cols["chat"]}, need)
         self.quota = {"need": need, "have": have, "added": len(added), "on": bool(on)}
         return added
