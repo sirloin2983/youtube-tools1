@@ -169,6 +169,9 @@ def main():
                 pg.wait_for_timeout(300)
                 ok &= check(pg.locator("#fileList li").count() == 1, "同じ物(同じ名前・大きさ)をもう一度落としても 1 つのまま")
 
+                ops = rig.app.oplog.recent()
+                ok &= check(any(o["kind"] == "click" for o in ops) and any(o["kind"] == "nav" for o in ops) and any(o["kind"] == "request" for o in ops),
+                            "操作の記録に押した物・画面の移動・依頼の送信が入る(%d 件)" % len(ops))
                 ok &= check(not rig.opened, "フォルダ・窓は開いていない(偽物の口に呼びが無い)")
                 ok &= check(not errors, "画面にエラー(pageerror)が出ていない%s" % ("" if not errors else ": " + errors[0][:120]))
             finally:

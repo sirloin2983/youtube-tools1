@@ -31,6 +31,7 @@
   GET  /api/friend/peek-live?url=         配信中・配信前か(yt-dlp で数秒。ライブなら送る欄の下に 6 つの設定)
   GET  /api/friend/media?id=&name=        1 本の確認用の動画(Range つき)
   POST /api/friend/pick-file              Windows のファイルを選ぶ窓を開く(画面からパスを打たせない)→ {file: {id, name, size, title, streamer, hex} | null}
+  POST /api/friend/ops {ops, screen?}     画面の操作の記録と画面の要約(friendapp/oplog・report。状態の書き出しの材料。返事を待たない)
   POST /api/friend/send                   送る(friendapp/api.py の欄。動画ファイルは fileId・ライブは kind live + live)
   POST /api/friend/decide {items: [{id, name}], verdict: keep|skip|bad, reason?: boring|cut}   受け取る / 見送る / 届かなくてよかった(name の無い項目 = その行の決めていない物の全部)
   POST /api/friend/undo {items}           見送った・届かなくてよかったを 3 日の間は戻す(C-3-6)
@@ -72,7 +73,7 @@ if SRC not in sys.path:
 from flow import colors_api as _colors_api, placement as _placement, runqueue as _runqueue  # noqa: E402
 from ytt import appwindow as _appwindow, autorestart as _autorestart, clientlog_rule as _clientlog_rule, fsio as _fsio, gpuinfo as _gpuinfo, httpsec, version as _version  # noqa: E402
 from friendapp import api as _api, diag as _diag, inbox as _inbox, places as _places, settings as _settings, setup as _setup, streams as _streams, sync as _sync  # noqa: E402
-from friendapp import tidy as _tidy, ytdlp_update as _ytdlp_update  # noqa: E402
+from friendapp import oplog as _oplog, report as _report, tidy as _tidy, ytdlp_update as _ytdlp_update  # noqa: E402
 
 APP_ID = "ytt-friend"
 DEFAULT_PORT = 8720
@@ -87,7 +88,7 @@ STATIC = {"/friend/": ("friend.html", UI_DIR), "/friend/index.html": ("friend.ht
           "/friend/sent.js": ("sent.js", UI_DIR), "/friend/receive.js": ("receive.js", UI_DIR), "/friend/palette.js": ("palette.js", UI_DIR),
           "/friend/friend.css": ("friend.css", UI_DIR), "/friend/ui-kit.js": ("ui-kit.js", UIKIT_DIR), "/friend/ui-kit.css": ("ui-kit.css", UIKIT_DIR),
           "/friend/guide.html": ("guide.html", UI_DIR),   # 説明([?]。本体は別の段が書く = 無ければ 404)
-          "/friend/setup.html": ("setup.html", UI_DIR), "/friend/setup.js": ("setup.js", UI_DIR), "/friend/host.js": ("host.js", UI_DIR),
+          "/friend/setup.html": ("setup.html", UI_DIR), "/friend/setup.js": ("setup.js", UI_DIR), "/friend/host.js": ("host.js", UI_DIR), "/friend/oplog.js": ("oplog.js", UI_DIR),
           "/friend/settings.js": ("settings.js", UI_DIR), "/friend/update.js": ("update.js", UI_DIR), "/friend/settings.css": ("settings.css", UI_DIR)}   # F3-1・F3-5(窓と画面の境目)
 for _n in ("send-ranges", "receive-player"):   # 説明 guide.html の画像(10-24 に 2 枚に減らした)
     STATIC["/friend/guide/%s.png" % _n] = ("guide/%s.png" % _n, UI_DIR)
@@ -381,8 +382,12 @@ class Handler(httpsec.LocalHandler):
 
     def _post(self, path, body):
         app = self.server.app
+        if path == "/api/friend/ops":   # 画面の操作の記録と画面の要約(friendapp/report。まとめて届く・画面は返事を待たない)
+            return self._json(200, {"ok": True, "n": app.report.ui_ops(body)})
         if path == "/api/friend/send":   # F3-3: {rows, skipped}(row = 先頭の行。前の形の呼び手のため)
             got = app.api.send(body)
+            app.report.app_op("request", "send", {"id": got["rows"][0].get("id"), "kind": got["rows"][0].get("kind"), "pc": got["rows"][0].get("pc"),
+                                                   "rows": len(got["rows"]), "skipped": len(got["skipped"])})
             return self._json(200, {"ok": True, "row": got["rows"][0], "rows": got["rows"], "skipped": got["skipped"]})
         if path == "/api/friend/pick-file":   # ファイルを選ぶ窓。1 つずつ(開いている間の 2 つ目は断る)
             if not app.pick_lock.acquire(blocking=False):
@@ -406,13 +411,19 @@ class Handler(httpsec.LocalHandler):
             msgs = app.api.set_prefs({k: body[k] for k in ("pc", "liveSens", "liveWait", "livePad") if k in body})
             return self._json(200, {"ok": True, "message": "。".join(msgs) or "変えるものがありません", "form": app.api.form()})
         if path == "/api/friend/retry":
-            return self._json(200, {"ok": True, "row": app.api.retry(str(body.get("id") or ""))})
+            row = app.api.retry(str(body.get("id") or ""))
+            app.report.app_op("request", "retry", {"id": str(body.get("id") or "")[:64]})
+            return self._json(200, {"ok": True, "row": row})
         if path == "/api/friend/cancel":
-            return self._json(200, {"ok": True, "result": app.api.cancel(str(body.get("id") or ""))})
+            result = app.api.cancel(str(body.get("id") or ""))
+            app.report.app_op("cancel", "cancel", {"id": str(body.get("id") or "")[:64]})
+            return self._json(200, {"ok": True, "result": result})
         if path == "/api/friend/live-settings":   # 録画中のライブの設定を途中で変える(C-2-11)
             return self._json(200, {"ok": True, "row": app.api.update_live(str(body.get("id") or ""), body)})
         if path == "/api/friend/local":   # [この PC でやり直す](A-2)
-            return self._json(200, {"ok": True, "row": app.api.local(str(body.get("id") or ""))})
+            row = app.api.local(str(body.get("id") or ""))
+            app.report.app_op("request", "local", {"id": str(body.get("id") or "")[:64]})
+            return self._json(200, {"ok": True, "row": row})
         if path == "/api/friend/open" and body.get("id"):   # 受け取った物のフォルダ([フォルダを開く]。C-3-8)
             d = app.inbox.saved_dir(str(body.get("id")), str(body.get("name") or ""))
             if not d:
@@ -486,6 +497,7 @@ class Handler(httpsec.LocalHandler):
             return self._json(200, _colors_api.streamer_api(body))
         if path == "/api/ytt/client-log":
             _fsio.append_line(os.path.join(app.places["friend"], "logs", "client-errors.jsonl"), client_log_line(body), CLIENT_LOG_MAX)
+            app.report.ui_ops({"ops": [{"kind": "error", "target": "js", "detail": {"message": str((body if isinstance(body, dict) else {}).get("message") or "")[:200]}}]})
             return self._json(200, {"ok": True})
         return self._fail(404, "not_found", "その操作はありません")
 
@@ -588,6 +600,11 @@ class FriendApp:
         # 診断の記録(friendapp/diag。友人の PC でしか出ない不具合を記録で追う)。② の前の失敗・同期・準備の失敗もここへ
         self.diag = _diag.Diag(places, clock=clock, log=self.log, device_fn=_machine_device)
         self.sync.diag = self.diag
+        # 操作の記録と状態の書き出し(friendapp/oplog・report。友人の不具合を受け取り側が自動で見るため)。書くのは見回り(watch)と同期の回だけ
+        self.oplog = _oplog.OpLog(places["data"], clock=clock, log=self.log)
+        self.report = _report.Reporter(self, places, self.diag, self.oplog, clock=clock, log=self.log)
+        self.diag.on_write = self.report.on_diag
+        self.sync.asks = self.report.answer_asks
         self.inbox.on_fail = lambda r: self.diag.write("error", rid=r.get("id"), summary=(r.get("error") or "").splitlines()[0] if r.get("error") else "",
                                                       detail=r.get("error") or "", stage="before-run", request={"kind": r.get("kind"), "pc": r.get("pc")})
         self.setup.on_fail = lambda msg, detail: self.diag.write("setup", summary=msg, detail=detail, stage="setup")
@@ -871,6 +888,10 @@ class FriendApp:
         last_sweep = last_tidy = 0
         while not self.closing.wait(10):
             now = self.clock()
+            try:
+                self.report.tick()   # 状態の書き出しのきっかけ(印の付いた物を書く・固まったかの見直し・30 分ごと)
+            except Exception as e:   # noqa: BLE001  (書き出しで玄関を止めない)
+                self.log("状態の書き出しの見回りに失敗しました: %s" % e.__class__.__name__)
             if now - last_tidy >= TIDY_EVERY and self.engine is not None:   # 新しい版で起動できたあとの整理(版ごとに 1 回。条件がそろうまで見直す)
                 last_tidy = now
                 try:
@@ -893,6 +914,10 @@ class FriendApp:
                                               maker=_places.is_maker_data(self.places["data"]))
                 except Exception as e:   # noqa: BLE001  (見回りで玄関を止めない)
                     self.log("yt-dlp の取り替えを始められませんでした: %s" % e.__class__.__name__)
+                try:
+                    _tidy.prune_diag(self.places["data"], now)   # 操作の記録・手元の状態の 3 日
+                except Exception as e:   # noqa: BLE001
+                    self.log("操作の記録の片付けに失敗しました: %s" % e.__class__.__name__)
                 try:
                     n = self.inbox.sweep()
                     if n:
@@ -1019,6 +1044,7 @@ def main(argv=None):
         say("ほかの処理(%s)が同じ作業データを使っています。閉じてから開き直してください" % (getattr(e, "info", None) or {}).get("pid"), log)
         return 4
     app.server = srv
+    app.report.started()   # 前回が途中で落ちていれば crash(印は閉じたときに消す)
     url = "http://127.0.0.1:%d/friend/" % port
     log("友人の玄関 v%s: %s(作業データ %s)" % (_version.VERSION, url, pl["data"]))
     threading.Thread(target=app.prepare, name="friend-prepare", daemon=True).start()
@@ -1036,6 +1062,7 @@ def main(argv=None):
     finally:
         app.shutdown()
         srv.server_close()
+        app.report.stopped()
         _placement.release(handle)
     return 0
 

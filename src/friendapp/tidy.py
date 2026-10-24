@@ -591,5 +591,31 @@ class Tidy:
         return True
 
 
+DIAG_DIRS = (os.path.join("diag", "ops"), os.path.join("diag", "local"))   # 操作の記録(friendapp/oplog)と手元に残す状態(friendapp/report)
+
+
+def prune_old_files(folder, days, now):
+    """folder の直下の、最後に書かれてから days 日より古いファイルを消す -> 消した数(フォルダが無い・消せない物は飛ばす)"""
+    n = 0
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return 0
+    for name in names:
+        p = os.path.join(folder, name)
+        try:
+            if os.path.isfile(p) and now - os.path.getmtime(p) >= days * DAY:
+                os.remove(p)
+                n += 1
+        except OSError:
+            continue
+    return n
+
+
+def prune_diag(data_root, now):
+    """操作の記録と手元の状態の 3 日の片付け(玄関の見回りが SWEEP_EVERY ごとに呼ぶ)-> 消した数"""
+    return sum(prune_old_files(os.path.join(data_root, d), CASE_DAYS, now) for d in DIAG_DIRS)
+
+
 def _mb(n):
     return "%.1f GB" % (n / 1e9) if n >= 1e9 else "%d MB" % max(1, round(n / 1e6)) if n >= 1e6 else "%d KB" % max(1, round(n / 1e3))

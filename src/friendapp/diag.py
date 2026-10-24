@@ -31,6 +31,7 @@ from . import inbox as _inbox, places as _places, progress as _progress
 V = 1
 SWITCH_ENV = "YTT_FRIEND_DIAG"
 NAME_RE = re.compile(r"^([0-9A-Za-z_-]{1,64})__diag-(\d{13})\.diag\.json$")
+STATE_NAME_RE = re.compile(r"^([0-9A-Za-z_-]{1,64})__state-(\d{13})\.state\.json$")   # 状態の書き出し(friendapp/report)。同じ箱から /診断/ へ
 SAFE_ID = re.compile(r"^[0-9A-Za-z_-]{1,64}$")
 MAX_BYTES = 128 * 1024              # 1 つの大きさの上限(超えたら道具の行と詳しい文を削る)
 DETAIL_MAX = 4000
@@ -127,10 +128,10 @@ def probe_only(row):
 
 
 def prune_names(names, now_ms):
-    """Dropbox の /診断/ の名前のうち、消す物(3 日より古い・名前が違う物は触らない)"""
+    """Dropbox の /診断/ の名前のうち、消す物(3 日より古い診断と状態の書き出し・名前が違う物は触らない)"""
     out = []
     for n in names:
-        m = NAME_RE.match(n or "")
+        m = NAME_RE.match(n or "") or STATE_NAME_RE.match(n or "")
         if m and now_ms - int(m.group(2)) >= KEEP_SEC * 1000:
             out.append(n)
     return out
@@ -148,6 +149,7 @@ class Diag:
         self._pc = None
         self._lock = threading.Lock()
         self._once = {}
+        self.on_write = None   # 書いたあとに on_write(kind, doc, path)(friendapp/report のきっかけ。玄関が入れる)
 
     @property
     def box(self):
@@ -224,10 +226,16 @@ class Diag:
             if code:
                 doc["code"] = code
             doc.update(fields)
-            return self._put(doc)
+            path = self._put(doc)
         except Exception as e:   # noqa: BLE001  (診断で玄関を止めない)
             self.log("診断を書けませんでした: %s" % e.__class__.__name__)
             return None
+        if self.on_write is not None:
+            try:
+                self.on_write(kind, doc, path)
+            except Exception as e:   # noqa: BLE001
+                self.log("診断のあとの書き出しの印に失敗: %s" % e.__class__.__name__)
+        return path
 
     def once(self, key, every_sec, kind, **kw):
         """同じ key は every_sec 秒に 1 回だけ書く(同期の失敗が 3 分おきに続くとき・合言葉の違い)"""

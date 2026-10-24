@@ -15,7 +15,8 @@
      確認用の動画は先に取って見られるように。zip は [受け取る] のときだけ取り(大きさと content_hash を確かめ)保存先へ展開(zip slip を断る)。
      決めたら /出力/ の zip・確認用の動画・.meta.json を消す
   3. 送り返し: 先に声の材料(friendapp/voicesend。録画中は作らない)を outbox に置く。<data>/app/outbox の zip・.verdict.json・.voice.zip を /送り返し/ へ上げ、上がった物は outbox から消す(失敗は次の回・3 日上がらなければ消す = 6 章)。
-     診断(.diag.json = friendapp/diag)だけは /診断/ へ。/診断/ の 3 日より古い物は DIAG_PRUNE_EVERY 秒に 1 回消す
+     診断(.diag.json = friendapp/diag)と状態の書き出し(.state.json = friendapp/report)だけは /診断/ へ。/診断/ の 3 日より古い物は DIAG_PRUNE_EVERY 秒に 1 回消す。
+     その前に /診断/送って/ の印(受け取り側が置く)に答える(状態を送り返しの箱へ書き、印を消す = friendapp/report.answer_asks)
   4. 学習の束: /学習/latest.json が新しければ /学習/<版>/ を sha256 を確かめて <data>/learning/<版>/ へ・machine の learningDir を向ける・直近 3 版
      (束を作る側の PC = places.is_maker_data では取らない)
   5. 更新(FriendApp.exe との約束。形は friend-apps/launcher/README.txt): exe から動いているとき(YTT_FRIEND_LAUNCHER=1)だけ、/更新/latest.json が
@@ -397,6 +398,8 @@ class Sync:
         self.uploads = {}                       # 上げている動画 {依頼 id: [上げた, 全部]}
         self.diag = None                        # 診断の係(friendapp/diag.Diag。玄関が入れる。None = 同期の失敗を診断に書かない)
         self._diag_pruned = 0.0
+        self.asks = None                        # 「送って」の印への返事 asks(io)(friendapp/report.Reporter.answer_asks。玄関が入れる)
+        self.sent_at = self.arrived_at = None   # 最後に上げた・届いた物を取り込んだミリ秒(状態の書き出しの sync 欄)
 
     # ------------------------------------------------------------ 鍵と口
     def config(self):
@@ -499,7 +502,8 @@ class Sync:
             problems = []
             for label, step in (("ユーザーの PC への依頼", self._requests), ("届いた物", self._intake),
                                 ("確認用の動画", self._previews), ("受け取る", self._receive), ("片付け", self._cleanup),
-                                ("声の材料", self._voice), ("送り返し", self._returns), ("学習", self._learning), ("更新", self._update)):
+                                ("声の材料", self._voice), ("診断の頼み", self._asks), ("送り返し", self._returns), ("学習", self._learning),
+                                ("更新", self._update)):
                 if self._stop.is_set():
                     break
                 try:
@@ -538,6 +542,7 @@ class Sync:
                         continue
                 doc = request_doc("video" if kind == "file" else kind, r["id"], cur["form"], self.clock(), files=files)
                 io.upload_bytes(json.dumps(doc, ensure_ascii=False).encode("utf-8"), self.request_path(r["id"]), overwrite=True)
+                self.sent_at = int(self.clock() * 1000)
                 self.inbox.remote_mark(r["id"], "uploaded")
                 self.log("ユーザーの PC への依頼を上げました: %s" % r["id"])
         for r in self.inbox.remote_rows("uploaded"):
@@ -623,6 +628,7 @@ class Sync:
             item["info"] = parse_meta_info(got[0]) if got and not got[1] else {}
             self.inbox.import_remote(f["rid"], origin, f["title"], [{"preview": pv, "previewSize": files[pv]["size"] if pv else None,
                                                                      "packs": [item]}])
+            self.arrived_at = int(self.clock() * 1000)
             self.log("届いたパックを受信箱に入れました: %s" % name)
         for name, f in sorted(files.items()):
             if f["kind"] != "failure" or not f["rid"]:
@@ -735,12 +741,13 @@ class Sync:
         failed = []
         for name in sorted(os.listdir(box)):
             p = os.path.join(box, name)
-            diag = bool(_diag.NAME_RE.match(name))
+            diag = bool(_diag.NAME_RE.match(name) or _diag.STATE_NAME_RE.match(name))
             if not os.path.isfile(p) or not (RETURN_ZIP_RE.match(name) or VERDICT_NAME_RE.match(name) or NOTICE_NAME_RE.match(name)
                                              or VOICE_NAME_RE.match(name) or diag):
                 continue
             try:
                 io.upload(p, "%s/%s" % (DIAG if diag else RETURNS, name))
+                self.sent_at = int(self.clock() * 1000)
                 fsio.unlink_quiet(p)
                 self.log("送り返しを上げました: %s" % name)
             except _dropbox.DropboxError as e:
@@ -761,6 +768,11 @@ class Sync:
         if live is not None and live.active_count() > 0:
             return
         _voicesend.build(self.places["outbox"], os.path.join(self.places["friend"], _voicesend.SENT_NAME), now=self.clock(), log=self.log)
+
+    def _asks(self, io):
+        """/診断/送って/ の印に答える(返事は送り返しの箱へ = 同じ回の送り返しで上げる)"""
+        if self.asks is not None:
+            self.asks(io)
 
     def _prune_diag(self, io):
         """Dropbox の /診断/ の 3 日より古い診断を消す(名前の時刻で決める。DIAG_PRUNE_EVERY 秒に 1 回)"""
