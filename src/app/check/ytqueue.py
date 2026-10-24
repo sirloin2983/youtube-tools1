@@ -100,7 +100,7 @@ def score(c, chan_of, counts, vstate, done_videos):
     if c["video"] in done_videos:
         return 0.0, 0.0, 0.0
     res = max(0.0, min(1.0, _vm.num(c.get("research"))))
-    who = chan_of.get(str(c.get("channel") or ""))
+    who = chan_of.get(str(c.get("channel") or "")) or (_vm.member(c.get("streamer")) if _vm.member(c.get("streamer")) in chan_of.values() else None)
     voice = 0.0
     title = str(c.get("title") or "")
     if who and not _vm.song_title(title) and not _vm.COLLAB_RE.search(title) and not _vf.SHORT_RE.search(title):
@@ -111,6 +111,51 @@ def score(c, chan_of, counts, vstate, done_videos):
             voice = (_vf.TARGET - have) / float(_vf.TARGET)
     span = (AROUND[0] + AROUND[1]) if c.get("t") is not None else 3 * 3600
     return res, voice, span / 3600.0 * 0.2
+
+
+def _req_voice(q, chan_of, counts, vstate):
+    """研究の audio の頼みが声にも効くか(hint の streamer か channel が、配信の材料が TARGET 本に届かない日本の対象のメンバー)"""
+    if q.get("kind") != "audio":
+        return False
+    hint = q.get("hint") if isinstance(q.get("hint"), dict) else {}
+    who = chan_of.get(str(hint.get("channel") or "")) or _vm.member(hint.get("streamer"))
+    if not who or who not in chan_of.values() or _vm.song_title(str(hint.get("title") or "")):
+        return False
+    return _vf._have(who, counts, vstate) < _vf.TARGET
+
+
+def fill_candidates(app_dir, now, log):
+    """候補の空の欄(channel・title・uploadDate。研究は持っていない)を API で埋めて state の meta に覚える(枠は使わない・1 日 API_DAILY まで)。
+    -> 埋めた数。キーが無い・断られた日は埋めない(点は streamer だけで付ける)"""
+    st = _state(app_dir)
+    today = datetime.date.fromtimestamp(now).isoformat()
+    meta = st.get("meta") if isinstance(st.get("meta"), dict) else {}
+    ids = [c["video"] for c in candidates(app_dir) if not c.get("title") and c["video"] not in meta]
+    n = 0
+    while ids and _api_left(st, today) > 0 and st.get("apiOff") != today:
+        batch, ids = ids[:50], ids[50:]
+        try:
+            infos = _info_api(batch)
+        except ApiError as e:
+            if e.code in _ytapi.FATAL:
+                st["apiOff"] = today
+                log("YouTube の取得の列: API を使えないので、候補の題名は埋めません(%s)" % e.code)
+            break
+        _api_count(st, today, 1)
+        for it in infos:
+            meta[it["id"]] = {"channel": it.get("channel_id"), "title": it.get("title"), "uploadDate": it.get("upload_date")}
+            n += 1
+        for v in batch:
+            meta.setdefault(v, {})   # 消された・非公開 = 空で覚える(もう読まない)
+    st["meta"] = dict(list(meta.items())[-3000:])
+    _save(app_dir, st)
+    return n
+
+
+def _merged(c, meta):
+    """候補に API で埋めた欄を重ねる(候補にある値が先)"""
+    m = meta.get(c["video"]) or {}
+    return dict(c, **{k: m.get(k) for k in ("channel", "title", "uploadDate") if not c.get(k) and m.get(k)})
 
 
 def due(app_dir, now):
@@ -287,6 +332,7 @@ def tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None):
     if busy():
         return None
     _api_infos(app_dir, log, now)
+    fill_candidates(app_dir, now, log)
     ok, _why = due(app_dir, now)
     if not ok:
         return None
@@ -296,7 +342,8 @@ def tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None):
     vstate = _vf._read(vpath)
     done_videos = {x.get("video") for rec in vstate.values() if isinstance(rec, dict) for x in _vf._got(rec)} | set(st.get("cands") or [])
     scored = []
-    for c in candidates(app_dir):
+    meta = st.get("meta") if isinstance(st.get("meta"), dict) else {}
+    for c in (_merged(c, meta) for c in candidates(app_dir)):
         res, voice, cost = score(c, chan_of, counts, vstate, done_videos)
         if res or voice:
             scored.append((res + voice - cost, res, voice, c))
@@ -307,6 +354,7 @@ def tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None):
     res_c = [x for x in scored if x[1] > 0]
     voice_c = [x for x in scored if x[2] > 0]
     dual = next((x for x in scored if x[1] > 0 and x[2] > 0), None)
+    dual_req = None if dual is not None else next((q for q in reqs if _req_voice(q, chan_of, counts, vstate)), None)
     has = {"research": bool(reqs or res_c), "voice": bool(voice_c or voice_todo)}
     if dual is None and not any(has.values()):
         return None
@@ -336,9 +384,9 @@ def tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None):
         _save(app_dir, st)
         log("YouTube の取得の列: 候補 %s(研究 %.2f・声 %.2f)を取りました%s" % (c["video"], res, voice, "(声の材料にも回します)" if sent else ""))
         return "candidate"
-    if turn == "research" and reqs:
-        r = reqs[0]
-        st["lastPurpose"] = "research"
+    if dual_req is not None or (turn == "research" and reqs):
+        r = dual_req or reqs[0]   # 研究の音の頼みで、配信者が材料の少ない日本の対象のメンバー = 両方に効く = 先に
+        st["lastPurpose"] = "both" if dual_req is not None else "research"
         if r["kind"] == "info":
             try:
                 body = {"state": "done", "infos": _info_ytdlp(r["urls"]), "via": "yt-dlp"}

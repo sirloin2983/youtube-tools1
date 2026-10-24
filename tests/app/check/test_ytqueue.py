@@ -70,6 +70,31 @@ class YtQueueTest(unittest.TestCase):
         self.assertEqual(self.calls[-1][0], "cand-RESONLY0001")
         self.assertTrue(os.path.exists(Q.qdir(self.app, "ready.json")))
 
+    def test_research_request_for_needy_member_first(self):
+        """研究の音の頼みで、配信者(hint.streamer)が材料の少ない日本の対象のメンバー = 両方に効く = 声の番でも先に取り、声にも回す"""
+        from pipeline.transcribe import roster
+        self.put_req("r-rev-a", {"purpose": "research", "kind": "audio", "url": "https://www.youtube.com/watch?v=OTHERVIDEO1", "hint": {"streamer": "知らない人"}})
+        self.put_req("r-rev-b", {"purpose": "research", "kind": "audio", "url": "https://www.youtube.com/watch?v=SORAVIDEO01", "hint": {"streamer": "ときのそら"}})
+        st = Q._state(self.app)
+        Q._save(self.app, dict(st, lastPurpose="research"))   # 普通なら声の番
+        with mock.patch.object(roster, "ROSTER", roster.BUNDLED):
+            self.assertEqual(self.tick(NOON, {"ロボ子さん": 2}), "research")
+        self.assertEqual(self.calls[-1][0], "r-rev-b")
+        self.assertEqual(Q._state(self.app)["lastPurpose"], "both")
+        self.assertTrue(os.path.exists(os.path.join(self.app, "check", VF.INBOX_NAME, "SORAVIDEO01.json")))
+
+    def test_candidates_filled_by_api(self):
+        """研究の候補は channel・title・uploadDate が空(streamer だけ)= 列が API で埋めて点を付ける。キーが無ければ streamer だけで"""
+        from pipeline.transcribe import roster
+        self.put_cands([{"video": "SORAFILL001", "t": 500, "channel": None, "title": None, "uploadDate": None, "streamer": "ときのそら", "research": 1.0}])
+        got = {"items": [{"id": "SORAFILL001", "snippet": {"title": "【歌枠】うた", "channelId": SORA, "publishedAt": "2026-08-01T00:00:00Z"}}]}
+        with mock.patch.object(Q._ytapi, "get", lambda path, params: got):
+            self.assertEqual(Q.fill_candidates(self.app, NOON, self.logs.append), 1)
+        self.assertEqual(Q._state(self.app)["meta"]["SORAFILL001"]["title"], "【歌枠】うた")
+        with mock.patch.object(roster, "ROSTER", roster.BUNDLED):
+            self.assertEqual(self.tick(NOON, {"ロボ子さん": 2}), "candidate")   # 研究には効く
+        self.assertIn("声 0.00", self.logs[-1])                                 # 埋めた題名が歌 = 声には効かない
+
     def test_bot_stops_and_ladder(self):
         self.put_req("r1", {"purpose": "research", "kind": "audio", "url": "https://www.youtube.com/watch?v=REQAUDIO001"})
         with mock.patch.object(Q, "_audio", lambda *a: (None, "ERROR: Sign in to confirm you're not a bot")):
