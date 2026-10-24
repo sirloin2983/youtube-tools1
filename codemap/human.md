@@ -29,8 +29,8 @@
   - 名前: `_move` :19・`_check` :27・`_times` :39・`_apply_time` :43・`_revert_time` :65
 - **value.py** (167 行) — 「確かめる」の価値のカード(切り抜く価値があるか = 70 点以上か)の反映(notes:docs/design/v1-check-build.md・決定 3-41)。
   - 名前: `_code` :32・`_msg` :36・`_need` :40・`_auto_check` :50・`_auto_apply` :64・`_auto_revert` :75・`_studio` :87・`_set_status` :94・`_cand_apply` :123・`_cancel_export` :138・`_cand_revert` :153
-- **voice.py** (374 行) — 「確かめる」の誰の声のカード(voice:diar)の答えの形・選択肢・反映・声の覚え直し(notes:docs/design/v1-check-build.md の 3-2・5 節、
-  - 名前: `diar_enabled` :44・`doc_embedding` :66・`registry` :71・`options_for` :86・`guess_for` :107
+- **voice.py** (384 行) — 「確かめる」の誰の声のカード(voice:diar)の答えの形・選択肢・反映・声の覚え直し(notes:docs/design/v1-check-build.md の 3-2・5 節、
+  - 名前: `diar_enabled` :45・`doc_embedding` :67・`registry` :72・`options_for` :87・`guess_for` :108
 
 ## src/human/cut/
 
@@ -77,6 +77,8 @@
   - 名前: `set_context_namer` :30・`check_context_namer` :39・`apply_diarization` :61・`diar_keep_row` :78・`validate_diarize` :170・`single_speaker` :194・`run_diarize` :222・`autodiar_enabled` :274・`autodiar_ready` :279・`autodiar_enqueue` :299・`autodiar_after_transcribe` :331・`is_generic_speaker_name` :418・ほか 7
 - **store.py** (1165 行) — ③ 文書の置き場: 文書を書く唯一の口 commit と機械の層・人の層(層が正 = 文書は組み立て済みの写し・古い写しの読み直し fresh_copy)・保存の錠 saving・
   - 名前: `tx_path` :37・`write_doc` :41・`read_layers` :73・`commit` :114・`layers_for` :171・`fresh_copy` :201・`snapshot` :251・`backup_doc` :259・`sanitize_sub_style` :278・`sanitize_transcript` :291・`doc_length` :373・`good_row` :394・ほか 37
+- **voiceclips.py** (146 行) — 声を覚える材料の短い音(10-24 夜。ユーザー「誰の声をメンバー全員分」・「精度に関係する物は残す」)。
+  - 名前: `root` :29・`index` :41・`clip_path` :55・`media` :64・`make` :73・`timeline_wav` :111
 
 ## src/human/review/
 
@@ -113,5 +115,6 @@
 - tests/human/proof/test_proof_api.py — 校正まわりの API の確かめ(編集の画面の裏の API だけで確かめる)。
 - tests/human/proof/test_retime.py — 行の時刻を単語の時刻に合わせる候補(T1 の簡易版)のテスト(計算は pipeline/transcribe/retime.py・文書を読む包みは human/proof/retime.py)。
 - tests/human/proof/test_smooth.py — 話者の細切れをならす(smooth_labels・smooth_speakers・apply_diarization(smooth)・設定 diarSmooth)のテスト。
+- tests/human/proof/test_voiceclips.py — 誰の声のカードの行の短い音(src/human/proof/voiceclips.py。10-24 夜): 元の動画から行の前後 1 秒を 16kHz の wav に切り出し、
 - tests/human/proof/test_voices.py — 話者の声を覚える(A-3)のサーバー側のテスト。
 - tests/human/review/test_studio.py — human/review/store.py の単体テスト(ネットワーク・ffmpeg 不要)。 実行(リポジトリ直下): py -3.12 -m unittest tests/human/review/test_studio.py

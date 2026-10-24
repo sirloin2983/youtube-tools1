@@ -42,8 +42,8 @@
   - 名前: `register` :47・`registered` :61・`has_media` :80・`class View` :90・`value_auto` :261・`value_cand` :287・`read_fill` :316・`voice_diar` :333・`time_row` :367・`collect` :392
 - **speech_sources.py** (66 行) — 「確かめる」の普段のレーンの「この行は声ですか?」カードの出どころ speech:diar(C-EVAL (3))。
   - 名前: `speech_diar` :41
-- **voice_solo.py** (204 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
-  - 名前: `solo_person` :78・`clip_targets` :180・`voice_solo` :189
+- **voice_solo.py** (206 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
+  - 名前: `solo_person` :80・`clip_targets` :182・`voice_solo` :191
 
 ## src/app/ui/
 
@@ -66,7 +66,7 @@
 
 ## src/app/ui/check/
 
-- **check.js** (594 行) — 確かめる(/check = 入口の直下の 1 枚。部品は src/app/ui/check/。RS8 V1 = 殻。作り方 notes:docs/design/v1-check-build.md・何を作るか …
+- **check.js** (580 行) — 確かめる(/check = 入口の直下の 1 枚。部品は src/app/ui/check/。RS8 V1 = 殻。作り方 notes:docs/design/v1-check-build.md・何を作るか …
 - **player.js** (231 行) — 確かめるのカード用の軽い再生部品(/check-player.js。RS8 V1。作り方 notes:docs/design/v1-check-build.md の 4・5 節)。
 
 ## src/app/ui/check/cards/
@@ -77,7 +77,7 @@
 - **speech.js** (20 行) — 確かめるのカード「この行は声ですか?」(/check-cards/speech.js。C-EVAL (3)。口は check.js の先頭・反映は src/human/check/speech.py)。
 - **time.js** (107 行) — 確かめるのカード「行の時刻が合っているか」(/check-cards/time.js。RS8 V1 の V2d。作り方 notes:docs/design/v1-check-build.md の 3-2・5 節・決定 3-41)。
 - **value.js** (63 行) — 確かめるのカード「価値」(/check-cards/value.js)。口は check.js の先頭。
-- **voice.js** (81 行) — 確かめるのカード「これは誰の声?」(/check-cards/voice.js。V2c。口は check.js の先頭・反映は src/human/check/voice.py)。
+- **voice.js** (98 行) — 確かめるのカード「これは誰の声?」(/check-cards/voice.js。V2c。口は check.js の先頭・反映は src/human/check/voice.py)。
 
 ## src/app/ui/editor/
 
