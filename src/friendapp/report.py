@@ -412,7 +412,7 @@ class Reporter:
             return None
         rid = rid if isinstance(rid, str) and SAFE_ID.match(rid) else None
         now = self.clock()
-        key = (trigger, rid or "app", ask or "")
+        key = (trigger, rid or "app", ask or "", (stage or "") if trigger == "stuck" else "")   # 固まったの段違い(録画が止まった・録画をやり直した record)は別に数える
         with self._lock:
             last = self._last.get(key)
             if trigger != "ask" and last is not None and now - last < DEDUPE_SEC:

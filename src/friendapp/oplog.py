@@ -18,7 +18,7 @@ from ytt import fsio as _fsio
 
 OPS_DIR = os.path.join("diag", "ops")
 UI_KINDS = ("nav", "click", "setting", "error")
-APP_KINDS = ("request", "cancel", "job_start", "job_end")
+APP_KINDS = ("request", "cancel", "job_start", "job_end", "job_retry")   # job_retry = 止まった録画のやり直し(玄関の更新の見回り)
 TARGET_RE = re.compile(r"^[#\[\]A-Za-z0-9_.:=>/\- ]{1,100}$")
 SAFE_VALUE = re.compile(r"^[0-9A-Za-z_.:\-]{1,40}$")
 SECRET_RE = re.compile(r"(?i)key|token|pass|cookie|secret|login|logout|auth")

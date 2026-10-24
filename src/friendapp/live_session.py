@@ -160,6 +160,26 @@ class FriendLive(_ls.LiveSession):
             raise self._down(rc)
         raise _lx.LiveError("録画を止められませんでした(%s)" % (((d or {}).get("message") if isinstance(d, dict) else "") or "HTTP %s" % code), 409)
 
+    def restart_recording(self, rc_id, rec, whole=False):
+        """止まった録画のやり直し(玄関の更新の見回りが呼ぶ)-> "reconnect"・"restarted"・"inactive"・"respawn"・""(できなかった)。
+        ふだんは録画元にその録画の子(取得・ffmpeg)だけを止めてもらう(POST /live/<id>/reconnect = 同じ録画の新しいセッション)。
+        whole か録画元が返事をしないときは、この玄関が起こした録画の部品を PID で止める(見回りが起こし直し、録画中の録画を続きから録る)"""
+        rc = self._ids(rc_id, rec)
+        code = None
+        if not whole:
+            code, d = self.call(rc, "POST", "/live/%s/reconnect" % rec, {}, timeout=10.0)
+            self._recent = None
+            if code == 200:
+                return str((d or {}).get("did") or "") if isinstance(d, dict) else ""
+        own = self._own_proc()
+        if (code is not None and not whole) or own is None:
+            return ""
+        tools.kill_tree(own, wait=5.0)
+        self._recent = None
+        self.wake.set()
+        self.log("ライブ: 録画 %s が止まったので、録画の部品を起こし直します(録画中の録画は続きから)" % rec)
+        return "respawn"
+
     def change_request(self, rc_id, rec, rid, settings):
         """録画中の依頼の設定を差し替える(C-2-11。1 時間の枠・長さ(固定の秒 / 自動 = 場面ごと)・配信後の追加)。
         結びつき(requests.json)を書き換え、検出のワーカーへの config.json もすぐ書く = これから確定・採用・切り出す物から効く

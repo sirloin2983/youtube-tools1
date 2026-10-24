@@ -37,11 +37,11 @@
 - **__init__.py** (2 行) — ① 取り込み: 配信中の録画(recorder・rec_core)と、録画とアーカイブの音の照合(live_align_worker)。YouTube からの取得は export/exporter と analyze/fetch
 - **live_align_worker.py** (133 行) — 音の照合(線 D の P4。notes:plan/line-d-live-clipping.md の 0-9)の子プロセス。**入口のプロセスから import しない
   - 名前: `fail` :34・`read_wav` :39・`next_pow2` :54・`xcorr_valid` :59・`align` :79・`main` :103
-- **rec_core.py** (1098 行) — 録画の中身(線 D の P1。notes:plan/line-d-live-clipping.md の 0・2〜4)。HTTP は recorder.py。
+- **rec_core.py** (1119 行) — 録画の中身(線 D の P1。notes:plan/line-d-live-clipping.md の 0・2〜4)。HTTP は recorder.py。
   - 名前: `class RecError` :97・`to_utc` :108・`rec_spans` :119・`pick_segments` :132・`validate_url` :152・`fetch_title` :174・`folder_state` :193・`parse_playlist` :217・`keep_order` :240・`build_playlist` :261・`read_text` :283・`clean_tmp` :312・ほか 3
-- **recorder.py** (387 行) — 録画の部品(線 D: リアルタイム切り抜きの P1。notes:plan/line-d-live-clipping.md の 0)。入口とは別のプロセスで動く。
-  - 名前: `data_dir` :60・`load_token` :67・`read_settings` :82・`save_folder` :86・`clean_folder` :93・`make_logger` :107・`raise_priority` :131・`class Handler` :143・`class Server` :289・`parse_args` :300・`main` :328
-  - 受ける口: `/api/ping` :183
+- **recorder.py** (391 行) — 録画の部品(線 D: リアルタイム切り抜きの P1。notes:plan/line-d-live-clipping.md の 0)。入口とは別のプロセスで動く。
+  - 名前: `data_dir` :62・`load_token` :69・`read_settings` :84・`save_folder` :88・`clean_folder` :95・`make_logger` :109・`raise_priority` :133・`class Handler` :145・`class Server` :293・`parse_args` :304・`main` :332
+  - 受ける口: `/api/ping` :185
 
 ## src/pipeline/pack/
 

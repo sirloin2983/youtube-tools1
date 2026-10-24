@@ -13,6 +13,8 @@ API(/api/ping 以外は合言葉 `Authorization: Bearer <token>` が要る。tok
   GET  /live/list                         置き場所・空き容量・streamlink の有無・録画の一覧
   POST /live/start  {url, quality?, title?}  録画を始める(配信の前でも、始まるまで待つ)。quality: best|1080p|720p(省略は 1080p)
   POST /live/<id>/stop  {}                 手で止める
+  POST /live/<id>/reconnect  {}            止まった録画の子(取得・ffmpeg)だけを止めて、同じ録画の新しいセッションで続ける(友人の玄関の録画のやり直し)
+                                           -> {recording, did: reconnect|restarted|inactive}
   POST /live/<id>/delete  {}               録画のフォルダを 置き場所/ごみ箱/<日付>/録画/ へ移して一覧から外す(3 日で消える。LD-1。入口の manage/keep/live_cleanup.py だけが呼ぶ。
                                            録画中・配信待ち・つなぎ直し中は 409・使用中で移せなければ 409 = あとでまた呼べる)
   POST /live/<id>/keep  {name}             非公開・見られない配信の録画を 置き場所/非公開の録画/<name>.mp4 の 1 本につないでから、録画のフォルダをごみ箱へ
@@ -275,6 +277,8 @@ class Handler(BaseHTTPRequestHandler):
             m = LIVE_RE.match(u.path)
             if m and m.group(2) == "stop":
                 return self._json(200, {"recording": rec.stop(m.group(1))})
+            if m and m.group(2) == "reconnect":   # 友人の玄関の録画のやり直し(入口の中継は通さない)
+                return self._json(200, rec.reconnect(m.group(1)))
             if m and m.group(2) == "delete":   # P4 の「録画を自動で消す」(入口の中の処理だけが呼ぶ。入口の中継は通さない)
                 return self._json(200, {"ok": True, "deleted": rec.delete(m.group(1))})
             if m and m.group(2) == "keep":   # 非公開・見られない配信の録画を 1 本につないで残す(delete と同じく入口の中の処理だけ)

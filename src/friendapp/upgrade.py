@@ -14,6 +14,8 @@ GET /api/friend/state の swap・verify・rollback で exe に伝えるだけ(�
 - 配布の取り消し: latest.json の版が取ってある版より下がった・cancel に入った・latest.json が無くなった(フォルダは読めた)なら、その版は捨てる
 - 心拍(30 分ごと 1KB)と失敗の知らせ(.fail.json)は送り返しの箱へ(同期が /診断/ へ上げる)。スイッチは診断と同じ
 - 固まり: 依頼の段が、ふだんの時間(段の時間の記録の中央値)の STUCK_FACTOR 倍を超えて進まなければ、その実行を止めて失敗にする(自動のやり直しへ)
+- 止まった録画(状態の書き出しの「1 分増えない」が REC_RETRY_AFTER 秒続く・録画元の状態が recording のまま): 入れ替えが無くても、その録画だけを
+  やり直す(rec_retry)。1 つの録画で REC_RETRY_MAX 回まで・REC_RETRY_GAP 秒あける。配信が終わった・待っている・つなぎ直し中は録画の部品に任せる
 """
 import json
 import os
@@ -42,6 +44,10 @@ STUCK_EVERY = 60
 STUCK_FACTOR = 3
 STUCK_FLOOR = 600                  # ふだんが短い段でもこの秒より前には止めない
 STATS_MIN = 3                      # 段の時間の記録がこれより少なければ目安を作らない(止めない)
+REC_RETRY_AFTER = 150              # 録画の秒が増えない間がこれを超えたらやり直す(録画の部品が自分でつなぎ直す 60 秒を待ってから)
+REC_RETRY_GAP = 300                # 同じ録画のやり直しの間(秒)
+REC_RETRY_MAX = 3                  # 1 つの録画でやり直す回数の上限
+REC_RETRY_KEEP = 24 * 3600         # やり直しの回数の覚えを残す秒
 ROLLBACK_DIR = "/診断/戻して"
 ROLLBACK_RE = re.compile(r"^([0-9A-Za-z_-]{1,64})\.rollback\.json$")
 ROLLBACK_CAP = 16 * 1024
@@ -430,6 +436,53 @@ class Upgrade:
             out.append(rid)
         return out
 
+    # ---------------------------------------------------------------- 止まった録画のやり直し
+    def rec_retry(self, now):
+        """止まった録画だけをやり直す(玄関・ほかの録画・処理は止めない)-> やり直した録画の id"""
+        rep = getattr(self.app, "report", None)
+        live = getattr(getattr(self.app, "engine", None), "live", None)
+        if rep is None or live is None or not hasattr(live, "restart_recording"):
+            return []
+        stuck = {k[1] for k in getattr(rep, "_stuck_on", ()) if isinstance(k, tuple) and len(k) == 2 and k[0] == "rec"}
+        tries = self.state.setdefault("recRetry", {})
+        old = [k for k, t in tries.items() if not isinstance(t, dict) or now * 1000 - (t.get("at") or 0) > REC_RETRY_KEEP * 1000]
+        for k in old:
+            tries.pop(k, None)
+        if not stuck:
+            if old:
+                self._save()
+            return []
+        recs = live.recent() or []
+        healthy = any(r.get("active") and r.get("id") not in stuck for r in recs)
+        inbox = getattr(self.app, "inbox", None)
+        by_rec = {(r.get("live") or {}).get("recording"): r["id"] for r in (inbox.live_rows() if inbox is not None else [])}
+        out = []
+        for r in recs:
+            key = r.get("id")
+            if key not in stuck or not r.get("active") or r.get("state") != "recording":
+                continue   # 配信が終わった・配信を待っている・つなぎ直し中 = 録画の部品に任せる
+            since = (getattr(rep, "_recs", {}).get(key) or {}).get("since")
+            t = tries.get(key) or {}
+            n = int(t.get("n") or 0)
+            if since is None or now - since < REC_RETRY_AFTER or n >= REC_RETRY_MAX or now * 1000 - (t.get("at") or 0) < REC_RETRY_GAP * 1000:
+                continue
+            whole = n >= 1 and not healthy   # つなぎ直しで直らなかった = ほかに録れている録画が無ければ録画の部品ごと
+            try:
+                did = live.restart_recording(r.get("recorder"), key, whole=whole)
+            except Exception as e:   # noqa: BLE001  (1 本の失敗で見回りを止めない)
+                did = ""
+                self.log("止まった録画 %s をやり直せませんでした: %s" % (key, e.__class__.__name__))
+            tries[key] = {"n": n + 1, "at": int(now * 1000), "did": did}
+            sec = int(now - since)
+            self.log("録画 %s が %d 秒増えないのでやり直しました(%d 回目・%s)" % (key, sec, n + 1, did or "できず"))
+            detail = {"recording": key, "requestId": by_rec.get(key), "attempt": n + 1, "max": REC_RETRY_MAX, "did": did, "stillSec": sec}
+            rep.app_op("job_retry", "live", detail)
+            rep.mark("stuck", None, "録画が %d 秒増えないのでやり直しました(%d / %d 回目)" % (sec, n + 1, REC_RETRY_MAX), stage="record", why="recRetry", **detail)
+            out.append(key)
+        if out or old:
+            self._save()
+        return out
+
     # ---------------------------------------------------------------- 見回り(玄関の watch から 10 秒ごと)
     def tick(self):
         now = self.clock()
@@ -450,6 +503,8 @@ class Upgrade:
         if now - self._stuck_at >= STUCK_EVERY:
             self._stuck_at = now
             self.stuck_check(now)
+            if not self.swap(st):   # 入れ替えるなら、開き直した玄関が続きから録る
+                self.rec_retry(now)
         if now - self._beat_at >= BEAT_EVERY:
             self._beat_at = now
             self.beat(now)

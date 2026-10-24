@@ -216,6 +216,18 @@ class TestRecording(unittest.TestCase):
         self.assertNotIn("session_002/", pl)
         self.assertIn("#EXT-X-DISCONTINUITY", pl)
 
+    def test_reconnect_continues_same_recording(self):
+        """止まった録画のやり直し(友人の玄関): 子だけを止めて同じ録画の新しいセッションで続ける・止めた録画はやり直さない"""
+        rid = self.rec.start(self.srv.url)["id"]
+        r = self.rec.get(rid)
+        self.assertTrue(wait_for(lambda: r.session_segments("session_001")[0], 30), (r.summary(), self.logs))
+        self.assertEqual(self.rec.reconnect(rid)["did"], "reconnect")
+        self.assertTrue(wait_for(lambda: "session_002" in r.session_names() and r.session_segments("session_002")[0], 30), (r.summary(), self.logs))
+        self.assertTrue(r.active)
+        self.rec.stop(rid)
+        self.assertEqual(self.rec.reconnect(rid)["did"], "inactive")
+        self.assertEqual(r.meta["state"], "stopped")
+
     def test_recover_bad_sessions(self):
         """手で書き換えた recording.json の sessions(null・リストでない・中に dict でない物)でも復旧で落ちない:
         空として読み、セッションのフォルダから付け直す・録画中だった物は新しいセッションで続ける"""

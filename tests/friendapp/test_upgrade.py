@@ -5,6 +5,7 @@
 import json
 import os
 import sys
+import types
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # tests/friendapp(test_server の Base)
@@ -222,6 +223,55 @@ class UpgradeTest(T.Base):
         self.assertIn(run, self.engine.queue.cancelled)
         self.assertEqual(self.app.inbox.row(rid)["state"], "failed")
         self.assertTrue(self.view_row(rid)["fail"]["retrying"])   # 自動のやり直しへ(問題 1 の流れ)
+
+    # ---------------------------------------------------------------- 止まった録画のやり直し
+    def fake_live(self, recs):
+        """録画元の偽物(一覧 = recs・やり直しの呼び出しを覚える)。録画 rec-1 を 1 分増えない(止まった)にする -> 呼び出しの覚え"""
+        calls = []
+        self.engine.live = types.SimpleNamespace(recent=lambda: recs,
+                                                   restart_recording=lambda rc, rec, whole=False: calls.append((rc, rec, whole)) or ("respawn" if whole else "reconnect"))
+        rep = self.app.report
+        rep._stuck_on.add(("rec", "rec-1"))
+        rep._recs["rec-1"] = {"secs": 10, "since": self.t[0], "active": True}
+        return calls
+
+    def rec(self, rid, state="recording", active=True):
+        return {"recorder": "local", "id": rid, "state": state, "active": active, "seconds": 10}
+
+    def test_stalled_recording_restarts_only_that_one_up_to_max(self):
+        """止まった録画だけをやり直す(ほかの録画・処理は止めない)・間をあける・回数の上限・状態の書き出し(stage record)と操作の記録"""
+        self.engine.queue.runs = [{"id": "r1", "state": "running"}]
+        calls = self.fake_live([self.rec("rec-1"), self.rec("rec-2")])
+        up = self.app.upgrade
+        self.assertEqual(up.rec_retry(self.t[0] + U.REC_RETRY_AFTER - 1), [])   # 録画の部品が自分でつなぎ直す間は待つ
+        now = self.t[0] + U.REC_RETRY_AFTER
+        self.assertEqual(up.rec_retry(now), ["rec-1"])
+        self.assertEqual(calls, [("local", "rec-1", False)])
+        self.assertEqual(up.rec_retry(now + U.REC_RETRY_GAP - 1), [])   # 間をあける
+        for i in range(1, U.REC_RETRY_MAX + 1):
+            up.rec_retry(now + U.REC_RETRY_GAP * i)
+        self.assertEqual(calls, [("local", "rec-1", False)] * U.REC_RETRY_MAX)   # rec-2 が録れているので録画の部品ごとにはしない
+        self.assertEqual(self.engine.queue.cancelled, [])
+        self.assertEqual(self.engine.queue.runs[0]["state"], "running")
+        marks = [p for p in self.app.report._pending if p[0] == "stuck" and p[3].get("stage") == "record"]
+        self.assertEqual([m[3]["attempt"] for m in marks], list(range(1, U.REC_RETRY_MAX + 1)))
+        ops = [r for r in self.app.report.ops.recent(10 ** 6) if r["kind"] == "job_retry"]
+        self.assertEqual(len(ops), U.REC_RETRY_MAX)
+        self.assertEqual(U.Upgrade(self.app, self.places).state["recRetry"]["rec-1"]["n"], U.REC_RETRY_MAX)   # 開き直しても数え直さない
+
+    def test_stalled_recording_second_try_restarts_recorder_when_alone(self):
+        calls = self.fake_live([self.rec("rec-1")])
+        now = self.t[0] + U.REC_RETRY_AFTER
+        self.app.upgrade.rec_retry(now)
+        self.app.upgrade.rec_retry(now + U.REC_RETRY_GAP)
+        self.assertEqual(calls, [("local", "rec-1", False), ("local", "rec-1", True)])   # つなぎ直しで直らなければ録画の部品ごと(続きから)
+
+    def test_ended_or_reconnecting_recording_is_left_alone(self):
+        """配信が終わった・つなぎ直し中・配信を待っている録画はやり直さない"""
+        for r in (self.rec("rec-1", "ended", False), self.rec("rec-1", "reconnecting"), self.rec("rec-1", "waiting")):
+            calls = self.fake_live([r])
+            self.assertEqual(self.app.upgrade.rec_retry(self.t[0] + U.REC_RETRY_AFTER * 10), [], r["state"])
+            self.assertEqual(calls, [])
 
 
 if __name__ == "__main__":

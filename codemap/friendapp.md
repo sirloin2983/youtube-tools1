@@ -17,7 +17,7 @@
   - 名前: `pack_name` :79・`pack_title` :85・`unique_dest` :89・`case_of` :97・`class Inbox` :108
 - **live.py** (45 行) — 友人の玄関のライブの依頼の欄と結びつき(notes:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-15)。軽い部品だけ(画面を先に出すため)。
   - 名前: `check_settings` :20・`settings_label` :42
-- **live_session.py** (335 行) — 友人の玄関のライブ係(notes:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-15)。
+- **live_session.py** (355 行) — 友人の玄関のライブ係(notes:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-15)。
   - 名前: `recorders` :37・`class FriendLive` :46
   - 受ける口: `/api/queue/add` :91・`/api/queue` :94
 - **oplog.py** (137 行) — 友人のアプリの操作の記録(形の正は notes:plan/友人の不具合の自動対応-1025.md の「操作の記録」)。
@@ -43,8 +43,8 @@
   - 名前: `keep_floor` :76・`class Tidy` :161・`prune_old_files` :597・`prune_diag` :615
 - **toolcheck.py** (111 行) — 友人の PC の初回の準備の最後の「道具を動かして確かめる」(F3-5。notes:plan/f1-friend-requirements.md の C-5-2・C-0)。
   - 名前: `run_cmd` :26・`check_tool` :37・`check_tools` :53・`make_wav` :58・`whisper_run` :68・`check_whisper` :76・`signature` :97・`failed` :109
-- **upgrade.py** (461 行) — 友人のアプリの更新の決まり(いつ入れ替えるか・重要な直し・新しい版の確かめと戻し・心拍・固まり)。
-  - 名前: `vt` :54・`wait_reason` :61・`verify_sec` :78・`typical` :86・`beat_doc` :92・`class Upgrade` :102
+- **upgrade.py** (516 行) — 友人のアプリの更新の決まり(いつ入れ替えるか・重要な直し・新しい版の確かめと戻し・心拍・固まり)。
+  - 名前: `vt` :60・`wait_reason` :67・`verify_sec` :84・`typical` :92・`beat_doc` :98・`class Upgrade` :108
 - **voicesend.py** (124 行) — 友人の PC から送る声の材料(10-24 夜。ユーザー「誰の声をメンバー全員分」。案 = notes:plan/声の材料を友人のPCから-1024.md)。
   - 名前: `zip_name` :33・`build` :46
 - **ytdlp_update.py** (186 行) — 友人の PC の yt-dlp をいつも新しく(YouTube の bot 判定・仕様の変更に古い yt-dlp は当たりやすい。notes:docs/spec/friend.md の 13-13)。

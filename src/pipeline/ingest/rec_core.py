@@ -481,6 +481,17 @@ class Recording:
         self._halt.set()
         self._kill_procs(graceful=True)
 
+    def reconnect(self):
+        """止まった録画のやり直し(友人の玄関の録画のやり直し): この録画の子(取得・ffmpeg)だけを止める = _run が同じ録画の新しいセッションで続ける。
+        糸が終わっていれば起こし直す。録画中でなければ何もしない -> "reconnect"・"restarted"・"inactive\""""
+        if not self.active or self._stopping():
+            return "inactive"
+        if self.thread is not None and self.thread.is_alive():
+            threading.Thread(target=self._kill_procs, daemon=True, name="reconnect-" + self.id).start()   # 止まった子を待つ間、HTTP の返事を止めない
+            return "reconnect"
+        self.start_thread()
+        return "restarted"
+
     def _stopping(self):
         return self._stop.is_set() or self._halt.is_set()
 
@@ -956,6 +967,16 @@ class Recorder:
         if rec.thread:
             rec.thread.join(30)
         return rec.summary()
+
+    def reconnect(self, rid):
+        """止まった録画をつなぎ直す(POST /live/<id>/reconnect)-> {"recording", "did"}"""
+        if self.closing:
+            raise RecError("録画の部品は終了の途中です", 409)
+        rec = self.get(rid)
+        did = rec.reconnect()
+        if did != "inactive":
+            self.log("録画 %s: 止まっていたのでつなぎ直します(%s)" % (rid, did))
+        return {"recording": rec.summary(), "did": did}
 
     def delete(self, rid):
         """録画を消す(線 D の「録画を自動で消す」。入口の manage/keep/live_cleanup.py だけが呼ぶ。入口の中継 /live/r/… は delete を通さない)。
