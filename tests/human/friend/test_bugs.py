@@ -9,7 +9,6 @@ import os
 import shutil
 import sys
 import tempfile
-import time
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
