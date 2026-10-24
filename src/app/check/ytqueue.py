@@ -4,6 +4,7 @@
 置き場 <app>/check/yt-queue/:
   req/<id>.json        研究の頼み {"id", "purpose": "research", "kind": "info"|"audio"|"list", "priority", "hint": {"channel", "title"}, ...}
                        info: "urls"(10 本まで。説明欄など)/ audio: "url", "section": [始め, 終わり] か null / list: "url", "items" /
+                       chat: "url"(チャットのリプレイ。長い配信は問い合わせが多いので研究が頼む物だけ)/
                        subs: "url"(自動字幕だけ。研究が手元のショートの文字と突き合わせて ?t= の無い候補の位置を出す = 全体の音を取らずに済む)
   done/<id>.json       結果 {"id", "state": "done"|"error", "error", "at", "infos" | "file" + "info" | "entries"}。音は done/<id>.<拡張子>。
                        読む側が消す(DONE_DAYS 日残っていれば列が消す)
@@ -18,6 +19,9 @@
   キーの値は読まない・出さない(ytapi が見出しで送る。ここは有無と成否だけ)。
 決まり(研究の今の決まりを 1 か所に): cookie なし・bot 判定やログインを求められたらその日は止め、翌日から間隔を LADDER で伸ばす・
   友人のライブ中と処理中は休む(呼び手の busy)・再起動で途中の物は次に取り直す(done の .part を消す・頼みは done が書けるまで残る)。
+使い道の束(10-25 ユーザー「当たりでも外れでも使える物は全部使う」): 音を取る問い合わせの中で、動画の情報(説明欄・チャプター・よく見られている場面の山)と
+  日本語の自動字幕も keep/<動画>/ に小さく残す(bundle)。結果の info.bundle に場所。分析(区間・編集カット・同時発話・置換辞書の候補・BGM)は研究。
+  keep は DONE_DAYS 日で消す(研究が keep/<動画>/hold を置いた物は残す)。
 切り替えの前後で二重に取らないよう、研究の古い道の印 yt-slot.json(voicefetch.slot_free)も見て、取ったら書く。
 """
 import datetime
@@ -41,7 +45,7 @@ API_DAILY = 2000                     # 列が 1 日に使う YouTube Data API �
 DONE_DAYS = 3
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}\Z")
 URL_RE = re.compile(r"^https://(www\.|m\.)?(youtube\.com|youtu\.be)/[\w\-./?=&%:@+]{1,300}\Z")
-KINDS = ("info", "audio", "list", "subs")
+KINDS = ("info", "audio", "list", "subs", "chat")
 
 
 def qdir(app_dir, *sub):
@@ -74,7 +78,7 @@ def requests(app_dir):
         r = fsio.read_json_or(p, {}, kind=dict)
         if r.get("kind") not in KINDS:
             continue
-        urls = [r.get("url")] if r.get("kind") in ("audio", "list", "subs") else (r.get("urls") or [])[:10]
+        urls = [r.get("url")] if r.get("kind") in ("audio", "list", "subs", "chat") else (r.get("urls") or [])[:10]
         if not urls or not all(isinstance(u, str) and URL_RE.match(u) for u in urls):
             continue
         try:
@@ -233,8 +237,12 @@ def _audio(app_dir, rid, url, section):
         return None, "yt-dlp が見つかりません"
     os.makedirs(qdir(app_dir, "done"), exist_ok=True)
     base = qdir(app_dir, "done", rid)
+    keep = qdir(app_dir, KEEP_DIR, "%(id)s")
     cmd = [yd, "--encoding", "utf-8", "--no-warnings", "--no-playlist", "--no-part", "--force-overwrites", "--no-progress", "-f", "ba",
-           "-o", base + ".%(ext)s", "--no-simulate", "--print", "%(id)s\t%(channel_id)s\t%(upload_date)s\t%(duration)s\t%(title)s"]
+           "-o", base + ".%(ext)s", "--no-simulate", "--print", "%(id)s\t%(channel_id)s\t%(upload_date)s\t%(duration)s\t%(title)s",
+           # 使い道の束(同じ問い合わせの中で): 動画の情報(説明欄・チャプター・よく見られている場面の山 heatmap)と日本語の自動字幕
+           "--write-info-json", "-o", "infojson:" + keep + os.sep + "info", "--write-auto-subs", "--sub-langs", "ja", "--sub-format", "json3",
+           "-o", "subtitle:" + keep + os.sep + "subs"]
     if section:
         cmd += ["--download-sections", "*%d-%d" % (max(0, int(section[0])), int(section[1]))]
     ff = _vf._tools.find_tool("ffmpeg")
@@ -248,7 +256,56 @@ def _audio(app_dir, rid, url, section):
         return None, tail or "取れませんでした"
     parts = ((r.stdout or "").strip().splitlines() or [""])[0].split("\t")
     info = dict(zip(("id", "channel_id", "upload_date", "duration", "title"), parts + [""] * 5))
+    info["bundle"] = bundle(app_dir, info.get("id"))
     return max(files, key=os.path.getsize), info
+
+
+KEEP_DIR = "keep"
+INFO_KEYS = ("id", "title", "channel_id", "channel", "upload_date", "release_timestamp", "duration", "description", "chapters", "heatmap",
+             "view_count", "like_count", "comment_count", "was_live", "live_status", "tags", "categories")
+
+
+def bundle(app_dir, vid):
+    """使い道の束を小さくする: keep/<動画>/info.info.json(大きい = 形式の一覧など)を要る欄だけの info.json に・字幕はそのまま。
+    -> {"dir", "info", "subs", "chat"}(ある物だけ)。研究が分析に使う(区間・編集カット・同時発話・置換辞書の候補・BGM・場面の山・チャプター)"""
+    if not _vf.VIDEO_RE.match(str(vid or "")):
+        return {}
+    d = qdir(app_dir, KEEP_DIR, vid)
+    if not os.path.isdir(d):
+        return {}
+    out = {"dir": d}
+    for x in os.listdir(d):
+        p = os.path.join(d, x)
+        if x.endswith(".info.json"):
+            raw = fsio.read_json_or(p, {}, kind=dict)
+            fsio.write_json(os.path.join(d, "info.json"), {k: raw.get(k) for k in INFO_KEYS if raw.get(k) is not None}, indent=None)
+            fsio.unlink_quiet(p)
+    for x in os.listdir(d):
+        p = os.path.join(d, x)
+        if x == "info.json":
+            out["info"] = p
+        elif x.startswith("subs.") and x.endswith((".json3", ".vtt")):
+            out["subs"] = p
+        elif x.startswith("chat."):
+            out["chat"] = p
+    return out
+
+
+def _chat(app_dir, url):
+    """チャットのリプレイ(文字だけ・live_chat)を keep/<動画>/chat.* に -> (パス, "") か (None, 失敗の文)。
+    長い配信は問い合わせの数が多いので、自動では取らない(研究が kind chat で頼む物だけ)"""
+    yd = _vf._tools.find_tool("yt-dlp")
+    vid = _video_of(url)
+    if not yd or not vid:
+        return None, "yt-dlp が見つからないか、動画の id が分かりません"
+    d = qdir(app_dir, KEEP_DIR, vid)
+    os.makedirs(d, exist_ok=True)
+    r, tail = _vf._run([yd, "--encoding", "utf-8", "--no-warnings", "--no-playlist", "--skip-download", "--write-subs", "--sub-langs", "live_chat",
+                        "-o", "subtitle:" + os.path.join(d, "chat"), "--", url], 1800)
+    got = [os.path.join(d, x) for x in os.listdir(d) if x.startswith("chat.") and not x.endswith(".part")]
+    if r is not None and r.returncode == 0 and got:
+        return got[0], ""
+    return None, tail or "チャットのリプレイがありません"
 
 
 def _subs(app_dir, rid, url):
@@ -302,6 +359,15 @@ def tidy(app_dir, now=None):
             continue
         if x.endswith((".part", ".tmp", ".ytdl")) or old:
             fsio.unlink_quiet(p)
+    k = qdir(app_dir, KEEP_DIR)
+    for v in (os.listdir(k) if os.path.isdir(k) else ()):
+        p = os.path.join(k, v)
+        try:
+            old = now - os.path.getmtime(p) > DONE_DAYS * 86400
+        except OSError:
+            continue
+        if old and not os.path.exists(os.path.join(p, "hold")):   # 研究が hold を置いた物は残す(研究が要る間)
+            shutil.rmtree(p, ignore_errors=True)
     if not os.path.exists(qdir(app_dir, "ready.json")):
         fsio.write_json(qdir(app_dir, "ready.json"), {"since": int(now)}, indent=None)
 
@@ -407,6 +473,9 @@ def tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None):
                 body = {"state": "done", "infos": _info_ytdlp(r["urls"]), "via": "yt-dlp"}
             except Exception as e:   # noqa: BLE001
                 body = {"state": "error", "error": str(e)[:300]}
+        elif r["kind"] == "chat":
+            path, err = _chat(app_dir, r["urls"][0])
+            body = {"state": "done", "file": path, "bundle": bundle(app_dir, _video_of(r["urls"][0]))} if path else {"state": "error", "error": err[:300]}
         elif r["kind"] == "subs":
             path, err = _subs(app_dir, r["id"], r["urls"][0])
             body = {"state": "done", "file": path} if path else {"state": "error", "error": err[:300]}

@@ -138,6 +138,26 @@ class YtQueueTest(unittest.TestCase):
             d = json.load(f)
         self.assertTrue(d["state"] == "done" and d["file"].endswith(".ja.json3"))
 
+    def test_bundle_kept_small(self):
+        """使い道の束: 動画の情報は要る欄だけ(説明欄・チャプター・場面の山)・字幕はそのまま・3 日で消す(hold は残す)"""
+        d = Q.qdir(self.app, Q.KEEP_DIR, "BUNDLEVID01")
+        os.makedirs(d)
+        with open(os.path.join(d, "info.info.json"), "w", encoding="utf-8") as f:
+            json.dump({"id": "BUNDLEVID01", "description": "【元配信】", "heatmap": [{"start_time": 0, "value": 1}], "chapters": [], "formats": ["大きい"] * 100}, f)
+        open(os.path.join(d, "subs.ja.json3"), "w").close()
+        got = Q.bundle(self.app, "BUNDLEVID01")
+        with open(got["info"], encoding="utf-8") as f:
+            info = json.load(f)
+        self.assertEqual((sorted(info), got["subs"].endswith("subs.ja.json3")), (["chapters", "description", "heatmap", "id"], True))
+        self.assertEqual(Q.bundle(self.app, "../../x"), {})
+        h = Q.qdir(self.app, Q.KEEP_DIR, "HOLDVIDEO01")
+        os.makedirs(h)
+        open(os.path.join(h, "hold"), "w").close()
+        for x in (d, h):
+            os.utime(x, (NOON - 5 * 86400, NOON - 5 * 86400))
+        Q.tidy(self.app, NOON)
+        self.assertEqual(os.listdir(Q.qdir(self.app, Q.KEEP_DIR)), ["HOLDVIDEO01"])   # 研究が hold を置いた物だけ残る
+
     def test_tidy_removes_partial(self):
         os.makedirs(Q.qdir(self.app, "done"))
         open(Q.qdir(self.app, "done", "x.m4a.part"), "wb").close()
