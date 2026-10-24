@@ -21,8 +21,10 @@ import threading
 
 from human.check import value as value_mod
 from human.check import voice as voice_mod
+from flow import voicematerial as _vm   # 名簿の全員(誰の声のカードの「メンバーを選ぶ」の欄)
 from manage.cases import cases as cases_mod, txindex
 from ytt import fsio, settings
+from ytt.textutil import person_key as _person_key
 from . import lineup   # 同じ app/check の兄弟
 
 DOC_NAME_RE = re.compile(r"^([0-9a-f]{12})\.json\Z")
@@ -344,6 +346,7 @@ def voice_diar(view):
         reg = voice_mod.registry(voice_mod.doc_embedding(doc), voices)
         opts = voice_mod.options_for(doc, reg)
         names = {o["id"]: o for o in opts}
+        people = voice_mod.people_for(doc, reg, _vm.roster_people())
         for g in _rows(doc):
             r = rows.get(g["id"])
             if not isinstance(r, dict) or r.get("mixed") or g.get("proofed") is True or g.get("noSub") is True:
@@ -355,8 +358,11 @@ def voice_diar(view):
             low = 0 if v.get("reason") in ("below_match", "margin") else 1   # 声の照合が弱い話者を先に
             margin = _num(v.get("score"), 1.0) - _num(v.get("secondScore"), 0.0)
             novoice = 0 if sp in names and not names[sp].get("voice") else 1   # まだ声を覚えていない人を先に
+            guess = voice_mod.guess_for(doc, sp, v, opts)
+            second = str(v.get("second") or "")   # 照合で 2 番目に近い声の名前(ボタンの 2 番目)
+            near = [(guess or {}).get("id")] + [o["id"] for o in opts if second and _person_key(o["name"]) == _person_key(second)]
             out.append(_doc_card(view, "voice", "diar", tid, doc, g, 0.3, {
-                "guess": voice_mod.guess_for(doc, sp, v, opts), "options": opts, "score": r.get("ratio"),
+                "guess": guess, "options": voice_mod.buttons(opts, near), "people": people, "score": r.get("ratio"),
                 "note": str(v.get("reason") or ""),
                 "_order": [low, 0 if r.get("weak") else 1, novoice, _num(r.get("ratio"), 1.0), margin, -_num(doc.get("updatedAt")), _num(g.get("start"))]}, tight=True))
             if len(out) >= MAX_PER_SOURCE:

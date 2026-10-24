@@ -74,6 +74,7 @@ class FakeQueue:
         self.answers = []      # [{id, body}]
         self.undone = []
         self.skipped = []
+        self.unknowns = []     # [分からない] [{id, body}](undo の id で戻る)
         self.next_q = []       # 受けた next の引数
         self.fail_next = 0     # 次の n 回の next を 500 に
         self.fail_answer = 0
@@ -98,7 +99,8 @@ class FakeQueue:
                 if self.fail_next:
                     self.fail_next -= 1
                     return route.fulfill(status=500, content_type="application/json", body=json.dumps({"error": "boom", "message": "待ち行列を作れませんでした(テスト)"}))
-                done = {a["body"]["card"] for a in self.live_answers()} | set(self.skipped) | self.gone_hit
+                done = ({a["body"]["card"] for a in self.live_answers()} | set(self.skipped) | self.gone_hit |
+                        {u["body"]["card"] for u in self.unknowns if u["id"] not in self.undone})
                 skip = set((q.get("skip") or [""])[0].split(",")) if q.get("skip") else set()
                 n = int((q.get("n") or ["10"])[0])
                 every = [c for c in self.cards if c["id"] not in done and c["id"] not in skip]
@@ -129,6 +131,11 @@ class FakeQueue:
             if u.path.endswith("/api/check/skip"):
                 self.skipped.append(body.get("card"))
                 return route.fulfill(status=200, content_type="application/json", body='{"ok": true}')
+            if u.path.endswith("/api/check/unknown"):
+                uid = "unk%03d" % (len(self.unknowns) + 1)
+                self.unknowns.append({"id": uid, "body": body})
+                return route.fulfill(status=200, content_type="application/json",
+                                     body=json.dumps({"ok": True, "answer": uid, "card": body.get("card"), "flushed": [], "next": None}))
             if u.path.endswith("/api/check/answer"):
                 if "undo" in body:
                     self.undone.append(body["undo"])
@@ -385,6 +392,69 @@ def _scene_voice_bgm_and_gone(cx):
         check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:42'"), "gone: 戻さずに次のカード: %s" % state(pg))
         press(pg, "1")
         check(wait_js(pg, "CheckShell.state().empty") and "voice:e2e:41" not in [a["body"]["card"] for a in fv.answers], "gone のカードはもう出ない: %s" % state(pg))
+    finally:
+        _restore_queue(cx)
+
+
+def _scene_unknown(cx):
+    """[分からない](W・ボタン): unknown の口へ送り、もう出ない・今日の数に入れない・Z で戻すとまた出る(undo に分からないの id)"""
+    pg, check = cx.pg, cx.check
+    fv = FakeQueue([card(i, "value", score=50) for i in (60, 61, 62)])
+    _swap_queue(cx, fv)
+    try:
+        pg.goto(cx.base + "check?kind=value")
+        check(wait_js(pg, "CheckShell.state().cur === 'value:e2e:60'"), "分からない: カードを開く: %s" % state(pg))
+        check(pg.is_visible("#chkUnknown") and "W" in pg.text_content("#chkUnknown"), "[分からない W] のボタン")
+        check(wait_js(pg, "document.body.textContent.includes('分からない')"), "キーの表示に 分からない")
+        press(pg, "w")
+        check(wait_js(pg, "CheckShell.state().cur === 'value:e2e:61'") and [u["body"]["card"] for u in fv.unknowns] == ["value:e2e:60"] and not fv.answers,
+              "W = unknown の口へ送る(答えではない): %s" % fv.unknowns)
+        check(state(pg)["today"] == 0 and pg.text_content("#chkToday") == "0", "今日の数に入れない")
+        press(pg, "z")
+        check(wait_js(pg, "CheckShell.state().cur === 'value:e2e:60'") and fv.undone == ["unk001"], "Z で戻すとまた出る(undo に分からないの id): %s" % fv.undone)
+        check(state(pg)["today"] == 0, "戻しても今日の数は 0 のまま")
+        pg.click("#chkUnknown")
+        check(wait_js(pg, "CheckShell.state().cur === 'value:e2e:61'") and len(fv.unknowns) == 2, "ボタンでも同じ")
+        pg.goto(cx.base + "check?kind=value")
+        check(wait_js(pg, "CheckShell.state().cur === 'value:e2e:61'"), "開き直しても 分からない のカードは出ない: %s" % state(pg))
+    finally:
+        _restore_queue(cx)
+
+
+def _scene_voice_pick(cx):
+    """誰の声: 名前のボタンは 3 人まで(1〜3)・P で「メンバーを選ぶ」の欄。候補の人 = {name}/ 文書の話者 = {choice}/ 名簿に無い名前もそのまま {name}・
+    欄にいる間はカードのキーが入力を取らない・Esc で閉じる・Z で戻せる"""
+    pg, check = cx.pg, cx.check
+    opts = [{"id": "S1", "name": "ぺこら"}, {"id": "name:みこ", "name": "みこ"}, {"id": "name:すいせい", "name": "すいせい"}, {"id": "name:かなた", "name": "かなた"},
+            {"id": "other", "name": "その他"}, {"id": "mixed", "name": "混ざり"}]
+    people = [{"id": "S1", "name": "ぺこら"}, {"id": "name:みこ", "name": "みこ"}, {"id": "name:かなた", "name": "かなた"}, {"id": "name:ころね", "name": "ころね"}]
+    fv = FakeQueue([card(i, "voice", source="solo", options=opts, people=people) for i in (70, 71, 72)])
+    _swap_queue(cx, fv)
+    field = "#chkBody [data-chk-pick-text]"
+    try:
+        pg.goto(cx.base + "check?kind=voice")
+        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:70'"), "声のカード(選ぶ)を開く: %s" % state(pg))
+        check(pg.evaluate("[1,2,3,4].map(k => !!document.querySelector(\"#chkBody [data-chk-k='\" + k + \"']\"))") == [True, True, True, False], "名前のボタンは 3 人まで")
+        check(pg.evaluate("document.querySelectorAll('#chkVoicePeople option').length") == 4, "欄の候補 = people")
+        press(pg, "p")
+        check(pg.is_visible(field) and pg.evaluate("document.activeElement && document.activeElement.matches('[data-chk-pick-text]')"), "P で入力欄が開き、入力欄にいる")
+        press(pg, "Escape")
+        check(not pg.is_visible(field) and state(pg)["cur"] == "voice:e2e:70", "Esc で閉じる(答えない)")
+        pg.click("#chkBody [data-chk-k='P']")
+        pg.keyboard.type("ころね")
+        press(pg, "Enter")
+        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:71'") and fv.answers[-1]["body"]["answer"] == {"name": "ころね"}, "候補の人 = {name}: %s" % fv.answers[-1:])
+        press(pg, "p")
+        pg.keyboard.type("Guest m1")   # m・1 はカードのキーだが入力欄では文字
+        check(state(pg)["cur"] == "voice:e2e:71" and len(fv.answers) == 1, "入力欄ではカードのキーが入力を取らない")
+        press(pg, "Enter")
+        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:72'") and fv.answers[-1]["body"]["answer"] == {"name": "Guest m1"}, "名簿に無い名前もそのまま {name}: %s" % fv.answers[-1:])
+        press(pg, "p")
+        pg.keyboard.type("ぺこら")
+        press(pg, "Enter")
+        check(wait_js(pg, "CheckShell.state().empty") and fv.answers[-1]["body"]["answer"] == {"choice": "S1"}, "文書の話者 = {choice}: %s" % fv.answers[-1:])
+        press(pg, "z")
+        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:72'") and fv.undone == ["ans003"], "Z で戻せる: %s" % fv.undone)
     finally:
         _restore_queue(cx)
 
@@ -678,6 +748,8 @@ def main():
                 _scene_read_type(cx)
                 _scene_voice(cx)
                 _scene_voice_bgm_and_gone(cx)
+                _scene_voice_pick(cx)
+                _scene_unknown(cx)
                 _scene_voice_video_or_clip(cx)
                 _scene_speech(cx)
                 _scene_cut(cx)

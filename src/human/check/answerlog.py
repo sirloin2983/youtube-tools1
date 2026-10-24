@@ -1,9 +1,13 @@
 """「確かめる」の答えの記録(notes:docs/design/v1-check-build.md の 3-1)。
 
 置き場所: 入口の作業データ `app\\check\\`(accuracy-state.json と同じ app の持ち物。バックアップは app を丸ごと写すので足す物は無い)。
-  - answers.jsonl: 追記だけ(fsio.append_line)。1 行 = 1 件の JSON。形は 5 通り:
+  - answers.jsonl: 追記だけ(fsio.append_line)。1 行 = 1 件の JSON。形は 6 通り:
       答え   {id, at, kind, source, card, case, target, guess, answer, ms, applied, held?, page?}
              held = 1 枚遅れで確定する答え(友人へ届けるなど。3-3)。確定するまで実物は変えていない。page = 答えた画面の印(確定はその画面の保留だけ)
+      分からない {id, at, unknown: <カードの id>, kind, source, case, target, mark}(画面の [分からない]。そのカードをもう出さないだけ =
+             答えではない: 実物・文書・声を覚える材料・評価・目標の件数・今日 n 件のどれにも入れない(effective・by_card・today に出ない)。
+             mark = 出したときのカードの中身の印(card_mark)。元の行が変わって印が違えば新しいカードとしてまた出る。Z で戻すと(戻すの行)また出る。
+             カードの id を card でなく unknown に持つ = card を答えと見る古い版が読んでも答えに数えない)
       始める {id, at, begin: "undo" | "confirm", of: <答えの id>}(実物を変える前に書く意図。この行の id = 操作の id)
       確定   {id, at, confirm: <答えの id>, op?, applied} か {id, at, confirm, op?, failed: 理由}(held の答えを実物へ反映した / できなかった)
       戻す   {id, at, undo: <答えの id>, op?, reverted}(Z。held のまま戻したときは reverted = {"held": true}・意図を書かない)
@@ -17,6 +21,7 @@
 読み書きはここだけ(入口 app/check の待ち行列は読むだけ・③ human/check/apply が書く)。標準ライブラリと ytt だけを読む。
 """
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -58,6 +63,16 @@ def day_of(at_ms):
     return datetime.date.fromtimestamp(at_ms / 1000.0).isoformat()
 
 
+def card_mark(card):
+    """カードの中身の印(12 桁)= 字幕の文字と流す区間。人が行を直す・時刻が変わると違う印になる([分からない] のカードがまた出る)"""
+    media = card.get("media") if isinstance(card.get("media"), dict) else {}
+
+    def sec(v):
+        return round(float(v), 2) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+    raw = json.dumps([str(card.get("text") or ""), sec(media.get("start")), sec(media.get("end"))], ensure_ascii=False)
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+
+
 def append(app_dir, row):
     """1 行を書き足す(書けなければ OSError)。NaN は書かない"""
     fsio.append_line(answers_path(app_dir), json.dumps(row, ensure_ascii=False, separators=(",", ":"), allow_nan=False) + "\n", MAX_LOG_BYTES)
@@ -92,14 +107,18 @@ def _read_rows(app_dir):
 class State:
     """記録を読んだ今の状態。answers = {答えの id: 行}・order = 答えの id(古い順)・undone = {答えの id: 戻した行}・
     confirmed = {答えの id: 確定の行}・by_card = {カードの id: 効いている答えの id}(戻した答えは数えない)・
-    pending = {始めるの id: 始めるの行}(やりかけ)・undoing / confirming = {答えの id: やりかけの始めるの行}"""
+    pending = {始めるの id: 始めるの行}(やりかけ)・undoing / confirming = {答えの id: やりかけの始めるの行}・
+    unknowns = {分からないの id: 行}・unknown = {カードの id: 効いている(戻していない)分からないの行}"""
 
     def __init__(self, rows):
         self.answers, self.order, self.undone, self.confirmed, self.by_card = {}, [], {}, {}, {}
+        self.unknowns, self.unknown = {}, {}
         self.rev = len(rows)
         begun, done = {}, set()
         for r in rows:
-            if isinstance(r.get("undo"), str):
+            if isinstance(r.get("unknown"), str):
+                self.unknowns[r["id"]] = r
+            elif isinstance(r.get("undo"), str):
                 self.undone[r["undo"]] = r
                 done.add(r.get("op"))
             elif isinstance(r.get("confirm"), str):
@@ -124,6 +143,17 @@ class State:
                     del self.by_card[r["card"]]
                 continue
             self.by_card[r["card"]] = aid
+        for uid, r in self.unknowns.items():   # 古い順 = 同じカードは後の行
+            if uid not in self.undone:
+                self.unknown[r["unknown"]] = r
+
+    def closed(self, card):
+        """もう出さないカードか: 効いている答えがある・[分からない] にしてカードの中身の印(mark)が今も同じ"""
+        cid = card.get("id")
+        if cid in self.by_card:
+            return True
+        u = self.unknown.get(cid)
+        return u is not None and u.get("mark") in (None, card_mark(card))
 
     def live(self, aid):
         """効いている(戻していない)答えか"""

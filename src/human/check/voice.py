@@ -3,7 +3,9 @@
 
 答えの形(画面 cards/voice.js が送る。_check_answer が整える):
   {"choice": <文書の話者の id>}   その人の声(文書の speakers[] にいる人)
-  {"name": <名前>}               その人の声(覚えた声の登録簿にいて、この文書の speakers[] にまだいない人 = 名前の話者を足す。選択肢の id は "name:<名前>")
+  {"name": <名前>}               その人の声(この文書の speakers[] にまだいない人 = 名前の話者を足す。登録簿の人・名簿の人(選択肢の id は "name:<名前>")と、
+                                 画面の「メンバーを選ぶ」の欄で打った名簿に無い名前。覚える材料にするかは _learnable_name の決まり)
+  カードの選択肢(options)= 名前のボタン BUTTONS 人(機械の見立てに近い順。buttons)+ その他 + 混ざり・people = 「メンバーを選ぶ」の欄の候補(people_for)
   {"choice": "other"}            その他(ゲームの音など)= 組み込みの話者「ゲーム音声など」+ 字幕に出さない(編集の画面で選んだときと同じ)
   {"choice": "mixed"}            声が混ざっている = 行の印 MIXED_FLAG と音のメモ overlap(話者はそのまま)
   上のどれにも "bgm": true を足せる  ゲーム音・BGM が大きい = 行の音のメモ bgm も付ける(覚える材料にしない。Z で音のメモも戻る)
@@ -32,7 +34,9 @@ KIND, SOURCE = "voice", "diar"
 SOURCES = (SOURCE, "solo")   # 答えの形・反映が同じ出どころ(solo = ソロ配信の行。入口 app/check/voice_solo。10-23)
 OTHER, MIXED = _yschemas.OTHER_SPK_ID, "mixed"   # その他 = 組み込みの話者「ゲーム音声など」の id・混ざり = 答えの印
 NAME_PREFIX = "name:"           # 選択肢の id: 登録簿の名前(文書にまだいない人)
-MAX_NAMED = 9                   # 名前の選択肢の数(数字キー 1〜9)
+MAX_NAMED = 9                   # 予想を選ぶ前に集める名前の選択肢の数(カードのボタンは buttons で BUTTONS 人に絞る)
+BUTTONS = 3                     # カードの名前のボタンの数(数字キー 1〜3。ほかの人は「メンバーを選ぶ」の欄 = card.people)
+MAX_PEOPLE = 400                # 「メンバーを選ぶ」の欄の候補の上限(名簿の全員が入る数)
 NAME_MAX = 30                   # 文書の話者の名前の上限(store.sanitize_transcript と同じ)
 MIN_LEARN_SEC = 1.0             # 覚える材料にする行の最短(flow/diar の voice_learn_rows と同じ 1 秒)
 RELEARN_SEC_DEFAULT = 30.0      # 覚え直すまでの 1 人の材料の合計(秒。編集の設定 check.voiceRelearnSec で変える)
@@ -119,6 +123,35 @@ def guess_for(doc, speaker, match, options):
     if speaker:
         return {"id": speaker, "name": names.get(speaker, speaker)}
     return None
+
+
+def buttons(options, first=()):
+    """カードのボタンにする選択肢 = 名前の選択肢を機械の見立てに近い順(first = 予想・2 番目に近い人の id。ほかは options の順)に
+    BUTTONS 人 + その他 + 混ざり。外れた人は people(「メンバーを選ぶ」の欄)から選ぶ"""
+    named = [o for o in options if o.get("id") not in (OTHER, MIXED)]
+    rank = {fid: i for i, fid in enumerate(x for x in first if x)}
+    named.sort(key=lambda o: rank.get(o["id"], len(rank)))   # sort は安定 = first に無い人は元の順
+    return named[:BUTTONS] + [o for o in options if o.get("id") in (OTHER, MIXED)]
+
+
+def people_for(doc, voices, roster_names=()):
+    """「メンバーを選ぶ」の欄の候補 [{id, name}] = 文書の話者(id は話者の id = 答えは {choice})→ 覚えた声の登録簿の人 → 名簿の全員
+    (id は name:<名前> = 答えは {name})。同じ人(person_key)は 1 つ・仮の名前や一般的な名前・長すぎる名前は名簿と登録簿からは入れない"""
+    out, seen = [], set()
+    for s in doc.get("speakers") or ():
+        if not isinstance(s, dict) or not s.get("id") or _yschemas.other_speaker(s):
+            continue
+        n = str(s.get("name") or s.get("id"))
+        if _person_key(n) not in seen:
+            seen.add(_person_key(n))
+            out.append({"id": str(s["id"]), "name": n})
+    for n in list(voices or ()) + list(roster_names or ()):
+        n = str(n or "").strip()
+        if not n or _person_key(n) in seen or len(n) > NAME_MAX or not _learnable_name(n):
+            continue
+        seen.add(_person_key(n))
+        out.append({"id": NAME_PREFIX + n, "name": n})
+    return out[:MAX_PEOPLE]
 
 
 # ---------------------------------------------------------------- 答えの検査

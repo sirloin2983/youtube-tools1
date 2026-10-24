@@ -1,10 +1,11 @@
 """「確かめる」の答えを実物へ反映する土台(notes:docs/design/v1-check-build.md の 3-2・3-3)。
 
-カードの種類(kind)と出どころ(source)ごとに「反映の関数」を登録し(register)、入口の口(POST /api/check/answer・/skip・/flush)が呼ぶ:
+カードの種類(kind)と出どころ(source)ごとに「反映の関数」を登録し(register)、入口の口(POST /api/check/answer・/unknown・/skip・/flush)が呼ぶ:
   answer(ctx, card, body) -> 答えを検査 → この画面の前の保留を先に確定(flush)→ 反映(または保留)→ answers.jsonl に 1 行
   undo(ctx, answer_id)    -> Z。保留のままなら記録の取り消しだけ・反映済みなら登録した revert で逆の操作 → 戻した行
   flush(ctx, page)        -> この画面の保留(1 枚遅れで確定する答え)を全部確定する(次のカードに答えた・飛ばした・タブを閉じた / 隠した)
   skip(ctx, card_id, page) -> この画面の保留を確定してから、そのカードを今日の間だけ後ろへ(skip.json)
+  unknown(ctx, card, page) -> [分からない]。この画面の保留を確定してから、分からないの行を 1 行(もう出さない・実物も評価も変えない。Z で戻せる)
 登録の形(登録の無い種類の答えは 409 not_ready で断る = 実物を変えずにカードだけ消えることは無い):
   register(kind, source, apply, revert=None, check=None, defer=None)
     check(answer) -> 検査して整えた答え(違えば ValueError = 400)
@@ -259,6 +260,11 @@ def undo(ctx, answer_id):
     with _lock:
         st = answerlog.state(ctx.app_dir)
         row = st.answers.get(answer_id)
+        if row is None and answer_id in st.unknowns:   # [分からない] の取り消し = 記録だけ(実物は変えていない)
+            if answer_id in st.undone:
+                raise Refused("その答えはもう戻しました", 409, "undone")
+            answerlog.append(ctx.app_dir, _line(undo=answer_id, reverted={"unknown": True}))
+            return {"ok": True, "answer": answer_id, "card": st.unknowns[answer_id]["unknown"], "reverted": {"unknown": True}}
         if row is None:
             raise Refused("その答えはありません", 404, "not_found")
         again = st.undoing.get(answer_id)
@@ -270,6 +276,20 @@ def undo(ctx, answer_id):
             raise Refused("その答えはもう戻しました", 409, "undone")
         reverted = _undo_locked(ctx, st, row)
         return {"ok": True, "answer": answer_id, "card": row.get("card"), "reverted": reverted}
+
+
+def unknown(ctx, card, page=None):
+    """[分からない]: カードをもう出さない(この画面の保留は先に確定)。実物には何もしない・答えではない(answerlog の説明)。
+    card = 入口がサーバーの側で引き直したカード。-> {ok, answer: 分からないの行の id(Z で戻すとき), card, flushed}。答え済み・分からない済みは 409"""
+    with _lock:
+        st = _resume_locked(ctx, answerlog.state(ctx.app_dir))
+        if st.closed(card):
+            raise Refused("このカードはもう答えています(Z で戻してから答え直してください)", 409, "answered")
+        flushed = _flush_locked(ctx, st, _page(page))
+        row = _line(unknown=card["id"], kind=card.get("kind"), source=card.get("source"), case=card.get("case"),
+                    target=card.get("target") or {}, mark=answerlog.card_mark(card))
+        answerlog.append(ctx.app_dir, row)
+        return {"ok": True, "answer": row["id"], "card": card["id"], "flushed": flushed}
 
 
 def skip(ctx, card_id, page=None):

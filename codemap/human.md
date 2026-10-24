@@ -13,10 +13,10 @@
 - **__init__.py** (3 行) — ③ 確かめる(V1。カードの答えの記録 answerlog・答えを実物へ反映する土台 apply・文書の行を直す口 _doc と、種類ごとの反映 read・timerow・value・voice・speech・section・cutcard。
 - **_doc.py** (104 行) — 「確かめる」の文書の行を直す 1 つの口(読み・時刻・声のカードの反映と Z が使う。opt-human 6-1)。
   - 名前: `busy` :22・`edit_row` :30・`edit_fields` :54・`revert_fields` :64・`doc_id` :78・`row_target` :86・`choice` :96
-- **answerlog.py** (182 行) — 「確かめる」の答えの記録(notes:docs/design/v1-check-build.md の 3-1)。
-  - 名前: `answers_path` :43・`new_id` :51・`day_of` :56・`append` :61・`class State` :92・`state` :159・`read_skips` :165・`add_skip` :173
-- **apply.py** (282 行) — 「確かめる」の答えを実物へ反映する土台(notes:docs/design/v1-check-build.md の 3-2・3-3)。
-  - 名前: `class Context` :45・`register` :68・`flush` :206・`answer` :213・`undo` :254・`skip` :275
+- **answerlog.py** (212 行) — 「確かめる」の答えの記録(notes:docs/design/v1-check-build.md の 3-1)。
+  - 名前: `answers_path` :48・`new_id` :56・`day_of` :61・`card_mark` :66・`append` :76・`class State` :107・`state` :189・`read_skips` :195・`add_skip` :203
+- **apply.py** (302 行) — 「確かめる」の答えを実物へ反映する土台(notes:docs/design/v1-check-build.md の 3-2・3-3)。
+  - 名前: `class Context` :46・`register` :69・`flush` :207・`answer` :214・`undo` :255・`unknown` :281・`skip` :295
 - **cutcard.py** (54 行) — 「確かめる」の自動カットのカードの答えの記録(CUT-CARD。決定: plan/opt-eval.md の Q4 自動カットのカード)。
   - 名前: `enabled` :27
 - **read.py** (145 行) — 「確かめる」の読みのカード(どちらの読みが正しいか)の反映(notes:docs/design/v1-check-build.md の 2-2・3-2。import で apply に登録する)。
@@ -29,8 +29,8 @@
   - 名前: `_move` :19・`_check` :27・`_times` :39・`_apply_time` :43・`_revert_time` :65
 - **value.py** (167 行) — 「確かめる」の価値のカード(切り抜く価値があるか = 70 点以上か)の反映(notes:docs/design/v1-check-build.md・決定 3-41)。
   - 名前: `_code` :32・`_msg` :36・`_need` :40・`_auto_check` :50・`_auto_apply` :64・`_auto_revert` :75・`_studio` :87・`_set_status` :94・`_cand_apply` :123・`_cancel_export` :138・`_cand_revert` :153
-- **voice.py** (384 行) — 「確かめる」の誰の声のカード(voice:diar)の答えの形・選択肢・反映・声の覚え直し(notes:docs/design/v1-check-build.md の 3-2・5 節、
-  - 名前: `diar_enabled` :45・`doc_embedding` :67・`registry` :72・`options_for` :87・`guess_for` :108
+- **voice.py** (417 行) — 「確かめる」の誰の声のカード(voice:diar)の答えの形・選択肢・反映・声の覚え直し(notes:docs/design/v1-check-build.md の 3-2・5 節、
+  - 名前: `diar_enabled` :49・`doc_embedding` :71・`registry` :76・`options_for` :91・`guess_for` :112・`buttons` :128・`people_for` :137
 
 ## src/human/cut/
 

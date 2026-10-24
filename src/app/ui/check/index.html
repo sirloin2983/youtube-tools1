@@ -52,6 +52,7 @@
         <div class="chk-kind" id="chkKind"></div>
         <div class="chk-body" id="chkBody"></div>
         <div class="chk-foot">
+          <button type="button" class="btn ghost" id="chkUnknown" title="自分には分からないカードです。もう出しません(答えに数えず、何にも反映しません。Z で戻せます)">分からない <kbd class="ui-kbd">W</kbd></button>
           <button type="button" class="btn ghost" id="chkSkip" title="このカードは今日は後ろへ回します">飛ばす <kbd class="ui-kbd">N</kbd></button>
           <button type="button" class="btn ghost" id="chkUndo" disabled title="まだ答えたカードがありません">1 つ前に戻す <kbd class="ui-kbd">Z</kbd></button>
         </div>
@@ -62,7 +63,7 @@
       <div class="card-title" id="chkNextTitle">このあと</div>
       <ul class="chk-queue" id="chkQueue"></ul>
       <p class="hint chk-answered" id="chkAnswered" role="status"></p>
-      <p class="hint chk-side-note">[飛ばす] はその日は後ろへ回します。重い確認は案件の画面で開き、終わったらここへ戻ります。</p>
+      <p class="hint chk-side-note">[分からない] はもう出しません(答えに数えません)。[飛ばす] はその日は後ろへ回します。重い確認は案件の画面で開き、終わったらここへ戻ります。</p>
     </aside>
   </div>
 </main>

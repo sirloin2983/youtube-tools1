@@ -127,7 +127,8 @@ class SourcesTest(unittest.TestCase):
         self.assertNotIn("read:fill:%s#s5" % DOC, by)       # 空白だけの違いは出さない
         voice = by["voice:diar:%s#s3" % DOC]
         self.assertEqual(voice["guess"], {"id": "S2", "name": "い"})
-        self.assertEqual([o["id"] for o in voice["options"]], ["S1", "S2", "other", "mixed"])
+        self.assertEqual([o["id"] for o in voice["options"]], ["S2", "S1", "other", "mixed"])   # 名前のボタンは予想(見立てに近い人)から
+        self.assertEqual([o["id"] for o in voice["people"]][:2], ["S1", "S2"])                # 「メンバーを選ぶ」の欄は文書の話者から
         self.assertNotIn("voice:diar:%s#s2" % DOC, by)      # 校正済み
         self.assertNotIn("voice:diar:%s#s4" % DOC, by)      # 1 秒未満
         self.assertNotIn("voice:diar:%s#s5" % DOC, by)      # 混ざり

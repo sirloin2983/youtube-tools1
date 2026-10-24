@@ -13,7 +13,7 @@
                (材料が多いほど少ない。端数はくじ)。どの人も、まだ材料に入っていない配信(文書)の行が先。
                覚え直しは新しい行だけを前の声に混ぜる(flow/diar.merge_voice・前の重みは 1 時間まで)ので、材料が増えても 1 回の重さは変わらない = 上限は置かない
 答えの形・反映・覚え直しは voice:diar と同じ(human/check/voice。予想 = 配信者・選択肢 = 配信者 + ほかの対象の人 + その他 + 混ざり。
-分からないときは画面の [飛ばす])。カードは voice:diar より先に並ぶ(`_order` の頭 -1)。人をまたいでランダムに混ぜる
+名前のボタンは配信者から BUTTONS 人・ほかの人は「メンバーを選ぶ」の欄 = people(名簿の全員・打った名前も)。分からないときは画面の [分からない])。カードは voice:diar より先に並ぶ(`_order` の頭 -1)。人をまたいでランダムに混ぜる
 (同じ人が続くと聞き分けにならない。集め直すたびに混ざる)。
 古い版の文字起こしの文書(① records.output_old)は後回し: 1 人ぶんの枠は今の版の文書の行から埋め、カードの並びも同じ回りでは今の版が先
 (古い版は夜の作り直し app/check/refresh で今の版になる)。
@@ -166,11 +166,12 @@ def clip_targets(view):
 
 
 def voice_solo(view):
-    out = []
+    out, members = [], _vm.roster_people()
     for rank, who, people, tid, doc, g, i in _select(view):
         opts, guess = _options(doc, who, people)
         card = sources._doc_card(view, "voice", SOURCE, tid, doc, g, 0.3, {
-            "guess": guess, "options": opts, "note": SOURCE,
+            "guess": guess, "options": voice_mod.buttons(opts, [guess["id"]]),
+            "people": voice_mod.people_for(doc, {}, [who] + list(people) + members), "note": SOURCE,
             "_order": [-1, random.random(), rank, i, int(records.output_old(doc)), -sources._num(doc.get("updatedAt")), sources._num(g.get("start"))]}, tight=True)
         clip = None if sources.has_media(doc) else _voiceclips.media(tid, g["id"], card["media"]["start"], card["media"]["end"])
         if clip:   # 元の動画が無い(片付いた・友人から届いた)ときだけ、切り出して残した行の音で再生する。動画があれば映像つきのまま(10-25 直し)

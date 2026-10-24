@@ -40,6 +40,7 @@
                                           → {rev, cards, counts: {today, perKind, failed}, goal, goals, total, held, failed, errors}
   POST /api/check/answer                  {card, answer, ms?, skip?} カードに答える(カードはサーバーが引き直す。反映は src/human/check/apply.py に登録した部品)
                                           → {ok, answer, card, applied, held, flushed, next} / {undo: 答えの id} Z で戻す → {ok, answer, card, reverted}
+  POST /api/check/unknown                 {card, skip?, page?} [分からない] = もう出さない(実物・評価には何もしない。Z で戻せる)→ {ok, answer, card, flushed, next}
   POST /api/check/skip                    {card} 今日の間だけ後ろへ(保留を先に確定)・POST /api/check/flush {} 保留(1 枚遅れの [送る])を確定(画面を離れたとき)
   GET  /api/status                        {"app", "version", "tools": [...], "heavy"}(ツールごとの状態・重い処理)
   GET  /api/health[?refresh=1]            「調子」(段9 9-1。src/manage/ops/health.py): 版の期待と実際・認識ワーカー・ffmpeg/ffprobe/yt-dlp・空き容量・作業データの大きさ・エラーの件数
@@ -634,7 +635,7 @@ POST_ROUTES = {"/api/cases/auto": ("_post_case_auto", True),
                "/api/flow/cancel": ("_post_flow_cancel", True),
                "/api/intake/scan": ("_post_intake_scan", True), "/api/backup/run": ("_post_backup_run", True),
                "/api/accuracy/run": ("_post_accuracy_run", True),
-               "/api/check/answer": ("_post_check", True), "/api/check/skip": ("_post_check", True), "/api/check/flush": ("_post_check", True),
+               "/api/check/answer": ("_post_check", True), "/api/check/unknown": ("_post_check", True), "/api/check/skip": ("_post_check", True), "/api/check/flush": ("_post_check", True),
                "/api/shutdown": ("_post_shutdown", False)}
 
 
@@ -821,7 +822,8 @@ class PortalHandler(httpsec.LocalHandler):
         return self._json(*self.server.auto_review(body))
 
     def _post_check(self, path, body):
-        """「確かめる」(V1): answer {card, answer, ms?, skip?, page?} か {undo} / skip {card, page?} / flush {page?}。カードは src/app/check/deck.py で引き直し、
+        """「確かめる」(V1): answer {card, answer, ms?, skip?, page?} か {undo} / unknown {card, skip?, page?}([分からない]。Z は answer の {undo})/
+        skip {card, page?} / flush {page?}。カードは src/app/check/deck.py で引き直し、
         記録と反映は src/human/check/apply.py(種類ごとの反映の部品が登録する。無い種類は 409 not_ready)。page = 画面の印(確定はその画面の保留だけ)"""
         op, ctx = path.rsplit("/", 1)[1], self.server.check_ctx()
         try:
@@ -842,7 +844,7 @@ class PortalHandler(httpsec.LocalHandler):
                     if why:   # 集めたときの失敗(出どころ・文書の読み)。見つからない理由を後で追えるように記録へ
                         self.server.sup.log("確かめる: %s が見つかりません(集めたときの失敗: %s)" % (body["card"], "・".join(why[:5])))
                     return self._fail(404, "gone", "そのカードはもう確かめる物ではありません(読み込み直してください)" + ("(読めなかった物: %s)" % "・".join(why[:3]) if why else ""))
-                out = check_apply.answer(ctx, card, body)
+                out = check_apply.unknown(ctx, card, body.get("page")) if op == "unknown" else check_apply.answer(ctx, card, body)
                 check_deck.invalidate()
                 held = body.get("skip") if isinstance(body.get("skip"), list) else []
                 lane = "eval" if card.get("kind") in check_lineup.EVAL_KINDS else "normal"   # 次の 1 枚は答えたカードと同じレーンから
@@ -1187,10 +1189,10 @@ class PortalServer(httpsec.ExclusiveServer):
         snap = cases_mod.snapshot(self.sup.root)
         cases = snap.get("cases") or []
         st = check_answerlog.state(self.cleanup.app_dir)
-        answered = set(st.by_card)
         cards, view = check_sources.collect(self.check_ctx(), st)
         if view.errors:
             raise RuntimeError("確かめるのカードを集められない出どころがある: %s" % "・".join(view.errors[:3]))
+        answered = set(st.by_card) | {c.get("id") for c in cards if isinstance(c, dict) and st.closed(c)}   # 答えた・[分からない] のカード = もう出ない
         docs = pending_check_docs(cards, answered)
         keep = []
         for c in cases + (snap.get("virtual") or []):

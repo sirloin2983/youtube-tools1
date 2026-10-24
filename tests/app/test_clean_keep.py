@@ -47,7 +47,7 @@ class CleanKeepTest(unittest.TestCase):
                                                  {"path": "E:/x/03.mp4", "transcriptIds": ["zzzzzzzzzzz9"]}]}],
                 "virtual": [{"id": "orphan", "caseKind": "orphan", "clips": [{"path": "E:/y/04.mp4", "transcriptIds": ["ccccccccccc1"]}]}]}
         cards = [card("voice:solo:a", "voice", "aaaaaaaaaaa1"), card("read:x:b", "read", "bbbbbbbbbbb1"), card("time:x:c", "time", "ccccccccccc1")]
-        st = types.SimpleNamespace(by_card={})
+        st = S.check_answerlog.State([])
         with mock.patch.object(S.cases_mod, "snapshot", lambda root: snap), mock.patch.object(S.check_answerlog, "state", lambda d: st), \
                 mock.patch.object(S.check_sources, "collect", lambda ctx, s: (cards, types.SimpleNamespace(errors=[]))):
             cases, keep, busy = S.PortalServer.clean_inputs(self._srv())

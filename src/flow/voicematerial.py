@@ -117,6 +117,16 @@ def roster_file():
     return roster.ROSTER
 
 
+def roster_people():
+    """名簿の人の名前の一覧(名簿の順。確かめるの誰の声のカードの「メンバーを選ぶ」の欄)。名簿が決まっていない・読めなければ []"""
+    if roster.ROSTER is None:
+        return []
+    try:
+        return list(roster.load(roster.ROSTER).get("people") or ())
+    except Exception:
+        return []
+
+
 def member(name):
     """名簿のメンバーの名前(名簿の書き方に直す)か None(名簿に無い・名簿が決まっていない)"""
     if roster.ROSTER is None or not isinstance(name, str) or not name.strip():

@@ -99,6 +99,16 @@ class AnswerFormTest(unittest.TestCase):
         self.assertEqual(voice.guess_for(doc, "S2", {"top": "だれか"}, opts), {"id": "S2", "name": "話者2"})
         self.assertIsNone(voice.guess_for(doc, "", {}, opts))
 
+    def test_buttons_and_people(self):
+        """名前のボタンは見立てに近い順に 3 人 + その他 + 混ざり・ほかの人は people(文書の話者 → 登録簿 → 名簿。同じ人は 1 つ・仮の名前は名簿から入れない)"""
+        named = [{"id": "S%d" % i, "name": "人%d" % i} for i in range(1, 6)]
+        opts = named + [{"id": "other", "name": "その他"}, {"id": "mixed", "name": "混ざり"}]
+        self.assertEqual([o["id"] for o in voice.buttons(opts, ["S4", None, "S2"])], ["S4", "S2", "S1", "other", "mixed"])
+        doc = make_doc()
+        doc["speakers"].append({"id": "other", "name": "ゲーム音声など", "builtin": "other"})
+        got = voice.people_for(doc, {"みこ": {}}, ["ぺこら", "ミコ", "すいせい", "話者3", ""])
+        self.assertEqual(got, [{"id": "S1", "name": "ぺこら"}, {"id": "S2", "name": "話者2"}, {"id": "name:みこ", "name": "みこ"}, {"id": "name:すいせい", "name": "すいせい"}])
+
 
 class ApplyTest(Base):
     def test_name_choice(self):

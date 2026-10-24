@@ -17,9 +17,9 @@
   - 受ける口: `/api/ytt` :45
 - **prefs.py** (487 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
   - 名前: `class PrefsError` :95・`guess_streamer` :381・`class Prefs` :393
-- **server.py** (1775 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
-  - 名前: `runtime_dir` :184・`ping` :194・`tail` :202・`expected_version` :223・`tool_python` :229・`rel_or_abs` :239・`signal_stop` :247・`class Tool` :260・`app_data_dir` :310・`logs_dir_for` :316・`class Supervisor` :322・`query_int` :641・ほか 16
-  - 受ける口: `/api/drill/status` :152・`/api/eval-batch` :152・`/api/intake` :627・`/api/backup` :628・`/api/accuracy` :629・`/api/flow/runs` :630・`/api/cases/auto` :632・`/api/flow/submit` :633・`/api/flow/estimate` :633・`/api/flow/cancel` :634・`/api/intake/scan` :635・`/api/backup/run` :635・`/api/accuracy/run` :636・`/api/check/answer` :637・`/api/check/skip` :637・`/api/check/flush` :637・`/api/shutdown` :638・`/api/ping` :727・`/api/status` :729・`/api/health` :739・`/api/log` :741・`/api/flow/status` :756・`/api/flow/history` :760・`/api/check/next` :763・`/api/check/voiceclip` :769・`/api/home/requests` :775・`/api/cases` :783
+- **server.py** (1777 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
+  - 名前: `runtime_dir` :185・`ping` :195・`tail` :203・`expected_version` :224・`tool_python` :230・`rel_or_abs` :240・`signal_stop` :248・`class Tool` :261・`app_data_dir` :311・`logs_dir_for` :317・`class Supervisor` :323・`query_int` :642・ほか 16
+  - 受ける口: `/api/drill/status` :153・`/api/eval-batch` :153・`/api/intake` :628・`/api/backup` :629・`/api/accuracy` :630・`/api/flow/runs` :631・`/api/cases/auto` :633・`/api/flow/submit` :634・`/api/flow/estimate` :634・`/api/flow/cancel` :635・`/api/intake/scan` :636・`/api/backup/run` :636・`/api/accuracy/run` :637・`/api/check/answer` :638・`/api/check/unknown` :638・`/api/check/skip` :638・`/api/check/flush` :638・`/api/shutdown` :639・`/api/ping` :728・`/api/status` :730・`/api/health` :740・`/api/log` :742・`/api/flow/status` :757・`/api/flow/history` :761・`/api/check/next` :764・`/api/check/voiceclip` :770・`/api/home/requests` :776・`/api/cases` :784
 - **ytlogin.py** (95 行) — ユーザーの PC の YouTube のログイン(10-23 ユーザー「ログインできる形にしといて」)。友人のアプリと同じ作り(notes:docs/spec/friend.md の 13-13)。
   - 名前: `cookies_path` :23・`apply_env` :27・`class YtLogin` :35
 
@@ -28,8 +28,8 @@
 - **__init__.py** (2 行) — 入口の「確かめる」(⑤ の待ち行列 deck・lineup・sources・read_sources を入口から組む。goals は eval/check。notes:docs/design/v1-check-build.md)
 - **cut_sources.py** (165 行) — 「確かめる」の自動カットのカードの出どころ(CUT-CARD。決定: plan/opt-eval.md の Q4 自動カットのカード)。
   - 名前: `cut_edge` :150・`cut_gap` :154・`cut_whole` :158
-- **deck.py** (153 行) — 「確かめる」の待ち行列を組み立てる(V1 の V0。GET /api/check/next の中身と、答える前にカードをサーバーの側で引き直す find)。
-  - 名前: `invalidate` :30・`check_args` :64・`next_cards` :85・`find` :129
+- **deck.py** (152 行) — 「確かめる」の待ち行列を組み立てる(V1 の V0。GET /api/check/next の中身と、答える前にカードをサーバーの側で引き直す find)。
+  - 名前: `invalidate` :30・`check_args` :64・`next_cards` :85・`find` :128
 - **eval_sources.py** (114 行) — 「確かめる」の評価のレーンの区間カードの出どころ section:eval(C-EVAL (2)。決定 3-47・3-49 Q2。反映は ③ src/human/check/section.py)。
   - 名前: `cut_after` :41・`section_eval` :62
 - **lineup.py** (102 行) — 「確かめる」の待ち行列の並び(lineup)と数え方(V1 の V0。名前は標準の queue と重ねない。notes:docs/design/v1-check-build.md の 2-3)。純粋な関数だけ(ファイルを読まない)。
@@ -38,11 +38,11 @@
   - 名前: `read_alt` :84
 - **refresh.py** (102 行) — 「確かめる」のカードの元の文書を、今の版の文字起こしで作り直す(夜の見回り)。
   - 名前: `night_of` :32・`targets` :40・`read_state` :55・`tick` :62
-- **sources.py** (409 行) — 「確かめる」のカードの出どころ(V1 の V0。notes:docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
-  - 名前: `register` :47・`registered` :61・`has_media` :80・`class View` :90・`value_auto` :261・`value_cand` :287・`read_fill` :316・`voice_diar` :333・`time_row` :367・`collect` :392
+- **sources.py** (415 行) — 「確かめる」のカードの出どころ(V1 の V0。notes:docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
+  - 名前: `register` :49・`registered` :63・`has_media` :82・`class View` :92・`value_auto` :263・`value_cand` :289・`read_fill` :318・`voice_diar` :335・`time_row` :373・`collect` :398
 - **speech_sources.py** (66 行) — 「確かめる」の普段のレーンの「この行は声ですか?」カードの出どころ speech:diar(C-EVAL (3))。
   - 名前: `speech_diar` :41
-- **voice_solo.py** (183 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
+- **voice_solo.py** (184 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
   - 名前: `clip_targets` :159・`voice_solo` :168
 
 ## src/app/ui/
@@ -66,7 +66,7 @@
 
 ## src/app/ui/check/
 
-- **check.js** (580 行) — 確かめる(/check = 入口の直下の 1 枚。部品は src/app/ui/check/。RS8 V1 = 殻。作り方 notes:docs/design/v1-check-build.md・何を作るか …
+- **check.js** (588 行) — 確かめる(/check = 入口の直下の 1 枚。部品は src/app/ui/check/。RS8 V1 = 殻。作り方 notes:docs/design/v1-check-build.md・何を作るか …
 - **player.js** (231 行) — 確かめるのカード用の軽い再生部品(/check-player.js。RS8 V1。作り方 notes:docs/design/v1-check-build.md の 4・5 節)。
 
 ## src/app/ui/check/cards/
@@ -77,7 +77,7 @@
 - **speech.js** (20 行) — 確かめるのカード「この行は声ですか?」(/check-cards/speech.js。C-EVAL (3)。口は check.js の先頭・反映は src/human/check/speech.py)。
 - **time.js** (107 行) — 確かめるのカード「行の時刻が合っているか」(/check-cards/time.js。RS8 V1 の V2d。作り方 notes:docs/design/v1-check-build.md の 3-2・5 節・決定 3-41)。
 - **value.js** (63 行) — 確かめるのカード「価値」(/check-cards/value.js)。口は check.js の先頭。
-- **voice.js** (98 行) — 確かめるのカード「これは誰の声?」(/check-cards/voice.js。V2c。口は check.js の先頭・反映は src/human/check/voice.py)。
+- **voice.js** (157 行) — 確かめるのカード「これは誰の声?」(/check-cards/voice.js。V2c。口は check.js の先頭・反映は src/human/check/voice.py)。
 
 ## src/app/ui/editor/
 

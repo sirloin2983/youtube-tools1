@@ -1,5 +1,5 @@
 /* 確かめる(/check = 入口の直下の 1 枚。部品は src/app/ui/check/。RS8 V1 = 殻。作り方 notes:docs/design/v1-check-build.md・何を作るか notes:docs/design/briefs/rs8-cases/DESIGN_BRIEF.md 2-3・3)。
-   案件をまたいだ軽い確認の待ち行列を 1 枚ずつカードで出し、答えたらすぐ次へ。Z で 1 つ前に戻す・[飛ばす](N)はその日は後ろへ。区切りで止めずに続けて出す(答えた数と目標は帯と「このあと」の欄に出したまま。10-24 ユーザー)。
+   案件をまたいだ軽い確認の待ち行列を 1 枚ずつカードで出し、答えたらすぐ次へ。Z で 1 つ前に戻す・[分からない](W)はもう出さない(答えではない = 今日の数・評価に入れない。Z で戻せる)・[飛ばす](N)はその日は後ろへ。区切りで止めずに続けて出す(答えた数と目標は帯と「このあと」の欄に出したまま。10-24 ユーザー)。
    URL: /check?c=<案件 id>(その案件だけ)&kind=value|read|voice|time|speech|cut(この種類だけ)&back=cases(終わったら案件へ戻るボタン)。URL を開いただけでは何も書かない。
    種類の切り替え(普段のレーンの上): 全部・誰の声・読み・時刻・声かどうか・価値・カット と残りの枚数(counts.perKind = 種類で絞る前の数)。
    押した種類はこのブラウザに覚える(localStorage の check.kind)。URL の kind があればそちらが先(覚えた物は変えない)。
@@ -8,12 +8,13 @@
    読む口・書く口(入口。入口 src/app/check/ が数えて並べ、③ src/human/check/apply.py が実物に反映する。V0):
      GET  api/check/next?c=&kind=&n=<枚数。0 = 数だけ>&skip=<id,…>  → {cards: [カード], counts: {today, perKind, failed}, goal, goals: {種類: {label, left, unit, opens, reached}}, total}
      POST api/check/answer {card, answer, ms, skip(待っている id), page} → {ok, answer(答えの id = Z で戻すときに使う), applied, held, flushed, next}
-     POST api/check/answer {undo: <答えの id>}                       → {ok, answer, card, reverted}
+     POST api/check/answer {undo: <答えの id>}                       → {ok, answer, card, reverted}([分からない] の id も同じ口で戻す)
+     POST api/check/unknown {card, skip, page}                        → {ok, answer(分からないの行の id), card, flushed, next}
      POST api/check/skip   {card, page}                               → {ok, flushed}・POST api/check/flush {page} → {ok, flushed}(タブを閉じた・隠したとき)
      page = この画面の印(開くたびに作る)。保留(1 枚遅れの [送る])の確定は、この画面の次の答え・飛ばす・タブを閉じる / 隠すときに、この画面の分だけ
      (別の窓へ移っただけ = blur では確定しない。決定 Q12 (a))
    カード = {id, kind, source, case: {id, title}, target, media: {url | youtube, start, end, pad}, text, guess, options, score, note}。
-   殻が持つ物: 上の帯(今日 n 件・この確認で決まる物)・カードの枠・keydown 1 本・Z・[飛ばす]・先読み(10 枚を持ち、3 枚を切ったら補充)・
+   殻が持つ物: 上の帯(今日 n 件・この確認で決まる物)・カードの枠・keydown 1 本・Z・[分からない]・[飛ばす]・先読み(10 枚を持ち、3 枚を切ったら補充)・
    空の状態・失敗・UIKit.life(見えなくなったら再生を止める)・カードの再生部品の後始末。CSP(script-src 'self')の下で動く: インラインの script・on〇〇= は書かない。
 
    ---- カードの登録の口(V2 の 4 本 = cards/value.js・read.js・voice.js・time.js が同じ形で作る)----
@@ -23,7 +24,7 @@
      keys(e, card) -> 答え | true | null   殻の keydown から 1 回だけ。答え(object)を返すと殻が送ってすぐ次のカードへ。true = 使ったが答えではない
                        (印を動かすなど。殻が preventDefault)。null = 使わない(殻が再生のキー UIKit.keys.playback に回す)。
                        el の中の <button data-chk-k="A"> を押したときも、同じ keys が {key: 'A', fromButton: true, target: ボタン} で呼ばれる(ボタンとキーは 1 本の道)
-     keybar(card) -> [{k, l}]   下の帯の分(殻が [N 飛ばす][Space 再生][R もう一度聞く][Z 戻す] を後ろに足す。N・Z・R は殻が先に取る = カードで使わない)。変わったら ctx.refreshKeys()
+     keybar(card) -> [{k, l}]   下の帯の分(殻が [W 分からない][N 飛ばす][Space 再生][R もう一度聞く][Z 戻す] を後ろに足す。W・N・Z・R は殻が先に取る = カードで使わない)。変わったら ctx.refreshKeys()
      unmount()        (任意)カードを離れる。ctx.player で作った再生部品は殻が止めて外す
      leave(reason)    (任意)画面を離れた(UIKit.life。'blur' = 隣の窓へ / 'hidden'・'pagehide')
      typingKeys       (任意)true なら入力中(UIKit.keys.isTyping)のキーも keys に渡す(「どちらも違う(打つ)」の欄)
@@ -379,13 +380,16 @@
     }).then(function () { evalBusy = false; loadEvalHead(); });
   }
 
-  /* ---- 答える・戻す・飛ばす ---- */
-  function answer(a) {
+  /* ---- 答える・分からない・戻す・飛ばす ---- */
+  /* unk = [分からない](W): 答えの代わりに api/check/unknown へ。もう出さないだけ = 今日の数・この画面で答えた数に入れない。Z で戻せる(履歴に積む) */
+  function answer(a, unk) {
     var card = S.cur;
-    if (!card || !a || typeof a !== 'object') return;
-    var body = { card: card.id, answer: a, ms: Math.max(0, Date.now() - S.shownAt), skip: S.queue.slice(0, 50).map(function (c) { return c.id; }), page: PAGE };
-    var entry = { card: card, p: null };
-    entry.p = api('api/check/answer', { body: body }).then(function (j) {
+    if (!card || (!unk && (!a || typeof a !== 'object'))) return;
+    var waiting = S.queue.slice(0, 50).map(function (c) { return c.id; });
+    var body = unk ? { card: card.id, skip: waiting, page: PAGE } : { card: card.id, answer: a, ms: Math.max(0, Date.now() - S.shownAt), skip: waiting, page: PAGE };
+    var n = unk ? 0 : 1;
+    var entry = { card: card, p: null, unk: !!unk };
+    entry.p = api(unk ? 'api/check/unknown' : 'api/check/answer', { body: body }).then(function (j) {
       if (!j || typeof j.answer !== 'string' || !j.answer) throw Object.assign(new Error('答えの記録の番号が返ってきませんでした'), { code: 'no_id' });
       refreshCounts();
       return j.answer;
@@ -393,7 +397,7 @@
     entry.p.then(null, function (e) {   // 記録できなかった = そのカードを次に戻す(今日の数も戻す)
       var i = S.hist.indexOf(entry);
       if (i >= 0) S.hist.splice(i, 1);
-      S.today = Math.max(0, S.today - 1); S.answered = Math.max(0, S.answered - 1);
+      S.today = Math.max(0, S.today - n); S.answered = Math.max(0, S.answered - n);
       if (e && e.status === 404 && e.code === 'gone') {   // カードがもう一覧に無い = 戻さずに先へ・持っている一覧も古いので読み直す
         S.queue = []; S.exhausted = false; S.failed = null;
         renderBand(); renderUndo(); renderQueue(); refreshCounts();
@@ -405,14 +409,16 @@
       S.queue.unshift(card);
       renderBand(); renderUndo(); renderQueue();
       if (!S.cur) show();
-      UIKit.toast('答えを記録できませんでした: ' + e.message + '(このカードはもう一度出ます)', { kind: 'err', detail: e.detail });
+      UIKit.toast((unk ? '「分からない」を記録できませんでした: ' : '答えを記録できませんでした: ') + e.message + '(このカードはもう一度出ます)', { kind: 'err', detail: e.detail });
     });
     S.hist.push(entry);
     S.seen[card.id] = 1;
-    S.today++; S.answered++;
+    S.today += n; S.answered += n;
+    if (unk) UIKit.keybar.flash('W');
     renderBand();
     show();
   }
+  function unknown() { answer(null, true); }
   var undoing = false;
   function undo() {
     var last = S.hist[S.hist.length - 1];
@@ -421,7 +427,7 @@
     function back() {   // 戻せた(か、もう戻っていた)= カードを前に出し直す
       var i = S.hist.indexOf(last);
       if (i >= 0) S.hist.splice(i, 1);
-      S.today = Math.max(0, S.today - 1); S.answered = Math.max(0, S.answered - 1);
+      if (!last.unk) { S.today = Math.max(0, S.today - 1); S.answered = Math.max(0, S.answered - 1); }
       if (S.cur) S.queue.unshift(S.cur);
       delete S.seen[last.card.id];
       S.queue.unshift(last.card);
@@ -482,7 +488,7 @@
   function renderKeys() {
     var items = [];
     if (S.cur && S.view && S.view.keybar) { try { items = S.view.keybar(S.cur) || []; } catch (e) { items = []; } }
-    if (S.cur) items = items.concat([{ k: 'N', l: '飛ばす' }, { k: 'Space', l: '再生・停止' }]);
+    if (S.cur) items = items.concat([{ k: 'W', l: '分からない' }, { k: 'N', l: '飛ばす' }, { k: 'Space', l: '再生・停止' }]);
     if (S.cur && replayable()) items.push({ k: 'R', l: 'もう一度聞く' });
     if (S.hist.length) items.push({ k: 'Z', l: '1 つ前に戻す' });
     UIKit.keybar.set(items);
@@ -512,6 +518,7 @@
     var typing = UIKit.keys.isTyping(e.target), plain = !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey, k = keyOf(e);
     if (!typing && plain && k === 'Z') { e.preventDefault(); undo(); return; }
     if (!typing && plain && k === 'N' && S.cur) { e.preventDefault(); skip(); return; }
+    if (!typing && plain && k === 'W' && S.cur) { e.preventDefault(); if (!e.repeat) unknown(); return; }
     if (!typing && plain && k === 'R' && S.cur && replayable()) { e.preventDefault(); if (!e.repeat) { UIKit.keybar.flash('R'); replay(); } return; }
     if (typing && !(S.view && S.view.typingKeys)) return;
     var r = viewKeys(e);
@@ -552,6 +559,7 @@
       if (r && typeof r === 'object') answer(r);
     });
     $('#chkSkip').addEventListener('click', skip);
+    $('#chkUnknown').addEventListener('click', unknown);
     $('#chkUndo').addEventListener('click', undo);
     $('#chkEmpty').addEventListener('click', function (e) {
       if (!(e.target.closest && e.target.closest('[data-chk-retry]'))) return;

@@ -1,6 +1,6 @@
 """「確かめる」の待ち行列を組み立てる(V1 の V0。GET /api/check/next の中身と、答える前にカードをサーバーの側で引き直す find)。
 
-集める(sources.collect)→ 答えたカードを外す(answers.jsonl)→ 案件・種類で絞る → 並べる(lineup.order。目標は ctx.goals())→ n 枚。
+集める(sources.collect)→ 答えたカード・[分からない] にしたカードを外す(answers.jsonl の State.closed)→ 案件・種類で絞る → 並べる(lineup.order。目標は ctx.goals())→ n 枚。
 読むだけ(書くのは ③ human/check)。ctx = human/check/apply の Context(app_dir・root・env・goals?(入口の条件の一覧を返す関数)・eval_dirs?)。
 集めた結果は CACHE_SEC だけ覚える(ホームと案件の画面が数だけを 15 秒ごとに聞く。答え・飛ばす・戻すのあとは invalidate)。
 文字起こしの文書のフォルダが変わった(文書が書かれた・足された)ら CACHE_SEC の前でも集め直す(_docs_stamp。10-25: 集め直しは 0.6〜1.5 秒かかり、
@@ -90,8 +90,7 @@ def next_cards(ctx, case=None, kind=None, n=None, skip=None, lane=None):
     kinds = lineup.LANES[lane]
     st = answerlog.state(ctx.app_dir)
     cards, errors = _collect(ctx, st)
-    answered = set(st.by_card)
-    every = [c for c in cards if c["id"] not in answered and (case is None or (c.get("case") or {}).get("id") == case) and c.get("kind") in kinds]
+    every = [c for c in cards if not st.closed(c) and (case is None or (c.get("case") or {}).get("id") == case) and c.get("kind") in kinds]
     pool = every if kind is None else [c for c in every if c.get("kind") == kind]
     gk = goals_mod.by_kind(_goals(ctx))
     later = answerlog.read_skips(ctx.app_dir)

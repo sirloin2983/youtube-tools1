@@ -146,6 +146,30 @@ class ApplyTest(unittest.TestCase):
         self.assertEqual(answerlog.read_skips(self.tmp), ["read:fake:s8", "read:fake:s9"])
         self.assertEqual(answerlog.read_skips(self.tmp, at_ms=answerlog.now_ms() + 2 * 86400 * 1000), [])   # 日が変わったら空
 
+    def test_unknown_closes_without_counting_and_undo_reopens(self):
+        """[分からない]: もう出さない・反映しない・答え / 今日 / 評価(effective)に入れない・Z で戻すとまた出る・中身が変わればまた出る"""
+        c = dict(card("s1"), text="もとの字幕", media={"start": 1.0, "end": 2.0})
+        got = apply.unknown(self.ctx, c)
+        st = answerlog.state(self.tmp)
+        self.assertEqual((self.fake.calls, st.by_card, st.effective(), st.today(), st.closed(c)), ([], {}, [], 0, True))
+        row = self.lines()[0]
+        self.assertEqual((row["unknown"], row["kind"], "card" in row), ("read:fake:s1", "read", False))   # card を持たない = 答えと見ない
+        self.assertFalse(st.closed(dict(c, text="直した字幕")))                     # 人が直した行 = 新しいカードとしてまた出る
+        self.assertFalse(st.closed(dict(c, media={"start": 1.5, "end": 2.0})))     # 時刻が変わっても
+        self.assertFalse(st.closed(dict(c, id="read:fake:s1b")))                   # 作り直しで行の id が変わっても
+        with self.assertRaises(apply.Refused) as e:
+            apply.unknown(self.ctx, c)
+        self.assertEqual(e.exception.error, "answered")
+        back = apply.undo(self.ctx, got["answer"])
+        self.assertEqual((back["card"], back["reverted"]), ("read:fake:s1", {"unknown": True}))
+        self.assertFalse(answerlog.state(self.tmp).closed(c))
+        with self.assertRaises(apply.Refused) as e:
+            apply.undo(self.ctx, got["answer"])
+        self.assertEqual(e.exception.error, "undone")
+        apply.unknown(self.ctx, c)
+        a = apply.answer(self.ctx, c, {"answer": "1"})   # 中身が同じでも答えることはできる(また出たカード)
+        self.assertEqual(answerlog.state(self.tmp).by_card, {"read:fake:s1": a["answer"]})
+
     def test_log_write_failure_reverts(self):
         with mock.patch.object(answerlog, "append", side_effect=OSError("full")):
             with self.assertRaises(OSError):
