@@ -47,10 +47,12 @@
 ## src/human/friend/
 
 - **__init__.py** (2 行) — ③ 友人: 受付(Dropbox)→ まとめて実行(②)に流す → 届ける。友人の返事・送り返し・ライブの依頼の結びつき
+- **bugs.py** (374 行) — ③ 人の層: 友人の PC の不具合の書き出しを受け取って仕分けし、要対応があれば Claude Code を画面なしで 1 回起こす(10-25 ユーザーの OK。
+  - 名前: `bugs_dir` :84・`parse` :92・`triage` :105・`records` :131・`scan` :141・`find_claude` :206・`repo_root` :216・`wake` :280
 - **friend_feedback.py** (118 行) — 友人の「要らない」を PC 側で片付ける(notes:docs/spec/friend.md の 2-14。ユーザー「不採用の場合こちらにフィードバック」)。
   - 名前: `record_delivery` :24・`find_delivery` :29・`apply` :82
-- **intake.py** (821 行) — 友人からの依頼の受付(notes:docs/spec/friend.md)。
-  - 名前: `configured_folder` :77・`out_dir_of` :88・`submit_urls` :93・`submit_file` :117・`youtube_id` :127・`parse_lines` :133・`decode_text` :159・`probe_video` :173・`youtube_info` :185・`parse_ranges` :233・`class Intake` :262
+- **intake.py** (823 行) — 友人からの依頼の受付(notes:docs/spec/friend.md)。
+  - 名前: `configured_folder` :78・`out_dir_of` :89・`submit_urls` :94・`submit_file` :118・`youtube_id` :128・`parse_lines` :134・`decode_text` :160・`probe_video` :174・`youtube_info` :186・`parse_ranges` :234・`class Intake` :263
 - **live_requests.py** (22 行) — 友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend.md の 2-15)。
   - 名前: `settings_label` :19
 - **returns.py** (486 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。notes:docs/design/f1-build.md の (f1d))。
@@ -102,6 +104,7 @@
 - tests/human/check/test_timerow.py — 時刻のカードの反映(src/human/check/timerow.py)の単体テスト。一時の作業データに文書を作って、答える・戻すを確かめる。
 - tests/human/check/test_value.py — 価値のカードの反映(src/human/check/value.py)の単体テスト。入口が渡す口(studio)は偽物。value:auto は記録だけ(案件の口を呼ばない)。
 - tests/human/check/test_voice.py — 「確かめる」の誰の声のカード(src/human/check/voice.py)の単体テスト: 答えの形・選択肢と予想・文書の行への反映(commit why check:voice)と Z・
+- tests/human/friend/test_bugs.py — src/human/friend/bugs.py(友人の不具合の書き出しの受け取り・仕分け・AI を起こす口)のテスト。リポジトリ直下で:
 - tests/human/friend/test_friend_feedback.py — 友人の「要らない」を PC 側で片付ける(src/human/friend/friend_feedback.py)の単体テスト。ごみ箱は本物の cleanup.Cleanup(一時フォルダ)。
 - tests/human/friend/test_intake.py — 友人からの依頼の受付(src/human/friend/intake.py)の単体テスト。まとめて実行・ffprobe・yt-dlp は偽物。
 - tests/human/friend/test_returns.py — src/human/friend/returns.py(友人の送り返しの受け取り。F1 の F2)のテスト。リポジトリ直下で:
