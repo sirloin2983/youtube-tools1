@@ -7,6 +7,7 @@ yt-dlp の --download-sections で取って(音だけ・cookie なし)、「編�
 YouTube の枠は研究と分け合う(印のファイル <app>/check/yt-slot.json):
   last から GAP 秒たっていない・stopDay が今日・last が自分(相手の番を待つ。OWN_WAIT 秒たてば自分でもよい)なら問い合わせない。
   問い合わせたら last・by を書く。bot 判定・ログインを求められたら stopDay = 今日(その日は両方止める)。
+日本のメンバーを先に(友人の切り抜きは日本のメンバーが中心)。途中で残ったファイル(PC の再起動など)は次の回に消して取り直す。
 動かす時刻 HOURS。手が空いていない(入口の _accuracy_busy)・ライブの録画中は飛ばす。1 回に 1 人・取った音は <app>/check/voice-fetch/<名前>/ に残す。
 """
 import datetime
@@ -29,7 +30,7 @@ DIR_NAME = "voice-fetch"
 BY = "voice"
 GAP = 1800                    # どちらかが問い合わせてから、次に問い合わせるまでの最短(秒)
 OWN_WAIT = 5400               # 自分が続けて問い合わせてよいまでの秒(研究が動いていないとき)
-HOURS = (8, 24)
+HOURS = (0, 24)               # 1 日中(10-25: 研究にそろえた。枠の分け合いと判定で止める決まりはそのまま)
 SECTION = (600, 840)          # 取る所(配信の 10〜14 分。頭の待機画面と BGM を避ける)
 FETCH_TIMEOUT = 900
 MAX_TRIES = 4                 # 1 人につき試す配信の数(取れなければ次の回に次の配信)
@@ -44,11 +45,13 @@ NS = {"a": "http://www.w3.org/2005/Atom", "yt": "http://www.youtube.com/xml/sche
 
 
 def members(r):
-    """名簿の今のメンバー [(名前, チャンネル id)](ユニットの組・卒業の組を除く・チャンネルのある人だけ)"""
+    """名簿の今のメンバー [(名前, チャンネル id)](ユニットの組・卒業の組を除く・チャンネルのある人だけ・日本のメンバーが先)"""
     skip = {n for g in r.get("groups") or () if g.get("id") in SKIP_GROUPS for n in g.get("names") or ()}
     now = [n for g in r.get("groups") or () if g.get("id") not in SKIP_GROUPS for n in g.get("names") or ()]
     chan = {m.get("name"): m.get("channel") for m in r.get("members") or () if isinstance(m, dict)}
-    return [(n, chan[n]) for n in dict.fromkeys(now) if n not in skip and CHANNEL_RE.match(str(chan.get(n) or ""))]
+    region = {m.get("name"): m.get("region") for m in r.get("members") or () if isinstance(m, dict)}
+    out = [(n, chan[n]) for n in dict.fromkeys(now) if n not in skip and CHANNEL_RE.match(str(chan.get(n) or ""))]
+    return sorted(out, key=lambda x: region.get(x[0]) != "JP")   # 並びの安定 = 名簿の順のまま日本が先
 
 
 def _read(path):
@@ -156,7 +159,7 @@ def tick(app_dir, roster_r, have, busy, start_job, log, now=None, rss=None, fetc
     free, why = slot_free(app_dir, now)
     if not free:
         return None
-    who, chan = min(todo, key=lambda x: (len((state.get(x[0]) or {}).get("tried") or []), x[0]))
+    who, chan = min(todo, key=lambda x: (len((state.get(x[0]) or {}).get("tried") or []), todo.index(x)))   # 試した数の少ない人・日本が先
     rec = state.setdefault(who, {"tried": []})
     _mark_slot(app_dir, now)
     try:
@@ -173,6 +176,8 @@ def tick(app_dir, roster_r, have, busy, start_job, log, now=None, rss=None, fetc
     rec["tried"].append(it["id"])
     folder = os.path.join(app_dir, "check", DIR_NAME, who)
     os.makedirs(folder, exist_ok=True)
+    for x in os.listdir(folder):   # 途中で残った物(PC の再起動・止まった取得)= 消して取り直す。取れた音は state の got にあり、ここへは来ない
+        fsio.unlink_quiet(os.path.join(folder, x))
     safe = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", it["title"])[:60]
     path, err = (fetch or _fetch)(it["id"], os.path.join(folder, "%s_%s_%s" % (who, it["id"], safe)))
     if path is None:
