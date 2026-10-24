@@ -21,6 +21,8 @@
   - 名前: `make_verifier` :40・`challenge_for` :47・`authorize_url` :53・`token_request_body` :65・`exchange` :74・`extra_scopes` :95・`missing_scopes` :101・`write_config` :109・`main` :114
 - **fetch_webview2.py** (75 行) — 友人のアプリ FriendApp.exe が使う WebView2 の部品(DLL 3 つ)を NuGet の公式パッケージから取る(F3-1。notes:plan/f1-friend-requirements.md の C-1-1)。
   - 名前: `have` :29・`extract` :38・`main` :54
+- **friend_ask.py** (36 行) — 友人の PC に「送って」の印を置く(ユーザーの PC。notes:plan/友人の不具合の自動対応-1025.md の ⑧)。AI が不具合を調べていて情報が足りないときに流す。
+  - 名前: `main` :22
 - **friend_demo.py** (331 行) — 友人の受信箱(src/friendapp)を見本のデータで動かす(画面の見直し・ui_audit・手での確認用)。本物の作業データ・② には触らない。
   - 名前: `demo_fetch` :33・`demo_probe` :38・`class StubQueue` :43・`class StubEngine` :68・`demo_thumb` :95・`class DemoStreams` :104・`seed` :146・`write_demo_fetch` :218・`class DemoDownloader` :232・`demo_file` :245・`write_demo_update` :255・`main` :267
 - **friend_diag.py** (251 行) — 友人のアプリから届いた診断の記録を読む(ユーザーの PC。notes:docs/spec/friend.md の 13-11)。AI が原因を調べるときに流す。
