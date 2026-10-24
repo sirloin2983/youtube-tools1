@@ -6,8 +6,8 @@
 
 - **_common.py** (48 行) — dev/ の道具が共通で使う小物(標準ライブラリだけ)。guard_hook.py・push_helper.py は単独で動く条件なので、ここを読まない。
   - 名前: `console_utf8` :9・`find_node` :18・`read_utf8` :31・`write_utf8` :37・`tracked_files` :43
-- **build_friend_zip.py** (788 行) — 友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(設計 notes:docs/design/f1-build.md の 2・3 節)。
-  - 名前: `class BuildError` :102・`say` :106・`download` :118・`cached` :130・`wheel_pins` :165・`pip_download` :183・`wheels` :193・`check_certifi` :230・`unzip_into` :246・`lay_python` :271・`src_files` :296・`lay_src` :311・ほか 23
+- **build_friend_zip.py** (811 行) — 友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(設計 notes:docs/design/f1-build.md の 2・3 節)。
+  - 名前: `class BuildError` :106・`say` :110・`download` :122・`cached` :134・`wheel_pins` :169・`pip_download` :187・`wheels` :197・`check_certifi` :234・`unzip_into` :250・`lay_python` :275・`src_files` :300・`lay_src` :315・ほか 24
 - **code_map.py** (466 行) — コードの地図と言葉の索引を作る道具(AI のセッションがコードの場所を早く見つけるため)。
   - 名前: `git_files` :53・`skipped` :57・`is_test` :61・`read` :65・`one_line` :73・`comment_head` :85・`py_info` :112・`js_info` :143・`cs_info` :164・`info` :186・`layer_of` :199・`norm_route` :206・ほか 12
   - 受ける口: 
@@ -21,8 +21,8 @@
   - 名前: `make_verifier` :40・`challenge_for` :47・`authorize_url` :53・`token_request_body` :65・`exchange` :74・`extra_scopes` :95・`missing_scopes` :101・`write_config` :109・`main` :114
 - **fetch_webview2.py** (75 行) — 友人のアプリ FriendApp.exe が使う WebView2 の部品(DLL 3 つ)を NuGet の公式パッケージから取る(F3-1。notes:plan/f1-friend-requirements.md の C-1-1)。
   - 名前: `have` :29・`extract` :38・`main` :54
-- **friend_bugs.py** (52 行) — 友人の不具合の書き出しの一覧を見る・友人の PC に「送って」の印を置く(ユーザーの PC。notes:plan/友人の不具合の自動対応-1025.md)。
-  - 名前: `main` :27
+- **friend_bugs.py** (62 行) — 友人の不具合の書き出しの一覧を見る・友人の PC に「送って」の印を置く(ユーザーの PC。notes:plan/友人の不具合の自動対応-1025.md)。
+  - 名前: `main` :28
 - **friend_demo.py** (331 行) — 友人の受信箱(src/friendapp)を見本のデータで動かす(画面の見直し・ui_audit・手での確認用)。本物の作業データ・② には触らない。
   - 名前: `demo_fetch` :33・`demo_probe` :38・`class StubQueue` :43・`class StubEngine` :68・`demo_thumb` :95・`class DemoStreams` :104・`seed` :146・`write_demo_fetch` :218・`class DemoDownloader` :232・`demo_file` :245・`write_demo_update` :255・`main` :267
 - **friend_diag.py** (251 行) — 友人のアプリから届いた診断の記録を読む(ユーザーの PC。notes:docs/spec/friend.md の 13-11)。AI が原因を調べるときに流す。

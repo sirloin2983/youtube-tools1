@@ -51,12 +51,14 @@
   - 名前: `bugs_dir` :135・`parse` :143・`triage` :156・`kind_of` :185・`records` :210・`scan` :220・`delivered` :280・`guard` :318・`friend_first` :335・`ask` :359・`find_claude` :390・`repo_root` :400・ほか 2
 - **friend_feedback.py** (118 行) — 友人の「要らない」を PC 側で片付ける(notes:docs/spec/friend.md の 2-14。ユーザー「不採用の場合こちらにフィードバック」)。
   - 名前: `record_delivery` :24・`find_delivery` :29・`apply` :82
-- **intake.py** (838 行) — 友人からの依頼の受付(notes:docs/spec/friend.md)。
-  - 名前: `configured_folder` :78・`out_dir_of` :89・`submit_urls` :94・`submit_file` :118・`youtube_id` :128・`parse_lines` :134・`decode_text` :160・`probe_video` :174・`youtube_info` :186・`parse_ranges` :234・`class Intake` :263
+- **intake.py** (840 行) — 友人からの依頼の受付(notes:docs/spec/friend.md)。
+  - 名前: `configured_folder` :79・`out_dir_of` :90・`submit_urls` :95・`submit_file` :119・`youtube_id` :129・`parse_lines` :135・`decode_text` :161・`probe_video` :175・`youtube_info` :187・`parse_ranges` :235・`class Intake` :264
 - **live_requests.py** (22 行) — 友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend.md の 2-15)。
   - 名前: `settings_label` :19
 - **returns.py** (486 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。notes:docs/design/f1-build.md の (f1d))。
   - 名前: `returns_dir` :58・`extract` :96・`parse_verdict` :130・`parse_notice` :180・`scan` :215・`recent_notices` :412・`iter_requests` :451
+- **upwatch.py** (156 行) — ③ 人の層: 友人のアプリの更新の見張り(ユーザーの PC。友人のアプリの更新の決め・10-25 ユーザーの OK。notes:plan/友人の不具合の自動対応-1025.md の「更新」)。
+  - 名前: `published` :54・`friend_now` :69・`last_seen` :91・`alerts` :104・`scan` :111
 - **voicein.py** (122 行) — 友人の PC から届いた声の材料の受け取り(10-24 夜。作る側 = friendapp/voicesend。案 = notes:plan/声の材料を友人のPCから-1024.md)。
   - 名前: `class Refused` :33・`take` :59
 
@@ -108,6 +110,7 @@
 - tests/human/friend/test_friend_feedback.py — 友人の「要らない」を PC 側で片付ける(src/human/friend/friend_feedback.py)の単体テスト。ごみ箱は本物の cleanup.Cleanup(一時フォルダ)。
 - tests/human/friend/test_intake.py — 友人からの依頼の受付(src/human/friend/intake.py)の単体テスト。まとめて実行・ffprobe・yt-dlp は偽物。
 - tests/human/friend/test_returns.py — src/human/friend/returns.py(友人の送り返しの受け取り。F1 の F2)のテスト。リポジトリ直下で:
+- tests/human/friend/test_upwatch.py — src/human/friend/upwatch.py(友人のアプリの更新の見張り)のテスト。リポジトリ直下で:
 - tests/human/proof/test_alt.py — 2つ目のエンジンとの食い違いに候補を出す機能のテスト。
 - tests/human/proof/test_autodiar.py — 評価用の文書の文字起こしのあとの話者の自動判別(human/proof/speakers の autodiar_*・eval/drill/evalbatch の後追い)のテスト。
 - tests/human/proof/test_commit.py — 文書を書く唯一の口 human/proof/store.commit のテスト(動きは write_doc と同じ・why をログに残す)。
