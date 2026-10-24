@@ -1,5 +1,6 @@
 """src/friendapp/upgrade.py(更新の決まり: いつ入れ替える・重要な直し・確かめと戻し・戻す印・取り消し・心拍・直しの版のやり直し・固まり)の境目のテスト。
 玄関は tests/friendapp/test_server.py の Base(② は偽物・一時フォルダ)。本物の Dropbox・exe・作業データには触らない。
+入口は起こさない(YTT_DATA_DIR は要らない): 下の server.py は版のフォルダの形だけを作る空のファイル。
 リポジトリ直下で: py -3.12 -m unittest tests/friendapp/test_upgrade.py"""
 import json
 import os

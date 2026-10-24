@@ -238,6 +238,7 @@ def main():
                 newer = "999.0.0"
                 for d in (os.path.join("src", "friendapp"), "python"):
                     os.makedirs(os.path.join(rig.places["home"], "app-" + newer, d), exist_ok=True)
+                # 版のフォルダの形だけを作る空のファイル(入口は起こさないので YTT_DATA_DIR は要らない)
                 for f in (os.path.join("src", "friendapp", "server.py"), os.path.join("python", "python.exe")):
                     open(os.path.join(rig.places["home"], "app-" + newer, f), "w").close()
                 os.environ["YTT_FRIEND_HOST"] = "webview2"   # exe の窓の中の形(帯の [今すぐ] は exe が入れ替えるときだけ)
