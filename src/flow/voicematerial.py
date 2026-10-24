@@ -18,7 +18,8 @@ from ytt import schemas as _yschemas, studiodata as _studiodata, tools as _tools
 
 SONG_RE = re.compile(r"歌枠|歌配信|歌ってみた|歌唱|カラオケ|弾き語り|うたわく|歌リレー|歌雑|歌謡|karaoke|singing|\bsing\b|\bcover\b|unarchived", re.I)
 NOTE_RE = re.compile(r"[♪♫♬♩]")
-COLLAB_RE = re.compile(r"コラボ|collab|\bwith\b|[×✕✖]|凸|ゲスト|guest|対談|参加型|合同|オフ会|みんなで|\bfeat|\bft\.", re.I)   # みんなで = 10-24 に足した(「ホロドリみんなで遊ぼ!」)
+COLLAB_RE = re.compile(r"コラボ|collab|\bwith\b|[×✕✖]|凸|ゲスト|guest|対談|参加型|合同|オフ会|みんなで|集ま|メンバーで|メンバーと|大会|対抗|\bvs\b|ＶＳ|\bfeat|\bft\.", re.I)
+# みんなで = 10-24 に足した(「ホロドリみんなで遊ぼ!」)。集ま・メンバーで・メンバーと・大会・対抗・vs = 10-25 に足した(研究の音「今から集まったメンバーで…緊急マリパ」)
 BLOCK_RE = re.compile(r"【([^】]{1,80})】")
 ROW_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,16}\Z")
 MIN_LEARN_SEC = 1.0      # 覚える材料にする行の最短(flow/diar の voice_learn_rows と同じ 1 秒)
