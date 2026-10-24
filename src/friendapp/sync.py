@@ -404,6 +404,8 @@ class Sync:
         self.diag = None                        # 診断の係(friendapp/diag.Diag。玄関が入れる。None = 同期の失敗を診断に書かない)
         self._diag_pruned = 0.0
         self.asks = None                        # 「送って」の印への返事 asks(io)(friendapp/report.Reporter.answer_asks。玄関が入れる)
+        self.securing = lambda rid: False       # 依頼の動画を確保している途中か(api.Api.securing。その間は上げない。玄関が入れる)
+        self.arrived = lambda rid: None         # 依頼の物が届いた(api.Api.release_copy = 確保した動画を消す。玄関が入れる)
         self.sent_at = self.arrived_at = None   # 最後に上げた・届いた物を取り込んだミリ秒(状態の書き出しの sync 欄)
 
     # ------------------------------------------------------------ 鍵と口
@@ -541,6 +543,8 @@ class Sync:
                     continue
                 kind = cur.get("kind") or "url"
                 files = None
+                if kind == "file" and self.securing(r["id"]):   # 受け付けた動画を写している途中 = 写し終えてから上げる
+                    continue
                 if kind == "file":   # 動画ファイル: 先に動画を直下へ <依頼 id>__<元の名前>(大きな動画は 8MB ずつ・進み具合を行に)・最後に依頼の JSON
                     files = self._upload_video(io, cur)
                     if files is None:
@@ -675,6 +679,7 @@ class Sync:
             self.inbox.import_remote(f["rid"], origin, f["title"], [{"preview": pv, "previewSize": files[pv]["size"] if pv else None,
                                                                      "packs": [item]}])
             self.arrived_at = int(self.clock() * 1000)
+            self.arrived(f["rid"])
             self.log("届いたパックを受信箱に入れました: %s" % name)
         for name, f in sorted(files.items()):
             if f["kind"] != "failure" or not f["rid"]:

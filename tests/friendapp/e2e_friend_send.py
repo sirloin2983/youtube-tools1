@@ -222,6 +222,16 @@ def main():
                 ok &= check(True, "[もう一度送る] → 確かめの [続ける] で同じ id の依頼を上げ直す")
                 rig.app.inbox.drop(take_rid)
 
+                # 8. 依頼する動画を空きが足りず確保できなかった行: 小さな文で「元の動画を動かさないでください」
+                keep_rid = "20261025-120000-abcdef"
+                rig.app.inbox.add(keep_rid, {"kind": "file", "title": "空き不足の動画", "streamer": "", "people": [],
+                                             "file": {"path": os.path.join(rig.tmp, "x.mp4"), "name": "x.mp4", "size": 1, "keepOriginal": True}},
+                                  {"title": "空き不足の動画", "fileName": "x.mp4"}, pc="user", kind="file")
+                row = pg.locator(".fr-sent-row", has_text="空き不足の動画").first
+                expect(row.locator(".hint", has_text="元の動画を動かさないでください")).to_be_visible(timeout=WAIT)
+                ok &= check(True, "写しを取れなかった依頼の行に「元の動画を動かさないでください」が出る")
+                rig.app.inbox.drop(keep_rid)
+
                 # 6. 動画ファイルを落とす: 1 回で 1 つ・同じ物をもう一度でも 1 つのまま(落とす所が入れ子でも二重にならない)
                 drop_js = """(n) => {
                     const dt = new DataTransfer();

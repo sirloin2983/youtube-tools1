@@ -605,6 +605,7 @@ class FriendApp:
         self.report = _report.Reporter(self, places, self.diag, self.oplog, clock=clock, log=self.log)
         self.diag.on_write = self.report.on_diag
         self.sync.asks = self.report.answer_asks
+        self.sync.securing, self.sync.arrived = self.api.securing, self.api.release_copy
         self.inbox.on_fail = lambda r: self.diag.write("error", rid=r.get("id"), summary=(r.get("error") or "").splitlines()[0] if r.get("error") else "",
                                                       detail=r.get("error") or "", stage="before-run", request={"kind": r.get("kind"), "pc": r.get("pc")})
         self.setup.on_fail = lambda msg, detail: self.diag.write("setup", summary=msg, detail=detail, stage="setup")

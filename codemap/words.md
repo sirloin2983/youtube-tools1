@@ -20,10 +20,10 @@
   - コード: `speech_diar` src/app/check/speech_sources.py:41・`src/app/check/speech_sources.py`・`src/human/check/speech.py`
   - 画面: src/app/ui/check/check.js:323
 - **受け取る** — 友人のアプリの受け取る画面。残す判定と受信箱
-  - コード: `src/friendapp/inbox.py`・`receive_view` src/friendapp/inbox.py:1091・`src/friendapp/ui/receive.js`・`Inbox.decide` src/friendapp/inbox.py:785
+  - コード: `src/friendapp/inbox.py`・`receive_view` src/friendapp/inbox.py:1106・`src/friendapp/ui/receive.js`・`Inbox.decide` src/friendapp/inbox.py:800
   - 画面: src/app/ui/cases/panels/cut.js:159・src/app/ui/editor/pack-tab.js:425・src/app/ui/home/portal.js:395・src/friendapp/ui/friend.html:30 ほか 7
 - **見送った物** — 受け取る画面で 3 日は戻せる skip・bad の物
-  - コード: `Inbox.undo` src/friendapp/inbox.py:833・`Inbox.decide` src/friendapp/inbox.py:785・`VERDICTS` src/friendapp/inbox.py:58・`/api/friend/undo` src/friendapp/server.py:402
+  - コード: `Inbox.undo` src/friendapp/inbox.py:848・`Inbox.decide` src/friendapp/inbox.py:800・`VERDICTS` src/friendapp/inbox.py:58・`/api/friend/undo` src/friendapp/server.py:402
   - 画面: src/friendapp/ui/friend.html:169・src/friendapp/ui/receive.js:66
 - **送る** — 友人のアプリの送る欄・受付の口。自動で送る判定は flow/sendpolicy
   - コード: `src/friendapp/api.py`・`src/friendapp/ui/send-form.js`・`/api/friend/send` src/friendapp/server.py:387・`flow/sendpolicy.py` (無いパス)

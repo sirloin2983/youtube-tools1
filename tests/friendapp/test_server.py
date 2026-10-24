@@ -1047,6 +1047,54 @@ class ServerTest(Base):
         self.app.api.sweep_uploads()
         self.assertFalse(os.path.exists(path))
 
+    def send_picked_to_user(self, name="a.mp4"):
+        """ファイルを選ぶ窓で選んだ動画を ⚙ 依頼する で送る -> (偽の Dropbox, 依頼 id, 元の動画のパス)"""
+        dbx = self.use_fake_dropbox()
+        self.prefs(pc="user")
+        vid = self.make_videos([name])[0]
+        rid = self.send(source="files", files=[{"fileId": vid["id"]}], url=None)[1]["row"]["id"]
+        return dbx, rid, os.path.join(self.tmp, name)
+
+    def test_user_pc_video_secured_by_hardlink_and_released_on_arrival(self):
+        """同じドライブ: 受け付けた時点でハードリンク(容量を使わない)で確保し、それを上げる。届いたら確保した物を消す(元は残す)"""
+        dbx, rid, src = self.send_picked_to_user()
+        copy = self.app.inbox.row(rid)["form"]["file"]["copy"]
+        self.assertTrue(os.path.samefile(copy, src))   # 同じ中身の 2 つ目の名前 = 容量は増えない
+        self.assertEqual(os.stat(src).st_nlink, 2)
+        self.assertEqual(os.path.dirname(copy), self.app.api.upload_dir())
+        self.app.sync.run_once()
+        self.assertIn("/%s__a.mp4" % rid, dbx.files)
+        dbx.files["/出力/%s__題.meta.json" % rid] = b"{}"
+        dbx.files["/出力/%s__題.zip" % rid] = b"z"
+        self.app.sync.run_once()
+        self.assertEqual(self.app.inbox.row(rid)["state"], "arrived")
+        self.assertFalse(os.path.exists(copy))
+        self.assertTrue(os.path.isfile(src))
+        self.assertNotIn("copy", self.app.inbox.row(rid)["form"]["file"])
+
+    def test_user_pc_video_copied_when_link_fails_and_released_on_cancel(self):
+        """ハードリンクができない(別のドライブ・NTFS 以外)= 写す。取り消したら写しを消す"""
+        with mock.patch("os.link", side_effect=OSError("cross-device")):
+            dbx, rid, src = self.send_picked_to_user()
+            self.assertTrue(self.wait_until(lambda: (self.app.inbox.row(rid)["form"]["file"].get("copy") and not self.app.api.securing(rid))))
+        copy = self.app.inbox.row(rid)["form"]["file"]["copy"]
+        self.assertFalse(os.path.samefile(copy, src))
+        with open(copy, "rb") as a, open(src, "rb") as b:
+            self.assertEqual(a.read(), b.read())
+        self.app.api.cancel(rid)
+        self.assertFalse(os.path.exists(copy))
+        self.assertTrue(os.path.isfile(src))
+
+    def test_user_pc_video_not_copied_without_space(self):
+        """空きが足りない: 写さず元から上げ、行に「元の動画を動かさないでください」の印(keepOriginal)"""
+        with mock.patch("os.link", side_effect=OSError("no")), mock.patch.object(A.shutil, "disk_usage", return_value=types.SimpleNamespace(free=1)):
+            dbx, rid, src = self.send_picked_to_user()
+        fi = self.app.inbox.row(rid)["form"]["file"]
+        self.assertEqual((fi.get("copy"), fi.get("keepOriginal")), (None, True))
+        self.assertTrue(self.view_row(rid)["form"]["file"]["keepOriginal"])
+        self.app.sync.run_once()
+        self.assertIn("/%s__a.mp4" % rid, dbx.files)   # 元から上げる
+
     def test_takeover_mark_moves_file_row_and_uploads_kept_copy(self):
         """引き継ぎの印: この PC で作っていた動画ファイルの行は、受け付けたときに確保した写しを同じ id で上げる(落とした元はもう無い)"""
         dbx = self.use_fake_dropbox()

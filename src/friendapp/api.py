@@ -354,6 +354,66 @@ class Api:
             raise
         return self._keep_file({"path": dest, "name": name, "size": size, "copy": dest})
 
+    # ------------------------------------------------------------ ユーザーの PC に頼む動画を確保する(10-25 決め)
+    def _secure(self, rid):
+        """ユーザーの PC に頼む動画ファイルを受け付けた時点で確保する(落とした動画と同じ 受け取った動画\\ に form.file.copy)。
+        同じドライブはハードリンク(容量を使わない)・できなければ(別のドライブ・NTFS 以外・権限)裏の糸で写す。
+        空きが足りなければ写さず元から上げる(form.file.keepOriginal = 画面に「元の動画を動かさないでください」)-> 行か None"""
+        r = self.inbox.row(rid)
+        fi = ((r or {}).get("form") or {}).get("file") or {}
+        src = fi.get("path")
+        if fi.get("copy") or not isinstance(src, str) or not os.path.isfile(src):
+            return None
+        folder = self.upload_dir()
+        os.makedirs(folder, exist_ok=True)
+        dest = os.path.join(folder, fit_name(folder, "%s_%s" % (uuid.uuid4().hex[:8], _inbox.BAD_NAME.sub("_", os.path.basename(src)))))
+        try:
+            os.link(_fsio.long_path(src), _fsio.long_path(dest))
+            return self.inbox.set_file(rid, copy=dest)
+        except OSError:
+            pass
+        size = os.path.getsize(src)
+        try:
+            free = shutil.disk_usage(folder).free
+        except OSError:
+            free = None
+        if free is not None and free < size + COPY_ROOM:
+            self.log("依頼の動画を確保する空きが足りないので、元の動画から上げます: %s" % rid)
+            return self.inbox.set_file(rid, keepOriginal=True)
+        with self._lock:
+            self._copies[rid] = [0, size]
+        threading.Thread(target=self._secure_job, args=(rid, src, dest, size), name="friend-secure", daemon=True).start()
+        return None
+
+    def _secure_job(self, rid, src, dest, size):
+        try:
+            self._copy_bytes(rid, src, dest, size)
+            if self.inbox.set_file(rid, copy=dest) is None:   # 写している間に取り消した
+                _fsio.unlink_quiet(dest)
+        except Exception as e:   # noqa: BLE001  (写せない = 元から上げる)
+            self.log("依頼の動画を写せなかったので、元の動画から上げます %s: %s" % (rid, str(e)[:160] or e.__class__.__name__))
+            self.inbox.set_file(rid, keepOriginal=True)
+        finally:
+            with self._lock:
+                self._copies.pop(rid, None)
+            if self.sync is not None:
+                self.sync.kick()
+
+    def securing(self, rid):
+        """依頼の動画を確保している途中か(同期はその間上げない)"""
+        with self._lock:
+            return rid in self._copies
+
+    def release_copy(self, rid):
+        """届いた・取り消した依頼の確保した動画(受け取った動画\\ の form.file.copy)を消す。案件のフォルダの写し(この PC で作った)は触らない"""
+        r = self.inbox.row(rid)
+        fi = ((r or {}).get("form") or {}).get("file") or {}
+        cp = fi.get("copy")
+        if r is None or r.get("pc") != "user" or not isinstance(cp, str) or not fsio_inside(cp, self.upload_dir()):
+            return
+        _fsio.unlink_quiet(cp)
+        self.inbox.set_file(rid, copy=None)
+
     def sweep_uploads(self):
         """落としたまま送らなかった動画を 1 日で消す。この PC で作る物は依頼のフォルダへ移すが、ユーザーの PC に頼んだ物はここから上げるので、
         受信箱の行が指している間(届くまで・上げ直しに備えて)は消さない(10-25 まで 1 日で消えて、上げる前・上げ直しで動画が無くなることがあった)"""
@@ -485,6 +545,8 @@ class Api:
             self._need_key()
             row = self.inbox.add(rid, f, self._source(f), pc="user", kind=f["kind"])
             self._remember(f)
+            if f["kind"] == "file":
+                row = self._secure(rid) or row
             self.sync.kick()
             return row
         eng = self.engine_fn()
@@ -608,6 +670,10 @@ class Api:
         dest = os.path.join(folder, stem + ext)
         while os.path.exists(dest):
             dest = os.path.join(folder, "%s-%s%s" % (stem, uuid.uuid4().hex[:4], ext))
+        return self._copy_bytes(rid, src, dest, size)
+
+    def _copy_bytes(self, rid, src, dest, size):
+        """src を dest へ COPY_CHUNK ずつ写す(子プロセスを使わない = 窓を出さない。進み具合は _copies)-> dest"""
         tmp = dest + ".copying"
         with self._lock:
             self._copies[rid] = [0, size]
@@ -686,6 +752,7 @@ class Api:
         r = self.inbox.row(rid)
         if r is None:
             raise KeyError(rid)
+        self.release_copy(rid)   # ユーザーの PC に頼んだ動画の確保した写しは、取り消したら要らない
         if r["state"] == "failed":
             self.inbox.remove(rid)
             return {"id": rid, "state": "cancelled"}

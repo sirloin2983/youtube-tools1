@@ -9,6 +9,7 @@
 
   function title(r) { var s = r.source || {}; return s.title || s.fileName || s.videoId || r.id; }
   function hm(ms) { var d = new Date(ms); return d.getHours() + ':' + (d.getMinutes() < 10 ? '0' : '') + d.getMinutes(); }
+  function keepOriginal(r) { return r.pc === 'user' && !!((r.form || {}).file || {}).keepOriginal; }
   function pct(p) { return p && p.total ? Math.floor(p.done * 100 / p.total) : 0; }
   function shown(r) { return !r.cancelled && ['waiting', 'sent', 'making', 'recording', 'failed'].indexOf(r.state) >= 0; }
   function upcoming(r) { var f = r.form || {}; return r.kind === 'live' && f.startAt && f.startAt > Date.now() && (r.live || {}).phase === 'recording' && !r.packs.length; }
@@ -96,6 +97,7 @@
     var kids = [el('div', { cls: 'fr-sent-title', text: title(r), title: title(r) })];
     var who = (r.form || {}).streamer;
     if (who) kids.push(el('div', { cls: 'hint fr-sent-who', text: who }));
+    if (keepOriginal(r)) kids.push(el('div', { cls: 'hint', text: '元の動画を動かさないでください' }));   /* 空きが足りず写しを取れなかった = 元の動画から上げる */
     var acts = [];
     if (r.state === 'failed') failBox(r, kids, acts);
     else {
@@ -147,7 +149,7 @@
     FR.on(function (what, d) {
       if (what !== 'data') return;
       var rows = (d.inbox.rows || []).filter(shown);
-      var key = JSON.stringify(rows.map(function (r) { return [r.id, r.state, line(r)[0], r.fail, r.canLocal, r.progress && pct(r.progress)]; }));
+      var key = JSON.stringify(rows.map(function (r) { return [r.id, r.state, line(r)[0], r.fail, r.canLocal, r.progress && pct(r.progress), keepOriginal(r)]; }));
       if (key !== my.key) { my.key = key; render(rows); }
       layout();
     });

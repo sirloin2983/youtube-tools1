@@ -237,6 +237,21 @@ class Inbox:
                         out.add(os.path.normcase(os.path.abspath(fi[k])))
             return out
 
+    def set_file(self, rid, **kw):
+        """動画ファイルの行の form.file の欄を変える(copy = 確保した動画か None・keepOriginal = 空きが無く元から上げる)-> 行の写しか None"""
+        with self.lock:
+            r = self.row(rid)
+            fi = ((r or {}).get("form") or {}).get("file")
+            if not isinstance(fi, dict):
+                return None
+            for k, v in kw.items():
+                if v is None:
+                    fi.pop(k, None)
+                else:
+                    fi[k] = v
+            self._save()
+            return json.loads(json.dumps(r))
+
     def keep_copy(self, rid, copy):
         """動画ファイルの行: 一時保管の写しを覚える(写し終えたが ② に積まない = ユーザーの PC が引き継いだ。上げる物に使う)。
         写しのフォルダを行の案件にする = 行の終わり(3 日の片付け)でごみ箱へ"""
@@ -1050,7 +1065,7 @@ class Inbox:
                 v["undecided"] = sum(1 for p in r["packs"] if not p["verdict"])
                 f = v.get("form") or {}
                 if isinstance(f.get("file"), dict):   # 動画ファイルのパスは画面に出さない(名前と大きさだけ)
-                    f["file"] = {k: f["file"].get(k) for k in ("name", "size")}
+                    f["file"] = {k: f["file"].get(k) for k in ("name", "size", "keepOriginal") if k != "keepOriginal" or f["file"].get(k)}
                 lv = v.pop("live", None)
                 if isinstance(lv, dict):
                     v["live"] = {"phase": lv.get("phase") or "recording", "ended": bool(lv.get("endedAt")), "errors": lv.get("errors") or 0,
