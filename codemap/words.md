@@ -11,7 +11,7 @@
   - コード: `checkCutCardsOn` src/human/check/cutcard.py:8・`src/human/check/cutcard.py`・`src/app/check/cut_sources.py`・`cut_edge` src/app/check/cut_sources.py:150
   - 画面: (画面の文字列に無い)
 - **確かめる** — 確かめるの待ち行列(GET /api/check/next)・答えの反映。画面は src/app/ui/check/
-  - コード: `src/human/check/apply.py`・`src/app/check/deck.py`・`src/app/check/sources.py`・`next_cards` src/app/check/deck.py:73
+  - コード: `src/human/check/apply.py`・`src/app/check/deck.py`・`src/app/check/sources.py`・`next_cards` src/app/check/deck.py:85
   - 画面: src/app/ui/cases/cases.js:10・src/app/ui/cases/index.html:26・src/app/ui/cases/panels/new.js:10・src/app/ui/check/check.js:321 ほか 10
 - **評価のレーン** — 確かめるのうち評価用動画の区間カードの流れ
   - コード: `section_eval` src/app/check/eval_sources.py:62・`src/app/check/eval_sources.py`・`src/app/check/lineup.py`・`src/eval/check/goals.py`

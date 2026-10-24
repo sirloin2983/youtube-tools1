@@ -28,8 +28,8 @@
 - **__init__.py** (2 行) — 入口の「確かめる」(⑤ の待ち行列 deck・lineup・sources・read_sources を入口から組む。goals は eval/check。notes:docs/design/v1-check-build.md)
 - **cut_sources.py** (165 行) — 「確かめる」の自動カットのカードの出どころ(CUT-CARD。決定: plan/opt-eval.md の Q4 自動カットのカード)。
   - 名前: `cut_edge` :150・`cut_gap` :154・`cut_whole` :158
-- **deck.py** (141 行) — 「確かめる」の待ち行列を組み立てる(V1 の V0。GET /api/check/next の中身と、答える前にカードをサーバーの側で引き直す find)。
-  - 名前: `invalidate` :26・`check_args` :52・`next_cards` :73・`find` :117
+- **deck.py** (153 行) — 「確かめる」の待ち行列を組み立てる(V1 の V0。GET /api/check/next の中身と、答える前にカードをサーバーの側で引き直す find)。
+  - 名前: `invalidate` :30・`check_args` :64・`next_cards` :85・`find` :129
 - **eval_sources.py** (114 行) — 「確かめる」の評価のレーンの区間カードの出どころ section:eval(C-EVAL (2)。決定 3-47・3-49 Q2。反映は ③ src/human/check/section.py)。
   - 名前: `cut_after` :41・`section_eval` :62
 - **lineup.py** (102 行) — 「確かめる」の待ち行列の並び(lineup)と数え方(V1 の V0。名前は標準の queue と重ねない。notes:docs/design/v1-check-build.md の 2-3)。純粋な関数だけ(ファイルを読まない)。
@@ -42,8 +42,8 @@
   - 名前: `register` :47・`registered` :61・`has_media` :80・`class View` :90・`value_auto` :261・`value_cand` :287・`read_fill` :316・`voice_diar` :333・`time_row` :367・`collect` :392
 - **speech_sources.py** (66 行) — 「確かめる」の普段のレーンの「この行は声ですか?」カードの出どころ speech:diar(C-EVAL (3))。
   - 名前: `speech_diar` :41
-- **voice_solo.py** (152 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
-  - 名前: `clip_targets` :128・`voice_solo` :137
+- **voice_solo.py** (183 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
+  - 名前: `clip_targets` :159・`voice_solo` :168
 
 ## src/app/ui/
 
