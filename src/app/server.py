@@ -1212,9 +1212,14 @@ class PortalServer(httpsec.ExclusiveServer):
             return 0   # 編集を取り込んでいない入口
         view = check_sources.View(self.check_ctx(), check_answerlog.state(self.cleanup.app_dir))
         made = sum(voiceclips.make(tid, doc, rows) for tid, doc, rows in check_voice_solo.clip_targets(view))
+        skips = dict(check_voice_solo.LAST_SKIPS)
         if made:
             check_deck.invalidate()
-            self.sup.log("誰の声のカード: 行の音を %d 本切り出して残しました(元の動画が片付いても聞ける・覚えられる)" % made)
+            self.sup.log("誰の声のカード: 行の音を %d 本切り出して残しました(元の動画が片付いても聞ける・覚えられる。歌として外した 配信 %d 本・行 %d)"
+                         % (made, skips["songDocs"], skips["songRows"]))
+        elif skips != getattr(self, "_song_skips", None):
+            self.sup.log("誰の声のカード: 歌として外した 配信 %d 本・行 %d(歌の声は話し声と響きが違う)" % (skips["songDocs"], skips["songRows"]))
+        self._song_skips = skips
         return made
 
     def voice_clips_loop(self):

@@ -121,7 +121,7 @@ class VoiceSoloTest(unittest.TestCase):
         self.assertEqual(len(self.cards([ans])), 2)
 
     def test_name_option_when_doc_has_no_speaker(self):
-        self.put("c00000000001", doc("%s の歌枠" % MIKO, updated=300, speakers=[], segs=rows(speaker="")))
+        self.put("c00000000001", doc("%s の朝雑談" % MIKO, updated=300, speakers=[], segs=rows(speaker="")))   # 歌枠は外す(10-24 夜)ので雑談に
         c = next(c for c in self.cards() if c["target"]["docId"] == "c00000000001")
         self.assertEqual(c["guess"], {"id": voice_mod.NAME_PREFIX + MIKO, "name": MIKO})   # 答えると文書に話者を足す(voice:diar と同じ name: の形)
 
@@ -154,6 +154,19 @@ class VoiceSoloTest(unittest.TestCase):
             targets = voice_solo.clip_targets(sources.View(self.ctx, State()))
             self.assertNotIn("f00000000002", {t for t, _d, _r in targets})   # 動画が無い文書は切り出せない
             self.assertTrue(targets and all(r for _t, _d, r in targets))
+
+    def test_songs_are_skipped(self):
+        """歌は声を覚える材料にしない(10-24 夜): 題名に歌の印がある配信の文書と、音符のある行。外した数は LAST_SKIPS"""
+        self.put("b00000000001", doc("【歌枠】%s のアニソン" % MIKO, updated=999))
+        segs = rows()
+        segs[0]["text"] = "♪ ラララ"
+        self.put("b00000000002", doc("兎田ぺこら の雑談", updated=998, speakers=[{"id": "S1", "name": "兎田ぺこら"}], segs=segs))
+        got = self.cards()
+        self.assertNotIn("b00000000001", {c["target"]["docId"] for c in got})
+        self.assertNotIn(("b00000000002", segs[0]["id"]), {(c["target"]["docId"], c["target"]["row"]) for c in got})
+        self.assertIn("b00000000002", {c["target"]["docId"] for c in got})   # 歌でない行は出る
+        self.assertEqual((voice_solo.LAST_SKIPS["songDocs"], voice_solo.LAST_SKIPS["songRows"] >= 1), (1, True))
+        self.assertTrue(voice_solo.song_title(["Singing stream!"]) and not voice_solo.song_title(["雑談"]))
 
     def test_group_streams_are_not_solo(self):
         """題名の【】がグループの名前(メンバーの名前なし)・「みんなで」は外す。所属の札【名前/グループ】は外さない(10-24)"""

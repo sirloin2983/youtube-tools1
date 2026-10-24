@@ -17,6 +17,8 @@
 行の音(10-24 夜。ユーザー「誰の声をメンバー全員分」): カードに出す行の音は、元の動画があるうちに短く切り出して作業データに残す
 (human/proof/voiceclips。clip_targets が選んだ行を入口の voice_clips_tick が切り出す)。音があるカードはその音で再生するので、
 元の動画が片付いた文書の行もカードになる。人の並びは、まだ覚えていない人(登録簿の秒が足りない人)が先・全員(MAX_PEOPLE まで)。
+歌は外す(10-24 夜。ユーザー「歌のシーンはどうする?」= 歌の声は話し声と響きが違い、伴奏も入る): 題名に歌の印(SONG_RE)がある配信の文書と、
+文字に音符(♪♫♬♩)がある行。外した数は LAST_SKIPS(入口の voice_clips_tick が記録に 1 行)。友人の PC から受け取る声の材料も同じ決まり(song_title・song_row)。
 """
 import os
 import random
@@ -36,6 +38,21 @@ PER_DOC = 3              # 1 本の文書から出す行の上限
 MARGIN = 1.5             # 覚え直す秒(check.voiceRelearnSec)に掛ける余裕(覚えるジョブが重心を作れる量に、少し多めに)
 MAX_ROW_SEC = 12.0       # 長すぎる行は聞くのが重いので出さない
 GOOD_SEC = 4.0           # この長さに近い行を先に(短すぎず・長すぎず)
+SONG_RE = re.compile(r"歌枠|歌配信|歌ってみた|歌唱|カラオケ|弾き語り|うたわく|歌リレー|歌雑|歌謡|karaoke|singing|\bsing\b|\bcover\b|unarchived", re.I)
+NOTE_RE = re.compile(r"[♪♫♬♩]")
+LAST_SKIPS = {"songDocs": 0, "songRows": 0}   # 最後の選びで歌として外した文書と行の数(記録用)
+
+
+def song_title(titles):
+    """題名(の一覧)に歌の配信の印があるか"""
+    return any(SONG_RE.search(str(t or "")) for t in (titles if isinstance(titles, (list, tuple)) else [titles]))
+
+
+def song_row(g):
+    """歌の行か(文字に音符がある)"""
+    return bool(NOTE_RE.search(str((g or {}).get("text") or "")))
+
+
 COLLAB_RE = re.compile(r"コラボ|collab|\bwith\b|[×✕✖]|凸|ゲスト|guest|対談|参加型|合同|オフ会|みんなで|\bfeat|\bft\.", re.I)   # みんなで = 10-24 に足した(「ホロドリみんなで遊ぼ!」)
 
 
@@ -129,12 +146,15 @@ def _playable(tid, doc, g):
 
 def _select(view):
     """カードに出す行を選ぶ(並び・量の決まりは先頭の説明)-> [(rank, 名前, 人の一覧, 文書 id, 文書, 行, i)]。聞けない行(音も動画も無い)は飛ばす"""
-    by_person = {}
+    by_person, skips = {}, {"songDocs": 0, "songRows": 0}
     for tid, path, doc in view.docs(need_media=False):
         latest = view.diar(tid, path)
         if isinstance(latest, dict) and isinstance(latest.get("rows"), dict) and latest["rows"]:
             continue   # voice:diar が出す
         who = solo_person(doc)
+        if who and song_title(_titles(doc)):
+            skips["songDocs"] += 1   # 歌の配信(声を覚える材料にしない)
+            continue
         if who:
             by_person.setdefault(who, []).append((tid, doc))
     answered = {}   # (文書, 行) -> 答えの記録の applied(どの出どころの答えでも)
@@ -155,7 +175,8 @@ def _select(view):
         docs, got, learned = info[who]
         picks = []   # 文書ごとの行(GOOD_SEC に近い順)
         for tid, doc in docs:
-            rows = sorted((g for g in sources._rows(doc) if _row_ok(g) and _playable(tid, doc, g)),
+            skips["songRows"] += sum(1 for g in sources._rows(doc) if song_row(g))
+            rows = sorted((g for g in sources._rows(doc) if _row_ok(g) and not song_row(g) and _playable(tid, doc, g)),
                           key=lambda g: (abs(sources._num(g.get("end")) - sources._num(g.get("start")) - GOOD_SEC), sources._num(g.get("start"))))
             picks.append((tid, doc, rows[:PER_DOC]))
         n = 0
@@ -176,6 +197,7 @@ def _select(view):
                 out.append((rank, who, people, tid, doc, g, i))
                 got += sec
                 n += 1
+    LAST_SKIPS.update(skips)
     return out
 
 
