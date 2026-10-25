@@ -55,8 +55,8 @@
   - 名前: `configured_folder` :81・`out_dir_of` :92・`submit_urls` :97・`submit_file` :121・`youtube_id` :131・`parse_lines` :137・`decode_text` :163・`probe_video` :177・`youtube_info` :189・`parse_ranges` :237・`class Intake` :266
 - **live_requests.py** (22 行) — 友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend.md の 2-15)。
   - 名前: `settings_label` :19
-- **notify.py** (225 行) — 友人の不具合・更新の知らせを、ツールが読んだその時にまとめ役のセッションへ届ける「知らせだけの軽い起こし」(10-25 ユーザーの決め)。
-  - 名前: `collect` :75・`message` :101・`to_name` :116・`tick` :165
+- **notify.py** (228 行) — 友人の不具合・更新の知らせを、ツールが読んだその時にまとめ役のセッションへ届ける「知らせだけの軽い起こし」(10-25 ユーザーの決め)。
+  - 名前: `collect` :75・`message` :101・`to_name` :116・`batch_send` :165・`tick` :216
 - **pubqueue.py** (166 行) — ③ 人の層: 友人の zip を配る待ちの列と、3 時間ごとの配る回(ユーザーの PC。友人の zip はまとめて配る決め・10-25 ユーザーの OK。
   - 名前: `items` :53・`hold_of` :59・`set_hold` :65・`add` :79・`take` :87・`changes` :96・`slot_of` :101・`tick` :107
 - **returns.py** (486 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。notes:docs/design/f1-build.md の (f1d))。
