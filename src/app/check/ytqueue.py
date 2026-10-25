@@ -10,10 +10,10 @@
                        読む側が消す(DONE_DAYS 日残っていれば列が消す)
   candidates.json      研究が置く候補 = 友人のショートの元の配信 [{"video", "t"(?t= の秒か null), "channel", "title", "uploadDate", "research"(研究に効く度合い 0〜1)}]
   state.json           列の状態(最後に取った時刻・側・間隔・API の使用量)。ready.json = 列が動いている印(研究はこれを見て自分の問い合わせをやめる)
-選び方(1 回に 1 本・INTERVAL 時間に 1 本):
-  1. 候補に点を付ける = 研究(research)+ 声(日本の対象のメンバーのソロと見える題名で、その人の配信の材料が TARGET 本に届かない・取った月と違う)
-     − 安さ(取る区間の長さ)。研究と声の両方に効く候補を先に取る。
-  2. 無ければ研究と声を交互: 研究 = 頼み(priority → 頼んだ順)か点の高い候補 / 声 = 友人のショートの元(候補)に無いメンバーを RSS などで埋める(voicefetch.tick)。
+選び方(1 回に 1 本・INTERVAL 時間に 1 本。10-25 ユーザー: 研究と声を交互に回すのはやめた): 全部の頼みを 1 つの一覧(plan)で点を付け、いちばん高い 1 本。
+  候補 = 研究(research)+ 声(日本の対象のメンバーのソロと見える題名で、配信の材料が TARGET 本に届かない・取った月と違う)− 区間の長さ。
+  研究の頼み = 種類の点(REQ_BASE。字幕・動画の情報 = あとの音の取得を短くできる軽い物は高く)+ 声 + priority − 区間の長さ。
+  声だけ = 友人のショートの元(候補)に無いメンバーの材料の足りなさ(voicefetch.tick で RSS・一覧から)。
   取る区間 = 候補の ?t= の前 AROUND[0] 秒〜後 AROUND[1] 秒(研究の 2 段の探し方に足りる幅)。声の材料もその区間から(voice-inbox → voicefetch.intake が 4 分に)。
   info の頼みは、YouTube Data API のキーがあれば公式の窓口(ytt/ytapi。1 日 API_DAILY まで・50 本ずつ)で読み、枠を使わない。無ければ yt-dlp(枠を使う)。
   キーの値は読まない・出さない(ytapi が見出しで送る。ここは有無と成否だけ)。
@@ -448,40 +448,19 @@ def tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None):
         return None
     st = _state(app_dir)
     chan_of = {c: n for n, c in _vf.members(roster_r, extra)}
-    vpath = os.path.join(app_dir, "check", _vf.STATE_NAME)
-    vstate = _vf._read(vpath)
-    done_videos = {x.get("video") for rec in vstate.values() if isinstance(rec, dict) for x in _vf._got(rec)} | set(st.get("cands") or [])
-    scored = []
-    meta = st.get("meta") if isinstance(st.get("meta"), dict) else {}
-    for c in (_merged(c, meta) for c in candidates(app_dir)):
-        res, voice, cost = score(c, chan_of, counts, vstate, done_videos)
-        if res or voice:
-            scored.append((res + voice - cost, res, voice, c))
-    scored.sort(key=lambda x: -x[0])
-    reqs = requests(app_dir)
-    covered = {chan_of.get(str(c.get("channel") or "")) for _s, _r, v, c in scored if v > 0}
-    voice_todo = [n for n, _c in _vf._todo(roster_r, counts, vstate, extra) if n not in covered]
-    res_c = [x for x in scored if x[1] > 0]
-    voice_c = [x for x in scored if x[2] > 0]
-    dual = next((x for x in scored if x[1] > 0 and x[2] > 0), None)
-    dual_req = None if dual is not None else next((q for q in reqs if _req_voice(q, chan_of, counts, vstate)), None)
-    has = {"research": bool(reqs or res_c), "voice": bool(voice_c or voice_todo)}
-    if dual is None and not any(has.values()):
+    ranked = plan(app_dir, roster_r, counts, extra, st=st)
+    if not ranked:
         return None
-    turn = "voice" if st.get("lastPurpose") == "research" else "research"
-    if not has[turn]:
-        turn = "research" if turn == "voice" else "voice"
-    st.update(last=now)
+    best = ranked[0]
+    st.update(last=now, lastPurpose=best["kind"])
     _vf._mark_slot(app_dir, now)   # 研究の古い道(yt-slot.json)にも取ったと書く = 切り替えの前後で二重に取らない
-    pick = dual or (res_c[0] if turn == "research" and not reqs and res_c else None) or (voice_c[0] if turn == "voice" and voice_c else None)
-    if pick is not None:
-        _s, res, voice, c = pick
+    if best["kind"] == "candidate":
+        c, res, voice = best["cand"], best["research"], best["voice"]
         t = c.get("t")
         section = [max(0, int(t) - AROUND[0]), int(t) + AROUND[1]] if isinstance(t, (int, float)) else None
         rid = "cand-" + c["video"]
         path, info = _audio(app_dir, rid, "https://www.youtube.com/watch?v=" + c["video"], section)
         st["cands"] = (list(st.get("cands") or []) + [c["video"]])[-2000:]
-        st["lastPurpose"] = "both" if dual is not None else turn
         if path is None:
             if _bot(info):
                 _hit(app_dir, now, info, log)
@@ -494,9 +473,8 @@ def tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None):
         _save(app_dir, st)
         log("YouTube の取得の列: 候補 %s(研究 %.2f・声 %.2f)を取りました%s" % (c["video"], res, voice, "(声の材料にも回します)" if sent else ""))
         return "candidate"
-    if dual_req is not None or (turn == "research" and reqs):
-        r = dual_req or reqs[0]   # 研究の音の頼みで、配信者が材料の少ない日本の対象のメンバー = 両方に効く = 先に
-        st["lastPurpose"] = "both" if dual_req is not None else "research"
+    if best["kind"] == "request":
+        r = best["req"]
         if r["kind"] == "info":
             try:
                 body = {"state": "done", "infos": _info_ytdlp(r["urls"]), "via": "yt-dlp"}
@@ -522,13 +500,45 @@ def tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None):
         _save(app_dir, st)
         log("YouTube の取得の列: 研究の頼み %s(%s)を%s" % (r["id"], r["kind"], "済ませました" if body["state"] == "done" else "済ませられませんでした"))
         return "research"
-    if voice_todo:
-        st["lastPurpose"] = "voice"
-        _save(app_dir, st)
-        got = _vf.tick(app_dir, roster_r, counts, lambda: None, start_job, log, now=now, extra=extra, use_slot=False, only=set(voice_todo))
-        return "voice" if got else None
-    _save(app_dir, st)
-    return None
+    _save(app_dir, st)   # 声だけ = 候補に無いメンバーを RSS・一覧で(voicefetch)
+    got = _vf.tick(app_dir, roster_r, counts, lambda: None, start_job, log, now=now, extra=extra, use_slot=False, only={best["who"]})
+    return "voice" if got else None
+
+
+REQ_BASE = {"subs": 1.6, "info": 1.4, "list": 0.9, "audio": 1.0, "chat": 0.6}   # 研究の頼みの点の元(字幕・動画の情報 = あとの音の取得を短くできる軽い物は高く)
+
+
+def plan(app_dir, roster_r, counts, extra=None, st=None):
+    """全部の頼みを 1 つの一覧で点を付ける(10-25 ユーザー: 研究と声を交互に回すのをやめ、毎回いちばん点の高い 1 本)。
+    -> [{"score", "kind": "candidate"|"request"|"voice", "label", ...}](点の高い順)。
+    候補 = 研究 + 声 − 区間の長さ / 研究の頼み = REQ_BASE(種類)+ 声(音の頼みで配信者が材料の少ない人)+ priority × 0.1 − 区間の長さ /
+    声だけ = その人の材料の足りなさ(候補に無いメンバーだけ)"""
+    st = _state(app_dir) if st is None else st
+    chan_of = {c: n for n, c in _vf.members(roster_r, extra)}
+    vstate = _vf._read(os.path.join(app_dir, "check", _vf.STATE_NAME))
+    done_videos = {x.get("video") for rec in vstate.values() if isinstance(rec, dict) for x in _vf._got(rec)} | set(st.get("cands") or [])
+    meta = st.get("meta") if isinstance(st.get("meta"), dict) else {}
+    out = []
+    for c in (_merged(c, meta) for c in candidates(app_dir)):
+        res, voice, cost = score(c, chan_of, counts, vstate, done_videos)
+        if res or voice:
+            out.append({"score": round(res + voice - cost, 3), "kind": "candidate", "label": "候補 %s" % c["video"], "cand": c, "research": res, "voice": voice})
+    for q in requests(app_dir):
+        voice = 0.0
+        if _req_voice(q, chan_of, counts, vstate):
+            hint = q.get("hint") if isinstance(q.get("hint"), dict) else {}
+            who = chan_of.get(str(hint.get("channel") or "")) or _vm.member(hint.get("streamer"))
+            voice = (_vf.TARGET - _vf._have(who, counts, vstate)) / float(_vf.TARGET)
+        sec = q.get("section")
+        span = (sec[1] - sec[0]) if q.get("kind") == "audio" and isinstance(sec, list) and len(sec) == 2 else (3 * 3600 if q.get("kind") == "audio" else 0)
+        sc = REQ_BASE.get(q["kind"], 0.5) + voice + _vm.num(q.get("priority")) * 0.1 - span / 3600.0 * 0.2
+        out.append({"score": round(sc, 3), "kind": "request", "label": "研究の頼み %s(%s)" % (q["id"], q["kind"]), "req": q, "research": 1.0, "voice": voice})
+    covered = {chan_of.get(str(o["cand"].get("channel") or "")) for o in out if o["kind"] == "candidate" and o["voice"] > 0}
+    for n, _c in _vf._todo(roster_r, counts, vstate, extra):
+        if n not in covered:
+            need = (_vf.TARGET - _vf._have(n, counts, vstate)) / float(_vf.TARGET)
+            out.append({"score": round(need - 0.02, 3), "kind": "voice", "label": "声だけ %s" % n, "who": n, "research": 0.0, "voice": need})
+    return sorted(out, key=lambda o: -o["score"])
 
 
 def _list_url(url, items):

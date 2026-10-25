@@ -80,7 +80,7 @@ class YtQueueTest(unittest.TestCase):
         with mock.patch.object(roster, "ROSTER", roster.BUNDLED):
             self.assertEqual(self.tick(NOON, {"ロボ子さん": 2}), "research")
         self.assertEqual(self.calls[-1][0], "r-rev-b")
-        self.assertEqual(Q._state(self.app)["lastPurpose"], "both")
+        self.assertEqual([o["label"] for o in Q.plan(self.app, R, {"ロボ子さん": 2})][:1], ["声だけ ときのそら"])   # 取った後 = 頼みは消えた
         self.assertTrue(os.path.exists(os.path.join(self.app, "check", VF.INBOX_NAME, "SORAVIDEO01.json")))
 
     def test_candidates_filled_by_api(self):
@@ -92,13 +92,13 @@ class YtQueueTest(unittest.TestCase):
             self.assertEqual(Q.fill_candidates(self.app, NOON, self.logs.append), 1)
         self.assertEqual(Q._state(self.app)["meta"]["SORAFILL001"]["title"], "【歌枠】うた")
         with mock.patch.object(roster, "ROSTER", roster.BUNDLED):
-            self.assertEqual(self.tick(NOON, {"ロボ子さん": 2}), "candidate")   # 研究には効く
+            self.assertEqual(self.tick(NOON, {"ときのそら": 2, "ロボ子さん": 2}), "candidate")   # 研究には効く
         self.assertIn("声 0.00", self.logs[-1])                                 # 埋めた題名が歌 = 声には効かない
 
     def test_bot_stops_and_ladder(self):
         self.put_req("r1", {"purpose": "research", "kind": "audio", "url": "https://www.youtube.com/watch?v=REQAUDIO001"})
         with mock.patch.object(Q, "_audio", lambda *a: (None, "ERROR: Sign in to confirm you're not a bot")):
-            self.assertEqual(self.tick(NOON), "research")                        # 頼みは済ませた(結果は error)
+            self.assertEqual(self.tick(NOON, {"ときのそら": 2, "ロボ子さん": 2}), "research")   # 頼みは済ませた(結果は error)
         self.assertIn("今日は止めます", self.logs[-2])
         self.assertFalse(Q.due(self.app, NOON + 7200)[0])                        # 今日は止める
         nxt = datetime.datetime(2026, 10, 26, 9, 0).timestamp()
