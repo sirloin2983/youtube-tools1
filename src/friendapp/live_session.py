@@ -29,6 +29,7 @@ from flow.live_rules import RequestBook
 from .live import REC_FOLDER, REQUESTS_NAME, STORE_DIR, settings_label
 
 CLEAN_EVERY = 600.0                 # 録画の片付けを見る間隔(秒)
+KEEP_RETRY = 6 * 3600.0             # 1 本につなげなかった録画(keepError)をやり直す間隔(秒。10 分ごとだと長い録画を何度も写して重い。10-25)
 RECORDER_WAIT = 20.0                # 送ったとき、録画の部品が起動するまで待つ秒
 REC_PORT_ENV = "YTT_FRIEND_REC_PORT"   # 録画の部品の番号(exe が選ぶ。無ければ 8730)
 DETECT_HOLD_EXTRA = 900.0           # 録画が終わってから自動の採用を待つ上限 = 依頼の待ち(分)+ この秒(帳簿を締める遅れと採用の見回りの分)
@@ -53,6 +54,7 @@ class FriendLive(_ls.LiveSession):
         self.on_tick = None
         self.clock = clock
         self._clean_at = 0.0
+        self._keep_tried = {}   # 録画の id -> 1 本につなぐのを最後に頼んだ時刻(keepError のやり直しの間隔)
         store = os.path.join(places["data"], STORE_DIR)
         super().__init__(layout.src_root(), os.path.join(places["data"], "app", "logs"),
                          requests=RequestBook(os.path.join(store, REQUESTS_NAME), clock=clock, log=log, deliver=False), cfg=self.live_cfg, log=log, spawn=spawn,
@@ -339,6 +341,8 @@ class FriendLive(_ls.LiveSession):
                 ended = _lx.iso_epoch(r.get("endedAt")) or _lx.iso_epoch(r.get("lastPdt"))
                 if ended is None or self.busy_recording(rc["id"], rec) or self.after_hold(rc["id"], r):
                     continue
+                if r.get("keepError") and now - self._keep_tried.get(rec, 0.0) < KEEP_RETRY:
+                    continue
                 fate = "private" if r.get("keepError") else _retire.fate(self.archiver.archived(rc["id"], r), self.archiver.unavailable(rc["id"], r),
                                                                          _retire.overdue(r, now))
                 if fate == "delete":
@@ -347,8 +351,9 @@ class FriendLive(_ls.LiveSession):
                         out.append(rec)
                         self.log("ライブ: アーカイブになった録画を消しました %s" % rec)
                 elif fate == "private":
+                    self._keep_tried[rec] = now
                     code, d = self.call(rc, "POST", "/live/%s/keep" % rec, {"name": _retire.private_name(r)}, timeout=30.0)
                     if code == 200 and isinstance(d, dict) and d.get("started"):
                         out.append(rec)
-                        self.log("ライブ: 非公開・見られない配信の録画を 1 本につないで残します %s" % rec)
+                        self.log("ライブ: 非公開・見られない配信の録画を 1 本につないで残します %s%s" % (rec, "(前は「%s」でつなげなかった)" % r["keepError"] if r.get("keepError") else ""))
         return out

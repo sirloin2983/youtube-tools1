@@ -536,6 +536,21 @@ class LiveFlowTest(unittest.TestCase):
         self.assertEqual(sorted(self.rec.recs), sorted([REC, unk]))
         self.assertEqual(sorted((r, n.endswith("_雑談_非公開")) for r, n in self.rec.kept), [(priv, True), (late, True)])
 
+    def test_clean_recordings_keep_error_waits(self):
+        """1 本につなげなかった録画(keepError)は 10 分ごとでなく KEEP_RETRY ごとにやり直す(10-25 友人の PC で 9 時間ずっと 10 分ごとに写していた)"""
+        self.send_live()
+        self.rec.end(REC, ago=3600)
+        bad = "20261010-140000-bad"
+        self.rec.recs[bad] = {"id": bad, "url": URL, "state": "ended", "active": False, "title": "雑談", "keepError": "ffmpeg",
+                              "endedAt": LX.epoch_iso(time.time() - 0.1 * 86400)}
+        lv = self.eng.live
+        lv.archiver.archived = lambda rc, r: "アーカイブ化をまだ確かめられていない(処理中)"
+        lv.archiver.unavailable = lambda rc, r: ""
+        lv._keep_tried[bad] = time.time() - 60
+        self.assertEqual(lv.clean_recordings(force=True), [])
+        lv._keep_tried[bad] = time.time() - LS.KEEP_RETRY - 1
+        self.assertEqual(lv.clean_recordings(force=True), [bad])
+
     def test_live_cfg_and_rec_folder(self):
         c = self.eng.live.cfg()
         self.assertEqual((c["enabled"], c["folder"]), (True, os.path.join(self.places["cases"], L.REC_FOLDER)))
