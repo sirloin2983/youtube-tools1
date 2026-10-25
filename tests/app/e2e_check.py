@@ -272,9 +272,15 @@ def _scene_kinds(cx):
         press(pg, "ArrowLeft")
     check("頭がずれている" in pg.text_content("[data-chk-tstate]") and "−0.10 秒" in pg.text_content("[data-chk-tstate]"), "H で頭を選び ← 3 コマ = 0.10 秒前へ: %r" % pg.text_content("[data-chk-tstate]"))
     check(state(pg)["kind"] == "time" and len(fq.answers) == n_before, "動かしただけでは答えない")
+    press(pg, "t")   # 読みを直す(10-26)
+    check(pg.is_visible("#chkBody [data-chk-retext] input") and pg.evaluate("document.activeElement.id === 'chkTimeText'"), "T で読みを直す欄が開き、そこに入る")
+    pg.fill("#chkTimeText", "直した読み")
     press(pg, "Enter")
-    check(wait_js(pg, "CheckShell.state().kind === 'value'") and fq.answers[-1]["body"]["answer"] == {"choice": "head", "dStart": -0.1, "dEnd": 0},
-          "Enter で答える(動かした量つき): %s" % fq.answers[-1]["body"]["answer"])
+    check(state(pg)["kind"] == "time" and len(fq.answers) == n_before and "直した読み" in (pg.text_content("[data-chk-newtext]") or ""),
+          "欄の Enter は文字を決めるだけ(答えない)")
+    press(pg, "Enter")
+    check(wait_js(pg, "CheckShell.state().kind === 'value'") and fq.answers[-1]["body"]["answer"] == {"choice": "head", "dStart": -0.1, "dEnd": 0, "text": "直した読み"},
+          "Enter で答える(動かした量と直した文字つき): %s" % fq.answers[-1]["body"]["answer"])
 
 
 def _scene_summary_and_end(cx):

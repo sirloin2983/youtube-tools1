@@ -4,6 +4,7 @@
      Enter = ちょうどいい(動かしていなければ)/ H = 頭がずれている / E = 末がずれている / B = 両方 を選び、← → でその印を 1 コマ(1/30 秒)ずつ動かす(Shift で 5 コマ)、
      Enter で答える。**動かした量だけ行の時刻を実際に変える**(動かさなければ判定の記録だけ。反映は human/check/timerow.py)。
      H / E をもう 1 度押すと、その印の選びを外して量を 0 に戻す。選んでいない間の ← → は普通の再生の移動(殻の再生のキー)
+   T = 読みを直す(10-26 ユーザー): 入力欄で行の文字を打ち直す(Enter で決める・Esc でやめる)。決めた文字は答えに text として足し、行の文字も直す(時刻の答えはそのまま続ける)。
    カードの文書 id は card.target.docId・行は card.target.row・区間は card.media = {start, end, pad}。波形の用意は player の opt.wave(transcribe/api/peaks) */
 (function () {
   'use strict';
@@ -18,7 +19,32 @@
     var st = null;   // {card, ctx, el, handle, head, tail, active, dS, dE, guides}
 
     function choice() { return st.head && st.tail ? 'both' : st.head ? 'head' : st.tail ? 'tail' : 'ok'; }
-    function answer() { return { choice: choice(), dStart: st.head ? r3(st.dS) : 0, dEnd: st.tail ? r3(st.dE) : 0 }; }
+    function answer() {
+      var a = { choice: choice(), dStart: st.head ? r3(st.dS) : 0, dEnd: st.tail ? r3(st.dE) : 0 };
+      if (st.text != null) a.text = st.text;
+      return a;
+    }
+    function box() { return st && st.el.querySelector('[data-chk-retext]'); }
+    function openText() {
+      var b = box(), f = b && b.querySelector('input');
+      if (!f) return;
+      st.typing = true; b.hidden = false; f.value = st.text != null ? st.text : (st.card.text || ''); f.focus(); f.select();
+      st.ctx.refreshKeys();
+    }
+    function closeText(keep) {
+      var b = box(), f = b && b.querySelector('input');
+      if (keep && f) {
+        var t = f.value.replace(/\s+/g, ' ').trim();
+        if (!t) { UIKit.toast('文字を入れてください', { ms: 2500 }); return; }
+        st.text = t === String(st.card.text || '').trim() ? null : t;
+      }
+      st.typing = false;
+      if (b) b.hidden = true;
+      if (f) f.blur();
+      var s = st.el.querySelector('[data-chk-newtext]');
+      if (s) { s.hidden = st.text == null; s.textContent = st.text == null ? '' : '直した文字: ' + st.text + '(答えるときに行の文字も直します)'; }
+      st.ctx.refreshKeys();
+    }
     function paint() {
       var m = st.card.media || {}, a = +m.start || 0, b = +m.end || a;
       if (st.handle) st.handle.setMarks(a + (st.head ? st.dS : 0), b + (st.tail ? st.dE : 0));
@@ -61,15 +87,19 @@
 
     return {
       render: function (card, el, ctx) {
-        st = { card: card, ctx: ctx, el: el, handle: null, head: false, tail: false, active: 'start', dS: 0, dE: 0, guides: null };
+        st = { card: card, ctx: ctx, el: el, handle: null, head: false, tail: false, active: 'start', dS: 0, dE: 0, guides: null, text: null, typing: false };
         el.innerHTML = '<div class="chk-q">行の時刻が合っているか?</div>' +
           '<div class="chk-media"><div class="chk-stagebox" data-chk-media></div><div class="chk-info">' +
           '<p class="hint">波形の青い印が字幕の頭と末です。聞いて、字幕が出る・消えるタイミングが合っていればそのまま Enter。</p>' +
           '<p class="hint">合わせるのはこの行の人の言葉の頭と末です(後ろの別の声・BGM には合わせない)。</p>' +
           '<p data-chk-tstate role="status"></p><p class="hint" data-chk-tguide></p>' +
-          (card.note ? '<p class="hint">' + esc(card.note) + '</p>' : '') + '</div></div>' +
+          (card.note ? '<p class="hint">' + esc(card.note) + '</p>' : '') +
+          '<p class="hint">字幕の文字が違っていたら T でその場で直せます(時刻の答えはそのまま続けます)。</p>' +
+          '<p class="notice" data-chk-newtext hidden></p></div></div>' +
           '<div class="chk-acts">' + CheckCards.btn('ちょうどいい', 'Enter', 'primary') + CheckCards.btn('頭がずれている', 'H') +
-          CheckCards.btn('末がずれている', 'E') + CheckCards.btn('両方', 'B') + '</div>';
+          CheckCards.btn('末がずれている', 'E') + CheckCards.btn('両方', 'B') + CheckCards.btn('読みを直す', 'T') + '</div>' +
+          '<div class="chk-type" data-chk-retext hidden><label class="hint" for="chkTimeText">正しい文字(行の全体を打ち直します。Enter で決める・Esc でやめる)</label>' +
+          '<div class="row"><input type="text" id="chkTimeText" class="chk-text" maxlength="1000" autocomplete="off"></div></div>';
         var m = card.media || {};
         if (m.url || m.youtube) {
           st.handle = ctx.player(el.querySelector('[data-chk-media]'), card.media, { text: card.text, wave: true, docId: card.target && card.target.docId, confine: true });   // 波形の窓の中だけ流す(窓の外へ出ると波形と再生位置が合わない)
@@ -77,9 +107,16 @@
         paint();
         loadGuides(card);
       },
+      typingKeys: true,
       keys: function (e) {
         if (!st || e.ctrlKey || e.altKey || e.metaKey) return null;
         var k = CheckCards.keyOf(e);
+        if (st.typing && !e.fromButton) {   // 読みを直す入力欄の中: Enter で決める・Esc でやめる。ほかは打つ
+          if (k === 'Enter') { closeText(true); return true; }
+          if (k === 'Escape') { closeText(false); return true; }
+          return null;
+        }
+        if (k === 'T' && !e.shiftKey) { openText(); return true; }
         if (k === 'ArrowLeft' || k === 'ArrowRight') {
           if (!st.head && !st.tail) return null;   // 印を選んでいないときは普通の再生の移動
           nudge(k === 'ArrowLeft' ? -1 : 1, e.shiftKey);
@@ -97,7 +134,9 @@
         return true;
       },
       keybar: function () {
+        if (st && st.typing) return [{ k: 'Enter', l: '文字を決める' }, { k: 'Esc', l: 'やめる' }];
         var o = [{ k: 'Enter', l: st && (st.head || st.tail) ? 'この時刻で答える' : 'ちょうどいい' }, { k: 'H', l: '頭がずれている' }, { k: 'E', l: '末がずれている' }, { k: 'B', l: '両方' }];
+        o.push({ k: 'T', l: st && st.text != null ? '読みを直す: 済' : '読みを直す' });
         if (st && (st.head || st.tail)) o.push({ k: '← →', l: '印を動かす(Shift で大きく)' });
         return o;
       },
