@@ -17,7 +17,7 @@
   - 受ける口: `/api/ytt` :45
 - **prefs.py** (488 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
   - 名前: `class PrefsError` :95・`guess_streamer` :382・`class Prefs` :394
-- **server.py** (1842 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
+- **server.py** (1852 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
   - 名前: `runtime_dir` :186・`ping` :196・`tail` :204・`expected_version` :225・`tool_python` :231・`rel_or_abs` :241・`signal_stop` :249・`class Tool` :262・`app_data_dir` :312・`logs_dir_for` :318・`class Supervisor` :324・`query_int` :643・ほか 16
   - 受ける口: `/api/drill/status` :154・`/api/eval-batch` :154・`/api/intake` :629・`/api/backup` :630・`/api/accuracy` :631・`/api/flow/runs` :632・`/api/cases/auto` :634・`/api/flow/submit` :635・`/api/flow/estimate` :635・`/api/flow/cancel` :636・`/api/intake/scan` :637・`/api/backup/run` :637・`/api/accuracy/run` :638・`/api/check/answer` :639・`/api/check/unknown` :639・`/api/check/skip` :639・`/api/check/flush` :639・`/api/shutdown` :640・`/api/ping` :729・`/api/status` :731・`/api/health` :741・`/api/log` :743・`/api/flow/status` :758・`/api/flow/history` :762・`/api/check/next` :765・`/api/check/voiceclip` :771・`/api/home/requests` :777・`/api/cases` :789
 - **ytlogin.py** (95 行) — ユーザーの PC の YouTube のログイン(10-23 ユーザー「ログインできる形にしといて」)。友人のアプリと同じ作り(notes:docs/spec/friend.md の 13-13)。
@@ -32,6 +32,8 @@
   - 名前: `invalidate` :30・`check_args` :64・`next_cards` :85・`find` :128
 - **eval_sources.py** (114 行) — 「確かめる」の評価のレーンの区間カードの出どころ section:eval(C-EVAL (2)。決定 3-47・3-49 Q2。反映は ③ src/human/check/section.py)。
   - 名前: `cut_after` :41・`section_eval` :62
+- **evalredo.py** (38 行) — 評価用にした文書を、評価用の決まり(用語集・置換辞書・学習を使わない)で 1 本ずつ作り直す(10-25 ユーザー「学習用の一部を評価用に・Fable と相談してバランスよく」)。
+  - 名前: `tick` :16
 - **lineup.py** (102 行) — 「確かめる」の待ち行列の並び(lineup)と数え方(V1 の V0。名前は標準の queue と重ねない。notes:docs/design/v1-check-build.md の 2-3)。純粋な関数だけ(ファイルを読まない)。
   - 名前: `card_id` :26・`parse_id` :30・`kind_rank` :40・`order` :67・`first` :72・`per_kind` :77・`public` :86・`check_n` :91
 - **read_sources.py** (92 行) — 「確かめる」の読みのカードの出どころ read:alt(V1 の V2b。notes:docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
@@ -163,6 +165,7 @@
 - tests/app/check/_checkkit.py — tests/app/check の共通の下ごしらえ。test_ で始めない(流す対象ではない)。
 - tests/app/check/test_cut_sources.py — 「確かめる」の自動カットのカードの出どころ(src/app/check/cut_sources.py)の単体テスト: スイッチが切れていれば空・評価用の文書は出ない・
 - tests/app/check/test_eval_sources.py — 評価のレーンの区間カードの出どころ(src/app/check/eval_sources.py。C-EVAL)の単体テスト: 区切り方・行の持ち主・スイッチ・
+- tests/app/check/test_evalredo.py — 評価用にした文書を評価用の決まりで作り直す(src/app/check/evalredo.py。10-25)。評価用のフォルダへ取り込まれた物だけ・1 本ずつ・頼んだ物は外す。
 - tests/app/check/test_lineup.py — 「確かめる」の待ち行列の順と数え方(src/app/check/lineup.py・goals.py)の単体テスト。純粋な関数だけ。
 - tests/app/check/test_read_sources.py — 「確かめる」の読みのカードの出どころ read:alt(src/app/check/read_sources.py。V2b)の単体テスト。一時フォルダの文書・alt.json だけを使う。
 - tests/app/check/test_refresh.py — 確かめるのカードの元の古い版の文書の作り直し(src/app/check/refresh.py)の単体テスト: 対象の選び方(古い版・動画がある・評価用は外す・

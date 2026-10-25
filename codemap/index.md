@@ -11,7 +11,7 @@
 | ③ human(人の操作) | [human.md](human.md) | 73 | 20057 |
 | ④ manage(データ) | [manage.md](manage.md) | 43 | 11197 |
 | ⑤ eval(検証) | [eval.md](eval.md) | 37 | 15603 |
-| src/app(入口と画面) | [app.md](app.md) | 100 | 35741 |
+| src/app(入口と画面) | [app.md](app.md) | 102 | 35822 |
 | src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 56 | 22156 |
 | その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 19 | 10316 |
 | dev・setup(開発の道具) | [dev.md](dev.md) | 63 | 17039 |
@@ -59,7 +59,7 @@
 - `/api/edit/preview` — src/editor/serve.py:247 ← pack-tab.js
 - `/api/effort` — src/editor/serve.py:248・src/editor/serve.py:147 ← app-learn.js
 - `/api/eval-batch` — src/app/server.py:154・src/editor/serve.py:202
-- `/api/eval-batch/redo-one` — src/editor/serve.py:243 ← app-learn.js
+- `/api/eval-batch/redo-one` — src/editor/serve.py:243 ← evalredo.py・app-learn.js
 - `/api/eval-batch/start` — src/editor/serve.py:241
 - `/api/eval-batch/stop` — src/editor/serve.py:242
 - `/api/eval-folders` — src/editor/serve.py:201 ← app-tools.js
