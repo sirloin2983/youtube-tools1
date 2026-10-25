@@ -137,8 +137,8 @@ def _fail_alert(app_dir, cur, now, why, log):
     log("友人の知らせ: " + a["text"])
 
 
-def _finish_running(app_dir, st, now, log):
-    """起こした claude が動いているか(長すぎれば自分の PID だけ止める)-> 動いていれば True。終わっていて届いていなければ warn を残す"""
+def _finish_running(root, st, now, log, log_name, on_fail, label):
+    """起こした claude が動いているか(長すぎれば自分の PID だけ止める)-> 動いていれば True。終わっていて届いていなければ on_fail(cur, now, 理由)"""
     cur = st.get("current")
     if not cur:
         return False
@@ -152,14 +152,65 @@ def _finish_running(app_dir, st, now, log):
         except OSError:
             pass
         why = "%d 秒で終わらないので止めた" % RUN_MAX_SEC
-        log("友人の知らせの起こしが %d 秒で終わらないので止めました(PID %d)" % (RUN_MAX_SEC, cur["pid"]))
-    elif proc is not None and not _delivered(os.path.join(_root(app_dir), "notify.log"), cur.get("offset") or 0):
+        log("%sの起こしが %d 秒で終わらないので止めました(PID %d)" % (label, RUN_MAX_SEC, cur["pid"]))
+    elif proc is not None and not _delivered(os.path.join(root, log_name), cur.get("offset") or 0):
         why = "送れたと返ってこなかった"
-    if why:
-        _fail_alert(app_dir, cur, now, why, log)
+    if why and on_fail:
+        on_fail(cur, now, why)
     _running.pop(cur.get("pid"), None)
     st["current"] = None
     return False
+
+
+def batch_send(root, items, to, message_fn, state_name=STATE_NAME, log_name="notify.log", label="友人の知らせ", batch_sec=None,
+               daily_max=None, on_fail=None, clock=time.time, log=None, spawn=None, claude=None):
+    """知らせの共通の芯: まだ送っていない items([{key, ...}])を、最初の 1 件から batch_sec 秒待ってまとめ、claude -p(haiku)に to へ
+    message_fn(items) の文を 1 通送らせる。同じ鍵は 1 回・1 日 daily_max 回・RUN_MAX_SEC 秒で自分の PID だけ止める・
+    届かなければ on_fail(cur, now, 理由)。テストの形(YTT_DATA_DIR=inplace)では本物を起こさない。-> 送った件数(起こさなければ 0)"""
+    log = log or (lambda m: None)
+    batch_sec = BATCH_SEC if batch_sec is None else batch_sec   # 呼ぶたびに読む(テストが差し替える)
+    daily_max = DAILY_MAX if daily_max is None else daily_max
+    os.makedirs(root, exist_ok=True)
+    sp = os.path.join(root, state_name)
+    st = fsio.read_json_or(sp, None) or {}
+    now = int(clock() * 1000)
+    sent = {k: v for k, v in (st.get("sent") or {}).items() if now - v <= KEEP_DAYS * 86400000}
+    pending = {k: v for k, v in (st.get("pending") or {}).items() if k not in sent}
+    st.update(sent=sent, pending=pending, runs=[r for r in st.get("runs") or [] if now - r <= KEEP_DAYS * 86400000])
+    if _finish_running(root, st, now, log, log_name, on_fail, label):
+        fsio.write_json(sp, st)
+        return 0
+    items = [it for it in items if it["key"] not in sent]
+    for it in items:
+        pending.setdefault(it["key"], now)
+    if (not items or now - min(pending[it["key"]] for it in items) < batch_sec * 1000
+            or sum(1 for r in st["runs"] if _day(r) == _day(now)) >= daily_max
+            or (spawn is None and os.environ.get("YTT_DATA_DIR") == "inplace")):   # テスト・見本(作業データを切り離した形)は本物の claude を起こさない
+        fsio.write_json(sp, st)
+        return 0
+    claude = claude or (bugs.find_claude() if spawn is None else "claude.exe")
+    if not claude:
+        fsio.write_json(sp, st)
+        return 0
+    out = os.path.join(root, log_name)
+    offset = os.path.getsize(out) if os.path.isfile(out) else 0
+    cmd = [claude, "-p", PROMPT.format(to=to, body=message_fn(items)), "--model", MODEL,
+           "--permission-mode", "auto", "--permission-prompts", "none", "--allowedTools", "SendMessage", "--output-format", "text"]
+    try:
+        proc = (spawn or _spawn)(cmd, root, out)
+    except (OSError, subprocess.SubprocessError) as e:
+        log("%sの起こしを始められませんでした: %s" % (label, str(e)[:200]))
+        fsio.write_json(sp, st)
+        return 0
+    _running[proc.pid] = proc
+    for it in items:   # 同じ件は 1 回(起こしが失敗しても送り直さない)
+        sent[it["key"]] = now
+        pending.pop(it["key"], None)
+    st["runs"].append(now)
+    st["current"] = {"pid": proc.pid, "started": now, "keys": [it["key"] for it in items], "offset": offset}
+    fsio.write_json(sp, st)
+    log("%s %d 件を「%s」へ送ります(PID %d)" % (label, len(items), to, proc.pid))
+    return len(items)
 
 
 def tick(app_dir, clock=None, log=None, spawn=None, claude=None):
@@ -167,58 +218,10 @@ def tick(app_dir, clock=None, log=None, spawn=None, claude=None):
     失敗しても見回りは止めない。spawn(cmd, cwd, out)・claude はテスト用"""
     clock, log = clock or time.time, log or (lambda m: None)
     try:
-        return _tick(app_dir, clock, log, spawn, claude)
+        if not ON or os.environ.get(SWITCH_ENV) == "0":
+            return 0
+        return batch_send(_root(app_dir), collect(app_dir, int(clock() * 1000)), to_name(), message,
+                          on_fail=lambda cur, now, why: _fail_alert(app_dir, cur, now, why, log), clock=clock, log=log, spawn=spawn, claude=claude)
     except Exception as e:   # noqa: BLE001  (知らせが壊れても依頼の受付は止めない)
         log("友人の知らせでエラー: %s %s" % (e.__class__.__name__, str(e)[:200]))
         return 0
-
-
-def _tick(app_dir, clock, log, spawn, claude):
-    if not ON or os.environ.get(SWITCH_ENV) == "0":
-        return 0
-    root = _root(app_dir)
-    os.makedirs(root, exist_ok=True)
-    sp = os.path.join(root, STATE_NAME)
-    st = fsio.read_json_or(sp, None) or {}
-    now = int(clock() * 1000)
-    sent = {k: v for k, v in (st.get("sent") or {}).items() if now - v <= KEEP_DAYS * 86400000}
-    pending = {k: v for k, v in (st.get("pending") or {}).items() if k not in sent}
-    st.update(sent=sent, pending=pending, runs=[r for r in st.get("runs") or [] if now - r <= KEEP_DAYS * 86400000])
-    if _finish_running(app_dir, st, now, log):
-        fsio.write_json(sp, st)
-        return 0
-    items = [it for it in collect(app_dir, now) if it["key"] not in sent]
-    for it in items:
-        pending.setdefault(it["key"], now)
-    if not items or now - min(pending[it["key"]] for it in items) < BATCH_SEC * 1000:
-        fsio.write_json(sp, st)
-        return 0
-    if sum(1 for r in st["runs"] if _day(r) == _day(now)) >= DAILY_MAX:
-        fsio.write_json(sp, st)
-        return 0
-    if spawn is None and os.environ.get("YTT_DATA_DIR") == "inplace":   # テスト・見本(作業データを切り離した形)は本物の claude を起こさない(ytdlpver と同じ決まり)
-        fsio.write_json(sp, st)
-        return 0
-    claude = claude or (bugs.find_claude() if spawn is None else "claude.exe")
-    if not claude:
-        fsio.write_json(sp, st)
-        return 0
-    out = os.path.join(root, "notify.log")
-    offset = os.path.getsize(out) if os.path.isfile(out) else 0
-    cmd = [claude, "-p", PROMPT.format(to=to_name(), body=message(items)), "--model", MODEL,
-           "--permission-mode", "auto", "--permission-prompts", "none", "--allowedTools", "SendMessage", "--output-format", "text"]
-    try:
-        proc = (spawn or _spawn)(cmd, root, out)
-    except (OSError, subprocess.SubprocessError) as e:
-        log("友人の知らせの起こしを始められませんでした: %s" % str(e)[:200])
-        fsio.write_json(sp, st)
-        return 0
-    _running[proc.pid] = proc
-    for it in items:   # 同じ件は 1 回(起こしが失敗しても送り直さない = 一覧には残る)
-        sent[it["key"]] = now
-        pending.pop(it["key"], None)
-    st["runs"].append(now)
-    st["current"] = {"pid": proc.pid, "started": now, "keys": [it["key"] for it in items], "offset": offset}
-    fsio.write_json(sp, st)
-    log("友人の知らせ %d 件をまとめ役へ送ります(PID %d)" % (len(items), proc.pid))
-    return len(items)
