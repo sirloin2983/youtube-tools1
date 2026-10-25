@@ -96,6 +96,7 @@ class View:
         self.ctx, self.state = ctx, state
         self.root, self.env = getattr(ctx, "root", None), getattr(ctx, "env", None)
         self.errors = []
+        self.notes = {}   # 集めの数のメモ(誤りではない。例: timeNoMedia = 読みで答えたが動画の無い文書の行の数)
         self._cases = self._docs = self._eval_dirs = self._doc_case = None
 
     # ---- 案件
@@ -257,8 +258,19 @@ def _doc_card(view, kind, source, tid, doc, row, pad, extra, tight=False):
             "target": {"docId": tid, "row": row["id"], "videoId": case["id"] or None},
             "media": media, "text": str(row.get("text") or ""),
             "guess": None, "options": [], "score": None, "note": ""}
+    if kind == "read":
+        card["around"] = _around(doc, row)
     card.update(extra)
     return card
+
+
+def _around(doc, row):
+    """前の行と次の行の文字 {prev, next}(読みのカードに薄く添える。音に前後の言葉が入っていても迷わないように。10-25 ユーザー)"""
+    segs = [g for g in doc.get("segments") or () if isinstance(g, dict)]
+    i = next((k for k, g in enumerate(segs) if g is row), -1)
+    if i < 0:
+        return {"prev": "", "next": ""}
+    return {"prev": str(segs[i - 1].get("text") or "") if i > 0 else "", "next": str(segs[i + 1].get("text") or "") if i + 1 < len(segs) else ""}
 
 
 def _rows(doc):
@@ -407,24 +419,44 @@ def voice_diar(view):
     return out
 
 
+def read_decided(view):
+    """読みのカードで答えた行 -> {"<文書>#<行>": 答えた時刻}。「聞き取れない」は文字が決まっていないので入れない
+    (「分からない」は答えの記録に入らない・「飛ばす」は記録しない = どちらも元から入らない。10-25 ユーザー「読みで答えた行は全部、時刻のカードに」)"""
+    out = {}
+    for r in view.answered("read"):
+        a, t = r.get("answer"), r.get("target") or {}
+        if isinstance(a, dict) and a.get("choice") == "unclear":
+            continue
+        out.setdefault(str(t.get("docId") or "") + "#" + str(t.get("row")), _num(r.get("at")))
+    return out
+
+
+def _time_ok(g):
+    if g.get("cutState") == "cut" or g.get("noSub") is True or set(NOT_FOR_TIME_TAGS) & set(g.get("tags") or ()):
+        return False
+    if _yschemas.has_flag(g.get("flag"), _yschemas.MIXED_FLAG):
+        return False   # 聞き取れない・BGM 大・重なり・混ざりの行は時刻の正解にしない(10-25 確かめるの混ざりと BGM のルール)
+    return _num(g.get("end")) > _num(g.get("start"))
+
+
 def time_row(view):
+    """行の時刻のカード: 読みで答えた行(答えた順に先)と、校正済みの行。ショートの文書も(動画のある物。読みのカードに出しているので)。
+    読みで答えたが動画の無い文書の行は出せない = 数を view.notes["timeNoMedia"] に"""
     out = []
-    decided = {(r.get("target") or {}).get("docId", "") + "#" + str((r.get("target") or {}).get("row")) for r in view.answered("read")}
-    for tid, _path, doc in view.docs():
+    decided = read_decided(view)
+    docs = view.docs(shorts=True)
+    seen = {tid for tid, _p, _d in docs}
+    view.notes["timeNoMedia"] = sum(1 for k in decided if k.split("#", 1)[0] not in seen)
+    for tid, _path, doc in docs:
         for g in _rows(doc):
-            if g.get("cutState") == "cut" or g.get("noSub") is True or set(NOT_FOR_TIME_TAGS) & set(g.get("tags") or ()):
-                continue
-            if _yschemas.has_flag(g.get("flag"), _yschemas.MIXED_FLAG):
-                continue   # 聞き取れない・BGM 大・重なり・混ざりの行は時刻の正解にしない(10-25 確かめるの混ざりと BGM のルール)
-            if g.get("proofed") is not True and (tid + "#" + g["id"]) not in decided:
-                continue
-            if _num(g.get("end")) <= _num(g.get("start")):
+            at = decided.get(tid + "#" + g["id"])
+            if (at is None and g.get("proofed") is not True) or not _time_ok(g):
                 continue
             out.append(_doc_card(view, "time", "row", tid, doc, g, 2.5, {
-                "guess": "ok", "options": ["ok", "head", "tail", "both"], "_order": [-_num(doc.get("updatedAt")), _num(g.get("start"))]}))
-            if len(out) >= MAX_PER_SOURCE:
-                return out
-    return out
+                "guess": "ok", "options": ["ok", "head", "tail", "both"],
+                "_order": [0, at, 0] if at is not None else [1, -_num(doc.get("updatedAt")), _num(g.get("start"))]}))
+    out.sort(key=lambda c: c["_order"])   # 読みで答えた行を先に(上限で切られない)
+    return out[:MAX_PER_SOURCE]
 
 
 for _k, _s, _f in (("value", "auto", value_auto), ("value", "cand", value_cand), ("read", "fill", read_fill),

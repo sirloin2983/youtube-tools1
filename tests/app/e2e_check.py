@@ -345,11 +345,14 @@ def _scene_read_type(cx):
     press(pg, "Enter")
     check(wait_js(pg, "CheckShell.state().cur === null || CheckShell.state().empty") and len(fq.live_answers()) == n + 1, "Enter で答える: %s" % state(pg))
     check(fq.answers[-1]["body"]["answer"] == {"choice": "other", "text": "今日は晴れでした"}, "答えは {choice: other, text}: %s" % fq.answers[-1]["body"]["answer"])
-    fq.cards = [card(91, "read", source="alt", guess=None, text="今日は晴れです",
+    fq.cards = [card(91, "read", source="alt", guess=None, text="今日は晴れです", around={"prev": "前の発言", "next": "次の発言"},
                      options=[{"id": "1", "text": "今日は晴れです"}, {"id": "2", "text": "今日は腫れです"}])]
     pg.goto(cx.base + "check?kind=read")
     check(wait_js(pg, "CheckShell.state().cur === 'read:e2e:91'") and "聞き取れない" in pg.text_content("#chkBody") and "人の言葉だけ" in pg.text_content("#chkBody"),
           "5「聞き取れない」のボタンと案内の 1 行: %s" % state(pg))
+    check("前の発言" in (pg.text_content("#chkBody [data-chk-near=prev]") or "") and "次の発言" in (pg.text_content("#chkBody [data-chk-near=next]") or "")
+          and not pg.query_selector("#chkBody [data-chk-k='4']") and "前後の行の言葉" in pg.text_content("#chkBody"),
+          "前後の行の文字を薄く添える・4「区間がずれている」は無い・案内の文")
     press(pg, "5")
     check(wait_js(pg, "CheckShell.state().cur === null || CheckShell.state().empty") and fq.answers[-1]["body"]["answer"] == {"choice": "unclear"},
           "5 = {choice: unclear}: %s" % fq.answers[-1:])
