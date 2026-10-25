@@ -17,7 +17,7 @@ import zipfile
 
 from flow import voicematerial as _vm
 from human.proof import store as _store, voiceclips as _voiceclips
-from ytt import fsio, schemas as _yschemas
+from ytt import docloc as _docloc, fsio, schemas as _yschemas
 
 SUFFIX = ".voice.zip"
 NAME_RE = re.compile(r"^([0-9A-Za-z_-]{1,64})__([0-9a-f]{12})" + re.escape(SUFFIX) + r"\Z")
@@ -77,7 +77,8 @@ def take(n, p, log):
     old = fsio.read_json_or(have, None, kind=dict) if have and os.path.isfile(have) else None
     if old is not None and old.get("origin") != ORIGIN:
         return "rejected", "同じ id の文書があります"
-    rows, clips, songs = [], {}, 0
+    rows, clips, songs, dup = [], {}, 0, 0
+    seen = _seen_starts(title, tid)
     for rid, r in sorted(meta["rows"].items()):
         if rid not in wavs or not isinstance(r, dict) or not _vm.ROW_ID_RE.match(rid):
             continue
@@ -88,14 +89,34 @@ def take(n, p, log):
             continue
         if not _vm.row_ok(g) or not (0 <= a <= g["start"] < g["end"] <= b) or not _wav_ok(wavs[rid]):
             continue
+        if any(abs(g["start"] - x) < DUP_SEC for x in seen):
+            dup += 1   # 同じ配信の同じ所(別の文書で友人の PC から届いた)= 同じ声を 2 回覚えない(10-25)
+            continue
         rows.append(g)
         clips[rid] = (wavs[rid], a, b)
     if not rows:
-        return "accepted", "使える行がありません(歌の行 %d)" % songs
+        return "accepted", "使える行がありません(歌の行 %d・同じ配信の同じ所 %d)" % (songs, dup)
     _write_doc(tid, old, who, title, rows, meta)
     got = _voiceclips.put_bytes(tid, clips)
-    log("声の材料: %s(%s)の %d 行を写しました(歌の行で外した %d)" % (who, tid, got, songs))
+    log("声の材料: %s(%s)の %d 行を写しました(歌の行で外した %d・同じ配信の同じ所で外した %d)" % (who, tid, got, songs, dup))
     return "accepted", ""
+
+
+DUP_SEC = 1.0   # 同じ配信(題名)の、もう受け取った行の始まりとこれより近い行は受け取らない
+
+
+def _seen_starts(title, tid):
+    """同じ題名の、友人の PC から届いたほかの文書の行の始まり(元の配信の秒)"""
+    out = []
+    if not title:
+        return out
+    for t, p in _docloc.doc_files().items():
+        if t == tid:
+            continue
+        d = fsio.read_json_or(p, {}, kind=dict)
+        if d.get("origin") == ORIGIN and str(d.get("title") or "") == title:
+            out += [_vm.num(g.get("start")) for g in d.get("segments") or () if isinstance(g, dict)]
+    return out
 
 
 def _wav_ok(data):

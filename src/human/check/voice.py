@@ -327,9 +327,10 @@ def _relearn_sec():
 
 
 def _learned_rows(emb, name, cache):
-    """登録簿のその人の learnedFrom の行 -> {(文書, 行)}"""
+    """登録簿のその人の learnedFrom の行と、まとめ直しで外した行(excluded "文書#行" = もう材料に数えない。human/proof/voicerebuild)-> {(文書, 行)}"""
     v = registry(emb, cache).get(name) or {}
-    return {(str(x.get("doc")), str(r)) for x in v.get("learnedFrom") or () if isinstance(x, dict) for r in x.get("rows") or () if isinstance(r, str)}
+    out = {(str(x.get("doc")), str(r)) for x in v.get("learnedFrom") or () if isinstance(x, dict) for r in x.get("rows") or () if isinstance(r, str)}
+    return out | {tuple(str(k).split("#", 1)) for k in v.get("excluded") or () if isinstance(k, str) and "#" in k}
 
 
 def _inflight():

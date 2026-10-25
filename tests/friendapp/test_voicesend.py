@@ -92,13 +92,14 @@ class VoiceSendTest(unittest.TestCase):
         self.assertIsNotNone(voiceclips.media("aaaaaaaaaaaa", g["id"], g["start"], g["end"]))   # 送られた音でカードを流せる
         self.assertFalse(os.path.exists(z))   # 受付済みへ
 
-        # 覚えた人の材料も写す(どれをカードにするかは voice_solo の並べ方。10-24 夜の決め直し)
+        # 同じ配信の同じ所が別の文書の印で届いた(友人の PC が同じ配信を 2 本の文書にした)= 受け取らない
         self.reg = {MIKO: {"sec": 60.0}}
         shutil.copy(os.path.join(outbox, "voice__aaaaaaaaaaaa.voice.zip"), os.path.join(sync, R.IN_DIR, "x__cccccccccccc.voice.zip"))
         os.utime(os.path.join(sync, R.IN_DIR, "x__cccccccccccc.voice.zip"), (1000, 1000))
         got = R.scan(sync, os.path.join(self.tmp, "app"), clock=lambda: 10 ** 6)
-        self.assertEqual([(r["state"], r["reason"]) for r in got], [("accepted", "")])
-        self.assertTrue(os.path.exists(store.tx_path("cccccccccccc")))
+        self.assertEqual([r["state"] for r in got], ["accepted"])
+        self.assertIn("同じ配信の同じ所 3", got[0]["reason"])                  # 同じ配信(題名)の同じ所 = 同じ声を 2 回覚えない(10-25)
+        self.assertFalse(os.path.exists(store.tx_path("cccccccccccc")))
 
     def test_bad_zip_refused(self):
         user = os.path.join(self.tmp, "user")
