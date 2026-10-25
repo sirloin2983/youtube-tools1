@@ -12,7 +12,7 @@
   - 画面: (画面の文字列に無い)
 - **確かめる** — 確かめるの待ち行列(GET /api/check/next)・答えの反映。画面は src/app/ui/check/
   - コード: `src/human/check/apply.py`・`src/app/check/deck.py`・`src/app/check/sources.py`・`next_cards` src/app/check/deck.py:112
-  - 画面: src/app/ui/cases/cases.js:10・src/app/ui/cases/index.html:26・src/app/ui/cases/panels/new.js:10・src/app/ui/check/cards/read.js:5 ほか 12
+  - 画面: src/app/ui/cases/cases.js:10・src/app/ui/cases/index.html:26・src/app/ui/cases/panels/new.js:10・src/app/ui/check/cards/read.js:7 ほか 12
 - **評価のレーン** — 確かめるのうち評価用動画の区間カードの流れ
   - コード: `section_eval` src/app/check/eval_sources.py:62・`src/app/check/eval_sources.py`・`src/app/check/lineup.py`・`src/eval/check/goals.py`
   - 画面: src/app/ui/check/check.js:320
