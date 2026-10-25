@@ -6,7 +6,7 @@
 | 層 | md | ファイル | 行 |
 |---|---|---|---|
 | ytt(基盤) | [ytt.md](ytt.md) | 53 | 11699 |
-| ① pipeline(道具 = データを加工する) | [pipeline.md](pipeline.md) | 82 | 27985 |
+| ① pipeline(道具 = データを加工する) | [pipeline.md](pipeline.md) | 82 | 27989 |
 | ② flow(管理 = いつ・どの順で・どこに置くか) | [flow.md](flow.md) | 95 | 31026 |
 | ③ human(人の操作) | [human.md](human.md) | 75 | 20465 |
 | ④ manage(データ) | [manage.md](manage.md) | 43 | 11197 |
