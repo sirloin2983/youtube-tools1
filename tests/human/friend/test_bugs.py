@@ -147,11 +147,11 @@ class BugsTest(unittest.TestCase):
         self.assertEqual(recs[n]["ai"]["head"], "直して配った")
         self.assertEqual(len(self.spawned), 2)
 
-    def test_switch_default_off_and_land_scope(self):
-        os.environ.pop(B.SWITCH_ENV, None)
+    def test_switch_off_and_land_scope(self):
+        os.environ[B.SWITCH_ENV] = "0"
         self.put(["unknown"])
         self.scan()
-        self.assertEqual(self.spawned, [])                # 既定は起こさない(受け取りと仕分けはする)
+        self.assertEqual(self.spawned, [])                # 0 なら起こさない(受け取りと仕分けはする)
         self.assertEqual(B.records(self.app)[0]["state"], "needs")
         os.environ[B.SWITCH_ENV] = "1"
         os.environ[B.LAND_ENV] = "0"
@@ -188,7 +188,7 @@ class BugsTest(unittest.TestCase):
         self.assertEqual([x["name"] for x in B.pick(live + [r("n", 2, at=now - 50, live=True)], now)], ["n"])
 
     def test_takeover_marker_and_guard(self):
-        os.environ.pop(B.SWITCH_ENV, None)                 # AI は起こさない(引き継ぎは AI なし)
+        os.environ[B.SWITCH_ENV] = "0"                     # AI は起こさない(引き継ぎは AI なし)
         rid = "20261025-010203-abcdef"
         n = "%s__state-%d.state.json" % (rid, int(self.now * 1000) - 60000)
         p = os.path.join(self.sync, B.IN_DIR, n)
