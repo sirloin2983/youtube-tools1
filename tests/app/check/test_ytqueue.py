@@ -254,6 +254,22 @@ class YtQueueTest(unittest.TestCase):
         self.assertIsNone(Q.light_batch(self.app, NOON + 600, self.logs.append))  # 1 時間に 1 回
         self.assertEqual(Q.light_batch(self.app, NOON + 3700, self.logs.append), "light")   # 次の回に s2
 
+    def test_skip_download_writes_under_keep(self):
+        """字幕・チャットだけの取得も既定の -o を keep/<動画>/ に置く(無いと途中の .part が作業フォルダ = src に残った。10-26)"""
+        seen = []
+
+        def ytdlp(cmd, timeout):
+            seen.append(cmd)
+            return None, ""
+        with mock.patch.object(VF._tools, "find_tool", lambda name: "yt-dlp"), mock.patch.object(VF, "_ytdlp", ytdlp):
+            Q._chat(self.app, "https://www.youtube.com/watch?v=CHATVIDE001")
+            Q._light_fetch(self.app, ["https://www.youtube.com/watch?v=SUBSVIDEO01"])
+        keep = Q.qdir(self.app, Q.KEEP_DIR)
+        for cmd in seen:
+            outs = [cmd[i + 1] for i, a in enumerate(cmd) if a == "-o" and not cmd[i + 1].startswith(("subtitle:", "infojson:"))]
+            self.assertEqual(len(outs), 1, cmd)
+            self.assertTrue(outs[0].startswith(keep + os.sep), outs[0])
+
     def test_chat_batch(self):
         """チャットの頼みは音の枠で競わず、軽い物の守りの中で 1 時間に 1 回・始まりは 10 本(10-25: 点 0.6 で候補・声に負け続け、38 件が 1 件も取られなかった)"""
         for i in range(12):

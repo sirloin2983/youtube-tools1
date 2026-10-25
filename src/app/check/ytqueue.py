@@ -459,7 +459,7 @@ def _chat(app_dir, url):
     os.makedirs(d, exist_ok=True)
     r, tail = _vf._ytdlp([yd, "--encoding", "utf-8", "--no-warnings", "--no-playlist", "--skip-download", "--sleep-requests", str(SLEEP_REQ),
                           "--write-subs", "--sub-langs", "live_chat",
-                        "-o", "subtitle:" + os.path.join(d, "chat"), "--", url], 1800)
+                        "-o", os.path.join(d, "chat.%(ext)s"), "-o", "subtitle:" + os.path.join(d, "chat"), "--", url], 1800)   # 既定の -o = 途中の .part も d へ(無いと作業フォルダに書く。10-26)
     got = [os.path.join(d, x) for x in os.listdir(d) if x.startswith("chat.") and not x.endswith(".part")]
     if r is not None and r.returncode == 0 and got:
         return got[0], ""
@@ -825,6 +825,7 @@ def _light_fetch(app_dir, urls):
     keep = qdir(app_dir, KEEP_DIR, "%(id)s")
     r, tail = _vf._ytdlp([yd, "--encoding", "utf-8", "--no-warnings", "--ignore-errors", "--no-playlist", "--skip-download",
                           "--sleep-requests", str(SLEEP_REQ), "--write-subs", "--write-auto-subs", "--sub-langs", "ja", "--sub-format", "json3", "--write-info-json",
+                          "-o", keep + os.sep + "v.%(ext)s",   # 既定の -o = 途中のファイルも keep/<動画>/ へ(無いと作業フォルダに書く。10-26)
                           "-o", "subtitle:" + keep + os.sep + "subs", "-o", "infojson:" + keep + os.sep + "info", "--"] + list(urls), 300 + 30 * len(urls))
     got = {}
     for u in urls:
