@@ -9,8 +9,8 @@
 ## src/eval/check/
 
 - **__init__.py** (2 行) — ⑤ 確かめるの待ち行列(V1。カードの出どころ sources・並び lineup・目標との対応 goals・組み立て deck。notes:docs/design/v1-check-build.md)
-- **goals.py** (67 行) — 「確かめる」のカードの種類 → 入口の条件(src/eval/drill/accuracy.py の GOALS)の対応と、答えの数え方(V1 の V0。notes:docs/design/v1-check-build.md の 2-3)。
-  - 名前: `goal_of` :22・`extra_counter` :27・`extra_from` :47・`by_kind` :55・`view` :61
+- **goals.py** (69 行) — 「確かめる」のカードの種類 → 入口の条件(src/eval/drill/accuracy.py の GOALS)の対応と、答えの数え方(V1 の V0。notes:docs/design/v1-check-build.md の 2-3)。
+  - 名前: `goal_of` :22・`extra_counter` :27・`extra_from` :49・`by_kind` :57・`view` :63
 
 ## src/eval/drill/
 

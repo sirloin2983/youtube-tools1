@@ -5,14 +5,14 @@
 ## 主な言葉
 
 - **区間カード** — ③ 確かめる(評価のレーン)の区間カード。設定の鍵と反映・出どころ
-  - コード: `checkSectionCardsOn` src/human/check/section.py:242・`src/human/check/section.py`・`src/app/check/eval_sources.py`・`section_eval` src/app/check/eval_sources.py:62
+  - コード: `checkSectionCardsOn` src/human/check/section.py:294・`src/human/check/section.py`・`src/app/check/eval_sources.py`・`section_eval` src/app/check/eval_sources.py:62
   - 画面: src/app/ui/check/check.js:322
 - **機械のカットのカード** — ③ 確かめるの自動カットのカード。鍵・反映・出どころ
   - コード: `checkCutCardsOn` src/human/check/cutcard.py:8・`src/human/check/cutcard.py`・`src/app/check/cut_sources.py`・`cut_edge` src/app/check/cut_sources.py:150
   - 画面: (画面の文字列に無い)
 - **確かめる** — 確かめるの待ち行列(GET /api/check/next)・答えの反映。画面は src/app/ui/check/
-  - コード: `src/human/check/apply.py`・`src/app/check/deck.py`・`src/app/check/sources.py`・`next_cards` src/app/check/deck.py:85
-  - 画面: src/app/ui/cases/cases.js:10・src/app/ui/cases/index.html:26・src/app/ui/cases/panels/new.js:10・src/app/ui/check/check.js:322 ほか 10
+  - コード: `src/human/check/apply.py`・`src/app/check/deck.py`・`src/app/check/sources.py`・`next_cards` src/app/check/deck.py:112
+  - 画面: src/app/ui/cases/cases.js:10・src/app/ui/cases/index.html:26・src/app/ui/cases/panels/new.js:10・src/app/ui/check/cards/read.js:5 ほか 12
 - **評価のレーン** — 確かめるのうち評価用動画の区間カードの流れ
   - コード: `section_eval` src/app/check/eval_sources.py:62・`src/app/check/eval_sources.py`・`src/app/check/lineup.py`・`src/eval/check/goals.py`
   - 画面: src/app/ui/check/check.js:320
@@ -102,7 +102,7 @@
   - 画面: src/app/ui/cases/cases.js:79・src/app/ui/cases/panels/new.js:26・src/app/ui/check/cards/value.js:9・src/app/ui/editor/app-learn.js:17 ほか 9
 - **候補** — 案件の候補と採用のファイル(読む側 ytt・書く側 ②)と候補パネル
   - コード: `src/flow/casebook.py`・`src/ytt/casefiles.py`・`src/app/ui/cases/panels/cand.js`・`src/human/review/store.py`
-  - 画面: src/app/ui/cases/cases.js:73・src/app/ui/cases/index.html:48・src/app/ui/cases/panels/cand.js:25・src/app/ui/cases/panels/studio-shim.js:4 ほか 13
+  - 画面: src/app/ui/cases/cases.js:73・src/app/ui/cases/index.html:48・src/app/ui/cases/panels/cand.js:25・src/app/ui/cases/panels/studio-shim.js:4 ほか 14
 - **文字起こし** — ② の文字起こしの動詞と ① の認識の部品
   - コード: `src/flow/tx.py`・`src/pipeline/transcribe/worker.py`・`transcribe_clip` src/flow/tx.py:144
   - 画面: src/app/ui/cases/cases.js:75・src/app/ui/cases/edhost.js:19・src/app/ui/cases/panels/cut.js:32・src/app/ui/cases/panels/proof.js:64 ほか 19
@@ -117,7 +117,7 @@
   - 画面: src/app/ui/cases/cases.js:79・src/app/ui/cases/panels/cut.js:132・src/app/ui/cases/panels/machpick.js:35・src/app/ui/cases/panels/proof.js:64 ほか 15
 - **声を覚える** — 「編集」の話者に名前を付けて声を覚えるジョブ
   - コード: `validate_voice_learn` src/human/proof/speakers.py:552・`run_voice_learn` src/human/proof/speakers.py:579・`/api/voices/learn` src/editor/serve.py:229
-  - 画面: src/app/ui/check/cards/voice.js:18・src/app/ui/editor/app-jobs.js:97・src/app/ui/editor/app-rows.js:482・src/app/ui/editor/app-tools.js:98 ほか 2
+  - 画面: src/app/ui/check/cards/voice.js:20・src/app/ui/editor/app-jobs.js:97・src/app/ui/editor/app-rows.js:482・src/app/ui/editor/app-tools.js:98 ほか 2
 - **用語集** — 編集の設定の用語集(1 行 1 語)。② tx が選び ① が使う
   - コード: `pick_glossary_terms` src/flow/tx.py:68・`src/app/ui/editor/app-learn.js`
   - 画面: (画面の文字列に無い)
@@ -158,7 +158,7 @@
 - 詳しく(5)— src/app/ui/cases/cases.js:426
 - 読み込んでいます…(5)— src/app/ui/home/portal.html:57
 - まだ検索できません(4)— src/app/ui/studio/rank.js:275
-- やめる(4)— src/app/ui/check/cards/section.js:42
+- やめる(4)— src/app/ui/check/cards/section.js:56
 - 事務所の登録を開く(4)— src/app/ui/studio/rank.js:159
 - 取り消す(4)— src/app/ui/editor/app-tpl.js:44
 - 外す(4)— src/app/ui/studio/rank.js:81
@@ -239,7 +239,7 @@
 - 欠け(2)— src/app/ui/studio/review.js:187
 - 正解字(2)— src/app/ui/home/portal-edit.js:44
 - 残す(2)— src/app/ui/editor/cut.js:719
-- 消す(2)— src/app/ui/check/cards/section.js:35
+- 消す(2)— src/app/ui/check/cards/section.js:49
 - 確かめると効く物(2)— src/app/ui/cases/cases.js:292
 - 確認中…(2)— src/app/ui/home/portal.html:122
 - 絞り込みを消す(2)— src/app/ui/home/portal.js:811

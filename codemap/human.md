@@ -19,18 +19,18 @@
   - 名前: `class Context` :46・`register` :69・`flush` :207・`answer` :214・`undo` :255・`unknown` :281・`skip` :295
 - **cutcard.py** (54 行) — 「確かめる」の自動カットのカードの答えの記録(CUT-CARD。決定: plan/opt-eval.md の Q4 自動カットのカード)。
   - 名前: `enabled` :27
-- **read.py** (145 行) — 「確かめる」の読みのカード(どちらの読みが正しいか)の反映(notes:docs/design/v1-check-build.md の 2-2・3-2。import で apply に登録する)。
-  - 名前: `_check` :25・`_tid` :39・`_unflag` :43・`_row_state` :47・`_feedback` :52・`_cand_of` :64・`_apply` :71・`_same` :115・`_revert` :120
-- **section.py** (261 行) — 「確かめる」の評価のレーンの区間カードの反映(C-EVAL (2)。決定 3-47「確かめると評価をまとめる」・3-49 Q2。設計の相談は Fable)。
-  - 名前: `enabled` :245
+- **read.py** (160 行) — 「確かめる」の読みのカード(どちらの読みが正しいか)の反映(notes:docs/design/v1-check-build.md の 2-2・3-2。import で apply に登録する)。
+  - 名前: `_check` :27・`_tid` :41・`_unflag` :45・`_row_state` :49・`_feedback` :55・`_cand_of` :67・`_apply` :74・`_same` :130・`_revert` :135
+- **section.py** (313 行) — 「確かめる」の評価のレーンの区間カードの反映(C-EVAL (2)。決定 3-47「確かめると評価をまとめる」・3-49 Q2。設計の相談は Fable)。
+  - 名前: `enabled` :297
 - **speech.py** (60 行) — 「確かめる」の「この行は声ですか?」の反映(notes:docs/design/v1-check-build.md・C-EVAL (3))。
   - 名前: `_state` :15・`_apply_speech` :21・`_revert_speech` :37
 - **timerow.py** (83 行) — 「確かめる」の時刻のカード「行の時刻が合っているか」の反映(notes:docs/design/v1-check-build.md の 3-2・5 節・決定 3-41)。
   - 名前: `_move` :19・`_check` :27・`_times` :39・`_apply_time` :43・`_revert_time` :65
 - **value.py** (167 行) — 「確かめる」の価値のカード(切り抜く価値があるか = 70 点以上か)の反映(notes:docs/design/v1-check-build.md・決定 3-41)。
   - 名前: `_code` :32・`_msg` :36・`_need` :40・`_auto_check` :50・`_auto_apply` :64・`_auto_revert` :75・`_studio` :87・`_set_status` :94・`_cand_apply` :123・`_cancel_export` :138・`_cand_revert` :153
-- **voice.py** (428 行) — 「確かめる」の誰の声のカード(voice:diar)の答えの形・選択肢・反映・声の覚え直し(notes:docs/design/v1-check-build.md の 3-2・5 節、
-  - 名前: `diar_enabled` :52・`doc_embedding` :74・`registry` :79・`options_for` :94・`guess_for` :115・`buttons` :131・`people_for` :140
+- **voice.py** (441 行) — 「確かめる」の誰の声のカード(voice:diar)の答えの形・選択肢・反映・声の覚え直し(notes:docs/design/v1-check-build.md の 3-2・5 節、
+  - 名前: `diar_enabled` :53・`doc_embedding` :75・`registry` :80・`options_for` :95・`guess_for` :116・`buttons` :132・`people_for` :141
 
 ## src/human/cut/
 

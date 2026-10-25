@@ -837,14 +837,14 @@ class WorkerRestTest(unittest.TestCase):
             self.assertGreaterEqual(final[p["id"]] - p["peak"], 80, (p["id"], final[p["id"]], p["peak"]))
 
     def test_two_at_a_time_then_next(self):
-        """録画中が 3 本: 古い 2 本だけ測り、3 本目は順番待ち(peaks.json の queued・message と worker.json)。1 本目が終わったら次へ。
-        順番待ちのうちに配信が終わった録画も、あとで音だけ測って締める"""
+        """同時に測る数が 2 のとき録画中が 3 本: 古い 2 本だけ測り、3 本目は順番待ち(peaks.json の queued・message と worker.json)。1 本目が終わったら次へ。
+        順番待ちのうちに配信が終わった録画も、あとで音だけ測って締める(順番待ちの仕組みを見るので、上限 W.MAX_ACTIVE ではなく 2 で回す)"""
         clock = Clock(T0)
         a = SimRecorder(clock, end=1800)
         b = SimRecorder(clock, first=T0 + 60, rec=REC_B, url="https://www.youtube.com/watch?v=bbbbbbbbbbb")
         c = SimRecorder(clock, first=T0 + 120, end=1380, rec=REC_C, url="https://www.youtube.com/watch?v=ccccccccccc")
         sim = MultiSim([a, b, c])
-        w = make_worker(write_config(self.dir), clock, sim, heart_sec=0.0)
+        w = make_worker(write_config(self.dir), clock, sim, heart_sec=0.0, max_active=2)
         most = 0
         while clock.t < T0 + 1200:
             clock.t += 30

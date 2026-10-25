@@ -3,7 +3,7 @@
 
     py -3.12 -u src/pipeline/analyze/live_excite_worker.py --config <入口の作業データ>/live/excite/config.json [--parent <入口の pid>]
 
-録画中の全部の録画を 1 つのワーカーで受け持つ(0-10-4)。**同時に測るのは MAX_ACTIVE(2)本まで**: 3 本目からは「順番待ち」(peaks.json の message・
+録画中の全部の録画を 1 つのワーカーで受け持つ(0-10-4)。**同時に測るのは MAX_ACTIVE(4)本まで**: 5 本目からは「順番待ち」(peaks.json の message・
 queued と worker.json の queued)で、受け持っている録画の検出が終わったら古い順に始める(そのときのライブ端 − SKIP_KEEP から。録画の途中から受け持った
 録画は、それより前を「飛ばした区間」にしない = 測り直さない。順番待ちのうちに配信が終わった録画は音だけで頭から測る)。
 入口とは**ファイルだけ**で話す(stdin/stdout の常駐の約束は作らない。仮決め (bk)):
@@ -113,7 +113,7 @@ STOP_NAME = "stop.request"   # 入口が止めてほしいときに置くファ�
 STOP_POLL = 0.5              # 周期の待ちの間にも、この間隔で止める合図を見る
 STATE_MAX = 64 * 1024 * 1024
 SPEC_DEFAULT = {"length": 45.0, "preRatio": excite.PRE_RATIO_DEFAULT, "lag": 8.0, "lagAuto": True, "wAudio": 1.0, "wChat": 1.0, "headSec": 180.0}
-MAX_ACTIVE = 2             # 同時に測る録画の数(0-10-4)。3 本目からは「順番待ち」(前の録画の検出が終わったら、古い順に始める)
+MAX_ACTIVE = 4             # 同時に測る録画の数(録画の上限 human/friend/live_requests.MAX_ACTIVE と同じ)。5 本目からは「順番待ち」(前の録画の検出が終わったら、古い順に始める)
 QUEUED_EVERY = 60.0        # 順番待ちの録画の peaks.json を書き直す間隔(文が変わったときはすぐ)
 # M10: 自動の候補の長さの目安。入口が ② flow/lengthhint でその場で数え(友人が依頼で指定した区間の長さ。OPT-E2 7f-1)、config.json の lengthHint に入れる。
 # ワーカーは読むだけ(clean_hint)。足りない(enough でない)ときはスタジオの解析の設定のまま

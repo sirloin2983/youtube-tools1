@@ -659,10 +659,12 @@ class AutoDeliverTest(unittest.TestCase):
         self.assertEqual(self.live._request_for("local", "r1", "auto", "auto", ""), (None, "auto", ""))   # 届ける先が無い
         self.assertIsNone(self.live.deliver_dir())
 
-    def test_request_limit_is_two(self):
-        """入口の Live は友人の依頼の同時録画の上限を live_requests.MAX_ACTIVE(2 本)にする。上限での 409 は tests/flow/test_live_request.py"""
-        self.assertEqual(LR.MAX_ACTIVE, 2)
+    def test_request_limit_is_four(self):
+        """入口の Live は友人の依頼の同時録画の上限を live_requests.MAX_ACTIVE(4 本)にする。上限での 409 は tests/flow/test_live_request.py"""
+        self.assertEqual(LR.MAX_ACTIVE, 4)
         self.assertEqual(self.live._request_limit(), LR.MAX_ACTIVE)
+        from pipeline.analyze import live_excite_worker as LW
+        self.assertGreaterEqual(LW.MAX_ACTIVE, LR.MAX_ACTIVE, "録画の上限まで検出も同時に回す(足りないと配信中に候補が出ない順番待ちになる)")
 
     def test_friend_request_wins(self):
         """友人のライブ配信の依頼に結びついた録画は、その依頼の形(届け先は依頼の 出力)が先"""

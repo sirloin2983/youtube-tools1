@@ -28,9 +28,9 @@
 - **__init__.py** (2 行) — 入口の「確かめる」(⑤ の待ち行列 deck・lineup・sources・read_sources を入口から組む。goals は eval/check。notes:docs/design/v1-check-build.md)
 - **cut_sources.py** (165 行) — 「確かめる」の自動カットのカードの出どころ(CUT-CARD。決定: plan/opt-eval.md の Q4 自動カットのカード)。
   - 名前: `cut_edge` :150・`cut_gap` :154・`cut_whole` :158
-- **deck.py** (152 行) — 「確かめる」の待ち行列を組み立てる(V1 の V0。GET /api/check/next の中身と、答える前にカードをサーバーの側で引き直す find)。
-  - 名前: `invalidate` :30・`check_args` :64・`next_cards` :85・`find` :128
-- **eval_sources.py** (117 行) — 「確かめる」の評価のレーンの区間カードの出どころ section:eval(C-EVAL (2)。決定 3-47・3-49 Q2。反映は ③ src/human/check/section.py)。
+- **deck.py** (179 行) — 「確かめる」の待ち行列を組み立てる(V1 の V0。GET /api/check/next の中身と、答える前にカードをサーバーの側で引き直す find)。
+  - 名前: `invalidate` :35・`mark_stale` :41・`check_args` :91・`next_cards` :112・`find` :155
+- **eval_sources.py** (118 行) — 「確かめる」の評価のレーンの区間カードの出どころ section:eval(C-EVAL (2)。決定 3-47・3-49 Q2。反映は ③ src/human/check/section.py)。
   - 名前: `cut_after` :41・`section_eval` :62
 - **evalredo.py** (49 行) — 評価用にした文書を、評価用の決まり(用語集・置換辞書・学習を使わない)で 1 本ずつ作り直す(10-25 ユーザー「学習用の一部を評価用に・Fable と相談してバランスよく」)。
   - 名前: `waiting` :16・`redone` :22・`tick` :27
@@ -42,20 +42,20 @@
   - 名前: `night_of` :32・`targets` :40・`read_state` :55・`tick` :62
 - **shortjobs.py** (58 行) — ショート(学習用データ)の文書から、読みのカードと「この行は声ですか」のカードを作るための下ごしらえ(10-25 ユーザー「読みのカードと この行は声ですか のカードを ショートから作る」)。
   - 名前: `tick` :27
-- **sources.py** (439 行) — 「確かめる」のカードの出どころ(V1 の V0。notes:docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
-  - 名前: `register` :49・`registered` :63・`has_media` :82・`class View` :92・`value_auto` :276・`value_cand` :302・`short_full` :334・`read_fill` :339・`voice_diar` :359・`time_row` :397・`collect` :422
+- **sources.py** (486 行) — 「確かめる」のカードの出どころ(V1 の V0。notes:docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
+  - 名前: `register` :49・`registered` :63・`has_media` :82・`class View` :92・`value_auto` :288・`value_cand` :314・`hard_row` :347・`short_full` :357・`read_fill` :362・`voice_diar` :382・`read_decided` :422・`time_row` :442・ほか 1
 - **speech_sources.py** (69 行) — 「確かめる」の普段のレーンの「この行は声ですか?」カードの出どころ speech:diar(C-EVAL (3))。
   - 名前: `speech_diar` :41
-- **voice_solo.py** (233 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
-  - 名前: `stream_counts` :183・`people` :196・`clip_targets` :208・`voice_solo` :217
+- **voice_solo.py** (246 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
+  - 名前: `stream_counts` :196・`people` :209・`clip_targets` :221・`voice_solo` :230
 - **voicefetch.py** (395 行) — 誰の声の材料の配信の音を YouTube から少しだけ取る(10-25。ユーザー「全メンバー揃えてほしい」「ショートだけでは足りない。配信からの材料も要る」。
   - 名前: `extra_channels` :57・`members` :64・`slot_free` :76・`parse_rss` :99・`choose` :113・`wants` :226・`tick` :235・`intake` :339
 - **voicefill.py** (107 行) — 誰の声の材料を全メンバーぶんそろえる(10-25。ユーザー「誰の声を全部やったが本当に数人しかいなかった。全メンバー揃えてほしい」)。
   - 名前: `learn_dirs` :25・`eval_like` :38・`in_learn_dir` :44・`targets` :49・`pick` :74・`tick` :86
 - **ytnotify.py** (85 行) — YouTube の取得の列(ytqueue)が研究の頼みの結果を done/ に書いたら、研究のセッションを起こす知らせ(10-25 ユーザー OK)。
   - 名前: `to_name` :28・`collect` :48・`message` :60・`tick` :72
-- **ytqueue.py** (901 行) — YouTube の取得の列(10-25。ユーザー「取り方 1 と 2 を統一しよう」「取得する配信を選ぶ段階で効率化できるはず」)。
-  - 名前: `qdir` :69・`requests` :85・`candidates` :121・`score` :127・`fill_candidates` :156・`audio_gap` :198・`light_n` :204・`rollover` :210・`classify` :226・`hit` :238・`fine` :257・`due` :277・ほか 11
+- **ytqueue.py** (977 行) — YouTube の取得の列(10-25。ユーザー「取り方 1 と 2 を統一しよう」「取得する配信を選ぶ段階で効率化できるはず」)。
+  - 名前: `qdir` :73・`requests` :89・`candidates` :125・`score` :131・`fill_candidates` :160・`audio_gap` :202・`light_n` :208・`rollover` :214・`classify` :230・`hit` :242・`fine` :261・`due` :281・ほか 14
 
 ## src/app/ui/
 
@@ -83,13 +83,13 @@
 
 ## src/app/ui/check/cards/
 
-- **cut.js** (69 行) — 確かめるの自動カットのカード(/check-cards/cut.js。CUT-CARD。口は check.js の先頭・出どころは src/app/check/cut_sources.py・反映は src/human/check/cutcard.py)。
-- **read.js** (98 行) — 確かめるのカード「どちらの読みが正しいか」(/check-cards/read.js。V2b)。比べる欄は ui-kit の .ui-pair(3 択と共用)・口は check.js の先頭。
-- **section.js** (134 行) — 確かめるのカード「区間を聞いて直す(評価用)」(/check-cards/section.js。C-EVAL (2)。口は check.js の先頭・出どころは src/app/check/eval_sources.py・
-- **speech.js** (20 行) — 確かめるのカード「この行は声ですか?」(/check-cards/speech.js。C-EVAL (3)。口は check.js の先頭・反映は src/human/check/speech.py)。
-- **time.js** (107 行) — 確かめるのカード「行の時刻が合っているか」(/check-cards/time.js。RS8 V1 の V2d。作り方 notes:docs/design/v1-check-build.md の 3-2・5 節・決定 3-41)。
-- **value.js** (63 行) — 確かめるのカード「価値」(/check-cards/value.js)。口は check.js の先頭。
-- **voice.js** (157 行) — 確かめるのカード「これは誰の声?」(/check-cards/voice.js。V2c。口は check.js の先頭・反映は src/human/check/voice.py)。
+- **cut.js** (71 行) — 確かめるの自動カットのカード(/check-cards/cut.js。CUT-CARD。口は check.js の先頭・出どころは src/app/check/cut_sources.py・反映は src/human/check/cutcard.py)。
+- **read.js** (104 行) — 確かめるのカード「どちらの読みが正しいか」(/check-cards/read.js。V2b)。比べる欄は ui-kit の .ui-pair(3 択と共用)・口は check.js の先頭。
+- **section.js** (156 行) — 確かめるのカード「区間を聞いて直す(評価用)」(/check-cards/section.js。C-EVAL (2)。口は check.js の先頭・出どころは src/app/check/eval_sources.py・
+- **speech.js** (22 行) — 確かめるのカード「この行は声ですか?」(/check-cards/speech.js。C-EVAL (3)。口は check.js の先頭・反映は src/human/check/speech.py)。
+- **time.js** (108 行) — 確かめるのカード「行の時刻が合っているか」(/check-cards/time.js。RS8 V1 の V2d。作り方 notes:docs/design/v1-check-build.md の 3-2・5 節・決定 3-41)。
+- **value.js** (65 行) — 確かめるのカード「価値」(/check-cards/value.js)。口は check.js の先頭。
+- **voice.js** (166 行) — 確かめるのカード「これは誰の声?」(/check-cards/voice.js。V2c。口は check.js の先頭・反映は src/human/check/voice.py)。
 
 ## src/app/ui/editor/
 
@@ -166,6 +166,7 @@
 - tests/app/test_ytlogin.py — ユーザーの PC の YouTube のログイン(src/app/ytlogin.py)。本物の YouTube・本物の cookie・本物の窓は使わない(偽の cookie と偽の起動)。リポジトリ直下で:
 - tests/app/check/_checkkit.py — tests/app/check の共通の下ごしらえ。test_ で始めない(流す対象ではない)。
 - tests/app/check/test_cut_sources.py — 「確かめる」の自動カットのカードの出どころ(src/app/check/cut_sources.py)の単体テスト: スイッチが切れていれば空・評価用の文書は出ない・
+- tests/app/check/test_deck_stale.py — 確かめるの集め(deck._collect)の「覚えを先に返して裏で集め直す」(10-25 答えたあとの読み込みの待ちを無くす)
 - tests/app/check/test_eval_sources.py — 評価のレーンの区間カードの出どころ(src/app/check/eval_sources.py。C-EVAL)の単体テスト: 区切り方・行の持ち主・スイッチ・
 - tests/app/check/test_evalredo.py — 評価用にした文書を評価用の決まりで作り直す(src/app/check/evalredo.py。10-25)。評価用のフォルダへ取り込まれた物だけ・1 本ずつ・頼んだ物は外す。
 - tests/app/check/test_lineup.py — 「確かめる」の待ち行列の順と数え方(src/app/check/lineup.py・goals.py)の単体テスト。純粋な関数だけ。
