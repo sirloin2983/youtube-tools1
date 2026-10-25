@@ -17,9 +17,9 @@
   - 名前: `pack_name` :79・`pack_title` :85・`unique_dest` :89・`case_of` :97・`class Inbox` :108
 - **live.py** (45 行) — 友人の玄関のライブの依頼の欄と結びつき(notes:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-15)。軽い部品だけ(画面を先に出すため)。
   - 名前: `check_settings` :20・`settings_label` :42
-- **live_session.py** (355 行) — 友人の玄関のライブ係(notes:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-15)。
-  - 名前: `recorders` :37・`class FriendLive` :46
-  - 受ける口: `/api/queue/add` :91・`/api/queue` :94
+- **live_session.py** (360 行) — 友人の玄関のライブ係(notes:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-15)。
+  - 名前: `recorders` :38・`class FriendLive` :47
+  - 受ける口: `/api/queue/add` :93・`/api/queue` :96
 - **oplog.py** (137 行) — 友人のアプリの操作の記録(形の正は notes:plan/友人の不具合の自動対応-1025.md の「操作の記録」)。
   - 名前: `day_name` :32・`clean_ui` :47・`class OpLog` :91
 - **places.py** (251 行) — 友人の玄関の置き場所(notes:docs/design/friend-history.md の 7 章)。
