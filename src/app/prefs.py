@@ -18,6 +18,7 @@
              after は画面・API が書き出したあとを指定しないとき(自動の採用など)の既定。cut・engine・model は書き出しを頼んだときに覚えてまとめて実行へ渡す・
              配信が終わったらアーカイブの解析で自動で切り抜いてパックまで作る autoAfterStream(**既定オフ**。線 D の M7。src/flow/live_archive.py)と
              その数 afterStreamPerHour(1 時間あたり。1〜30。既定 6)・
+             録画中でも入口を新しい版に起き直す restartWhileRecording(**既定オフ**。録画の部品・検出のワーカーは残して引き継ぐ。src/flow/livesession.py の handover_ok)・
              配信中の盛り上がりの検出 detect {enabled(**既定オン**。ユーザー決定), sens: high|normal|low(既定 normal), perHour: 1〜30(1 時間の候補の枠。既定 6), fill(**既定オン**。配信の終わりに候補が perHour × 時間に届かなければしきい値の下の山で埋める。印 fill)}
              (線 D の L2。src/flow/live_detect.py・live_excite_worker.py)と、その候補の自動の採用 autoAdopt {waitMin: 1〜60(入口が候補を最初に見てから待つ分。既定 5)}(自動の採用はいつもオン。オフのスイッチ enabled は 10-19 に消した = 保存してある enabled は読み捨て)
              (M11)。どちらも節の中の鍵ごとに直す(送らなかった鍵は今のまま)
@@ -66,6 +67,7 @@ DEFAULTS = {"autorun": {"top": 3, "cut": "none", "friendLength": True,   # 既�
             "hidden": {k: {} for k in HIDE_LISTS},
             "live": {"enabled": False, "folder": "", "recorders": [], "quality": "1080p",
                      "auto": {"after": "auto", "cut": "", "engine": "", "model": "", "pad": _ADOPT["pad"]}, "autoAfterStream": False, "afterStreamPerHour": _ADOPT["perHour"],
+                     "restartWhileRecording": False,   # 録画中でも入口を起き直す(既定オフ。数日様子を見てから既定オンにする)
                      "detect": {"enabled": True, "sens": "normal", "perHour": _ADOPT["perHour"], "fill": True}, "autoAdopt": {"waitMin": _ADOPT["waitMin"]},
                      "liveTx": {"enabled": True, "model": "large-v3"}},   # 配信中の候補の文字起こし(D-11 案 b。whisper.cpp の GPU。既定オン = 部品が無ければ何もしない)
             # live.autoDeliver(自動の切り抜きを友人へ届けるか)は 10-19 に消した: 受付のフォルダが決まっていればいつも届ける。保存済みの値・古い画面が送る値は読み捨て
@@ -171,6 +173,7 @@ def _clean_live(v, cur):
     out = {"enabled": cur.get("enabled") is True, "folder": cur.get("folder") or "", "recorders": [dict(r) for r in cur.get("recorders") or []],
            "quality": cur.get("quality") if cur.get("quality") in LIVE_QUALITIES else DEFAULTS["live"]["quality"],
            "autoAfterStream": cur.get("autoAfterStream") is True,   # 自動で採用するのは明示的に true のときだけ(既定オフ)
+           "restartWhileRecording": cur.get("restartWhileRecording") is True,   # 録画中の起き直し(明示的に true のときだけ。既定オフ)
            "afterStreamPerHour": cur.get("afterStreamPerHour") if _int_in(cur.get("afterStreamPerHour"), *LIVE_PER_HOUR) else DEFAULTS["live"]["afterStreamPerHour"]}
     for k, (fn, label) in LIVE_PARTS.items():   # 小さな節は鍵ごとに直す(送らなかった鍵は今のまま。保存してある値の壊れた鍵は既定に戻す)
         out[k] = fn(cur.get(k) if isinstance(cur.get(k), dict) else {}, DEFAULTS["live"][k], strict=False)
@@ -187,6 +190,7 @@ def _clean_live(v, cur):
             raise PrefsError("録画の画質は %s のどれかにしてください" % "・".join(LIVE_QUALITIES))
         out["quality"] = v["quality"]
     _put_bool(out, v, "autoAfterStream", "「配信後に自動で切り抜く」")   # 配信が終わったらアーカイブの解析で自動で切り抜く(M7)
+    _put_bool(out, v, "restartWhileRecording", "「録画中でも起き直す」")   # 録画の部品・検出のワーカーを残して入口だけ起き直す(livesession.handover_ok)
     if "afterStreamPerHour" in v:
         if not _int_in(v["afterStreamPerHour"], *LIVE_PER_HOUR):
             raise PrefsError("1 時間あたりの数は %d〜%d の整数で指定してください" % LIVE_PER_HOUR)

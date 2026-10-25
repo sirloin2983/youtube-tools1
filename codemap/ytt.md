@@ -47,8 +47,8 @@
   - 名前: `class NormalizeError` :61・`class Cancelled` :65・`fps_filter` :69・`use_prev` :75・`enc_set` :80・`video_args` :85・`encode_args` :92・`gpu_encoder` :124・`encode_tries` :137・`video_ok` :144・`legacy_args` :153・`is_fps_mode_error` :162・ほか 11
 - **pick.py** (97 行) — PC の標準の「ファイルを選ぶ」「フォルダを選ぶ」の窓(画面の「参照…」)。
   - 名前: `class PickError` :40・`class PickBusy` :44・`initial_dir` :48・`pick` :71
-- **procs.py** (200 行) — 外部コマンドの子プロセスの管理(標準ライブラリだけ)。
-  - 名前: `spawn` :28・`forget` :42・`children` :48・`stop_children` :56・`run_short` :85・`hard_kill` :109・`terminate` :115・`pid_alive` :140・`idle_message` :170・`run_capture` :175
+- **procs.py** (218 行) — 外部コマンドの子プロセスの管理(標準ライブラリだけ)。
+  - 名前: `spawn` :28・`forget` :42・`children` :48・`stop_children` :56・`run_short` :85・`hard_kill` :109・`terminate` :115・`pid_alive` :140・`in_job` :170・`idle_message` :188・`run_capture` :193
 - **recproto.py** (62 行) — 録画元との約束(線 D。見直し T8): 録画元・録画・セグメントの id の形、時刻の書き方(UTC の "…Z")、YouTube の動画の id の読み方。
   - 名前: `utc_text` :20・`epoch_iso` :25・`now_iso` :30・`iso_epoch` :34・`video_id_of` :47
 - **runtime.py** (209 行) — 実行中のポートの共有(notes:docs/spec/pipeline.md の 4)。スタジオの handoff.py・文字起こしの pipeline_io.py・入口の server.py にあった同じ処理を1つにしたもの。

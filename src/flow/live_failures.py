@@ -15,6 +15,7 @@
   afterStream 配信後の全自動(M7。src/flow/live_archive.py の afterStream)が止まった(アーカイブの解析・時刻合わせ・採用。録画ごと。after_stream_failure)
   detect     配信中の盛り上がりの検出(線 D の L2・M11。src/flow/live_detect.py)のワーカーの不具合・起動し直しが多い・自動の採用を諦めた(detect_failure)
   keep       終わって 3 日たっても消せない録画(D-14。src/manage/keep/live_cleanup.py の kept_failures。keep_failure)
+  handover   録画中の入口の起き直しで、録画・録画の部品・検出のワーカーが引き継げなかった(src/flow/livesession.py の check_handover。handover_failure)
 人が中止した(cancelled)・取り消した書き出しは数えない(失敗ではない)。読むだけ(どのファイルも書き換えない)。
 """
 import os
@@ -23,7 +24,7 @@ import threading
 from . import runlog
 
 KIND_LABELS = {"export": "書き出し", "handoff": "まとめて実行へ渡す", "transcribe": "文字起こし", "pack": "パック", "afterStream": "配信後の自動",
-               "detect": "盛り上がりの検出", "keep": "録画の片付け"}
+               "detect": "盛り上がりの検出", "keep": "録画の片付け", "handover": "起き直しの引き継ぎ"}
 PACK_STEPS = ("pack", "deliver")             # パックの側の段(ほかの段 = 文字起こし・話者分離は文字起こしの側)
 WINDOW_SEC = 7 * 24 * 3600                   # 「調子」に出す期間(7 日)
 MAX_LIST = 20                                # 「調子」に出す数(新しい順)
@@ -111,6 +112,13 @@ def keep_failure(recording, days, why, title="", at=""):
     text = ("%s: 終わって %d 日たちましたが、%sので録画は自動では消えません(理由が解けない録画は置き場所に残り続けます。"
             "要らなければ「すべて終了」のあと、録画の置き場所の %s のフォルダを手で消してください)") % (name, int(days), _reason(why) or "理由が分かりません", recording or "?")
     return {"kind": "keep", "kindLabel": KIND_LABELS["keep"], "text": text, "jobId": "", "recorder": "", "recording": recording or "",
+            "markId": "", "runId": "", "at": at}
+
+
+def handover_failure(reason, at=""):
+    """録画中の入口の起き直しで引き継げなかった物 -> collect と同じ形の 1 件"""
+    text = "ホームを起き直したときに引き継げませんでした: %s(記録 logs\\launcher.log を見てください)" % (_reason(reason) or "理由が分かりません")
+    return {"kind": "handover", "kindLabel": KIND_LABELS["handover"], "text": text, "jobId": "", "recorder": "", "recording": "",
             "markId": "", "runId": "", "at": at}
 
 

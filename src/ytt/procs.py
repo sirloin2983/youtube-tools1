@@ -167,6 +167,24 @@ def pid_alive(pid):
         return True
 
 
+def in_job():
+    """このプロセスが Windows のジョブの中か(ジョブを閉じた側に道連れで止められうるか)。Windows 以外・調べられないときは False"""
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.GetCurrentProcess.restype = wintypes.HANDLE
+        k32.IsProcessInJob.argtypes = (wintypes.HANDLE, wintypes.HANDLE, ctypes.POINTER(wintypes.BOOL))
+        res = wintypes.BOOL(False)
+        if not k32.IsProcessInJob(k32.GetCurrentProcess(), None, ctypes.byref(res)):
+            return False
+        return bool(res.value)
+    except (OSError, AttributeError, ValueError):
+        return False
+
+
 def idle_message(what, sec):
     """出力が止まって中止したときの文(sec が 60 以上なら分で)"""
     return "%sが%s、出力がなかったため中止しました" % (what, ("%d分間" % max(1, round(sec / 60))) if sec >= 60 else ("%d秒間" % max(1, round(sec))))

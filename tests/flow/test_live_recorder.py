@@ -150,6 +150,7 @@ class StopRecorderTest(unittest.TestCase):
         lv = self.live()
         lv.proc = self.sleeper()
         self.fake.routes[("POST", "/live/quit")] = lambda b: (200, {"ok": True})
+        self.fake.routes[("GET", "/live/list")] = lambda b: (200, {"recordings": [], "active": 0})   # 録画中なら止めない(tests/flow/test_live_handover.py)
         with mock.patch.object(LS, "QUIT_WAIT", 0.6):
             self.assertEqual(lv.stop_recorder(), "killed")
         self.assertIsNotNone(lv.proc.poll())

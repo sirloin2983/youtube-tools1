@@ -9,7 +9,7 @@
 /live/r/<録画元>/… を中継する(同じオリジン・CSP・合言葉の決まりのまま、CORS が要らない)。
 
 API(/api/ping 以外は合言葉 `Authorization: Bearer <token>` が要る。token は <作業データ>/recorder/token.txt):
-  GET  /api/ping                          {"app": "ytt-recorder", "version"}(合言葉なし。生きているかの確認)
+  GET  /api/ping                          {"app": "ytt-recorder", "version", "api", "pid"}(合言葉なし。生きているかの確認)
   GET  /live/list                         置き場所・空き容量・streamlink の有無・録画の一覧
   POST /live/start  {url, quality?, title?}  録画を始める(配信の前でも、始まるまで待つ)。quality: best|1080p|720p(省略は 1080p)
   POST /live/<id>/stop  {}                 手で止める
@@ -26,7 +26,8 @@ API(/api/ping 以外は合言葉 `Authorization: Bearer <token>` が要る。tok
   GET  /live/config ・ POST /live/config {folder}  録画の置き場所(録画中は変えられない)
   POST /live/quit  {}                      録画中でなければ終わる(録画中なら 409)
 
-作業データ(%LOCALAPPDATA%\\youtube-tools\\recorder\\。YTT_DATA_DIR=inplace なら recorder\\data\\): token.txt・settings.json(置き場所)・logs\\recorder.log。
+作業データ(%LOCALAPPDATA%\\youtube-tools\\recorder\\。YTT_DATA_DIR=inplace なら recorder\\data\\): token.txt・settings.json(置き場所)・logs\\recorder.log・
+recorder.lock(1 つの作業データに 1 つの部品。持てなければ終了 2)・running.json(動いている間だけ。入口が 2 つ目を起こさない・起き直しの引き継ぎの印)。
 録画そのものは置き場所(既定 E:\\Video\\live-rec\\)。ドライブが無ければ作業データの中へ逃がさず、画面で案内する。
 """
 import argparse
@@ -47,10 +48,15 @@ ROOT = os.path.dirname(os.path.dirname(HERE))   # src/(パスで起動する別�
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 from ytt import datadir, fsio, httpsec, layout, runtime, version as _version  # noqa: E402
+# tools が関数の中で読む ytledger・procs を起動時に読んでおく(録画中にコードが新しい版に替わっても、このプロセスに新旧が混ざらない)
+from ytt import procs, ytledger  # noqa: E402,F401
 from pipeline.ingest import rec_core  # noqa: E402
 
 APP_ID = "ytt-recorder"
 VERSION = _version.VERSION   # 全体の版(ytt/version.py の 1 か所。入口の「調子」が動いている版と比べる)
+API = 1                      # 口の約束の版(/api/ping。入口は無い = 古い部品には新しい口を呼ばない・入口の起き直しの引き継ぎをしない)
+LOCK_NAME = "recorder.lock"     # 作業データに 1 つの部品(取れなければ終了 2)
+RUNNING_NAME = "running.json"   # 動いている部品 {pid, port, version, api, startedAt, inJob}(入口は ping だけで 2 つ目を起こすか決めない)
 DEFAULT_PORT = 8730       # 入口 8700〜・文字起こし 8775〜・スタジオ 8800〜・cut2resolve 8810〜 と重ならない。録画元の一覧の URL に書くので、使用中でも次の番号へずらさない
 TOKEN_HEADER = "Authorization"
 BODY_MAX = 16 * 1024
@@ -196,7 +202,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         rec = self.server.rec
         if u.path == "/api/ping":
-            return self._json(200, {"app": APP_ID, "version": VERSION})
+            return self._json(200, {"app": APP_ID, "version": VERSION, "api": API, "pid": os.getpid()})
         if u.path == "/live/list":
             return self._json(200, dict(rec.overview(), version=VERSION))
         if u.path == "/live/config":
@@ -329,11 +335,36 @@ def _policy(module, name):
     return getattr(importlib.import_module(module), name)
 
 
+def write_running(ddir, port):
+    """running.json を書く(入口が読む。生きている pid の物だけ信じる)"""
+    doc = {"pid": os.getpid(), "port": port, "version": VERSION, "api": API, "startedAt": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "inJob": procs.in_job()}
+    fsio.atomic_write(os.path.join(ddir, RUNNING_NAME), json.dumps(doc, ensure_ascii=False).encode("utf-8"))
+
+
+def clear_running(ddir):
+    """自分の running.json だけ消す(ほかの pid の物は触らない)"""
+    p = os.path.join(ddir, RUNNING_NAME)
+    d = fsio.read_json_or(p, {}, max_bytes=16 * 1024, kind=dict)
+    if d.get("pid") == os.getpid():
+        fsio.unlink_quiet(p)
+
+
 def main(argv=None):
     runtime.safe_stdio()
     a = parse_args(sys.argv[1:] if argv is None else argv)
     ddir = data_dir(a.data_dir)
     os.makedirs(ddir, exist_ok=True)
+    lock = fsio.try_lock(os.path.join(ddir, LOCK_NAME))   # 記録の回しより前(動いている部品の記録を回さない)
+    if lock is None:
+        print("録画の部品がもう動いています(%s を持つプロセスがあります)。終わります" % os.path.join(ddir, LOCK_NAME), flush=True)
+        return 2
+    try:
+        return _run(a, ddir)
+    finally:
+        fsio.unlock(lock)
+
+
+def _run(a, ddir):
     log = make_logger(os.path.join(ddir, "logs", "recorder.log"), echo=not a.quiet)
     saved = read_settings(ddir).get("folder")
     default = a.default_folder or _policy("flow.placement", "LIVE_REC_FOLDER")
@@ -359,6 +390,10 @@ def main(argv=None):
         log("ポート %d で待ち受けられません(録画の部品がもう動いているかもしれません): %s" % (a.port, e))
         return 2
     raise_priority()
+    try:
+        write_running(ddir, a.port)
+    except OSError as e:
+        log("※ %s を書けませんでした(入口の起き直しは録画中なら待ちます): %s" % (RUNNING_NAME, e))
     log("録画の部品 v%s: http://%s:%d/(置き場所 %s・取得 %s)" % (VERSION, a.host, a.port, folder, a.source))
     fs = rec_core.folder_state(folder)
     if not fs["ok"]:
@@ -382,6 +417,7 @@ def main(argv=None):
     finally:
         rec.close()   # 録画中の物は状態をそのままに止める(次の起動で続ける)
         srv.server_close()
+        clear_running(ddir)
         log("録画の部品を終了しました")
     return 0
 

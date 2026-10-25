@@ -368,7 +368,8 @@ class WorkerSimTest(unittest.TestCase):
         dead = subprocess.Popen([sys.executable, "-c", "pass"])
         dead.wait()
         w = make_worker(cfg, clock, sim, sleep=lambda s: None, parent=dead.pid)
-        self.assertEqual(w.run(), 0)
+        with mock.patch.object(W, "ORPHAN_SEC", -1):   # 録画を測っていても新しいホームを待たない(待つ形は tests/flow/test_live_handover.py)
+            self.assertEqual(w.run(), 0)
 
 
 class ChatFeedTest(unittest.TestCase):

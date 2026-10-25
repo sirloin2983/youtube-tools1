@@ -109,6 +109,8 @@ AUDIO_ONLY_AFTER = 300
 TAIL_IDLE = 10.0                 # 止めた yt-dlp のファイルの改行の無い末尾が、これだけ増えなければ読み終えたことにする
 FFMPEG_TIMEOUT = 120.0
 EXIT_MEM, EXIT_LOCKED = 3, 4
+PARENT_NAME = "parent.json"   # 起き直した新しい入口が書く {pid}(親が消えたら読み、生きていれば親を替えて続ける)
+ORPHAN_SEC = 600.0            # 親が消えても録画を測っている間はこの秒まで続ける(新しい入口が引き継ぐのを待つ)
 STOP_NAME = "stop.request"   # 入口が止めてほしいときに置くファイル(作業データの dir の中)。窓なしで起こした子には CTRL_BREAK が届かないので、合図はこれ
 STOP_POLL = 0.5              # 周期の待ちの間にも、この間隔で止める合図を見る
 STATE_MAX = 64 * 1024 * 1024
@@ -1171,6 +1173,7 @@ class Worker:
         self.save_sec, self.heart_sec, self.poll_sec, self.mem_limit_mb = save_sec, heart_sec, poll_sec, mem_limit_mb
         self.chat_backoff, self.chat_grace, self.chat_max_per_hour = tuple(chat_backoff), chat_grace, chat_max_per_hour
         self.tick_budget, self.parent = tick_budget, parent
+        self.orphan_at = None   # 親が消えて新しい親を待ち始めた時刻(_orphan_ok)
         self.max_active = max(1, int(max_active))
         # 受け持っている録画・チャット
         self.cfg, self.cfg_key, self.cfg_checked = {}, None, -1e18
@@ -1265,7 +1268,7 @@ class Worker:
                     self.log("盛り上がりの検出: メモリが %d MB を超えたので、状態を保存して終わります(ホームが起動し直します)" % self.mem_limit_mb)
                     code = EXIT_MEM
                     break
-                if self.parent and not procs.pid_alive(self.parent):   # 親の pid が分からなければ勝手に終わらない
+                if self.parent and not procs.pid_alive(self.parent) and not self._orphan_ok():   # 親の pid が分からなければ勝手に終わらない
                     self.log("盛り上がりの検出: ホームが終わったので終わります")
                     break
                 wake = self.clock() + max(0.5, self.poll_sec - (self.clock() - t0))
@@ -1279,6 +1282,23 @@ class Worker:
             fsio.unlock(lock)
             fsio.unlink_quiet(stop_file)
         return code
+
+    def _orphan_ok(self):
+        """親が消えたとき: 新しい親(PARENT_NAME の生きている pid)がいれば替えて続ける。いなければ、録画を測っている間だけ ORPHAN_SEC 秒まで続ける。
+        -> 続けるか"""
+        now = self.clock()
+        d = fsio.read_json_or(os.path.join(self.dir, PARENT_NAME), {}, 4096, kind=dict)
+        pid = d.get("pid")
+        if pid != self.parent and procs.pid_alive(pid):
+            self.log("盛り上がりの検出: 新しいホーム(pid %d)に引き継ぎました" % pid)
+            self.parent, self.orphan_at = pid, None
+            return True
+        if not any(not st.finished for st in self.recs.values()):
+            return False
+        if self.orphan_at is None:
+            self.orphan_at = now
+            self.log("盛り上がりの検出: ホームが終わりましたが、録画を測っているので新しいホームを %d 秒まで待ちます" % int(ORPHAN_SEC))
+        return now - self.orphan_at <= ORPHAN_SEC
 
     def close(self):
         """状態を保存して、子(yt-dlp)を止める(生のチャットは残す = 次の起動で続きを読む)"""
@@ -1723,7 +1743,7 @@ class Worker:
             message = "%d 本の録画を見ています" % len(active) if active else "録画中の配信はありません"
             if self.queued:
                 message += "(%d 本は順番待ち。同時に測るのは %d 本まで)" % (len(self.queued), self.max_active)
-        doc = {"v": 1, "version": WORKER_VERSION, "pid": os.getpid(), "at": epoch_iso(now), "started": epoch_iso(self.started),
+        doc = {"v": 1, "version": WORKER_VERSION, "pid": os.getpid(), "parent": self.parent, "at": epoch_iso(now), "started": epoch_iso(self.started),
                "behindSec": round(max([st.behind for st in active] or [0.0]), 1), "memMB": round(self.mem, 1),
                "chatRestarts": sum(f.total_restarts for f in self.feeds.values()),
                "recordings": [{"recorder": st.rc, "id": st.rec, "behindSec": round(max(0.0, st.behind), 1), "chat": st.chat_state} for st in active],
@@ -1742,7 +1762,7 @@ def main(argv=None):
             pass
     ap = argparse.ArgumentParser(prog="live_excite_worker.py", description="配信中の盛り上がりの検出(線 D の L2)")
     ap.add_argument("--config", required=True)
-    ap.add_argument("--parent", type=int, default=0, help="入口の pid(終わったらこのワーカーも終わる)")
+    ap.add_argument("--parent", type=int, default=0, help="入口の pid(終わったらこのワーカーも終わる。録画を測っている間は parent.json の新しい入口を ORPHAN_SEC 秒まで待つ)")
     a = ap.parse_args(sys.argv[1:] if argv is None else argv)
     w = Worker(a.config, parent=a.parent or None)
 

@@ -43,12 +43,12 @@
   - 名前: `adopt_secs` :42・`pad_secs` :63・`top_of` :75・`class StudioMarks` :85・`class LocalMarks` :128・`class Adopter` :220
 - **live_archive.py** (1610 行) — 録画に無い区間をアーカイブ(YouTube)から書き出す(線 D の P4 の残り。notes:plan/line-d-live-clipping.md の 0-9)と、配信後の全自動(M7)の入口の側の中身。
   - 名前: `from_archive` :148・`needs_archive` :153・`class ArchiveError` :159・`class Later` :163・`run_proc` :172・`probe_archive` :204・`readiness` :248・`fetch_full_audio` :266・`worker_python` :296・`run_align` :301・`inside` :315・`ended_at` :321・ほか 5
-- **live_detect.py** (768 行) — 配信中の盛り上がりの検出(線 D の L2)と自動の採用(M11)の入口の側。計画は notes:plan/line-d-detect.md(3 の「候補の API の約束」は線 2 = スタジオの画面との境目。変えない)。
-  - 名前: `clean_spec` :84・`overlay` :98・`merge_spans` :118・`measured_holes` :129・`class Detector` :149
+- **live_detect.py** (851 行) — 配信中の盛り上がりの検出(線 D の L2)と自動の採用(M11)の入口の側。計画は notes:plan/line-d-detect.md(3 の「候補の API の約束」は線 2 = スタジオの画面との境目。変えない)。
+  - 名前: `clean_spec` :84・`overlay` :98・`merge_spans` :119・`measured_holes` :130・`class Detector` :150
 - **live_export.py** (1394 行) — リアルタイム切り抜き(線 D の P2: マークと書き出し。notes:plan/line-d-live-clipping.md の 0・5・6)の入口の側の中身。
   - 名前: `read_after` :92・`class LiveError` :122・`pick_folder` :134・`rec_list` :143・`latest_per_mark` :152・`cleaned_up` :162・`check_after` :173・`check_origin` :185・`clean_auto` :194・`check_streamer` :200・`deliver_pool` :212・`job_after` :223・ほか 7
-- **live_failures.py** (164 行) — リアルタイム切り抜き(線 D)の失敗の集約(M3。notes:plan/line-d-auto-pack.md の 4)。
-  - 名前: `failure_of` :49・`after_stream_failure` :74・`detect_failure` :91・`keep_failure` :107・`class Reader` :117・`collect` :145
+- **live_failures.py** (172 行) — リアルタイム切り抜き(線 D)の失敗の集約(M3。notes:plan/line-d-auto-pack.md の 4)。
+  - 名前: `failure_of` :50・`after_stream_failure` :75・`detect_failure` :92・`keep_failure` :108・`handover_failure` :118・`class Reader` :125・`collect` :153
 - **live_patrol.py** (64 行) — ライブの見回りの糸の骨組み(OPT2。live_export.Exporter・live_archive.Archiver・live_tx.LiveTx が継ぐ)と中止の例外 1 組。
   - 名前: `class Halted` :14・`class Patrol` :18
 - **live_report.py** (244 行) — 配信(録画)ごとの結果の記録(線 D の D-12。ユーザー決定。長い配信の確かめ U4 と、数の決め直し D-15・当たり具合 L5 の材料)。
@@ -63,8 +63,8 @@
   - 名前: `channel_regions` :37・`live_row` :55・`live_list` :150
 - **livehost.py** (87 行) — ライブの親(host)の口(RS7-2 G0)。
   - 名前: `class RequestBook` :25・`class MarkBook` :37・`class LiveHost` :47
-- **livesession.py** (1174 行) — ② 管理の層 flow: ライブ係(RS7-2 G2b。notes:plan/done/f1-friend-pc.md)。
-  - 名前: `validate_url` :81・`probe_live` :118・`rec_view` :148・`recorder_data_dir` :164・`is_local_url` :177・`stream_url` :185・`live_envelope` :191・`cfg_bundle` :201・`now_bundle` :222・`request_bundle` :241・`request_settings` :274・`speakers_of` :281・ほか 4
+- **livesession.py** (1350 行) — ② 管理の層 flow: ライブ係(RS7-2 G2b。notes:plan/done/f1-friend-pc.md)。
+  - 名前: `validate_url` :87・`probe_live` :124・`rec_view` :154・`recorder_data_dir` :170・`is_local_url` :183・`stream_url` :191・`live_envelope` :197・`cfg_bundle` :207・`now_bundle` :228・`request_bundle` :247・`request_settings` :280・`speakers_of` :287・ほか 4
 - **machine.py** (303 行) — ② 管理の層 flow: この PC の設定(機械の都合)を 1 か所に(RS7-1 の S1。決定 3-30 の Q1・notes:plan/done/f1-friend-pc.md の決めたこと 8・9)。
   - 名前: `check` :68・`root` :102・`path` :107・`read_file` :119・`read_env` :136・`llm_for_vram` :163・`auto_llm` :173・`overlay_llm` :179・`explicit` :212・`load` :221・`get` :239・`save` :247・ほか 1
 - **normalize.py** (167 行) — ② 管理の層 flow: 素材を 30fps(H.264・yuv420p・AAC)にそろえる 1 つの段(OPT-M2 5b-1。決定は資料 plan/opt-manage.md の 5b)。
@@ -124,6 +124,7 @@
 - tests/flow/test_live_archive.py — 録画に無い区間をアーカイブから書き出す・配信後の全自動(線 D。src/flow/live_archive.py・src/pipeline/ingest/live_align_worker.py)のテスト。
 - tests/flow/test_live_detect.py — 配信中の盛り上がりの検出の ② の側 src/flow/live_detect.py(Detector)と、その上に載る自動の採用(M11)・配信ごとの記録・友人の依頼のテスト。
 - tests/flow/test_live_export.py — ライブの書き出し(② の src/flow/live_export.py の Exporter)・採用・失敗の集約(src/flow/live_failures.py)のテスト。
+- tests/flow/test_live_handover.py — 録画中の入口の起き直し(引き継ぎ)の境目のテスト: 起き直しの後始末は録画の部品に quit も kill も送らない・普通の終了も録画中なら止めない・
 - tests/flow/test_live_recorder.py — ライブ係(flow/livesession.LiveSession)の録画元まわりのテスト: 配信の状態を調べる yt-dlp の呼び方(probe_live・validate_url)・
 - tests/flow/test_live_request.py — 友人のライブ配信の依頼(notes:docs/spec/friend.md の 2-15)の ② の側: ライブ係 flow/livesession.LiveSession の begin_request(録画を始めて依頼に結びつける)と、
 - tests/flow/test_live_retire.py — 録画の片付けの ② の口(src/flow/live_retire.py の Retire。OPT2 の 7x-1)と、書き出しのジョブの切り詰め(live_export の _trim・cleaned_up。7e-3)のテスト。

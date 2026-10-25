@@ -21,8 +21,8 @@
   - 名前: `work_dir` :32・`chat_cache_dir` :36・`download_audio` :51・`chat_cache_path` :83・`drop_chat_cache` :87・`chat_cache_limit` :104・`use_chat_cache` :119・`prune_chat_cache` :129・`download_chat` :177・`prefetch_chat` :259・`cancel_prefetch` :302・`cancel_all_prefetch` :309・ほか 9
 - **levels.py** (64 行) — 1 秒ごとの音量(RMS, dB)を、ffmpeg 1 回のデコードで全帯域と高音域(2kHz 超)の 2 系列に測る決まり(OPT1)。
   - 名前: `args` :23・`clear` :30・`level` :36・`read` :47・`collect` :56
-- **live_excite_worker.py** (1763 行) — 配信中の盛り上がりの検出のワーカー(線 D の L2。notes:plan/line-d-detect.md・notes:plan/line-d-live-clipping.md の 0-10)。入口(src/flow/live_detect.py)が起動する子プロセス。
-  - 名前: `chat_trouble` :152・`class MeasureError` :170・`class NoTool` :174・`class RecorderDown` :178・`clean_requests` :186・`request_spec` :201・`clean_spec_doc` :222・`clean_bundles` :236・`clean_detect` :247・`read_series` :257・`measure_levels` :288・`parse_chat_line` :308・ほか 11
+- **live_excite_worker.py** (1783 行) — 配信中の盛り上がりの検出のワーカー(線 D の L2。notes:plan/line-d-detect.md・notes:plan/line-d-live-clipping.md の 0-10)。入口(src/flow/live_detect.py)が起動する子プロセス。
+  - 名前: `chat_trouble` :154・`class MeasureError` :172・`class NoTool` :176・`class RecorderDown` :180・`clean_requests` :188・`request_spec` :203・`clean_spec_doc` :224・`clean_bundles` :238・`clean_detect` :249・`read_series` :259・`measure_levels` :290・`parse_chat_line` :310・ほか 11
 
 ## src/pipeline/export/
 
@@ -39,9 +39,9 @@
   - 名前: `fail` :34・`read_wav` :39・`next_pow2` :54・`xcorr_valid` :59・`align` :79・`main` :103
 - **rec_core.py** (1125 行) — 録画の中身(線 D の P1。notes:plan/line-d-live-clipping.md の 0・2〜4)。HTTP は recorder.py。
   - 名前: `class RecError` :97・`to_utc` :108・`rec_spans` :119・`pick_segments` :132・`validate_url` :152・`fetch_title` :174・`folder_state` :193・`parse_playlist` :217・`keep_order` :240・`build_playlist` :261・`read_text` :283・`clean_tmp` :312・ほか 3
-- **recorder.py** (391 行) — 録画の部品(線 D: リアルタイム切り抜きの P1。notes:plan/line-d-live-clipping.md の 0)。入口とは別のプロセスで動く。
-  - 名前: `data_dir` :62・`load_token` :69・`read_settings` :84・`save_folder` :88・`clean_folder` :95・`make_logger` :109・`raise_priority` :133・`class Handler` :145・`class Server` :293・`parse_args` :304・`main` :332
-  - 受ける口: `/api/ping` :185
+- **recorder.py** (427 行) — 録画の部品(線 D: リアルタイム切り抜きの P1。notes:plan/line-d-live-clipping.md の 0)。入口とは別のプロセスで動く。
+  - 名前: `data_dir` :68・`load_token` :75・`read_settings` :90・`save_folder` :94・`clean_folder` :101・`make_logger` :115・`raise_priority` :139・`class Handler` :151・`class Server` :299・`parse_args` :310・`write_running` :338・`clear_running` :344・ほか 1
+  - 受ける口: `/api/ping` :191
 
 ## src/pipeline/pack/
 

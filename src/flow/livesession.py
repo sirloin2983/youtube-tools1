@@ -37,7 +37,7 @@ import time
 import urllib.parse
 
 from pipeline.ingest import rec_core   # 録画の状態の名前(ACTIVE)。録画の部品と同じ物
-from ytt import datadir, fsio, layout, schemas, tools, version as _version
+from ytt import datadir, fsio, layout, procs, schemas, tools, version as _version
 from . import board as _board   # ② のジョブの掲示板(RS8 の ② の口 S2。書き出し lx・作り直し la・候補の文字起こし lt を載せる)
 from . import envelope as _envelope
 from . import live_adopt   # 採用 = マーク + 書き出し(M1。RS7-2 G1b)
@@ -70,6 +70,12 @@ STOP_TIMEOUT = 45.0      # 録画元の stop は録画のスレッドの終わ�
 QUIT_TIMEOUT = 3.0       # 入口の終了: 録画の部品の quit の応答を待つ秒
 QUIT_WAIT = 8.0          # quit を受けた録画の部品が終わるのを待つ秒(過ぎたら、この入口が起動したものだけ孫ごと止める)
 KEPT_NOTE = "録画中なので録画の部品は残しました(録画は続きます。部品も終わらせるときは、スタジオで録画を止めてからもう一度「すべて終了」)"
+RUNNING_FILE = "running.json"   # 録画の部品が動いている間だけ書く {pid, port, version, api, startedAt, inJob}(src/pipeline/ingest/recorder.py の RUNNING_NAME)
+KILL_RECHECK = 3                # 終了で録画の部品を孫ごと止める前に、録画中かを聞き直す回数(応答が遅いだけの部品を録画中に止めない)
+KILL_RECHECK_GAP = 0.5
+HANDOVER_FILE = "handover.json"   # 録画中の起き直しの前に古い入口が書く {at, version, recordings, workerPid, recorderPid}(新しい入口が確かめて消す)
+HANDOVER_CHECK_SEC = 60.0         # 起き直してからこの秒たってから確かめる(ワーカーの心拍は 30 秒ごと)
+HANDOVER_MAX_AGE = 900.0          # これより古い handover.json は確かめずに消す
 OFF = {"enabled": False, "folder": "", "recorders": [], "quality": DEFAULT_QUALITY}   # 設定を読めないとき = オフ
 BUNDLES_FILE = "bundles.json"   # 録画ごとの封筒 + 束(入口の作業データの live\)
 BUNDLES_KEEP_DAYS = 7           # 束を残す日数(録画 12 時間 + 配信後の全自動 2 日 + 友人の依頼の結びつき 3 日に足りる)
@@ -472,6 +478,9 @@ class LiveSession:
         self.adopter = live_adopt.Adopter(self, deliver_for=deliver_for)   # 採用の本体(RS7-2 G1b)
         self._scope = threading.local()    # cfg_scope の中で読んだ設定(スレッドごと)
         self._tokens = fsio.StampCache()   # 手元の録画元の合言葉(token.txt。変わったときだけ読み直す)
+        self._local_hit = None             # (時刻, 手元の録画の部品の番号)(_local_default)
+        self._handover_fails = []          # 録画中の起き直しの確かめで見つかった違い(「調子」の failures)
+        self._handover_checked = False
 
     # --- 設定 ---
     def cfg(self):
@@ -511,12 +520,21 @@ class LiveSession:
         """録画元の一覧(合言葉つき。画面には出さない)。空 = 手元の1つ"""
         cfg = cfg or self.cfg()
         out = []
-        for r in (cfg.get("recorders") or [dict(LOCAL)]):
+        for r in (cfg.get("recorders") or [self._local_default()]):
             r = dict(r)
             if not r.get("token") and is_local_url(r.get("url") or ""):
                 r["token"] = self.local_token()
             out.append(r)
         return out
+
+    def _local_default(self):
+        """録画元の設定が無いときの手元の 1 つ。動いている部品(running.json)が別の番号ならその番号を使う(3 秒覚える)"""
+        hit = self._local_hit
+        if hit is None or time.monotonic() - hit[0] > 3.0:
+            run = self.running_recorder()
+            port = run.get("port") if run and isinstance(run.get("port"), int) and 1024 <= run["port"] <= 65535 else RECORDER_PORT
+            hit = self._local_hit = (time.monotonic(), port)
+        return dict(LOCAL, url="http://127.0.0.1:%d" % hit[1])
 
     def find(self, rid):
         return next((r for r in self.recorders() if r.get("id") == rid), None)
@@ -671,6 +689,13 @@ class LiveSession:
 
     def expected_version(self):
         return _version.on_disk(self.root)   # 全体の版(ytt/version.py をディスクから読み直した値)
+
+    def running_recorder(self):
+        """手元の録画の部品の running.json(pid が生きているときだけ)-> {pid, port, version, api, startedAt, inJob} か None"""
+        d = fsio.read_json_or(os.path.join(self.data_dir, RUNNING_FILE), None, max_bytes=16 * 1024, kind=dict)
+        if not d or not procs.pid_alive(d.get("pid")):
+            return None
+        return d
 
     # --- 録画元への要求 ---
     def request(self, rc, method, path, body=None, timeout=RELAY_TIMEOUT):
@@ -931,16 +956,23 @@ class LiveSession:
             self._thread = threading.Thread(target=self._watch, daemon=True, name="live-watch")
             self._thread.start()
 
-    def close(self):
-        """入口の終了: 見回りを止め、録画中でなければ録画の部品も止める(stop_recorder。録画中なら残す = 録画は続く。計画の 0-3 とユーザー指示)"""
+    def close(self, handover=False):
+        """入口の終了: 見回りを止め、録画中でなければ録画の部品も止める(stop_recorder。録画中なら残す = 録画は続く。計画の 0-3 とユーザー指示)。
+        handover(入口の起き直し): 録画の部品には quit も kill も送らない(新しい入口がつなぎ直す)。録画を測っている検出のワーカーも残す(新しい入口が引き継ぐ)"""
         self._halt.set()
         self.wake.set()
-        self.detector.stop()   # 盛り上がりの検出のワーカー(状態は 1 分ごとに保存済み。次の起動で続きから)
+        if handover and ((self.detector.heartbeat() or {}).get("recordings")):
+            self.log("起き直しの引き継ぎ: 録画を測っている盛り上がりの検出のワーカーは止めずに残します")
+        else:
+            self.detector.stop()   # 盛り上がりの検出のワーカー(状態は 1 分ごとに保存済み。次の起動で続きから)
         self.livetx.close()    # 配信中の文字起こしの子プロセス(途中の候補は次の見回りでやり直す)
         if self._archiver is not None:   # アーカイブからの書き出しの途中なら止める(順番待ちに戻り、次の起動で続ける)
             self._archiver.close()
         if self._exporter is not None:   # 書き出しの途中なら ffmpeg を止める(ジョブは「録画待ち」に戻り、次の起動でやり直す)
             self._exporter.close()
+        if handover:
+            self.log("起き直しの引き継ぎ: 録画の部品は止めずに残します(新しいホームがつなぎ直します)")
+            return
         try:
             self.stop_recorder()
         except Exception as e:   # 後始末の途中の不具合で入口の終了を止めない
@@ -992,6 +1024,8 @@ class LiveSession:
                     return "quit"
                 time.sleep(0.2)
             if own is not None:
+                if self._recording_on_recheck(rc):
+                    return "kept"
                 tools.kill_tree(own, wait=5.0)
                 self.log("録画の部品が %d 秒で終わらないので、止めました(ホームの終了)" % int(QUIT_WAIT))
                 return "killed"
@@ -999,6 +1033,8 @@ class LiveSession:
             return "quit"
         if code is None:   # 応答が無い: この入口が起動したものなら孫ごと止める。それ以外は動いていない
             if own is not None:
+                if self._recording_on_recheck(rc):
+                    return "kept"
                 tools.kill_tree(own, wait=5.0)
                 self.log("録画の部品が応答しないので、止めました(ホームの終了)")
                 return "killed"
@@ -1006,6 +1042,132 @@ class LiveSession:
         msg = (d or {}).get("message") if isinstance(d, dict) else ""
         self.log("録画の部品を止められませんでした(HTTP %s%s)。録画の部品は残しています" % (code, ": " + msg if msg else ""))
         return "failed"
+
+    # --- 録画中の入口の起き直し(引き継ぎ) ---
+    def activity(self):
+        """ライブの録画中・検出中・書き出しの途中の数 {recording, detecting, exporting}。オフなら全部 0(録画元に問い合わせない)。
+        recording = 録画元の録画中の録画(recent。数秒のキャッシュ)/ detecting = 検出のワーカーが測っている録画(worker.json)/
+        exporting = 書き出しの途中・まとめて実行へ渡すのを待っている書き出し(作ってあるときだけ)"""
+        out = {"recording": 0, "detecting": 0, "exporting": 0}
+        if not self.enabled():
+            return out
+        out["recording"] = sum(1 for r in self.recent() if r.get("active") is True)
+        det = self.detector
+        if det.enabled():
+            hb = det.heartbeat()
+            if det.running(hb):
+                out["detecting"] = sum(1 for x in (hb or {}).get("recordings") or [] if isinstance(x, dict))
+        ex = self._exporter
+        if ex is not None:
+            with ex.lock:
+                out["exporting"] = sum(1 for j in ex.jobs if j.get("state") in LX.ACTIVE or j.get("handoffWait") == "disk")   # Exporter.pending と同じ規則
+        return out
+
+    def _local_rc(self, cfg=None):
+        return next((r for r in self.recorders(cfg) if is_local_url(r.get("url") or "")), None)
+
+    def handover_ok(self):
+        """録画中でも入口を起き直してよいか -> (True, "") か (False, 理由)。全部そろったときだけ True:
+        スイッチ live.restartWhileRecording がオン・手元の録画の部品が ping に答え(api あり)running.json の pid と同じ・
+        部品がジョブの道連れにならない・書き出しが動画を作っていない・録画を測っている検出のワーカーは引き継げる(心拍が新しく pid が生きている)"""
+        cfg = self.cfg()
+        if cfg.get("restartWhileRecording") is not True:
+            return False, "録画中の起き直しはオフです"
+        local = self._local_rc(cfg)
+        if local is None:
+            return False, "手元の録画元がありません"
+        info = self.ping(local)
+        if not info or not isinstance(info.get("api"), int):
+            return False, "録画の部品が応答しないか、引き継ぎを知らない版です"
+        run = self.running_recorder()
+        if run is None or run.get("pid") != info.get("pid"):
+            return False, "録画の部品の running.json が無いか、動いている部品と違います"
+        if run.get("inJob") is True and not procs.in_job():   # 入口より上のジョブなら起き直しで閉じない
+            return False, "録画の部品が入口のジョブから出られていません"
+        ex = self._exporter
+        if ex is not None:
+            with ex.lock:
+                if any(j.get("state") == "encode" for j in ex.jobs):
+                    return False, "ライブの書き出しが動画を作っています"
+        det = self.detector
+        hb = det.heartbeat() or {}
+        if hb.get("recordings") and not det.adoptable(hb, leaving=True):
+            return False, "録画を測っている検出のワーカーを引き継げません"
+        return True, ""
+
+    def write_handover(self):
+        """起き直しの前に live/handover.json を書く(新しい入口が最初の見回りで確かめる)"""
+        hb = self.detector.heartbeat() or {}
+        run = self.running_recorder() or {}
+        doc = {"at": time.time(), "version": _version.VERSION,
+               "recordings": [{"recorder": r["recorder"], "id": r["id"], "lastPdt": r.get("lastPdt")} for r in self.list_recordings() if r.get("active")],
+               "workerPid": hb.get("pid") if hb.get("recordings") else None, "recorderPid": run.get("pid")}
+        os.makedirs(self.store_dir, exist_ok=True)
+        fsio.atomic_write(os.path.join(self.store_dir, HANDOVER_FILE), json.dumps(doc, ensure_ascii=False).encode("utf-8"))
+        self.log("起き直しの引き継ぎを書きました(録画 %d 本・ワーカー %s・録画の部品 %s)" % (len(doc["recordings"]), doc["workerPid"], doc["recorderPid"]))
+
+    def check_handover(self, now=None):
+        """起き直したあと: handover.json の録画が録画中のまま・録画の部品が同じ・ワーカーの心拍が続いているかを確かめる(HANDOVER_CHECK_SEC たってから 1 回)。
+        違えば記録と「調子」の failures に出す。-> 違いの文の並び(確かめていなければ None)"""
+        if self._handover_checked:
+            return None
+        path = os.path.join(self.store_dir, HANDOVER_FILE)
+        d = fsio.read_json_or(path, None, max_bytes=256 * 1024, kind=dict)
+        if d is None or not isinstance(d.get("at"), (int, float)):
+            self._handover_checked = True
+            fsio.unlink_quiet(path)
+            return None
+        now = time.time() if now is None else now
+        if now - d["at"] > HANDOVER_MAX_AGE:
+            self._handover_checked = True
+            fsio.unlink_quiet(path)
+            return None
+        if now - d["at"] < HANDOVER_CHECK_SEC:
+            return None
+        self._handover_checked = True
+        bad = []
+        rows = {(r["recorder"], r["id"]): r for r in self.list_recordings()}
+        for x in d.get("recordings") or []:
+            if not isinstance(x, dict):
+                continue
+            r = rows.get((x.get("recorder"), x.get("id")))
+            if r is None or not r.get("active"):
+                bad.append("録画 %s は起き直したあと録画中ではありません" % x.get("id"))
+        run = self.running_recorder() or {}
+        if d.get("recorderPid") and run.get("pid") != d["recorderPid"]:
+            bad.append("録画の部品が替わりました(pid %s → %s)" % (d["recorderPid"], run.get("pid")))
+        if d.get("workerPid"):
+            hb = self.detector.heartbeat() or {}
+            at = LX.iso_epoch(hb.get("at"))
+            if hb.get("pid") != d["workerPid"] or at is None or at <= d["at"]:
+                bad.append("検出のワーカーの心拍が続いていません(pid %s → %s)" % (d["workerPid"], hb.get("pid")))
+        fsio.unlink_quiet(path)
+        if bad:
+            iso = LX.now_iso()
+            for b in bad:
+                self.log("起き直しの引き継ぎ: " + b)
+            self._handover_fails = [live_failures.handover_failure(b, at=iso) for b in bad]
+        else:
+            self.log("起き直しの引き継ぎを確かめました(録画 %d 本は録画中のまま・録画の部品とワーカーも同じ)" % len(d.get("recordings") or []))
+        return bad
+
+    def _recording_on_recheck(self, rc):
+        """孫ごと止める前に: 録画の一覧を KILL_RECHECK 回まで聞き直し、録画中の録画があるか(直前の札の一覧に録画中があったときも)。
+        True なら止めずに残す(記録も書く)"""
+        hit = self._recent
+        if hit is not None and time.time() - hit[0] < 60 and any(r.get("active") is True and r.get("recorder") == rc.get("id") for r in hit[1]):
+            self.log("録画の部品が応答しませんが、直前まで録画中だったので止めずに残します(ホームの終了)")
+            return True
+        for i in range(KILL_RECHECK):
+            code, d = self.call(rc, "GET", "/live/list", timeout=QUIT_TIMEOUT)
+            if code == 200 and isinstance(d, dict):
+                if any(isinstance(r, dict) and r.get("active") is True for r in d.get("recordings") or []) or d.get("active"):
+                    self.log("録画の部品は録画中なので止めずに残します(ホームの終了)")
+                    return True
+                return False
+            if i + 1 < KILL_RECHECK:
+                time.sleep(KILL_RECHECK_GAP)
+        return False
 
     def _watch(self):
         while not self._halt.is_set():
@@ -1071,13 +1233,20 @@ class LiveSession:
             self.archiver.start()   # アーカイブからの書き出し: 途中のものを続ける・自動の見回り・配信後の全自動(M7)
         if self.enabled():   # 録画を自動で消す(P4。アーカイブ化を確かめた録画だけ。中で間隔を見る = 10 分ごと。不具合でも録画の部品の見回りは続ける)
             self._guard("録画を消す見回りでエラー", lambda: self.cleaner is not None and self.cleaner.tick())
-        local = next((r for r in self.recorders(cfg) if is_local_url(r.get("url") or "")), None)
+        self._guard("起き直しの引き継ぎの確かめでエラー", self.check_handover)
+        local = self._local_rc(cfg)
         if local is None:
             return "off"
         info = self.ping(local)
         if info:
             exp = self.expected_version()
-            if exp and info.get("version") != exp:   # コードを直した(版が上がった): 録画中でなければ終わってもらって、新しい版で起こし直す
+            busy = None
+            if exp and info.get("version") != exp:   # 起こし直しは手が空いているときだけ(録画・検出・書き出しのどれかが動いていれば、終わり際の書き出しの取得と重ねない)
+                act = self.activity()
+                busy = "録画・検出・書き出しが動いている" if any(act.values()) else None
+            if exp and info.get("version") != exp and busy:
+                self.note("録画の部品が古い版(v%s)ですが、%sので、手が空いてから起動し直します" % (info.get("version"), busy))
+            elif exp and info.get("version") != exp:   # コードを直した(版が上がった): 録画中でなければ終わってもらって、新しい版で起こし直す
                 code, _d = self.call(local, "POST", "/live/quit", {})
                 if code == 200:
                     self.note("録画の部品が古い版(v%s)なので、v%s で起動し直します" % (info.get("version"), exp))
@@ -1098,6 +1267,12 @@ class LiveSession:
         if not self.spawn_ok:
             return "waiting"
         if time.time() - self._last_spawn < SPAWN_GAP:   # 起動したばかり(待ち受けの準備中)
+            return "waiting"
+        run = self.running_recorder()
+        if run is not None:   # ping に間に合わないだけの部品がいる(2 つ目を起こすと同じ録画を 2 つの ffmpeg が書く)
+            port = urllib.parse.urlsplit(local["url"]).port or RECORDER_PORT
+            where = "" if run.get("port") == port else "。ポート %s で動いています(設定は %d)" % (run.get("port"), port)
+            self.note("録画の部品(pid %s)が動いているので、新しく起こさずに応答を待ちます%s" % (run.get("pid"), where))
             return "waiting"
         return "spawned" if self.spawn(local, cfg.get("folder") or "") else "failed"
 
@@ -1163,6 +1338,7 @@ class LiveSession:
         failures += self._guard("盛り上がりの検出の失敗を読めませんでした", self.detector.failures, [])   # L2・M11
         if self._cleaner is not None:   # D-14: 消せないまま残っている録画の知らせ(keep_failure)
             failures += self._guard("残っている録画の一覧を作れませんでした", self._cleaner.kept_failures, [])
+        failures += self._handover_fails   # 録画中の起き直しで引き継げなかった物(check_handover。この入口の間だけ)
         failures = sorted(failures, key=lambda x: x.get("at") or "", reverse=True)[:live_failures.MAX_LIST]
         disk = self._guard("空き容量を調べられませんでした", self.exporter.disk)   # 書き出し先・パック・live\work の空き(M4)
         try:   # 配信中の検出(L2。worker.json・peaks.json を読む。オフなら None)

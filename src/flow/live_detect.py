@@ -46,7 +46,7 @@ import sys
 import threading
 import time
 
-from ytt import fsio, schemas, tools
+from ytt import fsio, procs, schemas, tools
 from . import spec as _spec   # 採用の数・待ちの既定は束の 1 か所(RS6 b-R1)
 from . import chatreuse as _chatreuse   # 生のチャットを移す先(決定 3-117)
 from . import live_failures
@@ -110,6 +110,7 @@ def overlay(pk, item):
         p.update(state="bench", origin=None)   # 枠か控えかはワーカーが決める
     p["pending"] = True
     return p
+SEEN_FILE = "seen.json"    # _seen を入口の起き直しの間も残す(live/excite/seen.json。起動時に読み戻す)
 SEEN_KEEP_SEC = 3600       # M11 の「最初に見た時刻」(_seen)を、見回りで見かけなくなってから残す秒(繋ぎ直しで同じ候補が戻る分は残す)
 END_GRACE_SEC = 6 * 3600   # D-14: 録画が終わってからこの秒数の間は、締めで確定した候補も待ち中の候補も採用する(それより古い録画の候補はまとめて採用しない)
 AUTO_MAX_PER_REC = 10      # D-13(仮の数): 1 つの録画で自動で採用する本数の上限(人のマーク・配信後の解析 archive は数えない)
@@ -167,6 +168,9 @@ class Detector:
         self._tries = {}                   # (録画元, 録画, 候補) -> 自動の採用を試した数
         self._seen = {}                    # (録画元, 録画, 候補) -> 入口が最初に見た時刻(M11 の waitMin の起点)。見かけなくなって SEEN_KEEP_SEC たったら消す
         self._seen_at = {}                 # (録画元, 録画, 候補) -> 見回りで最後に見た時刻(_seen を消す判断)
+        self._seen_loaded = False          # seen.json を読み戻したか(最初の auto_tick で 1 回)
+        self._seen_dirty = False           # _seen を消した(seen.json を書き直す)
+        self.adopted = None                # 前の入口が残したワーカーを引き継いだときの pid(この入口は Popen を持たない)
         self._fails = None                 # 自動の採用を諦めた候補(auto_failures.json)
         self._series = fsio.StampCache()   # series.jsonl の読み取りの覚え(更新日時と大きさが変わったときだけ読み直す)
         self._capped_said = set()          # D-13: 上限に達した録画(記録に 1 回だけ出す)
@@ -301,7 +305,7 @@ class Detector:
     def adopt_tick(self):
         """見回りの間の自動の採用だけ(ADOPT_SEC ごと。ワーカーの起動・設定は tick の 30 秒ごとのまま)。
         候補を入口が最初に見る時刻と、waitMin 分たってから採用する時刻の遅れを 30 秒 → 数秒に。決まり(waitMin・上限)は同じ -> 採用した数"""
-        if not ADOPT_FAST or self.proc is None or not ((self.heartbeat() or {}).get("recordings")):   # この入口のワーカーが録画を測っている間だけ(録画元に聞かない)
+        if not ADOPT_FAST or (self.proc is None and self.adopted is None) or not ((self.heartbeat() or {}).get("recordings")):   # この入口のワーカーが録画を測っている間だけ(録画元に聞かない)
             return 0
         if not self._tick_lock.acquire(blocking=False):   # tick と重ねない
             return 0
@@ -332,8 +336,53 @@ class Detector:
             return age is None or age <= self.stale_sec
         return self.clock() - (self.started_at or 0) <= self.stale_sec
 
+    def adoptable(self, hb=None, leaving=False):
+        """前の入口が残したワーカーを引き継げるか: 心拍が stale_sec 以内・「止まりました」でない・その pid が生きている・
+        親(心拍の parent)が生きていない(親の無い古い心拍も可。引き継いだ後はこの入口)-> pid か None。
+        leaving: この入口がこれから終わる(handover_ok)= 親がこの入口でもよい"""
+        hb = self.heartbeat() if hb is None else hb
+        pid = (hb or {}).get("pid")
+        age = self._hb_age(hb)
+        if age is None or age > self.stale_sec or hb.get("message") == "止まりました" or pid == os.getpid() or not procs.pid_alive(pid):
+            return None
+        par = hb.get("parent")
+        if pid == self.adopted or (leaving and par == os.getpid()):
+            return pid
+        return None if par == os.getpid() or procs.pid_alive(par) else pid
+
+    def _adopt(self):
+        """Popen を持たない間: 前の入口のワーカーが録画を測っていれば引き継ぐ(起こし直すと自動の採用の待ち・チャットの取得が途切れる)。
+        受け持ちが無ければ止めて、この入口の版で起こす。-> "adopted" か None(起こしてよい)"""
+        hb = self.heartbeat()
+        pid = self.adoptable(hb)
+        if pid is None:
+            self.adopted = None
+            return None
+        if not hb.get("recordings"):
+            self._stop_pid(pid)
+            self.adopted = None
+            return None
+        if self.adopted != pid:
+            fsio.atomic_write(os.path.join(self.dir, EW.PARENT_NAME), json.dumps({"pid": os.getpid()}).encode("utf-8"))   # ワーカーの新しい親
+            self.adopted = pid
+            self.host.log("盛り上がりの検出: 前のホームのワーカー(pid %d)を引き継ぎました" % pid)
+        return "adopted"
+
+    def _stop_pid(self, pid):
+        """Popen を持たないワーカーを止める合図(EW.STOP_NAME)を書き、STOP_WAIT 秒まで終わりを待つ"""
+        try:
+            fsio.atomic_write(os.path.join(self.dir, EW.STOP_NAME), b"stop")
+        except OSError:
+            return
+        end = time.monotonic() + STOP_WAIT
+        while procs.pid_alive(pid) and time.monotonic() < end:
+            time.sleep(0.2)
+        self.host.log("盛り上がりの検出: 前のホームのワーカー(pid %d)を止めました" % pid)
+
     def _ensure(self):
         p = self.proc
+        if p is None and self._adopt():
+            return "adopted"
         if p is not None and p.poll() is None:
             hb = self.heartbeat()
             age = self._hb_age(hb) if hb and hb.get("pid") == p.pid else None
@@ -387,6 +436,9 @@ class Detector:
         if p is not None and p.poll() is None:
             self._kill(p)
             self.host.log("盛り上がりの検出: ワーカーを止めました")
+        pid, self.adopted = self.adopted, None
+        if pid is not None and procs.pid_alive(pid):
+            self._stop_pid(pid)
 
     # ---- 候補を読む
     def folder(self, rc, rec):
@@ -613,9 +665,40 @@ class Detector:
         D-14: 録画が終わって END_GRACE_SEC 以内でワーカーが締めた録画の、待ち中だった候補も同じ待ちで採用する。
         D-13: 1 録画 auto_max 本まで(既定 AUTO_MAX_PER_REC)。自動の採用はいつもオン(オフのスイッチは 10-19 に消した)"""
         now = self.clock()
+        self._load_seen(now)
+        n_seen = len(self._seen)
+        try:
+            return self._auto_tick(now)
+        finally:
+            if len(self._seen) != n_seen or self._seen_dirty:
+                self._save_seen()
+
+    def _load_seen(self, now):
+        """seen.json を 1 回だけ読み戻す(入口を起き直しても waitMin の起点が延びない)。最後に見た時刻は今にする(1 時間見かけなければ消える)"""
+        if self._seen_loaded:
+            return
+        self._seen_loaded = True
+        self._seen_dirty = False
+        d = fsio.read_json_or(os.path.join(self.dir, SEEN_FILE), {}, 1024 * 1024, kind=dict)
+        for x in d.get("seen") or []:
+            if isinstance(x, list) and len(x) == 4 and all(isinstance(v, str) for v in x[:3]) and schemas.is_num(x[3]):
+                key = (x[0], x[1], x[2])
+                self._seen.setdefault(key, float(x[3]))
+                self._seen_at.setdefault(key, now)
+
+    def _save_seen(self):
+        self._seen_dirty = False
+        try:
+            os.makedirs(self.dir, exist_ok=True)
+            fsio.atomic_write(os.path.join(self.dir, SEEN_FILE), _dump({"v": 1, "seen": [[k[0], k[1], k[2], t] for k, t in self._seen.items()]}))
+        except OSError as e:
+            self.host.note("盛り上がりの検出: %s を書けませんでした: %s" % (SEEN_FILE, tools.why(e)))
+
+    def _auto_tick(self, now):
         for key in [k for k, t in self._seen_at.items() if now - t > SEEN_KEEP_SEC]:   # 採用した・録画が終わった候補の分は残さない(録画のたびに増え続けない)
             self._seen.pop(key, None)
             self._seen_at.pop(key, None)
+            self._seen_dirty = True
         if not self.enabled() or not self.running():   # ワーカーが止まっている間は採用しない(古い候補をまとめて採用しないため)
             return 0
         # 依頼の無い録画は、ホームの検出がオンのときだけ(友人の依頼だけで検出が動いている間に、止めた録画の古い候補を採用しない)

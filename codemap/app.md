@@ -15,11 +15,11 @@
 - **mount.py** (208 行) — 統合サーバーへのツールの取り込み(統合計画の段階3。notes:docs/design/integration-plan.md)。
   - 名前: `class MountError` :52・`tool_modules` :56・`check_no_collision` :66・`load_serve` :76・`send_redirect` :103・`make_handler` :113・`class Mount` :160
   - 受ける口: `/api/ytt` :45
-- **prefs.py** (488 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
-  - 名前: `class PrefsError` :95・`guess_streamer` :382・`class Prefs` :394
-- **server.py** (1853 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
-  - 名前: `runtime_dir` :186・`ping` :196・`tail` :204・`expected_version` :225・`tool_python` :231・`rel_or_abs` :241・`signal_stop` :249・`class Tool` :262・`app_data_dir` :312・`logs_dir_for` :318・`class Supervisor` :324・`query_int` :643・ほか 16
-  - 受ける口: `/api/drill/status` :154・`/api/eval-batch` :154・`/api/intake` :629・`/api/backup` :630・`/api/accuracy` :631・`/api/flow/runs` :632・`/api/cases/auto` :634・`/api/flow/submit` :635・`/api/flow/estimate` :635・`/api/flow/cancel` :636・`/api/intake/scan` :637・`/api/backup/run` :637・`/api/accuracy/run` :638・`/api/check/answer` :639・`/api/check/unknown` :639・`/api/check/skip` :639・`/api/check/flush` :639・`/api/shutdown` :640・`/api/ping` :729・`/api/status` :731・`/api/health` :741・`/api/log` :743・`/api/flow/status` :758・`/api/flow/history` :762・`/api/check/next` :765・`/api/check/voiceclip` :771・`/api/home/requests` :777・`/api/cases` :789
+- **prefs.py** (492 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
+  - 名前: `class PrefsError` :97・`guess_streamer` :386・`class Prefs` :398
+- **server.py** (1849 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
+  - 名前: `runtime_dir` :185・`ping` :195・`tail` :203・`expected_version` :224・`tool_python` :230・`rel_or_abs` :240・`signal_stop` :248・`class Tool` :261・`app_data_dir` :311・`logs_dir_for` :317・`class Supervisor` :323・`query_int` :642・ほか 16
+  - 受ける口: `/api/drill/status` :153・`/api/eval-batch` :153・`/api/intake` :628・`/api/backup` :629・`/api/accuracy` :630・`/api/flow/runs` :631・`/api/cases/auto` :633・`/api/flow/submit` :634・`/api/flow/estimate` :634・`/api/flow/cancel` :635・`/api/intake/scan` :636・`/api/backup/run` :636・`/api/accuracy/run` :637・`/api/check/answer` :638・`/api/check/unknown` :638・`/api/check/skip` :638・`/api/check/flush` :638・`/api/shutdown` :639・`/api/ping` :728・`/api/status` :730・`/api/health` :740・`/api/log` :742・`/api/flow/status` :757・`/api/flow/history` :761・`/api/check/next` :764・`/api/check/voiceclip` :770・`/api/home/requests` :776・`/api/cases` :788
 - **ytlogin.py** (95 行) — ユーザーの PC の YouTube のログイン(10-23 ユーザー「ログインできる形にしといて」)。友人のアプリと同じ作り(notes:docs/spec/friend.md の 13-13)。
   - 名前: `cookies_path` :23・`apply_env` :27・`class YtLogin` :35
 
@@ -54,7 +54,7 @@
   - 名前: `learn_dirs` :25・`eval_like` :38・`in_learn_dir` :44・`targets` :49・`pick` :74・`tick` :86
 - **ytnotify.py** (85 行) — YouTube の取得の列(ytqueue)が研究の頼みの結果を done/ に書いたら、研究のセッションを起こす知らせ(10-25 ユーザー OK)。
   - 名前: `to_name` :28・`collect` :48・`message` :60・`tick` :72
-- **ytqueue.py** (1025 行) — YouTube の取得の列(10-25。ユーザー「取り方 1 と 2 を統一しよう」「取得する配信を選ぶ段階で効率化できるはず」)。
+- **ytqueue.py** (1026 行) — YouTube の取得の列(10-25。ユーザー「取り方 1 と 2 を統一しよう」「取得する配信を選ぶ段階で効率化できるはず」)。
   - 名前: `qdir` :78・`requests` :94・`candidates` :130・`score` :136・`fill_candidates` :165・`audio_gap` :207・`light_n` :213・`rollover` :219・`classify` :255・`hit` :267・`fine` :288・`due` :308・ほか 15
 
 ## src/app/ui/

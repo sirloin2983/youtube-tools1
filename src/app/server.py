@@ -96,7 +96,6 @@ from flow import placement  # noqa: E402  (② の .flow.lock。RS6 b-B0)
 from flow import colors_api  # noqa: E402  (POST api/ytt/streamer-colors の口)
 from flow import tools as flowtools_mod  # noqa: E402  (まとめて実行の段が仕事を頼む先 FlowTools = ① の動詞は取り込んだツールの ② の器を直に。OPT2 後半 J7)
 from flow import board as board_mod  # noqa: E402  (② のジョブの掲示板 = GET /api/flow/status の jobs・cases・rev と cancel・retry。RS8 の ② の口)
-from flow import live_export  # noqa: E402  (書き出しの途中の数 = ② の status の live 欄。RS7-2 G5a)
 from flow import livesession  # noqa: E402  (ライブ係。録画の部品を残したときの文 KEPT_NOTE。RS7-2 G2b)
 from flow import runqueue as queue_mod  # noqa: E402  (② の待ち行列。submit の版違い・束の形の例外 = 400 spec_version・bad_spec。F1 F0-1)
 from flow import learning as learning_mod  # noqa: E402  (学習データの読み手。machine の learningDir があるとき入口の文字起こしもそこから読む。F1 F6a)
@@ -999,6 +998,7 @@ class PortalServer(httpsec.ExclusiveServer):
         self.board.set_case_hook(board_mod.guess_case)
         self._torn_down = False
         self._teardown_lock = threading.Lock()
+        self._handover = False   # 起き直し(restart_self)の後始末: 録画の部品に quit も kill も送らない(新しい入口がつなぎ直す)
         app_dir = os.path.dirname(sup.logs_dir)   # 入口の作業データ(settings.json・prefs.json・依頼の受付などの記録)
         self.learning = None     # 学習データの読み手(wire_learning。machine の learningDir があるときだけ。F1 F6a)
         # 学習の束を置く見回り(いつ・どこには ② の flow/learning。中身は ④ の learnpack。F1 F6a)
@@ -1116,7 +1116,7 @@ class PortalServer(httpsec.ExclusiveServer):
         if why:
             return why
         live = self.live_activity()
-        if any(live.values()):
+        if any(live.values()) and not self.live.handover_ok()[0]:   # 引き継げるとき(スイッチ live.restartWhileRecording がオンで全部 OK)だけ録画中でも起き直す
             return "ライブの録画・検出・書き出しが動いています"
         if autorestart_mod.editor_in_use(self.editor_seen, time.monotonic()):
             return "編集の画面を使っています"
@@ -1148,8 +1148,9 @@ class PortalServer(httpsec.ExclusiveServer):
     def restart_self(self, auto=False, force=False):
         """新しい入口(同じポートが空くのを待つ)を起こしてから、この入口は「すべて終了」と同じ後始末をして終わる。
         重い処理・取り込んだツールの処理(人が始めたもの・まとめて実行の書き出し)が動いていれば 409 で断る(理由の文)。
-        ライブの録画・検出・書き出しが動いていれば、force(画面の確認で「止めて起動し直す」)が無いかぎり 409 の live で断る
-        (10-23: 手の「起動し直す」は録画を見ていなかった。起動し直すと録画の部品も終わり、録画が止まる。自動は auto_busy が待つ)。
+        ライブの録画・検出・書き出しが動いていれば、force(画面の確認で「止めて起動し直す」)か live.handover_ok()(スイッチ live.restartWhileRecording)が
+        通らないかぎり 409 の live で断る(自動は auto_busy が待つ)。通れば live/handover.json を書いて起き直す。
+        起き直しの後始末(_handover)は録画の部品に quit も kill も送らない(新しい入口がつなぎ直す)。
         まとめて実行の待ち・実行中は断らない(M5 で起動し直したあとに続きから進む): 応答の notice と記録で何件続くかを知らせる。
         -> (HTTP の番号, JSON)"""
         if self.closing.is_set():
@@ -1160,18 +1161,29 @@ class PortalServer(httpsec.ExclusiveServer):
         why = restart_mod.can_restart(self.sup.status(), busy, None if auto else info.get("redo"))
         if why:
             return 409, {"ok": False, "error": "busy", "message": why}
+        handover = False
         if not force:
             live = self.live_activity()
             if any(live.values()):
-                return 409, {"ok": False, "error": "live", "live": live, "message": restart_mod.live_warning(live)}
-        notice = restart_mod.RESUME_NOTICE % info["runs"] if info.get("runs") else ""
+                ok, why = self.live.handover_ok()
+                if not ok:
+                    return 409, {"ok": False, "error": "live", "live": live, "message": restart_mod.live_warning(live), "handover": why}
+                handover = True
+        if handover:
+            try:
+                self.live.write_handover()
+            except OSError as e:
+                return 409, {"ok": False, "error": "live", "live": live, "message": "%s(引き継ぎの記録を書けません: %s)" % (restart_mod.live_warning(live), tools.why(e))}
+        notice =restart_mod.RESUME_NOTICE % info["runs"] if info.get("runs") else ""
         only = [t.id for t in self.sup.tools] if len(self.sup.tools) < len(TOOLS) else ()
         try:
             restart_mod.spawn_new_launcher(self.sup.root, args=restart_mod.restart_args(self.server_address[1], only, not self.sup.mounts, wait_pid=os.getpid()),
                                            log=self.sup.log)
         except OSError as e:
             return 500, {"ok": False, "error": "spawn", "message": "ホームを起動し直せませんでした(新しいホームを起動できません): %s" % tools.why(e)}
-        self.sup.log(("自動で起動し直します" if auto else "画面から「起動し直す」が押されました") + ("(%s)" % notice if notice else ""))
+        self.sup.log(("自動で起動し直します" if auto else "画面から「起動し直す」が押されました") + ("(%s)" % notice if notice else "")
+                     + ("。録画中のまま引き継ぎます(録画の部品と検出のワーカーは止めません)" if handover else ""))
+        self._handover = True   # 起き直しの後始末は録画の部品に触らない(録画中でなくても。版の違う部品は新しい入口が手の空いたときに起こし直す)
         threading.Timer(0.3, self.request_shutdown).start()   # 応答を返してから後始末(新しい入口はポートが空くのを待っている)
         return 200, dict({"ok": True}, **({"notice": notice} if notice else {}))
 
@@ -1539,24 +1551,8 @@ class PortalServer(httpsec.ExclusiveServer):
 
     def live_activity(self):
         """② の status の live 欄: ライブ(線 D)の録画中・検出中・書き出しの途中の数(起こしたアプリの「終わったら閉じる」= どれかが 0 でなければ閉じない)。
-        recording = 録画元の録画中の録画(Live.recent。数秒のキャッシュ)/ detecting = 盛り上がりの検出のワーカーが測っている録画(worker.json)/
-        exporting = 書き出しの途中・まとめて実行へ渡すのを待っている書き出し(作ってあるときだけ。オフの間は作業データに何も作らない)。
-        リアルタイム切り抜きがオフなら全部 0(録画元に問い合わせない)。G2b でライブが ② へ移ったら、そちらが持つ"""
-        live = self.live
-        out = {"recording": 0, "detecting": 0, "exporting": 0}
-        if not live.enabled():
-            return out
-        out["recording"] = sum(1 for r in live.recent() if r.get("active") is True)
-        det = live.detector
-        if det.enabled():
-            hb = det.heartbeat()
-            if det.running(hb):
-                out["detecting"] = sum(1 for x in (hb or {}).get("recordings") or [] if isinstance(x, dict))
-        ex = getattr(live, "_exporter", None)
-        if ex is not None:
-            with ex.lock:
-                out["exporting"] = sum(1 for j in ex.jobs if j.get("state") in live_export.ACTIVE or j.get("handoffWait") == "disk")   # Exporter.pending と同じ規則
-        return out
+        数え方は flow/livesession.py の LiveSession.activity(リアルタイム切り抜きがオフなら全部 0)"""
+        return self.live.activity()
 
     def handler_for(self, path):
         if path and self.mounts:
@@ -1577,7 +1573,7 @@ class PortalServer(httpsec.ExclusiveServer):
         self.intake.close()   # 依頼の受付の見張りを止める(まとめて実行に入れる前に)
         self.backup.close()
         self.accuracy.close()   # 測っている子プロセスも止める
-        self.live.close()     # 録画の部品の見回りを止め、録画中でなければ録画の部品も止める(録画中なら残す = 録画は続く)
+        self.live.close(handover=self._handover)   # 録画の部品の見回りを止め、録画中でなければ録画の部品も止める(録画中なら残す。起き直しなら部品に触らない)
         if self.analytics:
             self.analytics.close()
 

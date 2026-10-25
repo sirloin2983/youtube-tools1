@@ -652,6 +652,26 @@ class PortalHttpTest(Base):
         self.assertIn("--wait-port", calls[0])
         self.assertEqual(calls[0][calls[0].index("--port") + 1], str(self.srv.server_address[1]))
         self.wait_stops(stops)
+        self.assertTrue(self.srv._handover)   # 起き直しの後始末は録画の部品に quit も kill も送らない
+
+    def test_restart_self_hands_over_only_when_ok(self):
+        """録画中: handover_ok が NG(スイッチ オフを含む)なら今までどおり 409 live・自動も待つ。OK なら handover.json を書いて起き直す"""
+        R, calls, stops = self.fake_restart()
+        wrote = []
+        ok = {"v": (False, "録画中の起き直しはオフです")}
+        for p in (mock.patch.object(self.srv, "live_activity", lambda: {"recording": 1, "detecting": 1, "exporting": 0}),
+                  mock.patch.object(self.srv.live, "handover_ok", lambda: ok["v"]),
+                  mock.patch.object(self.srv.live, "write_handover", lambda: wrote.append(1))):
+            p.start()
+            self.addCleanup(p.stop)
+        r, body = self.post("/api/ytt/restart-self")
+        self.assertEqual((r.status, json.loads(body)["error"], calls, wrote), (409, "live", [], []), body)
+        self.assertEqual(self.srv.auto_busy(), "ライブの録画・検出・書き出しが動いています")
+        ok["v"] = (True, "")
+        self.assertIsNone(self.srv.auto_busy())
+        r, body = self.post("/api/ytt/restart-self")
+        self.assertEqual((r.status, len(calls), wrote), (200, 1, [1]), body)
+        self.wait_stops(stops)
 
     def fake_restart(self):
         """新しい入口を起こす口と後始末の頼みを偽物に(このテストの間だけ)-> (restart のモジュール, 起こした引数, 後始末の頼み)"""
@@ -741,7 +761,9 @@ class PortalHttpTest(Base):
         zero = {"recording": 0, "detecting": 0, "exporting": 0}
         st = self.get_json("/api/flow/status")[1]
         self.assertEqual((st["live"], st["idle"]), (zero, True))   # 既定(オフ)
+        from flow import livesession
         fake = mock.MagicMock()
+        fake.activity = lambda: livesession.LiveSession.activity(fake)   # 数え方は本物(LiveSession.activity)
         fake.enabled.return_value = True
         fake.recent.return_value = [{"id": "a", "active": True}, {"id": "b", "active": False}]   # 終わって 10 分以内の録画は数えない
         fake.detector.enabled.return_value = True
