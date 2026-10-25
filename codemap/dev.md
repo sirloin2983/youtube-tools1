@@ -37,8 +37,8 @@
   - 名前: `data_root` :33・`verdicts` :45・`delivered` :62・`streamers` :82・`shorts` :97・`collect` :112・`main` :150
 - **guard_hook.py** (434 行) — Claude Code の PreToolUse のフック: 事故のもとになる操作を機械が断る。標準ライブラリだけ・速く。
   - 名前: `class Tok` :51・`tok` :56・`tokenize` :62・`pipelines` :137・`word_of` :155・`norm_path` :171・`is_main_checkout` :184・`generated_kind` :198・`check_kill` :216・`check_sed` :242・`git_sub` :255・`check_git` :271・ほか 9
-- **land.py** (318 行) — 作業のブランチを main に入れ、版(src/ytt/version.py の VERSION と README.txt の見出し)を道具が 1 つ上げる。
-  - 名前: `class Stop` :44・`git` :48・`main_worktree` :57・`bump` :68・`read_version` :73・`set_version` :80・`set_readme` :84・`needs_bump` :94・`pid_alive` :99・`class Lock` :117・`pending_paths` :164・`daily_codemap` :172・ほか 4
+- **land.py** (377 行) — 作業のブランチを main に入れ、版(src/ytt/version.py の VERSION と README.txt の見出し)を道具が 1 つ上げる。
+  - 名前: `class Stop` :50・`git` :54・`main_worktree` :63・`bump` :74・`read_version` :79・`set_version` :86・`set_readme` :90・`needs_bump` :100・`pid_alive` :105・`class Lock` :123・`pending_paths` :170・`daily_codemap` :178・ほか 5
 - **land_gate.py** (406 行) — main に入れる前の関所(dev/land.py が版を上げる前に流す)。単独でも流せる:
   - 名前: `layer_of_dir` :70・`dependents` :77・`select` :82・`pick_units` :103・`pick_by_imports` :110・`run_units` :120・`cache_path` :132・`load_cache` :137・`save_cache` :148・`count_of` :164・`run_check` :170・`run_tool` :184・ほか 12
 - **layer_map.py** (132 行) — 役割の層と、今のファイルの行き先(役割で組み直す計画 `notes:plan/done/role-restructure.md` の 7 節を機械で読める形にしたもの)。
