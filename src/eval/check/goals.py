@@ -29,7 +29,7 @@ def extra_counter(rows):
     per = {}
     for r in rows:
         ans = r.get("answer")
-        if isinstance(ans, dict) and ans.get("choice") in ("shift", "unclear"):   # 読みのカードの「区間がずれている」「聞き取れない」= 判定ではない(数えない)
+        if isinstance(ans, dict) and ans.get("choice") in ("shift", "unclear", "mixed"):   # 読みのカードの「区間がずれている」「聞き取れない」「2 人の声が同じくらい」= 判定ではない(数えない)
             continue
         if r.get("kind") == "voice" and isinstance(ans, dict) and (ans.get("choice") in ("mixed", "other") or ans.get("bgm") or ans.get("others")):
             continue   # 誰の声の 混ざり・声が無い・BGM 大・別の声も = 話者の正解に数えない(② の材料には残る。10-25 確かめるの混ざりと BGM のルール)

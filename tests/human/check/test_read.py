@@ -120,6 +120,23 @@ class ReadTest(unittest.TestCase):
         apply.undo(self.ctx, got["answer"])
         self.assertNotIn("tags", self.seg("s1"))
 
+    def test_others_and_mixed(self):
+        # 別の声も(V)= 判定はそのまま + overlap / 2 人の声が同じくらい(M)= overlap だけ(10-26 ユーザー OK)
+        self.assertEqual(read._check({"choice": "2", "others": True}), {"choice": "2", "others": True})
+        for bad in ({"choice": "mixed", "others": True}, {"choice": "1", "others": 1}, {"choice": "unclear", "others": True}):
+            with self.assertRaises(ValueError):
+                read._check(bad)
+        got = apply.answer(self.ctx, card("fill", "s1"), {"answer": {"choice": "1", "others": True}})
+        s = self.seg("s1")
+        self.assertEqual((s["text"], s["fill"]["from"], s.get("tags")), ("埋めた文", "うめたぶん", ["overlap"]))   # 1 = 文字は残す・印だけ
+        apply.undo(self.ctx, got["answer"])
+        self.assertNotIn("tags", self.seg("s1"))
+        apply.answer(self.ctx, card("alt", "s2", CAND), {"answer": {"choice": "2", "others": True}})
+        self.assertEqual((self.seg("s2")["text"], self.seg("s2").get("tags")), ("今日は腫れです", ["overlap"]))   # 直した文字は使う
+        apply.answer(self.ctx, card("alt", "s3", dict(CAND, i=0, wrong="もう", right="毛")), {"answer": {"choice": "mixed"}})
+        self.assertEqual((self.seg("s3")["text"], self.seg("s3").get("tags")), ("もう一行", ["overlap"]))       # 文字は直さない
+        self.assertEqual(learn.load_feedback().get("dismissed") or [], [])                                     # 2 人の声は候補を却下しない
+
     def test_fill_typed_text(self):
         apply.answer(self.ctx, card("fill", "s1"), {"answer": {"choice": "other", "text": "梅田分"}})
         s = self.seg("s1")

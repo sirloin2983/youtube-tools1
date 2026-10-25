@@ -2,6 +2,8 @@
    カード: options = [{id: "1", text}, {id: "2", text}]。read:fill は 1 = 後処理のあと・2 = 認識のまま / read:alt は 1 = 今の字幕・2 = その読みを入れた行。
    答え = {choice: "1" | "2"} か {choice: "other", text: 打った正しい文字}(1 / 2 / 3 で答える。3 = どちらも違う = 入力欄が開き、Enter で決める・Esc でやめる)/
    card.around = {prev, next}(前の行と次の行の文字)= 比べる欄の上下に薄く添える(この行の前後に誰が何を言っているか。10-25 ユーザー)。
+   V = 付け足しの印「別の声も入っている」の切り替え(1 / 2 / 3 の答えに others: true = 主の人の言葉だけで判定・行の音のメモ overlap・声の学習と時刻に入れない)/
+   {choice: "mixed"}(M = 2 人の声が同じくらい。交互でも同時でも。文字は変えず overlap だけ = ② 同時発話の材料。10-26 ユーザー OK)/
    {choice: "unclear"}(5 = 聞き取れない。文字は変えず、行の音のメモ unclear = 時刻のカード・評価に回らない。10-25 確かめるの混ざりと BGM のルール)。
    流す区間は行の時刻にきっちり(頭の余白は前の行の終わりまで・末の余白 0 = 次の行の発言を入れない。src/app/check/sources.py の _tight)。
    **文字だけの判定**: 行を校正済みにしない・行の時刻の正解には使わない(反映は src/human/check/read.py)。 */
@@ -10,6 +12,8 @@
   var esc = UIKit.esc;
   var LABELS = { fill: ['後処理のあと', '認識のまま'], alt: ['今の字幕', '2 つ目のエンジン'] };
   var MAX_TEXT = 1000;
+  var OTHERS_TITLE = '1 人が主で、後ろに別の人の声が小さく入っている(主の人の言葉だけで判定します。入れてから 1 / 2 / 3 で答える)';
+  var MIXED_TITLE = '2 人の声が同じくらい(交互でも同時でも)。文字は直さず、このカードは終わり(同時発話の材料に残します)';
   var UNCLEAR_TITLE = '音が小さい・BGM や別の声にかき消されて、どちらとも決められない(文字は変えず、行に「聞き取れない」のメモを付けます)';
 
   function opts(card) {
@@ -34,7 +38,14 @@
   }
 
   CheckCards.define('read', function () {
-    var cur = null, typing = false, root = null, ctxRef = null;
+    var cur = null, typing = false, root = null, ctxRef = null, others = false;
+    function withOthers(a) { if (others && a && typeof a === 'object') a.others = true; return a; }
+    function paintOthers() {
+      var b = root && root.querySelector('[data-chk-k="V"]'), h = root && root.querySelector('[data-chk-others]');
+      if (b) b.setAttribute('aria-pressed', String(others));
+      if (h) h.hidden = !others;
+      if (ctxRef && ctxRef.refreshKeys) ctxRef.refreshKeys();
+    }
 
     function box() { return root && root.querySelector('[data-chk-type]'); }
     function field() { return root && root.querySelector('[data-chk-text]'); }
@@ -58,20 +69,25 @@
       var f = field(), t = f ? f.value.replace(/\s+/g, ' ').trim() : '';
       if (!t) { UIKit.toast('正しい文字を入れてください', { ms: 2500 }); return true; }   // 空では答えない(true = 使ったが答えではない)
       if (t.length > MAX_TEXT) { UIKit.toast('長すぎます(' + MAX_TEXT + ' 字まで)', { ms: 2500 }); return true; }
-      return { choice: 'other', text: t };
+      return withOthers({ choice: 'other', text: t });
     }
 
     return {
       render: function (card, el, ctx) {
-        cur = card; root = el; ctxRef = ctx; typing = false;
+        cur = card; root = el; ctxRef = ctx; typing = false; others = false;
         el.innerHTML = '<div class="chk-q">どちらの読みが正しい?</div>' +
           '<div class="chk-media"><div class="chk-stagebox" data-chk-media></div><div class="chk-info">' + near((card.around || {}).prev, 'prev') + pair(card) + near((card.around || {}).next, 'next') +
           (card.note ? '<p class="hint">' + esc(noteText(card)) + '</p>' : '') +
           '<p class="hint">文字だけの判定です(行を校正済みにしない・時刻の正解には使わない)。</p>' +
           '<p class="hint">この行の人の言葉だけを判定します(後ろの別の声・ゲームの声は読みに入れない)。</p>' +
-          '<p class="hint">音に前後の行の言葉が入っていても、この行の候補の文字が合っているかだけを見ます。時刻は次の時刻のカードで直します。</p></div></div>' +
+          '<p class="hint">音に前後の行の言葉が入っていても、この行の候補の文字が合っているかだけを見ます。時刻は次の時刻のカードで直します。</p>' +
+          '<p class="hint">後ろに別の人の声が小さく入っていたら V を入れてから答えます(主の人の言葉だけで判定)。</p>' +
+          '<p class="hint">2 人の声が同じくらい(交互でも同時でも)なら M。文字は直さず、同時発話の材料に残します。</p>' +
+          '<p class="hint" data-chk-others hidden>別の声も入っている行として答えます(声の学習・時刻のカードに入れない。V でやめる)</p></div></div>' +
           '<div class="chk-acts">' + CheckCards.btn('1 が正しい', '1', '') + CheckCards.btn('2 が正しい', '2', '') + CheckCards.btn('どちらも違う(打つ)', '3', '') +
-          CheckCards.btn('聞き取れない', '5', '').replace('<button ', '<button title="' + esc(UNCLEAR_TITLE) + '" ') + '</div>' +
+          CheckCards.btn('聞き取れない', '5', '').replace('<button ', '<button title="' + esc(UNCLEAR_TITLE) + '" ') +
+          CheckCards.btn('2 人の声が同じくらい', 'M', '').replace('<button ', '<button title="' + esc(MIXED_TITLE) + '" ') +
+          CheckCards.btn('別の声も入っている', 'V', '').replace('<button ', '<button aria-pressed="false" title="' + esc(OTHERS_TITLE) + '" ') + '</div>' +
           '<div class="chk-type" data-chk-type hidden><label class="hint" for="chkReadText">正しい文字(行の全体を打ち直します)</label>' +
           '<div class="row"><input type="text" id="chkReadText" class="chk-text" data-chk-text maxlength="' + MAX_TEXT + '" value="' + esc(card.text || '') + '" autocomplete="off">' +
           CheckCards.btn('決める', 'Enter', 'primary') + '</div></div>';
@@ -89,15 +105,17 @@
         }
         if (k === 'Enter' && typing) return typed();
         if (k === 'Escape' && typing) { close(); return true; }
-        if (k === '1' || k === '2') { var o = opts(cur)[Number(k) - 1]; return o ? { choice: String(o.id || k) } : null; }
+        if (k === '1' || k === '2') { var o = opts(cur)[Number(k) - 1]; return o ? withOthers({ choice: String(o.id || k) }) : null; }
         if (k === '3') { open(); return true; }
         if (k === '5') return { choice: 'unclear' };
+        if (k === 'M') return { choice: 'mixed' };
+        if (k === 'V') { others = !others; paintOthers(); return true; }
         return null;
       },
       keybar: function () {
-        return typing ? [{ k: 'Enter', l: '決める' }, { k: 'Esc', l: 'やめる' }] : [{ k: '1', l: '1 が正しい' }, { k: '2', l: '2 が正しい' }, { k: '3', l: '打つ' }, { k: '5', l: '聞き取れない' }];
+        return typing ? [{ k: 'Enter', l: '決める' }, { k: 'Esc', l: 'やめる' }] : [{ k: '1', l: '1 が正しい' }, { k: '2', l: '2 が正しい' }, { k: '3', l: '打つ' }, { k: '5', l: '聞き取れない' }, { k: 'M', l: '2 人の声' }, { k: 'V', l: others ? '別の声も: 入' : '別の声も' }];
       },
-      unmount: function () { cur = null; root = null; ctxRef = null; typing = false; }
+      unmount: function () { cur = null; root = null; ctxRef = null; typing = false; others = false; }
     };
   });
 })();

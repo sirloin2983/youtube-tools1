@@ -420,13 +420,13 @@ def voice_diar(view):
 
 
 def read_decided(view):
-    """読みのカードで答えた行 -> {"<文書>#<行>": 答えた時刻}。「聞き取れない」は文字が決まっていないので入れない
+    """読みのカードで答えた行 -> {"<文書>#<行>": 答えた時刻}。「聞き取れない」は文字が決まっていないので入れない・「2 人の声」「別の声も」も入れない
     (「分からない」は答えの記録に入らない・「飛ばす」は記録しない = どちらも元から入らない。10-25 ユーザー「読みで答えた行は全部、時刻のカードに」)"""
     out = {}
     for r in view.answered("read"):
         a, t = r.get("answer"), r.get("target") or {}
-        if isinstance(a, dict) and a.get("choice") == "unclear":
-            continue
+        if isinstance(a, dict) and (a.get("choice") in ("unclear", "mixed") or a.get("others")):
+            continue   # 聞き取れない・2 人の声が同じくらい・別の声も = 時刻の正解にしない(行にも音のメモが付く)
         out.setdefault(str(t.get("docId") or "") + "#" + str(t.get("row")), _num(r.get("at")))
     return out
 
