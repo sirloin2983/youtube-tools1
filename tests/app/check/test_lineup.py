@@ -94,6 +94,14 @@ class GoalsTest(unittest.TestCase):
         self.assertEqual(f("timing", None), 1)
         self.assertEqual(f("alt", None), 0)
 
+    def test_voice_count_skips_mixed_other_bgm(self):
+        # 誰の声の 混ざり・声が無い・BGM 大・別の声も と、読みの 聞き取れない は目標に数えない(10-25 確かめるの混ざりと BGM のルール)
+        rows = [{"kind": "voice", "source": "solo", "at": 1, "answer": a} for a in (
+            {"choice": "S1"}, {"choice": "mixed"}, {"choice": "other"}, {"choice": "S1", "bgm": True}, {"choice": "S1", "others": True}, {"name": "あ"})]
+        rows.append({"kind": "read", "source": "fill", "at": 1, "answer": {"choice": "unclear"}})
+        f = goals.extra_counter(rows)
+        self.assertEqual((f("speakers", None), f("fill", None)), (2, 0))
+
     def test_goals_of_adds_check(self):
         last = {"areas": {"fill": {"latest": {"at": 100, "summary": {"judged": 10}}}}}
         got = {g["id"]: g for g in accuracy.goals_of(last, extra=goals.extra_counter(self.rows()))}

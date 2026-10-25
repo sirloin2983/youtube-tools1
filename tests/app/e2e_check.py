@@ -345,6 +345,14 @@ def _scene_read_type(cx):
     press(pg, "Enter")
     check(wait_js(pg, "CheckShell.state().cur === null || CheckShell.state().empty") and len(fq.live_answers()) == n + 1, "Enter で答える: %s" % state(pg))
     check(fq.answers[-1]["body"]["answer"] == {"choice": "other", "text": "今日は晴れでした"}, "答えは {choice: other, text}: %s" % fq.answers[-1]["body"]["answer"])
+    fq.cards = [card(91, "read", source="alt", guess=None, text="今日は晴れです",
+                     options=[{"id": "1", "text": "今日は晴れです"}, {"id": "2", "text": "今日は腫れです"}])]
+    pg.goto(cx.base + "check?kind=read")
+    check(wait_js(pg, "CheckShell.state().cur === 'read:e2e:91'") and "聞き取れない" in pg.text_content("#chkBody") and "人の言葉だけ" in pg.text_content("#chkBody"),
+          "5「聞き取れない」のボタンと案内の 1 行: %s" % state(pg))
+    press(pg, "5")
+    check(wait_js(pg, "CheckShell.state().cur === null || CheckShell.state().empty") and fq.answers[-1]["body"]["answer"] == {"choice": "unclear"},
+          "5 = {choice: unclear}: %s" % fq.answers[-1:])
 
 
 def _scene_real_api(cx):
@@ -672,12 +680,16 @@ def _scene_eval_lane(cx):
         pg.fill("#chkBody li[data-sec-add] [data-sec-a]", "7")
         pg.fill("#chkBody li[data-sec-add] [data-sec-b]", "9.5")
         pg.fill("#chkBody li[data-sec-add] [data-sec-text]", "足した言葉")
+        check("同時に話していたら" in pg.text_content(body) and pg.evaluate("document.querySelectorAll('#chkBody li[data-sec-row=r1] [data-sec-memo]').length") == 3,
+              "案内の 1 行と、行ごとのメモ 3 つ(重なり・BGM 大・聞き取れない)")
+        pg.select_option("#chkBody li[data-sec-add] [data-sec-spk]", "__game__")   # 話者の「ゲームの音」
+        pg.check("#chkBody li[data-sec-add] [data-sec-memo=overlap]")
         pg.focus("#chkBody li[data-sec-add] [data-sec-text]")
         press(pg, "Enter")
         check(state(pg)["cur"] == "section:e2e:72", "入力中の Enter だけでは答えない")
         press(pg, "Control+Enter")
         check(wait_js(pg, "CheckShell.state().empty"), "Ctrl+Enter で答える: %s" % state(pg))
-        want = {"rows": [{"id": "r1", "text": "直した字幕", "speaker": "みこ"}, {"id": "r2", "drop": True}], "add": [{"start": 7, "end": 9.5, "text": "足した言葉"}]}
+        want = {"rows": [{"id": "r1", "text": "直した字幕", "speaker": "みこ"}, {"id": "r2", "drop": True}], "add": [{"start": 7, "end": 9.5, "text": "足した言葉", "game": True, "tags": ["overlap"]}]}
         check(fe.answers[-1]["body"]["answer"] == want, "直した答えの中身: %s" % fe.answers[-1]["body"]["answer"])
         pg.click("#chkEvalHead [data-chk-eb=stop]")
         check(wait_for(lambda: hits["stop"] == [{}]), "止める = POST eval-batch/stop {}: %s" % hits["stop"])

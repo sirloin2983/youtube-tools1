@@ -97,7 +97,8 @@ def section_eval(view):
             a, b = sources._num(g.get("start")), sources._num(g.get("end"))
             novoice = bool(turns) and b > a and speech_sources._overlap(turns, a, b) / (b - a) < speech_sources.VOICE_MIN_RATIO
             return {"id": g["id"], "start": a, "end": b, "text": str(g.get("text") or ""), "speaker": sp_name.get(g.get("speaker"), ""),
-                    "owned": own, "novoice": novoice, "proofed": g.get("proofed") is True}
+                    "owned": own, "novoice": novoice, "proofed": g.get("proofed") is True,
+                    "tags": [t for t in g.get("tags") or () if t in ("overlap", "bgm", "unclear")]}   # 行ごとのメモ(human/check/section.py の MEMO_TAGS)
         listed = sorted([row_view(g, True) for g in owned] + [row_view(g, False) for g in near], key=lambda r: (r["start"], r["end"]))
         case = view.case_of_doc(tid) or {"id": "", "title": str(doc.get("title") or "")[:120]}
         out.append({"id": lineup.card_id("section", "eval", tid, int(round(head * 1000))), "kind": "section", "source": "eval", "case": case,

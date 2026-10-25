@@ -65,6 +65,7 @@
         el.innerHTML = '<div class="chk-q">行の時刻が合っているか?</div>' +
           '<div class="chk-media"><div class="chk-stagebox" data-chk-media></div><div class="chk-info">' +
           '<p class="hint">波形の青い印が字幕の頭と末です。聞いて、字幕が出る・消えるタイミングが合っていればそのまま Enter。</p>' +
+          '<p class="hint">合わせるのはこの行の人の言葉の頭と末です(後ろの別の声・BGM には合わせない)。</p>' +
           '<p data-chk-tstate role="status"></p><p class="hint" data-chk-tguide></p>' +
           (card.note ? '<p class="hint">' + esc(card.note) + '</p>' : '') + '</div></div>' +
           '<div class="chk-acts">' + CheckCards.btn('ちょうどいい', 'Enter', 'primary') + CheckCards.btn('頭がずれている', 'H') +

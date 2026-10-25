@@ -109,6 +109,17 @@ class ReadTest(unittest.TestCase):
         apply.undo(self.ctx, got["answer"])
         self.assertEqual(self.seg("s2")["text"], "今日は晴れです")
 
+    def test_unclear_tags_row_only_and_undo(self):
+        # 聞き取れない(5)= 音のメモ unclear だけ。文字・fill・候補の採否は触らない・Z で外れる(10-25 確かめるの混ざりと BGM のルール)
+        got = apply.answer(self.ctx, card("fill", "s1"), {"answer": {"choice": "unclear"}})
+        s = self.seg("s1")
+        self.assertEqual((s["text"], s["fill"]["from"], s.get("tags")), ("埋めた文", "うめたぶん", ["unclear"]))
+        apply.answer(self.ctx, card("alt", "s2", CAND), {"answer": {"choice": "unclear"}})
+        self.assertEqual((self.seg("s2")["text"], self.seg("s2").get("tags")), ("今日は晴れです", ["unclear"]))
+        self.assertFalse(self.fb().get("dismissed"))
+        apply.undo(self.ctx, got["answer"])
+        self.assertNotIn("tags", self.seg("s1"))
+
     def test_fill_typed_text(self):
         apply.answer(self.ctx, card("fill", "s1"), {"answer": {"choice": "other", "text": "梅田分"}})
         s = self.seg("s1")

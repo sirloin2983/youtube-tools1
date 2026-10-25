@@ -143,6 +143,21 @@ class SourcesTest(unittest.TestCase):
                                "target": {"docId": DOC, "row": "s1"}}])
         self.assertIn("time:row:%s#s1" % DOC, {c["id"] for c in self.collect(st)})
 
+    def test_hard_rows_skip_time_and_go_last_in_read(self):
+        """BGM 大・重なり・聞き取れない・混ざりの行は時刻のカードに出さない・読みは後ろへ(10-25 確かめるの混ざりと BGM のルール)"""
+        rows = [{"id": "p%d" % i, "start": float(i), "end": i + 1.0, "text": "行%d" % i, "proofed": True} for i in range(5)]
+        for g, t in zip(rows, (["bgm"], ["overlap"], ["unclear"], None)):
+            if t:
+                g["tags"] = t
+        rows[3]["flag"] = sources._yschemas.MIXED_FLAG
+        rows += [{"id": "f1", "start": 10.0, "end": 11.0, "text": "埋め", "fill": {"from": "うめ", "by": "llm"}, "flag": "自信が低い"},
+                 {"id": "f2", "start": 12.0, "end": 13.0, "text": "埋め二", "fill": {"from": "うめに", "by": "llm"}}]
+        write(os.path.join(self.tx, DOC + ".json"), doc(200, src=self.media, rows=rows))
+        cards = self.collect()
+        self.assertEqual(sorted(c["target"]["row"] for c in cards if c["kind"] == "time"), ["p4"])
+        fill = sorted((c for c in cards if c["kind"] == "read" and c["source"] == "fill"), key=lineup._order_key)
+        self.assertEqual([c["target"]["row"] for c in fill], ["f2", "f1"])
+
     def test_value_auto(self):
         snap = {"cases": [{"id": VID, "title": "ライブ", "streamedAt": 5, "clips": [
             {"markId": "a1", "start": 3, "auto": {"score": 0.7, "originLabel": "配信中の候補"}, "review": {}, "transcript": {"id": DOC}},
