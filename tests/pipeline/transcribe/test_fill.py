@@ -165,6 +165,33 @@ class TestCleanTurns(unittest.TestCase):
         self.assertEqual([g["id"] for g in doc5["segments"]], ["s3", "s4", "s5"])
 
 
+class TestFillEdges(unittest.TestCase):
+    def test_a_trims_neighbor_words(self):
+        """A: 置き換えた行の尻が次の行の頭と同じ字(窓の余白で入った隣の言葉)は落とす・置き換えるかは落とす前の字数で決める・印 fill.trim。
+        行の半分を超える重なり(同じ言葉の繰り返し)は落とさない。スイッチを切れば前の形(10-26 確かめるの答え)"""
+        rows = [{"start": 0.0, "end": 2.0, "text": "これってどうしキャンス", "avg_logprob": -0.2},
+                {"start": 2.1, "end": 5.0, "text": "ごめん", "avg_logprob": -0.2},
+                {"start": 5.1, "end": 7.0, "text": "ごめんペコランチョ", "avg_logprob": -0.2}]
+        read = lambda a, b: [{"start": 2.2, "end": 4.9, "text": "目押しが下たごめん"}]   # noqa: E731
+        out, st = fill.fill_apply([dict(r) for r in rows], read, 10)
+        self.assertEqual((out[1]["text"], out[1]["fill"]["trim"], st["rows"]), ("目押しが下た", {"tail": 3}, 1))
+        with mock.patch.object(fill, "FILL_TRIM_EDGE", False):
+            self.assertEqual(fill.fill_apply([dict(r) for r in rows], read, 10)[0][1]["text"], "目押しが下たごめん")
+        same = fill.fill_trim_edges([{"text": "気持ちいい", "fill": {}}], {"text": "気持ちいい"}, None)
+        self.assertEqual(same[0]["text"], "気持ちいい")
+
+    def test_d_keeps_small_kana_variants(self):
+        """D: 違う 1 字が小さい字(みこっち の っ)・置き換えると同じ字が並ぶ(みこち + ち)なら直さない(確かめるで「みこちち」が 3 件)。普通の 1 字違いは直す"""
+        def run(t, o, al):
+            g = [{"start": 0, "end": 3, "text": t}]
+            return fill.fill_agree(g, [{"start": 0, "end": 3, "text": o}], al), g[0]["text"]
+        self.assertEqual(run("ちょっと待ってみこっち", "ちょっと待ってみこち", ["みこち"]), (0, "ちょっと待ってみこっち"))
+        self.assertEqual(run("ミコっち恵方巻き", "みこち恵方巻き", ["みこち"]), (0, "ミコっち恵方巻き"))
+        self.assertEqual(run("すいちょんかわいい", "すいちゃんかわいい", ["すいちゃん"]), (1, "すいちゃんかわいい"))
+        with mock.patch.object(fill, "FILL_AGREE_SMALL_SKIP", False):
+            self.assertEqual(run("ちょっと待ってみこっち", "ちょっと待ってみこち", ["みこち"]), (1, "ちょっと待ってみこちち"))
+
+
 class TestSenseVoiceEngine(unittest.TestCase):
     def test_registered(self):
         self.assertTrue(E.valid("sense-voice"))

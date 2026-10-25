@@ -4,7 +4,8 @@
 ねらい: whisper の結果のうち「機械どうしを突き合わせれば直せる」所だけを自動で直して、校正を短くする(ユーザー決定「精度が上がるなら自動で書き換えてよい」)。
   A fill_apply   文字の少ない行(FILL_MIN_SEC 秒以上で、記号を除き同じ字の繰り返しを 1 字に縮めた文字数が FILL_MAX_CPS 字/秒 未満、または繰り返しで縮む行
                  = 声が重なって片方しか書けていない所)の窓(前後 FILL_PAD 秒)を SenseVoice(tx_engines.SenseVoice。CPU・1 窓 0.1 秒)で読み、
-                 字数が FILL_RATIO 倍以上なら置き換える。確かめ済み 22 本で CER 13.0 → 11.8%・重なり区間の抜け 109 → 51 字
+                 字数が FILL_RATIO 倍以上なら置き換える。確かめ済み 22 本で CER 13.0 → 11.8%・重なり区間の抜け 109 → 51 字。
+                 置き換えた行の頭・尻が前後の行と同じ字(窓の余白で入った隣の言葉)は落とす(FILL_TRIM_EDGE・印 fill.trim。10-26)
   B fill_strip_names  行の頭の「名前:」(whisper が字幕の学習データの形を出す)を外す。名前が名簿・用語集・文脈の語に当たるか、かな・カタカナだけの短い語のとき。
                  設定 stripNames(既定オン・autoFill とは別のスイッチ)。印 FILL_SPK_FLAG・行の fill = {"from": 元の文字, "by": "name"}
   C fill_clean_tail   前の行の末尾だけをもう一度出した行(窓の境目の重複)を捨てる(run_job)
@@ -12,7 +13,8 @@
                  判別を回さない文書では捨てない)。22 本で 13.0 → 12.8%
   D fill_agree   SenseVoice の全体の読みに名簿の呼び名(FILL_AGREE_MIN 字以上・common は除く)がそのまま出ていて、同じ時間の行にその呼び名が無く、
                  同じ長さで 1 字だけ違う並び(かなの違いは数えない)があれば、その呼び名に直す。無条件の 1 字違い直しは誤爆した(11.3〜13.7%)ので
-                 別のエンジンの一致を条件にする。名前の再現 +4
+                 別のエンジンの一致を条件にする。名前の再現 +4。違う 1 字が っ などの小さい字(呼び名の別の書き方)・置き換えると同じ字が
+                 並ぶ物は直さない(FILL_AGREE_SMALL_SKIP。「みこっち」→「みこちち」が確かめるで 3 件。10-26)
 決まり:
   - 設定 autoFill(「認識の設定」。既定オン。文字起こしの指定 validate_job)。評価用の文書には当てない(autoDict と同じ = 定点の正解が 2 つのエンジンに寄らない)
   - 置き換えた・直した行には印(FILL_FLAG / FILL_NAME_FLAG)と元の文字(行の fill = {"from": 元の文字, "by": "sense-voice"})を残す = 画面の「別の読み」の札で戻せる。
@@ -42,6 +44,9 @@ FILL_RUNNY = 0.6         # A: 同じ字の繰り返しを縮めて文字数が�
 FILL_PAD = 0.5           # A: 窓の前後の余白(秒)
 FILL_RATIO = 3.0         # A: 別の読みの字数が元の何倍以上なら置き換えるか
 FILL_MAX_ROWS = 60       # A: 1 回の文字起こしで読む窓の上限(長い文書で遅くならないように)
+FILL_TRIM_EDGE = True    # A: 置き換えた行の頭が前の行の末尾と・尻が次の行の頭と FILL_TRIM_MIN 字以上同じなら、その字を落とす(窓の余白で隣の言葉が入る。
+                         # 確かめるの答え「どちらも違う」に次の行の頭が入った行。置き換えた 150 行の 15%。印 fill.trim。False で前の形。10-26)
+FILL_TRIM_MIN = 2        # A: 落とす重なりの最小の字数(比べるのは fill_norm の文字)
 FILL_A_FIRST = True      # A を C より先に(False = 0.99.99 までの C → A。記録の fill.order)
 FILL_FLAG = "別の読みで埋めた(元の文字は「別の読み」の札)"
 FILL_NAME_FLAG = "名簿の呼び名に直した(別のエンジンも同じ呼び名)"
@@ -96,6 +101,47 @@ def _fill_overlap(a0, a1, b0, b1):
 
 
 # ---------- A: 文字の少ない行の窓を別の読みで埋める ----------
+def _fill_edge(a, b):
+    """a の末尾と b の頭が同じ最長の字数(fill_norm の文字。FILL_TRIM_MIN 未満は 0)"""
+    for k in range(min(len(a), len(b)), FILL_TRIM_MIN - 1, -1):
+        if a[-k:] == b[:k]:
+            return k
+    return 0
+
+
+def _fill_cut(text, k, head):
+    """text の頭(head)か尻から、fill_norm の文字で k 字ぶんを落とす(間の記号・空白も一緒に)"""
+    if k <= 0:
+        return text
+    t = text if head else text[::-1]
+    n = 0
+    for i, ch in enumerate(t):
+        if fill_norm(ch):
+            n += 1
+            if n == k:
+                rest = t[i + 1:]
+                return (rest if head else rest[::-1]).strip()
+    return ""
+
+
+def fill_trim_edges(new, prev, nxt):
+    """A で置き換えた行 new(時刻の順)の頭が前の行 prev の末尾と・尻が次の行 nxt の頭と同じ字(窓の余白で入った隣の言葉)を落とす。
+    落とした字数を最初と最後の行の fill.trim {head, tail} に残す。空になった行は捨てる -> 行"""
+    if not new:
+        return new
+    h = _fill_edge(fill_norm(prev.get("text")), fill_norm(new[0]["text"])) if prev else 0
+    t = _fill_edge(fill_norm(new[-1]["text"]), fill_norm(nxt.get("text"))) if nxt else 0
+    h = h if 2 * h <= len(fill_norm(new[0]["text"])) else 0     # 行の半分を超える重なりは落とさない(同じ言葉の繰り返し = 隣の言葉ではない。答えで残した行)
+    t = t if 2 * t <= len(fill_norm(new[-1]["text"])) else 0
+    if h:
+        new[0]["text"] = _fill_cut(new[0]["text"], h, True)
+        new[0]["fill"]["trim"] = dict(new[0]["fill"].get("trim") or {}, head=h)
+    if t and new[-1]["text"]:
+        new[-1]["text"] = _fill_cut(new[-1]["text"], t, False)
+        new[-1]["fill"]["trim"] = dict(new[-1]["fill"].get("trim") or {}, tail=t)
+    return [x for x in new if fill_norm(x["text"])]
+
+
 def fill_apply(rows, read, total):
     """rows(expand_segments の行。wav の秒)のうち対象の行(fill_sparse_row)の窓を read(s0, e0) -> [{start, end, text}](wav の秒)で読み、
     別の読み(行の半分以上が元の行の時間に入るもの)の字数が元の FILL_RATIO 倍以上なら置き換える。
@@ -118,6 +164,13 @@ def fill_apply(rows, read, total):
             continue
         new = [{"start": round(float(c["start"]), 3), "end": round(float(c["end"]), 3), "text": str(c["text"]).strip(), "words": [],
                 "avg_logprob": None, "no_speech_prob": None, "compression_ratio": None, "fill": {"from": r["text"], "by": FILL_ENGINE}} for c in cand]
+        if FILL_TRIM_EDGE:
+            rest = [x for x in out if x is not r]
+            prev = max((x for x in rest if float(x["end"]) <= float(r["start"]) + FILL_PAD), key=lambda x: float(x["end"]), default=None)
+            nxt = min((x for x in rest if float(x["start"]) >= float(r["end"]) - FILL_PAD), key=lambda x: float(x["start"]), default=None)
+            new = fill_trim_edges(new, prev, nxt)   # 置き換えるかは落とす前の字数で決める(落とすと短い行は置き換えなくなり、答えで当たっていた物まで落ちた)
+            if not new:
+                continue
         out = [x for x in out if x is not r] + new
         stats["rows"] += 1
         stats["added"] += len(new)
@@ -318,6 +371,20 @@ def fill_kana(t):
     return "".join(_roster._hira(c) for c in str(t or ""))
 
 
+FILL_AGREE_SMALL_SKIP = True   # D: 違う 1 字が小さい字・伸ばし(「みこっち」の っ)か、置き換えると同じ字が並ぶ(みこち + ち)なら直さない
+                               # (確かめるの答えで「みこちち」が 3 件。10-26。False で前の形)
+_FILL_SMALL = set("っッゃゅょャュョぁぃぅぇぉァィゥェォゎヮー〜")
+
+
+def _fill_agree_variant(t, i, a):
+    """D: t[i:i+len(a)] を呼び名 a に置き換えると誤る形か(違う 1 字が小さい字・伸ばし = 呼び名の別の書き方 / 置き換えた後ろに a の最後の字が続く = 二重)"""
+    w = t[i:i + len(a)]
+    diff = [(x, y) for x, y in zip(fill_kana(w), fill_kana(a)) if x != y]
+    if diff and diff[0][0] in _FILL_SMALL and diff[0][1] not in _FILL_SMALL:   # っ ↔ ち(書き方の違い)。ょ ↔ ゃ は聞き違いなので直す
+        return True
+    return t[i + len(a):i + len(a) + 1] == a[-1:] or (i > 0 and t[i - 1] == a[:1])
+
+
 def fill_agree(segs, others, aliases):
     """others(2 つ目のエンジンの行 [{start, end, text}]。文書の秒)に呼び名がそのまま出ていて、同じ時間(FILL_AGREE_SLACK)の行(校正済みでない)にその呼び名が無く、
     同じ長さで 1 字だけ違う並びがあれば、その呼び名に直す。直した行は fill(元の文字。A で埋めた行はそのまま)と FILL_NAME_FLAG。-> 直した数"""
@@ -337,6 +404,8 @@ def fill_agree(segs, others, aliases):
                     continue
                 size, na = len(a), fill_kana(a)
                 for i in range(0, len(t) - size + 1):
+                    if FILL_AGREE_SMALL_SKIP and _fill_agree_variant(t, i, a):
+                        continue
                     if sum(1 for x, y in zip(fill_kana(t[i:i + size]), na) if x != y) == 1:
                         g.setdefault("fill", {"from": t, "by": FILL_ENGINE})
                         t = t[:i] + a + t[i + size:]
