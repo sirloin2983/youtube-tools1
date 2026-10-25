@@ -17,7 +17,7 @@
   取る区間 = 候補の ?t= の前 AROUND[0] 秒〜後 AROUND[1] 秒(研究の 2 段の探し方に足りる幅)。声の材料もその区間から(voice-inbox → voicefetch.intake が 4 分に)。
   info の頼みは、YouTube Data API のキーがあれば公式の窓口(ytt/ytapi。1 日 API_DAILY まで・50 本ずつ)で読み、枠を使わない。無ければ yt-dlp(枠を使う)。
   キーの値は読まない・出さない(ytapi が見出しで送る。ここは有無と成否だけ)。
-決まり(研究の今の決まりを 1 か所に): cookie なし・bot 判定やログインを求められたらその日は止め、翌日から間隔を LADDER で伸ばす・
+決まり(研究の今の決まりを 1 か所に): ツールの YouTube のログインで取る(10-25 ユーザー「ログインして」。voicefetch._ytdlp。切れていれば cookie なし)・bot 判定やログインを求められたらその日は止め、翌日から間隔を LADDER で伸ばす・
   友人のライブ中と処理中は休む(呼び手の busy)・再起動で途中の物は次に取り直す(done の .part を消す・頼みは done が書けるまで残る)。
 使い道の束(10-25 ユーザー「当たりでも外れでも使える物は全部使う」): 音を取る問い合わせの中で、動画の情報(説明欄・チャプター・よく見られている場面の山)と
   日本語の自動字幕も keep/<動画>/ に小さく残す(bundle)。結果の info.bundle に場所。分析(区間・編集カット・同時発話・置換辞書の候補・BGM)は研究。
@@ -228,7 +228,7 @@ def _info_ytdlp(urls):
     yd = _vf._tools.find_tool("yt-dlp")
     if not yd:
         raise RuntimeError("yt-dlp が見つかりません")
-    r, tail = _vf._run([yd, "--encoding", "utf-8", "--no-warnings", "--skip-download", "--no-playlist", "-j", "--"] + list(urls), 300)
+    r, tail = _vf._ytdlp([yd, "--encoding", "utf-8", "--no-warnings", "--skip-download", "--no-playlist", "-j", "--"] + list(urls), 300)
     if r is None or r.returncode != 0:
         raise RuntimeError(tail or "読めませんでした")
     out = []
@@ -261,7 +261,7 @@ def _audio(app_dir, rid, url, section):
     ff = _vf._tools.find_tool("ffmpeg")
     if ff:
         cmd += ["--ffmpeg-location", ff]
-    r, tail = _vf._run(cmd + ["--", url], _vf.FETCH_TIMEOUT * 2)
+    r, tail = _vf._ytdlp(cmd + ["--", url], _vf.FETCH_TIMEOUT * 2)
     files = [os.path.join(stage, x) for x in os.listdir(stage) if x.startswith(rid + ".")]
     if r is None or r.returncode != 0 or not [f for f in files if not f.endswith((".part", ".ytdl", ".tmp"))]:
         for f in files:
@@ -319,7 +319,7 @@ def _chat(app_dir, url):
         return None, "yt-dlp が見つからないか、動画の id が分かりません"
     d = qdir(app_dir, KEEP_DIR, vid)
     os.makedirs(d, exist_ok=True)
-    r, tail = _vf._run([yd, "--encoding", "utf-8", "--no-warnings", "--no-playlist", "--skip-download", "--write-subs", "--sub-langs", "live_chat",
+    r, tail = _vf._ytdlp([yd, "--encoding", "utf-8", "--no-warnings", "--no-playlist", "--skip-download", "--write-subs", "--sub-langs", "live_chat",
                         "-o", "subtitle:" + os.path.join(d, "chat"), "--", url], 1800)
     got = [os.path.join(d, x) for x in os.listdir(d) if x.startswith("chat.") and not x.endswith(".part")]
     if r is not None and r.returncode == 0 and got:
@@ -333,7 +333,7 @@ def _subs(app_dir, rid, url):
     if not yd:
         return None, "yt-dlp が見つかりません"
     os.makedirs(qdir(app_dir, "done"), exist_ok=True)
-    r, tail = _vf._run([yd, "--encoding", "utf-8", "--no-warnings", "--no-playlist", "--skip-download", "--write-auto-subs", "--sub-langs", "ja",
+    r, tail = _vf._ytdlp([yd, "--encoding", "utf-8", "--no-warnings", "--no-playlist", "--skip-download", "--write-auto-subs", "--sub-langs", "ja",
                         "--sub-format", "json3", "-o", qdir(app_dir, "done", rid) + ".%(ext)s", "--", url], 300)
     got = [qdir(app_dir, "done", x) for x in os.listdir(qdir(app_dir, "done")) if x.startswith(rid + ".") and x.endswith((".json3", ".vtt"))]
     if r is not None and r.returncode == 0 and got:
@@ -434,7 +434,20 @@ def wants(app_dir, roster_r, counts, extra=None, now=None):
 
 
 def tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None):
-    """1 回分 -> 取った物の説明か None。busy() = 休む理由か None"""
+    """1 回分 -> 取った物の説明か None。busy() = 休む理由か None。YouTube に問い合わせた回は、ログインつきだったかを記録に 1 行"""
+    _vf.LOGIN.update(used=None)
+    t0 = time.time()
+    got = _tick(app_dir, roster_r, counts, busy, start_job, log, extra=extra, now=now)
+    if _vf.LOGIN.get("used") is not None:
+        if _vf.LOGIN.get("at", 0) >= t0:
+            log("YouTube の取得の列: ツールの YouTube のログインで断られたので、cookie なしで取り直しました(ログインし直しが要るかもしれません)")
+        else:
+            log("YouTube の取得の列: %s で取りました" % ("ツールの YouTube のログインつき" if _vf.LOGIN["used"] else "ログインなし(ツールにログインが入っていない)"))
+    return got
+
+
+def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None):
+    """tick の本体"""
     now = time.time() if now is None else now
     if not ENABLED:
         return None
@@ -545,7 +558,7 @@ def _list_url(url, items):
     yd = _vf._tools.find_tool("yt-dlp")
     if not yd:
         return [], "yt-dlp が見つかりません"
-    r, tail = _vf._run([yd, "--encoding", "utf-8", "--no-warnings", "--flat-playlist", "-J", "--playlist-items", "1:%d" % max(1, min(items, 500)), "--", url], 300)
+    r, tail = _vf._ytdlp([yd, "--encoding", "utf-8", "--no-warnings", "--flat-playlist", "-J", "--playlist-items", "1:%d" % max(1, min(items, 500)), "--", url], 300)
     if r is None or r.returncode != 0:
         return [], tail or "一覧を読めませんでした"
     try:

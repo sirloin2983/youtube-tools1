@@ -133,12 +133,30 @@ def _run(cmd, timeout):
     return r, ((r.stderr or "") + (r.stdout or ""))[-400:].strip()
 
 
+LOGIN_WORDS = ("cookies are no longer valid", "sign in", "login", "account", "cookie")   # ログインの問題(切れた・止められた)の印(小文字で照らす)
+LOGIN = {"trouble": None, "at": 0, "used": None}   # 最後にログインで断られた時刻と文(列が記録に出す。cookie の中身は持たない)
+
+
+def _ytdlp(cmd, timeout):
+    """yt-dlp を、ツールに入っている YouTube のログイン(ytt/tools.ytdlp_auth_args = 普段の取得と同じ口。写しのパスだけ渡す・中身は読まない)で呼ぶ。
+    ログインが無ければ cookie なし。ログインで断られたら(切れた・止められた)cookie なしで 1 回取り直し、LOGIN に印を残す(10-25 ユーザー「ログインして」)"""
+    auth = _tools.ytdlp_auth_args()
+    LOGIN["used"] = bool(auth)
+    if not auth:
+        return _run(cmd, timeout)
+    r, tail = _run(cmd[:1] + auth + cmd[1:], timeout)
+    if (r is None or r.returncode != 0) and any(w in (tail or "").lower() for w in LOGIN_WORDS):
+        LOGIN.update(trouble=(tail or "")[-200:], at=time.time())
+        return _run(cmd, timeout)
+    return r, tail
+
+
 def _list(channel, timeout=180):
     """配信の一覧(/streams の LIST_ITEMS 本・中身は読まない)-> ([{"id", "title", "month"}](新しい順), 失敗の文)。cookie は使わない"""
     yd = _tools.find_tool("yt-dlp")
     if not yd:
         return [], "yt-dlp が見つかりません"
-    r, tail = _run([yd, "--encoding", "utf-8", "--no-warnings", "--flat-playlist", "-J", "--playlist-items", "1:%d" % LIST_ITEMS,
+    r, tail = _ytdlp([yd, "--encoding", "utf-8", "--no-warnings", "--flat-playlist", "-J", "--playlist-items", "1:%d" % LIST_ITEMS,
                     "--", "https://www.youtube.com/channel/%s/streams" % channel], timeout)
     if r is None or r.returncode != 0:
         return [], tail or "一覧を読めませんでした"
@@ -169,7 +187,7 @@ def _fetch(video_id, out_base, timeout=FETCH_TIMEOUT):
     if ff:
         cmd += ["--ffmpeg-location", ff]
     cmd += ["--", "https://www.youtube.com/watch?v=" + video_id]
-    r, tail = _run(cmd, timeout)
+    r, tail = _ytdlp(cmd, timeout)
     if r is None:
         return None, tail
     d, base = os.path.dirname(out_base), os.path.basename(out_base)

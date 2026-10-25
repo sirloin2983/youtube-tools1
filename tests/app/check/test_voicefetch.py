@@ -108,6 +108,24 @@ class VoiceFetchTest(unittest.TestCase):
         self.assertAlmostEqual(VF._tools.media_duration(dst), SECTION_LEN, delta=2)
         self.assertFalse(VF._shorten(dst, dst + ".x.m4a"))   # 4 分は短い = そのまま
 
+    def test_ytdlp_uses_login_and_falls_back(self):
+        """yt-dlp はツールの YouTube のログイン(ytdlp_auth_args の写しのパス)で呼ぶ。ログインで断られたら cookie なしで 1 回取り直す"""
+        import types
+        calls = []
+
+        def run(cmd, timeout):
+            calls.append(cmd)
+            if "--cookies" in cmd:
+                return types.SimpleNamespace(returncode=1), "ERROR: The provided YouTube account cookies are no longer valid"
+            return types.SimpleNamespace(returncode=0), ""
+        with mock.patch.object(VF._tools, "ytdlp_auth_args", lambda: ["--cookies", "copy.txt"]), mock.patch.object(VF, "_run", run):
+            r, _t = VF._ytdlp(["yt-dlp", "--x"], 10)
+        self.assertEqual((r.returncode, calls[0][:3], "--cookies" in calls[1]), (0, ["yt-dlp", "--cookies", "copy.txt"], False))
+        self.assertTrue(VF.LOGIN["trouble"] and VF.LOGIN["used"])
+        with mock.patch.object(VF._tools, "ytdlp_auth_args", lambda: []), mock.patch.object(VF, "_run", run):
+            VF._ytdlp(["yt-dlp"], 10)
+        self.assertFalse(VF.LOGIN["used"])                                         # ログインが入っていない = cookie なし
+
     def test_bot_stops_the_day(self):
         got = self.tick(fetch=lambda vid, base: (None, "ERROR: Sign in to confirm you're not a bot"))
         self.assertIsNone(got)
