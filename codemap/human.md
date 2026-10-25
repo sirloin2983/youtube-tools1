@@ -83,14 +83,14 @@
   - 名前: `record_rerun` :49・`apply_retranscribe` :85・`replace_original_multi` :154・`thin_rows` :173・`apply_range` :186・`run_retranscribe` :231・`rebuild_whole` :277・`validate_retranscribe` :368・`validate_whole` :404・`validate_rerun` :434
 - **retime.py** (32 行) — ③ 人の操作の層 human/proof: 行の時刻の候補の API の包み POST /api/retime {id, rows: [行の id…]}
   - 名前: `retime_engine` :12・`retime_doc` :18
-- **speakers.py** (699 行) — ③ 人の操作の層 human/proof: 話者判別の結果を文書へ(apply_diarization・1 人指定 single_speaker・守る行 diar_keep_row)・判別のジョブの受付と文書への書き込み(validate_diarize・
+- **speakers.py** (711 行) — ③ 人の操作の層 human/proof: 話者判別の結果を文書へ(apply_diarization・1 人指定 single_speaker・守る行 diar_keep_row)・判別のジョブの受付と文書への書き込み(validate_diarize・
   - 名前: `set_context_namer` :31・`check_context_namer` :40・`apply_diarization` :62・`diar_keep_row` :79・`validate_diarize` :171・`single_speaker` :195・`run_diarize` :223・`autodiar_enabled` :275・`autodiar_ready` :280・`autodiar_enqueue` :300・`autodiar_after_transcribe` :332・`is_generic_speaker_name` :419・ほか 7
 - **store.py** (1165 行) — ③ 文書の置き場: 文書を書く唯一の口 commit と機械の層・人の層(層が正 = 文書は組み立て済みの写し・古い写しの読み直し fresh_copy)・保存の錠 saving・
   - 名前: `tx_path` :37・`write_doc` :41・`read_layers` :73・`commit` :114・`layers_for` :171・`fresh_copy` :201・`snapshot` :251・`backup_doc` :259・`sanitize_sub_style` :278・`sanitize_transcript` :291・`doc_length` :373・`good_row` :394・ほか 37
 - **voiceclips.py** (215 行) — 声を覚える材料の短い音(10-24 夜。ユーザー「誰の声をメンバー全員分」・「精度に関係する物は残す」)。
   - 名前: `root` :28・`index` :40・`clip_path` :54・`media` :63・`make` :72・`put_bytes` :106・`timeline_wav` :135・`bgm` :199
-- **voicerebuild.py** (126 行) — 覚えた声を 1 行ずつ外してまとめ直す(10-25 ユーザーとまとめ役が 1 行ずつ聞いて確かめた結果。notes:plan/間違った正解のリスク-1025.md の 6)。
-  - 名前: `rows_path` :23・`row_vectors` :47・`rebuild` :64
+- **voicerebuild.py** (158 行) — 覚えた声を 1 行ずつ外してまとめ直す(10-25 ユーザーとまとめ役が 1 行ずつ聞いて確かめた結果。notes:plan/間違った正解のリスク-1025.md の 6)。
+  - 名前: `rows_path` :23・`row_vectors` :47・`backfill` :64・`rebuild` :96
 
 ## src/human/review/
 
