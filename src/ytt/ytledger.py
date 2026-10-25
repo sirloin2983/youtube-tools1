@@ -20,8 +20,8 @@ WINDOW_SEC = 30 * 60
 KEEP_DAYS = 3
 LIVE_MAX_SEC = 12 * 3600          # 終わりの行が無いライブは、始まりからこの秒で数えない
 W_FETCH, W_LIGHT, W_LIVE = 1.0, 0.2, 0.5
-LIGHT_ARGS = ("--skip-download", "-j", "--dump-json", "-J", "--dump-single-json", "--simulate", "-s", "-g", "--get-url", "--print",
-              "--flat-playlist", "--list-subs", "--write-auto-subs")
+LIGHT_ARGS = ("--skip-download", "-j", "--dump-json", "-J", "--dump-single-json", "--simulate", "-s", "-g", "--get-url",
+              "--flat-playlist", "--list-subs")   # 動画を落とさない物だけ(音の取得は字幕も一緒に書くので --write-auto-subs・--print では見分けない)
 _lock = threading.Lock()
 
 

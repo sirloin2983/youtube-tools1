@@ -35,6 +35,7 @@ class LedgerTest(unittest.TestCase):
         """yt-dlp の引数から重み(--version は数えない)・帳簿にキーや URL を書かない"""
         self.assertEqual(L.ytdlp_weight(["yt-dlp", "-f", "ba", "--", "https://youtu.be/x"]), 1.0)
         self.assertEqual(L.ytdlp_weight(["yt-dlp.exe", "--skip-download", "--write-subs", "--", "u"]), 0.2)
+        self.assertEqual(L.ytdlp_weight(["yt-dlp", "-f", "ba", "--write-auto-subs", "--print", "after_move:filepath", "--", "u"]), 1.0)   # 音の取得(字幕も書く)は 1
         self.assertIsNone(L.ytdlp_weight(["yt-dlp", "--version"]))
         self.assertTrue(L.is_ytdlp([r"C:\x\yt-dlp.EXE", "-g"]))
         L.record("api", 0.2, src="api", now=T0, p=self.p)
