@@ -30,10 +30,10 @@
   - 名前: `cut_edge` :150・`cut_gap` :154・`cut_whole` :158
 - **deck.py** (152 行) — 「確かめる」の待ち行列を組み立てる(V1 の V0。GET /api/check/next の中身と、答える前にカードをサーバーの側で引き直す find)。
   - 名前: `invalidate` :30・`check_args` :64・`next_cards` :85・`find` :128
-- **eval_sources.py** (114 行) — 「確かめる」の評価のレーンの区間カードの出どころ section:eval(C-EVAL (2)。決定 3-47・3-49 Q2。反映は ③ src/human/check/section.py)。
+- **eval_sources.py** (117 行) — 「確かめる」の評価のレーンの区間カードの出どころ section:eval(C-EVAL (2)。決定 3-47・3-49 Q2。反映は ③ src/human/check/section.py)。
   - 名前: `cut_after` :41・`section_eval` :62
-- **evalredo.py** (38 行) — 評価用にした文書を、評価用の決まり(用語集・置換辞書・学習を使わない)で 1 本ずつ作り直す(10-25 ユーザー「学習用の一部を評価用に・Fable と相談してバランスよく」)。
-  - 名前: `tick` :16
+- **evalredo.py** (49 行) — 評価用にした文書を、評価用の決まり(用語集・置換辞書・学習を使わない)で 1 本ずつ作り直す(10-25 ユーザー「学習用の一部を評価用に・Fable と相談してバランスよく」)。
+  - 名前: `waiting` :16・`redone` :22・`tick` :27
 - **lineup.py** (102 行) — 「確かめる」の待ち行列の並び(lineup)と数え方(V1 の V0。名前は標準の queue と重ねない。notes:docs/design/v1-check-build.md の 2-3)。純粋な関数だけ(ファイルを読まない)。
   - 名前: `card_id` :26・`parse_id` :30・`kind_rank` :40・`order` :67・`first` :72・`per_kind` :77・`public` :86・`check_n` :91
 - **read_sources.py** (92 行) — 「確かめる」の読みのカードの出どころ read:alt(V1 の V2b。notes:docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
@@ -42,20 +42,20 @@
   - 名前: `night_of` :32・`targets` :40・`read_state` :55・`tick` :62
 - **shortjobs.py** (58 行) — ショート(学習用データ)の文書から、読みのカードと「この行は声ですか」のカードを作るための下ごしらえ(10-25 ユーザー「読みのカードと この行は声ですか のカードを ショートから作る」)。
   - 名前: `tick` :27
-- **sources.py** (432 行) — 「確かめる」のカードの出どころ(V1 の V0。notes:docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
-  - 名前: `register` :49・`registered` :63・`has_media` :82・`class View` :92・`value_auto` :269・`value_cand` :295・`short_full` :327・`read_fill` :332・`voice_diar` :352・`time_row` :390・`collect` :415
+- **sources.py** (439 行) — 「確かめる」のカードの出どころ(V1 の V0。notes:docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
+  - 名前: `register` :49・`registered` :63・`has_media` :82・`class View` :92・`value_auto` :276・`value_cand` :302・`short_full` :334・`read_fill` :339・`voice_diar` :359・`time_row` :397・`collect` :422
 - **speech_sources.py** (69 行) — 「確かめる」の普段のレーンの「この行は声ですか?」カードの出どころ speech:diar(C-EVAL (3))。
   - 名前: `speech_diar` :41
 - **voice_solo.py** (233 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
   - 名前: `stream_counts` :183・`people` :196・`clip_targets` :208・`voice_solo` :217
-- **voicefetch.py** (387 行) — 誰の声の材料の配信の音を YouTube から少しだけ取る(10-25。ユーザー「全メンバー揃えてほしい」「ショートだけでは足りない。配信からの材料も要る」。
-  - 名前: `extra_channels` :57・`members` :64・`slot_free` :76・`parse_rss` :99・`choose` :113・`wants` :220・`tick` :229・`intake` :333
+- **voicefetch.py** (395 行) — 誰の声の材料の配信の音を YouTube から少しだけ取る(10-25。ユーザー「全メンバー揃えてほしい」「ショートだけでは足りない。配信からの材料も要る」。
+  - 名前: `extra_channels` :57・`members` :64・`slot_free` :76・`parse_rss` :99・`choose` :113・`wants` :226・`tick` :235・`intake` :339
 - **voicefill.py** (107 行) — 誰の声の材料を全メンバーぶんそろえる(10-25。ユーザー「誰の声を全部やったが本当に数人しかいなかった。全メンバー揃えてほしい」)。
   - 名前: `learn_dirs` :25・`eval_like` :38・`in_learn_dir` :44・`targets` :49・`pick` :74・`tick` :86
 - **ytnotify.py** (85 行) — YouTube の取得の列(ytqueue)が研究の頼みの結果を done/ に書いたら、研究のセッションを起こす知らせ(10-25 ユーザー OK)。
   - 名前: `to_name` :28・`collect` :48・`message` :60・`tick` :72
-- **ytqueue.py** (814 行) — YouTube の取得の列(10-25。ユーザー「取り方 1 と 2 を統一しよう」「取得する配信を選ぶ段階で効率化できるはず」)。
-  - 名前: `qdir` :66・`requests` :82・`candidates` :118・`score` :124・`fill_candidates` :153・`audio_gap` :195・`light_n` :201・`rollover` :207・`classify` :230・`hit` :242・`fine` :258・`due` :266・ほか 9
+- **ytqueue.py** (891 行) — YouTube の取得の列(10-25。ユーザー「取り方 1 と 2 を統一しよう」「取得する配信を選ぶ段階で効率化できるはず」)。
+  - 名前: `qdir` :67・`requests` :83・`candidates` :119・`score` :125・`fill_candidates` :154・`audio_gap` :196・`light_n` :202・`rollover` :208・`classify` :231・`hit` :243・`fine` :259・`due` :267・ほか 11
 
 ## src/app/ui/
 
