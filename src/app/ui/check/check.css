@@ -98,7 +98,7 @@
 .chk-sec-name{flex:0 1 140px;min-width:0}
 .chk-sec-num{width:84px}
 .chk-sec-drop{display:inline-flex;align-items:center;gap:4px;font-size:13px;min-height:28px}
-.chk-read-near{opacity:.7;margin:2px 0}
+.chk-read-near{opacity:.82;margin:2px 0}
 .chk-sec-memos{display:inline-flex;flex-wrap:wrap;gap:2px 8px}
 .chk-sec-memo{display:inline-flex;align-items:center;gap:4px;font-size:13px;min-height:28px;color:var(--muted)}
 .chk-sec-add{border-color:var(--accent)}
