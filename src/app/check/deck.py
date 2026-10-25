@@ -5,6 +5,9 @@
 集めた結果は CACHE_SEC だけ覚える(ホームと案件の画面が数だけを 15 秒ごとに聞く。答え・飛ばす・戻すのあとは invalidate)。
 文字起こしの文書のフォルダが変わった(文書が書かれた・足された)ら CACHE_SEC の前でも集め直す(_docs_stamp。10-25: 集め直しは 0.6〜1.5 秒かかり、
 3 秒で切れて画面の 1 回ごとに集め直していた = 「読み込みが遅い」)。
+10-25 夜: 文書が増えて集め直しが 4〜9 秒になり、答えるたび(rev)と裏の文字起こしが文書を書くたびに集め直して、答えたあとの次の読み込みで止まっていた。
+= 覚えている集めがあれば先にそれを返し(答えたカードは next_cards が st.closed で外す)、集め直しは裏の糸で 1 本だけ(古さは最長で 1 回の集め直しの間)。
+覚えている物が無いとき(起動の直後)だけ待って集める。
 """
 import os
 import re
@@ -18,18 +21,36 @@ from human.check import section as section_mod   # 区間カードのスイッ�
 from . import lineup, sources   # 同じ app/check の兄弟
 
 CACHE_SEC = 30.0
+STALE_MAX_SEC = 30 * 60   # これより古い覚えは返さず待って集める(入口が長く何もしなかった後など)
 MAX_SKIP_PARAM = 200
 CASE_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}\Z")
 SERVED_SEC = 30 * 60   # 画面へ出したカードを、読みの失敗のときの控えとして覚える長さ(find)
 MAX_SERVED = 500
 _cache = {"key": None, "at": 0.0, "cards": None, "errors": None}
 _cache_lock = threading.Lock()
+_refreshing = {"on": False}   # 裏の集め直しが走っているか(1 本だけ)
 _served = {}   # 画面へ出したカード id -> (時刻, カード)。古い順
 
 
 def invalidate():
+    """覚えている集めを捨てる(次の next は待って集める)"""
     with _cache_lock:
-        _cache.update(key=None, cards=None, errors=None)
+        _cache.update(key=None, cards=None, errors=None, base=None)
+
+
+def mark_stale():
+    """答え・飛ばす・戻すのあと(入口): 覚えている集めに古いと印を付けるだけ(次の next は覚えている物を返し、裏で集め直す)"""
+    with _cache_lock:
+        _cache.update(key=None)
+
+
+def _refresh(ctx, st, key):
+    try:
+        cards, view = sources.collect(ctx, st)
+        with _cache_lock:
+            _cache.update(key=key, at=time.monotonic(), cards=cards, errors=list(view.errors), base=key[:2])
+    finally:
+        _refreshing["on"] = False
 
 
 def _docs_stamp():
@@ -46,9 +67,15 @@ def _collect(ctx, st):
     with _cache_lock:
         if _cache["key"] == key and _cache["cards"] is not None and now - _cache["at"] < CACHE_SEC:
             return _cache["cards"], _cache["errors"]
+        stale = _cache["cards"] is not None and _cache.get("base") == key[:2] and now - _cache["at"] < STALE_MAX_SEC   # 同じ作業データの覚えだけ
+        if stale and not _refreshing["on"]:
+            _refreshing["on"] = True
+            threading.Thread(target=_refresh, args=(ctx, st, key), daemon=True, name="check-deck-refresh").start()
+        if stale:
+            return _cache["cards"], _cache["errors"]
     cards, view = sources.collect(ctx, st)
     with _cache_lock:
-        _cache.update(key=key, at=now, cards=cards, errors=list(view.errors))
+        _cache.update(key=key, at=now, cards=cards, errors=list(view.errors), base=key[:2])
     return cards, view.errors
 
 

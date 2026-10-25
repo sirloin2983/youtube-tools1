@@ -850,7 +850,7 @@ class PortalHandler(httpsec.LocalHandler):
                         self.server.sup.log("確かめる: %s が見つかりません(集めたときの失敗: %s)" % (body["card"], "・".join(why[:5])))
                     return self._fail(404, "gone", "そのカードはもう確かめる物ではありません(読み込み直してください)" + ("(読めなかった物: %s)" % "・".join(why[:3]) if why else ""))
                 out = check_apply.unknown(ctx, card, body.get("page")) if op == "unknown" else check_apply.answer(ctx, card, body)
-                check_deck.invalidate()
+                check_deck.mark_stale()   # 答えた後は覚えを返して裏で集め直す(答えたカードは next が外す。10-25 待ちを無くす)
                 held = body.get("skip") if isinstance(body.get("skip"), list) else []
                 lane = "eval" if card.get("kind") in check_lineup.EVAL_KINDS else "normal"   # 次の 1 枚は答えたカードと同じレーンから
                 nxt = check_deck.next_cards(ctx, n=1, skip=[x for x in held if isinstance(x, str)][:check_deck.MAX_SKIP_PARAM - 1] + [card["id"]], lane=lane)
@@ -864,7 +864,7 @@ class PortalHandler(httpsec.LocalHandler):
         except OSError as e:   # 部品の文書の書き込みか、確かめるの記録(answers.jsonl)
             return self._fail(500, "write", "書けませんでした(文書か確かめるの記録): %s" % tools.why(e))
         finally:
-            check_deck.invalidate()
+            check_deck.mark_stale()
         return self._json(200, out)
 
     def _post_flow_submit(self, path, body):
@@ -1235,7 +1235,7 @@ class PortalServer(httpsec.ExclusiveServer):
         skips = dict(check_voice_solo.LAST_SKIPS)
         if made:
             check_voice_solo._bgm_seen.clear()   # 新しい行の音の BGM らしさを次の集めで測る
-            check_deck.invalidate()
+            check_deck.mark_stale()
             self.sup.log("誰の声のカード: 行の音を %d 本切り出して残しました(元の動画が片付いても聞ける・覚えられる。歌として外した 配信 %d 本・行 %d)"
                          % (made, skips["songDocs"], skips["songRows"]))
         elif skips != getattr(self, "_song_skips", None):
