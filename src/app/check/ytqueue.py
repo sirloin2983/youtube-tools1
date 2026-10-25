@@ -34,6 +34,7 @@
   keep は DONE_DAYS 日で消す(研究が keep/<動画>/hold を置いた物は残す)。
 切り替えの前後で二重に取らないよう、研究の古い道の印 yt-slot.json(voicefetch.slot_free)も見て、取ったら書く。
 """
+import contextlib
 import datetime
 import json
 import os
@@ -55,7 +56,9 @@ LIGHT_EVERY = 3600                    # 軽い物の回の間隔(秒)
 RESTS = [30, 60, 120, 240]            # 当たったときに休む分(1 日の中で続けて当たるほど伸ばす)
 SLEEP_REQ = 3                         # 軽い物のまとめの 1 本ごとの間(秒。--sleep-requests)
 LIGHT_KINDS = ("subs",)               # まとめて取る軽い頼み(info は API。API が使えない日だけここに入れる)
-CHAT_N = [1, 1, 2, 2]                 # チャットの回で取る本数(軽い物の段に合わせる)。長い配信のチャットは問い合わせが多いので 1〜2 本(10-25 まとめ役)
+CHAT_START = 10                       # チャットの回で取る本数の始まり(10-25 ユーザー「最初 1 回 10 本」)。当たるたびに半分(その日のうち。1 本まで)
+LOCK_NAME = "run.lock"                # 列の錠(入口の見回りと手で流す 1 回がぶつからない)
+LOCK_STALE = 3 * 3600                 # これより古い錠は残りかす(落ちたプロセスの物)として取り直す
 AROUND = (300, 600)                  # 候補の ?t= の前 5 分〜後 10 分を取る(研究の今の幅)
 API_DAILY = 2000                     # 列が 1 日に使う YouTube Data API の量の上限(1 日 10,000 をスタジオと分け合う)
 DONE_DAYS = 3
@@ -216,7 +219,7 @@ def rollover(st, now, log=None):
     notes = []
     for name in ("audio", "light"):
         c = _cls(st, name)
-        c.update(level=0, pen=0)   # 休みの段と当たった回数は日ごとに始めから(段 step は回ごとの fine・hit が上げ下げする)
+        c.update(level=0, pen=0, chatPen=0)   # 休みの段と当たった回数は日ごとに始めから(段 step は回ごとの fine・hit が上げ下げする)
         notes.append("%s 当たり %d 回" % ("音" if name == "audio" else "軽い物", int(c.get("hits") or 0)))
         c["hits"] = 0
     if st.get("day") and log:
@@ -424,7 +427,8 @@ def _chat(app_dir, url):
         return None, "yt-dlp が見つからないか、動画の id が分かりません"
     d = qdir(app_dir, KEEP_DIR, vid)
     os.makedirs(d, exist_ok=True)
-    r, tail = _vf._ytdlp([yd, "--encoding", "utf-8", "--no-warnings", "--no-playlist", "--skip-download", "--write-subs", "--sub-langs", "live_chat",
+    r, tail = _vf._ytdlp([yd, "--encoding", "utf-8", "--no-warnings", "--no-playlist", "--skip-download", "--sleep-requests", str(SLEEP_REQ),
+                          "--write-subs", "--sub-langs", "live_chat",
                         "-o", "subtitle:" + os.path.join(d, "chat"), "--", url], 1800)
     got = [os.path.join(d, x) for x in os.listdir(d) if x.startswith("chat.") and not x.endswith(".part")]
     if r is not None and r.returncode == 0 and got:
@@ -572,7 +576,8 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
     light = light_batch(app_dir, now, log)   # 軽い物は処理中・ライブ中でも(10-25)
     if busy():
         return light
-    light = chat_batch(app_dir, now, log) or light   # チャットは処理中でないときだけ(1 本で長くかかる)
+    with run_lock(app_dir) as mine:   # 手で流すチャットの 1 回とぶつからない
+        light = (chat_batch(app_dir, now, log) if mine else None) or light   # チャットは処理中でないときだけ(1 本で長くかかる)
     ok, _why = due(app_dir, now)
     if not ok:
         return light
@@ -696,20 +701,45 @@ def light_batch(app_dir, now, log):
 
 
 def chat_n(st):
-    """チャットの回で取る本数 = CHAT_N の段(軽い物の段)。当たった日は 1 本"""
+    """チャットの回で取る本数 = CHAT_START ÷ 2 の(軽い物の当たった回数 + チャットで当たった回数)乗(1 本まで。日が変わると始めから)"""
     c = _cls(st, "light")
-    return 1 if c["pen"] else CHAT_N[min(c["step"], len(CHAT_N) - 1)]
+    return max(1, CHAT_START // (2 ** (c["pen"] + int(c.get("chatPen") or 0))))
 
 
-def chat_batch(app_dir, now, log):
-    """チャットの回(LIGHT_EVERY に 1 回・軽い物の休みでなければ): 研究の chat の頼みを chat_n 本まで 1 本ずつ取る。
+@contextlib.contextmanager
+def run_lock(app_dir, now=None):
+    """列の錠(qdir/run.lock を作れたら True)。取れなければ False(ほかが回している)。LOCK_STALE より古い錠は取り直す"""
+    p = qdir(app_dir, LOCK_NAME)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    now = time.time() if now is None else now
+    try:
+        if now - os.path.getmtime(p) > LOCK_STALE:
+            fsio.unlink_quiet(p)
+    except OSError:
+        pass
+    try:
+        fd = os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except OSError:
+        yield False
+        return
+    try:
+        os.write(fd, str(os.getpid()).encode())
+        os.close(fd)
+        yield True
+    finally:
+        fsio.unlink_quiet(p)
+
+
+def chat_batch(app_dir, now, log, n=None, force=False):
+    """チャットの回(LIGHT_EVERY に 1 回・軽い物の休みでなければ): 研究の chat の頼みを chat_n 本まで(点の高い順)1 本ずつ取る。
     10-25 まで chat は音の枠で点を競い(REQ_BASE 0.6)、候補・声にいつも負けて 1 件も取られていなかった = 軽い物の側の守り(休み・段)で別に回す。
-    当たったら軽い物と同じく休む(頼みは残す)。取ってあれば取らずに済ませる。-> "chat" か None"""
+    当たったら軽い物と同じく休み、次の回の本数を半分に(頼みは残す)。取ってあれば取らずに済ませる。
+    n・force = 手で流す 1 回(本数・間隔を無視。休みは守る)。-> "chat" か None"""
     st = _state(app_dir)
     c = _cls(st, "light")
-    if now < c["pause"] or now - _vm.num(c.get("chatLast")) < LIGHT_EVERY:
+    if now < c["pause"] or (not force and now - _vm.num(c.get("chatLast")) < LIGHT_EVERY):
         return None
-    picked = [q for q in requests(app_dir) if q["kind"] == "chat" and q["urls"]][:chat_n(st)]
+    picked = [q for q in requests(app_dir) if q["kind"] == "chat" and q["urls"]][:n or chat_n(st)]
     if not picked:
         return None
     c["chatLast"] = now
@@ -723,6 +753,8 @@ def chat_batch(app_dir, now, log):
         if kind in ("rate", "bot"):
             st = _state(app_dir)
             hit(st, "light", kind, now, log)
+            lc = _cls(st, "light")
+            lc["chatPen"] = int(lc.get("chatPen") or 0) + 1
             _save(app_dir, st)
             break   # 頼みは残す(休みのあとに取り直す)
         _write_done(app_dir, q["id"], {"state": "done", "file": path, "bundle": bundle(app_dir, vid)} if path else {"state": "error", "error": (err or "")[:300]})
