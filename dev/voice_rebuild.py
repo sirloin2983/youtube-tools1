@@ -16,7 +16,8 @@ sys.path.insert(0, os.path.join(ROOT, "src"))
 
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="voice_rebuild.py", description="覚えた声を 1 行ずつ外してまとめ直す")
-    ap.add_argument("--name", required=True, help="登録簿の名前")
+    ap.add_argument("--name", help="登録簿の名前")
+    ap.add_argument("--backfill-all", action="store_true", help="登録簿の全員の、音がまだ残っている行の特徴を控えに足す(登録簿は変えない)")
     ap.add_argument("--exclude", action="append", default=[], help="外す行(文書#行。いくつでも)")
     ap.add_argument("--dry-run", action="store_true", help="書かずに、今の登録簿の learnedFrom と外す行だけを見る")
     a = ap.parse_args(argv)
@@ -28,6 +29,13 @@ def main(argv=None):
     from human.check import voice
     from human.proof import voicerebuild
     emb = diar.learn_embedding(diar.default_embedding())
+    if a.backfill_all:
+        total = sum(voicerebuild.backfill(emb, n, log=print) for n in sorted(diar.load_voices(emb)))
+        print("控えに足した行:", total)
+        return 0
+    if not a.name:
+        print("--name か --backfill-all を付けてください")
+        return 1
     v = diar.load_voices(emb).get(a.name)
     if not isinstance(v, dict):
         print("登録簿にいません:", a.name)

@@ -21,7 +21,7 @@ from . import speakers as _speakers, store, voiceclips as _voiceclips
 
 
 def rows_path(emb):
-    return os.path.join(_diar.voices_dir(), emb + ".rows.json")
+    return _diar.row_vectors_path(emb)
 
 
 def _unit(v):
@@ -41,7 +41,7 @@ def _doc_rows(doc, name, ids):
                 out.append((str(r), a, b))
         return out
     plan = _speakers.voice_learn_plan(doc)
-    return [(rid, a, b) for rid, a, b in plan["rowIds"].get(name) or () if a is not None and b is not None and b > a]
+    return _doc_rows(doc, name, plan["rowIds"].get(name)) if plan["rowIds"].get(name) else []
 
 
 def row_vectors(emb, tid, rows, job=None):
@@ -59,6 +59,38 @@ def row_vectors(emb, tid, rows, job=None):
             hints = {"start": start, "wavReady": True}
         vecs = _diar.embed(job, {"embedding": emb}, wav, [[(a, b)] for _r, a, b in rows], hints)
     return {r: v for (r, _a, _b), v in zip(rows, vecs) if v}
+
+
+def backfill(emb, name, log=None, embed=None):
+    """その人の learnedFrom の行のうち、音(元の動画か行の音)がまだ残っていて控えに無い行の特徴を取って控える(登録簿は変えない)-> 足した行の数"""
+    log = log or (lambda m: None)
+    embed = embed or row_vectors
+    v = _diar.load_voices(emb).get(name)
+    if not isinstance(v, dict):
+        return 0
+    have = fsio.read_json_or(rows_path(emb), {}, kind=dict).get(name) or {}
+    n = 0
+    for lf in v.get("learnedFrom") or ():
+        if not isinstance(lf, dict) or not lf.get("doc"):
+            continue
+        tid = str(lf["doc"])
+        try:
+            doc = store.read_transcript(tid)
+        except _errors.ApiError:
+            continue
+        need = [(r, a, b) for r, a, b in _doc_rows(doc, name, lf.get("rows")) if "%s#%s" % (tid, r) not in have]
+        if not need:
+            continue
+        try:
+            got = embed(emb, tid, need)
+        except _errors.ApiError:
+            got = {}
+        short = _vm.is_short(doc.get("sourcePath"))
+        items = {"%s#%s" % (tid, r): {"vec": [round(x, 6) for x in got[r]], "sec": round(b - a, 2), "short": bool(short)} for r, a, b in need if r in got}
+        _diar.save_row_vectors(emb, name, items)
+        n += len(items)
+    log("行ごとの特徴の控え: %s に %d 行を足しました" % (name, n))
+    return n
 
 
 def rebuild(emb, name, exclude=(), log=None, embed=None, now=None):

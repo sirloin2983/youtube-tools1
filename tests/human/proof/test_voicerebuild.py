@@ -56,5 +56,17 @@ class RebuildTest(unittest.TestCase):
             self.assertIn(("aaaaaaaaaaa1", "s2"), voice_mod._learned_rows(EMB, "みこ", None))   # 覚え直しの材料に数えない
 
 
+    def test_backfill_keeps_registry(self):
+        """音の残っている行の特徴を控えに足す(登録簿は変えない・控えにある行は取り直さない)"""
+        before = diar.load_voices(EMB)["みこ"]
+        self.assertEqual(VR.backfill(EMB, "みこ", embed=self.embed), 3)
+        self.assertEqual(VR.backfill(EMB, "みこ", embed=self.embed), 0)
+        self.assertEqual(diar.load_voices(EMB)["みこ"], before)
+        import json
+        with open(VR.rows_path(EMB), encoding="utf-8") as f:
+            rows = json.load(f)["みこ"]
+        self.assertEqual((sorted(rows), rows["bbbbbbbbbbb1#s9"]["short"]), (["aaaaaaaaaaa1#s1", "aaaaaaaaaaa1#s2", "bbbbbbbbbbb1#s9"], True))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -40,7 +40,7 @@ MAX_PEOPLE = 400                # 「メンバーを選ぶ」の欄の候補の�
 NAME_MAX = 30                   # 文書の話者の名前の上限(store.sanitize_transcript と同じ)
 MIN_LEARN_SEC = 1.0             # 覚える材料にする行の最短(flow/diar の voice_learn_rows と同じ 1 秒)
 RELEARN_SEC_DEFAULT = 30.0      # 覚え直すまでの 1 人の材料の合計(秒。編集の設定 check.voiceRelearnSec で変える)
-RELEARN_PAUSED = True          # スイッチ: 声の覚え直しを一時止める(10-25 ユーザーの方針「間違った正解で学習しないように」・戻るまでの守り。
+RELEARN_PAUSED = False         # 10-25 ユーザーの答えで再開(外した行 excluded は数えない決まりのまま)。スイッチ: 声の覚え直しを一時止める(10-25 ユーザーの方針「間違った正解で学習しないように」・戻るまでの守り。
                                 # notes:plan/間違った正解のリスク-1025.md。カードの答え・友人の PC の声の材料・研究の音からの覚え直しは、どれもこの道。False で元に戻す)
 FIRST_SEC = 10.0                # まだ声が無い人は、この秒で「仮」の声として覚える(初回だけ。10-25: 答え 214 枚で覚えた人が 6 人だけだった)
 RELEARN_SEC_RANGE = (5.0, 3600.0)

@@ -605,6 +605,13 @@ def run_voice_learn(job):
             hints = {"start": start, "wavReady": True}
         vecs = _diar.embed(job, spec, wav, [grp[n][0] for n in people], hints)   # 音声の取り出し → モデルの取得 → 声の特徴
         _slots.check_cancel(job)
+        segs = {str(g.get("id")): g for g in doc.get("segments") or () if isinstance(g, dict)}
+        row_keys = [(n, rid, _yschemas.num_or(segs[rid].get("start")), _yschemas.num_or(segs[rid].get("end")))
+                    for n in people for rid in plan["rowIds"].get(n) or () if rid in segs]
+        row_keys = [k for k in row_keys if k[2] is not None and k[3] is not None and k[3] > k[2]]
+        # 行ごとの特徴も同じ音で取って控える(あとで 1 行外すのに音が要らないように。10-25 ユーザー「後で取り直すのは面倒」)
+        row_vecs = _diar.embed(job, spec, wav, [[(a, b)] for _n, _r, a, b in row_keys], {"start": start, "wavReady": True}) if row_keys else []
+        _slots.check_cancel(job)
         learned = []
         with _diar.voices_edit(spec["embedding"]) as voices:   # 変わったときだけ書く(登録簿のロックの中。上限を超えたら書かない)
             same = set(spec.get("confirmSame") or [])
@@ -625,6 +632,11 @@ def run_voice_learn(job):
                 raise _errors.ApiError("too_many", "覚えられる声は %d 人までです(使わない声を消してください)" % _VOICE_MAX_PEOPLE, 400)
         if not learned:
             raise _errors.ApiError("no_voice", "声の特徴を取り出せませんでした(行が短すぎる・音声が無い可能性があります)", 400)
+        short = _vm.is_short(doc.get("sourcePath"))
+        for n in learned:
+            items = {"%s#%s" % (spec["tid"], rid): {"vec": [round(x, 6) for x in rv], "sec": round(b - a, 2), "short": bool(short)}
+                     for (nn, rid, a, b), rv in zip(row_keys, row_vecs) if nn == n and rv}
+            _diar.save_row_vectors(spec["embedding"], _voice_name(_diar.load_voices(spec["embedding"]), n), items)
         job["learned"] = learned
         job["speakers"] = len(learned)
         _heavy.job_done(job, spec["tid"])

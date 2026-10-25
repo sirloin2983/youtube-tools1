@@ -346,6 +346,22 @@ SHORT_WEIGHT = 0.5       # ショート由来(学習用データ。編集後の�
 PROVISIONAL_KEEP = 0.1   # ショートだけで覚えた「仮」の声に、配信の材料が初めて来たとき前の声に残す重み(上書きに近い = 普段の声に直る)
 
 
+def row_vectors_path(emb):
+    """行ごとの声の特徴の控え voices/<モデル>.rows.json({名前: {"文書#行": {"vec", "sec", "short"}}}。1 行ずつ外してまとめ直すため = human/proof/voicerebuild)"""
+    return os.path.join(voices_dir(), emb + ".rows.json")
+
+
+def save_row_vectors(emb, name, items):
+    """その人の行ごとの特徴を控えに足す(items = {"文書#行": {"vec", "sec", "short"}})。登録簿のロックの中で読んで書く"""
+    if not items:
+        return
+    with _voices_lock:
+        p = row_vectors_path(emb)
+        cur = _fsio.read_json_or(p, {}, kind=dict)
+        cur.setdefault(name, {}).update(items)
+        _fsio.write_json(p, cur, indent=None)
+
+
 PROVISIONAL_UNTIL = 30.0   # 配信の材料で仮に覚えた声(初回 10 秒)は、覚えた秒がこれに届くまで仮のまま(普通に混ぜる)
 
 
