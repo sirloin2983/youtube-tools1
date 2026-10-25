@@ -328,6 +328,17 @@ def value_cand(view):
     return out
 
 
+NOT_FOR_TIME_TAGS = ("unclear", "bgm", "overlap")   # 時刻のカードに出さない行の音のメモ
+HARD_TAGS = NOT_FOR_TIME_TAGS                       # 読みのカードを後ろへ回す行の音のメモ(印の NOT_FOR_VOICE_FLAGS・混ざりも)
+
+
+def hard_row(g):
+    """聞き取りにくい行か(音のメモ・自信が低い・音声でない可能性・混ざりの印)-> 0 / 1。読みのカードの並びの先頭に使う(1 = 後ろ)"""
+    if set(HARD_TAGS) & set(g.get("tags") or ()):
+        return 1
+    return 1 if any(_yschemas.has_flag(g.get("flag"), f) for f in _vm.NOT_FOR_VOICE_FLAGS + (_yschemas.MIXED_FLAG,)) else 0
+
+
 SHORT_CAP = 2   # ショート 1 本から出す枚数の上限(種類ごと。読み・「この行は声ですか」。10-25)
 
 
@@ -350,7 +361,7 @@ def read_fill(view):
             per[tid] = per.get(tid, 0) + 1
             out.append(_doc_card(view, "read", "fill", tid, doc, g, 0.5, {
                 "guess": "1", "options": [{"id": "1", "text": str(g.get("text") or "")}, {"id": "2", "text": f["from"]}],
-                "note": str(f.get("by") or ""), "_order": [-_num(doc.get("updatedAt")), _num(g.get("start"))]}, tight=True))
+                "note": str(f.get("by") or ""), "_order": [hard_row(g), -_num(doc.get("updatedAt")), _num(g.get("start"))]}, tight=True))
             if len(out) >= MAX_PER_SOURCE:
                 return out
     return out
@@ -401,8 +412,10 @@ def time_row(view):
     decided = {(r.get("target") or {}).get("docId", "") + "#" + str((r.get("target") or {}).get("row")) for r in view.answered("read")}
     for tid, _path, doc in view.docs():
         for g in _rows(doc):
-            if g.get("cutState") == "cut" or g.get("noSub") is True or "unclear" in (g.get("tags") or ()):
+            if g.get("cutState") == "cut" or g.get("noSub") is True or set(NOT_FOR_TIME_TAGS) & set(g.get("tags") or ()):
                 continue
+            if _yschemas.has_flag(g.get("flag"), _yschemas.MIXED_FLAG):
+                continue   # 聞き取れない・BGM 大・重なり・混ざりの行は時刻の正解にしない(10-25 確かめるの混ざりと BGM のルール)
             if g.get("proofed") is not True and (tid + "#" + g["id"]) not in decided:
                 continue
             if _num(g.get("end")) <= _num(g.get("start")):

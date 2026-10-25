@@ -10,6 +10,7 @@
   var TITLE = { adopt: '70 点以上として数え、書き出して案件の切り抜きに足します', reject: '70 点未満として数えます' };
   var AUTO_TITLE = { good: '出来が良い(記録だけ。送るかには効きません)', bad: '出来が悪い(理由の札を選べます・記録だけ)', unknown: 'どちらとも言えない(記録だけ)' };
   var WHY = '悪い理由を 1 つ選べます(数字)。選ばずに記録するなら Enter';
+  var MIX_GUIDE = '<p class="hint">声の重なり・BGM が大きいことは減点にしません(中身で決める)。</p>';   // 10-25 確かめるの混ざりと BGM のルール
 
   function candBody(card) {
     var s = typeof card.score === 'number' && isFinite(card.score) ? '<p class="hint">機械の点数: ' + Math.round(card.score) + '</p>' : '';
@@ -18,6 +19,7 @@
   var cand = CheckCards.simple({
     question: function () { return '切り抜く価値があるか(70 点以上か)?'; },
     body: candBody,
+    after: function () { return MIX_GUIDE; },
     options: function (card) {
       var o = Array.isArray(card.options) && card.options.length === 2 ? card.options : ['adopt', 'reject'];
       return [{ k: 'A', label: LABEL[o[0]] || String(o[0]), primary: true, answer: { choice: o[0] }, title: TITLE[o[0]] || '' },
@@ -33,7 +35,7 @@
       var s = typeof c.score === 'number' && isFinite(c.score) ? '<p class="hint">機械の点数: ' + Math.round(c.score) + '</p>' : '';
       return (c.text ? '<p>' + esc(c.text) + '</p>' : '') + s;
     },
-    after: function () { return '<p class="hint">送ったかどうかは見ずに、出来だけを見てください(記録だけ・送るかには効きません)</p>'; },
+    after: function () { return '<p class="hint">送ったかどうかは見ずに、出来だけを見てください(記録だけ・送るかには効きません)</p>' + MIX_GUIDE; },
     wave: false,
     hint: function (card, st) { return st.step === 'why' ? '<p class="hint">' + esc(WHY) + '</p>' : ''; },
     options: function (card, st) {

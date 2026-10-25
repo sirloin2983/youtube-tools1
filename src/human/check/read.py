@@ -1,7 +1,9 @@
 """「確かめる」の読みのカード(どちらの読みが正しいか)の反映(notes:docs/design/v1-check-build.md の 2-2・3-2。import で apply に登録する)。
 出どころ: fill = 後処理が直した行(1 = 今の文字・2 = 認識のまま)/ alt = 2 つ目のエンジンの読み(1 = 今の字幕・2 = その読みを入れた行)。
-答え = {choice: "1" | "2" | "other" | "shift", text?: 打った正しい文字}(other = 画面の 3 のキー・shift = 4 のキー「区間がずれている・ほかの発言が入っている」)。
+答え = {choice: "1" | "2" | "other" | "shift" | "unclear", text?: 打った正しい文字}(other = 画面の 3 のキー・shift = 4 のキー「区間がずれている・ほかの発言が入っている」・
+  unclear = 5 のキー「聞き取れない」)。
   shift = 何も変えない・候補の採否も記録しない(編集の「提案」に残る)。答えた行は time_row が時刻のカードに回す(読みの答えのある行 = 時刻を確かめる行)。
+  unclear = 文字は変えず、行の音のメモ unclear だけ付ける(候補の採否・fill は書かない。unclear の行は時刻のカードに回らない・評価から外す。10-25 確かめるの混ざりと BGM のルール)。
   ⑤ の eval_alt・eval_fill は答えを choices で絞るので shift は読み飛ばす・目標の数(eval/check/goals.py)も数えない。**文字だけの判定**: 行を校正済み(proofed)にしない・行の時刻には触れない(時刻の正解に使わない)。
   fill  1 = 何も変えない(後処理の札を残す)/ 2 = 認識のままに戻す(編集の「別の読み」の札と同じ。fill と後処理の印を外す)/ other = 打った文字(fill と印を外す)
   alt  1 = 何も変えない・候補を却下 / 2 = 食い違う所を直す・候補を採る / other = 打った文字・候補を却下
@@ -17,14 +19,14 @@ from ytt import errors as _errors, schemas as _yschemas, txbase as _txbase
 from . import _doc, apply   # 同じ human/check の兄弟
 from human.proof import learn
 
-CHOICES = ("1", "2", "other", "shift")   # shift = 区間がずれている・ほかの発言が入っている(読みは判定しない)
+CHOICES = ("1", "2", "other", "shift", "unclear")   # shift = 区間がずれている・ほかの発言が入っている / unclear = 聞き取れない(どちらも読みは判定しない)
 FILL_FLAG_RE = re.compile(r"^(別の読みで埋めた|名簿の呼び名に直した|話者名を外した)")   # 編集の「別の読み」の札が外す印(src/app/ui/editor/app.js の unfill と同じ)
 TIERS = ("alt",)
 
 
 def _check(ans):
     if not isinstance(ans, dict) or ans.get("choice") not in CHOICES:
-        raise ValueError("choice は 1・2・other・shift のどれかです")
+        raise ValueError("choice は 1・2・other・shift・unclear のどれかです")
     if ans["choice"] != "other":
         return {"choice": ans["choice"]}
     text = ans.get("text")
@@ -45,8 +47,9 @@ def _unflag(flag):
 
 
 def _row_state(seg):
-    """Z で比べる・戻す行の 3 つの欄(無い欄は None)"""
-    return {"text": str(seg.get("text") or ""), "fill": seg.get("fill"), "flag": seg.get("flag")}
+    """Z で比べる・戻す行の欄(無い欄は None)。tags は「聞き取れない」の音のメモ用(10-25 より前の記録には無い = 比べない)"""
+    return {"text": str(seg.get("text") or ""), "fill": seg.get("fill"), "flag": seg.get("flag"),
+            "tags": list(seg["tags"]) if isinstance(seg.get("tags"), list) else None}
 
 
 def _feedback(tid, row_id, cand, action):
@@ -72,6 +75,18 @@ def _apply(ctx, card, ans):
     tid, row_id, source, choice = _tid(card), (card.get("target") or {}).get("row"), card.get("source"), ans["choice"]
     if choice == "shift":   # 区間がずれている = 文字は判定しない(文書も採否の記録も触らない)。行は時刻のカード(app/check/sources.py の time_row)に回る
         return {"docId": tid, "row": row_id, "source": source, "choice": "shift"}
+    if choice == "unclear":   # 聞き取れない = 音のメモ unclear だけ(文字・fill・候補の採否は触らない)
+        def mark(doc, seg, before):
+            tags = before["tags"] or []
+            if "unclear" in tags:
+                return None
+            seg["tags"] = tags + ["unclear"]
+            return True
+        got = _doc.edit_fields(tid, row_id, "check:read", _row_state, mark)
+        out = {"docId": tid, "row": row_id, "source": source, "choice": "unclear"}
+        if got is not None:
+            out["before"], out["after"] = got[0], got[1]
+        return out
     if source == "fill" and choice == "1":
         return {"docId": tid, "row": row_id, "source": source, "choice": "1"}   # 後処理の札を残す = 文書は何も変えない
     cand = None if source == "fill" else _cand_of(card)
@@ -113,8 +128,8 @@ def _apply(ctx, card, ans):
 
 
 def _same(now, want):
-    """行の今の 3 つの欄 now が want と同じか(want が文字だけの古い記録なら文字だけ比べる)"""
-    return now == want if isinstance(want, dict) else now["text"] == want
+    """行の今の欄 now が want と同じか(want が文字だけの古い記録なら文字だけ・tags の無い記録なら tags は比べない)"""
+    return {k: now.get(k) for k in want} == want if isinstance(want, dict) else now["text"] == want
 
 
 def _revert(ctx, row):
@@ -123,7 +138,7 @@ def _revert(ctx, row):
     if isinstance(before, dict):   # 文書を先に戻す(行がその後に変わっていたら断る = 記録も戻さない)
         def put(doc, seg):
             seg["text"] = str(before.get("text") or "")
-            for k in ("fill", "flag"):
+            for k in ("fill", "flag") + (("tags",) if "tags" in before else ()):
                 if before.get(k) is None:
                     seg.pop(k, None)
                 else:

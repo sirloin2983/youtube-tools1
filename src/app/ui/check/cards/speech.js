@@ -10,6 +10,8 @@
     body: function (card) {
       return card.text ? '<p>' + UIKit.esc(card.text) + '</p>' : '';
     },
+    // 案内(10-25 確かめるの混ざりと BGM のルール)
+    after: function () { return '<p class="hint">人の声が少しでもあれば残す・音だけ(BGM・効果音)なら消す。ゲームのキャラの声だけの行は消す(配信者の字幕にしない)。</p>'; },
     options: function (card) {
       var o = Array.isArray(card.options) && card.options.length === 2 ? card.options : ['keep', 'drop'];
       return [{ k: 'A', label: LABEL[o[0]] || String(o[0]), primary: true, answer: { choice: o[0] }, title: TITLE[o[0]] || '' },

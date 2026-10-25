@@ -87,6 +87,27 @@ class SectionApplyTest(unittest.TestCase):
         self.assertNotIn("proofed", self.seg("s1"))
         self.assertEqual([s["name"] for s in d["speakers"]], ["話者 1"])   # 足した話者は外す
 
+    def test_memos_and_game_sound_and_undo(self):
+        # 行ごとのメモ(重なり・BGM 大・聞き取れない)と話者「ゲームの音」(10-25 確かめるの混ざりと BGM のルール)
+        self.assertEqual(section._check({"rows": [{"id": "s1", "tags": ["unclear", "overlap"]}]})["rows"], [{"id": "s1", "tags": ["overlap", "unclear"]}])
+        for bad in ({"rows": [{"id": "s1", "tags": ["x"]}]}, {"rows": [{"id": "s1", "game": True, "speaker": "兎田ぺこら"}]}, {"add": [{"start": 1, "end": 2, "text": "a", "game": 1}]}):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                section._check(bad)
+        d = store.read_transcript(TID)
+        d["segments"][1]["tags"] = ["bgm", "novoice"]
+        store.commit(TID, d, why="save")
+        ans = {"rows": [{"id": "s1", "game": True, "tags": ["overlap"]}, {"id": "s2", "tags": []}],
+               "add": [{"start": 1.0, "end": 3.0, "text": "同時", "speaker": "兎田ぺこら", "tags": ["overlap"]}]}
+        r = apply.answer(self.ctx, self.card(), {"answer": ans})
+        g1, g2, add = self.seg("s1"), self.seg("s2"), self.seg(r["applied"]["added"][0])
+        self.assertEqual((g1["speaker"], g1["tags"], g1["proofed"]), ("other", ["overlap"], True))
+        self.assertEqual(g2["tags"], ["novoice"])   # メモの 3 つだけ置き換える
+        self.assertEqual((add["tags"], add["start"]), (["overlap"], 1.0))
+        self.assertIn("other", {s["id"] for s in store.read_transcript(TID)["speakers"]})
+        apply.undo(self.ctx, r["answer"])
+        self.assertEqual((self.seg("s1")["speaker"], self.seg("s1").get("tags"), self.seg("s2")["tags"]), ("S1", None, ["bgm", "novoice"]))
+        self.assertNotIn("other", {s["id"] for s in store.read_transcript(TID)["speakers"]})
+
     def test_last_section_marks_reviewed_and_undo_removes(self):
         apply.answer(self.ctx, self.card(), {"answer": {}})
         r = apply.answer(self.ctx, self.card(30.0, 60.0, ("s3",), last=True, index=1), {"answer": {}})

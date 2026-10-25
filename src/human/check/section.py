@@ -4,8 +4,10 @@
 正解づくりなので、答えた持ち主の行は校正済み(proofed)にする。全部の行がどこかの区間で 1 回ずつ答えられるので、残りを黙って校正済みにはしない
 (⑤ eval/drill の「全部聞いた」が残りの行を校正済みにする道 = 混ざる道 1 を通らない)。
   - カードの target = {docId, from, to(秒。区間), rows(持ち主の行の id), updatedAt(カードを組んだときの文書), last(最後の区間か), index}
-  - 答え = {rows: [{id, text?, speaker?, drop?}], add: [{start, end, text, speaker?}]}。rows に無い持ち主の行 = そのまま(合っている)。
+  - 答え = {rows: [{id, text?, speaker?, game?, tags?, drop?}], add: [{start, end, text, speaker?, game?, tags?}]}。rows に無い持ち主の行 = そのまま(合っている)。
     speaker は名前(1〜30 字。メンバーのフォルダの名前を画面が選ばせる・打ってもよい)。ここでは形だけ確かめる(一覧との照合は画面の手伝い)
+    game: true = 話者を組み込みの「ゲーム音声など」に(画面の「ゲームの音」。speaker とは一緒に送らない)
+    tags = 行の音のメモ(MEMO_TAGS の中から。送った行はその 3 つをこの値に置き換える・ほかの音のメモは残す)。10-25 確かめるの混ざりと BGM のルール
   - 機械の予想・覚えた声の候補は使わない。学習の記録・声の覚え直しはしない(評価用から学ばせない)
   - 最後の区間を答えたら evalReviewed = {at, rows, durationSec, via: "card", sections}。at は行の proofedAt と別の値にする
     (⑤ drill_unreviewed が「proofedAt == evalReviewed.at の行」の校正済みを外すため、区間の答えまで外さない)
@@ -25,6 +27,7 @@ NAME_MAX = 30
 MAX_ROWS = 200          # 1 枚で直す・足す行の上限(20〜40 秒の区間には十分)
 MAX_ANSWER_BYTES = 64 * 1024
 _CTRL_RE = re.compile(r"[\x00-\x1f\x7f]")
+MEMO_TAGS = ("overlap", "bgm", "unclear")   # 行ごとのメモ: 重なり・BGM 大・聞き取れない
 ADDED_PREFIX = "c"      # 足した行の id の頭(Z で探す。sanitize が付ける s<番号> と重ならない)
 
 
@@ -49,6 +52,30 @@ def _num(v, what):
     return round(float(v), 3)
 
 
+def _extras(r, one):
+    """行の game・tags を整えて one に足す(違えば ValueError)"""
+    if "game" in r:
+        if r["game"] is not True or "speaker" in r:
+            raise ValueError("ゲームの音(game)は true だけで、名前とは一緒に送れません")
+        one["game"] = True
+    if "tags" in r:
+        t = r["tags"]
+        if not isinstance(t, list) or not all(isinstance(x, str) and x in MEMO_TAGS for x in t):
+            raise ValueError("行のメモは %s の中から送ってください" % "・".join(MEMO_TAGS))
+        one["tags"] = [x for x in MEMO_TAGS if x in t]
+    return one
+
+
+def _put_tags(g, tags):
+    """行の音のメモのうち MEMO_TAGS を tags に置き換える(ほかのメモは残す。空になれば欄を消す)"""
+    rest = [x for x in (g.get("tags") or ()) if x not in MEMO_TAGS]
+    new = rest + list(tags)
+    if new:
+        g["tags"] = new
+    else:
+        g.pop("tags", None)
+
+
 def _check(answer):
     """答えを検査して整える -> {rows: [...], add: [...]}。違えば ValueError(400)"""
     if not isinstance(answer, dict) or set(answer) - {"rows", "add"}:
@@ -58,7 +85,7 @@ def _check(answer):
         raise ValueError("直す行・足す行は合わせて %d 行までです" % MAX_ROWS)
     out_rows, seen = [], set()
     for r in rows:
-        if not isinstance(r, dict) or set(r) - {"id", "text", "speaker", "drop"} or not isinstance(r.get("id"), str) \
+        if not isinstance(r, dict) or set(r) - {"id", "text", "speaker", "game", "tags", "drop"} or not isinstance(r.get("id"), str) \
                 or not re.match(r"^[A-Za-z0-9_-]{1,16}\Z", r["id"]) or r["id"] in seen:
             raise ValueError("直す行の形が正しくありません")
         seen.add(r["id"])
@@ -70,10 +97,11 @@ def _check(answer):
                 one["text"] = _text(r["text"])
             if "speaker" in r:
                 one["speaker"] = _name(r["speaker"])
+            _extras(r, one)
         out_rows.append(one)
     out_add = []
     for r in add:
-        if not isinstance(r, dict) or set(r) - {"start", "end", "text", "speaker"}:
+        if not isinstance(r, dict) or set(r) - {"start", "end", "text", "speaker", "game", "tags"}:
             raise ValueError("足す行の形が正しくありません")
         a, b, t = _num(r.get("start"), "start"), _num(r.get("end"), "end"), _text(r.get("text"))
         if b <= a or not t:
@@ -81,7 +109,7 @@ def _check(answer):
         one = {"start": a, "end": b, "text": t}
         if "speaker" in r:
             one["speaker"] = _name(r["speaker"])
-        out_add.append(one)
+        out_add.append(_extras(r, one))
     return {"rows": out_rows, "add": out_add}
 
 
@@ -120,9 +148,35 @@ def _speaker_id(doc, name, added):
     return sid
 
 
+def _game_id(doc, added):
+    """組み込みの話者「ゲーム音声など」の id(文書に無ければ足して added に入れる。名前・色は sanitize がそろえる)"""
+    sps = doc.setdefault("speakers", [])
+    if not any(_yschemas.other_speaker(s) for s in sps):
+        sps.append({"id": _yschemas.OTHER_SPK_ID, "name": _yschemas.OTHER_SPK_NAME, "color": _yschemas.OTHER_SPK_COLOR, "builtin": _yschemas.OTHER_SPK_BUILTIN})
+        added.append(_yschemas.OTHER_SPK_ID)
+    return _yschemas.OTHER_SPK_ID
+
+
+def _put_extras(g, r, doc_sp, added_sp):
+    """答えの speaker・game・tags を行へ"""
+    if "speaker" in r:
+        g["speaker"] = _speaker_id(doc_sp, r["speaker"], added_sp)
+    elif r.get("game"):
+        g["speaker"] = _game_id(doc_sp, added_sp)
+    if "tags" in r:
+        _put_tags(g, r["tags"])
+
+
 def _state(g):
     """戻すときに比べる行の欄"""
-    return {"text": str(g.get("text") or ""), "speaker": g.get("speaker") or "", "proofed": g.get("proofed") is True}
+    return {"text": str(g.get("text") or ""), "speaker": g.get("speaker") or "", "proofed": g.get("proofed") is True,
+            "tags": [x for x in (g.get("tags") or ()) if x in MEMO_TAGS]}
+
+
+def _same(g, st):
+    """行 g の今が記録 st と同じか(tags の無い 10-25 より前の記録なら tags は比べない)"""
+    now = _state(g)
+    return {k: now.get(k) for k in st} == st
 
 
 def _write(tid, base, segs, speakers, why, reviewed=None):
@@ -180,8 +234,7 @@ def _apply_section(ctx, card, answer):
                 continue
             if "text" in e:
                 g["text"] = e["text"]
-            if "speaker" in e:
-                g["speaker"] = _speaker_id(doc_sp, e["speaker"], added_sp)
+            _put_extras(g, e, doc_sp, added_sp)
             if str(g.get("text") or "").strip():
                 g["proofed"] = True   # 正解づくり: 区間を聞いて答えた持ち主の行(文字のある行だけ。drill_reviewed と同じ)
         segs = [g for g in segs if str(g.get("id")) not in dropped]
@@ -192,8 +245,7 @@ def _apply_section(ctx, card, answer):
                 raise apply.Refused("足す行が区間の外です", 400, "bad_request")
             rid = "%s%x%d" % (ADDED_PREFIX, _yschemas.now_ms() % 0xFFFFFF, i)
             g = {"id": rid, "start": s0, "end": e0, "text": r["text"], "speaker": "", "proofed": True}
-            if "speaker" in r:
-                g["speaker"] = _speaker_id(doc_sp, r["speaker"], added_sp)
+            _put_extras(g, r, doc_sp, added_sp)
             segs.append(g)
             added.append(rid)
         segs.sort(key=lambda g: (_yschemas.num_or(g.get("start"), 0.0) or 0.0, _yschemas.num_or(g.get("end"), 0.0) or 0.0))
@@ -225,7 +277,7 @@ def _revert_section(ctx, row):
         restored = all(rid in by_id and _state(by_id[rid]) == _state(g) for rid, g in before.items()) and not any(x in by_id for x in added)
         if restored:
             return {"docId": tid, "from": ap.get("from"), "to": ap.get("to"), "reverted": False}   # もう戻っている(やりかけの Z のやり直し)
-        if any(rid not in by_id or _state(by_id[rid]) != st for rid, st in after.items()):
+        if any(rid not in by_id or not _same(by_id[rid], st) for rid, st in after.items()):
             raise apply.Refused("この区間の行はあとで直されています(編集の画面で直してください)", 409, "changed")
         segs = [g for g in segs if str(g.get("id")) not in added and str(g.get("id")) not in before]
         segs += [copy.deepcopy(g) for g in before.values()]
