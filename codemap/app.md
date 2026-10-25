@@ -44,12 +44,12 @@
   - 名前: `speech_diar` :41
 - **voice_solo.py** (232 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
   - 名前: `stream_counts` :182・`people` :195・`clip_targets` :207・`voice_solo` :216
-- **voicefetch.py** (364 行) — 誰の声の材料の配信の音を YouTube から少しだけ取る(10-25。ユーザー「全メンバー揃えてほしい」「ショートだけでは足りない。配信からの材料も要る」。
-  - 名前: `extra_channels` :57・`members` :64・`slot_free` :76・`parse_rss` :99・`choose` :113・`wants` :201・`tick` :210・`intake` :310
+- **voicefetch.py** (382 行) — 誰の声の材料の配信の音を YouTube から少しだけ取る(10-25。ユーザー「全メンバー揃えてほしい」「ショートだけでは足りない。配信からの材料も要る」。
+  - 名前: `extra_channels` :57・`members` :64・`slot_free` :76・`parse_rss` :99・`choose` :113・`wants` :219・`tick` :228・`intake` :328
 - **voicefill.py** (107 行) — 誰の声の材料を全メンバーぶんそろえる(10-25。ユーザー「誰の声を全部やったが本当に数人しかいなかった。全メンバー揃えてほしい」)。
   - 名前: `learn_dirs` :25・`eval_like` :38・`in_learn_dir` :44・`targets` :49・`pick` :74・`tick` :86
-- **ytqueue.py** (556 行) — YouTube の取得の列(10-25。ユーザー「取り方 1 と 2 を統一しよう」「取得する配信を選ぶ段階で効率化できるはず」)。
-  - 名前: `qdir` :53・`requests` :69・`candidates` :103・`score` :109・`fill_candidates` :138・`due` :172・`bundle` :287・`tidy` :370・`wants` :427・`tick` :436・`plan` :511
+- **ytqueue.py** (569 行) — YouTube の取得の列(10-25。ユーザー「取り方 1 と 2 を統一しよう」「取得する配信を選ぶ段階で効率化できるはず」)。
+  - 名前: `qdir` :53・`requests` :69・`candidates` :103・`score` :109・`fill_candidates` :138・`due` :172・`bundle` :287・`tidy` :370・`wants` :427・`tick` :436・`plan` :524
 
 ## src/app/ui/
 
