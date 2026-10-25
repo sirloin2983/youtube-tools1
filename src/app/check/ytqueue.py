@@ -664,7 +664,9 @@ def light_batch(app_dir, now, log):
         vids = [v for v in (_video_of(u) for u in q["urls"]) if v]
         if q["kind"] == "subs":
             files = {v: got[v]["subs"] for v in vids if v in got and got[v].get("subs")}
-            body = {"state": "done", "files": files, "file": next(iter(files.values()), None)} if files else {"state": "error", "error": (err or "自動字幕がありません")[:300]}
+            infos = {v: got[v]["info"] for v in vids if v in got and got[v].get("info")}   # 動画の情報(heatmap・チャプター入り。同じ呼び出しで取った物)
+            body = ({"state": "done", "files": files, "file": next(iter(files.values()), None), "infos": infos} if files
+                    else {"state": "error", "error": (err or "自動字幕がありません")[:300], "infos": infos})
         else:
             infos = [fsio.read_json_or(got[v]["info"], {}, kind=dict) for v in vids if v in got and got[v].get("info")]
             body = {"state": "done", "infos": infos, "via": "yt-dlp"} if infos else {"state": "error", "error": (err or "読めませんでした")[:300]}

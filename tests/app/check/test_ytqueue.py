@@ -38,7 +38,7 @@ class YtQueueTest(unittest.TestCase):
             d = Q.qdir(app_dir, Q.KEEP_DIR, v)
             os.makedirs(d, exist_ok=True)
             open(os.path.join(d, "subs.ja.json3"), "w").close()
-            got[v] = {"subs": os.path.join(d, "subs.ja.json3")}
+            got[v] = {"subs": os.path.join(d, "subs.ja.json3"), "info": os.path.join(d, "info.json")}
         return got, ""
 
     def audio(self, app_dir, rid, url, section):
@@ -193,7 +193,7 @@ class YtQueueTest(unittest.TestCase):
         self.assertEqual((got, self.light[-1][:1], len(self.light[-1])), ("light", [urls[0]], 5))   # 上限 5 本 = s1 の 5 本だけ
         with open(Q.qdir(self.app, "done", "s1.json"), encoding="utf-8") as f:
             d = json.load(f)
-        self.assertEqual(len(d["files"]), 5)
+        self.assertEqual((len(d["files"]), len(d["infos"])), (5, 5))   # 動画の情報(heatmap)のパスも返す
         self.assertIn("waitSec", d)                                               # 待ち時間
         self.assertIsNone(Q.light_batch(self.app, NOON + 600, self.logs.append))  # 1 時間に 1 回
         self.assertEqual(Q.light_batch(self.app, NOON + 3700, self.logs.append), "light")   # 次の回に s2
