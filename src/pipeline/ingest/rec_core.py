@@ -1086,6 +1086,8 @@ class Recorder:
                         "-map", "0:v?", "-map", "0:a?", "-c", "copy", "-f", "mp4", part],
                        timeout=KEEP_TIMEOUT, flags=ytools.no_window_flags(priority="low"), stdout=False, err_tail=5)
         if r.why or r.code != 0 or not os.path.isfile(part) or os.path.getsize(part) <= 0:
+            with contextlib.suppress(OSError):   # 作りかけを残さない(長い録画は数 GB)
+                os.remove(part)
             raise RecError("ffmpeg でつなげませんでした(%s)" % (r.why or " ".join(r.err_lines(2)) or r.code))
         os.replace(part, dest)
         os.remove(lst)
