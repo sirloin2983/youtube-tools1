@@ -208,6 +208,32 @@ class YtQueueTest(unittest.TestCase):
         self.assertIsNone(Q.light_batch(self.app, NOON + 600, self.logs.append))  # 1 時間に 1 回
         self.assertEqual(Q.light_batch(self.app, NOON + 3700, self.logs.append), "light")   # 次の回に s2
 
+    def test_chat_batch(self):
+        """チャットの頼みは音の枠で競わず、軽い物の守りの中で 1 時間に 1〜2 本(10-25: 点 0.6 で候補・声に負け続け、38 件が 1 件も取られなかった)"""
+        for i in range(3):
+            self.put_req("c%d" % i, {"purpose": "research", "kind": "chat", "url": "https://www.youtube.com/watch?v=CHATVIDEO0%d" % i})
+        taken = []
+
+        def chat(app_dir, url):
+            taken.append(url[-11:])
+            d = Q.qdir(app_dir, Q.KEEP_DIR, url[-11:])
+            os.makedirs(d, exist_ok=True)
+            p = os.path.join(d, "chat.live_chat.json")
+            open(p, "w").close()
+            return p, ""
+        with mock.patch.object(Q, "_chat", chat):
+            Q.tick(self.app, R, {}, lambda: "処理中", lambda req: "j", self.logs.append, now=NOON)
+            self.assertEqual(taken, [])                                            # 処理中は取らない
+            self.assertEqual(Q.chat_batch(self.app, NOON, self.logs.append), "chat")
+            self.assertEqual(taken, ["CHATVIDEO00"])                               # 段 0 = 1 本
+            self.assertIsNone(Q.chat_batch(self.app, NOON + 600, self.logs.append))   # 1 時間に 1 回
+        with mock.patch.object(Q, "_chat", lambda *a: (None, "HTTP Error 429: Too Many Requests")):
+            self.assertIsNone(Q.chat_batch(self.app, NOON + 3700, self.logs.append))
+        st = Q._state(self.app)
+        self.assertGreater(st["light"]["pause"], NOON + 3700)                    # 当たったら軽い物の側が休む
+        self.assertEqual(sorted(q["id"] for q in Q.requests(self.app)), ["c1", "c2"])   # 頼みは残す
+        self.assertEqual(Q.chat_n(st), 1)
+
     def test_gone_not_counted(self):
         """動画が無い・メンバー限定は枠に数えない(次の見回りで次の 1 本)"""
         full = {"ときのそら": 2, "ロボ子さん": 2}
