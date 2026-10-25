@@ -183,22 +183,40 @@ class YtQueueTest(unittest.TestCase):
         self.assertEqual(st["audio"]["level"], 0)                                 # 次の 3 回で休みの段を戻す
         for _ in range(3):
             Q.fine(st, "audio", self.logs.append)
-        self.assertEqual(Q.audio_gap(st), 40 * 60)                                # 次の 3 回で段を上げる(上限の段階の実験)
+        self.assertEqual(Q.audio_gap(st), 60 * 60)                                # 当たった日は当たった段より速くしない(10-25 夜)
+        Q.rollover(st, datetime.datetime(2026, 10, 26, 1, 0).timestamp(), self.logs.append)
+        self.assertIn("前の日に 60 分おきで当たったので", self.logs[-1])
+        for _ in range(3):
+            Q.fine(st, "audio", self.logs.append)
+        self.assertEqual(Q.audio_gap(st), 40 * 60)                                # 次の日は 3 回で段を上げる(上限の段階の実験)
         self.assertIn("段を上げました", self.logs[-1])
-        Q.hit(st, "audio", "rate", NOON, self.logs.append)
+        Q.hit(st, "audio", "rate", NOON + 86400, self.logs.append)
         self.assertEqual(Q.audio_gap(st), 60 * 60)                                # 当たったら 1 段落とす
         c = st["light"] = {"step": 0, "pen": 0, "level": 0, "pause": 0, "ok": 0}
         for _ in range(3):
             Q.fine(st, "light", self.logs.append)
         self.assertEqual(Q.light_n(st), 10)                                       # 軽い物 5 → 10 本
-        Q.rollover(st, datetime.datetime(2026, 10, 26, 1, 0).timestamp(), self.logs.append)
+        Q.rollover(st, datetime.datetime(2026, 10, 27, 1, 0).timestamp(), self.logs.append)
         self.assertEqual((c["step"], Q.light_n(st)), (1, 10))                     # 日が変わっても段はそのまま
+
+    def test_busy_is_slower_and_new_version_waits(self):
+        """処理中・ライブ中は音を止めず BUSY_SLOWER 段遅く(10-25 夜)・入口の起動し直しの待ちは新しく取らない・段は 5 分まで"""
+        self.assertEqual(Q.AUDIO_MIN[-1], 5)
+        st = {"audio": {"step": 4, "pen": 0, "level": 0, "pause": 0, "ok": 0}}   # 15 分おき
+        self.assertEqual((Q.audio_gap(st), Q.audio_gap(st, Q.BUSY_SLOWER)), (15 * 60, 30 * 60))
+        Q._save(self.app, dict(st, last=NOON))
+        self.assertTrue(Q.due(self.app, NOON + 16 * 60)[0])
+        self.assertFalse(Q.due(self.app, NOON + 16 * 60, Q.BUSY_SLOWER)[0])
+        self.assertTrue(Q.due(self.app, NOON + 31 * 60, Q.BUSY_SLOWER)[0])
+        with mock.patch.object(Q, "due", side_effect=AssertionError("新しい版の待ちでは音を見ない")):
+            Q.tick(self.app, R, {}, lambda: "新しい版 v9.9.9 を待っています", lambda req: "j", self.logs.append, now=NOON + 40 * 60)
 
     def test_light_batch(self):
         """軽い物(字幕)は音の回と別に、1 回でまとめて取る(処理中でも)。字幕の頼みは 1 つで 5 本まで・返事は files"""
         urls = ["https://www.youtube.com/watch?v=SUBSVIDEO%02d" % i for i in range(1, 7)]
         self.put_req("s1", {"purpose": "research", "kind": "subs", "urls": urls})   # 6 本 → 5 本まで
         self.put_req("s2", {"purpose": "research", "kind": "subs", "url": "https://www.youtube.com/watch?v=SUBSVIDEO99"})
+        Q._save(self.app, {"last": NOON - 60})   # 音の回はまだ間隔の中(この試しは軽い物だけを見る)
         got = Q.tick(self.app, R, {}, lambda: "処理中", lambda req: "j", self.logs.append, now=NOON)
         self.assertEqual((got, self.light[-1][:1], len(self.light[-1])), ("light", [urls[0]], 5))   # 上限 5 本 = s1 の 5 本だけ
         with open(Q.qdir(self.app, "done", "s1.json"), encoding="utf-8") as f:

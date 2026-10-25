@@ -49,7 +49,8 @@ from . import voicefetch as _vf
 
 ENABLED = True
 DIR_NAME = "yt-queue"
-AUDIO_MIN = [60, 40, 30, 20]         # 音の間隔の段(分)。当たらずに UP_AFTER 回続けば 1 段縮め、当たったら 1 段戻す(上限の段階の実験)
+AUDIO_MIN = [60, 40, 30, 20, 15, 10, 7, 5]   # 音の間隔の段(分)。当たらずに UP_AFTER 回続けば 1 段縮め、当たったら 1 段戻す(上限の段階の実験。10-25 夜 5 分まで)
+BUSY_SLOWER = 2                       # 処理中・ライブ中は音を止めず、この段だけ遅い間隔で続ける(友人のライブの録画が最優先なのは変えない)
 LIGHT_N = [5, 10, 20, 30]             # 軽い物を 1 回でまとめる本数の段(同じく)
 UP_AFTER = 3                          # 当たらずにこの回数続けば 1 段上げる(10-25 まとめ役: 日が明けるごとでは遅い)
 LIGHT_EVERY = 3600                    # 軽い物の回の間隔(秒)
@@ -199,10 +200,10 @@ def _cls(st, name):
     return c
 
 
-def audio_gap(st):
-    """音の間隔(秒)= AUDIO_MIN の段 × 1.5 の当たった回数乗"""
+def audio_gap(st, slower=0):
+    """音の間隔(秒)= AUDIO_MIN の段(slower 段だけ遅く)× 1.5 の当たった回数乗"""
     a = _cls(st, "audio")
-    return AUDIO_MIN[min(a["step"], len(AUDIO_MIN) - 1)] * 60 * (1.5 ** a["pen"])
+    return AUDIO_MIN[max(0, min(a["step"], len(AUDIO_MIN) - 1) - slower)] * 60 * (1.5 ** a["pen"])
 
 
 def light_n(st):
@@ -220,6 +221,12 @@ def rollover(st, now, log=None):
     for name in ("audio", "light"):
         c = _cls(st, name)
         c.update(level=0, pen=0, chatPen=0)   # 休みの段と当たった回数は日ごとに始めから(段 step は回ごとの fine・hit が上げ下げする)
+        if c.get("cap") is not None:   # 前の日に当たった = 当たった段の 1 段手前から始める(毎日同じ所で当たらない。10-25 夜)
+            c["step"] = min(c["step"], int(c["cap"]))
+            notes.append("%sは前の日に %sで当たったので %sから" % ("音" if name == "audio" else "軽い物", c.get("capAt") or "?",
+                                                                   ("%d 分おき" % (audio_gap(st) // 60)) if name == "audio" else ("%d 本まとめ" % light_n(st))))
+            c.pop("cap", None)
+            c.pop("capDay", None)
         notes.append("%s 当たり %d 回" % ("音" if name == "audio" else "軽い物", int(c.get("hits") or 0)))
         c["hits"] = 0
     if st.get("day") and log:
@@ -242,6 +249,8 @@ def classify(err):
 def hit(st, name, kind, now, log):
     """当たった: その側だけ休む(続けて当たるほど RESTS を伸ばす)・段を 1 つ落とす(いちばん下なら本数を半分 / 間隔を 1.5 倍)"""
     c = _cls(st, name)
+    c["capAt"] = ("%d 分おき" % (audio_gap(st) // 60)) if name == "audio" else ("%d 本まとめ" % light_n(st))   # 当たった間隔(その日の上限・記録)
+    c["cap"], c["capDay"] = max(0, c["step"] - 1), datetime.date.fromtimestamp(now).isoformat()   # その日はこの段より速くしない
     c["level"] = min(c["level"] + 1, len(RESTS))
     c["pause"] = now + RESTS[c["level"] - 1] * 60
     if c["step"] > 0:
@@ -271,21 +280,21 @@ def fine(st, name, log=None):
         c["pen"] -= 1
     elif c["level"]:
         c["level"] -= 1
-    elif c["step"] < top:
+    elif c["step"] < (top if c.get("cap") is None else min(top, int(c["cap"]))):   # 当たった日は当たった段の 1 段手前まで
         c["step"] += 1
         if log:
             log("YouTube の取得の列: 当たらずに %d 回続いたので段を上げました(%s。今日の当たり %d 回)"
                 % (UP_AFTER, ("音 %d 分おき" % (audio_gap(st) // 60)) if name == "audio" else ("軽い物 %d 本まとめ" % light_n(st)), int(c.get("hits") or 0)))
 
 
-def due(app_dir, now):
-    """音を今取ってよいか -> (よいか, 理由)。休み・音の段の間隔"""
+def due(app_dir, now, slower=0):
+    """音を今取ってよいか -> (よいか, 理由)。休み・音の段の間隔(slower 段だけ遅く = 処理中・ライブ中)"""
     st = _state(app_dir)
     a = _cls(st, "audio")
     if now < a["pause"]:
         return False, "当たったので休んでいます(あと %d 分)" % ((a["pause"] - now) // 60)
     last = _vm.num(st.get("last"))
-    gap = audio_gap(st)
+    gap = audio_gap(st, slower)
     if now - last < gap:
         return False, "前の取得から %d 分(間隔 %d 分)" % ((now - last) // 60, gap // 60)
     return True, ""
@@ -574,11 +583,13 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
     rollover(st, now, log)
     _save(app_dir, st)
     light = light_batch(app_dir, now, log)   # 軽い物は処理中・ライブ中でも(10-25)
-    if busy():
+    why = busy()
+    if why and str(why).startswith("新しい版"):   # 入口の起動し直しの待ち = 新しく取らない(起き直しを延ばさない)
         return light
-    with run_lock(app_dir) as mine:   # 手で流すチャットの 1 回とぶつからない
-        light = (chat_batch(app_dir, now, log) if mine else None) or light   # チャットは処理中でないときだけ(1 本で長くかかる)
-    ok, _why = due(app_dir, now)
+    if not why:
+        with run_lock(app_dir) as mine:   # 手で流すチャットの 1 回とぶつからない
+            light = (chat_batch(app_dir, now, log) if mine else None) or light   # チャットは処理中でないときだけ(1 本で長くかかる)
+    ok, _why = due(app_dir, now, BUSY_SLOWER if why else 0)   # 処理中・ライブ中は止めず 2 段遅く(10-25 夜)
     if not ok:
         return light
     st = _state(app_dir)
