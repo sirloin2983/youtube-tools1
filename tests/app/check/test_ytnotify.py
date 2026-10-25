@@ -52,13 +52,15 @@ class YtNotifyTest(unittest.TestCase):
         self.now += 60
         self.done("r2", file="done/r2.m4a", info={"id": "c"})
         self.done("r3", state="error", error="bot")
+        self.done("r-subs-1", files={"a": "a.json3", "b": "b.json3"}, infos={"a": "a.info.json"})   # 字幕の返事は infos も辞書で持つ(0.99.270〜)
         self.now += Y.BATCH_SEC
-        self.assertEqual(self.tick(), 3)
+        self.assertEqual(self.tick(), 4)
         prompt = self.calls[0][self.calls[0].index("-p") + 1]
         self.assertIn("「%s」" % Y.RESEARCH_NAME, prompt)
         self.assertIn("動画の情報 1 本(動画 2)", prompt)
         self.assertIn("音 1 本(動画 1)", prompt)
         self.assertIn("失敗 1 本", prompt)
+        self.assertIn("字幕 1 本(動画 2)", prompt)
         N._running.clear()
         self.now += Y.BATCH_SEC * 2
         self.assertEqual(self.tick(), 0)

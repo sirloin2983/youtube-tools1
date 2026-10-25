@@ -23,7 +23,6 @@ STATE_NAME = "notify.json"
 LOG_NAME = "notify.log"
 BATCH_SEC = 300          # 5 分のあいだに届いた結果は 1 通にまとめる
 DAILY_MAX = 24
-KINDS = (("infos", "動画の情報"), ("entries", "一覧"), ("files", "字幕"), ("file", "音"))
 
 
 def to_name():
@@ -31,13 +30,18 @@ def to_name():
 
 
 def _kind(d):
-    """結果の種類と動画の数"""
+    """結果の種類と動画の数(列の返事の形 = 予備 2 10-25: 字幕 files{動画: 字幕}+ infos{辞書}・音と候補 file + info・
+    チャット file + bundle(info なし)・動画の情報 infos[リスト]・一覧 entries・失敗 state error)"""
     if d.get("state") == "error":
         return "失敗", 1
-    for key, name in KINDS:
-        v = d.get(key)
-        if v:
-            return name, (len(v) if isinstance(v, (list, dict)) else 1)
+    if isinstance(d.get("files"), dict) and d["files"]:
+        return "字幕", len(d["files"])
+    if d.get("file"):
+        return ("音" if d.get("info") else "チャット"), 1
+    if isinstance(d.get("infos"), list) and d["infos"]:
+        return "動画の情報", len(d["infos"])
+    if isinstance(d.get("entries"), list) and d["entries"]:
+        return "一覧", len(d["entries"])
     return "その他", 1
 
 
