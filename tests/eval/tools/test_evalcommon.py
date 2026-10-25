@@ -164,5 +164,22 @@ class TestAudioSpan(unittest.TestCase):
         self.assertEqual((a["cancel"], a["proc"], a["progress"]), (False, None, 0.0))
 
 
+class TestReadAnswersWithRetext(unittest.TestCase):
+    def test_time_text_overrides_older_read(self):
+        """時刻のカードの「読みを直す」の文字は、同じ行の読みの答えより新しければ「打った文字」として読む(10-26)"""
+        def row(kind, at, rid, ans):
+            return {"id": "a%d" % at, "kind": kind, "source": "alt" if kind == "read" else "row", "at": at,
+                    "target": {"docId": "d1", "row": rid}, "answer": ans}
+        rows = [row("read", 1, "s1", {"choice": "2"}), row("time", 2, "s1", {"choice": "ok", "text": "直した"}),
+                row("time", 3, "s2", {"choice": "ok", "text": "古い"}), row("read", 4, "s2", {"choice": "1"}),
+                row("time", 5, "s3", {"choice": "ok", "text": "読みの答えなし"})]
+        st = types.SimpleNamespace(effective=lambda: rows)
+        with mock.patch("human.check.answerlog.state", lambda app_dir: st):
+            got = C.read_answers("x", "read", "alt", {"1": 1, "2": 1, "other": 1})
+        self.assertEqual(got[("d1", "s1")]["answer"], {"choice": "other", "text": "直した"})   # 新しい方 = 時刻のカードの文字
+        self.assertEqual(got[("d1", "s2")]["answer"], {"choice": "1"})                        # 読みの答えが新しい
+        self.assertNotIn(("d1", "s3"), got)                                                    # 読みの答えの無い行は出どころが分からない
+
+
 if __name__ == "__main__":
     unittest.main()

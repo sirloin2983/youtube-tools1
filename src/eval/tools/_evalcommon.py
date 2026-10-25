@@ -121,6 +121,28 @@ def read_answers(app_dir, kind, source, choices):
             continue
         if isinstance(t, dict) and isinstance(t.get("docId"), str) and t.get("row") is not None:
             out[(t["docId"], str(t["row"]))] = r
+    if kind == "read" and "other" in choices:   # 時刻のカードの「読みを直す」(T)で打ち直した文字も人の確かめた読み = 同じ行で新しい方を「打った文字」として(10-26)
+        for key, (at, text) in retexts(rows).items():
+            r = out.get(key)
+            if r is not None and _at(r) < at:
+                out[key] = dict(r, at=at, answer={"choice": "other", "text": text}, via="time")
+    return out
+
+
+def _at(r):
+    a = r.get("at")
+    return a if isinstance(a, (int, float)) and not isinstance(a, bool) else 0
+
+
+def retexts(rows):
+    """効いている答えの行のうち、時刻のカードで読みを直した物(kind time の answer.text)-> {(文書の id, 行の id): (時刻, 文字)}(同じ行は後の物)"""
+    out = {}
+    for r in rows:
+        t, ans = r.get("target") or {}, r.get("answer")
+        if r.get("kind") != "time" or not isinstance(ans, dict) or not isinstance(ans.get("text"), str) or not isinstance(t, dict):
+            continue
+        if isinstance(t.get("docId"), str) and t.get("row") is not None:
+            out[(t["docId"], str(t["row"]))] = (_at(r), ans["text"])
     return out
 
 
