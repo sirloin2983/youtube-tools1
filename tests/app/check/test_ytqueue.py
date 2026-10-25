@@ -38,6 +38,9 @@ class YtQueueTest(unittest.TestCase):
             d = Q.qdir(app_dir, Q.KEEP_DIR, v)
             os.makedirs(d, exist_ok=True)
             open(os.path.join(d, "subs.ja.json3"), "w").close()
+            manual = v.endswith("01")   # 1 本目だけ人の手の字幕がある
+            with open(os.path.join(d, "info.json"), "w", encoding="utf-8") as f:
+                json.dump({"id": v, "subtitles": {"ja": [{}]} if manual else {}, "automatic_captions": {"ja": [{}]}}, f)
             got[v] = {"subs": os.path.join(d, "subs.ja.json3"), "info": os.path.join(d, "info.json")}
         return got, ""
 
@@ -246,6 +249,8 @@ class YtQueueTest(unittest.TestCase):
             d = json.load(f)
         self.assertEqual((len(d["files"]), len(d["infos"])), (5, 5))   # 動画の情報(heatmap)のパスも返す
         self.assertIn("waitSec", d)                                               # 待ち時間
+        self.assertEqual(d["subsKind"]["SUBSVIDEO01"], "手")                     # 人の手の字幕(10-25 研究の頼み)
+        self.assertEqual(d["subsKind"]["SUBSVIDEO02"], "自動")
         self.assertIsNone(Q.light_batch(self.app, NOON + 600, self.logs.append))  # 1 時間に 1 回
         self.assertEqual(Q.light_batch(self.app, NOON + 3700, self.logs.append), "light")   # 次の回に s2
 

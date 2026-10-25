@@ -5,7 +5,7 @@
   req/<id>.json        研究の頼み {"id", "purpose": "research", "kind": "info"|"audio"|"list", "priority", "hint": {"channel", "title"}, ...}
                        info: "urls"(10 本まで。説明欄など)/ audio: "url", "section": [始め, 終わり] か null / list: "url", "items" /
                        chat: "url"(チャットのリプレイ。長い配信は問い合わせが多いので研究が頼む物だけ)/
-                       subs: "urls"(5 本まで)か "url"(自動字幕だけ。軽い物のまとめ = 返事は "files": {動画: 字幕のパス}。。研究が手元のショートの文字と突き合わせて ?t= の無い候補の位置を出す = 全体の音を取らずに済む)
+                       subs: "urls"(5 本まで)か "url"(人の手の字幕があれば手・無ければ自動。軽い物のまとめ = 返事は "files": {動画: 字幕のパス}・"subsKind": {動画: "手" | "自動"}。。研究が手元のショートの文字と突き合わせて ?t= の無い候補の位置を出す = 全体の音を取らずに済む)
   done/<id>.json       結果 {"id", "state": "done"|"error", "error", "at", "infos" | "file" + "info" | "entries"}。音は done/<id>.<拡張子>。
                        読む側が消す(DONE_DAYS 日残っていれば列が消す)
   candidates.json      研究が置く候補 = 友人のショートの元の配信 [{"video", "t"(?t= の秒か null), "channel", "title", "uploadDate", "research"(研究に効く度合い 0〜1)}]
@@ -728,7 +728,8 @@ def light_batch(app_dir, now, log):
         if q["kind"] == "subs":
             files = {v: got[v]["subs"] for v in vids if v in got and got[v].get("subs")}
             infos = {v: got[v]["info"] for v in vids if v in got and got[v].get("info")}   # 動画の情報(heatmap・チャプター入り。同じ呼び出しで取った物)
-            body = ({"state": "done", "files": files, "file": next(iter(files.values()), None), "infos": infos} if files
+            kinds_ = {v: k for v in files for k in [sub_kind(infos.get(v))] if k}   # 手 / 自動の印(研究の頼み。問い合わせは増やさない)
+            body = ({"state": "done", "files": files, "file": next(iter(files.values()), None), "infos": infos, "subsKind": kinds_} if files
                     else {"state": "error", "error": (err or "自動字幕がありません")[:300], "infos": infos})
         else:
             infos = [fsio.read_json_or(got[v]["info"], {}, kind=dict) for v in vids if v in got and got[v].get("info")]
@@ -808,14 +809,22 @@ def chat_batch(app_dir, now, log, n=None, force=False):
     return "chat" if done else None
 
 
+def sub_kind(info_path, lang="ja"):
+    """取った字幕が人の手か自動か(同じ呼び出しで取った動画の情報の subtitles に lang があれば 手。yt-dlp は両方あれば手を書く)-> "手" | "自動" | None"""
+    d = fsio.read_json_or(info_path, None, kind=dict) if info_path else None
+    if not d:
+        return None
+    return "手" if lang in (d.get("subtitles") or {}) else ("自動" if lang in (d.get("automatic_captions") or {}) else None)
+
+
 def _light_fetch(app_dir, urls):
-    """yt-dlp 1 回で、URL を並べて自動字幕と動画の情報だけ -> ({動画: bundle}, 失敗の文)"""
+    """yt-dlp 1 回で、URL を並べて字幕(人の手があれば手・無ければ自動。10-25 研究の頼み)と動画の情報だけ -> ({動画: bundle}, 失敗の文)"""
     yd = _vf._tools.find_tool("yt-dlp")
     if not yd:
         return {}, "yt-dlp が見つかりません"
     keep = qdir(app_dir, KEEP_DIR, "%(id)s")
     r, tail = _vf._ytdlp([yd, "--encoding", "utf-8", "--no-warnings", "--ignore-errors", "--no-playlist", "--skip-download",
-                          "--sleep-requests", str(SLEEP_REQ), "--write-auto-subs", "--sub-langs", "ja", "--sub-format", "json3", "--write-info-json",
+                          "--sleep-requests", str(SLEEP_REQ), "--write-subs", "--write-auto-subs", "--sub-langs", "ja", "--sub-format", "json3", "--write-info-json",
                           "-o", "subtitle:" + keep + os.sep + "subs", "-o", "infojson:" + keep + os.sep + "info", "--"] + list(urls), 300 + 30 * len(urls))
     got = {}
     for u in urls:
