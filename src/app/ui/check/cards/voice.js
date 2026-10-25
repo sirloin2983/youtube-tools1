@@ -7,17 +7,20 @@
    「メンバーを選ぶ」(P): 名前の入力欄(datalist で候補を打って絞る)が開く。Enter で答え・Esc で閉じる。入力欄にいる間はカードと殻のキーは入力を取らない。
    候補と同じ名前なら候補の id(文書の話者は {choice}・ほかは {name})・候補に無い名前はそのまま {name}(覚える材料にするかはサーバーの _learnable_name)。
    G = 「ゲーム音・BGM が大きい」の切り替え(押してから名前などを選ぶ)。入っていると答えに bgm: true を足す = 話者はその人・行の音のメモ bgm・覚える材料にしない。
+   V = 「別の声も入っている」の切り替え(G と同じ。押してから名前を選ぶ)。後ろに別の人の声が小さく入る行 = 答えに others: true(行の音のメモ overlap・覚える材料にしない。
+   2 人が同じくらい重なるなら M)。10-25 確かめるの混ざりと BGM のルール
    名前で答えた行(1 秒以上・混ざっていない・音のメモが無い・評価用でない)は、その人の声を覚え直す材料になる(1 人 30 秒分たまったら自動で。サーバーの側)。
-   キー: 名前は数字キー 1〜3・メンバーを選ぶ P・その他 O・混ざり M・予想どおり Enter・ゲーム音・BGM が大きい G */
+   キー: 名前は数字キー 1〜3・メンバーを選ぶ P・声が無い O・混ざり M・予想どおり Enter・ゲーム音・BGM が大きい G・別の声も入っている V */
 (function () {
   'use strict';
   var esc = UIKit.esc;
-  var EXTRA = { other: { k: 'O', label: 'その他(ゲームの音など)' }, mixed: { k: 'M', label: '声が混ざっている' } };
+  var EXTRA = { other: { k: 'O', label: '声が無い(ゲームの音・BGM だけ。字幕に出さない)' }, mixed: { k: 'M', label: '声が混ざっている(2 人が同じくらい)' } };
   var NAME_PREFIX = 'name:';
   var NOTE = { below_match: '覚えた声との似かたが弱い話者です', margin: '覚えた声の 2 人が近く、どちらか決めきれなかった話者です',
     solo: 'ソロ配信と見た配信の行です(声を覚える材料を集めています)。ほかの人の声なら [メンバーを選ぶ] でその人を、分からなければ [分からない]' };
   var WAIT = '再生が終わってから押せます(よく聞いてから答えるため)';
   var BGM = { k: 'G', label: 'ゲーム音・BGM が大きい', title: '入れてから名前を選ぶと、話者はその人・行に「BGM が大きい」の音のメモを付け、声を覚える材料にしません' };
+  var OTHERS = { k: 'V', label: '別の声も入っている', title: '入れてから名前を選ぶと、話者はその人・行に「別の声も入っている」の音のメモを付け、声を覚える材料にしません(2 人が同じくらい重なるなら M)' };
   var PICK = { k: 'P', label: 'メンバーを選ぶ', title: 'ボタンに無い人を名簿などから選ぶ・名前を打つ(名簿に無い人も入れられます)' };
   var BUTTONS = 3, NAME_MAX = 30;
   var picker = null;   // 今のカードの「メンバーを選ぶ」の欄(カードは 1 枚ずつ。render で作り unmount で外す)
@@ -25,6 +28,7 @@
   function answerOf(id, st) {
     var a = id.indexOf(NAME_PREFIX) === 0 ? { name: id.slice(NAME_PREFIX.length) } : { choice: id };
     if (st && st.bgm) a.bgm = true;
+    if (st && st.others && id !== 'other' && id !== 'mixed') a.others = true;
     return a;
   }
   function options(card) {
@@ -41,10 +45,12 @@
       var g = guessOf(card);
       return (g ? '<p class="notice info">機械の予想: <b>' + esc(g.name || g.id) + '</b>(再生が終わると Enter で予想どおりに答えられます)</p>' :
         '<p class="notice info">機械の予想はありません。聞いて選んでください。</p>') +
-        '<p class="hint">名前を選んだ行は、その人の声を覚え直す材料になります(1 秒以上・混ざっていない行)。</p>';
+        '<p class="hint">名前を選んだ行は、その人の声を覚え直す材料になります(1 秒以上・混ざっていない行)。</p>' +
+        '<p class="hint">2 人が同じくらい重なる = M・後ろに別の人の声が小さく = V + 名前・BGM が大きいが 1 人 = G + 名前・声が無い(音だけ) = O・決められない = W。</p>';
     },
     hint: function (card, st) {
-      return st.bgm ? '<p class="hint" data-chk-bgm>ゲーム音・BGM が大きい行として答えます(声を覚える材料にしません。G でやめる)</p>' : '';
+      return (st.bgm ? '<p class="hint" data-chk-bgm>ゲーム音・BGM が大きい行として答えます(声を覚える材料にしません。G でやめる)</p>' : '') +
+        (st.others ? '<p class="hint" data-chk-others>別の声も入っている行として答えます(声を覚える材料にしません。V でやめる)</p>' : '');
     },
     options: function (card, st) {
       var all = options(card), g = guessOf(card);
@@ -63,6 +69,8 @@
       });
       out.push({ k: BGM.k, label: BGM.label, title: BGM.title, pressed: !!st.bgm,
         answer: function (c, p, s, repaint) { s.bgm = !s.bgm; repaint(); return null; } });
+      out.push({ k: OTHERS.k, label: OTHERS.label, title: OTHERS.title, pressed: !!st.others,
+        answer: function (c, p, s, repaint) { s.others = !s.others; repaint(); return null; } });
       return out;
     },
     keybar: function (card, st) {
@@ -70,6 +78,7 @@
       if (guessOf(card)) o.push({ k: 'Enter', l: '予想どおり' });
       o.push({ k: PICK.k, l: PICK.label });
       o.push({ k: BGM.k, l: st.bgm ? 'BGM が大きい: 入' : BGM.label });
+      o.push({ k: OTHERS.k, l: st.others ? '別の声も: 入' : OTHERS.label });
       return o;
     }
   });

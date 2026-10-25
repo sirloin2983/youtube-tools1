@@ -178,6 +178,20 @@ class VoiceSoloTest(unittest.TestCase):
         self.assertIn("IRyS", voice_solo._vm.foreign_members())
         self.assertNotIn("e00000000001", {c["target"]["docId"] for c in self.cards()})
 
+    def test_unclear_rows_are_skipped(self):
+        """これから出す誰の声のカードに出さない行(10-25 確かめるの混ざりと BGM のルール): 文字起こしの印「自信が低い」「音声でない可能性(BGMなど)」・
+        BGM らしさ 0.6 以上・判別の重なり(overlaps)にかかる行"""
+        segs = rows()
+        segs[0]["flag"] = "自信が低い"
+        segs[1]["flag"] = "音声でない可能性(BGMなど)"
+        self.put("d00000000001", doc("兎田ぺこら の雑談", updated=999, speakers=[{"id": "S1", "name": "兎田ぺこら"}], segs=segs),
+                 diar={"rows": {}, "overlaps": [[20.5, 22.0]]})   # s2(20〜24 秒)にかかる
+        with mock.patch.object(voice_solo, "_bgm_seen", {("d00000000001", "s3"): 0.7, ("d00000000001", "s4"): 0.2}), \
+                mock.patch.object(voice_solo._voiceclips, "clip_path", lambda t, r: None):
+            got = {c["target"]["row"] for c in self.cards() if c["target"]["docId"] == "d00000000001"}
+        self.assertEqual(got & {"s0", "s1", "s2", "s3"}, set())
+        self.assertIn("s4", got)
+
     def test_songs_are_skipped(self):
         """歌は声を覚える材料にしない(10-24 夜): 題名に歌の印がある配信の文書と、音符のある行。外した数は LAST_SKIPS"""
         self.put("b00000000001", doc("【歌枠】%s のアニソン" % MIKO, updated=999))

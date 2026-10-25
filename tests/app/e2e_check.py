@@ -475,6 +475,30 @@ def _scene_voice_pick(cx):
         _restore_queue(cx)
 
 
+def _scene_voice_others(cx):
+    """誰の声: V(別の声も入っている)を入れて名前で答える = {choice, others: true}・O は「声が無い」の文(10-25 確かめるの混ざりと BGM のルール)"""
+    pg, check = cx.pg, cx.check
+    opts = [{"id": "S1", "name": "ぺこら"}, {"id": "other", "name": "その他"}, {"id": "mixed", "name": "混ざり"}]
+    fv = FakeQueue([card(i, "voice", source="solo", options=opts) for i in (60, 61)])
+    _swap_queue(cx, fv)
+    try:
+        pg.goto(cx.base + "check?kind=voice")
+        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:60'"), "声のカード(V)を開く: %s" % state(pg))
+        check("声が無い" in (pg.text_content("#chkBody [data-chk-k='O']") or ""), "O は「声が無い(ゲームの音・BGM だけ)」の文")
+        press(pg, "v")
+        check(pg.get_attribute("#chkBody [data-chk-k='V']", "aria-pressed") == "true" and pg.is_visible("#chkBody [data-chk-others]"),
+              "V で「別の声も入っている」が入る(押した状態と一言)")
+        press(pg, "1")
+        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:61'") and fv.answers[-1]["body"]["answer"] == {"choice": "S1", "others": True},
+              "V のあと 1 = {choice: S1, others: true}: %s" % fv.answers[-1:])
+        check(pg.get_attribute("#chkBody [data-chk-k='V']", "aria-pressed") == "false", "次のカードでは V は切れている")
+        press(pg, "v")
+        press(pg, "m")
+        check(wait_js(pg, "CheckShell.state().empty") and fv.answers[-1]["body"]["answer"] == {"choice": "mixed"}, "V のあと M = 混ざりだけ(others は付けない): %s" % fv.answers[-1:])
+    finally:
+        _restore_queue(cx)
+
+
 def _scene_voice_video_or_clip(cx):
     """誰の声(ソロ)のカード: 元の動画がある文書は映像つき(transcribe/media の <video> に映像の大きさがある)・切り出した行の音(api/check/voiceclip)は
     音だけ(映像の大きさ 0)で流れる(10-25: 0.99.207 から動画のある文書も音だけになっていた)。どちらの形を出すかは app/check/voice_solo(単体で確かめる)"""
@@ -767,6 +791,7 @@ def main():
                 _scene_voice_pick(cx)
                 _scene_unknown(cx)
                 _scene_voice_video_or_clip(cx)
+                _scene_voice_others(cx)
                 _scene_speech(cx)
                 _scene_cut(cx)
                 _scene_kind_pick(cx)

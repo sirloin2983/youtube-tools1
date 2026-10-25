@@ -23,7 +23,7 @@ from human.check import value as value_mod
 from human.check import voice as voice_mod
 from flow import voicematerial as _vm   # 名簿の全員(誰の声のカードの「メンバーを選ぶ」の欄)
 from manage.cases import cases as cases_mod, txindex
-from ytt import fsio, settings
+from ytt import fsio, schemas as _yschemas, settings
 from ytt.textutil import person_key as _person_key
 from . import lineup, voicefill   # 同じ app/check の兄弟
 
@@ -377,6 +377,8 @@ def voice_diar(view):
                 continue
             if _num(g.get("end")) - _num(g.get("start")) < MIN_VOICE_SEC:
                 continue
+            if any(_yschemas.has_flag(g.get("flag"), f) for f in _vm.NOT_FOR_VOICE_FLAGS + (_yschemas.MIXED_FLAG,)) or _vm.overlaps_row(g, latest.get("overlaps")):
+                continue   # 自信が低い・音声でない可能性・混ざりの印・判別の重なりの行は出さない(10-25 確かめるの混ざりと BGM のルール)
             sp = r.get("speaker") or g.get("speaker") or ""
             v = sps.get(sp) if isinstance(sps.get(sp), dict) else {}
             low = 0 if v.get("reason") in ("below_match", "margin") else 1   # 声の照合が弱い話者を先に

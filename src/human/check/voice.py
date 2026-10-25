@@ -9,6 +9,7 @@
   {"choice": "other"}            その他(ゲームの音など)= 組み込みの話者「ゲーム音声など」+ 字幕に出さない(編集の画面で選んだときと同じ)
   {"choice": "mixed"}            声が混ざっている = 行の印 MIXED_FLAG と音のメモ overlap(話者はそのまま)
   上のどれにも "bgm": true を足せる  ゲーム音・BGM が大きい = 行の音のメモ bgm も付ける(覚える材料にしない。Z で音のメモも戻る)
+  名前の答えに "others": true を足せる  別の声も入っている(V。後ろに別の人の声が小さく)= 行の音のメモ overlap(覚える材料にしない・混ざりの印は付けない。10-25)
 反映(_apply_voice): _doc.edit_row(保存の錠・処理中と評価用は断る・履歴は 10 分に 1 つ)の中で、行の speaker・flag(話者の印 SPK_FLAGS を外す /
   混ざりは付ける)・tags・noSub を直して why="check:voice"。**行は proofed にしない**(文字は確かめていない)・時刻は触らない・層(O2)には commit の今の道で載る(hum は渡さない)。
   Z(_revert_voice)= 逆の commit(行が答えたあとのままのときだけ。もう答える前のままなら書かない。足した話者は誰も使っていなければ外す)。
@@ -26,7 +27,7 @@ import re
 
 from ytt import errors as _errors, schemas as _yschemas, settings as _settings, tools as _tools, txbase as _txbase
 from ytt.textutil import person_key as _person_key
-from flow import diar as _diar, jobs as _heavy
+from flow import diar as _diar, jobs as _heavy, voicematerial as _vm
 from human.proof import speakers as _speakers, store as _store, voiceclips as _voiceclips
 from . import _doc, answerlog, apply as _apply   # 同じ human/check の兄弟
 
@@ -160,9 +161,17 @@ def people_for(doc, voices, roster_names=()):
 # ---------------------------------------------------------------- 答えの検査
 
 def _check_answer(ans):
-    """答えを整える -> {"choice": id} か {"name": 名前}(+ "bgm": True)。違えば ValueError(400)"""
+    """答えを整える -> {"choice": id} か {"name": 名前}(+ "bgm": True・"others": True)。違えば ValueError(400)。
+    others = 「別の声も入っている」(V。後ろに別の人の声が小さく入る = 行の音のメモ overlap・覚えない・混ざりの印 MIXED_FLAG は付けない。10-25)"""
     if not isinstance(ans, dict):
         raise ValueError("答えは {choice} か {name} の形で送ってください")
+    if "others" in ans:
+        if ans["others"] is not True:
+            raise ValueError("others は true だけ送れます")
+        got = _check_answer({k: v for k, v in ans.items() if k != "others"})
+        if got.get("choice") in (OTHER, MIXED):
+            raise ValueError("別の声も入っている(V)は、名前と一緒に送ってください")
+        return dict(got, others=True)
     if "bgm" in ans:
         if ans["bgm"] is not True:
             raise ValueError("bgm は true だけ送れます")
@@ -261,6 +270,8 @@ def _learn_of(doc, g, sid, ans):
     a, b = _yschemas.num_or(g.get("start")), _yschemas.num_or(g.get("end"))
     if a is None or b is None or b - a < MIN_LEARN_SEC or _yschemas.has_flag(g.get("flag"), _txbase.MIXED_FLAG):
         return None
+    if any(_yschemas.has_flag(g.get("flag"), f) for f in _vm.NOT_FOR_VOICE_FLAGS):
+        return None   # 文字起こしの印「自信が低い」「音声でない可能性(BGMなど)」= これから入る材料に使わない(答えたときに 1 回だけ = もう覚えた材料は外さない。10-25)
     tags = g.get("tags") if isinstance(g.get("tags"), list) else []
     if any(t in tags for t in _speakers.VOICE_LEARN_TAGS):
         return None
@@ -283,6 +294,8 @@ def _apply_voice(ctx, card, ans):
                          noSub=True if sid == OTHER else (before["noSub"] and before["speaker"] != OTHER))
         if ans.get("bgm"):   # ゲーム音・BGM が大きい = 音のメモ bgm(この印の行は _learn_of が覚える材料から外す)
             after["tags"] = _with_tags(after["tags"], "bgm")
+        if ans.get("others"):   # 別の声も入っている = 音のメモ overlap(覚える材料から外す・混ざりの印は付けない = 話者はその人のまま。10-25)
+            after["tags"] = _with_tags(after["tags"], "overlap")
         _set_row(g, after)
         return added, _learn_of(doc, g, g["speaker"], ans), doc
     before, after, (added, learn, doc) = _doc.edit_fields(tid, rid, "check:voice", _row_state, change)

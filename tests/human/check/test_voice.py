@@ -260,6 +260,20 @@ class RelearnTest(Base):
         with mock.patch.object(voice._settings, "load_settings", return_value={"check": {"voiceRelearnSec": 1}}):
             self.assertEqual(voice._relearn_sec(), voice.RELEARN_SEC_DEFAULT)   # 範囲の外は既定
 
+    def test_others_answer(self):
+        """別の声も入っている(V + 名前): 話者はその人・音のメモ overlap・混ざりの印は付けない・覚える材料にしない。名前と一緒でなければ断る(10-25)"""
+        got = self.answer("s4", {"choice": "S1", "others": True})
+        g = self.seg("s4")
+        self.assertEqual((g["speaker"], g["tags"], "声が混ざっている可能性" in str(g.get("flag") or "")), ("S1", ["overlap"], False))
+        self.assertNotIn("learn", got["applied"])
+        with self.assertRaises(ValueError):
+            voice._check_answer({"choice": "mixed", "others": True})
+
+    def test_new_flags_not_learned(self):
+        """文字起こしの印「自信が低い」の行は、これから答えても覚える材料にしない(もう覚えた材料は答えたときに決まったまま。10-25)"""
+        self.assertIsNone(voice._learn_of({"speakers": [{"id": "S1", "name": "ぺこら"}]}, {"start": 0.0, "end": 4.0, "flag": "自信が低い"}, "S1", {"choice": "S1"}))
+        self.assertIsNotNone(voice._learn_of({"speakers": [{"id": "S1", "name": "ぺこら"}]}, {"start": 0.0, "end": 4.0, "flag": ""}, "S1", {"choice": "S1"}))
+
     def test_bgm_answer_and_undo(self):
         """ゲーム音・BGM が大きい: 話者はその人・音のメモ bgm・覚える材料にしない。Z で話者・音のメモが戻り、材料にも数えない"""
         got = self.answer("s2", {"choice": "S1", "bgm": True})

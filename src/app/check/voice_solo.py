@@ -101,6 +101,15 @@ _bgm_seen = {}   # (文書, 行) -> BGM らしさか None(音がまだ無い行�
 GOOD_BAND = (3.0, 8.0)   # 長めの行(声の特徴が取りやすい)= 先に出す(10-25: 答え 214 枚でも覚えた人が 6 人だけ・混ざりとその他が 4 割)
 
 
+BGM_MAX = 0.6   # 行の音の BGM らしさ(voiceclips.bgm)がこれ以上の行は出さない(仮 10-25。測り直す日 = 11-08 の校正の再開のあと。答えの bgm と見比べる)
+
+
+def _too_bgm(tid, g):
+    _later(tid, g)   # BGM らしさを測って覚える(_bgm_seen)
+    b = _bgm_seen.get((tid, g["id"]))
+    return b is not None and b >= BGM_MAX
+
+
 def _later(tid, g):
     """後ろに回す度合い(0 = 先): 長めの行(GOOD_BAND)でなければ +1・BGM・効果音らしさ(切り出した行の音の目安 voiceclips.bgm)× 2。
     並びはランダムのまま、この重みでランダムの幅を広げる = 長めで BGM の少ない行が先に出やすい"""
@@ -117,9 +126,11 @@ def _later(tid, g):
 
 def _select(view):
     """カードに出す行を選ぶ(並び・量の決まりは先頭の説明)-> [(rank, 名前, 人の一覧, 文書 id, 文書, 行, i)]。聞けない行(音も動画も無い)は飛ばす"""
-    by_person, skips = {}, {"songDocs": 0, "songRows": 0}
+    by_person, skips, overlaps = {}, {"songDocs": 0, "songRows": 0}, {}
     for tid, path, doc in view.docs(need_media=False):
         latest = view.diar(tid, path)
+        if isinstance(latest, dict) and latest.get("overlaps"):
+            overlaps[tid] = latest["overlaps"]   # 判別の重なり(別の話者の区間が重なる所)にかかる行は出さない(10-25)
         if voice_mod.diar_enabled() and isinstance(latest, dict) and isinstance(latest.get("rows"), dict) and latest["rows"]:
             continue   # voice:diar が出す(既定オフ = 判別の記録のある文書も voice:solo が出す。10-25 ショートに判別を流す)
         if voicefill.eval_like(doc.get("sourcePath")):
@@ -156,7 +167,9 @@ def _select(view):
         for tid, doc in sorted(docs, key=lambda x: x[0] in seen):
             skips["songRows"] += sum(1 for g in sources._rows(doc) if song_row(g))
             playable, main = _playable_fn(tid, doc), _vm.main_speaker(doc)   # 判別で話者が分かれたショート = 行の多い話者(配信者)の行だけ(10-25)
-            rows = sorted(_vm.pick(doc, lambda g: playable(g) and (main is None or g.get("speaker") == main)), key=lambda g: _later(tid, g))   # 長めの行・BGM の少ない行が先
+            ovl = overlaps.get(tid) or ()
+            rows = sorted(_vm.pick(doc, lambda g: playable(g) and (main is None or g.get("speaker") == main) and not _vm.overlaps_row(g, ovl)
+                                   and not _too_bgm(tid, g)), key=lambda g: _later(tid, g))   # 長めの行・BGM の少ない行が先
             picks.append((tid, doc, rows[:PER_DOC]))
         n = 0
         for i in range(PER_DOC):   # 文書を順に 1 行ずつ回す(いろいろな配信から)

@@ -194,15 +194,36 @@ def member(name):
         return None
 
 
+LOW_CONF_FLAG = "自信が低い"                    # 文字起こしの要確認の印(① pipeline/transcribe/postproc.make_flags)
+NOT_VOICE_FLAG = "音声でない可能性(BGMなど)"
+NOT_FOR_VOICE_FLAGS = (LOW_CONF_FLAG, NOT_VOICE_FLAG)   # この印の行は、これから出す誰の声のカード・これから入る声の材料に使わない(10-25 確かめるの混ざりと BGM のルール)
+
+
 def row_ok(g):
-    """覚える材料になりうる行か(字幕に出さない行・ゲームの音の話者でない・1 秒以上 MAX_ROW_SEC 以下・混ざりの印と音のメモが無い・歌でない)"""
+    """覚える材料になりうる行か(字幕に出さない行・ゲームの音の話者でない・1 秒以上 MAX_ROW_SEC 以下・混ざりの印と音のメモが無い・歌でない・
+    文字起こしの印「自信が低い」「音声でない可能性(BGMなど)」が無い)"""
     if _yschemas.no_sub_row(g) or g.get("speaker") == _yschemas.OTHER_SPK_ID or not str(g.get("text") or "").strip() or song_row(g):
         return False
     a, b = num(g.get("start")), num(g.get("end"))
     if b - a < MIN_LEARN_SEC or b - a > MAX_ROW_SEC or _yschemas.has_flag(g.get("flag"), _txbase.MIXED_FLAG):
         return False
+    if any(_yschemas.has_flag(g.get("flag"), f) for f in NOT_FOR_VOICE_FLAGS):
+        return False
     tags = g.get("tags") if isinstance(g.get("tags"), list) else []
     return not any(t in tags for t in LEARN_TAGS)
+
+
+def overlaps_row(g, overlaps, min_sec=0.1):
+    """行が判別の重なり(別の話者の区間が重なる所 overlaps = [[開始, 終了]…])に min_sec 秒以上かかるか"""
+    a, b = num(g.get("start")), num(g.get("end"))
+    for o in overlaps or ():
+        if isinstance(o, (list, tuple)) and len(o) >= 2:
+            if min(b, num(o[1])) - max(a, num(o[0])) >= min_sec:
+                return True
+        elif isinstance(o, dict):
+            if min(b, num(o.get("end"))) - max(a, num(o.get("start"))) >= min_sec:
+                return True
+    return False
 
 
 def pick(doc, ok=None):
