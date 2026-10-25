@@ -54,8 +54,8 @@
   - 名前: `learn_dirs` :25・`eval_like` :38・`in_learn_dir` :44・`targets` :49・`pick` :74・`tick` :86
 - **ytnotify.py** (85 行) — YouTube の取得の列(ytqueue)が研究の頼みの結果を done/ に書いたら、研究のセッションを起こす知らせ(10-25 ユーザー OK)。
   - 名前: `to_name` :28・`collect` :48・`message` :60・`tick` :72
-- **ytqueue.py** (891 行) — YouTube の取得の列(10-25。ユーザー「取り方 1 と 2 を統一しよう」「取得する配信を選ぶ段階で効率化できるはず」)。
-  - 名前: `qdir` :67・`requests` :83・`candidates` :119・`score` :125・`fill_candidates` :154・`audio_gap` :196・`light_n` :202・`rollover` :208・`classify` :231・`hit` :243・`fine` :259・`due` :267・ほか 11
+- **ytqueue.py** (901 行) — YouTube の取得の列(10-25。ユーザー「取り方 1 と 2 を統一しよう」「取得する配信を選ぶ段階で効率化できるはず」)。
+  - 名前: `qdir` :69・`requests` :85・`candidates` :121・`score` :127・`fill_candidates` :156・`audio_gap` :198・`light_n` :204・`rollover` :210・`classify` :226・`hit` :238・`fine` :257・`due` :277・ほか 11
 
 ## src/app/ui/
 
