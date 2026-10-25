@@ -386,6 +386,7 @@ def run(spec, ctl=None):
         picked = pick_clips(head_ramp(peak, spec["headSec"]), full, spec, n, scene_total=total) if peak else pick_clips(total, full, spec, n)
         cands = excite.candidates(picked, comps)   # 山の前後の材料ごとの点数(parts)と理由の文(配信中の候補と同じ式)
         _save_record(src, spec, dur, n, (full, band), chat if info["chat"] else None, stamps, ctexts, meta, info, cands, peak_used=peak is not None)
+        cands = excite.heat_extra(cands, (meta or {}).get("heatmap"), n, comps, spec.get("preRatio", excite.PRE_RATIO_DEFAULT), head=spec["headSec"])   # よく見られている場面の山を後ろに足す(印 origin heatmap。記録 _save_record には入れない = 今の選び方の測り直しを変えない。10-26)
         series = {"n": n, "step": max(1.0, n / 600), "total": downsample(total), **{k: downsample(v) for k, v in comps.items()}}
         ctl.check()
         result = {"source": {**src, "duration": round(dur, 1)}, "candidates": cands, "series": series, "signals": info,

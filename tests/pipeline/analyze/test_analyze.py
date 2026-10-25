@@ -314,7 +314,8 @@ class TestAnalyzeRun(unittest.TestCase):
         self.assertEqual((sp["lagAuto"], sp["headSec"], sp["fill"], sp["count"], sp["length"], sp["shape"]), (True, 180, 0, 8, 45, excite.SHAPE_DEFAULT))
         self.assertTrue(LAG - 2 <= sp["lag"] <= LAG + 4, sp)   # 推定した遅れ(山の幅の分だけ後ろに寄る)
         self.assertTrue(any("自動推定しました" in w for w in a["warnings"]), a["warnings"])
-        cands = a["candidates"]
+        cands = [c for c in a["candidates"] if c.get("origin") != "heatmap"]   # 足しの候補(heatmap の山)は今の候補の後ろだけ(ここは山が今の候補の中 = 足さない)
+        self.assertEqual(a["candidates"][:len(cands)], cands)
         self.assertEqual(sorted(min(BURSTS, key=lambda b: abs(b - c["peak"])) for c in cands), list(BURSTS), cands)   # 本編の山ごとに 1 本
         for c in cands:
             self.assertTrue(0 <= c["peak"] - min(BURSTS, key=lambda b: abs(b - c["peak"])) <= 8, c)

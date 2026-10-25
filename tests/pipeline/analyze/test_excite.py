@@ -142,6 +142,31 @@ class TestGolden(unittest.TestCase):
         self.assertNotEqual(a, excite.local_baseline(x))
 
 
+class TestHeatExtra(unittest.TestCase):
+    def test_heatmap_peaks_are_added_after_current(self):
+        """足しの候補(10-26): heatmap の上位の山を今の候補の後ろに 8 個まで・今の候補に入る山は足さない・元の並びはそのまま・印 origin heatmap。
+        heatmap が無い・平らなら今のまま・スイッチを切れば前の形"""
+        n = 3600
+        cands = [{"i": 0, "start": 100, "end": 260, "peak": 200, "score": 2.0, "parts": {}, "reasons": []},
+                 {"i": 1, "start": 1000, "end": 1160, "peak": 1100, "score": 1.5, "parts": {}, "reasons": []}]
+        hm = [[s0, s0 + 36, 0.1] for s0 in range(0, n, 36)]
+        hm[5] = [180, 216, 1.0]      # 今の候補の中の山 = 足さない
+        hm[50] = [1800, 1836, 0.9]
+        comps = {"audio": [0.0] * n}
+        out = excite.heat_extra([dict(c) for c in cands], hm, n, comps, 0.65)
+        self.assertEqual([c["peak"] for c in out[:2]], [200, 1100])
+        extra = out[2:]
+        self.assertTrue(1 <= len(extra) <= excite.HEAT_EXTRA)
+        self.assertTrue(all(c["origin"] == "heatmap" and c["reasons"] == [excite.HEAT_REASON] for c in extra))
+        self.assertTrue(all(not (100 <= c["peak"] <= 260) for c in extra))
+        self.assertTrue(any(1795 <= c["peak"] <= 1840 for c in extra))
+        self.assertEqual(round(extra[0]["end"] - extra[0]["start"]), 160)   # 長さ = 今の候補の中央
+        self.assertEqual(len(excite.heat_extra(cands, None, n, comps)), 2)
+        self.assertEqual(len(excite.heat_extra(cands, [[0, n, 0.5]], n, comps)), 2)
+        with mock.patch.object(excite, "HEAT_EXTRA_ON", False):
+            self.assertEqual(len(excite.heat_extra(cands, hm, n, comps)), 2)
+
+
 class TestOnline(unittest.TestCase):
     """1 秒ずつ足す Online が、同じ窓の一括(windowed_scores)と同じ値を出す"""
 

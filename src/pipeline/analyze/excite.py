@@ -353,6 +353,59 @@ def candidates(picks, comps):
     return cands
 
 
+# 足しの候補(10-26 まとめ役・研究 C:/dev/overlap-research の tools/cand_extra.py。notes:plan/研究データの製品への活用-1025.md):
+# アーカイブの解析で、今の候補(枠はそのまま・並びも変えない)の後ろに、YouTube の heatmap(よく見られている場面)の上位の山を HEAT_EXTRA 個まで足す。
+# 学習に使っていない 38 区間で 使える 27 → 30・悪くなる区間 0・余分の秒ほぼ同じ(決まり「欠けを減らす方を取る」)。今の候補に入る山は足さない。
+# heatmap は解析が既に取っている動画の情報(fetch.slim_meta の heatmap)だけを読む(問い合わせは増やさない。配信中・ライブ・数の少ない動画は無い = 今のまま)。
+# 印 = 候補の origin "heatmap" と理由の文 HEAT_REASON。HEAT_EXTRA_ON = False で前の形。測り直し: 研究の B(配信全体の音での比べ)の結論が出たら・遅くとも 11-09
+HEAT_EXTRA_ON = True
+HEAT_EXTRA = 8           # 足す山の数の上限
+HEAT_SEP = 60            # 山どうしの間(秒。研究の peaks_top と同じ)
+HEAT_PEAKS = 40          # 見る山の数(上から。今の候補に入る山も数える = 研究の peaks_top(hz, 40) と同じ)
+HEAT_REASON = "YouTube でよく見られている場面"
+
+
+def heat_extra(cands, heatmap, n, comps, pre=PRE_RATIO_DEFAULT, k=HEAT_EXTRA, head=0):
+    """今の候補 cands の後ろに heatmap([[始め, 終わり, 値 0〜1], ...] = fetch.slim_meta の形)の上位の山を k 個まで足す -> 候補(元の並びはそのまま)。
+    足す区間の長さ = 今の候補の長さの中央・山の前に pre の割合。今の候補(と足した候補)に入る山・値が平らな heatmap は飛ばす。
+    head = 冒頭の減点の秒(今の候補と同じ head_ramp。配信の頭は見始めの再生で heatmap が高くなりやすい)"""
+    if not HEAT_EXTRA_ON or not cands or not heatmap or n <= 0:
+        return cands
+    v = [0.0] * n
+    for h in heatmap:
+        try:
+            a, b, val = int(float(h[0])), int(float(h[1])), float(h[2])
+        except (TypeError, ValueError, IndexError):
+            continue
+        for i in range(max(0, a), min(n, b + 1)):
+            v[i] = val
+    if max(v) - min(v) <= 1e-9:
+        return cands
+    lens = sorted(c["end"] - c["start"] for c in cands)
+    length = lens[len(lens) // 2]
+    sm = head_ramp(smooth(v, PICK_SMOOTH), head) if head else smooth(v, PICK_SMOOTH)
+    out, peaks, added = list(cands), [], 0
+    for i in sorted(range(n), key=lambda j: -sm[j]):
+        if added >= k or len(peaks) >= HEAT_PEAKS or sm[i] <= 0:
+            break
+        if any(abs(i - j) <= HEAT_SEP for j in peaks) or i < head / 3.0:   # 頭の 3 分の 1(減点が 1 割未満の所)の山は足さない
+            continue
+        peaks.append(i)
+        if any(c["start"] <= i <= c["end"] for c in out):
+            continue
+        added += 1
+        a = max(0.0, i - pre * length)
+        b = min(float(n), a + length)
+        if any(min(b, c["end"]) - max(a, c["start"]) > 0.5 * (b - a) for c in out):   # 今の候補・足した候補と半分以上重なる(同じ場面の広い山)は足さない
+            added -= 1
+            continue
+        parts = {kk: round(max(comps[kk][max(0, i - PARTS_RADIUS):i + PARTS_RADIUS + 1]), 2) for kk in comps}
+        low = min(c.get("score") or 0.0 for c in cands)
+        out.append({"i": len(out), "start": round(a, 1), "end": round(b, 1), "peak": i, "score": low, "parts": parts,
+                    "reasons": [HEAT_REASON], "origin": "heatmap"})
+    return out
+
+
 def reasons_of(parts):
     """点数の内訳 → 理由の文(しきい値は PART_ON の 1 か所)"""
     why_txt = []
