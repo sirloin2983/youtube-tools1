@@ -139,6 +139,19 @@ def _num(v):
     return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
 
+def _boot_at_ms():
+    """Windows が起動した時刻(ms)。前のアプリが閉じる途中を通らずに終わったとき、PC の再起動だったかを見分ける材料"""
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        f = ctypes.windll.kernel32.GetTickCount64
+        f.restype = ctypes.c_ulonglong
+        return int(time.time() * 1000) - int(f())
+    except (AttributeError, OSError):
+        return None
+
+
 def dir_bytes(path, limit=50000):
     total, n = 0, 0
     for root, _dirs, files in os.walk(path):
@@ -517,7 +530,7 @@ class Reporter:
         lt = time.localtime(self.clock())
         return {"ytdlp": yd, "ffmpeg": self._ffmpeg_version(), "diskFreeGB": disk,
                 "gpu": {"name": gpu.get("name"), "vramFreeGB": None, "vramGB": gpu.get("vramGB")} if isinstance(gpu, dict) else None,
-                "clock": {"local": time.strftime("%Y-%m-%dT%H:%M:%S", lt), "utcOffset": int(lt.tm_gmtoff // 60)}}
+                "clock": {"local": time.strftime("%Y-%m-%dT%H:%M:%S", lt), "utcOffset": int(lt.tm_gmtoff // 60), "bootAt": _boot_at_ms()}}
 
     def _ffmpeg_version(self):
         """ffmpeg の版(exe から動いているときだけ・プロセスの中で 1 回。窓は出さない = ytt/tools.tool_version)"""
