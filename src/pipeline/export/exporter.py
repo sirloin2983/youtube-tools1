@@ -502,6 +502,9 @@ def expected_len(spec, it):
     return end - it["start"]
 
 
+FORMAT_SORT = "res,vcodec:h264"   # 同じ高さなら H.264(avc1)を先に(無ければ今どおり AV1・VP9)。AV1 を CPU で読む作り直しが重かった(10-25 友人の PC・1 本 2〜3 分)
+
+
 def _fsel(spec, hls=False):
     """yt-dlp の -f。hls = HLS(m3u8)の形式だけ(方法3。DASH の形式で中身が届かないときの別の道)"""
     mh = spec["maxHeight"]
@@ -553,7 +556,7 @@ def _ytdlp_sections(ctl, spec, it, base, hls=False):
     def dl_cmd(extra):
         return _ytdlp_cmd() + ["--no-playlist", "--no-warnings", "--newline", "--ffmpeg-location", ff,
                                "--download-sections", "*%s-%s" % (fmt_ts(dl_start), fmt_ts(dl_end))] + extra + [
-                               "-f", _fsel(spec, hls), "--merge-output-format", "mp4", "-o", _yturl.ytdlp_out(work, os.path.basename(raw_base) + ".%(ext)s"),
+                               "-f", _fsel(spec, hls), "-S", FORMAT_SORT, "--merge-output-format", "mp4", "-o", _yturl.ytdlp_out(work, os.path.basename(raw_base) + ".%(ext)s"),
                                "--", _yturl.watch_url(spec["videoId"])]
     cmd = dl_cmd(chunk)
     tail, stage = [], "dl"
@@ -617,7 +620,7 @@ def _ytdlp_sections(ctl, spec, it, base, hls=False):
 
 def stream_urls(spec):
     """yt-dlp -g で映像/音声の直接URLを得る(取得だけで、ダウンロードはしない)。"""
-    cmd = _ytdlp_cmd() + ["--no-playlist", "--no-warnings", "-g", "-f", _fsel(spec), "--", _yturl.watch_url(spec["videoId"])]
+    cmd = _ytdlp_cmd() + ["--no-playlist", "--no-warnings", "-g", "-f", _fsel(spec), "-S", FORMAT_SORT, "--", _yturl.watch_url(spec["videoId"])]
     try:
         p = _procs.run_short(cmd, timeout=90)   # spawn を通す(終了の流れで止められる・窓を出さない)
     except (OSError, subprocess.SubprocessError):

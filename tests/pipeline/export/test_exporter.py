@@ -652,6 +652,7 @@ class TestYoutubeTwoStage(unittest.TestCase):
         fmts = ["-g" if "-g" in c else c[c.index("-f") + 1] for c in self.calls()]
         self.assertEqual(fmts[-2:], ["-g", exporter._fsel({"maxHeight": 0}, hls=True)])
         self.assertTrue(all("m3u8" not in f for f in fmts[:-1]))
+        self.assertTrue(all(c[c.index("-S") + 1] == exporter.FORMAT_SORT for c in self.calls() if "-f" in c))   # 同じ高さなら H.264 を先に(10-25)
 
     def test_unknown_start_falls_back_and_cleans_up(self):
         """取ったファイルが頼んだより長い(手前のキーフレームから見えている)ときは、位置が分からないので方法2(直接指定)へ回す"""
