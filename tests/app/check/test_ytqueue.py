@@ -25,9 +25,21 @@ class YtQueueTest(unittest.TestCase):
     def setUp(self):
         self.app = kit.tempdir(self, "ytt-ytqueue-")
         self.logs, self.calls = [], []
-        p = mock.patch.object(Q, "_audio", self.audio)
-        p.start()
-        self.addCleanup(p.stop)
+        self.light = []
+        for p in (mock.patch.object(Q, "_audio", self.audio), mock.patch.object(Q, "_light_fetch", self.light_fetch)):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def light_fetch(self, app_dir, urls):
+        self.light.append(list(urls))
+        got = {}
+        for u in urls:
+            v = u[-11:]
+            d = Q.qdir(app_dir, Q.KEEP_DIR, v)
+            os.makedirs(d, exist_ok=True)
+            open(os.path.join(d, "subs.ja.json3"), "w").close()
+            got[v] = {"subs": os.path.join(d, "subs.ja.json3")}
+        return got, ""
 
     def audio(self, app_dir, rid, url, section):
         self.calls.append((rid, url, section))
@@ -95,16 +107,6 @@ class YtQueueTest(unittest.TestCase):
             self.assertEqual(self.tick(NOON, {"ときのそら": 2, "ロボ子さん": 2}), "candidate")   # 研究には効く
         self.assertIn("声 0.00", self.logs[-1])                                 # 埋めた題名が歌 = 声には効かない
 
-    def test_bot_stops_and_ladder(self):
-        self.put_req("r1", {"purpose": "research", "kind": "audio", "url": "https://www.youtube.com/watch?v=REQAUDIO001"})
-        with mock.patch.object(Q, "_audio", lambda *a: (None, "ERROR: Sign in to confirm you're not a bot")):
-            self.assertEqual(self.tick(NOON, {"ときのそら": 2, "ロボ子さん": 2}), "research")   # 頼みは済ませた(結果は error)
-        self.assertIn("今日は止めます", self.logs[-2])
-        self.assertFalse(Q.due(self.app, NOON + 7200)[0])                        # 今日は止める
-        nxt = datetime.datetime(2026, 10, 26, 9, 0).timestamp()
-        self.assertTrue(Q.due(self.app, nxt)[0])
-        self.assertEqual(Q._state(self.app)["hours"], 1.5)                      # 翌日から間隔を伸ばす
-
     def test_api_info_without_slot(self):
         self.put_req("i1", {"purpose": "research", "kind": "info", "urls": ["https://www.youtube.com/watch?v=INFOVIDEO01"]})
         got = {"items": [{"id": "INFOVIDEO01", "snippet": {"title": "t", "description": "【元配信】x", "channelId": SORA, "publishedAt": "2026-09-01T00:00:00Z"}}]}
@@ -122,21 +124,6 @@ class YtQueueTest(unittest.TestCase):
         with mock.patch.object(Q._ytapi, "get", no_key):
             self.assertEqual(Q._api_infos(self.app, self.logs.append, NOON), 0)   # キーが無い = 今日は枠の yt-dlp で
         self.assertFalse(os.path.exists(Q.qdir(self.app, "done", "i2.json")))
-
-    def test_subs_request(self):
-        """研究の subs の頼み = 自動字幕だけ(枠を 1 つ使う)"""
-        self.put_req("r-subs-1", {"purpose": "research", "kind": "subs", "url": "https://www.youtube.com/watch?v=SUBSVIDEO01"})
-
-        def subs(app_dir, rid, url):
-            p = Q.qdir(app_dir, "done", rid + ".ja.json3")
-            os.makedirs(os.path.dirname(p), exist_ok=True)
-            open(p, "w").close()
-            return p, ""
-        with mock.patch.object(Q, "_subs", subs):
-            self.assertEqual(self.tick(NOON, {"ときのそら": 2, "ロボ子さん": 2}), "research")
-        with open(Q.qdir(self.app, "done", "r-subs-1.json"), encoding="utf-8") as f:
-            d = json.load(f)
-        self.assertTrue(d["state"] == "done" and d["file"].endswith(".ja.json3"))
 
     def test_bundle_kept_small(self):
         """使い道の束: 動画の情報は要る欄だけ(説明欄・チャプター・場面の山)・字幕はそのまま・3 日で消す(hold は残す)"""
@@ -176,6 +163,64 @@ class YtQueueTest(unittest.TestCase):
         os.utime(p, (NOON - 7200, NOON - 7200))
         Q.tidy(self.app, NOON)
         self.assertFalse(os.path.exists(p))
+
+    def test_bot_rest_then_slower(self):
+        """当たり(ボット確認)= その側(音)だけ 30 分休み、そのあと間隔 1.5 倍で続ける。3 回当たらなければ戻す。日が明けたら段を戻す(10-25)"""
+        full = {"ときのそら": 2, "ロボ子さん": 2}
+        self.put_req("r1", {"purpose": "research", "kind": "audio", "url": "https://www.youtube.com/watch?v=REQAUDIO001", "section": [0, 60]})
+        with mock.patch.object(Q, "_audio", lambda *a: (None, "ERROR: Sign in to confirm you're not a bot")):
+            self.assertEqual(self.tick(NOON, full), "research")
+        self.assertTrue(any("30 分休み" in x for x in self.logs))
+        self.assertFalse(Q.due(self.app, NOON + 1700)[0])                        # 休み
+        self.assertFalse(Q.due(self.app, NOON + 3600 * 1.2)[0])                  # 間隔 60 × 1.5 = 90 分
+        self.assertTrue(Q.due(self.app, NOON + 3600 * 1.6)[0])
+        st = Q._state(self.app)
+        for _ in range(3):
+            Q.fine(st, "audio")
+        self.assertEqual((st["audio"]["pen"], st["audio"]["level"]), (0, 0))   # 3 回当たらなければ戻す
+        st["audio"]["hitDay"] = "2026-10-25"
+        Q.rollover(st, datetime.datetime(2026, 10, 26, 1, 0).timestamp(), self.logs.append)
+        self.assertEqual(st["audio"]["step"], 0)                                 # 当たった日の翌日 = 縮めない
+        Q.rollover(st, datetime.datetime(2026, 10, 27, 1, 0).timestamp(), self.logs.append)
+        self.assertEqual(Q.audio_gap(st), 40 * 60)                                # 当たらない日が明けた = 1 段縮める(上限の段階の実験)
+
+    def test_light_batch(self):
+        """軽い物(字幕)は音の回と別に、1 回でまとめて取る(処理中でも)。字幕の頼みは 1 つで 5 本まで・返事は files"""
+        urls = ["https://www.youtube.com/watch?v=SUBSVIDEO%02d" % i for i in range(1, 7)]
+        self.put_req("s1", {"purpose": "research", "kind": "subs", "urls": urls})   # 6 本 → 5 本まで
+        self.put_req("s2", {"purpose": "research", "kind": "subs", "url": "https://www.youtube.com/watch?v=SUBSVIDEO99"})
+        got = Q.tick(self.app, R, {}, lambda: "処理中", lambda req: "j", self.logs.append, now=NOON)
+        self.assertEqual((got, self.light[-1][:1], len(self.light[-1])), ("light", [urls[0]], 5))   # 上限 5 本 = s1 の 5 本だけ
+        with open(Q.qdir(self.app, "done", "s1.json"), encoding="utf-8") as f:
+            d = json.load(f)
+        self.assertEqual(len(d["files"]), 5)
+        self.assertIn("waitSec", d)                                               # 待ち時間
+        self.assertIsNone(Q.light_batch(self.app, NOON + 600, self.logs.append))  # 1 時間に 1 回
+        self.assertEqual(Q.light_batch(self.app, NOON + 3700, self.logs.append), "light")   # 次の回に s2
+
+    def test_gone_not_counted(self):
+        """動画が無い・メンバー限定は枠に数えない(次の見回りで次の 1 本)"""
+        full = {"ときのそら": 2, "ロボ子さん": 2}
+        self.put_req("g1", {"purpose": "research", "kind": "audio", "url": "https://www.youtube.com/watch?v=GONEVIDEO01", "section": [0, 60]})
+        with mock.patch.object(Q, "_audio", lambda *a: (None, "ERROR: [youtube] GONEVIDEO01: Video unavailable")):
+            self.tick(NOON, full)
+        self.assertTrue(Q.due(self.app, NOON + 60)[0])
+
+    def test_short_sources_by_api(self):
+        """友人のショート(分析の記録の videos の short)の説明欄を API で読み、元の配信と ?t= を short-sources.json に(枠は使わない)"""
+        raw = os.path.join(self.app, "raw")
+        os.makedirs(raw)
+        with open(os.path.join(raw, "2026-10-25__x.json"), "w", encoding="utf-8") as f:
+            json.dump({"videos": [{"id": "SHORTVID001", "short": "True"}, {"id": "LONGVIDEO01", "short": "False"}, {"id": "SHORTVID002", "short": "True"}]}, f)
+        got = {"items": [{"id": "SHORTVID001", "snippet": {"description": "【元配信】\nhttps://www.youtube.com/live/SRCVIDEO001?t=1200"}},
+                         {"id": "SHORTVID002", "snippet": {"description": "#ホロライブ"}}]}
+        with mock.patch.object(Q._ytapi, "get", lambda path, params: got):
+            self.assertEqual(Q.read_short_sources(self.app, raw, NOON, self.logs.append), 2)
+            self.assertEqual(Q.read_short_sources(self.app, raw, NOON + 60, self.logs.append), 0)   # 6 時間に 1 回・読んだ物はもう読まない
+        with open(Q.qdir(self.app, Q.SRC_NAME), encoding="utf-8") as f:
+            d = json.load(f)
+        self.assertEqual((d["SHORTVID001"]["src"], d["SHORTVID001"]["t"], d["SHORTVID002"]["src"]), ("SRCVIDEO001", 1200, None))
+        self.assertTrue(Q.due(self.app, NOON)[0])                                # 枠は使っていない
 
     def test_tidy_removes_partial(self):
         os.makedirs(Q.qdir(self.app, "done"))

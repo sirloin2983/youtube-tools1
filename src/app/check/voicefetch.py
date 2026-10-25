@@ -134,7 +134,8 @@ def _run(cmd, timeout):
 
 
 LOGIN_WORDS = ("cookies are no longer valid", "sign in", "login", "account", "cookie")   # ログインの問題(切れた・止められた)の印(小文字で照らす)
-LOGIN = {"trouble": None, "at": 0, "used": None}   # 最後にログインで断られた時刻と文(列が記録に出す。cookie の中身は持たない)
+LOGIN = {"trouble": None, "at": 0, "used": None}
+LAST_ERR = {"err": ""}   # 最後に当たった失敗の文(列 ytqueue が段の守りに使う)   # 最後にログインで断られた時刻と文(列が記録に出す。cookie の中身は持たない)
 
 
 def _ytdlp(cmd, timeout):
@@ -253,8 +254,10 @@ def tick(app_dir, roster_r, counts, busy, start_job, log, now=None, rss=None, fe
     else:       # 2 本目から = 配信の一覧の古い方・取った配信と別の月
         items, err = (lister or _list)(chan)
         if not items and any(b in err.lower() for b in BOT):
-            _mark_slot(app_dir, now, stop_why=err[:200])
-            log("誰の声の材料(YouTube): bot 判定・ログインを求められたので今日は止めます(研究も止まる)")
+            LAST_ERR["err"] = err   # 当たりの守りは呼び手の列(ytqueue)が段で決める
+            if use_slot:
+                _mark_slot(app_dir, now, stop_why=err[:200])
+            log("誰の声の材料(YouTube): bot 判定・ログインを求められました(%s)" % ("今日は止めます" if use_slot else "列が休みを決めます"))
             return None
         items = items[LIST_SKIP:]
     it = choose(items, set(rec["tried"]), {x.get("month") for x in rec["got"] if x.get("month")})
@@ -274,8 +277,10 @@ def tick(app_dir, roster_r, counts, busy, start_job, log, now=None, rss=None, fe
     path, err = (fetch or _fetch)(it["id"], os.path.join(folder, "%s_%s_%s" % (who, it["id"], safe)))
     if path is None:
         if any(b in err.lower() for b in BOT):
-            _mark_slot(app_dir, now, stop_why=err[:200])
-            log("誰の声の材料(YouTube): bot 判定・ログインを求められたので今日は止めます(研究も止まる)")
+            LAST_ERR["err"] = err
+            if use_slot:
+                _mark_slot(app_dir, now, stop_why=err[:200])
+            log("誰の声の材料(YouTube): bot 判定・ログインを求められました(%s)" % ("今日は止めます" if use_slot else "列が休みを決めます"))
         else:
             log("誰の声の材料(YouTube): %s の %s の音を取れませんでした(%s)" % (who, it["id"], err.splitlines()[-1][:160] if err else ""))
         fsio.write_json(st_path, state, indent=None)
