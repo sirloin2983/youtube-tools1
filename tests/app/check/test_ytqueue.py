@@ -77,7 +77,7 @@ class YtQueueTest(unittest.TestCase):
         self.assertIsNone(self.tick(NOON + 1800, {"ロボ子さん": 2}))             # 1 時間に 1 本
         self.put_req("r1", {"purpose": "research", "kind": "audio", "url": "https://www.youtube.com/watch?v=REQAUDIO001", "section": [10, 20]})
         self.put_req("bad", {"purpose": "research", "kind": "audio", "url": "https://evil.example.com/x"})   # YouTube でない = 取らない
-        self.assertEqual(self.tick(NOON + 3700, {"ロボ子さん": 2}), "research")   # 次は研究(頼みが候補より先)
+        self.assertEqual(self.tick(NOON + 3700, {"ロボ子さん": 2, "ときのそら": 2}), "research")   # 次は研究(頼みが候補より先。声の足りない人がいれば声が先 = test_full_audio_first_in_order)
         self.assertEqual(self.calls[-1][:2], ("r1", "https://www.youtube.com/watch?v=REQAUDIO001"))
         with mock.patch.object(VF, "tick", lambda *a, **k: "ロボ子さん") as _t:
             self.assertEqual(self.tick(NOON + 7400, {"ときのそら": 2}), "voice")  # 次は声(候補に無いロボ子さんを RSS で)
@@ -282,7 +282,13 @@ class YtQueueTest(unittest.TestCase):
         self.assertTrue(labels[0].startswith("研究の頼み r-full-b") and labels[1].startswith("研究の頼み r-full-a"), labels)   # 頼んだ順・3 日待った短い音より先
         os.remove(Q.qdir(self.app, "req", "r-full-b.json"))
         os.remove(Q.qdir(self.app, "req", "r-full-a.json"))
-        self.assertIn("r-up-old", Q.plan(self.app, R, {}, now=NOON + 3600)[0]["label"])   # 尽きたらふだんの点
+        labels = [o["label"] for o in Q.plan(self.app, R, {}, now=NOON + 3600)]
+        self.assertTrue(labels[0].startswith("研究の頼み r-up-old") and labels[1].startswith("声だけ"), labels)   # 尽きたら 24 時間を超えた頼み → 声の足りない人(10-26)
+        os.utime(Q.qdir(self.app, "req", "r-up-old.json"), (NOON, NOON))
+        labels = [o["label"] for o in Q.plan(self.app, R, {}, now=NOON + 3600)]
+        self.assertTrue(labels[0].startswith("声だけ") and labels[-1].startswith("研究の頼み r-up-old"), labels)   # 飢えていない頼みは声の足りない人より後
+        full = {"ときのそら": 2, "ロボ子さん": 2}
+        self.assertIn("r-up-old", Q.plan(self.app, R, full, now=NOON + 3600)[0]["label"])   # 声が足りていればふだんの点
 
     def test_skip_download_writes_under_keep(self):
         """字幕・チャットだけの取得も既定の -o を keep/<動画>/ に置く(無いと途中の .part が作業フォルダ = src に残った。10-26)"""

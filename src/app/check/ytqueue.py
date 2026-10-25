@@ -880,11 +880,14 @@ def plan(app_dir, roster_r, counts, extra=None, st=None, now=None):
 
 
 def _order(o):
-    """並べ方: 配信全体の音(頼んだ順)→ ほかは点の高い順"""
+    """並べ方: 配信全体の音(頼んだ順)→ 誰の声の材料の足りない人に効く物(声だけ・声の要る候補・配信者が足りない人の研究の頼み。点の高い順)→ ほかは点の高い順。
+    声を 2 番目に置くのは 10-26: 研究の音の頼みに点で負け続け、配信の材料が 0〜1 本のメンバー 18 人の取得が 10-25 14:20 から止まっていた(まとめ役「配信全体の音より後でよい」)"""
     q = o.get("req") if o["kind"] == "request" else None
     if q and q["kind"] == "audio" and str(q["id"]).startswith(FULL_PREFIX):
         return (0, _vm.num(q.get("_at")), q["id"])
-    return (1, -o["score"], "")
+    if o.get("voice", 0) > 0 or o["score"] >= STARVE_BONUS:   # 24 時間を超えて待った頼み(STARVE_BONUS)は声より上のまま
+        return (1, -o["score"], "")
+    return (2, -o["score"], "")
 
 
 def _list_url(url, items):
