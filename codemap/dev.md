@@ -13,6 +13,8 @@
   - 受ける口: 
 - **demo_env.py** (356 行) — 見本のデータで入口と3ツールを動かす(画面の見直し・画面の写真・手での確認用)。本物の作業データには触らない。
   - 名前: `run` :48・`make_media` :52・`seed` :66・`seed_check` :189・`seed_requests` :257・`main` :298
+- **dev_stats.py** (90 行) — 開発の無駄の見張り(10-25 まとめ役): 日ごとの入口の起動し直しの回数と、コミットのうち作業のコミットの割合を数える(読むだけ)。
+  - 名前: `restarts` :28・`commits` :47・`table` :60・`main` :73
 - **doc_state.py** (237 行) — 計画の資料の頭の `状態`・`線` を計画の正(保管庫の plan/data/)から決めて書く・食い違いを止める。
   - 名前: `plan_data` :28・`task_lines` :34・`decide` :43・`derived` :51・`front` :75・`read_props` :86・`write_props` :110・`write` :143・`plan_docs` :152・`check` :162・`sync` :199・`main` :217
 - **drift_report.py** (179 行) — 資料どうし・資料とコードの食い違いをまとめて流し、1 枚の一覧(保管庫の plan/食い違いの一覧.md。自動)に出す。
@@ -35,13 +37,13 @@
   - 名前: `data_root` :33・`verdicts` :45・`delivered` :62・`streamers` :82・`shorts` :97・`collect` :112・`main` :150
 - **guard_hook.py** (434 行) — Claude Code の PreToolUse のフック: 事故のもとになる操作を機械が断る。標準ライブラリだけ・速く。
   - 名前: `class Tok` :51・`tok` :56・`tokenize` :62・`pipelines` :137・`word_of` :155・`norm_path` :171・`is_main_checkout` :184・`generated_kind` :198・`check_kill` :216・`check_sed` :242・`git_sub` :255・`check_git` :271・ほか 9
-- **land.py** (297 行) — 作業のブランチを main に入れ、版(src/ytt/version.py の VERSION と README.txt の見出し)を道具が 1 つ上げる。
-  - 名前: `class Stop` :40・`git` :44・`main_worktree` :53・`bump` :64・`read_version` :69・`set_version` :76・`set_readme` :80・`needs_bump` :90・`pid_alive` :95・`class Lock` :113・`pending_paths` :160・`commit` :168・ほか 3
+- **land.py** (318 行) — 作業のブランチを main に入れ、版(src/ytt/version.py の VERSION と README.txt の見出し)を道具が 1 つ上げる。
+  - 名前: `class Stop` :44・`git` :48・`main_worktree` :57・`bump` :68・`read_version` :73・`set_version` :80・`set_readme` :84・`needs_bump` :94・`pid_alive` :99・`class Lock` :117・`pending_paths` :164・`daily_codemap` :172・ほか 4
 - **land_gate.py** (406 行) — main に入れる前の関所(dev/land.py が版を上げる前に流す)。単独でも流せる:
   - 名前: `layer_of_dir` :70・`dependents` :77・`select` :82・`pick_units` :103・`pick_by_imports` :110・`run_units` :120・`cache_path` :132・`load_cache` :137・`save_cache` :148・`count_of` :164・`run_check` :170・`run_tool` :184・ほか 12
 - **layer_map.py** (132 行) — 役割の層と、今のファイルの行き先(役割で組み直す計画 `notes:plan/done/role-restructure.md` の 7 節を機械で読める形にしたもの)。
   - 名前: `layer_of` :112・`allowed` :122
-- **lint.py** (395 行) — コードの見直しの合格の基準を測る道具(読むだけ。基準は `notes:docs/spec/code.md`)。
+- **lint.py** (396 行) — コードの見直しの合格の基準を測る道具(読むだけ。基準は `notes:docs/spec/code.md`)。
   - 名前: `walk` :64・`read` :72・`rel` :80・`is_test` :84・`class Corpus` :88・`py_files` :109・`has_mark` :116・`unused_imports` :121・`dead_names` :145・`long_functions` :160・`dup_helpers` :171・`js_dead` :187・ほか 7
 - **loc.py** (356 行) — コードの行数を数える共通の道具(ユーザーと決めた数え方。セッションごとの数の食い違いを無くす)。
   - 名前: `classify` :40・`test_layer` :65・`count_text` :78・`py_docstring_starts` :92・`py_code_lines` :103・`scan_code_lines` :118・`skip_to` :172・`skip_string` :177・`prefix_code_lines` :200・`git` :228・`files_at` :235・`tally` :258・ほか 5

@@ -9,8 +9,8 @@
   - 名前: `get_api_key` :16・`set_api_key` :27
 - **appwindow.py** (283 行) — 画面を「窓」(Edge のアプリモード)で開く(統合計画の段階7-3。ユーザー決定で既定は窓 = 専用の窓。pywebview は使わない)。
   - 名前: `class Unavailable` :41・`class TooMany` :45・`find_edge` :49・`app_command` :86・`local_url` :99・`external_url` :122・`read_mode` :139・`focus_window` :144・`class Opener` :201
-- **autorestart.py** (48 行) — 自動の起動し直し・入れ替え(新しい版があるとき、何も処理していない間に自分で新しい版にする)の判定。純粋な部品(入口と友人のアプリの両方が使う)。
-  - 名前: `read_tried` :22・`write_tried` :28・`decide` :33・`editor_in_use` :45
+- **autorestart.py** (60 行) — 自動の起動し直し・入れ替え(新しい版があるとき、何も処理していない間に自分で新しい版にする)の判定。純粋な部品(入口と友人のアプリの両方が使う)。
+  - 名前: `read_tried` :24・`write_tried` :30・`decide` :35・`settling` :47・`editor_in_use` :57
 - **casefiles.py** (315 行) — 案件の 候補.json・採用.json の純粋な部分(決定 3-37 の (r8j)〜(r8q))。
   - 名前: `work_path` :38・`lock` :43・`is_remote` :53・`problem` :57・`unseen` :69・`need_root` :75・`abs_path` :82・`rel_path` :90・`empty_candidates` :104・`empty_adoptions` :108・`index_row` :117・`stored` :126・ほか 9
 - **clientlog_rule.py** (17 行) — 画面のエラー 1 件の「決まった項目を決まった長さで切る」規則の 1 か所(入口 manage/ops/clientlog と友人のアプリ friendapp/server が呼ぶ)。
