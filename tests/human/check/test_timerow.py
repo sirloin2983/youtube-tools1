@@ -61,6 +61,19 @@ class TimeApplyTest(unittest.TestCase):
         row = answerlog.state(self.ctx.app_dir).answers[r["answer"]]
         self.assertEqual(row["answer"], {"choice": "head", "dStart": 0.0, "dEnd": 0.0})
 
+    def test_retext_with_time_and_undo(self):
+        # 読みを直す(T)= 行の文字も直す・時刻の答えはそのまま・Z で両方戻る(10-26 ユーザー)
+        with self.assertRaises(ValueError):
+            check_time._check({"choice": "ok", "text": "  "})
+        r = apply.answer(self.ctx, card(), {"answer": {"choice": "head", "dStart": -0.2, "text": " あいうえ "}})
+        g = self.seg()
+        self.assertEqual((g["text"], g["start"]), ("あいうえ", 9.8))
+        self.assertEqual(r["applied"]["text"], {"before": "あいう", "after": "あいうえ"})
+        apply.undo(self.ctx, r["answer"])
+        self.assertEqual((self.seg()["text"], self.seg()["start"]), ("あいう", 10.0))
+        r = apply.answer(self.ctx, card("s2"), {"answer": {"choice": "ok", "text": "えおか"}})   # 時刻は動かさず文字だけ
+        self.assertEqual((self.seg("s2")["text"], r["applied"]["moved"]), ("えおか", False))
+
     def test_move_and_undo_and_one_edge_only(self):
         r = apply.answer(self.ctx, card(), {"answer": {"choice": "both", "dStart": -0.2, "dEnd": 0.3}})
         self.assertTrue(r["applied"]["moved"])

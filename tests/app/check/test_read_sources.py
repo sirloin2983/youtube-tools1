@@ -75,11 +75,12 @@ class ReadSourcesTest(unittest.TestCase):
 
     def test_media_is_tight_to_the_row(self):
         m = self.cards("alt")[0]["media"]   # s1 = 0〜4・次の行 s2 が 4 から = 末の余白 0(次の発言を入れない)・前の行が無い = 頭の余白はそのまま
-        self.assertEqual((m["start"], m["end"], m["pad"], m["padEnd"]), (0.0, 4.0, 0.5, 0.0))
+        self.assertEqual((m["start"], m["end"], m["pad"], m["padEnd"]), (0.0, 4.0, 2.0, 0.0))   # 読みは頭の 2 秒前から(10-26)
 
     def test_tight_clamps_to_neighbours(self):
         d = {"segments": [{"id": "a", "start": 0.0, "end": 2.0}, {"id": "b", "start": 2.2, "end": 5.0}, {"id": "c", "start": 4.5, "end": 6.0}]}
         self.assertEqual(sources._tight(d, d["segments"][1], 2.2, 5.0, 0.5), (2.2, 4.5, 0.2))   # 末 = 次の行の頭まで・頭の余白 = 前の行の終わりまで
+        self.assertEqual(sources._tight(d, d["segments"][1], 2.2, 5.0, 2.0, keep_head=True), (2.2, 4.5, 2.0))   # 読み: 頭は前の行で止めない
 
     def test_find_returns_card_with_inner_key(self):
         card = deck.find(self.ctx, "read:alt:%s#s1" % DOC)

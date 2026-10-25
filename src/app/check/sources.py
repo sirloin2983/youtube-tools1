@@ -228,9 +228,12 @@ class View:
         return [r for r in self.state.effective() if kind is None or r.get("kind") == kind]
 
 
-def _tight(doc, row, a, b, pad):
+READ_LEAD = 2.0   # 読みのカードは行の頭の 2 秒前から流す(前の行の終わりで止めない。10-26 ユーザー「もう少し前から再生してくれないと分からない」)
+
+
+def _tight(doc, row, a, b, pad, keep_head=False):
     """行の文字・声を確かめるカード(読み・誰の声)の区間: 次の行の発言を入れない。
-    末の余白 0・末は次の行の頭まで(行が重なっていれば詰める)・頭の余白は pad まで、ただし前の行の終わりより前へ出ない。
+    末の余白 0・末は次の行の頭まで(行が重なっていれば詰める)・頭の余白は pad まで、ただし前の行の終わりより前へ出ない(keep_head = 読み: 頭は pad のまま)。
     -> (頭, 末, 頭の余白)。並びは文書の segments の順(時刻の順)"""
     segs = [g for g in doc.get("segments") or () if isinstance(g, dict)]
     i = next((k for k, g in enumerate(segs) if g is row), -1)
@@ -240,7 +243,7 @@ def _tight(doc, row, a, b, pad):
         nxt = _num(segs[i + 1].get("start"))
         if a < nxt < b:
             b = nxt
-    if i > 0:
+    if i > 0 and not keep_head:
         prev_end = _num(segs[i - 1].get("end"))
         pad = max(0.0, min(pad, a - prev_end)) if prev_end > 0 else pad
     return a, b, round(pad, 3)
@@ -251,8 +254,10 @@ def _doc_card(view, kind, source, tid, doc, row, pad, extra, tight=False):
     case = view.case_of_doc(tid) or {"id": "", "title": str(doc.get("title") or "")[:120]}
     a, b = _num(row.get("start")), _num(row.get("end"))
     media = {"url": MEDIA % tid, "start": a, "end": b, "pad": pad}
+    if kind == "read":
+        pad = media["pad"] = READ_LEAD
     if tight:
-        a, b, head = _tight(doc, row, a, b, pad)
+        a, b, head = _tight(doc, row, a, b, pad, keep_head=kind == "read")
         media.update({"end": b, "pad": head, "padEnd": 0.0})
     card = {"id": lineup.card_id(kind, source, tid, row["id"]), "kind": kind, "source": source, "case": case,
             "target": {"docId": tid, "row": row["id"], "videoId": case["id"] or None},
