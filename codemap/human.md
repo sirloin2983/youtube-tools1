@@ -25,8 +25,8 @@
   - 名前: `enabled` :297
 - **speech.py** (60 行) — 「確かめる」の「この行は声ですか?」の反映(notes:docs/design/v1-check-build.md・C-EVAL (3))。
   - 名前: `_state` :15・`_apply_speech` :21・`_revert_speech` :37
-- **timerow.py** (83 行) — 「確かめる」の時刻のカード「行の時刻が合っているか」の反映(notes:docs/design/v1-check-build.md の 3-2・5 節・決定 3-41)。
-  - 名前: `_move` :19・`_check` :27・`_times` :39・`_apply_time` :43・`_revert_time` :65
+- **timerow.py** (109 行) — 「確かめる」の時刻のカード「行の時刻が合っているか」の反映(notes:docs/design/v1-check-build.md の 3-2・5 節・決定 3-41)。
+  - 名前: `_move` :21・`_check` :29・`_times` :50・`_apply_time` :54・`_revert_time` :86
 - **value.py** (167 行) — 「確かめる」の価値のカード(切り抜く価値があるか = 70 点以上か)の反映(notes:docs/design/v1-check-build.md・決定 3-41)。
   - 名前: `_code` :32・`_msg` :36・`_need` :40・`_auto_check` :50・`_auto_apply` :64・`_auto_revert` :75・`_studio` :87・`_set_status` :94・`_cand_apply` :123・`_cancel_export` :138・`_cand_revert` :153
 - **voice.py** (441 行) — 「確かめる」の誰の声のカード(voice:diar)の答えの形・選択肢・反映・声の覚え直し(notes:docs/design/v1-check-build.md の 3-2・5 節、

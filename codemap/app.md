@@ -42,8 +42,8 @@
   - 名前: `night_of` :32・`targets` :40・`read_state` :55・`tick` :62
 - **shortjobs.py** (58 行) — ショート(学習用データ)の文書から、読みのカードと「この行は声ですか」のカードを作るための下ごしらえ(10-25 ユーザー「読みのカードと この行は声ですか のカードを ショートから作る」)。
   - 名前: `tick` :27
-- **sources.py** (486 行) — 「確かめる」のカードの出どころ(V1 の V0。notes:docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
-  - 名前: `register` :49・`registered` :63・`has_media` :82・`class View` :92・`value_auto` :288・`value_cand` :314・`hard_row` :347・`short_full` :357・`read_fill` :362・`voice_diar` :382・`read_decided` :422・`time_row` :442・ほか 1
+- **sources.py** (491 行) — 「確かめる」のカードの出どころ(V1 の V0。notes:docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
+  - 名前: `register` :49・`registered` :63・`has_media` :82・`class View` :92・`value_auto` :293・`value_cand` :319・`hard_row` :352・`short_full` :362・`read_fill` :367・`voice_diar` :387・`read_decided` :427・`time_row` :447・ほか 1
 - **speech_sources.py** (69 行) — 「確かめる」の普段のレーンの「この行は声ですか?」カードの出どころ speech:diar(C-EVAL (3))。
   - 名前: `speech_diar` :41
 - **voice_solo.py** (246 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
@@ -87,7 +87,7 @@
 - **read.js** (122 行) — 確かめるのカード「どちらの読みが正しいか」(/check-cards/read.js。V2b)。比べる欄は ui-kit の .ui-pair(3 択と共用)・口は check.js の先頭。
 - **section.js** (156 行) — 確かめるのカード「区間を聞いて直す(評価用)」(/check-cards/section.js。C-EVAL (2)。口は check.js の先頭・出どころは src/app/check/eval_sources.py・
 - **speech.js** (22 行) — 確かめるのカード「この行は声ですか?」(/check-cards/speech.js。C-EVAL (3)。口は check.js の先頭・反映は src/human/check/speech.py)。
-- **time.js** (108 行) — 確かめるのカード「行の時刻が合っているか」(/check-cards/time.js。RS8 V1 の V2d。作り方 notes:docs/design/v1-check-build.md の 3-2・5 節・決定 3-41)。
+- **time.js** (147 行) — 確かめるのカード「行の時刻が合っているか」(/check-cards/time.js。RS8 V1 の V2d。作り方 notes:docs/design/v1-check-build.md の 3-2・5 節・決定 3-41)。
 - **value.js** (65 行) — 確かめるのカード「価値」(/check-cards/value.js)。口は check.js の先頭。
 - **voice.js** (166 行) — 確かめるのカード「これは誰の声?」(/check-cards/voice.js。V2c。口は check.js の先頭・反映は src/human/check/voice.py)。
 
