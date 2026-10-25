@@ -23,7 +23,8 @@
 軽い物と音(10-25 ユーザー「軽い問い合わせはまとめて同時に取得すればいい」「当たったらその日は全部止めるは極端すぎる」):
   軽い物(字幕 subs・API が使えない日の動画の情報 info)= 1 時間に 1 回、yt-dlp 1 回で最大 N 本まとめて(--skip-download・--sleep-requests)。
     処理中・ライブ中でも取る(軽いので)。N = LIGHT_N の段(当たらずに UP_AFTER 回続けば 1 段増やす。10-25 まとめ役)。
-  音 = AUDIO_MIN の段の分おきに 1 本(同じく 1 段縮める = 上限の段階の実験)。処理中・ライブ中は休む。
+  音 = AUDIO_MIN の段の分おきに 1 本(同じく 1 段縮める = 上限の段階の実験)。処理中は BUSY_SLOWER 段遅く続ける。
+  ライブ中は、音・チャット・字幕・説明欄・候補など列の頼みを全部ふだんどおり取る(10-25 ユーザー「ライブ中でもそんなに重くない」「ほかの研究に必要なものも」)。
   当たったら 1 段落とす(いちばん下なら本数を半分・間隔を 1.5 倍)。
   当たりの種類(classify): rate(429・速すぎ)・bot(ボット確認・ログインを求められた)= 当たった側(軽い物か音)だけ RESTS 分休み(続けば伸ばす)、
     本数を半分・間隔を 1.5 倍で続ける。当たらずに 3 回続けば 1 段ずつ戻す。gone(404・動画が無い・メンバー限定)= 数えない・その動画だけ飛ばす・枠も使わない。
@@ -50,7 +51,8 @@ from . import voicefetch as _vf
 ENABLED = True
 DIR_NAME = "yt-queue"
 AUDIO_MIN = [60, 40, 30, 20, 15, 10, 7, 5]   # 音の間隔の段(分)。当たらずに UP_AFTER 回続けば 1 段縮め、当たったら 1 段戻す(上限の段階の実験。10-25 夜 5 分まで)
-BUSY_SLOWER = 2                       # 処理中・ライブ中は音を止めず、この段だけ遅い間隔で続ける(友人のライブの録画が最優先なのは変えない)
+BUSY_SLOWER = 2                       # 処理中は音を止めず、この段だけ遅い間隔で続ける。ライブ中はふだんと同じ間隔(10-25 ユーザー「ライブ中でもそんなに重くない」)
+LIVE_BUSY = "ライブ"                  # 入口の busy() がライブ中に返す文(ライブだけなら列の頼みは全部ふだんどおり)
 LEDGER_MAX = 6.0                      # 製品のほかの YouTube への問い合わせ(帳簿 ytt/ytledger)の直近 30 分の重みがこれを超えたら、音の回を次へ延ばす(製品が先)
 DAILY_NAME = "daily.jsonl"            # 1 日 1 行(研究の progress.md が読む): 音の本数・軽い物・ほかの問い合わせ・当たり・段
 LIGHT_N = [5, 10, 20, 30]             # 軽い物を 1 回でまとめる本数の段(同じく)
@@ -304,7 +306,7 @@ def fine(st, name, log=None):
 
 
 def due(app_dir, now, slower=0, ledger_weight=0.0):
-    """音を今取ってよいか -> (よいか, 理由)。休み・音の段の間隔(slower 段だけ遅く = 処理中・ライブ中)・
+    """音を今取ってよいか -> (よいか, 理由)。休み・音の段の間隔(slower 段だけ遅く = 処理中)・
     ほかの問い合わせの直近 30 分の重み ledger_weight が LEDGER_MAX を超えていれば延ばす(製品が先)"""
     st = _state(app_dir)
     a = _cls(st, "audio")
@@ -612,10 +614,10 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
     why = busy()
     if why and str(why).startswith("新しい版"):   # 入口の起動し直しの待ち = 新しく取らない(起き直しを延ばさない)
         return light
-    if not why:
+    if not why or why == LIVE_BUSY:   # ライブ中もふだんどおり(処理中だけ休む)
         with run_lock(app_dir) as mine:   # 手で流すチャットの 1 回とぶつからない
             light = (chat_batch(app_dir, now, log) if mine else None) or light   # チャットは処理中でないときだけ(1 本で長くかかる)
-    ok, _why = due(app_dir, now, BUSY_SLOWER if why else 0, led["weight"])   # 処理中・ライブ中は止めず 2 段遅く・製品の問い合わせが多ければ延ばす(10-25 夜)
+    ok, _why = due(app_dir, now, BUSY_SLOWER if why and why != LIVE_BUSY else 0, led["weight"])   # 処理中は止めず 2 段遅く・ライブ中はふだんどおり・製品の問い合わせが多ければ延ばす(10-25 夜)
     if not ok:
         return light
     st = _state(app_dir)

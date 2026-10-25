@@ -208,6 +208,16 @@ class YtQueueTest(unittest.TestCase):
         self.assertTrue(Q.due(self.app, NOON + 16 * 60)[0])
         self.assertFalse(Q.due(self.app, NOON + 16 * 60, Q.BUSY_SLOWER)[0])
         self.assertTrue(Q.due(self.app, NOON + 31 * 60, Q.BUSY_SLOWER)[0])
+        seen = []
+        with mock.patch.object(Q, "due", lambda app, now, slower=0, ledger_weight=0.0: seen.append(slower) or (False, "")):
+            Q.tick(self.app, R, {}, lambda: Q.LIVE_BUSY, lambda req: "j", self.logs.append, now=NOON + 41 * 60)
+            Q.tick(self.app, R, {}, lambda: "処理中", lambda req: "j", self.logs.append, now=NOON + 42 * 60)
+        self.assertEqual(seen, [0, Q.BUSY_SLOWER])   # ライブ中はふだんどおり・処理中は 2 段遅く(10-25 ユーザー)
+        chats = []
+        with mock.patch.object(Q, "chat_batch", lambda app, now, log: chats.append(now)), mock.patch.object(Q, "due", lambda *a, **k: (False, "")):
+            Q.tick(self.app, R, {}, lambda: Q.LIVE_BUSY, lambda req: "j", self.logs.append, now=NOON + 43 * 60)
+            Q.tick(self.app, R, {}, lambda: "処理中", lambda req: "j", self.logs.append, now=NOON + 44 * 60)
+        self.assertEqual(chats, [NOON + 43 * 60])   # チャットの回もライブ中はふだんどおり・処理中は休む
         with mock.patch.object(Q, "due", side_effect=AssertionError("新しい版の待ちでは音を見ない")):
             Q.tick(self.app, R, {}, lambda: "新しい版 v9.9.9 を待っています", lambda req: "j", self.logs.append, now=NOON + 40 * 60)
 
