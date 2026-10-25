@@ -46,6 +46,8 @@ FILL_RATIO = 3.0         # A: 別の読みの字数が元の何倍以上なら�
 FILL_MAX_ROWS = 60       # A: 1 回の文字起こしで読む窓の上限(長い文書で遅くならないように)
 FILL_TRIM_EDGE = True    # A: 置き換えた行の頭が前の行の末尾と・尻が次の行の頭と FILL_TRIM_MIN 字以上同じなら、その字を落とす(窓の余白で隣の言葉が入る。
                          # 確かめるの答え「どちらも違う」に次の行の頭が入った行。置き換えた 150 行の 15%。印 fill.trim。False で前の形。10-26)
+FILL_SKIP_LATIN = True   # A: 文書の言語が ja のとき、別の読みが英字ばかり(字の半分以上)なら置き換えない(歌・ゲームの音で SenseVoice が英語を書く。
+                         # 字幕を仮の正解にした比べで、英字の置き換え 9 窓は字幕に近くならなかった。False で前の形。10-26)
 FILL_TRIM_MIN = 2        # A: 落とす重なりの最小の字数(比べるのは fill_norm の文字)
 FILL_A_FIRST = True      # A を C より先に(False = 0.99.99 までの C → A。記録の fill.order)
 FILL_FLAG = "別の読みで埋めた(元の文字は「別の読み」の札)"
@@ -142,10 +144,17 @@ def fill_trim_edges(new, prev, nxt):
     return [x for x in new if fill_norm(x["text"])]
 
 
-def fill_apply(rows, read, total):
+def _fill_latin(text):
+    """字(文字の種類 L)の半分以上が英字か"""
+    letters = [c for c in fill_norm(text) if unicodedata.category(c)[0] == "L"]
+    return bool(letters) and 2 * sum(1 for c in letters if c.isascii()) >= len(letters)
+
+
+def fill_apply(rows, read, total, lang=None):
     """rows(expand_segments の行。wav の秒)のうち対象の行(fill_sparse_row)の窓を read(s0, e0) -> [{start, end, text}](wav の秒)で読み、
     別の読み(行の半分以上が元の行の時間に入るもの)の字数が元の FILL_RATIO 倍以上なら置き換える。
-    -> (新しい行の一覧(時刻の順), {"windows": 読んだ窓, "rows": 置き換えた行, "added": 足した行})。置き換えた行は fill = {"from": 元の文字, "by": FILL_ENGINE}"""
+    lang = 文書の言語(ja なら英字ばかりの読みは置き換えない = FILL_SKIP_LATIN)。
+    -> (新しい行の一覧(時刻の順), {"windows": 読んだ窓, "rows": 置き換えた行, "added": 足した行(, "latin": 英字なので置き換えなかった窓)})。置き換えた行は fill = {"from": 元の文字, "by": FILL_ENGINE}"""
     out, stats = list(rows), {"windows": 0, "rows": 0, "added": 0}
     targets = [r for r in rows if r.get("text") and fill_sparse_row(r)][:FILL_MAX_ROWS]
     for r in targets:
@@ -161,6 +170,9 @@ def fill_apply(rows, read, total):
         n = fill_chars(r["text"])
         nc = sum(fill_chars(c["text"]) for c in cand)
         if not cand or nc < max(n + 1, FILL_RATIO * n):
+            continue
+        if FILL_SKIP_LATIN and lang == "ja" and _fill_latin("".join(str(c["text"]) for c in cand)) and not _fill_latin(r["text"]):
+            stats["latin"] = stats.get("latin", 0) + 1   # 日本語の文書で英語の読み = 置き換えない(記録の fill.latin)
             continue
         new = [{"start": round(float(c["start"]), 3), "end": round(float(c["end"]), 3), "text": str(c["text"]).strip(), "words": [],
                 "avg_logprob": None, "no_speech_prob": None, "compression_ratio": None, "fill": {"from": r["text"], "by": FILL_ENGINE}} for c in cand]
@@ -460,7 +472,7 @@ def fill_after_rows(job, spec, rows, wav, total):
     try:
         read = fill_reader(job, spec, wav)
         job["phase"] = "文字の少ない行を別の読みで埋め中"
-        rows, st = fill_apply(rows, read, total)
+        rows, st = fill_apply(rows, read, total, spec.get("language"))
         rec.update(st)
     except _heavy.Cancelled:
         raise

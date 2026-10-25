@@ -180,6 +180,16 @@ class TestFillEdges(unittest.TestCase):
         same = fill.fill_trim_edges([{"text": "気持ちいい", "fill": {}}], {"text": "気持ちいい"}, None)
         self.assertEqual(same[0]["text"], "気持ちいい")
 
+    def test_a_skips_english_reading_in_japanese(self):
+        """A: 日本語の文書で別の読みが英字ばかりなら置き換えない(字幕を仮の正解にした比べで字幕に近くならなかった)・英語の文書・スイッチ切りは今どおり"""
+        rows = [{"start": 0.0, "end": 4.0, "text": "や", "avg_logprob": -0.2}]
+        read = lambda a, b: [{"start": 0.5, "end": 3.5, "text": "what do you believe now"}]   # noqa: E731
+        out, st = fill.fill_apply([dict(r) for r in rows], read, 10, "ja")
+        self.assertEqual((out[0]["text"], st["rows"], st["latin"]), ("や", 0, 1))
+        self.assertEqual(fill.fill_apply([dict(r) for r in rows], read, 10, "en")[1]["rows"], 1)
+        with mock.patch.object(fill, "FILL_SKIP_LATIN", False):
+            self.assertEqual(fill.fill_apply([dict(r) for r in rows], read, 10, "ja")[1]["rows"], 1)
+
     def test_d_keeps_small_kana_variants(self):
         """D: 違う 1 字が小さい字(みこっち の っ)・置き換えると同じ字が並ぶ(みこち + ち)なら直さない(確かめるで「みこちち」が 3 件)。普通の 1 字違いは直す"""
         def run(t, o, al):
