@@ -481,6 +481,7 @@ class LiveSession:
         self._local_hit = None             # (時刻, 手元の録画の部品の番号)(_local_default)
         self._handover_fails = []          # 録画中の起き直しの確かめで見つかった違い(「調子」の failures)
         self._handover_checked = False
+        self._recorder_renewed = False     # この入口が版の違う録画の部品を起こし直した(起き直しの確かめで違いにしない)
 
     # --- 設定 ---
     def cfg(self):
@@ -1134,9 +1135,9 @@ class LiveSession:
             if r is None or not r.get("active"):
                 bad.append("録画 %s は起き直したあと録画中ではありません" % x.get("id"))
         run = self.running_recorder() or {}
-        if d.get("recorderPid") and run.get("pid") != d["recorderPid"]:
+        if d.get("recorderPid") and run.get("pid") != d["recorderPid"] and not self._recorder_renewed:   # 手が空いて版を上げた起こし直しは違いにしない
             bad.append("録画の部品が替わりました(pid %s → %s)" % (d["recorderPid"], run.get("pid")))
-        if d.get("workerPid"):
+        if d.get("workerPid") and self.detector.retired != d["workerPid"]:   # 受け持ちが無くなって入れ替えたワーカーは違いにしない
             hb = self.detector.heartbeat() or {}
             at = LX.iso_epoch(hb.get("at"))
             if hb.get("pid") != d["workerPid"] or at is None or at <= d["at"]:
@@ -1148,8 +1149,16 @@ class LiveSession:
                 self.log("起き直しの引き継ぎ: " + b)
             self._handover_fails = [live_failures.handover_failure(b, at=iso) for b in bad]
         else:
-            self.log("起き直しの引き継ぎを確かめました(録画 %d 本は録画中のまま・録画の部品とワーカーも同じ)" % len(d.get("recordings") or []))
+            n = len(d.get("recordings") or [])
+            self.log("起き直しの引き継ぎを確かめました(%s・録画の部品とワーカーは同じか、手が空いて入れ替えた物)" % ("録画 %d 本は録画中のまま" % n if n else "録画中の録画は無し"))
         return bad
+
+    def _adopt_waiting(self):
+        """配信の終わり際の候補など、自動の採用を待っている候補があるか(版の違う録画の部品の起こし直しを、その書き出しが済むまで待つ)"""
+        det = self.detector
+        if not det.enabled():
+            return False
+        return any((det.adopt_waiting(r["recorder"], r["id"]) or {}).get("count") for r, _ended in det._target_recordings(time.time()))
 
     def _recording_on_recheck(self, rc):
         """孫ごと止める前に: 録画の一覧を KILL_RECHECK 回まで聞き直し、録画中の録画があるか(直前の札の一覧に録画中があったときも)。
@@ -1243,12 +1252,14 @@ class LiveSession:
             busy = None
             if exp and info.get("version") != exp:   # 起こし直しは手が空いているときだけ(録画・検出・書き出しのどれかが動いていれば、終わり際の書き出しの取得と重ねない)
                 act = self.activity()
-                busy = "録画・検出・書き出しが動いている" if any(act.values()) else None
+                busy = ("録画・検出・書き出しが動いている" if any(act.values()) else
+                        "自動の採用を待っている候補がある" if self._adopt_waiting() else None)
             if exp and info.get("version") != exp and busy:
                 self.note("録画の部品が古い版(v%s)ですが、%sので、手が空いてから起動し直します" % (info.get("version"), busy))
             elif exp and info.get("version") != exp:   # コードを直した(版が上がった): 録画中でなければ終わってもらって、新しい版で起こし直す
                 code, _d = self.call(local, "POST", "/live/quit", {})
                 if code == 200:
+                    self._recorder_renewed = True
                     self.note("録画の部品が古い版(v%s)なので、v%s で起動し直します" % (info.get("version"), exp))
                     end = time.time() + 15
                     while time.time() < end and self.ping(local, 0.5):

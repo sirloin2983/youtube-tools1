@@ -171,6 +171,7 @@ class Detector:
         self._seen_loaded = False          # seen.json を読み戻したか(最初の auto_tick で 1 回)
         self._seen_dirty = False           # _seen を消した(seen.json を書き直す)
         self.adopted = None                # 前の入口が残したワーカーを引き継いだときの pid(この入口は Popen を持たない)
+        self.retired = None                # 受け持ちが無いので止めて、この入口の版で起こし直した前のワーカーの pid(起き直しの確かめで違いにしない)
         self._fails = None                 # 自動の採用を諦めた候補(auto_failures.json)
         self._series = fsio.StampCache()   # series.jsonl の読み取りの覚え(更新日時と大きさが変わったときだけ読み直す)
         self._capped_said = set()          # D-13: 上限に達した録画(記録に 1 回だけ出す)
@@ -360,7 +361,7 @@ class Detector:
             return None
         if not hb.get("recordings"):
             self._stop_pid(pid)
-            self.adopted = None
+            self.adopted, self.retired = None, pid
             return None
         if self.adopted != pid:
             fsio.atomic_write(os.path.join(self.dir, EW.PARENT_NAME), json.dumps({"pid": os.getpid()}).encode("utf-8"))   # ワーカーの新しい親

@@ -198,6 +198,33 @@ class HandoverOkTest(Base):
         bad = self.live.check_handover(now=time.time() + 61)
         self.assertEqual(len(bad), 2, bad)
         self.assertEqual([f["kind"] for f in self.live._handover_fails], ["handover", "handover"])
+        # この入口が手の空いたときに替えた部品・受け持ちが無くて替えたワーカーは違いにしない(配信の終わり際の起き直し)
+        self.live._handover_checked = False
+        self.fake.routes[("GET", "/live/list")] = lambda b: (200, {"recordings": []})
+        self.heartbeat(w.pid, age=0)
+        self.live.write_handover()
+        os.remove(os.path.join(self.rdata, LS.RUNNING_FILE))
+        self.heartbeat(os.getpid(), age=-120)
+        self.live._recorder_renewed, self.live.detector.retired = True, w.pid
+        self.assertEqual(self.live.check_handover(now=time.time() + 61), [])
+
+    def test_old_recorder_restart_waits_for_adopt_waiting(self):
+        """版の違う録画の部品の起こし直しは、録画・検出・書き出しが 0 でも、自動の採用を待つ候補があれば待つ"""
+        quits = []
+        self.fake.routes[("POST", "/live/quit")] = lambda b: quits.append(1) or (200, {"ok": True})
+        self.fake.routes[("GET", "/live/list")] = lambda b: (200, {"recordings": []})
+        det = self.live.detector
+        with mock.patch.object(self.live, "expected_version", return_value="9.9.9"), \
+                mock.patch.object(self.live, "activity", return_value={"recording": 0, "detecting": 0, "exporting": 0}), \
+                mock.patch.object(det, "_target_recordings", return_value=[({"recorder": "local", "id": REC}, True)]), \
+                mock.patch.object(det, "adopt_waiting", return_value={"count": 1, "dueAt": None}):
+            self.assertEqual(self.live.tick(), "running")
+            self.assertEqual(quits, [])
+            self.assertTrue(any("自動の採用を待っている" in m for m in self.logs), self.logs)
+            pings = iter([{"app": "ytt-recorder", "version": "0.0.1"}])
+            with mock.patch.object(det, "adopt_waiting", return_value=None), mock.patch.object(self.live, "ping", lambda rc, t=1.5: next(pings, None)):
+                self.assertEqual(self.live.tick(), "waiting")   # 終わってもらった(起こすのは spawn_ok の入口だけ)
+        self.assertEqual(quits, [1])
 
 
 class AdoptWorkerTest(Base):
