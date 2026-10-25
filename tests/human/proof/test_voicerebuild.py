@@ -2,7 +2,6 @@
 外した行を除いて行の秒で混ぜ直す・ショート由来は重み半分・行ごとの特徴を控える(2 回目は取り直さない)・前の登録簿を写す・外した行は覚え直しの材料に数えない。
 実行(リポジトリ直下から): py -3.12 -m unittest tests/human/proof/test_voicerebuild.py -v
 """
-import json
 import os
 import shutil
 import sys

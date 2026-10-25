@@ -47,7 +47,7 @@ def _doc_rows(doc, name, ids):
 def row_vectors(emb, tid, rows, job=None):
     """文書 1 本の行ごとの声の特徴 -> {行 id: 特徴}(取れなかった行は入れない)"""
     doc = store.read_transcript(tid)
-    job = job if job is not None else {"state": "running", "progress": 0.0}
+    job = job if job is not None else {"id": "voice-rebuild-%d" % int(time.time() * 1000), "state": "running", "progress": 0.0}
     with _heavy.job_temp_wav(job) as wav:
         start, end = _yschemas.num_or(doc.get("start"), 0.0) or 0.0, _yschemas.num_or(doc.get("end"))
         try:
