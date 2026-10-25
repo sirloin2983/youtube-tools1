@@ -29,7 +29,7 @@
   - 名前: `_move` :19・`_check` :27・`_times` :39・`_apply_time` :43・`_revert_time` :65
 - **value.py** (167 行) — 「確かめる」の価値のカード(切り抜く価値があるか = 70 点以上か)の反映(notes:docs/design/v1-check-build.md・決定 3-41)。
   - 名前: `_code` :32・`_msg` :36・`_need` :40・`_auto_check` :50・`_auto_apply` :64・`_auto_revert` :75・`_studio` :87・`_set_status` :94・`_cand_apply` :123・`_cancel_export` :138・`_cand_revert` :153
-- **voice.py** (427 行) — 「確かめる」の誰の声のカード(voice:diar)の答えの形・選択肢・反映・声の覚え直し(notes:docs/design/v1-check-build.md の 3-2・5 節、
+- **voice.py** (428 行) — 「確かめる」の誰の声のカード(voice:diar)の答えの形・選択肢・反映・声の覚え直し(notes:docs/design/v1-check-build.md の 3-2・5 節、
   - 名前: `diar_enabled` :52・`doc_embedding` :74・`registry` :79・`options_for` :94・`guess_for` :115・`buttons` :131・`people_for` :140
 
 ## src/human/cut/
@@ -63,7 +63,7 @@
   - 名前: `returns_dir` :58・`extract` :96・`parse_verdict` :130・`parse_notice` :180・`scan` :215・`recent_notices` :412・`iter_requests` :451
 - **upwatch.py** (166 行) — ③ 人の層: 友人のアプリの更新の見張り(ユーザーの PC。友人のアプリの更新の決め・10-25 ユーザーの OK。notes:plan/友人の不具合の自動対応-1025.md の「更新」)。
   - 名前: `published` :54・`friend_now` :69・`last_seen` :91・`alerts` :104・`add_alert` :111・`scan` :121
-- **voicein.py** (122 行) — 友人の PC から届いた声の材料の受け取り(10-24 夜。作る側 = friendapp/voicesend。案 = notes:plan/声の材料を友人のPCから-1024.md)。
+- **voicein.py** (143 行) — 友人の PC から届いた声の材料の受け取り(10-24 夜。作る側 = friendapp/voicesend。案 = notes:plan/声の材料を友人のPCから-1024.md)。
   - 名前: `class Refused` :33・`take` :59
 
 ## src/human/proof/
@@ -89,6 +89,8 @@
   - 名前: `tx_path` :37・`write_doc` :41・`read_layers` :73・`commit` :114・`layers_for` :171・`fresh_copy` :201・`snapshot` :251・`backup_doc` :259・`sanitize_sub_style` :278・`sanitize_transcript` :291・`doc_length` :373・`good_row` :394・ほか 37
 - **voiceclips.py** (215 行) — 声を覚える材料の短い音(10-24 夜。ユーザー「誰の声をメンバー全員分」・「精度に関係する物は残す」)。
   - 名前: `root` :28・`index` :40・`clip_path` :54・`media` :63・`make` :72・`put_bytes` :106・`timeline_wav` :135・`bgm` :199
+- **voicerebuild.py** (126 行) — 覚えた声を 1 行ずつ外してまとめ直す(10-25 ユーザーとまとめ役が 1 行ずつ聞いて確かめた結果。notes:plan/間違った正解のリスク-1025.md の 6)。
+  - 名前: `rows_path` :23・`row_vectors` :47・`rebuild` :64
 
 ## src/human/review/
 
@@ -130,5 +132,6 @@
 - tests/human/proof/test_retime.py — 行の時刻を単語の時刻に合わせる候補(T1 の簡易版)のテスト(計算は pipeline/transcribe/retime.py・文書を読む包みは human/proof/retime.py)。
 - tests/human/proof/test_smooth.py — 話者の細切れをならす(smooth_labels・smooth_speakers・apply_diarization(smooth)・設定 diarSmooth)のテスト。
 - tests/human/proof/test_voiceclips.py — 誰の声のカードの行の短い音(src/human/proof/voiceclips.py。10-24 夜): 元の動画から行の前後 1 秒を 16kHz の wav に切り出し、
+- tests/human/proof/test_voicerebuild.py — 覚えた声を 1 行ずつ外してまとめ直す(src/human/proof/voicerebuild.py。10-25)。声の特徴は偽物(本物のモデルは使わない)。
 - tests/human/proof/test_voices.py — 話者の声を覚える(A-3)のサーバー側のテスト。
 - tests/human/review/test_studio.py — human/review/store.py の単体テスト(ネットワーク・ffmpeg 不要)。 実行(リポジトリ直下): py -3.12 -m unittest tests/human/review/test_studio.py

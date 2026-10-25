@@ -73,6 +73,8 @@
 - **ui_audit.py** (1049 行) — 画面(UI)の見直しの合格の基準のうち、機械で測れるものを測る道具(読むだけ。基準は `notes:docs/spec/ui.md` の A)。
   - 名前: `class Findings` :107・`read` :123・`rel` :131・`screen_files` :135・`allowed` :144・`each_line` :149・`regex_starts` :157・`scan_string` :167・`scan_code` :181・`strip_js_comments` :231・`html_texts` :238・`py_strings` :253・ほか 31
   - 受ける口: `/api/info` :100
+- **voice_rebuild.py** (51 行) — 覚えた声を 1 行ずつ外してまとめ直す道具(human/proof/voicerebuild。10-25)。本物の作業データの登録簿を書き換える(前の版は .bak-<時刻> に写す)。
+  - 名前: `main` :17
 - **worklog.py** (280 行) — 作業の記録(保管庫の docs/worklog/)をセッションごとのファイルに分けて書き、週のまとめを集めて作る。
   - 名前: `worklog_dir` :56・`monday` :60・`week_name` :64・`read` :68・`write` :73・`front_matter` :78・`session_entry` :91・`sessions` :101・`auto_block` :108・`merge_week` :121・`update_index` :135・`build` :150・ほか 7
 
