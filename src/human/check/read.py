@@ -4,6 +4,10 @@
   unclear = 5 のキー「聞き取れない」)。
   shift = 何も変えない・候補の採否も記録しない(編集の「提案」に残る)。答えた行は time_row が時刻のカードに回す(読みの答えのある行 = 時刻を確かめる行)。
   unclear = 文字は変えず、行の音のメモ unclear だけ付ける(候補の採否・fill は書かない。unclear の行は時刻のカードに回らない・評価から外す。10-25 確かめるの混ざりと BGM のルール)。
+  mixed = 「2 人の声が同じくらい」(交互でも同時でも。画面の M)= 文字は変えず、行の音のメモ overlap だけ(候補の採否も書かない)。声の学習・時刻・文字の正解のどれにも入れず、
+    ② 同時発話の材料として残す(研究は answers.jsonl の kind read・choice mixed と、文書の行の overlap で読む)。
+  others: true = 付け足しの印「別の声も入っている」(1・2・other に足せる。画面の V)= 主の人の言葉だけで今までどおり判定・直した文字は使う +
+    行の音のメモ overlap(声の学習・時刻のカードには入れない)。10-26 ユーザー OK
   ⑤ の eval_alt・eval_fill は答えを choices で絞るので shift は読み飛ばす・目標の数(eval/check/goals.py)も数えない。**文字だけの判定**: 行を校正済み(proofed)にしない・行の時刻には触れない(時刻の正解に使わない)。
   fill  1 = 何も変えない(後処理の札を残す)/ 2 = 認識のままに戻す(編集の「別の読み」の札と同じ。fill と後処理の印を外す)/ other = 打った文字(fill と印を外す)
   alt  1 = 何も変えない・候補を却下 / 2 = 食い違う所を直す・候補を採る / other = 打った文字・候補を却下
@@ -19,23 +23,27 @@ from ytt import errors as _errors, schemas as _yschemas, txbase as _txbase
 from . import _doc, apply   # 同じ human/check の兄弟
 from human.proof import learn
 
-CHOICES = ("1", "2", "other", "shift", "unclear")   # shift = 区間がずれている・ほかの発言が入っている / unclear = 聞き取れない(どちらも読みは判定しない)
+CHOICES = ("1", "2", "other", "shift", "unclear", "mixed")   # shift = 区間がずれている(10-25 に画面から外した。古い答えの記録用)/ unclear = 聞き取れない / mixed = 2 人の声が同じくらい(読みは判定しない)
+MEMO_OF = {"unclear": "unclear", "mixed": "overlap"}   # 読みを判定しない答え -> 行に付ける音のメモ
 FILL_FLAG_RE = re.compile(r"^(別の読みで埋めた|名簿の呼び名に直した|話者名を外した)")   # 編集の「別の読み」の札が外す印(src/app/ui/editor/app.js の unfill と同じ)
 TIERS = ("alt",)
 
 
 def _check(ans):
     if not isinstance(ans, dict) or ans.get("choice") not in CHOICES:
-        raise ValueError("choice は 1・2・other・shift・unclear のどれかです")
+        raise ValueError("choice は 1・2・other・shift・unclear・mixed のどれかです")
+    others = ans.get("others")
+    if others is not None and (others is not True or ans["choice"] not in ("1", "2", "other")):
+        raise ValueError("「別の声も入っている」(others)は 1・2・other の答えに true で付けてください")
     if ans["choice"] != "other":
-        return {"choice": ans["choice"]}
+        return dict({"choice": ans["choice"]}, **({"others": True} if others else {}))
     text = ans.get("text")
     if not isinstance(text, str):
         raise ValueError("正しい文字(text)を入れてください")
     text = " ".join(text.split()) if "\n" in text or "\r" in text else text.strip()
     if not text or len(text) > _txbase.MAX_TEXT or any(ord(c) < 32 for c in text):
         raise ValueError("正しい文字は 1〜%d 字にしてください" % _txbase.MAX_TEXT)
-    return {"choice": "other", "text": text}
+    return dict({"choice": "other", "text": text}, **({"others": True} if others else {}))
 
 
 def _tid(card):
@@ -75,25 +83,29 @@ def _apply(ctx, card, ans):
     tid, row_id, source, choice = _tid(card), (card.get("target") or {}).get("row"), card.get("source"), ans["choice"]
     if choice == "shift":   # 区間がずれている = 文字は判定しない(文書も採否の記録も触らない)。行は時刻のカード(app/check/sources.py の time_row)に回る
         return {"docId": tid, "row": row_id, "source": source, "choice": "shift"}
-    if choice == "unclear":   # 聞き取れない = 音のメモ unclear だけ(文字・fill・候補の採否は触らない)
-        def mark(doc, seg, before):
-            tags = before["tags"] or []
-            if "unclear" in tags:
-                return None
-            seg["tags"] = tags + ["unclear"]
-            return True
-        got = _doc.edit_fields(tid, row_id, "check:read", _row_state, mark)
-        out = {"docId": tid, "row": row_id, "source": source, "choice": "unclear"}
+    memo = MEMO_OF.get(choice) or ("overlap" if ans.get("others") else None)   # 行に付ける音のメモ(聞き取れない・2 人・別の声も)
+
+    def add_memo(seg, before):
+        tags = before["tags"] or []
+        if not memo or memo in tags:
+            return False
+        seg["tags"] = tags + [memo]
+        return True
+    if choice in MEMO_OF:   # 聞き取れない・2 人の声が同じくらい = 音のメモだけ(文字・fill・候補の採否は触らない)
+        got = _doc.edit_fields(tid, row_id, "check:read", _row_state, lambda doc, seg, before: True if add_memo(seg, before) else None)
+        out = {"docId": tid, "row": row_id, "source": source, "choice": choice}
         if got is not None:
             out["before"], out["after"] = got[0], got[1]
         return out
-    if source == "fill" and choice == "1":
+    if source == "fill" and choice == "1" and not memo:
         return {"docId": tid, "row": row_id, "source": source, "choice": "1"}   # 後処理の札を残す = 文書は何も変えない
     cand = None if source == "fill" else _cand_of(card)
 
     def change(doc, seg, before):
         old = before["text"]
         new = old
+        if source == "fill" and choice == "1":   # 別の声も入っている だけ(後処理の札は残す)
+            return True if add_memo(seg, before) else None
         if choice == "other":
             new = ans["text"]
         elif choice == "2":
@@ -106,7 +118,7 @@ def _apply(ctx, card, ans):
                 if old[cand["i"]:cand["i"] + len(cand["wrong"])] != cand["wrong"]:
                     raise apply.Refused("行の文字が変わっているので、この候補は入れられません", 409, "gone")
                 new = old[:cand["i"]] + cand["right"] + old[cand["i"] + len(cand["wrong"]):]
-        changed = new != old
+        changed = add_memo(seg, before) or new != old
         if source == "fill" and isinstance(seg.get("fill"), dict):   # 戻す・打つ = 後処理の札は役目を終えた(編集の unfill と同じ)
             seg.pop("fill", None)
             seg["flag"] = _unflag(seg.get("flag"))
