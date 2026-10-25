@@ -42,6 +42,8 @@ def remember(cmd, code, lines, why, t0):
             for x in list(lines or [])[-RECENT_TAIL:]:
                 tail.append((x.decode("utf-8", "replace") if isinstance(x, bytes) else str(x)).rstrip()[:300])
         RECENT.append({"name": name, "code": code, "why": why, "at": int(time.time() * 1000), "sec": round(time.monotonic() - t0, 1), "tail": tail})
+        from . import ytledger   # YouTube への問い合わせの帳簿(yt-dlp なら 1 行。取得の列が読む = 製品が先・列が譲る。10-25 夜)
+        ytledger.from_run(cmd, code, lines, why)
     except Exception:   # noqa: BLE001  (記録で道具の呼び出しを壊さない)
         pass
 

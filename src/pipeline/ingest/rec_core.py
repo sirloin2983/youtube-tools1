@@ -42,7 +42,7 @@ import urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # src/(この ingest の2つ上)
 if ROOT not in sys.path:   # 共通部品 ytt(src/ の中)
     sys.path.append(ROOT)
-from ytt import errors as yerrors, fsio, recproto, tools as ytools, trashbin  # noqa: E402
+from ytt import errors as yerrors, fsio, recproto, tools as ytools, trashbin, ytledger  # noqa: E402
 
 SCHEMA = "ytt-recorder/v1"
 # 録画の id・セッション・セグメントの形と時刻の書き方は ytt/recproto.py の 1 か所(入口の live_export・配信中の検出のワーカーと同じ物)
@@ -529,6 +529,7 @@ class Recording:
     def _finish(self, state, message, note):
         """録画を終えた状態(stopped・ended・error)にして記録に残す"""
         self.set(state=state, message=message, endedAt=now_iso())
+        ytledger.record("live-end", 0, src="recorder", id=self.id)   # YouTube への問い合わせの帳簿(録画中のライブの重みを外す)
         self.mgr.log("録画 %s: %s" % (self.id, note))
 
     def _count(self, name):
@@ -669,6 +670,7 @@ class Recording:
             ytools.ytdlp_auth_args() + ["--", self.meta["url"]]
         try:
             r = subprocess.run(cmd, capture_output=True, timeout=HLS_RESOLVE_SEC, creationflags=ytools.no_window_flags())
+            ytledger.record("light", ytledger.W_LIGHT, ok=r.returncode == 0, err=r.stderr.decode("utf-8", "replace"), src="recorder")
         except (OSError, subprocess.TimeoutExpired) as e:
             self.mgr.log("録画 %s: yt-dlp で再生リストを取れませんでした(%s)" % (self.id, e.__class__.__name__))
             self._hls_failed_at = time.time()
@@ -895,6 +897,7 @@ class Recorder:
                     continue
                 rec.set(state="reconnecting", message="録画の部品を起動し直したので、新しいセッションで続けます")
                 rec.start_thread()
+                ytledger.record("live", ytledger.W_LIVE, src="recorder", id=rec.id)   # 帳簿(続きの録画も録画中のライブ)
                 resumed.append(rid)
                 self.log("録画 %s: 前回の録画を新しいセッションで続けます" % rid)
             else:
@@ -938,6 +941,7 @@ class Recorder:
             rec.save()
             self.recs[rid] = rec
         rec.start_thread()
+        ytledger.record("live", ytledger.W_LIVE, src="recorder", id=rid)   # YouTube への問い合わせの帳簿(録画中のライブ 1 本 = 重み 0.5。終わりは _finish)
         self.log("録画 %s: 開始 %s(%s)" % (rid, url, quality))
         if not title and self.title_lookup and urllib.parse.urlsplit(url).scheme == "https":   # 手元の URL(テスト)では聞かない
             threading.Thread(target=self._fill_title, args=(rec,), daemon=True, name="title-" + rid).start()

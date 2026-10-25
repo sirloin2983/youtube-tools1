@@ -16,7 +16,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-from . import apikey as _key, studio_env as _env, yturl as _yturl
+from . import apikey as _key, studio_env as _env, yturl as _yturl, ytledger as _ytledger
 from .errors import ApiError
 
 OEMBED = "https://www.youtube.com/oembed?format=json&url="   # 題とチャンネル名の取得(公開・キー不要。接続先は固定)
@@ -64,6 +64,7 @@ def get(path, params, *, count=True):
         _count()
     url = _yturl.YT_API_BASE + path + "?" + urllib.parse.urlencode(params)
     req = urllib.request.Request(url, headers={"Accept": "application/json", "X-goog-api-key": key})
+    _ytledger.record("api", _ytledger.W_LIGHT, src="api")   # YouTube への問い合わせの帳簿(キーの値は書かない)
     last = None
     for attempt in range(2):
         try:

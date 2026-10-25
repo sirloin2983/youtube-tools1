@@ -211,6 +211,19 @@ class YtQueueTest(unittest.TestCase):
         with mock.patch.object(Q, "due", side_effect=AssertionError("新しい版の待ちでは音を見ない")):
             Q.tick(self.app, R, {}, lambda: "新しい版 v9.9.9 を待っています", lambda req: "j", self.logs.append, now=NOON + 40 * 60)
 
+    def test_ledger_yields_and_shares_hits(self):
+        """帳簿(ytt/ytledger): 製品のほかの問い合わせの直近 30 分の重みが LEDGER_MAX を超えれば音を延ばす・誰かが当たれば列も休む(10-25 夜)"""
+        self.assertFalse(Q.due(self.app, NOON, ledger_weight=Q.LEDGER_MAX + 1)[0])
+        self.assertTrue(Q.due(self.app, NOON, ledger_weight=Q.LEDGER_MAX - 1)[0])
+        led = {"weight": 0.0, "hits": [(NOON - 5, "rate", "recorder")], "lives": 0}
+        with mock.patch.object(Q._ytledger, "load", lambda now, exclude_src=(), p=None: led):
+            self.tick(NOON)
+            self.tick(NOON + 1)   # 同じ当たりで二度休まない
+        st = Q._state(self.app)
+        self.assertEqual((st["audio"]["hits"], st["light"]["hits"]), (1, 1))
+        self.assertTrue(any("当たったのは recorder" in x for x in self.logs))
+        self.assertFalse(Q.due(self.app, NOON + 60)[0])
+
     def test_light_batch(self):
         """軽い物(字幕)は音の回と別に、1 回でまとめて取る(処理中でも)。字幕の頼みは 1 つで 5 本まで・返事は files"""
         urls = ["https://www.youtube.com/watch?v=SUBSVIDEO%02d" % i for i in range(1, 7)]

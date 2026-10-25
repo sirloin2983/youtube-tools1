@@ -43,7 +43,7 @@ import shutil
 import time
 
 from flow import voicematerial as _vm
-from ytt import fsio, settings as _settings, ytapi as _ytapi
+from ytt import fsio, settings as _settings, ytapi as _ytapi, ytledger as _ytledger
 from ytt.errors import ApiError
 from . import voicefetch as _vf
 
@@ -51,6 +51,8 @@ ENABLED = True
 DIR_NAME = "yt-queue"
 AUDIO_MIN = [60, 40, 30, 20, 15, 10, 7, 5]   # 音の間隔の段(分)。当たらずに UP_AFTER 回続けば 1 段縮め、当たったら 1 段戻す(上限の段階の実験。10-25 夜 5 分まで)
 BUSY_SLOWER = 2                       # 処理中・ライブ中は音を止めず、この段だけ遅い間隔で続ける(友人のライブの録画が最優先なのは変えない)
+LEDGER_MAX = 6.0                      # 製品のほかの YouTube への問い合わせ(帳簿 ytt/ytledger)の直近 30 分の重みがこれを超えたら、音の回を次へ延ばす(製品が先)
+DAILY_NAME = "daily.jsonl"            # 1 日 1 行(研究の progress.md が読む): 音の本数・軽い物・ほかの問い合わせ・当たり・段
 LIGHT_N = [5, 10, 20, 30]             # 軽い物を 1 回でまとめる本数の段(同じく)
 UP_AFTER = 3                          # 当たらずにこの回数続けば 1 段上げる(10-25 まとめ役: 日が明けるごとでは遅い)
 LIGHT_EVERY = 3600                    # 軽い物の回の間隔(秒)
@@ -212,7 +214,7 @@ def light_n(st):
     return max(1, LIGHT_N[min(c["step"], len(LIGHT_N) - 1)] // (2 ** c["pen"]))
 
 
-def rollover(st, now, log=None):
+def rollover(st, now, log=None, app_dir=None):
     """日が変わった最初の回: 休みの段と当たった回数を始めから・前の日の当たりの数と今の段を記録に 1 行(段の上げ下げは回ごと = fine・hit)"""
     today = datetime.date.fromtimestamp(now).isoformat()
     if st.get("day") == today:
@@ -230,7 +232,21 @@ def rollover(st, now, log=None):
         notes.append("%s 当たり %d 回" % ("音" if name == "audio" else "軽い物", int(c.get("hits") or 0)))
         c["hits"] = 0
     if st.get("day") and log:
-        log("YouTube の取得の列: %s の段の動き(%s)。今日は 音 %d 分おき・軽い物 %d 本まとめ" % (st["day"], "・".join(notes), audio_gap(st) // 60, light_n(st)))
+        d0 = time.mktime(datetime.date.fromisoformat(st["day"]).timetuple())
+        dc = _ytledger.day_counts(d0, d0 + 86400)
+        others = {k: v for k, v in dc["by"].items() if not k.startswith("queue:")}
+        audio_n = dc["by"].get("queue:fetch", 0)
+        log("YouTube の取得の列: %s の段の動き(%s)。音 %d 本・ほかの問い合わせ %d 回(%s)・当たり %s。今日は 音 %d 分おき・軽い物 %d 本まとめ"
+            % (st["day"], "・".join(notes), audio_n, sum(others.values()), "・".join("%s %d" % kv for kv in sorted(others.items())) or "なし",
+               "・".join("%s %d" % kv for kv in sorted(dc["hits"].items())) or "なし", audio_gap(st) // 60, light_n(st)))
+        if app_dir:
+            try:
+                fsio.append_jsonl(qdir(app_dir, DAILY_NAME), [{"day": st["day"], "audio": audio_n, "light": dc["by"].get("queue:light", 0),
+                                                              "others": others, "hits": dc["hits"], "notes": notes,
+                                                              "nowAudioMin": audio_gap(st) // 60, "nowLightN": light_n(st)}])
+            except OSError:
+                pass
+        _ytledger.prune(now)
     st["day"] = today
 
 
@@ -287,12 +303,15 @@ def fine(st, name, log=None):
                 % (UP_AFTER, ("音 %d 分おき" % (audio_gap(st) // 60)) if name == "audio" else ("軽い物 %d 本まとめ" % light_n(st)), int(c.get("hits") or 0)))
 
 
-def due(app_dir, now, slower=0):
-    """音を今取ってよいか -> (よいか, 理由)。休み・音の段の間隔(slower 段だけ遅く = 処理中・ライブ中)"""
+def due(app_dir, now, slower=0, ledger_weight=0.0):
+    """音を今取ってよいか -> (よいか, 理由)。休み・音の段の間隔(slower 段だけ遅く = 処理中・ライブ中)・
+    ほかの問い合わせの直近 30 分の重み ledger_weight が LEDGER_MAX を超えていれば延ばす(製品が先)"""
     st = _state(app_dir)
     a = _cls(st, "audio")
     if now < a["pause"]:
         return False, "当たったので休んでいます(あと %d 分)" % ((a["pause"] - now) // 60)
+    if ledger_weight > LEDGER_MAX:
+        return False, "ほかの YouTube への問い合わせが多い(直近 30 分の重み %.1f)" % ledger_weight
     last = _vm.num(st.get("last"))
     gap = audio_gap(st, slower)
     if now - last < gap:
@@ -580,7 +599,14 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
     _blocked_now.clear()
     _blocked_now.update(blocked_videos(app_dir))
     st = _state(app_dir)
-    rollover(st, now, log)
+    rollover(st, now, log, app_dir)
+    led = _ytledger.load(now, exclude_src=("queue",))   # 製品のほかの問い合わせ(帳簿)= 列は自分の分を数えない
+    fresh = [h for h in led["hits"] if h[0] > float(st.get("ledgerHit") or 0)]
+    if fresh:   # 誰かが当たった(429・ボット確認)= 列も同じ休みに入る(音と軽い物の両方)
+        at, kind, src = max(fresh)
+        st["ledgerHit"] = at
+        for name in ("audio", "light"):
+            hit(st, name, kind, now, lambda m, s=src: log(m + "(当たったのは %s)" % s))
     _save(app_dir, st)
     light = light_batch(app_dir, now, log)   # 軽い物は処理中・ライブ中でも(10-25)
     why = busy()
@@ -589,7 +615,7 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
     if not why:
         with run_lock(app_dir) as mine:   # 手で流すチャットの 1 回とぶつからない
             light = (chat_batch(app_dir, now, log) if mine else None) or light   # チャットは処理中でないときだけ(1 本で長くかかる)
-    ok, _why = due(app_dir, now, BUSY_SLOWER if why else 0)   # 処理中・ライブ中は止めず 2 段遅く(10-25 夜)
+    ok, _why = due(app_dir, now, BUSY_SLOWER if why else 0, led["weight"])   # 処理中・ライブ中は止めず 2 段遅く・製品の問い合わせが多ければ延ばす(10-25 夜)
     if not ok:
         return light
     st = _state(app_dir)

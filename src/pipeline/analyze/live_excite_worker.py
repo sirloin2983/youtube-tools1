@@ -63,7 +63,7 @@ ROOT = os.path.dirname(os.path.dirname(HERE))   # analyze -> pipeline -> src(「
 if __name__ == "__main__":   # スクリプトとして起動したときだけ: このフォルダを外して src を先頭に(兄弟は絶対 import。層の決まりの例外)。import したとき(live_detect・テスト)は触らない
     sys.path[:] = [ROOT] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(ROOT))]
 from pipeline.analyze import excite, levels  # noqa: E402
-from ytt import datadir, fsio, procs, recproto, schemas, tools  # noqa: E402
+from ytt import datadir, fsio, procs, recproto, schemas, tools, ytledger  # noqa: E402
 
 WORKER_VERSION = "1"
 POLL_SEC = 6.0             # 周期(5〜10 秒)
@@ -532,6 +532,7 @@ class ChatFeed:
         try:
             self.logf = open(self.stem(self.gen) + ".log", "ab")
             self.proc = self.launcher(cmd, self.logf)
+            ytledger.record("chat", ytledger.W_LIGHT, src="live-chat")   # YouTube への問い合わせの帳簿(ライブのチャットの取得を始めた)
         except OSError as e:
             self._close_log()
             self.proc = None

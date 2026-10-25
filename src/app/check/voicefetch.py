@@ -25,7 +25,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 
 from flow import voicematerial as _vm
-from ytt import fsio, tools as _tools
+from ytt import fsio, tools as _tools, ytledger as _ytledger
 
 ENABLED = True
 EVERY = 60                    # 見回りの間隔(秒)
@@ -120,6 +120,7 @@ def choose(items, tried, months=()):
 
 def _rss(channel, timeout=20):
     req = urllib.request.Request(RSS_URL % channel, headers={"User-Agent": "Mozilla/5.0"})
+    _ytledger.record("rss", _ytledger.W_LIGHT, src="queue")
     with urllib.request.urlopen(req, timeout=timeout) as r:   # noqa: S310  (決まった youtube.com の RSS だけ)
         return r.read(2 * 1024 * 1024)
 
@@ -130,6 +131,9 @@ def _run(cmd, timeout):
                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except (OSError, subprocess.TimeoutExpired) as e:
         return None, "%s" % e.__class__.__name__
+    w = _ytledger.ytdlp_weight(cmd) if _ytledger.is_ytdlp(cmd) else None
+    if w is not None:   # YouTube への問い合わせの帳簿(列の分 = 出どころ queue。列は自分の分を数えない)
+        _ytledger.record("fetch" if w >= _ytledger.W_FETCH else "light", w, ok=r.returncode == 0, err=r.stderr or "", src="queue")
     return r, ((r.stderr or "") + (r.stdout or ""))[-400:].strip()
 
 
