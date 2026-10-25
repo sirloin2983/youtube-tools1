@@ -143,6 +143,32 @@ class SourcesTest(unittest.TestCase):
                                "target": {"docId": DOC, "row": "s1"}}])
         self.assertIn("time:row:%s#s1" % DOC, {c["id"] for c in self.collect(st)})
 
+    def test_time_gets_every_read_answer_but_unclear(self):
+        """読みで答えた行は全部、時刻のカードに(答えた順に先・ショートの文書も)。聞き取れないは回さない・動画の無い文書は数だけ(10-25 ユーザー)"""
+        short, gone = "eeeeeeeeeeee", "ffffffffffff"
+        learn = os.path.join(self.tmp, "学習用データ", "x.mp4")
+        os.makedirs(os.path.dirname(learn))
+        open(learn, "wb").close()
+        write(os.path.join(self.tx, short + ".json"), doc(150, src=learn))
+        write(os.path.join(self.tx, gone + ".json"), doc(160, src=os.path.join(self.tmp, "gone.mp4")))
+
+        def ans(i, tid, row, a):
+            return {"id": answerlog.new_id(), "at": i, "kind": "read", "source": "fill", "card": "read:fill:%s#%s" % (tid, row),
+                    "target": {"docId": tid, "row": row}, "answer": a}
+        st = answerlog.State([ans(1, short, "s1", {"choice": "2"}), ans(2, DOC, "s3", {"choice": "shift"}), ans(3, DOC, "s1", {"choice": "unclear"}),
+                              ans(4, DOC, "s5", {"choice": "other", "text": "x"}), ans(5, gone, "s1", {"choice": "1"})])
+        with mock.patch.object(sources.voicefill, "in_learn_dir", lambda p: bool(p) and "学習用データ" in p):
+            view = sources.View(self.ctx, st)
+            cards = sorted(sources.time_row(view), key=lineup._order_key)
+        rows = [(c["target"]["docId"], c["target"]["row"]) for c in cards]
+        self.assertEqual(rows[:3], [(short, "s1"), (DOC, "s3"), (DOC, "s5")])   # 答えた順・ショートも
+        self.assertNotIn((DOC, "s1"), rows)                                     # 聞き取れない
+        self.assertEqual(view.notes["timeNoMedia"], 1)                          # 動画の無い文書の答え
+
+    def test_read_card_has_around_rows(self):
+        fill = {c["id"]: c for c in self.collect()}["read:fill:%s#s1" % DOC]
+        self.assertEqual(fill["around"], {"prev": "", "next": "校正済み"})
+
     def test_hard_rows_skip_time_and_go_last_in_read(self):
         """BGM 大・重なり・聞き取れない・混ざりの行は時刻のカードに出さない・読みは後ろへ(10-25 確かめるの混ざりと BGM のルール)"""
         rows = [{"id": "p%d" % i, "start": float(i), "end": i + 1.0, "text": "行%d" % i, "proofed": True} for i in range(5)]
