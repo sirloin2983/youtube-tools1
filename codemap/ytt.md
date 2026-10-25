@@ -64,8 +64,8 @@
   - 名前: `load_live` :24・`load_video` :35・`save_series` :82・`read` :96・`load_all` :108・`videos` :116・`video` :121・`studio_videos` :157・`studio_stream` :162
 - **textutil.py** (69 行) — ログ・画面に出す文と数の小物(標準ライブラリだけ)。
   - 名前: `redact` :18・`permission_message` :23・`tail_reason` :31・`fmt_ts` :38・`fmt_ms` :44・`num` :50・`person_key` :64
-- **tools.py** (721 行) — 外部プログラム(ffmpeg・ffprobe・yt-dlp)の場所と、子プロセスを動かすときの小道具。
-  - 名前: `remember` :35・`recent` :49・`ytt_env` :54・`find_tool` :68・`is_dev_build` :107・`pick_ffmpeg` :112・`find_ffmpeg` :162・`media_tool` :167・`ffmpeg_info` :173・`parse_ffmpeg_info` :187・`duration_in` :198・`media_duration` :203・ほか 22
+- **tools.py** (723 行) — 外部プログラム(ffmpeg・ffprobe・yt-dlp)の場所と、子プロセスを動かすときの小道具。
+  - 名前: `remember` :35・`recent` :51・`ytt_env` :56・`find_tool` :70・`is_dev_build` :109・`pick_ffmpeg` :114・`find_ffmpeg` :164・`media_tool` :169・`ffmpeg_info` :175・`parse_ffmpeg_info` :189・`duration_in` :200・`media_duration` :205・ほか 22
 - **trashbin.py** (195 行) — ごみ箱フォルダの 1 か所(形と、移す・戻す・古い日付を消す動作)。どの層からも使う(① の録画の部品・④ の片付けと「要らない」・友人のアプリ)ので ytt に置く。
   - 名前: `day_name` :24・`free_path` :33・`append_manifest` :43・`old_day_dirs` :61・`purge` :79・`to_trash` :100・`record` :151・`put_back` :166
 - **txbase.py** (103 行) — 認識の部品が共有する小さな物: 記録(ロガー)・決まった値(文字・言語・長さの上限)・要確認の印の文と幻覚の決まり文句・ジョブの注意。
@@ -78,12 +78,14 @@
   - 名前: `on_disk` :21
 - **workdata.py** (51 行) — 編集の作業データの置き場所と版の「今の値」。
   - 名前: `set_root` :31・`set_data_dir` :42
-- **ytapi.py** (164 行) — YouTube Data API を 1 回呼ぶ口(OPT-H2 D。③ 配信の検索の rank.yt_get と ① のコメント欄 fetch_comments が別々に持っていた取得を 1 つに)。
-  - 名前: `used` :37・`set_fake` :48・`get` :54・`soft` :102・`parse_dt` :115・`cache_get` :129・`cache_put` :137・`cached` :144・`oembed` :155
+- **ytapi.py** (165 行) — YouTube Data API を 1 回呼ぶ口(OPT-H2 D。③ 配信の検索の rank.yt_get と ① のコメント欄 fetch_comments が別々に持っていた取得を 1 つに)。
+  - 名前: `used` :37・`set_fake` :48・`get` :54・`soft` :103・`parse_dt` :116・`cache_get` :130・`cache_put` :138・`cached` :145・`oembed` :156
 - **ytcookies.py** (252 行) — YouTube のログインの cookie を長持ちさせる(友人の PC。notes:docs/spec/friend.md の 13-13)。
   - 名前: `enabled` :33・`state_path` :38・`read_state` :42・`copy_name` :53・`parse` :58・`merge_rows` :87・`merge_back` :113・`login_at` :204・`facts` :218・`forget` :233・`logout` :238
 - **ytdlpver.py** (66 行) — yt-dlp の版が古いかを確かめる(10-23 取得の冗長化。表は保管庫 plan/人の作業なしの候補-1023.md の 6 番)。
   - 名前: `ver_key` :24・`latest_tag` :34・`cached_latest` :42・`is_old` :63
+- **ytledger.py** (152 行) — YouTube への問い合わせの帳簿(10-25 夜。ユーザー OK「取得の列の間隔を縮め、ほかの YouTube への問い合わせと調整する」)。
+  - 名前: `path` :28・`classify` :34・`record` :44・`ytdlp_weight` :64・`is_ytdlp` :72・`from_run` :77・`rows` :88・`load` :108・`day_counts` :124・`prune` :138
 - **yturl.py** (103 行) — YouTube の URL・動画 ID の形(語彙。標準ライブラリだけ・状態を持たない)。
   - 名前: `parse_video_id` :22・`watch_url` :49・`check_live` :61・`check_media_path` :85・`file_video_id` :93・`ytdlp_out` :98
 
@@ -100,4 +102,5 @@
 - tests/ytt/test_workdata.py — ytt/workdata.py(編集の作業データの置き場所と版の今の値)と ytt/studiodata.py(スタジオの data.json の読み口)のテスト(役割で組み直す RS3-0A)。
 - tests/ytt/test_ytapi.py — ytt/ytapi(YouTube Data API を 1 回呼ぶ口)のテスト。外へは繋がない。  py -3.12 -m unittest tests/ytt/test_ytapi.py -v
 - tests/ytt/test_ytcookies.py — src/ytt/ytcookies.py(yt-dlp が書き戻した cookie を元へ戻す)のテスト。偽の cookie だけ(値は fake-*)。
+- tests/ytt/test_ytledger.py — ytt/ytledger(YouTube への問い合わせの帳簿)。一時フォルダの帳簿だけ(本物の作業データには書かない)
 - tests/ytt/test_ytt_core.py — ytt のテスト。  python -m unittest tests/ytt/test_ytt_core.py -v

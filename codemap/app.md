@@ -48,14 +48,14 @@
   - 名前: `speech_diar` :41
 - **voice_solo.py** (246 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
   - 名前: `stream_counts` :196・`people` :209・`clip_targets` :221・`voice_solo` :230
-- **voicefetch.py** (395 行) — 誰の声の材料の配信の音を YouTube から少しだけ取る(10-25。ユーザー「全メンバー揃えてほしい」「ショートだけでは足りない。配信からの材料も要る」。
-  - 名前: `extra_channels` :57・`members` :64・`slot_free` :76・`parse_rss` :99・`choose` :113・`wants` :226・`tick` :235・`intake` :339
+- **voicefetch.py** (399 行) — 誰の声の材料の配信の音を YouTube から少しだけ取る(10-25。ユーザー「全メンバー揃えてほしい」「ショートだけでは足りない。配信からの材料も要る」。
+  - 名前: `extra_channels` :57・`members` :64・`slot_free` :76・`parse_rss` :99・`choose` :113・`wants` :230・`tick` :239・`intake` :343
 - **voicefill.py** (107 行) — 誰の声の材料を全メンバーぶんそろえる(10-25。ユーザー「誰の声を全部やったが本当に数人しかいなかった。全メンバー揃えてほしい」)。
   - 名前: `learn_dirs` :25・`eval_like` :38・`in_learn_dir` :44・`targets` :49・`pick` :74・`tick` :86
 - **ytnotify.py** (85 行) — YouTube の取得の列(ytqueue)が研究の頼みの結果を done/ に書いたら、研究のセッションを起こす知らせ(10-25 ユーザー OK)。
   - 名前: `to_name` :28・`collect` :48・`message` :60・`tick` :72
-- **ytqueue.py** (977 行) — YouTube の取得の列(10-25。ユーザー「取り方 1 と 2 を統一しよう」「取得する配信を選ぶ段階で効率化できるはず」)。
-  - 名前: `qdir` :73・`requests` :89・`candidates` :125・`score` :131・`fill_candidates` :160・`audio_gap` :202・`light_n` :208・`rollover` :214・`classify` :230・`hit` :242・`fine` :261・`due` :281・ほか 14
+- **ytqueue.py** (1016 行) — YouTube の取得の列(10-25。ユーザー「取り方 1 と 2 を統一しよう」「取得する配信を選ぶ段階で効率化できるはず」)。
+  - 名前: `qdir` :78・`requests` :94・`candidates` :130・`score` :136・`fill_candidates` :165・`audio_gap` :207・`light_n` :213・`rollover` :219・`classify` :255・`hit` :267・`fine` :288・`due` :308・ほか 14
 
 ## src/app/ui/
 
