@@ -120,8 +120,8 @@ def _select(view):
     by_person, skips = {}, {"songDocs": 0, "songRows": 0}
     for tid, path, doc in view.docs(need_media=False):
         latest = view.diar(tid, path)
-        if isinstance(latest, dict) and isinstance(latest.get("rows"), dict) and latest["rows"]:
-            continue   # voice:diar が出す
+        if voice_mod.diar_enabled() and isinstance(latest, dict) and isinstance(latest.get("rows"), dict) and latest["rows"]:
+            continue   # voice:diar が出す(既定オフ = 判別の記録のある文書も voice:solo が出す。10-25 ショートに判別を流す)
         if voicefill.eval_like(doc.get("sourcePath")):
             continue   # 評価用データの写し(学習用データに混ざっていた)は声の材料にしない
         who, song = _solo_of(path, doc)
@@ -155,7 +155,8 @@ def _select(view):
         picks = []   # 文書ごとの行(GOOD_SEC に近い順)。まだ材料に入っていない配信が先
         for tid, doc in sorted(docs, key=lambda x: x[0] in seen):
             skips["songRows"] += sum(1 for g in sources._rows(doc) if song_row(g))
-            rows = sorted(_vm.pick(doc, _playable_fn(tid, doc)), key=lambda g: _later(tid, g))   # 長めの行・BGM の少ない行が先(10-25)
+            playable, main = _playable_fn(tid, doc), _vm.main_speaker(doc)   # 判別で話者が分かれたショート = 行の多い話者(配信者)の行だけ(10-25)
+            rows = sorted(_vm.pick(doc, lambda g: playable(g) and (main is None or g.get("speaker") == main)), key=lambda g: _later(tid, g))   # 長めの行・BGM の少ない行が先
             picks.append((tid, doc, rows[:PER_DOC]))
         n = 0
         for i in range(PER_DOC):   # 文書を順に 1 行ずつ回す(いろいろな配信から)

@@ -39,13 +39,15 @@ def _overlap(turns, a, b):
 
 
 def speech_diar(view):
-    out = []
-    for tid, path, doc in view.docs():
+    out, per = [], {}
+    for tid, path, doc in view.docs(shorts=True):
         latest = view.diar(tid, path)
         if not isinstance(latest, dict) or not isinstance(latest.get("turns"), list) or not latest["turns"]:
             continue   # 判別の記録が無い・声の区間が空(1 人指定 = engine single は判別していない)の文書は出さない(全部の行が候補になってしまう)
         turns = _turns(latest)
         for g in sources._rows(doc):
+            if sources.short_full(per, tid, doc):
+                break
             if g.get("proofed") is True or _yschemas.no_sub_row(g) or not str(g.get("text") or "").strip():
                 continue
             a, b = sources._num(g.get("start")), sources._num(g.get("end"))
@@ -54,6 +56,7 @@ def speech_diar(view):
             ratio = _overlap(turns, a, b) / (b - a)
             if ratio >= VOICE_MIN_RATIO:
                 continue
+            per[tid] = per.get(tid, 0) + 1
             out.append(sources._doc_card(view, "speech", "diar", tid, doc, g, PAD, {
                 "options": ["keep", "drop"], "note": "声の区間と重なるのは %d 割" % int(ratio * 10),
                 "_order": [ratio, -sources._num(doc.get("updatedAt")), a]}))

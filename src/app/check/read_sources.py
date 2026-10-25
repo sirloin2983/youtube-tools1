@@ -54,8 +54,8 @@ def _replaced(text, x):
 
 
 def _cards(view, tier):
-    out = []
-    for tid, path, doc in view.docs():
+    out, per = [], {}
+    for tid, path, doc in view.docs(shorts=True):
         items = _items(view, tid, path, doc, tier)
         if not items:
             continue
@@ -63,6 +63,8 @@ def _cards(view, tier):
         for x in items:
             by_seg.setdefault(x["seg"], []).append(x)
         for g in sources._rows(doc):
+            if sources.short_full(per, tid, doc):
+                break
             if g.get("proofed") is True or g.get("noSub") is True or g["id"] not in by_seg:
                 continue
             text = str(g.get("text") or "")
@@ -71,6 +73,7 @@ def _cards(view, tier):
                 continue
             x = min(cands, key=lambda y: (len(y["wrong"]) + len(y["right"]), y["i"]))
             note = "違い: 「%s」→「%s」" % (x["wrong"], x["right"])
+            per[tid] = per.get(tid, 0) + 1
             out.append(sources._doc_card(view, "read", tier, tid, doc, g, 0.5, {
                 "guess": None, "options": [{"id": "1", "text": text}, {"id": "2", "text": _replaced(text, x)}], "note": note,
                 "score": len(x["wrong"]) + len(x["right"]),

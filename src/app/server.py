@@ -111,7 +111,7 @@ from app import homereq  # noqa: E402  (src/app/homereq.py: ホームの「友�
 from human.friend import intake as intake_mod  # noqa: E402  (src/human/friend/intake.py: 友人からの依頼の受付)
 from manage.keep import backup as backup_mod  # noqa: E402  (src/manage/keep/backup.py: 作業データのバックアップ)
 from eval.drill import accuracy as accuracy_mod  # noqa: E402  (src/eval/drill/accuracy.py: 精度の自動測定 = src/eval/tools/eval_*.py を手が空いた夜に子プロセスで)
-from app.check import deck as check_deck, lineup as check_lineup, refresh as check_refresh, sources as check_sources, voice_solo as check_voice_solo, voicefetch as check_voicefetch, voicefill as check_voicefill, ytqueue as check_ytqueue  # noqa: E402  (src/app/check: 「確かめる」の待ち行列。V1)
+from app.check import deck as check_deck, lineup as check_lineup, refresh as check_refresh, sources as check_sources, voice_solo as check_voice_solo, voicefetch as check_voicefetch, voicefill as check_voicefill, ytqueue as check_ytqueue, shortjobs as check_shortjobs  # noqa: E402  (src/app/check: 「確かめる」の待ち行列。V1)
 from human.proof import voiceclips  # noqa: E402  (誰の声のカードの行の短い音。元の動画が片付いても聞ける・覚えられる。10-24 夜)
 from human.check import answerlog as check_answerlog  # noqa: E402  (答えた札 = 自動の片付けで、価値のカードを待っている切り抜きを残す)
 from human.check import apply as check_apply  # noqa: E402  (src/human/check/apply.py: 「確かめる」の答えの記録と反映。V1)
@@ -1269,8 +1269,12 @@ class PortalServer(httpsec.ExclusiveServer):
         client = lambda: autorun_mod.ToolClient(self.tool_endpoint, self.token, timeout=30)   # noqa: E731
         while not self.closing.wait(check_voicefill.EVERY):
             try:
-                check_voicefill.tick(self.cleanup.app_dir, lambda req: client().ok("transcribe", "POST", "/api/transcribe", req).get("id"),
-                                     self._voice_busy, self.sup.log)
+                asked = check_voicefill.tick(self.cleanup.app_dir, lambda req: client().ok("transcribe", "POST", "/api/transcribe", req).get("id"),
+                                             self._voice_busy, self.sup.log)
+                if asked is None:   # 文字起こしの頼みが無い回 = ショートのカードの下ごしらえ(判別・2 つ目のエンジン。10-25)
+                    view = check_sources.View(self.check_ctx(), check_answerlog.state(self.cleanup.app_dir))
+                    check_shortjobs.tick(view, self.cleanup.app_dir, lambda path, body: client().ok("transcribe", "POST", path, body).get("id"),
+                                         self._voice_busy, self.sup.log)
             except Exception as e:   # noqa: BLE001  (頼めなくても入口は止めない)
                 self.sup.log("誰の声の材料を頼めませんでした: %r" % (e,))
 

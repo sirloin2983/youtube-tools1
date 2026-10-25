@@ -105,7 +105,11 @@ class VoiceSoloTest(unittest.TestCase):
         self.put("b00000000006", doc("%s の雑談" % MIKO), diar={"rows": {"s0": {"speaker": "S1"}}})   # 判別の記録がある = voice:diar が出す
         self.reg = {MIKO: {"sec": 0}}
         got = {c["target"]["docId"] for c in voice_solo.voice_solo(sources.View(self.ctx, State()))}
-        self.assertEqual(got & set(bad) | (got & {"b00000000006"}), set())
+        self.assertEqual(got & set(bad), set())
+        self.assertIn("b00000000006", got)   # 判別からの声のカード(voice:diar)が既定オフ = 判別の記録があっても voice:solo が出す(10-25)
+        with mock.patch.object(voice_mod, "diar_enabled", lambda: True):
+            got = {c["target"]["docId"] for c in voice_solo.voice_solo(sources.View(self.ctx, State()))}
+        self.assertNotIn("b00000000006", got)
 
     def test_learned_and_answered_reduce(self):
         self.reg = {MIKO: {"sec": NEED, "learnedFrom": [{"doc": "a0000000000%d" % i, "rows": []} for i in range(5)]}}

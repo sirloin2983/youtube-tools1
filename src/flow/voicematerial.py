@@ -118,7 +118,19 @@ def solo_person(doc):
             if hit and hit != who:
                 return None   # 名簿のほかの人の名前の話者がいる = コラボ
     used = {g.get("speaker") for g in rows(doc) if g.get("speaker") and g.get("speaker") != _yschemas.OTHER_SPK_ID}
+    if is_short(doc.get("sourcePath")):
+        return who   # ショート = フォルダの名前で配信者が分かっている(判別で話者が分かれても = BGM・効果音・ゲストの声。行は main_speaker の行だけ使う)
     return who if len(used) <= 1 else None
+
+
+def main_speaker(doc):
+    """行のいちばん多い話者の id(判別で話者が分かれたショートの配信者)か None(話者が 1 人以下)"""
+    count = {}
+    for g in rows(doc):
+        s = g.get("speaker")
+        if s and s != _yschemas.OTHER_SPK_ID:
+            count[s] = count.get(s, 0) + 1
+    return max(count, key=count.get) if len(count) >= 2 else None
 
 
 def roster_file():

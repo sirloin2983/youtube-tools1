@@ -143,9 +143,10 @@ class View:
             return True   # 判定が例外のときは評価用として扱う(出さない側。印の無い評価用の動画を、読みのカードの答えとして学習の記録へ入れない。OPT-E1 3e-1)
 
     # ---- 文字起こしの文書(評価用は外す)
-    def docs(self, need_media=True):
+    def docs(self, need_media=True, shorts=False):
         """[(tid, 文書のパス, 文書)] 評価用でない・元の動画がある物。新しい順(updatedAt)。返した文書は書き換えない(キャッシュと共有)。
-        need_media=False = 元の動画が片付いた文書と、学習用データのショートの文書も(誰の声のカードだけが使う。voice_solo・voicefill)"""
+        need_media=False = 元の動画が片付いた文書と、学習用データのショートの文書も(誰の声のカードだけが使う。voice_solo・voicefill)。
+        shorts=True = 普段の文書のあとにショートの文書(動画あり)も(読み・「この行は声ですか」のカード。1 本あたり SHORT_CAP 枚まで = short_full)"""
         if not need_media:
             if getattr(self, "_all_docs", None) is None:
                 self._docs = None   # 両方を 1 回で作る
@@ -159,7 +160,7 @@ class View:
             except Exception as e:
                 self.errors.append("docs: %s" % e.__class__.__name__)
                 paths = {}
-            every = []
+            every, short = [], []
             for name in sorted(paths):
                 m = DOC_NAME_RE.match(name)
                 if not m or not os.path.isfile(paths[name]):
@@ -168,11 +169,16 @@ class View:
                 if d is None or self.is_eval(d):
                     continue
                 every.append((m.group(1), paths[name], d))
-                if has_media(d) and not voicefill.in_learn_dir(d.get("sourcePath")):   # 学習用データのショートは誰の声の材料だけ(voicefill。10-25)
+                if has_media(d) and not voicefill.in_learn_dir(d.get("sourcePath")):   # 学習用データのショートは普段の一覧に入れない(voicefill。10-25)
                     out.append(every[-1])
+                elif has_media(d) and not voicefill.eval_like(d.get("sourcePath")):
+                    short.append(every[-1])
             out.sort(key=lambda x: -_num(x[2].get("updatedAt")))
             every.sort(key=lambda x: -_num(x[2].get("updatedAt")))
-            self._docs, self._all_docs = out, every
+            short.sort(key=lambda x: -_num(x[2].get("updatedAt")))
+            self._docs, self._all_docs, self._short_docs = out, every, short
+        if shorts:
+            return self._docs + self._short_docs
         return self._docs
 
     def eval_docs(self):
@@ -315,15 +321,26 @@ def value_cand(view):
     return out
 
 
+SHORT_CAP = 2   # ショート 1 本から出す枚数の上限(種類ごと。読み・「この行は声ですか」。10-25)
+
+
+def short_full(count, tid, doc):
+    """ショートの文書で、もう SHORT_CAP 枚出したか(count = {文書: 枚数}。数えるのは呼び手)"""
+    return voicefill.in_learn_dir(doc.get("sourcePath")) and count.get(tid, 0) >= SHORT_CAP
+
+
 def read_fill(view):
-    out = []
-    for tid, _path, doc in view.docs():
+    out, per = [], {}
+    for tid, _path, doc in view.docs(shorts=True):
         for g in _rows(doc):
+            if short_full(per, tid, doc):
+                break
             f = g.get("fill")
             if not isinstance(f, dict) or g.get("proofed") is True or not isinstance(f.get("from"), str):
                 continue
             if _fold(f["from"]) == _fold(g.get("text")):
                 continue
+            per[tid] = per.get(tid, 0) + 1
             out.append(_doc_card(view, "read", "fill", tid, doc, g, 0.5, {
                 "guess": "1", "options": [{"id": "1", "text": str(g.get("text") or "")}, {"id": "2", "text": f["from"]}],
                 "note": str(f.get("by") or ""), "_order": [-_num(doc.get("updatedAt")), _num(g.get("start"))]}, tight=True))
