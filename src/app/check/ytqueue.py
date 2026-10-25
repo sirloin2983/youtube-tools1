@@ -22,8 +22,9 @@
   再起動で途中の物は次に取り直す(done/.dl を消す・頼みは done が書けるまで残る)。
 軽い物と音(10-25 ユーザー「軽い問い合わせはまとめて同時に取得すればいい」「当たったらその日は全部止めるは極端すぎる」):
   軽い物(字幕 subs・API が使えない日の動画の情報 info)= 1 時間に 1 回、yt-dlp 1 回で最大 N 本まとめて(--skip-download・--sleep-requests)。
-    処理中・ライブ中でも取る(軽いので)。N = LIGHT_N の段(当たらない日が明けるごとに 1 段増やす)を、当たった回数で半分ずつ。
-  音 = AUDIO_MIN の段の分おきに 1 本(当たらない日が明けるごとに 1 段縮める = 上限の段階の実験)× 1.5 の当たった回数乗。処理中・ライブ中は休む。
+    処理中・ライブ中でも取る(軽いので)。N = LIGHT_N の段(当たらずに UP_AFTER 回続けば 1 段増やす。10-25 まとめ役)。
+  音 = AUDIO_MIN の段の分おきに 1 本(同じく 1 段縮める = 上限の段階の実験)。処理中・ライブ中は休む。
+  当たったら 1 段落とす(いちばん下なら本数を半分・間隔を 1.5 倍)。
   当たりの種類(classify): rate(429・速すぎ)・bot(ボット確認・ログインを求められた)= 当たった側(軽い物か音)だけ RESTS 分休み(続けば伸ばす)、
     本数を半分・間隔を 1.5 倍で続ける。当たらずに 3 回続けば 1 段ずつ戻す。gone(404・動画が無い・メンバー限定)= 数えない・その動画だけ飛ばす・枠も使わない。
     4 時間休んでもまた当たったら記録に「要知らせ」。1 日の終わりに、段の動きを記録に 1 行。
@@ -47,8 +48,9 @@ from . import voicefetch as _vf
 
 ENABLED = True
 DIR_NAME = "yt-queue"
-AUDIO_MIN = [60, 40, 30, 20]         # 音の間隔の段(分)。当たらない日が明けるごとに 1 段縮め、当たった日の翌日は 1 段戻す(上限の段階の実験)
-LIGHT_N = [5, 10, 20]                 # 軽い物を 1 回でまとめる本数の段(同じく)
+AUDIO_MIN = [60, 40, 30, 20]         # 音の間隔の段(分)。当たらずに UP_AFTER 回続けば 1 段縮め、当たったら 1 段戻す(上限の段階の実験)
+LIGHT_N = [5, 10, 20, 30]             # 軽い物を 1 回でまとめる本数の段(同じく)
+UP_AFTER = 3                          # 当たらずにこの回数続けば 1 段上げる(10-25 まとめ役: 日が明けるごとでは遅い)
 LIGHT_EVERY = 3600                    # 軽い物の回の間隔(秒)
 RESTS = [30, 60, 120, 240]            # 当たったときに休む分(1 日の中で続けて当たるほど伸ばす)
 SLEEP_REQ = 3                         # 軽い物のまとめの 1 本ごとの間(秒。--sleep-requests)
@@ -206,21 +208,14 @@ def light_n(st):
 
 
 def rollover(st, now, log=None):
-    """日が変わった最初の回: 前の日に当たらなかった側は段を 1 つ進める(音は縮める・軽い物は増やす)・当たった側は 1 つ戻す。
-    休みの段と当たった回数は日ごとに始めから。前の日の段の動きを記録に 1 行"""
+    """日が変わった最初の回: 休みの段と当たった回数を始めから・前の日の当たりの数と今の段を記録に 1 行(段の上げ下げは回ごと = fine・hit)"""
     today = datetime.date.fromtimestamp(now).isoformat()
     if st.get("day") == today:
         return
-    yday = (datetime.date.fromtimestamp(now) - datetime.timedelta(days=1)).isoformat()
     notes = []
-    for name, top in (("audio", len(AUDIO_MIN) - 1), ("light", len(LIGHT_N) - 1)):
+    for name in ("audio", "light"):
         c = _cls(st, name)
-        if st.get("day"):
-            if c.get("hitDay") == yday:
-                c["step"] = max(0, c["step"] - 1)
-            elif c["step"] < top:
-                c["step"] += 1
-        c.update(level=0, pen=0, ok=0)
+        c.update(level=0, pen=0)   # 休みの段と当たった回数は日ごとに始めから(段 step は回ごとの fine・hit が上げ下げする)
         notes.append("%s 当たり %d 回" % ("音" if name == "audio" else "軽い物", int(c.get("hits") or 0)))
         c["hits"] = 0
     if st.get("day") and log:
@@ -241,11 +236,14 @@ def classify(err):
 
 
 def hit(st, name, kind, now, log):
-    """当たった: その側だけ休む(続けて当たるほど RESTS を伸ばす)・本数を半分 / 間隔を 1.5 倍"""
+    """当たった: その側だけ休む(続けて当たるほど RESTS を伸ばす)・段を 1 つ落とす(いちばん下なら本数を半分 / 間隔を 1.5 倍)"""
     c = _cls(st, name)
     c["level"] = min(c["level"] + 1, len(RESTS))
     c["pause"] = now + RESTS[c["level"] - 1] * 60
-    c["pen"] += 1
+    if c["step"] > 0:
+        c["step"] -= 1
+    else:
+        c["pen"] += 1
     c["ok"] = 0
     c["hits"] = int(c.get("hits") or 0) + 1
     c["hitDay"] = datetime.date.fromtimestamp(now).isoformat()
@@ -256,12 +254,24 @@ def hit(st, name, kind, now, log):
            "(要知らせ: 4 時間休んでもまた当たりました)" if c["level"] == len(RESTS) and c["hits"] > len(RESTS) else ""))
 
 
-def fine(st, name):
-    """当たらずに済んだ: 3 回続けば 1 段ずつ戻す(本数・間隔・休みの段)"""
+def fine(st, name, log=None):
+    """当たらずに済んだ: UP_AFTER 回続けば 1 段 = 半分にした本数・伸ばした間隔を戻す → 休みの段を戻す → 段を上げる(本数を増やす・間隔を縮める)。
+    段を上げたら記録に 1 行(本数・間隔・今日の当たりの数)"""
     c = _cls(st, name)
     c["ok"] += 1
-    if c["ok"] >= 3 and (c["pen"] or c["level"]):
-        c.update(pen=max(0, c["pen"] - 1), level=max(0, c["level"] - 1), ok=0)
+    if c["ok"] < UP_AFTER:
+        return
+    c["ok"] = 0
+    top = (len(AUDIO_MIN) if name == "audio" else len(LIGHT_N)) - 1
+    if c["pen"]:
+        c["pen"] -= 1
+    elif c["level"]:
+        c["level"] -= 1
+    elif c["step"] < top:
+        c["step"] += 1
+        if log:
+            log("YouTube の取得の列: 当たらずに %d 回続いたので段を上げました(%s。今日の当たり %d 回)"
+                % (UP_AFTER, ("音 %d 分おき" % (audio_gap(st) // 60)) if name == "audio" else ("軽い物 %d 本まとめ" % light_n(st)), int(c.get("hits") or 0)))
 
 
 def due(app_dir, now):
@@ -589,7 +599,7 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
             _save(app_dir, st)
             log("YouTube の取得の列: 候補 %s を取れませんでした(%s)" % (c["video"], str(info).splitlines()[-1][:120] if info else ""))
             return None
-        fine(st, "audio")
+        fine(st, "audio", log)
         _write_done(app_dir, rid, {"state": "done", "file": path, "info": info, "video": c["video"], "section": section, "candidate": True})
         sent = voice > 0 and _to_voice(app_dir, path, info, chan_of)
         _save(app_dir, st)
@@ -621,7 +631,7 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
         elif body["state"] == "error" and classify(body.get("error")) == "gone":
             st["last"] = prev_last   # 枠に数えない
         else:
-            fine(st, "audio")
+            fine(st, "audio", log)
         _write_done(app_dir, r["id"], body)
         _save(app_dir, st)
         log("YouTube の取得の列: 研究の頼み %s(%s)を%s" % (r["id"], r["kind"], "済ませました" if body["state"] == "done" else "済ませられませんでした"))
@@ -633,7 +643,7 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
     if _bot(_vf.LAST_ERR["err"]):
         _hit(st, now, _vf.LAST_ERR["err"], log)
     elif got:
-        fine(st, "audio")
+        fine(st, "audio", log)
     _save(app_dir, st)
     return "voice" if got else None
 
@@ -665,7 +675,7 @@ def light_batch(app_dir, now, log):
         hit(st, "light", kind, now, log)
         _save(app_dir, st)
         return None   # 頼みは残す(休みのあとに取り直す)
-    fine(st, "light")
+    fine(st, "light", log)
     _save(app_dir, st)
     for q in picked:
         vids = [v for v in (_video_of(u) for u in q["urls"]) if v]

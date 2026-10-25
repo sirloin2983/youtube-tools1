@@ -176,13 +176,23 @@ class YtQueueTest(unittest.TestCase):
         self.assertTrue(Q.due(self.app, NOON + 3600 * 1.6)[0])
         st = Q._state(self.app)
         for _ in range(3):
-            Q.fine(st, "audio")
-        self.assertEqual((st["audio"]["pen"], st["audio"]["level"]), (0, 0))   # 3 回当たらなければ戻す
-        st["audio"]["hitDay"] = "2026-10-25"
+            Q.fine(st, "audio", self.logs.append)
+        self.assertEqual((st["audio"]["pen"], Q.audio_gap(st)), (0, 60 * 60))   # 3 回当たらなければ間隔を戻す
+        for _ in range(3):
+            Q.fine(st, "audio", self.logs.append)
+        self.assertEqual(st["audio"]["level"], 0)                                 # 次の 3 回で休みの段を戻す
+        for _ in range(3):
+            Q.fine(st, "audio", self.logs.append)
+        self.assertEqual(Q.audio_gap(st), 40 * 60)                                # 次の 3 回で段を上げる(上限の段階の実験)
+        self.assertIn("段を上げました", self.logs[-1])
+        Q.hit(st, "audio", "rate", NOON, self.logs.append)
+        self.assertEqual(Q.audio_gap(st), 60 * 60)                                # 当たったら 1 段落とす
+        c = st["light"] = {"step": 0, "pen": 0, "level": 0, "pause": 0, "ok": 0}
+        for _ in range(3):
+            Q.fine(st, "light", self.logs.append)
+        self.assertEqual(Q.light_n(st), 10)                                       # 軽い物 5 → 10 本
         Q.rollover(st, datetime.datetime(2026, 10, 26, 1, 0).timestamp(), self.logs.append)
-        self.assertEqual(st["audio"]["step"], 0)                                 # 当たった日の翌日 = 縮めない
-        Q.rollover(st, datetime.datetime(2026, 10, 27, 1, 0).timestamp(), self.logs.append)
-        self.assertEqual(Q.audio_gap(st), 40 * 60)                                # 当たらない日が明けた = 1 段縮める(上限の段階の実験)
+        self.assertEqual((c["step"], Q.light_n(st)), (1, 10))                     # 日が変わっても段はそのまま
 
     def test_light_batch(self):
         """軽い物(字幕)は音の回と別に、1 回でまとめて取る(処理中でも)。字幕の頼みは 1 つで 5 本まで・返事は files"""
