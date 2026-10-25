@@ -622,7 +622,7 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
         return light
     st = _state(app_dir)
     chan_of = {c: n for n, c in _vf.members(roster_r, extra)}
-    ranked = [o for o in plan(app_dir, roster_r, counts, extra, st=st) if not (o["kind"] == "request" and o["req"]["kind"] in LIGHT_KINDS + ("info", "chat"))]
+    ranked = [o for o in plan(app_dir, roster_r, counts, extra, st=st, now=now) if not (o["kind"] == "request" and o["req"]["kind"] in LIGHT_KINDS + ("info", "chat"))]
     if not ranked:
         return light
     best = ranked[0]
@@ -695,6 +695,8 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
 
 
 REQ_BASE = {"subs": 1.6, "info": 1.4, "list": 0.9, "audio": 1.0, "chat": 0.6}   # 研究の頼みの点の元(字幕・動画の情報 = あとの音の取得を短くできる軽い物は高く)
+AGE_PER_H, AGE_MAX = 0.05, 1.0        # 研究の頼みの待った時間の点(1 時間に 0.05・上限 1.0)。10-26: 配信全体の音(r-full-*)が区間の長さの引きで一度も順番を取れなかった
+STARVE_SEC, STARVE_BONUS = 24 * 3600, 10.0   # これより長く待った頼みは一番上へ(どの頼みも 24 時間より長く飢えない。古い順)
 
 
 def light_batch(app_dir, now, log):
@@ -836,11 +838,17 @@ def _light_fetch(app_dir, urls):
     return got, (tail if (r is None or r.returncode != 0) else "")
 
 
-def plan(app_dir, roster_r, counts, extra=None, st=None):
+def req_age_bonus(q, now):
+    """研究の頼みの待った時間の点: 少しずつ上がり(上限 AGE_MAX)、STARVE_SEC を超えたら STARVE_BONUS を足す(古いほど上)"""
+    age = max(0.0, now - _vm.num(q.get("_at"))) if now else 0.0
+    return min(AGE_MAX, age / 3600.0 * AGE_PER_H) + (STARVE_BONUS + age / 86400.0 if age >= STARVE_SEC else 0.0)
+
+
+def plan(app_dir, roster_r, counts, extra=None, st=None, now=None):
     """全部の頼みを 1 つの一覧で点を付ける(10-25 ユーザー: 研究と声を交互に回すのをやめ、毎回いちばん点の高い 1 本)。
     -> [{"score", "kind": "candidate"|"request"|"voice", "label", ...}](点の高い順)。
     候補 = 研究 + 声 − 区間の長さ / 研究の頼み = REQ_BASE(種類)+ 声(音の頼みで配信者が材料の少ない人)+ priority × 0.1 − 区間の長さ /
-    声だけ = その人の材料の足りなさ(候補に無いメンバーだけ)"""
+    声だけ = その人の材料の足りなさ(候補に無いメンバーだけ)。研究の頼みには待った時間の点(req_age_bonus。now が無ければ 0)"""
     st = _state(app_dir) if st is None else st
     chan_of = {c: n for n, c in _vf.members(roster_r, extra)}
     vstate = _vf._read(os.path.join(app_dir, "check", _vf.STATE_NAME))
@@ -859,7 +867,7 @@ def plan(app_dir, roster_r, counts, extra=None, st=None):
             voice = (_vf.TARGET - _vf._have(who, counts, vstate)) / float(_vf.TARGET)
         sec = q.get("section")
         span = (sec[1] - sec[0]) if q.get("kind") == "audio" and isinstance(sec, list) and len(sec) == 2 else (3 * 3600 if q.get("kind") == "audio" else 0)
-        sc = REQ_BASE.get(q["kind"], 0.5) + voice + _vm.num(q.get("priority")) * 0.1 - span / 3600.0 * 0.2
+        sc = REQ_BASE.get(q["kind"], 0.5) + voice + _vm.num(q.get("priority")) * 0.1 - span / 3600.0 * 0.2 + req_age_bonus(q, now)
         out.append({"score": round(sc, 3), "kind": "request", "label": "研究の頼み %s(%s)" % (q["id"], q["kind"]), "req": q, "research": 1.0, "voice": voice})
     covered = {chan_of.get(str(o["cand"].get("channel") or "")) for o in out if o["kind"] == "candidate" and o["voice"] > 0}
     for n, _c in _vf._todo(roster_r, counts, vstate, extra):
