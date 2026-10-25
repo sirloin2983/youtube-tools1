@@ -62,6 +62,36 @@ class LandTest(unittest.TestCase):
     def land(self, branch, wt, **kw):
         return land.land(branch, cwd=wt, wait=5, log=self.logs.append, **kw)
 
+    def test_daily_push_once_a_day_without_force(self):
+        """1 日 1 回 main を origin へ送る(--force なし)。同じ日は 2 回目を送らない・はじかれても例外にせず記録に残す(10-26)"""
+        bare = os.path.join(self.tmp.name, "origin.git")
+        g(self.tmp.name, "init", "-q", "--bare", "-b", "main", bare)
+        g(self.main, "remote", "add", "origin", bare)
+        g(self.main, "push", "-q", "origin", "main")
+        g(self.main, "fetch", "-q", "origin")
+        put(self.main, "src/c.py", "c = 1\n")
+        g(self.main, "add", "-A")
+        g(self.main, "commit", "-q", "-m", "c")
+        rec = land.daily_push(self.main, self.logs.append, today="2026-10-26")
+        self.assertEqual((rec["ok"], rec["sent"]), (True, 1))
+        self.assertEqual(g(bare, "rev-parse", "main"), g(self.main, "rev-parse", "main"))
+        self.assertIsNone(land.daily_push(self.main, self.logs.append, today="2026-10-26"))   # 同じ日は送らない
+        other = os.path.join(self.tmp.name, "other")   # ほかから先に送られた = はじかれる(--force は使わない)
+        g(self.tmp.name, "clone", "-q", bare, other)
+        g(other, "config", "user.email", "t@example.com")
+        g(other, "config", "user.name", "t")
+        put(other, "src/d.py", "d = 1\n")
+        g(other, "add", "-A")
+        g(other, "commit", "-q", "-m", "d")
+        g(other, "push", "-q", "origin", "main")
+        put(self.main, "src/e.py", "e = 1\n")
+        g(self.main, "add", "-A")
+        g(self.main, "commit", "-q", "-m", "e")
+        rec = land.daily_push(self.main, self.logs.append, today="2026-10-27")
+        self.assertFalse(rec["ok"])
+        self.assertNotEqual(g(bare, "rev-parse", "main"), g(self.main, "rev-parse", "main"))
+        self.assertTrue(any("送れなかった" in x for x in self.logs))
+
     def test_two_branches_get_different_versions(self):
         a = self.branch("a", {"src/a.py": "a = 2\n"})
         b = self.branch("b", {"src/b.py": "b = 1\n"})

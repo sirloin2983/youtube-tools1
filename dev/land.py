@@ -15,6 +15,10 @@
      = 前の取り込みが途中で落ちて上げ忘れても、次の取り込みか --repair で拾う
   5. コードの地図(codemap/)は 1 日 1 回だけ作り直す: その日に main で作り直したコミット(DAILY_TITLE)がまだ無ければ、python dev/code_map.py を流して
      別のコミットにする(10-25: land ごとの作り直しのコミットが 3 日で 140 本あった。各セッションは codemap/ を作り直さない・lint は警告だけ)
+  6. main を origin(GitHub)へ 1 日 1 回だけ送る(daily_push。10-26 ユーザーの OK): その日にまだ送っていなければ git push origin main。
+     main だけ・--force は使わない・失敗(認証・はじかれた・つながらない)しても land は止めず、記録(git の共通ディレクトリの ytt-push.json と
+     ytt-land.log)に 1 行。送ったコミットの数も残す。聞く画面は出さない(GIT_TERMINAL_PROMPT=0・GCM_INTERACTIVE=never)。キー・トークンは読まない。
+     保管庫の git は送らない。手で今すぐ送るのは --push-now(取り込まない)
   6. 錠を外し、新しい版と「このあとすること」を出す。push はしない(push.bat)
 """
 import argparse
@@ -31,6 +35,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VERSION_REL = "src/ytt/version.py"
 CODEMAP_DIR = "codemap"   # コードの地図(dev/code_map.py)。1 日 1 回 land が作り直す
 DAILY_TITLE = "コードの地図を作り直した(1 日 1 回)"
+PUSH_STATE = "ytt-push.json"   # 1 日 1 回の送りの記録(git の共通ディレクトリ)
+PUSH_TIMEOUT = 300
 README_REL = "README.txt"
 VERSION_RE = re.compile(r'^(VERSION\s*=\s*")(\d+)\.(\d+)\.(\d+)(")', re.M)
 README_RE = re.compile(r"(\bv)(\d+\.\d+\.\d+)(\(仮\))?")
@@ -185,6 +191,54 @@ def daily_codemap(main, log, today=None):
     return True
 
 
+def _push_check(main, log):
+    """origin/main..main で足した・変えたファイルの main の中身を push_helper.check(push.bat と同じ)で見る -> 止めるファイルの数(見られなければ 0)"""
+    code, out = git("diff", "--name-only", "--diff-filter=ACMR", "origin/main..main", cwd=main, check=False)
+    if code:
+        return 0
+    import push_helper
+
+    def read(p):
+        return subprocess.run(["git", "show", "main:" + p], cwd=main, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, creationflags=NOWIN).stdout
+    return push_helper.check([p for p in out.splitlines() if p.strip()], read=read, log=log)
+
+
+def daily_push(main, log, today=None, force_today=False, run=subprocess.run):
+    """その日にまだ送っていなければ、main を origin へ送る(--force なし)。失敗しても例外にしない -> 記録 {date, at, ok, sent, why}"""
+    today = today or time.strftime("%Y-%m-%d")
+    common = os.path.normpath(os.path.join(main, git("rev-parse", "--git-common-dir", cwd=main).strip()))
+    sp = os.path.join(common, PUSH_STATE)
+    try:
+        with open(sp, encoding="utf-8") as f:
+            last = json.load(f)
+    except (OSError, ValueError):
+        last = {}
+    if last.get("date") == today and not force_today:
+        return None
+    code, out = git("rev-list", "--count", "origin/main..main", cwd=main, check=False)
+    ahead = int(out.strip()) if code == 0 and out.strip().isdigit() else None
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GCM_INTERACTIVE="never")
+    bad = _push_check(main, log)   # push.bat と同じ検査(秘密・個人データ・大きすぎる物。理由だけを出し、中身は出さない)
+    try:
+        if bad:
+            raise OSError("送る物に止めるファイルが %d 個(push.bat と同じ検査)。送らなかった" % bad)
+        r = run(["git", "push", "origin", "main"], cwd=main, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=NOWIN, env=env,
+                timeout=PUSH_TIMEOUT)
+        ok, why = r.returncode == 0, (r.stderr or b"").decode("utf-8", "replace").strip().splitlines()[-1:] if r.returncode else []
+    except (OSError, subprocess.SubprocessError) as e:
+        ok, why = False, [str(e)]
+    rec = {"date": today, "at": time.strftime("%Y-%m-%d %H:%M:%S"), "ok": ok, "sent": ahead if ok else 0, "why": (why[0] if why else "")[:300]}
+    try:
+        with open(sp, "w", encoding="utf-8") as f:
+            json.dump(rec, f, ensure_ascii=False)
+        with open(os.path.join(common, "ytt-land.log"), "a", encoding="utf-8") as f:
+            f.write("%s push %s %s\n" % (rec["at"], "ok %s 本" % ahead if ok else "失敗", rec["why"]))
+    except OSError:
+        pass
+    log("GitHub へ送った(%s 本)" % ahead if ok else "GitHub へ送れなかった(land は続ける): %s" % rec["why"])
+    return rec
+
+
 def commit(main, title, body):
     """日本語の文はファイルで渡す(コマンドラインだとコードページで化けることがある)"""
     import tempfile
@@ -266,6 +320,7 @@ def land(branch, mode="auto", message="", dry_run=False, wait=600, cwd=REPO, log
         commit(main, "[Claude] 版を %s に(%s)" % (new, message or ("%s を取り込んだ" % branch if branch else "上げ忘れの直し")),
                "dev/land.py が上げた。理由のファイル: " + (why or "指定"))
         daily_codemap(main, log)
+        daily_push(main, log)
     log("版 %s → %s" % (cur, new))
     log("このあと: 入口を起動し直す(赤い帯)・配る zip は main の作業フォルダで py -3.12 dev/build_friend_zip.py・"
         "計画の版は py -3.12 dev/plan_artifact.py で公開し直す")
@@ -286,11 +341,15 @@ def main(argv):
     ap.add_argument("-m", "--message", default="")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--wait", type=int, default=600, help="ほかの取り込みを待つ秒")
+    ap.add_argument("--push-now", action="store_true", help="取り込まずに、main を今すぐ origin へ送る(1 日 1 回の送りを手で)")
     ap.add_argument("--repair", action="store_true", help="取り込まずに、上げ忘れ(前回の版上げのあとに動く物が変わった)だけを直す")
     import land_gate
     land_gate.add_args(ap)
     a = ap.parse_args(argv)
     gate, landed = None, False
+    if a.push_now:
+        rec = daily_push(main_worktree(), print, force_today=True)
+        return 0 if rec and rec["ok"] else 1
     try:
         branch = None if a.repair else (a.branch or git("rev-parse", "--abbrev-ref", "HEAD").strip())
         if branch and branch not in ("main", "HEAD") and git("rev-list", "main.." + branch).strip():
