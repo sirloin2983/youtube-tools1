@@ -7,11 +7,11 @@
 |---|---|---|---|
 | ytt(基盤) | [ytt.md](ytt.md) | 53 | 11699 |
 | ① pipeline(道具 = データを加工する) | [pipeline.md](pipeline.md) | 82 | 27983 |
-| ② flow(管理 = いつ・どの順で・どこに置くか) | [flow.md](flow.md) | 95 | 30977 |
+| ② flow(管理 = いつ・どの順で・どこに置くか) | [flow.md](flow.md) | 95 | 30989 |
 | ③ human(人の操作) | [human.md](human.md) | 73 | 20057 |
 | ④ manage(データ) | [manage.md](manage.md) | 43 | 11197 |
 | ⑤ eval(検証) | [eval.md](eval.md) | 37 | 15603 |
-| src/app(入口と画面) | [app.md](app.md) | 98 | 35576 |
+| src/app(入口と画面) | [app.md](app.md) | 100 | 35741 |
 | src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 56 | 22156 |
 | その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 19 | 10316 |
 | dev・setup(開発の道具) | [dev.md](dev.md) | 63 | 17039 |
@@ -45,7 +45,7 @@
 - `/api/collab/group/remove` — src/studio/serve.py:426 ← collab.js
 - `/api/collab/groups` — src/studio/serve.py:196 ← collab.js
 - `/api/config` — src/studio/serve.py:431 ← new.js・settings.js・app.js
-- `/api/diarize` — src/editor/serve.py:228 ← app-jobs.js・tools.py
+- `/api/diarize` — src/editor/serve.py:228 ← shortjobs.py・app-jobs.js・tools.py
 - `/api/doc-diarnum` — src/editor/serve.py:249 ← app-jobs.js
 - `/api/doc-for` — src/editor/serve.py:206・src/editor/serve.py:147 ← cases.js
 - `/api/drill/candidates` — src/editor/serve.py:198 ← app-jobs.js
@@ -144,7 +144,7 @@
 - `/api/rank/search/cancel` — src/studio/serve.py:411 ← rank.js
 - `/api/relink` — src/editor/serve.py:238 ← app.js・tools.py
 - `/api/relink/check` — src/editor/serve.py:237 ← app-tools.js
-- `/api/rerun` — src/editor/serve.py:232 ← server.py・app-jobs.js・app.js
+- `/api/rerun` — src/editor/serve.py:232 ← shortjobs.py・server.py・app-jobs.js・app.js
 - `/api/restore` — src/editor/serve.py:234 ← app.js
 - `/api/retime` — src/editor/serve.py:245 ← app-rows.js
 - `/api/roster` — src/editor/serve.py:189 ← app-learn.js
