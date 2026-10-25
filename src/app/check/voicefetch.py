@@ -138,6 +138,12 @@ LOGIN = {"trouble": None, "at": 0, "used": None}
 LAST_ERR = {"err": ""}   # 最後に当たった失敗の文(列 ytqueue が段の守りに使う)   # 最後にログインで断られた時刻と文(列が記録に出す。cookie の中身は持たない)
 
 
+def _blocked(app_dir):
+    """評価用のショートの元の配信(列 ytqueue の eval-sources.json。声の材料にしない = 評価を汚さない。10-25)"""
+    d = fsio.read_json_or(os.path.join(app_dir, "check", "yt-queue", "eval-sources.json"), {}, kind=dict)
+    return {v for v in d.get("videos") or () if isinstance(v, str)}
+
+
 def _ytdlp(cmd, timeout):
     """yt-dlp を、ツールに入っている YouTube のログイン(ytt/tools.ytdlp_auth_args = 普段の取得と同じ口。写しのパスだけ渡す・中身は読まない)で呼ぶ。
     ログインが無ければ cookie なし。ログインで断られたら(切れた・止められた)cookie なしで 1 回取り直し、LOGIN に印を残す(10-25 ユーザー「ログインして」)"""
@@ -260,7 +266,7 @@ def tick(app_dir, roster_r, counts, busy, start_job, log, now=None, rss=None, fe
             log("誰の声の材料(YouTube): bot 判定・ログインを求められました(%s)" % ("今日は止めます" if use_slot else "列が休みを決めます"))
             return None
         items = items[LIST_SKIP:]
-    it = choose(items, set(rec["tried"]), {x.get("month") for x in rec["got"] if x.get("month")})
+    it = choose(items, set(rec["tried"]) | _blocked(app_dir), {x.get("month") for x in rec["got"] if x.get("month")})   # 評価用のショートの元の配信は取らない
     if it is None:
         rec["tried"].append("none")
         fsio.write_json(st_path, state, indent=None)
@@ -339,6 +345,7 @@ def intake(app_dir, roster_r, start_job, log, extra=None, now=None):
     except OSError:
         return 0
     chan_of = {c: n for n, c in members(roster_r, extra)}   # 日本の対象のチャンネル -> 名前
+    blocked = _blocked(app_dir)
     st_path = os.path.join(app_dir, "check", STATE_NAME)
     state = _read(st_path)
     took = 0
@@ -352,7 +359,8 @@ def intake(app_dir, roster_r, start_job, log, extra=None, now=None):
             continue
         title = str(meta.get("title") or "")[:200]
         who = chan_of.get(str(meta.get("channel") or "")) or (_vm.member(meta.get("streamer")) if _vm.member(meta.get("streamer")) in chan_of.values() else None)
-        why = ("動画の id の形" if not VIDEO_RE.match(vid) else "音が無い" if not audio else "日本の対象のメンバーでない" if not who
+        why = ("動画の id の形" if not VIDEO_RE.match(vid) else "音が無い" if not audio else "評価用のショートの元の配信" if vid in blocked
+               else "日本の対象のメンバーでない" if not who
                else "評価用" if "評価用" in title else "歌" if _vm.song_title(title) else "ショート" if SHORT_RE.search(title)
                else "ソロでない" if _vm.solo_person(_pseudo(who, title)) != who else "")
         rec = state.setdefault(who, {"tried": []}) if who else None

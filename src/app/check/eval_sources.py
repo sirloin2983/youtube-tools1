@@ -15,7 +15,7 @@ from ytt import schemas as _yschemas
 from human.check import _doc as _check_doc, section as _section
 from human.proof import store as _store
 from eval.drill import drill as _drill
-from . import lineup, sources, speech_sources   # 同じ app/check の兄弟
+from . import evalredo, lineup, sources, speech_sources   # 同じ app/check の兄弟
 
 SPAN_MIN, SPAN_MAX = 20.0, 40.0   # 区間の長さ(秒。決定 3-47)
 MIN_TAIL = 10.0                   # 残りがこれより短ければ最後の区間に含める
@@ -65,7 +65,10 @@ def section_eval(view):
     out = []
     heads = _heads(view)
     names = None
+    waiting = evalredo.waiting(getattr(view.ctx, "app_dir", None))
     for tid, path, doc in view.eval_docs():
+        if tid in waiting and not evalredo.redone(doc):
+            continue   # 評価用に移して、評価用の決まりでの作り直しを待っている文書(答えると作り直せなくなる。10-25)
         if _yschemas.is_eval_reviewed(doc):
             continue
         rows = sorted((g for g in sources._rows(doc) if str(g.get("text") or "").strip()), key=lambda g: (sources._num(g.get("start")), sources._num(g.get("end"))))

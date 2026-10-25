@@ -13,6 +13,17 @@ from ytt import fsio, settings as _settings
 NAME = "eval-redo.json"
 
 
+def waiting(app_dir):
+    """作り直しを頼む・頼んだ文書の id の集合(作り直しが済むまで区間(評価)のカードに出さない = eval_sources)"""
+    st = fsio.read_json_or(os.path.join(app_dir, "check", NAME), {}, kind=dict) if app_dir else {}
+    return {t for t in st.get("tids") or () if isinstance(t, str)} | set(st.get("done") or {})
+
+
+def redone(doc):
+    """評価用の決まりで作り直し済みか(認識の記録に kind evalRedo がある)"""
+    return any(isinstance(r, dict) and r.get("kind") == "evalRedo" for r in ((doc or {}).get("recognition") or {}).get("runs") or ())
+
+
 def tick(app_dir, read_doc, call, busy, log, now=None):
     """1 回分 -> 頼んだ文書の id か None。read_doc(tid) -> 文書か None・call(path, body) -> 応答(失敗は例外)"""
     p = os.path.join(app_dir, "check", NAME)

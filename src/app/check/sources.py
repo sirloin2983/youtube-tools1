@@ -143,6 +143,13 @@ class View:
             return True   # 判定が例外のときは評価用として扱う(出さない側。印の無い評価用の動画を、読みのカードの答えとして学習の記録へ入れない。OPT-E1 3e-1)
 
     # ---- 文字起こしの文書(評価用は外す)
+    def _hidden(self):
+        """カードを出さない文書(<app>/check/hidden-docs.json の tids。消さない。10-25: 評価用のショートの元の配信から作った文書など)"""
+        if getattr(self, "_hidden_set", None) is None:
+            got = fsio.read_json_or(os.path.join(getattr(self.ctx, "app_dir", "") or "", "check", "hidden-docs.json"), {}, kind=dict)
+            self._hidden_set = {t for t in got.get("tids") or () if isinstance(t, str)}
+        return self._hidden_set
+
     def docs(self, need_media=True, shorts=False):
         """[(tid, 文書のパス, 文書)] 評価用でない・元の動画がある物。新しい順(updatedAt)。返した文書は書き換えない(キャッシュと共有)。
         need_media=False = 元の動画が片付いた文書と、学習用データのショートの文書も(誰の声のカードだけが使う。voice_solo・voicefill)。
@@ -166,7 +173,7 @@ class View:
                 if not m or not os.path.isfile(paths[name]):
                     continue
                 d = _docs.get(paths[name], _load_doc)
-                if d is None or self.is_eval(d):
+                if d is None or self.is_eval(d) or m.group(1) in self._hidden():
                     continue
                 every.append((m.group(1), paths[name], d))
                 if has_media(d) and not voicefill.in_learn_dir(d.get("sourcePath")):   # 学習用データのショートは普段の一覧に入れない(voicefill。10-25)

@@ -205,11 +205,20 @@ class RelearnTest(Base):
             self.jobs.append((kind, spec))
             return {"id": "job%d" % len(self.jobs)}
         for p in (mock.patch.dict(_heavy.JOB_RUNNERS, {"voice-learn": lambda job: None}), mock.patch.object(_diar, "models_ready", return_value=True),
-                  mock.patch.object(voice._tools, "check_source", return_value="x.mp4"), mock.patch.object(_heavy, "add_job", side_effect=add_job)):
+                  mock.patch.object(voice._tools, "check_source", return_value="x.mp4"), mock.patch.object(_heavy, "add_job", side_effect=add_job),
+                  mock.patch.object(voice, "RELEARN_PAUSED", False)):   # 覚え直しの決まりを確かめる(本物は 10-25 から一時止め)
             p.start()
             self.addCleanup(p.stop)
         with _diar.voices_edit(EMB) as v:   # 声がもうある人 = 30 秒ごとに覚え直す(まだ声が無い人の初回は test_first_voice_at_10_sec)
             v["ぺこら"] = _diar.merge_voice(None, [1.0, 0.0], 1, 5.0)
+
+    def test_paused_switch(self):
+        """覚え直しの一時止め(RELEARN_PAUSED)の間は足さない・答えは貯まる(10-25)"""
+        with mock.patch.object(voice, "RELEARN_PAUSED", True):
+            self.answer("s1", {"choice": "S1"})
+            self.answer("s4", {"choice": "S1"})
+        self.assertEqual(self.jobs, [])
+        self.assertEqual(sum(voice._pending(self.ctx)[(EMB, "ぺこら")][TID].values()), 32.0)
 
     def test_first_voice_at_10_sec(self):
         """まだ声が無い人は FIRST_SEC(10 秒)で仮の声として覚える(10-25)"""

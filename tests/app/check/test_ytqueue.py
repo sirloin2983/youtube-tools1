@@ -222,6 +222,25 @@ class YtQueueTest(unittest.TestCase):
         self.assertEqual((d["SHORTVID001"]["src"], d["SHORTVID001"]["t"], d["SHORTVID002"]["src"]), ("SRCVIDEO001", 1200, None))
         self.assertTrue(Q.due(self.app, NOON)[0])                                # 枠は使っていない
 
+    def test_eval_sources_blocked(self):
+        """評価用のショートの元の配信を外す(10-25): 評価用の .mov を分析の記録のショートと突き合わせ、説明欄の元の配信を候補から外す"""
+        ev = os.path.join(self.app, "評価用データ", "1_JP")
+        os.makedirs(ev)
+        open(os.path.join(ev, "26-03-01_ときのそら.mov"), "wb").close()
+        raw = os.path.join(self.app, "raw")
+        os.makedirs(raw)
+        with open(os.path.join(raw, "2026-10-25__x.json"), "w", encoding="utf-8") as f:
+            json.dump({"videos": [{"id": "SHORTEVAL01", "title": "そら ときのそら #shorts", "published": "2026-03-01T10:00:00Z", "length": "30", "short": "True"}]}, f)
+        os.makedirs(Q.qdir(self.app), exist_ok=True)
+        with open(Q.qdir(self.app, Q.SRC_NAME), "w", encoding="utf-8") as f:
+            json.dump({"SHORTEVAL01": {"src": "EVALSOURCE1", "t": 100}}, f)
+        self.assertEqual(Q.eval_sources(self.app, [os.path.join(self.app, "評価用データ")], raw, NOON, self.logs.append, dur=lambda p: 30.4), 1)
+        self.assertEqual(Q.blocked_videos(self.app), {"EVALSOURCE1"})
+        self.put_cands([{"video": "EVALSOURCE1", "t": 100, "channel": SORA, "title": "【雑談】そら", "research": 1.0}])
+        with mock.patch.object(Q._settings, "eval_dirs", lambda: []):
+            self.assertIsNone(self.tick(NOON, {"ときのそら": 2, "ロボ子さん": 2}))   # 候補から外れる
+        self.assertIn("EVALSOURCE1", VF._blocked(self.app))                      # 声の材料の取得・研究の音の受け取りも外す
+
     def test_tidy_removes_partial(self):
         os.makedirs(Q.qdir(self.app, "done"))
         open(Q.qdir(self.app, "done", "x.m4a.part"), "wb").close()

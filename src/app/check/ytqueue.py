@@ -41,7 +41,7 @@ import shutil
 import time
 
 from flow import voicematerial as _vm
-from ytt import fsio, ytapi as _ytapi
+from ytt import fsio, settings as _settings, ytapi as _ytapi
 from ytt.errors import ApiError
 from . import voicefetch as _vf
 
@@ -61,6 +61,7 @@ STAGE = ".dl"        # 取っている途中の音の置き場(done/.dl/。済�
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}\Z")
 URL_RE = re.compile(r"^https://(www\.|m\.)?(youtube\.com|youtu\.be)/[\w\-./?=&%:@+]{1,300}\Z")
 KINDS = ("info", "audio", "list", "subs", "chat")
+_blocked_now = set()   # 評価用のショートの元の配信(tick が eval-sources.json から入れる。score が外す)
 
 
 def qdir(app_dir, *sub):
@@ -123,8 +124,8 @@ def candidates(app_dir):
 
 def score(c, chan_of, counts, vstate, done_videos):
     """候補の点 -> (研究, 声, 安さの引き)。声 = 日本の対象のメンバーのソロと見える題名で、配信の材料が足りない・取った月と違う"""
-    if c["video"] in done_videos:
-        return 0.0, 0.0, 0.0
+    if c["video"] in done_videos or c["video"] in _blocked_now:
+        return 0.0, 0.0, 0.0   # 取った物・評価用のショートの元の配信(10-25)
     res = max(0.0, min(1.0, _vm.num(c.get("research"))))
     who = chan_of.get(str(c.get("channel") or "")) or (_vm.member(c.get("streamer")) if _vm.member(c.get("streamer")) in chan_of.values() else None)
     voice = 0.0
@@ -548,6 +549,12 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
     _api_infos(app_dir, log, now)        # API の読み込みは軽いので処理中でも読む(枠も使わない)
     fill_candidates(app_dir, now, log)
     read_short_sources(app_dir, os.path.join(os.path.dirname(app_dir), "analytics", "raw"), now, log)   # 友人のショートの元の配信(API)
+    try:   # 評価用のショートの元の配信 = 外す(10-25)
+        eval_sources(app_dir, _settings.eval_dirs(), os.path.join(os.path.dirname(app_dir), "analytics", "raw"), now, log)
+    except (OSError, TypeError, ValueError):   # 評価用のフォルダが決まっていない(作業データの置き場所が無い)・読めない = 前の一覧のまま
+        pass
+    _blocked_now.clear()
+    _blocked_now.update(blocked_videos(app_dir))
     st = _state(app_dir)
     rollover(st, now, log)
     _save(app_dir, st)
@@ -811,3 +818,73 @@ def read_short_sources(app_dir, raw_dir, now, log):
         log("YouTube の取得の列: 友人のショートの説明欄を %d 本読みました(元の配信あり %d 本・?t= あり %d 本。API・枠は使わない)"
             % (n, sum(1 for x in have.values() if x.get("src")), sum(1 for x in have.values() if x.get("t") is not None)))
     return n
+
+
+# ---------------------------------------------------------------- 評価用のショートの元の配信(10-25 ユーザーの方針「間違った正解で学習しないように」)
+EVAL_SRC_NAME = "eval-sources.json"   # {"videos": [元の配信の id], "movs": {評価用の .mov: {"dur", "short", "src"}}, "at"}
+EVAL_SRC_EVERY = 6 * 3600
+MOV_EXTS = (".mov", ".mp4", ".mkv")
+
+
+def blocked_videos(app_dir):
+    """評価用のショートの元の配信(声の材料の取得・研究の音の受け取り・列の候補から外す)"""
+    d = fsio.read_json_or(qdir(app_dir, EVAL_SRC_NAME), {}, kind=dict)
+    return {v for v in d.get("videos") or () if isinstance(v, str)}
+
+
+def _shorts_meta(raw_dir):
+    """分析の記録の最新の videos のショート [{"id", "title", "day", "length"}]"""
+    try:
+        names = sorted(n for n in os.listdir(raw_dir) if n.endswith(".json"))
+    except OSError:
+        return []
+    d = fsio.read_json_or(os.path.join(raw_dir, names[-1]), {}, kind=dict) if names else {}
+    out = []
+    for v in d.get("videos") or ():
+        if not isinstance(v, dict) or str(v.get("short")).lower() != "true":
+            continue
+        try:
+            day = (datetime.datetime.fromisoformat(str(v.get("published")).replace("Z", "+00:00")) + datetime.timedelta(hours=9)).date()
+            out.append({"id": str(v["id"]), "title": str(v.get("title") or ""), "day": day, "length": float(v.get("length"))})
+        except (KeyError, TypeError, ValueError):
+            continue
+    return out
+
+
+def eval_sources(app_dir, eval_dirs, raw_dir, now, log, dur=None):
+    """評価用のフォルダのショート(YY-MM-DD_<名前>)を、分析の記録のショートと突き合わせ(名前が題名に・日付が 0〜2 日・長さが ±1.5 秒 = 研究の rev_map と同じ)、
+    説明欄の元の配信(short-sources.json)を eval-sources.json に。EVAL_SRC_EVERY に 1 回。-> 元の配信の数"""
+    path = qdir(app_dir, EVAL_SRC_NAME)
+    cur = fsio.read_json_or(path, {}, kind=dict)
+    if now - _vm.num(cur.get("at")) < EVAL_SRC_EVERY:
+        return len(cur.get("videos") or ())
+    dur = dur or _vf._tools.media_duration
+    src_of = fsio.read_json_or(qdir(app_dir, SRC_NAME), {}, kind=dict)
+    shorts = _shorts_meta(raw_dir)
+    old = cur.get("movs") if isinstance(cur.get("movs"), dict) else {}
+    movs, videos = {}, set()
+    for root in eval_dirs:
+        for d, _sub, files in os.walk(root):
+            for f in files:
+                m = re.match(r"^(\d\d)-(\d\d)-(\d\d)_(.+?)\d*(?:\(ショート\))?\.(?:mov|mp4|mkv)$", f, re.I)
+                if not m:
+                    continue
+                p = os.path.join(d, f)
+                rec = dict(old.get(p) or {})
+                if rec.get("dur") is None:
+                    rec["dur"] = dur(p)
+                day = datetime.date(2000 + int(m.group(1)), int(m.group(2)), int(m.group(3)))
+                who = m.group(4)
+                c = [s for s in shorts if who in s["title"] and 0 <= (s["day"] - day).days <= 2 and rec["dur"] and abs(s["length"] - rec["dur"]) <= 1.5]
+                rec["short"] = c[0]["id"] if len(c) == 1 else None
+                rec["src"] = (src_of.get(rec["short"]) or {}).get("src") if rec["short"] else None
+                if rec["src"]:
+                    videos.add(rec["src"])
+                movs[p] = rec
+    out = {"videos": sorted(videos), "movs": movs, "at": int(now)}
+    os.makedirs(qdir(app_dir), exist_ok=True)
+    fsio.write_json(path + ".tmp", out, indent=None)
+    os.replace(path + ".tmp", path)
+    log("YouTube の取得の列: 評価用のショート %d 本のうち %d 本の元の配信が分かりました(元の配信 %d 本を、声の材料・研究の音の受け取り・候補から外します)"
+        % (len(movs), sum(1 for r in movs.values() if r.get("src")), len(videos)))
+    return len(videos)

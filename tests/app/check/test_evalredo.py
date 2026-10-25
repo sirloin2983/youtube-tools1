@@ -28,5 +28,14 @@ class EvalRedoTest(unittest.TestCase):
             self.assertEqual(json.load(f)["tids"], ["a1"])
 
 
+    def test_waiting_and_redone(self):
+        """作り直しを待つ文書(区間カードに出さない)と、作り直し済みの見分け"""
+        app = kit.tempdir(self, "ytt-evalredo2-")
+        kit.write(os.path.join(app, "check", ER.NAME), {"tids": ["a1"], "done": {"a2": {}}})
+        self.assertEqual(ER.waiting(app), {"a1", "a2"})
+        self.assertFalse(ER.redone({"recognition": {"runs": [{"kind": "whole"}]}}))
+        self.assertTrue(ER.redone({"recognition": {"runs": [{"kind": "whole"}, {"kind": "evalRedo"}]}}))
+
+
 if __name__ == "__main__":
     unittest.main()
