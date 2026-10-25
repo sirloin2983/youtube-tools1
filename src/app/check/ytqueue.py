@@ -696,6 +696,7 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
 
 REQ_BASE = {"subs": 1.6, "info": 1.4, "list": 0.9, "audio": 1.0, "chat": 0.6}   # 研究の頼みの点の元(字幕・動画の情報 = あとの音の取得を短くできる軽い物は高く)
 AGE_PER_H, AGE_MAX = 0.05, 1.0        # 研究の頼みの待った時間の点(1 時間に 0.05・上限 1.0)。10-26: 配信全体の音(r-full-*)が区間の長さの引きで一度も順番を取れなかった
+FULL_PREFIX = "r-full-"               # 研究の配信全体の音。1 本でも待っていれば頼んだ順に続けて取り、ほかの音は尽きるまで取らない(10-26 ユーザー「途中で順位に割り込まないで」)
 STARVE_SEC, STARVE_BONUS = 24 * 3600, 10.0   # これより長く待った頼みは一番上へ(どの頼みも 24 時間より長く飢えない。古い順)
 
 
@@ -848,7 +849,8 @@ def plan(app_dir, roster_r, counts, extra=None, st=None, now=None):
     """全部の頼みを 1 つの一覧で点を付ける(10-25 ユーザー: 研究と声を交互に回すのをやめ、毎回いちばん点の高い 1 本)。
     -> [{"score", "kind": "candidate"|"request"|"voice", "label", ...}](点の高い順)。
     候補 = 研究 + 声 − 区間の長さ / 研究の頼み = REQ_BASE(種類)+ 声(音の頼みで配信者が材料の少ない人)+ priority × 0.1 − 区間の長さ /
-    声だけ = その人の材料の足りなさ(候補に無いメンバーだけ)。研究の頼みには待った時間の点(req_age_bonus。now が無ければ 0)"""
+    声だけ = その人の材料の足りなさ(候補に無いメンバーだけ)。研究の頼みには待った時間の点(req_age_bonus。now が無ければ 0)。
+    配信全体の音(FULL_PREFIX)は点に依らず先頭(頼んだ順)"""
     st = _state(app_dir) if st is None else st
     chan_of = {c: n for n, c in _vf.members(roster_r, extra)}
     vstate = _vf._read(os.path.join(app_dir, "check", _vf.STATE_NAME))
@@ -874,7 +876,15 @@ def plan(app_dir, roster_r, counts, extra=None, st=None, now=None):
         if n not in covered:
             need = (_vf.TARGET - _vf._have(n, counts, vstate)) / float(_vf.TARGET)
             out.append({"score": round(need - 0.02, 3), "kind": "voice", "label": "声だけ %s" % n, "who": n, "research": 0.0, "voice": need})
-    return sorted(out, key=lambda o: -o["score"])
+    return sorted(out, key=_order)
+
+
+def _order(o):
+    """並べ方: 配信全体の音(頼んだ順)→ ほかは点の高い順"""
+    q = o.get("req") if o["kind"] == "request" else None
+    if q and q["kind"] == "audio" and str(q["id"]).startswith(FULL_PREFIX):
+        return (0, _vm.num(q.get("_at")), q["id"])
+    return (1, -o["score"], "")
 
 
 def _list_url(url, items):

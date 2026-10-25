@@ -256,20 +256,33 @@ class YtQueueTest(unittest.TestCase):
 
     def test_request_aging_never_starves(self):
         """待った時間で研究の頼みの点が上がり、24 時間を超えた頼みは一番上(10-26: 配信全体の音 r-full-* が一度も順番を取れなかった)"""
-        self.put_req("r-full-x", {"purpose": "research", "kind": "audio", "url": "https://www.youtube.com/watch?v=FULLVIDEO01"})   # 区間なし = 長い音で引かれる
-        os.utime(Q.qdir(self.app, "req", "r-full-x.json"), (NOON, NOON))
+        self.put_req("r-long-x", {"purpose": "research", "kind": "audio", "url": "https://www.youtube.com/watch?v=FULLVIDEO01"})   # 区間なし = 長い音で引かれる
+        os.utime(Q.qdir(self.app, "req", "r-long-x.json"), (NOON, NOON))
         self.put_req("r-up-y", {"purpose": "research", "kind": "audio", "url": "https://www.youtube.com/watch?v=SHORTVIDE01", "section": [0, 600]})
         os.utime(Q.qdir(self.app, "req", "r-up-y.json"), (NOON + 3600, NOON + 3600))
 
         def top(now):
             return [o["label"] for o in Q.plan(self.app, R, {}, now=now) if o["kind"] == "request"][0]
         self.assertIn("r-up-y", top(NOON + 3600))                                 # 始めは短い音が上
-        sc = lambda now: [o["score"] for o in Q.plan(self.app, R, {}, now=now) if "r-full-x" in o["label"]][0]   # noqa: E731
+        sc = lambda now: [o["score"] for o in Q.plan(self.app, R, {}, now=now) if "r-long-x" in o["label"]][0]   # noqa: E731
         self.assertLess(sc(NOON), sc(NOON + 6 * 3600))                            # 待つほど少しずつ上がる
         self.assertEqual(sc(NOON + 23 * 3600) - sc(NOON + 20 * 3600), 0)          # 上限で止まる(1.0 = 20 時間)
-        self.assertIn("r-full-x", top(NOON + Q.STARVE_SEC + 60))                  # 24 時間を超えたら一番上
+        self.assertIn("r-long-x", top(NOON + Q.STARVE_SEC + 60))                  # 24 時間を超えたら一番上
         best = Q.plan(self.app, R, {"ときのそら": 0, "ロボ子さん": 0}, now=NOON + Q.STARVE_SEC + 60)[0]
-        self.assertIn("r-full-x", best["label"])                                  # 候補・声だけよりも上
+        self.assertIn("r-long-x", best["label"])                                  # 候補・声だけよりも上
+
+    def test_full_audio_first_in_order(self):
+        """配信全体の音(r-full-*)が待っていれば頼んだ順に先に全部・待った時間の点でも割り込まない(10-26 ユーザー)"""
+        for i, rid in enumerate(("r-full-b", "r-full-a", "r-up-old")):
+            self.put_req(rid, {"purpose": "research", "kind": "audio", "url": "https://www.youtube.com/watch?v=FULLVIDEO0%d" % i,
+                               "section": [0, 600] if rid == "r-up-old" else None})
+            t = {"r-full-b": NOON, "r-full-a": NOON + 60, "r-up-old": NOON - 3 * 86400}[rid]
+            os.utime(Q.qdir(self.app, "req", rid + ".json"), (t, t))
+        labels = [o["label"] for o in Q.plan(self.app, R, {"ときのそら": 0, "ロボ子さん": 0}, now=NOON + 3600)]
+        self.assertTrue(labels[0].startswith("研究の頼み r-full-b") and labels[1].startswith("研究の頼み r-full-a"), labels)   # 頼んだ順・3 日待った短い音より先
+        os.remove(Q.qdir(self.app, "req", "r-full-b.json"))
+        os.remove(Q.qdir(self.app, "req", "r-full-a.json"))
+        self.assertIn("r-up-old", Q.plan(self.app, R, {}, now=NOON + 3600)[0]["label"])   # 尽きたらふだんの点
 
     def test_skip_download_writes_under_keep(self):
         """字幕・チャットだけの取得も既定の -o を keep/<動画>/ に置く(無いと途中の .part が作業フォルダ = src に残った。10-26)"""
