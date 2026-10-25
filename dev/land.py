@@ -9,11 +9,13 @@
      落ちたら止める。抜けるのは --skip-tests・--skip-checks・--skip-worklog の明示だけ(git の共通ディレクトリの ytt-land.log に残る)
   1. 錠(git の共通ディレクトリの ytt-land.lock)を取る = 同時に流しても 1 つずつ
   2. main の作業フォルダの追跡中のファイルに未コミットの変更があれば止める(ほかの人の作業途中)
-  3. git merge <ブランチ>(ff できれば ff)。ぶつかったら merge --abort して止める(版の 2 か所だけのぶつかりは main の側を取る)
+  3. git merge <ブランチ>(ff できれば ff)。ぶつかったら merge --abort して止める(版の 2 か所と codemap/ だけのぶつかりは main の側を取る)
   4. 前回の版上げ(最後に version.py を変えたコミット)から今の main までに、動く物(src/・friend-apps/・setup/・README.txt・
      配る zip の道具。テストは除く)が変わっていれば、merge の前の main の版の 3 つ目を 1 上げ(--minor は 2 つ目)、別のコミットにする
      = 前の取り込みが途中で落ちて上げ忘れても、次の取り込みか --repair で拾う
-  5. 錠を外し、新しい版と「このあとすること」を出す。push はしない(push.bat)
+  5. コードの地図(codemap/)は 1 日 1 回だけ作り直す: その日に main で作り直したコミット(DAILY_TITLE)がまだ無ければ、python dev/code_map.py を流して
+     別のコミットにする(10-25: land ごとの作り直しのコミットが 3 日で 140 本あった。各セッションは codemap/ を作り直さない・lint は警告だけ)
+  6. 錠を外し、新しい版と「このあとすること」を出す。push はしない(push.bat)
 """
 import argparse
 import json
@@ -27,6 +29,8 @@ from _common import read_utf8 as read_file, write_utf8 as write_file
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VERSION_REL = "src/ytt/version.py"
+CODEMAP_DIR = "codemap"   # コードの地図(dev/code_map.py)。1 日 1 回 land が作り直す
+DAILY_TITLE = "コードの地図を作り直した(1 日 1 回)"
 README_REL = "README.txt"
 VERSION_RE = re.compile(r'^(VERSION\s*=\s*")(\d+)\.(\d+)\.(\d+)(")', re.M)
 README_RE = re.compile(r"(\bv)(\d+\.\d+\.\d+)(\(仮\))?")
@@ -165,6 +169,22 @@ def pending_paths(main):
     return [p for p in git("diff", "--name-only", last + "..HEAD", cwd=main).splitlines() if p and needs_bump([p])]
 
 
+def daily_codemap(main, log, today=None):
+    """その日に main で地図を作り直したコミット(DAILY_TITLE)がまだ無ければ、地図を作り直して別のコミットにする(錠の中で呼ぶ)。-> コミットしたか"""
+    today = today or time.strftime("%Y-%m-%d")
+    last = git("log", "-1", "--fixed-strings", "--grep", DAILY_TITLE, "--format=%ad", "--date=format:%Y-%m-%d", cwd=main, check=False)
+    if (last[1] if isinstance(last, tuple) else last).strip() == today:
+        return False
+    code = subprocess.run([sys.executable, os.path.join("dev", "code_map.py")], cwd=main, capture_output=True, creationflags=NOWIN).returncode
+    changed = [p for p in git("status", "--porcelain", "--", CODEMAP_DIR, cwd=main).splitlines() if p.strip()]
+    if code or not changed:
+        return False
+    git("add", "-A", "--", CODEMAP_DIR, cwd=main)
+    commit(main, "[Claude] " + DAILY_TITLE, "dev/land.py が作り直した(各セッションは codemap/ を作り直さない)")
+    log("コードの地図を作り直した(その日の 1 回目)")
+    return True
+
+
 def commit(main, title, body):
     """日本語の文はファイルで渡す(コマンドラインだとコードページで化けることがある)"""
     import tempfile
@@ -215,14 +235,14 @@ def land(branch, mode="auto", message="", dry_run=False, wait=600, cwd=REPO, log
                 code, out = git("merge", "--no-edit", branch, cwd=main, check=False)
                 if code:
                     conflicts = git("diff", "--name-only", "--diff-filter=U", cwd=main).split()
-                    if not conflicts or set(conflicts) - {VERSION_REL, README_REL}:
+                    if not conflicts or [c for c in conflicts if c not in (VERSION_REL, README_REL) and not c.startswith(CODEMAP_DIR + "/")]:
                         git("merge", "--abort", cwd=main, check=False)
                         raise Stop("取り込めなかった(ぶつかった物: %s)。ブランチに main を取り込んでから流し直す。"
                                    "ファイルが開かれていて失敗したなら入口を止めてから" % ("・".join(conflicts) or out.strip()[-300:]))
-                    for rel in conflicts:   # 版の 2 つだけのぶつかり(版を上げていたころのブランチ)= main の側を取る
+                    for rel in conflicts:   # 版の 2 つ・codemap/ だけのぶつかり = main の側を取る(地図は 1 日 1 回作り直す)
                         git("checkout", "--ours", "--", rel, cwd=main)
                         git("add", "--", rel, cwd=main)
-                    commit(main, "[Claude] %s を main に入れる" % branch, "dev/land.py(版の行のぶつかりは main の側を取った)")
+                    commit(main, "[Claude] %s を main に入れる" % branch, "dev/land.py(版の行・codemap のぶつかりは main の側を取った)")
                 extra += [p for p in git("diff", "--name-only", base + "..HEAD", cwd=main).split() if needs_bump([p])]
                 log("%s を main に入れた" % branch)
         if mode == "none":
@@ -245,6 +265,7 @@ def land(branch, mode="auto", message="", dry_run=False, wait=600, cwd=REPO, log
         why = "・".join(reasons[:8]) + (" ほか %d" % (len(reasons) - 8) if len(reasons) > 8 else "")
         commit(main, "[Claude] 版を %s に(%s)" % (new, message or ("%s を取り込んだ" % branch if branch else "上げ忘れの直し")),
                "dev/land.py が上げた。理由のファイル: " + (why or "指定"))
+        daily_codemap(main, log)
     log("版 %s → %s" % (cur, new))
     log("このあと: 入口を起動し直す(赤い帯)・配る zip は main の作業フォルダで py -3.12 dev/build_friend_zip.py・"
         "計画の版は py -3.12 dev/plan_artifact.py で公開し直す")

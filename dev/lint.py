@@ -14,7 +14,7 @@
   6 dup-block     … 同じ行の並びが DUP 行以上、別の場所にもある(空白と行末のコメントをそろえて比べる。src/ と dev/ の .py・.js。tests/ は除く)
   7 no-docstring  … モジュールの先頭に説明(docstring)が無い .py(tests/ は除く)。テストの .py・.js・.cs(git の全部)は頭の説明
                     (docstring か最初のコメント)が無い物(dev/code_map.py の --missing と同じ)
- 10 code-map      … コードの地図 codemap/ が古い(dev/code_map.py --check。作り直しは python dev/code_map.py)
+ 10 code-map      … コードの地図 codemap/ が古い(dev/code_map.py --check)。警告だけで数えない(10-25〜 dev/land.py が 1 日 1 回作り直す)
  11 rule          … 規則の見張り: ファイルの形(.bat の CRLF・requirements の ASCII)・push.bat の順・e2e の一覧・members.json と名簿の形・ソースの書き方(write_doc・yt-dlp の -o・TOOL_APPS・
                     編集の部品を読まない)・定数や既定値が 2 か所で食い違わない・入口やサーバーにネイティブ部品を読み込まない。規則 1 つ = dev/rule_checks.py か dev/rule_imports.py の関数 1 つ(python dev/rule_checks.py --list)
   8 version       … 版は全体で 1 つ(ytt/version.py)。そこが正しい形か、各ツールの定数・画面に版の数字を直に書いていないか
@@ -328,6 +328,7 @@ def main():
     except Exception:
         pass
     corpus = Corpus()
+    WARN_ONLY = ("code-map",)   # 数えない(警告だけ)
     issues = {k: [] for k in ("unused-import", "dead-name", "long-function", "dup-helper", "js-dead", "dup-block", "no-docstring", "version", "notes-path", "ref-path", "ref-gone", "ref-layer", "code-map", "rule")}
 
     def add(kind, file, line, name, **extra):
@@ -377,7 +378,7 @@ def main():
     import rule_checks
     for rid, msg in rule_checks.run_all(REPO):
         add("rule", rid, 0, msg)
-    total =sum(len(v) for v in issues.values())
+    total = sum(len(v) for k, v in issues.items() if k not in WARN_ONLY)   # 地図の古さは数えない(1 日 1 回 dev/land.py が作り直す)
     if a.json:
         print(json.dumps({"total": total, "issues": issues}, ensure_ascii=False, indent=1))
     else:
@@ -386,7 +387,7 @@ def main():
             for it in v:
                 extra = " (%d 行)" % it["lines"] if "lines" in it else (" -> " + it["hint"] if "hint" in it else "")
                 print("  %s:%d %s%s" % (it["file"], it["line"], it["name"], extra))
-        print("合計 %d 件(0 で合格)" % total)
+        print("合計 %d 件(0 で合格)" % total + ("・警告だけ: %s" % "・".join("%s %d" % (k, len(issues[k])) for k in WARN_ONLY if issues[k]) if any(issues[k] for k in WARN_ONLY) else ""))
     return 1 if total else 0
 
 

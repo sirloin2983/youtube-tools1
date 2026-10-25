@@ -8,12 +8,14 @@
   (赤い帯は出たまま。手の「起動し直す」が残る)= 輪にならない
 - 「画面の保存されていない変更」は画面から送られてこないので、編集の画面が EDITOR_IDLE 秒以内に使われていたら待つ(編集の保存は数秒おきに入口へ届く)
 """
+import os
 import time
 
 from ytt import fsio
 
 EVERY = 30.0          # 見直す間隔(秒)
 EDITOR_IDLE = 120.0   # 編集の画面を最後に使ってからこの秒数たつまでは待つ
+SETTLE_SEC = 600.0    # ディスクの版(version.py)が変わってからこの秒数ほかの版が来なければ起動し直す(続けて land されても 1 回で済む。10-25)
 STATE_NAME = "auto-restart.json"
 
 WAIT, GO, NOTHING = "wait", "go", "nothing"
@@ -40,6 +42,16 @@ def decide(disk, running, tried, busy):
     if busy:
         return WAIT, busy
     return GO, ""
+
+
+def settling(version_file, now=None, settle=None):
+    """ディスクの版のファイルが変わってから settle 秒(既定 SETTLE_SEC)たっていなければ待つ理由の文、たっていれば None(読めなければ None)"""
+    settle = SETTLE_SEC if settle is None else settle
+    try:
+        age = (time.time() if now is None else now) - os.path.getmtime(version_file)
+    except OSError:
+        return None
+    return "版が上がってから %d 分待っています(続けて上がっても 1 回で起動し直す)" % round(settle / 60) if age < settle else None
 
 
 def editor_in_use(last_used, now, idle=EDITOR_IDLE):

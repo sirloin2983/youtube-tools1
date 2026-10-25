@@ -97,6 +97,22 @@ class LandTest(unittest.TestCase):
             self.land("a", a)
         self.assertEqual(g(self.main, "status", "--porcelain", "--untracked-files=no").strip(), "")
 
+    def test_codemap_conflict_takes_main_and_daily_rebuild(self):
+        """codemap/ だけのぶつかりは main の側を取る・地図は 1 日 1 回だけ land が作り直す(10-25: land ごとの地図のコミットをやめた)"""
+        put(self.main, "dev/code_map.py", "import os\nos.makedirs('codemap', exist_ok=True)\n"
+                                          "open('codemap/index.md', 'w').write(open('src/a.py').read() + open('src/b.py').read() if os.path.exists('src/b.py') else '')\n")
+        put(self.main, "codemap/index.md", "main\n")
+        g(self.main, "add", "-A")
+        g(self.main, "commit", "-q", "-m", "地図の道具")
+        a = self.branch("a", {"src/a.py": "a = 7\n", "codemap/index.md": "branch a\n"})
+        b = self.branch("b", {"src/b.py": "b = 2\n", "codemap/index.md": "branch b\n"})
+        self.assertEqual(self.land("a", a), "0.99.19")
+        log = g(self.main, "log", "--format=%s", "-3")
+        self.assertIn("コードの地図を作り直した(1 日 1 回)", log)
+        self.assertEqual(self.land("b", b), "0.99.20")   # codemap だけのぶつかり = 止めずに main の側
+        log = g(self.main, "log", "--format=%s")
+        self.assertEqual(log.count("コードの地図を作り直した(1 日 1 回)"), 1)   # 同じ日の 2 回目は作り直さない
+
     def test_repair_bumps_forgotten(self):
         put(self.main, "src/a.py", "a = 7\n")
         g(self.main, "commit", "-qam", "direct")

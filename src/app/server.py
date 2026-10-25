@@ -1127,7 +1127,10 @@ class PortalServer(httpsec.ExclusiveServer):
         1 版につき 1 回(試す版を auto-restart.json に先に書く)。-> autorestart_mod の WAIT・GO・NOTHING"""
         path = os.path.join(app_data_dir(self.sup.root), autorestart_mod.STATE_NAME)
         disk = _version.on_disk(self.sup.root)
-        act, why = autorestart_mod.decide(disk, VERSION, autorestart_mod.read_tried(path), self.auto_busy() if disk and disk != VERSION else None)
+        busy = None
+        if disk and disk != VERSION:   # 版が落ち着いてから(SETTLE_SEC)・処理が無いときだけ
+            busy = autorestart_mod.settling(os.path.join(self.sup.root, "ytt", "version.py")) or self.auto_busy()
+        act, why = autorestart_mod.decide(disk, VERSION, autorestart_mod.read_tried(path), busy)
         if act != autorestart_mod.GO:
             return act
         try:

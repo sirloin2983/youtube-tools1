@@ -678,8 +678,10 @@ class PortalHttpTest(Base):
 
             def close(self):
                 pass
+        settle = {"why": None}
         patches = [mock.patch.object(L, "app_data_dir", lambda root: app), mock.patch.object(self.srv, "_autorun", Stub()),
-                   mock.patch.object(self.srv, "live_activity", lambda: zero), mock.patch.object(self.srv.sup, "status", lambda: {"heavy": {}})]
+                   mock.patch.object(self.srv, "live_activity", lambda: zero), mock.patch.object(self.srv.sup, "status", lambda: {"heavy": {}}),
+                   mock.patch.object(A, "settling", lambda path, now=None, secs=None: settle["why"])]
         for p in patches:
             p.start()
             self.addCleanup(p.stop)
@@ -687,6 +689,9 @@ class PortalHttpTest(Base):
         with mock.patch.object(L._version, "on_disk", lambda root=None: disk["v"]):
             self.assertEqual(self.srv.auto_restart_check(), A.NOTHING)   # 同じ版
             disk["v"] = "9.9.9"
+            settle["why"] = "版が上がってから 10 分待っています"
+            self.assertEqual(self.srv.auto_restart_check(), A.WAIT)   # 版が変わってすぐ = 続けて land されても 1 回で済むように待つ
+            settle["why"] = None
             runs["runs"] = 1
             self.assertEqual(self.srv.auto_restart_check(), A.WAIT)   # まとめて実行の待ち・実行中
             runs["runs"] = 0
@@ -708,6 +713,16 @@ class PortalHttpTest(Base):
             disk["v"] = "9.9.10"   # 次の版は改めて 1 回
             self.assertEqual(self.srv.auto_restart_check(), A.GO)
             self.assertEqual(len(calls), 2)
+
+    def test_settling_waits_for_quiet_version(self):
+        """ディスクの版のファイルが変わってから SETTLE_SEC 秒は待つ・過ぎれば None・読めなければ None"""
+        from ytt import autorestart as A
+        f = os.path.join(self.tmp, "version.py")
+        open(f, "w").close()
+        now = os.path.getmtime(f)
+        self.assertIn("待っています", A.settling(f, now + 60))
+        self.assertIsNone(A.settling(f, now + A.SETTLE_SEC + 1))
+        self.assertIsNone(A.settling(os.path.join(self.tmp, "none.py"), now))
 
     def test_editor_seen_ignores_polls(self):
         """開いたままの画面の版の見回り(/api/ping)などは「編集を使っている」に数えない(10-24: ping だけで自動の起動し直しが 6 時間待った)"""
