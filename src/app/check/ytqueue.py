@@ -55,6 +55,7 @@ LIGHT_EVERY = 3600                    # 軽い物の回の間隔(秒)
 RESTS = [30, 60, 120, 240]            # 当たったときに休む分(1 日の中で続けて当たるほど伸ばす)
 SLEEP_REQ = 3                         # 軽い物のまとめの 1 本ごとの間(秒。--sleep-requests)
 LIGHT_KINDS = ("subs",)               # まとめて取る軽い頼み(info は API。API が使えない日だけここに入れる)
+CHAT_N = [1, 1, 2, 2]                 # チャットの回で取る本数(軽い物の段に合わせる)。長い配信のチャットは問い合わせが多いので 1〜2 本(10-25 まとめ役)
 AROUND = (300, 600)                  # 候補の ?t= の前 5 分〜後 10 分を取る(研究の今の幅)
 API_DAILY = 2000                     # 列が 1 日に使う YouTube Data API の量の上限(1 日 10,000 をスタジオと分け合う)
 DONE_DAYS = 3
@@ -571,12 +572,13 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
     light = light_batch(app_dir, now, log)   # 軽い物は処理中・ライブ中でも(10-25)
     if busy():
         return light
+    light = chat_batch(app_dir, now, log) or light   # チャットは処理中でないときだけ(1 本で長くかかる)
     ok, _why = due(app_dir, now)
     if not ok:
         return light
     st = _state(app_dir)
     chan_of = {c: n for n, c in _vf.members(roster_r, extra)}
-    ranked = [o for o in plan(app_dir, roster_r, counts, extra, st=st) if not (o["kind"] == "request" and o["req"]["kind"] in LIGHT_KINDS + ("info",))]
+    ranked = [o for o in plan(app_dir, roster_r, counts, extra, st=st) if not (o["kind"] == "request" and o["req"]["kind"] in LIGHT_KINDS + ("info", "chat"))]
     if not ranked:
         return light
     best = ranked[0]
@@ -691,6 +693,48 @@ def light_batch(app_dir, now, log):
     log("YouTube の取得の列: 軽い物を %d 本まとめて取りました(頼み %d 件・字幕のあった動画 %d 本・まとめの上限 %d)"
         % (len(urls), len(picked), sum(1 for v in got.values() if v.get("subs")), n))
     return "light"
+
+
+def chat_n(st):
+    """チャットの回で取る本数 = CHAT_N の段(軽い物の段)。当たった日は 1 本"""
+    c = _cls(st, "light")
+    return 1 if c["pen"] else CHAT_N[min(c["step"], len(CHAT_N) - 1)]
+
+
+def chat_batch(app_dir, now, log):
+    """チャットの回(LIGHT_EVERY に 1 回・軽い物の休みでなければ): 研究の chat の頼みを chat_n 本まで 1 本ずつ取る。
+    10-25 まで chat は音の枠で点を競い(REQ_BASE 0.6)、候補・声にいつも負けて 1 件も取られていなかった = 軽い物の側の守り(休み・段)で別に回す。
+    当たったら軽い物と同じく休む(頼みは残す)。取ってあれば取らずに済ませる。-> "chat" か None"""
+    st = _state(app_dir)
+    c = _cls(st, "light")
+    if now < c["pause"] or now - _vm.num(c.get("chatLast")) < LIGHT_EVERY:
+        return None
+    picked = [q for q in requests(app_dir) if q["kind"] == "chat" and q["urls"]][:chat_n(st)]
+    if not picked:
+        return None
+    c["chatLast"] = now
+    _save(app_dir, st)
+    done = 0
+    for q in picked:
+        vid = _video_of(q["urls"][0])
+        have = bundle(app_dir, vid).get("chat") if vid else None
+        path, err = (have, "") if have else _chat(app_dir, q["urls"][0])
+        kind = classify(err) if not path else None
+        if kind in ("rate", "bot"):
+            st = _state(app_dir)
+            hit(st, "light", kind, now, log)
+            _save(app_dir, st)
+            break   # 頼みは残す(休みのあとに取り直す)
+        _write_done(app_dir, q["id"], {"state": "done", "file": path, "bundle": bundle(app_dir, vid)} if path else {"state": "error", "error": (err or "")[:300]})
+        done += 1
+        if not have:
+            st = _state(app_dir)
+            fine(st, "light", log)
+            _save(app_dir, st)
+    if done:
+        log("YouTube の取得の列: チャットの頼みを %d 件済ませました(残り %d 件・1 回 %d 本まで)"
+            % (done, sum(1 for q in requests(app_dir) if q["kind"] == "chat"), chat_n(_state(app_dir))))
+    return "chat" if done else None
 
 
 def _light_fetch(app_dir, urls):
