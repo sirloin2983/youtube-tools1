@@ -327,7 +327,7 @@ class YtQueueTest(unittest.TestCase):
             n.append(rid)
             return (None, "ERROR: Sign in to confirm you're not a bot") if len(n) == 3 else self.audio(app_dir, rid, url, section)
         with mock.patch.object(Q, "_audio", audio_hit), mock.patch.object(Q, "_sleep", lambda s: None):
-            self.tick(NOON + 14400, FULL_VOICE)
+            self.tick(NOON + 14400, FULL_VOICE)
         self.assertEqual(len(n), 3)                                               # 始まりは 6 本まとめ・3 本目で当たって止めた
         self.assertEqual(len(Q.requests(self.app)), 6)                            # 当たった 1 本と残りは頼みのまま
         st = Q._state(self.app)
