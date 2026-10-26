@@ -5,6 +5,8 @@
 
 決まり: 音は 20 ms ごとの音量(dB)だけを見る(標準ライブラリ)。声の大きさ = 区間の中の 20 ms の音量の上から 3 割の位置(話が多い区間で声の中央の近く)。
 間が見つからない端は動かさない。区間の外(動画の外)へは出ない。スイッチ: ON = False で寄せない。印: 注意の 1 行と計画の edgePause
+10-26(まとめ役・研究 C:/dev/overlap-research の edge_recheck。確かな端 144): 静かさの線 QUIET_DB 15 → 10 dB・外へ広げる向きだけ寄せる(OUTWARD_ONLY。
+始まりは前へ・終わりは後ろへだけ。内へ詰める寄せは友人の端から遠ざかった = 欠けを減らす方)。前の形は QUIET_DB_OLD と OUTWARD_ONLY = False。測り直し 11-09
 """
 import array
 import math
@@ -16,7 +18,9 @@ from . import srt2resolve as S
 
 ON = True
 REACH = 2.5      # 端の前後に探す秒(研究の 75 区間で 1.5 → 2.5 秒: 声の途中で切る 始まり 20 → 16%・終わり 19 → 13%)
-QUIET_DB = 15.0  # 声の大きさよりこれだけ静かなら「間」
+QUIET_DB = 10.0  # 声の大きさよりこれだけ静かなら「間」(10-26 に 15 → 10。研究の確かな端で 近づく 384 → 440 回)
+QUIET_DB_OLD = 15.0   # 前の値(戻すとき)
+OUTWARD_ONLY = True   # 外へ広げる向きだけ寄せる(始まりは前へ・終わりは後ろへ。False で前の形 = 内へ詰める向きも寄せる)
 MIN_GAP = 0.15   # 間の最短(秒)
 PAD = 0.05       # 間の中の位置: 声の側の端からこれだけ(友人の終わりの余白の中央 0.04 秒)
 HOP = 0.02       # 音量を測る幅(秒)
@@ -70,7 +74,8 @@ def snap_end(t, ps):
     p = min(after, key=lambda p: p[0]) if after else (max(near, key=lambda p: p[1]) if near else None)
     if p is None:
         return t
-    return min(p[1], p[0] + PAD)   # 間の中にあっても言い終わりの直後へ(無音を残さない = 友人の終わりの余白 中央 0.04 秒)
+    out = min(p[1], p[0] + PAD)   # 間の中にあっても言い終わりの直後へ(無音を残さない = 友人の終わりの余白 中央 0.04 秒)
+    return max(t, out) if OUTWARD_ONLY else out   # 外へ(後ろへ)広げる向きだけ
 
 
 def snap_start(t, ps):
@@ -80,7 +85,8 @@ def snap_start(t, ps):
     p = max(before, key=lambda p: p[1]) if before else (min(near, key=lambda p: p[0]) if near else None)
     if p is None:
         return t
-    return max(p[0], p[1] - PAD)   # 間の中にあっても話し始めの直前へ
+    out = max(p[0], p[1] - PAD)   # 間の中にあっても話し始めの直前へ
+    return min(t, out) if OUTWARD_ONLY else out   # 外へ(前へ)広げる向きだけ
 
 
 def snap(video, a, b, dur):

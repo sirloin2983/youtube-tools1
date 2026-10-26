@@ -26,7 +26,10 @@ class EdgePauseTest(unittest.TestCase):
         self.assertAlmostEqual(E.snap_end(10.0, ps), 10.65)   # 言い終わりの後ろの間・声の側から 0.05 秒
         self.assertAlmostEqual(E.snap_start(10.0, ps), 8.45)   # 話し始めの前の間
         self.assertEqual(E.snap_end(10.0, []), 10.0)   # 間が無ければ動かさない
-        self.assertAlmostEqual(E.snap_end(10.9, ps), 10.65)   # 間の中でも言い終わりの直後へ(無音を残さない)
+        self.assertAlmostEqual(E.snap_end(10.9, ps), 10.9)    # 内へ詰める向き(前へ)は寄せない(OUTWARD_ONLY。10-26 = 欠けを減らす方)
+        self.assertAlmostEqual(E.snap_start(10.0, [(10.6, 11.0)]), 10.0)   # 始まりを後ろへ詰める向きも寄せない
+        with mock.patch.object(E, "OUTWARD_ONLY", False):
+            self.assertAlmostEqual(E.snap_end(10.9, ps), 10.65)   # 前の形: 間の中でも言い終わりの直後へ(無音を残さない)
 
     def test_switch_off_keeps_edges(self):
         with mock.patch.object(E, "ON", False):
