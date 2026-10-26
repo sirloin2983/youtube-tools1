@@ -552,6 +552,24 @@ class ServerTest(Base):
         self.assertEqual(d["errors"][0]["id"], rid)
         self.assertEqual(self.app.inbox.row(rid)["state"], "arrived")
 
+    def test_decide_retries_once_after_preview_making(self):
+        # 確認用の動画を作っている間はパックを移せない(10-26 友人): 作り終わるのを待ってもう一度移す
+        rid = "20250615-130100-aaaaaa"
+        self.make_arrived(rid, ["a_pack"])
+        self.app.engine = mock.Mock(_mk_lock=threading.Lock())
+        real, calls = shutil.move, []
+        def move(*a):
+            calls.append(a)
+            if len(calls) == 1:
+                raise PermissionError("使用中")
+            return real(*a)
+        with mock.patch("friendapp.inbox.shutil.move", side_effect=move):
+            st, _h, p = self.post("/api/friend/decide", {"items": [{"id": rid, "name": "a_pack"}], "verdict": "keep"})
+        d = self.js(p)
+        self.assertTrue(d["ok"])
+        self.assertEqual(d["done"], [{"id": rid, "name": "a_pack"}])
+        self.assertEqual(d["errors"], [])
+
     def test_decide_errors(self):
         rid = "20250615-130200-aaaaaa"
         self.make_arrived(rid, ["a_pack"])

@@ -644,6 +644,12 @@ class FriendApp:
         for rid, names in by_row.items():
             try:
                 got = self.inbox.decide(rid, names, body.get("verdict"), reason=body.get("reason"))
+                mk = getattr(self.engine, "_mk_lock", None)
+                if got["errors"] and mk is not None:
+                    # 届いた直後は確認用の動画をパックから作っていて、移せない(10-26 友人の PermissionError)。作り終わるのを待って 1 度だけやり直す
+                    with mk:
+                        again = self.inbox.decide(rid, [e["name"] for e in got["errors"]], body.get("verdict"), reason=body.get("reason"))
+                    got = dict(again, done=got["done"] + again["done"], pending=got["pending"] + again["pending"])
             except ValueError as e:
                 raise _api.FormError(str(e))
             done += [{"id": rid, "name": n} for n in got["done"]]
