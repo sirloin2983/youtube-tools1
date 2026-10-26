@@ -2822,7 +2822,7 @@ function reasonTags(c){
   const cls = r => /音量|音声/.test(r) ? 'a' : /チャット/.test(r) ? 'c' : /コメント/.test(r) ? 'm' : '';
   const shown = c.reasons.map(r => `<span class="rv-rtag ${cls(r)}">${esc(r)}</span>`).join('');
   const p = c.parts || {};
-  const detail = [['audio', '音量'], ['chat', 'チャット'], ['comments', 'コメント']].filter(([k]) => p[k] != null).map(([k, l]) => `${l} ${p[k]}`).join(' / ');
+  const detail = [['audio', '音量'], ['chat', 'チャット'], ['comments', 'コメント'], ['heat', 'よく見られている']].filter(([k]) => p[k] != null).map(([k, l]) => `${l} ${p[k]}`).join(' / ');
   return shown ? `<span class="rv-rtags" title="${esc(detail)}">${shown}</span>` : '';
 }
 function tfieldHTML(c, w, label){

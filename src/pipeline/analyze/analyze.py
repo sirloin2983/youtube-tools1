@@ -379,6 +379,9 @@ def run(spec, ctl=None):
             raise ApiError("no_signal", "使える材料がありません(音声の解析をオンにするか、チャット・コメントが取れる動画を指定してください)")
         ctl.report(0.6, "盛り上がりの区間を決定中")
         wts, meta = _weights(run_, spec, warnings)
+        hz = excite.heat_z((meta or {}).get("heatmap"), n) if excite.HEAT_SCORE_ON else None
+        if hz:   # よく見られている場面(heatmap)を点に足す(材料 heat・重み HEAT_W。無い・平らな配信は今のまま。10-26)
+            comps["heat"], wts["heat"] = hz, excite.HEAT_W
         total = [sum(wts[k] * comps[k][i] for k in comps) for i in range(n)]
         peak = excite.peak_total(total, stamps, n, wts["comments"]) if info["comments"] else None   # 山を選ぶ点数だけコメントを重く(区間の形は total)
         total = head_ramp(total, spec["headSec"])   # 冒頭は誤検出が多いので、なだらかに減点

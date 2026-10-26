@@ -26,7 +26,7 @@ LAG_MAX = 30
 LAG_MIN_CORR = 0.08     # これ未満の一致度では推定しない
 LAG_MIN_CONTRAST = 0.04  # 最良の遅れと最悪の遅れの一致度の差がこれ未満なら、はっきりした山がないので推定しない
 PRE_RATIO_DEFAULT = 0.65   # 山の位置(区間の何割を山の前に置くか)の既定。スタジオの設定 preRatio と src/eval/tools/eval_marks.py が読む
-PART_ON = {"audio": 1.5, "chat": 1.5, "comments": 0.8}   # 点数の内訳が「効いた」とみなす値(候補の理由の文と src/eval/tools/eval_marks.py が同じ値を読む)
+PART_ON = {"audio": 1.5, "chat": 1.5, "comments": 0.8, "heat": 1.0}   # 点数の内訳が「効いた」とみなす値(候補の理由の文と src/eval/tools/eval_marks.py が同じ値を読む)
 WARM_RE = re.compile(r"草|ｗ{2,}|w{3,}|笑|わら|8{3,}|８{3,}|！{2,}|!{2,}|すご|うま|上手|かわい|可愛|てぇてぇ|てえてえ|きた|キタ|やば|ヤバ|神|最高|えらい|www|lol|kusa|pog|LUL|😂|🤣|😆|😍|❤|💕|👏|🎉|:_?laugh|:_?kusa|:_?heart|:_?clap|:_?pog", re.I)
 CHAT_KINDS = ("liveChatTextMessageRenderer", "liveChatPaidMessageRenderer", "liveChatPaidStickerRenderer", "liveChatMembershipItemRenderer")
 PAID_KINDS = ("liveChatPaidMessageRenderer", "liveChatPaidStickerRenderer")
@@ -359,10 +359,36 @@ def candidates(picks, comps):
 # heatmap は解析が既に取っている動画の情報(fetch.slim_meta の heatmap)だけを読む(問い合わせは増やさない。配信中・ライブ・数の少ない動画は無い = 今のまま)。
 # 印 = 候補の origin "heatmap" と理由の文 HEAT_REASON。HEAT_EXTRA_ON = False で前の形。測り直し: 研究の B(配信全体の音での比べ)の結論が出たら・遅くとも 11-09
 HEAT_EXTRA_ON = True
+# 点に heatmap を足す(10-26 まとめ役・研究 C:/dev/overlap-research の excite_recheck の B「全部」= 今の点 + heatmap の z × 1.0。重みは研究で先に 1.0 と決めて
+# 動かしていない。学んでいない 85 区間・78 配信で 今より 勝ち 39・負け 18(p 0.008)・使える 上位 3/8/20 0.35/0.50/0.67 → 0.41/0.62/0.82)。
+# 材料 heat = heat_z(配信の中で平均 0・ばらつき 1 にそろえた 1 秒ごとの値)を重み HEAT_W で合計に入れる(点の内訳 parts の heat にも出る)。
+# heatmap の無い・平らな配信は今のまま。HEAT_SCORE_ON = False で前の形。測り直し: 11-09
+HEAT_SCORE_ON = True
+HEAT_W = 1.0
 HEAT_EXTRA = 8           # 足す山の数の上限
 HEAT_SEP = 60            # 山どうしの間(秒。研究の peaks_top と同じ)
 HEAT_PEAKS = 40          # 見る山の数(上から。今の候補に入る山も数える = 研究の peaks_top(hz, 40) と同じ)
 HEAT_REASON = "YouTube でよく見られている場面"
+
+
+def heat_z(heatmap, n):
+    """heatmap([[始め, 終わり, 値], ...] = fetch.slim_meta の形)-> 1 秒ごとの値を配信の中で平均 0・ばらつき 1 にそろえた列(長さ n)か None(無い・平ら)。
+    研究の scene4.heat_z と同じ数え方(区間の終わりの秒も含める)"""
+    if not heatmap or n <= 0:
+        return None
+    v = [0.0] * n
+    for h in heatmap:
+        try:
+            a, b, val = int(float(h[0])), int(float(h[1])), float(h[2])
+        except (TypeError, ValueError, IndexError):
+            continue
+        for i in range(max(0, a), min(n, b + 1)):
+            v[i] = val
+    m = sum(v) / n
+    sd = (sum((x - m) ** 2 for x in v) / n) ** 0.5
+    if sd <= 1e-9:
+        return None
+    return [(x - m) / sd for x in v]
 
 
 def heat_extra(cands, heatmap, n, comps, pre=PRE_RATIO_DEFAULT, k=HEAT_EXTRA, head=0):
@@ -415,6 +441,8 @@ def reasons_of(parts):
         why_txt.append("チャットが急増")
     if parts.get("comments", 0) >= PART_ON["comments"]:
         why_txt.append("コメント欄で時刻が指定されている")
+    if parts.get("heat", 0) >= PART_ON["heat"]:
+        why_txt.append(HEAT_REASON)
     return why_txt or ["音声の変化"]
 
 

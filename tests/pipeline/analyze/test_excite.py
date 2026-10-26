@@ -167,6 +167,19 @@ class TestHeatExtra(unittest.TestCase):
             self.assertEqual(len(excite.heat_extra(cands, hm, n, comps)), 2)
 
 
+class TestHeatScore(unittest.TestCase):
+    def test_heat_z_and_reason(self):
+        """点に足す heatmap(10-26): 配信の中で平均 0・ばらつき 1・無い・平らなら None・内訳 heat が効けば理由の文"""
+        z = excite.heat_z([[0, 9, 0.2], [10, 19, 1.0]], 20)
+        self.assertAlmostEqual(sum(z) / 20, 0.0, places=6)
+        self.assertAlmostEqual((sum(x * x for x in z) / 20) ** 0.5, 1.0, places=6)
+        self.assertGreater(z[15], z[5])
+        self.assertIsNone(excite.heat_z([[0, 19, 0.5]], 20))
+        self.assertIsNone(excite.heat_z(None, 20))
+        self.assertIn(excite.HEAT_REASON, excite.reasons_of({"audio": 0.1, "heat": 1.2}))
+        self.assertNotIn(excite.HEAT_REASON, excite.reasons_of({"audio": 2.0, "heat": 0.2}))
+
+
 class TestOnline(unittest.TestCase):
     """1 秒ずつ足す Online が、同じ窓の一括(windowed_scores)と同じ値を出す"""
 
