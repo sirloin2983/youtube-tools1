@@ -19,6 +19,7 @@ SORA, ROBO = "UC" + "a" * 22, "UC" + "b" * 22
 R = {"groups": [{"id": "gen0", "names": ["ときのそら", "ロボ子さん"]}],
      "members": [{"name": "ときのそら", "channel": SORA}, {"name": "ロボ子さん", "channel": ROBO}]}
 NOON = datetime.datetime(2026, 10, 25, 12, 0).timestamp()
+FULL_VOICE = {"ときのそら": 999, "ロボ子さん": 999}   # 声は足りている(声だけの取得が並ばない)
 
 
 class YtQueueTest(unittest.TestCase):
@@ -297,6 +298,60 @@ class YtQueueTest(unittest.TestCase):
                         ("Q:\\nodrive\\keep" if not os.path.isdir("Q:\\") else 1, Q.qdir(self.app, Q.KEEP_DIR, "V")), ("rel\\keep", Q.qdir(self.app, Q.KEEP_DIR, "V"))):
             with mock.patch.object(Q._settings, "load_settings", lambda v=v: {Q.KEEP_SETTING: v}):
                 self.assertEqual(Q.keep_dir(self.app, "V"), want, v)
+
+    def test_short_audio_batched_in_one_round(self):
+        """研究の短い区間の音(6 分以下)は音の回 1 回で数本(同じ動画は 1 回の yt-dlp に区間を複数)・当たったら残りは頼みのまま・本数を半分・
+        配信全体の音は先に 1 本ずつ(10-26)"""
+        secs = {"r-up-a": ("SAMEVIDEO01", [100, 400]), "r-up-b": ("SAMEVIDEO01", [900, 1200]), "r-up-c": ("OTHERVIDE01", [0, 300]),
+                "r-up-d": ("OTHERVIDE02", [60, 360]), "r-full-z": ("FULLVIDEO01", None)}
+        for rid, (vid, sec) in secs.items():
+            self.put_req(rid, {"purpose": "research", "kind": "audio", "url": "https://www.youtube.com/watch?v=" + vid, "section": sec})
+        groups = []
+
+        def sections(app_dir, url, reqs):
+            groups.append([q["id"] for q in reqs])
+            return [(q,) + self.audio(app_dir, q["id"], url, q["section"]) for q in reqs]
+        with mock.patch.object(Q, "_audio_sections", sections), mock.patch.object(Q, "_sleep", lambda s: None):
+            self.assertEqual(self.tick(NOON, FULL_VOICE), "research")
+            self.assertEqual([c[0] for c in self.calls], ["r-full-z"])            # 配信全体の音が先(1 本だけ)
+            self.calls.clear()
+            self.assertEqual(self.tick(NOON + 7200, FULL_VOICE), "research")
+        self.assertEqual(groups, [["r-up-a", "r-up-b"]])                          # 同じ動画は 1 回に区間 2 つ
+        self.assertEqual(sorted(c[0] for c in self.calls), ["r-up-a", "r-up-b", "r-up-c", "r-up-d"])
+        self.assertEqual(Q.requests(self.app), [])
+        for i in range(8):
+            self.put_req("r-up-h%d" % i, {"purpose": "research", "kind": "audio", "url": "https://www.youtube.com/watch?v=HITVIDEO%03d" % i, "section": [0, 300]})
+        n = []
+
+        def audio_hit(app_dir, rid, url, section):
+            n.append(rid)
+            return (None, "ERROR: Sign in to confirm you're not a bot") if len(n) == 3 else self.audio(app_dir, rid, url, section)
+        with mock.patch.object(Q, "_audio", audio_hit), mock.patch.object(Q, "_sleep", lambda s: None):
+            self.tick(NOON + 14400, FULL_VOICE)
+        self.assertEqual(len(n), 3)                                               # 始まりは 6 本まとめ・3 本目で当たって止めた
+        self.assertEqual(len(Q.requests(self.app)), 6)                            # 当たった 1 本と残りは頼みのまま
+        st = Q._state(self.app)
+        self.assertEqual(Q.short_n(st), 3)                                        # 当たったら半分
+        self.assertGreater(st["audio"]["pause"], NOON + 14400)                    # 音の休み(今のまま)
+
+    def test_audio_sections_maps_files_to_requests(self):
+        """同じ動画の区間を 1 回で: 出力は区間の始めの秒で分かれ、頼みごとの done/<rid>.<拡張子> へ"""
+        reqs = [{"id": "r-up-a", "section": [100, 400]}, {"id": "r-up-b", "section": [900, 1200]}]
+        seen = []
+
+        def ytdlp(cmd, timeout):
+            seen.append(cmd)
+            out = cmd[cmd.index("-o") + 1]
+            for s in (100, 900):
+                with open(out.replace("%(section_start)d", str(s)).replace("%(ext)s", "m4a"), "wb") as f:
+                    f.write(b"x" * s)
+            return mock.Mock(returncode=0, stdout="SAMEVIDEO01\tUCx\t20261001\t3600\t題\n"), ""
+        with mock.patch.object(VF._tools, "find_tool", lambda name: name), mock.patch.object(VF, "_ytdlp", ytdlp):
+            got = Q._audio_sections(self.app, "https://www.youtube.com/watch?v=SAMEVIDEO01", reqs)
+        self.assertEqual([a for a in seen[0] if a.startswith("*")], ["*100-400", "*900-1200"])
+        self.assertEqual([os.path.basename(p) for _q, p, _i in got], ["r-up-a.m4a", "r-up-b.m4a"])
+        self.assertEqual(os.path.getsize(got[1][1]), 900)
+        self.assertEqual(got[0][2]["id"], "SAMEVIDEO01")
 
     def test_skip_download_writes_under_keep(self):
         """字幕・チャットだけの取得も既定の -o を keep/<動画>/ に置く(無いと途中の .part が作業フォルダ = src に残った。10-26)"""

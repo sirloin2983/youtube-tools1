@@ -61,6 +61,9 @@ LIGHT_EVERY = 3600                    # 軽い物の回の間隔(秒)
 RESTS = [30, 60, 120, 240]            # 当たったときに休む分(1 日の中で続けて当たるほど伸ばす)
 SLEEP_REQ = 3                         # 軽い物のまとめの 1 本ごとの間(秒。--sleep-requests)
 LIGHT_KINDS = ("subs",)               # まとめて取る軽い頼み(info は API。API が使えない日だけここに入れる)
+SHORT_MAX_SEC = 6 * 60                # 研究の短い区間の音(r-up など)= この秒以下。音の回 1 回で数本まとめて取る(10-26 研究が字幕で当てた区間を全部音で確かめる・数百本)
+SHORT_START = 6                       # まとめる本数の始まり。当たるたびに半分(その日のうち。1 本まで)
+SHORT_SUM_SEC = 30 * 60               # まとめる区間の合計の上限(秒)
 CHAT_START = 10                       # チャットの回で取る本数の始まり(10-25 ユーザー「最初 1 回 10 本」)。当たるたびに半分(その日のうち。1 本まで)
 LOCK_NAME = "run.lock"                # 列の錠(入口の見回りと手で流す 1 回がぶつからない)
 LOCK_STALE = 3 * 3600                 # これより古い錠は残りかす(落ちたプロセスの物)として取り直す
@@ -224,7 +227,7 @@ def rollover(st, now, log=None, app_dir=None):
     notes = []
     for name in ("audio", "light"):
         c = _cls(st, name)
-        c.update(level=0, pen=0, chatPen=0)   # 休みの段と当たった回数は日ごとに始めから(段 step は回ごとの fine・hit が上げ下げする)
+        c.update(level=0, pen=0, chatPen=0, shortPen=0)   # 休みの段と当たった回数は日ごとに始めから(段 step は回ごとの fine・hit が上げ下げする)
         if c.get("cap") is not None:   # 前の日に当たった = 当たった段の 1 段手前から始める(毎日同じ所で当たらない。10-25 夜)
             c["step"] = min(c["step"], int(c["cap"]))
             notes.append("%sは前の日に %sで当たったので %sから" % ("音" if name == "audio" else "軽い物", c.get("capAt") or "?",
@@ -379,6 +382,59 @@ def _info_ytdlp(urls):
     return out
 
 
+def _audio_cmd(app_dir, yd, out, sections):
+    """音の取得の yt-dlp の引数(out = 出力の型・sections = [[始め, 終わり]] の区間。空なら全体)"""
+    keep = keep_dir(app_dir, "%(id)s")
+    cmd = [yd, "--encoding", "utf-8", "--no-warnings", "--no-playlist", "--no-part", "--force-overwrites", "--no-progress", "-f", "ba",
+           "-o", out, "--no-simulate", "--print", "%(id)s\t%(channel_id)s\t%(upload_date)s\t%(duration)s\t%(title)s",
+           # 使い道の束(同じ問い合わせの中で): 動画の情報(説明欄・チャプター・よく見られている場面の山 heatmap)と日本語の自動字幕
+           "--write-info-json", "-o", "infojson:" + keep + os.sep + "info", "--write-auto-subs", "--sub-langs", "ja", "--sub-format", "json3",
+           "-o", "subtitle:" + keep + os.sep + "subs"]
+    for s in sections:
+        cmd += ["--download-sections", "*%d-%d" % (max(0, int(s[0])), int(s[1]))]
+    ff = _vf._tools.find_tool("ffmpeg")
+    if ff:
+        cmd += ["--ffmpeg-location", ff]
+    return cmd
+
+
+def _info_of(r, app_dir):
+    parts = ((r.stdout or "").strip().splitlines() or [""])[0].split("\t")
+    info = dict(zip(("id", "channel_id", "upload_date", "duration", "title"), parts + [""] * 5))
+    info["bundle"] = bundle(app_dir, info.get("id"))
+    return info
+
+
+def _audio_sections(app_dir, url, reqs):
+    """同じ動画の短い区間の音を yt-dlp 1 回で(--download-sections を複数)-> [(頼み, パス, 情報) か (頼み, None, 失敗の文)]。
+    出力は区間の始めの秒で名前を分け(%(section_start)d)、頼みの done/<rid>.<拡張子> へ"""
+    yd = _vf._tools.find_tool("yt-dlp")
+    if not yd:
+        return [(q, None, "yt-dlp が見つかりません") for q in reqs]
+    stage = qdir(app_dir, "done", STAGE)
+    os.makedirs(stage, exist_ok=True)
+    tag = "grp-%s-" % (_video_of(url) or "x")
+    cmd = _audio_cmd(app_dir, yd, os.path.join(stage, tag + "%(section_start)d.%(ext)s"), [q["section"] for q in reqs])
+    r, tail = _vf._ytdlp(cmd + ["--", url], _vf.FETCH_TIMEOUT * 2)
+    files = [os.path.join(stage, x) for x in os.listdir(stage) if x.startswith(tag)]
+    ok = [f for f in files if not f.endswith((".part", ".ytdl", ".tmp"))]
+    info = _info_of(r, app_dir) if r is not None and r.returncode == 0 and ok else None
+    out = []
+    for q in reqs:
+        start = "%d." % max(0, int(q["section"][0]))
+        got = [f for f in ok if os.path.basename(f)[len(tag):].startswith(start)]
+        if info is None or not got:
+            out.append((q, None, (tail or "取れませんでした") if info is None else "この区間の音がありません"))
+            continue
+        f = max(got, key=os.path.getsize)
+        dst = qdir(app_dir, "done", q["id"] + os.path.splitext(f)[1])
+        os.replace(f, dst)
+        out.append((q, dst, dict(info)))
+    for f in files:
+        fsio.unlink_quiet(f)
+    return out
+
+
 def _audio(app_dir, rid, url, section):
     """音だけ取って done/<rid>.<拡張子> に -> (パス, 情報) か (None, 失敗の文)"""
     yd = _vf._tools.find_tool("yt-dlp")
@@ -388,17 +444,7 @@ def _audio(app_dir, rid, url, section):
     stage = qdir(app_dir, "done", STAGE)
     os.makedirs(stage, exist_ok=True)
     base = os.path.join(stage, rid)
-    keep = keep_dir(app_dir, "%(id)s")
-    cmd = [yd, "--encoding", "utf-8", "--no-warnings", "--no-playlist", "--no-part", "--force-overwrites", "--no-progress", "-f", "ba",
-           "-o", base + ".%(ext)s", "--no-simulate", "--print", "%(id)s\t%(channel_id)s\t%(upload_date)s\t%(duration)s\t%(title)s",
-           # 使い道の束(同じ問い合わせの中で): 動画の情報(説明欄・チャプター・よく見られている場面の山 heatmap)と日本語の自動字幕
-           "--write-info-json", "-o", "infojson:" + keep + os.sep + "info", "--write-auto-subs", "--sub-langs", "ja", "--sub-format", "json3",
-           "-o", "subtitle:" + keep + os.sep + "subs"]
-    if section:
-        cmd += ["--download-sections", "*%d-%d" % (max(0, int(section[0])), int(section[1]))]
-    ff = _vf._tools.find_tool("ffmpeg")
-    if ff:
-        cmd += ["--ffmpeg-location", ff]
+    cmd = _audio_cmd(app_dir, yd, base + ".%(ext)s", [section] if section else [])
     r, tail = _vf._ytdlp(cmd + ["--", url], _vf.FETCH_TIMEOUT * 2)
     files = [os.path.join(stage, x) for x in os.listdir(stage) if x.startswith(rid + ".")]
     if r is None or r.returncode != 0 or not [f for f in files if not f.endswith((".part", ".ytdl", ".tmp"))]:
@@ -411,10 +457,7 @@ def _audio(app_dir, rid, url, section):
     for f in files:
         if f != got:
             fsio.unlink_quiet(f)
-    parts = ((r.stdout or "").strip().splitlines() or [""])[0].split("\t")
-    info = dict(zip(("id", "channel_id", "upload_date", "duration", "title"), parts + [""] * 5))
-    info["bundle"] = bundle(app_dir, info.get("id"))
-    return dst, info
+    return dst, _info_of(r, app_dir)
 
 
 KEEP_DIR = "keep"
@@ -681,6 +724,8 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
         elif r["kind"] == "list":
             items, err = _list_url(r["urls"][0], int(_vm.num(r.get("items"), 50)))
             body = {"state": "done", "entries": items} if items else {"state": "error", "error": err[:300]}
+        elif len(short_batch(st, r, ranked)) > 1:
+            return _short_round(app_dir, short_batch(st, r, ranked), st, now, prev_last, chan_of, log)
         else:
             path, info = _audio(app_dir, r["id"], r["urls"][0], r.get("section"))
             body = {"state": "done", "file": path, "info": info} if path else {"state": "error", "error": str(info)[:300]}
@@ -706,6 +751,49 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
         fine(st, "audio", log)
     _save(app_dir, st)
     return "voice" if got else None
+
+
+def _short_round(app_dir, reqs, st, now, prev_last, chan_of, log):
+    """音の回 1 回で短い音を数本(同じ動画は 1 回の yt-dlp にまとめる・動画の間は SLEEP_REQ 秒)。当たったら残りは頼みのまま・本数を半分 -> "research"(当たっても)"""
+    groups = {}
+    for q in reqs:
+        groups.setdefault(_video_of(q["urls"][0]) or q["id"], []).append(q)
+    done_n, gone_all = 0, True
+    for i, g in enumerate(groups.values()):
+        if i:
+            _sleep(SLEEP_REQ)
+        if len(g) == 1:
+            path, info = _audio(app_dir, g[0]["id"], g[0]["urls"][0], g[0]["section"])
+            res = [(g[0], path, info)]
+        else:
+            res = _audio_sections(app_dir, g[0]["urls"][0], g)
+        hit_err = next((str(x) for _q, p, x in res if p is None and _bot(x)), None)
+        if hit_err:
+            _hit(st, now, hit_err, log)
+            a = _cls(st, "audio")
+            a["shortPen"] = int(a.get("shortPen") or 0) + 1
+            log("YouTube の取得の列: 短い音のまとめで当たったので止めました(%d 本取った・残りは頼みのまま。次から %d 本まとめ)" % (done_n, short_n(st)))
+            break
+        for q, path, info in res:
+            if path:
+                _write_done(app_dir, q["id"], {"state": "done", "file": path, "info": info})
+                _to_voice(app_dir, path, info, chan_of)
+                done_n += 1
+                gone_all = False
+            else:
+                gone_all = gone_all and classify(info) == "gone"
+                _write_done(app_dir, q["id"], {"state": "error", "error": str(info)[:300]})
+    else:
+        if done_n:
+            fine(st, "audio", log)
+        elif gone_all:
+            st["last"] = prev_last   # 全部が無い動画 = 枠に数えない
+    _save(app_dir, st)
+    log("YouTube の取得の列: 研究の短い音を %d 本まとめて取りました(頼み %d 本)" % (done_n, len(reqs)))
+    return "research"
+
+
+_sleep = time.sleep   # テストが差し替える
 
 
 REQ_BASE = {"subs": 1.6, "info": 1.4, "list": 0.9, "audio": 1.0, "chat": 0.6}   # 研究の頼みの点の元(字幕・動画の情報 = あとの音の取得を短くできる軽い物は高く)
@@ -755,6 +843,35 @@ def light_batch(app_dir, now, log):
     log("YouTube の取得の列: 軽い物を %d 本まとめて取りました(頼み %d 件・字幕のあった動画 %d 本・まとめの上限 %d)"
         % (len(urls), len(picked), sum(1 for v in got.values() if v.get("subs")), n))
     return "light"
+
+
+def short_n(st):
+    """音の回 1 回でまとめる短い音の本数 = SHORT_START ÷ 2 の(まとめの中で当たった回数)乗(1 本まで。日が変わると始めから)"""
+    return max(1, SHORT_START // (2 ** int(_cls(st, "audio").get("shortPen") or 0)))
+
+
+def is_short(q):
+    """研究の短い区間の音(配信全体の音でない・区間が SHORT_MAX_SEC 秒以下)か"""
+    sec = q.get("section")
+    return (q.get("kind") == "audio" and not str(q.get("id")).startswith(FULL_PREFIX) and isinstance(sec, list) and len(sec) == 2
+            and 0 < _vm.num(sec[1]) - _vm.num(sec[0]) <= SHORT_MAX_SEC)
+
+
+def short_batch(st, first, ranked):
+    """first(一番の頼み)が短い音なら、点の順に短い音を short_n 本・合計 SHORT_SUM_SEC 秒までまとめる -> [頼み]"""
+    if not is_short(first):
+        return [first]
+    out, total, n = [], 0, short_n(st)
+    for o in ranked:
+        q = o.get("req") if o["kind"] == "request" else None
+        if not q or not is_short(q) or len(out) >= n:
+            continue
+        span = q["section"][1] - q["section"][0]
+        if out and total + span > SHORT_SUM_SEC:
+            continue
+        out.append(q)
+        total += span
+    return out or [first]
 
 
 def chat_n(st):
