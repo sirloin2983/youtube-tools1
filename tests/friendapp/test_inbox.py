@@ -393,6 +393,19 @@ class InboxTest(unittest.TestCase):
         self.assertEqual(got["done"], ["a_pack"])
         self.assertEqual(self.box.row(RID)["packs"][0]["verdict"], "skip")
 
+    def test_summary_counts_undecided_and_decided_7d(self):
+        """状態の書き出しの受け取るの箱の要約: 未決めの数・一番古い届いた時刻・直近 7 日に決めた数(keep/skip/bad/auto 別。読み直しても残る・7 日で落ちる。10-26)"""
+        self.arrive(RID, ["a_pack", "b_pack", "c_pack"])
+        self.clock.t = T0 + 60
+        self.box.decide(RID, ["a_pack"], "keep")
+        self.box.decide(RID, ["b_pack"], "skip", by="auto")
+        s = self.box.summary()
+        self.assertEqual((s["undecided"], s["decided7d"]), (1, {"keep": 1, "skip": 0, "bad": 0, "auto": 1}))
+        self.assertIsInstance(s["oldestArrivedAt"], int)
+        self.assertEqual(self.new_box().summary()["decided7d"]["auto"], 1)       # 読み直しても残る
+        self.clock.t = T0 + 8 * 86400
+        self.assertEqual(sum(self.box.summary()["decided7d"].values()), 0)      # 7 日より前は数えない
+
     def test_decide_missing_pack_dir_is_error(self):
         r, case, dirs = self.arrive(RID, ["a_pack"])
         shutil.rmtree(dirs[0])

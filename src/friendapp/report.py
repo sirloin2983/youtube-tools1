@@ -27,7 +27,7 @@ from . import diag as _diag, oplog as _oplog
 V = 1
 URGENT = ("error", "stuck", "live_end", "crash", "ask", "update")   # update = 新しい版を取れない・起動しない・確かめに通らない・前の版へ戻した(facts.stage)
 LOCAL = ("trouble", "request_end", "periodic")
-FULL = ("env", "screen", "requests", "jobs", "live", "sync", "settings", "log", "yt")
+FULL = ("env", "screen", "requests", "jobs", "live", "sync", "settings", "log", "yt", "inbox")
 PARTS = {"live_end": ("env", "live", "requests", "jobs"), "request_end": ("env", "requests", "jobs", "sync"), "periodic": ("jobs", "live")}
 CODES = ("ok", "yt_fetch_retry", "yt_fetch_gave_up", "zero_cand_filled", "duplicate", "undelivered", "unknown")
 YT_FETCH = ("ytFetch", "bot", "rate")      # YouTube から中身が届かない種類(progress.classify の code)
@@ -680,6 +680,11 @@ class Reporter:
         since = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now_ms / 1000.0 - 1800))
         errs = [ln for ln in lines if ln[:19] >= since and any(w in ln for w in ERROR_WORDS)][-50:]
         return {"errors30m": [self.mask(x[:LINE_MAX]) for x in errs], "tail": [self.mask(x[:LINE_MAX]) for x in lines[-LOG_TAIL:]]}
+
+    def _inbox(self, **_kw):
+        """受け取るの箱の数の要約(友人の判定がどれだけ付いているか。数だけ = friendapp/inbox の summary。10-26)"""
+        inbox = getattr(self.app, "inbox", None)
+        return inbox.summary() if inbox is not None else None
 
     def _yt(self, rows=(), **_kw):
         env = getattr(self.diag, "env", os.environ)
