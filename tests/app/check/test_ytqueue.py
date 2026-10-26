@@ -290,6 +290,14 @@ class YtQueueTest(unittest.TestCase):
         full = {"ときのそら": 2, "ロボ子さん": 2}
         self.assertIn("r-up-old", Q.plan(self.app, R, full, now=NOON + 3600)[0]["label"])   # 声が足りていればふだんの点
 
+    def test_keep_dir_setting(self):
+        """keep の置き場は設定 ytQueueKeepDir で作業データの外へ(10-26)。無い・ドライブが無い・相対なら作業データの中"""
+        other = kit.tempdir(self, "ytt-keep-")
+        for v, want in ((None, Q.qdir(self.app, Q.KEEP_DIR, "V")), (other, os.path.join(other, "V")),
+                        ("Q:\\nodrive\\keep" if not os.path.isdir("Q:\\") else 1, Q.qdir(self.app, Q.KEEP_DIR, "V")), ("rel\\keep", Q.qdir(self.app, Q.KEEP_DIR, "V"))):
+            with mock.patch.object(Q._settings, "load_settings", lambda v=v: {Q.KEEP_SETTING: v}):
+                self.assertEqual(Q.keep_dir(self.app, "V"), want, v)
+
     def test_skip_download_writes_under_keep(self):
         """字幕・チャットだけの取得も既定の -o を keep/<動画>/ に置く(無いと途中の .part が作業フォルダ = src に残った。10-26)"""
         seen = []
@@ -300,7 +308,7 @@ class YtQueueTest(unittest.TestCase):
         with mock.patch.object(VF._tools, "find_tool", lambda name: "yt-dlp"), mock.patch.object(VF, "_ytdlp", ytdlp):
             Q._chat(self.app, "https://www.youtube.com/watch?v=CHATVIDE001")
             Q._light_fetch(self.app, ["https://www.youtube.com/watch?v=SUBSVIDEO01"])
-        keep = Q.qdir(self.app, Q.KEEP_DIR)
+        keep = Q.keep_dir(self.app)
         for cmd in seen:
             outs = [cmd[i + 1] for i, a in enumerate(cmd) if a == "-o" and not cmd[i + 1].startswith(("subtitle:", "infojson:"))]
             self.assertEqual(len(outs), 1, cmd)

@@ -388,7 +388,7 @@ def _audio(app_dir, rid, url, section):
     stage = qdir(app_dir, "done", STAGE)
     os.makedirs(stage, exist_ok=True)
     base = os.path.join(stage, rid)
-    keep = qdir(app_dir, KEEP_DIR, "%(id)s")
+    keep = keep_dir(app_dir, "%(id)s")
     cmd = [yd, "--encoding", "utf-8", "--no-warnings", "--no-playlist", "--no-part", "--force-overwrites", "--no-progress", "-f", "ba",
            "-o", base + ".%(ext)s", "--no-simulate", "--print", "%(id)s\t%(channel_id)s\t%(upload_date)s\t%(duration)s\t%(title)s",
            # 使い道の束(同じ問い合わせの中で): 動画の情報(説明欄・チャプター・よく見られている場面の山 heatmap)と日本語の自動字幕
@@ -418,6 +418,20 @@ def _audio(app_dir, rid, url, section):
 
 
 KEEP_DIR = "keep"
+KEEP_SETTING = "ytQueueKeepDir"   # 編集の設定(settings.json)。keep の置き場を作業データの外へ(10-26 ユーザー「C にそんなに置かないでほしい」= この PC は D)。
+                                  # 無い・形が違う・ドライブが無いときは作業データの中(友人の PC は今のまま)
+
+
+def keep_dir(app_dir, *sub):
+    """keep(動画ごとの字幕・情報・チャット・研究の音)の置き場。設定 KEEP_SETTING があればそこ・無ければ qdir の keep"""
+    try:
+        v = _settings.load_settings().get(KEEP_SETTING)
+    except (TypeError, OSError, ValueError):   # 設定の置き場が無い(テスト・見本)
+        v = None
+    root = None
+    if isinstance(v, str) and os.path.isabs(v) and not fsio.is_network_path(v) and os.path.isdir(os.path.splitdrive(v)[0] + os.sep):
+        root = os.path.abspath(v)
+    return os.path.join(root, *sub) if root else qdir(app_dir, KEEP_DIR, *sub)
 INFO_KEYS = ("id", "title", "channel_id", "channel", "upload_date", "release_timestamp", "duration", "description", "chapters", "heatmap",
              "view_count", "like_count", "comment_count", "was_live", "live_status", "tags", "categories")
 
@@ -427,7 +441,7 @@ def bundle(app_dir, vid):
     -> {"dir", "info", "subs", "chat"}(ある物だけ)。研究が分析に使う(区間・編集カット・同時発話・置換辞書の候補・BGM・場面の山・チャプター)"""
     if not _vf.VIDEO_RE.match(str(vid or "")):
         return {}
-    d = qdir(app_dir, KEEP_DIR, vid)
+    d = keep_dir(app_dir, vid)
     if not os.path.isdir(d):
         return {}
     out = {"dir": d}
@@ -455,7 +469,7 @@ def _chat(app_dir, url):
     vid = _video_of(url)
     if not yd or not vid:
         return None, "yt-dlp が見つからないか、動画の id が分かりません"
-    d = qdir(app_dir, KEEP_DIR, vid)
+    d = keep_dir(app_dir, vid)
     os.makedirs(d, exist_ok=True)
     r, tail = _vf._ytdlp([yd, "--encoding", "utf-8", "--no-warnings", "--no-playlist", "--skip-download", "--sleep-requests", str(SLEEP_REQ),
                           "--write-subs", "--sub-langs", "live_chat",
@@ -527,7 +541,7 @@ def tidy(app_dir, now=None):
         orphan = not x.endswith(".json") and (x.split(".", 1)[0] + ".json") not in names and age > 3600   # 結果の json の無い古い音 = 途中で止まった物
         if x.endswith((".part", ".tmp", ".ytdl")) or age > DONE_DAYS * 86400 or orphan:
             fsio.unlink_quiet(p)
-    k = qdir(app_dir, KEEP_DIR)
+    k = keep_dir(app_dir)
     for v in (os.listdir(k) if os.path.isdir(k) else ()):
         p = os.path.join(k, v)
         try:
@@ -825,7 +839,7 @@ def _light_fetch(app_dir, urls):
     yd = _vf._tools.find_tool("yt-dlp")
     if not yd:
         return {}, "yt-dlp が見つかりません"
-    keep = qdir(app_dir, KEEP_DIR, "%(id)s")
+    keep = keep_dir(app_dir, "%(id)s")
     r, tail = _vf._ytdlp([yd, "--encoding", "utf-8", "--no-warnings", "--ignore-errors", "--no-playlist", "--skip-download",
                           "--sleep-requests", str(SLEEP_REQ), "--write-subs", "--write-auto-subs", "--sub-langs", "ja", "--sub-format", "json3", "--write-info-json",
                           "-o", keep + os.sep + "v.%(ext)s",   # 既定の -o = 途中のファイルも keep/<動画>/ へ(無いと作業フォルダに書く。10-26)
