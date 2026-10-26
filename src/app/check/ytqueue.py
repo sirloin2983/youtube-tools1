@@ -11,7 +11,8 @@
   candidates.json      研究が置く候補 = 友人のショートの元の配信 [{"video", "t"(?t= の秒か null), "channel", "title", "uploadDate", "research"(研究に効く度合い 0〜1)}]
   short-sources.json   友人のショートの説明欄の【元配信】と ?t=(API で 50 本ずつ・6 時間ごとに新しいショートだけ = read_short_sources)。研究が rev_desc に足す
   state.json           列の状態(最後に取った時刻・側・間隔・API の使用量)。ready.json = 列が動いている印(研究はこれを見て自分の問い合わせをやめる)
-音の選び方(1 回に 1 本・音の段の間隔。10-25 ユーザー: 研究と声を交互に回すのはやめた): 軽い物を除く全部の頼みを 1 つの一覧(plan)で点を付け、いちばん高い 1 本。
+音の選び方(1 回に 1 本・短い音は数本まとめ・音の段の間隔): 軽い物を除く全部の頼みを 1 つの一覧(plan)にし、段(② 急ぎ ③ 定期(声)④ 配信全体の音
+  ⑤ その他。10-26 ユーザー OK。_tiered)の上から・段の中は頼んだ順。点は ⑤ の候補の並びと声の足りなさだけに使う。今の並びは order.json。
   候補 = 研究(research)+ 声(日本の対象のメンバーのソロと見える題名で、配信の材料が TARGET 本に届かない・取った月と違う)− 区間の長さ。
   研究の頼み = 種類の点(REQ_BASE。字幕・動画の情報 = あとの音の取得を短くできる軽い物は高く)+ 声 + priority − 区間の長さ。
   声だけ = 友人のショートの元(候補)に無いメンバーの材料の足りなさ(voicefetch.tick で RSS・一覧から)。
@@ -249,7 +250,8 @@ def rollover(st, now, log=None, app_dir=None):
             try:
                 fsio.append_jsonl(qdir(app_dir, DAILY_NAME), [{"day": st["day"], "audio": audio_n, "light": dc["by"].get("queue:light", 0),
                                                               "others": others, "hits": dc["hits"], "notes": notes,
-                                                              "nowAudioMin": audio_gap(st) // 60, "nowLightN": light_n(st)}])
+                                                              "nowAudioMin": audio_gap(st) // 60, "nowLightN": light_n(st),
+                                                              "tiers": fsio.read_json_or(qdir(app_dir, ORDER_NAME), {}, kind=dict).get("tiers")}])
             except OSError:
                 pass
         _ytledger.prune(now)
@@ -681,9 +683,15 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
     st = _state(app_dir)
     chan_of = {c: n for n, c in _vf.members(roster_r, extra)}
     ranked = [o for o in plan(app_dir, roster_r, counts, extra, st=st, now=now) if not (o["kind"] == "request" and o["req"]["kind"] in LIGHT_KINDS + ("info", "chat"))]
+    try:
+        fsio.write_json(qdir(app_dir, ORDER_NAME), order_view(ranked, st, now), indent=None)   # 見える化(研究の progress・毎日の行が読む)
+    except OSError:
+        pass
     if not ranked:
         return light
-    best = ranked[0]
+    best = _pick(ranked, st, now, log)
+    if best["tier"] in (3, 6) and best["voice"] > 0:
+        st["voiceAt"] = now   # 定期(声)の 1 回分を使った
     prev_last = st.get("last")
     st.update(last=now, lastPurpose=best["kind"])
     _vf._mark_slot(app_dir, now)   # 研究の古い道(yt-slot.json)にも取ったと書く = 切り替えの前後で二重に取らない
@@ -725,8 +733,8 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
         elif r["kind"] == "list":
             items, err = _list_url(r["urls"][0], int(_vm.num(r.get("items"), 50)))
             body = {"state": "done", "entries": items} if items else {"state": "error", "error": err[:300]}
-        elif len(short_batch(st, r, ranked)) > 1:
-            return _short_round(app_dir, short_batch(st, r, ranked), st, now, prev_last, chan_of, log)
+        elif len(short_batch(st, r, [best] + [o for o in ranked if o is not best])) > 1:
+            return _short_round(app_dir, short_batch(st, r, [best] + [o for o in ranked if o is not best]), st, now, prev_last, chan_of, log)
         else:
             path, info = _audio(app_dir, r["id"], r["urls"][0], r.get("section"))
             body = {"state": "done", "file": path, "info": info} if path else {"state": "error", "error": str(info)[:300]}
@@ -798,9 +806,19 @@ _sleep = time.sleep   # テストが差し替える
 
 
 REQ_BASE = {"subs": 1.6, "info": 1.4, "list": 0.9, "audio": 1.0, "chat": 0.6}   # 研究の頼みの点の元(字幕・動画の情報 = あとの音の取得を短くできる軽い物は高く)
-AGE_PER_H, AGE_MAX = 0.05, 1.0        # 研究の頼みの待った時間の点(1 時間に 0.05・上限 1.0)。10-26: 配信全体の音(r-full-*)が区間の長さの引きで一度も順番を取れなかった
-FULL_PREFIX = "r-full-"               # 研究の配信全体の音。1 本でも待っていれば頼んだ順に続けて取り、ほかの音は尽きるまで取らない(10-26 ユーザー「途中で順位に割り込まないで」)
-STARVE_SEC, STARVE_BONUS = 24 * 3600, 10.0   # これより長く待った頼みは一番上へ(どの頼みも 24 時間より長く飢えない。古い順)
+FULL_PREFIX = "r-full-"               # 研究の配信全体の音(段 ④)
+# 音の回の順番(10-26 ユーザー OK「この形でつくっていい」)。段を上から固定・段の中は頼んだ順(追い越しなし)。① 製品の取得は帳簿の譲り(due)で先:
+#   ② 急ぎの少量 = 頼みの "urgent": "<印>"(ユーザーかまとめ役が指示した一時の取得)。印ごとに URGENT_MAX 本まで・頼んでから URGENT_DAYS 日まで(超えた分は ④ の後ろ)
+#   ③ 定期の仕事 = 誰の声の材料が足りないメンバーに効く物(声だけ・声の要る候補・頼み)。VOICE_EVERY に 1 回分だけ(来ていなければ一番下)
+#   ④ 配信全体の音(r-full-*) ⑤ その他の研究の音(頼み → 候補)
+# 待った時間の点(0.99.299)と「配信全体の音があればほかを全部止める」(0.99.302)はやめた(順位を変えない・飢えは ③ の間隔で防ぐ)
+URGENT_MAX = 60
+URGENT_DAYS = 2
+VOICE_EVERY = 2 * 3600
+BALANCE_SEC = 6 * 3600                # 同じ段がこの秒続いたら、下の段に 1 回渡す(量が多く長く同じ物が続くとき。決めた線 = 10-26 予備 1)
+TIER_NAMES = {2: "急ぎ", 3: "定期(声)", 4: "配信全体の音", 5: "その他の研究の音", 6: "定期(間隔待ち)"}
+FULL_GUESS_MIN, VOICE_GUESS_MIN = 180, 15   # 量の見込みの分(配信全体の音で長さの分からない物・声だけの 1 回)
+ORDER_NAME = "order.json"             # 列の今の並びの要約(段ごとの本数・分・回数・見込みの時間。研究の progress も読む)
 
 
 def light_batch(app_dir, now, log):
@@ -865,7 +883,7 @@ def short_batch(st, first, ranked):
     out, total, n = [], 0, short_n(st)
     for o in ranked:
         q = o.get("req") if o["kind"] == "request" else None
-        if not q or not is_short(q) or len(out) >= n:
+        if not q or not is_short(q) or len(out) >= n or o.get("tier") != ranked[0].get("tier"):   # 同じ段だけ(下の段は追い越さない)
             continue
         span = q["section"][1] - q["section"][0]
         if out and total + span > SHORT_SUM_SEC:
@@ -971,18 +989,11 @@ def _light_fetch(app_dir, urls):
     return got, (tail if (r is None or r.returncode != 0) else "")
 
 
-def req_age_bonus(q, now):
-    """研究の頼みの待った時間の点: 少しずつ上がり(上限 AGE_MAX)、STARVE_SEC を超えたら STARVE_BONUS を足す(古いほど上)"""
-    age = max(0.0, now - _vm.num(q.get("_at"))) if now else 0.0
-    return min(AGE_MAX, age / 3600.0 * AGE_PER_H) + (STARVE_BONUS + age / 86400.0 if age >= STARVE_SEC else 0.0)
-
-
 def plan(app_dir, roster_r, counts, extra=None, st=None, now=None):
     """全部の頼みを 1 つの一覧で点を付ける(10-25 ユーザー: 研究と声を交互に回すのをやめ、毎回いちばん点の高い 1 本)。
     -> [{"score", "kind": "candidate"|"request"|"voice", "label", ...}](点の高い順)。
     候補 = 研究 + 声 − 区間の長さ / 研究の頼み = REQ_BASE(種類)+ 声(音の頼みで配信者が材料の少ない人)+ priority × 0.1 − 区間の長さ /
-    声だけ = その人の材料の足りなさ(候補に無いメンバーだけ)。研究の頼みには待った時間の点(req_age_bonus。now が無ければ 0)。
-    配信全体の音(FULL_PREFIX)は点に依らず先頭(頼んだ順)"""
+    声だけ = その人の材料の足りなさ(候補に無いメンバーだけ)。並びは段(_tiered: ② 急ぎ ③ 定期 ④ 配信全体 ⑤ その他)・段の中は頼んだ順"""
     st = _state(app_dir) if st is None else st
     chan_of = {c: n for n, c in _vf.members(roster_r, extra)}
     vstate = _vf._read(os.path.join(app_dir, "check", _vf.STATE_NAME))
@@ -1001,25 +1012,87 @@ def plan(app_dir, roster_r, counts, extra=None, st=None, now=None):
             voice = (_vf.TARGET - _vf._have(who, counts, vstate)) / float(_vf.TARGET)
         sec = q.get("section")
         span = (sec[1] - sec[0]) if q.get("kind") == "audio" and isinstance(sec, list) and len(sec) == 2 else (3 * 3600 if q.get("kind") == "audio" else 0)
-        sc = REQ_BASE.get(q["kind"], 0.5) + voice + _vm.num(q.get("priority")) * 0.1 - span / 3600.0 * 0.2 + req_age_bonus(q, now)
+        sc = REQ_BASE.get(q["kind"], 0.5) + voice + _vm.num(q.get("priority")) * 0.1 - span / 3600.0 * 0.2
         out.append({"score": round(sc, 3), "kind": "request", "label": "研究の頼み %s(%s)" % (q["id"], q["kind"]), "req": q, "research": 1.0, "voice": voice})
     covered = {chan_of.get(str(o["cand"].get("channel") or "")) for o in out if o["kind"] == "candidate" and o["voice"] > 0}
     for n, _c in _vf._todo(roster_r, counts, vstate, extra):
         if n not in covered:
             need = (_vf.TARGET - _vf._have(n, counts, vstate)) / float(_vf.TARGET)
             out.append({"score": round(need - 0.02, 3), "kind": "voice", "label": "声だけ %s" % n, "who": n, "research": 0.0, "voice": need})
-    return sorted(out, key=_order)
+    return _tiered(out, st, time.time() if now is None else now)
 
 
-def _order(o):
-    """並べ方: 配信全体の音(頼んだ順)→ 誰の声の材料の足りない人に効く物(声だけ・声の要る候補・配信者が足りない人の研究の頼み。点の高い順)→ ほかは点の高い順。
-    声を 2 番目に置くのは 10-26: 研究の音の頼みに点で負け続け、配信の材料が 0〜1 本のメンバー 18 人の取得が 10-25 14:20 から止まっていた(まとめ役「配信全体の音より後でよい」)"""
-    q = o.get("req") if o["kind"] == "request" else None
-    if q and q["kind"] == "audio" and str(q["id"]).startswith(FULL_PREFIX):
-        return (0, _vm.num(q.get("_at")), q["id"])
-    if o.get("voice", 0) > 0 or o["score"] >= STARVE_BONUS:   # 24 時間を超えて待った頼み(STARVE_BONUS)は声より上のまま
-        return (1, -o["score"], "")
-    return (2, -o["score"], "")
+def _tiered(out, st, now):
+    """段を付けて並べる(o["tier"] = 2〜6)。段の中: 急ぎ・配信全体・その他の頼み = 頼んだ順 / 定期(声)= 足りない順 / 候補 = 点の順(頼みの後ろ)"""
+    voice_due = now - _vm.num(st.get("voiceAt")) >= VOICE_EVERY
+    urgent_seen = {}
+    for o in sorted(out, key=lambda o: _vm.num((o.get("req") or {}).get("_at"))):
+        q = o.get("req") if o["kind"] == "request" else None
+        tag = str(q.get("urgent") or "") if q else ""
+        if tag:
+            urgent_seen[tag] = urgent_seen.get(tag, 0) + 1
+        if tag and urgent_seen[tag] <= URGENT_MAX and now - _vm.num(q.get("_at")) < URGENT_DAYS * 86400:
+            o["tier"], o["sub"] = 2, 0
+        elif o.get("voice", 0) > 0:
+            o["tier"], o["sub"] = (3 if voice_due else 6), 0
+        elif q and q["kind"] == "audio" and str(q["id"]).startswith(FULL_PREFIX):
+            o["tier"], o["sub"] = 4, 0
+        else:
+            o["tier"], o["sub"] = 5, (0 if tag else 1 if q else 2)   # 急ぎの超えた分 → ほかの頼み → 候補
+    return sorted(out, key=lambda o: (o["tier"], o["sub"], -o.get("voice", 0) if o["tier"] in (3, 6) else 0,
+                                      _vm.num(o["req"].get("_at")) if o.get("req") and o["sub"] < 2 and o["tier"] not in (3, 6) else -o["score"]))
+
+
+def _minutes(o):
+    """1 本の量の見込み(分)"""
+    q = o.get("req")
+    if q:
+        sec = q.get("section")
+        return ((sec[1] - sec[0]) / 60.0) if isinstance(sec, list) and len(sec) == 2 else float(FULL_GUESS_MIN)
+    if o["kind"] == "candidate":
+        return (AROUND[0] + AROUND[1]) / 60.0
+    return float(VOICE_GUESS_MIN)
+
+
+def order_view(ranked, st, now):
+    """列の今の並びの要約 -> {"at", "gapMin", "tiers": [{"tier", "name", "n", "minutes", "rounds", "etaH"(この段まで終える見込みの時間)}]}。
+    回数 = 短い音は short_n 本・合計 SHORT_SUM_SEC までを 1 回(配信全体の音 1 本と同じ重さ)・ほかは 1 本 1 回"""
+    gap = audio_gap(st) / 3600.0
+    tiers, cum = [], 0.0
+    for t in sorted({o["tier"] for o in ranked}):
+        items = [o for o in ranked if o["tier"] == t]
+        rounds, k, total = 0, 0, 0.0
+        for o in items:
+            q = o.get("req")
+            if q and is_short(q):
+                span = q["section"][1] - q["section"][0]
+                if k and k < short_n(st) and total + span <= SHORT_SUM_SEC:
+                    k, total = k + 1, total + span
+                    continue
+                rounds, k, total = rounds + 1, 1, span
+            else:
+                rounds, k, total = rounds + 1, 0, 0.0
+        cum += rounds * gap
+        tiers.append({"tier": t, "name": TIER_NAMES[t], "n": len(items), "minutes": round(sum(_minutes(o) for o in items)),
+                      "rounds": rounds, "etaH": round(cum, 1)})
+    return {"at": int(now), "gapMin": audio_gap(st) // 60, "tiers": tiers}
+
+
+def _pick(ranked, st, now, log):
+    """段の一番を選ぶ。同じ段が BALANCE_SEC 続いたら下の段の一番に 1 回渡す(決めた線)-> 選んだ 1 つ"""
+    best = ranked[0]
+    run = st.get("tierRun") if isinstance(st.get("tierRun"), dict) else {}
+    if run.get("tier") != best["tier"]:
+        st["tierRun"] = {"tier": best["tier"], "since": now}
+        return best
+    if now - _vm.num(run.get("since")) >= BALANCE_SEC:
+        lower = next((o for o in ranked if o["tier"] > best["tier"] and o["tier"] != 6), None)
+        st["tierRun"] = {"tier": best["tier"], "since": now}
+        if lower:
+            if log:
+                log("YouTube の取得の列: %s が %d 時間続いたので、%s に 1 回渡します" % (TIER_NAMES[best["tier"]], BALANCE_SEC // 3600, TIER_NAMES[lower["tier"]]))
+            return lower
+    return best
 
 
 def _list_url(url, items):

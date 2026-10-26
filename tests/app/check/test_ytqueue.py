@@ -255,41 +255,54 @@ class YtQueueTest(unittest.TestCase):
         self.assertIsNone(Q.light_batch(self.app, NOON + 600, self.logs.append))  # 1 時間に 1 回
         self.assertEqual(Q.light_batch(self.app, NOON + 3700, self.logs.append), "light")   # 次の回に s2
 
-    def test_request_aging_never_starves(self):
-        """待った時間で研究の頼みの点が上がり、24 時間を超えた頼みは一番上(10-26: 配信全体の音 r-full-* が一度も順番を取れなかった)"""
-        self.put_req("r-long-x", {"purpose": "research", "kind": "audio", "url": "https://www.youtube.com/watch?v=FULLVIDEO01"})   # 区間なし = 長い音で引かれる
-        os.utime(Q.qdir(self.app, "req", "r-long-x.json"), (NOON, NOON))
-        self.put_req("r-up-y", {"purpose": "research", "kind": "audio", "url": "https://www.youtube.com/watch?v=SHORTVIDE01", "section": [0, 600]})
-        os.utime(Q.qdir(self.app, "req", "r-up-y.json"), (NOON + 3600, NOON + 3600))
+    def put_at(self, rid, body, at):
+        self.put_req(rid, dict({"purpose": "research", "kind": "audio"}, **body))
+        os.utime(Q.qdir(self.app, "req", rid + ".json"), (at, at))
 
-        def top(now):
-            return [o["label"] for o in Q.plan(self.app, R, {}, now=now) if o["kind"] == "request"][0]
-        self.assertIn("r-up-y", top(NOON + 3600))                                 # 始めは短い音が上
-        sc = lambda now: [o["score"] for o in Q.plan(self.app, R, {}, now=now) if "r-long-x" in o["label"]][0]   # noqa: E731
-        self.assertLess(sc(NOON), sc(NOON + 6 * 3600))                            # 待つほど少しずつ上がる
-        self.assertEqual(sc(NOON + 23 * 3600) - sc(NOON + 20 * 3600), 0)          # 上限で止まる(1.0 = 20 時間)
-        self.assertIn("r-long-x", top(NOON + Q.STARVE_SEC + 60))                  # 24 時間を超えたら一番上
-        best = Q.plan(self.app, R, {"ときのそら": 0, "ロボ子さん": 0}, now=NOON + Q.STARVE_SEC + 60)[0]
-        self.assertIn("r-long-x", best["label"])                                  # 候補・声だけよりも上
+    def test_tiers_fixed_order(self):
+        """段を上から固定(10-26 ユーザー OK): ② 急ぎ(印ごとに 60 本・2 日)③ 定期(声。2 時間に 1 回分)④ 配信全体 ⑤ その他・段の中は頼んだ順(待った時間で変えない)"""
+        u = "https://www.youtube.com/watch?v="
+        self.put_at("r-up-old", {"url": u + "OLDSHORT001", "section": [0, 600]}, NOON - 5 * 86400)   # 5 日待っても ⑤ のまま
+        self.put_at("r-full-b", {"url": u + "FULLVIDEO01"}, NOON)
+        self.put_at("r-full-a", {"url": u + "FULLVIDEO02"}, NOON + 60)
+        for i in range(3):
+            self.put_at("r-sa-%d" % i, {"url": u + "URGENTVID0%d" % i, "section": [0, 24], "urgent": "s1"}, NOON + 100 + i)
+        self.put_at("r-sa-late", {"url": u + "URGENTOLD01", "section": [0, 24], "urgent": "s0"}, NOON - 3 * 86400)   # 期限 2 日を過ぎた急ぎ
+        with mock.patch.object(Q, "URGENT_MAX", 2):
+            ranked = Q.plan(self.app, R, {"ときのそら": 0, "ロボ子さん": 0}, now=NOON + 3600)
+        ids = [(o["tier"], o["req"]["id"] if o.get("req") else o["label"]) for o in ranked]
+        self.assertEqual(ids[:6], [(2, "r-sa-0"), (2, "r-sa-1"), (3, "声だけ ときのそら"), (3, "声だけ ロボ子さん"), (4, "r-full-b"), (4, "r-full-a")])
+        self.assertEqual(ids[6:], [(5, "r-sa-late"), (5, "r-sa-2"), (5, "r-up-old")])   # 急ぎの超えた分・期限切れは ④ の後ろ → ほかは頼んだ順
+        st = Q._state(self.app)
+        st["voiceAt"] = NOON + 3000
+        ranked = Q.plan(self.app, R, {"ときのそら": 0, "ロボ子さん": 0}, st=st, now=NOON + 3600)
+        self.assertEqual([o["tier"] for o in ranked if o["kind"] == "voice"], [6, 6])   # 定期の間隔が来ていなければ一番下
+        view = Q.order_view(ranked, st, NOON + 3600)
+        t4 = next(x for x in view["tiers"] if x["tier"] == 4)
+        self.assertEqual((t4["n"], t4["minutes"], t4["rounds"]), (2, 360, 2))
+        t2 = next(x for x in view["tiers"] if x["tier"] == 2)
+        self.assertEqual((t2["n"], t2["rounds"]), (3, 1))                         # 短い音 3 本 = 1 回
+        self.assertLess(t2["etaH"], t4["etaH"])
 
-    def test_full_audio_first_in_order(self):
-        """配信全体の音(r-full-*)が待っていれば頼んだ順に先に全部・待った時間の点でも割り込まない(10-26 ユーザー)"""
-        for i, rid in enumerate(("r-full-b", "r-full-a", "r-up-old")):
-            self.put_req(rid, {"purpose": "research", "kind": "audio", "url": "https://www.youtube.com/watch?v=FULLVIDEO0%d" % i,
-                               "section": [0, 600] if rid == "r-up-old" else None})
-            t = {"r-full-b": NOON, "r-full-a": NOON + 60, "r-up-old": NOON - 3 * 86400}[rid]
-            os.utime(Q.qdir(self.app, "req", rid + ".json"), (t, t))
-        labels = [o["label"] for o in Q.plan(self.app, R, {"ときのそら": 0, "ロボ子さん": 0}, now=NOON + 3600)]
-        self.assertTrue(labels[0].startswith("研究の頼み r-full-b") and labels[1].startswith("研究の頼み r-full-a"), labels)   # 頼んだ順・3 日待った短い音より先
-        os.remove(Q.qdir(self.app, "req", "r-full-b.json"))
-        os.remove(Q.qdir(self.app, "req", "r-full-a.json"))
-        labels = [o["label"] for o in Q.plan(self.app, R, {}, now=NOON + 3600)]
-        self.assertTrue(labels[0].startswith("研究の頼み r-up-old") and labels[1].startswith("声だけ"), labels)   # 尽きたら 24 時間を超えた頼み → 声の足りない人(10-26)
-        os.utime(Q.qdir(self.app, "req", "r-up-old.json"), (NOON, NOON))
-        labels = [o["label"] for o in Q.plan(self.app, R, {}, now=NOON + 3600)]
-        self.assertTrue(labels[0].startswith("声だけ") and labels[-1].startswith("研究の頼み r-up-old"), labels)   # 飢えていない頼みは声の足りない人より後
-        full = {"ときのそら": 2, "ロボ子さん": 2}
-        self.assertIn("r-up-old", Q.plan(self.app, R, full, now=NOON + 3600)[0]["label"])   # 声が足りていればふだんの点
+    def test_tier_balance_and_voice_interval(self):
+        """同じ段が 6 時間続いたら下の段に 1 回渡す・定期(声)を使ったら 2 時間は一番下・見える化の order.json"""
+        u = "https://www.youtube.com/watch?v="
+        for i in range(3):
+            self.put_at("r-full-%d" % i, {"url": u + "FULLVIDEO0%d" % i}, NOON + i)
+        self.put_at("r-up-x", {"url": u + "SHORTVIDE01", "section": [0, 300]}, NOON)
+        got = []
+        full = {"ときのそら": 999, "ロボ子さん": 999}
+        with mock.patch.object(Q, "_audio", lambda a, rid, url, sec: got.append(rid) or self.audio(a, rid, url, sec)):
+            self.tick(NOON, full)
+            self.tick(NOON + 7 * 3600, full)                                      # ④ が 7 時間続いた = ⑤ に 1 回
+            self.tick(NOON + 9 * 3600, full)
+        self.assertEqual(got, ["r-full-0", "r-up-x", "r-full-1"])
+        with open(Q.qdir(self.app, Q.ORDER_NAME), encoding="utf-8") as f:
+            self.assertEqual([(x["tier"], x["n"]) for x in json.load(f)["tiers"]], [(4, 2)])
+        with mock.patch.object(Q._vf, "tick", lambda *a, **k: got.append("voice") or "voice"),                 mock.patch.object(Q, "_audio", lambda a, rid, url, sec: got.append(rid) or self.audio(a, rid, url, sec)):
+            self.tick(NOON + 12 * 3600, {})                                       # 声が足りない = ③ が先
+            self.tick(NOON + 13 * 3600, {})                                       # 2 時間たっていない = ④
+        self.assertEqual(got[-2:], ["voice", "r-full-2"])
 
     def test_keep_dir_setting(self):
         """keep の置き場は設定 ytQueueKeepDir で作業データの外へ(10-26)。無い・ドライブが無い・相対なら作業データの中"""
