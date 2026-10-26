@@ -125,6 +125,8 @@ def seed(tmp, rnd, streams, samples):
                   "src": "auto" if analyzed and rnd.random() < 0.7 else "manual"}
             if mk["src"] == "auto":
                 mk.update({"score": round(rnd.uniform(2, 9.5), 2), "reasons": ["音量の山", "チャットの量"], "auto0": [s, e]})
+                if not any("YouTube" in r for x in marks for r in x.get("reasons") or []):   # 自動の 1 本目 = 足しの候補(heatmap の山。excite.HEAT_REASON の文だけが残る。10-26)
+                    mk["reasons"] = ["YouTube でよく見られている場面"]
             if st == "exported":
                 exported += 1
                 d = os.path.join(tmp, "exports", "%s_%s" % (ch, vid))

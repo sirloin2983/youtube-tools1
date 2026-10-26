@@ -754,6 +754,8 @@ def default_scenes(base):
         {"name": "cases-new-set", "url": base + "/#new?set=reg", "actions": [("wait", 2000)]},   # 探す設定(API キー・事務所の登録)
         {"name": "cases-cand", "url": cand, "header": True, "wide": True},
         {"name": "cases-cand-marks", "url": base + "/cases?c=demo0000002#cand"},   # マークのある配信(行の札・理由の札)
+        {"name": "cases-cand-heat", "url": base + "/cases?c=demo0000002#cand",   # マークを全部開いた形(足しの候補の理由の札が見える。10-26)
+         "actions": [("wait", 800), ("click", "#rvUnfoldAll"), ("wait", 300)]},
         {"name": "cases-cand-export", "url": cand, "actions": [("click", "#rvJump [data-jump=export]"), ("wait", 500)],
          "modal": {"root": "#rvExport", "opener": "#rvJump [data-jump=export]", "docked_from": 1680}},
         {"name": "cases-settings", "url": cand, "actions": [("click", "[data-ui-settings]"), ("wait", 400)], "modal": settings},
