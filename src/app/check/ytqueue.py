@@ -37,6 +37,7 @@
 """
 import contextlib
 import datetime
+import difflib
 import json
 import os
 import re
@@ -1038,6 +1039,10 @@ def _list_url(url, items):
 # ---------------------------------------------------------------- 友人のショートの元の配信(説明欄の【元配信】URL と ?t=。10-25 研究の非効率の洗い出し 1)
 SRC_NAME = "short-sources.json"   # {ショート: {"src": 元の配信の id か null, "t": 秒か null, "srcs": [説明欄の配信の id 全部], "n": その数,
                                   #  "tag": 【元配信】の行があるか, "at"}}。研究が rev_desc へ足す(複数の物は研究から外す。10-26)
+                                  # URL が無く【元配信】の行に題名だけ = "srcTitle": その題名・引けたら "src" と "srcBy": "title"(手元の題名)|"title-search"(検索)
+TITLE_RE = re.compile(r"(?:元配信|元動画|配信元)")
+TITLE_MATCH = 0.8                 # 題名の近さ(これ以上で同じ配信)
+TITLE_SEARCH_MAX = 2              # 1 回の読み直しで題名を検索する本数(yt-dlp の ytsearch1 = 軽い問い合わせ 1 回ずつ・1 本は 1 度だけ)
 SRC_EVERY = 6 * 3600              # 見直しの間隔(新しいショートだけ読む)
 URL_T_RE = re.compile(r"(?:youtu\.be/|[?&]v=|/live/)([A-Za-z0-9_-]{11})[^\s]*?(?:[?&]t=((?:\d+h)?(?:\d+m)?\d+s?|\d+))?(?=[\s&#)]|$)")
 
@@ -1068,6 +1073,79 @@ def sources_all(desc):
         if m.group(1) not in out:
             out.append(m.group(1))
     return out, "元配信" in str(desc or "")
+
+
+def source_title(desc):
+    """説明欄に配信の URL が無いとき、【元配信】(元動画・配信元)の行の題名 -> 題名か None(同じ行に無ければ次の空でない行)"""
+    if URL_T_RE.search(str(desc or "")):
+        return None
+    lines = [l.strip() for l in str(desc or "").splitlines()]
+    for i, line in enumerate(lines):
+        m = TITLE_RE.search(line)
+        if not m:
+            continue
+        rest = line[m.end():].strip(" 】]】:：・-")
+        if not rest:
+            rest = next((l for l in lines[i + 1:] if l), "")
+        if rest and "http" not in rest and not rest.startswith("#"):
+            return rest[:200]
+    return None
+
+
+def _norm_title(s):
+    return re.sub(r"\s+", "", str(s or "")).lower()
+
+
+def title_near(a, b):
+    """題名の近さ 0〜1(片方がもう片方に丸ごと入っていれば 1 = 説明欄は配信の題名の頭だけ書くことが多い)"""
+    a, b = _norm_title(a), _norm_title(b)
+    if min(len(a), len(b)) >= 8 and (a in b or b in a):
+        return 1.0
+    return difflib.SequenceMatcher(None, a, b).ratio()
+
+
+def _local_titles(app_dir):
+    """手元の配信の題名 {id: 題名}(keep の info.json)"""
+    out = {}
+    k = keep_dir(app_dir)
+    for v in (os.listdir(k) if os.path.isdir(k) else ()):
+        t = fsio.read_json_or(os.path.join(k, v, "info.json"), {}, kind=dict).get("title")
+        if isinstance(t, str) and t:
+            out[v] = t
+    return out
+
+
+def _search_title(title):
+    """yt-dlp の ytsearch1 で題名を 1 本だけ探す -> (id, 題名) か (None, None)"""
+    items, _err = _list_url("ytsearch1:" + title, 1)
+    it = items[0] if items else {}
+    return (it.get("id"), it.get("title")) if _vf.VIDEO_RE.match(str(it.get("id") or "")) else (None, None)
+
+
+def resolve_titles(app_dir, have, now, log):
+    """srcTitle があって src の無い行を、手元の題名で引き、無ければ検索で(TITLE_SEARCH_MAX 本まで・1 本は 1 度だけ)-> 引いた本数"""
+    todo = [v for v, x in have.items() if isinstance(x, dict) and x.get("srcTitle") and not x.get("src") and not x.get("searchAt")]
+    if not todo:
+        return 0
+    local, n, searched = _local_titles(app_dir), 0, 0
+    for v in todo:
+        x = have[v]
+        best = max(local.items(), key=lambda kv: title_near(kv[1], x["srcTitle"]), default=None)
+        if best and title_near(best[1], x["srcTitle"]) >= TITLE_MATCH:
+            x.update(src=best[0], srcBy="title")
+            n += 1
+            continue
+        if searched >= TITLE_SEARCH_MAX:
+            continue
+        searched += 1
+        x["searchAt"] = int(now)
+        vid, t = _search_title(x["srcTitle"])
+        if vid and title_near(t, x["srcTitle"]) >= TITLE_MATCH:
+            x.update(src=vid, srcBy="title-search")
+            n += 1
+    if n and log:
+        log("YouTube の取得の列: 説明欄に URL が無いショートの元の配信を題名で %d 本引きました" % n)
+    return n
 
 
 def friend_shorts(raw_dir):
@@ -1103,6 +1181,9 @@ def read_short_sources(app_dir, raw_dir, now, log):
             src, t = source_of(it.get("description"))
             srcs, tag = sources_all(it.get("description"))
             have[it["id"]] = {"src": src, "t": t, "srcs": srcs, "n": len(srcs), "tag": tag, "at": int(now)}
+            title = source_title(it.get("description")) if not src else None
+            if title:
+                have[it["id"]]["srcTitle"] = title
             n += 1
         got = {it["id"] for it in infos}
         for v in batch:
@@ -1111,6 +1192,8 @@ def read_short_sources(app_dir, raw_dir, now, log):
     if not todo:
         st["srcAt"] = now
     _save(app_dir, st)
+    if resolve_titles(app_dir, have, now, log) or any(x.get("searchAt") == int(now) for x in have.values() if isinstance(x, dict)):
+        n = n or 1   # 書き直す(引いた印・検索した印)
     if n:
         os.makedirs(qdir(app_dir), exist_ok=True)
         fsio.write_json(path + ".tmp", have, indent=None)

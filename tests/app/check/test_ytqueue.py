@@ -407,6 +407,30 @@ class YtQueueTest(unittest.TestCase):
             self.tick(NOON, full)
         self.assertTrue(Q.due(self.app, NOON + 60)[0])
 
+    def test_short_source_by_title(self):
+        """説明欄に URL が無く【元配信】の行に題名だけ = 手元の題名で引き、無ければ検索(1 本は 1 度だけ)・印 srcBy(10-26)"""
+        self.assertEqual(Q.source_title("【元配信】\n【 🔴3Dオフコラボ 】みんなで楽しく遊ぼう♩ | 1-2-Switch\n#ホロライブ"), "【 🔴3Dオフコラボ 】みんなで楽しく遊ぼう♩ | 1-2-Switch")
+        self.assertEqual(Q.source_title("元配信：晩酌の配信"), "晩酌の配信")
+        self.assertIsNone(Q.source_title("【元配信】\nhttps://youtu.be/AAAAAAAAAAA"))
+        self.assertIsNone(Q.source_title("#ホロライブ"))
+        os.makedirs(Q.keep_dir(self.app, "LOCALVIDE01"))
+        with open(Q.keep_dir(self.app, "LOCALVIDE01", "info.json"), "w", encoding="utf-8") as f:
+            json.dump({"title": "【 🔴3Dオフコラボ 】みんなで楽しく遊ぼう♩ | 1-2-Switch【 #スバおかすい/ホロライブ 】"}, f)
+        have = {"S1": {"src": None, "srcTitle": "【 🔴3Dオフコラボ 】みんなで楽しく遊ぼう♩ | 1-2-Switch"},
+                "S2": {"src": None, "srcTitle": "【 晩酌 】ラミィと買い物行ってそのままねねん家で晩酌!"},
+                "S3": {"src": "XXXXXXXXXXX"}}
+        seen = []
+
+        def search(title):
+            seen.append(title)
+            return "FOUNDVIDE01", "【 晩酌 】ラミィと買い物行ってそのままねねん家で晩酌!【 桃鈴ねね / 雪花ラミィ 】"
+        with mock.patch.object(Q, "_search_title", search):
+            self.assertEqual(Q.resolve_titles(self.app, have, NOON, None), 2)
+            self.assertEqual(Q.resolve_titles(self.app, have, NOON + 60, None), 0)   # もう探さない
+        self.assertEqual((have["S1"]["src"], have["S1"]["srcBy"]), ("LOCALVIDE01", "title"))
+        self.assertEqual((have["S2"]["src"], have["S2"]["srcBy"]), ("FOUNDVIDE01", "title-search"))
+        self.assertEqual(len(seen), 1)                                              # 手元で引けた物は検索しない
+
     def test_short_sources_by_api(self):
         """友人のショート(分析の記録の videos の short)の説明欄を API で読み、元の配信と ?t= を short-sources.json に(枠は使わない)"""
         raw = os.path.join(self.app, "raw")
