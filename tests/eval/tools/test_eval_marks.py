@@ -792,8 +792,8 @@ class FriendRanges(unittest.TestCase):
         env.runs([run_row(V1, [[110, 130], [310, 330], [510, 530]])])
         c_ = self.fr(env)["overall"]["contribution"]
         self.assertEqual(c_["hits"], 2)      # 内訳の無い候補は数えない
-        self.assertEqual(c_["on"], {"audio": 1, "chat": 1, "comments": 1})
-        self.assertEqual(c_["dominant"], {"audio": 1, "chat": 1, "comments": 0})
+        self.assertEqual(c_["on"], {"audio": 1, "chat": 1, "comments": 1, "heat": 0})   # heat = 点に足した heatmap(10-26)
+        self.assertEqual(c_["dominant"], {"audio": 1, "chat": 1, "comments": 0, "heat": 0})
         self.assertEqual(c_["reasons"], {"音量が急上昇": 1, "チャットが急増": 1, "コメント欄で時刻が指定されている": 1})
         # 内訳がどの候補にも無ければ None(表示も出さない)
         env.data({V1: video(V1, [mark("c", 500.0, 540.0, 3.0)])})
