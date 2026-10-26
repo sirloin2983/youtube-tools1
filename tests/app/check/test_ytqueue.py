@@ -421,6 +421,17 @@ class YtQueueTest(unittest.TestCase):
         with open(Q.qdir(self.app, Q.SRC_NAME), encoding="utf-8") as f:
             d = json.load(f)
         self.assertEqual((d["SHORTVID001"]["src"], d["SHORTVID001"]["t"], d["SHORTVID002"]["src"]), ("SRCVIDEO001", 1200, None))
+        self.assertEqual((d["SHORTVID001"]["srcs"], d["SHORTVID001"]["n"], d["SHORTVID001"]["tag"], d["SHORTVID002"]["tag"]),
+                         (["SRCVIDEO001"], 1, True, False))
+        self.assertEqual(Q.sources_all("元: https://youtu.be/AAAAAAAAAAA?t=5\nhttps://www.youtube.com/watch?v=BBBBBBBBBBB https://youtu.be/AAAAAAAAAAA"),
+                         (["AAAAAAAAAAA", "BBBBBBBBBBB"], False))                 # 全部の id(重ねない)・【元配信】の行なし
+        d["SHORTVID002"] = {"src": None, "t": None, "at": 1}                     # srcs の無い古い行 = 次の読み直しで埋める
+        with open(Q.qdir(self.app, Q.SRC_NAME), "w", encoding="utf-8") as f:
+            json.dump(d, f)
+        with mock.patch.object(Q._ytapi, "get", lambda path, params: got):
+            Q.read_short_sources(self.app, raw, NOON + 7 * 3600, self.logs.append)
+        with open(Q.qdir(self.app, Q.SRC_NAME), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["SHORTVID002"]["srcs"], [])
         self.assertTrue(Q.due(self.app, NOON)[0])                                # 枠は使っていない
 
     def test_eval_sources_blocked(self):

@@ -1036,7 +1036,8 @@ def _list_url(url, items):
 
 
 # ---------------------------------------------------------------- 友人のショートの元の配信(説明欄の【元配信】URL と ?t=。10-25 研究の非効率の洗い出し 1)
-SRC_NAME = "short-sources.json"   # {ショート: {"src": 元の配信の id か null, "t": 秒か null, "at"}}。研究が rev_desc へ足す
+SRC_NAME = "short-sources.json"   # {ショート: {"src": 元の配信の id か null, "t": 秒か null, "srcs": [説明欄の配信の id 全部], "n": その数,
+                                  #  "tag": 【元配信】の行があるか, "at"}}。研究が rev_desc へ足す(複数の物は研究から外す。10-26)
 SRC_EVERY = 6 * 3600              # 見直しの間隔(新しいショートだけ読む)
 URL_T_RE = re.compile(r"(?:youtu\.be/|[?&]v=|/live/)([A-Za-z0-9_-]{11})[^\s]*?(?:[?&]t=((?:\d+h)?(?:\d+m)?\d+s?|\d+))?(?=[\s&#)]|$)")
 
@@ -1060,6 +1061,15 @@ def source_of(desc):
     return None, None
 
 
+def sources_all(desc):
+    """説明欄 -> (配信らしい URL の id 全部(出た順・重ねない), 【元配信】の行があるか)。本文は残さない"""
+    out = []
+    for m in URL_T_RE.finditer(str(desc or "")):
+        if m.group(1) not in out:
+            out.append(m.group(1))
+    return out, "元配信" in str(desc or "")
+
+
 def friend_shorts(raw_dir):
     """友人のチャンネルのショートの id(分析の取得の最新の記録 analytics/raw の videos の short)"""
     try:
@@ -1078,7 +1088,7 @@ def read_short_sources(app_dir, raw_dir, now, log):
     today = datetime.date.fromtimestamp(now).isoformat()
     path = qdir(app_dir, SRC_NAME)
     have = fsio.read_json_or(path, {}, kind=dict)
-    todo = [v for v in friend_shorts(raw_dir) if v not in have]
+    todo = [v for v in friend_shorts(raw_dir) if v not in have or "srcs" not in have[v]]   # srcs の無い古い行も読み直す(10-26)
     n = 0
     while todo and _api_left(st, today) > 0 and st.get("apiOff") != today:
         batch, todo = todo[:50], todo[50:]
@@ -1091,10 +1101,13 @@ def read_short_sources(app_dir, raw_dir, now, log):
         _api_count(st, today, 1)
         for it in infos:
             src, t = source_of(it.get("description"))
-            have[it["id"]] = {"src": src, "t": t, "at": int(now)}
+            srcs, tag = sources_all(it.get("description"))
+            have[it["id"]] = {"src": src, "t": t, "srcs": srcs, "n": len(srcs), "tag": tag, "at": int(now)}
             n += 1
+        got = {it["id"] for it in infos}
         for v in batch:
-            have.setdefault(v, {"src": None, "t": None, "at": int(now), "gone": True})
+            if v not in got and "srcs" not in have.get(v, {}):
+                have[v] = {"src": None, "t": None, "srcs": [], "n": 0, "tag": False, "at": int(now), "gone": True}
     if not todo:
         st["srcAt"] = now
     _save(app_dir, st)
