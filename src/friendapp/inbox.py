@@ -74,6 +74,8 @@ REMOTE_FAILS_MAX = 20
 RETRY_MAX = 3                       # 直る見込みのある失敗の自動のやり直しの回数(C-2-16。api が数える)
 TAKEN_RE = re.compile(r"もう作っています")   # 受付が引き継いだ依頼の 2 通目を断る言葉(human/friend/bugs.guard)
 STATS_KEEP = 5                     # 段ごとにかかった秒を覚える数(残り時間の見積もり = progress.eta)
+TALLY_DAYS = 7                     # 決めた時刻を覚える日数(状態の書き出しの要約 = 友人の判定がどれだけ付いているか。行は 3 日で片付くので別に持つ。10-26)
+TALLY_KINDS = ("keep", "skip", "bad", "auto")   # auto = 3 日の自動の見送り(人が押したのではない)
 
 
 def pack_name(d):
@@ -117,6 +119,7 @@ class Inbox:
         self.stats = {}                 # 段ごとにかかった秒 {段の名前: [秒, …]}(F3-3。新しい順・STATS_KEEP まで)
         self.nums = {}                  # 配信ごとの通し番号の最後 {配信の鍵: n}(C-3-2。見送って消えた番号も使い回さない)
         self.notice = None              # 3 日の自動の片付けの知らせ {n, at}(画面に 1 行。見たら消す)
+        self.tally = {}                 # 決めた時刻 {keep・skip・bad・auto: [ミリ秒, …]}(TALLY_DAYS 日まで。数だけ・題名は持たない)
         self.stream_info = lambda vid: None   # 配信の一覧の 1 件(題・配信者・始まった時刻。玄関が streams.lookup を入れる)
         self.on_fail = None             # fail で行を失敗にしたとき on_fail(行の写し)(② の前の失敗の診断。玄関が friendapp/diag を入れる)
         self.rows = self._load()
@@ -146,6 +149,9 @@ class Inbox:
             self.nums = {k: v for k, v in nums.items() if isinstance(k, str) and isinstance(v, int) and not isinstance(v, bool) and v >= 0}
         if isinstance(d, dict) and isinstance(d.get("notice"), dict):
             self.notice = d["notice"]
+        ta = d.get("tally") if isinstance(d, dict) else None
+        if isinstance(ta, dict):
+            self.tally = {k: [x for x in ta.get(k) or [] if isinstance(x, int) and not isinstance(x, bool)] for k in TALLY_KINDS if isinstance(ta.get(k), list)}
         out = [r for r in rows if isinstance(r, dict) and ROW_ID_RE.match(str(r.get("id") or "")) and r.get("state") in STATES] if isinstance(rows, list) else []
         for r in out:   # 番号の無いパックに番号
             for p in r.get("packs") or []:
@@ -154,7 +160,8 @@ class Inbox:
         return out
 
     def _save(self):
-        fsio.write_json(self.path, {"v": V, "rows": self.rows, "stats": self.stats, "nums": self.nums, "notice": self.notice}, indent=None)
+        fsio.write_json(self.path, {"v": V, "rows": self.rows, "stats": self.stats, "nums": self.nums, "notice": self.notice, "tally": self.tally},
+                        indent=None)
 
     def _number(self, r, p):
         """届いたパックに配信ごとの通し番号を振る(C-3-2。2 回目の依頼は続きから)と届いた時刻(3 日を数える)"""
@@ -838,6 +845,7 @@ class Inbox:
                         errors.append({"name": p["name"], "message": self._move_failed(verdict, e)})
                         continue
                 p.update(verdict=verdict, reason=reason if verdict == "bad" else None, at=self._now_ms(), by=by, want=None)
+                self._tally("auto" if by == "auto" else verdict, p["at"])
                 if verdict == "keep" or by == "auto":
                     self._drop_preview(p)
                 done.append(p["name"])
@@ -1054,6 +1062,24 @@ class Inbox:
         trashbin.purge(self.trash_dir(), KEEP_DAYS, self.clock())
 
     # ------------------------------------------------------------ 画面へ
+    def _tally(self, kind, at):
+        """決めた 1 件を数える(TALLY_DAYS 日より古い物は落とす)"""
+        keep_from = at - TALLY_DAYS * DAY * 1000
+        for k in list(self.tally):
+            self.tally[k] = [x for x in self.tally[k] if x >= keep_from]
+        self.tally.setdefault(kind, []).append(at)
+
+    def summary(self):
+        """受け取るの箱の数の要約(状態の書き出しの inbox 欄。数だけ)->
+        {"undecided": 届いて未決めのパック, "oldestArrivedAt": その一番古い届いた時刻(ミリ秒)か None, "decided7d": {keep・skip・bad・auto: 直近 7 日の数}}"""
+        with self.lock:
+            now = self._now_ms()
+            arrived = [p.get("arrivedAt") or r.get("arrivedAt") for r in self.rows if r["state"] in ("arrived", "recording")
+                       for p in r["packs"] if not p["verdict"]]
+            since = now - TALLY_DAYS * DAY * 1000
+            return {"undecided": len(arrived), "oldestArrivedAt": min([a for a in arrived if isinstance(a, int)], default=None),
+                    "decided7d": {k: sum(1 for x in self.tally.get(k) or [] if x >= since) for k in TALLY_KINDS}}
+
     def view(self, status_of=None):
         """送った物の行(done は出さない)。status_of(run_id) = ② の実行の状態(作っている行の進み具合)か None"""
         with self.lock:
