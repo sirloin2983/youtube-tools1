@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""文字起こしの認識エンジンの口(精度改善の計画 段2。notes:plan/line-b-transcription.md(付録))。
+"""文字起こしの認識エンジンの口(精度改善の計画 段2。資料の git:before-1028-cleanup:plan/line-b-transcription.md(付録))。
 
 認識ワーカー(worker.py)が読み込むモデルは、ここのエンジンの1つとして作る。
   faster-whisper … CPU の逃げ道(GPU が実行時に失敗したときの CPU・再認識・時刻の候補など内部の自動の使い道)。段2-1
@@ -537,7 +537,7 @@ class WhisperCpp(Engine):
         a = ["-m", _ascii_path(model or self.model["model"], cwd), "-f", _ascii_path(wav, cwd), "-ojf", "-of", _ascii_path(out_base, cwd), "-pp",
              "-t", str(half_cpu()), "-l", str(kw.get("language") or "auto"), "-bs", str(int(kw.get("beam_size") or 5))]
         if kw.get("condition_on_previous_text") is False:
-            a += ["-mc", "0"]   # 前の文を文脈にしない(faster-whisper と同じ)。注意: whisper.cpp は -mc 0 だと --prompt(用語集のヒント)も使わない(10-08 はヒントで上がらず、10-23 に -mc 16〜64 + --carry-initial-prompt で渡すと声の少ない所で名前を書き写して組 A 8.4 → 31〜41% = -mc 0 のまま。notes:plan/hint-whispercpp-1023.md)
+            a += ["-mc", "0"]   # 前の文を文脈にしない(faster-whisper と同じ)。注意: whisper.cpp は -mc 0 だと --prompt(用語集のヒント)も使わない(10-08 はヒントで上がらず、10-23 に -mc 16〜64 + --carry-initial-prompt で渡すと声の少ない所で名前を書き写して組 A 8.4 → 31〜41% = -mc 0 のまま。資料の git:before-1028-cleanup:plan/hint-whispercpp-1023.md)
         if not self.flash_attn():
             a += ["-nfa"]
         if self.dtw():
@@ -682,7 +682,7 @@ def parse_json(data, dtw_shift=None, dtw_counts=None, duration=None):
     """whisper-cli の -ojf の結果 → faster-whisper と同じ属性の行の一覧。単語 = 文字のトークン(特別なトークン [_…] は除く)。
     dtw_shift(秒)= -dtw で出した単語の始まり(t_dtw)を使う: 始まり = t_dtw − dtw_shift(前の単語・0 より前にしない)・終わりは今の時刻(offsets)のまま・
     t_dtw が無い・崩れた単語は今の時刻のまま。行の始まりは最初の単語の始まり。dtw_counts に {"words", "dropped"(今の時刻のままにした数)} を足す
-    (notes:plan/row-start-study.md の最終試験。人が直した行の始まりのずれ |中央値| 0.52 → 0.18 秒)。
+    (資料の git:before-1028-cleanup:plan/row-start-study.md の最終試験。人が直した行の始まりのずれ |中央値| 0.52 → 0.18 秒)。
     avg_logprob はトークンの確率の対数の平均(faster-whisper の値と同じ尺度の近い値)、compression_ratio は文字列の zlib の圧縮率(faster-whisper と同じ式)"""
     out = []
     for seg in data.get("transcription") or []:

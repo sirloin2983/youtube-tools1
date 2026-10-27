@@ -57,7 +57,7 @@ function saveDoc(){
   return docSaveP;
 }
 
-/* ---------- 字幕の文字数(notes:docs/design/edit-tool-design.md の 12 ②。設定の subtitle。範囲の確認はサーバーの subtitle_settings と同じ) ---------- */
+/* ---------- 字幕の文字数(資料の git:before-1028-cleanup:docs/design/edit-tool-design.md の 12 ②。設定の subtitle。範囲の確認はサーバーの subtitle_settings と同じ) ---------- */
 
 function subNum(v, lo, hi, dv){ const n = Math.round(Number(v)); return Number.isFinite(n) && n >= lo && n <= hi ? n : dv; }
 

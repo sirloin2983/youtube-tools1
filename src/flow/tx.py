@@ -32,7 +32,7 @@ from . import keys as _keys, machine as _machine
 # ---------- 学習データ(置換辞書と名簿)----------
 def dict_pairs(spec):
     """置換辞書の組 [(誤, 正)](autoDict のときだけ。評価用の文書は autoDict が外れるので当たらない)= 設定の replacements + 名簿の呼び名の表記ゆれ(roster.variant_pairs。
-    はーちゃま → はあちゃま・ラミー → ラミィ・吹雪 → フブキ。確かめ済み 22 本で名前の再現率 28 → 40/53・普段の文書 1045 行で変わる行 0 = notes:plan/line-b-transcription.md の実験ループ B)。
+    はーちゃま → はあちゃま・ラミー → ラミィ・吹雪 → フブキ。確かめ済み 22 本で名前の再現率 28 → 40/53・普段の文書 1045 行で変わる行 0 = 資料の git:before-1028-cleanup:plan/line-b-transcription.md の実験ループ B)。
     設定の組が先(ユーザーの辞書が名簿の表より強い)。名簿が読めなければ設定の組だけ。
     ② が足すこと = 学習データ(設定の辞書と名簿のファイル)を読んで ① の表記ゆれの表と合わせる(RS6 a-3)"""
     if not spec.get("autoDict"):

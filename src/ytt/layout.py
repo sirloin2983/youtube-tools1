@@ -1,4 +1,4 @@
-"""リポジトリの中のフォルダの並び(段0 の改名は `notes:docs/design/phase0-restructure.md`)。
+"""リポジトリの中のフォルダの並び(段0 の改名は `資料の git:before-1028-cleanup:docs/design/phase0-restructure.md`)。
 
     <リポジトリ直下>/            start.bat・push.bat・README.txt・AGENTS.md(保管庫への案内)・setup/・dev/(ユーザーと AI が触る。資料 docs/・plan/ は保管庫 notes_root())
       src/                       動くコード = ツール(home・studio・editor・cut2resolve・recorder)・共通部品(ytt・ui-kit)・役割の層(pipeline・human・manage・eval・app)

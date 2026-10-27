@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""友人の玄関の置き場所(notes:docs/design/friend-history.md の 7 章)。
+"""友人の玄関の置き場所(資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。
 
 アプリのフォルダ(home)1 つに全部入る形(7-1。友人が選ぶのは一時保管だけ = ⚙):
     <home>/app-<版>/       版のフォルダ(Python・src・画面の部品。FriendApp.exe が選ぶ)。開発の PC では <home>/src がじかにある

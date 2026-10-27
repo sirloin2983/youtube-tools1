@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""音の照合(線 D の P4。notes:plan/line-d-live-clipping.md の 0-9)の子プロセス。**入口のプロセスから import しない**
+"""音の照合(線 D の P4。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0-9)の子プロセス。**入口のプロセスから import しない**
 (入口では numpy を読み込まない決まり。src/flow/live_archive.py が `python live_align_worker.py <ref.wav> <window.wav>` で動かす)。
 
     py -3.12 src/pipeline/ingest/live_align_worker.py <ref.wav> <window.wav>

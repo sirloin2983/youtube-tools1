@@ -8,8 +8,8 @@
 
 ## src/eval/check/
 
-- **__init__.py** (2 行) — ⑤ 確かめるの待ち行列(V1。カードの出どころ sources・並び lineup・目標との対応 goals・組み立て deck。notes:docs/design/v1-check-build.md)
-- **goals.py** (69 行) — 「確かめる」のカードの種類 → 入口の条件(src/eval/drill/accuracy.py の GOALS)の対応と、答えの数え方(V1 の V0。notes:docs/design/v1-check-build.md の 2-3)。
+- **__init__.py** (2 行) — ⑤ 確かめるの待ち行列(V1。カードの出どころ sources・並び lineup・目標との対応 goals・組み立て deck。資料の git:before-1028-cleanup:docs/design/v1-check-build.md)
+- **goals.py** (69 行) — 「確かめる」のカードの種類 → 入口の条件(src/eval/drill/accuracy.py の GOALS)の対応と、答えの数え方(V1 の V0。資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 2-3)。
   - 名前: `goal_of` :22・`extra_counter` :27・`extra_from` :49・`by_kind` :57・`view` :63
 
 ## src/eval/drill/
@@ -41,7 +41,7 @@
   - 名前: `load_material` :35・`rebuild` :51・`picks` :75・`fit` :86・`summarize` :98・`default_variants` :108・`friend_material` :116・`evaluate` :128・`edge_speech` :189・`scene_only` :247・`grid` :262・`print_fit` :294・ほか 1
 - **eval_alt.py** (533 行) — 「2つ目のエンジンとの食い違いの候補」(行に出る札「別」)が、校正を本当に速くしているかを数字で見る道具(候補の当たり率)。
   - 名前: `locate` :67・`name_checker` :72・`read_alt` :79・`read_feedback` :87・`read_answers` :98・`clean_rows` :121・`fold_text` :128・`class Group` :138・`map_span` :163・`judge_candidate` :181・`match_answer` :214・`judge_doc` :224・ほか 7
-- **eval_asr.py** (1003 行) — 文字起こしの精度を、校正済みの文字起こし(評価用)で測る道具(文字起こしの改善の計画 段0-2。notes:plan/line-b-transcription.md(付録))。
+- **eval_asr.py** (1003 行) — 文字起こしの精度を、校正済みの文字起こし(評価用)で測る道具(文字起こしの改善の計画 段0-2。資料の git:before-1028-cleanup:plan/line-b-transcription.md(付録))。
   - 名前: `real_data_dir` :102・`load_docs` :107・`has_proofed` :122・`whole_video` :126・`resolve_source` :137・`doc_time` :141・`select_docs` :155・`pick_reviewed` :178・`runs_of` :188・`draft_run` :193・`draft_of` :200・`run_label` :213・ほか 40
 - **eval_cloud.py** (509 行) — クラウドの文字起こし(OpenAI・ElevenLabs)に評価用の音声を送り、手元のエンジンと同じ物差し(src/eval/tools/eval_asr.py の採点)で測る道具
   - 名前: `request_fields` :77・`timing_kind` :91・`multipart` :98・`http_json` :110・`auth_headers` :129・`scrub` :133・`send_audio` :141・`delete_remote` :154・`rows_from_words` :178・`rows_from` :210・`cache_dir` :225・`audio_span` :229・ほか 17
@@ -49,9 +49,9 @@
   - 名前: `ms_of` :56・`read_edit` :61・`read_draft` :91・`pack_final` :107・`find_pack` :132・`clean` :162・`compare` :173・`class Agg` :215・`fmt_val` :255・`sig_of` :259・`evaluate` :265・`print_agg` :333・ほか 3
 - **eval_fill.py** (393 行) — 認識のあとの後処理(src/pipeline/transcribe/fill.py・llm.py。A 文字の少ない行を別の読みで埋める・D 名簿の呼び名の 1 字違いを直す・
   - 名前: `fold` :65・`edit_distance` :70・`rows_of` :77・`overlap` :89・`first_run` :93・`answer_of` :102・`answer_before` :106・`answer_time` :112・`checked_around` :117・`raw_text` :126・`match_seg` :132・`closer_of` :146・ほか 14
-- **eval_marks.py** (1211 行) — 盛り上がりの検出(スタジオの自動マーク)の当たり具合を、人の判定の記録で測る道具(線 C の土台。notes:plan/line-bc-master-plan.md の Q3・I-4a)。
+- **eval_marks.py** (1211 行) — 盛り上がりの検出(スタジオの自動マーク)の当たり具合を、人の判定の記録で測る道具(線 C の土台。資料の git:before-1028-cleanup:plan/line-bc-master-plan.md の Q3・I-4a)。
   - 名前: `read_jsonl` :90・`locate` :109・`studio_videos` :115・`load_machine` :124・`human_marks` :137・`archive_reader` :148・`run_records` :159・`load_runs` :164・`ts_ms` :184・`dist` :191・`same` :196・`pair` :200・ほか 32
-- **eval_speakers.py** (1103 行) — 話者の判別(と覚えた声の照合)の当たり具合を、人が直した最終で測る道具(線 B の話者の評価。notes:plan/line-bc-master-plan.md の Q3・I-2a)。
+- **eval_speakers.py** (1103 行) — 話者の判別(と覚えた声の照合)の当たり具合を、人が直した最終で測る道具(線 B の話者の評価。資料の git:before-1028-cleanup:plan/line-bc-master-plan.md の Q3・I-2a)。
   - 名前: `read_diar` :96・`norm_name` :105・`hungarian_max` :109・`best_mapping` :160・`time_edited_flags` :174・`is_other_row` :195・`in_period` :200・`confirm_map` :204・`human_rows` :235・`overlap_rows` :276・`class Overlap` :301・`new_counts` :324・ほか 31
 - **eval_timing.py** (446 行) — 行の時刻(字幕の区間)を、行の時刻の原則(notes:docs/spec/subtitles.md)の数字で測る道具(notes:plan/done/line-b-row-timing.md の 7-4)。
   - 名前: `current_variant` :68・`letters` :76・`text_rows` :81・`text_match` :96・`best_overlap` :102・`measure_rows` :112・`boundary_agreement` :154・`boundary_sum` :178・`summarize` :186・`post_label` :196・`engine_label` :216・`doc_record` :224・ほか 12

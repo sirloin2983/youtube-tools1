@@ -279,7 +279,7 @@ def attach_board(board):
     board.register("tx", source=TX_TABLE.board_jobs, cancel=board_cancel)
 
 
-# ---------- ② の 1 つの器 Table(OPT2 後半 J6。notes:docs/design/opt2-jobs-plan.md の 3) ----------
+# ---------- ② の 1 つの器 Table(OPT2 後半 J6。資料の git:before-1028-cleanup:docs/design/opt2-jobs-plan.md の 3) ----------
 # 解析 an(flow/batch.Batch)・書き出し ex(flow/export.ExportJobs)・パック pk(flow/packjobs.PackJobs)が同じコードの上に乗る。
 # 積む・lanes 本の糸で古い順に動かす・重い処理の枠 SLOTS・状態・取り消し・やり直し・履歴 keep・busy・掲示板への写しはここ 1 か所。
 # 種類ごとの違い(受け入れの規則 admit・kind・title・本体 run・掲示板の形 board_job など)は引数。① の中身は書かない(run は呼び手が渡す)。

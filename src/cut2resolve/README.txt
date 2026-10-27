@@ -160,7 +160,7 @@ cut2resolve(「編集」の部品・API。版は全体で 1 つ = ytt/version.py
   - 途中のファイルの「作業用」フォルダ(ytt_core と同じ名前 cut2resolve_core.WORK_DIR): 余白つき素材の .edit.json・動画と同じ名前の字幕/文字起こしの候補は
     作業用\ → 動画の隣の順に探す。文字起こしの JSON が 作業用 の中なら、動画は1つ上から探す
 
-■ Text+ 字幕の見た目・2 段・パックの最小限(notes:docs/design/edit-tool-design.md の 12)
+■ Text+ 字幕の見た目・2 段・パックの最小限(資料の git:before-1028-cleanup:docs/design/edit-tool-design.md の 12)
   - Text+ 字幕の見た目はユーザーの指定(①): フォント「けいふぉんと」Regular・黒い文字・白いふち(太さ 0.12・少しずらす)・外側の黒いふち(0.18)・大きさ 0.14・
     アンカー 下/中央。スクリプトが値を入れ、最初の字幕で読み直して、入らなかった項目は結果の記録に出す(resolve_textplus.TEXT_STYLE・style_inputs)。
     けいふぉんと はパックに入れない(友人が各自で入れる)。無ければ Windows の日本語フォントを自動で選び、結果の記録を要確認にする
@@ -191,7 +191,7 @@ cut2resolve(「編集」の部品・API。版は全体で 1 つ = ytt/version.py
 ■ 文字起こしツールの Resolve パッケージとの一本化
   - パックを作るのは pack.py だけ(文字起こしツールの「Resolveパッケージ(zip)」は 10-24 に無くした)。
     文字起こしの行を残すときの規則は pack.TRANSCRIPT_ROWS(行の時間だけ・短い行も残す・1フレームの隙間はつなぐ)。
-    同じ入力から同じ中身になることは tests/dev/test_resolve_pack_contract.py が確かめる。詳しくは notes:docs/design/resolve-pack-unification.md
+    同じ入力から同じ中身になることは tests/dev/test_resolve_pack_contract.py が確かめる。詳しくは 資料の git:before-1028-cleanup:docs/design/resolve-pack-unification.md
   - 切り抜きスタジオの前後の余白つき素材(.edit.json)を、動画を入れるパックで使う(上の「3. 書き出し」)
   - 時刻をフレームに直すときの丸めは四捨五入(0.5 は大きい方へ)。Python の round(偶数への丸め)だと、30fps の 0.15 秒(4.5 フレーム)が 4、0.25 秒(7.5 フレーム)が 8 と、
     ちょうど半フレームの時刻が上下ばらばらに丸まって 1 フレームずれることがあるため。文字起こしツールと同じ規則

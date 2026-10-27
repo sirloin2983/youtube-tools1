@@ -25,7 +25,7 @@ from . import doc_jobs  # noqa: E402   _fresh_id・glossary_of・split_chars_for
 from . import layers as _layers  # noqa: E402   再認識(機械の層の差し替え・印 MACH_CHANGED)
 
 
-# ---------- 再認識で差し替えた機械の出力の記録(マスタープラン Q2 = notes:plan/line-bc-master-plan.md の Q2。original を差し替える前の分を recognition.runs に残す) ----------
+# ---------- 再認識で差し替えた機械の出力の記録(マスタープラン Q2 = 資料の git:before-1028-cleanup:plan/line-bc-master-plan.md の Q2。original を差し替える前の分を recognition.runs に残す) ----------
 MAX_RERUNS = 30             # recognition.runs に残す再認識の記録の件数(古いものから捨てる。最初の認識の記録 = kind の無いものは捨てない)
 MAX_REPLACED_ROWS = 20000   # 再認識の記録の replaced の行の合計の上限(超えたら古い記録から捨てる。文書が大きくなりすぎないように)
 

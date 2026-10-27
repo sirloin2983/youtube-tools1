@@ -49,7 +49,7 @@
 - `.lag.keep`: 短いラベル + select の組を折り返さない(狭い画面で1文字ずつ縦に割れないように)
 - `UIKit.fmt.ago(ms)`(「3日前」「今日 14:32」)・`UIKit.fmt.date(ms)`・`UIKit.fmt.dur(秒)`・`UIKit.esc(s)`
 
-## v4(2026-09-26・「編集」: 文字起こし + cut2resolve の統合。`notes:docs/design/edit-tool-design.md`)
+## v4(2026-09-26・「編集」: 文字起こし + cut2resolve の統合。`資料の git:before-1028-cleanup:docs/design/edit-tool-design.md`)
 - ツールの一覧(`UIKit.tools`)の transcribe の表示名を「編集」(カット・字幕・Resolve へのパック)に
 - cut2resolve は `hidden: true`: 一覧には残す(編集が `UIKit.tools.base('cut2resolve')` でパックの API を呼ぶ)が、「他のツール」のメニューには出さない
 - 写し先は無い(各ツールは正本を直接読む。写す道具 dev/sync_ui_kit.py は消した)
@@ -222,7 +222,7 @@
 - 鳴っている間は 2 秒ごとに送り直し、受ける側は 6 秒来なければ止まったとみなす(窓を閉じた・落ちたとき)
 - `UIKit.sound.other(tool?)` = ほかの窓(tool を渡せばそのツール以外)で鳴っているか・`UIKit.sound.onChange(fn)`。各画面で足すものは無い(ui-kit が自動で見る)。使うのはスタジオのライブの録画(`src/app/ui/studio/review.js` の `duckMode`)
 
-## v16(2026-10-05・線 D「リアルタイム切り抜き」P3。`UIKit.liveBadge`。`notes:plan/line-d-live-clipping.md` の 0-8)
+## v16(2026-10-05・線 D「リアルタイム切り抜き」P3。`UIKit.liveBadge`。`資料の git:before-1028-cleanup:plan/line-d-live-clipping.md` の 0-8)
 全ツールのヘッダーの「録画中」の札。**録画があるときだけ**、appnav のあるヘッダー(`.ui-header` の中の `.ui-header-actions` の先頭)に出る。**ヘッダーの HTML に足すものは無い**(JS が作る)。
 録画が無い・機能がオフ・合言葉(`ytt-token`)が無いページ(入口を通さない単独起動)では、要素も作らない(場所も取らない)。
 - データ: 入口の `POST api/ytt/live {op: "status"}`(相対パス。合言葉 `X-YTT-Token` は他の `api/ytt/…` と同じ)→ `{enabled, recordings: [{recorder, id, title, state, active, seconds, endedAt, url}]}`。
@@ -316,7 +316,7 @@
   節の要素には `id="uiSetGroup-<節の id>"`(ほかの画面からのリンク先。`settings#uiSetGroup-intake`)。`UIKit.settingsForm.filter(root, text)` は検索(ラベル・説明・鍵)。入口の `/settings`(`src/app/ui/settings/`)が使う。各ツールの ⚙ は今までの作り(S2・S3 で置いた)
 - `UIKit.settings.general()` … ⚙ の「全体」の節(テーマ・文字の大きさ・キーの帯)の要素。/settings にも置く。入口に取り込まれている画面の「全体」の節には「すべての設定を 1 つの画面で → 設定の画面を開く」(`/settings`)が付く
 
-## v26(2026-10-11・RS8 案件の画面 C1。`notes:docs/design/rs8-cases-build.md`)
+## v26(2026-10-11・RS8 案件の画面 C1。`資料の git:before-1028-cleanup:docs/design/rs8-cases-build.md`)
 - 左の一覧 `.ui-rail`(ui-kit.css)… 1 行 = `button.ui-rail-item`(Tab で届く)の中に `.ui-rail-t`(`<b>` の名前 + `.ui-rail-s` の 1 行の説明)と状態の札 `.pill`。選んだ行は `aria-current="true"`(左の線と薄い青)。見出しは `.ui-rail-sep`。
   行の中の札は行と一緒に押される物なので `data-ui-audit-allow="A-33"` を付ける。案件の画面(`src/app/ui/cases/`)が使う
 - 共通の再生キーにできないキー(`PB_BLOCKED`)に `Shift+N`(案件: 次の未校正の切り抜き)。`UIKit.version` は 26

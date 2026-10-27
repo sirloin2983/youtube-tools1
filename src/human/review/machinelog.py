@@ -20,7 +20,7 @@ FILE = "machine_marks.jsonl"
 MAX_BYTES = 32 * 1024 * 1024   # 1行 500〜800 バイトなので約5万件。超えたら .old の末尾へ移す(消さない)
 SETTING_KEYS = ("sensitivity", "length", "preRatio", "lag", "lagAuto", "headSec", "wAudio", "wChat", "wComments")
 JUDGED_EVENTS = ("adopt", "reject", "delete", "export")   # 機械の様子を残すきっかけ(採否の正は judgments。export は書き出した = 起きた事実)
-# 見逃しの出来事(Q2 = notes:plan/line-bc-master-plan.md の Q2。機械の最初の結果と人の最終の操作を並べるため):
+# 見逃しの出来事(Q2 = 資料の git:before-1028-cleanup:plan/line-bc-master-plan.md の Q2。機械の最初の結果と人の最終の操作を並べるため):
 #   manual_add     手で足したマーク = 自動の見逃し(nearAuto = その時いちばん近かった自動マーク)
 #   manual_remove  手で足した候補のマークを手で消した(足したのは間違いだったかもしれない)
 #   unadopt        採用(書き出し済みを含む)・不採用を候補に戻した(prevStatus)

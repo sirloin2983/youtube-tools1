@@ -1,4 +1,4 @@
-"""「確かめる」のカードの種類 → 入口の条件(src/eval/drill/accuracy.py の GOALS)の対応と、答えの数え方(V1 の V0。notes:docs/design/v1-check-build.md の 2-3)。
+"""「確かめる」のカードの種類 → 入口の条件(src/eval/drill/accuracy.py の GOALS)の対応と、答えの数え方(V1 の V0。資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 2-3)。
 
 - 種類(と出どころ)→ 目標の id: value → marks(配信 10 本)・read 後処理 → fill(30 行)・read 別 → alt(100 件)・
   voice → speakers(200 行)・time → timing(100 行)。出どころが表に無ければ種類の既定(DEFAULT)

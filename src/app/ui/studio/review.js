@@ -1165,7 +1165,7 @@ function updateLive(){
   $('#rvLiveGap').textContent = (gap >= 0 ? '−' : '+') + Math.round(Math.abs(gap)) + '秒';
 }
 
-/* ---------- ライブの録画(kind live。notes:plan/line-d-live-clipping.md) ----------
+/* ---------- ライブの録画(kind live。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md) ----------
    録画 = スタジオの配信1本。マークはいつものマーク(保存も PUT /api/video)で、時刻は「録画の最初のセグメントの受信時刻」からの秒(LT)。
    画面が入口の ../live/… を呼ぶ(Studio.live): 録画の状態(r/<録画元>/<録画>/status。3 秒ごと・見えている間だけ)・停止・書き出し(api/export)・書き出しの一覧(api/exports)。
    入口の書き出しが済んだマークは POST /api/live/exported でスタジオの「書き出し済み」にする(閉じていた間に済んだ分は、次に開いたときに突き合わせる)。
@@ -1723,7 +1723,7 @@ async function openLiveRecording(rec){
   Studio.review.open(id);
 }
 
-/* ---------- 配信中の候補(notes:plan/line-d-detect.md の 3「候補の API の約束」) ----------
+/* ---------- 配信中の候補(資料の git:before-1028-cleanup:plan/line-d-detect.md の 3「候補の API の約束」) ----------
    入口のワーカーが録画しながら見つけた盛り上がりの候補を、LIVE の帯の一覧・タイムラインの印・グラフに出す。押すと少し前から再生、「採用」でマークにして書き出しへ。
    API(入口): GET ../live/api/peaks?recorder=&recording=&since=<seq>(since 無し = 全部 + series・ある = 変わった候補 changes だけ)/ POST ../live/api/peaks {op: adopt|dismiss|restore, recorder, recording, id}。
    見回りは録画の状態と同じ(pollLiveStatus。録画中は 3 秒・終わったらゆっくり)。検出がオフ(設定 live.detect)のときは API を呼ばない(入口に無い間の 404 を出さない = A-27)。
@@ -3363,7 +3363,7 @@ Studio.review = {
   /* 片付ける(案件の画面のパネルを閉じるとき。スタジオの画面は呼ばない): 離れたときと同じ保存と停止に加えて、プレーヤー・書き出しとまとめて実行の確かめを止め、書き出しの欄を閉じる */
   dispose(){ deactivate(); unmountPlayer(); stopExpPoll(); clearTimeout(AUTO.t); clearTimeout(quietT); closeExportDrawer(); peaksOpened(null); }
 };
-/* ---------- まとめて実行(notes:docs/design/edit-tool-design.md。入口の ② の口 /api/flow/submit。案件の画面と同じ API・同じ形。入口の中だけ) ---------- */
+/* ---------- まとめて実行(資料の git:before-1028-cleanup:docs/design/edit-tool-design.md。入口の ② の口 /api/flow/submit。案件の画面と同じ API・同じ形。入口の中だけ) ---------- */
 const AUTO = { t: 0, active: false };
 /* 入口の API(/api/...)。① 探す のまとめて実行と同じ core.js の Studio.portalApi */
 const portalApi = (path, body) => Studio.portalApi(path, body);

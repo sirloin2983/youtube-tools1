@@ -1,4 +1,4 @@
-/* 窓と画面の境目(F3-1。notes:plan/f1-friend-requirements.md の C-1、notes:docs/design/friend-history.md の 7 章)。
+/* 窓と画面の境目(F3-1。notes:plan/f1-friend-requirements.md の C-1、資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。
    FriendApp.exe(WebView2)の窓の中なら window.chrome.webview で exe と話す。窓の外(WebView2 の無い PC の Edge の窓・開発の PC)は代わりの動き。
    合言葉は exe が要求ごとに足すので、ここでも画面のほかの所でも扱わない(UIKit.http で呼ぶだけ)。 */
 (function () {

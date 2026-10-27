@@ -1,4 +1,4 @@
-/* 確かめるのカード「行の時刻が合っているか」(/check-cards/time.js。RS8 V1 の V2d。作り方 notes:docs/design/v1-check-build.md の 3-2・5 節・決定 3-41)。
+/* 確かめるのカード「行の時刻が合っているか」(/check-cards/time.js。RS8 V1 の V2d。作り方 資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-2・5 節・決定 3-41)。
    行の区間の前後 2〜3 秒を再生し、波形の上に行の頭と末の印を出す(単語の時刻の候補があれば点線の参考の印も = POST transcribe/api/retime の edges)。
    答え = {choice: 'ok' | 'head' | 'tail' | 'both', dStart, dEnd}(dStart / dEnd = ← → で動かした秒。前へは負)。
      Enter = ちょうどいい(動かしていなければ)/ H = 頭がずれている / E = 末がずれている / B = 両方 を選び、← → でその印を 1 コマ(1/30 秒)ずつ動かす(Shift で 5 コマ)、

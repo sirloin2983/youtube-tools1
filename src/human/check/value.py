@@ -1,4 +1,4 @@
-"""「確かめる」の価値のカード(切り抜く価値があるか = 70 点以上か)の反映(notes:docs/design/v1-check-build.md・決定 3-41)。
+"""「確かめる」の価値のカード(切り抜く価値があるか = 70 点以上か)の反映(資料の git:before-1028-cleanup:docs/design/v1-check-build.md・決定 3-41)。
 
 出どころ 2 つ(カードは src/app/check/sources.py の value_auto・value_cand):
   value:auto  自動でできた切り抜きの品質の確認(送った物も送らなかった物も・2-8)。答え {choice: "good"} = 良い /

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""録画を自動で消す(線 D。notes:plan/line-d-live-clipping.md の 0-9 の最後。ユーザー決定。決定 3-73)の入口の側。
+"""録画を自動で消す(線 D。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0-9 の最後。ユーザー決定。決定 3-73)の入口の側。
 いつも動く(10-24 に設定 live.autoDelete を外した。友人の PC も同じ決まり = friendapp/live_session.py の clean_recordings)。リアルタイム切り抜きがオフ(live.enabled)のときは何もしない。
 アーカイブ化を確かめた録画だけ消す。非公開・見られない配信と分かった録画と、終わって 24 時間たってもアーカイブにならない録画は、消さずに 1 本の動画に
 つないで名前に「非公開」(録画元の POST /live/<録画>/keep。置き場所/非公開の録画/日付_配信者_題_非公開.mp4。つないだ元はごみ箱へ。判断は ② の live_retire.fate・overdue)。

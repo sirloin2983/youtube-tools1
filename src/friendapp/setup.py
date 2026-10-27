@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""友人の玄関の初回の取得(notes:docs/design/friend-history.md の 7 章)。
+"""友人の玄関の初回の取得(資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。
 
 表 = <アプリのフォルダ>/fetch.json(dev/build_friend_zip.py が書く。{schema, version, items: [行]})。1 行:
     name・file・url(https だけ)・sha256・base(data = ② の作業データの根 / app = アプリのフォルダ)・dest(/ 区切りの相対)・

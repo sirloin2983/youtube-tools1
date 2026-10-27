@@ -499,7 +499,7 @@ class TestMarks(Base):
 
 
 class TestDocs(Base):
-    """文書単位の実行(notes:docs/design/edit-tool-design.md の 12 ⑦(b)): 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック"""
+    """文書単位の実行(資料の git:before-1028-cleanup:docs/design/edit-tool-design.md の 12 ⑦(b)): 「編集」の履歴で選んだ文書を、行が無ければ文字起こし → パック"""
 
     def setUp(self):
         super().setUp()

@@ -50,7 +50,7 @@ def _latin_terms(terms):
     return tuple(sorted({x for x in terms if x and re.search(r"[A-Za-z]", x)}, key=len, reverse=True))
 
 
-SPARSE_MIN_SEC = 4.0    # 「長い区間に文字が少ない」行(notes:docs/design/edit-tool-design.md の 12 ③-1): この長さより長くて
+SPARSE_MIN_SEC = 4.0    # 「長い区間に文字が少ない」行(資料の git:before-1028-cleanup:docs/design/edit-tool-design.md の 12 ③-1): この長さより長くて
                         # (ちょうど 4.0 秒は含めない。疑似の文字起こしの行(4.0 秒に「テスト文N」)を対象にしないため。本物の行への影響は境目だけ)
 SPARSE_MAX_CPS = 1.5    # 記号・空白を除いた文字数が 1 秒あたりこれ未満
 # 印の文 SPARSE_FLAG と文字数 text_chars は RS6 a-3 に ytt/txtext.py へ下ろした(③ の再認識・疑わしい所の選び方も読む)

@@ -169,7 +169,7 @@ def _rows_request(pack, source, tpath, row_edge, warnings):
 
 
 def edit_draft(doc: dict, version: str = "", rows: bool = True, row_edge=None, heavy=None, words=None, form: str = "auto") -> dict:
-    """「編集」のカットのたたき台(開いたときの下書き)と、動画の fps・長さ(notes:docs/design/edit-tool-design.md の 4)。
+    """「編集」のカットのたたき台(開いたときの下書き)と、動画の fps・長さ(資料の git:before-1028-cleanup:docs/design/edit-tool-design.md の 4)。
     form: "auto" = 単語の時刻 words があれば「無音を詰める」(tidy。人が直す土台は一番良い機械の結果)、無ければ「行から」/
     "rows" = 「行から」/ "tidy" = 「無音を詰める」(単語が無ければ「行から」)。tidy の詰めた所は drops [[開始, 終了, "pause"]](画面の印)。
     残す区間は pack.TRANSCRIPT_ROWS(今の「カットとパック」・入口のまとめて実行と同じ規則。ここに規則を書かない)。

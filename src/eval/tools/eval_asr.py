@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""文字起こしの精度を、校正済みの文字起こし(評価用)で測る道具(文字起こしの改善の計画 段0-2。notes:plan/line-b-transcription.md(付録))。
+"""文字起こしの精度を、校正済みの文字起こし(評価用)で測る道具(文字起こしの改善の計画 段0-2。資料の git:before-1028-cleanup:plan/line-b-transcription.md(付録))。
 
     py -3.12 -m eval.tools.eval_asr stored  [--source eval|daily|all] [--label 名前]
         保存してある機械の出力(original)と、人が直した行を比べる(認識はしない。今の基準)
@@ -15,9 +15,9 @@
         今までの結果の一覧
 
   stored・run の結果と画面には、量の関門(G0 = 定点 5 分・G1 = 15 分・G2 = 30 分・G3 = 60 分。定点 = 確かめ済みの文書の長さの合計。summary.gate。
-  計画 notes:plan/line-b-transcription.md の 3-2)を出す。compare は2つの結果のうち小さい方の関門で、差が 95% の範囲で 0 をまたげば「この量では決められない」と出す
+  計画 資料の git:before-1028-cleanup:plan/line-b-transcription.md の 3-2)を出す。compare は2つの結果のうち小さい方の関門で、差が 95% の範囲で 0 をまたげば「この量では決められない」と出す
 
-  どのモードでも(マスタープラン Q3。notes:plan/line-bc-master-plan.md の 2 の原則 4・8 のリスク):
+  どのモードでも(マスタープラン Q3。資料の git:before-1028-cleanup:plan/line-bc-master-plan.md の 2 の原則 4・8 のリスク):
     --source eval|daily|all          測る文書の出どころ。eval = 評価用(既定)/ daily = 普段の校正済みの文書(評価用以外)/
                                      all = 評価用 + 普段
     --since YYYY-MM-DD --until YYYY-MM-DD   時期で分ける(その日を含む)。文書の時刻 = 校正済みの行の proofedAt(初めて校正済みにした時刻)の最大。
@@ -83,7 +83,7 @@ from ytt import txbase as _txbase  # noqa: E402
 SCHEMA = "youtube-tools-asr-eval/v1"
 BOOT = 1000          # ブートストラップの回数(文書を選び直して、CER のぶれの範囲を出す)
 LOW_DATA_SEC = 15 * 60   # 校正済みがこれに届かなければ「まだ少ない(参考)」(マスタープラン Q4: 定点は 15 分前後)
-# 量の関門(notes:plan/line-b-transcription.md 3-2)。定点の量 = 確かめ済みの評価用の文書の長さの合計(秒)。しきい値はここだけ
+# 量の関門(資料の git:before-1028-cleanup:plan/line-b-transcription.md 3-2)。定点の量 = 確かめ済みの評価用の文書の長さの合計(秒)。しきい値はここだけ
 GATES = (("G0", 5 * 60), ("G1", 15 * 60), ("G2", 30 * 60), ("G3", 60 * 60))
 GATE_GUIDE = {None: "決めてよいことはまだ無い", "G0": "10 pt 以上の悪化の検出だけ", "G1": "エンジンの決定", "G2": "5 pt 前後の差", "G3": "2〜3 pt の差"}
 STORED = "stored"        # summarize の compared: 保存してある機械の出力(= 下書きそのもの)を測るとき

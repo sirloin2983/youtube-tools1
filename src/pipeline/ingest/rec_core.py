@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""録画の中身(線 D の P1。notes:plan/line-d-live-clipping.md の 0・2〜4)。HTTP は recorder.py。
+"""録画の中身(線 D の P1。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0・2〜4)。HTTP は recorder.py。
 
 1つの録画 = 配信1本(フォルダ <録画の置き場所>/<録画の id>/)。切れて繋ぎ直すたびに「セッション」(session_001/…)を増やす:
   <id>/recording.json            録画の記録(URL・状態・セッションの一覧。一時ファイルに書いてから置き換える)

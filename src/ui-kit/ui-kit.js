@@ -32,7 +32,7 @@
        toggle(btn, list, n)(「非表示 n件を表示」の切り替え)/ onChange。データは消さない。README.md の「v13」)
    UIKit.sound(ほかの窓で音が鳴っているかを BroadcastChannel で知らせ合う: other(tool) / onChange。スタジオの配信の音を、編集で再生している間だけ下げる・消すのに使う)。
    UIKit.liveBadge(ヘッダーの「録画中」の札。入口の api/ytt/live を 10 秒(オフなら 60 秒)ごとに問い合わせ、録画があるときだけ appnav のあるヘッダーに札と一覧を出す: get / refresh / onChange / onOpen。
-       録画が終わった・切れたときの知らせ付き。線 D・notes:plan/line-d-live-clipping.md の 0-8。「開く」は案件の画面の候補(/cases?c=<録画 id>#cand)。README.md の「v16」)
+       録画が終わった・切れたときの知らせ付き。線 D・資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0-8。「開く」は案件の画面の候補(/cases?c=<録画 id>#cand)。README.md の「v16」)
    UIKit.timebox(時刻の欄。「:」を打たずに 時 → 分 → 秒 の順に数字だけで入れる: <span data-ui-time> / attach / create / get / set / parse / format。README.md の「v11」)。
        ホイール(opt.wheel / data-ui-time-wheel。マウスの下の単位を ±1・Shift で ±10・動いた単位を一瞬光らせる)・add(秒)(今の値に足す・動いた一番上の単位を光らせる)・貼り付けの前の口 ui-time-beforepaste(取り消せる。画面が止めたら値も reject も出さない)。README.md の「v29」
    画面の文言は「入口」でなく「ホーム」(用語集)。押せないメニュー(details.ui-menu / ui-pop の summary[aria-disabled=true] は開かずに理由を知らせる。UIKit.menuOff(el, why, title))・
@@ -2403,7 +2403,7 @@
   };
   document.addEventListener('DOMContentLoaded', function () { timebox.attachAll(document); });
 
-  /* ---- liveBadge(ヘッダーの「録画中」の札)---- 線 D のリアルタイム切り抜き(notes:plan/line-d-live-clipping.md の 0-8)。
+  /* ---- liveBadge(ヘッダーの「録画中」の札)---- 線 D のリアルタイム切り抜き(資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0-8)。
      入口の POST api/ytt/live {op: "status"} → {enabled, recordings: [{recorder, id, title, state, active, seconds, endedAt, url}]}(合言葉つき。入口が受け持つ)を
      オンのときは 10 秒ごと・オフ(enabled:false・404 などの 4xx)のときは 60 秒ごとに問い合わせ、appnav のあるヘッダー(.ui-header-actions の先頭)に札を出す。
      録画が無い・機能がオフ・合言葉が無いページ(入口を通さない単独起動)では何も作らない(場所も取らない)。隠れているタブは問い合わせない(戻ったらすぐ)。

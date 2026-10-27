@@ -9,7 +9,7 @@
 今は「ライブの書き出し(tool "live")に 1 つ」だけ。使うのは呼ぶ側が acquire(…, reserved=True) を渡したとき = **録画中だけ**
 (src/flow/live_export.py。録画が終わったら普通の枠で順番を待つ)。文字起こし 2 本で上限が埋まっていても、配信中のライブの書き出しは待たされない。
 普通の枠が空いていれば、先に来た順のまま普通の枠を使う(用途つきの枠は、普通の枠が埋まっているときだけ・同じ用途の中では先に来た順)。
-値は仮(U4 = 本物の 3 時間の配信の値が出たら決め直す。notes:plan/line-d-auto-pack.md の M6)。snapshot の active の行には、用途つきの枠なら extra: true が付く
+値は仮(U4 = 本物の 3 時間の配信の値が出たら決め直す。資料の git:before-1028-cleanup:plan/line-d-auto-pack.md の M6)。snapshot の active の行には、用途つきの枠なら extra: true が付く
 
 順番(PRIO。決定 3-49): 待ちは rank の小さい順・同じなら先に来た順(rank の既定 DEFAULT_RANK)。idle_only の待ちは、ほかの待ちが無く・
 idle_only でない処理が動いておらず・set_idle_check の関数が真のときだけ枠を取る(後回しの仕事 = 空いているときだけ)。
@@ -196,7 +196,7 @@ def check_cancel(job):
 
 
 class Ctl:
-    """① の関数への手渡し(OPT2 の J0。notes:docs/design/opt2-jobs-plan.md の 2): 進み具合の報告・取り消し・途中の覚え書き・小さな合図。
+    """① の関数への手渡し(OPT2 の J0。資料の git:before-1028-cleanup:docs/design/opt2-jobs-plan.md の 2): 進み具合の報告・取り消し・途中の覚え書き・小さな合図。
     器(② のジョブの表)が 1 ジョブに 1 つ作って ① の fn(spec, ctl) に渡す。CLI は None か Ctl()(報告も取り消しもしない)。
     子プロセスはここに持たない(ytt/tools.run_progress(cancelled=ctl.is_cancelled) の見張りが止める)。枠 SLOTS は器が取る(① は知らない)。
     exc: check() が上げる例外の型(既定は ytt/errors の Cancelled。パックは cut2resolve_core の Cancelled = CLI の扱いを保つ)"""

@@ -26,7 +26,7 @@
   GET  /api/transcripts      保存済みの文字起こし一覧
   GET/PUT/DELETE /api/transcript?id=   1件の取得・保存・削除
   GET  /media?id=            文字起こしの元ファイルを再生用に配信(Range対応)
-  「編集」(notes:docs/design/edit-tool-design.md の 5):
+  「編集」(資料の git:before-1028-cleanup:docs/design/edit-tool-design.md の 5):
   GET/PUT /api/edit?id=      編集の内容(残す区間)。PUT {"edit", "baseRev", "draft"?} → {"rev", "cutRows"}(rev が違えば 409。行の cutState も合わせる。
                              draft = 始めたたき台。初めての保存のときだけ edit.json に一度書く = マスタープラン Q2)
   POST /api/effort           {"id"} 操作中の知らせ = 文書の effort.lastAt を今に(updatedAt は変えない。作業した時間は数えない。

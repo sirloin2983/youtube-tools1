@@ -1,4 +1,4 @@
-"""配信中の候補の文字起こし(線 D の D-11 案 b。notes:plan/line-d-live-clipping.md の 0-11)の子プロセス。**入口のプロセスから import しない**
+"""配信中の候補の文字起こし(線 D の D-11 案 b。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0-11)の子プロセス。**入口のプロセスから import しない**
 (編集の tx_engines を読むため)。1 回の起動で 1 本の wav を認識して終わる(常駐しない = whisper-cli はモデルの読み込みが数秒で、候補は 1 時間に数本なので足りる)。
 
 使い方: python live_tx_worker.py <編集の作業データのフォルダ> <モデル名> <wav(16kHz モノラル)> <出力 json> [機器 vulkan|cpu|cuda(既定 vulkan)]

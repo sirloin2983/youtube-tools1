@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""リアルタイム切り抜き(線 D。notes:plan/line-d-live-clipping.md の 0)の入口の側。**既定はオフ**(ホームの設定の節 live.enabled)。
+"""リアルタイム切り抜き(線 D。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0)の入口の側。**既定はオフ**(ホームの設定の節 live.enabled)。
 オフの間は何もしない: /live/… は今までどおり 404(handle が False を返し、入口の 404 になる)・録画の部品も起動しない・「調子」にも出さない。
 api/ytt/live の status だけはオフでも {enabled: false} を返す(録画元に問い合わせない)。
 

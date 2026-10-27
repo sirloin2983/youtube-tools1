@@ -1,4 +1,4 @@
-"""「確かめる」の誰の声のカード(voice:diar)の答えの形・選択肢・反映・声の覚え直し(notes:docs/design/v1-check-build.md の 3-2・5 節、
+"""「確かめる」の誰の声のカード(voice:diar)の答えの形・選択肢・反映・声の覚え直し(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-2・5 節、
 設計 notes:docs/design/briefs/rs8-cases/DESIGN_BRIEF.md 2 の 6)。
 
 答えの形(画面 cards/voice.js が送る。_check_answer が整える):
@@ -42,7 +42,7 @@ NAME_MAX = 30                   # 文書の話者の名前の上限(store.saniti
 MIN_LEARN_SEC = 1.0             # 覚える材料にする行の最短(flow/diar の voice_learn_rows と同じ 1 秒)
 RELEARN_SEC_DEFAULT = 30.0      # 覚え直すまでの 1 人の材料の合計(秒。編集の設定 check.voiceRelearnSec で変える)
 RELEARN_PAUSED = False         # 10-25 ユーザーの答えで再開(外した行 excluded は数えない決まりのまま)。スイッチ: 声の覚え直しを一時止める(10-25 ユーザーの方針「間違った正解で学習しないように」・戻るまでの守り。
-                                # notes:plan/間違った正解のリスク-1025.md。カードの答え・友人の PC の声の材料・研究の音からの覚え直しは、どれもこの道。False で元に戻す)
+                                # 資料の git:before-1028-cleanup:plan/間違った正解のリスク-1025.md。カードの答え・友人の PC の声の材料・研究の音からの覚え直しは、どれもこの道。False で元に戻す)
 FIRST_SEC = 10.0                # まだ声が無い人は、この秒で「仮」の声として覚える(初回だけ。10-25: 答え 214 枚で覚えた人が 6 人だけだった)
 RELEARN_SEC_RANGE = (5.0, 3600.0)
 DIAR_SETTING, DIAR_ENV = "checkVoiceDiarOn", "YTT_CHECK_VOICE_DIAR"   # 判別の記録から作る声のカード(voice:diar)のスイッチ(既定オフ)

@@ -5,7 +5,7 @@
 ツール(切り抜きスタジオ・編集・cut2resolve)を、1回の操作でまとめて起動・終了するためのホームです。
 文字起こしツールは「編集」(文字起こし・カット・パック)で、cut2resolve の画面は「編集」に統合されています
 (cut2resolve はパックを作る部品として裏で動き、ホームのカードは出しません)。
-統合計画(notes:docs/design/integration-plan.md)に沿って、ツールをホームの中に取り込みます。
+統合計画(資料の git:before-1028-cleanup:docs/design/integration-plan.md)に沿って、ツールをホームの中に取り込みます。
 3つとも取り込みます: 切り抜きスタジオ(http://localhost:8700/studio/)・文字起こし(/transcribe/)・cut2resolve(/cut2resolve/)。
 文字起こしの認識(faster-whisper)だけは、落ちてもホームごと止まらないよう、別のプログラム(src\pipeline\transcribe\worker.py)で動きます。
 起動は start.bat だけです(各ツールの単独起動はありません)。使い方の全体はリポジトリ直下の README.txt。
@@ -468,7 +468,7 @@
 ■ リアルタイム切り抜き(試験中・既定はオフ)の有効化
   - リアルタイム切り抜き(試験中・既定はオフ): 「詳しく」→「試験中の機能」でオンにすると、録画の部品(src\recorder\README.txt)を裏で起動し、
     http://localhost:8700/live/ で配信を録画しながら再生できる。録画は「すべて終了」では止まらない。置き場所の既定は E:\Video\live-rec\。
-    オフの間は今までと何も変わらない(/live/ は 404・録画の部品は起動しない)。notes:plan/line-d-live-clipping.md の P1
+    オフの間は今までと何も変わらない(/live/ は 404・録画の部品は起動しない)。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の P1
   - 録画元の合言葉: 録画元の URL を変えたら前の合言葉は使わない
 
 ■ バックアップの間隔・写し戻し
@@ -608,14 +608,14 @@
     まだスタジオに無い YouTube の配信を「解析から全部」で(配信ごとに1つの実行・10 本まで・すでに順番待ちの配信は skipped)。
     解析のキューに入れるまでは受け取った題名で進め、題名・配信者は解析のキューにも渡す
 
-■ まとめて実行のパックと始められる場所(notes:docs/design/edit-tool-design.md の 12)
+■ まとめて実行のパックと始められる場所(資料の git:before-1028-cleanup:docs/design/edit-tool-design.md の 12)
   - まとめて実行のパック: カットの無い文書は「編集」の「行から」の設定(行の端を声の止まる所まで広げるか)で作る。パックは最小限(cut2resolve の既定)。
     Text+ 字幕の改行は「編集」の字幕の文字数の設定(縦の改行の文字数)
   - まとめて実行を、案件の画面のほかに、スタジオの配信の画面(同じ API)と「編集」の履歴(選んだ文書を 文字起こし → パック。
     POST /api/autorun/start-docs。文書ごとの実行・同じ文書の二重の登録は断る・パックがあれば既定で飛ばす(作り直すで上書き)・カットがあればカットのとおり)から始められる
   - 「パック済み」(案件の一覧・まとめて実行が作り直さない判定)は、cut2resolve の「パックを作った記録」か、cut-plan.json でも見る(src/ytt_core/txindex)
 
-■ 「編集」: 文字起こし + cut2resolve の統合(notes:docs/design/edit-tool-design.md)
+■ 「編集」: 文字起こし + cut2resolve の統合(資料の git:before-1028-cleanup:docs/design/edit-tool-design.md)
   - 入口のカード: 文字起こしツールは「編集」、cut2resolve はカードを出さない(部品。止まっているときだけ、起動のためにカードを出す)。流れは ① スタジオ → ② 編集
   - /cut2resolve/ の画面を開くと /transcribe/(「編集」)へ転送する(?video= は ?media= にして渡す。src/home/mount.py の page_to)。API(/cut2resolve/api/…)はそのまま
   - 案件の一覧の切り抜きの行は「編集で開く」の1つに

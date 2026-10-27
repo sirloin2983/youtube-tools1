@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(設計 notes:docs/design/f1-build.md の 2・3 節)。
+"""友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(設計 資料の git:before-1028-cleanup:docs/design/f1-build.md の 2・3 節)。
 
 zip の中(アプリのフォルダ <任意>/FriendApp/ にそのまま展開する形。3 節 (f1i)):
     FriendApp.exe    友人のアプリの窓(friend-apps/launcher/build/。WebView2 の DLL 3 つ = Microsoft.Web.WebView2.Core.dll・.WinForms.dll・WebView2Loader.dll と一緒に直下)。

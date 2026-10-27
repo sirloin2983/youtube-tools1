@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""友人の玄関のライブの依頼の欄と結びつき(notes:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-15)。軽い部品だけ(画面を先に出すため)。
+"""友人の玄関のライブの依頼の欄と結びつき(資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-15)。軽い部品だけ(画面を先に出すため)。
 
 - 6 つの設定の範囲・既定・読み直し(clean_settings)は flow/live_rules.py(この PC の受付 human/friend/live_requests.py と 1 つ)。
   ここに残すのは送る欄の検査 check_settings(画面に出す文つき)と記録の 1 行の言葉

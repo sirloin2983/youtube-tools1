@@ -6,7 +6,7 @@
 
 - **_common.py** (48 行) — dev/ の道具が共通で使う小物(標準ライブラリだけ)。guard_hook.py・push_helper.py は単独で動く条件なので、ここを読まない。
   - 名前: `console_utf8` :9・`find_node` :18・`read_utf8` :31・`write_utf8` :37・`tracked_files` :43
-- **build_friend_zip.py** (907 行) — 友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(設計 notes:docs/design/f1-build.md の 2・3 節)。
+- **build_friend_zip.py** (907 行) — 友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(設計 資料の git:before-1028-cleanup:docs/design/f1-build.md の 2・3 節)。
   - 名前: `class BuildError` :121・`say` :125・`download` :137・`cached` :149・`wheel_pins` :184・`pip_download` :202・`wheels` :212・`check_certifi` :249・`unzip_into` :265・`lay_python` :290・`src_files` :315・`lay_src` :330・ほか 25
 - **code_map.py** (466 行) — コードの地図と言葉の索引を作る道具(AI のセッションがコードの場所を早く見つけるため)。
   - 名前: `git_files` :53・`skipped` :57・`is_test` :61・`read` :65・`one_line` :73・`comment_head` :85・`py_info` :112・`js_info` :143・`cs_info` :164・`info` :186・`layer_of` :199・`norm_route` :206・ほか 12
@@ -33,7 +33,7 @@
   - 名前: `class Preflight` :84・`class Report` :88・`free_port` :114・`link_or_copy` :120・`unpack` :129・`break_fetch` :148・`place_models` :158・`mirror_map` :182・`lay_shim` :198・`friend_env` :209・`fake_media` :239・`check_imports` :246・ほか 38
 - **friend_preflight_shim.py** (287 行) — 配る前の検査(dev/friend_preflight.py)の通信の差し替え。検査が、展開した写しの python/Lib/site-packages/sitecustomize.py として置く
   - 名前: `install` :262
-- **friend_worktime.py** (176 行) — 友人の作業の時刻の集計(新機能 D・10-23。notes:plan/人の作業なしの候補-1023.md の D)。ユーザーの PC で流す。作業データは読むだけ。
+- **friend_worktime.py** (176 行) — 友人の作業の時刻の集計(新機能 D・10-23。資料の git:before-1028-cleanup:plan/人の作業なしの候補-1023.md の D)。ユーザーの PC で流す。作業データは読むだけ。
   - 名前: `data_root` :33・`verdicts` :45・`delivered` :62・`streamers` :82・`shorts` :97・`collect` :112・`main` :150
 - **guard_hook.py** (434 行) — Claude Code の PreToolUse のフック: 事故のもとになる操作を機械が断る。標準ライブラリだけ・速く。
   - 名前: `class Tok` :51・`tok` :56・`tokenize` :62・`pipelines` :137・`word_of` :155・`norm_path` :171・`is_main_checkout` :184・`generated_kind` :198・`check_kill` :216・`check_sed` :242・`git_sub` :255・`check_git` :271・ほか 9

@@ -23,7 +23,7 @@ ALLOWED = {
     "manage": {"ytt", "flow", "human"},    # ① は直に読まない(② を通す)
     "eval": {"ytt", "pipeline", "flow", "human", "manage"},
     "app": set(LAYERS) - {"friendapp"},
-    "friendapp": {"ytt", "pipeline", "flow"},   # 友人の玄関(F2。notes:docs/design/friend-history.md の 7 章)。③④⑤ と入口 app は読まない
+    "friendapp": {"ytt", "pipeline", "flow"},   # 友人の玄関(F2。資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。③④⑤ と入口 app は読まない
 }
 
 # 今のパス(リポジトリ直下から。区切りは /)→ (層, 行き先, 備考)
@@ -45,7 +45,7 @@ FILES = {
     "src/flow/casebook.py": ("flow", "flow", "案件の候補と採用のファイル(RS8 B3-3。作業用/候補.json = ① の機械の候補・作業用/採用.json = ③ の人の採用。分ける split・重ねる merge・案件の引き方 case_of・読み書きとパスごとのロック。ytt だけを読む。保存の経路に入れるのは B3-4)"),
     "src/flow/export.py": ("flow", "flow", "② 書き出しの器(OPT2 の J2。ExportJobs = ① pipeline/export/exporter.run を 1 本ずつ動かすジョブの表・同時 1 本 409・履歴 20・枠 SLOTS・_out_lock の下で登録・取り消し・掲示板の頭 ex。default() でプロセスに 1 つ。ytt・① export を読む)"),
     "src/flow/studiobook.py": ("flow", "flow", "スタジオなしの配信の台帳と URL の段の動詞(RS8 の「URL も CLI で」。StudioBook = data.json + 案件の 候補.json・採用.json をスタジオの Store と同じ形で・LocalStudio = flow/tools の LocalTools が任せる配信の読み・解析・採用・書き出し。ytt・flow(batch・casebook・adopt・keys・export)・① pipeline/analyze・export を読む。③ は読まない)"),
-    # ---- V1 確かめる(V0。notes:docs/design/v1-check-build.md)。⑤ が待ち行列を数えて並べ(読むだけ)、③ が答えを記録して反映する(入口の /api/check/*)
+    # ---- V1 確かめる(V0。資料の git:before-1028-cleanup:docs/design/v1-check-build.md)。⑤ が待ち行列を数えて並べ(読むだけ)、③ が答えを記録して反映する(入口の /api/check/*)
     "src/app/check/lineup.py": ("app", "app/check", "確かめるの待ち行列の並びと数え方(純粋。名前は標準の queue と重ねない。カードの id・種類の並び・n の検査)"),
     "src/eval/check/goals.py": ("eval", "eval/check", "カードの種類 → 入口の条件 GOALS の対応と、答えの数え方(accuracy.goals_of の extra。human/check/answerlog を読む)"),
     "src/app/check/sources.py": ("app", "app/check", "カードの出どころの登録と V0 の 5 つ(value:auto・value:cand・read:fill・voice:diar・time:row。読むだけ。評価用はここ 1 か所で外す。manage/cases を読む)"),

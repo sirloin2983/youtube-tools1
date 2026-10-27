@@ -1,4 +1,4 @@
-"""② 書き出しの器(OPT2 の J2・J6。notes:docs/design/opt2-jobs-plan.md): ① の書き出し(pipeline/export/exporter.run)を 1 本ずつ動かすジョブの表。
+"""② 書き出しの器(OPT2 の J2・J6。資料の git:before-1028-cleanup:docs/design/opt2-jobs-plan.md): ① の書き出し(pipeline/export/exporter.run)を 1 本ずつ動かすジョブの表。
 J6 で ② の 1 つの器 `flow/jobs.Table`(頭 ex)の上の薄い殻にした。
 
 - 同時に 1 本(動いている間の start は 409 busy = Table の admit)・履歴は 20 件(動いている物は消さない)・プロセスに 1 つ(`default()`)

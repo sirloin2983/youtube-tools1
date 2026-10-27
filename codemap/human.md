@@ -13,23 +13,23 @@
 - **__init__.py** (3 行) — ③ 確かめる(V1。カードの答えの記録 answerlog・答えを実物へ反映する土台 apply・文書の行を直す口 _doc と、種類ごとの反映 read・timerow・value・voice・speech・section・cutcard。
 - **_doc.py** (104 行) — 「確かめる」の文書の行を直す 1 つの口(読み・時刻・声のカードの反映と Z が使う。opt-human 6-1)。
   - 名前: `busy` :22・`edit_row` :30・`edit_fields` :54・`revert_fields` :64・`doc_id` :78・`row_target` :86・`choice` :96
-- **answerlog.py** (212 行) — 「確かめる」の答えの記録(notes:docs/design/v1-check-build.md の 3-1)。
+- **answerlog.py** (212 行) — 「確かめる」の答えの記録(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-1)。
   - 名前: `answers_path` :48・`new_id` :56・`day_of` :61・`card_mark` :66・`append` :76・`class State` :107・`state` :189・`read_skips` :195・`add_skip` :203
-- **apply.py** (302 行) — 「確かめる」の答えを実物へ反映する土台(notes:docs/design/v1-check-build.md の 3-2・3-3)。
+- **apply.py** (302 行) — 「確かめる」の答えを実物へ反映する土台(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-2・3-3)。
   - 名前: `class Context` :46・`register` :69・`flush` :207・`answer` :214・`undo` :255・`unknown` :281・`skip` :295
 - **cutcard.py** (54 行) — 「確かめる」の自動カットのカードの答えの記録(CUT-CARD。決定: plan/opt-eval.md の Q4 自動カットのカード)。
   - 名前: `enabled` :27
-- **read.py** (172 行) — 「確かめる」の読みのカード(どちらの読みが正しいか)の反映(notes:docs/design/v1-check-build.md の 2-2・3-2。import で apply に登録する)。
+- **read.py** (172 行) — 「確かめる」の読みのカード(どちらの読みが正しいか)の反映(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 2-2・3-2。import で apply に登録する)。
   - 名前: `_check` :32・`_tid` :49・`_unflag` :53・`_row_state` :57・`_feedback` :63・`_cand_of` :75・`_apply` :82・`_same` :142・`_revert` :147
 - **section.py** (313 行) — 「確かめる」の評価のレーンの区間カードの反映(C-EVAL (2)。決定 3-47「確かめると評価をまとめる」・3-49 Q2。設計の相談は Fable)。
   - 名前: `enabled` :297
-- **speech.py** (60 行) — 「確かめる」の「この行は声ですか?」の反映(notes:docs/design/v1-check-build.md・C-EVAL (3))。
+- **speech.py** (60 行) — 「確かめる」の「この行は声ですか?」の反映(資料の git:before-1028-cleanup:docs/design/v1-check-build.md・C-EVAL (3))。
   - 名前: `_state` :15・`_apply_speech` :21・`_revert_speech` :37
-- **timerow.py** (109 行) — 「確かめる」の時刻のカード「行の時刻が合っているか」の反映(notes:docs/design/v1-check-build.md の 3-2・5 節・決定 3-41)。
+- **timerow.py** (109 行) — 「確かめる」の時刻のカード「行の時刻が合っているか」の反映(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-2・5 節・決定 3-41)。
   - 名前: `_move` :21・`_check` :29・`_times` :50・`_apply_time` :54・`_revert_time` :86
-- **value.py** (167 行) — 「確かめる」の価値のカード(切り抜く価値があるか = 70 点以上か)の反映(notes:docs/design/v1-check-build.md・決定 3-41)。
+- **value.py** (167 行) — 「確かめる」の価値のカード(切り抜く価値があるか = 70 点以上か)の反映(資料の git:before-1028-cleanup:docs/design/v1-check-build.md・決定 3-41)。
   - 名前: `_code` :32・`_msg` :36・`_need` :40・`_auto_check` :50・`_auto_apply` :64・`_auto_revert` :75・`_studio` :87・`_set_status` :94・`_cand_apply` :123・`_cancel_export` :138・`_cand_revert` :153
-- **voice.py** (441 行) — 「確かめる」の誰の声のカード(voice:diar)の答えの形・選択肢・反映・声の覚え直し(notes:docs/design/v1-check-build.md の 3-2・5 節、
+- **voice.py** (441 行) — 「確かめる」の誰の声のカード(voice:diar)の答えの形・選択肢・反映・声の覚え直し(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-2・5 節、
   - 名前: `diar_enabled` :53・`doc_embedding` :75・`registry` :80・`options_for` :95・`guess_for` :116・`buttons` :132・`people_for` :141
 
 ## src/human/cut/
@@ -59,17 +59,17 @@
   - 名前: `collect` :75・`message` :101・`to_name` :116・`batch_send` :165・`tick` :216
 - **pubqueue.py** (166 行) — ③ 人の層: 友人の zip を配る待ちの列と、3 時間ごとの配る回(ユーザーの PC。友人の zip はまとめて配る決め・10-25 ユーザーの OK。
   - 名前: `items` :53・`hold_of` :59・`set_hold` :65・`add` :79・`take` :87・`changes` :96・`slot_of` :101・`tick` :107
-- **returns.py** (490 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。notes:docs/design/f1-build.md の (f1d))。
+- **returns.py** (490 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。資料の git:before-1028-cleanup:docs/design/f1-build.md の (f1d))。
   - 名前: `returns_dir` :58・`extract` :96・`parse_verdict` :130・`parse_notice` :181・`scan` :216・`recent_notices` :416・`iter_requests` :455
 - **upwatch.py** (166 行) — ③ 人の層: 友人のアプリの更新の見張り(ユーザーの PC。友人のアプリの更新の決め・10-25 ユーザーの OK。notes:plan/友人の不具合の自動対応-1025.md の「更新」)。
   - 名前: `published` :54・`friend_now` :69・`last_seen` :91・`alerts` :104・`add_alert` :111・`scan` :121
-- **voicein.py** (143 行) — 友人の PC から届いた声の材料の受け取り(10-24 夜。作る側 = friendapp/voicesend。案 = notes:plan/声の材料を友人のPCから-1024.md)。
+- **voicein.py** (143 行) — 友人の PC から届いた声の材料の受け取り(10-24 夜。作る側 = friendapp/voicesend。案 = 資料の git:before-1028-cleanup:plan/声の材料を友人のPCから-1024.md)。
   - 名前: `class Refused` :33・`take` :59
 
 ## src/human/proof/
 
 - **__init__.py** (2 行) — ③ 字幕の校正(文書の置き場と機械の層・人の層・カットの「カット済」・文字起こしと再認識のジョブ・別の読み・話者と声・辞書と名簿の学習・校正の記録)
-- **alt.py** (416 行) — ③ 人の操作の層 human/proof: 2つ目のエンジンとの食い違いに候補を出す(精度改善の計画 第2版 D1-b。notes:plan/line-b-transcription.md)。
+- **alt.py** (416 行) — ③ 人の操作の層 human/proof: 2つ目のエンジンとの食い違いに候補を出す(精度改善の計画 第2版 D1-b。資料の git:before-1028-cleanup:plan/line-b-transcription.md)。
   - 名前: `alt_engine_key` :61・`alt_info` :70・`alt_first_run` :79・`alt_spec` :88・`alt_path` :121・`read_alt` :126・`run_alt` :136・`alt_after_transcribe` :160・`alt_notation_only` :193・`alt_diffs` :220・`alt_cached` :344・`alt_spans_of` :356・ほか 3
 - **doc_jobs.py** (358 行) — ③ 人の操作の層 human/proof: 文字起こしのジョブの本体(run_job)と書く先の決め方・受付(validate_job と
   - 名前: `set_learning` :39・`glossary_of` :44・`validate_job` :61・`public_job` :130・`subtitle_settings` :168・`split_chars_for` :182・`learned_finder` :200・`dict_learned` :211・`carry_overrides` :229・`run_job` :268・`run_transcribe_job` :278・`redo_targets` :336
@@ -89,7 +89,7 @@
   - 名前: `tx_path` :37・`write_doc` :41・`read_layers` :73・`commit` :114・`layers_for` :171・`fresh_copy` :201・`snapshot` :251・`backup_doc` :259・`sanitize_sub_style` :278・`sanitize_transcript` :291・`doc_length` :373・`good_row` :394・ほか 37
 - **voiceclips.py** (215 行) — 声を覚える材料の短い音(10-24 夜。ユーザー「誰の声をメンバー全員分」・「精度に関係する物は残す」)。
   - 名前: `root` :28・`index` :40・`clip_path` :54・`media` :63・`make` :72・`put_bytes` :106・`timeline_wav` :135・`bgm` :199
-- **voicerebuild.py** (158 行) — 覚えた声を 1 行ずつ外してまとめ直す(10-25 ユーザーとまとめ役が 1 行ずつ聞いて確かめた結果。notes:plan/間違った正解のリスク-1025.md の 6)。
+- **voicerebuild.py** (158 行) — 覚えた声を 1 行ずつ外してまとめ直す(10-25 ユーザーとまとめ役が 1 行ずつ聞いて確かめた結果。資料の git:before-1028-cleanup:plan/間違った正解のリスク-1025.md の 6)。
   - 名前: `rows_path` :23・`row_vectors` :47・`backfill` :64・`rebuild` :96
 
 ## src/human/review/

@@ -1,4 +1,4 @@
-"""「確かめる」の「この行は声ですか?」の反映(notes:docs/design/v1-check-build.md・C-EVAL (3))。
+"""「確かめる」の「この行は声ですか?」の反映(資料の git:before-1028-cleanup:docs/design/v1-check-build.md・C-EVAL (3))。
 
 答え = {choice: keep | drop}。
   - keep = 文書は触らない(記録だけ。applied.changed = False)

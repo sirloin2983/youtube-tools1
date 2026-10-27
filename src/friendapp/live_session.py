@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""友人の玄関のライブ係(notes:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-15)。
+"""友人の玄関のライブ係(資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-15)。
 
 友人の PC の ② のライブ係 = flow/livesession.LiveSession を継いだ FriendLive。入口 app を読まずに作る:
   設定に関わらずオン(always_on)・どの封筒も依頼の決まりで(request_all = 検出・自動の採用・パックまで)・スタジオなしの採用(LocalMarks = 親の既定)・

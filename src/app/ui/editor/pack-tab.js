@@ -1,4 +1,4 @@
-/* 「編集」のパック(2 カット の末尾 #packArea。notes:docs/design/edit-tool-design.md の 3・5)。app.js より先に読み、app.js が EditPack.create(host) で起動する。
+/* 「編集」のパック(2 カット の末尾 #packArea。資料の git:before-1028-cleanup:docs/design/edit-tool-design.md の 3・5)。app.js より先に読み、app.js が EditPack.create(host) で起動する。
    作るのは 2 カット の末尾・設定(fps・大きさ・音量・字幕の 1 段の文字数・余白・話者の色)は ⚙ の「パック」の節 #edSetPack・
    配信者(字幕の色)の欄は見せず、文書に覚えている名前(友人の依頼・まとめて実行の指定)を隠した欄 #pkWho に UIKit.streamer.autoFill で入れてそのまま使う(notes:docs/spec/data.md の 3)。
    パックは cut2resolve の pack.py だけが作る(api/build の spec.keeps = 2 カット のタブの残す区間。pack.EDIT_KEEPS)。ここに Resolve 用の計算を書かない。

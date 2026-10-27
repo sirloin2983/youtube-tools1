@@ -16,7 +16,7 @@ TARGET_FPS = (24, 25, 30, 50, 60)
 VIDEO_TRACKS_MAX = 5   # 映像トラックの数(V1〜V数 に同じカットの動画。V2 から上は映像だけ)。字幕はその上 V(数+1)。友人が 1〜5 から選ぶ
 
 
-# 字幕の見た目(ユーザーの指定。notes:docs/design/edit-tool-design.md の 12 ①。値は Resolve の Text+ のインスペクタの画像
+# 字幕の見た目(ユーザーの指定。資料の git:before-1028-cleanup:docs/design/edit-tool-design.md の 12 ①。値は Resolve の Text+ のインスペクタの画像
 # C:\Users\you11\Desktop\素材 の「基本設定」「シェード1〜3」)。縦・横とも同じ(ユーザー決定)。雛形(.drb)は今のまま、スクリプトが値を入れる。
 #   フォント「けいふぉんと」Regular・大きさ 0.14・字間 1.0・行間 1.0・アンカー 縦 1.0(下)/ 横 0.0(中央)
 #   シェード 1 = 塗り 黒(優先順位 8)/ 2 = ふち 白・太さ 0.12・ずらす X 0.015 Y −0.02(優先順位 7)/ 5 = ふち 黒・太さ 0.18(優先順位 4)
@@ -275,7 +275,7 @@ def lay_captions(cues, fps, order=None, names=None, speaker_order=None):
     return (SPEAKER_LANES and speaker_lanes(cues, names, speaker_order)) or dict(stack_captions(cues, fps, order), by="overlap")
 
 
-# 字幕の改行(2段。notes:docs/design/edit-tool-design.md の 12 ②。ユーザー決定: 縦 8・横 14 文字前後で改行)。
+# 字幕の改行(2段。資料の git:before-1028-cleanup:docs/design/edit-tool-design.md の 12 ②。ユーザー決定: 縦 8・横 14 文字前後で改行)。
 # Text+ は自動で折り返さない(大きさ 0.14 だと縦の画面の1段に 7〜8 文字ほど)ので、字幕の文字に改行を入れる
 WRAP_DEFAULT = {"vertical": 8, "horizontal": 14}
 WRAP_SLACK = 2                        # 1段の文字数を 2 文字まで超えるのは許す(変な所で切らない)

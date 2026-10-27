@@ -9,7 +9,7 @@
   - 名前: `check` :16・`pick` :24
 - **batch.py** (255 行) — 解析キュー(バッチ): 最大10本(待ち+実行中)。1つの糸が古い順に1本ずつ analyze.run(spec, ctl) で解析する(OPT2 の J1)。
   - 名前: `queued_already` :31・`class Batch` :50
-- **board.py** (406 行) — ② 管理の層 flow: ジョブの掲示板(RS8 の ② の口 S1。形は notes:docs/spec/pipeline.md 2.9・設計 notes:docs/design/rs8-flow-api.md)。
+- **board.py** (406 行) — ② 管理の層 flow: ジョブの掲示板(RS8 の ② の口 S1。形は notes:docs/spec/pipeline.md 2.9・設計 資料の git:before-1028-cleanup:docs/design/rs8-flow-api.md)。
   - 名前: `class NotFound` :53・`split_id` :60・`norm_case` :68・`normalize` :126・`class Board` :154・`default` :376・`guess_case` :385
 - **casebook.py** (326 行) — ② 管理の層 flow: 案件の候補と採用のファイルの書く側(RS8 B3-3・B3-4a。決定 3-37 の (r8j)〜(r8q))。
   - 名前: `owners` :43・`case_of` :57・`split` :88・`carry_over` :140・`write` :168・`live_video` :207・`live_mark` :216・`live_into` :251・`live_adopt` :272・`live_exported` :295・`live_marks` :310・`live_has` :317
@@ -27,7 +27,7 @@
   - 名前: `models_ready` :29・`default_embedding` :40・`embedding` :45・`embeddings` :50・`learn_embedding` :55・`match_embedding` :61・`diarize` :69・`assign` :99・`record_run` :123・`record_single` :130・`latest_run` :140・`embed` :147・ほか 15
 - **envelope.py** (170 行) — ② 管理の層 flow: 依頼の封筒(RS7-1 S3。決定 3-30・notes:plan/done/f1-friend-pc.md の決めたこと 9)。
   - 名前: `clean_pool` :44・`version_of` :135・`check` :143・`read` :167
-- **export.py** (147 行) — ② 書き出しの器(OPT2 の J2・J6。notes:docs/design/opt2-jobs-plan.md): ① の書き出し(pipeline/export/exporter.run)を 1 本ずつ動かすジョブの表。
+- **export.py** (147 行) — ② 書き出しの器(OPT2 の J2・J6。資料の git:before-1028-cleanup:docs/design/opt2-jobs-plan.md): ① の書き出し(pipeline/export/exporter.run)を 1 本ずつ動かすジョブの表。
   - 名前: `build_spec` :24・`class ExportJobs` :38・`default` :140
 - **ingest.py** (23 行) — ② 取り込みの口(RS6 a-5a)。人とデータの層(③・④)が入力の判定(① pipeline/analyze・ingest)を直に読まずに済む動詞。
   - 名前: `probe` :13
@@ -35,19 +35,19 @@
   - 名前: `configure` :38・`tool_slot` :50・`register` :56・`set_cancelled` :70・`set_internal_error` :74・`job_errors` :81・`job_temp_wav` :102・`job_done` :111・`job_title` :115・`tid_busy` :125・`doc_busy` :139・`active_jobs` :151・ほか 11
 - **keys.py** (397 行) — ② 管理の層 flow: 成果物の鍵を書く・読む(RS6 b-K1。決定 3-29 / notes:plan/done/role-restructure.md 4 節の決まり 4・5-2)。
   - 名前: `media_key_path` :40・`doc_key_path` :45・`pack_key_path` :55・`write` :60・`read` :71・`stale` :83・`remove` :95・`key_hash` :107・`export_inputs` :114・`transcribe_inputs` :122・`post_inputs` :134・`diar_inputs` :142・ほか 15
-- **learning.py** (214 行) — ② 管理: 学習データを読む側(F1。notes:docs/design/f1-build.md の 2 の F1・3 の (f1c))。
+- **learning.py** (214 行) — ② 管理: 学習データを読む側(F1。資料の git:before-1028-cleanup:docs/design/f1-build.md の 2 の F1・3 の (f1c))。
   - 名前: `is_pack` :29・`pack_version` :34・`maker_pc` :41・`learning_dir_checked` :52・`learning_dir` :65・`apply_places` :77・`class Learning` :108・`stamp` :167・`class PackPatrol` :182
 - **lengthhint.py** (273 行) — ② 管理の層 flow: 自動の切り抜きの長さの目安(友人が依頼で指定した区間の長さから。OPT-E2 7f-1・7f-2。決定 3-49 の Q1)。
   - 名前: `run_ranges` :73・`friend_ranges` :81・`read_archive` :92・`load_archive` :109・`candidates` :119・`peak_ratio` :143・`samples` :155・`suggest` :172・`compute` :195・`usable` :215・`describe` :225・`change` :237・ほか 1
 - **live_adopt.py** (276 行) — ライブの採用 = サーバー側の「マーク + 書き出し」(線 D の M1。RS7-2 G1b)。
   - 名前: `adopt_secs` :42・`pad_secs` :63・`top_of` :75・`class StudioMarks` :85・`class LocalMarks` :128・`class Adopter` :220
-- **live_archive.py** (1610 行) — 録画に無い区間をアーカイブ(YouTube)から書き出す(線 D の P4 の残り。notes:plan/line-d-live-clipping.md の 0-9)と、配信後の全自動(M7)の入口の側の中身。
+- **live_archive.py** (1610 行) — 録画に無い区間をアーカイブ(YouTube)から書き出す(線 D の P4 の残り。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0-9)と、配信後の全自動(M7)の入口の側の中身。
   - 名前: `from_archive` :148・`needs_archive` :153・`class ArchiveError` :159・`class Later` :163・`run_proc` :172・`probe_archive` :204・`readiness` :248・`fetch_full_audio` :266・`worker_python` :296・`run_align` :301・`inside` :315・`ended_at` :321・ほか 5
-- **live_detect.py** (852 行) — 配信中の盛り上がりの検出(線 D の L2)と自動の採用(M11)の入口の側。計画は notes:plan/line-d-detect.md(3 の「候補の API の約束」は線 2 = スタジオの画面との境目。変えない)。
+- **live_detect.py** (852 行) — 配信中の盛り上がりの検出(線 D の L2)と自動の採用(M11)の入口の側。計画は 資料の git:before-1028-cleanup:plan/line-d-detect.md(3 の「候補の API の約束」は線 2 = スタジオの画面との境目。変えない)。
   - 名前: `clean_spec` :84・`overlay` :98・`merge_spans` :119・`measured_holes` :130・`class Detector` :150
-- **live_export.py** (1394 行) — リアルタイム切り抜き(線 D の P2: マークと書き出し。notes:plan/line-d-live-clipping.md の 0・5・6)の入口の側の中身。
+- **live_export.py** (1394 行) — リアルタイム切り抜き(線 D の P2: マークと書き出し。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0・5・6)の入口の側の中身。
   - 名前: `read_after` :92・`class LiveError` :122・`pick_folder` :134・`rec_list` :143・`latest_per_mark` :152・`cleaned_up` :162・`check_after` :173・`check_origin` :185・`clean_auto` :194・`check_streamer` :200・`deliver_pool` :212・`job_after` :223・ほか 7
-- **live_failures.py** (172 行) — リアルタイム切り抜き(線 D)の失敗の集約(M3。notes:plan/line-d-auto-pack.md の 4)。
+- **live_failures.py** (172 行) — リアルタイム切り抜き(線 D)の失敗の集約(M3。資料の git:before-1028-cleanup:plan/line-d-auto-pack.md の 4)。
   - 名前: `failure_of` :50・`after_stream_failure` :75・`detect_failure` :92・`keep_failure` :108・`handover_failure` :118・`class Reader` :125・`collect` :153
 - **live_patrol.py** (64 行) — ライブの見回りの糸の骨組み(OPT2。live_export.Exporter・live_archive.Archiver・live_tx.LiveTx が継ぐ)と中止の例外 1 組。
   - 名前: `class Halted` :14・`class Patrol` :18
@@ -57,7 +57,7 @@
   - 名前: `fate` :34・`overdue` :45・`private_name` :51・`near` :59・`exported_why` :64・`adopted_why` :79・`class Retire` :93
 - **live_rules.py** (147 行) — 友人のライブ配信の依頼の設定の決まりと、依頼と録画の結びつきの記録(notes:docs/spec/friend.md の 2-15)。範囲・既定・読み直しの 1 か所。
   - 名前: `num_in` :29・`clean_settings` :33・`settings_text` :52・`class RequestBook` :63
-- **live_tx.py** (481 行) — 配信中の候補の文字起こし(線 D の D-11 案 b。notes:plan/line-d-live-clipping.md の 0-11。ユーザー決定)。
+- **live_tx.py** (481 行) — 配信中の候補の文字起こし(線 D の D-11 案 b。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0-11。ユーザー決定)。
   - 名前: `shift_rows` :59・`class LiveTx` :73
 - **live_watch.py** (164 行) — ② 配信の見回り: 登録した事務所のチャンネルから「配信中」と「これからの予定」を探す(いつ探すか・どれだけ覚えるか)。OPT-H2 D。
   - 名前: `channel_regions` :37・`live_row` :55・`live_list` :150
@@ -140,7 +140,7 @@
 - tests/flow/test_packjobs.py — flow/packjobs.py(パックのジョブの器。OPT2 J3): 同時 1 本・取り消し・履歴・SLOTS・掲示板の形
 - tests/flow/test_packrec.py — flow/packrec.py(パックを作った記録)の整理: 記録が MAX_RECORDS を超えたときに消す物・残す物
 - tests/flow/test_placement.py — flow/placement(② 置き場所の持ち主・結果の束・.flow.lock。RS6 b-B0)のテスト。
-- tests/flow/test_prefetch.py — 解析の先回り(flow/run.PREFETCH_ANALYZE・runqueue.Queue._prefetch_next。notes:plan/解析の先回り-設計.md)のテスト。
+- tests/flow/test_prefetch.py — 解析の先回り(flow/run.PREFETCH_ANALYZE・runqueue.Queue._prefetch_next。資料の git:before-1028-cleanup:plan/解析の先回り-設計.md)のテスト。
 - tests/flow/test_prio.py — flow/prio(処理の優先度の 1 つの表。PRIO・決定 3-49): 表・級の決め方・重い処理の枠の順番と「空いているときだけ」・
 - tests/flow/test_run.py — pipeline/run.py(① の経路。RS1-7)のテスト。  py -3.12 -m unittest tests/flow/test_run.py -v
 - tests/flow/test_runlog.py — pipeline/runlog.py(終わった実行の記録の形と読み方。RS3-0B)のテスト。  py -3.12 -m unittest tests/flow/test_runlog.py -v

@@ -4,7 +4,7 @@
   plan_cut(Request)   … 動画を調べ、カットの決め方を組み合わせて「残す区間」を出す。ファイルは作らない(= --dry-run)
   build_pack(Plan, …) … EDL・カット後の字幕・友人へ.txt・cut-plan.json(+ 任意で元動画のコピー・Text+パック)を作る。
                         Text+ パックには EDL・カット後の SRT を入れない(「予備」の道は無い = 決定 3-34。Text+ でないパックは EDL が本体)。
-                        plan_file=False: cut-plan.json を書かない = 画面・API。記録は作業データ側。notes:docs/design/edit-tool-design.md の 12 ④)
+                        plan_file=False: cut-plan.json を書かない = 画面・API。記録は作業データ側。資料の git:before-1028-cleanup:docs/design/edit-tool-design.md の 12 ④)
 
 残す区間の決め方:
   base(土台): "all"(動画全体)/ "list"(時刻リストの残す区間)/ "plan"(cut-plan の採用区間 + 前後の余白)
@@ -40,7 +40,7 @@ BASES = ("all", "list", "plan", "rows")
 
 @dataclass(frozen=True)
 class RowEdge:
-    """行から作るカット(base "rows")で、残す区間の端を「声が止まる所」まで広げる(語頭・語尾が切れないように。notes:docs/design/edit-tool-design.md の 12 ⑥)。
+    """行から作るカット(base "rows")で、残す区間の端を「声が止まる所」まで広げる(語頭・語尾が切れないように。資料の git:before-1028-cleanup:docs/design/edit-tool-design.md の 12 ⑥)。
     文字起こしは行の端を最初・最後の単語の時刻にそろえていて、Whisper の単語の時刻は始まりが遅く・終わりが早く出やすいため。
       終わり: after 秒先までに無音が始まれば、そこまで。始まり: before 秒前までに無音が終われば、そこから。
       端がもう無音の中なら動かさない。窓の中に無音が無い(BGM が続くなど)ときは決まった余白(pad_after・pad_before。上限を超えない = 上限 0 なら広げない)。
@@ -64,7 +64,7 @@ SNAP_MIN = 0.05        # 話の切れ目で両端を詰めるのは、これよ�
 TRANSCRIPT_ROWS = {"base": "rows", "handles": 0.0, "min_len": 0.0, "join_frames": 1, "row_edge": ROW_EDGE}
 # 「編集」ツールのカット(タイムラインで手で決めた残す区間。画面の指定 spec.keeps)のとおりに作る: 余白を足さない・最短の長さで捨てない・
 # 無音を重ねない・「カット済」の行で削らない(削る所はもう keeps に入っている)・隙間をつながない(接している区間だけ1つにまとめる)。
-# とても短い区間は捨てずに注意だけ出す(warn_short 秒)。notes:docs/design/edit-tool-design.md の 5
+# とても短い区間は捨てずに注意だけ出す(warn_short 秒)。資料の git:before-1028-cleanup:docs/design/edit-tool-design.md の 5
 EDIT_KEEPS = {"base": "list", "handles": 0.0, "min_len": 0.0, "join_frames": 0, "silence": False, "drop_cut_rows": False, "warn_short": 0.5}
 MAX_KEEPS = 5000
 PACK_FILE_KINDS = ("edl", "srt", "readme", "plan", "video",

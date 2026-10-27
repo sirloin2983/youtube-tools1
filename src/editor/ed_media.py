@@ -17,7 +17,7 @@ from ytt import jobs as _heavy  # noqa: E402
 import ed_state  # noqa: E402,F401
 from ytt import fsio as _fsio, tools as _tools, workdata as _workdata  # noqa: E402   (JSON の読み・置き場所と版の今の値・動画と音声の小道具)
 from human.proof import store  # noqa: E402
-# ---------- 音の波形(カットのタイムライン用。notes:docs/design/edit-tool-design.md の 5・8) ----------
+# ---------- 音の波形(カットのタイムライン用。資料の git:before-1028-cleanup:docs/design/edit-tool-design.md の 5・8) ----------
 # ffmpeg で 8kHz・モノラルの 16bit にして、区切りごとの最大の振れ幅を 0〜255(平方根で小さい声も見えるように)の1バイトに。
 # numpy は使わない(サーバーのプロセスで読み込まない決まり)。重い処理なので ytt.jobs.SLOTS を通し、画面は 202 の間くり返し問い合わせる
 PEAKS_VERSION = 1

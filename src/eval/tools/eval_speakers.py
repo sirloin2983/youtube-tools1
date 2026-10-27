@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""話者の判別(と覚えた声の照合)の当たり具合を、人が直した最終で測る道具(線 B の話者の評価。notes:plan/line-bc-master-plan.md の Q3・I-2a)。
+"""話者の判別(と覚えた声の照合)の当たり具合を、人が直した最終で測る道具(線 B の話者の評価。資料の git:before-1028-cleanup:plan/line-bc-master-plan.md の Q3・I-2a)。
 
     py -3.12 -m eval.tools.eval_speakers [stored] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ] [--no-eval] [--include-draft]
                                 [--reviewed only|prefer|ignore] [--docs id,…]

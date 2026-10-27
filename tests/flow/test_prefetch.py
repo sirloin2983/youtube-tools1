@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""解析の先回り(flow/run.PREFETCH_ANALYZE・runqueue.Queue._prefetch_next。notes:plan/解析の先回り-設計.md)のテスト。
+"""解析の先回り(flow/run.PREFETCH_ANALYZE・runqueue.Queue._prefetch_next。資料の git:before-1028-cleanup:plan/解析の先回り-設計.md)のテスト。
 糸は回さず、待ちの列に実行を置いて、先回りの判定・B の番の解析の段・中止を直に呼ぶ。  py -3.12 -m unittest tests/flow/test_prefetch.py -v
 """
 import os

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""友人の作業の時刻の集計(新機能 D・10-23。notes:plan/人の作業なしの候補-1023.md の D)。ユーザーの PC で流す。作業データは読むだけ。
+"""友人の作業の時刻の集計(新機能 D・10-23。資料の git:before-1028-cleanup:plan/人の作業なしの候補-1023.md の D)。ユーザーの PC で流す。作業データは読むだけ。
 
     py -3.12 dev/friend_worktime.py [--days 14] [--json]
 

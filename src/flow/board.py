@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""② 管理の層 flow: ジョブの掲示板(RS8 の ② の口 S1。形は notes:docs/spec/pipeline.md 2.9・設計 notes:docs/design/rs8-flow-api.md)。
+"""② 管理の層 flow: ジョブの掲示板(RS8 の ② の口 S1。形は notes:docs/spec/pipeline.md 2.9・設計 資料の git:before-1028-cleanup:docs/design/rs8-flow-api.md)。
 
 新しい画面(入口・案件の画面)が「今・何が・どこまで動いているか」を 1 つの形(Job)で読むための表。プロセスに 1 つ(default())。
 画面が読むのは入口の GET /api/flow/status の jobs・cases・rev(src/app/server.py)。取り消しも id 1 つで(POST /api/flow/cancel)。

@@ -1,4 +1,4 @@
-"""「確かめる」の時刻のカード「行の時刻が合っているか」の反映(notes:docs/design/v1-check-build.md の 3-2・5 節・決定 3-41)。
+"""「確かめる」の時刻のカード「行の時刻が合っているか」の反映(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-2・5 節・決定 3-41)。
 
 答え = {choice: ok | head | tail | both, dStart, dEnd}(dStart / dEnd = ← → で動かした量(秒。前へは負)。0.001 秒まで)。
   - 動かした量があれば、行の start / end をその分だけ変える(_doc.edit_row(why='check:time'))。量が 0(印だけ)なら文書は触らず記録だけ(決定 3-41)

@@ -245,7 +245,7 @@ def record_context(tid, name, hit, reason):
         _txbase.log.warning("動画の手がかりの名前の記録を書けませんでした: %s %s", e.__class__.__name__, str(e)[:150])
 
 
-# ---------- 覚えた声で 1 行ずつ話者を当てる(notes:plan/行ごとの声の当て-1023.md) ----------
+# ---------- 覚えた声で 1 行ずつ話者を当てる(資料の git:before-1028-cleanup:plan/行ごとの声の当て-1023.md) ----------
 ROWVOICE = True           # スイッチ。出る人(spec の people)が 2 人以上で、全員の声が帳にあるときだけ動く(帳が足りなければ何もしない = 今のまま)
 ROWVOICE_MARGIN = 0.05    # 1 位と 2 位の差がこれ未満の行は配信者(出る人の先頭)のまま
 ROWVOICE_MIN = 0.5        # 声の特徴を取る行の長さの下限(秒)。短い行は配信者のまま

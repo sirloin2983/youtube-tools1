@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""「編集」のサーバーの部品: 認識のあとの後処理(A・C・D。notes:plan/line-b-transcription.md の「10-08 の実験ループ」)。
+"""「編集」のサーバーの部品: 認識のあとの後処理(A・C・D。資料の git:before-1028-cleanup:plan/line-b-transcription.md の「10-08 の実験ループ」)。
 
 ねらい: whisper の結果のうち「機械どうしを突き合わせれば直せる」所だけを自動で直して、校正を短くする(ユーザー決定「精度が上がるなら自動で書き換えてよい」)。
   A fill_apply   文字の少ない行(FILL_MIN_SEC 秒以上で、記号を除き同じ字の繰り返しを 1 字に縮めた文字数が FILL_MAX_CPS 字/秒 未満、または繰り返しで縮む行
@@ -459,7 +459,7 @@ def _fill_reader_real(job, spec, wav):
 def fill_after_rows(job, spec, rows, wav, total):
     """run_job の行(expand_segments のあと)に A(別の読みで埋める)と C(末尾の重複)を当てる。
     順は FILL_A_FIRST(既定 A → C。C が A の対象の「うわああああ」の次の「ああああ」の行を先に捨てて埋められなかった = 確かめ済み 23 本の組 B で
-    C → A 15.23% → A → C 12.45%・組 A は全部同じ。notes:plan/accuracy-review-1022.md)。A が読めなくても C は当てる。dup は A の後の行で数える。
+    C → A 15.23% → A → C 12.45%・組 A は全部同じ。資料の git:before-1028-cleanup:plan/accuracy-review-1022.md)。A が読めなくても C は当てる。dup は A の後の行で数える。
     -> (行, 記録 {engine, windows, rows, added, dup, agree, order} か None(設定オフ), 窓を読む関数 か None(読めない = 警告を job に足して whisper のまま))"""
     if not spec.get("autoFill"):
         return rows, None, None
@@ -517,7 +517,7 @@ def fill_snap_ends(rows, spans, rec, reach=FILL_SNAP_END):
 
 def fill_drop_silent(job, rows, wav, rec, drop=True, snap=False):
     """分けた声(separate.voice_spans)と FILL_SILENT_VOICE も重ならない行を捨てる(束 transcribe.dropSilent・既定オフ。確かめ済み 23 本で
-    組 A 10.35 → 9.89%・組 B 12.45 → 11.70%・抜け・時刻は両方の組で同じ = notes:plan/voice-separation-1022.md の 2)。
+    組 A 10.35 → 9.89%・組 B 12.45 → 11.70%・抜け・時刻は両方の組で同じ = 資料の git:before-1028-cleanup:plan/voice-separation-1022.md の 2)。
     捨てた行は rec["dropped"] = {n, db, rows(最初の 200)} に残す。分けられない(型が無い・落ちた)・区間が無ければ警告して捨てない。
     snap(束 transcribe.endSnap・既定オフ)なら残した行の終わりを分けた声の区間の終わりへ寄せる(fill_snap_ends)"""
     phase = job.get("phase")

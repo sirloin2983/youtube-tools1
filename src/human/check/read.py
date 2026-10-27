@@ -1,4 +1,4 @@
-"""「確かめる」の読みのカード(どちらの読みが正しいか)の反映(notes:docs/design/v1-check-build.md の 2-2・3-2。import で apply に登録する)。
+"""「確かめる」の読みのカード(どちらの読みが正しいか)の反映(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 2-2・3-2。import で apply に登録する)。
 出どころ: fill = 後処理が直した行(1 = 今の文字・2 = 認識のまま)/ alt = 2 つ目のエンジンの読み(1 = 今の字幕・2 = その読みを入れた行)。
 答え = {choice: "1" | "2" | "other" | "shift" | "unclear", text?: 打った正しい文字}(other = 画面の 3 のキー・shift = 4 のキー「区間がずれている・ほかの発言が入っている」・
   unclear = 5 のキー「聞き取れない」)。

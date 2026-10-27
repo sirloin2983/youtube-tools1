@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""友人の玄関の ⚙(notes:docs/design/friend-history.md の 7 章)。
+"""友人の玄関の ⚙(資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。
 
 項目と置き場所:
     受け取るの保存先    <玄関>/save-dir.json の dir(無ければ %USERPROFILE%/Videos/受け取ったパック = server.save_dir)

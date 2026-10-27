@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""友人の PC から届いた声の材料の受け取り(10-24 夜。作る側 = friendapp/voicesend。案 = notes:plan/声の材料を友人のPCから-1024.md)。
+"""友人の PC から届いた声の材料の受け取り(10-24 夜。作る側 = friendapp/voicesend。案 = 資料の git:before-1028-cleanup:plan/声の材料を友人のPCから-1024.md)。
 
 送り返し\\ の `<印>__<文書の印>.voice.zip` を、送り返しの受付(returns.scan)がここへ渡す。中身(meta.json と <行 id>.wav)を確かめて
   - 小さな文字起こしの文書(id = 文書の印・origin = friend-voice・元の動画なし・話者 = 配信者 1 人・行 = 送られた行)を作る

@@ -723,7 +723,7 @@ class Queue(run_mod.Runner):
         return min(queued, key=lambda r: _prio.rank(_prio.of_run(r))) if queued else None
 
     def _prefetch_next(self, cur):
-        """解析の先回り(run.PREFETCH_ANALYZE。notes:plan/解析の先回り-設計.md): 今の実行 cur が文字起こしの段に入るとき、次に始まる実行 B(1 本だけ)の
+        """解析の先回り(run.PREFETCH_ANALYZE。資料の git:before-1028-cleanup:plan/解析の先回り-設計.md): 今の実行 cur が文字起こしの段に入るとき、次に始まる実行 B(1 本だけ)の
         解析をスタジオの順番に頼む。B に済んでいない解析の段があり・別の配信・束が組んである・空き容量が下限より上・解析が要る(make)ときだけ。
         頼んだら B.prefetch に印(B の番で _step_analyze が待つ・済んでいれば飛ばす)。順番を決めるのは ② だけ(① の解析の順番・枠は変えない)"""
         if not run_mod.PREFETCH_ANALYZE:

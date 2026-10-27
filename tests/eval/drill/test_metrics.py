@@ -175,7 +175,7 @@ class TestPure(unittest.TestCase):
         self.assertEqual([g["id"] for g, _a, _b in _doc_jobs.redo_targets(doc2)], ["a", "c"])                 # 機械の出力が無い文書は、手直しを見分けない
 
     def test_make_flags_sparse_long_rows(self):
-        """長い区間に文字が少ない行(抜けの可能性。notes:docs/design/edit-tool-design.md の 12 ③-1): 4 秒より長くて、記号・空白を除いて 1 秒あたり 1.5 文字未満"""
+        """長い区間に文字が少ない行(抜けの可能性。資料の git:before-1028-cleanup:docs/design/edit-tool-design.md の 12 ③-1): 4 秒より長くて、記号・空白を除いて 1 秒あたり 1.5 文字未満"""
         row = lambda a, b, t: {"start": a, "end": b, "text": t}   # noqa: E731
         self.assertIn(_txtext.SPARSE_FLAG, _postproc.make_flags(row(0, 7.2, "黒"), []))
         self.assertIn(_txtext.SPARSE_FLAG, _postproc.make_flags(row(4.2, 24.6, "いや、なんだ!"), []))          # 記号は数えない(5 文字 / 20.4 秒)

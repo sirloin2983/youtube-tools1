@@ -1,4 +1,4 @@
-"""テストの共通の下ごしらえ(テストの見直し TESTREV。notes:plan/test-review.md の 6)。
+"""テストの共通の下ごしらえ(テストの見直し TESTREV。資料の git:before-1028-cleanup:plan/test-review.md の 6)。
 
 tests/ の各層のテストが共通で使う「一時フォルダ・JSON の読み書き・偽の HTTP サーバー・作業データの切り離し」を 1 か所に置く。
 テストからだけ使う(本体のコードは import しない)。tests/ を sys.path に入れて読む。

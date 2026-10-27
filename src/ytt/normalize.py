@@ -1,4 +1,4 @@
-"""素材を 30fps にそろえる(Q1。notes:plan/line-bc-master-plan.md。ユーザー決定)。
+"""素材を 30fps にそろえる(Q1。資料の git:before-1028-cleanup:plan/line-bc-master-plan.md。ユーザー決定)。
 
 決まり: **H.264・8bit・yuv420p・30/1 の固定(CFR)・AAC** ならそのまま使う(作り直さない)。違えば ffmpeg で作り直す。
 画質の設定は 1 か所(libx264 crf 18。GPU は同じくらいの画質の値)。スタジオの書き出し・ライブの区間の作り直しもここの引数を使う。

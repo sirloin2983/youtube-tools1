@@ -13,7 +13,7 @@
      (test_pack_with_overlapping_rows。重なりの無いパックの Lua の本体が段のコードの印を消した雛形と同じことは tests/pipeline/pack/test_pack.py の TestPackRun.test_textplus_run)
 
 A の入力の範囲: 行は時刻順(開始が同じなら終わりの早い順)・動画の中に収まる・時刻は 0.02 秒刻み(faster-whisper の時刻の刻み。25fps を除く)・
-選んだ fps = 動画の fps。この範囲の外では、旧 resolve_export に不具合があり、一本化で直した(KnownFixes に固定。詳しくは notes:docs/design/resolve-pack-unification.md):
+選んだ fps = 動画の fps。この範囲の外では、旧 resolve_export に不具合があり、一本化で直した(KnownFixes に固定。詳しくは 資料の git:before-1028-cleanup:docs/design/resolve-pack-unification.md):
   - ちょうど半フレームの時刻 … 旧は float の誤差で1フレーム下に丸まることがあった(今は分数で正確に・0.5 は大きい方へ)
   - 動画の終わりをまたぐ行 … 旧は字幕を捨てていた(今は終わりで切って残す)
   - 時刻順でない行 … 旧は字幕を文書の順に並べていた(SRT の番号が時刻順にならない。今は時刻順)
@@ -377,7 +377,7 @@ class ResolvePackContract(unittest.TestCase):
 
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg / ffprobe が無い")
 class EditKeepsContract(unittest.TestCase):
-    """「編集」ツール(notes:docs/design/edit-tool-design.md)のパック:
+    """「編集」ツール(資料の git:before-1028-cleanup:docs/design/edit-tool-design.md)のパック:
       C. 編集の残す区間(spec.keeps → pack.EDIT_KEEPS)で作ったパック = 同じ区間を時刻リスト(mode list)で作ったパック
       D. 以前の文書(行の cutState だけ)を開いたときのたたき台「行から」(api/plan の keepsSec を編集の内容にして保存 →
          行の cutState は編集の内容から付け直す)で作ったパック = 今の「カットとパック」(preset transcript-rows)のパック
@@ -505,7 +505,7 @@ class KnownFixes(ResolvePackContract):
 
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg / ffprobe が無い")
 class RowEdgeContract(unittest.TestCase):
-    """E. 行から作るカットの端を声の止まる所まで広げる(pack.ROW_EDGE。notes:docs/design/edit-tool-design.md の 12 ⑥)。広げる前(A の LEGACY)と比べて:
+    """E. 行から作るカットの端を声の止まる所まで広げる(pack.ROW_EDGE。資料の git:before-1028-cleanup:docs/design/edit-tool-design.md の 12 ⑥)。広げる前(A の LEGACY)と比べて:
       - 広げる前の残す区間は、広げたあとの残す区間にすべて入っている(削る所が増えない)
       - 端が動くのは上限まで(始まりは前 0.3 秒・終わりは後 0.5 秒。つながった所は除く)
       - カット済の行の時間(残す行と重ならない所)には入らない

@@ -1,4 +1,4 @@
-"""「編集」のサーバーの部品: 声を伴奏から分けて(Spleeter 2stems・sherpa-onnx・CPU)、分けた声の音量から声のある区間を作る(notes:plan/voice-separation-1022.md)。
+"""「編集」のサーバーの部品: 声を伴奏から分けて(Spleeter 2stems・sherpa-onnx・CPU)、分けた声の音量から声のある区間を作る(資料の git:before-1028-cleanup:plan/voice-separation-1022.md)。
 
 使い手: 認識のあとの後処理(fill.fill_drop_silent = 分けた声と 1 割も重ならない行を捨てる。束 transcribe.dropSilent・既定オフ)。
 声の区間 = SEP_FRAME 秒ごとの分けた声の音量が、その音声の上位 5% の音量 − SEP_DB より大きい所(SEP_GAP 秒以内のすき間はつなぎ、SEP_MIN 秒未満は捨てる)。

@@ -91,7 +91,7 @@ def validate_job(req):
         if not str(req.get("title") or "").strip():
             req = dict(req, title=target.get("title") or "")
         ev = ev or target.get("evalSet") is True
-    _settings.eval_name_guard(src, ev)   # 評価用のフォルダの設定が消えているのに「評価用」のフォルダの動画なら止める(学習用に混ざらないように。notes:plan/line-bc-master-plan.md の Q0)
+    _settings.eval_name_guard(src, ev)   # 評価用のフォルダの設定が消えているのに「評価用」のフォルダの動画なら止める(学習用に混ざらないように。資料の git:before-1028-cleanup:plan/line-bc-master-plan.md の Q0)
     ev = ev or _settings.in_eval_dir(src)   # 評価用のフォルダの動画は、画面のチェックが無くても評価用
     if ev:
         glossary, gauto = [], []
@@ -153,7 +153,7 @@ def public_job(j):
     return out
 
 
-# 字幕の文字数(notes:docs/design/edit-tool-design.md の 12 ②。ユーザー決定: 縦 16・横 28、パックの字幕は2段 = 縦 8・横 14 文字前後で改行)。設定の "subtitle" に保存する
+# 字幕の文字数(資料の git:before-1028-cleanup:docs/design/edit-tool-design.md の 12 ②。ユーザー決定: 縦 16・横 28、パックの字幕は2段 = 縦 8・横 14 文字前後で改行)。設定の "subtitle" に保存する
 SUBTITLE_DEFAULT = {"orientation": "vertical", "maxChars": {"vertical": 16, "horizontal": 28}, "wrapChars": {"vertical": 8, "horizontal": 14},
                     "splitChars": _txtext.SPLIT_CHARS}   # splitChars = 文字起こしの行を分ける文字数(maxChars とは別。既定 24。画面の欄はまだ無い = settings.json か環境変数 TRANSCRIBE_SPLIT_CHARS)
 ORIENTATIONS = ("vertical", "horizontal")

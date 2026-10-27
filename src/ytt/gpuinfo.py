@@ -1,4 +1,4 @@
-"""この PC の GPU の名前と VRAM を調べる(F1 F0-2。notes:docs/design/f1-build.md の 2 の F0-2・3 の (f1b))。標準ライブラリと ytt だけ。
+"""この PC の GPU の名前と VRAM を調べる(F1 F0-2。資料の git:before-1028-cleanup:docs/design/f1-build.md の 2 の F0-2・3 の (f1b))。標準ライブラリと ytt だけ。
 
 info() -> {"name", "vramGB"(数か None), "vendor"(nvidia・amd・intel・other)} か None(GPU が見つからない・調べに失敗)。
 調べる順:

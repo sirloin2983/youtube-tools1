@@ -1,4 +1,4 @@
-"""「確かめる」のカードの出どころ(V1 の V0。notes:docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
+"""「確かめる」のカードの出どころ(V1 の V0。資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
 
 出どころは register(kind, source, fn) で登録する(V2 の 4 本が足す・差し替える)。fn(view) -> カードの一覧(lineup.py の形 + `_order`)。
 view(View)は 1 回の集め(collect)の間だけ読んだ物を共有する: 案件の一覧(cases.snapshot)・評価用でない文字起こしの文書・.diar.json・

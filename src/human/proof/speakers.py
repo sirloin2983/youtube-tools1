@@ -224,7 +224,7 @@ def run_diarize(job):
     spec = job["spec"]
     if spec.get("auto") and _autodiar_skip_at_start(job):   # 自動の判別: 待っている間に人が話者を付けた・確かめ済みにしたなら何もしない
         return
-    if spec.get("keepRowVoice") and _rowvoice_doc(spec["tid"]):   # ② の流れの判別: 覚えた声で当てた話者を残す(短いコラボは判別が人を分けられない。notes:plan/行ごとの声の当て-1023.md)
+    if spec.get("keepRowVoice") and _rowvoice_doc(spec["tid"]):   # ② の流れの判別: 覚えた声で当てた話者を残す(短いコラボは判別が人を分けられない。資料の git:before-1028-cleanup:plan/行ごとの声の当て-1023.md)
         job["speakers"], job["unsure"], job["rowVoiceKept"] = len(store.read_transcript(spec["tid"]).get("speakers") or []), 0, True
         _heavy.job_done(job, spec["tid"], "判別しませんでした(覚えた声で行の話者を当ててあります)")
         return

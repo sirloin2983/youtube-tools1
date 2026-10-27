@@ -3,7 +3,7 @@
 
     python src/app/server.py [--no-open] [--port 8700] [--only studio,transcribe,cut2resolve]
 
-統合計画の段階1(notes:docs/design/integration-plan.md)。ツールのコードは変えず、各ツールのフォルダで
+統合計画の段階1(資料の git:before-1028-cleanup:docs/design/integration-plan.md)。ツールのコードは変えず、各ツールのフォルダで
 `serve.py <既定のポート> --no-open` を子プロセスとして起動する。ツール間の受け渡し・ポートの共有は従来どおり(notes:docs/spec/pipeline.md)。
 
   GET  /                                  入口の画面(portal.html)
@@ -175,7 +175,7 @@ def _spec(tid, name, sub, port, **kw):
 TOOLS = (
     _spec("studio", "切り抜きスタジオ", "配信を探す・切り抜く区間を選ぶ・書き出す", 8800),
     _spec("transcribe", "編集", "文字起こし・カット・Resolve へのパック", 8775, venv=True),
-    # cut2resolve: 「編集」がパックを作るのに使う(/cut2resolve/api/...)。画面のカードは出さない(hidden。止まっている・落ちたときだけ出す。notes:docs/design/edit-tool-design.md の 6)
+    # cut2resolve: 「編集」がパックを作るのに使う(/cut2resolve/api/...)。画面のカードは出さない(hidden。止まっている・落ちたときだけ出す。資料の git:before-1028-cleanup:docs/design/edit-tool-design.md の 6)
     _spec("cut2resolve", "cut2resolve", "「編集」がパックを作るのに使う部品(Resolve へ渡すカットと字幕)", 8810, hidden=True),
 )
 TOOL_IDS = tuple(t["id"] for t in TOOLS)
@@ -589,7 +589,7 @@ STATIC = {"/": ("portal.html", HOME_UI_DIR), "/index.html": ("portal.html", HOME
           "/portal.css": ("portal.css", HOME_UI_DIR), "/ui-kit.css": ("ui-kit.css", UI_KIT_DIR), "/ui-kit.js": ("ui-kit.js", UI_KIT_DIR),
           "/settings": ("index.html", SETTINGS_DIR), "/settings.js": ("settings.js", SETTINGS_DIR),
           "/settings.css": ("settings.css", SETTINGS_DIR), "/settings-schema.json": ("schema.json", SETTINGS_DIR)}
-# 案件の画面(/cases。RS8 C1。notes:docs/design/rs8-cases-build.md)。/settings と同じく入口の直下の 1 枚(相対パス api/… が入口・studio/api/… が取り込んだスタジオ)。
+# 案件の画面(/cases。RS8 C1。資料の git:before-1028-cleanup:docs/design/rs8-cases-build.md)。/settings と同じく入口の直下の 1 枚(相対パス api/… が入口・studio/api/… が取り込んだスタジオ)。
 # パネルは /cases-panels/<名前>.js(/cases/ で始めない = 画面の相対パスがずれない)。URL は完全一致の表だけ(フォルダを丸ごと配らない)
 CASES_DIR = os.path.join(ROOT, "app", "ui", "cases")
 CASES_PANELS = ("cand", "proof", "cut")   # 候補・校正・カットとパック(C2 で中身を移す)
@@ -604,7 +604,7 @@ STATIC["/cases-panels/studio-shim.js"] = (os.path.join("panels", "studio-shim.js
 STATIC["/portal-edit.js"] = ("portal-edit.js", HOME_UI_DIR)   # ホームの運用の中の「精度」「学習」(編集の左メニューにあった物。RS8 C3)
 STATIC.update({"/cases-panels/proof.css": (os.path.join("panels", "proof.css"), CASES_DIR),   # 校正のパネル(C2b): 見た目・3 択の部品・編集を載せる台(編集の app-*.js は transcribe/ から読む)
                "/cases-panels/machpick.js": (os.path.join("panels", "machpick.js"), CASES_DIR), "/cases-edhost.js": ("edhost.js", CASES_DIR)})
-# 確かめる(/check。RS8 V1。notes:docs/design/v1-check-build.md)。案件をまたぐ軽い確認のカード。/cases と同じく入口の直下の 1 枚・完全一致の表だけ。
+# 確かめる(/check。RS8 V1。資料の git:before-1028-cleanup:docs/design/v1-check-build.md)。案件をまたぐ軽い確認のカード。/cases と同じく入口の直下の 1 枚・完全一致の表だけ。
 # カードの描き方は /check-cards/<種類>.js(V2 の 4 本が中身を足す)・カード用の軽い再生部品は /check-player.js
 CHECK_DIR = os.path.join(ROOT, "app", "ui", "check")
 CHECK_CARDS = ("value", "read", "voice", "time", "speech", "cut", "section")   # 切り抜く価値・どちらの読み・誰の声・行の時刻・この行は声ですか(C-EVAL)・評価の区間(C-EVAL)

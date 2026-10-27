@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""統合サーバーへのツールの取り込み(統合計画の段階3。notes:docs/design/integration-plan.md)。
+"""統合サーバーへのツールの取り込み(統合計画の段階3。資料の git:before-1028-cleanup:docs/design/integration-plan.md)。
 
 入口のサーバー(src/app/server.py の PortalServer)が、ツールの serve.py を別名のモジュールとして読み込み、
 同じポートの /studio/ などで画面と API を受け持つ。ファイルは動かさない。取り込めないときは入口が serve.py を子プロセスとして起動する(各ツールの単独起動は無い)。

@@ -21,7 +21,7 @@
   - failed: 失敗の文がある切り抜きの数(ホームの「処理の状況」と一覧の行の結果)
 スタジオから消えた配信(gone)は、候補の確認・書き出しをスタジオでできないので数えない(文字起こし・校正・パックは残った切り抜きで数える)。
 
-自動でできた切り抜きの確認(線 D の M9・M12・M13。計画 notes:plan/line-d-auto-pack.md の段階 4・6):
+自動でできた切り抜きの確認(線 D の M9・M12・M13。計画 資料の git:before-1028-cleanup:plan/line-d-auto-pack.md の段階 4・6):
   - 配信(kind live)の切り抜きのうち、.clip.json の source.live.origin が auto(配信中の候補 = M11)か archive(配信後の解析 = M7)のものに
     clip["auto"] = {origin, originLabel, score, bench} を付ける(人の切り抜き manual は None)。点数は .clip.json の source.live.score →
     mark.score → スタジオのマークの score の順(今は書き手が無いことが多い。無ければ None = 画面に出さない)。

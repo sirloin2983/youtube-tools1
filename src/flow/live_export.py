@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""リアルタイム切り抜き(線 D の P2: マークと書き出し。notes:plan/line-d-live-clipping.md の 0・5・6)の入口の側の中身。
+"""リアルタイム切り抜き(線 D の P2: マークと書き出し。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0・5・6)の入口の側の中身。
 画面と API は src/app/live.py(設定 live.enabled がオンのときだけ)。ここは「マークの正本」と「書き出しのジョブ」。
 
 マーク(MarkStore):

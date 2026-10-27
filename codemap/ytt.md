@@ -27,13 +27,13 @@
   - 名前: `class ApiError` :13・`class Cancelled` :19・`class Refused` :23・`class ResolveExportError` :32
 - **fsio.py** (546 行) — ファイルの読み書き(スタジオの common.atomic_write と、文字起こしの atomic_write / pipeline_io の書き込みを1つにしたもの)。
   - 名前: `replace_retry` :19・`unlink_quiet` :32・`temp_in` :40・`atomic_write` :59・`create_new` :77・`write_json` :99・`append_jsonl` :109・`sha256_file` :116・`class TooLarge` :125・`read_json_file` :133・`is_network_path` :153・`norm_path` :160・ほか 21
-- **gpuinfo.py** (165 行) — この PC の GPU の名前と VRAM を調べる(F1 F0-2。notes:docs/design/f1-build.md の 2 の F0-2・3 の (f1b))。標準ライブラリと ytt だけ。
+- **gpuinfo.py** (165 行) — この PC の GPU の名前と VRAM を調べる(F1 F0-2。資料の git:before-1028-cleanup:docs/design/f1-build.md の 2 の F0-2・3 の (f1b))。標準ライブラリと ytt だけ。
   - 名前: `vendor_of` :28・`gb` :37・`parse_nvidia_smi` :46・`parse_cim` :62・`pick` :80・`from_nvidia_smi` :97・`from_registry` :104・`from_cim` :136・`probe` :144・`info` :158
 - **httpsec.py** (272 行) — ローカルサーバー(127.0.0.1)の安全検査。スタジオ・文字起こし・入口で同じ規則を1か所に持つ。
   - 名前: `allowed_hosts` :31・`host_ok` :35・`origin_ok` :39・`fetch_site_ok` :44・`navigation_ok` :48・`send_head` :53・`send` :66・`class LocalHandler` :74・`class BodyError` :108・`drain_body` :121・`read_json_body` :136・`inject_token` :174・ほか 5
 - **jobs.py** (266 行) — 重い処理の同時実行数の上限(統合計画の段階4)。
   - 名前: `limit_from_env` :42・`class HeavySlots` :51・`check_cancel` :190・`class Ctl` :198
-- **layout.py** (75 行) — リポジトリの中のフォルダの並び(段0 の改名は `notes:docs/design/phase0-restructure.md`)。
+- **layout.py** (75 行) — リポジトリの中のフォルダの並び(段0 の改名は `資料の git:before-1028-cleanup:docs/design/phase0-restructure.md`)。
   - 名前: `src_root` :31・`repo_root` :36・`inplace_root` :41・`tool_dir` :49・`holo_colors_dir` :54・`notes_root` :62・`copy_shared_code` :68
 - **loudness.py** (167 行) — 聞こえ方の音量(ラウドネス。LUFS)をそろえる決まりの1か所(スタジオの書き出し・パック作りが共通で使う)。
   - 名前: `check_target` :36・`check_volume` :49・`pct_to_db` :62・`measure_filter` :66・`parse` :71・`gain` :100・`pack_gain` :106・`select_filter` :111・`result` :120・`pack_result` :125・`pack_aac` :130・`volume_filter` :139・ほか 4
@@ -43,7 +43,7 @@
   - 名前: `media_info` :26・`media_info_known` :40・`remember_media_info` :45
 - **names.py** (175 行) — 書き出しの名前の規則(スタジオの書き出し src/pipeline/export/exporter.py と、ライブの書き出し src/flow/live_export.py が同じ規則を読む。
   - 名前: `compact_ts` :28・`safe_name` :34・`is_reserved` :40・`path_units` :44・`trim_units` :49・`read_owner` :58・`write_owner` :69・`find_folder` :87・`pick_folder` :102・`unique_base` :122・`clip_base` :136・`next_clip_number` :149・ほか 3
-- **normalize.py** (405 行) — 素材を 30fps にそろえる(Q1。notes:plan/line-bc-master-plan.md。ユーザー決定)。
+- **normalize.py** (405 行) — 素材を 30fps にそろえる(Q1。資料の git:before-1028-cleanup:plan/line-bc-master-plan.md。ユーザー決定)。
   - 名前: `class NormalizeError` :61・`class Cancelled` :65・`fps_filter` :69・`use_prev` :75・`enc_set` :80・`video_args` :85・`encode_args` :92・`gpu_encoder` :124・`encode_tries` :137・`video_ok` :144・`legacy_args` :153・`is_fps_mode_error` :162・ほか 11
 - **pick.py** (97 行) — PC の標準の「ファイルを選ぶ」「フォルダを選ぶ」の窓(画面の「参照…」)。
   - 名前: `class PickError` :40・`class PickBusy` :44・`initial_dir` :48・`pick` :71
@@ -91,7 +91,7 @@
 
 ## テスト
 
-- tests/testkit.py — テストの共通の下ごしらえ(テストの見直し TESTREV。notes:plan/test-review.md の 6)。
+- tests/testkit.py — テストの共通の下ごしらえ(テストの見直し TESTREV。資料の git:before-1028-cleanup:plan/test-review.md の 6)。
 - tests/ytt/test_autorestart.py — 自動の起動し直しの判定(src/ytt/autorestart.py)のテスト。  python -m unittest tests/ytt/test_autorestart.py -v
 - tests/ytt/test_docloc.py — ytt/docloc.py(文字起こしの文書の置き場所を引く口。RS8 B-2)のテスト。
 - tests/ytt/test_flags.py — 行の印(flag)のつなぎ方・探し方(ytt.schemas の join_flags・has_flag・flag_parts)のテスト。  py -3.12 -m unittest tests/ytt/test_flags.py -v

@@ -83,7 +83,7 @@ LOG_MAX = 1024 * 1024
 MAX_BODY = 2 * 1024 * 1024                          # JSON の要求の上限(時刻リストの貼り付けを含む)
 SOCKET_TIMEOUT = 120
 # 画面は「編集」(editor の 2 カット・3 パック のタブ)にある(ユーザー決定。
-# notes:docs/design/edit-tool-design.md)。入口の中では app/mount.py が /cut2resolve/ を「編集」へ転送する。ここに届いた / には案内だけを返す
+# 資料の git:before-1028-cleanup:docs/design/edit-tool-design.md)。入口の中では app/mount.py が /cut2resolve/ を「編集」へ転送する。ここに届いた / には案内だけを返す
 PAGE_PATHS = ("/", "/index.html")
 MOVED_PAGE = ("<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><title>cut2resolve</title></head><body>"
               "<h1>cut2resolve の画面は「編集」に統合しました</h1>"

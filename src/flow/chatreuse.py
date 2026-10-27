@@ -7,7 +7,7 @@
 - 途切れ: 頭・終わり・メッセージの間の空きが GAP_MAX 秒まで・件数が MIN_COUNT 以上(起動し直しの継ぎ目・回しの抜け・録画より前に始まった配信は空きになる)
 スイッチ MODE: off = 残さない(今までどおり消す)/ measure = 残して比べるだけ(解析はリプレイを取る。済んだらリプレイと 1 秒の箱を比べて
 chat-reuse.jsonl に 1 行)/ on = 途切れが無ければ解析へ渡す / auto(既定)= 比べた記録が READY_N 本続けて近い(ready)までは measure、そのあと on。
-近いの決まり(ok): 件数の比 0.9〜1.1・10 秒の箱の相関 0.9 以上・ずれ ±LAG_OK 秒(notes:plan/chat-reuse/chat_reuse_check.py の確かめ: 0 秒が ±5 秒ずれても
+近いの決まり(ok): 件数の比 0.9〜1.1・10 秒の箱の相関 0.9 以上・ずれ ±LAG_OK 秒(資料の git:before-1028-cleanup:plan/chat-reuse/chat_reuse_check.py の確かめ: 0 秒が ±5 秒ずれても
 解析の遅れの推定が吸収して候補は同じ、20 秒ずれると候補が全部変わる)。片付けは物の終わりの日数(flow/retention.KEEP_SEC)。
 """
 import glob

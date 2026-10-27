@@ -1,4 +1,4 @@
-"""「確かめる」の答えの記録(notes:docs/design/v1-check-build.md の 3-1)。
+"""「確かめる」の答えの記録(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-1)。
 
 置き場所: 入口の作業データ `app\\check\\`(accuracy-state.json と同じ app の持ち物。バックアップは app を丸ごと写すので足す物は無い)。
   - answers.jsonl: 追記だけ(fsio.append_line)。1 行 = 1 件の JSON。形は 6 通り:

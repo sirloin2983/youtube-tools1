@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""録画に無い区間をアーカイブ(YouTube)から書き出す(線 D の P4 の残り。notes:plan/line-d-live-clipping.md の 0-9)と、配信後の全自動(M7)の入口の側の中身。
+"""録画に無い区間をアーカイブ(YouTube)から書き出す(線 D の P4 の残り。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0-9)と、配信後の全自動(M7)の入口の側の中身。
 API は src/app/live.py(設定 live.enabled がオンのときだけ)。
 
-録画から作った速報版を本番版に入れ替えることはしない(決定 3-73・notes:docs/design/friend-history.md の 7 章。友人へは配信中に速報版のパックで届く)。
+録画から作った速報版を本番版に入れ替えることはしない(決定 3-73・資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章。友人へは配信中に速報版のパックで届く)。
 P4 の役目は「録画を消してよい合図」= archived(アーカイブ化したかの確かめ)(録画を消すのは
 src/manage/keep/live_cleanup.py。判断は src/flow/live_retire.py)。欠けのジョブは自動で必ずアーカイブから書き出す。
 

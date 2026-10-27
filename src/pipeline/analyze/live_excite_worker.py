@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""配信中の盛り上がりの検出のワーカー(線 D の L2。notes:plan/line-d-detect.md・notes:plan/line-d-live-clipping.md の 0-10)。入口(src/flow/live_detect.py)が起動する子プロセス。
+"""配信中の盛り上がりの検出のワーカー(線 D の L2。資料の git:before-1028-cleanup:plan/line-d-detect.md・資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0-10)。入口(src/flow/live_detect.py)が起動する子プロセス。
 
     py -3.12 -u src/pipeline/analyze/live_excite_worker.py --config <入口の作業データ>/live/excite/config.json [--parent <入口の pid>]
 

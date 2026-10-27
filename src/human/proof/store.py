@@ -7,7 +7,7 @@
 - 評価ドリルの要約は持たない(⑤ eval/drill/drill.drill_docs が自前で文書を読んで足す)
 - 編集の内容(edit.json)は文書と相互に呼ぶので割らない。行の「カット済」は commit が必ず apply_edit_cuts で編集の内容に合わせる
 ほかの部品の名前は `モジュール.名前` の形で呼ぶたびに読む(差し替えが効くように。from … import はしない)。編集の ed_state は読まない(入口 = 上の層)。
-説明の中の記号: RS8 O2-0〜5・(r8t) など = 層の段と仮決め(notes:plan/decisions.md の 3-37)・Q2 = notes:plan/line-bc-master-plan.md の Q2。
+説明の中の記号: RS8 O2-0〜5・(r8t) など = 層の段と仮決め(notes:plan/decisions.md の 3-37)・Q2 = 資料の git:before-1028-cleanup:plan/line-bc-master-plan.md の Q2。
 """
 import bisect
 import json
@@ -338,7 +338,7 @@ def sanitize_transcript(obj, base=None):
             one["tags"] = tg
         if sg.get("proofed") is True:   # 校正済み(人が聞いて、この行の文字が正しいと確認した印)。学習・精度測定の正解データに使う
             one["proofed"] = True
-            # 初めて校正済みにした時刻(ミリ秒。時期で分けて測る = notes:plan/line-bc-master-plan.md の Q2)。保存済みの同じ id の行から引き継ぎ(画面の値は使わない)、
+            # 初めて校正済みにした時刻(ミリ秒。時期で分けて測る = 資料の git:before-1028-cleanup:plan/line-bc-master-plan.md の Q2)。保存済みの同じ id の行から引き継ぎ(画面の値は使わない)、
             # 保存済みで校正済みでなかった行は今。外した行は残さない(次に校正済みにした時刻から数え直す)。
             # この項目より前に校正済みだった行は時刻を作らない(分からないまま。時期で分けるときは「時刻なし = この版より前」)
             at = base_at[sid] if sid in base_at else now
@@ -449,7 +449,7 @@ def transcript_summary_doc(tid):
           "videoId": str(src.get("videoId") or "")[:40] if clip else "", "clipTitle": str(src.get("title") or "")[:200] if clip else "",
           "clipStart": _yschemas.num_or(rng.get("start")), "clipEnd": _yschemas.num_or(rng.get("end")), "markLabel": str(mk.get("label") or "")[:80],
           "_sourcePath": d.get("sourcePath") or "", "_whole": bool(d.get("whole")),
-          "_aliases": [r["from"] for r in d.get("relinks") or [] if isinstance(r, dict) and r.get("why") == "normalize30" and isinstance(r.get("from"), str) and r["from"]][-5:],   # 30fps の写しへ付け替える前のパス(notes:plan/line-bc-master-plan.md の Q1)
+          "_aliases": [r["from"] for r in d.get("relinks") or [] if isinstance(r, dict) and r.get("why") == "normalize30" and isinstance(r.get("from"), str) and r["from"]][-5:],   # 30fps の写しへ付け替える前のパス(資料の git:before-1028-cleanup:plan/line-bc-master-plan.md の Q1)
           "_key": key}
     with _summary_lock:
         _summary_cache[tid] = (key, sm)
@@ -649,7 +649,7 @@ def delete_doc(tid):
     learn.forget_doc(tid)
 
 
-# ---------- 校正の行の数と作業中の印(文書の effort = {"proofedRows", "unproofedRows", "lastAt"}。notes:plan/line-bc-master-plan.md の Q2) ----------
+# ---------- 校正の行の数と作業中の印(文書の effort = {"proofedRows", "unproofedRows", "lastAt"}。資料の git:before-1028-cleanup:plan/line-bc-master-plan.md の Q2) ----------
 # 行(proofedRows = 校正済みにした行・unproofedRows = 外した行)は保存のときにサーバーが数える(どの画面から保存しても同じ数え方)。
 # lastAt = 人が最後に操作した時刻(保存・校正済みの数が変わったとき・編集の画面が操作中に送る POST /api/effort)。**記録のほかの役目**:
 # ⑤ eval/drill/evalbatch が「人が作業中か」をこれで見て、評価用の作り直しで文書を上書きしない守りに使う。
@@ -711,7 +711,7 @@ def set_diar_num(obj):
         return {"diarNum": n}
 
 
-# ---------- 編集の内容(残す区間。「編集」ツールのカットの正。notes:docs/design/edit-tool-design.md の 4・5) ----------
+# ---------- 編集の内容(残す区間。「編集」ツールのカットの正。資料の git:before-1028-cleanup:docs/design/edit-tool-design.md の 4・5) ----------
 # 文書の隣の <id>.edit.json。校正の保存(文書の baseUpdatedAt)と、タイムラインの細かい保存(rev)を別にするため別のファイル。
 # 行の「カット済」(cutState)は、編集の内容があるときは常にそこから決める(commit が書く前に必ず apply_edit_cuts を通す)。
 EDIT_SCHEMA = "youtube-tools-edit/v1"
@@ -783,7 +783,7 @@ DRAFT_ORIGINS = ("rows", "tidy", "all", "whole", "silence", "list", "plan")   # 
 
 
 def sanitize_draft(v):
-    """初めてのたたき台の記録 draft(notes:plan/line-bc-master-plan.md の Q2。人の最終 = 保存したカット・パックの cutPlan と並べて、たたき台の規則を直すため)を確かめる。
+    """初めてのたたき台の記録 draft(資料の git:before-1028-cleanup:plan/line-bc-master-plan.md の Q2。人の最終 = 保存したカット・パックの cutPlan と並べて、たたき台の規則を直すため)を確かめる。
     {"origin": たたき台の種類, "settings": {名前: 数・真偽・短い文字}(行から = 行の端の設定 rowEdge・無音 = しきい値など), "keepsSec": [[開始, 終了], …], "at"}。
     記録のための値なので、正しくなければ None(= 保存しない。カットの保存は止めない)"""
     if not isinstance(v, dict) or v.get("origin") not in DRAFT_ORIGINS:
@@ -898,7 +898,7 @@ def edit_draft(tid, rows=False, tidy=False):
     """GET /api/edit/draft?id=&rows=1|tidy=1 : 動画の fps・長さと、たたき台(既定 = 単語の時刻があれば「無音を詰める」・無ければ「行から」。
     rows=1 =「行から」・tidy=1 =「無音を詰める」のボタン。残す行が無ければ全部残す)。計算は ② flow/pack.cut_draft(→ ① の resolve_export)。
     「行から」を計算するのは、カットが無い(壊れている)文書か rows=1(「行から」のボタン)のときだけ(行の端の無音を調べるのは重いので、開くたびにしない)。
-    行の端を広げるかは設定の rowEdge(notes:docs/design/edit-tool-design.md の 12 ⑥)。無音の検出は SLOTS を通す(flow.pack.DRAFT_SLOT_WAIT 秒待っても空かなければ決まった余白)。
+    行の端を広げるかは設定の rowEdge(資料の git:before-1028-cleanup:docs/design/edit-tool-design.md の 12 ⑥)。無音の検出は SLOTS を通す(flow.pack.DRAFT_SLOT_WAIT 秒待っても空かなければ決まった余白)。
     カット・パックに使えないとき(動画が無い・ネットワーク上・音声だけ = media_reason と映像の無いファイル)は {"unavailable": {"code", "message"}}。
     隣の .cut-plan.json(スタジオなどの残す区間の指定)があるかも返す(たたき台「スタジオ」)"""
     doc = read_transcript(tid)
