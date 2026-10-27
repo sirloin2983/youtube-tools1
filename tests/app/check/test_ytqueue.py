@@ -383,6 +383,18 @@ class YtQueueTest(unittest.TestCase):
             self.assertEqual(len(outs), 1, cmd)
             self.assertTrue(outs[0].startswith(keep + os.sep), outs[0])
 
+    def test_list_is_light(self):
+        """配信の一覧の頼みは音の回を使わず 5 分に 1 本(急ぎが先)・見込みは 1 分(10-27: 1 本 180 分と見込まれ、音の回を 1 本ずつ使っていた)"""
+        u = "https://www.youtube.com/channel/UCAAAAAAAAAAAAAAAAAAAAAA/streams"
+        self.put_req("r-md-a", {"purpose": "research", "kind": "list", "url": u, "items": 10})
+        self.put_req("r-md-b", {"purpose": "research", "kind": "list", "url": u, "items": 10, "urgent": "直接"})
+        got = []
+        with mock.patch.object(Q, "_list_url", lambda url, n: got.append(n) or ([{"id": "AAAAAAAAAAA"}], "")):
+            self.assertEqual(Q.list_batch(self.app, NOON, self.logs.append), "list")
+            self.assertIsNone(Q.list_batch(self.app, NOON + 60, self.logs.append))   # 5 分に 1 本
+        self.assertEqual([q["id"] for q in Q.requests(self.app)], ["r-md-a"])          # 急ぎが先
+        self.assertEqual(Q._minutes({"kind": "request", "req": Q.requests(self.app)[0]}), 1.0)
+
     def test_chat_batch(self):
         """チャットの頼みは音の枠で競わず、軽い物の守りの中で 1 時間に 1 回・始まりは 10 本(10-25: 点 0.6 で候補・声に負け続け、38 件が 1 件も取られなかった)"""
         for i in range(12):

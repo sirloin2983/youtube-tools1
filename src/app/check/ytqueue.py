@@ -60,6 +60,7 @@ DAILY_NAME = "daily.jsonl"            # 1 日 1 行(研究の progress.md が読
 LIGHT_N = [5, 10, 20, 30]             # 軽い物を 1 回でまとめる本数の段(同じく)
 UP_AFTER = 3                          # 当たらずにこの回数続けば 1 段上げる(10-25 まとめ役: 日が明けるごとでは遅い)
 LIGHT_EVERY = 3600                    # 軽い物の回の間隔(秒)
+LIST_EVERY = 5 * 60                   # 配信の一覧の頼みを 1 本取る間隔(秒。音の回とは別)
 RESTS = [30, 60, 120, 240]            # 当たったときに休む分(1 日の中で続けて当たるほど伸ばす)
 SLEEP_REQ = 3                         # 軽い物のまとめの 1 本ごとの間(秒。--sleep-requests)
 LIGHT_KINDS = ("subs",)               # まとめて取る軽い頼み(info は API。API が使えない日だけここに入れる)
@@ -671,6 +672,7 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
             hit(st, name, kind, now, lambda m, s=src: log(m + "(当たったのは %s)" % s))
     _save(app_dir, st)
     light = light_batch(app_dir, now, log)   # 軽い物は処理中・ライブ中でも(10-25)
+    light = list_batch(app_dir, now, log) or light
     why = busy()
     if why and str(why).startswith("新しい版"):   # 入口の起動し直しの待ち = 新しく取らない(起き直しを延ばさない)
         return light
@@ -684,7 +686,7 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
         return light
     st = _state(app_dir)
     chan_of = {c: n for n, c in _vf.members(roster_r, extra)}
-    ranked = [o for o in plan(app_dir, roster_r, counts, extra, st=st, now=now) if not (o["kind"] == "request" and o["req"]["kind"] in LIGHT_KINDS + ("info", "chat"))]
+    ranked = [o for o in plan(app_dir, roster_r, counts, extra, st=st, now=now) if not (o["kind"] == "request" and o["req"]["kind"] in LIGHT_KINDS + ("info", "chat", "list"))]
     try:
         fsio.write_json(qdir(app_dir, ORDER_NAME), order_view(ranked, st, now), indent=None)   # 見える化(研究の progress・毎日の行が読む)
     except OSError:
@@ -864,6 +866,32 @@ def light_batch(app_dir, now, log):
     log("YouTube の取得の列: 軽い物を %d 本まとめて取りました(頼み %d 件・字幕のあった動画 %d 本・まとめの上限 %d)"
         % (len(urls), len(picked), sum(1 for v in got.values() if v.get("subs")), n))
     return "light"
+
+
+def list_batch(app_dir, now, log):
+    """一覧の回(LIST_EVERY に 1 本・軽い物の休みでなければ。処理中でも): 研究の list の頼み(配信の一覧。--flat-playlist で動画を落とさない)を
+    急ぎ → 頼んだ順に 1 本。音の回を使わない(10-27: 急ぎの一覧 25 本が音の回を 1 本ずつ使っていた)。当たったら軽い物の側が休む -> "list" か None"""
+    st = _state(app_dir)
+    c = _cls(st, "light")
+    if now < c["pause"] or now - _vm.num(c.get("listLast")) < LIST_EVERY:
+        return None
+    reqs = sorted((q for q in requests(app_dir) if q["kind"] == "list"), key=lambda q: not q.get("urgent"))
+    if not reqs:
+        return None
+    r = reqs[0]
+    c["listLast"] = now
+    _save(app_dir, st)
+    items, err = _list_url(r["urls"][0], int(_vm.num(r.get("items"), 50)))
+    kind = classify(err) if not items else None
+    st = _state(app_dir)
+    if kind in ("rate", "bot"):
+        hit(st, "light", kind, now, log)
+        _save(app_dir, st)
+        return None   # 頼みは残す
+    _write_done(app_dir, r["id"], {"state": "done", "entries": items} if items else {"state": "error", "error": (err or "")[:300]})
+    _save(app_dir, st)
+    log("YouTube の取得の列: 研究の頼み %s(list)を%s" % (r["id"], "済ませました" if items else "済ませられませんでした"))
+    return "list"
 
 
 def short_n(st):
@@ -1057,6 +1085,8 @@ def _tiered(out, st, now):
 def _minutes(o):
     """1 本の量の見込み(分)"""
     q = o.get("req")
+    if q and q.get("kind") != "audio":
+        return 1.0   # 一覧・情報・字幕 = 数秒〜1 分(10-27: 配信の一覧が 180 分と見込まれていた)
     if q:
         sec = q.get("section")
         return ((sec[1] - sec[0]) / 60.0) if isinstance(sec, list) and len(sec) == 2 else float(FULL_GUESS_MIN)
