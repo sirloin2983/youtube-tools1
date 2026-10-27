@@ -5,8 +5,8 @@
 ## src/human/
 
 - **__init__.py** (2 行) — ③ 人の操作。① ② の成果物とは別に人の直し(人の層・上書き)を書き、その段からやり直しを頼む。人の直しから学習データを作る。ytt と ② flow を import してよい(① pipeline は ② を通す)
-- **judgments.py** (204 行) — 人の判断の記録(judgments.jsonl。MARKS-3 の S1a)。人か友人が切り抜きを判断したときだけ 1 行足す。評価と学習が読む人の判断はここだけ。
-  - 名前: `friend_value` :38・`path` :47・`record` :114・`retract` :124・`rows` :155・`keys` :170・`fold` :181
+- **judgments.py** (206 行) — 人の判断の記録(judgments.jsonl。MARKS-3 の S1a)。人か友人が切り抜きを判断したときだけ 1 行足す。評価と学習が読む人の判断はここだけ。
+  - 名前: `friend_value` :38・`path` :47・`record` :116・`retract` :126・`rows` :157・`keys` :172・`fold` :183
 
 ## src/human/check/
 
@@ -59,8 +59,8 @@
   - 名前: `collect` :75・`message` :101・`to_name` :116・`batch_send` :165・`tick` :216
 - **pubqueue.py** (166 行) — ③ 人の層: 友人の zip を配る待ちの列と、3 時間ごとの配る回(ユーザーの PC。友人の zip はまとめて配る決め・10-25 ユーザーの OK。
   - 名前: `items` :53・`hold_of` :59・`set_hold` :65・`add` :79・`take` :87・`changes` :96・`slot_of` :101・`tick` :107
-- **returns.py** (486 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。notes:docs/design/f1-build.md の (f1d))。
-  - 名前: `returns_dir` :58・`extract` :96・`parse_verdict` :130・`parse_notice` :180・`scan` :215・`recent_notices` :412・`iter_requests` :451
+- **returns.py** (490 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。notes:docs/design/f1-build.md の (f1d))。
+  - 名前: `returns_dir` :58・`extract` :96・`parse_verdict` :130・`parse_notice` :181・`scan` :216・`recent_notices` :416・`iter_requests` :455
 - **upwatch.py** (166 行) — ③ 人の層: 友人のアプリの更新の見張り(ユーザーの PC。友人のアプリの更新の決め・10-25 ユーザーの OK。notes:plan/友人の不具合の自動対応-1025.md の「更新」)。
   - 名前: `published` :54・`friend_now` :69・`last_seen` :91・`alerts` :104・`add_alert` :111・`scan` :121
 - **voicein.py** (143 行) — 友人の PC から届いた声の材料の受け取り(10-24 夜。作る側 = friendapp/voicesend。案 = notes:plan/声の材料を友人のPCから-1024.md)。

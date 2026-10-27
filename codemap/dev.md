@@ -11,8 +11,8 @@
 - **code_map.py** (466 行) — コードの地図と言葉の索引を作る道具(AI のセッションがコードの場所を早く見つけるため)。
   - 名前: `git_files` :53・`skipped` :57・`is_test` :61・`read` :65・`one_line` :73・`comment_head` :85・`py_info` :112・`js_info` :143・`cs_info` :164・`info` :186・`layer_of` :199・`norm_route` :206・ほか 12
   - 受ける口: 
-- **demo_env.py** (356 行) — 見本のデータで入口と3ツールを動かす(画面の見直し・画面の写真・手での確認用)。本物の作業データには触らない。
-  - 名前: `run` :48・`make_media` :52・`seed` :66・`seed_check` :189・`seed_requests` :257・`main` :298
+- **demo_env.py** (358 行) — 見本のデータで入口と3ツールを動かす(画面の見直し・画面の写真・手での確認用)。本物の作業データには触らない。
+  - 名前: `run` :48・`make_media` :52・`seed` :66・`seed_check` :191・`seed_requests` :259・`main` :300
 - **dev_stats.py** (90 行) — 開発の無駄の見張り(10-25 まとめ役): 日ごとの入口の起動し直しの回数と、コミットのうち作業のコミットの割合を数える(読むだけ)。
   - 名前: `restarts` :28・`commits` :47・`table` :60・`main` :73
 - **doc_state.py** (237 行) — 計画の資料の頭の `状態`・`線` を計画の正(保管庫の plan/data/)から決めて書く・食い違いを止める。
@@ -70,7 +70,7 @@
 - **spec_check.py** (220 行) — 仕様(保管庫の docs/spec/)とコードの食い違いを探す。
   - 名前: `git_files` :45・`read` :49・`class Code` :57・`spec_files` :75・`live_lines` :84・`norm_api` :101・`clean_path` :109・`setting_keys` :114・`check` :130・`gone` :181・`main` :198
   - 受ける口: 
-- **ui_audit.py** (1049 行) — 画面(UI)の見直しの合格の基準のうち、機械で測れるものを測る道具(読むだけ。基準は `notes:docs/spec/ui.md` の A)。
+- **ui_audit.py** (1051 行) — 画面(UI)の見直しの合格の基準のうち、機械で測れるものを測る道具(読むだけ。基準は `notes:docs/spec/ui.md` の A)。
   - 名前: `class Findings` :107・`read` :123・`rel` :131・`screen_files` :135・`allowed` :144・`each_line` :149・`regex_starts` :157・`scan_string` :167・`scan_code` :181・`strip_js_comments` :231・`html_texts` :238・`py_strings` :253・ほか 31
   - 受ける口: `/api/info` :100
 - **voice_rebuild.py** (59 行) — 覚えた声を 1 行ずつ外してまとめ直す道具(human/proof/voicerebuild。10-25)。本物の作業データの登録簿を書き換える(前の版は .bak-<時刻> に写す)。

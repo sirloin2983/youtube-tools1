@@ -54,8 +54,8 @@
 - **runtime.py** (209 行) — 実行中のポートの共有(notes:docs/spec/pipeline.md の 4)。スタジオの handoff.py・文字起こしの pipeline_io.py・入口の server.py にあった同じ処理を1つにしたもの。
   - 名前: `valid_port` :28・`runtime_dir` :33・`runtime_path` :43・`valid_path` :49・`write_runtime` :53・`read_runtime` :79・`remove_runtime` :95・`ping` :107・`ping_app` :130・`port_open` :135・`siblings` :147・`safe_stdio` :185・ほか 1
   - 受ける口: `/api/ping` :116
-- **schemas.py** (472 行) — 受け渡しの形式(notes:docs/spec/pipeline.md の 1・2)。youtube-tools-clip/v1 は、スタジオが書き(build_clip)、文字起こしが読む(load_clip_file)。
-  - 名前: `iso_now` :21・`now_ms` :26・`num` :31・`is_num` :42・`is_int` :47・`plain_int` :52・`int_in` :57・`num_or` :62・`union_spans` :71・`fmt_hms` :82・`other_speaker` :105・`no_sub_row` :110・ほか 27
+- **schemas.py** (507 行) — 受け渡しの形式(notes:docs/spec/pipeline.md の 1・2)。youtube-tools-clip/v1 は、スタジオが書き(build_clip)、文字起こしが読む(load_clip_file)。
+  - 名前: `iso_now` :21・`now_ms` :26・`num` :31・`is_num` :42・`is_int` :47・`plain_int` :52・`int_in` :57・`num_or` :62・`union_spans` :71・`fmt_hms` :82・`other_speaker` :105・`no_sub_row` :110・ほか 28
 - **settings.py** (372 行) — 設定ファイル(JSON の辞書)の読み書きの共通部品(設定を 1 つにまとめる 段 2 = S4。notes:docs/spec/data.md の 4)。
   - 名前: `class SettingsError` :37・`class SettingsTooLarge` :41・`section_name_ok` :45・`retire_broken` :50・`class SettingsFile` :62・`analyze_user` :198・`load_settings` :203・`register_patch_key` :233・`patch_settings` :270・`merge_settings` :285・`replace_settings` :300・`eval_dirs` :337・ほか 2
 - **studio_env.py** (205 行) — スタジオの環境: データの置き場所・書き出し先・疑似の旗・外部の道具・失敗の記録。

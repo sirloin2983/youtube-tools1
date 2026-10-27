@@ -11,12 +11,12 @@
 - **__init__.py** (2 行) — ① 解析: 材料の取得(fetch。動画・チャット・コメント)・音量(levels)・盛り上がりの式(excite)・候補・話の切れ目(breaks)・自動採用・配信中の検出
 - **adopt.py** (73 行) — 採用の規則 F-5(notes:plan/done/role-restructure.md 5-5・決定 3-29 Q3。純粋な関数)。
   - 名前: `check_args` :18・`adopt` :35
-- **analyze.py** (409 行) — 解析(自動切り抜き ac/serve.py 由来。書き出し・手動の○×は持たない)。
+- **analyze.py** (413 行) — 解析(自動切り抜き ac/serve.py 由来。書き出し・手動の○×は持たない)。
   - 名前: `sig_cache_dir` :35・`validate_live` :42・`validate_source` :48・`validate_settings` :63・`make_spec` :78・`chat_public` :87・`sig_path` :94・`load_sig` :98・`save_sig` :115・`archive_path` :128・`load_archive` :132・`save_archive` :142・ほか 3
 - **breaks.py** (119 行) — 話の切れ目(breaks)。切り抜きの区間の両端を、文字起こしの話の切れ目へ寄せて言葉の途中で切らないための関数(線 LD-2c。notes:plan/done/ld2-clip-length.md)。
   - 名前: `cuts` :61・`snap` :106
-- **excite.py** (1063 行) — 盛り上がり(excitement)の式。スタジオのアーカイブの解析(src/pipeline/analyze/analyze.py)と、配信中の検出(src/pipeline/analyze/live_excite_worker.py。線 D の L2)が同じ式を読む(線 D の L1。notes…
-  - 名前: `smooth` :86・`median` :97・`local_baseline` :103・`robust_scale` :122・`audio_score` :128・`chat_z` :140・`shift_chat` :149・`estimate_lag` :155・`ramp` :179・`head_ramp` :184・`comment_score` :191・`peak_total` :206・ほか 14
+- **excite.py** (1144 行) — 盛り上がり(excitement)の式。スタジオのアーカイブの解析(src/pipeline/analyze/analyze.py)と、配信中の検出(src/pipeline/analyze/live_excite_worker.py。線 D の L2)が同じ式を読む(線 D の L1。notes…
+  - 名前: `smooth` :86・`median` :97・`local_baseline` :103・`robust_scale` :122・`audio_score` :128・`chat_z` :140・`shift_chat` :149・`estimate_lag` :155・`ramp` :179・`head_ramp` :184・`comment_score` :191・`peak_total` :206・ほか 16
 - **fetch.py** (554 行) — 解析の材料を取ってくる仕事(音声のダウンロード・チャットのリプレイの取得と先読み・コメント欄・動画の付加情報)と、そのキャッシュの置き場と掃除。
   - 名前: `work_dir` :32・`chat_cache_dir` :36・`download_audio` :51・`chat_cache_path` :83・`drop_chat_cache` :87・`chat_cache_limit` :104・`use_chat_cache` :119・`prune_chat_cache` :129・`download_chat` :177・`prefetch_chat` :259・`cancel_prefetch` :302・`cancel_all_prefetch` :309・ほか 9
 - **levels.py** (64 行) — 1 秒ごとの音量(RMS, dB)を、ffmpeg 1 回のデコードで全帯域と高音域(2kHz 超)の 2 系列に測る決まり(OPT1)。
@@ -50,8 +50,8 @@
   - 名前: `read_cut_plan` :16・`default_handles` :71・`build_plan` :77・`removed_between` :98・`plan_from_keeps` :109・`finalize_plan` :117
 - **cut2resolve_core.py** (827 行) — cut2resolve 共通部
   - 名前: `class Cancelled` :45・`class OutputExists` :52・`class Task` :61・`parse_time` :76・`parse_cut_list` :114・`sec_to_frames` :145・`cue_frames` :149・`frames_to_sec` :155・`fps_label` :160・`cut_list_to_keeps` :165・`normalize` :180・`subtract` :198・ほか 34
-- **edge_pause.py** (102 行) — 切り抜きの両端を「話の間」へ寄せる(10-23。決定 3-153。notes:plan/heatmap-study.md の「切り抜きの端を話の間へ」)。
-  - 名前: `levels` :26・`voice_level` :46・`pauses` :52・`snap_end` :66・`snap_start` :76・`snap` :86
+- **edge_pause.py** (108 行) — 切り抜きの両端を「話の間」へ寄せる(10-23。決定 3-153。notes:plan/heatmap-study.md の「切り抜きの端を話の間へ」)。
+  - 名前: `levels` :30・`voice_level` :50・`pauses` :56・`snap_end` :70・`snap_start` :81・`snap` :92
 - **pack.py** (964 行) — カットの計算(試算)とパックの作成。画面(serve.py)と ② の自動の流れが呼ぶ共通部(処理を二重に持たない)。
   - 名前: `class RowEdge` :42・`class Request` :77・`class Plan` :111・`class Cache` :135・`default_out_dir` :199・`row_edge_from` :203・`widen_row_edges` :227・`row_edge_pending` :270・`silence_pending` :279・`detect_pending` :287・`without_detect` :296・`plan_cut` :315・ほか 17
 - **preview.py** (124 行) — ① 確認用の動画(友人が受け取るかを決める前に見る、1 本の切り抜きの 480p の動画)とパックの中の切り抜きの動画の引き方(ds1 = 要件 1-5。② flow/deliver から分けた)。

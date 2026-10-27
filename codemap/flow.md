@@ -7,8 +7,8 @@
 - **__init__.py** (2 行) — ② 管理(RS6。決定 3-29)。① 道具(pipeline)をいつ・どの順で・どこに置いて・飛ばすかを決める層。ytt と pipeline だけを import する。③ 人(human)と ④ データ(manage)は ① を直に読まず、ここの口を通す。② に変換のコードを書かない(加工は…
 - **adopt.py** (33 行) — ② 採用の口(RS8 B3-2 の G1a)。③ のスタジオの台帳(human/review/store の Store.adopt_marks)が、採用の規則 F-5
   - 名前: `check` :16・`pick` :24
-- **batch.py** (251 行) — 解析キュー(バッチ): 最大10本(待ち+実行中)。1つの糸が古い順に1本ずつ analyze.run(spec, ctl) で解析する(OPT2 の J1)。
-  - 名前: `queued_already` :30・`class Batch` :49
+- **batch.py** (255 行) — 解析キュー(バッチ): 最大10本(待ち+実行中)。1つの糸が古い順に1本ずつ analyze.run(spec, ctl) で解析する(OPT2 の J1)。
+  - 名前: `queued_already` :31・`class Batch` :50
 - **board.py** (406 行) — ② 管理の層 flow: ジョブの掲示板(RS8 の ② の口 S1。形は notes:docs/spec/pipeline.md 2.9・設計 notes:docs/design/rs8-flow-api.md)。
   - 名前: `class NotFound` :53・`split_id` :60・`norm_case` :68・`normalize` :126・`class Board` :154・`default` :376・`guess_case` :385
 - **casebook.py** (326 行) — ② 管理の層 flow: 案件の候補と採用のファイルの書く側(RS8 B3-3・B3-4a。決定 3-37 の (r8j)〜(r8q))。
@@ -84,8 +84,8 @@
 - **prio.py** (88 行) — ② 管理の層 flow: 処理の優先度の表(PRIO。決定 3-49・notes:plan/done/opt-series.md の 11)。
   - 名前: `name_ok` :35・`rank` :39・`idle_only` :43・`os_priority` :47・`label` :51・`slot_kw` :55・`of_run` :60・`of_spec` :69・`watch` :80・`idle_now` :85
 - **retention.py** (9 行) — ② 管理の層 flow: 物の終わりの日数の 1 か所(方針の数)。ユーザーのツールと友人のアプリが同じ値を読む。
-- **run.py** (1881 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
-  - 名前: `class Cancelled` :140・`class StepError` :144・`mode_of` :163・`steps_of` :197・`analyze_verdict` :241・`chat_missing` :259・`chat_retry_ok` :265・`stream_ended_at` :273・`redo_reason` :286・`short_why` :304・`adopted_ids` :316・`tx_verdict` :321・ほか 5
+- **run.py** (1914 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
+  - 名前: `class Cancelled` :141・`class StepError` :145・`mode_of` :164・`steps_of` :198・`analyze_verdict` :242・`chat_missing` :260・`chat_retry_ok` :266・`stream_ended_at` :274・`redo_reason` :287・`short_why` :305・`adopted_ids` :317・`tx_verdict` :322・ほか 5
 - **runlog.py** (93 行) — まとめて実行の「終わった実行の記録」の形と読み方(RS3-0B)。
   - 名前: `read_runs_log` :47・`read_result` :77
 - **runqueue.py** (839 行) — ② 管理の層 flow: 待ち行列と実行の糸(RS7-1 S5。決定 3-30・
