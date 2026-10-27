@@ -43,6 +43,7 @@ import json
 import os
 import re
 import shutil
+import threading
 import time
 
 from flow import voicematerial as _vm
@@ -677,10 +678,8 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
     if why and str(why).startswith("新しい版"):   # 入口の起動し直しの待ち = 新しく取らない(起き直しを延ばさない)
         return light
     if not why or why == LIVE_BUSY:   # ライブ中もふだんどおり(処理中だけ休む)
-        st = _state(app_dir)
-        until = time.time() + max(0.0, _vm.num(st.get("last")) + audio_gap(st) - now)   # 次の音の回の時刻 = チャットはそこで区切る(10-27)
         with run_lock(app_dir) as mine:   # 手で流すチャットの 1 回とぶつからない
-            light = (chat_batch(app_dir, now, log, until=until) if mine else None) or light   # チャットは処理中でないときだけ(1 本で長くかかる)
+            light = (chat_batch(app_dir, now, log) if mine else None) or light   # チャットは処理中でないときだけ始める(裏の糸で 1 本ずつ・見回りは待たない)
     ok, _why = due(app_dir, now, BUSY_SLOWER if why and why != LIVE_BUSY else 0, led["weight"])   # 処理中は止めず 2 段遅く・ライブ中はふだんどおり・製品の問い合わせが多ければ延ばす(10-25 夜)
     if not ok:
         return light
@@ -953,52 +952,81 @@ def run_lock(app_dir, now=None):
         fsio.unlink_quiet(p)
 
 
-def chat_batch(app_dir, now, log, n=None, force=False, until=None):
-    """チャットの回(LIGHT_EVERY に 1 回・軽い物の休みでなければ): 研究の chat の頼みを chat_n 本まで(点の高い順)1 本ずつ取る。
+_CHAT_JOB = {}   # 裏で取っているチャット 1 本 {"q", "thread", "res"}(入口の見回りは 1 つのプロセスで回り続ける)
+
+
+def _start(fn):
+    """裏の糸で fn を流す -> 糸(テストが差し替える)"""
+    t = threading.Thread(target=fn, daemon=True, name="ytqueue-chat")
+    t.start()
+    return t
+
+
+def _chat_bg(app_dir, url, job):
+    try:
+        job["res"] = _chat(app_dir, url)
+    except Exception as e:   # noqa: BLE001
+        job["res"] = (None, str(e))
+
+
+def _chat_finish(app_dir, q, res, now, log):
+    """裏で取り終えた 1 本の結果を書く(状態・done を書くのは見回りの側だけ = 裏の糸と書き合わない)。当たったら軽い物の側が休み、次の回の本数を半分 -> 当たったか"""
+    path, err = res or (None, "")
+    kind = classify(err) if not path else None
+    st = _state(app_dir)
+    if kind in ("rate", "bot"):
+        hit(st, "light", kind, now, log)
+        lc = _cls(st, "light")
+        lc["chatPen"] = int(lc.get("chatPen") or 0) + 1
+        lc["chatLeft"] = 0
+        _save(app_dir, st)
+        return True   # 頼みは残す(休みのあとに取り直す)
+    fine(st, "light", log)
+    _save(app_dir, st)
+    vid = _video_of(q["urls"][0])
+    _write_done(app_dir, q["id"], {"state": "done", "file": path, "bundle": bundle(app_dir, vid)} if path else {"state": "error", "error": (err or "")[:300]})
+    log("YouTube の取得の列: チャットの頼み %s を%s(残り %d 件)" % (q["id"], "済ませました" if path else "済ませられませんでした",
+                                                                 sum(1 for r in requests(app_dir) if r["kind"] == "chat")))
+    return False
+
+
+def chat_batch(app_dir, now, log, n=None, force=False):
+    """チャットの回(LIGHT_EVERY に chat_n 本まで・軽い物の休みでなければ): 研究の chat の頼みを 1 本ずつ裏の糸で取る。見回りは待たない
+    = 音の回と並べて進む(10-27: 1 本数分 × 10 本の回が見回りをふさぎ音の回が 1 時間 2 回、区切ると今度はチャットが 1 時間 4 件。問い合わせの数は同じ)。
     10-25 まで chat は音の枠で点を競い(REQ_BASE 0.6)、候補・声にいつも負けて 1 件も取られていなかった = 軽い物の側の守り(休み・段)で別に回す。
     当たったら軽い物と同じく休み、次の回の本数を半分に(頼みは残す)。取ってあれば取らずに済ませる。
-    until = 次の音の回の時刻(time.time())。1 本済ませた後にそれを過ぎたら区切り、残りの本数(chatLeft)は次の見回りで続ける
-    (10-27: 1 本数分 × 10 本の回が音の回を毎時 30 分ふさいでいた)。n・force = 手で流す 1 回(本数・間隔を無視。休みは守る)。-> "chat" か None"""
+    n・force = 手で流す 1 回(本数・間隔を無視。休みは守る)。-> "chat"(1 本始めた・済ませた)か None"""
+    job = _CHAT_JOB
+    if job.get("thread") is not None:
+        if job["thread"].is_alive():
+            return None
+        q, res = job.pop("q"), job.pop("res", None)
+        job.pop("thread")
+        if _chat_finish(app_dir, q, res, now, log):
+            return None
     st = _state(app_dir)
     c = _cls(st, "light")
     left = int(c.get("chatLeft") or 0)
     if now < c["pause"] or (not force and not left and now - _vm.num(c.get("chatLast")) < LIGHT_EVERY):
         return None
-    picked = [q for q in requests(app_dir) if q["kind"] == "chat" and q["urls"]][:n or left or chat_n(st)]
-    if not left:
-        c["chatLast"] = now
-    c["chatLeft"] = 0
-    _save(app_dir, st)
-    if not picked:
+    reqs = [q for q in requests(app_dir) if q["kind"] == "chat" and q["urls"]]
+    if not reqs:
+        c["chatLeft"] = 0
+        _save(app_dir, st)
         return None
-    done = 0
-    for q in picked:
-        if until is not None and (done or left) and time.time() >= until:   # 続きの回は 1 本目の前でも区切る
-            st = _state(app_dir)
-            _cls(st, "light")["chatLeft"] = len(picked) - done   # 音の回を先に・残りは次の見回りで
-            _save(app_dir, st)
-            break
-        vid = _video_of(q["urls"][0])
-        have = bundle(app_dir, vid).get("chat") if vid else None
-        path, err = (have, "") if have else _chat(app_dir, q["urls"][0])
-        kind = classify(err) if not path else None
-        if kind in ("rate", "bot"):
-            st = _state(app_dir)
-            hit(st, "light", kind, now, log)
-            lc = _cls(st, "light")
-            lc["chatPen"] = int(lc.get("chatPen") or 0) + 1
-            _save(app_dir, st)
-            break   # 頼みは残す(休みのあとに取り直す)
-        _write_done(app_dir, q["id"], {"state": "done", "file": path, "bundle": bundle(app_dir, vid)} if path else {"state": "error", "error": (err or "")[:300]})
-        done += 1
-        if not have:
-            st = _state(app_dir)
-            fine(st, "light", log)
-            _save(app_dir, st)
-    if done:
-        log("YouTube の取得の列: チャットの頼みを %d 件済ませました(残り %d 件・1 回 %d 本まで)"
-            % (done, sum(1 for q in requests(app_dir) if q["kind"] == "chat"), chat_n(_state(app_dir))))
-    return "chat" if done else None
+    if not left:
+        c["chatLast"], left = now, n or chat_n(st)
+    c["chatLeft"] = left - 1
+    _save(app_dir, st)
+    q = reqs[0]
+    vid = _video_of(q["urls"][0])
+    have = bundle(app_dir, vid).get("chat") if vid else None
+    if have:   # 取ってある = 問い合わせずに済ませる
+        _write_done(app_dir, q["id"], {"state": "done", "file": have, "bundle": bundle(app_dir, vid)})
+        return "chat"
+    job.update(q=q, res=None)
+    job["thread"] = _start(lambda: _chat_bg(app_dir, q["urls"][0], job))
+    return "chat"
 
 
 def sub_kind(info_path, lang="ja"):
