@@ -84,8 +84,8 @@
   - 名前: `enabled` :33・`state_path` :38・`read_state` :42・`copy_name` :53・`parse` :58・`merge_rows` :87・`merge_back` :113・`login_at` :204・`facts` :218・`forget` :233・`logout` :238
 - **ytdlpver.py** (66 行) — yt-dlp の版が古いかを確かめる(10-23 取得の冗長化。表は保管庫 plan/人の作業なしの候補-1023.md の 6 番)。
   - 名前: `ver_key` :24・`latest_tag` :34・`cached_latest` :42・`is_old` :63
-- **ytledger.py** (152 行) — YouTube への問い合わせの帳簿(10-25 夜。ユーザー OK「取得の列の間隔を縮め、ほかの YouTube への問い合わせと調整する」)。
-  - 名前: `path` :28・`classify` :34・`record` :44・`ytdlp_weight` :64・`is_ytdlp` :72・`from_run` :77・`rows` :88・`load` :108・`day_counts` :124・`prune` :138
+- **ytledger.py** (153 行) — YouTube への問い合わせの帳簿(10-25 夜。ユーザー OK「取得の列の間隔を縮め、ほかの YouTube への問い合わせと調整する」)。
+  - 名前: `path` :29・`classify` :35・`record` :45・`ytdlp_weight` :65・`is_ytdlp` :73・`from_run` :78・`rows` :89・`load` :109・`day_counts` :125・`prune` :139
 - **yturl.py** (103 行) — YouTube の URL・動画 ID の形(語彙。標準ライブラリだけ・状態を持たない)。
   - 名前: `parse_video_id` :22・`watch_url` :49・`check_live` :61・`check_media_path` :85・`file_video_id` :93・`ytdlp_out` :98
 

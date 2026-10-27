@@ -13,8 +13,8 @@
   - 名前: `class DropboxError` :38・`class Cancelled` :54・`class Config` :58・`config_path` :74・`load_config` :79・`missing_scope` :93・`is_not_found` :98・`error_text` :102・`arg_header` :128・`commit_arg` :133・`content_hash` :139・`urlopen_transport` :168・ほか 1
 - **engine.py** (538 行) — 友人の玄関の ② の組み立て(flow の部品を糸つきで持つ)。
   - 名前: `stage_lines` :41・`transcribe_line` :57・`transcribe_lines` :77・`transcribe_records` :83・`export_records` :103・`class FriendQueue` :122・`class Engine` :147・`live_cause` :502
-- **inbox.py** (1238 行) — 友人の受信箱の正(notes:plan/f1-friend-requirements.md の C-3、資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。
-  - 名前: `pack_name` :82・`pack_title` :88・`unique_dest` :92・`case_of` :100・`class Inbox` :111
+- **inbox.py** (1246 行) — 友人の受信箱の正(notes:plan/f1-friend-requirements.md の C-3、資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。
+  - 名前: `pack_name` :83・`pack_title` :89・`unique_dest` :93・`case_of` :101・`class Inbox` :112
 - **live.py** (45 行) — 友人の玄関のライブの依頼の欄と結びつき(資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-15)。軽い部品だけ(画面を先に出すため)。
   - 名前: `check_settings` :20・`settings_label` :42
 - **live_session.py** (360 行) — 友人の玄関のライブ係(資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-15)。
@@ -56,7 +56,7 @@
 - **host.js** (92 行) — 窓と画面の境目(F3-1。notes:plan/f1-friend-requirements.md の C-1、資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。
 - **oplog.js** (138 行) — 操作の記録と画面の要約を玄関へ送る(形の正は notes:plan/友人の不具合の自動対応-1025.md。玄関は friendapp/report.py・oplog.py)。
 - **palette.js** (13 行) — 友人のアプリの配色: ピンク(ui-kit のシンセウェーブ = 暗い・data-palette=synth)に固定する(配色 4 つの切り替えは 10-24 に無くした)。
-- **receive.js** (352 行) — 受け取る画面(F3-4。notes:plan/f1-friend-requirements.md の C-3)。口 = GET api/friend/receive(friendapp/inbox.py の receive_view)・
+- **receive.js** (370 行) — 受け取る画面(F3-4。notes:plan/f1-friend-requirements.md の C-3)。口 = GET api/friend/receive(friendapp/inbox.py の receive_view)・
 - **send-form.js** (506 行) — 送る欄(F3-3。notes:plan/f1-friend-requirements.md の C-2-6〜C-2-13・C-2-17〜C-2-19)。口 = POST api/friend/send(friendapp/api.py の説明)。
 - **send-list.js** (168 行) — 送る画面の配信の一覧(F3-2。notes:plan/f1-friend-requirements.md の C-2-2〜C-2-5)。
 - **sent.js** (158 行) — 送った物(F3-3。notes:plan/f1-friend-requirements.md の C-2-14〜C-2-16)。行 = GET api/friend/inbox の rows のうち、まだ届け終えていない物と失敗。

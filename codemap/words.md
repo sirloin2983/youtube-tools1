@@ -20,17 +20,17 @@
   - コード: `speech_diar` src/app/check/speech_sources.py:41・`src/app/check/speech_sources.py`・`src/human/check/speech.py`
   - 画面: src/app/ui/check/check.js:323
 - **受け取る** — 友人のアプリの受け取る画面。残す判定と受信箱
-  - コード: `src/friendapp/inbox.py`・`receive_view` src/friendapp/inbox.py:1135・`src/friendapp/ui/receive.js`・`Inbox.decide` src/friendapp/inbox.py:809
+  - コード: `src/friendapp/inbox.py`・`receive_view` src/friendapp/inbox.py:1143・`src/friendapp/ui/receive.js`・`Inbox.decide` src/friendapp/inbox.py:810
   - 画面: src/app/ui/cases/panels/cut.js:159・src/app/ui/editor/pack-tab.js:425・src/app/ui/home/portal.js:395・src/friendapp/ui/friend.html:30 ほか 7
 - **見送った物** — 受け取る画面で 3 日は戻せる skip・bad の物
-  - コード: `Inbox.undo` src/friendapp/inbox.py:858・`Inbox.decide` src/friendapp/inbox.py:809・`VERDICTS` src/friendapp/inbox.py:59・`/api/friend/undo` src/friendapp/server.py:404
-  - 画面: src/friendapp/ui/friend.html:169・src/friendapp/ui/receive.js:66
+  - コード: `Inbox.undo` src/friendapp/inbox.py:864・`Inbox.decide` src/friendapp/inbox.py:810・`VERDICTS` src/friendapp/inbox.py:60・`/api/friend/undo` src/friendapp/server.py:404
+  - 画面: src/friendapp/ui/friend.html:169・src/friendapp/ui/receive.js:67
 - **送る** — 友人のアプリの送る欄・受付の口。自動で送る判定は flow/sendpolicy
   - コード: `src/friendapp/api.py`・`src/friendapp/ui/send-form.js`・`/api/friend/send` src/friendapp/server.py:389・`flow/sendpolicy.py` (無いパス)
   - 画面: src/app/ui/check/cards/value.js:11・src/app/ui/editor/app-learn.js:132・src/app/ui/editor/app.js:288・src/app/ui/editor/cut.js:1040 ほか 15
 - **送った物** — 友人のアプリの送った物の行と、失敗の言葉・進み具合
   - コード: `src/friendapp/ui/sent.js`・`src/friendapp/progress.py`・`/api/friend/inbox` src/friendapp/server.py:281
-  - 画面: src/app/ui/home/portal.html:207・src/friendapp/ui/friend.html:134・src/friendapp/ui/guide.html:37・src/friendapp/ui/receive.js:66
+  - 画面: src/app/ui/home/portal.html:207・src/friendapp/ui/friend.html:134・src/friendapp/ui/guide.html:37・src/friendapp/ui/receive.js:67
 - **片付ける** — 友人のアプリのフォルダの整理(新しい版の後と ⚙)。ごみ箱へ移す
   - コード: `src/friendapp/tidy.py`・`Tidy` src/friendapp/tidy.py:161・`/api/friend/tidy` src/friendapp/server.py:286
   - 画面: src/friendapp/ui/settings.js:77・src/friendapp/ui/update.js:92
@@ -183,15 +183,20 @@
 - 良い(3)— src/app/ui/check/cards/cut.js:9
 - 読み込み直す(3)— src/app/ui/cases/panels/machpick.js:37
 - 配信中(3)— src/app/ui/studio/rank.js:487
+- 面白さ(3)— src/friendapp/ui/friend.html:199
 - (「終わった配信」と同じ選び方です)(2)— src/app/ui/studio/rank.js:480
+- 1 つまらない(2)— src/friendapp/ui/friend.html:199
 - 1 時間の枠(2)— src/friendapp/ui/friend.html:96
+- 2 いまいち(2)— src/friendapp/ui/friend.html:199
+- 3 ふつう(2)— src/friendapp/ui/friend.html:199
+- 4 面白い(2)— src/friendapp/ui/friend.html:199
+- 5 すごく面白い(2)— src/friendapp/ui/friend.html:199
 - URL から入れる(2)— src/app/ui/studio/collab.js:54
 - この配信(2)— src/app/ui/studio/collab.js:152
 - この配信を解析する(2)— src/app/ui/studio/review.js:130
 - すべて(2)— src/app/ui/editor/app-tpl.js:31
 - すべての行(2)— src/app/ui/editor/app-tpl.js:14
 - すべて止めて終了(2)— src/friendapp/ui/friend.html:38
-- つまらない(2)— src/friendapp/ui/friend.html:201
 - まだ検索していません(2)— src/app/ui/studio/rank.js:199
 - もう一度検索する(2)— src/app/ui/studio/rank.js:311
 - もっと見る(あと(2)— src/app/ui/home/portal.js:800
@@ -216,7 +221,6 @@
 - 公式から取り込む(2)— src/app/ui/studio/rank.js:76
 - 分割(2)— src/app/ui/cases/panels/cut.js:52
 - 分析と日報(2)— src/app/ui/home/portal.html:20
-- 切り方が変(2)— src/friendapp/ui/friend.html:201
 - 動画を選び直す(2)— src/app/ui/editor/app-tpl.js:157
 - 友人へ自動で送る(2)— src/app/ui/home/portal.html:307
 - 始まりから(2)— src/friendapp/ui/send-form.js:109
@@ -224,7 +228,6 @@
 - 対象(2)— src/app/ui/editor/app-tpl.js:120
 - 対象の事務所(2)— src/app/ui/studio/rank.js:169
 - 対象の事務所を選ぶ(2)— src/app/ui/studio/rank.js:277
-- 届かなくてよかった:(2)— src/friendapp/ui/friend.html:201
 - 採用する数(2)— src/app/ui/home/portal.html:304
 - 探す地域(2)— src/app/ui/studio/rank.js:170
 - 探す地域を選ぶ(2)— src/app/ui/studio/rank.js:278
@@ -327,6 +330,3 @@
 - Resolve での手順を見る(1)— src/app/ui/cases/panels/cut.js:159
 - Resolve へ渡すパックは(1)— src/app/ui/editor/app-tools.js:216
 - Text+ 字幕(1)— src/app/ui/cases/panels/cut.js:115
-- URL から配信を入れる(1)— src/app/ui/studio/collab.js:51
-- URL を受け取りました。(1)— src/app/ui/studio/queue.js:15
-- URL を貼る(1)— src/friendapp/ui/guide.html:52

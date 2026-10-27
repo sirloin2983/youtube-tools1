@@ -54,8 +54,8 @@
   - 名前: `learn_dirs` :25・`eval_like` :38・`in_learn_dir` :44・`targets` :49・`pick` :74・`tick` :86
 - **ytnotify.py** (85 行) — YouTube の取得の列(ytqueue)が研究の頼みの結果を done/ に書いたら、研究のセッションを起こす知らせ(10-25 ユーザー OK)。
   - 名前: `to_name` :28・`collect` :48・`message` :60・`tick` :72
-- **ytqueue.py** (1347 行) — YouTube の取得の列(10-25。ユーザー「取り方 1 と 2 を統一しよう」「取得する配信を選ぶ段階で効率化できるはず」)。
-  - 名前: `qdir` :83・`requests` :99・`candidates` :135・`score` :141・`fill_candidates` :170・`audio_gap` :212・`light_n` :218・`rollover` :224・`classify` :261・`hit` :273・`fine` :294・`due` :314・ほか 24
+- **ytqueue.py** (1445 行) — YouTube の取得の列(10-25。ユーザー「取り方 1 と 2 を統一しよう」「取得する配信を選ぶ段階で効率化できるはず」)。
+  - 名前: `qdir` :85・`requests` :101・`candidates` :137・`score` :143・`fill_candidates` :172・`audio_gap` :214・`light_n` :220・`rollover` :226・`classify` :263・`hit` :274・`fine` :295・`due` :315・ほか 25
 
 ## src/app/ui/
 
@@ -64,7 +64,7 @@
 ## src/app/ui/cases/
 
 - **caselink.js** (31 行) — 案件の画面へのリンクと切り抜きの校正の進み(ホームの案件の一覧 portal.js と案件の画面 cases.js の両方が読む。/cases-caselink.js)。
-- **cases.js** (597 行) — 案件の画面(/cases = 入口の直下の 1 枚。部品は src/app/ui/cases/。RS8 C1 = 殻。作り方 資料の git:before-1028-cleanup:docs/design/rs8-cases-build.md・何を作るか notes:docs/design/briefs/rs8-cases/)。
+- **cases.js** (597 行) — 案件の画面(/cases = 入口の直下の 1 枚。部品は src/app/ui/cases/。RS8 C1 = 殻。作り方 資料の git:before-1028-cleanup:docs/design/rs8-cases-build.md・何を作るか …
 - **edhost.js** (127 行) — 案件の画面に「編集」の校正(1 文字起こし)をそのまま載せる台(RS8 C2b。作り方 資料の git:before-1028-cleanup:docs/design/rs8-cases-build.md の C2b)。
 
 ## src/app/ui/cases/panels/

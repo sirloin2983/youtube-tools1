@@ -15,13 +15,13 @@
   - 名前: `sig_cache_dir` :35・`validate_live` :42・`validate_source` :48・`validate_settings` :63・`make_spec` :78・`chat_public` :87・`sig_path` :94・`load_sig` :98・`save_sig` :115・`archive_path` :128・`load_archive` :132・`save_archive` :142・ほか 3
 - **breaks.py** (119 行) — 話の切れ目(breaks)。切り抜きの区間の両端を、文字起こしの話の切れ目へ寄せて言葉の途中で切らないための関数(線 LD-2c。notes:plan/done/ld2-clip-length.md)。
   - 名前: `cuts` :61・`snap` :106
-- **excite.py** (1144 行) — 盛り上がり(excitement)の式。スタジオのアーカイブの解析(src/pipeline/analyze/analyze.py)と、配信中の検出(src/pipeline/analyze/live_excite_worker.py。線 D の L2)が同じ式を読む(線 D の L1。notes…
+- **excite.py** (1144 行) — 盛り上がり(excitement)の式。スタジオのアーカイブの解析(src/pipeline/analyze/analyze.py)と、配信中の検出(src/pipeline/analyze/live_excite_worker.py。線 D の L2)が同じ式を読む(線 D の L1。資料の g…
   - 名前: `smooth` :86・`median` :97・`local_baseline` :103・`robust_scale` :122・`audio_score` :128・`chat_z` :140・`shift_chat` :149・`estimate_lag` :155・`ramp` :179・`head_ramp` :184・`comment_score` :191・`peak_total` :206・ほか 16
 - **fetch.py** (554 行) — 解析の材料を取ってくる仕事(音声のダウンロード・チャットのリプレイの取得と先読み・コメント欄・動画の付加情報)と、そのキャッシュの置き場と掃除。
   - 名前: `work_dir` :32・`chat_cache_dir` :36・`download_audio` :51・`chat_cache_path` :83・`drop_chat_cache` :87・`chat_cache_limit` :104・`use_chat_cache` :119・`prune_chat_cache` :129・`download_chat` :177・`prefetch_chat` :259・`cancel_prefetch` :302・`cancel_all_prefetch` :309・ほか 9
 - **levels.py** (64 行) — 1 秒ごとの音量(RMS, dB)を、ffmpeg 1 回のデコードで全帯域と高音域(2kHz 超)の 2 系列に測る決まり(OPT1)。
   - 名前: `args` :23・`clear` :30・`level` :36・`read` :47・`collect` :56
-- **live_excite_worker.py** (1783 行) — 配信中の盛り上がりの検出のワーカー(線 D の L2。資料の git:before-1028-cleanup:plan/line-d-detect.md・資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0-10)。入口(src/flow/live_detect.py)が起動する子プロセス。
+- **live_excite_worker.py** (1783 行) — 配信中の盛り上がりの検出のワーカー(線 D の L2。資料の git:before-1028-cleanup:plan/line-d-detect.md・資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0-10)。入口(src/…
   - 名前: `chat_trouble` :154・`class MeasureError` :172・`class NoTool` :176・`class RecorderDown` :180・`clean_requests` :188・`request_spec` :203・`clean_spec_doc` :224・`clean_bundles` :238・`clean_detect` :249・`read_series` :259・`measure_levels` :290・`parse_chat_line` :310・ほか 11
 
 ## src/pipeline/export/
