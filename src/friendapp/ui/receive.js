@@ -1,12 +1,13 @@
 /* 受け取る画面(F3-4。notes:plan/f1-friend-requirements.md の C-3)。口 = GET api/friend/receive(friendapp/inbox.py の receive_view)・
-   POST api/friend/decide {items, verdict: keep|skip|bad, reason}・undo {items}・media?id=&name=(1 本の確認用の動画)・open {id, name}。
+   POST api/friend/decide {items, verdict: keep|skip, score: 1〜5 か null}・undo {items}(「届かなくてよかった」のボタンは 10-27 に外した。古い判定の bad は一覧で読む)・media?id=&name=(1 本の確認用の動画)・open {id, name}。
    一覧 = 配信ごとの段(最後に届いた時刻の新しい順・段の中は番号順)。カードを押すと再生画面(左に再生・右に同じ配信の物が先の一覧)。
    決めると自動で次(同じ配信の次の番号 → 次の配信 → 全部決まったら一覧)。チェックでまとめて決める帯。見送った物は 3 日の間 [戻す]。
-   キー: 再生画面 = Space 再生 / 一時停止・← → 5 秒・↑ ↓ 音量・Esc 一覧へ(チェックがあれば先に外す)/ 一覧 = Esc でチェックを外す */
+   キー: 再生画面 = Space 再生 / 一時停止・← → 5 秒・↑ ↓ 音量・1〜5 面白さの点(もう一度で外す)・Esc 一覧へ(チェックがあれば先に外す)/ 一覧 = Esc でチェックを外す
+   点(5 段階・10-27)は受け取る / 見送ると別に付けられる。選ばずに決めたら点は空(推測で埋めない)。再生する物が替わると空に戻る */
 (function () {
   'use strict';
   var $, el, api;
-  var my = { data: null, key: '', sel: {}, cur: null, playing: false, busy: false };
+  var my = { data: null, key: '', sel: {}, cur: null, playing: false, busy: false, score: null, bulkScore: null };
 
   function k(it) { return it.id + '\n' + it.name; }
   function thumbOf(vid, size) { return vid ? 'https://i.ytimg.com/vi/' + vid + '/' + (size || 'mqdefault') + '.jpg' : ''; }
@@ -189,6 +190,7 @@
     var x = find(key);
     if (!x) { back(); return; }
     my.cur = key;
+    if (my.scoreFor !== key) { my.score = null; my.scoreFor = key; paintScore(); }   /* 再生する物が替わったら点は空に戻す */
     $('rcvList').hidden = true;
     $('rcvPlayer').hidden = false;
     $('viewReceive').classList.add('playing');
@@ -220,7 +222,7 @@
   function buttons() {
     var x = find(my.cur), can = !!x && open(x.it);
     var why = x && x.it.want === 'keep' ? 'Dropbox から取ってきています(取り終えると保存先に入ります)' : my.busy ? '決めています…' : '';
-    ['btnKeep', 'btnSkip', 'btnBoring', 'btnCut'].forEach(function (id) {
+    ['btnKeep', 'btnSkip'].forEach(function (id) {
       if ($(id).getAttribute('data-title0') === null) $(id).setAttribute('data-title0', $(id).title || '');
       $(id).disabled = !can || my.busy;
       $(id).setAttribute('data-ui-why', $(id).disabled ? why : '');   /* 押せない理由(乗せると出る = ui.md B-04) */
@@ -250,11 +252,24 @@
   }
 
   /* ---------------------------------------------------------------- 決める(C-3-4・C-3-5・C-3-6) */
-  function decide(items, verdict, reason) {
+  /* 5 段階の点(10-27): 押すと選ぶ・同じ数をもう一度で外す。root = 再生画面か帯の .fr-score */
+  function setScore(which, n) {
+    my[which] = my[which] === n ? null : n;
+    paintScore();
+  }
+  function paintScore() {
+    [['playerScore', my.score], ['bulkScore', my.bulkScore]].forEach(function (p) {
+      Array.prototype.forEach.call($(p[0]).querySelectorAll('.fr-sc'), function (b) {
+        b.setAttribute('aria-pressed', String(Number(b.getAttribute('data-score')) === p[1]));
+      });
+    });
+  }
+  function decide(items, verdict, reason, score) {
     if (!items.length || my.busy) return Promise.resolve(null);
     my.busy = true;
     var nxt = my.cur && items.length === 1 && k(items[0]) === my.cur ? nextAfter(my.cur) : null;
-    return api('decide', { items: items.map(function (it) { return { id: it.id, name: it.name }; }), verdict: verdict, reason: reason || null }).then(function (j) {
+    return api('decide', { items: items.map(function (it) { return { id: it.id, name: it.name }; }), verdict: verdict, reason: reason || null,
+      score: score == null ? null : score }).then(function (j) {
       (j.errors || []).forEach(function (x) { UIKit.toast(x.message, { kind: 'err', ms: 0 }); });
       var done = j.done || [];
       items.forEach(function (it) { delete my.sel[k(it)]; });
@@ -265,7 +280,7 @@
       } else if (verdict === 'keep' && (j.pending || []).length) {
         UIKit.toast('Dropbox から取ってきています(取り終えると保存先に入ります)', { ms: 5000 });
       } else if (done.length) {
-        my.toast = UIKit.toast((verdict === 'bad' ? '届かなくてよかったにしました' : '見送りました') + (done.length > 1 ? '(' + done.length + ' 本)' : ''), { ms: 6000,
+        my.toast = UIKit.toast('見送りました' + (done.length > 1 ? '(' + done.length + ' 本)' : ''), { ms: 6000,
           action: { label: '戻す', fn: function () { undo(done); } } });
       }
       return FR.refresh().then(function () {
@@ -296,9 +311,9 @@
     var s = selected();
     if (!s.length) return;
     UIKit.dialog.confirm({ title: s.length + ' 本を受け取ります', body: s.slice(0, 10).map(function (it) { return '・' + it.title; }).join('\n') +
-      (s.length > 10 ? '\nほか ' + (s.length - 10) + ' 本' : ''), ok: '受け取る' }).then(function (yes) { if (yes) decide(s, 'keep'); });
+      (s.length > 10 ? '\nほか ' + (s.length - 10) + ' 本' : ''), ok: '受け取る' }).then(function (yes) { if (yes) decide(s, 'keep', null, my.bulkScore); });
   }
-  function clearSel() { my.sel = {}; bulk(); }
+  function clearSel() { my.sel = {}; my.bulkScore = null; paintScore(); bulk(); }
 
   /* ---------------------------------------------------------------- キー(C-3-10) */
   function onKey(e) {
@@ -313,20 +328,23 @@
     if (e.key === ' ' && !(e.target && /^(BUTTON|SELECT)$/.test(e.target.tagName))) { e.preventDefault(); toggle(); }
     else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); v.currentTime = Math.max(0, v.currentTime + (e.key === 'ArrowLeft' ? -5 : 5)); }
     else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); volBy(e.key === 'ArrowUp' ? 0.1 : -0.1); }
+    else if (/^[1-5]$/.test(e.key)) { e.preventDefault(); setScore('score', Number(e.key)); }
   }
 
   document.addEventListener('DOMContentLoaded', function () {
     $ = FR.$; el = FR.el; api = FR.api;
     $('btnPlayerBack').addEventListener('click', back);
     function curItem() { var x = find(my.cur); return x ? [x.it] : []; }
-    $('btnKeep').addEventListener('click', function () { decide(curItem(), 'keep'); });
-    $('btnSkip').addEventListener('click', function () { decide(curItem(), 'skip'); });
-    $('btnBoring').addEventListener('click', function () { decide(curItem(), 'bad', 'boring'); });
-    $('btnCut').addEventListener('click', function () { decide(curItem(), 'bad', 'cut'); });
+    $('btnKeep').addEventListener('click', function () { decide(curItem(), 'keep', null, my.score); });
+    $('btnSkip').addEventListener('click', function () { decide(curItem(), 'skip', null, my.score); });
     $('bulkKeep').addEventListener('click', bulkKeep);
-    $('bulkSkip').addEventListener('click', function () { decide(selected(), 'skip'); });
-    $('bulkBoring').addEventListener('click', function () { decide(selected(), 'bad', 'boring'); });
-    $('bulkCut').addEventListener('click', function () { decide(selected(), 'bad', 'cut'); });
+    $('bulkSkip').addEventListener('click', function () { decide(selected(), 'skip', null, my.bulkScore); });
+    [['playerScore', 'score'], ['bulkScore', 'bulkScore']].forEach(function (p) {
+      $(p[0]).addEventListener('click', function (e) {
+        var b = e.target.closest('.fr-sc');
+        if (b) setScore(p[1], Number(b.getAttribute('data-score')));
+      });
+    });
     $('bulkClear').addEventListener('click', clearSel);
     document.addEventListener('keydown', onKey);
     initBar();

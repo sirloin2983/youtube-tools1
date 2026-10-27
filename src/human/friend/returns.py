@@ -174,6 +174,8 @@ def _parse_v2(d):
     for k in ("videoId", "markId"):   # 届いた .meta.json の値を返す(友人の PC で処理した物は届けた記録に無いので、これで切り抜きを引く)
         if isinstance(d.get(k), str) and ID_RE.match(d[k]):
             out[k] = d[k]
+    if "score" in d:   # 5 段階の点(1〜5 か null = 選ばなかった。10-27。無い古い形は欄なし)
+        out["score"] = d["score"] if d["score"] in (1, 2, 3, 4, 5) and not isinstance(d["score"], bool) else None
     out.update(schemas.verdict_source(d))   # 友人の PC で処理したパックの元(range・cand・tool。無い古い形はそのまま。10-27)
     return out
 
@@ -376,7 +378,9 @@ def _judge_v2(app_dir, v, rid, pack, clock, log):
         if not mid and v.get("markId") and v.get("videoId"):
             vid, mid = v["videoId"], v["markId"]
         origin = v.get("origin") or (deliveries.origin_of(r) if r else "request")
-        src = {} if r else {k: v[k] for k in ("cand", "tool") if v.get(k)}   # 届けた記録が無い(友人の PC で処理した)ときだけ、判定の元を使う
+        src = {} if r else {k: v[k] for k in ("cand", "tool") if v.get(k)}
+        if "score" in v:
+            src["score"] = v["score"]   # 友人の 5 段階の点(届けた記録の有無に関わらず残す)   # 届けた記録が無い(友人の PC で処理した)ときだけ、判定の元を使う
         if not r and v.get("range"):
             src.update(start=v["range"][0], end=v["range"][1])
         judgments.record(app_dir, who="friend", what=v["judge"], reason=v.get("reason"), by=v.get("by"), origin=origin, via="friend_verdict",

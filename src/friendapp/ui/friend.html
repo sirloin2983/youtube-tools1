@@ -195,10 +195,11 @@
         <h2 class="fr-player-title" id="playerTitle"></h2>
         <div class="fr-player-meta" id="playerMeta"></div>
         <div class="fr-player-head" id="playerHead" hidden></div>
+        <!-- 5 段階の点(10-27 ユーザーの OK。キー 1〜5。選ばずに決めてもよい = 点は空) -->
+        <div class="fr-score" id="playerScore" role="group" aria-labelledby="playerScoreL"><span class="fr-score-l" id="playerScoreL">面白さ</span><button type="button" class="btn small fr-sc" data-score="1" aria-pressed="false" title="つまらない(キー 1。もう一度押すと外す)">1 つまらない</button><button type="button" class="btn small fr-sc" data-score="2" aria-pressed="false" title="いまいち(キー 2。もう一度押すと外す)">2 いまいち</button><button type="button" class="btn small fr-sc" data-score="3" aria-pressed="false" title="ふつう(キー 3。もう一度押すと外す)">3 ふつう</button><button type="button" class="btn small fr-sc" data-score="4" aria-pressed="false" title="面白い(キー 4。もう一度押すと外す)">4 面白い</button><button type="button" class="btn small fr-sc" data-score="5" aria-pressed="false" title="すごく面白い(キー 5。もう一度押すと外す)">5 すごく面白い</button></div>
         <div class="fr-decide">
           <button type="button" class="btn primary" id="btnKeep">受け取る</button>
           <button type="button" class="btn" id="btnSkip" title="今回は使いません(3 日の間は一覧の下の「見送った物」から戻せます)">見送る</button>
-          <span class="fr-bad-links" id="playerBad">届かなくてよかった: <button type="button" class="btn link" id="btnBoring">つまらない</button> / <button type="button" class="btn link" id="btnCut">切り方が変</button></span>
         </div>
       </div>
       <aside class="fr-player-side" aria-label="この配信の切り抜き">
@@ -210,7 +211,7 @@
       <span id="bulkCount"></span>
       <button type="button" class="btn primary small" id="bulkKeep">選んだ物を受け取る</button>
       <button type="button" class="btn small" id="bulkSkip">選んだ物を見送る</button>
-      <span class="fr-bad-links">届かなくてよかった: <button type="button" class="btn link" id="bulkBoring">つまらない</button> / <button type="button" class="btn link" id="bulkCut">切り方が変</button></span>
+      <div class="fr-score" id="bulkScore" role="group" aria-labelledby="bulkScoreL"><span class="fr-score-l" id="bulkScoreL">面白さ</span><button type="button" class="btn small fr-sc" data-score="1" aria-pressed="false" title="つまらない(キー 1。もう一度押すと外す)">1 つまらない</button><button type="button" class="btn small fr-sc" data-score="2" aria-pressed="false" title="いまいち(キー 2。もう一度押すと外す)">2 いまいち</button><button type="button" class="btn small fr-sc" data-score="3" aria-pressed="false" title="ふつう(キー 3。もう一度押すと外す)">3 ふつう</button><button type="button" class="btn small fr-sc" data-score="4" aria-pressed="false" title="面白い(キー 4。もう一度押すと外す)">4 面白い</button><button type="button" class="btn small fr-sc" data-score="5" aria-pressed="false" title="すごく面白い(キー 5。もう一度押すと外す)">5 すごく面白い</button></div>
       <button type="button" class="btn ghost small" id="bulkClear" title="選ぶのをやめる(Esc)">選ぶのをやめる</button>
     </div>
   </section>

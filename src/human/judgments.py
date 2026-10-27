@@ -103,6 +103,11 @@ def _check(row):
     for k in ("start", "end"):
         if row.get(k) is not None:
             out[k] = _num(row, k)
+    if "score" in row:   # 友人の 5 段階の点(1〜5 か None = 選ばなかった。10-27)
+        sc = row["score"]
+        if sc is not None and (isinstance(sc, bool) or sc not in (1, 2, 3, 4, 5)):
+            raise ValueError("score は 1〜5 か None")
+        out["score"] = sc
     src = _schemas.verdict_source({k: row[k] for k in ("cand", "tool") if row.get(k) is not None})   # 友人の PC で処理したパックの候補の印・版と設定(10-27)
     out.update(src)
     out["key"] = _str(row, "key")

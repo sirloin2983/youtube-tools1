@@ -951,6 +951,8 @@ def friend_scenes(base, setup_base=None, update_base=None):
             {"name": "friend-file", "url": page, "actions": [("wait", 500), ("click", "#btnPick"), ("wait", 800)]},   # 動画ファイル(見本は本物の窓を開かない)
             {"name": "friend-open", "url": page + "#receive", "actions": [("wait", 900)]},   # F3-4: 受け取る(配信ごとの段)
             {"name": "friend-play", "url": page + "#receive", "actions": [("wait", 900), ("click", ".fr-rcard-btn"), ("wait", 500)]},   # 再生画面
+            {"name": "friend-play-score", "url": page + "#receive",   # 再生画面で面白さの点を選んだ形(キー 4。10-27)
+             "actions": [("wait", 900), ("click", ".fr-rcard-btn"), ("wait", 500), ("key", "4"), ("wait", 200)]},
             {"name": "friend-bulk", "url": page + "#receive", "actions": [("wait", 900), ("click", ".fr-pick"), ("wait", 300)]},   # まとめて決める帯
             # F2-5: ⚙ の引き出し(見本は本物の窓を開かない)・初回の準備(--missing の見本 = 部品が足りない形の確認)
             {"name": "friend-settings", "url": page, "actions": [("wait", 500), ("click", "#btnSettings"), ("wait", 800)],

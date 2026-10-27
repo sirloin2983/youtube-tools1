@@ -56,6 +56,7 @@ KINDS = ("url", "file", "live")     # 送った物。自動で届いた行は "r
 PHASES = ("live", "archive")        # ライブの切り抜きの段(配信中 / 配信後の追加 M7)。組は段ごと
 LIVE_STALE = KEEP_DAYS * DAY + 12 * 3600   # 録画の行がこれより長く終わらない(録画元が見つからないなど)= 残りを組にして閉じる
 LIVE_DONE_MAX = 500                 # ライブの行が覚える済んだ切り抜きの実行の id の数
+SCORES = (1, 2, 3, 4, 5)   # 5 段階の点(1 つまらない・2 いまいち・3 ふつう・4 面白い・5 すごく面白い。10-27)
 VERDICTS = ("keep", "skip", "bad")  # 受け取る / 見送る / 届かなくてよかった(C-3-4)
 JUDGE = {"keep": "good", "skip": "unknown", "bad": "bad"}   # 送り返しの判断の記録 v 2 の言葉(notes:docs/spec/friend.md の 12-2)
 REASONS = ("boring", "cut")         # 届かなくてよかったの理由: つまらない(場面の選び方)/ 切り方が変(区間の決め方)
@@ -806,12 +807,16 @@ class Inbox:
         return any(g.get("remote") and not g["remote"].get("cleaned") for g in r.get("groups") or [])
 
     # ------------------------------------------------------------ 決める(C-3-4〜C-3-8)
-    def decide(self, rid, names, verdict, by=None, reason=None):
+    def decide(self, rid, names, verdict, by=None, reason=None, score=None):
         """パック(names。空なら行の決めていない物全部)を決める -> {"done": [名前], "pending": [名前], "errors": [{"name", "message"}], "row"}。
         keep = [受け取る](保存先の <配信の日付>_<配信者>_<題>\\#番号 へ移す)/ skip = [見送る](アプリのごみ箱へ。3 日は戻せる)/
         bad = 届かなくてよかった(reason boring・cut。見送ると同じに片付ける)。どれも送り返しへ判断の記録(v 2)を書く。
         Dropbox のパック(まだ手元に無い): keep は「受け取っています」にするだけ(同期が取って展開してから決める)・skip と bad は取らずに決める。
-        3 日の自動(by auto)は見送る(理由なし)で、ごみ箱を経ずにすぐ消す。受け取っている途中の物は自動で見送らない"""
+        3 日の自動(by auto)は見送る(理由なし)で、ごみ箱を経ずにすぐ消す。受け取っている途中の物は自動で見送らない。
+        score = 5 段階の点(1 つまらない〜5 すごく面白い。10-27 ユーザーの OK)か None(選ばなかった = 空で記録・推測で埋めない)。
+        受け取りの途中(Dropbox のパック)の点は覚えておき、取り終えて決めたときに書く"""
+        if score is not None and (isinstance(score, bool) or score not in SCORES):
+            raise ValueError("点は 1〜5 です")
         if verdict not in VERDICTS:
             raise ValueError("決め方は keep・skip・bad です")
         if verdict == "bad" and reason not in REASONS:
@@ -827,7 +832,7 @@ class Inbox:
                     continue
                 remote = bool(p.get("remote")) and not p.get("dir")
                 if remote and verdict == "keep":
-                    p.update(want="keep", error="")
+                    p.update(want="keep", error="", score=score)
                     pending.append(p["name"])
                     continue
                 try:
@@ -837,7 +842,8 @@ class Inbox:
                     errors.append({"name": p["name"], "message": self._move_failed(verdict, e)})
                     continue
                 try:
-                    self._record(r, p, JUDGE[verdict], reason=reason if verdict == "bad" else None, by=by)
+                    self._record(r, p, JUDGE[verdict], reason=reason if verdict == "bad" else None, by=by,
+                                 score=score if score is not None else p.get("score"))
                 except OSError as e:
                     # 移したあとに記録が書けない: 移した物を元へ戻して「決めていない」のまま(もう一度押せば決まる)。
                     # 戻せない(3 日の自動ですぐ消した・戻す移動も失敗)ときは、記録なしで決めたことにする(ごみ箱の物は 3 日は [戻す] が効く)
@@ -942,7 +948,7 @@ class Inbox:
             r, p = self._pack(rid, name)
             return self.keep_dest(r, p) if p is not None else None
 
-    def _record(self, r, p, judge, reason=None, by=None, of=None):
+    def _record(self, r, p, judge, reason=None, by=None, of=None, score=None):
         """送り返しの判断の記録(notes:docs/spec/friend.md の 12-2 の v 2)。名前 = <依頼 id>__<パック名>~<at 13 桁>.verdict.json"""
         os.makedirs(self.outbox, exist_ok=True)
         at = self._now_ms()
@@ -961,6 +967,8 @@ class Inbox:
             doc["reason"] = reason
         if judge == "retract":
             doc["of"] = of or ""
+        else:
+            doc["score"] = score   # 5 段階の点(1〜5)か None = 選ばなかった(10-27)
         if by == "auto":
             doc["by"] = "auto"
         if WORKTIME:   # 作業の時刻(D): 届いた・初めて再生した(ユーザーの PC が公開の時刻と結ぶ = dev/friend_worktime.py)

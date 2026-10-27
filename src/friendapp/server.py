@@ -35,7 +35,7 @@
   POST /api/friend/pick-file              Windows のファイルを選ぶ窓を開く(画面からパスを打たせない)→ {file: {id, name, size, title, streamer, hex} | null}
   POST /api/friend/ops {ops, screen?}     画面の操作の記録と画面の要約(friendapp/oplog・report。状態の書き出しの材料。返事を待たない)
   POST /api/friend/send                   送る(friendapp/api.py の欄。動画ファイルは fileId・ライブは kind live + live)
-  POST /api/friend/decide {items: [{id, name}], verdict: keep|skip|bad, reason?: boring|cut}   受け取る / 見送る / 届かなくてよかった(name の無い項目 = その行の決めていない物の全部)
+  POST /api/friend/decide {items: [{id, name}], verdict: keep|skip|bad, reason?: boring|cut, score?: 1〜5}   受け取る / 見送る / 届かなくてよかった(name の無い項目 = その行の決めていない物の全部)
   POST /api/friend/undo {items}           見送った・届かなくてよかったを 3 日の間は戻す(C-3-6)
   POST /api/friend/retry {id}・cancel {id}      失敗の行の [もう一度送る]・[消す]・送った行を止める(録画中のライブの行は録画を止める)
   POST /api/friend/live-settings {id, perHour?, afterStream?}   録画中のライブの設定を途中で変える(C-2-11。→ {ok, row})
@@ -643,12 +643,12 @@ class FriendApp:
         done, pending, errors = [], [], []
         for rid, names in by_row.items():
             try:
-                got = self.inbox.decide(rid, names, body.get("verdict"), reason=body.get("reason"))
+                got = self.inbox.decide(rid, names, body.get("verdict"), reason=body.get("reason"), score=body.get("score"))
                 mk = getattr(self.engine, "_mk_lock", None)
                 if got["errors"] and mk is not None:
                     # 届いた直後は確認用の動画をパックから作っていて、移せない(10-26 友人の PermissionError)。作り終わるのを待って 1 度だけやり直す
                     with mk:
-                        again = self.inbox.decide(rid, [e["name"] for e in got["errors"]], body.get("verdict"), reason=body.get("reason"))
+                        again = self.inbox.decide(rid, [e["name"] for e in got["errors"]], body.get("verdict"), reason=body.get("reason"), score=body.get("score"))
                     got = dict(again, done=got["done"] + again["done"], pending=got["pending"] + again["pending"])
             except ValueError as e:
                 raise _api.FormError(str(e))

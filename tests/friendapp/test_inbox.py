@@ -234,7 +234,7 @@ class InboxTest(unittest.TestCase):
         v = self.read_verdict(RID, "【雑談】テスト_pack")
         self.assertEqual(v.pop("id").__class__, str)
         self.assertEqual((v.pop("arrivedAt"), v.pop("openedAt")), (int(T0 * 1000), first))   # 届いた・初めて再生した(D)
-        self.assertEqual(v, {"v": 2, "judge": "good", "zip": "【雑談】テスト_pack", "origin": "request", "at": int(T0 * 1000), "videoId": "dQw4w9WgXcQ"})
+        self.assertEqual(v, {"v": 2, "judge": "good", "zip": "【雑談】テスト_pack", "origin": "request", "at": int(T0 * 1000), "videoId": "dQw4w9WgXcQ", "score": None})   # 点を選ばなかった = 空(10-27)
         self.assertEqual(self.box.saved_dir(RID, "【雑談】テスト_pack"), saved)
 
     def test_local_pack_verdict_carries_source_and_user_pc_reads_it(self):
@@ -262,6 +262,26 @@ class InboxTest(unittest.TestCase):
         old = R.parse_verdict(json.dumps({"v": 2, "id": "o1", "judge": "good", "at": 5}).encode())   # 古い形もそのまま読める
         self.assertEqual(old["judge"], "good")
         self.assertNotIn("cand", old)
+
+    def test_decide_with_score_and_user_pc_keeps_it(self):
+        """5 段階の点(10-27): 判定に score(1〜5)・選ばなければ null・範囲外は断る。ユーザーの PC の受け取りが人の判断の記録に score を残す"""
+        from human import judgments as J
+        from human.friend import returns as R
+        self.arrive(RID, ["【雑談】テスト_pack", "【雑談】二本目_pack"])
+        with self.assertRaises(ValueError):
+            self.box.decide(RID, ["【雑談】テスト_pack"], "keep", score=6)
+        self.box.decide(RID, ["【雑談】テスト_pack"], "keep", score=4)
+        self.box.decide(RID, ["【雑談】二本目_pack"], "skip")
+        self.assertEqual(self.read_verdict(RID, "【雑談】テスト_pack")["score"], 4)
+        self.assertIsNone(self.read_verdict(RID, "【雑談】二本目_pack")["score"])
+        sync, app = os.path.join(self.tmp, "Dropbox"), os.path.join(self.tmp, "userapp")
+        os.makedirs(os.path.join(sync, R.IN_DIR))
+        for name in ("【雑談】テスト_pack", "【雑談】二本目_pack"):
+            for f in self.verdict_files(RID, name):
+                shutil.copy(f, os.path.join(sync, R.IN_DIR, os.path.basename(f)))
+                os.utime(os.path.join(sync, R.IN_DIR, os.path.basename(f)), (T0 - 600, T0 - 600))
+        R.scan(sync, app, log=lambda m: None)
+        self.assertEqual(sorted((r["what"], r.get("score", "なし")) for r in J.rows(app)), [("good", 4), ("unknown", None)])
 
     def test_decide_skip_moves_to_trash_and_writes_verdict(self):
         r, case, dirs = self.arrive(RID, ["a_pack", "b_pack"])
