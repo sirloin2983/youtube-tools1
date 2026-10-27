@@ -18,6 +18,7 @@ from . import prio as _prio
 from .jobs import Table
 
 MAX_ACTIVE = 10
+CANDS_KEEP = 40   # 解析の要約に残す候補の並びの数(パックの判定の候補の印。足しの候補を入れても 28)
 MAX_HISTORY = 30
 FINISHED = ("done", "error", "cancelled", "skipped")
 BOARD_STATE = {"waiting": "queued", "running": "running", "done": "done", "error": "error", "cancelled": "cancelled", "skipped": "skipped"}   # item の status -> 掲示板の state
@@ -247,4 +248,7 @@ class Batch:
         a = {"at": schemas.now_ms(), "signals": res["signals"], "counts": res["counts"], "warnings": res["warnings"], "spec": res["spec"], "type": res.get("type"),
              **(res.get("stream") or {})}   # 配信の始まり・長さ(releaseTs・timestamp・uploadDate・liveStatus・duration。友人へ自動で送る鮮度の判定が読む。D-SEND)
         cands = [{"start": c["start"], "end": c["end"], "peak": c["peak"], "score": c["score"], "parts": c["parts"], "reasons": c["reasons"]} for c in res["candidates"]]
+        # 候補の並び(何番目・点数・出どころ。パックの判定に候補の印を載せる = run._pack_source。マークは並びを持たないので要約に短く残す。10-27)
+        a["cands"] = [dict({"start": c["start"], "end": c["end"], "score": c["score"]}, **({"origin": c["origin"]} if c.get("origin") else {}))
+                      for c in res["candidates"][:CANDS_KEEP]]
         return self.store.replace_auto(_vid(rec), cands, a, res["source"].get("duration"), res["series"])

@@ -51,7 +51,7 @@ import threading
 import time
 import uuid
 
-from ytt import colors, fsio as _fsio, jobs as _slots, schemas as _schemas, tools as _ytools, txwords as _txwords
+from ytt import colors, fsio as _fsio, jobs as _slots, schemas as _schemas, tools as _ytools, txwords as _txwords, version as _version
 from pipeline.analyze import excite as _excite   # 埋めた候補の理由の文(FILL_REASON)を数えるだけ
 from . import batch as _batch   # 解析の順番の断りの種類(queued_already)
 from . import envelope as _envelope, keys as _keys, order as _order, normalize as _norm, placement as _placement, prio as _prio, spec as _spec, tools as _tools
@@ -110,6 +110,7 @@ RUN_ID_RE = re.compile(r"^[0-9a-f]{10}\Z")
 FROM_MODE = {None: "full", "analyze": "full", "export": "full", "transcribe": DOC_MODE}   # run(from_=段) の配信の ID の入力 -> 実行の形(export = 書き出しから全部)
 FROM_EXPORT_LABEL = "書き出しから全部"   # mode full で束の run.from export(解析・採用を飛ばす)の実行の札
 
+TOOL_SETTING_KEYS = ("count", "length", "preRatio", "sensitivity", "wAudio", "wChat", "wComments", "headSec", "shape", "fill")   # パックの判定に載せる解析の設定(_pack_source)
 _num = _spec.num_ok   # 扱ってよい大きさの数か(src/flow/spec.py)
 
 
@@ -744,6 +745,37 @@ class Runner:
 
     def _after_pack(self, run, st, prefix):
         """パックが 1 本できたとき(① 全自動はできるたびに 1 本ずつ届ける)。既定は何もしない"""
+
+    def _pack_source(self, run, hint):
+        """パックの元: {"videoId", "range": [始まり, 終わり](元の配信の秒), "cand": {"rank", "score", "origin"}, "tool": {"version", "settings"}}
+        (分かる物だけ)。区間は切り抜きの .clip.json・無ければマーク。候補は解析の要約 analysis.cands とマークの自動の区間 auto0 を突き合わせる。
+        友人の PC で処理したパックの判定(friendapp の .verdict.json)に、ユーザーの PC の届けた記録と同じ項目を載せるため(10-27)。失敗しても {}"""
+        out = {}
+        try:
+            v = self._video(run)
+            vid = str(run.video_id or "")
+            if vid and not vid.startswith(("file:", "/")) and len(vid) <= 64:
+                out["videoId"] = vid
+            mark = next((m for m in v.get("marks") or [] if isinstance(m, dict) and m.get("id") == hint.get("markId")), None) or {}
+            clip = _schemas.find_clip(hint["path"])[0] if hint.get("path") else None
+            rng = (clip or {}).get("range") or {}
+            a, b = _schemas.num(rng.get("start")), _schemas.num(rng.get("end"))
+            if a is None and _schemas.num(mark.get("start")) is not None:
+                a, b = _schemas.num(mark.get("start")), _schemas.num(mark.get("end"))
+            if a is not None and b is not None and b > a:
+                out["range"] = [round(a, 2), round(b, 2)]
+            an = v.get("analysis") if isinstance(v.get("analysis"), dict) else {}
+            a0 = mark.get("auto0") if isinstance(mark.get("auto0"), list) and len(mark.get("auto0")) == 2 else None
+            for i, c in enumerate(an.get("cands") or []):
+                if a0 and abs(float(c["start"]) - float(a0[0])) < 0.15 and abs(float(c["end"]) - float(a0[1])) < 0.15:
+                    out["cand"] = dict({"rank": i + 1, "score": c.get("score")}, **({"origin": c["origin"]} if c.get("origin") else {}))
+                    break
+            spec = an.get("spec") if isinstance(an.get("spec"), dict) else {}
+            out["tool"] = {"version": _version.VERSION,
+                           "settings": {k: spec[k] for k in TOOL_SETTING_KEYS if isinstance(spec.get(k), (int, float, str)) and not isinstance(spec.get(k), bool)}}
+        except (StepError, OSError, ValueError, TypeError, KeyError) as e:
+            self.log("まとめて実行: パックの元を引けませんでした(%s)" % e.__class__.__name__)
+        return out
 
     def _overlap_note(self, run, doc):
         """前の依頼・送り直しで届けた区間とのかぶりの知らせ(flow/deliveries.overlap_note)か ""。既定は届けた記録を持たない = ""(Delivery が埋める)"""
@@ -1497,6 +1529,7 @@ class Runner:
             run.packs.append(out)   # ① 全自動で Dropbox へ届けるもの
             hint = dict(run.pack_hint or {})
             run.pack_marks[out] = {k: hint[k] for k in ("path", "markId") if k in hint}   # どの切り抜き・どのマークのパックか(_step_pack が hint を置く。友人の「要らない」で引く)
+            run.pack_marks[out].update(self._pack_source(run, hint))   # 元の配信・区間・候補の印・版と設定(友人の判定に載せる。10-27)
             note = self._overlap_note(run, doc)
             if note:
                 run.pack_marks[out]["overlap"] = note   # 依頼をまたいだ区間のかぶり(段の文・届ける .meta.json の overlapNote)

@@ -469,3 +469,38 @@ def ids_ok(rc, rec):
     """録画元・録画の id の形(API の引数・worker.json の値をパスに使う前に見る。文字列でなければ False)。
     manage/keep・home も使う"""
     return isinstance(rc, str) and isinstance(rec, str) and bool(recproto.RECORDER_ID_RE.match(rc)) and bool(recproto.REC_ID_RE.match(rec))
+
+
+# ---------- 友人の判定に載せるパックの元(10-27) ----------
+def _vs_num(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and abs(v) < 1e9
+
+
+def verdict_source(info):
+    """判定に載せる元(この PC で処理したパックの range・cand・tool)の形を確かめて、使える物だけ -> {"range"?, "cand"?, "tool"?}。
+    range = [始まり, 終わり](元の配信の秒)・cand = {"rank", "score", "origin"}(何番目の候補・点数・出どころ)・tool = {"version", "settings": {名前: 数か文字}}"""
+    out = {}
+    r = info.get("range")
+    if isinstance(r, (list, tuple)) and len(r) == 2 and all(_vs_num(x) for x in r) and 0 <= r[0] < r[1]:
+        out["range"] = [round(float(r[0]), 2), round(float(r[1]), 2)]
+    c = info.get("cand") if isinstance(info.get("cand"), dict) else {}
+    cand = {}
+    if isinstance(c.get("rank"), int) and not isinstance(c.get("rank"), bool) and 0 < c["rank"] < 1000:
+        cand["rank"] = c["rank"]
+    if _vs_num(c.get("score")):
+        cand["score"] = round(float(c["score"]), 3)
+    if isinstance(c.get("origin"), str) and re.fullmatch(r"[a-z_]{1,20}", c["origin"]):
+        cand["origin"] = c["origin"]
+    if cand:
+        out["cand"] = cand
+    t = info.get("tool") if isinstance(info.get("tool"), dict) else {}
+    tool = {}
+    if isinstance(t.get("version"), str) and re.fullmatch(r"[0-9][0-9.]{0,19}", t["version"]):
+        tool["version"] = t["version"]
+    st = t.get("settings") if isinstance(t.get("settings"), dict) else {}
+    st = {str(k)[:30]: v for k, v in list(st.items())[:20] if _vs_num(v) or (isinstance(v, str) and len(v) <= 30)}
+    if st:
+        tool["settings"] = st
+    if tool:
+        out["tool"] = tool
+    return out

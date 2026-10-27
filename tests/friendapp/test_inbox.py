@@ -237,6 +237,32 @@ class InboxTest(unittest.TestCase):
         self.assertEqual(v, {"v": 2, "judge": "good", "zip": "【雑談】テスト_pack", "origin": "request", "at": int(T0 * 1000), "videoId": "dQw4w9WgXcQ"})
         self.assertEqual(self.box.saved_dir(RID, "【雑談】テスト_pack"), saved)
 
+    def test_local_pack_verdict_carries_source_and_user_pc_reads_it(self):
+        """この PC で処理したパックの判定に、元の配信の ID・区間・候補の印・版と設定が載り、ユーザーの PC の受け取りが人の判断の記録にそのまま残す(10-27 の通し)"""
+        from human import judgments as J
+        from human.friend import returns as R
+        src = {"videoId": "dQw4w9WgXcQ", "markId": "a1", "range": [120.0, 165.5], "cand": {"rank": 3, "score": 4.2, "origin": "heatmap"},
+               "tool": {"version": "0.99.307", "settings": {"count": 8, "wAudio": 1.0, "sensitivity": "normal"}}}
+        self.box.add(RID, {"url": "u", "videoId": "dQw4w9WgXcQ"}, {"url": "u", "videoId": "dQw4w9WgXcQ", "title": "題"}, run_id="run-x")
+        case, dirs = self.make_case(RID, ["【雑談】テスト_pack"])
+        self.box.finished("run-x", "done", "", [{"dir": dirs[0], "seconds": 10.5, "info": dict(src, overlapNote="")}], case=case)
+        self.box.decide(RID, [], "keep")
+        v = self.read_verdict(RID, "【雑談】テスト_pack")
+        self.assertEqual({k: v.get(k) for k in src}, src)
+        sync = os.path.join(self.tmp, "Dropbox")
+        app = os.path.join(self.tmp, "userapp")
+        os.makedirs(os.path.join(sync, R.IN_DIR))
+        for f in self.verdict_files(RID, "【雑談】テスト_pack"):
+            shutil.copy(f, os.path.join(sync, R.IN_DIR, os.path.basename(f)))
+            os.utime(os.path.join(sync, R.IN_DIR, os.path.basename(f)), (T0 - 600, T0 - 600))
+        R.scan(sync, app, log=lambda m: None)
+        row = J.rows(app)[-1]   # 届けた記録が無い = 判定の元を使う
+        self.assertEqual((row["what"], row["videoId"], row["markId"], row["start"], row["end"], row["cand"], row["tool"]),
+                         ("good", "dQw4w9WgXcQ", "a1", 120.0, 165.5, src["cand"], src["tool"]))
+        old = R.parse_verdict(json.dumps({"v": 2, "id": "o1", "judge": "good", "at": 5}).encode())   # 古い形もそのまま読める
+        self.assertEqual(old["judge"], "good")
+        self.assertNotIn("cand", old)
+
     def test_decide_skip_moves_to_trash_and_writes_verdict(self):
         r, case, dirs = self.arrive(RID, ["a_pack", "b_pack"])
         got = self.box.decide(RID, ["a_pack"], "skip")

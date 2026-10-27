@@ -353,6 +353,20 @@ class TestRun(unittest.TestCase):
         self.assertEqual(r.pack_marks, {os.path.normpath("/x/clip_pack"): {"path": media, "markId": "s1"}})
         self.assertIsNone(r.pack_hint)
 
+    def test_pack_source_for_friend_verdict(self):
+        """パックの元(10-27): 元の配信・区間(.clip.json が無ければマーク)・候補の印(解析の要約の並びとマークの自動の区間を突き合わせる)・版と設定"""
+        from ytt import version as V
+        h = R.Runner(FakeClient(), poll=0, sleep=lambda s: None)
+        run = R.Run.from_input({"videoId": "abcdefghijk"})
+        h._video = lambda run: {"marks": [{"id": "m1", "start": 100.0, "end": 145.0, "auto0": [100.0, 145.0]}],
+                                "analysis": {"cands": [{"start": 5, "end": 50, "score": 3.0}, {"start": 100.0, "end": 145.0, "score": 2.5, "origin": "heatmap"}],
+                                             "spec": {"count": 8, "wAudio": 1.0, "sensitivity": "normal", "noCache": False}}}
+        self.assertEqual(h._pack_source(run, {"markId": "m1"}),
+                         {"videoId": "abcdefghijk", "range": [100.0, 145.0], "cand": {"rank": 2, "score": 2.5, "origin": "heatmap"},
+                          "tool": {"version": V.VERSION, "settings": {"count": 8, "wAudio": 1.0, "sensitivity": "normal"}}})
+        h._video = lambda run: (_ for _ in ()).throw(R.StepError("落ちた"))
+        self.assertEqual(h._pack_source(run, {"markId": "m1"}), {})   # 引けなくてもパックは作る
+
     def test_doc_pack_hint_shapes(self):
         """届けた先の形: ライブでない文書・壊れた clip でも path は残し、markId は ""(友人の動画の依頼はスタジオのマークが無い)"""
         self.assertEqual(R.doc_pack_hint({"sourcePath": "/x/a.mp4"}), {"path": "/x/a.mp4", "markId": ""})

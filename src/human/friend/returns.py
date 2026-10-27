@@ -25,7 +25,7 @@ import zipfile
 from flow import deliveries, outbox
 from human import judgments
 from human.friend import voicein
-from ytt import errors, fsio, tools
+from ytt import errors, fsio, schemas, tools
 
 RETURNS_DIR = "friend-returns"      # <app>/friend-returns/<YYYY-MM>/<requestId>/
 IN_DIR, DONE_DIR, FAIL_DIR = "送り返し", "受付済み", "失敗"
@@ -174,6 +174,7 @@ def _parse_v2(d):
     for k in ("videoId", "markId"):   # 届いた .meta.json の値を返す(友人の PC で処理した物は届けた記録に無いので、これで切り抜きを引く)
         if isinstance(d.get(k), str) and ID_RE.match(d[k]):
             out[k] = d[k]
+    out.update(schemas.verdict_source(d))   # 友人の PC で処理したパックの元(range・cand・tool。無い古い形はそのまま。10-27)
     return out
 
 
@@ -375,9 +376,12 @@ def _judge_v2(app_dir, v, rid, pack, clock, log):
         if not mid and v.get("markId") and v.get("videoId"):
             vid, mid = v["videoId"], v["markId"]
         origin = v.get("origin") or (deliveries.origin_of(r) if r else "request")
+        src = {} if r else {k: v[k] for k in ("cand", "tool") if v.get(k)}   # 届けた記録が無い(友人の PC で処理した)ときだけ、判定の元を使う
+        if not r and v.get("range"):
+            src.update(start=v["range"][0], end=v["range"][1])
         judgments.record(app_dir, who="friend", what=v["judge"], reason=v.get("reason"), by=v.get("by"), origin=origin, via="friend_verdict",
                          videoId=vid, markId=mid, at=at, key=key,
-                         ref={"pack": pack, "requestId": rid, "zip": v.get("zip") or str(r.get("zip") or ""), "runId": str(r.get("runId") or "")})
+                         ref={"pack": pack, "requestId": rid, "zip": v.get("zip") or str(r.get("zip") or ""), "runId": str(r.get("runId") or "")}, **src)
     except (ValueError, OSError) as e:
         log("送り返し: %s の判断を人の判断の記録に書けませんでした(%s)" % (pack, tools.why(e)))
 

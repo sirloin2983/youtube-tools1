@@ -44,6 +44,7 @@ import uuid
 
 from flow import retention   # 物の終わりの日数
 from ytt import fsio, trashbin
+from ytt.schemas import verdict_source   # 判定に載せる元の形の確かめ(ユーザーの PC の受け取り human/friend/returns と同じ 1 か所。10-27)
 
 from . import progress as _progress
 
@@ -955,6 +956,7 @@ class Inbox:
             doc["videoId"] = vid
         if info.get("markId"):
             doc["markId"] = info["markId"]
+        doc.update(verdict_source(info))   # この PC で処理したパックの元(区間・候補の印・版と設定。ユーザーの PC の届けた記録と同じ項目。10-27)
         if judge == "bad":
             doc["reason"] = reason
         if judge == "retract":
@@ -1212,9 +1214,11 @@ class Inbox:
 
 
 def _local_info(p):
-    """この PC で作ったパックのかぶりの知らせ overlapNote(engine._pack_info。機械の見出しは 10-24 に消した)-> {"info": {...}} か {}(無い)"""
+    """この PC で作ったパックの info(engine._pack_info。機械の見出しは 10-24 に消した)-> {"info": {...}} か {}(無い)。
+    かぶりの知らせ overlapNote と、判定に載せる元(videoId・markId・range・cand・tool = 10-27。形は verdict_source で確かめる)"""
     info = p.get("info") if isinstance(p.get("info"), dict) else {}
-    keep = {k: str(info[k]) for k in ("overlapNote",) if isinstance(info.get(k), str) and info[k]}
+    keep = {k: str(info[k]) for k in ("overlapNote", "videoId", "markId") if isinstance(info.get(k), str) and info[k]}
+    keep.update(verdict_source(info))
     return {"info": keep} if keep else {}
 
 

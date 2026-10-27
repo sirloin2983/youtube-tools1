@@ -482,10 +482,13 @@ class Engine:
 
 
 def _pack_info(mark):
-    """② の実行のパックの印(run.pack_marks の 1 つ)-> 受信箱の info のかぶりの欄(届ける .meta.json と同じ名前。無ければ {})"""
+    """② の実行のパックの印(run.pack_marks の 1 つ)-> 受信箱の info(かぶりの欄 overlapNote と、判定に載せる元 = videoId・markId・range・cand・tool。
+    flow/run._pack_source。無い物は入れない)"""
     m = mark if isinstance(mark, dict) else {}
     note = str(m.get("overlap") or "")[:160]
-    return {"overlapNote": note} if note else {}
+    out = {"overlapNote": note} if note else {}
+    out.update({k: m[k] for k in ("videoId", "markId", "range", "cand", "tool") if m.get(k)})
+    return out
 
 
 def _case_from(result_path):

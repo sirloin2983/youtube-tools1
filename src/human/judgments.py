@@ -16,7 +16,7 @@ import secrets
 import threading
 import time
 
-from ytt import fsio as _fsio
+from ytt import fsio as _fsio, schemas as _schemas
 
 VERSION = 1
 FILE = "judgments.jsonl"
@@ -103,6 +103,8 @@ def _check(row):
     for k in ("start", "end"):
         if row.get(k) is not None:
             out[k] = _num(row, k)
+    src = _schemas.verdict_source({k: row[k] for k in ("cand", "tool") if row.get(k) is not None})   # 友人の PC で処理したパックの候補の印・版と設定(10-27)
+    out.update(src)
     out["key"] = _str(row, "key")
     if ref is not None:
         r = {k: ref[k] for k in REF_KEYS if ref.get(k) not in (None, "")}
