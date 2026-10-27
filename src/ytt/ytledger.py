@@ -10,6 +10,7 @@
 """
 import json
 import os
+import re
 import threading
 import time
 
@@ -33,8 +34,8 @@ def path(env=None):
 
 def classify(text):
     """失敗の文 -> "rate"(429・速すぎ)| "bot"(ボット確認・ログインを求められた)| None"""
-    e = str(text or "").lower()
-    if "429" in e or "too many requests" in e:
+    e = re.sub(r"https?://\S+", "", str(text or "").lower())   # URL の数字(clen・expire など)の「429」は当たりではない(10-27 ggZMyu2FxgU)
+    if re.search(r"\b429\b", e) or "too many requests" in e:
         return "rate"
     if any(w in e for w in ("not a bot", "sign in to confirm", "login required", "confirm you")):
         return "bot"

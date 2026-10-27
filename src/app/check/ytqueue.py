@@ -262,11 +262,10 @@ def rollover(st, now, log=None, app_dir=None):
 
 def classify(err):
     """失敗の文 -> "rate"(速すぎ)| "bot"(ボット確認・ログインを求められた)| "gone"(動画が無い・メンバー限定・404 = 判定ではない)| None"""
+    kind = _ytledger.classify(err)   # 速すぎ・ボット確認は帳簿と同じ見分け(URL の数字は見ない)
+    if kind:
+        return kind
     e = str(err or "").lower()
-    if "429" in e or "too many requests" in e:
-        return "rate"
-    if any(w in e for w in ("not a bot", "sign in to confirm", "login required", "confirm you")):
-        return "bot"
     if any(w in e for w in ("404", "video unavailable", "private video", "members-only", "members only", "has been removed", "not available", "does not exist")):
         return "gone"
     return None
@@ -560,9 +559,24 @@ def _bot(err):
     return classify(err) in ("rate", "bot")
 
 
-def _hit(st, now, err, log, name="audio"):
-    """当たった(rate・bot)を段の守りに渡す(st は呼び手が書く)"""
+def _hit(st, now, err, log, name="audio", vid=None):
+    """当たった(rate・bot)を段の守りに渡す(st は呼び手が書く)-> True。
+    同じ動画で続けて 2 回当たった = その動画だけの失敗と見て、列は休ませず取れない印(badVids)を付ける -> False(10-27 ggZMyu2FxgU が 3 回とも列を休ませた)"""
+    a = _cls(st, "audio")
+    tail = re.sub(r"https?://\S+", "<URL>", str(err or "")).strip().replace("\n", " / ")[-160:]
+    if vid and name == "audio" and a.get("hitVid") == vid:
+        a["hitVid"] = None
+        st["badVids"] = (list(st.get("badVids") or []) + [vid])[-500:]
+        log("YouTube の取得の列: %s は続けて 2 回断られたので、取れない動画として外しました(列は休みません。文: %s)" % (vid, tail))
+        return False
+    if name == "audio":
+        a["hitVid"] = vid
     hit(st, name, classify(err) or "bot", now, log)
+    log("YouTube の取得の列: 当たりの文: %s" % tail)
+    return True
+
+
+BAD_NOTE = "取れない動画(続けて 2 回断られた)"
 
 
 _first_tidy = {}
@@ -687,6 +701,11 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
     st = _state(app_dir)
     chan_of = {c: n for n, c in _vf.members(roster_r, extra)}
     ranked = [o for o in plan(app_dir, roster_r, counts, extra, st=st, now=now) if not (o["kind"] == "request" and o["req"]["kind"] in LIGHT_KINDS + ("info", "chat", "list"))]
+    bad = set(st.get("badVids") or ())
+    for o in [o for o in ranked if o["kind"] == "request" and _video_of(o["req"]["urls"][0]) in bad]:   # 取れない動画の頼みは取りに行かずに返す
+        ranked.remove(o)
+        _write_done(app_dir, o["req"]["id"], {"state": "error", "error": BAD_NOTE, "unfetchable": BAD_NOTE})
+    ranked = [o for o in ranked if not (o["kind"] == "candidate" and o["cand"]["video"] in bad)]
     try:
         fsio.write_json(qdir(app_dir, ORDER_NAME), order_view(ranked, st, now), indent=None)   # 見える化(研究の progress・毎日の行が読む)
     except OSError:
@@ -707,11 +726,10 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
         path, info = _audio(app_dir, rid, "https://www.youtube.com/watch?v=" + c["video"], section)
         st["cands"] = (list(st.get("cands") or []) + [c["video"]])[-2000:]
         if path is None:
-            if _bot(info):
-                _hit(st, now, info, log)
-            elif classify(info) == "gone":
-                st["last"] = prev_last   # 動画が無い・メンバー限定 = 枠に数えない(次の見回りで次の 1 本)
-            _write_done(app_dir, rid, {"state": "error", "error": str(info)[:300], "video": c["video"]})
+            bad = _bot(info) and not _hit(st, now, info, log, vid=c["video"])
+            if bad or classify(info) == "gone":
+                st["last"] = prev_last   # 動画が無い・メンバー限定・取れない動画 = 枠に数えない(次の見回りで次の 1 本)
+            _write_done(app_dir, rid, dict({"state": "error", "error": str(info)[:300], "video": c["video"]}, **({"unfetchable": BAD_NOTE} if bad else {})))
             _save(app_dir, st)
             log("YouTube の取得の列: 候補 %s を取れませんでした(%s)" % (c["video"], str(info).splitlines()[-1][:120] if info else ""))
             return None
@@ -745,7 +763,9 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
             if path:
                 _to_voice(app_dir, path, info, chan_of)
         if body["state"] == "error" and _bot(body.get("error")):
-            _hit(st, now, body["error"], log)
+            if not _hit(st, now, body["error"], log, vid=_video_of(r["urls"][0])):
+                body["unfetchable"] = BAD_NOTE
+                st["last"] = prev_last   # 取れない動画 = 枠に数えない
         elif body["state"] == "error" and classify(body.get("error")) == "gone":
             st["last"] = prev_last   # 枠に数えない
         else:
@@ -781,8 +801,8 @@ def _short_round(app_dir, reqs, st, now, prev_last, chan_of, log):
         else:
             res = _audio_sections(app_dir, g[0]["urls"][0], g)
         hit_err = next((str(x) for _q, p, x in res if p is None and _bot(x)), None)
-        if hit_err:
-            _hit(st, now, hit_err, log)
+        bad = bool(hit_err) and not _hit(st, now, hit_err, log, vid=_video_of(g[0]["urls"][0]))   # 取れない動画 = この動画の頼みだけ外して次の動画へ
+        if hit_err and not bad:
             a = _cls(st, "audio")
             a["shortPen"] = int(a.get("shortPen") or 0) + 1
             log("YouTube の取得の列: 短い音のまとめで当たったので止めました(%d 本取った・残りは頼みのまま。次から %d 本まとめ)" % (done_n, short_n(st)))
@@ -794,8 +814,8 @@ def _short_round(app_dir, reqs, st, now, prev_last, chan_of, log):
                 done_n += 1
                 gone_all = False
             else:
-                gone_all = gone_all and classify(info) == "gone"
-                _write_done(app_dir, q["id"], {"state": "error", "error": str(info)[:300]})
+                gone_all = gone_all and (bad or classify(info) == "gone")
+                _write_done(app_dir, q["id"], dict({"state": "error", "error": str(info)[:300]}, **({"unfetchable": BAD_NOTE} if bad else {})))
     else:
         if done_n:
             fine(st, "audio", log)

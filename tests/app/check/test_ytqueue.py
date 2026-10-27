@@ -442,6 +442,29 @@ class YtQueueTest(unittest.TestCase):
         with Q.run_lock(self.app) as a:
             self.assertTrue(a)                                                    # 出たら外れる
 
+    def test_same_video_hit_twice_is_unfetchable(self):
+        """同じ動画で続けて 2 回断られた = その動画だけの失敗。列は休ませず取れない印を付けて外し、次の頼みも取りに行かない・URL の数字の 429 は当たりではない(10-27 ggZMyu2FxgU)"""
+        self.assertIsNone(Q.classify("ERROR: ffmpeg exited https://rr4.googlevideo.com/videoplayback?clen=242990&lmt=17429001"))
+        self.assertEqual(Q.classify("ERROR: unable to download video data: HTTP Error 429: Too Many Requests"), "rate")
+        full = {"ときのそら": 2, "ロボ子さん": 2}
+        u = "https://www.youtube.com/watch?v=BADSHORT001"
+        calls = []
+        rate = lambda *a: calls.append(a[1]) or (None, "ERROR: HTTP Error 429: Too Many Requests")
+        self.put_req("b1", {"purpose": "research", "kind": "audio", "url": u, "section": [0, 18]})
+        with mock.patch.object(Q, "_audio", rate):
+            self.tick(NOON, full)
+            self.assertFalse(Q.due(self.app, NOON + 60)[0])                     # 1 回目はふつうの当たり(休む)
+            self.put_req("b2", {"purpose": "research", "kind": "audio", "url": u, "section": [0, 18]})
+            self.tick(NOON + 4 * 3600, full)
+            self.assertTrue(Q.due(self.app, NOON + 4 * 3600 + 60)[0])           # 2 回目は休まない
+            self.put_req("b3", {"purpose": "research", "kind": "audio", "url": u, "section": [0, 18]})
+            self.tick(NOON + 4 * 3600 + 120, full)
+        self.assertEqual(calls, ["b1", "b2"])                                    # 3 本目は取りに行かない
+        for rid in ("b2", "b3"):
+            with open(Q.qdir(self.app, "done", rid + ".json"), encoding="utf-8") as f:
+                self.assertEqual(json.load(f)["unfetchable"], Q.BAD_NOTE)
+        self.assertEqual(Q._state(self.app)["badVids"], ["BADSHORT001"])
+
     def test_gone_not_counted(self):
         """動画が無い・メンバー限定は枠に数えない(次の見回りで次の 1 本)"""
         full = {"ときのそら": 2, "ロボ子さん": 2}
