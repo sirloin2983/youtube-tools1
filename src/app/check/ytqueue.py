@@ -672,16 +672,17 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
         for name in ("audio", "light"):
             hit(st, name, kind, now, lambda m, s=src: log(m + "(当たったのは %s)" % s))
     _save(app_dir, st)
-    light = light_batch(app_dir, now, log)   # 軽い物は処理中・ライブ中でも(10-25)
-    light = list_batch(app_dir, now, log) or light
+    # 裏のチャットと、軽い物・一覧・音の回は重ねない(10-27 19:42: 字幕 30 本のまとめ → 裏のチャットの最中に音の回 = 速すぎの断り)
+    light = None if _chat_alive() else light_batch(app_dir, now, log)   # 軽い物は処理中・ライブ中でも(10-25)
+    light = (None if _chat_alive() else list_batch(app_dir, now, log)) or light
     why = busy()
     if why and str(why).startswith("新しい版"):   # 入口の起動し直しの待ち = 新しく取らない(起き直しを延ばさない)
         return light
-    if not why or why == LIVE_BUSY:   # ライブ中もふだんどおり(処理中だけ休む)
+    ok, _why = due(app_dir, now, BUSY_SLOWER if why and why != LIVE_BUSY else 0, led["weight"])   # 処理中は止めず 2 段遅く・ライブ中はふだんどおり・製品の問い合わせが多ければ延ばす(10-25 夜)
+    if (not why or why == LIVE_BUSY) and not (ok and not _chat_alive()):   # ライブ中もふだんどおり(処理中だけ休む)・音の回が来ていれば音が先
         with run_lock(app_dir) as mine:   # 手で流すチャットの 1 回とぶつからない
             light = (chat_batch(app_dir, now, log) if mine else None) or light   # チャットは処理中でないときだけ始める(裏の糸で 1 本ずつ・見回りは待たない)
-    ok, _why = due(app_dir, now, BUSY_SLOWER if why and why != LIVE_BUSY else 0, led["weight"])   # 処理中は止めず 2 段遅く・ライブ中はふだんどおり・製品の問い合わせが多ければ延ばす(10-25 夜)
-    if not ok:
+    if not ok or _chat_alive():   # チャットを取っている間は音を始めない(終わった次の見回りで)
         return light
     st = _state(app_dir)
     chan_of = {c: n for n, c in _vf.members(roster_r, extra)}
@@ -955,6 +956,12 @@ def run_lock(app_dir, now=None):
 _CHAT_JOB = {}   # 裏で取っているチャット 1 本 {"q", "thread", "res"}(入口の見回りは 1 つのプロセスで回り続ける)
 
 
+def _chat_alive():
+    """裏でチャットを取っている最中か"""
+    t = _CHAT_JOB.get("thread")
+    return t is not None and t.is_alive()
+
+
 def _start(fn):
     """裏の糸で fn を流す -> 糸(テストが差し替える)"""
     t = threading.Thread(target=fn, daemon=True, name="ytqueue-chat")
@@ -1007,7 +1014,9 @@ def chat_batch(app_dir, now, log, n=None, force=False):
     st = _state(app_dir)
     c = _cls(st, "light")
     left = int(c.get("chatLeft") or 0)
-    if now < c["pause"] or (not force and not left and now - _vm.num(c.get("chatLast")) < LIGHT_EVERY):
+    if now < c["pause"] or now < _cls(st, "audio")["pause"]:   # 音が断られて休んでいる間はチャットも休む(10-27)
+        return None
+    if not force and not left and now - _vm.num(c.get("chatLast")) < LIGHT_EVERY:
         return None
     reqs = [q for q in requests(app_dir) if q["kind"] == "chat" and q["urls"]]
     if not reqs:

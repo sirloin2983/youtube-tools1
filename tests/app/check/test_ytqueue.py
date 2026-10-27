@@ -426,6 +426,17 @@ class YtQueueTest(unittest.TestCase):
         self.assertGreater(st["light"]["pause"], NOON + 3630)                    # 当たったら軽い物の側が休む
         self.assertEqual(len(Q.requests(self.app)), 1)                           # 頼みは残す
         self.assertEqual(Q.chat_n(st), 5)                                         # 当たったら半分(10 本 → 5 本)
+        st["light"].update(pause=0, chatLeft=3)
+        st["audio"]["pause"] = NOON + 9999
+        Q._save(self.app, st)
+        self.assertIsNone(Q.chat_batch(self.app, NOON + 4000, self.logs.append))  # 音が断られて休んでいる間はチャットも休む(10-27)
+        Q._CHAT_JOB["thread"] = mock.Mock(is_alive=lambda: True)
+        try:
+            with mock.patch.object(Q, "due", lambda *a, **k: (True, "")), mock.patch.object(Q, "_pick", side_effect=AssertionError("重ねない")), \
+                    mock.patch.object(Q, "light_batch", side_effect=AssertionError("重ねない")):
+                Q.tick(self.app, R, {}, lambda: None, lambda req: "j", self.logs.append, now=NOON + 4000)   # 裏のチャットの最中は音も軽い物も始めない
+        finally:
+            Q._CHAT_JOB.clear()
         with Q.run_lock(self.app) as a, Q.run_lock(self.app) as b:
             self.assertEqual((a, b), (True, False))                               # 列の錠は 1 つだけ
         with Q.run_lock(self.app) as a:
