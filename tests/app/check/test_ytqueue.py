@@ -6,6 +6,7 @@ import datetime
 import json
 import os
 import sys
+import time
 import unittest
 from unittest import mock
 
@@ -218,7 +219,7 @@ class YtQueueTest(unittest.TestCase):
             Q.tick(self.app, R, {}, lambda: "処理中", lambda req: "j", self.logs.append, now=NOON + 42 * 60)
         self.assertEqual(seen, [0, Q.BUSY_SLOWER])   # ライブ中はふだんどおり・処理中は 2 段遅く(10-25 ユーザー)
         chats = []
-        with mock.patch.object(Q, "chat_batch", lambda app, now, log: chats.append(now)), mock.patch.object(Q, "due", lambda *a, **k: (False, "")):
+        with mock.patch.object(Q, "chat_batch", lambda app, now, log, until=None: chats.append(now)), mock.patch.object(Q, "due", lambda *a, **k: (False, "")):
             Q.tick(self.app, R, {}, lambda: Q.LIVE_BUSY, lambda req: "j", self.logs.append, now=NOON + 43 * 60)
             Q.tick(self.app, R, {}, lambda: "処理中", lambda req: "j", self.logs.append, now=NOON + 44 * 60)
         self.assertEqual(chats, [NOON + 43 * 60])   # チャットの回もライブ中はふだんどおり・処理中は休む
@@ -401,10 +402,21 @@ class YtQueueTest(unittest.TestCase):
             self.assertEqual(Q.chat_batch(self.app, NOON, self.logs.append), "chat")
             self.assertEqual(len(taken), 10)                                       # 始まりは 10 本
             self.assertIsNone(Q.chat_batch(self.app, NOON + 600, self.logs.append))   # 1 時間に 1 回
-        with mock.patch.object(Q, "_chat", lambda *a: (None, "HTTP Error 429: Too Many Requests")):
+        for i in range(12, 16):
+            self.put_req("c%d" % i, {"purpose": "research", "kind": "chat", "url": "https://www.youtube.com/watch?v=CHATVIDE%03d" % i})
+        with mock.patch.object(Q, "_chat", chat):
+            Q.chat_batch(self.app, NOON + 3600, self.logs.append, until=0)        # 音の回の時刻を過ぎた = 1 本で区切る(10-27)
+            self.assertEqual((len(taken), Q._state(self.app)["light"]["chatLeft"]), (11, 5))
+            self.assertIsNone(Q.chat_batch(self.app, NOON + 3610, self.logs.append, until=0))   # 続きも音が先
+            Q.chat_batch(self.app, NOON + 3620, self.logs.append, until=time.time() + 60)   # 音の回の前 = 続きを取る(1 時間待たない)
+            self.assertEqual((len(taken), Q._state(self.app)["light"]["chatLeft"]), (16, 0))
             self.assertIsNone(Q.chat_batch(self.app, NOON + 3700, self.logs.append))
+        with mock.patch.object(Q, "_chat", lambda *a: (None, "HTTP Error 429: Too Many Requests")):
+            for i in range(16, 18):
+                self.put_req("c%d" % i, {"purpose": "research", "kind": "chat", "url": "https://www.youtube.com/watch?v=CHATVIDE%03d" % i})
+            self.assertIsNone(Q.chat_batch(self.app, NOON + 7300, self.logs.append))
         st = Q._state(self.app)
-        self.assertGreater(st["light"]["pause"], NOON + 3700)                    # 当たったら軽い物の側が休む
+        self.assertGreater(st["light"]["pause"], NOON + 7300)                    # 当たったら軽い物の側が休む
         self.assertEqual(len(Q.requests(self.app)), 2)                           # 頼みは残す
         self.assertEqual(Q.chat_n(st), 5)                                         # 当たったら半分(10 本 → 5 本)
         with Q.run_lock(self.app) as a, Q.run_lock(self.app) as b:
