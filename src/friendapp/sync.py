@@ -568,20 +568,33 @@ class Sync:
     def request_path(rid):
         return "/%s%s" % (rid, REQ_SUFFIX)
 
+    @staticmethod
+    def _pending(cur):
+        return cur is not None and cur.get("pc") == "user" and (cur.get("remote") or {}).get("state") == "pending" and cur.get("form") and not cur.get("cancelled")
+
     def _requests(self, io):
         for r in self.inbox.remote_rows("pending"):
             with self.req_lock:
                 cur = self.inbox.row(r["id"])
-                if cur is None or cur.get("pc") != "user" or (cur.get("remote") or {}).get("state") != "pending" or not cur.get("form"):
+                if not self._pending(cur):
                     continue
                 kind = cur.get("kind") or "url"
-                files = None
                 if kind == "file" and self.securing(r["id"]):   # 受け付けた動画を写している途中 = 写し終えてから上げる
                     continue
-                if kind == "file":   # 動画ファイル: 先に動画を直下へ <依頼 id>__<元の名前>(大きな動画は 8MB ずつ・進み具合を行に)・最後に依頼の JSON
-                    files = self._upload_video(io, cur)
-                    if files is None:
-                        continue
+            files = None
+            if kind == "file":   # 動画ファイル: 先に動画を直下へ <依頼 id>__<元の名前>(大きな動画は 8MB ずつ・進み具合を行に)・最後に依頼の JSON。
+                files = self._upload_video(io, cur)   # 上げる間(数十分〜数時間)は鍵の外 = [取り消す]・[この PC でやり直す] の返事を待たせない
+                if files is None:
+                    continue
+            with self.req_lock:
+                cur = self.inbox.row(r["id"])
+                if not self._pending(cur):   # 上げている間に取り消された・この PC へ移った = 依頼は上げず、上げた動画も消す
+                    for name in files or []:
+                        try:
+                            io.delete("/" + name)
+                        except Exception as e:   # noqa: BLE001  (残っても受付が 失敗\ へ移す)
+                            self.log("取り消した依頼の動画を Dropbox から消せませんでした %s: %s" % (r["id"], e.__class__.__name__))
+                    continue
                 doc = request_doc("video" if kind == "file" else kind, r["id"], cur["form"], self.clock(), files=files)
                 io.upload_bytes(json.dumps(doc, ensure_ascii=False).encode("utf-8"), self.request_path(r["id"]), overwrite=True)
                 self.sent_at = int(self.clock() * 1000)
