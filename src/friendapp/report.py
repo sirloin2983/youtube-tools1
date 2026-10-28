@@ -184,6 +184,7 @@ class Reporter:
         self._runs = {}
         self._recs = {}
         self._ffmpeg = None
+        self._born = clock()   # 起動した時刻(閉じていた間は送り返しの待ちに数えない)
 
     # ---------------------------------------------------------------- 場所・スイッチ
     def enabled(self):
@@ -393,7 +394,7 @@ class Reporter:
         try:
             for n in os.listdir(box):
                 if any(re.search(p, n) for p in OUT_NAMES) or n.endswith(".voice.zip"):
-                    oldest = max(oldest, now - os.path.getmtime(os.path.join(box, n)))
+                    oldest = max(oldest, now - max(os.path.getmtime(os.path.join(box, n)), self._born))
         except OSError:
             return 0
         return int(oldest)

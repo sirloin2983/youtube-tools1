@@ -202,6 +202,16 @@ class ReportTest(unittest.TestCase):
         self.assertFalse(os.path.exists(files[0]))
         self.assertTrue(os.path.exists(files[1]))
 
+    def test_outbox_age_counts_from_start(self):
+        """閉じる前に残った送り返しは、起動してからの時間だけを待ちに数える(10-28 起動 10 秒で「528 分上がっていません」)"""
+        os.makedirs(self.places["outbox"], exist_ok=True)
+        z = os.path.join(self.places["outbox"], "r__abc.zip")
+        open(z, "wb").close()
+        old = NOW - 9 * 3600
+        os.utime(z, (old, old))
+        self.assertEqual(self.rep._outbox_age(NOW + 10), 10)
+        self.assertEqual(self.rep._outbox_age(NOW + R.DROPBOX_STUCK_SEC), R.DROPBOX_STUCK_SEC)
+
 
 class JudgeTest(unittest.TestCase):
     def test_codes(self):
