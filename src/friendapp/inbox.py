@@ -1030,10 +1030,22 @@ class Inbox:
         root = self.case_root()
         for case in dict.fromkeys([r.get("case")] + list(r.get("cases") or [])):   # ライブの行は切り抜きごとの案件
             if case and root and os.path.isdir(fsio.long_path(case)) and fsio.is_inside(case, root, strict=True) and not fsio.is_inside(case, self.trash_dir()):
+                if self._case_shared(case, r):   # 同じ配信の別の依頼が同じ案件を使っている(案件は配信ごとに 1 つ)= 最後の行が片付くまで残す
+                    continue
                 try:
                     self._to_trash(case)
                 except OSError as e:
                     self.log("案件フォルダをごみ箱へ移せませんでした: %s" % e.__class__.__name__)
+
+    def _case_shared(self, case, r):
+        """ほかの行の案件・パックが case の中にあるか"""
+        for o in self.rows:
+            if o is r:
+                continue
+            for d in [o.get("case")] + list(o.get("cases") or []) + [p.get("dir") for p in o.get("packs") or []]:
+                if isinstance(d, str) and d and fsio.is_inside(d, case):
+                    return True
+        return False
 
     def remove(self, rid):
         """失敗の行を消す([取り消す]・3 日の片付け)。届いた物の無い案件のフォルダもごみ箱へ"""

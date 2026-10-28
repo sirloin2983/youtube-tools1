@@ -618,6 +618,22 @@ class InboxTest(unittest.TestCase):
         self.assertFalse(os.path.exists(case))   # 決めて 3 日の行の案件のフォルダはごみ箱へ
         self.assertTrue(os.path.isdir(os.path.join(self.cases, inbox.TRASH_NAME, day_of(T0 + 3 * 86400 + 10), "案件-" + RID)))
 
+    def test_sweep_keeps_case_shared_with_another_request(self):
+        """案件は配信ごとに 1 つ: 同じ配信の別の依頼のパックが案件の中で未決めなら、先に決めた行が 3 日たっても案件を移さない"""
+        _r, case, _dirs = self.arrive(RID, ["a_pack"])
+        self.box.decide(RID, [], "keep")
+        self.clock.t = T0 + 2 * 86400
+        self.box.add(RID2, {"url": "u", "videoId": "dQw4w9WgXcQ"}, {"url": "u", "videoId": "dQw4w9WgXcQ", "title": "題"}, run_id="run-2")
+        d = os.path.join(case, "パック", "b_pack")
+        os.makedirs(d)
+        with open(os.path.join(d, "clip.mp4"), "wb") as f:
+            f.write(b"x")
+        self.box.finished("run-2", "done", "", [{"dir": d, "seconds": 10.5}], case=case)
+        self.clock.t = T0 + 3 * 86400 + 10
+        self.box.sweep()
+        self.assertIsNone(self.box.row(RID))
+        self.assertTrue(os.path.isdir(d))   # 別の依頼の未決めのパックは残る
+
     def test_sweep_purges_old_trash_days(self):
         trash = os.path.join(self.cases, inbox.TRASH_NAME)
         old = trashbin.day_name(T0 - 4 * 86400)
