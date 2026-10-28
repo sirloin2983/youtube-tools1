@@ -347,6 +347,23 @@ class DetectApiTest(unittest.TestCase):
     def peaks3(self):
         return [peak("p0-302", 272, 302, 12.0, "frame", 336), peak("p1-903", 870, 903, 9.0, "frame", 930), peak("p2-1002", 973, 1002, 6.0, "bench", 1021)]
 
+    def test_d13_auto_cap_counts_joined_pieces(self):
+        """D-13: つないだ候補(pieces)は自動の採用の上限で元の本数と数える(10-28 ユーザー)。残りに入らない物は飛ばして次へ"""
+        LF.patch_cfg(self.cfg, {"autoAdopt": {"waitMin": 1}})
+        n = D.AUTO_MAX_PER_REC
+        pks = [dict(peak("p%d-%d" % (i, 100 + i * 200), 70 + i * 200, 100 + i * 200, 10.0 - i * 0.1, "frame", 130 + i * 200), **({"pieces": 2} if i in (0, n - 2) else {}))
+               for i in range(n)]   # 1 本目と n-1 本目が 2 本ぶん
+        self.put_peaks(pks, seq=1, changes=[])
+        self.rec.rel = 9000
+        t = self.worker_alive()
+        self.det.auto_tick()
+        t[0] += 61
+        got = self.det.auto_tick()
+        self.assertEqual((got, self.det.auto_count("fake", REC)), (n - 1, n), self.det._decisions(self.det.folder("fake", REC))["items"])
+        adopted = [x["id"] for x in self.det._decisions(self.det.folder("fake", REC))["items"] if x.get("state") == "adopted"]
+        self.assertNotIn(pks[n - 2]["id"], adopted)   # 残り 1 本に 2 本ぶんは入らない = 人の採用に任せる
+        self.assertIn(pks[n - 1]["id"], adopted)      # 次の 1 本ぶんの候補で上限まで
+
     def test_d13_auto_cap_per_recording(self):
         """D-13: 1 つの録画の自動の採用は AUTO_MAX_PER_REC 本まで(残りの候補は帯に残る = 人が採用できる)。「調子」の行に auto・autoCapped"""
         LF.patch_cfg(self.cfg, {"autoAdopt": {"waitMin": 1}})

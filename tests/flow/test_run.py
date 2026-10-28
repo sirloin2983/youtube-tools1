@@ -906,6 +906,7 @@ class TestShortfall(unittest.TestCase):
         self.assertEqual(R.redo_reason(analysis_of(), 5, one, NOW), "short")   # 同じ依頼の 2 回目: 1 本しか無い・埋めていない
         self.assertIsNone(R.redo_reason(analysis_of(fill=5), 5, one, NOW))   # もう埋めた(それでも無い)= 解析し直さない
         self.assertIsNone(R.redo_reason(analysis_of(), 5, one * 5, NOW))   # 足りている
+        self.assertIsNone(R.redo_reason(analysis_of(), 2, [{"id": "j", "status": "", "pieces": 2}], NOW))   # つないだ 1 本 = 元の 2 本(足りている)
         self.assertEqual(R.redo_reason(analysis_of(), 5, [{"id": "x", "status": "rejected"}] * 5 + one, NOW), "short")   # 見送りは数えない
         self.assertIsNone(R.redo_reason({"at": 1}, 5, [], NOW))   # 記録の形が無い前の解析は使い回す(今までどおり)
         self.assertIsNone(R.redo_reason(analysis_of(chat=False, fill=5), 5, one, NOW))   # 前の解析から 1 時間たっていない

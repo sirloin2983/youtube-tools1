@@ -725,6 +725,22 @@ class TestLiveSection(unittest.TestCase):
         self.assertFalse(any("--force-keyframes-at-cuts" in c for c in calls))   # 区間取得では作り直さない
         return [c[c.index("--download-sections") + 1] for c in calls]
 
+    def test_youtube_export_fixed_margin(self):
+        """YouTube の道で、書き出しの口(_margin)が返す固定 10 秒の余白: 取る区間は 0〜24 秒(頭で止まる + SECTION_PAD)の 1 回・
+        本体と編集用素材はどちらも 0〜22 秒(上乗せなし)・range はマークのまま・actualStart と margin が印"""
+        clip = {"id": "m1", "start": 7.0, "end": 12.0, "title": "t", "label": "", "src": "manual", "markStatus": ""}
+        spec = dict(_youtube_spec([clip]), volume=100, margin=exporter._margin({}))
+        self.assertEqual(spec["margin"], 10.0)
+        job = _run(_job([clip]), spec, lambda *a: True)
+        it = job["items"][0]
+        self.assertEqual((job["state"], it["status"]), ("done", "done"), it.get("error"))
+        self.assertEqual(self.sections(), ["*00:00:00.000-00:00:24.000"])
+        self.assertAlmostEqual(mediainfo.media_info(it["path"])[0], 22.0, delta=0.2)
+        self.assertAlmostEqual(mediainfo.media_info(it["editPath"])[0], 22.0, delta=0.2)
+        d, _raw = _read_manifest(it["manifest"], self)
+        self.assertEqual((d["range"], d["export"]["actualStart"], d["export"]["margin"]["before"]), ({"start": 7.0, "end": 12.0}, 0.0, 7.0))
+        self.assertAlmostEqual(d["export"]["margin"]["after"], 10.0, delta=0.3)
+
     def test_youtube_export_and_section_through(self):
         self.check_bad_requests()
         # 書き出し: 前後に SECTION_PAD の余裕で 1 回だけ取り(本体と編集用素材は同じ取得から切る。10-29 から編集用素材は本体と同じ範囲 =
