@@ -37,8 +37,8 @@
   - 名前: `media_key_path` :40・`doc_key_path` :45・`pack_key_path` :55・`write` :60・`read` :71・`stale` :83・`remove` :95・`key_hash` :107・`export_inputs` :114・`transcribe_inputs` :122・`post_inputs` :134・`diar_inputs` :142・ほか 15
 - **learning.py** (214 行) — ② 管理: 学習データを読む側(F1。資料の git:before-1028-cleanup:docs/design/f1-build.md の 2 の F1・3 の (f1c))。
   - 名前: `is_pack` :29・`pack_version` :34・`maker_pc` :41・`learning_dir_checked` :52・`learning_dir` :65・`apply_places` :77・`class Learning` :108・`stamp` :167・`class PackPatrol` :182
-- **lengthhint.py** (273 行) — ② 管理の層 flow: 自動の切り抜きの長さの目安(友人が依頼で指定した区間の長さから。OPT-E2 7f-1・7f-2。決定 3-49 の Q1)。
-  - 名前: `run_ranges` :73・`friend_ranges` :81・`read_archive` :92・`load_archive` :109・`candidates` :119・`peak_ratio` :143・`samples` :155・`suggest` :172・`compute` :195・`usable` :215・`describe` :225・`change` :237・ほか 1
+- **lengthhint.py** (274 行) — ② 管理の層 flow: 自動の切り抜きの長さの目安(友人が依頼で指定した区間の長さから。OPT-E2 7f-1・7f-2。決定 3-49 の Q1)。
+  - 名前: `run_ranges` :74・`friend_ranges` :82・`read_archive` :93・`load_archive` :110・`candidates` :120・`peak_ratio` :144・`samples` :156・`suggest` :173・`compute` :196・`usable` :216・`describe` :226・`change` :238・ほか 1
 - **live_adopt.py** (276 行) — ライブの採用 = サーバー側の「マーク + 書き出し」(線 D の M1。RS7-2 G1b)。
   - 名前: `adopt_secs` :42・`pad_secs` :63・`top_of` :75・`class StudioMarks` :85・`class LocalMarks` :128・`class Adopter` :220
 - **live_archive.py** (1610 行) — 録画に無い区間をアーカイブ(YouTube)から書き出す(線 D の P4 の残り。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0-9)と、配信後の全自動(M7)の入口の側の中身。
@@ -51,7 +51,7 @@
   - 名前: `failure_of` :50・`after_stream_failure` :75・`detect_failure` :92・`keep_failure` :108・`handover_failure` :118・`class Reader` :125・`collect` :153
 - **live_patrol.py** (64 行) — ライブの見回りの糸の骨組み(OPT2。live_export.Exporter・live_archive.Archiver・live_tx.LiveTx が継ぐ)と中止の例外 1 組。
   - 名前: `class Halted` :14・`class Patrol` :18
-- **live_report.py** (244 行) — 配信(録画)ごとの結果の記録(線 D の D-12。ユーザー決定。長い配信の確かめ U4 と、数の決め直し D-15・当たり具合 L5 の材料)。
+- **live_report.py** (245 行) — 配信(録画)ごとの結果の記録(線 D の D-12。ユーザー決定。長い配信の確かめ U4 と、数の決め直し D-15・当たり具合 L5 の材料)。
   - 名前: `key_of` :60・`class Reporter` :64
 - **live_retire.py** (180 行) — 録画の片付けの ② の口(OPT2 の 7x-1。plan/opt-manage.md の 7e・7f): 「この録画を消してよいか(理由)」の読み口と、
   - 名前: `fate` :34・`overdue` :45・`private_name` :51・`near` :59・`exported_why` :64・`adopted_why` :79・`class Retire` :93
@@ -84,14 +84,14 @@
 - **prio.py** (88 行) — ② 管理の層 flow: 処理の優先度の表(PRIO。決定 3-49・notes:plan/done/opt-series.md の 11)。
   - 名前: `name_ok` :35・`rank` :39・`idle_only` :43・`os_priority` :47・`label` :51・`slot_kw` :55・`of_run` :60・`of_spec` :69・`watch` :80・`idle_now` :85
 - **retention.py** (9 行) — ② 管理の層 flow: 物の終わりの日数の 1 か所(方針の数)。ユーザーのツールと友人のアプリが同じ値を読む。
-- **run.py** (1914 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
+- **run.py** (1916 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
   - 名前: `class Cancelled` :141・`class StepError` :145・`mode_of` :164・`steps_of` :198・`analyze_verdict` :242・`chat_missing` :260・`chat_retry_ok` :266・`stream_ended_at` :274・`redo_reason` :287・`short_why` :305・`adopted_ids` :317・`tx_verdict` :322・ほか 5
 - **runlog.py** (93 行) — まとめて実行の「終わった実行の記録」の形と読み方(RS3-0B)。
   - 名前: `read_runs_log` :47・`read_result` :77
 - **runqueue.py** (839 行) — ② 管理の層 flow: 待ち行列と実行の糸(RS7-1 S5。決定 3-30・
   - 名前: `class SpecVersionError` :64・`class BadSpecError` :68・`check_spec` :72・`disk_blocked` :86・`gpu_info` :110・`busy_reason` :124・`doc_id_ok` :133・`result_case` :181・`board_job` :192・`class Queue` :210
-- **spec.py** (603 行) — ① に渡す指定の束(spec)の形・既定値・検査(RS1-6。計画 notes:plan/done/role-restructure.md の 5-4)。
-  - 名前: `num_ok` :48・`check_range` :56・`check_ranges` :71・`clean_ranges` :90・`pad_range` :106・`check_weights` :114・`clean_weights` :125・`top_arg` :134・`marks_arg` :143・`row_edge_ok` :153・`merge` :260・`merge_onto` :268・ほか 11
+- **spec.py** (604 行) — ① に渡す指定の束(spec)の形・既定値・検査(RS1-6。計画 notes:plan/done/role-restructure.md の 5-4)。
+  - 名前: `num_ok` :48・`check_range` :56・`check_ranges` :71・`clean_ranges` :90・`pad_range` :106・`check_weights` :114・`clean_weights` :125・`top_arg` :134・`marks_arg` :143・`row_edge_ok` :153・`merge` :261・`merge_onto` :269・ほか 11
 - **studiobook.py** (476 行) — ② 管理の層 flow: スタジオなしの配信の台帳と、URL の段の動詞(RS8 の「URL も CLI で」)。
   - 名前: `class Ledger` :55・`class StudioBook` :266・`class LocalStudio` :381
 - **tools.py** (480 行) — ② 管理の層 flow: 段が道具を呼ぶ継ぎ目 Tools(RS6 b-0)。

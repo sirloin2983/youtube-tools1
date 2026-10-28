@@ -37,8 +37,8 @@
   - 名前: `src_root` :31・`repo_root` :36・`inplace_root` :41・`tool_dir` :49・`holo_colors_dir` :54・`notes_root` :62・`copy_shared_code` :68
 - **loudness.py** (167 行) — 聞こえ方の音量(ラウドネス。LUFS)をそろえる決まりの1か所(スタジオの書き出し・パック作りが共通で使う)。
   - 名前: `check_target` :36・`check_volume` :49・`pct_to_db` :62・`measure_filter` :66・`parse` :71・`gain` :100・`pack_gain` :106・`select_filter` :111・`result` :120・`pack_result` :125・`pack_aac` :130・`volume_filter` :139・ほか 4
-- **marks.py** (380 行) — マークの純粋な語彙(スタジオの data.json の配信のマーク)。
-  - 名前: `pos_int` :43・`ms_or_now` :52・`class BadMark` :61・`fnum` :65・`num_strict` :76・`clean_reasons` :82・`clean_parts` :87・`clamp_end` :98・`check_times` :105・`auto0` :127・`collab_from` :136・`clean_server` :145・ほか 14
+- **marks.py** (402 行) — マークの純粋な語彙(スタジオの data.json の配信のマーク)。
+  - 名前: `clip_margin` :48・`pos_int` :55・`ms_or_now` :64・`class BadMark` :73・`fnum` :77・`num_strict` :88・`clean_reasons` :94・`clean_parts` :99・`clamp_end` :110・`check_times` :117・`auto0` :139・`collab_from` :148・ほか 16
 - **mediainfo.py** (49 行) — ffmpeg -i で読むメディア情報と、その覚え。
   - 名前: `media_info` :26・`media_info_known` :40・`remember_media_info` :45
 - **names.py** (175 行) — 書き出しの名前の規則(スタジオの書き出し src/pipeline/export/exporter.py と、ライブの書き出し src/flow/live_export.py が同じ規則を読む。
