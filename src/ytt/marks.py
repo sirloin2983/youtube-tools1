@@ -172,7 +172,9 @@ def clean_server(d):
             "auto0Orig": auto0(d.get("auto0Orig")) if src == "manual" else None,   # 再解析で手動に変わったマークの、最初の自動区間(replace_auto だけが書く)
             "collabFrom": collab_from(d.get("collabFrom")) if src == "collab" else None,
             # つないだ自動マークの元の本数(excite.join_clips の pieces。採用の上限ではこの本数と数える = pieces_of。人が手を入れて手動になれば外れる)
-            "pieces": d.get("pieces") if src == "auto" and pos_int(d.get("pieces")) and 1 < d["pieces"] <= 50 else None,
+            # 機械が採用した物(adoptedBy auto)は解析し直しで手動になっても残す(replace_auto・採用の上限で同じ本数に数える)
+            "pieces": d.get("pieces") if (src == "auto" or (d.get("adoptedBy") == "auto" and st in ("adopted", "exported")))
+            and pos_int(d.get("pieces")) and 1 < d["pieces"] <= 50 else None,
             # 人ではなく機械が採用にした印(Q2。まとめての採用 = "auto"・request_marks の区間 = "request")。人が状態を変えたら外れる(build_mark)
             "adoptedBy": d.get("adoptedBy") if d.get("adoptedBy") in ("auto", "request") and st in ("adopted", "exported") else None}
 
@@ -351,6 +353,8 @@ def replace_auto(marks, cands, hide=None):
             kept.append(m)
         elif touched(m):
             k = dict(m, src="manual")
+            if k.get("adoptedBy") != "auto":   # つないだ本数は機械の採用のままの物だけ残す(clean_server の読み直しと同じ形)
+                k.pop("pieces", None)
             a0 = k.pop("auto0", None)
             if a0:
                 k["auto0Orig"] = a0
