@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) 
 import testkit  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from flow import livesession as LS  # noqa: E402
+from ytt import tools  # noqa: E402
 
 TOKEN = FIX.TOKEN
 
@@ -124,7 +125,7 @@ class StopRecorderTest(unittest.TestCase):
     def sleeper(self):
         """この入口が起動した録画の部品の代わり(応答しない・終わらないプロセス)"""
         p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL, creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+                             stderr=subprocess.DEVNULL, creationflags=tools.no_window_flags(new_group=True))
         self.procs.append(p)
         return p
 
