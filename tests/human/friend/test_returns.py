@@ -309,6 +309,17 @@ class TestV2(Base):
         r = J.rows(self.app)[0]
         self.assertEqual((r["videoId"], r["markId"], r["what"]), ("V2", "m7", "good"))
 
+    def test_file_delivery_without_video_id(self):
+        """動画ファイルの依頼(file_auto)の届けた記録は行に videoId が無い = 返ってきた videoId・markId で引く。それも無ければパック名で残す(10-23〜の取りこぼし)"""
+        run = types.SimpleNamespace(request_id=RID, id="r1", video_id="", title="動画", mode="file_auto")
+        dirs = [os.path.join(self.tmp, "切り抜き", p) for p in ("パック3", "パック4")]
+        for d, mid in zip(dirs, ("m3", "m4")):
+            deliveries.record(os.path.join(self.app, "logs"), os.path.join(self.tmp, "出力", "%s__%s.zip" % (RID, mid)), run, [d], {d: {"path": "c.mp4", "markId": mid}})
+        self.v2("パック3", {"id": "f3", "judge": "bad", "reason": "boring", "videoId": "V3", "markId": "m3", "zip": "%s__m3.zip" % RID}, 1760000000000)
+        self.v2("パック4", {"id": "f4", "judge": "unknown", "zip": "%s__m4.zip" % RID}, 1760000000001)
+        self.scan()
+        self.assertEqual([(r["videoId"], r["markId"], r["ref"]["pack"]) for r in J.rows(self.app)], [("V3", "m3", "パック3"), ("", "", "パック4")])
+
     def test_bad_forms_refused(self):
         for i, body in enumerate(({"id": "a", "judge": "bad"}, {"id": "b", "judge": "great"}, {"judge": "good"}, {"id": "c", "judge": "retract"},
                                   {"id": "d", "judge": "bad", "reason": "long"})):

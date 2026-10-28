@@ -374,9 +374,9 @@ def _judge_v2(app_dir, v, rid, pack, clock, log):
         if r is None:
             r, p = _delivered_pack(logs, rid, pack)
         r, p = r or {}, p or {}
-        vid, mid = str(r.get("videoId") or "") if p.get("markId") else "", str(p.get("markId") or "")
-        if not mid and v.get("markId") and v.get("videoId"):
-            vid, mid = v["videoId"], v["markId"]
+        vid, mid = str(r.get("videoId") or ""), str(p.get("markId") or "")
+        if not (vid and mid):   # 届けた記録に片方しか無い(動画ファイルの依頼 file_auto は行に videoId が無い・10-23〜)= 届いた .meta.json の組へ
+            vid, mid = (v["videoId"], v["markId"]) if v.get("markId") and v.get("videoId") else ("", "")
         origin = v.get("origin") or (deliveries.origin_of(r) if r else "request")
         src = {} if r else {k: v[k] for k in ("cand", "tool") if v.get(k)}
         if "score" in v:
