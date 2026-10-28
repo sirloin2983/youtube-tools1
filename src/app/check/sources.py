@@ -70,11 +70,13 @@ def _num(x, default=0.0):
 
 
 def _load_doc(path):
+    """文書 -> 辞書か None(大きすぎる・形が違う)。読めない(OSError = 置き換えの最中・ほかが掴んでいる等)は上げる
+    = StampCache に覚えさせない・呼び手が view.errors に足す(片付けの守りが効く。10-29)"""
+    if os.path.getsize(path) > MAX_DOC_BYTES:
+        return None
     try:
-        if os.path.getsize(path) > MAX_DOC_BYTES:
-            return None
         d = fsio.read_json_file(path, MAX_DOC_BYTES, allow_nan=True)
-    except (OSError, UnicodeError, ValueError, RecursionError):
+    except (UnicodeError, ValueError, RecursionError):
         return None
     return d if isinstance(d, dict) and isinstance(d.get("segments"), list) else None
 
@@ -173,7 +175,11 @@ class View:
                 m = DOC_NAME_RE.match(name)
                 if not m or not os.path.isfile(paths[name]):
                     continue
-                d = _docs.get(paths[name], _load_doc)
+                try:
+                    d = _docs.get(paths[name], _load_doc)
+                except OSError as e:
+                    self.errors.append("docs: 読めない %s(%s)" % (name, e.__class__.__name__))
+                    continue
                 if d is None or self.is_eval(d) or m.group(1) in self._hidden():
                     continue
                 every.append((m.group(1), paths[name], d))
@@ -204,7 +210,11 @@ class View:
                 m = DOC_NAME_RE.match(name)
                 if not m or not os.path.isfile(paths[name]):
                     continue
-                d = _docs.get(paths[name], _load_doc)
+                try:
+                    d = _docs.get(paths[name], _load_doc)
+                except OSError as e:
+                    self.errors.append("docs: 読めない %s(%s)" % (name, e.__class__.__name__))
+                    continue
                 if d is not None and d.get("evalSet") is True and has_media(d):
                     out.append((m.group(1), paths[name], d))
             out.sort(key=lambda x: -_num(x[2].get("updatedAt")))
