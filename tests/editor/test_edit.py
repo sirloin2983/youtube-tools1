@@ -541,6 +541,14 @@ class TestEditHttp(unittest.TestCase):
         self.assertEqual((r["keepsSec"], len(asked)), ([[0.4, 1.5]], 2))              # 無音の始まり 1.5 まで
         r = resolve_export.edit_draft(doc, "t", heavy=busy)
         self.assertEqual((r["keepsSec"], len(asked)), ([[0.4, 1.5]], 2))              # 調べた無音は覚えている(順番を待たない)
+        # 余白つき(LD-2f)の切り抜き: たたき台はマークの区間だけ(前後の余白を入れない = まとめて実行の clipRange と同じ。コードの見直し 10-29 の 11)
+        clip = {"export": {"actualStart": 100.0, "margin": {"before": 1.0, "after": 1.0}}, "range": {"start": 101.0, "end": 104.0}}
+        r = resolve_export.edit_draft(dict(doc, clip=clip), "t", heavy=free)
+        self.assertEqual((r["base"], r["keepsSec"]), ("rows", [[1.0, 1.5]]))         # 行 0.5〜1.5 のうち区間 1〜4 秒の中だけ
+        r = resolve_export.edit_draft(dict(doc, clip=clip, segments=[]), "t", heavy=free)
+        self.assertEqual((r["base"], r["keepsSec"]), ("all", [[1.0, 4.0]]))          # 行が無ければ区間の全体(余白は入れない)
+        r = resolve_export.edit_draft(dict(doc, clip=clip), "t", words=[[0.2, 0.4, "あ"], [3.5, 3.8, "い"]], form="tidy")
+        self.assertEqual((r["base"], r["keepsSec"][0][0] >= 1.0, r["keepsSec"][-1][1] <= 4.0), ("tidy", True, True))   # 無音を詰める形も区間の中
 
     def test_pack_preview_and_readme(self):
         """3 パック のタブの見積もり(ファイルを作らない)・前回のパックの手順書"""

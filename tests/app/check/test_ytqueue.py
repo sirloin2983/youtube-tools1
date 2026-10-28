@@ -486,6 +486,21 @@ class YtQueueTest(unittest.TestCase):
         with mock.patch.object(Q, "_audio", lambda *a: (None, "ERROR: [youtube] GONEVIDEO01: Video unavailable")):
             self.tick(NOON, full)
         self.assertTrue(Q.due(self.app, NOON + 60)[0])
+        # 下の段へ渡した 1 回が取れない動画に当たったとき: 渡した回し(turnCount・turnLast)も戻す = その回が消えない(コードの見直し 10-29 の 13)
+        self.put_req("r-full-1", {"purpose": "research", "kind": "audio", "url": "https://www.youtube.com/watch?v=FULLVIDEO01"})   # 配信全体の音(上の段)
+        self.put_req("g2", {"purpose": "research", "kind": "audio", "url": "https://www.youtube.com/watch?v=GONEVIDEO02", "section": [0, 60]})   # その他(下の段)
+        st = Q._state(self.app)
+        Q._save(self.app, dict(st, turnCount=Q.TURN_EVERY, turnLast=None))
+        got = []
+
+        def audio(app_dir, rid, url, section):
+            got.append(rid)
+            return (None, "ERROR: [youtube] GONEVIDEO02: Video unavailable") if "GONE" in url else self.audio(app_dir, rid, url, section)
+        with mock.patch.object(Q, "_audio", audio):
+            self.tick(NOON + 120, full)
+        self.assertEqual(got, ["g2"])                                              # 下の段に渡した回
+        st = Q._state(self.app)
+        self.assertEqual((st.get("turnCount"), st.get("turnLast"), st.get("last")), (Q.TURN_EVERY, None, None))   # 回しも回の印も前のまま
 
     def test_short_source_by_title(self):
         """説明欄に URL が無く【元配信】の行に題名だけ = 手元の題名で引き、無ければ検索(1 本は 1 度だけ)・印 srcBy(10-26)"""

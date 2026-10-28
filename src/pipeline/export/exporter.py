@@ -707,17 +707,29 @@ def _reencode_audio(ctl, it, path, afilter, what):
     _media.remember_media_info(path, info)
 
 
-def measure_loudness(ctl, it, path):
-    """(統合ラウドネス LUFS, トゥルーピーク dBTP)。無音・測れないときは (None, None)。ffmpeg の loudnorm で測るだけ(書き換えない)"""
-    dur = _media.media_info(path)[0] or (it["end"] - it["start"])
-    cmd = _loud.measure_args(_env.find_tool("ffmpeg"), path)
+def measure_loudness(ctl, it, path, span=None):
+    """(統合ラウドネス LUFS, トゥルーピーク dBTP)。無音・測れないときは (None, None)。ffmpeg の loudnorm で測るだけ(書き換えない)。
+    span = (始まり, 終わり)(動画の中の秒)なら、その区間だけ測る"""
+    dur = (span[1] - span[0]) if span else (_media.media_info(path)[0] or (it["end"] - it["start"]))
+    cmd = _loud.measure_args(_env.find_tool("ffmpeg"), path, span)
     tail = _pump(ctl, cmd, it, dur)
     return _loud.parse("\n".join(tail))
 
 
+def mark_span(it):
+    """余白つき(LD-2f)の切り抜きの中の、候補(マーク)の区間 (始まり, 終わり)(動画の中の秒)。余白なし・短すぎれば None
+    (it の start・end はマークの秒・clipRange は動画の実際の始まり・終わり(元の秒))"""
+    cr = it.get("clipRange")
+    if not cr:
+        return None
+    lo, hi = max(0.0, float(it["start"]) - cr[0]), min(float(it["end"]), cr[1]) - cr[0]
+    return (round(lo, 3), round(hi, 3)) if hi - lo >= 0.5 else None
+
+
 def apply_loudness(ctl, spec, it):
     """切り抜き(と前後10秒つきの編集用素材)の聞こえ方の音量を spec["loudness"](LUFS)にそろえる。
-    切り抜き本体で測った分だけ、両方に**同じ量**だけ音量をかける(Resolve で切り抜きと編集用素材を差し替えても音量が変わらないように)。
+    切り抜き本体の候補の範囲(余白つきなら余白を除いた所 = mark_span)で測った分だけ、両方に**同じ量**だけ音量をかける
+    (Resolve で切り抜きと編集用素材を差し替えても音量が変わらないように)。
     上げる量は、どちらのピークも TRUE_PEAK_CEIL を超えない・MAX_GAIN_DB を超えない範囲まで(音が割れない・雑音を持ち上げすぎない)。
     -> it["loudness"] = {"target", "measured", "gainDb"}(無音で測れないときは skipped)"""
     target = spec.get("loudness")
@@ -727,8 +739,9 @@ def apply_loudness(ctl, spec, it):
     edit = it.get("editPath")
     edit = edit if edit and os.path.isfile(edit) else None
     paths = [main] + ([edit] if edit else [])
+    spans = [mark_span(it)] + ([None] if edit else [])   # 編集用素材はピークの守りに全体を測る
     t0 = time.monotonic()
-    got = _both([lambda p=p: measure_loudness(ctl, it, p) for p in paths])   # 本体と編集用素材は別のファイル = 同時に測る・作り直す(結果は 1 本ずつと同じ)
+    got = _both([lambda p=p, s=s: measure_loudness(ctl, it, p, s) for p, s in zip(paths, spans)])   # 本体と編集用素材は別のファイル = 同時に測る・作り直す(結果は 1 本ずつと同じ)
     i, tp = got[0]
     if i is None:
         it["loudness"] = {"target": target, "skipped": "音声が無いか、無音のため測れませんでした"}

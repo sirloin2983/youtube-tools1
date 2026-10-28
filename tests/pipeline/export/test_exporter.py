@@ -27,7 +27,7 @@ sys.path.insert(0, SRC)
 import startup  # noqa: E402,F401  (src を sys.path に足し、スタジオのフォルダを ytt/studio_env に知らせる)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
 import testkit  # noqa: E402
-from ytt import errors, jobs, mediainfo, studio_env  # noqa: E402
+from ytt import errors, jobs, loudness, mediainfo, studio_env  # noqa: E402
 from pipeline.export import exporter  # noqa: E402
 from flow import board as _board, export as _fexport  # noqa: E402  (指定は ② の build_spec = 台帳から引く口・器は ② の ExportJobs)
 from ytt import normalize, schemas  # noqa: E402  (途中のファイルの置き場所 WORK_DIR)
@@ -355,6 +355,8 @@ class TestExportThrough(unittest.TestCase):
         lo = it["loudness"]
         self.assertEqual(lo["target"], -14.0)
         self.assertAlmostEqual(lo["measured"], _loudness(self.src)[0], delta=1.0)
+        measured = [c for c in cmds if "-af" in c and c[c.index("-af") + 1] == loudness.measure_filter()]
+        self.assertEqual([c[c.index("-ss") + 1: c.index("-ss") + 4] for c in measured if "-ss" in c], [["7.000", "-t", "5.000"], ["10.000", "-t", "2.000"]])   # 本体(m1・s)は候補の範囲だけ測る(余白を除く)
         i_main, tp_main = _loudness(it["path"])
         self.assertAlmostEqual(i_main, -14.0, delta=1.0)
         self.assertAlmostEqual(_loudness(it["editPath"])[0], -14.0, delta=1.0)
@@ -536,6 +538,13 @@ class TestManifestFailure(unittest.TestCase):
             pub = exporter.result_public(job)["items"][0]
             self.assertEqual((pub["path"], pub["manifest"]), (os.path.join(tmp, "clip.mp4"), None))
             log.assert_called_once()
+
+    def test_mark_span(self):
+        """ラウドネスを測る範囲 = 余白つきの切り抜きの中の候補の区間(余白を除く)。余白なし・短すぎれば None(全体)"""
+        self.assertEqual(exporter.mark_span({"start": 7.0, "end": 12.0, "clipRange": (0.0, 22.0)}), (7.0, 12.0))
+        self.assertEqual(exporter.mark_span({"start": 100.0, "end": 130.0, "clipRange": (90.0, 125.0)}), (10.0, 35.0))   # 動画が候補より短い(終わりで止まった)
+        self.assertIsNone(exporter.mark_span({"start": 7.0, "end": 12.0}))
+        self.assertIsNone(exporter.mark_span({"start": 7.0, "end": 7.2, "clipRange": (0.0, 17.2)}))
 
     def test_unknown_duration_is_null(self):
         """書き出した動画の長さを測れなかった(ffprobe が読めない)ときは durationSec を null に"""

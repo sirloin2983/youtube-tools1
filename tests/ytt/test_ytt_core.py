@@ -2102,6 +2102,7 @@ class TestLoudness(unittest.TestCase):
         P = ["-progress", "pipe:1", "-nostats"]
         self.assertEqual((L.volume_filter(75), L.gain_filter(-3.456)), ("volume=0.750", "volume=-3.46dB"))
         self.assertEqual(L.measure_args("ff", "a.mp4"), ["ff", "-hide_banner", "-nostdin", "-i", "a.mp4", "-vn", "-af", L.measure_filter(), "-f", "null", "-"] + P)
+        self.assertEqual(L.measure_args("ff", "a.mp4", (7.0, 12.0))[3:7], ["-ss", "7.000", "-t", "5.000"])   # 区間だけ測る(余白つきの切り抜き)
         tail = ["-c:v", "copy", "-af", "volume=1.000", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"] + P + ["o.mp4"]
         self.assertEqual(L.reencode_args("ff", "a.mp4", "o.mp4", "volume=1.000"), ["ff", "-hide_banner", "-nostdin", "-y", "-i", "a.mp4"] + tail)
         self.assertEqual(L.reencode_args("ff", "a.mp4", "o.mp4", "volume=1.000", first_streams=True),

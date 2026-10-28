@@ -164,8 +164,20 @@ def _row_edge(pack, value, warnings):
         return pack.ROW_EDGE
 
 
-def _rows_request(pack, source, tpath, row_edge, warnings):
-    return pack.Request(video=Path(source), transcript=Path(tpath), **dict(pack.TRANSCRIPT_ROWS, row_edge=_row_edge(pack, row_edge, warnings)))
+def _rows_request(pack, source, tpath, row_edge, warnings, clip_range=None):
+    return pack.Request(video=Path(source), transcript=Path(tpath), clip_range=clip_range,
+                        **dict(pack.TRANSCRIPT_ROWS, row_edge=_row_edge(pack, row_edge, warnings)))
+
+
+def _draft_span(doc, dur):
+    """たたき台の区間 (始まり, 終わり)(動画の中の秒): 余白つき(LD-2f)の切り抜きは文書の clip のマークの区間(余白を含めない =
+    まとめて実行の spec.clipRange と同じ)。余白なし・clip が無い・形が違えば動画の全体"""
+    span = _schemas.clip_mark_span(doc.get("clip"))
+    if span:
+        lo, hi = max(0.0, span[0]), min(span[1], dur)
+        if hi - lo > 0:
+            return lo, hi
+    return 0.0, dur
 
 
 def edit_draft(doc: dict, version: str = "", rows: bool = True, row_edge=None, heavy=None, words=None, form: str = "auto") -> dict:
@@ -173,6 +185,7 @@ def edit_draft(doc: dict, version: str = "", rows: bool = True, row_edge=None, h
     form: "auto" = 単語の時刻 words があれば「無音を詰める」(tidy。人が直す土台は一番良い機械の結果)、無ければ「行から」/
     "rows" = 「行から」/ "tidy" = 「無音を詰める」(単語が無ければ「行から」)。tidy の詰めた所は drops [[開始, 終了, "pause"]](画面の印)。
     残す区間は pack.TRANSCRIPT_ROWS(今の「カットとパック」・入口のまとめて実行と同じ規則。ここに規則を書かない)。
+    余白つき(LD-2f)の切り抜きは、文書の clip のマークの区間だけ(前後の余白はたたき台に入れない。まとめて実行の clipRange と同じ)。
     文字起こしの一時ファイルは一時フォルダに作る(開いただけで動画の隣にファイルを増やさない)。残す行が無ければ動画全体。
     rows=False: 「行から」を計算しない(カットが保存済みの文書を開いたとき。行の端の無音を調べる重い処理をしない)。
     row_edge: 設定の rowEdge(pack.row_edge_from)。heavy(label): 重い処理の順番を待つ文脈(ytt.jobs.SLOTS.slot。真なら取れた)。
@@ -186,14 +199,15 @@ def edit_draft(doc: dict, version: str = "", rows: bool = True, row_edge=None, h
         raise _errors.ResolveExportError(str(e))
     fps, total = meta["fps"], meta["total"]
     dur = round(total * fps[1] / fps[0], 6)
-    out = {"fps": [int(fps[0]), int(fps[1])], "durationSec": dur, "keepsSec": [[0.0, dur]], "base": "all", "warnings": []}
+    lo, hi = _draft_span(doc, dur)
+    out = {"fps": [int(fps[0]), int(fps[1])], "durationSec": dur, "keepsSec": [[lo, hi]], "base": "all", "warnings": []}
     if not rows:
         out["skipped"] = True
         return out
     from . import tidy
     if form in ("auto", "tidy") and words and tidy.ON:
-        cut = tidy.drops(source, words, 0.0, dur)
-        out.update(keepsSec=[list(k) for k in tidy.keeps(0.0, dur, cut)] or [[0.0, dur]], base="tidy", drops=[list(d) for d in cut])
+        cut = tidy.drops(source, words, lo, hi)
+        out.update(keepsSec=[list(k) for k in tidy.keeps(lo, hi, cut)] or [[lo, hi]], base="tidy", drops=[list(d) for d in cut])
         return out
     if not _has_kept(doc):
         return out
@@ -201,7 +215,7 @@ def edit_draft(doc: dict, version: str = "", rows: bool = True, row_edge=None, h
         tpath = _write_transcript(doc, version, tmp_dir)
         warns = []
         try:
-            req = _rows_request(pack, source, tpath, row_edge, warns)
+            req = _rows_request(pack, source, tpath, row_edge, warns, (lo, hi) if (lo, hi) != (0.0, dur) else None)
             if heavy is not None and pack.row_edge_pending(req, cache):
                 with heavy("行の端 " + os.path.basename(source)[:40]) as ok:
                     if ok:

@@ -153,9 +153,11 @@ def pack_filter(db):
     return gain_filter(db) + ",alimiter=limit=%.4f:attack=5:release=100:level=false:asc=1" % (10 ** (LIMIT_DB / 20))
 
 
-def measure_args(ff, path):
-    """測るだけ(書き換えない)の引数(measure_filter)。出力(標準エラー)を parse に渡す"""
-    return [ff, "-hide_banner", "-nostdin", "-i", path, "-vn", "-af", measure_filter(), "-f", "null", "-"] + PROGRESS
+def measure_args(ff, path, span=None):
+    """測るだけ(書き換えない)の引数(measure_filter)。出力(標準エラー)を parse に渡す。
+    span = (始まり, 終わり)(動画の中の秒)なら、その区間だけ測る(余白つきの切り抜きは候補の範囲だけで測る = 余白の音に引かれない)"""
+    cut = ["-ss", "%.3f" % span[0], "-t", "%.3f" % (span[1] - span[0])] if span else []
+    return [ff, "-hide_banner", "-nostdin"] + cut + ["-i", path, "-vn", "-af", measure_filter(), "-f", "null", "-"] + PROGRESS
 
 
 def reencode_args(ff, path, out, afilter, first_streams=False):

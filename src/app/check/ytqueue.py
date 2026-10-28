@@ -712,10 +712,10 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
         pass
     if not ranked:
         return light
+    prev = _turn_snapshot(st)   # 取れない動画のときに戻す(_uncount)。_pick が turnCount・turnLast を書くので、その前に写す
     best = _pick(ranked, st, now, log)
     if best["tier"] in (3, 6) and best["voice"] > 0:
         st["voiceAt"] = now   # 定期(声)の 1 回分を使った
-    prev_last = st.get("last")
     st.update(last=now, lastPurpose=best["kind"])
     _vf._mark_slot(app_dir, now)   # 研究の古い道(yt-slot.json)にも取ったと書く = 切り替えの前後で二重に取らない
     if best["kind"] == "candidate":
@@ -728,7 +728,7 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
         if path is None:
             bad = _bot(info) and not _hit(st, now, info, log, vid=c["video"])
             if bad or classify(info) == "gone":
-                st["last"] = prev_last   # 動画が無い・メンバー限定・取れない動画 = 枠に数えない(次の見回りで次の 1 本)
+                _uncount(st, prev)   # 動画が無い・メンバー限定・取れない動画 = 枠に数えない(次の見回りで次の 1 本)
             _write_done(app_dir, rid, dict({"state": "error", "error": str(info)[:300], "video": c["video"]}, **({"unfetchable": BAD_NOTE} if bad else {})))
             _save(app_dir, st)
             log("YouTube の取得の列: 候補 %s を取れませんでした(%s)" % (c["video"], str(info).splitlines()[-1][:120] if info else ""))
@@ -756,7 +756,7 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
             items, err = _list_url(r["urls"][0], int(_vm.num(r.get("items"), 50)))
             body = {"state": "done", "entries": items} if items else {"state": "error", "error": err[:300]}
         elif len(short_batch(st, r, [best] + [o for o in ranked if o is not best])) > 1:
-            return _short_round(app_dir, short_batch(st, r, [best] + [o for o in ranked if o is not best]), st, now, prev_last, chan_of, log)
+            return _short_round(app_dir, short_batch(st, r, [best] + [o for o in ranked if o is not best]), st, now, prev, chan_of, log)
         else:
             path, info = _audio(app_dir, r["id"], r["urls"][0], r.get("section"))
             body = {"state": "done", "file": path, "info": info} if path else {"state": "error", "error": str(info)[:300]}
@@ -765,9 +765,9 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
         if body["state"] == "error" and _bot(body.get("error")):
             if not _hit(st, now, body["error"], log, vid=_video_of(r["urls"][0])):
                 body["unfetchable"] = BAD_NOTE
-                st["last"] = prev_last   # 取れない動画 = 枠に数えない
+                _uncount(st, prev)   # 取れない動画 = 枠に数えない
         elif body["state"] == "error" and classify(body.get("error")) == "gone":
-            st["last"] = prev_last   # 枠に数えない
+            _uncount(st, prev)   # 枠に数えない
         else:
             fine(st, "audio", log)
         _write_done(app_dir, r["id"], body)
@@ -786,7 +786,22 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
     return "voice" if got else None
 
 
-def _short_round(app_dir, reqs, st, now, prev_last, chan_of, log):
+def _turn_snapshot(st):
+    """回の印(last)と段を渡す回し(turnCount・turnLast)の今の値。取れない動画のときに _uncount で戻す"""
+    return {k: st.get(k) for k in ("last", "turnCount", "turnLast")}
+
+
+def _uncount(st, prev):
+    """取れない動画 = 枠に数えない: last と turnCount・turnLast を _pick の前(prev = _turn_snapshot)に戻す
+    (下の段へ渡した 1 回が取れない動画に当たっても、その回が消えずに次の見回りで取り直す)"""
+    for k, v in prev.items():
+        if v is None:
+            st.pop(k, None)
+        else:
+            st[k] = v
+
+
+def _short_round(app_dir, reqs, st, now, prev, chan_of, log):
     """音の回 1 回で短い音を数本(同じ動画は 1 回の yt-dlp にまとめる・動画の間は SLEEP_REQ 秒)。当たったら残りは頼みのまま・本数を半分 -> "research"(当たっても)"""
     groups = {}
     for q in reqs:
@@ -820,7 +835,7 @@ def _short_round(app_dir, reqs, st, now, prev_last, chan_of, log):
         if done_n:
             fine(st, "audio", log)
         elif gone_all:
-            st["last"] = prev_last   # 全部が無い動画 = 枠に数えない
+            _uncount(st, prev)   # 全部が無い動画 = 枠に数えない
     _save(app_dir, st)
     log("YouTube の取得の列: 研究の短い音を %d 本まとめて取りました(頼み %d 本)" % (done_n, len(reqs)))
     return "research"
