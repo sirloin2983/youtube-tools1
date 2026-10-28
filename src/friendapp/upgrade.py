@@ -126,7 +126,7 @@ class Upgrade:
         self._v_sync_noted = False
         self._beat_at = 0.0
         self._stuck_at = 0.0
-        self._stopped = set()
+        self._stopped = set()           # 固まりで止めた (依頼 id, 実行 id)
 
     # ---------------------------------------------------------------- 場所と記録
     def home(self):
@@ -417,7 +417,7 @@ class Upgrade:
         for rid, seen in list((getattr(api, "_stages", None) or {}).items()):
             label, start, _raw, last = seen
             base = typical(stats.get(label))
-            if base is None or rid in self._stopped:
+            if base is None:
                 continue
             limit = max(STUCK_FLOOR, STUCK_FACTOR * base)
             if now * 1000 - max(start, last) < limit * 1000:
@@ -425,11 +425,15 @@ class Upgrade:
             r = inbox.row(rid)
             if r is None or r["state"] not in ("sent", "making"):
                 continue
-            self._stopped.add(rid)
-            inbox.fail(rid, STUCK_TEXT % (STUCK_FACTOR, int(limit // 60)))
-            if r.get("runId"):
+            run_id = r.get("runId")
+            key = (rid, run_id)   # 実行ごと(自動のやり直しで積んだ次の実行がまた固まっても見張る)
+            if key in self._stopped:
+                continue
+            self._stopped.add(key)
+            inbox.fail(rid, STUCK_TEXT % (STUCK_FACTOR, int(limit // 60)), detach=True)   # 行から実行を外す = 止めた実行の終わり(中止)で行が消えない
+            if run_id:
                 try:
-                    eng.queue.cancel(r["runId"])   # その実行と、その実行が起こした子だけを止める
+                    eng.queue.cancel(run_id)   # その実行と、その実行が起こした子だけを止める
                 except Exception as e:   # noqa: BLE001  (もう終わっていた)
                     self.log("固まった実行を止められませんでした %s: %s" % (rid, e.__class__.__name__))
             self.log("依頼 %s の段「%s」が %d 分進まないので止めて失敗にしました" % (rid, label, int(limit // 60)))

@@ -259,6 +259,25 @@ class SyncTest(unittest.TestCase):
         self.assertIsNone(self.io.data("/" + name))
         self.assertIsNone(self.io.data("/%s.request.json" % RID))
 
+    def test_request_video_withdrawn_while_uploading(self):
+        """動画を上げている間は依頼の鍵を持たない([この PC でやり直す] がすぐ返る)。上げ終えたら行を見直し、移っていれば依頼を上げず動画を消す"""
+        self.key()
+        clip = os.path.join(self.tmp, "a.mp4")
+        with open(clip, "wb") as f:
+            f.write(b"v" * 100)
+        self.box.add(RID, dict(FORM, kind="file", ranges=[], top=None, file={"path": clip, "name": "a.mp4", "size": 100}), {"title": "歌"}, pc="user", kind="file")
+        real, got = self.io.upload, []
+
+        def upload(local, path, overwrite=False, progress=None):
+            got.append(self.sync.withdraw(RID))   # 上げている途中に押した(鍵を持っていれば固まる)
+            self.box.to_local(RID, None)
+            return real(local, path, overwrite, progress)
+        self.io.upload = upload
+        self.assertEqual(self.run_sync(), [])
+        self.assertEqual(got, [True])
+        self.assertIsNone(self.io.data("/" + S.upload_name(RID, "a.mp4")))
+        self.assertIsNone(self.io.data("/%s.request.json" % RID))
+
     def test_request_video_missing_fails_row(self):
         self.key()
         f = dict(FORM, kind="file", file={"path": os.path.join(self.tmp, "nope.mp4"), "name": "nope.mp4", "size": 1})

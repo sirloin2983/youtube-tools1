@@ -98,7 +98,8 @@ class Delivery:
     def _delivery_init(self, log_dir):
         """溜めの置き場所(log_dir の中。None = メモリだけ)とロック"""
         self.pool_path = os.path.join(log_dir, POOL_FILE) if log_dir else None   # 届ける溜め(None = メモリだけ)
-        self._pool_lock = threading.RLock()   # 溜めの読み書きと溜めから届ける間(これを持ったまま self.cv を取ってよい。逆に self.cv を持ったまま取らない)
+        self._pool_lock = threading.RLock()   # 溜めの読み書き(これを持ったまま self.cv を取ってよい。逆に self.cv を持ったまま取らない)。zip を作る間は持たない
+        self._pool_send = threading.Lock()    # 溜めから届けるのは 1 つずつ(同じ溜めを 2 つの見回りが同時に届けない)。持ったまま _pool_lock を取ってよい(逆は無し)
         self._pools = None                    # {溜めの鍵: {rid, title, deliverDir, meta, packs, delivered, marks, created, updated, (tag, origin, mode)}}(初めて使うときに読む)
 
     def _overlap_note(self, run, doc):
@@ -200,7 +201,9 @@ class Delivery:
                 self._deliver_pending(run)
             except run_mod.StepError as e:
                 return self._park(run, st, e)
-        else:
+        else:   # 依頼の分も、受付の Dropbox のフォルダが見えないとき(外付け・名前の変更)は Dropbox の外に 出力 を作って「届けた」にしない
+            if not deliver_mod.outbox_ok(run.deliver_dir):
+                raise self._place_error(FileNotFoundError(2, "Dropbox のフォルダが見つかりません", os.path.dirname(os.path.normpath(run.deliver_dir))))
             self._deliver_pending(run)
         st["detail"] = "%d 本のパックを Dropbox の 出力 に置きました(字幕は校正前・計 %.0f MB)" % (len(run.delivered), _dirs_mb(run.delivered))
         return None
@@ -304,21 +307,26 @@ class Delivery:
                         "waiting": sum(1 for d in p["packs"] if d not in (p.get("delivered") or []))} for k, p in self._pools_load().items()}
 
     def _pool_deliver(self, key, final):
-        """溜め 1 つの、まだ届けていないパックを 1 本ずつ届ける。-> 届けた本数。final で届け終えた溜めは消す"""
-        with self._pool_lock:
-            pools = self._pools_load()
-            p = pools.get(key)
-            if not p:
-                return 0
-            prun = _PoolRun(key, p)
-            before = len(prun.delivered)
+        """溜め 1 つの、まだ届けていないパックを 1 本ずつ届ける。-> 届けた本数。final で届け終えた溜めは消す。
+        zip を作って置く間は _pool_lock を持たない(数 GB で何分もかかる間、預け・画面の pools・見回りを待たせない)。呼ぶ側も _pool_lock を持たずに呼ぶ"""
+        with self._pool_send:
+            with self._pool_lock:
+                p = self._pools_load().get(key)
+                if not p:
+                    return 0
+                prun = _PoolRun(key, p)   # 並びと届け済みは写し
+                before = len(prun.delivered)
             try:
                 self._deliver_pending(prun)
             finally:
-                p["delivered"] = list(prun.delivered)
-                if final and all(d in p["delivered"] or not os.path.isdir(d) for d in p["packs"]):
-                    pools.pop(key, None)
-                self._pools_save()
+                with self._pool_lock:   # 届ける間に足された分(預け)はそのまま・届けた分だけ書き戻す
+                    pools = self._pools_load()
+                    p = pools.get(key)
+                    if p is not None:
+                        p["delivered"] = list(dict.fromkeys(list(p.get("delivered") or []) + list(prun.delivered)))
+                        if final and all(d in p["delivered"] or not os.path.isdir(d) for d in p["packs"]):
+                            pools.pop(key, None)
+                        self._pools_save()
             return len(prun.delivered) - before
 
     def flush_pools(self, is_done, now=None):
@@ -344,28 +352,33 @@ class Delivery:
                     continue
                 if off and _PoolRun(key, p).deliver_origin == "auto":
                     continue
-                if (p.get("meta") or {}).get("parked"):
-                    total += self._flush_parked(key, p, now)
-                    continue
-                with self.cv:
-                    busy = any(r.pool and r.pool.get("key") == key for r in self._active_runs())
-                idle = now - float(p.get("updated") or 0) >= POOL_IDLE_SEC
-                old = now - float(p.get("created") or now) >= POOL_MAX_AGE
-                try:
-                    done = bool(is_done(p.get("meta") or {}))
-                except Exception:   # noqa: BLE001  (確かめられなければ、届けるのは待つ)
-                    done = False
-                if not (old or (idle and not busy and done)):
-                    continue
-                try:
-                    total += self._pool_deliver(key, final=True)
-                except Exception as e:   # noqa: BLE001  (置けなければ次の見回りでまた試す)
-                    self.log("まとめて実行: 溜めの残りを届けられませんでした(%s)" % (str(e)[:120] or e.__class__.__name__))
+                parked = bool((p.get("meta") or {}).get("parked"))
+                if parked:
+                    if not self._parked_ready(key, p, now):
+                        continue
+                else:
+                    with self.cv:
+                        busy = any(r.pool and r.pool.get("key") == key for r in self._active_runs())
+                    idle = now - float(p.get("updated") or 0) >= POOL_IDLE_SEC
+                    old = now - float(p.get("created") or now) >= POOL_MAX_AGE
+                    try:
+                        done = bool(is_done(p.get("meta") or {}))
+                    except Exception:   # noqa: BLE001  (確かめられなければ、届けるのは待つ)
+                        done = False
+                    if not (old or (idle and not busy and done)):
+                        continue
+            if parked:   # 届けるのは溜めの鍵の外(_pool_deliver が自分で取り直す)
+                total += self._send_parked(key, p)
+                continue
+            try:
+                total += self._pool_deliver(key, final=True)
+            except Exception as e:   # noqa: BLE001  (置けなければ次の見回りでまた試す)
+                self.log("まとめて実行: 溜めの残りを届けられませんでした(%s)" % (str(e)[:120] or e.__class__.__name__))
         return total
 
-    def _flush_parked(self, key, p, now):
-        """置けなかった自動の分の溜め 1 つ(呼ぶのは self._pool_lock を持っている間)。預けてから PARK_KEEP_SEC(3 日)を過ぎていれば消して
-        送らなかった記録 expired、受付の Dropbox のフォルダが無ければ待つ、あれば全部届ける。-> 届けた本数"""
+    def _parked_ready(self, key, p, now):
+        """置けなかった自動の分の溜め 1 つを今送り直すか(呼ぶのは self._pool_lock を持っている間)。預けてから PARK_KEEP_SEC(3 日)を過ぎていれば消して
+        送らなかった記録 expired(False)、受付の Dropbox のフォルダが無ければ待つ(False)、あれば True(送るのは _send_parked)"""
         meta = p.get("meta") or {}
         created = p.get("created")
         created = created if isinstance(created, (int, float)) and not isinstance(created, bool) else 0
@@ -377,9 +390,11 @@ class Delivery:
                 self._not_sent(meta.get("videoId"), (p.get("marks", {}).get(d) or {}).get("markId"), EXPIRED, EXPIRED_TEXT)
             self.log("まとめて実行: %s の %d 本は届けられないまま預けてから %d 日を過ぎたので、送りませんでした" % (
                 p.get("title") or key, len(left), PARK_KEEP_SEC // 86400))
-            return 0
-        if not deliver_mod.outbox_ok(p.get("deliverDir")):
-            return 0
+            return False
+        return deliver_mod.outbox_ok(p.get("deliverDir"))
+
+    def _send_parked(self, key, p):
+        """置けなかった自動の分の溜め 1 つを全部届ける(self._pool_lock の外で呼ぶ)。-> 届けた本数"""
         try:
             n = self._pool_deliver(key, final=True)
         except Exception as e:   # noqa: BLE001  (置けなければ次の見回りでまた試す)
@@ -392,7 +407,7 @@ class Delivery:
     def _deliver_failure(self, run):
         """① 全自動が止まったとき、友人のアプリの「受け取る」に理由を出す(<依頼 id>__<題名>.失敗.txt)。友人の依頼(出どころ request)だけ
         (自動で送る分は友人に知らせない = ホームのログと案件の画面だけ。D-SEND 2-6)"""
-        if self._origin(run) != "request":
+        if self._origin(run) != "request" or not deliver_mod.outbox_ok(run.deliver_dir):   # Dropbox のフォルダが見えない = 外に作らない
             return
         try:
             os.makedirs(run.deliver_dir, exist_ok=True)

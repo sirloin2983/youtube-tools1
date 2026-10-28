@@ -91,6 +91,7 @@ PACK_DIFFER = "字幕か設定が変わったので作り直しました"   # �
 DOC_MODE = "doc"
 DOC_LABEL = "文字起こし → パック"
 BUSY_WAIT = 5.0        # スタジオの書き出しが別の書き出しで塞がっているときの待ち間隔
+EXPORT_MAX = 50        # 1 回の実行で書き出すマークの本数の上限(残りは次の実行で拾う。段の文に残りの本数を出す)
 PIPE_TX = True         # スイッチ: 流れ作業 = 書き出しの 1 本が済むたびに、その本の文字起こしを先に頼む(False = 書き出しが全部済んでから頼む)
 # 解析の先回り(10-23。資料の git:before-1028-cleanup:plan/解析の先回り-設計.md): 今の実行が文字起こしの段に入る直前に、次に始まる実行の解析をスタジオの順番に頼む(Queue._prefetch_next)。
 # 次の実行の番が来たら、その解析を待つ・済んでいれば飛ばす(印 = 段の prefetched)。スイッチ: False = 今の形(解析は自分の番で)
@@ -1215,10 +1216,11 @@ class Runner:
             st["state"], st["detail"] = "skip", "採用できる候補がありません"
             run.message = "採用できる候補がありませんでした"
             return "stop"
-        n_of = {m.get("id"): _marks.pieces_of(m) for m in (res.get("marks") or v.get("marks") or []) if isinstance(m, dict)}   # つないだマークは元の本数
+        after = (res.get("video") or {}).get("marks") if isinstance(res.get("video"), dict) else None   # 採用のあとのマーク(応答の video。無ければ前の v)
+        n_of = {m.get("id"): _marks.pieces_of(m) for m in (after or v.get("marks") or []) if isinstance(m, dict)}   # つないだマークは元の本数
         new_auto = sum(n_of.get(i, 1) for i in aids if i in added)
         old_auto = sum(n_of.get(i, 1) for i in aids) - new_auto
-        short = top - len(rids) - sum(n_of.get(i, 1) for i in hids) - new_auto - old_auto
+        short = top - sum(n_of.get(i, 1) for i in rids) - sum(n_of.get(i, 1) for i in hids) - new_auto - old_auto   # 数え方は adopt.py の room と同じ
         parts = (["指定の区間 %d 個(前後に %g 秒の余白)" % (len(rids), ad["pad"])] if rids else []) + \
             (["人が採用した %d 本" % sum(n_of.get(i, 1) for i in hids)] if hids else []) + \
             (["前に自動で採用した %d 本" % old_auto] if old_auto else []) + \
@@ -1244,7 +1246,7 @@ class Runner:
             done = sum(1 for m in self._mine(run, v) if m.get("status") == "exported")
             st["state"], st["detail"] = "skip", ("書き出し済み %d 本(新しく採用したものはありません)" % done if done else "採用したマークがありません")
             return None if done else "stop"
-        body = _spec.export_body(self._bundle(run), run.video_id, ids[:50])
+        body = _spec.export_body(self._bundle(run), run.video_id, ids[:EXPORT_MAX])
         status, res = self._call_when_free(run, st, lambda: self.tools.export_start(body), "別の書き出しが終わるのを待っています",
                                            getattr(self.tools, "export_free", None))
         if status != 200:
@@ -1269,7 +1271,8 @@ class Runner:
         done = sum(1 for i in items if i.get("status") == "done")
         bad = [i for i in items if i.get("status") == "error"]
         encs = sorted({i["encoder"] for i in items if isinstance(i.get("encoder"), str) and i["encoder"]})   # 作り方の印(友人の診断の段の detail に出る)
-        st["detail"] = "%d 本を書き出しました" % done + ("(%d 本失敗)" % len(bad) if bad else "") + ("・%s" % "・".join(encs) if encs else "") + _check_note(items)
+        st["detail"] = "%d 本を書き出しました" % done + ("(%d 本失敗)" % len(bad) if bad else "") + ("・%s" % "・".join(encs) if encs else "") + _check_note(items) + \
+            ("・残りの %d 本は次の実行で書き出します(1 回 %d 本まで)" % (len(ids) - EXPORT_MAX, EXPORT_MAX) if len(ids) > EXPORT_MAX else "")
         if bad and (not done or run.on_fail == "stop"):
             self._tx_early_drop(run)
             raise StepError("書き出しに失敗しました(%d 本): %s" % (len(bad), bad[0].get("error") or ""))

@@ -383,6 +383,8 @@ class Reporter:
             inbox = getattr(self.app, "inbox", None)
             for r in (inbox.view() if inbox is not None else []):
                 w = inbox.waited(r) if r.get("pc") == "user" else None
+                if w is not None:   # 閉じていた間は数えない(送り返しの待ちと同じ)・大きな動画を上げている途中(上げ終わる前)は待ちでない
+                    w = None if r["id"] in getattr(sync, "uploads", {}) else min(w, max(0, int(now - self._born)))
                 self._stuck(("dropbox", r["id"]), w is not None and w >= DROPBOX_STUCK_SEC, r["id"],
                             "Dropbox に置いた依頼が %d 分受け付けられていません" % ((w or 0) // 60), why="dropbox")
             old = self._outbox_age(now)
@@ -720,13 +722,16 @@ class Reporter:
             path = self.fire("ask", None, "送ってに答えました" + ("(%s)" % note[:200] if note else ""), ask=aid, local=local)
             if path is None:
                 continue
-            for p in used:
+            sent = _fsio.read_json_or(path, None, kind=dict)   # 大きさの都合で落とした手元の分(古い物から)は消さずに次の「送って」へ残す
+            k = len((sent or {}).get("local") or [])
+            docs = [p for p, ok in used if ok]
+            for p in [p for p, ok in used if not ok] + (docs[len(docs) - k:] if k else []):
                 _fsio.unlink_quiet(p)
             io.delete("%s/%s" % (ASK_DIR, name))
-            self.log("送ってに答えました: %s(手元の %d 件)" % (aid, len(used)))
+            self.log("送ってに答えました: %s(手元の %d 件%s)" % (aid, k, "・%d 件は次へ" % (len(docs) - k) if len(docs) > k else ""))
 
     def _take_local(self):
-        """手元に残していた状態(古い順)と、そのファイルのパス。長い所は先に落とす(まとめて 1 MB に収めるため)"""
+        """手元に残していた状態(古い順)と、[(そのファイルのパス, 読めたか)]。長い所は先に落とす(まとめて 1 MB に収めるため)"""
         d = self.local_dir()
         out, used = [], []
         try:
@@ -736,7 +741,7 @@ class Reporter:
         for n in names:
             p = os.path.join(d, n)
             doc = _fsio.read_json_or(p, None, kind=dict)
-            used.append(p)
+            used.append((p, doc is not None))
             if doc is None:
                 continue
             for k in ("log", "screen", "ops"):

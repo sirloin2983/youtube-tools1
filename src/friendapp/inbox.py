@@ -78,6 +78,7 @@ TAKEN_RE = re.compile(r"もう作っています")   # 受付が引き継いだ�
 STATS_KEEP = 5                     # 段ごとにかかった秒を覚える数(残り時間の見積もり = progress.eta)
 TALLY_DAYS = 7                     # 決めた時刻を覚える日数(状態の書き出しの要約 = 友人の判定がどれだけ付いているか。行は 3 日で片付くので別に持つ。10-26)
 TALLY_KINDS = ("keep", "skip", "bad", "auto")   # auto = 3 日の自動の見送り(人が押したのではない)
+OPEN_TRIES, OPEN_WAIT = 5, 0.2      # 起動で記録が一時的に開けないとき開き直す回数と待ち(秒 × 何回目。合わせて約 2 秒)
 
 
 def pack_name(d):
@@ -124,19 +125,37 @@ class Inbox:
         self.tally = {}                 # 決めた時刻 {keep・skip・bad・auto: [ミリ秒, …]}(TALLY_DAYS 日まで。数だけ・題名は持たない)
         self.stream_info = lambda vid: None   # 配信の一覧の 1 件(題・配信者・始まった時刻。玄関が streams.lookup を入れる)
         self.on_fail = None             # fail で行を失敗にしたとき on_fail(行の写し)(② の前の失敗の診断。玄関が friendapp/diag を入れる)
+        self.hold = False               # 起動で記録を開けなかった・壊れた記録の写しを残せなかった = この起動の間は記録を書かない(本物を空で上書きしない)
         self.rows = self._load()
 
     # ------------------------------------------------------------ 記録
+    def _opens(self):
+        """記録が一時的に開けない(共有違反・ウイルス対策の読み取り中・入れ替え前の版がまだ書いている)なら少し待って開き直す -> 開けたか(無いファイルは True)"""
+        for i in range(OPEN_TRIES):
+            try:
+                with open(fsio.long_path(self.path), "rb"):
+                    return True
+            except FileNotFoundError:
+                return True
+            except OSError:
+                if i + 1 < OPEN_TRIES:
+                    time.sleep(OPEN_WAIT * (i + 1))
+        return False
+
     def _load(self):
+        if not self._opens():   # 開けないのは壊れたのと違う = 空で上書きしない(この起動の間は記録を書かない。開き直せば読み直す)
+            self.hold = True
+            self.log("受信箱の記録を開けないので、記録を書かずに起動します(アプリを開き直すと読み直します)")
         d = fsio.read_json_or(self.path, None, kind=dict)
         rows = d.get("rows") if isinstance(d, dict) and d.get("v") == V else None
-        if rows is None and os.path.isfile(self.path):   # 読めない・形の版が違う(前の版へ戻ったときなど): 上書きする前に写しを残す
+        if rows is None and os.path.isfile(self.path) and not self.hold:   # 読めない・形の版が違う(前の版へ戻ったときなど): 上書きする前に写しを残す
             keep = "%s.bad-%s" % (self.path, time.strftime("%Y%m%d-%H%M%S"))
             try:
                 shutil.copyfile(self.path, keep)   # 時刻は今(3 日を写した時から数える)
                 self.log("受信箱の記録を読めないので写しを残して空から始めます: %s(版 %s)" % (os.path.basename(keep), d.get("v") if isinstance(d, dict) else "?"))
-            except OSError as e:
-                self.log("受信箱の記録を読めず、写しも残せませんでした: %s" % e.__class__.__name__)
+            except OSError as e:   # 写しが無いまま上書きすると戻せない = 書かない
+                self.hold = True
+                self.log("受信箱の記録を読めず、写しも残せないので、記録を書かずに起動します: %s" % e.__class__.__name__)
         for old in glob.glob(glob.escape(self.path) + ".bad-*"):   # 写しの終わりも 3 日
             try:
                 if time.time() - os.path.getmtime(old) > retention.KEEP_SEC:
@@ -162,6 +181,8 @@ class Inbox:
         return out
 
     def _save(self):
+        if self.hold:
+            return
         fsio.write_json(self.path, {"v": V, "rows": self.rows, "stats": self.stats, "nums": self.nums, "notice": self.notice, "tally": self.tally},
                         indent=None)
 
@@ -271,14 +292,17 @@ class Inbox:
                 r["case"] = r.get("case") or os.path.dirname(copy)
                 self._save()
 
-    def fail(self, rid, text):
-        """送った・作っている行を失敗にする(写せなかった・Dropbox へ上げる動画が無い など。理由は画面にそのまま)"""
+    def fail(self, rid, text, detach=False):
+        """送った・作っている行を失敗にする(写せなかった・Dropbox へ上げる動画が無い など。理由は画面にそのまま)。
+        detach: 行から実行を外す(このあと止める実行の終わりの知らせ = 中止で、行を消したり理由を書き換えたりさせない。外した id は stoppedRun)"""
         with self.lock:
             r = self.row(rid)
             if r is None or r["state"] not in ("waiting", "sent", "making", "recording"):
                 return None
             now = self._now_ms()
             r.update(state="failed", failedAt=now, error=str(text or "失敗しました")[:500], updatedAt=now)
+            if detach and r.get("runId"):
+                r.update(stoppedRun=r["runId"], runId=None)
             self._failed_code(r)
             self._save()
             if self.on_fail is not None:
@@ -550,8 +574,8 @@ class Inbox:
             return [json.loads(json.dumps(r)) for r in self.rows
                     if r.get("pc") == "user" and r["state"] in ("sent", "making") and (r.get("remote") or {}).get("state") == state]
 
-    def remote_mark(self, rid, state):
-        """uploaded(直下に置いた)・accepted(直下から消えた = 受け付けられた。行は「作っている」)"""
+    def remote_mark(self, rid, state, files=None):
+        """uploaded(直下に置いた。files = 一緒に上げた動画の名前)・accepted(直下から消えた = 受け付けられた。行は「作っている」)"""
         with self.lock:
             r = self.row(rid)
             if r is None or r.get("pc") != "user" or r["state"] not in ("sent", "making"):
@@ -561,6 +585,8 @@ class Inbox:
             rem["state"] = state
             if state == "uploaded":
                 rem["uploadedAt"] = now
+                if files:
+                    rem["files"] = list(files)
             elif state == "accepted":
                 rem["acceptedAt"] = now
                 r["state"] = "making"
@@ -1006,10 +1032,22 @@ class Inbox:
         root = self.case_root()
         for case in dict.fromkeys([r.get("case")] + list(r.get("cases") or [])):   # ライブの行は切り抜きごとの案件
             if case and root and os.path.isdir(fsio.long_path(case)) and fsio.is_inside(case, root, strict=True) and not fsio.is_inside(case, self.trash_dir()):
+                if self._case_shared(case, r):   # 同じ配信の別の依頼が同じ案件を使っている(案件は配信ごとに 1 つ)= 最後の行が片付くまで残す
+                    continue
                 try:
                     self._to_trash(case)
                 except OSError as e:
                     self.log("案件フォルダをごみ箱へ移せませんでした: %s" % e.__class__.__name__)
+
+    def _case_shared(self, case, r):
+        """ほかの行の案件・パックが case の中にあるか"""
+        for o in self.rows:
+            if o is r:
+                continue
+            for d in [o.get("case")] + list(o.get("cases") or []) + [p.get("dir") for p in o.get("packs") or []]:
+                if isinstance(d, str) and d and fsio.is_inside(d, case):
+                    return True
+        return False
 
     def remove(self, rid):
         """失敗の行を消す([取り消す]・3 日の片付け)。届いた物の無い案件のフォルダもごみ箱へ"""

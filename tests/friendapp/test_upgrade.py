@@ -222,7 +222,13 @@ class UpgradeTest(T.Base):
         self.assertEqual(self.app.upgrade.stuck_check(self.t[0] + U.STUCK_FLOOR + 1), [rid])
         self.assertIn(run, self.engine.queue.cancelled)
         self.assertEqual(self.app.inbox.row(rid)["state"], "failed")
+        self.app.inbox.finished(run, "cancelled", "", [])   # 止めた実行の終わりの知らせ(runqueue → engine.after_run)でも行は消えない
+        self.assertEqual(self.app.inbox.row(rid)["state"], "failed")
         self.assertTrue(self.view_row(rid)["fail"]["retrying"])   # 自動のやり直しへ(問題 1 の流れ)
+        self.app.inbox.row(rid)["state"], self.app.inbox.row(rid)["runId"] = "making", "run-next"   # 自動のやり直しの次の実行がまた固まる = また見張る
+        self.app.api._stages[rid] = ["切り抜き", now, "x", now]
+        self.assertEqual(self.app.upgrade.stuck_check(self.t[0] + U.STUCK_FLOOR + 1), [rid])
+        self.assertIn("run-next", self.engine.queue.cancelled)
 
     # ---------------------------------------------------------------- 止まった録画のやり直し
     def fake_live(self, recs):
