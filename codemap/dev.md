@@ -21,7 +21,7 @@
   - 名前: `read` :31・`md_files` :36・`is_index` :45・`caps` :54・`entry_docs` :70・`sentences` :76・`duplicates` :96・`collect` :108・`render` :117・`cell` :138・`write_report` :143・`main` :160
 - **dropbox_auth.py** (165 行) — 友人のアプリの Dropbox の鍵を作る(ユーザーの PC で1回だけ。標準ライブラリと ytt の fsio だけ)。
   - 名前: `make_verifier` :40・`challenge_for` :47・`authorize_url` :53・`token_request_body` :65・`exchange` :74・`extra_scopes` :95・`missing_scopes` :101・`write_config` :109・`main` :114
-- **fetch_webview2.py** (75 行) — 友人のアプリ FriendApp.exe が使う WebView2 の部品(DLL 3 つ)を NuGet の公式パッケージから取る(F3-1。notes:plan/f1-friend-requirements.md の C-1-1)。
+- **fetch_webview2.py** (75 行) — 友人のアプリ FriendApp.exe が使う WebView2 の部品(DLL 3 つ)を NuGet の公式パッケージから取る(F3-1。notes:plan/done/f1-friend-requirements.md の C-1-1)。
   - 名前: `have` :29・`extract` :38・`main` :54
 - **friend_bugs.py** (62 行) — 友人の不具合の書き出しの一覧を見る・友人の PC に「送って」の印を置く(ユーザーの PC。notes:plan/友人の不具合の自動対応-1025.md)。
   - 名前: `main` :28

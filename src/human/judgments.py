@@ -6,7 +6,7 @@
 
 レーン = 採否(who self の adopt・reject)・品質(quality_good・quality_bad・quality_unknown)・友人(who friend の good・bad・unknown と
 古い adopt・reject・made_video)。各レーンは時刻順で最後の行が勝つ。retract は of の行を取り消す(その行がレーンの最後のときだけレーンを空に戻す)。
-友人の 3 つの物差し(F3-6・notes:plan/f1-friend-requirements.md の C-4-1): good = 受け取る / bad = 届かなくてよかった(reason boring・cut)/
+友人の 3 つの物差し(F3-6・notes:plan/done/f1-friend-requirements.md の C-4-1): good = 受け取る / bad = 届かなくてよかった(reason boring・cut)/
 unknown = 見送る・3 日の自動(by auto)。古い行は書き換えずに読み替える(friend_value: adopt・made_video = good・reject = unknown)。
 reason の札の鍵が AUTO_REASONS・FRIEND_REASONS のどれかは書き手(human/check/value・human/friend/returns)が確かめる(ここは空でない文字列だけ見る)。
 """

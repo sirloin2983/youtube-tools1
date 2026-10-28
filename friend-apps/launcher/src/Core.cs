@@ -289,7 +289,7 @@ namespace FriendInbox
         }
     }
 
-    // GET /api/friend/state の中身(窓と画面の境目。notes:plan/f1-friend-requirements.md の C-5-3・C-5-4)
+    // GET /api/friend/state の中身(窓と画面の境目。notes:plan/done/f1-friend-requirements.md の C-5-3・C-5-4)
     public sealed class HostState
     {
         public int Making, Recording, Waiting, Reserved, ArchiveWait, Undecided;

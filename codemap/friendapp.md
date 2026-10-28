@@ -13,7 +13,7 @@
   - 名前: `class DropboxError` :38・`class Cancelled` :54・`class Config` :58・`config_path` :74・`load_config` :79・`missing_scope` :93・`is_not_found` :98・`error_text` :102・`arg_header` :128・`commit_arg` :133・`content_hash` :139・`urlopen_transport` :168・ほか 1
 - **engine.py** (538 行) — 友人の玄関の ② の組み立て(flow の部品を糸つきで持つ)。
   - 名前: `stage_lines` :41・`transcribe_line` :57・`transcribe_lines` :77・`transcribe_records` :83・`export_records` :103・`class FriendQueue` :122・`class Engine` :147・`live_cause` :502
-- **inbox.py** (1246 行) — 友人の受信箱の正(notes:plan/f1-friend-requirements.md の C-3、資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。
+- **inbox.py** (1246 行) — 友人の受信箱の正(notes:plan/done/f1-friend-requirements.md の C-3、資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。
   - 名前: `pack_name` :83・`pack_title` :89・`unique_dest` :93・`case_of` :101・`class Inbox` :112
 - **live.py** (45 行) — 友人の玄関のライブの依頼の欄と結びつき(資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-15)。軽い部品だけ(画面を先に出すため)。
   - 名前: `check_settings` :20・`settings_label` :42
@@ -24,7 +24,7 @@
   - 名前: `day_name` :32・`clean_ui` :47・`class OpLog` :91
 - **places.py** (251 行) — 友人の玄関の置き場所(資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。
   - 名前: `home` :36・`data_root` :48・`friend_dir` :56・`cookies_path` :60・`outbox_dir` :65・`is_maker_data` :69・`tool_env` :98・`lay_tools_shallow` :119・`lay_whisper` :147・`api_key_env` :172・`members_env` :186・`first_roster` :197・ほか 1
-- **progress.py** (284 行) — 友人のアプリの「送った物」の行に出す、失敗の言葉と進み具合を作る部品(F3-3。notes:plan/f1-friend-requirements.md の C-2-15・C-2-16)。純粋な関数だけ(ファイルもネットも触らない。時計は引数で受ける)。
+- **progress.py** (284 行) — 友人のアプリの「送った物」の行に出す、失敗の言葉と進み具合を作る部品(F3-3。notes:plan/done/f1-friend-requirements.md の C-2-15・C-2-16)。純粋な関数だけ(ファイルもネットも触らない。時計は引数で受ける)。
   - 名前: `classify` :105・`waiting_message` :128・`retry_note` :138・`stage` :180・`eta` :228・`slow` :247・`text` :265
 - **report.py** (745 行) — 友人のアプリの状態の書き出しと、そのきっかけ(形の正は notes:plan/友人の不具合の自動対応-1025.md。受け取り側はユーザーの PC の別の部品)。
   - 名前: `fit` :63・`judge` :91・`live_cands` :132・`dir_bytes` :155・`class Reporter` :169
@@ -41,7 +41,7 @@
   - 名前: `class SyncError` :101・`name_ok` :106・`out_kind` :112・`clean_text` :124・`clean_origin` :129・`parse_meta` :140・`parse_meta_info` :146・`failure_text` :166・`server_time` :173・`safe_rel` :181・`safe_join` :188・`local_name` :198・ほか 13
 - **tidy.py** (622 行) — アプリのフォルダの整理(形は Fable と相談 = 共有のメモ f3a-tidy-design.md。決定 3-86)。新しい版に入れ替えて起動できたあとと ⚙ から。
   - 名前: `keep_floor` :76・`class Tidy` :161・`prune_old_files` :597・`prune_diag` :615
-- **toolcheck.py** (111 行) — 友人の PC の初回の準備の最後の「道具を動かして確かめる」(F3-5。notes:plan/f1-friend-requirements.md の C-5-2・C-0)。
+- **toolcheck.py** (111 行) — 友人の PC の初回の準備の最後の「道具を動かして確かめる」(F3-5。notes:plan/done/f1-friend-requirements.md の C-5-2・C-0)。
   - 名前: `run_cmd` :26・`check_tool` :37・`check_tools` :53・`make_wav` :58・`whisper_run` :68・`check_whisper` :76・`signature` :97・`failed` :109
 - **upgrade.py** (516 行) — 友人のアプリの更新の決まり(いつ入れ替えるか・重要な直し・新しい版の確かめと戻し・心拍・固まり)。
   - 名前: `vt` :60・`wait_reason` :67・`verify_sec` :84・`typical` :92・`beat_doc` :98・`class Upgrade` :108
@@ -53,15 +53,15 @@
 ## src/friendapp/ui/
 
 - **friend.js** (133 行) — 友人のアプリの共通の部分(F3)。口は friendapp/server.py の説明。外から来た文字(題・名前・理由)は textContent でだけ入れる。
-- **host.js** (92 行) — 窓と画面の境目(F3-1。notes:plan/f1-friend-requirements.md の C-1、資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。
+- **host.js** (92 行) — 窓と画面の境目(F3-1。notes:plan/done/f1-friend-requirements.md の C-1、資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。
 - **oplog.js** (138 行) — 操作の記録と画面の要約を玄関へ送る(形の正は notes:plan/友人の不具合の自動対応-1025.md。玄関は friendapp/report.py・oplog.py)。
 - **palette.js** (13 行) — 友人のアプリの配色: ピンク(ui-kit のシンセウェーブ = 暗い・data-palette=synth)に固定する(配色 4 つの切り替えは 10-24 に無くした)。
-- **receive.js** (370 行) — 受け取る画面(F3-4。notes:plan/f1-friend-requirements.md の C-3)。口 = GET api/friend/receive(friendapp/inbox.py の receive_view)・
-- **send-form.js** (506 行) — 送る欄(F3-3。notes:plan/f1-friend-requirements.md の C-2-6〜C-2-13・C-2-17〜C-2-19)。口 = POST api/friend/send(friendapp/api.py の説明)。
-- **send-list.js** (168 行) — 送る画面の配信の一覧(F3-2。notes:plan/f1-friend-requirements.md の C-2-2〜C-2-5)。
-- **sent.js** (158 行) — 送った物(F3-3。notes:plan/f1-friend-requirements.md の C-2-14〜C-2-16)。行 = GET api/friend/inbox の rows のうち、まだ届け終えていない物と失敗。
-- **settings.js** (398 行) — ⚙ 設定の引き出し(notes:plan/f1-friend-requirements.md の C-5-2・C-2-19)。
-- **setup.js** (103 行) — 初回の準備だけの画面(notes:plan/f1-friend-requirements.md の C-5-1)。
+- **receive.js** (370 行) — 受け取る画面(F3-4。notes:plan/done/f1-friend-requirements.md の C-3)。口 = GET api/friend/receive(friendapp/inbox.py の receive_view)・
+- **send-form.js** (506 行) — 送る欄(F3-3。notes:plan/done/f1-friend-requirements.md の C-2-6〜C-2-13・C-2-17〜C-2-19)。口 = POST api/friend/send(friendapp/api.py の説明)。
+- **send-list.js** (168 行) — 送る画面の配信の一覧(F3-2。notes:plan/done/f1-friend-requirements.md の C-2-2〜C-2-5)。
+- **sent.js** (158 行) — 送った物(F3-3。notes:plan/done/f1-friend-requirements.md の C-2-14〜C-2-16)。行 = GET api/friend/inbox の rows のうち、まだ届け終えていない物と失敗。
+- **settings.js** (398 行) — ⚙ 設定の引き出し(notes:plan/done/f1-friend-requirements.md の C-5-2・C-2-19)。
+- **setup.js** (103 行) — 初回の準備だけの画面(notes:plan/done/f1-friend-requirements.md の C-5-1)。
 - **update.js** (148 行) — 新しい版の帯の 1 行(更新。資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。
 
 ## テスト

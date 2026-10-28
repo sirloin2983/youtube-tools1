@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""友人の PC の初回の準備の最後の「道具を動かして確かめる」(F3-5。notes:plan/f1-friend-requirements.md の C-5-2・C-0)。
+"""友人の PC の初回の準備の最後の「道具を動かして確かめる」(F3-5。notes:plan/done/f1-friend-requirements.md の C-5-2・C-0)。
 
 取った ffmpeg・ffprobe・yt-dlp・deno は -version / --version を 1 回ずつ(窓を出さない・時間切れあり)、
 文字起こし(whisper.cpp)は ffmpeg で作った 2 秒ほどの短い音を 1 回動かす(① の WhisperCpp をそのまま使う = 機器が合わなければ止まる)。

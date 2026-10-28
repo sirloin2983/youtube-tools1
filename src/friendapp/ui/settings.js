@@ -1,4 +1,4 @@
-/* ⚙ 設定の引き出し(notes:plan/f1-friend-requirements.md の C-5-2・C-2-19)。
+/* ⚙ 設定の引き出し(notes:plan/done/f1-friend-requirements.md の C-5-2・C-2-19)。
    主の画面(F3-B)は <script src="settings.js" defer> と settings.css を読み、歯車のボタンを id="btnSettings" で置くだけ。中身・Esc はここ。
    口: GET api/friend/settings・POST api/friend/settings {…}・settings/key {key}・pick-folder {what}。
    フォルダの整理(F3-A): GET tidy・POST tidy/scan・tidy/apply {ids}・tidy/later・tidy/open-trash。口が無い(404)ときは節に「この版では使えません」。

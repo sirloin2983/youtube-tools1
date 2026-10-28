@@ -4,7 +4,7 @@
 友人の PC のアプリが Dropbox の `/送り返し/` へ上げた物が、ユーザーの PC では同期フォルダ(intake.folder)の `送り返し\\` に届く:
 - `<requestId>__<runId>.zip`            ② が組んだ 1 実行の結果(flow/outbox。動画なし)
 - `<requestId>__<パック名>[~<at 13 桁>].verdict.json`  友人の判断(アプリが直に書く。並べた verdicts\\ にもそのまま残す。parse_verdict):
-  v 2(notes:plan/f1-friend-requirements.md の C-3-4・C-3-6・C-4-1)= {"v":2, "id", "judge": good|bad|unknown|retract, "reason"(bad = boring|cut),
+  v 2(notes:plan/done/f1-friend-requirements.md の C-3-4・C-3-6・C-4-1)= {"v":2, "id", "judge": good|bad|unknown|retract, "reason"(bad = boring|cut),
   "of"(retract = 取り消す記録の id), "by"?: "auto"(3 日の自動の見送り), "zip", "videoId"?, "markId"?, "origin"?, "at"}
 - `<requestId>__notice-<at 13 桁>.notice.json`  [作る人に知らせる](C-2-16)= {"v":1, "kind":"failure", "message", "detail", "code", "title", "appVersion", "at", "log"}。
   `<依頼>\\notices\\` に並べ、ホームの「依頼の受付」に出す(recent_notices)・ログに 1 行

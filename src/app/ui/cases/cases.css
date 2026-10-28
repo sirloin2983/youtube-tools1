@@ -1,5 +1,5 @@
 /* 案件の画面(/cases。src/app/ui/cases/。RS8 C1 = 殻)。部品の見た目は ui-kit(左の一覧 .ui-rail・タブ .ui-tabs・札 .pill・空の状態 .empty)。
-   ここは置き方だけ(見本 notes:docs/design/briefs/rs8-cases/mock/index.html の .case-wrap・.pane を写した)。接頭辞は cs-(パネルの中身はパネルの CSS が持つ) */
+   ここは置き方だけ(見本 資料の git:before-1028-cleanup-2:docs/design/briefs/rs8-cases/mock/index.html の .case-wrap・.pane を写した)。接頭辞は cs-(パネルの中身はパネルの CSS が持つ) */
 .cs-main{max-width:1440px;margin:0 auto;padding:16px 16px calc(var(--keybar-h, 26px) + 32px)}
 .cs-head{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin:0 0 12px}
 .cs-head-t{flex:1 1 320px;min-width:0}

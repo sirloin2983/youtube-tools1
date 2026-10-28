@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""友人の受信箱の正(notes:plan/f1-friend-requirements.md の C-3、資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。
+"""友人の受信箱の正(notes:plan/done/f1-friend-requirements.md の C-3、資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。
 
 受信箱の記録は 1 つの JSON(<作業データ>/app/friendapp/inbox.json)だけ。画面は毎回ここを読む(Dropbox の一覧・② の記録から組み立て直さない)。
 1 行 = 1 依頼 = 1 配信(A-4)。行の状態:

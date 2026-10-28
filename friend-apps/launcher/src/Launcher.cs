@@ -1,5 +1,5 @@
 // FriendApp.exe の起こし方: 窓 1 枚(MainForm = WebView2)を持ち、Python(src\friendapp\server.py)を子としてジョブオブジェクトで起こす。C# 5 で書く
-//   notes:plan/f1-friend-requirements.md の C-1-1・C-1-3・C-5-3。窓と画面の境目は friend-apps/launcher/README.txt
+//   notes:plan/done/f1-friend-requirements.md の C-1-1・C-1-3・C-5-3。窓と画面の境目は friend-apps/launcher/README.txt
 //   - 1 つだけ起動(アプリのフォルダごとの名前つき Mutex)。2 つ目は 1 つ目の窓を前に出して終わる
 //   - 番号はその都度空いている物を選んで --port で渡す(Python はずらさない)。録画の部品の番号も選んで YTT_FRIEND_REC_PORT で渡す
 //   - 合言葉は exe が作って YTT_FRIEND_TOKEN で渡し、WebView2 が要求ごとに X-YTT-Token を足す(画面の meta に頼らない)

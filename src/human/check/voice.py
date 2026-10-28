@@ -1,5 +1,5 @@
 """「確かめる」の誰の声のカード(voice:diar)の答えの形・選択肢・反映・声の覚え直し(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-2・5 節、
-設計 notes:docs/design/briefs/rs8-cases/DESIGN_BRIEF.md 2 の 6)。
+設計 資料の git:before-1028-cleanup-2:docs/design/briefs/rs8-cases/DESIGN_BRIEF.md 2 の 6)。
 
 答えの形(画面 cards/voice.js が送る。_check_answer が整える):
   {"choice": <文書の話者の id>}   その人の声(文書の speakers[] にいる人)

@@ -17,7 +17,7 @@
     逃げ道: 環境変数 YTT_FRIEND_ENGINE=A で A に固定。GPU が分からない(gpu が None・調べに失敗)ときは今のまま。
 記録 <玄関>/setup.json(取った物と最後の回の結果。見るためだけ。足りないかの判断には使わない。ただし checked = 道具を動かして確かめ終えた印は使う)。
 
-準備だけの画面(notes:plan/f1-friend-requirements.md の C-5-1・C-5-2・C-0): start() が確認なしで自動で始める流れ。
+準備だけの画面(notes:plan/done/f1-friend-requirements.md の C-5-1・C-5-2・C-0): start() が確認なしで自動で始める流れ。
     取る(fetching。空きが足りなければ始めずに need-space)→
     浅く置く(placing。places.lay_tools_shallow)→ 道具を確かめる(checking。toolcheck)→
     (文字起こしが A で動かないか、NVIDIA で C の部品が無ければ)エンジン C にして CUDA 版を取り確かめ直す(cuda)→ 済み(done)。失敗は failed(続きから [もう一度] = start)。

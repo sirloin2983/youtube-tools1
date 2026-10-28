@@ -2,7 +2,7 @@
 notes:docs/spec/friend.md の 2-7。ds1(要件 1-5「届ける段と溜めは ② へ」)。
 確認用の動画(ffmpeg)は ① pipeline/pack/preview。ここは ytt と ① と ② だけを読む(友人の PC には ③ が無い)。
 
-届く物の形(notes:plan/f1-friend-requirements.md の C-3・C-6。パックは 1 本ずつ):
+届く物の形(notes:plan/done/f1-friend-requirements.md の C-3・C-6。パックは 1 本ずつ):
   出力\\<頭>__<パックの題>.zip + 隣に同じ名前の .preview.mp4(480p・字幕なし)と .meta.json(依頼の分にも必ず)。置く順 = 確認用の動画 → meta → zip
 - deliver_one: 1 本を届ける(確認用の動画 → meta → zip → 届けた記録 deliveries.jsonl)。まとめて実行の届ける段(同じフォルダの delivery.py の _deliver_one)と
   手で届ける(Deliveries = 「編集」の「友人へ届ける」・案件の「採用(友人へ届ける)」)が同じこれを使う(ユーザー決定 Q16)

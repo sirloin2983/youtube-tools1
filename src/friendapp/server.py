@@ -5,7 +5,7 @@
 
 - ② を同じプロセスで起こす(friendapp/engine.py。③ human・入口 app は読まない = 層の表 dev/layer_map.py の friendapp)
 - 画面は /friend/(送る・受け取る)と /friend/setup.html(初回の準備だけ。済むまで /friend/ はこちらへ)。friendapp/ui/。ui-kit
-- 窓は FriendApp.exe(friend-apps/launcher。C#・WebView2。F3-1 = notes:plan/f1-friend-requirements.md の C-1)が持つ。窓と画面の境目は friend-apps/launcher/README.txt:
+- 窓は FriendApp.exe(friend-apps/launcher。C#・WebView2。F3-1 = notes:plan/done/f1-friend-requirements.md の C-1)が持つ。窓と画面の境目は friend-apps/launcher/README.txt:
   exe が空いている番号を選んで --port で渡す(ここでは他の番号へずらさない = 使えなければ終了コード 5)・合言葉は YTT_FRIEND_TOKEN で渡し、
   WebView2 が要求ごとに X-YTT-Token を足す(画面の meta ytt-token は中身 host の置き物 = 画面の JS は合言葉を知らない)。
   WebView2 の無い PC の逃げ道(YTT_FRIEND_HOST=edge)と開発の PC(exe なし)だけ meta に本物の合言葉を入れ、Edge のアプリの窓で開く

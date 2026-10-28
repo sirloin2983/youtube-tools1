@@ -8,7 +8,7 @@ ds1(要件 1-5「届ける段と溜めは ② へ」・仮決め 3-70 ds1・3-71
   - 属性 log_path(終わった実行の記録のパス。隣に deliveries.jsonl)・cv・log・clock・find_pack と Runner の _check・_clips
 溜めの置き場所とロックは _delivery_init(log_dir) で作る(AutoRunner の __init__ が呼ぶ)。
 
-届ける形(notes:plan/f1-friend-requirements.md の C-3-1・C-6): **パックはできた順に 1 本ずつ**届ける(1 本の zip + 480p の確認用の動画 + .meta.json。
+届ける形(notes:plan/done/f1-friend-requirements.md の C-3-1・C-6): **パックはできた順に 1 本ずつ**届ける(1 本の zip + 480p の確認用の動画 + .meta.json。
 作り方は同じフォルダの deliver.deliver_one = 手で届けるのも同じ)。
 溜め(logs/deliver-pool.json)は、置けなかった自動の分(下)とライブの切り抜きの残りに使う(flush_pools が 1 本ずつ届ける)。
 

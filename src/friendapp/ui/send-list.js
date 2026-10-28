@@ -1,4 +1,4 @@
-/* 送る画面の配信の一覧(F3-2。notes:plan/f1-friend-requirements.md の C-2-2〜C-2-5)。
+/* 送る画面の配信の一覧(F3-2。notes:plan/done/f1-friend-requirements.md の C-2-2〜C-2-5)。
    口は friendapp/server.py の GET api/friend/streams(friendapp/streams.py の view + 送った物の印)。
    描くだけ: カードを押したら FRList.onPick(item)。外から来た文字(題・名前)は textContent でだけ入れる。
    増えてもスクロールの位置を動かさない(一番上に見えているカードを描き直しの前後で同じ高さに置く)・選んだ配信は選んだまま */

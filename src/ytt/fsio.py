@@ -1,6 +1,6 @@
 """ファイルの読み書き(スタジオの common.atomic_write と、文字起こしの atomic_write / pipeline_io の書き込みを1つにしたもの)。
 
-ほかに、小道具(notes:docs/design/reviews/code-review-simplify-2026-10-08.md の A・G10):
+ほかに、小道具(資料の git:before-1028-cleanup-2:docs/design/reviews/code-review-simplify-2026-10-08.md の A・G10):
 read_json_or(読めなければ既定値)・stamp / StampCache(更新日時と大きさが変わったときだけ読み直す)・rotate(ログの 1 世代の回し)・
 is_inside(パスがフォルダの中か。セキュリティの検査に使う形はここ 1 か所)・dir_size(フォルダの大きさ)。"""
 import glob
