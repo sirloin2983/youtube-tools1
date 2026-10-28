@@ -37,7 +37,7 @@ SKIP_DIRS = {"__pycache__", "node_modules", ".venv", "build", "dist", "packs", "
 TEXT_EXT = (".py", ".js", ".cjs", ".html", ".css", ".cs", ".md", ".txt", ".bat", ".vbs", ".json")
 DUP_HELPERS = {"_unlink": "fsio.unlink_quiet", "_unlink_quiet": "fsio.unlink_quiet", "_no_window": "tools.no_window_flags", "NO_WINDOW": "tools.no_window_flags",
                "KillJob": "tools.KillJob(1 か所に)", "_kill_on_close_job": "tools.KillJob(1 か所に)",
-               # 別名の写し(ytt_core の小道具。notes:docs/design/reviews/code-review-simplify-2026-10-08.md の A・G10)
+               # 別名の写し(ytt_core の小道具。資料の git:before-1028-cleanup-2:docs/design/reviews/code-review-simplify-2026-10-08.md の A・G10)
                "unlink_quiet": "fsio.unlink_quiet", "file_stamp": "fsio.stamp", "rotate": "fsio.rotate",
                "read_json": "fsio.read_json_or", "_read_json_file": "fsio.read_json_or", "_inside": "fsio.is_inside",
                "dir_size": "fsio.dir_size", "_dir_bytes": "fsio.dir_size",

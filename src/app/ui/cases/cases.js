@@ -1,4 +1,4 @@
-/* 案件の画面(/cases = 入口の直下の 1 枚。部品は src/app/ui/cases/。RS8 C1 = 殻。作り方 資料の git:before-1028-cleanup:docs/design/rs8-cases-build.md・何を作るか notes:docs/design/briefs/rs8-cases/)。
+/* 案件の画面(/cases = 入口の直下の 1 枚。部品は src/app/ui/cases/。RS8 C1 = 殻。作り方 資料の git:before-1028-cleanup:docs/design/rs8-cases-build.md・何を作るか 資料の git:before-1028-cleanup-2:docs/design/briefs/rs8-cases/)。
    URL: /cases?c=<案件 id>&d=<文書 id>#cand|proof|cut。d だけでも開ける(④ に ?doc= で案件を聞く)。
      v=<動画のパス> だけでも開ける(編集の api/doc-for で文書を引く。無ければホームの新しい案件の欄 /#new?media=)。
      文字起こしがまだの切り抜きは d の代わりに m=<マーク id>。根のパスは URL に出さない。

@@ -1,4 +1,4 @@
-/* 確かめる(/check = 入口の直下の 1 枚。部品は src/app/ui/check/。RS8 V1 = 殻。作り方 資料の git:before-1028-cleanup:docs/design/v1-check-build.md・何を作るか notes:docs/design/briefs/rs8-cases/DESIGN_BRIEF.md 2-3・3)。
+/* 確かめる(/check = 入口の直下の 1 枚。部品は src/app/ui/check/。RS8 V1 = 殻。作り方 資料の git:before-1028-cleanup:docs/design/v1-check-build.md・何を作るか 資料の git:before-1028-cleanup-2:docs/design/briefs/rs8-cases/DESIGN_BRIEF.md 2-3・3)。
    案件をまたいだ軽い確認の待ち行列を 1 枚ずつカードで出し、答えたらすぐ次へ。Z で 1 つ前に戻す・[分からない](W)はもう出さない(答えではない = 今日の数・評価に入れない。Z で戻せる)・[飛ばす](N)はその日は後ろへ。区切りで止めずに続けて出す(答えた数と目標は帯と「このあと」の欄に出したまま。10-24 ユーザー)。
    URL: /check?c=<案件 id>(その案件だけ)&kind=value|read|voice|time|speech|cut(この種類だけ)&back=cases(終わったら案件へ戻るボタン)。URL を開いただけでは何も書かない。
    種類の切り替え(普段のレーンの上): 全部・誰の声・読み・時刻・声かどうか・価値・カット と残りの枚数(counts.perKind = 種類で絞る前の数)。

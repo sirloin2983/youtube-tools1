@@ -1,4 +1,4 @@
-/* ui-kit — youtube-tools 共通の見た目(色・文字・部品)。画面の全面見直し(notes:docs/design/briefs/ui-overhaul/)の段階1。
+/* ui-kit — youtube-tools 共通の見た目(色・文字・部品)。画面の全面見直し(資料の git:before-1028-cleanup-2:docs/design/briefs/ui-overhaul/)の段階1。
    既定のテーマは明るい(保存が無いとき)。トークン(--stage-bg/-ink・--playhead・--toast-bg/-ink・--keybar-h・--drawer-w)・
    飾りは付けない(.btn/.card の影・ブランドの印と .bar のグラデーション・.pill.run/.dot.run の無限の点滅)・
    部品(ui-appnav・ui-drawer・ui-dialog・ui-pop・ui-toasts・ui-keybar・ui-kbd・ui-miniprogress・SVG アイコン)。詳しくは README.md の「v6」。
@@ -522,7 +522,7 @@ dialog.ui-dialog{padding:0;width:min(420px,calc(100% - 32px))}
 html[data-fs=lg]{--fs-xs:12.5px;--fs-sm:13.5px;--fs-md:15.5px;--fs-lg:17.5px;--fs-xl:21.5px}
 
 /* ================================================================ サイバー風 ― 計器盤(HUD)の形と配色
-   決めたこと: notes:docs/design/briefs/cyber-theme/(見本 board.html・patterns.css。ユーザーが A 計器盤 と 配色4つ を選んだ)。
+   決めたこと: 資料の git:before-1028-cleanup-2:docs/design/briefs/cyber-theme/(見本 board.html・patterns.css。ユーザーが A 計器盤 と 配色4つ を選んだ)。
    形: 角はほぼ直角(2px)・細い 1px の線・カードの左上と右下に角の括弧・タブと切り替えは下線・状態の札は枠だけ・
        進み具合は目盛り・知らせは左の線。数字と札は等幅の文字。光らせない(情報が主役)。
    色: 明るい = アイスライト(:root)・暗い = ネオンシアン(:root[data-theme=dark])。暗いときの配色は data-palette(UIKit.theme.palette)で

@@ -1,5 +1,5 @@
 /* ui-kit v37 —テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
-   画面の全面見直し(notes:docs/design/briefs/ui-overhaul/)の段階1。ES5 のまま(var・function。アロー関数・テンプレート文字列は使わない): <head> で同期に読み込むため。
+   画面の全面見直し(資料の git:before-1028-cleanup-2:docs/design/briefs/ui-overhaul/)の段階1。ES5 のまま(var・function。アロー関数・テンプレート文字列は使わない): <head> で同期に読み込むため。
    正本は src/ui-kit/ui-kit.js。写し先は無い(この正本を直接直す)。
    window.UIKit.theme  : get() 保存した選択('system'|'light'|'dark'。保存が無いときは既定で 'light') / set(p) / onChange(fn)
    window.UIKit.tools  : setPaths(/api/siblings の paths) で、入口の統合サーバーに取り込まれたツールの場所(/studio/ など)を覚える。base(id)・mounted()
@@ -224,7 +224,7 @@
      どちらも入口が受け持つ)。合言葉はサーバーが </head> の直前に入れるので、このファイルの実行時ではなく送るときに読む */
   function token() { var m = document.querySelector('meta[name="ytt-token"]'); return m ? m.content : ''; }
 
-  /* ---- http(notes:docs/design/reviews/code-review-simplify-2026-10-08.md の T3・B)---- JSON の API を呼ぶ 1 か所。合言葉を付けるのはここだけ。
+  /* ---- http(資料の git:before-1028-cleanup-2:docs/design/reviews/code-review-simplify-2026-10-08.md の T3・B)---- JSON の API を呼ぶ 1 か所。合言葉を付けるのはここだけ。
      UIKit.http(url, opt) -> Promise<応答の JSON(JSON でなければ {})>(opt.raw なら成功のときは Response)。opt:
        method(既定: body があれば POST・無ければ GET)・body(JSON にして送る。Content-Type も付ける)・keepalive・
        timeout(ミリ秒。応答の見出しが届くまで)・signal(呼ぶ側の AbortSignal)・raw・

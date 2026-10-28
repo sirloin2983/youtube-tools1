@@ -54,8 +54,8 @@
 - cut2resolve は `hidden: true`: 一覧には残す(編集が `UIKit.tools.base('cut2resolve')` でパックの API を呼ぶ)が、「他のツール」のメニューには出さない
 - 写し先は無い(各ツールは正本を直接読む。写す道具 dev/sync_ui_kit.py は消した)
 
-## v6(2026-09-27・画面の全面見直し 段階1。`notes:docs/design/briefs/ui-overhaul/`)
-土台(トークン・部品)を広げる回。作り替えはしていない。詳しい経緯・決めたことは `notes:docs/design/briefs/ui-overhaul/DESIGN_BRIEF.md` と `IMPLEMENTATION.md` の「1」。
+## v6(2026-09-27・画面の全面見直し 段階1。`資料の git:before-1028-cleanup-2:docs/design/briefs/ui-overhaul/`)
+土台(トークン・部品)を広げる回。作り替えはしていない。詳しい経緯・決めたことは `資料の git:before-1028-cleanup-2:docs/design/briefs/ui-overhaul/DESIGN_BRIEF.md` と `IMPLEMENTATION.md` の「1」。
 
 ### トークン
 - **既定のテーマが明るいに変わった**: 保存が無いときは `light`(以前は OS の設定に従う `system`)。「OSに合わせる」は選んだときだけ `localStorage['ytt:theme']` に `'system'` と明示的に保存する
@@ -133,7 +133,7 @@
 - ツールでの使い方: 起動時の `/api/ping` のあとで `UIKit.restart.check($('#errBar'), APP_VERSION, ping.version)`(以前の `showErr('…版が違います…')` の代わり)。
   `UIKit.version` は 10(v9 では 8 のままだった)
 
-## v24(2026-10-09・コードの見直しの直す順番 B の土台。`notes:docs/design/reviews/code-review-simplify-2026-10-08.md` の T3・T4・B 行・G11)
+## v24(2026-10-09・コードの見直しの直す順番 B の土台。`資料の git:before-1028-cleanup-2:docs/design/reviews/code-review-simplify-2026-10-08.md` の T3・T4・B 行・G11)
 - **`UIKit.http(url, opt)`** → Promise<応答の JSON(JSON でなければ `{}`)>。JSON の API を呼ぶ 1 か所で、**合言葉 `X-YTT-Token` を付けるのはここだけ**
   (GET・HEAD 以外で、送り先が同じオリジンのときだけ。ほかのサイトへ合言葉を出さない)。opt: `method`(既定: body があれば POST)・`body`(JSON)・`keepalive`・
   `timeout`(ミリ秒)・`signal`・`raw`(成功なら Response = zip の受け取り)・`token`(省略 = meta / 文字列 / false)・`needToken`(合言葉が無ければ送らずに失敗)・
@@ -263,11 +263,11 @@
 - 決まり: 今開いている・実行中の項目は、隠していても一覧から消さない(迷わないため)
 
 ## v12(2026-10-02・サイバー風: 計器盤の形と配色4つ)
-ユーザーが見本(`notes:docs/design/briefs/cyber-theme/board.html`)から **A 計器盤** と、配色 **アイスライト・ネオンシアン・鋼の白・ターミナルグリーン** を選んだ(2026-10-02)。
+ユーザーが見本(`資料の git:before-1028-cleanup-2:docs/design/briefs/cyber-theme/board.html`)から **A 計器盤** と、配色 **アイスライト・ネオンシアン・鋼の白・ターミナルグリーン** を選んだ(2026-10-02)。
 - 形(`ui-kit.css` の末尾の「v12」。v19 で多くを前の節の各部品の規則へまとめた): 角はほぼ直角(`--r` = 2px)・細い 1px の線・`.card` の左上と右下に角の括弧(`::before` / `::after`。**ツールで `.card` の疑似要素を使わない**)・
   タブと `.ui-seg` は下線・`.pill` は枠だけで等幅・`.bar` は目盛り・`.notice` は左の線・`th` と `.card-sub` は等幅。光らせない
 - 色: 明るい = **アイスライト**(`:root`)/ 暗い = **ネオンシアン**(`:root[data-theme=dark]`)。暗いときだけ `data-palette` で **鋼の白**(`steel`)・**ターミナルグリーン**(`green`)に替えられる
-  (どれも文字/地 4.5:1 以上・状態の色どうしが紛れない。決めた数値と直した理由は `notes:docs/design/briefs/cyber-theme/patterns.css` の「調整した4つ」)
+  (どれも文字/地 4.5:1 以上・状態の色どうしが紛れない。決めた数値と直した理由は `資料の git:before-1028-cleanup-2:docs/design/briefs/cyber-theme/patterns.css` の「調整した4つ」)
 - JS: `<html data-palette="ice|cyan|steel|green">` を `UIKit.theme` が付ける。暗いときの配色は `UIKit.theme.palette()`(読む)・`palette('steel')`(変えて `localStorage['ytt:palette']` に保存)。
   明るい/暗い(`ytt:theme`)とは別に持つので、「OSに合わせる」・以前の保存はそのまま使える(暗くしたときに、最後に選んだ暗い配色になる)
 - ⚙ 設定の「テーマ」: アイスライト(明るい)/ ネオンシアン / 鋼の白 / ターミナルグリーン(暗い)/ OSに合わせる

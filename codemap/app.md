@@ -15,7 +15,7 @@
 - **mount.py** (208 行) — 統合サーバーへのツールの取り込み(統合計画の段階3。資料の git:before-1028-cleanup:docs/design/integration-plan.md)。
   - 名前: `class MountError` :52・`tool_modules` :56・`check_no_collision` :66・`load_serve` :76・`send_redirect` :103・`make_handler` :113・`class Mount` :160
   - 受ける口: `/api/ytt` :45
-- **prefs.py** (492 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。notes:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
+- **prefs.py** (492 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。資料の git:before-1028-cleanup-2:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
   - 名前: `class PrefsError` :97・`guess_streamer` :386・`class Prefs` :398
 - **server.py** (1849 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
   - 名前: `runtime_dir` :185・`ping` :195・`tail` :203・`expected_version` :224・`tool_python` :230・`rel_or_abs` :240・`signal_stop` :248・`class Tool` :261・`app_data_dir` :311・`logs_dir_for` :317・`class Supervisor` :323・`query_int` :642・ほか 16
