@@ -836,10 +836,13 @@ FULL_PREFIX = "r-full-"               # 研究の配信全体の音(段 ④)
 #   ③ 定期の仕事 = 誰の声の材料が足りないメンバーに効く物(声だけ・声の要る候補・頼み)。VOICE_EVERY に 1 回分だけ(来ていなければ一番下)
 #   ④ 配信全体の音(r-full-*) ⑤ その他の研究の音(頼み → 候補)
 # 待った時間の点(0.99.299)と「配信全体の音があればほかを全部止める」(0.99.302)はやめた(順位を変えない・飢えは ③ の間隔で防ぐ)
+# 上の段が残り続けて下の段の番が来ないのは、上の段から TURN_EVERY 回ごとに下の段(待ちのある段を順に)へ 1 回渡して防ぐ(10-28・TURNS_ON)
 URGENT_MAX = 60
 URGENT_DAYS = 2
 VOICE_EVERY = 2 * 3600
-BALANCE_SEC = 6 * 3600                # 同じ段がこの秒続いたら、下の段に 1 回渡す(量が多く長く同じ物が続くとき。決めた線 = 10-26 予備 1)
+BALANCE_SEC = 6 * 3600                # 同じ段がこの秒続いたら、下の段に 1 回渡す(量が多く長く同じ物が続くとき。決めた線 = 10-26 予備 1。TURNS_ON が False のときだけ)
+TURNS_ON = True                       # 上の段から TURN_EVERY 回取るごとに、下の段(待ちのある段を順に)へ 1 回渡す(10-28 ユーザー OK: ⑤ が全然取られない)。False = 前の BALANCE_SEC に戻す
+TURN_EVERY = 3                        # 上の段から何回取るごとに下の段へ 1 回か(比率)。① 製品の取得は帳簿の譲り(due)で別 = この回し方の外
 TIER_NAMES = {2: "急ぎ", 3: "定期(声)", 4: "配信全体の音", 5: "その他の研究の音", 6: "定期(間隔待ち)"}
 FULL_GUESS_MIN, VOICE_GUESS_MIN = 180, 15   # 量の見込みの分(配信全体の音で長さの分からない物・声だけの 1 回)
 ORDER_NAME = "order.json"             # 列の今の並びの要約(段ごとの本数・分・回数・見込みの時間。研究の progress も読む)
@@ -1152,9 +1155,40 @@ def _minutes(o):
     return float(VOICE_GUESS_MIN)
 
 
+def _lower(ranked, top, st):
+    """top より下で待ちのある段(間隔待ちの 6 は除く)のうち、前に渡した段の次(順に回す)-> 段か None"""
+    tiers = sorted({o["tier"] for o in ranked if top < o["tier"] != 6})
+    if not tiers:
+        return None
+    last = _vm.num(st.get("turnLast"))
+    return next((t for t in tiers if t > last), tiers[0])
+
+
+def _turn_etas(rounds, st):
+    """段ごとの回数 {段: 回数} を新しい回し方(TURNS_ON)で流したときに、各段を終える回目 -> {段: 回目}"""
+    left, done = dict(rounds), {}
+    n, cnt, sim = 0, int(_vm.num(st.get("turnCount"))), {"turnLast": st.get("turnLast")}
+    while any(left.values()):
+        live = [t for t, k in left.items() if k > 0]
+        top = min(live)
+        t = top
+        if TURNS_ON and cnt >= TURN_EVERY:
+            low = _lower([{"tier": x} for x in live], top, sim)
+            if low is not None:
+                t, cnt, sim["turnLast"] = low, 0, low
+        if t == top:
+            cnt += 1
+        n += 1
+        left[t] -= 1
+        if not left[t]:
+            done[t] = n
+    return done
+
+
 def order_view(ranked, st, now):
     """列の今の並びの要約 -> {"at", "gapMin", "tiers": [{"tier", "name", "n", "minutes", "rounds", "etaH"(この段まで終える見込みの時間)}]}。
-    回数 = 短い音は short_n 本・合計 SHORT_SUM_SEC までを 1 回(配信全体の音 1 本と同じ重さ)・ほかは 1 本 1 回"""
+    回数 = 短い音は short_n 本・合計 SHORT_SUM_SEC までを 1 回(配信全体の音 1 本と同じ重さ)・ほかは 1 本 1 回。
+    etaH = 下の段へ渡す回(TURNS_ON・TURN_EVERY)も入れて流したときに、その段を終える見込み"""
     gap = audio_gap(st) / 3600.0
     tiers, cum = [], 0.0
     for t in sorted({o["tier"] for o in ranked}):
@@ -1173,12 +1207,28 @@ def order_view(ranked, st, now):
         cum += rounds * gap
         tiers.append({"tier": t, "name": TIER_NAMES[t], "n": len(items), "minutes": round(sum(_minutes(o) for o in items)),
                       "rounds": rounds, "etaH": round(cum, 1)})
+    if TURNS_ON:
+        done = _turn_etas({x["tier"]: x["rounds"] for x in tiers}, st)
+        for x in tiers:
+            x["etaH"] = round(done.get(x["tier"], 0) * gap, 1)
     return {"at": int(now), "gapMin": audio_gap(st) // 60, "tiers": tiers}
 
 
 def _pick(ranked, st, now, log):
-    """段の一番を選ぶ。同じ段が BALANCE_SEC 続いたら下の段の一番に 1 回渡す(決めた線)-> 選んだ 1 つ"""
+    """段の一番を選ぶ。TURNS_ON: 上の段から TURN_EVERY 回取るごとに、下の段(待ちのある段を順に)の一番に 1 回渡す。
+    TURNS_ON でなければ前の形 = 同じ段が BALANCE_SEC 続いたら下の段の一番に 1 回渡す -> 選んだ 1 つ"""
     best = ranked[0]
+    if TURNS_ON:
+        cnt = int(_vm.num(st.get("turnCount")))
+        low = _lower(ranked, best["tier"], st) if cnt >= TURN_EVERY else None
+        if low is None:
+            st["turnCount"] = min(cnt + 1, TURN_EVERY)   # 下の段が無い間は数えるだけ(現れたら次の回で渡す)
+            return best
+        st.update(turnCount=0, turnLast=low)
+        pick = next(o for o in ranked if o["tier"] == low)
+        if log:
+            log("YouTube の取得の列: %s から %d 回取ったので、%s に 1 回渡します" % (TIER_NAMES[best["tier"]], cnt, TIER_NAMES[low]))
+        return pick
     run = st.get("tierRun") if isinstance(st.get("tierRun"), dict) else {}
     if run.get("tier") != best["tier"]:
         st["tierRun"] = {"tier": best["tier"], "since": now}

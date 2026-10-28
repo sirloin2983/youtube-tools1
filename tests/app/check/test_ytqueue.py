@@ -292,7 +292,7 @@ class YtQueueTest(unittest.TestCase):
         self.put_at("r-up-x", {"url": u + "SHORTVIDE01", "section": [0, 300]}, NOON)
         got = []
         full = {"ときのそら": 999, "ロボ子さん": 999}
-        with mock.patch.object(Q, "_audio", lambda a, rid, url, sec: got.append(rid) or self.audio(a, rid, url, sec)):
+        with mock.patch.object(Q, "_audio", lambda a, rid, url, sec: got.append(rid) or self.audio(a, rid, url, sec)), mock.patch.object(Q, "TURNS_ON", False):
             self.tick(NOON, full)
             self.tick(NOON + 7 * 3600, full)                                      # ④ が 7 時間続いた = ⑤ に 1 回
             self.tick(NOON + 9 * 3600, full)
@@ -303,6 +303,20 @@ class YtQueueTest(unittest.TestCase):
             self.tick(NOON + 12 * 3600, {})                                       # 声が足りない = ③ が先
             self.tick(NOON + 13 * 3600, {})                                       # 2 時間たっていない = ④
         self.assertEqual(got[-2:], ["voice", "r-full-2"])
+
+    def test_turns_to_lower_tiers(self):
+        """上の段から 3 回ごとに下の段へ 1 回・下の段が複数なら順に・間隔待ちの 6 には渡さない・見込みの時間も同じ回し方で(10-28)"""
+        ranked = [{"tier": t, "id": "%d-%d" % (t, i)} for t in (2, 4, 5, 6) for i in range(20)]
+        st, got = {}, []
+        for _ in range(12):
+            got.append(Q._pick(ranked, st, NOON, None)["tier"])
+        self.assertEqual(got, [2, 2, 2, 4, 2, 2, 2, 5, 2, 2, 2, 4])
+        self.assertEqual(Q._turn_etas({2: 3, 5: 1}, {}), {2: 3, 5: 4})
+        self.assertEqual(Q._turn_etas({2: 6, 4: 1, 5: 2}, {}), {4: 4, 2: 7, 5: 9})   # 2,2,2,4,2,2,2 → 残りの 5 が 2 回
+        with mock.patch.object(Q, "TURN_EVERY", 1):
+            self.assertEqual(Q._turn_etas({2: 2, 5: 2}, {}), {2: 3, 5: 4})
+        with mock.patch.object(Q, "TURNS_ON", False):
+            self.assertEqual(Q._pick(ranked, {}, NOON, None)["tier"], 2)
 
     def test_keep_dir_setting(self):
         """keep の置き場は設定 ytQueueKeepDir で作業データの外へ(10-26)。無い・ドライブが無い・相対なら作業データの中"""
