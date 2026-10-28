@@ -72,7 +72,6 @@ def validate_settings(req):
             "chatTimeout": int(num(req.get("chatTimeout"), 1, 120, 20)), "noCache": req.get("noCache") is True, "sensitivity": sens,
             "wAudio": num(req.get("wAudio"), 0, 3, 1.0), "wChat": num(req.get("wChat"), 0, 3, 1.0), "wComments": num(req.get("wComments"), 0, 3, 0.7),
             "shape": shape_of(req),
-            "fallback": "auto" if excite.AUTO_LEN_ON else None,   # 場面が取れないときも自動の長さ(excite.auto_length。印として archive にも残る)
             "fill": int(num(req.get("fill"), 0, 30, 0))}   # 本数に届かないときに埋める数(② の自動の流れが採用の本数を渡す。0 = 埋めない。excite.pick_clips)
 
 
@@ -87,6 +86,7 @@ def make_spec(src, settings):
     """ファイル入力では、チャット・コメントは使えない。"""
     spec = dict(settings)
     spec["source"] = src
+    spec["fallback"] = "auto" if excite.AUTO_LEN_ON else None   # 場面が取れないときも自動の長さ(excite.auto_length。設定ではない・印として archive にも残る)
     if src["kind"] != "youtube":
         spec["useChat"] = spec["useComments"] = False
     return spec
