@@ -375,7 +375,7 @@ def intake(app_dir, roster_r, start_job, log, extra=None, now=None):
         else:
             folder = os.path.join(app_dir, "check", DIR_NAME, who)
             os.makedirs(folder, exist_ok=True)
-            safe = re.sub(r'[\/:*?"<>|\x00-\x1f]', "_", title)[:60]
+            safe = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", title)[:60]
             dst = os.path.join(folder, "%s_%s_%s%s" % (who, vid, safe, os.path.splitext(audio)[1].lower()))
             try:
                 if not _shorten(audio, dst):   # 長い音(?t= の無い配信の全部)は SECTION の 4 分だけにする

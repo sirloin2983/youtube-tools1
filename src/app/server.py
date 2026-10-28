@@ -1057,9 +1057,11 @@ class PortalServer(httpsec.ExclusiveServer):
         ctx = self.check_ctx()
         return check_refresh.tick(ctx, lambda body: client.call("transcribe", "POST", "/api/rerun", body), ctx.app_dir, log=self.sup.log)
 
-    def _accuracy_busy(self):
+    def _accuracy_busy(self, need_editor=False):
         """精度の自動測定の「手が空いているか」。空いていなければ理由の文、空いていれば None。
-        入口の重い処理の順番(SLOTS)・まとめて実行・「編集」のジョブ(入口から loopback で /api/jobs を読む。編集が動いていなければ動いているジョブも無い)"""
+        入口の重い処理の順番(SLOTS)・まとめて実行・「編集」のジョブ(入口から loopback で /api/jobs を読む。編集が動いていなければ動いているジョブも無い)。
+        need_editor = 編集へ頼む側(学習用ショート・評価用の作り直し・ショートの下ごしらえ): 編集が動いていない・つながらないのも「空いていない」
+        (頼みが例外になって失敗と記録され、二度と頼まれないのを防ぐ。10-29)"""
         hv = jobs.SLOTS.snapshot()
         if hv.get("active") or hv.get("waiting"):
             return "重い処理"
@@ -1068,7 +1070,7 @@ class PortalServer(httpsec.ExclusiveServer):
         try:
             st, obj = autorun_mod.ToolClient(self.tool_endpoint, self.token, timeout=5).call("transcribe", "GET", "/api/jobs")
         except autorun_mod.StepError:
-            return None
+            return "編集が動いていません" if need_editor else None
         if st == 200 and any(j.get("state") in ("queued", "loading", "extracting", "running") for j in obj.get("jobs") or [] if isinstance(j, dict)):
             return "文字起こしのジョブ"
         return None
@@ -1268,13 +1270,13 @@ class PortalServer(httpsec.ExclusiveServer):
         """誰の声の材料を頼まない理由か None: 新しい版が出ている(自動の起動し直しに合間を空ける)・入口の手が空いていない(_accuracy_busy)"""
         if getattr(self, "_voice_fetch_wants", False):
             return "YouTube の材料の番"   # 学習用データの文字起こしは休んで、手の空いた合間を YouTube の取り込みに譲る(voicefetch.wants)
-        return self._fetch_busy()
+        return self._fetch_busy(need_editor=True)
 
-    def _fetch_busy(self):
+    def _fetch_busy(self, need_editor=False):
         disk = _version.on_disk(self.sup.root)
         if disk and disk != VERSION:
             return "新しい版 v%s を待っています" % disk
-        return self._accuracy_busy()
+        return self._accuracy_busy(need_editor)
 
     def _read_doc_quiet(self, tid):
         """文書を読む(無い・読めなければ None)"""

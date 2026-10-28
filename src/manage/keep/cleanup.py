@@ -8,11 +8,11 @@ TRASH_DAYS を過ぎた日付のフォルダは入口の起動時に purge で�
 - 友人の依頼の動画の置き場所 = 書き出し先の 依頼\\<日付>_<題>_<id6>\\(1 依頼 = 1 案件)・作業データの app\\intake\\<日付>\\<依頼 id>\\
   (書き出し先が固定ディスクでない PC)の動画とパック。**最後に届けてから** KEEP_DAYS 日(Q15。decisions 3-48)。届けていない依頼・手で置いた動画は移さない
 - 依頼の受付の 受付済み\\<日付>\\・友人の送り返しの 送り返し\\受付済み\\<日付>\\ のうち KEEP_DAYS より古い日付のもの(ただの控え。9g-2)
-- 受付の 失敗\\ と 送り返しの 送り返し\\失敗\\ の中の物(更新日時から KEEP_DAYS 日。理由の .txt は一緒に)
+- 受付の 失敗\\ と 送り返しの 送り返し\\失敗\\ の中の物(失敗したときに書く理由の .txt の更新日時から KEEP_DAYS 日・無ければ物の更新日時。理由の .txt は一緒に)
 - 届けていない書き出し(ユーザー 10-24「自動でいい」): 案件(配信)の切り抜きの動画・_edit.mp4・パックのフォルダが、どれも KEEP_DAYS 日より前の物
 - 完成品のパック(ユーザー 10-24「E に置いてある完成品のパックも、3 日待って消して」): 書き出し先(out_dirs)の下の <名前>_pack のフォルダと、
   その書き出しの動画(<名前>.mp4・<名前>_edit.mp4)。作ってから(中の一番新しいファイルから)KEEP_DAYS 日。届けたかは見ない。
-  学習用データ・評価用データのフォルダの下(KEEP_FOLDERS)・確かめるで待っている切り抜き・評価用は外す
+  学習用データ・評価用データのフォルダの下(KEEP_FOLDERS)・依頼のフォルダの下(上の「最後に届けてから」の決まりだけ)・確かめるで待っている切り抜き・評価用は外す
 移さない物: 文書・作業用の記録・字幕(.transcript.json・.clip.json・.edit.json・.srt。精度の材料 = Q4)・評価用の動画と
 確かめるの「切り抜く価値」で答えを待っている切り抜き(keep_paths。入口が渡す)・まとめて実行が動いている配信(busy_ids)・
 手で置いた依頼の動画・録画(書き出し先の案件の切り抜きでない物は見ない)
@@ -176,14 +176,14 @@ class Cleanup:
                 p = os.path.join(root, n)
                 if n.endswith(REASON_SUFFIX):
                     continue
-                try:
-                    mt = os.path.getmtime(p)
+                reason = os.path.splitext(p)[0] + REASON_SUFFIX
+                try:   # 起点 = 失敗したときに書く理由の .txt(移しても元の更新日時のままなので。10-29)・無ければ物の更新日時
+                    mt = os.path.getmtime(reason) if os.path.isfile(reason) else os.path.getmtime(p)
                 except OSError:
                     continue
                 if now - mt <= self.keep_days * 86400:
                     continue
-                out.append(_item("failed", p, "%s・更新から %d 日" % (label, int((now - mt) // 86400)),
-                                 [os.path.splitext(p)[0] + REASON_SUFFIX]))
+                out.append(_item("failed", p, "%s・失敗から %d 日" % (label, int((now - mt) // 86400)), [reason]))
         return out
 
     def _delivered(self):
@@ -333,7 +333,7 @@ class Cleanup:
 
     def old_packs(self, keep_paths=(), taken=(), busy_dirs=()):
         """完成品のパック(10-24): 書き出し先の下の <名前>_pack と、隣の書き出しの動画(<名前>.mp4 と _edit.mp4)。
-        中の一番新しいファイルから keep_days 日たった物。KEEP_FOLDERS の下・ごみ箱・keep_paths(確かめるで待っている切り抜き・評価用の動画)・
+        中の一番新しいファイルから keep_days 日たった物。KEEP_FOLDERS の下・依頼のフォルダ(書き出し先\\依頼\\)の下・ごみ箱・keep_paths(確かめるで待っている切り抜き・評価用の動画)・
         taken(ほかの決まりで移す物)・busy_dirs(まとめて実行が今動いている配信の切り抜きのあるフォルダ)は除く"""
         if not OLD_PACKS:
             return []
@@ -343,8 +343,10 @@ class Cleanup:
         out, seen = [], set()
         for root in self._out_dirs():
             base = root.rstrip("\\/").count(os.sep)
+            reqs = {os.path.normcase(os.path.abspath(d)) for d, is_req in placement.case_parents(root) if is_req}
             for cur, dirs, _files in os.walk(root):
-                if any(k in cur for k in KEEP_FOLDERS) or os.path.basename(cur) in (trashbin.TRASH_DIR, DRIVE_TRASH) or os.path.normcase(cur) in busy_dirs:
+                if (any(k in cur for k in KEEP_FOLDERS) or os.path.basename(cur) in (trashbin.TRASH_DIR, DRIVE_TRASH) or os.path.normcase(cur) in busy_dirs
+                        or os.path.normcase(os.path.abspath(cur)) in reqs):   # 依頼のフォルダは _requests の「最後に届けてから」だけ(届けていない依頼のパックは動かさない・10-29)
                     dirs[:] = []
                     continue
                 if cur.count(os.sep) - base >= PACK_DEPTH:
