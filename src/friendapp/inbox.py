@@ -571,8 +571,8 @@ class Inbox:
             return [json.loads(json.dumps(r)) for r in self.rows
                     if r.get("pc") == "user" and r["state"] in ("sent", "making") and (r.get("remote") or {}).get("state") == state]
 
-    def remote_mark(self, rid, state):
-        """uploaded(直下に置いた)・accepted(直下から消えた = 受け付けられた。行は「作っている」)"""
+    def remote_mark(self, rid, state, files=None):
+        """uploaded(直下に置いた。files = 一緒に上げた動画の名前)・accepted(直下から消えた = 受け付けられた。行は「作っている」)"""
         with self.lock:
             r = self.row(rid)
             if r is None or r.get("pc") != "user" or r["state"] not in ("sent", "making"):
@@ -582,6 +582,8 @@ class Inbox:
             rem["state"] = state
             if state == "uploaded":
                 rem["uploadedAt"] = now
+                if files:
+                    rem["files"] = list(files)
             elif state == "accepted":
                 rem["acceptedAt"] = now
                 r["state"] = "making"

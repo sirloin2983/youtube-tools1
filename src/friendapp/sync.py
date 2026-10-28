@@ -404,6 +404,17 @@ def upload_name(rid, name):
     return "%s__%s%s" % (rid, stem or "video", ext if ext and not BAD_NAME.search(ext) else "")
 
 
+def _video_source(fi):
+    """上げる動画: 確保した写し(form.file.copy)があればそれ・無ければ元の動画"""
+    return fi.get("copy") if isinstance(fi.get("copy"), str) and os.path.isfile(fi["copy"]) else fi.get("path")
+
+
+def video_upload_name(rid, fi):
+    """依頼の動画を上げる Dropbox の名前(上げる時と消す時で同じ決め方。名前の欄が空なら上げる物のファイル名)"""
+    src = _video_source(fi)
+    return upload_name(rid, fi.get("name") or (os.path.basename(src) if isinstance(src, str) else "") or "video")
+
+
 class Sync:
     """同期の係(玄関に 1 つ)。places = friendapp/places.setup の値 + save・inbox = 受信箱・engine_fn() = ② か None。
     client_factory(config, cancelled) -> Dropbox の口(dropbox.Client と同じ名前の関数を持つ物。テストは偽物)"""
@@ -598,7 +609,7 @@ class Sync:
                 doc = request_doc("video" if kind == "file" else kind, r["id"], cur["form"], self.clock(), files=files)
                 io.upload_bytes(json.dumps(doc, ensure_ascii=False).encode("utf-8"), self.request_path(r["id"]), overwrite=True)
                 self.sent_at = int(self.clock() * 1000)
-                self.inbox.remote_mark(r["id"], "uploaded")
+                self.inbox.remote_mark(r["id"], "uploaded", files=files)
                 self.log("ユーザーの PC への依頼を上げました: %s" % r["id"])
                 if cur.get("takeover"):
                     io.delete(self.take_path(r["id"]))
@@ -650,12 +661,12 @@ class Sync:
         確保した写し(form.file.copy = この PC で作るときに一時保管へ写した物・落とした動画)があればそれを、無ければ元の動画を上げる。
         前の回に上げ終えた同じ大きさの物が直下にあれば上げ直さない。通信の問題は DropboxError(次の回にもう一度)"""
         rid, fi = row["id"], (row["form"].get("file") or {})
-        path = fi.get("copy") if isinstance(fi.get("copy"), str) and os.path.isfile(fi["copy"]) else fi.get("path")
+        path = _video_source(fi)
         if not isinstance(path, str) or not os.path.isfile(path):
             self.inbox.fail(rid, "送る動画ファイルが見つかりません(移動・削除した可能性があります)。選び直して送ってください")
             return None
         size = os.path.getsize(path)
-        name = upload_name(rid, fi.get("name") or os.path.basename(path))
+        name = video_upload_name(rid, fi)
         have = io.get_metadata("/" + name)
         if isinstance(have, dict) and have.get("size") == size:
             return [have.get("name") or name]
@@ -690,8 +701,8 @@ class Sync:
                 raise SyncError(NO_KEY)
             gone = True if rem.get("state") == "pending" else io.delete(self.request_path(rid))
             if gone and video:   # 上げた動画も消す(依頼の JSON の無い動画は、受付が手で置いたファイルとして断って 失敗\ へ移すので、残さない)
-                fi = (r.get("form") or {}).get("file") or {}
-                io.delete("/" + upload_name(rid, fi.get("name") or "video"))
+                for name in rem.get("files") or [video_upload_name(rid, (r.get("form") or {}).get("file") or {})]:   # 上げた名前(上げる前・古い行は上げるときと同じ決め方)
+                    io.delete("/" + name)
             return gone
 
     # ------------------------------------------------------------ 2. /出力/ の取り込み
@@ -843,7 +854,7 @@ class Sync:
                                              or VOICE_NAME_RE.match(name) or diag):
                 continue
             try:
-                io.upload(p, "%s/%s" % (DIAG if diag else RETURNS, name))
+                io.upload(p, "%s/%s" % (DIAG if diag else RETURNS, name), overwrite=True)   # 名前は毎回違う = 届いたのに返事の前に切れた上げ直しで「(1)」を作らない
                 self.sent_at = int(self.clock() * 1000)
                 fsio.unlink_quiet(p)
                 self.log("送り返しを上げました: %s" % name)

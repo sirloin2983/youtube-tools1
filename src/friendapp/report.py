@@ -722,13 +722,16 @@ class Reporter:
             path = self.fire("ask", None, "送ってに答えました" + ("(%s)" % note[:200] if note else ""), ask=aid, local=local)
             if path is None:
                 continue
-            for p in used:
+            sent = _fsio.read_json_or(path, None, kind=dict)   # 大きさの都合で落とした手元の分(古い物から)は消さずに次の「送って」へ残す
+            k = len((sent or {}).get("local") or [])
+            docs = [p for p, ok in used if ok]
+            for p in [p for p, ok in used if not ok] + (docs[len(docs) - k:] if k else []):
                 _fsio.unlink_quiet(p)
             io.delete("%s/%s" % (ASK_DIR, name))
-            self.log("送ってに答えました: %s(手元の %d 件)" % (aid, len(used)))
+            self.log("送ってに答えました: %s(手元の %d 件%s)" % (aid, k, "・%d 件は次へ" % (len(docs) - k) if len(docs) > k else ""))
 
     def _take_local(self):
-        """手元に残していた状態(古い順)と、そのファイルのパス。長い所は先に落とす(まとめて 1 MB に収めるため)"""
+        """手元に残していた状態(古い順)と、[(そのファイルのパス, 読めたか)]。長い所は先に落とす(まとめて 1 MB に収めるため)"""
         d = self.local_dir()
         out, used = [], []
         try:
@@ -738,7 +741,7 @@ class Reporter:
         for n in names:
             p = os.path.join(d, n)
             doc = _fsio.read_json_or(p, None, kind=dict)
-            used.append(p)
+            used.append((p, doc is not None))
             if doc is None:
                 continue
             for k in ("log", "screen", "ops"):
