@@ -82,6 +82,7 @@ class AccuracyProbeTest(TL.Base):
 
     def test_busy_probe(self):
         self.assertIsNone(self.srv._accuracy_busy())          # 何も動いていない(編集も動いていない)
+        self.assertEqual(self.srv._accuracy_busy(need_editor=True), "編集が動いていません")   # 編集へ頼む側は待つ(頼みを失敗にしない・10-29)
         with jobs.SLOTS.slot("studio", "テスト") as ok:
             self.assertTrue(ok)
             self.assertEqual(self.srv._accuracy_busy(), "重い処理")

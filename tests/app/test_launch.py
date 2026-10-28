@@ -28,7 +28,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, TESTS)
 sys.path.append(os.path.dirname(HERE))   # src(app 層。入口本体は src/app/server.py)
 from app import server as L  # noqa: E402
-from ytt import layout  # noqa: E402  (launch がリポジトリ直下を sys.path に入れる)
+from ytt import layout, tools  # noqa: E402  (launch がリポジトリ直下を sys.path に入れる)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
 import testkit  # noqa: E402  (launch がリポジトリ直下を sys.path に入れる)
 
@@ -212,7 +212,7 @@ class Base(unittest.TestCase):
         """入口を通さずに(別の黒い画面で起動したのと同じ)偽のツールを起動する。root: 別のフォルダの serve.py(古い版など)"""
         import subprocess
         p = subprocess.Popen([sys.executable, os.path.join(root or self.root, layout.TOOL_DIRS[tid], "serve.py"), str(port), "--no-open"],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=tools.no_window_flags())
         self.extra_procs.append(p)
         self.assertTrue(wait_for(lambda: L.ping(port) is not None, 10), "偽のツールが起動しない")
         return p

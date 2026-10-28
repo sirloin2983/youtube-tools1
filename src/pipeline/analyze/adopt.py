@@ -61,14 +61,18 @@ def adopt(marks, want, top, duration=None):
     taken = set(range_ids) | set(human_ids)
     picked = [(m["start"], m["end"]) for m in marks if m["id"] in taken]
     room = max(0, top - sum(_marks.pieces_of(m) for m in marks if m["id"] in taken))   # つないだマークは元の本数と数える(excite.join_clips)
+    # 前に機械が採用したマーク(adoptedBy auto。解析し直しで手動 = touched になった物も)を先に、点数の高い順で上限まで数える
+    # = 新しい自動マークが前の採用を押しのけて採用が上限を超えない(コードの見直し 2 の 4)
+    prev = sorted((m for m in marks if m.get("adoptedBy") == "auto" and m["status"] in ("adopted", "exported") and m["id"] not in taken), key=_marks.by_score)
+    fresh = sorted((m for m in marks if m["src"] == "auto" and m["status"] != "rejected" and m["id"] not in taken and m not in prev
+                    and not any(_marks.overlaps(m["start"], m["end"], s, e) for s, e in picked)), key=_marks.by_score)
     autos = []
-    for m in sorted((m for m in marks if m["src"] == "auto" and m["status"] != "rejected" and m["id"] not in taken
-                     and not any(_marks.overlaps(m["start"], m["end"], s, e) for s, e in picked)), key=_marks.by_score):
+    for m in prev + fresh:
+        if room <= 0:
+            break
         if _marks.pieces_of(m) <= room:   # 残りに入らない(つないだ)マークは飛ばして次へ
             autos.append(m)
             room -= _marks.pieces_of(m)
-        if room <= 0:
-            break
     for m in autos:
         if m["status"] == "":
             m["status"], m["adoptedBy"] = "adopted", "auto"

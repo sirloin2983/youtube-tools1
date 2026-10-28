@@ -72,6 +72,8 @@ class CleanupTest(unittest.TestCase):
         old = touch(os.path.join(fail, "old.zip"), 40, mtime=self.now[0] - 5 * 86400)
         reason = touch(os.path.join(fail, "old.理由.txt"), 5, mtime=self.now[0] - 5 * 86400)
         touch(os.path.join(fail, "new.zip"), 40, mtime=self.now[0] - 1 * 86400)
+        touch(os.path.join(fail, "moved.zip"), 40, mtime=self.now[0] - 9 * 86400)   # 古い物が昨日失敗した = 起点は理由の .txt(10-29)
+        touch(os.path.join(fail, "moved.理由.txt"), 5, mtime=self.now[0] - 1 * 86400)
         items = self.kind("failed", self.cleanup(), intake_dir=sync)
         self.assertEqual([i["path"] for i in items], [old])
         self.assertEqual(items[0]["extra"], [reason])
@@ -194,6 +196,7 @@ class CleanupTest(unittest.TestCase):
         pack(os.path.join("学習用データ", "ショート"), "01_x")
         pack(os.path.join("評価用データ", "1_JP", "評価用データ35"), "01_y")
         busy = pack("配信B", "01_z")
+        pack(os.path.join(C.REQUEST_DIR, "20261020_題_bbbbbb"), "01_r")   # 依頼のフォルダは「最後に届けてから」の決まりだけ(届けていない依頼は動かさない・10-29)
         touch(os.path.join(out, "配信A", "作業用", "01_a.transcript.json"), 1, mtime=old)
         items = [i for i in cl.auto_items([wait], None, [{"id": "busy", "clips": [{"path": busy}]}], {"busy"}) if i["kind"] == "export"]
         self.assertEqual({os.path.basename(p) for i in items for p in i["parts"]}, {"01_a.mp4", "01_a_pack"})
