@@ -69,6 +69,21 @@ FILL_ON = True
 FILL_REASON = "本数に届かないので埋めた(点数は低め)"
 SHAPE_DEFAULT = "scene"   # スイッチ: "scene" = 場面ごと / "fixed" = 山から固定の長さ(0.88 まで)。解析の設定・配信中の spec の shape が上書きする
 SHAPES = ("scene", "fixed")
+# 固定の長さを使わない(10-28 ユーザー。notes:plan/今の前提.md の 2 章): 場面が取れないとき(山が平ら)の区間を、設定の長さ(既定 45 秒・長さの目安)でなく
+# 同じ配信で取れた場面の長さの中央値を AUTO_LEN に丸めた長さ(取れた場面が無ければ AUTO_LEN_DEFAULT)にする。友人の依頼のライブはいつも場面ごと・
+# 解析の設定の shape "fixed" は読まない(live_excite_worker・analyze が見る)。印: 候補の shape "auto"。測る道具(src/eval)は spec に fallback を渡さない = 今までと同じ。
+# スイッチ: False で前の形(場面が取れなければ固定の長さ・友人の古い依頼は固定・設定の fixed を読む)
+AUTO_LEN_ON = True
+AUTO_LEN = (150.0, 180.0)
+AUTO_LEN_DEFAULT = 165.0
+
+
+def auto_length(lengths):
+    """場面が取れないときの長さ: 取れた場面の長さ lengths の中央値を AUTO_LEN に丸める(無ければ AUTO_LEN_DEFAULT)"""
+    v = [float(x) for x in lengths]
+    return AUTO_LEN_DEFAULT if not v else max(AUTO_LEN[0], min(AUTO_LEN[1], median(v)))
+
+
 # 場面を長くつなぐ(10-23 ユーザー「切り抜きたいところが欠けるのを減らす方が良い」。決定 3-151。notes:plan/heatmap-study.md の「区間の形」):
 # hold 10 → 30 秒・rise 0.3 → 0.4。友人の 30 区間で 7 割を覆う候補が上位 20 本に入る割合が 4 組すべてで上がる(組 A .50 → .69)・余分は平均 +13 秒。
 # 配信中(PeakBook)も同じ形(L-5)= 収まりの見極めが 20 秒長い。スイッチ: False で前の形(hold 10・rise 0.3)。印: archive の解析の記録 sceneForm・配信中の peaks.json の sceneForm
@@ -214,7 +229,8 @@ def peak_total(total, stamps, n, w):
 
 def pick_clips(total, level, spec, n, scene_total=None):
     """合計スコアの山を高い順に選び、区間(開始・終了)にする。見つけた区間は重ならない。
-    spec の shape が "scene" なら区間は場面ごと(scene_region。取れなければ固定の長さ)で、候補に shape と固定の長さの区間 fixed も付ける。
+    spec の shape が "scene" なら区間は場面ごと(scene_region。取れなければ固定の長さ・spec の fallback が "auto" なら auto_length)で、
+    候補に shape と固定の長さの区間 fixed も付ける。
     shape が無い・"fixed" なら 固定の形(golden で固定)。
     spec の fill(数)があれば、しきい値を超える山が fill 個に届かないとき、しきい値の下の山(点数が 0 より上)で fill 個まで埋める(印 fill。
     例: チャットが 0 件で音声だけ・山 1 つ。スイッチ FILL_ON)。
@@ -228,15 +244,19 @@ def pick_clips(total, level, spec, n, scene_total=None):
     out = []
     lows = smooth(level, LEVEL_SMOOTH)
     fill = min(int(spec.get("fill") or 0), spec["count"]) if FILL_ON else 0   # 本数に届かないときに埋める数(既定 0 = 埋めない = golden と同じ)
+    auto = scene and spec.get("fallback") == "auto"   # 場面が取れないときも自動の長さ(AUTO_LEN_ON。測る道具は渡さない)
+
+    def around(peak, ln):   # 山の前に pre 割を置いた長さ ln の区間を、声の途中で切らないよう近くの静かなところに合わせる
+        s = max(0.0, min(peak - ln * pre, n - ln))
+        e = min(float(n), s + ln)
+        return snap_region(lows, max(0.0, e - ln), e, peak, n, ln)
+
     while len(out) < spec["count"]:
         peak = max(range(n), key=lambda i: work[i]) if n else 0
         below = bool(n) and work[peak] < thr   # しきい値の下 = ここから先は埋めるだけ(山は低い順にしか出ない)
         if not n or (below and (len(out) >= fill or work[peak] <= 0)):   # 埋めるのは点数が 0 より上の山だけ(平らな所は区間にしない)
             break
-        s = max(0.0, min(peak - length * pre, n - length))
-        e = min(float(n), s + length)
-        s = max(0.0, e - length)
-        s, e = snap_region(lows, s, e, peak, n, length)   # 声の途中で切らないよう、近くの静かなところに合わせる
+        s, e = around(peak, length)
         c = {"start": round(s, 1), "end": round(e, 1), "peak": peak, "score": round(work[peak], 2)}
         if below:
             c["fill"] = True   # 印: しきい値に届かない山で埋めた(測る道具はこの印で外せる)
@@ -246,6 +266,9 @@ def pick_clips(total, level, spec, n, scene_total=None):
             if r is not None and not r["open"]:
                 s, e = snap_region(lows, r["start"], r["end"], peak, n, r["end"] - r["start"])
                 c.update(start=round(s, 1), end=round(e, 1), shape="scene")
+            elif auto:   # 場面が取れない(山が平ら)= 同じ配信の場面の長さ(auto_length。固定の長さは使わない)
+                s, e = around(peak, auto_length([x["end"] - x["start"] for x in out if x.get("shape") == "scene"]))
+                c.update(start=round(s, 1), end=round(e, 1), shape="auto")
             else:
                 c["shape"] = "fixed"   # 場面が取れない(山が平ら)= 長さの目安の固定の長さ(LD-2d)
         out.append(c)
@@ -702,11 +725,13 @@ class PeakBook:
       fast_push を呼ばなければ今までと同じ(本番の候補・枠の規則は変わらない)
     純粋(時計・ファイルを持たない)。to_json / from_json で起動し直しに耐える。"""
 
-    def __init__(self, length=45, pre=PRE_RATIO_DEFAULT, sens="normal", per_hour=6, confirm_low=CONFIRM_LOW_SEC, shape="fixed", scene=None):
+    def __init__(self, length=45, pre=PRE_RATIO_DEFAULT, sens="normal", per_hour=6, confirm_low=CONFIRM_LOW_SEC, shape="fixed", scene=None,
+                 fallback=None):
         self.length, self.pre, self.thr, self.per_hour = float(length), float(pre), SENS[sens if sens in SENS else "normal"], int(per_hour)
         self.confirm_low = int(confirm_low)
         self.shape = shape if shape in SHAPES else "fixed"   # 区間の形(呼ぶ側がスイッチ SHAPE_DEFAULT か spec の shape を渡す。引数の既定は 0.88 までと同じ固定)
         self.scene = scene_params(scene)
+        self.fallback = fallback if fallback == "auto" else None   # "auto" = 場面が取れないときも自動の長さ(auto_length。呼ぶ側がスイッチ AUTO_LEN_ON で渡す)
         self.work = {}        # 直近のならした合計(秒 -> smooth(5) の値)。場面の形用
         self.boost = []       # [[から, まで), 倍](しきい値を上げる区間。thr_scale)
         self.fast = self._fast_init()   # 音だけの先回りの計算の状態(仮の候補)
@@ -749,10 +774,15 @@ class PeakBook:
             return None
         return w, sum(d[k] for k in ks) / len(ks)
 
-    def _region(self, peak):
-        """山の秒 -> 区間 (開始, 終わり)(長さ length の pre 割を山の前に置く。頭は 0 で止める)"""
-        s = max(0.0, peak - self.length * self.pre)
-        return s, s + self.length
+    def _auto_len(self):
+        """場面が取れないときの長さ(auto_length): この配信で取れた場面の長さから"""
+        return auto_length([p["end"] - p["start"] for p in self.peaks.values() if p.get("shape") == "scene"])
+
+    def _region(self, peak, length=None):
+        """山の秒 -> 区間 (開始, 終わり)(長さ length(無ければ self.length)の pre 割を山の前に置く。頭は 0 で止める)"""
+        length = self.length if length is None else length
+        s = max(0.0, peak - length * self.pre)
+        return s, s + length
 
     @staticmethod
     def _block_end(e):
@@ -804,8 +834,15 @@ class PeakBook:
         """本番の山を候補にする(区間・枠。近くに仮の候補があれば同じ id のまま本番に置き換える)-> 変更があった候補の id の一覧"""
         s, e = fs, fe = self._region(peak)
         r = self._scene_at(peak) if self.shape == "scene" else None
+        auto = self.shape == "scene" and r is None and self.fallback == "auto"
         if r is not None:
             s, e = r["start"], r["end"]
+        elif auto:   # 場面が取れない = この配信で取れた場面の長さ(固定の長さは使わない)。前の候補の終わりより前へは伸ばさない(重ねない)
+            ln = self._auto_len()
+            prev = max([p["end"] for p in self.peaks.values() if not p.get("provisional") and p["end"] <= peak] or [0.0])
+            s, e = self._region(peak, ln)
+            if s < prev:
+                s, e = prev, prev + ln
         self.block_until = SCENE_N if r is not None and r["open"] else self._block_end(e)
         prov = self._absorbable(s, e)
         if prov is not None:
@@ -828,7 +865,7 @@ class PeakBook:
         if self.tag:
             pk.update(self.tag)
         if self.shape == "scene":
-            pk.update(shape="scene" if r is not None else "fixed", fixed=[round(fs, 1), round(fe, 1)], sceneOpen=bool(r and r["open"]))
+            pk.update(shape="scene" if r is not None else "auto" if auto else "fixed", fixed=[round(fs, 1), round(fe, 1)], sceneOpen=bool(r and r["open"]))
         if not pk.get("sceneOpen"):
             self._snap(pk)
         self._place(pk)
@@ -878,7 +915,7 @@ class PeakBook:
         return max([v for k, v in self.fast["audio"].items() if a <= k <= b] or [0.0])
 
     def _prov_fill(self, pk, peak, value, audio):
-        s, e = self._region(peak)
+        s, e = self._region(peak, self._auto_len() if self.shape == "scene" and self.fallback == "auto" else None)   # 仮の区間も固定の長さを使わない
         pk.update({"start": round(s, 1), "end": round(e, 1), "peak": peak, "score": round(value, 2),
                    "parts": {"audio": round(audio, 2), "chat": 0.0}, "confirmedAt": peak, "hour": peak // 3600})
         pk["reasons"] = reasons_of(pk["parts"])
@@ -935,7 +972,7 @@ class PeakBook:
             return True
         n = need + 1
         lows = [0.0] * lo + smooth([self.level[k] for k in range(lo, n)], LEVEL_SMOOTH)   # 絶対の秒で引けるよう前を埋める(lo より前は見ない。lo の値だけ端で縮むが使わない)
-        s2, e2 = snap_region(lows, s, e, pk["peak"], n, e - s if pk.get("shape") == "scene" else self.length)
+        s2, e2 = snap_region(lows, s, e, pk["peak"], n, e - s if pk.get("shape") in ("scene", "auto") else self.length)
         pk["start"], pk["end"] = round(s2, 1), round(e2, 1)   # 合わせなかったときは元の値(round 済み)のまま
         pk["endPending"] = False
         self.block_until = max(self.block_until, self._block_end(pk["end"]))
@@ -987,7 +1024,7 @@ class PeakBook:
             for i in range(a, b):
                 work[i] = 0.0
         spec = {"length": self.length, "preRatio": self.pre, "sensitivity": "normal", "count": short, "fill": short,
-                "shape": self.shape, "scene": self.scene}
+                "shape": self.shape, "scene": self.scene, "fallback": self.fallback}
         def fit(x):
             return [float(v) for v in x][:n] + [0.0] * max(0, n - len(x))
         picks = pick_clips(work, fit(level), spec, n)
@@ -1122,12 +1159,13 @@ class PeakBook:
                 "changes": self.changes, "seq": self.seq, "n_ids": self.n_ids, "last_t": self.last_t, "rising": self.rising,
                 "block_until": self.block_until, "pending": self.pending,
                 "total": self.total, "parts": self.parts, "level": self.level, "confirmLow": self.confirm_low, "boost": self.boost,
-                "shape": self.shape, "scene": self.scene, "work": self.work,
+                "shape": self.shape, "scene": self.scene, "work": self.work, "fallback": self.fallback,
                 "fast": dict(self.fast)}   # 鍵は total・audio・rising・open・block(_fast_init と from_json がこの 5 つだけを作る)
 
     @classmethod
     def from_json(cls, d):
-        b = cls(d["length"], d["pre"], "normal", d["per_hour"], d.get("confirmLow", CONFIRM_LOW_SEC), d.get("shape", "fixed"), d.get("scene"))   # 0.88 までの保存は固定の形
+        b = cls(d["length"], d["pre"], "normal", d["per_hour"], d.get("confirmLow", CONFIRM_LOW_SEC), d.get("shape", "fixed"), d.get("scene"),
+                d.get("fallback"))   # 0.88 までの保存は固定の形・0.99.323 までの保存は fallback なし(場面が取れなければ固定の長さ)
         b.work = _int_keys(d.get("work"))
         b.thr = float(d["thr"])
         b.boost = [[int(x[0]), int(x[1]), float(x[2])] for x in d.get("boost") or []]

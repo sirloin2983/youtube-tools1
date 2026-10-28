@@ -2,6 +2,7 @@
 """② 管理の層 flow: 自動の切り抜きの長さの目安(友人が依頼で指定した区間の長さから。OPT-E2 7f-1・7f-2。決定 3-49 の Q1)。
 LD-2d(notes:plan/done/ld2-clip-length.md): 区間は場面ごと(① excite の scene_region。スイッチ excite.SHAPE_DEFAULT)なので、
 この目安の役目は「場面が取れないとき(点数が無い・山が平ら)の固定の長さ」と、スイッチを fixed に戻したときの長さ。
+10-28 から固定の長さは使わない(スイッチ excite.AUTO_LEN_ON。場面が取れなければ excite.auto_length)ので、スイッチを切ったときだけ効く。
 
 本番の読み手 2 つ(依頼の解析 = src/app/autorun.py・ライブの新しい録画 = src/flow/live_detect.py)は、使うときにここでその場で数える
 (作業データを読むだけ。スタジオの data.json・archive/<配信>.json.gz・入口の実行記録)。

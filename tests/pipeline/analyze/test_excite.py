@@ -585,6 +585,30 @@ class TestScene(unittest.TestCase):
         p = excite.peak_total([0.0] * n, stamps, n, 0.7)
         self.assertGreater(p[530], 0.0)   # 重い形(後ろ 30 秒)の分だけ山の点数が足される
 
+    def test_auto_length_when_no_scene(self):
+        """固定の長さを使わない(AUTO_LEN_ON): 場面が取れないときは同じ配信の場面の長さの中央値を 150〜180 秒に(無ければ 165 秒)。
+        spec に fallback が無ければ(測る道具)今までの固定の長さ。配信中は前の候補に重ねない"""
+        self.assertEqual([excite.auto_length(v) for v in ([], [100], [160], [170, 200, 300])], [165.0, 150.0, 160.0, 180.0])
+        n = 3000
+        scene_w = bump(n, 1000, 5.0, 200)
+        peak_w = [a + b for a, b in zip(bump(n, 1000, 5.0, 200), bump(n, 2200, 9.0, 20))]
+        got = excite.pick_clips(peak_w, [-30.0] * n, dict(SPEC, shape="scene", count=4, fallback="auto"), n, scene_total=scene_w)
+        self.assertEqual((got[0]["shape"], got[0]["end"] - got[0]["start"]), ("auto", 165.0))   # 先に取れた場面が無い = 165 秒
+        self.assertTrue(got[0]["start"] <= got[0]["peak"] <= got[0]["end"])
+        w = bump(n, 1500, 5.0, 900)   # 山の前もずっと高い = 場面が取れない山が続く
+        b = excite.PeakBook(45, 0.65, "normal", 6, shape="scene", fallback="auto")
+        for t in range(n):
+            b.push(t, w[t], {"audio": w[t]}, -30.0)
+        b.finish()
+        pk = sorted(b.list(), key=lambda p: p["start"])
+        auto = [p for p in pk if p["shape"] == "auto"]
+        self.assertTrue(auto, pk)
+        for a, c in zip(pk, pk[1:]):
+            self.assertLessEqual(a["end"], c["start"] + excite.SNAP_RADIUS, pk)   # 重ねない(静かな所へ合わせる分だけ)
+        for p in auto:
+            self.assertTrue(excite.AUTO_LEN[0] * excite.SNAP_RATIO[0] <= p["end"] - p["start"] <= excite.AUTO_LEN[1] * excite.SNAP_RATIO[1], p)
+        self.assertEqual(excite.PeakBook.from_json(json.loads(json.dumps(b.to_json()))).fallback, "auto")
+
     def test_peakbook_scene_waits_for_settle(self):
         n = 1600
         w = bump(n, 800, 6.0, 120)

@@ -194,7 +194,8 @@ DEFAULTS = {
         "wAudio": 1.0, "wChat": 1.0, "wComments": 0.7,
         "sensitivity": "normal",
         "count": 8,           # 候補の本数
-        "length": 45,         # 切り抜きの長さ(秒。区間が場面ごとの形 = excite.SHAPE_DEFAULT のときは、場面が取れないときの長さ)
+        "length": 45,         # 切り抜きの長さ(秒。区間が場面ごとの形 = excite.SHAPE_DEFAULT のときは、場面が取れないときの長さ。
+                              # 固定の長さを使わない excite.AUTO_LEN_ON のときは使わない = 場面が取れなければ excite.auto_length)
         "preRatio": 0.65,     # 山の位置(src/pipeline/analyze/excite.py の PRE_RATIO_DEFAULT)
         "headSec": 180,       # 冒頭の減点をかける秒(analyze.py の HEAD_SEC_DEFAULT。0 で無効)
         "lagAuto": True,      # チャットの遅れ: 自動

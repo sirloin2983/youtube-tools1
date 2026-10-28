@@ -203,8 +203,9 @@ def clean_requests(v):
 def request_spec(spec, req):
     """友人の依頼の録画の spec(2-15・C-2-11): lengthMode auto なら場面ごとの形(長さは場面が取れないときの長さ = 上の LIVE_AUTO_LENGTH の決まり)、
     ほかは依頼の固定の長さ(古い友人のアプリの「固定」)。依頼の長さが無ければ spec の長さのまま。
-    同じ spec に何度かけても同じ(配信の途中の set_request は前に request_spec を通した spec にかける = 目安を選んだ印 friendSceneHint を見る)"""
-    if req.get("lengthMode") == "auto":
+    同じ spec に何度かけても同じ(配信の途中の set_request は前に request_spec を通した spec にかける = 目安を選んだ印 friendSceneHint を見る)。
+    固定の長さは使わない(excite.AUTO_LEN_ON)ので、lengthMode の無い古い依頼も場面ごと"""
+    if req.get("lengthMode") == "auto" or excite.AUTO_LEN_ON:
         out = dict(spec, shape="scene", lengthFrom="friendScene", lengthNote="友人の依頼の設定(場面ごと)")
         if LIVE_AUTO_LENGTH is None:
             if req.get("length"):
@@ -728,10 +729,18 @@ def purge_chat_logs(folder, now, keep=CHAT_LOG_KEEP):
 
 def shape_of(spec):
     """録画の区間の形(LD-2b): 友人の依頼で長さを決めた録画は固定の長さ(L-4)・spec の shape・無ければスイッチ excite.SHAPE_DEFAULT。
-    友人の依頼の「自動(場面ごと)」(C-2-11)は request_spec が shape scene・lengthFrom friendScene にする"""
+    友人の依頼の「自動(場面ごと)」(C-2-11)は request_spec が shape scene・lengthFrom friendScene にする。
+    固定の長さは使わない(excite.AUTO_LEN_ON)ので、スイッチが入っていればいつも場面ごと"""
+    if excite.AUTO_LEN_ON:
+        return "scene"
     if spec.get("lengthFrom") == "friend":
         return "fixed"
     return spec["shape"] if spec.get("shape") in excite.SHAPES else excite.SHAPE_DEFAULT
+
+
+def fallback_of():
+    """場面が取れないときの区間(excite.PeakBook の fallback): "auto" = 自動の長さ(excite.auto_length)・None = 前の形(固定の長さ)"""
+    return "auto" if excite.AUTO_LEN_ON else None
 
 
 # ---------------------------------------------------------------- 録画 1 本の状態
@@ -749,7 +758,8 @@ class RecState:
         self.chat_info = {}   # チャットの診断(ChatFeed.info と状態・待ち。チャットを使わない録画は理由 kind だけ)
         self.online = excite.Online(use_chat=self.use_chat, **self.args)
         det = clean_detect(detect)
-        self.book = excite.PeakBook(self.spec["length"], self.spec["preRatio"], det["sens"], det["perHour"], shape=shape_of(self.spec))
+        self.book = excite.PeakBook(self.spec["length"], self.spec["preRatio"], det["sens"], det["perHour"], shape=shape_of(self.spec),
+                                     fallback=fallback_of())
         self.thr_base = self.book.thr   # 感度のしきい値(音だけのときは apply_thr が AUDIO_ONLY_SCALE 倍を帳簿に入れる)
         # 候補が出るまでの遅れを縮める(仮の候補): チャットを待たずに音だけで先に計算する Online(同じ窓・同じ重み。チャットなしの録画は本番がもう待たないので作らない)
         self.fast = excite.Online(use_chat=False, **self.args) if self.use_chat and provisional else None
@@ -808,6 +818,7 @@ class RecState:
         st.args = dict(d.get("args") or st.args)
         st.online = excite.Online(use_chat=st.use_chat, **st.args).load(d["online"])
         st.book = excite.PeakBook.from_json(d["book"])
+        st.book.fallback = fallback_of()   # 起動し直す前の帳簿にも、場面が取れないときの自動の長さ(これから確定する候補から)
         st.thr_base = float(d["thrBase"]) if schemas.is_num(d.get("thrBase")) else st.book.thr
         # 先回りの計算(仮の候補)は state.json に無ければ作らない(本番と秒の数え始めがずれるため。その録画は本番の候補だけ)。変わり目は無ければここから数え始める
         st.fast = excite.Online(use_chat=False, **st.args).load(d["fast"]) if st.use_chat and isinstance(d.get("fast"), dict) else None
@@ -1115,6 +1126,7 @@ class RecState:
                 "lateChat": self.late, "chatInfo": self.chat_info, "ended": self.finished, "message": self.message,
                 "length": self.book.length, "preRatio": self.book.pre, "lengthFrom": self.spec.get("lengthFrom") or "studio",   # M10: 候補の長さの出どころ
                 "shape": self.book.shape,   # 区間の形(LD-2b。scene = 場面ごと・fixed = 山から固定の長さ)
+                "fallback": self.book.fallback,   # 印: 場面が取れないときの区間(auto = 自動の長さ・None = 固定の長さ)
                 "sceneForm": {k: self.book.scene[k] for k in ("rise", "hold")},   # 印: 場面のつなぎ方(決定 3-151)
                 "moodShifts": self.mood_shifts, "provisional": self.fast is not None,   # 雰囲気の変わり目の数・仮の候補を出しているか
                 "lateFrom": self.late_from,   # 録画の途中から測り始めた秒(それより前の候補は無い)

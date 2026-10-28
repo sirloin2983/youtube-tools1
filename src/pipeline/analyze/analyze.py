@@ -28,7 +28,7 @@ AUDIO_LEVEL_IDLE = 900   # 音量の解析(ffmpeg)で、この秒数まったく
 HEAD_SEC_DEFAULT = 180   # 冒頭の減点をかける秒数(0で無効)
 ARCHIVE_KEEP = 2000
 STREAM_KEYS = ("releaseTs", "timestamp", "uploadDate", "liveStatus", "duration")   # 付加情報(fetch.slim_meta)から結果の stream に写す項目
-SPEC_KEYS = ("count", "length", "sensitivity", "preRatio", "lag", "lagAuto", "headSec", "wAudio", "wChat", "wComments", "shape", "fill", "useChat")   # 結果・archive に残す設定(fill・useChat = ② が解析し直すかを読む)
+SPEC_KEYS = ("count", "length", "sensitivity", "preRatio", "lag", "lagAuto", "headSec", "wAudio", "wChat", "wComments", "shape", "fill", "useChat", "fallback")   # 結果・archive に残す設定(fill・useChat = ② が解析し直すかを読む・fallback = 印)
 CHAT_MIN = 30   # チャットの件数がこれ未満なら使わない
 
 
@@ -71,8 +71,16 @@ def validate_settings(req):
             "lag": num(req.get("lag"), 0, 30, 8), "lagAuto": req.get("lagAuto") is not False, "headSec": num(req.get("headSec"), 0, 600, HEAD_SEC_DEFAULT),
             "chatTimeout": int(num(req.get("chatTimeout"), 1, 120, 20)), "noCache": req.get("noCache") is True, "sensitivity": sens,
             "wAudio": num(req.get("wAudio"), 0, 3, 1.0), "wChat": num(req.get("wChat"), 0, 3, 1.0), "wComments": num(req.get("wComments"), 0, 3, 0.7),
-            "shape": req.get("shape") if req.get("shape") in excite.SHAPES else excite.SHAPE_DEFAULT,   # 区間の形(LD-2b。既定はスイッチ excite.SHAPE_DEFAULT)
+            "shape": shape_of(req),
+            "fallback": "auto" if excite.AUTO_LEN_ON else None,   # 場面が取れないときも自動の長さ(excite.auto_length。印として archive にも残る)
             "fill": int(num(req.get("fill"), 0, 30, 0))}   # 本数に届かないときに埋める数(② の自動の流れが採用の本数を渡す。0 = 埋めない。excite.pick_clips)
+
+
+def shape_of(req):
+    """区間の形(LD-2b。既定はスイッチ excite.SHAPE_DEFAULT)。固定の長さは使わない(excite.AUTO_LEN_ON)ので、保存してある shape "fixed" は読まない"""
+    if excite.AUTO_LEN_ON:
+        return "scene"
+    return req.get("shape") if req.get("shape") in excite.SHAPES else excite.SHAPE_DEFAULT
 
 
 def make_spec(src, settings):

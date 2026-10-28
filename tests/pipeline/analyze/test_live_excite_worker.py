@@ -893,7 +893,14 @@ class WorkerRestTest(unittest.TestCase):
 
     def test_shape_scene_and_friend(self):
         """LD-2b: 区間の形はスイッチ excite.SHAPE_DEFAULT(spec の shape が上書き)。友人の依頼で長さを決めた録画は固定の長さ(L-4)。
-        場面ごとの形の候補(生の固定の長さの区間も残す)は通し test_hls_run"""
+        場面ごとの形の候補(生の固定の長さの区間も残す)は通し test_hls_run。固定の長さを使わない(AUTO_LEN_ON)ならいつも場面ごと"""
+        for spec in ({}, {"shape": "fixed"}, {"shape": "scene", "lengthFrom": "friend"}):
+            self.assertEqual(W.shape_of(spec), "scene", spec)
+        self.assertEqual(W.fallback_of(), "auto")
+        patch = mock.patch.object(excite, "AUTO_LEN_ON", False)   # スイッチ: 前の形
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.assertIsNone(W.fallback_of())
         self.assertEqual(W.shape_of({}), excite.SHAPE_DEFAULT)
         self.assertEqual(W.shape_of({"shape": "fixed"}), "fixed")
         self.assertEqual(W.shape_of({"shape": "scene"}), "scene")
@@ -1184,7 +1191,11 @@ class WorkerRestTest(unittest.TestCase):
 
     def test_friend_request_only_with_its_settings(self):
         """2-15: detectAll false = 友人の依頼の録画(requests)だけ受け持つ。感度・枠・長さはその依頼の値(peaks.json の perHour・length・lengthFrom friend)。
-        detectAll true にすれば、ほかの録画はホームの設定で・依頼の録画は依頼の設定のまま(読み直しでも)。false に戻せば、ほかの録画は保存して手放す"""
+        detectAll true にすれば、ほかの録画はホームの設定で・依頼の録画は依頼の設定のまま(読み直しでも)。false に戻せば、ほかの録画は保存して手放す。
+        固定の長さの依頼の形を見るので、スイッチ excite.AUTO_LEN_ON を切って(前の形)流す"""
+        patch = mock.patch.object(excite, "AUTO_LEN_ON", False)
+        patch.start()
+        self.addCleanup(patch.stop)
         clock = Clock(T0)
         a = SimRecorder(clock)
         b = SimRecorder(clock, first=T0 + 60, rec=REC_B, url="https://www.youtube.com/watch?v=bbbbbbbbbbb")
@@ -1307,9 +1318,12 @@ class WorkerRestTest(unittest.TestCase):
         self.assertEqual(W.request_spec(short, {"lengthMode": "auto"})["length"], 150.0)
         with mock.patch.object(W, "LIVE_AUTO_LENGTH", None):   # スイッチ: 前の動き = 依頼の length
             self.assertEqual(W.request_spec(base, {"length": 30.0, "lengthMode": "auto"})["length"], 30.0)
-        fixed = W.request_spec(auto, {"length": 50.0})
-        self.assertEqual((W.shape_of(fixed), fixed["length"], fixed["lengthFrom"]), ("fixed", 50.0, "friend"))
-        self.assertEqual(W.request_spec(base, {"length": None}), base)   # 長さの無い依頼 = スタジオの長さのまま
+        old = W.request_spec(base, {"length": 50.0})   # lengthMode の無い古い依頼も場面ごと(固定の長さを使わない = AUTO_LEN_ON)
+        self.assertEqual((W.shape_of(old), old["length"], old["lengthFrom"]), ("scene", 150.0, "friendScene"))
+        with mock.patch.object(excite, "AUTO_LEN_ON", False):   # スイッチ: 前の形 = 古い依頼は固定の長さ
+            fixed = W.request_spec(auto, {"length": 50.0})
+            self.assertEqual((W.shape_of(fixed), fixed["length"], fixed["lengthFrom"]), ("fixed", 50.0, "friend"))
+            self.assertEqual(W.request_spec(base, {"length": None}), base)   # 長さの無い依頼 = スタジオの長さのまま
 
 
 if __name__ == "__main__":
