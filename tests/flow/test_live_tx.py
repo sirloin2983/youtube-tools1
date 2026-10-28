@@ -37,7 +37,7 @@ import testkit  # noqa: E402
 from flow import board as Board  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from flow import live_tx as TX  # noqa: E402
-from ytt import datadir, fsio  # noqa: E402
+from ytt import datadir, fsio, marks as _marks  # noqa: E402
 
 TOKEN = "x" * 40
 T0 = 1790000000.0
@@ -197,6 +197,9 @@ class LiveTxBase(unittest.TestCase):
 
     def setUp(self):
         self.tmp = testkit.tempdir(self, "ytt-livetx-")
+        p = mock.patch.object(_marks, "CLIP_MARGIN_FIXED", False)   # 偽の認識の時刻は余白なし(束の export.margin 0)で組んである = スイッチを切る(固定 10 秒は test_live_export・test_exporter)
+        p.start()
+        self.addCleanup(p.stop)
         env = {k: v for k, v in os.environ.items() if k != "TRANSCRIBE_DATA_DIR"}   # 編集の作業データ = <root>/editor(datadir の inplace)
         env["YTT_DATA_DIR"] = "inplace"
         for p in (mock.patch.dict(os.environ, env, clear=True), mock.patch.dict(datadir._registered, {}, clear=True)):

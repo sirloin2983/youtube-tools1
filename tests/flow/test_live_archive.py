@@ -41,7 +41,7 @@ import testkit  # noqa: E402
 from flow import board as Board  # noqa: E402
 from flow import live_archive as A  # noqa: E402
 from flow import live_export as LX  # noqa: E402
-from ytt import fsio, jobs, schemas, tools  # noqa: E402
+from ytt import fsio, jobs, marks as _marks, schemas, tools  # noqa: E402
 
 FF = tools.find_tool("ffmpeg", "YTT_FFMPEG")
 RELEASE = 1790000000.0            # 配信の開始時刻(偽の yt-dlp の release_timestamp)
@@ -104,6 +104,9 @@ class ArchiveTest(unittest.TestCase):
 
     def setUp(self):
         self.tmp = testkit.tempdir(self, "ytt-live-arc-")
+        p = mock.patch.object(_marks, "CLIP_MARGIN_FIXED", False)   # 頼む区間の長さは余白なしで組んである = スイッチを切る(固定 10 秒は test_live_export・test_exporter)
+        p.start()
+        self.addCleanup(p.stop)
         self.out = os.path.join(self.tmp, "out")
         self.store = os.path.join(self.tmp, "live")
         os.makedirs(self.out)

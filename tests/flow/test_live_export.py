@@ -843,7 +843,7 @@ class ExportPiecesTest(unittest.TestCase):
         rec = "20261004-000000-a"
         seen = []
 
-        def encode(job, rc, rec_, d, segs, files, a, b, wdir):
+        def encode(job, rc, rec_, d, segs, files, a, b, wdir, mark=None):
             seen.append(slots.snapshot())
             return {"path": os.path.join(self.tmp, "x.mp4"), "duration": b - a, "title": "t"}, None
 
@@ -859,7 +859,7 @@ class ExportPiecesTest(unittest.TestCase):
             j = self.mark_job(ex, rec, "2026-10-04T06:00:00Z", "2026-10-04T06:00:05Z", after="none")
             ans.clear()
             ans.update({"active": active, "firstPdt": "2026-10-04T05:00:00.000Z", "gaps": [],
-                        "segments": [{"uri": "session_001/seg_000000.ts", "session": "session_001", "pdt": "2026-10-04T05:59:58.000Z", "dur": 8.0}]})
+                        "segments": [{"uri": "session_001/seg_000000.ts", "session": "session_001", "pdt": "2026-10-04T05:59:48.000Z", "dur": 30.0}]})   # 余白 10 秒(固定)の分も録れている
             t = threading.Thread(target=ex._process, args=(j,), daemon=True)
             t.start()
             t.join(1.0)

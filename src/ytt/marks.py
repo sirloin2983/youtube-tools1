@@ -37,7 +37,19 @@ EDIT_TOL = 0.05         # 書き出し済みマークの時刻がこれより動
 SPOT_TOL = 5.0          # 「同じ場所」(similar)の開始・終了の差の上限(秒。人が消した候補の印を再解析のずれにも当てる)
 SPOT_RATIO = 0.5        # 「同じ場所」の重なりの率の下限(重なり / 短いほうの長さ)
 CLIP_MARGIN_DEFAULT = 10.0   # 切り抜きの動画の前後に足す余白の既定(秒。LD-2f。束の export.margin。マークの区間は変えない)
-CLIP_MARGIN_MAX = 30.0       # 余白の上限(秒)
+CLIP_MARGIN_MAX = 30.0       # 余白の上限(秒。スイッチ CLIP_MARGIN_FIXED を切ったときだけ効く)
+# 書き出しは候補の範囲から前後それぞれ最大 10 秒まで(10-29 ユーザー): 余白は CLIP_MARGIN_SEC の固定(束・設定の export.margin は読まない・前の束で 0 だった物も 10 秒)。
+# 編集用素材も同じ範囲(前の上乗せ exporter.EDIT_HANDLE_SEC をやめる)。配信の頭と終わりでは今までどおり短く切る・名前(候補の範囲の時刻)と .clip.json の
+# actualStart・margin の印は変えない。変えたいときはこの値を直す。スイッチ: False で前の形(束の export.margin・編集用素材はさらに前後 10 秒)
+CLIP_MARGIN_FIXED = True
+CLIP_MARGIN_SEC = 10.0
+
+
+def clip_margin(v=None):
+    """書き出しの前後の余白(秒): 固定(CLIP_MARGIN_FIXED)なら CLIP_MARGIN_SEC・切れば束・要求の値 v(無い = 0)"""
+    if CLIP_MARGIN_FIXED:
+        return CLIP_MARGIN_SEC
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and 0 < v <= CLIP_MARGIN_MAX else 0.0
 
 
 def pos_int(x):

@@ -37,7 +37,12 @@ MIN_EXPORT_VOLUME, MAX_EXPORT_VOLUME = 1, 200
 LOUDNESS_CHOICES = _loud.CHOICES
 TRUE_PEAK_CEIL = _loud.TRUE_PEAK_CEIL   # 上げたときに音が割れないよう、ピーク(トゥルーピーク)をこれより上げない(dBTP)
 MAX_GAIN_DB = _loud.MAX_GAIN_DB         # 静かすぎる切り抜きを持ち上げすぎない(雑音まで大きくなる)
-EDIT_HANDLE_SEC = 10.0
+EDIT_HANDLE_SEC = 10.0   # 編集用素材の前後の上乗せ(秒)。10-29 から使わない(ytt/marks.CLIP_MARGIN_FIXED = 本体と同じ範囲)。edit_handle()
+
+
+def edit_handle():
+    """編集用素材を本体の範囲(余白つき)からさらに前後に広げる秒: 余白が固定(marks.CLIP_MARGIN_FIXED)なら 0 = 本体と同じ範囲"""
+    return 0.0 if _marks.CLIP_MARGIN_FIXED else EDIT_HANDLE_SEC
 # 名前の規則(MAX_PATH_UNITS・SUFFIX_ROOM・BASE_ROOM・予約名・UTF-16 の長さ・持ち主の印・連番)は ytt/names.py の 1 か所
 # (入口のライブの書き出し src/flow/live_export.py と同じ規則)。ここの名前はテストと他の部品が読むので残す
 MAX_PATH_UNITS, SUFFIX_ROOM, BASE_ROOM = _names.MAX_PATH_UNITS, _names.SUFFIX_ROOM, _names.BASE_ROOM
@@ -181,7 +186,10 @@ def _parse_opts(req):
 
 
 def _margin(req):
-    """margin(切り抜きの動画の前後に足す余白の秒。LD-2f。② の束の export.margin が送る)。無い = 0(今までどおり)。形が違えば 400"""
+    """margin(切り抜きの動画の前後に足す余白の秒。LD-2f)。10-29 から固定(marks.clip_margin。要求の値は読まない = スタジオの画面・② の自動とも)。
+    スイッチ marks.CLIP_MARGIN_FIXED を切れば ② の束の export.margin が送る値(無い = 0。形が違えば 400)"""
+    if _marks.CLIP_MARGIN_FIXED:
+        return _marks.clip_margin()
     v = req.get("margin")
     if v is None:
         return 0.0
@@ -589,7 +597,7 @@ def _ytdlp_sections(ctl, spec, it, base, hls=False):
         if dur < 0.5:
             raise ExportError("取った区間が短すぎます(%.1f 秒)" % (raw_len or 0))
         outs = [(out, dur, off)]
-        if it.get("keepRaw"):   # 編集用素材: マーク(余白つき)の前後 keepRaw 秒(0 秒より前・取れた末尾より後へは出さない)
+        if it.get("keepRaw") is not None:   # 編集用素材: マーク(余白つき)の前後 keepRaw 秒(0 = 本体と同じ範囲)(0 秒より前・取れた末尾より後へは出さない)
             e_start = max(0.0, float(it["start"]) - float(it["keepRaw"]))
             e_off = max(0.0, e_start - dl_start)
             e_dur = float(it["end"]) + float(it["keepRaw"]) - e_start
@@ -862,8 +870,8 @@ def _drop_edit(it):
 def export_edit_media(ctl, spec, it, base, runner):
     """Create an additional media file with trim handles and a portable sidecar."""
     edit_it = dict(it)
-    edit_it["start"] = max(0.0, float(it["start"]) - EDIT_HANDLE_SEC)
-    edit_it["end"] = float(it["end"]) + EDIT_HANDLE_SEC
+    edit_it["start"] = max(0.0, float(it["start"]) - edit_handle())   # 10-29 から 0 = 本体(余白つき)と同じ範囲
+    edit_it["end"] = float(it["end"]) + edit_handle()
     edit_it["progress"] = 0.0
     # 編集用素材と .edit.json は途中のファイルなので 作業用/ に書く(出力先の直下はパックと元動画だけ)
     wspec = dict(spec, outDir=os.path.join(spec["outDir"], schemas.WORK_DIR), folder=spec.get("folder", "") + "/" + schemas.WORK_DIR)
@@ -1054,7 +1062,7 @@ def _export_clip(ctl, spec, it, idx, on_done):
     mark = (it["start"], it["end"])
     clip_from = _pad_item(spec, it)   # 余白(LD-2f): 切り出し・編集用素材の間だけ it の区間を広げる(名前・マーク・.clip.json の range はマークのまま)
     if spec.get("mode") == "url":
-        it["keepRaw"] = EDIT_HANDLE_SEC   # 編集用素材の分まで 1 回で取る(_ytdlp_sections)
+        it["keepRaw"] = edit_handle()   # 編集用素材の分まで 1 回で取る(_ytdlp_sections。0 でも同じ 1 回で作る)
     try:
         it["file"] = runner(ctl, spec, it, base)   # 書きかけ(<base>.partial.mp4)
         it["path"] = os.path.join(spec["outDir"], os.path.basename(it["file"]))
@@ -1068,7 +1076,7 @@ def _export_clip(ctl, spec, it, idx, on_done):
             if ctl.cancelled:   # 中止(終了の流れを含む)なら、本体も仕上げずに止める(書きかけは _run_job の finally で消える)
                 raise ExportError("中止しました")
             _env.log_failure("Resolve edit media", e)
-            warnings.append("Resolve用の前後10秒素材を作れませんでした: %s" % str(e)[:180])
+            warnings.append("Resolve用の編集用素材を作れませんでした: %s" % str(e)[:180])
             if blocked(e):
                 it["blocked"] = str(e)[:400]   # 素材で止められた: 次の切り抜きも yt-dlp を呼ばない(_run_job)
     finally:

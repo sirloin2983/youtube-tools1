@@ -213,7 +213,7 @@ DEFAULTS = {
     "export": {               # 書き出し(run.py の _export_body。exporter.py の DEFAULT_EXPORT_VOLUME)
         "loudness": -14,      # 聞こえ方をそろえる目標(LUFS)。None = そろえない(volume を使う)
         "volume": 75,         # そろえないときの音量(%)
-        "margin": MARGIN_DEFAULT,   # 切り抜きの動画の前後に足す余白(秒。LD-2f。マークの区間は変えない = パックの段が話の切れ目で両端を決める。0 = 足さない = スイッチ)
+        "margin": MARGIN_DEFAULT,   # 切り抜きの動画の前後に足す余白(秒。LD-2f。10-29 から読まない = ytt/marks.CLIP_MARGIN_SEC の固定。スイッチを切ったときだけ効く)
     },
     "transcribe": {           # 認識(重い。src/human/proof/doc_jobs.py の validate_job(文字起こしの要求))。GPU の whisper.cpp + large-v3
         "engine": "whisper.cpp", "model": "large-v3", "language": "ja",
@@ -559,10 +559,10 @@ def export_body(bundle, video_id, ids):
 
 
 def export_margin(bundle):
-    """束の export.margin(切り抜きの前後の余白の秒。LD-2f)。無い・形が違う(余白を足す前の束)なら 0 = 今までどおり"""
+    """切り抜きの前後の余白の秒(LD-2f)。10-29 から固定(ytt/marks.clip_margin。束の export.margin は読まない)。
+    スイッチ marks.CLIP_MARGIN_FIXED を切れば束の export.margin(無い・形が違う = 余白を足す前の束なら 0)"""
     ex = bundle.get("export") if isinstance(bundle, dict) else None
-    v = ex.get("margin") if isinstance(ex, dict) else None
-    return float(v) if schemas.is_num(v) and 0 < v <= MARGIN_MAX else 0.0
+    return _marks.clip_margin(ex.get("margin") if isinstance(ex, dict) else None)
 
 
 def tx_opts(bundle):
