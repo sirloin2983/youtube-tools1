@@ -293,7 +293,11 @@ def kill_tree(proc, wait=None):
     wait(秒)を渡すと、止まるのをその秒数まで待つ(待ちきれなくても上げない)"""
     if proc is None:
         return
-    if not isinstance(proc, subprocess.Popen):
+    try:
+        real = isinstance(proc, subprocess.Popen)
+    except TypeError:   # テストが subprocess.Popen を差し替えている
+        real = False
+    if not real:
         kill_quiet(proc)
         return
     if proc.poll() is not None:
