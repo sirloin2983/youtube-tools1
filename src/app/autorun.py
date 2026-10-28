@@ -36,7 +36,7 @@
   リアルタイム切り抜きの自動の採用(.clip.json の source.live.origin が auto・archive)の切り抜きは、カットを指定していなければ区間の全体
   (LIVE_AUTO_CUT。線 D の M8。区間は検出が静かな所に合わせて絞ってある)。ホームの設定 live.auto.cut(none・silence)を選べばそれ(M2)。
 - ① 全自動の Dropbox へ届ける段: パックができるたびに 1 本ずつ(1 本の zip + 480p の確認用の動画 <同じ名前>.preview.mp4 + .meta.json)Dropbox の 出力 へ置く
-  (notes:plan/f1-friend-requirements.md の C-6)。作り方・名前は src/flow/deliver.py(確認用の動画は
+  (notes:plan/done/f1-friend-requirements.md の C-6)。作り方・名前は src/flow/deliver.py(確認用の動画は
   ① src/pipeline/pack/preview.py)、届ける段と置けなかった分の溜めの中身は src/flow/delivery.py
 - 友人へ自動で送る(D-SEND。notes:plan/done/d-send-requirements.md): 送るかは注文を作る所が届け先を入れるかだけで決める(10-19 案 B3)。
   切り替えはホームのまとめて実行・配信を探すの「友人へ自動で送る」のチェックだけ(既定オン・保存しない)。ほか(候補のタブの「まとめて実行 ▾」・

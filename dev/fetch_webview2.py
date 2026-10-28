@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""友人のアプリ FriendApp.exe が使う WebView2 の部品(DLL 3 つ)を NuGet の公式パッケージから取る(F3-1。notes:plan/f1-friend-requirements.md の C-1-1)。
+"""友人のアプリ FriendApp.exe が使う WebView2 の部品(DLL 3 つ)を NuGet の公式パッケージから取る(F3-1。notes:plan/done/f1-friend-requirements.md の C-1-1)。
 
     py -3.12 dev/fetch_webview2.py [--out friend-apps/launcher/lib]
 

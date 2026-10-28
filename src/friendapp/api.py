@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """友人の玄関の口の中身(F3-3。HTTP の形は server.py。ここは欄の検査・② への受付・送った物の進み具合と取り消し・失敗のやり直し・前回の値)。
 
-送る欄(F3-3。notes:plan/f1-friend-requirements.md の C-2-6〜C-2-19):
+送る欄(F3-3。notes:plan/done/f1-friend-requirements.md の C-2-6〜C-2-19):
     source         "url"(配信 1 本)/ "files"(動画ファイル。files = [{fileId, streamer}] を 20 まで。1 本 = 1 依頼の行)
     kind           url のとき "url"(アーカイブ)/ "live"(ライブ中・予定 = 録画を頼む・予約する)/ "wait"(終わったばかり = アーカイブ待ち。C-2-12)
     ranges         区間 [[開始, 終了], …](秒。5 つまで・1 つの長さの上限なし。url・wait だけ)。区間があれば本数は区間の数

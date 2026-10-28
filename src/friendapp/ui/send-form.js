@@ -1,4 +1,4 @@
-/* 送る欄(F3-3。notes:plan/f1-friend-requirements.md の C-2-6〜C-2-13・C-2-17〜C-2-19)。口 = POST api/friend/send(friendapp/api.py の説明)。
+/* 送る欄(F3-3。notes:plan/done/f1-friend-requirements.md の C-2-6〜C-2-13・C-2-17〜C-2-19)。口 = POST api/friend/send(friendapp/api.py の説明)。
    形は 3 つ: 何も選んでいない(URL の欄と動画ファイルの受け皿)/ 配信(一覧のカードか URL。アーカイブ・終わったばかり = 区間と本数・ライブ中・予定 = 録画を頼む)/
    動画ファイル(複数・落とす・選ぶ)。区間・本数・映像トラック・配信者は別の配信に替えても残す(アプリを閉じるまで)。Esc で閉じる(入れかけも消える)。
    外から来た文字(題・名前)は textContent でだけ入れる */

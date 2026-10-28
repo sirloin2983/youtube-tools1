@@ -1,4 +1,4 @@
-/* 送った物(F3-3。notes:plan/f1-friend-requirements.md の C-2-14〜C-2-16)。行 = GET api/friend/inbox の rows のうち、まだ届け終えていない物と失敗。
+/* 送った物(F3-3。notes:plan/done/f1-friend-requirements.md の C-2-14〜C-2-16)。行 = GET api/friend/inbox の rows のうち、まだ届け終えていない物と失敗。
    どの行にも [取り消す](作っている・録画中は確認)。進み具合 = 行の steps(friendapp/api.py が progress.text で作った 1 行と段の番号)。
    失敗 = 2 段(上 = 友人の言葉で次にすること・下 = 詳しい文と [コピー])+ [もう一度送る] [消す]。同じ失敗が 2 回目なら [作る人に知らせる]。
    送る欄を開いている間は 1 行に縮む(押すと開く)。別の知らせ(数秒で消える物)は出さない */

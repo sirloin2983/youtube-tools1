@@ -1,4 +1,4 @@
-/* 初回の準備だけの画面(notes:plan/f1-friend-requirements.md の C-5-1)。
+/* 初回の準備だけの画面(notes:plan/done/f1-friend-requirements.md の C-5-1)。
    GET api/friend/setup を 1 秒おきに見て、棒 1 本と「あと約 n 分」を出す。済んだら /friend/ へ移る。
    部品の名前と詳しい文は「詳しく」の中だけ。 */
 (function () {

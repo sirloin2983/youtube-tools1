@@ -1,4 +1,4 @@
-/* 受け取る画面(F3-4。notes:plan/f1-friend-requirements.md の C-3)。口 = GET api/friend/receive(friendapp/inbox.py の receive_view)・
+/* 受け取る画面(F3-4。notes:plan/done/f1-friend-requirements.md の C-3)。口 = GET api/friend/receive(friendapp/inbox.py の receive_view)・
    POST api/friend/decide {items, verdict: keep|skip, score: 1〜5 か null}・undo {items}(「届かなくてよかった」のボタンは 10-27 に外した。古い判定の bad は一覧で読む)・media?id=&name=(1 本の確認用の動画)・open {id, name}。
    一覧 = 配信ごとの段(最後に届いた時刻の新しい順・段の中は番号順)。カードを押すと再生画面(左に再生・右に同じ配信の物が先の一覧)。
    決めると自動で次(同じ配信の次の番号 → 次の配信 → 全部決まったら一覧)。チェックでまとめて決める帯。見送った物は 3 日の間 [戻す]。

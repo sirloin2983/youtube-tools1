@@ -1,5 +1,5 @@
 // FriendApp.exe の窓 1 枚: WebView2 で Python の画面を出し、時計の横のアイコン・× と止める確認・スリープ止め・●n を持つ。C# 5 で書く
-//   notes:plan/f1-friend-requirements.md の C-1-1・C-3-9・C-5-3・C-5-4。窓と画面の境目は friend-apps/launcher/README.txt
+//   notes:plan/done/f1-friend-requirements.md の C-1-1・C-3-9・C-5-3・C-5-4。窓と画面の境目は friend-apps/launcher/README.txt
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
