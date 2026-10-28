@@ -298,11 +298,6 @@ class Handler(httpsec.LocalHandler):
                 return self._json(200, app.api.peek((q.get("url") or [""])[0][:300]))
             except _api.FormError as e:
                 return self._fail(400, "bad_url", str(e))
-        if path == "/api/friend/peek-live":   # 配信中・配信前か(数秒かかる = 画面は題と別に問い合わせる)
-            try:
-                return self._json(200, app.api.peek_live((q.get("url") or [""])[0][:300]))
-            except _api.FormError as e:
-                return self._fail(400, "bad_url", str(e))
         if path == "/api/friend/player":   # 再生画面の音量・消音・速度(前回の値)
             return self._json(200, {"ok": True, "player": app.player()})
         if path == "/api/friend/receive":   # 受け取る画面(F3-4。配信ごとの段・見送った物・まだ決めていない本数)
@@ -384,6 +379,12 @@ class Handler(httpsec.LocalHandler):
 
     def _post(self, path, body):
         app = self.server.app
+        if path == "/api/friend/peek-live":   # 配信中・配信前か(yt-dlp を起こして数秒かかる = 画面は題と別に問い合わせる)。
+            # POST + 合言葉(同じ PC の別のプロセスに何度も yt-dlp を起こさせない。安全面の見直し-1029 の 12)。{url}
+            try:
+                return self._json(200, app.api.peek_live(str(body.get("url") or "")[:300]))
+            except _api.FormError as e:
+                return self._fail(400, "bad_url", str(e))
         if path == "/api/friend/ops":   # 画面の操作の記録と画面の要約(friendapp/report。まとめて届く・画面は返事を待たない)
             return self._json(200, {"ok": True, "n": app.report.ui_ops(body)})
         if path == "/api/friend/send":   # F3-3: {rows, skipped}(row = 先頭の行。前の形の呼び手のため)
@@ -557,6 +558,7 @@ class Server(httpsec.ExclusiveServer):
         super().__init__(addr, Handler)
         self.app = app
         self.token = os.environ.get(TOKEN_ENV) or secrets.token_urlsafe(24)
+        _diag.add_secret(self.token)   # 診断の文に出たら伏せる(自分で作った合言葉は 48 桁の 16 進の規則に合わない)
         self.allowed_hosts = httpsec.allowed_hosts(self.server_address[1])
 
     def handle_error(self, request, client_address):

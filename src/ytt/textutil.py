@@ -20,6 +20,15 @@ def redact(line):
     return _URL_RE.sub("<URL>", str(line))
 
 
+_CTRL_RE = re.compile(r"[\x00-\x1f\x7f]+")
+
+
+def one_line(s, n=None):
+    """他人の書いた文をログの 1 行に入れる形: 改行と制御文字を空白 1 つにし、n があればその長さまで(ログの行を偽れないように。安全面の見直し-1029 の 18)"""
+    s = _CTRL_RE.sub(" ", str(s if s is not None else ""))
+    return s[:n] if n else s
+
+
 def permission_message(error):
     """PermissionError(ほかの OSError でも可)→ 画面に出す文(対象のパスが分かれば添える)"""
     path = getattr(error, "filename2", None) or getattr(error, "filename", None)

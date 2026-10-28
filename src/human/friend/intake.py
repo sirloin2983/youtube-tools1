@@ -40,7 +40,7 @@ import uuid
 from flow import order as _order, placement
 from flow.deliver import BAD_NAME_CHARS, OUT_DIR   # ファイル名に使えない文字・出力\ の名前(届ける側 ② と同じ 1 か所。ds1)
 from flow import spec as _spec   # 区間・重みの理由つきの検査(まとめて実行と同じ。opt-human 9b-2)
-from ytt import colors, fsio, names as ytt_names, normalize, schemas, studio_env, tools, yturl
+from ytt import colors, fsio, names as ytt_names, normalize, schemas, studio_env, textutil, tools, yturl
 from . import live_requests  # noqa: E402  (ライブ配信の依頼の設定の検査と一覧の文。結びつきは入口が live_begin= で渡す Live.submit_request が書く。2-15)
 from . import bugs  # noqa: E402  (友人の不具合の書き出し 診断\ の *.state.json を仕分けて、要対応なら AI を起こす。10-25)
 from . import pubqueue  # noqa: E402  (友人の zip を配る待ちの列と 3 時間ごとの配る回。10-25)
@@ -793,7 +793,7 @@ class Intake:
         self._move(folder, moved, state, items)
         self._notify_rejected(folder, rid, rec["title"], items)
         self._save_state()
-        self.log("依頼の受付: %s %s(%s)" % (REQ_LABELS[state], rec["title"], reason or "%d 件" % len(runs)))
+        self.log("依頼の受付: %s %s(%s)" % (REQ_LABELS[state], textutil.one_line(rec["title"]), textutil.one_line(reason or "%d 件" % len(runs))))   # 友人の文は 1 行に(ログの行を偽れないように)
 
     def _notify_rejected(self, folder, rid, title, items):
         """友人のアプリの依頼で、受け付けなかった物があれば 出力/<依頼 id>__<題>.失敗.txt に理由を置く(アプリの「受け取る」に出る。段9 9-4)。

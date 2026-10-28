@@ -425,6 +425,9 @@ namespace FriendInbox
         static readonly System.Text.RegularExpressions.Regex UsersRx = new System.Text.RegularExpressions.Regex(
             @"([A-Za-z]:[\\/]+(?:Users|Documents and Settings)[\\/]+)[^\\/""'<>|\r\n\t]+", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         static readonly System.Text.RegularExpressions.Regex HexToken = new System.Text.RegularExpressions.Regex(@"\b[0-9a-f]{48}\b");
+        // Python 側(friendapp/diag.py の _SECRETS)と同じ 2 つ: YouTube の API キー・Dropbox の access token(安全面の見直し-1029 の 17)
+        static readonly System.Text.RegularExpressions.Regex ApiKey = new System.Text.RegularExpressions.Regex(@"AIza[0-9A-Za-z_-]{30,}");
+        static readonly System.Text.RegularExpressions.Regex DropboxToken = new System.Text.RegularExpressions.Regex(@"\bsl\.[0-9A-Za-z_.-]{20,}");
         static readonly object gate = new object();
 
         // 実行中の値(Program と Backend が入れる)。Note はこれを使う
@@ -445,6 +448,8 @@ namespace FriendInbox
             if (string.IsNullOrEmpty(s)) return "";
             if (!string.IsNullOrEmpty(token) && token.Length >= 8) s = s.Replace(token, "<secret>");
             s = HexToken.Replace(s, "<token>");
+            s = ApiKey.Replace(s, "<key>");
+            s = DropboxToken.Replace(s, "<token>");
             if (!string.IsNullOrEmpty(home)) { s = ReplaceNoCase(s, home, "<app>"); s = ReplaceNoCase(s, home.Replace('\\', '/'), "<app>"); }
             if (!string.IsNullOrEmpty(profile) && profile.Length > 3) { s = ReplaceNoCase(s, profile, "<user>"); s = ReplaceNoCase(s, profile.Replace('\\', '/'), "<user>"); }
             s = UsersRx.Replace(s, "$1<user>");

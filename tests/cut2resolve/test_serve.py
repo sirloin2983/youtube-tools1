@@ -26,12 +26,15 @@ from test_cut2resolve import HAVE_FFMPEG, make_video  # noqa: E402
 
 
 class Client:
-    def __init__(self, port):
+    def __init__(self, port, token=""):
         self.port = port
         self.host = "127.0.0.1:%d" % port
+        self.token = token   # 単独のサーバーの書き込みの合言葉(serve.make_server が作る srv.local_token)
 
     def req(self, method, path, body=None, headers=None, raw=None, ctype="application/json"):
         h = {"Host": self.host}
+        if self.token and method not in ("GET", "HEAD"):
+            h["X-YTT-Token"] = self.token
         data = None
         if raw is not None:
             data = raw
@@ -75,7 +78,7 @@ class ServerBase(unittest.TestCase):
         cls.srv, cls.port = serve.make_server(0, opener=cls.opened.append)
         cls.th = threading.Thread(target=cls.srv.serve_forever, daemon=True)
         cls.th.start()
-        cls.c = Client(cls.port)
+        cls.c = Client(cls.port, cls.srv.local_token)
         cls.data_patch = mock.patch.dict(os.environ, {"YTT_DATA_DIR": str(cls.dir / "data")})   # パックを作った記録(packs/)を一時フォルダへ
         cls.data_patch.start()
 
@@ -118,6 +121,10 @@ class TestGuards(ServerBase):
         self.assertEqual((st, json.loads(body)["error"]), (400, "bad_request"))   # 検査を通って、指定の中身の検査まで届く
         st, _, _ = self.c.req("POST", "/api/plan", raw=b"{}", ctype="text/plain")
         self.assertEqual(st, 415)
+        # 単独で起動したときも合言葉が要る(入口と同じ守り。安全面の見直し-1029 の 7)
+        for h in ({"X-YTT-Token": ""}, {"X-YTT-Token": "wrong"}):
+            st, _, body = self.c.req("POST", "/api/plan", {}, headers=h)
+            self.assertEqual((st, json.loads(body)["error"]), (403, "token"), h)
         st, _, body = self.c.req("POST", "/api/plan", raw=b'{"spec": NaN}')
         self.assertEqual((st, json.loads(body)["error"]), (400, "bad_json"))
         st, _, body = self.c.req("POST", "/api/plan", raw=b"[]")
@@ -132,6 +139,16 @@ class TestPaths(ServerBase):
         for bad in ("relative/a.mp4", "a.mp4", "/tmp/a\nb.mp4", 12):
             with self.assertRaises(serve.ApiError, msg=repr(bad)):
                 serve.clean_path(bad, "video")
+        # ネットワーク上のパス(UNC・file://server/…)と「:」(代替ストリーム)は触らずに断る(編集の relink と同じ。安全面の見直し-1029 の 6)
+        for bad in ("//server/share/a.mp4", r"\\server\share\a.mp4", "file://server/share/a.mp4", r"\\?\UNC\server\share\a.mp4"):
+            with self.assertRaises(serve.ApiError, msg=repr(bad)) as cm:
+                serve.clean_path(bad, "video")
+            self.assertEqual(cm.exception.code, "network_path", bad)
+        if os.name == "nt":
+            with self.assertRaises(serve.ApiError) as cm:
+                serve.clean_path(r"C:\x\a.mp4:stream", "out")
+            self.assertEqual(cm.exception.code, "bad_path")
+        self.assertEqual(serve.clean_path("file://localhost/tmp/a.mp4", "video"), os.path.normpath("/tmp/a.mp4"))
 
     def test_input_path_errors_per_field(self):
         """入力のパスの検査(欄ごとの拡張子・完全なパス・有無)。plan・build も同じ検査"""

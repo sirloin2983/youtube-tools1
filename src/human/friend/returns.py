@@ -25,7 +25,7 @@ import zipfile
 from flow import deliveries, outbox
 from human import judgments
 from human.friend import voicein
-from ytt import errors, fsio, schemas, tools
+from ytt import errors, fsio, schemas, textutil, tools
 
 RETURNS_DIR = "friend-returns"      # <app>/friend-returns/<YYYY-MM>/<requestId>/
 IN_DIR, DONE_DIR, FAIL_DIR = "送り返し", "受付済み", "失敗"
@@ -280,6 +280,9 @@ def _one(folder, app_dir, n, p, clock, log, feedback=None):
             _move(folder, n, "rejected", str(e), clock())
             return {"name": n, "kind": "verdict", "state": "rejected", "reason": str(e)}
         rid, pack, stamp = m.group(1), m.group(2), m.group(3) or ""
+        if _RESERVED_RE.match(pack) or pack.rstrip(" .") != pack:   # Windows の予約名(CON・NUL …)・末尾の空白と . は書けずに残り続ける(安全面の見直し-1029 の 14)
+            _move(folder, n, "rejected", "パック名が Windows で使えない名前です", clock())
+            return {"name": n, "kind": "verdict", "state": "rejected", "reason": "名前の形"}
         d = _find_request_dir(app_dir, rid) or os.path.join(returns_dir(app_dir), _month(v["at"], clock()), rid)
         out = os.path.join(d, "verdicts")
         os.makedirs(out, exist_ok=True)
@@ -412,7 +415,7 @@ def _one_notice(folder, app_dir, n, p, clock, log):
     out = os.path.join(base, NOTICES_DIR)
     os.makedirs(out, exist_ok=True)
     fsio.write_json(os.path.join(out, n), dict(d, receivedAt=int(clock() * 1000)))
-    log("友人から知らせ: %s%s(詳しくはホームの「依頼の受付」)" % ((d["title"] + ": ") if d["title"] else "", d["message"][:200]))
+    log("友人から知らせ: %s%s(詳しくはホームの「依頼の受付」)" % ((textutil.one_line(d["title"]) + ": ") if d["title"] else "", textutil.one_line(d["message"], 200)))
     _move(folder, n, "accepted", "", clock())
     return {"name": n, "kind": "notice", "state": "accepted", "reason": ""}
 

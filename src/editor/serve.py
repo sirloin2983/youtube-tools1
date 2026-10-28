@@ -352,6 +352,9 @@ class Handler(httpsec.LocalHandler):
         if not self._fetch_site_ok() or (write and not self._origin_ok()):
             self._fail(403, "forbidden", "別のサイト・別のツールの画面からの操作は受け付けません")
             return False
+        if write and not self._local_token_ok():   # 単独で起動したときの合言葉(入口の中では入口が確かめる)
+            self._fail(403, "token", "合言葉が違います(このツールは入口 start.bat から開いてください)")
+            return False
         return True
 
     def _safe(self, fn):
@@ -510,6 +513,7 @@ def make_server(start_port):
             continue
         ed_state.PORT = p
         ed_state.ALLOWED_HOSTS = httpsec.allowed_hosts(p)
+        srv.local_token = httpsec.new_local_token()   # 単独で起動したときの書き込みの合言葉(入口の中では入口の合言葉)
         return srv, p
     raise SystemExit("空いているポートが見つかりません(%d〜%d)" % (start_port, start_port + 19))
 

@@ -47,10 +47,19 @@ KEEP_SEC = _inbox.KEEP_DAYS * _inbox.DAY
 _USERS = re.compile(r"(?i)([A-Z]:[\\/]+(?:Users|Documents and Settings)[\\/]+)[^\\/\"'<>|\r\n\t]+")
 _SECRETS = (
     (re.compile(r"AIza[0-9A-Za-z_-]{30,}"), "<key>"),                                     # YouTube の API キー
-    (re.compile(r"\bsl\.[0-9A-Za-z_-]{20,}"), "<token>"),                                 # Dropbox の access token
+    (re.compile(r"\bsl\.[0-9A-Za-z_.-]{20,}"), "<token>"),                                # Dropbox の access token(新しい形 sl.u.… の . も。dev/push_helper と同じ)
     (re.compile(r"(?i)(refresh_token|access_token|appKey|refreshToken|X-YTT-Token|Authorization)([\"'\s:=]+)(Bearer\s+)?[^\s\"',}]+"), r"\1\2<secret>"),
     (re.compile(r"\b[0-9a-f]{48}\b"), "<token>"),                                         # exe の合言葉の形(24 バイトの 16 進)
 )
+# 動いている間に決まった秘密(env に無いとき Python が自分で作る合言葉 = base64url で上の規則に合わない)。口が add_secret で足す(安全面の見直し-1029 の 17)
+_RUNTIME_SECRETS = set()
+
+
+def add_secret(value):
+    """この後の mask で伏せる値を足す(8 文字未満・空は無視 = 普通の語を壊さない)"""
+    v = str(value or "")
+    if len(v) >= 8:
+        _RUNTIME_SECRETS.add(v)
 
 
 def _env_secrets(env):
@@ -67,7 +76,7 @@ def mask(text, home=None, env=None):
     合言葉・鍵・API キー -> <secret> など。文でない物は str にする"""
     env = os.environ if env is None else env
     s = "" if text is None else str(text)
-    for v in _env_secrets(env):
+    for v in _env_secrets(env) + sorted(_RUNTIME_SECRETS):
         s = s.replace(v, "<secret>")
     for pat, rep in _SECRETS:
         s = pat.sub(rep, s)

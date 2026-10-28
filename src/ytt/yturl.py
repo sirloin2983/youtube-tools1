@@ -11,7 +11,7 @@ import os
 import re
 import urllib.parse
 
-from . import errors
+from . import errors, fsio
 
 VID_RE = re.compile(r"^[\w-]{11}\Z", re.ASCII)   # ASCII のみ・末尾の改行も不可
 YT_API_BASE = "https://www.googleapis.com/youtube/v3/"   # YouTube Data API(① 探す・② のコメント欄)
@@ -85,7 +85,11 @@ def check_live(o):
 def check_media_path(raw):
     """手元の動画・音声ファイルのパスを検査して絶対パスを返す。"""
     s = str(raw or "").strip().strip('"')
-    if not s or "\x00" in s or len(s) > 1000 or not os.path.isfile(s) or os.path.splitext(s)[1].lower() not in MEDIA_EXT:
+    if not s or "\x00" in s or len(s) > 1000:
+        raise errors.ApiError("bad_source", "ファイルが見つかりません(動画・音声ファイルのパスを指定してください)", 400)
+    if fsio.is_network_path(s) or fsio.is_remote_drive(s):   # ファイルに触る前に断る(存在を確かめるだけで資格情報を送る。編集の relink と同じ。安全面の見直し-1029 の 11)
+        raise errors.ApiError("bad_source", "ネットワーク上のファイルは選べません(このパソコンにコピーしてから指定してください)", 400)
+    if ":" in os.path.splitdrive(s)[1] or os.path.splitext(s)[1].lower() not in MEDIA_EXT or not os.path.isfile(s):
         raise errors.ApiError("bad_source", "ファイルが見つかりません(動画・音声ファイルのパスを指定してください)", 400)
     return os.path.abspath(s)
 

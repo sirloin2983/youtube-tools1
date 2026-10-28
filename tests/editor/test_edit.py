@@ -21,7 +21,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from test_backend import HERE, TID, StoreDir, start_server, write_json  # noqa: F401  (S = serve)
+from test_backend import HERE, TID, TOOL_TOKEN, StoreDir, start_server, write_json  # noqa: F401  (S = serve)
 import ed_state  # noqa: E402
 from flow import jobs as _jobs  # noqa: E402
 from human.proof import doc_jobs as _doc_jobs  # noqa: E402
@@ -353,8 +353,11 @@ class TestEditHttp(unittest.TestCase):
 
     def call(self, method, path, body=None, raw=False, headers=None):
         data = None if body is None else json.dumps(body, ensure_ascii=False).encode()
-        req = urllib.request.Request("http://127.0.0.1:%d%s" % (self.port, path), method=method, data=data,
-                                     headers=dict({"Content-Type": "application/json"}, **(headers or {})))
+        h = {"Content-Type": "application/json"}
+        if method not in ("GET", "HEAD"):
+            h["X-YTT-Token"] = TOOL_TOKEN   # 単独で起動した serve.py の書き込みの合言葉
+        h.update(headers or {})
+        req = urllib.request.Request("http://127.0.0.1:%d%s" % (self.port, path), method=method, data=data, headers=h)
         try:
             with self.opener.open(req, timeout=60) as r:
                 d = r.read()

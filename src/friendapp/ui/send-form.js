@@ -272,7 +272,7 @@
     var my = ++chSeq;
     if (!vid && CH_LIVE.test(String(text || '').trim())) {   /* チャンネルの /live の URL = 今の配信の id をアプリに調べてもらう(yt-dlp で数秒) */
       $('urlWhy').hidden = false; $('urlWhy').textContent = 'チャンネルの今のライブを調べています…';
-      api('peek-live?url=' + encodeURIComponent(String(text).trim())).then(function (lv) {
+      api('peek-live', { url: String(text).trim() }).then(function (lv) {
         if (my === chSeq && lv && lv.videoId) openUrl('https://www.youtube.com/watch?v=' + lv.videoId);
       }, function (e) { if (my === chSeq) $('urlWhy').textContent = (e && e.message) || 'そのチャンネルの今のライブが見つかりませんでした'; });
       return;
@@ -294,7 +294,7 @@
   }
   function probe(url, my, quiet) {   /* 配信中・予定・終わったばかり・メンバー限定か(yt-dlp で数秒) */
     f.checking = true; sync();
-    api('peek-live?url=' + encodeURIComponent(url)).then(function (lv) {
+    api('peek-live', { url: url }).then(function (lv) {
       if (my !== f.peekSeq) return;
       var s = f.stream;
       s.state = lv.status === 'is_live' ? 'live' : lv.status === 'is_upcoming' ? 'upcoming' : lv.status === 'post_live' ? 'justEnded' : 'ended';

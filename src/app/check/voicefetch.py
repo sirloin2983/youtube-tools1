@@ -25,7 +25,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 
 from flow import voicematerial as _vm
-from ytt import fsio, tools as _tools, ytledger as _ytledger
+from ytt import fsio, names as _names, tools as _tools, ytledger as _ytledger, yturl as _yturl
 
 ENABLED = True
 EVERY = 60                    # 見回りの間隔(秒)
@@ -192,8 +192,9 @@ def _fetch(video_id, out_base, timeout=FETCH_TIMEOUT):
     yd = _tools.find_tool("yt-dlp")
     if not yd:
         return None, "yt-dlp が見つかりません"
+    d, base = os.path.dirname(out_base), os.path.basename(out_base)
     cmd = [yd, "--encoding", "utf-8", "--no-warnings", "--no-playlist", "--no-part", "--force-overwrites", "--no-progress", "-f", "ba",
-           "--download-sections", "*%d-%d" % SECTION, "-o", out_base + ".%(ext)s"]
+           "--download-sections", "*%d-%d" % SECTION, "-o", _yturl.ytdlp_out(d, base.replace("%", "%%") + ".%(ext)s")]   # 名前の % は雛形の印にしない
     ff = _tools.find_tool("ffmpeg")
     if ff:
         cmd += ["--ffmpeg-location", ff]
@@ -201,8 +202,7 @@ def _fetch(video_id, out_base, timeout=FETCH_TIMEOUT):
     r, tail = _ytdlp(cmd, timeout)
     if r is None:
         return None, tail
-    d, base = os.path.dirname(out_base), os.path.basename(out_base)
-    got = [os.path.join(d, x) for x in os.listdir(d) if x.startswith(base + ".") and not x.endswith((".part", ".ytdl"))]
+    got =[os.path.join(d, x) for x in os.listdir(d) if x.startswith(base + ".") and not x.endswith((".part", ".ytdl"))]
     if r.returncode == 0 and got:
         return max(got, key=os.path.getsize), ""
     return None, tail or "終了コード %s" % r.returncode
@@ -283,7 +283,7 @@ def tick(app_dir, roster_r, counts, busy, start_job, log, now=None, rss=None, fe
     for x in os.listdir(folder):   # 途中で残った物(PC の再起動・止まった取得)= 消して取り直す。取れた音(got)は残す
         if os.path.normcase(os.path.join(folder, x)) not in keep:
             fsio.unlink_quiet(os.path.join(folder, x))
-    safe = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", it["title"])[:60]
+    safe = _names.safe_name(it["title"], 60)   # 区切り・予約文字と、yt-dlp の雛形の印 % を外す(安全面の見直し-1029 の 10)
     path, err = (fetch or _fetch)(it["id"], os.path.join(folder, "%s_%s_%s" % (who, it["id"], safe)))
     if path is None:
         if any(b in err.lower() for b in BOT):

@@ -10,7 +10,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from ytt import colors as _colors, loudness as _loud, schemas as _schemas
+from ytt import colors as _colors, fsio as _fsio, loudness as _loud, schemas as _schemas
 from ytt.errors import ApiError
 
 from . import cut2resolve_core as C
@@ -52,7 +52,14 @@ def clean_path(value, field):
         raise ApiError("bad_path", "%sのパスが正しくありません" % label)
     if not os.path.isabs(s):
         raise ApiError("bad_path", "%sは、C:\\ から始まる完全なパスで指定してください(エクスプローラーでファイルを右クリック →「パスのコピー」)" % label)
-    return os.path.normpath(s)
+    # ネットワーク上のパス(\\server\…・file://server/…・ネットワークドライブ)は、存在を確かめるだけで資格情報を送るので触らずに断る。
+    # 「:」(NTFS の代替ストリーム)も断る。編集の relink(manage/cases/relink.relink_path)と同じ検査(安全面の見直し-1029 の 6)
+    p = os.path.normpath(s)
+    if _fsio.is_network_path(p) or _fsio.is_remote_drive(p):
+        raise ApiError("network_path", "%sにネットワーク上の場所は使えません(このパソコンにコピーしてから指定してください)" % label)
+    if ":" in os.path.splitdrive(p)[1]:
+        raise ApiError("bad_path", "%sのパスに「:」が入っています(ファイルそのもののパスを指定してください)" % label)
+    return p
 
 
 def input_path(value, field):

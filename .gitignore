@@ -37,6 +37,9 @@ src/cut2resolve/packs/
 # 秘密情報・個人データの名前(dev/push_helper.py の BAD_NAMES と同じ。push.bat を通さない git add でも入らないように)
 **/.env
 **/cookies.txt
+**/youtube-cookies.txt
+**/keys.json
+**/secrets/
 **/cases.json
 **/.migrated.json
 **/*.onnx

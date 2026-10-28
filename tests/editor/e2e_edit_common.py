@@ -77,10 +77,12 @@ class Server:
     def __init__(self, mounted=False, backend="fake", normalize=False):
         self.tmp = tempfile.mkdtemp(prefix="edit-e2e-")
         self.mounted, self.port, self.proc, self.token = mounted, free_port(), None, ""
+        if not mounted:
+            self.token = "e2e-tool-token-0123"   # serve.py 単体の書き込みの合言葉(YTT_TOOL_TOKEN で渡す。入口の形は画面の meta から取る)
         self.media = os.path.join(self.tmp, "media")
         os.makedirs(self.media)
         rt = os.path.join(self.tmp, ".runtime")
-        env = dict(os.environ, YTT_RUNTIME_DIR=rt, TRANSCRIBE_BACKEND=backend, TRANSCRIBE_FAKE_DELAY="0.01",
+        env = dict(os.environ, YTT_RUNTIME_DIR=rt, TRANSCRIBE_BACKEND=backend, TRANSCRIBE_FAKE_DELAY="0.01", YTT_TOOL_TOKEN=self.token or "",
                    TRANSCRIBE_STUDIO_DATA=os.path.join(self.tmp, "studio-data.json"),
                    YTT_HOLO_MEMBERS=os.path.join(os.path.dirname(REPO), "friend-apps", "holo-colors", "members.json"),   # 配信者の色の一覧(ytt を写しても、リポジトリの一覧を読む。REPO = src/、その1つ上がリポジトリ直下)
                    TRANSCRIBE_NORMALIZE="" if normalize else "off",

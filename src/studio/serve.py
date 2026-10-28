@@ -232,6 +232,10 @@ class Handler(httpsec.LocalHandler):
             httpsec.drain_body(self.headers, self.rfile)   # 読まずに閉じると Windows では RST で 403 が届かないことがある
             self._send(403, b"forbidden")
             return False
+        if not self._local_token_ok():   # 単独で起動したときの合言葉(入口の中では入口が確かめる)
+            httpsec.drain_body(self.headers, self.rfile)
+            self._json(403, {"error": "token", "message": "合言葉が違います(このツールは入口 start.bat から開いてください)"})
+            return False
         return True
 
     def _write(self, routes):
@@ -451,6 +455,7 @@ def _bound(srv):
     p = srv.server_address[1]
     PORT = p
     ALLOWED_HOSTS = httpsec.allowed_hosts(p)
+    srv.local_token = httpsec.new_local_token()   # 単独で起動したときの書き込みの合言葉(入口の中では入口の合言葉)
     return srv, p
 
 

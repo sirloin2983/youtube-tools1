@@ -592,8 +592,11 @@ class TestHttp(unittest.TestCase):
 
     @classmethod
     def call(cls, method, path, body=None, raw=False):
+        h = {"Content-Type": "application/json"}
+        if method not in ("GET", "HEAD"):
+            h["X-YTT-Token"] = TOOL_TOKEN   # 単独で起動した serve.py の書き込みの合言葉
         req = urllib.request.Request("http://127.0.0.1:%d%s" % (cls.port, path), method=method,
-                                     data=None if body is None else json.dumps(body).encode(), headers={"Content-Type": "application/json"})
+                                     data=None if body is None else json.dumps(body).encode(), headers=h)
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
                 data = r.read()
@@ -676,7 +679,7 @@ class TestRangeAndStudio(unittest.TestCase):
 
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "editor"))   # test_backend・test_edit(編集のサーバーを一時フォルダで動かす道具)
-from test_backend import start_server  # noqa: E402
+from test_backend import TOOL_TOKEN, start_server  # noqa: E402
 
 
 class TestThreadDefaults(unittest.TestCase):

@@ -62,6 +62,18 @@ class MaskTest(unittest.TestCase):
         self.assertIn(r"<app>\data", got)
         self.assertIn(r"C:\Users\<user>\y", got)
 
+    def test_new_dropbox_token_form_and_runtime_secret(self):
+        """新しい形の Dropbox のトークン(sl.u.…)と、Python が自分で作った合言葉(base64url。add_secret で足す)も伏せる(安全面の見直し-1029 の 17)"""
+        tok = "sl.u." + "A" * 30 + "." + "B" * 20
+        self.assertNotIn("AAAA", G.mask("x " + tok + " y", None, {}))
+        G.add_secret("short")   # 8 文字未満は足さない
+        G.add_secret("Qx-_9z" * 6)
+        try:
+            got = G.mask("token=" + "Qx-_9z" * 6 + " short", None, {})
+            self.assertEqual(got, "token=<secret> short")
+        finally:
+            G._RUNTIME_SECRETS.discard("Qx-_9z" * 6)
+
     def test_short_username_kept(self):
         self.assertEqual(G.mask("ab cd", None, {"USERNAME": "ab"}), "ab cd")   # 2 字以下の名前は伏せない(普通の語を壊す)
 

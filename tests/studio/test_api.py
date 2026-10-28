@@ -52,6 +52,8 @@ class Base(unittest.TestCase):
     def req(self, method, path, body=None, headers=None, host=None, raw=None):
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
         h = {"Host": self.host if host is None else host}
+        if method not in ("GET", "HEAD"):
+            h["X-YTT-Token"] = self.srv.local_token   # 単独のサーバーの書き込みの合言葉(make_server が作る)
         if body is not None:
             raw = json.dumps(body).encode("utf-8")
             h["Content-Type"] = "application/json"
@@ -92,6 +94,9 @@ class TestGuards(Base):
                         ("http://http://" + self.host, 403), ("http://" + self.host + "/", 403), ("HTTP://" + self.host, 403)):   # 完全一致だけ
             st = self.req("PUT", "/api/settings", {"settings": {}}, headers={"Origin": o})[0]
             self.assertEqual(st, want, o)
+        for tk in ("", "wrong"):   # 単独で起動したときも合言葉が要る(入口と同じ守り。安全面の見直し-1029 の 7)
+            st, j, *_ = self.req("PUT", "/api/settings", {"settings": {}}, headers={"X-YTT-Token": tk})
+            self.assertEqual((st, j["error"]), (403, "token"), tk)
 
 
 class TestBody(Base):
@@ -240,6 +245,9 @@ class TestVideoApi(Base):
         for p in ("/etc/passwd", "/nonexistent/x.mp4", os.path.join(self.tmp, "clip.txt"), "", None, "../x.mp4"):
             st, j, *_ = self.req("POST", "/api/videos/open", {"kind": "file", "path": p})
             self.assertEqual(st, 400, p)
+        for p in (r"\\server\share\a.mp4", "//server/share/a.mp4", r"\\?\UNC\server\share\a.mp4"):   # ネットワーク上のパスは触る前に断る(安全面の見直し-1029 の 11)
+            st, j, *_ = self.req("POST", "/api/videos/open", {"kind": "file", "path": p})
+            self.assertEqual((st, "ネットワーク" in j["message"]), (400, True), p)
 
     def test_put_marks_and_conflict(self):
         self.open_yt()

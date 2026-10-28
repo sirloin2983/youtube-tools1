@@ -329,7 +329,7 @@ def _receive(src, app_dir, clock, log):
                 with open(sp, "rb") as f:
                     fsio.atomic_write(os.path.join(bugs_dir(app_dir), RAW_DIR, shot), f.read())
                 rec["shot"] = shot
-        except (ValueError, UnicodeDecodeError, OSError) as e:
+        except (ValueError, UnicodeDecodeError, OSError, RecursionError) as e:   # RecursionError = 深く入れ子にした JSON(json.loads)。捕まえないと scan が毎回止まり、記録も書かれず繰り返す
             rec["state"], rec["why"] = "broken", "読めない書き出し: %s" % str(e)[:200]
         os.makedirs(bugs_dir(app_dir), exist_ok=True)
         fsio.write_json(_record_path(app_dir, n), rec)

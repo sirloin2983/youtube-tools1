@@ -20,6 +20,7 @@ import hmac
 import json
 import os
 import re
+import secrets
 import socket
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -30,6 +31,18 @@ PAGE_HEADERS = {"X-Frame-Options": "DENY", "Content-Security-Policy": "frame-anc
 
 def allowed_hosts(port):
     return {"localhost:%d" % port, "127.0.0.1:%d" % port}
+
+
+LOCAL_TOKEN_ENV = "YTT_TOOL_TOKEN"   # 単独起動の合言葉を外から渡すとき(テストが子プロセスの serve.py に書き込むため。英数字・-・_・. だけ)
+
+
+def new_local_token(env=None):
+    """単独で起動したツールの書き込みの合言葉(起動ごとの乱数。英数字・-・_ だけ)。各ツールの make_server が server.local_token に入れる。
+    環境変数 YTT_TOOL_TOKEN があればそれ(形が違えば無視して乱数)"""
+    v = ((os.environ if env is None else env).get(LOCAL_TOKEN_ENV) or "").strip()
+    if v and re.fullmatch(r"[0-9A-Za-z_.\-]{8,128}", v):
+        return v
+    return secrets.token_urlsafe(24)
 
 
 def host_ok(headers, allowed):
@@ -89,6 +102,13 @@ class LocalHandler(BaseHTTPRequestHandler):
 
     def _fetch_site_ok(self):    # 他サイトからの API 消費の対策
         return fetch_site_ok(self.headers)
+
+    def _local_token_ok(self, ctx=None):
+        """単独で起動したときの書き込みの合言葉(server.local_token = 各ツールの make_server が new_local_token で作る。安全面の見直し-1029 の 7)。
+        入口に取り込まれたときは server(入口)に無く(None)、入口の mount が X-YTT-Token を先に確かめているので通す。
+        単独のサーバーは画面を配らない(入口の中で使う設計)ので、合言葉を知るのはそのプロセス(とテスト)だけ = 同じ PC の別のプロセスからの書き込みを断る"""
+        tok = getattr(ctx if ctx is not None else self.server, "local_token", None)
+        return tok is None or token_ok(self.headers, tok)
 
     def _send(self, code, body=b"", ctype="text/plain; charset=utf-8", extra=None):
         send(self, code, body, ctype, dict(self.send_headers, **(extra or {})) if self.send_headers else extra)

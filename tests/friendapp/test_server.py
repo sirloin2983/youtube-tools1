@@ -1141,42 +1141,44 @@ class ServerTest(Base):
     def test_peek_live(self):
         seen = []
         self.app.api.probe = lambda url: seen.append(url) or {"status": "is_upcoming", "message": ""}
-        d = self.js(self.get("/api/friend/peek-live?url=" + URL)[2])
+        d = self.js(self.post("/api/friend/peek-live", {"url": URL})[2])
         self.assertEqual((d["videoId"], d["status"], d["live"]), (VID, "is_upcoming", True))
-        self.get("/api/friend/peek-live?url=" + URL)
+        self.post("/api/friend/peek-live", {"url": URL})
         self.assertEqual(seen, [URL])   # 少しのあいだ覚える
         self.app.api.probe = lambda url: {"status": "post_live"}
         self.app.api._live_peek.clear()
-        d = self.js(self.get("/api/friend/peek-live?url=" + URL)[2])
+        d = self.js(self.post("/api/friend/peek-live", {"url": URL})[2])
         self.assertFalse(d["live"])
         self.assertEqual((d["status"], d["message"]), ("post_live", "配信が終わったばかりです。送ると、アーカイブが出たら自動で作り始めます"))   # アーカイブ待ちで送れる
-        self.assertEqual(self.get("/api/friend/peek-live?url=x")[0], 400)
+        self.assertEqual(self.post("/api/friend/peek-live", {"url": "x"})[0], 400)
+        self.assertEqual(self.get("/api/friend/peek-live?url=" + URL)[0], 404)   # GET では起こせない(合言葉つきの POST だけ。安全面の見直し-1029 の 12)
+        self.assertEqual(self.post("/api/friend/peek-live", {"url": URL}, headers={TOKEN: "wrong"})[0], 403)
 
     def test_peek_live_channel_live_url(self):
         """チャンネルの /live の URL(/@名前/live)= 今の配信の id に置き換える(調べるのは 1 回)・ライブをしていなければ理由"""
         ch = "https://www.youtube.com/@hoshimachisuisei/live"
         seen = []
         self.app.api.probe = lambda url: seen.append(url) or {"status": "is_live", "message": "", "id": VID}
-        d = self.js(self.get("/api/friend/peek-live?url=" + urllib.parse.quote(ch, safe=""))[2])
+        d = self.js(self.post("/api/friend/peek-live", {"url": ch})[2])
         self.assertEqual((d["videoId"], d["status"], d["live"]), (VID, "is_live", True))
         self.assertEqual(seen, [ch])
         self.assertEqual(self.app.api.check_form({"url": ch, "kind": "url", "top": 3})["videoId"], VID)   # 送るときも覚えた id
         self.assertEqual(seen, [ch])
         self.app.api.probe = lambda url: {"status": "not_live", "message": ""}
-        st, _h, body = self.get("/api/friend/peek-live?url=" + urllib.parse.quote("https://www.youtube.com/@other/live", safe=""))
+        st, _h, body = self.post("/api/friend/peek-live", {"url": "https://www.youtube.com/@other/live"})
         self.assertEqual(st, 400)
         self.assertIn("今のライブが見つかりませんでした", self.js(body)["message"])
 
     def test_peek_live_members_only_and_probe_failure(self):
         self.app.api.probe = lambda url: {"status": "unknown", "message": "Join this channel to get access to members-only content"}
-        d = self.js(self.get("/api/friend/peek-live?url=" + URL)[2])
+        d = self.js(self.post("/api/friend/peek-live", {"url": URL})[2])
         self.assertEqual((d["status"], d["live"], d["message"]), ("members", False, "メンバー限定の配信は切り抜けません"))
         self.app.api._live_peek.clear()
 
         def boom(url):
             raise RuntimeError("yt-dlp が無い")
         self.app.api.probe = boom   # 調べる部品の不具合でも送る欄は使える
-        d = self.js(self.get("/api/friend/peek-live?url=" + URL)[2])
+        d = self.js(self.post("/api/friend/peek-live", {"url": URL})[2])
         self.assertEqual((d["status"], d["live"]), ("unknown", False))
         self.assertIn("RuntimeError", d["message"])
 

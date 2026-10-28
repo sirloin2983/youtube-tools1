@@ -88,6 +88,7 @@ class TestCheck(Repo):
             "app/config.json": b"{}", "clip-studio/data.json": b"{}", "app/cases.json": b"{}", "transcribe-tool/settings.json": b"{}",
             "x/feedback.jsonl": b"", "app/logs/launcher.log": b"", "app/logs/client-errors.jsonl": b"", "transcribe-tool/transcripts/abc.json": b"{}",
             "app/browser-profile/Default/History": b"",
+            "x/youtube-cookies.txt": b"", "friend/data/app/keys.json": b"{}", "friend/secrets/anything.txt": b"",   # 安全面の見直し-1029 の 16
             "clip-studio/cache/x.txt": b"", "a/clip.mp4": b"", "notes.md": FAKE_GOOGLE.encode(), "run.py": ("t='%s'" % FAKE_GH).encode(),
             "k.txt": b"-----BEGIN RSA PRIVATE KEY-----", "big.txt": b"x" * (P.MAX_BYTES + 1),
             "docs/archive/logs/x.md": b"", "docs/archive/a.log": b"", "src/studio/archive/x.json": b"{}",   # docs/archive の下でもそれより下の作業データの名前・ログは止める

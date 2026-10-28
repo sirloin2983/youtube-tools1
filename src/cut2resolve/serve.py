@@ -273,6 +273,10 @@ class Handler(httpsec.LocalHandler):
                 or (write and not httpsec.origin_ok(h, hosts))):
             self._fail(403, "forbidden", "別のサイト・別のツールの画面からの操作は受け付けません")
             return False
+        if write and not self._local_token_ok(self.ctx):   # 単独で起動したときの合言葉(入口の中では MOUNT に無く、入口が確かめる)
+            httpsec.drain_body(h, self.rfile)
+            self._fail(403, "token", "合言葉が違います(このツールは入口 start.bat から開いてください)")
+            return False
         return True
 
     def _safe(self, fn):
@@ -447,6 +451,7 @@ def _bound(srv, opener=None):
     srv.port = p
     srv.allowed_hosts = httpsec.allowed_hosts(p)
     srv.app = AppState(opener)
+    srv.local_token = httpsec.new_local_token()   # 単独で起動したときの書き込みの合言葉(入口の中では入口の合言葉)
     return srv, p
 
 

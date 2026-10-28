@@ -126,6 +126,22 @@ class VoiceFetchTest(unittest.TestCase):
             VF._ytdlp(["yt-dlp"], 10)
         self.assertFalse(VF.LOGIN["used"])                                         # ログインが入っていない = cookie なし
 
+    def test_title_percent_is_not_a_template(self):
+        """題名の % は yt-dlp の -o の雛形の印にしない(安全面の見直し-1029 の 10): 名前は safe_name で % を外し、フォルダ側の % は %% に"""
+        import types
+        calls = []
+
+        def run(cmd, timeout):
+            calls.append(cmd)
+            return types.SimpleNamespace(returncode=1), "x"
+        folder = os.path.join(self.app, "100%")
+        os.makedirs(folder)
+        with mock.patch.object(VF._tools, "find_tool", lambda n: "yt-dlp" if n == "yt-dlp" else None), mock.patch.object(VF, "_ytdlp", run):
+            VF._fetch("AAAAAAAAAA5", os.path.join(folder, "who_AAAAAAAAAA5_a%(ext)s"))
+        out = calls[0][calls[0].index("-o") + 1]
+        self.assertEqual(out, os.path.join(folder.replace("%", "%%"), "who_AAAAAAAAAA5_a%%(ext)s.%(ext)s"))
+        self.assertEqual(VF._names.safe_name("100%(description)s", 60), "100_(description)s")
+
     def test_bot_stops_the_day(self):
         got = self.tick(fetch=lambda vid, base: (None, "ERROR: Sign in to confirm you're not a bot"))
         self.assertIsNone(got)
