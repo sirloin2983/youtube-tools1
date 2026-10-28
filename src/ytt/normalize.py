@@ -7,6 +7,8 @@
 - GPU の作り方(NVIDIA h264_nvenc → AMD h264_amf → Intel h264_qsv の順で、最初に使える 1 つ)が使えればそれで作る(CPU の libx264 の数倍速い)。
   使えるかは ffmpeg で 0.1 秒の見本を作って確かめる(ffmpeg ごとに 1 回だけ覚える)。GPU で失敗したら libx264 で 1 回だけやり直す。
   環境変数 YTT_GPU_ENC=0 で GPU を使わない(スイッチ = 全部 libx264)。どれで作ったかは呼ぶ側が記録する(normalize は戻り値の "how")
+- 読み込み(デコード)も GPU に(decode_tries・HW_DECODE。10-29): GPU の作り方では -hwaccel cuda / d3d11va を入力側に付けた回を先に、
+  失敗したら同じ作り方を読み込み CPU で、最後は libx264。環境変数 YTT_HW_DEC=0 で読み込みは CPU のまま(スイッチ)。戻り値の "hwdec" が印
 - GPU の画質の値は、元との VMAF と大きさが libx264 crf 18 と同じくらいになるように合わせた物(届ける zip を大きくしない)。
   環境変数 YTT_ENC_PREV=1 で前の値(PREV_ARGS)に戻す。どの値で作ったかの印は enc_set()(.clip.json の export.encodeSet)
 - normalize() だけ、映像がもう条件どおりで音声だけが違う(AAC でない)ときは、映像はコピーして音声だけ作り直す(video_ok)
@@ -55,6 +57,13 @@ GPU_ENCODERS = (
 PREV_ARGS = {"h264_nvenc": ["-preset", "p4", "-rc", "vbr", "-cq", "19", "-b:v", "0"],   # 前の値(YTT_ENC_PREV=1)
              "h264_amf": ["-quality", "balanced", "-rc", "cqp", "-qp_i", "18", "-qp_p", "20", "-qp_b", "22"],
              "h264_qsv": ["-preset", "medium", "-global_quality", "20"]}
+# 読み込み(デコード)も GPU に(10-29 処理の速さの見直し 4-3。1080p60 の H.264 を CPU で読むのが作り直しの重さの大半)。
+# 入力側の引数(-i の前)。コマは普通のメモリに戻す(-hwaccel_output_format は付けない)ので、fps・yuv420p のフィルタは今までどおり CPU 側で動く。
+# GPU の読み込みが失敗したら(ドライバ・10 bit・対応しない形式)、同じ作り方を読み込み CPU で 1 回やり直し、最後は libx264(decode_tries)
+HWDEC_ENV = "YTT_HW_DEC"   # "0" で読み込みに GPU を使わない(スイッチ。作り方の GPU はそのまま)
+HW_DECODE = {"h264_nvenc": ["-hwaccel", "cuda"],      # NVIDIA(友人の PC)
+             "h264_amf": ["-hwaccel", "d3d11va"],     # AMD(この PC)
+             "h264_qsv": ["-hwaccel", "d3d11va"]}     # Intel(qsv の hwaccel は GPU のコマのままになるので d3d11va)
 _PIX_DEPTH = re.compile(r"p(\d{2})(?:le|be)$")             # yuv420p10le などの bit 数
 
 
@@ -139,6 +148,31 @@ def encode_tries(ffmpeg, preset=PRESET, vf=None, in_graph=False, runner=None):
     gpu = gpu_encoder(ffmpeg, runner)
     tries = [(gpu, encode_args(preset, vf, in_graph, gpu))] if gpu else []
     return tries + [(CPU, encode_args(preset, vf, in_graph))]
+
+
+def decode_args(codec):
+    """codec(作り方)に合わせた、読み込みを GPU にする入力側の引数(-i の前)。libx264・知らない作り方・YTT_HW_DEC=0 なら []"""
+    if not codec or codec == CPU or os.environ.get(HWDEC_ENV, "").strip() == "0":
+        return []
+    return list(HW_DECODE.get(codec, []))
+
+
+def hwdec_name(pre):
+    """decode_args の結果 -> 読み込みの名前(cuda・d3d11va。印用。無ければ "")"""
+    return str(pre[1]) if pre and len(pre) >= 2 else ""
+
+
+def decode_tries(tries):
+    """encode_tries の [(作り方, 出力側の引数)] -> [(作り方, 入力側の引数, 出力側の引数)]。
+    GPU の作り方は「読み込みも GPU」の回を先に置き、だめなら同じ作り方を読み込み CPU で、最後は libx264(読み込み CPU)。
+    入力側の引数が無い作り方(libx264・スイッチ切)はその 1 回だけ"""
+    out = []
+    for how, enc in tries:
+        pre = decode_args(how)
+        if pre:
+            out.append((how, pre, enc))
+        out.append((how, [], enc))
+    return out
 
 
 def video_ok(info):
@@ -362,20 +396,23 @@ def normalize(src, dst, cancelled=None, on_progress=None, priority_low=True, pre
         raise NormalizeError("映像がありません")
     dur = info.get("duration") or 0.0
     tmp = temp_path(dst)
-    base = [ff, "-hide_banner", "-nostdin", "-y", "-v", "error", "-i", src, "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn"]
+    head = [ff, "-hide_banner", "-nostdin", "-y", "-v", "error"]
+    inp = ["-i", src, "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn"]
     flags = tools.no_window_flags(new_group=True, priority="low" if priority_low else None)
-    # 作り方の順(前が失敗したら次で 1 回だけ。音声だけ・GPU は速い道、最後の libx264 が今までの作り方)
-    tries = [("音声だけ作り直し", list(AUDIO_ONLY_ARGS))] if video_ok(info) else []
-    tries += [("%s(%s)" % ("CPU" if c == CPU else "GPU", c), a) for c, a in encode_tries(ff, preset, runner=gpu_runner)]
+    # 作り方の順(前が失敗したら次で 1 回だけ。音声だけ・GPU は速い道、最後の libx264 が今までの作り方)。
+    # GPU の作り方は読み込みも GPU の回(pre = decode_args)を先に(失敗の文には +cuda などの印。how はそのまま)
+    tries = [("音声だけ作り直し", [], list(AUDIO_ONLY_ARGS))] if video_ok(info) else []
+    tries += [("%s(%s)" % ("CPU" if c == CPU else "GPU", c), pre, a) for c, pre, a in decode_tries(encode_tries(ff, preset, runner=gpu_runner))]
 
-    def run(args):
-        return run_ffmpeg(base + args + ["-progress", "pipe:1", "-nostats", tmp], flags, popen, cancelled, idle_sec, on_progress, dur)
+    def run(pre, args):
+        return run_ffmpeg(head + pre + inp + args + ["-progress", "pipe:1", "-nostats", tmp], flags, popen, cancelled, idle_sec, on_progress, dur)
 
     failed = []
     try:
-        for i, (how, enc) in enumerate(tries):
+        for i, (how, pre, enc) in enumerate(tries):
             last = i == len(tries) - 1
-            code, tail, why = run_with_legacy(run, enc, tmp, cancelled)   # ffmpeg 5.1 より古ければ -vsync cfr で1回だけやり直す
+            tag = how + ("+" + hwdec_name(pre) if pre else "")
+            code, tail, why = run_with_legacy(lambda args: run(pre, args), enc, tmp, cancelled)   # ffmpeg 5.1 より古ければ -vsync cfr で1回だけやり直す
             if why == "cancel" or cancelled():
                 raise Cancelled("取り消しました")
             if why == "idle":
@@ -384,7 +421,7 @@ def normalize(src, dst, cancelled=None, on_progress=None, priority_low=True, pre
                 msg = " / ".join(tail[-3:]) or "終了コード %s" % code
                 if last:
                     raise NormalizeError("作り直しに失敗しました: %s" % msg)
-                failed.append("%s: %s" % (how, msg[:120]))
+                failed.append("%s: %s" % (tag, msg[:120]))
                 fsio.unlink_quiet(tmp)
                 continue
             try:
@@ -392,7 +429,7 @@ def normalize(src, dst, cancelled=None, on_progress=None, priority_low=True, pre
             except NormalizeError as e:
                 if last:
                     raise
-                failed.append("%s: %s" % (how, str(e)[:120]))
+                failed.append("%s: %s" % (tag, str(e)[:120]))
                 fsio.unlink_quiet(tmp)
                 continue
             fsio.replace_retry(tmp, dst)
@@ -401,4 +438,4 @@ def normalize(src, dst, cancelled=None, on_progress=None, priority_low=True, pre
         fsio.unlink_quiet(tmp)
         raise
     _report(on_progress, 1.0)
-    return dict(out, path=dst, how=how, failed=failed)
+    return dict(out, path=dst, how=how, hwdec=hwdec_name(pre), failed=failed)

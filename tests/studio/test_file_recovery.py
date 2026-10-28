@@ -30,6 +30,7 @@ class TestExportRecovery(unittest.TestCase):
                 patch.object(exporter, "pick_folder", return_value=("video", tmp)), \
                 patch.object(exporter, "unique_base", side_effect=name_error, return_value="clip"), \
                 patch.object(exporter, "run_ffmpeg", return_value="video/clip.mp4"), \
+                patch.object(exporter, "copy_edit_media", return_value="video/作業用/clip_edit.mp4"), \
                 patch.object(exporter, "apply_loudness", side_effect=volume_error):
             exporter.run(spec, job, jobs.Ctl(), callback)
         return job, item, log

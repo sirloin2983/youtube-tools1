@@ -261,9 +261,10 @@ class TestExportThrough(unittest.TestCase):
         for i in res["items"]:   # パスの長さ: 一番長い 作業用/ の中も上限まで・本体は途中の名前の分を残す
             self.assertLessEqual(exporter.path_units(i["editManifest"]), exporter.MAX_PATH_UNITS)
             self.assertLessEqual(exporter.path_units(os.path.splitext(i["path"])[0]) + exporter.SUFFIX_ROOM, exporter.MAX_PATH_UNITS)
-        # 精度優先 = veryfast・crf 18 で作り直し、音量(%)は切り出しの -af に入る(後から音声だけ作り直さない)
+        # 精度優先 = veryfast・crf 18 で作り直し、音量(%)は切り出しの -af に入る(後から音声だけ作り直さない)。
+        # 編集用素材は仕上げた本体の写し(EDIT_FROM_MAIN。10-29)= 作り直しは 1 本に 1 回
         cut = [c for c in cmds if "-preset" in c]
-        self.assertEqual([(c[c.index("-preset") + 1], c[c.index("-crf") + 1], c[c.index("-af") + 1]) for c in cut], [("veryfast", "18", "volume=0.500")] * 6)
+        self.assertEqual([(c[c.index("-preset") + 1], c[c.index("-crf") + 1], c[c.index("-af") + 1]) for c in cut], [("veryfast", "18", "volume=0.500")] * 3)
         # 完了の呼び返し: (配信 ID・マーク ID・出力の相対名・始め・終わり・書き出した mp4 の絶対パス = マークに残す)。余白つきは clip に動画の範囲(頭は 0 秒で止まる = 0〜22 秒)
         self.assertEqual([c[0][:2] for c in calls], [(VID, "m1"), (VID, "m2"), (VID, "m3")])
         self.assertEqual((calls[0][0], list(calls[0][1]), calls[0][1]["clip"][0]), ((VID, "m1", it["file"], 7.0, 12.0, it["path"]), ["clip"], 0.0))
@@ -291,10 +292,13 @@ class TestExportThrough(unittest.TestCase):
         self.assertEqual(d["export"].pop("encodeSet"), normalize.enc_set())   # 画質の設定の版の印
         self.assertGreater(d["export"].pop("secs")["encode"], 0)   # 段ごとの秒(友人の診断で読む)
         d["export"].pop("gpuError", None)   # GPU で作れなかった PC だけ
+        d["export"].pop("hwdecError", None)   # 読み込みを GPU にして作れなかった PC だけ(この PC の AMF は 64x64 を受け付けない)
+        d["export"].pop("hwdec", None)       # 読み込みを GPU にできた PC だけ(印)
         self.assertEqual(d["export"].pop("check")["issues"], [])   # 書き出しのあとの自動の点検(合成の見本は気になる所なし)
         mg = d["export"].pop("margin")   # 余白の印: 前は頭で止まった 7 秒・後ろ 10 秒。actualStart = 動画の頭の元の秒
         self.assertEqual(mg["before"], 7.0)
         self.assertAlmostEqual(mg["after"], 10.0, delta=0.3)
+        self.assertEqual(d["export"].pop("editFrom"), "copy")   # 編集用素材は仕上げた本体の写し(印。10-29)
         self.assertEqual(d["export"], {"mode": "precise", "volume": 50, "actualStart": 0.0})
         self.assertEqual(exporter.src_shape("Stream #0:0[0x1](und): Video: av1 (libdav1d) (Main), yuv420p(tv), 1920x1080 [SAR 1:1 DAR 16:9], 1472 kb/s, 60 fps"),
                          {"vcodec": "av1", "height": 1080, "fps": 60.0})
@@ -350,9 +354,9 @@ class TestExportThrough(unittest.TestCase):
         self.assertEqual((rec["state"], it["status"], it["start"], it["end"]), ("done", "done", 7.0, 12.0), it.get("error"))   # 画面へ返す区間はマークのまま
         self.assertEqual(os.path.dirname(it["path"]), folder)
         self.assertEqual([os.path.basename(i["path"])[:3] for i in (it, si)], ["05_", "06_"])
-        # 高速 = 速い設定での作り直し(コピーでは fps を変えられず、開始もキーフレームへずれるため)。ラウドネスのときは -af を付けない
+        # 高速 = 速い設定での作り直し(コピーでは fps を変えられず、開始もキーフレームへずれるため)。ラウドネスのときは -af を付けない。作り直しは 1 本に 1 回(写し)
         cut = [c for c in cmds if "-preset" in c]
-        self.assertEqual([(c[c.index("-preset") + 1], c[c.index("-crf") + 1], "-af" in c) for c in cut], [("ultrafast", "18", False)] * 4)
+        self.assertEqual([(c[c.index("-preset") + 1], c[c.index("-crf") + 1], "-af" in c) for c in cut], [("ultrafast", "18", False)] * 2)
         self.assertFalse(any("copy" == c[c.index("-c") + 1] for c in cmds if "-c" in c))
         self.assertEqual((_fps(it["path"]), _fps(it["editPath"])), ("30/1", "30/1"))
         # 余白: 前後 10 秒(頭は 0 秒で止まる = 7 秒)= 動画は 0〜22 秒・range はマークのまま・actualStart と margin が印
@@ -369,7 +373,9 @@ class TestExportThrough(unittest.TestCase):
         em = testkit.read_json(it["editManifest"])
         self.assertEqual(em["range"]["start"], 0.0)   # 編集用素材も本体と同じ範囲(上乗せなし)
         self.assertAlmostEqual(mediainfo.media_info(it["editPath"])[0], 22.0, delta=0.3)
-        # ラウドネス: 切り抜きと編集用素材に同じ量をかけて、どちらも目標に(同じ音なので同じ大きさ)・ピークは上限まで
+        # ラウドネス: 本体で測ってそろえ、編集用素材はその写し(同じ中身 = 同じ大きさ)・ピークは上限まで
+        self.assertEqual(os.path.getsize(it["editPath"]), os.path.getsize(it["path"]))   # 写し(.edit.json は selectionIn 0)
+        self.assertEqual(testkit.read_json(os.path.join(os.path.dirname(it["path"]), schemas.WORK_DIR, os.path.splitext(os.path.basename(it["path"]))[0] + ".edit.json"))["selectionIn"], 0.0)
         lo = it["loudness"]
         self.assertEqual(lo["target"], -14.0)
         self.assertAlmostEqual(lo["measured"], _loudness(self.src)[0], delta=1.0)
@@ -384,10 +390,10 @@ class TestExportThrough(unittest.TestCase):
             self.assertEqual(ex["loudness"], lo)
             self.assertNotIn("volume", ex)   # 音量(%)は使っていない
         self.assertEqual(pub["items"][0]["loudness"], lo)
-        # 無音の切り抜き: 測れないので skipped・音声を作り直さない(作り直しは 1 本目の本体と編集用素材の 2 回だけ)
+        # 無音の切り抜き: 測れないので skipped・音声を作り直さない(作り直しは 1 本目の本体の 1 回だけ。編集用素材は仕上がった本体の写し)
         self.assertEqual((si["status"], si["loudness"]["target"]), ("done", -14.0), si.get("error"))
         self.assertIn("skipped", si["loudness"])
-        self.assertEqual(sum(1 for c in cmds if "-c:v" in c and c[c.index("-c:v") + 1] == "copy"), 2)
+        self.assertEqual(sum(1 for c in cmds if "-c:v" in c and c[c.index("-c:v") + 1] == "copy"), 1)
         self.assertEqual(_loudness(si["path"]), (None, None))
         self.assertEqual(_leftovers(folder, os.path.join(folder, schemas.WORK_DIR)), [])
 
@@ -468,24 +474,28 @@ class TestExportFailures(unittest.TestCase):
             job, calls = self.export([clip])
         it = job["items"][0]
         self.assertEqual((job["state"], it["status"]), ("error", "error"))
-        self.assertTrue(exporter.is_partial(seen[0][0]) and exporter.is_partial(seen[0][1]))   # 仕上げの間は書きかけの名前
+        self.assertTrue(exporter.is_partial(seen[0][0]) and seen[0][1] is None)   # 仕上げの間は書きかけの名前。編集用素材はラウドネスのあとの写し(まだ無い)
         self.assertEqual(self._files(job), [])
         self.assertEqual(calls, [])   # 書き出し済みの記録もしない
         pub = exporter.result_public(job)["items"][0]
         self.assertEqual((pub["path"], pub["manifest"], pub["editPath"], pub["editManifest"]), (None, None, None, None))
 
     def test_cancel_during_edit_media_leaves_no_file(self):
+        """編集用素材(本体の写し)の途中で中止: 本体の書きかけも写しも .edit.json も残さない"""
         clip = {"id": "m8", "start": 7.0, "end": 12.0, "title": "x", "label": "", "src": "manual", "markStatus": ""}
-        real = exporter.run_ffmpeg
-        state = {"n": 0}
+        real = exporter.copy_edit_media
+        ctls = []
 
-        def cancel_on_second(job, spec, it, base):   # 1回目 = 本体、2回目 = 編集用素材 の切り出しで「中止」
-            state["n"] += 1
-            if state["n"] == 2:
-                job.cancel()   # job = ① に渡る Ctl
-                raise exporter.ExportError("中止しました")
-            return real(job, spec, it, base)
-        with patch.object(exporter, "run_ffmpeg", side_effect=cancel_on_second):
+        def cancel_in_copy(spec, it, base):
+            ctls[0].cancel()   # ① に渡る Ctl(中止の合図)
+            real(spec, it, base)   # 写しと .edit.json はできている(呼ぶ側が消す)
+            raise exporter.ExportError("中止しました")
+        real_run = exporter.run
+
+        def run(spec, res, ctl, on_done=None):
+            ctls.append(ctl)
+            return real_run(spec, res, ctl, on_done)
+        with patch.object(exporter, "copy_edit_media", side_effect=cancel_in_copy), patch.object(exporter, "run", side_effect=run):
             job, _ = self.export([clip])
         self.assertEqual((job["state"], job["items"][0]["status"]), ("cancelled", "cancelled"))
         self.assertEqual(self._files(job), [])
@@ -547,6 +557,7 @@ class TestManifestFailure(unittest.TestCase):
             with patch.object(exporter, "pick_folder", return_value=("video", tmp)), \
                     patch.object(exporter, "run_ffmpeg", return_value="video/clip.mp4"), \
                     patch.object(exporter, "export_edit_media", return_value="video/clip_edit.mp4"), \
+                    patch.object(exporter, "copy_edit_media", return_value="video/作業用/clip_edit.mp4"), \
                     patch.object(exporter, "write_clip", side_effect=denied), patch.object(studio_env, "log_failure") as log:
                 _run(job, spec, Mock(return_value=True))
             it = job["items"][0]
@@ -780,7 +791,8 @@ class TestLiveSection(unittest.TestCase):
         it = job["items"][0]
         self.assertEqual((job["state"], it["status"]), ("done", "done"), it.get("error"))
         self.assertTrue(cmds and not [c for c in cmds if "-af" in c], cmds)   # 音量 100% は音のフィルタを足さない
-        self.assertEqual((cmds[-1].count("-i"), cmds[-1].count("-ss")), (1, 2), cmds)   # 本体と編集用素材を 1 本の ffmpeg で(読み込み 1 回)
+        self.assertEqual((cmds[-1].count("-i"), cmds[-1].count("-ss")), (1, 1), cmds)   # 本体だけ作り直す(編集用素材は仕上がった本体の写し。10-29)
+        self.assertEqual(os.path.getsize(it["editPath"]), os.path.getsize(it["path"]))
         self.assertEqual(self.sections(), ["*00:00:05.000-00:00:14.000"])
         self.assertAlmostEqual(mediainfo.media_info(it["path"])[0], 5.0, delta=0.2)
         self.assertAlmostEqual(mediainfo.media_info(it["editPath"])[0], 5.0, delta=0.2)   # 編集用素材も本体と同じ長さ
