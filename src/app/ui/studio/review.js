@@ -596,6 +596,7 @@ async function deleteVideo(v){
   S.cur = null; S.series = null; ++S.loadSeq; S.dirty = false;
   unmountPlayer(); renderAll();
   await refreshList();
+  if (typeof env.afterDelete === 'function'){ env.afterDelete(); return; }   // 案件のパネル: 別の配信をこの案件の中に開かない(見直し 3 の 5)
   if (S.videos.length) loadVideo(S.videos[0].id);
 }
 

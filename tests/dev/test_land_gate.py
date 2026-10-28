@@ -77,6 +77,7 @@ class SelectTest(unittest.TestCase):
     def test_session_name(self):
         self.assertEqual(land_gate.session_name("claude/land-gate-c990b8"), "land-gate")
         self.assertEqual(land_gate.session_name("friend-preflight"), "friend-preflight")
+        self.assertEqual(land_gate.session_name("worktree-agent-a74ff8b9fa1964728"), "worktree-agent")   # 6 文字より長い 16 進も外す
 
 
 class TableTest(unittest.TestCase):

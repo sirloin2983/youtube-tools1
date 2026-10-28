@@ -542,7 +542,7 @@ class ServerTest(Base):
     def test_decide_reports_move_error_as_not_ok(self):
         rid = "20250615-130100-aaaaaa"
         self.make_arrived(rid, ["a_pack"])
-        with mock.patch("friendapp.inbox.shutil.move", side_effect=OSError("busy")):
+        with mock.patch("ytt.trashbin.safe_move", side_effect=OSError("busy")):   # 片付けは ごみ箱 の safe_move
             st, _h, p = self.post("/api/friend/decide", {"items": [{"id": rid, "name": "a_pack"}], "verdict": "skip"})
         d = self.js(p)
         self.assertEqual(st, 200)

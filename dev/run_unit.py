@@ -36,6 +36,7 @@ SOLO = {"tests/dev/test_resolve_pack_contract.py"}
 SKIP_DIRS = {"__pycache__", "node_modules", "build", "dist", "work", "logs", "fixtures", ".venv"}
 TAIL_LINES = 25
 SLOWEST = 10
+TIMEOUT_SEC = 600   # 1 本の上限(秒)。固まったテスト 1 本で関所が終わらないのを防ぐ(孫ごと止めて落ちた扱い)
 PY = [sys.executable]   # この道具を動かした Python(py -3.12)で流す
 
 
@@ -88,8 +89,9 @@ def build_units(root, only=None):
     return sorted(units, key=lambda u: u.rel)
 
 
-def run_one(unit):
-    """1 本を別のプロセスで流す。結果(成否・テストの数・秒・stderr)を返す。.cjs は node --test(数は「tests N」の行)"""
+def run_one(unit, timeout=TIMEOUT_SEC):
+    """1 本を別のプロセスで流す。結果(成否・テストの数・秒・stderr)を返す。.cjs は node --test(数は「tests N」の行)。
+    timeout 秒を過ぎたら孫ごと止めて落ちた扱い"""
     env = dict(os.environ)
     env["YTT_DATA_DIR"] = "inplace"
     env.pop("PYTHONIOENCODING", None)
@@ -98,18 +100,28 @@ def run_one(unit):
         return Result(unit, False, 0, 0.0, "node が見つかりません(PATH か Playwright の node.exe)")
     cmd = [NODE, "--test"] + unit.args if cjs else PY + ["-m", "unittest"] + unit.args
     t0 = time.monotonic()
-    p = subprocess.run(cmd, cwd=unit.cwd, env=env, capture_output=True, creationflags=tools.no_window_flags())
+    p = subprocess.Popen(cmd, cwd=unit.cwd, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         creationflags=tools.no_window_flags())
+    timed_out = False
+    try:
+        out, errb = p.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        tools.kill_tree(p, wait=10)
+        out, errb = p.communicate()
     secs = time.monotonic() - t0
-    err = p.stderr.decode("utf-8", errors="replace")
+    err = errb.decode("utf-8", errors="replace")
+    if timed_out:
+        err += "\n時間切れ(%d 秒を過ぎたので止めた)\n" % timeout
     if cjs:
-        err = p.stdout.decode("utf-8", errors="replace") + err
+        err = out.decode("utf-8", errors="replace") + err
         m = re.search(r"^(?:ℹ|#) tests (\d+)", err, re.M)
         s = re.search(r"^(?:ℹ|#) skipped (\d+)", err, re.M)
     else:
         m = re.search(r"^Ran (\d+) tests?", err, re.M)
         s = re.search(r"^(?:OK|FAILED) \(.*\bskipped=(\d+)", err, re.M)
     count = int(m.group(1)) if m else 0
-    return Result(unit, p.returncode == 0, count, secs, err, int(s.group(1)) if s else 0)
+    return Result(unit, p.returncode == 0 and not timed_out, count, secs, err, int(s.group(1)) if s else 0)
 
 
 def report(r):

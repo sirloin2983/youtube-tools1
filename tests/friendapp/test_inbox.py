@@ -433,7 +433,8 @@ class InboxTest(unittest.TestCase):
             with self.subTest(verdict=verdict):
                 rid = RID if verdict == "keep" else RID2
                 self.arrive(rid, ["a_pack"])
-                with mock.patch("friendapp.inbox.shutil.move", side_effect=exc):
+                target = "friendapp.inbox.shutil.move" if verdict == "keep" else "ytt.trashbin.safe_move"   # 片付けは ごみ箱 の safe_move(改名だけ)
+                with mock.patch(target, side_effect=exc):
                     got = self.box.decide(rid, [], verdict)
                 self.assertEqual(got["done"], [])
                 self.assertEqual([e["name"] for e in got["errors"]], ["a_pack"])

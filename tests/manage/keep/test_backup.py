@@ -214,6 +214,38 @@ class BackupTest(unittest.TestCase):
         b.run_now()
         self.assertEqual(b.tick()["copied"], 1)
 
+    def test_run_now_partial_retries_after_retry_sec_even_within_interval(self):
+        """前の完全な写しから everyHours 以内でも、「今すぐ」が完全でなければ RETRY_SEC 後にもう一度(見直し 3 の 24)"""
+        b = self.timed(2000000000.0)
+        self.assertEqual(b.tick()["copied"], 8)
+        old = backup.copy_one
+
+        def broken(src, dst, day):
+            raise PermissionError(13, "使用中")
+        put(os.path.join(self.src, "transcribe", "transcripts", "a.json"), "校正 2 長くした")
+        backup.copy_one = broken
+        self.addCleanup(setattr, backup, "copy_one", old)
+        self.now[0] += 600
+        b.run_now()
+        self.assertFalse(b.tick()["complete"])
+        backup.copy_one = old
+        self.now[0] += 600
+        self.assertIsNone(b.tick())
+        self.now[0] += backup.RETRY_SEC
+        self.assertEqual(b.tick()["copied"], 1)
+
+    def test_missing_drive_waits_retry_sec_and_logs_once(self):
+        """写す先のドライブが無い = RETRY_SEC は待ち、同じ文を続けて書かない(見直し 3 の 25)"""
+        now = [1000.0]
+        b, logs = self.make(lambda: now[0])
+        self.prefs.patch("backup", {"enabled": True, "folder": "Q:\\無いドライブ\\bk"})
+        self.assertIsNone(b.tick())
+        self.assertEqual(b.state, "error")
+        now[0] += 200
+        self.assertIsNone(b.tick())
+        self.assertEqual(len([m for m in logs if "ドライブ" in m]), 1)
+        self.assertTrue(b.last["partial"])
+
     def test_copy_failure_is_partial_and_retried_after_retry_sec(self):
         """写せないファイルがあれば完全に写せたにしない(ok を進めない)。RETRY_SEC のあとでもう一度"""
         b = self.timed(2000000000.0)
@@ -386,6 +418,21 @@ class BackupTest(unittest.TestCase):
         self.assertEqual(backup.run_once(self.src, self.dst, out_dir=out)["copied"], 0)
         self.assertEqual(backup.run_once(self.src, self.dst, out_dir=os.path.join(self.tmp, "無い"))["errors"], [])   # 無い outDir は何もしない
         self.assertEqual(backup.run_once(self.src, self.dst)["copied"], 0)
+
+    def test_prev_out_dirs_cases_are_copied_under_cases_prev(self):
+        """書き出し先を変えたあと前の先に残った案件の 作業用 も写す(cases-prev/<ドライブ>/<パス>/…。見直し 3 の 4)。今の先と同じ・無い先は飛ばす"""
+        out = self.make_cases()
+        prev = os.path.join(self.tmp, "前の出力")
+        put(os.path.join(prev, "題名B", "作業用", "b.clip.json"), "{}")
+        put(os.path.join(prev, "題名B", "b.mp4"), "video")
+        r = backup.run_once(self.src, self.dst, out_dir=out, prev_out_dirs=[prev, out, os.path.join(self.tmp, "無い")])
+        self.assertEqual(r["errors"], [])
+        files = self.files()
+        got = [f for f in files if f.startswith("cases-prev/")]
+        self.assertEqual(len(got), 1)
+        self.assertTrue(got[0].endswith("/題名B/作業用/b.clip.json"), got)
+        self.assertEqual([f for f in files if f.endswith(".mp4")], [])
+        self.assertEqual(len([f for f in files if f.startswith("cases/")]), 7)   # 今の先の分は cases/ のまま(二重に写さない)
 
     def test_request_cases_are_copied_and_intake_videos_are_not(self):
         """依頼/<日付>_<題>_<id6>/作業用 の json は案件として写す。app/intake の動画は写さない"""

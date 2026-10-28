@@ -8,6 +8,7 @@
 (「片付けませんでした」と画面に出た物がごみ箱にあり、記録も無いまま日数で消える、を作らない)。戻したあとの空のフォルダは消す。
 OS を呼ぶ所は fsio.long_path で包む(260 文字を超えるパスも動かす)。記録と戻り値は元のパスのまま。
 """
+import errno
 import json
 import os
 import re
@@ -15,6 +16,80 @@ import shutil
 import time
 
 from . import fsio, schemas, tools
+
+
+def _cross_device(e):
+    """os.rename の失敗が「別のドライブ」か(Windows は WinError 17・ほかは EXDEV)"""
+    return getattr(e, "winerror", None) == 17 or getattr(e, "errno", None) == errno.EXDEV
+
+
+def _tree_files(root):
+    """root(長いパス)の下の全ファイルの相対パス(フォルダはたどる。リンクはたどらない)"""
+    out = []
+    for dp, _dns, fns in os.walk(root):
+        for fn in fns:
+            out.append(os.path.relpath(os.path.join(dp, fn), root))
+    return out
+
+
+def _remove_tree(root):
+    """root の下を深い所から消す。1 つでも消せなければ OSError(消せた物はそのまま = 呼ぶ側が写しから戻す)"""
+    for dp, dns, fns in os.walk(root, topdown=False):
+        for fn in fns:
+            os.unlink(os.path.join(dp, fn))
+        for dn in dns:
+            os.rmdir(os.path.join(dp, dn))
+    os.rmdir(root)
+
+
+def _move_dir_across(src, dst, log):
+    """別のドライブへフォルダを移す: 写す → 全部写ったか確かめる → 元を消す。元を消しきれなければ(中のファイルが開かれている)写しから
+    消えた分を元へ戻し、写しを消して OSError(元は欠けない側に倒す = 見直し 3 の 1)"""
+    shutil.copytree(src, dst, copy_function=shutil.copy2)
+    want = _tree_files(src)
+    for rel in want:
+        a, b = os.path.join(src, rel), os.path.join(dst, rel)
+        if not os.path.isfile(b) or os.path.getsize(a) != os.path.getsize(b):
+            shutil.rmtree(dst, ignore_errors=True)
+            raise OSError(errno.EIO, "写しが元と合いません")
+    try:
+        _remove_tree(src)
+    except OSError as e:
+        back = 0
+        for rel in want:   # 消えた分を写しから戻す(写しは全部そろっているのを確かめた)
+            a = os.path.join(src, rel)
+            if not os.path.isfile(a):
+                os.makedirs(os.path.dirname(a), exist_ok=True)
+                shutil.copy2(os.path.join(dst, rel), a)
+                back += 1
+        shutil.rmtree(dst, ignore_errors=True)
+        log("ごみ箱: 元のフォルダを消しきれなかったので %d 個を戻し、写しを消しました: %r" % (back, e))
+        raise
+
+
+def safe_move(src, dst, log=None):
+    """src(ファイルかフォルダ)を dst へ移す。同じドライブなら改名だけ(改名できなければ shutil.move のように「写して消す」へ落とさず、そのまま OSError =
+    中のファイルが開かれていて改名を断られた時に元を半分消したまま残さない)。別のドライブなら写してから元を消し、元を消せなければ写しを消して OSError。
+    どちらも「元が欠けたまま残る」形にならない。パスは長いパス(fsio.long_path)で渡す"""
+    log = log or (lambda m: None)
+    try:
+        os.rename(src, dst)
+        return
+    except OSError as e:
+        if not _cross_device(e):
+            raise
+    if os.path.isdir(src) and not os.path.islink(src):
+        _move_dir_across(src, dst, log)
+        return
+    shutil.copy2(src, dst)
+    try:
+        os.unlink(src)
+    except OSError:
+        try:
+            os.unlink(dst)
+        except OSError:
+            pass
+        raise
 
 MANIFEST = "manifest.jsonl"
 TRASH_DIR = "ごみ箱"     # ごみ箱フォルダの名前(作業データ・書き出し先・録画の置き場所・友人のアプリの一時保管と home の直下)
@@ -126,7 +201,7 @@ def to_trash(trash, files, kind, name=None, all_or_nothing=False, need_first=Fal
             d = os.path.join(dest, sub) if sub else dest
             os.makedirs(fsio.long_path(d), exist_ok=True)
             to = free_path(os.path.join(d, os.path.basename(p.rstrip("\\/"))))
-            shutil.move(fsio.long_path(p), fsio.long_path(to))   # 同じドライブなら改名、別のドライブなら写して消す
+            safe_move(fsio.long_path(p), fsio.long_path(to), log)   # 同じドライブなら改名だけ、別のドライブなら写して消す(元を欠けたまま残さない)
             res["moved"].append((p, to))
         except (OSError, shutil.Error) as e:
             res["failed"].append((p, tools.why(e)))
@@ -170,7 +245,7 @@ def put_back(res, log=None):
     for src, to in reversed(res["moved"]):
         try:
             os.makedirs(fsio.long_path(os.path.dirname(src)), exist_ok=True)   # 元の 作業用\ が消えていても戻す(戻せない物を減らす)
-            shutil.move(fsio.long_path(to), fsio.long_path(src))
+            safe_move(fsio.long_path(to), fsio.long_path(src), log)
             res["restored"].append((src, to))
         except (OSError, shutil.Error) as e:
             res["left"].append((src, to))

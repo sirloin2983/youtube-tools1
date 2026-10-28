@@ -69,7 +69,7 @@ def read(path):
     try:
         with open(path, encoding="utf-8") as f:
             return f.read().replace("\r\n", "\n")
-    except OSError:
+    except (OSError, ValueError):   # UTF-8 でないメモ 1 枚で止まらない
         return None
 
 
@@ -137,9 +137,13 @@ def boundary_notes(dirs):
     for p in found:
         if os.sep + ".git" + os.sep in p:
             continue
+        try:
+            mtime = os.path.getmtime(p)
+        except OSError:   # glob と読みの間に消えた
+            continue
         text = read(p) or ""
         title = next((ln.lstrip("# ").strip() for ln in text.split("\n") if ln.startswith("#")), "")
-        out.append((os.path.getmtime(p), p, title))
+        out.append((mtime, p, title))
     return sorted(out, reverse=True)
 
 

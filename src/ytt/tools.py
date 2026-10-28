@@ -26,8 +26,9 @@ from . import errors as _errors, fsio as _fsio, ytcookies as _ytcookies
 PRIORITY = {"low": "BELOW_NORMAL_PRIORITY_CLASS", "high": "ABOVE_NORMAL_PRIORITY_CLASS", "idle": "IDLE_PRIORITY_CLASS"}   # no_window_flags の priority(idle = 後回しの仕事。PRIO)
 KILL_TREE_TIMEOUT = 15   # taskkill /T /F を待つ秒数
 OUT_TIME = re.compile(r"^out_time_(?:us|ms)=(\d+)$")    # ffmpeg の -progress の進み具合の行(us も ms もマイクロ秒)
-PROGRESS_KV = re.compile(r"^(?:frame|fps|stream_\d+_\d+_q|bitrate|total_size|out_time|dup_frames|drop_frames|speed|progress)=[^=]*$")
-# ↑ -progress の塊の 1 行(= が 1 つだけ。統計の行「frame=  1 fps=… time=…」は = が多いので入らない = yt-dlp の区間取得の進みは数える)
+PROGRESS_KV = re.compile(r"^(?:frame|fps|stream_\d+_\d+_q|bitrate|total_size|out_time(?:_us|_ms)?|dup_frames|drop_frames|speed|progress)=[^=]*$")
+# ↑ -progress の塊の 1 行(= が 1 つだけ。統計の行「frame=  1 fps=… time=…」は = が多いので入らない = yt-dlp の区間取得の進みは数える)。
+#   out_time_us=N/A(まだ何も書き出せていない)も塊の行 = 「出力あり」に数えない(進んだかは OUT_TIME だけで見る。見直し 3 の 3)
 RECENT = collections.deque(maxlen=40)   # 最近動かした道具の記録(remember)
 RECENT_TAIL = 8                         # 失敗したときに覚える最後の行数
 
@@ -346,7 +347,8 @@ def run(cmd, timeout=None, cancelled=None, flags=None, stdout=True, err_tail=Non
     - on_start(proc): 起動した直後に呼ぶ(呼ぶ側が「止める」ために proc を覚えるとき)
     - popen_kw: cwd・env・preexec_fn など、そのまま Popen へ
     起動できなければ OSError をそのまま上げる(呼ぶ側が自分の例外・文にする。理由の文は why(e))。
-    止めるのは子だけ(kill)。孫ごと止めたいものは on_start で覚えて kill_tree を使う。止めたあと、出力のパイプは最大 5 秒で読み終える"""
+    止めるときは孫ごと(kill_tree。yt-dlp の exe は子を作るので親だけ止めても取得が続く = 見直し 3 の 2)。止めたあと、出力のパイプは最大 5 秒で
+    読み終える(読み手がまだ読んでいる間はパイプを閉じない = close() が子の終わりまで戻らないのを防ぐ)"""
     t0 = time.monotonic()
     proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE if stdout else subprocess.DEVNULL, stderr=subprocess.PIPE,
                             creationflags=no_window_flags() if flags is None else flags, **popen_kw)
@@ -367,14 +369,14 @@ def run(cmd, timeout=None, cancelled=None, flags=None, stdout=True, err_tail=Non
             elif end is not None and time.monotonic() > end:
                 reason = "timeout"
             if reason:
-                kill_quiet(proc)
+                kill_tree(proc)
                 break
             try:
                 proc.wait(poll)
             except subprocess.TimeoutExpired:
                 pass
     except BaseException:
-        kill_quiet(proc)
+        kill_tree(proc)
         raise
     finally:
         try:
@@ -383,12 +385,13 @@ def run(cmd, timeout=None, cancelled=None, flags=None, stdout=True, err_tail=Non
             pass
         for t in readers:
             t.join(5)
-        for f in (proc.stdout, proc.stderr):
-            if f is not None:
-                try:
-                    f.close()
-                except OSError:
-                    pass
+        if not any(t.is_alive() for t in readers):   # 読み手が読み終えた時だけ閉じる(読んでいる途中の close() は子の終わりまで戻らない)
+            for f in (proc.stdout, proc.stderr):
+                if f is not None:
+                    try:
+                        f.close()
+                    except OSError:
+                        pass
     remember(cmd, proc.returncode, err, reason, t0)
     return RunResult(proc.returncode, b"".join(out), b"".join(err), reason)
 

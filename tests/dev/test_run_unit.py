@@ -81,6 +81,15 @@ class TestBuildUnits(unittest.TestCase):
             self.assertTrue(r.ok, r.err)
             self.assertEqual((r.count, r.skipped), (2, 1))   # 飛ばした件数はまとめに出す
 
+    def test_run_one_times_out_and_kills(self):
+        """固まったテストは timeout で止めて落ちた扱い(関所が終わらないのを防ぐ)"""
+        with tempfile.TemporaryDirectory() as d:
+            touch(d, "tests/x/test_hang.py", "import time, unittest\n\nclass T(unittest.TestCase):\n    def test_hang(self):\n        time.sleep(30)\n")
+            r = R.run_one(R.build_units(d)[0], timeout=2)
+            self.assertFalse(r.ok)
+            self.assertIn("時間切れ", r.err)
+            self.assertLess(r.secs, 25)
+
     def test_cjs_runs_with_node_test(self):
         """.cjs(node --test)も一覧に入り、node で流す"""
         with tempfile.TemporaryDirectory() as d:

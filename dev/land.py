@@ -280,6 +280,8 @@ def land(branch, mode="auto", message="", dry_run=False, wait=600, cwd=REPO, log
         if branch:
             base = git("rev-parse", "HEAD", cwd=main).strip()
             ahead = git("rev-list", base + ".." + branch, cwd=main).split()
+            if ahead and mode == "none" and git("diff", "--name-only", base + "..." + branch, "--", VERSION_REL, cwd=main).strip():
+                raise Stop("--no-bump だが、ブランチが版を変えている(version.py)。版を上げるか、ブランチの版の変更を外す")   # merge の前に止める(main に残さない)
             if not ahead:
                 log("%s は main にもう入っている" % branch)
             elif dry_run:

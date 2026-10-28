@@ -305,8 +305,9 @@
       f.checking = false; sync();
     });
   }
-  function close() {   /* Esc・×: 送る欄を閉じる(入れかけも消える = C-2-18) */
+  function close() {   /* Esc・×: 送る欄を閉じる(入れかけも消える = C-2-18)。読み込み中の動画は止める(終わってから別の欄を閉じない = 見直し 3 の 7) */
     f.peekSeq++;
+    f.files.forEach(function (x) { if (x.xhr) { var h = x.xhr; x.xhr = null; h.abort(); } });
     f.mode = 'none'; f.stream = null; f.files = []; f.checking = false; f.people = []; f.rec = null; f.recId = '';
     f.streamer = { name: '', hex: null, auto: true };
     $('ranges').textContent = '';
@@ -377,6 +378,7 @@
     xhr.upload.onprogress = function (e) { if (e.lengthComputable) { x.pct = Math.floor(e.loaded * 100 / e.total); drawFiles(); } };
     xhr.onload = function () {
       x.xhr = null;
+      if (f.files.indexOf(x) < 0) return;   /* 欄を閉じた・外した後に届いた答え: 今の欄には触らない */
       var j = null;
       try { j = JSON.parse(xhr.responseText); } catch (e) { j = null; }
       if (xhr.status === 200 && j && j.file) {
@@ -389,7 +391,13 @@
       }
       if (!f.files.length) close(); else { drawFiles(); sync(); }
     };
-    xhr.onerror = function () { x.xhr = null; f.files.splice(f.files.indexOf(x), 1); UIKit.toast(file.name + ' を読み込めませんでした', { kind: 'err' }); drawFiles(); sync(); };
+    xhr.onerror = function () {
+      x.xhr = null;
+      if (f.files.indexOf(x) < 0) return;
+      f.files.splice(f.files.indexOf(x), 1);
+      UIKit.toast(file.name + ' を読み込めませんでした', { kind: 'err' });
+      if (!f.files.length) close(); else { drawFiles(); sync(); }
+    };
     xhr.send(file);
   }
   function dropTarget(zone) {

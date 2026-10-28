@@ -1379,6 +1379,9 @@ class TestTools(unittest.TestCase):
         self.assertEqual(tools.OUT_TIME.match("out_time_ms=42").group(1), "42")
         for line in ("out_time=00:00:01.500000", "out_time_us=N/A", " out_time_us=1", "out_time_us=1 "):
             self.assertIsNone(tools.OUT_TIME.match(line), line)
+        for line in ("out_time_us=N/A", "out_time_ms=N/A", "out_time_us=-1", "progress=continue", "frame=12"):   # 塊の行 = 「出力あり」に数えない
+            self.assertIsNotNone(tools.PROGRESS_KV.match(line), line)
+        self.assertIsNone(tools.PROGRESS_KV.match("frame=  1 fps=0.0 q=0.0 size=0kB"))
 
     def test_tool_version(self):
         exe = sys.executable

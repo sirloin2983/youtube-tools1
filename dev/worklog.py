@@ -66,7 +66,7 @@ def week_name(day):
 
 
 def read(path):
-    with open(path, encoding="utf-8") as f:
+    with open(path, encoding="utf-8", errors="replace") as f:   # UTF-8 でない 1 枚で止まらない(壊れた文字は置き換える)
         return f.read().replace("\r\n", "\n")
 
 

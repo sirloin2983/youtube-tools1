@@ -99,7 +99,9 @@
         var n = clips.filter(function (c) { return !!(c && c.review && c.review.deliveredAt); }).length;
         return { n: n, total: clips.length };
       },
-      life: function (onLeave, onReturn) { lifeFns = [onLeave, onReturn]; }
+      life: function (onLeave, onReturn) { lifeFns = [onLeave, onReturn]; },
+      /* 「スタジオから削除」のあと: スタジオの一覧の先頭(別の配信)をこの案件の中に開かず、案内だけ出す */
+      afterDelete: function () { if (!dead) status('video'); }
     };
 
     /* ---- 読み込み中・失敗の案内(何が / 次にどうする)---- */

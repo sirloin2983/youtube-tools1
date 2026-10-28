@@ -4,7 +4,6 @@
 """
 import json
 import os
-import shutil
 import sys
 import unittest
 from unittest import mock
@@ -58,7 +57,7 @@ class TrashTest(unittest.TestCase):
         self.assertEqual(self.trash.roots, [self.trash.root])
 
     def test_all_or_nothing_puts_back(self):
-        real = shutil.move
+        real = os.rename
         calls = []
 
         def move(a, b):
@@ -66,7 +65,7 @@ class TrashTest(unittest.TestCase):
             if a == fsio.long_path(self.side):   # OS を呼ぶ所は長いパスで包む
                 raise OSError("開いている")
             return real(a, b)
-        with mock.patch.object(T.shutil, "move", side_effect=move):
+        with mock.patch.object(T.os, "rename", side_effect=move):
             res = T.to_trash(self.trash, [self.clip, self.side], "discard", "a", all_or_nothing=True, clock=self.clock)
         self.assertEqual((res["moved"], res["left"]), ([], []))
         self.assertEqual([s for s, _t in res["restored"]], [self.clip])
@@ -76,13 +75,13 @@ class TrashTest(unittest.TestCase):
 
     def test_put_back_failure_is_recorded(self):
         res = T.to_trash(self.trash, [self.clip, self.side], "discard", "a", record=False, clock=self.clock)
-        real = shutil.move
+        real = os.rename
 
         def move(a, b):
             if b == fsio.long_path(self.clip):
                 raise OSError("戻せない")
             return real(a, b)
-        with mock.patch.object(T.shutil, "move", side_effect=move):
+        with mock.patch.object(T.os, "rename", side_effect=move):
             T.put_back(res)
         self.assertEqual([s for s, _t in res["restored"]], [self.side])
         self.assertEqual([s for s, _t in res["left"]], [self.clip])
@@ -92,9 +91,54 @@ class TrashTest(unittest.TestCase):
         self.assertTrue(os.path.isfile(rows[0]["to"]))
 
     def test_need_first(self):
-        with mock.patch.object(T.shutil, "move", side_effect=OSError("開いている")):
+        with mock.patch.object(T.os, "rename", side_effect=OSError("開いている")):
             res = T.to_trash(self.trash, [self.clip, self.side], "work", "a", need_first=True, clock=self.clock)
         self.assertEqual(len(res["failed"]), 1)   # 元動画が移せなければほかは試さない
+        self.assertFalse(os.path.exists(res["dest"]))
+
+    def pack(self):
+        pack = os.path.join(self.tmp, "out", "a_pack")
+        touch(os.path.join(pack, "p.json"), b"{}")
+        touch(os.path.join(pack, "sub", "v.mp4"), b"vvv")
+        return pack
+
+    def test_same_drive_rename_failure_does_not_copy_and_delete(self):
+        """同じドライブで改名を断られた(中のファイルが開かれている)= 写して消すに落とさず、パックを丸ごと残す(見直し 3 の 1)"""
+        pack = self.pack()
+        with mock.patch.object(T.os, "rename", side_effect=PermissionError(13, "開いている")):
+            res = T.to_trash(self.trash, [self.clip, pack], "discard", "a", all_or_nothing=True, clock=self.clock)
+        self.assertEqual([p for p, _w in res["failed"]], [self.clip])
+        self.assertTrue(os.path.isfile(os.path.join(pack, "p.json")) and os.path.isfile(os.path.join(pack, "sub", "v.mp4")))
+        self.assertFalse(os.path.exists(res["dest"]))   # ごみ箱に写しを残さない
+
+    def test_cross_drive_moves_dir_by_copy_then_delete(self):
+        """別のドライブ(EXDEV)はフォルダを写してから元を消す"""
+        pack = self.pack()
+        real = os.rename
+
+        def rename(a, b):
+            if a.endswith("a_pack"):
+                raise OSError(T.errno.EXDEV, "別のドライブ")
+            return real(a, b)
+        with mock.patch.object(T.os, "rename", side_effect=rename):
+            res = T.to_trash(self.trash, [pack], "discard", "a", clock=self.clock)
+        self.assertEqual([p for p, _t in res["moved"]], [pack])
+        self.assertFalse(os.path.exists(pack))
+        self.assertTrue(os.path.isfile(os.path.join(res["moved"][0][1], "sub", "v.mp4")))
+
+    def test_cross_drive_delete_failure_restores_from_copy(self):
+        """別のドライブで写したあと元を消しきれない(開いているファイルがある)= 消えた分を写しから戻し、写しは消す。元は欠けない"""
+        pack = self.pack()
+        real_unlink, locked = os.unlink, fsio.long_path(os.path.join(pack, "sub", "v.mp4"))
+
+        def unlink(p):
+            if p == locked:
+                raise PermissionError(13, "開いている")
+            return real_unlink(p)
+        with mock.patch.object(T.os, "rename", side_effect=OSError(T.errno.EXDEV, "別のドライブ")), mock.patch.object(T.os, "unlink", side_effect=unlink):
+            res = T.to_trash(self.trash, [pack], "discard", "a", clock=self.clock)
+        self.assertEqual([p for p, _w in res["failed"]], [pack])
+        self.assertEqual(sorted(T._tree_files(pack)), sorted(["p.json", os.path.join("sub", "v.mp4")]))   # 消えた p.json は戻った
         self.assertFalse(os.path.exists(res["dest"]))
 
     def test_free_path(self):

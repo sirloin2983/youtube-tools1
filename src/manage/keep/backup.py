@@ -143,6 +143,7 @@ def plan(source, errors=None):
 
 
 CASES_DIR = "cases"        # 写す先の下の、案件の 作業用 を置くフォルダ(<写す先>/youtube-tools-data/cases/<題名>/作業用/…)
+PREV_CASES_DIR = "cases-prev"   # 前の書き出し先に残った案件の 作業用(<写す先>/youtube-tools-data/cases-prev/<ドライブ>/<パス>/<題名>/作業用/…。写し戻しは手で)
 CASE_WORK = schemas.WORK_DIR
 CASE_STUDIO_ID = names.OWNER_FILE   # 作業用/.studio-id(案件の持ち主の印)
 REQUEST_DIR = placement.REQUEST_DIR   # 友人の依頼の案件を置く outDir の下のフォルダ(依頼)
@@ -276,8 +277,19 @@ def _media_items(folder, mrel, errors):
         yield os.path.join(mrel, rel), folder, rel, size, mtime
 
 
-def run_once(source, folder, day=None, stop=None, on_file=None, out_dir=None, media_dirs=()):
+def _prev_items(prev, errors):
+    """前の書き出し先 1 つ分の案件の 作業用 の json(写す先は cases-prev/<ドライブ>/<パス>/… = 元へ戻せる形。見直し 3 の 4)"""
+    prel = media_rel(prev)
+    if not prel:
+        return
+    base = os.path.join(PREV_CASES_DIR, os.path.relpath(prel, MEDIA_DIR))
+    for rel, size, mtime in plan_cases(prev, errors):
+        yield os.path.join(base, rel), prev, rel, size, mtime
+
+
+def run_once(source, folder, day=None, stop=None, on_file=None, out_dir=None, media_dirs=(), prev_out_dirs=()):
     """作業データ source を folder\\youtube-tools-data へ写す。out_dir(案件の根)があれば、その作業用の json を cases の下へも写す。
+    prev_out_dirs(前の書き出し先。書き出し先を変えたあとも案件の文書はそこに残る)の 作業用 の json は cases-prev の下へ。
     media_dirs(評価用・学習用のフォルダの絶対パス)の中身は media の下へ(元の場所と同じ形)。
     -> {"copied", "same", "bytes", "errors": [写せなかったファイル], "scanErrors": [読めなかったフォルダ・調べられなかったファイル], "dest", "complete"}。
     complete = どちらの失敗も無く、途中で止めなかった。断るとき(場所が正しくない・ドライブが無い)は ValueError"""
@@ -298,8 +310,17 @@ def run_once(source, folder, day=None, stop=None, on_file=None, out_dir=None, me
     with_cases = bool(out_dir) and os.path.isdir(out_dir) and not _overlaps(out_dir, dest) and not _overlaps(dest, out_dir)
     media = [(m, media_rel(m)) for m in media_dirs or ()
              if isinstance(m, str) and os.path.isabs(m) and not _overlaps(m, dest) and not _overlaps(dest, m) and not _overlaps(m, source)]
+    cur_out = os.path.normcase(os.path.abspath(out_dir)) if with_cases else None
+    prev = []
+    for p in prev_out_dirs or ():
+        if not (isinstance(p, str) and os.path.isabs(p) and os.path.isdir(p)) or _overlaps(p, dest) or _overlaps(dest, p) or _overlaps(p, source):
+            continue
+        if os.path.normcase(os.path.abspath(p)) in (cur_out, *(os.path.normcase(os.path.abspath(x)) for x in prev)):
+            continue
+        prev.append(p)
     items = itertools.chain(((rel, source, rel, size, mtime) for rel, size, mtime in plan(source, scan_errors)),
                             ((os.path.join(CASES_DIR, rel), out_dir, rel, size, mtime) for rel, size, mtime in plan_cases(out_dir, scan_errors)) if with_cases else (),
+                            *(_prev_items(p, scan_errors) for p in prev),
                             *(_media_items(m, mrel, scan_errors) for m, mrel in media if mrel))
     stopped = False
     for rel, root, src_rel, size, mtime in items:
@@ -328,16 +349,18 @@ def run_once(source, folder, day=None, stop=None, on_file=None, out_dir=None, me
 
 class Backup:
     def __init__(self, prefs, source, data_dir, log=None, clock=None, first_wait=FIRST_WAIT, check_every=CHECK_EVERY, defaults=None, out_dir=None,
-                 media_dirs=None):
+                 media_dirs=None, prev_out_dirs=None):
         """prefs: src/app/prefs.py の Prefs(節 backup)。defaults: 設定が読めないときに使う節の既定(入口が prefs.DEFAULTS["backup"] を渡す。
         prefs を読み込まない = app の部品に依存しない。None = 空 = オフ扱い)。source: 作業データの親フォルダ(datadir.data_root()。None = inplace なので写さない)。
         data_dir: ホームの作業データ(app。最後に写した時刻の記録を置く)。
         out_dir: 案件の根(スタジオの書き出し先)。文字列か、呼ぶたびに返す関数(設定で変わるので)。None・無いフォルダ = 案件の 作業用 は写さない。
-        media_dirs: 評価用・学習用のフォルダの一覧か、呼ぶたびに返す関数(入口が default_media_dirs を渡す)。None = 写さない(テスト)"""
+        media_dirs: 評価用・学習用のフォルダの一覧か、呼ぶたびに返す関数(入口が default_media_dirs を渡す)。None = 写さない(テスト)。
+        prev_out_dirs: 前の書き出し先の一覧か、呼ぶたびに返す関数(入口が outdirs の outDirs を渡す)。None = 写さない"""
         self.prefs, self.source, self.data_dir = prefs, source, data_dir
         self.defaults = defaults
         self.out_dir = out_dir
         self.media_dirs = media_dirs
+        self.prev_out_dirs = prev_out_dirs
         self.log = log or (lambda msg: None)
         self.clock = clock or time.time
         self.first_wait, self.check_every = first_wait, check_every
@@ -368,10 +391,16 @@ class Backup:
         return v if isinstance(v, str) and os.path.isabs(v) else None
 
     def _media_dirs(self):
+        return self._dirs(self.media_dirs, "評価用のフォルダ")
+
+    def _prev_out_dirs(self):
+        return self._dirs(self.prev_out_dirs, "前の書き出し先")
+
+    def _dirs(self, src, what):
         try:
-            v = self.media_dirs() if callable(self.media_dirs) else self.media_dirs
-        except (OSError, ValueError) as e:   # 設定が読めなくても、作業データと案件は写す
-            self.log("バックアップ: 評価用のフォルダの設定を読めませんでした(%s)" % tools.why(e))
+            v = src() if callable(src) else src
+        except Exception as e:   # noqa: BLE001  設定が読めなくても、作業データと案件は写す(受け方が狭いと tick ごと止まる = 見直し 3 の 26)
+            self.log("バックアップ: %sの設定を読めませんでした(%s)" % (what, tools.why(e)))
             return []
         return [p for p in v or [] if isinstance(p, str) and os.path.isabs(p)]
 
@@ -411,11 +440,10 @@ class Backup:
         ただし前の回が完全に写せなかった(partial)なら、その試しから RETRY_SEC は待つ(読めないフォルダを 3 分ごとに歩き直さない)"""
         if self.last.get("folder") != cfg.get("folder"):
             return True
-        ok, now = self.last.get("ok"), self.clock()
-        if isinstance(ok, (int, float)) and now - ok < float(cfg.get("everyHours") or 24) * 3600:
-            return False
-        tried = self.last.get("tried")
-        return not (self.last.get("partial") and isinstance(tried, (int, float)) and now - tried < RETRY_SEC)
+        ok, now, tried = self.last.get("ok"), self.clock(), self.last.get("tried")
+        if self.last.get("partial") and isinstance(tried, (int, float)):   # 完全に写せなかった回のあとは、ok の間隔より先に RETRY_SEC で見る(見直し 3 の 24)
+            return now - tried >= RETRY_SEC
+        return not (isinstance(ok, (int, float)) and now - ok < float(cfg.get("everyHours") or 24) * 3600)
 
     def tick(self):
         """時間が来ていれば(または「今すぐ」なら)写す"""
@@ -435,12 +463,14 @@ class Backup:
             self.state, self.message = "running", ""
             t0 = self.clock()
             try:
-                r = run_once(self.source, cfg.get("folder") or "", stop=lambda: self.closed, out_dir=self._out_dir(), media_dirs=self._media_dirs())
+                r = run_once(self.source, cfg.get("folder") or "", stop=lambda: self.closed, out_dir=self._out_dir(), media_dirs=self._media_dirs(),
+                             prev_out_dirs=self._prev_out_dirs())
             except ValueError as e:
+                if self.last.get("error") != str(e):   # 同じ文(ドライブが無い)を続けて書かない(見直し 3 の 25)
+                    self.log("バックアップ: " + str(e))
                 self.state, self.message = "error", str(e)
-                self.last = dict(self.last, tried=self.clock(), error=str(e))
+                self.last = dict(self.last, tried=self.clock(), error=str(e), partial=True)   # partial = 次は RETRY_SEC のあと
                 self._save_state()
-                self.log("バックアップ: " + str(e))
                 return None
             now = self.clock()
             # ok = 完全に写せた時刻(読めないフォルダ・写せないファイルがあれば進めない = 部品 M3)。

@@ -1016,7 +1016,8 @@ class PortalServer(httpsec.ExclusiveServer):
                                         flush=self.flush_sends)   # 見回りの終わりに、届けられなかった自動の分を送り直す(D-SEND 2-6)
         # 作業データのバックアップ(見張りは main で start。inplace = テストなどでは写さない)
         self.backup = backup_mod.Backup(self.prefs, datadir.data_root(), app_dir, log=sup.log, defaults=prefs_mod.DEFAULTS["backup"],
-                                     out_dir=lambda: datadir.studio_out_dir(sup.root), media_dirs=backup_mod.default_media_dirs)   # 評価用・学習用の動画も
+                                     out_dir=lambda: datadir.studio_out_dir(sup.root), media_dirs=backup_mod.default_media_dirs,   # 評価用・学習用の動画も
+                                     prev_out_dirs=lambda: outdirs_mod.read_state(placement.studio_data(sup.root)).get("outDirs") or [])   # 前の書き出し先に残った案件の文書も
         # 精度の自動測定(見張りは main で start。テストで作る入口では動かさない)。手が空いた判定は _accuracy_busy・_accuracy_last_edit
         self.accuracy = accuracy_mod.Accuracy(self.prefs, app_dir, sup.root, busy=self._accuracy_busy,
                                               last_edit=self._accuracy_last_edit, log=sup.log, defaults=prefs_mod.DEFAULTS["accuracy"],

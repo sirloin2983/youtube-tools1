@@ -248,9 +248,9 @@ def worktree_of(root, branch):
 
 
 def session_name(branch):
-    """claude/land-gate-c990b8 → land-gate"""
+    """claude/land-gate-c990b8 → land-gate(末尾の 16 進は 6 文字以上。worktree-agent-<17 文字> も外す)"""
     name = branch.split("/")[-1]
-    return re.sub(r"-[0-9a-f]{6}$", "", name)
+    return re.sub(r"-[0-9a-f]{6,}$", "", name)
 
 
 class Gate:

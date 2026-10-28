@@ -37,8 +37,8 @@ def tail_reason(err, n=2):
 
 def fmt_ts(t):
     """秒 → HH:MM:SS.mmm(ffmpeg・yt-dlp に渡す形。負の値は 0)"""
-    t = max(0.0, float(t))
-    return "%02d:%02d:%06.3f" % (int(t // 3600), int(t % 3600 // 60), t % 60)
+    ms = int(round(max(0.0, float(t)) * 1000))   # 先にミリ秒に丸める(秒の欄が 60.000 にならない)
+    return "%02d:%02d:%02d.%03d" % (ms // 3600000, ms % 3600000 // 60000, ms % 60000 // 1000, ms % 1000)
 
 
 def fmt_ms(t):

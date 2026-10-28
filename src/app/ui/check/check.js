@@ -516,6 +516,10 @@
     if (UIKit.keymap && UIKit.keymap.capturing && UIKit.keymap.capturing()) return;
     if (inOverlay(e.target)) return;
     var typing = UIKit.keys.isTyping(e.target), plain = !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey, k = keyOf(e);
+    if (e.repeat && !typing) {   /* 押し続け(キーの繰り返し)で次々のカードに同じ答えを送らない(見直し 3 の 6)。再生のキー(S.keys)だけは通す */
+      if (S.keys && S.keys(e)) return;
+      e.preventDefault(); return;
+    }
     if (!typing && plain && k === 'Z') { e.preventDefault(); undo(); return; }
     if (!typing && plain && k === 'N' && S.cur) { e.preventDefault(); skip(); return; }
     if (!typing && plain && k === 'W' && S.cur) { e.preventDefault(); if (!e.repeat) unknown(); return; }
