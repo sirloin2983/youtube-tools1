@@ -87,11 +87,18 @@ def auto_length(lengths):
 # 割れた場面をつなぐ(10-28 ユーザー「既定でつなぐ」。notes:plan/候補の点数のしきい値の案-1028.md の付録): 山は高い順に選んで選んだ範囲だけを除くので、
 # 1 つの場面が隣り合う 2 本に割れることがある(割れたパックは友人が 37 本中 0 本しか受け取っていない)。重なるか間 JOIN_GAP 秒以内の隣り合う候補を、
 # つないだ長さ JOIN_MAX 秒までなら 1 本にする(減った本数は埋めない = 本数の基準と一緒にユーザーが決める)。
-# 印: 候補の joined(元の範囲の一覧)。配信中は次の候補を作るときだけつなぐ(届けた = 採用した候補は書き換えない)。
+# 印: 候補の joined(元の範囲の一覧)と pieces(元の本数)。つないだ候補は本数の枠(count・1 時間の枠 per_hour・友人の依頼の top)で元の本数と数える
+# (10-28 ユーザー「ただ繋げたものは 2 本と数えてほしい」= つないで枠が空いて次の山を足すことは起きない)。配信中は次の候補を作るときだけつなぐ(届けた = 採用した候補は書き換えない)。
 # 測る道具(src/eval)は spec に join を渡さない = 今までと同じ。スイッチ: False で前の形
 JOIN_ON = True
 JOIN_GAP = 10.0
 JOIN_MAX = 360.0
+
+
+def pieces(c):
+    """候補・マークを本数の枠で何本と数えるか(つないだ物は元の本数 pieces・ほかは 1)"""
+    n = c.get("pieces") if isinstance(c, dict) else None
+    return n if isinstance(n, int) and not isinstance(n, bool) and n > 1 else 1
 
 
 def join_clips(out, gap=JOIN_GAP, mx=JOIN_MAX):
@@ -103,6 +110,7 @@ def join_clips(out, gap=JOIN_GAP, mx=JOIN_MAX):
         if p is not None and c["start"] - p["end"] <= gap and max(p["end"], c["end"]) - p["start"] <= mx:
             top = dict(p if p["score"] >= c["score"] else c)
             top["joined"] = p.get("joined", [[p["start"], p["end"]]]) + [[c["start"], c["end"]]]
+            top["pieces"] = pieces(p) + pieces(c)
             top["start"], top["end"] = p["start"], max(p["end"], c["end"])
             top.pop("fill", None)
             if p.get("fill") and c.get("fill"):
@@ -399,7 +407,7 @@ def candidates(picks, comps):
         pk = c["peak"]
         parts = {k: round(max(comps[k][max(0, pk - PARTS_RADIUS):pk + PARTS_RADIUS + 1]), 2) for k in comps}
         cand = {"i": i, "start": c["start"], "end": c["end"], "peak": pk, "score": c["score"], "parts": parts, "reasons": reasons_of(parts)}
-        cand.update({k: c[k] for k in ("shape", "fixed", "joined") if k in c})   # 場面ごとの形の印と固定の長さの区間(LD-2b)・つないだ元の範囲(無ければ足さない)
+        cand.update({k: c[k] for k in ("shape", "fixed", "joined", "pieces") if k in c})   # 場面ごとの形の印と固定の長さの区間(LD-2b)・つないだ元の範囲(無ければ足さない)
         if c.get("fill"):   # しきい値の下で埋めた(印と理由の文。理由の文はスタジオのマークにも残る)
             cand["fill"] = True
             cand["reasons"] = cand["reasons"] + [FILL_REASON]
@@ -926,6 +934,7 @@ class PeakBook:
         """前の候補 pk に新しい山 peak の区間 [s, e] をつなぐ(同じ id。点数は高い方・山と枠の時間は前のまま)-> 変更があった候補の id の一覧"""
         pk["joined"] = pk.get("joined", [[pk["start"], pk["end"]]]) + [[round(s, 1), round(e, 1)]]
         pk["joinFrom"] = pk.get("joinFrom", pk["start"])
+        pk["pieces"] = pieces(pk) + 1   # 枠では元の本数と数える(つないで枠が空かない)
         pk["end"] = round(max(pk["end"], e), 1)
         if value > pk["score"]:
             pk.update(score=round(value, 2), parts=self._parts_at(peak))
@@ -1068,7 +1077,7 @@ class PeakBook:
 
     def have(self):
         """本数に数える候補(実際に届く枠と採用だけ。控え・仮の候補・見送りは数えない = 10-24 決定・欠けを減らす方)の数"""
-        return sum(1 for pk in self.peaks.values() if pk["state"] in ("frame", "adopted") and not pk.get("provisional"))
+        return sum(pieces(pk) for pk in self.peaks.values() if pk["state"] in ("frame", "adopted") and not pk.get("provisional"))   # つないだ物は元の本数
 
     def fill_quota(self, total, level, comps, need):
         """配信の終わり(finish のあと)に、候補が need 本に届かなければ、しきい値の下の山を高い順に足して埋める -> 足した候補の id の一覧。
@@ -1139,6 +1148,10 @@ class PeakBook:
     def _frame(self, hour):
         return [p for p in self.order if self.peaks[p]["hour"] == hour and self._counted(self.peaks[p])]
 
+    def _load(self, ids):
+        """枠の候補 ids を本数で(つないだ物は元の本数)"""
+        return sum(pieces(self.peaks[p]) for p in ids)
+
     def _counted(self, pk):
         """枠に数える候補: 枠の中(frame。仮の候補は数えない)か、自動で採用した候補(枠に数えたまま固定)"""
         return (pk["state"] == "frame" and not pk.get("provisional")) or (pk["state"] == "adopted" and pk["origin"] == "auto")
@@ -1146,7 +1159,7 @@ class PeakBook:
     def _place(self, pk):
         """新しい候補を枠か控えへ。枠が埋まっていれば、いちばん低い(固定でない)候補より高ければ入れ替える"""
         frame = [p for p in self._frame(pk["hour"]) if p != pk["id"]]
-        if len(frame) < self.per_hour:
+        if self._load(frame) < self.per_hour:
             pk["state"] = "frame"
             return
         movable = [p for p in frame if self.peaks[p]["state"] == "frame"]
@@ -1160,7 +1173,7 @@ class PeakBook:
 
     def _refill(self, hour):
         """枠が空いたら(採用・見送り)、控えでいちばん高い候補を枠へ戻す"""
-        while len(self._frame(hour)) < self.per_hour:
+        while self._load(self._frame(hour)) < self.per_hour:
             bench = [p for p in self.order if self.peaks[p]["hour"] == hour and self.peaks[p]["state"] == "bench"]
             if not bench:
                 break
@@ -1204,7 +1217,7 @@ class PeakBook:
         for p in self.order:
             pk = self.peaks[p]
             if self._counted(pk):
-                out[pk["hour"]] = out.get(pk["hour"], 0) + 1
+                out[pk["hour"]] = out.get(pk["hour"], 0) + pieces(pk)   # つないだ物は元の本数
         return out
 
     def list(self, include_bench=True):

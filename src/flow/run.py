@@ -51,7 +51,7 @@ import threading
 import time
 import uuid
 
-from ytt import colors, fsio as _fsio, jobs as _slots, schemas as _schemas, tools as _ytools, txwords as _txwords, version as _version
+from ytt import colors, fsio as _fsio, jobs as _slots, marks as _marks, schemas as _schemas, tools as _ytools, txwords as _txwords, version as _version
 from pipeline.analyze import excite as _excite   # 埋めた候補の理由の文(FILL_REASON)を数えるだけ
 from . import batch as _batch   # 解析の順番の断りの種類(queued_already)
 from . import envelope as _envelope, keys as _keys, order as _order, normalize as _norm, placement as _placement, prio as _prio, spec as _spec, tools as _tools
@@ -296,7 +296,7 @@ def redo_reason(analysis, top, marks, now):
     if chat_retry_ok(a, now) and now - at >= CHAT_RETRY_SEC:
         return "chat"
     fill = a["spec"].get("fill") if _num(a["spec"].get("fill")) else 0
-    left = sum(1 for m in marks or [] if isinstance(m, dict) and m.get("status") != "rejected")
+    left = sum(_marks.pieces_of(m) for m in marks or [] if isinstance(m, dict) and m.get("status") != "rejected")   # つないだマークは元の本数
     if top and fill < top and left < top:
         return "short"
     return None
@@ -1215,11 +1215,13 @@ class Runner:
             st["state"], st["detail"] = "skip", "採用できる候補がありません"
             run.message = "採用できる候補がありませんでした"
             return "stop"
-        new_auto = sum(1 for i in aids if i in added)
-        short = top - len(rids) - len(hids) - len(aids)
+        n_of = {m.get("id"): _marks.pieces_of(m) for m in (res.get("marks") or v.get("marks") or []) if isinstance(m, dict)}   # つないだマークは元の本数
+        new_auto = sum(n_of.get(i, 1) for i in aids if i in added)
+        old_auto = sum(n_of.get(i, 1) for i in aids) - new_auto
+        short = top - len(rids) - sum(n_of.get(i, 1) for i in hids) - new_auto - old_auto
         parts = (["指定の区間 %d 個(前後に %g 秒の余白)" % (len(rids), ad["pad"])] if rids else []) + \
-            (["人が採用した %d 本" % len(hids)] if hids else []) + \
-            (["前に自動で採用した %d 本" % (len(aids) - new_auto)] if len(aids) > new_auto else []) + \
+            (["人が採用した %d 本" % sum(n_of.get(i, 1) for i in hids)] if hids else []) + \
+            (["前に自動で採用した %d 本" % old_auto] if old_auto else []) + \
             (["自動で %d 本を足しました(点数の高い順)" % new_auto] if new_auto else [])
         reasons = {m.get("id"): m.get("reasons") or [] for m in v.get("marks") or [] if isinstance(m, dict)}
         fills = sum(1 for i in aids if i in added and _excite.FILL_REASON in reasons.get(i, ()))

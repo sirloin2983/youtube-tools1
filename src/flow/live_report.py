@@ -21,7 +21,7 @@ import json
 import os
 import time
 
-from ytt import fsio
+from ytt import fsio, marks as _marks
 from . import live_export as LX
 from . import live_failures
 from . import livehost   # 親の口の型(RS7-2 G0)
@@ -159,8 +159,9 @@ class Reporter:
         dec = host.detector._decisions(host.detector.folder(rc, rec))["items"]
         adopted = [x for x in dec if x.get("state") == "adopted"]
         fails = host.detector.given_up(rc, rec)
-        detect = {"frame": sum(1 for p in peaks if p.get("state") == "frame"), "bench": sum(1 for p in peaks if p.get("state") == "bench"),
-                  "dismissed": sum(1 for p in peaks if p.get("state") == "dismissed"), "adopted": sum(1 for p in peaks if p.get("state") == "adopted"),
+        # 候補の本数(つないだ候補は元の本数 pieces と数える = excite.join_clips・10-28 ユーザー)
+        detect = {"frame": sum(_marks.pieces_of(p) for p in peaks if p.get("state") == "frame"), "bench": sum(_marks.pieces_of(p) for p in peaks if p.get("state") == "bench"),
+                  "dismissed": sum(_marks.pieces_of(p) for p in peaks if p.get("state") == "dismissed"), "adopted": sum(_marks.pieces_of(p) for p in peaks if p.get("state") == "adopted"),
                   "adoptedAuto": sum(1 for x in adopted if x.get("origin") == "auto"), "adoptedManual": sum(1 for x in adopted if x.get("origin") != "auto"),
                   "givenUp": len(fails), "gaps": doc.get("gaps"), "perHour": doc.get("perHour"), "counts": doc.get("counts") if isinstance(doc.get("counts"), dict) else {},
                   "ended": bool(doc.get("ended")), "measured": doc is not None and bool(doc),

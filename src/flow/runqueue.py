@@ -33,7 +33,7 @@ import threading
 import time
 import urllib.parse
 
-from ytt import colors as _colors, fsio, jobs as _yjobs, schemas as _schemas, tools as _ytools
+from ytt import colors as _colors, fsio, jobs as _yjobs, marks as _marks, schemas as _schemas, tools as _ytools
 from . import board as _board, envelope as _envelope, learning as _learning, machine as _machine, placement as _placement, prio as _prio, run as run_mod, runlog, spec as _spec
 from .run import (DOC_MODE, RUN_STATE_LABELS, STEP_LABELS, Cancelled, Run, StepError,
                   adopted_ids, pack_verdict, tx_verdict)
@@ -459,7 +459,7 @@ class Queue(run_mod.Runner):
                     count, note = None, "解析のあとで、点数の高い %d 件" % (top or _spec.DEFAULT_TOP)
                 else:
                     cands = [m for m in mine if not m.get("status")]
-                    count = min(len(cands), top or _spec.DEFAULT_TOP)
+                    count = min(sum(_marks.pieces_of(m) for m in cands), top or _spec.DEFAULT_TOP)   # つないだマークは元の本数
                     note = "" if count else "採用できる候補がありません"
                 pending = pending or count is None or bool(count)
             elif key == "export":

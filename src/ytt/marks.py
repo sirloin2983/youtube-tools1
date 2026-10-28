@@ -159,6 +159,8 @@ def clean_server(d):
             "auto0": auto0(d.get("auto0")) if src in ("auto", "collab") else None,
             "auto0Orig": auto0(d.get("auto0Orig")) if src == "manual" else None,   # 再解析で手動に変わったマークの、最初の自動区間(replace_auto だけが書く)
             "collabFrom": collab_from(d.get("collabFrom")) if src == "collab" else None,
+            # つないだ自動マークの元の本数(excite.join_clips の pieces。採用の上限ではこの本数と数える = pieces_of。人が手を入れて手動になれば外れる)
+            "pieces": d.get("pieces") if src == "auto" and pos_int(d.get("pieces")) and 1 < d["pieces"] <= 50 else None,
             # 人ではなく機械が採用にした印(Q2。まとめての採用 = "auto"・request_marks の区間 = "request")。人が状態を変えたら外れる(build_mark)
             "adoptedBy": d.get("adoptedBy") if d.get("adoptedBy") in ("auto", "request") and st in ("adopted", "exported") else None}
 
@@ -201,7 +203,7 @@ def build_mark(m, old, trusted=False, limit=MAX_MARK_SEC):
         d["path"] = srv["path"]
     if srv["file"] and srv.get("archived"):   # path と同じ扱い: 書き出し済みでなくなる(時刻を変えた・状態を変えた)と一緒に消える
         d["archived"] = True
-    for k in ("auto0", "auto0Orig", "collabFrom"):
+    for k in ("auto0", "auto0Orig", "collabFrom", "pieces"):
         if srv.get(k):
             d[k] = srv[k]
     if srv.get("adoptedBy") and d["status"] in ("adopted", "exported"):
@@ -319,6 +321,12 @@ def touched(m):
     return (m["status"] != "" or bool(m["label"]) or not a0 or abs(m["start"] - a0[0]) > EDIT_TOL or abs(m["end"] - a0[1]) > EDIT_TOL)
 
 
+def pieces_of(m):
+    """マークを採用の上限で何本と数えるか(つないだ自動マークは元の本数 pieces・ほかは 1)"""
+    n = m.get("pieces") if isinstance(m, dict) else None
+    return n if pos_int(n) and n > 1 else 1
+
+
 def replace_auto(marks, cands, hide=None):
     """解析の候補を配信のマークに入れる(スタジオの再解析 human/review/store と、スタジオなしの解析 flow/studiobook で同じ 1 つ。RS8 の「URL も CLI で」で下ろした)。
     手を入れていない・書き出していない自動マークだけを置き換える。手を入れた自動マーク(touched)は手動マークとして残す(点数・理由は保持。
@@ -344,6 +352,8 @@ def replace_auto(marks, cands, hide=None):
         m = new_mark("a", s, e)
         m.update({"src": "auto", "score": fnum(c.get("score")), "reasons": clean_reasons(c.get("reasons")), "peak": fnum(c.get("peak")),
                   "parts": clean_parts(c.get("parts")), "auto0": [s, e]})
+        if pos_int(c.get("pieces")) and 1 < c["pieces"] <= 50:   # つないだ候補 = 元の本数(採用の上限で数える)
+            m["pieces"] = c["pieces"]
         if any(same(m, o) for o in kept + autos):
             continue
         autos.append(m)

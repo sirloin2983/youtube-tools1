@@ -622,7 +622,8 @@ class TestScene(unittest.TestCase):
         spec = dict(SPEC, shape="scene", count=4)
         self.assertEqual(len(excite.pick_clips(w, [-30.0] * n, spec, n)), 2)
         one = excite.pick_clips(w, [-30.0] * n, dict(spec, join=True), n)
-        self.assertEqual((len(one), len(one[0]["joined"])), (1, 2), one)
+        self.assertEqual((len(one), len(one[0]["joined"]), one[0]["pieces"], excite.pieces(one[0])), (1, 2, 2, 2), one)
+        self.assertEqual([excite.pieces(g) for g in got], [2, 1, 2, 1])   # 枠では元の本数と数える(10-28 ユーザー)
         with mock.patch.object(excite, "JOIN_ON", False):   # スイッチ
             self.assertEqual(len(excite.pick_clips(w, [-30.0] * n, dict(spec, join=True), n)), 2)
 
@@ -639,6 +640,7 @@ class TestScene(unittest.TestCase):
         pk = b.list()
         self.assertEqual((len(pk), len(pk[0]["joined"]), pk[0]["start"], pk[0]["end"]), (1, 2, pk[0]["joined"][0][0], pk[0]["joined"][1][1]), pk)
         self.assertTrue(excite.PeakBook.from_json(json.loads(json.dumps(b.to_json()))).join)
+        self.assertEqual((pk[0]["pieces"], b.have(), sum(b.counts().values())), (2, 2, 2))   # つないでも 2 本と数える = 枠は空かない
         self.assertEqual(len(live(True, adopt=True).list()), 2)   # 採用した(届けた)候補は書き換えない
 
     def test_peakbook_scene_waits_for_settle(self):

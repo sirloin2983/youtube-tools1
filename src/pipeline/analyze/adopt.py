@@ -60,9 +60,15 @@ def adopt(marks, want, top, duration=None):
                  if m["status"] in ("adopted", "exported") and not m.get("adoptedBy") and m["id"] not in range_ids]
     taken = set(range_ids) | set(human_ids)
     picked = [(m["start"], m["end"]) for m in marks if m["id"] in taken]
-    room = max(0, top - len(taken))
-    autos = sorted((m for m in marks if m["src"] == "auto" and m["status"] != "rejected" and m["id"] not in taken
-                    and not any(_marks.overlaps(m["start"], m["end"], s, e) for s, e in picked)), key=_marks.by_score)[:room]
+    room = max(0, top - sum(_marks.pieces_of(m) for m in marks if m["id"] in taken))   # つないだマークは元の本数と数える(excite.join_clips)
+    autos = []
+    for m in sorted((m for m in marks if m["src"] == "auto" and m["status"] != "rejected" and m["id"] not in taken
+                     and not any(_marks.overlaps(m["start"], m["end"], s, e) for s, e in picked)), key=_marks.by_score):
+        if _marks.pieces_of(m) <= room:   # 残りに入らない(つないだ)マークは飛ばして次へ
+            autos.append(m)
+            room -= _marks.pieces_of(m)
+        if room <= 0:
+            break
     for m in autos:
         if m["status"] == "":
             m["status"], m["adoptedBy"] = "adopted", "auto"

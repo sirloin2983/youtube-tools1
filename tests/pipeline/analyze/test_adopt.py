@@ -33,6 +33,19 @@ def set_status(marks, start, status):
 
 
 class TestAdoptRun(unittest.TestCase):
+    def test_joined_mark_counts_as_its_pieces(self):
+        """つないだ自動マーク(excite.join_clips の pieces)は採用の上限で元の本数と数える。残りに入らなければ飛ばして次へ"""
+        marks = base()
+        marks[1] = M.build_mark(dict(marks[1], pieces=2), None, True)   # 100〜130(点数 9)= 2 本をつないだ物
+        self.assertEqual((M.pieces_of(marks[1]), M.pieces_of(marks[0])), (2, 1))
+        r = A.adopt(marks, A.check_args([], 3), 3, DUR)
+        self.assertEqual(r["autoIds"], ["a2", "a4"])   # 2 + 1 = 3 本(前は 3 つ = 4 本ぶん)
+        r = A.adopt(marks, A.check_args([], 2), 2, DUR)
+        self.assertEqual(r["autoIds"], ["a2"])
+        r = A.adopt(set_status(marks, 300, "adopted"), A.check_args([], 2), 2, DUR)
+        self.assertEqual((r["humanIds"], r["autoIds"]), (["a4"], ["a3"]))   # 人の 1 本 + 残り 1 本: 2 本ぶんの a2 は入らない = 次の a3
+        self.assertNotIn("pieces", M.build_mark(dict(marks[1], src="manual", pieces=2), None, True))   # 手動のマークには付けない
+
     def test_rule_in_order_of_use(self):
         def run(marks, ranges, top):
             r = A.adopt(marks, A.check_args(ranges, top), top, DUR)
