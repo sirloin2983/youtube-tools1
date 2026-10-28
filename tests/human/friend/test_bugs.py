@@ -293,6 +293,16 @@ class BugsTest(unittest.TestCase):
         self.scan()
         self.assertEqual(B.records(self.app), [])
 
+    def test_pruned_not_received_again(self):
+        os.environ[B.SWITCH_ENV] = "0"
+        self.put([], trigger="ask")   # 元は 診断\ に残ったまま
+        self.scan()
+        self.assertEqual(len(B.records(self.app)), 1)
+        self.now += (B.KEEP_DAYS + 1) * 86400
+        self.scan()   # 記録が消える
+        self.scan()   # 元を受け取り直さない
+        self.assertEqual(B.records(self.app), [])
+
     def test_find_claude_picks_newest(self):
         root = os.path.join(self.tmp, "local")
         for ver in ("2.1.99", "2.1.308", "2.1.304"):

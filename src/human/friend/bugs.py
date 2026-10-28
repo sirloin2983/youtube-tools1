@@ -299,6 +299,8 @@ def _receive(src, app_dir, clock, log):
             continue
         if clock() - st.st_mtime < SETTLE_SEC:
             continue
+        if clock() - st.st_mtime > KEEP_DAYS * 86400:   # 記録を _prune で消した後も 診断\\ に元が残る。受け取り直すと同じ物で AI をまた起こす(10-28)
+            continue
         rec = {"name": n, "id": m.group(1), "at": int(m.group(2)), "got": _now_ms(clock)}
         try:
             if st.st_size > MAX_BYTES:
