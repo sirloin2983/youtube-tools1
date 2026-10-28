@@ -126,7 +126,7 @@ class Upgrade:
         self._v_sync_noted = False
         self._beat_at = 0.0
         self._stuck_at = 0.0
-        self._stopped = set()
+        self._stopped = set()           # 固まりで止めた (依頼 id, 実行 id)
 
     # ---------------------------------------------------------------- 場所と記録
     def home(self):
@@ -417,7 +417,7 @@ class Upgrade:
         for rid, seen in list((getattr(api, "_stages", None) or {}).items()):
             label, start, _raw, last = seen
             base = typical(stats.get(label))
-            if base is None or rid in self._stopped:
+            if base is None:
                 continue
             limit = max(STUCK_FLOOR, STUCK_FACTOR * base)
             if now * 1000 - max(start, last) < limit * 1000:
@@ -425,7 +425,10 @@ class Upgrade:
             r = inbox.row(rid)
             if r is None or r["state"] not in ("sent", "making"):
                 continue
-            self._stopped.add(rid)
+            key = (rid, r.get("runId"))   # 実行ごと(自動のやり直しで積んだ次の実行がまた固まっても見張る)
+            if key in self._stopped:
+                continue
+            self._stopped.add(key)
             inbox.fail(rid, STUCK_TEXT % (STUCK_FACTOR, int(limit // 60)))
             if r.get("runId"):
                 try:

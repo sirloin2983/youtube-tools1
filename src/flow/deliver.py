@@ -128,21 +128,23 @@ def zip_packs(dirs, out_dir, name, check=None, progress=None, dest=None):
     """n 本のパックのフォルダを 1 つの zip に(それぞれ <題>_pack/ の下に並ぶ)。同じ名前があれば末尾に 4 文字足す。
     dest を渡せばその名前に置く(先に unique_zip で決めて、隣に置く確認用の動画の名前をそろえるため)。-> 置いたパス。
     check(): 止めるなら例外を投げる(まとめて実行の中止)。progress(済んだバイト, 全体のバイト)。
-    zip は Dropbox の外(最初のパックの隣)で作ってから移す。1980 年より前の更新時刻のファイルも入れる(strict_timestamps=False = 1980 年にそろう)"""
+    zip は Dropbox の外(最初のパックの隣)で作ってから移す。1980 年より前の更新時刻のファイルも入れる(strict_timestamps=False = 1980 年にそろう)。
+    長いパス(260 文字超)も歩く。読めないフォルダ・ファイルは OSError(黙って抜けた zip を「届けた」にしない)"""
     dirs = [os.path.normpath(d) for d in dirs]
     os.makedirs(out_dir, exist_ok=True)
     files = []   # (ファイル, zip の中の名前, 大きさ)
+
+    def _raise(e):
+        raise e
     for d in dirs:
-        top = os.path.basename(d)
-        for base, _dirs, fs in os.walk(d):
+        top, root = os.path.basename(d), fsio.long_path(d)
+        for base, _dirs, fs in os.walk(root, onerror=_raise):
             for f in sorted(fs):
                 p = os.path.join(base, f)
-                try:
-                    files.append((p, os.path.join(top, os.path.relpath(p, d)), os.path.getsize(p)))
-                except OSError:
-                    pass
+                files.append((p, os.path.join(top, os.path.relpath(p, root)), os.path.getsize(p)))
     total, done = sum(n for _p, _a, n in files) or 1, 0
     tmp = _preview.scratch_path(dirs[0], "", ".zip")
+    part = None
     try:
         with zipfile.ZipFile(tmp, "w", allowZip64=True, strict_timestamps=False) as z:
             for p, arc, n in files:
@@ -154,10 +156,17 @@ def zip_packs(dirs, out_dir, name, check=None, progress=None, dest=None):
                 if progress:
                     progress(done, total)
         dest = dest or unique_zip(out_dir, name)
-        shutil.move(tmp, dest)
+        try:
+            os.replace(tmp, dest)   # 同じドライブ = 改名(一瞬で現れる)
+        except OSError:   # 別のドライブ: 最終の名前で伸びていくのを Dropbox と友人のアプリに見せない = 隣に .part で写してから改名
+            part = dest + ".part"
+            shutil.copyfile(tmp, part)
+            os.replace(part, dest)
+            part = None
         return dest
     finally:
         _preview.remove_quiet(tmp)
+        _preview.remove_quiet(part)
 
 
 def preview_path_for(zip_path):

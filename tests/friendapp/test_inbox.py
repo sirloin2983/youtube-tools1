@@ -76,6 +76,34 @@ class InboxTest(unittest.TestCase):
         with open(bad[0], encoding="utf-8") as f:
             self.assertEqual(json.load(f)["v"], 999)
 
+    def test_locked_record_is_not_overwritten(self):
+        """起動の瞬間に記録を開けない(共有違反・ウイルス対策の読み取り中)だけなら、空で上書きしない。少し待って開ければ読む"""
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump({"v": inbox.V, "rows": [], "nums": {"k": 7}}, f)
+        real, tries = open, []
+
+        def locked(n):
+            def fake(p, *a, **kw):
+                if os.path.normcase(os.path.abspath(str(p).replace("\\\\?\\", ""))) == os.path.normcase(os.path.abspath(self.path)) and len(tries) < n:
+                    tries.append(p)
+                    raise PermissionError(32, "共有違反")
+                return real(p, *a, **kw)
+            return fake
+        with mock.patch("builtins.open", locked(99)), mock.patch.object(inbox.time, "sleep"):
+            box = self.new_box()
+            self.assertTrue(box.hold)
+            box.nums["k"] = 1
+            box._save()
+        with open(self.path, encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["nums"], {"k": 7})   # 本物はそのまま
+        self.assertEqual(glob.glob(self.path + ".bad-*"), [])
+        tries.clear()
+        with mock.patch("builtins.open", locked(2)), mock.patch.object(inbox.time, "sleep"):
+            box = self.new_box()   # 2 回目までだけ開けない = 待って読める
+        self.assertFalse(box.hold)
+        self.assertEqual(box.nums, {"k": 7})
+
     def make_case(self, rid, names):
         """案件フォルダ(一時保管の中)とその中のパックのフォルダを作る -> (案件, [パックのフォルダ])"""
         case = os.path.join(self.cases, "案件-" + rid)

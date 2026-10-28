@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import time
+import types
 import unittest
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
@@ -211,6 +212,22 @@ class ReportTest(unittest.TestCase):
         os.utime(z, (old, old))
         self.assertEqual(self.rep._outbox_age(NOW + 10), 10)
         self.assertEqual(self.rep._outbox_age(NOW + R.DROPBOX_STUCK_SEC), R.DROPBOX_STUCK_SEC)
+
+    def test_dropbox_request_wait_counts_from_start(self):
+        """Dropbox に置いた依頼の受付の待ちも、起動してからの時間だけ数える・動画を上げている途中は数えない(0bce9a4f の取り残し)"""
+        row = {"id": "r1", "pc": "user", "state": "sent", "remote": {"state": "pending", "uploadedAt": None}, "createdAt": int((NOW - 9 * 3600) * 1000)}
+        marks = []
+        self.rep.mark = lambda kind, rid, summary, **kw: marks.append((kind, rid))
+        self.rep.app = types.SimpleNamespace(api=None, engine=None, sync=types.SimpleNamespace(has_key=lambda: True, uploads={}),
+                                             inbox=types.SimpleNamespace(view=lambda: [row], waited=lambda r: 9 * 3600))
+        self.rep._stuck_checks(NOW + 10)
+        self.assertEqual(marks, [])   # 起動 10 秒で「540 分受け付けられていません」を出さない
+        self.rep.app.sync.uploads["r1"] = [0, 1]
+        self.rep._stuck_checks(NOW + R.DROPBOX_STUCK_SEC + 1)
+        self.assertEqual(marks, [])   # 上げている途中
+        self.rep.app.sync.uploads.clear()
+        self.rep._stuck_checks(NOW + R.DROPBOX_STUCK_SEC + 1)
+        self.assertEqual(marks, [("stuck", "r1")])
 
 
 class JudgeTest(unittest.TestCase):

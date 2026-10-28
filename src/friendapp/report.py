@@ -383,6 +383,8 @@ class Reporter:
             inbox = getattr(self.app, "inbox", None)
             for r in (inbox.view() if inbox is not None else []):
                 w = inbox.waited(r) if r.get("pc") == "user" else None
+                if w is not None:   # 閉じていた間は数えない(送り返しの待ちと同じ)・大きな動画を上げている途中(上げ終わる前)は待ちでない
+                    w = None if r["id"] in getattr(sync, "uploads", {}) else min(w, max(0, int(now - self._born)))
                 self._stuck(("dropbox", r["id"]), w is not None and w >= DROPBOX_STUCK_SEC, r["id"],
                             "Dropbox に置いた依頼が %d 分受け付けられていません" % ((w or 0) // 60), why="dropbox")
             old = self._outbox_age(now)
