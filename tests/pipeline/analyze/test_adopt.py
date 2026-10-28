@@ -33,6 +33,21 @@ def set_status(marks, start, status):
 
 
 class TestAdoptRun(unittest.TestCase):
+    def test_machine_adopted_counts_after_reanalysis(self):
+        """機械が採用した自動マークは、解析し直しで手動(replace_auto の touched)になっても採用の上限で数える・つないだ本数も読み直しで残る"""
+        marks = base()
+        marks[1] = M.build_mark(dict(marks[1], pieces=2), None, True)   # 100〜130(点数 9)= 2 本をつないだ物
+        first = A.adopt(marks, A.check_args([], 3), 3, DUR)
+        self.assertEqual(first["autoIds"], ["a2", "a4"])
+        cands = [{"start": s, "end": s + 30, "score": sc} for s, sc in ((10, 2.0), (200, 5.0), (400, 1.0), (500, 8.0))]
+        again, _n = M.replace_auto(first["marks"], cands)
+        again = M.load_marks(again)   # 保存して読み直した形
+        kept = {m["id"]: m for m in again if m["id"] in ("a2", "a4")}
+        self.assertEqual([(kept[i]["src"], kept[i].get("adoptedBy"), M.pieces_of(kept[i])) for i in ("a2", "a4")],
+                         [("manual", "auto", 2), ("manual", "auto", 1)])
+        r = A.adopt(again, A.check_args([], 3), 3, DUR)
+        self.assertEqual((r["autoIds"], r["added"]), (["a2", "a4"], []))   # 前の採用で 3 本 = 新しい自動マーク(500 秒・点数 8)は足さない
+
     def test_joined_mark_counts_as_its_pieces(self):
         """つないだ自動マーク(excite.join_clips の pieces)は採用の上限で元の本数と数える。残りに入らなければ飛ばして次へ"""
         marks = base()

@@ -469,7 +469,7 @@ def heat_extra(cands, heatmap, n, comps, pre=PRE_RATIO_DEFAULT, k=HEAT_EXTRA, he
             v[i] = val
     if max(v) - min(v) <= 1e-9:
         return cands
-    lens = sorted(c["end"] - c["start"] for c in cands)
+    lens = sorted(b - a for c in cands for a, b in (c.get("joined") or [(c["start"], c["end"])]))   # つないだ候補はつなぐ前の長さで(研究で測った形)
     length = lens[len(lens) // 2]
     sm = head_ramp(smooth(v, PICK_SMOOTH), head) if head else smooth(v, PICK_SMOOTH)
     out, peaks, added = list(cands), [], 0
@@ -1110,6 +1110,7 @@ class PeakBook:
             pk = {"id": "p%d-%d" % (self.n_ids, c["peak"]), "start": c["start"], "end": c["end"], "peak": c["peak"], "score": c["score"],
                   "parts": c["parts"], "reasons": c["reasons"], "confirmedAt": self.last_t, "hour": c["peak"] // 3600, "state": "frame",
                   "endPending": False, "origin": None, "seq": 0, "fill": True}
+            pk.update({k: c[k] for k in ("joined", "pieces") if k in c})   # 埋めた候補どうしをつないだ印と元の本数(枠・報告で元の本数と数える)
             if self.shape == "scene":
                 pk.update(shape=c.get("shape", "fixed"), fixed=c.get("fixed", [c["start"], c["end"]]), sceneOpen=False)
             if self.tag:

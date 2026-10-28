@@ -820,6 +820,7 @@ class RecState:
         st.book = excite.PeakBook.from_json(d["book"])
         st.book.fallback = fallback_of()   # 起動し直す前の帳簿にも、場面が取れないときの自動の長さ(これから確定する候補から)
         st.book.join = excite.JOIN_ON   # 同じく、割れた場面をつなぐ(これから作る候補から)
+        st.book.shape = shape_of(st.spec)   # 同じく、区間の形(10-28 より前の保存の "fixed" も、固定の長さを使わない excite.AUTO_LEN_ON なら場面ごとに)
         st.thr_base = float(d["thrBase"]) if schemas.is_num(d.get("thrBase")) else st.book.thr
         # 先回りの計算(仮の候補)は state.json に無ければ作らない(本番と秒の数え始めがずれるため。その録画は本番の候補だけ)。変わり目は無ければここから数え始める
         st.fast = excite.Online(use_chat=False, **st.args).load(d["fast"]) if st.use_chat and isinstance(d.get("fast"), dict) else None
