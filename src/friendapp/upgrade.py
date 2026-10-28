@@ -425,14 +425,15 @@ class Upgrade:
             r = inbox.row(rid)
             if r is None or r["state"] not in ("sent", "making"):
                 continue
-            key = (rid, r.get("runId"))   # 実行ごと(自動のやり直しで積んだ次の実行がまた固まっても見張る)
+            run_id = r.get("runId")
+            key = (rid, run_id)   # 実行ごと(自動のやり直しで積んだ次の実行がまた固まっても見張る)
             if key in self._stopped:
                 continue
             self._stopped.add(key)
-            inbox.fail(rid, STUCK_TEXT % (STUCK_FACTOR, int(limit // 60)))
-            if r.get("runId"):
+            inbox.fail(rid, STUCK_TEXT % (STUCK_FACTOR, int(limit // 60)), detach=True)   # 行から実行を外す = 止めた実行の終わり(中止)で行が消えない
+            if run_id:
                 try:
-                    eng.queue.cancel(r["runId"])   # その実行と、その実行が起こした子だけを止める
+                    eng.queue.cancel(run_id)   # その実行と、その実行が起こした子だけを止める
                 except Exception as e:   # noqa: BLE001  (もう終わっていた)
                     self.log("固まった実行を止められませんでした %s: %s" % (rid, e.__class__.__name__))
             self.log("依頼 %s の段「%s」が %d 分進まないので止めて失敗にしました" % (rid, label, int(limit // 60)))

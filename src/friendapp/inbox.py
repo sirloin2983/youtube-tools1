@@ -292,14 +292,17 @@ class Inbox:
                 r["case"] = r.get("case") or os.path.dirname(copy)
                 self._save()
 
-    def fail(self, rid, text):
-        """送った・作っている行を失敗にする(写せなかった・Dropbox へ上げる動画が無い など。理由は画面にそのまま)"""
+    def fail(self, rid, text, detach=False):
+        """送った・作っている行を失敗にする(写せなかった・Dropbox へ上げる動画が無い など。理由は画面にそのまま)。
+        detach: 行から実行を外す(このあと止める実行の終わりの知らせ = 中止で、行を消したり理由を書き換えたりさせない。外した id は stoppedRun)"""
         with self.lock:
             r = self.row(rid)
             if r is None or r["state"] not in ("waiting", "sent", "making", "recording"):
                 return None
             now = self._now_ms()
             r.update(state="failed", failedAt=now, error=str(text or "失敗しました")[:500], updatedAt=now)
+            if detach and r.get("runId"):
+                r.update(stoppedRun=r["runId"], runId=None)
             self._failed_code(r)
             self._save()
             if self.on_fail is not None:
@@ -639,9 +642,6 @@ class Inbox:
                 r["packs"] = items
                 r["groups"] = [{"n": i + 1, "names": [x["name"]], "preview": None} for i, x in enumerate(items)]   # 1 本ずつ(C-3-1)
                 r.update(state="arrived", arrivedAt=now, error="", note=note or "")
-            elif r["state"] == "failed" and not r.get("cancelled"):   # 先に失敗にした行(固まりの見張りが止めた など)= 失敗のまま残す(自動のやり直し・[もう一度送る])
-                self._save()
-                return r
             elif r.get("cancelled") or (state == "cancelled" and not r["packs"]):   # [取り消す] で止めた = 行ごと消す(C-2-14)
                 self.rows.remove(r)
                 self._save()

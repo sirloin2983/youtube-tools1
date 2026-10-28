@@ -201,7 +201,9 @@ class Delivery:
                 self._deliver_pending(run)
             except run_mod.StepError as e:
                 return self._park(run, st, e)
-        else:
+        else:   # 依頼の分も、受付の Dropbox のフォルダが見えないとき(外付け・名前の変更)は Dropbox の外に 出力 を作って「届けた」にしない
+            if not deliver_mod.outbox_ok(run.deliver_dir):
+                raise self._place_error(FileNotFoundError(2, "Dropbox のフォルダが見つかりません", os.path.dirname(os.path.normpath(run.deliver_dir))))
             self._deliver_pending(run)
         st["detail"] = "%d 本のパックを Dropbox の 出力 に置きました(字幕は校正前・計 %.0f MB)" % (len(run.delivered), _dirs_mb(run.delivered))
         return None
@@ -405,7 +407,7 @@ class Delivery:
     def _deliver_failure(self, run):
         """① 全自動が止まったとき、友人のアプリの「受け取る」に理由を出す(<依頼 id>__<題名>.失敗.txt)。友人の依頼(出どころ request)だけ
         (自動で送る分は友人に知らせない = ホームのログと案件の画面だけ。D-SEND 2-6)"""
-        if self._origin(run) != "request":
+        if self._origin(run) != "request" or not deliver_mod.outbox_ok(run.deliver_dir):   # Dropbox のフォルダが見えない = 外に作らない
             return
         try:
             os.makedirs(run.deliver_dir, exist_ok=True)
