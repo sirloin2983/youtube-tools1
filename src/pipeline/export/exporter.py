@@ -449,8 +449,7 @@ def _encode(ctl, spec, it, build, outs, what, span=(0.0, 1.0), log_cmd=None, tri
             tail = _pump(ctl, cmd, it, dur, span)
             for p, d in outs:
                 verify_output(p, d, tail)
-                if p == it.get("path"):
-                    it["expectSec"] = d   # 点検の長さの期待(outcheck)
+            it["expectSec"] = outs[0][1]   # 点検の長さの期待(outcheck)。outs[0] が本体(この時点で it に path はまだ無い)
             it["encoder"] = how
             _secs(it, "encode", time.monotonic() - t0)
             return
@@ -870,6 +869,9 @@ def _drop_edit(it):
 def export_edit_media(ctl, spec, it, base, runner):
     """Create an additional media file with trim handles and a portable sidecar."""
     edit_it = dict(it)
+    edit_it.pop("keepRaw", None)    # 編集用素材をもう 1 本は取らない(_edit_edit の書きかけと YouTube への再問い合わせを出さない)
+    edit_it.pop("editMade", None)
+    edit_it["secs"] = {}            # 浅い写しなので、本体の段ごとの秒に足し込まない
     edit_it["start"] = max(0.0, float(it["start"]) - edit_handle())   # 10-29 から 0 = 本体(余白つき)と同じ範囲
     edit_it["end"] = float(it["end"]) + edit_handle()
     edit_it["progress"] = 0.0
@@ -1096,7 +1098,7 @@ def _export_clip(ctl, spec, it, idx, on_done):
         except OSError as e:   # 本体はできているので、編集用素材だけ諦める(作れなかったときと同じ扱い)
             _env.log_failure("Resolve edit media の仕上げ", e)
             _drop_edit(it)
-            warnings.append("Resolve用の前後10秒素材を仕上げられませんでした: %s" % (e.strerror or e.__class__.__name__))
+            warnings.append("Resolve用の編集用素材を仕上げられませんでした: %s" % (e.strerror or e.__class__.__name__))
     recorded = False
     if on_done:
         try:
