@@ -10,6 +10,7 @@
 import os
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src"))   # src
 from ytt import marks as M  # noqa: E402
@@ -92,6 +93,13 @@ class TestMarksRun(unittest.TestCase):
         ms = [{"id": "b", "start": 50.0, "end": 60.0}, {"id": "a", "start": 10.0, "end": 20.0}, {"id": "c", "start": 10.0, "end": 15.0}, "壊れた"]
         self.assertEqual((M.near_mark(ms, 10.4, 19.6)["id"], M.near_mark(ms, 10.6, 20.0), M.near_mark(ms, 10.6, 20.0, tol=1.0)["id"]), ("a", None, "a"))
         self.assertEqual([M.order_of(ms, x) for x in ("c", "a", "b", "z")], [1, 2, 3, 0])   # 開始の順・同じなら終了の順・無ければ 0
+
+    def test_clip_margin_fixed_and_bounds(self):
+        """書き出しの前後の余白(clip_margin): 固定(CLIP_MARGIN_FIXED)なら束・要求の値を読まず CLIP_MARGIN_SEC(10 秒)。
+        スイッチを切れば値の境(0 < v <= CLIP_MARGIN_MAX の数だけ・無い・bool・文字は 0)。呼び手(flow/spec・exporter)の形はそれぞれのテストに 1 行"""
+        self.assertEqual([M.clip_margin(v) for v in (None, 0, 25, 99)], [M.CLIP_MARGIN_SEC] * 4)
+        with mock.patch.object(M, "CLIP_MARGIN_FIXED", False):
+            self.assertEqual([M.clip_margin(v) for v in (None, 0, 0.5, 25, 30, 30.1, 99, -1, True, "25")], [0.0, 0.0, 0.5, 25.0, 30.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
     def test_replace_auto_then_exported(self):
         """解析の反映 replace_auto と書き出し済みにする exported_mark(スタジオの Store と flow/studiobook で同じ 1 つ)"""

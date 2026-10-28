@@ -299,11 +299,9 @@ class TestBodies(unittest.TestCase):
         b = spec.merge({"export": {"volume": 60, "loudness": None, "margin": 0}})
         self.assertEqual(spec.export_body(b, "v", ("m1",))["margin"], 10.0)   # 10-29 から余白は固定(束の 0 も 10 秒 = ytt/marks.CLIP_MARGIN_SEC)
         self.assertEqual([spec.export_margin(x) for x in ({"export": {"volume": 60, "margin": 25}}, {"export": {"volume": 60}}, None)], [10.0, 10.0, 10.0])
-        with mock.patch.object(spec._marks, "CLIP_MARGIN_FIXED", False):   # スイッチ: 前の形 = 束の export.margin
+        with mock.patch.object(spec._marks, "CLIP_MARGIN_FIXED", False):   # スイッチ: 前の形 = 束の export.margin(値の境は tests/ytt/test_marks.py の clip_margin)
             self.assertEqual(spec.export_body(b, "v", ("m1",)), {"id": "v", "markIds": ["m1"], "precision": "accurate", "maxHeight": 0, "volume": 60, "loudness": None})
-            self.assertEqual(spec.export_margin({"export": {"volume": 60}}), 0.0)   # 余白を足す前の束 = 今までどおり
-            self.assertEqual(spec.export_margin({"export": {"margin": 25}}), 25.0)
-            self.assertEqual(spec.export_margin(None), 0.0)
+            self.assertEqual([spec.export_margin(x) for x in ({"export": {"margin": 25}}, {"export": {"volume": 60}}, None)], [25.0, 0.0, 0.0])   # 余白を足す前の束・束なし = 0
 
     def test_tx_opts(self):
         o = spec.tx_opts(spec.merge(None))

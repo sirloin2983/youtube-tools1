@@ -104,9 +104,6 @@ class ArchiveTest(unittest.TestCase):
 
     def setUp(self):
         self.tmp = testkit.tempdir(self, "ytt-live-arc-")
-        p = mock.patch.object(_marks, "CLIP_MARGIN_FIXED", False)   # 頼む区間の長さは余白なしで組んである = スイッチを切る(固定 10 秒は test_live_export・test_exporter)
-        p.start()
-        self.addCleanup(p.stop)
         self.out = os.path.join(self.tmp, "out")
         self.store = os.path.join(self.tmp, "live")
         os.makedirs(self.out)
@@ -239,8 +236,8 @@ class ArchiveTest(unittest.TestCase):
         self.assertEqual(done["state"], "done")
         self.assertEqual([c["videoId"] for c in studio.calls], [VID, VID])
         self.assertEqual(studio.calls[0]["maxHeight"], 0)
-        for c, dur in zip(studio.calls, (12.0, 8.0)):   # 頼んだ区間の長さ(30fps の書き出しは書き出しの器の持ち物)
-            self.assertAlmostEqual(c["end"] - c["start"], dur, delta=LX.LEN_TOL)
+        for c, dur in zip(studio.calls, (12.0, 8.0)):   # 頼んだ区間の長さ = マーク + 前後の固定 10 秒の余白(marks.CLIP_MARGIN_SEC。30fps の書き出しは書き出しの器の持ち物)
+            self.assertAlmostEqual(c["end"] - c["start"], dur + 20.0, delta=LX.LEN_TOL)
         self.assertEqual(self.fetches, [VID])   # 配信の音は 1 回だけ丸ごと取って使い回す
         self.assertEqual(len(self.aligns), 2)   # 照合は 1 本 1 回(2 本目は前のずれの ±20 秒で 1 回で合う)
         self.assertTrue(wait_for(lambda: not os.path.exists(os.path.join(self.out, "配信の題", schemas.WORK_DIR, A.BUILD_DIR)), 10))

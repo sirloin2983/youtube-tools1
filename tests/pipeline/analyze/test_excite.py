@@ -455,6 +455,14 @@ class TestProvisional(unittest.TestCase):
         self.assertIsNone(book.decide(p["id"], "restore"))
         self.assertEqual(book.counts(), {})
 
+    def test_provisional_auto_length(self):
+        """仮の候補の区間も固定の長さを使わない: fallback "auto" なら場面の長さ(まだ無ければ AUTO_LEN_DEFAULT = 165 秒)・fallback なし(測る道具)は固定の長さ"""
+        for fb, want in (("auto", excite.AUTO_LEN_DEFAULT), (None, 45.0)):
+            book = excite.PeakBook(shape="scene", fallback=fb)
+            feed_two(book, self.audio, self.chat, self.level, self.LEAD, stop_at=lambda b: b.peaks)
+            p = book.list()[0]
+            self.assertEqual((p["provisional"], round(p["end"] - p["start"], 1)), (True, want), (fb, p))
+
     def test_human_decision_on_provisional_keeps_region(self):
         """仮の候補を人が採用した(画面では押せないが API では来うる)→ 本番が確定しても区間と状態はそのまま、点数だけ本番の値に"""
         book = excite.PeakBook()

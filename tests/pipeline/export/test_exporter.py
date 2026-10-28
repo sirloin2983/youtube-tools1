@@ -198,10 +198,10 @@ class TestExportThrough(unittest.TestCase):
 
     def test_export_through(self):
         self.check_requests()
-        with patch.object(exporter._marks, "CLIP_MARGIN_FIXED", False):   # 余白なし・編集用素材の上乗せ 10 秒の前の形(スイッチ)
-            folder = self.check_precise()
+        folder = self.check_precise()
         self.check_fast_margin_loudness(folder)
         self.check_combine()
+        self.check_switch_off()
 
     def check_requests(self):
         """build_spec(② の口)の検査: 音量・余白・ラウドネスの値・YouTube の配信の ID(URL を組む前に断る)"""
@@ -216,7 +216,7 @@ class TestExportThrough(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(errors.ApiError):
                 spec(**bad)
         self.assertEqual([spec(**r).get("margin") for r in ({}, dict(margin=0), dict(margin=99))], [10.0, 10.0, 10.0])   # 10-29 から固定(要求の値は読まない)
-        with patch.object(exporter._marks, "CLIP_MARGIN_FIXED", False):   # スイッチ: 前の形 = 要求の margin(0〜30)
+        with patch.object(exporter._marks, "CLIP_MARGIN_FIXED", False):   # スイッチ: 前の形 = 要求の margin(値の境は tests/ytt/test_marks.py の clip_margin)。上限を超えれば 400・無ければ付けない
             with self.assertRaises(errors.ApiError):
                 spec(margin=99)
             self.assertEqual((spec(margin=10).get("margin"), "margin" in spec()), (10.0, False))
@@ -231,7 +231,8 @@ class TestExportThrough(unittest.TestCase):
         self.assertIn("配信の ID", cm.exception.message)   # 文では配信の意味の「動画」は「配信」と呼ぶ
 
     def check_precise(self):
-        """精度優先・音量 50%・3 本(書き出し中にマークが動いた 1 本・終わりが元の長さを超える 1 本)。動いている間は同時 1 本・書き出し先を変えない"""
+        """精度優先・音量 50%・3 本(書き出し中にマークが動いた 1 本・終わりが元の長さを超える 1 本)。前後に固定 10 秒の余白(marks.CLIP_MARGIN_SEC。元の頭・末尾で止まる)。
+        動いている間は同時 1 本・書き出し先を変えない"""
         def during(ex, rec, board):
             self.assertTrue(ex.is_busy_for(VID) and not ex.is_busy_for("bbcdefghijk"))
             with self.assertRaises(errors.ApiError) as c:
@@ -263,14 +264,15 @@ class TestExportThrough(unittest.TestCase):
         # 精度優先 = veryfast・crf 18 で作り直し、音量(%)は切り出しの -af に入る(後から音声だけ作り直さない)
         cut = [c for c in cmds if "-preset" in c]
         self.assertEqual([(c[c.index("-preset") + 1], c[c.index("-crf") + 1], c[c.index("-af") + 1]) for c in cut], [("veryfast", "18", "volume=0.500")] * 6)
-        # 完了の呼び返し: (配信 ID・マーク ID・出力の相対名・始め・終わり・書き出した mp4 の絶対パス = マークに残す)。余白なしは clip を付けない
+        # 完了の呼び返し: (配信 ID・マーク ID・出力の相対名・始め・終わり・書き出した mp4 の絶対パス = マークに残す)。余白つきは clip に動画の範囲(頭は 0 秒で止まる = 0〜22 秒)
         self.assertEqual([c[0][:2] for c in calls], [(VID, "m1"), (VID, "m2"), (VID, "m3")])
-        self.assertEqual(calls[0], ((VID, "m1", it["file"], 7.0, 12.0, it["path"]), {}))
+        self.assertEqual((calls[0][0], list(calls[0][1]), calls[0][1]["clip"][0]), ((VID, "m1", it["file"], 7.0, 12.0, it["path"]), ["clip"], 0.0))
+        self.assertAlmostEqual(calls[0][1]["clip"][1], 22.0, delta=0.3)
         self.assertEqual(it["file"], res["folder"] + "/" + os.path.basename(it["path"]))
-        # 切り抜き本体: 30fps・長さ・音量 50% = デコードした音が元の同じ所より約 -6dB
+        # 切り抜き本体: 30fps・長さ(余白 7 + 5 + 10 = 22 秒)・音量 50% = デコードした音が元の同じ所(マークの区間 7〜12 秒 = 動画の 7〜12 秒)より約 -6dB
         self.assertEqual((_fps(it["path"]), _fps(it["editPath"])), ("30/1", "30/1"))   # 60fps の元から、切り抜きも編集用素材も 30fps に
-        self.assertAlmostEqual(mediainfo.media_info(it["path"])[0], 5.0, delta=0.3)
-        self.assertAlmostEqual(_level(it["path"]) - _level(self.src, 7, 5), -6.02, delta=0.5)
+        self.assertAlmostEqual(mediainfo.media_info(it["path"])[0], 22.0, delta=0.3)
+        self.assertAlmostEqual(_level(it["path"], 7, 5) - _level(self.src, 7, 5), -6.02, delta=0.5)
         # .clip.json(BOM なしの UTF-8・作業用/ に)。出力先が長いので、名前にラベルは入らない
         base = os.path.splitext(os.path.basename(it["path"]))[0]
         self.assertEqual(base, "01_00h00m07s-00h00m12s")
@@ -279,7 +281,7 @@ class TestExportThrough(unittest.TestCase):
         self.assertEqual((d["schema"], d["tool"]), ("youtube-tools-clip/v1", exporter.TOOL))
         self.assertRegex(d["createdAt"], r"[+-]\d\d:\d\d$")
         self.assertEqual((d["media"]["path"], d["media"]["name"]), (it["path"], os.path.basename(it["path"])))
-        self.assertAlmostEqual(d["media"]["durationSec"], 5.0, delta=0.3)
+        self.assertAlmostEqual(d["media"]["durationSec"], 22.0, delta=0.3)
         self.assertEqual(round(d["media"]["durationSec"], 3), d["media"]["durationSec"])   # 3 桁に丸める
         self.assertEqual(d["range"], {"start": 7.0, "end": 12.0})   # 元の配信の秒
         self.assertEqual(d["source"], {"kind": "file", "videoId": VID, "url": None, "title": LONG_TITLE, "path": self.src})
@@ -290,10 +292,13 @@ class TestExportThrough(unittest.TestCase):
         self.assertGreater(d["export"].pop("secs")["encode"], 0)   # 段ごとの秒(友人の診断で読む)
         d["export"].pop("gpuError", None)   # GPU で作れなかった PC だけ
         self.assertEqual(d["export"].pop("check")["issues"], [])   # 書き出しのあとの自動の点検(合成の見本は気になる所なし)
-        self.assertEqual(d["export"], {"mode": "precise", "volume": 50})   # 余白なしは actualStart なし(= range.start)
+        mg = d["export"].pop("margin")   # 余白の印: 前は頭で止まった 7 秒・後ろ 10 秒。actualStart = 動画の頭の元の秒
+        self.assertEqual(mg["before"], 7.0)
+        self.assertAlmostEqual(mg["after"], 10.0, delta=0.3)
+        self.assertEqual(d["export"], {"mode": "precise", "volume": 50, "actualStart": 0.0})
         self.assertEqual(exporter.src_shape("Stream #0:0[0x1](und): Video: av1 (libdav1d) (Main), yuv420p(tv), 1920x1080 [SAR 1:1 DAR 16:9], 1472 kb/s, 60 fps"),
                          {"vcodec": "av1", "height": 1080, "fps": 60.0})
-        # 前後10秒の編集用素材: 作業用/ に・その範囲の .clip.json・.edit.json は本当の名前を指す
+        # 編集用素材(本体と同じ範囲 = 余白つきの 0〜22 秒。上乗せなし): 作業用/ に・その範囲の .clip.json・.edit.json は本当の名前を指す
         self.assertTrue(it["editPath"].endswith("_edit.mp4") and os.path.isfile(it["editPath"]) and os.path.dirname(it["editPath"]) == work)
         self.assertEqual(it["editManifest"], os.path.splitext(it["editPath"])[0] + ".clip.json")
         e = testkit.read_json(it["editManifest"])
@@ -313,12 +318,25 @@ class TestExportThrough(unittest.TestCase):
         # 終わりが元の長さを超える 1 本は元の末尾まで・知らない src は manual に丸める
         d3 = testkit.read_json(it3["manifest"])
         self.assertEqual((d3["range"], d3["mark"]["src"]), ({"start": 25.0, "end": 30.0}, "manual"))
-        self.assertEqual(testkit.read_json(it3["editManifest"])["range"], {"start": 15.0, "end": 30.0})
+        self.assertEqual((d3["export"]["actualStart"], testkit.read_json(it3["editManifest"])["range"]), (15.0, {"start": 15.0, "end": 30.0}))   # 余白は末尾で止まる
         # 出力先の直下は切り抜きの mp4 だけ・書きかけや途中のファイルは残さない
         self.assertEqual(sorted(n for n in os.listdir(folder) if os.path.isfile(os.path.join(folder, n))),
                          sorted(os.path.basename(i["path"]) for i in res["items"]))
         self.assertEqual(_leftovers(folder, work), [])
         return folder
+
+    def check_switch_off(self):
+        """スイッチ marks.CLIP_MARGIN_FIXED を切った前の形(1 本だけ): 余白なし(動画はマークの区間 5 秒・actualStart も clip も付けない)・編集用素材は前後 10 秒の上乗せ"""
+        with patch.object(exporter._marks, "CLIP_MARGIN_FIXED", False):
+            _spec, rec, _pub, calls, _cmds = self.export({"markIds": ["m1"], "volume": 50}, title="前の形")
+        it = rec["res"]["items"][0]
+        self.assertEqual((rec["state"], it["status"]), ("done", "done"), it.get("error"))
+        self.assertEqual(calls[0], ((VID, "m1", it["file"], 7.0, 12.0, it["path"]), {}))
+        self.assertAlmostEqual(mediainfo.media_info(it["path"])[0], 5.0, delta=0.3)
+        d = testkit.read_json(it["manifest"])
+        self.assertEqual((d["range"], "actualStart" in d["export"], "margin" in d["export"]), ({"start": 7.0, "end": 12.0}, False, False))
+        self.assertEqual(testkit.read_json(it["editManifest"])["range"], {"start": 0.0, "end": 22.0})
+        self.assertAlmostEqual(mediainfo.media_info(it["editPath"])[0], 22.0, delta=0.3)
 
     def check_fast_margin_loudness(self, folder):
         """同じ配信のフォルダへ 2 回目: 高速(ultrafast で作り直し)・余白(10-29 から固定 10 秒。要求の 3 は読まない)・ラウドネス -14 LUFS の 2 本(1 本は無音)。

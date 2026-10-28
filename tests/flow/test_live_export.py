@@ -785,9 +785,18 @@ class ExportPiecesTest(unittest.TestCase):
         self.assertEqual([x.get("request", {}).get("rid") for x in again.jobs][:1], [req["rid"]])
 
     def test_margin_window_and_fallback(self):
-        """LD-2f: 束の余白があれば前後に余白つきで取り(名前はマーク)・_finish に実際の始まり・終わり。余白の所に欠けがあればマークの区間だけで書き出す"""
+        """LD-2f: 余白(10-29 から固定 10 秒 = marks.CLIP_MARGIN_SEC。束の export.margin は読まない)で前後に余白つきで取り(名前はマーク)・_finish に実際の始まり・終わり。
+        余白の所に欠けがあればマークの区間だけで書き出す"""
         ex, _logs = self._pieces_exporter({"v": 50 * LX.GB})
         rec = "20261004-000000-a"
+        # 本物の margin(): 束が無い・束の export.margin が 0 でも固定の 10 秒(_windows は余白つき → 余白なしの順)。スイッチを切れば束の値(0 = 余白なし)
+        j0 = {"recorder": "local", "recording": rec}
+        ex.host.bundles = mock.Mock(spec=lambda rc, r: {"export": {"volume": 60, "margin": 0}})
+        self.assertEqual((ex.margin(j0), ex._windows(j0, 100.0, 105.0)), (10.0, [(90.0, 115.0), (100.0, 105.0)]))
+        ex.host.bundles = None
+        self.assertEqual(ex.margin(j0), 10.0)
+        with mock.patch.object(LX._marks, "CLIP_MARGIN_FIXED", False):
+            self.assertEqual((ex.margin(j0), ex._windows(j0, 100.0, 105.0)), (0.0, [(100.0, 105.0)]))
         got = {}
 
         def encode(job, rc, rec_, d, segs, files, a, b, wdir, mark=None):

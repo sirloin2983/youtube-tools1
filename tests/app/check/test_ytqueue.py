@@ -284,12 +284,15 @@ class YtQueueTest(unittest.TestCase):
         self.assertEqual((t2["n"], t2["rounds"]), (3, 1))                         # 短い音 3 本 = 1 回
         self.assertLess(t2["etaH"], t4["etaH"])
 
-    def test_tier_balance_and_voice_interval(self):
-        """同じ段が 6 時間続いたら下の段に 1 回渡す・定期(声)を使ったら 2 時間は一番下・見える化の order.json"""
+    def _balance_reqs(self):
         u = "https://www.youtube.com/watch?v="
         for i in range(3):
             self.put_at("r-full-%d" % i, {"url": u + "FULLVIDEO0%d" % i}, NOON + i)
         self.put_at("r-up-x", {"url": u + "SHORTVIDE01", "section": [0, 300]}, NOON)
+
+    def test_tier_balance_switch_off(self):
+        """スイッチ TURNS_ON を切った前の形: 同じ段が 6 時間続いたら下の段に 1 回渡す"""
+        self._balance_reqs()
         got = []
         full = {"ときのそら": 999, "ロボ子さん": 999}
         with mock.patch.object(Q, "_audio", lambda a, rid, url, sec: got.append(rid) or self.audio(a, rid, url, sec)), mock.patch.object(Q, "TURNS_ON", False):
@@ -297,12 +300,26 @@ class YtQueueTest(unittest.TestCase):
             self.tick(NOON + 7 * 3600, full)                                      # ④ が 7 時間続いた = ⑤ に 1 回
             self.tick(NOON + 9 * 3600, full)
         self.assertEqual(got, ["r-full-0", "r-up-x", "r-full-1"])
+
+    def test_voice_interval_and_order_view(self):
+        """今の回し方(TURNS_ON)のまま: 定期(声)を使ったら 2 時間は一番下・見える化の order.json(取れない物を外した後の並び・見込みの時間は回し方どおり)"""
+        self._balance_reqs()
+        got = []
+        full = {"ときのそら": 999, "ロボ子さん": 999}
+        with mock.patch.object(Q, "_audio", lambda a, rid, url, sec: got.append(rid) or self.audio(a, rid, url, sec)):
+            self.tick(NOON, full)
+            self.tick(NOON + 3600, full)
+        self.assertEqual(got, ["r-full-0", "r-full-1"])
         with open(Q.qdir(self.app, Q.ORDER_NAME), encoding="utf-8") as f:
-            self.assertEqual([(x["tier"], x["n"]) for x in json.load(f)["tiers"]], [(4, 2)])
-        with mock.patch.object(Q._vf, "tick", lambda *a, **k: got.append("voice") or "voice"),                 mock.patch.object(Q, "_audio", lambda a, rid, url, sec: got.append(rid) or self.audio(a, rid, url, sec)):
-            self.tick(NOON + 12 * 3600, {})                                       # 声が足りない = ③ が先
-            self.tick(NOON + 13 * 3600, {})                                       # 2 時間たっていない = ④
-        self.assertEqual(got[-2:], ["voice", "r-full-2"])
+            tiers = json.load(f)["tiers"]
+        self.assertEqual([(x["tier"], x["n"], x["rounds"]) for x in tiers], [(4, 2, 2), (5, 1, 1)])   # 2 回目の見回りの前の並び(r-full-1 と r-full-2・r-up-x)
+        self.assertEqual([x["etaH"] for x in tiers], [round(Q.audio_gap(Q._state(self.app)) / 3600.0 * k, 1) for k in (2, 3)])   # ④ を 1 回取った後 = 4,4 の 2 回で ④ が終わり、3 回目に ⑤ へ渡す
+        with mock.patch.object(Q._vf, "tick", lambda *a, **k: got.append("voice") or "voice"), \
+                mock.patch.object(Q, "_audio", lambda a, rid, url, sec: got.append(rid) or self.audio(a, rid, url, sec)):
+            self.tick(NOON + 12 * 3600, {})                                       # 声が足りない = ③ が先(上の段の 3 回目と数える)
+            self.tick(NOON + 13 * 3600, {})                                       # 2 時間たっていない = 声は一番下。3 回取ったので ⑤ に 1 回
+            self.tick(NOON + 15 * 3600, full)                                     # 次は ④(声が足りていれば ③ は無い)
+        self.assertEqual(got[-3:], ["voice", "r-up-x", "r-full-2"])
 
     def test_turns_to_lower_tiers(self):
         """上の段から 3 回ごとに下の段へ 1 回・下の段が複数なら順に・間隔待ちの 6 には渡さない・見込みの時間も同じ回し方で(10-28)"""
@@ -317,6 +334,16 @@ class YtQueueTest(unittest.TestCase):
             self.assertEqual(Q._turn_etas({2: 2, 5: 2}, {}), {2: 3, 5: 4})
         with mock.patch.object(Q, "TURNS_ON", False):
             self.assertEqual(Q._pick(ranked, {}, NOON, None)["tier"], 2)
+        # 上の段だけが続く間は数えるだけ(TURN_EVERY で止まる)。下の段が現れた次の回で渡す
+        st, only2 = {}, [{"tier": 2, "id": "2-%d" % i} for i in range(9)]
+        self.assertEqual([Q._pick(only2, st, NOON, None)["tier"] for _ in range(5)], [2] * 5)
+        self.assertEqual(st["turnCount"], Q.TURN_EVERY)
+        self.assertEqual(Q._pick(only2 + [{"tier": 5, "id": "5-0"}], st, NOON, None)["tier"], 5)
+        self.assertEqual((st["turnCount"], st["turnLast"]), (0, 5))
+        # 間隔待ちの 6 しか無いときは渡さない(数えたまま)
+        st = {}
+        self.assertEqual([Q._pick(only2 + [{"tier": 6, "id": "6-0"}], st, NOON, None)["tier"] for _ in range(5)], [2] * 5)
+        self.assertEqual((st["turnCount"], st.get("turnLast")), (Q.TURN_EVERY, None))
 
     def test_keep_dir_setting(self):
         """keep の置き場は設定 ytQueueKeepDir で作業データの外へ(10-26)。無い・ドライブが無い・相対なら作業データの中"""
@@ -478,6 +505,18 @@ class YtQueueTest(unittest.TestCase):
             with open(Q.qdir(self.app, "done", rid + ".json"), encoding="utf-8") as f:
                 self.assertEqual(json.load(f)["unfetchable"], Q.BAD_NOTE)
         self.assertEqual(Q._state(self.app)["badVids"], ["BADSHORT001"])
+        # 候補(研究の候補の動画)の道でも同じ: 頼みで 1 回当たった動画が候補で 2 回目に当たったら、列は休まず取れない印(10-28)
+        self.put_req("c1", {"purpose": "research", "kind": "audio", "url": "https://www.youtube.com/watch?v=BADCAND0001", "section": [0, 18]})
+        self.put_cands([{"video": "BADCAND0001", "t": 1000, "channel": "UC" + "z" * 22, "title": "よそ", "research": 0.9}])
+        with mock.patch.object(Q, "_audio", rate):
+            self.tick(NOON + 9 * 3600, full)
+            self.assertFalse(Q.due(self.app, NOON + 9 * 3600 + 60)[0])           # 頼みの 1 回目 = 休む
+            self.tick(NOON + 14 * 3600, full)
+            self.assertTrue(Q.due(self.app, NOON + 14 * 3600 + 60)[0])          # 候補で 2 回目 = 休まない
+        self.assertEqual(calls[-2:], ["c1", "cand-BADCAND0001"])
+        with open(Q.qdir(self.app, "done", "cand-BADCAND0001.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["unfetchable"], Q.BAD_NOTE)
+        self.assertEqual(Q._state(self.app)["badVids"], ["BADSHORT001", "BADCAND0001"])
 
     def test_gone_not_counted(self):
         """動画が無い・メンバー限定は枠に数えない(次の見回りで次の 1 本)"""

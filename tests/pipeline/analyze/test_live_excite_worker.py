@@ -701,6 +701,21 @@ class FfmpegTest(unittest.TestCase):
             w.tick()
             total = sum(d for _n, d in segs)
             self.assertEqual(w.recs[("fake", REC)].next_box, int(round(total)))   # 録画中: 全部測った
+            # 同じ録画をスイッチのまま(JOIN_ON)別の作業データで測ると、場面が隣り合う 2 つの山は 1 本につながる: peaks.json に join・候補に joined(元の範囲)・pieces(元の本数)
+            join.stop()
+            n_seen = len(rec.seen)
+            try:
+                folder2 = os.path.join(self.tmp, "excite-join")
+                w2 = W.Worker(write_config(folder2, recorders=[{"id": "fake", "url": rec.url, "token": TOKEN}]), log=lambda m: None, save_sec=0, heart_sec=0, tick_budget=120)
+                w2.tick()
+                w2.close()
+                d2 = peaks_of(folder2)
+                self.assertTrue(d2["join"], d2)
+                self.assertEqual([(len(p["joined"]), p["pieces"]) for p in d2["peaks"]], [(2, 2)], d2["peaks"])
+                self.assertTrue(d2["peaks"][0]["start"] <= bursts[0] and bursts[1] <= d2["peaks"][0]["end"], d2["peaks"])
+            finally:
+                join.start()
+                del rec.seen[n_seen:]   # 2 つ目のワーカーの取得は数えない
             # 入口が書いた decisions.json(人の採用・見送り・まだ無い番号)を帳簿に当てる(decN)・感度と 1 時間の本数の変更は途中から効く
             ids = [p["id"] for p in sorted(peaks_of(folder)["peaks"], key=lambda p: p["peak"])]
             self.assertEqual(len(ids), len(bursts), ids)
@@ -1082,6 +1097,15 @@ class WorkerRestTest(unittest.TestCase):
         self.assertAlmostEqual(st.book.thr, excite.SENS["low"] * W.AUDIO_ONLY_SCALE)
         back = W.RecState.from_json(self.tmp, st.to_json(), {"sens": "low", "perHour": 3})
         self.assertEqual((back.thr_base, round(back.book.thr, 3)), (excite.SENS["low"], round(excite.SENS["low"] * W.AUDIO_ONLY_SCALE, 3)))
+        # 起動し直した帳簿にも、場面が取れないときの自動の長さ(fallback auto)・割れた場面をつなぐ(join)・場面ごとの形を付け直す。
+        # 0.99.323 までの保存(fallback・join が無い・shape "fixed")から読んでも同じ(友人の PC に残り得る)
+        self.assertEqual((back.book.fallback, back.book.join, back.book.shape), ("auto", True, "scene"))
+        old = st.to_json()
+        old["book"] = {k: v for k, v in old["book"].items() if k not in ("fallback", "join")} | {"shape": "fixed"}
+        old_book = excite.PeakBook.from_json(old["book"])
+        self.assertEqual((old_book.fallback, old_book.join, old_book.shape), (None, False, "fixed"))   # 帳簿だけ読めば前の形のまま
+        back = W.RecState.from_json(self.tmp, old, {"sens": "low", "perHour": 3})
+        self.assertEqual((back.book.fallback, back.book.join, back.book.shape), ("auto", True, "scene"))
         doc = st.peaks_doc(T0)
         self.assertEqual((doc["audioOnly"], doc["thrBase"], doc["thr"]), (True, excite.SENS["low"], round(excite.SENS["low"] * W.AUDIO_ONLY_SCALE, 3)))
         with mock.patch.object(W, "AUDIO_ONLY_SCALE", 1.0):   # スイッチ: 音だけでも変えない
@@ -1195,10 +1219,7 @@ class WorkerRestTest(unittest.TestCase):
     def test_friend_request_only_with_its_settings(self):
         """2-15: detectAll false = 友人の依頼の録画(requests)だけ受け持つ。感度・枠・長さはその依頼の値(peaks.json の perHour・length・lengthFrom friend)。
         detectAll true にすれば、ほかの録画はホームの設定で・依頼の録画は依頼の設定のまま(読み直しでも)。false に戻せば、ほかの録画は保存して手放す。
-        固定の長さの依頼の形を見るので、スイッチ excite.AUTO_LEN_ON を切って(前の形)流す"""
-        patch = mock.patch.object(excite, "AUTO_LEN_ON", False)
-        patch.start()
-        self.addCleanup(patch.stop)
+        長さは固定の長さを使わない今の形(excite.AUTO_LEN_ON): 依頼の length は見ず場面ごと・150 秒(lengthFrom friendScene。固定の長さの前の形は test_request_length_mode のスイッチ切り)"""
         clock = Clock(T0)
         a = SimRecorder(clock)
         b = SimRecorder(clock, first=T0 + 60, rec=REC_B, url="https://www.youtube.com/watch?v=bbbbbbbbbbb")
@@ -1212,16 +1233,16 @@ class WorkerRestTest(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.dir, "fake", REC)))   # ほかの録画は測らない(peaks.json も置かない)
         self.assertEqual(a.measured, 0)
         st = w.recs[("fake", REC_B)]
-        self.assertEqual((st.thr_base, st.book.per_hour, st.book.length, st.spec["lengthFrom"]), (excite.SENS["high"], 2, 30.0, "friend"))
+        self.assertEqual((st.thr_base, st.book.per_hour, st.book.length, st.book.shape, st.spec["lengthFrom"]), (excite.SENS["high"], 2, 150.0, "scene", "friendScene"))
         with open(os.path.join(self.dir, "fake", REC_B, "peaks.json"), encoding="utf-8") as f:
             d = json.load(f)
-        self.assertEqual((d["perHour"], d["length"], d["lengthFrom"]), (2, 30.0, "friend"))
+        self.assertEqual((d["perHour"], d["length"], d["lengthFrom"]), (2, 150.0, "friendScene"))
         self.assertGreaterEqual(len([p for p in d["peaks"] if p["state"] == "frame"]), 1, d["counts"])
         w.close()
         w = make_worker(cfg, clock, sim)   # 起動し直しても(state.json から)依頼の感度・枠のまま
         run_until(w, clock, sim, T0 + 1330)
         st = w.recs[("fake", REC_B)]
-        self.assertEqual((st.thr_base, st.book.per_hour, st.book.length), (excite.SENS["high"], 2, 30.0))
+        self.assertEqual((st.thr_base, st.book.per_hour, st.book.length), (excite.SENS["high"], 2, 150.0))
         # ホームの検出もオンにした: ほかの録画はホームの設定(低・5 本・スタジオの長さ)で受け持ち、依頼の録画は依頼の設定のまま
         write_config(self.dir, detect=home, detectAll=True, requests=reqs)
         w.cfg_checked = -1e18
@@ -1234,7 +1255,7 @@ class WorkerRestTest(unittest.TestCase):
         w.cfg_checked = -1e18
         clock.t += 6
         w.tick()
-        self.assertEqual((st.thr_base, st.book.per_hour, st.book.length, st.book.shape), (excite.SENS["normal"], 4, 60.0, "fixed"))
+        self.assertEqual((st.thr_base, st.book.per_hour, st.book.length, st.book.shape), (excite.SENS["normal"], 4, 150.0, "scene"))   # 長さは依頼の 60 秒を見ない(場面ごと)
         self.assertEqual((sa.thr_base, sa.book.per_hour), (excite.SENS["low"], 5))
         # 長さを「自動(場面ごと)」に(C-2-11): 場面ごとの形へ・依頼でない録画は変えない
         write_config(self.dir, detect=home, detectAll=True, requests={"fake/" + REC_B: {"sens": "normal", "perHour": 4, "length": 60, "lengthMode": "auto"}})

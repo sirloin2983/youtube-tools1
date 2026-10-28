@@ -197,9 +197,6 @@ class LiveTxBase(unittest.TestCase):
 
     def setUp(self):
         self.tmp = testkit.tempdir(self, "ytt-livetx-")
-        p = mock.patch.object(_marks, "CLIP_MARGIN_FIXED", False)   # 偽の認識の時刻は余白なし(束の export.margin 0)で組んである = スイッチを切る(固定 10 秒は test_live_export・test_exporter)
-        p.start()
-        self.addCleanup(p.stop)
         env = {k: v for k, v in os.environ.items() if k != "TRANSCRIBE_DATA_DIR"}   # 編集の作業データ = <root>/editor(datadir の inplace)
         env["YTT_DATA_DIR"] = "inplace"
         for p in (mock.patch.dict(os.environ, env, clear=True), mock.patch.dict(datadir._registered, {}, clear=True)):
@@ -211,7 +208,8 @@ class LiveTxBase(unittest.TestCase):
         self.live = LF.new_session(self.tmp, self.cfg, log=self.logs.append)
         self.clock = Clock(T0 + 1000)
         self.calls = []
-        self.answer = {"ok": True, "text": "ここで大きな声", "rows": [{"start": 0.5, "end": 2.0, "text": "ここで大きな声"}], "sec": 3.2,
+        # 偽の認識の行は wav の頭 = 候補の 10 秒前(固定の余白 marks.CLIP_MARGIN_SEC。候補の始まりが録画の頭から 10 秒以上あるとき)= 候補の 0.5〜2.0 秒
+        self.answer = {"ok": True, "text": "ここで大きな声", "rows": [{"start": 10.5, "end": 12.0, "text": "ここで大きな声"}], "sec": 3.2,
                        "gpu": "AMD Radeon RX 7800 XT", "model": "large-v3", "engine": "whisper.cpp"}
         self.ff, self.fflog, self.ffail = fake_ffmpeg(self.tmp)
         self.tx = TX.LiveTx(self.live, log=self.logs.append, clock=self.clock, run=self.fake_run, ffmpeg=self.ff)
@@ -448,7 +446,7 @@ class OneTest(LiveTxBase):
         self.clock.t += TX.PAUSE_SEC + 1
         self.assertIsNone(self.tx.status()["pausedUntil"])
         self.assertEqual(self.tx.tick(), 1)   # 休みが明けたら、1 回だけ失敗した p1 をもう 1 回
-        self.answer = dict(self.answer or {}, ok=True, text="今度は付いた")
+        self.answer = dict(self.answer or {}, ok=True, text="今度は付いた", rows=[{"start": 10.5, "end": 12.0, "text": "今度は付いた"}])   # 余白つき = 文字は行から(候補の区間にかかる行)
         self.tx._one("fake", REC, peak("p1-22", 20), T0)
         self.assertEqual((self.items()["p1-22"].get("error"), self.tx.text_for("fake", REC, "p1-22"), self.tx.fails), (None, "今度は付いた", 0))
 
@@ -569,12 +567,13 @@ class RealWhisperTest(LiveTxBase):
             self.assertEqual(self.tx.tick(), 1)
             self.assertTrue(wait_for(lambda: self.tx.text_for("fake", REC, "p0-12") or self.tx.failed, 90), self.logs[-5:])
             self.assertTrue(wait_for(lambda: self.tx.status()["busy"] is False and self.tx.done == 1, 10), self.logs[-5:])
-        # 録画の頭からの秒 → 絶対時刻で区間を聞き、候補の始まりのセッションのセグメントだけ取る(つなぎ直しの後は使わない)
+        # 録画の頭からの秒 → 絶対時刻で前後に固定 10 秒の余白(marks.CLIP_MARGIN_SEC)をつけて区間を聞き、候補の始まりのセッションのセグメントだけ取る(つなぎ直しの後は使わない)。
+        # 余白は録画の頭(1 秒前)・そのセッションの録れている所(8 秒)で止まる = wav は 0 秒から 12 秒(前の余白 1 秒・後ろ 0 秒)
         q = urllib.parse.parse_qs(urllib.parse.urlsplit([p for p in self.rec.seen if "/segments" in p][0]).query)
-        self.assertEqual((LX.iso_epoch(q["start"][0]), LX.iso_epoch(q["end"][0])), (T0 + 1, T0 + 12))
+        self.assertEqual((LX.iso_epoch(q["start"][0]), LX.iso_epoch(q["end"][0])), (T0 + 1 - 10, T0 + 12 + 10))
         self.assertEqual(self.rec.ts_gets(), ["/live/%s/session_001/seg_%06d.ts" % (REC, i) for i in (0, 1)])
         ff = cmds[0]
-        self.assertEqual(ff[1:], ["-hide_banner", "-loglevel", "error", "-y", "-ss", "1.000", "-i", ff[ff.index("-i") + 1], "-t", "11.000",
+        self.assertEqual(ff[1:], ["-hide_banner", "-loglevel", "error", "-y", "-ss", "0.000", "-i", ff[ff.index("-i") + 1], "-t", "12.000",
                                   "-vn", "-sn", "-dn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", "-f", "wav", ff[-1]])
         self.assertTrue(ff[ff.index("-i") + 1].endswith("part_00.ts") and ff[-1].endswith("in.wav"), ff)
         # whisper-cli の引数
@@ -588,7 +587,7 @@ class RealWhisperTest(LiveTxBase):
         # 結果の読み取り: 行・単語(特別なトークンは単語にしない)・自信の度合い・装置
         eng, segs, info = got[0]
         self.assertEqual(info.language, "ja")
-        self.assertAlmostEqual(info.duration, 7.0, delta=0.3)                     # 取った 2 本(8 秒)の 1 秒から先
+        self.assertAlmostEqual(info.duration, 8.0, delta=0.3)                     # 取った 2 本(8 秒)の頭から(余白 1 秒)
         self.assertTrue(segs and all(s.words for s in segs))
         words = [w for s in segs for w in s.words]
         self.assertFalse([w.word for w in words if w.word.startswith("[_")])
@@ -603,8 +602,9 @@ class RealWhisperTest(LiveTxBase):
         self.assertNotIn("ゲーム", it["text"])                                    # 3 文目は session_002
         self.assertEqual((it["gpu"], it["model"], "error" in it, it["atEpoch"]), (eng.gpu_name, "large-v3", False, self.clock()))
         self.assertIsInstance(it["sec"], float)
-        self.assertTrue(it["rows"] and all(0.0 <= r["start"] < r["end"] <= 7.5 for r in it["rows"]), it["rows"])
-        self.assertLess(it["rows"][0]["start"], 0.5, it["rows"])                 # 行は候補の始まり基準(1 文目は見本の 1 秒 = wav の頭)
+        self.assertTrue(it["rows"] and all(-1.0 <= r["start"] < r["end"] <= 7.5 for r in it["rows"]), it["rows"])
+        self.assertLess(it["rows"][0]["start"], 0.5, it["rows"])                 # 行は候補の始まり基準(1 文目は見本の 1 秒 = 余白 1 秒の後)
+        self.assertEqual(it["pad"], [1.0, 0.0])                                   # 余白の印 [前, 後]
         self.assertEqual(list(self.tx.view("fake", REC)), ["p0-12"])
         self.assertEqual((self.tx.text_for("fake", REC, "p9-9"), self.tx.text_for("fake", REC, None)), (None, None))
         self.assertEqual(self.tx.recent_ids("fake", REC), ["p0-12"])

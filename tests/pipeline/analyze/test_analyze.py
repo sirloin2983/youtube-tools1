@@ -186,6 +186,17 @@ class TestRunCtl(unittest.TestCase):
         self.spec = analyze.make_spec({"kind": "file", "path": "x.mp4", "name": "x.mp4", "videoId": "f_x"},
                                       analyze.validate_settings({"useComments": False, "count": 3, "length": 30, "noCache": True}))
 
+    def test_shape_fixed_not_read_and_fallback_auto(self):
+        """固定の長さを使わない(excite.AUTO_LEN_ON): 保存してある設定の shape "fixed" は "scene" に読み替える・spec に fallback "auto"(場面が取れないときも自動の長さ)と join。
+        スイッチを切れば前の形 = "fixed" のまま・fallback は None"""
+        src = {"kind": "file", "path": "x.mp4", "name": "x.mp4", "videoId": "f_x"}
+        self.assertEqual([analyze.validate_settings({"shape": s})["shape"] for s in ("fixed", "scene", "auto", None)], ["scene"] * 4)
+        sp = analyze.make_spec(src, analyze.validate_settings({"shape": "fixed"}))
+        self.assertEqual((sp["shape"], sp["fallback"], sp["join"]), ("scene", "auto", excite.JOIN_ON))
+        with mock.patch.object(excite, "AUTO_LEN_ON", False):
+            self.assertEqual([analyze.validate_settings({"shape": s})["shape"] for s in ("fixed", "scene", "auto")], ["fixed", "scene", excite.SHAPE_DEFAULT])
+            self.assertIsNone(analyze.make_spec(src, analyze.validate_settings({"shape": "fixed"}))["fallback"])
+
     def levels(self):
         full, band, *_ = synth(n=600, events=6)
         return lambda *a, **k: (600.0, 600, full[:600], band[:600])
@@ -321,7 +332,7 @@ class TestAnalyzeRun(unittest.TestCase):
         for c in cands:
             self.assertTrue(0 <= c["peak"] - min(BURSTS, key=lambda b: abs(b - c["peak"])) <= 8, c)
             self.assertGreaterEqual(c["parts"]["chat"], excite.PART_ON["chat"], c)   # 遅れの分だけ前へずらしたチャットが山に重なる
-            self.assertTrue(c["start"] <= c["peak"] <= c["end"] and len(c["fixed"]) == 2 and c["shape"] in excite.SHAPES, c)
+            self.assertTrue(c["start"] <= c["peak"] <= c["end"] and len(c["fixed"]) == 2 and c["shape"] in excite.SHAPES + ("auto",), c)   # "auto" = 場面が取れず自動の長さ
             self.assertNotIn("fill", c)
             self.assertNotIn(excite.FILL_REASON, c["reasons"])
         rec = analyze.load_archive(VID)
