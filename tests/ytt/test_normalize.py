@@ -311,23 +311,40 @@ class TestFastPaths(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, True)
 
     def test_gpu_first_then_cpu(self):
-        """GPU が使えると見たら(確かめを差し替えて全部使えると見せる = 最初の h264_nvenc から)。GPU で作れなければ(NVIDIA の無い PC では必ず)libx264 で 1 回だけやり直す"""
+        """GPU が使えると見たら(確かめを差し替えて全部使えると見せる = 最初の h264_nvenc から)。読み込みも GPU(-hwaccel cuda)の回が先。
+        GPU で作れなければ(NVIDIA の無い PC では必ず)同じ作り方を読み込み CPU で 1 回、それから libx264 で 1 回だけやり直す"""
         calls = []
 
         def popen(cmd, **kw):
             calls.append(list(cmd))
             return subprocess.Popen(cmd, **kw)
-        with mock.patch.dict(os.environ, {normalize.GPU_ENV: ""}):
+        with mock.patch.dict(os.environ, {normalize.GPU_ENV: "", normalize.HWDEC_ENV: ""}):
             out = normalize.normalize(self.v60, os.path.join(self.tmp, "g.mp4"), popen=popen, gpu_runner=lambda c: 0)
         self.assertEqual(calls[0][calls[0].index("-c:v") + 1], "h264_nvenc")
+        self.assertEqual(calls[0][calls[0].index("-hwaccel") + 1], "cuda")
+        self.assertLess(calls[0].index("-hwaccel"), calls[0].index("-i"))   # 入力側の引数は -i の前
         self.assertEqual(normalize.probe(out["path"])["r_frame_rate"], "30/1")
         if out["how"] == "CPU(libx264)":   # この PC に NVIDIA の GPU が無い
-            self.assertEqual(len(calls), 2)
-            self.assertEqual(calls[1][calls[1].index("-c:v") + 1], "libx264")
-            self.assertTrue(out["failed"][0].startswith("GPU(h264_nvenc)"))
+            self.assertEqual(len(calls), 3)
+            self.assertEqual((calls[1][calls[1].index("-c:v") + 1], "-hwaccel" in calls[1]), ("h264_nvenc", False))
+            self.assertEqual((calls[2][calls[2].index("-c:v") + 1], "-hwaccel" in calls[2]), ("libx264", False))
+            self.assertTrue(out["failed"][0].startswith("GPU(h264_nvenc)+cuda") and out["failed"][1].startswith("GPU(h264_nvenc):"))
+            self.assertEqual(out["hwdec"], "")
         else:
-            self.assertEqual((out["how"], len(calls)), ("GPU(h264_nvenc)", 1))
+            self.assertEqual((out["how"], out["hwdec"], len(calls)), ("GPU(h264_nvenc)", "cuda", 1))
         self.assertEqual([n for n in os.listdir(self.tmp) if normalize.PART in n], [])
+
+    def test_decode_tries_and_switch(self):
+        """読み込みを GPU にする回は GPU の作り方の前に 1 回だけ(libx264 には無い)。YTT_HW_DEC=0 で付けない"""
+        tries = [("h264_amf", ["-c:v", "h264_amf"]), (normalize.CPU, ["-c:v", "libx264"])]
+        with mock.patch.dict(os.environ, {normalize.HWDEC_ENV: ""}):
+            self.assertEqual([(h, p) for h, p, _e in normalize.decode_tries(tries)],
+                             [("h264_amf", ["-hwaccel", "d3d11va"]), ("h264_amf", []), (normalize.CPU, [])])
+            self.assertEqual(normalize.decode_args("h264_nvenc"), ["-hwaccel", "cuda"])
+            self.assertEqual(normalize.hwdec_name(normalize.decode_args("h264_nvenc")), "cuda")
+        with mock.patch.dict(os.environ, {normalize.HWDEC_ENV: "0"}):
+            self.assertEqual([(h, p) for h, p, _e in normalize.decode_tries(tries)], [("h264_amf", []), (normalize.CPU, [])])
+            self.assertEqual(normalize.decode_args("h264_nvenc"), [])
 
 
 if __name__ == "__main__":

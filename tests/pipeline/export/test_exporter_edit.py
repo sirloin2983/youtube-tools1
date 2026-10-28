@@ -4,6 +4,7 @@
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所に書かない(ytt.datadir)
+import json
 import sys
 import tempfile
 import unittest
@@ -41,6 +42,46 @@ class EditMediaLeftovers(unittest.TestCase):
             exporter.export_edit_media(None, spec, it, "01_a", runner)
         self.assertEqual((seen["keepRaw"], seen["editMade"]), ("none", "none"))
         self.assertEqual(it["secs"], {"encode": 3.0})
+
+    def test_copy_edit_media_writes_sidecar_for_same_range(self):
+        # 編集用素材 = 本体の写し(EDIT_FROM_MAIN・上乗せ 0): 作業用/<base>_edit.partial.mp4 に同じ中身・.edit.json は selectionIn 0・範囲は clipRange
+        d = tempfile.mkdtemp()
+        main = os.path.join(d, "01_a.partial.mp4")
+        with open(main, "wb") as f:
+            f.write(b"x" * 100)
+        it = {"start": 7.0, "end": 12.0, "clipRange": (0.0, 22.0), "path": main, "method": "encode", "encoder": "h264_nvenc", "srcLen": 30.0}
+        spec = {"outDir": d, "folder": "f"}
+        with mock.patch.object(exporter._media, "media_info", return_value=(22.0, True, True, "")):
+            rel = exporter.copy_edit_media(spec, it, "01_a")
+        edit = os.path.join(d, "作業用", "01_a_edit.partial.mp4")
+        self.assertEqual((rel, it["editPath"], os.path.getsize(edit)), ("f/作業用/01_a_edit.partial.mp4", edit, 100))
+        with open(os.path.join(d, "作業用", "01_a.edit.json"), encoding="utf-8") as f:
+            side = json.load(f)
+        self.assertEqual((side["media"], side["selectionIn"], side["handleBefore"], side["handleAfter"], side["sourceStart"], side["sourceEnd"]),
+                         ("01_a_edit.mp4", 0.0, 0.0, 0.0, 0.0, 22.0))
+        self.assertEqual((it["editRange"], it["editEncoder"], it["editFrom"]), ((0.0, 22.0), "h264_nvenc", "copy"))
+        self.assertGreaterEqual(it["secs"]["editCopy"], 0)
+
+    def test_encode_falls_back_from_gpu_decode_to_cpu_decode(self):
+        # 読み込みを GPU にした回(入力側の引数つき)が失敗したら、同じ作り方を読み込み CPU で(hwdecError に理由・hwdec は付かない)。入力側の引数は build の 2 つ目で受ける
+        it, seen = {}, []
+        tries = [("h264_nvenc", ["-hwaccel", "cuda"], ["-c:v", "h264_nvenc"]), ("h264_nvenc", ["-c:v", "h264_nvenc"]), ("libx264", ["-c:v", "libx264"])]
+
+        def build(enc, pre=()):
+            seen.append(list(pre))
+            return ["ff"] + list(pre) + ["-i", "in"] + enc
+
+        def pump(ctl, cmd, it_, dur, span):
+            if "-hwaccel" in cmd:
+                raise exporter.ExportError("Device creation failed")
+            return []
+        ctl = mock.Mock(cancelled=False)
+        with mock.patch.object(exporter, "_pump", side_effect=pump), mock.patch.object(exporter, "verify_output"), \
+                mock.patch.object(exporter, "log_export"):
+            exporter._encode(ctl, {}, it, build, [("a.partial.mp4", 5.0)], "t", tries=tries)
+        self.assertEqual(seen, [["-hwaccel", "cuda"], []])
+        self.assertEqual((it["encoder"], it.get("hwdec"), it["hwdecError"][:30]), ("h264_nvenc", None, "h264_nvenc+cuda: Device creati"))
+        self.assertNotIn("gpuError", it)
 
 
 if __name__ == "__main__":

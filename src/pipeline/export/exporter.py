@@ -14,6 +14,7 @@ import glob
 import json
 import os
 import re
+import shutil
 import subprocess
 import time
 
@@ -43,6 +44,17 @@ EDIT_HANDLE_SEC = 10.0   # 編集用素材の前後の上乗せ(秒)。10-29 か
 def edit_handle():
     """編集用素材を本体の範囲(余白つき)からさらに前後に広げる秒: 余白が固定(marks.CLIP_MARGIN_FIXED)なら 0 = 本体と同じ範囲"""
     return 0.0 if _marks.CLIP_MARGIN_FIXED else EDIT_HANDLE_SEC
+
+
+# 編集用素材が本体と同じ範囲(edit_handle() = 0)のときは作り直さず、ラウドネスまで仕上げた本体を写す(10-29 処理の速さの見直し 4-2。
+# 作り直し 2 本 → 1 本・ラウドネスの測定と音声の作り直しも 1 本)。_edit.mp4 と .edit.json はそのまま残る(パック・Resolve の前提は変えない)。
+# スイッチ: False で前の形(本体と同じ 1 本の ffmpeg で 2 本作る)。上乗せが 0 でないときはこのスイッチに関わらず前の形
+EDIT_FROM_MAIN = True
+
+
+def edit_from_main():
+    """編集用素材を本体の写しで済ませるか(スイッチ EDIT_FROM_MAIN かつ上乗せ 0)"""
+    return EDIT_FROM_MAIN and edit_handle() == 0
 # 名前の規則(MAX_PATH_UNITS・SUFFIX_ROOM・BASE_ROOM・予約名・UTF-16 の長さ・持ち主の印・連番)は ytt/names.py の 1 か所
 # (入口のライブの書き出し src/flow/live_export.py と同じ規則)。ここの名前はテストと他の部品が読むので残す
 MAX_PATH_UNITS, SUFFIX_ROOM, BASE_ROOM = _names.MAX_PATH_UNITS, _names.SUFFIX_ROOM, _names.BASE_ROOM
@@ -427,23 +439,32 @@ def _dl_args(ff):
 
 
 def _encs(spec):
-    """作り直しの作り方の順 [(作り方の名前, 出力側の引数)](GPU → libx264。ytt/normalize.encode_tries。-progress は呼ぶ側)。
+    """作り直しの作り方の順 [(作り方の名前, 入力側の引数, 出力側の引数)](GPU(読み込みも GPU → 読み込み CPU)→ libx264。
+    ytt/normalize.encode_tries + decode_tries。-progress は呼ぶ側)。
     高速 = libx264 の ultrafast(GPU は同じ)。音量(%)はここで最初の書き出しに組み込む(音声の作り直しは 1 回だけ = AAC の 2 回目の圧縮と
     ファイル全体の読み書きをしない。O3)。ラウドネスのときは測ってから apply_loudness が後でかける(測る前は量が分からないため)"""
     preset = _norm.FAST_PRESET if spec.get("fast") else _norm.PRESET
     vol = spec.get("volume", 100)
     af = [] if vol == 100 or spec.get("loudness") else ["-af", _loud.volume_filter(vol)]
-    return [(how, enc + af) for how, enc in _norm.encode_tries(_env.find_tool("ffmpeg"), preset)]
+    return [(how, pre, enc + af) for how, pre, enc in _norm.decode_tries(_norm.encode_tries(_env.find_tool("ffmpeg"), preset))]
+
+
+def _try3(t):
+    """tries の 1 つ -> (作り方, 入力側の引数, 出力側の引数)。(作り方, 出力側) の 2 つ組(normalize.encode_tries・テスト)は入力側なし"""
+    return (t[0], [], t[1]) if len(t) == 2 else (t[0], list(t[1]), t[2])
 
 
 def _encode(ctl, spec, it, build, outs, what, span=(0.0, 1.0), log_cmd=None, tries=None):
-    """build(出力側の引数) -> コマンドの全部 で outs([(パス, 期待する長さ)])を作り、空・短すぎないかを確かめる。
-    作り方は tries(既定 _encs(spec))の順(GPU で失敗したら outs を消して libx264 で 1 回だけ)。作った作り方は it["encoder"](.clip.json の export.encoder)。
+    """build(出力側の引数[, 入力側の引数]) -> コマンドの全部 で outs([(パス, 期待する長さ)])を作り、空・短すぎないかを確かめる。
+    作り方は tries(既定 _encs(spec))の順(GPU の読み込みで失敗したら同じ作り方を読み込み CPU で、GPU で作れなければ outs を消して libx264 で 1 回だけ)。
+    作った作り方は it["encoder"](.clip.json の export.encoder)・読み込みを GPU にしたときは it["hwdec"](cuda・d3d11va。export.hwdec)。
+    build は入力側の引数があるときだけ 2 つ目の引数で受ける(入力側の無い tries では build(enc) = 今までの形)。
     失敗は export-log.txt に残して outs を消す。最後の作り方も失敗・中止なら ExportError をそのまま上げる"""
-    tries = tries or _encs(spec)
+    tries = [_try3(t) for t in (tries or _encs(spec))]
     dur = max(d for _p, d in outs)
-    for n, (how, enc) in enumerate(tries, 1):
-        cmd, tail = build(enc), []
+    for n, (how, pre, enc) in enumerate(tries, 1):
+        cmd, tail = (build(enc, pre) if pre else build(enc)), []
+        tag = how + ("+" + _norm.hwdec_name(pre) if pre else "")
         t0 = time.monotonic()
         try:
             tail = _pump(ctl, cmd, it, dur, span)
@@ -451,12 +472,16 @@ def _encode(ctl, spec, it, build, outs, what, span=(0.0, 1.0), log_cmd=None, tri
                 verify_output(p, d, tail)
             it["expectSec"] = outs[0][1]   # 点検の長さの期待(outcheck)。outs[0] が本体(この時点で it に path はまだ無い)
             it["encoder"] = how
+            if pre:
+                it["hwdec"] = _norm.hwdec_name(pre)
             _secs(it, "encode", time.monotonic() - t0)
             return
         except ExportError as e:
-            if how != _norm.CPU and n < len(tries):   # GPU で作れず libx264 へ = 理由を .clip.json に(友人の診断で見る)
+            if pre:   # 読み込みを GPU にして作れなかった = 理由を .clip.json に(友人の診断で見る)。同じ作り方を読み込み CPU でやり直す
+                it["hwdecError"] = "%s: %s" % (tag, str(e)[:200])
+            elif how != _norm.CPU and n < len(tries):   # GPU で作れず libx264 へ
                 it["gpuError"] = "%s: %s" % (how, str(e)[:200])
-            log_export("%s 失敗(%s): %s" % (what, how, e), cmd if log_cmd is None else log_cmd, tail)
+            log_export("%s 失敗(%s): %s" % (what, tag, e), cmd if log_cmd is None else log_cmd, tail)
             for p, _d in outs:
                 if os.path.exists(p):
                     os.unlink(p)
@@ -486,8 +511,9 @@ def run_ffmpeg(ctl, spec, it, base):
     # 1) -ss を -i の前に置く高速シーク(作り直すのでフレーム精度で切れる)
     # 2) 出力が空になるファイル向けの予備: -i の後に置く精密シーク(先頭から読むので遅いが確実)
     # 高速・精密のどちらも 30fps に作り直す(高速は x264 の速い設定。コピーでは fps を変えられないため)
-    attempts = [lambda enc: base_cmd + ["-ss", ts, "-i", spec["sourcePath"], "-t", "%.3f" % dur] + enc + PROGRESS + [out],
-                lambda enc: base_cmd + ["-i", spec["sourcePath"], "-ss", ts, "-t", "%.3f" % dur] + enc + PROGRESS + [out]]
+    # pre = 読み込みを GPU にする入力側の引数(-i の前。_encode が GPU の作り方のときだけ渡す)
+    attempts = [lambda enc, pre=(): base_cmd + list(pre) + ["-ss", ts, "-i", spec["sourcePath"], "-t", "%.3f" % dur] + enc + PROGRESS + [out],
+                lambda enc, pre=(): base_cmd + list(pre) + ["-i", spec["sourcePath"], "-ss", ts, "-t", "%.3f" % dur] + enc + PROGRESS + [out]]
     last = None
     for n, build in enumerate(attempts, 1):
         try:
@@ -604,8 +630,8 @@ def _ytdlp_sections(ctl, spec, it, base, hls=False):
                 e_dur = min(e_dur, raw_len - e_off)
             outs.append((partial_path(work, base + EDIT_TAG), e_dur, e_off))
 
-        def build(enc):   # 読み込みは 1 回(-i の後の -ss = 出力ごとにコマ単位で正確に切る)・出力ごとに同じ作り方
-            cmd = [ff, "-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file,pipe", "-i", raw] + PROGRESS
+        def build(enc, pre=()):   # 読み込みは 1 回(-i の後の -ss = 出力ごとにコマ単位で正確に切る)・出力ごとに同じ作り方。pre = 読み込みを GPU に(-i の前)
+            cmd = [ff, "-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file,pipe"] + list(pre) + ["-i", raw] + PROGRESS
             for p, d, o in outs:
                 cmd += ["-ss", "%.3f" % o, "-t", "%.3f" % d, "-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn"] + enc + [p]
             return cmd
@@ -644,13 +670,16 @@ def _ytdlp_stream(ctl, spec, it, base):
     urls = stream_urls(spec)
     out = partial_path(spec["outDir"], base)
     dur = expected_len(spec, it)
-    cmd = [_env.find_tool("ffmpeg"), "-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file,http,https,tcp,tls,crypto"]
-    for u in urls:
-        cmd += ["-ss", fmt_ts(it["start"]), "-i", u]
-    if len(urls) == 2:
-        cmd += ["-map", "0:v:0", "-map", "1:a:0"]
-    cmd += ["-t", "%.3f" % dur]
-    _encode(ctl, spec, it, lambda enc: cmd + enc + PROGRESS + [out], [(out, dur)], "ストリーム直接指定", log_cmd=["ffmpeg", "...(URLは省略)..."])
+    head = [_env.find_tool("ffmpeg"), "-hide_banner", "-nostdin", "-y", "-protocol_whitelist", "file,http,https,tcp,tls,crypto"]
+
+    def build(enc, pre=()):   # pre = 読み込みを GPU に(映像の -i の前 = 最初の入力。音声だけの入力には付けない)
+        cmd = list(head)
+        for k, u in enumerate(urls):
+            cmd += (list(pre) if k == 0 else []) + ["-ss", fmt_ts(it["start"]), "-i", u]
+        if len(urls) == 2:
+            cmd += ["-map", "0:v:0", "-map", "1:a:0"]
+        return cmd + ["-t", "%.3f" % dur] + enc + PROGRESS + [out]
+    _encode(ctl, spec, it, build, [(out, dur)], "ストリーム直接指定", log_cmd=["ffmpeg", "...(URLは省略)..."])
     it["method"] = _method(spec)
     return out
 
@@ -919,6 +948,35 @@ def export_edit_media(ctl, spec, it, base, runner):
     return rel
 
 
+def copy_edit_media(spec, it, base):
+    """編集用素材 = 本体の写し(edit_from_main)。ラウドネスまで仕上げた書きかけの本体 it["path"] を 作業用/<base>_edit.partial.mp4 に写し、
+    .edit.json(selectionIn = 0 = 本体と同じ範囲)を書く。it の editPath・editSidecar・editRange・editMethod・editEncoder・editSrcLen・editFrom は
+    export_edit_media と同じ欄。写せなければ例外(呼ぶ側が諦めて警告にする)。-> 相対名(フォルダ/作業用/名前)"""
+    work = _work_dir(spec)
+    os.makedirs(work, exist_ok=True)
+    dst = partial_path(work, base + EDIT_TAG)
+    t0 = time.monotonic()
+    _fsio.unlink_quiet(dst)
+    shutil.copyfile(it["path"], dst)
+    cr = it.get("clipRange") or (float(it["start"]), float(it["end"]))   # 動画の実際の範囲(元の秒。余白つきなら余白ごと)
+    actual = _media.media_info(it["path"])[0]
+    selected = cr[1] - cr[0]
+    sidecar = os.path.join(work, base + ".edit.json")
+    data = {"schema": "clip-studio/edit-media/v1", "media": os.path.basename(final_path(dst)),
+            "selectionIn": 0.0, "handleBefore": 0.0, "handleAfter": round(max(0.0, (actual if actual is not None else selected) - selected), 3),
+            "sourceStart": cr[0], "sourceEnd": cr[1]}
+    it["editPath"] = dst   # 先に覚える(.edit.json が書けなかったときも、書きかけを呼び出し側が消せるように)
+    it["editSidecar"] = sidecar
+    _fsio.write_json(sidecar, data, indent=2)
+    it["editRange"] = (cr[0], cr[1])
+    it["editMethod"] = it.get("method")
+    it["editEncoder"] = it.get("encoder")
+    it["editSrcLen"] = it.get("srcLen")
+    it["editFrom"] = "copy"   # 印(.clip.json の export.editFrom)
+    _secs(it, "editCopy", time.monotonic() - t0)
+    return spec.get("folder", "") + "/" + schemas.WORK_DIR + "/" + os.path.basename(dst)
+
+
 # ---------- youtube-tools-clip/v1(.clip.json) ----------
 def _clip_export_info(spec, method, loudness=None, encoder=None, extra=None):
     """.clip.json の export。mode は fast(高速の設定で作り直した)/ precise。どちらも位置ちょうど(range.start が 0 秒)なので actualStart は付けない
@@ -959,7 +1017,8 @@ def write_manifests(spec, it, mark_status):
         return min(end, lim) if lim and lim > 0 else end
     media = it["path"]
     dur = _media.media_info(media)[0]
-    ex = _clip_export_info(spec, it.get("method"), it.get("loudness"), it.get("encoder"), {k: it[k] for k in ("input", "secs", "gpuError", "check") if it.get(k)})
+    ex = _clip_export_info(spec, it.get("method"), it.get("loudness"), it.get("encoder"),
+                           {k: it[k] for k in ("input", "secs", "gpuError", "hwdec", "hwdecError", "editFrom", "check") if it.get(k)})
     end = end_of(it["end"], it.get("srcLen"))
     if it.get("clipRange"):   # 余白つき(LD-2f): range はマークのまま・動画の 0 秒 = actualStart(schemas.clip_offset が読む)・margin = 実際に足せた前後の秒(印)
         cf, ct = it["clipRange"]
@@ -1076,7 +1135,8 @@ def _export_clip(ctl, spec, it, idx, on_done):
     warnings = []
     mark = (it["start"], it["end"])
     clip_from = _pad_item(spec, it)   # 余白(LD-2f): 切り出し・編集用素材の間だけ it の区間を広げる(名前・マーク・.clip.json の range はマークのまま)
-    if spec.get("mode") == "url":
+    copy = edit_from_main()   # 編集用素材は本体の写し(作り直し・ラウドネスは本体の 1 本だけ)
+    if spec.get("mode") == "url" and not copy:
         it["keepRaw"] = edit_handle()   # 編集用素材の分まで 1 回で取る(_ytdlp_sections。0 でも同じ 1 回で作る)
     try:
         it["file"] = runner(ctl, spec, it, base)   # 書きかけ(<base>.partial.mp4)
@@ -1084,23 +1144,33 @@ def _export_clip(ctl, spec, it, idx, on_done):
         if clip_from is not None:
             got = _media.media_info(it["path"])[0]
             it["clipRange"] = (clip_from, round(clip_from + (got if got else it["end"] - it["start"]), 3))
-        try:
-            it["editFile"] = export_edit_media(ctl, spec, it, base, runner)
-        except Exception as e:
-            _drop_edit(it)
-            if ctl.cancelled:   # 中止(終了の流れを含む)なら、本体も仕上げずに止める(書きかけは _run_job の finally で消える)
-                raise ExportError("中止しました")
-            _env.log_failure("Resolve edit media", e)
-            warnings.append("Resolve用の編集用素材を作れませんでした: %s" % str(e)[:180])
-            if blocked(e):
-                it["blocked"] = str(e)[:400]   # 素材で止められた: 次の切り抜きも yt-dlp を呼ばない(_run_job)
+        if not copy:
+            try:
+                it["editFile"] = export_edit_media(ctl, spec, it, base, runner)
+            except Exception as e:
+                _drop_edit(it)
+                if ctl.cancelled:   # 中止(終了の流れを含む)なら、本体も仕上げずに止める(書きかけは _run_job の finally で消える)
+                    raise ExportError("中止しました")
+                _env.log_failure("Resolve edit media", e)
+                warnings.append("Resolve用の編集用素材を作れませんでした: %s" % str(e)[:180])
+                if blocked(e):
+                    it["blocked"] = str(e)[:400]   # 素材で止められた: 次の切り抜きも yt-dlp を呼ばない(_run_job)
     finally:
         it["start"], it["end"] = mark
         it.pop("keepRaw", None)
         made = it.pop("editMade", None)
         if made and made["path"] != it.get("editPath"):   # 作ったが編集用素材として使わなかった(途中で止まった)
             drop_partial(made["path"])
-    apply_loudness(ctl, spec, it)   # 編集用素材ができてから、両方に同じ量をかける
+    apply_loudness(ctl, spec, it)   # 編集用素材ができてから、両方に同じ量をかける(写しのときは本体だけ = 写しは同じ中身)
+    if copy:
+        try:
+            it["editFile"] = copy_edit_media(spec, it, base)
+        except Exception as e:   # 本体はできているので、編集用素材だけ諦める(作れなかったときと同じ扱い)
+            _drop_edit(it)
+            if ctl.cancelled:
+                raise ExportError("中止しました")
+            _env.log_failure("Resolve edit media(本体の写し)", e)
+            warnings.append("Resolve用の編集用素材を作れませんでした: %s" % str(e)[:180])
     # 仕上がったので本当の名前へ(ここまでに止まったら、書きかけは _run_job の finally で消える)。切り抜き本体 → 編集用素材の順
     it["path"] = promote(it["path"])
     it["file"] = spec["folder"] + "/" + os.path.basename(it["path"])
