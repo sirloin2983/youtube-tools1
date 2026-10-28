@@ -29,7 +29,7 @@ from app import server as L  # noqa: E402
 from app import mount as M  # noqa: E402
 from test_launch import REPO, _copy_tool, free_ports, wait_for  # noqa: E402
 from pipeline.transcribe import worker_client as _worker_client  # noqa: E402
-from ytt import httpsec, layout  # noqa: E402
+from ytt import httpsec, layout, tools  # noqa: E402
 
 STUDIO_DIR, TX_DIR = layout.TOOL_DIRS["studio"], layout.TOOL_DIRS["transcribe"]   # リポジトリの中のフォルダ名
 TOOL_DIRS = (STUDIO_DIR, layout.TOOL_DIRS["cut2resolve"], TX_DIR)
@@ -214,7 +214,8 @@ class TestStudioMounted(unittest.TestCase):
         """取り込まれている間に serve.py を直接起動しても、2つ目のサーバーは立てない(同じ data.json を取り合わないため)"""
         port = free_ports(1)[0]
         r = subprocess.run([sys.executable, os.path.join(self.studio_dir, "serve.py"), str(port), "--no-open"],
-                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, env=dict(os.environ, PYTHONIOENCODING="utf-8"),
+                           creationflags=tools.no_window_flags())
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("入口の中ですでに起動しています", r.stdout)
         self.assertIn("/studio/", r.stdout)
@@ -360,7 +361,7 @@ class TestTranscribeMounted(unittest.TestCase):
         cls.studio_dir = os.path.join(cls.tmp, STUDIO_DIR)
         cls.rdir = os.path.join(cls.tmp, ".runtime")
         cls.media = os.path.join(cls.tmp, "voice.mp4")
-        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=12", "-c:a", "aac", cls.media],
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=12", "-c:a", "aac", cls.media], creationflags=tools.no_window_flags(),
                        check=True, timeout=60)
         cls.env = mock.patch.dict(os.environ, {"YTT_RUNTIME_DIR": cls.rdir, "STUDIO_FAKE": "1", "STUDIO_HOME": os.path.join(cls.tmp, "home"),
                                                "TRANSCRIBE_BACKEND": "worker-fake", "TRANSCRIBE_FAKE_DELAY": "0.01"})
@@ -467,7 +468,8 @@ class TestTranscribeMounted(unittest.TestCase):
         port = free_ports(1)[0]
         env = dict(os.environ, YTT_CORE_DIR=self.tmp)
         r = subprocess.run([sys.executable, os.path.join(self.tx_dir, "serve.py"), str(port), "--no-open"],
-                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, env=dict(env, PYTHONIOENCODING="utf-8"))
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60, env=dict(env, PYTHONIOENCODING="utf-8"),
+                           creationflags=tools.no_window_flags())
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("入口の中ですでに起動しています", r.stdout)
         self.assertIn("/transcribe/", r.stdout)
@@ -519,7 +521,8 @@ class TestMountFallbacks(unittest.TestCase):
 
     def test_external_studio_is_not_mounted(self):
         p = subprocess.Popen([sys.executable, os.path.join(self.tmp, STUDIO_DIR, "serve.py"), str(self.studio_port), "--no-open"],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=dict(os.environ))
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=dict(os.environ),
+                             creationflags=tools.no_window_flags())
         self.procs.append(p)
         self.assertTrue(wait_for(lambda: L.ping(self.studio_port) is not None, 30))
         self.sup.start("studio")

@@ -533,7 +533,7 @@ def start_server(tmp, port, runtime):
                YTT_MACHINE_FILE=os.path.join(tmp, "machine.json"),   # この PC の設定は一時フォルダへ(src に書かない。RS7-1 S6b)
                YTT_CUT2RESOLVE_DIR=os.path.join(tmp, "cut2resolve"))   # パックを作った記録(flow/packrec)も一時フォルダへ(リポジトリの .data に書かない)
     proc = subprocess.Popen([sys.executable, os.path.join(tmp, "serve.py"), str(port), "--no-open"], cwd=tmp, env=env,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=_tools.no_window_flags())
     for _ in range(150):
         try:
             with urllib.request.build_opener(urllib.request.ProxyHandler({})).open("http://127.0.0.1:%d/api/ping" % port, timeout=1):
@@ -554,7 +554,8 @@ class TestPipelineHttp(unittest.TestCase):
         cls.media_dir = os.path.join(cls.tmp, "exports")
         os.makedirs(cls.media_dir)
         cls.wav = os.path.join(cls.media_dir, "動画_0012.wav")
-        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=12", cls.wav], check=True)
+        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=12", cls.wav], check=True,
+                       creationflags=_tools.no_window_flags())
         cls.runtime = os.path.join(cls.tmp, ".runtime")
         cls.port = testkit.free_port()
         cls.proc = start_server(cls.tmp, cls.port, cls.runtime)

@@ -187,7 +187,7 @@ class ExportTest(unittest.TestCase):
         cls.proc = subprocess.Popen([sys.executable, os.path.join(REPO, "pipeline", "ingest", "recorder.py"), "--port", str(cls.port), "--data-dir", cls.rdata,
                                      "--folder", os.path.join(cls.rec_tmp, "live-rec"), "--source", "direct", "--hls-time", "1", "--quiet"],
                                     env=dict(os.environ, PYTHONIOENCODING="utf-8"), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                    creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+                                    creationflags=tools.no_window_flags(new_group=True))
         token_file = os.path.join(cls.rdata, "token.txt")
         if not wait_for(lambda: os.path.isfile(token_file), 20):
             cls.proc.kill()

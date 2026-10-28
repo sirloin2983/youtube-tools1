@@ -365,7 +365,7 @@ class WorkerSimTest(unittest.TestCase):
             hb = json.load(f)
         self.assertEqual(hb["message"], "止まりました")
         self.assertGreater(hb["memMB"], 1)
-        dead = subprocess.Popen([sys.executable, "-c", "pass"])
+        dead = subprocess.Popen([sys.executable, "-c", "pass"], creationflags=tools.no_window_flags())
         dead.wait()
         w = make_worker(cfg, clock, sim, sleep=lambda s: None, parent=dead.pid)
         with mock.patch.object(W, "ORPHAN_SEC", -1):   # 録画を測っていても新しいホームを待たない(待つ形は tests/flow/test_live_handover.py)

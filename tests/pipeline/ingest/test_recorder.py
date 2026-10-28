@@ -35,7 +35,7 @@ import hls_fixture as F  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
 import testkit  # noqa: E402
 from pipeline.ingest import rec_core as R  # noqa: E402
-from ytt import trashbin  # noqa: E402
+from ytt import tools, trashbin  # noqa: E402
 
 FAST = dict(trash_days=3, source="direct", hls_time=1, backoff=(1, 2), idle_end=8, stall_sec=4, first_seg_sec=15, poll=0.3)
 
@@ -893,7 +893,7 @@ class TestHttp(unittest.TestCase):
         cls.proc = subprocess.Popen([sys.executable, os.path.join(HERE, "recorder.py"), "--port", str(cls.port), "--data-dir", cls.ddir,
                                      "--folder", cls.folder, "--source", "direct", "--hls-time", "1", "--backoff", "1,2", "--stall-sec", "4",
                                      "--quiet"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                    creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
+                                    creationflags=tools.no_window_flags(new_group=True))
         ok = wait_for(lambda: cls._raw("GET", "/api/ping")[0] == 200, 20)
         if not ok:
             cls.proc.kill()
