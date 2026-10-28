@@ -84,6 +84,35 @@ def auto_length(lengths):
     return AUTO_LEN_DEFAULT if not v else max(AUTO_LEN[0], min(AUTO_LEN[1], median(v)))
 
 
+# 割れた場面をつなぐ(10-28 ユーザー「既定でつなぐ」。notes:plan/候補の点数のしきい値の案-1028.md の付録): 山は高い順に選んで選んだ範囲だけを除くので、
+# 1 つの場面が隣り合う 2 本に割れることがある(割れたパックは友人が 37 本中 0 本しか受け取っていない)。重なるか間 JOIN_GAP 秒以内の隣り合う候補を、
+# つないだ長さ JOIN_MAX 秒までなら 1 本にする(減った本数は埋めない = 本数の基準と一緒にユーザーが決める)。
+# 印: 候補の joined(元の範囲の一覧)。配信中は次の候補を作るときだけつなぐ(届けた = 採用した候補は書き換えない)。
+# 測る道具(src/eval)は spec に join を渡さない = 今までと同じ。スイッチ: False で前の形
+JOIN_ON = True
+JOIN_GAP = 10.0
+JOIN_MAX = 360.0
+
+
+def join_clips(out, gap=JOIN_GAP, mx=JOIN_MAX):
+    """選んだ区間 out(pick_clips の形)のうち、重なるか間 gap 秒以内の隣り合う物を、つないだ長さ mx 秒までなら 1 本に -> 新しい一覧(点数の順)。
+    つないだ区間は点数の高い方の山・点数・形を持ち、印 joined に元の範囲を残す。埋めた印 fill は両方とも埋めた物のときだけ"""
+    res = []
+    for c in sorted(out, key=lambda c: c["start"]):
+        p = res[-1] if res else None
+        if p is not None and c["start"] - p["end"] <= gap and max(p["end"], c["end"]) - p["start"] <= mx:
+            top = dict(p if p["score"] >= c["score"] else c)
+            top["joined"] = p.get("joined", [[p["start"], p["end"]]]) + [[c["start"], c["end"]]]
+            top["start"], top["end"] = p["start"], max(p["end"], c["end"])
+            top.pop("fill", None)
+            if p.get("fill") and c.get("fill"):
+                top["fill"] = True
+            res[-1] = top
+        else:
+            res.append(c)
+    return sorted(res, key=lambda c: -c["score"])
+
+
 # 場面を長くつなぐ(10-23 ユーザー「切り抜きたいところが欠けるのを減らす方が良い」。決定 3-151。notes:plan/heatmap-study.md の「区間の形」):
 # hold 10 → 30 秒・rise 0.3 → 0.4。友人の 30 区間で 7 割を覆う候補が上位 20 本に入る割合が 4 組すべてで上がる(組 A .50 → .69)・余分は平均 +13 秒。
 # 配信中(PeakBook)も同じ形(L-5)= 収まりの見極めが 20 秒長い。スイッチ: False で前の形(hold 10・rise 0.3)。印: archive の解析の記録 sceneForm・配信中の peaks.json の sceneForm
@@ -275,6 +304,8 @@ def pick_clips(total, level, spec, n, scene_total=None):
         a, b = max(0, int(s) - EXCLUDE_BEFORE), min(n, int(e) + EXCLUDE_AFTER)
         for i in range(a, b):
             work[i] = swork[i] = 0.0
+    if spec.get("join") and JOIN_ON:   # 割れた場面をつなぐ(JOIN_ON。測る道具は渡さない)
+        out = join_clips(out)
     return sorted(out, key=lambda c: -c["score"])
 
 
@@ -368,7 +399,7 @@ def candidates(picks, comps):
         pk = c["peak"]
         parts = {k: round(max(comps[k][max(0, pk - PARTS_RADIUS):pk + PARTS_RADIUS + 1]), 2) for k in comps}
         cand = {"i": i, "start": c["start"], "end": c["end"], "peak": pk, "score": c["score"], "parts": parts, "reasons": reasons_of(parts)}
-        cand.update({k: c[k] for k in ("shape", "fixed") if k in c})   # 場面ごとの形の印と固定の長さの区間(LD-2b。無ければ足さない)
+        cand.update({k: c[k] for k in ("shape", "fixed", "joined") if k in c})   # 場面ごとの形の印と固定の長さの区間(LD-2b)・つないだ元の範囲(無ければ足さない)
         if c.get("fill"):   # しきい値の下で埋めた(印と理由の文。理由の文はスタジオのマークにも残る)
             cand["fill"] = True
             cand["reasons"] = cand["reasons"] + [FILL_REASON]
@@ -726,11 +757,12 @@ class PeakBook:
     純粋(時計・ファイルを持たない)。to_json / from_json で起動し直しに耐える。"""
 
     def __init__(self, length=45, pre=PRE_RATIO_DEFAULT, sens="normal", per_hour=6, confirm_low=CONFIRM_LOW_SEC, shape="fixed", scene=None,
-                 fallback=None):
+                 fallback=None, join=False):
         self.length, self.pre, self.thr, self.per_hour = float(length), float(pre), SENS[sens if sens in SENS else "normal"], int(per_hour)
         self.confirm_low = int(confirm_low)
         self.shape = shape if shape in SHAPES else "fixed"   # 区間の形(呼ぶ側がスイッチ SHAPE_DEFAULT か spec の shape を渡す。引数の既定は 0.88 までと同じ固定)
         self.scene = scene_params(scene)
+        self.join = bool(join)   # 割れた場面をつなぐ(呼ぶ側がスイッチ JOIN_ON を渡す。次の候補を作るときだけ・採用した候補は書き換えない)
         self.fallback = fallback if fallback == "auto" else None   # "auto" = 場面が取れないときも自動の長さ(auto_length。呼ぶ側がスイッチ AUTO_LEN_ON で渡す)
         self.work = {}        # 直近のならした合計(秒 -> smooth(5) の値)。場面の形用
         self.boost = []       # [[から, まで), 倍](しきい値を上げる区間。thr_scale)
@@ -825,8 +857,10 @@ class PeakBook:
         return scene_region([self.work.get(k, 0.0) for k in range(lo, hi + 1)], peak, SCENE_N, self.scene, off=lo, upto=hi)
 
     def _scene_fill(self, pk, r):
-        """場面 r を候補 pk の区間に(開いている間は次の山にしない)"""
-        pk["start"], pk["end"] = round(r["start"], 1), round(r["end"], 1)
+        """場面 r を候補 pk の区間に(開いている間は次の山にしない。つないだ候補は前の候補の始まりから)"""
+        pk["start"], pk["end"] = round(min(r["start"], pk.get("joinFrom", r["start"])), 1), round(r["end"], 1)
+        if pk.get("joined"):
+            pk["joined"][-1] = [round(r["start"], 1), round(r["end"], 1)]
         pk["sceneOpen"] = r["open"]
         self.block_until = SCENE_N if r["open"] else self._block_end(r["end"])
 
@@ -845,6 +879,9 @@ class PeakBook:
                 s, e = prev, prev + ln
         self.block_until = SCENE_N if r is not None and r["open"] else self._block_end(e)
         prov = self._absorbable(s, e)
+        prev = self._join_target(s, e) if prov is None and self.join and JOIN_ON else None
+        if prev is not None:   # 割れた場面: 前の候補(まだ採用していない)へつなぐ
+            return self._join(prev, s, e, peak, value, r)
         if prov is not None:
             self.fast["open"] = None
             if prov["state"] != "frame":   # 仮の候補のうちに人が決めた(採用・見送り): 区間と状態はそのまま、点数だけ本番の値に
@@ -870,6 +907,35 @@ class PeakBook:
             self._snap(pk)
         self._place(pk)
         if pk["endPending"]:
+            self.pending.append(pk["id"])
+        self._mark(pk["id"])
+        return [pk["id"]]
+
+    def _join_target(self, s, e):
+        """新しい本番の区間 [s, e] をつなぐ前の候補か None: いちばん後ろの本番の候補で、まだ採用・見送りしていない(frame・bench)・
+        場面が閉じている・重なるか間 JOIN_GAP 秒以内・つないだ長さ JOIN_MAX 秒まで"""
+        real = [p for p in self.peaks.values() if not p.get("provisional")]
+        if not real:
+            return None
+        p = max(real, key=lambda p: p["start"])
+        if p["state"] not in ("frame", "bench") or p.get("sceneOpen") or p["start"] > s:
+            return None
+        return p if s - p["end"] <= JOIN_GAP and max(p["end"], e) - p["start"] <= JOIN_MAX else None
+
+    def _join(self, pk, s, e, peak, value, r):
+        """前の候補 pk に新しい山 peak の区間 [s, e] をつなぐ(同じ id。点数は高い方・山と枠の時間は前のまま)-> 変更があった候補の id の一覧"""
+        pk["joined"] = pk.get("joined", [[pk["start"], pk["end"]]]) + [[round(s, 1), round(e, 1)]]
+        pk["joinFrom"] = pk.get("joinFrom", pk["start"])
+        pk["end"] = round(max(pk["end"], e), 1)
+        if value > pk["score"]:
+            pk.update(score=round(value, 2), parts=self._parts_at(peak))
+            pk["reasons"] = reasons_of(pk["parts"])
+        pk.pop("fill", None)
+        if r is not None and r["open"]:   # 新しい場面の収まりを待つ(取り直しは新しい山で)
+            pk.update(sceneOpen=True, scenePeak=peak, endPending=True)
+        elif not self._snap(pk):
+            pk["endPending"] = True
+        if pk.get("endPending") and pk["id"] not in self.pending:
             self.pending.append(pk["id"])
         self._mark(pk["id"])
         return [pk["id"]]
@@ -989,9 +1055,9 @@ class PeakBook:
             self.pending.remove(pid)
             pk = self.peaks[pid]
             if pk.get("sceneOpen"):   # 収まる前に配信が終わった: 今の場面のまま
-                r = self._scene_at(pk["peak"])
+                r = self._scene_at(pk.get("scenePeak", pk["peak"]))
                 if r is not None:
-                    pk["start"], pk["end"] = round(r["start"], 1), round(r["end"], 1)
+                    self._scene_fill(pk, r)
                 pk["sceneOpen"] = False
                 self.block_until = self._block_end(pk["end"])
             pk["endPending"] = False
@@ -1024,7 +1090,7 @@ class PeakBook:
             for i in range(a, b):
                 work[i] = 0.0
         spec = {"length": self.length, "preRatio": self.pre, "sensitivity": "normal", "count": short, "fill": short,
-                "shape": self.shape, "scene": self.scene, "fallback": self.fallback}
+                "shape": self.shape, "scene": self.scene, "fallback": self.fallback, "join": self.join}
         def fit(x):
             return [float(v) for v in x][:n] + [0.0] * max(0, n - len(x))
         picks = pick_clips(work, fit(level), spec, n)
@@ -1051,7 +1117,7 @@ class PeakBook:
         for pid in list(self.pending):
             pk = self.peaks[pid]
             if pk.get("sceneOpen"):   # 場面の収まりを待つ: 録れたら区間を取り直す(まだなら終わりを伸ばして見せる)
-                r = self._scene_at(pk["peak"])
+                r = self._scene_at(pk.get("scenePeak", pk["peak"]))
                 if r is None:
                     pk["sceneOpen"] = False
                     self.block_until = self._block_end(pk["end"])
@@ -1159,13 +1225,13 @@ class PeakBook:
                 "changes": self.changes, "seq": self.seq, "n_ids": self.n_ids, "last_t": self.last_t, "rising": self.rising,
                 "block_until": self.block_until, "pending": self.pending,
                 "total": self.total, "parts": self.parts, "level": self.level, "confirmLow": self.confirm_low, "boost": self.boost,
-                "shape": self.shape, "scene": self.scene, "work": self.work, "fallback": self.fallback,
+                "shape": self.shape, "scene": self.scene, "work": self.work, "fallback": self.fallback, "join": self.join,
                 "fast": dict(self.fast)}   # 鍵は total・audio・rising・open・block(_fast_init と from_json がこの 5 つだけを作る)
 
     @classmethod
     def from_json(cls, d):
         b = cls(d["length"], d["pre"], "normal", d["per_hour"], d.get("confirmLow", CONFIRM_LOW_SEC), d.get("shape", "fixed"), d.get("scene"),
-                d.get("fallback"))   # 0.88 までの保存は固定の形・0.99.323 までの保存は fallback なし(場面が取れなければ固定の長さ)
+                d.get("fallback"), d.get("join", False))   # 0.88 までの保存は固定の形・0.99.323 までの保存は fallback なし(場面が取れなければ固定の長さ)
         b.work = _int_keys(d.get("work"))
         b.thr = float(d["thr"])
         b.boost = [[int(x[0]), int(x[1]), float(x[2])] for x in d.get("boost") or []]

@@ -609,6 +609,38 @@ class TestScene(unittest.TestCase):
             self.assertTrue(excite.AUTO_LEN[0] * excite.SNAP_RATIO[0] <= p["end"] - p["start"] <= excite.AUTO_LEN[1] * excite.SNAP_RATIO[1], p)
         self.assertEqual(excite.PeakBook.from_json(json.loads(json.dumps(b.to_json()))).fallback, "auto")
 
+    def test_join_split_scenes(self):
+        """割れた場面をつなぐ(JOIN_ON): 重なるか間 10 秒以内・つないだ長さ 360 秒まで・印 joined。spec に join が無ければ(測る道具)今まで通り。
+        配信中は次の候補を作るときだけ・採用した候補には足さない"""
+        c = lambda s, e, sc, **k: dict(start=s, end=e, peak=(s + e) // 2, score=sc, **k)
+        got = excite.join_clips([c(0, 100, 5), c(105, 200, 9), c(400, 500, 3), c(495, 600, 2, fill=True), c(600, 800, 1), c(820, 900, 4)])
+        self.assertEqual([(g["start"], g["end"], g["score"], g.get("joined")) for g in got],
+                         [(0, 200, 9, [[0, 100], [105, 200]]), (820, 900, 4, None), (400, 600, 3, [[400, 500], [495, 600]]), (600, 800, 1, None)])
+        self.assertNotIn("fill", got[2])   # 埋めた物と埋めていない物をつなぐと埋めた印は外す(600〜800 は つなぐと 400 秒 = つながない・820 は間 20 秒)
+        n = 2400
+        w = [a + b for a, b in zip(bump(n, 800, 6.0, 20), bump(n, 950, 5.0, 20))]
+        spec = dict(SPEC, shape="scene", count=4)
+        self.assertEqual(len(excite.pick_clips(w, [-30.0] * n, spec, n)), 2)
+        one = excite.pick_clips(w, [-30.0] * n, dict(spec, join=True), n)
+        self.assertEqual((len(one), len(one[0]["joined"])), (1, 2), one)
+        with mock.patch.object(excite, "JOIN_ON", False):   # スイッチ
+            self.assertEqual(len(excite.pick_clips(w, [-30.0] * n, dict(spec, join=True), n)), 2)
+
+        def live(join, adopt=False):
+            b = excite.PeakBook(45, 0.65, "normal", 6, shape="scene", join=join)
+            for t in range(n):
+                b.push(t, w[t], {"audio": w[t]}, -30.0)
+                if adopt and b.list() and b.list()[0]["state"] == "frame":
+                    b.decide(b.list()[0]["id"], "adopted")
+            b.finish()
+            return b
+        self.assertEqual(len(live(False).list()), 2)
+        b = live(True)
+        pk = b.list()
+        self.assertEqual((len(pk), len(pk[0]["joined"]), pk[0]["start"], pk[0]["end"]), (1, 2, pk[0]["joined"][0][0], pk[0]["joined"][1][1]), pk)
+        self.assertTrue(excite.PeakBook.from_json(json.loads(json.dumps(b.to_json()))).join)
+        self.assertEqual(len(live(True, adopt=True).list()), 2)   # 採用した(届けた)候補は書き換えない
+
     def test_peakbook_scene_waits_for_settle(self):
         n = 1600
         w = bump(n, 800, 6.0, 120)

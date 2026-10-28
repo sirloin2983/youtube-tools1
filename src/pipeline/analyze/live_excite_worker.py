@@ -759,7 +759,7 @@ class RecState:
         self.online = excite.Online(use_chat=self.use_chat, **self.args)
         det = clean_detect(detect)
         self.book = excite.PeakBook(self.spec["length"], self.spec["preRatio"], det["sens"], det["perHour"], shape=shape_of(self.spec),
-                                     fallback=fallback_of())
+                                     fallback=fallback_of(), join=excite.JOIN_ON)
         self.thr_base = self.book.thr   # 感度のしきい値(音だけのときは apply_thr が AUDIO_ONLY_SCALE 倍を帳簿に入れる)
         # 候補が出るまでの遅れを縮める(仮の候補): チャットを待たずに音だけで先に計算する Online(同じ窓・同じ重み。チャットなしの録画は本番がもう待たないので作らない)
         self.fast = excite.Online(use_chat=False, **self.args) if self.use_chat and provisional else None
@@ -819,6 +819,7 @@ class RecState:
         st.online = excite.Online(use_chat=st.use_chat, **st.args).load(d["online"])
         st.book = excite.PeakBook.from_json(d["book"])
         st.book.fallback = fallback_of()   # 起動し直す前の帳簿にも、場面が取れないときの自動の長さ(これから確定する候補から)
+        st.book.join = excite.JOIN_ON   # 同じく、割れた場面をつなぐ(これから作る候補から)
         st.thr_base = float(d["thrBase"]) if schemas.is_num(d.get("thrBase")) else st.book.thr
         # 先回りの計算(仮の候補)は state.json に無ければ作らない(本番と秒の数え始めがずれるため。その録画は本番の候補だけ)。変わり目は無ければここから数え始める
         st.fast = excite.Online(use_chat=False, **st.args).load(d["fast"]) if st.use_chat and isinstance(d.get("fast"), dict) else None
@@ -1127,6 +1128,7 @@ class RecState:
                 "length": self.book.length, "preRatio": self.book.pre, "lengthFrom": self.spec.get("lengthFrom") or "studio",   # M10: 候補の長さの出どころ
                 "shape": self.book.shape,   # 区間の形(LD-2b。scene = 場面ごと・fixed = 山から固定の長さ)
                 "fallback": self.book.fallback,   # 印: 場面が取れないときの区間(auto = 自動の長さ・None = 固定の長さ)
+                "join": self.book.join,   # 印: 割れた場面をつなぐか(つないだ候補は joined に元の範囲)
                 "sceneForm": {k: self.book.scene[k] for k in ("rise", "hold")},   # 印: 場面のつなぎ方(決定 3-151)
                 "moodShifts": self.mood_shifts, "provisional": self.fast is not None,   # 雰囲気の変わり目の数・仮の候補を出しているか
                 "lateFrom": self.late_from,   # 録画の途中から測り始めた秒(それより前の候補は無い)

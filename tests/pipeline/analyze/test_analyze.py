@@ -316,7 +316,8 @@ class TestAnalyzeRun(unittest.TestCase):
         self.assertTrue(any("自動推定しました" in w for w in a["warnings"]), a["warnings"])
         cands = [c for c in a["candidates"] if c.get("origin") != "heatmap"]   # 足しの候補(heatmap の山)は今の候補の後ろだけ(ここは山が今の候補の中 = 足さない)
         self.assertEqual(a["candidates"][:len(cands)], cands)
-        self.assertEqual(sorted(min(BURSTS, key=lambda b: abs(b - c["peak"])) for c in cands), list(BURSTS), cands)   # 本編の山ごとに 1 本
+        self.assertEqual((len(cands), len(cands[0]["joined"]), sp["join"]), (1, 2, True), cands)   # 本編の山 2 つは隣り合う = 1 本につなぐ(excite.JOIN_ON)
+        self.assertTrue(all(cands[0]["start"] <= b <= cands[0]["end"] for b in BURSTS), cands)
         for c in cands:
             self.assertTrue(0 <= c["peak"] - min(BURSTS, key=lambda b: abs(b - c["peak"])) <= 8, c)
             self.assertGreaterEqual(c["parts"]["chat"], excite.PART_ON["chat"], c)   # 遅れの分だけ前へずらしたチャットが山に重なる

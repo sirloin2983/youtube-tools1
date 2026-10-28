@@ -28,7 +28,7 @@ AUDIO_LEVEL_IDLE = 900   # 音量の解析(ffmpeg)で、この秒数まったく
 HEAD_SEC_DEFAULT = 180   # 冒頭の減点をかける秒数(0で無効)
 ARCHIVE_KEEP = 2000
 STREAM_KEYS = ("releaseTs", "timestamp", "uploadDate", "liveStatus", "duration")   # 付加情報(fetch.slim_meta)から結果の stream に写す項目
-SPEC_KEYS = ("count", "length", "sensitivity", "preRatio", "lag", "lagAuto", "headSec", "wAudio", "wChat", "wComments", "shape", "fill", "useChat", "fallback")   # 結果・archive に残す設定(fill・useChat = ② が解析し直すかを読む・fallback = 印)
+SPEC_KEYS = ("count", "length", "sensitivity", "preRatio", "lag", "lagAuto", "headSec", "wAudio", "wChat", "wComments", "shape", "fill", "useChat", "fallback", "join")   # 結果・archive に残す設定(fill・useChat = ② が解析し直すかを読む・fallback・join = 印)
 CHAT_MIN = 30   # チャットの件数がこれ未満なら使わない
 
 
@@ -87,6 +87,7 @@ def make_spec(src, settings):
     spec = dict(settings)
     spec["source"] = src
     spec["fallback"] = "auto" if excite.AUTO_LEN_ON else None   # 場面が取れないときも自動の長さ(excite.auto_length。設定ではない・印として archive にも残る)
+    spec["join"] = excite.JOIN_ON   # 割れた場面をつなぐ(excite.join_clips。同じく設定ではない・印)
     if src["kind"] != "youtube":
         spec["useChat"] = spec["useComments"] = False
     return spec
@@ -333,7 +334,7 @@ def _save_record(src, spec, dur, n, levels, chat, stamps, ctexts, meta, info, ca
                "peakComment": list(excite.PEAK_COMMENT) if peak_used else None,
                "sceneForm": {k: excite.SCENE[k] for k in ("rise", "hold")},   # 印: 場面のつなぎ方(決定 3-151。無い記録は rise 0.3・hold 10)   # 印: 山を選ぶ点数だけコメントを重くした(決定 3-147。無い記録・None は前の形)
                "candidates": [dict({"start": c["start"], "end": c["end"], "peak": c["peak"], "score": c["score"], "parts": c["parts"]},
-                               **{k: c[k] for k in ("shape", "fixed", "fill") if k in c}) for c in cands]}   # 生の結果(固定の長さの区間・埋めた印)も残す(LD-2b)
+                               **{k: c[k] for k in ("shape", "fixed", "fill", "joined") if k in c}) for c in cands]}   # 生の結果(固定の長さの区間・埋めた印)も残す(LD-2b)
         save_archive(src["videoId"], payload, run)
     except Exception:
         pass
