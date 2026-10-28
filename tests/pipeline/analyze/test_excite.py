@@ -642,6 +642,13 @@ class TestScene(unittest.TestCase):
         self.assertTrue(excite.PeakBook.from_json(json.loads(json.dumps(b.to_json()))).join)
         self.assertEqual((pk[0]["pieces"], b.have(), sum(b.counts().values())), (2, 2, 2))   # つないでも 2 本と数える = 枠は空かない
         self.assertEqual(len(live(True, adopt=True).list()), 2)   # 採用した(届けた)候補は書き換えない
+        w3 = [a + c for a, c in zip(w, bump(n, 1700, 4.0, 20))]   # つなぐ 2 つ + 離れた低い山(1 時間の枠 2 本)
+        b = excite.PeakBook(45, 0.65, "normal", 2, shape="scene", join=True)
+        for t in range(n):
+            b.push(t, w3[t], {"audio": w3[t]}, -30.0)
+        b.finish()
+        st = sorted((p["start"], p.get("pieces", 1), p["state"]) for p in b.list())
+        self.assertEqual([(x[1], x[2]) for x in st], [(2, "frame"), (1, "bench")], st)   # つないだ 1 本で枠 2 本ぶん = 次の山は控え(つないで枠が空かない)
 
     def test_peakbook_scene_waits_for_settle(self):
         n = 1600

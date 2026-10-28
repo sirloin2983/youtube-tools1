@@ -33,6 +33,13 @@ def set_status(marks, start, status):
 
 
 class TestAdoptRun(unittest.TestCase):
+    def test_pieces_from_candidates_and_bounds(self):
+        """解析の候補の pieces(つないだ本数)が replace_auto で自動マークに渡る・2〜50 の整数だけ(ほかは付けない = 1 本)"""
+        got, _n = M.replace_auto([], [{"start": s, "end": s + 30, "score": 1.0, "pieces": p} for s, p in
+                                      ((10, 2), (60, 1), (110, 50), (160, 51), (210, True), (260, "2"), (310, 2.0))])
+        self.assertEqual([(m["start"], M.pieces_of(m)) for m in got], [(10, 2), (60, 1), (110, 50), (160, 1), (210, 1), (260, 1), (310, 1)])
+        self.assertEqual([m.get("pieces") for m in M.load_marks(got)], [2, None, 50, None, None, None, None])   # 保存して読み直しても同じ
+
     def test_machine_adopted_counts_after_reanalysis(self):
         """機械が採用した自動マークは、解析し直しで手動(replace_auto の touched)になっても採用の上限で数える・つないだ本数も読み直しで残る"""
         marks = base()

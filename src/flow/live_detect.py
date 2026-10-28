@@ -46,7 +46,7 @@ import sys
 import threading
 import time
 
-from ytt import fsio, procs, schemas, tools
+from ytt import fsio, marks as _marks, procs, schemas, tools
 from . import spec as _spec   # 採用の数・待ちの既定は束の 1 か所(RS6 b-R1)
 from . import chatreuse as _chatreuse   # 生のチャットを移す先(決定 3-117)
 from . import live_failures
@@ -626,9 +626,13 @@ class Detector:
             return AUTO_MAX_PER_REC
         return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else AUTO_MAX_PER_REC
 
-    def auto_count(self, rc, rec):
-        """その録画で自動(origin auto)で採用した数(decisions.json。D-13 の上限の分母)"""
-        return sum(1 for x in self._decisions(self.folder(rc, rec))["items"] if x.get("state") == "adopted" and x.get("origin") == "auto")
+    def auto_count(self, rc, rec, peaks=None):
+        """その録画で自動(origin auto)で採用した数(decisions.json。D-13 の上限の分母)。つないだ候補は元の本数(peaks.json の pieces。
+        10-28 ユーザー「つないだ物は元の本数で数える」)。peaks = view の候補の一覧(無ければ読む)"""
+        if peaks is None:
+            peaks = self.view(rc, rec)[1]
+        n_of = {p.get("id"): _marks.pieces_of(p) for p in peaks}
+        return sum(n_of.get(x.get("id"), 1) for x in self._decisions(self.folder(rc, rec))["items"] if x.get("state") == "adopted" and x.get("origin") == "auto")
 
     def adopt_waiting(self, rc, rec):
         """録画の、自動の採用を待っている枠の候補 -> {"count", "dueAt"(いちばん早く採用する時刻 epoch。まだ見ていなければ None)}・
@@ -717,7 +721,7 @@ class Detector:
             doc, peaks, _pending = self.view(rc, rec)
             if ended and not (doc or {}).get("ended"):   # 終わった録画は、ワーカーが帳簿を締めてから(終わり待ちの候補が確定する)
                 continue
-            used, cap = self.auto_count(rc, rec), self.auto_max(rc, rec)
+            used, cap = self.auto_count(rc, rec, peaks), self.auto_max(rc, rec)
             for pk in peaks:
                 key = (rc, rec, pk.get("id"))
                 if pk.get("state") != "frame" or pk.get("endPending") or key in given or not isinstance(pk.get("confirmedAt"), (int, float)):
@@ -733,11 +737,13 @@ class Detector:
                         self._capped_said.add(rec)
                         self.host.log("盛り上がりの検出: 録画 %s の自動の採用は上限の %d 本に達したので、残りの候補は人の採用に任せます" % (rec, cap))
                     break
+                if used + _marks.pieces_of(pk) > cap:   # つないだ候補(元の本数)が残りに入らない: 人の採用に任せて次の候補へ
+                    continue
                 try:
                     self.adopt(rc, rec, pk, "auto", after="auto")
                     self._tries.pop(key, None)
                     done += 1
-                    used += 1
+                    used += _marks.pieces_of(pk)
                 except LX.LiveError as e:
                     n = self._tries.get(key, 0) + 1
                     self._tries[key] = n
