@@ -3,6 +3,7 @@
      切り抜き・文書 = 編集の transcribe/media?id=<文書 id>(Range つき。ホームの続けて確認と同じ口)を <video> で、出したときの自動再生は行の区間 ± pad 秒だけ流して止まる
      候補のまま(配信の区間)= YouTube の埋め込み(youtube-nocookie.com。校正の小さい配信プレーヤーと同じ形)
      波形(行の時刻のカード)= 編集の transcribe/api/peaks?id=(0〜255 の 1 バイトの並び + X-Peaks-Rate。作っている間は 202)を区間だけ描く
+     音量・消音・再生速度はこのブラウザに覚え(localStorage の check.volume・check.rate)、全部のカードで引き継ぐ(埋め込みの YouTube は除く)
      キー = 殻が UIKit.keys.playback に media() を渡す(Space・J/K/L・← →・, .)。R = もう一度聞く(殻が replay() を呼ぶ。編集の「この行をもう一度聞く」と同じキー)
      もう一度聞く = 画面の下のボタン(data-chk-replay)と R。区間の頭(win[0] = 行の頭 - pad)から流し直す。足す余白は無し
      (編集の「この行をもう一度聞く」も行の頭から = 余白 0。カードの pad はカードを作る側が決めた物をそのまま使う)。
@@ -40,6 +41,20 @@
   }
   function saveVolume(v) {
     try { localStorage.setItem(VOL_KEY, JSON.stringify({ volume: v.volume, muted: v.muted })); } catch (e) { /* 覚えられないだけ */ }
+  }
+  /* 再生速度もカードをまたいで引き継ぐ(10-29 ユーザー「毎回変えるのめんどくさい」)。全部のカードで 1 つ(音量と同じ)。
+     動画の速さのメニュー・L(再生中は 1.5 → 2 倍)で変えた速さを覚え、次のカードは最初からその速さ。K(止める)は覚えた速さへ戻す(defaultPlaybackRate) */
+  var RATE_KEY = 'check.rate', RATE_MIN = 0.25, RATE_MAX = 4;
+  function loadRate() {
+    try {
+      var r = +JSON.parse(localStorage.getItem(RATE_KEY) || 'null');
+      if (isFinite(r) && r >= RATE_MIN && r <= RATE_MAX) return r;
+    } catch (e) { /* 既定へ */ }
+    return 1;
+  }
+  function saveRate(r) {
+    if (!(isFinite(r) && r >= RATE_MIN && r <= RATE_MAX)) return;
+    try { localStorage.setItem(RATE_KEY, JSON.stringify(r)); } catch (e) { /* 覚えられないだけ */ }
   }
   function cssVar(name, fallback) {
     var v = getComputedStyle(document.documentElement).getPropertyValue(name);
@@ -128,6 +143,12 @@
       var vol = loadVolume();
       video.volume = vol.volume; video.muted = vol.muted;
       video.addEventListener('volumechange', function () { saveVolume(video); });
+      video.defaultPlaybackRate = video.playbackRate = loadRate();   // src より前(読み込みで playbackRate は defaultPlaybackRate に戻る)
+      video.addEventListener('ratechange', function () {
+        if (gone || !(video.playbackRate > 0)) return;
+        saveRate(video.playbackRate);
+        video.defaultPlaybackRate = video.playbackRate;   // K(止める)・次の読み込みもこの速さ
+      });
       video.addEventListener('loadedmetadata', function () {
         if (opt.autoplay !== false) playBounded();
         else if (win[0] > 0) seekTo(win[0]);

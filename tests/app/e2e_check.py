@@ -433,6 +433,32 @@ def _scene_voice(cx):
         cx.ctx.route(re.compile(r".*/api/check/.*"), cx.fq.handle)
 
 
+def _scene_rate_kept(cx):
+    """再生速度をカードをまたいで覚える(10-29 ユーザー「毎回変えるのめんどくさい」): 変えた速さで次のカードも・開き直しても・K(止める)は覚えた速さへ"""
+    pg, check = cx.pg, cx.check
+    vid = {"url": "transcribe/media?id=a0000000000b", "start": 0.5, "end": 1.5, "pad": 0.2}
+    fr = FakeQueue([card(i, "value", media=vid, options=["good", "bad"], reasons=[{"id": "boring", "text": "場面がつまらない"}]) for i in (70, 71, 72)])
+    _swap_queue(cx, fr)
+    rate = "(() => { const v = document.querySelector('#chkBody video'); return v ? [v.playbackRate, v.defaultPlaybackRate] : null; })()"
+    try:
+        pg.evaluate("localStorage.removeItem('check.rate')")
+        pg.goto(cx.base + "check?kind=value")
+        check(wait_js(pg, "CheckShell.state().cur === 'value:e2e:70' && !!document.querySelector('#chkBody video')"), "動画のある価値のカード: %s" % state(pg))
+        check(pg.evaluate(rate) == [1, 1], "覚えた速さが無ければ 1 倍: %s" % pg.evaluate(rate))
+        pg.evaluate("document.querySelector('#chkBody video').playbackRate = 1.5")   # 動画の速さのメニューで変えたのと同じ
+        check(wait_js(pg, "localStorage.getItem('check.rate') === '1.5'"), "変えた速さを覚える: %s" % pg.evaluate("localStorage.getItem('check.rate')"))
+        press(pg, "4")
+        check(wait_js(pg, "CheckShell.state().cur === 'value:e2e:71' && !!document.querySelector('#chkBody video')") and pg.evaluate(rate) == [1.5, 1.5],
+              "次のカードも最初から 1.5 倍: %s" % pg.evaluate(rate))
+        pg.goto(cx.base + "check?kind=value")
+        check(wait_js(pg, "!!document.querySelector('#chkBody video')") and pg.evaluate(rate) == [1.5, 1.5], "開き直しても 1.5 倍: %s" % pg.evaluate(rate))
+        press(pg, "k")
+        check(pg.evaluate(rate) == [1.5, 1.5], "K(止める)は覚えた速さへ戻す(1 倍に戻さない): %s" % pg.evaluate(rate))
+    finally:
+        pg.evaluate("localStorage.removeItem('check.rate')")
+        _restore_queue(cx)
+
+
 def _scene_voice_bgm_and_gone(cx):
     """誰の声: G(ゲーム音・BGM が大きい)を入れて名前で答える = {choice, bgm: true}。答えに 404 gone が返ったカードは戻さず次へ・もう出ない"""
     pg, check = cx.pg, cx.check
@@ -839,6 +865,7 @@ def main():
                 _scene_read_type(cx)
                 _scene_voice(cx)
                 _scene_voice_bgm_and_gone(cx)
+                _scene_rate_kept(cx)
                 _scene_voice_pick(cx)
                 _scene_unknown(cx)
                 _scene_voice_video_or_clip(cx)
