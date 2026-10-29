@@ -1449,6 +1449,30 @@ class ServerTest(Base):
             self.assertFalse(self.app.auto_update())   # 同じ版はもう自動ではしない([更新する] は残る)
             self.assertFalse(self.js(self.get("/api/friend/update")[2])["auto"])
 
+    def test_auto_update_waits_while_operating(self):
+        """定期の更新は、画面を操作している間(最後の操作から USING_SEC)は当てない・帯に「作業が終わったら当てます」(10-29 ユーザー)。
+        届くだけの POST(画面の失敗の記録)と、押していない ops は操作に数えない。緊急(important)・指示で配った(asked)は操作中でも当てる"""
+        t = self.fake_clock()
+        self.app.clock = lambda: t[0]
+        self.make_version("999.0.0")
+        with mock.patch.dict(os.environ, {S.HOST_ENV: "webview2"}):
+            self.post("/api/friend/ops", {"ops": [{"at": 1, "kind": "error", "target": "#x"}]})   # 押していない = 操作ではない
+            self.assertFalse(self.app.using())
+            self.post("/api/friend/ops", {"ops": [{"at": 1, "kind": "click", "target": "#btnKeep"}]})
+            self.assertTrue(self.app.using())
+            u = self.js(self.get("/api/friend/update")[2])
+            self.assertEqual((u["auto"], u["autoWait"]), (True, S.USING_LABEL))
+            self.assertFalse(self.app.auto_update())
+            self.app.sync.state["latest"] = {"version": "999.0.0", "asked": True}   # ユーザーの指示で配った = 操作中でも当てる
+            self.assertIsNone(self.app.auto_busy("999.0.0"))
+            self.app.sync.state["latest"] = {"version": "999.0.0", "important": True}   # 緊急の直し
+            self.assertIsNone(self.app.auto_busy("999.0.0"))
+            self.app.sync.state["latest"] = {"version": "999.0.0"}
+            t[0] += S.USING_SEC + 1   # 手が空いた
+            self.assertFalse(self.app.using())
+            self.assertEqual(self.js(self.get("/api/friend/update")[2])["autoWait"], "")
+            self.assertTrue(self.app.auto_update())
+
     def test_tidy_routes(self):
         """フォルダの整理の口: GET の形・調べる・片付ける物が無ければ 409・あとで・ごみ箱が無ければ 404・合言葉"""
         st, _h, p = self.get("/api/friend/tidy")

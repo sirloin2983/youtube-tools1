@@ -633,7 +633,7 @@ class SyncTest(unittest.TestCase):
                    notes="この版の一言(文字列)", history=[{"v": "0.91.0", "at": 5, "items": ["直した\x00こと", 3, ""]}, {"v": "x", "items": ["捨てる"]}])
         self.io.put("/更新/latest.json", json.dumps(doc).encode())
         self.assertEqual(self.run_sync(), [])
-        self.assertEqual(self.sync.state["latest"], {"version": "0.91.0", "important": True, "cancel": ["0.91.0"],
+        self.assertEqual(self.sync.state["latest"], {"version": "0.91.0", "important": True, "asked": False, "cancel": ["0.91.0"],
                                                      "fixes": {"requests": ["20261025-010203-abcdef"], "kinds": [1]},
                                                      "notes": [{"v": "0.91.0", "at": 5, "items": ["直したこと"]}]})
         self.assertFalse(os.path.exists(os.path.join(self.places["home"], "app-0.91.0")))   # 取り消された版は取らない

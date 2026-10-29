@@ -34,6 +34,7 @@ config.json(Dropbox の鍵)は入れない。--first --with-key のときだけ 
         結果を 診断/ の launcher__fail-<13 桁>.fail.json(kind rollback)で返す = 版の見張り human/friend/upwatch が最上の急ぎで知らせる)
     --withdraw <版>: 配布の取り消し。latest.json を前の良い版へ戻すとき cancel:[<版>] を付ける(友人のアプリは、取ってあってまだ入れていない
         その版を入れ替えずに捨てる。捨てたことは心拍の pending が null になることで分かる)
+    --asked: ユーザーの指示で配る版の印 asked(友人のアプリは、画面を操作していても当てる。3 時間ごとの定期の回は付けない = 操作が終わるまで待つ。10-29)
     --important・--fix-request <依頼 id>・--fix-kind <1〜7>: latest.json と台帳の行に「重要」の印 important と直す対象
         fixes {requests, kinds}(失敗の種類 = human/friend/bugs の KINDS)を付ける(友人のアプリの更新の決め・10-25。付けなければ欄を書かない)
         versions.json = 版の台帳(版・builtAt・notes・全部入りと light の file/size/sha256・python の印 runtime)を新しい順に 20 版。zip が消えた版は file/light を null にして行は残す
@@ -744,13 +745,16 @@ def build(out_dir, cache, wcpp_dir, first=False, with_key=False, fetch=True, not
     return got
 
 
-def update_mark(important=False, requests=None, kinds=None):
-    """「重要」の印と直す対象 -> latest.json に足す欄({} = 足さない)。依頼 id の形・種類 1〜7 でなければ BuildError"""
+def update_mark(important=False, requests=None, kinds=None, asked=False):
+    """「重要」の印と直す対象・ユーザーの指示で配った印(asked = 友人が画面を操作していても当てる。10-29)-> latest.json に足す欄({} = 足さない)。
+    依頼 id の形・種類 1〜7 でなければ BuildError"""
     reqs, kinds = list(requests or []), list(kinds or [])
     bad = [r for r in reqs if not re.fullmatch(r"\d{8}-\d{6}-[0-9a-f]{6}", r)] + [str(k) for k in kinds if k not in range(1, 8)]
     if bad:
         raise BuildError("直す対象の形が違います: %s(依頼 id は YYYYMMDD-HHMMSS-6 文字・種類は 1〜7)" % ", ".join(bad))
     out = {"important": True} if important else {}
+    if asked:
+        out["asked"] = True
     if reqs or kinds:
         out["fixes"] = {"requests": reqs, "kinds": sorted(set(kinds))}
     return out
@@ -839,6 +843,7 @@ def main(argv=None):
     ap.add_argument("--rollback", default="", metavar="VER", help="友人の PC へ「この版に戻して」の印を置く(版 X.Y.Z か prev = 友人の PC に残る確かに動いた版)")
     ap.add_argument("--why", default="", help="--rollback の理由(300 字まで)")
     ap.add_argument("--important", action="store_true", help="latest.json に「重要」の印を付ける(友人のアプリの更新の決め)")
+    ap.add_argument("--asked", action="store_true", help="latest.json に「ユーザーの指示で配った」の印(友人が画面を操作していても当てる。ふだんの 3 時間ごとの回は付けない)")
     ap.add_argument("--fix-request", action="append", default=[], metavar="RID", help="この版で直す依頼 id(何度でも)")
     ap.add_argument("--fix-kind", action="append", default=[], type=int, metavar="N", help="この版で直す失敗の種類 1〜7(何度でも)")
     ap.add_argument("--skip-preflight", action="store_true", help="--publish のときだけ: 配る前の検査(dev/friend_preflight.py)を飛ばす(明示のときだけ)")
@@ -879,7 +884,7 @@ def main(argv=None):
         if a.withdraw:   # 取り下げ: --out が無ければ更新の置き場所(Dropbox)・外した zip は作る PC の手元へ
             withdraw(a.out or default_out(False, True), a.withdraw, os.path.join(datadir.locate("app", SRC), "friend-withdrawn"))
             return 0
-        a.mark = update_mark(a.important, a.fix_request, a.fix_kind)
+        a.mark = update_mark(a.important, a.fix_request, a.fix_kind, a.asked)
         if a.publish:   # 列に積んだ物も一緒に乗せる(この版で直したこと)
             done = _pubqueue.changes([x for x in _pubqueue.items(app) if (x.get("at") or 0) <= started] + [{"note": a.note.strip()[:_pubqueue.NOTE_MAX]}])
             if done:

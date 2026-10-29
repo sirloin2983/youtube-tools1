@@ -37,6 +37,7 @@
   POST /api/friend/send                   送る(friendapp/api.py の欄。動画ファイルは fileId・ライブは kind live + live)
   POST /api/friend/decide {items: [{id, name}], verdict: keep|skip|bad, reason?: boring|cut, score?: 1〜5}   受け取る / 見送る / 届かなくてよかった(name の無い項目 = その行の決めていない物の全部)
   POST /api/friend/undo {items}           見送った・届かなくてよかったを 3 日の間は戻す(C-3-6)
+  POST /api/friend/hold {items, on}       迷っている物の印を付ける(on true)・外す(false)。判定ではない・3 日の自動の見送りの外(10-29)
   POST /api/friend/retry {id}・cancel {id}      失敗の行の [もう一度送る]・[消す]・送った行を止める(録画中のライブの行は録画を止める)
   POST /api/friend/live-settings {id, perHour?, afterStream?}   録画中のライブの設定を途中で変える(C-2-11。→ {ok, row})
   POST /api/friend/local {id}             ユーザーの PC に頼んだ依頼を [この PC でやり直す](Dropbox の同期は friendapp/sync.py の裏の糸)
@@ -109,13 +110,16 @@ HOST_ENV = "YTT_FRIEND_HOST"          # exe の窓の種類(webview2 = 合言葉
 PORT_BUSY_EXIT = 5                    # exe が渡した番号を使えなかった(exe が選び直す)
 ROLLBACK_ENV = "YTT_FRIEND_ROLLBACK"  # exe が前の版へ戻したとき、起動できなかった版
 SWEEP_EVERY = 3600        # 受信箱の 3 日の片付けを見る間隔(秒)
+USING_SEC = 600           # 画面を最後に操作してからこの秒は「操作している」= 定期の更新を当てない(10-29 ユーザー。緊急の更新・指示で配った更新は待たない)
+USING_LABEL = "画面を操作しています"
+UNTOUCHED = ("/api/friend/client-log",)   # 押していなくても届く POST(画面の失敗の記録)= 操作に数えない。ops は中身で見る(_post)
 AUTO_UPDATE_FILE = "auto-update.json"   # 自動で入れ替えを試した版(ytt/autorestart の記録。1 版につき 1 回)
 AUTO_UPDATE_ENV = "YTT_FRIEND_AUTO_UPDATE"   # "0" で自動の入れ替えをしない([更新する] だけ)
 TIDY_EVERY = 180          # 新しい版のあとのフォルダの整理を見直す間隔(秒。版ごとに 1 回走れば以後は何もしない)
 SAVE_DEFAULT = _settings.SAVE_DEFAULT   # 受け取るの保存先の既定(%USERPROFILE% の下。⚙ で選ぶ)
 SAVE_FILE = _settings.SAVE_FILE
 CLIENT_LOG_MAX = 512 * 1024
-SYNC_KICK = ("/api/friend/send", "/api/friend/decide", "/api/friend/undo", "/api/friend/retry", "/api/friend/local", "/api/friend/report")   # 押したあと同期を起こす口
+SYNC_KICK = ("/api/friend/send", "/api/friend/decide", "/api/friend/undo", "/api/friend/hold", "/api/friend/retry", "/api/friend/local", "/api/friend/report")   # 押したあと同期を起こす口
 
 
 def save_dir(friend_dir, env=None):
@@ -386,7 +390,11 @@ class Handler(httpsec.LocalHandler):
             except _api.FormError as e:
                 return self._fail(400, "bad_url", str(e))
         if path == "/api/friend/ops":   # 画面の操作の記録と画面の要約(friendapp/report。まとめて届く・画面は返事を待たない)
+            if any(isinstance(o, dict) and o.get("kind") in ("click", "setting", "nav") for o in (body.get("ops") if isinstance(body.get("ops"), list) else [])):
+                app.touch()   # 押した・入れた・画面を移った = 操作している(定期の更新を待つ)
             return self._json(200, {"ok": True, "n": app.report.ui_ops(body)})
+        if path not in UNTOUCHED:
+            app.touch()
         if path == "/api/friend/send":   # F3-3: {rows, skipped}(row = 先頭の行。前の形の呼び手のため)
             got = app.api.send(body)
             app.report.app_op("request", "send", {"id": got["rows"][0].get("id"), "kind": got["rows"][0].get("kind"), "pc": got["rows"][0].get("pc"),
@@ -404,6 +412,8 @@ class Handler(httpsec.LocalHandler):
             return self._json(200, app.decide(body))
         if path == "/api/friend/undo":   # [戻す](C-3-6){items: [{id, name}]}
             return self._json(200, app.undo(body))
+        if path == "/api/friend/hold":   # 迷っている物の印 {items: [{id, name}], on}
+            return self._json(200, app.hold(body))
         if path == "/api/friend/player":   # 再生画面の音量・消音・速度を覚える(C-3-3 の操作の帯)
             return self._json(200, {"ok": True, "player": app.set_player(body)})
         if path == "/api/friend/files":   # 落とした動画(exe が本物のパスを読んで送る = F3-1 の host.js の sendFiles。画面からパスは送らない)
@@ -587,6 +597,7 @@ class FriendApp:
         self.closing = threading.Event()
         self.server = None
         self.update_requested = False   # 画面の [更新する](exe が見回りで見て、作業が無ければ入れ替える)。auto_update も立てる
+        self.touched_at = 0.0           # 画面を最後に操作した時刻(touch。定期の更新を当てるのを待つ = auto_busy)
         # exe が前の版へ戻した = 起動できなかった版("72,71" = 新しい方から起きなかった順。数字と . 以外の名前は捨てる)
         self.rollback_versions = [v for v in (x.strip() for x in (os.environ.get(ROLLBACK_ENV) or "").split(",")) if re.fullmatch(r"\d+(\.\d+){0,3}", v)][:5]
         self.rollback = "・".join(self.rollback_versions)
@@ -693,6 +704,28 @@ class FriendApp:
                 skipped.append({"name": os.path.basename(str(p or ""))[:200], "message": str(e)})
         return {"ok": bool(files), "files": files, "skipped": skipped}
 
+    def hold(self, body):
+        """迷っている物の印(行ごとに受信箱へ)-> {"ok", "done": [{id, name}]}"""
+        if not isinstance(body.get("on"), bool):
+            raise _api.FormError("印を付けるか外すか(on)がありません")
+        by_row = {}
+        for it in body.get("items") if isinstance(body.get("items"), list) else []:
+            if isinstance(it, dict) and isinstance(it.get("id"), str) and isinstance(it.get("name"), str):
+                by_row.setdefault(it["id"], []).append(it["name"])
+        done = []
+        for rid, names in by_row.items():
+            done += [{"id": rid, "name": n} for n in self.inbox.set_hold(rid, names, body["on"])["done"]]
+        if done:
+            self.sync.kick()
+        return {"ok": True, "done": done}
+
+    def touch(self):
+        self.touched_at = self.clock()
+
+    def using(self):
+        """画面を操作している(最後の操作から USING_SEC 以内)か"""
+        return self.touched_at > 0 and self.clock() - self.touched_at < USING_SEC
+
     def undo(self, body):
         by_row = {}
         for it in body.get("items") if isinstance(body.get("items"), list) else []:
@@ -790,19 +823,23 @@ class FriendApp:
         st = self.state() if v and self.update_requested else None
         hold = st and self.upgrade.wait_code(st, v)   # 入れ替えを待つ理由(friendapp/upgrade.wait_reason)
         hosted = (os.environ.get(HOST_ENV) or "").strip() == "webview2"
+        auto = bool(v and hosted and os.environ.get(AUTO_UPDATE_ENV, "").strip() != "0" and _autorestart.read_tried(self._auto_path()) != v)
         return {"available": bool(v), "version": v, "requested": bool(v and self.update_requested), "waiting": bool(hold),
-                "label": (st or {}).get("label") or "", "hosted": hosted,
-                "auto": bool(v and hosted and os.environ.get(AUTO_UPDATE_ENV, "").strip() != "0" and _autorestart.read_tried(self._auto_path()) != v),
+                "label": (st or {}).get("label") or "", "hosted": hosted, "auto": auto,
+                "autoWait": (self.auto_busy(v) or "") if auto and not self.update_requested else "",   # 自動で当てるのを待っている理由(画面の「作業が終わったら当てます」)
                 **self.upgrade.view(v)}
 
     def _auto_path(self):
         return os.path.join(self.places["friend"], AUTO_UPDATE_FILE)
 
-    def auto_busy(self):
-        """自動の入れ替えを待つ理由(録画中・待機中の配信の枠・処理中・順番待ち・準備・Dropbox の上げ下ろし。画面に触っているかは見ない)か None"""
+    def auto_busy(self, v=None):
+        """自動の入れ替えを待つ理由(録画中・待機中の配信の枠・処理中・順番待ち・準備・Dropbox の上げ下ろし・画面を操作している)か None。
+        画面の操作は定期の更新だけ待つ(10-29 ユーザー): 緊急の更新(latest.json の important)・ユーザーの指示で配った更新(asked)は操作中でも当てる"""
         st = self.state()
         why = _upgrade.wait_reason(st, _upgrade.NORMAL, self.upgrade.stalled(), self.busy())
         if not why:
+            if v and self.using() and not (self.upgrade.important(v) or self.upgrade.asked(v)):
+                return USING_LABEL
             return None
         if why == _upgrade.RECORDING:
             return "ライブを録画しています" if st["recording"] else "予約の配信を待っています"
@@ -814,7 +851,7 @@ class FriendApp:
         if self.update_requested or (os.environ.get(HOST_ENV) or "").strip() != "webview2" or os.environ.get(AUTO_UPDATE_ENV, "").strip() == "0":
             return False
         v = self.update_version()
-        act, why = _autorestart.decide(v, _version.VERSION, _autorestart.read_tried(self._auto_path()), self.auto_busy() if v else None)
+        act, why = _autorestart.decide(v, _version.VERSION, _autorestart.read_tried(self._auto_path()), self.auto_busy(v) if v else None)
         if act != _autorestart.GO:
             return False
         try:

@@ -1063,7 +1063,7 @@ class Sync:
 
 
 def latest_mark(d):
-    """latest.json -> 覚える印 {version, important, fixes: {requests, kinds}, cancel}(形の違う欄は捨てる)"""
+    """latest.json -> 覚える印 {version, important, asked, fixes: {requests, kinds}, cancel}(形の違う欄は捨てる)"""
     f = d.get("fixes") if isinstance(d.get("fixes"), dict) else {}
     reqs = [r for r in (f.get("requests") if isinstance(f.get("requests"), list) else []) if isinstance(r, str) and _diag.SAFE_ID.match(r)][:50]
     kinds = [k for k in (f.get("kinds") if isinstance(f.get("kinds"), list) else []) if isinstance(k, int) and not isinstance(k, bool) and 1 <= k <= 7]
@@ -1076,7 +1076,8 @@ def latest_mark(d):
             at = n.get("at") if isinstance(n.get("at"), int) and not isinstance(n.get("at"), bool) else None
             if items:
                 notes.append({"v": n["v"], "at": at, "items": items})
-    return {"version": d["version"], "important": d.get("important") is True, "fixes": {"requests": reqs, "kinds": kinds}, "cancel": cancel,
+    return {"version": d["version"], "important": d.get("important") is True, "asked": d.get("asked") is True,   # asked = ユーザーの指示で配った(画面の操作中でも当てる・10-29)
+            "fixes": {"requests": reqs, "kinds": kinds}, "cancel": cancel,
             "notes": notes}
 
 

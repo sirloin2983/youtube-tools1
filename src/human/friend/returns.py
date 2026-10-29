@@ -31,7 +31,8 @@ RETURNS_DIR = "friend-returns"      # <app>/friend-returns/<YYYY-MM>/<requestId>
 IN_DIR, DONE_DIR, FAIL_DIR = "送り返し", "受付済み", "失敗"
 VERDICT_SUFFIX = ".verdict.json"
 LOGS_DIR = "logs"                  # 届けた記録 deliveries.jsonl の置き場所(app の直下の logs)
-JUDGES = ("good", "bad", "unknown", "retract")   # v 2 の judge(good・bad・unknown は人の判断の what にそのまま)
+JUDGES = ("good", "bad", "unknown", "retract", "hold", "unhold")   # v 2 の judge(good・bad・unknown は人の判断の what にそのまま)。
+HOLDS = ("hold", "unhold")   # 迷っている物の印を付けた・外した(10-29。判定ではない = 人の判断の記録でも友人の判定のレーンに入れない)
 ID_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}\Z")    # 判断の記録の id(友人のアプリが作る)・videoId・markId
 ORIGINS = ("request", "auto")       # 採否の任意の origin(D-SEND 2-7。友人に見せる出どころ = flow/deliver.face_origin と同じ 2 つ)
 VERDICT_RE = re.compile(r"^([0-9A-Za-z_-]{1,64})__([^\\/:*?\"<>|\x00-\x1f]{1,120}?)(~[0-9]{13})?" + re.escape(VERDICT_SUFFIX) + r"\Z")
@@ -153,6 +154,8 @@ def _parse_v2(d):
     if not isinstance(rid, str) or not ID_RE.match(rid):
         raise ValueError("id は英数字・_・- の 64 文字までにしてください")
     out = {"v": 2, "judge": judge, "id": rid, "at": _at(d.get("at"))}
+    if judge in HOLDS:   # 迷っている物の印: 判定の欄(理由・点・自動)は持たない
+        d = {k: d[k] for k in d if k not in ("reason", "of", "by", "score")}
     if judge == "bad":
         if d.get("reason") not in judgments.FRIEND_REASONS:
             raise ValueError("届かなくてよかったの理由(reason)は %s のどれかにしてください" % " / ".join(judgments.FRIEND_REASONS))
