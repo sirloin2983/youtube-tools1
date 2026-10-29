@@ -15,6 +15,7 @@ config.json の bundles に、自動の採用の待ちは束の adopt.waitMin(�
                     ワーカーが読んで候補の帳簿(PeakBook)に当てる。当てた番号は peaks.json の decN。まだ当たっていない決定は、ここが API の応答に重ねて返す
   auto_failures.json  ここが書く: 自動の採用を諦めた候補(「調子」の失敗に出す)
   peaks.json・state.json・series.jsonl・worker.json・skipped.jsonl はワーカーが書く(ここは読むだけ)
+  ../peaks-kept/<録画元>__<録画>.json  ここが書く: 録画を消すとき(forget)に候補の区間の一覧を写した物(研究の材料。KEEP_DAYS で消す)
 
 API(src/app/live.py の handle_get / _api_post から。書き込みは入口の合言葉が要る = 今の仕組みのまま):
   GET  /live/api/peaks?recorder=&recording=&since=<seq>
@@ -71,6 +72,11 @@ LOG_MAX = 2 * 1024 * 1024  # logs/excite.log がこれを超えていたら、�
 OPS = ("adopt", "dismiss", "restore")
 DECISIONS_MAX = 5000
 PEAKS_MAX = 16 * 1024 * 1024
+# 録画を消す前に、候補の区間の一覧(数字だけ。音・映像は無し)を live/peaks-kept/<録画元>__<録画>.json へ写す(10-30 まとめ役。
+# 研究で「採用しなかった候補 = 控え・見送りに正解があったか」を数える材料。peaks.json はフォルダごと消える)。写せなくても消すのは止めない
+KEEP_ON = True             # False = 前の形(写さずに消す)
+KEEP_DIR = "peaks-kept"
+KEEP_DAYS = 30             # 写しを残す日数(研究で使うので片付けの 3 日より長め。写すたびに、これより古い写しを消す)
 DETECT_DEFAULT = {"enabled": True, "sens": "normal", "perHour": _spec.DEFAULTS["adopt"]["perHour"], "fill": True}   # fill = 配信の終わりの本数の埋め(EW の QUOTA)
 ADOPT_DEFAULT = {"waitMin": _spec.DEFAULTS["adopt"]["waitMin"]}
 CHAT_ORDER = ("none", "restarting", "ok", "off")   # 「調子」に出すチャットの状態(悪い順)
@@ -445,10 +451,78 @@ class Detector:
     def folder(self, rc, rec):
         return os.path.join(self.dir, rc, rec)
 
-    def forget(self, rc, rec):
-        """録画を消したとき(src/manage/keep/live_cleanup.py): その録画の検出の記録(state.json・series.jsonl・peaks.json・decisions.json)も消す"""
+    def forget(self, rc, rec, row=None):
+        """録画を消したとき(src/manage/keep/live_cleanup.py): その録画の検出の記録(state.json・series.jsonl・peaks.json・decisions.json)も消す。
+        消す前に候補の区間の一覧を写す(KEEP_ON。row = 録画元の一覧の 1 行 = url・firstPdt・streamStart。無ければ配信の記録 reports から)"""
         if schemas.ids_ok(rc, rec):
+            if KEEP_ON:
+                self.keep_peaks(rc, rec, row)
             shutil.rmtree(self.folder(rc, rec), ignore_errors=True)
+
+    @property
+    def keep_dir(self):
+        return os.path.join(self.host.store_dir, KEEP_DIR)
+
+    def keep_peaks(self, rc, rec, row=None, now=None):
+        """候補の区間の一覧を keep_dir へ写す -> 写したパスか None(候補が無い・書けない)。
+        1 行 = {id, state(frame|bench|adopted|dismissed), origin, start, end, peak(録画の頭からの秒), streamStart・streamEnd(配信の開始からの秒。分かるときだけ),
+        score, provisional, expired, fill, pieces}"""
+        try:
+            doc, peaks, _pending = self.view(rc, rec)
+            if not peaks:
+                return None
+            row = row if isinstance(row, dict) else {}
+            rep = fsio.read_json_or(os.path.join(self.host.store_dir, "reports", "%s__%s.json" % (rc, rec)), None, 4 * 1024 * 1024, kind=dict) or {}
+            info = rep.get("info") if isinstance(rep.get("info"), dict) else {}
+
+            def at(v):
+                return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else LX.iso_epoch(v)
+            url = row.get("url") or info.get("url") or ""
+            first = at(row.get("firstPdt")) or at((doc or {}).get("first")) or at(info.get("firstPdt"))
+            ss = at(row.get("streamStart"))
+            off = round(first - ss, 1) if first is not None and ss is not None and ss <= first else None   # 録画の頭 = 配信の開始から off 秒
+            items = []
+            for p in peaks:
+                s, e = p.get("start"), p.get("end")
+                if not all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in (s, e)):
+                    continue
+                it = {"id": p.get("id"), "state": p.get("state"), "origin": p.get("origin"), "start": s, "end": e, "peak": p.get("peak"), "score": p.get("score")}
+                if off is not None:
+                    it["streamStart"], it["streamEnd"] = round(s + off, 1), round(e + off, 1)
+                for k in ("provisional", "expired", "fill"):
+                    if p.get(k):
+                        it[k] = True
+                if p.get("pieces"):
+                    it["pieces"] = p.get("pieces")
+                items.append(it)
+            out = {"v": 1, "recorder": rc, "recording": rec, "videoId": LX.video_id_of(url, rec) or None, "url": url,
+                   "title": row.get("title") or info.get("title") or "", "firstPdt": LX.epoch_iso(first) if first is not None else None,
+                   "streamStart": LX.epoch_iso(ss) if ss is not None else None, "streamOffset": off, "keptAt": LX.now_iso(),
+                   "detect": {k: (doc or {}).get(k) for k in ("perHour", "thr", "shape", "ended", "measuredSec", "lateFrom", "audioOnly")},
+                   "peaks": items}
+            os.makedirs(self.keep_dir, exist_ok=True)
+            path = os.path.join(self.keep_dir, "%s__%s.json" % (rc, rec))
+            fsio.write_json(path, out, indent=1)
+        except Exception as e:   # noqa: BLE001  (写せなくても録画の後始末は止めない)
+            self.host.note("リアルタイム切り抜き: 候補の区間を写せませんでした(%s): %r" % (rec, e))
+            return None
+        self._trim_kept(now)
+        return path
+
+    def _trim_kept(self, now=None):
+        """KEEP_DAYS より古い写しを消す(更新日時で)"""
+        limit = (now if now is not None else time.time()) - KEEP_DAYS * 86400
+        try:
+            names = [n for n in os.listdir(self.keep_dir) if n.endswith(".json")]
+        except OSError:
+            return
+        for n in names:
+            p = os.path.join(self.keep_dir, n)
+            try:
+                if os.path.getmtime(p) < limit:
+                    os.remove(p)
+            except OSError:
+                pass
 
     def _decisions(self, folder):
         d = fsio.read_json_or(os.path.join(folder, "decisions.json"), None, 8 * 1024 * 1024, kind=dict)

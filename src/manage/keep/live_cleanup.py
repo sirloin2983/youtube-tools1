@@ -122,7 +122,7 @@ class Cleaner:
         v = self.retire.verdict(rc["id"], rec, stale=self._stale(r, now), archived=lambda: self.archived(rc["id"], r))   # 消してよいか(② の判断)
         if v.jobs:
             if v.archived:
-                return self._delete_recorded(rc, rec, "アーカイブ化を確かめた(書き出していないマークはアーカイブから)" if retention.LIVE_FAST_RETIRE else "書き出し済みで、アーカイブ化を確かめた")
+                return self._delete_recorded(rc, rec, "アーカイブ化を確かめた(書き出していないマークはアーカイブから)" if retention.LIVE_FAST_RETIRE else "書き出し済みで、アーカイブ化を確かめた", r)
             if v.why.startswith(live_retire.NOT_ARCHIVED):
                 return self._fate(rc, r, v.why, now)
             return self._keep(r, v.why)
@@ -149,19 +149,19 @@ class Cleaner:
         self._kept.pop(rec, None)
         if d.get("started"):
             self.log("リアルタイム切り抜き: 非公開・見られない配信の録画を 1 本につないで残します %s(%s。録画元「%s」)" % (rec, name, rc.get("name") or rc.get("id")))
-            self.retire.recording_deleted(rc["id"], rec)   # スタジオの画面は「録画は消しました」(つないだ 1 本は置き場所/非公開の録画 に残る)
+            self.retire.recording_deleted(rc["id"], rec, row=r)   # スタジオの画面は「録画は消しました」(つないだ 1 本は置き場所/非公開の録画 に残る)
         return True
 
     def _stale(self, r, now):
         ended = LX.iso_epoch(r.get("endedAt")) or LX.iso_epoch(r.get("lastPdt"))
         return isinstance(ended, (int, float)) and now - ended >= STALE_SEC
 
-    def _delete_recorded(self, rc, rec, why):
+    def _delete_recorded(self, rc, rec, why, r=None):
         """録画を消し(ごみ箱へ)、② の記録に消したことを記す(ジョブの recordingDeleted・検出の記録。マークの正本は残す)-> 消したら True"""
         if not self._delete(rc, rec, why):
             return False
         self._kept.pop(rec, None)
-        res = self.retire.recording_deleted(rc["id"], rec)
+        res = self.retire.recording_deleted(rc["id"], rec, row=r)
         if res == "dropped":
             self.log("リアルタイム切り抜き: 録画のマークの正本を消しました %s" % rec)
         elif res == "unsettled":
@@ -197,8 +197,8 @@ class Cleaner:
                 return False
             self.log("リアルタイム切り抜き: マークの無い録画のスタジオの行を消しました %s" % rec)
         if fast:
-            return self._delete_recorded(rc, rec, "アーカイブ化を確かめた(書き出していないマークはアーカイブから)" if marks or has else "マークが無く、アーカイブ化を確かめた")
-        return self._delete_recorded(rc, rec, "マークが無いまま %d 時間たって、アーカイブ化を確かめた" % int(self.no_mark_sec // 3600))
+            return self._delete_recorded(rc, rec, "アーカイブ化を確かめた(書き出していないマークはアーカイブから)" if marks or has else "マークが無く、アーカイブ化を確かめた", r)
+        return self._delete_recorded(rc, rec, "マークが無いまま %d 時間たって、アーカイブ化を確かめた" % int(self.no_mark_sec // 3600), r)
 
     def _keep(self, r, why):
         """終わっているのに消せない録画を覚える(D-14 の知らせ)。-> False(消していない)"""

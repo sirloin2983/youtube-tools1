@@ -469,8 +469,22 @@ class DetectApiTest(unittest.TestCase):
             last = json.loads(f.read().strip().splitlines()[-1])
         self.assertEqual((last["event"], last["recording"], last["hit"]), ("detect_compare", REC, 1))
         self.assertIsNone(self.det.compare("fake", "20261007-210000-x", a, marks))   # 配信中の候補が無い録画は何もしない
-        self.det.forget("fake", REC)   # 録画を消した(manage/keep/live_cleanup が呼ぶ)
+        kept_dir = os.path.join(self.tmp, "live", D.KEEP_DIR)
+        os.makedirs(kept_dir)
+        old = os.path.join(kept_dir, "fake__old.json")
+        with open(old, "w") as f:
+            f.write("{}")
+        os.utime(old, (time.time() - (D.KEEP_DAYS + 1) * 86400,) * 2)
+        row = {"url": "https://www.youtube.com/watch?v=abcdefghijk", "firstPdt": LX.epoch_iso(T0), "streamStart": LX.epoch_iso(T0 - 60)}
+        self.det.forget("fake", REC, row=row)   # 録画を消した(manage/keep/live_cleanup が呼ぶ)
         self.assertFalse(os.path.exists(self.folder))
+        with open(os.path.join(kept_dir, "fake__%s.json" % REC), encoding="utf-8") as f:   # 10-30: 消す前に候補の区間を写す(控え・見送りも)
+            kept = json.load(f)
+        self.assertEqual((kept["videoId"], kept["streamOffset"]), ("abcdefghijk", 60.0))
+        self.assertEqual(sorted(p["state"] for p in kept["peaks"]), ["bench", "frame", "frame"])
+        p0 = next(p for p in kept["peaks"] if p["id"] == "p0-302")
+        self.assertEqual((p0["start"], p0["streamStart"]), (272, 332.0))
+        self.assertFalse(os.path.exists(old))   # KEEP_DAYS より古い写しは消す
         self.det.forget("..", "x")   # 形の悪い id は何もしない
         self.assertTrue(os.path.isdir(os.path.join(self.tmp, "live")))
 

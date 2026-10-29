@@ -158,7 +158,7 @@ class Retire:
             return None
 
     # --- 書き口 ---
-    def recording_deleted(self, rc_id, rec, replaced=False):
+    def recording_deleted(self, rc_id, rec, replaced=False, row=None):
         """録画を消したことを記す(④ が録画元の delete を済ませたあと): その録画のジョブに recordingDeleted(スタジオの画面が「録画は消しました」と出す)・
         配信中の検出の記録(live/excite/<録画元>/<録画>。線 D の L2)を消す・replaced なら マークの正本(live/marks)も消す。
         マークの正本は案件に写したあとだけ(RS8 B3-5。決定 3-37 の (r8j)): スタジオなしの採用の印(LocalMarks)が残っていれば、全部が案件の 採用.json に
@@ -167,7 +167,7 @@ class Retire:
         -> マークの正本の後始末: "" = しない・"dropped" = 消した・"gone" = もう無い・"unsettled" = 案件にまだ写っていないので残す・"error: …" = 消せない"""
         det = getattr(self.host, "detector", None)
         if det is not None:
-            det.forget(rc_id, rec)
+            det.forget(rc_id, rec, row=row)   # 消す前に候補の区間を写す(row = 録画元の一覧の 1 行。配信の秒と動画の id に使う)
         ex = self._ex
         stamp = LX.now_iso()
         with ex.lock:

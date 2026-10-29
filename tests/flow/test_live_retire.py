@@ -33,7 +33,7 @@ class Detector:
     def __init__(self):
         self.forgot = []
 
-    def forget(self, rc, rec):
+    def forget(self, rc, rec, row=None):
         self.forgot.append((rc, rec))
 
 
