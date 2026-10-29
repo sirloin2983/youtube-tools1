@@ -79,6 +79,8 @@ class HomeBase(unittest.TestCase):
 
     def setUp(self):
         self.tmp = testkit.tempdir(self, "friendsetup-")
+        hosts, S.FETCH_HOSTS = S.FETCH_HOSTS, S.FETCH_HOSTS + ("h",)   # 偽の取り先 https://h/
+        self.addCleanup(setattr, S, "FETCH_HOSTS", hosts)
         self.home = os.path.join(self.tmp, "home")
         self.data = os.path.join(self.home, "data")
         self.friend = os.path.join(self.data, "app", "friendapp")
@@ -135,7 +137,7 @@ class SetupTest(HomeBase):
 
     # ---- 表
     def test_load_refuses_bad_rows(self):
-        for bad in ({"url": "http://h/model.bin"}, {"dest": "../x"}, {"dest": "C:/x"}, {"file": "a/b"}, {"sha256": "zz"}, {"base": "other"},
+        for bad in ({"url": "http://h/model.bin"}, {"url": "https://evil.example/model.bin"}, {"url": "https://github.com.evil.example/x.bin"}, {"dest": "../x"}, {"dest": "C:/x"}, {"file": "a/b"}, {"sha256": "zz"}, {"base": "other"},
                     {"unzip": "rar"}, {"unzip": "wcpp"}, {"size": None, "maxBytes": None}):
             row = dict(self.items[0], **bad)
             self.write_fetch([row])

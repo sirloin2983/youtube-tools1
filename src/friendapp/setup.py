@@ -32,6 +32,7 @@ import tarfile
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 
@@ -41,6 +42,9 @@ from . import places as _places, toolcheck as _toolcheck, ytdlp_update as _ytdlp
 
 UNZIPS = (None, "zip", "tar.bz2", "tar.bz2-member", "wcpp")   # wcpp = CUDA 版の whisper.cpp(表には無い。cuda_item が組む)
 SHA_RE = re.compile(r"^[0-9a-f]{64}\Z")
+# 取りに行ってよい所(公式の配布元だけ。10-29 安全面の直し 4: fetch.json が書き換えられても、ほかの所から取らない)。
+# 足すときは dev/build_friend_zip.py の TOOLS・model_entries の url の host と、tests/friendapp/test_setup.py をそろえる
+FETCH_HOSTS = ("github.com", "huggingface.co", "www.python.org")
 CHUNK = 256 * 1024
 HASH_CHUNK = 1 << 20
 PARALLEL = 3                # 同時に取る数(帯域を食いすぎない上限。1 = 1 つずつ)
@@ -95,6 +99,8 @@ def problem(it):
         return "file の名前が不正です"
     if not it["url"].startswith("https://"):
         return "url が https ではありません"
+    if (urllib.parse.urlsplit(it["url"]).hostname or "") not in FETCH_HOSTS:
+        return "url の取り先が許した配布元ではありません"
     if not SHA_RE.match(it["sha256"]):
         return "sha256 の形が違います"
     if it["base"] not in ("data", "app"):

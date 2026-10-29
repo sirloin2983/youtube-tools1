@@ -244,9 +244,11 @@ class BuildTest(Base):
             with open(os.path.join(self.shared_cache, "tools", t["file"] + ".sha256.json"), encoding="utf-8") as f:
                 rec = json.load(f)
             self.assertEqual((items[t["name"]]["sha256"], items[t["name"]]["base"]), (rec["sha256"], "app"))
+        from friendapp import setup as FS
         for i in items.values():
             self.assertTrue(i["url"].startswith("https://"), i["name"])
             self.assertRegex(i["sha256"], r"^[0-9a-f]{64}$")
+            self.assertIsNone(FS.problem(FS.parse_item(i)), i["name"])   # 友人の PC が取る(取り先が FETCH_HOSTS の中)
 
     def test_extracted_src_imports(self):
         """展開した src だけで友人のアプリの入口(friendapp/server.py)が import で落ちない"""
