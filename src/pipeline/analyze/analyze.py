@@ -28,7 +28,7 @@ AUDIO_LEVEL_IDLE = 900   # 音量の解析(ffmpeg)で、この秒数まったく
 HEAD_SEC_DEFAULT = 180   # 冒頭の減点をかける秒数(0で無効)
 ARCHIVE_KEEP = 2000
 STREAM_KEYS = ("releaseTs", "timestamp", "uploadDate", "liveStatus", "duration")   # 付加情報(fetch.slim_meta)から結果の stream に写す項目
-SPEC_KEYS = ("count", "length", "sensitivity", "preRatio", "lag", "lagAuto", "headSec", "wAudio", "wChat", "wComments", "shape", "fill", "useChat", "fallback", "join")   # 結果・archive に残す設定(fill・useChat = ② が解析し直すかを読む・fallback・join = 印)
+SPEC_KEYS = ("count", "length", "sensitivity", "preRatio", "lag", "lagAuto", "headSec", "wAudio", "wChat", "wComments", "shape", "fill", "useChat", "fallback", "join", "rerank")   # 結果・archive に残す設定(fill・useChat = ② が解析し直すかを読む・fallback・join = 印)
 CHAT_MIN = 30   # チャットの件数がこれ未満なら使わない
 
 
@@ -88,6 +88,7 @@ def make_spec(src, settings):
     spec["source"] = src
     spec["fallback"] = "auto" if excite.AUTO_LEN_ON else None   # 場面が取れないときも自動の長さ(excite.auto_length。設定ではない・印として archive にも残る)
     spec["join"] = excite.JOIN_ON   # 割れた場面をつなぐ(excite.join_clips。同じく設定ではない・印)
+    spec["rerank"] = excite.CHAT_RERANK_ON   # チャットの跳ねと笑いで選び直す(excite.rerank。同じく設定ではない・印)
     if src["kind"] != "youtube":
         spec["useChat"] = spec["useComments"] = False
     return spec
@@ -188,7 +189,7 @@ def audio_levels(ctl, path, dur, wdir, p0=0.12, p1=0.48):
     return full, band
 
 
-def parse_chat(path, n, extra=None):
+def parse_chat(path, n, extra=None, msgs=None):
     """live_chat.json → (1秒ごとの活気, 件数, 「草」などの件数)。extra に辞書を渡すと、1秒ごとの warm(「草」等の件数)/ uniq(発言した人数)/ paid(スパチャ件数)を入れる(記録用)。"""
     act = [0.0] * n
     total = warm_total = 0
@@ -206,6 +207,13 @@ def parse_chat(path, n, extra=None):
                 t = int(ra.get("videoOffsetTimeMsec")) / 1000.0
             except (TypeError, ValueError):
                 continue
+            if msgs is not None and t >= 0:   # 文字の書き込みの時刻と笑いの印(excite.rerank。研究と同じく配信の長さの後も数える)
+                for a in ra.get("actions") or []:
+                    item = (a.get("addChatItemAction") or {}).get("item") if isinstance(a, dict) else None
+                    if isinstance(item, dict) and item:
+                        f = excite.chat_text_flag(*next(iter(item.items())))
+                        if f:
+                            msgs.append((t, f == 2))
             if t < 0 or t >= n:
                 continue
             for r, w, warm, paid in excite.chat_messages(ra.get("actions")):   # 重み(「草」+1.5・スパチャ +4)は配信中の検出と同じ 1 か所
@@ -256,7 +264,7 @@ def _levels(ctl, spec, src, wdir, warnings):
 def _chat_signal(ctl, run, spec, n, comps, info, warnings):
     """チャットの取得(start_chat で始めたもの)を待って解析し、30 件以上なら comps["chat"] に入れる。
     -> {"act", "count", "warm", "extra"}(archive に残す材料。取れなければ act は None)"""
-    out = {"act": None, "count": 0, "warm": 0, "extra": None}
+    out = {"act": None, "count": 0, "warm": 0, "extra": None, "msgs": None}
     c = run["chat"]
     while c["state"] == "running":
         ctl.check()
@@ -272,7 +280,8 @@ def _chat_signal(ctl, run, spec, n, comps, info, warnings):
         return out
     ctl.report(None, "チャットを解析中")
     out["extra"] = {}
-    out["act"], out["count"], out["warm"] = parse_chat(path, n, out["extra"])
+    out["msgs"] = []   # 文字の書き込みの時刻と笑いの印(excite.rerank。archive には残さない)
+    out["act"], out["count"], out["warm"] = parse_chat(path, n, out["extra"], out["msgs"])
     if out["count"] < CHAT_MIN:
         warnings.append("チャットの件数が少ない(%d件)ため、チャットは使っていません" % out["count"])
         fetch.drop_chat_cache(spec["source"]["videoId"])   # 配信の直後はリプレイがまだ揃っていないことがある: 取っておかず、次の解析で取り直す
@@ -320,7 +329,7 @@ def _weights(run, spec, warnings):
     return wts, meta
 
 
-def _save_record(src, spec, dur, n, levels, chat, stamps, ctexts, meta, info, cands, peak_used=False):
+def _save_record(src, spec, dur, n, levels, chat, stamps, ctexts, meta, info, cands, peak_used=False, rerank=None):
     """後から実データで見直すための記録(save_archive)。levels = (full, band)・chat = _chat_signal の結果(使わなかったときは None)。失敗しても解析は続ける"""
     try:
         full, band = levels
@@ -334,7 +343,9 @@ def _save_record(src, spec, dur, n, levels, chat, stamps, ctexts, meta, info, ca
                "peakComment": list(excite.PEAK_COMMENT) if peak_used else None,
                "sceneForm": {k: excite.SCENE[k] for k in ("rise", "hold")},   # 印: 場面のつなぎ方(決定 3-151。無い記録は rise 0.3・hold 10)   # 印: 山を選ぶ点数だけコメントを重くした(決定 3-147。無い記録・None は前の形)
                "candidates": [dict({"start": c["start"], "end": c["end"], "peak": c["peak"], "score": c["score"], "parts": c["parts"]},
-                               **{k: c[k] for k in ("shape", "fixed", "fill", "joined", "pieces") if k in c}) for c in cands]}   # 生の結果(固定の長さの区間・埋めた印)も残す(LD-2b)
+                               **{k: c[k] for k in ("shape", "fixed", "fill", "joined", "pieces", "chatRank") if k in c}) for c in cands]}   # 生の結果(固定の長さの区間・埋めた印)も残す(LD-2b)
+        if rerank is not None:
+            run["rerank"] = rerank   # 印: チャットで選び直した数・落とした候補(excite.rerank)
         save_archive(src["videoId"], payload, run)
     except Exception:
         pass
@@ -395,14 +406,25 @@ def run(spec, ctl=None):
         peak = excite.peak_total(total, stamps, n, wts["comments"]) if info["comments"] else None   # 山を選ぶ点数だけコメントを重く(区間の形は total)
         total = head_ramp(total, spec["headSec"])   # 冒頭は誤検出が多いので、なだらかに減点
         # 材料が重なるほど合計が大きくなる(音声・チャット・コメントが同じ場面を指すと強い)
-        picked = pick_clips(head_ramp(peak, spec["headSec"]), full, spec, n, scene_total=total) if peak else pick_clips(total, full, spec, n)
+        feats = excite.ChatFeats(chat.get("msgs") or []) if spec.get("rerank") and excite.CHAT_RERANK_ON else None
+        rr = None
+        if feats:   # チャットの跳ねと笑いで選び直す(excite.rerank): 候補を RERANK_POOL 本まで(つながずに)出して本数を選び直し、そのあとつなぐ
+            pspec = dict(spec, count=max(excite.RERANK_POOL, spec["count"]), join=False)
+            pool = pick_clips(head_ramp(peak, spec["headSec"]), full, pspec, n, scene_total=total) if peak else pick_clips(total, full, pspec, n)
+            picked, dropped = excite.rerank(pool, feats, spec["count"])
+            if spec.get("join") and excite.JOIN_ON:
+                picked = excite.join_clips(picked)
+            rr = {"raised": sum(1 for c in picked if (c.get("chatRank") or {}).get("up")), "dropped": [[c["start"], c["end"], c["score"]] for c in dropped]}
+        else:
+            picked = pick_clips(head_ramp(peak, spec["headSec"]), full, spec, n, scene_total=total) if peak else pick_clips(total, full, spec, n)
         cands = excite.candidates(picked, comps)   # 山の前後の材料ごとの点数(parts)と理由の文(配信中の候補と同じ式)
-        _save_record(src, spec, dur, n, (full, band), chat if info["chat"] else None, stamps, ctexts, meta, info, cands, peak_used=peak is not None)
+        _save_record(src, spec, dur, n, (full, band), chat if info["chat"] else None, stamps, ctexts, meta, info, cands, peak_used=peak is not None, rerank=rr)
         cands = excite.heat_extra(cands, (meta or {}).get("heatmap"), n, comps, spec.get("preRatio", excite.PRE_RATIO_DEFAULT), head=spec["headSec"])   # よく見られている場面の山を後ろに足す(印 origin heatmap。記録 _save_record には入れない = 今の選び方の測り直しを変えない。10-26)
         series = {"n": n, "step": max(1.0, n / 600), "total": downsample(total), **{k: downsample(v) for k, v in comps.items()}}
         ctl.check()
         result = {"source": {**src, "duration": round(dur, 1)}, "candidates": cands, "series": series, "signals": info,
                   "counts": {"chat": chat["count"], "chatWarm": chat["warm"], "cands": len(cands), "fills": sum(1 for c in cands if c.get("fill")),
+                             **({"rerank": rr} if rr is not None else {}),   # 印: チャットで選び直した数・落とした候補(excite.rerank)
 "commentStamps": len(stamps) if stamps else 0, "meta": bool(meta), "heatmap": len((meta or {}).get("heatmap") or [])},
                   "warnings": warnings, "spec": dict({k: spec.get(k) for k in SPEC_KEYS}, lag=spec.get("lagUsed", spec["lag"])),
                   "stream": {k: meta[k] for k in STREAM_KEYS if (meta or {}).get(k) not in (None, "")}}   # 配信がいつ・どれだけ続いたか(② flow/run.stream_ended_at = チャットの取り直しが読む。付加情報が取れなかったときは空)

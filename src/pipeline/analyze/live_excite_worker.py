@@ -310,6 +310,11 @@ def measure_levels(ffmpeg, path, wdir, job=None, timeout=FFMPEG_TIMEOUT):
 
 def parse_chat_line(line):
     """yt-dlp の live_chat の 1 行 -> [(時刻 epoch, 重み)]。時刻は renderer の timestampUsec(絶対時刻)。無いものは数えない(仮決め)"""
+    return [(ts, w) for ts, w, _f in parse_chat_items(line)]
+
+
+def parse_chat_items(line):
+    """parse_chat_line + 文字の書き込みの印(excite.chat_text_flag: 0 でない / 1 文字 / 2 笑い。excite.PeakBook.chat_note)-> [(時刻 epoch, 重み, 印)]"""
     try:
         d = json.loads(line)
     except ValueError:
@@ -322,8 +327,17 @@ def parse_chat_line(line):
             ts = int(r.get("timestampUsec")) / 1e6
         except (TypeError, ValueError):
             continue
-        out.append((ts, w))
+        out.append((ts, w, _text_flag(acts, r)))
     return out
+
+
+def _text_flag(acts, r):
+    """chat_messages が返した renderer r の種類(addChatItemAction の item の鍵)を探して、文字の書き込みの印"""
+    for a in acts or []:
+        item = ((a.get("addChatItemAction") or {}).get("item")) if isinstance(a, dict) else None
+        if isinstance(item, dict) and item and next(iter(item.values())) is r:
+            return excite.chat_text_flag(next(iter(item)), r)
+    return 0
 
 
 # ---------------------------------------------------------------- 候補の長さの目安(M10)
@@ -670,9 +684,9 @@ class ChatFeed:
                 backlog = gen not in self.read_gens   # 起動して最初に読む束 = 起動の前の過去の分(遅れに数えない。時計がずれた PC でも見分けられるように時刻で決めない)
                 self.read_gens.add(gen)
                 for line in raw[:cut].decode("utf-8", "replace").splitlines():
-                    for ts, w in parse_chat_line(line):
+                    for ts, w, fl in parse_chat_items(line):
                         if ts > self.dedupe_ts:
-                            out.append((ts, w))
+                            out.append((ts, w, fl))
                             if not backlog:
                                 self.delays.append(now - ts)
                         self.max_ts = max(self.max_ts, ts)
@@ -759,7 +773,7 @@ class RecState:
         self.online = excite.Online(use_chat=self.use_chat, **self.args)
         det = clean_detect(detect)
         self.book = excite.PeakBook(self.spec["length"], self.spec["preRatio"], det["sens"], det["perHour"], shape=shape_of(self.spec),
-                                     fallback=fallback_of(), join=excite.JOIN_ON)
+                                     fallback=fallback_of(), join=excite.JOIN_ON, rerank=excite.CHAT_RERANK_ON)
         self.thr_base = self.book.thr   # 感度のしきい値(音だけのときは apply_thr が AUDIO_ONLY_SCALE 倍を帳簿に入れる)
         # 候補が出るまでの遅れを縮める(仮の候補): チャットを待たずに音だけで先に計算する Online(同じ窓・同じ重み。チャットなしの録画は本番がもう待たないので作らない)
         self.fast = excite.Online(use_chat=False, **self.args) if self.use_chat and provisional else None
@@ -820,6 +834,7 @@ class RecState:
         st.book = excite.PeakBook.from_json(d["book"])
         st.book.fallback = fallback_of()   # 起動し直す前の帳簿にも、場面が取れないときの自動の長さ(これから確定する候補から)
         st.book.join = excite.JOIN_ON   # 同じく、割れた場面をつなぐ(これから作る候補から)
+        st.book.rerank = excite.CHAT_RERANK_ON   # 同じく、チャットの跳ねと笑いで枠の順を決める(これから数える書き込みから)
         st.book.shape = shape_of(st.spec)   # 同じく、区間の形(10-28 より前の保存の "fixed" も、固定の長さを使わない excite.AUTO_LEN_ON なら場面ごとに)
         st.thr_base = float(d["thrBase"]) if schemas.is_num(d.get("thrBase")) else st.book.thr
         # 先回りの計算(仮の候補)は state.json に無ければ作らない(本番と秒の数え始めがずれるため。その録画は本番の候補だけ)。変わり目は無ければここから数え始める
@@ -899,10 +914,13 @@ class RecState:
 
     # ---- チャット
     def add_chat(self, msgs):
-        for ts, w in msgs:
+        for m in msgs:
+            ts, w = m[0], m[1]
             sec = ts - self.first
             if sec < 0:
                 continue
+            if len(m) > 2 and m[2]:   # 文字の書き込み(チャットの跳ねと笑い。遅れて届いた分も数える)
+                self.book.chat_note(sec, m[2] == 2)
             b = int(sec)
             if b < self.next_push:
                 self.late += 1
