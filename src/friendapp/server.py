@@ -113,6 +113,7 @@ SWEEP_EVERY = 3600        # 受信箱の 3 日の片付けを見る間隔(秒)
 USING_SEC = 600           # 画面を最後に操作してからこの秒は「操作している」= 定期の更新を当てない(10-29 ユーザー。緊急の更新・指示で配った更新は待たない)
 USING_LABEL = "画面を操作しています"
 UNTOUCHED = ("/api/friend/client-log",)   # 押していなくても届く POST(画面の失敗の記録)= 操作に数えない。ops は中身で見る(_post)
+UPDATE_STUCK_SEC = 180   # 頼んでからこの秒、待つ理由も無いのに入れ替わらなければ、帯に理由と [もう一度]・開き直す案内を戻す(10-29「ボタンが消えて更新できなくなる」)
 AUTO_UPDATE_FILE = "auto-update.json"   # 自動で入れ替えを試した版(ytt/autorestart の記録。1 版につき 1 回)
 AUTO_UPDATE_ENV = "YTT_FRIEND_AUTO_UPDATE"   # "0" で自動の入れ替えをしない([更新する] だけ)
 TIDY_EVERY = 180          # 新しい版のあとのフォルダの整理を見直す間隔(秒。版ごとに 1 回走れば以後は何もしない)
@@ -453,7 +454,7 @@ class Handler(httpsec.LocalHandler):
         if path == "/api/friend/update/apply":   # [更新する]: 作業と預かりが無くなったら exe が入れ替えて開き直す
             if not app.update_version():
                 return self._fail(409, "refused", "新しい版はありません")
-            app.update_requested = True
+            app.update_requested, app.update_requested_at = True, app.clock()   # [もう一度] も同じ口 = 待ちの時間を数え直す
             app.log("[更新する] を押されました(%s)" % app.update_version())
             return self._json(200, {"ok": True, "update": app.update_view()})
         if path == "/api/friend/update/now":   # [今すぐ]・[今すぐ更新]: 録画中だけ待つ
@@ -596,6 +597,7 @@ class FriendApp:
         self.make_engine = make_engine
         self.closing = threading.Event()
         self.server = None
+        self.update_requested_at = None   # 頼んだ時刻(帯の「入れ替わらない」の数え。押す・自動で頼む・[今すぐ] のどれでも、最初に帯を読んだ時から)
         self.update_requested = False   # 画面の [更新する](exe が見回りで見て、作業が無ければ入れ替える)。auto_update も立てる
         self.touched_at = 0.0           # 画面を最後に操作した時刻(touch。定期の更新を当てるのを待つ = auto_busy)
         # exe が前の版へ戻した = 起動できなかった版("72,71" = 新しい方から起きなかった順。数字と . 以外の名前は捨てる)
@@ -824,7 +826,18 @@ class FriendApp:
         hold = st and self.upgrade.wait_code(st, v)   # 入れ替えを待つ理由(friendapp/upgrade.wait_reason)
         hosted = (os.environ.get(HOST_ENV) or "").strip() == "webview2"
         auto = bool(v and hosted and os.environ.get(AUTO_UPDATE_ENV, "").strip() != "0" and _autorestart.read_tried(self._auto_path()) != v)
-        return {"available": bool(v), "version": v, "requested": bool(v and self.update_requested), "waiting": bool(hold),
+        now = self.clock()
+        if not (v and self.update_requested):
+            self.update_requested_at = None
+        elif self.update_requested_at is None:
+            self.update_requested_at = now
+        stuck = ""   # 頼んだのに入れ替わらない理由(exe が見ていない・古い exe・戻す途中 など)= 帯にボタンを戻す
+        if v and self.update_requested and hosted and not hold:
+            if getattr(getattr(self, "upgrade", None), "rollback", None):
+                stuck = "前の版へ戻す途中です"
+            elif now - self.update_requested_at >= UPDATE_STUCK_SEC:
+                stuck = "入れ替えが %d 分始まりません" % int((now - self.update_requested_at) // 60)
+        return {"available": bool(v), "version": v, "requested": bool(v and self.update_requested), "waiting": bool(hold), "stuck": stuck,
                 "label": (st or {}).get("label") or "", "hosted": hosted, "auto": auto,
                 "autoWait": (self.auto_busy(v) or "") if auto and not self.update_requested else "",   # 自動で当てるのを待っている理由(画面の「作業が終わったら当てます」)
                 **self.upgrade.view(v)}

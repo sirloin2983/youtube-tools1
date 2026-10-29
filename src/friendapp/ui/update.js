@@ -47,10 +47,30 @@
       if (u.auto) box.appendChild(el('span', 'fr-update-text', ')'));
       return;
     }
+    /* 頼んだ後もボタンを無くさない(10-29「たまにボタンが消えて更新できなくなる」): 入れ替わらなければ理由と [もう一度]・開き直す案内、待っている間は [今すぐ] */
+    if (u.hosted && u.stuck) {
+      msg.textContent = '新しい版 ' + u.version + ' に入れ替えられていません(' + u.stuck + ')。もう一度押すか、アプリを閉じて開き直すと新しい版で起動します';
+      box.appendChild(msg);
+      var again = el('button', 'btn primary small', 'もう一度');
+      again.type = 'button';
+      again.setAttribute('data-fr-update-again', '');
+      again.title = '新しい版への入れ替えをもう一度頼みます';
+      again.addEventListener('click', function () { apply(box, again); });
+      box.appendChild(again);
+      return;
+    }
     if (!u.hosted) msg.textContent = '新しい版 ' + u.version + ' は、アプリを開き直すと使えます';
     else if (u.waiting) msg.textContent = '作業が終わったら新しい版 ' + u.version + ' に更新します' + (u.label ? '(' + u.label + ')' : '');
     else msg.textContent = '新しい版 ' + u.version + ' に更新しています。開き直すまでお待ちください';
     box.appendChild(msg);
+    if (u.hosted && u.waiting && !u.now) {
+      var soon = el('button', 'btn small', '今すぐ');
+      soon.type = 'button';
+      soon.setAttribute('data-fr-update-now', '');
+      soon.title = '今の処理を止めて新しい版に入れ替えます(止めた処理は開き直したあと続きから。録画中は録画が終わってから)';
+      soon.addEventListener('click', function () { apply(box, soon, 'update/now'); });
+      box.appendChild(soon);
+    }
   }
 
   function apply(box, b, path) {
