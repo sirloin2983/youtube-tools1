@@ -82,6 +82,7 @@ JOB_RE = re.compile(r"^lx-[0-9a-f]{8,16}\Z")
 SEG_URI_RE = recproto.SEG_URI_RE
 YT_ID_RE = recproto.YT_VID_RE
 STUDIO_ID_RE = re.compile(r"^[\w-]{1,40}\Z", re.ASCII)              # スタジオの配信・マークの id(P3。POST /live/api/export の studio)
+NAME_FROM_STREAM = True    # 名前の時刻を配信の開始時刻(streamStart)から数える(10-29。False = 前の録画の頭から。アーカイブの秒が分かっていればいつもそれ)
 MAX_MARKS = 300            # 録画1本のマークの数
 MAX_MARK_SEC = _marks.MAX_MARK_SEC   # 1つのマークの長さ(スタジオと同じ = ytt/marks)
 LABEL_MAX = 80
@@ -1137,9 +1138,11 @@ class Exporter(Patrol):
         fsio.replace_retry(tmp, final)
         return dict(info, path=final, title=title, audio=audio), None
 
-    def target(self, job, d, rec, a, b):
+    def target(self, job, d, rec, a, b, at=None):
         """書き出す場所と名前(スタジオの書き出しと同じ規則)。-> (配信のフォルダ, 名前(拡張子なし), 題)。
-        アーカイブで新しく作る(P4。src/flow/live_archive.py の欠けのマーク)も同じ規則で決める"""
+        アーカイブで新しく作る(P4。src/flow/live_archive.py の欠けのマーク)も同じ規則で決める。
+        名前の時刻 = 友人が配信のアーカイブで場面を探せる秒(10-29: 録画の頭からの秒だと、録画を遅れて始めた分 = 数十秒〜数十分ずれていた):
+        at(アーカイブの秒 (始まり, 終わり)。照合して分かっているとき)→ 配信の開始時刻 streamStart からの秒 → 録画の頭からの秒(_base)の順"""
         title = self._title(job, d)
         root = self.out_dir()
         if not root or not os.path.isabs(root):
@@ -1147,8 +1150,17 @@ class Exporter(Patrol):
         os.makedirs(root, exist_ok=True)
         owner = video_id_of(d.get("url"), rec) or "live-" + rec
         folder = pick_folder(root, title, owner)
-        base = self._base(d, a)
-        return folder, names.clip_base(folder, job.get("n") or 0, a - base, b - base, job.get("label"), unique=unique_base), title
+        s0, s1 = self.name_secs(d, a, b, at)
+        return folder, names.clip_base(folder, job.get("n") or 0, s0, s1, job.get("label"), unique=unique_base), title
+
+    @classmethod
+    def name_secs(cls, d, a, b, at=None):
+        """名前に使う秒 (始まり, 終わり)(target の注の順)。.clip.json の range の 0 秒(_base = 録画の頭)は変えない"""
+        if at and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in at) and at[1] > at[0] >= 0:
+            return at[0], at[1]
+        ss = iso_epoch(d.get("streamStart")) if NAME_FROM_STREAM else None
+        base = ss if ss is not None and ss <= a else cls._base(d, a)
+        return a - base, b - base
 
     def _bundle_of(self, job):
         """ジョブの録画の束(親の bundles。録画を始めたときに受けた物。RS7-2 G2b)か None(束の無い録画・親が持たない)"""

@@ -1381,17 +1381,17 @@ class Archiver(LX.Patrol):
             est, dur = a - t0, b - a
             root = self.ex.out_dir()
             d = self._rec_meta(job)
-            folder, base, title = self.ex.target(job, d, rec, a, b)
+            self._aset(job, state="align", message="録画の音とアーカイブの音を照合しています", progress=0.05)
+            off, how = self._job_offset(job, vid, t0, a, b)
+            ast = est + off
+            self._aset(job, offset=round(off, 3), offsetFrom=how)
+            folder, base, title = self.ex.target(job, d, rec, a, b, at=(ast, ast + dur))   # 名前 = アーカイブの秒(照合のあと。10-29)
             tdir = os.path.join(folder, schemas.WORK_DIR, BUILD_DIR, job["id"])
             if not inside(tdir, root):
                 raise ArchiveError("書き出し先の外には書けません")
             tmp = os.path.join(tdir, base + ".mp4")
             shutil.rmtree(tdir, ignore_errors=True)
             os.makedirs(tdir, exist_ok=True)
-            self._aset(job, state="align", message="録画の音とアーカイブの音を照合しています", progress=0.05)
-            off, how = self._job_offset(job, vid, t0, a, b)
-            ast = est + off
-            self._aset(job, offset=round(off, 3), offsetFrom=how)
             m = self.ex.margin(job)   # 余白(LD-2f。録画から書き出すときと同じ束の export.margin)。アーカイブの 0 秒より前へは出さない
             rb = self.ex._base(d, a)   # .clip.json の秒の 0 = 録画の頭。余白はそれより前へは出さない(actualStart が負になる)
             before = min(m, max(0.0, ast), max(0.0, a - rb))

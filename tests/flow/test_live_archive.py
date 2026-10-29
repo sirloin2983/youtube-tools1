@@ -41,7 +41,7 @@ import testkit  # noqa: E402
 from flow import board as Board  # noqa: E402
 from flow import live_archive as A  # noqa: E402
 from flow import live_export as LX  # noqa: E402
-from ytt import fsio, jobs, marks as _marks, schemas, tools  # noqa: E402
+from ytt import fsio, jobs, marks as _marks, names, schemas, tools  # noqa: E402
 
 FF = tools.find_tool("ffmpeg", "YTT_FFMPEG")
 RELEASE = 1790000000.0            # 配信の開始時刻(偽の yt-dlp の release_timestamp)
@@ -228,6 +228,7 @@ class ArchiveTest(unittest.TestCase):
             self.assertTrue(a["aligned"])
             self.assertIn("マークの手前の録画の音", a["offsetFrom"])
             self.assertTrue(j["path"].startswith(os.path.join(self.out, "配信の題")), j["path"])
+            self.assertIn("_%s-%s" % (names.compact_ts(a["archiveStart"]), names.compact_ts(a["archiveStart"] + dur)), os.path.basename(j["path"]))   # 名前 = アーカイブの秒(録画の頭からではない・10-29)
             c = fsio.read_json_file(j["manifest"], 1 << 20)
             self.assertEqual((c["source"]["kind"], c["source"]["live"]["archive"]["videoId"], c["export"]["from"]), ("live", VID, "youtube-archive"))
         self.assertAlmostEqual(fsio.read_json_file(j1["manifest"], 1 << 20)["range"]["start"], 150.047 - 100.0, delta=0.01)   # recBase からの秒

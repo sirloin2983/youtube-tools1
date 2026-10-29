@@ -565,6 +565,18 @@ class ExportPiecesTest(unittest.TestCase):
         self.assertEqual(LA.pad_secs(10.0, 20.0, 1.5, {}, first), (8.5, 21.5))
         self.assertEqual(LA.pad_secs(0.0, LX.MAX_MARK_SEC, 2, {}, first), (0.0, float(LX.MAX_MARK_SEC)))
 
+    def test_name_secs_from_stream_start(self):
+        """名前の時刻(10-29: 録画を遅れて始めた分ずれていた)= アーカイブの秒 → 配信の開始時刻 streamStart からの秒 → 録画の頭(firstPdt)からの秒"""
+        first = 1_700_001_094.0
+        d = {"firstPdt": LX.epoch_iso(first), "streamStart": LX.epoch_iso(first - 1094.0)}
+        self.assertEqual(LX.Exporter.name_secs(d, first + 242.0, first + 420.0), (1336.0, 1514.0))           # 配信の頭から
+        self.assertEqual(LX.Exporter.name_secs(d, first + 242.0, first + 420.0, at=(1332.5, 1510.5)), (1332.5, 1510.5))   # 照合したアーカイブの秒が先
+        self.assertEqual(LX.Exporter.name_secs({"firstPdt": d["firstPdt"]}, first + 242.0, first + 420.0), (242.0, 420.0))   # 開始時刻が無い = 録画の頭から
+        late = dict(d, streamStart=LX.epoch_iso(first + 300.0))   # 開始時刻がマークより後(おかしい)= 使わない
+        self.assertEqual(LX.Exporter.name_secs(late, first + 242.0, first + 420.0), (242.0, 420.0))
+        with mock.patch.object(LX, "NAME_FROM_STREAM", False):
+            self.assertEqual(LX.Exporter.name_secs(d, first + 242.0, first + 420.0), (242.0, 420.0))
+
     def test_pick_folder_owner_default(self):
         """配信の名前(題)が空のときの持ち主の既定名(規則の本体は ytt.names。tests/ytt/test_ytt_core.py の TestNames)"""
         root = os.path.join(self.tmp, "out")
