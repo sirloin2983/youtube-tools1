@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) 
 import testkit  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from flow import live_retire as LR  # noqa: E402
+from flow import live_archive  # noqa: E402
 from flow import retention  # noqa: E402
 from ytt import fsio  # noqa: E402
 
@@ -139,6 +140,9 @@ class RetireTest(unittest.TestCase):
     def test_fate_and_private_name(self):
         """終わった録画をどうするか(両方の PC で同じ。10-24): 確かめた = 消す・非公開と分かった / 24 時間でアーカイブにならない = 残す・ほか = 待つ"""
         no = LR.NOT_ARCHIVED + "(x)"
+        wait = no + "(%s)" % LR.NOT_PROCESSED   # 見られるが処理済みの版を待つ間は 24 時間で非公開扱いにしない(上限 PROCESS_WAIT_SEC。10-30)
+        self.assertEqual([LR.fate(wait, "", True), LR.fate(wait, "", True, True), LR.fate(wait, "private", False)], ["", "private", "private"])
+        self.assertEqual(LR.NOT_PROCESSED, live_archive.NOT_PROCESSED)   # 2 か所の文がそろっている
         self.assertEqual([LR.fate("", "", False), LR.fate(no, "private", False), LR.fate(no, "", True), LR.fate(no, "", False)],
                          ["delete", "private", "private", ""])
         now = 2000000000.0

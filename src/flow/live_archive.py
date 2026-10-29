@@ -46,6 +46,8 @@ ffmpeg で 8kHz の音にする(数秒)・照合(子プロセスで 1〜2 秒)�
 
 アーカイブ化したか(archived。録画を消す判断 = src/flow/live_retire.py の Retire.verdict が聞く): 用意を確かめた結果が was_live・限定でない・
 開始時刻と長さが分かり、アーカイブの終わり(開始 + 長さ)が録画の終わり − ARCHIVED_SLACK(900 秒)より後。確かめたのが INTERVAL より前なら確かめ直す。
+加えて YouTube の処理済みの版に置き換わったこと(processed。10-30): 配信直後の版は was_live・長さありでも形式が m3u8(と断片の DASH)だけで、
+処理が済むと断片でない https の形式(DASH の 140・251・18 など)が並ぶ。これが無い間は消さない(10-29 に配信の 3 分後に消えた不具合)。
 
 できないもの: アーカイブが残らない・メンバー限定・非公開・配信者がアーカイブを切り貼りして音が合わない区間 → 書き出せない(理由を archive.message に出す)。
 
@@ -143,6 +145,8 @@ UNAVAILABLE = ("subscriber_only", "premium_only", "needs_auth", "private", "remo
 
 CANCELLED_MSG = "取り消しました(アーカイブから書き出していません)"
 NOT_ARCHIVED = "アーカイブ化をまだ確かめられていない"   # archived が返す理由の頭(src/flow/live_retire.py が 3 日の期限で消してよい理由に数える)
+NOT_PROCESSED = "YouTube の処理済みの版にまだ置き換わっていない"   # archived の理由の中身(src/flow/live_retire.fate はこの間 24 時間で非公開扱いにしない)
+PROCESSED_PROTOCOLS = ("https", "http")   # 処理済みの版にだけある形式の取り方(断片でない。配信直後は m3u8_native・http_dash_segments だけ)
 
 
 def from_archive(job):
@@ -204,7 +208,8 @@ def _pause(sec, cancelled=None):
 def probe_archive(video_id, timeout=PROBE_TIMEOUT, retries=None, wait=None, cancelled=None):
     """yt-dlp でアーカイブの状態を調べる(ダウンロードしない)。video_id は検査済みの 11 文字だけ(URL はここで組み立てる)。
     調べられなかった(HTTP 403 などの一時的な失敗。メンバー限定・非公開は除く)ときは wait 秒あけて retries 回までやり直す。
-    -> {"status": live_status か "unknown", "release", "timestamp", "duration"(数か None), "availability", "message"}"""
+    -> {"status": live_status か "unknown", "release", "timestamp", "duration"(数か None), "availability", "message",
+        "processed"(処理済みの版に置き換わった = 断片でない https の形式がある。True|False|None = 形式が分からない)}"""
     retries = YTDLP_RETRIES if retries is None else retries
     for n in range(retries + 1):
         p = _probe_once(video_id, timeout)
@@ -223,7 +228,7 @@ def _probe_once(video_id, timeout):
     if not yd:
         return {"status": "unknown", "message": "yt-dlp が見つからないので、アーカイブを確かめられませんでした", "final": True}
     cmd = tools.ytdlp_print_cmd(yd, "https://www.youtube.com/watch?v=" + video_id,   # 調べ方は配信中か(livesession.probe_live)と同じ
-                                "%(live_status)s\t%(release_timestamp)s\t%(timestamp)s\t%(duration)s\t%(availability)s")
+                                "%(live_status)s\t%(release_timestamp)s\t%(timestamp)s\t%(duration)s\t%(availability)s\t%(formats.:.protocol)l")
     try:
         code, out, tail = run_proc(cmd, timeout)
     except ArchiveError as e:
@@ -239,10 +244,19 @@ def _probe_once(video_id, timeout):
             return {"status": "unknown", "availability": "removed", "message": "見られない配信なので、アーカイブを取れません"}
         return {"status": "unknown", "message": "アーカイブを確かめられませんでした" + ("(%s)" % last[:160] if last else "")}
     p = lines[-1].split("\t")
-    p += [""] * (5 - len(p))
+    p += [""] * (6 - len(p))
     st = p[0].strip()
     return {"status": st if st in ("is_live", "is_upcoming", "was_live", "not_live", "post_live") else "unknown",
-            "release": _num(p[1]), "timestamp": _num(p[2]), "duration": _num(p[3]), "availability": p[4].strip(), "message": ""}
+            "release": _num(p[1]), "timestamp": _num(p[2]), "duration": _num(p[3]), "availability": p[4].strip(), "message": "",
+            "processed": processed_of(p[5])}
+
+
+def processed_of(protocols):
+    """yt-dlp の %(formats.:.protocol)l(", " でつないだ形式ごとの取り方)-> 処理済みの版か(True|False|None = 形式が分からない)"""
+    names = [x.strip() for x in (protocols or "").split(",") if x.strip() and x.strip() != "NA"]
+    if not names:
+        return None
+    return any(x in PROCESSED_PROTOCOLS for x in names)
 
 
 def readiness(p):
@@ -657,13 +671,14 @@ class Archiver(LX.Patrol):
                 p = {"status": "unknown", "message": "アーカイブを確かめられませんでした(%s)" % e.__class__.__name__}
             ready, msg = readiness(p)
         return self._info_put(rc, rec, videoId=vid, ready=ready, message=msg, checkedAt=LX.now_iso(), release=p.get("release"), timestamp=p.get("timestamp"),
-                              duration=p.get("duration"), availability=p.get("availability") or "")
+                              duration=p.get("duration"), availability=p.get("availability") or "", processed=p.get("processed"))
 
     def archived(self, rc, r):
         """アーカイブ化したか(録画を消してよい合図。src/flow/live_retire.py の Retire.verdict が聞く)。r = 録画元の一覧の 1 行(終わった録画)。
         -> "" = 確かめた / 消さない理由(NOT_ARCHIVED で始まる文)。
         消す直前に必ず確かめ直す(前の結果が「用意できた」でも probe し直す。数秒)。用意がまだと分かったばかり(INTERVAL 以内)なら確かめ直さない。
-        条件: was_live・限定でない・開始時刻と長さが分かる・アーカイブの終わり(開始 + 長さ)が録画の終わり − ARCHIVED_SLACK より後"""
+        条件: was_live・限定でない・開始時刻と長さが分かる・アーカイブの終わり(開始 + 長さ)が録画の終わり − ARCHIVED_SLACK より後・
+        処理済みの版に置き換わった(processed が True。形式が分からないときも消さない)"""
         rec = str((r or {}).get("id") or "")
         if not self.enabled() or not LX.REC_RE.match(rec):
             return NOT_ARCHIVED
@@ -672,8 +687,8 @@ class Archiver(LX.Patrol):
             return NOT_ARCHIVED + "(YouTube の動画が分からない録画)"
         with self.lock:
             i = dict(self.info.get(self.key(rc, rec)) or {})
-        if i.get("ready") is not True and _checked_within(i, self.interval):
-            return NOT_ARCHIVED + "(%s)" % (i.get("message") or "アーカイブがまだ用意できていません")
+        if (i.get("ready") is not True or i.get("processed") is False) and _checked_within(i, self.interval):
+            return NOT_ARCHIVED + "(%s)" % (NOT_PROCESSED if i.get("ready") is True else i.get("message") or "アーカイブがまだ用意できていません")
         i = self.check(rc, rec, vid=vid)
         if i.get("ready") is not True:
             return NOT_ARCHIVED + "(%s)" % (i.get("message") or "アーカイブがまだ用意できていません")
@@ -685,6 +700,8 @@ class Archiver(LX.Patrol):
             return NOT_ARCHIVED + "(録画の終わりの時刻が分からない)"
         if t0 + dur < ended - ARCHIVED_SLACK:
             return NOT_ARCHIVED + "(アーカイブが録画の終わりまで無い。%d 秒足りない)" % int(ended - t0 - dur)
+        if i.get("processed") is not True:   # 配信直後の版(10-29 の不具合)。形式が分からないときも消さない
+            return NOT_ARCHIVED + "(%s)" % (NOT_PROCESSED if i.get("processed") is False else "形式が分からず、処理済みの版か確かめられない")
         return ""
 
     def unavailable(self, rc, r):

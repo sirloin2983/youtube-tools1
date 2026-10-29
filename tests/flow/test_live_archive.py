@@ -676,9 +676,20 @@ class AfterStreamTest(unittest.TestCase):
         a = self.archiver()
         a.interval = 3600.0
         probes = []
-        info = {"status": "was_live", "release": RELEASE, "duration": self.arc_sec, "availability": "public"}
+        info = {"status": "was_live", "release": RELEASE, "duration": self.arc_sec, "availability": "public", "processed": False}
         a.probe = lambda vid: probes.append(vid) or dict(info)
         r = dict(self.rec, endedAt=self.first + self.HOURS * 3600)
+        # 10-29 の不具合: 配信直後の版(was_live・長さあり・形式は m3u8 だけ)では消さない。形式が分からないときも消さない
+        self.assertIn(A.NOT_PROCESSED, a.archived("local", r))
+        self.assertIn(A.NOT_PROCESSED, a.archived("local", r))
+        self.assertEqual(len(probes), 1)   # 置き換わっていないと分かったばかりなら確かめ直さない
+        a.info.clear()
+        info["processed"] = None
+        self.assertTrue(a.archived("local", r).startswith(A.NOT_ARCHIVED))
+        self.assertEqual([A.processed_of("m3u8_native, m3u8_native, http_dash_segments"), A.processed_of("mhtml, m3u8_native, https, https"),
+                          A.processed_of("NA"), A.processed_of("")], [False, True, None, None])
+        info["processed"] = True
+        probes.clear()
         self.assertEqual(a.archived("local", r), "")
         self.assertEqual(a.archived("local", r), "")
         self.assertEqual(len(probes), 2)   # 用意できた記録があっても、消す直前は確かめ直す

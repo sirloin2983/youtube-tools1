@@ -344,7 +344,7 @@ class FriendLive(_ls.LiveSession):
                 if r.get("keepError") and now - self._keep_tried.get(rec, 0.0) < KEEP_RETRY:
                     continue
                 fate = "private" if r.get("keepError") else _retire.fate(self.archiver.archived(rc["id"], r), self.archiver.unavailable(rc["id"], r),
-                                                                         _retire.overdue(r, now))
+                                                                         _retire.overdue(r, now), _retire.overdue(r, now, _retire.PROCESS_WAIT_SEC))
                 if fate == "delete":
                     code, _d = self.call(rc, "POST", "/live/%s/delete" % rec, {}, timeout=30.0)
                     if code == 200:

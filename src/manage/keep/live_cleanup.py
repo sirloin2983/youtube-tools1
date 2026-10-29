@@ -134,7 +134,7 @@ class Cleaner:
             unav = self.unavailable(rc["id"], r)
         except Exception:   # noqa: BLE001  (分からなければ残す)
             unav = ""
-        if live_retire.fate(why, unav, live_retire.overdue(r, now)) == "private":
+        if live_retire.fate(why, unav, live_retire.overdue(r, now), live_retire.overdue(r, now, live_retire.PROCESS_WAIT_SEC)) == "private":
             return self._keep_private(rc, r)
         return self._keep(r, why)
 

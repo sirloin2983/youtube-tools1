@@ -27,6 +27,8 @@ NOT_ARCHIVED = "アーカイブ化をまだ確かめられていない"   # live
 STUDIO_UNKNOWN = "スタジオに確かめられない"
 PRIVATE_MARK = "非公開"   # 非公開・見られない配信の録画を残す名前の終わり(日付_配信者_題_非公開)
 ARCHIVE_WAIT_SEC = 24 * 3600.0   # 終わってこれだけたってもアーカイブにならない録画は非公開と同じ扱い(1 本につないで残す)
+PROCESS_WAIT_SEC = 7 * 24 * 3600.0   # 見られるアーカイブが YouTube の処理済みの版に置き換わるのを待つ上限(10-30。過ぎたら非公開と同じ扱い)
+NOT_PROCESSED = "YouTube の処理済みの版にまだ置き換わっていない"   # live_archive.NOT_PROCESSED と同じ文
 _NAME_BAD = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
 
 # 録画を消してよいかの答え: jobs = 書き出しのジョブがあるか(無ければ ④ はマークの無い録画の道へ)・why = 消せない理由(空 = 消してよい)・
@@ -34,21 +36,24 @@ _NAME_BAD = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
 Verdict = collections.namedtuple("Verdict", "jobs why archived")
 
 
-def fate(archived_why, unavailable, late):
+def fate(archived_why, unavailable, late, process_late=False):
     """終わった録画をどうするか(両方の PC で同じ。10-24): archived_why = Archiver.archived の答え("" = アーカイブ化を確かめた)・
     unavailable = Archiver.unavailable の答え(非公開・見られないと分かった種類。分からなければ "")・late = overdue(終わって 24 時間たった)。
+    process_late = overdue(r, now, PROCESS_WAIT_SEC)。アーカイブは見られて処理済みの版を待つ間(NOT_PROCESSED)は late でなくこちらで決める(10-30)。
     -> "delete"(消す = アーカイブがはっきり見られるときだけ)・"private"(消さずに 1 本につないで名前に「非公開」。分かったらすぐ)・""(まだ待つ)"""
     if archived_why == "":
         return "delete"
+    if NOT_PROCESSED in (archived_why or ""):
+        late = process_late
     if unavailable or late:
         return "private"
     return ""
 
 
-def overdue(r, now):
-    """録画が終わって ARCHIVE_WAIT_SEC(24 時間)たったか(終わりの時刻が分からなければ False = 待つ)。r = 録画元の一覧の 1 行"""
+def overdue(r, now, sec=ARCHIVE_WAIT_SEC):
+    """録画が終わって sec(既定 ARCHIVE_WAIT_SEC = 24 時間)たったか(終わりの時刻が分からなければ False = 待つ)。r = 録画元の一覧の 1 行"""
     ended = LX.iso_epoch(r.get("endedAt")) or LX.iso_epoch(r.get("lastPdt"))
-    return isinstance(ended, (int, float)) and now - ended >= ARCHIVE_WAIT_SEC
+    return isinstance(ended, (int, float)) and now - ended >= sec
 
 
 def private_name(r):
