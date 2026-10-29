@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _checkkit as kit  # noqa: E402  (src を sys.path へ・YTT_DATA_DIR の既定・write・Ctx)
@@ -54,6 +55,15 @@ class SpeechSourcesTest(unittest.TestCase):
         for tid in (DOC, EVAL_DOC):
             write(os.path.join(tx, tid + ".diar.json"), {"schema": sources.DIAR_SCHEMA, "latest": {"rows": {}, "turns": TURNS}, "history": []})
         self.ctx = Ctx(os.path.join(self.tmp, "app"), ROOT, env=self.env, eval_dirs=[])
+        on = mock.patch.object(speech_sources, "CARDS_ON", True)   # 既定はオフ(10-29)。作り方はスイッチを入れて見る
+        on.start()
+        self.addCleanup(on.stop)
+
+    def test_off_by_default(self):
+        """既定はオフ(10-29 ユーザー「止めていい」): 判別の記録があってもカードを作らない"""
+        with mock.patch.object(speech_sources, "CARDS_ON", False):
+            self.assertEqual(self.cards(), [])
+        self.assertTrue(self.cards())
 
     def cards(self):
         return speech_sources.speech_diar(sources.View(self.ctx))

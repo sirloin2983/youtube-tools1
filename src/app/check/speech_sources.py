@@ -8,6 +8,8 @@ import bisect
 from ytt import schemas as _yschemas
 from . import sources   # 同じ app/check の兄弟(register・_doc_card・_rows を読む)
 
+CARDS_ON = False        # このカードを出すか(10-29 ユーザー「止めていい」: 答え 739 件のうち「消す」は 4 件 = 役に立っていない。plan/声ですかのカードの見直し-1029.md)。
+                        # True で戻る。前の答えの記録と「字幕に出さない」印はそのまま。評価のレーンの区間カード(eval_sources)の声の割合は _turns・_overlap を使い続ける
 VOICE_MIN_RATIO = 0.3   # 行の長さのこの割合以上が声の区間と重なれば声の行(候補にしない)
 MIN_ROW_SEC = 0.3       # これより短い行は候補にしない
 PAD = 1.5               # 再生の前後の余白(秒)
@@ -39,6 +41,8 @@ def _overlap(turns, a, b):
 
 
 def speech_diar(view):
+    if not CARDS_ON:
+        return []   # 出どころでカードを作らない = 残っていた分も出ない(待ち行列は毎回出どころから集める)
     out, per = [], {}
     for tid, path, doc in view.docs(shorts=True):
         latest = view.diar(tid, path)

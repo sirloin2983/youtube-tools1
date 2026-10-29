@@ -64,7 +64,8 @@ class ShortJobsTest(unittest.TestCase):
         self.short("bbbbbbbbbbb1", "26-01-02_%s.mov" % MIKO, segs, diar={"turns": [{"start": 100.0, "end": 101.0}]})
         v = self.view()
         self.assertEqual(len(sources.read_fill(v)), sources.SHORT_CAP)            # 読み: ショート 1 本から 2 枚まで
-        self.assertEqual(len(speech_sources.speech_diar(v)), sources.SHORT_CAP)   # 声ですか: 同じく
+        with mock.patch.object(speech_sources, "CARDS_ON", True):   # 声ですかは既定でオフ(10-29)
+            self.assertEqual(len(speech_sources.speech_diar(v)), sources.SHORT_CAP)   # 声ですか: 同じく
         self.assertEqual(v.docs(), [])                                             # 普段の一覧(時刻など)には入れない
         cards = voice_solo.voice_solo(self.view())
         self.assertTrue(cards and all(c["target"]["row"] in ("s0", "s1", "s2", "s3") for c in cards))   # 行の多い話者 S1 の行だけ
