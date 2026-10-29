@@ -168,6 +168,13 @@ def press(pg, key):
     wait_js(pg, LOADED_JS, 5000)
 
 
+def answer_key(pg):
+    """今のカードに答えるキー: 価値の候補(cand)= A・自動の切り抜き = 点の 4(10-29 点だけで答える)・ほか = 1"""
+    if state(pg)["kind"] != "value":
+        return "1"
+    return "a" if pg.evaluate("!!document.querySelector(\"#chkBody [data-chk-k='A']\")") else "4"
+
+
 def _scene_open(cx):
     pg, check, fq = cx.pg, cx.check, cx.fq
     pg.goto(cx.base + "check?c=v1&kind=value&back=cases")
@@ -186,11 +193,11 @@ def _scene_open(cx):
 
 def _scene_answer_undo_skip(cx):
     pg, check, fq = cx.pg, cx.check, cx.fq
-    press(pg, "a")
-    check(state(pg)["cur"] == "value:e2e:02", "A で答えるとすぐ次へ: %s" % state(pg)["cur"])
+    press(pg, "4")
+    check(state(pg)["cur"] == "value:e2e:02", "点の 4 で答えるとすぐ次へ: %s" % state(pg)["cur"])
     check(wait_js(pg, "CheckShell.state().hist === 1") and len(fq.answers) == 1, "答えを 1 件送った")
     a = fq.answers[0]["body"]
-    check(a["card"] == "value:e2e:01" and a["answer"] == {"choice": "good"} and isinstance(a["ms"], int) and "value:e2e:02" in a["skip"],
+    check(a["card"] == "value:e2e:01" and a["answer"] == {"choice": "good", "score": 4} and isinstance(a["ms"], int) and "value:e2e:02" in a["skip"],
           "送った中身(card・answer・ms・待っている id): %s" % a)
     check(pg.text_content("#chkToday") == "1", "帯: 今日 1 件")
     press(pg, "n")
@@ -199,25 +206,24 @@ def _scene_answer_undo_skip(cx):
     check(wait_js(pg, "CheckShell.state().cur === 'value:e2e:01'"), "Z で最後に答えたカードへ戻る(飛ばしたカードは戻さない): %s" % state(pg))
     check(fq.undone == ["ans001"] and pg.text_content("#chkToday") == "0", "undo に答えの id を送り、今日の数も戻る: %s" % fq.undone)
     check(state(pg)["queue"][:1] == ["value:e2e:03"], "戻る前のカードは次に回る: %s" % state(pg)["queue"][:3])
-    pg.click("#chkBody [data-chk-k='X']")   # 悪い = 理由の札の段へ(まだ答えない)
-    check(state(pg)["cur"] == "value:e2e:01" and wait_js(pg, "!!document.querySelector(\"#chkBody [data-chk-k='1']\")"), "X(悪い)は理由の札を出すだけ: %s" % state(pg)["cur"])
+    pg.click("#chkBody [data-chk-k='2']")   # 点の 2 = 悪い = 理由の札の段へ(まだ答えない)
+    check(state(pg)["cur"] == "value:e2e:01" and wait_js(pg, "!!document.querySelector(\"#chkBody [data-chk-k='Enter']\")"), "点の 2(悪い)は理由の札を出すだけ: %s" % state(pg)["cur"])
     pg.click("#chkBody [data-chk-k='1']")
     check(wait_js(pg, "CheckShell.state().cur === 'value:e2e:03'") and wait_js(pg, "CheckShell.state().hist === 1"), "答えのボタン = キーと同じ道")
-    check(fq.answers[-1]["body"]["answer"] == {"choice": "bad", "reason": "boring"}, "悪い + 理由の札の答え: %s" % fq.answers[-1]["body"]["answer"])
+    check(fq.answers[-1]["body"]["answer"] == {"choice": "bad", "reason": "boring", "score": 2}, "悪い + 理由の札 + 点の答え: %s" % fq.answers[-1]["body"]["answer"])
     check(not pg.is_disabled("#chkUndo"), "答えたあとは戻せる")
-    # 5 段階の点(10-29。友人のアプリと同じ): 数字のキーで選ぶ・同じ数でもう一度押すと外す・押し続け(repeat)では変わらない・答えと一緒に送る
-    pressed = "Array.prototype.map.call(document.querySelectorAll('#chkBody [aria-pressed=\"true\"]'), function (b) { return b.getAttribute('data-chk-k'); }).join(',')"
+    # 点だけで答える(10-29 ユーザー): ボタンは 1〜5 だけ・3 = 不明・押し続け(repeat)では次のカードに答えない(0.99.338 の守り)
+    keys = "[...document.querySelectorAll('#chkBody [data-chk-k]')].map(b => b.dataset.chkK).join()"
+    check(pg.evaluate(keys) == "1,2,3,4,5", "ボタンは 1〜5 だけ(良い・悪い・不明のボタンは無い): %s" % pg.evaluate(keys))
+    check("1〜2" in pg.text_content("body") and "4〜5" in pg.text_content("body"), "下の帯のキーの案内も点の形")
+    n0 = len(fq.answers)
     press(pg, "3")
-    check(pg.evaluate(pressed) == "3" and state(pg)["cur"] == "value:e2e:03", "数字の 3 で点を選ぶ(答えではない): %r" % pg.evaluate(pressed))
-    press(pg, "3")
-    check(pg.evaluate(pressed) == "", "同じ数をもう一度で外す")
-    pg.click("#chkBody [data-chk-k='4']")
+    check(wait_js(pg, "CheckShell.state().cur !== 'value:e2e:03'") and fq.answers[-1]["body"]["answer"] == {"choice": "unknown", "score": 3},
+          "点の 3 = 不明として記録: %s" % fq.answers[-1]["body"]["answer"])
+    cur = state(pg)["cur"]
     pg.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', {key: '5', repeat: true, bubbles: true}))")
-    check(pg.evaluate(pressed) == "4", "ボタンでも選べる・押し続けの 5 では変わらない: %r" % pg.evaluate(pressed))
-    press(pg, "a")
-    check(wait_js(pg, "CheckShell.state().cur !== 'value:e2e:03'") and fq.answers[-1]["body"]["answer"] == {"choice": "good", "score": 4},
-          "点は答えと一緒に送る: %s" % fq.answers[-1]["body"]["answer"])
-    check(pg.evaluate(pressed) == "", "次のカードでは点は空から")
+    pg.wait_for_timeout(300)
+    check(state(pg)["cur"] == cur and len(fq.answers) == n0 + 1, "押し続けの 5 では次のカードに答えない: %s" % state(pg)["cur"])
     press(pg, "z")
     wait_js(pg, "CheckShell.state().cur === 'value:e2e:03'")
 
@@ -226,7 +232,7 @@ def _scene_kinds(cx):
     pg, check, fq = cx.pg, cx.check, cx.fq
     pg.goto(cx.base + "check")
     check(wait_js(pg, "CheckShell.state().cur === 'value:e2e:03'"), "開き直すと、答えた・飛ばしたカードの次から: %s" % state(pg))
-    press(pg, "a")
+    press(pg, "4")
     check(wait_js(pg, "CheckShell.state().kind === 'read'"), "読みのカード: %s" % state(pg))
     check(pg.evaluate("document.querySelectorAll('#chkBody .ui-pair .ui-pair-opt').length") == 2 and "まけないからね" in pg.text_content("#chkBody .ui-pair") and "認識のまま" in pg.text_content("#chkBody .ui-pair"),
           "比べる欄(ui-kit の .ui-pair)に 2 つの読みと出どころの名前")
@@ -303,14 +309,14 @@ def _scene_summary_and_end(cx):
     pg.goto(cx.base + "check?c=v1&back=cases")
     check(wait_js(pg, "!!CheckShell.state().cur"), "開き直すと続きから")
     for _ in range(10):
-        press(pg, "a" if state(pg)["kind"] == "value" else "1")
+        press(pg, answer_key(pg))
     check(wait_js(pg, "!!CheckShell.state().cur") and pg.locator("#chkSum").count() == 0, "10 件答えても止めずに次のカード: %s" % state(pg))
     check("10 件答えました" in pg.text_content("#chkAnswered") and "この確認で決まる物" in pg.text_content("#chkGoal"),
           "答えた数と目標は端に出したまま: %r %r" % (pg.text_content("#chkAnswered"), pg.text_content("#chkGoal")))
     for _ in range(40):
         if not state(pg)["cur"]:
             break
-        press(pg, "a" if state(pg)["kind"] == "value" else "1")
+        press(pg, answer_key(pg))
     check(wait_js(pg, "CheckShell.state().empty"), "全部答えたら空の状態: %s" % state(pg))
     check("今日の分は終わりです" in pg.text_content("#chkEmpty") and pg.get_attribute("#chkEmpty a.btn.primary", "href") == "cases?c=v1",
           "空の状態の文と 案件へ戻る(back=cases)")
@@ -322,7 +328,7 @@ def _scene_failures(cx):
     pg, check, fq = cx.pg, cx.check, cx.fq
     fq.fail_answer = 1
     cur = state(pg)["cur"]
-    press(pg, "a" if state(pg)["kind"] == "value" else "1")
+    press(pg, answer_key(pg))
     check(wait_js(pg, "CheckShell.state().cur === %s" % json.dumps(cur), 8000), "答えを記録できなければ、そのカードがもう一度出る: %s" % state(pg))
     check(wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.includes('答えを記録できませんでした'))"), "失敗の知らせ")
     pg.evaluate("window.dispatchEvent(new Event('pagehide'))")
