@@ -13,6 +13,9 @@
               Z = 頼んだ書き出しを POST /api/export/cancel {id: exportJob} で取り消し、GET /api/export で終わっていないことを確かめてから status を元に戻す
               (書き出しが済んだ・status が書き出し済みなら断る。ジョブが見つからない = スタジオを起動し直した = status で確かめる)。もう元の status なら何もしない
               (戻すと put_video が judgments の採否を retract で取り消す = review/store.put_video の決まり)
+5 段階の点(10-29 ユーザー「確かめるの価値も 5 段階評価にして」・友人の点と同じ形): 答えの任意の欄 score = 1〜5(無い・null = 付けなかった)。
+  auto は judgments の品質の行に score(友人の行と同じ欄の名前・who self = ユーザーが付けた)。cand の採否の行はスタジオの保存(via review)が書くので
+  点は答えの記録(answers.jsonl)だけに残す(採否の行を 2 本にしない = 物差しの数え・取り消しを狂わせない)
 ③ の層なので ① ④ を直に読まない: 案件の操作・スタジオの API は入口が ctx.hooks で渡す。
 """
 import secrets
@@ -27,6 +30,18 @@ AUTO_REASONS = {"boring": "場面がつまらない", "long": "長すぎる", "s
 CAND_CHOICES = ("adopt", "reject")
 STATUS = {"adopt": "adopted", "reject": "rejected"}
 TRIES = 3   # 画面の保存・書き出しとぶつかった(409)ときの読み直しの回数
+SCORES = (1, 2, 3, 4, 5)   # 5 段階の点(友人のアプリと同じ)
+
+
+def _score(ans, out):
+    """答えの任意の点を検査して out に足す(1〜5 だけ。null・無しは足さない)-> out"""
+    sc = ans.get("score") if isinstance(ans, dict) else None
+    if sc is None:
+        return out
+    if isinstance(sc, bool) or sc not in SCORES:
+        raise ValueError("点は 1〜5 のどれかです")
+    out["score"] = sc
+    return out
 
 
 def _code(code):
@@ -58,7 +73,12 @@ def _auto_check(ans):
         if r not in AUTO_REASONS:
             raise ValueError("理由は札のどれかにしてください")
         out["reason"] = r
-    return out
+    return _score(ans, out)
+
+
+def _cand_check(ans):
+    """採用 / 不採用 + 任意の点"""
+    return _score(ans, _doc.choice(CAND_CHOICES, label="答え")(ans))
 
 
 def _auto_apply(ctx, card, ans):
@@ -67,8 +87,9 @@ def _auto_apply(ctx, card, ans):
     vid, mid = _need(card.get("target"), "videoId", "markId")
     key = "ans:" + secrets.token_hex(8)
     what = {"good": "quality_good", "bad": "quality_bad", "unknown": "quality_unknown"}[ans["choice"]]
+    pts = {"score": ans["score"]} if "score" in ans else {}
     row = _judgments.record(ctx.app_dir, who="self", what=what, reason=ans.get("reason"), videoId=vid, markId=mid,
-                            origin="auto", via="check", key=key)   # 出どころは auto(カードに request・live の印は無い)
+                            origin="auto", via="check", key=key, **pts)   # 出どころは auto(カードに request・live の印は無い)
     return dict({"videoId": vid, "markId": mid, "judgment": row["id"], "jkey": key}, **ans)
 
 
@@ -163,4 +184,4 @@ def _cand_revert(ctx, row):
 
 
 apply.register("value", "auto", _auto_apply, _auto_revert, check=_auto_check)   # 記録だけ = すぐ確定・Z は記録の取り消し(defer なし)
-apply.register("value", "cand", _cand_apply, _cand_revert, check=_doc.choice(CAND_CHOICES, label="答え"))
+apply.register("value", "cand", _cand_apply, _cand_revert, check=_cand_check)

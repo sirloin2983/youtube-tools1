@@ -119,6 +119,20 @@ class ValueTest(unittest.TestCase):
         apply.undo(self.ctx, got["answer"])
         self.assertIsNone(judgments.fold(judgments.rows(self.tmp))[(VID, "a1")]["quality"])
 
+    def test_score_like_friend(self):
+        """5 段階の点(10-29): auto は品質の行に score(友人の行と同じ欄・who self)。付けなければ欄なし。1〜5 のほかは断る。
+        cand は答えの記録だけ(採否の行はスタジオの保存が書く)"""
+        apply.answer(self.ctx, auto_card(), {"answer": {"choice": "good", "score": 4}})
+        apply.answer(self.ctx, dict(auto_card(), id="value:auto:%s#a2" % VID, target={"videoId": VID, "markId": "a2"}), {"answer": {"choice": "unknown", "score": None}})
+        rows = judgments.rows(self.tmp)
+        self.assertEqual([(r["who"], r.get("score")) for r in rows], [("self", 4), ("self", None)])
+        self.assertNotIn("score", rows[1])
+        for bad in (0, 6, True, "3", 2.5):
+            with self.assertRaises(apply.Refused):
+                apply.answer(self.ctx, dict(auto_card(), id="value:auto:%s#a9" % VID), {"answer": {"choice": "good", "score": bad}})
+        self.assertEqual(value._cand_check({"choice": "adopt", "score": 2}), {"choice": "adopt", "score": 2})
+        self.assertEqual(value._cand_check({"choice": "reject"}), {"choice": "reject"})
+
     def test_retract_is_not_written_twice(self):
         got = apply.answer(self.ctx, auto_card(), {"answer": {"choice": "good"}})
         value._auto_revert(self.ctx, {"applied": got["applied"]})

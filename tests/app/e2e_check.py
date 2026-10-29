@@ -205,6 +205,21 @@ def _scene_answer_undo_skip(cx):
     check(wait_js(pg, "CheckShell.state().cur === 'value:e2e:03'") and wait_js(pg, "CheckShell.state().hist === 1"), "答えのボタン = キーと同じ道")
     check(fq.answers[-1]["body"]["answer"] == {"choice": "bad", "reason": "boring"}, "悪い + 理由の札の答え: %s" % fq.answers[-1]["body"]["answer"])
     check(not pg.is_disabled("#chkUndo"), "答えたあとは戻せる")
+    # 5 段階の点(10-29。友人のアプリと同じ): 数字のキーで選ぶ・同じ数でもう一度押すと外す・押し続け(repeat)では変わらない・答えと一緒に送る
+    pressed = "Array.prototype.map.call(document.querySelectorAll('#chkBody [aria-pressed=\"true\"]'), function (b) { return b.getAttribute('data-chk-k'); }).join(',')"
+    press(pg, "3")
+    check(pg.evaluate(pressed) == "3" and state(pg)["cur"] == "value:e2e:03", "数字の 3 で点を選ぶ(答えではない): %r" % pg.evaluate(pressed))
+    press(pg, "3")
+    check(pg.evaluate(pressed) == "", "同じ数をもう一度で外す")
+    pg.click("#chkBody [data-chk-k='4']")
+    pg.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', {key: '5', repeat: true, bubbles: true}))")
+    check(pg.evaluate(pressed) == "4", "ボタンでも選べる・押し続けの 5 では変わらない: %r" % pg.evaluate(pressed))
+    press(pg, "a")
+    check(wait_js(pg, "CheckShell.state().cur !== 'value:e2e:03'") and fq.answers[-1]["body"]["answer"] == {"choice": "good", "score": 4},
+          "点は答えと一緒に送る: %s" % fq.answers[-1]["body"]["answer"])
+    check(pg.evaluate(pressed) == "", "次のカードでは点は空から")
+    press(pg, "z")
+    wait_js(pg, "CheckShell.state().cur === 'value:e2e:03'")
 
 
 def _scene_kinds(cx):
