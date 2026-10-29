@@ -54,7 +54,7 @@ class SettingsBase(unittest.TestCase):
         os.makedirs(home)
         with open(with_fetch, "w", encoding="utf-8") as f:
             json.dump({"version": "0.93.0", "items": [
-                {"name": "whisper.cpp/large-v3", "file": "m.bin", "url": "https://h/m.bin", "size": len(self.model),
+                {"name": "whisper.cpp/large-v3", "file": "m.bin", "url": "https://huggingface.co/x/m.bin", "size": len(self.model),
                  "sha256": hashlib.sha256(self.model).hexdigest(), "base": "data", "dest": "transcribe/models", "unzip": None}]}, f)
         self.places = {"home": home, "data": os.path.join(home, "data"), "friend": os.path.join(home, "data", "app", "friendapp"),
                        "outbox": os.path.join(home, "data", "app", "outbox"), "cases": os.path.join(home, "作業"), "fetch": with_fetch}
@@ -62,7 +62,7 @@ class SettingsBase(unittest.TestCase):
         os.makedirs(self.places["friend"])
         os.makedirs(self.places["cases"])
         self.app = S.FriendApp(self.places, make_engine=FakeEngine)
-        self.dl = FakeDl({"https://h/m.bin": self.model})
+        self.dl = FakeDl({"https://huggingface.co/x/m.bin": self.model})
         self.app.setup.downloader = self.dl
         self.app.setup.disk_usage = lambda p: Usage(10 ** 13, 0, 10 ** 13)
         self.app.setup.cuda = lambda: None
