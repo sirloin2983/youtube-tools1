@@ -54,6 +54,16 @@ def settling(version_file, now=None, settle=None):
     return "版が上がってから %d 分待っています(続けて上がっても 1 回で起動し直す)" % round(settle / 60) if age < settle else None
 
 
+def settling_since(since, now, settle=None):
+    """版が違い始めた時刻 since(monotonic)から settle 秒(既定 SETTLE_SEC)たっていなければ待つ理由の文、たっていれば None。
+    settling と違い、続けて版が上がっても待ちを数え直さない(10-29: land が 10 分おきより速く続くと、いつまでも起き直さなかった)"""
+    settle = SETTLE_SEC if settle is None else settle
+    if since is None:
+        return None
+    left = settle - (now - since)
+    return "新しい版が続けて入るのを待っています(あと %d 分で起動し直します)" % max(1, int(-(-left // 60))) if left > 0 else None
+
+
 def editor_in_use(last_used, now, idle=EDITOR_IDLE):
     """編集の画面を使っている最中か(last_used = 最後に要求を受けた時刻。無ければ None)"""
     return last_used is not None and now - last_used < idle

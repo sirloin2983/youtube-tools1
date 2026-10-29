@@ -43,6 +43,13 @@ class TestDecide(unittest.TestCase):
         self.assertTrue(A.editor_in_use(100, 100 + A.EDITOR_IDLE - 1))
         self.assertFalse(A.editor_in_use(100, 100 + A.EDITOR_IDLE))
 
+    def test_settling_since_counts_from_first_difference(self):
+        """待ちは版が違い始めた時から SETTLE_SEC だけ(続けて上がっても延びない = 10-29 の 18:13〜18:21 の land で起き直さなかった件)"""
+        self.assertIsNone(A.settling_since(None, 100))
+        self.assertIn("あと 10 分", A.settling_since(100, 100))
+        self.assertIn("あと 1 分", A.settling_since(100, 100 + A.SETTLE_SEC - 1))
+        self.assertIsNone(A.settling_since(100, 100 + A.SETTLE_SEC))
+
 
 if __name__ == "__main__":
     unittest.main()

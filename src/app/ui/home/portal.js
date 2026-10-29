@@ -24,6 +24,7 @@
   var casesData = null;                 // /api/cases の中身
   var casesRev = null, casesRevAt = 0, casesRevTimer = 0;   // /api/status の casesRev(案件の一覧の元の更新の印)・最後に一覧を読んだ時刻
   var autoPushed = null;              // /api/status の autoPushed(まとめて実行に積んだ回数。増えたら pollAuto をすぐ)
+  var runningVersion = '', update = null;   // 動いている入口の版・/api/status の update({disk, running, wait}。ディスクの版が違う間だけ)
   var runsByVideo = {}, runsByDoc = {}; // /api/flow/runs の実行(配信単位・文書単位)。最新のものだけ
   var pastByVideo = {}, pastByDoc = {}; // /api/flow/runs の past: 前回の結果(記録のファイルから。この起動の実行が無い配信・文書だけ。段2 B-6)
   var HIST_PAGE = 50, histOffset = 0, histBusy = false;   // 「まとめて実行の記録」(/api/flow/history。開いたときだけ読む)
@@ -252,6 +253,37 @@
     bar.textContent = ok ? '' : 'サーバーに接続できません。黒い画面が閉じられた可能性があります。start.bat をダブルクリックして起動し直してください。';
   }
 
+  /* 上の [更新する](10-29 ユーザー「たまに下の更新するボタンが消えて更新できなくなる」「上のほうに出しておけば」):
+     ディスクの版が動いている版と違う間はいつも出す。押せない事情(録画中・処理中)は押したときに理由と、自動で起き直すかを出す */
+  function drawUpdate(u) {
+    update = u;
+    var b = $('#btnUpdate');
+    if (!b) return;
+    b.hidden = !u;
+    if (!u) return;
+    b.textContent = '更新する(v' + u.disk + ')';
+    b.title = '新しい版 v' + u.disk + ' に入れ替えます(ホームを起動し直します。今は v' + u.running + ')' + (u.wait ? '。自動の起き直しの待ち: ' + u.wait : '');
+  }
+  function updateNow(force) {
+    var b = $('#btnUpdate');
+    if (!b || b.disabled) return;
+    if (!UIKit.restart.available()) { UIKit.toast('ホーム(start.bat)から開いた画面だけで使えます。黒い画面を閉じて start.bat で起動し直してください', { kind: 'err', ms: 0 }); return; }
+    b.disabled = true;
+    UIKit.restart.run({ from: runningVersion, force: !!force, onState: function (state, text) {
+      UIKit.toast(text, { kind: state === 'timeout' ? 'err' : '', ms: state === 'timeout' ? 0 : 5000 });
+      if (state === 'timeout') b.disabled = false;
+    } }).catch(function (e) {
+      b.disabled = false;
+      if (!force && e && e.body && e.body.error === 'live') {   /* 録画中: 止まることを言って確かめる(既定は待つ) */
+        UIKit.dialog.confirm({ title: '録画が止まります', body: e.message, ok: '録画を止めて起動し直す', cancel: '録画が終わるまで待つ', danger: true })
+          .then(function (ok) { if (ok) updateNow(true); });
+        return;
+      }
+      var wait = update && update.wait ? update.wait : '処理が終わったら自動で起動し直します';
+      UIKit.toast('今は起動し直せません: ' + ((e && e.message) || '理由が分かりません') + '。' + wait, { kind: 'err', ms: 0 });
+    });
+  }
+
   function poll() {
     if (closed) return;
     clearTimeout(timer);
@@ -259,6 +291,8 @@
       fails = 0;
       setConn(true);
       $('#ver').textContent = 'ホーム v' + st.version;
+      runningVersion = String(st.version || '');
+      drawUpdate(st.update || null);
       UIKit.appnav.setVersion('v' + st.version);
       if (st.autoPushed !== autoPushed) {   /* まとめて実行に積まれた(友人の依頼の受付など)= 15 秒を待たずに一覧を読む */
         if (autoPushed !== null) pollAuto();
@@ -1748,6 +1782,8 @@
   UIKit.portal.listen();
 
   document.addEventListener('DOMContentLoaded', function () {
+    var ub = $('#btnUpdate');
+    if (ub) ub.addEventListener('click', function () { updateNow(false); });
     /* ⚙ 設定の「ホーム」の節(M10): 設定の画面へのリンク(窓で開くは 10-24 から固定 = 欄なし)(まとめて実行の既定・試験中の機能・受付・バックアップの欄は設定の画面にある) */
     var hs = $('#homeSettings');
     if (hs) hs.hidden = false;

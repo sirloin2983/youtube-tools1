@@ -246,11 +246,11 @@
   }
   /* 入口を起動し直すと合言葉(X-YTT-Token)が変わり、開きっぱなしの画面の書き込みは 403 {"error":"token"} で断られる。
      待っても直らないので、「開き直す」の知らせを 1 回だけ出す(http が受けるので全部の画面に効く。http を通らない書き込みは UIKit.tokenStale() を呼ぶ) */
-  var tokenStaleShown = false;
+  var tokenStaleToast = null;
   function tokenStale() {
-    if (tokenStaleShown) return;
-    tokenStaleShown = true;
-    toastFn('ホームが起動し直されました。この画面を開き直すと、また使えます', { kind: 'err', ms: 0, action: { label: '開き直す', fn: function () { location.reload(); } } });
+    /* 出ている間は重ねない。押し出された・× で閉じたあとに、また断られたらもう一度出す(10-29: 1 回だけの作りで消えたまま開き直せなかった) */
+    if (tokenStaleToast && tokenStaleToast.el.isConnected) return;
+    tokenStaleToast = toastFn('ホームが起動し直されました。この画面を開き直すと、また使えます', { kind: 'err', ms: 0, pin: true, action: { label: '開き直す', fn: function () { location.reload(); } } });
   }
   function sameOrigin(url) { try { return new URL(url, location.href).origin === location.origin; } catch (e) { return false; } }
   function http(url, opt) {
@@ -815,8 +815,10 @@
   }
   function toastMakeRoom(box) {
     while (box.children.length >= TOAST_MAX) {
-      var drop = toastPick(box, function (t) { return !t.hasAttribute('data-ui-keep') && !t.classList.contains('err'); }) ||
-                 toastPick(box, function (t) { return !t.classList.contains('err'); }) || box.firstChild;
+      /* opt.pin の知らせ(data-ui-pin = ホームの起動し直しの [開き直す])は押し出さない(ほかが全部 pin のときだけ古い物から) */
+      var drop = toastPick(box, function (t) { return !t.hasAttribute('data-ui-pin') && !t.hasAttribute('data-ui-keep') && !t.classList.contains('err'); }) ||
+                 toastPick(box, function (t) { return !t.hasAttribute('data-ui-pin') && !t.classList.contains('err'); }) ||
+                 toastPick(box, function (t) { return !t.hasAttribute('data-ui-pin'); }) || box.firstChild;
       box.removeChild(drop);   // 時間で消える知らせのタイマーは、外したあとに呼ばれても何もしない(remove は parentNode を見る)
     }
   }
@@ -865,6 +867,7 @@
     function restoreFocus() { var a = document.activeElement; if ((!a || a === document.body) && opener && opener !== document.body && opener.isConnected && opener.focus) opener.focus({ preventScroll: true }); }
     var timer = ms > 0 ? setTimeout(remove, ms) : 0;
     if (act || ms === 0) item.setAttribute('data-ui-keep', '');
+    if (opt.pin) item.setAttribute('data-ui-pin', '');
     item.addEventListener('click', function (e) {
       if (e.target && e.target.closest && e.target.closest('details')) return;   // 「詳しく」の開閉では閉じない
       if (act || ms === 0) return;   // ボタンのある知らせ・消えない知らせは、本文を押しても閉じない(× か ボタンで)

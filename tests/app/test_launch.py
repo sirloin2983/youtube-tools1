@@ -548,6 +548,9 @@ class PortalHttpTest(Base):
         r, _ = self.req("GET", "/settings/")
         self.assertEqual((r.status, r.getheader("Location")), (302, "/settings"))
         self.assertEqual(self.req("GET", "/server.py")[0].status, 404)   # コードや他のファイルは配らない
+        with mock.patch.object(L._version, "on_disk", lambda root=None: "9.9.9"), mock.patch.object(self.srv, "_auto_wait", "待ちの理由"):
+            code, st = self.get_json("/api/status", headers={"Sec-Fetch-Site": "same-origin"})   # ディスクの版が違う間 = ホームの上の [更新する](10-29)
+        self.assertEqual(st["update"], {"disk": "9.9.9", "running": L.VERSION, "wait": "待ちの理由"})
         code, st = self.get_json("/api/status", headers={"Sec-Fetch-Site": "same-origin"})   # 入口の画面が読む形
         self.assertEqual((code, st["app"], st["version"]), (200, L.APP_ID, L.VERSION))
         self.assertNotIn("dataDir", st)   # 作業データの置き場所の欄は 10-24 に無くした
@@ -701,7 +704,7 @@ class PortalHttpTest(Base):
         settle = {"why": None}
         patches = [mock.patch.object(L, "app_data_dir", lambda root: app), mock.patch.object(self.srv, "_autorun", Stub()),
                    mock.patch.object(self.srv, "live_activity", lambda: zero), mock.patch.object(self.srv.sup, "status", lambda: {"heavy": {}}),
-                   mock.patch.object(A, "settling", lambda path, now=None, secs=None: settle["why"])]
+                   mock.patch.object(A, "settling_since", lambda since, now, settle_sec=None: settle["why"])]
         for p in patches:
             p.start()
             self.addCleanup(p.stop)
@@ -709,8 +712,12 @@ class PortalHttpTest(Base):
         with mock.patch.object(L._version, "on_disk", lambda root=None: disk["v"]):
             self.assertEqual(self.srv.auto_restart_check(), A.NOTHING)   # 同じ版
             disk["v"] = "9.9.9"
-            settle["why"] = "版が上がってから 10 分待っています"
+            settle["why"] = "新しい版が続けて入るのを待っています"
             self.assertEqual(self.srv.auto_restart_check(), A.WAIT)   # 版が変わってすぐ = 続けて land されても 1 回で済むように待つ
+            since = self.srv._diff_since
+            disk["v"] = "9.9.9"   # 続けて land されても、違い始めた時刻は変えない(10-29)
+            self.assertEqual((self.srv.auto_restart_check(), self.srv._diff_since), (A.WAIT, since))
+            self.assertEqual(self.srv._auto_wait, settle["why"])   # ホームの [更新する] に出す理由
             settle["why"] = None
             runs["runs"] = 1
             self.assertEqual(self.srv.auto_restart_check(), A.WAIT)   # まとめて実行の待ち・実行中

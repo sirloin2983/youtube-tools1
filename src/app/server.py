@@ -733,6 +733,8 @@ class PortalHandler(httpsec.LocalHandler):
             st["window"] = self.server.window.status()   # 画面を窓で開くか(段階7-3)
             ar = getattr(self.server, "_autorun", None)   # まだ作っていなければ作らない(0 のまま)
             st["autoPushed"] = ar.pushed if ar is not None else 0   # 積んだ回数(ホームが増えたのを見て実行の一覧をすぐ読み直す)
+            disk = _version.on_disk(sup.root)
+            st["update"] = {"disk": disk, "running": VERSION, "wait": self.server._auto_wait} if disk and disk != VERSION else None   # ホームの上の [更新する](10-29)
             try:
                 st["casesRev"] = cases_mod.revision(sup.root)   # 案件の一覧の元の更新の印(届けた・ライブの書き出し・友人の判断など。変わったらホームが一覧を読み直す)
             except Exception:   # noqa: BLE001  (印が取れなくても状態は返す = 前の通り)
@@ -1009,6 +1011,8 @@ class PortalServer(httpsec.ExclusiveServer):
         self._torn_down = False
         self._teardown_lock = threading.Lock()
         self._handover = False   # 起き直し(restart_self)の後始末: 録画の部品に quit も kill も送らない(新しい入口がつなぎ直す)
+        self._diff_since = None  # ディスクの版が動いている版と違い始めた時刻(monotonic。自動の起き直しの待ちはここから数える = 続けて land されても延びない)
+        self._auto_wait = ""     # 自動の起き直しを待っている理由(ホームの [更新する] に出す)
         app_dir = os.path.dirname(sup.logs_dir)   # 入口の作業データ(settings.json・prefs.json・依頼の受付などの記録)
         self.learning = None     # 学習データの読み手(wire_learning。machine の learningDir があるときだけ。F1 F6a)
         # 学習の束を置く見回り(いつ・どこには ② の flow/learning。中身は ④ の learnpack。F1 F6a)
@@ -1141,9 +1145,14 @@ class PortalServer(httpsec.ExclusiveServer):
         path = os.path.join(app_data_dir(self.sup.root), autorestart_mod.STATE_NAME)
         disk = _version.on_disk(self.sup.root)
         busy = None
-        if disk and disk != VERSION:   # 版が落ち着いてから(SETTLE_SEC)・処理が無いときだけ
-            busy = autorestart_mod.settling(os.path.join(self.sup.root, "ytt", "version.py")) or self.auto_busy()
+        if not disk or disk == VERSION:
+            self._diff_since = None
+        elif self._diff_since is None:
+            self._diff_since = time.monotonic()
+        if disk and disk != VERSION:   # 版が違い始めてから SETTLE_SEC(続けて land されても延ばさない。10-29: 18:13〜18:21 の land で待ちが数え直され起き直さなかった)・処理が無いときだけ
+            busy = autorestart_mod.settling_since(self._diff_since, time.monotonic()) or self.auto_busy()
         act, why = autorestart_mod.decide(disk, VERSION, autorestart_mod.read_tried(path), busy)
+        self._auto_wait = why if act == autorestart_mod.WAIT or (act == autorestart_mod.NOTHING and disk and disk != VERSION) else ""
         if act != autorestart_mod.GO:
             return act
         try:
