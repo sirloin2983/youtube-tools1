@@ -322,11 +322,16 @@ def parse_args(argv):
     ap.add_argument("--idle-end", type=int, default=rec_core.IDLE_END)
     ap.add_argument("--stall-sec", type=int, default=rec_core.STALL_SEC)
     ap.add_argument("--trash-days", type=int, default=None, help="ごみ箱の日付のフォルダを消すまでの日数(入口の ② が渡す。省略は ② の flow/retention.KEEP_DAYS)")
+    ap.add_argument("--trash-item-sec", type=int, default=None,
+                    help="ごみ箱に入れた録画を消すまでの秒(入口の ② が渡す = flow/retention.LIVE_TRASH_SEC。省略 = 日付のフォルダの日数だけ)")
     ap.add_argument("--quiet", action="store_true", help="黒い画面に記録を出さない")
     a = ap.parse_args(argv)
     if not 1024 <= a.port <= 65535:
         ap.error("--port は 1024〜65535")
     return a
+
+
+PURGE_EVERY = 3600.0   # ごみ箱に入れた録画を時間で消す見回りの間隔(秒。--trash-item-sec のとき)
 
 
 def _policy(module, name):
@@ -381,7 +386,7 @@ def _run(a, ddir):
     trash_days = a.trash_days or _policy("flow.retention", "KEEP_DAYS")
     backoff = tuple(int(x) for x in a.backoff.split(",") if x.strip().isdigit())   # 空なら既定(rec_core.BACKOFF)
     rec = rec_core.Recorder(folder, source=a.source, hls_time=a.hls_time, backoff=backoff,
-                            idle_end=a.idle_end, stall_sec=a.stall_sec, log=log, trash_days=trash_days)
+                            idle_end=a.idle_end, stall_sec=a.stall_sec, log=log, trash_days=trash_days, trash_item_sec=a.trash_item_sec)
     token = load_token(ddir)
     allowed = httpsec.allowed_hosts(a.port) | set(a.allow_host)
     try:
@@ -409,9 +414,16 @@ def _run(a, ddir):
     runtime.install_stop_signals(stop, ("SIGINT", "SIGTERM", "SIGBREAK"))
     th = threading.Thread(target=srv.serve_forever, daemon=True, name="recorder-http")
     th.start()
+    purged = time.time()
     try:
         while th.is_alive():
             th.join(0.5)
+            if rec.trash_item_sec and time.time() - purged >= PURGE_EVERY:   # ごみ箱の録画を時間で消す(録画を移すたびのほかにも)
+                purged = time.time()
+                try:
+                    rec.purge_trash()
+                except Exception as e:   # noqa: BLE001  (消せなくても録画は止めない)
+                    log("ごみ箱の録画を消せませんでした: %s" % e)
     except KeyboardInterrupt:
         srv.shutdown()
     finally:

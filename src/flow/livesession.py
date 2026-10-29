@@ -1299,6 +1299,8 @@ class LiveSession:
         port = urllib.parse.urlsplit(rc["url"]).port or RECORDER_PORT
         cmd = [self.python, "-u", script, "--port", str(port), "--quiet", "--data-dir", self.data_dir,
                "--trash-days", str(_retention.KEEP_DAYS), "--default-folder", DEFAULT_FOLDER]   # 方針の数と既定の置き場所は ② が渡す
+        if _retention.LIVE_FAST_RETIRE:   # ごみ箱に入れた録画を 24 時間で消す(flow/retention の LIVE_TRASH_SEC)
+            cmd += ["--trash-item-sec", str(int(_retention.LIVE_TRASH_SEC))]
         if folder:
             cmd += ["--folder", folder]
         # 別のプロセスグループ(入口への Ctrl+Break が届かない)・隠れた黒い画面(入口の黒い画面を閉じても止まらない)・通常より上の優先度

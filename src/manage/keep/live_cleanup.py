@@ -122,7 +122,7 @@ class Cleaner:
         v = self.retire.verdict(rc["id"], rec, stale=self._stale(r, now), archived=lambda: self.archived(rc["id"], r))   # 消してよいか(② の判断)
         if v.jobs:
             if v.archived:
-                return self._delete_recorded(rc, rec, "書き出し済みで、アーカイブ化を確かめた")
+                return self._delete_recorded(rc, rec, "アーカイブ化を確かめた(書き出していないマークはアーカイブから)" if retention.LIVE_FAST_RETIRE else "書き出し済みで、アーカイブ化を確かめた")
             if v.why.startswith(live_retire.NOT_ARCHIVED):
                 return self._fate(rc, r, v.why, now)
             return self._keep(r, v.why)
@@ -173,14 +173,16 @@ class Cleaner:
     def _consider_no_jobs(self, rc, r, rec, now):
         """マークが1つも無い録画(書き出しのジョブが無い)を消すか決めて、消す -> 消したら True"""
         ended = LX.iso_epoch(r.get("endedAt"))
-        if ended is None or now - ended < self.no_mark_sec:
+        fast = retention.LIVE_FAST_RETIRE   # 10-29: アーカイブ化を確かめたらすぐ(24 時間を待たない・書き出していないマークはアーカイブから。スタジオのマークは残す)
+        if ended is None or (not fast and now - ended < self.no_mark_sec):
             return False
-        if self.retire.has_marks(rc["id"], rec) is not False:   # マークの正本(P2 の形)に残っている・読めない
+        has = self.retire.has_marks(rc["id"], rec)
+        if has is None or (has and not fast):   # マークの正本(P2 の形)に残っている・読めない
             return False
         marks, registered = self._studio_marks(rec)
         if marks is None:
             return self._keep(r, "スタジオに確かめられない")
-        if marks:
+        if marks and not fast:
             return self._keep(r, "スタジオにマークがあるが書き出していない")
         try:
             why = self.archived(rc["id"], r)
@@ -188,12 +190,14 @@ class Cleaner:
             why = live_retire.NOT_ARCHIVED
         if why:
             return self._fate(rc, r, why, now)
-        if registered:
+        if registered and not marks and not has:   # マークの無い録画だけ、スタジオの一覧の行も消す(マークのある行はアーカイブから書き出すので残す)
             code, d = self.studio("POST", "/api/video/delete", {"id": rec, "ifNoMarks": True})
             if code != 200 and not (code == 404 and isinstance(d, dict) and d.get("error") == "not_found"):
                 self._say(rec, "スタジオの行を消せなかったので、録画も消しません(%s)" % ((d or {}).get("message") if isinstance(d, dict) else code))
                 return False
             self.log("リアルタイム切り抜き: マークの無い録画のスタジオの行を消しました %s" % rec)
+        if fast:
+            return self._delete_recorded(rc, rec, "アーカイブ化を確かめた(書き出していないマークはアーカイブから)" if marks or has else "マークが無く、アーカイブ化を確かめた")
         return self._delete_recorded(rc, rec, "マークが無いまま %d 時間たって、アーカイブ化を確かめた" % int(self.no_mark_sec // 3600))
 
     def _keep(self, r, why):
@@ -231,7 +235,8 @@ class Cleaner:
         code, d = self.live.call(rc, "POST", "/live/%s/delete" % rec, {}, timeout=DELETE_TIMEOUT)
         if code == 200 and isinstance(d, dict) and d.get("ok"):
             self._said.pop(rec, None)
-            self.log("リアルタイム切り抜き: 録画をごみ箱へ移しました %s(%s。録画元「%s」。%d 日で消えます)" % (rec, why, rc.get("name") or rc.get("id"), retention.KEEP_DAYS))
+            self.log("リアルタイム切り抜き: 録画をごみ箱へ移しました %s(%s。録画元「%s」。%sで消えます)" % (
+                rec, why, rc.get("name") or rc.get("id"), "%d 時間" % (retention.LIVE_TRASH_SEC // 3600) if retention.LIVE_FAST_RETIRE else "%d 日" % retention.KEEP_DAYS))
             return True
         if code is None:
             return False
