@@ -119,6 +119,7 @@ def make_launcher(root, exe=True):
 # 表の公式の大きさ・SHA-256(道具・埋め込みの Python)は、偽の物では合わないので外す(照らす所は CacheTest で別に確かめる)
 FAKE_TOOLS = tuple({k: v for k, v in t.items() if k not in ("size", "sha256")} for t in B.TOOLS)
 FAKE_PY_EMBED = {k: v for k, v in B.PY_EMBED.items() if k not in ("size", "sha256")}
+REAL_PARTS = (B.PY_EMBED,) + tuple(B.TOOLS)   # 外す前の表(公式の値が固定してあるかを見る)
 
 
 class Base(unittest.TestCase):
@@ -441,7 +442,7 @@ class CacheTest(Base):
 
     def test_parts_have_official_hash(self):
         """配る zip の部品(埋め込みの Python・道具)は全部、公式の大きさと SHA-256 を表に固定している(安全面の直し 8)"""
-        for it in (B.PY_EMBED,) + tuple(B.TOOLS):
+        for it in REAL_PARTS:
             self.assertRegex(it.get("sha256") or "", r"^[0-9a-f]{64}$", it["file"])
             self.assertGreater(it.get("size") or 0, 0, it["file"])
 
