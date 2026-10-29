@@ -670,8 +670,16 @@ class Archiver(LX.Patrol):
             except Exception as e:   # 調べる部品の不具合でも見回りは止めない
                 p = {"status": "unknown", "message": "アーカイブを確かめられませんでした(%s)" % e.__class__.__name__}
             ready, msg = readiness(p)
-        return self._info_put(rc, rec, videoId=vid, ready=ready, message=msg, checkedAt=LX.now_iso(), release=p.get("release"), timestamp=p.get("timestamp"),
-                              duration=p.get("duration"), availability=p.get("availability") or "", processed=p.get("processed"))
+        now = LX.now_iso()
+        with self.lock:
+            old = self.info.get(self.key(rc, rec)) or {}
+        first = {}   # 初めての時刻(書き直さない。配信の終わりからの待ちを測る材料。10-30)
+        if ready is True and not old.get("readyAt"):
+            first["readyAt"] = now          # アーカイブが初めて見られた(was_live)
+        if ready is True and p.get("processed") is True and not old.get("processedAt"):
+            first["processedAt"] = now      # 処理済みの版に初めて置き換わった
+        return self._info_put(rc, rec, videoId=vid, ready=ready, message=msg, checkedAt=now, release=p.get("release"), timestamp=p.get("timestamp"),
+                              duration=p.get("duration"), availability=p.get("availability") or "", processed=p.get("processed"), **first)
 
     def archived(self, rc, r):
         """アーカイブ化したか(録画を消してよい合図。src/flow/live_retire.py の Retire.verdict が聞く)。r = 録画元の一覧の 1 行(終わった録画)。

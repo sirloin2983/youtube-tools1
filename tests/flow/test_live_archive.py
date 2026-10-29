@@ -690,7 +690,14 @@ class AfterStreamTest(unittest.TestCase):
                           A.processed_of("NA"), A.processed_of("")], [False, True, None, None])
         info["processed"] = True
         probes.clear()
+        ready_at = a.info[a.key("local", r["id"])]["readyAt"]   # 初めて見られた時刻(was_live)は前の確かめのまま
         self.assertEqual(a.archived("local", r), "")
+        got = a.info[a.key("local", r["id"])]
+        self.assertEqual(got["readyAt"], ready_at)
+        at = got["processedAt"]
+        probes.clear()
+        self.assertEqual(a.archived("local", r), "")
+        self.assertEqual(a.info[a.key("local", r["id"])]["processedAt"], at)   # 書き直さない
         self.assertEqual(a.archived("local", r), "")
         self.assertEqual(len(probes), 2)   # 用意できた記録があっても、消す直前は確かめ直す
         info["duration"] = 3600.0          # アーカイブが短い(切られた・別の動画)
