@@ -1427,6 +1427,28 @@ class ServerTest(Base):
         self.assertTrue(u["waiting"])   # 作っている間は待つ
         self.assertIn("作っている", u["label"])
 
+    def test_update_band_comes_back_when_not_swapped(self):
+        """頼んだ後(押した・自動で頼んだ)も、待つ理由が無いのに UPDATE_STUCK_SEC 入れ替わらなければ stuck(帯に理由と [もう一度]・開き直す案内)。
+        待っている間・戻す途中も同じく分かる形に。[もう一度] で数え直す(10-29「たまに [更新する] が消えて更新できなくなる」)"""
+        t = self.fake_clock()
+        self.app.clock = lambda: t[0]
+        self.make_version("999.0.0")
+        with mock.patch.dict(os.environ, {S.HOST_ENV: "webview2"}):
+            self.assertTrue(self.app.auto_update())   # 自動で頼んだ(画面からボタンが消える)
+            self.assertEqual(self.js(self.get("/api/friend/update")[2])["stuck"], "")
+            t[0] += S.UPDATE_STUCK_SEC + 1
+            u = self.js(self.get("/api/friend/update")[2])
+            self.assertTrue(u["requested"] and u["stuck"], u)   # exe が入れ替えない = 帯にボタンを戻す
+            self.assertEqual(self.post("/api/friend/update/apply", {})[0], 200)   # [もう一度]
+            self.assertEqual(self.js(self.get("/api/friend/update")[2])["stuck"], "")
+            t[0] += S.UPDATE_STUCK_SEC + 1
+            self.engine.queue.status = lambda: {"idle": False, "runs": [{"state": "running"}]}
+            u = self.js(self.get("/api/friend/update")[2])
+            self.assertEqual((u["waiting"], u["stuck"]), (True, ""))   # 作っている間は待つ(帯は [今すぐ] を出す)
+            self.engine.queue.status = lambda: {"idle": True, "runs": []}
+            self.app.upgrade.rollback = {"to": "0.0.1", "why": "x"}
+            self.assertIn("戻す", self.js(self.get("/api/friend/update")[2])["stuck"])
+
     def test_auto_update_when_idle_once_per_version(self):
         """[更新する] を押さなくても、何も処理していなければ自分で頼む: 処理中・録画中・予約の枠は待つ・画面に触っているかは見ない → 同じ版は 2 回頼まない"""
         t = self.fake_clock()
