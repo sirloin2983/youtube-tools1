@@ -11,9 +11,14 @@ Windows の入れ直しなどで失わないように、入口が動いている
   写さないもの(SKIP_DIRS・SKIP_SUFFIX・SKIP_TOP): キャッシュ・一時ファイル・ログ・分析(analytics)・モデル・実行ファイル・ブラウザのプロファイル・書き出した動画(取り直せる・大きい)。
   例外: `transcribe\\bin\\whisper.cpp-*`(作り直すのに Visual Studio が要るので写す。llama.cpp などダウンロードし直せるものは写さない)。
   評価用の音声 `transcribe\\eval-audio\\` は写さない(元の配信の音声から作り直せるため)
-- 写し方: 大きさか更新時刻が違うファイルだけ、一時的な名前へ写してから改名する。**写す先のファイルは消さない**
-  (作業データで消したもの・壊れて空になったものに、バックアップを合わせて消さないため。古い分はたまる)。上書きされるファイルは、
+- 写し方: 大きさか更新時刻が違うファイルだけ、一時的な名前へ写してから改名する。上書きされるファイルは、
   その日の最初の1回だけ `.prev` の名前で1つ前を残す(data.json などが壊れた形で上書きされても1つ前へ戻せる)
+- 古い分を消す(prune。10-29 ユーザー「最新のやつをとったら過去のやつは消していい」。スイッチ PRUNE = False で前の形 = 消さない):
+  **完全に写せた回(complete = 止めていない・写せなかった物も読めなかった物も無い)のあとだけ**、写す先から
+  (1) 元(作業データ・案件の根・前の書き出し先)にもう無いファイルの写し (2) 古い `.prev`(PREV_KEEP_DAYS より前・元の写しを消した物)を消す。
+  評価用・学習用の動画(media/)は元の動画がある物は残す(評価用のフォルダの設定から外れても)・元が無い物は消す・元のドライブが無ければ消さない。
+  その回で歩かなかった所(案件の根が無い回の cases/ など)は触らない。消す数が写しの PRUNE_MAX_SHARE を超えるときは消さない(作業データ側の事故で
+  バックアップまで消えないように)。消した数と大きさは backup-state.json の pruned と入口のログに
 - シンボリックリンクはたどらない。写す先が作業データの中・作業データが写す先の中のときは断る
 - 写す時: 間隔(everyHours)が来たとき(変わっていなくても。検証の意味)と「今すぐ」だけ(変わったらすぐ写す、ことはしない)。
   **読めなかったフォルダ・調べられなかったファイル・写せなかったファイルが 1 つでもあれば「完全に写せた」にしない**(部品 M3): 読める物は写し続け、
@@ -55,6 +60,9 @@ COPY_MEDIA = True          # 評価用・学習用の動画を写す(スイッ�
 MEDIA_DIR = "media"        # 写す先の下の、評価用・学習用の動画を置くフォルダ(<写す先>/youtube-tools-data/media/<ドライブ>/<パス>)
 LEARN_NAME = "学習用データ"   # 評価用のフォルダの隣の学習用のフォルダ
 PREV_SUFFIX = ".prev"
+PRUNE = True              # 完全に写せた回のあと、古い分(元に無い物の写し・古い .prev)を消す(10-29。False = 前の形 = 写す先は消さない)
+PREV_KEEP_DAYS = 3        # .prev(1 つ前の写し)を残す日数(物の終わりの日数 3 日と同じ。新しい .prev は壊れた上書きから戻すために残す)
+PRUNE_MAX_SHARE = 0.5     # 写しのこの割合より多く消すことになったら、消さない(元が丸ごと見えない・空になった事故の守り)
 MAX_ERRORS = 20
 STATE_MAX = 64 * 1024     # backup-state.json を読む上限(これより大きければ読めない扱い = 記録なし)
 STATE_LABELS = {"off": "オフ", "idle": "動いています", "running": "写しています…", "error": "止まっています"}
@@ -344,6 +352,85 @@ def run_once(source, folder, day=None, stop=None, on_file=None, out_dir=None, me
     out["scanErrors"] = scan_errors[:MAX_ERRORS]
     out["scanFailed"] = len(scan_errors)
     out["complete"] = not stopped and not out["failed"] and not scan_errors
+    if PRUNE and out["complete"]:   # 完全に写せたときだけ(途中の失敗・読めないフォルダ・止めた回は何も消さない)
+        out["pruned"] = prune(dest, source, out_dir if with_cases else None, prev, stop=stop)
+    return out
+
+
+def _source_of(rel, source, out_dir, prev_bases):
+    """写す先の相対パス -> 元のパス か None(この回で歩かなかった所・元のドライブが無い = 消す判断をしない)"""
+    parts = rel.split(os.sep)
+    top = parts[0].lower()
+    if top == CASES_DIR:
+        return os.path.join(out_dir, *parts[1:]) if out_dir and len(parts) > 1 else None
+    if top == PREV_CASES_DIR:
+        for base, p in prev_bases:
+            if rel.lower().startswith(base.lower() + os.sep):
+                return os.path.join(p, rel[len(base) + 1:])
+        return None
+    if top == MEDIA_DIR:
+        if len(parts) < 3 or len(parts[1]) != 1 or not parts[1].isalpha():
+            return None
+        root = parts[1].upper() + ":" + os.sep
+        return os.path.join(root, *parts[2:]) if os.path.isdir(root) else None
+    return os.path.join(source, rel)
+
+
+def prune(dest, source, out_dir=None, prev_dirs=(), now=None, stop=None, dry=False):
+    """写す先 dest の古い分を消す(頭の説明の「古い分を消す」)。dry = 数えるだけ。
+    -> {"files", "bytes"(元に無い物の写し), "prev", "prevBytes"(古い .prev), "skipped"(消さなかった理由。空 = 消した)}"""
+    now = time.time() if now is None else now
+    out = {"files": 0, "bytes": 0, "prev": 0, "prevBytes": 0, "skipped": ""}
+    if not (source and os.path.isdir(source) and os.path.isdir(dest)):
+        out["skipped"] = "元か写す先のフォルダが見つかりません"
+        return out
+    prev_bases = []
+    for p in prev_dirs or ():
+        prel = media_rel(p)
+        if prel:
+            prev_bases.append((os.path.join(PREV_CASES_DIR, os.path.relpath(prel, MEDIA_DIR)), p))
+    errors, files, prevs = [], {}, []
+    for rel, size, mtime in _scan(dest, lambda r, n, m: "", lambda n, m: SKIP_MARK not in n.lower(), errors):
+        if rel.lower().endswith(PREV_SUFFIX):
+            prevs.append((rel, size, mtime))
+        else:
+            files[rel.lower()] = (rel, size)
+    if errors:
+        out["skipped"] = "写す先に読めない所があります"
+        return out
+    gone = []
+    for key, (rel, size) in files.items():
+        src = _source_of(rel, source, out_dir, prev_bases)
+        if src is not None and not os.path.lexists(src):
+            gone.append((rel, size))
+    gone_keys = {r.lower() for r, _s in gone}
+    old_prev = [(rel, size) for rel, size, mtime in prevs
+                if rel[:-len(PREV_SUFFIX)].lower() in gone_keys or rel[:-len(PREV_SUFFIX)].lower() not in files or now - mtime > PREV_KEEP_DAYS * 86400]
+    if files and len(gone) > PRUNE_MAX_SHARE * len(files):
+        out["skipped"] = "元に無い物が写しの %d 割を超えます(%d 個)。作業データ側の事故かもしれないので消しません" % (round(PRUNE_MAX_SHARE * 10), len(gone))
+        return out
+    dirs = set()
+    for rel, size in gone + old_prev:
+        if stop is not None and stop():
+            break
+        if not dry:
+            try:
+                os.remove(os.path.join(dest, rel))
+            except FileNotFoundError:
+                pass
+            except OSError:
+                continue
+            dirs.add(os.path.dirname(rel))
+        k = "prev" if rel.lower().endswith(PREV_SUFFIX) else "files"
+        out[k] += 1
+        out["prevBytes" if k == "prev" else "bytes"] += size
+    for d in sorted(dirs, key=lambda x: -x.count(os.sep)):   # 空になったフォルダ(深い方から。写す先そのものは残す)
+        while d:
+            try:
+                os.rmdir(os.path.join(dest, d))
+            except OSError:
+                break
+            d = os.path.dirname(d)
     return out
 
 
@@ -479,6 +566,8 @@ class Backup:
             ok = now if r["complete"] else (self.last.get("ok") if same_folder else None)
             self.last = {"ok": ok, "tried": now, "partial": not r["complete"], "folder": cfg.get("folder"), "dest": r["dest"], "copied": r["copied"],
                          "same": r["same"], "bytes": r["bytes"], "errors": r["errors"], "scanErrors": r["scanErrors"], "seconds": round(now - t0, 1)}
+            if r.get("pruned"):
+                self.last["pruned"] = dict(r["pruned"], at=now)
             self._save_state()
             self.state = "idle"
             why = []
@@ -491,6 +580,12 @@ class Backup:
                 r["copied"], r["same"], r["bytes"] / 1048576.0, r["dest"], " %s" % "・".join(why) if why else ""))
             for m in (r["scanErrors"] + r["errors"])[:5]:
                 self.log("バックアップ:   " + m)
+            pr = r.get("pruned")
+            if pr and pr["skipped"]:
+                self.log("バックアップ: 古い分は消しませんでした(%s)" % pr["skipped"])
+            elif pr and (pr["files"] or pr["prev"]):
+                self.log("バックアップ: 古い分を消しました(元に無い物の写し %d 個・%.1f MB・古い .prev %d 個・%.1f MB)" % (
+                    pr["files"], pr["bytes"] / 1048576.0, pr["prev"], pr["prevBytes"] / 1048576.0))
             return r
 
     def snapshot(self):
