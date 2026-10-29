@@ -79,6 +79,11 @@ def _collect(ctx, st):
     return cards, view.errors
 
 
+def warm(ctx):
+    """覚えが無ければ集めて覚える(入口の起動の直後に裏の糸で。読むだけ)-> カードの枚数"""
+    return len(_collect(ctx, answerlog.state(ctx.app_dir))[0])
+
+
 def _goals(ctx):
     fn = getattr(ctx, "goals", None)
     try:

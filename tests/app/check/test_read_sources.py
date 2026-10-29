@@ -60,9 +60,29 @@ class ReadSourcesTest(unittest.TestCase):
             write(os.path.join(self.tx, t + ".alt.json"), {"schema": alt.ALT_SCHEMA, "rows": engine_rows()})
         self.ctx = Ctx(os.path.join(self.tmp, "app"), ROOT, env=self.env, eval_dirs=[])
         deck.invalidate()
+        read_sources._DIFF_MEMO.clear()
 
     def cards(self, source):
         return [c for c in sources.collect(self.ctx)[0] if c["kind"] == "read" and c["source"] == source]
+
+    def test_diffs_are_remembered_until_files_change(self):
+        """集め直しのたびに 2 つ目のエンジンとの違いを計算し直さない(10-29「起動するたびにカード全部読んでる？」)。文書か .alt.json が変われば計算し直す"""
+        from unittest import mock
+        real, calls = alt.alt_diffs, []
+        with mock.patch.object(alt, "alt_diffs", lambda segs, rows: calls.append(1) or real(segs, rows)):
+            first = self.cards("alt")
+            self.assertEqual((len(first), len(calls)), (1, 1))   # 評価用の文書は読まない = 1 枚
+            self.assertEqual([c["id"] for c in self.cards("alt")], [c["id"] for c in first])
+            self.assertEqual(len(calls), 1)   # 2 回目は覚えた物
+            rows = engine_rows()
+            rows[1]["text"] = "明日は飴でしょう"
+            p = os.path.join(self.tx, DOC + ".alt.json")
+            write(p, {"schema": alt.ALT_SCHEMA, "rows": rows})
+            st = os.stat(p)
+            os.utime(p, ns=(st.st_atime_ns, st.st_mtime_ns + 10 ** 9))   # 書き換え(時刻が動く)
+            got = self.cards("alt")
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(sorted(c["id"] for c in got), ["read:alt:%s#s1" % DOC, "read:alt:%s#s2" % DOC])
 
     def test_alt_card_shape(self):
         got = self.cards("alt")

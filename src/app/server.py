@@ -1277,6 +1277,14 @@ class PortalServer(httpsec.ExclusiveServer):
         self._song_skips = skips
         return made
 
+    def warm_check(self):
+        """起動の直後に確かめるのカードを裏で 1 回集めて覚えておく(読むだけ。10-29「起動するたびにカード全部読んでる？めちゃくちゃ遅い」:
+        覚えが無い起動の直後は、画面を開いた人が集め終わるまで 4〜8 秒待っていた)"""
+        try:
+            check_deck.warm(self.check_ctx())
+        except Exception as e:   # noqa: BLE001  (集められなくても入口は止めない。開いたときに集める)
+            self.sup.log("確かめるのカードを先に集められませんでした: %s" % tools.why(e))
+
     def voice_clips_loop(self):
         while not self.closing.is_set():
             try:
@@ -1840,6 +1848,7 @@ def _main(opts):
         if srv.analytics:
             srv.analytics.start()   # 分析と日報(連携の設定が無ければ何もしない。新しいデータが来たら日報を作って LINE へ)
         threading.Thread(target=srv.purge_trash, daemon=True, name="trash-purge").start()   # 日数を過ぎたごみ箱フォルダ(段9 9-2)
+        threading.Thread(target=srv.warm_check, daemon=True, name="check-warm").start()   # 確かめるのカードを先に集めておく(開いたときに待たない。10-29)
         threading.Thread(target=srv.voice_clips_loop, daemon=True, name="voice-clips").start()   # 誰の声のカードの行の音(10-24 夜)
         threading.Thread(target=srv.voice_fill_loop, daemon=True, name="voice-fill").start()   # 誰の声の材料を学習用データのショートから(10-25)
         threading.Thread(target=srv.voice_fetch_loop, daemon=True, name="voice-fetch").start()   # 材料の無いメンバーを YouTube から 4 分だけ(10-25)
