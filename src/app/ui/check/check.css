@@ -50,6 +50,7 @@
 .chk-replay-row{display:flex;gap:6px 10px;flex-wrap:wrap;align-items:center}
 .chk-replay-row .chk-play-msg{flex:1 1 160px;min-width:0}
 .chk-replay-row[hidden]{display:none}
+.chk-rate{display:inline-flex;align-items:center;gap:6px;color:var(--ink-2)}
 .chk-wave-msg,.chk-play-msg{margin:0}
 .chk-wave-msg:empty,.chk-play-msg:empty{display:none}
 

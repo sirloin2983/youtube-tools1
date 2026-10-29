@@ -454,6 +454,15 @@ def _scene_rate_kept(cx):
         check(wait_js(pg, "!!document.querySelector('#chkBody video')") and pg.evaluate(rate) == [1.5, 1.5], "開き直しても 1.5 倍: %s" % pg.evaluate(rate))
         press(pg, "k")
         check(pg.evaluate(rate) == [1.5, 1.5], "K(止める)は覚えた速さへ戻す(1 倍に戻さない): %s" % pg.evaluate(rate))
+        # 速さの選び方(10-29 ユーザー「4 倍まで刻んで出して」): 再生の横の「速さ」で 1〜4 倍・声の高さを保つ・覚えた速さは段にそろえる
+        opts = pg.evaluate("[...document.querySelectorAll('#chkBody [data-chk-rate] option')].map(o => +o.value)")
+        check(opts == [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4] and pg.input_value("#chkBody [data-chk-rate]") == "1.5", "速さの段は 4 倍まで・今の 1.5 倍を指す: %s" % opts)
+        pg.select_option("#chkBody [data-chk-rate]", "4")
+        check(pg.evaluate(rate) == [4, 4] and pg.evaluate("localStorage.getItem('check.rate')") == "4", "4 倍を選ぶと 4 倍で覚える: %s" % pg.evaluate(rate))
+        check(pg.evaluate("document.querySelector('#chkBody video').preservesPitch") is True, "速くしても声の高さを保つ(preservesPitch)")
+        check(pg.evaluate("document.activeElement === document.body || !document.activeElement.matches('select')"), "選んだあとのキーはカードへ(速さの欄から外す)")
+        pg.evaluate("document.querySelector('#chkBody video').playbackRate = 2.7")   # 段に無い速さ(動画のメニューなど)= 一番近い段で覚える
+        check(wait_js(pg, "localStorage.getItem('check.rate') === '2.5'") and pg.input_value("#chkBody [data-chk-rate]") == "2.5", "段に無い速さは一番近い段で覚える")
     finally:
         pg.evaluate("localStorage.removeItem('check.rate')")
         _restore_queue(cx)

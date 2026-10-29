@@ -44,17 +44,18 @@
   }
   /* 再生速度もカードをまたいで引き継ぐ(10-29 ユーザー「毎回変えるのめんどくさい」)。全部のカードで 1 つ(音量と同じ)。
      動画の速さのメニュー・L(再生中は 1.5 → 2 倍)で変えた速さを覚え、次のカードは最初からその速さ。K(止める)は覚えた速さへ戻す(defaultPlaybackRate) */
-  var RATE_KEY = 'check.rate', RATE_MIN = 0.25, RATE_MAX = 4;
+  /* 選べる速さ = 4 倍まで刻む(10-29 ユーザー「4 倍まで刻んで出して」)。再生の横の「速さ」で選ぶ。覚えた速さ・動画のメニューで変えた速さは一番近い段にそろえる */
+  var RATE_KEY = 'check.rate', RATES = [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4];
+  function snapRate(r) {
+    r = +r;
+    if (!isFinite(r) || r <= 0) return 1;
+    return RATES.reduce(function (best, x) { return Math.abs(x - r) < Math.abs(best - r) ? x : best; }, RATES[0]);
+  }
   function loadRate() {
-    try {
-      var r = +JSON.parse(localStorage.getItem(RATE_KEY) || 'null');
-      if (isFinite(r) && r >= RATE_MIN && r <= RATE_MAX) return r;
-    } catch (e) { /* 既定へ */ }
-    return 1;
+    try { return snapRate(JSON.parse(localStorage.getItem(RATE_KEY) || '1')); } catch (e) { return 1; }
   }
   function saveRate(r) {
-    if (!(isFinite(r) && r >= RATE_MIN && r <= RATE_MAX)) return;
-    try { localStorage.setItem(RATE_KEY, JSON.stringify(r)); } catch (e) { /* 覚えられないだけ */ }
+    try { localStorage.setItem(RATE_KEY, JSON.stringify(snapRate(r))); } catch (e) { /* 覚えられないだけ */ }
   }
   function cssVar(name, fallback) {
     var v = getComputedStyle(document.documentElement).getPropertyValue(name);
@@ -81,6 +82,8 @@
       (opt.wave ? '<div class="chk-wave"><canvas data-chk-wave height="72" aria-hidden="true"></canvas><p class="hint chk-wave-msg" data-chk-wavemsg></p></div>' : '') +
       (opt.text ? '<p class="chk-cap">' + esc(opt.text) + '</p>' : '') +
       '<div class="chk-replay-row" data-chk-replayrow hidden><button type="button" class="btn" data-chk-replay title="区間の頭から流し直します">もう一度聞く <kbd class="ui-kbd">R</kbd></button>' +
+      (src ? '<label class="chk-rate">速さ <select data-chk-rate title="再生の速さ(次のカードも同じ速さ)">' +
+        RATES.map(function (r) { return '<option value="' + r + '">' + r + ' 倍</option>'; }).join('') + '</select></label>' : '') +
       '<p class="hint chk-play-msg" data-chk-msg role="status"></p></div></div>';   // 知らせはボタンの横(縦を使わない = 答えのボタンを上に保つ)
     var screen = el.querySelector('[data-chk-screen]'), msg = el.querySelector('[data-chk-msg]');
     function say(t) { if (msg) msg.textContent = t || ''; }
@@ -144,10 +147,20 @@
       video.volume = vol.volume; video.muted = vol.muted;
       video.addEventListener('volumechange', function () { saveVolume(video); });
       video.defaultPlaybackRate = video.playbackRate = loadRate();   // src より前(読み込みで playbackRate は defaultPlaybackRate に戻る)
+      video.preservesPitch = true;   // 速くしても声の高さを保つ(聞き取りやすさ。ブラウザの既定も true)
+      var rateSel = el.querySelector('[data-chk-rate]');
+      if (rateSel) {
+        rateSel.value = String(video.playbackRate);
+        rateSel.addEventListener('change', function () {
+          video.playbackRate = +rateSel.value;
+          rateSel.blur();   // 選んだあとのキー(答え・再生)はカードへ
+        });
+      }
       video.addEventListener('ratechange', function () {
         if (gone || !(video.playbackRate > 0)) return;
         saveRate(video.playbackRate);
         video.defaultPlaybackRate = video.playbackRate;   // K(止める)・次の読み込みもこの速さ
+        if (rateSel) rateSel.value = String(snapRate(video.playbackRate));
       });
       video.addEventListener('loadedmetadata', function () {
         if (opt.autoplay !== false) playBounded();
