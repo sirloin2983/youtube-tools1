@@ -58,7 +58,8 @@ LIVE_STALE = KEEP_DAYS * DAY + 12 * 3600   # 録画の行がこれより長く�
 LIVE_DONE_MAX = 500                 # ライブの行が覚える済んだ切り抜きの実行の id の数
 SCORES = (1, 2, 3, 4, 5)   # 5 段階の点(1 つまらない・2 いまいち・3 ふつう・4 面白い・5 すごく面白い。10-27)
 VERDICTS = ("keep", "skip", "bad")  # 受け取る / 見送る / 届かなくてよかった(C-3-4)
-JUDGE = {"keep": "good", "skip": "unknown", "bad": "bad"}   # 送り返しの判断の記録 v 2 の言葉(notes:docs/spec/friend.md の 12-2)
+JUDGE = {"keep": "good", "skip": "unknown", "bad": "bad"}
+HOLD_JUDGE = {True: "hold", False: "unhold"}   # 迷っている物の印(10-29 ユーザー)。判定ではない = 送り返しの記録の judge は別の言葉   # 送り返しの判断の記録 v 2 の言葉(notes:docs/spec/friend.md の 12-2)
 REASONS = ("boring", "cut")         # 届かなくてよかったの理由: つまらない(場面の選び方)/ 切り方が変(区間の決め方)
 CLIP_RANGE_RE = re.compile(r"(\d{2,})h(\d{2})m(\d{2})s-(\d{2,})h(\d{2})m(\d{2})s")   # 書き出しの名前の <始まり>-<終わり>(ytt/names)
 TITLE_CUT = 40                      # 受け取った物のフォルダの名前に入れる配信の題の長さ(C-3-8)
@@ -877,7 +878,7 @@ class Inbox:
                     if not remote and self._unplace(p):
                         errors.append({"name": p["name"], "message": self._move_failed(verdict, e)})
                         continue
-                p.update(verdict=verdict, reason=reason if verdict == "bad" else None, at=self._now_ms(), by=by, want=None)
+                p.update(verdict=verdict, reason=reason if verdict == "bad" else None, at=self._now_ms(), by=by, want=None, hold=None)   # 決めたら迷っている印は外れる
                 self._tally("auto" if by == "auto" else verdict, p["at"])
                 if verdict == "keep" or by == "auto":
                     self._drop_preview(p)
@@ -886,6 +887,34 @@ class Inbox:
             r["updatedAt"] = self._now_ms()
             self._save()
             return {"done": done, "pending": pending, "errors": errors, "row": r}
+
+    def set_hold(self, rid, names, on):
+        """迷っている物の印(10-29 ユーザー: 見たけれど受け取るか見送るか迷っている物)。on = 付ける / 外す -> {"done": [名前]}。
+        決めていない物だけ・判定ではない(受け取る・見送るとは別)。印のある物は 3 日の自動の見送り(sweep)の外 = 友人が決めるまで残す。
+        外したら、そこから 3 日(arrivedAt を今に)。送り返しへ judge hold / unhold の記録(v 2)を書く(研究が読む)"""
+        if not isinstance(on, bool):
+            raise ValueError("印は付けるか外すかです")
+        with self.lock:
+            r = self.row(rid)
+            if r is None or r["state"] not in ("arrived", "recording", "done"):
+                raise KeyError(rid)
+            want = set(names or [])
+            done = []
+            now = self._now_ms()
+            for p in r["packs"]:
+                if p["verdict"] or (want and p["name"] not in want) or bool(p.get("hold")) == on:
+                    continue
+                try:
+                    self._record(r, p, HOLD_JUDGE[on])
+                except OSError as e:
+                    self.log("迷っている印の記録を書けませんでした: %s" % e.__class__.__name__)   # 記録が無くても印は付ける(友人の作業を止めない)
+                p["hold"] = now if on else None
+                if not on:
+                    p["arrivedAt"] = now
+                done.append(p["name"])
+            r["updatedAt"] = now
+            self._save()
+            return {"done": done}
 
     def undo(self, rid, names):
         """[戻す](C-3-6): 見送った・届かなくてよかったの物を 3 日の間は決める前に戻す(ごみ箱から元の場所へ・取り消しの記録)-> {"done", "errors"}"""
@@ -993,14 +1022,14 @@ class Inbox:
             doc["reason"] = reason
         if judge == "retract":
             doc["of"] = of or ""
-        else:
+        elif judge not in HOLD_JUDGE.values():
             doc["score"] = score   # 5 段階の点(1〜5)か None = 選ばなかった(10-27)
         if by == "auto":
             doc["by"] = "auto"
         if WORKTIME:   # 作業の時刻(D): 届いた・初めて再生した(ユーザーの PC が公開の時刻と結ぶ = dev/friend_worktime.py)
             doc.update({k: p[k] for k in ("arrivedAt", "openedAt") if isinstance(p.get(k), int)})
         fsio.write_json(os.path.join(self.outbox, "%s__%s~%013d%s" % (r["id"], p["name"], at, VERDICT_SUFFIX)), doc, indent=None)
-        if judge != "retract":
+        if judge in JUDGE.values():
             p["verdictId"] = doc["id"]
 
     def _drop_preview(self, p):
@@ -1081,7 +1110,7 @@ class Inbox:
                     r.setdefault("live", {})["finished"] = now
                     self._live_close(r, now)
                 if r["state"] in ("arrived", "recording"):
-                    old = [p["name"] for p in r["packs"] if not p["verdict"] and now - (p.get("arrivedAt") or r.get("arrivedAt") or now) >= limit]
+                    old = [p["name"] for p in r["packs"] if not p["verdict"] and not p.get("hold") and now - (p.get("arrivedAt") or r.get("arrivedAt") or now) >= limit]   # 迷っている印の物は残す
                     if old:
                         n += len(self.decide(r["id"], old, "skip", by="auto")["done"])
                     for p in r["packs"]:   # 見送って 3 日たった物の確認用の動画
@@ -1233,7 +1262,7 @@ class Inbox:
         title = "%s|%s #%d" % (info["streamer"], info["title"], num) if info["streamer"] else "%s #%d" % (info["title"] or p["title"], num)
         return {"id": r["id"], "name": p["name"], "num": num, "title": title, "clip": Inbox._clip_label(p), "seconds": p.get("seconds"),
                 "preview": bool(p.get("preview")), "remote": bool(p.get("remote")), "want": p.get("want"), "error": p.get("error") or "",
-                "verdict": p["verdict"], "reason": p.get("reason"), "at": p.get("at"), "arrivedAt": p.get("arrivedAt"),
+                "verdict": p["verdict"], "reason": p.get("reason"), "at": p.get("at"), "arrivedAt": p.get("arrivedAt"), "hold": bool(p.get("hold")),
                 "videoId": info["videoId"], "auto": r.get("origin") == "auto",
                 "overlapNote": (p.get("info") or {}).get("overlapNote") or ""}
 

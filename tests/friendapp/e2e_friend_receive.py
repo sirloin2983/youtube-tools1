@@ -95,6 +95,16 @@ def main():
                 wait_until(lambda: rig.opened, what="フォルダを開く口(偽物)が呼ばれる")
                 ok &= check(len(rig.opened) == 1 and TITLE in rig.opened[0], "知らせの [フォルダを開く] は偽物の口に届く(本物のエクスプローラーは開かない)")
 
+                # 迷っている物の印(10-29): 押すと付く(脇の一覧に札)・もう一度で外れる・判定ではない(次へ進まない)
+                pg.click("#btnHold")
+                expect(pg.locator("#btnHold")).to_have_attribute("aria-pressed", "true", timeout=WAIT)
+                expect(pg.locator("#playerList .fr-badge-hold")).to_have_count(1, timeout=WAIT)
+                ok &= check("#2" in pg.locator("#playerTitle").inner_text(), "[迷っている] は印を付けるだけ(次へ進まない)・脇の一覧に札")
+                pg.click("#btnHold")
+                expect(pg.locator("#btnHold")).to_have_attribute("aria-pressed", "false", timeout=WAIT)
+                expect(pg.locator("#playerList .fr-badge-hold")).to_have_count(0, timeout=WAIT)
+                ok &= check(True, "もう一度押すと印が外れる")
+
                 # [見送る] → 動画なしの #3 → [戻す]
                 pg.click("#btnSkip")
                 expect(pg.locator("#playerTitle")).to_contain_text("#3", timeout=WAIT)
@@ -123,7 +133,8 @@ def main():
                         with open(os.path.join(places["outbox"], n), encoding="utf-8") as f:
                             d = json.load(f)
                         judges.append(d["judge"] if d.get("v") == 2 else "v1")
-                ok &= check(sorted(judges) == ["good", "retract", "unknown", "unknown", "unknown"], "判断の記録 v2(受け取る 1・見送る 3・戻す 1): %s" % judges)
+                ok &= check(sorted(judges) == ["good", "hold", "retract", "unhold", "unknown", "unknown", "unknown"],
+                            "判断の記録 v2(受け取る 1・見送る 3・戻す 1・迷っている印を付けた 1 と外した 1): %s" % judges)
 
                 ok &= check(not errors, "画面にエラー(pageerror)が出ていない%s" % ("" if not errors else ": " + errors[0][:120]))
             finally:

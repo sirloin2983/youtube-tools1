@@ -27,6 +27,7 @@
     if (src) th.appendChild(el('img', { alt: '', loading: 'lazy', src: src }));
     th.appendChild(el('span', { cls: 'fr-num-badge', text: '#' + it.num + (it.seconds ? ' ' + FR.dur(it.seconds) : '') }));
     if (it.want === 'keep') th.appendChild(el('span', { cls: 'fr-badge', text: '受け取っています' }));
+    if (it.hold && !it.verdict) th.appendChild(el('span', { cls: 'fr-badge fr-badge-sent fr-badge-hold', text: '迷っている', title: '迷っている印があります(3 日たっても自動で見送りません)' }));
     var bk = [th, el('span', { cls: 'fr-card-title', text: small ? '#' + it.num + ' ' + (it.clip || '') : it.clip || it.title })];
     if (it.overlapNote && !small) bk.push(el('span', { cls: 'fr-card-head fr-card-overlap', text: '⚠ ' + it.overlapNote, title: it.overlapNote }));
     var b = el('button', { type: 'button', cls: 'fr-rcard-btn', title: it.title, on: { click: function () { play(key); } } }, bk);
@@ -229,6 +230,22 @@
       if ($(id).disabled && why) $(id).title = why; else if ($(id).getAttribute('data-title0') !== null) $(id).title = $(id).getAttribute('data-title0');
     });
     $('btnKeep').textContent = x && x.it.want === 'keep' ? '受け取っています' : '受け取る';
+    $('btnHold').disabled = !can || my.busy;
+    $('btnHold').setAttribute('aria-pressed', String(!!(x && x.it.hold)));
+  }
+  /* 迷っている物の印(10-29): 押すと付く・もう一度押すと外れる。判定ではない(受け取る・見送るとは別)・印のある物は 3 日の自動の見送りの外 */
+  function toggleHold() {
+    var x = find(my.cur);
+    if (!x || !open(x.it) || my.busy) return;
+    var on = !x.it.hold;
+    my.busy = true;
+    api('hold', { items: [{ id: x.it.id, name: x.it.name }], on: on }).then(function (j) {
+      if ((j.done || []).length) {
+        x.it.hold = on;
+        UIKit.toast(on ? '迷っている印を付けました(3 日たっても自動で見送りません)' : '迷っている印を外しました', { ms: 3000 });
+      }
+      return FR.refresh();
+    }, function (e) { FR.fail('印を変えられませんでした', e); }).then(function () { my.busy = false; buttons(); });
   }
   function back() {
     my.cur = null;
@@ -337,6 +354,7 @@
     function curItem() { var x = find(my.cur); return x ? [x.it] : []; }
     $('btnKeep').addEventListener('click', function () { decide(curItem(), 'keep', null, my.score); });
     $('btnSkip').addEventListener('click', function () { decide(curItem(), 'skip', null, my.score); });
+    $('btnHold').addEventListener('click', toggleHold);
     $('bulkKeep').addEventListener('click', bulkKeep);
     $('bulkSkip').addEventListener('click', function () { decide(selected(), 'skip', null, my.bulkScore); });
     [['playerScore', 'score'], ['bulkScore', 'bulkScore']].forEach(function (p) {

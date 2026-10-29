@@ -322,6 +322,19 @@ class TestV2(Base):
         self.scan()
         self.assertEqual([(r["videoId"], r["markId"], r["ref"]["pack"]) for r in J.rows(self.app)], [("V3", "m3", "パック3"), ("", "", "パック4")])
 
+    def test_hold_mark_is_kept_apart_from_verdicts(self):
+        """迷っている物の印(hold / unhold・10-29)は人の判断の記録に別の行で残す・判定のレーンに入れない(受け取るの判定を消さない)"""
+        self.deliver("パック1", "m1")
+        self.v2("パック1", {"id": "h1", "judge": "hold", "score": 5, "reason": "boring"}, 1760000000000)
+        self.v2("パック1", {"id": "h2", "judge": "unhold"}, 1760000000001)
+        self.v2("パック1", {"id": "g1", "judge": "good"}, 1760000000002)
+        self.v2("パック1", {"id": "h3", "judge": "hold"}, 1760000000003)
+        self.scan()
+        rows = J.rows(self.app)
+        self.assertEqual([(r["what"], "score" in r, "reason" in r) for r in rows], [("hold", False, False), ("unhold", False, False), ("good", False, False), ("hold", False, False)])
+        self.assertEqual(J.fold(rows)[("VID", "m1")]["friend"]["what"], "good")   # 後の印で判定が消えない
+        self.assertIsNone(J.friend_value(rows[0]))
+
     def test_bad_forms_refused(self):
         for i, body in enumerate(({"id": "a", "judge": "bad"}, {"id": "b", "judge": "great"}, {"judge": "good"}, {"id": "c", "judge": "retract"},
                                   {"id": "d", "judge": "bad", "reason": "long"})):

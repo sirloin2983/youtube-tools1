@@ -35,7 +35,9 @@
       return;
     }
     if (!u.requested) {
-      msg.textContent = '新しい版 ' + u.version + ' があります' + (u.auto ? '。処理が終わったら自動で新しい版にします(今すぐ:' : '');
+      /* 自動で当てるのを待っている(録画・処理・画面の操作。10-29): 何を待っているかを出す */
+      msg.textContent = u.auto && u.autoWait ? '更新があります(作業が終わったら当てます: ' + u.autoWait + '。今すぐ:'
+        : '新しい版 ' + u.version + ' があります' + (u.auto ? '。処理が終わったら自動で新しい版にします(今すぐ:' : '');
       box.appendChild(msg);
       var b = el('button', 'btn primary small', '更新する');
       b.type = 'button';

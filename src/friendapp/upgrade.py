@@ -165,6 +165,11 @@ class Upgrade:
         d = (getattr(s, "state", None) or {}).get("latest") if s is not None else None
         return d if isinstance(d, dict) else {}
 
+    def asked(self, v):
+        """ユーザーの指示で配った版か(latest.json の asked。dev/build_friend_zip.py --asked。画面を操作していても当てる・10-29)"""
+        lt = self.latest()
+        return bool(v) and lt.get("version") == v and lt.get("asked") is True
+
     def important(self, v):
         lt = self.latest()
         return bool(v) and lt.get("version") == v and lt.get("important") is True

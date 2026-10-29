@@ -567,6 +567,32 @@ class InboxTest(unittest.TestCase):
         self.assertIsNone(self.box.notice)
         self.assertIsNone(self.new_box().notice)
 
+    def test_hold_mark_keeps_pack_from_auto_skip(self):
+        """迷っている物の印(10-29): 付ける・外す(記録は hold / unhold・判定ではない)・印の物は 3 日の自動の見送りの外・外したらそこから 3 日・決めたら外れる"""
+        self.arrive(RID, ["a_pack", "b_pack"])
+        self.assertEqual(self.box.set_hold(RID, ["a_pack"], True)["done"], ["a_pack"])
+        self.assertEqual(self.box.set_hold(RID, ["a_pack"], True)["done"], [])   # もう付いている
+        v = self.read_verdict(RID, "a_pack")
+        self.assertEqual((v["judge"], "score" in v, "by" in v), ("hold", False, False))
+        from human.friend import returns as R
+        self.assertEqual(R.parse_verdict(json.dumps(v).encode())["judge"], "hold")   # ユーザーの PC の受け口が読める
+        items = {it["name"]: it for s in self.box.receive_view()["sections"] for it in s["items"]}
+        self.assertEqual((items["a_pack"]["hold"], items["b_pack"]["hold"]), (True, False))
+        self.clock.t = T0 + 3 * 86400
+        self.assertEqual(self.box.sweep(), 1)   # 印の無い b だけ自動で見送る
+        self.assertIsNone(self.box.row(RID)["packs"][0]["verdict"])
+        self.clock.t = T0 + 5 * 86400
+        self.assertEqual(self.box.sweep(), 0)   # 印があるうちは何日たっても残す
+        self.assertEqual(self.box.set_hold(RID, ["a_pack"], False)["done"], ["a_pack"])
+        self.assertEqual(self.read_verdict(RID, "a_pack")["judge"], "unhold")
+        self.clock.t = T0 + 8 * 86400 - 1
+        self.assertEqual(self.box.sweep(), 0)   # 外してから 3 日は待つ
+        self.box.set_hold(RID, ["a_pack"], True)
+        self.box.decide(RID, ["a_pack"], "keep")
+        self.assertIsNone(self.box.row(RID)["packs"][0].get("hold"))   # 決めたら印は外れる
+        with self.assertRaises(ValueError):
+            self.box.set_hold(RID, ["a_pack"], "yes")
+
     def test_sweep_drops_preview_three_days_after_skip(self):
         """見送って 3 日たった物の確認用の動画を消す(戻せる間は残す)。受け取った物の動画は決めた時に消える"""
         self.arrive(RID, ["a_pack", "b_pack", "c_pack"])

@@ -22,14 +22,15 @@ VERSION = 1
 FILE = "judgments.jsonl"
 MAX_BYTES = 32 * 1024 * 1024   # 1 行 300 バイト前後。超えたら .old の末尾へ移す(消さない)
 
-WHATS = ("adopt", "reject", "quality_good", "quality_bad", "quality_unknown", "made_video", "good", "bad", "unknown", "retract")
+WHATS = ("adopt", "reject", "quality_good", "quality_bad", "quality_unknown", "made_video", "good", "bad", "unknown", "retract", "hold", "unhold")
 WHOS = ("self", "friend")
 ORIGINS = ("request", "auto", "manual", "live")
 VIAS = ("review", "cases", "check", "friend_file", "friend_verdict", "migrate")   # migrate = 10-12 の 1 回の写しの行(写しの道具は 10-19 に消した・行は残る)
 LANES = ("adopt", "quality", "friend")
 REF_KEYS = ("zip", "pack", "requestId", "runId", "recorder", "recording")
 _SELF_WHATS = {"adopt": "adopt", "reject": "adopt", "quality_good": "quality", "quality_bad": "quality", "quality_unknown": "quality"}
-_FRIEND_WHATS = ("good", "bad", "unknown", "adopt", "reject", "made_video")
+_FRIEND_WHATS = ("good", "bad", "unknown", "adopt", "reject", "made_video", "hold", "unhold")
+NO_LANE = ("hold", "unhold")   # 友人の迷っている物の印を付けた・外した(10-29)。判定ではない = どのレーンにも入れない(fold は畳まない・friend_value は None)
 _REASON_WHATS = ("quality_bad", "bad")
 FRIEND_REASONS = {"boring": "つまらない", "cut": "切り方が変"}   # 友人の「届かなくてよかった」の理由(boring = 場面の選び方・cut = 区間の決め方)
 _FRIEND_VALUE = {"good": "good", "bad": "bad", "unknown": "unknown", "adopt": "good", "made_video": "good", "reject": "unknown"}   # 古い行の読み替え(C-4-1)
@@ -180,6 +181,8 @@ def keys(app_dir):
 
 
 def _lane(r):
+    if r["what"] in NO_LANE:
+        return None
     if r["who"] == "friend":
         return "friend"
     return _SELF_WHATS.get(r["what"])
@@ -192,8 +195,8 @@ def fold(rows_):
     byid = {r["id"]: r for r in ordered if r["what"] != "retract"}
     out = {}
     for r in ordered:
-        if not r["markId"]:
-            continue   # マークの分からない行(パック名だけ)は切り抜きごとに畳まない = 物差しがパック名で突き合わせる
+        if not r["markId"] or r["what"] in NO_LANE:
+            continue   # マークの分からない行(パック名だけ)は切り抜きごとに畳まない = 物差しがパック名で突き合わせる。迷っている印はレーンの外
         slot = out.setdefault((r["videoId"], r["markId"]), {"adopt": None, "quality": None, "friend": None})
         if r["what"] == "retract":
             t = byid.get(r.get("of"))
