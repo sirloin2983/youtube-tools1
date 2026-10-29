@@ -13,6 +13,7 @@ import hashlib
 import http.client
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -32,6 +33,9 @@ HASH_BLOCK = 4 * 1024 * 1024  # Dropbox の content_hash の塊
 MAX_PAGES = 50                # list_folder の続きの上限(1 回 500 件 x 50)
 ERROR_BODY_MAX = 64 * 1024
 READ_STEP = 256 * 1024
+# 友人のアプリが消してよい物(安全面の直し 7・10-29。鍵は 2 台で同じなので、コードの中で消す対象を自分の物に限る):
+# 直下の依頼 <依頼 id>.request.json と上げた動画 <依頼 id>__<名前>・/出力/ のファイル・/診断/ の中のファイル。/更新/・/学習/・フォルダは消さない
+DELETE_OK = re.compile(r"^/(?:[0-9A-Za-z_-]{1,64}(?:\.request\.json|__[^/]+)|出力/[^/]+|診断/(?:[^/]+/)?[^/]+)\Z")
 RPC_TIMEOUT, CONTENT_TIMEOUT, DOWNLOAD_TIMEOUT = 60, 600, 300
 
 
@@ -316,7 +320,9 @@ class Client:
             raise
 
     def delete(self, path):
-        """消す -> True(消した)/ False(もう無い = 消えているのと同じ)"""
+        """消す -> True(消した)/ False(もう無い = 消えているのと同じ)。DELETE_OK の外は DropboxError(負の status = このプログラムが断った)"""
+        if not isinstance(path, str) or not DELETE_OK.match(path) or "/../" in path + "/" or "/./" in path + "/":
+            raise DropboxError("消してよい場所ではありません: %s" % str(path)[:80], -1)
         try:
             self.rpc("files/delete_v2", {"path": path})
             return True

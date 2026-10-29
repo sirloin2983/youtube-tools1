@@ -130,8 +130,19 @@ class DropboxTest(unittest.TestCase):
         self.assertIsNone(self.client(FakeNet(NOT_FOUND)).list_folder("/出力"))
 
     def test_delete_reports_missing_as_false(self):
-        self.assertTrue(self.client(FakeNet(ok({}))).delete("/a"))
-        self.assertFalse(self.client(FakeNet(NOT_FOUND)).delete("/a"))
+        self.assertTrue(self.client(FakeNet(ok({}))).delete("/出力/a.zip"))
+        self.assertFalse(self.client(FakeNet(NOT_FOUND)).delete("/出力/a.zip"))
+
+    def test_delete_only_own_files(self):
+        """消せるのは直下の依頼と上げた動画・/出力/・/診断/ のファイルだけ(安全面の直し 7)。ほかは通信の前に断る"""
+        for p in ("/20261029-120000-abcdef.request.json", "/20261029-120000-abcdef__歌.mp4", "/出力/a.zip", "/診断/x.state.json",
+                  "/診断/引き継ぎ/r.takeover.json", "/診断/送って/a.ask.json", "/診断/戻して/a.rollback.json"):
+            self.assertTrue(self.client(FakeNet(ok({}))).delete(p), p)
+        for p in ("/更新/latest.json", "/更新", "/学習/a.zip", "/出力", "/出力/x/y.zip", "/出力/..", "/診断/a/b/c", "/latest.json", "", None, "/a"):
+            net = FakeNet(ok({}))
+            with self.assertRaises(D.DropboxError, msg=p):
+                self.client(net).delete(p)
+            self.assertEqual(net.calls, [], p)
 
     def test_upload_small_header_is_ascii(self):
         net = FakeNet(ok({"name": "依頼.json"}))
