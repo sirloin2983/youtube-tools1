@@ -418,21 +418,29 @@ def _audio_sections(app_dir, url, reqs):
     stage = qdir(app_dir, "done", STAGE)
     os.makedirs(stage, exist_ok=True)
     tag = "grp-%s-" % (_video_of(url) or "x")
-    cmd = _audio_cmd(app_dir, yd, os.path.join(stage, tag + "%(section_start)d.%(ext)s"), [q["section"] for q in reqs])
+    ends = {}   # 始まりの秒 → 一番遅い終わり(出力の名前は始まりの秒 = 始まりが同じ区間は 1 本にまとめて取り、頼みごとに写す)
+    for q in reqs:
+        a = max(0, int(q["section"][0]))
+        ends[a] = max(ends.get(a, 0), int(q["section"][1]))
+    cmd = _audio_cmd(app_dir, yd, os.path.join(stage, tag + "%(section_start)d.%(ext)s"), sorted(ends.items()))
     r, tail = _vf._ytdlp(cmd + ["--", url], _vf.FETCH_TIMEOUT * 2)
     files = [os.path.join(stage, x) for x in os.listdir(stage) if x.startswith(tag)]
     ok = [f for f in files if not f.endswith((".part", ".ytdl", ".tmp"))]
     info = _info_of(r, app_dir) if r is not None and r.returncode == 0 and ok else None
-    out = []
+    out, moved = [], {}   # 移した音 {stage のパス: done のパス}(始まりが同じ 2 本目からは写す。10-29: 移した後の getsize で毎分落ち、同じ回を 6 時間取り直した)
     for q in reqs:
         start = "%d." % max(0, int(q["section"][0]))
         got = [f for f in ok if os.path.basename(f)[len(tag):].startswith(start)]
         if info is None or not got:
             out.append((q, None, (tail or "取れませんでした") if info is None else "この区間の音がありません"))
             continue
-        f = max(got, key=os.path.getsize)
+        f = max(got, key=lambda x: os.path.getsize(moved.get(x, x)))
         dst = qdir(app_dir, "done", q["id"] + os.path.splitext(f)[1])
-        os.replace(f, dst)
+        if f in moved:
+            shutil.copyfile(moved[f], dst)
+        else:
+            os.replace(f, dst)
+            moved[f] = dst
         out.append((q, dst, dict(info)))
     for f in files:
         fsio.unlink_quiet(f)

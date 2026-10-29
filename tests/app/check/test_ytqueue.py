@@ -407,6 +407,22 @@ class YtQueueTest(unittest.TestCase):
         self.assertEqual(os.path.getsize(got[1][1]), 900)
         self.assertEqual(got[0][2]["id"], "SAMEVIDEO01")
 
+    def test_audio_sections_same_start_twice(self):
+        """始まりが同じ頼みが 2 本: 区間は 1 本(遅い方の終わり)で取り、2 本目には写す(10-29: 移した後で落ち、同じ回を 6 時間取り直した)"""
+        reqs = [{"id": "r-up-a", "section": [-5, 300]}, {"id": "r-up-b", "section": [0, 400]}]
+        seen = []
+
+        def ytdlp(cmd, timeout):
+            seen.append(cmd)
+            with open(cmd[cmd.index("-o") + 1].replace("%(section_start)d", "0").replace("%(ext)s", "webm"), "wb") as f:
+                f.write(b"x" * 10)
+            return mock.Mock(returncode=0, stdout="SAMEVIDEO01\tUCx\t20261001\t3600\t題\n"), ""
+        with mock.patch.object(VF._tools, "find_tool", lambda name: name), mock.patch.object(VF, "_ytdlp", ytdlp):
+            got = Q._audio_sections(self.app, "https://www.youtube.com/watch?v=SAMEVIDEO01", reqs)
+        self.assertEqual([a for a in seen[0] if a.startswith("*")], ["*0-400"])
+        self.assertEqual([os.path.basename(p) for _q, p, _i in got], ["r-up-a.webm", "r-up-b.webm"])
+        self.assertTrue(all(os.path.getsize(p) == 10 for _q, p, _i in got))
+
     def test_skip_download_writes_under_keep(self):
         """字幕・チャットだけの取得も既定の -o を keep/<動画>/ に置く(無いと途中の .part が作業フォルダ = src に残った。10-26)"""
         seen = []
