@@ -658,6 +658,47 @@ class TestScene(unittest.TestCase):
         st = sorted((p["start"], p.get("pieces", 1), p["state"]) for p in b.list())
         self.assertEqual([(x[1], x[2]) for x in st], [(2, "frame"), (1, "bench")], st)   # つないだ 1 本で枠 2 本ぶん = 次の山は控え(つないで枠が空かない)
 
+    def test_chat_rerank(self):
+        """チャットの跳ねと笑いで選び直す(CHAT_RERANK_ON・研究の仮説 8・9。研究の tools/hyp.py combo・combo_live と同じ候補を選ぶことは 100 配信で確かめた):
+        文字の書き込みの印・跳ねる箱の割合・笑いの割合・点だけなら落ちる候補が上がる・書き込みが無ければ今のまま。配信中は枠の入れ替えに使う"""
+        txt = lambda s, **e: {"message": {"runs": [{"text": s}] + ([{"emoji": e}] if e else [])}}
+        T_ = "liveChatTextMessageRenderer"
+        self.assertEqual([excite.chat_text_flag(T_, txt(s)) for s in ("こんにちは", "草", "www", "wow", "笑った")], [1, 2, 2, 1, 2])
+        self.assertEqual((excite.chat_text_flag(T_, txt("", emojiId="😂")), excite.chat_text_flag(T_, txt("", emojiId="x", shortcuts=[":w:"]))), (2, 2))
+        self.assertEqual(excite.chat_text_flag("liveChatPaidMessageRenderer", txt("草")), 0)   # 文字の書き込みだけ数える
+        msgs = [(t, False) for t in range(0, 600, 10)] + [(t + 0.5, True) for t in range(300, 340)] * 3   # 300〜340 秒だけ跳ねて笑う
+        f = excite.ChatFeats(msgs)
+        self.assertEqual((f.med, round(f.rate(300, 340), 2), round(f.laugh(300, 340), 2), f.rate(0, 100), f.laugh(0, 100)), (1.0, 1.0, 0.97, 0.0, 0.0))   # 笑い 120 件 / 書き込み 124 件
+        self.assertEqual(round(f.rate(300, 340, live=True), 2), 1.0)   # ふだんを始まりより前だけで(前は箱 1 件 = 中央値 1)
+        cands = [{"start": s, "end": s + 40, "peak": s + 20, "score": sc} for s, sc in ((0, 9.0), (100, 8.0), (200, 7.0), (300, 6.0), (400, 5.0))]
+        got, dropped = excite.rerank(cands, f, 3)
+        self.assertEqual(([c["start"] for c in got], [c["start"] for c in dropped]), ([300, 0, 100], [200]))   # 跳ねて笑う 300 秒が上へ・点だけなら 3 番目の 200 秒が落ちる
+        self.assertEqual((got[0]["chatRank"]["up"], got[1]["chatRank"]["up"]), (True, False))
+        self.assertEqual(excite.rerank(cands, excite.ChatFeats([]), 3), (sorted(cands, key=lambda c: -c["score"])[:3], []))   # 書き込みが無い = 今のまま
+        cc = excite.candidates([dict(got[0], peak=320)], {"audio": [0.0] * 600})
+        self.assertIn("chatRank", cc[0])
+        # 配信中: 1 時間の枠 1 本。点の高い 1 本目より、跳ねて笑う 2 本目が枠に入る(スイッチを切れば点数の順)
+        n = 1600
+        w = [a + b for a, b in zip(bump(n, 300, 8.0, 20), bump(n, 1100, 6.0, 20))]
+
+        def live(rr):
+            b = excite.PeakBook(45, 0.65, "normal", 1, rerank=rr)
+            for t in range(1060, 1140, 2):
+                for _ in range(3):
+                    b.chat_note(t, True)
+            for t in range(0, 1000, 10):
+                b.chat_note(t, False)
+            for t in range(n):
+                b.push(t, w[t], {"audio": w[t]}, -30.0)
+            b.finish()
+            return [p["state"] for p in sorted(b.list(include_bench=True), key=lambda p: p["peak"])]
+        self.assertEqual(live(False), ["frame", "bench"])
+        self.assertEqual(live(True), ["bench", "frame"])
+        b = excite.PeakBook(45, 0.65, "normal", 1, rerank=True)
+        b.chat_note(5, True)
+        c = excite.PeakBook.from_json(json.loads(json.dumps(b.to_json())))
+        self.assertEqual((c.rerank, c.chat_boxes, c.chat_secs), (True, {0: 1}, {5: [1, 1]}))
+
     def test_peakbook_scene_waits_for_settle(self):
         n = 1600
         w = bump(n, 800, 6.0, 120)

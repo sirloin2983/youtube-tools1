@@ -420,8 +420,8 @@ class ChatFeedTest(unittest.TestCase):
         msgs = self.drive(f, lambda f, m: f.launches >= 2 and len(m) >= 10)
         self.assertEqual(f.total_restarts, 1)
         self.assertEqual(f.state, "ok")
-        self.assertEqual(len(msgs), len({t for t, _w in msgs}))   # 重ねて数えない
-        self.assertEqual(msgs[0], (T0, 2.5))   # 「草」= 1 + 1.5
+        self.assertEqual(len(msgs), len({m[0] for m in msgs}))   # 重ねて数えない
+        self.assertEqual(msgs[0], (T0, 2.5, 2))   # 「草」= 1 + 1.5・印 2 = 笑いの書き込み(excite.chat_text_flag)
         args = self.launches()
         self.assertEqual(len(args), 2)
         self.assertIn("--skip-download", args[0])
@@ -518,7 +518,7 @@ class ChatFeedTest(unittest.TestCase):
         f = self.feed([{"mode": "write", "interval": 0.01, "pad": 300}], limit=4000)
         msgs = self.drive(f, lambda f, m: f.launches >= 3 and len(m) > 40)
         self.assertEqual(f.total_restarts, 0)
-        self.assertEqual(len(msgs), len({t for t, _w in msgs}))
+        self.assertEqual(len(msgs), len({m[0] for m in msgs}))
         left = [x for x in os.listdir(self.folder) if ".live_chat" in x]
         self.assertLessEqual(len(left), 2, left)   # 今のファイル(と、読み切る前の 1 つ)だけ
         self.assertNotIn(VID + ".1.live_chat.json.part", left)
@@ -544,7 +544,7 @@ class ChatFeedTest(unittest.TestCase):
         msgs = self.drive(f, lambda f, m: f.launches >= 2 and len(m) >= 6 and len(self.child_pids()) >= 2)
         pids = self.child_pids()
         self.assertTrue(self.wait_dead(pids[0]), "止まった yt-dlp の子が残っている")
-        self.assertEqual(len(msgs), len({t for t, _w in msgs}))
+        self.assertEqual(len(msgs), len({m[0] for m in msgs}))
         f.close()
         self.assertTrue(self.wait_dead(pids[1]), "閉じたあと yt-dlp の子が残っている")
 

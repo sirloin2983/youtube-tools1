@@ -134,6 +134,97 @@ SCENE = {"rise": 0.4 if SCENE_LONG else 0.3,   # 上りの始まり = 点数が�
          "base": 300}      # 「ふだん」= 山の前のこの秒数の点数の下から 4 分の 1(配信中も同じに取れるよう前だけ)
 
 
+# チャットの跳ねの続きと笑いの書き込みで選び直す(10-29 ユーザー「入れてすぐ反映して」。研究の仮説 8・9 = C:/dev/overlap-research の tools/hyp.py combo・combo_live。
+# notes:plan/製品に入れる案-チャットの跳ねと笑い-1029.md): 候補を RERANK_POOL 本まで出し、点の z + 1.0 × 跳ねる箱の割合の z + 0.5 × 笑いの書き込みの割合の z で
+# 本数(count)を選び直す(z = その配信の候補の中)。跳ねる箱 = 候補の中の 10 秒の箱のうち、チャットの件数が配信の箱の件数の中央値の 2 倍以上の箱。
+# 笑いの書き込み = 候補の中の書き込みのうち、草・笑・w・笑いの絵文字のある物の割合。数えるのは文字の書き込み(liveChatTextMessageRenderer)だけ。
+# 配信中(PeakBook.rerank)は、ふだん(中央値)をその候補の始まりより前のチャットだけで出し、1 時間の枠の入れ替えと控えから戻す順に使う(仮説 9)。
+# 印: 候補の chatRank {rate, laugh, z, up}(up = 点だけなら選ばれなかった)・archive の解析の記録 spec の rerank と counts の rerank {raised, dropped}。
+# チャットの文字の書き込みが無い配信は今のまま。測る道具(src/eval)は spec に rerank を渡さない = 今までと同じ。スイッチ: False で前の形
+CHAT_RERANK_ON = True
+RERANK_POOL = 30
+RERANK_W = (1.0, 0.5)            # (跳ねる箱の割合, 笑いの書き込みの割合)の重み
+RERANK_BOX = 10                  # 箱の秒
+LAUGH_RE = re.compile(r"草|笑|ワロ|わろ|lol|(?<![A-Za-z])[wｗW]+(?![A-Za-z])", re.I)   # 研究の chat_content.LAUGH と同じ
+LAUGH_EMO = set("😂🤣😆😹😄😁")
+
+
+def chat_text_flag(kind, renderer):
+    """チャットの 1 件 -> 0(文字の書き込みでない)/ 1(文字の書き込み)/ 2(笑いの書き込み)。研究の chat_content.read_msgs と同じ見方"""
+    if kind != "liveChatTextMessageRenderer" or not isinstance(renderer, dict):
+        return 0
+    runs = (renderer.get("message") or {}).get("runs") or []
+    text = "".join(str(u.get("text", "")) for u in runs if isinstance(u, dict))
+    emo = [u["emoji"] for u in runs if isinstance(u, dict) and isinstance(u.get("emoji"), dict)]
+    laugh = bool(LAUGH_RE.search(text)) or any(e.get("emojiId") in LAUGH_EMO or any(("草" in s or "笑" in s or "w" == s.strip(":").lower())
+                                                                                    for s in e.get("shortcuts") or [] if isinstance(s, str)) for e in emo)
+    return 2 if laugh else 1
+
+
+def zlist(v):
+    """並べた値の z(母標準偏差。ばらつきが無ければ 0)"""
+    if not v:
+        return []
+    m = sum(v) / len(v)
+    s = math.sqrt(sum((x - m) ** 2 for x in v) / len(v))
+    return [(x - m) / s if s > 0 else 0.0 for x in v]
+
+
+class ChatFeats:
+    """文字の書き込みの時刻と笑いの印 [(秒, 笑いか)] -> 候補の区間の跳ねる箱の割合・笑いの書き込みの割合(研究の tools/hyp.py の _rate・_rate_live・_laugh と同じ数え方)"""
+
+    def __init__(self, msgs):
+        import bisect
+        self._bisect = bisect
+        ms = sorted((float(t), bool(l)) for t, l in msgs if t >= 0)
+        self.ts = [t for t, _l in ms]
+        self.lp = [0]
+        for _t, l in ms:
+            self.lp.append(self.lp[-1] + (1 if l else 0))
+        n = int(self.ts[-1] // RERANK_BOX) + 1 if self.ts else 0
+        self.cnt = [0] * n
+        for t in self.ts:
+            self.cnt[int(t // RERANK_BOX)] += 1
+        self.med = max(1.0, median(self.cnt)) if self.cnt else 1.0
+
+    def __bool__(self):
+        return bool(self.ts)
+
+    def rate(self, a, b, live=False):
+        """跳ねる箱の割合。live = ふだんを候補の始まりより前の箱だけで(前が無ければ最初の箱)"""
+        i0 = int(a // RERANK_BOX)
+        med = self.med
+        if live:
+            past = self.cnt[:i0] or self.cnt[:1]
+            med = max(1.0, median(past)) if past else 1.0
+        hit = sum(1 for i in range(i0, min(len(self.cnt), int(b // RERANK_BOX) + 1)) if self.cnt[i] >= 2 * med)
+        return hit / max(1.0, (b - a) / RERANK_BOX)
+
+    def laugh(self, a, b):
+        i, j = self._bisect.bisect_left(self.ts, a), self._bisect.bisect_left(self.ts, b)
+        return (self.lp[j] - self.lp[i]) / max(1, j - i)
+
+
+def rerank(cands, feats, k, live=False):
+    """候補(点数の高い順に並べ替える)から k 本を、点の z + 重み × 跳ねる箱の割合の z + 重み × 笑いの割合の z の順で選ぶ -> (選んだ候補, 落とした候補)。
+    選んだ候補には印 chatRank。feats が空(文字の書き込みが無い)なら点数の上から k 本のまま(印なし)。落とした候補 = 点数の上から k 本のうち選ばなかった物"""
+    cs = sorted(cands, key=lambda c: -c["score"])
+    if not feats or not cs:
+        return cs[:k], []
+    fb = [feats.rate(c["start"], c["end"], live) for c in cs]
+    fl = [feats.laugh(c["start"], c["end"]) for c in cs]
+    wb, wl = RERANK_W
+    sc = [p + wb * q + wl * r for p, q, r in zip(zlist([c["score"] for c in cs]), zlist(fb), zlist(fl))]
+    order = sorted(range(len(cs)), key=lambda i: -sc[i])
+    keep = set(order[:k])
+    out = []
+    for i in order[:k]:
+        c = dict(cs[i])
+        c["chatRank"] = {"rate": round(fb[i], 3), "laugh": round(fl[i], 3), "z": round(sc[i], 3), "up": i >= k}
+        out.append(c)
+    return out, [cs[i] for i in range(min(k, len(cs))) if i not in keep]   # 落とした = 点数だけなら選ばれていた物
+
+
 # ---------------------------------------------------------------- 一括の式(アーカイブの解析。golden で固定 = 式・加算の順・丸めを変えない)
 def smooth(x, w):
     """幅 w 秒の移動平均(w は奇数に丸める)。"""
@@ -407,7 +498,7 @@ def candidates(picks, comps):
         pk = c["peak"]
         parts = {k: round(max(comps[k][max(0, pk - PARTS_RADIUS):pk + PARTS_RADIUS + 1]), 2) for k in comps}
         cand = {"i": i, "start": c["start"], "end": c["end"], "peak": pk, "score": c["score"], "parts": parts, "reasons": reasons_of(parts)}
-        cand.update({k: c[k] for k in ("shape", "fixed", "joined", "pieces") if k in c})   # 場面ごとの形の印と固定の長さの区間(LD-2b)・つないだ元の範囲(無ければ足さない)
+        cand.update({k: c[k] for k in ("shape", "fixed", "joined", "pieces", "chatRank") if k in c})   # 場面ごとの形の印と固定の長さの区間(LD-2b)・つないだ元の範囲(無ければ足さない)
         if c.get("fill"):   # しきい値の下で埋めた(印と理由の文。理由の文はスタジオのマークにも残る)
             cand["fill"] = True
             cand["reasons"] = cand["reasons"] + [FILL_REASON]
@@ -765,11 +856,14 @@ class PeakBook:
     純粋(時計・ファイルを持たない)。to_json / from_json で起動し直しに耐える。"""
 
     def __init__(self, length=45, pre=PRE_RATIO_DEFAULT, sens="normal", per_hour=6, confirm_low=CONFIRM_LOW_SEC, shape="fixed", scene=None,
-                 fallback=None, join=False):
+                 fallback=None, join=False, rerank=False):
         self.length, self.pre, self.thr, self.per_hour = float(length), float(pre), SENS[sens if sens in SENS else "normal"], int(per_hour)
         self.confirm_low = int(confirm_low)
         self.shape = shape if shape in SHAPES else "fixed"   # 区間の形(呼ぶ側がスイッチ SHAPE_DEFAULT か spec の shape を渡す。引数の既定は 0.88 までと同じ固定)
         self.scene = scene_params(scene)
+        self.rerank = bool(rerank)   # チャットの跳ねと笑いで枠の入れ替え・控えから戻す順を決める(呼ぶ側がスイッチ CHAT_RERANK_ON を渡す。仮説 9)
+        self.chat_boxes = {}   # 文字の書き込みの件数(RERANK_BOX 秒の箱 -> 件数。録画の頭から全部 = ふだんをその時点までで出す)
+        self.chat_secs = {}    # 文字の書き込み(秒 -> [件数, 笑いの件数]。直近だけ)
         self.join = bool(join)   # 割れた場面をつなぐ(呼ぶ側がスイッチ JOIN_ON を渡す。次の候補を作るときだけ・採用した候補は書き換えない)
         self.fallback = fallback if fallback == "auto" else None   # "auto" = 場面が取れないときも自動の長さ(auto_length。呼ぶ側がスイッチ AUTO_LEN_ON で渡す)
         self.work = {}        # 直近のならした合計(秒 -> smooth(5) の値)。場面の形用
@@ -1157,15 +1251,58 @@ class PeakBook:
         """枠に数える候補: 枠の中(frame。仮の候補は数えない)か、自動で採用した候補(枠に数えたまま固定)"""
         return (pk["state"] == "frame" and not pk.get("provisional")) or (pk["state"] == "adopted" and pk["origin"] == "auto")
 
+    # ---- チャットの跳ねと笑い(rerank。仮説 9)
+    def chat_note(self, sec, laugh):
+        """文字の書き込み 1 件(録画の頭からの秒・笑いか)を数える(配信中の検出のワーカーが、チャットを受け取るたびに)"""
+        if not self.rerank or sec < 0:
+            return
+        b = int(sec // RERANK_BOX)
+        self.chat_boxes[b] = self.chat_boxes.get(b, 0) + 1
+        s = self.chat_secs.setdefault(int(sec), [0, 0])
+        s[0] += 1
+        s[1] += 1 if laugh else 0
+
+    def _chat_feat(self, pk):
+        """候補の跳ねる箱の割合(ふだん = 始まりより前の箱の件数の中央値)と笑いの書き込みの割合 -> 印 chatRank に入れる。書き込みが無ければ何もしない"""
+        if not self.rerank or not self.chat_boxes:
+            return
+        a, b = float(pk["start"]), float(pk["end"])
+        i0, top = int(a // RERANK_BOX), max(self.chat_boxes) + 1
+        past = [self.chat_boxes.get(i, 0) for i in range(min(i0, top))] or [self.chat_boxes.get(0, 0)]
+        med = max(1.0, median(past))
+        hit = sum(1 for i in range(i0, min(top, int(b // RERANK_BOX) + 1)) if self.chat_boxes.get(i, 0) >= 2 * med)
+        n = l = 0
+        for s in range(int(math.ceil(a)), int(math.ceil(b))):
+            c = self.chat_secs.get(s)
+            if c:
+                n, l = n + c[0], l + c[1]
+        pk["chatRank"] = {"rate": round(hit / max(1.0, (b - a) / RERANK_BOX), 3), "laugh": round(l / max(1, n), 3)}
+
+    def _rank(self):
+        """枠の入れ替え・控えから戻す順の鍵 {id: (鍵, 点数)}: 点の z + 重み × 跳ねる箱の割合の z + 重み × 笑いの割合の z(z = この録画の本番の候補の中)。
+        チャットの書き込みが無い・選び直さない(rerank でない)なら点数"""
+        pool = [p for p in self.peaks.values() if not p.get("provisional") and "chatRank" in p]
+        if not (self.rerank and CHAT_RERANK_ON and len(pool) >= 2):
+            return {k: (p["score"], p["score"]) for k, p in self.peaks.items()}
+        wb, wl = RERANK_W
+        zs_, zb, zl = zlist([p["score"] for p in pool]), zlist([p["chatRank"]["rate"] for p in pool]), zlist([p["chatRank"]["laugh"] for p in pool])
+        out = {k: (float("-inf"), p["score"]) for k, p in self.peaks.items()}   # 印の無い候補(書き込みが届く前)はいちばん後ろ
+        for p, a, b, c in zip(pool, zs_, zb, zl):
+            out[p["id"]] = (round(a + wb * b + wl * c, 6), p["score"])
+            p["chatRank"]["z"] = round(a + wb * b + wl * c, 3)
+        return out
+
     def _place(self, pk):
-        """新しい候補を枠か控えへ。枠が埋まっていれば、いちばん低い(固定でない)候補より高ければ入れ替える"""
+        """新しい候補を枠か控えへ。枠が埋まっていれば、いちばん低い(固定でない)候補より高ければ入れ替える(高い・低い = _rank の順)"""
+        self._chat_feat(pk)
         frame = [p for p in self._frame(pk["hour"]) if p != pk["id"]]
         if self._load(frame) < self.per_hour:
             pk["state"] = "frame"
             return
         movable = [p for p in frame if self.peaks[p]["state"] == "frame"]
-        low = min(movable, key=lambda p: self.peaks[p]["score"]) if movable else None
-        if low is not None and self.peaks[low]["score"] < pk["score"]:
+        rank = self._rank()
+        low = min(movable, key=lambda p: rank[p]) if movable else None
+        if low is not None and rank[low] < rank[pk["id"]]:
             self.peaks[low]["state"] = "bench"
             self._mark(low)
             pk["state"] = "frame"
@@ -1178,7 +1315,8 @@ class PeakBook:
             bench = [p for p in self.order if self.peaks[p]["hour"] == hour and self.peaks[p]["state"] == "bench"]
             if not bench:
                 break
-            best = max(bench, key=lambda p: self.peaks[p]["score"])
+            rank = self._rank()
+            best = max(bench, key=lambda p: rank[p])
             self.peaks[best]["state"] = "frame"
             self._mark(best)
 
@@ -1231,6 +1369,8 @@ class PeakBook:
                 _drop_before(d, keep)
         if len(self.work) > SCENE_KEEP + 200:   # 場面の形は山の前 max + base 秒まで見る
             _drop_before(self.work, self.last_t - SCENE_KEEP)
+        if len(self.chat_secs) > SCENE_KEEP + 600:   # 笑いの書き込みは、これから確定する候補の区間(山の前 max + base 秒まで)だけ
+            _drop_before(self.chat_secs, self.last_t - SCENE_KEEP - 300)
         if self.boost and self.boost[0][1] < self.last_t - 10:   # 本番の計算(先回りより遅い)が過ぎた区間は要らない
             self.boost = [b for b in self.boost if b[1] >= self.last_t - 10]
 
@@ -1240,12 +1380,15 @@ class PeakBook:
                 "block_until": self.block_until, "pending": self.pending,
                 "total": self.total, "parts": self.parts, "level": self.level, "confirmLow": self.confirm_low, "boost": self.boost,
                 "shape": self.shape, "scene": self.scene, "work": self.work, "fallback": self.fallback, "join": self.join,
+                "rerank": self.rerank, "chatBoxes": self.chat_boxes, "chatSecs": self.chat_secs,
                 "fast": dict(self.fast)}   # 鍵は total・audio・rising・open・block(_fast_init と from_json がこの 5 つだけを作る)
 
     @classmethod
     def from_json(cls, d):
         b = cls(d["length"], d["pre"], "normal", d["per_hour"], d.get("confirmLow", CONFIRM_LOW_SEC), d.get("shape", "fixed"), d.get("scene"),
-                d.get("fallback"), d.get("join", False))   # 0.88 までの保存は固定の形・0.99.323 までの保存は fallback なし(場面が取れなければ固定の長さ)
+                d.get("fallback"), d.get("join", False), d.get("rerank", False))
+        b.chat_boxes = {int(k): int(v) for k, v in (d.get("chatBoxes") or {}).items()}
+        b.chat_secs = {int(k): [int(v[0]), int(v[1])] for k, v in (d.get("chatSecs") or {}).items()}   # 0.88 までの保存は固定の形・0.99.323 までの保存は fallback なし(場面が取れなければ固定の長さ)
         b.work = _int_keys(d.get("work"))
         b.thr = float(d["thr"])
         b.boost = [[int(x[0]), int(x[1]), float(x[2])] for x in d.get("boost") or []]
