@@ -99,21 +99,27 @@ REQUIRED_SRC = ("src/friendapp/server.py", "src/friendapp/streams.py", "src/frie
                 "src/friendapp/ui/friend.html", "src/friendapp/ui/friend.js", "src/friendapp/ui/host.js", "src/friendapp/ui/setup.html",
                 "src/friendapp/ui/setup.js", "src/friendapp/ui/guide.html", "src/pipeline/transcribe/hololive-roster.json")   # 名簿 = 最初に作業データへ写す同梱の物
 
-# 公式の埋め込み用 Python(3.12 の Windows 向けの最後の版 = この PC と同じ 3.12)。SHA-256 は表に無い = 取ったときの値をキャッシュに残して以後照らす
+# 公式の埋め込み用 Python(3.12 の Windows 向けの最後の版 = この PC と同じ 3.12)。
+# 大きさと SHA-256 は固定(安全面の直し 8・10-29)。python.org はこの版の SHA-256 を出していない(API の release_file は MD5 と sigstore だけ)ので、
+# 公式の MD5 fe8ef205f2e9c3ba44d0cf9954e1abd3 と大きさが合うことを確かめた物の SHA-256。版を上げるときは size・sha256 も公式の値へ
 PY_EMBED = {"version": "3.12.10", "file": "python-3.12.10-embed-amd64.zip",
-            "url": "https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip"}
+            "url": "https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip",
+            "size": 11133606, "sha256": "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3"}
 PY_TAG = ".".join(PY_EMBED["version"].split(".")[:2])   # wheel を取る Python の版(3.12)
-# アプリのフォルダの tools/ に置く道具(初回に取る。版はこの PC と同じ。SHA-256 はキャッシュに取った物から)
+# アプリのフォルダの tools/ に置く道具(初回に取る。版はこの PC と同じ)。大きさと SHA-256 は公式の値で固定(安全面の直し 8・10-29。
+# GitHub の release の asset の digest・Deno は .sha256sum も同じ値)。キャッシュの値がこれと違えば作らない。版を上げるときは url と一緒に size・sha256 も
 TOOLS = (
     {"name": "ffmpeg", "file": "ffmpeg-9.0.2-essentials_build.zip", "unzip": "zip", "dest": "tools/ffmpeg",
-     "url": "https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip"},
+     "url": "https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip",
+     "size": 114768076, "sha256": "60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba"},
     # yt-dlp: 今の安定版(GitHub の releases/latest の安定版。新しいのは nightly だけ)。大きさと SHA-256 は公式の SHA2-256SUMS の値
     # (この PC の winget の yt-dlp.exe も同じ値)。版を上げるときは url と一緒に size・sha256 も公式の値へ
     {"name": "yt-dlp", "file": "yt-dlp.exe", "unzip": None, "dest": "tools/yt-dlp",
      "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.21/yt-dlp.exe",   # 中の certifi 2026.10.19(認証局の一覧の急ぎの直し。10-23)
      "size": 17880111, "sha256": "33121d192d706e62f684a06f80918e3f3a8ba52ac3a65213b6951c39c7d9f555"},
     {"name": "deno", "file": "deno-x86_64-pc-windows-msvc.zip", "unzip": "zip", "dest": "tools/deno",
-     "url": "https://github.com/denoland/deno/releases/download/v2.9.7/deno-x86_64-pc-windows-msvc.zip"},
+     "url": "https://github.com/denoland/deno/releases/download/v2.9.7/deno-x86_64-pc-windows-msvc.zip",
+     "size": 42630221, "sha256": "a0c3101b4158d1dfb7d6a78a7bf0f3de80c96bb423c152beec8beb22786f2238"},
 )
 TEXT_EXT = {".py", ".js", ".css", ".html", ".json", ".txt", ".md", ".bat", ".cmd"}
 

@@ -116,15 +116,17 @@ def make_launcher(root, exe=True):
     return d
 
 
-# 表の公式の大きさ・SHA-256(yt-dlp)は、偽の道具では合わないので外す(照らす所は CacheTest で別に確かめる)
+# 表の公式の大きさ・SHA-256(道具・埋め込みの Python)は、偽の物では合わないので外す(照らす所は CacheTest で別に確かめる)
 FAKE_TOOLS = tuple({k: v for k, v in t.items() if k not in ("size", "sha256")} for t in B.TOOLS)
+FAKE_PY_EMBED = {k: v for k, v in B.PY_EMBED.items() if k not in ("size", "sha256")}
 
 
 class Base(unittest.TestCase):
     def setUp(self):
-        patcher = mock.patch.object(B, "TOOLS", FAKE_TOOLS)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        for name, fake in (("TOOLS", FAKE_TOOLS), ("PY_EMBED", FAKE_PY_EMBED)):
+            patcher = mock.patch.object(B, name, fake)
+            patcher.start()
+            self.addCleanup(patcher.stop)
         self.tmp = testkit.tempdir(self, "bfz-")
         self.cache = make_cache(self.tmp)
         self.wcpp = make_wcpp(self.tmp)
@@ -146,7 +148,7 @@ class BuildTest(Base):
     def setUpClass(cls):
         """既定の更新の zip(notes="n")を 1 回だけ作る。中を読むだけのテストはこれを使う(1 回 4〜5 秒かかるので)"""
         cls.shared_tmp = tempfile.mkdtemp(prefix="bfz-shared-")
-        with mock.patch.object(B, "TOOLS", FAKE_TOOLS):
+        with mock.patch.object(B, "TOOLS", FAKE_TOOLS), mock.patch.object(B, "PY_EMBED", FAKE_PY_EMBED):
             cls.shared_cache = make_cache(cls.shared_tmp)
             members, key = make_inputs(cls.shared_tmp)
             cls.shared_out = os.path.join(cls.shared_tmp, "out")
@@ -436,6 +438,12 @@ class BuildTest(Base):
 
 
 class CacheTest(Base):
+
+    def test_parts_have_official_hash(self):
+        """配る zip の部品(埋め込みの Python・道具)は全部、公式の大きさと SHA-256 を表に固定している(安全面の直し 8)"""
+        for it in (B.PY_EMBED,) + tuple(B.TOOLS):
+            self.assertRegex(it.get("sha256") or "", r"^[0-9a-f]{64}$", it["file"])
+            self.assertGreater(it.get("size") or 0, 0, it["file"])
 
     def test_official_hash_mismatch_stops(self):
         item = dict(FAKE_TOOLS[1], size=len(b"fake yt-dlp"), sha256="0" * 64)
