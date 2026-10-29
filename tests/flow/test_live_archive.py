@@ -671,6 +671,16 @@ class AfterStreamTest(unittest.TestCase):
         self.ex._query = lambda rc, rec, a_, b_: (None, None)
         self.assertIsNone(a._rec_holes("local", REC, {"first": self.first, "last": self.first + 10}))
 
+    def test_after_interval(self):
+        """配信後の全自動の確かめ直し(10-30): 終わって 6 時間までは 15 分ごと・その後と終わりが分からないときは INTERVAL・スイッチで戻せる"""
+        a = self.archiver()
+        a.interval = 3600.0
+        now = 1_800_000_000.0
+        self.assertEqual([a.after_interval(now - 3600, now), a.after_interval(now - A.AFTER_FAST_FOR - 1, now), a.after_interval(None, now)],
+                         [A.AFTER_FAST_INTERVAL, 3600.0, 3600.0])
+        with mock.patch.object(A, "AFTER_FAST_ON", False):
+            self.assertEqual(a.after_interval(now - 3600, now), 3600.0)
+
     def test_archived(self):
         """アーカイブ化したか(録画を消す合図): was_live・限定でない・開始と長さが分かる・アーカイブが録画の終わりまである。消す直前に必ず確かめ直す"""
         a = self.archiver()

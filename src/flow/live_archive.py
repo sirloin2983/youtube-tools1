@@ -116,6 +116,9 @@ PRE_SEEK = 10.0             # 音を切るとき、入力側で飛ぶのはこ�
 AUDIO_DIR = "audio-"       # 入口の作業用 live\work\audio-<videoId>\(配信の丸ごとの音)
 FIRST_DELAY = 30 * 60.0      # 録画が終わってから、自動で確かめ始めるまで
 INTERVAL = 3600.0            # 自動で確かめる間隔
+AFTER_FAST_ON = True         # 配信後の全自動の用意の確かめ直しを、終わって AFTER_FAST_FOR までは AFTER_FAST_INTERVAL ごとに(10-30。オフ = いつも INTERVAL)
+AFTER_FAST_INTERVAL = 15 * 60.0
+AFTER_FAST_FOR = 6 * 3600.0  # 録画が終わってからこれだけは短い間隔(長く見られない録画で YouTube に何度も聞かない)
 GIVE_UP = 7 * 86400.0        # 録画が終わってからこれだけたったら、自動ではやめる
 READY_CACHE = 600.0          # 「用意できた」を確かめ直さずに使う秒(画面のボタン)
 POLL = 60.0                  # 見回りの間隔
@@ -983,6 +986,13 @@ class Archiver(LX.Patrol):
         v = (req.get("settings") or {}).get("perHour") if req else None
         return v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else self.per_hour()
 
+    def after_interval(self, ended, now):
+        """配信後の全自動で用意を確かめ直す間隔: 終わって AFTER_FAST_FOR(6 時間)までは AFTER_FAST_INTERVAL(15 分)・その後と終わりが分からないときは INTERVAL
+        (yt-dlp の情報を 1 回取るだけ。スイッチ AFTER_FAST_ON)"""
+        if AFTER_FAST_ON and ended is not None and now - ended < AFTER_FAST_FOR:
+            return min(self.interval, AFTER_FAST_INTERVAL)
+        return self.interval
+
     def _after_begin(self, rc, rec, r, a, now):
         """用意の確認 → 時刻を合わせる → 解析を頼む(スタジオで解析済みなら、すぐ採用へ)"""
         if (a.get("retryAt") or 0) > now:
@@ -999,7 +1009,7 @@ class Archiver(LX.Patrol):
             return True
         with self.lock:
             i = dict(self.info.get(self.key(rc, rec)) or {})
-        recent = _checked_within(i, self.interval, now)
+        recent = _checked_within(i, self.after_interval(ended, now), now)
         if not (i.get("ready") is True and recent):
             if recent:   # 確かめたばかり(P4 と同じ間隔で。用意できていない)
                 if not a:
