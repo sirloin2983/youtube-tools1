@@ -17,6 +17,8 @@ if SRC not in sys.path:
 from flow import live_archive as A  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from manage.keep import live_cleanup as LC  # noqa: E402
+from flow import retention  # noqa: E402
+from unittest import mock  # noqa: E402
 from ytt import fsio  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
 from testkit import tempdir  # noqa: E402
@@ -84,6 +86,9 @@ class CleanupTest(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempdir(self, "ytt-live-clean-")
+        p = mock.patch.object(retention, "LIVE_FAST_RETIRE", False)   # 前の形(書き出しが済むか終わって 3 日・マークなしは 24 時間)。今の形は test_fast_retire
+        p.start()
+        self.addCleanup(p.stop)
         self.out = os.path.join(self.tmp, "out")
         os.makedirs(self.out)
         self.live = CleanupLive(os.path.join(self.tmp, "live"), self.out)
@@ -270,6 +275,33 @@ class CleanupTest(unittest.TestCase):
         self.studio_videos[self.R1] = [self.smark(1), self.smark(2, "adopted")]   # アーカイブから書き出した欠けのマーク(書き出し済みにする前の採用)は、同じ区間なら数えない
         self.live.add(self.R1)
         self.assertEqual(self.cl.tick()["deleted"], [self.R1])
+
+    def test_fast_retire(self):
+        """10-29(retention.LIVE_FAST_RETIRE): アーカイブ化を確かめた録画は、書き出していないマークがあってもすぐごみ箱へ(マークの正本・スタジオのマークは残す)。
+        書き出しの途中は待つ・確かめられなければ消さない・マークの無い録画も 24 時間を待たない"""
+        with mock.patch.object(retention, "LIVE_FAST_RETIRE", True):
+            self.live.add(self.R1)
+            self.job(self.R1, 1)
+            self.job(self.R1, 2, state="error", arc=None, needs=True)   # 書き出していない
+            self.studio_videos[self.R1] = [self.smark(1), self.smark(2, "adopted")]
+            self.live.add(self.R2)
+            self.job(self.R2, 1)
+            self.job(self.R2, 2, state="encode", arc=None)   # 書き出しの途中
+            self.live.add(self.R3, ended_ago=0.1)   # マークなし・終わったばかり
+            self.live.add("20261005-150000-abcdefghijk", ended_ago=0.1)   # スタジオに採用のマークだけ(書き出しのジョブ無し)
+            self.studio_videos["20261005-150000-abcdefghijk"] = [self.smark(1, "adopted")]
+            self.live.add("20261005-160000-abcdefghijk")   # アーカイブ化を確かめられない
+            self.job("20261005-160000-abcdefghijk", 1)
+            self.arch["20261005-160000-abcdefghijk"] = LC.live_retire.NOT_ARCHIVED + "(処理中)"
+            got = self.cl.tick()["deleted"]
+            self.assertEqual(sorted(got), sorted([self.R1, self.R3, "20261005-150000-abcdefghijk"]))
+            self.assertEqual(self.studio_videos["20261005-150000-abcdefghijk"], [self.smark(1, "adopted")])   # スタジオのマーク(の行)は残す
+            self.assertFalse([c for c in self.studio_calls if c[0] == "POST" and c[2]["id"] == "20261005-150000-abcdefghijk"])
+            self.assertEqual(self.studio_videos[self.R1], [self.smark(1), self.smark(2, "adopted")])
+            self.assertTrue(any("24 時間で消えます" in m for m in self.logs), self.logs)
+            self.assertIn(self.R2, self.live.recs)
+            next(j for j in self.live.exporter.jobs if j["recording"] == self.R2 and j["state"] == "encode")["state"] = "done"   # 書き出しが終わった → 次の見回りで
+            self.assertIn(self.R2, self.cl.tick()["deleted"])
 
     def test_off_and_recorder_down(self):
         self.live.add(self.R1)

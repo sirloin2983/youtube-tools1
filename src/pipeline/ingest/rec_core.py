@@ -87,6 +87,7 @@ RANGE_MAX_SEC = 3 * 3600       # /segments で一度に聞ける区間の長さ
 SEGMENTS_MAX = 5000
 TRASH_DIR = trashbin.TRASH_DIR   # 消した録画を移す先(置き場所の直下。録画の id の形ではないので録画として読まない)
 TRASH_KIND = "録画"
+PURGED_LOG = "purged.jsonl"   # ごみ箱から時間で消した録画の記録(何をいつ。ごみ箱の直下・日付のフォルダの外 = 日数で消えない)
 KEEP_DIR = "非公開の録画"   # 非公開・見られない配信の録画を 1 本につないで残す先(置き場所の直下。録画の id の形ではないので録画として読まない。消さない。10-24)
 KEEP_TIMEOUT = 3 * 3600.0     # 1 本につなぐ ffmpeg の時間の上限(写すだけ = 長い配信でも数分)
 NAME_MAX = 120
@@ -809,8 +810,10 @@ class Recording:
 # ---------- 録画の全体 ----------
 class Recorder:
     def __init__(self, folder, source="streamlink", ffmpeg=None, python=None, hls_time=HLS_TIME, backoff=BACKOFF,
-                 idle_end=IDLE_END, wait_start=WAIT_START, stall_sec=STALL_SEC, first_seg_sec=FIRST_SEG_SEC, poll=1.0, log=None, *, trash_days):
+                 idle_end=IDLE_END, wait_start=WAIT_START, stall_sec=STALL_SEC, first_seg_sec=FIRST_SEG_SEC, poll=1.0, log=None, *, trash_days,
+                 trash_item_sec=None):
         self.folder = folder
+        self.trash_item_sec = trash_item_sec if isinstance(trash_item_sec, int) and trash_item_sec > 0 else None   # ごみ箱に入れた録画を消すまでの秒(None = 日付のフォルダの日数だけ)
         self.trash_days = trash_days   # ごみ箱の日付のフォルダを消すまでの日数(方針の数は ② の flow/retention。入口の ② が録画の部品の起動の引数で渡す)
         self.source = source if source in ("streamlink", "direct") else "streamlink"
         self.title_lookup = fetch_title if self.source == "streamlink" else None   # 名前なしの録画に題を付ける(テストは差し替える・None で聞かない)
@@ -1033,7 +1036,7 @@ class Recorder:
         with self.lock:
             if self.recs.get(rid) is r:
                 self.recs.pop(rid, None)
-        self.log("録画 %s: ごみ箱へ移しました(%s。%d 日で消えます)" % (rid, dest, self.trash_days))
+        self.log("録画 %s: ごみ箱へ移しました(%s。%sで消えます)" % (rid, dest, "%d 時間" % (self.trash_item_sec // 3600) if self.trash_item_sec else "%d 日" % self.trash_days))
         self.purge_trash(now)
         return rid
 
@@ -1099,10 +1102,50 @@ class Recorder:
         return dest
 
     def purge_trash(self, now=None):
-        """置き場所の ごみ箱 の、trash_days を過ぎた日付のフォルダを消す(起動時の load と、録画を移すたび)。-> 消した日付のフォルダの数"""
+        """置き場所の ごみ箱 の、trash_days を過ぎた日付のフォルダを消す(起動時の load と、録画を移すたび・trash_item_sec があれば見回りでも)。
+        trash_item_sec があれば、ごみ箱に入れてからその秒を過ぎた録画も 1 本ずつ消す(manifest.jsonl の at から。消した記録は ごみ箱/purged.jsonl)。
+        -> 消した日付のフォルダの数"""
         if not self.folder:
             return 0
-        return len(trashbin.purge(os.path.join(self.folder, TRASH_DIR), self.trash_days, now, log=lambda m: self.log("録画の" + m)))
+        root = os.path.join(self.folder, TRASH_DIR)
+        if self.trash_item_sec:
+            self._purge_items(root, time.time() if now is None else now)
+        return len(trashbin.purge(root, self.trash_days, now, log=lambda m: self.log("録画の" + m)))
+
+    def _purge_items(self, root, now):
+        """ごみ箱の日付のフォルダの中の録画(manifest の kind 録画)のうち、入れてから trash_item_sec を過ぎた物を消す(日付のフォルダの中にある物だけ・リンクは触らない)"""
+        if fsio.is_link(root):
+            return 0
+        try:
+            days = [d for d in os.listdir(fsio.long_path(root)) if os.path.isdir(fsio.long_path(os.path.join(root, d)))]
+        except OSError:
+            return 0
+        gone = 0
+        for d in days:
+            day = os.path.join(root, d)
+            try:
+                with open(fsio.long_path(os.path.join(day, trashbin.MANIFEST)), encoding="utf-8") as f:
+                    rows = [json.loads(x) for x in f if x.strip()]
+            except (OSError, ValueError):
+                continue
+            base = os.path.normcase(os.path.realpath(day)) + os.sep
+            for r in rows:
+                to, at = r.get("to") if isinstance(r, dict) else None, r.get("at") if isinstance(r, dict) else None
+                if r.get("kind") != TRASH_KIND or not isinstance(to, str) or not isinstance(at, (int, float)) or now - at / 1000.0 < self.trash_item_sec:
+                    continue
+                if not os.path.normcase(os.path.realpath(to)).startswith(base) or fsio.is_link(to) or not os.path.lexists(fsio.long_path(to)):
+                    continue
+                shutil.rmtree(fsio.long_path(to), ignore_errors=True)
+                if os.path.lexists(fsio.long_path(to)):
+                    continue
+                gone += 1
+                self.log("録画 %s: ごみ箱から消しました(入れてから %d 時間)" % (r.get("recording") or os.path.basename(to), self.trash_item_sec // 3600))
+                try:
+                    fsio.append_line(os.path.join(root, PURGED_LOG), json.dumps({"at": int(now * 1000), "recording": r.get("recording"), "path": to,
+                                                                               "trashedAt": at}, ensure_ascii=False) + "\n", 1 << 20)
+                except OSError:
+                    pass
+        return gone
 
     def set_folder(self, folder):
         with self.lock:

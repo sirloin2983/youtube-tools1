@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) 
 import testkit  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from flow import live_retire as LR  # noqa: E402
+from flow import retention  # noqa: E402
 from ytt import fsio  # noqa: E402
 
 RELEASE = 1790000000.0
@@ -56,6 +57,9 @@ class Book:
 class RetireTest(unittest.TestCase):
     def setUp(self):
         self.tmp = testkit.tempdir(self, "ytt-live-retire-")
+        p = mock.patch.object(retention, "LIVE_FAST_RETIRE", False)   # 前の形(書き出しが済むか終わって 3 日)。今の形は test_verdict_fast
+        p.start()
+        self.addCleanup(p.stop)
         self.out = os.path.join(self.tmp, "out")
         os.makedirs(self.out)
         self.host = Host(os.path.join(self.tmp, "live"), self.out)
@@ -112,6 +116,25 @@ class RetireTest(unittest.TestCase):
         self.ex.jobs[:] = []
         self.job(1, recordingDeleted=LX.now_iso())
         self.assertEqual(self.rt.verdict("local", REC).why, "前に消しました")
+
+    def test_verdict_fast(self):
+        """10-29(スイッチ retention.LIVE_FAST_RETIRE): アーカイブ化を確かめたら、書き出していない・失敗・採用のままのマークがあってもすぐ消してよい。
+        書き出しの途中・アーカイブからの書き出しの途中や待ち・確かめられないときは待つ"""
+        V = LR.Verdict
+        ok = lambda: ""   # noqa: E731
+        with mock.patch.object(retention, "LIVE_FAST_RETIRE", True):
+            self.job(1, arc=None)
+            self.job(2, state="error", arc=None)   # 書き出せなかった
+            self.studio = [{"id": "m9", "status": "adopted", "start": 90.0, "end": 95.0}]   # 採用のまま書き出していない
+            self.assertEqual(self.rt.verdict("local", REC, archived=ok), V(True, "", True))
+            self.studio = None   # スタジオに確かめられなくても(アーカイブから書き出せる)
+            self.assertEqual(self.rt.verdict("local", REC, archived=ok), V(True, "", True))
+            self.assertEqual(self.rt.verdict("local", REC, archived=lambda: LR.NOT_ARCHIVED + "(x)"), V(True, LR.NOT_ARCHIVED + "(x)", False))
+            self.job(3, state="encode", arc=None)   # 書き出しの途中(録画を読んでいる)= 終わるまで待つ
+            self.assertEqual(self.rt.verdict("local", REC, archived=ok).why, "書き出しの途中")
+            self.ex.jobs[:] = []
+            self.job(1, state="error", arc="fetch", needsArchive=True)
+            self.assertEqual(self.rt.verdict("local", REC, archived=ok).why, "アーカイブからの書き出しの途中・待ち")
 
     def test_fate_and_private_name(self):
         """終わった録画をどうするか(両方の PC で同じ。10-24): 確かめた = 消す・非公開と分かった / 24 時間でアーカイブにならない = 残す・ほか = 待つ"""

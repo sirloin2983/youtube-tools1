@@ -12,12 +12,15 @@
 前の「確かめられないまま 3 日で消す」はやめた)。非公開・見られない配信と分かった録画と、終わって 24 時間たってもアーカイブにならない録画は、消さずに 1 本につないで名前に「非公開」
 (fate・overdue・private_name。録画の部品の keep。10-24 夜のユーザーの答え「未公開と分かった段階で行えばいい。24 時間でアーカイブ化されない場合は未公開扱いしていい」)。
 消すのは ごみ箱へ(録画の部品の delete が ごみ箱/<日付>/録画/ へ改名する。3 日で消える)。マークの正本は消さない(あとでアーカイブから書き出すときに URL・題を読む)。
+10-29 から(スイッチ flow/retention.LIVE_FAST_RETIRE): アーカイブ化を確かめた録画は、マークの書き出しが済んでいなくてもすぐ消す(書き出していないマークはアーカイブから書き出す)。
+待つのは書き出しの途中(録画を読んでいる)・アーカイブからの書き出しの途中や待ちだけ。ごみ箱に入れた録画は 24 時間で消える(録画の部品。retention.LIVE_TRASH_SEC)。
 """
 import collections
 import re
 import time
 
 from . import live_export as LX
+from . import retention
 
 NOT_EXPORTED = "書き出していないマークがある"   # 消せない理由のうち、終わって 3 日たったらアーカイブ化を確かめて消す理由(失敗・取り消し・アーカイブから書き出せない)
 NOT_ARCHIVED = "アーカイブ化をまだ確かめられていない"   # live_archive.NOT_ARCHIVED と同じ頭(後ろに理由が付く)。この理由の録画は消さない
@@ -129,10 +132,11 @@ class Retire:
         if not js:
             return Verdict(False, "", False)
         last = LX.latest_per_mark(js)
+        fast = retention.LIVE_FAST_RETIRE   # 10-29: アーカイブ化を確かめたら、書き出していないマークがあってもすぐ(書き出しの途中だけ待つ)
         why = exported_why(js)
-        if why and not (why == NOT_EXPORTED and stale):
+        if why and not (why == NOT_EXPORTED and (stale or fast)):
             return Verdict(True, why, False)
-        why = adopted_why(last, self._adopted(rc_id, rec))
+        why = "" if fast else adopted_why(last, self._adopted(rc_id, rec))
         if why:
             return Verdict(True, why, False)
         try:

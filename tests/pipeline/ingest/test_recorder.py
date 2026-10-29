@@ -484,6 +484,37 @@ class TestRecordRun(unittest.TestCase):
             self.assertTrue(os.path.isfile(os.path.join(inner, "keep.ts")))   # ごみ箱を消しても、外して移したジャンクションの先は残る
 
 
+class TestTrashItemSec(unittest.TestCase):
+    """ごみ箱に入れた録画を時間で消す(trash_item_sec。入口の ② が flow/retention.LIVE_TRASH_SEC を渡す・10-29): 入れてからその秒を過ぎた録画だけ・
+    消した記録は ごみ箱/purged.jsonl・日付のフォルダの日数(trash_days)はそのまま。テストの一時フォルダの中だけで動かす"""
+
+    def test_purge_items_after_sec(self):
+        folder = tempfile.mkdtemp(prefix="ytt-rec-trash-")
+        self.addCleanup(shutil.rmtree, folder, True)
+        rec = R.Recorder(folder, **dict(FAST, trash_item_sec=86400))
+        ids = ("20261029-000000-old", "20261029-000000-new")
+        for rid in ids:
+            os.makedirs(os.path.join(folder, rid, "session_001"))
+            with open(os.path.join(folder, rid, "recording.json"), "w", encoding="utf-8") as f:
+                f.write("{}")
+        now = time.time()
+        with mock.patch.object(R.time, "time", return_value=now - 86400 - 60):
+            rec.delete(ids[0])   # 24 時間と 1 分前に入れた
+        rec.delete(ids[1])
+        day_old = os.path.join(folder, R.TRASH_DIR, trashbin.day_name(now - 86400 - 60), R.TRASH_KIND, ids[0])
+        day_new = os.path.join(folder, R.TRASH_DIR, trashbin.day_name(now), R.TRASH_KIND, ids[1])
+        self.assertFalse(os.path.exists(day_old))   # 2 本目を移すときの purge_trash で、24 時間を過ぎた 1 本目は消えた
+        self.assertTrue(os.path.isfile(os.path.join(day_new, "recording.json")))
+        rec.purge_trash(now + 3600)
+        self.assertTrue(os.path.isdir(day_new))   # 入れてから 1 時間 = まだ残る
+        with open(os.path.join(folder, R.TRASH_DIR, R.PURGED_LOG), encoding="utf-8") as f:
+            rows = [json.loads(x) for x in f]
+        self.assertEqual([r["recording"] for r in rows], [ids[0]])
+        rec.purge_trash(now + 86400 + 1)
+        self.assertFalse(os.path.exists(day_new))
+        self.assertIsNone(R.Recorder(folder, **FAST).trash_item_sec)   # 渡さなければ日付のフォルダの日数だけ(前の形)
+
+
 class TestStreamlinkPipe(unittest.TestCase):
     """本番の形(streamlink の出力 → ffmpeg の標準入力)のコマンドと画質(切断と終わりの通しは TestRecordRun)"""
 
