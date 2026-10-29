@@ -82,6 +82,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import urllib.parse
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # src(このファイルは src/app/server.py)
@@ -932,6 +933,15 @@ def hide_tokens(live_cfg):
     return dict(live_cfg, recorders=[dict(r, token="", hasToken=bool(r.get("token"))) for r in live_cfg.get("recorders") or []])
 
 
+def _where(e):
+    """例外の起きた所(src の中の最後の 3 か所の ファイル:行 関数)と、OSError ならファイルの名前の末尾。
+    repr は OSError のファイルの名前を出さないので、繰り返す失敗の出どころがログから分からなかった(10-29 取得の列が 6 時間止まった)"""
+    frames = [f for f in traceback.extract_tb(e.__traceback__) if os.sep + "src" + os.sep in f.filename][-3:]
+    where = " ← ".join("%s:%d %s" % (os.path.basename(f.filename), f.lineno, f.name) for f in reversed(frames))
+    name = getattr(e, "filename", None)
+    return "(%s%s)" % (where, "・" + os.path.basename(str(name))[-80:] if name else "") if where or name else ""
+
+
 def peek_path(sock, timeout=10.0):
     """接続の最初の行(GET /studio/... HTTP/1.1)を、読み取らずに覗いてパスを返す(無い・壊れていれば None)。
     どのツールの Handler に渡すかを、要求を読み始める前に決めるため。つないですぐ切る接続(入口の動作確認)は None。"""
@@ -1324,7 +1334,7 @@ class PortalServer(httpsec.ExclusiveServer):
                                    lambda req: client().ok("transcribe", "POST", "/api/transcribe", req).get("id"), self.sup.log, extra=extra)
                 check_ytnotify.tick(self.cleanup.app_dir, log=self.sup.log)   # 研究の頼みの結果が届いたら研究のセッションを起こす(5 分まとめて 1 通)
             except Exception as e:   # noqa: BLE001  (取れなくても入口は止めない)
-                self.sup.log("誰の声の材料(YouTube)を取れませんでした: %r" % (e,))
+                self.sup.log("誰の声の材料(YouTube)を取れませんでした: %r%s" % (e, _where(e)))
 
     def auto_clean(self, dry_run=False):
         """自動の片付け(cleanup.Cleanup.auto_clean)。移した物の一覧を logs/cleanup-auto.jsonl に 1 行(何が移ったかを後で見る)。
