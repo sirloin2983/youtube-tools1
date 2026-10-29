@@ -8,7 +8,9 @@ import json
 import os
 import shutil
 import sys
+import time
 import unittest
+from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "src")   # tests -> keep -> manage -> src
@@ -88,11 +90,71 @@ class BackupTest(unittest.TestCase):
         backup.run_once(self.src, self.dst, day="2099-01-01")
         self.assertEqual((read(os.path.join(d, "data.json")), read(os.path.join(d, "data.json.prev"))), ('{"v": 3}', ""))
 
-    def test_never_deletes_in_destination(self):
+    def test_never_deletes_in_destination_when_switched_off(self):
+        """スイッチ PRUNE を切れば前の形(写す先は消さない)"""
+        with mock.patch.object(backup, "PRUNE", False):
+            backup.run_once(self.src, self.dst)
+            os.remove(os.path.join(self.src, "transcribe", "transcripts", "a.json"))
+            r = backup.run_once(self.src, self.dst)
+        self.assertIn("transcribe/transcripts/a.json", self.files())
+        self.assertNotIn("pruned", r)
+
+    def test_prune_after_complete_copy(self):
+        """完全に写せた回のあと、元に無い物の写しと古い .prev を消す・新しい .prev は残す・空のフォルダも消す・数と大きさを返す(10-29)"""
+        put(os.path.join(self.src, "studio", "old", "gone.json"), "12345")
+        backup.run_once(self.src, self.dst)
+        d = os.path.join(self.dst, backup.DEST_NAME)
+        put(os.path.join(d, "studio", "config.json.prev"), "old")   # 古い 1 つ前
+        os.utime(os.path.join(d, "studio", "config.json.prev"), (time.time() - 5 * 86400,) * 2)
+        put(os.path.join(d, "studio", "data.json.prev"), "new")     # 新しい 1 つ前(壊れた上書きから戻すために残す)
+        os.remove(os.path.join(self.src, "transcribe", "transcripts", "a.json"))
+        shutil.rmtree(os.path.join(self.src, "studio", "old"))
+        r = backup.run_once(self.src, self.dst)
+        self.assertTrue(r["complete"])
+        self.assertEqual({k: r["pruned"][k] for k in ("files", "bytes", "prev", "skipped")}, {"files": 2, "bytes": len("文書 1".encode()) + 5, "prev": 1, "skipped": ""})
+        f = self.files()
+        self.assertNotIn("transcribe/transcripts/a.json", f)
+        self.assertNotIn("studio/config.json.prev", f)
+        self.assertIn("studio/data.json.prev", f)
+        self.assertFalse(os.path.isdir(os.path.join(d, "studio", "old")))
+        self.assertIn("transcribe/transcripts/.hist/a/1.json", f)   # 元にある物は残す
+
+    def test_prune_nothing_when_copy_is_partial(self):
+        """写すのが途中で失敗した回(写せないファイルがある)は何も消さない"""
         backup.run_once(self.src, self.dst)
         os.remove(os.path.join(self.src, "transcribe", "transcripts", "a.json"))
-        backup.run_once(self.src, self.dst)
+        put(os.path.join(self.src, "studio", "data.json"), '{"v": 22}')   # 大きさが変わった = 写す(が失敗する)
+        with mock.patch.object(backup, "copy_one", side_effect=OSError("使用中")):
+            r = backup.run_once(self.src, self.dst)
+        self.assertFalse(r["complete"])
+        self.assertNotIn("pruned", r)
         self.assertIn("transcribe/transcripts/a.json", self.files())
+
+    def test_prune_refuses_when_most_of_the_source_is_gone(self):
+        """元の大半が見えない(作業データ側の事故)= 消さない・理由を返す"""
+        backup.run_once(self.src, self.dst)
+        for t in ("transcribe", "cut2resolve"):
+            shutil.rmtree(os.path.join(self.src, t))
+        r = backup.run_once(self.src, self.dst)
+        self.assertTrue(r["pruned"]["skipped"])
+        self.assertEqual(r["pruned"]["files"], 0)
+        self.assertIn("transcribe/transcripts/a.json", self.files())
+
+    def test_prune_keeps_media_whose_original_exists_and_unwalked_cases(self):
+        """評価用・学習用の動画は元があれば残す(評価用のフォルダの設定から外れても)・元が無ければ消す。この回で歩かなかった cases/ は触らない"""
+        ev, lr = self.make_media()
+        out = os.path.join(self.tmp, "出力")
+        put(os.path.join(out, "配信X", "作業用", "x.clip.json"), "{}")
+        backup.run_once(self.src, self.dst, media_dirs=[ev, lr], out_dir=out)
+        os.remove(os.path.join(ev, "配信A", "a.mp4"))
+        r = backup.run_once(self.src, self.dst, media_dirs=[])   # 設定から外れた・案件の根も渡さない回
+        self.assertEqual(r["pruned"]["files"], 1)
+        f = self.files()
+        rel_ev, rel_lr = backup.media_rel(ev).replace("\\", "/"), backup.media_rel(lr).replace("\\", "/")
+        self.assertNotIn(rel_ev + "/配信A/a.mp4", f)
+        self.assertIn(rel_ev + "/配信A/作業用/a.clip.json", f)
+        self.assertTrue(any(x.startswith(rel_lr + "/") for x in f))
+        self.assertIn("cases/配信X/作業用/x.clip.json", f)
 
     def test_refuses_bad_places(self):
         for folder in ("", "relative", os.path.join(self.src, "studio"), self.src):
