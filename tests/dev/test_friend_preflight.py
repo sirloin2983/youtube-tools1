@@ -72,9 +72,12 @@ class ShimTest(unittest.TestCase):
         self.assertTrue(c.download("/送り返し/a.verdict.json", part))
         with open(part, "rb") as f:
             self.assertEqual(f.read(), b"abc")
-        self.assertTrue(c.delete("/送り返し/a.verdict.json"))
-        self.assertFalse(c.delete("/送り返し/a.verdict.json"))
-        self.assertIsNone(c.get_metadata("/送り返し/a.verdict.json"))
+        with self.assertRaises(DBX.DropboxError):   # 友人のアプリは /送り返し/ を消さない(安全面の直し 7)
+            c.delete("/送り返し/a.verdict.json")
+        self.assertEqual(c.upload_bytes(b"o", "/出力/a.zip"), "a.zip")
+        self.assertTrue(c.delete("/出力/a.zip"))
+        self.assertFalse(c.delete("/出力/a.zip"))
+        self.assertIsNone(c.get_metadata("/出力/a.zip"))
         meta = c.get_metadata("/送り返し/a.verdict (1).json")
         self.assertEqual(meta["content_hash"], DBX.content_hash(os.path.join(self.box, "送り返し", "a.verdict (1).json")))
 
