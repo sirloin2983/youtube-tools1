@@ -170,6 +170,8 @@ class BuildTest(Base):
                          (V.VERSION, name, got["size"], got["sha256"], "n"))
         with zipfile.ZipFile(got["zip"]) as z:
             names = set(z.namelist())
+            self.assertTrue({"src/friendapp/pubkeys.json", "src/friendapp/signing.py", "src/friendapp/ed25519.py"} <= names)   # 更新の署名を確かめる部品
+            self.assertNotIn("seed", z.read("src/friendapp/pubkeys.json").decode("utf-8"))
             man = json.loads(z.read("manifest.json"))
             for n, sha in man["files"].items():   # manifest の SHA-256 が中身と一致する
                 self.assertEqual(_sha(z.read(n)), sha, n)

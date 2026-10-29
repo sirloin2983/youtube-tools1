@@ -43,7 +43,7 @@ import zipfile
 from flow import learning as _learning, machine as _machine, order as _order
 from ytt import fsio, version as _version
 
-from . import diag as _diag, dropbox as _dropbox, inbox as _inbox, places as _places, voicesend as _voicesend
+from . import diag as _diag, dropbox as _dropbox, inbox as _inbox, places as _places, signing as _signing, voicesend as _voicesend
 
 EVERY = 180                        # 見回りの間隔(秒。数分ごと)
 VOICE_SEND = True                  # スイッチ: 声の材料(ソロ配信の行の短い音)を送り返しに置く(friendapp/voicesend。10-24 夜)
@@ -946,6 +946,9 @@ class Sync:
         d = _json_bytes(got[0]) if not got[1] else None
         if not isinstance(d, dict):
             return
+        ok, how = _signing.accept(d)   # 署名(安全面の直し 1): 合わない latest.json は版も取り消し・重要の印も読まない(1 段目は署名が無ければ今まで通り)
+        if not ok:
+            raise SyncError("更新の latest.json の署名が合わないので、取りません(%s)" % how)
         ver, name, sha = d.get("version"), d.get("file"), str(d.get("sha256") or "").lower()
         if isinstance(ver, str) and APP_VERSION_RE.match(ver):
             self._note_latest(latest_mark(d))

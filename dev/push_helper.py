@@ -46,7 +46,7 @@ SECRET_PATTERNS = [
 ]
 # 名前だけでなく場所でも止めるもの(鍵そのもの。config.json は BAD_NAMES でも止まるが、理由をはっきり出す)。
 # 旧い場所(request-sender/・friend-apps/request-sender/)も残す(古いブランチ・写しからの混入も止める)
-SECRET_FILES = {"friend-apps/launcher/config.json": "切り抜き依頼の鍵(Dropbox)", "friend-apps/request-sender/config.json": "切り抜き依頼の鍵(Dropbox)",
+SECRET_FILES = {"friend-apps/launcher/config.json": "切り抜き依頼の鍵(Dropbox)", "friend-apps/launcher/signing.key": "友人のアプリの更新の署名の秘密鍵", "friend-apps/request-sender/config.json": "切り抜き依頼の鍵(Dropbox)",
                 "request-sender/config.json": "切り抜き依頼の鍵(Dropbox)"}
 # 名前で止めるもの(小文字で比べる)
 BAD_NAMES = {"data.json", "config.json", "cases.json", ".migrated.json", "cookies.txt", "youtube-cookies.txt", "keys.json", ".env", "registry.json",

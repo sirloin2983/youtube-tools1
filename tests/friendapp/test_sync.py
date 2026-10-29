@@ -680,6 +680,26 @@ class SyncTest(unittest.TestCase):
         self.assertEqual(self.sync.status()["updated"], "0.91.0")
         self.assertEqual([n for n in os.listdir(self.places["home"]) if n.endswith((".tmp", ".part"))], [])
 
+    def test_update_checks_signature_when_present(self):
+        """署名の 1 段目: latest.json に sig があれば確かめ、合わなければ取らない・印も読まない。無ければ今まで通り(上のテスト)"""
+        from friendapp import ed25519, signing
+        seed = bytes(range(32))
+        keys = {"t": ed25519.public_key(seed)}
+        self.key()
+        self.env[S.LAUNCHER_ENV] = "1"
+        self.put_update("0.91.0", self.update_entries())
+        doc = json.loads(self.io.data("/更新/latest.json"))
+        with mock.patch.object(signing, "load_keys", lambda path=None: keys):
+            bad = signing.sign(dict(doc, important=True), seed, "t")
+            bad["important"] = False   # 署名の後で書き換えた
+            self.io.put("/更新/latest.json", json.dumps(bad).encode())
+            self.assertTrue(any("署名" in p for p in self.run_sync()))
+            self.assertFalse(os.path.exists(os.path.join(self.places["home"], "app-0.91.0")))
+            self.assertNotIn("latest", self.sync.state)
+            self.io.put("/更新/latest.json", json.dumps(signing.sign(doc, seed, "t")).encode())
+            self.assertEqual(self.run_sync(), [])
+        self.assertTrue(os.path.isdir(os.path.join(self.places["home"], "app-0.91.0")))
+
     def test_update_takes_launcher_files_and_refuses_other_names(self):
         """exe と DLL・fetch.json は app-<版>/ へ(入れ替えは [更新する] で exe が)・FriendApp-<版>.zip のほかの名前は断る"""
         self.key()
