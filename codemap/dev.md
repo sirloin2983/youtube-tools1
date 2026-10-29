@@ -6,8 +6,8 @@
 
 - **_common.py** (48 行) — dev/ の道具が共通で使う小物(標準ライブラリだけ)。guard_hook.py・push_helper.py は単独で動く条件なので、ここを読まない。
   - 名前: `console_utf8` :9・`find_node` :18・`read_utf8` :31・`write_utf8` :37・`tracked_files` :43
-- **build_friend_zip.py** (907 行) — 友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(設計 資料の git:before-1028-cleanup:docs/design/f1-build.md の 2・3 節)。
-  - 名前: `class BuildError` :121・`say` :125・`download` :137・`cached` :149・`wheel_pins` :184・`pip_download` :202・`wheels` :212・`check_certifi` :249・`unzip_into` :265・`lay_python` :290・`src_files` :315・`lay_src` :330・ほか 25
+- **build_friend_zip.py** (918 行) — 友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(設計 資料の git:before-1028-cleanup:docs/design/f1-build.md の 2・3 節)。
+  - 名前: `class BuildError` :128・`say` :132・`download` :144・`cached` :156・`wheel_pins` :191・`pip_download` :209・`wheels` :219・`check_certifi` :256・`unzip_into` :272・`lay_python` :297・`src_files` :322・`lay_src` :337・ほか 25
 - **code_map.py** (466 行) — コードの地図と言葉の索引を作る道具(AI のセッションがコードの場所を早く見つけるため)。
   - 名前: `git_files` :53・`skipped` :57・`is_test` :61・`read` :65・`one_line` :73・`comment_head` :85・`py_info` :112・`js_info` :143・`cs_info` :164・`info` :186・`layer_of` :199・`norm_route` :206・ほか 12
   - 受ける口: 
@@ -37,7 +37,7 @@
   - 名前: `data_root` :33・`verdicts` :45・`delivered` :62・`streamers` :82・`shorts` :97・`collect` :112・`main` :150
 - **guard_hook.py** (434 行) — Claude Code の PreToolUse のフック: 事故のもとになる操作を機械が断る。標準ライブラリだけ・速く。
   - 名前: `class Tok` :51・`tok` :56・`tokenize` :62・`pipelines` :137・`word_of` :155・`norm_path` :171・`is_main_checkout` :184・`generated_kind` :198・`check_kill` :216・`check_sed` :242・`git_sub` :255・`check_git` :271・ほか 9
-- **land.py** (377 行) — 作業のブランチを main に入れ、版(src/ytt/version.py の VERSION と README.txt の見出し)を道具が 1 つ上げる。
+- **land.py** (379 行) — 作業のブランチを main に入れ、版(src/ytt/version.py の VERSION と README.txt の見出し)を道具が 1 つ上げる。
   - 名前: `class Stop` :50・`git` :54・`main_worktree` :63・`bump` :74・`read_version` :79・`set_version` :86・`set_readme` :90・`needs_bump` :100・`pid_alive` :105・`class Lock` :123・`pending_paths` :170・`daily_codemap` :178・ほか 5
 - **land_gate.py** (406 行) — main に入れる前の関所(dev/land.py が版を上げる前に流す)。単独でも流せる:
   - 名前: `layer_of_dir` :70・`dependents` :77・`select` :82・`pick_units` :103・`pick_by_imports` :110・`run_units` :120・`cache_path` :132・`load_cache` :137・`save_cache` :148・`count_of` :164・`run_check` :170・`run_tool` :184・ほか 12
@@ -63,10 +63,12 @@
   - 名前: `check` :37・`c_adopt_defaults` :86・`c_live_tx_constants` :99・`c_port_ranges` :127・`c_tool_module_names` :134・`schema_shape_problems` :155・`schema_items` :210・`c_settings_schema` :225・`c_studio_schema` :250・`c_portal_title` :267・`c_static_table` :274・`c_spec_consistency` :282・ほか 21
 - **run_e2e.py** (132 行) — 画面テスト(e2e)の一式を 1 本ずつ流して、1 本 1 行(所要秒・OK/FAIL の数)で出す。一式の正はこのファイルの SUITE。
   - 名前: `label` :57・`summary` :62・`selected` :69・`run_one` :82・`main` :96
-- **run_unit.py** (191 行) — unittest を層ごと・フォルダごとに流す道具(1 本ずつ別のプロセス)。リポジトリ直下で:
-  - 名前: `find_files` :48・`matches` :60・`build_units` :76・`run_one` :91・`report` :115・`run_all` :130・`print_summary` :149・`main` :161
-- **session_start.py** (454 行) — セッションの入口の要約。新しい AI のセッションが最初に流し、今の状態を 1 画面(150 行以内)で見る。
-  - 名前: `cut` :49・`run` :54・`git` :64・`read` :68・`git_block` :78・`versions` :98・`worklog_block` :107・`boundary_dirs` :123・`boundary_notes` :131・`boundary_block` :146・`load_items` :160・`plan_block` :170・ほか 16
+- **run_unit.py** (203 行) — unittest を層ごと・フォルダごとに流す道具(1 本ずつ別のプロセス)。リポジトリ直下で:
+  - 名前: `find_files` :49・`matches` :61・`build_units` :77・`run_one` :92・`report` :127・`run_all` :142・`print_summary` :161・`main` :173
+- **session_start.py** (458 行) — セッションの入口の要約。新しい AI のセッションが最初に流し、今の状態を 1 画面(150 行以内)で見る。
+  - 名前: `cut` :49・`run` :54・`git` :64・`read` :68・`git_block` :78・`versions` :98・`worklog_block` :107・`boundary_dirs` :123・`boundary_notes` :131・`boundary_block` :150・`load_items` :164・`plan_block` :174・ほか 16
+- **signing_key.py** (97 行) — 友人のアプリの更新の署名の鍵(安全面の直し 1・10-29。手順は保管庫 docs/spec/更新の署名の鍵.md)。
+  - 名前: `load` :25・`new` :48・`check` :69・`main` :78
 - **spec_check.py** (220 行) — 仕様(保管庫の docs/spec/)とコードの食い違いを探す。
   - 名前: `git_files` :45・`read` :49・`class Code` :57・`spec_files` :75・`live_lines` :84・`norm_api` :101・`clean_path` :109・`setting_keys` :114・`check` :130・`gone` :181・`main` :198
   - 受ける口: 

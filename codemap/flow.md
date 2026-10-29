@@ -17,11 +17,11 @@
   - 名前: `keep_dir` :34・`files_of` :39・`prepare` :51・`compare` :78・`ok` :101・`mode_now` :107・`log` :117・`prune` :126
 - **colors_api.py** (24 行) — ② 管理の層 flow: api/ytt/streamer-colors の口(入口 src/app/server.py も友人のアプリ src/friendapp/server.py も同じ物を呼ぶ)。
   - 名前: `streamer_api` :12
-- **deliver.py** (345 行) — ② パックを友人へ届ける(Dropbox の見張るフォルダの 出力\ に zip で置く。友人のアプリの「受け取る」が読む)。
-  - 名前: `outbox_ok` :44・`safe_name` :51・`request_id` :55・`delivery_name` :60・`face_origin` :65・`meta_path_for` :75・`meta_doc` :87・`made_on` :104・`write_meta_json` :113・`unique_zip` :119・`zip_packs` :127・`preview_path_for` :163・ほか 3
+- **deliver.py** (354 行) — ② パックを友人へ届ける(Dropbox の見張るフォルダの 出力\ に zip で置く。友人のアプリの「受け取る」が読む)。
+  - 名前: `outbox_ok` :44・`safe_name` :51・`request_id` :55・`delivery_name` :60・`face_origin` :65・`meta_path_for` :75・`meta_doc` :87・`made_on` :104・`write_meta_json` :113・`unique_zip` :119・`zip_packs` :127・`preview_path_for` :172・ほか 3
 - **deliveries.py** (232 行) — ② 管理の層 flow: 友人へ届けた記録(入口の作業データの logs/deliveries.jsonl)の読み口(OPT-M2。notes:plan/done/opt-manage.md の 7x-2)。
   - 名前: `record` :25・`clip_range` :41・`overlaps` :52・`overlap_note` :73・`origin_of` :84・`rows` :92・`delivered_requests` :114・`pack_name` :129・`delivered_marks` :137・`record_not_sent` :193・`not_sent_marks` :204
-- **delivery.py** (405 行) — ② 友人へ届ける: まとめて実行の「Dropbox へ届ける」段と、置けなかった自動の分の溜め(まとめて実行 AutoRunner が継ぐ mixin)。
+- **delivery.py** (420 行) — ② 友人へ届ける: まとめて実行の「Dropbox へ届ける」段と、置けなかった自動の分の溜め(まとめて実行 AutoRunner が継ぐ mixin)。
   - 名前: `switched_off` :55・`class Delivery` :95
 - **diar.py** (411 行) — ② 管理の層 flow: 話者判別と声の段取り(RS6 a-4。決定 3-29)。
   - 名前: `models_ready` :29・`default_embedding` :40・`embedding` :45・`embeddings` :50・`learn_embedding` :55・`match_embedding` :61・`diarize` :69・`assign` :99・`record_run` :123・`record_single` :130・`latest_run` :140・`embed` :147・ほか 15
@@ -41,20 +41,20 @@
   - 名前: `run_ranges` :74・`friend_ranges` :82・`read_archive` :93・`load_archive` :110・`candidates` :120・`peak_ratio` :144・`samples` :156・`suggest` :173・`compute` :196・`usable` :216・`describe` :226・`change` :238・ほか 1
 - **live_adopt.py** (276 行) — ライブの採用 = サーバー側の「マーク + 書き出し」(線 D の M1。RS7-2 G1b)。
   - 名前: `adopt_secs` :42・`pad_secs` :63・`top_of` :75・`class StudioMarks` :85・`class LocalMarks` :128・`class Adopter` :220
-- **live_archive.py** (1610 行) — 録画に無い区間をアーカイブ(YouTube)から書き出す(線 D の P4 の残り。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0-9)と、配信後の全自動(M7)の入口の側の中身。
-  - 名前: `from_archive` :148・`needs_archive` :153・`class ArchiveError` :159・`class Later` :163・`run_proc` :172・`probe_archive` :204・`readiness` :248・`fetch_full_audio` :266・`worker_python` :296・`run_align` :301・`inside` :315・`ended_at` :321・ほか 5
-- **live_detect.py** (852 行) — 配信中の盛り上がりの検出(線 D の L2)と自動の採用(M11)の入口の側。計画は 資料の git:before-1028-cleanup:plan/line-d-detect.md(3 の「候補の API の約束」は線 2 = スタジオの画面との境目。変えない)。
+- **live_archive.py** (1627 行) — 録画に無い区間をアーカイブ(YouTube)から書き出す(線 D の P4 の残り。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0-9)と、配信後の全自動(M7)の入口の側の中身。
+  - 名前: `from_archive` :152・`needs_archive` :157・`class ArchiveError` :163・`class Later` :167・`run_proc` :176・`probe_archive` :208・`processed_of` :254・`readiness` :262・`fetch_full_audio` :280・`worker_python` :310・`run_align` :315・`inside` :329・ほか 6
+- **live_detect.py** (858 行) — 配信中の盛り上がりの検出(線 D の L2)と自動の採用(M11)の入口の側。計画は 資料の git:before-1028-cleanup:plan/line-d-detect.md(3 の「候補の API の約束」は線 2 = スタジオの画面との境目。変えない)。
   - 名前: `clean_spec` :84・`overlay` :98・`merge_spans` :119・`measured_holes` :130・`class Detector` :150
-- **live_export.py** (1394 行) — リアルタイム切り抜き(線 D の P2: マークと書き出し。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0・5・6)の入口の側の中身。
-  - 名前: `read_after` :92・`class LiveError` :122・`pick_folder` :134・`rec_list` :143・`latest_per_mark` :152・`cleaned_up` :162・`check_after` :173・`check_origin` :185・`clean_auto` :194・`check_streamer` :200・`deliver_pool` :212・`job_after` :223・ほか 7
+- **live_export.py** (1406 行) — リアルタイム切り抜き(線 D の P2: マークと書き出し。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0・5・6)の入口の側の中身。
+  - 名前: `read_after` :93・`class LiveError` :123・`pick_folder` :135・`rec_list` :144・`latest_per_mark` :153・`cleaned_up` :163・`check_after` :174・`check_origin` :186・`clean_auto` :195・`check_streamer` :201・`deliver_pool` :213・`job_after` :224・ほか 7
 - **live_failures.py** (172 行) — リアルタイム切り抜き(線 D)の失敗の集約(M3。資料の git:before-1028-cleanup:plan/line-d-auto-pack.md の 4)。
   - 名前: `failure_of` :50・`after_stream_failure` :75・`detect_failure` :92・`keep_failure` :108・`handover_failure` :118・`class Reader` :125・`collect` :153
 - **live_patrol.py** (64 行) — ライブの見回りの糸の骨組み(OPT2。live_export.Exporter・live_archive.Archiver・live_tx.LiveTx が継ぐ)と中止の例外 1 組。
   - 名前: `class Halted` :14・`class Patrol` :18
 - **live_report.py** (245 行) — 配信(録画)ごとの結果の記録(線 D の D-12。ユーザー決定。長い配信の確かめ U4 と、数の決め直し D-15・当たり具合 L5 の材料)。
   - 名前: `key_of` :60・`class Reporter` :64
-- **live_retire.py** (180 行) — 録画の片付けの ② の口(OPT2 の 7x-1。plan/opt-manage.md の 7e・7f): 「この録画を消してよいか(理由)」の読み口と、
-  - 名前: `fate` :34・`overdue` :45・`private_name` :51・`near` :59・`exported_why` :64・`adopted_why` :79・`class Retire` :93
+- **live_retire.py** (189 行) — 録画の片付けの ② の口(OPT2 の 7x-1。plan/opt-manage.md の 7e・7f): 「この録画を消してよいか(理由)」の読み口と、
+  - 名前: `fate` :39・`overdue` :53・`private_name` :59・`near` :67・`exported_why` :72・`adopted_why` :87・`class Retire` :101
 - **live_rules.py** (147 行) — 友人のライブ配信の依頼の設定の決まりと、依頼と録画の結びつきの記録(notes:docs/spec/friend.md の 2-15)。範囲・既定・読み直しの 1 か所。
   - 名前: `num_in` :29・`clean_settings` :33・`settings_text` :52・`class RequestBook` :63
 - **live_tx.py** (481 行) — 配信中の候補の文字起こし(線 D の D-11 案 b。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0-11。ユーザー決定)。
@@ -63,7 +63,7 @@
   - 名前: `channel_regions` :37・`live_row` :55・`live_list` :150
 - **livehost.py** (87 行) — ライブの親(host)の口(RS7-2 G0)。
   - 名前: `class RequestBook` :25・`class MarkBook` :37・`class LiveHost` :47
-- **livesession.py** (1361 行) — ② 管理の層 flow: ライブ係(RS7-2 G2b。notes:plan/done/f1-friend-pc.md)。
+- **livesession.py** (1363 行) — ② 管理の層 flow: ライブ係(RS7-2 G2b。notes:plan/done/f1-friend-pc.md)。
   - 名前: `validate_url` :87・`probe_live` :124・`rec_view` :154・`recorder_data_dir` :170・`is_local_url` :183・`stream_url` :191・`live_envelope` :197・`cfg_bundle` :207・`now_bundle` :228・`request_bundle` :247・`request_settings` :280・`speakers_of` :287・ほか 4
 - **machine.py** (303 行) — ② 管理の層 flow: この PC の設定(機械の都合)を 1 か所に(RS7-1 の S1。決定 3-30 の Q1・notes:plan/done/f1-friend-pc.md の決めたこと 8・9)。
   - 名前: `check` :68・`root` :102・`path` :107・`read_file` :119・`read_env` :136・`llm_for_vram` :163・`auto_llm` :173・`overlay_llm` :179・`explicit` :212・`load` :221・`get` :239・`save` :247・ほか 1
@@ -83,9 +83,9 @@
   - 名前: `studio_data` :50・`case_root` :63・`doc_home` :91・`request_id6` :130・`request_folder` :135・`configured_out_dir` :148・`request_root` :156・`case_parents` :177・`case_roots` :183・`find_request_dir` :204・`work_dir` :225・`runs_dir` :231・ほか 12
 - **prio.py** (88 行) — ② 管理の層 flow: 処理の優先度の表(PRIO。決定 3-49・notes:plan/done/opt-series.md の 11)。
   - 名前: `name_ok` :35・`rank` :39・`idle_only` :43・`os_priority` :47・`label` :51・`slot_kw` :55・`of_run` :60・`of_spec` :69・`watch` :80・`idle_now` :85
-- **retention.py** (9 行) — ② 管理の層 flow: 物の終わりの日数の 1 か所(方針の数)。ユーザーのツールと友人のアプリが同じ値を読む。
-- **run.py** (1916 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
-  - 名前: `class Cancelled` :141・`class StepError` :145・`mode_of` :164・`steps_of` :198・`analyze_verdict` :242・`chat_missing` :260・`chat_retry_ok` :266・`stream_ended_at` :274・`redo_reason` :287・`short_why` :305・`adopted_ids` :317・`tx_verdict` :322・ほか 5
+- **retention.py** (15 行) — ② 管理の層 flow: 物の終わりの日数の 1 か所(方針の数)。ユーザーのツールと友人のアプリが同じ値を読む。
+- **run.py** (1919 行) — ① 自動の流れの経路(RS1-7。計画 notes:plan/done/role-restructure.md の 5-1)。
+  - 名前: `class Cancelled` :142・`class StepError` :146・`mode_of` :165・`steps_of` :199・`analyze_verdict` :243・`chat_missing` :261・`chat_retry_ok` :267・`stream_ended_at` :275・`redo_reason` :288・`short_why` :306・`adopted_ids` :318・`tx_verdict` :323・ほか 5
 - **runlog.py** (93 行) — まとめて実行の「終わった実行の記録」の形と読み方(RS3-0B)。
   - 名前: `read_runs_log` :47・`read_result` :77
 - **runqueue.py** (839 行) — ② 管理の層 flow: 待ち行列と実行の糸(RS7-1 S5。決定 3-30・

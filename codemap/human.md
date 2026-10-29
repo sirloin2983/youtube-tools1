@@ -5,8 +5,8 @@
 ## src/human/
 
 - **__init__.py** (2 行) — ③ 人の操作。① ② の成果物とは別に人の直し(人の層・上書き)を書き、その段からやり直しを頼む。人の直しから学習データを作る。ytt と ② flow を import してよい(① pipeline は ② を通す)
-- **judgments.py** (211 行) — 人の判断の記録(judgments.jsonl。MARKS-3 の S1a)。人か友人が切り抜きを判断したときだけ 1 行足す。評価と学習が読む人の判断はここだけ。
-  - 名前: `friend_value` :38・`path` :47・`record` :121・`retract` :131・`rows` :162・`keys` :177・`fold` :188
+- **judgments.py** (214 行) — 人の判断の記録(judgments.jsonl。MARKS-3 の S1a)。人か友人が切り抜きを判断したときだけ 1 行足す。評価と学習が読む人の判断はここだけ。
+  - 名前: `friend_value` :39・`path` :48・`record` :122・`retract` :132・`rows` :163・`keys` :178・`fold` :191
 
 ## src/human/check/
 
@@ -27,8 +27,8 @@
   - 名前: `_state` :15・`_apply_speech` :21・`_revert_speech` :37
 - **timerow.py** (109 行) — 「確かめる」の時刻のカード「行の時刻が合っているか」の反映(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-2・5 節・決定 3-41)。
   - 名前: `_move` :21・`_check` :29・`_times` :50・`_apply_time` :54・`_revert_time` :86
-- **value.py** (167 行) — 「確かめる」の価値のカード(切り抜く価値があるか = 70 点以上か)の反映(資料の git:before-1028-cleanup:docs/design/v1-check-build.md・決定 3-41)。
-  - 名前: `_code` :32・`_msg` :36・`_need` :40・`_auto_check` :50・`_auto_apply` :64・`_auto_revert` :75・`_studio` :87・`_set_status` :94・`_cand_apply` :123・`_cancel_export` :138・`_cand_revert` :153
+- **value.py** (188 行) — 「確かめる」の価値のカード(切り抜く価値があるか = 70 点以上か)の反映(資料の git:before-1028-cleanup:docs/design/v1-check-build.md・決定 3-41)。
+  - 名前: `_score` :36・`_code` :47・`_msg` :51・`_need` :55・`_auto_check` :65・`_cand_check` :79・`_auto_apply` :84・`_auto_revert` :96・`_studio` :108・`_set_status` :115・`_cand_apply` :144・`_cancel_export` :159・ほか 1
 - **voice.py** (441 行) — 「確かめる」の誰の声のカード(voice:diar)の答えの形・選択肢・反映・声の覚え直し(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-2・5 節、
   - 名前: `diar_enabled` :53・`doc_embedding` :75・`registry` :80・`options_for` :95・`guess_for` :116・`buttons` :132・`people_for` :141
 
@@ -47,8 +47,8 @@
 ## src/human/friend/
 
 - **__init__.py** (2 行) — ③ 友人: 受付(Dropbox)→ まとめて実行(②)に流す → 届ける。友人の返事・送り返し・ライブの依頼の結びつき
-- **bugs.py** (646 行) — ③ 人の層: 友人の PC の不具合の書き出しを受け取って仕分けし、要対応があれば Claude Code を画面なしで 1 回起こす(10-25 ユーザーの OK。
-  - 名前: `bugs_dir` :148・`parse` :156・`triage` :169・`kind_of` :203・`context` :235・`wrap` :248・`records` :264・`scan` :274・`delivered` :337・`guard` :375・`friend_first` :392・`ask` :416・ほか 4
+- **bugs.py** (658 行) — ③ 人の層: 友人の PC の不具合の書き出しを受け取って仕分けし、要対応があれば Claude Code を画面なしで 1 回起こす(10-25 ユーザーの OK。
+  - 名前: `bugs_dir` :149・`parse` :157・`triage` :170・`kind_of` :204・`context` :236・`wrap` :255・`records` :274・`scan` :284・`delivered` :349・`guard` :387・`friend_first` :404・`ask` :428・ほか 4
 - **friend_feedback.py** (118 行) — 友人の「要らない」を PC 側で片付ける(notes:docs/spec/friend.md の 2-14。ユーザー「不採用の場合こちらにフィードバック」)。
   - 名前: `record_delivery` :24・`find_delivery` :29・`apply` :82
 - **intake.py** (844 行) — 友人からの依頼の受付(notes:docs/spec/friend.md)。
@@ -59,8 +59,8 @@
   - 名前: `collect` :75・`message` :101・`to_name` :116・`batch_send` :165・`tick` :216
 - **pubqueue.py** (166 行) — ③ 人の層: 友人の zip を配る待ちの列と、3 時間ごとの配る回(ユーザーの PC。友人の zip はまとめて配る決め・10-25 ユーザーの OK。
   - 名前: `items` :53・`hold_of` :59・`set_hold` :65・`add` :79・`take` :87・`changes` :96・`slot_of` :101・`tick` :107
-- **returns.py** (494 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。資料の git:before-1028-cleanup:docs/design/f1-build.md の (f1d))。
-  - 名前: `returns_dir` :58・`extract` :96・`parse_verdict` :130・`parse_notice` :183・`scan` :218・`recent_notices` :420・`iter_requests` :459
+- **returns.py** (500 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。資料の git:before-1028-cleanup:docs/design/f1-build.md の (f1d))。
+  - 名前: `returns_dir` :59・`extract` :97・`parse_verdict` :131・`parse_notice` :186・`scan` :221・`recent_notices` :426・`iter_requests` :465
 - **upwatch.py** (166 行) — ③ 人の層: 友人のアプリの更新の見張り(ユーザーの PC。友人のアプリの更新の決め・10-25 ユーザーの OK。notes:plan/友人の不具合の自動対応-1025.md の「更新」)。
   - 名前: `published` :54・`friend_now` :69・`last_seen` :91・`alerts` :104・`add_alert` :111・`scan` :121
 - **voicein.py** (143 行) — 友人の PC から届いた声の材料の受け取り(10-24 夜。作る側 = friendapp/voicesend。案 = 資料の git:before-1028-cleanup:plan/声の材料を友人のPCから-1024.md)。

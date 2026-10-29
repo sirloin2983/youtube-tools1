@@ -9,8 +9,8 @@
   - 名前: `get_api_key` :16・`set_api_key` :27
 - **appwindow.py** (283 行) — 画面を「窓」(Edge のアプリモード)で開く(統合計画の段階7-3。ユーザー決定で既定は窓 = 専用の窓。pywebview は使わない)。
   - 名前: `class Unavailable` :41・`class TooMany` :45・`find_edge` :49・`app_command` :86・`local_url` :99・`external_url` :122・`read_mode` :139・`focus_window` :144・`class Opener` :201
-- **autorestart.py** (60 行) — 自動の起動し直し・入れ替え(新しい版があるとき、何も処理していない間に自分で新しい版にする)の判定。純粋な部品(入口と友人のアプリの両方が使う)。
-  - 名前: `read_tried` :24・`write_tried` :30・`decide` :35・`settling` :47・`editor_in_use` :57
+- **autorestart.py** (70 行) — 自動の起動し直し・入れ替え(新しい版があるとき、何も処理していない間に自分で新しい版にする)の判定。純粋な部品(入口と友人のアプリの両方が使う)。
+  - 名前: `read_tried` :24・`write_tried` :30・`decide` :35・`settling` :47・`settling_since` :57・`editor_in_use` :67
 - **casefiles.py** (315 行) — 案件の 候補.json・採用.json の純粋な部分(決定 3-37 の (r8j)〜(r8q))。
   - 名前: `work_path` :38・`lock` :43・`is_remote` :53・`problem` :57・`unseen` :69・`need_root` :75・`abs_path` :82・`rel_path` :90・`empty_candidates` :104・`empty_adoptions` :108・`index_row` :117・`stored` :126・ほか 9
 - **clientlog_rule.py** (17 行) — 画面のエラー 1 件の「決まった項目を決まった長さで切る」規則の 1 か所(入口 manage/ops/clientlog と友人のアプリ friendapp/server が呼ぶ)。
@@ -29,22 +29,22 @@
   - 名前: `replace_retry` :19・`unlink_quiet` :32・`temp_in` :40・`atomic_write` :59・`create_new` :77・`write_json` :99・`append_jsonl` :109・`sha256_file` :116・`class TooLarge` :125・`read_json_file` :133・`is_network_path` :153・`norm_path` :160・ほか 21
 - **gpuinfo.py** (165 行) — この PC の GPU の名前と VRAM を調べる(F1 F0-2。資料の git:before-1028-cleanup:docs/design/f1-build.md の 2 の F0-2・3 の (f1b))。標準ライブラリと ytt だけ。
   - 名前: `vendor_of` :28・`gb` :37・`parse_nvidia_smi` :46・`parse_cim` :62・`pick` :80・`from_nvidia_smi` :97・`from_registry` :104・`from_cim` :136・`probe` :144・`info` :158
-- **httpsec.py** (272 行) — ローカルサーバー(127.0.0.1)の安全検査。スタジオ・文字起こし・入口で同じ規則を1か所に持つ。
-  - 名前: `allowed_hosts` :31・`host_ok` :35・`origin_ok` :39・`fetch_site_ok` :44・`navigation_ok` :48・`send_head` :53・`send` :66・`class LocalHandler` :74・`class BodyError` :108・`drain_body` :121・`read_json_body` :136・`inject_token` :174・ほか 5
+- **httpsec.py** (292 行) — ローカルサーバー(127.0.0.1)の安全検査。スタジオ・文字起こし・入口で同じ規則を1か所に持つ。
+  - 名前: `allowed_hosts` :32・`new_local_token` :39・`host_ok` :48・`origin_ok` :52・`fetch_site_ok` :57・`navigation_ok` :61・`send_head` :66・`send` :79・`class LocalHandler` :87・`class BodyError` :128・`drain_body` :141・`read_json_body` :156・ほか 6
 - **jobs.py** (266 行) — 重い処理の同時実行数の上限(統合計画の段階4)。
   - 名前: `limit_from_env` :42・`class HeavySlots` :51・`check_cancel` :190・`class Ctl` :198
 - **layout.py** (75 行) — リポジトリの中のフォルダの並び(段0 の改名は `資料の git:before-1028-cleanup:docs/design/phase0-restructure.md`)。
   - 名前: `src_root` :31・`repo_root` :36・`inplace_root` :41・`tool_dir` :49・`holo_colors_dir` :54・`notes_root` :62・`copy_shared_code` :68
-- **loudness.py** (167 行) — 聞こえ方の音量(ラウドネス。LUFS)をそろえる決まりの1か所(スタジオの書き出し・パック作りが共通で使う)。
+- **loudness.py** (169 行) — 聞こえ方の音量(ラウドネス。LUFS)をそろえる決まりの1か所(スタジオの書き出し・パック作りが共通で使う)。
   - 名前: `check_target` :36・`check_volume` :49・`pct_to_db` :62・`measure_filter` :66・`parse` :71・`gain` :100・`pack_gain` :106・`select_filter` :111・`result` :120・`pack_result` :125・`pack_aac` :130・`volume_filter` :139・ほか 4
-- **marks.py** (402 行) — マークの純粋な語彙(スタジオの data.json の配信のマーク)。
+- **marks.py** (406 行) — マークの純粋な語彙(スタジオの data.json の配信のマーク)。
   - 名前: `clip_margin` :48・`pos_int` :55・`ms_or_now` :64・`class BadMark` :73・`fnum` :77・`num_strict` :88・`clean_reasons` :94・`clean_parts` :99・`clamp_end` :110・`check_times` :117・`auto0` :139・`collab_from` :148・ほか 16
 - **mediainfo.py** (49 行) — ffmpeg -i で読むメディア情報と、その覚え。
   - 名前: `media_info` :26・`media_info_known` :40・`remember_media_info` :45
 - **names.py** (175 行) — 書き出しの名前の規則(スタジオの書き出し src/pipeline/export/exporter.py と、ライブの書き出し src/flow/live_export.py が同じ規則を読む。
   - 名前: `compact_ts` :28・`safe_name` :34・`is_reserved` :40・`path_units` :44・`trim_units` :49・`read_owner` :58・`write_owner` :69・`find_folder` :87・`pick_folder` :102・`unique_base` :122・`clip_base` :136・`next_clip_number` :149・ほか 3
-- **normalize.py** (405 行) — 素材を 30fps にそろえる(Q1。資料の git:before-1028-cleanup:plan/line-bc-master-plan.md。ユーザー決定)。
-  - 名前: `class NormalizeError` :61・`class Cancelled` :65・`fps_filter` :69・`use_prev` :75・`enc_set` :80・`video_args` :85・`encode_args` :92・`gpu_encoder` :124・`encode_tries` :137・`video_ok` :144・`legacy_args` :153・`is_fps_mode_error` :162・ほか 11
+- **normalize.py** (442 行) — 素材を 30fps にそろえる(Q1。資料の git:before-1028-cleanup:plan/line-bc-master-plan.md。ユーザー決定)。
+  - 名前: `class NormalizeError` :70・`class Cancelled` :74・`fps_filter` :78・`use_prev` :84・`enc_set` :89・`video_args` :94・`encode_args` :101・`gpu_encoder` :133・`encode_tries` :146・`decode_args` :153・`hwdec_name` :160・`decode_tries` :165・ほか 14
 - **pick.py** (97 行) — PC の標準の「ファイルを選ぶ」「フォルダを選ぶ」の窓(画面の「参照…」)。
   - 名前: `class PickError` :40・`class PickBusy` :44・`initial_dir` :48・`pick` :71
 - **procs.py** (218 行) — 外部コマンドの子プロセスの管理(標準ライブラリだけ)。
@@ -62,12 +62,12 @@
   - 名前: `set_code_dir` :29・`code_dir` :35・`set_home` :40・`home` :48・`p` :60・`fake` :65・`fake_file` :70・`fake_media` :76・`find_tool` :84・`old_log_name` :93・`rotate_log` :100・`log_failure` :105・ほか 7
 - **studiodata.py** (176 行) — 切り抜きスタジオの data.json の配信の情報(読む側。書くのは盛り上がりグラフの save_series だけ)。
   - 名前: `load_live` :24・`load_video` :35・`save_series` :82・`read` :96・`load_all` :108・`videos` :116・`video` :121・`studio_videos` :157・`studio_stream` :162
-- **textutil.py** (69 行) — ログ・画面に出す文と数の小物(標準ライブラリだけ)。
-  - 名前: `redact` :18・`permission_message` :23・`tail_reason` :31・`fmt_ts` :38・`fmt_ms` :44・`num` :50・`person_key` :64
-- **tools.py** (723 行) — 外部プログラム(ffmpeg・ffprobe・yt-dlp)の場所と、子プロセスを動かすときの小道具。
-  - 名前: `remember` :35・`recent` :51・`ytt_env` :56・`find_tool` :70・`is_dev_build` :109・`pick_ffmpeg` :114・`find_ffmpeg` :164・`media_tool` :169・`ffmpeg_info` :175・`parse_ffmpeg_info` :189・`duration_in` :200・`media_duration` :205・ほか 22
-- **trashbin.py** (195 行) — ごみ箱フォルダの 1 か所(形と、移す・戻す・古い日付を消す動作)。どの層からも使う(① の録画の部品・④ の片付けと「要らない」・友人のアプリ)ので ytt に置く。
-  - 名前: `day_name` :24・`free_path` :33・`append_manifest` :43・`old_day_dirs` :61・`purge` :79・`to_trash` :100・`record` :151・`put_back` :166
+- **textutil.py** (78 行) — ログ・画面に出す文と数の小物(標準ライブラリだけ)。
+  - 名前: `redact` :18・`one_line` :26・`permission_message` :32・`tail_reason` :40・`fmt_ts` :47・`fmt_ms` :53・`num` :59・`person_key` :73
+- **tools.py** (730 行) — 外部プログラム(ffmpeg・ffprobe・yt-dlp)の場所と、子プロセスを動かすときの小道具。
+  - 名前: `remember` :36・`recent` :52・`ytt_env` :57・`find_tool` :71・`is_dev_build` :110・`pick_ffmpeg` :115・`find_ffmpeg` :165・`media_tool` :170・`ffmpeg_info` :176・`parse_ffmpeg_info` :190・`duration_in` :201・`media_duration` :206・ほか 22
+- **trashbin.py** (270 行) — ごみ箱フォルダの 1 か所(形と、移す・戻す・古い日付を消す動作)。どの層からも使う(① の録画の部品・④ の片付けと「要らない」・友人のアプリ)ので ytt に置く。
+  - 名前: `safe_move` :70・`day_name` :99・`free_path` :108・`append_manifest` :118・`old_day_dirs` :136・`purge` :154・`to_trash` :175・`record` :226・`put_back` :241
 - **txbase.py** (103 行) — 認識の部品が共有する小さな物: 記録(ロガー)・決まった値(文字・言語・長さの上限)・要確認の印の文と幻覚の決まり文句・ジョブの注意。
   - 名前: `char_class` :40・`alt_fold` :56・`add_warning` :71・`env_off` :76・`wcpp_flavor` :87・`wcpp_bin_dir` :92・`wcpp_exe` :97・`wcpp_model_dir` :101
 - **txtext.py** (103 行) — 文字起こしの文字の語彙(標準ライブラリと ytt/txbase だけの純粋な関数と決まった値)。
@@ -86,8 +86,8 @@
   - 名前: `ver_key` :24・`latest_tag` :34・`cached_latest` :42・`is_old` :63
 - **ytledger.py** (153 行) — YouTube への問い合わせの帳簿(10-25 夜。ユーザー OK「取得の列の間隔を縮め、ほかの YouTube への問い合わせと調整する」)。
   - 名前: `path` :29・`classify` :35・`record` :45・`ytdlp_weight` :65・`is_ytdlp` :73・`from_run` :78・`rows` :89・`load` :109・`day_counts` :125・`prune` :139
-- **yturl.py** (103 行) — YouTube の URL・動画 ID の形(語彙。標準ライブラリだけ・状態を持たない)。
-  - 名前: `parse_video_id` :22・`watch_url` :49・`check_live` :61・`check_media_path` :85・`file_video_id` :93・`ytdlp_out` :98
+- **yturl.py** (107 行) — YouTube の URL・動画 ID の形(語彙。標準ライブラリだけ・状態を持たない)。
+  - 名前: `parse_video_id` :22・`watch_url` :49・`check_live` :61・`check_media_path` :85・`file_video_id` :97・`ytdlp_out` :102
 
 ## テスト
 
