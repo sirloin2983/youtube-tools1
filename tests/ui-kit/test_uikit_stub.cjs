@@ -75,7 +75,7 @@ function slice(start, end) {
 test('http: 403 {"error":"token"} shows the "reopen" notice once (and only for that error)', async () => {
   const toasts = []; let reloads = 0, status = 403, body = { error: 'token', message: 'm' };
   const ctx = {
-    toastFn: (m, o) => { toasts.push([m, o]); }, token: () => 'tk', location: { href: 'http://x/a/', origin: 'http://x', reload: () => { reloads++; } },
+    toastFn: (m, o) => { const el = { isConnected: true }; toasts.push([m, o, el]); return { el }; }, token: () => 'tk', location: { href: 'http://x/a/', origin: 'http://x', reload: () => { reloads++; } },
     URL, AbortController, setTimeout, clearTimeout, Promise, JSON,
     fetch: () => Promise.resolve({ ok: false, status, json: () => Promise.resolve(body) }),
   };
@@ -83,9 +83,14 @@ test('http: 403 {"error":"token"} shows the "reopen" notice once (and only for t
   vm.runInContext(slice('  var HTTP_OFFLINE', '  /* 入口(ホーム)の API の場所') + '\nthis.http = http; this.tokenStale = tokenStale;', ctx);
   await assert.rejects(ctx.http('api/x', { body: {} }), e => e.status === 403 && e.code === 'token');
   await assert.rejects(ctx.http('api/x', { body: {} }), e => e.code === 'token');
-  assert.equal(toasts.length, 1, 'only once');
+  assert.equal(toasts.length, 1, 'only once while shown');
   assert.match(toasts[0][0], /起動し直されました/);
   assert.equal(toasts[0][1].action.label, '開き直す');
+  assert.equal(toasts[0][1].pin, true, 'not pushed out by other notices (10-29)');
+  toasts[0][2].isConnected = false;   // 押し出された・× で閉じた = 次に断られたらもう一度出す(10-29)
+  await assert.rejects(ctx.http('api/x', { body: {} }), e => e.code === 'token');
+  assert.equal(toasts.length, 2, 'shown again after it was gone');
+  toasts.pop();
   assert.equal(reloads, 0);
   toasts[0][1].action.fn();
   assert.equal(reloads, 1);
