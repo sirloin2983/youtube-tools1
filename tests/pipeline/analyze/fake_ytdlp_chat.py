@@ -12,6 +12,7 @@ ChatFeed)の yt-dlp の場所にこのファイルを渡す(.py なら同じ Pyt
   403    … lines 行書いてから「HTTP Error 403: Forbidden」を出して終わる(終了コード 1)
   nochat … 「There are no subtitles for the requested languages」を出して終わる(ファイルを作らない。終了コード 0)
   auth   … bot 判定(Sign in to confirm you're not a bot)と「字幕が無い」を出して終わる(終了コード 1)
+  members … cookies(--cookies)が無ければメンバー限定と言って終わる(終了コード 1)。あれば write と同じ
   exit   … lines 行書いて終わる(終了コード code)
   どの mode も "child": true なら、本物の yt-dlp(PyInstaller の 1 ファイルの exe)と同じく子プロセスを 1 つ起動して書くのは子にまかせ、親は子を待つ
   (子の pid は <log>.pids に 1 行ずつ。ワーカーが yt-dlp を止めたとき子も終わるかをテストが確かめる)
@@ -62,6 +63,9 @@ def main():
         print("WARNING: [youtube] abcdefghijk: Sign in to confirm you're not a bot. Use --cookies-from-browser https://example.invalid/x", flush=True)
         print("[info] There are no subtitles for the requested languages", flush=True)
         print("ERROR: [youtube] abcdefghijk: Sign in to confirm you're not a bot. https://example.invalid/y", flush=True)
+        return 1
+    if mode == "members" and "--cookies" not in args:
+        print("ERROR: [youtube] abcdefghijk: Join this channel to get access to members-only content like this video", flush=True)
         return 1
     out = args[args.index("-o") + 1].replace(".%(ext)s", ".live_chat.json.part")
     t0 = float(spec.get("t0") or time.time()) + n * 1000

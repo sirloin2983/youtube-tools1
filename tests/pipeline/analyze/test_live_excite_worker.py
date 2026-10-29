@@ -470,13 +470,28 @@ class ChatFeedTest(unittest.TestCase):
         self.assertEqual(f.launches, 1)
         self.assertIn("チャットを取れません", f.reason)
 
-    def test_bot_check_flips_cookies_and_keeps_reason(self):
-        """bot 判定(「字幕が無い」と一緒に出る)はチャットが無いと決めず、cookies の有無を替えて起動し直す・理由(種類・最後のエラーの行)を残す・URL は伏せる"""
+    def fake_cookies(self):
         cookies = os.path.join(self.tmp, "cookies.txt")
         with open(cookies, "w", encoding="utf-8") as fh:
             fh.write("# Netscape HTTP Cookie File\n")   # 中身は偽物(読まない)
         os.environ[W.tools.COOKIES_ENV] = cookies
+
+    def test_members_only_retries_with_cookies(self):
+        """cookies なしで取り始め(CHAT_COOKIES_FIRST)、メンバー限定と言われたらチャットが無いと決めずに cookies ありで取り直す"""
+        self.fake_cookies()
+        f = self.feed([{"mode": "members", "interval": 0.05}], backoff=(0.1,))
+        self.drive(f, lambda f, m: f.launches >= 2 and len(m) >= 3)
+        args = self.launches()
+        self.assertNotIn("--cookies", args[0])
+        self.assertIn("--cookies", args[1])
+        self.assertEqual((f.state, f.info["flips"], f.info["cookies"]), ("ok", 1, True))
+        f.close()
+
+    def test_bot_check_flips_cookies_and_keeps_reason(self):
+        """bot 判定(「字幕が無い」と一緒に出る)はチャットが無いと決めず、cookies の有無を替えて起動し直す・理由(種類・最後のエラーの行)を残す・URL は伏せる"""
+        self.fake_cookies()
         f = self.feed([{"mode": "auth"}, {"mode": "write", "interval": 0.05}], backoff=(0.1,))
+        f.cookies = True   # cookies ありで断られた場合(既定は CHAT_COOKIES_FIRST = なしから)
         self.drive(f, lambda f, m: f.launches >= 2 and len(m) >= 3)
         args = self.launches()
         self.assertIn("--cookies", args[0])

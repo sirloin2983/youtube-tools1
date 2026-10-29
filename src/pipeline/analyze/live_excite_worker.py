@@ -141,6 +141,12 @@ BLOCK_HINTS = ("HTTP Error 403", "HTTP Error 429", "403: Forbidden", "429: Too M
 # 「チャットが無い」の文と一緒に出たときは、チャットが無いとは決めない(bot 判定で別の取り方へ落ちて字幕が無いと言われることがある)
 AUTH_HINTS = ("Sign in to confirm", "not a bot", "cookies are no longer valid", "--cookies-from-browser", "Sign in to view", "account cookies")
 CHAT_COOKIE_FLIPS = 2   # cookies の有無を替える回数の上限(あり → なし → ありで 1 往復)。0 = 替えない(前の動き)
+# スイッチ: チャットの最初の起動で cookies を渡すか。False = 渡さない(断られたら・メンバー限定なら cookies ありへ替える)/ True = 前の動き。
+# 10-30 の調べ(研究の列の 159 番・本物の配信 3 本を配信後のチャットと id で突き合わせ): cookies ありで取った配信は、書き込みの多い時に
+# 届く数が 5 秒に 25〜30 件で頭打ち(配信後の 0.4〜0.5 しか届かない・届かない書き込みは長さ・絵文字・連投・メンバーの割合が届いた物と同じ)。
+# cookies なしで取った 1 本(10-23・平均 7.4 件/秒)は配信後の 0.999 が届いた。確かめは chat-reuse.jsonl の件数の比(chatreuse.compare)
+CHAT_COOKIES_FIRST = False
+MEMBERS_HINTS = ("members-only", "Join this channel")   # メンバー限定(cookies なしで断られたら cookies ありで取り直す)
 # チャットの待ち(grace)を、読んだメッセージの遅れ(PC の時計 − timestampUsec。yt-dlp の書き出しの遅れ + PC の時計のずれ)に合わせて延ばす:
 # 遅れの 90% 点 + CHAT_GRACE_MARGIN 秒(CHAT_GRACE_MAX まで)。PC の時計が進んでいるとメッセージが全部「遅れ」で捨てられ、音だけになるため。
 # スイッチ: CHAT_GRACE_MAX = CHAT_GRACE で前の動き(延ばさない)。数え方(timestampUsec・重み)は変えない
@@ -442,7 +448,7 @@ class ChatFeed:
         self.dedupe_ts = 0.0       # 起動し直したあと、この時刻以下は前のファイルで数えた(重ねない)
         self.launches = 0
         self.tails = {}            # 止めた yt-dlp のファイルの改行の無い末尾: 通し番号 -> (大きさ, その大きさになった時刻)
-        self.cookies = True        # 次の起動で cookies を渡すか(ある PC だけ。bot 判定・失効のたびに替える)
+        self.cookies = CHAT_COOKIES_FIRST   # 次の起動で cookies を渡すか(ある PC だけ。bot 判定・失効・メンバー限定のたびに替える)
         self.used_cookies = False  # 今の起動で cookies を渡したか
         self.flips = 0
         self.delays = []           # 読んだメッセージの遅れ(PC の時計 − timestampUsec。新しい 500 件)
@@ -594,7 +600,7 @@ class ChatFeed:
             text = self._log_tail(self.gen)
             kind, last = chat_trouble(text)
             self.info.update(lastExit=rc, kind=kind or self.info["kind"], lastError=last or self.info["lastError"])
-            if kind == "auth":
+            if kind == "auth" or (kind == "nochat" and not self.used_cookies and any(h in text for h in MEMBERS_HINTS)):
                 self._flip_cookies()
             elif not self.ever_grew and self.launches <= 1 and kind == "nochat":
                 return self._give_up("この配信はチャットを取れません(チャットがオフ・メンバー限定など)。音だけで候補を出します")
