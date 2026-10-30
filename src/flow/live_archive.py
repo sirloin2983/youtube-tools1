@@ -751,6 +751,17 @@ class Archiver(LX.Patrol):
         self._save_info()
         return dict(i)
 
+    def note_request(self, rc, rec, kind, rid="", streamer="", at=None):
+        """録画ごとの記録に、誰が始めた録画かを残す request {rid, streamer, kind(friend = 友人の依頼・own = 自分で始めた), createdAt}(10-30。
+        結びつき live_rules.RequestBook が消えても後から分かる)。own は、もう request があれば書かない(友人の依頼が先)"""
+        with self.lock:
+            had = (self.info.get(self.key(rc, rec)) or {}).get("request")
+        if kind == "own" and had:
+            return dict(had)
+        req = {"rid": str(rid or "")[:64], "streamer": str(streamer or "")[:80], "kind": kind, "createdAt": at if schemas.is_num(at) else time.time()}
+        self._info_put(rc, rec, request=req)
+        return req
+
     def _ready_info(self, rc, rec):
         with self.lock:
             i = dict(self.info.get(self.key(rc, rec)) or {})

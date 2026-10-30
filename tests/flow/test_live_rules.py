@@ -70,26 +70,45 @@ class LiveRequestsStoreTest(unittest.TestCase):
         for i in range(3):
             self.now = 1_800_000_000.0 + i * 86400   # 1 日ずつ後
             s.put("local", "20261008-20000%d-abcdefghijk" % i, {"rid": "r%d" % i})
-        self.now = 1_800_000_000.0 + LR.KEEP_DAYS * 86400 + 1   # 1 本目だけ 14 日を過ぎた
+        self.now = 1_800_000_000.0 + LR.KEEP_DAYS * 86400 + 1   # 1 本目だけ KEEP_DAYS(30 日)を過ぎた = 31 日目
         self.assertEqual(s.prune(), 1)
-        self.assertEqual(sorted(v["rid"] for v in s.all().values()), ["r1", "r2"])
-        self.assertEqual(sorted(v["rid"] for v in self.store().all().values()), ["r1", "r2"], "消したら書く")
+        self.assertEqual(sorted(v["rid"] for v in s.kept_all().values()), ["r1", "r2"])
+        self.assertEqual(sorted(v["rid"] for v in self.store().kept_all().values()), ["r1", "r2"], "消したら書く")
         with mock.patch.object(LR.fsio, "atomic_write") as w:
             self.assertEqual(s.prune(), 0)
             w.assert_not_called()   # 消すものが無ければ書かない(見回りのたびに呼ぶ)
         self.assertEqual(s.prune(keep_days=0), 2)
-        self.assertEqual(self.store().all(), {})
+        self.assertEqual(self.store().kept_all(), {})
+
+    def test_old_binding_is_read_only(self):
+        """10-30: 結びつきは 30 日残すが、効くのは LIVE_DAYS(3 日)の中だけ(get・all・update = 検出・採用・配信後の全自動・区切りのパックが読む)。
+        古い物は kept・kept_all で読むだけ = 前の 3 日で消していた時と同じ振る舞い"""
+        self.assertEqual((LR.KEEP_DAYS, LR.MAX_ITEMS, LR.LIVE_DAYS), (30, 500, 3))
+        s = self.store()
+        s.put("local", self.REC, {"rid": "r0", "settings": {"afterStream": True}})
+        self.now += LR.LIVE_DAYS * 86400
+        self.assertEqual(s.get("local", self.REC)["rid"], "r0")   # 3 日ちょうどまでは効く
+        self.now += 1
+        self.assertIsNone(s.get("local", self.REC))
+        self.assertEqual(s.all(), {})
+        self.assertIsNone(s.update("local", self.REC, {"sens": "high"}))
+        self.assertEqual(s.kept("local", self.REC)["rid"], "r0")
+        self.assertEqual(list(s.kept_all()), ["local/" + self.REC])
+        self.assertEqual(s.prune(), 0)   # 30 日までは残す
+        self.now += (LR.KEEP_DAYS - LR.LIVE_DAYS) * 86400
+        self.assertEqual(s.prune(), 1)
+        self.assertIsNone(s.kept("local", self.REC))
 
     def test_max_items_drops_oldest(self):
         s = self.store()
         for i in range(LR.MAX_ITEMS + 2):
             self.now = 1_800_000_000.0 + i
             s.put("local", "rec-%03d" % i, {"rid": "r%03d" % i})
-        keys = s.all()
+        keys = s.kept_all()
         self.assertEqual(len(keys), LR.MAX_ITEMS)
         self.assertEqual(("local/rec-000" in keys, "local/rec-001" in keys, "local/rec-002" in keys, "local/rec-%03d" % (LR.MAX_ITEMS + 1) in keys),
                          (False, False, True, True))
-        self.assertEqual(len(self.store().all()), LR.MAX_ITEMS)
+        self.assertEqual(len(self.store().kept_all()), LR.MAX_ITEMS)
 
     def test_broken_file(self):
         """壊れた・形の違う記録は読み飛ばす。読み直した項目も settings は検査済みの形・createdAt は数(live.py が settings["pad"] を、prune が引き算を使う)"""
@@ -100,7 +119,7 @@ class LiveRequestsStoreTest(unittest.TestCase):
             self.assertEqual(self.store().all(), {}, raw)
         testkit.write_json(self.path, {"v": 1, "items": {"local/rec": {"rid": "r1", "settings": {"pad": 9, "sens": "low"}, "createdAt": "きのう"}}})
         s = self.store()
-        got = s.get("local", "rec")
+        got = s.kept("local", "rec")   # 時刻の分からない項目は効かない(get は None)
         self.assertEqual((got["settings"], got["createdAt"]), (dict(LR.SETTINGS_DEFAULT, sens="low"), 0))
         self.assertEqual(s.prune(), 1)   # 時刻の分からない項目は片付けで消える
         # 書けない(置き場所がファイル)→ 記録に残して続ける(メモリの結びつきは使える)

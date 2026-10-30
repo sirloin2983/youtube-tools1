@@ -21,8 +21,12 @@ SENS = ("high", "normal", "low")
 LENGTH = (10, 180)      # 切り抜きの長さの範囲(秒)
 SETTINGS_DEFAULT = {"sens": "normal", "perHour": 6, "length": 45, "waitMin": 5, "pad": 2.0, "afterStream": True}
 RANGES = {"perHour": (1, 30), "length": LENGTH, "waitMin": (1, 60), "pad": (0.0, 5.0)}
-KEEP_DAYS = 3           # 結びつきを残す日数(録画 12 時間 + 配信後の全自動 live_archive.AFTER_MAX_AGE 2 日に足りる)
-MAX_ITEMS = 50          # 結びつきの数の上限(多すぎれば古い物から捨てる)
+KEEP_DAYS = 30          # 結びつきを残す日数(研究・録画の知らせの判断で、どの録画が友人の依頼だったかを後から見る。10-30 に 3 → 30)
+MAX_ITEMS = 500         # 結びつきの数の上限(多すぎれば古い物から捨てる。10-30 に 50 → 500。1 件 約 0.5KB = 500 件で 約 250KB)
+LIVE_DAYS = 3           # 結びつきが効く日数(get・all・update が返す = 検出・採用・配信後の全自動・区切りのパック・見ていない切り抜きの片付けが読む。
+                        # 録画 12 時間 + 配信後の全自動 live_archive.AFTER_MAX_AGE 2 日に足りる。前の KEEP_DAYS と同じ = 古い結びつきで振る舞いを変えない)。
+                        # それより古い物は読むだけ(kept・kept_all。研究と記録)
+READ_MAX = 4 * 1024 * 1024
 TEXT_MAX = 300          # url・題名を残す長さ
 
 
@@ -71,7 +75,7 @@ class RequestBook:
 
     def _load(self):
         if self._items is None:
-            d = fsio.read_json_or(self.path, None, 1024 * 1024, kind=dict)
+            d = fsio.read_json_or(self.path, None, READ_MAX, kind=dict)
             items = d.get("items") if d else None
             # 読み直した項目も settings は検査済みの形・createdAt は数にそろえる(検出が settings["pad"] を、prune が引き算をそのまま使う)
             self._items = {k: dict(v, settings=clean_settings(v.get("settings")), createdAt=v["createdAt"] if schemas.is_num(v.get("createdAt")) else 0)
@@ -95,13 +99,28 @@ class RequestBook:
                 "videoTracks": vt if isinstance(vt, int) and not isinstance(vt, bool) else None,
                 "cut": cut if isinstance(cut, str) and cut else None, "settings": clean_settings(ctx.get("settings")), "createdAt": self.clock()}
 
+    def _live(self, v, now):
+        return bool(v) and now - (v.get("createdAt") or 0) <= LIVE_DAYS * 86400
+
     def get(self, rc, rec):
-        """録画に結びついた依頼(dict の写し)か None"""
+        """録画に結びついた依頼(dict の写し)か None。LIVE_DAYS より古い結びつきは None(残っていても効かせない = kept で読む)"""
+        with self.lock:
+            v = self._load().get(_key(rc, rec))
+            return copy.deepcopy(v) if self._live(v, self.clock()) else None
+
+    def all(self):
+        """効いている結びつき(LIVE_DAYS の中)の全部"""
+        now = self.clock()
+        with self.lock:
+            return copy.deepcopy({k: v for k, v in self._load().items() if self._live(v, now)})
+
+    def kept(self, rc, rec):
+        """残っている結びつき(KEEP_DAYS の中・効いていない古い物も)か None。読むだけ(研究・記録)"""
         with self.lock:
             v = self._load().get(_key(rc, rec))
             return copy.deepcopy(v) if v else None
 
-    def all(self):
+    def kept_all(self):
         with self.lock:
             return copy.deepcopy(self._load())
 
@@ -127,7 +146,7 @@ class RequestBook:
         """録画中に依頼の設定を差し替える(C-2-11。今の設定に重ねて読み直す = 範囲の外は既定)-> 残した項目か None(結びつきが無い)"""
         with self.lock:
             item = self._load().get(_key(rc, rec))
-            if item is None:
+            if not self._live(item, self.clock()):
                 return None
             item["settings"] = clean_settings(dict(item.get("settings") or {}, **settings))
             self._save()

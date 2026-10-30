@@ -99,10 +99,13 @@ class SettingsTest(unittest.TestCase):
         book = live_rules.RequestBook(os.path.join(tmp, "requests.json"), clock=lambda: now[0], deliver=False)
         item = book.put("local", REC, {"rid": "20261016-120000-abcdef", "deliverDir": "C:/x", "settings": SETTINGS, "videoTracks": 2})
         self.assertEqual((item["deliverDir"], item["settings"]["length"], item["videoTracks"]), ("", 150, 2))   # 友人の PC は届けない
-        book2 = live_rules.RequestBook(os.path.join(tmp, "requests.json"))
+        book2 = live_rules.RequestBook(os.path.join(tmp, "requests.json"), clock=lambda: now[0])
         self.assertEqual(book2.get("local", REC)["settings"]["length"], 150)
         self.assertEqual(list(book2.all()), ["local/" + REC])
         now[0] += 4 * 86400
+        self.assertIsNone(book.get("local", REC))   # 効くのは 3 日まで(10-30)
+        self.assertEqual(book.prune(), 0)   # 残すのは 30 日
+        now[0] += 27 * 86400
         self.assertEqual(book.prune(), 1)
         self.assertIsNone(book.get("local", REC))
 

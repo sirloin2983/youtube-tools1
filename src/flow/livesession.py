@@ -844,6 +844,8 @@ class LiveSession:
         def view(r, existing):
             if bundle is not None:
                 self.bundles.put(rc["id"], r.get("id"), envelope, bundle, replace=replace or not existing)
+            if not existing:   # 誰が始めた録画か(友人の依頼なら begin_request が friend で書き直す。10-30)
+                self._guard("録画の記録に始めた人を書けませんでした", lambda: self.archiver.note_request(rc["id"], r.get("id"), "own"))
             return {"live": True, "recorder": rc["id"], "recording": rec_view(r, ch), "existing": existing}
         found = self._find_active(rc, url)
         if found:
@@ -891,6 +893,8 @@ class LiveSession:
             raise LX.LiveError("配信中・配信前の配信ではありません(%s)" % (out.get("status") or "unknown"), 409)
         rc, rec = out["recorder"], out["recording"]["id"]
         item = self.requests.put(rc, rec, ctx)
+        self._guard("録画の記録に依頼を書けませんでした",   # 結びつきが消えても、どの録画が友人の依頼だったか分かるように(10-30)
+                    lambda: self.archiver.note_request(rc, rec, "friend", rid=item.get("rid"), streamer=item.get("streamer"), at=item.get("createdAt")))
         label = self._request_label(item)
         self.log("リアルタイム切り抜き: 友人の依頼 %s を録画 %s に結びつけました%s" % (item["rid"], rec, "(%s)" % label if label else ""))
         self.detector.wake()   # 検出がオフでも、この録画はすぐ測り始める
