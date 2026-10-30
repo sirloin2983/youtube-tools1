@@ -255,8 +255,8 @@ class HeadlessTest(Base):
         self.assertEqual((req["rid"], req["deliverDir"], req["cut"], req["videoTracks"], req["streamer"]), ("req-1", "", "silence", 3, ""))
         self.assertEqual(req["settings"], {"sens": "normal", "perHour": 6, "length": 40, "waitMin": 2, "pad": 1.0, "afterStream": False})
         self.assertEqual(req["speakers"], {"count": 2, "names": ["兎田ぺこら"], "styles": {"兎田ぺこら": {"color": "#FF0000"}}})
-        # 上限は束の adopt.top
-        self.assertEqual(self.s.detector.auto_max("local", REC), 2)
+        # 上限は束の adopt.top(区切りごとに届ける録画は BATCH_LIVE + BATCH_END より小さくしない。10-30)
+        self.assertEqual(self.s.detector.auto_max("local", REC), max(2, D.LB.BATCH_LIVE + D.LB.BATCH_END))
         self.assertEqual(self.s.detector.auto_max("local", "20261011-210000-x"), D.AUTO_MAX_PER_REC)   # 束の無い録画は今の上限
         # 採用(LocalMarks = スタジオなし)→ 書き出しのジョブ(依頼の録画 = after auto・余白は依頼の 1 秒)
         self.assertIsInstance(self.s.marks, LA.LocalMarks)
