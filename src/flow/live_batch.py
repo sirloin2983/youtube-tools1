@@ -36,7 +36,8 @@
   batch.json の fill = {n, reserved, f, lostSec, headSec, length}。配信の後(live_detect.compare = アーカイブの解析を読んだとき)に、検出の穴(遅れ・飛ばし)も入れて
   数え直し、多い方の本数だけ、穴の中のアーカイブの候補を点の順に、届けた分と重ねずに選んで採用する(live_archive._after_adopt。origin archive・hold archive)。
   印 = label FILL_LABEL・source.live.batch {kind: "fill", hole: [から, まで](録画の頭からの秒)}。
-  遅れて始まった頭(配信の開始〜録画の頭)は録画の秒で負になり録画のマークにできないので、今は記録(headSec・fAll)にだけ入れ、本数にも空ける数にも入れない。
+  遅れて始まった頭(配信の開始〜録画の頭。録画の秒で負)も録れなかった秒・穴に入れる(10-30 の 2 回目)。頭の候補はスタジオのマーク(開始 ≥ 0)にできないので、
+  入口の採用(flow/live_adopt.Adopter.adopt の hold archive・開始が負)がマークの正本(絶対時刻)と書き出しのジョブだけを作り、アーカイブの秒で書き出す。
 印: 採用した候補の決定(decisions.json)・ジョブ・.clip.json の source.live.batch = {kind: live|end, round(何回目の区切りか。終わりは null), min(区切りの分), cut(縮めた秒)}。
 状態: 録画のフォルダ(live/excite/<録画元>/<録画>/)の batch.json(live_detect が書く)= {v, round(済んだ区切り), seen(区切りで見た候補), queue(採用を待つ候補), end}。
 研究の作り方(読むだけ): C:/dev/overlap-research/tools/queue247_249.py・queue248_255.py・queue253.py。製品にそのまま移せない所は decisions の【重】。

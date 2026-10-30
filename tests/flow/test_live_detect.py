@@ -738,9 +738,43 @@ class DetectApiTest(unittest.TestCase):
         a = {"t0": T0, "offset": 0.0, "first": T0, "last": T0 + 7200, "mode": "measure"}
         row = self.det.compare("fake", REC, a, [{"src": "auto", "start": 1200, "end": 1240}], holes=[(1000.0, 3160.0)])
         self.assertEqual((row["fill"]["n"], row["fill"]["nEnd"], row["fill"]["holes"], row["fill"]["headSec"]), (2, 2, [[1000.0, 3160.0]], 0.0))
-        a2 = dict(a, t0=T0 - 600.0)   # 遅れて始まった頭 600 秒: 今は記録(headSec・fAll)だけ
+        a2 = dict(a, t0=T0 - 600.0)   # 遅れて始まった頭 600 秒も穴([−600, 0])と割合に入る
         f2 = self.det.compare("fake", REC, a2, [], holes=[(1000.0, 3160.0)])["fill"]
-        self.assertEqual((f2["headSec"], f2["fAll"], f2["n"]), (600.0, round(2760 / 7800, 4), 2))
+        self.assertEqual((f2["headSec"], f2["f"], f2["n"], f2["holes"]), (600.0, round(2760 / 7800, 4), 2, [[-600.0, 0.0], [1000.0, 3160.0]]))
+
+    def test_batch_fill_head(self):
+        """10-30(完了の条件 b・c): 3 割が頭の遅れの 2 時間の配信 = 配信の終わりのパックが 2 本減り(4 本)、配信の後に頭の中のアーカイブの候補から 2 本(合計 6)。
+        頭の候補は録画の秒で負 = マークの正本とアーカイブから書き出すジョブだけ(スタジオに載せない)・依頼へ・届けた分と重ねない"""
+        self.request()
+        self.rec.rel = 5040
+        row = dict(self.rec._rec(), streamStart=iso(T0 - 2160))   # 配信は録画の 2160 秒前に始まった(2 時間の 3 割)
+        self.rec.routes[("GET", "/live/list")] = lambda body: (200, {"recordings": [dict(row, lastPdt=iso(T0 + self.rec.rel))]})
+        self.rec.routes[("GET", "/live/%s/segments" % REC)] = lambda body: (200, {"segments": [], "gaps": []})
+        self.worker_alive()
+        peaks = [peak("p%d" % i, 500 * i + 100, 500 * i + 120, 10.0 - i, "frame", 500 * i + 200) for i in range(10)]
+        self.put_peaks(peaks, seq=5, changes=[], measuredSec=5040, ended=True, first=iso(T0))
+        self.assertEqual(self.det.auto_tick(), 4)
+        st = LB.load(self.folder)
+        self.assertEqual((st["length"], st["fill"]["n"], st["fill"]["reserved"], st["fill"]["headSec"]), (7200.0, 2, 2, 2160.0))
+        a = {"vid": "abcdefghijk", "t0": T0 - 2160.0, "offset": 0.0, "first": T0, "last": T0 + 5040, "end": T0 + 5040, "mode": "measure"}
+        marks = [{"src": "auto", "status": "", "score": 9, "start": 300, "end": 340},    # 頭の中(録画の −1860 秒)
+                 {"src": "auto", "status": "", "score": 8, "start": 900, "end": 940},    # 頭の中
+                 {"src": "auto", "status": "", "score": 7, "start": 2400, "end": 2440}]  # 録画の 240 秒 = 穴の外
+        row_c = self.det.compare("fake", REC, a, marks, holes=[])
+        self.assertEqual((row_c["fill"]["n"], row_c["fill"]["holes"]), (2, [[-2160.0, 0.0]]))
+        ar = self.live.archiver
+        ar._after_set("fake", REC, state="analyze")
+        self.assertTrue(ar._after_fill("fake", REC, a, marks, row_c["fill"], row_c))
+        jobs = [j for j in self.live.exporter.snapshot("fake", REC) if (j.get("batch") or {}).get("kind") == "fill"]
+        self.assertEqual(len(jobs), 2)
+        self.assertEqual(sorted(round(LX.iso_epoch(j["start"]) - T0) for j in jobs), [-1860 - 2, -1260 - 2])   # 余白 2 秒(依頼の既定)
+        self.assertTrue(all(j["from"] == "archive" and j["origin"] == "archive" and j["request"]["rid"] == "20261008-120000-abcd" and
+                            j["label"] == LB.FILL_LABEL and "studio" not in j for j in jobs))
+        self.assertFalse([m for m in self.studio.videos.get(REC, {}).get("marks") or [] if m.get("label") == LB.FILL_LABEL])   # スタジオには載せない
+        self.assertEqual(len(self.decisions()["items"]) + len(jobs), 6)   # 合計 6
+        n = len(self.live.exporter.snapshot("fake", REC))
+        self.assertTrue(ar._after_fill("fake", REC, a, marks, row_c["fill"], row_c))   # やり直しても同じジョブを使い回す
+        self.assertEqual(len(self.live.exporter.snapshot("fake", REC)), n)
 
     def test_batch_total(self):
         """10-30(live_batch.SCALE_ON): 合計 = 2 時間まで 6 本・そこから 1 時間ごとに +1・上限 10。12 分の上限は 12 分 × 合計 ÷ 6"""

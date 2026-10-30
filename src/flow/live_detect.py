@@ -970,15 +970,15 @@ class Detector:
         return LB.total(length)
 
     def _fill_reserve(self, rc, rec, r, st, n_all, live_done):
-        """配信の終わりに分かる録れなかった所(録画の欠け)の本数(live_batch.fill_count)を数え、配信の終わりの分から空ける数 -> 空ける数。
+        """配信の終わりに分かる録れなかった所(遅れて始まった頭 + 録画の欠け)の本数(live_batch.fill_count)を数え、配信の終わりの分から空ける数 -> 空ける数。
         batch.json の fill に残す(空けられない分 = n − reserved は配信の後に枠の外で届く)"""
         if not LB.FILL_ON:
             return 0
         r = r or {}
         a, b = r.get("firstPdt"), r.get("lastPdt")
         gaps = LX.rec_gaps(self.host.exporter._query, rc, rec, a, b) if schemas.is_num(a) and schemas.is_num(b) else None
-        lost = sum(y - x for x, y in merge_spans(gaps or []))
         length, head = st.get("length"), st.get("headSec") or 0.0
+        lost = head + sum(y - x for x, y in merge_spans(gaps or []))
         n = LB.fill_count(n_all, lost, length)
         reserved = min(n, max(0, n_all - live_done))
         st["fill"] = {"n": n, "reserved": reserved, "f": round(lost / length, 4) if length else None, "lostSec": round(lost, 1),
@@ -1075,18 +1075,20 @@ class Detector:
     def _fill_after(self, rc, rec, a, hs, span):
         """配信の後の録れなかった所の分(live_batch.FILL_ON・区切りの形の録画だけ): 録画の欠け + 検出の穴(hs。録画の頭からの秒)で数え直し、
         配信の終わりに数えた本数(batch.json の fill.n)と多い方 -> {n, f, nEnd, reserved, lostSec, headSec, fAll, length, holes} か None。
-        遅れて始まった頭(配信の開始 t0 − offset 〜 録画の頭)は今は記録(headSec・fAll)だけ"""
+        遅れて始まった頭(配信の開始 t0 − offset 〜 録画の頭)も録れなかった秒と穴([−頭の秒, 0])に入れる"""
         if not LB.FILL_ON or not LB.on(self.host.requests.get(rc, rec)):
             return None
         st = LB.load(self.folder(rc, rec))
         head = max(0.0, a["first"] - (a["t0"] - a["offset"]))
         length = span + head
+        if head > 1.0:
+            hs = [(-head, 0.0)] + list(hs)
         lost = sum(y - x for x, y in hs)
         end = st.get("fill") or {}
         n_end = end.get("n") if isinstance(end.get("n"), int) else 0
         n = max(n_end, LB.fill_count(LB.total(length), lost, length))
         return {"n": n, "f": round(lost / length, 4) if length > 0 else None, "nEnd": n_end, "reserved": end.get("reserved") or 0,
-                "lostSec": round(lost, 1), "headSec": round(head, 1), "fAll": round((lost + head) / length, 4) if length > 0 else None,
+                "lostSec": round(lost, 1), "headSec": round(head, 1),
                 "length": round(length, 1), "holes": [[round(x, 1), round(y, 1)] for x, y in hs[:50]]}
 
     # ---- 「調子」

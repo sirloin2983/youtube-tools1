@@ -1353,7 +1353,8 @@ class Archiver(LX.Patrol):
                     return (x, y)
             return None
         inside = [m for m in marks if isinstance(m, dict) and schemas.is_num(m.get("start")) and schemas.is_num(m.get("end")) and hole_of(m)]
-        picked = pick_candidates(inside, int(fill["n"]), a["t0"], a["offset"], a["first"], end, taken)
+        lo = min(a["first"], a["t0"] - a["offset"])   # 遅れて始まった頭はアーカイブの頭から(録画の秒で負。入口の採用が正本とジョブだけを作る)
+        picked = pick_candidates(inside, int(fill["n"]), a["t0"], a["offset"], lo, end, taken)
         jobs_, done, errs = [], [], []
         for x, y, m in picked:
             h = hole_of(m)
