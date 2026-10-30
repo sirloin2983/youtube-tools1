@@ -21,6 +21,7 @@ import sys
 import threading
 import time
 import unittest
+from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # テストは作業データを本物の置き場所(AppData など)に書かない(ytt.datadir)
 
@@ -29,6 +30,7 @@ sys.path.insert(0, TESTS)
 import _livefix as LF  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
 import testkit  # noqa: E402
+from flow import live_batch as LB  # noqa: E402
 from flow import live_detect as D  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from ytt import fsio  # noqa: E402
@@ -537,6 +539,7 @@ class DetectApiTest(unittest.TestCase):
         return self.live.requests.put("fake", rec, {"rid": "20261008-120000-abcd", "deliverDir": os.path.join(self.tmp, "deliver"), "streamer": "友人の推し",
                                                     "settings": settings})
 
+    @mock.patch.object(LB, "BATCH_ON", False)   # 前の形(waitMin の待ち・依頼の本数)。区切りごとに届ける形は LiveBatchTest
     def test_friend_request_length_auto_to_worker(self):
         """C-2-11: 依頼の長さ「自動(場面ごと)」(settings の lengthMode auto)だけ config.json の requests に lengthMode を渡す(無い = 固定の長さ)"""
         self.request(sens="high", perHour=3, length=30, waitMin=2, pad=1, afterStream=False, lengthMode="auto")
@@ -545,6 +548,7 @@ class DetectApiTest(unittest.TestCase):
         self.assertEqual(got["fake/" + REC], {"sens": "high", "perHour": 3, "length": 30, "lengthMode": "auto"})
         self.assertEqual(got["fake/20261007-210000-x"], {"sens": "high", "perHour": 3, "length": 30})
 
+    @mock.patch.object(LB, "BATCH_ON", False)   # 前の形(waitMin の待ち・依頼の本数)。区切りごとに届ける形は LiveBatchTest
     def test_friend_request_with_detect_off(self):
         """2-15: ホームの検出がオフでも、友人のライブ配信の依頼に結びついた録画があれば検出を動かす(config.json の detectAll false と
         録画ごとの requests)。画面の答え(enabled・autoAdopt の待つ分)も録画ごと。リアルタイム切り抜きがオフなら動かさない"""
@@ -576,6 +580,7 @@ class DetectApiTest(unittest.TestCase):
         self.assertFalse(self.det.enabled())
         self.assertEqual(self.det.tick(), "off")
 
+    @mock.patch.object(LB, "BATCH_ON", False)   # 前の形(waitMin の待ち・依頼の本数)。区切りごとに届ける形は LiveBatchTest
     def test_auto_adopt_friend_request(self):
         """2-15: ホームの検出がオフでも、友人の依頼に結びついた録画の枠の候補は依頼の waitMin で採用する(余白は依頼の pad・ジョブに依頼 id)。
         結びついていない録画は、ホームの検出がオフなら(ほかの録画の依頼で検出が動いていても)採用しない"""
@@ -601,6 +606,50 @@ class DetectApiTest(unittest.TestCase):
                          {("auto", "auto", "20261008-120000-abcd", os.path.join(self.tmp, "deliver"))})
         self.assertEqual([x["origin"] for x in self.decisions()["items"]], ["auto", "auto"])
         self.assertEqual(self.det.auto_tick(), 0)   # 1 回だけ
+
+    def test_batch_friend_request(self):
+        """10-30: 友人のライブの依頼の録画は、30 分ごとの区切りで新しく区間の決まった候補から選び(累計 round(4 × 区切り ÷ 見込みの長さ))、
+        配信の終わりに残り(4 + 2 − 届けた本数)を候補の元の全部から。waitMin は使わない・帳簿の 1 時間の本数は 10・ジョブと決定に区切りの印"""
+        self.request(waitMin=1, perHour=5)
+        self.rec.rel = 5000
+        t = self.worker_alive()
+        self.assertEqual(self.det.requests_cfg()["fake/" + REC]["perHour"], LB.POOL_PER_HOUR)   # 候補の元は 1 時間 10 本
+        peaks = [peak("p0-302", 272, 302, 12.0, "frame", 336), peak("p1-903", 870, 903, 9.0, "frame", 930), peak("p2-1002", 973, 1002, 6.0, "bench", 1021)]
+        self.put_peaks(peaks, seq=5, changes=[], measuredSec=1700, first=iso(t[0] - 1700))
+        t[0] += 3600
+        self.assertEqual(self.det.auto_tick(), 0)   # まだ最初の区切り(30 分)の前 = waitMin がたっても採用しない
+        self.assertEqual(self.det.adopt_waiting("fake", REC)["count"], 3)
+        self.put_peaks(peaks, seq=5, changes=[], measuredSec=1850)
+        self.assertEqual(self.det.auto_tick(), 1)   # 区切り 1: 累計 round(4 × 1800 ÷ 7200) = 1 本 = 点のいちばん高い p0
+        items = self.decisions()["items"]
+        self.assertEqual([(x["id"], x["origin"], x["batch"]) for x in items], [("p0-302", "auto", {"kind": "live", "round": 1, "min": 30})])
+        jobs = self.live.exporter.snapshot("fake", REC)
+        self.assertEqual([j.get("batch") for j in jobs], [{"kind": "live", "round": 1, "min": 30}])
+        self.assertEqual(self.det.auto_tick(), 0)   # 同じ区切りは 1 回だけ
+        peaks[0] = dict(peaks[0], state="adopted", origin="auto")
+        peaks.append(peak("p3-2500", 2470, 2500, 3.0, "frame", 2530))
+        self.put_peaks(peaks, seq=6, changes=[], measuredSec=3650)
+        self.assertEqual(self.det.auto_tick(), 1)   # 区切り 2: 累計 2 本 = 前の区切りより後に出た p3 だけが選べる(p1・p2 は前の区切りで見た)
+        self.assertEqual(self.decisions()["items"][-1]["id"], "p3-2500")
+        peaks[3] = dict(peaks[3], state="adopted", origin="auto")
+        self.put_peaks(peaks, seq=7, changes=[], measuredSec=4000, ended=True)
+        self.assertIsNone(self.det.adopt_waiting("fake", REC))
+        self.assertEqual(self.det.auto_tick(), 2)   # 配信の終わり: 4 + 2 − 2 = 4 本まで = 残りの p1・p2
+        tail = self.decisions()["items"][-2:]
+        self.assertEqual([(x["id"], x["batch"]["kind"], x["batch"]["round"]) for x in tail], [("p1-903", "end", None), ("p2-1002", "end", None)])
+        self.assertEqual(self.det.auto_tick(), 0)   # 終わりも 1 回だけ
+
+    def test_batch_scores(self):
+        """最終の候補の点 = z(点数) + 1.0 z(跳ねる箱の割合) + 0.5 z(笑いの割合) + 0.5 z(前後 60 秒の笑いの件数)。チャットの印が揃わなければ点数"""
+        a = {"id": "a", "start": 0.0, "end": 40.0, "score": 10.0, "state": "frame", "chatRank": {"rate": 0.1, "laugh": 0.1, "lc": 1}}
+        b = {"id": "b", "start": 100.0, "end": 140.0, "score": 9.0, "state": "bench", "chatRank": {"rate": 0.5, "laugh": 0.4, "lc": 30}}
+        self.assertEqual([p["id"] for p in LB.ranked([a, b])], ["b", "a"])   # 笑いと跳ねで入れ替わる
+        self.assertEqual([p["id"] for p in LB.ranked([a, dict(b, chatRank=None)])], ["a", "b"])   # 印の無い候補が混ざれば点数の順
+        joined = dict(b, pieces=2)
+        self.assertEqual([p["id"] for p in LB.take(LB.ranked([a, joined]), 1, [])], ["a"])   # つないだ候補は元の本数で数える
+        self.assertEqual([p["id"] for p in LB.pick_end([a, dict(b, start=20.0, end=60.0)], 2)], ["b"])   # 重なる候補は選ばない
+        self.assertEqual(LB.clean_mark({"kind": "live", "round": 2, "min": 30}), {"kind": "live", "round": 2, "min": 30})
+        self.assertIsNone(LB.clean_mark({"kind": "x"}))
 
     def test_spawn_heartbeat_restart_and_stop(self):
         """本物のワーカーを起動 → 心拍(worker.json)→ 止める。心拍を出さないワーカーは stale_sec で止めて起動し直す(数える)。

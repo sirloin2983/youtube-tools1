@@ -1143,6 +1143,7 @@ class RecState:
 
     # ---- 書く
     def peaks_doc(self, now):
+        self.book.note_laughs()   # 印 chatRank.lc(山の前後の笑いの件数)を区間が決まってから数え直す(flow/live_batch)
         ch = [{"seq": s, "id": i, "state": st} for s, i, st in self.book.changes]
         return {"v": 1, "recorder": self.rc, "recording": self.rec, "seq": self.book.seq, "decN": self.dec_n, "perHour": self.book.per_hour,
                 "counts": {str(h): n for h, n in self.book.counts().items()}, "lag": self.online.lag, "chat": self.chat_state,

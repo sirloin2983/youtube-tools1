@@ -145,6 +145,7 @@ CHAT_RERANK_ON = True
 RERANK_POOL = 30
 RERANK_W = (1.0, 0.5)            # (跳ねる箱の割合, 笑いの書き込みの割合)の重み
 RERANK_BOX = 10                  # 箱の秒
+LAUGH_NEAR = 60                  # 印 chatRank.lc: 山の前後この秒(候補の区間の中)の笑いの書き込みの件数(flow/live_batch の最終の候補の点・10-30)
 LAUGH_RE = re.compile(r"草|笑|ワロ|わろ|lol|(?<![A-Za-z])[wｗW]+(?![A-Za-z])", re.I)   # 研究の chat_content.LAUGH と同じ
 LAUGH_EMO = set("😂🤣😆😹😄😁")
 
@@ -1277,6 +1278,28 @@ class PeakBook:
             if c:
                 n, l = n + c[0], l + c[1]
         pk["chatRank"] = {"rate": round(hit / max(1.0, (b - a) / RERANK_BOX), 3), "laugh": round(l / max(1, n), 3)}
+        self._laugh_near(pk)
+
+    def _laugh_near(self, pk):
+        """印 chatRank.lc = 山の前後 LAUGH_NEAR 秒(区間の中)の笑いの書き込みの件数(研究の queue200_201.lc_scores。flow/live_batch の最終の候補の点)"""
+        at = pk.get("peak") if isinstance(pk.get("peak"), (int, float)) else (pk["start"] + pk["end"]) / 2.0
+        a, b = max(float(pk["start"]), at - LAUGH_NEAR), min(float(pk["end"]), at + LAUGH_NEAR)
+        pk["chatRank"]["lc"] = sum(self.chat_secs[s][1] for s in range(int(math.ceil(a)), int(math.ceil(b))) if s in self.chat_secs) if b > a else 0
+
+    def note_laughs(self):
+        """印の付いた候補の笑いの件数(chatRank.lc)を数え直す(区間が後から決まる・書き込みが後から届く分。ワーカーが peaks.json を書く前に)。
+        数える秒の頭がもう捨てた秒(_trim)なら前の値のまま"""
+        if not self.rerank or not self.chat_secs:
+            return
+        lo = min(self.chat_secs)
+        for pk in self.peaks.values():
+            cr = pk.get("chatRank")
+            if not isinstance(cr, dict):
+                continue
+            at = pk.get("peak") if isinstance(pk.get("peak"), (int, float)) else (pk["start"] + pk["end"]) / 2.0
+            if max(float(pk["start"]), at - LAUGH_NEAR) < lo and "lc" in cr:
+                continue
+            self._laugh_near(pk)
 
     def _rank(self):
         """枠の入れ替え・控えから戻す順の鍵 {id: (鍵, 点数)}: 点の z + 重み × 跳ねる箱の割合の z + 重み × 笑いの割合の z(z = この録画の本番の候補の中)。

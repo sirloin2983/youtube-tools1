@@ -90,6 +90,7 @@ from . import batch as _batch   # 解析の順番の断りの種類(queued_alrea
 from . import export as _export   # 書き出しの器(プロセスに 1 つ。OPT2 の J5)
 from . import chatreuse as _chatreuse   # ライブのチャットの使い回し(決定 3-117)
 from . import live_failures   # 失敗の文は 1 か所。M3・M7
+from . import live_batch as _live_batch   # 友人のライブの依頼を区切りごとに届ける形はアーカイブで足さない(10-30)
 from . import live_export as LX
 
 CODE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pipeline", "ingest")   # 子プロセスの道具は ① の置き場(pipeline/ingest)
@@ -967,7 +968,10 @@ class Archiver(LX.Patrol):
     def _after_on(self, rc, rec, every=None):
         """この録画で配信後の全自動(M7)を動かすか: 友人の依頼の録画は依頼の afterStream だけで決める(偽ならホームの M7 がオンでも動かさない。2-15)、
         ほかの録画はホームのスイッチ every(None = 今の設定)"""
-        if self.friend_request(rc, rec):
+        req = self.friend_request(rc, rec)
+        if req:
+            if _live_batch.on(req):   # 区切りごとにまとめて届けた録画: 配信の後のパックを重ねない(解析・比べは測るだけ = _measure_on・記録はそのまま。10-30)
+                return False
             return self._request_after(rc, rec)
         return self.after_stream() if every is None else bool(every)
 

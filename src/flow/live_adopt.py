@@ -30,6 +30,7 @@ import urllib.parse
 from ytt import fsio as _fsio, marks as _marks, schemas
 from ytt.errors import ApiError
 from . import casebook as _casebook   # 案件の 採用.json(RS8 B3-5。スタジオなしの採用を初めて書き出したとき写す)
+from . import live_batch as _batch   # 区切りの印の形(10-30)
 from . import live_export as LX
 from . import live_tx
 from . import livehost   # 親の口の型(RS7-2 G0・G1b)
@@ -248,6 +249,7 @@ class Adopter:
         label = LX._text(body.get("label"), LX.LABEL_MAX)
         text = LX._text(body.get("text"), live_tx.TEXT_MAX)   # 配信中の文字起こし(D-11 案 b)の文字(採用の記録に残す = C2 の材料。任意)
         score = body.get("score") if schemas.is_num(body.get("score")) else None   # 候補の点数(配信中の検出・アーカイブの解析。任意)
+        batch = _batch.clean_mark(body.get("batch")) if origin == "auto" else None   # 区切りの印(友人のライブの依頼を区切りごとに届ける形。live_batch)
         rc = host._ids(rc_id, rec)
         req, after, streamer = self.request_for(rc_id, rec, origin, after, streamer)   # 友人の依頼の録画(2-15): after は auto・余白は依頼の設定
         pad = req["settings"]["pad"] if req and isinstance(req.get("settings"), dict) else auto["pad"]
@@ -267,9 +269,10 @@ class Adopter:
                       "start": float(mark.get("start", a)), "end": float(mark.get("end", b))}   # 置き場が丸めた区間(画面の書き出しと同じ値で突き合わせる)
             job = ex.add_studio(rc_id, rec, studio, first, after != "none", url=st.get("url") if isinstance(st.get("url"), str) else None,
                                 title=st.get("title") if isinstance(st.get("title"), str) else None, after=after, streamer=streamer, origin=origin, auto=auto,
-                                hold=hold if hold in LX.HOLDS else None, score=score, request=req)
+                                hold=hold if hold in LX.HOLDS else None, score=score, request=req, batch=batch)
         ex.feedback({"event": "adopt", "origin": origin, "human": origin == "manual", "verdict": "good" if origin == "manual" else None,
                      "recorder": rc_id, "recording": rec, "markId": mid, "jobId": job.get("id"), "studio": {"video": vid, "mark": mark["id"]},
-                     "start": round(studio["start"], 3), "end": round(studio["end"], 3), "label": studio["label"], **({"text": text} if text else {})})
+                     "start": round(studio["start"], 3), "end": round(studio["end"], 3), "label": studio["label"], **({"text": text} if text else {}),
+                     **({"batch": batch} if batch else {})})
         host.log("リアルタイム切り抜き: %s のマークを採用して書き出しを頼みました(%s %.1f〜%.1f 秒)" % (WHO[origin], rec, studio["start"], studio["end"]))
         return {"job": job, "video": vid, "mark": mark["id"], "origin": origin, "existing": False}

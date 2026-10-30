@@ -682,7 +682,7 @@ class Exporter(Patrol):
             arch = any(j for j in self.jobs if j["markId"] == mid and j["recording"] == rec and (j.get("archive") or {}).get("state") in ARCHIVE_ACTIVE)
         return LiveError("このマークはアーカイブから書き出しています(終わってから書き出し直せます)" if arch else "このマークは書き出しの途中です", 409)
 
-    def add_studio(self, rc, rec, studio, first, transcribe=True, url=None, title=None, after=None, streamer="", origin="manual", auto=None, hold=None, score=None,
+    def add_studio(self, rc, rec, studio, first, transcribe=True, url=None, title=None, after=None, streamer="", origin="manual", auto=None, hold=None, score=None, batch=None,
                    request=None):
         """スタジオのマーク(P3)から書き出す。studio: 検査済みの {video, mark, n, label, start, end}(秒 = 録画の最初のセグメントの受信時刻から)。
         first: その受信時刻(epoch 秒。録画元の status の firstPdt = _base と同じ基準)。マークの正本の id は lm- + sha1(スタジオのマークの id) の頭 12 桁。
@@ -697,14 +697,15 @@ class Exporter(Patrol):
                               studio["label"], url=url, title=title)
             return self.add(rc, rec, mid, transcribe,
                             studio={k: studio[k] for k in ("video", "mark", "start", "end")}, after=after, streamer=streamer, origin=origin, auto=auto,
-                            hold=hold, score=score, request=request)
+                            hold=hold, score=score, request=request, batch=batch)
 
-    def add(self, rc, rec, mid, transcribe=True, studio=None, after=None, streamer="", origin="manual", auto=None, hold=None, score=None, request=None):
+    def add(self, rc, rec, mid, transcribe=True, studio=None, after=None, streamer="", origin="manual", auto=None, hold=None, score=None, request=None, batch=None):
         """studio: スタジオのマークから頼まれたとき {video, mark, start, end}(ジョブに残す = スタジオの画面がどのマークの書き出しか分かる)。
         after: 書き出したあと(AFTERS・消した check は auto。None = transcribe から)。streamer: 検査済みの配信者の名前(""= 決まっていない)。どちらもジョブに残して _finish が使う。
         origin: 採用の出どころ(ORIGINS。M1)。auto: 書き出したあとの設定 {cut, engine, model}(clean_auto 済み。M2)。
         hold: "archive" = 録画からは書き出さず、アーカイブから書き出す(HOLDS。ジョブに from "archive"。M7 の配信後の全自動。入口の中からだけ。API からは渡せない)。
         score: 候補の点数(配信中の検出・アーカイブの解析。任意)。ジョブに残し、.clip.json の source.live.score へ(M9 の確認の一覧が出す)。
+        batch: 区切りの印(flow/live_batch.mark。友人のライブの依頼を区切りごとに届ける形)。ジョブに残し、.clip.json の source.live.batch へ(研究が友人の判定と照らす)。
         request: 友人のライブ配信の依頼(live_rules.RequestBook の項目。2-15)。ジョブに {rid, deliverDir, speakers, videoTracks, cut} を残し、_handoff が まとめて実行へ渡す"""
         after = read_after(after) or ("auto" if transcribe else "none")
         origin = origin if origin in ORIGINS else "manual"
@@ -730,6 +731,8 @@ class Exporter(Patrol):
                 job.update({"from": "archive", "message": "配信が終わってアーカイブが用意できたら、アーカイブから書き出します"})
             if isinstance(score, (int, float)) and not isinstance(score, bool):
                 job["score"] = round(float(score), 2)   # 候補の点数(自動の採用。.clip.json の source.live.score へ)
+            if isinstance(batch, dict):
+                job["batch"] = dict(batch)   # 区切りの印(.clip.json の source.live.batch へ)
             if isinstance(request, dict) and request.get("rid"):
                 job["request"] = {k: request.get(k) for k in ("rid", "deliverDir", "speakers", "videoTracks", "cut")}   # 友人の依頼(2-15)
                 if request.get("autoDeliver") is True:   # 自分の配信の自動の切り抜きを確認なしで届ける(app/live._auto_deliver_for)= 友人の依頼と分ける印
@@ -1286,6 +1289,8 @@ class Exporter(Patrol):
                                    "start": epoch_iso(a), "end": epoch_iso(b), "markId": job["markId"], "origin": origin}}
         if isinstance(job.get("score"), (int, float)):
             clip["source"]["live"]["score"] = job["score"]   # 候補の点数(M9 の確認の一覧が出す)
+        if isinstance(job.get("batch"), dict):
+            clip["source"]["live"]["batch"] = dict(job["batch"])   # どの区切りで選んだか(何回目の区切り・配信の終わり。flow/live_batch)
         req = job.get("request") if isinstance(job.get("request"), dict) else {}
         if req.get("rid"):   # 友人の依頼・自動で届ける切り抜き(届けるのは まとめて実行)。見ていない切り抜きの片付け(cases.expire_unseen)はこれがあれば片付けない
             clip["source"]["live"]["deliver"] = {"rid": str(req["rid"])[:40], "auto": req.get("autoDeliver") is True}

@@ -40,6 +40,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) 
 import testkit  # noqa: E402
 from flow import board as Board  # noqa: E402
 from flow import live_archive as A  # noqa: E402
+from flow import live_batch as LB  # noqa: E402
 from flow import live_export as LX  # noqa: E402
 from ytt import fsio, jobs, marks as _marks, names, schemas, tools  # noqa: E402
 
@@ -824,6 +825,7 @@ class AfterStreamTest(unittest.TestCase):
         a.after_tick()
         self.assertEqual(a.info_view("local", REC)["afterStream"]["state"], "analyze")
 
+    @mock.patch.object(LB, "BATCH_ON", False)   # 前の形(依頼の afterStream でアーカイブから足す)
     def test_friend_request_runs_with_switch_off(self):
         """2-15: 友人のライブ配信の依頼の録画は、ホームの M7 がオフでも依頼の afterStream が真なら進める(本数は依頼の perHour)・済むまで録画を消さない"""
         self.on, self.status = False, "was_live"
@@ -841,6 +843,16 @@ class AfterStreamTest(unittest.TestCase):
         self.assertEqual({(b["origin"], b["after"], h) for b, h in self.adopted}, {("archive", "auto", "archive")})
         self.reqs.clear()                                                       # 結びつきが消えた(14 日)= ホームのスイッチのまま
         self.assertEqual(a.after_stream_hold("local", rec), "")
+
+    def test_friend_request_batch_not_added(self):
+        """10-30: 区切りごとにまとめて届けた友人のライブの依頼の録画は、依頼の afterStream が真でもアーカイブから採用しない(測るだけは今のまま)"""
+        self.on, self.status = True, "was_live"
+        self.reqs[("local", REC)] = {"rid": "20261008-120000-abcd", "settings": {"afterStream": True, "perHour": 3}}
+        a = self.archiver()
+        self.assertFalse(a._after_on("local", REC))
+        for _ in range(3):
+            a.after_tick()
+        self.assertEqual(self.adopted, [])
 
     def test_friend_request_without_after_stream(self):
         """2-15: 依頼の afterStream が偽の録画では M7 を動かさない(ホームの M7 がオフでもオンでも。録画を消すのも待たない)。依頼の無い録画はホームの M7 の設定どおり"""

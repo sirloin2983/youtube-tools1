@@ -34,6 +34,8 @@ API(src/app/live.py の handle_get / _api_post から。書き込みは入口の
 配信の終わり(D-14): 録画が終わっても、ワーカーが帳簿を締めた(peaks.json の ended)あと END_GRACE_SEC の間は、待ち中だった候補(waitMin がまだ・
 終わり待ちだった候補が締めで確定したもの)を同じ待ちで採用する(終わった瞬間に待ち中だった候補を取りこぼさない)。
 締めで本数に届かず埋めた候補(印 fill。EW の QUOTA)も枠の候補なので同じ道(origin auto = 配信中の検出の続き。依頼の afterStream は見ない)で採用して届ける。
+友人のライブの依頼の録画(10-30〜。スイッチ live_batch.BATCH_ON): waitMin 分の待ちでなく、BATCH_MIN 分ごとの区切りと配信の終わりにまとめて採用する
+(_batch_tick。決まりは src/flow/live_batch.py の頭)。帳簿の 1 時間の本数は live_batch.POOL_PER_HOUR(requests_cfg)。
 安全弁(D-13。仮の数 = 使いながら直す): 1 つの録画の自動の採用は AUTO_MAX_PER_REC 本まで(decisions.json の adopted/auto を数える。
 友人の依頼の録画・確認なしに届く自分の配信の自動の分にも効く)。
 (「人が見ていない」ことを理由に自動の採用を休むことはしない = 採用は全部届ける。opt-manage Q1・2a-1・2a-2)
@@ -51,6 +53,7 @@ from ytt import fsio, marks as _marks, procs, schemas, tools
 from . import spec as _spec   # 採用の数・待ちの既定は束の 1 か所(RS6 b-R1)
 from . import chatreuse as _chatreuse   # 生のチャットを移す先(決定 3-117)
 from . import live_failures
+from . import live_batch as LB   # 友人のライブの依頼を区切りごとにまとめて届ける(10-30)
 from . import live_export as LX
 from . import livehost   # 親の口の型(RS7-2 G0)
 from . import lengthhint as _lengthhint   # 長さの目安を使うときに数える(OPT-E2 7f-1)
@@ -208,7 +211,9 @@ class Detector:
         """友人のライブ配信の依頼の録画ごとの設定(config.json の requests。ワーカーはこの録画を、ホームの検出がオフでも測り、感度・枠・長さをこの値で)"""
         # settings は live_rules.RequestBook が検査済み(無い鍵・範囲の外は既定 = live_requests.SETTINGS_DEFAULT。読み直した項目も)
         # lengthMode auto(長さ「自動(場面ごと)」。C-2-11)だけ渡す = 無ければ固定の長さ(前の形の依頼)
-        return {k: dict({x: v["settings"][x] for x in ("sens", "perHour", "length")}, **({"lengthMode": "auto"} if v["settings"].get("lengthMode") == "auto" else {}))
+        # 区切りごとにまとめて届ける形(live_batch.on)は、帳簿の 1 時間の本数を候補の元の本数(POOL_PER_HOUR)にする(配信の終わりに選ぶ分を残す)
+        return {k: dict({x: v["settings"][x] for x in ("sens", "perHour", "length")}, **({"lengthMode": "auto"} if v["settings"].get("lengthMode") == "auto" else {}),
+                        **({"perHour": LB.POOL_PER_HOUR} if LB.on(v) else {}))
                 for k, v in self.host.requests.all().items()}
 
     def adopt_for(self, req, rc=None, rec=None):
@@ -608,13 +613,14 @@ class Detector:
         return out
 
     # ---- 決める
-    def decide(self, rc, rec, pid, state, origin=None, mark_id=None, job_id=None):
-        """decisions.json に 1 件足す(ワーカーが読んで帳簿に当てる)-> 足した決定"""
+    def decide(self, rc, rec, pid, state, origin=None, mark_id=None, job_id=None, batch=None):
+        """decisions.json に 1 件足す(ワーカーが読んで帳簿に当てる)-> 足した決定。batch = 区切りの印(区切りごとにまとめて届ける形の採用だけ)"""
         folder = self.folder(rc, rec)
         with self.lock:
             d = self._decisions(folder)
             n = d["n"] + 1
-            item = {"n": n, "id": pid, "state": state, "origin": origin, "markId": mark_id, "jobId": job_id, "at": LX.now_iso()}
+            item = {"n": n, "id": pid, "state": state, "origin": origin, "markId": mark_id, "jobId": job_id, "at": LX.now_iso(),
+                    **({"batch": batch} if batch is not None else {})}
             d["n"] = n
             d["items"] = (d["items"] + [item])[-DECISIONS_MAX:]
             os.makedirs(folder, exist_ok=True)
@@ -643,9 +649,11 @@ class Detector:
         item = self.decide(rc, rec, pid, "dismissed" if op == "dismiss" else "restore")
         return {"ok": True, "peak": overlay(pk, item)}
 
-    def adopt(self, rc, rec, pk, origin, after=None, streamer=None):
-        """候補を M1 の採用(Live.adopt)に通して、決定を残す -> API の応答の形"""
+    def adopt(self, rc, rec, pk, origin, after=None, streamer=None, batch=None):
+        """候補を M1 の採用(Live.adopt)に通して、決定を残す -> API の応答の形。batch = 区切りの印(live_batch.mark。ジョブ・.clip.json・決定に残す)"""
         body = {"recorder": rc, "recording": rec, "start": pk["start"], "end": pk["end"], "label": "", "origin": origin}
+        if batch is not None:
+            body["batch"] = batch
         if schemas.is_num(pk.get("score")):
             body["score"] = pk["score"]   # 候補の点数を切り抜きの記録(.clip.json の source.live.score)に残す(M9 の一覧が出す)
         if after is not None:
@@ -659,7 +667,7 @@ class Detector:
         job = res.get("job") or {}
         item = {"state": "adopted", "origin": pk.get("origin") or origin, "markId": pk.get("markId"), "jobId": pk.get("jobId")}
         if pk.get("state") != "adopted" or pk.get("markId") != res.get("mark"):
-            item = self.decide(rc, rec, pk["id"], "adopted", origin=origin, mark_id=res.get("mark"), job_id=job.get("id"))
+            item = self.decide(rc, rec, pk["id"], "adopted", origin=origin, mark_id=res.get("mark"), job_id=job.get("id"), batch=batch)
         return {"ok": True, "peak": overlay(pk, item), "job": res.get("job"), "video": res.get("video"), "mark": res.get("mark"),
                 "existing": bool(res.get("existing")), "origin": res.get("origin")}
 
@@ -714,7 +722,9 @@ class Detector:
         cap = self.auto_max(rc, rec)
         if self.auto_count(rc, rec) >= cap:
             return {"capped": cap}
-        _doc, peaks, _pending = self.view(rc, rec)
+        doc, peaks, _pending = self.view(rc, rec)
+        if LB.on(self.host.requests.get(rc, rec)):
+            return self._batch_waiting(rc, rec, doc, peaks)
         given = {x.get("id") for x in self.given_up(rc, rec)}
         left = [pk for pk in peaks if pk.get("state") == "frame" and not pk.get("provisional") and pk.get("id") not in given
                 and isinstance(pk.get("confirmedAt"), (int, float))]
@@ -795,6 +805,9 @@ class Detector:
             doc, peaks, _pending = self.view(rc, rec)
             if ended and not (doc or {}).get("ended"):   # 終わった録画は、ワーカーが帳簿を締めてから(終わり待ちの候補が確定する)
                 continue
+            if LB.on(req):   # 友人のライブの依頼: 区切りごとにまとめて(10-30。waitMin の待ちは使わない)
+                done += self._batch_tick(rc, rec, doc, peaks, given)
+                continue
             used, cap = self.auto_count(rc, rec, peaks), self.auto_max(rc, rec)
             for pk in peaks:
                 key = (rc, rec, pk.get("id"))
@@ -826,6 +839,84 @@ class Detector:
                         self._give_up(rc, rec, pk, "%s(%d 回試しました)" % (e, n))
                         given.add(key)
         return done
+
+    # ---- 区切りごとにまとめて届ける(友人のライブの依頼。10-30。決まりは flow/live_batch.py)
+    def _batch_tick(self, rc, rec, doc, peaks, given):
+        """区切り(BATCH_MIN 分ごと)を過ぎた・帳簿を締めた録画の候補を選んで採用の待ちに積み、待ちを採用する -> 採用した数"""
+        if doc is None:
+            return 0
+        folder = self.folder(rc, rec)
+        st = LB.load(folder)
+        dirty = False
+        busy = {x["id"] for x in st["queue"]}
+        by_id = {p.get("id"): p for p in peaks}
+        used, cap = self.auto_count(rc, rec, peaks), self.auto_max(rc, rec)
+        queued = sum(_marks.pieces_of(by_id.get(x["id"]) or {}) for x in st["queue"])
+        live_done = sum(_marks.pieces_of(by_id.get(x.get("id")) or {}) for x in self._decisions(folder)["items"]
+                        if x.get("state") == "adopted" and x.get("origin") == "auto" and (x.get("batch") or {}).get("kind") == "live")
+        live_done += sum(_marks.pieces_of(by_id.get(x["id"]) or {}) for x in st["queue"] if x["batch"]["kind"] == "live")
+        if doc.get("ended"):
+            if not st["end"]:   # 配信の終わり: 候補の元の全部から、届けた・待ちの候補と重ならない残りを
+                room = min(LB.BATCH_LIVE + LB.BATCH_END - live_done, cap - used - queued)
+                taken = [by_id[x["id"]] for x in st["queue"] if x["id"] in by_id]
+                pool = [p for p in peaks if p.get("id") not in busy and (rc, rec, p.get("id")) not in given]
+                for pk in LB.take(LB.ranked([p for p in pool if LB.settled(p)]), room, [p for p in pool if LB.settled(p) and p.get("state") == "adopted"] + taken):
+                    st["queue"].append({"id": pk["id"], "batch": LB.mark("end", None)})
+                st["end"], dirty = True, True
+        else:
+            b = doc.get("measuredSec")
+            k = int(b // LB.batch_sec()) if schemas.is_num(b) and b > 0 else 0
+            if k > st["round"]:   # 区切りを過ぎた(続けて過ぎていれば 1 回にまとめる)
+                seen = set(st["seen"])
+                room = min(LB.live_quota(k * LB.batch_sec()) - live_done, cap - used - queued)
+                fresh = [p for p in peaks if p.get("id") not in busy and (rc, rec, p.get("id")) not in given]
+                for pk in LB.pick_live(fresh, seen, room):
+                    st["queue"].append({"id": pk["id"], "batch": LB.mark("live", k)})
+                st["seen"] = sorted(seen | {p["id"] for p in peaks if LB.settled(p)})
+                st["round"], dirty = k, True
+        done = 0
+        left = []
+        for x in st["queue"]:
+            pk = by_id.get(x["id"])
+            key = (rc, rec, x["id"])
+            if pk is None or pk.get("state") in ("adopted", "dismissed") or key in given:   # もう採用した・人が見送った・諦めた
+                dirty = True
+                continue
+            try:
+                self.adopt(rc, rec, pk, "auto", after="auto", batch=x["batch"])
+                self._tries.pop(key, None)
+                done += 1
+                dirty = True
+            except LX.LiveError as e:
+                n = self._tries.get(key, 0) + 1
+                self._tries[key] = n
+                if e.code not in (502, 409) or n >= AUTO_TRIES:
+                    self._tries.pop(key, None)
+                    self._give_up(rc, rec, pk, "%s(%d 回試しました)" % (e, n))
+                    given.add(key)
+                    dirty = True
+                else:
+                    left.append(x)   # 次の見回りでやり直す
+        st["queue"] = left
+        if dirty:
+            try:
+                LB.save(folder, st, _dump)
+            except OSError as e:
+                self.host.note("盛り上がりの検出: %s を書けませんでした: %s" % (LB.STATE_FILE, tools.why(e)))
+        return done
+
+    def _batch_waiting(self, rc, rec, doc, peaks):
+        """区切りごとにまとめて届ける録画の adopt_waiting: 次の区切りで選ぶ候補の数と、次の区切りの時刻(録画の頭 + 区切りの秒 + ワーカーの遅れ)"""
+        if doc is None or doc.get("ended"):
+            return None
+        st = LB.load(self.folder(rc, rec))
+        seen = set(st["seen"])
+        left = [p for p in peaks if LB.settled(p) and p["id"] not in seen and p.get("state") != "adopted"]
+        if not left:
+            return None
+        first = LX.iso_epoch(doc.get("first"))
+        due = first + (st["round"] + 1) * LB.batch_sec() + float(doc.get("behindSec") or 0.0) if first is not None else None
+        return {"count": len(left), "dueAt": due}
 
     # ---- 配信が終わったあと(0-10-6。L5 の材料。人の手は要らない)
     def compare(self, rc, rec, a, marks, holes=None):
