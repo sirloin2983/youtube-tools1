@@ -864,6 +864,7 @@ class Detector:
         long_end = LB.LONG_ON and schemas.is_num(doc.get("measuredSec")) and doc["measuredSec"] > LB.LONG_AFTER
         if doc.get("ended") and not st["end"]:
             n_all = self._batch_total(rc, rec, r, st)   # 合計(配信の長さで。live_batch.SCALE_ON)
+            n_all -= self._fill_reserve(rc, rec, r, st, n_all, live_done)   # 録れなかった所の分を空ける(live_batch.FILL_ON)
         if doc.get("ended") and long_end:
             if not st["end"]:   # 長い配信の終わり(研究の 270 番 = 最後の区切り): 前の区切りより後に区間の決まった候補から合計までの残りを
                 seen = set(st["seen"])
@@ -962,9 +963,30 @@ class Detector:
         録画の長さが分からなければ BATCH_LIVE + BATCH_END。長さは batch.json の length に残す(12 分の上限も同じ値)"""
         r = r or {}
         a, b = r.get("firstPdt"), r.get("lastPdt")
-        length = (b - a) + self._head_sec(rc, rec, a) if schemas.is_num(a) and schemas.is_num(b) and b > a else None
+        head = self._head_sec(rc, rec, a) if schemas.is_num(a) else 0.0
+        length = (b - a) + head if schemas.is_num(a) and schemas.is_num(b) and b > a else None
         st["length"] = round(length, 1) if length is not None else None
+        st["headSec"] = round(head, 1)
         return LB.total(length)
+
+    def _fill_reserve(self, rc, rec, r, st, n_all, live_done):
+        """配信の終わりに分かる録れなかった所(録画の欠け)の本数(live_batch.fill_count)を数え、配信の終わりの分から空ける数 -> 空ける数。
+        batch.json の fill に残す(空けられない分 = n − reserved は配信の後に枠の外で届く)"""
+        if not LB.FILL_ON:
+            return 0
+        r = r or {}
+        a, b = r.get("firstPdt"), r.get("lastPdt")
+        gaps = LX.rec_gaps(self.host.exporter._query, rc, rec, a, b) if schemas.is_num(a) and schemas.is_num(b) else None
+        lost = sum(y - x for x, y in merge_spans(gaps or []))
+        length, head = st.get("length"), st.get("headSec") or 0.0
+        n = LB.fill_count(n_all, lost, length)
+        reserved = min(n, max(0, n_all - live_done))
+        st["fill"] = {"n": n, "reserved": reserved, "f": round(lost / length, 4) if length else None, "lostSec": round(lost, 1),
+                      "headSec": round(head, 1), "length": length, "gapsKnown": gaps is not None}
+        if n:
+            self.host.log("盛り上がりの検出: 録画 %s は録れなかった所が %d 秒あるので、配信の終わりの分を %d 本空けて、アーカイブから %d 本埋めます"
+                          % (rec, int(lost), reserved, n))
+        return reserved
 
     def _head_sec(self, rc, rec, first):
         """遅れて始まった頭の秒(配信の開始時刻 streamStart → 録画の頭 first。録画元の /live/list から。分からなければ 0)"""
@@ -1044,8 +1066,28 @@ class Detector:
                "lag": doc.get("lag"), "chat": doc.get("chat"), "gaps": doc.get("gaps"), "offset": a.get("offset"),
                "excluded": excluded, "holesSec": round(sum(y - x for x, y in hs), 1), "holes": [[round(x, 1), round(y, 1)] for x, y in hs[:50]],
                "gapsKnown": holes is not None, "mode": a.get("mode") or "after"}
+        fill = self._fill_after(rc, rec, a, hs, span)
+        if fill is not None:
+            row["fill"] = fill
         self.host.exporter.feedback(row)
         return row
+
+    def _fill_after(self, rc, rec, a, hs, span):
+        """配信の後の録れなかった所の分(live_batch.FILL_ON・区切りの形の録画だけ): 録画の欠け + 検出の穴(hs。録画の頭からの秒)で数え直し、
+        配信の終わりに数えた本数(batch.json の fill.n)と多い方 -> {n, f, nEnd, reserved, lostSec, headSec, fAll, length, holes} か None。
+        遅れて始まった頭(配信の開始 t0 − offset 〜 録画の頭)は今は記録(headSec・fAll)だけ"""
+        if not LB.FILL_ON or not LB.on(self.host.requests.get(rc, rec)):
+            return None
+        st = LB.load(self.folder(rc, rec))
+        head = max(0.0, a["first"] - (a["t0"] - a["offset"]))
+        length = span + head
+        lost = sum(y - x for x, y in hs)
+        end = st.get("fill") or {}
+        n_end = end.get("n") if isinstance(end.get("n"), int) else 0
+        n = max(n_end, LB.fill_count(LB.total(length), lost, length))
+        return {"n": n, "f": round(lost / length, 4) if length > 0 else None, "nEnd": n_end, "reserved": end.get("reserved") or 0,
+                "lostSec": round(lost, 1), "headSec": round(head, 1), "fAll": round((lost + head) / length, 4) if length > 0 else None,
+                "length": round(length, 1), "holes": [[round(x, 1), round(y, 1)] for x, y in hs[:50]]}
 
     # ---- 「調子」
     def health(self):

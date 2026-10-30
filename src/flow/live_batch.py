@@ -30,6 +30,13 @@
 合計を配信の長さで(10-30 ユーザーの OK・decisions の【重】。スイッチ SCALE_ON): 合計 = 配信の長さ L が SCALE_FROM(2 時間)までは BATCH_LIVE + BATCH_END(6)本、
   そこから 1 時間ごとに +1(3 時間 7・4 時間 8・5 時間 9)、上限 SCALE_MAX(10)。配信中の届け方はそのまま(長い配信の 60 分ごと 1 本の上限だけ SCALE_MAX に)、
   配信の終わりに 合計 − 届けた本数。12 分の決まりの上限は TRIM_LIM × 合計 ÷ 6(trim_lim)。L = 録画の長さ(lastPdt − firstPdt)+ 遅れて始まった頭(配信の開始時刻から録画の頭まで)。
+録れなかった所を埋める(10-30 ユーザーの OK・decisions の【重】。スイッチ FILL_ON): 録れなかった割合 f = 録れなかった秒 ÷ 配信の長さ。
+  f ≥ FILL_MIN(5%)なら 埋める本数 = round(合計 × f)(最低 1。fill_count)。
+  配信の終わりに分かる分(録画の欠け = 録画元の /segments の gaps)は、配信の終わりの分をその本数だけ減らして空ける(届けた分が多くて空けられない分は枠の外)。
+  batch.json の fill = {n, reserved, f, lostSec, headSec, length}。配信の後(live_detect.compare = アーカイブの解析を読んだとき)に、検出の穴(遅れ・飛ばし)も入れて
+  数え直し、多い方の本数だけ、穴の中のアーカイブの候補を点の順に、届けた分と重ねずに選んで採用する(live_archive._after_adopt。origin archive・hold archive)。
+  印 = label FILL_LABEL・source.live.batch {kind: "fill", hole: [から, まで](録画の頭からの秒)}。
+  遅れて始まった頭(配信の開始〜録画の頭)は録画の秒で負になり録画のマークにできないので、今は記録(headSec・fAll)にだけ入れ、本数にも空ける数にも入れない。
 印: 採用した候補の決定(decisions.json)・ジョブ・.clip.json の source.live.batch = {kind: live|end, round(何回目の区切りか。終わりは null), min(区切りの分), cut(縮めた秒)}。
 状態: 録画のフォルダ(live/excite/<録画元>/<録画>/)の batch.json(live_detect が書く)= {v, round(済んだ区切り), seen(区切りで見た候補), queue(採用を待つ候補), end}。
 研究の作り方(読むだけ): C:/dev/overlap-research/tools/queue247_249.py・queue248_255.py・queue253.py。製品にそのまま移せない所は decisions の【重】。
@@ -54,6 +61,9 @@ SHRINK_KEEP = 10.0           # 縮めても山のあとに残す秒
 SHRINK_MIN = 20.0            # 縮めたあとの最短の長さ(秒)
 SHRINK_LIVE_CAP = 60.0       # 配信中に縮める量の上限(秒。研究の 274 番 = 60。136 番は 30)
 SHRINK_END_CAP = None        # 配信の終わりに縮める量の上限(秒。None = 上限なし = 研究の 62 番の形)
+FILL_ON = True               # スイッチ: 録れなかった所をアーカイブから埋める(False = 埋めない・配信の終わりの分も空けない)
+FILL_MIN = 0.05              # 埋める、録れなかった割合の下限
+FILL_LABEL = "録れなかった所の分"
 SCALE_ON = True              # スイッチ: 合計を配信の長さで増やす(False = いつも BATCH_LIVE + BATCH_END)
 SCALE_FROM = 2 * 3600.0      # この長さまでは BATCH_LIVE + BATCH_END 本(そこから 1 時間ごとに +1)
 SCALE_MAX = 10               # 合計の上限
@@ -87,6 +97,14 @@ def total(length):
 def trim_lim(n):
     """合計 n 本のときの 12 分の決まりの上限(分。増やした分を 12 分で消さない)"""
     return TRIM_LIM * n / base_total() if SCALE_ON else TRIM_LIM
+
+
+def fill_count(n, lost, length):
+    """合計 n 本・録れなかった秒 lost・配信の長さ length -> 埋める本数(f が FILL_MIN 未満・長さが分からなければ 0)"""
+    if not FILL_ON or not schemas.is_num(length) or length <= 0 or not schemas.is_num(lost):
+        return 0
+    f = lost / length
+    return max(1, int(math.floor(n * f + 0.5))) if f >= FILL_MIN else 0
 
 
 def on(req):
@@ -244,6 +262,10 @@ def shrink_end(pk, p, cap):
 
 def clean_mark(v):
     """採用の本文の batch -> 印か None(入口の中から渡す。形の違う物は残さない)"""
+    if isinstance(v, dict) and v.get("kind") == "fill":   # 録れなかった所の分(origin archive)
+        h = v.get("hole")
+        return {"kind": "fill", **({"hole": [round(float(h[0]), 1), round(float(h[1]), 1)]}
+                                   if isinstance(h, list) and len(h) == 2 and all(schemas.is_num(x) for x in h) else {})}
     if not isinstance(v, dict) or v.get("kind") not in ("live", "end"):
         return None
     rnd = v.get("round")
@@ -262,7 +284,8 @@ def load(folder):
             "seen": [x for x in d.get("seen") or [] if isinstance(x, str)],
             "queue": [x for x in d.get("queue") or [] if isinstance(x, dict) and isinstance(x.get("id"), str) and clean_mark(x.get("batch"))],
             "end": d.get("end") is True, **({"trim": d["trim"]} if isinstance(d.get("trim"), dict) else {}),
-            **({"length": float(d["length"])} if schemas.is_num(d.get("length")) else {})}
+            **({"length": float(d["length"])} if schemas.is_num(d.get("length")) else {}),
+            **({"fill": d["fill"]} if isinstance(d.get("fill"), dict) else {})}
 
 
 def save(folder, st, dump):

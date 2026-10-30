@@ -1259,6 +1259,9 @@ class Archiver(LX.Patrol):
                 row = self.compare(rc, rec, a, marks, holes=self._rec_holes(rc, rec, a))
             except Exception as e:
                 self.log("リアルタイム切り抜き: 配信中の候補とアーカイブの候補を比べられませんでした: %r" % (e,))
+        fill = (row or {}).get("fill") if isinstance(row, dict) else None
+        if measure and isinstance(fill, dict) and fill.get("n"):   # 区切りの形の録画: 録れなかった所の分だけアーカイブから(live_batch.FILL_ON)
+            return self._after_fill(rc, rec, a, marks, fill, row)
         if measure:   # 測るだけ(EV-1): 採用しない
             got = ("アーカイブの候補 %d 件のうち配信中にも出た %d 件(穴で外した %d 件)" % (row.get("archive") or 0, row.get("hit") or 0, row.get("excluded") or 0)
                    if isinstance(row, dict) else "配信中の候補が無かったので比べませんでした")
@@ -1318,6 +1321,57 @@ class Archiver(LX.Patrol):
         self.log("リアルタイム切り抜き: 配信後の自動の切り抜き: %s で %d 本を採用しました(origin archive)" % (rec, len(jobs_)))
         return True
 
+    def _after_fill(self, rc, rec, a, marks, fill, row):
+        """録れなかった所の分(flow/live_batch の頭): fill = compare が数えた {n, holes(録画の頭からの秒 [[から, まで]])}。
+        穴の中(候補の区間の半分以上か山が穴)のアーカイブの候補を点数の順に、届けた分(置き場の採用・書き出し済み)と重ねずに n 本、
+        M1 の採用(origin archive・hold archive・label live_batch.FILL_LABEL・batch {kind: fill, hole})。候補が足りなければ足りるだけ"""
+        holes = [(float(x), float(y)) for x, y in fill.get("holes") or [] if schemas.is_num(x) and schemas.is_num(y) and y > x]
+        try:
+            got = self.taken(rc, rec)
+        except Exception:   # noqa: BLE001
+            got = None
+        taken = [(a["first"] + m["start"], a["first"] + m["end"]) for m in got or []
+                 if isinstance(m, dict) and m.get("status") in ("adopted", "exported") and schemas.is_num(m.get("start")) and schemas.is_num(m.get("end"))]
+        end = a["end"] if schemas.is_num(a.get("end")) else a["last"] - LX.READY_PAD
+
+        def hole_of(m):   # 穴の中の候補なら、その穴(録画の頭からの秒)
+            s0, s1 = a["t0"] + m["start"] - a["offset"] - a["first"], a["t0"] + m["end"] - a["offset"] - a["first"]
+            at = a["t0"] + m["peak"] - a["offset"] - a["first"] if schemas.is_num(m.get("peak")) else (s0 + s1) / 2.0
+            for x, y in holes:
+                if x <= at < y or max(0.0, min(s1, y) - max(s0, x)) >= (s1 - s0) * 0.5:
+                    return (x, y)
+            return None
+        inside = [m for m in marks if isinstance(m, dict) and schemas.is_num(m.get("start")) and schemas.is_num(m.get("end")) and hole_of(m)]
+        picked = pick_candidates(inside, int(fill["n"]), a["t0"], a["offset"], a["first"], end, taken)
+        jobs_, done, errs = [], [], []
+        for x, y, m in picked:
+            h = hole_of(m)
+            body = {"recorder": rc, "recording": rec, "start": LX.epoch_iso(x), "end": LX.epoch_iso(y), "label": _live_batch.FILL_LABEL,
+                    "origin": "archive", "after": AFTER_FLOW, "batch": {"kind": "fill", "hole": [h[0], h[1]]}}
+            try:
+                res = self.adopt(body, hold="archive")
+            except LX.LiveError as e:
+                errs.append(str(e)[:160])
+                continue
+            j = (res or {}).get("job") or {}
+            if j.get("id"):
+                jobs_.append(j["id"])
+            done.append({"start": round(x - a["first"], 3), "end": round(y - a["first"], 3), "score": m.get("score"), "archiveStart": m.get("start"),
+                         "existing": bool((res or {}).get("existing")), "fill": True})
+        msg = "録れなかった所の分: %d 本のうち %d 本を採用しました(穴の中のアーカイブの候補 %d 件)" % (int(fill["n"]), len(jobs_), len(inside)) + \
+              ("(%d 本は採用できませんでした: %s)" % (len(errs), errs[0]) if errs else "")
+        self.log("リアルタイム切り抜き: %s %s" % (rec, msg))
+        if not jobs_:
+            self._after_set(rc, rec, state="measured", jobs=[], picked=[], fill=dict(fill, adopted=0), message=msg)
+            if self.after:
+                try:
+                    self.after(rc, rec)
+                except Exception:
+                    pass
+            return True
+        self._after_set(rc, rec, state="export", jobs=jobs_, picked=done, skipped=errs, fill=dict(fill, adopted=len(jobs_)), message=msg)
+        return True
+
     def _after_follow(self, rc, rec, a):
         """採用したジョブを見届ける: アーカイブからの書き出しに入れる・全部が済んだら done"""
         with self.ex.lock:
@@ -1374,25 +1428,8 @@ class Archiver(LX.Patrol):
 
     def _rec_holes(self, rc, rec, a):
         """録画の欠け(つなぎ直しの間・止めていた間)-> [(から, まで)](録画の頭からの秒。EV-1 の compare が外して数える)。
-        録画元の /segments を HOLE_CHUNK ずつ聞いて gaps を集める。つながらない・読めない・録画が無ければ None(compare は欠けを知らないまま数える)"""
-        first, last = a.get("first"), a.get("last")
-        if not schemas.is_num(first) or not schemas.is_num(last) or last <= first:
-            return None
-        out, t = [], first
-        while t < last:
-            u = min(last, t + HOLE_CHUNK)
-            try:
-                code, d = self.ex._query(rc, rec, t, u)
-            except Exception:   # noqa: BLE001
-                return None
-            if code != 200 or not isinstance(d, dict):
-                return None
-            for g in d.get("gaps") or []:
-                x, y = LX.iso_epoch((g or {}).get("from")), LX.iso_epoch((g or {}).get("to"))
-                if x is not None and y is not None and y > x:
-                    out.append((round(max(0.0, x - first), 3), round(min(last, y) - first, 3)))
-            t = u
-        return out
+        録画元の /segments を HOLE_CHUNK ずつ聞いて gaps を集める(LX.rec_gaps)。つながらない・読めない・録画が無ければ None(compare は欠けを知らないまま数える)"""
+        return LX.rec_gaps(self.ex._query, rc, rec, a.get("first"), a.get("last"), HOLE_CHUNK)
 
     def after_failures(self, now=None):
         """配信後の全自動の失敗(「調子」の失敗の一覧に足す。文は src/flow/live_failures.py の after_stream_failure)"""

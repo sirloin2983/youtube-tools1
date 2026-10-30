@@ -249,7 +249,9 @@ class Adopter:
         label = LX._text(body.get("label"), LX.LABEL_MAX)
         text = LX._text(body.get("text"), live_tx.TEXT_MAX)   # 配信中の文字起こし(D-11 案 b)の文字(採用の記録に残す = C2 の材料。任意)
         score = body.get("score") if schemas.is_num(body.get("score")) else None   # 候補の点数(配信中の検出・アーカイブの解析。任意)
-        batch = _batch.clean_mark(body.get("batch")) if origin == "auto" else None   # 区切りの印(友人のライブの依頼を区切りごとに届ける形。live_batch)
+        batch = _batch.clean_mark(body.get("batch")) if origin in ("auto", "archive") else None   # 区切りの印(友人のライブの依頼を区切りごとに届ける形・録れなかった所の分。live_batch)
+        if origin == "archive" and (batch or {}).get("kind") != "fill":
+            batch = None
         rc = host._ids(rc_id, rec)
         req, after, streamer = self.request_for(rc_id, rec, origin, after, streamer)   # 友人の依頼の録画(2-15): after は auto・余白は依頼の設定
         pad = req["settings"]["pad"] if req and isinstance(req.get("settings"), dict) else auto["pad"]

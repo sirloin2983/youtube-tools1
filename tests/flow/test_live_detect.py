@@ -719,6 +719,29 @@ class DetectApiTest(unittest.TestCase):
         self.assertTrue(all(x["batch"]["kind"] == "live" and x["batch"].get("long") for x in tail))
         self.assertEqual(len({x["id"] for x in self.decisions()["items"]}), 7)
 
+    def test_batch_fill(self):
+        """10-30(live_batch.FILL_ON): 2 時間の配信で録画の欠けが 3 割 = 合計 6 × 0.3 → 2 本を埋める。配信の終わりの分を 2 本空けて 4 本・
+        配信の後の比べで数え直して fill(本数・割合・穴)を記録と採用に渡す。5% 未満は埋めない"""
+        self.assertEqual([LB.fill_count(6, 2160, 7200), LB.fill_count(6, 400, 7200), LB.fill_count(6, 300, 7200), LB.fill_count(6, 100, None)], [2, 1, 0, 0])
+        with mock.patch.object(LB, "FILL_ON", False):
+            self.assertEqual(LB.fill_count(6, 2160, 7200), 0)
+        self.request()
+        self.rec.rel = 7200
+        gaps = [{"from": iso(T0 + 1000), "to": iso(T0 + 3160)}]   # 録画の 1000〜3160 秒 = 2160 秒 = 3 割
+        self.rec.routes[("GET", "/live/%s/segments" % REC)] = lambda body: (200, {"segments": [], "gaps": gaps})
+        self.worker_alive()
+        peaks = [peak("p%d" % i, 700 * i + 100, 700 * i + 120, 10.0 - i, "frame", 700 * i + 200) for i in range(10)]
+        self.put_peaks(peaks, seq=5, changes=[], measuredSec=7200, ended=True, first=iso(T0))
+        self.assertEqual(self.det.auto_tick(), 4)   # 6 − 空けた 2
+        st = LB.load(self.folder)
+        self.assertEqual((st["fill"]["n"], st["fill"]["reserved"], st["fill"]["f"], st["fill"]["lostSec"]), (2, 2, 0.3, 2160.0))
+        a = {"t0": T0, "offset": 0.0, "first": T0, "last": T0 + 7200, "mode": "measure"}
+        row = self.det.compare("fake", REC, a, [{"src": "auto", "start": 1200, "end": 1240}], holes=[(1000.0, 3160.0)])
+        self.assertEqual((row["fill"]["n"], row["fill"]["nEnd"], row["fill"]["holes"], row["fill"]["headSec"]), (2, 2, [[1000.0, 3160.0]], 0.0))
+        a2 = dict(a, t0=T0 - 600.0)   # 遅れて始まった頭 600 秒: 今は記録(headSec・fAll)だけ
+        f2 = self.det.compare("fake", REC, a2, [], holes=[(1000.0, 3160.0)])["fill"]
+        self.assertEqual((f2["headSec"], f2["fAll"], f2["n"]), (600.0, round(2760 / 7800, 4), 2))
+
     def test_batch_total(self):
         """10-30(live_batch.SCALE_ON): 合計 = 2 時間まで 6 本・そこから 1 時間ごとに +1・上限 10。12 分の上限は 12 分 × 合計 ÷ 6"""
         self.assertEqual([LB.total(h * 3600.0) for h in (1, 2, 3, 5, 9)], [6, 6, 7, 9, 10])

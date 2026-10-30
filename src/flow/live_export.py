@@ -150,6 +150,28 @@ def rec_list(call, rc, timeout=5.0):
     return [r for r in d.get("recordings") or [] if isinstance(r, dict) and REC_RE.match(str(r.get("id") or ""))]
 
 
+def rec_gaps(query, rc, rec, first, last, chunk=2 * 3600.0):
+    """録画の欠け(つなぎ直しの間・止めていた間)-> [(から, まで)](録画の頭からの秒)。query = Exporter._query(録画元, 録画, から, まで)。
+    録画元の /segments を chunk 秒ずつ聞いて gaps を集める。つながらない・読めない・時刻が無ければ None"""
+    if not schemas.is_num(first) or not schemas.is_num(last) or last <= first:
+        return None
+    out, t = [], first
+    while t < last:
+        u = min(last, t + chunk)
+        try:
+            code, d = query(rc, rec, t, u)
+        except Exception:   # noqa: BLE001
+            return None
+        if code != 200 or not isinstance(d, dict):
+            return None
+        for g in d.get("gaps") or []:
+            x, y = iso_epoch((g or {}).get("from")), iso_epoch((g or {}).get("to"))
+            if x is not None and y is not None and y > x:
+                out.append((round(max(0.0, x - first), 3), round(min(last, y) - first, 3)))
+        t = u
+    return out
+
+
 def latest_per_mark(js):
     """マークごとの最新のジョブ(作った時刻の新しいもの)。アーカイブから書き出す対象(live_archive)と、録画を消すか(live_retire)で同じ決め方"""
     last = {}
