@@ -938,6 +938,11 @@ class LiveSession:
         hold: "archive" = 録画からは書き出さず、アーカイブから書き出す(配信後の全自動 M7 が入口の中から渡す。API の本文からは渡せない)"""
         return self.adopter.adopt(body, hold)
 
+    def recent_cached(self, max_age=60.0):
+        """覚えている recent の答え(max_age 秒以内)か None。録画元へは問い合わせない(入口の読み込みの記録が遅い口に添える。10-30)"""
+        got = self._recent
+        return got[1] if got is not None and time.time() - got[0] < max_age else None
+
     def recent(self):
         """録画中 + 終わって RECENT_SEC 秒以内の録画(録画元ごと)。STATUS_CACHE 秒は前の結果を返す(ロックの中で問い合わせる = 同時に来ても1回)"""
         with self._recent_lock:

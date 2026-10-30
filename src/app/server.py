@@ -1521,8 +1521,9 @@ class PortalServer(httpsec.ExclusiveServer):
         except Exception:   # noqa: BLE001
             pass
         try:
-            if self.live.enabled():
-                out["rec"] = sum(1 for r in self.live.recent() if r.get("active"))
+            got = self.live.recent_cached()   # 録画元へは問い合わせない(覚えている答えだけ)
+            if got is not None:
+                out["rec"] = sum(1 for r in got if r.get("active"))
         except Exception:   # noqa: BLE001
             pass
         return out
