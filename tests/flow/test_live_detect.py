@@ -639,6 +639,28 @@ class DetectApiTest(unittest.TestCase):
         self.assertEqual([(x["id"], x["batch"]["kind"], x["batch"]["round"]) for x in tail], [("p1-903", "end", None), ("p2-1002", "end", None)])
         self.assertEqual(self.det.auto_tick(), 0)   # 終わりも 1 回だけ
 
+    def test_batch_long(self):
+        """10-30: 3 時間を超えたら 60 分ごと・合計 6 本とも配信中(配信の終わりは前の区切りより後の候補から残り)。印 long・min 60。スイッチ LONG_ON"""
+        self.assertEqual([LB.round_of(b) for b in (1799, 10800, 14399, 14400, 18000)], [0, 6, 6, 7, 8])
+        self.assertEqual([LB.quota(k) for k in (4, 6, 7, 8, 9)], [4, 4, 5, 6, 6])
+        self.assertEqual(LB.round_at(7), 14400.0)
+        with mock.patch.object(LB, "LONG_ON", False):
+            self.assertEqual((LB.round_of(14400), LB.quota(8)), (8, 4))   # 切り替えない = 30 分ごと・4 本のまま
+        self.request()
+        self.rec.rel = 20000
+        t = self.worker_alive()
+        peaks = [peak("p0-302", 272, 302, 12.0, "frame", 336), peak("p1-903", 870, 903, 9.0, "frame", 930)]
+        self.put_peaks(peaks, seq=5, changes=[], measuredSec=14500, first=iso(t[0] - 14500))
+        self.assertEqual(self.det.auto_tick(), 2)   # 7 番目の区切り(3 時間 + 60 分)まで続けて過ぎた = 1 回で累計 5 本まで(候補は 2 本)
+        self.assertEqual({x["batch"]["min"] for x in self.decisions()["items"]}, {60})
+        self.assertTrue(all(x["batch"].get("long") for x in self.decisions()["items"]))
+        peaks = [dict(p, state="adopted", origin="auto") for p in peaks] + [peak("p4-15100", 15000, 15100, 4.0, "bench", 15140)]
+        self.put_peaks(peaks, seq=6, changes=[], measuredSec=15300, ended=True)
+        self.assertEqual(self.det.auto_tick(), 1)   # 長い配信の終わり: 前の区切りより後の p4 だけ(配信の終わりの全部からは選ばない)
+        last = self.decisions()["items"][-1]
+        self.assertEqual((last["id"], last["batch"]["kind"], last["batch"]["round"], last["batch"].get("long")), ("p4-15100", "live", 8, True))
+        self.assertEqual(self.det.auto_tick(), 0)
+
     def test_batch_scores(self):
         """最終の候補の点 = z(点数) + 1.0 z(跳ねる箱の割合) + 0.5 z(笑いの割合) + 0.5 z(前後 60 秒の笑いの件数)。チャットの印が揃わなければ点数"""
         a = {"id": "a", "start": 0.0, "end": 40.0, "score": 10.0, "state": "frame", "chatRank": {"rate": 0.1, "laugh": 0.1, "lc": 1}}

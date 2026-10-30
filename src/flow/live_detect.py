@@ -855,7 +855,18 @@ class Detector:
         live_done = sum(_marks.pieces_of(by_id.get(x.get("id")) or {}) for x in self._decisions(folder)["items"]
                         if x.get("state") == "adopted" and x.get("origin") == "auto" and (x.get("batch") or {}).get("kind") == "live")
         live_done += sum(_marks.pieces_of(by_id.get(x["id"]) or {}) for x in st["queue"] if x["batch"]["kind"] == "live")
-        if doc.get("ended"):
+        long_end = LB.LONG_ON and schemas.is_num(doc.get("measuredSec")) and doc["measuredSec"] > LB.LONG_AFTER
+        if doc.get("ended") and long_end:
+            if not st["end"]:   # 長い配信の終わり(研究の 270 番 = 最後の区切り): 前の区切りより後に区間の決まった候補から 6 本までの残りを
+                seen = set(st["seen"])
+                room = min(LB.BATCH_LIVE + LB.BATCH_END - live_done, cap - used - queued)
+                fresh = [p for p in peaks if p.get("id") not in busy and (rc, rec, p.get("id")) not in given]
+                taken = [by_id[x["id"]] for x in st["queue"] if x["id"] in by_id]
+                for pk in LB.take(LB.ranked([p for p in fresh if LB.settled(p) and p["id"] not in seen]), room,
+                                  [p for p in peaks if LB.settled(p) and p.get("state") == "adopted"] + taken):
+                    st["queue"].append({"id": pk["id"], "batch": LB.mark("live", st["round"] + 1, long=True)})
+                st["end"], dirty = True, True
+        elif doc.get("ended"):
             if not st["end"]:   # 配信の終わり: 候補の元の全部から、届けた・待ちの候補と重ならない残りを
                 room = min(LB.BATCH_LIVE + LB.BATCH_END - live_done, cap - used - queued)
                 taken = [by_id[x["id"]] for x in st["queue"] if x["id"] in by_id]
@@ -864,14 +875,13 @@ class Detector:
                     st["queue"].append({"id": pk["id"], "batch": LB.mark("end", None)})
                 st["end"], dirty = True, True
         else:
-            b = doc.get("measuredSec")
-            k = int(b // LB.batch_sec()) if schemas.is_num(b) and b > 0 else 0
+            k = LB.round_of(doc.get("measuredSec"))   # 3 時間を過ぎたら 60 分ごと(live_batch.LONG_ON)
             if k > st["round"]:   # 区切りを過ぎた(続けて過ぎていれば 1 回にまとめる)
                 seen = set(st["seen"])
-                room = min(LB.live_quota(k * LB.batch_sec()) - live_done, cap - used - queued)
+                room = min(LB.quota(k) - live_done, cap - used - queued)
                 fresh = [p for p in peaks if p.get("id") not in busy and (rc, rec, p.get("id")) not in given]
                 for pk in LB.pick_live(fresh, seen, room):
-                    st["queue"].append({"id": pk["id"], "batch": LB.mark("live", k)})
+                    st["queue"].append({"id": pk["id"], "batch": LB.mark("live", k, long=LB.is_long(k))})
                 st["seen"] = sorted(seen | {p["id"] for p in peaks if LB.settled(p)})
                 st["round"], dirty = k, True
         done = 0
@@ -916,7 +926,7 @@ class Detector:
         if not left:
             return None
         first = LX.iso_epoch(doc.get("first"))
-        due = first + (st["round"] + 1) * LB.batch_sec() + float(doc.get("behindSec") or 0.0) if first is not None else None
+        due = first + LB.round_at(st["round"] + 1) + float(doc.get("behindSec") or 0.0) if first is not None else None
         return {"count": len(left), "dueAt": due}
 
     # ---- 配信が終わったあと(0-10-6。L5 の材料。人の手は要らない)

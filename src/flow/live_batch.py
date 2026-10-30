@@ -14,6 +14,11 @@
   z(点数) + 1.0 × z(跳ねる箱の割合) + 0.5 × z(笑いの書き込みの割合) + LAUGH_W × z(山の前後 excite.LAUGH_NEAR 秒の笑いの件数)。
   跳ねる箱の割合・笑いの割合・笑いの件数は帳簿の印 chatRank(rate・laugh・lc。excite.PeakBook)。チャットの印が無い候補が混ざれば点数の順。
 本数は採用の上限と同じく、つないだ候補を元の本数で数える(ytt/marks.pieces_of。10-28 ユーザー)。
+長い配信(10-30 の 3 回目・ユーザーの仮採用・研究の 270 番 = queue270.py の S。スイッチ LONG_ON): ワーカーが測った秒が LONG_AFTER(3 時間)を超えたら、
+  そこから先の区切りを LONG_MIN 分ごとにし、配信の終わりに回す分も配信中に届ける(合計 BATCH_LIVE + BATCH_END = 6 本のまま・配信の終わりの分は無し)。
+  区切りの累計の本数 = 3 時間の時点の累計 + 長い配信の区切りの数(1 区切り 1 本・6 本まで)。帳簿を締めたとき 3 時間を超えていれば、
+  残り(6 − 届けた本数)を最後の区切りとして、前の区切りより後に区間の決まった候補から選ぶ(研究は配信の長さ n で割り振り、最後の区切り = n で残りをそろえる)。
+  印 source.live.batch.long = true・min = LONG_MIN。
 縮め(10-30 の 2 回目。研究の 274 番 = queue274.py の shrink。スイッチ SHRINK_ON): 採用する前に候補の終わりを笑いの収まり(帳簿の印 chatRank.settle)まで縮める。
   配信中 = ふだんを候補の始まりより前の箱で出した収まり(settle)・縮める量は SHRINK_LIVE_CAP 秒まで(研究の queue135_136.shrinker・上限 60)。
   配信の終わり = ふだんを全部の箱で出した収まり(settleAll)・上限なし(研究の queue62_shorter.apply の「(b) 笑いの収まり」= 62 番の形)。
@@ -34,6 +39,9 @@ BATCH_LIVE = 4               # 配信中に届ける本数(1 録画の合計)
 BATCH_END = 2                # 配信の終わりに届ける本数(配信中に届かなかった分はここへ足す)
 POOL_PER_HOUR = 10           # 配信中の候補の元の 1 時間あたりの本数(依頼の perHour の代わり)
 EXPECT_SEC = 2 * 3600.0      # 配信中の本数の割り振りに使う配信の長さの見込み(研究は本当の長さで割り振る = 配信中は分からないので仮の値)
+LONG_ON = True               # スイッチ: 長い配信の切り替えだけを切る(False = 3 時間を超えても 30 分ごと・4 + 2 のまま)
+LONG_AFTER = 3 * 3600.0      # 長い配信に切り替える、ワーカーが測った秒(3 時間)
+LONG_MIN = 60                # 長い配信の区切りの間隔(分)
 SHRINK_ON = True             # スイッチ: 縮めだけを切る(False = 帳簿の区間のまま届ける)
 SHRINK_KEEP = 10.0           # 縮めても山のあとに残す秒
 SHRINK_MIN = 20.0            # 縮めたあとの最短の長さ(秒)
@@ -60,8 +68,41 @@ def settled(pk):
 
 
 def live_quota(b):
-    """区切りの時刻 b(録画の秒)までに配信中で届ける本数(累計)"""
+    """区切りの時刻 b(録画の秒)までに配信中で届ける本数(累計。長い配信に切り替える前の形)"""
     return min(BATCH_LIVE, int(math.floor(BATCH_LIVE * b / EXPECT_SEC + 0.5)))
+
+
+def short_rounds():
+    """長い配信に切り替えるまでの区切りの数(3 時間 ÷ 30 分 = 6。LONG_AFTER の区切りまでは前の形)"""
+    return int(LONG_AFTER // batch_sec())
+
+
+def is_long(k):
+    """k 番目の区切りが長い配信の区切りか"""
+    return LONG_ON and k > short_rounds()
+
+
+def round_of(b):
+    """ワーカーが測った秒 b -> 過ぎた区切りの番号(1 から。長い配信は LONG_AFTER の後 LONG_MIN 分ごと)"""
+    if not schemas.is_num(b) or b <= 0:
+        return 0
+    if not LONG_ON or b <= LONG_AFTER:
+        return int(b // batch_sec())
+    return short_rounds() + int((b - LONG_AFTER) // (LONG_MIN * 60.0))
+
+
+def round_at(k):
+    """k 番目の区切りの録画の秒"""
+    if not is_long(k):
+        return k * batch_sec()
+    return LONG_AFTER + (k - short_rounds()) * LONG_MIN * 60.0
+
+
+def quota(k):
+    """k 番目の区切りまでに配信中で届ける本数(累計)。長い配信は 3 時間の時点の累計 + 長い区切りの数(合計 BATCH_LIVE + BATCH_END まで)"""
+    if not is_long(k):
+        return live_quota(round_at(k))
+    return min(BATCH_LIVE + BATCH_END, live_quota(LONG_AFTER) + k - short_rounds())
 
 
 def final_scores(cs):
@@ -113,9 +154,9 @@ def pick_end(peaks, room):
     return take(ranked(pool), room, [p for p in pool if p.get("state") == "adopted"])
 
 
-def mark(kind, rnd):
-    """候補・ジョブ・.clip.json に残す印"""
-    return {"kind": kind, "round": rnd, "min": BATCH_MIN}
+def mark(kind, rnd, long=False):
+    """候補・ジョブ・.clip.json に残す印(long = 長い配信の形で選んだ)"""
+    return {"kind": kind, "round": rnd, "min": LONG_MIN if long else BATCH_MIN, **({"long": True} if long else {})}
 
 
 def shrink(pk, kind):
@@ -143,7 +184,8 @@ def clean_mark(v):
     mn = v.get("min")
     return {"kind": v["kind"], "round": rnd if isinstance(rnd, int) and not isinstance(rnd, bool) and rnd >= 0 else None,
             "min": mn if isinstance(mn, int) and not isinstance(mn, bool) and mn > 0 else BATCH_MIN,
-            **({"cut": float(v["cut"])} if schemas.is_num(v.get("cut")) and v["cut"] > 0 else {})}
+            **({"cut": float(v["cut"])} if schemas.is_num(v.get("cut")) and v["cut"] > 0 else {}),
+            **({"long": True} if v.get("long") is True else {})}
 
 
 def load(folder):
