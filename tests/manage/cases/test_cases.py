@@ -778,7 +778,6 @@ class TestCaseRoot(Base):
         self.assertTrue(cases.load_saved(cases.locations(self.root, self.env)["cases"])[other]["auto"]["m1"]["discardedAt"])
 
 
-
 class TestHomeView(unittest.TestCase):
     def test_home_view_keeps_only_what_home_reads(self):
         """10-30: ホーム(GET /api/cases?view=home)は unlinked の数と virtual の 1 行(文書の数・失敗の文・文書の id)だけ使う。
