@@ -647,6 +647,25 @@ class AfterStreamTest(unittest.TestCase):
         self.assertEqual([p["start"] for p in st["picked"] if p.get("heat")], [9000.0])
         self.assertEqual([b["label"] for b, h in self.adopted if LX.iso_epoch(b["start"]) - self.first == 9000.0], [A._url_pick.HEAT_LABEL])
 
+    def test_after_fill(self):
+        """10-30(live_batch.FILL_ON): 録れなかった所の分 = 穴の中のアーカイブの候補を点数の順に、届けた分と重ねずに n 本採用する
+        (origin archive・hold archive・label「録れなかった所の分」・batch {kind: fill, hole})。採用したら export で見届ける"""
+        ar = self.archiver(taken=lambda rc, rec: [{"start": 1000.0, "end": 1040.0, "status": "adopted"}])
+        f = self.first
+        a = {"vid": VID, "t0": f, "offset": 0.0, "first": f, "last": f + 7200, "end": f + 7200, "mode": "measure"}
+        marks = [{"src": "auto", "status": "", "score": 9, "start": 1010, "end": 1050},   # 穴の中だが届けた分と重なる
+                 {"src": "auto", "status": "", "score": 8, "start": 1100, "end": 1140},   # 穴の中
+                 {"src": "auto", "status": "", "score": 7, "start": 3000, "end": 3040},   # 穴の外
+                 {"src": "auto", "status": "", "score": 6, "start": 1300, "end": 1340},   # 穴の中
+                 {"src": "auto", "status": "", "score": 5, "start": 1400, "end": 1440}]   # 穴の中(n を超える)
+        self.assertTrue(ar._after_fill("local", REC, a, marks, {"n": 2, "holes": [[900.0, 1500.0]]}, {}))
+        self.assertEqual([round(LX.iso_epoch(b["start"]) - f) for b, _h in self.adopted], [1100, 1300])
+        self.assertEqual({(b["label"], b["origin"], h, b["batch"]["kind"], tuple(b["batch"]["hole"])) for b, h in self.adopted},
+                         {(A._live_batch.FILL_LABEL, "archive", "archive", "fill", (900.0, 1500.0))})
+        st = ar._after_get("local", REC)
+        self.assertEqual((st["state"], len(st["jobs"]), st["fill"]["adopted"]), ("export", 2, 2))
+        self.assertEqual(A._live_batch.clean_mark({"kind": "fill", "hole": [900, 1500]}), {"kind": "fill", "hole": [900.0, 1500.0]})
+
     def test_measure_only(self):
         """EV-1: 配信後の全自動がオフでも、配信中の検出の記録がある録画(measure)はアーカイブを解析して比べる(採用しない)→ measured。
         比べるときに録画の欠け(録画元の /segments の gaps を 2 時間ずつ)を渡す。測り終えるまで録画を消さない。YTT_LIVE_MEASURE=off で止める"""
