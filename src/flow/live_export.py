@@ -112,7 +112,7 @@ GB = 1024 ** 3
 DISK_WARN = 20 * GB        # 空きがこれ未満で注意(M4。録画の部品の 20 GB と同じ)
 DISK_LOW = 5 * GB          # 空きがこれ未満で、新しい書き出し・文字起こしを「空き待ち」にする(M4。録画の部品は 1 GB で録画を止める)
 DISK_POLL = 60.0           # 空きを調べ直す間隔(秒)
-HOLDS = ("archive",)       # add の hold: "archive" = 録画から書き出さず、アーカイブから書き出す(M7。ジョブの from)
+HOLDS = ("archive", "head")   # add の hold: "archive" = 録画から書き出さず、アーカイブから書き出す(M7。ジョブの from)・"head" = 別に取った頭の動画から(flow/live_head。10-30)
 ARCHIVE_RUN = ("probe", "align", "fetch", "verify")   # アーカイブからの書き出し(src/flow/live_archive.py の RUN と同じ)の動いている段
 ARCHIVE_ACTIVE = ("wait",) + ARCHIVE_RUN
 # 掲示板(flow/board.py。RS8 の ② の口 S2): 書き出しの state -> 掲示板の 6 つの state
@@ -751,6 +751,8 @@ class Exporter(Patrol):
                 job["studio"] = dict(studio)
             if hold == "archive":
                 job.update({"from": "archive", "message": "配信が終わってアーカイブが用意できたら、アーカイブから書き出します"})
+            elif hold == "head":   # 録画の頭より前 = 別に取った頭の動画から(取れなければ error + needsArchive = アーカイブから)
+                job.update({"from": "head", "message": "頭の動画から書き出します"})
             if isinstance(score, (int, float)) and not isinstance(score, bool):
                 job["score"] = round(float(score), 2)   # 候補の点数(自動の採用。.clip.json の source.live.score へ)
             if isinstance(batch, dict):
@@ -925,6 +927,8 @@ class Exporter(Patrol):
         for job in waiting:
             if self._halt.is_set() or job.get("cancel"):
                 continue
+            if job.get("from") == "head":   # 頭の動画はもう手元にある(10-30)
+                return job
             key = (job["recorder"], job["recording"])
             a, b = iso_epoch(job["start"]), iso_epoch(job["end"])
             if key not in seen:
@@ -1032,7 +1036,7 @@ class Exporter(Patrol):
             for wa, wb in self._windows(job, a, b):
                 if got is None:
                     why = []
-                    got = self._pick_source(job, wa, wb, wdir, why)
+                    got = self._pick_head(job, wa, wb, why) if job.get("from") == "head" else self._pick_source(job, wa, wb, wdir, why)
                     if got is not None:
                         ca, cb = wa, wb
                         if (wa, wb) != (a, b):   # 余白は取れたセグメントの中まで(欠けの許し GAP_TOL の分だけ短いことがある = 長さの確かめで落ちないように)
@@ -1043,7 +1047,7 @@ class Exporter(Patrol):
                             if ca > a or cb < b:   # マークまで欠けている: 余白なしで取り直す
                                 got = None
             if got is None:
-                gap = any("欠けて" in w for w in why)
+                gap = any("欠けて" in w for w in why) or job.get("from") == "head"   # 頭の動画から切れない分もアーカイブから
                 self._set(job, state="error", needsArchive=gap, message="",
                           error=("区間に録画の欠けがあるので書き出せません(要差し替え。録画が終わってから、アーカイブで作り直すと書き出せます)。" if gap else
                                  "録画を取れませんでした。") + " / ".join(why or ["録画元につながりません"]))
@@ -1078,6 +1082,26 @@ class Exporter(Patrol):
                 fsio.unlink_quiet(tmp)
             shutil.rmtree(wdir, ignore_errors=True)
             job.pop("cancel", None)
+
+    def _pick_head(self, job, a, b, why):
+        """区間 (a, b) を別に取った頭の動画(flow/live_head。親の head.source)から切る -> (rc, rec, 録画の答え, [頭の 1 本], [(動画, "head")]) か None"""
+        rc_id, rec = job["recorder"], job["recording"]
+        hg = getattr(self.host, "head", None)
+        src = hg.source(rc_id, rec) if hg is not None else None
+        if src is None:
+            why.append("頭の動画がありません")
+            return None
+        ja, jb = iso_epoch(job["start"]), iso_epoch(job["end"])
+        if ja < src["start"] - 0.05 or jb > src["end"] + 0.05:   # 余白の分は頭の動画の中まで(_process が切り詰める)
+            why.append("頭の動画に区間がありません")
+            return None
+        code, d = self._query(rc_id, rec, a, b)
+        d = d if code == 200 and isinstance(d, dict) else {}
+        if not job.get("recBase") and iso_epoch(d.get("firstPdt")) is not None:   # アーカイブから作り直すときの名前・range(_pick_source と同じ)
+            job["recBase"] = epoch_iso(iso_epoch(d["firstPdt"]))
+        rc = self.host.find(rc_id) or {"id": rc_id, "name": rc_id}
+        segs = [{"pdt": epoch_iso(src["start"]), "dur": src["end"] - src["start"], "session": "head", "uri": ""}]
+        return rc, rec, d, segs, [(src["path"], "head")]
 
     def _pick_source(self, job, a, b, wdir, why):
         """区間 (a, b) を、欠けの無い最初の録画元から取る。-> (rc, rec, 区間の答え, セグメント, ファイル) か None(理由は why へ)"""

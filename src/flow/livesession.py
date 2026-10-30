@@ -45,6 +45,7 @@ from . import live_archive   # 録画に無い区間をアーカイブから書�
 from . import chatreuse as _chatreuse   # ライブで取ったチャットの使い回し(決定 3-117)
 from . import live_detect   # 配信中の盛り上がりの検出と自動の採用。線 D の L2・M11
 from . import live_export as LX   # マークと書き出し。P2
+from . import live_head   # 遅れて始まった配信の頭を別に取って候補に入れる(10-30)
 from . import live_failures   # 失敗の集約。M3・M7
 from . import live_rec_alert   # 録画の知らせ(始まらない・途中で止まった・欠けが大きい。10-30)
 from . import live_report   # 配信ごとの結果の記録。線 D の D-12
@@ -474,6 +475,7 @@ class LiveSession:
         self.livetx = live_tx.LiveTx(self, log=self.log, python=self.python)   # 配信中の候補の文字起こし(D-11 案 b。whisper.cpp の GPU)
         self.livetx.attach_board(self.board)
         self.reporter = live_report.Reporter(self)   # 配信ごとの結果の記録(D-12。live/reports/)
+        self.head = live_head.HeadGrabber(self)   # 遅れて始まった配信の頭(yt-dlp --live-from-start。10-30)
         self.auto_max = None               # (録画元, 録画) -> 1 録画の自動の採用の上限(D-13)。None = live_detect.AUTO_MAX_PER_REC
         # 採用(M1)のマークの置き場(既定 = マークの正本 LocalMarks。入口はスタジオ = StudioMarks)
         self.marks = marks if marks is not None else live_adopt.LocalMarks(lambda: self.exporter)
@@ -679,6 +681,7 @@ class LiveSession:
                             "active": r.get("active") is True or r.get("state") in rec_core.ACTIVE,
                             "endedAt": LX.iso_epoch(r.get("endedAt")), "firstPdt": LX.iso_epoch(r.get("firstPdt")),
                             "lastPdt": LX.iso_epoch(r.get("lastPdt")), "created": LX.iso_epoch(r.get("created")),
+                            "streamStart": LX.iso_epoch(r.get("streamStart")),
                             "state": r.get("state"), "message": str(r.get("message") or "")[:300], "endKind": r.get("endKind"),
                             "segments": r.get("segments"), "holeSec": r.get("holeSec"), "holes": r.get("holes") if isinstance(r.get("holes"), list) else None})
         return out
@@ -979,6 +982,7 @@ class LiveSession:
         else:
             self.detector.stop()   # 盛り上がりの検出のワーカー(状態は 1 分ごとに保存済み。次の起動で続きから)
         self.livetx.close()    # 配信中の文字起こしの子プロセス(途中の候補は次の見回りでやり直す)
+        self.head.stop()       # 頭の取得の yt-dlp(自分が起こした PID の木だけ)
         if self._archiver is not None:   # アーカイブからの書き出しの途中なら止める(順番待ちに戻り、次の起動で続ける)
             self._archiver.close()
         if self._exporter is not None:   # 書き出しの途中なら ffmpeg を止める(ジョブは「録画待ち」に戻り、次の起動でやり直す)
@@ -1229,6 +1233,7 @@ class LiveSession:
     def _watch_steps(self):
         """1 回の見回りで動かす物の列 [(記録の文, fn)](不具合でもほかは続ける = _guard)"""
         return ([("盛り上がりの検出の見回りでエラー", self.detector.tick),   # L2・M11: オンならワーカーを見張り・自動の採用、オフなら止める
+                 ("頭の取得の見回りでエラー", lambda: self.enabled() and self.head.tick()),   # 遅れて始まった配信の頭(10-30。live_head.HEAD_ON)
                  ("配信中の文字起こしの見回りでエラー", self.livetx.tick),   # D-11 案 b: 確定した候補を列に入れる(準備が無ければ何もしない)
                  ("友人の依頼の結びつきの片付けでエラー", self.requests.prune)]   # 2-15: 古い結びつきを消す(消すものがあるときだけ書く)
                 + self._request_watch()

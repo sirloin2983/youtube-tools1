@@ -239,29 +239,31 @@ class Adopter:
             return None, after, streamer
         return req, "auto", streamer or req.get("streamer") or ""
 
-    def _adopt_before(self, rc_id, rec, st, first, a, b, label, after, streamer, origin, auto, score, req, batch):
-        """録画の頭より前の区間(録れなかった所の分の頭の遅れ)の採用: マークの正本(絶対時刻)に入れて、アーカイブから書き出すジョブを作る。
-        スタジオ・案件の 採用.json には載せない(録画の動画の外)。同じ区間(±1 秒)の録れなかった所の分のジョブがあれば使い回す"""
+    def _adopt_before(self, rc_id, rec, st, first, a, b, label, after, streamer, origin, auto, score, req, batch, hold="archive"):
+        """録画の頭より前の区間(録れなかった所の分の頭の遅れ・別に取った頭の候補)の採用: マークの正本(絶対時刻)に入れて、
+        アーカイブ(hold archive)か頭の動画(hold head。flow/live_head)から書き出すジョブを作る。
+        スタジオ・案件の 採用.json には載せない(録画の動画の外)。同じ区間(±1 秒)の録れなかった所の分・頭のジョブがあれば使い回す"""
         host, ex = self.host, self.host.exporter
         b = min(b, a + LX.MAX_MARK_SEC)
         with self.lock:
             for j in ex.snapshot(rc_id, rec):
-                if (j.get("batch") or {}).get("kind") == "fill" and abs((LX.iso_epoch(j.get("start")) or 0) - (first + a)) < 1.0 \
+                if ((j.get("batch") or {}).get("kind") == "fill" or j.get("from") == "head") and abs((LX.iso_epoch(j.get("start")) or 0) - (first + a)) < 1.0 \
                         and abs((LX.iso_epoch(j.get("end")) or 0) - (first + b)) < 1.0:
                     return {"job": j, "video": None, "mark": j.get("markId"), "origin": j.get("origin") or origin, "existing": True}
             mid = "lm-" + secrets.token_hex(6)
             ex.marks.upsert(rc_id, rec, mid, 0, LX.epoch_iso(first + a), LX.epoch_iso(first + b), label,
                             url=st.get("url") if isinstance(st.get("url"), str) else None, title=st.get("title") if isinstance(st.get("title"), str) else None)
-            job = ex.add(rc_id, rec, mid, after != "none", after=after, streamer=streamer, origin=origin, auto=auto, hold="archive", score=score,
+            job = ex.add(rc_id, rec, mid, after != "none", after=after, streamer=streamer, origin=origin, auto=auto, hold=hold, score=score,
                          request=req, batch=batch)
         ex.feedback({"event": "adopt", "origin": origin, "human": False, "verdict": None, "recorder": rc_id, "recording": rec, "markId": mid,
                      "jobId": job.get("id"), "start": round(a, 3), "end": round(b, 3), "label": label, **({"batch": batch} if batch else {})})
-        host.log("リアルタイム切り抜き: 録画の頭より前の区間をアーカイブから書き出すように頼みました(%s %.1f〜%.1f 秒)" % (rec, a, b))
+        host.log("リアルタイム切り抜き: 録画の頭より前の区間を%sから書き出すように頼みました(%s %.1f〜%.1f 秒)" % ("頭の動画" if hold == "head" else "アーカイブ", rec, a, b))
         return {"job": job, "video": None, "mark": mid, "origin": origin, "existing": False}
 
     def adopt(self, body, hold=None):
         """POST /live/api/adopt(M1)。-> {job, video, mark, origin, existing}。
-        hold: "archive" = 録画からは書き出さず、アーカイブから書き出す(配信後の全自動 M7 が入口の中から渡す。API の本文からは渡せない)"""
+        hold: "archive" = 録画からは書き出さず、アーカイブから書き出す(配信後の全自動 M7 が入口の中から渡す。API の本文からは渡せない)・
+        "head" = 別に取った頭の候補(flow/live_head。開始が録画の頭より前なら頭の動画から書き出す。live_detect が入口の中から渡す)"""
         host = self.host
         origin = LX.check_origin(body.get("origin"))
         rc_id, rec = body.get("recorder"), body.get("recording")
@@ -278,9 +280,13 @@ class Adopter:
         req, after, streamer = self.request_for(rc_id, rec, "auto" if fill else origin, after, streamer)   # 友人の依頼の録画(2-15): after は auto・余白は依頼の設定
         pad = req["settings"]["pad"] if req and isinstance(req.get("settings"), dict) else auto["pad"]
         st, first = host._rec_status(rc, rc_id, rec)
-        a, b = adopt_secs(body, first, before=fill)
-        if a < 0:   # 遅れて始まった頭(録画の頭より前): スタジオのマークは開始 ≥ 0 なので、マークの正本とジョブだけ(アーカイブの秒で書き出す)
-            return self._adopt_before(rc_id, rec, st, first, a - max(0.0, float(pad)), b + max(0.0, float(pad)), label, after, streamer, origin, auto, score, req, batch)
+        head = hold == "head"
+        if head:
+            hold = None   # 録画の中の区間は今までどおり録画から
+        a, b = adopt_secs(body, first, before=fill or head)
+        if a < 0:   # 遅れて始まった頭(録画の頭より前): スタジオのマークは開始 ≥ 0 なので、マークの正本とジョブだけ(アーカイブの秒・頭の動画で書き出す)
+            return self._adopt_before(rc_id, rec, st, first, a - max(0.0, float(pad)), b + max(0.0, float(pad)), label, after, streamer, origin, auto, score, req, batch,
+                                      hold="head" if head else "archive")
         if origin != "manual" and pad > 0:   # M8: 自動・アーカイブの採用は前後に余白を足す(人が決めた区間はそのまま)
             a, b = pad_secs(a, b, pad, st, first)
         ex = host.exporter

@@ -102,9 +102,15 @@ def trim_lim(n):
 
 def fill_count(n, lost, length):
     """合計 n 本・録れなかった秒 lost・配信の長さ length -> 埋める本数(f が FILL_MIN 未満・長さが分からなければ 0)"""
-    if not FILL_ON or not schemas.is_num(length) or length <= 0 or not schemas.is_num(lost):
+    return share(n, lost, length) if FILL_ON else 0
+
+
+def share(n, sec, length):
+    """合計 n 本のうち、配信の長さ length の sec 秒の分の本数(割合が FILL_MIN 未満・長さが分からなければ 0・あれば最低 1)。
+    録れなかった所の分(fill_count)と別に取れた頭の分(flow/live_head。live_detect._batch_head)"""
+    if not schemas.is_num(length) or length <= 0 or not schemas.is_num(sec):
         return 0
-    f = lost / length
+    f = sec / length
     return max(1, int(math.floor(n * f + 0.5))) if f >= FILL_MIN else 0
 
 
@@ -263,6 +269,8 @@ def shrink_end(pk, p, cap):
 
 def clean_mark(v):
     """採用の本文の batch -> 印か None(入口の中から渡す。形の違う物は残さない)"""
+    if isinstance(v, dict) and v.get("kind") == "head":   # 遅れて始まった頭の分(別に取った頭の候補。flow/live_head。10-30)
+        return {"kind": "head"}
     if isinstance(v, dict) and v.get("kind") == "fill":   # 録れなかった所の分(origin archive)
         h = v.get("hole")
         return {"kind": "fill", **({"hole": [round(float(h[0]), 1), round(float(h[1]), 1)]}
@@ -286,7 +294,8 @@ def load(folder):
             "queue": [x for x in d.get("queue") or [] if isinstance(x, dict) and isinstance(x.get("id"), str) and clean_mark(x.get("batch"))],
             "end": d.get("end") is True, **({"trim": d["trim"]} if isinstance(d.get("trim"), dict) else {}),
             **({"length": float(d["length"])} if schemas.is_num(d.get("length")) else {}),
-            **({"fill": d["fill"]} if isinstance(d.get("fill"), dict) else {})}
+            **({"fill": d["fill"]} if isinstance(d.get("fill"), dict) else {}),
+            **({"head": d["head"]} if isinstance(d.get("head"), dict) else {})}   # 別に取れた頭の分(live_detect._batch_head。10-30)
 
 
 def save(folder, st, dump):

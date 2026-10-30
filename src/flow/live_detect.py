@@ -36,6 +36,9 @@ API(src/app/live.py の handle_get / _api_post から。書き込みは入口の
 締めで本数に届かず埋めた候補(印 fill。EW の QUOTA)も枠の候補なので同じ道(origin auto = 配信中の検出の続き。依頼の afterStream は見ない)で採用して届ける。
 友人のライブの依頼の録画(10-30〜。スイッチ live_batch.BATCH_ON): waitMin 分の待ちでなく、BATCH_MIN 分ごとの区切りと配信の終わりにまとめて採用する
 (_batch_tick。決まりは src/flow/live_batch.py の頭)。帳簿の 1 時間の本数は live_batch.POOL_PER_HOUR(requests_cfg)。
+遅れて始まった頭(10-30。src/flow/live_head.py・スイッチ live_head.HEAD_ON): 頭を別に取って検出した候補(head.json。録画の頭からの秒 = 負・source "head")も採用する。
+waitMin の録画は枠の候補と同じ道で、区切りの録画は頭が取れた次の見回りで頭の分(live_batch.share(合計, 取れた秒, 配信の長さの見込み))を印 kind head で選び、
+配信の終わりの合計からその分を引く。採用は Live.adopt(hold "head")= 頭の動画から書き出す。取れた秒は録れなかった所(_fill_reserve・_fill_after)から外す。
 安全弁(D-13。仮の数 = 使いながら直す): 1 つの録画の自動の採用は AUTO_MAX_PER_REC 本まで(decisions.json の adopted/auto を数える。
 友人の依頼の録画・確認なしに届く自分の配信の自動の分にも効く)。
 (「人が見ていない」ことを理由に自動の採用を休むことはしない = 採用は全部届ける。opt-manage Q1・2a-1・2a-2)
@@ -663,7 +666,7 @@ class Detector:
         text = self.host.livetx.text_for(rc, rec, pk.get("id"))   # 配信中の文字起こしの文字があれば採用の記録に(D-11 案 b)
         if text:
             body["text"] = text
-        res = self.host.adopt(body)
+        res = self.host.adopt(body, "head") if pk.get("source") == "head" else self.host.adopt(body)   # 頭の候補(10-30)は頭の動画から書き出す
         job = res.get("job") or {}
         item = {"state": "adopted", "origin": pk.get("origin") or origin, "markId": pk.get("markId"), "jobId": pk.get("jobId")}
         if pk.get("state") != "adopted" or pk.get("markId") != res.get("mark"):
@@ -814,7 +817,7 @@ class Detector:
                 done += self._batch_tick(rc, rec, doc, peaks, given, r)
                 continue
             used, cap = self.auto_count(rc, rec, peaks), self.auto_max(rc, rec)
-            for pk in peaks:
+            for pk in peaks + self._head_peaks(rc, rec):   # 遅れて始まった頭の候補も同じ待ちで(10-30)
                 key = (rc, rec, pk.get("id"))
                 if pk.get("state") != "frame" or pk.get("endPending") or key in given or not isinstance(pk.get("confirmedAt"), (int, float)):
                     continue   # 終わり待ち(区間の終わりがまだ録れていない)は、合わせ直されてから
@@ -855,15 +858,19 @@ class Detector:
         st = LB.load(folder)
         dirty = False
         busy = {x["id"] for x in st["queue"]}
-        by_id = {p.get("id"): p for p in peaks}
+        heads = self._head_peaks(rc, rec)
+        by_id = {p.get("id"): p for p in peaks + heads}
         used, cap = self.auto_count(rc, rec, peaks), self.auto_max(rc, rec)
         queued = sum(_marks.pieces_of(by_id.get(x["id"]) or {}) for x in st["queue"])
         live_done = sum(_marks.pieces_of(by_id.get(x.get("id")) or {}) for x in self._decisions(folder)["items"]
                         if x.get("state") == "adopted" and x.get("origin") == "auto" and (x.get("batch") or {}).get("kind") == "live")
         live_done += sum(_marks.pieces_of(by_id.get(x["id"]) or {}) for x in st["queue"] if x["batch"]["kind"] == "live")
         long_end = LB.LONG_ON and schemas.is_num(doc.get("measuredSec")) and doc["measuredSec"] > LB.LONG_AFTER
+        if heads and st.get("head") is None and not st["end"]:   # 遅れて始まった頭が取れた(10-30): 頭の分を選ぶ
+            dirty = self._batch_head(rc, rec, doc, st, heads, given, cap - used - queued) or dirty
         if doc.get("ended") and not st["end"]:
             n_all = self._batch_total(rc, rec, r, st)   # 合計(配信の長さで。live_batch.SCALE_ON)
+            n_all -= len((st.get("head") or {}).get("ids") or [])   # 頭の分はもう選んだ(10-30)
             n_all -= self._fill_reserve(rc, rec, r, st, n_all, live_done)   # 録れなかった所の分を空ける(live_batch.FILL_ON)
         if doc.get("ended") and long_end:
             if not st["end"]:   # 長い配信の終わり(研究の 270 番 = 最後の区切り): 前の区切りより後に区間の決まった候補から合計までの残りを
@@ -933,6 +940,35 @@ class Detector:
                 self.host.note("盛り上がりの検出: %s を書けませんでした: %s" % (LB.STATE_FILE, tools.why(e)))
         return done
 
+    def _batch_head(self, rc, rec, doc, st, heads, given, room):
+        """頭の分(10-30): 取れた頭の秒の割合で本数(live_batch.share。配信の長さの見込み = 頭 + 測った秒か EXPECT_SEC の長い方)を決め、
+        点数の高い順に重ならない物を待ちに積む(印 kind head)。batch.json の head {n, cover, ids} に残す(配信の終わりの合計から引く)-> 書いたか"""
+        hg = getattr(self.host, "head", None)
+        cover = hg.cover(rc, rec) if hg is not None else 0.0
+        if cover <= 0:
+            return False
+        length = cover + max(float(doc.get("measuredSec") or 0.0), LB.EXPECT_SEC)
+        n = LB.share(LB.total(length), cover, length)
+        pool = [p for p in heads if LB.settled(p) and p.get("state") != "adopted" and (rc, rec, p["id"]) not in given]
+        picks = LB.take(LB.ranked(pool), max(0, min(n, room)), [])
+        for pk in picks:
+            st["queue"].append({"id": pk["id"], "batch": {"kind": "head"}})
+        st["head"] = {"n": n, "cover": round(cover, 1), "ids": [p["id"] for p in picks]}
+        self.host.log("盛り上がりの検出: 録画 %s は頭の %.1f 分が取れたので、頭の分を %d 本選びました(見込み %d 本)" % (rec, cover / 60.0, len(picks), n))
+        return True
+
+    def _head_peaks(self, rc, rec):
+        """遅れて始まった頭の候補(live_head。録画の頭からの秒 = 負)に、この録画の決定(decisions.json の最後の物)を重ねた一覧。
+        ワーカーの帳簿に無い候補なので、decN に関係なく重ねる"""
+        hg = getattr(self.host, "head", None)
+        pks = hg.peaks(rc, rec) if hg is not None else []
+        if not pks:
+            return []
+        last = {}
+        for it in sorted(self._decisions(self.folder(rc, rec))["items"], key=lambda x: x["n"]):
+            last[it.get("id")] = it
+        return [overlay(p, last[p["id"]]) if p["id"] in last else p for p in pks]
+
     def _batch_trim(self, rc, rec, folder, by_id, st, picks, kind):
         """配信の終わりに選んだ候補を、確かめる時間の見込みが live_batch.TRIM_LIM 分以下になるまで後ろから外す -> [(候補, 印に足す欄)]。
         届けた分 = 区切りの形で自動で採用した候補(縮めた秒 cut を引く)+ 採用を待つ候補(縮めた後)"""
@@ -978,11 +1014,12 @@ class Detector:
         a, b = r.get("firstPdt"), r.get("lastPdt")
         gaps = LX.rec_gaps(self.host.exporter._query, rc, rec, a, b) if schemas.is_num(a) and schemas.is_num(b) else None
         length, head = st.get("length"), st.get("headSec") or 0.0
-        lost = head + sum(y - x for x, y in merge_spans(gaps or []))
+        cover = min(head, float((st.get("head") or {}).get("cover") or 0.0))   # 別に取れた頭(10-30。live_head)は録れなかった所に入れない
+        lost = head - cover + sum(y - x for x, y in merge_spans(gaps or []))
         n = LB.fill_count(n_all, lost, length)
         reserved = min(n, max(0, n_all - live_done))
         st["fill"] = {"n": n, "reserved": reserved, "f": round(lost / length, 4) if length else None, "lostSec": round(lost, 1),
-                      "headSec": round(head, 1), "length": length, "gapsKnown": gaps is not None}
+                      "headSec": round(head, 1), "headCover": round(cover, 1), "length": length, "gapsKnown": gaps is not None}
         if n:
             self.host.log("盛り上がりの検出: 録画 %s は録れなかった所が %d 秒あるので、配信の終わりの分を %d 本空けて、アーカイブから %d 本埋めます"
                           % (rec, int(lost), reserved, n))
@@ -1081,8 +1118,9 @@ class Detector:
         st = LB.load(self.folder(rc, rec))
         head = max(0.0, a["first"] - (a["t0"] - a["offset"]))
         length = span + head
-        if head > 1.0:
-            hs = [(-head, 0.0)] + list(hs)
+        cover = float((st.get("fill") or {}).get("headCover") or 0.0)   # 配信の終わりまでに別に取れて使った頭(10-30。live_head)は穴にしない
+        if head - cover > 1.0:
+            hs = [(-head, -cover)] + list(hs)
         lost = sum(y - x for x, y in hs)
         end = st.get("fill") or {}
         n_end = end.get("n") if isinstance(end.get("n"), int) else 0

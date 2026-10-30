@@ -776,6 +776,43 @@ class DetectApiTest(unittest.TestCase):
         self.assertTrue(ar._after_fill("fake", REC, a, marks, row_c["fill"], row_c))   # やり直しても同じジョブを使い回す
         self.assertEqual(len(self.live.exporter.snapshot("fake", REC)), n)
 
+    def test_batch_head(self):
+        """10-30(完了の条件 b): 遅れて始まった頭(2160 秒)を別に取れた(flow/live_head の head.json)= 次の区切りで頭の分(合計 6 × 2160 / (2160 + 7200) → 1 本)を
+        頭の候補から選び(印 kind head・頭の動画から書き出すジョブ = マークの正本だけ・スタジオに載せない)、配信の終わりの合計から引き、
+        取れた頭は録れなかった所に入れない(配信の終わりの f・配信の後の穴)"""
+        self.request()
+        self.rec.rel = 1900
+        row = dict(self.rec._rec(), streamStart=iso(T0 - 2160))
+        self.rec.routes[("GET", "/live/list")] = lambda body: (200, {"recordings": [dict(row, lastPdt=iso(T0 + self.rec.rel))]})
+        self.rec.routes[("GET", "/live/%s/segments" % REC)] = lambda body: (200, {"segments": [], "gaps": []})
+        self.worker_alive()
+        heads = [dict(peak("h%d-%d" % (i, s + 20), s - 2160, s - 2140, sc, "frame", 0), source="head", audioOnly=True)
+                 for i, (s, sc) in enumerate(((360, 3.0), (1260, 5.0), (1860, 1.0)))]
+        with open(os.path.join(self.folder, "head.json"), "w", encoding="utf-8") as f:
+            json.dump({"v": 1, "state": "done", "coverSec": 2160.0, "startAt": iso(T0 - 2160), "endAt": iso(T0 + 90), "peaks": heads}, f)
+        peaks = [peak("p%d" % i, 500 * i + 100, 500 * i + 120, 10.0 - i, "frame", 500 * i + 200) for i in range(10)]
+        self.put_peaks(peaks, seq=5, changes=[], measuredSec=1900, first=iso(T0))
+        self.assertEqual(self.det.auto_tick(), 2)   # 1 番目の区切りの 1 本 + 頭の分 1 本
+        items = self.decisions()["items"]
+        hd = [x for x in items if x["batch"]["kind"] == "head"]
+        self.assertEqual([x["id"] for x in hd], ["h1-1280"])   # 点数の高い頭の候補
+        job = next(j for j in self.live.exporter.snapshot("fake", REC) if j["id"] == hd[0]["jobId"])
+        self.assertEqual((job["from"], round(LX.iso_epoch(job["start"]) - T0), job["batch"]), ("head", -900 - 2, {"kind": "head"}))
+        self.assertEqual([m["start"] for m in self.studio.videos[REC]["marks"]], [98.0])   # スタジオには配信中の区切りの 1 本だけ(頭は載せない)
+        self.assertEqual(self.det.auto_tick(), 0)   # 頭の分は 1 回だけ
+        st = LB.load(self.folder)
+        self.assertEqual(st["head"], {"n": 1, "cover": 2160.0, "ids": ["h1-1280"]})
+        done = {x["id"] for x in self.decisions()["items"]}
+        peaks = [dict(p, state="adopted", origin="auto") if p["id"] in done else p for p in peaks]
+        self.rec.rel = 5040
+        self.put_peaks(peaks, seq=6, changes=[], measuredSec=5040, ended=True, first=iso(T0))
+        self.assertEqual(self.det.auto_tick(), 4)   # 合計 6 − 頭の 1 − 配信中の 1 = 4(録れなかった所は無い = 空けない)
+        st = LB.load(self.folder)
+        self.assertEqual((st["fill"]["n"], st["fill"]["headSec"], st["fill"]["headCover"], st["fill"]["lostSec"]), (0, 2160.0, 2160.0, 0.0))
+        self.assertEqual(len(self.decisions()["items"]), 6)
+        a = {"vid": VID, "t0": T0 - 2160.0, "offset": 0.0, "first": T0, "last": T0 + 5040, "end": T0 + 5040, "mode": "measure"}
+        self.assertEqual(self.det.compare("fake", REC, a, [], holes=[])["fill"]["holes"], [])   # 配信の後も頭を穴にしない
+
     def test_batch_total(self):
         """10-30(live_batch.SCALE_ON): 合計 = 2 時間まで 6 本・そこから 1 時間ごとに +1・上限 10。12 分の上限は 12 分 × 合計 ÷ 6"""
         self.assertEqual([LB.total(h * 3600.0) for h in (1, 2, 3, 5, 9)], [6, 6, 7, 9, 10])
