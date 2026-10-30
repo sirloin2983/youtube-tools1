@@ -108,6 +108,7 @@ LABELS = {"wait": "待ち", "probe": "アーカイブを確かめ中", "align": 
 # 本物の配信 4 本で測った: 正しい区間は score 0.97〜0.999・ratio 4.7〜58、合わない区間で ratio 1.58 が出た(止めたのは score だけ)→ ratio は 3.0
 MIN_SCORE = 0.5
 MIN_RATIO = 3.0
+HEAT_KEEP = 200             # archive.json の heatChecks に残す回数(録画ごと。古い物から落とす)
 ARCHIVED_SLACK = 900.0       # アーカイブ化したか: アーカイブの終わり(開始 + 長さ)がこれだけ録画の終わりより前でもよい(release_timestamp は数分ずれる)
 WINDOWS_FIRST = (300.0, 900.0)        # 配信で最初の照合: ±300 秒 → だめなら ±900 秒で1回だけ(release_timestamp と本当の 0 秒の差が −220 秒の配信があった)
 WINDOWS_NEXT = (20.0, 120.0, 900.0)   # 2 本目から: 前のずれの ±20 秒 → だめなら広げる
@@ -213,7 +214,8 @@ def probe_archive(video_id, timeout=PROBE_TIMEOUT, retries=None, wait=None, canc
     """yt-dlp でアーカイブの状態を調べる(ダウンロードしない)。video_id は検査済みの 11 文字だけ(URL はここで組み立てる)。
     調べられなかった(HTTP 403 などの一時的な失敗。メンバー限定・非公開は除く)ときは wait 秒あけて retries 回までやり直す。
     -> {"status": live_status か "unknown", "release", "timestamp", "duration"(数か None), "availability", "message",
-        "processed"(処理済みの版に置き換わった = 断片でない https の形式がある。True|False|None = 形式が分からない)}"""
+        "processed"(処理済みの版に置き換わった = 断片でない https の形式がある。True|False|None = 形式が分からない),
+        "heat"(よく再生された所 heatmap の点の数。無ければ 0・分からなければ None。同じ問い合わせで読むだけ = 回数は変わらない)}"""
     retries = YTDLP_RETRIES if retries is None else retries
     for n in range(retries + 1):
         p = _probe_once(video_id, timeout)
@@ -232,7 +234,8 @@ def _probe_once(video_id, timeout):
     if not yd:
         return {"status": "unknown", "message": "yt-dlp が見つからないので、アーカイブを確かめられませんでした", "final": True}
     cmd = tools.ytdlp_print_cmd(yd, "https://www.youtube.com/watch?v=" + video_id,   # 調べ方は配信中か(livesession.probe_live)と同じ
-                                "%(live_status)s\t%(release_timestamp)s\t%(timestamp)s\t%(duration)s\t%(availability)s\t%(formats.:.protocol)l")
+                                "%(live_status)s\t%(release_timestamp)s\t%(timestamp)s\t%(duration)s\t%(availability)s\t%(formats.:.protocol)l"
+                                "\t%(heatmap.:.value)l")
     try:
         code, out, tail = run_proc(cmd, timeout)
     except ArchiveError as e:
@@ -248,11 +251,19 @@ def _probe_once(video_id, timeout):
             return {"status": "unknown", "availability": "removed", "message": "見られない配信なので、アーカイブを取れません"}
         return {"status": "unknown", "message": "アーカイブを確かめられませんでした" + ("(%s)" % last[:160] if last else "")}
     p = lines[-1].split("\t")
-    p += [""] * (6 - len(p))
+    p += [""] * (7 - len(p))
     st = p[0].strip()
     return {"status": st if st in ("is_live", "is_upcoming", "was_live", "not_live", "post_live") else "unknown",
             "release": _num(p[1]), "timestamp": _num(p[2]), "duration": _num(p[3]), "availability": p[4].strip(), "message": "",
-            "processed": processed_of(p[5])}
+            "processed": processed_of(p[5]), "heat": heat_of(p[6])}
+
+
+def heat_of(values):
+    """yt-dlp の %(heatmap.:.value)l -> heatmap の点の数(NA = 無い = 0・欄が無い = None)"""
+    v = (values or "").strip()
+    if not v:
+        return None
+    return 0 if v == "NA" else sum(1 for x in v.split(",") if x.strip() and x.strip() != "NA")
 
 
 def processed_of(protocols):
@@ -682,6 +693,13 @@ class Archiver(LX.Patrol):
             first["readyAt"] = now          # アーカイブが初めて見られた(was_live)
         if ready is True and p.get("processed") is True and not old.get("processedAt"):
             first["processedAt"] = now      # 処理済みの版に初めて置き換わった
+        heat = p.get("heat")
+        if isinstance(heat, int) and not isinstance(heat, bool):   # 付加情報を取れたときだけ(研究の材料: 配信の終わりから何時間で heatmap がそろうか。10-30)
+            t0, dur = p.get("release") or p.get("timestamp"), p.get("duration")
+            since = round(time.time() - (t0 + dur), 1) if schemas.is_num(t0) and schemas.is_num(dur) else None   # 配信の終わり = 開始 + 長さ
+            first["heatChecks"] = (list(old.get("heatChecks") or []) + [{"at": now, "sinceEnd": since, "heat": heat > 0, "points": heat}])[-HEAT_KEEP:]
+            if heat > 0 and not old.get("heatAt"):
+                first["heatAt"] = now       # heatmap が初めて付いた
         return self._info_put(rc, rec, videoId=vid, ready=ready, message=msg, checkedAt=now, release=p.get("release"), timestamp=p.get("timestamp"),
                               duration=p.get("duration"), availability=p.get("availability") or "", processed=p.get("processed"), **first)
 

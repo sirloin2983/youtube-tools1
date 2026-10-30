@@ -711,6 +711,15 @@ class AfterStreamTest(unittest.TestCase):
         self.assertEqual(a.info[a.key("local", r["id"])]["processedAt"], at)   # 書き直さない
         self.assertEqual(a.archived("local", r), "")
         self.assertEqual(len(probes), 2)   # 用意できた記録があっても、消す直前は確かめ直す
+        self.assertNotIn("heatChecks", a.info[a.key("local", r["id"])])   # heatmap の欄が無い(分からない)確かめは残さない
+        for n in (0, 12):   # 付加情報を取るたびに: 時刻・配信の終わりからの秒・heatmap の有無・点の数(10-30・研究の材料)
+            info["heat"] = n
+            a.archived("local", r)
+        got = a.info[a.key("local", r["id"])]
+        self.assertEqual([(x["heat"], x["points"]) for x in got["heatChecks"]], [(False, 0), (True, 12)])
+        self.assertTrue(all(isinstance(x["sinceEnd"], float) and x["at"] for x in got["heatChecks"]))
+        self.assertEqual(got["heatAt"], got["heatChecks"][-1]["at"])   # 初めて付いた時刻
+        info.pop("heat")
         info["duration"] = 3600.0          # アーカイブが短い(切られた・別の動画)
         self.assertIn("足りない", a.archived("local", r))
         info.update(duration=self.HOURS * 3600 - A.ARCHIVED_SLACK + 60)   # 少し短いのは許す(開始時刻のずれ)
@@ -921,6 +930,15 @@ class YtdlpRetryTest(unittest.TestCase):
         with mock.patch.object(A.tools, "find_tool", return_value="yt-dlp"), mock.patch.object(A, "run_proc", self.fake_run([member, ok])):
             p = A.probe_archive("abcdefghijk", wait=0)
         self.assertEqual((p["availability"], len(self.calls)), ("subscriber_only", 1))   # メンバー限定はやり直さない
+
+    def test_probe_heat(self):
+        """同じ問い合わせで heatmap の点の数を読む(無い = 0・欄が無い古い形 = None)"""
+        rows = ((0, "was_live\t1790000000\t1790007200\t100\tpublic\thttps\t0.1, 0.5, 1.0\n", []), (0, "was_live\t1790000000\t1790007200\t100\tpublic\thttps\tNA\n", []),
+                (0, "was_live\t1790000000\t1790007200\t100\tpublic\thttps\n", []))
+        with mock.patch.object(A.tools, "find_tool", return_value="yt-dlp"), mock.patch.object(A, "run_proc", self.fake_run(list(rows))):
+            got = [A.probe_archive("abcdefghijk", wait=0)["heat"] for _ in rows]
+        self.assertEqual(got, [3, 0, None])
+        self.assertEqual(len(self.calls), 3)   # 1 回の確かめに 1 回(増やさない)
 
     def test_probe_does_not_retry_final_failures(self):
         """やり直しても変わらない失敗(id が正しくない・yt-dlp が無い)は待たずに返す(印 final で決める。画面の文の中身では決めない)。
