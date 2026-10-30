@@ -52,6 +52,29 @@ class DeckStaleTest(unittest.TestCase):
             self.assertEqual(cards, [{"id": "c2"}])   # 裏の集め直しの結果
             self.assertEqual(self.calls, [1, 2])
 
+    def test_cold_collect_is_shared(self):
+        """10-30: 覚えが無い時(起動の直後)に同時に来た頼みは、走っている 1 回の集めを待って分け合う(前は 7〜8 本が別々に集めて 1 本 15〜34 秒)"""
+        started = threading.Event()
+
+        def slow(ctx, st):
+            self.calls.append(st.rev)
+            started.set()
+            self.gate.wait(5)
+            return [{"id": "c%d" % len(self.calls)}], mock.Mock(errors=[])
+        out = []
+        with mock.patch.object(sources, "collect", slow):
+            ths = [threading.Thread(target=lambda: out.append(deck._collect(Ctx(), St())[0]))]
+            ths[0].start()
+            started.wait(5)
+            ths += [threading.Thread(target=lambda: out.append(deck._collect(Ctx(), St())[0])) for _ in range(6)]
+            [t.start() for t in ths[1:]]
+            time.sleep(0.2)
+            self.gate.set()
+            [t.join(5) for t in ths]
+        self.assertEqual(self.calls, [1])
+        self.assertEqual(out, [[{"id": "c1"}]] * 7)
+        self.assertIsNone(deck._cold["ev"])
+
     def test_other_app_dir_is_not_served_stale(self):
         with mock.patch.object(sources, "collect", lambda ctx, st: ([{"id": ctx.app_dir}], mock.Mock(errors=[]))):
             deck._collect(Ctx(), St())

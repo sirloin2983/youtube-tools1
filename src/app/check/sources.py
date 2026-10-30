@@ -105,7 +105,8 @@ class View:
     def cases(self):
         if self._cases is None:
             try:
-                self._cases = cases_mod.snapshot(self.root, self.env)
+                # 入口の作業データなら、同時に来た案件の一覧(ホームの api/cases)と 1 回分を分け合う(10-30)
+                self._cases = cases_mod.shared_snapshot(self.root) if self.env is None else cases_mod.snapshot(self.root, self.env)
             except Exception as e:   # 読めなくても他の出どころは出す
                 self.errors.append("cases: %s" % e.__class__.__name__)
                 self._cases = {"cases": [], "virtual": []}

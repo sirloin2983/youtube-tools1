@@ -29,6 +29,8 @@ MAX_SERVED = 500
 _cache = {"key": None, "at": 0.0, "cards": None, "errors": None}
 _cache_lock = threading.Lock()
 _refreshing = {"on": False}   # 裏の集め直しが走っているか(1 本だけ)
+_cold = {"ev": None}   # 覚えが無い時の集め(起動の直後)が走っていれば、その終わりの印(同時に来た頼みは待って分け合う)
+COLD_WAIT_SEC = 120.0
 _served = {}   # 画面へ出したカード id -> (時刻, カード)。古い順
 
 
@@ -73,9 +75,26 @@ def _collect(ctx, st):
             threading.Thread(target=_refresh, args=(ctx, st, key), daemon=True, name="check-deck-refresh").start()
         if stale:
             return _cache["cards"], _cache["errors"]
-    cards, view = sources.collect(ctx, st)
-    with _cache_lock:
-        _cache.update(key=key, at=now, cards=cards, errors=list(view.errors), base=key[:2])
+        ev = _cold["ev"]
+        lead = ev is None
+        if lead:
+            ev = _cold["ev"] = threading.Event()
+    if not lead:
+        # 10-30: 起動の直後は覚えが無く、裏の warm とホーム・案件の画面の頼み 7〜8 本がそれぞれ集めて重なり、1 本 15〜34 秒(1 本だけなら冷えて 4.7 秒)。
+        # 走っている集めの終わりを待って、その答えを使う(古さは裏の集め直しと同じ = 最長で 1 回の集めの間)
+        ev.wait(COLD_WAIT_SEC)
+        with _cache_lock:
+            if _cache["cards"] is not None and _cache.get("base") == key[:2]:
+                return _cache["cards"], _cache["errors"]
+        return _collect(ctx, st)   # 待った集めが失敗した: 自分で集める
+    try:
+        cards, view = sources.collect(ctx, st)
+        with _cache_lock:
+            _cache.update(key=key, at=now, cards=cards, errors=list(view.errors), base=key[:2])
+    finally:
+        with _cache_lock:
+            _cold["ev"] = None
+        ev.set()
     return cards, view.errors
 
 
