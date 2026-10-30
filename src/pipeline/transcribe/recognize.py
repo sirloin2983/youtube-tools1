@@ -60,7 +60,7 @@ def extract_audio(job, spec, wav):
     ff = _tools.find_ffmpeg()
     if not ff:
         raise _errors.ApiError("no_ffmpeg", "ffmpeg が見つかりません(README の準備手順を確認してください)", 400)
-    # audioPath = 音だけ先に作った物(② の 30fps の作り直しと並べるとき = 作り直しと同じ AAC の音。flow/run.NORM_PARALLEL)。文書の動画は sourcePath のまま
+    # audioPath = 音だけ先に作った物(② の 30fps の作り直しと並べるとき = 作り直しと同じ AAC の音。flow/run._norm_parallel_ok)。文書の動画は sourcePath のまま
     cmd = wav_args(ff, spec.get("audioPath") or spec["sourcePath"], wav, spec["start"] if spec["start"] > 0 else None,
                    spec["end"] - spec["start"] if spec["end"] else None,
                    opts=("-nostdin", "-y", "-protocol_whitelist", "file"), af=BOOST_AF if spec.get("boost") else None)

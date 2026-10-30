@@ -3,7 +3,7 @@
 
 玄関の裏の糸で数分ごと(EVERY 秒)と、起動の直後・画面の操作のあと(kick)に 1 回ずつ回す。
 もう 1 本の糸(watch)が Dropbox のアプリのフォルダの変化を長く待ち(files/list_folder/longpoll)、変化があればすぐ kick する
-(ユーザーの PC が依頼を受け付けた・出力にパックを置いた、を数分待たずに画面へ。スイッチ WATCH・失敗したら WATCH_RETRY 秒は数分ごとだけ)。② = flow は Dropbox を知らない(ここが玄関の中で全部持つ)。
+(ユーザーの PC が依頼を受け付けた・出力にパックを置いた、を数分待たずに画面へ。失敗したら WATCH_RETRY 秒は数分ごとだけ)。② = flow は Dropbox を知らない(ここが玄関の中で全部持つ)。
 鍵は <home>/config.json(探し方・形 = friendapp/dropbox.py)。無ければ何もしない(画面に小さく知らせる)。
 1 回の中身(1 つの失敗でほかを止めない。Dropbox の名前は全部検査してから使い、手元のパスには Dropbox の名前を入れない):
   1. ユーザーの PC に頼む(A-2): 受信箱のユーザーの PC の行の依頼の JSON(5-1 の形 = request_doc。url・video・live)を直下 /<依頼 id>.request.json へ上げる。
@@ -47,7 +47,6 @@ from . import diag as _diag, dropbox as _dropbox, inbox as _inbox, places as _pl
 
 EVERY = 180                        # 見回りの間隔(秒。数分ごと)
 VOICE_SEND = True                  # スイッチ: 声の材料(ソロ配信の行の短い音)を送り返しに置く(friendapp/voicesend。10-24 夜)
-WATCH = True                       # スイッチ: Dropbox の変化を長く待ってすぐ見回る(False = 前の通り EVERY 秒ごとと kick だけ)
 WATCH_TIMEOUT = 480                # 長く待つ 1 回の秒(Dropbox の上限)
 WATCH_GAP = 5                      # 変化で見回ったあと次に待ち始めるまでの秒(自分が上げた物の変化で回り続けない)
 WATCH_RETRY = 600                  # 長く待つのが失敗したら、この秒数は EVERY 秒ごとだけに戻る
@@ -494,7 +493,7 @@ class Sync:
         位置は変化のたびに取り直す(続きの一覧は読まない = 回数を増やさない)。新しい位置を取ってから kick するので、その間の変化も次の回が拾う。
         鍵が無い・口が長く待てない(テストの偽物)・失敗 = retry 秒待ってから(その間は EVERY 秒ごとの見回りのまま)"""
         cursor, cfg, fails = None, None, 0
-        while WATCH and not self._stop.is_set():
+        while not self._stop.is_set():
             io = self.io()
             if io is None or not hasattr(io, "longpoll"):
                 self._stop.wait(self.every if io is None else retry)   # 鍵を置いたら数分のうちに待ち始める

@@ -64,7 +64,7 @@ REASONS = ("boring", "cut")         # 届かなくてよかったの理由: つ�
 CLIP_RANGE_RE = re.compile(r"(\d{2,})h(\d{2})m(\d{2})s-(\d{2,})h(\d{2})m(\d{2})s")   # 書き出しの名前の <始まり>-<終わり>(ytt/names)
 TITLE_CUT = 40                      # 受け取った物のフォルダの名前に入れる配信の題の長さ(C-3-8)
 VERDICT_SUFFIX = ".verdict.json"
-WORKTIME = True   # 友人の作業の時刻(届いた arrivedAt・初めて再生した openedAt)を判断の記録に足す(新機能 D・10-23。False = 足さない)。何を見たかの細かい操作は残さない
+# 友人の作業の時刻(届いた arrivedAt・初めて再生した openedAt)を判断の記録に足す(新機能 D・10-23。スイッチ WORKTIME は 10-30 の片付けで外した)。何を見たかの細かい操作は残さない
 TRASH_NAME = trashbin.TRASH_DIR
 TRASH_KIND = "受信箱"   # ごみ箱の日付のフォルダの中の種類(受け取らなかった物・片付けた案件のフォルダ)
 ROW_ID_RE = re.compile(r"^[0-9A-Za-z_-]{1,64}$")   # 依頼 id(flow/deliver.request_id の形。送り返しの名前にも入る)
@@ -1026,8 +1026,7 @@ class Inbox:
             doc["score"] = score   # 5 段階の点(1〜5)か None = 選ばなかった(10-27)
         if by == "auto":
             doc["by"] = "auto"
-        if WORKTIME:   # 作業の時刻(D): 届いた・初めて再生した(ユーザーの PC が公開の時刻と結ぶ = dev/friend_worktime.py)
-            doc.update({k: p[k] for k in ("arrivedAt", "openedAt") if isinstance(p.get(k), int)})
+        doc.update({k: p[k] for k in ("arrivedAt", "openedAt") if isinstance(p.get(k), int)})
         fsio.write_json(os.path.join(self.outbox, "%s__%s~%013d%s" % (r["id"], p["name"], at, VERDICT_SUFFIX)), doc, indent=None)
         if judge in JUDGE.values():
             p["verdictId"] = doc["id"]
@@ -1268,8 +1267,6 @@ class Inbox:
 
     def opened(self, rid, name):
         """確認用の動画を初めて再生した時刻を残す(作業の時刻 D。2 回目からは何もしない)"""
-        if not WORKTIME:
-            return
         with self.lock:
             _r, p = self._pack(rid, name)
             if p is not None and not p.get("openedAt"):

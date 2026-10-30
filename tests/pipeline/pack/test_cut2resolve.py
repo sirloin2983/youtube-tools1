@@ -85,17 +85,11 @@ class TestStackOverlaps(unittest.TestCase):
         got = S.stack_overlaps([(0, 100, "長い"), (20, 40, "中"), (30, 60, "後")], 3)
         self.assertEqual(got, [(0, 20, "長い"), (20, 30, "長い\n中"), (30, 40, "長い\n中\n後"), (40, 60, "長い\n後"), (60, 100, "長い")])
 
-    def test_build_srt_stacks_and_switch(self):
+    def test_build_srt_stacks(self):
         fps = (30, 1)
         text = S.build_srt([(0, 60, "あ"), (30, 90, "い")], fps)
         self.assertEqual(text.count(" --> "), 3)
         self.assertIn("00:00:01,000 --> 00:00:02,000\nあ\nい\n", text)
-        old = S.SRT_STACK
-        S.SRT_STACK = False
-        try:
-            self.assertEqual(S.build_srt([(0, 60, "あ"), (30, 90, "い")], fps).count(" --> "), 2)   # スイッチを切れば今までどおり
-        finally:
-            S.SRT_STACK = old
 
 
 class TestLongClipTimeouts(unittest.TestCase):

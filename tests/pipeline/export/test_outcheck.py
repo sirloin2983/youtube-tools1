@@ -64,13 +64,6 @@ class TestRealFiles(unittest.TestCase):
         self.assertEqual(self.run_one("cut", "testsrc=s=320x240:r=30:d=4", "sine=f=300:d=4,volume=-12dB"), [])   # 声の途中の切れは値だけ残す(知らせない)
         self.assertGreater(min(self.res["edge"].values()), 0.8)
 
-    def test_switch_off(self):
-        p = os.path.join(self.tmp, "x.mp4")
-        make(p, "testsrc=s=320x240:r=30:d=2", SPEECH)
-        OC.OUTCHECK = False
-        self.addCleanup(setattr, OC, "OUTCHECK", True)
-        self.assertIsNone(OC.check(p, 2.0, FFMPEG))
-
 
 if __name__ == "__main__":
     unittest.main()

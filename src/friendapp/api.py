@@ -941,7 +941,7 @@ class Api:
             if live:
                 st["detail"], st["raw"] = live, live
         elif st is not None and st["label"] == "切り抜き" and eng is not None:
-            # 流れ作業(② の PIPE_TX): 書き出しの最中に、済んだ本の文字起こしを同じ糸で先に回す。そのあいだ段は「切り抜き」のまま
+            # 流れ作業(② の run._tx_early): 書き出しの最中に、済んだ本の文字起こしを同じ糸で先に回す。そのあいだ段は「切り抜き」のまま
             # 止まって見えた(10-22 本物の YouTube で 66 秒)ので、文字起こしの進みを添える(段の名前は変えない = 段の時間の記録はそのまま)
             live = getattr(eng, "transcribe_progress", lambda: None)()
             if live:

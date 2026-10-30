@@ -31,9 +31,8 @@ class EdgePauseTest(unittest.TestCase):
         with mock.patch.object(E, "OUTWARD_ONLY", False):
             self.assertAlmostEqual(E.snap_end(10.9, ps), 10.65)   # 前の形: 間の中でも言い終わりの直後へ(無音を残さない)
 
-    def test_switch_off_keeps_edges(self):
-        with mock.patch.object(E, "ON", False):
-            self.assertEqual(E.snap("none.mp4", 10.0, 100.0, 120.0), (10.0, 100.0, None))
+    def test_short_span_keeps_edges(self):
+        self.assertEqual(E.snap("none.mp4", 10.0, 14.0, 120.0), (10.0, 14.0, None))   # 端を探す幅より短い区間は動かさない
 
 
 if __name__ == "__main__":

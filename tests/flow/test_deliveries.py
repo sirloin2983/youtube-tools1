@@ -36,9 +36,6 @@ class TestDeliveries(unittest.TestCase):
         hit = D.overlaps(self.tmp, "VID1", (110.0, 170.0), run_id="NEW", ranges=ranges)
         self.assertEqual([(h["zip"], h["share"]) for h in hit], [("r1__01_a.zip", 0.83)])   # b は 20/60 = 1/3(半分未満)・c は別の配信
         self.assertEqual(D.overlaps(self.tmp, "VID1", (110.0, 170.0), run_id="A", ranges=ranges), [])   # 同じ実行(作り直し)は数えない
-        D.OVERLAP_ON = False
-        self.addCleanup(setattr, D, "OVERLAP_ON", True)
-        self.assertEqual(D.overlaps(self.tmp, "VID1", (110.0, 170.0), ranges=ranges), [])
 
     def test_switched_off(self):
         self.assertTrue(DL.switched_off({"YTT_AUTO_SEND": " OFF "}))

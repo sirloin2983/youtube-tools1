@@ -7,7 +7,7 @@
 同じ形(音のパス → 声の区間)で返す。本物と疑似は backend の口 voice_spans(疑似 = eval/fake/fake_asr の TRANSCRIBE_FAKE_VOICED)。
 numpy・sherpa_onnx は _voice_spans_local の中で読む(サーバーのプロセスでは読まない = tests/pipeline/transcribe/test_worker.py の検査)。
 先回り(prefetch。10-23): 認識の前に、ワーカーの裏の糸で分け始める(認識は whisper.cpp の子プロセスが GPU で動くので、その間 CPU で分ける)。
-あとの voice_spans は同じ音(パス・大きさ・更新日時)の結果を待って使う = 分け方も結果も同じで、待ち時間だけ認識と重なる。スイッチ SEP_PREFETCH
+あとの voice_spans は同じ音(パス・大きさ・更新日時)の結果を待って使う = 分け方も結果も同じで、待ち時間だけ認識と重なる。(10-23。スイッチ SEP_PREFETCH は 10-30 の片付けで外した)
 """
 import os
 import threading
@@ -61,7 +61,6 @@ def spans_from_db(db, frame=SEP_FRAME, drop=SEP_DB, gap=SEP_GAP, min_len=SEP_MIN
     return [(a, b) for a, b in merged if b - a >= min_len]
 
 
-SEP_PREFETCH = True   # 認識の前に裏で分け始める(False = 後処理のときに分ける = 前のまま)
 PREFETCH_KEEP = 4     # 使われずに残った先回りの数の上限(古い物から捨てる)
 _pre, _pre_lock = {}, threading.Lock()   # 音の鍵 -> (糸, {"v": 区間 | "e": 例外})
 
@@ -72,9 +71,9 @@ def _key(wav):
 
 
 def prefetch(job, wav):
-    """認識の前に声の分離を裏で始める(サーバーからはワーカーの要求 voicedPrefetch・測る道具はこのプロセスの糸)。疑似・スイッチがオフなら何もしない。
+    """認識の前に声の分離を裏で始める(サーバーからはワーカーの要求 voicedPrefetch・測る道具はこのプロセスの糸)。疑似なら何もしない。
     始められなくても止めない(あとの voice_spans がその場で分ける)"""
-    if not SEP_PREFETCH or _backend.is_fake():
+    if _backend.is_fake():
         return
     try:
         if worker_client.IN_WORKER:

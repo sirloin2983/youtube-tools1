@@ -25,7 +25,6 @@ from pipeline.pack import preview as pv  # noqa: E402
 from human.friend import friend_feedback  # noqa: E402
 import prefs as prefs_mod  # noqa: E402
 from flow import runlog  # noqa: E402
-from flow import run as RUN  # noqa: E402  (流れ作業のスイッチ PIPE_TX)
 from flow import spec as SP  # noqa: E402
 from flow import order as O  # noqa: E402  (欄 → 封筒 + 束の差分。受付は submit の 1 本)
 from human.friend import intake as IN  # noqa: E402  (友人の受付の欄 → submit = submit_urls・submit_file)
@@ -601,7 +600,7 @@ class TestModes(Base):
         run = self.run_one("export")   # ホームの設定が無いときはカットしない
         self.assertEqual(self.tools.c2r["body"]["spec"]["mode"], "list")
         out = self.tools.c2r["body"]["output"]
-        self.assertEqual((out["speakerColors"], out.get("loudness"), out.get("volume")), (True, -14.0, None))   # 既定: 色あり・届ける動画は -14 LUFS にそろえる(PACK_LEVEL。音量 % は使わない)
+        self.assertEqual((out["speakerColors"], out.get("loudness"), out.get("volume")), (True, -14.0, None))   # 既定: 色あり・届ける動画は -14 LUFS にそろえる
 
     def test_adopted_mode_exports_transcribes_and_packs(self):
         """採用後を全部の代表。画面の設定は受付で読まれ、パックの本文まで届く(代表の 1 値 = 縦の 1 段の文字数。読み方の表は TestSpecFromSettings)"""
@@ -732,7 +731,7 @@ class TestNew(Base):
 
 
 class TestPipeTx(Base):
-    """流れ作業(flow/run.PIPE_TX): 書き出しの 1 本が済むたびに、その本の文字起こしを先に頼む。文字起こしの段はそのジョブを待つ"""
+    """流れ作業(flow/run._tx_early_on): 書き出しの 1 本が済むたびに、その本の文字起こしを先に頼む。文字起こしの段はそのジョブを待つ"""
     marks = [{"id": "m1", "status": "adopted", "start": 1, "end": 5}, {"id": "m2", "status": "adopted", "start": 9, "end": 12}]
 
     def setUp(self):
@@ -752,12 +751,6 @@ class TestPipeTx(Base):
         self.assertEqual(st["early"], 2)
         self.assertLessEqual(st["earlyAt"], st["startedAt"])
         self.assertEqual(len(run["newDocs"]), 2)
-
-    def test_switch_off_is_the_old_order(self):
-        with mock.patch.object(RUN, "PIPE_TX", False):
-            run = self.run_one("export")
-        self.assertEqual((run["state"], self.tools.tx_at_export), ("done", "done"))
-        self.assertNotIn("early", self.tx_step(run))
 
     def test_doc_list_failure_does_not_fail_export(self):
         """先に頼む所で文書の一覧が一時的に失敗しても、書き出しの段は落ちない(文字起こしの段が今の形で頼む)"""

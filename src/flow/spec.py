@@ -586,14 +586,14 @@ def tx_opts(bundle):
 
 def pack_output(bundle):
     """パックの要求(cut2resolve の POST /api/build)の作り方 -> (行から作るときの端の広げ方 rowEdge, output に足す物, 無音で削る値 cutSilence)。
-    1 段の文字数は大きさの向きに合わせる。音量は loudness(LUFS)。0 なら ytt/loudness.PACK_LEVEL のとき既定の目標・違えば volume(% が 100 なら書かない)。映像トラックは既定と違うときだけ書く。
+    1 段の文字数は大きさの向きに合わせる。音量は loudness(LUFS)。0 なら既定の目標(ytt/loudness.DEFAULT)・違えば volume(% が 100 なら書かない)。映像トラックは既定と違うときだけ書く。
     fps は固定の 30(FIXED。素材は 30fps にそろえる)"""
     p = bundle["pack"]
     size = p["size"]
     out = {"textplusWrap": p["wrapChars"]["horizontal" if size == "1920x1080" else "vertical"], "textplusSize": size,
            "textplusFps": str(FIXED["fps"])}
     out["speakerColors"] = p["speakerColors"]
-    loud = p["loudness"] or (_loud.DEFAULT if _loud.PACK_LEVEL else 0)   # そろえない(0)でも届ける動画は目標にそろえる(PACK_LEVEL。10-23)
+    loud = p["loudness"] or _loud.DEFAULT   # そろえない(0)でも届ける動画は目標にそろえる(10-23)
     if loud:
         out["loudness"] = loud
     elif p["volume"] != 100:

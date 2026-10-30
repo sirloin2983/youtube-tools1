@@ -1185,7 +1185,7 @@ class LiveSession:
             except Exception as e:   # 見回りは止めない
                 self.log("録画の部品の見回りでエラー: %r" % (e,))
             end = time.monotonic() + self.watch_sec
-            while not self._halt.is_set():   # 見回りの間は自動の採用だけを数秒ごとに(live_detect.ADOPT_FAST)
+            while not self._halt.is_set():   # 見回りの間は自動の採用だけを数秒ごとに(live_detect.ADOPT_SEC)
                 rest = end - time.monotonic()
                 if rest <= 0 or self.wake.wait(min(rest, live_detect.ADOPT_SEC)):
                     break

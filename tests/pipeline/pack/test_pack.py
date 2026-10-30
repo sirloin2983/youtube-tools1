@@ -379,7 +379,7 @@ class TestGainCopyRecord(unittest.TestCase):
         self.assertEqual(key["source"], {"name": "clip.mp4", "size": 6, "mtime": self.T0 // 10 ** 9})
         self.assertEqual((key["v"], key["gainDb"]), (C.GAIN_COPY_V, -10.46))
         self.assertEqual(key["ffmpeg"], C._gain_copy_opts(self.src, ".mp4", -10.457, self.meta))   # 書き出しの設定 = copy_video_gain が使うもの
-        self.assertIn(loudness.pack_filter(-10.46), key["ffmpeg"])   # 上げ下げ + リミッター(PACK_LEVEL)
+        self.assertIn(loudness.pack_filter(-10.46), key["ffmpeg"])   # 上げ下げ + リミッター
         self.assertEqual(key["ffmpeg"][-2:], ["-timecode", "01:00:00:00"])
         st = self.dst.stat()
         self.assertEqual(rec["output"], {"name": "clip.mp4", "size": st.st_size, "mtime": st.st_mtime_ns // 10 ** 9})

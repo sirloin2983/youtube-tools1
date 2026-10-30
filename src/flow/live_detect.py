@@ -67,7 +67,7 @@ STOP_WAIT = 8.0            # 止める合図のあと、ワーカーが自分で
 STALE_SEC = 120.0          # 心拍(worker.json)がこれだけ止まったら起動し直す
 LENGTH_HINT_ENV = "YTT_LIVE_LENGTH"   # off = 長さの目安を使わない(スタジオの解析の設定の長さのまま)
 SETTINGS_EVERY = 60.0      # スタジオの解析の設定を読み直す間隔(10-20 に 300 → 60。設定を変えてから効くまで。入口の中の問い合わせ 1 回)
-ADOPT_FAST = True          # スイッチ: 見回り(30 秒)の間も ADOPT_SEC ごとに自動の採用だけを見る(False = 前の通り 30 秒ごと)
+# 見回り(30 秒)の間も ADOPT_SEC ごとに自動の採用だけを見る(10-21。スイッチ ADOPT_FAST は 10-30 の片付けで外した)
 ADOPT_SEC = 5.0
 RESTART_WARN = 3           # 起動し直しがこれを超えたら「調子」に失敗として出す
 AUTO_TRIES = 5             # 自動の採用を 1 候補で試す回数
@@ -317,7 +317,7 @@ class Detector:
     def adopt_tick(self):
         """見回りの間の自動の採用だけ(ADOPT_SEC ごと。ワーカーの起動・設定は tick の 30 秒ごとのまま)。
         候補を入口が最初に見る時刻と、waitMin 分たってから採用する時刻の遅れを 30 秒 → 数秒に。決まり(waitMin・上限)は同じ -> 採用した数"""
-        if not ADOPT_FAST or (self.proc is None and self.adopted is None) or not ((self.heartbeat() or {}).get("recordings")):   # この入口のワーカーが録画を測っている間だけ(録画元に聞かない)
+        if (self.proc is None and self.adopted is None) or not ((self.heartbeat() or {}).get("recordings")):   # この入口のワーカーが録画を測っている間だけ(録画元に聞かない)
             return 0
         if not self._tick_lock.acquire(blocking=False):   # tick と重ねない
             return 0

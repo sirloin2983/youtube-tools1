@@ -46,9 +46,7 @@ class TestPrefetch(unittest.TestCase):
         self.assertEqual(SP._voice_spans_local({"cancel": False}, self.wav), [(1.0, 2.0)])
         self.assertEqual(len(self.calls), 2)
 
-    def test_switch_off_and_fake_do_nothing(self):
-        with mock.patch.object(SP, "SEP_PREFETCH", False):
-            SP.prefetch({"cancel": False}, self.wav)
+    def test_fake_does_nothing(self):
         with mock.patch.object(SP._backend, "is_fake", lambda: True):
             SP.prefetch({"cancel": False}, self.wav)
         self.assertEqual(SP._pre, {})

@@ -50,8 +50,6 @@ class TestLlmNames(unittest.TestCase):
         from pipeline.transcribe import llm
         doc = {"title": "配信", "text": "はあちゃまと ラミィちゃん来た みこちー"}
         self.assertEqual([m["name"] for m in llm.llm_members(doc, self.MEMBERS)], ["雪花ラミィ", "赤井はあと", "さくらみこ"])   # 行の文字に出た人も足す
-        with mock.patch.object(llm, "LLM_FROM_TEXT", False):
-            self.assertEqual(llm.llm_members(doc, self.MEMBERS), [])
         t = llm.llm_targets(self.MEMBERS)
         self.assertEqual(llm.llm_near("はあちゃまが来た", t), [])        # すでに書かれた呼び名を別の呼び名に言い換えない
         self.assertEqual(llm.llm_near("ラミィちゃん来た", t), [])        # 書かれた名前の中の「ミィち」を「みこち」にしない
@@ -65,8 +63,6 @@ class TestLlmNames(unittest.TestCase):
         picks = llm.llm_pick(rows, self.MEMBERS, {"title": "配信"}, gloss=["リッカー", "ナイフ"])   # 用語集の語の 1 字違いを候補に(3 字の語は探さない)
         self.assertEqual([(p["row"], p["span"], p["why"], p["cands"]) for p in picks], [(0, "リスカー", "gloss", ["リッカー"])])   # 書かれた語は直さない
         self.assertEqual(llm.llm_pick(rows, self.MEMBERS, {"title": "配信"}), [])            # 用語集が空なら今までどおり
-        with mock.patch.object(llm, "LLM_GLOSSARY", False):
-            self.assertEqual(llm.llm_pick(rows, self.MEMBERS, {"title": "配信"}, gloss=["リッカー"]), [])
         self.assertEqual(llm.llm_guard("トップ下", {"from": "トップ", "to": "リッカー", "confidence": 0.9}, [], llm.llm_names(llm.llm_gloss(["リッカー"]))), "newName")   # 候補に無い所へ持ち込まない
 
 

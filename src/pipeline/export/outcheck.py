@@ -8,7 +8,7 @@
 声の途中の切れ(頭・末の OC_EDGE_SEC 秒の音量 ÷ この切り抜きの声の大きさ = 50 ミリ秒ごとの音量の上位 1 割)は値を edge に残すだけで知らせない:
   書き出しは余白つき(端はパックで決まる)・BGM や環境音でも上がるので、最近の本物 25 本で 13 本に出た = 知らせにならない(しきい値を決める材料として残す)
 字幕のはみ出しはここでは見ない: 書き出しの動画に字幕は無く、パックの Text+ は 1 段 8 字(縦)で改行し、どの段も 10 字以下にそろえる(pack/resolve_textplus.wrap_caption)= 行の字数と上限(maxChars 縦 16)を比べても、はみ出しの知らせにならない。
-結果は {"issues": [{"kind", "text"}], "edge": {"head", "tail"}(頭・末の音量の比), "sec": 測った秒}。.clip.json の export.check に残し、② の書き出しの段の文に数を出す。スイッチ OUTCHECK
+結果は {"issues": [{"kind", "text"}], "edge": {"head", "tail"}(頭・末の音量の比), "sec": 測った秒}。.clip.json の export.check に残し、② の書き出しの段の文に数を出す(スイッチ OUTCHECK は 10-30 の片付けで外した)
 """
 import array
 import math
@@ -17,7 +17,6 @@ import time
 
 from ytt import tools as _tools
 
-OUTCHECK = True           # False = 点検しない(前のまま)
 OC_LEN_TOL = (1.0, 0.03)  # 長さの許す差(秒・割合。大きい方)
 OC_SILENT_DB = -50.0      # 平均の音量がこれ未満 = ほとんど無音
 OC_PEAK_DB = -0.1         # ピークがこれ以上 = 割れている恐れ
@@ -74,9 +73,7 @@ def judge(dur, expected, has_audio, mean_db, max_db, blacks):
 
 
 def check(path, expected=None, ffmpeg=None, dur=None, has_audio=True):
-    """書き出した切り抜き 1 本を点検する -> {"issues", "sec"} か None(OUTCHECK オフ・ffmpeg が無い・読めない = 点検しない。出力は止めない)"""
-    if not OUTCHECK:
-        return None
+    """書き出した切り抜き 1 本を点検する -> {"issues", "sec"} か None(ffmpeg が無い・読めない = 点検しない。出力は止めない)"""
     t0 = time.monotonic()
     ffmpeg = ffmpeg or _tools.find_tool("ffmpeg")
     if not ffmpeg:

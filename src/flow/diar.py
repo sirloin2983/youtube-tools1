@@ -246,7 +246,7 @@ def record_context(tid, name, hit, reason):
 
 
 # ---------- 覚えた声で 1 行ずつ話者を当てる(資料の git:before-1028-cleanup:plan/行ごとの声の当て-1023.md) ----------
-ROWVOICE = True           # スイッチ。出る人(spec の people)が 2 人以上で、全員の声が帳にあるときだけ動く(帳が足りなければ何もしない = 今のまま)
+# 出る人(spec の people)が 2 人以上で、全員の声が帳にあるときだけ動く(帳が足りなければ何もしない。スイッチ ROWVOICE は 10-30 の片付けで外した)
 ROWVOICE_MARGIN = 0.05    # 1 位と 2 位の差がこれ未満の行は配信者(出る人の先頭)のまま
 ROWVOICE_MIN = 0.5        # 声の特徴を取る行の長さの下限(秒)。短い行は配信者のまま
 ROWVOICE_COLORS = ["#2f62d6", "#d9534f", "#2e9e5b", "#c98a12", "#8a4fd6", "#0f9aa8", "#d6479a", "#6b7280"]   # 話者の色(③ speakers.SPK_COLORS と同じ並び)
@@ -259,7 +259,7 @@ def row_voices(job, spec, wav, segs):
     wav = 文字起こしの音(spec["start"] 秒から)。出る人の先頭 = 配信者 = 声で決まらない行の話者。字幕に出さない行・話者の付いた行は変えない。
     ② が足すこと: 帳の確かめ(全員そろうときだけ)・行の選び方・照合(1 位と 2 位の差)・記録の形(声の特徴は ① の embed_groups)"""
     people = list(dict.fromkeys(p for p in spec.get("people") or [] if isinstance(p, str) and p))
-    if not ROWVOICE or len(people) < 2:
+    if len(people) < 2:
         return None
     emb = learn_embedding(default_embedding())
     voices = load_voices(emb)

@@ -316,7 +316,7 @@ class TestRun(unittest.TestCase):
         self.assertEqual(body["spec"], {"video": media, "transcript": "/x/t1.transcript.json", "mode": "silence",
                                         "silence": {"noise": -40, "min": 0.6, "pad": 0.15}, "snapEdges": True})   # 両端を話の切れ目へ詰める(LD-2c。束の pack.snapEdges の既定)
         self.assertEqual(body["output"], {"textplus": True, "textplusWrap": 12, "textplusSize": "1920x1080", "textplusFps": "30",
-                                          "speakerColors": True, "loudness": -14.0})   # 音量 % でなく -14 LUFS(PACK_LEVEL)
+                                          "speakerColors": True, "loudness": -14.0})   # 音量 % でなく -14 LUFS
         self.assertEqual(r.packs, [os.path.normpath("/x/clip_pack")])
 
     def test_doc_pack_sends_clip_range(self):
@@ -1027,7 +1027,7 @@ class TestStepNormalize(unittest.TestCase):
         self.tmp = testkit.tempdir(self, "run-norm-")
         self.env = mock.patch.dict(os.environ, {"TRANSCRIBE_NORMALIZE": ""})
         self.env.start()
-        par = mock.patch.object(R, "NORM_PARALLEL", False)   # 段の中で作り直す形(並べる形は TestNormalizeParallel)
+        par = mock.patch.object(R.Runner, "_norm_parallel_ok", lambda self, run: False)   # 段の中で作り直す形 = 付け替えの口が無い LocalTools(並べる形は TestNormalizeParallel)
         par.start()
         self.addCleanup(par.stop)
         self.marks = []
@@ -1161,7 +1161,7 @@ class TestStepNormalize(unittest.TestCase):
 
 
 class TestNormalizeParallel(unittest.TestCase):
-    """30fps の作り直しと文字起こしを並べる(R.NORM_PARALLEL): 作り直しは裏の糸・元の写しで文字起こし・済んだら付け替えて元を消す"""
+    """30fps の作り直しと文字起こしを並べる(R.Runner._norm_parallel_ok): 作り直しは裏の糸・元の写しで文字起こし・済んだら付け替えて元を消す"""
 
     def setUp(self):
         self.tmp = testkit.tempdir(self, "run-normpar-")
@@ -1259,9 +1259,7 @@ class TestNormalizeParallel(unittest.TestCase):
             self.assertEqual(f.read(), b"30")
         self.assertFalse(os.path.exists(self.plan["dst"]))
 
-    def test_switch_off_or_no_relink_is_inline(self):
-        with mock.patch.object(R, "NORM_PARALLEL", False):
-            self.assertFalse(self.runner._norm_parallel_ok(self.run))
+    def test_no_relink_is_inline(self):
         self.runner.tools = object()   # 付け替えの口が無い(LocalTools)
         self.assertFalse(self.runner._norm_parallel_ok(self.run))
 

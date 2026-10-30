@@ -93,16 +93,14 @@ DOC_MODE = "doc"
 DOC_LABEL = "文字起こし → パック"
 BUSY_WAIT = 5.0        # スタジオの書き出しが別の書き出しで塞がっているときの待ち間隔
 EXPORT_MAX = 50        # 1 回の実行で書き出すマークの本数の上限(残りは次の実行で拾う。段の文に残りの本数を出す)
-PIPE_TX = True         # スイッチ: 流れ作業 = 書き出しの 1 本が済むたびに、その本の文字起こしを先に頼む(False = 書き出しが全部済んでから頼む)
+# 流れ作業(10-21)= 書き出しの 1 本が済むたびに、その本の文字起こしを先に頼む(_tx_early_on。スイッチ PIPE_TX は 10-30 の片付けで外した)
 # 解析の先回り(10-23。資料の git:before-1028-cleanup:plan/解析の先回り-設計.md): 今の実行が文字起こしの段に入る直前に、次に始まる実行の解析をスタジオの順番に頼む(Queue._prefetch_next)。
-# 次の実行の番が来たら、その解析を待つ・済んでいれば飛ばす(印 = 段の prefetched)。スイッチ: False = 今の形(解析は自分の番で)
-PREFETCH_ANALYZE = True
+# 次の実行の番が来たら、その解析を待つ・済んでいれば飛ばす(印 = 段の prefetched)。スイッチ PREFETCH_ANALYZE は 10-30 の片付けで外した
 # 30fps の作り直しと文字起こしを並べる(10-23。資料の git:before-1028-cleanup:plan/人の作業なしの候補-1023.md の 3): 動画ファイルの実行で、作り直しを裏の糸で進めながら
 # 元の写しの音で文字起こしを始め、文字起こしが済んだら作り直した動画へ文書を付け替える(付け替えられなければ元の写しのまま)。
 # 作り直しは映像の作り直し(GPU のエンコーダー)なので認識と取り合わない(この PC: 作り直し 15 秒 + 認識 37 秒 → 並べて 38.5 秒)。
 # 音は作り直しと同じ AAC 192k を先に作って認識に渡す(audioPath。取り出した音が作り直しの動画と同じ = 結果は今と同じ。元の音のままでは評価用 23 本の
-# 文書ごとの結果が揺れた = 8 本良く 9 本悪く)。スイッチ: False = 今の形(そろえてから文字起こし)
-NORM_PARALLEL = True
+# 文書ごとの結果が揺れた = 8 本良く 9 本悪く)。スイッチ NORM_PARALLEL は 10-30 の片付けで外した
 # mode post_analyze は無い(区間だけの依頼の最後の段 analyze_later がその役目。OPT-E2)。
 # 待ちの記録に mode post_analyze が残っていても、MODE_STEPS に無いので restore が読み飛ばす
 CANCEL_WAIT = 30.0                   # 取り消したスタジオの解析が止まるのを待つ秒(次の実行が同じ配信の解析を始められるように)
@@ -386,9 +384,9 @@ class Run:
         self.friend_plan = None            # 受付で決めた友人の区間の長さ(friend_length の形 + "base" = 重ねる前の束の値。束の analyze に入れてある。RS7-1 S4)
         self.notes = []                    # 受付で束を組んだときの知らせ(入口が画面の設定を直した所。パックの段の文と結果の束に出す。RS7-1 S4)
         self.new_docs = []               # この実行で文字起こしした文書(話者分離はこれだけ。前からある文書の話者は人が直したかもしれない)
-        self.norm_bg = None              # 30fps の作り直しを文字起こしと並べている間の {"thread", "res", "src", "dst", "audio"}(NORM_PARALLEL。メモリだけ)
-        self.prefetch = None             # 解析の先回り(PREFETCH_ANALYZE): 前の実行の間に頼んだ解析 {"qid", "at", "chat", "settings"}(メモリだけ)
-        self.tx_early = {}               # 流れ作業(PIPE_TX): 書き出しの段で見た本の動画のパスの鍵 -> {"job": 先に頼んだ文字起こしのジョブ か None, "redo"}(メモリだけ)
+        self.norm_bg = None              # 30fps の作り直しを文字起こしと並べている間の {"thread", "res", "src", "dst", "audio"}(メモリだけ)
+        self.prefetch = None             # 解析の先回り(runqueue.Queue._prefetch_next): 前の実行の間に頼んだ解析 {"qid", "at", "chat", "settings"}(メモリだけ)
+        self.tx_early = {}               # 流れ作業: 書き出しの段で見た本の動画のパスの鍵 -> {"job": 先に頼んだ文字起こしのジョブ か None, "redo"}(メモリだけ)
         self.tx_before = {}              # 文字起こしを頼む直前に、動画ごとに前からあった文書(文字のある物)の id(F2。再開でこの外の文書 = この実行が作った物)
         self.packs = []                  # この実行で作ったパックのフォルダ
         self.kept_packs = []             # 鍵で飛ばして作らなかった、前からあるパックのフォルダ(結果の packs には載せる。届ける対象にはしない = packs とは別)
@@ -1292,12 +1290,12 @@ class Runner:
         return None
 
     def _tx_early_on(self, run):
-        """流れ作業にするか: スイッチ PIPE_TX・配信の実行・この後に文字起こしの段が待っている"""
-        return PIPE_TX and not run.source_path and not run.doc_id and any(
+        """流れ作業にするか: 配信の実行・この後に文字起こしの段が待っている"""
+        return not run.source_path and not run.doc_id and any(
             s["key"] == "transcribe" and s["state"] == "wait" for s in run.steps)
 
     def _tx_early(self, run, items):
-        """流れ作業(PIPE_TX): 書き出しの済んだ本の文字起こしを、残りの書き出しを待たずに頼む。順番(GPU は同時に 1 つ)は文字起こしの器の糸 1 本と SLOTS が守る。
+        """流れ作業: 書き出しの済んだ本の文字起こしを、残りの書き出しを待たずに頼む。順番(GPU は同時に 1 つ)は文字起こしの器の糸 1 本と SLOTS が守る。
         頼むかは文字起こしの段と同じ判定(_made_here・tx_verdict)。頼まない本は文字起こしの段がいつもどおり扱う。
         頼めなかったとき(例外)は覚えるだけにして、文字起こしの段が今の形で頼む"""
         new = [i for i in items if i.get("status") == "done" and isinstance(i.get("path"), str) and i["path"]
@@ -1780,8 +1778,8 @@ class Runner:
         return None
 
     def _norm_parallel_ok(self, run):
-        """並べてよいか: スイッチ・動画ファイルの実行・この後に文字起こしの段がある・文書を付け替える口がある(LocalTools は無い = 今の形)"""
-        return NORM_PARALLEL and bool(run.source_path) and callable(getattr(self.tools, "relink", None)) and any(
+        """並べてよいか: 動画ファイルの実行・この後に文字起こしの段がある・文書を付け替える口がある(LocalTools は無い = 今の形)"""
+        return bool(run.source_path) and callable(getattr(self.tools, "relink", None)) and any(
             s["key"] == "transcribe" and s["state"] not in DONE_STEPS for s in run.steps)
 
     def _norm_start_bg(self, run, st, p):
@@ -1890,7 +1888,7 @@ class Runner:
             tid = doc["id"]
         else:
             self._tx_mark(run, [(run.source_path, [doc["id"]] if doc and doc.get("count") else [])])
-            audio = {"audioPath": run.norm_bg["audio"]} if run.norm_bg else {}   # 並べた作り直しと同じ音(NORM_PARALLEL)
+            audio = {"audioPath": run.norm_bg["audio"]} if run.norm_bg else {}   # 並べた作り直しと同じ音
             jid = self.tools.transcribe_start(dict(opts, sourcePath=run.source_path, **audio), bundle=self._bundle(run))
             j = self._wait_job(run, jid, st)
             if j.get("state") != "done":

@@ -63,8 +63,8 @@ TEXT_MAX = 64 * 1024
 MAX_URLS = 10            # 1つの依頼に書ける配信の数(① 探す から一度に入れられる数と同じ)
 SETTLE = 20.0            # 大きさと更新時刻がこの秒数変わらなければ、同期が終わったとみなす
 INTERVAL = 30.0          # 見る間隔
-WATCH = True             # スイッチ: 見る間隔の間もフォルダの直下と 送り返し\ の名前・大きさ・更新時刻を WATCH_SEC ごとに比べ、変わったらすぐ見る・
-                         # 落ち着くのを待っている物があれば落ち着く時刻に見る・依頼の JSON は REQ_SETTLE 秒で落ち着いたとみなす(False = 前の通り)
+# 見る間隔の間もフォルダの直下と 送り返し\ の名前・大きさ・更新時刻を WATCH_SEC ごとに比べ、変わったらすぐ見る・
+# 落ち着くのを待っている物があれば落ち着く時刻に見る・依頼の JSON は REQ_SETTLE 秒で落ち着いたとみなす(10-20。スイッチ WATCH は 10-30 の片付けで外した)
 WATCH_SEC = 2.0          # 比べる間隔(名前の一覧を読むだけ = 軽い)
 REQ_SETTLE = 5.0         # 依頼の JSON(数 KB。Dropbox のアプリは書き終えてから置く)が落ち着いたとみなす秒
 WAIT_FILES = 3600.0      # JSON があるのに動画がそろわないとき、断るまで待つ秒数
@@ -343,10 +343,7 @@ class Intake:
             self.wake.clear()
 
     def _wait_next(self, interval):
-        """次に見るまで待つ: interval 秒・wake・(WATCH のとき)フォルダの変化か、落ち着くのを待っている物の落ち着く時刻の早いほう"""
-        if not WATCH:
-            self.wake.wait(interval)
-            return
+        """次に見るまで待つ: interval 秒・wake・フォルダの変化か、落ち着くのを待っている物の落ち着く時刻の早いほう"""
         due = self._settle_due()
         left = min(interval, due) if due is not None else interval
         end = time.monotonic() + left
@@ -369,7 +366,7 @@ class Intake:
         return min(dues) if dues else None
 
     def _settle_of(self, p):
-        return min(self.settle, REQ_SETTLE) if WATCH and p.endswith(REQ_SUFFIX) else self.settle
+        return min(self.settle, REQ_SETTLE) if p.endswith(REQ_SUFFIX) else self.settle
 
     def _signature(self):
         """フォルダの直下と 送り返し\\ の名前の集まり(読めなければ None)。大きさの変化(同期の途中)は見ない = 落ち着く時刻で見る"""

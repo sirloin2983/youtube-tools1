@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""解析の先回り(flow/run.PREFETCH_ANALYZE・runqueue.Queue._prefetch_next。資料の git:before-1028-cleanup:plan/解析の先回り-設計.md)のテスト。
+"""解析の先回り(flow/runqueue.Queue._prefetch_next。資料の git:before-1028-cleanup:plan/解析の先回り-設計.md)のテスト。
 糸は回さず、待ちの列に実行を置いて、先回りの判定・B の番の解析の段・中止を直に呼ぶ。  py -3.12 -m unittest tests/flow/test_prefetch.py -v
 """
 import os
@@ -70,9 +70,7 @@ class PrefetchTest(unittest.TestCase):
         self.assertEqual(len(self.tools.added), 1)
 
     def test_does_not_ask(self):
-        """スイッチ・同じ配信・解析済み・空き容量の下限・解析の段の無い実行では頼まない"""
-        with mock.patch.object(R, "PREFETCH_ANALYZE", False):
-            self.assertIsNone(self.q._prefetch_next(self.a))
+        """同じ配信・解析済み・空き容量の下限・解析の段の無い実行では頼まない"""
         with mock.patch.object(self.q, "disk_check", lambda: {"freeGB": 1, "minGB": 10}):
             self.assertIsNone(self.q._prefetch_next(self.a))
         self.tools.analysis[B] = {"at": 1}   # 解析済み(重みの指定も無い)= skip

@@ -17,7 +17,7 @@ import time
 from ytt import fsio, schemas
 
 LOG = "deliveries.jsonl"        # 届けた記録(入口の作業データの logs の中)
-OVERLAP_ON = True               # 依頼をまたいだ区間のかぶりを知らせる(False = 知らせない。人の作業なしの候補の新機能 E・10-23)
+# 依頼をまたいだ区間のかぶりを知らせる(人の作業なしの候補の新機能 E・10-23。スイッチ OVERLAP_ON は 10-30 の片付けで外した)
 OVERLAP_SHARE = 0.5             # 短い方の区間のこの割合以上が重なれば「かぶり」
 MAX_SCAN = 4 * 1024 * 1024      # 末尾から読む上限
 
@@ -52,8 +52,8 @@ def clip_range(path):
 def overlaps(log_dir, video_id, rng, run_id="", ranges=None, request_id="", share=None):
     """同じ配信のほかの実行(前の依頼・送り直し)で届けた切り抜きのうち、区間 rng(元の配信の秒)と短い方の share(既定 OVERLAP_SHARE)以上重なる物
     -> [{"zip", "at", "requestId", "share"}](古い順)。ranges = 切り抜きの動画 -> 区間 を引く関数(既定 clip_range)。
-    request_id = その依頼 id の行だけ(手で届ける道の二重の守り Deliveries.start。OVERLAP_ON に関わらず見る)"""
-    if (not OVERLAP_ON and not request_id) or not video_id or not rng:
+    request_id = その依頼 id の行だけ(手で届ける道の二重の守り Deliveries.start)"""
+    if not video_id or not rng:
         return []
     ranges, out, share = ranges or clip_range, [], OVERLAP_SHARE if share is None else share
     for row in rows(log_dir) or []:

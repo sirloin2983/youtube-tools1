@@ -148,9 +148,6 @@ class TestRowVoices(unittest.TestCase):
         self.assertIsNone(self.run_rv(["A"], segs, [[1.0, 0.0, 0.0]])[0])          # 1 人
         self.assertIsNone(self.run_rv([], segs, [[1.0, 0.0, 0.0]])[0])
         self.assertEqual(segs[0]["speaker"], "")
-        from unittest import mock
-        with mock.patch.object(diar, "ROWVOICE", False):                           # スイッチ
-            self.assertIsNone(self.run_rv(["A", "B"], segs, [[1.0, 0.0, 0.0]])[0])
 
 
 if __name__ == "__main__":

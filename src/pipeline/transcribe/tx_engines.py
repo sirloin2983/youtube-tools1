@@ -328,8 +328,8 @@ def no_fetch():
     return os.environ.get(NO_FETCH_ENV) == "1"
 
 
-VERIFY_STAMP = True   # 確かめた印 <file>.ok(SHA-256・大きさ・更新日時)が今のファイルと合えば、読み込みのたびに SHA-256 を計り直さない
-# (10-23 測定: 8B の LLM 5GB で 7.7 秒・whisper の large-v3 3GB も毎回。ワーカーを起こすたびに掛かっていた)。False = 毎回計る(前のまま)
+# 確かめた印 <file>.ok(SHA-256・大きさ・更新日時)が今のファイルと合えば、読み込みのたびに SHA-256 を計り直さない
+# (10-23 測定: 8B の LLM 5GB で 7.7 秒・whisper の large-v3 3GB も毎回。ワーカーを起こすたびに掛かっていた。スイッチ VERIFY_STAMP は 10-30 の片付けで外した)
 
 
 def _stamp_of(path, spec):
@@ -340,7 +340,7 @@ def _stamp_of(path, spec):
 def _verified(path, spec):
     """確かめた印が今のファイル(大きさ・更新日時)と spec の SHA-256 に合うか"""
     try:
-        return VERIFY_STAMP and _fsio.read_json_or(path + ".ok", None, 4096, kind=dict) == _stamp_of(path, spec)
+        return _fsio.read_json_or(path + ".ok", None, 4096, kind=dict) == _stamp_of(path, spec)
     except OSError:
         return False
 

@@ -321,15 +321,12 @@ class TestBodies(unittest.TestCase):
     def test_pack_output(self):
         row_edge, out, cs = spec.pack_output(spec.merge(None))
         self.assertIs(row_edge, True)
-        self.assertEqual(out, {"textplusWrap": 8, "textplusSize": "1080x1920", "textplusFps": "30", "speakerColors": True, "loudness": -14.0})   # そろえない(0)でも PACK_LEVEL で目標へ
+        self.assertEqual(out, {"textplusWrap": 8, "textplusSize": "1080x1920", "textplusFps": "30", "speakerColors": True, "loudness": -14.0})   # そろえない(0)でも目標へ
         self.assertEqual(cs, {"noise": -35.0, "min": 0.6, "pad": 0.15})
         b = spec.merge({"pack": {"size": "1920x1080", "loudness": -14, "backup": True, "render": True, "videoTracks": 3, "speakerColors": False}})
         _re, out, _cs = spec.pack_output(b)   # 古い束の pack.backup・render: true は読み捨てる(要求に書かない = 決定 3-34・10-24)
         self.assertEqual(out, {"textplusWrap": 14, "textplusSize": "1920x1080", "textplusFps": "30", "speakerColors": False,
                                "loudness": -14, "videoTracks": 3})
-        with mock.patch.object(spec._loud, "PACK_LEVEL", False):   # スイッチを切れば今までどおり(音量 %)
-            self.assertEqual(spec.pack_output(spec.merge(None))[1]["volume"], 30)
-            self.assertNotIn("volume", spec.pack_output(spec.merge({"pack": {"volume": 100}}))[1])   # 元の音量は書かない
 
 
 class TestPadRange(unittest.TestCase):

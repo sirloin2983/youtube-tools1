@@ -132,7 +132,7 @@ def make_flags(seg, prev_texts, lang=None, terms=()):
 # 行を単語の時刻で分ける split_segment(と SPLIT_GAP・SPLIT_SEC・SPLIT_CHARS・SPLIT_SLACK・_cut_words)・句読点の除去 strip_punct(STRIP_PUNCT_CHARS)・空白を詰める _squash は ytt/txtext.py にある(③ が ① を読まずに使えるように。ここは _txtext.名前 で呼ぶたびに読む)
 
 
-NOTE_NOSUB = True   # 文字が音符(♪♫♬♩)と記号・空白だけの行に「字幕に出さない」(noSub)を付ける(ユーザー 10-23「音符一つだけの行もいらない」。False = 付けない)
+# 文字が音符(♪♫♬♩)と記号・空白だけの行に「字幕に出さない」(noSub)を付ける(ユーザー 10-23「音符一つだけの行もいらない」。スイッチ NOTE_NOSUB は 10-30 の片付けで外した)
 _NOTE_ONLY = re.compile(r"^[\s♪♫♬♩～~〜・.。、ー]*[♪♫♬♩][\s♪♫♬♩～~〜・.。、ー]*$")
 
 
@@ -142,10 +142,10 @@ def note_only(text):
 
 
 def note_nosub(text):
-    """字幕に出さない印を付ける音符だけの行か(NOTE_NOSUB)。付けるのは文書の行を作る所(clipjob)= 埋め A のあと。行は捨てない:
+    """字幕に出さない印を付ける音符だけの行か。付けるのは文書の行を作る所(clipjob)= 埋め A のあと。行は捨てない:
     whisper が BGM の所に書いた ♪ の行は A が SenseVoice で窓を読み直す手がかり(f469fd で本当の声「ただいやー」を拾った)で、
     行が ♪ だけの区間を捨てるとパックが「渡す文字のある行がありません」で作れなかった(配る前の検査の区間 5 つ。字幕が 0 本ならパックは字幕なしで作る)。機械の出力 original は変えない"""
-    return NOTE_NOSUB and note_only(text)
+    return note_only(text)
 
 
 def expand_segments(gen, spec, dur=None, join=True):
@@ -180,7 +180,7 @@ def expand_segments(gen, spec, dur=None, join=True):
 REP_ROWS = 3          # 同じ1文字だけの行(「ああああ」)がこの数以上続いたら1行にまとめる(本当に叫んでいることもあるので消さない。印「繰り返しの可能性」)
 REP_ROW_GAP = 1.0     # まとめる行の間のすき間の上限(秒)
 REP_CHAR_KEEP = 10    # 1行の中の同じ文字の続きは、ここまでに縮める(「あああ…」×40 → 10 文字)
-REP_UNIT = True       # 2〜3 字のかなの繰り返しだけの行(「どう」「どうどうどう」)も、続いた行の繰り返しの合計が REP_UNIT_MIN 回以上ならまとめる(10-23 さくらみこの配信で「どう」の幻が 150 行)。False = 1 字だけ
+# 2〜3 字のかなの繰り返しだけの行(「どう」「どうどうどう」)も、続いた行の繰り返しの合計が REP_UNIT_MIN 回以上ならまとめる(10-23 さくらみこの配信で「どう」の幻が 150 行。スイッチ REP_UNIT は 10-30 の片付けで外した)
 REP_UNIT_MIN = 8      # 2〜3 字の単位をまとめる、続いた行の繰り返しの合計の下限(「はい」が 3 行続く本物の受け答えはまとめない)
 REP_UNIT_KEEP = 4     # 2〜3 字のかなが 1 行の中で REP_UNIT_MIN 回以上続いたら、ここまでの回数に縮める(5〜6 回の「げんげん…」「ぱんぱん…」は本物の言い方でありうるので変えない)
 # whisper.cpp の続いている行の終わりを早める秒(ユーザーの目安 0.1 秒)。既定は 0: 行の時刻の原則の ①
@@ -234,12 +234,12 @@ def clip_rows(rows, dur):
 
 
 def _one_char(text):
-    """行の文字(句読点・空白を除く)の繰り返しの単位: 同じ1文字の2つ以上の続きならその文字、REP_UNIT なら 2〜3 字のかなの 1 回以上の続きならその単位。
+    """行の文字(句読点・空白を除く)の繰り返しの単位: 同じ1文字の2つ以上の続きならその文字、2〜3 字のかなの 1 回以上の続きならその単位。
     そうでなければ None"""
     k = _letters(text)
     if len(k) >= 2 and k == k[0] * len(k):
         return k[0]
-    for n in (2, 3) if REP_UNIT else ():
+    for n in (2, 3):
         u = k[:n]
         if len(k) >= n and len(k) % n == 0 and u * (len(k) // n) == k and _KANA.match(u) and len(set(u)) > 1:
             return u
@@ -249,7 +249,7 @@ def _one_char(text):
 def merge_repeats(rows):
     """同じ1文字だけの行(「ああ」「ああああああ」)が REP_ROWS 行以上続いたら(すき間 REP_ROW_GAP 秒以下)、1行にまとめる(始まり = 最初・終わり = 最後・
     単語はつなぐ・"_rep" = まとめた行の数 → make_flags が「繰り返しの可能性」)。どの行も、同じ文字の続きは REP_CHAR_KEEP 文字までに縮める。
-    2〜3 字のかなの繰り返しだけの行(「どう」)は、続いた行の繰り返しの合計が REP_UNIT_MIN 回以上のときだけまとめ、REP_UNIT_KEEP 回に縮める(REP_UNIT)。
+    2〜3 字のかなの繰り返しだけの行(「どう」)は、続いた行の繰り返しの合計が REP_UNIT_MIN 回以上のときだけまとめ、REP_UNIT_KEEP 回に縮める。
     「早く!早く!…」のように意味のある語の繰り返しの行は、本当に言っていることが多いのでまとめない(印は従来どおり)"""
     buf = []
 
@@ -282,8 +282,7 @@ def _squash_row(p):
     """行の中の同じ文字の続きを REP_CHAR_KEEP 文字までに縮める(縮めたら "_rep")"""
     t = p.get("text") or ""
     s = _SAME_CHAR_RUN.sub(lambda m: m.group(1) * REP_CHAR_KEEP, t)
-    if REP_UNIT:
-        s = _UNIT_RUN.sub(lambda m: m.group(1) * REP_UNIT_KEEP if len(set(m.group(1))) > 1 else m.group(0), s)
+    s = _UNIT_RUN.sub(lambda m: m.group(1) * REP_UNIT_KEEP if len(set(m.group(1))) > 1 else m.group(0), s)
     if s == t:
         return p
     return {**p, "text": s, "_rep": p.get("_rep") or 1}
@@ -341,7 +340,7 @@ def post_record(spec=None):
     古い記録には pullEnds(音の谷へ寄せるか)・retime(1 秒丸めの配り直しのモデル | False)の鍵もある(読むだけ)。
     runs[].retimed(配り直しの数)は書かない(古い記録に残るだけ)"""
     end_trim, join_gap = post_values(spec)
-    return {"version": str(_workdata.SERVER_VERSION or ""), "endTrim": end_trim, "joinGap": join_gap, "barMax": _txtext.BAR_MAX, "noteNoSub": NOTE_NOSUB}
+    return {"version": str(_workdata.SERVER_VERSION or ""), "endTrim": end_trim, "joinGap": join_gap, "barMax": _txtext.BAR_MAX, "noteNoSub": True}
 
 
 def row_words(p, shift=0.0):
