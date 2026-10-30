@@ -1,6 +1,7 @@
 """ホームの「友人の依頼」の行(src/app/homereq.py): 受付の記録と実行の記録を結んで、札・済んだ・案件の画面への道を決める。
 実行(リポジトリ直下から): python -m unittest tests/app/test_homereq.py -v
 """
+import io
 import os
 import sys
 import unittest
@@ -56,8 +57,18 @@ class RowsTest(unittest.TestCase):
         on = {r["id"]: r for r in H.rows(reqs, [], NOW, active={"local/20261024-193147-N3z6TI4ED7o"})}
         self.assertEqual((on["s"]["state"], on["s"]["link"]["c"]), ("live", "20261024-193147-N3z6TI4ED7o"))
         off = {r["id"]: r for r in H.rows(reqs, [], NOW, active=set(), delivered={"20261024-193027-fe9dc7": 1.0})}
-        self.assertEqual(off["s"]["link"], {"c": "N3z6TI4ED7o", "tab": "cand", "ended": True})
+        self.assertEqual(off["s"]["link"], {"c": "N3z6TI4ED7o", "rec": "20261024-193147-N3z6TI4ED7o", "tab": "cand", "ended": True})
         self.assertEqual((off["s"]["state"], off["t"]["state"], off["t"]["label"]), ("sent", "nocand", "候補なし"))
+
+    def test_ended_live_link_keeps_recording_id(self):
+        """10-30 の不具合: 録画が終わっても案件の一覧は録画の id(<日付>-<時刻>-<動画 id>)のまま載ることがある。
+        道に録画の id(rec)も持たせ、画面(portal.js の freqGo)は動画の id・録画の id の両方で照らす = どちらかにあれば開ける"""
+        rec = {"recorder": "local", "recording": "20261030-171348-FI1HuollS5U"}
+        row = H.rows([req("j", kind="live", live=rec, requestId="20261030-171200-abcdef")], [], NOW, active=set())[0]
+        self.assertEqual((row["link"]["c"], row["link"]["rec"]), ("FI1HuollS5U", "20261030-171348-FI1HuollS5U"))
+        js = io.open(os.path.join(os.path.dirname(H.__file__), "ui", "home", "portal.js"), encoding="utf-8").read()
+        go = js[js.index("function freqGo("):js.index("function freqRow(")]
+        self.assertIn("caseById(l.rec)", go)
 
     def test_failed_run_later_delivered_by_original_id(self):
         """実行は失敗でも、元の依頼 id で後から届けた(後追い・引き継ぎ)なら 送った"""
