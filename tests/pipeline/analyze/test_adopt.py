@@ -108,6 +108,23 @@ class TestAdoptRun(unittest.TestCase):
                 A.check_args(ranges, top)
 
 
+class TestPref(unittest.TestCase):
+    def test_order_ends_extra(self):
+        """pref(flow/url_pick): order の並びで選ぶ(当たらない物は後ろで点数の順)・ends で採用にした物の終わりを縮める・
+        extra から上限の外に、採用した物と重ならない最初の 1 本(extraIds)。pref が無ければ今のまま"""
+        pref = {"order": [[400, 430], [10, 40]], "ends": [[400, 430, 420.0], [100, 130, 110.0]], "extra": [[105, 120], [300, 330]]}
+        r = A.adopt(base(), A.check_args([], 3), 3, DUR, pref)
+        self.assertEqual(r["autoIds"], ["a5", "a1", "a2"])   # 並びの 2 本 → 残りは点数の順(a2 = 9)
+        got = {m["id"]: m for m in r["marks"]}
+        self.assertEqual((got["a5"]["end"], got["a2"]["end"], got["a1"]["end"]), (420.0, 110.0, 40))
+        self.assertEqual(r["extraIds"], ["a4"])   # 105〜120 はマークが無い → 300〜330(a4)
+        self.assertEqual((got["a4"]["status"], got["a4"]["adoptedBy"]), ("adopted", "auto"))
+        self.assertIn("a4", r["added"])
+        r0 = A.adopt(base(), A.check_args([], 3), 3, DUR)
+        self.assertEqual((r0["autoIds"], r0["extraIds"]), (["a2", "a4", "a3"], []))
+        self.assertEqual(A.adopt(base(), A.check_args([], 3), 3, DUR, {"order": "x", "extra": [[1]]})["autoIds"], ["a2", "a4", "a3"])   # 形の違う pref は無視
+
+
 class TestFlowVerb(unittest.TestCase):
     def test_check_pick_and_live(self):
         """② flow/adopt: 理由を ApiError 400 にそろえる・配信の長さで切る・kind live は通さない"""

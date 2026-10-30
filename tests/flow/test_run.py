@@ -965,6 +965,7 @@ class TestShortfall(unittest.TestCase):
         self.assertEqual(rn._chat_retry, {})   # 古い配信は取り直さない
         self.assertNotIn("取り直", st["detail"])
 
+    @mock.patch.object(R._url_pick, "HEAT_ONE_ON", False)   # チャットの無い配信の 1 本減(flow/url_pick)は test_url_pick で見る
     def test_adopt_records_why_short(self):
         """採用の段の文(記録 autorun-runs.jsonl に残る)に、埋めた数と足りなかった理由"""
         marks = [{"id": "a1", "reasons": ["音量が急上昇"]}, {"id": "a2", "reasons": ["音声の変化", R._excite.FILL_REASON]}]
@@ -975,6 +976,47 @@ class TestShortfall(unittest.TestCase):
         _out, st = self.step(rn, RF.run_of(VID, "配信", "request_auto", 5), key="adopt", v=dict(tools.v, duration=3560))
         self.assertEqual(st["detail"], "自動で 2 本を足しました(点数の高い順)(うち 1 本は本数に届かないので、点数の低い山で埋めました)。候補が足りず 3 本は選べませんでした"
                                        "(チャットのリプレイが使えなかった(0 件)・盛り上がりの山が 2 個しか見つからなかった(しきい値の下の山で埋めても))")
+
+
+class TestUrlPick(unittest.TestCase):
+    """友人の URL の自動依頼(本数だけ)の採用(flow/url_pick。10-30): 最終の候補の点の順・縮め・heatmap の山を 1 本足す・長い / チャットの無い配信は 1 本減らす"""
+
+    def cands(self):
+        return [{"start": 100.0, "end": 200.0, "score": 9.0, "peak": 120.0, "final": 0.5, "settle": 150.0},
+                {"start": 300.0, "end": 400.0, "score": 8.0, "peak": 320.0, "final": 2.0},
+                {"start": 500.0, "end": 560.0, "score": 1.0, "origin": "heatmap"}]
+
+    def step(self, a, top=3, dur=3560, adopt=None):
+        class Tools(ShortTools):
+            def request_marks(self, body):
+                self.body = body
+                return self.adopt
+        tools = Tools({"id": VID, "kind": "youtube", "analysis": a, "marks": []})
+        tools.adopt = adopt or {"rangeIds": [], "humanIds": [], "autoIds": ["a1", "a2"], "added": ["a1", "a2", "h1"], "extraIds": ["h1"]}
+        rn = R.Runner(None, poll=0, sleep=lambda s: None, tools=tools, clock=lambda: NOW, log=lambda *x: None)
+        run = RF.run_of(VID, "配信", "request_auto", top)
+        st = run.step("adopt")
+        st["state"] = "run"
+        rn._step_adopt(run, st, dict(tools.v, duration=dur))
+        return tools.body, st, run
+
+    def test_pick(self):
+        a = dict(analysis_of(), cands=self.cands())
+        body, st, run = self.step(a)
+        self.assertEqual(body["top"], 3)
+        self.assertEqual(body["pref"], {"order": [[300.0, 400.0], [100.0, 200.0]], "ends": [[100.0, 200.0, 150.0]], "extra": [[500.0, 560.0]]})
+        self.assertEqual(st["urlPick"], {"final": True, "cut": 1, "low": None, "heat": True})
+        self.assertIn("h1", run.marks)   # 足した 1 本も書き出す
+        self.assertIn("最終の候補の点の順", st["detail"])
+        self.assertIn("よく見られている場面を 1 本足しました", st["detail"])
+        body, st, _run = self.step(a, dur=3 * 3600)
+        self.assertEqual((body["top"], st["urlPick"]["low"]), (2, "long"))   # 3 時間以上 = 1 本減らす
+        self.assertIn("3 時間以上の配信なので 1 本減らしました", st["detail"])
+        body, st, _run = self.step(dict(analysis_of(chat=False), cands=self.cands()), top=1)
+        self.assertEqual((body["top"], st["urlPick"]["low"]), (1, None))   # 1 本は減らさない
+        with mock.patch.object(R._url_pick, "FINAL_ON", False), mock.patch.object(R._url_pick, "HEAT_ONE_ON", False):
+            body, st, _run = self.step(dict(analysis_of(chat=False), cands=self.cands()))
+            self.assertEqual((body["top"], "pref" in body), (3, False))   # スイッチを切れば前の形
 
 
 class TestStepNormalize(unittest.TestCase):

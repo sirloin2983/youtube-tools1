@@ -92,6 +92,7 @@ from . import chatreuse as _chatreuse   # ライブのチャットの使い回�
 from . import live_failures   # 失敗の文は 1 か所。M3・M7
 from . import live_batch as _live_batch   # 友人のライブの依頼を区切りごとに届ける形はアーカイブで足さない(10-30)
 from . import live_export as LX
+from . import url_pick as _url_pick   # heatmap の山を 1 本足す・見つけにくい配信は 1 本減らす(10-30)
 
 CODE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pipeline", "ingest")   # 子プロセスの道具は ① の置き場(pipeline/ingest)
 WORKER = os.path.join(CODE_DIR, "live_align_worker.py")
@@ -1277,7 +1278,16 @@ class Archiver(LX.Patrol):
         taken = [(a["first"] + m["start"], a["first"] + m["end"]) for m in got or []
                  if isinstance(m, dict) and m.get("status") in ("adopted", "exported") and schemas.is_num(m.get("start")) and schemas.is_num(m.get("end"))]
         end = a["end"] if schemas.is_num(a.get("end")) else a["last"] - LX.READY_PAD   # 前の版の記録(end なし)は録画の終わりまで
-        picked = pick_candidates(marks, a["n"], a["t0"], a["offset"], a["first"], end, taken)
+        an = v.get("analysis") if isinstance(v.get("analysis"), dict) else None
+        low = _url_pick.low_why(an, v.get("duration")) if a["n"] >= 2 else None   # 3 時間以上・チャットの無い配信は 1 本減らす(url_pick.HEAT_ONE_ON)
+        picked = pick_candidates(marks, a["n"] - 1 if low else a["n"], a["t0"], a["offset"], a["first"], end, taken)
+        hs = _url_pick.heat_spans(an)   # 解析の時に heatmap があれば、その山を 1 本足す(無ければ足さない・待たない)
+        heat = []
+        if hs and picked:
+            hm = [m for s, e in hs for m in marks if isinstance(m, dict) and abs(m.get("start", -1) - s) <= 0.5 and abs(m.get("end", -1) - e) <= 0.5]
+            heat = pick_candidates(hm, 1, a["t0"], a["offset"], a["first"], end, taken + [(x, y) for x, y, _m in picked])
+        heat_ids = {id(m) for _x, _y, m in heat}
+        picked = sorted(picked + heat, key=lambda x: x[0])
         cands = sum(1 for m in marks if isinstance(m, dict) and m.get("src") == "auto")
         if not picked:
             self._after_set(rc, rec, state="none", jobs=[], picked=[],
@@ -1285,7 +1295,7 @@ class Archiver(LX.Patrol):
             return True
         jobs_, done, errs = [], [], []
         for k, (x, y, m) in enumerate(picked, 1):
-            label = (m.get("label") or "").strip() or "アーカイブの山 %d" % k
+            label = (m.get("label") or "").strip() or (_url_pick.HEAT_LABEL if id(m) in heat_ids else "アーカイブの山 %d" % k)
             body = {"recorder": rc, "recording": rec, "start": LX.epoch_iso(x), "end": LX.epoch_iso(y), "label": label[:LX.LABEL_MAX],
                     "origin": "archive", "after": AFTER_FLOW}
             try:
@@ -1297,11 +1307,13 @@ class Archiver(LX.Patrol):
             if j.get("id"):
                 jobs_.append(j["id"])
             done.append({"start": round(x - a["first"], 3), "end": round(y - a["first"], 3), "score": m.get("score"), "archiveStart": m.get("start"),
-                         "existing": bool((res or {}).get("existing"))})
+                         "existing": bool((res or {}).get("existing")), **({"heat": True} if id(m) in heat_ids else {})})
         if not jobs_:
             raise ArchiveError("自動で採用できませんでした: %s" % (errs[0] if errs else "理由は分かりません"))
-        self._after_set(rc, rec, state="export", jobs=jobs_, picked=done, skipped=errs,
-                        message="%d 本を採用しました(アーカイブの解析の上位)。アーカイブから書き出し → 文字起こし → パック" % len(jobs_) +
+        self._after_set(rc, rec, state="export", jobs=jobs_, picked=done, skipped=errs, low=low,
+                        message="%d 本を採用しました(アーカイブの解析の上位%s%s)。アーカイブから書き出し → 文字起こし → パック" % (
+                            len(jobs_), "・よく見られている場面を 1 本足しました" if heat else "",
+                            "・%sので 1 本減らしました" % ("3 時間以上の配信な" if low == "long" else "チャットの無い配信な") if low else "") +
                         ("(%d 本は採用できませんでした: %s)" % (len(errs), errs[0]) if errs else ""))
         self.log("リアルタイム切り抜き: 配信後の自動の切り抜き: %s で %d 本を採用しました(origin archive)" % (rec, len(jobs_)))
         return True

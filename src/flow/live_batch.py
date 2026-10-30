@@ -195,15 +195,22 @@ def shrink(pk, kind):
     p = cr.get("settle" if kind == "live" else "settleAll")
     if not SHRINK_ON or not schemas.is_num(p):
         return dict(pk), 0.0
+    e0 = float(pk["end"])
+    e = shrink_end(pk, p, SHRINK_LIVE_CAP if kind == "live" else SHRINK_END_CAP)
+    return dict(pk, end=round(e, 3)), round(e0 - e, 1)
+
+
+def shrink_end(pk, p, cap):
+    """候補 pk の終わりを笑いの収まり p まで縮めた終わりの秒(山 + SHRINK_KEEP 秒より前にしない・長さ SHRINK_MIN 秒は残す・縮める量は cap 秒まで(None = 上限なし))。
+    flow/url_pick(URL の自動依頼)も使う"""
     s, e0 = float(pk["start"]), float(pk["end"])
     at = pk.get("peak") if schemas.is_num(pk.get("peak")) else (s + e0) / 2.0
-    cap = SHRINK_LIVE_CAP if kind == "live" else SHRINK_END_CAP
     e = min(e0, max(float(p), at + SHRINK_KEEP))
     if cap is not None:
         e = max(e, e0 - cap)
     if e - s < SHRINK_MIN:
         e = min(e0, s + SHRINK_MIN)
-    return dict(pk, end=round(e, 3)), round(e0 - e, 1)
+    return e
 
 
 def clean_mark(v):

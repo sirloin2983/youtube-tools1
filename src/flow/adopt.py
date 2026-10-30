@@ -21,12 +21,12 @@ def check(ranges, top):
         raise ApiError("bad_request", str(e), 400)
 
 
-def pick(video, want, top):
+def pick(video, want, top, pref=None):
     """配信 1 本(ytt/marks の形のマークを持つ辞書。変えない)に F-5 を当てる。want = check の区間。
     -> {"marks", "rangeIds", "humanIds", "autoIds", "added"}(pipeline/analyze/adopt.adopt)。kind live・区間が配信の外などは ApiError 400"""
     if video.get("kind") == "live":
         raise ApiError("bad_request", yturl.LIVE_NO_ANALYZE, 400)
     try:
-        return _adopt.adopt(video["marks"], want, top, video.get("duration"))
+        return _adopt.adopt(video["marks"], want, top, video.get("duration"), pref)   # pref = 呼ぶ側の並び・縮め・足す 1 本(flow/url_pick)
     except ValueError as e:
         raise ApiError("bad_request", str(e), 400)

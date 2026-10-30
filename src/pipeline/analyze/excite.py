@@ -147,6 +147,7 @@ RERANK_W = (1.0, 0.5)            # (跳ねる箱の割合, 笑いの書き込み
 RERANK_BOX = 10                  # 箱の秒
 SETTLE_NEAR = 30                 # 印 chatRank.settle: 笑いの収まりを探す、山の前後の秒(研究と同じ)
 LAUGH_NEAR = 60                  # 印 chatRank.lc: 山の前後この秒(候補の区間の中)の笑いの書き込みの件数(flow/live_batch の最終の候補の点・10-30)
+FINAL_LC_W = 0.5                 # 印 chatRank.final(アーカイブの解析)= 仮説 8 の点 + この重み × 笑いの件数の z(flow/url_pick が URL の自動依頼の並びに使う・10-30)
 LAUGH_RE = re.compile(r"草|笑|ワロ|わろ|lol|(?<![A-Za-z])[wｗW]+(?![A-Za-z])", re.I)   # 研究の chat_content.LAUGH と同じ
 LAUGH_EMO = set("😂🤣😆😹😄😁")
 
@@ -206,10 +207,51 @@ class ChatFeats:
         i, j = self._bisect.bisect_left(self.ts, a), self._bisect.bisect_left(self.ts, b)
         return (self.lp[j] - self.lp[i]) / max(1, j - i)
 
+    def near(self, c):
+        """山の前後 LAUGH_NEAR 秒(区間の中)の笑いの書き込みの件数(PeakBook._laugh_near と同じ数え方 = 秒を切り上げた [a, b))"""
+        at = c.get("peak") if isinstance(c.get("peak"), (int, float)) else (c["start"] + c["end"]) / 2.0
+        a, b = max(float(c["start"]), at - LAUGH_NEAR), min(float(c["end"]), at + LAUGH_NEAR)
+        if b <= a:
+            return 0
+        i, j = self._bisect.bisect_left(self.ts, math.ceil(a)), self._bisect.bisect_left(self.ts, math.ceil(b))
+        return self.lp[j] - self.lp[i]
+
+    def settle(self, c):
+        """笑いの収まりの秒(ふだん = 全部の箱の中央値。PeakBook._settle の live でない形)か None"""
+        if getattr(self, "_lb", None) is None:   # 10 秒の箱ごとの笑いの書き込みの件数(1 回だけ数える)
+            self._lb = [0] * len(self.cnt)
+            for k, t in enumerate(self.ts):
+                if self.lp[k + 1] > self.lp[k]:
+                    self._lb[int(t // RERANK_BOX)] += 1
+            self._lb_base = max(1.0, median(self._lb)) if self._lb else 1.0
+        return laugh_settle(self._lb, self._lb_base, c)
+
+
+def laugh_settle(lc, base, pk):
+    """笑いの収まりの秒(研究の queue135_136.LiveSettle・queue25_28_30.Settle の「笑い」): lc = 10 秒の箱ごとの笑いの書き込みの件数・base = ふだん。
+    ふだん × 2 以上の箱を跳ねとみなし、山の前後 SETTLE_NEAR 秒に跳ねがあれば、最後の跳ねから 1 箱までの切れ目を続きとみなして伸ばした終わり。跳ねが無ければ None"""
+    n = len(lc)
+    at = pk.get("peak") if isinstance(pk.get("peak"), (int, float)) else (pk["start"] + pk["end"]) / 2.0
+    i0, i1 = max(0, int((at - SETTLE_NEAR) // RERANK_BOX)), min(n, int((at + SETTLE_NEAR) // RERANK_BOX) + 1)
+    hits = [i for i in range(i0, i1) if lc[i] >= 2 * base]
+    if not hits:
+        return None
+    j = max(hits)
+    while True:
+        if j + 1 < n and lc[j + 1] >= 2 * base:
+            j += 1
+        elif j + 2 < n and lc[j + 2] >= 2 * base:
+            j += 2
+        else:
+            break
+    return float((j + 1) * RERANK_BOX)
+
 
 def rerank(cands, feats, k, live=False):
     """候補(点数の高い順に並べ替える)から k 本を、点の z + 重み × 跳ねる箱の割合の z + 重み × 笑いの割合の z の順で選ぶ -> (選んだ候補, 落とした候補)。
-    選んだ候補には印 chatRank。feats が空(文字の書き込みが無い)なら点数の上から k 本のまま(印なし)。落とした候補 = 点数の上から k 本のうち選ばなかった物"""
+    選んだ候補には印 chatRank。feats が空(文字の書き込みが無い)なら点数の上から k 本のまま(印なし)。落とした候補 = 点数の上から k 本のうち選ばなかった物。
+    アーカイブの解析(live でない)は印に lc(山の前後の笑いの件数)・final(z + FINAL_LC_W × lc の z。z は候補の元の全部の中)・settleAll(笑いの収まり)も足す
+    (選ぶ本数・並びは変えない。flow/url_pick が URL の自動依頼で使う)"""
     cs = sorted(cands, key=lambda c: -c["score"])
     if not feats or not cs:
         return cs[:k], []
@@ -219,10 +261,14 @@ def rerank(cands, feats, k, live=False):
     sc = [p + wb * q + wl * r for p, q, r in zip(zlist([c["score"] for c in cs]), zlist(fb), zlist(fl))]
     order = sorted(range(len(cs)), key=lambda i: -sc[i])
     keep = set(order[:k])
+    fc = [feats.near(c) for c in cs] if not live else None
+    fin = [s + FINAL_LC_W * z for s, z in zip(sc, zlist(fc))] if fc is not None else None
     out = []
     for i in order[:k]:
         c = dict(cs[i])
         c["chatRank"] = {"rate": round(fb[i], 3), "laugh": round(fl[i], 3), "z": round(sc[i], 3), "up": i >= k}
+        if fin is not None:
+            c["chatRank"].update(lc=fc[i], final=round(fin[i], 3), settleAll=feats.settle(c))
         out.append(c)
     return out, [cs[i] for i in range(min(k, len(cs))) if i not in keep]   # 落とした = 点数だけなら選ばれていた物
 
@@ -1315,21 +1361,7 @@ class PeakBook:
         n = max(max(self.laugh_boxes), max(self.chat_boxes) if self.chat_boxes else 0) + 1
         lc = [self.laugh_boxes.get(i, 0) for i in range(n)]
         base_of = lc[:max(1, int(pk["start"] // RERANK_BOX))] if live else lc
-        base = max(1.0, median(base_of))
-        at = pk.get("peak") if isinstance(pk.get("peak"), (int, float)) else (pk["start"] + pk["end"]) / 2.0
-        i0, i1 = max(0, int((at - SETTLE_NEAR) // RERANK_BOX)), min(n, int((at + SETTLE_NEAR) // RERANK_BOX) + 1)
-        hits = [i for i in range(i0, i1) if lc[i] >= 2 * base]
-        if not hits:
-            return None
-        j = max(hits)
-        while True:
-            if j + 1 < n and lc[j + 1] >= 2 * base:
-                j += 1
-            elif j + 2 < n and lc[j + 2] >= 2 * base:
-                j += 2
-            else:
-                break
-        return float((j + 1) * RERANK_BOX)
+        return laugh_settle(lc, max(1.0, median(base_of)), pk)
 
     def _rank(self):
         """枠の入れ替え・控えから戻す順の鍵 {id: (鍵, 点数)}: 点の z + 重み × 跳ねる箱の割合の z + 重み × 笑いの割合の z(z = この録画の本番の候補の中)。

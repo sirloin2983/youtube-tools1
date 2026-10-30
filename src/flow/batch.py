@@ -249,6 +249,10 @@ class Batch:
              **(res.get("stream") or {})}   # 配信の始まり・長さ(releaseTs・timestamp・uploadDate・liveStatus・duration。友人へ自動で送る鮮度の判定が読む。D-SEND)
         cands = [{"start": c["start"], "end": c["end"], "peak": c["peak"], "score": c["score"], "parts": c["parts"], "reasons": c["reasons"]} for c in res["candidates"]]
         # 候補の並び(何番目・点数・出どころ。パックの判定に候補の印を載せる = run._pack_source。マークは並びを持たないので要約に短く残す。10-27)
-        a["cands"] = [dict({"start": c["start"], "end": c["end"], "score": c["score"]}, **({"origin": c["origin"]} if c.get("origin") else {}))
+        # URL の自動依頼の並び・縮め(flow/url_pick。10-30): 山・つないだ印・最終の候補の点 final・笑いの収まり settle(excite.rerank の印 chatRank)
+        a["cands"] = [dict({"start": c["start"], "end": c["end"], "score": c["score"]}, **({"origin": c["origin"]} if c.get("origin") else {}),
+                           **({"peak": c["peak"]} if isinstance(c.get("peak"), (int, float)) else {}), **({"joined": True} if c.get("joined") else {}),
+                           **{k2: (c.get("chatRank") or {})[k1] for k1, k2 in (("final", "final"), ("settleAll", "settle"))
+                              if isinstance((c.get("chatRank") or {}).get(k1), (int, float))})
                       for c in res["candidates"][:CANDS_KEEP]]
         return self.store.replace_auto(_vid(rec), cands, a, res["source"].get("duration"), res["series"])

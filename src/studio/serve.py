@@ -352,8 +352,9 @@ def _request_marks(o):
     ranges, top = o.get("ranges"), o.get("top")
     if "top" not in o and isinstance(o.get("auto"), int) and not isinstance(o.get("auto"), bool):
         top = min(30, o["auto"] + (len(ranges) if isinstance(ranges, list) else 0)) if 0 <= o["auto"] <= 30 else o["auto"]   # 範囲の外は store が断る
-    r = STORE.adopt_marks(vid, ranges, top)
-    return {"ok": True, "rangeIds": r["rangeIds"], "humanIds": r["humanIds"], "autoIds": r["autoIds"], "added": r["added"], "video": r["video"]}
+    r = STORE.adopt_marks(vid, ranges, top, o.get("pref"))   # pref = URL の自動依頼の並び・縮め・足す 1 本(flow/url_pick)
+    return {"ok": True, "rangeIds": r["rangeIds"], "humanIds": r["humanIds"], "autoIds": r["autoIds"], "added": r["added"], "extraIds": r.get("extraIds") or [],
+            "video": r["video"]}
 
 
 def _outdir(o):

@@ -54,6 +54,7 @@ import uuid
 from ytt import colors, fsio as _fsio, jobs as _slots, marks as _marks, schemas as _schemas, tools as _ytools, txwords as _txwords, version as _version
 from pipeline.analyze import excite as _excite   # 埋めた候補の理由の文(FILL_REASON)を数えるだけ
 from . import batch as _batch   # 解析の順番の断りの種類(queued_already)
+from . import url_pick as _url_pick   # URL の自動依頼の並び・縮め・heatmap の山・1 本減らす(10-30)
 from . import envelope as _envelope, keys as _keys, order as _order, normalize as _norm, placement as _placement, prio as _prio, spec as _spec, tools as _tools
 from .envelope import clean_pool  # noqa: F401  (src/app/autorun.py が同じ名前で読む。RS7-1 S3)
 from .spec import (CUTS, LIVE_AUTO_CUT, WEIGHT_KEYS)
@@ -1204,12 +1205,20 @@ class Runner:
         top = ad["top"]   # Run の欄 top は束の adopt.top へ写っている(RS7-1 S3)
         dur = v.get("duration") or run.duration
         body = {"id": run.video_id, "ranges": _spec.hint_ranges(b, dur), "top": top}   # 区間 = 束の hints.ranges + adopt.pad の余白
+        pick = None
+        if run.friend_url and not body["ranges"] and isinstance(top, int):   # 友人の URL の自動依頼(本数だけ): 最終の候補の点・縮め・heatmap の山・1 本減らす(flow/url_pick)
+            top, pref, pick = _url_pick.plan(v.get("analysis"), dur, top)
+            body["top"] = top
+            if pref:
+                body["pref"] = pref
+            st["urlPick"] = pick
         if run.fresh:
             body.update({k: run.fresh[k] for k in ("title", "channel") if run.fresh.get(k)})
         res = self.tools.request_marks(body)
         rids, hids, aids = res.get("rangeIds") or [], res.get("humanIds") or [], res.get("autoIds") or []
+        xids = res.get("extraIds") or []   # heatmap の山を足した 1 本(上限の外。flow/url_pick)
         added = set(res.get("added") or [])
-        chosen = tuple(dict.fromkeys(rids + hids + aids))
+        chosen = tuple(dict.fromkeys(rids + hids + aids + xids))
         if run.friend_url:
             run.marks = chosen
         if not chosen:
@@ -1224,7 +1233,9 @@ class Runner:
         parts = (["指定の区間 %d 個(前後に %g 秒の余白)" % (len(rids), ad["pad"])] if rids else []) + \
             (["人が採用した %d 本" % sum(n_of.get(i, 1) for i in hids)] if hids else []) + \
             (["前に自動で採用した %d 本" % old_auto] if old_auto else []) + \
-            (["自動で %d 本を足しました(点数の高い順)" % new_auto] if new_auto else [])
+            (["自動で %d 本を足しました(%s)" % (new_auto, "最終の候補の点の順" if pick and pick["final"] else "点数の高い順")] if new_auto else []) + \
+            (["YouTube でよく見られている場面を 1 本足しました"] if xids else []) + \
+            (["%sので 1 本減らしました" % ("3 時間以上の配信な" if pick["low"] == "long" else "チャットの無い配信な")] if pick and pick["low"] else [])
         reasons = {m.get("id"): m.get("reasons") or [] for m in v.get("marks") or [] if isinstance(m, dict)}
         fills = sum(1 for i in aids if i in added and _excite.FILL_REASON in reasons.get(i, ()))
         why = short_why(v.get("analysis")) if short > 0 else ""

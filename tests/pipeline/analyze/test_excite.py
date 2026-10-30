@@ -694,6 +694,12 @@ class TestScene(unittest.TestCase):
         self.assertEqual(([c["start"] for c in got], [c["start"] for c in dropped]), ([300, 0, 100], [200]))   # 跳ねて笑う 300 秒が上へ・点だけなら 3 番目の 200 秒が落ちる
         self.assertEqual((got[0]["chatRank"]["up"], got[1]["chatRank"]["up"]), (True, False))
         self.assertEqual(excite.rerank(cands, excite.ChatFeats([]), 3), (sorted(cands, key=lambda c: -c["score"])[:3], []))   # 書き込みが無い = 今のまま
+        # アーカイブの解析の印(flow/url_pick): 山の前後 60 秒の笑いの件数 lc・最終の候補の点 final・笑いの収まり settleAll(配信中の PeakBook と同じ数え方)
+        cr = got[0]["chatRank"]
+        self.assertEqual((cr["lc"], cr["settleAll"]), (120, 340.0))
+        self.assertGreater(cr["final"], cr["z"])
+        self.assertEqual(got[1]["chatRank"]["lc"], 0)
+        self.assertNotIn("final", excite.rerank(cands, f, 3, live=True)[0][0]["chatRank"])   # 配信中は付けない
         cc = excite.candidates([dict(got[0], peak=320)], {"audio": [0.0] * 600})
         self.assertIn("chatRank", cc[0])
         # 配信中: 1 時間の枠 1 本。点の高い 1 本目より、跳ねて笑う 2 本目が枠に入る(スイッチを切れば点数の順)

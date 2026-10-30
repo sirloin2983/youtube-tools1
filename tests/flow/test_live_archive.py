@@ -631,6 +631,22 @@ class AfterStreamTest(unittest.TestCase):
         self.assertEqual(a.after_tick(), 0)                                    # 済んだ録画はもう触らない
         self.assertEqual(len(self.calls), n)
 
+    def test_heat_and_low(self):
+        """10-30(flow/url_pick): 解析の時に heatmap の山があれば 1 本足す(印 picked の heat・題)・チャットの無い配信は 1 本減らす(印 afterStream の low)"""
+        self.marks.append({"id": "a77", "src": "auto", "status": "", "score": 0.1, "start": 9000.0, "end": 9060.0, "label": ""})
+        a = self.archiver()
+        self.status = "was_live"
+        a.after_tick()
+        self.queue[0]["status"] = "done"
+        self.analysis = {"at": 1, "signals": {"chat": False}, "cands": [{"start": 9000.0, "end": 9060.0, "score": 0.1, "origin": "heatmap"}]}
+        a.after_tick()
+        st = a.info[a.key("local", REC)]["afterStream"]   # archive.json の記録(画面の info_view は数だけ)
+        secs = sorted(round(LX.iso_epoch(b["start"]) - self.first, 1) for b, h in self.adopted)
+        self.assertEqual(secs, [1000.0, 2000.0, 5000.0, 9000.0, 10750.0, 12000.0])   # 6 − 1 本 + heatmap の山 1 本
+        self.assertEqual(st["low"], "nochat")
+        self.assertEqual([p["start"] for p in st["picked"] if p.get("heat")], [9000.0])
+        self.assertEqual([b["label"] for b, h in self.adopted if LX.iso_epoch(b["start"]) - self.first == 9000.0], [A._url_pick.HEAT_LABEL])
+
     def test_measure_only(self):
         """EV-1: 配信後の全自動がオフでも、配信中の検出の記録がある録画(measure)はアーカイブを解析して比べる(採用しない)→ measured。
         比べるときに録画の欠け(録画元の /segments の gaps を 2 時間ずつ)を渡す。測り終えるまで録画を消さない。YTT_LIVE_MEASURE=off で止める"""

@@ -204,13 +204,13 @@ class Ledger:
         self._bump(nv, prev, keep=False)
         return n
 
-    def adopt_marks(self, vid, ranges, top):
+    def adopt_marks(self, vid, ranges, top, pref=None):
         """採用の規則 F-5(② flow/adopt)を当てて保存する(人の判定ではない = 学習の記録・コラボへの転写はしない)。
         -> {"rangeIds", "humanIds", "autoIds", "added", "video"(_pub の形)}"""
         want = _adopt.check(ranges, top)   # 区間・上限がだめなら 400(配信を読む前)
         with self.lock:
             with self._writing(_need(self._row(vid))) as (v, prev):
-                r = _adopt.pick(v, want, top)
+                r = _adopt.pick(v, want, top, pref)
                 nv = copy.deepcopy(v)
                 nv["marks"] = r.pop("marks")
                 if r["added"]:
@@ -423,7 +423,7 @@ class LocalStudio:
                 self.book.ensure(src, body.get("title") if isinstance(body.get("title"), str) else "",
                                  body.get("channel") if isinstance(body.get("channel"), str) else "")
                 vid = src["videoId"]
-            r = self.book.adopt_marks(vid, body.get("ranges"), body.get("top"))
+            r = self.book.adopt_marks(vid, body.get("ranges"), body.get("top"), body.get("pref"))
         except ApiError as e:
             raise _step_error(e.message)
         return r

@@ -10,6 +10,10 @@
 - 自動の分は、前に機械が採用・書き出したもの(同じ配信の送り直し・再実行)も点数の順に数に入れ、候補(判定前)のものを採用にする
 - 機械が採用にしたマークには adoptedBy(区間 = "request"・自動の上位 = "auto")を付ける
 - 人の判定ではないので、学習の記録(feedback)・コラボへの転写はしない(呼ぶ側もしない)
+- pref(呼ぶ側の好み。無ければ今のまま。flow/url_pick = URL の自動依頼・10-30):
+  order = [[開始, 終了], …] 新しく選ぶ自動マークをこの並び(same で当てる)で選ぶ(当たらない物は後ろで点数の順)・
+  ends = [[開始, 終了, 新しい終わり], …] この呼び出しで採用にした自動マークの終わりを縮める・
+  extra = [[開始, 終了], …] 上限の外に 1 本だけ足す自動マークの候補(並びの順に、採用した物と重ならない最初の 1 本 = extraIds)
 """
 import copy
 
@@ -32,7 +36,16 @@ def check_args(ranges, top):
     return want
 
 
-def adopt(marks, want, top, duration=None):
+def _spans(v, k):
+    """pref の欄 -> 数の組の一覧(形の違う物は捨てる)"""
+    out = []
+    for x in (v.get(k) if isinstance(v, dict) else None) or []:
+        if isinstance(x, (list, tuple)) and len(x) == (3 if k == "ends" else 2) and all(isinstance(y, (int, float)) and not isinstance(y, bool) for y in x):
+            out.append(tuple(float(y) for y in x))
+    return out
+
+
+def adopt(marks, want, top, duration=None, pref=None):
     """採用の規則 F-5。marks = 配信のマーク(ytt/marks の形。変えない)・want = check_args の区間・top = 上限・duration = 配信の長さ(秒。区間の終わりを切る)。
     -> {"marks"(採る印をつけた新しい一覧。足した・変えたものがあれば時刻の順), "rangeIds"(want の順), "humanIds"(時刻の順),
         "autoIds"(点数の高い順), "added"(この呼び出しで採用にした id)}。
@@ -66,6 +79,10 @@ def adopt(marks, want, top, duration=None):
     prev = sorted((m for m in marks if m.get("adoptedBy") == "auto" and m["status"] in ("adopted", "exported") and m["id"] not in taken), key=_marks.by_score)
     fresh = sorted((m for m in marks if m["src"] == "auto" and m["status"] != "rejected" and m["id"] not in taken and m not in prev
                     and not any(_marks.overlaps(m["start"], m["end"], s, e) for s, e in picked)), key=_marks.by_score)
+    order = _spans(pref, "order")
+    if order:   # 呼ぶ側の並び(当たらない物は後ろ。sorted は安定 = 同じ順位は点数の順のまま)
+        rank = lambda m: next((i for i, (s, e) in enumerate(order) if _marks.same(m, {"start": s, "end": e})), len(order))   # noqa: E731
+        fresh = sorted(fresh, key=rank)
     autos = []
     for m in prev + fresh:
         if room <= 0:
@@ -73,10 +90,24 @@ def adopt(marks, want, top, duration=None):
         if _marks.pieces_of(m) <= room:   # 残りに入らない(つないだ)マークは飛ばして次へ
             autos.append(m)
             room -= _marks.pieces_of(m)
+    ends = _spans(pref, "ends")
     for m in autos:
         if m["status"] == "":
             m["status"], m["adoptedBy"] = "adopted", "auto"
             added.append(m["id"])
+            ne = next((x for s, e, x in ends if _marks.same(m, {"start": s, "end": e})), None)
+            if ne is not None and m["start"] < ne < m["end"]:
+                m["end"] = round(ne, 1)
+    extra_ids = []
+    used = picked + [(m["start"], m["end"]) for m in autos]
+    for s, e in _spans(pref, "extra"):
+        m = next((x for x in marks if x["src"] == "auto" and x["status"] == "" and _marks.same(x, {"start": s, "end": e})), None)
+        if m is None or any(_marks.overlaps(m["start"], m["end"], a, b) for a, b in used):
+            continue
+        m["status"], m["adoptedBy"] = "adopted", "auto"
+        added.append(m["id"])
+        extra_ids.append(m["id"])
+        break
     if added:
         marks = sorted(marks, key=_marks.by_time)
-    return {"marks": marks, "rangeIds": range_ids, "humanIds": human_ids, "autoIds": [m["id"] for m in autos], "added": added}
+    return {"marks": marks, "rangeIds": range_ids, "humanIds": human_ids, "autoIds": [m["id"] for m in autos], "added": added, "extraIds": extra_ids}
