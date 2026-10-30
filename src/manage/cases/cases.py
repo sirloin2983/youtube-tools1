@@ -507,6 +507,38 @@ def snapshot(repo_root, env=None):
     return res
 
 
+_shared = {"cond": threading.Condition(), "started": 0, "done": 0, "running": False, "result": None}
+
+
+def shared_snapshot(repo_root, build=None):
+    """snapshot を、同時に来た頼みで分け合う(10-30: 起き直した直後は 1 回 5 秒ほどかかり、同時に来た 4 本が 1 本ずつ順に作られて
+    12〜24 秒待っていた)。分け合うのは、頼みが来た後に作り始めた回だけ(来る前に始まっていた回の答えは使わない = 古い一覧を返さない)"""
+    build = build or (lambda: snapshot(repo_root))
+    s = _shared
+    with s["cond"]:
+        want = s["started"] + 1   # 来た後に始まる回の番号
+        while True:
+            if s["done"] >= want and s["result"] is not None and s["result"][0] == repo_root:
+                return s["result"][1]
+            if not s["running"]:
+                s["running"] = True
+                s["started"] += 1
+                mine = s["started"]
+                break
+            s["cond"].wait()
+    try:
+        res = build()
+    except BaseException:
+        with s["cond"]:
+            s["running"] = False
+            s["cond"].notify_all()
+        raise
+    with s["cond"]:
+        s["running"], s["done"], s["result"] = False, mine, (repo_root, res)
+        s["cond"].notify_all()
+    return res
+
+
 def home_view(res):
     """ホームが読む形(GET /api/cases?view=home。10-30 ホームの読み込みを速く): ホームは どの案件にも入らない文字起こし(unlinked)の数と、
     配信のない案件(virtual)の 1 行(題名・文書の数・失敗の文)しか使わないので、unlinked は id だけ・virtual の切り抜きは review と文書の id だけにする

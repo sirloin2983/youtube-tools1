@@ -795,5 +795,31 @@ class TestHomeView(unittest.TestCase):
         self.assertEqual((got["virtual"][0]["title"], got["virtual"][0]["failed"]), ("a", 1))
         self.assertEqual(res["virtual"][0]["clips"][0]["path"], "p")
 
+    def test_shared_snapshot_joins_only_builds_started_after(self):
+        """10-30: 同時に来た一覧の頼みは 1 回分を分け合う。ただし来る前に始まっていた回の答えは使わない(古い一覧を返さない)"""
+        import threading
+        calls, gate, started = [], threading.Event(), threading.Event()
+
+        def build():
+            calls.append(1)
+            n = len(calls)
+            if n == 1:
+                started.set()
+                gate.wait(5)
+            return {"n": n}
+        out = {}
+        first = threading.Thread(target=lambda: out.__setitem__("a", cases.shared_snapshot("R", build)))
+        first.start()
+        started.wait(5)   # 1 回目が作っている最中に 3 本来る
+        late = [threading.Thread(target=lambda k=k: out.__setitem__(k, cases.shared_snapshot("R", build))) for k in "bcd"]
+        [t.start() for t in late]
+        time.sleep(0.2)
+        gate.set()
+        [t.join(5) for t in [first] + late]
+        self.assertEqual(out["a"], {"n": 1})
+        self.assertEqual([out[k] for k in "bcd"], [{"n": 2}] * 3, "後から来た 3 本は 2 回目を分け合う")
+        self.assertEqual(len(calls), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

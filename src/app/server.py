@@ -810,7 +810,7 @@ class PortalHandler(httpsec.LocalHandler):
                     return self._fail(500, "cases", "案件を引けませんでした: %s" % e.__class__.__name__)
                 return self._json(200, got) if got else self._fail(404, "not_found", "その文書の案件はありません")
             try:
-                got = cases_mod.snapshot(sup.root)
+                got = cases_mod.shared_snapshot(sup.root)   # 同時に来た頼みは 1 回分を分け合う(10-30)
                 return self._json(200, cases_mod.home_view(got) if q.get("view") == ["home"] else got)   # ホームは要る欄だけ(10-30)
             except Exception as e:   # 読めないデータがあっても入口は落とさない
                 return self._fail(500, "cases", "案件の一覧を作れませんでした: %s" % e.__class__.__name__)
