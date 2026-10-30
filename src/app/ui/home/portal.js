@@ -891,11 +891,14 @@
   }
 
   var casesLoadFailed = false;
+  /* 案件の一覧と確かめるのカードは、起き直した直後(裏で集めている間)に 8 秒を超えることがある(10-30 に本物で 8 秒を超えて「読めませんでした」のまま
+     止まっていた。読み直すのは押した時だけ)。案件の画面と同じ 60 秒まで待つ */
+  var SLOW_GET_MS = 60000;
   var CASES_API = 'api/cases?view=home';   // ホームが使う欄だけ(どの案件にも入らない文字起こしは id・配信のない案件の切り抜きは失敗の文と文書の id。10-30)
   var casesSeq = 0;   // 案件の一覧の読みの連番(重なったとき、古い答えで新しい一覧を戻さない)
   function loadCases() {
     var my = ++casesSeq;
-    return api(CASES_API).then(function (j) { if (my !== casesSeq) return; casesLoadFailed = false; casesData = j; resetPaging(); }).catch(function (e) {
+    return api(CASES_API, 'GET', null, { timeout: SLOW_GET_MS }).then(function (j) { if (my !== casesSeq) return; casesLoadFailed = false; casesData = j; resetPaging(); }).catch(function (e) {
       if (my !== casesSeq) return;
       casesLoadFailed = true;
       if (casesData) { failToast('案件の一覧を読み直せませんでした', '「読み込み直す」を押してください', e); return; }   // 前の一覧は残す
@@ -919,7 +922,7 @@
     // (E2 finding 1: render() だけだと、alt-tab で戻ったときにこの2つが古いままになる)
     casesRevAt = Date.now();
     var my = ++casesSeq;
-    return api(CASES_API).then(function (j) { if (my !== casesSeq) return; casesLoadFailed = false; casesData = j; render(); renderDocs(); buildTodo(); }).catch(function () { /* 次の読み込みで直る */ });
+    return api(CASES_API, 'GET', null, { timeout: SLOW_GET_MS }).then(function (j) { if (my !== casesSeq) return; casesLoadFailed = false; casesData = j; render(); renderDocs(); buildTodo(); }).catch(function () { /* 次の読み込みで直る */ });
   }
 
   function restoreFilters() {
@@ -1219,7 +1222,7 @@
     var ac = null, nx = null;
     Promise.all([
       api('api/accuracy').then(function (j) { ac = j; }, function () { /* 条件の一覧だけ無い */ }),
-      api('api/check/next?n=0').then(function (j) { nx = j; }, function () { /* 今いちばん効く確認だけ無い */ })
+      api('api/check/next?n=0', 'GET', null, { timeout: SLOW_GET_MS }).then(function (j) { nx = j; }, function () { /* 今いちばん効く確認だけ無い */ })
     ]).then(function () { renderCheck(ac, nx); });
   }
   function accuracyNow() {

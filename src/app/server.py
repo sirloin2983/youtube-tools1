@@ -151,6 +151,7 @@ UI_KIT_DIR = os.path.join(ROOT, layout.UI_KIT_DIR)   # 共通の見た目は正�
 LOG_MAX = 1024 * 1024     # ログ(*.log。.gitignore 済み)はこれを超えたら <名前>.old.log に回す(fsio.rotate。回せなければそのまま追記)
 PING_TIMEOUT = 0.5
 MAX_BODY = 4096
+SLOW_GET_SEC = 5.0     # 読む口がこの秒を超えたら記録に 1 行(PortalHandler.do_GET)
 STUDIO_CH_SEC = 30.0   # 配信者の名前の当てで、スタジオのチャンネル名の一覧を覚える秒(PortalServer._studio_channel)
 EDITOR_IDLE_POLLS = ("/api/drill/status", "/api/eval-batch", "/api/ping")   # 確かめるの評価のレーン・版の見回り(開いた画面がずっと読む)= 「編集を使っている」に数えない(自動の起動し直しを延ばし続けない。10-24 ping で 6 時間待った)
 SUBMIT_START_WAIT = 120  # 起動直後の POST /api/flow/submit がツールの取り込みを待つ最長の秒(_post_flow_submit)
@@ -701,6 +702,16 @@ class PortalHandler(httpsec.LocalHandler):
         return httpsec.navigation_ok(self.headers, path, NAV_PAGES)
 
     def do_GET(self):
+        """読む口。SLOW_GET_SEC 秒を超えた口は黒い画面の記録に 1 行(10-30: 起き直した直後のホームの読み込みが遅いのを、どの口かで追えるように)"""
+        t0 = time.monotonic()
+        try:
+            return self._get()
+        finally:
+            took = time.monotonic() - t0
+            if took >= SLOW_GET_SEC and urllib.parse.urlsplit(self.path).path.startswith("/api/"):
+                self.server.sup.log("ホームの口が遅れました: %s %.1f 秒" % (urllib.parse.urlsplit(self.path).path[:80], took))
+
+    def _get(self):
         u = urllib.parse.urlsplit(self.path)
         if not (self._host_ok() and (self._site_ok() or self._navigation_ok(u.path))):
             return self._send(403, b"forbidden")

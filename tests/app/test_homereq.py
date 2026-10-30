@@ -78,5 +78,16 @@ class RowsTest(unittest.TestCase):
         self.assertEqual(H.rows(reqs, runs, NOW, delivered={"20261025-010203-abcdef": 1.0})[0]["state"], "sent")
 
 
+
+class TestPortalWaits(unittest.TestCase):
+    def test_slow_reads_wait_like_case_page(self):
+        """10-30: 起き直した直後は案件の一覧・確かめるのカードが 8 秒を超え、ホームが「読めませんでした」のまま止まっていた。
+        ホームはこの 2 つを案件の画面と同じ 60 秒まで待つ(既定の GET 8 秒に戻さない)"""
+        js = io.open(os.path.join(os.path.dirname(H.__file__), "ui", "home", "portal.js"), encoding="utf-8").read()
+        self.assertIn("var SLOW_GET_MS = 60000;", js)
+        self.assertEqual(js.count("api(CASES_API, 'GET', null, { timeout: SLOW_GET_MS })"), 2)
+        self.assertIn("api('api/check/next?n=0', 'GET', null, { timeout: SLOW_GET_MS })", js)
+        self.assertNotIn("api(CASES_API)", js)
+
 if __name__ == "__main__":
     unittest.main()
