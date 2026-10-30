@@ -6,7 +6,8 @@
 yt-dlp --live-from-start は cookies なしで頭から取れた(音だけなら 60 秒で 69 分ぶん)。--download-sections は併用できないので、時間で止める。
 
 対象: 録画中の録画のうち、自動の採用が動く物(友人の依頼の録画・ホームの検出がオンの録画)で、録画の頭 − 配信の開始時刻(録画元の streamStart =
-release_timestamp)が HEAD_MIN_SEC 以上・HEAD_MAX_SEC 以下の YouTube の配信。1 録画 1 回(head.json があれば取り直さない)・同じ配信は 1 回。
+release_timestamp)が HEAD_MIN_SEC 以上・HEAD_LIVE_MAX_SEC 未満の YouTube の配信(それより長い頭は配信中の選びに入れず、配信の後に
+  チャットありのアーカイブから「録れなかった所」として埋める = live_archive._after_fill。取った頭の秒が HEAD_LIVE_MAX_SEC 以上でも候補にしない)。1 録画 1 回(head.json があれば取り直さない)・同じ配信は 1 回。
 
 流れ(録画 1 本に 1 つのスレッド。今の録画・検出には触らない = 失敗しても head.json の state error と理由が残るだけ):
   1. 空き容量: 書き出しの作業の置き場(live/work)の空き − 見込み(秒 × EST_MBPS × 3)が live_export.DISK_LOW を切るなら取らない(skipped。
@@ -41,7 +42,9 @@ from . import live_export as LX
 
 HEAD_ON = True               # スイッチ: False = 頭を取らない(前の形 = 頭は配信の後にアーカイブから埋めるだけ)
 HEAD_MIN_SEC = 60.0          # 録画の頭 − 配信の開始時刻 がこれ以上のときだけ
-HEAD_MAX_SEC = 4 * 3600.0    # これより長い頭は取らない(取る時間と容量。研究: 12 時間を超えると取れない)
+HEAD_LIVE_MAX_SEC = 3600.0   # 頭がこれ以上なら取らない・候補にしない(研究 300・301 番: 配信中に取れるチャットは今の端からだけ = 頭は音だけの検出。
+                             # 頭 30 分は配信の後のアーカイブ(チャットあり)と差なし・60〜90 分はショート −11〜−12 本。10-30 まとめ役の決定。
+                             # 長い頭の動画を書き出しの元に使う道は作らない = アーカイブから書き出す道が今ある)
 SLACK_SEC = 240.0            # 配信の開始時刻(release_timestamp)と本当の 0 秒のずれの見込み(−220 秒の例があった)
 OVERLAP_SEC = 90.0           # 録画の頭のあとも取る秒(照合の重ね)
 REF_SEC = 60.0               # 照合に使う録画の頭の音の秒
@@ -191,14 +194,19 @@ class HeadGrabber:
         if not HEAD_ON:
             return []
         d = self.load(rc, rec) or {}
-        if d.get("state") != "done":
+        if d.get("state") != "done" or not self._live_ok(d):
             return []
         return [dict(p) for p in d.get("peaks") or [] if isinstance(p, dict) and isinstance(p.get("id"), str)]
 
     def cover(self, rc, rec):
         """取れて使える頭の秒(録画の頭より前。録れなかった所から外す)。取れていなければ 0"""
         d = self.load(rc, rec) or {}
-        return float(d["coverSec"]) if d.get("state") == "done" and schemas.is_num(d.get("coverSec")) else 0.0
+        return float(d["coverSec"]) if d.get("state") == "done" and schemas.is_num(d.get("coverSec")) and self._live_ok(d) else 0.0
+
+    @staticmethod
+    def _live_ok(d):
+        """取れた頭を配信中の選びに使うか(取れた秒が HEAD_LIVE_MAX_SEC 未満)。使わない頭は録れなかった所のまま(配信の後にアーカイブから)"""
+        return schemas.is_num(d.get("coverSec")) and d["coverSec"] < HEAD_LIVE_MAX_SEC
 
     # ---- 見回り
     def tick(self, now=None):
@@ -222,7 +230,7 @@ class HeadGrabber:
             ss = r.get("streamStart")
             delay = r["firstPdt"] - ss if isinstance(ss, (int, float)) else None
             vid = LX.video_id_of(r.get("url"), rec) if r.get("url") else None
-            if delay is None or not HEAD_MIN_SEC <= delay <= HEAD_MAX_SEC or not vid or vid in self.vids:
+            if delay is None or not HEAD_MIN_SEC <= delay < HEAD_LIVE_MAX_SEC or not vid or vid in self.vids:
                 continue
             if (self.load(rc, rec) or {}).get("state") is not None:   # 1 録画 1 回(入口を起き直したら、途中だった物は取り直さない)
                 continue

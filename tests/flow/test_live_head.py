@@ -111,6 +111,13 @@ class HeadTest(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertTrue(all("--live-from-start" in c for c in calls))
         self.assertEqual(self.g.tick(), 0)   # 1 録画 1 回
+        self.g.threads.clear()
+        os.remove(os.path.join(self.live.detector.folder("fake", REC), LH.STATE_FILE))
+        self.stream(LH.HEAD_LIVE_MAX_SEC)   # 頭が 60 分以上: 取らない(配信の後にアーカイブから埋める)
+        self.assertEqual(self.g.tick(), 0)
+        with open(os.path.join(self.live.detector.folder("fake", REC), LH.STATE_FILE), "w", encoding="utf-8") as f:
+            json.dump({"v": 1, "state": "done", "coverSec": 3700.0, "peaks": [{"id": "h0-10", "start": -3000, "end": -2960}]}, f)
+        self.assertEqual((self.g.peaks("fake", REC), self.g.cover("fake", REC)), ([], 0.0))   # 取れた頭が 60 分以上でも候補にしない・録れなかった所のまま
         with mock.patch.object(LH, "HEAD_ON", False):
             self.g.threads.clear()
             self.assertEqual(self.g.tick(), 0)
