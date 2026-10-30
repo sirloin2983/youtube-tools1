@@ -862,17 +862,19 @@ class Detector:
                 room = min(LB.BATCH_LIVE + LB.BATCH_END - live_done, cap - used - queued)
                 fresh = [p for p in peaks if p.get("id") not in busy and (rc, rec, p.get("id")) not in given]
                 taken = [by_id[x["id"]] for x in st["queue"] if x["id"] in by_id]
-                for pk in LB.take(LB.ranked([p for p in fresh if LB.settled(p) and p["id"] not in seen]), room,
-                                  [p for p in peaks if LB.settled(p) and p.get("state") == "adopted"] + taken):
-                    st["queue"].append({"id": pk["id"], "batch": LB.mark("live", st["round"] + 1, long=True)})
+                picks = LB.take(LB.ranked([p for p in fresh if LB.settled(p) and p["id"] not in seen]), room,
+                                [p for p in peaks if LB.settled(p) and p.get("state") == "adopted"] + taken)
+                for pk, cut in self._batch_trim(rc, rec, folder, by_id, st, picks, "live"):
+                    st["queue"].append({"id": pk["id"], "batch": dict(LB.mark("live", st["round"] + 1, long=True), **cut)})
                 st["end"], dirty = True, True
         elif doc.get("ended"):
             if not st["end"]:   # 配信の終わり: 候補の元の全部から、届けた・待ちの候補と重ならない残りを
                 room = min(LB.BATCH_LIVE + LB.BATCH_END - live_done, cap - used - queued)
                 taken = [by_id[x["id"]] for x in st["queue"] if x["id"] in by_id]
                 pool = [p for p in peaks if p.get("id") not in busy and (rc, rec, p.get("id")) not in given]
-                for pk in LB.take(LB.ranked([p for p in pool if LB.settled(p)]), room, [p for p in pool if LB.settled(p) and p.get("state") == "adopted"] + taken):
-                    st["queue"].append({"id": pk["id"], "batch": LB.mark("end", None)})
+                picks = LB.take(LB.ranked([p for p in pool if LB.settled(p)]), room, [p for p in pool if LB.settled(p) and p.get("state") == "adopted"] + taken)
+                for pk, cut in self._batch_trim(rc, rec, folder, by_id, st, picks, "end"):
+                    st["queue"].append({"id": pk["id"], "batch": dict(LB.mark("end", None), **cut)})
                 st["end"], dirty = True, True
         else:
             k = LB.round_of(doc.get("measuredSec"))   # 3 時間を過ぎたら 60 分ごと(live_batch.LONG_ON)
@@ -915,6 +917,30 @@ class Detector:
             except OSError as e:
                 self.host.note("盛り上がりの検出: %s を書けませんでした: %s" % (LB.STATE_FILE, tools.why(e)))
         return done
+
+    def _batch_trim(self, rc, rec, folder, by_id, st, picks, kind):
+        """配信の終わりに選んだ候補を、確かめる時間の見込みが live_batch.TRIM_LIM 分以下になるまで後ろから外す -> [(候補, 印に足す欄)]。
+        届けた分 = 区切りの形で自動で採用した候補(縮めた秒 cut を引く)+ 採用を待つ候補(縮めた後)"""
+        done = []
+        for x in self._decisions(folder)["items"]:
+            pk = by_id.get(x.get("id"))
+            b = x.get("batch") if isinstance(x.get("batch"), dict) else {}
+            if pk is not None and x.get("state") == "adopted" and x.get("origin") == "auto" and b.get("kind") in ("live", "end"):
+                done.append((pk["start"], pk["end"] - (b["cut"] if schemas.is_num(b.get("cut")) else 0.0)))
+        for x in st["queue"]:
+            if x["id"] in by_id:
+                sp = LB.shrink(by_id[x["id"]], x["batch"]["kind"])[0]
+                done.append((sp["start"], sp["end"]))
+        rows = []
+        for pk in picks:
+            sp = LB.shrink(pk, kind)[0]
+            rows.append((pk, (sp["start"], sp["end"])))
+        kept, dropped, mins = LB.trim(done, rows)
+        if dropped:
+            st["trim"] = {"dropped": dropped, "checkMin": mins, "limMin": LB.TRIM_LIM}
+            self.host.log("盛り上がりの検出: 録画 %s は確かめる時間の見込みが %g 分を超えるので、配信の終わりの分を %d 本減らしました(残した後 %s 分)"
+                          % (rec, LB.TRIM_LIM, dropped, mins))
+        return [(pk, {"trim": dropped} if dropped else {}) for pk, _sp in kept]
 
     def _batch_waiting(self, rc, rec, doc, peaks):
         """区切りごとにまとめて届ける録画の adopt_waiting: 次の区切りで選ぶ候補の数と、次の区切りの時刻(録画の頭 + 区切りの秒 + ワーカーの遅れ)"""

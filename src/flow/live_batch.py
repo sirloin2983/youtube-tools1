@@ -23,6 +23,10 @@
   配信中 = ふだんを候補の始まりより前の箱で出した収まり(settle)・縮める量は SHRINK_LIVE_CAP 秒まで(研究の queue135_136.shrinker・上限 60)。
   配信の終わり = ふだんを全部の箱で出した収まり(settleAll)・上限なし(研究の queue62_shorter.apply の「(b) 笑いの収まり」= 62 番の形)。
   どちらも 山 + SHRINK_KEEP 秒より前にはしない・長さ SHRINK_MIN 秒より短くしない・始まりは変えない(研究の始まりの寄せ = 声の途切れへ戻す は入れていない)。収まりが無ければそのまま。
+12 分で減らす(10-30 の 4 回目・ユーザーの OK・研究の 290 番 = queue290.py の「12 分で減らす」= queue285.trim。スイッチ TRIM_ON):
+  配信の終わりに選んだ候補(長い配信は最後の区切りの分)を、確かめる時間の見込みが TRIM_LIM 分以下になるまで、選んだ順の後ろから外す(届けた分と合わせて TRIM_KEEP 本までは残す)。
+  見込み = 届けた・届ける予定の全部の区間(縮めた後)を excite.join_clips でつなぎ、1 本ごとに (長さ + CHECK_PAD 秒) の合計 × CHECK_RATE(研究の queue118_119.check_one)。
+  届けた分は外せない(研究は配信中の分も外せる形 = decisions の【重】)。印 source.live.batch.trim = 外した本数(残した配信の終わりの分に付ける)・batch.json の trim。
 印: 採用した候補の決定(decisions.json)・ジョブ・.clip.json の source.live.batch = {kind: live|end, round(何回目の区切りか。終わりは null), min(区切りの分), cut(縮めた秒)}。
 状態: 録画のフォルダ(live/excite/<録画元>/<録画>/)の batch.json(live_detect が書く)= {v, round(済んだ区切り), seen(区切りで見た候補), queue(採用を待つ候補), end}。
 研究の作り方(読むだけ): C:/dev/overlap-research/tools/queue247_249.py・queue248_255.py・queue253.py。製品にそのまま移せない所は decisions の【重】。
@@ -47,6 +51,11 @@ SHRINK_KEEP = 10.0           # 縮めても山のあとに残す秒
 SHRINK_MIN = 20.0            # 縮めたあとの最短の長さ(秒)
 SHRINK_LIVE_CAP = 60.0       # 配信中に縮める量の上限(秒。研究の 274 番 = 60。136 番は 30)
 SHRINK_END_CAP = None        # 配信の終わりに縮める量の上限(秒。None = 上限なし = 研究の 62 番の形)
+TRIM_ON = True               # スイッチ: 12 分で減らすだけを切る(False = 確かめる時間を見ずに 6 本まで届ける)
+TRIM_LIM = 12.0              # 確かめる時間の見込みの上限(分)
+TRIM_KEEP = 4                # 減らしても残す本数(届けた分を含む・元の本数で数える)
+CHECK_PAD = 20.0             # 確かめる時間の見込みで 1 本ごとに足す余白(秒)
+CHECK_RATE = 0.5             # 確かめる時間の見込み = 届ける長さの何倍か(友人は動画の 5 割を確かめに使う)
 LAUGH_W = 0.5               # 笑いの件数の z の重み
 STATE_FILE = "batch.json"
 OUT = ("dismissed",)
@@ -154,6 +163,27 @@ def pick_end(peaks, room):
     return take(ranked(pool), room, [p for p in pool if p.get("state") == "adopted"])
 
 
+def check_min(spans):
+    """届ける区間 [(始まり, 終わり)] -> 確かめる時間の見込み(分)。つないで 1 本ごとに (長さ + CHECK_PAD) 秒の合計 × CHECK_RATE"""
+    js = excite.join_clips([{"start": float(s), "end": float(e), "score": 0.0} for s, e in spans])
+    return sum(c["end"] - c["start"] + CHECK_PAD for c in js) / 60.0 * CHECK_RATE
+
+
+def trim(done, picks):
+    """done = 届けた・届ける予定の区間 [(始まり, 終わり)]・picks = 配信の終わりに選んだ [(候補, 縮めた後の区間)](選んだ順)
+    -> (残す picks, 外した本数, 残した後の見込みの分)。見込みが TRIM_LIM 分を超える間、後ろから外す(合わせて TRIM_KEEP 本までは残す)"""
+    out = list(picks)
+    if not TRIM_ON:
+        return out, 0, None
+    def mins():
+        return check_min(list(done) + [sp for _pk, sp in out])
+    def count():
+        return len(done) + sum(_marks.pieces_of(pk) for pk, _sp in out)
+    while out and count() > TRIM_KEEP and mins() > TRIM_LIM:
+        out.pop()
+    return out, len(picks) - len(out), round(mins(), 2)
+
+
 def mark(kind, rnd, long=False):
     """候補・ジョブ・.clip.json に残す印(long = 長い配信の形で選んだ)"""
     return {"kind": kind, "round": rnd, "min": LONG_MIN if long else BATCH_MIN, **({"long": True} if long else {})}
@@ -185,7 +215,8 @@ def clean_mark(v):
     return {"kind": v["kind"], "round": rnd if isinstance(rnd, int) and not isinstance(rnd, bool) and rnd >= 0 else None,
             "min": mn if isinstance(mn, int) and not isinstance(mn, bool) and mn > 0 else BATCH_MIN,
             **({"cut": float(v["cut"])} if schemas.is_num(v.get("cut")) and v["cut"] > 0 else {}),
-            **({"long": True} if v.get("long") is True else {})}
+            **({"long": True} if v.get("long") is True else {}),
+            **({"trim": v["trim"]} if isinstance(v.get("trim"), int) and not isinstance(v["trim"], bool) and v["trim"] > 0 else {})}
 
 
 def load(folder):
@@ -194,7 +225,7 @@ def load(folder):
     return {"v": 1, "round": rnd if isinstance(rnd, int) and not isinstance(rnd, bool) else 0,
             "seen": [x for x in d.get("seen") or [] if isinstance(x, str)],
             "queue": [x for x in d.get("queue") or [] if isinstance(x, dict) and isinstance(x.get("id"), str) and clean_mark(x.get("batch"))],
-            "end": d.get("end") is True}
+            "end": d.get("end") is True, **({"trim": d["trim"]} if isinstance(d.get("trim"), dict) else {})}
 
 
 def save(folder, st, dump):

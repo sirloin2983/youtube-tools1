@@ -661,6 +661,31 @@ class DetectApiTest(unittest.TestCase):
         self.assertEqual((last["id"], last["batch"]["kind"], last["batch"]["round"], last["batch"].get("long")), ("p4-15100", "live", 8, True))
         self.assertEqual(self.det.auto_tick(), 0)
 
+    def test_batch_trim(self):
+        """10-30: 確かめる時間の見込み(つないで 1 本ごとに (長さ + 20 秒) × 0.5)が 12 分を超えたら、配信の終わりの分を後ろから減らす(4 本までは残す)。
+        印 source.live.batch.trim・batch.json の trim。スイッチ TRIM_ON"""
+        self.assertEqual(LB.check_min([(0, 100), (105, 200), (500, 560)]), (220 + 80) / 60.0 * 0.5)   # 間 10 秒以内はつないで 1 本
+        long6 = [dict(peak("p%d" % i, 1000 * i, 1000 * i + 100, 10.0 - i, "frame", 1000 * i + 300), end=float(1000 * i + 260)) for i in range(6)]
+        rows = [(pk, (pk["start"], pk["end"])) for pk in long6]
+        self.assertEqual([len(LB.trim([], rows)[0]), LB.trim([], rows)[1]], [5, 1])   # 6 本 = 14 分 → 5 本 = 11.67 分
+        self.assertEqual(LB.trim([(i * 10000, i * 10000 + 700) for i in range(4)], rows[:2])[1], 2)   # 届けた 4 本で 24 分 = 配信の終わりの分は全部外す(届けた分は外せない)
+        with mock.patch.object(LB, "TRIM_ON", False):
+            self.assertEqual(LB.trim([], rows)[1], 0)
+        self.request()
+        self.rec.rel = 8000
+        t = self.worker_alive()
+        self.put_peaks(long6, seq=5, changes=[], measuredSec=6200, first=iso(t[0] - 6200))
+        self.det.auto_tick()
+        n0 = len(self.decisions()["items"])
+        peaks = [dict(p, state="adopted", origin="auto") if p["id"] in {x["id"] for x in self.decisions()["items"]} else p for p in long6]
+        self.put_peaks(peaks, seq=6, changes=[], measuredSec=6300, ended=True)
+        self.det.auto_tick()
+        items = self.decisions()["items"]
+        self.assertEqual(len(items), 5)   # 6 本 = 14 分 → 配信の終わりの分を 1 本減らした
+        self.assertTrue(all(x["batch"].get("trim") == 1 for x in items[n0:]))
+        st = LB.load(self.det.folder("fake", REC))
+        self.assertEqual((st["trim"]["dropped"], st["trim"]["checkMin"]), (1, 11.67))
+
     def test_batch_scores(self):
         """最終の候補の点 = z(点数) + 1.0 z(跳ねる箱の割合) + 0.5 z(笑いの割合) + 0.5 z(前後 60 秒の笑いの件数)。チャットの印が揃わなければ点数"""
         a = {"id": "a", "start": 0.0, "end": 40.0, "score": 10.0, "state": "frame", "chatRank": {"rate": 0.1, "laugh": 0.1, "lc": 1}}
