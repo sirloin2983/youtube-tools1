@@ -78,7 +78,6 @@ class RowsTest(unittest.TestCase):
         self.assertEqual(H.rows(reqs, runs, NOW, delivered={"20261025-010203-abcdef": 1.0})[0]["state"], "sent")
 
 
-
 class TestPortalWaits(unittest.TestCase):
     def test_slow_reads_wait_like_case_page(self):
         """10-30: 起き直した直後は案件の一覧・確かめるのカードが 8 秒を超え、ホームが「読めませんでした」のまま止まっていた。
