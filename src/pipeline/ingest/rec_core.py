@@ -77,6 +77,11 @@ ARCHIVE = "archive"
 ENDED = "配信が終わったので録画を終えました"
 ARCHIVE_MIN_SEC = 90           # 取れた長さがこれを超えて、
 ARCHIVE_SPEED = 3.0            # 実際の時間のこれ倍より速く取れたら、配信ではなくアーカイブを頭から取っている(止める)
+# 録画の終わり方の印(記録の endKind。入口の録画の知らせ flow/live_rec_alert が読む。10-30): source = 取得がきれいに終わった・idle = データが来ないまま IDLE_END・
+# archive = アーカイブを取り始めた・notStarted = 配信が始まらない / 1 つも取れないまま bot と判定され続けた・blocked = 録れた後に bot と判定され続けた・
+# disk = 空き容量・crash = 思わぬエラー・resume = 起動し直しで続けられなかった・stopped = 手で止めた
+END_KINDS = ("source", "idle", "archive", "notStarted", "blocked", "disk", "crash", "resume", "stopped")
+HOLES_MAX = 20                 # 記録の要約に載せる欠けの数(長い順)
 TITLE_MAX = 200
 OEMBED = "https://www.youtube.com/oembed"   # 題の取得(fetch_title)
 TITLE_TRIES = (0, 20, 60)      # 題を取りに行くまでの秒(取れなければ次。全部だめなら題なしのまま)
@@ -426,7 +431,10 @@ class Recording:
                "blockedAt": m.get("blockedAt") if m.get("state") in ACTIVE else None,   # bot と判定され続けている始まり(ミリ秒)
                "streamStart": m.get("streamStart"),   # 配信の開始時刻(UTC の文字。無ければ None。録画の画面の「配信の時刻」)
                "channel": m.get("channel") or "",   # 配信者(始めるときに分かれば。非公開の録画の名前に使う)
-               "keeping": m.get("keeping") is True, "keepError": m.get("keepError") or ""}   # 非公開の録画を 1 本につないでいる・つなげなかった理由(keep)
+               "keeping": m.get("keeping") is True, "keepError": m.get("keepError") or "",   # 非公開の録画を 1 本につないでいる・つなげなかった理由(keep)
+               "endKind": m.get("endKind") if m.get("state") not in ACTIVE else None}   # 終わり方の印(END_KINDS)
+        if m.get("state") not in ACTIVE:   # 終わった録画の欠け(録画の知らせ。セグメントの数が変わったときだけ数え直す)
+            out["holeSec"], out["holes"] = self._holes(segs)
         if detail:
             info = {x.get("name"): x for x in (m.get("sessions") or []) if isinstance(x, dict)}
             out["sessionList"] = [{"name": n, "segments": len(s), "seconds": round(sum(x["dur"] for x in s), 3),
@@ -527,9 +535,20 @@ class Recording:
             time.sleep(0.1)
         self._cache.pop(name, None)
 
-    def _finish(self, state, message, note):
-        """録画を終えた状態(stopped・ended・error)にして記録に残す"""
-        self.set(state=state, message=message, endedAt=now_iso())
+    def _holes(self, segs):
+        """録画済みの範囲(rec_spans)の間の欠け -> (合計の秒, [{"from", "to", "sec"}](長い順に HOLES_MAX まで))"""
+        key = (len(segs), segs[-1].get("pdt") if segs else None)
+        if getattr(self, "_holes_key", None) != key:
+            sp = [(iso_epoch(x["from"]), iso_epoch(x["to"])) for x in rec_spans(segs)]
+            gaps = sorted(((b, c) for (_a, b), (c, _d) in zip(sp, sp[1:]) if c > b), key=lambda g: g[0] - g[1])
+            self._holes_key = key
+            self._holes_val = (round(sum(c - b for b, c in gaps), 3),
+                               [{"from": epoch_iso(b), "to": epoch_iso(c), "sec": round(c - b, 3)} for b, c in gaps[:HOLES_MAX]])
+        return self._holes_val
+
+    def _finish(self, state, message, note, kind=None):
+        """録画を終えた状態(stopped・ended・error)にして記録に残す。kind = 終わり方の印(END_KINDS)"""
+        self.set(state=state, message=message, endedAt=now_iso(), endKind=kind)
         ytledger.record("live-end", 0, src="recorder", id=self.id)   # YouTube への問い合わせの帳簿(録画中のライブの重みを外す)
         self.mgr.log("録画 %s: %s" % (self.id, note))
 
@@ -545,7 +564,7 @@ class Recording:
             while not self._stopping():
                 fs = folder_state(os.path.dirname(self.dir))
                 if fs["freeBytes"] is not None and fs["freeBytes"] < MIN_FREE:
-                    return self._finish("error", "空き容量が足りないので録画を止めました(%s)" % fs["message"], "空き容量が足りないので止めました")
+                    return self._finish("error", "空き容量が足りないので録画を止めました(%s)" % fs["message"], "空き容量が足りないので止めました", "disk")
                 got_any = any(s for _, s in self.all_segments())
                 name = self._next_session()
                 self.set(state="reconnecting" if got_any else "waiting",
@@ -568,16 +587,16 @@ class Recording:
                         why = BLOCKED   # yt-dlp でも取れない・取った再生リストでも録れない(10-21: 後者で何も出さずに待ち続けていた)
                     if not got_any and blocked_at is not None and time.time() - blocked_at > BLOCKED_GIVE_UP:   # 配信の前の 6 時間を待たない(行を閉じて理由を診断へ)
                         self._drop_session(name)
-                        return self._finish("error", BLOCKED, "bot と判定されたまま %d 分たったので止めました" % (BLOCKED_GIVE_UP // 60))
+                        return self._finish("error", BLOCKED, "bot と判定されたまま %d 分たったので止めました" % (BLOCKED_GIVE_UP // 60), "notStarted")
                     if got_any and not renew and time.time() - blocked_at > BLOCKED_GIVE_UP:   # 録れた後に断られ続けた: 「配信が終わった」とは言わない(10-23)
                         self._drop_session(name)
-                        return self._finish("ended", BLOCKED_ENDED, "録れた後に bot と判定されたまま %d 分たったので止めました" % (BLOCKED_GIVE_UP // 60))
+                        return self._finish("ended", BLOCKED_ENDED, "録れた後に bot と判定されたまま %d 分たったので止めました" % (BLOCKED_GIVE_UP // 60), "blocked")
                 else:
                     blocked_at = None
                     self._mark_blocked(None)
                 if why == ARCHIVE:   # 終わった配信(アーカイブ)を頭から取りに行った: そのセッションは消して(時刻が受信時刻と合わない)「終了」。本番画質は P4 のアーカイブの取得で
                     self._drop_session(name)
-                    return self._finish("ended", ENDED + "(アーカイブを取り始めたので止めました)", "アーカイブを取り始めたので止めました")
+                    return self._finish("ended", ENDED + "(アーカイブを取り始めたので止めました)", "アーカイブを取り始めたので止めました", "archive")
                 if n > 0:
                     backoff_i, last_data = 0, time.time()
                     self._session_mark(name, state="done", ended=now_iso(), segments=n)
@@ -587,10 +606,10 @@ class Recording:
                     break
                 got_any = got_any or n > 0
                 if n > 0 and self._source_ended(code, name):   # 取得がきれいに終わった = 配信が終わった
-                    return self._finish("ended", ENDED, "配信が終わりました")
+                    return self._finish("ended", ENDED, "配信が終わりました", "source")
                 if (blocked_at is None or not got_any) and time.time() - last_data > (mgr.idle_end if got_any else mgr.wait_start):   # 録れた後に断られている間は上の BLOCKED_GIVE_UP で止める
                     msg = ENDED if got_any else "配信が始まらないので待つのをやめました"
-                    return self._finish("ended", msg, "終了(%s)" % msg)
+                    return self._finish("ended", msg, "終了(%s)" % msg, "idle" if got_any else "notStarted")
                 delay = mgr.backoff[min(backoff_i, len(mgr.backoff) - 1)]
                 if why == BLOCKED:
                     delay = max(delay, BLOCKED_WAIT)
@@ -601,11 +620,11 @@ class Recording:
                     mgr.log("録画 %s: %s" % (self.id, msg))
                 self._wait(delay)
         except Exception as e:   # 思わぬエラーでも記録を残す(録画の部品は落とさない)
-            return self._finish("error", "録画中にエラーが起きました: %s" % str(e)[:200], "エラー %r" % e)
+            return self._finish("error", "録画中にエラーが起きました: %s" % str(e)[:200], "エラー %r" % e, "crash")
         finally:
             self._kill_procs(graceful=True)
         if self._stop.is_set():
-            self._finish("stopped", "停止しました", "停止しました")
+            self._finish("stopped", "停止しました", "停止しました", "stopped")
         # _halt(録画の部品の終了)だけのときは状態を録画中のまま残す → 次の起動で recover が新しいセッションで続ける
 
     def _source_ended(self, code, name):
@@ -896,7 +915,7 @@ class Recorder:
                     s["state"] = "interrupted"   # 3. 前回のセッションは「中断」
             if meta.get("state") in ACTIVE:
                 if not self.streamlink_ok() or not folder_state(self.folder)["ok"]:
-                    rec.set(state="error", message="前回の録画を続けられません(streamlink か録画の置き場所を確かめてください)")
+                    rec.set(state="error", message="前回の録画を続けられません(streamlink か録画の置き場所を確かめてください)", endKind="resume")
                     continue
                 rec.set(state="reconnecting", message="録画の部品を起動し直したので、新しいセッションで続けます")
                 rec.start_thread()

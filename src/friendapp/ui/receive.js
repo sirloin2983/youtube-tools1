@@ -41,8 +41,9 @@
     var st = s.making ? (s.expect ? s.expect + ' 本中 ' + s.arrived + ' 本・作っています' : '届いた ' + s.arrived + ' 本・作っています') : s.items.length + ' 本';
     var meta = [el('span', { text: s.streamer || '' }), el('span', { cls: 'hint', text: st })];
     if (s.auto) meta.push(el('span', { cls: 'pill info', text: '自動で届いた', title: '作る人の PC が、配信から自動で選んで届けた物です' }));
-    return el('div', { cls: 'fr-rsec-h' }, [th, el('div', { cls: 'fr-rsec-hb' }, [el('h2', { cls: 'fr-rsec-title', text: s.title || '(題なし)', title: s.title || '' }),
-      el('div', { cls: 'fr-rsec-meta' }, meta)])]);
+    var hb = [el('h2', { cls: 'fr-rsec-title', text: s.title || '(題なし)', title: s.title || '' }), el('div', { cls: 'fr-rsec-meta' }, meta)];
+    (s.recNotes || []).forEach(function (t) { hb.push(el('div', { cls: 'hint fr-rec-note', text: '⚠ ' + t })); });   /* 作る人の PC の録画の知らせ(途中で止まった・欠け) */
+    return el('div', { cls: 'fr-rsec-h' }, [th, el('div', { cls: 'fr-rsec-hb' }, hb)]);
   }
   function renderList() {
     var d = my.data || { sections: [], skipped: [] };

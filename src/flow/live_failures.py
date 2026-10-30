@@ -16,6 +16,7 @@
   detect     配信中の盛り上がりの検出(線 D の L2・M11。src/flow/live_detect.py)のワーカーの不具合・起動し直しが多い・自動の採用を諦めた(detect_failure)
   keep       終わって 3 日たっても消せない録画(D-14。src/manage/keep/live_cleanup.py の kept_failures。keep_failure)
   handover   録画中の入口の起き直しで、録画・録画の部品・検出のワーカーが引き継げなかった(src/flow/livesession.py の check_handover。handover_failure)
+  record     録画が始まらない・途中で止まって戻らない・欠けが大きい(src/flow/live_rec_alert.py。record_failure。10-30)
 人が中止した(cancelled)・取り消した書き出しは数えない(失敗ではない)。読むだけ(どのファイルも書き換えない)。
 """
 import os
@@ -24,7 +25,7 @@ import threading
 from . import runlog
 
 KIND_LABELS = {"export": "書き出し", "handoff": "まとめて実行へ渡す", "transcribe": "文字起こし", "pack": "パック", "afterStream": "配信後の自動",
-               "detect": "盛り上がりの検出", "keep": "録画の片付け", "handover": "起き直しの引き継ぎ"}
+               "detect": "盛り上がりの検出", "keep": "録画の片付け", "handover": "起き直しの引き継ぎ", "record": "録画"}
 PACK_STEPS = ("pack", "deliver")             # パックの側の段(ほかの段 = 文字起こし・話者分離は文字起こしの側)
 WINDOW_SEC = 7 * 24 * 3600                   # 「調子」に出す期間(7 日)
 MAX_LIST = 20                                # 「調子」に出す数(新しい順)
@@ -113,6 +114,17 @@ def keep_failure(recording, days, why, title="", at=""):
             "要らなければ「すべて終了」のあと、録画の置き場所の %s のフォルダを手で消してください)") % (name, int(days), _reason(why) or "理由が分かりません", recording or "?")
     return {"kind": "keep", "kindLabel": KIND_LABELS["keep"], "text": text, "jobId": "", "recorder": "", "recording": recording or "",
             "markId": "", "runId": "", "at": at}
+
+
+def record_failure(ev, text, recorder, recording, friend=False, sent=False, at=""):
+    """録画の知らせ(src/flow/live_rec_alert.py。ev = a 始まらない・b 途中で止まった・c 欠けが大きい)-> collect と同じ形の 1 件。
+    text = 友人に置いた文(頭の「ライブ(…):」と改行を外して 1 行に)。friend = 友人の依頼の録画・sent = 友人の Dropbox に置けた"""
+    body = " ".join(str(text or "").split())
+    if body.startswith("ライブ(") and "):" in body[:20]:
+        body = body.split("):", 1)[1].strip()
+    tail = ("(友人の Dropbox に知らせを置きました)" if sent else "(友人の Dropbox のフォルダが見えないので、知らせを置けていません)") if friend else ""
+    return {"kind": "record", "kindLabel": KIND_LABELS["record"], "text": _reason(body) + tail, "jobId": "", "recorder": recorder,
+            "recording": recording, "markId": "", "runId": "", "at": at, "event": ev}
 
 
 def handover_failure(reason, at=""):

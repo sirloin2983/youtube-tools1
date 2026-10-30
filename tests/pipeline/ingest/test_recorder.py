@@ -597,7 +597,7 @@ class TestStreamlinkPipe(unittest.TestCase):
             self.assertTrue(r.summary()["blockedAt"])
             t.join(20)
         self.assertFalse(t.is_alive())
-        self.assertEqual((r.meta["state"], r.meta["message"]), ("error", R.BLOCKED))
+        self.assertEqual((r.meta["state"], r.meta["message"], r.meta["endKind"]), ("error", R.BLOCKED, "notStarted"))   # 録画の知らせの a
         self.assertGreaterEqual(len(resolved), 2)   # 取り直しはする
         self.assertIsNone(r.summary()["blockedAt"])   # 止めたあとは出さない
 
@@ -625,8 +625,26 @@ class TestStreamlinkPipe(unittest.TestCase):
             t.start()
             t.join(20)
         self.assertFalse(t.is_alive())
-        self.assertEqual((r.meta["state"], r.meta["message"]), ("ended", R.BLOCKED_ENDED))
+        self.assertEqual((r.meta["state"], r.meta["message"], r.meta["endKind"]), ("ended", R.BLOCKED_ENDED, "blocked"))   # 録画の知らせの b
         self.assertGreater(runs[-1] - runs[1], 1.5)   # idle_end(0.5 秒)では止めず BLOCKED_GIVE_UP まで取り直した
+
+    def test_summary_holes_of_ended_recording(self):
+        """終わった録画の要約に欠け(録画済みの範囲の間・長い順)と終わり方の印を出す(録画の知らせ の c。10-30)。録画中は出さない"""
+        r = R.Recording(self.rec, "20261030-150000-h", os.path.join(self.folder, "h"), {"url": "https://www.youtube.com/watch?v=h", "quality": "1080p"})
+        t0 = 1793340000.0
+        segs = [{"uri": "%03d.ts" % i, "pdt": R.epoch_iso(t0 + 4 * i), "dur": 4.0} for i in range(10)]   # 0〜40 秒
+        segs += [{"uri": "%03d.ts" % i, "pdt": R.epoch_iso(t0 + 340 + 4 * (i - 10)), "dur": 4.0} for i in range(10, 15)]   # 300 秒の欠け
+        segs += [{"uri": "%03d.ts" % i, "pdt": R.epoch_iso(t0 + 380 + 4 * (i - 15)), "dur": 4.0} for i in range(15, 20)]   # 20 秒の欠け
+        with mock.patch.object(r, "all_segments", lambda: [("s1", segs)]):
+            r.meta.update(state="recording")
+            self.assertNotIn("holeSec", r.summary())
+            self.assertIsNone(r.summary()["endKind"])
+            r.meta.update(state="ended", endKind="idle")
+            s = r.summary()
+        self.assertEqual(s["endKind"], "idle")
+        self.assertAlmostEqual(s["holeSec"], 320.0, places=2)
+        self.assertEqual([h["sec"] for h in s["holes"]], [300.0, 20.0])
+        self.assertEqual(s["holes"][0]["from"], R.epoch_iso(t0 + 40))
 
     def test_streamlink_plugin_broken_falls_back_to_ytdlp(self):
         """streamlink の YouTube の部品が壊れた(Unable to validate。10-23 の取得の冗長化): bot ではないので知らせは出さず、yt-dlp で再生リストを取って続ける(偽の streamlink の記録)"""

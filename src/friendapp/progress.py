@@ -49,7 +49,7 @@ LOGIN_CODES = ("bot", "age")   # ログインし直したら自動でやり直�
 # ほかの種類の字句が混じっても、この印で決める)。送り直しても同じ配信は録り直せないので retry しない
 LIVE_MARKS = {"liveExport": "ライブ(書き出しの失敗):", "liveAdopt": "ライブ(採用の失敗):", "liveNoDetect": "ライブ(検出が動かない):",
               "liveLate": "ライブ(採用の前に終了):", "liveNoChat": "ライブ(チャットなし):", "liveNone": "ライブ(候補なし):",
-              "liveBlocked": "ライブ(YouTube に断られた):"}
+              "liveBlocked": "ライブ(YouTube に断られた):", "liveNoRec": "ライブ(録画が始まらない):"}   # liveNoRec = flow/live_rec_alert の NO_REC_HEAD
 LIVE_MESSAGES = {
     "liveExport": "切り抜く所は見つかりましたが、録画から切り出せませんでした。[作る人に知らせる] で知らせてください",
     "liveAdopt": "切り抜く所は見つかりましたが、切り抜きに回せませんでした。[作る人に知らせる] で知らせてください",
@@ -58,6 +58,7 @@ LIVE_MESSAGES = {
     "liveNoChat": "チャットを読み取れず、音だけでは切り抜く所が見つかりませんでした。アーカイブが出たら URL で送ると切り抜けます",
     "liveBlocked": "YouTube に bot と判定されて録画できませんでした。⚙ で YouTube にログインしてください(アーカイブが出たら URL で送ると切り抜けます)",
     "liveNone": "配信の中に盛り上がった所が見つかりませんでした(短い配信・静かな配信では見つからないことがあります)。アーカイブが出たら区間を指定して送れます",
+    "liveNoRec": "録画が始まらなかったので、この配信の切り抜きは届きません。アーカイブが出たら URL で送ると切り抜けます",
 }
 
 # 失敗の言葉の表(上から順に当てる)。(code, 当てる文の字句, message, retry)。字句は小文字にして照らす。bot の message は classify が login で選ぶ

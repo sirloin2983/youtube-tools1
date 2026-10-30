@@ -407,13 +407,10 @@ class Delivery:
     def _deliver_failure(self, run):
         """① 全自動が止まったとき、友人のアプリの「受け取る」に理由を出す(<依頼 id>__<題名>.失敗.txt)。友人の依頼(出どころ request)だけ
         (自動で送る分は友人に知らせない = ホームのログと案件の画面だけ。D-SEND 2-6)"""
-        if self._origin(run) != "request" or not deliver_mod.outbox_ok(run.deliver_dir):   # Dropbox のフォルダが見えない = 外に作らない
+        if self._origin(run) != "request":
             return
-        try:
-            os.makedirs(run.deliver_dir, exist_ok=True)
-            name = self._deliver_name(run, run.title or "依頼") + ".失敗.txt"
-            text = "自動の処理が止まりました。\r\n理由: %s\r\n送り先の人が確かめます。" % (run.error or run.message)
-            with open(os.path.join(run.deliver_dir, name), "w", encoding="utf-8-sig", newline="") as f:
-                f.write(text + "\r\n")
+        try:   # Dropbox のフォルダが見えない = 外に作らない(write_failure の中)
+            deliver_mod.write_failure(run.deliver_dir, self._deliver_name(run, run.title or "依頼"),
+                                      "自動の処理が止まりました。\r\n理由: %s\r\n送り先の人が確かめます。" % (run.error or run.message))
         except OSError:
             pass

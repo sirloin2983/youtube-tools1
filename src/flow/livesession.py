@@ -46,6 +46,7 @@ from . import chatreuse as _chatreuse   # ライブで取ったチャットの�
 from . import live_detect   # 配信中の盛り上がりの検出と自動の採用。線 D の L2・M11
 from . import live_export as LX   # マークと書き出し。P2
 from . import live_failures   # 失敗の集約。M3・M7
+from . import live_rec_alert   # 録画の知らせ(始まらない・途中で止まった・欠けが大きい。10-30)
 from . import live_report   # 配信ごとの結果の記録。線 D の D-12
 from . import live_tx   # 配信中の候補の文字起こし。線 D の D-11 案 b
 from . import placement as _placement, retention as _retention, runlog, spec as _spec
@@ -468,6 +469,7 @@ class LiveSession:
         # 子(Detector・LiveTx・Reporter・Exporter)は self を親 host として受ける = flow/livehost.py の LiveHost(RS7-2 G0)
         self.detector = live_detect.Detector(self, python=self.python, spawn=spawn)   # 配信中の盛り上がりの検出(L2)と自動の採用(M11)
         self.requests = requests if requests is not None else MemoryRequests()   # 友人のライブ配信の依頼と録画の結びつき(2-15)
+        self.rec_alerts = live_rec_alert.RecAlerts(self.store_dir, lambda rc, rec: self.requests.get(rc, rec), log=self.log)   # 録画の知らせ(10-30)
         self.bundles = BundleBook(lambda: os.path.join(self.store_dir, BUNDLES_FILE), log=self.log)   # 録画ごとの封筒 + 束(RS7-2 G2b)
         self.livetx = live_tx.LiveTx(self, log=self.log, python=self.python)   # 配信中の候補の文字起こし(D-11 案 b。whisper.cpp の GPU)
         self.livetx.attach_board(self.board)
@@ -663,16 +665,22 @@ class LiveSession:
         入口の Live が取り込んだスタジオの Batch を渡す(OPT2 の J5)"""
         return None
 
-    def list_recordings(self):
-        """録画元ごとの録画の一覧(配信後の全自動 M7 の見回り)-> [{recorder, id, url, title, active, endedAt, firstPdt, lastPdt}](時刻は epoch か None)。
-        つながらない録画元は飛ばす"""
+    def list_recordings(self, down=None):
+        """録画元ごとの録画の一覧(配信後の全自動 M7 の見回り・録画の知らせ)-> [{recorder, id, url, title, active, endedAt, firstPdt, lastPdt, created,
+        state, message, endKind, segments, holeSec, holes}](時刻は epoch か None。holes は録画元の [{from, to, sec}] のまま)。
+        つながらない録画元は飛ばす(down に集合を渡せば、その id を入れる)"""
         out = []
         for rc in self.recorders():
-            for r in LX.rec_list(self.call, rc) or []:
+            rs = LX.rec_list(self.call, rc)
+            if rs is None and down is not None:
+                down.add(rc["id"])
+            for r in rs or []:
                 out.append({"recorder": rc["id"], "id": r["id"], "url": str(r.get("url") or "")[:URL_MAX], "title": str(r.get("title") or "")[:LX.TITLE_MAX],
                             "active": r.get("active") is True or r.get("state") in rec_core.ACTIVE,
                             "endedAt": LX.iso_epoch(r.get("endedAt")), "firstPdt": LX.iso_epoch(r.get("firstPdt")),
-                            "lastPdt": LX.iso_epoch(r.get("lastPdt"))})
+                            "lastPdt": LX.iso_epoch(r.get("lastPdt")), "created": LX.iso_epoch(r.get("created")),
+                            "state": r.get("state"), "message": str(r.get("message") or "")[:300], "endKind": r.get("endKind"),
+                            "segments": r.get("segments"), "holeSec": r.get("holeSec"), "holes": r.get("holes") if isinstance(r.get("holes"), list) else None})
         return out
 
     def recording_state(self, rc_id, rec):
@@ -1222,8 +1230,17 @@ class LiveSession:
                 + self._request_watch()
                 + [("録画の束の片付けでエラー", self.bundles.prune),   # RS7-2 G2b: 古い録画の束を消す
                    ("配信の記録の見回りでエラー", self.reporter.tick),   # D-12: 配信ごとの結果の記録(録画中は 1 分ごと・終わったら最後に 1 回)
+                   ("録画の知らせの見回りでエラー", self._rec_alert_tick),   # 録画が始まらない・途中で止まった・欠けが大きい(10-30)
                    ("チャットの取り直しの見回りでエラー", self._chat_retry)]   # チャットのリプレイが無かった新しい配信を時間を置いて解析し直す(flow/run.py)
                 + self._app_watch())
+
+    def _rec_alert_tick(self):
+        """録画の知らせ(flow/live_rec_alert。オンのときだけ)-> 新しく知らせた数"""
+        if not self.enabled():
+            return 0
+        down = set()
+        recs = self.list_recordings(down=down)
+        return self.rec_alerts.tick(recs, down)
 
     def _chat_retry(self):
         """まとめて実行(Runner)の chat_retry_tick を呼ぶ(待ち行列が無い・持たなければ何もしない)"""
@@ -1352,6 +1369,7 @@ class LiveSession:
         if self._cleaner is not None:   # D-14: 消せないまま残っている録画の知らせ(keep_failure)
             failures += self._guard("残っている録画の一覧を作れませんでした", self._cleaner.kept_failures, [])
         failures += self._handover_fails   # 録画中の起き直しで引き継げなかった物(check_handover。この入口の間だけ)
+        failures += self._guard("録画の知らせを読めませんでした", self.rec_alerts.failures, [])   # 録画が始まらない・途中で止まった・欠けが大きい(10-30)
         failures = sorted(failures, key=lambda x: x.get("at") or "", reverse=True)[:live_failures.MAX_LIST]
         disk = self._guard("空き容量を調べられませんでした", self.exporter.disk)   # 書き出し先・パック・live\work の空き(M4)
         try:   # 配信中の検出(L2。worker.json・peaks.json を読む。オフなら None)

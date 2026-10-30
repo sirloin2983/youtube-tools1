@@ -98,6 +98,7 @@
     var who = (r.form || {}).streamer;
     if (who) kids.push(el('div', { cls: 'hint fr-sent-who', text: who }));
     if (keepOriginal(r)) kids.push(el('div', { cls: 'hint', text: '元の動画を動かさないでください' }));   /* 空きが足りず写しを取れなかった = 元の動画から上げる */
+    (r.recNotes || []).forEach(function (t) { kids.push(el('div', { cls: 'hint fr-rec-note', text: '⚠ ' + t })); });   /* 作る人の PC の録画の知らせ(途中で止まった・欠け) */
     var acts = [];
     if (r.state === 'failed') failBox(r, kids, acts);
     else {

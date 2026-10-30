@@ -48,6 +48,17 @@ def outbox_ok(out_dir):
     return bool(parent) and not fsio.is_network_path(parent) and os.path.isdir(parent)
 
 
+def write_failure(out_dir, name, text):
+    """出力 に失敗の知らせ <name>.失敗.txt を置く(友人のアプリの「受け取る」・送った物に出る。まとめて実行の失敗 flow/delivery と録画の知らせ
+    flow/live_rec_alert の 1 か所)。出力 の親が無ければ置かない(outbox_ok)-> 置けたか"""
+    if not outbox_ok(out_dir):
+        return False
+    os.makedirs(out_dir, exist_ok=True)
+    with open(os.path.join(out_dir, name + ".失敗.txt"), "w", encoding="utf-8-sig", newline="") as f:
+        f.write(str(text).rstrip("\r\n") + "\r\n")
+    return True
+
+
 def safe_name(s, limit=180):
     return BAD_CHARS.sub("_", str(s or ""))[:limit]
 
