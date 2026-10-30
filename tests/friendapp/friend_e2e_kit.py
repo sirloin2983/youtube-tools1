@@ -117,9 +117,6 @@ class FakeLive:
     def stop_recording(self, recorder, recording):
         self.stopped.append((recorder, recording))
 
-    def change_request(self, recorder, recording, rid, settings):
-        self.changed.append((rid, settings))
-
     def start(self):
         pass
 

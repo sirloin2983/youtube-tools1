@@ -141,7 +141,7 @@ class LiveFlowTest(unittest.TestCase):
         self.eng.close()
 
     def send_live(self, **kw):
-        """ライブを送る -> 行。送る欄の 2 つ(perHour・配信後の追加)は body・感度と待ちと余白は ⚙ の値(C-2-11)。長さはいつも自動(10-23)"""
+        """ライブを送る -> 行。古い画面のように送る欄と ⚙ にライブの値を送る(10-30 からは読まない = 固定の値 L.FIXED)。長さはいつも自動(10-23)"""
         self.api.set_prefs({"liveSens": SETTINGS["sens"], "liveWait": SETTINGS["waitMin"], "livePad": SETTINGS["pad"]})
         live = {"perHour": SETTINGS["perHour"], "afterStream": SETTINGS["afterStream"]}
         live.update(kw.pop("live", {}))
@@ -163,10 +163,11 @@ class LiveFlowTest(unittest.TestCase):
         self.assertEqual((row["state"], row["kind"], row["live"]["recorder"], row["live"]["recording"]), ("recording", "live", "local", REC))
         item = self.eng.live.requests.get("local", REC)   # 結びつき = 受信箱の行の id・長さは自動(束の analyze に入れない)
         self.assertEqual((item["rid"], item["settings"]["lengthMode"], item["settings"]["sens"], item["settings"]["afterStream"], item["deliverDir"]),
-                         (row["id"], "auto", "low", False, ""))
+                         (row["id"], "auto", "low", True, ""))   # 10-30: ライブの 5 つは固定の値(L.FIXED。送る欄・⚙ の古い値は読まない)
         b = self.eng.live.bundle("local", REC)
-        self.assertEqual((b["adopt"]["perHour"], b["adopt"]["waitMin"], b["pack"]["videoTracks"]), (8, 10, 2))
-        self.assertEqual(self.api.form()["live"], dict(SETTINGS, length=45, pad=5.0, lengthMode="auto"))   # 前回の値(A-5)
+        self.assertEqual((b["adopt"]["perHour"], b["adopt"]["waitMin"], b["adopt"]["pad"], b["pack"]["videoTracks"]), (6, 5, 2.0, 2))
+        self.assertEqual(self.api.form()["live"], dict(L.fixed(L.SETTINGS_DEFAULT), lengthMode="auto"))
+        self.assertEqual(A.FORM_DEFAULTS["live"], self.api.form()["live"])
         self.assertEqual(self.eng.live.active_count(), 1)
 
     def test_batch_cap_and_cut(self):
@@ -205,38 +206,6 @@ class LiveFlowTest(unittest.TestCase):
         old = L.clean_settings({"sens": "high", "perHour": 3, "length": 30})   # lengthMode の無い前の形の依頼
         self.assertNotIn("lengthMode", old)
         self.assertEqual(L.clean_settings(dict(old, lengthMode="weird")), old)
-
-    @mock.patch.object(LB, "BATCH_ON", False)   # 前の形(依頼の 1 時間の枠がワーカーへ)。区切りごとに届ける形は帳簿が 1 時間 10 本
-    def test_update_live_while_recording(self):
-        """C-2-11: 録画中に 1 時間の枠・配信後の追加を変える → ② の結びつき(ワーカーの config.json まで)と行の form.live が変わる。
-        長さはいつも自動(古い画面が固定を送っても読まない。10-23)"""
-        rid = self.send_live(live={"afterStream": False})["id"]
-        row = self.api.update_live(rid, {"id": rid, "perHour": 3, "lengthMode": "fixed", "length": 90, "afterStream": True})
-        self.assertEqual(row["form"]["live"], {"sens": "low", "perHour": 3, "length": 45, "waitMin": 10, "pad": 5.0, "afterStream": True, "lengthMode": "auto"})
-        self.assertEqual(self.box.row(rid)["form"]["live"]["lengthMode"], "auto")
-        s = self.eng.live.requests.get("local", REC)["settings"]
-        self.assertEqual((s["perHour"], s["afterStream"], s["lengthMode"], s["sens"]), (3, True, "auto", "low"))
-        req, _spec, shape = self.worker_req()
-        self.assertEqual((req["perHour"], req["lengthMode"], shape), (3, "auto", "scene"))
-        self.assertTrue(self.eng.live.archiver._request_after("local", REC))   # 配信後の追加は配信が終わったときに今の値を読む
-        with self.assertRaises(A.FormError) as cm:   # 値ごとの検査は SettingsTest.test_check_settings
-            self.api.update_live(rid, {"perHour": 0})
-        self.assertIn("1 時間の枠", str(cm.exception))
-        self.assertEqual(self.eng.live.requests.get("local", REC)["settings"]["perHour"], 3)   # 断った値は入らない
-
-    def test_update_live_refuses_user_pc_and_not_recording_rows(self):
-        rid = self.send_live()["id"]
-        self.rec.end(REC)
-        self.eng.live_tick()   # 録画が終わった
-        with self.assertRaises(A.FormError) as cm:
-            self.api.update_live(rid, {"perHour": 3})
-        self.assertIn("録画中の行だけ", str(cm.exception))
-        user = self.box.add("20261017-120000-abcdef", {"kind": "live", "live": dict(SETTINGS, lengthMode="auto")}, {"url": URL}, pc="user", kind="live")
-        with self.assertRaises(A.FormError) as cm:
-            self.api.update_live(user["id"], {"perHour": 3})
-        self.assertEqual(str(cm.exception), "作る人の PC で録画している依頼は、ここから変えられません")
-        with self.assertRaises(KeyError):
-            self.api.update_live("nope", {"perHour": 3})
 
     def test_send_live_not_live_refused(self):
         self.eng.live.probe = lambda url: {"status": "was_live", "title": "", "channel": "", "message": ""}
@@ -388,7 +357,7 @@ class LiveFlowTest(unittest.TestCase):
         self.assertEqual((d["requestId"], d["code"], d["stage"], d["outcome"]["state"], d["outcome"]["packs"], d["outcome"]["cause"]),
                          (rid, "liveNoDetect", "close", "failed", 0, "liveNoDetect"))
         lv = d["live"]
-        self.assertEqual((lv["peaksDoc"], lv["worker"]["running"], lv["recording"]["sec"], lv["settings"]["perHour"]), (None, False, 3600.0, 8))
+        self.assertEqual((lv["peaksDoc"], lv["worker"]["running"], lv["recording"]["sec"], lv["settings"]["perHour"]), (None, False, 3600.0, L.FIXED["perHour"]))
         self.assertNotIn(URL, json.dumps(d, ensure_ascii=False))   # 配信の URL・題は入れない
         self.assertNotIn("配信の題", json.dumps(d, ensure_ascii=False))
         self.eng.live_tick()   # 閉じた行は見回らない = 診断は 1 回

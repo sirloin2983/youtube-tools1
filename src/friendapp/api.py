@@ -36,7 +36,7 @@ FORM_NAME = "form.json"
 TOP_DEFAULT = 5                     # 本数の初め(C-2-8)
 RANGES_MAX = 5                      # 区間の数の上限(C-5-5)
 FILES_MAX_SEND = 20                 # 動画ファイルを 1 回に送る数(C-2-13)
-FORM_DEFAULTS = {"top": TOP_DEFAULT, "videoTracks": 1, "pc": "this", "live": dict(_live.SETTINGS_DEFAULT, lengthMode="auto"),
+FORM_DEFAULTS = {"top": TOP_DEFAULT, "videoTracks": 1, "pc": "this", "live": dict(_live.fixed(_live.SETTINGS_DEFAULT), lengthMode="auto"),
                  "cut": "none"}   # cut = ⚙ のカットの既定(A-8)・ライブの長さはいつも自動(10-23)
 PCS = ("this", "user")
 PEOPLE_MAX = 6
@@ -76,16 +76,6 @@ def live_auto(s):
         return dict(_live.check_settings({k: v for k, v in s.items() if k != "lengthMode"}), lengthMode="auto")
     except ValueError as e:
         raise FormError(str(e))
-
-
-def merge_live(cur, change):
-    """⚙ のライブの値(change の sens・waitMin・pad)を今の設定 cur に重ねて検べる -> 新しい設定(長さは自動)。
-    違えば FormError(文は live.check_settings。⚙ の 2 つの口が使う 1 か所)"""
-    lv = dict(cur, **{k: change[k] for k in ("sens", "waitMin", "pad") if k in change})
-    try:
-        return live_auto(lv)
-    except FormError as e:
-        raise FormError("ライブの" + str(e))
 
 
 def oembed(vid, timeout=PEEK_TIMEOUT):
@@ -184,7 +174,7 @@ class Api:
             out["videoTracks"] = d["videoTracks"]
         if d.get("pc") in PCS:
             out["pc"] = d["pc"]
-        out["live"] = dict(_live.clean_settings(d.get("live")), lengthMode="auto")   # 前の lengthMode fixed・length は読まない(10-23)
+        # ライブの設定は form.json を読まない(固定の値 = friendapp/live.FIXED。10-30。長さはいつも自動 = 10-23)
         if d.get("cut") in _spec.CUTS:
             out["cut"] = d["cut"]
         return out
@@ -201,7 +191,7 @@ class Api:
         self._write_form(cur)
 
     def set_prefs(self, body):
-        """⚙ の値(C-2-19・C-2-11): pc・liveSens・liveWait・livePad -> 変えた物の文のリスト。違えば FormError(どれも書かない)"""
+        """⚙ の値(C-2-19): pc -> 変えた物の文のリスト。違えば FormError(どれも書かない)。ライブの感度・待ち・余白は 10-30 に外した(固定の値 = friendapp/live.FIXED)"""
         cur = self.form()
         msgs = []
         if "pc" in body:
@@ -211,10 +201,6 @@ class Api:
                 self._need_key()
             cur["pc"] = body["pc"]
             msgs.append("依頼するにしました(この PC では処理しません)" if body["pc"] == "user" else "この PC で処理するにしました")
-        change = {name: body[key] for key, name in (("liveSens", "sens"), ("liveWait", "waitMin"), ("livePad", "pad")) if key in body}
-        if dict(cur["live"], **change) != cur["live"]:
-            cur["live"] = merge_live(cur["live"], change)
-            msgs.append("ライブの設定を変えました(次に頼む録画から)")
         if msgs:
             self._write_form(cur)
         return msgs
@@ -224,8 +210,6 @@ class Api:
         cur["videoTracks"] = f["videoTracks"]
         if f.get("top") is not None and f["kind"] in ("url", "wait"):
             cur["top"] = f["top"]
-        if f.get("live"):
-            cur["live"] = dict(cur["live"], **{k: f["live"][k] for k in ("perHour", "afterStream") if k in f["live"]})
         self._write_form(cur)
 
     # ------------------------------------------------------------ 送る
@@ -454,8 +438,7 @@ class Api:
                 raise FormError("本数は 1 以上の整数にしてください")
         live = None
         if kind == "live":
-            got = body.get("live") if isinstance(body.get("live"), dict) else {}
-            live = live_auto(dict(prefs["live"], **{k: got[k] for k in ("perHour", "afterStream") if k in got}))   # 感度・待ち・余白は ⚙ の値
+            live = live_auto(_live.fixed(prefs["live"]))   # ライブの 5 つの値は固定(friendapp/live.FIXED。送る欄の値は読まない。10-30)
         streamer, people, vt = self._common(body)
         return {"kind": kind, "url": _yturl.watch_url(vid), "videoId": vid, "ranges": ranges, "top": top, "streamer": streamer, "people": people,
                 "videoTracks": vt,
@@ -796,31 +779,6 @@ class Api:
             self.inbox.cancelled(rid, drop=r["state"] == "sent" or not r["packs"])
             return {"id": rid, "state": "cancelled"}
         raise FormError("取り消せる行ではありません")
-
-    def update_live(self, rid, body):
-        """録画中のライブの行の設定を途中で変える(C-2-11。POST /api/friend/live-settings)。body = {perHour?, afterStream?}
-        (無い鍵は今の値のまま・長さはいつも自動 = 前の形の固定の行も自動になる(10-23)・範囲は送る欄と同じ check_settings)。② のライブ係の結びつきを差し替え、行の form.live も
-        書き換える = これから採用・切り出す物から効く(もう切った物は作り直さない)。-> 行。ユーザーの PC に頼んだ行・録画中でない行・値の違いは FormError"""
-        r = self.inbox.row(rid)
-        if r is None:
-            raise KeyError(rid)
-        if r.get("kind") != "live":
-            raise FormError("ライブの行ではありません")
-        if r.get("pc") == "user":
-            raise FormError("作る人の PC で録画している依頼は、ここから変えられません")
-        lv = r.get("live") if isinstance(r.get("live"), dict) else {}
-        if r["state"] != "recording" or not lv.get("recording") or lv.get("endedAt"):
-            raise FormError("録画中の行だけ設定を変えられます")
-        cur = (r.get("form") or {}).get("live") or {}
-        new = live_auto(dict(_live.clean_settings(cur), **{k: body[k] for k in ("perHour", "afterStream") if k in body}))
-        eng = self.engine_fn()
-        if eng is None or getattr(eng, "live", None) is None:
-            raise FormError("準備中です。少し待ってから、もう一度押してください")
-        try:
-            eng.live.change_request(lv.get("recorder"), lv.get("recording"), rid, new)
-        except ValueError as e:   # 結びつきが無い(LiveError も ValueError)
-            raise FormError(str(e))
-        return self.inbox.set_live_form(rid, new)
 
     @staticmethod
     def _cancel_runs(eng, pick):

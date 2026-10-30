@@ -43,7 +43,7 @@ import zipfile
 from flow import learning as _learning, machine as _machine, order as _order
 from ytt import fsio, version as _version
 
-from . import diag as _diag, dropbox as _dropbox, inbox as _inbox, places as _places, signing as _signing, voicesend as _voicesend
+from . import diag as _diag, dropbox as _dropbox, inbox as _inbox, live as _live, places as _places, signing as _signing, voicesend as _voicesend
 
 EVERY = 180                        # 見回りの間隔(秒。数分ごと)
 VOICE_SEND = True                  # スイッチ: 声の材料(ソロ配信の行の短い音)を送り返しに置く(friendapp/voicesend。10-24 夜)
@@ -391,7 +391,7 @@ def request_doc(kind, rid, form, sent_at, files=None):
     d["videoTracks"] = form.get("videoTracks") or 1
     d["cut"] = form.get("cut") if form.get("cut") in ("none", "silence") else "none"   # ⚙ のカットの既定(送ったときの値)
     if kind == "live":
-        s = form.get("live") or {}
+        s = _live.fixed(form.get("live"))   # 友人の画面から外した 5 つは固定の値で上書き(10-30。古い行の値も)
         d["live"] = {k: s[k] for k in LIVE_KEYS if k in s}
     d["sentAt"] = _iso(sent_at)
     return d

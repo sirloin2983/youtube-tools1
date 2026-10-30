@@ -64,7 +64,6 @@
     ui.keyClear = h('button', { type: 'button', class: 'btn ghost small', text: '消す' });
     ui.keyHelp = h('p', { class: 'hint' });
     ui.remoteWhy = h('p', { class: 'hint' });
-    ui.sens = h('select', { 'aria-labelledby': 'fsLiveSensL' });
     /* YouTube のログイン(notes:docs/spec/friend.md の 13-13)。ログインは exe の小窓(FriendHost.youtubeLogin)・ログアウトは POST settings {ytLogout} */
     ui.ytState = h('p', { 'aria-live': 'polite' });
     ui.ytLogin = h('button', { type: 'button', class: 'btn small', text: 'YouTube にログイン' });
@@ -106,11 +105,6 @@
       section('fsKeyH', 'YouTube の API キー', [ui.keyState, h('div', { class: 'fs-line' }, [ui.key, ui.keySave, ui.keyClear]), ui.keyHelp]),
       section('fsDiskH', '空き容量の下限', [h('div', { class: 'fs-line' }, [num('fsDisk', 0, 100000, 1, '空き容量の下限(GB)'), h('span', { class: 'hint', text: 'GB(空きがこれより少なくなると、新しい処理を始めずに待ちます)' })])]),
       section('fsCutH', 'カットの既定', [radios('fsCut', 'fsCutH', [['none', 'しない'], ['silence', '無音を削る']])], '送るときに使います。初めは「しない」です。'),
-      section('fsLiveH', 'ライブの切り抜き', [
-        h('div', { class: 'fs-line' }, [h('span', { id: 'fsLiveSensL', text: '感度' }), ui.sens]),
-        h('div', { class: 'fs-line' }, [h('label', { class: 'fs-radio' }, ['待ち ', num('fsLiveWait', 1, 60, 1, '待ち(分)'), ' 分'])]),
-        h('div', { class: 'fs-line' }, [h('label', { class: 'fs-radio' }, ['余白 ', num('fsLivePad', 0, 5, 0.5, '余白(秒)'), ' 秒'])])
-      ], '録画しながら切り抜くときの細かい設定です。次の録画から使います。余白はライブの自動の切り抜きにだけ効きます。待ちは今の届け方(30 分ごとの区切り)では効きません。'),
       ui.tidySec,
       ui.notesSec
     ]);
@@ -135,15 +129,8 @@
     ui.keySave.addEventListener('click', function () { saveKey(ui.key.value.trim()); });
     ui.key.addEventListener('keydown', function (e) { if (e.key === 'Enter') saveKey(ui.key.value.trim()); });
     ui.keyClear.addEventListener('click', function () { saveKey(''); });
-    ui.sens.addEventListener('change', putLive);
-    ui.fsLiveWait.addEventListener('change', putLive);
-    ui.fsLivePad.addEventListener('change', putLive);
     ui.ytLogin.addEventListener('click', ytLogin);
     ui.ytLogout.addEventListener('click', function () { put({ ytLogout: true }); });
-  }
-
-  function putLive() {
-    put({ live: { sens: ui.sens.value, waitMin: parseFloat(ui.fsLiveWait.value), pad: parseFloat(ui.fsLivePad.value) } });
   }
 
   function fill(s) {
@@ -166,15 +153,6 @@
     ui.keyHelp.textContent = s.apiKeyHelp || '';
     if (document.activeElement !== ui.fsDisk) ui.fsDisk.value = s.diskMinGB == null ? '' : s.diskMinGB;
     setRadio('fsCut', s.cut);
-    var lv = s.live || {};
-    if (!ui.sens.options.length || ui.sens.dataset.n !== String((s.liveSensOptions || []).length)) {
-      ui.sens.textContent = '';
-      (s.liveSensOptions || []).forEach(function (o) { ui.sens.appendChild(h('option', { value: o.value, text: o.label })); });
-      ui.sens.dataset.n = String((s.liveSensOptions || []).length);
-    }
-    ui.sens.value = lv.sens || '';
-    if (document.activeElement !== ui.fsLiveWait) ui.fsLiveWait.value = lv.waitMin == null ? '' : lv.waitMin;
-    if (document.activeElement !== ui.fsLivePad) ui.fsLivePad.value = lv.pad == null ? '' : lv.pad;
     fillYt(s.ytLogin || {});
     if (Array.isArray(s.updateNotes)) fillNotes(s.updateNotes, s.version || '');
   }

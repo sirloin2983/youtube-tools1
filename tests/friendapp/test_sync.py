@@ -289,14 +289,15 @@ class SyncTest(unittest.TestCase):
         self.assertIsNone(self.io.data("/%s.request.json" % RID))
 
     def test_request_live_doc(self):
-        """ライブの依頼の鍵と順(live の後に sentAt)"""
+        """ライブの依頼の鍵と順(live の後に sentAt)。友人の画面から外した 5 つは固定の値で上書き(10-30。古い行の値も)"""
         self.key()
         live = {"sens": "low", "perHour": 8, "length": 150, "waitMin": 10, "pad": 5.0, "afterStream": False}
         self.box.add(RID, dict(FORM, kind="live", ranges=[], top=7, url="https://youtu.be/dQw4w9WgXcQ", live=live), {"title": "x"}, pc="user", kind="live")
         self.run_sync()
         doc = json.loads(self.io.data("/%s.request.json" % RID).decode("utf-8"))
         self.assertEqual(list(doc), ["v", "kind", "id", "flow", "url", "streamer", "speakers", "videoTracks", "cut", "live", "sentAt"])
-        self.assertEqual((doc["url"], doc["live"], list(doc["live"])), ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", live, [k for k in S.LIVE_KEYS if k in live]))   # 鍵の順は LIVE_KEYS(無い鍵 = 前の形の lengthMode は入れない)
+        want = dict(live, sens="low", perHour=6, waitMin=5, pad=2.0, afterStream=True)
+        self.assertEqual((doc["url"], doc["live"], list(doc["live"])), ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", want, [k for k in S.LIVE_KEYS if k in want]))   # 鍵の順は LIVE_KEYS(無い鍵 = 前の形の lengthMode は入れない)
 
     # ------------------------------------------------------------ /出力/ の取り込み
     def put_packs(self, rid, origin="auto", n=2, pack_data=None):

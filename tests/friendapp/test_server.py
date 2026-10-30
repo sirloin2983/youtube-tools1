@@ -1192,8 +1192,8 @@ class ServerTest(Base):
         st, d = self.send(kind="live", live={"perHour": 6, "afterStream": "yes"})   # 配信後の追加が真偽でない
         self.assertEqual(st, 400)
 
-    def test_send_live_to_user_pc_mixes_form_and_prefs(self):
-        """ライブの送る欄の 2 つ(1 時間の枠・配信後の追加)+ ⚙ の感度・待ち・余白(C-2-11)。長さはいつも自動(10-23)"""
+    def test_send_live_to_user_pc_uses_fixed_live(self):
+        """10-30: ライブの 5 つ(感度・余白・1 時間の枠・配信後の追加・待ち)は固定の値(friendapp/live.FIXED)。古い画面が送る欄・⚙ に値を送っても読まない。長さはいつも自動(10-23)"""
         dbx = self.use_fake_dropbox()
         self.assertEqual(self.prefs(pc="user", liveSens="high", liveWait=9, livePad=3.5)[0], 200)
         live = {"perHour": 12, "lengthMode": "fixed", "length": 180, "afterStream": False, "sens": "low", "waitMin": 1, "pad": 0}   # 感度・待ち・余白は送る欄から読まない
@@ -1202,9 +1202,9 @@ class ServerTest(Base):
         self.app.sync.run_once()
         doc = json.loads(dbx.files["/%s.request.json" % d["row"]["id"]])
         self.assertEqual(doc["kind"], "live")
-        self.assertEqual(doc["live"], {"sens": "high", "perHour": 12, "length": 45, "waitMin": 9, "pad": 3.5, "afterStream": False, "lengthMode": "auto"})   # 送った固定は読まない
+        self.assertEqual(doc["live"], {"sens": "low", "perHour": 6, "length": 45, "waitMin": 5, "pad": 2.0, "afterStream": True, "lengthMode": "auto"})
         f = self.app.api.form()
-        self.assertEqual(f["live"], {"sens": "high", "perHour": 12, "length": 45, "waitMin": 9, "pad": 3.5, "afterStream": False, "lengthMode": "auto"})
+        self.assertEqual(f["live"], {"sens": "low", "perHour": 6, "length": 45, "waitMin": 5, "pad": 2.0, "afterStream": True, "lengthMode": "auto"})
         self.assertEqual(f["top"], 5)   # ライブは本数を持たない = 前の本数のまま
 
     def test_send_live_length_always_auto(self):
@@ -1223,7 +1223,7 @@ class ServerTest(Base):
                        "live": {"sens": "low", "perHour": 9, "length": 120, "lengthMode": "fixed", "waitMin": 7, "pad": 1.5, "afterStream": False}}, fh)
         f = self.app.api.form()
         self.assertEqual((f["top"], f["cut"], "weights" in f, "useWeights" in f), (7, "silence", False, False))
-        self.assertEqual((f["live"]["lengthMode"], f["live"]["sens"], f["live"]["perHour"]), ("auto", "low", 9))
+        self.assertEqual(f["live"], {"sens": "low", "perHour": 6, "length": 45, "waitMin": 5, "pad": 2.0, "afterStream": True, "lengthMode": "auto"})   # 古いライブの値は読まない(10-30)
         self.assertEqual(self.js(self.get("/api/friend/inbox")[2])["form"]["live"]["lengthMode"], "auto")
         st, d = self.send(top=2)
         self.assertEqual(st, 200)
@@ -1255,57 +1255,28 @@ class ServerTest(Base):
         st, d = self.send(kind="wait", top=3)
         self.assertEqual((st, d["row"]["state"]), (200, "waiting"))
 
-    def test_live_settings_refuses_user_pc_and_other_rows(self):
-        """POST /api/friend/live-settings(C-2-11。録画中の行の変え方は test_live の test_update_live_while_recording):
-        ユーザーの PC に頼んだ行・ライブでない行・録画中でない行は 400(理由)・無い行は 404・合言葉が要る"""
-        self.use_fake_dropbox()
-        self.prefs(pc="user")
-        st, d = self.send(kind="live", live={"perHour": 6, "lengthMode": "auto", "afterStream": True})
-        rid = d["row"]["id"]
-        st, _h, p = self.post("/api/friend/live-settings", {"id": rid, "perHour": 3})
-        self.assertEqual(st, 400)
-        self.assertEqual(self.app.inbox.row(rid)["form"]["live"]["perHour"], 6)
-        self.prefs(pc="this")
-        self.app.inbox.add("20261017-130000-abcdef", {"kind": "live", "live": {}}, {"url": URL}, kind="live")   # 送っただけ(録画を始める前)
-        st, _h, p = self.post("/api/friend/live-settings", {"id": "20261017-130000-abcdef", "perHour": 3})
-        self.assertEqual(st, 400)
-        st, d = self.send(kind="url", top=2)
-        st, _h, p = self.post("/api/friend/live-settings", {"id": d["row"]["id"], "perHour": 3})
-        self.assertEqual((st, self.js(p)["message"]), (400, "ライブの行ではありません"))
-        self.assertEqual(self.post("/api/friend/live-settings", {"id": "nope", "perHour": 3})[0], 404)
-        self.assertEqual(self.post("/api/friend/live-settings", {"id": rid}, headers={TOKEN: None})[0], 403)
-
     # ------------------------------------------------------------ ⚙ の値(prefs。C-2-19)
     def test_prefs_sets_each_value_and_writes_form_json(self):
-        st, d = self.prefs(useWeights=True, weights={"wAudio": 3, "wChat": 0, "wComments": 1}, liveSens="low", liveWait=20, livePad=4)   # 重みは読まない(10-23)
-        self.assertEqual(st, 200)
-        self.assertTrue(d["ok"])
-        self.assertEqual(d["message"], "ライブの設定を変えました(次に頼む録画から)")
+        st, d = self.prefs(useWeights=True, weights={"wAudio": 3, "wChat": 0, "wComments": 1}, liveSens="high", liveWait=20, livePad=4)   # 重み(10-23)・ライブの値(10-30)は読まない
+        self.assertEqual((st, d["ok"], d["message"]), (200, True, "変えるものがありません"))
         f = d["form"]
         self.assertNotIn("weights", f)
-        self.assertEqual((f["live"]["sens"], f["live"]["waitMin"], f["live"]["pad"]), ("low", 20, 4.0))
-        st, d = self.prefs()
-        self.assertEqual((st, d["message"]), (200, "変えるものがありません"))
-        st, d = self.prefs(liveSens="low")   # 同じ値 = 変わらない
-        self.assertEqual(d["message"], "変えるものがありません")
+        self.assertEqual(f["live"], {"sens": "low", "perHour": 6, "length": 45, "waitMin": 5, "pad": 2.0, "afterStream": True, "lengthMode": "auto"})
         st, d = self.prefs(unknown=1, pc="this")
         self.assertIn("この PC で処理する", d["message"])
 
     def test_prefs_bad_values_are_400_and_write_nothing(self):
         before = self.app.api.form()
-        bad = [(dict(pc="other"), "処理する PC"), (dict(liveSens="max"), "感度"), (dict(liveWait=0), "待ち"), (dict(liveWait=61), "待ち"), (dict(livePad=6), "余白"),
-               (dict(livePad="1"), "余白"), (dict(liveWait=2.5), "待ち")]
+        bad = [(dict(pc="other"), "処理する PC")]
         for kw, why in bad:
             with self.subTest(kw=kw):
                 st, d = self.prefs(**kw)
                 self.assertEqual((st, d["error"]), (400, "bad_request"))
                 self.assertIn(why, d["message"])
         # 1 つでも違えば、同じ呼びの正しい値も書かない
-        st, d = self.prefs(pc="this", liveSens="max")
-        self.assertEqual(st, 400)
         self.assertEqual(self.app.api.form(), before)
         self.assertFalse(os.path.exists(os.path.join(self.places["friend"], "form.json")))
-        self.assertEqual(self.post("/api/friend/prefs", {"liveSens": "low"}, headers={TOKEN: None})[0], 403)
+        self.assertEqual(self.post("/api/friend/prefs", {"pc": "this"}, headers={TOKEN: None})[0], 403)
 
     # ------------------------------------------------------------ アーカイブ待ち(tick。C-2-12)
     # ------------------------------------------------------------ 失敗の言葉・自動のやり直し・知らせる(C-2-16)

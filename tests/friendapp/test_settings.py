@@ -238,7 +238,7 @@ class SettingsServerTest(SettingsBase):
             self.assertEqual(st, 400, body)
         self.assertFalse(os.path.exists(os.environ["YTT_MACHINE_FILE"]))
         # ---- test_bad_values_write_nothing
-        for body in ({"live": {"sens": "max"}}, {"live": {"waitMin": 0}}, {"live": {"pad": 9}}, {"processing": "x"}):
+        for body in ({"processing": "x"},):
             st, j = self.upd(dict(body, cut="silence"))
             self.assertEqual(st, 400, body)
         self.assertEqual(self.app.api.form()["cut"], "none")
@@ -247,16 +247,14 @@ class SettingsServerTest(SettingsBase):
         st, j = self.get("/api/friend/settings")
         s = j["settings"]
         self.assertEqual((s["processing"], s["canRemote"], "weights" in s), ("local", False, False))   # 解析の重みは 10-23 に消した
-        self.assertEqual(s["live"], {"sens": "normal", "waitMin": 5, "pad": 2.0})
-        self.assertEqual([o["value"] for o in s["liveSensOptions"]], ["high", "normal", "low"])
-        self.assertEqual(s["liveSensOptions"][0]["label"], "高い")
+        self.assertEqual(("live" in s, "liveSensOptions" in s), (False, False))   # ライブの感度・待ち・余白は 10-30 に外した
         self.assertNotIn("oldApp", s)
-        st, j = self.upd({"weights": {"wAudio": 3, "wChat": 0, "wComments": 1}, "live": {"sens": "high", "waitMin": 10, "pad": 1.5}})
+        st, j = self.upd({"weights": {"wAudio": 3, "wChat": 0, "wComments": 1}, "live": {"sens": "max", "waitMin": 0, "pad": 9}})   # 古い画面が送っても読まない(断らない)
         self.assertEqual(st, 200, j)
         s = j["settings"]
-        self.assertEqual((s["live"], "weights" in s), ({"sens": "high", "waitMin": 10, "pad": 1.5}, False))   # 重みは読まない
-        form = self.app.api.form()   # 送る係が読む form.json に入っている
-        self.assertEqual((form["live"]["sens"], form["live"]["perHour"], "weights" in form), ("high", 6, False))
+        self.assertEqual(("live" in s, "weights" in s), (False, False))   # 重みも読まない
+        form = self.app.api.form()   # 送る係が読む form.json は固定の値
+        self.assertEqual((form["live"]["sens"], form["live"]["pad"], form["live"]["perHour"], "weights" in form), ("low", 2.0, 6, False))
 
     def test_api_key_saved_and_never_returned(self):
         st, j = self.post("/api/friend/settings/key", {"key": "  " + KEY + "\n"})

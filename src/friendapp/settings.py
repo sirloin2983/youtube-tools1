@@ -11,7 +11,7 @@
     空き容量の下限      machine の diskMinGB(GB)
     カットの既定        <玄関>/form.json の cut(none = しない・silence = 無音を削る。初めは none = A-8)。送る欄には出さず、送るときの束に効く
     処理する PC         processing: local = この PC で処理する・remote = 依頼する(form.json の pc: this / user。remote は Dropbox の鍵があるときだけ = view の canRemote)
-    ライブの感度・待ち・余白  live: {sens: high|normal|low, waitMin: 分, pad: 秒}(form.json の live。範囲は friendapp/live.RANGES。画面の選択肢は view の liveSensOptions)
+    (ライブの感度・待ち・余白は 10-30 に外した = 固定の値 friendapp/live.FIXED。古い画面が live を送っても読まない)
     YouTube のログイン   view の ytLogin: {state: none|ok|expired, at: ログインした ms}。ログインは FriendApp.exe の窓(LoginForm)が cookie を書く =
                         ここは読むだけ。expired = ログインのあとに bot の失敗があった。update の ytLogout: true で cookie を消す(notes:docs/spec/friend.md の 13-13)
     これらは送る係が form.json から読む(cut と同じ置き場所)。送る欄のその場の変更は form.json の同じ値を書き換える(最後に書いた方が次の初めの値)
@@ -27,7 +27,6 @@ import urllib.request
 from flow import machine as _machine, spec as _spec
 from ytt import fsio as _fsio, studio_env as _studio_env, tools as _tools, ytcookies as _ytcookies
 
-from . import api as _api, live as _live
 
 KEYS_NAME = "keys.json"
 KEY_FIELD = "youtubeApiKey"
@@ -217,16 +216,14 @@ class Settings:
 
     def _form_view(self):
         f = self.api.form()
-        lv = f["live"]
-        return {"processing": "remote" if f["pc"] == "user" else "local", "live": {k: lv[k] for k in ("sens", "waitMin", "pad")},
-                "liveSensOptions": [{"value": v, "label": _live.SENS_LABELS[v]} for v in _live.SENS], "canRemote": self._can_remote()}
+        return {"processing": "remote" if f["pc"] == "user" else "local", "canRemote": self._can_remote()}
 
     def _can_remote(self):
         sync = getattr(self.api, "sync", None)
         return bool(sync is not None and sync.has_key())
 
     def _check_form(self, body):
-        """processing・live を検べて form.json へ書く差分を返す(違えば SettingsError)"""
+        """processing を検べて form.json へ書く差分を返す(違えば SettingsError。live は 10-30 に外した = 読まない)"""
         patch, msgs = {}, []
         if "processing" in body:
             if body["processing"] not in PROCESSING:
@@ -235,15 +232,6 @@ class Settings:
                 raise SettingsError("Dropbox の鍵が無いので、作る人の PC には依頼できません(鍵は作る人から受け取ります)")
             patch["pc"] = PROCESSING[body["processing"]]
             msgs.append("処理する PC を「%s」にしました(次に送る物から)" % ("この PC" if body["processing"] == "local" else "依頼する"))
-        if "live" in body:
-            lv = body["live"]
-            if not isinstance(lv, dict):
-                raise SettingsError("ライブの設定が正しくありません")
-            try:
-                patch["live"] = _api.merge_live(self.api.form()["live"], lv)
-            except ValueError as e:
-                raise SettingsError(str(e))
-            msgs.append("ライブの感度・待ち・余白を変えました(次に送る物から)")
         return patch, msgs
 
     def _write_form(self, patch):
@@ -280,7 +268,7 @@ class Settings:
 
     # ---- 空き容量・カット
     def update(self, body):
-        """{diskMinGB?: 数, cut?: none|silence, processing?: local|remote, live?: {sens?, waitMin?, pad?}, ytLogout?: true} -> {"message"}。
+        """{diskMinGB?: 数, cut?: none|silence, processing?: local|remote, ytLogout?: true} -> {"message"}。
         合わなければ SettingsError(どれも書かない)"""
         patch, msgs, cut = {}, [], None
         form_patch, form_msgs = self._check_form(body)

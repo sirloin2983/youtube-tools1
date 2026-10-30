@@ -415,17 +415,6 @@ class Inbox:
             self._save()
             return r
 
-    def set_live_form(self, rid, live):
-        """録画中に変えたライブの設定(C-2-11)を行の送った欄 form.live に -> 行"""
-        with self.lock:
-            r = self.row(rid)
-            if r is None:
-                raise KeyError(rid)
-            r["form"] = dict(r.get("form") or {}, live=dict(live))
-            r["updatedAt"] = self._now_ms()
-            self._save()
-            return r
-
     def live_rows(self):
         """見回る行(この PC のライブの行で、まだ閉じていない物か組になる前のパックがある物)の写し"""
         with self.lock:

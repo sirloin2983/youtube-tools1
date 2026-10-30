@@ -200,12 +200,9 @@
       var rec = k === 'live' ? liveRow() : null;
       f.rec = rec;
       $('liveNow').hidden = !rec;
-      if (rec && f.recId !== rec.id) {   /* 録画中の配信を開いた = 今の設定を出す(途中で変えられる = C-2-11) */
-        f.recId = rec.id;
-        fillLive(Object.assign({}, (FR.state.form || {}).live || {}, (rec.form || {}).live || {}));
-      } else if (!rec && f.recId) { f.recId = ''; fillLive((FR.state.form || {}).live || {}); }
+      f.recId = rec ? rec.id : '';
       $('liveLead').textContent = rec ? '録画しています(届いた ' + rec.packs.length + ' 本)。' +
-          (FR.state.liveBatch ? '30 分ごとの区切りで選んで切り抜きます。' : '設定を変えると、この先の切り抜きから効きます。') :
+          (FR.state.liveBatch ? '30 分ごとの区切りで選んで切り抜きます。' : '面白い所を自動で切ります。') :
         '配信が終わるまで録画し、面白い所を自動で切ります。できた分から「受け取る」に届きます。';
       label = rec ? '録画を取り消す' : k === 'live' ? (s.state === 'upcoming' ? '予約する' : '録画を頼む') : pcUser ? '依頼する' : '送る';
       if (f.checking) why = '配信を確かめています…';
@@ -227,10 +224,6 @@
     $('sendWhy').hidden = !why || why === '配信を確かめています…';
     $('sendWhy').textContent = why;
     $('pcNote').hidden = !pcUser;
-  }
-  function fillLive(lv) {
-    $('lvPerHour').value = lv.perHour;
-    $('lvAfter').checked = !!lv.afterStream;
   }
   function head(s) {
     $('headThumb').src = s.thumb || (s.videoId ? 'https://i.ytimg.com/vi/' + s.videoId + '/mqdefault.jpg' : '');
@@ -423,16 +416,6 @@
   }
 
   /* ---------------------------------------------------------------- 送る */
-  function liveBody() {   /* 長さはいつも自動(10-23) */
-    return { perHour: parseInt($('lvPerHour').value, 10) || 6, afterStream: $('lvAfter').checked };
-  }
-  function liveChanged() {   /* 録画中の配信の設定を途中で変える(この先の切り抜きから効く) */
-    if (!f.rec) return;
-    api('live-settings', Object.assign({ id: f.rec.id }, liveBody())).then(function () {
-      UIKit.toast(FR.state.liveBatch ? '録画の設定を変えました' : '録画の設定を変えました(この先の切り抜きから効きます)', { ms: 4000 });
-      FR.refresh();
-    }, function (e) { FR.fail('設定を変えられませんでした', e); });
-  }
   function cancelRec() {
     var rec = f.rec;
     UIKit.dialog.confirm({ title: '録画を取り消します', body: '録画と、この先の切り抜きを止めます。届いた物は「受け取る」に残り、作りかけは捨てます。',
@@ -453,7 +436,6 @@
       body = { source: 'url', kind: k, url: f.stream.url, title: f.stream.title, ranges: rg.list, top: rg.list.length ? null : f.top,
         streamer: f.streamer.name || '', people: f.people.map(function (p) { return p.name; }).filter(Boolean),
         videoTracks: parseInt($('tracks').value, 10) || 1, startAt: f.stream.startAt || null };
-      if (k === 'live') body.live = liveBody();
     }
     f.sending = true; sync();
     api('send', body).then(function (j) {
@@ -467,7 +449,6 @@
   function fillForm(form) {   /* 前回の値(C-2-8・C-2-10・C-2-11) */
     f.top = form.top || 5;
     $('tracks').value = $('tracksF').value = String(form.videoTracks || 1);
-    fillLive(form.live);
   }
 
   document.addEventListener('DOMContentLoaded', function () {
@@ -484,7 +465,6 @@
     $('btnRange').addEventListener('click', function () { addRange(true); });
     $('topMinus').addEventListener('click', function () { f.top = Math.max(1, f.top - 1); sync(); });
     $('topPlus').addEventListener('click', function () { f.top = f.top + 1; sync(); });
-    ['lvPerHour', 'lvAfter'].forEach(function (id) { $(id).addEventListener('change', liveChanged); });
     $('btnSend').addEventListener('click', send);
     $('btnPick').addEventListener('click', pickFile);
     $('btnPickMore').addEventListener('click', pickFile);
