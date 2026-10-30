@@ -169,6 +169,18 @@ class LiveFlowTest(unittest.TestCase):
         self.assertEqual(self.api.form()["live"], dict(SETTINGS, length=45, pad=5.0, lengthMode="auto"))   # 前回の値(A-5)
         self.assertEqual(self.eng.live.active_count(), 1)
 
+    def test_batch_cap_and_cut(self):
+        """10-30: この PC で処理するライブの依頼は、束の上限(既定 3)でも区切りの形の 4 + 2 本まで採用できる・⚙ のカットの既定が束に入る(URL・動画ファイルと同じ)"""
+        self.api.set_cut("silence")
+        self.send_live()
+        det = self.eng.live.detector
+        self.assertEqual(self.eng.live.bundle_top("local", REC), 3)   # 束の既定(request_bundle(ctx, None))
+        self.assertEqual(det.auto_max("local", REC), LB.BATCH_LIVE + LB.BATCH_END)
+        with mock.patch.object(LB, "BATCH_ON", False):
+            self.assertEqual(det.auto_max("local", REC), 3)
+        b = self.eng.live.bundle("local", REC)
+        self.assertEqual((b["pack"]["cut"], "cut" in b["run"]["requested"]), ("silence", True))
+
     def worker_req(self):
         """検出のワーカーが読む依頼の設定(config.json の requests を ① の clean_requests で読んだ形)と、その録画の spec"""
         from pipeline.analyze import live_excite_worker as W
@@ -350,7 +362,8 @@ class LiveFlowTest(unittest.TestCase):
         for got, want in ((None, None), ({"count": 2, "dueAt": None}, "候補 2 件"),
                           ({"count": 2, "dueAt": now + 250}, "候補 2 件・約 4 分後に切り抜きます"),
                           ({"count": 1, "dueAt": now + 10}, "候補 1 件・まもなく切り抜きます"),
-                          ({"capped": 3}, "自動で切り抜くのは 3 本まで(届きました)"), (None, None)):
+                          ({"capped": 3}, "自動で切り抜くのは 3 本まで(届きました)"),
+                          ({"count": 3, "dueAt": now + 600, "batch": True}, "新しい候補 3 件・約 10 分後の次の区切りで選んで切り抜きます"), (None, None)):
             det.adopt_waiting = lambda _rc, _rec, g=got: g
             self.eng.live_tick()
             self.assertEqual(self.box.row(rid)["live"].get("hint"), want)

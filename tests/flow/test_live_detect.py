@@ -639,6 +639,20 @@ class DetectApiTest(unittest.TestCase):
         self.assertEqual([(x["id"], x["batch"]["kind"], x["batch"]["round"]) for x in tail], [("p1-903", "end", None), ("p2-1002", "end", None)])
         self.assertEqual(self.det.auto_tick(), 0)   # 終わりも 1 回だけ
 
+    def test_batch_cap_friend_pc(self):
+        """10-30 不具合: 友人の PC の上限(束の adopt.top = 既定 3)でも、区切りの形は 4 + 2 = 6 本まで届ける(上限を BATCH_LIVE + BATCH_END 以上にする)"""
+        self.request()
+        self.det.host.auto_max = lambda rc, rec: 3   # 友人の PC: friendapp の request_bundle(ctx, None) = 束の既定 DEFAULT_TOP
+        self.rec.rel = 8000
+        t = self.worker_alive()
+        peaks = [peak("p%d" % i, 1000 * i + 100, 1000 * i + 120, 10.0 - i, "frame", 1000 * i + 200) for i in range(7)]
+        self.put_peaks(peaks, seq=5, changes=[], measuredSec=1700, first=iso(t[0] - 1700))
+        self.assertEqual(self.det.auto_tick(), 0)
+        self.put_peaks(peaks, seq=6, changes=[], measuredSec=7300, ended=True)
+        self.assertEqual(self.det.auto_tick(), LB.BATCH_LIVE + LB.BATCH_END)   # 前は 3 本で止まった
+        with mock.patch.object(LB, "BATCH_ON", False):
+            self.assertEqual(self.det.auto_max("fake", REC), 3)   # 区切りの形でなければ上限のまま
+
     def test_batch_long(self):
         """10-30: 3 時間を超えたら 60 分ごと・合計 6 本とも配信中(配信の終わりは前の区切りより後の候補から残り)。印 long・min 60。スイッチ LONG_ON"""
         self.assertEqual([LB.round_of(b) for b in (1799, 10800, 14399, 14400, 18000)], [0, 6, 6, 7, 8])

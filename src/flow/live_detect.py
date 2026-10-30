@@ -697,7 +697,12 @@ class Detector:
         self.host.log("盛り上がりの検出: 候補 %s(%s)を自動で採用できなかったので諦めました: %s" % (pk.get("id"), rec, why))
 
     def auto_max(self, rc, rec):
-        """D-13: その録画の自動の採用の上限(本数)。親の auto_max(rc, rec)(友人の PC = 束の adopt.top)があればその値、無い・None・形が違えば AUTO_MAX_PER_REC"""
+        """D-13: その録画の自動の採用の上限(本数)。親の auto_max(rc, rec)(友人の PC = 束の adopt.top)があればその値、無い・None・形が違えば AUTO_MAX_PER_REC。
+        区切りごとに届ける録画(live_batch.on)は BATCH_LIVE + BATCH_END 本より小さくしない(10-30 不具合: 友人の PC の上限は束の既定 3 で、4 + 2 が 3 本で止まった)"""
+        cap = self._auto_max(rc, rec)
+        return max(cap, LB.BATCH_LIVE + LB.BATCH_END) if LB.on(self.host.requests.get(rc, rec)) else cap
+
+    def _auto_max(self, rc, rec):
         fn = getattr(self.host, "auto_max", None)
         if fn is None:
             return AUTO_MAX_PER_REC
@@ -953,7 +958,7 @@ class Detector:
             return None
         first = LX.iso_epoch(doc.get("first"))
         due = first + LB.round_at(st["round"] + 1) + float(doc.get("behindSec") or 0.0) if first is not None else None
-        return {"count": len(left), "dueAt": due}
+        return {"count": len(left), "dueAt": due, "batch": True}   # batch = 次の区切りで、この候補から選ぶ(全部は切り抜かない)
 
     # ---- 配信が終わったあと(0-10-6。L5 の材料。人の手は要らない)
     def compare(self, rc, rec, a, marks, holes=None):

@@ -40,5 +40,6 @@ def check_settings(v):
 
 
 def settings_label(s):
-    """記録に出す 1 行"""
-    return settings_text(s, SENS_LABELS)
+    """記録に出す 1 行(区切りごとに届ける形 = flow/live_batch.BATCH_ON の間は、1 時間・待ち・配信後の追加が本数と採用の時刻に効かないことを添える)"""
+    from flow import live_batch   # 読むのは記録を書くときだけ(画面を先に出す)
+    return settings_text(s, SENS_LABELS) + ("(今は 30 分ごとの区切りで選んで届けるので、1 時間・待ち・配信後の追加は効きません)" if live_batch.BATCH_ON else "")

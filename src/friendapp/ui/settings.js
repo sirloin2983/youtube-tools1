@@ -110,7 +110,7 @@
         h('div', { class: 'fs-line' }, [h('span', { id: 'fsLiveSensL', text: '感度' }), ui.sens]),
         h('div', { class: 'fs-line' }, [h('label', { class: 'fs-radio' }, ['待ち ', num('fsLiveWait', 1, 60, 1, '待ち(分)'), ' 分'])]),
         h('div', { class: 'fs-line' }, [h('label', { class: 'fs-radio' }, ['余白 ', num('fsLivePad', 0, 5, 0.5, '余白(秒)'), ' 秒'])])
-      ], '録画しながら切り抜くときの細かい設定です。次の録画から使います。'),
+      ], '録画しながら切り抜くときの細かい設定です。次の録画から使います。余白はライブの自動の切り抜きにだけ効きます。待ちは今の届け方(30 分ごとの区切り)では効きません。'),
       ui.tidySec,
       ui.notesSec
     ]);

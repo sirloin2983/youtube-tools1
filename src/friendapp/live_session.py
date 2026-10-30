@@ -255,6 +255,11 @@ class FriendLive(_ls.LiveSession):
         if w.get("capped") is not None:   # 上限に届いたあと「録画中」だけが続いた(10-21 の友人の 41 分の録画。残りの候補 11 件)
             return "自動で切り抜くのは %d 本まで(届きました)" % w["capped"]
         due = w.get("dueAt")
+        if w.get("batch"):   # 区切りごとに届ける形(flow/live_batch): 次の区切りで、新しい候補の中から選んで切り抜く
+            if due is None:
+                return "新しい候補 %d 件(次の区切りで選んで切り抜きます)" % w["count"]
+            left = due - (self.clock() if now is None else now)
+            return "新しい候補 %d 件・%s次の区切りで選んで切り抜きます" % (w["count"], "まもなく" if left <= 30 else "約 %d 分後の" % max(1, int(round(left / 60.0))))
         if due is None:
             return "候補 %d 件" % w["count"]
         left = due - (self.clock() if now is None else now)

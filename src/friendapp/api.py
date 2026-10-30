@@ -485,7 +485,8 @@ class Api:
         if kind == "live":   # ライブ: 封筒 kind live + 依頼の束(感度・枠・待ち・余白・配信後の追加。長さは束に入れない = engine が行の欄から)
             from flow import livesession   # 読むのは送るときだけ(画面を先に出す)
             env, _diff = _order.order("live", video_id=f["videoId"], title=f["title"] or f["videoId"], request_id=rid)
-            ctx = {"settings": {k: v for k, v in f["live"].items() if k != "lengthMode"}, "videoTracks": f["videoTracks"], "streamer": f["streamer"]}
+            ctx = {"settings": {k: v for k, v in f["live"].items() if k != "lengthMode"}, "videoTracks": f["videoTracks"], "streamer": f["streamer"],
+                   **({"cut": _cut(f)} if _cut(f) else {})}   # ⚙ のカットの既定(URL・動画ファイルと同じ。10-30)
             bundle = livesession.request_bundle(ctx, None)
             people = self._people(f)
             if people:
@@ -989,7 +990,9 @@ class Api:
         with self._lock:   # 作っていない行の段の覚えを捨てる
             for k in [k for k in self._stages if k not in live_ids]:
                 self._stages.pop(k, None)
-        return {"rows": rows, "form": self.form(), "saveDir": self.places["save"](), "blocked": blocked, "ready": eng is not None}
+        from flow import live_batch   # 読むのは画面の状態を出すときだけ(画面を先に出す)
+        return {"rows": rows, "form": self.form(), "saveDir": self.places["save"](), "blocked": blocked, "ready": eng is not None,
+                "liveBatch": live_batch.BATCH_ON}   # ライブの依頼を区切りごとに届ける形か(送る画面の文を変える)
 
 
 def fsio_inside(path, root):

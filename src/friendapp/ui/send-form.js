@@ -204,7 +204,8 @@
         f.recId = rec.id;
         fillLive(Object.assign({}, (FR.state.form || {}).live || {}, (rec.form || {}).live || {}));
       } else if (!rec && f.recId) { f.recId = ''; fillLive((FR.state.form || {}).live || {}); }
-      $('liveLead').textContent = rec ? '録画しています(届いた ' + rec.packs.length + ' 本)。設定を変えると、この先の切り抜きから効きます。' :
+      $('liveLead').textContent = rec ? '録画しています(届いた ' + rec.packs.length + ' 本)。' +
+          (FR.state.liveBatch ? '30 分ごとの区切りで選んで切り抜きます。' : '設定を変えると、この先の切り抜きから効きます。') :
         '配信が終わるまで録画し、面白い所を自動で切ります。できた分から「受け取る」に届きます。';
       label = rec ? '録画を取り消す' : k === 'live' ? (s.state === 'upcoming' ? '予約する' : '録画を頼む') : pcUser ? '依頼する' : '送る';
       if (f.checking) why = '配信を確かめています…';
@@ -428,7 +429,7 @@
   function liveChanged() {   /* 録画中の配信の設定を途中で変える(この先の切り抜きから効く) */
     if (!f.rec) return;
     api('live-settings', Object.assign({ id: f.rec.id }, liveBody())).then(function () {
-      UIKit.toast('録画の設定を変えました(この先の切り抜きから効きます)', { ms: 4000 });
+      UIKit.toast(FR.state.liveBatch ? '録画の設定を変えました' : '録画の設定を変えました(この先の切り抜きから効きます)', { ms: 4000 });
       FR.refresh();
     }, function (e) { FR.fail('設定を変えられませんでした', e); });
   }
