@@ -23,7 +23,7 @@ if SRC not in sys.path:
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
 import testkit  # noqa: E402
-from flow import live_export as LX, live_rules, runqueue as Q  # noqa: E402
+from flow import live_batch as LB, live_export as LX, live_rules, runqueue as Q  # noqa: E402
 from friendapp import api as A, diag as D, engine as E, inbox as I, live as L, live_session as LS, progress as P, server as SV  # noqa: E402
 
 VID = "abcdefghijk"
@@ -194,6 +194,7 @@ class LiveFlowTest(unittest.TestCase):
         self.assertNotIn("lengthMode", old)
         self.assertEqual(L.clean_settings(dict(old, lengthMode="weird")), old)
 
+    @mock.patch.object(LB, "BATCH_ON", False)   # 前の形(依頼の 1 時間の枠がワーカーへ)。区切りごとに届ける形は帳簿が 1 時間 10 本
     def test_update_live_while_recording(self):
         """C-2-11: 録画中に 1 時間の枠・配信後の追加を変える → ② の結びつき(ワーカーの config.json まで)と行の form.live が変わる。
         長さはいつも自動(古い画面が固定を送っても読まない。10-23)"""
@@ -257,6 +258,7 @@ class LiveFlowTest(unittest.TestCase):
         self.eng.live_tick()
         self.assertEqual(self.box.row(rid)["groups"][-1]["label"], "配信後")
 
+    @mock.patch.object(LB, "BATCH_ON", False)   # 前の形(配信後の追加を待つ)。区切りごとに届ける形はアーカイブから足さない
     def test_busy_or_after_stream_keeps_recording_row(self):
         """録画が終わっても作る物・配信後の追加の待ちがあれば行は閉じない。そのとき途中の診断(kind live・stage ended)を 1 回、閉じたら close"""
         box = self.use_diag()
