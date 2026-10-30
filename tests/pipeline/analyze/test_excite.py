@@ -265,6 +265,25 @@ def series_with_peaks(peaks, n, amp=5.0, width=6):
 
 
 class TestPeakBook(unittest.TestCase):
+    def test_laugh_settle(self):
+        """印 chatRank.settle(ふだん = 始まりより前の箱)・settleAll(全部の箱)= 笑いの跳ねの終わり(1 箱の切れ目は続き)・lc = 山の前後 60 秒の笑いの件数"""
+        book = excite.PeakBook(length=45, pre=0.65, sens="normal", per_hour=6, rerank=True)
+        for s in range(0, 600, 10):
+            book.chat_note(s + 1, True)                       # ふだん: 10 秒に 1 件
+        for s in list(range(290, 330)) + list(range(340, 350)):
+            book.chat_note(s + 0.5, True)                      # 290〜330 と 340〜350(1 箱あけて続き)が跳ね
+        pk = {"id": "x", "start": 250.0, "end": 400.0, "peak": 300.0, "score": 5.0, "state": "frame", "chatRank": {"rate": 0.1, "laugh": 0.5}}
+        book.peaks["x"] = pk
+        book.note_laughs()
+        self.assertEqual((pk["chatRank"]["settle"], pk["chatRank"]["settleAll"]), (350.0, 350.0))
+        self.assertEqual(pk["chatRank"]["lc"], 11 + 50)   # 250〜360 秒(区間と山の前後 60 秒の重なり)の笑い = ふだんの 11 件 + 跳ねの 50 件
+        book2 = excite.PeakBook(length=45, pre=0.65, sens="normal", per_hour=6, rerank=True)
+        pk2 = dict(pk, chatRank={"rate": 0.1, "laugh": 0.5})
+        book2.peaks["x"] = pk2
+        book2.chat_note(10, True)
+        book2.note_laughs()
+        self.assertIsNone(pk2["chatRank"]["settle"])   # 跳ねが無い
+
     def test_confirm_and_region(self):
         n = 600
         total = series_with_peaks([(200, 5.0)], n)

@@ -14,7 +14,11 @@
   z(点数) + 1.0 × z(跳ねる箱の割合) + 0.5 × z(笑いの書き込みの割合) + LAUGH_W × z(山の前後 excite.LAUGH_NEAR 秒の笑いの件数)。
   跳ねる箱の割合・笑いの割合・笑いの件数は帳簿の印 chatRank(rate・laugh・lc。excite.PeakBook)。チャットの印が無い候補が混ざれば点数の順。
 本数は採用の上限と同じく、つないだ候補を元の本数で数える(ytt/marks.pieces_of。10-28 ユーザー)。
-印: 採用した候補の決定(decisions.json)・ジョブ・.clip.json の source.live.batch = {kind: live|end, round(何回目の区切りか。終わりは null), min(区切りの分)}。
+縮め(10-30 の 2 回目。研究の 274 番 = queue274.py の shrink。スイッチ SHRINK_ON): 採用する前に候補の終わりを笑いの収まり(帳簿の印 chatRank.settle)まで縮める。
+  配信中 = ふだんを候補の始まりより前の箱で出した収まり(settle)・縮める量は SHRINK_LIVE_CAP 秒まで(研究の queue135_136.shrinker・上限 60)。
+  配信の終わり = ふだんを全部の箱で出した収まり(settleAll)・上限なし(研究の queue62_shorter.apply の「(b) 笑いの収まり」= 62 番の形)。
+  どちらも 山 + SHRINK_KEEP 秒より前にはしない・長さ SHRINK_MIN 秒より短くしない・始まりは変えない(研究の始まりの寄せ = 声の途切れへ戻す は入れていない)。収まりが無ければそのまま。
+印: 採用した候補の決定(decisions.json)・ジョブ・.clip.json の source.live.batch = {kind: live|end, round(何回目の区切りか。終わりは null), min(区切りの分), cut(縮めた秒)}。
 状態: 録画のフォルダ(live/excite/<録画元>/<録画>/)の batch.json(live_detect が書く)= {v, round(済んだ区切り), seen(区切りで見た候補), queue(採用を待つ候補), end}。
 研究の作り方(読むだけ): C:/dev/overlap-research/tools/queue247_249.py・queue248_255.py・queue253.py。製品にそのまま移せない所は decisions の【重】。
 """
@@ -30,6 +34,11 @@ BATCH_LIVE = 4               # 配信中に届ける本数(1 録画の合計)
 BATCH_END = 2                # 配信の終わりに届ける本数(配信中に届かなかった分はここへ足す)
 POOL_PER_HOUR = 10           # 配信中の候補の元の 1 時間あたりの本数(依頼の perHour の代わり)
 EXPECT_SEC = 2 * 3600.0      # 配信中の本数の割り振りに使う配信の長さの見込み(研究は本当の長さで割り振る = 配信中は分からないので仮の値)
+SHRINK_ON = True             # スイッチ: 縮めだけを切る(False = 帳簿の区間のまま届ける)
+SHRINK_KEEP = 10.0           # 縮めても山のあとに残す秒
+SHRINK_MIN = 20.0            # 縮めたあとの最短の長さ(秒)
+SHRINK_LIVE_CAP = 60.0       # 配信中に縮める量の上限(秒。研究の 274 番 = 60。136 番は 30)
+SHRINK_END_CAP = None        # 配信の終わりに縮める量の上限(秒。None = 上限なし = 研究の 62 番の形)
 LAUGH_W = 0.5               # 笑いの件数の z の重み
 STATE_FILE = "batch.json"
 OUT = ("dismissed",)
@@ -109,6 +118,23 @@ def mark(kind, rnd):
     return {"kind": kind, "round": rnd, "min": BATCH_MIN}
 
 
+def shrink(pk, kind):
+    """採用する前に候補の終わりを笑いの収まりまで縮める -> (候補の写し, 縮めた秒)。kind = live(配信中)| end(配信の終わり)"""
+    cr = pk.get("chatRank") if isinstance(pk.get("chatRank"), dict) else {}
+    p = cr.get("settle" if kind == "live" else "settleAll")
+    if not SHRINK_ON or not schemas.is_num(p):
+        return dict(pk), 0.0
+    s, e0 = float(pk["start"]), float(pk["end"])
+    at = pk.get("peak") if schemas.is_num(pk.get("peak")) else (s + e0) / 2.0
+    cap = SHRINK_LIVE_CAP if kind == "live" else SHRINK_END_CAP
+    e = min(e0, max(float(p), at + SHRINK_KEEP))
+    if cap is not None:
+        e = max(e, e0 - cap)
+    if e - s < SHRINK_MIN:
+        e = min(e0, s + SHRINK_MIN)
+    return dict(pk, end=round(e, 3)), round(e0 - e, 1)
+
+
 def clean_mark(v):
     """採用の本文の batch -> 印か None(入口の中から渡す。形の違う物は残さない)"""
     if not isinstance(v, dict) or v.get("kind") not in ("live", "end"):
@@ -116,7 +142,8 @@ def clean_mark(v):
     rnd = v.get("round")
     mn = v.get("min")
     return {"kind": v["kind"], "round": rnd if isinstance(rnd, int) and not isinstance(rnd, bool) and rnd >= 0 else None,
-            "min": mn if isinstance(mn, int) and not isinstance(mn, bool) and mn > 0 else BATCH_MIN}
+            "min": mn if isinstance(mn, int) and not isinstance(mn, bool) and mn > 0 else BATCH_MIN,
+            **({"cut": float(v["cut"])} if schemas.is_num(v.get("cut")) and v["cut"] > 0 else {})}
 
 
 def load(folder):

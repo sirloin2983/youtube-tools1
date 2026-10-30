@@ -145,6 +145,7 @@ CHAT_RERANK_ON = True
 RERANK_POOL = 30
 RERANK_W = (1.0, 0.5)            # (跳ねる箱の割合, 笑いの書き込みの割合)の重み
 RERANK_BOX = 10                  # 箱の秒
+SETTLE_NEAR = 30                 # 印 chatRank.settle: 笑いの収まりを探す、山の前後の秒(研究と同じ)
 LAUGH_NEAR = 60                  # 印 chatRank.lc: 山の前後この秒(候補の区間の中)の笑いの書き込みの件数(flow/live_batch の最終の候補の点・10-30)
 LAUGH_RE = re.compile(r"草|笑|ワロ|わろ|lol|(?<![A-Za-z])[wｗW]+(?![A-Za-z])", re.I)   # 研究の chat_content.LAUGH と同じ
 LAUGH_EMO = set("😂🤣😆😹😄😁")
@@ -865,6 +866,7 @@ class PeakBook:
         self.rerank = bool(rerank)   # チャットの跳ねと笑いで枠の入れ替え・控えから戻す順を決める(呼ぶ側がスイッチ CHAT_RERANK_ON を渡す。仮説 9)
         self.chat_boxes = {}   # 文字の書き込みの件数(RERANK_BOX 秒の箱 -> 件数。録画の頭から全部 = ふだんをその時点までで出す)
         self.chat_secs = {}    # 文字の書き込み(秒 -> [件数, 笑いの件数]。直近だけ)
+        self.laugh_boxes = {}  # 笑いの書き込みの件数(RERANK_BOX 秒の箱 -> 件数。録画の頭から全部 = 笑いの収まり settle の印。flow/live_batch の縮め)
         self.join = bool(join)   # 割れた場面をつなぐ(呼ぶ側がスイッチ JOIN_ON を渡す。次の候補を作るときだけ・採用した候補は書き換えない)
         self.fallback = fallback if fallback == "auto" else None   # "auto" = 場面が取れないときも自動の長さ(auto_length。呼ぶ側がスイッチ AUTO_LEN_ON で渡す)
         self.work = {}        # 直近のならした合計(秒 -> smooth(5) の値)。場面の形用
@@ -1259,6 +1261,8 @@ class PeakBook:
             return
         b = int(sec // RERANK_BOX)
         self.chat_boxes[b] = self.chat_boxes.get(b, 0) + 1
+        if laugh:
+            self.laugh_boxes[b] = self.laugh_boxes.get(b, 0) + 1
         s = self.chat_secs.setdefault(int(sec), [0, 0])
         s[0] += 1
         s[1] += 1 if laugh else 0
@@ -1297,9 +1301,35 @@ class PeakBook:
             if not isinstance(cr, dict):
                 continue
             at = pk.get("peak") if isinstance(pk.get("peak"), (int, float)) else (pk["start"] + pk["end"]) / 2.0
+            cr["settle"], cr["settleAll"] = self._settle(pk, True), self._settle(pk, False)   # 笑いの収まり(ふだん = 始まりより前 / 全部)
             if max(float(pk["start"]), at - LAUGH_NEAR) < lo and "lc" in cr:
                 continue
             self._laugh_near(pk)
+
+    def _settle(self, pk, live):
+        """笑いの収まりの秒(研究の queue135_136.LiveSettle・queue25_28_30.Settle の「笑い」): 笑いの書き込みが ふだん × 2 以上の 10 秒の箱を跳ねとみなし、
+        山の前後 SETTLE_NEAR 秒に跳ねがあれば、最後の跳ねから 1 箱までの切れ目を続きとみなして伸ばした終わり。ふだん = live なら始まりより前の箱の中央値・
+        そうでなければその時までの全部の箱の中央値(1 未満は 1)。跳ねが無ければ None"""
+        if not self.laugh_boxes:
+            return None
+        n = max(max(self.laugh_boxes), max(self.chat_boxes) if self.chat_boxes else 0) + 1
+        lc = [self.laugh_boxes.get(i, 0) for i in range(n)]
+        base_of = lc[:max(1, int(pk["start"] // RERANK_BOX))] if live else lc
+        base = max(1.0, median(base_of))
+        at = pk.get("peak") if isinstance(pk.get("peak"), (int, float)) else (pk["start"] + pk["end"]) / 2.0
+        i0, i1 = max(0, int((at - SETTLE_NEAR) // RERANK_BOX)), min(n, int((at + SETTLE_NEAR) // RERANK_BOX) + 1)
+        hits = [i for i in range(i0, i1) if lc[i] >= 2 * base]
+        if not hits:
+            return None
+        j = max(hits)
+        while True:
+            if j + 1 < n and lc[j + 1] >= 2 * base:
+                j += 1
+            elif j + 2 < n and lc[j + 2] >= 2 * base:
+                j += 2
+            else:
+                break
+        return float((j + 1) * RERANK_BOX)
 
     def _rank(self):
         """枠の入れ替え・控えから戻す順の鍵 {id: (鍵, 点数)}: 点の z + 重み × 跳ねる箱の割合の z + 重み × 笑いの割合の z(z = この録画の本番の候補の中)。
@@ -1403,7 +1433,7 @@ class PeakBook:
                 "block_until": self.block_until, "pending": self.pending,
                 "total": self.total, "parts": self.parts, "level": self.level, "confirmLow": self.confirm_low, "boost": self.boost,
                 "shape": self.shape, "scene": self.scene, "work": self.work, "fallback": self.fallback, "join": self.join,
-                "rerank": self.rerank, "chatBoxes": self.chat_boxes, "chatSecs": self.chat_secs,
+                "rerank": self.rerank, "chatBoxes": self.chat_boxes, "chatSecs": self.chat_secs, "laughBoxes": self.laugh_boxes,
                 "fast": dict(self.fast)}   # 鍵は total・audio・rising・open・block(_fast_init と from_json がこの 5 つだけを作る)
 
     @classmethod
@@ -1411,6 +1441,7 @@ class PeakBook:
         b = cls(d["length"], d["pre"], "normal", d["per_hour"], d.get("confirmLow", CONFIRM_LOW_SEC), d.get("shape", "fixed"), d.get("scene"),
                 d.get("fallback"), d.get("join", False), d.get("rerank", False))
         b.chat_boxes = {int(k): int(v) for k, v in (d.get("chatBoxes") or {}).items()}
+        b.laugh_boxes = {int(k): int(v) for k, v in (d.get("laughBoxes") or {}).items()}   # 0.99.367 までの保存には無い(笑いの収まりはその後の書き込みから)
         b.chat_secs = {int(k): [int(v[0]), int(v[1])] for k, v in (d.get("chatSecs") or {}).items()}   # 0.88 までの保存は固定の形・0.99.323 までの保存は fallback なし(場面が取れなければ固定の長さ)
         b.work = _int_keys(d.get("work"))
         b.thr = float(d["thr"])

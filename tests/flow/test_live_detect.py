@@ -648,6 +648,14 @@ class DetectApiTest(unittest.TestCase):
         joined = dict(b, pieces=2)
         self.assertEqual([p["id"] for p in LB.take(LB.ranked([a, joined]), 1, [])], ["a"])   # つないだ候補は元の本数で数える
         self.assertEqual([p["id"] for p in LB.pick_end([a, dict(b, start=20.0, end=60.0)], 2)], ["b"])   # 重なる候補は選ばない
+        c = {"id": "c", "start": 100.0, "end": 300.0, "peak": 150.0, "score": 5.0, "state": "frame", "chatRank": {"settle": 170.0, "settleAll": 200.0}}
+        self.assertEqual(LB.shrink(c, "live"), (dict(c, end=240.0), 60.0))   # 配信中: 収まり 170 秒まで。縮めるのは 60 秒まで
+        self.assertEqual(LB.shrink(c, "end"), (dict(c, end=200.0), 100.0))   # 配信の終わり: 全部のふだんの収まりまで(上限なし)
+        self.assertEqual(LB.shrink(dict(c, chatRank={"settleAll": 120.0}), "end")[0]["end"], 160.0)   # 山 + 10 秒は残す
+        self.assertEqual(LB.shrink(dict(c, chatRank={}), "live"), (dict(c, chatRank={}), 0.0))   # 収まりが無ければそのまま
+        with mock.patch.object(LB, "SHRINK_ON", False):
+            self.assertEqual(LB.shrink(c, "end")[1], 0.0)
+        self.assertEqual(LB.clean_mark({"kind": "end", "round": None, "min": 30, "cut": 12.5})["cut"], 12.5)
         self.assertEqual(LB.clean_mark({"kind": "live", "round": 2, "min": 30}), {"kind": "live", "round": 2, "min": 30})
         self.assertIsNone(LB.clean_mark({"kind": "x"}))
 

@@ -883,7 +883,8 @@ class Detector:
                 dirty = True
                 continue
             try:
-                self.adopt(rc, rec, pk, "auto", after="auto", batch=x["batch"])
+                sp, cut = LB.shrink(pk, x["batch"]["kind"])   # 終わりを笑いの収まりまで(live_batch.SHRINK_ON)
+                self.adopt(rc, rec, sp, "auto", after="auto", batch=dict(x["batch"], **({"cut": cut} if cut > 0 else {})))
                 self._tries.pop(key, None)
                 done += 1
                 dirty = True
