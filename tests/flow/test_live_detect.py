@@ -656,7 +656,9 @@ class DetectApiTest(unittest.TestCase):
     def test_batch_long(self):
         """10-30: 3 時間を超えたら 60 分ごと・合計 6 本とも配信中(配信の終わりは前の区切りより後の候補から残り)。印 long・min 60。スイッチ LONG_ON"""
         self.assertEqual([LB.round_of(b) for b in (1799, 10800, 14399, 14400, 18000)], [0, 6, 6, 7, 8])
-        self.assertEqual([LB.quota(k) for k in (4, 6, 7, 8, 9)], [4, 4, 5, 6, 6])
+        self.assertEqual([LB.quota(k) for k in (4, 6, 7, 8, 9)], [4, 4, 5, 6, 7])   # 60 分ごと 1 本の上限は合計の上限(SCALE_MAX)
+        with mock.patch.object(LB, "SCALE_ON", False):
+            self.assertEqual(LB.quota(9), 6)
         self.assertEqual(LB.round_at(7), 14400.0)
         with mock.patch.object(LB, "LONG_ON", False):
             self.assertEqual((LB.round_of(14400), LB.quota(8)), (8, 4))   # 切り替えない = 30 分ごと・4 本のまま
@@ -701,7 +703,8 @@ class DetectApiTest(unittest.TestCase):
         self.assertEqual((st["trim"]["dropped"], st["trim"]["checkMin"]), (1, 11.67))
 
     def test_batch_long_end_fills_from_all(self):
-        """10-30: 3 時間を少し過ぎて終わった配信で、前の区切り(3:00)より後に候補が無くても、足りない分を候補の元の全部から埋めて 6 本にする"""
+        """10-30: 3 時間を少し過ぎて終わった配信で、前の区切り(3:00)より後に候補が無くても、足りない分を候補の元の全部から埋めて合計にする
+        (3:10 の配信 = 合計 7 本。live_batch.SCALE_ON)"""
         self.request()
         self.rec.rel = 12000
         t = self.worker_alive()
@@ -711,10 +714,18 @@ class DetectApiTest(unittest.TestCase):
         done = {x["id"] for x in self.decisions()["items"]}
         peaks = [dict(p, state="adopted", origin="auto") if p["id"] in done else p for p in peaks]
         self.put_peaks(peaks, seq=6, changes=[], measuredSec=11400, ended=True)   # 3:10 に終わった・3:00 の後の候補は無い
-        self.assertEqual(self.det.auto_tick(), 2)   # 前は 0 本
-        tail = self.decisions()["items"][-2:]
+        self.assertEqual(self.det.auto_tick(), 3)   # 前は 0 本
+        tail = self.decisions()["items"][-3:]
         self.assertTrue(all(x["batch"]["kind"] == "live" and x["batch"].get("long") for x in tail))
-        self.assertEqual(len({x["id"] for x in self.decisions()["items"]}), 6)
+        self.assertEqual(len({x["id"] for x in self.decisions()["items"]}), 7)
+
+    def test_batch_total(self):
+        """10-30(live_batch.SCALE_ON): 合計 = 2 時間まで 6 本・そこから 1 時間ごとに +1・上限 10。12 分の上限は 12 分 × 合計 ÷ 6"""
+        self.assertEqual([LB.total(h * 3600.0) for h in (1, 2, 3, 5, 9)], [6, 6, 7, 9, 10])
+        self.assertEqual(LB.total(None), 6)
+        self.assertEqual([LB.trim_lim(6), LB.trim_lim(9)], [12.0, 18.0])
+        with mock.patch.object(LB, "SCALE_ON", False):
+            self.assertEqual((LB.total(5 * 3600.0), LB.trim_lim(9), LB.max_total()), (6, 12.0, 6))
 
     def test_batch_scores(self):
         """最終の候補の点 = z(点数) + 1.0 z(跳ねる箱の割合) + 0.5 z(笑いの割合) + 0.5 z(前後 60 秒の笑いの件数)。チャットの印が揃わなければ点数"""

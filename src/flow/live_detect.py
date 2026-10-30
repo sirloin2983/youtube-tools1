@@ -700,7 +700,7 @@ class Detector:
         """D-13: その録画の自動の採用の上限(本数)。親の auto_max(rc, rec)(友人の PC = 束の adopt.top)があればその値、無い・None・形が違えば AUTO_MAX_PER_REC。
         区切りごとに届ける録画(live_batch.on)は BATCH_LIVE + BATCH_END 本より小さくしない(10-30 不具合: 友人の PC の上限は束の既定 3 で、4 + 2 が 3 本で止まった)"""
         cap = self._auto_max(rc, rec)
-        return max(cap, LB.BATCH_LIVE + LB.BATCH_END) if LB.on(self.host.requests.get(rc, rec)) else cap
+        return max(cap, LB.max_total()) if LB.on(self.host.requests.get(rc, rec)) else cap
 
     def _auto_max(self, rc, rec):
         fn = getattr(self.host, "auto_max", None)
@@ -811,7 +811,7 @@ class Detector:
             if ended and not (doc or {}).get("ended"):   # 終わった録画は、ワーカーが帳簿を締めてから(終わり待ちの候補が確定する)
                 continue
             if LB.on(req):   # 友人のライブの依頼: 区切りごとにまとめて(10-30。waitMin の待ちは使わない)
-                done += self._batch_tick(rc, rec, doc, peaks, given)
+                done += self._batch_tick(rc, rec, doc, peaks, given, r)
                 continue
             used, cap = self.auto_count(rc, rec, peaks), self.auto_max(rc, rec)
             for pk in peaks:
@@ -846,8 +846,9 @@ class Detector:
         return done
 
     # ---- 区切りごとにまとめて届ける(友人のライブの依頼。10-30。決まりは flow/live_batch.py)
-    def _batch_tick(self, rc, rec, doc, peaks, given):
-        """区切り(BATCH_MIN 分ごと)を過ぎた・帳簿を締めた録画の候補を選んで採用の待ちに積み、待ちを採用する -> 採用した数"""
+    def _batch_tick(self, rc, rec, doc, peaks, given, r=None):
+        """区切り(BATCH_MIN 分ごと)を過ぎた・帳簿を締めた録画の候補を選んで採用の待ちに積み、待ちを採用する -> 採用した数。
+        r = 録画元の一覧の 1 行(firstPdt・lastPdt。配信の終わりの合計 = live_batch.total に使う)"""
         if doc is None:
             return 0
         folder = self.folder(rc, rec)
@@ -861,10 +862,12 @@ class Detector:
                         if x.get("state") == "adopted" and x.get("origin") == "auto" and (x.get("batch") or {}).get("kind") == "live")
         live_done += sum(_marks.pieces_of(by_id.get(x["id"]) or {}) for x in st["queue"] if x["batch"]["kind"] == "live")
         long_end = LB.LONG_ON and schemas.is_num(doc.get("measuredSec")) and doc["measuredSec"] > LB.LONG_AFTER
+        if doc.get("ended") and not st["end"]:
+            n_all = self._batch_total(rc, rec, r, st)   # 合計(配信の長さで。live_batch.SCALE_ON)
         if doc.get("ended") and long_end:
-            if not st["end"]:   # 長い配信の終わり(研究の 270 番 = 最後の区切り): 前の区切りより後に区間の決まった候補から 6 本までの残りを
+            if not st["end"]:   # 長い配信の終わり(研究の 270 番 = 最後の区切り): 前の区切りより後に区間の決まった候補から合計までの残りを
                 seen = set(st["seen"])
-                room = min(LB.BATCH_LIVE + LB.BATCH_END - live_done, cap - used - queued)
+                room = min(n_all - live_done, cap - used - queued)
                 fresh = [p for p in peaks if p.get("id") not in busy and (rc, rec, p.get("id")) not in given]
                 taken = [by_id[x["id"]] for x in st["queue"] if x["id"] in by_id]
                 adopted = [p for p in peaks if LB.settled(p) and p.get("state") == "adopted"]
@@ -880,7 +883,7 @@ class Detector:
                 st["end"], dirty = True, True
         elif doc.get("ended"):
             if not st["end"]:   # 配信の終わり: 候補の元の全部から、届けた・待ちの候補と重ならない残りを
-                room = min(LB.BATCH_LIVE + LB.BATCH_END - live_done, cap - used - queued)
+                room = min(n_all - live_done, cap - used - queued)
                 taken = [by_id[x["id"]] for x in st["queue"] if x["id"] in by_id]
                 pool = [p for p in peaks if p.get("id") not in busy and (rc, rec, p.get("id")) not in given]
                 picks = LB.take(LB.ranked([p for p in pool if LB.settled(p)]), room, [p for p in pool if LB.settled(p) and p.get("state") == "adopted"] + taken)
@@ -946,12 +949,30 @@ class Detector:
         for pk in picks:
             sp = LB.shrink(pk, kind)[0]
             rows.append((pk, (sp["start"], sp["end"])))
-        kept, dropped, mins = LB.trim(done, rows)
+        lim = LB.trim_lim(LB.total(st.get("length")))   # 合計を増やした分だけ広げる(live_batch.SCALE_ON)
+        kept, dropped, mins = LB.trim(done, rows, lim)
         if dropped:
-            st["trim"] = {"dropped": dropped, "checkMin": mins, "limMin": LB.TRIM_LIM}
+            st["trim"] = {"dropped": dropped, "checkMin": mins, "limMin": round(lim, 2)}
             self.host.log("盛り上がりの検出: 録画 %s は確かめる時間の見込みが %g 分を超えるので、配信の終わりの分を %d 本減らしました(残した後 %s 分)"
-                          % (rec, LB.TRIM_LIM, dropped, mins))
+                          % (rec, round(lim, 2), dropped, mins))
         return [(pk, {"trim": dropped} if dropped else {}) for pk, _sp in kept]
+
+    def _batch_total(self, rc, rec, r, st):
+        """配信の終わりの合計(live_batch.total)。配信の長さ = 録画の長さ(lastPdt − firstPdt)+ 遅れて始まった頭(配信の開始時刻 → 録画の頭)。
+        録画の長さが分からなければ BATCH_LIVE + BATCH_END。長さは batch.json の length に残す(12 分の上限も同じ値)"""
+        r = r or {}
+        a, b = r.get("firstPdt"), r.get("lastPdt")
+        length = (b - a) + self._head_sec(rc, rec, a) if schemas.is_num(a) and schemas.is_num(b) and b > a else None
+        st["length"] = round(length, 1) if length is not None else None
+        return LB.total(length)
+
+    def _head_sec(self, rc, rec, first):
+        """遅れて始まった頭の秒(配信の開始時刻 streamStart → 録画の頭 first。録画元の /live/list から。分からなければ 0)"""
+        rcd = self.host.find(rc)
+        rows = LX.rec_list(self.host.call, rcd) if rcd is not None else None
+        row = next((x for x in rows or [] if x.get("id") == rec), None)
+        ss = LX.iso_epoch((row or {}).get("streamStart"))
+        return max(0.0, first - ss) if ss is not None and schemas.is_num(first) else 0.0
 
     def _batch_waiting(self, rc, rec, doc, peaks):
         """区切りごとにまとめて届ける録画の adopt_waiting: 次の区切りで選ぶ候補の数と、次の区切りの時刻(録画の頭 + 区切りの秒 + ワーカーの遅れ)"""

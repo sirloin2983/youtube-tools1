@@ -27,6 +27,9 @@
   配信の終わりに選んだ候補(長い配信は最後の区切りの分)を、確かめる時間の見込みが TRIM_LIM 分以下になるまで、選んだ順の後ろから外す(届けた分と合わせて TRIM_KEEP 本までは残す)。
   見込み = 届けた・届ける予定の全部の区間(縮めた後)を excite.join_clips でつなぎ、1 本ごとに (長さ + CHECK_PAD 秒) の合計 × CHECK_RATE(研究の queue118_119.check_one)。
   届けた分は外せない(研究は配信中の分も外せる形 = decisions の【重】)。印 source.live.batch.trim = 外した本数(残した配信の終わりの分に付ける)・batch.json の trim。
+合計を配信の長さで(10-30 ユーザーの OK・decisions の【重】。スイッチ SCALE_ON): 合計 = 配信の長さ L が SCALE_FROM(2 時間)までは BATCH_LIVE + BATCH_END(6)本、
+  そこから 1 時間ごとに +1(3 時間 7・4 時間 8・5 時間 9)、上限 SCALE_MAX(10)。配信中の届け方はそのまま(長い配信の 60 分ごと 1 本の上限だけ SCALE_MAX に)、
+  配信の終わりに 合計 − 届けた本数。12 分の決まりの上限は TRIM_LIM × 合計 ÷ 6(trim_lim)。L = 録画の長さ(lastPdt − firstPdt)+ 遅れて始まった頭(配信の開始時刻から録画の頭まで)。
 印: 採用した候補の決定(decisions.json)・ジョブ・.clip.json の source.live.batch = {kind: live|end, round(何回目の区切りか。終わりは null), min(区切りの分), cut(縮めた秒)}。
 状態: 録画のフォルダ(live/excite/<録画元>/<録画>/)の batch.json(live_detect が書く)= {v, round(済んだ区切り), seen(区切りで見た候補), queue(採用を待つ候補), end}。
 研究の作り方(読むだけ): C:/dev/overlap-research/tools/queue247_249.py・queue248_255.py・queue253.py。製品にそのまま移せない所は decisions の【重】。
@@ -51,6 +54,9 @@ SHRINK_KEEP = 10.0           # 縮めても山のあとに残す秒
 SHRINK_MIN = 20.0            # 縮めたあとの最短の長さ(秒)
 SHRINK_LIVE_CAP = 60.0       # 配信中に縮める量の上限(秒。研究の 274 番 = 60。136 番は 30)
 SHRINK_END_CAP = None        # 配信の終わりに縮める量の上限(秒。None = 上限なし = 研究の 62 番の形)
+SCALE_ON = True              # スイッチ: 合計を配信の長さで増やす(False = いつも BATCH_LIVE + BATCH_END)
+SCALE_FROM = 2 * 3600.0      # この長さまでは BATCH_LIVE + BATCH_END 本(そこから 1 時間ごとに +1)
+SCALE_MAX = 10               # 合計の上限
 TRIM_ON = True               # スイッチ: 12 分で減らすだけを切る(False = 確かめる時間を見ずに 6 本まで届ける)
 TRIM_LIM = 12.0              # 確かめる時間の見込みの上限(分)
 TRIM_KEEP = 4                # 減らしても残す本数(届けた分を含む・元の本数で数える)
@@ -59,6 +65,28 @@ CHECK_RATE = 0.5             # 確かめる時間の見込み = 届ける長さ�
 LAUGH_W = 0.5               # 笑いの件数の z の重み
 STATE_FILE = "batch.json"
 OUT = ("dismissed",)
+
+
+def base_total():
+    return BATCH_LIVE + BATCH_END
+
+
+def max_total():
+    """1 録画の合計の上限(自動の採用の上限・長い配信の区切りの上限)"""
+    return SCALE_MAX if SCALE_ON else base_total()
+
+
+def total(length):
+    """配信の長さ length(秒。分からなければ None)-> 合計の本数(SCALE_ON)"""
+    n = base_total()
+    if SCALE_ON and schemas.is_num(length) and length > SCALE_FROM:
+        n += int((length - SCALE_FROM) // 3600.0)
+    return min(max_total(), n)
+
+
+def trim_lim(n):
+    """合計 n 本のときの 12 分の決まりの上限(分。増やした分を 12 分で消さない)"""
+    return TRIM_LIM * n / base_total() if SCALE_ON else TRIM_LIM
 
 
 def on(req):
@@ -111,7 +139,7 @@ def quota(k):
     """k 番目の区切りまでに配信中で届ける本数(累計)。長い配信は 3 時間の時点の累計 + 長い区切りの数(合計 BATCH_LIVE + BATCH_END まで)"""
     if not is_long(k):
         return live_quota(round_at(k))
-    return min(BATCH_LIVE + BATCH_END, live_quota(LONG_AFTER) + k - short_rounds())
+    return min(max_total(), live_quota(LONG_AFTER) + k - short_rounds())
 
 
 def final_scores(cs):
@@ -169,9 +197,10 @@ def check_min(spans):
     return sum(c["end"] - c["start"] + CHECK_PAD for c in js) / 60.0 * CHECK_RATE
 
 
-def trim(done, picks):
+def trim(done, picks, lim=None):
     """done = 届けた・届ける予定の区間 [(始まり, 終わり)]・picks = 配信の終わりに選んだ [(候補, 縮めた後の区間)](選んだ順)
-    -> (残す picks, 外した本数, 残した後の見込みの分)。見込みが TRIM_LIM 分を超える間、後ろから外す(合わせて TRIM_KEEP 本までは残す)"""
+    -> (残す picks, 外した本数, 残した後の見込みの分)。見込みが lim(None = TRIM_LIM)分を超える間、後ろから外す(合わせて TRIM_KEEP 本までは残す)"""
+    lim = TRIM_LIM if lim is None else lim
     out = list(picks)
     if not TRIM_ON:
         return out, 0, None
@@ -179,7 +208,7 @@ def trim(done, picks):
         return check_min(list(done) + [sp for _pk, sp in out])
     def count():
         return len(done) + sum(_marks.pieces_of(pk) for pk, _sp in out)
-    while out and count() > TRIM_KEEP and mins() > TRIM_LIM:
+    while out and count() > TRIM_KEEP and mins() > lim:
         out.pop()
     return out, len(picks) - len(out), round(mins(), 2)
 
@@ -232,7 +261,8 @@ def load(folder):
     return {"v": 1, "round": rnd if isinstance(rnd, int) and not isinstance(rnd, bool) else 0,
             "seen": [x for x in d.get("seen") or [] if isinstance(x, str)],
             "queue": [x for x in d.get("queue") or [] if isinstance(x, dict) and isinstance(x.get("id"), str) and clean_mark(x.get("batch"))],
-            "end": d.get("end") is True, **({"trim": d["trim"]} if isinstance(d.get("trim"), dict) else {})}
+            "end": d.get("end") is True, **({"trim": d["trim"]} if isinstance(d.get("trim"), dict) else {}),
+            **({"length": float(d["length"])} if schemas.is_num(d.get("length")) else {})}
 
 
 def save(folder, st, dump):

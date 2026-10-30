@@ -176,7 +176,7 @@ class LiveFlowTest(unittest.TestCase):
         self.send_live()
         det = self.eng.live.detector
         self.assertEqual(self.eng.live.bundle_top("local", REC), 3)   # 束の既定(request_bundle(ctx, None))
-        self.assertEqual(det.auto_max("local", REC), LB.BATCH_LIVE + LB.BATCH_END)
+        self.assertEqual(det.auto_max("local", REC), LB.max_total())   # 合計の上限(配信の長さで増える。live_batch.SCALE_ON)
         with mock.patch.object(LB, "BATCH_ON", False):
             self.assertEqual(det.auto_max("local", REC), 3)
         b = self.eng.live.bundle("local", REC)
