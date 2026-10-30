@@ -64,14 +64,14 @@ def _book_live(q, book):
 
 def _link(q, runs, book=None, active=None):
     """-> ({c, d, tab} か None, 開けない理由)。active = 録画中の "<録画元>/<録画>" の集まり(None = 分からない = 録画中として扱う)。
-    録画が終わったライブは {c: 動画 id, tab, ended: True}"""
+    録画が終わったライブは {c: 動画 id, rec: 録画の id, tab, ended: True}(案件の一覧は録画の id のまま載ることがある = 画面は両方で照らす。10-30)"""
     if q.get("state") != "accepted":
         return None, "断った依頼"
     lv = q.get("live") if isinstance(q.get("live"), dict) else (_book_live(q, book) if q.get("kind") == "live" else None)
     if lv and isinstance(lv.get("recording"), str) and lv["recording"]:
         m = REC_VID_RE.match(lv["recording"])
         if active is not None and m and "%s/%s" % (lv.get("recorder") or "", lv["recording"]) not in active:
-            return {"c": m.group(1), "tab": "cand", "ended": True}, ""   # 録画が終わった: 案件は動画の id で載る
+            return {"c": m.group(1), "rec": lv["recording"], "tab": "cand", "ended": True}, ""   # 録画が終わった: 案件は動画の id か録画の id で載る
         return {"c": lv["recording"], "tab": "cand", "live": True}, ""
     for r in runs:
         if isinstance(r.get("videoId"), str) and r["videoId"]:

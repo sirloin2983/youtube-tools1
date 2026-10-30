@@ -891,10 +891,11 @@
   }
 
   var casesLoadFailed = false;
+  var CASES_API = 'api/cases?view=home';   // ホームが使う欄だけ(どの案件にも入らない文字起こしは id・配信のない案件の切り抜きは失敗の文と文書の id。10-30)
   var casesSeq = 0;   // 案件の一覧の読みの連番(重なったとき、古い答えで新しい一覧を戻さない)
   function loadCases() {
     var my = ++casesSeq;
-    return api('api/cases').then(function (j) { if (my !== casesSeq) return; casesLoadFailed = false; casesData = j; resetPaging(); }).catch(function (e) {
+    return api(CASES_API).then(function (j) { if (my !== casesSeq) return; casesLoadFailed = false; casesData = j; resetPaging(); }).catch(function (e) {
       if (my !== casesSeq) return;
       casesLoadFailed = true;
       if (casesData) { failToast('案件の一覧を読み直せませんでした', '「読み込み直す」を押してください', e); return; }   // 前の一覧は残す
@@ -918,7 +919,7 @@
     // (E2 finding 1: render() だけだと、alt-tab で戻ったときにこの2つが古いままになる)
     casesRevAt = Date.now();
     var my = ++casesSeq;
-    return api('api/cases').then(function (j) { if (my !== casesSeq) return; casesLoadFailed = false; casesData = j; render(); renderDocs(); buildTodo(); }).catch(function () { /* 次の読み込みで直る */ });
+    return api(CASES_API).then(function (j) { if (my !== casesSeq) return; casesLoadFailed = false; casesData = j; render(); renderDocs(); buildTodo(); }).catch(function () { /* 次の読み込みで直る */ });
   }
 
   function restoreFilters() {
@@ -1442,11 +1443,14 @@
   function freqGo(r) {
     /* -> {href, label} か {why}(押せない理由)。案件の一覧を読んだあとは、一覧に無い案件を「片付いた」とする(文書 d だけの道は照らせないので押せる)。
        録画中のライブの案件は、録画が終わるまで案件の一覧に載らないので照らさない(録画中の札の「開く」と同じ案件の画面へ)。
-       録画が終わったライブは入口が道を動画の id に移す(l.ended。案件は動画の id で載る = 照らして無ければ片付いた) */
+       録画が終わったライブは入口が道を動画の id に移し、録画の id も l.rec に添える(案件は録画の id のまま載ることもある = 両方で照らし、
+       どちらにも無い時だけ片付いた。10-30) */
     var l = r.link;
     if (!l) return { why: r.why || '案件が分からない' };
-    if (l.c && casesData && !caseById(l.c) && !(l.live && r.state === 'live')) return { why: l.live ? '録画が片付いた' : '案件が片付いた' };
-    return { href: CaseLink.href({ c: l.c, d: l.d, tab: l.tab }), label: l.live ? 'ライブを開く' : '開く' };
+    var c = l.c;
+    if (c && casesData && !caseById(c) && l.rec && caseById(l.rec)) c = l.rec;
+    if (c && casesData && !caseById(c) && !(l.live && r.state === 'live')) return { why: l.live ? '録画が片付いた' : '案件が片付いた' };
+    return { href: CaseLink.href({ c: c, d: l.d, tab: l.tab }), label: l.live ? 'ライブを開く' : '開く' };
   }
   function freqRow(r) {
     var li = el('li', 'pt-freq-row'), go = freqGo(r);

@@ -778,5 +778,22 @@ class TestCaseRoot(Base):
         self.assertTrue(cases.load_saved(cases.locations(self.root, self.env)["cases"])[other]["auto"]["m1"]["discardedAt"])
 
 
+class TestHomeView(unittest.TestCase):
+    def test_home_view_keeps_only_what_home_reads(self):
+        """10-30: ホーム(GET /api/cases?view=home)は unlinked の数と virtual の 1 行(文書の数・失敗の文・文書の id)だけ使う。
+        案件(cases)はそのまま・元の答えは書き換えない"""
+        fail = {"failure": {"kindLabel": "書き出し", "text": "x"}}
+        res = {"cases": [{"id": "v1", "clips": [{"path": "p", "file": "f"}]}], "auto": {"total": 1},
+               "unlinked": [{"id": "t1", "title": "長い題名", "segments": 9, "sourcePath": "C:/x"}],
+               "virtual": [{"id": "file:1", "caseKind": "file", "failed": 1, "title": "a",
+                            "clips": [{"path": "p", "file": "f", "review": fail, "transcript": {"id": "d1", "title": "t"}}, {"path": "q"}]}]}
+        got = cases.home_view(res)
+        self.assertEqual(got["cases"], res["cases"])
+        self.assertEqual(got["auto"], {"total": 1})
+        self.assertEqual(got["unlinked"], [{"id": "t1"}])
+        self.assertEqual(got["virtual"][0]["clips"], [{"review": fail, "transcript": {"id": "d1"}}, {"review": None, "transcript": {"id": None}}])
+        self.assertEqual((got["virtual"][0]["title"], got["virtual"][0]["failed"]), ("a", 1))
+        self.assertEqual(res["virtual"][0]["clips"][0]["path"], "p")
+
 if __name__ == "__main__":
     unittest.main()

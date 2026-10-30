@@ -151,6 +151,7 @@ UI_KIT_DIR = os.path.join(ROOT, layout.UI_KIT_DIR)   # 共通の見た目は正�
 LOG_MAX = 1024 * 1024     # ログ(*.log。.gitignore 済み)はこれを超えたら <名前>.old.log に回す(fsio.rotate。回せなければそのまま追記)
 PING_TIMEOUT = 0.5
 MAX_BODY = 4096
+STUDIO_CH_SEC = 30.0   # 配信者の名前の当てで、スタジオのチャンネル名の一覧を覚える秒(PortalServer._studio_channel)
 EDITOR_IDLE_POLLS = ("/api/drill/status", "/api/eval-batch", "/api/ping")   # 確かめるの評価のレーン・版の見回り(開いた画面がずっと読む)= 「編集を使っている」に数えない(自動の起動し直しを延ばし続けない。10-24 ping で 6 時間待った)
 SUBMIT_START_WAIT = 120  # 起動直後の POST /api/flow/submit がツールの取り込みを待つ最長の秒(_post_flow_submit)
 PORTAL_TITLE = "動画編集ツール — ホーム"   # ホームの画面(portal.html)の <title>。窓を前に出すときに題名で探す(test_launch が portal.html と比べる)
@@ -798,7 +799,8 @@ class PortalHandler(httpsec.LocalHandler):
                     return self._fail(500, "cases", "案件を引けませんでした: %s" % e.__class__.__name__)
                 return self._json(200, got) if got else self._fail(404, "not_found", "その文書の案件はありません")
             try:
-                return self._json(200, cases_mod.snapshot(sup.root))
+                got = cases_mod.snapshot(sup.root)
+                return self._json(200, cases_mod.home_view(got) if q.get("view") == ["home"] else got)   # ホームは要る欄だけ(10-30)
             except Exception as e:   # 読めないデータがあっても入口は落とさない
                 return self._fail(500, "cases", "案件の一覧を作れませんでした: %s" % e.__class__.__name__)
         return self._fail(404, "not_found", "その操作はありません")
@@ -1020,6 +1022,7 @@ class PortalServer(httpsec.ExclusiveServer):
         self.client_log = clientlog_mod.ClientLog(sup.logs_dir)   # 画面のエラーの記録(段階7-0)
         self.window = appwindow_mod.Opener(app_dir, log=sup.log)   # 窓で開く(段階7-3)
         self.prefs = prefs_mod.Prefs(os.path.join(app_dir, "prefs.json"), fsio.atomic_write)   # ホームの設定(気が利く画面へ 段1)
+        self._studio_ch, self._studio_ch_lock = None, threading.Lock()   # (覚えた時刻, {動画 id: チャンネル名})
         self.ytlogin = ytlogin_mod.YtLogin(app_dir, os.path.dirname(sup.root), log=sup.log)   # 設定の「YouTube のログイン」(置き場所は _main が環境変数へ)
         # 友人からの依頼の受付(見張りは main で start。テストで作る入口では動かさない)
         self.intake = intake_mod.Intake(self.prefs, lambda: self.autorun, app_dir, log=sup.log,
@@ -1453,6 +1456,16 @@ class PortalServer(httpsec.ExclusiveServer):
             return 500, {"error": "open", "message": "開けませんでした: %s" % tools.why(e)}
         return 404, {"error": "not_found", "message": "その操作はありません"}
 
+    def _studio_channel(self, video_id):
+        """配信のチャンネル名(スタジオの一覧)か None。一覧は STUDIO_CH_SEC 秒覚える(10-30: ホームは描くたびに案件 8 本ぶん問い合わせ、
+        1 本ごとに一覧を全部読むと 0.17 秒 × 8 本が重なって 1 本 1 秒になっていた。チャンネル名はめったに変わらない)"""
+        now = time.monotonic()
+        with self._studio_ch_lock:
+            if self._studio_ch is None or now - self._studio_ch[0] > STUDIO_CH_SEC:
+                vids = cases_mod.read_studio(cases_mod.locations(self.sup.root)["studio"])
+                self._studio_ch = (now, {k: str((v or {}).get("channel") or "").strip()[:120] for k, v in vids.items()})
+            return self._studio_ch[1].get(video_id) or None
+
     def streamer_guess(self, doc_id=None, video_id=None, channel=None):
         """-> {"ok", "name", "source", "hex", "channel"}。文書だけ分かれば、その文書の元の配信(.clip.json)・チャンネル(スタジオ)を調べる"""
         doc_id = doc_id if isinstance(doc_id, str) and len(doc_id) <= 64 else None
@@ -1463,8 +1476,7 @@ class PortalServer(httpsec.ExclusiveServer):
             src = ((d or {}).get("clip") or {}).get("source") or {}
             video_id = src.get("videoId") if isinstance(src.get("videoId"), str) else None
         if video_id and not channel:
-            v = cases_mod.read_studio(cases_mod.locations(self.sup.root)["studio"]).get(video_id) or {}
-            channel = str(v.get("channel") or "").strip()[:120] or None
+            channel = self._studio_channel(video_id)
         r = prefs_mod.guess_streamer(self.prefs, doc_id, video_id, channel,
                                      from_channel=lambda ch: (colors_mod.from_channel(ch) or {}).get("name"))
         hit = colors_mod.lookup(r["name"])["match"] if r["name"] else None

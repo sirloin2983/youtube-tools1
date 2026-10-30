@@ -507,6 +507,17 @@ def snapshot(repo_root, env=None):
     return res
 
 
+def home_view(res):
+    """ホームが読む形(GET /api/cases?view=home。10-30 ホームの読み込みを速く): ホームは どの案件にも入らない文字起こし(unlinked)の数と、
+    配信のない案件(virtual)の 1 行(題名・文書の数・失敗の文)しか使わないので、unlinked は id だけ・virtual の切り抜きは review と文書の id だけにする
+    (106 案件で 1.26MB → 約 0.3MB)。案件の画面(src/app/ui/cases)は今までどおり全部を読む"""
+    out = dict(res)
+    out["unlinked"] = [{"id": d.get("id")} for d in res.get("unlinked") or [] if isinstance(d, dict)]
+    out["virtual"] = [dict(c, clips=[{"review": cl.get("review"), "transcript": {"id": (cl.get("transcript") or {}).get("id")}}
+                                     for cl in c.get("clips") or [] if isinstance(cl, dict)]) for c in res.get("virtual") or [] if isinstance(c, dict)]
+    return out
+
+
 def find_doc(repo_root, tid, env=None):
     """文書 tid を持つ案件の 1 件 -> {"case": 案件の行, "docId", "markId"} か None(GET /api/cases?doc=<tid>。案件の画面が d だけの URL から案件を聞く)。
     配信の案件を先に、無ければ動画ファイルの案件・eval・orphan の順"""
