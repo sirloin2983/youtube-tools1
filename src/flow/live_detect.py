@@ -867,8 +867,14 @@ class Detector:
                 room = min(LB.BATCH_LIVE + LB.BATCH_END - live_done, cap - used - queued)
                 fresh = [p for p in peaks if p.get("id") not in busy and (rc, rec, p.get("id")) not in given]
                 taken = [by_id[x["id"]] for x in st["queue"] if x["id"] in by_id]
-                picks = LB.take(LB.ranked([p for p in fresh if LB.settled(p) and p["id"] not in seen]), room,
-                                [p for p in peaks if LB.settled(p) and p.get("state") == "adopted"] + taken)
+                adopted = [p for p in peaks if LB.settled(p) and p.get("state") == "adopted"]
+                picks = LB.take(LB.ranked([p for p in fresh if LB.settled(p) and p["id"] not in seen]), room, adopted + taken)
+                # 足りない分は候補の元の全部から(最終の候補の点の順・採用済み・選んだ物と重ならない物。10-30: 3 時間を少し過ぎて終わると、
+                # 前の区切りより後に候補が無く 6 本に届かなかった)
+                left = room - sum(_marks.pieces_of(p) for p in picks)
+                if left > 0:
+                    got = {p["id"] for p in picks}
+                    picks += LB.take(LB.ranked([p for p in fresh if LB.settled(p) and p["id"] not in got]), left, adopted + taken + picks)
                 for pk, cut in self._batch_trim(rc, rec, folder, by_id, st, picks, "live"):
                     st["queue"].append({"id": pk["id"], "batch": dict(LB.mark("live", st["round"] + 1, long=True), **cut)})
                 st["end"], dirty = True, True

@@ -700,6 +700,22 @@ class DetectApiTest(unittest.TestCase):
         st = LB.load(self.det.folder("fake", REC))
         self.assertEqual((st["trim"]["dropped"], st["trim"]["checkMin"]), (1, 11.67))
 
+    def test_batch_long_end_fills_from_all(self):
+        """10-30: 3 時間を少し過ぎて終わった配信で、前の区切り(3:00)より後に候補が無くても、足りない分を候補の元の全部から埋めて 6 本にする"""
+        self.request()
+        self.rec.rel = 12000
+        t = self.worker_alive()
+        peaks = [peak("p%d" % i, 1500 * i + 100, 1500 * i + 120, 10.0 - i, "frame", 1500 * i + 200) for i in range(7)]   # 全部 3:00 より前
+        self.put_peaks(peaks, seq=5, changes=[], measuredSec=11000, first=iso(t[0] - 11000))
+        self.assertEqual(self.det.auto_tick(), 4)   # 6 番目の区切り(3:00)= 累計 4 本
+        done = {x["id"] for x in self.decisions()["items"]}
+        peaks = [dict(p, state="adopted", origin="auto") if p["id"] in done else p for p in peaks]
+        self.put_peaks(peaks, seq=6, changes=[], measuredSec=11400, ended=True)   # 3:10 に終わった・3:00 の後の候補は無い
+        self.assertEqual(self.det.auto_tick(), 2)   # 前は 0 本
+        tail = self.decisions()["items"][-2:]
+        self.assertTrue(all(x["batch"]["kind"] == "live" and x["batch"].get("long") for x in tail))
+        self.assertEqual(len({x["id"] for x in self.decisions()["items"]}), 6)
+
     def test_batch_scores(self):
         """最終の候補の点 = z(点数) + 1.0 z(跳ねる箱の割合) + 0.5 z(笑いの割合) + 0.5 z(前後 60 秒の笑いの件数)。チャットの印が揃わなければ点数"""
         a = {"id": "a", "start": 0.0, "end": 40.0, "score": 10.0, "state": "frame", "chatRank": {"rate": 0.1, "laugh": 0.1, "lc": 1}}
