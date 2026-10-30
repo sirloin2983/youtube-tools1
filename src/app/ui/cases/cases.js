@@ -29,6 +29,7 @@
    CasesPanels.track(promise) に渡し、開くパネルは文書を読む前に CasesPanels.settled() を待つ(タブを素早く切り替えても、前のパネルの保存より前の文書を読まない) */
 (function () {
   'use strict';
+  if (window.UIKit && UIKit.loadTiming) UIKit.loadTiming.start('cases');   // 開いてから中身が出るまでを入口の記録へ(logs/ui-timing.jsonl。10-30)
 
   /* ---- パネルの登録の口(パネルのファイルはこのあとに読む。DOMContentLoaded までに全部そろう)---- */
   var defs = {}, saving = [];
@@ -484,8 +485,10 @@
         select(key, w.tab);
       }
       if (!same) poll();
+      if (UIKit.loadTiming) UIKit.loadTiming.done('done');
     }, function (e) {
       S.loading = false;
+      if (UIKit.loadTiming) UIKit.loadTiming.done('failed');
       if (keep && S.kase) { UIKit.toast('案件を読み直せませんでした: ' + e.message, { kind: 'err', detail: e.detail }); return; }
       renderHead();
       showFail(e);

@@ -11,6 +11,7 @@
    ツール名・ログ・メッセージ・配信のタイトルなどはすべて textContent で入れる(HTML として解釈させない)。 */
 (function () {
   'use strict';
+  if (window.UIKit && UIKit.loadTiming) UIKit.loadTiming.start('home');   // 開いてから案件の一覧が出るまでを入口の記録へ(logs/ui-timing.jsonl。10-30)
   var LABEL = { starting: '起動中…', running: '動作中', external: '別の画面で起動済み', stopping: '停止中…', stopped: '停止', crashed: '異常終了', missing: '見つかりません' };
   var PILL = { starting: 'run', running: 'ok', external: 'info', stopping: 'wait', stopped: 'wait', crashed: 'err', missing: 'err' };
   var STEP_PILL = { wait: 'wait', run: 'run', done: 'ok', skip: 'wait', warn: 'warn', error: 'err' };
@@ -898,9 +899,10 @@
   var casesSeq = 0;   // 案件の一覧の読みの連番(重なったとき、古い答えで新しい一覧を戻さない)
   function loadCases() {
     var my = ++casesSeq;
-    return api(CASES_API, 'GET', null, { timeout: SLOW_GET_MS }).then(function (j) { if (my !== casesSeq) return; casesLoadFailed = false; casesData = j; resetPaging(); }).catch(function (e) {
+    return api(CASES_API, 'GET', null, { timeout: SLOW_GET_MS }).then(function (j) { if (my !== casesSeq) return; casesLoadFailed = false; casesData = j; resetPaging(); UIKit.loadTiming.done('done'); }).catch(function (e) {
       if (my !== casesSeq) return;
       casesLoadFailed = true;
+      UIKit.loadTiming.done('failed');
       if (casesData) { failToast('案件の一覧を読み直せませんでした', '「読み込み直す」を押してください', e); return; }   // 前の一覧は残す
       // 初めての読み込みの失敗(M9): 欄の中に「何が」+「どうすれば」の 2 文 + [読み込み直す](赤い帯は接続の文だけ)
       var list = $('#list'), box = emptyBox('案件の一覧を読めませんでした', failText('', 'もう一度「読み込み直す」を押してください。続くときは「すべて終了」→ start.bat で起動し直してください', e).replace(/^。/, ''),
@@ -922,7 +924,7 @@
     // (E2 finding 1: render() だけだと、alt-tab で戻ったときにこの2つが古いままになる)
     casesRevAt = Date.now();
     var my = ++casesSeq;
-    return api(CASES_API, 'GET', null, { timeout: SLOW_GET_MS }).then(function (j) { if (my !== casesSeq) return; casesLoadFailed = false; casesData = j; render(); renderDocs(); buildTodo(); }).catch(function () { /* 次の読み込みで直る */ });
+    return api(CASES_API, 'GET', null, { timeout: SLOW_GET_MS }).then(function (j) { if (my !== casesSeq) return; casesLoadFailed = false; casesData = j; render(); renderDocs(); buildTodo(); UIKit.loadTiming.done('done'); }).catch(function () { /* 次の読み込みで直る */ });
   }
 
   function restoreFilters() {

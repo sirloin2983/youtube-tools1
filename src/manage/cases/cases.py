@@ -496,7 +496,9 @@ def revision(repo_root, env=None):
 def snapshot(repo_root, env=None):
     """画面用の一覧(読むだけ。案件ファイルは書かない)"""
     loc = locations(repo_root, env)
+    w0 = time.monotonic()
     with _lock:
+        _waited("lock", time.monotonic() - w0)
         saved = load_saved(loc["cases"])
         videos, roots = _studio_view(repo_root, env, loc)
         fails = live_failures_by_mark(loc) if any(isinstance(v, dict) and v.get("kind") == "live" for v in videos.values()) else {}
@@ -505,6 +507,23 @@ def snapshot(repo_root, env=None):
     for c in res["cases"]:
         c["root"] = roots.get(c["id"], "")   # ② の status?case= の鍵(案件にした配信だけ。無ければ "")。URL には出さない
     return res
+
+
+_waits = threading.local()   # この糸が待った秒 {名前: 秒}(入口の読み込みの記録 src/app/timing.py が take_waits で取る。10-30)
+
+
+def _waited(name, sec):
+    d = getattr(_waits, "d", None)
+    if d is None:
+        d = _waits.d = {}
+    d[name] = d.get(name, 0.0) + sec
+
+
+def take_waits():
+    """この糸が案件の一覧のロック(lock)・同時の頼みの分け合い(shared)で待った秒 -> {名前: 秒}(取ったら空にする)"""
+    d = getattr(_waits, "d", None) or {}
+    _waits.d = {}
+    return d
 
 
 _shared = {"cond": threading.Condition(), "started": 0, "done": 0, "running": False, "result": None}
@@ -525,7 +544,9 @@ def shared_snapshot(repo_root, build=None):
                 s["started"] += 1
                 mine = s["started"]
                 break
+            w0 = time.monotonic()
             s["cond"].wait()
+            _waited("shared", time.monotonic() - w0)
     try:
         res = build()
     except BaseException:

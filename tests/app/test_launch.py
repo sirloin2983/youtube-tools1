@@ -558,6 +558,17 @@ class PortalHttpTest(Base):
         for t in st["tools"]:
             self.assertTrue({"state", "port"} <= set(t), t["id"])
 
+    def test_load_timing_logs(self):
+        """10-30 読み込みの記録: 画面の 1 行は logs/ui-timing.jsonl へ・失敗した口は logs/api-timing.jsonl へ(src/app/timing.py)"""
+        body = json.dumps({"page": "home", "state": "done", "ms": 2500, "calls": [["/api/cases", 50, 2400, 200]]}).encode()
+        self.assertEqual(self.post("/api/ui-timing", body=body)[0].status, 200)
+        self.assertEqual(self.post("/api/ui-timing", body=b'{"page": "x"}')[0].status, 400)
+        logs = self.sup.logs_dir
+        ui = [json.loads(x) for x in open(os.path.join(logs, "ui-timing.jsonl"), encoding="utf-8")]
+        self.assertEqual((ui[-1]["page"], ui[-1]["calls"]), ("home", [["/api/cases", 50, 2400, 200]]))
+        api = [json.loads(x) for x in open(os.path.join(logs, "api-timing.jsonl"), encoding="utf-8")]
+        self.assertIn(("/api/ui-timing", 400), [(r["p"], r["code"]) for r in api])
+
     def test_cases_and_doc_lookup(self):
         """/api/cases?doc= の失敗の答え(一覧の中身は tests/manage/cases/test_cases.py・画面からは e2e_portal)"""
         r, body = self.req("GET", "/api/cases?doc=ffffffffffff")

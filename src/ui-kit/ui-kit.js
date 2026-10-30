@@ -252,6 +252,34 @@
     if (tokenStaleToast && tokenStaleToast.el.isConnected) return;
     tokenStaleToast = toastFn('ホームが起動し直されました。この画面を開き直すと、また使えます', { kind: 'err', ms: 0, pin: true, action: { label: '開き直す', fn: function () { location.reload(); } } });
   }
+  /* ---- 読み込みの記録(10-30。ホームと案件の画面が開いてから中身が出るまで): loadTiming.start(page) から、http の呼び出しを
+     [道, 始めたミリ秒, かかったミリ秒(-1 = まだ), 状態の番号か timeout・network・abort] で覚え、done(中身が出た)・failed(失敗を出した)・
+     LT_STUCK_MS たっても出ない(stuck)の時に 1 回ずつ入口へ送る(POST api/ui-timing → logs/ui-timing.jsonl。src/app/timing.py)。見た目は変えない */
+  var LT_STUCK_MS = 60000, LT_MAX = 40, lt = null;
+  function ltPath(url) { try { return new URL(url, location.href).pathname.slice(-48); } catch (e) { return String(url).slice(0, 48); } }
+  function ltSend(state) {
+    if (!lt || lt.sent[state]) return;
+    lt.sent[state] = true;
+    if (state !== 'stuck') clearTimeout(lt.timer);
+    if (state === 'done') lt.closed = true;
+    var body = { page: lt.page, state: state, ms: Math.round(performance.now()), calls: lt.calls.slice(0, LT_MAX) };
+    http(homeUrl('api/ui-timing'), { method: 'POST', body: body, keepalive: true, noTiming: true }).then(null, function () {});
+  }
+  var loadTiming = {
+    start: function (page) {
+      lt = { page: page, calls: [], sent: {}, closed: false };
+      lt.timer = setTimeout(function () { ltSend('stuck'); }, LT_STUCK_MS);
+    },
+    done: function (state) { ltSend(state === 'failed' ? 'failed' : 'done'); }
+  };
+  function ltTrack(url, p) {
+    if (!lt || lt.closed || lt.calls.length >= LT_MAX) return p;
+    var t0 = performance.now(), rec = [ltPath(url), Math.round(t0), -1, ''];
+    lt.calls.push(rec);
+    p.then(function () { rec[2] = Math.round(performance.now() - t0); rec[3] = 200; },
+      function (e) { rec[2] = Math.round(performance.now() - t0); rec[3] = (e && e.status) || (e && e.code) || 'network'; });
+    return p;
+  }
   function sameOrigin(url) { try { return new URL(url, location.href).origin === location.origin; } catch (e) { return false; } }
   function http(url, opt) {
     opt = opt || {};
@@ -275,7 +303,7 @@
       if (init.signal && init.signal.aborted) return httpErr('取り消しました', 'abort', 0, null, detail);
       return httpErr(opt.offline || HTTP_OFFLINE, 'network', 0, null, detail);
     }
-    return fetch(url, init).then(function (r) {
+    var res = fetch(url, init).then(function (r) {
       clearTimeout(timer);
       if (opt.raw && r.ok) return r;
       return r.json().then(null, function (e) { if (init.signal && init.signal.aborted) throw noReply(e); return null; }).then(function (j) {
@@ -285,6 +313,7 @@
         throw httpErr((j && j.message) ? String(j.message) : fb, (j && j.error) || 'http', r.status, j, 'HTTP ' + r.status);
       });
     }, function (e) { clearTimeout(timer); throw noReply(e); });
+    return opt.noTiming ? res : ltTrack(url, res);
   }
   /* 入口(ホーム)の API の場所。path は入口の直下からの相対('api/flow/runs'・'api/ytt/prefs'・'live/api/info'。先頭の / は外す)。
      取り込んだツールの画面(/studio/・/transcribe/)からもホームの画面(/)からも、画面の場所の 1 つ上 = 入口の直下を指す(絶対パスを書かない) */
@@ -2700,6 +2729,6 @@
   window.UIKit = { version: 37, sound: sound, theme: theme, tools: tools, life: life, report: function (message, info) { return report(message, info, 'report'); }, win: win, fmt: fmt, esc: esc,
                    portal: portal, streamer: streamer, appnav: appnav, drawer: drawer, dialog: dialogApi, toast: toastFn, keybar: keybar, settings: settings, settingsForm: settingsForm, keys: keysApi, keymap: keymapApi, icon: icon,
                    confirmTwice: confirmTwice, prefs: prefs, autorun: autorun, flow: flow, restart: restart, timebox: timebox, hide: hide, liveBadge: liveBadge, menuOff: menuOff,
-                   http: http, homeApi: homeApi, homeUrl: homeUrl, copy: copyText, tokenStale: tokenStale, loadScript: loadScript,
+                   http: http, homeApi: homeApi, loadTiming: loadTiming, homeUrl: homeUrl, copy: copyText, tokenStale: tokenStale, loadScript: loadScript,
                    state: uiState, onEnter: onEnter, armDelete: armDelete, emptyHtml: emptyHtml };
 })();

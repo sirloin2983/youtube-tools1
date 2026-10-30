@@ -107,6 +107,7 @@ from ytt import colors as colors_mod, datadir, docloc, fsio, httpsec, jobs, layo
 from ytt import errors as _yerrors  # noqa: E402  (確かめるの部品が上げる ApiError を状態の番号で返す)
 from app import mount as mount_mod  # noqa: E402  (src/app/mount.py: 統合サーバーへのツールの取り込み)
 from app import autorun as autorun_mod
+from app import timing  # noqa: E402  (src/app/timing.py: ホームの読み込みの記録 = logs/api-timing.jsonl・ui-timing.jsonl)
 from app import homereq  # noqa: E402  (src/app/homereq.py: ホームの「友人の依頼」の行。受付の記録 + 実行の記録)
 from human.friend import intake as intake_mod  # noqa: E402  (src/human/friend/intake.py: 友人からの依頼の受付)
 from manage.keep import backup as backup_mod  # noqa: E402  (src/manage/keep/backup.py: 作業データのバックアップ)
@@ -639,6 +640,7 @@ POST_ROUTES = {"/api/cases/auto": ("_post_case_auto", True),
                "/api/intake/scan": ("_post_intake_scan", True), "/api/backup/run": ("_post_backup_run", True),
                "/api/accuracy/run": ("_post_accuracy_run", True),
                "/api/check/answer": ("_post_check", True), "/api/check/unknown": ("_post_check", True), "/api/check/skip": ("_post_check", True), "/api/check/flush": ("_post_check", True),
+               "/api/ui-timing": ("_post_ui_timing", False),
                "/api/shutdown": ("_post_shutdown", False)}
 
 
@@ -701,15 +703,47 @@ class PortalHandler(httpsec.LocalHandler):
         """他のツールの画面のリンクで入口を開くのは許す(画面を開くだけで、URL で処理は始まらない)。API は同じ画面からだけ"""
         return httpsec.navigation_ok(self.headers, path, NAV_PAGES)
 
-    def do_GET(self):
-        """読む口。SLOW_GET_SEC 秒を超えた口は黒い画面の記録に 1 行(10-30: 起き直した直後のホームの読み込みが遅いのを、どの口かで追えるように)"""
-        t0 = time.monotonic()
+    def send_response(self, code, message=None):   # 読み込みの記録(timing)に状態の番号を残す
+        self._t_code = code
+        super().send_response(code, message)
+
+    def send_header(self, keyword, value):   # 返した大きさ(Content-Length)を残す
+        if keyword.lower() == "content-length":
+            self._t_size = value
+        super().send_header(keyword, value)
+
+    def _timed(self, fn):
+        """口を 1 本動かして、遅い口・失敗した口を作業データの logs/api-timing.jsonl に 1 行(src/app/timing.py。10-30)。
+        SLOW_GET_SEC 秒を超えた口は黒い画面の記録にも 1 行"""
+        self._t_code, self._t_size = None, None
+        t, t0 = timing.begin(), time.monotonic()
+        cases_mod.take_waits()   # 前の要求の残りを捨てる(糸は使い回される)
         try:
-            return self._get()
+            return fn()
         finally:
-            took = time.monotonic() - t0
-            if took >= SLOW_GET_SEC and urllib.parse.urlsplit(self.path).path.startswith("/api/"):
-                self.server.sup.log("ホームの口が遅れました: %s %.1f 秒" % (urllib.parse.urlsplit(self.path).path[:80], took))
+            took, inflight = time.monotonic() - t0, timing.end()
+            try:
+                self._timing_note(t, took, inflight)
+            except Exception:   # noqa: BLE001  (記録の失敗で口を止めない)
+                pass
+
+    def _timing_note(self, t, took, inflight):
+        path = urllib.parse.urlsplit(self.path).path
+        if "/api/" not in path and not path.startswith("/live/"):
+            return
+        code = self._t_code
+        if not (took > timing.SLOW_SEC or code is None or code >= 400):
+            return
+        try:
+            size = int(self._t_size) if self._t_size is not None else None
+        except ValueError:
+            size = None
+        timing.api_record(self.server.sup.logs_dir, t, self.command, path, took, code, size, inflight, cases_mod.take_waits(), self.server.busy_now())
+        if took >= SLOW_GET_SEC:
+            self.server.sup.log("ホームの口が遅れました: %s %.1f 秒" % (path[:80], took))
+
+    def do_GET(self):
+        return self._timed(self._get)
 
     def _get(self):
         u = urllib.parse.urlsplit(self.path)
@@ -817,6 +851,9 @@ class PortalHandler(httpsec.LocalHandler):
         return self._fail(404, "not_found", "その操作はありません")
 
     def do_POST(self):
+        return self._timed(self._post)
+
+    def _post(self):
         u = urllib.parse.urlsplit(self.path)
         if not site_ok(self.headers, self.server.allowed_hosts):
             httpsec.drain_body(self.headers, self.rfile)
@@ -924,6 +961,14 @@ class PortalHandler(httpsec.LocalHandler):
         """今すぐ写す(裏で。応答は今の状態)"""
         self.server.backup.run_now()
         return self._json(200, self.server.backup.snapshot())
+
+    def _post_ui_timing(self, path, body):
+        """画面の読み込みの記録(ホーム・案件の画面。中身が出た・失敗・止まった)を logs/ui-timing.jsonl へ 1 行(src/app/timing.py)"""
+        try:
+            timing.ui_record(self.server.sup.logs_dir, body, VERSION)
+        except ValueError as e:
+            return self._fail(400, "bad_request", str(e))
+        return self._json(200, {"ok": True})
 
     def _post_accuracy_run(self, path, body):
         """今すぐ測る(裏で。手が空くまで待つ。応答は今の状態)"""
@@ -1466,6 +1511,21 @@ class PortalServer(httpsec.ExclusiveServer):
         except OSError as e:
             return 500, {"error": "open", "message": "開けませんでした: %s" % tools.why(e)}
         return 404, {"error": "not_found", "message": "その操作はありません"}
+
+    def busy_now(self):
+        """読み込みの記録に添える、今動いている重い処理 {runs: まとめて実行の待ち・実行中, rec: 録画中}(遅い口の時だけ呼ぶ。読めなければ欄なし)"""
+        out = {}
+        try:
+            d = fsio.read_json_or(os.path.join(self.sup.logs_dir, "autorun-active.json"), None, 1024 * 1024, kind=dict) or {}
+            out["runs"] = len(d.get("runs") or [])
+        except Exception:   # noqa: BLE001
+            pass
+        try:
+            if self.live.enabled():
+                out["rec"] = sum(1 for r in self.live.recent() if r.get("active"))
+        except Exception:   # noqa: BLE001
+            pass
+        return out
 
     def _studio_channel(self, video_id):
         """配信のチャンネル名(スタジオの一覧)か None。一覧は STUDIO_CH_SEC 秒覚える(10-30: ホームは描くたびに案件 8 本ぶん問い合わせ、

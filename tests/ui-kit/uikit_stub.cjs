@@ -82,6 +82,7 @@ function makeUIKit(overrides = {}) {
     icon: iconFn,
     http: rec('http', () => Promise.reject(stubErr('http'))),
     homeApi: rec('homeApi', () => Promise.reject(stubErr('homeApi'))),
+    loadTiming: { start: rec('loadTiming.start', () => {}), done: rec('loadTiming.done', () => {}) },
     homeUrl: rec('homeUrl', p => '/' + String(p == null ? '' : p).replace(/^\/+/, '')),
     copy: rec('copy', () => Promise.resolve(true)),
     loadScript: rec('loadScript', () => Promise.resolve()),
