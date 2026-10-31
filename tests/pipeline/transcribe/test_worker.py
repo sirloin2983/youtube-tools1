@@ -269,7 +269,7 @@ class RealWorkerTest(unittest.TestCase):
         _worker_client.WORKER.close()
         self.addCleanup(lambda: setattr(_worker_client, "WORKER", _worker_client.WorkerClient()))
         self.addCleanup(lambda: _worker_client.WORKER.close())
-        with mock.patch.dict(os.environ, {"TRANSCRIBE_ENGINE_DIR": jhome}):
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_ENGINE_DIR": jhome, "TRANSCRIBE_HAAS_MAIN": "off"}):   # whisper.cpp を確かめる(主を Haas にしない)
             _worker_client.WORKER = _worker_client.WorkerClient()
             job = self.transcribe(model="large-v3", device="vulkan")
             tid = job["tid"]
@@ -291,6 +291,40 @@ class RealWorkerTest(unittest.TestCase):
         asr = testkit.read_json(_records.asr_path(tid))
         self.assertEqual(asr["run"]["engine"], "whisper.cpp")
         self.assertTrue(asr["segments"] and all(g["words"] for g in asr["segments"]))
+
+    def test_haas_speechcpp_real(self):
+        """主の文字起こしを本物の speech.cpp の Haas(Vulkan)で(段 3 = 今までの主 whisper.cpp・large-v3 の頼みが Haas になる): 文字起こし → 記録のエンジン・機器・
+        words.json・asr.json(トークンの確率)。speech.cpp と GGUF は編集の作業データから日本語の名前のフォルダへハードリンクで並べて読む"""
+        home = VF.haas_speechcpp()
+        if not home:
+            self.skipTest("speech.cpp か Haas の GGUF が無い")
+        from pipeline.transcribe import tx_engines as te
+        from ytt import txbase
+        jhome = os.path.join(self.dir, "山田の作業データ2")
+        try:
+            shutil.copytree(txbase.speech_bin_dir(home), txbase.speech_bin_dir(jhome), copy_function=os.link)
+            shutil.copytree(te.haas_gguf_dir(home), te.haas_gguf_dir(jhome), copy_function=os.link)
+        except OSError as e:
+            self.skipTest("作業データをハードリンクで並べられない(別のドライブ): %s" % e)
+        self.addCleanup(shutil.rmtree, jhome, True)
+        _worker_client.WORKER.close()
+        self.addCleanup(lambda: setattr(_worker_client, "WORKER", _worker_client.WorkerClient()))
+        self.addCleanup(lambda: _worker_client.WORKER.close())
+        with mock.patch.dict(os.environ, {"TRANSCRIBE_ENGINE_DIR": jhome}):
+            os.environ.pop("TRANSCRIBE_HAAS_MAIN", None)
+            _worker_client.WORKER = _worker_client.WorkerClient()
+            job = self.transcribe(model="large-v3", device="vulkan")
+        tid = job["tid"]
+        d = self.doc(tid)
+        self.assertIn("配信", "".join(_texts(d)))
+        run = d["recognition"]["runs"][0]
+        self.assertEqual((run["engine"], run["model"], run["device"]), ("haas-speechcpp", "haas-ja-v1.0", "vulkan"))
+        ws = _txwords.read_words(tid)
+        self.assertTrue(ws and all(0.0 <= w[0] <= w[1] <= self.dur + 1.01 for w in ws), ws[:3])
+        asr = testkit.read_json(_records.asr_path(tid))
+        self.assertEqual(asr["run"]["engine"], "haas-speechcpp")
+        self.assertTrue(asr["segments"] and all(g["words"] and all(isinstance(w[3], float) for w in g["words"]) for g in asr["segments"]))   # トークンの確率(単語の 4 つ目)
+        self.assertFalse(any("whisper.cpp で読み直しました" in w for w in job.get("warnings") or []), job.get("warnings"))
 
 
 @unittest.skipUnless(HAVE_FFMPEG, "ffmpeg が無い")

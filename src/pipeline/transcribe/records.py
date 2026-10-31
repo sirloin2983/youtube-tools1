@@ -96,7 +96,7 @@ def recognition_run(spec, job, audio_sec, wall_sec, pairs=None):
 
 # 文字起こしの出力(行の文字・時刻・後処理)が変わる直しを入れたら、その版に上げる。これより前の版で文字起こしした文書は「古い版」
 # (確かめるのカードの元を、今の出力で作り直す対象。app/check/refresh)。エンジン・モデルの違いは版と別に output_old が見る
-OUTPUT_SINCE = "0.99.159"
+OUTPUT_SINCE = "0.99.398"   # 11-01 主の文字起こしを Haas(speech.cpp)に替えた版(段 3)。前の版の確かめるのカードの元の文書は夜に作り直す(この PC で 4 本)
 
 
 def _ver_key(v):

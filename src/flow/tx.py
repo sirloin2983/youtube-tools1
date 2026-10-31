@@ -80,6 +80,23 @@ def check_model(model, fallback=None):
     raise _errors.ApiError("bad_model", "モデル名が正しくありません", 400)
 
 
+HAAS_MAIN_ENV = "TRANSCRIBE_HAAS_MAIN"   # 主の文字起こしを Haas(speech.cpp)にするスイッチ(既定オン。off で今までの whisper.cpp に戻す)
+OLD_MAIN = ("whisper.cpp", "large-v3")   # 今までの主の文字起こし(束の既定・編集の画面の既定・古い設定がこの組で頼んでくる)
+
+
+def main_engine(req, model):
+    """主の文字起こしの選び(11-01 ユーザー「Haas をメインにする」・保管庫 plan/Haas に替える時の変更の一覧.md の段 3 = 既定を替える 1 か所)。
+    要求が今までの主(エンジンなしか whisper.cpp・モデル large-v3)なら Haas(speech.cpp の haas-speechcpp・haas-ja-v1.0)へ替えた (要求, モデル)。
+    替えない: スイッチ HAAS_MAIN_ENV が off・speech.cpp がこの PC に置いていない(友人の PC は段 5 で入るまで今のまま)・
+    ほかのエンジンやモデルを名指しした要求(測る道具・声の材料など)。機器は cpu を頼んだ時だけ CPU・ほか(auto・vulkan・cuda)は Vulkan"""
+    e = str(req.get("engine") or "")
+    if _txbase.env_off(HAAS_MAIN_ENV) or model != OLD_MAIN[1] or e not in ("", OLD_MAIN[0]):
+        return req, model
+    if not tx_engines.HaasSpeechCpp.ready(tx_engines.engine_home())[0]:
+        return req, model
+    return dict(req, engine=tx_engines.HaasSpeechCpp.id, device="cpu" if req.get("device") == "cpu" else "vulkan"), tx_engines.HaasSpeechCpp.DEFAULT_MODEL
+
+
 def request_engine(req, model, ctx_doc, auto_context):
     """③ の受付が spec に入れる認識の値 -> (エンジン, 配信ごとの文脈)。エンジンは ① worker_client.req_engine(使えない組は ApiError)・
     文脈は ① roster.stream_context(ctx_doc = clip・title・sourceName・sourcePath・speakers を持つ辞書)。
@@ -101,6 +118,7 @@ def tx_spec(req, post, learning=None, *, src=None, dur=None):
     clip, clip_warn, _clip_path = _yschemas.find_clip(src, dur)
     title = str(req.get("title") or "")[:120] or os.path.splitext(os.path.basename(src))[0][:120]
     model = check_model(str(req.get("model") or "large-v3").strip())
+    req, model = main_engine(req, model)   # 今までの主(whisper.cpp・large-v3)の頼みは Haas へ(段 3)
     lang = req.get("language") if req.get("language") in _txbase.LANGS else "ja"
     glossary = _txtext.split_terms(req.get("glossary"))[:200]
     gauto = list(learning.glossary(glossary)) if learning is not None and post.get("autoGloss") is not False else []

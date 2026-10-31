@@ -98,6 +98,19 @@ def whisper_cpp_large():
     return home if ok else None
 
 
+def haas_speechcpp():
+    """speech.cpp(手元の直しの版)と Haas の GGUF・silero の GGUF が手元にあれば作業データのフォルダ、無ければ None(大きさだけ見る)"""
+    home = engine_home()
+    if not home:
+        return None
+    from pipeline.transcribe import tx_engines as te
+    from ytt import txbase
+    gg = te.haas_gguf_dir(home)
+    ok = os.path.isfile(txbase.speech_exe(home)) and all(os.path.isfile(os.path.join(gg, m["file"])) and os.path.getsize(os.path.join(gg, m["file"])) == m["size"]
+                                                       for m in (te.HAAS_GGUF_MODELS["haas-ja-v1.0"], te.SILERO_GGUF))
+    return home if ok else None
+
+
 def fetch_read_only(spec, folder, *a, **kw):
     """tx_engines.fetch_file の代わり: 手元にあればそのパス(中身の SHA-256 は読み直さない)。無ければ取りに行かずに失敗"""
     p = os.path.join(folder, spec["file"])
