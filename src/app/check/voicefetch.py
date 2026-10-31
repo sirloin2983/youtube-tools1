@@ -28,6 +28,7 @@ from flow import voicematerial as _vm
 from ytt import fsio, names as _names, tools as _tools, ytledger as _ytledger, yturl as _yturl
 
 ENABLED = True
+ASK_ON = False         # 10-31 ユーザー「声の材料の文字起こし止めて」: 偽 = 研究の音の拾い(intake)で新しく文字起こしを頼まない(True で前の動き)
 EVERY = 60                    # 見回りの間隔(秒)
 SLOT_NAME = "yt-slot.json"
 STATE_NAME = "voice-fetch.json"
@@ -343,6 +344,8 @@ def _pseudo(who, title):
 def intake(app_dir, roster_r, start_job, log, extra=None, now=None):
     """研究の置き場の音を拾う: 日本の対象のメンバーのソロ(題名・名簿・solo_person)だけ自分の置き場へ移して文字起こしに頼み、取った配信に数える。
     ほかは消す(研究の置き場を大きくしない)。meta(<id>.json)のある物だけ(音 → meta の順に書かれる)。-> 拾った数"""
+    if not ASK_ON:   # 10-31 声の材料の文字起こしを止める(研究の置き場の音は触らず残す)
+        return 0
     box = os.path.join(app_dir, "check", INBOX_NAME)
     try:
         names = sorted(os.listdir(box))

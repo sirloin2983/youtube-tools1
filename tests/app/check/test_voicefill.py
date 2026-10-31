@@ -37,6 +37,15 @@ class VoiceFillTest(unittest.TestCase):
         p.start()
         self.addCleanup(p.stop)
         self.app = os.path.join(self.tmp, "app")
+        a = mock.patch.object(VF, "ASK_ON", True)   # 既定は止めてある(10-31)。前の動きの確かめは True で
+        a.start()
+        self.addCleanup(a.stop)
+
+    def test_ask_off_asks_nothing(self):
+        asked = []
+        with mock.patch.object(VF, "ASK_ON", False):
+            self.assertIsNone(VF.tick(self.app, lambda req: asked.append(req) or "j", lambda: None, lambda m: None, dirs=[self.learn]))
+        self.assertEqual(asked, [])
 
     def test_round_robin_and_once(self):
         self.assertEqual(sorted({w for w, _p in VF.targets([self.learn])}), ["さくらみこ", "兎田ぺこら"])   # 名簿に無いフォルダ・動画でない物は見ない

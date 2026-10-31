@@ -16,6 +16,7 @@ from flow import voicematerial as _vm
 from ytt import fsio, settings as _settings
 
 ENABLED = True
+ASK_ON = False         # 10-31 ユーザー「声の材料の文字起こし止めて」: 偽 = 新しく文字起こしを頼まない(True で前の動き)
 LEARN_NAME = _vm.SHORT_DIR_NAME
 STATE_NAME = "voice-material.json"
 EXTS = (".mov", ".mp4", ".mkv", ".webm", ".m4v")
@@ -85,7 +86,7 @@ def pick(items, state):
 
 def tick(app_dir, start_job, busy, log, dirs=None, now=None):
     """手が空いていれば 1 本頼む。start_job(要求) -> ジョブ id(失敗は例外)。busy() -> 理由か None。-> 頼んだパスか None"""
-    if not ENABLED or busy():
+    if not ENABLED or not ASK_ON or busy():
         return None
     path = _state_path(app_dir)
     state = fsio.read_json_or(path, {}, kind=dict)

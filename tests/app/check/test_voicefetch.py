@@ -32,6 +32,16 @@ class VoiceFetchTest(unittest.TestCase):
     def setUp(self):
         self.app = kit.tempdir(self, "ytt-voicefetch-")
         self.logs, self.jobs, self.got = [], [], []
+        a = mock.patch.object(VF, "ASK_ON", True)   # 既定は止めてある(10-31)。前の動きの確かめは True で
+        a.start()
+        self.addCleanup(a.stop)
+
+    def test_ask_off_intake_asks_nothing(self):
+        box = os.path.join(self.app, "check", VF.INBOX_NAME)
+        os.makedirs(box)
+        with mock.patch.object(VF, "ASK_ON", False):
+            self.assertEqual(VF.intake(self.app, R, lambda req: self.jobs.append(req) or "j", self.logs.append), 0)
+        self.assertEqual(self.jobs, [])
 
     def fetch(self, vid, base):
         self.got.append(vid)
