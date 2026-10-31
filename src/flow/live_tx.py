@@ -10,8 +10,8 @@ pad = 実際に足せた前後の秒 [前, 後]・text は候補の区間にか�
 
 設定(ホームの設定の節 live): liveTx {enabled(既定オン), model(whisper.cpp のモデル・既定 large-v3)}。動くのは リアルタイム切り抜きがオン・
 認識の部品(下のエンジンの実行ファイルとモデル)がある・ffmpeg がある、のときだけ(ready)。無ければ何もしない(候補に文字が付かないだけ)。
-エンジン(11-01 Haas に替える段 4): この PC の設定 flow/machine.py で決めたエンジン、決めていなければ文字起こしの既定(spec.DEFAULTS の transcribe.engine =
-既定を替える 1 か所)に合わせる(LiveTx.machine。RS7-1 S1)。haas-speechcpp なら speech.cpp(作業データの bin/speech.cpp-*・models/haas-gguf)、
+エンジン(11-01 Haas に替える段 4): この PC の設定 flow/machine.py で決めたエンジン(決めていなければ whisper.cpp)を、本番の文字起こしと同じ
+主の選び flow/tx.main_engine(段 3 = 既定を替える 1 か所)に通す(LiveTx.machine。RS7-1 S1)。haas-speechcpp なら speech.cpp(作業データの bin/speech.cpp-*・models/haas-gguf)、
 ほかは whisper.cpp(setup/build-whisper-vulkan.bat・models/whispercpp)。Haas の部品が無い・Haas が動かない時は、whisper.cpp があれば whisper.cpp で読む(whisper を消すまで = 段 7)。
 守り: 1 本ずつ(同時に 1 つの子プロセス)・1 本 TX_TIMEOUT 秒まで・同じ候補は TX_TRIES 回まで・続けて FAIL_PAUSE_AFTER 回失敗したら PAUSE_SEC 休む(GPU の不調で回り続けない)。
 認識(GPU)は重い処理の順番(ytt.jobs.SLOTS。tool "live-tx")を通す(D-14): 書き出し・文字起こし・パックと同じ枠で順番を待つ
@@ -26,7 +26,7 @@ import time
 from pipeline.transcribe import recognize as _recognize, tx_engines as _tx   # wav の引数を組む所は ① の 1 か所(OPT2)・Haas のモデルの表(HAAS_GGUF_MODELS)
 from ytt import datadir, fsio, jobs, tools, txbase as _txbase
 from . import prio as _prio   # 優先度の表(PRIO。配信中の文字起こしは録画中のライブ)
-from . import live_export as LX, livehost, machine as _machine, spec as _spec
+from . import live_export as LX, livehost, machine as _machine, spec as _spec, tx as _ftx   # tx = 主の文字起こしの選び(main_engine)
 
 WORKER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pipeline", "transcribe", "live_tx_worker.py")   # 子プロセスの道具は ① の置き場
 # whisper.cpp の置き場所の決まり(版・実行ファイル・モデルのファイル)は ytt/txbase の 1 か所(F1 F0-2。編集の tx_engines も同じ物を読む)
@@ -118,14 +118,16 @@ class LiveTx(LX.Patrol):
     @staticmethod
     def machine():
         """機械の都合(エンジン・機器)はこの PC の設定(flow/machine.py。RS7-1 S1)から -> {"engine", "device"}。
-        エンジン = この PC の設定で決めたエンジン(決めていなければ機器から決まるエンジン・機器も決めていなければ文字起こしの既定 spec.DEFAULTS の transcribe.engine)。
-        haas-speechcpp なら Haas(機器は cpu を決めた時だけ CPU・ほかは Vulkan)。それ以外は whisper.cpp で、決めたエンジンが whisper.cpp で
+        エンジン = この PC の設定で決めたエンジン(決めていなければ機器から決まるエンジン・機器も決めていなければ whisper.cpp)を、本番の文字起こしと同じ
+        主の選び flow/tx.main_engine に通す(whisper.cpp・large-v3 の頼みは、スイッチが off でなく speech.cpp が置いてあれば Haas に替わる)。
+        Haas なら機器は cpu を頼んだ時だけ CPU・ほかは Vulkan。それ以外は whisper.cpp で、決めたエンジンが whisper.cpp で
         機器が LIVE_DEVICES のときだけその機器・ほかは Vulkan(GPU)"""
         m = _machine.explicit()
         dev = m.get("device")
-        eng = m.get("engine") or (_spec.implied_engine(dev) if dev else _spec.DEFAULTS["transcribe"]["engine"])
-        if eng == HAAS_ENGINE:
-            return {"engine": HAAS_ENGINE, "device": "cpu" if dev == "cpu" else "vulkan"}
+        eng = m.get("engine") or (_spec.implied_engine(dev) if dev else LIVE_ENGINE)
+        req, _model = _ftx.main_engine({"engine": eng, "device": dev or LIVE_DEVICES[0]}, DEFAULT_MODEL)
+        if req.get("engine") == HAAS_ENGINE:
+            return {"engine": HAAS_ENGINE, "device": "cpu" if req.get("device") == "cpu" else "vulkan"}
         return {"engine": LIVE_ENGINE, "device": dev if eng == LIVE_ENGINE and dev in LIVE_DEVICES else LIVE_DEVICES[0]}
 
     def data_dir(self):

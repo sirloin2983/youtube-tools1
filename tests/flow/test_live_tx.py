@@ -199,6 +199,7 @@ class LiveTxBase(unittest.TestCase):
         self.tmp = testkit.tempdir(self, "ytt-livetx-")
         env = {k: v for k, v in os.environ.items() if k != "TRANSCRIBE_DATA_DIR"}   # 編集の作業データ = <root>/editor(datadir の inplace)
         env["YTT_DATA_DIR"] = "inplace"
+        env["TRANSCRIBE_HAAS_MAIN"] = "off"   # whisper.cpp の道を見るテスト(この PC に speech.cpp があっても Haas に替えない。Haas は HaasTest)
         for p in (mock.patch.dict(os.environ, env, clear=True), mock.patch.dict(datadir._registered, {}, clear=True)):
             p.start()
             self.addCleanup(p.stop)
@@ -300,11 +301,12 @@ class ReadyTest(LiveTxBase):
 
 
 class HaasTest(LiveTxBase):
-    """段 4(11-01): 文字起こしの既定(spec.DEFAULTS の transcribe.engine)が haas-speechcpp なら speech.cpp で読む。部品が欠ければ whisper.cpp"""
+    """段 4(11-01): 本番の文字起こしと同じ主の選び(flow/tx.main_engine)が Haas を選べば speech.cpp で読む。部品が欠ければ whisper.cpp"""
 
     def setUp(self):
         super().setUp()
-        p = mock.patch.dict(TX._spec.DEFAULTS["transcribe"], {"engine": TX.HAAS_ENGINE})
+        os.environ.pop(TX._ftx.HAAS_MAIN_ENV, None)   # 基の setUp が切ったスイッチを戻す
+        p = mock.patch.object(TX._tx.HaasSpeechCpp, "ready", classmethod(lambda cls, d: (True, "")))   # main_engine が見る「speech.cpp が置いてある」
         p.start()
         self.addCleanup(p.stop)
         self.haas_model = os.path.join(self.edir, "models", "haas-gguf", TX._tx.HAAS_GGUF_MODELS[TX.HAAS_MODEL]["file"])
@@ -316,10 +318,15 @@ class HaasTest(LiveTxBase):
 
     def test_engine_follows_default_and_machine(self):
         self.assertEqual(self.tx.machine(), {"engine": TX.HAAS_ENGINE, "device": "vulkan"})
-        with mock.patch.object(TX._machine, "explicit", lambda: {"engine": "whisper.cpp", "device": "cuda"}):   # この PC の設定で決めたエンジンが先
-            self.assertEqual(self.tx.machine(), {"engine": "whisper.cpp", "device": "cuda"})
-        with mock.patch.object(TX._machine, "explicit", lambda: {"engine": TX.HAAS_ENGINE, "device": "cpu"}):
+        with mock.patch.object(TX._machine, "explicit", lambda: {"engine": "whisper.cpp", "device": "cuda"}):   # 今までの主の頼みも Haas へ(本番と同じ決まり)
+            self.assertEqual(self.tx.machine(), {"engine": TX.HAAS_ENGINE, "device": "vulkan"})
+        with mock.patch.object(TX._machine, "explicit", lambda: {"device": "cpu"}):
             self.assertEqual(self.tx.machine(), {"engine": TX.HAAS_ENGINE, "device": "cpu"})
+        with mock.patch.dict(os.environ, {TX._ftx.HAAS_MAIN_ENV: "off"}):   # スイッチを切れば今までの whisper.cpp
+            self.assertEqual(self.tx.machine(), {"engine": "whisper.cpp", "device": "vulkan"})
+        with mock.patch.object(TX._tx.HaasSpeechCpp, "ready", classmethod(lambda cls, d: (False, "無い"))), \
+                mock.patch.object(TX._machine, "explicit", lambda: {"engine": "whisper.cpp", "device": "cuda"}):   # speech.cpp の無い PC
+            self.assertEqual(self.tx.machine(), {"engine": "whisper.cpp", "device": "cuda"})
 
     def test_ready_paths_and_whisper_fallback(self):
         self.assertEqual(self.tx.ready(), (False, "speech.cpp がありません(setup\\place_speechcpp.py で置きます)"))
