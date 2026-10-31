@@ -9,36 +9,36 @@
 ## src/pipeline/analyze/
 
 - **__init__.py** (2 行) — ① 解析: 材料の取得(fetch。動画・チャット・コメント)・音量(levels)・盛り上がりの式(excite)・候補・話の切れ目(breaks)・自動採用・配信中の検出
-- **adopt.py** (83 行) — 採用の規則 F-5(notes:plan/done/role-restructure.md 5-5・決定 3-29 Q3。純粋な関数)。
-  - 名前: `check_args` :18・`adopt` :35
+- **adopt.py** (114 行) — 採用の規則 F-5(notes:plan/done/role-restructure.md 5-5・決定 3-29 Q3。純粋な関数)。
+  - 名前: `check_args` :22・`adopt` :48
 - **analyze.py** (444 行) — 解析(自動切り抜き ac/serve.py 由来。書き出し・手動の○×は持たない)。
   - 名前: `sig_cache_dir` :35・`validate_live` :42・`validate_source` :48・`validate_settings` :63・`shape_of` :78・`make_spec` :85・`chat_public` :97・`sig_path` :104・`load_sig` :108・`save_sig` :125・`archive_path` :138・`load_archive` :142・ほか 4
 - **breaks.py** (119 行) — 話の切れ目(breaks)。切り抜きの区間の両端を、文字起こしの話の切れ目へ寄せて言葉の途中で切らないための関数(線 LD-2c。notes:plan/done/ld2-clip-length.md)。
   - 名前: `cuts` :61・`snap` :106
-- **excite.py** (1405 行) — 盛り上がり(excitement)の式。スタジオのアーカイブの解析(src/pipeline/analyze/analyze.py)と、配信中の検出(src/pipeline/analyze/live_excite_worker.py。線 D の L2)が同じ式を読む(線 D の L1。資料の g…
-  - 名前: `auto_length` :81・`pieces` :98・`join_clips` :104・`chat_text_flag` :152・`zlist` :164・`class ChatFeats` :173・`rerank` :208・`smooth` :229・`median` :240・`local_baseline` :246・`robust_scale` :265・`audio_score` :271・ほか 23
+- **excite.py** (1491 行) — 盛り上がり(excitement)の式。スタジオのアーカイブの解析(src/pipeline/analyze/analyze.py)と、配信中の検出(src/pipeline/analyze/live_excite_worker.py。線 D の L2)が同じ式を読む(線 D の L1。資料の g…
+  - 名前: `auto_length` :81・`pieces` :98・`join_clips` :104・`chat_text_flag` :155・`zlist` :167・`class ChatFeats` :176・`laugh_settle` :230・`rerank` :250・`smooth` :277・`median` :288・`local_baseline` :294・`robust_scale` :313・ほか 24
 - **fetch.py** (554 行) — 解析の材料を取ってくる仕事(音声のダウンロード・チャットのリプレイの取得と先読み・コメント欄・動画の付加情報)と、そのキャッシュの置き場と掃除。
   - 名前: `work_dir` :32・`chat_cache_dir` :36・`download_audio` :51・`chat_cache_path` :83・`drop_chat_cache` :87・`chat_cache_limit` :104・`use_chat_cache` :119・`prune_chat_cache` :129・`download_chat` :177・`prefetch_chat` :259・`cancel_prefetch` :302・`cancel_all_prefetch` :309・ほか 9
 - **levels.py** (64 行) — 1 秒ごとの音量(RMS, dB)を、ffmpeg 1 回のデコードで全帯域と高音域(2kHz 超)の 2 系列に測る決まり(OPT1)。
   - 名前: `args` :23・`clear` :30・`level` :36・`read` :47・`collect` :56
-- **live_excite_worker.py** (1816 行) — 配信中の盛り上がりの検出のワーカー(線 D の L2。資料の git:before-1028-cleanup:plan/line-d-detect.md・資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0-10)。入口(src/…
-  - 名前: `chat_trouble` :154・`class MeasureError` :172・`class NoTool` :176・`class RecorderDown` :180・`clean_requests` :188・`request_spec` :203・`clean_spec_doc` :225・`clean_bundles` :239・`clean_detect` :250・`read_series` :260・`measure_levels` :291・`parse_chat_line` :311・ほか 13
+- **live_excite_worker.py** (1823 行) — 配信中の盛り上がりの検出のワーカー(線 D の L2。資料の git:before-1028-cleanup:plan/line-d-detect.md・資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0-10)。入口(src/…
+  - 名前: `chat_trouble` :160・`class MeasureError` :178・`class NoTool` :182・`class RecorderDown` :186・`clean_requests` :194・`request_spec` :209・`clean_spec_doc` :231・`clean_bundles` :245・`clean_detect` :256・`read_series` :266・`measure_levels` :297・`parse_chat_line` :317・ほか 13
 
 ## src/pipeline/export/
 
 - **__init__.py** (2 行) — ① 書き出し: 区間 → 動画(exporter)
 - **exporter.py** (1208 行) — ③ 書き出し(クリップマーカー cm/serve.py 由来): store の動画・マークから ffmpeg / yt-dlp でクリップを mp4 にする。
   - 名前: `edit_handle` :44・`edit_from_main` :55・`class ExportError` :70・`log_export` :74・`reason` :90・`verify_output` :97・`pick_folder` :106・`promote` :115・`drop_partial` :132・`clean_partials` :138・`check_section_path` :237・`build_section_spec` :258・ほか 18
-- **outcheck.py** (109 行) — ① 書き出しのあとの自動の点検(10-23。資料の git:before-1028-cleanup:plan/人の作業なしの候補-1023.md の 1)。書き出した切り抜き 1 本を測り、気になる所を返すだけ(出力は止めない・消さない)。
-  - 名前: `black_spans` :37・`edge_ratio` :42・`judge` :55・`check` :76
+- **outcheck.py** (106 行) — ① 書き出しのあとの自動の点検(10-23。資料の git:before-1028-cleanup:plan/人の作業なしの候補-1023.md の 1)。書き出した切り抜き 1 本を測り、気になる所を返すだけ(出力は止めない・消さない)。
+  - 名前: `black_spans` :36・`edge_ratio` :41・`judge` :54・`check` :75
 
 ## src/pipeline/ingest/
 
 - **__init__.py** (2 行) — ① 取り込み: 配信中の録画(recorder・rec_core)と、録画とアーカイブの音の照合(live_align_worker)。YouTube からの取得は export/exporter と analyze/fetch
 - **live_align_worker.py** (133 行) — 音の照合(線 D の P4。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0-9)の子プロセス。**入口のプロセスから import しない
   - 名前: `fail` :34・`read_wav` :39・`next_pow2` :54・`xcorr_valid` :59・`align` :79・`main` :103
-- **rec_core.py** (1168 行) — 録画の中身(線 D の P1。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0・2〜4)。HTTP は recorder.py。
-  - 名前: `class RecError` :98・`to_utc` :109・`rec_spans` :120・`pick_segments` :133・`validate_url` :153・`fetch_title` :175・`folder_state` :194・`parse_playlist` :218・`keep_order` :241・`build_playlist` :262・`read_text` :284・`clean_tmp` :313・ほか 3
+- **rec_core.py** (1187 行) — 録画の中身(線 D の P1。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0・2〜4)。HTTP は recorder.py。
+  - 名前: `class RecError` :103・`to_utc` :114・`rec_spans` :125・`pick_segments` :138・`validate_url` :158・`fetch_title` :180・`folder_state` :199・`parse_playlist` :223・`keep_order` :246・`build_playlist` :267・`read_text` :289・`clean_tmp` :318・ほか 3
 - **recorder.py** (439 行) — 録画の部品(線 D: リアルタイム切り抜きの P1。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0)。入口とは別のプロセスで動く。
   - 名前: `data_dir` :68・`load_token` :75・`read_settings` :90・`save_folder` :94・`clean_folder` :101・`make_logger` :115・`raise_priority` :139・`class Handler` :151・`class Server` :299・`parse_args` :310・`write_running` :343・`clear_running` :349・ほか 1
   - 受ける口: `/api/ping` :191
@@ -50,8 +50,8 @@
   - 名前: `read_cut_plan` :16・`default_handles` :71・`build_plan` :77・`removed_between` :98・`plan_from_keeps` :109・`finalize_plan` :117
 - **cut2resolve_core.py** (827 行) — cut2resolve 共通部
   - 名前: `class Cancelled` :45・`class OutputExists` :52・`class Task` :61・`parse_time` :76・`parse_cut_list` :114・`sec_to_frames` :145・`cue_frames` :149・`frames_to_sec` :155・`fps_label` :160・`cut_list_to_keeps` :165・`normalize` :180・`subtract` :198・ほか 34
-- **edge_pause.py** (108 行) — 切り抜きの両端を「話の間」へ寄せる(10-23。決定 3-153。notes:plan/heatmap-study.md の「切り抜きの端を話の間へ」)。
-  - 名前: `levels` :30・`voice_level` :50・`pauses` :56・`snap_end` :70・`snap_start` :81・`snap` :92
+- **edge_pause.py** (107 行) — 切り抜きの両端を「話の間」へ寄せる(10-23。決定 3-153。notes:plan/heatmap-study.md の「切り抜きの端を話の間へ」)。
+  - 名前: `levels` :29・`voice_level` :49・`pauses` :55・`snap_end` :69・`snap_start` :80・`snap` :91
 - **pack.py** (964 行) — カットの計算(試算)とパックの作成。画面(serve.py)と ② の自動の流れが呼ぶ共通部(処理を二重に持たない)。
   - 名前: `class RowEdge` :42・`class Request` :77・`class Plan` :111・`class Cache` :135・`default_out_dir` :199・`row_edge_from` :203・`widen_row_edges` :227・`row_edge_pending` :270・`silence_pending` :279・`detect_pending` :287・`without_detect` :296・`plan_cut` :315・ほか 17
 - **preview.py** (124 行) — ① 確認用の動画(友人が受け取るかを決める前に見る、1 本の切り抜きの 480p の動画)とパックの中の切り抜きの動画の引き方(ds1 = 要件 1-5。② flow/deliver から分けた)。
@@ -62,7 +62,7 @@
   - 名前: `is_kept` :25・`kept_spans` :31・`tool_info` :58・`sorted_segments` :62・`build_transcript_v1` :81・`pack_instructions` :111・`edit_draft` :183・`edit_preview` :248
 - **resolve_textplus.py** (1093 行) — Resolve Free向け Text+ 試験パック。Luaスクリプトを同梱する。
   - 名前: `hex_rgba` :70・`text_style` :81・`style_inputs` :97・`video_tracks_value` :119・`parse_target` :126・`caption_segments` :149・`stack_captions` :180・`speaker_lanes` :241・`lay_captions` :273・`default_wrap` :300・`wrap_caption` :305・`build_import_plan` :354・ほか 8
-- **srt2resolve.py** (394 行) — パックの部品(動画の情報の読み取り・字幕の読み込み・フレームの計算・SRT の組み立ての小道具)。
+- **srt2resolve.py** (392 行) — パックの部品(動画の情報の読み取り・字幕の読み込み・フレームの計算・SRT の組み立ての小道具)。
   - 名前: `class ToolError` :27・`same_path` :31・`staged` :44・`write_text_atomic` :56・`tool` :65・`arg_path` :70・`clean_text` :94・`parse_subs` :101・`read_sub_file` :125・`snap_fps` :149・`codec_warnings` :161・`probe` :198・ほか 10
 - **tidy.py** (111 行) — 編集カットの形「無音を詰める」(10-24。ユーザー「言葉を削るんじゃなくて、無音を削ってほしい。ただ不自然になるから調整が必要」。
   - 名前: `drops` :53・`keeps` :101
@@ -80,12 +80,12 @@
   - 名前: `fill_norm` :77・`fill_chars` :82・`fill_sparse_row` :87・`fill_trim_edges` :129・`fill_apply` :153・`fill_clean_tail` :194・`fill_stock` :207・`fill_clean_read` :223・`fill_voice_frac` :250・`fill_clean_turns` :258・`fill_spk_key` :283・`fill_spk_names` :288・ほか 11
 - **live_tx_worker.py** (71 行) — 配信中の候補の文字起こし(線 D の D-11 案 b。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0-11)の子プロセス。**入口のプロセスから import しない
   - 名前: `recognize` :28・`main` :53
-- **llm.py** (393 行) — 「編集」のサーバーの部品: LLM の後処理(提案 P18。notes:plan/done/llm-postfix.md)。
-  - 名前: `llm_fold` :58・`llm_dist` :69・`llm_members` :80・`llm_targets` :93・`llm_near` :106・`llm_gloss` :151・`llm_pick` :163・`llm_messages` :187・`llm_parse` :199・`llm_names` :217・`llm_guard` :227・`llm_cap` :248・ほか 8
+- **llm.py** (390 行) — 「編集」のサーバーの部品: LLM の後処理(提案 P18。notes:plan/done/llm-postfix.md)。
+  - 名前: `llm_fold` :57・`llm_dist` :68・`llm_members` :79・`llm_targets` :92・`llm_near` :105・`llm_gloss` :150・`llm_pick` :160・`llm_messages` :184・`llm_parse` :196・`llm_names` :214・`llm_guard` :224・`llm_cap` :245・ほか 8
 - **models.py** (163 行) — ① 認識ワーカーの中で動く物: 読み込んだモデルの使い回し(_models)と読み込み(_load_model_local)・しばらく使わなければ手放す(release_idle_local)・
   - 名前: `models_touched` :31・`release_idle_local` :36・`setup_cuda_paths` :105・`cuda_count` :130・`cuda_libs_ok` :138・`cuda_compute` :159
-- **postproc.py** (350 行) — ① 文字起こしの行の後処理: 要確認の印(make_flags)・認識の出力を整える流れ(expand_segments = 行を単語の時刻で分ける split_segment・
-  - 名前: `latin_suspect` :31・`sparse_row` :59・`stock_phrase` :74・`repeats_in_line` :91・`make_flags` :102・`note_only` :139・`note_nosub` :144・`expand_segments` :151・`post_values` :196・`clip_rows` :225・`merge_repeats` :249・`trim_ends` :303・ほか 4
+- **postproc.py** (349 行) — ① 文字起こしの行の後処理: 要確認の印(make_flags)・認識の出力を整える流れ(expand_segments = 行を単語の時刻で分ける split_segment・
+  - 名前: `latin_suspect` :31・`sparse_row` :59・`stock_phrase` :74・`repeats_in_line` :91・`make_flags` :102・`note_only` :139・`note_nosub` :144・`expand_segments` :151・`post_values` :196・`clip_rows` :225・`merge_repeats` :249・`trim_ends` :302・ほか 4
 - **recognize.py** (365 行) — ① 音声の認識: 動画から音声を取り出す(extract_audio)・声の検出が捨てすぎたら緩めてやり直す(transcribe_vad_fallback)・文字起こしの行(transcribe_real)・
   - 名前: `wav_args` :28・`extract_audio` :59・`seg_to_dict` :89・`vad_kept` :107・`vad_note` :115・`transcribe_vad_fallback` :129・`transcribe_real` :174・`transcribe_rows` :202・`audio_span` :221・`recognize_chunk` :231・`class ChunkModel` :253・`finish_range_lines` :273・ほか 1
 - **records.py** (240 行) — ① 文字起こしの記録: recognition.runs の 1 件(エンジンと版・設定・辞書の版・後処理)・配信ごとの文脈と声の検出の記録・
@@ -96,8 +96,8 @@
   - 名前: `retime_raw` :94・`retime_candidates` :141
 - **roster.py** (306 行) — 名簿(hololive-roster.json)と、配信ごとの文脈(文字起こしの改善の計画 段1。資料の git:before-1028-cleanup:plan/line-b-transcription.md(付録))。
   - 名前: `fold` :40・`load` :51・`channel_regions` :90・`find_in_text` :120・`match_name` :133・`build_context` :144・`member_terms` :168・`fit` :179・`prompt_terms` :194・`stream_context` :204・`leak_only` :229・`alias_variants` :263・ほか 1
-- **separate.py** (165 行) — 「編集」のサーバーの部品: 声を伴奏から分けて(Spleeter 2stems・sherpa-onnx・CPU)、分けた声の音量から声のある区間を作る(資料の git:before-1028-cleanup:plan/voice-separation-1022.md)。
-  - 名前: `sep_model_dir` :34・`spans_from_db` :38・`prefetch` :74・`prefetch_local` :90・`voice_spans` :110
+- **separate.py** (164 行) — 「編集」のサーバーの部品: 声を伴奏から分けて(Spleeter 2stems・sherpa-onnx・CPU)、分けた声の音量から声のある区間を作る(資料の git:before-1028-cleanup:plan/voice-separation-1022.md)。
+  - 名前: `sep_model_dir` :34・`spans_from_db` :38・`prefetch` :73・`prefetch_local` :89・`voice_spans` :109
 - **tx_engines.py** (1376 行) — 文字起こしの認識エンジンの口(精度改善の計画 段2。資料の git:before-1028-cleanup:plan/line-b-transcription.md(付録))。
   - 名前: `engine_home` :52・`engine_of` :61・`env_num` :66・`is_16k_mono` :75・`half_cpu` :80・`class EngineError` :85・`class Engine` :93・`class FasterWhisper` :146・`scan_timings` :225・`gpu_peek` :249・`wcpp_env` :264・`wcpp_bin_dir` :273・ほか 21
 - **worker.py** (340 行) — ① 文字起こしの認識ワーカー(統合計画の段階3-3)。編集のサーバーが別プロセスとして起動する(worker_client.WorkerClient)。人が直接起動するものではない。

@@ -20,15 +20,15 @@
 
 ## src/studio/
 
-- **serve.py** (698 行) — 切り抜きスタジオ(ローカルサーバー・標準ライブラリのみ。外部ツール: ffmpeg、YouTube には yt-dlp)。
-  - 名前: `init` :60・`attach_board` :72・`flow_host` :79・`busy` :87・`fetch_title` :91・`api_state` :98・`class Handler` :115・`probe` :447・`make_server` :462・`prepare` :572・`shutdown_jobs` :615・`finish` :637・ほか 2
-  - 受ける口: `/api/ping` :183・`/api/siblings` :184・`/api/state` :185・`/api/settings` :186・`/api/rank/registry` :187・`/api/rank/search` :188・`/api/rank/live` :189・`/api/queue` :190・`/api/videos` :191・`/api/video` :192・`/api/transcripts` :193・`/api/title` :194・`/api/export` :195・`/api/collab/groups` :196・`/api/collab/group` :197・`/api/rank/resolve` :412・`/api/rank/import-official` :413・`/api/rank/search/cancel` :415・`/api/queue/add` :416・`/api/queue/cancel` :417・`/api/queue/skipchat` :418・`/api/queue/retry` :419・`/api/queue/clear` :420・`/api/videos/open` :421・`/api/live/adopt` :422・`/api/live/exported` :423・`/api/video/delete` :424・`/api/video/request-marks` :425・`/api/export/cancel` :427・`/api/collab/group/add` :429・`/api/collab/group/remove` :430・`/api/collab/group/delete` :431・`/api/collab/anchor` :432・`/api/config` :435・`/api/outdir` :436
+- **serve.py** (699 行) — 切り抜きスタジオ(ローカルサーバー・標準ライブラリのみ。外部ツール: ffmpeg、YouTube には yt-dlp)。
+  - 名前: `init` :60・`attach_board` :72・`flow_host` :79・`busy` :87・`fetch_title` :91・`api_state` :98・`class Handler` :115・`probe` :448・`make_server` :463・`prepare` :573・`shutdown_jobs` :616・`finish` :638・ほか 2
+  - 受ける口: `/api/ping` :183・`/api/siblings` :184・`/api/state` :185・`/api/settings` :186・`/api/rank/registry` :187・`/api/rank/search` :188・`/api/rank/live` :189・`/api/queue` :190・`/api/videos` :191・`/api/video` :192・`/api/transcripts` :193・`/api/title` :194・`/api/export` :195・`/api/collab/groups` :196・`/api/collab/group` :197・`/api/rank/resolve` :413・`/api/rank/import-official` :414・`/api/rank/search/cancel` :416・`/api/queue/add` :417・`/api/queue/cancel` :418・`/api/queue/skipchat` :419・`/api/queue/retry` :420・`/api/queue/clear` :421・`/api/videos/open` :422・`/api/live/adopt` :423・`/api/live/exported` :424・`/api/video/delete` :425・`/api/video/request-marks` :426・`/api/export/cancel` :428・`/api/collab/group/add` :430・`/api/collab/group/remove` :431・`/api/collab/group/delete` :432・`/api/collab/anchor` :433・`/api/config` :436・`/api/outdir` :437
 - **startup.py** (111 行) — 切り抜きスタジオの起動の小物(役割で組み直す RS5-B)。
   - 名前: `migrate_old_logs` :37・`check_tools` :63・`start_env_check` :80・`env_state` :85
 
 ## src/ui-kit/
 
-- **ui-kit.js** (2706 行) — ui-kit v37 —テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
+- **ui-kit.js** (2735 行) — ui-kit v37 —テーマ切り替えと、ツール間のリンク。<head> の中で CSS より先に同期読み込みする(画面のちらつき防止)。
 
 ## テスト
 

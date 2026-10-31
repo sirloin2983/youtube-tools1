@@ -17,9 +17,11 @@
   - 受ける口: `/api/ytt` :45
 - **prefs.py** (492 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。資料の git:before-1028-cleanup-2:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
   - 名前: `class PrefsError` :97・`guess_streamer` :386・`class Prefs` :398
-- **server.py** (1880 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
-  - 名前: `runtime_dir` :186・`ping` :196・`tail` :204・`expected_version` :225・`tool_python` :231・`rel_or_abs` :241・`signal_stop` :249・`class Tool` :262・`app_data_dir` :312・`logs_dir_for` :318・`class Supervisor` :324・`query_int` :643・ほか 16
-  - 受ける口: `/api/drill/status` :154・`/api/eval-batch` :154・`/api/intake` :629・`/api/backup` :630・`/api/accuracy` :631・`/api/flow/runs` :632・`/api/cases/auto` :634・`/api/flow/submit` :635・`/api/flow/estimate` :635・`/api/flow/cancel` :636・`/api/intake/scan` :637・`/api/backup/run` :637・`/api/accuracy/run` :638・`/api/check/answer` :639・`/api/check/unknown` :639・`/api/check/skip` :639・`/api/check/flush` :639・`/api/shutdown` :640・`/api/ping` :729・`/api/status` :731・`/api/health` :743・`/api/log` :745・`/api/flow/status` :760・`/api/flow/history` :764・`/api/check/next` :767・`/api/check/voiceclip` :773・`/api/home/requests` :779・`/api/cases` :791
+- **server.py** (1964 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
+  - 名前: `runtime_dir` :189・`ping` :199・`tail` :207・`expected_version` :228・`tool_python` :234・`rel_or_abs` :244・`signal_stop` :252・`class Tool` :265・`app_data_dir` :315・`logs_dir_for` :321・`class Supervisor` :327・`query_int` :647・ほか 16
+  - 受ける口: `/api/drill/status` :157・`/api/eval-batch` :157・`/api/intake` :632・`/api/backup` :633・`/api/accuracy` :634・`/api/flow/runs` :635・`/api/cases/auto` :637・`/api/flow/submit` :638・`/api/flow/estimate` :638・`/api/flow/cancel` :639・`/api/intake/scan` :640・`/api/backup/run` :640・`/api/accuracy/run` :641・`/api/check/answer` :642・`/api/check/unknown` :642・`/api/check/skip` :642・`/api/check/flush` :642・`/api/ui-timing` :643・`/api/shutdown` :644・`/api/ping` :775・`/api/status` :777・`/api/health` :789・`/api/log` :791・`/api/flow/status` :806・`/api/flow/history` :810・`/api/check/next` :813・`/api/check/voiceclip` :819・`/api/home/requests` :825・`/api/cases` :837
+- **timing.py** (89 行) — ホームの読み込みの記録(10-30。ユーザー「1 分以上かかってる」: 再現して測るのでなく、本当に開いた時の数を残して原因を見る)。
+  - 名前: `begin` :32・`end` :39・`clean_path` :47・`api_record` :58・`ui_record` :75
 - **ytlogin.py** (95 行) — ユーザーの PC の YouTube のログイン(10-23 ユーザー「ログインできる形にしといて」)。友人のアプリと同じ作り(notes:docs/spec/friend.md の 13-13)。
   - 名前: `cookies_path` :23・`apply_env` :27・`class YtLogin` :35
 
@@ -28,8 +30,8 @@
 - **__init__.py** (2 行) — 入口の「確かめる」(⑤ の待ち行列 deck・lineup・sources・read_sources を入口から組む。goals は eval/check。資料の git:before-1028-cleanup:docs/design/v1-check-build.md)
 - **cut_sources.py** (165 行) — 「確かめる」の自動カットのカードの出どころ(CUT-CARD。決定: plan/opt-eval.md の Q4 自動カットのカード)。
   - 名前: `cut_edge` :150・`cut_gap` :154・`cut_whole` :158
-- **deck.py** (184 行) — 「確かめる」の待ち行列を組み立てる(V1 の V0。GET /api/check/next の中身と、答える前にカードをサーバーの側で引き直す find)。
-  - 名前: `invalidate` :35・`mark_stale` :41・`warm` :82・`check_args` :96・`next_cards` :117・`find` :160
+- **deck.py** (203 行) — 「確かめる」の待ち行列を組み立てる(V1 の V0。GET /api/check/next の中身と、答える前にカードをサーバーの側で引き直す find)。
+  - 名前: `invalidate` :37・`mark_stale` :43・`warm` :101・`check_args` :115・`next_cards` :136・`find` :179
 - **eval_sources.py** (118 行) — 「確かめる」の評価のレーンの区間カードの出どころ section:eval(C-EVAL (2)。決定 3-47・3-49 Q2。反映は ③ src/human/check/section.py)。
   - 名前: `cut_after` :41・`section_eval` :62
 - **evalredo.py** (49 行) — 評価用にした文書を、評価用の決まり(用語集・置換辞書・学習を使わない)で 1 本ずつ作り直す(10-25 ユーザー「学習用の一部を評価用に・Fable と相談してバランスよく」)。
@@ -42,8 +44,8 @@
   - 名前: `night_of` :32・`targets` :40・`read_state` :55・`tick` :62
 - **shortjobs.py** (58 行) — ショート(学習用データ)の文書から、読みのカードと「この行は声ですか」のカードを作るための下ごしらえ(10-25 ユーザー「読みのカードと この行は声ですか のカードを ショートから作る」)。
   - 名前: `tick` :27
-- **sources.py** (501 行) — 「確かめる」のカードの出どころ(V1 の V0。資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
-  - 名前: `register` :49・`registered` :63・`has_media` :84・`class View` :94・`value_auto` :303・`value_cand` :329・`hard_row` :362・`short_full` :372・`read_fill` :377・`voice_diar` :397・`read_decided` :437・`time_row` :457・ほか 1
+- **sources.py** (502 行) — 「確かめる」のカードの出どころ(V1 の V0。資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
+  - 名前: `register` :49・`registered` :63・`has_media` :84・`class View` :94・`value_auto` :304・`value_cand` :330・`hard_row` :363・`short_full` :373・`read_fill` :378・`voice_diar` :398・`read_decided` :438・`time_row` :458・ほか 1
 - **speech_sources.py** (73 行) — 「確かめる」の普段のレーンの「この行は声ですか?」カードの出どころ speech:diar(C-EVAL (3))。
   - 名前: `speech_diar` :43
 - **voice_solo.py** (246 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
@@ -64,7 +66,7 @@
 ## src/app/ui/cases/
 
 - **caselink.js** (31 行) — 案件の画面へのリンクと切り抜きの校正の進み(ホームの案件の一覧 portal.js と案件の画面 cases.js の両方が読む。/cases-caselink.js)。
-- **cases.js** (597 行) — 案件の画面(/cases = 入口の直下の 1 枚。部品は src/app/ui/cases/。RS8 C1 = 殻。作り方 資料の git:before-1028-cleanup:docs/design/rs8-cases-build.md・何を作るか 資料の …
+- **cases.js** (600 行) — 案件の画面(/cases = 入口の直下の 1 枚。部品は src/app/ui/cases/。RS8 C1 = 殻。作り方 資料の git:before-1028-cleanup:docs/design/rs8-cases-build.md・何を作るか 資料の …
 - **edhost.js** (127 行) — 案件の画面に「編集」の校正(1 文字起こし)をそのまま載せる台(RS8 C2b。作り方 資料の git:before-1028-cleanup:docs/design/rs8-cases-build.md の C2b)。
 
 ## src/app/ui/cases/panels/
@@ -117,7 +119,7 @@
 ## src/app/ui/home/
 
 - **portal-edit.js** (67 行) — ホームの運用の中の「編集の精度」(src/app/ui/home/portal.html の #editOpsBox。RS8 C3)。
-- **portal.js** (1842 行) — ホーム(src/app/ui/home/portal.html。段階5で入口 + 案件を1つにした)。
+- **portal.js** (1851 行) — ホーム(src/app/ui/home/portal.html。段階5で入口 + 案件を1つにした)。
 
 ## src/app/ui/settings/
 
@@ -162,6 +164,7 @@
 - tests/app/test_live_detect_api.py — 配信中の盛り上がりの検出の入口 home の側(app の殻 Live の GET|POST /live/api/peaks の振り分け・ホームの設定 prefs の検査)のテスト。
 - tests/app/test_mount.py — 入口への取り込み(src/app/mount.py)のテスト。  python -m unittest tests/app/test_mount.py -v
 - tests/app/test_settings_schema.py — 設定の画面のスキーマ(src/app/ui/settings/schema.json。S5)と、ホームの設定の検査(prefs.py)が食い違っていないか。リポジトリ直下で:
+- tests/app/test_timing.py — ホームの読み込みの記録(src/app/timing.py): 遅い口・失敗した口だけを api-timing.jsonl へ、画面の 1 行を ui-timing.jsonl へ。
 - tests/app/test_window.py — 窓で開く(src/ytt/appwindow.py)・画面のエラーの記録(本体は tests/manage/ops/test_clientlog.py)・入口の共通の API(api/ytt/…)。
 - tests/app/test_ytlogin.py — ユーザーの PC の YouTube のログイン(src/app/ytlogin.py)。本物の YouTube・本物の cookie・本物の窓は使わない(偽の cookie と偽の起動)。リポジトリ直下で:
 - tests/app/check/_checkkit.py — tests/app/check の共通の下ごしらえ。test_ で始めない(流す対象ではない)。
