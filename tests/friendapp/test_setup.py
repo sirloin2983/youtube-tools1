@@ -780,6 +780,19 @@ class FlowTest(HomeBase):
         self.assertIn("vulkan で動きません", r["tried"][0]["text"])
         self.assertFalse(st.pick_device())   # Haas を CPU で使う = 機器を A・C に戻さない
 
+    def test_haas_choice_mark_for_main_engine(self):
+        """試しの結果を speech.cpp のフォルダの印に残す(主の文字起こしの選び flow/tx.main_engine が読む)"""
+        from ytt import txbase
+        for ok, want in (({"vulkan": True, "cpu": True}, (True, "vulkan")), ({"vulkan": False, "cpu": True}, (True, "cpu")), ({"vulkan": False, "cpu": False}, (False, ""))):
+            self.haas_ok = dict(ok)
+            st = self.make()
+            os.makedirs(txbase.speech_bin_dir(st.tx_dir()), exist_ok=True)
+            with open(os.path.join(self.friend, S.RECORD), "w", encoding="utf-8") as f:
+                f.write("{}")   # 前の試しの記録を消す(毎回試す)
+            self.go(st)
+            c = txbase.speech_choice(st.tx_dir())
+            self.assertEqual((c["ok"], c["device"]), want, ok)
+
     def test_haas_both_fail_keeps_whisper_and_reports(self):
         self.haas_ok = {"vulkan": False, "cpu": False}
         st = self.make()

@@ -910,10 +910,23 @@ class Setup:
             elif not d.get("ok"):
                 d["applied"] = False
             self._save_haas(d)
+            self._save_choice(d)
             if fresh:
                 self._haas_report(d)
         except Exception as e:   # noqa: BLE001  (試しで準備を止めない)
             self.log("文字起こしの Haas の試しに失敗しました: %s" % e.__class__.__name__)
+
+    def _save_choice(self, d):
+        """試しの結果を speech.cpp のフォルダの印(ytt/txbase.SPEECH_CHOICE)に: 主の文字起こしの選び(flow/tx.main_engine)が読む。
+        動かなかった PC は Haas にしない・CPU でだけ動いた PC は CPU で読む(machine.json の表に Haas が無くても効く)"""
+        from ytt import txbase as _txbase
+        try:
+            folder = _txbase.speech_bin_dir(self.tx_dir())
+            if os.path.isdir(folder):
+                _fsio.write_json(os.path.join(folder, _txbase.SPEECH_CHOICE), {"ok": bool(d.get("ok")), "device": d.get("device") or "",
+                                                                                "version": d.get("version"), "at": d.get("at")}, indent=1)
+        except OSError as e:
+            self.log("Haas の試しの結果を書けませんでした: %s" % e.__class__.__name__)
 
     def _save_haas(self, d):
         path = os.path.join(self.record_dir, RECORD)

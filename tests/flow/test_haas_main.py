@@ -33,6 +33,11 @@ class MainEngineTest(unittest.TestCase):
         r, m = self.pick({"device": "cpu"})
         self.assertEqual((r["engine"], r["device"]), ("haas-speechcpp", "cpu"))
 
+    def test_choice_cpu(self):
+        with mock.patch.object(FT._txbase, "speech_choice", return_value={"ok": True, "device": "cpu"}):
+            r, m = self.pick({"device": "vulkan"})
+        self.assertEqual((r["engine"], r["device"]), ("haas-speechcpp", "cpu"))   # この PC の試しで CPU でだけ動いた
+
     def test_keeps_whisper(self):
         self.assertEqual(self.pick({}, ready=False), ({}, "large-v3"))                       # speech.cpp が置いていない(友人の PC は段 5 まで)
         self.assertEqual(self.pick({}, env={FT.HAAS_MAIN_ENV: "off"}), ({}, "large-v3"))     # スイッチで戻す

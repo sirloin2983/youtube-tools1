@@ -114,5 +114,22 @@ def speech_exe(data_dir):
     return os.path.join(speech_bin_dir(data_dir), SPEECH_EXE)
 
 
+SPEECH_CHOICE = "haas.json"   # この PC で Haas を試した結果 {"ok", "device"}(友人の PC の更新のあとの 1 回の試し = friendapp/setup が書く・段 5)
+
+
+def speech_choice(data_dir):
+    """この PC で Haas を試した結果 {"ok": 真偽, "device": "vulkan" | "cpu"} か None(試していない = この PC の作業データに印が無い)。
+    ok が偽なら主の文字起こしを Haas にしない(① tx_engines.HaasSpeechCpp.ready)・device が cpu なら CPU で読む(② flow/tx.main_engine)"""
+    import json
+    if not data_dir:
+        return None
+    try:
+        with open(os.path.join(speech_bin_dir(data_dir), SPEECH_CHOICE), encoding="utf-8") as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return d if isinstance(d, dict) else None
+
+
 def wcpp_model_dir(data_dir):
     return os.path.join(data_dir, "models", "whispercpp")

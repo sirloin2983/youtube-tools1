@@ -1421,6 +1421,8 @@ class HaasSpeechCpp(_Qwen3Chunked):
     def ready(cls, data_dir):
         """(使えるか, 使えない理由)。実行ファイルが置いてあるか(モデルは最初の読みで取る)"""
         d = data_dir or engine_home()
+        if d and (_txbase.speech_choice(d) or {}).get("ok") is False:
+            return False, "この PC で試した時に Haas が動かなかったので whisper.cpp を使います"
         if cls.COMMAND or (d and os.path.isfile(_txbase.speech_exe(d))):
             return True, ""
         return False, "speech.cpp がありません(setup\\place_speechcpp.py で置いてください)"
