@@ -1,16 +1,18 @@
 """配信中の候補の文字起こし(線 D の D-11 案 b。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0-11。ユーザー決定)。
 
 配信中の検出(src/flow/live_detect.py)の候補が確定するたびに、その区間の音を録画元から取り(書き出し src/flow/live_export.py と同じセグメント)、
-16kHz モノラルの wav にして子プロセス src/pipeline/transcribe/live_tx_worker.py(編集の whisper.cpp・Vulkan = GPU)で認識し、
+16kHz モノラルの wav にして子プロセス src/pipeline/transcribe/live_tx_worker.py(編集の Haas(speech.cpp)か whisper.cpp・Vulkan = GPU)で認識し、
 live/excite/<録画元>/<録画>/tx.json に残す({"v": 1, "items": {候補の id: {"text", "rows", "pad", "sec", "gpu", "model", "at"} か {"error", "at", "tries"}}})。
 音は候補の区間の前後に余白(録画の束の export.margin。書き出しと同じ。LD-2f)を足して取る。rows の時刻は候補の始まり = 0 秒(余白の行は負・区間の長さより後)・
 pad = 実際に足せた前後の秒 [前, 後]・text は候補の区間にかかる行だけ(今までと同じ意味)。
 候補の API(GET /live/api/peaks。live_detect.Detector.api_get)が候補に text を足してスタジオの帯に出し、採用の記録(live_feedback.jsonl)にも text を残す(C2 の材料)。
 **字幕の正本は今までどおり書き出したあとの文字起こし**(短い区切りは精度が落ちる。ここは候補を見て決めるための文字)。
 
-設定(ホームの設定の節 live): liveTx {enabled(既定オン), model(既定 large-v3)}。動くのは リアルタイム切り抜きがオン・whisper.cpp(setup/build-whisper-vulkan.bat)と
-モデル(編集の作業データの models/whispercpp/)がある・ffmpeg がある、のときだけ(ready)。無ければ何もしない(候補に文字が付かないだけ)。
-機械の都合(エンジン・機器)はこの PC の設定 flow/machine.py から(LiveTx.machine。RS7-1 S1。決めていなければ今までどおり whisper.cpp の Vulkan)。
+設定(ホームの設定の節 live): liveTx {enabled(既定オン), model(whisper.cpp のモデル・既定 large-v3)}。動くのは リアルタイム切り抜きがオン・
+認識の部品(下のエンジンの実行ファイルとモデル)がある・ffmpeg がある、のときだけ(ready)。無ければ何もしない(候補に文字が付かないだけ)。
+エンジン(11-01 Haas に替える段 4): この PC の設定 flow/machine.py で決めたエンジン、決めていなければ文字起こしの既定(spec.DEFAULTS の transcribe.engine =
+既定を替える 1 か所)に合わせる(LiveTx.machine。RS7-1 S1)。haas-speechcpp なら speech.cpp(作業データの bin/speech.cpp-*・models/haas-gguf)、
+ほかは whisper.cpp(setup/build-whisper-vulkan.bat・models/whispercpp)。Haas の部品が無い・Haas が動かない時は、whisper.cpp があれば whisper.cpp で読む(whisper を消すまで = 段 7)。
 守り: 1 本ずつ(同時に 1 つの子プロセス)・1 本 TX_TIMEOUT 秒まで・同じ候補は TX_TRIES 回まで・続けて FAIL_PAUSE_AFTER 回失敗したら PAUSE_SEC 休む(GPU の不調で回り続けない)。
 認識(GPU)は重い処理の順番(ytt.jobs.SLOTS。tool "live-tx")を通す(D-14): 書き出し・文字起こし・パックと同じ枠で順番を待つ
 (配信中の文字起こしが whisper.cpp の GPU を、書き出したあとの本番の文字起こしと取り合わない)。待っている間は status の slotWait。入口の終了で待ちをやめる。
@@ -21,7 +23,7 @@ import shutil
 import threading
 import time
 
-from pipeline.transcribe import recognize as _recognize   # wav の引数を組む所は ① の 1 か所(OPT2)
+from pipeline.transcribe import recognize as _recognize, tx_engines as _tx   # wav の引数を組む所は ① の 1 か所(OPT2)・Haas のモデルの表(HAAS_GGUF_MODELS)
 from ytt import datadir, fsio, jobs, tools, txbase as _txbase
 from . import prio as _prio   # 優先度の表(PRIO。配信中の文字起こしは録画中のライブ)
 from . import live_export as LX, livehost, machine as _machine, spec as _spec
@@ -32,8 +34,10 @@ WCPP_VERSION = _txbase.WCPP_VERSION
 WCPP_EXE = _txbase.WCPP_EXE
 WCPP_MODEL_FILES = _txbase.WCPP_MODEL_FILES   # large-v3-turbo は含まない(保存値にあれば cfg が既定に戻す)
 DEFAULT_MODEL = "large-v3"
-LIVE_ENGINE = "whisper.cpp"           # 配信中の文字起こしのエンジン(whisper.cpp だけ)
+LIVE_ENGINE = "whisper.cpp"           # 配信中の文字起こしの whisper.cpp(Haas が使えない時もこれ)
 LIVE_DEVICES = ("vulkan", "cuda")    # whisper.cpp の機器 = GPU だけ(cuda は F1 F0-2 の CUDA 版。この PC の設定の cpu などは machine が vulkan に読み替える)
+HAAS_ENGINE = "haas-speechcpp"        # speech.cpp の Haas(段 1 の tx_engines.HaasSpeechCpp)
+HAAS_MODEL = "haas-ja-v1.0"           # Haas のモデル(tx_engines.HAAS_GGUF_MODELS の名前。liveTx.model は whisper.cpp のモデルのまま)
 TX_STATES = ("frame", "bench", "adopted")   # 文字を付ける候補の状態(仮の候補・終わり待ち・見送りは付けない)
 TX_TIMEOUT = 240.0        # 子プロセス 1 本の上限(秒。45〜120 秒の音は GPU で 10〜20 秒 = 区間の上限 300 秒 + 余白 2 × 30 秒でも 1 分ほど。LD-2f で見直して据え置き)
 WAV_TIMEOUT = 120          # 候補の区間の wav を作る ffmpeg 1 本の上限(秒)
@@ -98,7 +102,8 @@ class LiveTx(LX.Patrol):
         self.failed = 0
         self._docs = {}            # (rc, rec) -> tx.json の中身(メモリ。書くたびに更新)
         self._ready_note = None
-        self.board = None          # 掲示板(attach_board。RS8 の ② の口 S2)
+        self._engine_note = None   # 最後に書いた「Haas の代わりに whisper.cpp」の理由
+        self.board = None         # 掲示板(attach_board。RS8 の ② の口 S2)
         self._meta = {}            # (rc, rec, id) -> {start, end, createdAt}(掲示板の Job を組む覚え)
         self._skip = set()         # 掲示板で取り消した (rc, rec, id)(見回りが入れ直さない。メモリだけ)
         self._ended = set()        # 処理中に済み・失敗を掲示板へ載せた (rc, rec, id)
@@ -113,32 +118,54 @@ class LiveTx(LX.Patrol):
     @staticmethod
     def machine():
         """機械の都合(エンジン・機器)はこの PC の設定(flow/machine.py。RS7-1 S1)から -> {"engine", "device"}。
-        この PC の設定で決めたエンジンが whisper.cpp(エンジンを決めていなければ機器から決まるエンジン)で、機器が LIVE_DEVICES のときだけその機器。
-        それ以外(machine.json も環境変数も無い今の PC を含む)は今までどおり whisper.cpp の Vulkan(GPU)"""
+        エンジン = この PC の設定で決めたエンジン(決めていなければ機器から決まるエンジン・機器も決めていなければ文字起こしの既定 spec.DEFAULTS の transcribe.engine)。
+        haas-speechcpp なら Haas(機器は cpu を決めた時だけ CPU・ほかは Vulkan)。それ以外は whisper.cpp で、決めたエンジンが whisper.cpp で
+        機器が LIVE_DEVICES のときだけその機器・ほかは Vulkan(GPU)"""
         m = _machine.explicit()
         dev = m.get("device")
-        eng = m.get("engine") or (_spec.implied_engine(dev) if dev else LIVE_ENGINE)
+        eng = m.get("engine") or (_spec.implied_engine(dev) if dev else _spec.DEFAULTS["transcribe"]["engine"])
+        if eng == HAAS_ENGINE:
+            return {"engine": HAAS_ENGINE, "device": "cpu" if dev == "cpu" else "vulkan"}
         return {"engine": LIVE_ENGINE, "device": dev if eng == LIVE_ENGINE and dev in LIVE_DEVICES else LIVE_DEVICES[0]}
 
     def data_dir(self):
-        """編集の作業データ(whisper.cpp とモデルの置き場所。ytt.datadir.resolve = txindex.folder と同じ決め方)"""
+        """編集の作業データ(speech.cpp・whisper.cpp とモデルの置き場所。ytt.datadir.resolve = txindex.folder と同じ決め方)"""
         return datadir.resolve("transcribe", self.host.root)
 
+    def _whisper_paths(self, d, device):
+        return {"engine": LIVE_ENGINE, "device": device, "modelName": self.cfg()["model"], "exe": _txbase.wcpp_exe(d, device),
+                "model": os.path.join(_txbase.wcpp_model_dir(d), WCPP_MODEL_FILES[self.cfg()["model"]]), "dataDir": d}
+
     def paths(self):
+        """使うエンジンの部品 -> {"engine", "device", "modelName", "exe", "model", "dataDir"}。Haas の部品(実行ファイルかモデル)が欠けていて
+        whisper.cpp が揃っていれば whisper.cpp(Vulkan)の物(note に理由)"""
         d = self.data_dir()
-        model = self.cfg()["model"]
-        return {"exe": _txbase.wcpp_exe(d, self.machine()["device"]),
-                "model": os.path.join(_txbase.wcpp_model_dir(d), WCPP_MODEL_FILES[model]), "dataDir": d}
+        mc = self.machine()
+        if mc["engine"] != HAAS_ENGINE:
+            return self._whisper_paths(d, mc["device"])
+        h = {"engine": HAAS_ENGINE, "device": mc["device"], "modelName": HAAS_MODEL, "exe": _txbase.speech_exe(d),
+             "model": os.path.join(_tx.haas_gguf_dir(d), _tx.HAAS_GGUF_MODELS[HAAS_MODEL]["file"]), "dataDir": d}
+        miss = "speech.cpp" if not os.path.isfile(h["exe"]) else ("モデル %s" % os.path.basename(h["model"]) if not os.path.isfile(h["model"]) else None)
+        if miss:
+            w = self._whisper_paths(d, LIVE_DEVICES[0])
+            if os.path.isfile(w["exe"]) and os.path.isfile(w["model"]):
+                return dict(w, note="Haas の%s が無いので whisper.cpp で読みます" % (" speech.cpp" if miss == "speech.cpp" else miss))
+            h["missing"] = miss
+        return h
 
     def ready(self):
-        """(使えるか, 使えない理由)。オフ・リアルタイム切り抜きがオフ・whisper.cpp が無い・モデルが無い・ffmpeg が無い"""
+        """(使えるか, 使えない理由)。オフ・リアルタイム切り抜きがオフ・認識の部品(実行ファイル・モデル)が無い・ffmpeg が無い"""
         if not self.cfg()["enabled"]:
             return False, "オフ(設定 live.liveTx)"
         if not self.host.enabled():
             return False, "リアルタイム切り抜きがオフ"
         p = self.paths()
+        if p["engine"] == HAAS_ENGINE and p.get("missing"):   # Haas の部品が欠けていて whisper.cpp も無い
+            if p["missing"] == "speech.cpp":
+                return False, "speech.cpp がありません(setup\\place_speechcpp.py で置きます)"
+            return False, "%s がありません(編集で文字起こしを 1 回すると取得されます)" % p["missing"]
         if not os.path.isfile(p["exe"]):
-            if self.machine()["device"] == "cuda":   # CUDA 版は本番の文字起こしが最初に読み込むときに取る(ここでは取りに行かない)
+            if p["device"] == "cuda":   # CUDA 版は本番の文字起こしが最初に読み込むときに取る(ここでは取りに行かない)
                 return False, "whisper.cpp の CUDA 版がありません(文字起こしを 1 回すると取得されます)"
             return False, "whisper.cpp がありません(setup\\build-whisper-vulkan.bat で作ります)"
         if not os.path.isfile(p["model"]):
@@ -152,8 +179,10 @@ class LiveTx(LX.Patrol):
 
     def status(self):
         ok, why = self.ready()
+        p = self.paths()
         with self.lock:
-            return {"enabled": self.cfg()["enabled"], "ready": ok, "message": why, "model": self.cfg()["model"], "busy": bool(self.busy),
+            return {"enabled": self.cfg()["enabled"], "ready": ok, "message": why or p.get("note") or "", "model": p["modelName"], "engine": p["engine"],
+                    "busy": bool(self.busy),
                     "queued": len(self.queue), "done": self.done, "failed": self.failed, "slotWait": self.slot_wait,
                     "pausedUntil": LX.epoch_iso(self.pause_until) if self.pause_until > self.clock() else None}
 
@@ -196,14 +225,19 @@ class LiveTx(LX.Patrol):
         with self.lock:
             return [k for k, v in self._load(rc, rec).items() if v.get("text") and isinstance(v.get("atEpoch"), (int, float)) and now - v["atEpoch"] <= within]
 
-    def record(self, rc, rec, pid, text, rows=None, sec=None, gpu="", model="", pad=None):
-        """文字を残す(テスト・画面の確認でも使う)。pad = 余白 [前, 後](秒。LD-2f。足したときだけ)"""
+    def record(self, rc, rec, pid, text, rows=None, sec=None, gpu="", model="", pad=None, engine="", fallback=""):
+        """文字を残す(テスト・画面の確認でも使う)。pad = 余白 [前, 後](秒。LD-2f。足したときだけ)。
+        engine = 読んだエンジン・fallback = Haas が動かず whisper.cpp で読んだ時の Haas の理由(どちらもある時だけ)"""
         with self.lock:
             items = self._load(rc, rec)
             items[pid] = {"text": str(text)[:TEXT_MAX], "rows": list(rows or [])[:ROWS_MAX], "sec": sec, "gpu": gpu or "", "model": model or self.cfg()["model"],
                           "at": LX.now_iso(), "atEpoch": self.clock()}
             if pad:
                 items[pid]["pad"] = [round(float(pad[0]), 2), round(float(pad[1]), 2)]
+            if engine:
+                items[pid]["engine"] = str(engine)[:40]
+            if fallback:
+                items[pid]["fallback"] = str(fallback)[:300]
             self._save(rc, rec)
             return dict(items[pid])
 
@@ -224,6 +258,10 @@ class LiveTx(LX.Patrol):
             self._ready_note = why
             return 0
         self._ready_note = None
+        note = self.paths().get("note")   # Haas の部品が欠けて whisper.cpp で読む(変わった時に 1 回だけ書く)
+        if note and note != self._engine_note:
+            self.log("配信中の文字起こし: %s" % note)
+        self._engine_note = note
         if self.clock() < self.pause_until:
             return 0
         added = 0
@@ -436,8 +474,12 @@ class LiveTx(LX.Patrol):
             if wa < a or wb > b:   # 余白つき: 行の時刻を候補の始まり = 0 秒に・文字は候補の区間にかかる行だけ
                 rows, text = shift_rows(rows, a - wa, b - a)
                 pad = (a - wa, max(0.0, wb - b))
-            self.record(rc, rec, pid, text, rows, res.get("sec"), res.get("gpu") or "", res.get("model") or "", pad=pad)
-            self.log("配信中の文字起こし: %s の候補 %s に文字を付けました(%.1f 秒・%s)" % (rec, pid, float(res.get("sec") or 0), res.get("gpu") or "GPU"))
+            self.record(rc, rec, pid, text, rows, res.get("sec"), res.get("gpu") or "", res.get("model") or "", pad=pad,
+                        engine=res.get("engine") or "", fallback=res.get("fallback") or "")
+            self.log("配信中の文字起こし: %s の候補 %s に文字を付けました(%.1f 秒・%s・%s)" % (rec, pid, float(res.get("sec") or 0), res.get("gpu") or "GPU",
+                                                                       res.get("engine") or LIVE_ENGINE))
+            if res.get("fallback"):
+                self.log("配信中の文字起こし: Haas が動かなかったので whisper.cpp で読みました: %s" % str(res["fallback"])[:200])
             self._after(rc, rec, pid, True)
         except (LX.Cancelled, LX.Halted):
             return
@@ -455,7 +497,8 @@ class LiveTx(LX.Patrol):
                 self.slot_wait = False
                 if not ok:
                     return None
-                return self.run(self.paths()["dataDir"], self.cfg()["model"], wav)
+                p = self.paths()
+                return self.run(p["dataDir"], p["modelName"], wav)
         finally:
             self.slot_wait = False
 
@@ -463,9 +506,11 @@ class LiveTx(LX.Patrol):
         """子プロセス(live_tx_worker.py)を動かして結果の json を読む"""
         out = wav + ".json"
         cmd = [tools.python_exe(self.python), WORKER, data_dir, model, wav, out]   # 窓の無い pythonw は隣の python.exe(標準出力を返せないことがある)
-        dev = self.machine()["device"]
-        if dev != LIVE_DEVICES[0]:   # 機器は既定(vulkan)と違うときだけ渡す(既定の引数は今と同じ。RS7-1 S1)
-            cmd.append(dev)
+        p = self.paths()
+        if p["device"] != LIVE_DEVICES[0] or p["engine"] == HAAS_ENGINE:   # 機器は既定(vulkan)と違うときだけ・エンジンは Haas のときだけ渡す(whisper.cpp の引数は今と同じ。RS7-1 S1)
+            cmd.append(p["device"])
+        if p["engine"] == HAAS_ENGINE:
+            cmd.append(HAAS_ENGINE)
         try:   # 起動した子は close() が止める(on_start で覚える)
             r = tools.run(cmd, timeout=TX_TIMEOUT, flags=tools.no_window_flags(priority="low"), stdout=False, on_start=lambda p: setattr(self, "proc", p))
         except OSError as e:

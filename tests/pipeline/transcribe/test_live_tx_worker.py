@@ -105,5 +105,75 @@ class WorkerTest(unittest.TestCase):
         self.assertTrue(r["reason"].startswith("EngineError: GPU(Vulkan)を使えませんでした"), r)
 
 
+FAKE_SPEECH = [sys.executable, os.path.join(os.path.dirname(SRC), "tests", "pipeline", "transcribe", "fake_speech_worker.py")]
+
+
+class HaasWorkerTest(unittest.TestCase):
+    """段 4(11-01): 6 つ目の引数 haas-speechcpp = speech.cpp の Haas(偽の speech worker = fake_speech_worker.py)。動かなければ whisper.cpp で読み直す"""
+
+    def setUp(self):
+        self.tmp = testkit.tempdir(self, prefix="ytt-livetx-h-")
+        self.wav = os.path.join(self.tmp, "in.wav")
+        import math
+        import struct
+        with wave.open(self.wav, "wb") as w:   # 音のある 20 秒(無音の区切りは読まないので、小さな音を入れる。書くだけで鳴らさない)
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(16000)
+            w.writeframes(b"".join(struct.pack("<h", int(3000 * math.sin(i * 0.05))) for i in range(16000 * 20)))
+        self.data = os.path.join(self.tmp, "editor")
+        self.out = os.path.join(self.tmp, "out.json")
+        te = tx_engines()
+        self.te = te
+        self.model = os.path.join(te.haas_gguf_dir(self.data), te.HAAS_GGUF_MODELS["haas-ja-v1.0"]["file"])
+        saved = list(sys.path)
+        self.addCleanup(lambda: sys.path.__setitem__(slice(None), saved))
+        env = {k: v for k, v in os.environ.items() if not k.startswith("FAKE_SPEECH_") and k != te.NO_FETCH_ENV}
+        for p in (mock.patch.dict(os.environ, env, clear=True), mock.patch.object(te.HaasSpeechCpp, "COMMAND", FAKE_SPEECH),
+                  mock.patch.object(te, "fetch_file", lambda spec, folder, *a, **k: os.path.join(folder, spec["file"]))):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def run_main(self, *extra):
+        code = TW.main(["live_tx_worker.py", self.data, "haas-ja-v1.0", self.wav, self.out, "vulkan", "haas-speechcpp"] + list(extra))
+        with open(self.out, encoding="utf-8") as f:
+            return code, json.load(f)
+
+    def test_haas_reads_rows(self):
+        touch(self.model)
+        os.environ["FAKE_SPEECH_DEVICE"] = "Vulkan0"
+        code, r = self.run_main()
+        self.assertEqual((code, r["ok"], r["engine"], r["model"], r["gpu"]), (0, True, "haas-speechcpp", "haas-ja-v1.0", "Vulkan0"))
+        self.assertNotIn("fallback", r)
+        self.assertTrue(r["rows"] and all(set(x) == {"start", "end", "text"} for x in r["rows"]), r)
+        self.assertEqual(r["text"], "".join(x["text"] for x in r["rows"]))
+        self.assertIn("秒", r["text"])   # 偽の worker の字(区切りの秒の数)
+        self.assertNotIn("。", r["text"])   # 行の作り(句読点を外す)を通した
+        self.assertEqual(os.environ.get(self.te.NO_FETCH_ENV), "1")   # 取得は止めて起こした
+
+    def test_missing_parts_and_whisper_fallback(self):
+        code, r = self.run_main()   # Haas のモデルも whisper.cpp も無い
+        self.assertEqual((code, r["ok"]), (1, False))
+        self.assertTrue(r["reason"].startswith("Haas: Haas のモデルがありません(Haas-616M-ja-v1.0-Q8_0.gguf) / whisper.cpp: whisper.cpp かモデルがありません"), r)
+        self.assertEqual(TW.main(["live_tx_worker.py", self.data, "large-v3", self.wav, self.out, "vulkan", "haas-speechcpp"]), 1)
+        with open(self.out, encoding="utf-8") as f:
+            self.assertEqual(json.load(f), {"ok": False, "reason": "Haas(speech.cpp)で使えないモデルです: large-v3"})
+        self.assertEqual(TW.main(["live_tx_worker.py", self.data, "haas-ja-v1.0", self.wav, self.out, "vulkan", "other"]), 2)   # 知らないエンジン
+        touch(self.model)   # Haas は動くが GPU で起きない(偽の worker が CPU と名乗る)= gpu_failed → whisper.cpp(偽の whisper-cli)で読み直す
+        os.environ["FAKE_SPEECH_DEVICE"] = "CPU"
+        te = self.te
+        touch(os.path.join(te.wcpp_bin_dir(self.data), te.WCPP_EXE))
+        touch(os.path.join(te.wcpp_model_dir(self.data), te.WCPP_MODELS["large-v3"]["file"]))
+        real = te.WhisperCpp
+
+        class Fake(real):
+            def __init__(self, name, device, model):
+                super().__init__(name, device, dict(model, cmd=[sys.executable, FAKE_WCPP]))
+        with mock.patch.object(te, "WhisperCpp", Fake):
+            code, r = self.run_main()
+        self.assertEqual((code, r["ok"], r["engine"], r["model"]), (0, True, "whisper.cpp", "large-v3"), r)
+        self.assertTrue(r["fallback"].startswith("gpu_failed: GPU(Vulkan)を使えませんでした"), r)
+
+
 if __name__ == "__main__":
     unittest.main()

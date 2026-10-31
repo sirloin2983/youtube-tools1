@@ -256,7 +256,8 @@ class ReadyTest(LiveTxBase):
     def test_ready_reasons_and_paths(self):
         self.assertEqual(self.tx.data_dir(), self.edir)
         p = self.tx.paths()
-        self.assertEqual(p, {"exe": os.path.join(self.edir, "bin", "whisper.cpp-v1.9.4-vulkan", TX.WCPP_EXE),
+        self.assertEqual(p, {"engine": "whisper.cpp", "device": "vulkan", "modelName": "large-v3",
+                             "exe": os.path.join(self.edir, "bin", "whisper.cpp-v1.9.4-vulkan", TX.WCPP_EXE),
                              "model": os.path.join(self.edir, "models", "whispercpp", "ggml-large-v3.bin"), "dataDir": self.edir})
         ok, why = self.tx.ready()
         self.assertFalse(ok)
@@ -296,6 +297,70 @@ class ReadyTest(LiveTxBase):
         s = self.tx.status()
         self.assertEqual((s["ready"], s["message"], s["pausedUntil"]), (True, "", LX.epoch_iso(self.clock() + 60)))
         json.dumps(s)   # 画面へそのまま返せる
+
+
+class HaasTest(LiveTxBase):
+    """段 4(11-01): 文字起こしの既定(spec.DEFAULTS の transcribe.engine)が haas-speechcpp なら speech.cpp で読む。部品が欠ければ whisper.cpp"""
+
+    def setUp(self):
+        super().setUp()
+        p = mock.patch.dict(TX._spec.DEFAULTS["transcribe"], {"engine": TX.HAAS_ENGINE})
+        p.start()
+        self.addCleanup(p.stop)
+        self.haas_model = os.path.join(self.edir, "models", "haas-gguf", TX._tx.HAAS_GGUF_MODELS[TX.HAAS_MODEL]["file"])
+
+    def put_haas(self, model=True):
+        touch(os.path.join(self.edir, "bin", "speech.cpp-%s-%s" % (TX._txbase.SPEECH_CPP_VERSION, TX._txbase.SPEECH_CPP_FLAVOR), TX._txbase.SPEECH_EXE))
+        if model:
+            touch(self.haas_model)
+
+    def test_engine_follows_default_and_machine(self):
+        self.assertEqual(self.tx.machine(), {"engine": TX.HAAS_ENGINE, "device": "vulkan"})
+        with mock.patch.object(TX._machine, "explicit", lambda: {"engine": "whisper.cpp", "device": "cuda"}):   # この PC の設定で決めたエンジンが先
+            self.assertEqual(self.tx.machine(), {"engine": "whisper.cpp", "device": "cuda"})
+        with mock.patch.object(TX._machine, "explicit", lambda: {"engine": TX.HAAS_ENGINE, "device": "cpu"}):
+            self.assertEqual(self.tx.machine(), {"engine": TX.HAAS_ENGINE, "device": "cpu"})
+
+    def test_ready_paths_and_whisper_fallback(self):
+        self.assertEqual(self.tx.ready(), (False, "speech.cpp がありません(setup\\place_speechcpp.py で置きます)"))
+        self.put_haas(model=False)
+        self.assertEqual(self.tx.ready(), (False, "モデル %s がありません(編集で文字起こしを 1 回すると取得されます)" % os.path.basename(self.haas_model)))
+        self.put_wcpp()   # Haas のモデルが無いが whisper.cpp は揃っている: whisper.cpp で読む
+        p = self.tx.paths()
+        self.assertEqual((p["engine"], p["modelName"], p["note"]), ("whisper.cpp", "large-v3", "Haas のモデル %s が無いので whisper.cpp で読みます" % os.path.basename(self.haas_model)))
+        self.assertEqual(self.tx.ready(), (True, ""))
+        s = self.tx.status()
+        self.assertEqual((s["engine"], s["model"], s["message"]), ("whisper.cpp", "large-v3", p["note"]))
+        self.put_peaks([])
+        self.tx.tick()
+        self.tx.tick()
+        self.assertEqual([m for m in self.logs if "whisper.cpp で読みます" in m], ["配信中の文字起こし: " + p["note"]])   # 変わった時に 1 回だけ
+        touch(self.haas_model)
+        p = self.tx.paths()
+        self.assertEqual({k: p[k] for k in ("engine", "device", "modelName", "exe", "model")},
+                         {"engine": TX.HAAS_ENGINE, "device": "vulkan", "modelName": TX.HAAS_MODEL, "exe": TX._txbase.speech_exe(self.edir), "model": self.haas_model})
+        self.assertEqual(self.tx.ready(), (True, ""))
+        s = self.tx.status()
+        self.assertEqual((s["engine"], s["model"], s["message"]), (TX.HAAS_ENGINE, TX.HAAS_MODEL, ""))
+
+    def test_worker_command_and_record(self):
+        self.put_haas()
+        wav = os.path.join(self.tmp, "in.wav")
+        write_wav(wav, 1.0)
+        seen = []
+
+        def run(cmd, **kw):
+            seen.append(cmd)
+            with open(cmd[5], "w", encoding="utf-8") as f:
+                json.dump({"ok": True, "text": "あ", "rows": [], "engine": TX.HAAS_ENGINE, "fallback": "gpu_failed: x"}, f)
+            return mock.Mock(why=None, code=0, err_lines=lambda n: [])
+        with mock.patch.object(TX.tools, "run", run):
+            d = self.tx._run_worker(self.edir, TX.HAAS_MODEL, wav)
+        self.assertEqual(seen[0][2:], [self.edir, TX.HAAS_MODEL, wav, wav + ".json", "vulkan", TX.HAAS_ENGINE])   # Haas のときは機器とエンジンを渡す
+        self.assertEqual(d["engine"], TX.HAAS_ENGINE)
+        r = self.tx.record("fake", REC, "p1", "あ", [], 1.0, "Vulkan0", TX.HAAS_MODEL, engine=TX.HAAS_ENGINE, fallback="gpu_failed: x")
+        self.assertEqual((r["engine"], r["fallback"], r["model"]), (TX.HAAS_ENGINE, "gpu_failed: x", TX.HAAS_MODEL))
+        self.assertNotIn("engine", self.tx.record("fake", REC, "p2", "い"))   # 渡さなければ今までの形
 
 
 class TickTest(LiveTxBase):
