@@ -97,7 +97,7 @@ class Engine:
     """エンジンの元。id = 記録(recognition.runs の engine)とワーカーへの要求に使う名前、package = 版を読むパッケージ(dist-info)"""
     id = ""
     package = ""
-    light = False   # True = 小さいモデル(今は無い。前の SenseVoice)。models._load_model_local が、別のモデルを読むときも手放さない(主のモデルと一緒に持つ)
+    light = False   # True = 小さいモデル(今は LlamaText)。models._load_model_local が、別のモデルを読むときも手放さない(主のモデルと一緒に持つ)
     CAPS = frozenset()   # 意味として効く能力: "vad"(声の検出の設定)・"chunk"(区切りの長さ chunk_length)・"hotwords"(用語のヒント)・"word_timestamps"(単語の時刻)。持たない能力は入れない
 
     def __init__(self, name, device, model):

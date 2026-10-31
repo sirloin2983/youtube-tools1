@@ -103,7 +103,7 @@ def validate_job(req):
             return req[key]
         return st.get(key) is not False if default_on else st.get(key) is True
     post = {"splitChars": split_chars_for(req, st),
-            # 認識のあとの後処理(fill の A・C・D。既定オン)。要求に無ければ保存した設定 autoFill(明示の false だけオフ)。評価用には当てない
+            # 前の後処理 A・C・D のスイッチ(11-01 に A・C・D を消したので今は効かない。束と鍵の形のため残す)。要求に無ければ保存した設定 autoFill
             "autoFill": pref("autoFill", default_on=True) and not ev,
             # LLM の後処理(llm。名簿の呼び名の聞き違いらしい所だけ。10-31 から既定オフ = 誤った直しが多かったため。設定 autoLlm を true で戻る)。評価用には当てない
             "autoLlm": pref("autoLlm", default_on=False) and not ev,

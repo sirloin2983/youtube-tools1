@@ -5,7 +5,7 @@
   1 選ぶ llm_pick      名簿の呼び名(LLM_MIN_ALIAS 字以上・普通の言葉と重なるものは除く)に、かなに寄せて 1 字違いの所と、名簿の誤りやすい形(misrecognitions)。
                        名簿は、その文書に出る人(題名・動画のパス・話者の名前・行の文字に名前か呼び名があるメンバー)だけ。すでに書かれた名前は直さない。
                        用語集の語(かなに寄せて LLM_GLOSS_MIN 字以上)も同じ探し方の候補。カタカナの呼び名に近い所は元の文字にもカタカナがあるときだけ
-                       (測定で、ひらがなの普通の言葉「みるか」を「ポルカ」に変えた)。後処理 A・D が直した行(fill)は選ばない。1 文書 LLM_MAX_PICKS 箇所まで
+                       (測定で、ひらがなの普通の言葉「みるか」を「ポルカ」に変えた)。前の後処理 A・D が直した行(fill)は選ばない。1 文書 LLM_MAX_PICKS 箇所まで
   2 聞く llm_messages  行ごとに 前後 LLM_CTX_ROWS 行・疑わしい所・候補・出る人を渡し、差分だけを JSON で答えさせる(行を書き直させない。思考はオフ・温度 0)
   3 検査 llm_guard     置き換え前の文字が行にある・候補の呼び名そのものか、かなに寄せた音が近い・字数の差が 2 字か 2 割以内・自信が LLM_MIN_CONF 以上・
                        候補に無い名簿の名前を新しく持ち込まない。1 文書で直す行は LLM_MAX_EDIT_SHARE まで(自信の高い順)
@@ -160,7 +160,7 @@ def llm_gloss(terms):
 def llm_pick(rows, members, doc, limit=LLM_MAX_PICKS, gloss=()):
     """疑わしい所 -> [{"row": 行の番号, "span": 元の文字の一部, "why": "mis" | "name" | "gloss", "cands": [候補]}](limit 箇所まで)。
     gloss = 用語集の語(llm_gloss。出る人に関わらず全部の文書で探す)。
-    後処理 A・D が直した行(fill)・文字の無い行は選ばない。同じ行で、ほかの選んだ所に含まれる短い所は外す"""
+    前の後処理 A・D が直した行(fill)・文字の無い行は選ばない。同じ行で、ほかの選んだ所に含まれる短い所は外す"""
     mems = llm_members(doc, members)
     gl = llm_gloss(gloss)
     targets = llm_targets(mems + gl)
@@ -330,7 +330,7 @@ def _llm_ask_real(job, spec):
 
 
 def llm_after_doc(job, spec, segs):
-    """run_job の文書の行(_rows_to_doc のあと・後処理 D のあと)に LLM の直しを当てる(segs を書き換える)。
+    """run_job の文書の行(_rows_to_doc のあと)に LLM の直しを当てる(segs を書き換える)。
     -> 記録(recognition.runs[].llm に入れる。設定オフなら None)と、<id>.llm.json に書く中身(記録の items)の組"""
     if not spec.get("autoLlm") or spec.get("llmModel") == LLM_NONE:   # none = この PC では後処理しない(印は鍵・要求の llmModel)
         return None, None

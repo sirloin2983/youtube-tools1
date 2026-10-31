@@ -132,9 +132,9 @@ def _apply_diarization(tid, turns, offset, requested, emb, auto=None, smooth=Fal
     doc["segments"] = sorted(doc.get("segments") or [], key=lambda g: (g["start"], g["end"]))   # 層の組み立ては時刻の順(順が違う文書は「並び」が合わない警告になる)
     before = copy.deepcopy(doc)   # 人の層が話者の表を持つ((r8r))
     ids = _spk_ids(doc)
-    # 定型の幻覚で声の区間と重ならない行を捨ててから(autoFill の文書だけ)割り当てる。手で決めた行(字幕に出さない・ゲーム音声など・重なりのメモつき)は話者を変えない
+    # 手で決めた行(字幕に出さない・ゲーム音声など・重なりのメモつき)は話者を変えない
     a = _diar.assign(doc, turns, offset, lambda g: diar_keep_row(g, ids), smooth)
-    segs, keep, res, smoothed, dropped = a["segs"], a["keep"], a["res"], a["smoothed"], a["dropped"]
+    segs, keep, res, smoothed = a["segs"], a["keep"], a["res"], a["smoothed"]
     spent = {}
     for sg, (sp, _, _), k in zip(segs, res, keep):
         if sp is not None and not k:
@@ -161,8 +161,7 @@ def _apply_diarization(tid, turns, offset, requested, emb, auto=None, smooth=Fal
     store.backup_doc(tid, "diarize")   # 判別の前の状態を履歴に残す(画面の「履歴」から戻せる)
     doc.update({"speakers": speakers, "segments": segs, "updatedAt": int(time.time() * 1000),
                 "diarization": dict({"engine": "sherpa-onnx", "embedding": emb, "requested": requested, "found": len(order), "unsure": unsure, "at": int(time.time() * 1000)},
-                                    **({"auto": True} if auto else {}), **({"smoothed": len(smoothed)} if smoothed is not None else {}),
-                                    **({"fillDropped": dropped} if dropped else {}))})
+                                    **({"auto": True} if auto else {}), **({"smoothed": len(smoothed)} if smoothed is not None else {}))})
     _commit_diar(tid, before, doc, {str(g.get("id")) for g, k in zip(segs, keep) if k})
     _diar.record_run(tid, a, turns, offset, requested, emb, idmap, auto)   # 機械の最初の結果(人が直す前)を <id>.diar.json に
     return len(order), unsure

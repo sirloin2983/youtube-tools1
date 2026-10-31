@@ -58,7 +58,7 @@ CUDA_NAME = "whisper.cpp/cuda"
 ENGINE_ENV = "YTT_FRIEND_ENGINE"   # A = エンジンを A に固定(困ったときの逃げ道。10-23)
 FLOW_ACTIVE = ("fetching", "placing", "checking", "cuda")   # スリープを止める間
 FLOW_STATES = FLOW_ACTIVE + ("done", "failed", "need-space")
-LABELS = (("whisper.cpp/", "文字起こしのモデル"), ("llama.cpp/", "文を整える部品"), ("llm/", "文を整えるモデル"), ("sensevoice/", "声の判別のモデル"),
+LABELS = (("whisper.cpp/", "文字起こしのモデル"), ("llama.cpp/", "文を整える部品"), ("llm/", "文を整えるモデル"), ("haas/", "文字起こしのモデル"), ("sep/", "声を分けるモデル"),
           ("diar/", "話す人の判別のモデル"), ("ffmpeg", "動画の道具 ffmpeg"), ("yt-dlp", "配信を取る道具 yt-dlp"), ("deno", "配信を取る道具の部品 Deno"))
 
 

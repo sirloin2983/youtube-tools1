@@ -209,7 +209,8 @@ def seed(app, home):
 DEMO_FETCH = (("whisper.cpp/large-v3", "ggml-large-v3.bin", 3095033483, None, "data", "transcribe/models/whispercpp"),
               ("llama.cpp/b6000", "llama-bin-win-vulkan-x64.zip", 31457280, "zip", "data", "transcribe/bin/llama.cpp"),
               ("llm/qwen3-8b", "Qwen3-8B-Q4_K_M.gguf", 5027783488, None, "data", "transcribe/models/llm"),
-              ("sensevoice/small", "sensevoice-small.tar.bz2", 241172480, "tar.bz2", "data", "transcribe/models/sensevoice"),
+              ("haas/haas-ja-v1.0", "Haas-616M-ja-v1.0-Q8_0.gguf", 656381472, None, "data", "transcribe/models/haas-gguf"),
+              ("sep/spleeter-2stems", "sherpa-onnx-spleeter-2stems-int8.tar.bz2", 48623481, "tar.bz2", "data", "transcribe/models/sep"),
               ("ffmpeg", "ffmpeg-9.0.2-essentials_build.zip", 104857600, "zip", "app", "tools/ffmpeg"),
               ("yt-dlp", "yt-dlp.exe", 18874368, None, "app", "tools/yt-dlp"),
               ("deno", "deno-x86_64-pc-windows-msvc.zip", 47185920, "zip", "app", "tools/deno"))
@@ -223,7 +224,7 @@ def write_demo_fetch(home):
         it = {"name": name, "file": file, "url": "https://example.invalid/" + file, "size": size, "sha256": "0" * 64, "base": base, "dest": dest,
               "unzip": unzip}
         if unzip == "tar.bz2":
-            it.update(top="sensevoice-small", parts=["model.onnx", "tokens.txt"])
+            it.update(top="sherpa-onnx-spleeter-2stems-int8", parts=["vocals.int8.onnx", "accompaniment.int8.onnx"])
         items.append(it)
     with open(os.path.join(home, "fetch.json"), "w", encoding="utf-8") as f:
         json.dump({"schema": "youtube-tools-friend-fetch/v1", "version": "demo", "items": items}, f, ensure_ascii=False)

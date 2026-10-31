@@ -480,7 +480,7 @@ def _diar_rel():
 
 
 def model_entries():
-    """モデルと llama.cpp の行(tx_engines・diarize の表をそのまま読む。決めたこと 12: large-v3・SenseVoice・Qwen3-8B・話者の判別)"""
+    """モデルと llama.cpp の行(tx_engines・diarize の表をそのまま読む。決めたこと 12: large-v3・Haas・Qwen3-8B・声を分ける・話者の判別)"""
     out = []
     for name, s in _tx.WCPP_MODELS.items():
         out.append({"name": "whisper.cpp/" + name, "file": s["file"], "url": s["url"], "size": s["size"], "sha256": s["sha256"],
