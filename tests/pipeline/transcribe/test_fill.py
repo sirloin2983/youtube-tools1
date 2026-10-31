@@ -243,5 +243,23 @@ class TestSenseVoiceEngine(unittest.TestCase):
             self.assertIs(models._load_model_local("sense-voice-small", {"cancel": False}, "cpu", engine="sense-voice")[0], m)   # 2 回目は使い回す
 
 
+class TestHaasEngine(unittest.TestCase):
+    """Haas-ja(誰の声の材料の文字起こし。10-31): 登録・取得先の固定・バイトのトークンを字に戻す・区切りの 1 行(words つき)"""
+    def test_registered(self):
+        self.assertTrue(E.valid("haas") and E.Haas.valid_model("haas-ja-v1.0") and not E.Haas.valid_model("large-v3"))
+        self.assertEqual((E.Haas.device_order("auto", True), E.Haas.light), (["cpu"], False))
+        for f in E.HAAS_MODELS["haas-ja-v1.0"]["files"]:
+            self.assertTrue(f["url"].startswith("https://huggingface.co/oboroge0/Haas-ja-v1.0-onnx/resolve/") and len(f["sha256"]) == 64)
+
+    def test_segment_from_tokens(self):
+        # 「日」= E6 97 A5 のバイトのトークン 3 つ → 1 字。時刻は最初のバイト・長さはバイトの和
+        toks = ["▁今", "<0xE6>", "<0x97>", "<0xA5>", "は", "<0xFF>"]
+        s = E.haas_segment(toks, [0.0, 0.3, 0.32, 0.34, 0.6, 0.9], [0.2, 0.02, 0.02, 0.02, 0.2, 0.1], [-0.1, -0.2, -0.2, -0.2, -0.1, -0.5], 10.0)
+        self.assertEqual(s.text, "今日は")   # 字にならないバイト(<0xFF>)は捨てる
+        self.assertEqual([(w.start, w.end, w.word) for w in s.words], [(10.0, 10.2, "今"), (10.3, 10.36, "日"), (10.6, 10.8, "は")])
+        self.assertEqual((s.start, s.end, round(s.avg_logprob, 3)), (10.0, 10.8, -0.267))
+        self.assertIsNone(E.haas_segment([], [], [], [], 0.0))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -33,6 +33,9 @@ MAX_CUT_SEC = 30.0       # これより長い行は切り出さない
 
 
 SHORT_DIR_NAME = "学習用データ"   # 友人の仕上げたショート(編集後の音 = BGM・効果音・加工があり、普段の声と少し違うかも。app/check/voicefill)
+# 声の材料の文字起こしの頼み(app/check/voicefill・voicefetch の /api/transcribe)に足す認識の指定。10-31 ユーザー「Haas でいい」:
+# faster-whisper(CPU)は重かったので Haas-ja(① tx_engines.Haas・CPU)。行の時刻は要るが文字の細かい正しさは要らない。ほかの文字起こしは変えない
+TX_REQ = {"engine": "haas", "model": "haas-ja-v1.0", "device": "cpu"}
 
 
 def is_short(path):

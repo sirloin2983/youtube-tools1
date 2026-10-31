@@ -17,7 +17,7 @@ from ytt import fsio, settings as _settings
 
 ENABLED = True
 IDLE_EVERY = 10        # ASK_ON が偽の間、evalredo・shortjobs を呼ぶのは何回に 1 回か(10 分に 1 回)
-ASK_ON = False         # 10-31 ユーザー「声の材料の文字起こし止めて」: 偽 = 新しく文字起こしを頼まない(True で前の動き)
+ASK_ON = False         # 10-31 ユーザー「声の材料の文字起こし止めて」・「声の材料は再開しなくていい」: 偽 = 新しく文字起こしを頼まない。ASK_ON を戻すと Haas で流れる(flow/voicematerial.TX_REQ)
 LEARN_NAME = _vm.SHORT_DIR_NAME
 STATE_NAME = "voice-material.json"
 EXTS = (".mov", ".mp4", ".mkv", ".webm", ".m4v")
@@ -97,7 +97,7 @@ def tick(app_dir, start_job, busy, log, dirs=None, now=None):
     who, src = got
     rec = {"who": who, "at": int((time.time() if now is None else now) * 1000)}
     try:
-        rec["job"] = start_job({"sourcePath": src, "autoLlm": False})
+        rec["job"] = start_job(dict(_vm.TX_REQ, sourcePath=src, autoLlm=False))   # 認識は Haas(CPU。flow/voicematerial.TX_REQ)
     except Exception as e:   # noqa: BLE001  (頼めなかった物は理由を覚えて飛ばす = 次の 1 本へ)
         rec["error"] = "%s: %s" % (e.__class__.__name__, str(e)[:200])
     state[os.path.normcase(src)] = rec

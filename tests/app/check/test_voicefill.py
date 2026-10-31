@@ -37,7 +37,7 @@ class VoiceFillTest(unittest.TestCase):
         p.start()
         self.addCleanup(p.stop)
         self.app = os.path.join(self.tmp, "app")
-        a = mock.patch.object(VF, "ASK_ON", True)   # 既定は止めてある(10-31)。前の動きの確かめは True で
+        a = mock.patch.object(VF, "ASK_ON", True)   # 既定は止めてある(10-31)。戻したときの動き(Haas で頼む)の確かめは True で
         a.start()
         self.addCleanup(a.stop)
 
@@ -58,6 +58,7 @@ class VoiceFillTest(unittest.TestCase):
         self.assertEqual(who[:2], ["さくらみこ", "兎田ぺこら"])                  # 頼んだ数の少ない人から回る
         self.assertEqual(len(asked), 4)                                          # 4 本で全部(評価用の写しは除く)。2 度は頼まない
         self.assertEqual(len({r["sourcePath"] for r in asked}), 4)
+        self.assertEqual({(r["engine"], r["model"], r["device"]) for r in asked}, {("haas", "haas-ja-v1.0", "cpu")})   # 認識は Haas(10-31)
         self.assertIn("残り 0 本", logs[-1])
         with open(os.path.join(self.app, "check", VF.STATE_NAME), encoding="utf-8") as f:
             self.assertEqual(len(json.load(f)), 4)

@@ -28,7 +28,7 @@ from flow import voicematerial as _vm
 from ytt import fsio, names as _names, tools as _tools, ytledger as _ytledger, yturl as _yturl
 
 ENABLED = True
-ASK_ON = False         # 10-31 ユーザー「声の材料の文字起こし止めて」: 偽 = 研究の音の拾い(intake)で新しく文字起こしを頼まない(True で前の動き)
+ASK_ON = False         # 10-31 ユーザー「声の材料の文字起こし止めて」・「声の材料は再開しなくていい」: 偽 = 研究の音の拾い(intake)・取った音で文字起こしを頼まない。ASK_ON を戻すと Haas で流れる(voicematerial.TX_REQ)
 EVERY = 60                    # 見回りの間隔(秒)
 SLOT_NAME = "yt-slot.json"
 STATE_NAME = "voice-fetch.json"
@@ -299,7 +299,7 @@ def tick(app_dir, roster_r, counts, busy, start_job, log, now=None, rss=None, fe
     one = {"path": path, "video": it["id"], "month": it.get("month") or "", "title": it["title"][:200], "at": int(now)}
     try:
         if ASK_ON:   # 偽 = 音は残して文字起こしは頼まない(job 無しで数える。True に戻すと voicefill が拾う)
-            one["job"] = start_job({"sourcePath": path, "autoLlm": False, "title": "%s %s" % (who, it["title"][:150])})
+            one["job"] = start_job(dict(_vm.TX_REQ, sourcePath=path, autoLlm=False, title="%s %s" % (who, it["title"][:150])))   # 認識は Haas(voicematerial.TX_REQ)
         rec["got"].append(one)
     except Exception as e:   # noqa: BLE001  (頼めなければ got に入れない = 次の回に取り直す)
         log("誰の声の材料(YouTube): %s の音を文字起こしに頼めませんでした(%s)" % (who, str(e)[:120]))
@@ -388,7 +388,7 @@ def intake(app_dir, roster_r, start_job, log, extra=None, now=None):
                 rec["got"] = _got(rec)
                 one = {"path": dst, "video": vid, "month": (lambda d: d[:4] + "-" + d[4:6] if len(d) >= 6 else "")(str(meta.get("uploadDate") or "")),
                        "title": title, "at": int(time.time() if now is None else now), "by": "research"}
-                one["job"] = start_job({"sourcePath": dst, "autoLlm": False, "title": "%s %s" % (who, title[:150])})
+                one["job"] = start_job(dict(_vm.TX_REQ, sourcePath=dst, autoLlm=False, title="%s %s" % (who, title[:150])))
                 rec["got"].append(one)
                 took += 1
                 log("誰の声の材料(研究の音): %s の「%s」を文字起こしに頼みました" % (who, title[:40]))

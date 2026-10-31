@@ -5,6 +5,7 @@
   faster-whisper … CPU の逃げ道(GPU が実行時に失敗したときの CPU・再認識・時刻の候補など内部の自動の使い道)。段2-1
   whisper.cpp    … whisper-cli.exe を子プロセスで動かす。GPU(Vulkan)で large-v3 を動かす = 主の文字起こし。段2-2
   llama.cpp      … Qwen3-ASR 1.7B を llama-server(Vulkan)で動かす(区切りの中の目安の時刻)= 2 つ目のエンジン。段2-3
+  haas           … Haas-ja-v1.0(sherpa-onnx・CPU)= 誰の声の材料の文字起こし(10-31)
   (Qwen3-ASR 0.6B の qwen3-asr・large-v3-turbo は持たない(ユーザー決定「普段よく使っているモデル以外は要らない」))
 新しいエンジンは、同じ形のクラスをここに足し、ENGINES に登録する。
 
@@ -952,11 +953,17 @@ class _Qwen3Chunked(Engine):
                 self._progress(min(0.99, n / max(1, len(chunks))))
                 if max(rms[c0:c1] or [0.0]) < Q3_SILENT:
                     continue
-                for t0, t1, line in self._chunk_rows(x, c0, c1, rms, ctx):
-                    raw = line.encode("utf-8")
-                    yield types.SimpleNamespace(start=t0, end=t1, text=line, words=[], avg_logprob=None, no_speech_prob=None,
-                                                compression_ratio=len(raw) / len(zlib.compress(raw)))
+                yield from self._chunk_segs(x, c0, c1, rms, ctx)
         return gen(), info
+
+    def _chunk_segs(self, x, c0, c1, rms, ctx):
+        """区切り [c0, c1) の行(whisper の 1 行の形)の並び。既定 = _chunk_rows の (始め, 終わり, 文字) を words なしの行に(Haas は words つきの 1 行)"""
+        out = []
+        for t0, t1, line in self._chunk_rows(x, c0, c1, rms, ctx):
+            raw = line.encode("utf-8")
+            out.append(types.SimpleNamespace(start=t0, end=t1, text=line, words=[], avg_logprob=None, no_speech_prob=None,
+                                             compression_ratio=len(raw) / len(zlib.compress(raw))))
+        return out
 
 
 # ---- llama.cpp(Vulkan)で Qwen3-ASR 1.7B(段2-3)
@@ -1088,6 +1095,118 @@ class SenseVoice(_Qwen3Chunked):
             return sv_rows(toks, ts, a0, b0)
         floor = q3_floor(rms[c0:c1])   # 時刻が無ければ Qwen3 と同じ割り振り(声のあるコマに字数を比例)
         return q3_rows(q3_squash(str(r.text or "")), a0, b0, voiced=[v > floor for v in rms[c0:c1]])
+
+
+# ---------- Haas-ja-v1.0(sherpa-onnx・CPU・fp32)。誰の声の材料の文字起こし(app/check/voicefill・voicefetch。10-31 ユーザー「Haas でいい」) ----------
+# FastConformer + TDT の約 6 億(Apache-2.0)。ONNX 版 oboroge0/Haas-ja-v1.0-onnx をコミット固定で取る(大きさと SHA-256 は Hugging Face の API の lfs の値。
+# tokens.txt は lfs でないので取った物を計った値)。研究(保管庫 plan/Haas-ja の比べ-1031.md の 14 章・C:\dev\haas-research\tools\haas_raw.py)と同じ読み方:
+# 区切りは q3_chunks(12〜28 秒)・区切りごとに 1 行(words = トークンの時刻・長さ)→ 後処理の postproc.expand_segments が単語の間で行に分ける。
+# 研究の測定: 実時間の約 0.034 倍・メモリ約 3 GB。スレッドは HAAS_THREADS(認識ワーカーは「通常より下」の優先度 = worker_client._worker_priority)
+_HAAS_HF = "https://huggingface.co/oboroge0/Haas-ja-v1.0-onnx/resolve/2c2133a4279fca8ee408dd33b5701690a0bd4f3f/"
+HAAS_MODELS = {
+    "haas-ja-v1.0": {"dir": "haas-ja-v1.0-onnx", "files": [
+        {"file": "encoder.onnx", "url": _HAAS_HF + "encoder.onnx", "size": 41836973, "sha256": "8e34e59e7a2dff1dbda2d91c4ba1d9673f976da74db25597883a185088300757"},
+        {"file": "encoder.data", "url": _HAAS_HF + "encoder.data", "size": 2435420160, "sha256": "7aa9d630b66a2317f615c7094c201ca1049d3b14b0a2515f42a8eea0c17e410a"},
+        {"file": "decoder.onnx", "url": _HAAS_HF + "decoder.onnx", "size": 15661602, "sha256": "2947cb5512699cbba753fe45fe221428aadaa9856597debbb7aabe19cc253622"},
+        {"file": "joiner.onnx", "url": _HAAS_HF + "joiner.onnx", "size": 12158641, "sha256": "8a68320e750890ff9e944a794b41ae1c42c6f439ac4c273503458a6b42adc12d"},
+        {"file": "tokens.txt", "url": _HAAS_HF + "tokens.txt", "size": 28704, "sha256": "ec78b13c5d9f156cf0d5fdbd6b5aec5785680f319c92630c11d5d11b14b83a84"}]},
+}
+HAAS_THREADS = env_num("TRANSCRIBE_HAAS_THREADS", 4)
+_BYTE_TOKEN = re.compile(r"^<0x([0-9A-Fa-f]{2})>$")
+
+
+def haas_model_dir(data_dir):
+    return os.path.join(data_dir, "models", "haas")
+
+
+def haas_merge_bytes(toks, ts, du, lp):
+    """SentencePiece のバイトのトークン(<0xE9> など。sherpa-onnx は字に戻さない)の続きを UTF-8 の字に戻す(研究の haas_raw.merge_bytes と同じ)。
+    時刻 = 最初のバイト・長さ = バイトの長さの和・自信 = バイトの和(対数)。字にならなかったトークンは捨てる"""
+    T, S, D, L = [], [], [], []
+    k = 0
+    while k < len(toks):
+        if not _BYTE_TOKEN.match(str(toks[k]).strip()):
+            T.append(str(toks[k])); S.append(ts[k]); D.append(du[k] if k < len(du) else 0.08); L.append(lp[k] if k < len(lp) else 0.0)
+            k += 1
+            continue
+        j, bs = k, b""
+        while j < len(toks) and _BYTE_TOKEN.match(str(toks[j]).strip()):
+            bs += bytes([int(_BYTE_TOKEN.match(str(toks[j]).strip()).group(1), 16)])
+            j += 1
+        T.append(bs.decode("utf-8", errors="ignore")); S.append(ts[k])
+        D.append(sum(du[k:j]) if du else 0.08); L.append(sum(lp[k:j]) if lp else 0.0)
+        k = j
+    keep = [n for n, t in enumerate(T) if t]
+    return [T[n] for n in keep], [S[n] for n in keep], [D[n] for n in keep], [L[n] for n in keep]
+
+
+def haas_segment(toks, ts, du, lp, s0):
+    """区切り(頭 = s0 秒)の結果のトークン → whisper の 1 行の形(words つき)か None(トークンが無い)。
+    単語 = トークン(始め = 時刻・終わり = 始め + TDT の長さ(0.04 秒以上)。次のトークンの始めを越えない)。avg_logprob = ys_log_probs の平均"""
+    toks, ts, du, lp = haas_merge_bytes([str(t).replace("\u2581", " ") for t in toks], list(ts), list(du), list(lp))
+    if not toks:
+        return None
+    words = []
+    for k, (t, a) in enumerate(zip(toks, ts)):
+        b = a + max(du[k] if k < len(du) else 0.08, 0.04)
+        if k + 1 < len(ts):
+            b = min(b, ts[k + 1])
+        words.append(types.SimpleNamespace(start=round(a + s0, 3), end=round(max(b, a) + s0, 3), word=t,
+                                           probability=math.exp(lp[k]) if k < len(lp) and lp else None))
+    words[0].word = words[0].word.lstrip()
+    text = "".join(toks).strip()
+    raw = text.encode("utf-8")
+    return types.SimpleNamespace(start=words[0].start, end=words[-1].end, text=text, words=words,
+                                 avg_logprob=(sum(lp) / len(lp)) if lp else None, no_speech_prob=None,
+                                 compression_ratio=len(raw) / len(zlib.compress(raw)) if raw else None)
+
+
+class Haas(_Qwen3Chunked):
+    """Haas-ja-v1.0(sherpa-onnx・CPU・fp32・nemo_transducer)。誰の声の材料の文字起こし(app/check/voicefill・voicefetch の頼みだけが指定する)。
+    区切り方は Qwen3・SenseVoice と同じ(_Qwen3Chunked)。区切りごとに 1 行(words つき)を返す(_chunk_segs)= 行に分けるのは後処理(研究と同じ形)"""
+    id = "haas"
+    package = "sherpa-onnx"
+    PARAMS = ["language", "vad_filter", "vad_parameters", "word_timestamps"]   # 受け取るだけ(日本語のモデル)
+    CAPS = frozenset({"word_timestamps"})   # トークンの時刻を words に出す
+    DEFAULT_MODEL = "haas-ja-v1.0"
+    WHAT = "Haas-ja"
+
+    @classmethod
+    def device_order(cls, pref, cuda_ok):
+        return ["cpu"]
+
+    @classmethod
+    def valid_model(cls, name):
+        return name in HAAS_MODELS
+
+    @classmethod
+    def create(cls, name, device, compute_type, log=None, data_dir=None, hooks=None):
+        spec = HAAS_MODELS.get(name)
+        if spec is None:
+            raise EngineError("bad_model", "Haas で使えないモデルです: %s(使えるのは %s)" % (str(name)[:40], "・".join(HAAS_MODELS)), 400)
+        _need_sherpa("install-diarize.bat")
+        hooks = hooks or {}
+        d = os.path.join(haas_model_dir(data_dir or engine_home()), spec["dir"])
+        for f in spec["files"]:
+            fetch_file(f, d, log, hooks.get("cancelled"), hooks.get("download"))
+        import sherpa_onnx
+        rec = sherpa_onnx.OfflineRecognizer.from_transducer(
+            encoder=os.path.join(d, "encoder.onnx"), decoder=os.path.join(d, "decoder.onnx"), joiner=os.path.join(d, "joiner.onnx"),
+            tokens=os.path.join(d, "tokens.txt"), num_threads=HAAS_THREADS, model_type="nemo_transducer", feature_dim=128, provider="cpu")
+        return cls(name, "cpu", rec)
+
+    def _setup(self, kw):
+        return "ja", self.model
+
+    def _chunk_segs(self, x, c0, c1, rms, rec):
+        f = int(16000 * Q3_FRAME)
+        st = rec.create_stream()
+        st.accept_waveform(16000, x[c0 * f:c1 * f])
+        rec.decode_stream(st)
+        r = st.result
+        s = haas_segment(list(r.tokens), list(r.timestamps), list(getattr(r, "durations", None) or []),
+                         list(getattr(r, "ys_log_probs", None) or []), c0 * Q3_FRAME)
+        return [s] if s else []
 
 
 # 24 にすると、当時の PC(13900KF)では起動の途中でよく落ちた。GPU に載せるので CPU のスレッドはほぼ効かず、既定は 8 のまま。
@@ -1351,7 +1470,7 @@ class LlamaText(LlamaQwen3):
 
 
 ENGINES = {FasterWhisper.id: FasterWhisper, WhisperCpp.id: WhisperCpp, LlamaQwen3.id: LlamaQwen3, SenseVoice.id: SenseVoice,
-           LlamaText.id: LlamaText}
+           LlamaText.id: LlamaText, Haas.id: Haas}
 
 
 def caps_of(engine):
