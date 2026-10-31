@@ -90,6 +90,11 @@ def _state(app_dir):
     return fsio.read_json_or(qdir(app_dir, "state.json"), {}, kind=dict)
 
 
+def _day(now):
+    """エポック秒 -> その日(この PC の時刻の YYYY-MM-DD。API の数・当たりの日の鍵)"""
+    return datetime.date.fromtimestamp(now).isoformat()
+
+
 def _save(app_dir, st):
     """状態を書く。済んだ頼みの印(served)は、書いてある物と合わせる(_write_done が先に書いた印を、手元の古い状態で消さない)"""
     os.makedirs(qdir(app_dir), exist_ok=True)
@@ -173,20 +178,11 @@ def fill_candidates(app_dir, now, log):
     """候補の空の欄(channel・title・uploadDate。研究は持っていない)を API で埋めて state の meta に覚える(枠は使わない・1 日 API_DAILY まで)。
     -> 埋めた数。キーが無い・断られた日は埋めない(点は streamer だけで付ける)"""
     st = _state(app_dir)
-    today = datetime.date.fromtimestamp(now).isoformat()
+    today = _day(now)
     meta = st.get("meta") if isinstance(st.get("meta"), dict) else {}
-    ids = [c["video"] for c in candidates(app_dir) if not c.get("title") and c["video"] not in meta]
+    todo = _by50([c["video"] for c in candidates(app_dir) if not c.get("title") and c["video"] not in meta])
     n = 0
-    while ids and _api_left(st, today) > 0 and st.get("apiOff") != today:
-        batch, ids = ids[:50], ids[50:]
-        try:
-            infos = _info_api(batch)
-        except ApiError as e:
-            if e.code in _ytapi.FATAL:
-                st["apiOff"] = today
-                log("YouTube の取得の列: API を使えないので、候補の題名は埋めません(%s)" % e.code)
-            break
-        _api_count(st, today, 1)
+    for batch, infos in _api_read(st, today, todo, lambda e: log("YouTube の取得の列: API を使えないので、候補の題名は埋めません(%s)" % e.code)):
         for it in infos:
             meta[it["id"]] = {"channel": it.get("channel_id"), "title": it.get("title"), "uploadDate": it.get("upload_date")}
             n += 1
@@ -225,7 +221,7 @@ def light_n(st):
 
 def rollover(st, now, log=None, app_dir=None):
     """日が変わった最初の回: 休みの段と当たった回数を始めから・前の日の当たりの数と今の段を記録に 1 行(段の上げ下げは回ごと = fine・hit)"""
-    today = datetime.date.fromtimestamp(now).isoformat()
+    today = _day(now)
     if st.get("day") == today:
         return
     notes = []
@@ -275,7 +271,7 @@ def hit(st, name, kind, now, log):
     """当たった: その側だけ休む(続けて当たるほど RESTS を伸ばす)・段を 1 つ落とす(いちばん下なら本数を半分 / 間隔を 1.5 倍)"""
     c = _cls(st, name)
     c["capAt"] = ("%d 分おき" % (audio_gap(st) // 60)) if name == "audio" else ("%d 本まとめ" % light_n(st))   # 当たった間隔(その日の上限・記録)
-    c["cap"], c["capDay"] = max(0, c["step"] - 1), datetime.date.fromtimestamp(now).isoformat()   # その日はこの段より速くしない
+    c["cap"], c["capDay"] = max(0, c["step"] - 1), _day(now)   # その日はこの段より速くしない
     c["level"] = min(c["level"] + 1, len(RESTS))
     c["pause"] = now + RESTS[c["level"] - 1] * 60
     if c["step"] > 0:
@@ -284,7 +280,7 @@ def hit(st, name, kind, now, log):
         c["pen"] += 1
     c["ok"] = 0
     c["hits"] = int(c.get("hits") or 0) + 1
-    c["hitDay"] = datetime.date.fromtimestamp(now).isoformat()
+    c["hitDay"] = _day(now)
     tag = "音" if name == "audio" else "軽い物"
     log("YouTube の取得の列: %sで当たりました(%s)。%d 分休み、そのあと %s で続けます%s"
         % (tag, "速すぎの断り" if kind == "rate" else "ボット確認・ログインを求められた", RESTS[c["level"] - 1],
@@ -338,17 +334,37 @@ def _api_count(st, today, n):
     st["api"] = {today: int(used.get(today) or 0) + n}
 
 
+def _by50(ids):
+    """id の並びを API の 1 回分(50 本)ずつの組に"""
+    return [ids[i:i + 50] for i in range(0, len(ids), 50)]
+
+
+def _api_read(st, today, todo, on_fatal=None):
+    """todo(id の組の並び。読んだ組はその場で外す = 呼ぶ側が残りを見られる)を前から 1 組ずつ API で読む -> (組, infos) を順に。
+    1 日 API_DAILY に届いた・今日は使えない(apiOff)・断られた(ApiError)ら止まる。キーが無い・上限・断られた(FATAL)なら今日は apiOff にして on_fatal(e)"""
+    while todo and _api_left(st, today) > 0 and st.get("apiOff") != today:
+        ids = todo.pop(0)
+        try:
+            infos = _info_api(ids)
+        except ApiError as e:
+            if e.code in _ytapi.FATAL:
+                st["apiOff"] = today
+                if on_fatal is not None:
+                    on_fatal(e)
+            return
+        _api_count(st, today, 1)
+        yield ids, infos
+
+
 def _write_done(app_dir, rid, body):
     """結果を done/<rid>.json に。頼み(req/<rid>.json)は消し、済んだ印を state の served に覚える = 研究が done を消しても二度取らない(10-25)。
     頼みのファイルがあれば待ち時間 waitSec(頼み → 返事)を入れる"""
-    os.makedirs(qdir(app_dir, "done"), exist_ok=True)
     p = qdir(app_dir, "done", rid + ".json")
     try:
         body = dict(body, waitSec=int(time.time() - os.path.getmtime(qdir(app_dir, "req", rid + ".json"))))
     except OSError:
         pass
-    fsio.write_json(p + ".tmp", dict(body, id=rid, at=int(time.time())), indent=None)
-    os.replace(p + ".tmp", p)
+    fsio.write_json(p, dict(body, id=rid, at=int(time.time())), indent=None)
     fsio.unlink_quiet(qdir(app_dir, "req", rid + ".json"))
     st = _state(app_dir)
     st["served"] = (list(st.get("served") or []) + [rid])[-SERVED_KEEP:]
@@ -627,20 +643,17 @@ def tidy(app_dir, now=None):
 def _api_infos(app_dir, log, now):
     """info の頼みを API で読む(枠を使わない・1 日 API_DAILY まで)。キーが無い・断られたら残す(枠で yt-dlp が読む)-> 読んだ数"""
     st = _state(app_dir)
-    today = datetime.date.fromtimestamp(now).isoformat()
-    n = 0
+    today = _day(now)
+    reqs, todo = [], []
     for r in [r for r in requests(app_dir) if r["kind"] == "info"]:
         ids = [v for v in (_video_of(u) for u in r["urls"]) if v]
-        if not ids or _api_left(st, today) < 1 or st.get("apiOff") == today:
-            break
-        try:
-            infos = _info_api(ids)
-        except ApiError as e:
-            if e.code in _ytapi.FATAL:
-                st["apiOff"] = today   # キーが無い・上限・断られた = 今日は yt-dlp の道
-                log("YouTube の取得の列: API を使えないので、今日は説明欄も枠で読みます(%s)" % e.code)
-            break
-        _api_count(st, today, 1)
+        if not ids:
+            break   # 動画の id の無い頼みで止める(その先も枠で yt-dlp が読む)
+        reqs.append(r)
+        todo.append(ids)
+    n = 0
+    # キーが無い・上限・断られた = 今日は yt-dlp の道
+    for r, (_ids, infos) in zip(reqs, _api_read(st, today, todo, lambda e: log("YouTube の取得の列: API を使えないので、今日は説明欄も枠で読みます(%s)" % e.code))):
         _write_done(app_dir, r["id"], {"state": "done", "infos": infos, "via": "api"})
         n += 1
     _save(app_dir, st)
@@ -763,8 +776,8 @@ def _tick(app_dir, roster_r, counts, busy, start_job, log, extra=None, now=None)
         elif r["kind"] == "list":
             items, err = _list_url(r["urls"][0], int(_vm.num(r.get("items"), 50)))
             body = {"state": "done", "entries": items} if items else {"state": "error", "error": err[:300]}
-        elif len(short_batch(st, r, [best] + [o for o in ranked if o is not best])) > 1:
-            return _short_round(app_dir, short_batch(st, r, [best] + [o for o in ranked if o is not best]), st, now, prev, chan_of, log)
+        elif len(shorts := short_batch(st, r, [best] + [o for o in ranked if o is not best])) > 1:
+            return _short_round(app_dir, shorts, st, now, prev, chan_of, log)
         else:
             path, info = _audio(app_dir, r["id"], r["urls"][0], r.get("section"))
             body = {"state": "done", "file": path, "info": info} if path else {"state": "error", "error": str(info)[:300]}
@@ -871,6 +884,15 @@ FULL_GUESS_MIN, VOICE_GUESS_MIN = 180, 15   # 量の見込みの分(配信全体
 ORDER_NAME = "order.json"             # 列の今の並びの要約(段ごとの本数・分・回数・見込みの時間。研究の progress も読む)
 
 
+def _light_hit(st, got, err, now, log):
+    """軽い物の側(字幕・info・一覧・チャット)の 1 回が何も取れず、速すぎ・ボット確認で断られたら、軽い物の側を休ませる(hit)-> 当たったか"""
+    kind = classify(err) if not got else None
+    if kind in ("rate", "bot"):
+        hit(st, "light", kind, now, log)
+        return True
+    return False
+
+
 def light_batch(app_dir, now, log):
     """軽い物の回(LIGHT_EVERY に 1 回・休みでなければ): 字幕(と API が使えない日の info)の頼みを、URL で最大 light_n 本まで yt-dlp 1 回でまとめて取る
     (--skip-download・自動字幕と動画の情報だけ・1 本ごとに SLEEP_REQ 秒)。-> "light" か None"""
@@ -878,7 +900,7 @@ def light_batch(app_dir, now, log):
     c = _cls(st, "light")
     if now < c["pause"] or now - _vm.num(c.get("last")) < LIGHT_EVERY:
         return None
-    today = datetime.date.fromtimestamp(now).isoformat()
+    today = _day(now)
     kinds = LIGHT_KINDS + (("info",) if st.get("apiOff") == today else ())
     n = light_n(st)
     picked, urls = [], []
@@ -890,9 +912,7 @@ def light_batch(app_dir, now, log):
         return None
     c["last"] = now
     got, err = _light_fetch(app_dir, urls)
-    kind = classify(err) if not got else None
-    if kind in ("rate", "bot"):
-        hit(st, "light", kind, now, log)
+    if _light_hit(st, got, err, now, log):
         _save(app_dir, st)
         return None   # 頼みは残す(休みのあとに取り直す)
     fine(st, "light", log)
@@ -928,10 +948,8 @@ def list_batch(app_dir, now, log):
     c["listLast"] = now
     _save(app_dir, st)
     items, err = _list_url(r["urls"][0], int(_vm.num(r.get("items"), 50)))
-    kind = classify(err) if not items else None
     st = _state(app_dir)
-    if kind in ("rate", "bot"):
-        hit(st, "light", kind, now, log)
+    if _light_hit(st, items, err, now, log):
         _save(app_dir, st)
         return None   # 頼みは残す
     _write_done(app_dir, r["id"], {"state": "done", "entries": items} if items else {"state": "error", "error": (err or "")[:300]})
@@ -1025,10 +1043,8 @@ def _chat_bg(app_dir, url, job):
 def _chat_finish(app_dir, q, res, now, log):
     """裏で取り終えた 1 本の結果を書く(状態・done を書くのは見回りの側だけ = 裏の糸と書き合わない)。当たったら軽い物の側が休み、次の回の本数を半分 -> 当たったか"""
     path, err = res or (None, "")
-    kind = classify(err) if not path else None
     st = _state(app_dir)
-    if kind in ("rate", "bot"):
-        hit(st, "light", kind, now, log)
+    if _light_hit(st, path, err, now, log):
         lc = _cls(st, "light")
         lc["chatPen"] = int(lc.get("chatPen") or 0) + 1
         lc["chatLeft"] = 0
@@ -1392,14 +1408,18 @@ def resolve_titles(app_dir, have, now, log):
     return n
 
 
-def friend_shorts(raw_dir):
-    """友人のチャンネルのショートの id(分析の取得の最新の記録 analytics/raw の videos の short)"""
+def _latest_raw(raw_dir):
+    """分析の取得の一番新しい記録(analytics/raw の名前の順で最後の .json)の中身。無い・読めなければ {}"""
     try:
         names = sorted(n for n in os.listdir(raw_dir) if n.endswith(".json"))
     except OSError:
-        return []
-    d = fsio.read_json_or(os.path.join(raw_dir, names[-1]), {}, kind=dict) if names else {}
-    return [str(v["id"]) for v in d.get("videos") or () if isinstance(v, dict) and str(v.get("short")).lower() == "true" and _vf.VIDEO_RE.match(str(v.get("id") or ""))]
+        return {}
+    return fsio.read_json_or(os.path.join(raw_dir, names[-1]), {}, kind=dict) if names else {}
+
+
+def friend_shorts(raw_dir):
+    """友人のチャンネルのショートの id(分析の取得の最新の記録 analytics/raw の videos の short)"""
+    return [str(v["id"]) for v in _latest_raw(raw_dir).get("videos") or () if isinstance(v, dict) and str(v.get("short")).lower() == "true" and _vf.VIDEO_RE.match(str(v.get("id") or ""))]
 
 
 def read_short_sources(app_dir, raw_dir, now, log):
@@ -1407,20 +1427,12 @@ def read_short_sources(app_dir, raw_dir, now, log):
     st = _state(app_dir)
     if now - _vm.num(st.get("srcAt")) < SRC_EVERY:
         return 0
-    today = datetime.date.fromtimestamp(now).isoformat()
+    today = _day(now)
     path = qdir(app_dir, SRC_NAME)
     have = fsio.read_json_or(path, {}, kind=dict)
-    todo = [v for v in friend_shorts(raw_dir) if v not in have or "srcs" not in have[v]]   # srcs の無い古い行も読み直す(10-26)
+    todo = _by50([v for v in friend_shorts(raw_dir) if v not in have or "srcs" not in have[v]])   # srcs の無い古い行も読み直す(10-26)
     n = 0
-    while todo and _api_left(st, today) > 0 and st.get("apiOff") != today:
-        batch, todo = todo[:50], todo[50:]
-        try:
-            infos = _info_api(batch)
-        except ApiError as e:
-            if e.code in _ytapi.FATAL:
-                st["apiOff"] = today
-            break
-        _api_count(st, today, 1)
+    for batch, infos in _api_read(st, today, todo):
         for it in infos:
             src, t = source_of(it.get("description"))
             srcs, tag = sources_all(it.get("description"))
@@ -1433,15 +1445,13 @@ def read_short_sources(app_dir, raw_dir, now, log):
         for v in batch:
             if v not in got and "srcs" not in have.get(v, {}):
                 have[v] = {"src": None, "t": None, "srcs": [], "n": 0, "tag": False, "at": int(now), "gone": True}
-    if not todo:
+    if not todo:   # 最後の組まで頼んだ(途中で止まったら次の回に残りを読む)
         st["srcAt"] = now
     _save(app_dir, st)
     if resolve_titles(app_dir, have, now, log) or any(x.get("searchAt") == int(now) for x in have.values() if isinstance(x, dict)):
         n = n or 1   # 書き直す(引いた印・検索した印)
     if n:
-        os.makedirs(qdir(app_dir), exist_ok=True)
-        fsio.write_json(path + ".tmp", have, indent=None)
-        os.replace(path + ".tmp", path)
+        fsio.write_json(path, have, indent=None)
         log("YouTube の取得の列: 友人のショートの説明欄を %d 本読みました(元の配信あり %d 本・?t= あり %d 本。API・枠は使わない)"
             % (n, sum(1 for x in have.values() if x.get("src")), sum(1 for x in have.values() if x.get("t") is not None)))
     return n
@@ -1450,7 +1460,6 @@ def read_short_sources(app_dir, raw_dir, now, log):
 # ---------------------------------------------------------------- 評価用のショートの元の配信(10-25 ユーザーの方針「間違った正解で学習しないように」)
 EVAL_SRC_NAME = "eval-sources.json"   # {"videos": [元の配信の id], "movs": {評価用の .mov: {"dur", "short", "src"}}, "at"}
 EVAL_SRC_EVERY = 6 * 3600
-MOV_EXTS = (".mov", ".mp4", ".mkv")
 
 
 def blocked_videos(app_dir):
@@ -1461,13 +1470,8 @@ def blocked_videos(app_dir):
 
 def _shorts_meta(raw_dir):
     """分析の記録の最新の videos のショート [{"id", "title", "day", "length"}]"""
-    try:
-        names = sorted(n for n in os.listdir(raw_dir) if n.endswith(".json"))
-    except OSError:
-        return []
-    d = fsio.read_json_or(os.path.join(raw_dir, names[-1]), {}, kind=dict) if names else {}
     out = []
-    for v in d.get("videos") or ():
+    for v in _latest_raw(raw_dir).get("videos") or ():
         if not isinstance(v, dict) or str(v.get("short")).lower() != "true":
             continue
         try:
@@ -1509,9 +1513,7 @@ def eval_sources(app_dir, eval_dirs, raw_dir, now, log, dur=None):
                     videos.add(rec["src"])
                 movs[p] = rec
     out = {"videos": sorted(videos), "movs": movs, "at": int(now)}
-    os.makedirs(qdir(app_dir), exist_ok=True)
-    fsio.write_json(path + ".tmp", out, indent=None)
-    os.replace(path + ".tmp", path)
+    fsio.write_json(path, out, indent=None)
     log("YouTube の取得の列: 評価用のショート %d 本のうち %d 本の元の配信が分かりました(元の配信 %d 本を、声の材料・研究の音の受け取り・候補から外します)"
         % (len(movs), sum(1 for r in movs.values() if r.get("src")), len(videos)))
     return len(videos)

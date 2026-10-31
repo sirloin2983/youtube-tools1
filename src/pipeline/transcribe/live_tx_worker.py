@@ -44,10 +44,9 @@ def recognize(data_dir, model, wav, device="vulkan", engine=WHISPER):
         return {"ok": False, "reason": "whisper.cpp で使えないモデルです: %s" % str(model)[:40]}
     exe = os.path.join(tx_engines.wcpp_bin_dir(data_dir, device), tx_engines.WCPP_EXE)
     mpath = os.path.join(tx_engines.wcpp_model_dir(data_dir), spec["file"])
-    vad = os.path.join(tx_engines.wcpp_model_dir(data_dir), tx_engines.WCPP_VAD["file"])
     if not os.path.isfile(exe) or not os.path.isfile(mpath):
         return {"ok": False, "reason": "whisper.cpp かモデルがありません(%s / %s)" % (exe, mpath)}
-    eng = tx_engines.WhisperCpp(model, device if device in DEVICES else DEVICES[0], {"cmd": [exe], "model": mpath, "vad": vad})   # create() と同じ形(取得と SHA-256 の確認は飛ばす)
+    eng = tx_engines.WhisperCpp(model, device if device in DEVICES else DEVICES[0], {"cmd": [exe], "model": mpath})   # create() と同じ形(取得と SHA-256 の確認は飛ばす)
     eng.gpu_name = ""
     t0 = time.time()
     segs, _info = eng.transcribe(wav, language="ja", beam_size=5, condition_on_previous_text=False, vad_filter=False)

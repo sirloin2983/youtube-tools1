@@ -408,6 +408,20 @@ class TestFsio(unittest.TestCase):
         self.assertEqual(fsio.dir_size(os.path.join(d, "a.bin")), (5, 1))
         self.assertEqual(fsio.dir_size(os.path.join(self.tmp, "無い")), (0, 0))
 
+    def test_newest_mtime(self):
+        """直下だけ・下のフォルダも・空は None・フォルダが読めなければ OSError(呼ぶ側が空と分ける)・limit で打ち切り"""
+        d = os.path.join(self.tmp, "n")
+        os.makedirs(os.path.join(d, "sub"))
+        self.assertIsNone(fsio.newest_mtime(d))
+        for rel, t in ((("n", "a"), 1000.0), (("n", "b"), 2000.0), (("n", "sub", "c"), 3000.0)):
+            p = self.write(os.path.join(*rel), b"x")
+            os.utime(p, (t, t))
+        self.assertEqual(fsio.newest_mtime(d), 2000.0)
+        self.assertEqual(fsio.newest_mtime(d, recursive=True), 3000.0)
+        self.assertEqual(fsio.newest_mtime(d, recursive=True, limit=1), 1000.0)
+        with self.assertRaises(OSError):
+            fsio.newest_mtime(os.path.join(self.tmp, "無い"))
+
     def test_existing_parent(self):
         """まだ無いフォルダは、ある所まで上へ(空き容量を調べる前。health.disk_free・live_export.Exporter.disk)"""
         self.assertEqual(fsio.existing_parent(self.tmp), self.tmp)

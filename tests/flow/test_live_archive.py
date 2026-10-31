@@ -316,7 +316,7 @@ class ArchiveTest(unittest.TestCase):
         self.assertEqual(self.arc_of(j1)["message"], "開始時刻が分からないので照合できません")
 
     def test_helpers(self):
-        self.assertFalse(A.inside(os.path.join(self.out, "..", "x.mp4"), self.out))
+        self.assertFalse(fsio.is_inside(os.path.join(self.out, "..", "x.mp4"), self.out, strict=True))
         self.assertFalse(A.needs_archive({"state": "done", "from": "archive"}))   # 書き出し済みの M7 の採用(通しは済む前に見る)
 
     def test_board_follows_archive(self):
@@ -421,8 +421,10 @@ class ArchiveTest(unittest.TestCase):
         self.assertTrue(ar3.info_view("local", REC)["ready"])
         # 途中のものがあるマークは書き出し直せない
         j["archive"] = dict(j["archive"], state="wait")
-        self.assertTrue(ex2.busy(REC, j["markId"]))
-        self.assertIn("アーカイブから書き出しています", str(ex2._busy_error(REC, j["markId"])))   # 画面に出す断りの文
+        with self.assertRaises(LX.LiveError) as cm:
+            ex2._refuse_if_busy(REC, j["markId"])
+        self.assertIn("アーカイブから書き出しています", str(cm.exception))   # 画面に出す断りの文
+        self.assertEqual(cm.exception.code, 409)
 
 
 @unittest.skipUnless(FF, "ffmpeg が無い")

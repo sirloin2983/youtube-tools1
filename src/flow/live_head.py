@@ -415,7 +415,7 @@ class HeadGrabber:
 
     def _align(self, rc, rec, path, dur, delay, wd):
         """録画の最初の REF_SEC 秒の音を head.mp4 の後ろの窓と照合 -> (録画の頭が head.mp4 の何秒か, 録画の頭の絶対時刻)"""
-        from . import live_archive as LA   # 照合のしきい値は 1 か所
+        from . import live_archive as LA   # 照合のしきい値は 1 か所(align_ok)
         ex, ar = self.host.exporter, self.host.archiver
         rco = self.host.find(rc)
         st = self.host.recording_state(rc, rec)
@@ -441,9 +441,9 @@ class HeadGrabber:
         shutil.rmtree(os.path.join(wd, "ref"), ignore_errors=True)
         for f in (ref, win):
             fsio.unlink_quiet(f)
-        if not (res.get("ok") and (res.get("score") or 0) >= LA.MIN_SCORE and (res.get("ratio") or 0) >= LA.MIN_RATIO):
-            raise HeadError("頭の音と録画の音が合いませんでした(%s)" % (res.get("reason") if not res.get("ok") else
-                                                                "確かさ %.2f・%.1f 倍" % (res.get("score") or 0, res.get("ratio") or 0)))
+        ok, why = LA.align_ok(res)
+        if not ok:
+            raise HeadError("頭の音と録画の音が合いませんでした(%s)" % why)
         cover = w0 + float(res["offset"])
         if not 0 < cover <= dur - 5.0:
             raise HeadError("頭の動画が録画の頭まで届いていませんでした")

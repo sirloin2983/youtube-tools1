@@ -1860,7 +1860,7 @@ async function pollPeaks(v){
   if (seq !== PKV.reqSeq || S.cur !== v || PKV.vid !== v.id) return;
   PKV.inflight = false;
   if (err){
-    if (err.status === 404) PKV.missing = true;   // 入口に候補の API が無い(古い入口): 最初の 1 回で諦める(見回りのたびに 404 を出さない)
+    if (err.status === 404) PKV.missing = true;   // 録画元が無い(入口の _ids が 404 を返す。flow/livesession.py)か入口に候補の API が無い: 最初の 1 回で諦める(見回りのたびに 404 を出さない)
     else PKV.err = '候補を取れません(' + err.message + ')。次の見回りで聞き直します';
     renderPeaks(); return;
   }
@@ -1886,7 +1886,7 @@ function peakApply(r, full){
     if (s || full){ PKV.series = s; renderGraph(); }
     return false;
   }
-  if (full || !Array.isArray(r.changes)){ PKV.needFull = true; return !full; }   // seq が古すぎた(changes が null): 全部を読み直す
+  if (full){ PKV.needFull = true; return false; }   // 全部を頼んだのに peaks が無い: 次の見回りで全部を読み直す(seq が古すぎた・新しすぎたときは入口が peaks で答える)
   const m = peakMerge(PKV.list, r.changes);
   PKV.list = m.list;
   if (Number.isFinite(seq)) PKV.seq = seq;

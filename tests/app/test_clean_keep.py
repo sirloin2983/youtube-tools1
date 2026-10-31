@@ -1,4 +1,4 @@
-"""自動の片付けが残す動画(src/app/server.py の clean_inputs・pending_check_docs。10-24 の直し):
+"""自動の片付けが残す動画(src/app/server.py の clean_inputs・src/app/check/keep.py の pending_docs。10-24 の直し):
 確かめるにまだ出ているカードの文書の切り抜きは、カードの種類に関わらず残す。答えた物から 3 日の決まりに入る。カードを集められなければ何も移さない。
 実行(リポジトリ直下から): python -m unittest tests/app/test_clean_keep.py -v
 """
@@ -14,6 +14,7 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
 from app import server as S  # noqa: E402
+from app.check import keep as K  # noqa: E402
 
 
 def card(cid, kind, tid=None, url=None):
@@ -29,14 +30,14 @@ class CleanKeepTest(unittest.TestCase):
     def test_pending_check_docs(self):
         cards = [card("voice:solo:a1:r1", "voice", "aaaaaaaaaaa1"), card("read:x:b1:r1", "read", "bbbbbbbbbbb1"),
                  card("time:x:c1:r1", "time", None, "transcribe/media?id=ccccccccccc1"), card("speech:x:d1:r1", "speech", "ddddddddddd1")]
-        self.assertEqual(S.pending_check_docs(cards, {"speech:x:d1:r1"}), {"aaaaaaaaaaa1", "bbbbbbbbbbb1", "ccccccccccc1"})   # 答えたカードは外す
+        self.assertEqual(K.pending_docs(cards, {"speech:x:d1:r1"}), {"aaaaaaaaaaa1", "bbbbbbbbbbb1", "ccccccccccc1"})   # 答えたカードは外す
         clip = dict(card("voice:solo:e1:r1", "voice", "eeeeeeeeeee1"), media={"url": "api/check/voiceclip?doc=eeeeeeeeeee1&row=r1"})
-        self.assertNotIn("eeeeeeeeeee1", S.pending_check_docs([clip], set()))   # 切り出した行の音で流すカード = 動画は要らない(10-24 夜)
+        self.assertNotIn("eeeeeeeeeee1", K.pending_docs([clip], set()))   # 切り出した行の音で流すカード = 動画は要らない(10-24 夜)
         vid = dict(card("voice:solo:f1:r1", "voice", "fffffffffff1"), media={"url": "transcribe/media?id=fffffffffff1"})
         vid["target"]["row"] = "r1"
-        with mock.patch.object(S.voiceclips, "clip_path", lambda tid, rid: "x.wav" if (tid, rid) == ("fffffffffff1", "r1") else None):
-            self.assertNotIn("fffffffffff1", S.pending_check_docs([vid], set()))   # 動画で流していても行の音が残してあれば守らない(10-25)
-        self.assertIn("fffffffffff1", S.pending_check_docs([vid], set()))
+        with mock.patch.object(K.voiceclips, "clip_path", lambda tid, rid: "x.wav" if (tid, rid) == ("fffffffffff1", "r1") else None):
+            self.assertNotIn("fffffffffff1", K.pending_docs([vid], set()))   # 動画で流していても行の音が残してあれば守らない(10-25)
+        self.assertIn("fffffffffff1", K.pending_docs([vid], set()))
 
     def _srv(self):
         return types.SimpleNamespace(sup=types.SimpleNamespace(root="R"), cleanup=types.SimpleNamespace(app_dir="A"), check_ctx=lambda: None, _autorun=None)

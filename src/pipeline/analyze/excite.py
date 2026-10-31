@@ -20,6 +20,8 @@
 import math
 import re
 
+from ytt.marks import pieces_of
+
 CAP = 6.0
 SENS = {"high": 1.2, "normal": 2.0, "low": 3.2}
 LAG_MAX = 30
@@ -95,10 +97,7 @@ JOIN_GAP = 10.0
 JOIN_MAX = 360.0
 
 
-def pieces(c):
-    """候補・マークを本数の枠で何本と数えるか(つないだ物は元の本数 pieces・ほかは 1)"""
-    n = c.get("pieces") if isinstance(c, dict) else None
-    return n if isinstance(n, int) and not isinstance(n, bool) and n > 1 else 1
+pieces = pieces_of   # 候補・マークを本数の枠で何本と数えるか(つないだ物は元の本数 pieces・ほかは 1。マークと同じ 1 つ)
 
 
 def join_clips(out, gap=JOIN_GAP, mx=JOIN_MAX):
@@ -173,6 +172,23 @@ def zlist(v):
     return [(x - m) / s if s > 0 else 0.0 for x in v]
 
 
+def _zsum(scores, rates, laughs):
+    """点の z + 重み × 跳ねる箱の割合の z + 重み × 笑いの割合の z(rerank と PeakBook._rank で同じ式)"""
+    wb, wl = RERANK_W
+    return [p + wb * q + wl * r for p, q, r in zip(zlist(scores), zlist(rates), zlist(laughs))]
+
+
+def _at(c):
+    """候補の山の秒(無ければ区間の真ん中)"""
+    return c.get("peak") if isinstance(c.get("peak"), (int, float)) else (c["start"] + c["end"]) / 2.0
+
+
+def _near_span(c):
+    """山の前後 LAUGH_NEAR 秒のうち区間の中 -> (a, b)。b <= a なら空"""
+    at = _at(c)
+    return max(float(c["start"]), at - LAUGH_NEAR), min(float(c["end"]), at + LAUGH_NEAR)
+
+
 class ChatFeats:
     """文字の書き込みの時刻と笑いの印 [(秒, 笑いか)] -> 候補の区間の跳ねる箱の割合・笑いの書き込みの割合(研究の tools/hyp.py の _rate・_rate_live・_laugh と同じ数え方)"""
 
@@ -209,8 +225,7 @@ class ChatFeats:
 
     def near(self, c):
         """山の前後 LAUGH_NEAR 秒(区間の中)の笑いの書き込みの件数(PeakBook._laugh_near と同じ数え方 = 秒を切り上げた [a, b))"""
-        at = c.get("peak") if isinstance(c.get("peak"), (int, float)) else (c["start"] + c["end"]) / 2.0
-        a, b = max(float(c["start"]), at - LAUGH_NEAR), min(float(c["end"]), at + LAUGH_NEAR)
+        a, b = _near_span(c)
         if b <= a:
             return 0
         i, j = self._bisect.bisect_left(self.ts, math.ceil(a)), self._bisect.bisect_left(self.ts, math.ceil(b))
@@ -231,7 +246,7 @@ def laugh_settle(lc, base, pk):
     """笑いの収まりの秒(研究の queue135_136.LiveSettle・queue25_28_30.Settle の「笑い」): lc = 10 秒の箱ごとの笑いの書き込みの件数・base = ふだん。
     ふだん × 2 以上の箱を跳ねとみなし、山の前後 SETTLE_NEAR 秒に跳ねがあれば、最後の跳ねから 1 箱までの切れ目を続きとみなして伸ばした終わり。跳ねが無ければ None"""
     n = len(lc)
-    at = pk.get("peak") if isinstance(pk.get("peak"), (int, float)) else (pk["start"] + pk["end"]) / 2.0
+    at = _at(pk)
     i0, i1 = max(0, int((at - SETTLE_NEAR) // RERANK_BOX)), min(n, int((at + SETTLE_NEAR) // RERANK_BOX) + 1)
     hits = [i for i in range(i0, i1) if lc[i] >= 2 * base]
     if not hits:
@@ -257,8 +272,7 @@ def rerank(cands, feats, k, live=False):
         return cs[:k], []
     fb = [feats.rate(c["start"], c["end"], live) for c in cs]
     fl = [feats.laugh(c["start"], c["end"]) for c in cs]
-    wb, wl = RERANK_W
-    sc = [p + wb * q + wl * r for p, q, r in zip(zlist([c["score"] for c in cs]), zlist(fb), zlist(fl))]
+    sc = _zsum([c["score"] for c in cs], fb, fl)
     order = sorted(range(len(cs)), key=lambda i: -sc[i])
     keep = set(order[:k])
     fc = [feats.near(c) for c in cs] if not live else None
@@ -539,12 +553,17 @@ def downsample(x, points=600):
     return [round(max(x[int(i * step):max(int(i * step) + 1, int((i + 1) * step))]), 2) for i in range(points)]
 
 
+def _parts(comps, pk):
+    """山 pk の前後 PARTS_RADIUS 秒の材料ごとの最大(点数の内訳 parts)"""
+    return {k: round(max(comps[k][max(0, pk - PARTS_RADIUS):pk + PARTS_RADIUS + 1]), 2) for k in comps}
+
+
 def candidates(picks, comps):
     """選んだ区間に、山の前後の材料ごとの点数(parts)と理由の文を付ける(アーカイブの解析と配信中の候補で同じ)"""
     cands = []
     for i, c in enumerate(picks):
         pk = c["peak"]
-        parts = {k: round(max(comps[k][max(0, pk - PARTS_RADIUS):pk + PARTS_RADIUS + 1]), 2) for k in comps}
+        parts = _parts(comps, pk)
         cand = {"i": i, "start": c["start"], "end": c["end"], "peak": pk, "score": c["score"], "parts": parts, "reasons": reasons_of(parts)}
         cand.update({k: c[k] for k in ("shape", "fixed", "joined", "pieces", "chatRank") if k in c})   # 場面ごとの形の印と固定の長さの区間(LD-2b)・つないだ元の範囲(無ければ足さない)
         if c.get("fill"):   # しきい値の下で埋めた(印と理由の文。理由の文はスタジオのマークにも残る)
@@ -572,11 +591,8 @@ HEAT_PEAKS = 40          # 見る山の数(上から。今の候補に入る山�
 HEAT_REASON = "YouTube でよく見られている場面"
 
 
-def heat_z(heatmap, n):
-    """heatmap([[始め, 終わり, 値], ...] = fetch.slim_meta の形)-> 1 秒ごとの値を配信の中で平均 0・ばらつき 1 にそろえた列(長さ n)か None(無い・平ら)。
-    研究の scene4.heat_z と同じ数え方(区間の終わりの秒も含める)"""
-    if not heatmap or n <= 0:
-        return None
+def _heat_series(heatmap, n):
+    """heatmap([[始め, 終わり, 値], ...] = fetch.slim_meta の形)-> 1 秒ごとの値の列(長さ n。区間の終わりの秒も含める・形の合わない行は飛ばす)"""
     v = [0.0] * n
     for h in heatmap:
         try:
@@ -585,6 +601,15 @@ def heat_z(heatmap, n):
             continue
         for i in range(max(0, a), min(n, b + 1)):
             v[i] = val
+    return v
+
+
+def heat_z(heatmap, n):
+    """heatmap([[始め, 終わり, 値], ...] = fetch.slim_meta の形)-> 1 秒ごとの値を配信の中で平均 0・ばらつき 1 にそろえた列(長さ n)か None(無い・平ら)。
+    研究の scene4.heat_z と同じ数え方(区間の終わりの秒も含める)"""
+    if not heatmap or n <= 0:
+        return None
+    v = _heat_series(heatmap, n)
     m = sum(v) / n
     sd = (sum((x - m) ** 2 for x in v) / n) ** 0.5
     if sd <= 1e-9:
@@ -598,14 +623,7 @@ def heat_extra(cands, heatmap, n, comps, pre=PRE_RATIO_DEFAULT, k=HEAT_EXTRA, he
     head = 冒頭の減点の秒(今の候補と同じ head_ramp。配信の頭は見始めの再生で heatmap が高くなりやすい)"""
     if not HEAT_EXTRA_ON or not cands or not heatmap or n <= 0:
         return cands
-    v = [0.0] * n
-    for h in heatmap:
-        try:
-            a, b, val = int(float(h[0])), int(float(h[1])), float(h[2])
-        except (TypeError, ValueError, IndexError):
-            continue
-        for i in range(max(0, a), min(n, b + 1)):
-            v[i] = val
+    v = _heat_series(heatmap, n)
     if max(v) - min(v) <= 1e-9:
         return cands
     lens = sorted(b - a for c in cands for a, b in (c.get("joined") or [(c["start"], c["end"])]))   # つないだ候補はつなぐ前の長さで(研究で測った形)
@@ -626,7 +644,7 @@ def heat_extra(cands, heatmap, n, comps, pre=PRE_RATIO_DEFAULT, k=HEAT_EXTRA, he
         if any(min(b, c["end"]) - max(a, c["start"]) > 0.5 * (b - a) for c in out):   # 今の候補・足した候補と半分以上重なる(同じ場面の広い山)は足さない
             added -= 1
             continue
-        parts = {kk: round(max(comps[kk][max(0, i - PARTS_RADIUS):i + PARTS_RADIUS + 1]), 2) for kk in comps}
+        parts = _parts(comps, i)
         low = min(c.get("score") or 0.0 for c in cands)
         out.append({"i": len(out), "start": round(a, 1), "end": round(b, 1), "peak": i, "score": low, "parts": parts,
                     "reasons": [HEAT_REASON], "origin": "heatmap"})
@@ -661,14 +679,18 @@ def message_weight(kind, text):
     return w, warm, paid
 
 
+def chat_items(actions):
+    """yt-dlp のチャットの actions -> addChatItemAction の item ごとの (種類 = item の鍵, renderer)。item の無い・空の物は飛ばす(renderer の形は見ない)"""
+    for a in actions or []:
+        item = ((a.get("addChatItemAction") or {}).get("item")) if isinstance(a, dict) else None
+        if isinstance(item, dict) and item:
+            yield next(iter(item.items()))
+
+
 def chat_messages(actions):
     """yt-dlp のチャットの actions -> 数える 1 件ずつの (renderer, 重み, 反応か, スパチャか)。数えない種類・形の合わない物は飛ばす。
     解析(analyze.parse_chat)と配信中(live_excite_worker.parse_chat_line)の共通の読み方"""
-    for a in actions or []:
-        item = ((a.get("addChatItemAction") or {}).get("item")) if isinstance(a, dict) else None
-        if not isinstance(item, dict) or not item:
-            continue
-        kind, r = next(iter(item.items()))
+    for kind, r in chat_items(actions):
         if not isinstance(r, dict):
             continue
         w, warm, paid = message_weight(kind, message_text(r))
@@ -1043,10 +1065,7 @@ class PeakBook:
             pk = prov   # 仮の候補を本番の候補に置き換える(同じ id。画面の行が入れ替わらない)
             pk["provisional"] = False
         else:
-            pk = {"id": "p%d-%d" % (self.n_ids, peak)}
-            self.n_ids += 1
-            self.peaks[pk["id"]] = pk
-            self.order.append(pk["id"])
+            pk = self._new(peak)
         pk.update({"start": round(s, 1), "end": round(e, 1), "peak": peak, "score": round(value, 2), "parts": self._parts_at(peak),
                    "confirmedAt": now, "hour": peak // 3600, "state": "frame", "endPending": True, "origin": None, "seq": pk.get("seq", 0)})
         pk["reasons"] = reasons_of(pk["parts"])
@@ -1138,13 +1157,18 @@ class PeakBook:
                    "parts": {"audio": round(audio, 2), "chat": 0.0}, "confirmedAt": peak, "hour": peak // 3600})
         pk["reasons"] = reasons_of(pk["parts"])
 
-    def _provisional(self, w, work, audio):
-        pid = "p%d-%d" % (self.n_ids, w)
+    def _new(self, peak, /, **fields):
+        """新しい候補(id = p<通し番号>-<山の秒>)を帳簿と並びに足す -> 候補"""
+        pk = {"id": "p%d-%d" % (self.n_ids, peak), **fields}
         self.n_ids += 1
-        pk = {"id": pid, "state": "frame", "endPending": True, "origin": None, "seq": 0, "provisional": True}
+        self.peaks[pk["id"]] = pk
+        self.order.append(pk["id"])
+        return pk
+
+    def _provisional(self, w, work, audio):
+        pk = self._new(w, state="frame", endPending=True, origin=None, seq=0, provisional=True)
+        pid = pk["id"]
         self._prov_fill(pk, w, work, audio)
-        self.peaks[pid] = pk
-        self.order.append(pid)
         self.fast["open"] = pid
         self._mark(pid)
         return pid
@@ -1250,17 +1274,13 @@ class PeakBook:
             c["fill"] = True   # 枠に入らなかった山 = 配信中のしきい値(気分の変わり目・音だけの倍を含む)に届かなかった山
         added = []
         for c in sorted(candidates(picks, {k: fit(v) for k, v in comps.items()}), key=lambda c: c["peak"]):
-            pk = {"id": "p%d-%d" % (self.n_ids, c["peak"]), "start": c["start"], "end": c["end"], "peak": c["peak"], "score": c["score"],
-                  "parts": c["parts"], "reasons": c["reasons"], "confirmedAt": self.last_t, "hour": c["peak"] // 3600, "state": "frame",
-                  "endPending": False, "origin": None, "seq": 0, "fill": True}
+            pk = self._new(c["peak"], start=c["start"], end=c["end"], peak=c["peak"], score=c["score"], parts=c["parts"], reasons=c["reasons"],
+                           confirmedAt=self.last_t, hour=c["peak"] // 3600, state="frame", endPending=False, origin=None, seq=0, fill=True)
             pk.update({k: c[k] for k in ("joined", "pieces") if k in c})   # 埋めた候補どうしをつないだ印と元の本数(枠・報告で元の本数と数える)
             if self.shape == "scene":
                 pk.update(shape=c.get("shape", "fixed"), fixed=c.get("fixed", [c["start"], c["end"]]), sceneOpen=False)
             if self.tag:
                 pk.update(self.tag)
-            self.n_ids += 1
-            self.peaks[pk["id"]] = pk
-            self.order.append(pk["id"])
             self._mark(pk["id"])
             added.append(pk["id"])
         return added
@@ -1332,8 +1352,7 @@ class PeakBook:
 
     def _laugh_near(self, pk):
         """印 chatRank.lc = 山の前後 LAUGH_NEAR 秒(区間の中)の笑いの書き込みの件数(研究の queue200_201.lc_scores。flow/live_batch の最終の候補の点)"""
-        at = pk.get("peak") if isinstance(pk.get("peak"), (int, float)) else (pk["start"] + pk["end"]) / 2.0
-        a, b = max(float(pk["start"]), at - LAUGH_NEAR), min(float(pk["end"]), at + LAUGH_NEAR)
+        a, b = _near_span(pk)
         pk["chatRank"]["lc"] = sum(self.chat_secs[s][1] for s in range(int(math.ceil(a)), int(math.ceil(b))) if s in self.chat_secs) if b > a else 0
 
     def note_laughs(self):
@@ -1346,9 +1365,8 @@ class PeakBook:
             cr = pk.get("chatRank")
             if not isinstance(cr, dict):
                 continue
-            at = pk.get("peak") if isinstance(pk.get("peak"), (int, float)) else (pk["start"] + pk["end"]) / 2.0
             cr["settle"], cr["settleAll"] = self._settle(pk, True), self._settle(pk, False)   # 笑いの収まり(ふだん = 始まりより前 / 全部)
-            if max(float(pk["start"]), at - LAUGH_NEAR) < lo and "lc" in cr:
+            if _near_span(pk)[0] < lo and "lc" in cr:
                 continue
             self._laugh_near(pk)
 
@@ -1369,12 +1387,11 @@ class PeakBook:
         pool = [p for p in self.peaks.values() if not p.get("provisional") and "chatRank" in p]
         if not (self.rerank and CHAT_RERANK_ON and len(pool) >= 2):
             return {k: (p["score"], p["score"]) for k, p in self.peaks.items()}
-        wb, wl = RERANK_W
-        zs_, zb, zl = zlist([p["score"] for p in pool]), zlist([p["chatRank"]["rate"] for p in pool]), zlist([p["chatRank"]["laugh"] for p in pool])
+        zs = _zsum([p["score"] for p in pool], [p["chatRank"]["rate"] for p in pool], [p["chatRank"]["laugh"] for p in pool])
         out = {k: (float("-inf"), p["score"]) for k, p in self.peaks.items()}   # 印の無い候補(書き込みが届く前)はいちばん後ろ
-        for p, a, b, c in zip(pool, zs_, zb, zl):
-            out[p["id"]] = (round(a + wb * b + wl * c, 6), p["score"])
-            p["chatRank"]["z"] = round(a + wb * b + wl * c, 3)
+        for p, z in zip(pool, zs):
+            out[p["id"]] = (round(z, 6), p["score"])
+            p["chatRank"]["z"] = round(z, 3)
         return out
 
     def _place(self, pk):

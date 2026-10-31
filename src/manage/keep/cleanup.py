@@ -66,8 +66,11 @@ def _newest(path):
     """ファイルの更新時刻・フォルダなら中の一番新しいファイルの更新時刻(秒。ファイルが無ければフォルダ自身)"""
     if not os.path.isdir(path):
         return _mtime(path)
-    times = [_mtime(os.path.join(d, f)) for d, _dirs, files in os.walk(path) for f in files]
-    return max(times) if times else _mtime(path)
+    try:
+        m = fsio.newest_mtime(path, recursive=True)
+    except OSError:
+        m = None
+    return int(m) if m is not None else _mtime(path)
 
 
 def _item(kind, path, note="", extra=()):

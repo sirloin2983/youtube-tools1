@@ -103,16 +103,17 @@ from flow import learning as learning_mod  # noqa: E402  (学習データの読�
 from flow import prio as prio_mod  # noqa: E402  (処理の優先度の表。後回しの仕事を始めてよいかを重い処理の枠へ。PRIO)
 from pipeline.transcribe import roster as roster_mod  # noqa: E402  (読む名簿のファイル roster.ROSTER を学習の束へ)
 from manage.keep import learnpack as learnpack_mod  # noqa: E402  (学習の束の中身を作る。いつ・どこに置くかは ② の flow/learning.PackPatrol。F1 F6a)
-from ytt import colors as colors_mod, datadir, docloc, fsio, httpsec, jobs, layout, runtime, tools, version as _version  # noqa: E402
+from ytt import datadir, docloc, fsio, httpsec, jobs, layout, runtime, tools, version as _version  # noqa: E402
 from ytt import errors as _yerrors  # noqa: E402  (確かめるの部品が上げる ApiError を状態の番号で返す)
 from app import mount as mount_mod  # noqa: E402  (src/app/mount.py: 統合サーバーへのツールの取り込み)
 from app import autorun as autorun_mod
 from app import timing  # noqa: E402  (src/app/timing.py: ホームの読み込みの記録 = logs/api-timing.jsonl・ui-timing.jsonl)
 from app import homereq  # noqa: E402  (src/app/homereq.py: ホームの「友人の依頼」の行。受付の記録 + 実行の記録)
+from app import streamer as streamer_mod  # noqa: E402  (src/app/streamer.py: 配信者の名前の当て = api/ytt/streamer-guess)
 from human.friend import intake as intake_mod  # noqa: E402  (src/human/friend/intake.py: 友人からの依頼の受付)
 from manage.keep import backup as backup_mod  # noqa: E402  (src/manage/keep/backup.py: 作業データのバックアップ)
 from eval.drill import accuracy as accuracy_mod  # noqa: E402  (src/eval/drill/accuracy.py: 精度の自動測定 = src/eval/tools/eval_*.py を手が空いた夜に子プロセスで)
-from app.check import deck as check_deck, lineup as check_lineup, refresh as check_refresh, sources as check_sources, voice_solo as check_voice_solo, voicefetch as check_voicefetch, voicefill as check_voicefill, ytqueue as check_ytqueue, ytnotify as check_ytnotify, shortjobs as check_shortjobs, evalredo as check_evalredo  # noqa: E402  (src/app/check: 「確かめる」の待ち行列。V1)
+from app.check import deck as check_deck, lineup as check_lineup, refresh as check_refresh, sources as check_sources, voice_solo as check_voice_solo, voicefetch as check_voicefetch, voicefill as check_voicefill, ytqueue as check_ytqueue, ytnotify as check_ytnotify, shortjobs as check_shortjobs, evalredo as check_evalredo, keep as check_keep  # noqa: E402  (src/app/check: 「確かめる」の待ち行列。V1)
 from human.proof import voiceclips  # noqa: E402  (誰の声のカードの行の短い音。元の動画が片付いても聞ける・覚えられる。10-24 夜)
 from human.check import answerlog as check_answerlog  # noqa: E402  (答えた札 = 自動の片付けで、価値のカードを待っている切り抜きを残す)
 from human.check import apply as check_apply  # noqa: E402  (src/human/check/apply.py: 「確かめる」の答えの記録と反映。V1)
@@ -152,7 +153,6 @@ LOG_MAX = 1024 * 1024     # ログ(*.log。.gitignore 済み)はこれを超え�
 PING_TIMEOUT = 0.5
 MAX_BODY = 4096
 SLOW_GET_SEC = 5.0     # 読む口がこの秒を超えたら記録に 1 行(PortalHandler.do_GET)
-STUDIO_CH_SEC = 30.0   # 配信者の名前の当てで、スタジオのチャンネル名の一覧を覚える秒(PortalServer._studio_channel)
 EDITOR_IDLE_POLLS = ("/api/drill/status", "/api/eval-batch", "/api/ping")   # 確かめるの評価のレーン・版の見回り(開いた画面がずっと読む)= 「編集を使っている」に数えない(自動の起動し直しを延ばし続けない。10-24 ping で 6 時間待った)
 SUBMIT_START_WAIT = 120  # 起動直後の POST /api/flow/submit がツールの取り込みを待つ最長の秒(_post_flow_submit)
 PORTAL_TITLE = "動画編集ツール — ホーム"   # ホームの画面(portal.html)の <title>。窓を前に出すときに題名で探す(test_launch が portal.html と比べる)
@@ -191,7 +191,6 @@ def runtime_dir(root):
 
 
 # .runtime の読み書き・/api/ping・接続の確認は ytt.runtime(各ツールと同じ規則)
-valid_port = runtime.valid_port
 read_runtime = runtime.read_runtime     # (rdir, tool) → {"port", "version", "pid", "mtime"} / None。誰でも書けるファイルなので検証して読む
 
 
@@ -892,10 +891,7 @@ class PortalHandler(httpsec.LocalHandler):
                     return self._fail(404, "gone", "そのカードはもう確かめる物ではありません(読み込み直してください)" + ("(読めなかった物: %s)" % "・".join(why[:3]) if why else ""))
                 out = check_apply.unknown(ctx, card, body.get("page")) if op == "unknown" else check_apply.answer(ctx, card, body)
                 check_deck.mark_stale()   # 答えた後は覚えを返して裏で集め直す(答えたカードは next が外す。10-25 待ちを無くす)
-                held = body.get("skip") if isinstance(body.get("skip"), list) else []
-                lane = "eval" if card.get("kind") in check_lineup.EVAL_KINDS else "normal"   # 次の 1 枚は答えたカードと同じレーンから
-                nxt = check_deck.next_cards(ctx, n=1, skip=[x for x in held if isinstance(x, str)][:check_deck.MAX_SKIP_PARAM - 1] + [card["id"]], lane=lane)
-                out["next"] = nxt["cards"][0] if nxt["cards"] else None
+                out["next"] = check_deck.answer_next(ctx, card, body.get("skip"))   # 次の 1 枚は答えたカードと同じレーンから
         except check_apply.Refused as e:
             return self._fail(e.code, e.error, e.message)
         except _yerrors.ApiError as e:   # 部品の中の文書・学習の記録の失敗(状態の番号をそのまま)
@@ -1010,32 +1006,6 @@ def peek_path(sock, timeout=10.0):
     return parts[1] if len(parts) >= 3 else None
 
 
-_MEDIA_ID = re.compile(r"[?&]id=([0-9a-f]{12})\b")
-
-
-def pending_check_docs(cards, answered):
-    """確かめるにまだ出ているカード(答えていない)が見ている文書の id の集合(target.docId と、動画の口 transcribe/media?id= の id)。
-    自動の片付けがこの文書の切り抜きの動画とパックを残す(10-24)。切り出した行の音で流すカード・行の音を残してある誰の声のカード(voiceclips)は
-    動画が片付いても音で流せるので数えない(動画があるうちは映像つきで流す)"""
-    out = set()
-    for c in cards or ():
-        if not isinstance(c, dict) or c.get("id") in answered:
-            continue
-        if str((c.get("media") or {}).get("url") or "").startswith("api/check/voiceclip"):
-            continue
-        tg = c.get("target") if isinstance(c.get("target"), dict) else {}
-        if c.get("kind") == "voice" and tg.get("docId") and voiceclips.clip_path(str(tg.get("docId")), str(tg.get("row") or "")):
-            continue
-        tid = (c.get("target") or {}).get("docId") if isinstance(c.get("target"), dict) else None
-        if isinstance(tid, str) and tid:
-            out.add(tid)
-        url = (c.get("media") or {}).get("url") if isinstance(c.get("media"), dict) else None
-        m = _MEDIA_ID.search(url) if isinstance(url, str) else None
-        if m:
-            out.add(m.group(1))
-    return out
-
-
 class PortalServer(httpsec.ExclusiveServer):
     """入口のサーバー。取り込んだツール(mounts: {"/studio": Handler})の要求は、そのツールの Handler に渡す。
     Windows では SO_REUSEADDR だと使用中のポートにも bind できてしまうので、代わりに SO_EXCLUSIVEADDRUSE で独占する(httpsec.ExclusiveServer。各ツールと同じ)。"""
@@ -1067,7 +1037,7 @@ class PortalServer(httpsec.ExclusiveServer):
         self.client_log = clientlog_mod.ClientLog(sup.logs_dir)   # 画面のエラーの記録(段階7-0)
         self.window = appwindow_mod.Opener(app_dir, log=sup.log)   # 窓で開く(段階7-3)
         self.prefs = prefs_mod.Prefs(os.path.join(app_dir, "prefs.json"), fsio.atomic_write)   # ホームの設定(気が利く画面へ 段1)
-        self._studio_ch, self._studio_ch_lock = None, threading.Lock()   # (覚えた時刻, {動画 id: チャンネル名})
+        self.streamer = streamer_mod.Guesser(sup.root, self.prefs)   # 配信者の名前の当て(api/ytt/streamer-guess)
         self.ytlogin = ytlogin_mod.YtLogin(app_dir, os.path.dirname(sup.root), log=sup.log)   # 設定の「YouTube のログイン」(置き場所は _main が環境変数へ)
         # 友人からの依頼の受付(見張りは main で start。テストで作る入口では動かさない)
         self.intake = intake_mod.Intake(self.prefs, lambda: self.autorun, app_dir, log=sup.log,
@@ -1112,11 +1082,23 @@ class PortalServer(httpsec.ExclusiveServer):
                                    hooks={"auto_review": self.auto_review, "studio": self.live.studio_call},
                                    goals=lambda: self.accuracy.snapshot()["goals"])
 
+    def _check_view(self):
+        """「確かめる」の行を読む View(答えた札つき)"""
+        return check_sources.View(self.check_ctx(), check_answerlog.state(self.cleanup.app_dir))
+
+    def _client(self, timeout=60):
+        """取り込んだツール(編集など)の API を呼ぶ ToolClient(既定の待ちは ToolClient と同じ 60 秒)"""
+        return autorun_mod.ToolClient(self.tool_endpoint, self.token, timeout=timeout)
+
+    def _post_job(self, req, path="/api/transcribe"):
+        """編集へ文字起こしなどの仕事を頼む -> ジョブの id"""
+        return self._client(30).ok("transcribe", "POST", path, req).get("id")
+
     def _night_retranscribe(self, cfg):
         """夜の窓に、確かめるのカードの元の古い版の文書を 1 本ずつ今の版で作り直す(src/app/check/refresh.py。スイッチ accuracy.retranscribe・既定オフ)"""
         if cfg.get("retranscribe") is not True:
             return None
-        client = autorun_mod.ToolClient(self.tool_endpoint, self.token, timeout=30)
+        client = self._client(30)
         ctx = self.check_ctx()
         return check_refresh.tick(ctx, lambda body: client.call("transcribe", "POST", "/api/rerun", body), ctx.app_dir, log=self.sup.log)
 
@@ -1131,7 +1113,7 @@ class PortalServer(httpsec.ExclusiveServer):
         if self._autorun is not None and any(r.get("state") in ("queued", "running") for r in self._autorun.snapshot().get("runs") or []):
             return "まとめて実行"
         try:
-            st, obj = autorun_mod.ToolClient(self.tool_endpoint, self.token, timeout=5).call("transcribe", "GET", "/api/jobs")
+            st, obj = self._client(5).call("transcribe", "GET", "/api/jobs")
         except autorun_mod.StepError:
             return "編集が動いていません" if need_editor else None
         if st == 200 and any(j.get("state") in ("queued", "loading", "extracting", "running") for j in obj.get("jobs") or [] if isinstance(j, dict)):
@@ -1150,18 +1132,13 @@ class PortalServer(httpsec.ExclusiveServer):
             pass
         for i, folder in enumerate(folders):
             try:
-                with os.scandir(folder) as it:
-                    for e in it:
-                        try:
-                            if e.is_file():
-                                m = e.stat().st_mtime
-                                if newest is None or m > newest:
-                                    newest = m
-                        except OSError:
-                            continue
+                m = fsio.newest_mtime(folder)
             except OSError:
                 if i == 0:
                     return None
+                continue
+            if m is not None and (newest is None or m > newest):
+                newest = m
         return newest
 
     def _busy_tools(self):
@@ -1277,27 +1254,14 @@ class PortalServer(httpsec.ExclusiveServer):
         「切り抜く価値」で答えを待っている自動の切り抜き(答えは精度の材料)と、評価用の文書の動画(案件の一覧の virtual の eval)。
         今動いている = まとめて実行の待ち・実行中。カードを集められない出どころがあれば例外(= 何も移さない)"""
         snap = cases_mod.snapshot(self.sup.root)
-        cases = snap.get("cases") or []
         st = check_answerlog.state(self.cleanup.app_dir)
         cards, view = check_sources.collect(self.check_ctx(), st)
         if view.errors:
             raise RuntimeError("確かめるのカードを集められない出どころがある: %s" % "・".join(view.errors[:3]))
-        answered = set(st.by_card) | {c.get("id") for c in cards if isinstance(c, dict) and st.closed(c)}   # 答えた・[分からない] のカード = もう出ない
-        docs = pending_check_docs(cards, answered)
-        keep = []
-        for c in cases + (snap.get("virtual") or []):
-            for cl in (c.get("clips") or ()) if isinstance(c, dict) else ():
-                if not isinstance(cl, dict) or not cl.get("path"):
-                    continue
-                tids = set(cl.get("transcriptIds") or ()) | {(cl.get("transcript") or {}).get("id")}
-                if tids & docs or (cl.get("auto") and check_lineup.card_id("value", "auto", c.get("id"), cl.get("markId") or "") not in answered):
-                    keep.append(cl["path"])
-        for v in snap.get("virtual") or ():
-            if isinstance(v, dict) and v.get("caseKind") == "eval":
-                keep += [cl["path"] for cl in v.get("clips") or () if isinstance(cl, dict) and cl.get("path")]
+        keep = check_keep.keep_paths(snap, cards, check_keep.answered_ids(st, cards))   # 選び方は src/app/check/keep.py
         runs = (self._autorun.snapshot().get("runs") or []) if self._autorun is not None else []
         busy = {r.get("videoId") for r in runs if r.get("state") in ("queued", "running") and r.get("videoId")}
-        return cases, keep, busy
+        return snap.get("cases") or [], keep, busy
 
     VOICE_CLIPS_EVERY = 600   # 誰の声のカードの行の音を切り出す見回りの間隔(秒。文字起こしが済んだ文書を待たずに拾う)
 
@@ -1312,8 +1276,8 @@ class PortalServer(httpsec.ExclusiveServer):
                 self.sup.log("誰の声: 声を覚えるジョブを %d 本足しました(%s)" % (len(got), "・".join(n for x in got for n in x.get("names") or ())))
         except Exception as e:   # noqa: BLE001  (覚え直せなくても切り出しは続ける)
             self.sup.log("誰の声: 覚え直しを足せませんでした: %r" % (e,))
-        view = check_sources.View(self.check_ctx(), check_answerlog.state(self.cleanup.app_dir))
-        made = sum(voiceclips.make(tid, doc, rows) for tid, doc, rows in check_voice_solo.clip_targets(view))
+        view = self._check_view()
+        made =sum(voiceclips.make(tid, doc, rows) for tid, doc, rows in check_voice_solo.clip_targets(view))
         skips = dict(check_voice_solo.LAST_SKIPS)
         if made:
             check_voice_solo._bgm_seen.clear()   # 新しい行の音の BGM らしさを次の集めで測る
@@ -1363,21 +1327,18 @@ class PortalServer(httpsec.ExclusiveServer):
 
     def voice_fill_loop(self):
         """誰の声の材料を全メンバーぶんそろえる(app/check/voicefill。10-25): 手が空いているとき、学習用データのショートを 1 分に 1 本文字起こしに頼む"""
-        client = lambda: autorun_mod.ToolClient(self.tool_endpoint, self.token, timeout=30)   # noqa: E731
         n = 0
         while not self.closing.wait(check_voicefill.EVERY):
             n += 1
             try:
-                asked = check_voicefill.tick(self.cleanup.app_dir, lambda req: client().ok("transcribe", "POST", "/api/transcribe", req).get("id"),
-                                             self._voice_busy, self.sup.log)
+                asked = check_voicefill.tick(self.cleanup.app_dir, self._post_job, self._voice_busy, self.sup.log)
                 if asked is None and not check_voicefill.ASK_ON and n % check_voicefill.IDLE_EVERY:
                     continue   # voicefill 停止中(10-31): 下の 2 つは IDLE_EVERY 回に 1 回だけ(止める前、voicefill が頼んだ回には走らなかった頻度まで)
                 if asked is None:   # 評価用にした文書の作り直し(評価用の決まりで。10-25)= 先に
                     asked = check_evalredo.tick(self.cleanup.app_dir, self._read_doc_quiet,
-                                                lambda path, body: client().ok("transcribe", "POST", path, body), self._voice_busy, self.sup.log)
+                                                lambda path, body: self._client(30).ok("transcribe", "POST", path, body), self._voice_busy, self.sup.log)
                 if asked is None:   # 文字起こしの頼みが無い回 = ショートのカードの下ごしらえ(判別・2 つ目のエンジン。10-25)
-                    view = check_sources.View(self.check_ctx(), check_answerlog.state(self.cleanup.app_dir))
-                    check_shortjobs.tick(view, self.cleanup.app_dir, lambda path, body: client().ok("transcribe", "POST", path, body).get("id"),
+                    check_shortjobs.tick(self._check_view(), self.cleanup.app_dir, lambda path, body: self._post_job(body, path),
                                          self._voice_busy, self.sup.log)
             except Exception as e:   # noqa: BLE001  (頼めなくても入口は止めない)
                 self.sup.log("誰の声の材料を頼めませんでした: %r" % (e,))
@@ -1386,7 +1347,6 @@ class PortalServer(httpsec.ExclusiveServer):
         """YouTube の取得の列(app/check/ytqueue。10-25 ユーザー「取り方 1 と 2 を統一しよう」): 研究の頼みと候補・誰の声の材料を 1 本の列で取る。
         研究が置いた・列が回した声の音(voice-inbox)を拾う(voicefetch.intake)"""
         from flow import voicematerial as _vm
-        client = lambda: autorun_mod.ToolClient(self.tool_endpoint, self.token, timeout=30)   # noqa: E731
         busy = lambda: self._fetch_busy() or ("ライブ" if any(self.live_activity().values()) else None)   # noqa: E731
         while not self.closing.wait(check_voicefetch.EVERY):
             try:
@@ -1394,13 +1354,11 @@ class PortalServer(httpsec.ExclusiveServer):
                 if not r:
                     continue
                 extra = check_voicefetch.extra_channels(self.sup.root)
-                check_voicefetch.intake(self.cleanup.app_dir, r, lambda req: client().ok("transcribe", "POST", "/api/transcribe", req).get("id"),
+                check_voicefetch.intake(self.cleanup.app_dir, r, self._post_job,
                                         self.sup.log, extra=extra)   # 研究が取った元の配信の音(1 回の取得で 2 つの目的。10-25)
-                view = check_sources.View(self.check_ctx(), check_answerlog.state(self.cleanup.app_dir))
-                counts = check_voice_solo.stream_counts(view)   # 配信の材料の本数(ショートだけでは足りない。10-25)
+                counts = check_voice_solo.stream_counts(self._check_view())   # 配信の材料の本数(ショートだけでは足りない。10-25)
                 self._voice_fetch_wants = check_ytqueue.wants(self.cleanup.app_dir, r, counts, extra=extra)
-                check_ytqueue.tick(self.cleanup.app_dir, r, counts, busy,
-                                   lambda req: client().ok("transcribe", "POST", "/api/transcribe", req).get("id"), self.sup.log, extra=extra)
+                check_ytqueue.tick(self.cleanup.app_dir, r, counts, busy, self._post_job, self.sup.log, extra=extra)
                 check_ytnotify.tick(self.cleanup.app_dir, log=self.sup.log)   # 研究の頼みの結果が届いたら研究のセッションを起こす(5 分まとめて 1 通)
             except Exception as e:   # noqa: BLE001  (取れなくても入口は止めない)
                 self.sup.log("誰の声の材料(YouTube)を取れませんでした: %r%s" % (e, _where(e)))
@@ -1437,7 +1395,7 @@ class PortalServer(httpsec.ExclusiveServer):
     def _worker_probe(self):
         """「編集」の /api/ping の worker(認識ワーカーの状態)。動いていなければ None"""
         try:
-            st, d = autorun_mod.ToolClient(self.tool_endpoint, self.token, timeout=1.5).call("transcribe", "GET", "/api/ping")
+            st, d = self._client(1.5).call("transcribe", "GET", "/api/ping")
         except (autorun_mod.StepError, http.client.HTTPException):
             return None
         w = d.get("worker") if st == 200 else None
@@ -1480,7 +1438,7 @@ class PortalServer(httpsec.ExclusiveServer):
             if sub == "focus-portal":   # ツールの窓の「入口」: 入口の窓がほかにあれば前に出す(入口を二つにしない)
                 return 200, {"ok": True, "focused": self.window.focus(PORTAL_TITLE)}
             if sub == "streamer-guess":   # 配信者の名前を自動で(覚えた名前 → チャンネル名から。段5)。{docId?, videoId?, channel?}
-                return 200, self.streamer_guess(body.get("docId"), body.get("videoId"), body.get("channel"))
+                return 200, self.streamer.guess(body.get("docId"), body.get("videoId"), body.get("channel"))
             if sub == "deliver":   # 「編集」の ③ パックの「友人へ届ける」。{op: "start", dir, title, requestId?(元の依頼 id。後追い・引き継ぎ)} → 裏で zip / {op: "status", job}
                 if body.get("op") == "status":
                     j = self.deliveries.status(body.get("job"))
@@ -1509,7 +1467,7 @@ class PortalServer(httpsec.ExclusiveServer):
         """読み込みの記録に添える、今動いている重い処理 {runs: まとめて実行の待ち・実行中, rec: 録画中}(遅い口の時だけ呼ぶ。読めなければ欄なし)"""
         out = {}
         try:
-            d = fsio.read_json_or(os.path.join(self.sup.logs_dir, "autorun-active.json"), None, 1024 * 1024, kind=dict) or {}
+            d = fsio.read_json_or(os.path.join(self.sup.logs_dir, queue_mod.ACTIVE_FILE), None, 1024 * 1024, kind=dict) or {}
             out["runs"] = len(d.get("runs") or [])
         except Exception:   # noqa: BLE001
             pass
@@ -1520,32 +1478,6 @@ class PortalServer(httpsec.ExclusiveServer):
         except Exception:   # noqa: BLE001
             pass
         return out
-
-    def _studio_channel(self, video_id):
-        """配信のチャンネル名(スタジオの一覧)か None。一覧は STUDIO_CH_SEC 秒覚える(10-30: ホームは描くたびに案件 8 本ぶん問い合わせ、
-        1 本ごとに一覧を全部読むと 0.17 秒 × 8 本が重なって 1 本 1 秒になっていた。チャンネル名はめったに変わらない)"""
-        now = time.monotonic()
-        with self._studio_ch_lock:
-            if self._studio_ch is None or now - self._studio_ch[0] > STUDIO_CH_SEC:
-                vids = cases_mod.read_studio(cases_mod.locations(self.sup.root)["studio"])
-                self._studio_ch = (now, {k: str((v or {}).get("channel") or "").strip()[:120] for k, v in vids.items()})
-            return self._studio_ch[1].get(video_id) or None
-
-    def streamer_guess(self, doc_id=None, video_id=None, channel=None):
-        """-> {"ok", "name", "source", "hex", "channel"}。文書だけ分かれば、その文書の元の配信(.clip.json)・チャンネル(スタジオ)を調べる"""
-        doc_id = doc_id if isinstance(doc_id, str) and len(doc_id) <= 64 else None
-        video_id = video_id if isinstance(video_id, str) and len(video_id) <= 64 else None
-        channel = channel.strip()[:120] if isinstance(channel, str) and channel.strip() else None
-        if doc_id and not video_id:
-            d = next((x for x in cases_mod.txindex.load(cases_mod.locations(self.sup.root)["transcripts"]) if x["id"] == doc_id), None)
-            src = ((d or {}).get("clip") or {}).get("source") or {}
-            video_id = src.get("videoId") if isinstance(src.get("videoId"), str) else None
-        if video_id and not channel:
-            channel = self._studio_channel(video_id)
-        r = prefs_mod.guess_streamer(self.prefs, doc_id, video_id, channel,
-                                     from_channel=lambda ch: (colors_mod.from_channel(ch) or {}).get("name"))
-        hit = colors_mod.lookup(r["name"])["match"] if r["name"] else None
-        return dict(r, ok=True, hex=hit["hex"] if hit else None, channel=channel)
 
     def prefs_api(self, body):
         op = body.get("op")
@@ -1616,8 +1548,8 @@ class PortalServer(httpsec.ExclusiveServer):
     def autorun(self):
         with self._autorun_lock:
             if self._autorun is None:
-                client = autorun_mod.ToolClient(self.tool_endpoint, self.token)
-                self._autorun = autorun_mod.AutoRunner(client, self.sup.root, prefs=self.prefs,
+                client = self._client()
+                self._autorun =autorun_mod.AutoRunner(client, self.sup.root, prefs=self.prefs,
                                                        log_dir=self.sup.logs_dir,   # 終わった実行の記録(画面のエラーの記録と同じ logs。B-6)
                                                        log=self.sup.log,   # 友人の区間の長さを使わなかった理由など(launcher.log に1行)
                                                        tools=flowtools_mod.FlowTools(client, self.flow_host))   # ① の動詞は ② の器を直に(J7)

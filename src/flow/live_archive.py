@@ -140,7 +140,6 @@ REF_SEC = 60.0               # 録画とアーカイブの時刻を合わせる�
 AFTER_LABELS = {"wait": "アーカイブの用意を待っています", "analyze": "アーカイブを解析しています", "export": "アーカイブから書き出し → パック",
                 "done": "済み", "none": "採用する候補がありませんでした", "measured": "配信中の検出を測りました", "error": "失敗"}
 AFTER_END = ("done", "none", "measured", "error")
-HOLE_CHUNK = 2 * 3600.0     # 録画の欠けを録画元に聞くときの 1 回の幅(録画の部品の /segments は 3 時間・5000 本まで)
 # 掲示板(flow/board.py。RS8 の ② の口 S2): アーカイブからの書き出し・配信後の全自動の state -> 掲示板の state
 BOARD_STATES = dict({s: "running" for s in RUN}, wait="queued", done="done", error="error", cancelled="cancelled")
 AFTER_BOARD = {"wait": "queued", "analyze": "running", "export": "running", "done": "done", "none": "skipped", "measured": "done", "error": "error"}
@@ -254,7 +253,7 @@ def _probe_once(video_id, timeout):
     p = lines[-1].split("\t")
     p += [""] * (7 - len(p))
     st = p[0].strip()
-    return {"status": st if st in ("is_live", "is_upcoming", "was_live", "not_live", "post_live") else "unknown",
+    return {"status": st if st in LX.LIVE_STATUSES else "unknown",
             "release": _num(p[1]), "timestamp": _num(p[2]), "duration": _num(p[3]), "availability": p[4].strip(), "message": "",
             "processed": processed_of(p[5]), "heat": heat_of(p[6])}
 
@@ -323,14 +322,10 @@ def fetch_full_audio(video_id, folder, cancelled=None, timeout=FETCH_TIMEOUT, re
     raise ArchiveError("アーカイブの音を取れませんでした(%s)" % why)
 
 
-def worker_python(python=None):
-    """照合の子プロセスの Python(入口と同じ = numpy が入っている Python)。窓の無い pythonw は標準出力を返せないことがあるので python.exe にする"""
-    return tools.python_exe(python)
-
-
 def run_align(ref, win, python=None, timeout=WORKER_TIMEOUT):
-    """src/pipeline/ingest/live_align_worker.py を子プロセスで動かす -> その JSON({ok, offset, score, ratio, …} か {ok: false, reason})"""
-    code, out, tail = run_proc([worker_python(python), WORKER, ref, win], timeout)
+    """src/pipeline/ingest/live_align_worker.py を子プロセスで動かす -> その JSON({ok, offset, score, ratio, …} か {ok: false, reason})。
+    Python は入口と同じ(numpy が入っている)。窓の無い pythonw は標準出力を返せないことがあるので python.exe(tools.python_exe)"""
+    code, out, tail = run_proc([tools.python_exe(python), WORKER, ref, win], timeout)
     lines = [x for x in out.strip().splitlines() if x.startswith("{")]
     try:
         d = json.loads(lines[-1]) if lines else None
@@ -341,10 +336,12 @@ def run_align(ref, win, python=None, timeout=WORKER_TIMEOUT):
     return d
 
 
-# ---------- ファイルの置き場所 ----------
-def inside(path, root):
-    """path が root の中か(root そのものは含めない。realpath で比べる = シンボリックリンク・.. で外へ出ない。ネットワーク上のパスは False)"""
-    return fsio.is_inside(path, root, strict=True)
+def align_ok(r):
+    """照合の結果 r が確か(MIN_SCORE と MIN_RATIO の両方を満たす)か -> (bool, 確かでない理由の文)。
+    ジョブのずれ・M7 の時刻合わせ(_search)と頭の動画(flow/live_head)で同じしきい値"""
+    if r.get("ok") and (r.get("score") or 0) >= MIN_SCORE and (r.get("ratio") or 0) >= MIN_RATIO:
+        return True, ""
+    return False, r.get("reason") if not r.get("ok") else "確かさ %.2f・%.1f 倍" % (r.get("score") or 0, r.get("ratio") or 0)
 
 
 # ---------- 配信後の全自動(M7)の決め方 ----------
@@ -495,6 +492,11 @@ class Archiver(LX.Patrol):
     def key(rc, rec):
         return "%s__%s" % (rc, rec)
 
+    def _info(self, rc, rec):
+        """録画ごとの記録の写し(無ければ空の辞書)"""
+        with self.lock:
+            return dict(self.info.get(self.key(rc, rec)) or {})
+
     def _load(self):
         try:
             d = fsio.read_json_file(self.path, 2 * 1024 * 1024)
@@ -514,8 +516,7 @@ class Archiver(LX.Patrol):
         """GET /live/api/exports の archiveInfo {ready: true|false|null, checkedAt, message}。
         配信後の全自動(M7)があれば afterStream {state, label, message, at, n, jobs(採用した本数), progress(after_progress), text(after_text)}。
         jobs = その録画のジョブ(応答の jobs。None なら書き出しの一覧から読む)。帯への表示はスタジオの側(src/app/ui/studio/review.js)"""
-        with self.lock:
-            i = dict(self.info.get(self.key(rc, rec)) or {})
+        i = self._info(rc, rec)
         out = {"ready": i.get("ready") if i.get("ready") in (True, False) else None, "checkedAt": i.get("checkedAt"),
                "message": i.get("message") or ""}
         a = i.get("afterStream")
@@ -668,7 +669,7 @@ class Archiver(LX.Patrol):
             return vid
         for j in self._rec_jobs(rc, rec):
             p = j.get("manifest")
-            if isinstance(p, str) and p and inside(p, self.ex.out_dir()):
+            if isinstance(p, str) and p and fsio.is_inside(p, self.ex.out_dir(), strict=True):
                 c, _w = schemas.load_clip_file(p)
                 v = str(((c or {}).get("source") or {}).get("videoId") or "")
                 if LX.YT_ID_RE.match(v):
@@ -687,8 +688,7 @@ class Archiver(LX.Patrol):
                 p = {"status": "unknown", "message": "アーカイブを確かめられませんでした(%s)" % e.__class__.__name__}
             ready, msg = readiness(p)
         now = LX.now_iso()
-        with self.lock:
-            old = self.info.get(self.key(rc, rec)) or {}
+        old = self._info(rc, rec)
         first = {}   # 初めての時刻(書き直さない。配信の終わりからの待ちを測る材料。10-30)
         if ready is True and not old.get("readyAt"):
             first["readyAt"] = now          # アーカイブが初めて見られた(was_live)
@@ -716,8 +716,7 @@ class Archiver(LX.Patrol):
         vid = LX.video_id_of(str(r.get("url") or ""), rec)
         if not vid:
             return NOT_ARCHIVED + "(YouTube の動画が分からない録画)"
-        with self.lock:
-            i = dict(self.info.get(self.key(rc, rec)) or {})
+        i = self._info(rc, rec)
         if (i.get("ready") is not True or i.get("processed") is False) and _checked_within(i, self.interval):
             return NOT_ARCHIVED + "(%s)" % (NOT_PROCESSED if i.get("ready") is True else i.get("message") or "アーカイブがまだ用意できていません")
         i = self.check(rc, rec, vid=vid)
@@ -738,8 +737,7 @@ class Archiver(LX.Patrol):
     def unavailable(self, rc, r):
         """非公開・見られないと分かった録画か(録画の片付けが「消さずに残す」を決める。src/flow/live_retire.py の fate)。
         archived が確かめた最後の結果(archive.json)を読むだけ(yt-dlp は呼ばない)。-> 種類(UNAVAILABLE のどれか)か ""(分からない・見られる)"""
-        with self.lock:
-            i = dict(self.info.get(self.key(rc, str((r or {}).get("id") or ""))) or {})
+        i = self._info(rc, str((r or {}).get("id") or ""))
         av = i.get("availability") or ""
         return av if av in UNAVAILABLE and i.get("ready") is not True else ""
 
@@ -754,8 +752,7 @@ class Archiver(LX.Patrol):
     def note_request(self, rc, rec, kind, rid="", streamer="", at=None):
         """録画ごとの記録に、誰が始めた録画かを残す request {rid, streamer, kind(friend = 友人の依頼・own = 自分で始めた), createdAt}(10-30。
         結びつき live_rules.RequestBook が消えても後から分かる)。own は、もう request があれば書かない(友人の依頼が先)"""
-        with self.lock:
-            had = (self.info.get(self.key(rc, rec)) or {}).get("request")
+        had = self._info(rc, rec).get("request")
         if kind == "own" and had:
             return dict(had)
         req = {"rid": str(rid or "")[:64], "streamer": str(streamer or "")[:80], "kind": kind, "createdAt": at if schemas.is_num(at) else time.time()}
@@ -763,8 +760,7 @@ class Archiver(LX.Patrol):
         return req
 
     def _ready_info(self, rc, rec):
-        with self.lock:
-            i = dict(self.info.get(self.key(rc, rec)) or {})
+        i = self._info(rc, rec)
         if i.get("ready") is True and _checked_within(i, self.interval):
             return i
         return self.check(rc, rec)
@@ -794,8 +790,7 @@ class Archiver(LX.Patrol):
 
     def _vid_of(self, job):
         """ジョブの配信の YouTube の動画の id(用意を確かめたときに覚えた値)。分からなければ "\""""
-        with self.lock:
-            return (self.info.get(self.key(job.get("recorder"), job.get("recording"))) or {}).get("videoId") or ""
+        return self._info(job.get("recorder"), job.get("recording")).get("videoId") or ""
 
     def _audio_dir(self, vid):
         return os.path.join(self.ex.work, AUDIO_DIR + vid)
@@ -847,8 +842,7 @@ class Archiver(LX.Patrol):
 
     def _ended_at(self, rc, rec, js):
         """録画が終わった時刻(epoch)。録画中なら None。録画元につながらない・見つからないときはジョブの時刻(マークの終わりのいちばん後)"""
-        with self.lock:
-            known = (self.info.get(self.key(rc, rec)) or {}).get("endedAt")
+        known = self._info(rc, rec).get("endedAt")
         if isinstance(known, (int, float)):
             return known
         try:
@@ -883,9 +877,7 @@ class Archiver(LX.Patrol):
             cand = [j for j in self.targets(rc, rec) if not j.get("archive")]   # 一度も試していないもの(失敗・取り消しは人が押す)
             if not cand:
                 continue
-            k = self.key(rc, rec)
-            with self.lock:
-                i = dict(self.info.get(k) or {})
+            i = self._info(rc, rec)
             if i.get("gaveUp"):
                 continue
             ended = self._ended_at(rc, rec, js)
@@ -911,8 +903,7 @@ class Archiver(LX.Patrol):
 
     # --- 配信後の全自動(M7) ---
     def _after_get(self, rc, rec):
-        with self.lock:
-            return dict((self.info.get(self.key(rc, rec)) or {}).get("afterStream") or {})
+        return dict(self._info(rc, rec).get("afterStream") or {})
 
     def _after_set(self, rc, rec, **kw):
         """afterStream を書き換えて archive.json に残す(state を変えたら label と at も)"""
@@ -983,11 +974,8 @@ class Archiver(LX.Patrol):
             return False   # 入口の終了: 次の起動で同じ段からやり直す
         except Later as e:
             self._after_set(rc, rec, message=str(e), retryAt=time.time() + (e.after if e.after is not None else self.interval))
-        except (LX.LiveError, normalize.NormalizeError, OSError) as e:
-            self._after_set(rc, rec, state="error", message=str(e) if not isinstance(e, OSError) else "書けませんでした: %s" % tools.why(e))
         except Exception as e:
-            self.log("リアルタイム切り抜き: 配信後の自動の切り抜きでエラー %r" % (e,))
-            self._after_set(rc, rec, state="error", message="内部エラー: %s" % e.__class__.__name__)
+            self._after_set(rc, rec, state="error", message=LX.fail_text(e, self.log, "配信後の自動の切り抜き"))
         return False
 
     def _request_after(self, rc, rec):
@@ -1041,8 +1029,7 @@ class Archiver(LX.Patrol):
             self._after_set(rc, rec, state="error", message="録画が終わって %d 日たってもアーカイブを使えなかったので、自動で切り抜くのをやめました(%s)"
                             % (int(self.after_max_age // 86400) or 1, a.get("message") or "理由は分かりません"))
             return True
-        with self.lock:
-            i = dict(self.info.get(self.key(rc, rec)) or {})
+        i = self._info(rc, rec)
         recent = _checked_within(i, self.after_interval(ended, now), now)
         if not (i.get("ready") is True and recent):
             if recent:   # 確かめたばかり(P4 と同じ間隔で。用意できていない)
@@ -1192,8 +1179,7 @@ class Archiver(LX.Patrol):
             if code is None:
                 raise Later("録画元につながらないので、録画とアーカイブの時刻を合わせられません", self.retry_sec)
             if code != 200 or not isinstance(d, dict):
-                raise ArchiveError("録画が見つかりません(録画元で消されたか、置き場所を変えたかもしれません)" if code == 404 else
-                                   "録画元から思わぬ応答がありました(HTTP %s)" % code)
+                raise ArchiveError(LX.rec_http_error(code))
             segs = [x for x in d.get("segments") or [] if LX.SEG_URI_RE.match(str(x.get("uri") or ""))]
             if not segs:
                 raise ArchiveError("録画に音を取れる所がないので、アーカイブと時刻を合わせられません")
@@ -1278,20 +1264,9 @@ class Archiver(LX.Patrol):
                    if isinstance(row, dict) else "配信中の候補が無かったので比べませんでした")
             self._after_set(rc, rec, state="measured", jobs=[], picked=[], message=got)
             self.log("リアルタイム切り抜き: 配信中の検出を測りました %s(%s)" % (rec, got))
-            if self.after:
-                try:
-                    self.after(rc, rec)   # 消してよければ録画を消す(測り終えるのを待っていた)
-                except Exception:
-                    pass
+            self._call_after(rc, rec)   # 消してよければ録画を消す(測り終えるのを待っていた)
             return True
-        try:   # 録画の、もう採用・書き出し済みのマーク(人が付けたもの・配信中の自動)と重ねない。置き場から読む(G3。読めなければ重ねる物なし = 今までどおり)
-            got = self.taken(rc, rec)
-        except Exception as e:   # noqa: BLE001
-            self.log("リアルタイム切り抜き: 録画の採用を読めませんでした(重ねない区間なしで続けます): %r" % (e,))
-            got = None
-        taken = [(a["first"] + m["start"], a["first"] + m["end"]) for m in got or []
-                 if isinstance(m, dict) and m.get("status") in ("adopted", "exported") and schemas.is_num(m.get("start")) and schemas.is_num(m.get("end"))]
-        end = a["end"] if schemas.is_num(a.get("end")) else a["last"] - LX.READY_PAD   # 前の版の記録(end なし)は録画の終わりまで
+        taken, end = self._adopt_range(rc, rec, a, log=True)
         an = v.get("analysis") if isinstance(v.get("analysis"), dict) else None
         low = _url_pick.low_why(an, v.get("duration")) if a["n"] >= 2 else None   # 3 時間以上・チャットの無い配信は 1 本減らす(url_pick.HEAT_ONE_ON)
         picked = pick_candidates(marks, a["n"] - 1 if low else a["n"], a["t0"], a["offset"], a["first"], end, taken)
@@ -1307,21 +1282,10 @@ class Archiver(LX.Patrol):
             self._after_set(rc, rec, state="none", jobs=[], picked=[],
                             message="録画の頭から配信の終わりまでに採用できる候補がありませんでした(アーカイブの候補 %d 件・範囲 %d 秒)" % (cands, int(end - a["first"])))
             return True
-        jobs_, done, errs = [], [], []
-        for k, (x, y, m) in enumerate(picked, 1):
+        def more(k, m):
             label = (m.get("label") or "").strip() or (_url_pick.HEAT_LABEL if id(m) in heat_ids else "アーカイブの山 %d" % k)
-            body = {"recorder": rc, "recording": rec, "start": LX.epoch_iso(x), "end": LX.epoch_iso(y), "label": label[:LX.LABEL_MAX],
-                    "origin": "archive", "after": AFTER_FLOW}
-            try:
-                res = self.adopt(body, hold="archive")
-            except LX.LiveError as e:
-                errs.append(str(e)[:160])
-                continue
-            j = (res or {}).get("job") or {}
-            if j.get("id"):
-                jobs_.append(j["id"])
-            done.append({"start": round(x - a["first"], 3), "end": round(y - a["first"], 3), "score": m.get("score"), "archiveStart": m.get("start"),
-                         "existing": bool((res or {}).get("existing")), **({"heat": True} if id(m) in heat_ids else {})})
+            return label[:LX.LABEL_MAX], {}, ({"heat": True} if id(m) in heat_ids else {})
+        jobs_, done, errs = self._adopt_each(rc, rec, a, picked, more)
         if not jobs_:
             raise ArchiveError("自動で採用できませんでした: %s" % (errs[0] if errs else "理由は分かりません"))
         self._after_set(rc, rec, state="export", jobs=jobs_, picked=done, skipped=errs, low=low,
@@ -1337,13 +1301,7 @@ class Archiver(LX.Patrol):
         穴の中(候補の区間の半分以上か山が穴)のアーカイブの候補を点数の順に、届けた分(置き場の採用・書き出し済み)と重ねずに n 本、
         M1 の採用(origin archive・hold archive・label live_batch.FILL_LABEL・batch {kind: fill, hole})。候補が足りなければ足りるだけ"""
         holes = [(float(x), float(y)) for x, y in fill.get("holes") or [] if schemas.is_num(x) and schemas.is_num(y) and y > x]
-        try:
-            got = self.taken(rc, rec)
-        except Exception:   # noqa: BLE001
-            got = None
-        taken = [(a["first"] + m["start"], a["first"] + m["end"]) for m in got or []
-                 if isinstance(m, dict) and m.get("status") in ("adopted", "exported") and schemas.is_num(m.get("start")) and schemas.is_num(m.get("end"))]
-        end = a["end"] if schemas.is_num(a.get("end")) else a["last"] - LX.READY_PAD
+        taken, end = self._adopt_range(rc, rec, a)
 
         def hole_of(m):   # 穴の中の候補なら、その穴(録画の頭からの秒)
             s0, s1 = a["t0"] + m["start"] - a["offset"] - a["first"], a["t0"] + m["end"] - a["offset"] - a["first"]
@@ -1355,31 +1313,16 @@ class Archiver(LX.Patrol):
         inside = [m for m in marks if isinstance(m, dict) and schemas.is_num(m.get("start")) and schemas.is_num(m.get("end")) and hole_of(m)]
         lo = min(a["first"], a["t0"] - a["offset"])   # 遅れて始まった頭はアーカイブの頭から(録画の秒で負。入口の採用が正本とジョブだけを作る)
         picked = pick_candidates(inside, int(fill["n"]), a["t0"], a["offset"], lo, end, taken)
-        jobs_, done, errs = [], [], []
-        for x, y, m in picked:
+        def more(_k, m):
             h = hole_of(m)
-            body = {"recorder": rc, "recording": rec, "start": LX.epoch_iso(x), "end": LX.epoch_iso(y), "label": _live_batch.FILL_LABEL,
-                    "origin": "archive", "after": AFTER_FLOW, "batch": {"kind": "fill", "hole": [h[0], h[1]]}}
-            try:
-                res = self.adopt(body, hold="archive")
-            except LX.LiveError as e:
-                errs.append(str(e)[:160])
-                continue
-            j = (res or {}).get("job") or {}
-            if j.get("id"):
-                jobs_.append(j["id"])
-            done.append({"start": round(x - a["first"], 3), "end": round(y - a["first"], 3), "score": m.get("score"), "archiveStart": m.get("start"),
-                         "existing": bool((res or {}).get("existing")), "fill": True})
-        msg = "録れなかった所の分: %d 本のうち %d 本を採用しました(穴の中のアーカイブの候補 %d 件)" % (int(fill["n"]), len(jobs_), len(inside)) + \
+            return _live_batch.FILL_LABEL, {"batch": {"kind": "fill", "hole": [h[0], h[1]]}}, {"fill": True}
+        jobs_, done, errs = self._adopt_each(rc, rec, a, picked, more)
+        msg ="録れなかった所の分: %d 本のうち %d 本を採用しました(穴の中のアーカイブの候補 %d 件)" % (int(fill["n"]), len(jobs_), len(inside)) + \
               ("(%d 本は採用できませんでした: %s)" % (len(errs), errs[0]) if errs else "")
         self.log("リアルタイム切り抜き: %s %s" % (rec, msg))
         if not jobs_:
             self._after_set(rc, rec, state="measured", jobs=[], picked=[], fill=dict(fill, adopted=0), message=msg)
-            if self.after:
-                try:
-                    self.after(rc, rec)
-                except Exception:
-                    pass
+            self._call_after(rc, rec)
             return True
         self._after_set(rc, rec, state="export", jobs=jobs_, picked=done, skipped=errs, fill=dict(fill, adopted=len(jobs_)), message=msg)
         return True
@@ -1411,12 +1354,51 @@ class Archiver(LX.Patrol):
         self._after_set(rc, rec, state="done", message="%d 本のうち %d 本を文字起こし → パックへ渡しました" % (len(a.get("jobs") or []), handed) +
                         ("(失敗 %d 本。「調子」の失敗の一覧に出ます)" % len(bad) if bad else ""))
         self.log("リアルタイム切り抜き: 配信後の自動の切り抜きが済みました %s(%d 本を渡しました)" % (rec, handed))
+        self._call_after(rc, rec)   # 消してよければ録画を消す(消すのを待っていた = after_stream_hold)
+        return True
+
+    def _call_after(self, rc, rec):
+        """after(録画元, 録画) を呼ぶ(消してよければ録画を消す)。失敗しても配信後の全自動は止めない"""
         if self.after:
             try:
-                self.after(rc, rec)   # 消してよければ録画を消す(消すのを待っていた = after_stream_hold)
-            except Exception:
+                self.after(rc, rec)
+            except Exception:   # noqa: BLE001
                 pass
-        return True
+
+    def _adopt_range(self, rc, rec, a, log=False):
+        """配信後の全自動の採用で重ねない区間と範囲の終わり -> (taken [(絶対時刻, 絶対時刻)], end)。
+        taken = 録画の、もう採用・書き出し済みのマーク(人が付けたもの・配信中の自動。置き場から読む = G3。読めなければ重ねる物なし = 今までどおり)。
+        log: 読めなかったことを記録に残す。end = afterStream の end(前の版の記録 = end なしは録画の終わりまで)"""
+        try:
+            got = self.taken(rc, rec)
+        except Exception as e:   # noqa: BLE001
+            if log:
+                self.log("リアルタイム切り抜き: 録画の採用を読めませんでした(重ねない区間なしで続けます): %r" % (e,))
+            got = None
+        taken = [(a["first"] + m["start"], a["first"] + m["end"]) for m in got or []
+                 if isinstance(m, dict) and m.get("status") in ("adopted", "exported") and schemas.is_num(m.get("start")) and schemas.is_num(m.get("end"))]
+        end = a["end"] if schemas.is_num(a.get("end")) else a["last"] - LX.READY_PAD
+        return taken, end
+
+    def _adopt_each(self, rc, rec, a, picked, more):
+        """選んだ候補 [(a, b, マーク)] を 1 本ずつ M1 の採用(origin archive・hold archive)に頼む。
+        more(番号, マーク) -> (label, 頼む束に足す欄, picked に残す欄)。-> (ジョブの id, 採用した物 picked, 断られた理由)"""
+        jobs_, done, errs = [], [], []
+        for k, (x, y, m) in enumerate(picked, 1):
+            label, extra, mark = more(k, m)
+            body = {"recorder": rc, "recording": rec, "start": LX.epoch_iso(x), "end": LX.epoch_iso(y), "label": label,
+                    "origin": "archive", "after": AFTER_FLOW, **extra}
+            try:
+                res = self.adopt(body, hold="archive")
+            except LX.LiveError as e:
+                errs.append(str(e)[:160])
+                continue
+            j = (res or {}).get("job") or {}
+            if j.get("id"):
+                jobs_.append(j["id"])
+            done.append({"start": round(x - a["first"], 3), "end": round(y - a["first"], 3), "score": m.get("score"), "archiveStart": m.get("start"),
+                         "existing": bool((res or {}).get("existing")), **mark})
+        return jobs_, done, errs
 
     def after_stream_hold(self, rc, r):
         """録画を自動で消すのを待つ理由(src/manage/keep/live_cleanup.py から。r = 録画元の一覧の 1 行)。待たなくてよければ ""。
@@ -1440,8 +1422,8 @@ class Archiver(LX.Patrol):
 
     def _rec_holes(self, rc, rec, a):
         """録画の欠け(つなぎ直しの間・止めていた間)-> [(から, まで)](録画の頭からの秒。EV-1 の compare が外して数える)。
-        録画元の /segments を HOLE_CHUNK ずつ聞いて gaps を集める(LX.rec_gaps)。つながらない・読めない・録画が無ければ None(compare は欠けを知らないまま数える)"""
-        return LX.rec_gaps(self.ex._query, rc, rec, a.get("first"), a.get("last"), HOLE_CHUNK)
+        録画元の /segments を 2 時間ずつ聞いて gaps を集める(LX.rec_gaps)。つながらない・読めない・録画が無ければ None(compare は欠けを知らないまま数える)"""
+        return LX.rec_gaps(self.ex._query, rc, rec, a.get("first"), a.get("last"))
 
     def after_failures(self, now=None):
         """配信後の全自動の失敗(「調子」の失敗の一覧に足す。文は src/flow/live_failures.py の after_stream_failure)"""
@@ -1505,7 +1487,7 @@ class Archiver(LX.Patrol):
             self._aset(job, offset=round(off, 3), offsetFrom=how)
             folder, base, title = self.ex.target(job, d, rec, a, b, at=(ast, ast + dur))   # 名前 = アーカイブの秒(照合のあと。10-29)
             tdir = os.path.join(folder, schemas.WORK_DIR, BUILD_DIR, job["id"])
-            if not inside(tdir, root):
+            if not fsio.is_inside(tdir, root, strict=True):
                 raise ArchiveError("書き出し先の外には書けません")
             tmp = os.path.join(tdir, base + ".mp4")
             shutil.rmtree(tdir, ignore_errors=True)
@@ -1536,16 +1518,10 @@ class Archiver(LX.Patrol):
         except Later as e:
             after = e.after if e.after is not None else self.retry_sec
             self._aset(job, state="wait", message=str(e), progress=0, retryAt=time.time() + after)
-        except (LX.LiveError, normalize.NormalizeError) as e:
-            self._aset(job, state="error", message=str(e), progress=0)
-            self._end_job(job, "error", str(e))
-        except OSError as e:
-            self._aset(job, state="error", message="書けませんでした: %s" % tools.why(e), progress=0)
-            self._end_job(job, "error", "書けませんでした: %s" % tools.why(e))
         except Exception as e:
-            self.log("リアルタイム切り抜き: アーカイブからの書き出しでエラー %r" % (e,))
-            self._aset(job, state="error", message="内部エラー: %s" % e.__class__.__name__, progress=0)
-            self._end_job(job, "error", "内部エラー: %s" % e.__class__.__name__)
+            msg = LX.fail_text(e, self.log, "アーカイブからの書き出し")
+            self._aset(job, state="error", message=msg, progress=0)
+            self._end_job(job, "error", msg)
         finally:
             self._cancel.discard(job["id"])
             shutil.rmtree(wdir, ignore_errors=True)
@@ -1562,8 +1538,7 @@ class Archiver(LX.Patrol):
         1. マークの頭の手前(無ければ頭から)の録画の音を照合する(同じセッション。照合できたら aligned = ほかのマークの見当にも使う)
         2. だめなら同じ録画の照合できたマーク(前にある・近いもの)/ 3. 配信後の全自動(M7)が求めた録画のずれ。どれも無ければ最初の理由で ArchiveError"""
         rc, rec = job["recorder"], job["recording"]
-        with self.lock:
-            i = dict(self.info.get(self.key(rc, rec)) or {})
+        i = self._info(rc, rec)
         prev = self._nearest_offset(job, need=False, same_video=True)
         hint = prev if prev is not None else (i.get("afterStream") or {}).get("offset")
         hint = hint if schemas.is_num(hint) else None
@@ -1658,9 +1633,9 @@ class Archiver(LX.Patrol):
                 self._aset(job, message="照合しています(見当の前後 %d 秒)" % int(w))
             r = self.align(ref, win) or {}
             fsio.unlink_quiet(win)
-            if r.get("ok") and (r.get("score") or 0) >= MIN_SCORE and (r.get("ratio") or 0) >= MIN_RATIO:
+            ok, why = align_ok(r)
+            if ok:
                 return w0, w1, r
-            why = r.get("reason") if not r.get("ok") else "確かさ %.2f・%.1f 倍" % (r.get("score") or 0, r.get("ratio") or 0)
         return None, None, why
 
     def _check_media(self, path, dur):

@@ -223,14 +223,12 @@ def kind_of(d):
 
 
 def _newest(d):
-    t = 0.0
+    """フォルダ d の直下のファイルの一番新しい更新時刻(ミリ秒。無い・読めなければ None)"""
     try:
-        for e in os.scandir(d):
-            if e.is_file():
-                t = max(t, e.stat().st_mtime)
+        t = fsio.newest_mtime(d)
     except OSError:
-        pass
-    return int(t * 1000) or None
+        return None
+    return int(max(t or 0.0, 0.0) * 1000) or None
 
 
 def context(sync_folder, version):

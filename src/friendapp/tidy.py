@@ -97,18 +97,11 @@ def _newest_mtime(path, limit=20000):
         return None
     if not os.path.isdir(lp):
         return best
-    n = 0
-    for root, dirs, files in os.walk(lp):
-        dirs[:] = [d for d in dirs if not _fsio.is_link(os.path.join(root, d))]
-        for f in files:
-            n += 1
-            if n > limit:
-                return best
-            try:
-                best = max(best, os.stat(os.path.join(root, f)).st_mtime)
-            except OSError:
-                continue
-    return best
+    try:
+        m = _fsio.newest_mtime(lp, recursive=True, skip_links=True, limit=limit)
+    except OSError:
+        return best
+    return best if m is None else max(best, m)
 
 
 def _size_or_0(path):

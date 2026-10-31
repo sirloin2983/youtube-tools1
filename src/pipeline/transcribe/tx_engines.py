@@ -30,6 +30,7 @@ import math
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -209,11 +210,7 @@ _HF = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/"
 WCPP_MODELS = {   # モデルの名前 → ggml のファイル(Hugging Face の ggerganov/whisper.cpp。大きさと SHA-256 は API の値)
     "large-v3": {"file": _txbase.WCPP_MODEL_FILES["large-v3"], "url": _HF + "ggml-large-v3.bin", "size": 3095033483,
                  "sha256": "64d182b440b98d5203c4f9bd541544d84c605196c4f7b845dfa11fb23594d1e2"},
-}   # 主の文字起こしのモデルは large-v3 だけ
-WCPP_VAD = {"file": "ggml-silero-v6.2.0.bin", "url": "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v6.2.0.bin", "size": 885098,
-            "sha256": "2aa269b785eeb53a82983a20501ddf7c1d9c48e33ab63a41391ac6c9f7fb6987"}   # 声の検出(Silero v6.2。計画の 3)
-# ↑ whisper.cpp 自身の声の検出(--vad。TRANSCRIBE_WCPP_VAD=1)は使わない = 編集は取得しない。
-#   定数は入口の pipeline/transcribe/live_tx_worker.py が名前を参照しているので残す(fetch_file の固定の形の例としても test_whispercpp が確かめる)
+}   # 主の文字起こしのモデルは large-v3 だけ。whisper.cpp 自身の声の検出(--vad・Silero)は使わない = 声の検出のモデルは取得しない
 WCPP_EXE = _txbase.WCPP_EXE
 _GPU_LINE = re.compile(r"whisper_backend_init_gpu: (?:using (.+?) backend|no GPU found)")
 _PROGRESS = re.compile(r"progress\s*=\s*(\d+)%")
@@ -735,10 +732,29 @@ def parse_json(data, dtw_shift=None, dtw_counts=None, duration=None):
         for i in range(len(words) - 1) if dtw_shift is not None else ():   # 行の中の単語どうしも同じ
             if words[i].end > words[i + 1].start >= words[i].start:
                 words[i].end = words[i + 1].start
-        out.append(types.SimpleNamespace(start=a, end=max(a, b), text=text, words=words,
-                                         avg_logprob=(sum(lps) / len(lps)) if lps else None, no_speech_prob=None,
-                                         compression_ratio=(len(raw) / len(zlib.compress(raw))) if raw else None))
+        out.append(_row(a, max(a, b), text, words, lps, raw))
     return out
+
+
+def _row(start, end, text, words=None, lps=None, raw=None):
+    """whisper の 1 行の形(faster-whisper と同じ属性)。avg_logprob = lps(確率の対数)の平均・compression_ratio = raw(既定 = text のバイト列)の zlib の圧縮率"""
+    raw = text.encode("utf-8") if raw is None else raw
+    return types.SimpleNamespace(start=start, end=end, text=text, words=[] if words is None else words,
+                                 avg_logprob=(sum(lps) / len(lps)) if lps else None, no_speech_prob=None,
+                                 compression_ratio=(len(raw) / len(zlib.compress(raw))) if raw else None)
+
+
+def _hot_terms(kw):
+    """用語のヒント kw["hotwords"](「,」区切りの文字)-> 語の一覧(前後の空白を除き、空の語は捨てる)"""
+    return [t.strip() for t in str(kw.get("hotwords") or "").split(",") if t.strip()]
+
+
+def _pcm16(samples):
+    """float(-1〜1)のサンプル → 16bit(リトルエンディアン)のバイト列。numpy の配列はそのメソッドで・ほかの一覧(テストなど)は 1 つずつ"""
+    try:
+        return (samples.clip(-1.0, 1.0) * 32767.0).astype("<i2").tobytes()
+    except AttributeError:
+        return struct.pack("<%dh" % len(samples), *[int(max(-1.0, min(1.0, x)) * 32767) for x in samples])
 
 
 def _ms(v):
@@ -755,16 +771,7 @@ def _wav_seconds(path):
 
 def _write_wav(path, samples):
     """float32(-1〜1)のサンプル → 16kHz・モノラル・16bit の wav(path はファイルのパスか書ける入れ物。numpy は呼ぶ側の配列のメソッドだけ使う)"""
-    import array
-    try:
-        ints = (samples.clip(-1.0, 1.0) * 32767.0).astype("<i2").tobytes()
-    except AttributeError:   # numpy でない一覧(テスト)
-        ints = array.array("h", [int(max(-1.0, min(1.0, x)) * 32767) for x in samples]).tobytes()
-        if sys.byteorder != "little":
-            a = array.array("h")
-            a.frombytes(ints)
-            a.byteswap()
-            ints = a.tobytes()
+    ints = _pcm16(samples)
     with wave.open(path, "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(2)
@@ -925,12 +932,18 @@ class _Qwen3Chunked(Engine):
     def params(self):
         return list(self.PARAMS)
 
+    def __del__(self):   # 子プロセスを持つ子(HaasSpeechCpp・LlamaQwen3 の close)は捨てる時に止める。close の無い子(Haas)は何もしない
+        try:
+            self.close()
+        except Exception:
+            pass
+
     def _decode(self, samples, lang, hot, max_tokens):
         raise NotImplementedError
 
     def _setup(self, kw):
         """区切りを読む前に 1 回 -> (情報の language, 区切りごとに _chunk_rows へ渡すもの)。Qwen3 = 言語の名前とヒントの語"""
-        hot = ",".join(t.strip() for t in str(kw.get("hotwords") or "").split(",") if t.strip())
+        hot = ",".join(_hot_terms(kw))
         return kw.get("language") or "ja", (Q3_LANG.get(str(kw.get("language") or ""), ""), hot)
 
     def _chunk_rows(self, x, c0, c1, rms, ctx):
@@ -960,12 +973,7 @@ class _Qwen3Chunked(Engine):
 
     def _chunk_segs(self, x, c0, c1, rms, ctx):
         """区切り [c0, c1) の行(whisper の 1 行の形)の並び。既定 = _chunk_rows の (始め, 終わり, 文字) を words なしの行に(Haas は words つきの 1 行)"""
-        out = []
-        for t0, t1, line in self._chunk_rows(x, c0, c1, rms, ctx):
-            raw = line.encode("utf-8")
-            out.append(types.SimpleNamespace(start=t0, end=t1, text=line, words=[], avg_logprob=None, no_speech_prob=None,
-                                             compression_ratio=len(raw) / len(zlib.compress(raw))))
-        return out
+        return [_row(t0, t1, line) for t0, t1, line in self._chunk_rows(x, c0, c1, rms, ctx)]   # 行は空でない(q3_rows)
 
 
 # ---- llama.cpp(Vulkan)で Qwen3-ASR 1.7B(段2-3)
@@ -1052,11 +1060,7 @@ def haas_segment(toks, ts, du, lp, s0):
         words.append(types.SimpleNamespace(start=round(a + s0, 3), end=round(max(b, a) + s0, 3), word=t,
                                            probability=math.exp(lp[k]) if k < len(lp) and lp else None))
     words[0].word = words[0].word.lstrip()
-    text = "".join(toks).strip()
-    raw = text.encode("utf-8")
-    return types.SimpleNamespace(start=words[0].start, end=words[-1].end, text=text, words=words,
-                                 avg_logprob=(sum(lp) / len(lp)) if lp else None, no_speech_prob=None,
-                                 compression_ratio=len(raw) / len(zlib.compress(raw)) if raw else None)
+    return _row(words[0].start, words[-1].end, "".join(toks).strip(), words, lp)
 
 
 class Haas(_Qwen3Chunked):
@@ -1172,6 +1176,37 @@ def second_names(text, hot, members):
     return list(dict.fromkeys(add))
 
 
+def _errlog_text(el):
+    """子プロセスの一時ログ el(NamedTemporaryFile)の中身(読めない・閉じた後は "")"""
+    try:
+        with open(el.name, "rb") as f:
+            return f.read().decode("utf-8", errors="replace")
+    except (OSError, AttributeError):
+        return ""
+
+
+def _log_tail(el, n, color=False):
+    """一時ログ el の空でない最後の n 行を 1 行に(300 字まで。color = 色の制御文字を除く)"""
+    lines = [re.sub(r"\x1b\[[0-9;]*m", "", x) if color else x for x in _errlog_text(el).splitlines() if x.strip()]
+    return " / ".join(lines[-n:])[-300:]
+
+
+def _drop_job_log(o):
+    """子プロセスを止めた後の後始末: ジョブ o.job を閉じ、一時ログ o.errlog を消す(SpeechWorker と LlamaQwen3 の close)"""
+    j = getattr(o, "job", None)
+    if j is not None:
+        j.close()
+    o.job = None
+    el = getattr(o, "errlog", None)
+    if el is not None:
+        try:
+            el.close()
+            os.unlink(el.name)
+        except OSError:
+            pass
+    o.errlog = None
+
+
 class SpeechWorker:
     """`speech worker` の子プロセス 1 つ(JSON Lines)。cmd = 起動の引数のリスト(テストは偽の worker に差し替える)"""
 
@@ -1187,7 +1222,7 @@ class SpeechWorker:
         threading.Thread(target=self._pump, daemon=True, name="speech-worker-out").start()
         self.ready = self._read(SPEECH_START_SEC, cancelled)
         if self.ready.get("type") != "ready":
-            raise EngineError("engine_failed", "speech worker が起動できませんでした: %s" % (self.ready.get("message") or self._log_tail())[:300])
+            raise EngineError("engine_failed", "speech worker が起動できませんでした: %s" % (self.ready.get("message") or _log_tail(self.errlog, 4))[:300])
 
     def _pump(self):
         for line in self.proc.stdout:
@@ -1211,7 +1246,7 @@ class SpeechWorker:
                     self._cond.wait(0.5)
                 line = self._lines.pop(0)
             if line is None:
-                raise EngineError("worker_down", "speech worker が終わりました: %s" % self._log_tail())
+                raise EngineError("worker_down", "speech worker が終わりました: %s" % _log_tail(self.errlog, 4))
             try:
                 m = json.loads(line)
             except ValueError:
@@ -1241,21 +1276,9 @@ class SpeechWorker:
             raise EngineError("engine_failed", "speech worker が読めませんでした: %s" % str(r.get("message") or r)[:300])
         return r
 
-    def _log_tail(self, n=4):
-        try:
-            with open(self.errlog.name, "rb") as f:
-                lines = [x for x in f.read().decode("utf-8", errors="replace").splitlines() if x.strip()]
-        except (OSError, AttributeError):
-            return ""
-        return " / ".join(lines[-n:])[-300:]
-
     def device_line(self):
         """起動の記録の「… on Vulkan0, ready」の機器の名前(無ければ "")"""
-        try:
-            with open(self.errlog.name, "rb") as f:
-                m = re.search(r" on ([^,\r\n]+), ready", f.read().decode("utf-8", errors="replace"))
-        except (OSError, AttributeError):
-            return ""
+        m = re.search(r" on ([^,\r\n]+), ready", _errlog_text(self.errlog))
         return m.group(1).strip() if m else ""
 
     def close(self):
@@ -1276,18 +1299,7 @@ class SpeechWorker:
             except OSError:
                 pass
         self.proc = None
-        j = getattr(self, "job", None)
-        if j is not None:
-            j.close()
-        self.job = None
-        el = getattr(self, "errlog", None)
-        if el is not None:
-            try:
-                el.close()
-                os.unlink(el.name)
-            except OSError:
-                pass
-        self.errlog = None
+        _drop_job_log(self)
 
 
 class HaasSpeechCpp(_Qwen3Chunked):
@@ -1361,14 +1373,14 @@ class HaasSpeechCpp(_Qwen3Chunked):
             raise EngineError("gpu_failed", "GPU(Vulkan)を使えませんでした(%s)。GPU のドライバを確かめるか、処理方式を「CPU」にしてください" % dev[:60])
 
     def _setup(self, kw):
-        return "ja", [t.strip() for t in str(kw.get("hotwords") or "").split(",") if t.strip()]
+        return "ja", _hot_terms(kw)
 
     def transcribe(self, audio, **kw):
         """区切りごとに読む(_Qwen3Chunked)。名前の候補があり、1 回目の字に名簿のほかの人の短い呼び名が何度も出たら、長い呼び名を足して 2 回目を読む(P30)。
         info.second_names = 足した名前(無ければ [])"""
         gen, info = super().transcribe(audio, **kw)
         info.second_names = []
-        hot = [t.strip() for t in str(kw.get("hotwords") or "").split(",") if t.strip()]
+        hot = _hot_terms(kw)
         if not hot or not SECOND_READ:
             return gen, info
         segs = list(gen)
@@ -1400,13 +1412,7 @@ class HaasSpeechCpp(_Qwen3Chunked):
 
     def _chunk_segs(self, x, c0, c1, rms, hot):
         f = int(16000 * Q3_FRAME)
-        seg = x[c0 * f:c1 * f]
-        try:
-            import numpy as np
-            pcm = (np.clip(seg, -1.0, 1.0) * 32767).astype("<i2").tobytes()
-        except ImportError:   # numpy が無い(テストの子プロセスなど): 1 つずつ
-            import struct
-            pcm = struct.pack("<%dh" % len(seg), *[int(max(-1.0, min(1.0, v)) * 32767) for v in seg])
+        pcm = _pcm16(x[c0 * f:c1 * f])
         opt = {"timestamps": True}
         if hot:
             opt["keywords"] = "\n".join(hot)
@@ -1424,22 +1430,13 @@ class HaasSpeechCpp(_Qwen3Chunked):
             words[0].start = round(words[1].start - HEAD_TOKEN_BACK, 3)   # 区切りの頭に付いた最初のトークンを次の近くへ(P36 (イ)= 黙っている間の字幕が半分)
             words[0].end = max(words[0].end, words[0].start)
         lp = [math.log(max(w.probability, 1e-9)) for w in words if w.probability is not None]
-        raw = text.encode("utf-8")
-        return [types.SimpleNamespace(start=words[0].start, end=words[-1].end, text=text, words=words,
-                                      avg_logprob=(sum(lp) / len(lp)) if lp else None, no_speech_prob=None,
-                                      compression_ratio=len(raw) / len(zlib.compress(raw)))]
+        return [_row(words[0].start, words[-1].end, text, words, lp)]
 
     def close(self):
         m = getattr(self, "model", None)
         if m is not None:
             m.close()
         self.model = None
-
-    def __del__(self):
-        try:
-            self.close()
-        except Exception:
-            pass
 
 
 # 24 にすると、当時の PC(13900KF)では起動の途中でよく落ちた。GPU に載せるので CPU のスレッドはほぼ効かず、既定は 8 のまま。
@@ -1564,7 +1561,7 @@ class LlamaQwen3(_Qwen3Chunked):
                 raise EngineError("cancelled", "中止しました")
             rc = self.proc.poll()
             if rc is not None:
-                tail = self._log_tail()
+                tail = _log_tail(self.errlog, 6, color=True)
                 self.close()
                 raise EngineError("engine_failed", "llama-server が起動の途中で止まりました(終了コード %s): %s" % (rc, tail))
             try:
@@ -1580,22 +1577,11 @@ class LlamaQwen3(_Qwen3Chunked):
             time.sleep(0.3)
         self._check_gpu()
 
-    def _log_text(self):
-        try:
-            with open(self.errlog.name, "rb") as f:
-                return f.read().decode("utf-8", errors="replace")
-        except (OSError, AttributeError):
-            return ""
-
-    def _log_tail(self, n=6):
-        lines = [re.sub(r"\x1b\[[0-9;]*m", "", x) for x in self._log_text().splitlines() if x.strip()]   # 色の制御文字を除く
-        return " / ".join(lines[-n:])[-300:]
-
     def _check_gpu(self):
         """GPU を頼んだのに Vulkan に載っていなければ止める(黙って CPU で動いた結果を「GPU」として残さない)"""
         if self.device != "vulkan":
             return
-        log = self._log_text()
+        log = _errlog_text(self.errlog)
         m = re.search(r"Vulkan\d+ \(([^)]+)\)", log) or re.search(r"Vulkan\d+: ([^(\r\n]+)", log)
         if m:
             self.gpu_name = m.group(1).strip()
@@ -1612,24 +1598,7 @@ class LlamaQwen3(_Qwen3Chunked):
             except subprocess.TimeoutExpired:
                 pass
         self.proc = None
-        j = getattr(self, "job", None)
-        if j is not None:
-            j.close()
-        self.job = None
-        el = getattr(self, "errlog", None)
-        if el is not None:
-            try:
-                el.close()
-                os.unlink(el.name)
-            except OSError:
-                pass
-        self.errlog = None
-
-    def __del__(self):
-        try:
-            self.close()
-        except Exception:
-            pass
+        _drop_job_log(self)
 
     def _retry(self, fn):
         """fn() を呼ぶ。server が落ちていたら(長い測定の途中で落ちることがある)起動し直して1回だけやり直す"""
@@ -1655,7 +1624,7 @@ class LlamaQwen3(_Qwen3Chunked):
         import urllib.error
         import urllib.request
         if self.proc is None or self.proc.poll() is not None:
-            raise EngineError("server_down", "llama-server が止まっています: %s" % self._log_tail())
+            raise EngineError("server_down", "llama-server が止まっています: %s" % _log_tail(self.errlog, 6, color=True))
         req = urllib.request.Request("http://127.0.0.1:%d/v1/chat/completions" % self.port, json.dumps(payload).encode("utf-8"),
                                      {"Content-Type": "application/json", "Authorization": "Bearer " + self.key})
         try:
@@ -1665,7 +1634,7 @@ class LlamaQwen3(_Qwen3Chunked):
             raise EngineError("engine_failed", "llama-server が失敗しました(%s): %s" % (e.code, e.read()[:200].decode("utf-8", errors="replace")))
         except OSError as e:
             code = "server_down" if self.proc is None or self.proc.poll() is not None or isinstance(e, ConnectionError) else "engine_failed"
-            raise EngineError(code, "llama-server に届きませんでした: %s / %s" % (str(e)[:120], self._log_tail()))
+            raise EngineError(code, "llama-server に届きませんでした: %s / %s" % (str(e)[:120], _log_tail(self.errlog, 6, color=True)))
         return ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
 
     def _ask(self, samples, lang, hot, max_tokens):

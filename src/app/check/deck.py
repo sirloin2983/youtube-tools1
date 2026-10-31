@@ -165,6 +165,15 @@ def next_cards(ctx, case=None, kind=None, n=None, skip=None, lane=None):
             **({"sectionCards": section_mod.enabled()} if lane == "eval" else {})}
 
 
+def answer_next(ctx, card, held=None):
+    """答えた(か [分からない] にした)あとの次の 1 枚(画面へ出す形)か None。答えたカードと同じレーンから(EVAL_KINDS = 評価のレーン)。
+    held = 画面がまだ保留している・飛ばしたカードの id(文字列だけを MAX_SKIP_PARAM - 1 枚まで。答えたカードは必ず外す)"""
+    held = held if isinstance(held, list) else []
+    lane = "eval" if card.get("kind") in lineup.EVAL_KINDS else "normal"
+    nxt = next_cards(ctx, n=1, skip=[x for x in held if isinstance(x, str)][:MAX_SKIP_PARAM - 1] + [card["id"]], lane=lane)
+    return nxt["cards"][0] if nxt["cards"] else None
+
+
 def _remember(cards):
     """next で画面へ出したカード(サーバーが組んだ物。内側の鍵も持つ)を覚える。find が集め直しで読みに失敗したときだけ使う"""
     now = time.monotonic()

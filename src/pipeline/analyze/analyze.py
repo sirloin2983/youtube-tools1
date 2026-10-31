@@ -208,12 +208,10 @@ def parse_chat(path, n, extra=None, msgs=None):
             except (TypeError, ValueError):
                 continue
             if msgs is not None and t >= 0:   # 文字の書き込みの時刻と笑いの印(excite.rerank。研究と同じく配信の長さの後も数える)
-                for a in ra.get("actions") or []:
-                    item = (a.get("addChatItemAction") or {}).get("item") if isinstance(a, dict) else None
-                    if isinstance(item, dict) and item:
-                        f = excite.chat_text_flag(*next(iter(item.items())))
-                        if f:
-                            msgs.append((t, f == 2))
+                for kind, r in excite.chat_items(ra.get("actions")):
+                    f = excite.chat_text_flag(kind, r)
+                    if f:
+                        msgs.append((t, f == 2))
             if t < 0 or t >= n:
                 continue
             for r, w, warm, paid in excite.chat_messages(ra.get("actions")):   # 重み(「草」+1.5・スパチャ +4)は配信中の検出と同じ 1 か所
