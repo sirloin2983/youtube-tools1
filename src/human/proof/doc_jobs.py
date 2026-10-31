@@ -105,8 +105,8 @@ def validate_job(req):
     post = {"splitChars": split_chars_for(req, st),
             # 認識のあとの後処理(fill の A・C・D。既定オン)。要求に無ければ保存した設定 autoFill(明示の false だけオフ)。評価用には当てない
             "autoFill": pref("autoFill", default_on=True) and not ev,
-            # LLM の後処理(llm。名簿の呼び名の聞き違いらしい所だけ。既定オン = decisions 3-17)。評価用には当てない
-            "autoLlm": pref("autoLlm", default_on=True) and not ev,
+            # LLM の後処理(llm。名簿の呼び名の聞き違いらしい所だけ。10-31 から既定オフ = 誤った直しが多かったため。設定 autoLlm を true で戻る)。評価用には当てない
+            "autoLlm": pref("autoLlm", default_on=False) and not ev,
             # 行の頭の話者名(「名前:」)を外す(fill の B。既定オン)。評価用には当てない
             "stripNames": pref("stripNames", default_on=True) and not ev,
             "autoLearned": req.get("autoLearned") is True and not ev, "autoContext": req.get("autoContext") is True and not ev,

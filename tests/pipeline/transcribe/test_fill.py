@@ -91,7 +91,7 @@ class TestFillJobRun(StoreDir):
         return job
 
     def test_job_post_processing_is_recorded(self):
-        job = self.transcribe(autoContext=True, glossary="ホロライブ")
+        job = self.transcribe(autoContext=True, glossary="ホロライブ", autoLlm=True)
         doc = store.read_transcript(job["tid"])
         segs = doc["segments"]
         self.assertEqual([(g["start"], g["end"], g["text"]) for g in segs], [(0.0, 5.0, LONG), (4.5, 6.5, "テスト文2"), (6.5, 8.5, "テスト分3")])   # 続いている行はつなぐ・窓 = 前後 0.5 秒
@@ -114,10 +114,10 @@ class TestFillJobRun(StoreDir):
         self.assertEqual([g.get("fill") for g in saved["segments"]], [{"from": "テスト文1", "by": "sense-voice"}, None])
 
     def test_settings_and_eval_set(self):
-        """設定 autoFill・autoLlm・stripNames(既定オン): 要求が優先・保存した設定・評価用は全部オフ(用語集・文脈・辞書・学習も)"""
+        """設定 autoFill・autoLlm・stripNames(autoLlm だけ既定オフ): 要求が優先・保存した設定・評価用は全部オフ(用語集・文脈・辞書・学習も)"""
         base = {"sourcePath": self.video, "model": "small"}
         v = doc_jobs.validate_job(base)
-        self.assertEqual((v["autoFill"], v["autoLlm"], v["stripNames"], v["context"]), (True, True, True, {"members": [], "terms": []}))   # 配信ごとの文脈は既定オフ
+        self.assertEqual((v["autoFill"], v["autoLlm"], v["stripNames"], v["context"]), (True, False, True, {"members": [], "terms": []}))   # 配信ごとの文脈は既定オフ
         write_json(_workdata.SETTINGS, {"autoFill": False, "autoLlm": False})
         v = doc_jobs.validate_job(base)
         self.assertEqual((v["autoFill"], v["autoLlm"]), (False, False))

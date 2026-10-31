@@ -12,7 +12,7 @@
   4 当てる llm_apply   文書の行(segments)の文字を置き換え、fill = {"from": 元の文字, "by": "llm"} と印 LLM_FLAG を付ける(画面の「別の読み」の札で戻せる)。
                        機械の出力 original は変えない(精度の測定の正解との比べ方が変わらない)
 決まり(「守りを付けて先に入れて様子見」と decisions 3-17):
-  - 設定 autoLlm(既定オン。文字起こしの指定 validate_job)。評価用の文書には当てない
+  - 設定 autoLlm(10-31 から既定オフ。普段の切り抜きで誤った直しが多かったため、原因が分かるまで。true で戻る。文字起こしの指定 validate_job)。評価用の文書には当てない
   - 選んだ所が無ければ LLM を読み込まない(モデルは 5GB)。読めない・失敗したら文字起こしを失敗にせず、警告を出して認識の結果のまま
   - 生の提案・採否・断った理由は <id>.llm.json(LLM_SCHEMA)、数は recognition.runs[].llm
   - 学習(human/proof/learn.py の learn_events)は後処理が直した行(fill)を含むまとまりを材料にしない(機械の直しを「人の直し」として覚えない)

@@ -264,7 +264,7 @@ const OPT_CHECKS = [['boost', 'optBoost', null], ['autoDict', 'optAutoDict', tru
   ['autoGloss', 'optAutoGloss', true], ['autoContext', 'optAutoContext', false], ['autoLearned', 'optAutoLearned', false],
   ['autoAlt', 'optAutoAlt', false],
   ['autoFill', 'optAutoFill', true],   // autoFill = 認識のあとの後処理(文字の少ない行を別の読みで埋める。既定オン)
-  ['autoLlm', 'optAutoLlm', true],   // autoLlm = 名簿の呼び名の聞き違いらしい所だけを手元の LLM で直す(既定オン)
+  ['autoLlm', 'optAutoLlm', false],   // autoLlm = 名簿の呼び名の聞き違いらしい所だけを手元の LLM で直す(既定オフ(10-31 から。誤った直しが多かったため。true で戻る))
   ['stripNames', 'optStripNames', true]];   // stripNames = 行の頭の話者名(「名前:」)を外す(既定オン。欄は設定の画面だけ)
 /* 欄の無い鍵(認識の設定の自動の後処理 = 設定の画面にある)は、保存した設定 S.settings の値(無いときの扱い dv で既定)を使う */
 const checksOf = list => Object.fromEntries(list.map(([k, id, dv]) => {

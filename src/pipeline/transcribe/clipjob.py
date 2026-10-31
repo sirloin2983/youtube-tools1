@@ -32,7 +32,7 @@ def make_doc_rows(job, spec, wav, pairs, learned=None):
     if fill_read is not None:   # D: 別のエンジンも同じ呼び名なら 1 字違いを名簿の呼び名に(置換辞書のあと)
         fill_rec["agree"] = fill.fill_agree_doc(job, out["segs"], fill_read, total, spec)
     _heavy.check_cancel(job)
-    # E: 名簿の呼び名の聞き違いらしい所だけを LLM で直す(設定 autoLlm。P18。選んだ所が無ければ LLM を読み込まない・失敗しても警告だけ)
+    # E: 名簿の呼び名の聞き違いらしい所だけを LLM で直す(設定 autoLlm・10-31 から既定オフ。P18。選んだ所が無ければ LLM を読み込まない・失敗しても警告だけ)
     t_llm = time.monotonic()
     llm_rec, llm_items = llm.llm_after_doc(job, spec, out["segs"])
     _heavy.check_cancel(job)
