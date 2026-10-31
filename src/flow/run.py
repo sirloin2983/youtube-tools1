@@ -922,8 +922,8 @@ class Runner:
         """1 回の実行を段の順に進める(入口の糸 autorun._loop が run() を通して呼ぶ)。中止は Cancelled・失敗は StepError を上げる"""
         if run.resumed:   # 入口を起動し直して戻した実行(M5): ツールの準備を待つ
             self._await_tools(run)
-        if run.source_path:   # 依頼の動画(mode file): _file_<段>
-            return self._run_steps(run, lambda key, st: getattr(self, "_file_" + key)(run, st))
+        if run.source_path:   # 依頼の動画(mode file): _file_<段>。無い段(normalize・diarize)は配信と同じ _step_<段> を配信なし(v = None)で
+            return self._run_steps(run, lambda key, st: (getattr(self, "_file_" + key, None) or getattr(self, "_step_" + key))(run, st))
         if run.doc_id:   # 文書単位(⑦(b)): _doc_<段>
             return self._run_steps(run, lambda key, st: getattr(self, "_doc_" + key)(run, st))
         cur = [self._video(run)]   # 配信: _step_<段>。段が済むたびにスタジオの配信を読み直す
@@ -1344,8 +1344,8 @@ class Runner:
             tx["detail"] = ""
 
     # 文字起こし -------------------------------------------------
-    def _clips(self, v, run=None):
-        return [m for m in (self._mine(run, v) if run else v.get("marks") or []) if m.get("status") == "exported" and isinstance(m.get("path"), str) and m["path"]
+    def _clips(self, v, run):
+        return [m for m in self._mine(run, v) if m.get("status") == "exported" and isinstance(m.get("path"), str) and m["path"]
                 and os.path.isfile(m["path"])]
 
     def _step_transcribe(self, run, st, v):
@@ -1438,9 +1438,9 @@ class Runner:
         row_edge, wrap_out, cut_silence = _spec.pack_output(self._bundle(run))
         return row_edge, wrap_out, cut_silence, list(run.notes)
 
-    def _cut_method(self, run=None):
+    def _cut_method(self, run):
         """カットを決めていない文書のカットの方法(束の pack.cut。入口はホームの設定 autorun.cut から。既定はカットしない)"""
-        return (self._bundle(run) if run is not None else _spec.DEFAULTS)["pack"]["cut"]
+        return self._bundle(run)["pack"]["cut"]
 
     def _speaker_styles(self, run):
         """友人が指定した人ごとの字幕の見た目(束の hints.people の色。Run の欄 speakers の styles もここへ写っている)-> {名前: {"color": "#RRGGBB"}}(無ければ {})。
@@ -1720,9 +1720,6 @@ class Runner:
             st["detail"] += "。失敗した %d 本: %s" % (len(bad), str(bad[0])[:120])
         return None
 
-    def _file_diarize(self, run, st):
-        return self._step_diarize(run, st)
-
     # 依頼の動画(mode file) -------------------------------------
     def _step_normalize(self, run, st, v=None):
         """動画ファイルの実行の最初: 作業データへ写した動画が 30fps(H.264・yuv420p・AAC)でなければ、写しを作り直して置き換える
@@ -1846,9 +1843,6 @@ class Runner:
         self._checkpoint(run)
         st["detail"] = "30fps にそろえました(文字起こしと並べて)"
         self.log("30fps にそろえました(文字起こしと並べて): %s" % run.title)
-
-    def _file_normalize(self, run, st):
-        return self._step_normalize(run, st)
 
     def _file_pack(self, run, st):
         if not run.doc_id:

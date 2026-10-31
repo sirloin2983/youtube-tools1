@@ -62,7 +62,6 @@ QUALITIES = ("best", "1080p", "720p")     # src/pipeline/ingest/rec_core.py の 
 DEFAULT_QUALITY = "1080p"
 YT_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be")   # src/pipeline/ingest/rec_core.py の YT_HOSTS と同じ
 URL_MAX = 500
-LIVE_STATUSES = ("is_live", "is_upcoming", "was_live", "not_live", "post_live")   # yt-dlp の live_status
 PROBE_TIMEOUT = 25.0     # yt-dlp で配信の状態を調べる時間切れ(秒)
 CHANNEL_MAX = 100        # チャンネル名の長さ(スタジオの配信の channel と同じ)
 STATUS_TIMEOUT = 1.5     # api/ytt/live の status: 録画元への問い合わせの時間切れ(全ツールのヘッダーが 10 秒ごとに呼ぶので短く)
@@ -144,7 +143,7 @@ def probe_live(url, timeout=PROBE_TIMEOUT):
     channel = _clean(parts[2], CHANNEL_MAX) if len(parts) > 4 else ""
     start = _epoch(parts[3]) if len(parts) > 4 and st == "is_live" else None   # 配信の前の release_timestamp は予定の時刻 = 使わない
     title = _clean(parts[-1], LX.TITLE_MAX) if len(parts) > 1 else ""
-    if st in LIVE_STATUSES:
+    if st in LX.LIVE_STATUSES:
         return {"status": st, "title": title, "channel": channel, "message": "", "id": vid, "start": start}
     err = r.err.decode("utf-8", "replace")
     if "will begin" in err or "Premieres in" in err:   # 古い yt-dlp は配信の前をエラーで返す
@@ -167,6 +166,11 @@ def _same_stream(a_url, b_url, b_id=""):
         return True
     v = LX.video_id_of(a_url)
     return bool(v) and v == LX.video_id_of(b_url or "", b_id or "")
+
+
+def _any_active(d):
+    """録画元の GET /live/list の答え d に録画中があるか(全体の active か、recordings のどれかの active が真)"""
+    return bool(d.get("active")) or any(isinstance(r, dict) and r.get("active") is True for r in d.get("recordings") or [])
 
 
 def recorder_data_dir(root):
@@ -833,7 +837,7 @@ class LiveSession:
         except Exception as e:   # 調べる部品の不具合でも、画面は今までどおりの解析へ進める
             self.log("リアルタイム切り抜き: 配信の状態を調べられませんでした %r" % (e,))
             info = {}
-        status = info.get("status") if info.get("status") in LIVE_STATUSES else "unknown"
+        status = info.get("status") if info.get("status") in LX.LIVE_STATUSES else "unknown"
         if not LX.video_id_of(url) and isinstance(info.get("id"), str) and LX.YT_ID_RE.match(info["id"]):
             url = "https://www.youtube.com/watch?v=" + info["id"]   # /@名前/live など: 動画の形にそろえる(配信中のチャットは動画の id で読む・同じ配信を二重に録らない)
         if status not in ("is_live", "is_upcoming"):
@@ -926,7 +930,7 @@ class LiveSession:
                 raise LX.LiveError("録画は消しました(ごみ箱へ移しました)。区間を変えた切り抜きは、録画が無いので作れません", 404)
             raise LX.LiveError("その録画はありません(録画元で消されたか、置き場所を変えたかもしれません)", 404)
         if code != 200 or not isinstance(d, dict):
-            raise LX.LiveError("録画元から思わぬ応答がありました(HTTP %s)" % code, 502)
+            raise LX.LiveError(LX.rec_http_error(code), 502)
         first = LX.iso_epoch(d.get("firstPdt"))   # 秒の 0 = 最初のセグメントの受信時刻(live_export.Exporter._base と同じ基準)
         if first is None:
             raise LX.LiveError("録画がまだ始まっていません(録画のデータが最初に届いてから書き出せます)", 409)
@@ -1010,7 +1014,7 @@ class LiveSession:
         """入口の終了で止める手元の録画元。リアルタイム切り抜きがオンか、この入口が起動した録画の部品が動いているときだけ(オフで人が別に起動したものは触らない)"""
         if self._own_proc() is None and not self.enabled():
             return None
-        return next((r for r in self.recorders() if is_local_url(r.get("url") or "")), None)
+        return self._local_rc()
 
     def local_recording(self, timeout=1.5):
         """入口の終了で止める手元の録画元が録画中か: True / False(録画していない・止める相手が無い)/ None(つながらない)。「すべて終了」の応答の知らせに使う"""
@@ -1020,7 +1024,7 @@ class LiveSession:
         code, d = self.call(rc, "GET", "/live/list", timeout=timeout)
         if code != 200 or not isinstance(d, dict):
             return None
-        return bool(d.get("active")) or any(isinstance(r, dict) and r.get("active") is True for r in d.get("recordings") or [])
+        return _any_active(d)
 
     def stop_recorder(self):
         """入口の終了で手元の録画の部品を止める。-> "none"(止める相手が無い・動いていない)|"quit"(静かに終わった)|
@@ -1082,7 +1086,7 @@ class LiveSession:
         ex = self._exporter
         if ex is not None:
             with ex.lock:
-                out["exporting"] = sum(1 for j in ex.jobs if j.get("state") in LX.ACTIVE or j.get("handoffWait") == "disk")   # Exporter.pending と同じ規則
+                out["exporting"] = sum(1 for j in ex.jobs if j.get("state") in LX.ACTIVE or j.get("handoffWait") == "disk")   # ACTIVE か空き待ち(Exporter.pending と違い、アーカイブを待つ from archive の wait も数える。11-01 の見直しの候補)
         return out
 
     def _local_rc(self, cfg=None):
@@ -1191,7 +1195,7 @@ class LiveSession:
         for i in range(KILL_RECHECK):
             code, d = self.call(rc, "GET", "/live/list", timeout=QUIT_TIMEOUT)
             if code == 200 and isinstance(d, dict):
-                if any(isinstance(r, dict) and r.get("active") is True for r in d.get("recordings") or []) or d.get("active"):
+                if _any_active(d):
                     self.log("録画の部品は録画中なので止めずに残します(ホームの終了)")
                     return True
                 return False
@@ -1267,7 +1271,7 @@ class LiveSession:
         cfg = self.cfg()
         if cfg.get("enabled") is not True:
             return "off"
-        if os.path.isfile(os.path.join(self.store_dir, "exports.json")) or cfg.get("autoAfterStream") is True or self.requests.all():   # 友人の依頼の録画(2-15)は M7 がオフでも
+        if os.path.isfile(os.path.join(self.store_dir, LX.JOBS_FILE)) or cfg.get("autoAfterStream") is True or self.requests.all():   # 友人の依頼の録画(2-15)は M7 がオフでも
             if self.exporter.pending():   # 入口を起動し直した: 途中の書き出しを続ける(空き待ちの受け渡しも。M4)
                 self.exporter.start()
             self.archiver.start()   # アーカイブからの書き出し: 途中のものを続ける・自動の見回り・配信後の全自動(M7)
@@ -1375,7 +1379,7 @@ class LiveSession:
                 row["message"] = ((d or {}).get("message") if isinstance(d, dict) else "") or "応答が正しくありません(HTTP %s)" % code
             out.append(row)
         failures = []   # 新しい順に MAX_LIST まで(文は LIVE の帯と同じ = live_failures)
-        if os.path.isfile(os.path.join(self.store_dir, "exports.json")):   # 書き出し・まとめて実行へ渡す・文字起こし・パック(M3。failure_of)
+        if os.path.isfile(os.path.join(self.store_dir, LX.JOBS_FILE)):   # 書き出し・まとめて実行へ渡す・文字起こし・パック(M3。failure_of)
             failures += self._guard("失敗の一覧を作れませんでした", self.exporter.failures, [])
         if self._archiver is not None:   # 配信後の全自動(M7)が止まった録画(after_stream_failure)
             failures += self._guard("配信後の自動の失敗を読めませんでした", self._archiver.after_failures, [])

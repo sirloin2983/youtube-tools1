@@ -74,6 +74,7 @@ VERSION = _version.VERSION   # 全体の版(ytt/version.py)
 TOOL = {"name": "ytt-live", "version": VERSION}
 MARKS_SCHEMA = "ytt-live-marks/v1"
 JOBS_SCHEMA = "ytt-live-exports/v1"
+JOBS_FILE = "exports.json"   # ジョブの記録(入口の作業データの live\。ライブ係も有無を見る)
 # 録画元との約束(id の形・時刻の書き方・動画の id)は ytt/recproto.py の 1 か所(録画の部品・配信中の検出のワーカーと同じ物)
 ID_RE = recproto.RECORDER_ID_RE   # 録画元の id
 REC_RE = recproto.REC_ID_RE       # 録画の id
@@ -81,6 +82,7 @@ MARK_RE = re.compile(r"^lm-[0-9a-f]{8,16}\Z")
 JOB_RE = re.compile(r"^lx-[0-9a-f]{8,16}\Z")
 SEG_URI_RE = recproto.SEG_URI_RE
 YT_ID_RE = recproto.YT_VID_RE
+LIVE_STATUSES = ("is_live", "is_upcoming", "was_live", "not_live", "post_live")   # yt-dlp の live_status(livesession の配信中か・live_archive の用意の確かめ)
 STUDIO_ID_RE = re.compile(r"^[\w-]{1,40}\Z", re.ASCII)              # スタジオの配信・マークの id(P3。POST /live/api/export の studio)
 NAME_FROM_STREAM = True    # 名前の時刻を配信の開始時刻(streamStart)から数える(10-29。False = 前の録画の頭から。アーカイブの秒が分かっていればいつもそれ)
 MAX_MARKS = 300            # 録画1本のマークの数
@@ -127,6 +129,24 @@ class LiveError(ValueError):
         self.code = code
 
 
+def fail_text(e, log, what):
+    """例外 -> 画面に出す失敗の文(LiveError・NormalizeError = その理由・OSError = 書けませんでした・ほか = log に残して内部エラー)。
+    what = 記録の文の中身(「書き出し」など)。書き出し(Exporter._process)とアーカイブ(live_archive の _process・_after_step)で同じ"""
+    if isinstance(e, (LiveError, normalize.NormalizeError)):
+        return str(e)
+    if isinstance(e, OSError):
+        return "書けませんでした: %s" % tools.why(e)
+    log("リアルタイム切り抜き: %sでエラー %r" % (what, e))
+    return "内部エラー: %s" % e.__class__.__name__
+
+
+def rec_http_error(code):
+    """録画元の答えが 200 でないときの文(404 = 録画が無い)。書き出し・アーカイブの時刻合わせ・ライブ係で同じ"""
+    if code == 404:
+        return "録画が見つかりません(録画元で消されたか、置き場所を変えたかもしれません)"
+    return "録画元から思わぬ応答がありました(HTTP %s)" % code
+
+
 # ---------- 時刻・名前(ytt の 1 か所。テストと live_archive・live_cleanup などがここの名前で読む) ----------
 iso_epoch, epoch_iso, now_iso, video_id_of = recproto.iso_epoch, recproto.epoch_iso, recproto.now_iso, recproto.video_id_of
 compact_ts, safe_name, unique_base = names.compact_ts, names.safe_name, names.unique_base   # スタジオの書き出しと同じ規則(ytt/names.py)
@@ -152,7 +172,7 @@ def rec_list(call, rc, timeout=5.0):
 
 def rec_gaps(query, rc, rec, first, last, chunk=2 * 3600.0):
     """録画の欠け(つなぎ直しの間・止めていた間)-> [(から, まで)](録画の頭からの秒)。query = Exporter._query(録画元, 録画, から, まで)。
-    録画元の /segments を chunk 秒ずつ聞いて gaps を集める。つながらない・読めない・時刻が無ければ None"""
+    録画元の /segments を chunk 秒ずつ(既定 2 時間。録画の部品の /segments は 3 時間・5000 本まで)聞いて gaps を集める。つながらない・読めない・時刻が無ければ None"""
     if not schemas.is_num(first) or not schemas.is_num(last) or last <= first:
         return None
     out, t = [], first
@@ -585,7 +605,7 @@ class Exporter(Patrol):
         self.ffmpeg, self.ffprobe = ffmpeg, ffprobe
         self.marks = MarkStore(os.path.join(folder, "marks"))
         self.work = os.path.join(folder, "work")       # 取ったセグメントの一時の置き場所(作業データのバックアップは work を写さない)
-        self.jobs_path = os.path.join(folder, "exports.json")
+        self.jobs_path = os.path.join(folder, JOBS_FILE)
         self.lock = threading.RLock()
         self.jobs = []
         self.board = None          # 掲示板(attach_board。RS8 の ② の口 S2)
@@ -692,17 +712,14 @@ class Exporter(Patrol):
                                         for s in x.get("steps") or [] if isinstance(s, dict)]}
                 for x in runs or [] if isinstance(x, dict)}
 
-    def busy(self, rec, mid):
-        """書き出しの途中か、アーカイブからの書き出しの順番待ち・途中(同じマークを二重に書き出さない)"""
+    def _refuse_if_busy(self, rec, mid):
+        """書き出しの途中か、アーカイブからの書き出しの順番待ち・途中なら LiveError(409)で断る(同じマークを二重に書き出さない。
+        アーカイブからの書き出しの途中なら、そう言う)"""
         with self.lock:
-            return any(j for j in self.jobs if j["markId"] == mid and j["recording"] == rec and
-                       (j["state"] in ACTIVE or (j.get("archive") or {}).get("state") in ARCHIVE_ACTIVE))
-
-    def _busy_error(self, rec, mid):
-        """busy のときに断る文(アーカイブからの書き出しの途中なら、そう言う)"""
-        with self.lock:
-            arch = any(j for j in self.jobs if j["markId"] == mid and j["recording"] == rec and (j.get("archive") or {}).get("state") in ARCHIVE_ACTIVE)
-        return LiveError("このマークはアーカイブから書き出しています(終わってから書き出し直せます)" if arch else "このマークは書き出しの途中です", 409)
+            mine = [j for j in self.jobs if j["markId"] == mid and j["recording"] == rec]
+            arch = any((j.get("archive") or {}).get("state") in ARCHIVE_ACTIVE for j in mine)
+            if arch or any(j["state"] in ACTIVE for j in mine):
+                raise LiveError("このマークはアーカイブから書き出しています(終わってから書き出し直せます)" if arch else "このマークは書き出しの途中です", 409)
 
     def add_studio(self, rc, rec, studio, first, transcribe=True, url=None, title=None, after=None, streamer="", origin="manual", auto=None, hold=None, score=None, batch=None,
                    request=None):
@@ -713,8 +730,7 @@ class Exporter(Patrol):
             raise LiveError("その録画元はありません", 404)
         mid = studio_mark_id(studio["mark"])
         with self.lock:   # 書き出しの途中のマークは、正本を書き換える前に断る(途中のジョブの区間と正本が食い違わないように)
-            if self.busy(rec, mid):
-                raise self._busy_error(rec, mid)
+            self._refuse_if_busy(rec, mid)
             self.marks.upsert(rc, rec, mid, studio["n"], epoch_iso(first + studio["start"]), epoch_iso(first + studio["end"]),
                               studio["label"], url=url, title=title)
             return self.add(rc, rec, mid, transcribe,
@@ -737,8 +753,7 @@ class Exporter(Patrol):
         if not m.get("end"):
             raise LiveError("終了をマークしてから書き出してください")
         with self.lock:
-            if self.busy(rec, mid):
-                raise self._busy_error(rec, mid)
+            self._refuse_if_busy(rec, mid)
             if sum(1 for j in self.jobs if j["state"] in ACTIVE) >= 50:
                 raise LiveError("書き出しの順番待ちが多すぎます(50 本まで)", 409)
             job = {"id": "lx-" + secrets.token_hex(5), "recorder": rc, "recording": rec, "markId": mid, "n": m.get("n") or 0,
@@ -948,11 +963,8 @@ class Exporter(Patrol):
                     self._set(job, message="録画元「%s」につながりません。待っています…" % rc.get("name"))
                 continue
             job.pop("downSince", None)
-            if code == 404:
-                self._set(job, state="error", error="録画が見つかりません(録画元で消されたか、置き場所を変えたかもしれません)", message="")
-                continue
             if code != 200 or not isinstance(d, dict):
-                self._set(job, state="error", error="録画元から思わぬ応答がありました(HTTP %s)" % code, message="")
+                self._set(job, state="error", error=rec_http_error(code), message="")
                 continue
             last = iso_epoch(d.get("lastPdt"))
             if last is not None and last >= b + self.margin(job) + READY_PAD:   # 余白(LD-2f)の分も録れるまで待つ
@@ -1070,13 +1082,8 @@ class Exporter(Patrol):
             self._set(job, state="cancelled", message="取り消しました", progress=0)
         except Halted:
             self._set(job, state="wait", message="ホームを終えたので、次の起動でやり直します", progress=0)
-        except (LiveError, normalize.NormalizeError) as e:
-            self._set(job, state="error", error=str(e), message="")
-        except OSError as e:
-            self._set(job, state="error", error="書けませんでした: %s" % tools.why(e), message="")
         except Exception as e:
-            self.log("リアルタイム切り抜き: 書き出しでエラー %r" % (e,))
-            self._set(job, state="error", error="内部エラー: %s" % e.__class__.__name__, message="")
+            self._set(job, state="error", error=fail_text(e, self.log, "書き出し"), message="")
         finally:
             if tmp:
                 fsio.unlink_quiet(tmp)

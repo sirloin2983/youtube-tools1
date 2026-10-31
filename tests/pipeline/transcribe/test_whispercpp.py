@@ -177,7 +177,7 @@ class WhisperCppTest(unittest.TestCase):
             E.fetch_file(dict(spec, url="http://example.invalid/x.bin", sha256="0" * 64), folder)   # https 以外からは取らない
 
     def test_pinned_files_are_https_and_hashed(self):
-        for spec in list(E.WCPP_MODELS.values()) + [E.WCPP_VAD]:
+        for spec in list(E.WCPP_MODELS.values()) + list(E.HAAS_GGUF_MODELS.values()):
             self.assertTrue(spec["url"].startswith("https://huggingface.co/"))
             self.assertRegex(spec["sha256"], r"^[0-9a-f]{64}$")
             self.assertGreater(spec["size"], 0)

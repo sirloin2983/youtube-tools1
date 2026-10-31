@@ -353,7 +353,7 @@
       st.appendChild(el('span', 'pill wait', 'パック まだ'));
     }
     var open = null;
-    if (c.transcript && c.transcript.id) open = link('校正で開く', docHref(c.transcript.id, '', 'proof', kase && kase.id));
+    if (c.transcript && c.transcript.id) open = link('校正で開く', docHref(c.transcript.id, 'proof', kase && kase.id));
     else if (c.exists && c.path && kase && c.markId) open = link('校正で開く', markHref(kase.id, c.markId));
     if (open) {
       st.appendChild(open);
@@ -399,7 +399,7 @@
       head.appendChild(b);
     }
     if (rv.deliveredAt) {
-      var s = el('span', 'pill ok pt-ac-done', '届けた ' + ago(rv.deliveredAt));
+      var s = el('span', 'pill ok pt-ac-done', '届けた ' + UIKit.fmt.ago(rv.deliveredAt));
       s.title = 'Dropbox の 出力 に置きました' + (rv.delivered ? ': ' + rv.delivered : '');
       head.appendChild(s);
     }
@@ -600,14 +600,12 @@
     if (act) opt.action = { label: act.label, fn: function () { location.href = act.href; } };   // 同じ窓で移る(S-15)
     UIKit.toast('やることがありません: ' + (reason || '済んでいます') + next, opt);
   }
-  function runLabel(r) { return UIKit.autorun.runLabel(r); }   // 状態の言葉は1か所(何もしなかったら「完了」と言わない)
-  function ago(ms) { return UIKit.fmt.ago(ms); }   // 「3分前」「昨日 12:34」(無ければ '')
   /* 止まった理由(失敗 = エラーの文・中止 = 「入口を終了しました」など)。済みなら空 */
   function runReason(r) { return r.error || (r.state === 'cancelled' && r.message ? r.message : ''); }
   /* 前回の結果の1行(記録のファイルから。段2 B-6): 「前回 解析から全部: 失敗 ・ 理由(3日前)」(古い記録の札もそのまま出す) */
   function pastText(p) {
     var why = runReason(p);
-    return '前回 ' + (p.modeLabel || '') + ': ' + runLabel(p) + (why ? ' ・ ' + why : '') + (p.finished ? '(' + ago(p.finished) + ')' : '');
+    return '前回 ' + (p.modeLabel || '') + ': ' + UIKit.autorun.runLabel(p) + (why ? ' ・ ' + why : '') + (p.finished ? '(' + UIKit.fmt.ago(p.finished) + ')' : '');
   }
   function renderAuto(node, id) {
     var box = $('.pt-auto', node); if (!box) return;
@@ -626,14 +624,13 @@
       ol.appendChild(li);
     });
     if (past) { msg.textContent = pastText(past); return; }
-    msg.textContent = r.modeLabel + ': ' + runLabel(r) + (r.error ? ' ・ ' + r.error : '') + (r.finished ? '(' + when(r.finished) + ')' : '');
+    msg.textContent = r.modeLabel + ': ' + UIKit.autorun.runLabel(r) + (r.error ? ' ・ ' + r.error : '') + (r.finished ? '(' + when(r.finished) + ')' : '');
   }
 
-  /* 編集で文書を開くリンク。文書 ID で開く(B-1: 動画のパスだと、同じ動画から作った別の文書 = いちばん新しい文書が開いていた)。
-     パスは文書が見つからなかったときの予備(編集の takeUrlParams が ?doc= を先に見る) */
-  /* 行き先は案件の画面(/cases。URL の形は caselink.js の 1 か所)。文書 ID だけで開ける(殻が ④ に ?doc= で案件を聞く)。
+  /* 文書を開くリンク。文書 ID で開く(B-1: 動画のパスだと、同じ動画から作った別の文書 = いちばん新しい文書が開いていた)。
+     行き先は案件の画面(/cases。URL の形は caselink.js の 1 か所)。文書 ID だけで開ける(殻が ④ に ?doc= で案件を聞く)。
      case を渡せば案件も決まる(仮の案件 eval・orphan・動画ファイルの案件を開くとき) */
-  function docHref(id, path, tab, caseId) { return CaseLink.href({ c: caseId, d: id, tab: tab }); }
+  function docHref(id, tab, caseId) { return CaseLink.href({ c: caseId, d: id, tab: tab }); }
   /* その配信を案件の画面の候補で開く(案件の id = スタジオの配信の id。B-8) */
   function studioHref(id) { return CaseLink.href({ c: id, tab: 'cand' }); }
   /* 文字起こしがまだの切り抜きは、マーク id で校正の欄を開く(殻が ?m= を受ける) */
@@ -649,7 +646,7 @@
   }
   function caseSubText(c) {
     var parts = [c.channel || '(配信者不明)'];
-    if (c.streamedAt) parts.push(ago(c.streamedAt));
+    if (c.streamedAt) parts.push(UIKit.fmt.ago(c.streamedAt));
     if (c.gone) parts.push('スタジオから消えた配信(最後に見えた内容)');
     parts.push(requestText(c));
     return parts.filter(Boolean).join(' ・ ');
@@ -799,7 +796,7 @@
     box.hidden = !list.length;
     list.forEach(function (c) {
       var li = el('li', 'pt-vrow'), a = el('a', 'pt-vrow-link');
-      a.href = '/cases?c=' + encodeURIComponent(c.id) + '#proof';
+      a.href = CaseLink.href({ c: c.id, tab: 'proof' });
       a.setAttribute('data-case', c.id);
       var main = el('span', 'pt-vrow-main');
       main.appendChild(el('span', 'pt-case-title ui-ell', c.title || c.id));
@@ -1142,7 +1139,7 @@
     var parts = [(s.label || '') + ' ' + accPct(s.value) + (s.range ? '(95% の範囲 ' + accPct(s.range[0]) + '〜' + accPct(s.range[1]) + ')' : '')];
     if (p && p.value != null) parts.push('前回 ' + accPct(p.value));
     parts.push((s.unit || '文書') + ' ' + (s.docs || 0) + ' 本');
-    parts.push(ago(l.at));
+    parts.push(UIKit.fmt.ago(l.at));
     var text = (s.few ? 'まだ少ない: ' : '') + parts.join('・') + (s.lowData && !s.few ? '(参考。データがまだ少ない)' : '');
     var subs = (s.extra || []).filter(function (x) { return x.value != null; }).map(function (x) {
       var pe = ((p && p.extra) || []).filter(function (y) { return y.label === x.label && y.value != null; })[0];
@@ -1163,7 +1160,7 @@
     btn.disabled = !ac.enabled || live;
     btn.textContent = ac.state === 'running' ? '測っています…' : ac.forced && ac.enabled ? '手が空くのを待っています' : '精度を今すぐ測る';
     var win = '夜 ' + ac.nightFrom + '〜' + ac.nightTo + ' 時に手が空いていれば 1 日 1 回';
-    ul.appendChild(healthRow('info', '精度の自動測定', ac.stateLabel + (ac.message ? '。' + ac.message : '') + (ac.enabled ? '(' + win + (ac.lastRun ? '・最後に ' + ago(ac.lastRun) : '') + ')' : '')));
+    ul.appendChild(healthRow('info', '精度の自動測定', ac.stateLabel + (ac.message ? '。' + ac.message : '') + (ac.enabled ? '(' + win + (ac.lastRun ? '・最後に ' + UIKit.fmt.ago(ac.lastRun) : '') + ')' : '')));
     (ac.areas || []).forEach(function (a) { if (a.available || a.latest || a.error) ul.appendChild(accuracyRow(a)); });
     if (live) accTimer = setTimeout(function () { loadHealth(false); }, 2500);   // 測っている間・手が空くのを待っている間は軽く読み直す
   }
@@ -1258,9 +1255,9 @@
     function vHref(id) { return known[id] ? '#case-' + id : '#intake'; }   // 依頼の解析は、案件の行がまだ無いことがある
     Object.keys(runsByVideo).forEach(function (id) { add(runsByVideo[id], vHref(id)); });
     Object.keys(runsByFile).forEach(function (id) { add(runsByFile[id], '#intake'); });
-    Object.keys(runsByDoc).forEach(function (id) { add(runsByDoc[id], docHref(id, '', 'proof')); });
+    Object.keys(runsByDoc).forEach(function (id) { add(runsByDoc[id], docHref(id, 'proof')); });
     Object.keys(pastByVideo).forEach(function (id) { if (!runsByVideo[id]) add(pastByVideo[id], vHref(id)); });
-    Object.keys(pastByDoc).forEach(function (id) { if (!runsByDoc[id]) add(pastByDoc[id], docHref(id, '', 'proof')); });
+    Object.keys(pastByDoc).forEach(function (id) { if (!runsByDoc[id]) add(pastByDoc[id], docHref(id, 'proof')); });
     var queued = runs.filter(function (x) { return x.r.state === 'queued'; }).sort(function (a, b) { return (a.r.created || 0) - (b.r.created || 0); });
     var items = [];
     runs.filter(function (x) { return x.r.state === 'running'; }).forEach(function (x) {
@@ -1276,7 +1273,7 @@
     fails.sort(function (a, b) { return (b.r.finished || 0) - (a.r.finished || 0); }).forEach(function (x) {
       var r = x.r, at = failedStep(r), why = runReason(r);
       items.push({ kind: 'failed', title: runTitle(r), href: x.href, pillText: '失敗', pillClass: 'err',
-        sub: whoOf(r) + ' ・ ' + r.modeLabel + ' ・ ' + (at ? at + 'で失敗' : '失敗') + (why ? ': ' + why : '') + (r.finished ? '(' + ago(r.finished) + ')' : '') });
+        sub: whoOf(r) + ' ・ ' + r.modeLabel + ' ・ ' + (at ? at + 'で失敗' : '失敗') + (why ? ': ' + why : '') + (r.finished ? '(' + UIKit.fmt.ago(r.finished) + ')' : '') });
     });
     failedClipItems().forEach(function (it) { items.push(it); });
     return items;
@@ -1468,7 +1465,7 @@
     if (sub) main.appendChild(el('span', 'hint pt-freq-sub', sub));
     main.title = r.title || '';
     li.appendChild(main);
-    var t = el('span', 'hint pt-freq-when', ago(r.received)); t.title = r.received ? when(r.received) : '';
+    var t = el('span', 'hint pt-freq-when', UIKit.fmt.ago(r.received)); t.title = r.received ? when(r.received) : '';
     li.appendChild(t);
     if (go.href) {
       var a = el('a', 'pt-freq-go' + (r.link && r.link.live ? ' live' : ''), go.label + ' ›'); a.href = go.href;
@@ -1506,7 +1503,7 @@
   function renderIntakeStatus(d) {
     paintStatePill('#intakeState', d, '見張り中');
     $('#intakeMsg').textContent = d.message || '';
-    $('#intakeScan').textContent = d.lastScan ? '最後に確認: ' + ago(d.lastScan) : (d.state === 'watching' ? 'まだ確認していません' : '');
+    $('#intakeScan').textContent = d.lastScan ? '最後に確認: ' + UIKit.fmt.ago(d.lastScan) : (d.state === 'watching' ? 'まだ確認していません' : '');
     $('#intakeScan').title = d.lastScan ? when(d.lastScan) : '';
     $('#intakeToday').textContent = d.enabled ? '今日 ' + (d.today || 0) + ' 件' + (d.todayRejects ? '・要らない ' + d.todayRejects + ' 本' : '') : '';
     $('#intakeScanBtn').disabled = INTAKE.busy || !d.enabled;
@@ -1526,7 +1523,7 @@
     head.appendChild(el('span', 'pill info', r.kind === 'url' ? 'URL' : r.kind === 'feedback' ? '友人の返事' : r.kind === 'live' ? 'ライブ' : '動画'));
     head.appendChild(el('span', 'pt-intake-title', r.title || (r.kind === 'url' ? '(題名なし)' : '(ファイル名なし)')));
     head.appendChild(el('span', 'pill ' + (r.state === 'accepted' ? 'ok' : 'warn'), r.stateLabel || (r.state === 'accepted' ? '受け付けた' : '断った')));
-    var t = el('span', 'hint pt-intake-when', ago(r.received)); t.title = r.received ? when(r.received) : '';
+    var t = el('span', 'hint pt-intake-when', UIKit.fmt.ago(r.received)); t.title = r.received ? when(r.received) : '';
     head.appendChild(t);
     if (r.id && hideApi()) head.appendChild(hideBtn('intake', r.id, r.title));
     if (r.id) markHid(li, 'intake', r.id, head);
@@ -1543,7 +1540,7 @@
     var head = el('div', 'pt-intake-head');
     head.appendChild(el('span', 'pill warn', '失敗'));
     head.appendChild(el('span', 'pt-intake-title', n.title || '(依頼の題なし)'));
-    var t = el('span', 'hint pt-intake-when', ago(n.receivedAt)); t.title = n.receivedAt ? when(n.receivedAt) : '';
+    var t = el('span', 'hint pt-intake-when', UIKit.fmt.ago(n.receivedAt)); t.title = n.receivedAt ? when(n.receivedAt) : '';
     head.appendChild(t);
     li.appendChild(head);
     li.appendChild(el('span', 'pt-intake-sub', n.message || ''));
@@ -1618,7 +1615,7 @@
     var n = (d.errors || []).length;
     $('#backupMsg').textContent = d.message || '';
     $('#backupMsg').title = n ? d.errors.join(' / ') : '';
-    $('#backupLast').textContent = d.lastOk ? '最後に写した: ' + ago(d.lastOk) + '(' + (d.copied || 0) + ' 個・' + fmtBytes(d.bytes) + ')' : (d.enabled ? 'まだ写していません' : '');
+    $('#backupLast').textContent = d.lastOk ? '最後に写した: ' + UIKit.fmt.ago(d.lastOk) + '(' + (d.copied || 0) + ' 個・' + fmtBytes(d.bytes) + ')' : (d.enabled ? 'まだ写していません' : '');
     $('#backupLast').title = d.lastOk ? when(d.lastOk) + (d.dest ? ' → ' + d.dest : '') : '';
     $('#backupRunBtn').disabled = BACKUP.busy || !d.enabled || d.state === 'running';
     $('#backupRunBtn').title = d.enabled ? '' : 'バックアップがオフです。下の「自動でバックアップする」をオンにすると押せます';
@@ -1651,16 +1648,16 @@
     if (r.id) li.setAttribute('data-fkey', 'runs:' + r.id);
     var pill = $('.pt-history-pill', li);
     pill.className = 'pill pt-history-pill ' + (r.nothing ? 'wait' : UIKit.state.cls(r.state));
-    pill.textContent = runLabel(r);
+    pill.textContent = UIKit.autorun.runLabel(r);
     var a = $('.pt-history-title', li);
     a.textContent = r.title || (r.kind === 'doc' ? r.docId : r.videoId) || (r.kind === 'file' ? '依頼の動画' : '');
-    if (r.kind === 'doc') { a.href = docHref(r.docId, null, 'proof'); a.title = '案件の画面で校正を開く'; }   // 文書 → 編集で開く(同じ窓。S-15)
+    if (r.kind === 'doc') { a.href = docHref(r.docId, 'proof'); a.title = '案件の画面で校正を開く'; }   // 文書 → 編集で開く(同じ窓。S-15)
     else if (r.kind === 'file' || !r.videoId) { a.href = '#intake'; a.title = '依頼の受付へ'; }
     else { a.href = '#case-' + encodeURIComponent(r.videoId || ''); a.title = '案件の行へ'; }   // 配信 → 案件の行
     var why = runReason(r);
     $('.pt-history-sub', li).textContent = (r.modeLabel || '') + (why ? ' ・ ' + why : '');
     var t = $('.pt-history-when', li), at = r.finished || r.created;
-    t.textContent = ago(at); t.title = at ? when(at) : '';
+    t.textContent = UIKit.fmt.ago(at); t.title = at ? when(at) : '';
     if (r.id) {
       li.dataset.id = r.id;
       li.dataset.title = r.title || '';

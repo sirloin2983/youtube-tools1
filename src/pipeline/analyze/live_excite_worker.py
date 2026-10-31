@@ -339,11 +339,7 @@ def parse_chat_items(line):
 
 def _text_flag(acts, r):
     """chat_messages が返した renderer r の種類(addChatItemAction の item の鍵)を探して、文字の書き込みの印"""
-    for a in acts or []:
-        item = ((a.get("addChatItemAction") or {}).get("item")) if isinstance(a, dict) else None
-        if isinstance(item, dict) and item and next(iter(item.values())) is r:
-            return excite.chat_text_flag(next(iter(item)), r)
-    return 0
+    return next((excite.chat_text_flag(kind, r) for kind, x in excite.chat_items(acts) if x is r), 0)
 
 
 # ---------------------------------------------------------------- 候補の長さの目安(M10)

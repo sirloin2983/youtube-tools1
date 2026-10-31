@@ -1054,7 +1054,7 @@ class TestStepNormalize(unittest.TestCase):
     def run_step(self, path, mode="file_auto"):
         run = RF.run_of(None, "依頼", mode, None, source_path=path, request_id="20261016-120000-abcdef", normalize=True)
         st = run.step("normalize")
-        self.runner._file_normalize(run, st)
+        self.runner._step_normalize(run, st)
         return run, st
 
     def test_steps_only_when_asked(self):
@@ -1098,7 +1098,7 @@ class TestStepNormalize(unittest.TestCase):
             return new, "作り直しました"
         with mock.patch.object(R._norm, "plan", lambda path, replace=True: {"why": ["60fps"]}), mock.patch.object(R._norm, "run", fake_run):
             with self.assertRaises(R.Cancelled):
-                self.runner._file_normalize(run, run.step("normalize"))
+                self.runner._step_normalize(run, run.step("normalize"))
         self.assertEqual((run.source_path, self.marks), (new, [new]))
 
     def test_failure_keeps_copy_and_continues(self):
@@ -1122,7 +1122,7 @@ class TestStepNormalize(unittest.TestCase):
         run = RF.run_of(None, "依頼", "file_auto", None, source_path=src, normalize=True)
         run.step("transcribe")["state"] = "done"
         st = run.step("normalize")
-        self.runner._file_normalize(run, st)
+        self.runner._step_normalize(run, st)
         self.assertEqual((st["state"], run.source_path), ("skip", src))
 
     def test_waits_for_slot_and_can_be_cancelled(self):
@@ -1138,7 +1138,7 @@ class TestStepNormalize(unittest.TestCase):
 
         def go():
             try:
-                self.runner._file_normalize(run, st)
+                self.runner._step_normalize(run, st)
                 got.append("done")
             except R.Cancelled:
                 got.append("cancelled")
@@ -1198,7 +1198,7 @@ class TestNormalizeParallel(unittest.TestCase):
         st = self.run.step("normalize")
         with mock.patch.object(R._norm, "plan", lambda path, replace=True: {"src": path, "dst": os.path.splitext(path)[0] + ".mp4", "why": ["60fps"], "replace": True}), \
                 mock.patch.object(R._norm, "run", fake_run), mock.patch.object(R, "_vnorm_audio", fake_audio):
-            self.runner._file_normalize(self.run, st)
+            self.runner._step_normalize(self.run, st)
             self.run.norm_bg["thread"].join(10)
         self.audio = self.run.norm_bg["audio"]
         self.assertTrue(os.path.isfile(self.audio))   # 文字起こしに渡す音(作り直しと同じ AAC)
@@ -1222,7 +1222,7 @@ class TestNormalizeParallel(unittest.TestCase):
         st = self.run.step("normalize")
         with mock.patch.object(R._norm, "plan", lambda path, replace=True: {"src": path, "dst": os.path.splitext(path)[0] + ".mp4", "why": ["60fps"], "replace": True}), \
                 mock.patch.object(R._norm, "run", lambda plan, **kw: (None, "テストの失敗")), mock.patch.object(R, "_vnorm_audio", lambda s, d: False):
-            self.runner._file_normalize(self.run, st)
+            self.runner._step_normalize(self.run, st)
         self.assertIsNone(self.run.norm_bg)
         self.assertEqual(st["state"], "warn")
 

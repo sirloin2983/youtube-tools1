@@ -30,7 +30,7 @@ Dropbox の同期(friendapp/sync.py が呼ぶ):
   = live_update。配信後の追加(M7)の分は札「配信後」)。録画中でも枠に入った物は決められる(入る前の物は出さない・決めない)
 - 動画ファイルのこの PC の行: 送った(写している = runId なし)→ set_run(② に積んだ)→ URL の行と同じ
 
-ファイルと時計は引数で受ける(テストは一時フォルダ)。標準ライブラリと ytt だけを読む。
+ファイルと時計は引数で受ける(テストは一時フォルダ)。標準ライブラリと ytt・flow.retention・同じ包みの progress だけを読む。
 """
 import datetime
 import glob
@@ -111,6 +111,22 @@ def case_of(result_path):
     if os.path.basename(runs) != "runs" or not work:
         return None
     return os.path.dirname(work)
+
+
+def _check_id(rid):
+    """依頼 id の形(ROW_ID_RE)でなければ ValueError"""
+    if not ROW_ID_RE.match(rid or ""):
+        raise ValueError("依頼の id の形が違います")
+
+
+def _add_fail(r, fail_name):
+    """行に Dropbox の失敗の知らせの名前を覚える(新しい REMOTE_FAILS_MAX 件まで)"""
+    r["remoteFails"] = ((r.get("remoteFails") or []) + [fail_name])[-REMOTE_FAILS_MAX:]
+
+
+def _group(r, n):
+    """行 r(None でもよい)の枠 n か None"""
+    return next((g for g in (r or {}).get("groups") or [] if g["n"] == n), None)
 
 
 class Inbox:
@@ -217,6 +233,13 @@ class Inbox:
         with self.lock:
             return next((r for r in self.rows if r["id"] == rid), None)
 
+    def _row_or_raise(self, rid):
+        """行(無ければ KeyError。ロックを持って呼ぶ)"""
+        r = self.row(rid)
+        if r is None:
+            raise KeyError(rid)
+        return r
+
     def by_run(self, run_id):
         with self.lock:
             return next((r for r in self.rows if r.get("runId") == run_id), None)
@@ -226,8 +249,7 @@ class Inbox:
         """送った行を足す(新しい物を先頭)。form = 送った欄(もう一度送るときに使う)・source = {url, videoId, title, channel}。
         pc = "user" なら ユーザーの PC に頼む行(同期が Dropbox の直下へ上げる)。kind = url / file / live。
         state = "waiting" ならアーカイブ待ち(F3-3。api.tick がアーカイブが出たのを見て作り始める = 依頼もそのときに上げる)"""
-        if not ROW_ID_RE.match(rid or ""):
-            raise ValueError("依頼の id の形が違います")
+        _check_id(rid)
         now = self._now_ms()
         r = {"id": rid, "kind": kind if kind in KINDS else "url", "origin": "request", "state": "waiting" if state == "waiting" else "sent", "form": form,
              "source": source, "runId": run_id, "createdAt": now, "updatedAt": now, "packs": [], "groups": [], "error": "", "note": "",
@@ -250,9 +272,7 @@ class Inbox:
     def set_run(self, rid, run_id, copy=None):
         """動画ファイルの行: 写し終えて ② に積む(積む前に呼ぶ = 実行が終わったときに行が見つかる)。copy = 一時保管の写しのパス"""
         with self.lock:
-            r = self.row(rid)
-            if r is None:
-                raise KeyError(rid)
+            r = self._row_or_raise(rid)
             r.update(runId=run_id, updatedAt=self._now_ms())
             if copy and isinstance((r.get("form") or {}).get("file"), dict):
                 r["form"]["file"]["copy"] = copy
@@ -396,9 +416,7 @@ class Inbox:
 
     def reported(self, rid):
         with self.lock:
-            r = self.row(rid)
-            if r is None:
-                raise KeyError(rid)
+            r = self._row_or_raise(rid)
             r["reportedAt"] = self._now_ms()
             self._save()
             return r
@@ -407,9 +425,7 @@ class Inbox:
     def live_started(self, rid, recorder, recording, existing=False):
         """録画を始めた(依頼に結びつけた)-> 行は「録画中」"""
         with self.lock:
-            r = self.row(rid)
-            if r is None:
-                raise KeyError(rid)
+            r = self._row_or_raise(rid)
             now = self._now_ms()
             r.update(state="recording", runId=None, error="", updatedAt=now, failedAt=None)
             r["live"] = {"recorder": recorder, "recording": recording, "existing": bool(existing), "startedAt": now, "endedAt": None,
@@ -434,18 +450,15 @@ class Inbox:
         grouped = {n for g in r.get("groups") or [] for n in g["names"]}
         return [p for p in r["packs"] if p["name"] not in grouped]
 
-    def _live_group(self, r, force):
+    def _live_group(self, r):
         """枠に入る前のパックを 1 本ずつの枠へ(段ごと。C-3-1)-> 足した枠の n のリスト"""
-        n = 1
         pend = self._ungrouped(r)
         made = []
         last = max([g["n"] for g in r.get("groups") or []] + [0])
         for phase in PHASES:
-            ps = [p for p in pend if (p.get("phase") or "live") == phase]
-            while len(ps) >= n or (force and ps):
-                take, ps = ps[:n], ps[n:]
+            for p in [p for p in pend if (p.get("phase") or "live") == phase]:
                 last += 1
-                r["groups"].append({"n": last, "names": [p["name"] for p in take], "preview": None, "label": "配信後" if phase == "archive" else ""})
+                r["groups"].append({"n": last, "names": [p["name"]], "preview": None, "label": "配信後" if phase == "archive" else ""})
                 made.append(last)
         return made
 
@@ -479,7 +492,7 @@ class Inbox:
             if not added and state in ("error", "cancelled"):
                 lv["errors"] = int(lv.get("errors") or 0) + 1
                 lv["lastError"] = str(error or "止めました")[:300]
-            made = self._live_group(r, False)
+            made = self._live_group(r)
             if added and r["state"] in ("arrived", "done", "failed"):   # 閉じたあとに届いた(採用の遅れ・配信後の追加)= もう一度「届いた」
                 r.update(state="arrived", arrivedAt=now, doneAt=None, failedAt=None, error="")
             r["updatedAt"] = now
@@ -500,7 +513,7 @@ class Inbox:
             before = json.dumps([r["state"], lv, r.get("groups")])
             if not recording and not lv.get("endedAt"):
                 lv["endedAt"] = now
-            made = self._live_group(r, True) if not recording and not busy else []
+            made = self._live_group(r) if not recording and not busy else []
             lv["phase"] = "recording" if recording else "making" if busy else "after" if waiting else "done"
             if warn:   # 録画できていない知らせ(engine._live_blocked。録れ始めたら消す)
                 lv["warn"] = warn
@@ -548,9 +561,7 @@ class Inbox:
         """失敗した行をもう一度送った(同じ行を「送った」に戻す。ユーザーの PC の行は依頼を上げ直す)。
         auto = 自動のやり直し(回数を数える)/ 友人が押した = 数え直す(C-2-16)。retries = 自動のやり直しの回数をこの値にする(直しの版の 1 回だけ)"""
         with self.lock:
-            r = self.row(rid)
-            if r is None:
-                raise KeyError(rid)
+            r = self._row_or_raise(rid)
             n = retries if retries is not None else ((r.get("autoRetries") or 0) + 1 if auto else 0)
             r.update(state="sent", runId=run_id, error="", note="", failedAt=None, updatedAt=self._now_ms(),
                      autoRetries=n, reportedAt=None if not auto else r.get("reportedAt"))
@@ -596,9 +607,7 @@ class Inbox:
     def to_local(self, rid, run_id):
         """[この PC でやり直す]: ユーザーの PC に頼んだ行を、この PC の ② の行に変える(同期が直下の依頼を消したあと)"""
         with self.lock:
-            r = self.row(rid)
-            if r is None:
-                raise KeyError(rid)
+            r = self._row_or_raise(rid)
             r.update(pc="this", remote=None, runId=run_id, state="sent", error="", updatedAt=self._now_ms())
             self._save()
             return r
@@ -650,7 +659,7 @@ class Inbox:
         """枠 n の確認用の動画(そのパックの確認用の動画 = p.preview にも)"""
         with self.lock:
             r = self.row(rid)
-            g = next((g for g in (r or {}).get("groups") or [] if g["n"] == n), None)
+            g = _group(r, n)
             if g is not None:
                 g["preview"] = path
                 if len(g.get("names") or []) == 1:
@@ -686,8 +695,7 @@ class Inbox:
     def import_remote(self, rid, origin, title, specs):
         """/出力/ のパックを行に入れる(依頼 id の行があればその行・無ければ新しい行 = origin auto なら札「依頼なし」)。
         specs = [{"preview": 名前か None, "previewSize", "packs": [{"zip", "title", "seconds", "size", "rev", "hash", "meta"}]}](ふつうは 1 本ずつ)"""
-        if not ROW_ID_RE.match(rid or ""):
-            raise ValueError("依頼の id の形が違います")
+        _check_id(rid)
         with self.lock:
             now = self._now_ms()
             r = self.row(rid) or self._remote_row(rid, origin, title, now)
@@ -722,8 +730,7 @@ class Inbox:
 
     def remote_failure(self, rid, title, text, fail_name):
         """/出力/ の .失敗.txt(ユーザーの PC で失敗した)。依頼の行は「失敗」に・無ければ失敗の行を足す・届いた行には知らせだけ"""
-        if not ROW_ID_RE.match(rid or ""):
-            raise ValueError("依頼の id の形が違います")
+        _check_id(rid)
         with self.lock:
             now = self._now_ms()
             r = self.row(rid)
@@ -732,7 +739,7 @@ class Inbox:
                     return None
                 note = " ".join(text[len(REC_NOTE_HEAD):].split())[:500]
                 r["recNotes"] = ([x for x in r.get("recNotes") or [] if x != note] + [note])[-REC_NOTES_MAX:]
-                r["remoteFails"] = ((r.get("remoteFails") or []) + [fail_name])[-REMOTE_FAILS_MAX:]
+                _add_fail(r, fail_name)
                 r["updatedAt"] = now
                 self._save()
                 return r
@@ -747,7 +754,7 @@ class Inbox:
                 r.update(state="failed", failedAt=now, error=text)
             elif r["state"] == "arrived":
                 r["note"] = text[:500]
-            r["remoteFails"] = ((r.get("remoteFails") or []) + [fail_name])[-REMOTE_FAILS_MAX:]
+            _add_fail(r, fail_name)
             r["updatedAt"] = now
             self._save()
             return r
@@ -825,7 +832,7 @@ class Inbox:
     def remote_cleaned(self, rid, n):
         with self.lock:
             r = self.row(rid)
-            g = next((g for g in (r or {}).get("groups") or [] if g["n"] == n), None)
+            g = _group(r, n)
             if g is not None and g.get("remote"):
                 g["remote"]["cleaned"] = True
                 self._save()
@@ -919,9 +926,7 @@ class Inbox:
     def undo(self, rid, names):
         """[戻す](C-3-6): 見送った・届かなくてよかったの物を 3 日の間は決める前に戻す(ごみ箱から元の場所へ・取り消しの記録)-> {"done", "errors"}"""
         with self.lock:
-            r = self.row(rid)
-            if r is None:
-                raise KeyError(rid)
+            r = self._row_or_raise(rid)
             want = set(names or [])
             done, errors = [], []
             now = self._now_ms()
@@ -1105,7 +1110,7 @@ class Inbox:
             now = self._now_ms()
             for r in list(self.rows):
                 if r["state"] == "recording" and now - ((r.get("live") or {}).get("endedAt") or r["createdAt"]) >= LIVE_STALE * 1000:
-                    self._live_group(r, True)   # 録画元が見つからないまま終わらない行= 残りを組にして閉じる
+                    self._live_group(r)   # 録画元が見つからないまま終わらない行= 残りを組にして閉じる
                     r.setdefault("live", {})["finished"] = now
                     self._live_close(r, now)
                 if r["state"] in ("arrived", "recording"):

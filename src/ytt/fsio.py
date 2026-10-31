@@ -2,7 +2,7 @@
 
 ほかに、小道具(資料の git:before-1028-cleanup-2:docs/design/reviews/code-review-simplify-2026-10-08.md の A・G10):
 read_json_or(読めなければ既定値)・stamp / StampCache(更新日時と大きさが変わったときだけ読み直す)・rotate(ログの 1 世代の回し)・
-is_inside(パスがフォルダの中か。セキュリティの検査に使う形はここ 1 か所)・dir_size(フォルダの大きさ)。"""
+is_inside(パスがフォルダの中か。セキュリティの検査に使う形はここ 1 か所)・dir_size(フォルダの大きさ)・newest_mtime(フォルダの中の一番新しい更新時刻)。"""
 import glob
 import hashlib
 import json
@@ -385,6 +385,33 @@ def dir_size(path):
             except OSError:
                 pass
     return total, count
+
+
+def newest_mtime(folder, recursive=False, skip_links=False, limit=None):
+    """folder の中のファイルの一番新しい更新時刻(エポック秒の float。ファイルのリンクは先の時刻)。ファイルが無ければ None。
+    folder そのものが読めない(無い・フォルダでない・途中で読めなくなった)ときは OSError(呼ぶ側が「空」と分けられるように)。
+    recursive=True で下のフォルダも見る(os.walk と同じく、リンクのフォルダは辿らない。skip_links=True なら接合点も辿らない = is_link)。
+    読めないファイル・下のフォルダは飛ばす。limit = 見るファイルの数の上限(超えたらそこまでの値を返す)"""
+    best, n, errs, walked = None, 0, [], False
+    for root, dirs, files in os.walk(folder, onerror=errs.append):
+        walked = True
+        if not recursive:
+            dirs[:] = []
+        elif skip_links:
+            dirs[:] = [d for d in dirs if not is_link(os.path.join(root, d))]
+        for f in files:
+            n += 1
+            if limit is not None and n > limit:
+                return best
+            try:
+                m = os.stat(os.path.join(root, f)).st_mtime
+            except OSError:
+                continue
+            if best is None or m > best:
+                best = m
+    if not walked:
+        raise errs[0] if errs else OSError("フォルダを読めません: %s" % folder)
+    return best
 
 
 def existing_parent(path):
