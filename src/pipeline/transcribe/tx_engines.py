@@ -36,6 +36,7 @@ import tempfile
 import threading
 import time
 import types
+import unicodedata
 import wave
 import zlib
 
@@ -1223,14 +1224,56 @@ HAAS_GGUF_MODELS = {   # 大きさと SHA-256 は speech.cpp 0.10.0 の catalog.
     "haas-ja-v1.0": {"file": "Haas-616M-ja-v1.0-Q8_0.gguf", "url": _HAAS_GGUF_HF + "Haas-616M-ja-v1.0-Q8_0.gguf", "size": 656381472,
                      "sha256": "cd5f60b2f1c411404b83fca4a65e3ce30a26d9e951b6a346529e65f22758afeb"},
 }
+SILERO_GGUF = {"file": "silero-vad-309K-v6.2-F32.gguf", "size": 1238624, "sha256": "2fc312514e5fc4fa4ffd02b25c76a4853fa4130e8fb9777d01502183b01238cb",
+               "url": "https://huggingface.co/sakasegawa/silero-vad-GGUF/resolve/7fcb7aa2a70c312f8579fc987b3e1cdecf9321ca/silero-vad-309K-v6.2-F32.gguf"}   # 声の区間(Haas の行の末)
+SPEECH_VAD_SEC = 600      # 声の区間を出す上限(秒)
 SPEECH_THREADS = env_num("TRANSCRIBE_SPEECH_THREADS", 4)   # CPU のスレッド(GPU のときは前後の処理だけ)。PC の決まり = 合わせて 6 本まで
 SPEECH_START_SEC = 120    # 起動(モデルの読み込みと GPU の準備)を待つ上限
 SPEECH_READ_SEC = 300     # 1 つの区切りの答えを待つ上限
 SPEECH_PCM_STEP = 16000 * 2 * 10   # 1 回の chunk で送る音の大きさ(10 秒ぶん)
+HEAD_TOKEN_AT, HEAD_TOKEN_GAP, HEAD_TOKEN_BACK = 0.05, 0.3, 0.25   # 区切りの頭 0.05 秒以内の最初のトークンが次と 0.3 秒以上離れていたら、次の 0.25 秒前へ(P36 (イ))
+SECOND_READ = not _txbase.env_off("TRANSCRIBE_HAAS_SECOND_READ")   # 名前の 2 回読み(P30)。環境変数を off で止める
 
 
 def haas_gguf_dir(data_dir):
     return os.path.join(data_dir, "models", "haas-gguf")
+
+
+def speech_vad(wav, data_dir=None, log=None, cancelled=None):
+    """声の区間 [(始め, 終わり)](wav の秒)。speech.cpp の silero-vad(声の前後の足し 0・200 ms 未満の無音はつなぐ = 研究の P8・予備1 の TIME と同じ)。
+    Haas の行の末を声の終わりまで伸ばすのに使う(postproc.expand_segments の voice)。実行ファイルが無い・失敗は EngineError"""
+    data_dir = data_dir or engine_home()
+    exe = _txbase.speech_exe(data_dir)
+    cmd = list(HaasSpeechCpp.COMMAND) if HaasSpeechCpp.COMMAND else [exe]
+    if not HaasSpeechCpp.COMMAND and not os.path.isfile(exe):
+        raise EngineError("engine_missing", "speech.cpp がありません(setup\\place_speechcpp.py で置いてください)", 400)
+    model = fetch_file(SILERO_GGUF, haas_gguf_dir(data_dir), log, cancelled)
+    try:
+        r = subprocess.run(cmd + ["vad", model, "--format", "json", "--speech-pad-ms", "0", "--min-silence-duration-ms", "200", wav],
+                           capture_output=True, timeout=SPEECH_VAD_SEC, creationflags=_tools.no_window_flags(),
+                           env=dict(os.environ, SPEECH_NO_UPDATE_CHECK="1", GGML_VK_VISIBLE_DEVICES=""))
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise EngineError("engine_failed", "声の区間を出せませんでした: %s" % e.__class__.__name__)
+    try:
+        regs = json.loads(r.stdout.decode("utf-8", errors="replace").strip().splitlines()[-1])["regions"]
+        return [(float(g["start"]), float(g["end"])) for g in regs if float(g["end"]) > float(g["start"])]
+    except (ValueError, IndexError, KeyError, TypeError):
+        raise EngineError("engine_failed", "声の区間の答えを読めませんでした(終了コード %s)" % r.returncode)
+
+
+def second_names(text, hot, members):
+    """名前の 2 回読み(研究の P30・haas_pipeline.second_names): 1 回目の字に、名簿のほかの人の 2 字以下の呼び名が 2 回以上出たら、
+    その呼び名を含む長い呼び名(普通の言葉と重なる呼び名 common は除く)を足す名前 -> [足す名前]。members = roster.load の members"""
+    clean = lambda t: "".join(c for c in unicodedata.normalize("NFKC", t or "") if unicodedata.category(c)[0] not in "PSZ")
+    t1, have, add = clean(text), set(hot), []
+    for m in members.values():
+        if m.get("name") in have:
+            continue
+        common = set(m.get("common") or ())
+        forms = [x for x in [m.get("name")] + list(m.get("aliases") or ()) if x and x not in common and len(x) >= 2]
+        seen = [x for x in forms if len(x) <= 2 and t1.count(clean(x)) >= 2]
+        add += [x for x in forms if x not in seen and x not in have and any(sn in x for sn in seen)]
+    return list(dict.fromkeys(add))
 
 
 class SpeechWorker:
@@ -1419,6 +1462,28 @@ class HaasSpeechCpp(_Qwen3Chunked):
     def _setup(self, kw):
         return "ja", [t.strip() for t in str(kw.get("hotwords") or "").split(",") if t.strip()]
 
+    def transcribe(self, audio, **kw):
+        """区切りごとに読む(_Qwen3Chunked)。名前の候補があり、1 回目の字に名簿のほかの人の短い呼び名が何度も出たら、長い呼び名を足して 2 回目を読む(P30)。
+        info.second_names = 足した名前(無ければ [])"""
+        gen, info = super().transcribe(audio, **kw)
+        info.second_names = []
+        hot = [t.strip() for t in str(kw.get("hotwords") or "").split(",") if t.strip()]
+        if not hot or not SECOND_READ:
+            return gen, info
+        segs = list(gen)
+        try:
+            from . import roster as _roster
+            add = second_names("".join(s.text for s in segs), hot, _roster.load(_roster.ROSTER or _roster.BUNDLED)["members"])
+        except (OSError, ValueError, KeyError) as e:
+            _txbase.log.warning("名前の 2 回読みの名簿を読めませんでした: %s", e.__class__.__name__)
+            add = []
+        if not add:
+            return iter(segs), info
+        info.second_names = add
+        _txbase.log.info("名前を足して 2 回目を読みます: %s", "・".join(add)[:200])
+        gen2, _info2 = super().transcribe(audio, **dict(kw, hotwords=",".join(hot + add)))
+        return gen2, info
+
     def _read_chunk(self, pcm, opt):
         """1 つの区切りを読む。worker が終わっていたら 1 回だけ起こし直して読み直す(P39)。2 回目の失敗は EngineError のまま上へ"""
         cancelled = (self.hooks or {}).get("cancelled")
@@ -1454,6 +1519,9 @@ class HaasSpeechCpp(_Qwen3Chunked):
                                                probability=float(p) if isinstance(p, (int, float)) and p == p else None))
         if not words or not text:   # 空の行は捨てる(P39)
             return []
+        if len(words) >= 2 and words[0].start - s0 <= HEAD_TOKEN_AT and words[1].start - words[0].start >= HEAD_TOKEN_GAP:
+            words[0].start = round(words[1].start - HEAD_TOKEN_BACK, 3)   # 区切りの頭に付いた最初のトークンを次の近くへ(P36 (イ)= 黙っている間の字幕が半分)
+            words[0].end = max(words[0].end, words[0].start)
         lp = [math.log(max(w.probability, 1e-9)) for w in words if w.probability is not None]
         raw = text.encode("utf-8")
         return [types.SimpleNamespace(start=words[0].start, end=words[-1].end, text=text, words=words,

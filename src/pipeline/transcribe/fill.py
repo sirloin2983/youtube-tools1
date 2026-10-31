@@ -461,6 +461,11 @@ def fill_after_rows(job, spec, rows, wav, total):
     順は FILL_A_FIRST(既定 A → C。C が A の対象の「うわああああ」の次の「ああああ」の行を先に捨てて埋められなかった = 確かめ済み 23 本の組 B で
     C → A 15.23% → A → C 12.45%・組 A は全部同じ。資料の git:before-1028-cleanup:plan/accuracy-review-1022.md)。A が読めなくても C は当てる。dup は A の後の行で数える。
     -> (行, 記録 {engine, windows, rows, added, dup, agree, order} か None(設定オフ), 窓を読む関数 か None(読めない = 警告を job に足して whisper のまま))"""
+    if spec.get("engine") == tx_engines.HaasSpeechCpp.id:   # Haas の時は 2 つ目の読み(A)と C・D を呼ばない(10-31 ユーザーの決め (1)・whisper に戻せばまた動く)。dropSilent は動かす
+        if spec.get("dropSilent") or spec.get("endSnap"):
+            rec = {"engine": None, "windows": 0, "rows": 0, "added": 0, "dup": 0, "agree": 0, "order": "", "secondRead": False}
+            return fill_drop_silent(job, rows, wav, rec, drop=bool(spec.get("dropSilent")), snap=bool(spec.get("endSnap"))), rec, None
+        return rows, None, None
     if not spec.get("autoFill"):
         return rows, None, None
     order = "AC" if FILL_A_FIRST else "CA"

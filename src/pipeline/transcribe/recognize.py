@@ -211,8 +211,18 @@ def transcribe_rows(job, spec, wav):
     gen = _backend.select().transcribe(job, spec, wav, total, _transcribe_checked)
     raw = []   # 生出力(<id>.asr.json)
     gen = records.capture_raw(gen, raw, spec["start"])
-    rows = list(postproc.expand_segments(gen, spec, total))
+    voice = haas_voice(job, spec, wav) if postproc.is_haas(spec) else None
+    rows = list(postproc.expand_segments(gen, spec, total, voice=voice))
     return {"rows": rows, "raw": raw, "total": total, "t_rec": t_rec}
+
+
+def haas_voice(job, spec, wav):
+    """Haas の行の末を伸ばす声の区間(speech.cpp の silero-vad)。出せなければ警告を job に足して None(伸ばさない)"""
+    try:
+        return tx_engines.speech_vad(wav, log=_txbase.log, cancelled=lambda: bool(job.get("cancel")))
+    except tx_engines.EngineError as e:
+        _txbase.add_warning(job, "声の区間を出せなかったので、行の末を伸ばしていません: " + e.message[:200])
+        return None
 
 
 AUDIO_MARGIN = 3.0   # 取り出す範囲の前後の余裕(秒)。音量補正(dynaudnorm)の窓が数秒あるので、端で音が変わらないよう広めに

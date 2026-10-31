@@ -148,7 +148,95 @@ def note_nosub(text):
     return note_only(text)
 
 
-def expand_segments(gen, spec, dur=None, join=True):
+HAAS_CUT_MARKS = frozenset("。?!？！、,，")   # Haas の区切りの 1 行を先に切る字(文の終わりと読点。P22・P28)
+HAAS_TINY = 2          # 切った後のこの字数以下の切れ端は前(無ければ次)につなぐ(P37)
+HAAS_END_EXT = 1.0     # 行の末が声の区間の中なら、その声の終わりまで伸ばす上限(秒・予備1 の (a)・次の行の頭まで。0.5 か 1.0 かは友人の校正の写しで決める)
+HAAS_HEAD_EARLY = 0.05  # 行の頭を早める秒(P49。前の行の末より前にしない)
+
+
+def is_haas(spec):
+    return isinstance(spec, dict) and spec.get("engine") == tx_engines.HaasSpeechCpp.id
+
+
+def _clean_chars(t):
+    return "".join(c for c in unicodedata.normalize("NFKC", t or "") if unicodedata.category(c)[0] not in "PSZ")
+
+
+def haas_pieces(segs):
+    """Haas の区切りの 1 行(words つき)を、文の終わりと読点で切り(HAAS_CUT_MARKS)、HAAS_TINY 字以下の切れ端を前(無ければ次)につなぐ。
+    切れ端ごとに avg_logprob = その切れ端のトークンの確率の対数の平均(区切りの値を全部の行に写さない)・wordProbs もその切れ端の分だけ・compression_ratio は持たない"""
+    out = []
+    for s in segs:
+        ws, ps = list(s.get("words") or []), list(s.get("wordProbs") or [])
+        if not ws:
+            out.append(s)
+            continue
+        if len(ps) != len(ws):
+            ps = [None] * len(ws)
+        cur, cps = [], []
+        for w, p in zip(ws, ps):
+            cur.append(list(w))
+            cps.append(p)
+            if any(ch in HAAS_CUT_MARKS for ch in str(w[2])):
+                out.append(_haas_piece(s, cur, cps))
+                cur, cps = [], []
+        if cur:
+            out.append(_haas_piece(s, cur, cps))
+    out = [p for p in out if p and p.get("text")]
+    merged = []
+    for p in out:
+        if merged and p.get("words") and merged[-1].get("words") and len(_clean_chars(p["text"])) <= HAAS_TINY:
+            merged[-1] = _haas_join(merged[-1], p)
+        else:
+            merged.append(p)
+    if len(merged) >= 2 and merged[0].get("words") and merged[1].get("words") and len(_clean_chars(merged[0]["text"])) <= HAAS_TINY:
+        merged[:2] = [_haas_join(merged[0], merged[1])]
+    return merged
+
+
+def _haas_piece(s, ws, ps):
+    text = "".join(str(w[2]) for w in ws).strip()
+    if not text:
+        return None
+    ws[0][2] = str(ws[0][2]).lstrip()
+    lp = [math.log(max(p, 1e-9)) for p in ps if isinstance(p, (int, float))]
+    return dict(s, start=ws[0][0], end=ws[-1][1], text=text, words=ws, wordProbs=list(ps),
+                avg_logprob=(sum(lp) / len(lp)) if lp else None, compression_ratio=None)
+
+
+def _haas_join(a, b):
+    ps = list(a.get("wordProbs") or []) + list(b.get("wordProbs") or [])
+    lp = [math.log(max(p, 1e-9)) for p in ps if isinstance(p, (int, float))]
+    return dict(a, end=b["end"], text=a["text"] + b["text"], words=list(a["words"]) + list(b["words"]), wordProbs=ps,
+                avg_logprob=(sum(lp) / len(lp)) if lp else None)
+
+
+def haas_times(rows, voice, dur=None):
+    """Haas の行の時刻(行の並び = 時刻の順): 末が声の区間の中なら、その声の終わりまで伸ばす(多くて HAAS_END_EXT 秒・次の行の頭まで・予備1 の (a))→
+    頭を HAAS_HEAD_EARLY 秒早める(前の行の末より前・0 秒より前にしない・P49)。voice = [(始め, 終わり)](無ければ伸ばさない)"""
+    rows = sorted(rows, key=lambda r: r["start"])
+    voice = sorted(voice or [])
+    for k, r in enumerate(rows):
+        nxt = rows[k + 1]["start"] if k + 1 < len(rows) else (dur or r["end"] + HAAS_END_EXT)
+        for a, b in voice:
+            if a < r["end"] < b:
+                r["end"] = round(max(r["end"], min(b, r["end"] + HAAS_END_EXT, nxt)), 3)
+                break
+            if a >= r["end"]:
+                break
+        prev = rows[k - 1]["end"] if k > 0 else 0.0
+        r["start"] = round(max(prev, r["start"] - HAAS_HEAD_EARLY, 0.0), 3)
+        r["end"] = max(r["end"], r["start"])
+    return rows
+
+
+def haas_text(t):
+    """Haas の行の字の最後の整え: 記号の決まり(symbols.apply = 文字起こしの書き方の決まりの 1-1・例外は symbols-exceptions.json)・ー の連なりを縮める"""
+    from . import symbols as _symbols
+    return _symbols.apply(_txtext.squeeze_bars(t))[0]
+
+
+def expand_segments(gen, spec, dur=None, join=True, voice=None):
     """認識の出力を、split_segment で整えながら流す(wordSplit が無効なら、そのまま)。
     句読点の除去(stripPunct、既定オン)は、単語分割が句読点を判断材料に使い終えたあとの、最後の1回だけにかける
     (分割の精度には影響させず、かつ text と original の両方に必ず同じ結果が入るよう、ここ1か所にまとめる)。
@@ -159,6 +247,9 @@ def expand_segments(gen, spec, dur=None, join=True):
     行の終わりを音の谷へ寄せる処理は持たない"""
     strip = spec.get("stripPunct", True)
     mc = spec.get("splitChars") or _txtext.SPLIT_CHARS
+    haas = is_haas(spec)
+    if haas:   # Haas(speech.cpp): 区切りの 1 行を文の終わりと読点で先に切って、切れ端をつなぐ(保管庫 plan/Haas に替える時の変更の一覧.md の段 2・研究の P51)
+        gen = haas_pieces(list(gen))
     rows = (p for s in gen for p in (_txtext.split_segment(s, mc) if spec.get("wordSplit") else [s]))
     if dur:
         rows = clip_rows(rows, dur)
@@ -166,12 +257,20 @@ def expand_segments(gen, spec, dur=None, join=True):
     end_trim, join_gap = post_values(spec)
     if spec.get("engine") == tx_engines.WhisperCpp.id and end_trim > 0:
         rows = trim_ends(rows, end_trim)
+    if haas and join:   # 末を声の終わりまで伸ばし、頭を少し早める(join_rows の前)
+        rows = iter(haas_times(list(rows), voice, dur))
     if join and join_gap > 0:
         rows = join_rows(rows, join_gap)
-    for p in rows:   # 最後の 1 回だけ: ー の連なりを縮める(txtext.BAR_MAX)・句読点を外す
+    for p in rows:   # 最後の 1 回だけ: ー の連なりを縮める(txtext.BAR_MAX)・句読点を外す(Haas は記号の決まり)
         if p.get("text"):
-            t = _txtext.squeeze_bars(p["text"])
-            p = {**p, "text": _txtext.strip_punct(t) if strip else t}
+            if haas and strip:
+                t = haas_text(p["text"])
+                if not t:
+                    continue   # 記号だけの行は出さない(書き方の決まりの 1-1)
+                p = {**p, "text": t}
+            else:
+                t = _txtext.squeeze_bars(p["text"])
+                p = {**p, "text": _txtext.strip_punct(t) if strip else t}
         yield p
 
 
