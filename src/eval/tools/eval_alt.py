@@ -17,7 +17,7 @@
         別の直し … 人はその所を wrong でも right でもない文字に直した(隣に文字を足した・消した場合も、その所に触ったので数える)
         分からない … まとまりの人の行が校正済みでない・行が消された・まとまりが長すぎる(判定しない)。**率は校正済みのまとまりだけで出す**
       確かめるの read:alt の答えは人の判断の正: 2 = 候補を採った = 当たり / 1 = 今のまま(却下)= 外れ / 打った文字 = 別の直し
-      (human/check/read.py の do_apply と同じ意味。答えは行を校正済みにしないので、まとまりの規則では「分からない」のまま = 答えで決める)。
+      (読みのカードの反映と同じ意味。カードは 10-31 に消した = 前の答えの記録だけ読む。答えは行を校正済みにしないので、まとまりの規則では「分からない」のまま = 答えで決める)。
       答えは 文書の id・行の id(カードの target)と、答えに残る採否の記録の候補(applied.feedback.items の wrong・right)で、出し直した候補と突き合わせる:
         同じまとまりの人の行に答えた行があり、寄せた wrong・right が同じ候補 → その候補の判定を答えで置き換える(二重に数えない)
         合う候補が無い(行の文字が original から変わった後に出た候補など)→ 答えを 1 件の候補として足す。答えのある候補の時刻は答えの時刻 at
@@ -54,7 +54,7 @@ from human.proof import alt as _alt  # noqa: E402
 from ytt import errors as _errors  # noqa: E402
 
 SCHEMA = "youtube-tools-alt-eval/v1"
-ANSWER_STATUS = {"2": "hit", "1": "miss", "other": "other"}   # 確かめるの read:alt の答え -> 判定(human/check/read.py の do_apply)
+ANSWER_STATUS = {"2": "hit", "1": "miss", "other": "other"}   # 確かめるの read:alt の答え -> 判定(読みのカードの反映。10-31 に消した)
 FEW_CANDS = 100                    # 判定できた候補がこれより少ないときは「まだ少ない(参考)」
 MAX_DOC_BYTES = C.DOC_BYTES
 MAX_GROUP_CHARS = 4000             # まとまりの寄せた文字がこれを超えたら判定しない(比べる計算が重くなりすぎないように)
