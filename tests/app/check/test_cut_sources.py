@@ -70,7 +70,7 @@ class CutSourcesTest(unittest.TestCase):
         return [c for c in got if doc is None or c["target"]["docId"] == doc]
 
     def off(self):
-        return mock.patch.dict(os.environ, {cutcard.SWITCH_ENV: ""}), mock.patch.object(cutcard._settings, "load_settings", return_value={cutcard.SETTING: False})
+        return mock.patch.dict(os.environ, {cutcard.SWITCH_ENV: ""}), mock.patch.object(cutcard._doc._settings, "load_settings", return_value={cutcard.SETTING: False})
 
     def test_switch_off_gives_nothing(self):
         e, s = self.off()
@@ -80,7 +80,7 @@ class CutSourcesTest(unittest.TestCase):
 
     def test_settings_switch_on(self):
         with mock.patch.dict(os.environ, {cutcard.SWITCH_ENV: ""}), \
-                mock.patch.object(cutcard._settings, "load_settings", return_value={}):   # 既定オン
+                mock.patch.object(cutcard._doc._settings, "load_settings", return_value={}):   # 既定オン
             self.assertTrue(cutcard.enabled())
             self.assertTrue(cut_sources.cut_edge(self.view()))
 

@@ -91,14 +91,8 @@ def origin_of(row):
 
 def rows(log_dir):
     """届けた記録の行(dict)を古い順に。末尾から MAX_SCAN まで。読めなければ None"""
-    p = os.path.join(log_dir, LOG)
-    try:
-        size = os.path.getsize(p)
-        with open(p, "rb") as f:
-            if size > MAX_SCAN:
-                f.seek(size - MAX_SCAN)
-            text = f.read().decode("utf-8", "replace")
-    except OSError:
+    text = fsio.read_tail(os.path.join(log_dir, LOG), MAX_SCAN)
+    if text is None:
         return None
     out = []
     for line in text.splitlines():
@@ -204,14 +198,8 @@ def record_not_sent(log_dir, video_id, mark_id, code, text, run_id=""):
 def not_sent_marks(log_dir):
     """-> {(配信, スタジオのマーク): {"code", "text", "at" ミリ秒}}(同じ切り抜きは新しい方)。無い・読めなければ {}(札が出ないだけ)。
     末尾から MAX_SCAN まで。届けたあとに出さないのは読み手(④ 案件)が届けた記録と重ねて決める"""
-    p = os.path.join(log_dir, NOT_SENT_LOG) if log_dir else ""
-    try:
-        size = os.path.getsize(p)
-        with open(p, "rb") as f:
-            if size > MAX_SCAN:
-                f.seek(size - MAX_SCAN)
-            text = f.read().decode("utf-8", "replace")
-    except (OSError, ValueError):
+    text = fsio.read_tail(os.path.join(log_dir, NOT_SENT_LOG), MAX_SCAN) if log_dir else None
+    if text is None:
         return {}
     out = {}
     for line in text.splitlines():

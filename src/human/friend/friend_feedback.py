@@ -9,7 +9,6 @@ record_delivery で 1 行: zip の名前・依頼・配信・入っていたパ�
 前の logs/friend_feedback.jsonl は書かない・消さない。片付けに要る物は届けた記録 deliveries.jsonl とごみ箱の manifest.jsonl にある)。
 文字起こしは消さない(精度のデータ)。
 """
-import json
 import os
 import time
 
@@ -18,7 +17,6 @@ from human import judgments
 from ytt import tools
 
 DELIVERIES_LOG = deliveries.LOG           # 届けた記録(入口の作業データの logs の中。持ち主は ② flow/deliveries)
-MAX_SCAN = 4 * 1024 * 1024                # 届けた記録を末尾から読む上限
 
 
 def record_delivery(log_dir, zip_path, run, packs, marks=None, origin="request"):
@@ -27,25 +25,8 @@ def record_delivery(log_dir, zip_path, run, packs, marks=None, origin="request")
 
 
 def find_delivery(log_dir, zip_name):
-    """deliveries.jsonl から、その zip の名前の最後の行。無ければ None"""
-    p = os.path.join(log_dir, DELIVERIES_LOG)
-    try:
-        size = os.path.getsize(p)
-        with open(p, "rb") as f:
-            if size > MAX_SCAN:
-                f.seek(size - MAX_SCAN)
-            text = f.read().decode("utf-8", "replace")
-    except OSError:
-        return None
-    found = None
-    for line in text.splitlines():
-        try:
-            d = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(d, dict) and d.get("zip") == zip_name:
-            found = d
-    return found
+    """deliveries.jsonl から、その zip の名前の最後の行。無ければ None(読む口は ② flow/deliveries.rows = 末尾から MAX_SCAN まで)"""
+    return next((d for d in reversed(deliveries.rows(log_dir) or []) if d.get("zip") == zip_name), None)
 
 
 def _app_dir(log_dir):

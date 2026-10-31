@@ -6,10 +6,12 @@ edit_row(tid, row_id, fn, why): 保存の錠 → この文書を書き換える�
 反映と Z の共通の形もここ: edit_fields(前の値 → 直す → 後の値)・revert_fields(答えたあとのままのときだけ戻す)・row_target・doc_id(カードの行・文書)・choice(答えの検査)。
 印(行の flag)の割る・つなぐは ytt/schemas の flag_parts・join_flags を直に使う。
 ③ の層: 文書は human/proof の store と layers、ジョブの最中かは ② flow/jobs の読み口だけを読む。
+カードの種類のスイッチの読み方(card_switch)もここ(区間・カットのカードが同じ読み方)。
 """
+import os
 import time
 
-from ytt import errors as _errors, schemas as _yschemas, workdata as _workdata
+from ytt import errors as _errors, schemas as _yschemas, settings as _settings, workdata as _workdata
 from flow import jobs as _heavy
 from human.proof import store as _store
 from . import apply as _apply   # 同じ human/check の兄弟
@@ -17,6 +19,20 @@ from . import apply as _apply   # 同じ human/check の兄弟
 # この文書を書き換えないジョブ(2 つ目のエンジン・30fps の作り直し)と、確かめるが自分で足す声の覚え直しは「最中」に数えない。
 # ほかの種類(文字起こし・話者判別・再認識・疑わしい所・これから足す種類)の最中は、答えが結果で消えるので断る
 NOT_BUSY_KINDS = ("alt", "normalize", "voice-learn")
+
+
+def card_switch(env, setting):
+    """カードの種類のスイッチ(既定オン)。環境変数 env が on 系(1・on・true・yes)なら出す・off 系(0・off・false・no)なら出さない(テスト・試し)。
+    それ以外は編集の設定 setting を明示でオフにしたときだけ出さない(設定が読めなければ出す)"""
+    v = str(os.environ.get(env) or "").strip().lower()
+    if v in ("1", "on", "true", "yes"):
+        return True
+    if v in ("0", "off", "false", "no"):
+        return False
+    try:
+        return _settings.load_settings().get(setting) is not False
+    except Exception:   # noqa: BLE001
+        return True
 
 
 def busy(tid):

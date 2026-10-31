@@ -966,19 +966,8 @@ def rowtitle(r):
 
 
 def _log_tail(path, cap):
-    """ログの末尾 cap バイト(行の途中から始めない)"""
-    try:
-        with open(path, "rb") as f:
-            f.seek(0, os.SEEK_END)
-            size = f.tell()
-            f.seek(max(0, size - cap))
-            data = f.read(cap)
-    except OSError:
-        return ""
-    text = data.decode("utf-8", "replace")
-    if size > cap and "\n" in text:
-        text = text.split("\n", 1)[1]
-    return text
+    """ログの末尾 cap バイト(行の途中から始めない)。読めなければ空"""
+    return _fsio.read_tail(path, cap) or ""
 
 
 def _cut(f):

@@ -175,10 +175,6 @@ class Board:
         with self._lock:
             self._handlers[prefix] = {"source": source, "cancel": cancel}
 
-    def unregister(self, prefix):
-        with self._lock:
-            self._handlers.pop(prefix, None)
-
     def set_case_hook(self, fn):
         """case が無い Job の案件の根を引く fn(Job) -> 根か None(None で外す)。引けなかった物は CASE_RETRY_SEC ごとに引き直す"""
         with self._lock:

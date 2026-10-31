@@ -16,10 +16,9 @@ Z = 答える前の行と話者の表に戻す(持ち主の行・足した行が
 ③ の層: 文書は human/proof の store、ジョブの最中かは human/check/_doc(② flow/jobs の読み口)だけを読む。入口が import すると register される。
 """
 import copy
-import os
 import re
 
-from ytt import errors as _errors, schemas as _yschemas, settings as _settings, textutil as _textutil, workdata as _workdata
+from ytt import errors as _errors, schemas as _yschemas, textutil as _textutil, workdata as _workdata
 from human.proof import speakers as _speakers, store as _store
 from . import _doc, apply   # 同じ human/check の兄弟
 
@@ -297,15 +296,7 @@ SETTING = "checkSectionCardsOn"   # 編集の設定の鍵(既定オン)。既定
 def enabled():
     """区間カードのスイッチ(既定オン = ユーザー決定 3-63 (ce1) B)。編集の設定 checkSectionCardsOn(設定の画面の「編集」)を
     明示でオフにしたときだけ出さない。環境変数 YTT_CHECK_SECTION が on 系なら出す・off 系(0・off・false・no)なら出さない(テスト・試し)"""
-    v = str(os.environ.get(SWITCH_ENV) or "").strip().lower()
-    if v in ("1", "on", "true", "yes"):
-        return True
-    if v in ("0", "off", "false", "no"):
-        return False
-    try:
-        return _settings.load_settings().get(SETTING) is not False
-    except Exception:
-        return True
+    return _doc.card_switch(SWITCH_ENV, SETTING)
 
 
 SWITCH_ENV = "YTT_CHECK_SECTION"

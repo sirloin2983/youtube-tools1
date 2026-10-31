@@ -74,17 +74,10 @@ def _json_bytes(obj):
 
 def _tail(path, lines=LOG_TAIL_LINES):
     """ログの末尾 lines 行(伏せたあと)。読めなければ None"""
-    try:
-        size = os.path.getsize(path)
-        with open(path, "rb") as f:
-            f.seek(max(0, size - LOG_TAIL_READ))
-            raw = f.read()
-    except OSError:
+    text = _fsio.read_tail(path, LOG_TAIL_READ)
+    if text is None:
         return None
-    text = raw.decode("utf-8", "replace").splitlines()
-    if size > LOG_TAIL_READ and text:
-        text = text[1:]   # 途中から読んだ最初の行は捨てる
-    return SECRET_TEXT_RE.sub(MASK, "\n".join(text[-lines:])) + "\n"
+    return SECRET_TEXT_RE.sub(MASK, "\n".join(text.splitlines()[-lines:])) + "\n"
 
 
 def default_health(path_for_disk=None):

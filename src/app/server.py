@@ -205,20 +205,10 @@ port_open = runtime.port_open   # そのポートで何かが待ち受けてい�
 
 def tail(path, lines=200, max_bytes=256 * 1024):
     """ファイルの末尾 lines 行(読めなければ None)。大きなログでも末尾 max_bytes だけ読む。文字コードが崩れた所は置き換える。"""
-    try:
-        with open(path, "rb") as f:
-            f.seek(0, os.SEEK_END)
-            size = f.tell()
-            start = max(0, size - max_bytes)
-            f.seek(start)
-            data = f.read()
-    except OSError:
+    text = fsio.read_tail(path, max_bytes)
+    if text is None:
         return None
-    if start > 0:   # 途中から読んだ最初の行は欠けているので捨てる
-        nl = data.find(b"\n")
-        data = data[nl + 1:] if nl >= 0 else b""
-    text = data.decode("utf-8", "replace").replace("\r\n", "\n").replace("\r", "\n")
-    out = text.split("\n")
+    out = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     if out and out[-1] == "":
         out.pop()
     return out[-lines:] if lines > 0 else []
