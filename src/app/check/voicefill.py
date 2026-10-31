@@ -16,6 +16,7 @@ from flow import voicematerial as _vm
 from ytt import fsio, settings as _settings
 
 ENABLED = True
+IDLE_EVERY = 10        # ASK_ON が偽の間、evalredo・shortjobs を呼ぶのは何回に 1 回か(10 分に 1 回)
 ASK_ON = False         # 10-31 ユーザー「声の材料の文字起こし止めて」: 偽 = 新しく文字起こしを頼まない(True で前の動き)
 LEARN_NAME = _vm.SHORT_DIR_NAME
 STATE_NAME = "voice-material.json"

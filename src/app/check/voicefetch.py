@@ -298,7 +298,8 @@ def tick(app_dir, roster_r, counts, busy, start_job, log, now=None, rss=None, fe
         return None
     one = {"path": path, "video": it["id"], "month": it.get("month") or "", "title": it["title"][:200], "at": int(now)}
     try:
-        one["job"] = start_job({"sourcePath": path, "autoLlm": False, "title": "%s %s" % (who, it["title"][:150])})
+        if ASK_ON:   # 偽 = 音は残して文字起こしは頼まない(job 無しで数える。True に戻すと voicefill が拾う)
+            one["job"] = start_job({"sourcePath": path, "autoLlm": False, "title": "%s %s" % (who, it["title"][:150])})
         rec["got"].append(one)
     except Exception as e:   # noqa: BLE001  (頼めなければ got に入れない = 次の回に取り直す)
         log("誰の声の材料(YouTube): %s の音を文字起こしに頼めませんでした(%s)" % (who, str(e)[:120]))

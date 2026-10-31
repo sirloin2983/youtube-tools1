@@ -75,6 +75,12 @@ class VoiceFetchTest(unittest.TestCase):
         self.assertIsNone(self.tick(now=NOON + 15100, counts={"ときのそら": 1}))       # 全員 TARGET 本(EN・ID は取らない)
         self.assertIsNotNone(VF.slot_free(self.app, datetime.datetime(2026, 10, 26, 3, 0).timestamp()))   # 夜中も動く
 
+    def test_ask_off_fetch_keeps_audio_without_job(self):
+        with mock.patch.object(VF, "ASK_ON", False):
+            self.assertEqual(self.tick(counts={"ときのそら": 1}), "ロボ子さん")
+        self.assertEqual(self.jobs, [])              # 文字起こしは頼まない
+        self.assertEqual(len(self.got), 1)           # 音は取って残す
+
     def test_extra_channels(self):
         """名簿にチャンネルが無い人は、配信者の色の名簿(friend-apps/holo-colors/members.json)の控えで引く"""
         r = dict(R, groups=R["groups"] + [{"id": "regloss", "names": ["轟はじめ"]}])

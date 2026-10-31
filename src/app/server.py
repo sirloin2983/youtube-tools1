@@ -1375,10 +1375,14 @@ class PortalServer(httpsec.ExclusiveServer):
     def voice_fill_loop(self):
         """誰の声の材料を全メンバーぶんそろえる(app/check/voicefill。10-25): 手が空いているとき、学習用データのショートを 1 分に 1 本文字起こしに頼む"""
         client = lambda: autorun_mod.ToolClient(self.tool_endpoint, self.token, timeout=30)   # noqa: E731
+        n = 0
         while not self.closing.wait(check_voicefill.EVERY):
+            n += 1
             try:
                 asked = check_voicefill.tick(self.cleanup.app_dir, lambda req: client().ok("transcribe", "POST", "/api/transcribe", req).get("id"),
                                              self._voice_busy, self.sup.log)
+                if asked is None and not check_voicefill.ASK_ON and n % check_voicefill.IDLE_EVERY:
+                    continue   # voicefill 停止中(10-31): 下の 2 つは IDLE_EVERY 回に 1 回だけ(止める前、voicefill が頼んだ回には走らなかった頻度まで)
                 if asked is None:   # 評価用にした文書の作り直し(評価用の決まりで。10-25)= 先に
                     asked = check_evalredo.tick(self.cleanup.app_dir, self._read_doc_quiet,
                                                 lambda path, body: client().ok("transcribe", "POST", path, body), self._voice_busy, self.sup.log)
