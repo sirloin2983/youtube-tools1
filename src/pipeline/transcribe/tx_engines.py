@@ -1243,9 +1243,9 @@ def speech_vad(wav, data_dir=None, log=None, cancelled=None):
     """声の区間 [(始め, 終わり)](wav の秒)。speech.cpp の silero-vad(声の前後の足し 0・200 ms 未満の無音はつなぐ = 研究の P8・予備1 の TIME と同じ)。
     Haas の行の末を声の終わりまで伸ばすのに使う(postproc.expand_segments の voice)。実行ファイルが無い・失敗は EngineError"""
     data_dir = data_dir or engine_home()
-    exe = _txbase.speech_exe(data_dir)
+    exe = _txbase.speech_exe(data_dir) if data_dir else ""
     cmd = list(HaasSpeechCpp.COMMAND) if HaasSpeechCpp.COMMAND else [exe]
-    if not HaasSpeechCpp.COMMAND and not os.path.isfile(exe):
+    if not HaasSpeechCpp.COMMAND and not (exe and os.path.isfile(exe)):
         raise EngineError("engine_missing", "speech.cpp がありません(setup\\place_speechcpp.py で置いてください)", 400)
     model = fetch_file(SILERO_GGUF, haas_gguf_dir(data_dir), log, cancelled)
     try:
@@ -1419,8 +1419,11 @@ class HaasSpeechCpp(_Qwen3Chunked):
 
     @classmethod
     def ready(cls, data_dir):
-        """実行ファイルが置いてあるか(モデルは最初の読みで取る)"""
-        return bool(cls.COMMAND) or os.path.isfile(_txbase.speech_exe(data_dir or engine_home()))
+        """(使えるか, 使えない理由)。実行ファイルが置いてあるか(モデルは最初の読みで取る)"""
+        d = data_dir or engine_home()
+        if cls.COMMAND or (d and os.path.isfile(_txbase.speech_exe(d))):
+            return True, ""
+        return False, "speech.cpp がありません(setup\\place_speechcpp.py で置いてください)"
 
     @classmethod
     def create(cls, name, device, compute_type=None, log=None, data_dir=None, hooks=None):

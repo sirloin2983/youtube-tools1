@@ -208,12 +208,27 @@ def transcribe_rows(job, spec, wav):
     extract_audio(job, spec, wav)
     total = _tools.media_duration(wav) or (spec["end"] - spec["start"] if spec["end"] else 0)
     t_rec = time.monotonic()   # 認識にかかった時間(モデルの読み込みを含む)。recognition.runs に残す
+    try:
+        rows, raw = _rows_of(job, spec, wav, total)
+    except _errors.ApiError as e:
+        if not postproc.is_haas(spec) or e.code not in HAAS_FALLBACK_CODES:
+            raise
+        # Haas(speech.cpp)が起こし直しても読めなかった・置いていない・GPU を使えない: 今までの whisper.cpp で読み直す(段 3 の守り。P31 の 6)
+        _txbase.add_warning(job, "Haas で読めなかったので whisper.cpp で読み直しました: " + str(e.message)[:200])
+        spec.update(engine=tx_engines.WhisperCpp.id, model="large-v3", device="cpu" if spec.get("device") == "cpu" else "vulkan")
+        rows, raw = _rows_of(job, spec, wav, total)
+    return {"rows": rows, "raw": raw, "total": total, "t_rec": t_rec}
+
+
+HAAS_FALLBACK_CODES = ("engine_missing", "engine_failed", "worker_down", "gpu_failed", "model_failed", "fetch_failed")   # whisper.cpp に戻す Haas の失敗
+
+
+def _rows_of(job, spec, wav, total):
     gen = _backend.select().transcribe(job, spec, wav, total, _transcribe_checked)
     raw = []   # 生出力(<id>.asr.json)
     gen = records.capture_raw(gen, raw, spec["start"])
     voice = haas_voice(job, spec, wav) if postproc.is_haas(spec) else None
-    rows = list(postproc.expand_segments(gen, spec, total, voice=voice))
-    return {"rows": rows, "raw": raw, "total": total, "t_rec": t_rec}
+    return list(postproc.expand_segments(gen, spec, total, voice=voice)), raw
 
 
 def haas_voice(job, spec, wav):

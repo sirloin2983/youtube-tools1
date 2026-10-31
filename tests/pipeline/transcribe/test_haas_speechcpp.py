@@ -67,7 +67,7 @@ class HaasSpeechCppTest(unittest.TestCase):
 
     def test_missing_exe_and_bad_model(self):
         with mock.patch.object(E.HaasSpeechCpp, "COMMAND", None):
-            self.assertFalse(E.HaasSpeechCpp.ready(self.tmp))
+            self.assertFalse(E.HaasSpeechCpp.ready(self.tmp)[0])
             with self.assertRaises(E.EngineError) as cm:
                 E.HaasSpeechCpp.create("haas-ja-v1.0", "vulkan", data_dir=self.tmp)
             self.assertEqual(cm.exception.code, "engine_missing")
