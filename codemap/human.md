@@ -10,7 +10,7 @@
 
 ## src/human/check/
 
-- **__init__.py** (3 行) — ③ 確かめる(V1。カードの答えの記録 answerlog・答えを実物へ反映する土台 apply・文書の行を直す口 _doc と、種類ごとの反映 read・timerow・value・voice・speech・section・cutcard。
+- **__init__.py** (3 行) — ③ 確かめる(V1。カードの答えの記録 answerlog・答えを実物へ反映する土台 apply・文書の行を直す口 _doc と、種類ごとの反映 timerow・value・voice・section・cutcard。読み read・声ですか speech は 10-31 に消した。
 - **_doc.py** (104 行) — 「確かめる」の文書の行を直す 1 つの口(読み・時刻・声のカードの反映と Z が使う。opt-human 6-1)。
   - 名前: `busy` :22・`edit_row` :30・`edit_fields` :54・`revert_fields` :64・`doc_id` :78・`row_target` :86・`choice` :96
 - **answerlog.py** (212 行) — 「確かめる」の答えの記録(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-1)。
@@ -19,12 +19,10 @@
   - 名前: `class Context` :46・`register` :69・`flush` :207・`answer` :214・`undo` :255・`unknown` :281・`skip` :295
 - **cutcard.py** (54 行) — 「確かめる」の自動カットのカードの答えの記録(CUT-CARD。決定: plan/opt-eval.md の Q4 自動カットのカード)。
   - 名前: `enabled` :27
-- **read.py** (172 行) — 「確かめる」の読みのカード(どちらの読みが正しいか)の反映(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 2-2・3-2。import で apply に登録する)。
-  - 名前: `_check` :32・`_tid` :49・`_unflag` :53・`_row_state` :57・`_feedback` :63・`_cand_of` :75・`_apply` :82・`_same` :142・`_revert` :147
 - **section.py** (313 行) — 「確かめる」の評価のレーンの区間カードの反映(C-EVAL (2)。決定 3-47「確かめると評価をまとめる」・3-49 Q2。設計の相談は Fable)。
   - 名前: `enabled` :297
-- **speech.py** (60 行) — 「確かめる」の「この行は声ですか?」の反映(資料の git:before-1028-cleanup:docs/design/v1-check-build.md・C-EVAL (3))。
-  - 名前: `_state` :15・`_apply_speech` :21・`_revert_speech` :37
+- **symbol.py** (93 行) — 「確かめる」の記号のカード「この記号は消してよいか」の反映(11-01 ユーザー「消してよかったかを見直す道具は確かめるに作ればよくない？」)。
+  - 名前: `code_of` :22・`char_of` :27・`extra_path` :38
 - **timerow.py** (109 行) — 「確かめる」の時刻のカード「行の時刻が合っているか」の反映(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-2・5 節・決定 3-41)。
   - 名前: `_move` :21・`_check` :29・`_times` :50・`_apply_time` :54・`_revert_time` :86
 - **value.py** (188 行) — 「確かめる」の価値のカード(切り抜く価値があるか = 70 点以上か)の反映(資料の git:before-1028-cleanup:docs/design/v1-check-build.md・決定 3-41)。
@@ -106,9 +104,8 @@
 - tests/human/test_judgments.py — 人の判断の記録(human/judgments)のテスト: 書いて読む・壊れた行・key の重複・fold の 3 レーンと retract と時刻順・.old・知らない what
 - tests/human/check/test_apply.py — 「確かめる」の答えの記録(src/human/check/answerlog.py)と反映の土台(apply.py)の単体テスト。一時フォルダと偽の反映の部品だけを使う。
 - tests/human/check/test_cutcard.py — 「確かめる」の自動カットのカードの答えの記録(src/human/check/cutcard.py)の単体テスト: 答えの形(出どころごとの選び)・
-- tests/human/check/test_read.py — 「確かめる」の読みのカードの反映(src/human/check/read.py)の単体テスト。一時フォルダの文書と learn-feedback.json だけを使う。
 - tests/human/check/test_section.py — 評価のレーンの区間カードの反映(src/human/check/section.py)の単体テスト。一時の作業データに評価用の文書を作って、答える・戻すを確かめる。
-- tests/human/check/test_speech.py — 「この行は声ですか?」の反映(src/human/check/speech.py)の単体テスト: 答えの形・keep は文書を触らない・drop は noSub と novoice を付ける(行は消さない・
+- tests/human/check/test_symbol.py — 「確かめる」の記号のカードの反映(src/human/check/symbol.py)の単体テスト: 答えの形・「例外にする」で字を足し Z で外す・
 - tests/human/check/test_timerow.py — 時刻のカードの反映(src/human/check/timerow.py)の単体テスト。一時の作業データに文書を作って、答える・戻すを確かめる。
 - tests/human/check/test_value.py — 価値のカードの反映(src/human/check/value.py)の単体テスト。入口が渡す口(studio)は偽物。value:auto は記録だけ(案件の口を呼ばない)。
 - tests/human/check/test_voice.py — 「確かめる」の誰の声のカード(src/human/check/voice.py)の単体テスト: 答えの形・選択肢と予想・文書の行への反映(commit why check:voice)と Z・

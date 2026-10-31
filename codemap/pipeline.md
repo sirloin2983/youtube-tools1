@@ -98,8 +98,10 @@
   - 名前: `fold` :40・`load` :51・`channel_regions` :90・`find_in_text` :120・`match_name` :133・`build_context` :144・`member_terms` :168・`fit` :179・`prompt_terms` :194・`stream_context` :204・`leak_only` :229・`alias_variants` :263・ほか 1
 - **separate.py** (164 行) — 「編集」のサーバーの部品: 声を伴奏から分けて(Spleeter 2stems・sherpa-onnx・CPU)、分けた声の音量から声のある区間を作る(資料の git:before-1028-cleanup:plan/voice-separation-1022.md)。
   - 名前: `sep_model_dir` :34・`spans_from_db` :38・`prefetch` :73・`prefetch_local` :89・`voice_spans` :109
-- **tx_engines.py** (1376 行) — 文字起こしの認識エンジンの口(精度改善の計画 段2。資料の git:before-1028-cleanup:plan/line-b-transcription.md(付録))。
-  - 名前: `engine_home` :52・`engine_of` :61・`env_num` :66・`is_16k_mono` :75・`half_cpu` :80・`class EngineError` :85・`class Engine` :93・`class FasterWhisper` :146・`scan_timings` :225・`gpu_peek` :249・`wcpp_env` :264・`wcpp_bin_dir` :273・ほか 21
+- **symbols.py** (143 行) — 文字起こしの記号の決まり(11-01。保管庫 plan/文字起こしの書き方の決まり.md の 1-1 と decisions の 11-01 の例外)。
+  - 名前: `is_symbol` :24・`base_rules` :55・`read_extra` :71・`apply` :97・`code_of` :129・`char_of` :134
+- **tx_engines.py** (1495 行) — 文字起こしの認識エンジンの口(精度改善の計画 段2。資料の git:before-1028-cleanup:plan/line-b-transcription.md(付録))。
+  - 名前: `engine_home` :53・`engine_of` :62・`env_num` :67・`is_16k_mono` :76・`half_cpu` :81・`class EngineError` :86・`class Engine` :94・`class FasterWhisper` :147・`scan_timings` :226・`gpu_peek` :250・`wcpp_env` :265・`wcpp_bin_dir` :274・ほか 25
 - **worker.py** (340 行) — ① 文字起こしの認識ワーカー(統合計画の段階3-3)。編集のサーバーが別プロセスとして起動する(worker_client.WorkerClient)。人が直接起動するものではない。
   - 名前: `class Out` :84・`class JobProxy` :94・`handle` :271・`main` :295
 - **worker_client.py** (735 行) — ① 認識ワーカー(別プロセス)とのやり取りとモデル: ワーカーの起動・要求・取り消し・強制終了(WorkerClient・WORKER)・モデルの代理(RemoteModel)・
@@ -138,6 +140,7 @@
 - tests/pipeline/transcribe/test_records.py — 記録の土台のテスト。
 - tests/pipeline/transcribe/test_roster.py — 名簿の呼び名(pipeline/transcribe/roster.py)と同梱の名簿のテスト。
 - tests/pipeline/transcribe/test_separate_prefetch.py — pipeline/transcribe/separate.py の先回り(認識の前に裏の糸で声を分け始め、あとの voice_spans が同じ音の結果を使う。10-23)のテスト。
+- tests/pipeline/transcribe/test_symbols.py — 文字起こしの記号の決まり(src/pipeline/transcribe/symbols.py)の単体テスト: 句読点と記号を消す・例外(名簿の名前の中・Mr.・%・
 - tests/pipeline/transcribe/test_txbackend.py — pipeline/transcribe の本物と疑似の差し込み口 backend のテスト(役割で組み直す RS2-2)。
 - tests/pipeline/transcribe/test_txrecords.py — pipeline/transcribe/records(認識の記録・辞書の版・生出力・単語の時刻)を、編集の serve を読まずに使うテスト。
 - tests/pipeline/transcribe/test_txroster.py — pipeline/transcribe/roster の配信ごとの文脈 stream_context と用語の区切り split_terms(ytt/txtext)を、編集の serve を読まずに使うテスト。
