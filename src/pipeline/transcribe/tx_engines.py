@@ -1423,7 +1423,7 @@ class HaasSpeechCpp(_Qwen3Chunked):
         d = data_dir or engine_home()
         if cls.COMMAND or (d and os.path.isfile(_txbase.speech_exe(d))):
             return True, ""
-        return False, "speech.cpp がありません(setup\place_speechcpp.py で置いてください)"
+        return False, "speech.cpp がありません(setup\\place_speechcpp.py で置いてください)"
 
     @classmethod
     def create(cls, name, device, compute_type=None, log=None, data_dir=None, hooks=None):
