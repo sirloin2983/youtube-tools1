@@ -1,11 +1,10 @@
 """ショート(学習用データ)の文書の下ごしらえ(10-25 ユーザー「読みのカードと この行は声ですか のカードを ショートから作る」)。
-10-31: 読みのカード(read:alt)と「この行は声ですか」(speech:diar)は消した(Haas に替えるため)。下ごしらえは残す(判別は誰の声のカードも使う)。
+10-31: 読みのカード(read:alt)と「この行は声ですか」(speech:diar)は消した(Haas に替えるため)。read:alt のためだけだった 2 つ目のエンジンの聞き直しの段も消した
+(裏で重い読みを頼むので CPU と GPU を無駄に使う)。判別の段は残す(誰の声のカードが使う)。前の記録の alt の欄は読み飛ばす。
 
-読み(read:alt)は 2 つ目のエンジンの聞き直し(<文書>.alt.json)から、「この行は声ですか」(speech:diar)は話者の判別の記録(<文書>.diar.json の声の区間)から作るので、
 文字起こしが済んだショートの文書に、手が空いているとき 1 本ずつ(1 回の見回りで 1 つ)「編集」のジョブを頼む:
   1. 話者の判別(人数は決めない・配信者の名前を渡す・覚えた声との照らし合わせはしない)= 声の区間。
      分かれた話者は誰の声のカードでは行の多い話者(配信者)の行だけ使う(flow/voicematerial.main_speaker)
-  2. 2 つ目のエンジンで聞き直し(案として置くだけ = 文書は変えない)
 頼んだ物は <app>/check/short-jobs.json に覚え、2 度は頼まない(頼めなかった物も理由を覚えて飛ばす)。
 手が空いているか・YouTube の取り込みに合間を譲るのは、学習用データの文字起こし(voicefill)と同じ(入口が busy で渡す)。評価用の写しは頼まない。スイッチ ENABLED。
 """
@@ -17,7 +16,7 @@ from . import voice_solo as _solo, voicefill as _fill
 
 ENABLED = True
 STATE_NAME = "short-jobs.json"
-STEPS = ("diar", "alt")
+STEPS = ("diar",)   # 10-31 に alt(2 つ目のエンジンの聞き直し)を外した
 
 
 def _path(app_dir):
@@ -39,11 +38,8 @@ def tick(view, app_dir, call, busy, log, now=None):
             continue
         who, _song = _solo._solo_of(path, doc)
         try:
-            if step == "diar":
-                body = {"tid": tid, "numSpeakers": 0, "names": [who] if who else [], "recognize": False}   # 人数は決めない(1 人の指定は判別しない = 声の区間ができない)
-                rec[step] = {"job": call("/api/diarize", body)}
-            else:
-                rec[step] = {"job": call("/api/rerun", {"tid": tid, "target": "whole", "engine": "alt", "result": "propose"})}
+            body = {"tid": tid, "numSpeakers": 0, "names": [who] if who else [], "recognize": False}   # 人数は決めない(1 人の指定は判別しない = 声の区間ができない)
+            rec[step] = {"job": call("/api/diarize", body)}
         except Exception as e:   # noqa: BLE001  (頼めなかった = 理由を覚えて飛ばす)
             rec[step] = {"error": "%s: %s" % (e.__class__.__name__, str(e)[:160])}
         rec[step]["at"] = int(time.time() if now is None else now)
@@ -51,7 +47,7 @@ def tick(view, app_dir, call, busy, log, now=None):
         fsio.write_json(_path(app_dir), st, indent=None)
         left = sum(1 for t, _p, d in view.docs(need_media=False) if _fill.in_learn_dir(d.get("sourcePath")) and any(s not in (st.get(t) or {}) for s in STEPS))
         log("ショートのカードの下ごしらえ: %s の%sを頼みました(残り %d 本)%s"
-            % (os.path.basename(str(src)), "話者の判別" if step == "diar" else "2 つ目のエンジンの聞き直し", left,
+            % (os.path.basename(str(src)), "話者の判別", left,
                "" if "job" in rec[step] else " — 頼めませんでした " + rec[step]["error"]))
         return tid, step
     return None

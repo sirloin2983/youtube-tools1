@@ -1,5 +1,5 @@
 """ショートの文書の下ごしらえ(src/app/check/shortjobs.py と sources の shorts。10-25。読み・声ですかのカードは 10-31 に消した)。
-下ごしらえ(判別 → 2 つ目のエンジン)を 1 本ずつ・2 度は頼まない・評価用の写しは頼まない /
+下ごしらえ(判別だけ。2 つ目のエンジンの段は 10-31 に消した)を 1 本ずつ・2 度は頼まない・評価用の写しは頼まない /
 判別で話者が分かれたショートの誰の声のカードは、行の多い話者の行だけ。
 実行(リポジトリ直下から): py -3.12 -m unittest tests/app/check/test_shortjobs.py -v
 """
@@ -53,9 +53,8 @@ class ShortJobsTest(unittest.TestCase):
         call = lambda path, body: calls.append((path, body)) or "j%d" % len(calls)   # noqa: E731
         for _ in range(4):
             SJ.tick(self.view(), self.ctx.app_dir, call, lambda: None, logs.append)
-        self.assertEqual([p for p, _b in calls], ["/api/diarize", "/api/rerun"])   # 判別 → 2 つ目のエンジン・2 度は頼まない
+        self.assertEqual([p for p, _b in calls], ["/api/diarize"])   # 判別だけ・2 度は頼まない(2 つ目のエンジンの聞き直しは頼まない = 10-31)
         self.assertEqual((calls[0][1]["numSpeakers"], calls[0][1]["names"], calls[0][1]["recognize"]), (0, [MIKO], False))
-        self.assertEqual((calls[1][1]["engine"], calls[1][1]["result"]), ("alt", "propose"))
         self.assertIsNone(SJ.tick(self.view(), self.ctx.app_dir, call, lambda: "処理中", logs.append))
 
     def test_main_speaker(self):
