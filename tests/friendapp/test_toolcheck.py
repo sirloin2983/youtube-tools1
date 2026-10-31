@@ -75,6 +75,32 @@ class ToolCheckTest(unittest.TestCase):
         row = T.check_whisper("vulkan", self.tmp, self.paths["YTT_FFMPEG"], os.path.join(self.tmp, "w"), lambda c, t: (1, "", None), bad)
         self.assertIn("音を作れません", row["text"])
 
+    def test_haas_tries_vulkan_then_cpu(self):
+        seen = []
+
+        def gpu_bad(dev, root, wav):
+            seen.append((dev, os.path.isfile(wav)))
+            if dev == "vulkan":
+                raise RuntimeError("Vulkan で起きません")
+        row = T.check_haas(self.tmp, self.paths["YTT_FFMPEG"], os.path.join(self.tmp, "h"), self.fake_run, gpu_bad)
+        self.assertEqual((row["name"], row["ok"], row["device"]), ("haas", True, "cpu"))
+        self.assertEqual(seen, [("vulkan", True), ("cpu", True)])
+        self.assertIn("Vulkan で起きません", row["tried"][0]["text"])
+        self.assertEqual(os.listdir(os.path.join(self.tmp, "h")), [])   # 確かめる音は消す
+        row = T.check_haas(self.tmp, self.paths["YTT_FFMPEG"], os.path.join(self.tmp, "h"), self.fake_run, lambda d, r, w: None)
+        self.assertEqual((row["ok"], row["device"], row["tried"]), (True, "vulkan", []))
+
+    def test_haas_both_fail_or_no_wav(self):
+        def bad(dev, root, wav):
+            raise RuntimeError("%s が駄目" % dev)
+        row = T.check_haas(self.tmp, self.paths["YTT_FFMPEG"], os.path.join(self.tmp, "h"), self.fake_run, bad)
+        self.assertFalse(row["ok"])
+        self.assertIsNone(row["device"])
+        self.assertIn("vulkan が駄目", row["text"])
+        self.assertIn("cpu が駄目", row["text"])
+        row = T.check_haas(self.tmp, self.paths["YTT_FFMPEG"], os.path.join(self.tmp, "h"), lambda c, t: (1, "", None), bad)
+        self.assertIn("音を作れません", row["text"])
+
     def test_signature_changes_with_file(self):
         files = list(self.paths.values()) + [os.path.join(self.tmp, "none.exe")]
         a = T.signature(files)
@@ -127,6 +153,21 @@ class PlacesToolsTest(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(self.tools, "whisper.cpp-1-vulkan", "bin", "whisper-cli.exe")))   # whisper には触らない
         self.assertEqual(P.lay_tools_shallow(self.tools), 0)   # 2 回目は何もしない
         self.assertEqual(P.lay_tools_shallow(os.path.join(self.tmp, "none")), 0)
+
+    def test_lay_whisper_copies_speechcpp_once(self):
+        self.put("speech.cpp-0.10.0-conf", "speech.exe")
+        self.put("speech.cpp-0.10.0-conf", "build.json")
+        self.put("whisper.cpp-1-vulkan", "whisper-cli.exe")
+        self.put("whisper.cpp-1-vulkan", "build.json")
+        self.put("speech.cpp-no-build", "speech.exe")   # build.json の無い物は写さない
+        tx = os.path.join(self.tmp, "tx")
+        said = []
+        self.assertEqual(P.lay_whisper(self.tools, tx, said.append), 2)
+        self.assertTrue(os.path.isfile(os.path.join(tx, "bin", "speech.cpp-0.10.0-conf", "speech.exe")))
+        self.assertFalse(os.path.exists(os.path.join(tx, "bin", "speech.cpp-no-build")))
+        self.assertEqual(P.lay_whisper(self.tools, tx), 0)   # build.json が同じなら写さない
+        self.put("speech.cpp-0.10.0-conf", "x", "deep.exe")
+        self.assertEqual(P.lay_tools_shallow(self.tools), 0)   # speech.cpp には触らない
 
 
 if __name__ == "__main__":

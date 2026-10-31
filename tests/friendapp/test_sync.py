@@ -756,10 +756,11 @@ class SyncTest(unittest.TestCase):
         self.sync.runtime_dirs = [d]
         return d
 
-    def put_light(self, ver, light_extra=None, with_full=True):
-        """全部入り(python/ つき)と軽い zip(python/ なし・manifest は同じ files + light)と light 付きの latest.json"""
+    def put_light(self, ver, light_extra=None, with_full=True, speech=None):
+        """全部入り(python/ つき)と軽い zip(python/ なし・manifest は同じ files + light)と light 付きの latest.json。
+        speech = 全部入りに足す tools/speech.cpp-* の {相対パス: 中身}(軽い zip には入れない)"""
         src = {"src/friendapp/server.py": b"# server", "src/ytt/version.py": b"v", "fetch.json": b"{}"}
-        py = {"python/" + rel: data for rel, data in self.RUNTIME.items()}
+        py = dict({"python/" + rel: data for rel, data in self.RUNTIME.items()}, **(speech or {}))
         files = {k: hashlib.sha256(v).hexdigest() for k, v in dict(src, **py).items()}
         full = zip_bytes(dict(src, **py, **{"manifest.json": json.dumps({"files": files}).encode()}))
         light = zip_bytes(dict(src, **{"manifest.json": json.dumps({"files": files, "light": True}).encode()}))
@@ -821,6 +822,47 @@ class SyncTest(unittest.TestCase):
             self.assertTrue(os.path.isfile(os.path.join(app, "python", "python.exe")))
             self.assertEqual([n for n in os.listdir(self.places["home"]) if n.endswith((".tmp", ".part"))], [])
             shutil.rmtree(app)
+
+    SPEECH = {"tools/speech.cpp-0.10.0-conf/speech.exe": b"MZspeech", "tools/speech.cpp-0.10.0-conf/build.json": b"{}"}
+
+    def test_full_update_unpacks_speechcpp(self):
+        """全部入りの tools/speech.cpp-* は版のフォルダへ展開する(ほかの tools/ は展開しない)"""
+        self.key()
+        self.env[S.LAUNCHER_ENV] = "1"
+        self.put_update("0.91.0", self.update_entries(**{"tools/speech.cpp-0.10.0-conf/speech.exe": b"MZs", "tools/ffmpeg/ffmpeg.exe": b"MZf"}))
+        self.assertEqual(self.run_sync(), [])
+        app = os.path.join(self.places["home"], "app-0.91.0")
+        self.assertTrue(os.path.isfile(os.path.join(app, "tools", "speech.cpp-0.10.0-conf", "speech.exe")))
+        self.assertFalse(os.path.exists(os.path.join(app, "tools", "ffmpeg")))
+
+    def test_light_update_copies_speechcpp_from_running_version(self):
+        """軽い更新: manifest の tools/speech.cpp-* は今の版のフォルダ(runtime の親)から写す。無ければ全部入りを取り直して展開する"""
+        self.key()
+        self.env[S.LAUNCHER_ENV] = "1"
+        rt = self.runtime()
+        for have in (True, False):
+            for rel, data in self.SPEECH.items():
+                p = os.path.join(os.path.dirname(rt), *rel.split("/"))
+                if have:
+                    os.makedirs(os.path.dirname(p), exist_ok=True)
+                    with open(p, "wb") as f:
+                        f.write(data)
+                elif os.path.exists(p):
+                    os.remove(p)
+            name, lname = self.put_light("0.95.0", speech=self.SPEECH)
+            self.io.downloads.clear()
+            self.assertEqual(self.run_sync(), [])
+            got = [p for p in self.io.downloads if "FriendApp-" in p]
+            self.assertEqual(got, ["/更新/" + lname] if have else ["/更新/" + lname, "/更新/" + name], have)
+            app = os.path.join(self.places["home"], "app-0.95.0")
+            with open(os.path.join(app, "tools", "speech.cpp-0.10.0-conf", "speech.exe"), "rb") as f:
+                self.assertEqual(f.read(), b"MZspeech")
+            shutil.rmtree(app)
+
+    def test_runtime_mark_includes_speechcpp(self):
+        a = {"python/python.exe": "1" * 64}
+        self.assertEqual(S.runtime_mark(a), S.runtime_mark(dict(a, **{"tools/ffmpeg/ffmpeg.exe": "2" * 64})))
+        self.assertNotEqual(S.runtime_mark(a), S.runtime_mark(dict(a, **{"tools/speech.cpp-0.10.0-conf/speech.exe": "3" * 64})))
 
     def test_runtime_mark_decides_light_or_full(self):
         """latest.json の runtime と今の版の manifest.json の印が同じなら軽い zip だけ・違えば全部入りだけ(軽い方を試さない)。入れた版に manifest.json が残る"""

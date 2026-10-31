@@ -441,6 +441,10 @@ class FlowTest(HomeBase):
         self.whisper_ok = {"vulkan": True, "cuda": True}
         self.device = ["vulkan"]
         self.devices_set = []
+        self.haased = []               # 偽の Haas が受けた機器(段 5)
+        self.haas_ok = {"vulkan": True, "cpu": True}
+        self.engines_set = []
+        self.engine_error = None       # set_engine が断る理由(エンジンの表にまだ無い)
 
     def hold_downloads(self):
         """取り方を gate が開くまで止める -> gate"""
@@ -481,7 +485,19 @@ class FlowTest(HomeBase):
         kw.setdefault("whisper", self.whisper)
         kw.setdefault("set_device", self.set_device)
         kw.setdefault("device", lambda: self.device[0])
+        kw.setdefault("haas", self.haas)
+        kw.setdefault("set_engine", self.set_engine)
         return S.Setup(self.fetch, self.data, self.home, self.friend, **kw)
+
+    def haas(self, device, data_root, wav):
+        self.haased.append(device)
+        if not self.haas_ok[device]:
+            raise RuntimeError("Haas が %s で動きません" % device)
+
+    def set_engine(self, engine, device):
+        if self.engine_error:
+            raise ValueError(self.engine_error)
+        self.engines_set.append((engine, device))
 
     def go(self, st):
         st.start()
@@ -733,6 +749,77 @@ class FlowTest(HomeBase):
         st.wait(10)
         self.assertTrue(st.done)
         self.assertIsNone(st.block_reason())
+
+    # ---- 文字起こしの Haas の 1 回の試し(11-01 段 5): Vulkan → CPU・エンジンの書き込み・記録と診断・同じ版では試し直さない
+    def haas_rec(self):
+        with open(os.path.join(self.friend, S.RECORD), encoding="utf-8") as f:
+            return json.load(f).get("haas")
+
+    def test_haas_vulkan_ok_sets_haas_engine_and_reports(self):
+        st = self.make()
+        seen = []
+        st.on_haas = lambda msg, detail: seen.append((msg, json.loads(detail)))
+        v = self.go(st)
+        self.assertEqual(v["state"], "done")
+        self.assertEqual(self.haased, ["vulkan"])
+        self.assertEqual(self.engines_set, [("haas-speechcpp", "vulkan")])
+        r = self.haas_rec()
+        self.assertEqual((r["ok"], r["device"], r["applied"]), (True, "vulkan", True))
+        self.assertIn("文字起こし(Haas)", [d["label"] for d in v["detail"]])
+        self.assertEqual(len(seen), 1)
+        self.assertIn("動きました", seen[0][0])
+
+    def test_haas_gpu_fails_then_cpu(self):
+        self.haas_ok["vulkan"] = False
+        st = self.make()
+        self.go(st)
+        self.assertEqual(self.haased, ["vulkan", "cpu"])
+        self.assertEqual(self.engines_set, [("haas-speechcpp", "cpu")])
+        r = self.haas_rec()
+        self.assertEqual((r["ok"], r["device"]), (True, "cpu"))
+        self.assertIn("vulkan で動きません", r["tried"][0]["text"])
+        self.assertFalse(st.pick_device())   # Haas を CPU で使う = 機器を A・C に戻さない
+
+    def test_haas_both_fail_keeps_whisper_and_reports(self):
+        self.haas_ok = {"vulkan": False, "cpu": False}
+        st = self.make()
+        seen = []
+        st.on_haas = lambda msg, detail: seen.append(msg)
+        v = self.go(st)
+        self.assertEqual(v["state"], "done")   # 準備は止めない
+        self.assertEqual(self.engines_set, [])   # Haas にしていなかった = machine.json は書かない
+        self.assertFalse(self.haas_rec()["ok"])
+        self.assertIn("whisper.cpp のまま", seen[0])
+
+    def test_haas_fails_after_update_goes_back_to_whisper(self):
+        self.go(self.make())
+        self.assertEqual(self.engines_set, [("haas-speechcpp", "vulkan")])
+        with open(os.path.join(self.friend, S.RECORD), encoding="utf-8") as f:
+            rec = json.load(f)
+        rec["haas"]["version"] = "0.0.1"   # 前の版の結果 = 更新のあと
+        with open(os.path.join(self.friend, S.RECORD), "w", encoding="utf-8") as f:
+            json.dump(rec, f)
+        self.haas_ok = {"vulkan": False, "cpu": False}
+        self.make()._haas_step()
+        self.assertEqual(self.engines_set[-1], ("whisper.cpp", None))
+        self.assertFalse(self.haas_rec()["applied"])
+
+    def test_haas_engine_table_without_haas_only_records(self):
+        self.engine_error = "engine は whisper.cpp のどれかにしてください"
+        st = self.make()
+        self.go(st)
+        r = self.haas_rec()
+        self.assertEqual((r["ok"], r["applied"]), (True, False))
+        self.assertIn("whisper.cpp", r["applyError"])
+
+    def test_haas_same_version_does_not_try_again(self):
+        st = self.make()
+        self.go(st)
+        self.assertEqual(self.haased, ["vulkan"])
+        st2 = self.make()
+        st2._haas_step()   # 同じ版・同じ部品 = 試さずに前の結果を当て直すだけ
+        self.assertEqual(self.haased, ["vulkan"])
+        self.assertEqual(self.engines_set, [("haas-speechcpp", "vulkan")])   # 書けていれば書き直さない
 
 
 if __name__ == "__main__":

@@ -9,6 +9,8 @@ zip の中(アプリのフォルダ <任意>/FriendApp/ にそのまま展開す
     python/        公式の埋め込み用 Python 3.12 + python312._pth(Lib/site-packages と ../src を足す)+ wheel を展開した部品(numpy・sherpa-onnx・streamlink と依存)
     src/           git が管理している src のファイルのうち friendapp・ytt・flow・pipeline・ui-kit の層(__pycache__ は外す。テストは src の外の tests/ なので入らない。作業データ・追跡外のファイルは入らない)
     tools/whisper.cpp-<版>-vulkan/   ユーザーの PC で作った whisper.cpp(build.json の files と SHA-256 が合う物だけ)
+    tools/speech.cpp-<版>-<直し>/   文字起こしの Haas(speech.cpp の手元の直しの版。作業データに setup/place_speechcpp.py で置いた物を build.json の SHA-256 で確かめて写す)。
+                     python/ と同じ「版から版へ写す実行の部品」(friendapp/sync.RUNTIME_PREFIXES)= 軽い zip には入れず、変わったら全部入りを取らせる
     fetch.json     初回に取る物の表(モデル・llama.cpp・ffmpeg・yt-dlp・Deno)。モデルと llama.cpp は tx_engines・diarize の表を import して読むだけ
     manifest.json  全体の版・各ファイルの SHA-256
 config.json(Dropbox の鍵)は入れない。--first --with-key のときだけ friend-apps/launcher/config.json(git の外)を zip の直下へ入れる(3 節 (f1g)。友人の PC もアプリのフォルダの直下の config.json を読む)。
@@ -69,7 +71,7 @@ if SRC not in sys.path:
 DEV = os.path.dirname(os.path.abspath(__file__))
 if DEV not in sys.path:
     sys.path.insert(0, DEV)
-from ytt import datadir, fsio as _fsio, version as _version, workdata  # noqa: E402
+from ytt import datadir, fsio as _fsio, txbase as _txbase, version as _version, workdata  # noqa: E402
 from human.friend import pubqueue as _pubqueue, upwatch as _upwatch  # noqa: E402  配る待ちの列と知らせの一覧
 from friendapp import sync as _fsync  # noqa: E402  python/ の印(runtime_mark)は友人のアプリと同じ 1 か所
 from pipeline.transcribe import diarize as _diarize, separate as _separate, tx_engines as _tx  # noqa: E402  取る物の表の正(写さない)
@@ -422,6 +424,30 @@ def lay_wcpp(stage, wcpp_dir):
     return "tools/" + sub
 
 
+def lay_speechcpp(stage, speech_dir):
+    """speech.cpp(手元の直しの版)を tools/ に。build.json の版・直しの名前が ytt/txbase と合い、files の SHA-256 が合う物だけ"""
+    try:
+        with open(os.path.join(speech_dir, "build.json"), encoding="utf-8") as f:
+            info = json.load(f)
+    except (OSError, ValueError):
+        raise BuildError("speech.cpp の build.json が読めません: %s(setup/place_speechcpp.py で置いてから)" % speech_dir)
+    if info.get("version") != _txbase.SPEECH_CPP_VERSION or info.get("flavor") != _txbase.SPEECH_CPP_FLAVOR:
+        raise BuildError("speech.cpp の版・直しの名前が ytt/txbase と違います: %s" % speech_dir)
+    files = info.get("files") or {}
+    if _txbase.SPEECH_EXE not in files:
+        raise BuildError("speech.cpp の build.json に %s がありません" % _txbase.SPEECH_EXE)
+    sub = os.path.basename(_txbase.speech_bin_dir(""))
+    dest = os.path.join(stage, "tools", sub)
+    os.makedirs(dest)
+    for name, sha in sorted(files.items()):
+        p = os.path.join(speech_dir, name)
+        if os.path.basename(name) != name or not os.path.isfile(p) or sha256_file(p) != sha:
+            raise BuildError("speech.cpp の %s が build.json と違います" % name)
+        shutil.copy2(p, dest)
+    shutil.copy2(os.path.join(speech_dir, "build.json"), dest)
+    return "tools/" + sub
+
+
 def lay_members(stage, members_src=MEMBERS_SRC):
     """配信者の名簿 members.json(ホロカラーと同じ一覧)を zip の直下に。友人のアプリが places.py で直下から読む"""
     if not os.path.isfile(members_src):
@@ -459,6 +485,9 @@ def model_entries():
     for name, s in _tx.WCPP_MODELS.items():
         out.append({"name": "whisper.cpp/" + name, "file": s["file"], "url": s["url"], "size": s["size"], "sha256": s["sha256"],
                     "base": "data", "dest": _data_dest(_tx.wcpp_model_dir("")), "unzip": None})
+    for name, s in _tx.HAAS_GGUF_MODELS.items():   # 文字起こしの Haas(speech.cpp)のモデル(11-01 段 5)
+        out.append({"name": "haas/" + name, "file": s["file"], "url": s["url"], "size": s["size"], "sha256": s["sha256"],
+                    "base": "data", "dest": _data_dest(_tx.haas_gguf_dir("")), "unzip": None})
     c = _tx.LLAMA_CPP
     out.append({"name": "llama.cpp/" + c["version"], "file": c["file"], "url": c["url"], "size": c["size"], "sha256": c["sha256"],
                 "base": "data", "dest": _data_dest(_tx.llama_bin_dir("")), "unzip": "zip"})
@@ -683,9 +712,9 @@ def default_out(first, publish=False):
 
 
 def build(out_dir, cache, wcpp_dir, first=False, with_key=False, fetch=True, notes="", fetcher=download, downloader=pip_download,
-          launcher_build=LAUNCHER_BUILD, members_src=MEMBERS_SRC, key_src=KEY_SRC, mark=None):  # lint: long 一本の流れ(置く → 表 → 検査 → zip)
+          launcher_build=LAUNCHER_BUILD, members_src=MEMBERS_SRC, key_src=KEY_SRC, mark=None, speech_dir=None):  # lint: long 一本の流れ(置く → 表 → 検査 → zip)
     """zip を作って {zip, size, sha256, files, light} を返す(light = 軽い更新の {zip, size, sha256}。--first は無し)。失敗は BuildError。
-    mark = latest.json と台帳の行に足す {important, fixes}(update_mark。None = 足さない)"""
+    mark = latest.json と台帳の行に足す {important, fixes}(update_mark。None = 足さない)。speech_dir = speech.cpp の置き場所(None = 作業データの既定)"""
     if with_key and not first:
         raise BuildError("--with-key は --first のときだけ(更新の zip に鍵を入れない)")
     ver = _version.VERSION
@@ -703,6 +732,7 @@ def build(out_dir, cache, wcpp_dir, first=False, with_key=False, fetch=True, not
         check_src()
         lay_src(stage)
         wcpp = lay_wcpp(stage, wcpp_dir)
+        speech = lay_speechcpp(stage, speech_dir or default_speechcpp())
         lay_launcher(stage, launcher_build)
         lay_install(stage)
         fetch_doc = {"schema": FETCH_SCHEMA, "version": ver, "items": model_entries() + tool_entries(cache, fetch, fetcher)}
@@ -715,6 +745,7 @@ def build(out_dir, cache, wcpp_dir, first=False, with_key=False, fetch=True, not
         manifest = {"schema": SCHEMA, "version": ver, "builtAt": datetime.datetime.now().isoformat(timespec="seconds"), "first": bool(first),
                     "withKey": bool(with_key), "python": {"version": PY_EMBED["version"], "file": PY_EMBED["file"], "sha256": embed_got["sha256"]},
                     "requirements": reqs, "wheels": [os.path.basename(w) for w in wfiles], "whisperCpp": {"dir": wcpp, "version": _tx.WHISPER_CPP["version"]},
+                    "speechCpp": {"dir": speech, "version": _txbase.SPEECH_CPP_VERSION, "flavor": _txbase.SPEECH_CPP_FLAVOR},
                     "files": files}
         with open(os.path.join(stage, "manifest.json"), "w", encoding="utf-8") as f:
             json.dump(manifest, f, ensure_ascii=False, indent=1)
@@ -768,6 +799,11 @@ def default_cache():
 def default_wcpp():
     """whisper.cpp の Vulkan 版の既定(作業データの transcribe/bin/whisper.cpp-<版>-vulkan)"""
     return _tx.wcpp_bin_dir(datadir.tool_dir(TX_TOOL, os.path.join(SRC, "editor")))
+
+
+def default_speechcpp():
+    """speech.cpp の既定(作業データの transcribe/bin/speech.cpp-<版>-<直し>。setup/place_speechcpp.py が置く)"""
+    return _txbase.speech_bin_dir(datadir.tool_dir(TX_TOOL, os.path.join(SRC, "editor")))
 
 
 HISTORY_MAX = 10

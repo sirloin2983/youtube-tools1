@@ -530,7 +530,7 @@ class Setup:
 
     def __init__(self, fetch_path, data_root, home, record_dir, device=lambda: "vulkan", log=None, downloader=None,
                  disk_usage=shutil.disk_usage, wcpp=install_wcpp, cuda=cuda_item, after=None, env=None, set_device=None,
-                 run=_toolcheck.run_cmd, whisper=_toolcheck.whisper_run, gpu=None):
+                 run=_toolcheck.run_cmd, whisper=_toolcheck.whisper_run, gpu=None, haas=_toolcheck.haas_run, set_engine=None):
         self.fetch_path, self.data_root, self.home, self.record_dir = fetch_path, data_root, home, record_dir
         self.device, self.log, self.downloader = device, log or (lambda msg: None), downloader
         self.disk_usage, self.wcpp, self.cuda, self.after = disk_usage, wcpp, cuda, after
@@ -539,6 +539,7 @@ class Setup:
         self.env = os.environ if env is None else env
         self.set_device = set_device or _set_device
         self.run, self.whisper, self.gpu = run, whisper, gpu
+        self.haas, self.set_engine = haas, set_engine or _set_engine   # Haas の 1 回の試し・エンジンを machine.json に書く口(11-01 段 5)
         self.flow = None            # None = まだ始めていない・FLOW_STATES のどれか
         self.flow_thread = None
         self.flow_msg = ""
@@ -622,6 +623,8 @@ class Setup:
     def pick_device(self):
         """NVIDIA の GPU があり C の部品が取れていれば C、無ければ A を machine.json に書く(逃げ道 ENGINE_ENV=A は A)。
         -> C の部品を取りに行くか(NVIDIA で部品が無く、この版でまだ失敗していない)"""
+        if self._haas_cpu():   # Haas を CPU で使うと決めた(GPU で動かなかった)= 機器を A・C に戻さない
+            return False
         if (self.env.get(ENGINE_ENV) or "").strip().upper() == "A":
             want, fetch = "vulkan", False
         else:
@@ -725,6 +728,7 @@ class Setup:
         """浅く置く・文字起こしの部品を作業データへ写す・道具の場所を環境変数へ(置き直して無くなった古い値は入れ直す)"""
         _places.lay_tools_shallow(self.tools_dir(), self.log)
         _places.lay_whisper(self.tools_dir(), self.tx_dir(), self.log)
+        _places.lay_whisper(_places.app_tools_dir(), self.tx_dir(), self.log)   # 更新で版のフォルダに展開した speech.cpp(sync.RUNTIME_PREFIXES)
         _places.tool_env(self.tools_dir(), self.env)
 
     def _sig_files(self, device):
@@ -850,6 +854,7 @@ class Setup:
             elif not wrow["ok"]:
                 return self._flow_fail("文字起こしが動きません。パソコンを起動し直してから [もう一度] を押してください。続くときは [詳しい文をコピー] で写して作る人に送ってください")
         self._save_checked(device)
+        self._haas_step()
         self._flow_set("done", "")
         if self.after is not None:
             try:
@@ -862,6 +867,78 @@ class Setup:
             return {"name": "whisper", "label": _toolcheck.WHISPER_LABEL, "ok": False, "text": "ffmpeg が動かないので確かめられません"}
         return _toolcheck.check_whisper(device, self.data_root, self.env.get("YTT_FFMPEG"), os.path.join(self.record_dir, "toolcheck"),
                                         self.run, self.whisper)
+
+    # ---- 文字起こしの Haas(speech.cpp)の 1 回の試し(11-01 段 5・保管庫 plan/Haas に替える時の変更の一覧.md)
+    def _haas_sig_files(self):
+        from pipeline.transcribe import tx_engines as _tx
+        from ytt import txbase as _txbase
+        m = _tx.HAAS_GGUF_MODELS[_tx.HaasSpeechCpp.DEFAULT_MODEL]
+        return [_txbase.speech_exe(self.tx_dir()), os.path.join(_tx.haas_gguf_dir(self.tx_dir()), m["file"])]
+
+    def _haas_rec(self):
+        d = self._rec().get("haas")
+        return d if isinstance(d, dict) else {}
+
+    def _haas_cpu(self):
+        d = self._haas_rec()
+        return bool(d.get("ok") and d.get("device") == "cpu" and d.get("applied"))
+
+    def _haas_step(self):
+        """版が変わったあと(= 更新のあと)に 1 回だけ Haas を短い音で読む(Vulkan → CPU)。動けばエンジンを Haas に(CPU なら機器も)、
+        動かなければ whisper.cpp のまま(前に Haas にしてあれば whisper.cpp に戻す)。machine.json を書くのは変える時だけ。
+        結果は setup.json の haas と診断へ。同じ版・同じ部品なら試し直さない(Haas にできていなければ書き込みだけやり直す)。
+        エンジンの表(flow/spec.TX_ENGINES)にまだ Haas が無いうちは書けない = 記録だけ(applied = 偽)。準備は止めない"""
+        try:
+            sig = _toolcheck.signature(self._haas_sig_files())
+            d = self._haas_rec()
+            was = bool(d.get("applied"))   # 前に Haas にしてあったか
+            fresh = d.get("version") != _version.VERSION or d.get("sig") != sig
+            if fresh:   # 呼ぶのは道具の確かめ(ffmpeg を含む)が通ったあとだけ
+                row = _toolcheck.check_haas(self.data_root, self.env.get("YTT_FFMPEG"), os.path.join(self.record_dir, "toolcheck"),
+                                            self.run, self.haas)
+                self._check_rows([row])
+                d = {"version": _version.VERSION, "sig": sig, "ok": row["ok"], "device": row.get("device"), "text": row["text"],
+                     "tried": row.get("tried") or [], "at": int(time.time() * 1000)}
+            want = (HAAS_ENGINE, d["device"]) if d.get("ok") else ((WHISPER_ENGINE, None) if was else None)   # 書くのは変える時だけ
+            if want is not None and (fresh or not was or not d.get("ok")):
+                try:
+                    self.set_engine(*want)
+                    d["applied"] = bool(d.get("ok"))
+                    d.pop("applyError", None)
+                except ValueError as e:   # エンジンの表にまだ無い(段 3 の前)= machine.json は変えない
+                    d["applied"], d["applyError"] = False, str(e)[:200]
+            elif not d.get("ok"):
+                d["applied"] = False
+            self._save_haas(d)
+            if fresh:
+                self._haas_report(d)
+        except Exception as e:   # noqa: BLE001  (試しで準備を止めない)
+            self.log("文字起こしの Haas の試しに失敗しました: %s" % e.__class__.__name__)
+
+    def _save_haas(self, d):
+        path = os.path.join(self.record_dir, RECORD)
+        rec = self._rec()
+        rec["haas"] = d
+        try:
+            _fsio.write_json(path, rec, indent=1)
+        except OSError as e:
+            self.log("Haas の試しの印を書けませんでした: %s" % e.__class__.__name__)
+
+    def _haas_report(self, d):
+        """試しの結果を記録と診断へ(動いた・動かないのどちらも 1 つ)"""
+        if d.get("ok"):
+            msg = "文字起こしの Haas が動きました(%s)%s" % ("GPU" if d.get("device") == "vulkan" else "CPU",
+                                                        "" if d.get("applied") else "。エンジンはまだ whisper.cpp のまま")
+        else:
+            msg = "文字起こしの Haas が動かないので whisper.cpp のままにしました"
+        self.log(msg + ("" if d.get("ok") else ": " + str(d.get("text"))[:200]))
+        cb = getattr(self, "on_haas", None)   # 玄関が診断へ(種類 haas = 起動の失敗の扱いにしない。whisper.cpp で続けられるので)
+        if cb is None:
+            return
+        try:
+            cb(msg, json.dumps({k: d.get(k) for k in ("ok", "device", "applied", "applyError", "text", "tried")}, ensure_ascii=False)[:2000])
+        except Exception:   # noqa: BLE001  (診断で準備を止めない)
+            pass
 
     def _try_cuda(self, was):
         """文字起こしが A で動かなかった -> エンジン C(CUDA)にして CUDA 版を取り、確かめ直す。動かなければ元の機器へ戻す -> C で動いたか"""
@@ -952,6 +1029,16 @@ class Setup:
             _fsio.write_json(path, out, indent=1)
         except OSError as e:
             self.log("初回の取得の記録を書けませんでした: %s" % e.__class__.__name__)
+
+
+HAAS_ENGINE, WHISPER_ENGINE = "haas-speechcpp", "whisper.cpp"   # pipeline/transcribe/tx_engines の HaasSpeechCpp.id・WhisperCpp.id
+
+
+def _set_engine(engine, device):
+    """この PC の設定 machine.json の engine(Haas か whisper.cpp)と、Haas を CPU で使うときの device(cpu)。
+    表(flow/spec.TX_ENGINES・TX_DEVICES)に無い値は ValueError(ファイルは変えない)"""
+    from flow import machine as _machine
+    _machine.save(dict({"engine": engine}, **({"device": "cpu"} if device == "cpu" else {})))
 
 
 def _set_device(device):

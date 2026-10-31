@@ -3,6 +3,7 @@
 
 取った ffmpeg・ffprobe・yt-dlp・deno は -version / --version を 1 回ずつ(窓を出さない・時間切れあり)、
 文字起こし(whisper.cpp)は ffmpeg で作った 2 秒ほどの短い音を 1 回動かす(① の WhisperCpp をそのまま使う = 機器が合わなければ止まる)。
+文字起こしの Haas(speech.cpp・11-01 段 5)も同じ音を 1 回読む。機器は Vulkan → CPU の順に試し、動いた方を行の device に返す(check_haas)。
 どれが駄目かは「詳しく」用の行 {name, label, ok, text} で返す(1 つ駄目でも残りは確かめる)。
 外へ作用する口(子プロセスの実行・文字起こし)は引数で差し替えられる(テストは偽物)。
 
@@ -87,6 +88,46 @@ def check_whisper(device, data_root, ffmpeg, work_dir, run=run_cmd, transcribe=w
             msg = (e.__class__.__name__ + " " + str(getattr(e, "message", "") or e))[:240].strip()   # 例外の名前も「詳しく」に残す
             return _row(name, WHISPER_LABEL, False, "動きません(%s)" % msg)
         return _row(name, WHISPER_LABEL, True, "動きました(%s)" % ("C = CUDA" if device == "cuda" else "A = Vulkan"))
+    finally:
+        try:
+            os.remove(wav)
+        except OSError:
+            pass
+
+
+HAAS_LABEL = "文字起こし(Haas)"
+HAAS_DEVICES = ("vulkan", "cpu")   # 試す順(Haas は CPU でも 1 時間を約 4 分 = GPU が駄目でも逃げ道になる)
+
+
+def haas_run(device, data_root, wav):
+    """① の Haas(speech.cpp)で短い音を 1 回(結果は見ない = 動いたかだけ。機器に合わなければ EngineError)。モデルは初回の取得で取ってある物"""
+    from pipeline.transcribe import tx_engines as _tx
+    eng = _tx.HaasSpeechCpp.create(_tx.HaasSpeechCpp.DEFAULT_MODEL, device, data_dir=os.path.join(data_root, "transcribe"))
+    try:
+        segs, _info = eng.transcribe(wav, language="ja")
+        list(segs)
+    finally:
+        eng.close()
+
+
+def check_haas(data_root, ffmpeg, work_dir, run=run_cmd, transcribe=haas_run, devices=HAAS_DEVICES):
+    """Haas を短い音で 1 回(Vulkan → CPU の順)-> 行(name は haas)。動いた機器を device に・試した機器ごとの失敗を tried に"""
+    name = "haas"
+    wav = os.path.join(work_dir, "toolcheck-haas.wav")
+    os.makedirs(work_dir, exist_ok=True)
+    tried = []
+    try:
+        if not make_wav(ffmpeg, wav, run):
+            return dict(_row(name, HAAS_LABEL, False, "確かめる音を作れませんでした(ffmpeg が動きません)"), device=None, tried=tried)
+        for dev in devices:
+            try:
+                transcribe(dev, data_root, wav)
+            except Exception as e:   # noqa: BLE001  (EngineError・部品が無い・落ちた。理由は記録と診断に出す)
+                tried.append({"device": dev, "text": (e.__class__.__name__ + " " + str(getattr(e, "message", "") or e))[:240].strip()})
+                continue
+            return dict(_row(name, HAAS_LABEL, True, "動きました(%s)" % ("GPU = Vulkan" if dev == "vulkan" else "CPU")), device=dev, tried=tried)
+        return dict(_row(name, HAAS_LABEL, False, "動きません(%s)" % " / ".join("%s: %s" % (t["device"], t["text"]) for t in tried)),
+                    device=None, tried=tried)
     finally:
         try:
             os.remove(wav)

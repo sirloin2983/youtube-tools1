@@ -18,7 +18,7 @@ TESTS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(TESTS)), "dev"))
 import build_friend_zip as B  # noqa: E402
 from pipeline.transcribe import diarize as D, separate as SEP, tx_engines as E  # noqa: E402
-from ytt import version as V  # noqa: E402
+from ytt import txbase as TB, version as V  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))   # tests/(testkit)
 import testkit  # noqa: E402
 
@@ -92,6 +92,21 @@ def make_wcpp(root):
     return d
 
 
+def make_speech(root):
+    """speech.cpp の置き場所の偽物(setup/place_speechcpp.py が書く build.json の形)"""
+    d = os.path.join(root, "speech")
+    os.makedirs(d)
+    files = {}
+    for n in (TB.SPEECH_EXE, "speech.dll"):
+        b = ("fake " + n).encode()
+        with open(os.path.join(d, n), "wb") as f:
+            f.write(b)
+        files[n] = _sha(b)
+    with open(os.path.join(d, "build.json"), "w", encoding="utf-8") as f:
+        json.dump({"version": TB.SPEECH_CPP_VERSION, "flavor": TB.SPEECH_CPP_FLAVOR, "files": files}, f)
+    return d
+
+
 def make_inputs(root, key=True):
     """名簿(members.json)と鍵(config.json)の偽物。本物の名簿・鍵は読まない"""
     members = os.path.join(root, "members-src.json")
@@ -131,6 +146,7 @@ class Base(unittest.TestCase):
         self.tmp = testkit.tempdir(self, "bfz-")
         self.cache = make_cache(self.tmp)
         self.wcpp = make_wcpp(self.tmp)
+        self.speech = make_speech(self.tmp)
         self.members, self.key = make_inputs(self.tmp)
         self.launcher = make_launcher(self.tmp)
         self.out = os.path.join(self.tmp, "out")
@@ -141,6 +157,7 @@ class Base(unittest.TestCase):
         kw.setdefault("members_src", self.members)
         kw.setdefault("key_src", self.key)
         kw.setdefault("launcher_build", self.launcher)
+        kw.setdefault("speech_dir", self.speech)
         return B.build(self.out, self.cache, self.wcpp, **kw)
 
 
@@ -154,7 +171,8 @@ class BuildTest(Base):
             members, key = make_inputs(cls.shared_tmp)
             cls.shared_out = os.path.join(cls.shared_tmp, "out")
             cls.shared = B.build(cls.shared_out, cls.shared_cache, make_wcpp(cls.shared_tmp), fetcher=_no_fetch, downloader=_no_fetch,
-                                 members_src=members, key_src=key, launcher_build=make_launcher(cls.shared_tmp), notes="n")
+                                 members_src=members, key_src=key, launcher_build=make_launcher(cls.shared_tmp), notes="n",
+                                 speech_dir=make_speech(cls.shared_tmp))
 
     @classmethod
     def tearDownClass(cls):
@@ -199,6 +217,10 @@ class BuildTest(Base):
         self.assertIn(wsub + "/" + E.WCPP_EXE, names)
         self.assertIn(wsub + "/build.json", names)
         self.assertNotIn(wsub + "/extra-not-listed.txt", names)
+        ssub = "tools/" + os.path.basename(TB.speech_bin_dir(""))   # 文字起こしの Haas(段 5)
+        self.assertTrue({ssub + "/" + TB.SPEECH_EXE, ssub + "/speech.dll", ssub + "/build.json"} <= names)
+        self.assertEqual(man["speechCpp"], {"dir": ssub, "version": TB.SPEECH_CPP_VERSION, "flavor": TB.SPEECH_CPP_FLAVOR})
+        self.assertNotEqual(B.runtime_mark(man["files"]), B.runtime_mark({k: v for k, v in man["files"].items() if not k.startswith(ssub)}))
         self.assertEqual(pth.split("\r\n")[-4:], ["Lib\\site-packages", "..\\src", "import site", ""])
         self.assertNotIn("#import site", pth)
         self.assertNotIn("ingest/data", " ".join(names))   # 追跡外の作業データは入らない
@@ -236,6 +258,9 @@ class BuildTest(Base):
         self.assertEqual((i["sha256"], i["unzip"], i["dest"]), (E.LLAMA_CPP["sha256"], "zip", "transcribe/bin/llama.cpp-%s-vulkan" % E.LLAMA_CPP["version"]))
         for name, s in E.LLAMA_TEXT_MODELS.items():
             self.assertEqual(items["llm/" + name]["sha256"], s["model"]["sha256"])
+        for name, s in E.HAAS_GGUF_MODELS.items():   # 文字起こしの Haas のモデル(段 5)= ① の HaasSpeechCpp が読む場所
+            i = items["haas/" + name]
+            self.assertEqual((i["url"], i["size"], i["sha256"], i["unzip"], i["dest"]), (s["url"], s["size"], s["sha256"], None, "transcribe/models/haas-gguf"))
         for name, s in E.SENSE_VOICE_MODELS.items():
             self.assertEqual((items["sensevoice/" + name]["sha256"], items["sensevoice/" + name]["top"]), (s["sha256"], s["dir"]))
         for name, s in SEP.SEP_MODELS.items():   # 声の分離(10-22)
@@ -515,6 +540,14 @@ class CacheTest(Base):
             B.check_certifi(["x/certifi-2026.7.22-py3-none-any.whl", "x/numpy-2.2.6-cp312-cp312-win_amd64.whl"])
         B.check_certifi(["x/certifi-2026.10.19-py3-none-any.whl"])
         B.check_certifi(["x/numpy-2.2.6-cp312-cp312-win_amd64.whl"])
+
+    def test_speechcpp_mismatch_or_missing(self):
+        with open(os.path.join(self.speech, "speech.dll"), "ab") as f:
+            f.write(b"x")
+        with self.assertRaisesRegex(B.BuildError, "speech.dll"):
+            self.build()
+        with self.assertRaisesRegex(B.BuildError, "place_speechcpp"):
+            self.build(speech_dir=os.path.join(self.tmp, "none"))
 
     def test_wcpp_mismatch(self):
         with open(os.path.join(self.wcpp, "ggml.dll"), "ab") as f:

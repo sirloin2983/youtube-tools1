@@ -627,6 +627,7 @@ class FriendApp:
         self.inbox.on_fail = lambda r: self.diag.write("error", rid=r.get("id"), summary=(r.get("error") or "").splitlines()[0] if r.get("error") else "",
                                                       detail=r.get("error") or "", stage="before-run", request={"kind": r.get("kind"), "pc": r.get("pc")})
         self.setup.on_fail = lambda msg, detail: self.diag.write("setup", summary=msg, detail=detail, stage="setup")
+        self.setup.on_haas = lambda msg, detail: self.diag.write("haas", summary=msg, detail=detail, stage="haas")   # 文字起こしの Haas の試し(段 5)
         if self.rollback:
             self.diag.write("rollback", summary="新しい版 %s を起動できなかったので版 %s で開きました" % (self.rollback, _version.VERSION),
                             fromVersions=self.rollback_versions, fromVersion=self.rollback_versions[0], toVersion=_version.VERSION)

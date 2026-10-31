@@ -119,12 +119,12 @@ def tool_env(tools_dir, env=None):
 def lay_tools_shallow(tools_dir, log=None):
     """初回の取得で展開した道具(tools/<名前>/ffmpeg-9.0.2.../bin/ffmpeg.exe のように深い所)を tools/<名前>/ の直下(1 段)へ置き直す。
     exe のあるフォルダの直下のファイルを全部移し、空になった深いフォルダは消す(取り終えた目印 .fetched-* は tools/<名前>/ にあるので取り直さない)。
-    whisper.cpp-* には触らない。-> 移したファイルの数。何度呼んでもよい(すでに直下にあれば何もしない)"""
+    whisper.cpp-*・speech.cpp-* には触らない。-> 移したファイルの数。何度呼んでもよい(すでに直下にあれば何もしない)"""
     if not os.path.isdir(tools_dir):
         return 0
     moved = 0
     say = log or (lambda msg: None)
-    for sub in sorted(n for n in os.listdir(tools_dir) if os.path.isdir(os.path.join(tools_dir, n)) and not n.startswith("whisper.cpp-")):
+    for sub in sorted(n for n in os.listdir(tools_dir) if os.path.isdir(os.path.join(tools_dir, n)) and not n.startswith(TX_BIN_PREFIXES)):
         base = os.path.join(tools_dir, sub)
         for _name, exe in TOOL_EXES:
             if os.path.isfile(os.path.join(base, exe)):
@@ -144,14 +144,23 @@ def lay_tools_shallow(tools_dir, log=None):
     return moved
 
 
+TX_BIN_PREFIXES = ("whisper.cpp-", "speech.cpp-")   # zip の tools/ から作業データの transcribe/bin/ へ写す文字起こしの実行ファイルのフォルダ
+
+
+def app_tools_dir():
+    """今動いている版のフォルダの tools/(更新で展開した speech.cpp = friendapp/sync.RUNTIME_PREFIXES。初めの zip は <home>/tools/)"""
+    return os.path.join(os.path.dirname(_layout.src_root()), TOOLS_NAME)
+
+
 def lay_whisper(tools_dir, tx_data, log=None):
-    """zip の tools/whisper.cpp-<版>-<種類>/ を作業データの transcribe/bin/ へ写す(① が読む場所。build.json が同じなら写さない)。-> 写したフォルダの数"""
+    """zip の tools/whisper.cpp-<版>-<種類>/・tools/speech.cpp-<版>-<直し>/ を作業データの transcribe/bin/ へ写す
+    (① が読む場所。build.json が同じなら写さない)。-> 写したフォルダの数"""
     if not os.path.isdir(tools_dir):
         return 0
     n = 0
     for name in os.listdir(tools_dir):
         src = os.path.join(tools_dir, name)
-        if not (name.startswith("whisper.cpp-") and os.path.isfile(os.path.join(src, "build.json"))):
+        if not (name.startswith(TX_BIN_PREFIXES) and os.path.isfile(os.path.join(src, "build.json"))):
             continue
         dest = os.path.join(tx_data, "bin", name)
         try:
@@ -165,7 +174,7 @@ def lay_whisper(tools_dir, tx_data, log=None):
         shutil.copytree(src, dest, dirs_exist_ok=True)
         n += 1
         if log:
-            log("whisper.cpp を作業データへ写しました: %s" % name)
+            log("文字起こしの部品を作業データへ写しました: %s" % name)
     return n
 
 

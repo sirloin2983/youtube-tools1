@@ -74,6 +74,8 @@ UPDATE_FILE_RE = re.compile(r"^FriendApp-\d+\.\d+\.\d+\.zip$")   # dev/build_fri
 UPDATE_ROOT_FILES = ("FriendApp.exe", "Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.WinForms.dll", "WebView2Loader.dll",
                      "fetch.json", "members.json")   # zip の直下から app-<版>/ へ写す物(exe と DLL は [更新する] のとき exe がアプリのフォルダへ写す)
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
+RUNTIME_PREFIXES = ("python/", "tools/speech.cpp-")   # 版から版へ写す実行の部品(python と speech.cpp = 文字起こしの Haas。11-01 段 5)。
+# 軽い zip はどちらも持たず、今の版のフォルダから写す。変わったら(印 runtime が違えば)全部入りを取る。speech.cpp は app-<版>/tools/ に展開する
 BAD_NAME = _inbox.BAD_NAME   # 使えない字は受信箱と同じ 1 か所
 RESERVED = re.compile(r"^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$", re.I)
 SMALL_CAP = 64 * 1024              # 失敗の知らせ・latest.json
@@ -258,10 +260,10 @@ class RuntimeChanged(ValueError):
 
 
 def runtime_mark(files):
-    """python/ の中身の印 = python/* の相対パスと SHA-256 を並べた SHA-256(配る道具が latest.json の runtime に付ける物と同じ計算。
-    dev/build_friend_zip.py もこれを使う)"""
+    """実行の部品(RUNTIME_PREFIXES = python/ と tools/speech.cpp-*)の中身の印 = 相対パスと SHA-256 を並べた SHA-256
+    (配る道具が latest.json の runtime に付ける物と同じ計算。dev/build_friend_zip.py もこれを使う)"""
     h = hashlib.sha256()
-    for rel in sorted(k for k in files if str(k).startswith("python/")):
+    for rel in sorted(k for k in files if str(k).startswith(RUNTIME_PREFIXES)):
         h.update(("%s %s;" % (rel, files[rel])).encode("utf-8"))
     return h.hexdigest()
 
@@ -284,22 +286,30 @@ def free_ok(folder, need):
         return True   # 測れない場所は測らない
 
 
+def _runtime_src(d, rel):
+    """今動いている Python のフォルダ d(app-<版>/python)から見た rel の場所。python/* は d の下・ほか(tools/speech.cpp-*)は版のフォルダ(d の親)の下"""
+    if rel.startswith("python/"):
+        return safe_join(d, rel[len("python/"):])
+    return safe_join(os.path.dirname(os.path.abspath(d)), rel)
+
+
 def _copy_runtime(manifest, runtime_dirs, tmp):
-    """軽い更新: manifest の python/* を今動いている Python のフォルダ runtime_dirs から tmp/python/ へ 1 ファイルずつ SHA-256 を確かめて写す
-    (ハードリンクは使わない = 開かれた実体を前の版の名前から消せず、前の版の片付けが失敗する)。1 つでも無い・違えば RuntimeChanged"""
+    """軽い更新: manifest の実行の部品(RUNTIME_PREFIXES)を今動いている版のフォルダ(runtime_dirs = その python/)から tmp/ へ 1 ファイルずつ
+    SHA-256 を確かめて写す(ハードリンクは使わない = 開かれた実体を前の版の名前から消せず、前の版の片付けが失敗する)。1 つでも無い・違えば RuntimeChanged
+    (前の版に speech.cpp が無い = 全部入りを取り直して展開する)"""
     files = manifest.get("files") if isinstance(manifest, dict) and isinstance(manifest.get("files"), dict) else {}
-    want = {rel: sha for rel, sha in files.items() if str(rel).startswith("python/")}
-    if not runtime_dirs or not want:
+    want = {rel: sha for rel, sha in files.items() if str(rel).startswith(RUNTIME_PREFIXES)}
+    if not runtime_dirs or not any(str(rel).startswith("python/") for rel in want):
         raise RuntimeChanged("軽い更新の写し元の python がありません")
     srcs = {}
     for rel, sha in want.items():
         for d in runtime_dirs:
-            p = fsio.long_path(safe_join(d, rel[len("python/"):]))   # 読む側も長いパスで(包まないと深いファイルが「無い」= 毎回全部入り)
+            p = fsio.long_path(_runtime_src(d, rel))   # 読む側も長いパスで(包まないと深いファイルが「無い」= 毎回全部入り)
             if isinstance(sha, str) and os.path.isfile(p) and fsio.sha256_file(p) == sha.lower():
                 srcs[rel] = p
                 break
         else:
-            raise RuntimeChanged("今の python に更新の想定と合う %s がありません" % str(rel)[:120])
+            raise RuntimeChanged("今の版に更新の想定と合う %s がありません" % str(rel)[:120])
     need = sum(os.path.getsize(p) for p in srcs.values())
     if not free_ok(tmp, need):
         raise SyncError("空きが足りません(あと %d MB ほど空けてください)" % (need // (1024 * 1024) + 64))
@@ -332,14 +342,14 @@ def install_update(zip_path, home, version, runtime_dirs=None):
                         with open(os.path.join(tmp, "manifest.json"), "wb") as f:
                             f.write(raw)
                     continue
-                if n.endswith("/") or not (n.startswith(("src/", "python/")) or n in UPDATE_ROOT_FILES):
+                if n.endswith("/") or not (n.startswith(("src/",) + RUNTIME_PREFIXES) or n in UPDATE_ROOT_FILES):
                     continue
                 _copy_member(z, info, safe_join(tmp, n))
         if isinstance(manifest, dict) and manifest.get("light") is True:
             _copy_runtime(manifest, runtime_dirs, tmp)
         files = manifest.get("files") if isinstance(manifest, dict) and isinstance(manifest.get("files"), dict) else {}
         for rel, want in files.items():
-            if not (str(rel).startswith(("src/", "python/")) or rel in UPDATE_ROOT_FILES):
+            if not (str(rel).startswith(("src/",) + RUNTIME_PREFIXES) or rel in UPDATE_ROOT_FILES):
                 continue
             p = fsio.long_path(safe_join(tmp, rel))
             if not isinstance(want, str) or not os.path.isfile(p) or fsio.sha256_file(p) != want.lower():
