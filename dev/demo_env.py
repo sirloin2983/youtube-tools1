@@ -189,14 +189,12 @@ CHECK_EVAL_DOC = "c4ec0000000e"       # 確かめるの見本: 評価用の文�
 
 
 def seed_check(tmp, txdir, samples, videos, write_tx, now):
-    """確かめる(/check。RS8 V1)の 4 種類のカードが少なくとも 1 枚ずつ出る見本(src/app/check/sources.py の出どころの条件に合わせる)。
+    """確かめる(/check。RS8 V1)の普段の種類のカードが少なくとも 1 枚ずつ出る見本(src/app/check/sources.py の出どころの条件に合わせる)。
     乱数を使わない(上の見本の並び = 画面の検査の場面が使う配信・文書を変えない)。
       value:auto  録画の配信の自動でできた切り抜き(.clip.json の source.live.origin = auto・届けていない)
       value:cand  候補のまま(選び始めていない YouTube の配信の、状態が空のマーク)
-      read:fill   後処理(fill)が直した行(校正していない)
       voice:diar  話者の判別(.diar.json)の行(1 秒以上・混ざり無し・校正していない)
       time:row    校正済みの行
-      speech:diar 声の区間(.diar.json の turns)と重ならない行(C-EVAL)
       section:eval 評価用の文書の区間(評価のレーン。既定オン。C-EVAL)
       cut:edge・gap・whole 自動カットのたたき台(edit.json の draft.keepsSec。既定オン。CUT-CARD)"""
     from ytt import schemas

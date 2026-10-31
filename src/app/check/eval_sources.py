@@ -7,19 +7,47 @@
   - 行の持ち主 = 行の中心が入る区間(全部の行がちょうど 1 回ずつ答えられる)。持ち主でない行で区間にかかる物は灰色で見せるだけ
   - 選択肢の名前 = メンバーのフォルダの名前だけ(⑤ eval/drill の _all_members。覚えた声・機械の予想は出さない = 正解が機械寄りにならない)。
     今の話者の名前は行に添えるだけ(選択肢にはしない。打ってもよい)
-  - 行の「声が無いかも」= 話者の判別の声の区間と 3 割未満しか重ならない行(普段の「この行は声ですか?」と同じ物差し。印だけ)
+  - 行の「声が無いかも」= 話者の判別の声の区間と 3 割未満しか重ならない行(VOICE_MIN_RATIO。印だけ。10-31 に消した「この行は声ですか?」の出どころから移した)
   - スイッチ: ③ section.enabled()(既定オン・設定で消せる)。オフなら何も出さない
 並びの _order: 途中まで答えた文書が先(続きから)→ 新しい文書から。
 """
+import bisect
+
 from ytt import schemas as _yschemas
 from human.check import _doc as _check_doc, section as _section
 from human.proof import store as _store
 from eval.drill import drill as _drill
-from . import evalredo, lineup, sources, speech_sources   # 同じ app/check の兄弟
+from . import evalredo, lineup, sources   # 同じ app/check の兄弟
 
 SPAN_MIN, SPAN_MAX = 20.0, 40.0   # 区間の長さ(秒。決定 3-47)
 MIN_TAIL = 10.0                   # 残りがこれより短ければ最後の区間に含める
 PAD = 1.5                         # 前後に薄く流す秒
+VOICE_MIN_RATIO = 0.3             # 行の長さのこの割合以上が声の区間と重なれば声の行(「声が無いかも」の印を付けない)
+
+
+def _turns(latest):
+    """声の区間を [(開始, 終了)] に(開始の順)。-> (開始の一覧, 区間, 一番長い区間の長さ)"""
+    out = []
+    for t in latest.get("turns") or ():
+        if not isinstance(t, dict):
+            continue
+        a, b = sources._num(t.get("start"), None), sources._num(t.get("end"), None)
+        if a is None or b is None or b <= a:
+            continue
+        out.append((a, b))
+    out.sort()
+    return [a for a, _b in out], out, max((b - a for a, b in out), default=0.0)
+
+
+def _overlap(turns, a, b):
+    """行 [a, b] と声の区間の重なりの合計(秒)。区間が重なっていれば 1 つにまとめない(行の長さを超えない)"""
+    starts, spans, longest = turns
+    lo = bisect.bisect_left(starts, a - longest)
+    hi = bisect.bisect_left(starts, b)
+    total = 0.0
+    for x, y in spans[lo:hi]:
+        total += max(0.0, min(y, b) - max(x, a))
+    return min(total, b - a)
 
 
 def _heads(view):
@@ -90,12 +118,12 @@ def section_eval(view):
                 view.errors.append("section:eval: names %s" % e.__class__.__name__)
                 names = []
         latest = view.diar(tid, path)
-        turns = speech_sources._turns(latest) if isinstance(latest, dict) and latest.get("turns") else None
+        turns = _turns(latest) if isinstance(latest, dict) and latest.get("turns") else None
         sp_name = {s.get("id"): str(s.get("name") or "") for s in doc.get("speakers") or () if isinstance(s, dict)}
 
         def row_view(g, own):
             a, b = sources._num(g.get("start")), sources._num(g.get("end"))
-            novoice = bool(turns) and b > a and speech_sources._overlap(turns, a, b) / (b - a) < speech_sources.VOICE_MIN_RATIO
+            novoice = bool(turns) and b > a and _overlap(turns, a, b) / (b - a) < VOICE_MIN_RATIO
             return {"id": g["id"], "start": a, "end": b, "text": str(g.get("text") or ""), "speaker": sp_name.get(g.get("speaker"), ""),
                     "owned": own, "novoice": novoice, "proofed": g.get("proofed") is True,
                     "tags": [t for t in g.get("tags") or () if t in ("overlap", "bgm", "unclear")]}   # 行ごとのメモ(human/check/section.py の MEMO_TAGS)

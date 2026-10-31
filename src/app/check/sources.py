@@ -9,11 +9,11 @@ view(View)は 1 回の集め(collect)の間だけ読んだ物を共有する: �
 V0 で入れた出どころ(細部は V2 で直す):
   value:auto  自動でできた切り抜きの品質(案件の clips[].auto。送った物も送らなかった物も・pending とごみ箱の物と評価用は外す)
   value:cand  候補のまま(スタジオの YouTube の配信で、まだ 1 本も採用・書き出ししていない配信の、状態が空のマーク。点数の高い順)
-  read:fill   後処理(fill)が直した行で、校正していない・今の文字と認識のままが違う物
   voice:diar  話者の判別(.diar.json の latest.rows)の行で、1 秒以上・混ざり無し・校正していない物。自信の低い順(照合の弱い話者 → 弱い行 → 声の無い人)。
               選択肢と機械の予想は ③ human/check/voice(答えの形の持ち主。V2c)が組む = 文書の話者 + 覚えた声の登録簿にいて文書にいない人 + その他 + 混ざり
-  time:row    文字が決まった行(校正済みか、読みのカードで答えた行)で、時刻のカードにまだ答えていない物
-read の「別のエンジン」(alt)は read_sources.py(V2b)が register で足す。
+  time:row    文字が決まった行(校正済みか、前に読みのカードで答えた行)で、時刻のカードにまだ答えていない物
+読みのカード(read:fill・read:alt)と「この行は声ですか?」(speech:diar)は 10-31 に消した(文字起こしを whisper から Haas-ja-v1.0 に替えると決めたため。
+whisper の出力と whisper 向けの後処理に結びついたカード)。前の答えの記録は消さない: 読みの答えは time:row が read_decided で読み続ける。
 """
 import os
 import re
@@ -157,7 +157,7 @@ class View:
     def docs(self, need_media=True, shorts=False):
         """[(tid, 文書のパス, 文書)] 評価用でない・元の動画がある物。新しい順(updatedAt)。返した文書は書き換えない(キャッシュと共有)。
         need_media=False = 元の動画が片付いた文書と、学習用データのショートの文書も(誰の声のカードだけが使う。voice_solo・voicefill)。
-        shorts=True = 普段の文書のあとにショートの文書(動画あり)も(読み・「この行は声ですか」のカード。1 本あたり SHORT_CAP 枚まで = short_full)"""
+        shorts=True = 普段の文書のあとにショートの文書(動画あり)も(時刻のカード)"""
         if not need_media:
             if getattr(self, "_all_docs", None) is None:
                 self._docs = None   # 両方を 1 回で作る
@@ -239,12 +239,9 @@ class View:
         return [r for r in self.state.effective() if kind is None or r.get("kind") == kind]
 
 
-READ_LEAD = 2.0   # 読みのカードは行の頭の 2 秒前から流す(前の行の終わりで止めない。10-26 ユーザー「もう少し前から再生してくれないと分からない」)
-
-
-def _tight(doc, row, a, b, pad, keep_head=False):
-    """行の文字・声を確かめるカード(読み・誰の声)の区間: 次の行の発言を入れない。
-    末の余白 0・末は次の行の頭まで(行が重なっていれば詰める)・頭の余白は pad まで、ただし前の行の終わりより前へ出ない(keep_head = 読み: 頭は pad のまま)。
+def _tight(doc, row, a, b, pad):
+    """行の声を確かめるカード(誰の声)の区間: 次の行の発言を入れない。
+    末の余白 0・末は次の行の頭まで(行が重なっていれば詰める)・頭の余白は pad まで、ただし前の行の終わりより前へ出ない。
     -> (頭, 末, 頭の余白)。並びは文書の segments の順(時刻の順)"""
     segs = [g for g in doc.get("segments") or () if isinstance(g, dict)]
     i = next((k for k, g in enumerate(segs) if g is row), -1)
@@ -254,49 +251,32 @@ def _tight(doc, row, a, b, pad, keep_head=False):
         nxt = _num(segs[i + 1].get("start"))
         if a < nxt < b:
             b = nxt
-    if i > 0 and not keep_head:
+    if i > 0:
         prev_end = _num(segs[i - 1].get("end"))
         pad = max(0.0, min(pad, a - prev_end)) if prev_end > 0 else pad
     return a, b, round(pad, 3)
 
 
 def _doc_card(view, kind, source, tid, doc, row, pad, extra, tight=False):
-    """tight = 行の時刻にきっちり(次の行の発言を入れない。_tight。読み・誰の声のカード)。media.padEnd = 末の余白(無ければ pad と同じ)"""
+    """tight = 行の時刻にきっちり(次の行の発言を入れない。_tight。誰の声のカード)。media.padEnd = 末の余白(無ければ pad と同じ)"""
     case = view.case_of_doc(tid) or {"id": "", "title": str(doc.get("title") or "")[:120]}
     a, b = _num(row.get("start")), _num(row.get("end"))
     media = {"url": MEDIA % tid, "start": a, "end": b, "pad": pad}
-    if kind == "read":
-        pad = media["pad"] = READ_LEAD
     if tight:
-        a, b, head = _tight(doc, row, a, b, pad, keep_head=kind == "read")
+        a, b, head = _tight(doc, row, a, b, pad)
         media.update({"end": b, "pad": head, "padEnd": 0.0})
     card = {"id": lineup.card_id(kind, source, tid, row["id"]), "kind": kind, "source": source, "case": case,
             "target": {"docId": tid, "row": row["id"], "videoId": case["id"] or None},
             "media": media, "text": str(row.get("text") or ""),
             "guess": None, "options": [], "score": None, "note": ""}
-    if kind == "read":
-        card["around"] = _around(doc, row)
     card.update(extra)
     return card
-
-
-def _around(doc, row):
-    """前の行と次の行の文字 {prev, next}(読みのカードに薄く添える。音に前後の言葉が入っていても迷わないように。10-25 ユーザー)"""
-    segs = [g for g in doc.get("segments") or () if isinstance(g, dict)]
-    i = next((k for k, g in enumerate(segs) if g is row), -1)
-    if i < 0:
-        return {"prev": "", "next": ""}
-    return {"prev": str(segs[i - 1].get("text") or "") if i > 0 else "", "next": str(segs[i + 1].get("text") or "") if i + 1 < len(segs) else ""}
 
 
 def _rows(doc):
     for g in doc.get("segments") or ():
         if isinstance(g, dict) and isinstance(g.get("id"), str) and ROW_ID_RE.match(g["id"]):
             yield g
-
-
-def _fold(s):
-    return re.sub(r"\s+", "", str(s or ""))
 
 
 # ---------------------------------------------------------------- V0 の出どころ
@@ -357,42 +337,6 @@ def value_cand(view):
 
 
 NOT_FOR_TIME_TAGS = ("unclear", "bgm", "overlap")   # 時刻のカードに出さない行の音のメモ
-HARD_TAGS = NOT_FOR_TIME_TAGS                       # 読みのカードを後ろへ回す行の音のメモ(印の NOT_FOR_VOICE_FLAGS・混ざりも)
-
-
-def hard_row(g):
-    """聞き取りにくい行か(音のメモ・自信が低い・音声でない可能性・混ざりの印)-> 0 / 1。読みのカードの並びの先頭に使う(1 = 後ろ)"""
-    if set(HARD_TAGS) & set(g.get("tags") or ()):
-        return 1
-    return 1 if any(_yschemas.has_flag(g.get("flag"), f) for f in _vm.NOT_FOR_VOICE_FLAGS + (_yschemas.MIXED_FLAG,)) else 0
-
-
-SHORT_CAP = 2   # ショート 1 本から出す枚数の上限(種類ごと。読み・「この行は声ですか」。10-25)
-
-
-def short_full(count, tid, doc):
-    """ショートの文書で、もう SHORT_CAP 枚出したか(count = {文書: 枚数}。数えるのは呼び手)"""
-    return voicefill.in_learn_dir(doc.get("sourcePath")) and count.get(tid, 0) >= SHORT_CAP
-
-
-def read_fill(view):
-    out, per = [], {}
-    for tid, _path, doc in view.docs(shorts=True):
-        for g in _rows(doc):
-            if short_full(per, tid, doc):
-                break
-            f = g.get("fill")
-            if not isinstance(f, dict) or g.get("proofed") is True or not isinstance(f.get("from"), str):
-                continue
-            if _fold(f["from"]) == _fold(g.get("text")):
-                continue
-            per[tid] = per.get(tid, 0) + 1
-            out.append(_doc_card(view, "read", "fill", tid, doc, g, 0.5, {
-                "guess": "1", "options": [{"id": "1", "text": str(g.get("text") or "")}, {"id": "2", "text": f["from"]}],
-                "note": str(f.get("by") or ""), "_order": [hard_row(g), -_num(doc.get("updatedAt")), _num(g.get("start"))]}, tight=True))
-            if len(out) >= MAX_PER_SOURCE:
-                return out
-    return out
 
 
 def voice_diar(view):
@@ -436,7 +380,7 @@ def voice_diar(view):
 
 
 def read_decided(view):
-    """読みのカードで答えた行 -> {"<文書>#<行>": 答えた時刻}。「聞き取れない」は文字が決まっていないので入れない・「2 人の声」「別の声も」も入れない
+    """読みのカード(10-31 に消した。前の答えの記録だけ読む)で答えた行 -> {"<文書>#<行>": 答えた時刻}。「聞き取れない」は文字が決まっていないので入れない・「2 人の声」「別の声も」も入れない
     (「分からない」は答えの記録に入らない・「飛ばす」は記録しない = どちらも元から入らない。10-25 ユーザー「読みで答えた行は全部、時刻のカードに」)"""
     out = {}
     for r in view.answered("read"):
@@ -475,12 +419,9 @@ def time_row(view):
     return out[:MAX_PER_SOURCE]
 
 
-for _k, _s, _f in (("value", "auto", value_auto), ("value", "cand", value_cand), ("read", "fill", read_fill),
+for _k, _s, _f in (("value", "auto", value_auto), ("value", "cand", value_cand),
                    ("voice", "diar", voice_diar), ("time", "row", time_row)):
     register(_k, _s, _f)
-
-from . import read_sources   # noqa: E402,F401  read:alt を足す(V2b。read_sources は上の register・_doc_card を読む)
-
 
 def collect(ctx, state=None, kinds=None):
     """登録した出どころから集める。-> (カードの一覧, View)。kinds を渡すとその種類の出どころだけ。1 つの出どころが失敗しても他は出す"""
@@ -498,4 +439,4 @@ def collect(ctx, state=None, kinds=None):
             continue
         cards.extend(c for c in got if isinstance(c, dict) and lineup.parse_id(c.get("id")) and c.get("kind") == kind)
     return cards, view
-from . import speech_sources, eval_sources, cut_sources, voice_solo   # noqa: E402,F401  「この行は声ですか?」(普段)と区間カード(評価)を足す(C-EVAL。register)
+from . import eval_sources, cut_sources, voice_solo   # noqa: E402,F401  区間カード(評価。C-EVAL)・自動カット・誰の声(ソロ)を足す(register)

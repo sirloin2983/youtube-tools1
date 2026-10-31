@@ -75,11 +75,9 @@ GOALS = (
     {"id": "marks", "label": "採用の記録 配信 10 本", "opens": "C1 盛り上がりの重み(I-4a)", "src": ("marks", "docs"), "target": 10, "unit": "本",
      "check": {"kind": "value", "sources": ("auto", "cand"), "count": ("case", "since")}},
     {"id": "packs", "label": "たたき台つきのパック 20 本", "opens": "C3 カット(I-3a)", "src": ("cut", "fromPack"), "target": 20, "unit": "本"},
-    {"id": "alt", "label": "「別」の候補の判定 100 件", "opens": "D1-b 候補の既定オン", "src": ("alt", "judged"), "target": 100, "unit": "件",
-     "check": {"kind": "read", "sources": ("alt",), "count": ("card", "since"), "default": False}},
+    {"id": "alt", "label": "「別」の候補の判定 100 件", "opens": "D1-b 候補の既定オン", "src": ("alt", "judged"), "target": 100, "unit": "件"},  # 確かめるの読みのカードは 10-31 に消した(check なし)
     # V1 確かめる(V0): 後処理の札(src/eval/tools/eval_fill.py の FEW_ROWS)・行の時刻(eval_timing.py の FEW_ROWS)。開く物の文言は仮
-    {"id": "fill", "label": "後処理の札の判定 30 行", "opens": "K1 後処理の既定", "src": ("fill", "judged"), "target": 30, "unit": "行",
-     "check": {"kind": "read", "sources": ("fill",), "count": ("card", "since")}},
+    {"id": "fill", "label": "後処理の札の判定 30 行", "opens": "K1 後処理の既定", "src": ("fill", "judged"), "target": 30, "unit": "行"},  # 確かめるの読みのカードは 10-31 に消した(check なし)
     {"id": "timing", "label": "行の時刻の判定 100 行", "opens": "B1 行の時刻", "src": ("timing", "rows"), "target": 100, "unit": "行",
      "check": {"kind": "time", "sources": ("row",), "count": ("card", "all")}},
 )

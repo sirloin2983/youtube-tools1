@@ -24,7 +24,7 @@ import test_launch as TL  # noqa: E402  (入口を一時フォルダで動かす
 
 
 def fake_cards(view):
-    return [{"id": lineup.card_id("read", "tst", "aaaaaaaaaaaa", r), "kind": "read", "source": "tst", "case": {"id": "v1", "title": "t"},
+    return [{"id": lineup.card_id("cut", "tst", "aaaaaaaaaaaa", r), "kind": "cut", "source": "tst", "case": {"id": "v1", "title": "t"},
              "target": {"docId": "aaaaaaaaaaaa", "row": r}, "media": {"url": "transcribe/media?id=aaaaaaaaaaaa", "start": 0, "end": 1, "pad": 0},
              "text": r, "guess": "1", "options": [], "score": None, "note": "", "_order": [i]} for i, r in enumerate(("s1", "s2"))]
 
@@ -33,11 +33,11 @@ class CheckApiTest(TL.Base):
     def setUp(self):
         super().setUp()
         self.applied = []
-        sources.register("read", "tst", fake_cards)
-        apply.register("read", "tst", lambda ctx, c, ans: self.applied.append(c["id"]) or {"n": len(self.applied)},
+        sources.register("cut", "tst", fake_cards)
+        apply.register("cut", "tst", lambda ctx, c, ans: self.applied.append(c["id"]) or {"n": len(self.applied)},
                        lambda ctx, row: self.applied.remove(row["card"]) or {"ok": True})
-        self.addCleanup(sources._unregister, "read", "tst")
-        self.addCleanup(apply._unregister, "read", "tst")
+        self.addCleanup(sources._unregister, "cut", "tst")
+        self.addCleanup(apply._unregister, "cut", "tst")
         deck.invalidate()
         self.srv, self.port = L.make_server(0, self.sup)
         self.th = threading.Thread(target=self.srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)   # 止めるのを待たない
@@ -69,8 +69,8 @@ class CheckApiTest(TL.Base):
         return [c["id"] for c in j["cards"] if c["source"] == "tst"], j
 
     def test_next(self):
-        got, j = self.ids(kind="read", n=5)
-        self.assertEqual(got, ["read:tst:aaaaaaaaaaaa#s1", "read:tst:aaaaaaaaaaaa#s2"])
+        got, j = self.ids(kind="cut", n=5)
+        self.assertEqual(got, ["cut:tst:aaaaaaaaaaaa#s1", "cut:tst:aaaaaaaaaaaa#s2"])
         for k in ("rev", "counts", "goal", "goals", "total", "held", "failed", "errors"):
             self.assertIn(k, j)
         self.assertNotIn("_order", j["cards"][0])
@@ -83,20 +83,20 @@ class CheckApiTest(TL.Base):
         self.assertEqual(st, 403)
 
     def test_answer_undo_skip_flush(self):
-        c1, c2 = "read:tst:aaaaaaaaaaaa#s1", "read:tst:aaaaaaaaaaaa#s2"
+        c1, c2 = "cut:tst:aaaaaaaaaaaa#s1", "cut:tst:aaaaaaaaaaaa#s2"
         st, _ = self.post("/api/check/answer", {"card": c1, "answer": "1"}, token="x")
         self.assertEqual(st, 403)
         st, j = self.post("/api/check/answer", {"card": c1, "answer": "1", "ms": 900})
         self.assertEqual((st, j["ok"], j["held"], j["next"]["id"], self.applied), (200, True, False, c2, [c1]), j)
-        self.assertEqual(self.ids(kind="read")[0], [c2])
+        self.assertEqual(self.ids(kind="cut")[0], [c2])
         st, j2 = self.post("/api/check/answer", {"card": c1, "answer": "1"})
         self.assertEqual((st, j2["error"]), (409, "answered"))
         st, j3 = self.post("/api/check/answer", {"undo": j["answer"]})
         self.assertEqual((st, j3["card"], self.applied), (200, c1, []))
-        self.assertEqual(self.ids(kind="read")[0], [c1, c2])
+        self.assertEqual(self.ids(kind="cut")[0], [c1, c2])
         st, j4 = self.post("/api/check/answer", {"card": c1, "answer": "1", "skip": [c2]})
         self.assertEqual((st, j4["next"] is None or j4["next"]["id"] != c2), (200, True))
-        self.assertEqual(self.post("/api/check/answer", {"card": "read:tst:aaaaaaaaaaaa#s9", "answer": "1"})[1]["error"], "gone")
+        self.assertEqual(self.post("/api/check/answer", {"card": "cut:tst:aaaaaaaaaaaa#s9", "answer": "1"})[1]["error"], "gone")
         self.assertEqual(self.post("/api/check/answer", {"card": "nope", "answer": "1"})[1]["error"], "bad_request")
         st, j5 = self.post("/api/check/skip", {"card": c2})
         self.assertEqual((st, j5["ok"]), (200, True))
@@ -127,7 +127,7 @@ class CheckApiTest(TL.Base):
         """入口が time:row の反映を登録している(V2d)。同じ部品を別の出どころ名で試す: 形の違う答えは 400・文書が無ければ 409"""
         self.assertTrue(apply._registered("time", "row"))
         from human.check import timerow as check_time
-        sources.register("time", "tst", lambda view: [dict(c, id=c["id"].replace("read:", "time:"), kind="time") for c in fake_cards(view)])
+        sources.register("time", "tst", lambda view: [dict(c, id=c["id"].replace("cut:", "time:"), kind="time") for c in fake_cards(view)])
         apply.register("time", "tst", check_time._apply_time, check_time._revert_time, check_time._check)
         self.addCleanup(sources._unregister, "time", "tst")
         self.addCleanup(apply._unregister, "time", "tst")

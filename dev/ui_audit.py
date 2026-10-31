@@ -74,7 +74,7 @@ SCREENS = {"app/ui/home": ["portal.html", "portal.js", "portal.css", "portal-edi
            "app/ui/cases": ["index.html", "cases.js", "cases.css", "edhost.js", "panels/cand.js", "panels/cand.css", "panels/proof.js", "panels/proof.css",
                             "panels/cut.js", "panels/machpick.js", "panels/new.js", "panels/new.css", "panels/studio-shim.js"],
            # 確かめる(/check。RS8 V1。入口が配る 1 枚。見る場面は default_scenes の check-*。V4)
-           "app/ui/check": ["index.html", "check.js", "check.css", "player.js", "cards/value.js", "cards/read.js", "cards/voice.js", "cards/time.js"],
+           "app/ui/check": ["index.html", "check.js", "check.css", "player.js", "cards/value.js", "cards/voice.js", "cards/time.js"],
            # 案件の画面が studio/・transcribe/ から読む部品(部品だけ)
            "app/ui/studio": ["rank.js", "queue.js", "review.js", "collab.js"],
            "app/ui/editor": ["proof.css", "app-tpl.js", "app.js", "app-core.js", "app-jobs.js", "app-learn.js", "app-list.js", "app-rows.js", "app-tools.js", "doc-kit.js", "cut.js", "pack-tab.js"],
@@ -769,10 +769,8 @@ def default_scenes(base):
         {"name": "check", "url": base + "/check", "header": True, "wide": True, "actions": [("wait", 800)]},
         {"name": "check-value", "url": base + "/check?kind=value", "actions": [("wait", 800)]},   # 自動でできた切り抜き(動画の再生)
         {"name": "check-value-cand", "url": base + "/check?c=democand001&kind=value", "actions": [("wait", 800)]},   # 候補のまま(配信の区間を YouTube の埋め込みで)
-        {"name": "check-read", "url": base + "/check?kind=read", "actions": [("wait", 800)]},   # 2 つの読みの比較(.ui-pair)
         {"name": "check-voice", "url": base + "/check?kind=voice", "actions": [("wait", 800)]},   # 誰の声(名前の選択肢)
         {"name": "check-time", "url": base + "/check?kind=time", "actions": [("wait", 1500)]},   # 行の時刻(波形と頭・末の印)
-        {"name": "check-speech", "url": base + "/check?kind=speech", "actions": [("wait", 800)]},   # この行は声ですか(C-EVAL)
         {"name": "check-cut", "url": base + "/check?kind=cut", "actions": [("wait", 1000)]},   # 自動カットのカード(CUT-CARD)
         {"name": "check-eval", "url": base + "/check?lane=eval", "wide": True, "actions": [("wait", 1500)]},   # 評価のレーン(頭と区間カード。C-EVAL)
         {"name": "check-eval-add", "url": base + "/check?lane=eval", "actions": [("wait", 1500), ("click", "[data-sec-addrow]"), ("wait", 300)]},   # 区間カードで行を足した形

@@ -5,8 +5,9 @@
 計画 資料の git:before-1028-cleanup:docs/design/v1-check-build.md 2-3 の形の偽物(Playwright の route)で答える。動画は ffmpeg で作った webm を transcribe/media の偽物で返す。
 見るもの: 開く(帯 = 今日 n 件・この確認で決まる物・このあと・最初のカード)・URL の c / kind を口へ渡す / A で答える → 送った中身・すぐ次へ /
 Z で 1 つ前に戻す(undo の id・カードが戻る・今日の数)/ N で飛ばす(skip を送る・Z では戻らない)/ 答えのボタン = キーと同じ道 /
-読みのカード(1 / 2・3 で打って答える)/ 誰の声のカード = 再生が終わるまで Enter は効かない・動画のある文書は映像つき・切り出した音は音だけ・自動で再生して区間で止まる・登録簿の人・混ざり・G(ゲーム音・BGM が大きい)/ 答えに 404 gone(戻さず次へ)/
-時刻のカード = 波形の帯・単語の時刻の候補・H と ← で端を動かして答える / 声ですか(speech)/ 自動カット(cut)の 3 つの問い /
+誰の声のカード = 再生が終わるまで Enter は効かない・動画のある文書は映像つき・切り出した音は音だけ・自動で再生して区間で止まる・登録簿の人・混ざり・G(ゲーム音・BGM が大きい)/ 答えに 404 gone(戻さず次へ)/
+時刻のカード = 波形の帯・単語の時刻の候補・H と ← で端を動かして答える / 自動カット(cut)の 3 つの問い /
+(読みのカード read と「この行は声ですか?」speech は 10-31 に消した = 文字起こしを Haas に替えるため)/
 種類の切り替え(残りの枚数・覚える・URL の kind が先)/ 評価のレーン(lane=eval・まとめて文字起こし・区間カード)/ 10 件答えても止めない(答えた数・目標は端に)/
 全部答えた空の状態(back=cases なら案件へ戻る)/ 答えを記録できない(カードが戻る)・離れたら保留を確定 / 一覧を読めない(もう一度)・反映できなかった数 /
 本物の口(src/app/check/deck.py)で空 / 版と appnav の今の場所(ヘッダーの部品の並びは ui_audit の A-28)/ コンソールにエラーが無い。"""
@@ -106,7 +107,7 @@ class FakeQueue:
                 every = [c for c in self.cards if c["id"] not in done and c["id"] not in skip]
                 kind = (q.get("kind") or [""])[0]
                 rest = [c for c in every if not kind or c["kind"] == kind]
-                per = {k: len([c for c in self.cards if c["kind"] == k and c["id"] not in done]) for k in ("value", "read", "voice", "time", "speech", "cut")}   # 本物と同じく skip は数から外さない
+                per = {k: len([c for c in self.cards if c["kind"] == k and c["id"] not in done]) for k in ("value", "voice", "time", "cut")}   # 本物と同じく skip は数から外さない
                 values = len([a for a in self.live_answers() if a["body"]["card"].startswith("value:")])
                 body = {"rev": len(self.answers), "cards": rest[:n], "total": len(rest),
                         "counts": {"today": len(self.live_answers()), "perKind": per, "failed": self.failed},
@@ -114,8 +115,6 @@ class FakeQueue:
                                  "opens": "C1 盛り上がりの重み(I-4a)", "now": 8 + values, "reached": False},
                         "goals": {"value": {"kind": "value", "id": "marks", "label": "採用の記録 配信 10 本", "left": max(0, 2 - values), "target": 10, "unit": "本",
                                             "opens": "C1 盛り上がりの重み(I-4a)", "now": 8 + values, "reached": False},
-                                  "read": {"kind": "read", "id": "fill", "label": "後処理の札の判定 30 行", "left": None, "target": 30, "unit": "行",
-                                           "opens": "K1 後処理の割合", "now": None, "reached": False},   # 未測定
                                   "time": {"kind": "time", "id": "timing", "label": "行の時刻の判定 100 行", "left": 0, "target": 100, "unit": "行",
                                            "opens": "B1 行の時刻", "now": 100, "reached": True}},
                         "held": [], "failed": [], "errors": []}
@@ -233,11 +232,7 @@ def _scene_kinds(cx):
     pg.goto(cx.base + "check")
     check(wait_js(pg, "CheckShell.state().cur === 'value:e2e:03'"), "開き直すと、答えた・飛ばしたカードの次から: %s" % state(pg))
     press(pg, "4")
-    check(wait_js(pg, "CheckShell.state().kind === 'read'"), "読みのカード: %s" % state(pg))
-    check(pg.evaluate("document.querySelectorAll('#chkBody .ui-pair .ui-pair-opt').length") == 2 and "まけないからね" in pg.text_content("#chkBody .ui-pair") and "認識のまま" in pg.text_content("#chkBody .ui-pair"),
-          "比べる欄(ui-kit の .ui-pair)に 2 つの読みと出どころの名前")
-    press(pg, "2")
-    check(wait_js(pg, "CheckShell.state().kind === 'voice'") and fq.answers[-1]["body"]["answer"] == {"choice": "2"}, "2 で答える")
+    check(wait_js(pg, "CheckShell.state().kind === 'voice'") and fq.answers[-1]["body"]["card"] == "value:e2e:03", "点の 4 で答えると次は誰の声のカード: %s" % state(pg))
     check(wait_js(pg, "!!document.querySelector('#chkBody video')"), "誰の声のカードは動画を出す")
     check(pg.evaluate("document.querySelector('#chkBody video').volume") == 0.5, "音量の既定は半分")
     pg.evaluate("document.querySelector('#chkBody video').volume = 0.3")
@@ -343,55 +338,6 @@ def _scene_failures(cx):
     check(wait_js(pg, "!document.querySelector('#chkFailed').hidden && document.querySelector('#chkFailed').textContent.includes('2 件')") and not pg.is_hidden("#chkFailed"),
           "反映できなかった答えの数を帯に 1 行")
     fq.failed = 0
-
-
-def _scene_read_type(cx):
-    """読みのカード: 1 / 2 で答える形は _scene_kinds。ここは 3(どちらも違う)= 入力欄 → 打つ → Enter で {choice: other, text}。入力欄の中の 1 は答えにならない"""
-    pg, check, fq = cx.pg, cx.check, cx.fq
-    fq.cards = [card(90, "read", source="alt", guess=None, text="今日は晴れです", note="違い: 「晴」→「腫」",
-                     options=[{"id": "1", "text": "今日は晴れです"}, {"id": "2", "text": "今日は腫れです"}])]
-    n = len(fq.live_answers())
-    pg.goto(cx.base + "check?kind=read")
-    check(wait_js(pg, "CheckShell.state().cur === 'read:e2e:90'"), "読みのカード(別のエンジン)が出る: %s" % state(pg))
-    check("2 つ目のエンジン" in pg.text_content("#chkBody .ui-pair") and "違い: 「晴」→「腫」" in pg.text_content("#chkBody"), "出どころの名前と違い")
-    check(pg.is_hidden("#chkBody [data-chk-type]"), "入力欄は 3 を押すまで隠れている")
-    press(pg, "3")
-    check(pg.is_visible("#chkBody [data-chk-text]") and pg.evaluate("document.activeElement.matches('[data-chk-text]')"), "3 で入力欄が開き、そこに入る")
-    pg.fill("#chkBody [data-chk-text]", "")
-    pg.keyboard.type("今日は春1です")
-    pg.wait_for_timeout(200)
-    check(len(fq.live_answers()) == n and state(pg)["cur"] == "read:e2e:90", "入力欄の中の 1 は答えにならない")
-    press(pg, "Escape")
-    check(pg.is_hidden("#chkBody [data-chk-type]") and len(fq.live_answers()) == n, "Esc でやめる(答えない)")
-    press(pg, "3")
-    pg.fill("#chkBody [data-chk-text]", "   ")
-    press(pg, "Enter")
-    pg.wait_for_timeout(200)
-    check(len(fq.live_answers()) == n, "空のままの Enter は答えにならない")
-    pg.fill("#chkBody [data-chk-text]", "今日は晴れでした")
-    press(pg, "Enter")
-    check(wait_js(pg, "CheckShell.state().cur === null || CheckShell.state().empty") and len(fq.live_answers()) == n + 1, "Enter で答える: %s" % state(pg))
-    check(fq.answers[-1]["body"]["answer"] == {"choice": "other", "text": "今日は晴れでした"}, "答えは {choice: other, text}: %s" % fq.answers[-1]["body"]["answer"])
-    fq.cards = [card(i, "read", source="alt", guess=None, text="今日は晴れです", around={"prev": "前の発言", "next": "次の発言"},
-                     options=[{"id": "1", "text": "今日は晴れです"}, {"id": "2", "text": "今日は腫れです"}]) for i in (91, 92, 93)]
-    pg.goto(cx.base + "check?kind=read")
-    check(wait_js(pg, "CheckShell.state().cur === 'read:e2e:91'") and "聞き取れない" in pg.text_content("#chkBody") and "人の言葉だけ" in pg.text_content("#chkBody"),
-          "5「聞き取れない」のボタンと案内の 1 行: %s" % state(pg))
-    check("前の発言" in (pg.text_content("#chkBody [data-chk-near=prev]") or "") and "次の発言" in (pg.text_content("#chkBody [data-chk-near=next]") or "")
-          and not pg.query_selector("#chkBody [data-chk-k='4']") and "前後の行の言葉" in pg.text_content("#chkBody"),
-          "前後の行の文字を薄く添える・4「区間がずれている」は無い・案内の文")
-    press(pg, "v")
-    check(pg.get_attribute("#chkBody [data-chk-k='V']", "aria-pressed") == "true" and pg.is_visible("#chkBody [data-chk-others]"), "V で「別の声も入っている」が入る")
-    press(pg, "2")
-    check(wait_js(pg, "CheckShell.state().cur === 'read:e2e:92'") and fq.answers[-1]["body"]["answer"] == {"choice": "2", "others": True},
-          "V のあと 2 = {choice: 2, others: true}: %s" % fq.answers[-1:])
-    check(pg.get_attribute("#chkBody [data-chk-k='V']", "aria-pressed") == "false", "次のカードでは V は切れている")
-    press(pg, "m")
-    check(wait_js(pg, "CheckShell.state().cur === 'read:e2e:93'") and fq.answers[-1]["body"]["answer"] == {"choice": "mixed"},
-          "M = {choice: mixed}(2 人の声が同じくらい): %s" % fq.answers[-1:])
-    press(pg, "5")
-    check(wait_js(pg, "CheckShell.state().cur === null || CheckShell.state().empty") and fq.answers[-1]["body"]["answer"] == {"choice": "unclear"},
-          "5 = {choice: unclear}: %s" % fq.answers[-1:])
 
 
 def _scene_real_api(cx):
@@ -626,25 +572,6 @@ def _restore_queue(cx, eval_routes=None):
 EVAL_ROUTE_RE = re.compile(r".*/transcribe/api/(drill/status|eval-batch).*")
 
 
-def _scene_speech(cx):
-    """この行は声ですか?(speech): A = 残す {choice: keep}・X(ボタン)= 消す {choice: drop}"""
-    pg, check = cx.pg, cx.check
-    fs = FakeQueue([card(60 + i, "speech", source="diar", options=["keep", "drop"], text="声かどうか怪しい行 %d" % i) for i in (1, 2)])
-    _swap_queue(cx, fs)
-    try:
-        pg.goto(cx.base + "check?kind=speech")
-        check(wait_js(pg, "CheckShell.state().cur === 'speech:e2e:61'"), "speech のカードが出る: %s" % state(pg))
-        check("この行は声ですか?" in pg.text_content("#chkBody") and "声かどうか怪しい行 1" in pg.text_content("#chkBody"), "問いと行の字幕")
-        check(pg.evaluate("[...document.querySelectorAll('#chkBody [data-chk-k]')].map(b => b.dataset.chkK).join()") == "A,X", "ボタンは A(残す)と X(消す)")
-        press(pg, "a")
-        check(wait_js(pg, "CheckShell.state().cur === 'speech:e2e:62'") and fs.answers[-1]["body"]["answer"] == {"choice": "keep"}, "A = 残す: %s" % fs.answers[-1:])
-        pg.click("#chkBody [data-chk-k='X']")
-        check(wait_js(pg, "CheckShell.state().empty") and fs.answers[-1]["body"]["answer"] == {"choice": "drop"}, "X のボタン = 消す: %s" % fs.answers[-1:])
-        check(all("lane" not in q for q in fs.next_q), "普段のレーンは lane を渡さない: %s" % fs.next_q[:2])
-    finally:
-        _restore_queue(cx)
-
-
 def _scene_cut(cx):
     """自動カットの確認(cut): edge / gap / whole の問い・ボタン・キーの答え・消した所を飛ばす"""
     pg, check = cx.pg, cx.check
@@ -774,29 +701,29 @@ def _scene_eval_lane(cx):
 def _scene_kind_pick(cx):
     """種類の切り替え: 残りの枚数(0 は薄い)・押すと口へ kind を渡してその種類だけ・押した後のキーはカードへ・次に開いても同じ種類・URL の kind が先"""
     pg, check = cx.pg, cx.check
-    fk = FakeQueue([card(81, "value", options=["good", "bad"]), card(82, "value", options=["good", "bad"]),
-                    card(83, "read", source="fill", guess="1", options=[{"id": "1", "text": "負けないからね"}, {"id": "2", "text": "まけないからね"}]),
-                    card(84, "speech", source="diar", options=["keep", "drop"])])
+    gap = card(83, "cut", source="gap", target={"cut": [1.0, 2.5], "docId": "a0000000000e"},
+               media={"url": "transcribe/media?id=a0000000000e", "start": 0.0, "end": 4.0, "pad": 0.0}, text="", note="自動カットのテスト")
+    fk = FakeQueue([card(81, "value", options=["good", "bad"]), card(82, "value", options=["good", "bad"]), gap])
     _swap_queue(cx, fk)
     pills = "[...document.querySelectorAll('#chkKinds [data-chk-kind]')].map(b => [b.dataset.chkKind, b.querySelector('.chk-kn').textContent, b.getAttribute('aria-pressed'), b.classList.contains('chk-k0')])"
     try:
         pg.goto(cx.base + "check")
         check(wait_js(pg, "CheckShell.state().cur === 'value:e2e:81'"), "全部の種類で開く: %s" % state(pg))
         got = pg.evaluate(pills)
-        check(got == [["", "4", "true", False], ["voice", "0", "false", True], ["read", "1", "false", False], ["time", "0", "false", True],
-                      ["speech", "1", "false", False], ["value", "2", "false", False], ["cut", "0", "false", True]],
-              "切り替え: 全部が選ばれ、残りの枚数・0 の種類は薄い: %s" % got)
-        pg.click("#chkKinds [data-chk-kind=read]")
-        check(wait_js(pg, "CheckShell.state().cur === 'read:e2e:83'") and fk.next_q[-1].get("kind") == ["read"], "読みを押すと kind=read で読み直す: %s" % fk.next_q[-1:])
-        check(pg.evaluate("document.activeElement === document.body") and "kind=read" in pg.url, "押した後は切り替えから外れる・URL も読み: %s" % pg.url)
-        press(pg, "1")
-        check(wait_for(lambda: fk.answers and fk.answers[-1]["body"]["card"] == "read:e2e:83"), "押した後の数字キーはカードの答え: %s" % fk.answers[-1:])
-        check(wait_js(pg, "CheckShell.state().empty"), "読みが尽きたら空の状態: %s" % state(pg))
+        check(got == [["", "3", "true", False], ["voice", "0", "false", True], ["time", "0", "false", True],
+                      ["value", "2", "false", False], ["cut", "1", "false", False]],
+              "切り替え: 全部が選ばれ、残りの枚数・0 の種類は薄い(読み・声かどうかは無い): %s" % got)
+        pg.click("#chkKinds [data-chk-kind=cut]")
+        check(wait_js(pg, "CheckShell.state().cur === 'cut:e2e:83'") and fk.next_q[-1].get("kind") == ["cut"], "カットを押すと kind=cut で読み直す: %s" % fk.next_q[-1:])
+        check(pg.evaluate("document.activeElement === document.body") and "kind=cut" in pg.url, "押した後は切り替えから外れる・URL もカット: %s" % pg.url)
+        press(pg, "a")
+        check(wait_for(lambda: fk.answers and fk.answers[-1]["body"]["card"] == "cut:e2e:83"), "押した後のキーはカードの答え: %s" % fk.answers[-1:])
+        check(wait_js(pg, "CheckShell.state().empty"), "カットが尽きたら空の状態: %s" % state(pg))
         pg.goto(cx.base + "check")
-        check(wait_js(pg, "CheckShell.state().want.kind === 'read'") and pg.get_attribute("#chkKinds [data-chk-kind=read]", "aria-pressed") == "true",
-              "次に開いても読みのまま(覚えている): %s" % state(pg)["want"])
-        pg.goto(cx.base + "check?kind=speech")
-        check(wait_js(pg, "CheckShell.state().cur === 'speech:e2e:84'"), "URL の kind が覚えた種類より先: %s" % state(pg))
+        check(wait_js(pg, "CheckShell.state().want.kind === 'cut'") and pg.get_attribute("#chkKinds [data-chk-kind=cut]", "aria-pressed") == "true",
+              "次に開いてもカットのまま(覚えている): %s" % state(pg)["want"])
+        pg.goto(cx.base + "check?kind=value")
+        check(wait_js(pg, "CheckShell.state().cur === 'value:e2e:81'") and fk.next_q[-1].get("kind") == ["value"], "URL の kind が覚えた種類より先: %s" % state(pg))
         pg.click("#chkKinds [data-chk-kind='']")
         check(wait_js(pg, "CheckShell.state().cur === 'value:e2e:81'") and "kind" not in fk.next_q[-1], "全部に戻す: %s" % fk.next_q[-1:])
         pg.goto(cx.base + "check")
@@ -813,7 +740,6 @@ def fixture_cards():
     vid = {"url": "transcribe/media?id=a0000000000b", "start": 0.5, "end": 1.5, "pad": 0.2}
     cards = [card(i, "value", options=["good", "bad"], reasons=[{"id": "boring", "text": "場面がつまらない"}, {"id": "long", "text": "長すぎる"}],
                   score=82.4 if i == 1 else None) for i in (1, 2, 3)]   # 自動の切り抜き = 送った後の品質の確認(良い / 悪い + 理由の札)
-    cards.append(card(4, "read", source="fill", guess="1", note="llm", options=[{"id": "1", "text": "負けないからね"}, {"id": "2", "text": "まけないからね"}]))
     cards.append(card(5, "voice", source="diar", media=vid, guess={"id": "B", "name": "配信者 B"},
                       options=[{"id": "A", "name": "配信者 A"}, {"id": "B", "name": "配信者 B"}, {"id": "other", "name": "その他"}, {"id": "mixed", "name": "混ざり"}]))
     cards.append(card(6, "time", source="row", guess="ok", options=["ok", "head", "tail", "both"], target={"docId": "a0000000000c", "row": "r6"},
@@ -871,7 +797,6 @@ def main():
                 _scene_kinds(cx)
                 _scene_summary_and_end(cx)
                 _scene_failures(cx)
-                _scene_read_type(cx)
                 _scene_voice(cx)
                 _scene_voice_bgm_and_gone(cx)
                 _scene_rate_kept(cx)
@@ -879,7 +804,6 @@ def main():
                 _scene_unknown(cx)
                 _scene_voice_video_or_clip(cx)
                 _scene_voice_others(cx)
-                _scene_speech(cx)
                 _scene_cut(cx)
                 _scene_kind_pick(cx)
                 _scene_eval_lane(cx)

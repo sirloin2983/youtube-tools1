@@ -1,12 +1,10 @@
 """「確かめる」のカードの種類 → 入口の条件(src/eval/drill/accuracy.py の GOALS)の対応と、答えの数え方(V1 の V0。資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 2-3)。
 
-- 種類(と出どころ)→ 目標の id: value → marks(配信 10 本)・read 後処理 → fill(30 行)・read 別 → alt(100 件)・
-  voice → speakers(200 行)・time → timing(100 行)。出どころが表に無ければ種類の既定(DEFAULT)
+- 種類(と出どころ)→ 目標の id: value → marks(配信 10 本)・voice → speakers(200 行)・time → timing(100 行)。
+  読みのカード(read:fill → fill・read:alt → alt)は 10-31 に消した(Haas に替えるため)= fill・alt の目標は確かめるの数を足さない。出どころが表に無ければ種類の既定(DEFAULT)
 - 答えの数え方(COUNT): unit = "card"(答え 1 件 = 1)/ "case"(配信の単位 = 同じ配信の答えは 1 本)、mode = "since"(測る道具が次の測定で
   答えを数えるので、直近の測定より後の答えだけ足す)/ "all"(道具が答えを見ない = 全部足す)。
-  since の 3 つ: marks は答えの副産物(スタジオの判定)を数える・fill と alt は道具が answers.jsonl の read:fill・read:alt を直に読む(read:yt の古い行は読み飛ばす)
-  (src/eval/tools/eval_fill.py・eval_alt.py。答えを人の判断の正として判定できた数 judged に入れる。ただし入口の fill は A の行の judged だけなので、
-  E(LLM)・D(名簿)の行への答えは次の測定で入口の数から消える)。
+  since: marks は答えの副産物(スタジオの判定)を数える。
   all の 2 つ: 話者は道具が評価用の文書しか数えず、確かめるは評価用を出さない・行の時刻は道具が答えを読まない
 足すのは accuracy.goals_of(extra=)(入口の「調子」と /api/check/next の帯が同じ数を出す)。
 対応と数え方の正は入口の条件の表(accuracy.GOALS の各行の check)。ここの 3 つの表はそこから作る。

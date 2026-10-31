@@ -121,10 +121,7 @@ class SourcesTest(unittest.TestCase):
 
     def test_v0_sources(self):
         by = {c["id"]: c for c in self.collect()}
-        fill = by["read:fill:%s#s1" % DOC]
-        self.assertEqual([o["text"] for o in fill["options"]], ["埋めた文", "うめたぶん"])
-        self.assertEqual((fill["target"]["docId"], fill["target"]["row"], fill["media"]["url"]), (DOC, "s1", "transcribe/media?id=" + DOC))
-        self.assertNotIn("read:fill:%s#s5" % DOC, by)       # 空白だけの違いは出さない
+        self.assertFalse([c for c in by.values() if c["kind"] in ("read", "speech")])   # 読み・声ですかのカードは 10-31 に消した(後処理の行があっても出ない)
         voice = by["voice:diar:%s#s3" % DOC]
         self.assertEqual(voice["guess"], {"id": "S2", "name": "い"})
         self.assertEqual([o["id"] for o in voice["options"]], ["S2", "S1", "other", "mixed"])   # 名前のボタンは予想(見立てに近い人)から
@@ -142,6 +139,18 @@ class SourcesTest(unittest.TestCase):
         st = answerlog.State([{"id": answerlog.new_id(), "at": 1, "kind": "read", "source": "fill", "card": "read:fill:%s#s1" % DOC,
                                "target": {"docId": DOC, "row": "s1"}}])
         self.assertIn("time:row:%s#s1" % DOC, {c["id"] for c in self.collect(st)})
+
+    def test_old_read_and_speech_answers_do_not_break(self):
+        """10-31 に消した読み・声ですかの前の答えの行(answers.jsonl)は消さずに読み飛ばす = 待ち行列は落ちない・読みで答えた行は時刻のカードに回り続ける"""
+        for cid, kind, src, row in (("read:fill:%s#s1" % DOC, "read", "fill", "s1"), ("speech:diar:%s#s3" % DOC, "speech", "diar", "s3")):
+            answerlog.append(self.app, {"id": answerlog.new_id(), "at": answerlog.now_ms(), "kind": kind, "source": src, "card": cid,
+                                        "target": {"docId": DOC, "row": row}, "answer": {"choice": "1"}, "applied": {}})
+        deck.invalidate()
+        got = deck.next_cards(self.ctx, n=50)
+        ids = [c["id"] for c in got["cards"]]
+        self.assertIn("time:row:%s#s1" % DOC, ids)
+        self.assertFalse([i for i in ids if i.startswith(("read:", "speech:"))])
+        self.assertEqual(sorted(got["counts"]["perKind"]), sorted(lineup.NORMAL_KINDS))
 
     def test_time_gets_every_read_answer_but_unclear(self):
         """読みで答えた行は全部、時刻のカードに(答えた順に先・ショートの文書も)。聞き取れないは回さない・動画の無い文書は数だけ(10-25 ユーザー)"""
@@ -165,12 +174,8 @@ class SourcesTest(unittest.TestCase):
         self.assertNotIn((DOC, "s1"), rows)                                     # 聞き取れない
         self.assertEqual(view.notes["timeNoMedia"], 1)                          # 動画の無い文書の答え
 
-    def test_read_card_has_around_rows(self):
-        fill = {c["id"]: c for c in self.collect()}["read:fill:%s#s1" % DOC]
-        self.assertEqual(fill["around"], {"prev": "", "next": "校正済み"})
-
-    def test_hard_rows_skip_time_and_go_last_in_read(self):
-        """BGM 大・重なり・聞き取れない・混ざりの行は時刻のカードに出さない・読みは後ろへ(10-25 確かめるの混ざりと BGM のルール)"""
+    def test_hard_rows_skip_time(self):
+        """BGM 大・重なり・聞き取れない・混ざりの行は時刻のカードに出さない(10-25 確かめるの混ざりと BGM のルール)"""
         rows = [{"id": "p%d" % i, "start": float(i), "end": i + 1.0, "text": "行%d" % i, "proofed": True} for i in range(5)]
         for g, t in zip(rows, (["bgm"], ["overlap"], ["unclear"], None)):
             if t:
@@ -181,8 +186,6 @@ class SourcesTest(unittest.TestCase):
         write(os.path.join(self.tx, DOC + ".json"), doc(200, src=self.media, rows=rows))
         cards = self.collect()
         self.assertEqual(sorted(c["target"]["row"] for c in cards if c["kind"] == "time"), ["p4"])
-        fill = sorted((c for c in cards if c["kind"] == "read" and c["source"] == "fill"), key=lineup._order_key)
-        self.assertEqual([c["target"]["row"] for c in fill], ["f2", "f1"])
 
     def test_value_auto(self):
         snap = {"cases": [{"id": VID, "title": "ライブ", "streamedAt": 5, "clips": [
@@ -211,8 +214,9 @@ class SourcesTest(unittest.TestCase):
         self.assertTrue(any("time:boom" in e for e in view.errors))
 
     def test_deck_next_and_find(self):
-        # 本番の山に載るカードの種類(cut・speech・read の出どころの import が外れると無言で消える)
-        self.assertTrue({("cut", "edge"), ("cut", "gap"), ("cut", "whole"), ("speech", "diar"), ("read", "alt")} <= set(sources.registered()))
+        # 本番の山に載るカードの種類(cut・section の出どころの import が外れると無言で消える)。読み・声ですかは 10-31 に消した
+        self.assertTrue({("cut", "edge"), ("cut", "gap"), ("cut", "whole"), ("section", "eval"), ("time", "row")} <= set(sources.registered()))
+        self.assertFalse([k for k, _s in sources.registered() if k in ("read", "speech")])
         got = deck.next_cards(self.ctx, n=3)
         self.assertEqual(len(got["cards"]), 3)
         self.assertGreater(got["total"], 3)
@@ -247,7 +251,7 @@ class SourcesTest(unittest.TestCase):
             calls.append(1)
             if len(calls) > 1:
                 raise OSError("一度だけ読めない")
-            return [self._card("read", "flk", "s1")]
+            return [self._card("time", "flk", "s1")]
 
         def mark(view):   # 別の種類の出どころが view に残す物に寄るカード(find が 1 種類だけ集め直すと出ない)
             view.__dict__["_mark_seen"] = True
@@ -255,12 +259,12 @@ class SourcesTest(unittest.TestCase):
 
         def dep(view):
             return [self._card("value", "dep", "s1")] if view.__dict__.get("_mark_seen") else []
-        for k, s, f in (("read", "flk", flaky), ("read", "mrk", mark), ("value", "dep", dep)):
+        for k, s, f in (("time", "flk", flaky), ("time", "mrk", mark), ("value", "dep", dep)):
             sources.register(k, s, f)
             self.addCleanup(sources._unregister, k, s)
         deck.invalidate()
         listed = [c["id"] for c in deck.next_cards(self.ctx, n=50)["cards"]]
-        self.assertIn("read:flk:%s#s1" % DOC, listed)
+        self.assertIn("time:flk:%s#s1" % DOC, listed)
         self.assertIn("value:dep:%s#s1" % DOC, listed)
         for cid in listed:
             self.assertEqual((deck.find(self.ctx, cid) or {}).get("id"), cid, cid)
@@ -268,26 +272,26 @@ class SourcesTest(unittest.TestCase):
         for cid in listed:
             self.assertEqual((deck.find(self.ctx, cid) or {}).get("id"), cid, cid)
         why = []
-        self.assertIsNone(deck.find(self.ctx, "read:fill:%s#s9" % DOC, why))   # 出していないカードは今までどおり None
-        self.assertTrue(why and any("read:flk" in w for w in why), why)        # 見つからない理由に、集めたときの失敗を添える
+        self.assertIsNone(deck.find(self.ctx, "time:flk:%s#s9" % DOC, why))   # 出していないカードは今までどおり None
+        self.assertTrue(why and any("time:flk" in w for w in why), why)        # 見つからない理由に、集めたときの失敗を添える
 
     def test_find_does_not_bring_back_a_settled_card(self):
         """一覧に出たあと本当に確かめる物でなくなったカード(行を校正した)は、読みの失敗が無ければ find で出さない"""
-        cid = "read:fill:%s#s1" % DOC
+        cid = "voice:diar:%s#s3" % DOC
         self.assertIn(cid, [c["id"] for c in deck.next_cards(self.ctx, n=50)["cards"]])
         path = os.path.join(self.tmp, "transcribe", "transcripts", DOC + ".json")
         with open(path, encoding="utf-8") as f:
             d = json.load(f)
-        d["segments"][0]["proofed"] = True
+        next(g for g in d["segments"] if g["id"] == "s3")["proofed"] = True
         d["updatedAt"] = d.get("updatedAt", 0) + 1
         write(path, d)
         deck.invalidate()
         self.assertIsNone(deck.find(self.ctx, cid))
 
     def test_deck_hides_answered_and_moves_skipped(self):
-        cid = "read:fill:%s#s1" % DOC
-        answerlog.append(self.app, {"id": answerlog.new_id(), "at": answerlog.now_ms(), "kind": "read", "source": "fill", "card": cid,
-                                    "target": {"docId": DOC, "row": "s1"}, "answer": "1", "applied": {}})
+        cid = "voice:diar:%s#s3" % DOC
+        answerlog.append(self.app, {"id": answerlog.new_id(), "at": answerlog.now_ms(), "kind": "voice", "source": "diar", "card": cid,
+                                    "target": {"docId": DOC, "row": "s3"}, "answer": "1", "applied": {}})
         deck.invalidate()
         got = deck.next_cards(self.ctx, n=50)
         self.assertNotIn(cid, [c["id"] for c in got["cards"]])

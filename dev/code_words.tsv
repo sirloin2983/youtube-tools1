@@ -5,7 +5,7 @@
 機械のカットのカード	checkCutCardsOn,human/check/cutcard.py,app/check/cut_sources.py,cut_edge	③ 確かめるの自動カットのカード。鍵・反映・出どころ
 確かめる	human/check/apply.py,app/check/deck.py,app/check/sources.py,next_cards	確かめるの待ち行列(GET /api/check/next)・答えの反映。画面は src/app/ui/check/
 評価のレーン	section_eval,app/check/eval_sources.py,app/check/lineup.py,eval/check/goals.py	確かめるのうち評価用動画の区間カードの流れ
-普段のレーン	speech_diar,speech_sources.py,human/check/speech.py	確かめるの普段のレーン(この行は声ですか)のカード
+普段のレーン	NORMAL_KINDS,app/check/lineup.py	確かめるの普段のレーン(価値・誰の声・時刻・自動カットのカード)
 受け取る	friendapp/inbox.py,receive_view,friendapp/ui/receive.js,Inbox.decide	友人のアプリの受け取る画面。残す判定と受信箱
 見送った物	Inbox.undo,Inbox.decide,VERDICTS,/api/friend/undo	受け取る画面で 3 日は戻せる skip・bad の物
 送る	friendapp/api.py,friendapp/ui/send-form.js,/api/friend/send,flow/sendpolicy.py	友人のアプリの送る欄・受付の口。自動で送る判定は flow/sendpolicy

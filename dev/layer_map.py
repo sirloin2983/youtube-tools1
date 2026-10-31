@@ -48,11 +48,9 @@ FILES = {
     # ---- V1 確かめる(V0。資料の git:before-1028-cleanup:docs/design/v1-check-build.md)。⑤ が待ち行列を数えて並べ(読むだけ)、③ が答えを記録して反映する(入口の /api/check/*)
     "src/app/check/lineup.py": ("app", "app/check", "確かめるの待ち行列の並びと数え方(純粋。名前は標準の queue と重ねない。カードの id・種類の並び・n の検査)"),
     "src/eval/check/goals.py": ("eval", "eval/check", "カードの種類 → 入口の条件 GOALS の対応と、答えの数え方(accuracy.goals_of の extra。human/check/answerlog を読む)"),
-    "src/app/check/sources.py": ("app", "app/check", "カードの出どころの登録と V0 の 5 つ(value:auto・value:cand・read:fill・voice:diar・time:row。読むだけ。評価用はここ 1 か所で外す。manage/cases を読む)"),
+    "src/app/check/sources.py": ("app", "app/check", "カードの出どころの登録と V0 の 4 つ(value:auto・value:cand・voice:diar・time:row。読むだけ。評価用はここ 1 か所で外す。manage/cases を読む)"),
     "src/app/check/deck.py": ("app", "app/check", "GET /api/check/next の組み立てと、答える前にカードを引き直す find(sources + lineup + goals + 答えの記録)"),
     "src/human/check/answerlog.py": ("human", "human/check", "確かめるの答えの記録 app/check/answers.jsonl(答え・確定・戻す)と skip.json の読み書き(ytt だけを読む)"),
-    "src/app/check/read_sources.py": ("app", "app/check", "読みのカードの出どころ read:alt(V2b。2 つ目のエンジンの食い違いを 1 行 1 枚に。読むだけ。human/proof の alt_diffs・learn を読む)"),
-    "src/human/check/read.py": ("human", "human/check", "読みのカードの反映(V2b。fill・alt・yt の 1 / 2 / 打つ。文書は store.commit(why=check:read)・採否は learn-feedback。行を校正済みにしない・時刻に触れない)"),
     "src/human/check/timerow.py": ("human", "human/check", "時刻のカードの反映(行の start / end を ← → で動かした量だけ変える・動かさなければ記録だけ・Z で戻す。store.commit why='check:time')"),
     "src/human/check/value.py": ("human", "human/check", "価値のカード(value:auto = 届ける・要らない(auto_review の口)/ value:cand = 採用 + 書き出しを頼む・不採用(studio の口))の反映の登録(V2a)"),
     "src/human/check/apply.py":("human", "human/check", "答えを実物へ反映する土台(種類と出どころごとの register・1 枚遅れの保留と flush・Z の undo・skip。④ の操作は入口が hooks で渡す)"),
