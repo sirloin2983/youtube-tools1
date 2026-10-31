@@ -6,6 +6,7 @@
   keep_chars(「%」)・between(数字の間の . : 〜 ~ / ・英字か数字にはさまれた ' - & _ .)。
   extra = 確かめるの「例外にする」の答え(入口の作業データの check/symbol-exceptions.json の keep_chars)。呼び手がパスを渡す。
 - apply(text, extra=None) -> (残した字, [{"ch", "at", "kept", "why"}])。at は NFKC にした字の位置。
+- decided(c) = ユーザーが消すと決めた記号か(decided_remove。消し方は変わらない・確かめるで聞かないだけ)。
 """
 import json
 import os
@@ -64,8 +65,21 @@ def base_rules():
                     words.setdefault(w, "名簿の語")
             _base["rules"] = {"words": sorted(words.items(), key=lambda kv: -len(kv[0])),
                               "chars": {unicodedata.normalize("NFKC", c): "いつも残す字" for c in e.get("keep_chars") or []},
-                              "between": [(frozenset(b["chars"]), b["side"], b.get("why") or "") for b in e.get("between") or []]}
+                              "between": [(frozenset(b["chars"]), b["side"], b.get("why") or "") for b in e.get("between") or []],
+                              "decided": e.get("decided_remove") or {}}
         return _base["rules"]
+
+
+def _emoji(c):
+    o = ord(c)
+    return o >= 0x1F000 or 0x2600 <= o <= 0x27BF or 0x2B00 <= o <= 0x2BFF
+
+
+def decided(c):
+    """消すと決めた記号か(symbols-exceptions.json の decided_remove: 字・区分(かっこ)・絵文字)。確かめるのカードはこれを聞かない"""
+    d = base_rules()["decided"]
+    c = unicodedata.normalize("NFKC", c)
+    return c in (d.get("chars") or "") or unicodedata.category(c) in (d.get("categories") or ()) or bool(d.get("emoji") and _emoji(c))
 
 
 def read_extra(path):

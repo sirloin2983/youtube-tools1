@@ -54,6 +54,12 @@ class SymbolsTest(unittest.TestCase):
             os.utime(p, ns=(1, 1))
             self.assertEqual(symbols.read_extra(p), {})
 
+    def test_decided(self):
+        for c in "、。?!？！♡☆♪※→+=「」()【】😀":
+            self.assertTrue(symbols.decided(c), c)
+        for c in ".・~-:%&'×○":
+            self.assertFalse(symbols.decided(c), c)
+
     def test_code_roundtrip(self):
         self.assertEqual(symbols.code_of("、"), "u3001")
         self.assertEqual(symbols.char_of("u3001"), "、")

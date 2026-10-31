@@ -4,6 +4,7 @@
 消した記号 1 つ = 1 枚(同じ記号は全部の文書でまとめて 1 枚)。数の多い記号から並べる。
   - 文書は View.docs(need_media=False)(評価用は外す・動画が片付いた文書も。音は要らない = 文字だけで決める)
   - 例 = 前後 CTX 字の文脈を EXAMPLES 個まで(いろいろな文書から)。記号に色を付けるのは画面(cards/symbol.js)
+  - 消すと決めた記号(① symbols.decided = 句読点・？！・♡☆♪※→・絵文字・+ =・かっこ)は聞かない
   - 一度答えた記号(答えの記録の symbol)は出さない。「例外にする」で足した字(③ human/check/symbol の check/symbol-exceptions.json)は
     決まりが残すので出ない
 """
@@ -46,7 +47,7 @@ def symbol_asr(view):
                 if e["kept"]:
                     continue
                 code = _symbols.code_of(e["ch"])
-                if code in done:
+                if code in done or _symbols.decided(e["ch"]):
                     continue
                 f = found.setdefault(code, {"ch": e["ch"], "n": 0, "docs": set(), "ex": []})
                 f["n"] += 1
