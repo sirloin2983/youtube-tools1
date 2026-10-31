@@ -17,7 +17,7 @@ from . import ytqueue as _ytq
 
 ON = True
 SWITCH_ENV = "YTT_YTQ_NOTIFY"
-RESEARCH_NAME = "同時発話の研究(続き)"   # 研究のセッションの名前の既定(-p からは名前で届く)
+RESEARCH_NAME = "裏作業"   # 研究のセッションの名前の既定(-p からは名前で届く)
 TO_ENV = "YTT_YTQ_NOTIFY_TO"               # 送り先の名前(研究の題名が変わったらここで直す)
 STATE_NAME = "notify.json"
 LOG_NAME = "notify.log"
