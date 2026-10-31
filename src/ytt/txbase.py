@@ -98,5 +98,21 @@ def wcpp_exe(data_dir, device="vulkan"):
     return os.path.join(wcpp_bin_dir(data_dir, device), WCPP_EXE)
 
 
+# ---------- speech.cpp(Haas-ja の主の文字起こし・11-01)の置き場所の決まり(① tx_engines・setup/place_speechcpp.py が読む 1 か所) ----------
+# 実行ファイルは手元の直しの版(トークンの確率を出す直し = C:\dev\speech-cpp\local-conf-1031.patch)なので取得しない。setup/place_speechcpp.py で置く
+SPEECH_CPP_VERSION = "0.10.0"
+SPEECH_CPP_FLAVOR = "conf"   # 手元の直しの名前(確率つき)
+SPEECH_EXE = "speech.exe" if os.name == "nt" else "speech"
+
+
+def speech_bin_dir(data_dir):
+    """speech.cpp の実行ファイルのフォルダ = <作業データ>/bin/speech.cpp-<版>-<直しの名前>(speech.exe・speech.dll・build.json)"""
+    return os.path.join(data_dir, "bin", "speech.cpp-%s-%s" % (SPEECH_CPP_VERSION, SPEECH_CPP_FLAVOR))
+
+
+def speech_exe(data_dir):
+    return os.path.join(speech_bin_dir(data_dir), SPEECH_EXE)
+
+
 def wcpp_model_dir(data_dir):
     return os.path.join(data_dir, "models", "whispercpp")

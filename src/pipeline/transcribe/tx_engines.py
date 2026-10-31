@@ -6,6 +6,7 @@
   whisper.cpp    … whisper-cli.exe を子プロセスで動かす。GPU(Vulkan)で large-v3 を動かす = 主の文字起こし。段2-2
   llama.cpp      … Qwen3-ASR 1.7B を llama-server(Vulkan)で動かす(区切りの中の目安の時刻)= 2 つ目のエンジン。段2-3
   haas           … Haas-ja-v1.0(sherpa-onnx・CPU)= 誰の声の材料の文字起こし(10-31)
+  haas-speechcpp … Haas-ja-v1.0(speech.cpp の `speech worker`・Vulkan か CPU)= whisper から替える主の文字起こし(11-01。段 1 = 足しただけ・既定はまだ whisper)
   (Qwen3-ASR 0.6B の qwen3-asr・large-v3-turbo は持たない(ユーザー決定「普段よく使っているモデル以外は要らない」))
 新しいエンジンは、同じ形のクラスをここに足し、ENGINES に登録する。
 
@@ -1209,6 +1210,269 @@ class Haas(_Qwen3Chunked):
         return [s] if s else []
 
 
+# ---------- Haas-ja-v1.0(speech.cpp・Vulkan か CPU)。whisper から替える主の文字起こし(11-01 ユーザー「Haas をメインにする」・保管庫 plan/Haas に替える時の変更の一覧.md) ----------
+# 研究(保管庫 plan/Haas-ja の比べ-1031.md の P10・P31・P39・P48・C:\dev\haas-research\tools\sc_engine.py と haas_pipeline.py)と同じ読み方:
+# `speech worker <gguf> --device Vulkan0|cpu --threads N`(JSON Lines・protocol 4)を子プロセスで 1 つ持ち、区切り q3_chunks(12〜28 秒)ごとに
+# 音(16 kHz・16 bit)を送って timestamps と keywords(用語のヒント = 名前の候補)で読ませ、区切りごとに words つきの 1 行(probability = トークンの確率)を返す。
+# 実行ファイルは手元の直しの版(確率を出す)= ytt/txbase.speech_bin_dir(setup/place_speechcpp.py で置く・取得しない)。モデルは GGUF を URL・大きさ・SHA-256 固定で取る。
+# 守り(P39): worker が終わっていたら 1 回だけ起こし直して同じ区切りを読み直す・2 回目も失敗したら EngineError(呼び手が whisper.cpp に戻す)・空の行は捨てる。
+# 機器: 処理方式が cpu なら CPU・ほかは Vulkan だけ(黙って CPU にしない。CPU で使うのは友人の PC の最初の試しで決めた時 = 段 5)。
+# 認識ワーカーが落ちても worker が残らないよう、ジョブオブジェクトに入れる(llama-server と同じ)。
+_HAAS_GGUF_HF = "https://huggingface.co/sakasegawa/Haas-ja-v1.0-GGUF/resolve/6b965d5007ba780585de51549d57a8c1c0d67c7e/"   # speech.cpp の catalog.json の revision
+HAAS_GGUF_MODELS = {   # 大きさと SHA-256 は speech.cpp 0.10.0 の catalog.json の値(手元で取った物を計って同じ)
+    "haas-ja-v1.0": {"file": "Haas-616M-ja-v1.0-Q8_0.gguf", "url": _HAAS_GGUF_HF + "Haas-616M-ja-v1.0-Q8_0.gguf", "size": 656381472,
+                     "sha256": "cd5f60b2f1c411404b83fca4a65e3ce30a26d9e951b6a346529e65f22758afeb"},
+}
+SPEECH_THREADS = env_num("TRANSCRIBE_SPEECH_THREADS", 4)   # CPU のスレッド(GPU のときは前後の処理だけ)。PC の決まり = 合わせて 6 本まで
+SPEECH_START_SEC = 120    # 起動(モデルの読み込みと GPU の準備)を待つ上限
+SPEECH_READ_SEC = 300     # 1 つの区切りの答えを待つ上限
+SPEECH_PCM_STEP = 16000 * 2 * 10   # 1 回の chunk で送る音の大きさ(10 秒ぶん)
+
+
+def haas_gguf_dir(data_dir):
+    return os.path.join(data_dir, "models", "haas-gguf")
+
+
+class SpeechWorker:
+    """`speech worker` の子プロセス 1 つ(JSON Lines)。cmd = 起動の引数のリスト(テストは偽の worker に差し替える)"""
+
+    def __init__(self, cmd, env=None, cancelled=None):
+        self.cmd, self.n = list(cmd), 0
+        self.errlog = tempfile.NamedTemporaryFile(prefix="speech-worker-", suffix=".log", delete=False)
+        self.proc = subprocess.Popen(self.cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.errlog,
+                                     creationflags=_tools.no_window_flags(), env=env)
+        self.job = _tools.KillJob()   # ワーカーが落ちても speech worker が残らない(close() で閉じる)
+        self.job.add(self.proc)
+        self._lines = []
+        self._cond = threading.Condition()
+        threading.Thread(target=self._pump, daemon=True, name="speech-worker-out").start()
+        self.ready = self._read(SPEECH_START_SEC, cancelled)
+        if self.ready.get("type") != "ready":
+            raise EngineError("engine_failed", "speech worker が起動できませんでした: %s" % (self.ready.get("message") or self._log_tail())[:300])
+
+    def _pump(self):
+        for line in self.proc.stdout:
+            with self._cond:
+                self._lines.append(line)
+                self._cond.notify_all()
+        with self._cond:
+            self._lines.append(None)
+            self._cond.notify_all()
+
+    def _read(self, limit, cancelled=None):
+        """次の答え(progress は飛ばす)。終わった・時間切れ・取り消しは EngineError"""
+        t0 = time.monotonic()
+        while True:
+            with self._cond:
+                while not self._lines:
+                    if cancelled and cancelled():
+                        raise EngineError("cancelled", "中止しました")
+                    if time.monotonic() - t0 > limit:
+                        raise EngineError("worker_down", "speech worker の答えが %d 秒で来ませんでした" % limit)
+                    self._cond.wait(0.5)
+                line = self._lines.pop(0)
+            if line is None:
+                raise EngineError("worker_down", "speech worker が終わりました: %s" % self._log_tail())
+            try:
+                m = json.loads(line)
+            except ValueError:
+                continue
+            if m.get("type") != "progress":
+                return m
+
+    def _send(self, m):
+        if self.proc is None:
+            raise EngineError("worker_down", "speech worker は閉じています")
+        try:
+            self.proc.stdin.write((json.dumps(m, ensure_ascii=False) + "\n").encode("utf-8"))
+            self.proc.stdin.flush()
+        except (OSError, ValueError) as e:
+            raise EngineError("worker_down", "speech worker に送れませんでした: %s" % e.__class__.__name__)
+
+    def transcribe(self, pcm16, opt, cancelled=None):
+        """pcm16 = 16 kHz・16 bit・モノラルのバイト列。-> 答え {text, tokens: [{start, end, text, p}]}"""
+        self.n += 1
+        rid = "r%d" % self.n
+        import base64
+        for k in range(0, max(1, (len(pcm16) + SPEECH_PCM_STEP - 1) // SPEECH_PCM_STEP)):
+            self._send({"type": "chunk", "id": rid, "seq": k, "pcm": base64.b64encode(pcm16[k * SPEECH_PCM_STEP:(k + 1) * SPEECH_PCM_STEP]).decode("ascii")})
+        self._send(dict({"type": "transcribe", "id": rid, "sample_rate": 16000}, **opt))
+        r = self._read(SPEECH_READ_SEC, cancelled)
+        if r.get("type") != "end":
+            raise EngineError("engine_failed", "speech worker が読めませんでした: %s" % str(r.get("message") or r)[:300])
+        return r
+
+    def _log_tail(self, n=4):
+        try:
+            with open(self.errlog.name, "rb") as f:
+                lines = [x for x in f.read().decode("utf-8", errors="replace").splitlines() if x.strip()]
+        except (OSError, AttributeError):
+            return ""
+        return " / ".join(lines[-n:])[-300:]
+
+    def device_line(self):
+        """起動の記録の「… on Vulkan0, ready」の機器の名前(無ければ "")"""
+        try:
+            with open(self.errlog.name, "rb") as f:
+                m = re.search(r" on ([^,\r\n]+), ready", f.read().decode("utf-8", errors="replace"))
+        except (OSError, AttributeError):
+            return ""
+        return m.group(1).strip() if m else ""
+
+    def close(self):
+        p = getattr(self, "proc", None)
+        if p is not None and p.poll() is None:
+            try:
+                p.stdin.close()
+                p.wait(5)
+            except (OSError, ValueError, subprocess.TimeoutExpired):
+                p.kill()
+                try:
+                    p.wait(10)
+                except subprocess.TimeoutExpired:
+                    pass
+        if p is not None and p.stdout is not None:
+            try:
+                p.stdout.close()
+            except OSError:
+                pass
+        self.proc = None
+        j = getattr(self, "job", None)
+        if j is not None:
+            j.close()
+        self.job = None
+        el = getattr(self, "errlog", None)
+        if el is not None:
+            try:
+                el.close()
+                os.unlink(el.name)
+            except OSError:
+                pass
+        self.errlog = None
+
+
+class HaasSpeechCpp(_Qwen3Chunked):
+    """Haas-ja-v1.0 を speech.cpp(`speech worker`・Vulkan か CPU)で。区切り方は Qwen3・SenseVoice・sherpa の Haas と同じ(_Qwen3Chunked)。
+    区切りごとに words つきの 1 行(_chunk_segs)= 行に分けるのは後処理(研究と同じ形)。用語のヒント(hotwords)は speech.cpp の keywords へ"""
+    id = "haas-speechcpp"
+    package = ""
+    PARAMS = ["hotwords", "language", "vad_filter", "vad_parameters", "word_timestamps"]   # hotwords は keywords へ・ほかは受け取るだけ(日本語のモデル)
+    CAPS = frozenset({"word_timestamps", "hotwords"})   # トークンの時刻を words に出す・用語のヒントを keywords に渡す
+    DEFAULT_MODEL = "haas-ja-v1.0"
+    WHAT = "Haas-ja(speech.cpp)"
+    COMMAND = None   # テスト用: 偽の worker の起動の引数(この後ろに model・--device・--threads を足す)
+
+    @classmethod
+    def device_order(cls, pref, cuda_ok):
+        return ["cpu"] if pref == "cpu" else ["vulkan"]
+
+    @classmethod
+    def valid_model(cls, name):
+        return name in HAAS_GGUF_MODELS
+
+    @classmethod
+    def version(cls, data_dir=None):
+        return "%s-%s" % (_txbase.SPEECH_CPP_VERSION, _txbase.SPEECH_CPP_FLAVOR)
+
+    @classmethod
+    def ready(cls, data_dir):
+        """実行ファイルが置いてあるか(モデルは最初の読みで取る)"""
+        return bool(cls.COMMAND) or os.path.isfile(_txbase.speech_exe(data_dir or engine_home()))
+
+    @classmethod
+    def create(cls, name, device, compute_type=None, log=None, data_dir=None, hooks=None):
+        spec = HAAS_GGUF_MODELS.get(name)
+        if spec is None:
+            raise EngineError("bad_model", "Haas(speech.cpp)で使えないモデルです: %s(使えるのは %s)" % (str(name)[:40], "・".join(HAAS_GGUF_MODELS)), 400)
+        data_dir = data_dir or engine_home()
+        hooks = hooks or {}
+        exe = _txbase.speech_exe(data_dir)
+        if not cls.COMMAND and not os.path.isfile(exe):
+            raise EngineError("engine_missing", "speech.cpp がありません(setup\\place_speechcpp.py で %s に置いてください)" % os.path.dirname(exe), 400)
+        model = fetch_file(spec, haas_gguf_dir(data_dir), log, hooks.get("cancelled"), hooks.get("download"))
+        e = cls(name, device, None)
+        e.cmd = (list(cls.COMMAND) if cls.COMMAND else [exe]) + ["worker", model, "--device", "cpu" if device == "cpu" else "Vulkan0",
+                                                                 "--threads", str(SPEECH_THREADS)]
+        e.restarts, e.gpu_name = 0, ""
+        e.hooks = hooks
+        e._start()
+        return e
+
+    def _start(self):
+        old = getattr(self, "model", None)
+        if old is not None:
+            old.close()
+        env = dict(os.environ, SPEECH_NO_UPDATE_CHECK="1")
+        if self.device == "cpu":
+            env["GGML_VK_VISIBLE_DEVICES"] = ""
+        self.model = SpeechWorker(self.cmd, env, (self.hooks or {}).get("cancelled"))
+        self._check_gpu()
+
+    def _check_gpu(self):
+        """GPU を頼んだのに Vulkan で起きていなければ止める(黙って CPU で動いた結果を「GPU」として残さない)"""
+        dev = self.model.device_line()
+        self.gpu_name = dev
+        if self.device == "vulkan" and dev and not dev.lower().startswith("vulkan"):
+            self.close()
+            raise EngineError("gpu_failed", "GPU(Vulkan)を使えませんでした(%s)。GPU のドライバを確かめるか、処理方式を「CPU」にしてください" % dev[:60])
+
+    def _setup(self, kw):
+        return "ja", [t.strip() for t in str(kw.get("hotwords") or "").split(",") if t.strip()]
+
+    def _read_chunk(self, pcm, opt):
+        """1 つの区切りを読む。worker が終わっていたら 1 回だけ起こし直して読み直す(P39)。2 回目の失敗は EngineError のまま上へ"""
+        cancelled = (self.hooks or {}).get("cancelled")
+        try:
+            return self.model.transcribe(pcm, opt, cancelled)
+        except EngineError as e:
+            if e.code == "cancelled":
+                raise
+            self.restarts += 1
+            _txbase.log.warning("speech worker を起こし直します(%d 回目): %s", self.restarts, e.message[:160])
+            self._start()
+            return self.model.transcribe(pcm, opt, cancelled)
+
+    def _chunk_segs(self, x, c0, c1, rms, hot):
+        f = int(16000 * Q3_FRAME)
+        seg = x[c0 * f:c1 * f]
+        try:
+            import numpy as np
+            pcm = (np.clip(seg, -1.0, 1.0) * 32767).astype("<i2").tobytes()
+        except ImportError:   # numpy が無い(テストの子プロセスなど): 1 つずつ
+            import struct
+            pcm = struct.pack("<%dh" % len(seg), *[int(max(-1.0, min(1.0, v)) * 32767) for v in seg])
+        opt = {"timestamps": True}
+        if hot:
+            opt["keywords"] = "\n".join(hot)
+        r = self._read_chunk(pcm, opt)
+        text = str(r.get("text") or "").strip()
+        s0 = c0 * Q3_FRAME
+        words = []
+        for t in r.get("tokens") or []:
+            p = t.get("p")
+            words.append(types.SimpleNamespace(start=round(float(t["start"]) + s0, 3), end=round(float(t["end"]) + s0, 3), word=str(t.get("text") or ""),
+                                               probability=float(p) if isinstance(p, (int, float)) and p == p else None))
+        if not words or not text:   # 空の行は捨てる(P39)
+            return []
+        lp = [math.log(max(w.probability, 1e-9)) for w in words if w.probability is not None]
+        raw = text.encode("utf-8")
+        return [types.SimpleNamespace(start=words[0].start, end=words[-1].end, text=text, words=words,
+                                      avg_logprob=(sum(lp) / len(lp)) if lp else None, no_speech_prob=None,
+                                      compression_ratio=len(raw) / len(zlib.compress(raw)))]
+
+    def close(self):
+        m = getattr(self, "model", None)
+        if m is not None:
+            m.close()
+        self.model = None
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
+
+
 # 24 にすると、当時の PC(13900KF)では起動の途中でよく落ちた。GPU に載せるので CPU のスレッドはほぼ効かず、既定は 8 のまま。
 # 環境変数 TRANSCRIBE_LLAMA_THREADS で変えられる
 LLAMA_THREADS = env_num("TRANSCRIBE_LLAMA_THREADS", 8)
@@ -1470,7 +1734,8 @@ class LlamaText(LlamaQwen3):
 
 
 ENGINES = {FasterWhisper.id: FasterWhisper, WhisperCpp.id: WhisperCpp, LlamaQwen3.id: LlamaQwen3, SenseVoice.id: SenseVoice,
-           LlamaText.id: LlamaText, Haas.id: Haas}
+           LlamaText.id: LlamaText, Haas.id: Haas,
+           HaasSpeechCpp.id: HaasSpeechCpp}
 
 
 def caps_of(engine):
