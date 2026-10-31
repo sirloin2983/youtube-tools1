@@ -164,10 +164,6 @@ class FakeBackend(_fa_backend.Backend):
     def engine_version(self, spec, real):
         return ""
 
-    def fill_reader(self, job, spec, wav, real):
-        text = os.environ.get("TRANSCRIBE_FAKE_FILL", "")   # 空 = 行なし
-        return lambda s0, e0: [{"start": s0, "end": e0, "text": text}] if text else []
-
     def voice_spans(self, job, wav, real):
         raw = os.environ.get("TRANSCRIBE_FAKE_VOICED", "")   # 「始め-終わり,…」の秒(空 = 区間なし)
         return [tuple(float(v) for v in p.split("-", 1)) for p in raw.split(",") if "-" in p]

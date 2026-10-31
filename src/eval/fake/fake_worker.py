@@ -5,7 +5,7 @@
 serve が pipeline/transcribe/worker_client.FAKES_MODULE にこのモジュールの名前を入れる → worker_client.worker_env() が worker-fake のときだけ
 環境変数(worker_client.FAKES_ENV)でワーカーへ渡す → ワーカー(pipeline/transcribe/worker.py)の main が importlib で読んで install() を呼ぶ
 (① は ④ を import しない = 名前の文字だけを受け取る)。
-faster-whisper・sherpa-onnx・whisper.cpp・SenseVoice・文字の LLM の代わり。本物の _load_model_local(モデルの使い回し・手放し)の流れはそのまま通す。
+faster-whisper・sherpa-onnx・whisper.cpp・文字の LLM の代わり。本物の _load_model_local(モデルの使い回し・手放し)の流れはそのまま通す。
 TRANSCRIBE_WORKER_CRASH=<n> なら、認識の n 行目を送ったあとにプロセスごと落ちる(異常終了からの立ち直りの確認用)。
 話者判別と声の特徴は、サーバーの疑似(fake_asr の diarize_fake・embed_fake)と同じ区切り(偽物どうしが食い違わないよう、本体を共有する)。
 差し替えるのはモジュールの名前(models._gpu_ready_local・diarize._diarize_local・_embed_local・tx_engines)= 読み手は呼ぶたびに読む。
@@ -83,29 +83,7 @@ def install():
     E = tx_engines
     E.WhisperCpp.COMMAND = [sys.executable, os.path.join(layout.repo_root(), "tests", "pipeline", "transcribe", "fake_whisper_cli.py")]
     E.fetch_file = lambda spec, folder, *a, **k: os.path.join(folder, spec["file"])
-    E.ENGINES[E.SenseVoice.id] = fake_sense_voice(os.environ.get("TRANSCRIBE_FAKE_FILL", ""))   # 2 つ目の読み(後処理 A)は環境変数の文字を 1 行に(空 = 行なし。モデルは取らない)
     E.ENGINES[E.LlamaText.id] = fake_llama_text(os.environ.get("TRANSCRIBE_FAKE_LLM", ""))   # 文字の LLM(後処理 E)は環境変数の文字をそのまま答える(server を起動しない)
-
-
-# ---------- 2 つ目の読み・文字の LLM の偽物。
-# 本物のクラスを継いで、モデルを読む所(create)と答える所だけを差し替える。エンジンの表 tx_engines.ENGINES に入れると、本物の _load_model_local の流れで使われる
-def fake_sense_voice(text):
-    """SenseVoice の偽物のクラス: 音声を読まずに、音声の長さ全体に text を 1 行(空なら行なし)"""
-    E = tx_engines
-
-    class FakeSenseVoice(E.SenseVoice):
-        @classmethod
-        def create(cls, name, device, compute_type, log=None, data_dir=None, hooks=None):
-            if name not in E.SENSE_VOICE_MODELS:
-                raise E.EngineError("bad_model", "SenseVoice で使えないモデルです: %s(使えるのは %s)" % (str(name)[:40], "・".join(E.SENSE_VOICE_MODELS)), 400)
-            return cls(name, "cpu", {"fake": text})
-
-        def transcribe(self, audio, **kw):
-            dur = E._wav_seconds(audio) if isinstance(audio, str) else len(audio) / 16000.0
-            info = types.SimpleNamespace(language=self._lang(kw), duration=dur, duration_after_vad=None)
-            segs = [types.SimpleNamespace(start=0.0, end=dur, text=text, words=[], avg_logprob=None, no_speech_prob=None, compression_ratio=1.0)] if text else []
-            return iter(segs), info
-    return FakeSenseVoice
 
 
 def fake_llama_text(reply):

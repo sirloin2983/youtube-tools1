@@ -20,7 +20,7 @@ import threading
 import time
 
 from ytt import schemas as _yschemas, errors as _errors, fsio as _fsio, jobs as _slots, tools as _tools, txbase as _txbase, workdata as _workdata
-from pipeline.transcribe import backend as _backend, diarize as _calc, fill as _fill, recognize as _recognize, worker_client as _wc
+from pipeline.transcribe import backend as _backend, diarize as _calc, recognize as _recognize, worker_client as _wc
 
 from . import keys as _keys
 
@@ -100,9 +100,9 @@ def assign(doc, turns, offset, keep_row, smooth=False):
     """判別の区間を文書の行に割り当てる(doc["segments"] は ① fill の掃除で減ることがある)。turns = [(開始, 終了, 話者番号)](音声の頭からの秒)・
     offset = 音声の頭の元の動画の秒・keep_row(行) = 話者を変えない行か(③ の決まり)・smooth = 細切れをならす(S2)。
     -> {"segs": 行, "keep": 守る行の印, "raw": [(ラベル or None, 混ざる, 不確か)], "res": ならしたあとの同じ形, "ratios", "smoothed": {行の番号: ラベル} or None, "dropped": 捨てた行の数}。
-    ② が足すこと: ① の定型の幻覚の掃除(fill_clean_turns)を先に通し、残った行で守る行を数え、区間を元の動画の秒に直して並べて
-    ① の割り当て(_assign)とならし(smooth_speakers)へ渡し、ならした行は「不確か」の印つきでまとめる"""
-    dropped = _fill.fill_clean_turns(doc, turns, offset)   # 定型の幻覚で声の区間と重ならない行を捨てる(autoFill の文書だけ)
+    ② が足すこと: 守る行を数え、区間を元の動画の秒に直して並べて ① の割り当て(_assign)とならし(smooth_speakers)へ渡し、
+    ならした行は「不確か」の印つきでまとめる。前は ① の定型の幻覚の掃除(後処理 C の fill_clean_turns)を先に通していた(11-01 に消した。dropped は 0)"""
+    dropped = 0
     segs = doc.get("segments") or []
     keep = [keep_row(g) for g in segs]
     ts = sorted((a + offset, b + offset, s) for a, b, s in turns)   # 元の動画の秒(割り当て・ならし・記録で同じ並び)

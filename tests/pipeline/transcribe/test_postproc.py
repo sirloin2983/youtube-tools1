@@ -6,7 +6,7 @@
 
 認識の出力の見本(単語の時刻・続いている行・同じ文字の行・文字の少ない行・末尾の重複・決まり文句・行の中の繰り返し・同じ文の繰り返し・ヒントの語だけ・英字・
 名簿の呼び名の聞き違い・置換辞書・空の行・長さの外・頭の「名前:」・自信の度合い)を、本物の後処理の入口に通して答えをまとめて確かめる。
-認識・窓の読み(SenseVoice)・LLM は backend の口で決まった答えにする(本物の部品で通すのは test_fill_llm.py の TestRealParts)。
+認識・LLM は backend の口で決まった答えにする(本物の部品で通すのは test_fill_llm.py の TestRealParts)。
 """
 import os
 os.environ.setdefault("YTT_DATA_DIR", "inplace")   # 作業データは読み書きしないが、ほかのテストとそろえる
@@ -81,20 +81,6 @@ class _Rich(backend.Backend):
     def transcribe(self, job, spec, wav, total, real):
         return iter([dict(r) for r in RAW])
 
-    def fill_reader(self, job, spec, wav, real):
-        def read(s0, e0):
-            if e0 - s0 > 30:   # D の全体の読み
-                return [{"start": 43.2, "end": 45.0, "text": "みこちが来たよ"}]
-            self.windows.append(round(s0, 1))
-            if s0 < 6:
-                return [{"start": s0 + 0.2, "end": e0 - 0.2, "text": FILLED}]
-            if 10 < s0 < 12:
-                return [{"start": s0, "end": e0, "text": "短い文です"}]                     # 3 倍に届かない
-            if 60 < s0 < 63:
-                return [{"start": 66.0, "end": 67.0, "text": "これは別の読みで埋めた長い文です"}]   # 元の行の時間に半分も入らない
-            return []
-        return read
-
     def llm_ask(self, job, spec, real):
         def ask(messages):
             self.asked.append(messages)
@@ -112,11 +98,10 @@ class TestDocRowsRun(unittest.TestCase):
         self.addCleanup(backend.set_selector, backend._selector[0])   # 前の選び方に戻す(REAL に固定しない)
         backend.set_selector(lambda: rich)
         for mod, name, value in ((roster, "ROSTER", path), (studiodata, "studio_stream", lambda vid: None),
-                                 (recognize, "extract_audio", lambda job, spec, wav: None), (recognize._tools, "media_duration", lambda p: DUR),
-                                 (fill, "FILL_STOCK_READ", False)):   # 見本の定型の文の行は札を確かめる用(読み直して捨てる規則は test_fill)
+                                 (recognize, "extract_audio", lambda job, spec, wav: None), (recognize._tools, "media_duration", lambda p: DUR)):
             self.enterContext(mock.patch.object(mod, name, value))
         spec = {"start": 0.0, "end": 0, "language": "ja", "glossary": ["ホロライブ", "大空スバル", "スバル"], "context": {"terms": []}, "stripNames": True,
-                "autoFill": True, "autoLlm": True, "title": "雪花ラミィ・常闇トワ・尾丸ポルカの配信", "sourcePath": "E:/v.mp4", "wordSplit": True, "engine": "faster-whisper"}
+                "autoLlm": True, "title": "雪花ラミィ・常闇トワ・尾丸ポルカの配信", "sourcePath": "E:/v.mp4", "wordSplit": True, "engine": "faster-whisper"}
         job = {"id": "j", "cancel": False}
         out = clipjob.make_doc_rows(job, spec, os.path.join(tmp, "a.wav"), [("白上", "白神"), ("|アペ|", "エペ")])
         segs = out["segs"]
@@ -134,7 +119,7 @@ class TestDocRowsRun(unittest.TestCase):
         self.assertEqual(by["ああああああ"]["flag"], REP)
         self.assertEqual([(by[t]["start"], by[t]["end"]) for t in ("あい", "うえお", "最後")], [(47.0, 47.5), (48.8, 49.4), (218.5, 220.0)])
         self.assertNotIn("外", by)
-        self.assertEqual(len(segs), 98)
+        self.assertEqual(len(segs), 99)   # 末尾の重複を捨てる C を 11-01 に消した(98 → 99)
         self.assertEqual((by["♪～"].get("noSub"), by["(音楽)"].get("noSub"), by["♪～"]["flag"]), (True, None, STOCK))   # 音符だけの行は字幕に出さない印(行と札は残す)
         self.assertEqual((by["this is a random english line"]["end"], by["白神フブキ"]["end"]), (40.5, 46.2))   # すき間 0.5 秒まではつなぐ・空の行の始まりへも
         # 頭の「名前:」(B): 名簿・用語集の名前か、かな・カタカナだけの短い語で、直後に本文があるときだけ。単語の時刻も名前の分を除く
@@ -145,14 +130,8 @@ class TestDocRowsRun(unittest.TestCase):
             self.assertNotIn("fill", by[t], t)
         self.assertEqual(out["names_n"], 4)
         self.assertEqual(out["words"], [[0.7, 1.0, "もう一回"], [47.0, 47.5, "あい"], [48.8, 49.4, "うえお"]])
-        # 末尾の重複(C)・別の読み(A。3 倍以上で、読みの半分以上が元の行の時間に入るときだけ。窓は前後 0.5 秒)
-        self.assertEqual([by[t]["start"] for t in ("今日はいい天気ですね", "ですね", "いい天気ですね")], [17.0, 21.0, 22.0])   # 6 字未満・前の行の末尾でない行は残す
-        self.assertEqual(at(FILLED), (4.7, 9.8, fill.FILL_FLAG, {"from": "テスト文1", "by": "sense-voice"}))
-        self.assertEqual(at("テスト文2")[2:], (SPARSE, None))
-        self.assertEqual(at("これは別の読みで埋めた長い文です")[3]["from"], "テスト文3")
-        self.assertEqual(rich.windows, [4.5, 10.5, 58.5, 61.5, 117.5, 128.5, 134.5])   # 文字の少ない行の窓(3 回以上の繰り返しは 1 字に数える = 「あはは…」も)
-        self.assertEqual(out["fill_rec"], {"engine": "sense-voice", "windows": 7, "rows": 2, "added": 2, "dup": 1, "agree": 1, "order": "AC"})
-        self.assertEqual(orig[by[FILLED]["id"]], {"start": 4.7, "end": 9.8, "text": FILLED})   # 機械の出力 = 後処理のあと(自信の度合いの無い行)
+        # 末尾の重複(C)・別の読み(A)・呼び名の 1 字違い(D)は 11-01 に消した(Haas に替えたため): 行はそのまま・記録 fill_rec は無い
+        self.assertIsNone(out["fill_rec"])
         # 要確認の印
         self.assertEqual([by[t]["flag"] for t in ("ご視聴ありがとうございました", "げんげんげんげんげん", "スバル", "this is a random english line", "えーと")],
                          [STOCK, REP, LEAK, "英字が多い(英語の幻覚の可能性)", "自信が低い、音声でない可能性(BGMなど)、" + REP])
@@ -171,8 +150,8 @@ class TestDocRowsRun(unittest.TestCase):
         self.assertEqual(orig[by["こんにちは"]["id"]], {"start": 1.3, "end": 2.1, "text": "こんにちは", "avg_logprob": -0.1235, "compression_ratio": 1.2})
         # 置換辞書(機械の出力は変えない・|語| は単語の途中に当てない)
         self.assertEqual((out["dictApplied"], orig[by["白神フブキ"]["id"]]["text"], "エペやろう" in by, "アペックス" in by), (2, "白上フブキ", True, True))
-        # 名簿の呼び名(D: 別のエンジンも同じ呼び名なら 1 字違いを直す)
-        self.assertEqual(at("みこちが来たよ")[2:], ("名簿の呼び名に直した(別のエンジンも同じ呼び名)", {"from": "みこぢが来たよ", "by": "sense-voice"}))
+        # 名簿の呼び名の 1 字違いを直す D は 11-01 に消した: 行はそのまま
+        self.assertIn("みこぢが来たよ", by)
         # LLM(E): 選ぶ(呼び名に近い所・誤りやすい形・カタカナの規則。そのまま出ている行・後処理の行・普通の言葉は選ばない・30 か所まで)→ 聞く → 検査 → 上限 → 当てる
         rec = out["llm_rec"]
         self.assertEqual(rec, {"engine": "llama-text", "model": "qwen3-8b", "picked": llm.LLM_MAX_PICKS, "proposed": 33, "applied": 14,

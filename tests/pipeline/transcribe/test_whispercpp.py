@@ -30,7 +30,6 @@ import ed_state  # noqa: E402
 from human.proof import doc_jobs as _doc_jobs  # noqa: E402
 from human.proof import rerun as _rerun  # noqa: E402
 from pipeline.transcribe import postproc as _postproc  # noqa: E402
-from pipeline.transcribe import fill  # noqa: E402
 from pipeline.transcribe import recognize as _recognize  # noqa: E402
 from pipeline.transcribe import records as _records  # noqa: E402
 from pipeline.transcribe import roster as _roster  # noqa: E402
@@ -314,7 +313,6 @@ class RowTidyTest(unittest.TestCase):
         loop = [row(10.0 + k * 0.02, 10.02 + k * 0.02, "どう" * (13 if k % 5 == 0 else 1)) for k in range(30)]
         out = list(_postproc.merge_repeats([row(9.0, 10.0, "どうどうどう")] + loop))
         self.assertEqual([(r["text"], r.get("_rep")) for r in out], [("どうどうどうどう", 31)])
-        self.assertTrue(fill.fill_sparse_row(dict(out[0], start=9.0, end=12.0)))   # まとめた行は埋め A で読み直す(本物の話が戻る)
         real = [row(0.0, 1.0, "はい"), row(1.2, 2.0, "はい"), row(2.2, 3.0, "はい"), row(4.0, 5.0, "どうどうどう")]
         self.assertEqual([r["text"] for r in _postproc.merge_repeats(real)], ["はい", "はい", "はい", "どうどうどう"])   # 合計 8 回に届かない・3 回は縮めない
 

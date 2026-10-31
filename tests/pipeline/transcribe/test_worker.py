@@ -710,52 +710,6 @@ class EngineTest(unittest.TestCase):
             _models._load_model_local("small", {"phase": ""}, "cpu", False, "nope")
         self.assertEqual(cm.exception.code, "bad_engine")
 
-    def test_sense_voice_reads_chunks_like_qwen3(self):
-        """SenseVoice は Qwen3-ASR と同じ区切り方(_Qwen3Chunked。無音の区切りは読まない)で読み、区切りの中の行はトークンの時刻(sv_rows)で作る。
-        時刻が無ければ Qwen3 と同じ割り振り(q3_rows)。認識器は言語ごとに読む前に 1 つ(知らない言語は auto)"""
-        try:
-            import numpy as np
-        except ImportError:
-            self.skipTest("numpy が無い")
-        from pipeline.transcribe import tx_engines as E
-        t = np.arange(16000 * 47) / 16000.0
-        x = (0.2 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
-        x[16000 * 20:16000 * 47] = 0.0   # 後ろは無音(読まない区切り)
-        toks, stamps = ["<|ja|>", "あい", "う。", "え"], [0.0, 0.5, 0.9, 3.0]
-
-        class Rec:
-            def __init__(self, with_time):
-                self.with_time, self.calls = with_time, []
-
-            def create_stream(rec):
-                st = types.SimpleNamespace(accept_waveform=lambda sr, w: rec.calls.append(len(w)))
-                st.result = types.SimpleNamespace(tokens=toks if rec.with_time else [], timestamps=stamps if rec.with_time else [], text="あいう。え")
-                return st
-
-            def decode_stream(self, st):
-                pass
-
-        rms = E._frame_rms(x)
-        loud = [(a, b) for a, b in E.q3_chunks(rms) if max(rms[a:b]) >= E.Q3_SILENT]
-        self.assertTrue(loud and len(loud) < len(E.q3_chunks(rms)))
-        for with_time in (True, False):
-            rec = Rec(with_time)
-            e = E.SenseVoice("sense-voice-small", "cpu", {"dir": "x", "rec": {"ja": rec}})
-            segs, info = e.transcribe(x, language="ja")
-            rows = [(s.start, s.end, s.text) for s in segs]
-            self.assertEqual((info.language, info.duration), ("ja", 47.0))
-            self.assertEqual(len(rec.calls), len(loud))                                    # 無音の区切りは読まない
-            want = []
-            for a, b in loud:
-                a0, b0 = a * E.Q3_FRAME, b * E.Q3_FRAME
-                floor = E.q3_floor(rms[a:b])
-                want += E.sv_rows(toks, stamps, a0, b0) if with_time else E.q3_rows("あいう。え", a0, b0, voiced=[v > floor for v in rms[a:b]])
-            self.assertEqual(rows, want)
-        with mock.patch.object(E.SenseVoice, "_recognizer", lambda self, lang: self.model.setdefault("asked", lang) and Rec(True)):
-            e = E.SenseVoice("sense-voice-small", "cpu", {"dir": "x", "rec": {}})
-            self.assertEqual(e.transcribe(x[:16000 * 15], language="xx")[1].language, "auto")
-            self.assertEqual(e.model["asked"], "auto")
-
 
 class ProtocolTest(unittest.TestCase):
     """ワーカーの出力が壊れていても、サーバー側は読み飛ばす・異常終了として扱う。"""

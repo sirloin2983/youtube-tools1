@@ -35,8 +35,8 @@ class Backend:
 
     def transcribe(self, job, spec, wav, total, real):
         """文字起こしのジョブの行(faster-whisper の行と同じ形の辞書)の生成器。real(job, spec, wav, total)。
-        後処理で声の無い行を捨てる(autoFill + dropSilent)なら、取り出した音の声の分離を認識の間に裏で始める(separate.prefetch。結果は同じ)"""
-        if isinstance(spec, dict) and (spec.get("autoFill") or spec.get("engine") == "haas-speechcpp") and spec.get("dropSilent"):   # Haas は A を呼ばないが dropSilent は動かす
+        後処理で声の無い行を捨てる(dropSilent)なら、取り出した音の声の分離を認識の間に裏で始める(separate.prefetch。結果は同じ)"""
+        if isinstance(spec, dict) and spec.get("dropSilent"):
             from . import separate   # 遅く読む(separate が backend を読む)
             separate.prefetch(job, wav)
         return real(job, spec, wav, total)
@@ -79,11 +79,6 @@ class Backend:
     def engine_version(self, spec, real):
         """記録に入れるエンジンの版の文字。real(spec)(RS5-D。疑似は "")"""
         return real(spec)
-
-    def fill_reader(self, job, spec, wav, real):
-        """認識のあとの後処理 A の窓を読む関数 read(s0, e0) -> [{start, end, text}]。real(job, spec, wav) = SenseVoice をワーカーに読み込む
-        (RS5-D。疑似は環境変数 TRANSCRIBE_FAKE_FILL の文字を窓いっぱいの 1 行に)"""
-        return real(job, spec, wav)
 
     def voice_spans(self, job, wav, real):
         """分けた声の区間 [(始め, 終わり)](separate.py。後処理の声の無い行を捨てる)。real(job, wav) = ワーカーで Spleeter

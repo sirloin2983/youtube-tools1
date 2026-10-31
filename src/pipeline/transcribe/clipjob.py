@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """① 文字起こしのジョブの機械の文書の行を作る(make_doc_rows)。
 
-流れ: 音声を取り出して認識し整えた行(recognize.transcribe_rows)→ 行の頭の「名前:」を外す(fill.fill_strip_names。B)→ 認識のあとの後処理(fill.fill_after_rows。A・C)→
-文書の行(_rows_to_doc = 要確認の印・学習した置換・置換辞書・機械の出力 original・単語の時刻)→ 別のエンジンも同じ呼び名なら 1 字違いを直す(fill.fill_agree_doc。D)→
+流れ: 音声を取り出して認識し整えた行(recognize.transcribe_rows)→ 行の頭の「名前:」を外す(fill.fill_strip_names。B)→ 声の無い行を捨てる(fill.fill_after_rows。dropSilent・endSnap)→
+文書の行(_rows_to_doc = 要確認の印・学習した置換・置換辞書・機械の出力 original・単語の時刻)→
 名簿の呼び名の聞き違いらしい所だけ LLM で直す(llm.llm_after_doc。E)。
 ① は ② ③ を読まない: 置換辞書の組 pairs と学習した置換の選び方 learned は呼ぶ側(② の flow/tx・③ の doc_jobs)が渡す。ファイルは書かない
 (文書・words.json・asr.json・llm.json を書くのは ② の flow/tx と ③)。名前は呼ぶたびに `モジュール.名前` で読む(S.extract_audio などの差し替えが届く)。
@@ -24,13 +24,11 @@ def make_doc_rows(job, spec, wav, pairs, learned=None):
     t_fill = time.monotonic()
     rows, total = res["rows"], res["total"]
     rows, names_n = fill.fill_strip_names(spec, rows)   # 行の頭の「名前:」を外す(設定 stripNames)
-    # 認識のあとの後処理(設定 autoFill): 末尾の重複を捨て、文字の少ない行の窓を SenseVoice で読んで埋める(A・C)。読めなければ警告だけ
-    rows, fill_rec, fill_read = fill.fill_after_rows(job, spec, rows, wav, total)
+    # 声の無い行を捨てる・行の終わりを寄せる(束 dropSilent・endSnap。2 つ目の読み A・C・D は 11-01 に消した = Haas に替えたため)
+    rows, fill_rec, _read = fill.fill_after_rows(job, spec, rows, wav, total)
     t_doc = time.monotonic()
     _heavy.check_cancel(job)
     out = _rows_to_doc(job, spec, rows, pairs, learned)
-    if fill_read is not None:   # D: 別のエンジンも同じ呼び名なら 1 字違いを名簿の呼び名に(置換辞書のあと)
-        fill_rec["agree"] = fill.fill_agree_doc(job, out["segs"], fill_read, total, spec)
     _heavy.check_cancel(job)
     # E: 名簿の呼び名の聞き違いらしい所だけを LLM で直す(設定 autoLlm・10-31 から既定オフ。P18。選んだ所が無ければ LLM を読み込まない・失敗しても警告だけ)
     t_llm = time.monotonic()

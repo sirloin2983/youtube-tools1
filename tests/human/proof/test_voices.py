@@ -336,10 +336,10 @@ class TestDiarRealRun(VoiceDir):
         self.assertEqual((j["speakers"], sorted({ja, en}), g["s4"]["speaker"], g["s11"]["speaker"], g["s10"]["speaker"]), (2, ["S1", "S2"], ja, ja, ja))
         self.assertEqual((g["s8"]["speaker"], g["s9"]["speaker"]), (en, en))
         self.assertEqual((g["s7"]["speaker"], g["s7"]["noSub"], g["s12"]["speaker"]), ("other", True, ""))
-        self.assertNotIn("s6", g)
+        self.assertIn("s6", g)   # 定型の幻覚を声の区間で捨てる C は 11-01 に消した(行は残る)
         self.assertIn(ed_state.WEAK_FLAG, g["s5"]["flag"])                                     # 0.8 秒未満の行は話者が不確か
         self.assertTrue(any(f in g["s2"]["flag"] for f in (ed_state.WEAK_FLAG, ys.MIXED_FLAG)), g["s2"]["flag"])   # 2 人にまたがる行
-        self.assertEqual({k: d["diarization"][k] for k in ("engine", "requested", "found", "fillDropped")}, {"engine": "sherpa-onnx", "requested": 2, "found": 2, "fillDropped": 1})
+        self.assertEqual({k: d["diarization"].get(k) for k in ("engine", "requested", "found", "fillDropped")}, {"engine": "sherpa-onnx", "requested": 2, "found": 2, "fillDropped": None})
         dz = transcribe_diarize.read_diar(TID)
         run = dz["latest"]
         self.assertEqual((dz["history"], run["engine"]["name"], run["engine"]["requested"], sorted(run["labelMap"].values())), ([], "sherpa-onnx", 2, ["S1", "S2"]))
@@ -356,7 +356,7 @@ class TestDiarRealRun(VoiceDir):
         sec = round(sum(g[k]["end"] - g[k]["start"] for k in ("s1", "s4", "s11")), 1)
         self.assertEqual([(p["name"], p["speaker"], p["rows"], p["exists"]) for p in pv["people"]], [("さくらみこ", en, 1, False), ("兎田ぺこら", ja, 3, False)])
         self.assertAlmostEqual(pv["people"][1]["sec"], sec, places=0)
-        self.assertEqual((pv["refused"], pv["skipped"]), ([], {"unproofed": 1, "tagged": 3, "mixed": 0, "short": 1}))
+        self.assertEqual((pv["refused"], pv["skipped"]), ([], {"unproofed": 1, "tagged": 3, "mixed": 0, "short": 2}))   # 定型の幻覚の短い行 s6 が残る(C を 11-01 に消した)
         self.assertEqual(_speakers.voice_preview(TID, "no-such-model")["embedding"], VE)   # 知らないモデル = 既定 → 声の名前付けのモデル
         spec = self.validate({"tid": TID, "embedding": "voxceleb", "names": ["兎田ぺこら"]})
         self.assertEqual(self.run_job(_speakers.run_voice_learn, spec, "j2")["learned"], ["兎田ぺこら"])

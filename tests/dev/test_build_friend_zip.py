@@ -261,8 +261,7 @@ class BuildTest(Base):
         for name, s in E.HAAS_GGUF_MODELS.items():   # 文字起こしの Haas のモデル(段 5)= ① の HaasSpeechCpp が読む場所
             i = items["haas/" + name]
             self.assertEqual((i["url"], i["size"], i["sha256"], i["unzip"], i["dest"]), (s["url"], s["size"], s["sha256"], None, "transcribe/models/haas-gguf"))
-        for name, s in E.SENSE_VOICE_MODELS.items():
-            self.assertEqual((items["sensevoice/" + name]["sha256"], items["sensevoice/" + name]["top"]), (s["sha256"], s["dir"]))
+        self.assertFalse([k for k in items if k.startswith("sensevoice/")])   # 2 つ目の読み(後処理 A)は 11-01 に消した
         for name, s in SEP.SEP_MODELS.items():   # 声の分離(10-22)
             self.assertEqual((items["sep/" + name]["sha256"], items["sep/" + name]["dest"]), (s["sha256"], "transcribe/models/sep"))
         self.assertEqual(items["diar/segmentation"]["sha256"], D.DIAR_SEG["sha256"])

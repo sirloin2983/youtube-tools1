@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""pipeline/transcribe の fill(認識のあとの後処理 A・B・C・D)と llm(LLM の後処理 E)のテスト。編集の serve・ed_state は読まない。
+"""pipeline/transcribe の fill(認識のあとの後処理 B・声の無い行。A・C・D は 11-01 に消した)と llm(LLM の後処理 E)のテスト。編集の serve・ed_state は読まない。
 
     py -3.12 -m unittest tests/pipeline/transcribe/test_fill_llm.py -v
 
-- TestRealParts: 本物の部品で 1 回ずつ通す。窓の読み = SenseVoice small(sherpa-onnx・CPU)・LLM = Qwen3-4B(llama-server・Vulkan。LLM の通しはこの 1 本だけ)。
+- TestRealParts: 本物の部品で 1 回ずつ通す。LLM = Qwen3-4B(llama-server・Vulkan。LLM の通しはこの 1 本だけ)。
   声の見本は Windows の音声合成でファイルに書く(スピーカーへは出さない)。モデルは本物の作業データの transcribe の中から読むだけ(tx_engines.ENGINE_DIR)。
   取得の口(fetch_file)は差し替え、無ければ飛ばす(ネットへ取りに行かない)。部品・モデル・音声合成が無い PC では飛ばす。
   声の分離(Spleeter)も同じ置き場所の型で 1 本(声の後ろの無音に置いた幻の行を捨てる)。
@@ -78,12 +78,6 @@ def _have_sherpa():
     return True
 
 
-def _sense_voice_ready():
-    spec = tx_engines.SENSE_VOICE_MODELS[fill.FILL_MODEL]
-    mdir = os.path.join(tx_engines.sv_model_dir(REAL_HOME), spec["dir"])
-    return _have_sherpa() and all(os.path.isfile(os.path.join(mdir, p)) for p in spec["parts"])
-
-
 def _sep_ready():
     spec = separate.SEP_MODELS[separate.SEP_MODEL]
     mdir = os.path.join(separate.sep_model_dir(REAL_HOME), spec["dir"])
@@ -135,20 +129,6 @@ class TestRealParts(unittest.TestCase):
         for m in list(models._models.values()):   # llama-server を残さない
             getattr(m, "close", lambda: None)()
 
-    @unittest.skipUnless(_sense_voice_ready(), "sherpa-onnx か SenseVoice のモデルが無い")
-    def test_sense_voice_fills_sparse_row(self):
-        a, b = self.spans[0]
-        rows = [{"start": a, "end": b, "text": "こんにちは"}]   # 声は 6 秒あるのに 5 字(文字の少ない行)
-        job = {"cancel": False}
-        out, rec, read = fill.fill_after_rows(job, {"autoFill": True, "language": "ja"}, rows, self.wav, b + 0.6)
-        self.assertFalse(job.get("warnings"), job.get("warnings"))
-        self.assertEqual((rec["engine"], rec["windows"], rec["rows"]), ("sense-voice", 1, 1))
-        self.assertEqual(out[0]["fill"], {"from": "こんにちは", "by": "sense-voice"})
-        self.assertGreaterEqual(fill.fill_chars(out[0]["text"]), 15, out[0]["text"])
-        self.assertIn("ゲーム", out[0]["text"])
-        whole = read(0.0, b + 0.6)                           # D の全体の読みも同じ読み口
-        self.assertTrue(whole and all(r["start"] >= 0 and r["end"] <= b + 0.6 + 0.01 for r in whole), whole)
-        self.assertEqual(set(models._models), {(fill.FILL_MODEL, "cpu", fill.FILL_ENGINE)})
 
     @unittest.skipUnless(_sep_ready(), "sherpa-onnx か Spleeter のモデルが無い")
     def test_spleeter_drops_silent_row(self):
@@ -195,16 +175,9 @@ class _Base(unittest.TestCase):
 
 class TestFailures(_Base):
     def test_missing_parts_and_failures_are_warnings(self):
-        """部品 sherpa-onnx が無い(有無は呼ぶたびに diarize.has_sherpa)・LLM が起動の途中で落ちる・名簿が無い: 文字起こしは止めず、警告を足して認識の結果のまま"""
+        """LLM が起動の途中で落ちる: 文字起こしは止めず、警告を足して認識の結果のまま。声の無い行の後処理が切ってあれば何もしない(autoFill は 11-01 から効かない)"""
         rows = [{"start": 0.0, "end": 4.0, "text": "テスト文1"}]
-        job = {"phase": "x"}
-        with mock.patch.object(diarize, "has_sherpa", lambda: False):
-            with self.assertRaises(errors.ApiError) as cm:
-                fill.fill_reader({}, {}, "w.wav")
-            self.assertEqual(cm.exception.code, "no_sherpa")
-            out, rec, read = fill.fill_after_rows(job, {"autoFill": True}, rows, "w.wav", 8.0)
-        self.assertEqual((out, read, (rec["windows"], rec["rows"], rec["dup"]), len(job["warnings"]), job["phase"]), (rows, None, (0, 0, 0), 1, "x"))
-        self.assertEqual(fill.fill_after_rows({}, {}, rows, "w.wav", 8.0), (rows, None, None))   # 設定オフは何もしない
+        self.assertEqual(fill.fill_after_rows({}, {"autoFill": True}, rows, "w.wav", 8.0), (rows, None, None))
 
         def boom(job, spec):
             raise errors.ApiError("engine_failed", "llama-server が起動の途中で止まりました", 500)
@@ -219,21 +192,7 @@ class TestFailures(_Base):
         with mock.patch.object(llm, "llm_ask_fn", side_effect=lambda job, spec: calls.append(1)):   # 選んだ所が無ければ LLM を読み込まない・設定オフは何もしない
             rec, items = llm.llm_after_doc({}, {"autoLlm": True, "title": "テスト分の配信"}, [dict(segs[0], text="こんにちは")])
         self.assertEqual((rec["picked"], items, calls, llm.llm_after_doc({}, {"title": "x"}, [])), (0, None, [], (None, None)))
-        self.assertEqual(fill.fill_aliases(), {"テスト分子", "テスト分", "てすとぶん"})
-        roster.ROSTER = os.path.join(self.tmp, "none.json")   # 無い名簿は空(読めなくても止めない)
-        self.assertEqual(fill.fill_aliases(), set())
 
-    def test_fill_before_clean_tail(self):
-        """A → C の順: 前の行の末尾と同じ字だけの「ああああ」の行(C の形)も A が先に埋める(10-22。C → A だと捨てられて埋まらなかった)。A が読めなくても C は当てる"""
-        rows = [{"start": 0.0, "end": 2.0, "text": "うわああああああああああ"}, {"start": 2.0, "end": 12.0, "text": "ああああああああああ"}]
-        read = lambda s0, e0: [{"start": 3.0, "end": 11.0, "text": "おいマリン倒れたマリン倒れた倒れちゃった"}] if s0 > 1.0 else []
-        with mock.patch.object(fill, "fill_reader", lambda job, spec, wav: read):
-            out, rec, _read = fill.fill_after_rows({}, {"autoFill": True}, [dict(r) for r in rows], "w.wav", 12.0)
-        self.assertEqual([r["text"] for r in out], ["うわああああああああああ", "おいマリン倒れたマリン倒れた倒れちゃった"])
-        self.assertEqual((rec["rows"], rec["dup"], rec["order"]), (1, 0, "AC"))
-        with mock.patch.object(diarize, "has_sherpa", lambda: False):
-            out, rec, _read = fill.fill_after_rows({}, {"autoFill": True}, [dict(r) for r in rows], "w.wav", 12.0)
-        self.assertEqual(([r["text"] for r in out], rec["dup"]), (["うわああああああああああ"], 1))
 
     def test_drop_silent_edges(self):
         """声の無い行を捨てる(dropSilent)の端: 分けられない = 警告して捨てない・区間 0 = 捨てない・音量から区間(上位 5% − 40 dB・すき間 0.3 秒をつなぐ・0.2 秒未満は捨てる)"""

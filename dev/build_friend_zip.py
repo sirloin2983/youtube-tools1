@@ -495,9 +495,6 @@ def model_entries():
         m = s["model"]
         out.append({"name": "llm/" + name, "file": m["file"], "url": m["url"], "size": m["size"], "sha256": m["sha256"],
                     "base": "data", "dest": _data_dest("models/" + _tx.LlamaText.MODEL_SUBDIR), "unzip": None})
-    for name, s in _tx.SENSE_VOICE_MODELS.items():
-        out.append({"name": "sensevoice/" + name, "file": s["file"], "url": s["url"], "size": s["size"], "sha256": s["sha256"],
-                    "base": "data", "dest": _data_dest(_tx.sv_model_dir("")), "unzip": "tar.bz2", "top": s["dir"], "parts": list(s["parts"])})
     for name, s in _separate.SEP_MODELS.items():   # 声の分離(後処理の dropSilent。10-22)
         out.append({"name": "sep/" + name, "file": s["file"], "url": s["url"], "size": s["size"], "sha256": s["sha256"],
                     "base": "data", "dest": _data_dest(_separate.sep_model_dir("")), "unzip": "tar.bz2", "top": s["dir"], "parts": list(s["parts"])})

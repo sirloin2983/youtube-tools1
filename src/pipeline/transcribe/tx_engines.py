@@ -97,7 +97,7 @@ class Engine:
     """エンジンの元。id = 記録(recognition.runs の engine)とワーカーへの要求に使う名前、package = 版を読むパッケージ(dist-info)"""
     id = ""
     package = ""
-    light = False   # True = 小さいモデル(SenseVoice)。models._load_model_local が、別のモデルを読むときも手放さない(主のモデルと一緒に持つ)
+    light = False   # True = 小さいモデル(今は無い。前の SenseVoice)。models._load_model_local が、別のモデルを読むときも手放さない(主のモデルと一緒に持つ)
     CAPS = frozenset()   # 意味として効く能力: "vad"(声の検出の設定)・"chunk"(区切りの長さ chunk_length)・"hotwords"(用語のヒント)・"word_timestamps"(単語の時刻)。持たない能力は入れない
 
     def __init__(self, name, device, model):
@@ -773,7 +773,7 @@ def _write_wav(path, samples):
 
 
 # ---------------------------------------------------------------- 区切りごとに読むエンジンの共通部分(段2-3)
-# 時刻を出さない Qwen3-ASR(llama.cpp の 1.7B)と SenseVoice は、音の小さい所で 12〜28 秒の区切りにして区切りごとに認識し、文の区切りで行にする
+# 時刻を出さない Qwen3-ASR(llama.cpp の 1.7B)と区切りごとに読む Haas は、音の小さい所で 12〜28 秒の区切りにして区切りごとに認識し、文の区切りで行にする
 # (行の時刻は区切りの中で字数に比例させた目安)。
 Q3_FRAME = 0.05                 # 音の大きさを見る1コマ(秒)
 Q3_MIN, Q3_MAX = 12.0, 28.0     # 区切りの長さ(秒)。28 秒を超えると 1 回の出力の上限(トークン)に近づく
@@ -914,8 +914,8 @@ def _need_sherpa(setup):
 
 
 class _Qwen3Chunked(Engine):
-    """時刻を出さない(または区切りごとに読む)エンジンの共通部分(Qwen3-ASR 1.7B と SenseVoice): 音の小さい所で区切り(q3_chunks)、
-    無音の区切りは読まず、区切りの中の行は _chunk_rows で作る(Qwen3 = _decode の文章 → q3_rows / SenseVoice = トークンの時刻 → sv_rows)。
+    """時刻を出さない(または区切りごとに読む)エンジンの共通部分(Qwen3-ASR 1.7B と Haas の 2 つ): 音の小さい所で区切り(q3_chunks)、
+    無音の区切りは読まず、区切りの中の行は _chunk_rows で作る(Qwen3 = _decode の文章 → q3_rows / Haas = トークンの時刻つきの 1 行 = _chunk_segs)。
     自信の度合いを出さないので avg_logprob は無い。温度は 0 相当(faster-whisper の温度のやり直しは使わない)"""
     PARAMS = ["hotwords", "language", "vad_filter", "vad_parameters", "word_timestamps"]   # language は区切りごとに指定・vad と単語の時刻は受け取るだけ
     CAPS = frozenset()   # 区切りは音の小さい所で決める(q3_chunks)・単語の時刻は出さない(words は空)。hotwords は子(LlamaQwen3)だけが使う
@@ -993,110 +993,6 @@ LLAMA_TEXT_MODELS = {
     "qwen3-4b": {"model": {"file": "Qwen3-4B-Q4_K_M.gguf", "size": 2497280256, "sha256": "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5",
                            "url": "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/bc640142c66e1fdd12af0bd68f40445458f3869b/Qwen3-4B-Q4_K_M.gguf"}},
 }
-# ---------- SenseVoice(sherpa-onnx・CPU)。文字の少ない行を別の読みで埋める 2 つ目のエンジン(pipeline/transcribe/fill.py。10-08 の実験ループの A・D) ----------
-# モデルは sherpa-onnx の公式の配布(SenseVoice-small int8・2024-07-17)を URL・大きさ・SHA-256 固定で取る(2025-09-09 の版は sherpa-onnx 1.13.8 で壊れた出力になるので使わない)。
-# ライセンス: FunASR MODEL_LICENSE(商用可・出典とモデル名の表示)。トークンごとの時刻が出るので、SV_GAP 秒以上の間・文末・SV_MAX_CHARS で行にする(終わりは目安)
-SENSE_VOICE_MODELS = {
-    "sense-voice-small": {"dir": "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17", "file": "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
-                          "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
-                          "size": 163002883, "sha256": "7d1efa2138a65b0b488df37f8b89e3d91a60676e416f515b952358d83dfd347e", "parts": ("model.int8.onnx", "tokens.txt")},
-}
-SV_GAP, SV_MAX_CHARS = 1.0, 40     # トークンの時刻で行に分ける: この秒以上の間・1 行の最大文字数
-SV_LANGS = ("ja", "en", "zh", "ko", "yue", "auto")
-
-
-def sv_model_dir(data_dir):
-    return os.path.join(data_dir, "models", "sensevoice")
-
-
-def sv_rows(tokens, stamps, a, b, gap=SV_GAP, max_chars=SV_MAX_CHARS):
-    """SenseVoice のトークンと時刻(区切りの頭からの秒)→ [(始め, 終わり, 文字)](区切り [a, b] の中の絶対の秒)。
-    特別なトークン(<|ja|> など)は捨て、gap 秒以上の間・max_chars・文末(。？！)で行を分ける。終わりはトークンの時刻 + 0.2 秒(+0.3 の余白。b を超えない)"""
-    rows, cur, cs, ce = [], "", None, None
-    for tk, t in zip(tokens, stamps):
-        tk = str(tk).replace("▁", " ")
-        if tk.startswith("<|"):
-            continue
-        if cur and (t - ce > gap or len(cur) >= max_chars or cur[-1] in "。？！?!"):
-            rows.append((cs, ce, cur))
-            cur, cs = "", None
-        if cs is None:
-            cs = t
-        cur += tk
-        ce = t + 0.2
-    if cur:
-        rows.append((cs, ce, cur))
-    out = []
-    for s0, e0, line in rows:
-        line = q3_squash(line.strip())
-        if line:
-            out.append((a + s0, min(b, a + e0 + 0.3), line))
-    return out
-
-
-class SenseVoice(_Qwen3Chunked):
-    """SenseVoice-small(sherpa-onnx・CPU・int8)。文字の少ない行の窓・名簿の呼び名の確かめに使う 2 つ目のエンジン(pipeline/transcribe/fill.py)。小さいので主のモデルと一緒に持つ(light)。
-    区切り方は Qwen3 と同じ(_Qwen3Chunked)。区切りの中の行はトークンの時刻で作る(_chunk_rows。時刻が無ければ Qwen3 と同じ割り振り)。
-    テスト用の偽物は ⑤ eval/fake/fake_worker.fake_sense_voice(このクラスを継いで ENGINES に差し替える。ここに疑似の分かれ道を置かない = OPT-E2 1a-1)"""
-    id = "sense-voice"
-    package = "sherpa-onnx"
-    light = True
-    PARAMS = ["language", "vad_filter", "vad_parameters", "word_timestamps"]   # language 以外は受け取るだけ
-    CAPS = frozenset()   # トークンの時刻は行を作るのに使うが、kw の word_timestamps・vad_filter・hotwords は読まない(words は空)
-    DEFAULT_MODEL = "sense-voice-small"
-    WHAT = "SenseVoice"
-
-    @classmethod
-    def device_order(cls, pref, cuda_ok):
-        return ["cpu"]   # onnxruntime の CPU(AMD の GPU は対象外)
-
-    @classmethod
-    def valid_model(cls, name):
-        return name in SENSE_VOICE_MODELS
-
-    @classmethod
-    def create(cls, name, device, compute_type, log=None, data_dir=None, hooks=None):
-        spec = SENSE_VOICE_MODELS.get(name)
-        if spec is None:
-            raise EngineError("bad_model", "SenseVoice で使えないモデルです: %s(使えるのは %s)" % (str(name)[:40], "・".join(SENSE_VOICE_MODELS)), 400)
-        _need_sherpa("install-diarize.bat")
-        e = cls(name, "cpu", {"dir": _ensure_tar_model(spec, sv_model_dir(data_dir), log, hooks or {}), "rec": {}})
-        e._recognizer("ja")   # 読み込めるかをここで確かめる
-        return e
-
-    def _recognizer(self, lang):
-        """言語ごとの認識器(1 つだけ持つ)"""
-        rec = self.model["rec"]
-        if lang not in rec:
-            import sherpa_onnx
-            rec.clear()
-            d = self.model["dir"]
-            rec[lang] = sherpa_onnx.OfflineRecognizer.from_sense_voice(model=os.path.join(d, "model.int8.onnx"), tokens=os.path.join(d, "tokens.txt"),
-                                                                       num_threads=half_cpu(), language=lang, use_itn=False)
-        return rec[lang]
-
-    @staticmethod
-    def _lang(kw):
-        lang = str(kw.get("language") or "ja")
-        return lang if lang in SV_LANGS else "auto"
-
-    def _setup(self, kw):
-        """言語ごとの認識器(区切りを読む前に 1 回作る)"""
-        lang = self._lang(kw)
-        return lang, self._recognizer(lang)
-
-    def _chunk_rows(self, x, c0, c1, rms, rec):
-        f = int(16000 * Q3_FRAME)
-        st = rec.create_stream()
-        st.accept_waveform(16000, x[c0 * f:c1 * f])
-        rec.decode_stream(st)
-        r = st.result
-        a0, b0 = c0 * Q3_FRAME, c1 * Q3_FRAME
-        toks, ts = list(getattr(r, "tokens", None) or []), list(getattr(r, "timestamps", None) or [])
-        if toks and len(ts) == len(toks):
-            return sv_rows(toks, ts, a0, b0)
-        floor = q3_floor(rms[c0:c1])   # 時刻が無ければ Qwen3 と同じ割り振り(声のあるコマに字数を比例)
-        return q3_rows(q3_squash(str(r.text or "")), a0, b0, voiced=[v > floor for v in rms[c0:c1]])
 
 
 # ---------- Haas-ja-v1.0(sherpa-onnx・CPU・fp32)。誰の声の材料の文字起こし(app/check/voicefill・voicefetch。10-31 ユーザー「Haas でいい」) ----------
@@ -1165,7 +1061,7 @@ def haas_segment(toks, ts, du, lp, s0):
 
 class Haas(_Qwen3Chunked):
     """Haas-ja-v1.0(sherpa-onnx・CPU・fp32・nemo_transducer)。誰の声の材料の文字起こし(app/check/voicefill・voicefetch の頼みだけが指定する)。
-    区切り方は Qwen3・SenseVoice と同じ(_Qwen3Chunked)。区切りごとに 1 行(words つき)を返す(_chunk_segs)= 行に分けるのは後処理(研究と同じ形)"""
+    区切り方は Qwen3 と同じ(_Qwen3Chunked)。区切りごとに 1 行(words つき)を返す(_chunk_segs)= 行に分けるのは後処理(研究と同じ形)"""
     id = "haas"
     package = "sherpa-onnx"
     PARAMS = ["language", "vad_filter", "vad_parameters", "word_timestamps"]   # 受け取るだけ(日本語のモデル)
@@ -1395,7 +1291,7 @@ class SpeechWorker:
 
 
 class HaasSpeechCpp(_Qwen3Chunked):
-    """Haas-ja-v1.0 を speech.cpp(`speech worker`・Vulkan か CPU)で。区切り方は Qwen3・SenseVoice・sherpa の Haas と同じ(_Qwen3Chunked)。
+    """Haas-ja-v1.0 を speech.cpp(`speech worker`・Vulkan か CPU)で。区切り方は Qwen3・sherpa の Haas と同じ(_Qwen3Chunked)。
     区切りごとに words つきの 1 行(_chunk_segs)= 行に分けるのは後処理(研究と同じ形)。用語のヒント(hotwords)は speech.cpp の keywords へ"""
     id = "haas-speechcpp"
     package = ""
@@ -1806,7 +1702,7 @@ class LlamaText(LlamaQwen3):
         return self._retry(lambda: self._chat(payload))
 
 
-ENGINES = {FasterWhisper.id: FasterWhisper, WhisperCpp.id: WhisperCpp, LlamaQwen3.id: LlamaQwen3, SenseVoice.id: SenseVoice,
+ENGINES = {FasterWhisper.id: FasterWhisper, WhisperCpp.id: WhisperCpp, LlamaQwen3.id: LlamaQwen3,
            LlamaText.id: LlamaText, Haas.id: Haas,
            HaasSpeechCpp.id: HaasSpeechCpp}
 

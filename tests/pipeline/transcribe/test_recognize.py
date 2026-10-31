@@ -169,7 +169,7 @@ class TestVadFallbackCaps(_Env):
         """エンジンごとの能力(CAPS)の表。根拠は tx_engines の各クラスのコメント(コードを読んで確かめた物だけ)"""
         self.assertEqual(tx_engines.FasterWhisper.CAPS, {"vad", "chunk", "hotwords", "word_timestamps"})
         self.assertEqual(tx_engines.WhisperCpp.CAPS, {"word_timestamps"})
-        for cls in (tx_engines.SenseVoice, tx_engines.LlamaText, tx_engines._Qwen3Chunked, tx_engines.Engine):
+        for cls in (tx_engines.LlamaText, tx_engines._Qwen3Chunked, tx_engines.Engine):
             self.assertEqual(cls.CAPS, frozenset(), cls.__name__)
         self.assertEqual(tx_engines.LlamaQwen3.CAPS, {"hotwords"})
         self.assertEqual(tx_engines.caps_of("faster-whisper"), tx_engines.FasterWhisper.CAPS)

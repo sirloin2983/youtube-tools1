@@ -70,7 +70,7 @@ def _load_model_local(name, job, pref="auto", force_cpu=False, engine=tx_engines
             _model_used[0] = time.time()
             if key in _models:
                 return _models[key], dev
-            heavy = [k for k in _models if not tx_engines.get(k[2]).light]   # 小さいモデル(SenseVoice = light)は主のモデルと一緒に持つ
+            heavy = [k for k in _models if not tx_engines.get(k[2]).light]   # 小さいモデル(light)は主のモデルと一緒に持つ
             if heavy and not eng.light:   # 別の(重い)モデルは手放す(別の重いモデルを交互に使ってもメモリが積み上がらない。落ちる原因の1つ)
                 _txbase.log.info("モデルを解放: %s(メモリ %s)", ", ".join("/".join(k) for k in heavy), _tools.memory_label())
                 for k in heavy:
