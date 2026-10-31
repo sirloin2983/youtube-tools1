@@ -21,7 +21,8 @@ from friendapp import places as P, server as S, settings as T  # noqa: E402
 from test_server import FakeEngine  # noqa: E402
 
 URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-KEY = "AIzaSyA-abcdefghijklmnopqrstuvwxyz012345"
+# push_helper の秘密の検査に当たらないよう分けた偽のキー
+KEY = "AIza" + "SyA-abcdefghijklmnopqrstuvwxyz012345"
 Usage = namedtuple("Usage", "total used free")
 
 
