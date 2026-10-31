@@ -711,7 +711,7 @@ def _scene_kind_pick(cx):
         check(wait_js(pg, "CheckShell.state().cur === 'value:e2e:81'"), "全部の種類で開く: %s" % state(pg))
         got = pg.evaluate(pills)
         check(got == [["", "3", "true", False], ["voice", "0", "false", True], ["time", "0", "false", True],
-                      ["value", "2", "false", False], ["cut", "1", "false", False]],
+                      ["value", "2", "false", False], ["cut", "1", "false", False], ["symbol", "0", "false", True]],   # symbol = 記号のカード(11-01)
               "切り替え: 全部が選ばれ、残りの枚数・0 の種類は薄い(読み・声かどうかは無い): %s" % got)
         pg.click("#chkKinds [data-chk-kind=cut]")
         check(wait_js(pg, "CheckShell.state().cur === 'cut:e2e:83'") and fk.next_q[-1].get("kind") == ["cut"], "カットを押すと kind=cut で読み直す: %s" % fk.next_q[-1:])
