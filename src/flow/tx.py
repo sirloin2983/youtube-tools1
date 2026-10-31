@@ -92,9 +92,11 @@ def main_engine(req, model):
     e = str(req.get("engine") or "")
     if _txbase.env_off(HAAS_MAIN_ENV) or model != OLD_MAIN[1] or e not in ("", OLD_MAIN[0]):
         return req, model
-    if not tx_engines.HaasSpeechCpp.ready(tx_engines.engine_home())[0]:
+    home = tx_engines.engine_home()
+    if not tx_engines.HaasSpeechCpp.ready(home)[0]:   # 置いていない・この PC の試しで動かなかった(印 haas.json の ok が偽)
         return req, model
-    return dict(req, engine=tx_engines.HaasSpeechCpp.id, device="cpu" if req.get("device") == "cpu" else "vulkan"), tx_engines.HaasSpeechCpp.DEFAULT_MODEL
+    cpu = req.get("device") == "cpu" or (_txbase.speech_choice(home) or {}).get("device") == "cpu"   # 試しで GPU が動かず CPU で動いた PC は CPU
+    return dict(req, engine=tx_engines.HaasSpeechCpp.id, device="cpu" if cpu else "vulkan"), tx_engines.HaasSpeechCpp.DEFAULT_MODEL
 
 
 def request_engine(req, model, ctx_doc, auto_context):

@@ -65,6 +65,15 @@ class HaasSpeechCppTest(unittest.TestCase):
         self.assertEqual(c.version(), "%s-%s" % (txbase.SPEECH_CPP_VERSION, txbase.SPEECH_CPP_FLAVOR))
         self.assertTrue(txbase.speech_bin_dir("D").endswith(os.path.join("bin", "speech.cpp-0.10.0-conf")))
 
+    def test_choice_not_ok_is_not_ready(self):
+        os.makedirs(txbase.speech_bin_dir(self.tmp))
+        open(txbase.speech_exe(self.tmp), "wb").close()
+        with mock.patch.object(E.HaasSpeechCpp, "COMMAND", None):
+            self.assertTrue(E.HaasSpeechCpp.ready(self.tmp)[0])
+            with open(os.path.join(txbase.speech_bin_dir(self.tmp), txbase.SPEECH_CHOICE), "w", encoding="utf-8") as f:
+                json.dump({"ok": False, "device": ""}, f)
+            self.assertFalse(E.HaasSpeechCpp.ready(self.tmp)[0])   # この PC の試しで動かなかった
+
     def test_missing_exe_and_bad_model(self):
         with mock.patch.object(E.HaasSpeechCpp, "COMMAND", None):
             self.assertFalse(E.HaasSpeechCpp.ready(self.tmp)[0])
