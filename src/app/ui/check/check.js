@@ -1,7 +1,7 @@
 /* 確かめる(/check = 入口の直下の 1 枚。部品は src/app/ui/check/。RS8 V1 = 殻。作り方 資料の git:before-1028-cleanup:docs/design/v1-check-build.md・何を作るか 資料の git:before-1028-cleanup-2:docs/design/briefs/rs8-cases/DESIGN_BRIEF.md 2-3・3)。
    案件をまたいだ軽い確認の待ち行列を 1 枚ずつカードで出し、答えたらすぐ次へ。Z で 1 つ前に戻す・[分からない](W)はもう出さない(答えではない = 今日の数・評価に入れない。Z で戻せる)・[飛ばす](N)はその日は後ろへ。区切りで止めずに続けて出す(答えた数と目標は帯と「このあと」の欄に出したまま。10-24 ユーザー)。
-   URL: /check?c=<案件 id>(その案件だけ)&kind=value|voice|time|cut(この種類だけ)&back=cases(終わったら案件へ戻るボタン)。URL を開いただけでは何も書かない。
-   種類の切り替え(普段のレーンの上): 全部・誰の声・時刻・価値・カット と残りの枚数(読み・声かどうかは 10-31 に消した = Haas に替えるため)(counts.perKind = 種類で絞る前の数)。
+   URL: /check?c=<案件 id>(その案件だけ)&kind=value|voice|time|cut|symbol(この種類だけ)&back=cases(終わったら案件へ戻るボタン)。URL を開いただけでは何も書かない。
+   種類の切り替え(普段のレーンの上): 全部・誰の声・時刻・価値・カット・記号 と残りの枚数(読み・声かどうかは 10-31 に消した = Haas に替えるため)(counts.perKind = 種類で絞る前の数)。
    押した種類はこのブラウザに覚える(localStorage の check.kind)。URL の kind があればそちらが先(覚えた物は変えない)。
    レーン(C-EVAL): 普段(既定)/ 評価(?lane=eval = 評価用の動画の区間カード section だけ。頭に評価用の一括の 始める / 止める / 進み具合・定点の「あと何分」・
    未確認の本数。transcribe/api/eval-batch・transcribe/api/drill/status を直に読む)。評価のカードは普段に出ない・その逆も。
@@ -113,8 +113,8 @@
   };
 
   var KIND_TEXT = { value: '切り抜く価値があるか', voice: 'これは誰の声?', time: '行の時刻が合っているか',
-    cut: '機械のカットの確認', section: '区間を聞いて直す(評価用)' };
-  var SOURCE_TEXT = { auto: '自動で採った', cand: '候補のまま', fill: '後処理', alt: '別のエンジン', diar: '話者の判別', solo: 'ソロ配信', row: '文字が決まった行', eval: '評価用の動画', edge: '切れ目', gap: '消した所', whole: '仕上がり' };
+    cut: '機械のカットの確認', symbol: '消した記号の確認', section: '区間を聞いて直す(評価用)' };
+  var SOURCE_TEXT = { auto: '自動で採った', cand: '候補のまま', fill: '後処理', alt: '別のエンジン', diar: '話者の判別', solo: 'ソロ配信', row: '文字が決まった行', eval: '評価用の動画', edge: '切れ目', gap: '消した所', whole: '仕上がり', asr: '文字起こしの素' };
   var KEEP = 10, LOW = 3;
   var ID_RE = /^[\w:.#|\/-]{1,200}$/;
   var LOAD_TEXT = { offline: 'ホームにつながりませんでした(start.bat の黒い画面が閉じていないか確かめてください)' };
@@ -145,7 +145,7 @@
     return { c: lane ? '' : (/^[A-Za-z0-9_-]{1,64}$/.test(c) ? c : ''), kind: KIND_TEXT[kind] ? kind : '', back: !lane && q.get('back') === 'cases' ? 'cases' : '', lane: lane };
   }
   /* ---- 種類の切り替え(普段のレーンだけ。評価のレーンは区間カードの 1 種類)---- */
-  var KIND_PICK = [['', '全部'], ['voice', '誰の声'], ['time', '時刻'], ['value', '価値'], ['cut', 'カット']];
+  var KIND_PICK = [['', '全部'], ['voice', '誰の声'], ['time', '時刻'], ['value', '価値'], ['cut', 'カット'], ['symbol', '記号']];
   var KIND_KEY = 'check.kind';
   function savedKind() {
     try { var v = localStorage.getItem(KIND_KEY) || ''; return KIND_TEXT[v] && !EVAL_KINDS[v] ? v : ''; } catch (e) { return ''; }

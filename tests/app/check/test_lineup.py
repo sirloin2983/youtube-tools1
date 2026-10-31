@@ -66,7 +66,7 @@ class OrderTest(unittest.TestCase):
         self.assertEqual(len(lineup.order(cards, {"time": "not a goal"})), 3)
 
     def test_per_kind_and_public(self):
-        self.assertEqual(lineup.per_kind([card("voice", "a"), card("voice", "b"), card("time", "c"), card("read", "d")]), {"value": 0, "voice": 2, "time": 1, "cut": 0})   # 消した種類(read)は数えない
+        self.assertEqual(lineup.per_kind([card("voice", "a"), card("voice", "b"), card("time", "c"), card("read", "d")]), {"value": 0, "voice": 2, "time": 1, "cut": 0, "symbol": 0})   # 消した種類(read)は数えない
         self.assertEqual(lineup.per_kind([card("section", "a")], lineup.EVAL_KINDS), {"section": 1})   # 評価のレーン(C-EVAL)
         self.assertNotIn("_order", lineup.public(card("time", "a")))
 

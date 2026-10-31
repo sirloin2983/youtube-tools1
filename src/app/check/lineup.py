@@ -6,20 +6,20 @@
   (1) 種類ごとの「あと / 目標」(goals.py が種類 → 入口の条件 GOALS の 1 行を引く)。届いた種類は後ろ・まだ測っていない(now が無い)種類は
       測った種類の後ろ・それ以外は あと / 目標 の小さい種類から(もう少しで決まる物を先に)
   (2) 種類の中は出どころが付けた `_order`
-  (3) 同率なら軽い物から value → voice → time → cut(押す数が少ない順)
+  (3) 同率なら軽い物から value → voice → time → cut → symbol(押す数が少ない順)
 レーン(C-EVAL): 普段のレーン = NORMAL_KINDS(評価用の文書は出どころ sources.View が外す)・評価のレーン = EVAL_KINDS(評価用の文書の区間カードだけ)。
   その日に飛ばしたカード(later)は全部の後ろ(飛ばした順)。
 """
 import math
 import re
 
-NORMAL_KINDS = ("value", "voice", "time", "cut")   # 普段のレーン(cut = 自動カットのカード CUT-CARD。読み read と「この行は声ですか?」speech は 10-31 に消した = Haas に替えるため)
+NORMAL_KINDS = ("value", "voice", "time", "cut", "symbol")   # 普段のレーン(cut = 自動カットのカード CUT-CARD・symbol = 文字起こしから消した記号 11-01。読み read と「この行は声ですか?」speech は 10-31 に消した = Haas に替えるため)
 EVAL_KINDS = ("section",)   # 評価のレーン(評価用の文書の区間カード。C-EVAL (2))
 KINDS = NORMAL_KINDS + EVAL_KINDS
 LANES = {"normal": NORMAL_KINDS, "eval": EVAL_KINDS}
 LIGHT = {k: i for i, k in enumerate(KINDS)}
 # カードの id = <種類>:<出どころ>:<対象の鍵>(同じ対象を 2 回出さない鍵。対象の鍵は文書の id・行の id・配信・マークを # でつなぐ)
-CARD_ID_RE = re.compile(r"^(value|voice|time|cut|section):([a-z]{1,12}):([A-Za-z0-9_#.-]{1,160})\Z")
+CARD_ID_RE = re.compile(r"^(value|voice|time|cut|symbol|section):([a-z]{1,12}):([A-Za-z0-9_#.-]{1,160})\Z")
 DEFAULT_N, MAX_N = 10, 50
 
 

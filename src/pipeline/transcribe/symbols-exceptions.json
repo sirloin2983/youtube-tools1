@@ -1,0 +1,10 @@
+{
+ "note": "文字起こしの記号の例外(保管庫 plan/文字起こしの書き方の決まり.md・decisions の 11-01 の 3 行)。足すだけで symbols.py に効く。keep_words = この語の中の記号は残す(長い語から当てる)・keep_chars = いつも残す字・between = 前と後の字がどちらも side の種類なら残す(side: digit = 数字 / alnum = 英字か数字)・roster = 名簿(hololive-roster.json)の名前と呼び名の中の記号を残す。確かめるの記号のカードで「例外にする」と答えた字は、入口の作業データの check/symbol-exceptions.json に足す(こちらは書き換えない)",
+ "keep_words": ["Mr."],
+ "keep_chars": ["%"],
+ "between": [
+  {"chars": ".:〜~/", "side": "digit", "why": "数字の間(小数点・時刻・範囲・分数と日付)"},
+  {"chars": "'-&_.", "side": "alnum", "why": "英字か数字にはさまれた(英字の名前・略語)"}
+ ],
+ "roster": true
+}
