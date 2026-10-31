@@ -144,7 +144,7 @@ class SectionApplyTest(unittest.TestCase):
     def test_switch(self):
         """既定オン。明示でオフにした新しい鍵だけが効き、既定オフのころの鍵のオフは読み替える"""
         def with_settings(d, env=""):
-            return mock.patch.dict(os.environ, {section.SWITCH_ENV: env}), mock.patch.object(section._settings, "load_settings", return_value=d)
+            return mock.patch.dict(os.environ, {section.SWITCH_ENV: env}), mock.patch.object(section._doc._settings, "load_settings", return_value=d)
         for d, want in (({}, True), ({"checkSectionCards": False}, True), ({section.SETTING: False}, False), ({section.SETTING: True}, True)):
             e, s = with_settings(d)
             with e, s:

@@ -8,9 +8,7 @@
 スイッチ enabled(): 既定オン(ユーザー決定 3-64 (cc1) B)。編集の設定 checkCutCardsOn を明示でオフにしたか、環境変数 YTT_CHECK_CUT が off 系のときだけ出さない。
 入口が import すると register される(server が import する)。
 """
-import os
 
-from ytt import settings as _settings
 from . import _doc, apply   # 同じ human/check の兄弟(register・Refused・カードの文書・答えの検査)
 
 SWITCH_ENV = "YTT_CHECK_CUT"
@@ -27,15 +25,7 @@ SETTING = "checkCutCardsOn"   # 編集の設定の鍵(既定オン)。既定オ�
 def enabled():
     """カットのカードのスイッチ(既定オン)。環境変数 YTT_CHECK_CUT が on 系なら出す・off 系(0・off・false・no)なら出さない。
     それ以外は編集の設定 checkCutCardsOn を明示でオフにしたときだけ出さない"""
-    v = str(os.environ.get(SWITCH_ENV) or "").strip().lower()
-    if v in ("1", "on", "true", "yes"):
-        return True
-    if v in ("0", "off", "false", "no"):
-        return False
-    try:
-        return _settings.load_settings().get(SETTING) is not False
-    except Exception:
-        return True
+    return _doc.card_switch(SWITCH_ENV, SETTING)
 
 
 def _apply(ctx, card, answer):

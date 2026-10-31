@@ -210,12 +210,6 @@ def pick_live(peaks, seen, room):
     return take(ranked(new), room, [p for p in peaks if settled(p) and p.get("state") == "adopted"])
 
 
-def pick_end(peaks, room):
-    """配信の終わり: 候補の元の全部(点の z は採用済みも入れた全部の中で)から、採用済みと重ならない物を room 本"""
-    pool = [p for p in peaks if settled(p)]
-    return take(ranked(pool), room, [p for p in pool if p.get("state") == "adopted"])
-
-
 def check_min(spans):
     """届ける区間 [(始まり, 終わり)] -> 確かめる時間の見込み(分)。つないで 1 本ごとに (長さ + CHECK_PAD) 秒の合計 × CHECK_RATE"""
     js = excite.join_clips([{"start": float(s), "end": float(e), "score": 0.0} for s, e in spans])

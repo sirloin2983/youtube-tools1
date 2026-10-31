@@ -509,6 +509,22 @@ def iter_jsonl(path):
         return
 
 
+def read_tail(path, max_bytes):
+    """ファイルの末尾 max_bytes だけを文字にして返す(読めなければ None)。途中から読んだ時は欠けた最初の行を捨てる。文字コードが崩れた所は置き換える"""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            f.seek(max(0, size - max_bytes))
+            data = f.read()
+    except (OSError, ValueError):
+        return None
+    if size > max_bytes:
+        nl = data.find(b"\n")
+        data = data[nl + 1:] if nl >= 0 else b""
+    return data.decode("utf-8", "replace")
+
+
 def try_lock(path):
     """ほかのプロセスと同時に動かさない印: path の先頭の 1 バイトを取る -> 開いたファイル(持っている間だけ有効。unlock で外す。
     プロセスが終われば自然に外れる)か None(ほかのプロセスが持っている)"""

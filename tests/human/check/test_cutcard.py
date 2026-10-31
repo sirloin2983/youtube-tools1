@@ -54,7 +54,7 @@ class CutCardTest(unittest.TestCase):
     def test_switch(self):
         """既定オン。明示でオフにした新しい鍵だけが効き、既定オフのころの鍵のオフは読み替える"""
         def with_settings(d, env=""):
-            return mock.patch.dict(os.environ, {cutcard.SWITCH_ENV: env}), mock.patch.object(cutcard._settings, "load_settings", return_value=d)
+            return mock.patch.dict(os.environ, {cutcard.SWITCH_ENV: env}), mock.patch.object(cutcard._doc._settings, "load_settings", return_value=d)
         for d, want in (({}, True), ({"checkCutCards": False}, True), ({cutcard.SETTING: False}, False), ({cutcard.SETTING: True}, True)):
             e, s = with_settings(d)
             with e, s:

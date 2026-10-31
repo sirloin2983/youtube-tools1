@@ -165,12 +165,7 @@ class View:
             return self._all_docs
         if self._docs is None:
             out = []
-            try:
-                folder = txindex.folder(self.root, self.env)
-                paths = txindex.doc_paths(folder) if os.path.isdir(folder) else {}
-            except Exception as e:
-                self.errors.append("docs: %s" % e.__class__.__name__)
-                paths = {}
+            paths = self._doc_paths()
             every, short = [], []
             for name in sorted(paths):
                 m = DOC_NAME_RE.match(name)
@@ -196,17 +191,21 @@ class View:
             return self._docs + self._short_docs
         return self._docs
 
+    def _doc_paths(self):
+        """{文書の名前: パス}(文字起こしの置き場所の索引)。置き場所が無い・読めなければ空(errors に 1 行)"""
+        try:
+            folder = txindex.folder(self.root, self.env)
+            return txindex.doc_paths(folder) if os.path.isdir(folder) else {}
+        except Exception as e:   # noqa: BLE001
+            self.errors.append("docs: %s" % e.__class__.__name__)
+            return {}
+
     def eval_docs(self):
         """[(tid, 文書のパス, 文書)] 評価用の文書だけ(evalSet が True。評価のレーンの区間カード = C-EVAL だけが使う)。新しい順。
         普段の出どころは docs() だけを使う(評価用を外す 1 か所はそのまま)"""
         if getattr(self, "_eval_docs", None) is None:
             out = []
-            try:
-                folder = txindex.folder(self.root, self.env)
-                paths = txindex.doc_paths(folder) if os.path.isdir(folder) else {}
-            except Exception as e:
-                self.errors.append("docs: %s" % e.__class__.__name__)
-                paths = {}
+            paths = self._doc_paths()
             for name in sorted(paths):
                 m = DOC_NAME_RE.match(name)
                 if not m or not os.path.isfile(paths[name]):
