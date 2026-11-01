@@ -20,11 +20,18 @@ STATS = "asetnsamples=n=16000:p=0,astats=metadata=1:reset=1,ametadata=print:key=
 OUTS = ("full.txt", "band.txt")
 
 
-def args(path):
-    """ffmpeg に渡す入力から出力までの引数(-i から。頭の ffmpeg・-hide_banner などと、-progress は呼ぶ側)。path は絶対パスにして渡す(cwd が作業フォルダのため)"""
-    fc = "[0:a]aresample=16000,asplit=2[a][b];[a]%s:file=%s[oa];[b]highpass=f=%d,%s:file=%s[ob]" % (STATS, OUTS[0], HIGHPASS, STATS, OUTS[1])
+def args(path, pcm=None):
+    """ffmpeg に渡す入力から出力までの引数(-i から。頭の ffmpeg・-hide_banner などと、-progress は呼ぶ側)。path は絶対パスにして渡す(cwd が作業フォルダのため)。
+    pcm: 同じ 1 回で 16kHz・モノラル・s16le の生の音もこのパスに書く(配信中の検出のワーカー = live_audio。None = 書かない = 今までと同じ引数)"""
+    if pcm is None:
+        fc = "[0:a]aresample=16000,asplit=2[a][b];[a]%s:file=%s[oa];[b]highpass=f=%d,%s:file=%s[ob]" % (STATS, OUTS[0], HIGHPASS, STATS, OUTS[1])
+        tail = []
+    else:
+        fc = ("[0:a]aresample=16000,asplit=3[a][b][c];[a]%s:file=%s[oa];[b]highpass=f=%d,%s:file=%s[ob];[c]aformat=sample_fmts=s16:channel_layouts=mono[oc]"
+              % (STATS, OUTS[0], HIGHPASS, STATS, OUTS[1]))
+        tail = ["-map", "[oc]", "-f", "s16le", "-y", os.path.abspath(pcm)]
     return ["-protocol_whitelist", "file,pipe", "-i", os.path.abspath(path), "-filter_complex", fc,
-            "-map", "[oa]", "-f", "null", "-", "-map", "[ob]", "-f", "null", "-"]
+            "-map", "[oa]", "-f", "null", "-", "-map", "[ob]", "-f", "null", "-"] + tail
 
 
 def clear(wdir):

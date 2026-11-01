@@ -1,7 +1,7 @@
 """配信中の候補の文字起こし(線 D の D-11 案 b。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0-11。ユーザー決定)。
 
 配信中の検出(src/flow/live_detect.py)の候補が確定するたびに、その区間の音を録画元から取り(書き出し src/flow/live_export.py と同じセグメント)、
-16kHz モノラルの wav にして子プロセス src/pipeline/transcribe/live_tx_worker.py(編集の Haas(speech.cpp)か whisper.cpp・Vulkan = GPU)で認識し、
+16kHz モノラルの wav にして(11-01 案 C: 検出のワーカーが測った時の音の控え pipeline/analyze/live_audio が区間 + 余白をそろえていれば、そこから切る)子プロセス src/pipeline/transcribe/live_tx_worker.py(編集の Haas(speech.cpp)か whisper.cpp・Vulkan = GPU)で認識し、
 live/excite/<録画元>/<録画>/tx.json に残す({"v": 1, "items": {候補の id: {"text", "rows", "pad", "sec", "gpu", "model", "at"} か {"error", "at", "tries"}}})。
 音は候補の区間の前後に余白(録画の束の export.margin。書き出しと同じ。LD-2f)を足して取る。rows の時刻は候補の始まり = 0 秒(余白の行は負・区間の長さより後)・
 pad = 実際に足せた前後の秒 [前, 後]・text は候補の区間にかかる行だけ(今までと同じ意味)。
@@ -24,6 +24,7 @@ import shutil
 import threading
 import time
 
+from pipeline.analyze import live_audio as _audio   # 検出のワーカーの音の控え(11-01 案 C)
 from pipeline.transcribe import recognize as _recognize, tx_engines as _tx   # wav の引数を組む所は ① の 1 か所(OPT2)・Haas のモデルの表(HAAS_GGUF_MODELS)
 from ytt import datadir, fsio, jobs, tools, txbase as _txbase
 from . import prio as _prio   # 優先度の表(PRIO。配信中の文字起こしは録画中のライブ)
@@ -429,6 +430,19 @@ class LiveTx(LX.Patrol):
             return self._after(rc, rec, pid, False, "録画元がありません")
         a, b = first + float(pk["start"]), first + float(pk["end"])
         m = ex.margin({"recorder": rc, "recording": rec})   # 余白(LD-2f。書き出しと同じ束の export.margin)
+        wdir = os.path.join(ex.work, "tx-%s-%s" % (rec, pid))
+        local = self._local_audio(rc, rec, a, b, m)
+        if local is not None:   # 検出のワーカーが測った時の音の控え(11-01 案 C)= セグメントの取り直しと ffmpeg なし
+            wa, wb, data = local
+            try:
+                os.makedirs(wdir, exist_ok=True)
+                wav = os.path.join(wdir, "in.wav")
+                _audio.write_wav(wav, data)
+                return self._recognize(rc, rec, pid, a, b, wa, wb, wav)
+            except (LX.Cancelled, LX.Halted):
+                return None
+            finally:
+                shutil.rmtree(wdir, ignore_errors=True)
         if m > 0:   # 余白の所が録画の前・まだ録れていないときは録れている所まで(欠けを見ない = 取れた分だけ)
             code, d = ex._query(rc, rec, a - m, b + m)
         else:
@@ -440,7 +454,6 @@ class LiveTx(LX.Patrol):
             return self._after(rc, rec, pid, False, "その区間の音がまだありません")
         sess = _session_at(segs, a)
         segs = [s for s in segs if s.get("session") == sess]   # つなぎ直しをまたがない(候補の始まりのセッションの分だけ。余白はそのセッションの中だけ)
-        wdir = os.path.join(ex.work, "tx-%s-%s" % (rec, pid))
         job = {"id": "tx-" + pid, "recorder": rc, "recording": rec}
         try:
             try:
@@ -471,26 +484,37 @@ class LiveTx(LX.Patrol):
                 return self._after(rc, rec, pid, False, "wav を作れませんでした(%d 秒で終わりませんでした)" % WAV_TIMEOUT)
             if p.code != 0 or not os.path.isfile(wav) or os.path.getsize(wav) < 1000:
                 return self._after(rc, rec, pid, False, "wav を作れませんでした: %s" % " / ".join(p.err_lines(3))[-200:])
-            res = self._run_in_slot(rec, wav)
-            if self._halt.is_set():   # 入口の終了で子プロセスを止めた・待ちをやめた: 失敗に数えない(次の起動の見回りでやり直す)
-                return None
-            if not isinstance(res, dict) or not res.get("ok"):
-                return self._after(rc, rec, pid, False, (res.get("reason") or "認識に失敗しました") if isinstance(res, dict) else "答えがありません")
-            text, rows, pad = res.get("text") or "", res.get("rows"), None
-            if wa < a or wb > b:   # 余白つき: 行の時刻を候補の始まり = 0 秒に・文字は候補の区間にかかる行だけ
-                rows, text = shift_rows(rows, a - wa, b - a)
-                pad = (a - wa, max(0.0, wb - b))
-            self.record(rc, rec, pid, text, rows, res.get("sec"), res.get("gpu") or "", res.get("model") or "", pad=pad,
-                        engine=res.get("engine") or "", fallback=res.get("fallback") or "")
-            self.log("配信中の文字起こし: %s の候補 %s に文字を付けました(%.1f 秒・%s・%s)" % (rec, pid, float(res.get("sec") or 0), res.get("gpu") or "GPU",
-                                                                       res.get("engine") or LIVE_ENGINE))
-            if res.get("fallback"):
-                self.log("配信中の文字起こし: Haas が動かなかったので whisper.cpp で読みました: %s" % str(res["fallback"])[:200])
-            self._after(rc, rec, pid, True)
+            return self._recognize(rc, rec, pid, a, b, wa, wb, wav)
         except (LX.Cancelled, LX.Halted):
             return
         finally:
             shutil.rmtree(wdir, ignore_errors=True)
+
+    def _local_audio(self, rc, rec, a, b, m):
+        """検出のワーカーの音の控え(pipeline/analyze/live_audio)から候補の区間 + 余白 -> (wa, wb, 音) か None(欠け・控えなし = セグメントを取り直す)"""
+        try:
+            return _audio.cut(self.host.detector.folder(rc, rec), a, b, m)
+        except (OSError, ValueError, AttributeError):
+            return None
+
+    def _recognize(self, rc, rec, pid, a, b, wa, wb, wav):
+        """wav(候補の区間 [a, b] に余白をつけた [wa, wb])を認識して tx.json へ"""
+        res = self._run_in_slot(rec, wav)
+        if self._halt.is_set():   # 入口の終了で子プロセスを止めた・待ちをやめた: 失敗に数えない(次の起動の見回りでやり直す)
+            return None
+        if not isinstance(res, dict) or not res.get("ok"):
+            return self._after(rc, rec, pid, False, (res.get("reason") or "認識に失敗しました") if isinstance(res, dict) else "答えがありません")
+        text, rows, pad = res.get("text") or "", res.get("rows"), None
+        if wa < a or wb > b:   # 余白つき: 行の時刻を候補の始まり = 0 秒に・文字は候補の区間にかかる行だけ
+            rows, text = shift_rows(rows, a - wa, b - a)
+            pad = (a - wa, max(0.0, wb - b))
+        self.record(rc, rec, pid, text, rows, res.get("sec"), res.get("gpu") or "", res.get("model") or "", pad=pad,
+                    engine=res.get("engine") or "", fallback=res.get("fallback") or "")
+        self.log("配信中の文字起こし: %s の候補 %s に文字を付けました(%.1f 秒・%s・%s)" % (rec, pid, float(res.get("sec") or 0), res.get("gpu") or "GPU",
+                                                                   res.get("engine") or LIVE_ENGINE))
+        if res.get("fallback"):
+            self.log("配信中の文字起こし: Haas が動かなかったので whisper.cpp で読みました: %s" % str(res["fallback"])[:200])
+        return self._after(rc, rec, pid, True)
 
     def _run_in_slot(self, rec, wav):
         """重い処理の順番(SLOTS)を取ってから認識する(D-14)。待っている間に入口が終わったら None。

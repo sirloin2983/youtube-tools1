@@ -595,6 +595,22 @@ class OneTest(LiveTxBase):
         self.tx._one("fake", REC, peak("p0-12", 10), T0)
         self.assertEqual((self.items()["p0-12"]["error"], self.items()["p0-12"]["tries"]), ("認識に失敗しました", 1))
 
+    def test_one_uses_worker_audio_copy(self):
+        """検出のワーカーの音の控え(live_audio・11-01 案 C)が区間 + 余白をそろえていれば、セグメントの取り直しと ffmpeg なしで読む。欠けていれば今の道"""
+        from pipeline.analyze import live_audio as LA
+        folder = self.live.detector.folder("fake", REC)
+        pcm = os.path.join(self.tmp, "chunk.pcm")
+        for i in range(3):   # T0 から 12 秒ずつ 36 秒
+            with open(pcm, "wb") as f:
+                f.write(bytes(12 * LA.BPS))
+            LA.append(folder, T0 + 12 * i, pcm)
+        self.tx._one("fake", REC, peak("p0-12", 10), T0)   # 候補 10〜18 秒・余白 10 秒 = 0〜28 秒
+        self.assertEqual(self.calls[-1]["size"], 44 + 28 * LA.BPS)
+        self.assertEqual(read_jsonl(self.fflog), [])   # ffmpeg は呼ばない
+        self.assertEqual(self.items()["p0-12"]["pad"], [10.0, 10.0])
+        self.tx._one("fake", REC, peak("p1-32", 32), T0)   # 32〜40 秒は控えが欠けている = 今の道(偽の ffmpeg)
+        self.assertEqual(len(read_jsonl(self.fflog)), 1)
+
     def test_halt_during_run_is_not_a_failure(self):
         def killed(data_dir, model, wav):
             self.tx.close()   # 入口の終了で子プロセスを止めた

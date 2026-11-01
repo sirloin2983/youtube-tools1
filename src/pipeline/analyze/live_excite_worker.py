@@ -15,7 +15,8 @@ queued と worker.json の queued)で、受け持っている録画の検出が�
                  bundles?(RS7-2 G2b)= 束のある録画ごとの {"<録画元>/<録画>": {spec, sens, perHour}}(録画を始めたときの束。新しく受け持つ録画の spec と
                  感度・枠に使う。友人の依頼の録画は requests の感度・枠・長さが先)
                  chatKeepDir?= 読み終えた・配信が終わった生のチャットを消さずに移す先(入口が決める。無い = 今までどおり消す)
-  <録画元>/<録画>/ の state.json(続きから再開する状態)・series.jsonl(1 分 1 行)・peaks.json(候補の正本)・skipped.jsonl(飛ばした区間の測り直し)はここが書く。
+  <録画元>/<録画>/ の state.json(続きから再開する状態)・series.jsonl(1 分 1 行)・peaks.json(候補の正本)・skipped.jsonl(飛ばした区間の測り直し)・
+  audio16k.pcm と .idx(測った音の控え = 配信中の候補の文字起こし用・締めたら消す。live_audio)はここが書く。
   decisions.json(人の採用・見送り・自動の採用)は入口が書き、ここは読んで PeakBook に当てるだけ。worker.json(心拍)もここが書く
 
 流れ(周期 POLL_SEC):
@@ -62,7 +63,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))   # analyze -> pipeline -> src(「root」= src。datadir.resolve の inplace の根)
 if __name__ == "__main__":   # スクリプトとして起動したときだけ: このフォルダを外して src を先頭に(兄弟は絶対 import。層の決まりの例外)。import したとき(live_detect・テスト)は触らない
     sys.path[:] = [ROOT] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(ROOT))]
-from pipeline.analyze import excite, levels  # noqa: E402
+from pipeline.analyze import excite, levels, live_audio  # noqa: E402
 from ytt import datadir, fsio, procs, recproto, schemas, tools, ytledger  # noqa: E402
 
 WORKER_VERSION = "1"
@@ -294,13 +295,13 @@ def read_series(path, extra=()):
     return dict(cols, n=n)
 
 
-def measure_levels(ffmpeg, path, wdir, job=None, timeout=FFMPEG_TIMEOUT):
+def measure_levels(ffmpeg, path, wdir, job=None, timeout=FFMPEG_TIMEOUT, pcm=None):
     """ffmpeg 1 回で 1 秒ごとの RMS(dB)を全帯域と 2kHz 超の 2 系列 -> (full, band)。
     フィルター・値の扱い(-90〜20 dB)・結果のファイルは src/pipeline/analyze/levels.py の 1 か所(スタジオの analyze.audio_levels と同じ物)"""
     if not ffmpeg:
         raise NoTool("ffmpeg が見つかりません(setup の install.bat で入れてください)")
     levels.clear(wdir)
-    cmd = [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error"] + levels.args(path)
+    cmd = [ffmpeg, "-hide_banner", "-nostdin", "-loglevel", "error"] + levels.args(path, pcm)   # pcm: 同じ 1 回で生の音も(live_audio)
     try:   # 窓なし・優先度「低」(ytt.tools.run_progress。OPT2)
         code, err, why = tools.run_progress(cmd, tail=40, timeout=timeout, split=True, cwd=wdir, on_start=job.add if job is not None else None)
     except OSError as e:
@@ -1649,7 +1650,7 @@ class Worker:
         """1 回分を測って箱へ -> 続けてよいか(ffmpeg が無い・録画元が落ちたら False)"""
         dur = sum(x["dur"] for x in batch)
         try:
-            full, band = self.measure_batch(client, st.rec, batch)
+            full, band = self.measure_batch(client, st.rec, batch, keep=st.folder if live_audio.enabled() else None)
             st.place(batch[0]["t"], dur, full, band)
         except MeasureError as e:   # その秒は欠けとして埋めて先へ
             st.errors += 1
@@ -1661,13 +1662,15 @@ class Worker:
         st.seg_since += len(batch)
         return True
 
-    def measure_batch(self, client, rec, batch):
-        """セグメントを録画元から取って 1 つのファイルにつなぎ、ffmpeg 1 回で測る(テストは差し替える)"""
+    def measure_batch(self, client, rec, batch, keep=None):
+        """セグメントを録画元から取って 1 つのファイルにつなぎ、ffmpeg 1 回で測る(テストは差し替える)。
+        keep: 録画の作業フォルダ = 同じ 1 回で 16kHz モノラルの音も出して控えに足す(live_audio。配信中の候補の文字起こしが使う。足せなくても測りは続ける)"""
         if self._measure is not None:
             return self._measure(client, rec, batch)
         wdir = os.path.join(self.dir, "work")
         os.makedirs(wdir, exist_ok=True)
         path = os.path.join(wdir, "batch.ts")
+        pcm = os.path.join(wdir, "batch.pcm") if keep else None
         try:
             with open(path, "wb") as f:
                 for s in batch:
@@ -1677,9 +1680,17 @@ class Worker:
                     if code != 200 or not body:
                         raise MeasureError("録画のデータ %s を取れませんでした(HTTP %s)" % (s["uri"], code))
                     f.write(body)
-            return measure_levels(self.cfg["ffmpeg"], path, wdir, job=self.job)
+            res = measure_levels(self.cfg["ffmpeg"], path, wdir, job=self.job, pcm=pcm)
+            if pcm:
+                try:
+                    live_audio.append(keep, batch[0]["t"], pcm)
+                except OSError as e:
+                    self.log("盛り上がりの検出: %s の音の控えを書けませんでした: %s" % (rec, tools.why(e)))
+            return res
         finally:
             fsio.unlink_quiet(path)
+            if pcm:
+                fsio.unlink_quiet(pcm)
 
     def _finish(self, st, client, deadline):
         """配信が終わった録画を締める: 帳簿の確定 → 飛ばした区間の測り直し(音だけ)→ 済み"""
@@ -1700,6 +1711,7 @@ class Worker:
                 self._save_rec(st, self.clock())
                 return
         st.finished = True
+        live_audio.drop(st.folder)   # 音の控えは配信中の候補の文字起こしのためだけ(締めたら要らない)
         st.message = st.message if st.skipped else ""
         st.peaks_dirty = True
         self.log("盛り上がりの検出: %s が終わりました(候補 %d・欠け %d)" % (st.rec, len(st.book.order), st.gap_count))
