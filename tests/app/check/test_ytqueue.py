@@ -499,6 +499,29 @@ class YtQueueTest(unittest.TestCase):
         with Q.run_lock(self.app) as a:
             self.assertTrue(a)                                                    # 出たら外れる
 
+    def test_chat_of_live_video_waits(self):
+        """配信中・配信前の動画のチャットは取らずに頼みを残し、CHAT_LATER のあいだその動画を選ばない(11-01: 録画中の配信のチャットを
+        yt-dlp が追い続け、裏のチャットが終わらず音の回が 1 時間以上止まった)"""
+        seen = []
+
+        def ytdlp(cmd, timeout):
+            seen.append(cmd)
+            return mock.Mock(returncode=0), "[download] AAAAAAAAAAA does not pass filter (live_status!=?is_live), skipping .."
+        with mock.patch.object(VF._tools, "find_tool", lambda name: "yt-dlp"), mock.patch.object(VF, "_ytdlp", ytdlp):
+            self.assertEqual(Q._chat(self.app, "https://www.youtube.com/watch?v=CHATLIVE001"), (None, Q.CHAT_LIVE))
+        self.assertIn("--match-filter", seen[0])
+        self.put_req("cl", {"purpose": "research", "kind": "chat", "url": "https://www.youtube.com/watch?v=CHATLIVE001"})
+        self.put_req("cd", {"purpose": "research", "kind": "chat", "url": "https://www.youtube.com/watch?v=CHATDONE001"})
+        taken = []
+        sync = lambda fn: (fn(), mock.Mock(is_alive=lambda: False))[1]
+        with mock.patch.object(Q, "_chat", lambda app, url: taken.append(url[-11:]) or (None, Q.CHAT_LIVE)), mock.patch.object(Q, "_start", sync):
+            Q.chat_batch(self.app, NOON, self.logs.append)
+            Q.chat_batch(self.app, NOON + 10, self.logs.append)                 # 前の 1 本(配信中)を書き、次の動画へ
+            Q.chat_batch(self.app, NOON + 20, self.logs.append)
+        self.assertEqual(taken, ["CHATLIVE001", "CHATDONE001"])                  # 配信中の動画をくり返し選ばない
+        self.assertEqual(sorted(q["id"] for q in Q.requests(self.app)), ["cd", "cl"])   # 頼みは残す
+        self.assertGreater(Q._state(self.app)["chatLater"]["CHATLIVE001"], NOON + 3600)
+
     def test_same_video_hit_twice_is_unfetchable(self):
         """同じ動画で続けて 2 回断られた = その動画だけの失敗。列は休ませず取れない印を付けて外し、次の頼みも取りに行かない・URL の数字の 429 は当たりではない(10-27 ggZMyu2FxgU)"""
         self.assertIsNone(Q.classify("ERROR: ffmpeg exited https://rr4.googlevideo.com/videoplayback?clen=242990&lmt=17429001"))

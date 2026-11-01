@@ -142,6 +142,15 @@ class VoiceFetchTest(unittest.TestCase):
             VF._ytdlp(["yt-dlp"], 10)
         self.assertFalse(VF.LOGIN["used"])                                         # ログインが入っていない = cookie なし
 
+    def test_run_timeout_stops_the_tree(self):
+        """時間切れは tools.run で孫ごと止めて (None, "TimeoutExpired")(11-01: subprocess.run は親しか止めず、yt-dlp の本体がパイプを持ったまま待ちが終わらなかった)"""
+        from ytt import tools as T
+        with mock.patch.object(VF._tools, "run", lambda cmd, timeout: T.RunResult(None, b"", b"", "timeout")):
+            self.assertEqual(VF._run(["x"], 1), (None, "TimeoutExpired"))
+        with mock.patch.object(VF._tools, "run", lambda cmd, timeout: T.RunResult(0, "出力".encode(), b"warn", None)):
+            r, tail = VF._run(["x"], 1)
+        self.assertEqual((r.returncode, r.stdout, tail), (0, "出力", "warn出力"))
+
     def test_title_percent_is_not_a_template(self):
         """題名の % は yt-dlp の -o の雛形の印にしない(安全面の見直し-1029 の 10): 名前は safe_name で % を外し、フォルダ側の % は %% に"""
         import types

@@ -68,6 +68,8 @@ LIGHT_KINDS = ("subs",)               # まとめて取る軽い頼み(info は 
 SHORT_MAX_SEC = 6 * 60                # 研究の短い区間の音(r-up など)= この秒以下。音の回 1 回で数本まとめて取る(10-26 研究が字幕で当てた区間を全部音で確かめる・数百本)
 SHORT_START = 6                       # まとめる本数の始まり。当たるたびに半分(その日のうち。1 本まで)
 SHORT_SUM_SEC = 30 * 60               # まとめる区間の合計の上限(秒)
+CHAT_LATER = 2 * 3600                 # 配信中・配信前の動画のチャットの頼みを後に回す秒(配信中に取ると yt-dlp が終わりまで追い続け、音の回を止めた。11-01 21:49〜)
+CHAT_LIVE = "配信中か配信前の動画なのでチャットはあとで取ります"
 CHAT_START = 10                       # チャットの回で取る本数の始まり(10-25 ユーザー「最初 1 回 10 本」)。当たるたびに半分(その日のうち。1 本まで)
 LOCK_NAME = "run.lock"                # 列の錠(入口の見回りと手で流す 1 回がぶつからない)
 LOCK_STALE = 3 * 3600                 # これより古い錠は残りかす(落ちたプロセスの物)として取り直す
@@ -543,11 +545,13 @@ def _chat(app_dir, url):
     d = keep_dir(app_dir, vid)
     os.makedirs(d, exist_ok=True)
     r, tail = _vf._ytdlp([yd, "--encoding", "utf-8", "--no-warnings", "--no-playlist", "--skip-download", "--sleep-requests", str(SLEEP_REQ),
-                          "--write-subs", "--sub-langs", "live_chat",
+                          "--write-subs", "--sub-langs", "live_chat", "--match-filter", "live_status!=?is_live & live_status!=?is_upcoming",
                         "-o", os.path.join(d, "chat.%(ext)s"), "-o", "subtitle:" + os.path.join(d, "chat"), "--", url], 1800)   # 既定の -o = 途中の .part も d へ(無いと作業フォルダに書く。10-26)
     got = [os.path.join(d, x) for x in os.listdir(d) if x.startswith("chat.") and not x.endswith(".part")]
     if r is not None and r.returncode == 0 and got:
         return got[0], ""
+    if r is not None and "does not pass filter" in (tail or ""):   # 配信中・配信前(終わるまで追い続ける)= 取らずに戻る
+        return None, CHAT_LIVE
     return None, tail or "チャットのリプレイがありません"
 
 
@@ -1050,9 +1054,16 @@ def _chat_finish(app_dir, q, res, now, log):
         lc["chatLeft"] = 0
         _save(app_dir, st)
         return True   # 頼みは残す(休みのあとに取り直す)
+    vid = _video_of(q["urls"][0])
+    if err == CHAT_LIVE:   # 頼みは残し、その動画は CHAT_LATER のあいだ選ばない
+        later = {k: v for k, v in (st.get("chatLater") or {}).items() if _vm.num(v) > now}
+        later[vid] = now + CHAT_LATER
+        st["chatLater"] = later
+        _save(app_dir, st)
+        log("YouTube の取得の列: チャットの頼み %s は%s" % (q["id"], CHAT_LIVE))
+        return False
     fine(st, "light", log)
     _save(app_dir, st)
-    vid = _video_of(q["urls"][0])
     _write_done(app_dir, q["id"], {"state": "done", "file": path, "bundle": bundle(app_dir, vid)} if path else {"state": "error", "error": (err or "")[:300]})
     log("YouTube の取得の列: チャットの頼み %s を%s(残り %d 件)" % (q["id"], "済ませました" if path else "済ませられませんでした",
                                                                  sum(1 for r in requests(app_dir) if r["kind"] == "chat")))
@@ -1080,7 +1091,8 @@ def chat_batch(app_dir, now, log, n=None, force=False):
         return None
     if not force and not left and now - _vm.num(c.get("chatLast")) < LIGHT_EVERY:
         return None
-    reqs = [q for q in requests(app_dir) if q["kind"] == "chat" and q["urls"]]
+    later = st.get("chatLater") or {}
+    reqs = [q for q in requests(app_dir) if q["kind"] == "chat" and q["urls"] and _vm.num(later.get(_video_of(q["urls"][0]))) <= now]
     if not reqs:
         c["chatLeft"] = 0
         _save(app_dir, st)

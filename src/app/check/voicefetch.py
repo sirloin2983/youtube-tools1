@@ -127,11 +127,15 @@ def _rss(channel, timeout=20):
 
 
 def _run(cmd, timeout):
+    """cmd を timeout 秒まで -> (CompletedProcess か None, 標準エラーと出力の最後)。時間切れは孫ごと止める(tools.run。
+    subprocess.run は親しか止めず、yt-dlp の exe の本体(孫)がパイプを持ったまま残ると待ちが終わらない = 11-01 チャットの 1 本で列が 1 時間以上止まった)"""
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, stdin=subprocess.DEVNULL,
-                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    except (OSError, subprocess.TimeoutExpired) as e:
+        res = _tools.run(cmd, timeout=timeout)
+    except OSError as e:
         return None, "%s" % e.__class__.__name__
+    if res.why == "timeout":
+        return None, "TimeoutExpired"
+    r = subprocess.CompletedProcess(cmd, res.code, res.out.decode("utf-8", "replace"), res.err.decode("utf-8", "replace"))
     w = _ytledger.ytdlp_weight(cmd) if _ytledger.is_ytdlp(cmd) else None
     if w is not None:   # YouTube への問い合わせの帳簿(列の分 = 出どころ queue。列は自分の分を数えない)
         _ytledger.record("fetch" if w >= _ytledger.W_FETCH else "light", w, ok=r.returncode == 0, err=r.stderr or "", src="queue")
