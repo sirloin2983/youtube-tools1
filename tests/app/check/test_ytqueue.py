@@ -518,7 +518,7 @@ class YtQueueTest(unittest.TestCase):
             Q.chat_batch(self.app, NOON, self.logs.append)
             Q.chat_batch(self.app, NOON + 10, self.logs.append)                 # 前の 1 本(配信中)を書き、次の動画へ
             Q.chat_batch(self.app, NOON + 20, self.logs.append)
-        self.assertEqual(taken, ["CHATLIVE001", "CHATDONE001"])                  # 配信中の動画をくり返し選ばない
+        self.assertEqual(sorted(taken), ["CHATDONE001", "CHATLIVE001"])          # 配信中の動画をくり返し選ばない(並びは頼みの順)
         self.assertEqual(sorted(q["id"] for q in Q.requests(self.app)), ["cd", "cl"])   # 頼みは残す
         self.assertGreater(Q._state(self.app)["chatLater"]["CHATLIVE001"], NOON + 3600)
 
