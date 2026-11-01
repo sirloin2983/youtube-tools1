@@ -67,6 +67,12 @@ def card(i, kind, **extra):
     return c
 
 
+MEMBERS = {"groups": [{"label": "3期生", "names": ["兎田ぺこら", "宝鐘マリン"]}, {"label": "0期生", "names": ["さくらみこ"]}],
+           "members": {"兎田ぺこら": {"yomi": "うさだぺこら", "en": "Usada Pekora", "calls": ["ぺこら先輩"], "hex": "#68C1FF"},
+                       "宝鐘マリン": {"yomi": "ほうしょうまりん", "en": "Houshou Marine", "calls": ["船長", "せんちょう"], "hex": "#C83F3F"},
+                       "さくらみこ": {"yomi": "", "en": "Sakura Miko", "calls": ["みこち"], "hex": "#FF8FDF"}}}
+
+
 class FakeQueue:
     """⑤ の待ち行列の偽物(計画 2-3 の形)。答え・戻す・飛ばすを覚え、next は答えていない・飛ばしていない・skip に無い物を前から返す"""
 
@@ -95,6 +101,8 @@ class FakeQueue:
         u = urllib.parse.urlparse(req.url)
         q = urllib.parse.parse_qs(u.query)
         with self.lock:
+            if u.path.endswith("/api/check/members"):   # 話者カードの「ほかのメンバーを足す」の探し方の表(11-02)
+                return route.fulfill(status=200, content_type="application/json", body=json.dumps(MEMBERS, ensure_ascii=False))
             if u.path.endswith("/api/check/next"):
                 self.next_q.append(q)
                 if self.fail_next:
@@ -106,7 +114,7 @@ class FakeQueue:
                 n = int((q.get("n") or ["10"])[0])
                 every = [c for c in self.cards if c["id"] not in done and c["id"] not in skip]
                 kind = (q.get("kind") or [""])[0]
-                rest = [c for c in every if not kind or c["kind"] == kind]
+                rest = [c for c in every if not kind or c["kind"] == kind or (kind == "voice" and c["kind"] == "speaker")]   # 本物と同じく 話者 = 誰の声 + コラボの話者(11-02)
                 per = {k: len([c for c in self.cards if c["kind"] == k and c["id"] not in done]) for k in ("value", "voice", "time", "cut")}   # 本物と同じく skip は数から外さない
                 values = len([a for a in self.live_answers() if a["body"]["card"].startswith("value:")])
                 body = {"rev": len(self.answers), "cards": rest[:n], "total": len(rest),
@@ -168,7 +176,10 @@ def press(pg, key):
     送った要求(答え・戻す・後で)を偽の待ち行列が受け、カードの読み込み(先読みの api/check/next)が済むまで待つ。
     同期版の route は Playwright を呼んでいる間しか動かない(time.sleep では届かない)ので wait_for_timeout と evaluate で待つ"""
     typing = pg.evaluate("(() => { const a = document.activeElement; return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName); })()")
-    if key in KEPT_KEYS or typing:
+    if key == "1" and not typing and state(pg)["kind"] in ("voice", "speaker"):   # 話者カード = 最初の人を選んで決める(数字のキーは無い)
+        for k in ("N0", "Enter"):
+            pg.evaluate("(() => { const b = document.querySelector(\"#chkBody [data-chk-k='%s']\"); if (b && !b.disabled) b.click(); })()" % k)
+    elif key in KEPT_KEYS or (typing and key in ("Enter", "Escape")):
         pg.keyboard.press(key)
     else:
         sel = SHELL_BTN.get(key) or "#chkBody [data-chk-k='%s']" % (key if len(key) > 1 else key.upper())
@@ -250,7 +261,7 @@ def _scene_kinds(cx):
     check(pg.evaluate("document.querySelector('#chkBody video').volume") == 0.5, "音量の既定は半分")
     pg.evaluate("document.querySelector('#chkBody video').volume = 0.3")
     check(wait_js(pg, "JSON.parse(localStorage.getItem('check.volume') || '{}').volume === 0.3"), "変えた音量を覚える(次のカードで使う)")
-    check(not pg.is_disabled("#chkBody [data-chk-k='Enter']"), "予想どおりは再生中でも押せる(11-02 に待つ決まりをやめた)")
+    check(pg.query_selector("#chkBody [data-chk-k='NONE']") is not None and "予想どおり" not in pg.text_content("#chkBody"), "話者カード: 予想どおりは無い(11-02)")
     check(wait_js(pg, "(() => { const v = document.querySelector('#chkBody video'); return v && !v.paused && v.currentTime > 0.4; })()", 10000), "出したら自動で再生(区間の頭から)")
     check(wait_js(pg, "(() => { const v = document.querySelector('#chkBody video'); return v && v.paused && v.currentTime >= 1.6 && v.currentTime < 2.3; })()", 10000),
           "区間の末 + pad で止まる: %s" % pg.evaluate("document.querySelector('#chkBody video').currentTime"))
@@ -274,8 +285,9 @@ def _scene_kinds(cx):
     check(t_play >= t_pause and not pg.evaluate("document.querySelector('#chkBody video').paused"),
           "区間の後ろで止めて再生ボタン = その位置から流す(区間の頭へ戻さない・止めない): %s → %s" % (t_pause, t_play))   # シークはこの試しの動画の配り方(Range なし)では 0 秒へ戻るので見ない
     pg.evaluate("document.querySelector('#chkBody video').pause()")
+    press(pg, "N1")
     press(pg, "Enter")
-    check(wait_js(pg, "CheckShell.state().kind === 'time'") and fq.answers[-1]["body"]["answer"] == {"choice": "B"}, "[予想どおり] = 機械の予想どおり")
+    check(wait_js(pg, "CheckShell.state().kind === 'time'") and fq.answers[-1]["body"]["answer"] == {"names": ["配信者 B"]}, "名前を選んで決める = {names}: %s" % fq.answers[-1:])
     n_before = len(fq.answers)
     check(wait_js(pg, "(() => { const v = document.querySelector('#chkBody video'); return !v || v.volume === 0.3; })()"), "次のカードも覚えた音量")
     check(wait_js(pg, "!!document.querySelector('#chkBody canvas[data-chk-wave]')") and wait_js(pg, "!document.querySelector('[data-chk-wavemsg]').textContent"),
@@ -364,30 +376,32 @@ def _scene_real_api(cx):
 
 
 def _scene_voice(cx):
-    """誰の声のカード: 予想どおりのボタンは再生中でも押せる(11-02)・登録簿の人(name:)は {name} で答える・M = 混ざり・Z で戻す"""
+    """話者カード(誰の声・11-02): 予想を初めから選ばない・予想どおりのボタンは無い・選ぶまで決めるは押せない・名前を選んで決める = {names}・
+    名前を選んでいる間は声なしは押せない・Z で戻す・声なし = {choice: other}"""
     pg, check = cx.pg, cx.check
     vid = {"url": "transcribe/media?id=a0000000000b", "start": 0.5, "end": 1.5, "pad": 0.2}
     fv = FakeQueue([card(30, "voice", source="diar", media=vid, guess={"id": "name:みこ", "name": "みこ"}, note="below_match",
                          options=[{"id": "S1", "name": "ぺこら", "voice": True}, {"id": "name:みこ", "name": "みこ", "voice": True},
                                   {"id": "other", "name": "その他"}, {"id": "mixed", "name": "混ざり"}])])
-    cx.ctx.unroute(re.compile(r".*/api/check/.*"))
-    cx.ctx.route(re.compile(r".*/api/check/.*"), fv.handle)
+    _swap_queue(cx, fv)
+    enter, none = "#chkBody [data-chk-k='Enter']", "#chkBody [data-chk-k='NONE']"
     try:
         pg.goto(cx.base + "check?kind=voice")
-        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:30'"), "声のカードを開く: %s" % state(pg))
-        enter = "#chkBody [data-chk-k='Enter']"
-        check(pg.evaluate("(() => { const b = document.querySelector(\"%s\"); return !!b && !b.disabled && b.matches('.chk-acts > .primary:first-child'); })()" % enter),
-              "予想どおりは段 2 の左端の強調・再生中でも押せる")
-        check("みこ" in pg.text_content("#chkBody .notice"), "機械の予想の名前")
-        press(pg, "m")
-        check(wait_js(pg, "CheckShell.state().empty") and fv.answers[-1]["body"]["answer"] == {"choice": "mixed"}, "M = 声が混ざっている")
+        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:30'"), "話者のカードを開く: %s" % state(pg))
+        names = pg.evaluate("[...document.querySelectorAll('#chkBody .chk-spk-name')].map(b => [b.textContent.trim(), b.getAttribute('aria-pressed')])")
+        check(names[:2] == [["ぺこら", "false"], ["みこ", "false"]] and [n for n, _p in names[2:]] == ["誰か分からないメンバー", "メンバー以外の人", "ゲームの声"],
+              "出るはずの人の名前のボタン(予想を選んでおかない)+ 札 3 つ: %s" % names)
+        check("予想どおり" not in (pg.text_content("#chkBody") or "") and pg.is_disabled(enter) and not pg.is_disabled(none), "予想どおりは無い・選ぶまで決めるは押せない")
+        press(pg, "N1")
+        check(pg.is_disabled(none) and "みこ" in pg.text_content(enter), "名前を選んでいる間は声なしは押せない・決めるに選んだ人")
+        press(pg, "Enter")
+        check(wait_js(pg, "CheckShell.state().empty") and fv.answers[-1]["body"]["answer"] == {"names": ["みこ"]}, "決める = {names}: %s" % fv.answers[-1:])
         press(pg, "z")
         check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:30'"), "Z で戻す")
-        pg.click(enter)
-        check(wait_js(pg, "CheckShell.state().empty") and fv.answers[-1]["body"]["answer"] == {"name": "みこ"}, "登録簿の人の予想は {name} で答える: %s" % fv.answers[-1:])
+        press(pg, "NONE")
+        check(wait_js(pg, "CheckShell.state().empty") and fv.answers[-1]["body"]["answer"] == {"choice": "other"}, "声なし = {choice: other}: %s" % fv.answers[-1:])
     finally:
-        cx.ctx.unroute(re.compile(r".*/api/check/.*"))
-        cx.ctx.route(re.compile(r".*/api/check/.*"), cx.fq.handle)
+        _restore_queue(cx)
 
 
 def _scene_rate_kept(cx):
@@ -424,22 +438,23 @@ def _scene_rate_kept(cx):
 
 
 def _scene_voice_bgm_and_gone(cx):
-    """誰の声: G(ゲーム音・BGM が大きい)を入れて名前で答える = {choice, bgm: true}。答えに 404 gone が返ったカードは戻さず次へ・もう出ない"""
+    """話者カード: BGM が大きい・声色が違う の印(段 3)を入れて決める = {names, bgm, alt}・次のカードでは切れている。答えに 404 gone が返ったカードは戻さず次へ・もう出ない"""
     pg, check = cx.pg, cx.check
     opts = [{"id": "S1", "name": "ぺこら"}, {"id": "other", "name": "その他"}, {"id": "mixed", "name": "混ざり"}]
-    fv = FakeQueue([card(i, "voice", source="solo", options=opts) for i in (40, 41, 42)])
+    fv = FakeQueue([card(i, "voice", source="solo", options=opts, cast=["ぺこら"]) for i in (40, 41, 42)])
     fv.gone.add("voice:e2e:41")
     _swap_queue(cx, fv)
     try:
         pg.goto(cx.base + "check?kind=voice")
-        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:40'"), "声のカード(ソロ)を開く: %s" % state(pg))
-        press(pg, "g")
-        check(pg.get_attribute("#chkBody [data-chk-k='G']", "aria-pressed") == "true" and pg.is_visible("#chkBody [data-chk-bgm]"),
-              "G で「ゲーム音・BGM が大きい」が入る(押した状態と一言)")
+        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:40'"), "話者のカード(ソロ)を開く: %s" % state(pg))
+        press(pg, "BGM")
+        press(pg, "ALT")
+        check(pg.get_attribute("#chkBody [data-chk-k='BGM']", "aria-pressed") == "true" and pg.get_attribute("#chkBody [data-chk-k='ALT']", "aria-pressed") == "true",
+              "BGM が大きい・声色が違う は段 3 の印(押した状態)")
         press(pg, "1")
-        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:41'") and fv.answers[-1]["body"]["answer"] == {"choice": "S1", "bgm": True},
-              "G のあと 1 = {choice: S1, bgm: true}: %s" % fv.answers[-1:])
-        check(pg.get_attribute("#chkBody [data-chk-k='G']", "aria-pressed") == "false", "次のカードでは G は切れている")
+        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:41'") and fv.answers[-1]["body"]["answer"] == {"names": ["ぺこら"], "bgm": True, "alt": True},
+              "印のあと名前で決める = {names, bgm, alt}: %s" % fv.answers[-1:])
+        check(pg.get_attribute("#chkBody [data-chk-k='BGM']", "aria-pressed") == "false", "次のカードでは印は切れている")
         press(pg, "1")
         check(wait_js(pg, "[...document.querySelectorAll('.ui-toast')].some(t => t.textContent.includes('次へ進みます'))"), "gone: 次へ進む知らせ")
         check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:42'"), "gone: 戻さずに次のカード: %s" % state(pg))
@@ -475,63 +490,57 @@ def _scene_unknown(cx):
 
 
 def _scene_voice_pick(cx):
-    """誰の声: 名前のボタンは 3 人まで(1〜3)・P で「メンバーを選ぶ」の欄。候補の人 = {name}/ 文書の話者 = {choice}/ 名簿に無い名前もそのまま {name}・
-    欄にいる間はカードのキーが入力を取らない・Esc で閉じる・Z で戻せる"""
+    """話者カード: [ほかのメンバーを足す] = 探す欄(ひらがな・ローマ字・呼び名)と期ごとの名前の札。押した人は名前のボタンの最後に「足した」で加わり選ばれる・
+    何人でも足せる・探す欄の Enter = 1 人に絞れたら足す・名簿に無い名前も足せる・[閉じる] で畳む"""
     pg, check = cx.pg, cx.check
-    opts = [{"id": "S1", "name": "ぺこら"}, {"id": "name:みこ", "name": "みこ"}, {"id": "name:すいせい", "name": "すいせい"}, {"id": "name:かなた", "name": "かなた"},
-            {"id": "other", "name": "その他"}, {"id": "mixed", "name": "混ざり"}]
-    people = [{"id": "S1", "name": "ぺこら"}, {"id": "name:みこ", "name": "みこ"}, {"id": "name:かなた", "name": "かなた"}, {"id": "name:ころね", "name": "ころね"}]
-    fv = FakeQueue([card(i, "voice", source="solo", options=opts, people=people) for i in (70, 71, 72)])
+    opts = [{"id": "S1", "name": "ぺこら"}, {"id": "other", "name": "その他"}, {"id": "mixed", "name": "混ざり"}]
+    fv = FakeQueue([card(i, "voice", source="solo", options=opts, cast=["ぺこら"]) for i in (70, 71)])
     _swap_queue(cx, fv)
-    field = "#chkBody [data-chk-pick-text]"
+    find = "#chkBody [data-chk-find]"
+    added = "[...document.querySelectorAll('#chkBody .chk-spk-name')].filter(b => b.querySelector('.chk-spk-added')).map(b => [b.firstChild.textContent, b.getAttribute('aria-pressed')])"
     try:
         pg.goto(cx.base + "check?kind=voice")
-        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:70'"), "声のカード(選ぶ)を開く: %s" % state(pg))
-        check(pg.evaluate("[1,2,3,4].map(k => !!document.querySelector(\"#chkBody [data-chk-k='\" + k + \"']\"))") == [True, True, True, False], "名前のボタンは 3 人まで")
-        check(pg.evaluate("document.querySelectorAll('#chkVoicePeople option').length") == 4, "欄の候補 = people")
-        press(pg, "p")
-        check(pg.is_visible(field) and pg.evaluate("document.activeElement && document.activeElement.matches('[data-chk-pick-text]')"), "P で入力欄が開き、入力欄にいる")
-        press(pg, "Escape")
-        check(not pg.is_visible(field) and state(pg)["cur"] == "voice:e2e:70", "Esc で閉じる(答えない)")
-        pg.click("#chkBody [data-chk-k='P']")
-        pg.keyboard.type("ころね")
+        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:70'"), "話者のカード(足す)を開く: %s" % state(pg))
+        check(pg.query_selector(find) is None, "ふだんは「ほかのメンバーを足す」のボタンだけ")
+        press(pg, "OPEN")
+        check(wait_js(pg, "!!document.querySelector('#chkBody [data-chk-find]') && document.querySelectorAll('#chkBody .chk-spk-group').length === 2")
+              and pg.evaluate("document.activeElement && document.activeElement.matches('[data-chk-find]')"), "開くと探す欄(入っている)と期ごとの札")
+        check(pg.evaluate("getComputedStyle(document.querySelector('#chkBody .chk-spk-chip .chk-spk-dot')).backgroundColor") != "rgba(0, 0, 0, 0)", "札にメンバーの色を小さく添える")
+        pg.keyboard.type("せんちょう")
+        check(wait_js(pg, "[...document.querySelectorAll('#chkBody [data-chk-found] .chk-spk-chip')].map(b => b.dataset.chkAdd).join() === '宝鐘マリン'"), "呼び名の読み(せんちょう)で絞れる")
         press(pg, "Enter")
-        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:71'") and fv.answers[-1]["body"]["answer"] == {"name": "ころね"}, "候補の人 = {name}: %s" % fv.answers[-1:])
-        press(pg, "p")
-        pg.keyboard.type("Guest m1")   # m・1 はカードのキーだが入力欄では文字
-        check(state(pg)["cur"] == "voice:e2e:71" and len(fv.answers) == 1, "入力欄ではカードのキーが入力を取らない")
+        check(wait_js(pg, "JSON.stringify(%s) === JSON.stringify([['宝鐘マリン', 'true']])" % added), "探す欄の Enter = 1 人に絞れたら足して選ぶ: %s" % pg.evaluate(added))
+        pg.fill(find, "pekora")
+        pg.click("#chkBody [data-chk-found] [data-chk-add='兎田ぺこら']")
+        check(wait_js(pg, "%s.length === 2" % added), "ローマ字でも探せる・何人でも続けて足せる: %s" % pg.evaluate(added))
+        pg.fill(find, "Guest m1")
+        pg.click("#chkBody [data-chk-found] [data-chk-add='Guest m1']")
+        press(pg, "CLOSE")
+        check(pg.query_selector(find) is None and pg.evaluate("%s.length" % added) == 3, "名簿に無い名前も足せる・[閉じる] で畳む")
         press(pg, "Enter")
-        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:72'") and fv.answers[-1]["body"]["answer"] == {"name": "Guest m1"}, "名簿に無い名前もそのまま {name}: %s" % fv.answers[-1:])
-        press(pg, "p")
-        pg.keyboard.type("ぺこら")
-        press(pg, "Enter")
-        check(wait_js(pg, "CheckShell.state().empty") and fv.answers[-1]["body"]["answer"] == {"choice": "S1"}, "文書の話者 = {choice}: %s" % fv.answers[-1:])
-        press(pg, "z")
-        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:72'") and fv.undone == ["ans003"], "Z で戻せる: %s" % fv.undone)
+        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:71'") and fv.answers[-1]["body"]["answer"] == {"names": ["宝鐘マリン", "兎田ぺこら", "Guest m1"]},
+              "足した人で決める: %s" % fv.answers[-1:])
     finally:
         _restore_queue(cx)
 
 
 def _scene_voice_others(cx):
-    """誰の声: V(別の声も入っている)を入れて名前で答える = {choice, others: true}・O は「声が無い」の文(10-25 確かめるの混ざりと BGM のルール)"""
+    """話者カード: 札(誰か分からないメンバー・メンバー以外の人・ゲームの声)は人と同じく選ぶ・2 人以上も選べる"""
     pg, check = cx.pg, cx.check
     opts = [{"id": "S1", "name": "ぺこら"}, {"id": "other", "name": "その他"}, {"id": "mixed", "name": "混ざり"}]
-    fv = FakeQueue([card(i, "voice", source="solo", options=opts) for i in (60, 61)])
+    fv = FakeQueue([card(i, "voice", source="solo", options=opts, cast=["ぺこら"]) for i in (60, 61)])
     _swap_queue(cx, fv)
     try:
         pg.goto(cx.base + "check?kind=voice")
-        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:60'"), "声のカード(V)を開く: %s" % state(pg))
-        check("声が無い" in (pg.text_content("#chkBody [data-chk-k='O']") or ""), "O は「声が無い(ゲームの音・BGM だけ)」の文")
-        press(pg, "v")
-        check(pg.get_attribute("#chkBody [data-chk-k='V']", "aria-pressed") == "true" and pg.is_visible("#chkBody [data-chk-others]"),
-              "V で「別の声も入っている」が入る(押した状態と一言)")
-        press(pg, "1")
-        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:61'") and fv.answers[-1]["body"]["answer"] == {"choice": "S1", "others": True},
-              "V のあと 1 = {choice: S1, others: true}: %s" % fv.answers[-1:])
-        check(pg.get_attribute("#chkBody [data-chk-k='V']", "aria-pressed") == "false", "次のカードでは V は切れている")
-        press(pg, "v")
-        press(pg, "m")
-        check(wait_js(pg, "CheckShell.state().empty") and fv.answers[-1]["body"]["answer"] == {"choice": "mixed"}, "V のあと M = 混ざりだけ(others は付けない): %s" % fv.answers[-1:])
+        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:60'"), "話者のカード(札)を開く: %s" % state(pg))
+        press(pg, "NS0")
+        press(pg, "Enter")
+        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:61'") and fv.answers[-1]["body"]["answer"] == {"names": ["誰か分からないメンバー"]},
+              "札だけで決める: %s" % fv.answers[-1:])
+        press(pg, "N0")
+        press(pg, "NS2")
+        press(pg, "Enter")
+        check(wait_js(pg, "CheckShell.state().empty") and fv.answers[-1]["body"]["answer"] == {"names": ["ぺこら", "ゲームの声"]}, "2 人以上も選べる: %s" % fv.answers[-1:])
     finally:
         _restore_queue(cx)
 
@@ -564,55 +573,48 @@ def _scene_voice_video_or_clip(cx):
 
 
 def _scene_speaker(cx):
-    """コラボの話者のカード(speaker:collab・10 秒の区間・cards/speaker.js): 出る人の全員が名前のボタン(数字キー)・予想なし・BGM 大や別の声も は無い・
-    数字で何人でも選んで Enter = {names: [...]}(話している人を全員)・X = その他の人・選ばずに Enter は効かない・ほかの人の欄で足す・O = 声なし。
-    YTT_E2E_SHOT があれば、そのパスにカードの写真を撮る"""
+    """話者カード(コラボの 10 秒の区間・speaker:collab): 出る人の全員が名前のボタン・予想なし・選ばずに決めるは押せない・何人でも選んで決める = {names}・
+    ほかのメンバーを足す・メンバー以外の人の札は その他の人 の名前で送る(前の答えと同じ)・声なし。YTT_E2E_SHOT があれば、そのパスにカードの写真を撮る"""
     pg, check = cx.pg, cx.check
-    def sc(i, people, pick):
+    def sc(i, people):
         return card(i, "speaker", source="collab", target={"videoId": "AAAAAAAAAAA", "collab": "c1r%02d" % i, "docId": None, "row": None},
                     media={"url": "api/check/voicecollab?key=c1r%02d" % i, "start": 0.0, "end": 1.0, "pad": 0.0, "padEnd": 0.0}, text="",
-                    people=people, pick=pick, otherPerson="その他の人", case={"id": "AAAAAAAAAAA", "title": "ド珍検証会(ド珍組)"})
+                    people=people, cast=people, otherPerson="その他の人", case={"id": "AAAAAAAAAAA", "title": "ド珍検証会(ド珍組)"})
     four = ["さくらみこ", "白上フブキ", "大神ミオ", "大空スバル"]
-    fs = FakeQueue([sc(i, four, ["兎田ぺこら", "宝鐘マリン"]) for i in (90, 91, 92, 93)])
+    fs = FakeQueue([sc(i, four) for i in (90, 91, 92, 93)])
     clip_re = re.compile(r".*/api/check/voicecollab.*")
     _swap_queue(cx, fs)
     cx.ctx.route(clip_re, lambda route: route.fulfill(status=200, body=cx.wav, headers={"Content-Type": "audio/wav", "Accept-Ranges": "none"}))
-    names = "[...document.querySelectorAll('#chkBody .chk-spk-names .chk-spk-name')].map(b => [b.textContent.trim(), b.getAttribute('aria-pressed')])"
+    names = "[...document.querySelectorAll('#chkBody .chk-spk-names .chk-spk-name')].map(b => [b.firstChild.textContent, b.getAttribute('aria-pressed')])"
     try:
-        pg.goto(cx.base + "check?kind=speaker")
-        check(wait_js(pg, "CheckShell.state().cur === 'speaker:e2e:90'"), "コラボの話者のカードを開く: %s" % state(pg))
+        pg.goto(cx.base + "check?kind=voice")
+        check(wait_js(pg, "CheckShell.state().cur === 'speaker:e2e:90'") and fs.next_q[-1].get("kind") == ["voice"],
+              "コラボの区間も「話者」(kind=voice)で出る: %s" % state(pg))
         got = pg.evaluate(names)
-        check([n for n, _p in got] == ["さくらみこ", "白上フブキ", "大神ミオ", "大空スバル"] and all(p_ == "false" for _n, p_ in got),
-              "出る人の全員が名前のボタン(並びはカードのまま): %s" % got)
-        txt = pg.text_content("#chkBody") or ""
-        check("予想" not in txt and pg.query_selector("#chkBody [data-chk-k='G']") is None and pg.query_selector("#chkBody [data-chk-k='V']") is None,
-              "予想・BGM が大きい・別の声も は出ない")
-        check(pg.is_disabled("#chkBody [data-chk-k='Enter']"), "1 人も選んでいなければ決めるは押せない")
-        press(pg, "Enter")
-        check(not fs.answers, "選ばずに Enter は答えにならない: %s" % fs.answers[-1:])
-        press(pg, "2")
-        press(pg, "4")
-        check(pg.evaluate(names)[1][1] == "true" and pg.evaluate(names)[3][1] == "true", "数字で 2 人を選んだ状態: %s" % pg.evaluate(names))
+        check([n for n, _p in got][:4] == four and all(p_ == "false" for _n, p_ in got), "出る人の全員が名前のボタン(並びはカードのまま): %s" % got)
+        check("予想" not in (pg.text_content("#chkBody") or "") and pg.is_disabled("#chkBody [data-chk-k='Enter']"), "予想なし・選ばずに決めるは押せない")
+        press(pg, "N1")
+        press(pg, "N3")
         shot = os.environ.get("YTT_E2E_SHOT")
         if shot:
             pg.screenshot(path=shot, full_page=True)
         press(pg, "Enter")
         check(wait_js(pg, "CheckShell.state().cur === 'speaker:e2e:91'") and fs.answers[-1]["body"]["answer"] == {"names": ["白上フブキ", "大空スバル"]},
-              "Enter = 選んだ人を全員 {names}: %s" % fs.answers[-1:])
-        pg.select_option("#chkBody [data-chk-spk-pick]", "兎田ぺこら")
+              "決める = 選んだ人を全員 {names}: %s" % fs.answers[-1:])
+        press(pg, "OPEN")
+        wait_js(pg, "!!document.querySelector('#chkBody [data-chk-add=\"兎田ぺこら\"]')")
+        pg.click("#chkBody [data-chk-add='兎田ぺこら']")
         check(wait_js(pg, "[...document.querySelectorAll('#chkBody .chk-spk-name')].some(b => b.textContent.includes('兎田ぺこら') && b.getAttribute('aria-pressed') === 'true')"),
-              "ほかの人の欄で選ぶと名前のボタンに足して選んだ状態: %s" % pg.evaluate(names))
-        press(pg, "Enter")
-        check(wait_js(pg, "CheckShell.state().cur === 'speaker:e2e:92'") and fs.answers[-1]["body"]["answer"] == {"names": ["兎田ぺこら"]},
-              "足した人で答える: %s" % fs.answers[-1:])
-        press(pg, "1")
-        press(pg, "x")
-        check(pg.get_attribute("#chkBody [data-chk-k='X']", "aria-pressed") == "true", "X = その他の人を選んだ状態")
+              "ほかのメンバーを足すと名前のボタンに足して選んだ状態: %s" % pg.evaluate(names))
+        pg.click("#chkBody [data-chk-k='Enter']")   # 探す欄にいるので決めるはボタンで
+        check(wait_js(pg, "CheckShell.state().cur === 'speaker:e2e:92'") and fs.answers[-1]["body"]["answer"] == {"names": ["兎田ぺこら"]}, "足した人で答える: %s" % fs.answers[-1:])
+        press(pg, "N0")
+        press(pg, "NS1")
         press(pg, "Enter")
         check(wait_js(pg, "CheckShell.state().cur === 'speaker:e2e:93'") and fs.answers[-1]["body"]["answer"] == {"names": ["さくらみこ", "その他の人"]},
-              "X = その他の人も 1 人として名前に入る: %s" % fs.answers[-1:])
-        press(pg, "o")
-        check(wait_js(pg, "CheckShell.state().empty") and fs.answers[-1]["body"]["answer"] == {"choice": "other"}, "O = 声なし: %s" % fs.answers[-1:])
+              "メンバー以外の人 = その他の人 の名前で送る(前の答えと同じ): %s" % fs.answers[-1:])
+        press(pg, "NONE")
+        check(wait_js(pg, "CheckShell.state().empty") and fs.answers[-1]["body"]["answer"] == {"choice": "other"}, "声なし: %s" % fs.answers[-1:])
     finally:
         cx.ctx.unroute(clip_re)
         _restore_queue(cx)
@@ -776,7 +778,7 @@ def _scene_kind_pick(cx):
         pg.goto(cx.base + "check")
         check(wait_js(pg, "CheckShell.state().cur === 'value:e2e:81'"), "全部の種類で開く: %s" % state(pg))
         got = pg.evaluate(pills)
-        check(got == [["", "3", "true", False], ["voice", "0", "false", True], ["speaker", "0", "false", True], ["time", "0", "false", True],   # speaker = コラボの話者(11-01)
+        check(got == [["", "3", "true", False], ["voice", "0", "false", True], ["time", "0", "false", True],   # voice = 話者(誰の声 + コラボの話者。11-02)
                       ["value", "2", "false", False], ["cut", "1", "false", False], ["symbol", "0", "false", True]],   # symbol = 記号のカード(11-01)
               "切り替え: 全部が選ばれ、残りの枚数・0 の種類は薄い(読み・声かどうかは無い): %s" % got)
         pg.click("#chkKinds [data-chk-kind=cut]")

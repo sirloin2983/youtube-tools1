@@ -10,6 +10,12 @@
   {"choice": "mixed"}            声が混ざっている = 行の印 MIXED_FLAG と音のメモ overlap(話者はそのまま)
   上のどれにも "bgm": true を足せる  ゲーム音・BGM が大きい = 行の音のメモ bgm も付ける(覚える材料にしない。Z で音のメモも戻る)
   名前の答えに "others": true を足せる  別の声も入っている(V。後ろに別の人の声が小さく)= 行の音のメモ overlap(覚える材料にしない・混ざりの印は付けない。10-25)
+  {"names": [名前…]}(11-02 の「話者」カード cards/speaker.js。話している人を全部選んで決める)。名前の代わりに札 SPECIALS
+                                 (誰か分からないメンバー・メンバー以外の人・ゲームの声)も選べる。"bgm": true(BGM が大きい)・"alt": true(声色が違う = 真似・笑い・歌)を足せる。
+                                 反映は前の形に直して同じ道(_effective): 2 人以上 = 混ざり / ゲームの声だけ = その他 / 1 人 = その人の名前(札の人は文書の話者に足すが覚えない)。
+                                 声の材料にするのは、測る専用の札(カードの measureOnly)が無く、選んだ人が 1 人だけ・印(bgm・alt)が無いとき
+  ソロの配信の守り(collab_docs): ソロの行のカード(voice:solo)で 1 枚でも 2 人以上か配信者以外の人と答えられた文書は、実はコラボだった見込み =
+                                 その文書の行は声の材料に数えない(_pending)・その文書から新しいカードも出さない(app/check/voice_solo)
 反映(_apply_voice): _doc.edit_row(保存の錠・処理中と評価用は断る・履歴は 10 分に 1 つ)の中で、行の speaker・flag(話者の印 SPK_FLAGS を外す /
   混ざりは付ける)・tags・noSub を直して why="check:voice"。**行は proofed にしない**(文字は確かめていない)・時刻は触らない・層(O2)には commit の今の道で載る(hum は渡さない)。
   Z(_revert_voice)= 逆の commit(行が答えたあとのままのときだけ。もう答える前のままなら書かない。足した話者は誰も使っていなければ外す)。
@@ -48,6 +54,9 @@ RELEARN_SEC_RANGE = (5.0, 3600.0)
 DIAR_SETTING, DIAR_ENV = "checkVoiceDiarOn", "YTT_CHECK_VOICE_DIAR"   # 判別の記録から作る声のカード(voice:diar)のスイッチ(既定オフ)
 SPK_COLORS = _speakers.SPK_COLORS
 _CTRL_RE = re.compile(r"[\x00-\x1f\x7f]")
+UNKNOWN_MEMBER, OUTSIDER, GAME_VOICE = "誰か分からないメンバー", "メンバー以外の人", "ゲームの声"   # 話者カードの人と同じく選べる札(11-02)
+SPECIALS = (UNKNOWN_MEMBER, OUTSIDER, GAME_VOICE)
+MAX_NAMES = 8                   # 話者カードで選べる人の数
 
 
 def diar_enabled():
@@ -69,7 +78,7 @@ def diar_enabled():
 def _learnable_name(name):
     """覚えてよい名前か(仮の名前 話者n・一般的な名前・空は覚えない = speakers.voice_learn_plan と同じ決まり)"""
     n = str(name or "").strip()
-    return bool(n) and not _speakers.DEFAULT_SPK_NAME.match(n) and not _speakers.is_generic_speaker_name(n)
+    return bool(n) and n not in SPECIALS and not _speakers.DEFAULT_SPK_NAME.match(n) and not _speakers.is_generic_speaker_name(n)
 
 
 def doc_embedding(doc):
@@ -165,6 +174,17 @@ def _check_answer(ans):
     others = 「別の声も入っている」(V。後ろに別の人の声が小さく入る = 行の音のメモ overlap・覚えない・混ざりの印 MIXED_FLAG は付けない。10-25)"""
     if not isinstance(ans, dict):
         raise ValueError("答えは {choice} か {name} の形で送ってください")
+    if "names" in ans:   # 話者カード(11-02): 話している人を全部
+        extra = set(ans) - {"names", "bgm", "alt"}
+        if extra or not isinstance(ans["names"], list) or not 1 <= len(ans["names"]) <= MAX_NAMES:
+            raise ValueError("答えは {names: [名前…]}(1〜%d 人。bgm・alt を足せる)の形で送ってください" % MAX_NAMES)
+        out = {"names": list(dict.fromkeys(_check_answer({"name": n if isinstance(n, str) else ""})["name"] for n in ans["names"]))}
+        for k in ("bgm", "alt"):
+            if k in ans:
+                if ans[k] is not True:
+                    raise ValueError("%s は true だけ送れます" % k)
+                out[k] = True
+        return out
     if "others" in ans:
         if ans["others"] is not True:
             raise ValueError("others は true だけ送れます")
@@ -263,9 +283,54 @@ def _speaker_for(doc, ans):
     raise _apply.Refused("その話者はこの文書にいません(画面を読み込み直してください)", 409, "gone")
 
 
+def _effective(ans):
+    """話者カードの答え {names} → 前の形の答え(反映の道は同じ)。ほかの形はそのまま。
+    2 人以上 = 混ざり / ゲームの声だけ = その他 / 1 人 = その人の名前(札の人も名前の話者 = 覚えない)。bgm はそのまま・alt は覚えないだけ"""
+    if "names" not in ans:
+        return ans
+    names = ans["names"]
+    out = {"choice": MIXED} if len(names) >= 2 else {"choice": OTHER} if names == [GAME_VOICE] else {"name": names[0]}
+    if ans.get("bgm"):
+        out["bgm"] = True
+    return out
+
+
+def answer_names(row):
+    """答えの記録 1 行 → 話している人の名前 [..](声なし・ゲームの声だけ = [])か None(読めない)。混ざり(前の形)は 2 人と数える。
+    前の形の {choice: 話者の id} は、予想(guess)の人の id なら予想の名前・違えば「予想と違う人」"""
+    a, g = row.get("answer") or {}, row.get("guess") or {}
+    if isinstance(a.get("names"), list):
+        return [n for n in a["names"] if n != GAME_VOICE]
+    if a.get("name"):
+        return [a["name"]]
+    c = a.get("choice")
+    if c == MIXED:
+        return ["?", "??"]
+    if c == OTHER:
+        return []
+    if isinstance(c, str) and c:
+        return [g.get("name")] if c == g.get("id") and g.get("name") else ["(予想と違う人)"]
+    return None
+
+
+def collab_docs(app_dir, rows=None):
+    """ソロの配信の守り(11-02 ユーザー): ソロの行のカード(voice:solo)で 2 人以上か配信者(= カードの予想 guess の人)以外と答えた文書 id の集まり"""
+    out = set()
+    for r in rows if rows is not None else answerlog.state(app_dir).effective():
+        if r.get("kind") != KIND or r.get("source") != "solo":
+            continue
+        who, names = (r.get("guess") or {}).get("name"), answer_names(r)
+        tid = ((r.get("target") or {}).get("docId")) or ((r.get("applied") or {}).get("doc"))
+        if not tid or names is None or not who:
+            continue
+        if len(names) >= 2 or any(_person_key(n) != _person_key(who) for n in names):
+            out.add(str(tid))
+    return out
+
+
 def _learn_of(doc, g, sid, ans):
-    """名前で答えた行が覚える材料になるなら {name, sec, emb}(ならなければ None)"""
-    if ans.get("choice") in (OTHER, MIXED) or doc.get("evalSet") is True:
+    """名前で答えた行が覚える材料になるなら {name, sec, emb}(ならなければ None)。ans は前の形(_effective の後)"""
+    if ans.get("choice") in (OTHER, MIXED) or ans.get("alt") or doc.get("evalSet") is True:
         return None
     a, b = _yschemas.num_or(g.get("start")), _yschemas.num_or(g.get("end"))
     if a is None or b is None or b - a < MIN_LEARN_SEC or _yschemas.has_flag(g.get("flag"), _txbase.MIXED_FLAG):
@@ -284,6 +349,9 @@ def _learn_of(doc, g, sid, ans):
 def _apply_voice(ctx, card, ans):
     """答えを文書の行へ。-> applied {doc, row, before, after, added, updatedAt, learn?, relearn?}"""
     tid, rid = _doc.row_target(card, "カードの対象(文書・行)が正しくありません", _ROW_RE)
+    picked, ans = ans, _effective(ans)
+    if picked.get("alt"):
+        ans = dict(ans, alt=True)   # 声色が違う = 覚えないだけ(行の音のメモには無い印)
 
     def change(doc, g, before):
         if ans.get("choice") == MIXED:
@@ -297,9 +365,12 @@ def _apply_voice(ctx, card, ans):
         if ans.get("others"):   # 別の声も入っている = 音のメモ overlap(覚える材料から外す・混ざりの印は付けない = 話者はその人のまま。10-25)
             after["tags"] = _with_tags(after["tags"], "overlap")
         _set_row(g, after)
-        return added, _learn_of(doc, g, g["speaker"], ans), doc
+        learn = None if card.get("measureOnly") or tid in collab_docs(getattr(ctx, "app_dir", "")) else _learn_of(doc, g, g["speaker"], ans)   # 測る専用の札・コラボだった見込みの配信は覚えない
+        return added, learn, doc
     before, after, (added, learn, doc) = _doc.edit_fields(tid, rid, "check:voice", _row_state, change)
     applied = {"doc": tid, "row": rid, "before": before, "after": after, "added": added, "updatedAt": doc.get("updatedAt")}
+    if "names" in picked:
+        applied["names"] = list(picked["names"])
     if learn:
         applied["learn"] = learn
         try:
@@ -358,14 +429,15 @@ def _inflight():
 
 def _pending(ctx, extra=()):
     """まだ覚えていない材料 -> {(emb, 名前): {文書: {行: 秒}}}。extra = 記録にまだ書いていない今の答えの材料 [{doc, row, name, sec, emb}]"""
-    items = []
-    for r in answerlog.state(ctx.app_dir).effective():
-        if r.get("kind") != KIND or r.get("source") not in SOURCES:
+    items, rows = [], answerlog.state(ctx.app_dir).effective()
+    collab = collab_docs(ctx.app_dir, rows)   # ソロの配信の守り: コラボだった見込みの文書の行は数えない
+    for r in rows:
+        if r.get("kind") != KIND or r.get("source") not in SOURCES or str((r.get("applied") or {}).get("doc") or "") in collab:
             continue
         lr = (r.get("applied") or {}).get("learn")
         if isinstance(lr, dict):
             items.append(dict(lr, doc=(r.get("applied") or {}).get("doc"), row=(r.get("applied") or {}).get("row")))
-    items += list(extra)
+    items += [it for it in extra if str(it.get("doc") or "") not in collab]
     cache, busy, out = {}, _inflight(), {}
     for it in items:
         tid, rid, name, emb = str(it.get("doc") or ""), str(it.get("row") or ""), str(it.get("name") or ""), str(it.get("emb") or "")

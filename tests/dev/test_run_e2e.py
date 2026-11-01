@@ -40,7 +40,7 @@ class TestSuiteList(unittest.TestCase):
         self.assertIn(("cases", "tests/app/e2e_check.py"), {(g, s) for g, s, _a, _w in run_e2e.SUITE})
         import ui_audit
         self.assertTrue(set(ui_audit.SCREENS["app/ui/check"]) >= {"index.html", "check.js", "check.css", "player.js",
-                                                                  "cards/value.js", "cards/voice.js", "cards/time.js"})
+                                                                  "cards/value.js", "cards/speaker.js", "cards/time.js"})   # speaker.js = 話者カード(誰の声 + コラボの話者。11-02)
         scenes = {s["name"]: s["url"] for s in ui_audit.default_scenes("http://127.0.0.1:9")}   # 見本サーバーが無い = 文書の id は空(場面の URL だけ見る)
         for kind in ("value", "voice", "time"):
             self.assertTrue(any(u.endswith("/check?kind=" + kind) for u in scenes.values()), kind)

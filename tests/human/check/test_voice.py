@@ -40,9 +40,9 @@ def make_doc(**kw):
     return d
 
 
-def card(rid, guess=None):
-    return {"id": "voice:diar:%s#%s" % (TID, rid), "kind": "voice", "source": "diar", "case": {"id": "", "title": "t"},
-            "target": {"docId": TID, "row": rid, "videoId": None}, "guess": guess}
+def card(rid, guess=None, source="diar", **kw):
+    return dict({"id": "voice:%s:%s#%s" % (source, TID, rid), "kind": "voice", "source": source, "case": {"id": "", "title": "t"},
+                 "target": {"docId": TID, "row": rid, "videoId": None}, "guess": guess}, **kw)
 
 
 class Base(unittest.TestCase):
@@ -285,6 +285,40 @@ class RelearnTest(Base):
         apply.undo(self.ctx, got["answer"])
         g = self.seg("s2")
         self.assertEqual((g["speaker"], g.get("tags")), ("S2", None))
+
+    def test_speaker_card_names(self):
+        """話者カード(11-02)の {names}: 1 人・印なし = 覚える / 2 人 = 混ざり / ゲームの声だけ = その他 / 札の人・声色が違う・測る専用の札 = 覚えない"""
+        self.assertEqual(voice._check_answer({"names": ["ぺこら", "ぺこら"], "alt": True}), {"names": ["ぺこら"], "alt": True})
+        for bad in ({"names": []}, {"names": ["a"], "x": 1}, {"names": ["a"], "bgm": 1}):
+            with self.assertRaises(ValueError):
+                voice._check_answer(bad)
+        got = self.answer("s4", {"names": ["ぺこら"]})
+        self.assertEqual((self.seg("s4")["speaker"], got["applied"]["learn"]["name"], got["applied"]["names"]), ("S1", "ぺこら", ["ぺこら"]))
+        got = self.answer("s2", {"names": ["ぺこら", "みこ"]})
+        self.assertEqual((self.seg("s2")["flag"], "learn" in got["applied"]), (txbase.MIXED_FLAG, False))
+        got = self.answer("s1", {"names": [voice.GAME_VOICE]})
+        self.assertEqual((self.seg("s1")["speaker"], "learn" in got["applied"]), ("other", False))
+        got = self.answer("s5", {"names": [voice.OUTSIDER]})
+        self.assertFalse("learn" in got["applied"])   # 札の人は名前の話者にするが覚えない
+        apply.undo(self.ctx, got["answer"])
+        got = apply.answer(self.ctx, card("s5", measureOnly=True), {"answer": {"names": ["ぺこら"]}})
+        self.assertFalse("learn" in got["applied"])   # 測る専用の札
+        apply.undo(self.ctx, got["answer"])
+        got = self.answer("s5", {"names": ["ぺこら"], "alt": True})
+        self.assertFalse("learn" in got["applied"])   # 声色が違う
+
+    def test_solo_collab_guard(self):
+        """ソロの配信の守り(11-02): ソロの行のカードで 2 人以上か配信者以外と答えた文書は、その文書の行を材料に数えない"""
+        streamer = {"id": "S1", "name": "ぺこら"}
+        got = apply.answer(self.ctx, card("s4", streamer, source="solo"), {"answer": {"names": ["ぺこら"]}})
+        self.assertIn("learn", got["applied"])
+        self.assertEqual(voice.collab_docs(self.app), set())
+        self.assertEqual(voice._pending(self.ctx), {(EMB, "ぺこら"): {TID: {"s4": 20.0}}})
+        apply.answer(self.ctx, card("s2", streamer, source="solo"), {"answer": {"names": [voice.OUTSIDER]}})
+        self.assertEqual(voice.collab_docs(self.app), {TID})
+        self.assertEqual(voice._pending(self.ctx), {})   # その文書の行は全部数えない
+        self.assertEqual(voice.answer_names({"answer": {"choice": "mixed"}}), ["?", "??"])
+        self.assertEqual(voice.answer_names({"answer": {"choice": "S2"}, "guess": streamer}), ["(予想と違う人)"])
 
     def test_failed_relearn_is_not_repeated(self):
         """失敗した覚え直しと同じ行だけなら、答えるたびに足し直さない(材料が増えたらまた試す)"""

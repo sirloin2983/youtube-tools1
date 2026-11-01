@@ -63,7 +63,8 @@ def _reached(view):
         if r.get("source") != SOURCE:
             continue
         a, who = r.get("answer") or {}, str((r.get("applied") or {}).get("who") or "")
-        if not who or a.get("bgm") or a.get("others") or _person_key(a.get("name")) != _person_key(who):
+        one = a["names"][0] if isinstance(a.get("names"), list) and len(a["names"]) == 1 else a.get("name")   # 話者カード(11-02)は {names}
+        if not who or a.get("bgm") or a.get("others") or a.get("alt") or _person_key(one) != _person_key(who):
             continue
         k = _person_key(who)
         rows[k] = rows.get(k, 0) + 1
@@ -94,7 +95,7 @@ def voice_measure(view):
                     "guess": {"id": NAME_PREFIX + g1["name"], "name": g1["name"], "score": g1.get("score"), "second": dict(g2)},
                     "options": voice_mod.buttons(opts, [NAME_PREFIX + g1["name"], NAME_PREFIX + c["who"]]),
                     "people": [{"id": NAME_PREFIX + n, "name": n} for n in dict.fromkeys(names + list(members))],
-                    "score": None, "note": SOURCE, "who": c["who"],
+                    "score": None, "note": SOURCE, "who": c["who"], "cast": [c["who"]], "measureOnly": True,   # 出るはずの人 = 配信者・測る専用の札(画面に出さない・覚えない)
                     "_order": [-2, 0 if _person_key(c["who"]) in lead else 1, random.random()]})
     return out
 

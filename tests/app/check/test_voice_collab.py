@@ -73,6 +73,7 @@ class VoiceCollabTest(unittest.TestCase):
         self.assertEqual(ap.apply(None, c, ap.check({"names": ["桃鈴ねね", "雪花ラミィ", "桃鈴ねね"]})),
                          {"collab": "c1r01", "video": "AAAAAAAAAAA", "names": ["桃鈴ねね", "雪花ラミィ"]})   # 同時に話した人は全員残す
         self.assertEqual(ap.check({"names": ["桃鈴ねね", "その他の人"]}), {"names": ["桃鈴ねね", "その他の人"]})   # その他の人も 1 人
+        self.assertEqual(ap.check({"names": ["ゲームの声"], "bgm": True, "alt": True}), {"names": ["ゲームの声"], "bgm": True, "alt": True})   # 話者カード(11-02)の札と印
         self.assertEqual(ap.apply(None, c, ap.check({"choice": "other"})), {"collab": "c1r01", "video": "AAAAAAAAAAA", "names": []})
         for bad in ({"names": []}, {"names": [1]}, {"choice": "mixed"}, {"name": "桃鈴ねね"}, "x"):
             with self.assertRaises(ValueError):
