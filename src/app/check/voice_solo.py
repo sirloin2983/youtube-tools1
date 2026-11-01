@@ -127,7 +127,10 @@ def _later(tid, g):
 def _select(view):
     """カードに出す行を選ぶ(並び・量の決まりは先頭の説明)-> [(rank, 名前, 人の一覧, 文書 id, 文書, 行, i)]。聞けない行(音も動画も無い)は飛ばす"""
     by_person, skips, overlaps = {}, {"songDocs": 0, "songRows": 0}, {}
+    collab = voice_mod.collab_docs(getattr(view.ctx, "app_dir", ""), view.answered("voice"))   # ソロの配信の守り(11-02): 2 人以上・配信者以外と答えた文書は出さない
     for tid, path, doc in view.docs(need_media=False):
+        if tid in collab:
+            continue
         latest = view.diar(tid, path)
         if isinstance(latest, dict) and latest.get("overlaps"):
             overlaps[tid] = latest["overlaps"]   # 判別の重なり(別の話者の区間が重なる所)にかかる行は出さない(10-25)
@@ -233,7 +236,7 @@ def voice_solo(view):
         opts, guess = _options(doc, who, people)
         card = sources._doc_card(view, "voice", SOURCE, tid, doc, g, 0.3, {
             "guess": guess, "options": voice_mod.buttons(opts, [guess["id"]]),
-            "people": voice_mod.people_for(doc, {}, [who] + list(people) + members), "note": SOURCE,
+            "people": voice_mod.people_for(doc, {}, [who] + list(people) + members), "note": SOURCE, "cast": [who],   # 出るはずの人 = 配信者(話者カード)
             "_order": [-1, random.random() * (1.0 + _later(tid, g)), rank, i, int(records.output_old(doc)), -sources._num(doc.get("updatedAt")), sources._num(g.get("start"))]}, tight=True)
         clip = None if sources.has_media(doc) else _voiceclips.media(tid, g["id"], card["media"]["start"], card["media"]["end"])
         if clip:   # 元の動画が無い(片付いた・友人から届いた)ときだけ、切り出して残した行の音で再生する。動画があれば映像つきのまま(10-25 直し)

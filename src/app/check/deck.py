@@ -112,6 +112,9 @@ def _goals(ctx):
     return got if isinstance(got, list) else []
 
 
+KIND_GROUP = {"voice": ("voice", "speaker")}   # 画面の種類の切り替えの 1 つ「話者」= 誰の声とコラボの話者(11-02 に 1 つの話者カードにまとめた。種類の値は 2 つのまま)
+
+
 def check_args(case=None, kind=None, n=None, skip=None, lane=None):
     """GET の引数を検査して整える。-> (case, kind, n, skip の集合, lane)。違えば ValueError(400)。
     lane = normal(普段のレーン。既定)| eval(評価のレーン = 評価用の文書の区間カード。C-EVAL)。kind はそのレーンの種類だけ"""
@@ -142,7 +145,7 @@ def next_cards(ctx, case=None, kind=None, n=None, skip=None, lane=None):
     st = answerlog.state(ctx.app_dir)
     cards, errors = _collect(ctx, st)
     every = [c for c in cards if not st.closed(c) and (case is None or (c.get("case") or {}).get("id") == case) and c.get("kind") in kinds]
-    pool = every if kind is None else [c for c in every if c.get("kind") == kind]
+    pool = every if kind is None else [c for c in every if c.get("kind") in KIND_GROUP.get(kind, (kind,))]
     gk = goals_mod.by_kind(_goals(ctx))
     later = answerlog.read_skips(ctx.app_dir)
     if n:

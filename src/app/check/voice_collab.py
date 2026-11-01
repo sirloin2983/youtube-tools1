@@ -9,6 +9,9 @@
   ボタン その配信に出る人の全員(名簿の順 = 配信者を先頭にしない・配信ごとに固定。数字キーで選ぶ / 外す)・その他の人(メンバー以外の声。X)。
          候補にいない人は「ほかの人を選ぶ」の欄(名簿の全員)で足す。声なし(O)。分からない(W)は殻のボタン。**道具の予想は出さない**
   答え   {"names": [選んだ名前…]}(1 人以上。その他の人も 1 人)か {"choice": "other"}(声なし)。文書が無いので実物は書き換えない・**声も覚えない**
+         (11-02: 誰の声と 1 つの「話者」カード cards/speaker.js にまとめた。名前の代わりに札 誰か分からないメンバー・ゲームの声も選べ、
+         "bgm": true(BGM が大きい)・"alt": true(声色が違う)を足せる。「メンバー以外の人」の札はこの種類では OTHER_PERSON の名前で送る = 前の答えと同じ。
+         カードには測る専用の札 measureOnly(画面に出さない))
          (試す専用の正解 = 声の登録簿に入れない)。答えの記録の applied = {collab: 区間の key, video, names}。採点は研究の側(score_segments.py)。Z は記録だけ戻す
   一覧のファイルはこの PC の作業データにだけ置く(配る zip には入らない = 友人の PC では出ない)
 """
@@ -79,7 +82,7 @@ def voice_collab(view):
                     "media": {"url": "api/check/voicecollab?key=%s" % c["key"], "start": 0.0, "end": sec, "pad": 0.0, "padEnd": 0.0},
                     "text": "", "people": names,
                     "pick": [n for n in dict.fromkeys(members) if _person_key(n) not in shown], "otherPerson": OTHER_PERSON,
-                    "score": None, "note": "",
+                    "score": None, "note": "", "cast": names, "measureOnly": True,
                     "_order": [0, c["video"], random.random()]})   # 配信ごとにまとめて出す(同じ人の並びが続く = 迷わない)
     return out
 
@@ -90,10 +93,16 @@ def check_answer(ans):
         raise ValueError("答えは {names} か {choice} の形で送ってください")
     if set(ans) == {"choice"} and ans["choice"] == OTHER:
         return {"choice": OTHER}
-    if set(ans) == {"names"} and isinstance(ans["names"], list) and 1 <= len(ans["names"]) <= MAX_NAMES:
+    if "names" in ans and set(ans) <= {"names", "bgm", "alt"} and isinstance(ans["names"], list) and 1 <= len(ans["names"]) <= MAX_NAMES:
         if not all(isinstance(n, str) for n in ans["names"]):
             raise ValueError("名前は文字で送ってください")
-        return {"names": list(dict.fromkeys(voice_mod._check_answer({"name": n})["name"] for n in ans["names"]))}
+        out = {"names": list(dict.fromkeys(voice_mod._check_answer({"name": n})["name"] for n in ans["names"]))}
+        for k in ("bgm", "alt"):
+            if k in ans:
+                if ans[k] is not True:
+                    raise ValueError("%s は true だけ送れます" % k)
+                out[k] = True
+        return out
     raise ValueError("答えは {names: [名前…]}(1〜%d 人)か {choice: \"other\"} の形で送ってください" % MAX_NAMES)
 
 

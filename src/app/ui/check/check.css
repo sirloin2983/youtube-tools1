@@ -119,3 +119,12 @@
 .chk-spk-name[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-ink2);font-weight:700}
 .chk-spk-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;width:100%}
 .chk-spk-row select{font-size:15px;min-height:32px}
+.chk-spk-added{font-size:11px;margin-left:6px;padding:0 5px;border:1px solid currentColor;border-radius:999px;opacity:.75}
+.chk-spk-panel{margin-top:10px;padding:10px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--panel-2)}
+.chk-spk-panel .row{display:flex;gap:8px;align-items:center}
+.chk-spk-group{display:flex;gap:6px 10px;align-items:baseline;flex-wrap:wrap;margin-top:8px}
+.chk-spk-glabel{flex:0 0 120px;font-size:12px;color:var(--ink-3)}
+.chk-spk-chips{display:flex;flex-wrap:wrap;gap:6px;flex:1 1 300px;margin-top:6px}
+.chk-spk-chip{display:inline-flex;align-items:center;gap:5px;min-height:28px;padding:2px 10px;border:1px solid var(--line-2);border-radius:999px;background:var(--panel);color:var(--ink);font:inherit;font-size:13.5px;cursor:pointer}
+.chk-spk-chip[aria-pressed=true]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-ink2);font-weight:650}
+.chk-spk-dot{width:9px;height:9px;border-radius:50%;flex:0 0 9px}
