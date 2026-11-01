@@ -52,6 +52,7 @@ QUALITIES = {"best": "best", "1080p": "1080p60,1080p,best", "720p": "720p60,720p
 DEFAULT_QUALITY = "1080p"   # 既定(ユーザー決定): 4K の配信で容量が膨らむのを避けつつ、速報版の見た目を保つ。720p・best も選べる
 YT_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be")
 BACKOFF = (5, 10, 30)          # 繋ぎ直すまでの秒(最後の値を繰り返す)
+BACKOFF_LONG = ((180, 60), (360, 120))   # 録れた後にデータが来ない秒がこれを過ぎたら、繋ぎ直しの間を少なくともこの秒に(配信の終わりの 600 秒待ちの起こし直しを 20 回 → 10 回ほど。11-01 ライブを軽くする案の 1。終わりの決め方は変えない)
 IDLE_END = 600                 # 途中で切れて、この秒数データが来なければ「終了」(終わった配信は --stream-types hls で取れなくなる)
 WAIT_START = 6 * 3600          # 配信の前から待つ上限(秒)
 STALL_SEC = 60                 # 録画中にこの秒数新しいセグメントが出なければ、止まったとみなして繋ぎ直す
@@ -610,7 +611,7 @@ class Recording:
                 if (blocked_at is None or not got_any) and time.time() - last_data > (mgr.idle_end if got_any else mgr.wait_start):   # 録れた後に断られている間は上の BLOCKED_GIVE_UP で止める
                     msg = ENDED if got_any else "配信が始まらないので待つのをやめました"
                     return self._finish("ended", msg, "終了(%s)" % msg, "idle" if got_any else "notStarted")
-                delay = mgr.backoff[min(backoff_i, len(mgr.backoff) - 1)]
+                delay = reconnect_delay(mgr.backoff, backoff_i, time.time() - last_data if got_any else None, mgr.backoff_long)
                 if why == BLOCKED:
                     delay = max(delay, BLOCKED_WAIT)
                 backoff_i += 1
@@ -826,9 +827,17 @@ class Recording:
             self._kill(procs[0], graceful=graceful)
 
 
+def reconnect_delay(backoff, i, quiet_sec=None, long=BACKOFF_LONG):
+    """i 回目の繋ぎ直しまでの秒。quiet_sec = 録れた後にデータが来ない秒(None = まだ録れていない = 配信の前の待ちは伸ばさない)"""
+    delay = backoff[min(i, len(backoff) - 1)]
+    if quiet_sec is None:
+        return delay
+    return max([delay] + [d for after, d in long if quiet_sec >= after])
+
+
 # ---------- 録画の全体 ----------
 class Recorder:
-    def __init__(self, folder, source="streamlink", ffmpeg=None, python=None, hls_time=HLS_TIME, backoff=BACKOFF,
+    def __init__(self, folder, source="streamlink", ffmpeg=None, python=None, hls_time=HLS_TIME, backoff=BACKOFF, backoff_long=BACKOFF_LONG,
                  idle_end=IDLE_END, wait_start=WAIT_START, stall_sec=STALL_SEC, first_seg_sec=FIRST_SEG_SEC, poll=1.0, log=None, *, trash_days,
                  trash_item_sec=None):
         self.folder = folder
@@ -841,6 +850,7 @@ class Recorder:
         self.python = python or sys.executable
         self.hls_time = hls_time
         self.backoff = tuple(backoff) or BACKOFF
+        self.backoff_long = tuple(backoff_long)
         self.idle_end, self.wait_start, self.stall_sec, self.first_seg_sec, self.poll = idle_end, wait_start, stall_sec, first_seg_sec, poll
         self.log = log or (lambda m: None)
         self.lock = threading.RLock()

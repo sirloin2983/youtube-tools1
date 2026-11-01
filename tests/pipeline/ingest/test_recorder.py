@@ -67,6 +67,14 @@ def missing_drive():
 
 
 class TestPieces(unittest.TestCase):
+    def test_reconnect_delay_grows_only_after_recording(self):
+        """録れた後にデータが来ないほど間を伸ばす(30 → 60 → 120)・配信の前の待ちは伸ばさない(11-01)"""
+        d = R.reconnect_delay
+        self.assertEqual([d(R.BACKOFF, i, 10) for i in range(4)], [5, 10, 30, 30])
+        self.assertEqual(d(R.BACKOFF, 0, 200), 60)
+        self.assertEqual(d(R.BACKOFF, 9, 400), 120)
+        self.assertEqual(d(R.BACKOFF, 9, None), 30)
+
     def test_playlist_names_and_empty_sessions(self):
         """再生リストは決まった形の名前だけ読む(../ を通さない)・空のセッションは区切りに数えない(録画の ffmpeg は決まった名前しか書かず、
         空のセッションは残さないので、通しでは起こせない)"""
