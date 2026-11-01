@@ -263,7 +263,6 @@ async function reloadSettings(){
 const OPT_CHECKS = [['boost', 'optBoost', null], ['autoDict', 'optAutoDict', true], ['wordSplit', 'optWordSplit', true], ['stripPunct', 'optStripPunct', true],
   ['autoGloss', 'optAutoGloss', true], ['autoContext', 'optAutoContext', false], ['autoLearned', 'optAutoLearned', false],
   ['autoAlt', 'optAutoAlt', false],
-  ['autoFill', 'optAutoFill', true],   // autoFill = 前の後処理 A・C・D のスイッチ(11-01 に消したので今は効かない。束と鍵の形のため残す)
   ['autoLlm', 'optAutoLlm', false],   // autoLlm = 名簿の呼び名の聞き違いらしい所だけを手元の LLM で直す(既定オフ(10-31 から。誤った直しが多かったため。true で戻る))
   ['stripNames', 'optStripNames', true]];   // stripNames = 行の頭の話者名(「名前:」)を外す(既定オン。欄は設定の画面だけ)
 /* 欄の無い鍵(認識の設定の自動の後処理 = 設定の画面にある)は、保存した設定 S.settings の値(無いときの扱い dv で既定)を使う */

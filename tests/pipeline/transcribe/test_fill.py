@@ -99,7 +99,8 @@ class TestFillJobRun(StoreDir):
         run = doc["recognition"]["runs"][0]
         self.assertEqual(run["fill"], {"dropped": {"n": 0, "db": -separate.SEP_DB, "rows": []}})   # 2 つ目の読み(A・C・D)は 11-01 に消した。残るのは dropSilent の記録だけ(疑似は全部が声)
         self.assertEqual((run["names"], run["llm"]), (1, {"engine": "llama-text", "model": "qwen3-8b", "picked": 2, "proposed": 2, "applied": 1, "rejected": {"cap": 1}, "gloss": 0}))
-        self.assertEqual({k: doc["params"][k] for k in ("autoFill", "stripNames", "autoLlm")}, {"autoFill": True, "stripNames": True, "autoLlm": True})
+        self.assertEqual({k: doc["params"][k] for k in ("stripNames", "autoLlm", "dropSilent")}, {"stripNames": True, "autoLlm": True, "dropSilent": True})
+        self.assertNotIn("autoFill", doc["params"])   # A・C・D のスイッチは 11-01 に消した
         self.assertEqual(doc["params"]["context"], {"members": [{"name": "テスト分子", "from": ["title"]}], "terms": 2})   # 動画のフォルダの名前から
         self.assertEqual(run["settings"]["context"], ["テスト分子"])
         self.assertNotIn("evalSet", doc)
@@ -112,22 +113,24 @@ class TestFillJobRun(StoreDir):
         self.assertEqual([g.get("fill") for g in saved["segments"]], [{"from": "テスト文1", "by": "llm"}, None])
 
     def test_settings_and_eval_set(self):
-        """設定 autoFill・autoLlm・stripNames(autoLlm だけ既定オフ): 要求が優先・保存した設定・評価用は全部オフ(用語集・文脈・辞書・学習も)"""
+        """設定 autoLlm・stripNames(autoLlm だけ既定オフ): 要求が優先・保存した設定・評価用は全部オフ(用語集・文脈・辞書・学習も)。
+        消した autoFill が保存した設定・要求に残っていても、声の無い行を捨てる(dropSilent)は止まらない(Haas の変更の一覧の落とし穴 2)"""
         base = {"sourcePath": self.video, "model": "small"}
         v = doc_jobs.validate_job(base)
-        self.assertEqual((v["autoFill"], v["autoLlm"], v["stripNames"], v["context"]), (True, False, True, {"members": [], "terms": []}))   # 配信ごとの文脈は既定オフ
+        self.assertEqual((v["autoLlm"], v["stripNames"], v["context"]), (False, True, {"members": [], "terms": []}))
+        self.assertNotIn("autoFill", v)   # 配信ごとの文脈は既定オフ
         self.assertEqual((v["dropSilent"], v["endSnap"]), (True, False))   # 編集の画面から頼んでも声の無い行を捨てる(束の既定と同じ。Haas の変更の一覧 0-5)
         self.assertFalse(doc_jobs.validate_job(dict(base, evalSet=True))["dropSilent"])   # 評価用には当てない
         write_json(_workdata.SETTINGS, {"autoFill": False, "autoLlm": False})
         v = doc_jobs.validate_job(base)
-        self.assertEqual((v["autoFill"], v["autoLlm"]), (False, False))
-        self.assertTrue(doc_jobs.validate_job(dict(base, autoFill=True))["autoFill"])
+        self.assertEqual((v["autoLlm"], v["dropSilent"], "autoFill" in v), (False, True, False))
+        self.assertTrue(doc_jobs.validate_job(dict(base, autoFill=False))["dropSilent"])
         write_json(_workdata.SETTINGS, {})
-        job = self.transcribe(autoContext=True, glossary="ホロライブ", evalSet=True, autoDict=True, autoLearned=True, autoFill=True, autoLlm=True)
+        job = self.transcribe(autoContext=True, glossary="ホロライブ", evalSet=True, autoDict=True, autoLearned=True, autoLlm=True)
         d = store.read_transcript(job["tid"])
         self.assertIs(d["evalSet"], True)
-        self.assertEqual({k: d["params"][k] for k in ("glossary", "context", "autoDict", "autoLearned", "autoFill", "autoLlm", "stripNames")},
-                         {"glossary": [], "context": None, "autoDict": False, "autoLearned": False, "autoFill": False, "autoLlm": False, "stripNames": False})
+        self.assertEqual({k: d["params"][k] for k in ("glossary", "context", "autoDict", "autoLearned", "autoLlm", "stripNames")},
+                         {"glossary": [], "context": None, "autoDict": False, "autoLearned": False, "autoLlm": False, "stripNames": False})
         run = d["recognition"]["runs"][0]
         self.assertEqual((run["settings"]["promptChars"], [k for k in ("fill", "names", "llm") if k in run]), (0, []))
         self.assertEqual([g["text"] for g in d["segments"]], ["テスト文1", "リリー:テスト文2", "テスト文3"])

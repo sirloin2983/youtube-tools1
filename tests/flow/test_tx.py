@@ -26,7 +26,7 @@ from ytt import errors, tools, workdata  # noqa: E402
 ROWS = [{"start": 0.0, "end": 2.0, "text": "テスト文1", "avg_logprob": -0.3, "words": [(0.0, 2.0, "テスト文1")]},
         {"start": 2.0, "end": 4.0, "text": "テスト文2", "avg_logprob": -0.3}]
 SPEC = {"start": 0.0, "end": 4.0, "whole": True, "duration": 4.0, "language": "ja", "wordSplit": False, "stripPunct": True,
-        "glossary": [], "glossAuto": [], "context": {"members": [], "terms": []}, "autoFill": False, "autoLlm": False, "stripNames": False,
+        "glossary": [], "glossAuto": [], "context": {"members": [], "terms": []}, "autoLlm": False, "stripNames": False,
         "model": "small", "engine": "faster-whisper", "beam": 5, "vadMode": "weak", "boost": False, "splitChars": 24,
         "title": "題名", "sourcePath": "C:/x/a.mp4", "sourceName": "a.mp4"}
 

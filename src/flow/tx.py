@@ -110,7 +110,7 @@ def request_engine(req, model, ctx_doc, auto_context):
 def tx_spec(req, post, learning=None, *, src=None, dur=None):
     """要求と後処理の値 post -> 文字起こしのジョブの指定(動画 1 本を頭から終わりまで。評価用・入れる文書・2 つ目のエンジン・話者の自動の判別・LLM のモデルは入れない)。
     ② の CLI(flow/tools の transcribe_start)と ③ の受付(human/proof/doc_jobs の validate_job)が同じ形を使う = ③ は返した指定に自分の分(範囲・入れる文書・評価用・
-    2 つ目のエンジン・話者・LLM のモデル)を重ねる。post = 束の post の形(splitChars・autoFill・autoLlm・stripNames・autoLearned・autoContext・
+    2 つ目のエンジン・話者・LLM のモデル)を重ねる。post = 束の post の形(splitChars・autoLlm・stripNames・autoLearned・autoContext・
     autoGloss・learning.version)。learning = 学習データの読み手(ユーザーの用語が先・自動の用語はその後ろ。無ければ自動の用語は入れない)。
     src・dur = 検査済みの動画のパスと長さ(③ が先に範囲を確かめるとき。無ければここで check_source・media_duration)。
     機器は auto・cuda・cpu・vulkan。要求の title(120 字まで)があれば題名に(無ければ動画のファイル名)"""
@@ -133,7 +133,7 @@ def tx_spec(req, post, learning=None, *, src=None, dur=None):
             "vadMode": req.get("vadMode") if req.get("vadMode") in ("weak", "normal", "off") else "weak",
             "boost": req.get("boost") is True, "autoDict": req.get("autoDict") is not False, "wordSplit": req.get("wordSplit") is not False,
             "splitChars": post["splitChars"], "autoAlt": False,
-            "autoFill": post["autoFill"], "autoLlm": post["autoLlm"], "stripNames": post["stripNames"], "dropSilent": post.get("dropSilent") is True, "endSnap": post.get("endSnap") is True,
+            "autoLlm": post["autoLlm"], "stripNames": post["stripNames"], "dropSilent": post.get("dropSilent") is True, "endSnap": post.get("endSnap") is True,
             "stripPunct": req.get("stripPunct") is not False, "glossary": glossary + gauto, "glossAuto": gauto,
             "learningVersion": post["learning"]["version"], "context": ctx, "evalSet": False, "autoLearned": post["autoLearned"], "clip": clip,
             "warnings": [clip_warn] if clip_warn else [], "title": title, **_people(req)}
@@ -211,7 +211,7 @@ def _doc_fields(job, spec, out, total, t_rec, pairs=None):
               "autoDict": bool(spec.get("autoDict")), "dictApplied": out["dictApplied"], "wordSplit": bool(spec.get("wordSplit")),
               "splitChars": spec.get("splitChars"), "stripPunct": spec.get("stripPunct", True) is not False,
               "autoLearned": bool(spec.get("autoLearned")), "learnApplied": out["learnApplied"], "glossAuto": spec.get("glossAuto", [])[:20],
-              "context": records.context_record(spec), "autoFill": bool(spec.get("autoFill")), "autoLlm": bool(spec.get("autoLlm")),
+              "context": records.context_record(spec), "autoLlm": bool(spec.get("autoLlm")),
               "stripNames": bool(spec.get("stripNames")), "dropSilent": bool(spec.get("dropSilent")), "endSnap": bool(spec.get("endSnap"))}
     fields = {"start": spec["start"], "end": spec["end"], "whole": spec["whole"], "duration": spec["duration"], "model": spec["model"],
               "language": spec["language"], "params": params, "speakers": [], "segments": out["segs"], "original": out["original"], "updatedAt": now,

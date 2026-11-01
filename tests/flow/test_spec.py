@@ -233,8 +233,15 @@ class TestValidate(unittest.TestCase):
         spec.validate(spec.merge({"post": {"orientation": "horizontal", "maxChars": {"horizontal": 40}, "splitChars": 8, "autoLlm": False,
                                            "learning": {"version": "abc"}}}))
         for kw in ({"orientation": "square"}, {"maxChars": {"vertical": 3, "horizontal": 28}}, {"maxChars": {"vertical": 16}}, {"splitChars": 7},
-                   {"splitChars": 81}, {"autoFill": 1}, {"learning": {"version": None}}, {"learning": {"dir": "D:/x"}}, {"learning": {"version": "x" * 81}}):
+                   {"splitChars": 81}, {"autoLlm": 1}, {"learning": {"version": None}}, {"learning": {"dir": "D:/x"}}, {"learning": {"version": "x" * 81}}):
             self.bad("post", **kw)
+
+    def test_retired_auto_fill(self):
+        """後処理 A・C・D のスイッチ post.autoFill(11-01 に消した): 旧い束・待ちの記録にあっても黙って捨てる = 束も要求の本文も前と同じ"""
+        for v in (True, False):
+            b = spec.validate(spec.merge({"post": {"autoFill": v}}))
+            self.assertEqual(b, spec.merge({}))
+            self.assertNotIn("autoFill", spec.tx_opts(b))
 
     def test_hint_readers(self):
         b = spec.merge({"hints": {"ranges": [[10, 20], [500, 520]], "people": [{"name": " A ", "color": "#ff6699"}, {"name": "B"}]}})

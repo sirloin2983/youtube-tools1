@@ -88,9 +88,9 @@ class HaasRowsTest(unittest.TestCase):
     def test_fill_after_rows_haas_skips_second_read(self):
         rows = [{"start": 0.0, "end": 1.0, "text": "あ"}]
         with mock.patch.object(fill, "fill_drop_silent", side_effect=lambda job, r, wav, rec, drop, snap: r[:0]) as ds:
-            out, rec, read = fill.fill_after_rows({}, dict(HAAS, autoFill=True, dropSilent=False), list(rows), "a.wav", 1.0)
+            out, rec, read = fill.fill_after_rows({}, dict(HAAS, dropSilent=False), list(rows), "a.wav", 1.0)
             self.assertEqual((out, rec, read), (rows, None, None))
-            out, rec, read = fill.fill_after_rows({}, dict(HAAS, autoFill=True, dropSilent=True), list(rows), "a.wav", 1.0)
+            out, rec, read = fill.fill_after_rows({}, dict(HAAS, dropSilent=True), list(rows), "a.wav", 1.0)
             self.assertEqual((out, read), ([], None))   # dropSilent は動く
             self.assertEqual(ds.call_count, 1)
 

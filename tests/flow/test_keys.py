@@ -199,6 +199,8 @@ class TestReadK2(_Env):
         self.assertEqual(keys.transcribe_state(TID, self.media, self.REQ), "none")   # 鍵なし
         self.write_tx()
         self.assertEqual(keys.transcribe_state(TID, self.media, self.REQ), "same")
+        for v in (True, False):   # 消した後処理のスイッチ autoFill(11-01)は鍵の材料に入らない = 前の要求(autoFill あり)で書いた鍵も「同じ」
+            self.assertEqual(keys.transcribe_state(TID, self.media, dict(self.REQ, autoFill=v)), "same")
         self.assertEqual(keys.transcribe_state(TID, self.media, dict(self.REQ, model="large-v3")), "differ")   # 設定が違う
         self.assertEqual(keys.transcribe_state(TID, self.media, dict(self.REQ, quality="fast")), "differ")
         self.assertEqual(keys.transcribe_state(TID, self.media, dict(self.REQ, model="../x")), "none")   # 今の材料が分からない
