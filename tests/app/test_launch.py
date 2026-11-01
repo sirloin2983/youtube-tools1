@@ -781,17 +781,20 @@ class PortalHttpTest(Base):
         self.assertEqual((st["live"], st["idle"]), (zero, True))   # 既定(オフ)
         from flow import livesession
         fake = mock.MagicMock()
-        fake.activity = lambda: livesession.LiveSession.activity(fake)   # 数え方は本物(LiveSession.activity)
+        fake.activity = lambda archive_wait=True: livesession.LiveSession.activity(fake, archive_wait)   # 数え方は本物(LiveSession.activity)
         fake.enabled.return_value = True
         fake.recent.return_value = [{"id": "a", "active": True}, {"id": "b", "active": False}]   # 終わって 10 分以内の録画は数えない
         fake.detector.enabled.return_value = True
         fake.detector.heartbeat.return_value = {"recordings": [{"recorder": "local", "id": "a"}, {"recorder": "local", "id": "c"}]}
         fake.detector.running.return_value = True
         fake._exporter.lock = threading.Lock()
-        fake._exporter.jobs = [{"state": "fetch"}, {"state": "done", "handoffWait": "disk"}, {"state": "done"}, {"state": "failed"}]
+        fake._exporter.jobs = [{"state": "fetch"}, {"state": "done", "handoffWait": "disk"}, {"state": "done"}, {"state": "failed"},
+                               {"state": "wait", "from": "archive"}]   # アーカイブを待つ書き出し(M7)
         with mock.patch.object(self.srv, "live", fake):
             st = self.get_json("/api/flow/status")[1]
-            self.assertEqual((st["live"], st["idle"], st["queued"], st["running"]), ({"recording": 1, "detecting": 2, "exporting": 2}, False, 0, 0))
+            self.assertEqual((st["live"], st["idle"], st["queued"], st["running"]), ({"recording": 1, "detecting": 2, "exporting": 3}, False, 0, 0))
+            # 取得の busy と録画の部品の版上げは、アーカイブ待ちを数えない(Exporter.pending と同じ。11-01)。「終わったら閉じる」は数える(上)
+            self.assertEqual(self.srv.live_activity(archive_wait=False)["exporting"], 2)
             fake.recent.return_value = []
             fake.detector.running.return_value = False   # ワーカーが止まっている = 測っていない
             fake._exporter = None   # 書き出しを一度も使っていない

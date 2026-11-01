@@ -1070,10 +1070,12 @@ class LiveSession:
         return "failed"
 
     # --- 録画中の入口の起き直し(引き継ぎ) ---
-    def activity(self):
+    def activity(self, archive_wait=True):
         """ライブの録画中・検出中・書き出しの途中の数 {recording, detecting, exporting}。オフなら全部 0(録画元に問い合わせない)。
         recording = 録画元の録画中の録画(recent。数秒のキャッシュ)/ detecting = 検出のワーカーが測っている録画(worker.json)/
-        exporting = 書き出しの途中・まとめて実行へ渡すのを待っている書き出し(作ってあるときだけ)"""
+        exporting = 書き出しの途中・まとめて実行へ渡すのを待っている書き出し(作ってあるときだけ)。
+        archive_wait = アーカイブの処理済みの版を待つ書き出し(M7 の from archive。数時間待つことがある)も数える。偽 = Exporter.pending と同じ数え方
+        (取得の busy と録画の部品の版上げ。11-01 ユーザー「いれていい」= 待ちのあいだ止めない)。「終わったら閉じる」は真のまま(アーカイブの書き出しに入口が要る)"""
         out = {"recording": 0, "detecting": 0, "exporting": 0}
         if not self.enabled():
             return out
@@ -1086,7 +1088,8 @@ class LiveSession:
         ex = self._exporter
         if ex is not None:
             with ex.lock:
-                out["exporting"] = sum(1 for j in ex.jobs if j.get("state") in LX.ACTIVE or j.get("handoffWait") == "disk")   # ACTIVE か空き待ち(Exporter.pending と違い、アーカイブを待つ from archive の wait も数える。11-01 の見直しの候補)
+                out["exporting"] = sum(1 for j in ex.jobs if (j.get("state") in LX.ACTIVE and (archive_wait or j.get("from") != "archive"))
+                                       or j.get("handoffWait") == "disk")   # ACTIVE か空き待ち
         return out
 
     def _local_rc(self, cfg=None):
@@ -1286,7 +1289,7 @@ class LiveSession:
             exp = self.expected_version()
             busy = None
             if exp and info.get("version") != exp:   # 起こし直しは手が空いているときだけ(録画・検出・書き出しのどれかが動いていれば、終わり際の書き出しの取得と重ねない)
-                act = self.activity()
+                act = self.activity(archive_wait=False)
                 busy = ("録画・検出・書き出しが動いている" if any(act.values()) else
                         "自動の採用を待っている候補がある" if self._adopt_waiting() else None)
             if exp and info.get("version") != exp and busy:

@@ -1347,7 +1347,7 @@ class PortalServer(httpsec.ExclusiveServer):
         """YouTube の取得の列(app/check/ytqueue。10-25 ユーザー「取り方 1 と 2 を統一しよう」): 研究の頼みと候補・誰の声の材料を 1 本の列で取る。
         研究が置いた・列が回した声の音(voice-inbox)を拾う(voicefetch.intake)"""
         from flow import voicematerial as _vm
-        busy = lambda: self._fetch_busy() or ("ライブ" if any(self.live_activity().values()) else None)   # noqa: E731
+        busy = lambda: self._fetch_busy() or ("ライブ" if any(self.live_activity(archive_wait=False).values()) else None)   # noqa: E731
         while not self.closing.wait(check_voicefetch.EVERY):
             try:
                 r = _vm.roster_data()
@@ -1588,10 +1588,10 @@ class PortalServer(httpsec.ExclusiveServer):
             self._autorun.learning = lr
         return lr
 
-    def live_activity(self):
+    def live_activity(self, archive_wait=True):
         """② の status の live 欄: ライブ(線 D)の録画中・検出中・書き出しの途中の数(起こしたアプリの「終わったら閉じる」= どれかが 0 でなければ閉じない)。
-        数え方は flow/livesession.py の LiveSession.activity(リアルタイム切り抜きがオフなら全部 0)"""
-        return self.live.activity()
+        数え方は flow/livesession.py の LiveSession.activity(リアルタイム切り抜きがオフなら全部 0。archive_wait も同じ)"""
+        return self.live.activity(archive_wait)
 
     def handler_for(self, path):
         if path and self.mounts:
