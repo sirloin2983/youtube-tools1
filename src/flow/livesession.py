@@ -46,6 +46,7 @@ from . import chatreuse as _chatreuse   # ライブで取ったチャットの�
 from . import live_detect   # 配信中の盛り上がりの検出と自動の採用。線 D の L2・M11
 from . import live_export as LX   # マークと書き出し。P2
 from . import live_head   # 遅れて始まった配信の頭を別に取って候補に入れる(10-30)
+from . import live_perf   # 録画中の各プロセスの重さの記録(11-01・記録だけ)
 from . import live_failures   # 失敗の集約。M3・M7
 from . import live_rec_alert   # 録画の知らせ(始まらない・途中で止まった・欠けが大きい。10-30)
 from . import live_report   # 配信ごとの結果の記録。線 D の D-12
@@ -480,6 +481,7 @@ class LiveSession:
         self.livetx.attach_board(self.board)
         self.reporter = live_report.Reporter(self)   # 配信ごとの結果の記録(D-12。live/reports/)
         self.head = live_head.HeadGrabber(self)   # 遅れて始まった配信の頭(yt-dlp --live-from-start。10-30)
+        self.perf = live_perf.PerfLog(self.store_dir, self._perf_roots, log=self.note)   # 録画中の重さ(live/perf/。11-01)
         self.auto_max = None               # (録画元, 録画) -> 1 録画の自動の採用の上限(D-13)。None = live_detect.AUTO_MAX_PER_REC
         # 採用(M1)のマークの置き場(既定 = マークの正本 LocalMarks。入口はスタジオ = StudioMarks)
         self.marks = marks if marks is not None else live_adopt.LocalMarks(lambda: self.exporter)
@@ -1252,7 +1254,8 @@ class LiveSession:
                 + [("録画の束の片付けでエラー", self.bundles.prune),   # RS7-2 G2b: 古い録画の束を消す
                    ("配信の記録の見回りでエラー", self.reporter.tick),   # D-12: 配信ごとの結果の記録(録画中は 1 分ごと・終わったら最後に 1 回)
                    ("録画の知らせの見回りでエラー", self._rec_alert_tick),   # 録画が始まらない・途中で止まった・欠けが大きい(10-30)
-                   ("チャットの取り直しの見回りでエラー", self._chat_retry)]   # チャットのリプレイが無かった新しい配信を時間を置いて解析し直す(flow/run.py)
+                   ("チャットの取り直しの見回りでエラー", self._chat_retry),   # チャットのリプレイが無かった新しい配信を時間を置いて解析し直す(flow/run.py)
+                   ("重さの測りの見回りでエラー", self.perf.tick)]   # 録画中だけ 60 秒ごとに live/perf/ へ(11-01・記録だけ)
                 + self._app_watch())
 
     def _rec_alert_tick(self):
@@ -1262,6 +1265,12 @@ class LiveSession:
         down = set()
         recs = self.list_recordings(down=down)
         return self.rec_alerts.tick(recs, down)
+
+    def _perf_roots(self):
+        """重さを測る相手 {グループ: pid}(入口・手元の録画の部品・検出のワーカー。live_perf)"""
+        run, hb = self.running_recorder() or {}, self.detector.heartbeat() or {}
+        out = {"入口": os.getpid(), "録画の部品": run.get("pid"), "検出のワーカー": hb.get("pid")}
+        return {k: v for k, v in out.items() if isinstance(v, int) and not isinstance(v, bool)}
 
     def _chat_retry(self):
         """まとめて実行(Runner)の chat_retry_tick を呼ぶ(待ち行列が無い・持たなければ何もしない)"""
