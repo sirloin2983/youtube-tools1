@@ -554,6 +554,55 @@ def _scene_voice_video_or_clip(cx):
         _restore_queue(cx)
 
 
+def _scene_speaker(cx):
+    """コラボの話者のカード(speaker:collab・cards/speaker.js): 出る人の全員が名前のボタン(数字キー)・予想なし・BGM 大や別の声も は無い・
+    数字で何人でも選んで Enter = {names: [...]}(同時に話した人を全員)・選ばずに Enter は効かない・ほかの人の欄で足す・O = 声が無い・叫びだけ。
+    YTT_E2E_SHOT があれば、そのパスにカードの写真を撮る"""
+    pg, check = cx.pg, cx.check
+    def sc(i, people, pick):
+        return card(i, "speaker", source="collab", target={"videoId": "AAAAAAAAAAA", "collab": "c1r%02d" % i, "docId": None, "row": None},
+                    media={"url": "api/check/voicecollab?key=c1r%02d" % i, "start": 0.0, "end": 1.0, "pad": 0.0, "padEnd": 0.0}, text="",
+                    people=people, pick=pick, case={"id": "AAAAAAAAAAA", "title": "ド珍検証会(ド珍組)"})
+    four = ["さくらみこ", "白上フブキ", "大神ミオ", "大空スバル"]
+    fs = FakeQueue([sc(90, four, ["兎田ぺこら", "名前の分からない人"]), sc(91, four, ["兎田ぺこら"]), sc(92, four, ["兎田ぺこら"])])
+    clip_re = re.compile(r".*/api/check/voicecollab.*")
+    _swap_queue(cx, fs)
+    cx.ctx.route(clip_re, lambda route: route.fulfill(status=200, body=cx.wav, headers={"Content-Type": "audio/wav", "Accept-Ranges": "none"}))
+    names = "[...document.querySelectorAll('#chkBody .chk-spk-name')].map(b => [b.textContent.trim(), b.getAttribute('aria-pressed')])"
+    try:
+        pg.goto(cx.base + "check?kind=speaker")
+        check(wait_js(pg, "CheckShell.state().cur === 'speaker:e2e:90'"), "コラボの話者のカードを開く: %s" % state(pg))
+        got = pg.evaluate(names)
+        check([n for n, _p in got] == ["1 さくらみこ", "2 白上フブキ", "3 大神ミオ", "4 大空スバル"] and all(p_ == "false" for _n, p_ in got),
+              "出る人の全員が名前のボタン(数字キー・並びはカードのまま): %s" % got)
+        txt = pg.text_content("#chkBody") or ""
+        check("予想" not in txt and pg.query_selector("#chkBody [data-chk-k='G']") is None and pg.query_selector("#chkBody [data-chk-k='V']") is None,
+              "予想・BGM が大きい・別の声も は出ない")
+        check(pg.is_disabled("#chkBody [data-chk-k='Enter']"), "1 人も選んでいなければ決めるは押せない")
+        press(pg, "Enter")
+        check(not fs.answers, "選ばずに Enter は答えにならない: %s" % fs.answers[-1:])
+        press(pg, "2")
+        press(pg, "4")
+        check(pg.evaluate(names)[1][1] == "true" and pg.evaluate(names)[3][1] == "true", "数字で 2 人を選んだ状態: %s" % pg.evaluate(names))
+        shot = os.environ.get("YTT_E2E_SHOT")
+        if shot:
+            pg.screenshot(path=shot, full_page=True)
+        press(pg, "Enter")
+        check(wait_js(pg, "CheckShell.state().cur === 'speaker:e2e:91'") and fs.answers[-1]["body"]["answer"] == {"names": ["白上フブキ", "大空スバル"]},
+              "Enter = 選んだ人を全員 {names}: %s" % fs.answers[-1:])
+        pg.select_option("#chkBody [data-chk-spk-pick]", "兎田ぺこら")
+        check(wait_js(pg, "[...document.querySelectorAll('#chkBody .chk-spk-name')].some(b => b.textContent.includes('5 兎田ぺこら') && b.getAttribute('aria-pressed') === 'true')"),
+              "ほかの人の欄で選ぶと 5 番目の名前のボタンに足して選んだ状態: %s" % pg.evaluate(names))
+        press(pg, "Enter")
+        check(wait_js(pg, "CheckShell.state().cur === 'speaker:e2e:92'") and fs.answers[-1]["body"]["answer"] == {"names": ["兎田ぺこら"]},
+              "足した人で答える: %s" % fs.answers[-1:])
+        press(pg, "o")
+        check(wait_js(pg, "CheckShell.state().empty") and fs.answers[-1]["body"]["answer"] == {"choice": "other"}, "O = 声が無い・叫びだけ: %s" % fs.answers[-1:])
+    finally:
+        cx.ctx.unroute(clip_re)
+        _restore_queue(cx)
+
+
 def _swap_queue(cx, fq2, eval_routes=None):
     """api/check/ の偽物を fq2 に差し替える(戻すのは _restore_queue)。eval_routes = transcribe/api/drill/status・eval-batch の偽物(あれば)"""
     cx.ctx.unroute(re.compile(r".*/api/check/.*"))
@@ -806,6 +855,7 @@ def main():
                 _scene_voice_others(cx)
                 _scene_cut(cx)
                 _scene_kind_pick(cx)
+                _scene_speaker(cx)
                 _scene_eval_lane(cx)
                 check(all("lane" not in q for q in fq.next_q), "普段のレーンは lane=eval を渡さない")
                 _scene_real_api(cx)

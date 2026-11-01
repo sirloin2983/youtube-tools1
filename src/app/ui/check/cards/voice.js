@@ -10,8 +10,7 @@
    V = 「別の声も入っている」の切り替え(G と同じ。押してから名前を選ぶ)。後ろに別の人の声が小さく入る行 = 答えに others: true(行の音のメモ overlap・覚える材料にしない。
    2 人が同じくらい重なるなら M)。10-25 確かめるの混ざりと BGM のルール
    名前で答えた行(1 秒以上・混ざっていない・音のメモが無い・評価用でない)は、その人の声を覚え直す材料になる(1 人 30 秒分たまったら自動で。サーバーの側)。
-   コラボの話者のカード(種類 speaker・出どころ collab。同じ描き方を define('speaker') でも登録): 名前のボタンは card.buttons 個(出る人 + その他の人・5 まで)・予想なし・learn: false = 声を覚えない(サーバーの app/check/voice_collab)。
-   キー: 名前は数字キー 1〜3(コラボは 1〜5)・メンバーを選ぶ P・声が無い O・混ざり M・予想どおり Enter・ゲーム音・BGM が大きい G・別の声も入っている V */
+   キー: 名前は数字キー 1〜3・メンバーを選ぶ P・声が無い O・混ざり M・予想どおり Enter・ゲーム音・BGM が大きい G・別の声も入っている V */
 (function () {
   'use strict';
   var esc = UIKit.esc;
@@ -19,14 +18,12 @@
   var NAME_PREFIX = 'name:';
   var NOTE = { below_match: '覚えた声との似かたが弱い話者です', margin: '覚えた声の 2 人が近く、どちらか決めきれなかった話者です',
     solo: 'ソロ配信と見た配信の行です(声を覚える材料を集めています)。ほかの人の声なら [メンバーを選ぶ] でその人を、分からなければ [分からない]',
-    measure: '覚えた声で人を当てられるかを測る行です(ソロの配信から)。予想は道具が当てた人なので、配信者の声でも予想と違えば配信者のボタンを押してください。ほかの人なら [メンバーを選ぶ]',
-    collab: 'コラボの行です(話者分離の分かれ方を測る正解。声は覚えません)。話した人を選んでください。出る人のほかの人なら [その他の人]・2 人以上が同じくらいなら [混ざり]・決められなければ [分からない]' };
+    measure: '覚えた声で人を当てられるかを測る行です(ソロの配信から)。予想は道具が当てた人なので、配信者の声でも予想と違えば配信者のボタンを押してください。ほかの人なら [メンバーを選ぶ]' };
   var WAIT = '再生が終わってから押せます(よく聞いてから答えるため)';
   var BGM = { k: 'G', label: 'ゲーム音・BGM が大きい', title: '入れてから名前を選ぶと、話者はその人・行に「BGM が大きい」の音のメモを付け、声を覚える材料にしません' };
   var OTHERS = { k: 'V', label: '別の声も入っている', title: '入れてから名前を選ぶと、話者はその人・行に「別の声も入っている」の音のメモを付け、声を覚える材料にしません(2 人が同じくらい重なるなら M)' };
   var PICK = { k: 'P', label: 'メンバーを選ぶ', title: 'ボタンに無い人を名簿などから選ぶ・名前を打つ(名簿に無い人も入れられます)' };
   var BUTTONS = 3, NAME_MAX = 30;
-  function nButtons(card) { var n = Number(card && card.buttons); return n >= 1 && n <= 5 ? Math.floor(n) : BUTTONS; }   // コラボのカードは出る人 + その他の人(5 まで)
   var picker = null;   // 今のカードの「メンバーを選ぶ」の欄(カードは 1 枚ずつ。render で作り unmount で外す)
 
   function answerOf(id, st) {
@@ -49,7 +46,7 @@
       var g = guessOf(card);
       return (g ? '<p class="notice info">機械の予想: <b>' + esc(g.name || g.id) + '</b>(再生が終わると Enter で予想どおりに答えられます)</p>' :
         '<p class="notice info">機械の予想はありません。聞いて選んでください。</p>') +
-        (card.learn === false ? '<p class="hint">この行は声を覚える材料にしません(測る専用)。</p>' : '<p class="hint">名前を選んだ行は、その人の声を覚え直す材料になります(1 秒以上・混ざっていない行)。</p>') +
+        '<p class="hint">名前を選んだ行は、その人の声を覚え直す材料になります(1 秒以上・混ざっていない行)。</p>' +
         '<p class="hint">2 人が同じくらい重なる = M・後ろに別の人の声が小さく = V + 名前・BGM が大きいが 1 人 = G + 名前・声が無い(音だけ) = O・決められない = W。</p>';
     },
     hint: function (card, st) {
@@ -58,10 +55,10 @@
     },
     options: function (card, st) {
       var all = options(card), g = guessOf(card);
-      var out = all.filter(function (o) { return !EXTRA[o.id]; }).slice(0, nButtons(card)).map(function (o, i) {
+      var out = all.filter(function (o) { return !EXTRA[o.id]; }).slice(0, BUTTONS).map(function (o, i) {
         var nm = o.name || o.id;
         return { k: String(i + 1), label: nm, primary: !!g && o.id === g.id, answer: function (c, p, s) { return answerOf(o.id, s); },
-          title: card.learn !== false && o.id.indexOf(NAME_PREFIX) === 0 ? '覚えた声の人です(この文書の話者に「' + nm + '」を足します)' : '' };
+          title: o.id.indexOf(NAME_PREFIX) === 0 ? '覚えた声の人です(この文書の話者に「' + nm + '」を足します)' : '' };
       });
       if (g) {
         out.push({ k: 'Enter', label: '予想どおり', title: WAIT,
@@ -78,7 +75,7 @@
       return out;
     },
     keybar: function (card, st) {
-      var o = options(card).filter(function (x) { return !EXTRA[x.id]; }).slice(0, nButtons(card)).map(function (x, i) { return { k: String(i + 1), l: x.name || x.id }; });
+      var o = options(card).filter(function (x) { return !EXTRA[x.id]; }).slice(0, BUTTONS).map(function (x, i) { return { k: String(i + 1), l: x.name || x.id }; });
       if (guessOf(card)) o.push({ k: 'Enter', l: '予想どおり' });
       o.push({ k: PICK.k, l: PICK.label });
       o.push({ k: BGM.k, l: st.bgm ? 'BGM が大きい: 入' : BGM.label });
@@ -106,7 +103,7 @@
       people(card).map(function (o) { return '<option value="' + esc(o.name) + '"></option>'; }).join('') + '</datalist></div>';
   }
 
-  function voiceCard() {
+  CheckCards.define('voice', function () {
     var view = base(), gone = false, lock = null, root = null, ctxRef = null, cur = null, pick = null;   // pick = 開いている欄の { st }(G の入り切りを答えに足す)
     function field() { return root && root.querySelector('[data-chk-pick-text]'); }
     function open(st) {
@@ -165,7 +162,5 @@
       keybar: function (card) { return pick ? [{ k: 'Enter', l: '決める' }, { k: 'Esc', l: 'やめる' }] : view.keybar(card); },
       unmount: function () { gone = true; lock = null; root = null; ctxRef = null; cur = null; pick = null; if (picker && picker.open === open) picker = null; view.unmount(); }
     };
-  }
-  CheckCards.define('voice', voiceCard);
-  CheckCards.define('speaker', voiceCard);   // コラボの話者(app/check/voice_collab)= 誰の声と同じ描き方で種類だけ別
+  });
 })();

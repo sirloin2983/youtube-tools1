@@ -51,10 +51,10 @@ class VoiceCollabTest(unittest.TestCase):
         c = got["speaker:collab:BBBBBBBBBBB#c2r01"]
         self.assertEqual(lineup.parse_id(c["id"])[:2], ("speaker", "collab"))
         self.assertEqual(c["kind"], "speaker")
-        self.assertIsNone(c["guess"])   # 予想は出さない
-        self.assertEqual([o["id"] for o in c["options"]], ["name:白上フブキ", "name:さくらみこ", "name:大空スバル", "name:大神ミオ", "name:その他の人", "mixed"])
-        self.assertEqual(c["buttons"], 5)
-        self.assertFalse(c["learn"])
+        self.assertNotIn("guess", c)   # 予想は出さない
+        self.assertEqual(sorted(c["people"]), sorted(["白上フブキ", "さくらみこ", "大空スバル", "大神ミオ"]))   # 出る人の全員
+        self.assertIn(VC.UNKNOWN_PERSON, c["pick"])
+        self.assertFalse(set(c["people"]) & set(c["pick"]))   # ほかの人の欄に出る人は入れない
         self.assertEqual(c["media"]["url"], "api/check/voicecollab?key=c2r01")
         self.assertTrue(VC.clip_path(self.app, "c1r01"))
         self.assertIsNone(VC.clip_path(self.app, "../x"))
@@ -70,8 +70,16 @@ class VoiceCollabTest(unittest.TestCase):
         self.assertNotIn("collab", voice_mod.SOURCES)   # 声の覚え直しの材料(_pending)に入らない
         ap = apply._REG[("speaker", "collab")]
         c = {"target": {"collab": "c1r01", "videoId": "AAAAAAAAAAA"}}
-        self.assertEqual(ap.apply(None, c, ap.check({"choice": "name:桃鈴ねね"})), {"collab": "c1r01", "video": "AAAAAAAAAAA"})
+        self.assertEqual(ap.apply(None, c, ap.check({"names": ["桃鈴ねね", "雪花ラミィ", "桃鈴ねね"]})),
+                         {"collab": "c1r01", "video": "AAAAAAAAAAA", "names": ["桃鈴ねね", "雪花ラミィ"]})   # 同時に話した人は全員残す
+        self.assertEqual(ap.apply(None, c, ap.check({"choice": "other"})), {"collab": "c1r01", "video": "AAAAAAAAAAA", "names": []})
+        for bad in ({"names": []}, {"names": [1]}, {"choice": "mixed"}, {"name": "桃鈴ねね"}, "x"):
+            with self.assertRaises(ValueError):
+                ap.check(bad)
         self.assertEqual(ap.revert(None, {"applied": {"collab": "c1r01"}}), {"collab": "c1r01"})
+
+    def test_order_is_roster_not_host(self):
+        self.assertEqual(VC.ordered(["白上フブキ", "さくらみこ", "外の人"], ["さくらみこ", "白上フブキ"]), ["さくらみこ", "白上フブキ", "外の人"])
 
 
 if __name__ == "__main__":

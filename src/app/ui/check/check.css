@@ -108,3 +108,9 @@
 .chk-sym-ctx{font-size:18px}
 .chk-sym-mark{background:var(--warn-soft);color:var(--warn-ink);padding:0 2px;border-radius:2px}
 .chk-sym-src{display:block;color:var(--muted);font-size:12px}
+.chk-spk-cast{font-size:17px}
+.chk-spk-names{display:flex;flex-wrap:wrap;gap:8px;width:100%}
+.chk-spk-name{font-size:19px;min-width:150px;justify-content:flex-start}
+.chk-spk-name[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-ink2);font-weight:700}
+.chk-spk-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;width:100%}
+.chk-spk-row select{font-size:15px;min-height:32px}

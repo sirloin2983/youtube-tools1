@@ -31,7 +31,7 @@
   POST /api/intake/scan                   {} 今すぐフォルダを見る(裏で。応答は今の状態)
   GET  /api/check/voiceclip?doc=&row=     誰の声のカードの行の短い音(wav。src/human/proof/voiceclips.py。元の動画が片付いた文書の行も聞ける)
   GET  /api/check/voicemeasure?key=       誰の声のカードの測る分の行の短い音(wav。src/app/check/voice_measure.py。ショートの元の配信から研究が切り出した物)
-  GET  /api/check/voicecollab?key=        誰の声のカードのコラボの行の短い音(wav。src/app/check/voice_collab.py。研究が話者分離の行から切り出した物)
+  GET  /api/check/voicecollab?key=        コラボの話者のカードの行の短い音(wav。src/app/check/voice_collab.py。研究が話者分離の行から切り出した物)
   GET  /api/home/requests                 ホームの「友人の依頼」: 受付の記録に実行の記録を結んだ行 {rows: [{id, title, state, label, done, link, why, ...}]}(src/app/homereq.py)
   GET  /api/backup                        作業データのバックアップの状態・設定(src/manage/keep/backup.py。notes:docs/spec/data.md の「バックアップ」)
   POST /api/backup/run                    {} 今すぐ写す(裏で。応答は今の状態)
@@ -601,7 +601,7 @@ STATIC.update({"/cases-panels/proof.css": (os.path.join("panels", "proof.css"), 
 # 確かめる(/check。RS8 V1。資料の git:before-1028-cleanup:docs/design/v1-check-build.md)。案件をまたぐ軽い確認のカード。/cases と同じく入口の直下の 1 枚・完全一致の表だけ。
 # カードの描き方は /check-cards/<種類>.js(V2 の 4 本が中身を足す)・カード用の軽い再生部品は /check-player.js
 CHECK_DIR = os.path.join(ROOT, "app", "ui", "check")
-CHECK_CARDS = ("value", "voice", "time", "cut", "symbol", "section")   # 切り抜く価値・誰の声・行の時刻・自動カット・消した記号(11-01)・評価の区間(C-EVAL)。読みと「この行は声ですか?」は 10-31 に消した
+CHECK_CARDS = ("value", "voice", "time", "cut", "symbol", "speaker", "section")   # 切り抜く価値・誰の声・行の時刻・自動カット・消した記号(11-01)・コラボの話者(11-01)・評価の区間(C-EVAL)。読みと「この行は声ですか?」は 10-31 に消した
 STATIC.update({"/check": ("index.html", CHECK_DIR), "/check.js": ("check.js", CHECK_DIR), "/check.css": ("check.css", CHECK_DIR),
                "/check-player.js": ("player.js", CHECK_DIR)})
 STATIC.update({"/check-cards/%s.js" % n: (os.path.join("cards", n + ".js"), CHECK_DIR) for n in CHECK_CARDS})
@@ -818,7 +818,7 @@ class PortalHandler(httpsec.LocalHandler):
                 return self._fail(404, "not_found", "その行の音はありません")
             with open(p, "rb") as f:
                 return self._send(200, f.read(), "audio/wav", {"Cache-Control": "private, max-age=3600"})
-        if u.path == "/api/check/voicecollab":   # 誰の声のカードのコラボの行の音(11-01。app/check/voice_collab)
+        if u.path == "/api/check/voicecollab":   # コラボの話者のカードの行の音(11-01。app/check/voice_collab)
             p = check_voice_collab.clip_path(self.server.cleanup.app_dir, (q.get("key") or [""])[0])
             if not p:
                 return self._fail(404, "not_found", "その行の音はありません")
