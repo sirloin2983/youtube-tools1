@@ -16,6 +16,7 @@ pad = 実際に足せた前後の秒 [前, 後]・text は候補の区間にか�
 守り: 1 本ずつ(同時に 1 つの子プロセス)・1 本 TX_TIMEOUT 秒まで・同じ候補は TX_TRIES 回まで・続けて FAIL_PAUSE_AFTER 回失敗したら PAUSE_SEC 休む(GPU の不調で回り続けない)。
 認識(GPU)は重い処理の順番(ytt.jobs.SLOTS。tool "live-tx")を通す(D-14): 書き出し・文字起こし・パックと同じ枠で順番を待つ
 (配信中の文字起こしが whisper.cpp の GPU を、書き出したあとの本番の文字起こしと取り合わない)。待っている間は status の slotWait。入口の終了で待ちをやめる。
+Haas(1 本 1〜2 秒)は枠を待たず、上限も HAAS_TX_TIMEOUT 秒(11-01・スイッチ SLOT_ENV)。
 入口の見回り(Live.tick。30 秒ごと)が tick() で候補を見つけて列に入れ、裏のスレッドが 1 本ずつ処理する。
 """
 import os
@@ -40,6 +41,8 @@ HAAS_ENGINE = "haas-speechcpp"        # speech.cpp の Haas(段 1 の tx_engines
 HAAS_MODEL = "haas-ja-v1.0"           # Haas のモデル(tx_engines.HAAS_GGUF_MODELS の名前。liveTx.model は whisper.cpp のモデルのまま)
 TX_STATES = ("frame", "bench", "adopted")   # 文字を付ける候補の状態(仮の候補・終わり待ち・見送りは付けない)
 TX_TIMEOUT = 240.0        # 子プロセス 1 本の上限(秒。45〜120 秒の音は GPU で 10〜20 秒 = 区間の上限 300 秒 + 余白 2 × 30 秒でも 1 分ほど。LD-2f で見直して据え置き)
+HAAS_TX_TIMEOUT = 60.0     # Haas の子プロセス 1 本の上限(秒。読みは 1 本 1〜2 秒・起動とモデルの読み込みを入れても数秒。11-01 ライブを軽くする案の D)
+SLOT_ENV = "YTT_LIVE_TX_SLOT"   # on = Haas でも重い処理の枠を待つ(既定は待たない = 書き出し・本番の文字起こしの後ろに並ばない。GPU 0.9 GB・1 秒)
 WAV_TIMEOUT = 120          # 候補の区間の wav を作る ffmpeg 1 本の上限(秒)
 TX_TRIES = 2              # 同じ候補を試す回数
 FAIL_PAUSE_AFTER = 3      # 続けてこの回数失敗したら休む
@@ -490,7 +493,12 @@ class LiveTx(LX.Patrol):
             shutil.rmtree(wdir, ignore_errors=True)
 
     def _run_in_slot(self, rec, wav):
-        """重い処理の順番(SLOTS)を取ってから認識する(D-14)。待っている間に入口が終わったら None"""
+        """重い処理の順番(SLOTS)を取ってから認識する(D-14)。待っている間に入口が終わったら None。
+        Haas は枠を待たない(SLOT_ENV=on で待つ)"""
+        p = self.paths()
+        if p["engine"] == HAAS_ENGINE and os.environ.get(SLOT_ENV, "").strip().lower() != "on":
+            return self.run(p["dataDir"], p["modelName"], wav)
+
         def on_wait():
             self.slot_wait = True
             self.log("配信中の文字起こし: %s の認識は、他の重い処理が終わるのを待っています" % rec)
@@ -519,14 +527,15 @@ class LiveTx(LX.Patrol):
             self.proc = proc
             tools.cap_cpu(proc)   # 子の speech・whisper ごと CPU の上限(YTT_LIVE_CPU_CAP)
 
+        limit = HAAS_TX_TIMEOUT if p["engine"] == HAAS_ENGINE else TX_TIMEOUT
         try:   # 起動した子は close() が止める(on_start で覚える)
-            r = tools.run(cmd, timeout=TX_TIMEOUT, flags=tools.no_window_flags(priority="low"), stdout=False, on_start=started)
+            r = tools.run(cmd, timeout=limit, flags=tools.no_window_flags(priority="low"), stdout=False, on_start=started)
         except OSError as e:
             return {"ok": False, "reason": "子プロセスを起動できませんでした: %s" % e}
         finally:
             self.proc = None
         if r.why == "timeout":
-            return {"ok": False, "reason": "%d 秒で終わりませんでした" % int(TX_TIMEOUT)}
+            return {"ok": False, "reason": "%d 秒で終わりませんでした" % int(limit)}
         d = fsio.read_json_or(out, None)
         if d is None:
             return {"ok": False, "reason": "結果を読めませんでした(%s)" % (" / ".join(r.err_lines(3)) or "終了コード %s" % r.code)}

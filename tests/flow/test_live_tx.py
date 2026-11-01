@@ -369,6 +369,26 @@ class HaasTest(LiveTxBase):
         self.assertEqual((r["engine"], r["fallback"], r["model"]), (TX.HAAS_ENGINE, "gpu_failed: x", TX.HAAS_MODEL))
         self.assertNotIn("engine", self.tx.record("fake", REC, "p2", "い"))   # 渡さなければ今までの形
 
+    def test_haas_skips_heavy_slot_and_short_timeout(self):
+        """Haas は重い処理の枠を待たない(スイッチ on で待つ)・上限は HAAS_TX_TIMEOUT(11-01)"""
+        from ytt import jobs
+        self.put_haas()
+        wav = os.path.join(self.tmp, "in.wav")
+        write_wav(wav, 1.0)
+        self.tx.slots = jobs.HeavySlots(limit=1, reserved={})
+        self.tx.run = self.tx._run_worker   # 本物の子プロセスの道(tools.run を差し替える)
+        limits = []
+
+        def run(cmd, **kw):
+            limits.append(kw["timeout"])
+            return mock.Mock(why="timeout", code=None, err_lines=lambda n: [])
+        with self.tx.slots.slot("export", "書き出し") as ok, mock.patch.object(TX.tools, "run", run):   # 枠を書き出しが持っている
+            self.assertTrue(ok)
+            res = self.tx._run_in_slot(REC, wav)
+        self.assertEqual((limits, res["reason"]), ([TX.HAAS_TX_TIMEOUT], "%d 秒で終わりませんでした" % TX.HAAS_TX_TIMEOUT))
+        with mock.patch.dict(os.environ, {TX.SLOT_ENV: "on"}), mock.patch.object(self.tx, "run", lambda *a: {"ok": True}):
+            self.assertEqual(self.tx._run_in_slot(REC, wav), {"ok": True})   # 枠が空いていれば通る(待つ道は今までの whisper.cpp のテスト)
+
 
 class TickTest(LiveTxBase):
     def test_tick_queues_only_settled_peaks_without_text(self):
