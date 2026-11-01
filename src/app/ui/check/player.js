@@ -4,8 +4,8 @@
      候補のまま(配信の区間)= YouTube の埋め込み(youtube-nocookie.com。校正の小さい配信プレーヤーと同じ形)
      波形(行の時刻のカード)= 編集の transcribe/api/peaks?id=(0〜255 の 1 バイトの並び + X-Peaks-Rate。作っている間は 202)を区間だけ描く
      音量・消音・再生速度はこのブラウザに覚え(localStorage の check.volume・check.rate)、全部のカードで引き継ぐ(埋め込みの YouTube は除く)
-     キー = 殻が UIKit.keys.playback に media() を渡す(Space・J/K/L・← →・, .)。R = もう一度聞く(殻が replay() を呼ぶ。編集の「この行をもう一度聞く」と同じキー)
-     もう一度聞く = 画面の下のボタン(data-chk-replay)と R。区間の頭(win[0] = 行の頭 - pad)から流し直す。足す余白は無し
+     キー = 殻が UIKit.keys.playback に media() を渡す(11-02 から Space だけ。ほかの再生のキーと R は消した)
+     もう一度聞く = 画面の下のボタン(data-chk-replay)。区間の頭(win[0] = 行の頭 - pad)から流し直す。足す余白は無し
      (編集の「この行をもう一度聞く」も行の頭から = 余白 0。カードの pad はカードを作る側が決めた物をそのまま使う)。
      区間の頭へ戻して末で止めるのは、最初の自動再生と もう一度聞く だけ。ほかの Space・L・再生ボタン・シーク・再生バーのクリック・一時停止の後の再生は、
      今の位置から止めずに流す(誰の声・声かどうか・価値・読み・区間 = 前後や流れが答えの手がかり。10-25 ユーザー「性質ごとにちゃんと考えて」)。
@@ -81,7 +81,7 @@
       '<div class="chk-screen" data-chk-screen></div>' +
       (opt.wave ? '<div class="chk-wave"><canvas data-chk-wave height="72" aria-hidden="true"></canvas><p class="hint chk-wave-msg" data-chk-wavemsg></p></div>' : '') +
       (opt.text ? '<p class="chk-cap">' + esc(opt.text) + '</p>' : '') +
-      '<div class="chk-replay-row" data-chk-replayrow hidden><button type="button" class="btn" data-chk-replay title="区間の頭から流し直します">もう一度聞く <kbd class="ui-kbd">R</kbd></button>' +
+      '<div class="chk-replay-row" data-chk-replayrow hidden><button type="button" class="btn" data-chk-replay title="区間の頭から流し直します">もう一度聞く</button>' +
       (src ? '<label class="chk-rate">速さ <select data-chk-rate title="再生の速さ(次のカードも同じ速さ)">' +
         RATES.map(function (r) { return '<option value="' + r + '">' + r + ' 倍</option>'; }).join('') + '</select></label>' : '') +
       '<p class="hint chk-play-msg" data-chk-msg role="status"></p></div></div>';   // 知らせはボタンの横(縦を使わない = 答えのボタンを上に保つ)

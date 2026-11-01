@@ -20,7 +20,7 @@
       return '<div class="chk-spk-names" role="group" aria-label="話した人(何人でも)">' + all.map(function (n, i) {
         var on = cur.sel.indexOf(n) >= 0;
         return '<button type="button" class="btn lg chk-spk-name" aria-pressed="' + on + '" data-chk-k="' + (i + 1) + '">' +
-          '<kbd class="ui-kbd">' + (i + 1) + '</kbd> ' + esc(n) + '</button>';
+          esc(n) + '</button>';
       }).join('') + '</div>' +
         '<div class="chk-spk-row"><label class="hint" for="chkSpkPick">出る人が違うとき: ほかの人を選ぶ</label> ' +
         '<select id="chkSpkPick" data-chk-spk-pick><option value="">(選ぶ)</option>' +
@@ -29,13 +29,13 @@
         }).join('') + '</select> ' + extBtn() + '</div>' +
         '<div class="chk-spk-row">' +
         '<button type="button" class="btn lg primary" data-chk-k="Enter"' + (cur.sel.length ? '' : ' disabled') + '>決める' +
-        (cur.sel.length ? '(' + esc(cur.sel.join('・')) + ')' : '') + ' <kbd class="ui-kbd">Enter</kbd></button> ' +
+        (cur.sel.length ? '(' + esc(cur.sel.join('・')) + ')' : '') + '</button> ' +
         CheckCards.btn(OTHER.label, OTHER.k, '').replace('<button ', '<button title="' + esc(OTHER.title) + '" ') + '</div>';
     }
     function extName() { return typeof cur.card.otherPerson === 'string' && cur.card.otherPerson ? cur.card.otherPerson : EXT.label; }
     function extBtn() {
       return '<button type="button" class="btn lg chk-spk-name" title="' + esc(EXT.title) + '" aria-pressed="' + (cur.sel.indexOf(extName()) >= 0) +
-        '" data-chk-k="' + EXT.k + '"><kbd class="ui-kbd">' + EXT.k + '</kbd> ' + esc(EXT.label) + '</button>';
+        '" data-chk-k="' + EXT.k + '">' + esc(EXT.label) + '</button>';
     }
     function toggle(n) {
       var i = cur.sel.indexOf(n);
@@ -61,14 +61,14 @@
         el.innerHTML = '<div class="chk-q">この 10 秒で話している人は誰?(全員)</div>' +
           '<div class="chk-media"><div class="chk-stagebox" data-chk-media></div><div class="chk-info">' +
           '<p class="chk-spk-cast">この配信に出る人: <b>' + esc(list(card.people).join('・')) + '</b></p>' +
-          '<p class="hint">話している人を全員、数字キーで選んで Enter(順番は聞きません)。メンバー以外の声は X。声を覚える材料にはしません(測る専用)。</p>' +
+          '<p class="hint">話している人を全員選んで [決める](順番は聞きません)。メンバー以外の声は [その他の人]。声を覚える材料にはしません(測る専用)。</p>' +
           '</div></div><div class="chk-acts">' + acts() + '</div>';
         el.addEventListener('change', onPick);
         var m = card.media || {};
         if (m.url) ctx.player(el.querySelector('[data-chk-media]'), card.media, { text: '' });
       },
       keys: function (e) {
-        if (!cur || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return null;
+        if (!cur || !e.fromButton) return null;
         var k = CheckCards.keyOf(e), all = names();
         if (/^[1-9]$/.test(k) && Number(k) <= all.length) {
           toggle(all[Number(k) - 1]);
@@ -78,11 +78,6 @@
         if (k === 'Enter') return cur.sel.length ? { names: cur.sel.slice() } : true;
         if (k === OTHER.k) return { choice: 'other' };
         return null;
-      },
-      keybar: function () {
-        if (!cur) return [];
-        var n = names().length;
-        return [{ k: n > 1 ? '1〜' + n : '1', l: '人を選ぶ(何人でも)' }, { k: EXT.k, l: EXT.label }, { k: 'Enter', l: '決める' }, { k: OTHER.k, l: OTHER.label }];
       },
       unmount: function () { if (box) box.removeEventListener('change', onPick); cur = null; box = null; rctx = null; }
     };

@@ -1,12 +1,12 @@
 /* 確かめるの記号のカード(/check-cards/symbol.js。11-01。口は check.js の先頭・出どころは src/app/check/symbol_sources.py・反映は src/human/check/symbol.py)。
    文字起こしの素から、決まり(pipeline/transcribe/symbols)が消す記号 1 つ = 1 枚。前後 10 字の文脈を 1〜3 個、記号に色を付けて並べる。音は出さない(文字だけで決める)。
-   答え: A 消してよい・K 例外にする(次から消さない字に足す。Z で外れる)・U 迷う。 */
+   答え: 消してよい・例外にする(次から消さない字に足す = 重いボタン。1 つ前に戻すで外れる)・迷う。 */
 (function () {
   'use strict';
   var esc = UIKit.esc;
   var OPTS = [
     { k: 'A', label: '消してよい', primary: true, answer: { choice: 'ok' }, title: 'この記号は文字起こしから消してよい' },
-    { k: 'K', label: '例外にする', answer: { choice: 'keep' }, title: 'この記号は消さずに残す(次から例外の字)' },
+    { k: 'K', label: '例外にする', heavy: true, answer: { choice: 'keep' }, title: 'この記号は消さずに残す(次から例外の字)' },
     { k: 'U', label: '迷う', answer: { choice: 'unsure' }, title: '決められない(記録だけ)' }
   ];
 

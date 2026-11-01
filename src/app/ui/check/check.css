@@ -27,12 +27,17 @@
 .chk-stagebox:empty{display:none}
 .chk-info{flex:1 1 200px;min-width:0}
 .chk-info p{margin:0 0 6px}
+/* 段 3 = 印(選ぶだけ・押した状態が分かる形)・段 2 = 答え(押せば決まる)・段 4 = 共通の枠(殻が段 2 のすぐ下へ移す)。11-02 ユーザー */
+.chk-marks{display:flex;gap:6px 8px;margin-top:14px;flex-wrap:wrap;align-items:center}
+.chk-mark[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-ink2);font-weight:650}
 .chk-acts{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+.chk-dock{position:sticky;bottom:var(--keybar-h, 24px);z-index:3;background:var(--panel);margin:12px -16px -16px;padding:4px 16px 12px;border-top:1px solid var(--line);border-radius:0 0 var(--r-lg) var(--r-lg)}
+.chk-dock .chk-acts{margin-top:8px}
 .chk-type{margin-top:12px}
 .chk-type[hidden]{display:none}
 .chk-type .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .chk-text{flex:1 1 240px;min-width:0}
-.chk-foot{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
+.chk-foot{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-start;margin-top:8px}
 .chk-answered:empty{display:none}
 .chk-empty .row{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:12px}
 .chk-empty>b,.chk-empty>span{display:block}
@@ -68,7 +73,7 @@
 }
 @media (max-width:560px){
   .chk-card{padding:12px}
-  .chk-foot{justify-content:flex-start}
+  .chk-dock{margin:12px -12px -12px;padding:4px 12px 10px}
 }
 
 /* レーン(普段 / 評価。C-EVAL)と評価のレーンの頭(評価用の一括・定点) */

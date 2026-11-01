@@ -159,10 +159,20 @@ def state(pg):
 LOADED_JS = "document.getElementById('chkEmpty').hidden || !document.querySelector('#chkEmpty .chk-loading')"
 
 
+SHELL_BTN = {"n": "#chkSkip", "w": "#chkUnknown", "r": "[data-chk-replay]"}   # 共通の枠のボタン(11-02 にキーを消した)
+KEPT_KEYS = {"z", "Space"}   # 11-02 ユーザー「キー操作は大幅に消す」のあとに残したキー
+
+
 def press(pg, key):
-    """キーを押して、送った要求(答え・戻す・飛ばす)を偽の待ち行列が受け、カードの読み込み(先読みの api/check/next)が済むまで待つ。
+    """カードの名前 key のボタンを押す(無ければ何もしない = 効かないキーと同じ)。残したキー(Z・Space)と、入力欄の中の Enter・Esc はキーで押す。
+    送った要求(答え・戻す・後で)を偽の待ち行列が受け、カードの読み込み(先読みの api/check/next)が済むまで待つ。
     同期版の route は Playwright を呼んでいる間しか動かない(time.sleep では届かない)ので wait_for_timeout と evaluate で待つ"""
-    pg.keyboard.press(key)
+    typing = pg.evaluate("(() => { const a = document.activeElement; return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName); })()")
+    if key in KEPT_KEYS or typing:
+        pg.keyboard.press(key)
+    else:
+        sel = SHELL_BTN.get(key) or "#chkBody [data-chk-k='%s']" % (key if len(key) > 1 else key.upper())
+        pg.evaluate("(() => { const b = document.querySelector(%s); if (b && !b.disabled) b.click(); })()" % json.dumps(sel))
     pg.wait_for_timeout(40)
     wait_js(pg, LOADED_JS, 5000)
 
@@ -199,8 +209,10 @@ def _scene_answer_undo_skip(cx):
     check(a["card"] == "value:e2e:01" and a["answer"] == {"choice": "good", "score": 4} and isinstance(a["ms"], int) and "value:e2e:02" in a["skip"],
           "送った中身(card・answer・ms・待っている id): %s" % a)
     check(pg.text_content("#chkToday") == "1", "帯: 今日 1 件")
+    check(pg.text_content("#chkSkip").strip() == "後で" and "もう出さない" in pg.text_content("#chkUnknown"), "共通の枠の言葉(後で・分からない(もう出さない)): %r" % pg.text_content("#chkSkip"))
+    check(pg.evaluate("!!document.querySelector('#chkBody .chk-rows + #chkFoot')"), "共通の枠は答えのすぐ下(カードの中)")
     press(pg, "n")
-    check(state(pg)["cur"] == "value:e2e:03" and wait_js(pg, "true") and fq.skipped == ["value:e2e:02"], "N で飛ばす(skip を送る): %s" % fq.skipped)
+    check(state(pg)["cur"] == "value:e2e:03" and wait_js(pg, "true") and fq.skipped == ["value:e2e:02"], "[後で](skip を送る): %s" % fq.skipped)
     press(pg, "z")
     check(wait_js(pg, "CheckShell.state().cur === 'value:e2e:01'"), "Z で最後に答えたカードへ戻る(飛ばしたカードは戻さない): %s" % state(pg))
     check(fq.undone == ["ans001"] and pg.text_content("#chkToday") == "0", "undo に答えの id を送り、今日の数も戻る: %s" % fq.undone)
@@ -214,7 +226,8 @@ def _scene_answer_undo_skip(cx):
     # 点だけで答える(10-29 ユーザー): ボタンは 1〜5 だけ・3 = 不明・押し続け(repeat)では次のカードに答えない(0.99.338 の守り)
     keys = "[...document.querySelectorAll('#chkBody [data-chk-k]')].map(b => b.dataset.chkK).join()"
     check(pg.evaluate(keys) == "1,2,3,4,5", "ボタンは 1〜5 だけ(良い・悪い・不明のボタンは無い): %s" % pg.evaluate(keys))
-    check("1〜2" in pg.text_content("body") and "4〜5" in pg.text_content("body"), "下の帯のキーの案内も点の形")
+    bar = pg.text_content(".ui-keybar") or ""
+    check("1 つ前に戻す" in bar and "分からない" not in bar and "面白" not in bar, "下の帯は残したキー(Space・Z)だけ: %r" % bar)
     n0 = len(fq.answers)
     press(pg, "3")
     check(wait_js(pg, "CheckShell.state().cur !== 'value:e2e:03'") and fq.answers[-1]["body"]["answer"] == {"choice": "unknown", "score": 3},
@@ -222,7 +235,7 @@ def _scene_answer_undo_skip(cx):
     cur = state(pg)["cur"]
     pg.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', {key: '5', repeat: true, bubbles: true}))")
     pg.wait_for_timeout(300)
-    check(state(pg)["cur"] == cur and len(fq.answers) == n0 + 1, "押し続けの 5 では次のカードに答えない: %s" % state(pg)["cur"])
+    check(state(pg)["cur"] == cur and len(fq.answers) == n0 + 1, "数字のキーでは答えない(11-02 にキーを消した): %s" % state(pg)["cur"])
     press(pg, "z")
     wait_js(pg, "CheckShell.state().cur === 'value:e2e:03'")
 
@@ -237,16 +250,14 @@ def _scene_kinds(cx):
     check(pg.evaluate("document.querySelector('#chkBody video').volume") == 0.5, "音量の既定は半分")
     pg.evaluate("document.querySelector('#chkBody video').volume = 0.3")
     check(wait_js(pg, "JSON.parse(localStorage.getItem('check.volume') || '{}').volume === 0.3"), "変えた音量を覚える(次のカードで使う)")
-    press(pg, "Enter")
-    pg.wait_for_timeout(200)
-    check(state(pg)["kind"] == "voice", "再生が終わるまで Enter は効かない")
+    check(not pg.is_disabled("#chkBody [data-chk-k='Enter']"), "予想どおりは再生中でも押せる(11-02 に待つ決まりをやめた)")
     check(wait_js(pg, "(() => { const v = document.querySelector('#chkBody video'); return v && !v.paused && v.currentTime > 0.4; })()", 10000), "出したら自動で再生(区間の頭から)")
     check(wait_js(pg, "(() => { const v = document.querySelector('#chkBody video'); return v && v.paused && v.currentTime >= 1.6 && v.currentTime < 2.3; })()", 10000),
           "区間の末 + pad で止まる: %s" % pg.evaluate("document.querySelector('#chkBody video').currentTime"))
     stopped = "(() => { const v = document.querySelector('#chkBody video'); return v && v.paused && v.currentTime >= 1.6; })()"
     replayed = "(() => { const v = document.querySelector('#chkBody video'); return v && !v.paused && v.currentTime < 1.2; })()"
     press(pg, "r")
-    check(wait_js(pg, replayed, 5000) and state(pg)["kind"] == "voice", "終わった後の R = 区間の頭から流し直す(答えない)")
+    check(wait_js(pg, replayed, 5000) and state(pg)["kind"] == "voice", "終わった後の [もう一度聞く] = 区間の頭から流し直す(答えない)")
     check(wait_js(pg, stopped, 10000), "流し直しも区間の末で止まる")
     pg.click("[data-chk-replay]")
     check(wait_js(pg, replayed, 5000), "[もう一度聞く] のボタンも頭から")
@@ -264,7 +275,7 @@ def _scene_kinds(cx):
           "区間の後ろで止めて再生ボタン = その位置から流す(区間の頭へ戻さない・止めない): %s → %s" % (t_pause, t_play))   # シークはこの試しの動画の配り方(Range なし)では 0 秒へ戻るので見ない
     pg.evaluate("document.querySelector('#chkBody video').pause()")
     press(pg, "Enter")
-    check(wait_js(pg, "CheckShell.state().kind === 'time'") and fq.answers[-1]["body"]["answer"] == {"choice": "B"}, "再生のあとの Enter = 機械の予想どおり")
+    check(wait_js(pg, "CheckShell.state().kind === 'time'") and fq.answers[-1]["body"]["answer"] == {"choice": "B"}, "[予想どおり] = 機械の予想どおり")
     n_before = len(fq.answers)
     check(wait_js(pg, "(() => { const v = document.querySelector('#chkBody video'); return !v || v.volume === 0.3; })()"), "次のカードも覚えた音量")
     check(wait_js(pg, "!!document.querySelector('#chkBody canvas[data-chk-wave]')") and wait_js(pg, "!document.querySelector('[data-chk-wavemsg]').textContent"),
@@ -281,22 +292,23 @@ def _scene_kinds(cx):
           "時刻: 末で止まった後の Space は窓の頭から(窓の外へ出さない): %s" % pg.evaluate("%s.currentTime" % tv))
     check(wait_js(pg, "(() => { const v = %s; return v && v.paused && v.currentTime >= 2.3 && v.currentTime < 2.8; })()" % tv, 10000),
           "時刻: 自分で流しても窓の末で止まる: %s" % pg.evaluate("%s.currentTime" % tv))
-    press(pg, "ArrowLeft")
-    check(wait_js(pg, "CheckShell.state().kind === 'time'") and "ちょうどいい" in pg.text_content("[data-chk-tstate]"), "印を選ぶ前の ← は再生の移動(答えない・印も動かない)")
+    check(pg.is_hidden("[data-chk-nudge]") and "ちょうどいい" in pg.text_content("[data-chk-tstate]"), "印を選ぶ前は動かすボタンを出さない")
     press(pg, "h")
+    check(pg.get_attribute("#chkBody .chk-marks [data-chk-k='H']", "aria-pressed") == "true" and pg.is_visible("[data-chk-nudge]"), "[頭がずれている] は段 3 の印(押した状態)・動かすボタンが出る")
     for _ in range(3):
-        press(pg, "ArrowLeft")
-    check("頭がずれている" in pg.text_content("[data-chk-tstate]") and "−0.10 秒" in pg.text_content("[data-chk-tstate]"), "H で頭を選び ← 3 コマ = 0.10 秒前へ: %r" % pg.text_content("[data-chk-tstate]"))
+        press(pg, "M1")
+    check("頭がずれている" in pg.text_content("[data-chk-tstate]") and "−0.10 秒" in pg.text_content("[data-chk-tstate]"), "頭を選び [−1] 3 回 = 0.10 秒前へ: %r" % pg.text_content("[data-chk-tstate]"))
+    check(pg.text_content("#chkBody .chk-acts [data-chk-k='Enter']").strip() == "この時刻で答える", "動かすと答えのボタンは「この時刻で答える」")
     check(state(pg)["kind"] == "time" and len(fq.answers) == n_before, "動かしただけでは答えない")
     press(pg, "t")   # 読みを直す(10-26)
-    check(pg.is_visible("#chkBody [data-chk-retext] input") and pg.evaluate("document.activeElement.id === 'chkTimeText'"), "T で読みを直す欄が開き、そこに入る")
+    check(pg.is_visible("#chkBody [data-chk-retext] input") and pg.evaluate("document.activeElement.id === 'chkTimeText'"), "[読みを直す] で欄が開き、そこに入る")
     pg.fill("#chkTimeText", "直した読み")
     press(pg, "Enter")
     check(state(pg)["kind"] == "time" and len(fq.answers) == n_before and "直した読み" in (pg.text_content("[data-chk-newtext]") or ""),
           "欄の Enter は文字を決めるだけ(答えない)")
     press(pg, "Enter")
     check(wait_js(pg, "CheckShell.state().kind === 'value'") and fq.answers[-1]["body"]["answer"] == {"choice": "head", "dStart": -0.1, "dEnd": 0, "text": "直した読み"},
-          "Enter で答える(動かした量と直した文字つき): %s" % fq.answers[-1]["body"]["answer"])
+          "[この時刻で答える] で答える(動かした量と直した文字つき): %s" % fq.answers[-1]["body"]["answer"])
 
 
 def _scene_summary_and_end(cx):
@@ -352,7 +364,7 @@ def _scene_real_api(cx):
 
 
 def _scene_voice(cx):
-    """誰の声のカード: 予想の Enter のボタンは再生が終わるまで押せない(理由つき)・登録簿の人(name:)は {name} で答える・M = 混ざり・Z で戻すとまた待つ"""
+    """誰の声のカード: 予想どおりのボタンは再生中でも押せる(11-02)・登録簿の人(name:)は {name} で答える・M = 混ざり・Z で戻す"""
     pg, check = cx.pg, cx.check
     vid = {"url": "transcribe/media?id=a0000000000b", "start": 0.5, "end": 1.5, "pad": 0.2}
     fv = FakeQueue([card(30, "voice", source="diar", media=vid, guess={"id": "name:みこ", "name": "みこ"}, note="below_match",
@@ -364,14 +376,13 @@ def _scene_voice(cx):
         pg.goto(cx.base + "check?kind=voice")
         check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:30'"), "声のカードを開く: %s" % state(pg))
         enter = "#chkBody [data-chk-k='Enter']"
-        check(pg.evaluate("(() => { const b = document.querySelector(\"%s\"); return !!b && b.disabled && !!b.getAttribute('data-ui-why'); })()" % enter),
-              "予想どおり(Enter)のボタンは再生が終わるまで押せない・理由つき")
+        check(pg.evaluate("(() => { const b = document.querySelector(\"%s\"); return !!b && !b.disabled && b.matches('.chk-acts > .primary:first-child'); })()" % enter),
+              "予想どおりは段 2 の左端の強調・再生中でも押せる")
         check("みこ" in pg.text_content("#chkBody .notice"), "機械の予想の名前")
         press(pg, "m")
         check(wait_js(pg, "CheckShell.state().empty") and fv.answers[-1]["body"]["answer"] == {"choice": "mixed"}, "M = 声が混ざっている")
         press(pg, "z")
-        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:30'") and pg.evaluate("document.querySelector(\"%s\").disabled" % enter), "Z で戻すと、また再生が終わるまで待つ")
-        check(wait_js(pg, "!document.querySelector(\"%s\").disabled" % enter, 10000), "再生が終わると押せる")
+        check(wait_js(pg, "CheckShell.state().cur === 'voice:e2e:30'"), "Z で戻す")
         pg.click(enter)
         check(wait_js(pg, "CheckShell.state().empty") and fv.answers[-1]["body"]["answer"] == {"name": "みこ"}, "登録簿の人の予想は {name} で答える: %s" % fv.answers[-1:])
     finally:
@@ -398,8 +409,6 @@ def _scene_rate_kept(cx):
               "次のカードも最初から 1.5 倍: %s" % pg.evaluate(rate))
         pg.goto(cx.base + "check?kind=value")
         check(wait_js(pg, "!!document.querySelector('#chkBody video')") and pg.evaluate(rate) == [1.5, 1.5], "開き直しても 1.5 倍: %s" % pg.evaluate(rate))
-        press(pg, "k")
-        check(pg.evaluate(rate) == [1.5, 1.5], "K(止める)は覚えた速さへ戻す(1 倍に戻さない): %s" % pg.evaluate(rate))
         # 速さの選び方(10-29 ユーザー「4 倍まで刻んで出して」): 再生の横の「速さ」で 1〜4 倍・声の高さを保つ・覚えた速さは段にそろえる
         opts = pg.evaluate("[...document.querySelectorAll('#chkBody [data-chk-rate] option')].map(o => +o.value)")
         check(opts == [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4] and pg.input_value("#chkBody [data-chk-rate]") == "1.5", "速さの段は 4 倍まで・今の 1.5 倍を指す: %s" % opts)
@@ -448,7 +457,7 @@ def _scene_unknown(cx):
     try:
         pg.goto(cx.base + "check?kind=value")
         check(wait_js(pg, "CheckShell.state().cur === 'value:e2e:60'"), "分からない: カードを開く: %s" % state(pg))
-        check(pg.is_visible("#chkUnknown") and "W" in pg.text_content("#chkUnknown"), "[分からない W] のボタン")
+        check(pg.is_visible("#chkUnknown") and pg.text_content("#chkUnknown").strip() == "分からない(もう出さない)", "[分からない(もう出さない)] のボタン")
         check(wait_js(pg, "document.body.textContent.includes('分からない')"), "キーの表示に 分からない")
         press(pg, "w")
         check(wait_js(pg, "CheckShell.state().cur === 'value:e2e:61'") and [u["body"]["card"] for u in fv.unknowns] == ["value:e2e:60"] and not fv.answers,
@@ -573,8 +582,8 @@ def _scene_speaker(cx):
         pg.goto(cx.base + "check?kind=speaker")
         check(wait_js(pg, "CheckShell.state().cur === 'speaker:e2e:90'"), "コラボの話者のカードを開く: %s" % state(pg))
         got = pg.evaluate(names)
-        check([n for n, _p in got] == ["1 さくらみこ", "2 白上フブキ", "3 大神ミオ", "4 大空スバル"] and all(p_ == "false" for _n, p_ in got),
-              "出る人の全員が名前のボタン(数字キー・並びはカードのまま): %s" % got)
+        check([n for n, _p in got] == ["さくらみこ", "白上フブキ", "大神ミオ", "大空スバル"] and all(p_ == "false" for _n, p_ in got),
+              "出る人の全員が名前のボタン(並びはカードのまま): %s" % got)
         txt = pg.text_content("#chkBody") or ""
         check("予想" not in txt and pg.query_selector("#chkBody [data-chk-k='G']") is None and pg.query_selector("#chkBody [data-chk-k='V']") is None,
               "予想・BGM が大きい・別の声も は出ない")
@@ -591,8 +600,8 @@ def _scene_speaker(cx):
         check(wait_js(pg, "CheckShell.state().cur === 'speaker:e2e:91'") and fs.answers[-1]["body"]["answer"] == {"names": ["白上フブキ", "大空スバル"]},
               "Enter = 選んだ人を全員 {names}: %s" % fs.answers[-1:])
         pg.select_option("#chkBody [data-chk-spk-pick]", "兎田ぺこら")
-        check(wait_js(pg, "[...document.querySelectorAll('#chkBody .chk-spk-name')].some(b => b.textContent.includes('5 兎田ぺこら') && b.getAttribute('aria-pressed') === 'true')"),
-              "ほかの人の欄で選ぶと 5 番目の名前のボタンに足して選んだ状態: %s" % pg.evaluate(names))
+        check(wait_js(pg, "[...document.querySelectorAll('#chkBody .chk-spk-name')].some(b => b.textContent.includes('兎田ぺこら') && b.getAttribute('aria-pressed') === 'true')"),
+              "ほかの人の欄で選ぶと名前のボタンに足して選んだ状態: %s" % pg.evaluate(names))
         press(pg, "Enter")
         check(wait_js(pg, "CheckShell.state().cur === 'speaker:e2e:92'") and fs.answers[-1]["body"]["answer"] == {"names": ["兎田ぺこら"]},
               "足した人で答える: %s" % fs.answers[-1:])
@@ -722,6 +731,8 @@ def _scene_eval_lane(cx):
               "隣の区間の行は見せるだけ(入力欄なし)")
         check(pg.evaluate("document.querySelectorAll('#chkBody [data-sec-text]').length") == 2, "文字の欄は持ち主の行の分だけ")
         check("合っている" in pg.text_content(enter), "何も変えないときのボタン: %r" % pg.text_content(enter))
+        check(pg.evaluate("(() => { const d = document.querySelector('#chkBody .chk-dock'); return !!d && getComputedStyle(d).position === 'sticky' && !!d.querySelector('.chk-acts [data-chk-k=Enter]') && !!d.querySelector('#chkFoot'); })()"),
+              "区間: 段 2 と共通の枠は画面の下に留める(.chk-dock = sticky)")
         press(pg, "Enter")
         check(wait_js(pg, "CheckShell.state().cur === 'section:e2e:72'") and fe.answers[-1]["body"]["answer"] == {}, "何も変えず Enter = {}: %s" % fe.answers[-1:])
         # 2 枚目: 直す
@@ -730,8 +741,8 @@ def _scene_eval_lane(cx):
         pg.select_option("#chkBody li[data-sec-row=r1] [data-sec-spk]", "みこ")
         pg.check("#chkBody li[data-sec-row=r2] [data-sec-drop]")
         pg.evaluate("document.activeElement && document.activeElement.blur()")
-        press(pg, "a")
-        check(pg.evaluate("document.querySelectorAll('#chkBody li[data-sec-add]').length") == 1, "A で足す行の欄が増える")
+        pg.click("#chkBody [data-sec-addrow]")
+        check(pg.evaluate("document.querySelectorAll('#chkBody li[data-sec-add]').length") == 1, "[行を足す] で足す行の欄が増える")
         check(pg.evaluate("document.activeElement.matches('[data-sec-add] [data-sec-text]')"), "足す行の文字の欄に入る")
         pg.fill("#chkBody li[data-sec-add] [data-sec-a]", "7")
         pg.fill("#chkBody li[data-sec-add] [data-sec-b]", "9.5")
@@ -742,9 +753,9 @@ def _scene_eval_lane(cx):
         pg.check("#chkBody li[data-sec-add] [data-sec-memo=overlap]")
         pg.focus("#chkBody li[data-sec-add] [data-sec-text]")
         press(pg, "Enter")
-        check(state(pg)["cur"] == "section:e2e:72", "入力中の Enter だけでは答えない")
-        press(pg, "Control+Enter")
-        check(wait_js(pg, "CheckShell.state().empty"), "Ctrl+Enter で答える: %s" % state(pg))
+        check(state(pg)["cur"] == "section:e2e:72", "入力中の Enter では答えない")
+        pg.click(enter)
+        check(wait_js(pg, "CheckShell.state().empty"), "[直して答える] で答える: %s" % state(pg))
         want = {"rows": [{"id": "r1", "text": "直した字幕", "speaker": "みこ"}, {"id": "r2", "drop": True}], "add": [{"start": 7, "end": 9.5, "text": "足した言葉", "game": True, "tags": ["overlap"]}]}
         check(fe.answers[-1]["body"]["answer"] == want, "直した答えの中身: %s" % fe.answers[-1]["body"]["answer"])
         pg.click("#chkEvalHead [data-chk-eb=stop]")
@@ -844,7 +855,7 @@ def main():
                 ctx.route(re.compile(r".*/api/check/.*"), fq.handle)
                 ctx.route(re.compile(r".*/transcribe/.*"), media_route)
                 pg.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
-                pg.on("pageerror", lambda e: errors.append(str(e)))
+                pg.on("pageerror", lambda e: errors.append(str(e) + " @ " + (getattr(e, "stack", "") or "")[:400]))
                 pg.on("response", lambda r: bad_status.append("%s %s" % (r.status, r.url)) if r.status >= 400 else None)
                 cx = types.SimpleNamespace(pg=pg, check=check, fq=fq, base="http://127.0.0.1:%d/" % port, peaks_hits=peaks_hits, retime_hits=retime_hits, ctx=ctx, wav=wav)
                 _scene_open(cx)

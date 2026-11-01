@@ -1,5 +1,5 @@
 /* 確かめるのカード「これは誰の声?」(/check-cards/voice.js。V2c。口は check.js の先頭・反映は src/human/check/voice.py)。
-   全部のカードに機械の予想(card.guess)を付け、合っていれば Enter。**行の再生が終わるまで Enter は効かない**(よく聞かずに押すのを防ぐ。ボタンも押せない)。
+   全部のカードに機械の予想(card.guess)を付け、合っていれば [予想どおり]。再生が終わるまで押せない決まりは 11-02 にやめた(ユーザー。名前のボタンはいつでも押せる)。
    カード: options = [{id, name, voice?}…(名前のボタン 3 人まで = 機械の見立てに近い順。文書の話者か、文書にいない人 = id "name:<名前>"), {id: "other"}, {id: "mixed"}]・
    guess = {id, name}・people = [{id, name}](「メンバーを選ぶ」の欄の候補 = 文書の話者・登録簿の人・名簿の全員。human/check/voice.people_for)。
    答え = {choice: 話者の id} / {name: 名前}(id が "name:" で始まる人・欄で打った名簿に無い名前 = 文書に話者を足す)/ {choice: "other"}(その他・ゲームの音など)/
@@ -14,12 +14,11 @@
 (function () {
   'use strict';
   var esc = UIKit.esc;
-  var EXTRA = { other: { k: 'O', label: '声が無い(ゲームの音・BGM だけ。字幕に出さない)' }, mixed: { k: 'M', label: '声が混ざっている(2 人が同じくらい)' } };
+  var EXTRA = { other: { k: 'O', label: '声が無い', title: 'ゲームの音・BGM だけ(字幕に出さない)' }, mixed: { k: 'M', label: '混ざっている', title: '2 人が同じくらい重なっている' } };
   var NAME_PREFIX = 'name:';
   var NOTE = { below_match: '覚えた声との似かたが弱い話者です', margin: '覚えた声の 2 人が近く、どちらか決めきれなかった話者です',
     solo: 'ソロ配信と見た配信の行です(声を覚える材料を集めています)。ほかの人の声なら [メンバーを選ぶ] でその人を、分からなければ [分からない]',
     measure: '覚えた声で人を当てられるかを測る行です(ソロの配信から)。予想は道具が当てた人なので、配信者の声でも予想と違えば配信者のボタンを押してください。ほかの人なら [メンバーを選ぶ]' };
-  var WAIT = '再生が終わってから押せます(よく聞いてから答えるため)';
   var BGM = { k: 'G', label: 'ゲーム音・BGM が大きい', title: '入れてから名前を選ぶと、話者はその人・行に「BGM が大きい」の音のメモを付け、声を覚える材料にしません' };
   var OTHERS = { k: 'V', label: '別の声も入っている', title: '入れてから名前を選ぶと、話者はその人・行に「別の声も入っている」の音のメモを付け、声を覚える材料にしません(2 人が同じくらい重なるなら M)' };
   var PICK = { k: 'P', label: 'メンバーを選ぶ', title: 'ボタンに無い人を名簿などから選ぶ・名前を打つ(名簿に無い人も入れられます)' };
@@ -44,43 +43,34 @@
     question: function () { return 'これは誰の声?'; },
     body: function (card) {
       var g = guessOf(card);
-      return (g ? '<p class="notice info">機械の予想: <b>' + esc(g.name || g.id) + '</b>(再生が終わると Enter で予想どおりに答えられます)</p>' :
+      return (g ? '<p class="notice info">機械の予想: <b>' + esc(g.name || g.id) + '</b></p>' :
         '<p class="notice info">機械の予想はありません。聞いて選んでください。</p>') +
         '<p class="hint">名前を選んだ行は、その人の声を覚え直す材料になります(1 秒以上・混ざっていない行)。</p>' +
-        '<p class="hint">2 人が同じくらい重なる = M・後ろに別の人の声が小さく = V + 名前・BGM が大きいが 1 人 = G + 名前・声が無い(音だけ) = O・決められない = W。</p>';
+        '<p class="hint">2 人が同じくらい重なる = [混ざっている]・後ろに別の人の声が小さく = [別の声も入っている] を入れて名前・BGM が大きいが 1 人 = [ゲーム音・BGM が大きい] を入れて名前・声が無い(音だけ) = [声が無い]。</p>';
     },
     hint: function (card, st) {
-      return (st.bgm ? '<p class="hint" data-chk-bgm>ゲーム音・BGM が大きい行として答えます(声を覚える材料にしません。G でやめる)</p>' : '') +
-        (st.others ? '<p class="hint" data-chk-others>別の声も入っている行として答えます(声を覚える材料にしません。V でやめる)</p>' : '');
+      return (st.bgm ? '<p class="hint" data-chk-bgm>ゲーム音・BGM が大きい行として答えます(声を覚える材料にしません。もう一度押すとやめる)</p>' : '') +
+        (st.others ? '<p class="hint" data-chk-others>別の声も入っている行として答えます(声を覚える材料にしません。もう一度押すとやめる)</p>' : '');
     },
     options: function (card, st) {
       var all = options(card), g = guessOf(card);
       var out = all.filter(function (o) { return !EXTRA[o.id]; }).slice(0, BUTTONS).map(function (o, i) {
         var nm = o.name || o.id;
-        return { k: String(i + 1), label: nm, primary: !!g && o.id === g.id, answer: function (c, p, s) { return answerOf(o.id, s); },
+        return { k: String(i + 1), label: nm, answer: function (c, p, s) { return answerOf(o.id, s); },
           title: o.id.indexOf(NAME_PREFIX) === 0 ? '覚えた声の人です(この文書の話者に「' + nm + '」を足します)' : '' };
       });
       if (g) {
-        out.push({ k: 'Enter', label: '予想どおり', title: WAIT,
-          answer: function (c, player, s) { return !player || player.ended() ? answerOf(g.id, s) : null; } });
+        out.push({ k: 'Enter', label: '予想どおり', primary: true, title: '機械の予想どおりに答えます', answer: function (c, player, s) { return answerOf(g.id, s); } });
       }
       out.push({ k: PICK.k, label: PICK.label, title: PICK.title, answer: function (c, p, s) { if (picker) picker.open(s); return null; } });
       all.forEach(function (o) {
-        if (EXTRA[o.id]) out.push({ k: EXTRA[o.id].k, label: EXTRA[o.id].label, answer: function (c, p, s) { return answerOf(o.id, s); } });
+        if (EXTRA[o.id]) out.push({ k: EXTRA[o.id].k, label: EXTRA[o.id].label, title: EXTRA[o.id].title, answer: function (c, p, s) { return answerOf(o.id, s); } });
       });
       out.push({ k: BGM.k, label: BGM.label, title: BGM.title, pressed: !!st.bgm,
         answer: function (c, p, s, repaint) { s.bgm = !s.bgm; repaint(); return null; } });
       out.push({ k: OTHERS.k, label: OTHERS.label, title: OTHERS.title, pressed: !!st.others,
         answer: function (c, p, s, repaint) { s.others = !s.others; repaint(); return null; } });
       return out;
-    },
-    keybar: function (card, st) {
-      var o = options(card).filter(function (x) { return !EXTRA[x.id]; }).slice(0, BUTTONS).map(function (x, i) { return { k: String(i + 1), l: x.name || x.id }; });
-      if (guessOf(card)) o.push({ k: 'Enter', l: '予想どおり' });
-      o.push({ k: PICK.k, l: PICK.label });
-      o.push({ k: BGM.k, l: st.bgm ? 'BGM が大きい: 入' : BGM.label });
-      o.push({ k: OTHERS.k, l: st.others ? '別の声も: 入' : OTHERS.label });
-      return o;
     }
   });
 
@@ -104,7 +94,7 @@
   }
 
   CheckCards.define('voice', function () {
-    var view = base(), gone = false, lock = null, root = null, ctxRef = null, cur = null, pick = null;   // pick = 開いている欄の { st }(G の入り切りを答えに足す)
+    var view = base(), root = null, ctxRef = null, cur = null, pick = null;   // pick = 開いている欄の { st }(G の入り切りを答えに足す)
     function field() { return root && root.querySelector('[data-chk-pick-text]'); }
     function open(st) {
       var b = root && root.querySelector('[data-chk-pick]'), f = field();
@@ -124,24 +114,11 @@
     }
     return {
       render: function (card, el, ctx) {
-        var handle = null;
         root = el; ctxRef = ctx; cur = card; pick = null;
         picker = { open: open };
         var shown = Object.assign({}, card, { note: NOTE[card.note] || '' });
-        view.render(shown, el, Object.assign({}, ctx, {
-          player: function (box, media, opt) { handle = ctx.player(box, media, opt); return handle; }
-        }));
+        view.render(shown, el, ctx);
         el.insertAdjacentHTML('beforeend', pickBox(card));
-        lock = function () {   // G でボタンを描き直したときも、再生が終わるまで Enter を押せないままにする
-          var enter = el.querySelector('[data-chk-k="Enter"]');
-          if (!enter || gone) return;
-          var wait = !!handle && !handle.ended();
-          enter.disabled = wait;
-          if (wait) enter.setAttribute('data-ui-why', WAIT); else enter.removeAttribute('data-ui-why');
-          enter.title = wait ? WAIT : '機械の予想どおりに答えます';
-        };
-        lock();
-        if (handle && !handle.ended()) handle.onEnded(function () { if (lock) lock(); });
       },
       typingKeys: true,   // 入力欄の Enter・Esc をここで受ける(ほかのキーは入力に任せる)
       keys: function (e, card) {
@@ -155,12 +132,9 @@
         var inPick = !!(e.target && e.target.closest && e.target.closest('[data-chk-pick]'));
         if (pick && k === 'Enter' && (!e.fromButton || inPick)) { var b = typedAnswer(cur, field() && field().value, pick.st); if (b !== true) pick = null; return b; }
         if (pick && k === 'Escape') { close(); return true; }
-        var r = view.keys(e, card);
-        if (r === true && lock) lock();
-        return r;
+        return view.keys(e, card);
       },
-      keybar: function (card) { return pick ? [{ k: 'Enter', l: '決める' }, { k: 'Esc', l: 'やめる' }] : view.keybar(card); },
-      unmount: function () { gone = true; lock = null; root = null; ctxRef = null; cur = null; pick = null; if (picker && picker.open === open) picker = null; view.unmount(); }
+      unmount: function () { root = null; ctxRef = null; cur = null; pick = null; if (picker && picker.open === open) picker = null; view.unmount(); }
     };
   });
 })();

@@ -358,7 +358,7 @@ def static_js(screen, path, text, out):
 # 以下の *_problems は、本文(文字列)を受け取り「問題の文」の一覧を返す(tests/dev/test_rule_checks.py の TestUiContracts が破った見本で止まることを確かめる)
 CASES_PANELS = ("cand", "proof", "cut")        # 案件の画面のパネル(CasesPanels.define を持つ)
 CASES_PANEL_KEYS = ("mount:", "update:", "unmount:", "keys:", "keybar:")
-CHECK_SHELL_DOC = ("render(card, el, ctx)", "keys(e, card)", "keybar(card)", "unmount()", "typingKeys")   # 殻の先頭にある口の説明(V2 への申し送り)
+CHECK_SHELL_DOC = ("render(card, el, ctx)", "keys(e, card)", "unmount()", "typingKeys")   # 殻の先頭にある口の説明(V2 への申し送り)
 GUIDE_OLD_WORDS = ("ユーザーの PC", "要らない", "依頼なし", "5 本ずつ", "スタジオ")
 NO_DOC_QUERY = r"document\.(getElementById|querySelector(All)?)\("
 

@@ -1,15 +1,16 @@
 /* 確かめるのカード「行の時刻が合っているか」(/check-cards/time.js。RS8 V1 の V2d。作り方 資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-2・5 節・決定 3-41)。
    行の区間の前後 2〜3 秒を再生し、波形の上に行の頭と末の印を出す(単語の時刻の候補があれば点線の参考の印も = POST transcribe/api/retime の edges)。
    答え = {choice: 'ok' | 'head' | 'tail' | 'both', dStart, dEnd}(dStart / dEnd = ← → で動かした秒。前へは負)。
-     Enter = ちょうどいい(動かしていなければ)/ H = 頭がずれている / E = 末がずれている / B = 両方 を選び、← → でその印を 1 コマ(1/30 秒)ずつ動かす(Shift で 5 コマ)、
-     Enter で答える。**動かした量だけ行の時刻を実際に変える**(動かさなければ判定の記録だけ。反映は human/check/timerow.py)。
-     H / E をもう 1 度押すと、その印の選びを外して量を 0 に戻す。選んでいない間の ← → は普通の再生の移動(殻の再生のキー)
-   T = 読みを直す(10-26 ユーザー): 入力欄で行の文字を打ち直す(Enter で決める・Esc でやめる)。決めた文字は答えに text として足し、行の文字も直す(時刻の答えはそのまま続ける)。
+     段 2 [ちょうどいい](動かしていなければ。動かすと [この時刻で答える])。段 3 の印 [頭][末][両方] でずれている印を選び、[−5][−1][+1][+5](コマ = 1/30 秒)で動かす。
+     **動かした量だけ行の時刻を実際に変える**(動かさなければ判定の記録だけ。反映は human/check/timerow.py)。
+     [頭] / [末] をもう 1 度押すと、その印の選びを外して量を 0 に戻す。11-02 ユーザー: キーは消した(H・E・B・← → は無い)
+   [読みを直す](10-26 ユーザー): 入力欄で行の文字を打ち直す(Enter で決める・Esc でやめる)。決めた文字は答えに text として足し、行の文字も直す(時刻の答えはそのまま続ける)。
    カードの文書 id は card.target.docId・行は card.target.row・区間は card.media = {start, end, pad}。波形の用意は player の opt.wave(transcribe/api/peaks) */
 (function () {
   'use strict';
   var esc = UIKit.esc;
-  var FRAME = 1 / 30, SHIFT_FRAMES = 5, LIMIT = 2.5;   // 1 コマ・Shift のコマ数・動かせる上限(窓の pad と同じ。窓の外へは出さない)
+  var FRAME = 1 / 30, LIMIT = 2.5;   // 1 コマ・動かせる上限(窓の pad と同じ。窓の外へは出さない)
+  var NUDGE = [['M5', -5, '−5'], ['M1', -1, '−1'], ['P1', 1, '+1'], ['P5', 5, '+5']];   // 印を動かすボタン(名前・コマ・文字)
   var NAMES = { ok: 'ちょうどいい', head: '頭がずれている', tail: '末がずれている', both: '両方ずれている' };
 
   function r3(x) { return Math.round(x * 1000) / 1000; }
@@ -43,6 +44,7 @@
       if (f) f.blur();
       var s = st.el.querySelector('[data-chk-newtext]');
       if (s) { s.hidden = st.text == null; s.textContent = st.text == null ? '' : '直した文字: ' + st.text + '(答えるときに行の文字も直します)'; }
+      paint();
       st.ctx.refreshKeys();
     }
     function paint() {
@@ -52,15 +54,18 @@
       if (box) {
         box.innerHTML = '<b>' + esc(NAMES[c]) + '</b>' + (c === 'ok' ? '' :
           ' <span class="pill">頭 ' + (st.head ? signed(st.dS) : '—') + '</span> <span class="pill">末 ' + (st.tail ? signed(st.dE) : '—') + '</span>' +
-          '<span class="hint"> 動かす印: ' + (st.active === 'start' ? '頭' : '末') + '(← → で動かす。Enter で答える)</span>');
+          '<span class="hint"> 動かす印: ' + (st.active === 'start' ? '頭' : '末') + '</span>');
       }
       var g = st.el.querySelector('[data-chk-tguide]');
       if (g) g.textContent = st.guides ? '言葉の時刻(参考・点線): 頭 ' + st.guides[0].toFixed(2) + ' 秒 / 末 ' + st.guides[1].toFixed(2) + ' 秒' : '';
-      st.el.querySelectorAll('[data-chk-k]').forEach(function (btn) {
-        var k = btn.getAttribute('data-chk-k');
-        btn.classList.toggle('on', (k === 'H' && st.head) || (k === 'E' && st.tail) || (k === 'B' && st.head && st.tail));
-        btn.setAttribute('aria-pressed', btn.classList.contains('on') ? 'true' : 'false');
+      st.el.querySelectorAll('.chk-marks .chk-mark').forEach(function (btn) {
+        var k = btn.getAttribute('data-chk-k'), on = (k === 'H' && st.head) || (k === 'E' && st.tail) || (k === 'B' && st.head && st.tail) || (k === 'T' && st.text != null);
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
       });
+      var nb = st.el.querySelector('[data-chk-nudge]');
+      if (nb) nb.hidden = !(st.head || st.tail);
+      var ok = st.el.querySelector('.chk-acts [data-chk-k="Enter"]');
+      if (ok) ok.textContent = st.head || st.tail ? 'この時刻で答える' : 'ちょうどいい';
     }
     function toggle(which) {
       var on = which === 'start' ? 'head' : 'tail';
@@ -68,8 +73,8 @@
       else if (st.active !== which && st.head && st.tail) st.active = which;   // 両方のとき、もう 1 度押すと動かす印をそちらへ
       else { st[on] = false; if (which === 'start') st.dS = 0; else st.dE = 0; st.active = st.head ? 'start' : st.tail ? 'end' : 'start'; }
     }
-    function nudge(dir, big) {
-      var key = st.active === 'start' ? 'dS' : 'dE', v = st[key] + dir * FRAME * (big ? SHIFT_FRAMES : 1);
+    function nudge(frames) {
+      var key = st.active === 'start' ? 'dS' : 'dE', v = st[key] + frames * FRAME;
       st[key] = Math.max(-LIMIT, Math.min(LIMIT, v));
     }
     function loadGuides(card) {   // 単語の時刻の候補(読むだけ。無ければ印なし)
@@ -90,14 +95,16 @@
         st = { card: card, ctx: ctx, el: el, handle: null, head: false, tail: false, active: 'start', dS: 0, dE: 0, guides: null, text: null, typing: false };
         el.innerHTML = '<div class="chk-q">行の時刻が合っているか?</div>' +
           '<div class="chk-media"><div class="chk-stagebox" data-chk-media></div><div class="chk-info">' +
-          '<p class="hint">波形の青い印が字幕の頭と末です。聞いて、字幕が出る・消えるタイミングが合っていればそのまま Enter。</p>' +
+          '<p class="hint">波形の青い印が字幕の頭と末です。聞いて、字幕が出る・消えるタイミングが合っていれば [ちょうどいい]。</p>' +
           '<p class="hint">合わせるのはこの行の人の言葉の頭と末です(後ろの別の声・BGM には合わせない)。</p>' +
           '<p data-chk-tstate role="status"></p><p class="hint" data-chk-tguide></p>' +
           (card.note ? '<p class="hint">' + esc(card.note) + '</p>' : '') +
-          '<p class="hint">字幕の文字が違っていたら T でその場で直せます(時刻の答えはそのまま続けます)。</p>' +
+          '<p class="hint">字幕の文字が違っていたら [読みを直す] でその場で直せます(時刻の答えはそのまま続けます)。</p>' +
           '<p class="notice" data-chk-newtext hidden></p></div></div>' +
-          '<div class="chk-acts">' + CheckCards.btn('ちょうどいい', 'Enter', 'primary') + CheckCards.btn('頭がずれている', 'H') +
-          CheckCards.btn('末がずれている', 'E') + CheckCards.btn('両方', 'B') + CheckCards.btn('読みを直す', 'T') + '</div>' +
+          '<div class="chk-marks" role="group" aria-label="印(選ぶだけ)">' + CheckCards.mark('頭がずれている', 'H', false) + CheckCards.mark('末がずれている', 'E', false) +
+          CheckCards.mark('両方', 'B', false) + CheckCards.mark('読みを直す', 'T', false, '行の文字を打ち直す') +
+          '<span class="chk-nudge" data-chk-nudge hidden>' + NUDGE.map(function (n) { return CheckCards.btn(n[2], n[0], '', '選んだ印を ' + Math.abs(n[1]) + ' コマ' + (n[1] < 0 ? '前' : '後') + 'へ(1 コマ = 1/30 秒)'); }).join('') + '</span></div>' +
+          '<div class="chk-acts">' + CheckCards.btn('ちょうどいい', 'Enter', 'primary') + '</div>' +
           '<div class="chk-type" data-chk-retext hidden><label class="hint" for="chkTimeText">正しい文字(行の全体を打ち直します。Enter で決める・Esc でやめる)</label>' +
           '<div class="row"><input type="text" id="chkTimeText" class="chk-text" maxlength="1000" autocomplete="off"></div></div>';
         var m = card.media || {};
@@ -116,29 +123,20 @@
           if (k === 'Escape') { closeText(false); return true; }
           return null;
         }
-        if (k === 'T' && !e.shiftKey) { openText(); return true; }
-        if (k === 'ArrowLeft' || k === 'ArrowRight') {
-          if (!st.head && !st.tail) return null;   // 印を選んでいないときは普通の再生の移動
-          nudge(k === 'ArrowLeft' ? -1 : 1, e.shiftKey);
-          paint();
+        if (!e.fromButton) return null;
+        if (k === 'T') { openText(); return true; }
+        var n = NUDGE.filter(function (x) { return x[0] === k; })[0];
+        if (n) {
+          if (st.head || st.tail) { nudge(n[1]); paint(); }
           return true;
         }
-        if (e.shiftKey) return null;
         if (k === 'Enter') return answer();
         if (k === 'H') toggle('start');
         else if (k === 'E') toggle('end');
         else if (k === 'B') { st.head = st.tail = true; st.active = 'start'; }
         else return null;
         paint();
-        st.ctx.refreshKeys();
         return true;
-      },
-      keybar: function () {
-        if (st && st.typing) return [{ k: 'Enter', l: '文字を決める' }, { k: 'Esc', l: 'やめる' }];
-        var o = [{ k: 'Enter', l: st && (st.head || st.tail) ? 'この時刻で答える' : 'ちょうどいい' }, { k: 'H', l: '頭がずれている' }, { k: 'E', l: '末がずれている' }, { k: 'B', l: '両方' }];
-        o.push({ k: 'T', l: st && st.text != null ? '読みを直す: 済' : '読みを直す' });
-        if (st && (st.head || st.tail)) o.push({ k: '← →', l: '印を動かす(Shift で大きく)' });
-        return o;
       },
       unmount: function () { st = null; }
     };

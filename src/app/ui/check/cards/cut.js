@@ -1,24 +1,24 @@
 /* 確かめるの自動カットのカード(/check-cards/cut.js。CUT-CARD。口は check.js の先頭・出どころは src/app/check/cut_sources.py・反映は src/human/check/cutcard.py)。
    出どころ 3 つ(card.source): edge = 切れ目(前後 2 秒をつないで流す・消した所は飛ばす)/ gap = 消した所(消した所だけ流す)/ whole = 仕上がり(残した所を通しで流し、消した所は飛ばす)。
-   答えは記録するだけ(文書は触らない)。キー: edge = Enter 良い・E 早すぎ・L 遅すぎ・K 切らない / gap = A 消してよい・K 残すべき / whole = Enter 良い・T テンポ・U 不自然。 */
+   答えは記録するだけ(文書は触らない)。ボタン: edge = 良い・早すぎ・遅すぎ・切らない / gap = 消してよい・残すべき / whole = 良い・テンポが悪い・不自然(11-02 キーは消した・言葉は短く・説明は title)。 */
 (function () {
   'use strict';
   var esc = UIKit.esc;
   var OPTS = {
     edge: [
       { k: 'Enter', label: '良い', primary: true, answer: { choice: 'good' }, title: 'ちょうどいい切れ目' },
-      { k: 'E', label: '早すぎ(言葉が切れる)', answer: { choice: 'early' }, title: '切れ目が早すぎて言葉が切れている' },
-      { k: 'L', label: '遅すぎ(間が残る)', answer: { choice: 'late' }, title: '切れ目が遅くて間が残っている' },
+      { k: 'E', label: '早すぎ', answer: { choice: 'early' }, title: '切れ目が早すぎて言葉が切れている' },
+      { k: 'L', label: '遅すぎ', answer: { choice: 'late' }, title: '切れ目が遅くて間が残っている' },
       { k: 'K', label: 'ここは切らない', answer: { choice: 'keep' }, title: 'この所は切ってはいけない(笑い・反応など)' }
     ],
     gap: [
       { k: 'A', label: '消してよい', primary: true, answer: { choice: 'ok' }, title: '消した所は消してよい' },
-      { k: 'K', label: '残すべき(笑い・反応など)', answer: { choice: 'keep' }, title: '消した所は残すべき' }
+      { k: 'K', label: '残すべき', answer: { choice: 'keep' }, title: '消した所は残すべき(笑い・反応など)' }
     ],
     whole: [
       { k: 'Enter', label: '良い', primary: true, answer: { choice: 'good' }, title: '自動で切った 1 本は自然' },
       { k: 'T', label: 'テンポが悪い', answer: { choice: 'tempo' }, title: '切ったあとのテンポが悪い' },
-      { k: 'U', label: '不自然な所がある', answer: { choice: 'unnatural' }, title: '不自然な所がある' }
+      { k: 'U', label: '不自然', answer: { choice: 'unnatural' }, title: '不自然な所がある' }
     ]
   };
   var QUESTION = {

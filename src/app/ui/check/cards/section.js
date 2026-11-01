@@ -7,7 +7,8 @@
    答え = {rows: [{id, text?, speaker?, game?, tags?, drop?}](変えた行だけ), add: [{start, end, text, speaker?, game?, tags?}]}。何も変えなければ {} = 合っている。
    話者の選択肢の「ゲームの音」= game: true(組み込みの話者「ゲーム音声など」)。行ごとのメモ 重なり・BGM 大・聞き取れない = tags(overlap・bgm・unclear。
    変えた行だけ 3 つの値を送る)。10-25 確かめるの混ざりと BGM のルール
-   キー: Enter = 答える(入力中は Ctrl+Enter)・A = 行を足す(今の再生の位置から 2 秒) */
+   ボタン: [合っている / 直して答える]・[行を足す](今の再生の位置から 2 秒)。キーは無い(11-02 ユーザー)。行が多くても段 2 と共通の枠が遠のかないよう、
+   段 2 は .chk-dock(画面の下に留める。殻が共通の枠をその中へ入れる) */
 (function () {
   'use strict';
   var esc = UIKit.esc;
@@ -101,7 +102,7 @@
     function refreshBtn() {
       if (!cur) return;
       var a = build(), b = cur.el.querySelector('[data-chk-k="Enter"]');
-      if (b) b.firstChild.nodeValue = a && (a.rows || a.add) ? '直して答える ' : '合っている ';
+      if (b) b.textContent = a && (a.rows || a.add) ? '直して答える' : '合っている';
     }
     function addRow() {
       var t = cur.card.target || {}, v = cur.handle && cur.handle.media && cur.handle.media();
@@ -113,7 +114,6 @@
       if (inp) inp.focus();
     }
     return {
-      typingKeys: true,
       render: function (card, el, ctx) {
         var names = (Array.isArray(card.options) ? card.options : []).filter(function (n) { return typeof n === 'string' && n; });
         var rows = (Array.isArray(card.rows) ? card.rows : []).filter(function (r) { return r && typeof r.id === 'string'; });
@@ -124,32 +124,36 @@
           '<ul class="chk-sec-list" data-sec-list>' + (rows.length ? rows.map(function (r) { return rowHtml(r, names); }).join('') :
             '<li class="hint">この区間に行はありません(声があれば [行を足す])</li>') + '</ul>' +
           '<p class="hint">2 人が同時に話していたら、もう 1 人を同じ時刻で [行を足す]。重なり・BGM が大きい・聞き取れない行は、行のメモに印を付けます。</p>' +
-          '<div class="chk-acts">' + CheckCards.btn('合っている', 'Enter', 'primary') +
-          '<button type="button" class="btn" data-sec-addrow>行を足す <kbd class="ui-kbd">A</kbd></button></div>';
+          '<div class="chk-dock"><div class="chk-acts">' + CheckCards.btn('合っている', 'Enter', 'primary') +
+          '<button type="button" class="btn" data-sec-addrow>行を足す</button></div></div>';
         cur = { card: card, el: el, handle: null };
         cur.handle = ctx.player(el.querySelector('[data-chk-media]'), card.media, { text: '' });
-        el.addEventListener('change', function (e) {
-          var sel = e.target.closest && e.target.closest('[data-sec-spk]');
-          if (sel) { var inp = sel.parentNode.querySelector('[data-sec-name]'); inp.hidden = sel.value !== TYPE; if (!inp.hidden) inp.focus(); }
-          refreshBtn();
-        });
-        el.addEventListener('input', refreshBtn);
-        el.addEventListener('click', function (e) {
-          if (e.target.closest && e.target.closest('[data-sec-addrow]')) { addRow(); refreshBtn(); }
-          var un = e.target.closest && e.target.closest('[data-sec-unadd]');
-          if (un) { un.closest('li').remove(); refreshBtn(); }
-        });
+        // el は殻の入れ物(カードをまたいで同じ)なので、外すときに聞き手も外す(残すと前のカードの聞き手が次のカードの [行を足す] で動く)
+        cur.on = {
+          change: function (e) {
+            var sel = e.target.closest && e.target.closest('[data-sec-spk]');
+            if (sel) { var inp = sel.parentNode.querySelector('[data-sec-name]'); inp.hidden = sel.value !== TYPE; if (!inp.hidden) inp.focus(); }
+            refreshBtn();
+          },
+          input: refreshBtn,
+          click: function (e) {
+            if (e.target.closest && e.target.closest('[data-sec-addrow]')) { addRow(); refreshBtn(); }
+            var un = e.target.closest && e.target.closest('[data-sec-unadd]');
+            if (un) { un.closest('li').remove(); refreshBtn(); }
+          }
+        };
+        Object.keys(cur.on).forEach(function (t) { el.addEventListener(t, cur.on[t]); });
       },
       keys: function (e) {
         if (!cur) return null;
-        var k = CheckCards.keyOf(e), typing = !e.fromButton && UIKit.keys.isTyping(e.target);
-        if (k === 'Enter' && (!typing || e.ctrlKey) && !e.altKey && !e.metaKey) return build() || true;
-        if (typing || e.ctrlKey || e.altKey || e.metaKey) return null;
-        if (k === 'A') { addRow(); refreshBtn(); return true; }
+        if (!e.fromButton) return null;
+        if (CheckCards.keyOf(e) === 'Enter') return build() || true;
         return null;
       },
-      keybar: function () { return [{ k: 'Enter', l: '答える' }, { k: 'A', l: '行を足す' }]; },
-      unmount: function () { cur = null; }
+      unmount: function () {
+        if (cur && cur.on) Object.keys(cur.on).forEach(function (t) { cur.el.removeEventListener(t, cur.on[t]); });
+        cur = null;
+      }
     };
   });
 })();

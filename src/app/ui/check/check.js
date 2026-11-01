@@ -1,5 +1,9 @@
 /* 確かめる(/check = 入口の直下の 1 枚。部品は src/app/ui/check/。RS8 V1 = 殻。作り方 資料の git:before-1028-cleanup:docs/design/v1-check-build.md・何を作るか 資料の git:before-1028-cleanup-2:docs/design/briefs/rs8-cases/DESIGN_BRIEF.md 2-3・3)。
-   案件をまたいだ軽い確認の待ち行列を 1 枚ずつカードで出し、答えたらすぐ次へ。Z で 1 つ前に戻す・[分からない](W)はもう出さない(答えではない = 今日の数・評価に入れない。Z で戻せる)・[飛ばす](N)はその日は後ろへ。区切りで止めずに続けて出す(答えた数と目標は帯と「このあと」の欄に出したまま。10-24 ユーザー)。
+   案件をまたいだ軽い確認の待ち行列を 1 枚ずつカードで出し、答えたらすぐ次へ。Z で 1 つ前に戻す・[分からない(もう出さない)]はもう出さない(答えではない = 今日の数・評価に入れない。Z で戻せる)・[後で]はその日は後ろへ。区切りで止めずに続けて出す(答えた数と目標は帯と「このあと」の欄に出したまま。10-24 ユーザー)。
+   ボタンの決まり(11-02 ユーザー。資料 plan/確かめるのボタン構成の見直し-1101.md の 5 章): キーは大幅に消した(残すのは Space = 再生・停止と Z = 1 つ前に戻すだけ。入力欄の中の Enter・Esc はカードが受ける)。
+   カードは上から 1 問い・再生 / 3 印(選ぶだけの物 = .chk-marks・押した状態が分かる形)/ 2 答え(押せば決まる物 = .chk-acts・左端に「機械のままでよい」)/ 4 共通の枠(段 2 のすぐ下。殻がカードの中へ移す)。
+   選んでから決めるカードは、段 3 の後の段 2 に「決める」を置く。段 2 と 4 を画面の下に留めたいカード(区間)は .chk-dock の中に段 2 を描く(殻が段 4 をその中へ入れる)。
+   重いボタン(heavy = 候補の採用・記号の例外にする)は強調の色を外し、押した後に「1 つ前に戻すで取り消せます」を数秒出す。
    URL: /check?c=<案件 id>(その案件だけ)&kind=value|voice|time|cut|symbol|speaker(この種類だけ)&back=cases(終わったら案件へ戻るボタン)。URL を開いただけでは何も書かない。
    種類の切り替え(普段のレーンの上): 全部・誰の声・コラボの話者・時刻・価値・カット・記号 と残りの枚数(読み・声かどうかは 10-31 に消した = Haas に替えるため)(counts.perKind = 種類で絞る前の数)。
    押した種類はこのブラウザに覚える(localStorage の check.kind)。URL の kind があればそちらが先(覚えた物は変えない)。
@@ -14,25 +18,24 @@
      page = この画面の印(開くたびに作る)。保留(1 枚遅れの [送る])の確定は、この画面の次の答え・飛ばす・タブを閉じる / 隠すときに、この画面の分だけ
      (別の窓へ移っただけ = blur では確定しない。決定 Q12 (a))
    カード = {id, kind, source, case: {id, title}, target, media: {url | youtube, start, end, pad}, text, guess, options, score, note}。
-   殻が持つ物: 上の帯(今日 n 件・この確認で決まる物)・カードの枠・keydown 1 本・Z・[分からない]・[飛ばす]・先読み(10 枚を持ち、3 枚を切ったら補充)・
+   殻が持つ物: 上の帯(今日 n 件・この確認で決まる物)・カードの枠・keydown 1 本・Z・[分からない]・[後で]・先読み(10 枚を持ち、3 枚を切ったら補充)・
    空の状態・失敗・UIKit.life(見えなくなったら再生を止める)・カードの再生部品の後始末。CSP(script-src 'self')の下で動く: インラインの script・on〇〇= は書かない。
 
    ---- カードの登録の口(V2 の 4 本 = cards/value.js・voice.js・time.js・cut.js・section.js が同じ形で作る)----
    CheckCards.define(kind, create)   create() が新しい描き手を 1 つ返す(カードを出すたびに作り直す)
    描き手 = {
      render(card, el, ctx)   el = カードの中身の入れ物(中の要素は el.querySelector で引く。document.getElementById は使わない)
-     keys(e, card) -> 答え | true | null   殻の keydown から 1 回だけ。答え(object)を返すと殻が送ってすぐ次のカードへ。true = 使ったが答えではない
-                       (印を動かすなど。殻が preventDefault)。null = 使わない(殻が再生のキー UIKit.keys.playback に回す)。
-                       el の中の <button data-chk-k="A"> を押したときも、同じ keys が {key: 'A', fromButton: true, target: ボタン} で呼ばれる(ボタンとキーは 1 本の道)
-     keybar(card) -> [{k, l}]   下の帯の分(殻が [W 分からない][N 飛ばす][Space 再生][R もう一度聞く][Z 戻す] を後ろに足す。W・N・Z・R は殻が先に取る = カードで使わない)。変わったら ctx.refreshKeys()
+     keys(e, card) -> 答え | true | null   el の中の <button data-chk-k="A"> を押したとき {key: 'A', fromButton: true, target: ボタン} で呼ばれる
+                       (data-chk-k はボタンの名前。キーではない)。答え(object)を返すと殻が送ってすぐ次のカードへ。true = 使ったが答えではない(印を入り切りするなど)。
+                       null = 使わない。キーボードからは、typingKeys のカードの入力欄の中のキー(Enter・Esc)だけが来る
      unmount()        (任意)カードを離れる。ctx.player で作った再生部品は殻が止めて外す
      leave(reason)    (任意)画面を離れた(UIKit.life。'blur' = 隣の窓へ / 'hidden'・'pagehide')
-     typingKeys       (任意)true なら入力中(UIKit.keys.isTyping)のキーも keys に渡す(「どちらも違う(打つ)」の欄)
+     typingKeys       (任意)true なら入力欄の中のキーを keys に渡す(名前を打つ欄・読みを直す欄の Enter・Esc)
    }
    ctx = { player(el, media, opt) -> CheckPlayer の手(check-player.js。カードを離れると殻が止めて外す), answer(答え)(keys 以外の道で答える),
-           refreshKeys(), api(path, opt)(入口の相対パス。UIKit.http の包み), case(案件 {id, title}), kindLabel }
-   小道具: CheckCards.btn(文字, キー, class) = 答えのボタンの HTML / CheckCards.keyOf(e) = 'A'・'1'・'Enter'(大文字にそろえる)/
-           CheckCards.simple({question, body, options, media, wave}) = 問い + 再生 + 答えのボタン の決まった形の描き手を作る(空のカード 4 本が使う) */
+           refreshKeys()(段 4 を描き直す。今は何もしない), api(path, opt)(入口の相対パス。UIKit.http の包み), case(案件 {id, title}), kindLabel, undoHint()(重いボタンの取り消しの知らせ) }
+   小道具: CheckCards.btn(文字, 名前, class, title) = 答えのボタンの HTML / CheckCards.keyOf(e) = 'A'・'1'・'Enter'(大文字にそろえる)/
+           CheckCards.simple({question, body, options, media, wave}) = 問い + 再生 + 印 + 答えのボタン の決まった形の描き手を作る */
 (function () {
   'use strict';
 
@@ -47,28 +50,36 @@
     if (k === ' ' || k === 'Spacebar') return 'Space';
     return k.length === 1 ? k.toUpperCase() : k;
   }
-  function answerBtn(label, key, cls) {
-    return '<button type="button" class="btn lg ' + esc(cls || '') + '" data-chk-k="' + esc(key) + '">' + esc(label) +
-      ' <kbd class="ui-kbd">' + esc(key) + '</kbd></button>';
+  function answerBtn(label, key, cls, title) {
+    return '<button type="button" class="btn lg ' + esc(cls || '') + '" data-chk-k="' + esc(key) + '"' + (title ? ' title="' + esc(title) + '"' : '') + '>' + esc(label) + '</button>';
   }
-  /* 決まった形の描き手: 問い・再生(card.media)・字幕 1 行・答えのボタン。options(card, st) = [{k, label, answer, primary, title, pressed}]
-     (pressed = 切り替えのボタンの今の状態。true / false のとき aria-pressed を付ける)。
-     answer が関数なら押したときに answer(card, 再生の手, st, repaint) を呼ぶ(null を返すと答えない = 再生が終わるまで Enter を効かせない、など)。
-     段のあるカードは st(カードごとの入れ物)に段を持ち、answer の中で変えて repaint() すると、ボタン(options と hint)だけ描き直す。
-     spec: question(card)・body(card)(情報欄)・after(card)(備考のあとの情報)・hint(card, st)(ボタンの前の 1 行)・keybar(card, st)(下の帯。省略 = options の先頭 5 つ)・
+  /* 印のボタン(段 3。押した状態が分かる形 = aria-pressed と .chk-mark) */
+  function markBtn(label, key, on, title) {
+    return '<button type="button" class="btn chk-mark" aria-pressed="' + (!!on) + '" data-chk-k="' + esc(key) + '"' + (title ? ' title="' + esc(title) + '"' : '') + '>' + esc(label) + '</button>';
+  }
+  /* 段 3(印)と段 2(答え)の HTML。opts = [{k, label, answer, primary, heavy, title, pressed}]。pressed が true / false の物 = 印(段 3)・ほか = 答え(段 2)。
+     段 2 は「機械のままでよい」(primary)を左端に。heavy(重いボタン)は強調の色を付けない */
+  function rows(opts, hint) {
+    var marks = opts.filter(function (o) { return typeof o.pressed === 'boolean'; }), acts = opts.filter(function (o) { return typeof o.pressed !== 'boolean'; });
+    acts = acts.filter(function (o) { return o.primary; }).concat(acts.filter(function (o) { return !o.primary; }));
+    return (marks.length ? '<div class="chk-marks" role="group" aria-label="印(選ぶだけ)">' + marks.map(function (o) { return markBtn(o.label, o.k, o.pressed, o.title); }).join('') + '</div>' : '') +
+      (hint || '') + '<div class="chk-acts">' + acts.map(function (o) { return answerBtn(o.label, o.k, o.primary && !o.heavy ? 'primary' : '', o.title); }).join('') + '</div>';
+  }
+  /* 決まった形の描き手: 問い・再生(card.media)・字幕 1 行・印・答えのボタン。options(card, st) = [{k, label, answer, primary, heavy, title, pressed}]
+     (k = ボタンの名前・pressed = 印の今の状態。true / false の物は段 3 の印になる)。
+     answer が関数なら押したときに answer(card, 再生の手, st, repaint) を呼ぶ(null を返すと答えない)。
+     段のあるカードは st(カードごとの入れ物)に段を持ち、answer の中で変えて repaint() すると、印と答えのボタン(options と hint)だけ描き直す。
+     spec: question(card)・body(card)(情報欄)・after(card)(備考のあとの情報)・hint(card, st)(答えのボタンの前の 1 行)・
      media: false = 再生を出さない・text: false = 再生に字幕を渡さない・wave・mounted(card, 再生の手) = 再生ができたとき呼ぶ(外すときの関数を返す) */
   function simple(spec) {
     return function () {
       var cur = null, handle = null, unbind = null, box = null, rctx = null;
       function acts() {
         cur.opts = (spec.options && spec.options(cur.card, cur.st)) || [];
-        return (spec.hint ? spec.hint(cur.card, cur.st) : '') + cur.opts.map(function (o) {
-          return answerBtn(o.label, o.k, o.primary ? 'primary' : '').replace('<button ', '<button title="' + esc(o.title || '') + '" ' +
-            (typeof o.pressed === 'boolean' ? 'aria-pressed="' + o.pressed + '" ' : ''));
-        }).join('');
+        return rows(cur.opts, spec.hint ? spec.hint(cur.card, cur.st) : '');
       }
       function repaint() {
-        var a = box && box.querySelector('.chk-acts');
+        var a = box && box.querySelector('.chk-rows');
         if (a) a.innerHTML = acts();
         if (rctx && typeof rctx.refreshKeys === 'function') rctx.refreshKeys();
       }
@@ -79,7 +90,7 @@
           el.innerHTML = '<div class="chk-q">' + esc(q) + '</div>' +
             '<div class="chk-media"><div class="chk-stagebox" data-chk-media></div><div class="chk-info">' +
             (spec.body ? spec.body(card) : '') + (card.note ? '<p class="hint">' + esc(card.note) + '</p>' : '') + (spec.after ? spec.after(card) : '') + '</div></div>' +
-            '<div class="chk-acts">' + acts() + '</div>';
+            '<div class="chk-rows">' + acts() + '</div>';
           var m = card.media || {};
           if (spec.media !== false && (m.url || m.youtube)) {
             handle = ctx.player(el.querySelector('[data-chk-media]'), card.media, { text: spec.text === false ? '' : card.text, wave: !!spec.wave, docId: card.target && card.target.docId, confine: !!spec.confine });
@@ -93,13 +104,10 @@
             var o = cur.opts[i];
             if (keyOf({ key: o.k }) !== k) continue;
             var a = typeof o.answer === 'function' ? o.answer(cur.card, handle, cur.st, repaint) : o.answer;
+            if (a && typeof a === 'object' && o.heavy && rctx && rctx.undoHint) rctx.undoHint();
             return a || true;
           }
           return null;
-        },
-        keybar: function () {
-          if (!cur) return [];
-          return spec.keybar ? spec.keybar(cur.card, cur.st) : cur.opts.slice(0, 5).map(function (o) { return { k: o.k, l: o.label }; });
         },
         unmount: function () { if (unbind) unbind(); cur = null; handle = null; unbind = null; box = null; rctx = null; }
       };
@@ -109,7 +117,7 @@
     define: function (kind, create) { if (typeof create === 'function' && /^[a-z]{1,20}$/.test(kind)) defs[kind] = create; },
     has: function (kind) { return Object.prototype.hasOwnProperty.call(defs, kind); },
     create: function (kind) { return this.has(kind) ? defs[kind]() : null; },
-    btn: answerBtn, keyOf: keyOf, simple: simple
+    btn: answerBtn, mark: markBtn, rows: rows, keyOf: keyOf, simple: simple
   };
 
   var KIND_TEXT = { value: '切り抜く価値があるか', voice: 'これは誰の声?', time: '行の時刻が合っているか',
@@ -262,11 +270,18 @@
     S.players = [];
     if (S.view && S.view.unmount) { try { S.view.unmount(); } catch (e) { UIKit.report('カードの unmount で失敗しました: ' + (e && e.message)); } }
     S.view = null;
+    $('#chkCard').appendChild($('#chkFoot'));   // 段 4 を枠へ戻してから中身を消す
     $('#chkBody').innerHTML = '';
   }
+  /* 段 4(共通の枠)を段 2 のすぐ下へ: カードが .chk-dock を描いていればその中(画面の下に留める)、無ければ中身の最後 */
+  function placeFoot() {
+    var body = $('#chkBody'), dock = body.querySelector('.chk-dock');
+    (dock || body).appendChild($('#chkFoot'));
+  }
+  function undoHint() { UIKit.toast('1 つ前に戻すで取り消せます', { ms: 3500 }); }
   function ctxFor(card) {
     return {
-      case: card.case || null, kindLabel: kindLabel(card), api: api, refreshKeys: renderKeys,
+      case: card.case || null, kindLabel: kindLabel(card), api: api, refreshKeys: renderKeys, undoHint: undoHint,
       answer: function (a) { if (S.cur === card) answer(a); },
       player: function (el, media, opt) {
         var h = window.CheckPlayer ? CheckPlayer.mount(el, media, opt) : null;
@@ -298,13 +313,14 @@
     var view = CheckCards.create(card.kind), body = $('#chkBody');
     S.view = view;
     if (!view) {
-      body.innerHTML = '<p class="notice">この種類のカード(' + esc(card.kind || '?') + ')はまだ描けません。[飛ばす] で次へ進んでください。</p>';
+      body.innerHTML = '<p class="notice">この種類のカード(' + esc(card.kind || '?') + ')はまだ描けません。[後で] で次へ進んでください。</p>';
     } else {
       try { view.render(card, body, ctxFor(card)); } catch (e) {
         UIKit.report('カードを描けませんでした: ' + (e && e.message), { stack: e && e.stack });
-        body.innerHTML = '<p class="notice err">このカードを描けませんでした。[飛ばす] で次へ進んでください。</p>';
+        body.innerHTML = '<p class="notice err">このカードを描けませんでした。[後で] で次へ進んでください。</p>';
       }
     }
+    placeFoot();
     renderBand(); renderUndo(); renderQueue(); renderKeys();
     refill();
   }
@@ -414,7 +430,6 @@
     S.hist.push(entry);
     S.seen[card.id] = 1;
     S.today += n; S.answered += n;
-    if (unk) UIKit.keybar.flash('W');
     renderBand();
     show();
   }
@@ -459,9 +474,8 @@
     if (!card) return;
     S.seen[card.id] = 1;
     api('api/check/skip', { body: { card: card.id, page: PAGE } }).then(null, function (e) {
-      UIKit.toast('飛ばしたことを記録できませんでした(次に開くとまた出ます): ' + e.message, { kind: 'err', detail: e.detail });
+      UIKit.toast('[後で] を記録できませんでした(次に開くとまた出ます): ' + e.message, { kind: 'err', detail: e.detail });
     });
-    UIKit.keybar.flash('N');
     show();
   }
 
@@ -483,27 +497,21 @@
   function renderUndo() {
     var b = $('#chkUndo'), n = S.hist.length;
     b.disabled = !n;
-    b.title = n ? '最後に答えたカードへ戻り、答えを取り消します' : 'まだ答えたカードがありません(飛ばしたカードは戻しません)';
+    b.title = n ? '最後に答えたカードへ戻り、答えを取り消します' : 'まだ答えたカードがありません([後で] にしたカードは戻しません)';
   }
+  /* 下のキーの帯: 残したキー 2 つだけ(11-02 ユーザー「キー操作は大幅に消す」) */
   function renderKeys() {
     var items = [];
-    if (S.cur && S.view && S.view.keybar) { try { items = S.view.keybar(S.cur) || []; } catch (e) { items = []; } }
-    if (S.cur) items = items.concat([{ k: 'W', l: '分からない' }, { k: 'N', l: '飛ばす' }, { k: 'Space', l: '再生・停止' }]);
-    if (S.cur && replayable()) items.push({ k: 'R', l: 'もう一度聞く' });
+    if (S.cur && S.players.length) items.push({ k: 'Space', l: '再生・停止' });
     if (S.hist.length) items.push({ k: 'Z', l: '1 つ前に戻す' });
     UIKit.keybar.set(items);
   }
 
-  /* ---- キー(keydown は 1 本。殻のキー → カード → 共通の再生キー)---- */
+  /* ---- キー(keydown は 1 本。Z → 入力欄の中のカードのキー → Space の再生・停止)---- */
   function inOverlay(t) { return !!(t && t.closest && t.closest('.ui-drawer, dialog, [role="dialog"], [aria-modal="true"]')); }
   function curMedia() {
     for (var i = 0; i < S.players.length; i++) { var m = S.players[i].media && S.players[i].media(); if (m) return m; }
     return null;
-  }
-  /* もう一度聞く(R = 編集の「この行をもう一度聞く」と同じキー。カードのキーより先 = どのカードでも効く。ボタンは再生部品の中) */
-  function replayable() { return S.players.some(function (p) { return p.canReplay && p.canReplay(); }); }
-  function replay() {
-    for (var i = 0; i < S.players.length; i++) if (S.players[i].canReplay && S.players[i].canReplay()) { S.players[i].replay(); return; }
   }
   function viewKeys(e) {
     var v = S.view, r = null;
@@ -516,19 +524,16 @@
     if (UIKit.keymap && UIKit.keymap.capturing && UIKit.keymap.capturing()) return;
     if (inOverlay(e.target)) return;
     var typing = UIKit.keys.isTyping(e.target), plain = !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey, k = keyOf(e);
-    if (e.repeat && !typing) {   /* 押し続け(キーの繰り返し)で次々のカードに同じ答えを送らない(見直し 3 の 6)。再生のキー(S.keys)だけは通す */
-      if (S.keys && S.keys(e)) return;
-      e.preventDefault(); return;
+    if (typing) {   // 入力欄の中: カードが受ける(Enter で決める・Esc でやめる)。押し続けは打つのに任せる
+      if (!(S.view && S.view.typingKeys) || e.repeat) return;
+      var r = viewKeys(e);
+      if (r && typeof r === 'object') { e.preventDefault(); answer(r); return; }
+      if (r === true) e.preventDefault();
+      return;
     }
-    if (!typing && plain && k === 'Z') { e.preventDefault(); undo(); return; }
-    if (!typing && plain && k === 'N' && S.cur) { e.preventDefault(); skip(); return; }
-    if (!typing && plain && k === 'W' && S.cur) { e.preventDefault(); if (!e.repeat) unknown(); return; }
-    if (!typing && plain && k === 'R' && S.cur && replayable()) { e.preventDefault(); if (!e.repeat) { UIKit.keybar.flash('R'); replay(); } return; }
-    if (typing && !(S.view && S.view.typingKeys)) return;
-    var r = viewKeys(e);
-    if (r && typeof r === 'object') { e.preventDefault(); UIKit.keybar.flash(k); answer(r); return; }
-    if (r === true) { e.preventDefault(); return; }
-    if (!typing && S.keys && S.keys(e)) return;
+    if (!plain) return;
+    if (k === 'Z') { e.preventDefault(); if (!e.repeat) undo(); return; }   // 押し続けで次々に戻さない
+    if (k === 'Space' && S.keys && S.keys(e)) return;   // 再生・停止(ほかの再生のキーは 11-02 に消した)
   }
 
   /* ---- 起動 ---- */
@@ -561,6 +566,7 @@
       if (!b || b.disabled || !S.cur) return;
       var r = viewKeys({ key: b.getAttribute('data-chk-k'), fromButton: true, target: b, shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, preventDefault: function () {} });
       if (r && typeof r === 'object') answer(r);
+      else if (r === true) renderKeys();
     });
     $('#chkSkip').addEventListener('click', skip);
     $('#chkUnknown').addEventListener('click', unknown);
