@@ -11,16 +11,16 @@
 ## src/human/check/
 
 - **__init__.py** (3 行) — ③ 確かめる(V1。カードの答えの記録 answerlog・答えを実物へ反映する土台 apply・文書の行を直す口 _doc と、種類ごとの反映 timerow・value・voice・section・cutcard。読み read・声ですか speech は 10-31 に消した。
-- **_doc.py** (104 行) — 「確かめる」の文書の行を直す 1 つの口(読み・時刻・声のカードの反映と Z が使う。opt-human 6-1)。
-  - 名前: `busy` :22・`edit_row` :30・`edit_fields` :54・`revert_fields` :64・`doc_id` :78・`row_target` :86・`choice` :96
+- **_doc.py** (120 行) — 「確かめる」の文書の行を直す 1 つの口(読み・時刻・声のカードの反映と Z が使う。opt-human 6-1)。
+  - 名前: `card_switch` :24・`busy` :38・`edit_row` :46・`edit_fields` :70・`revert_fields` :80・`doc_id` :94・`row_target` :102・`choice` :112
 - **answerlog.py** (212 行) — 「確かめる」の答えの記録(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-1)。
   - 名前: `answers_path` :48・`new_id` :56・`day_of` :61・`card_mark` :66・`append` :76・`class State` :107・`state` :189・`read_skips` :195・`add_skip` :203
 - **apply.py** (302 行) — 「確かめる」の答えを実物へ反映する土台(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-2・3-3)。
   - 名前: `class Context` :46・`register` :69・`flush` :207・`answer` :214・`undo` :255・`unknown` :281・`skip` :295
-- **cutcard.py** (54 行) — 「確かめる」の自動カットのカードの答えの記録(CUT-CARD。決定: plan/opt-eval.md の Q4 自動カットのカード)。
-  - 名前: `enabled` :27
-- **section.py** (313 行) — 「確かめる」の評価のレーンの区間カードの反映(C-EVAL (2)。決定 3-47「確かめると評価をまとめる」・3-49 Q2。設計の相談は Fable)。
-  - 名前: `enabled` :297
+- **cutcard.py** (44 行) — 「確かめる」の自動カットのカードの答えの記録(CUT-CARD。決定: plan/opt-eval.md の Q4 自動カットのカード)。
+  - 名前: `enabled` :25
+- **section.py** (304 行) — 「確かめる」の評価のレーンの区間カードの反映(C-EVAL (2)。決定 3-47「確かめると評価をまとめる」・3-49 Q2。設計の相談は Fable)。
+  - 名前: `enabled` :296
 - **symbol.py** (93 行) — 「確かめる」の記号のカード「この記号は消してよいか」の反映(11-01 ユーザー「消してよかったかを見直す道具は確かめるに作ればよくない？」)。
   - 名前: `code_of` :22・`char_of` :27・`extra_path` :38
 - **timerow.py** (109 行) — 「確かめる」の時刻のカード「行の時刻が合っているか」の反映(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-2・5 節・決定 3-41)。
@@ -45,10 +45,10 @@
 ## src/human/friend/
 
 - **__init__.py** (2 行) — ③ 友人: 受付(Dropbox)→ まとめて実行(②)に流す → 届ける。友人の返事・送り返し・ライブの依頼の結びつき
-- **bugs.py** (658 行) — ③ 人の層: 友人の PC の不具合の書き出しを受け取って仕分けし、要対応があれば Claude Code を画面なしで 1 回起こす(10-25 ユーザーの OK。
-  - 名前: `bugs_dir` :149・`parse` :157・`triage` :170・`kind_of` :204・`context` :236・`wrap` :255・`records` :274・`scan` :284・`delivered` :349・`guard` :387・`friend_first` :404・`ask` :428・ほか 4
-- **friend_feedback.py** (118 行) — 友人の「要らない」を PC 側で片付ける(notes:docs/spec/friend.md の 2-14。ユーザー「不採用の場合こちらにフィードバック」)。
-  - 名前: `record_delivery` :24・`find_delivery` :29・`apply` :82
+- **bugs.py** (656 行) — ③ 人の層: 友人の PC の不具合の書き出しを受け取って仕分けし、要対応があれば Claude Code を画面なしで 1 回起こす(10-25 ユーザーの OK。
+  - 名前: `bugs_dir` :149・`parse` :157・`triage` :170・`kind_of` :204・`context` :234・`wrap` :253・`records` :272・`scan` :282・`delivered` :347・`guard` :385・`friend_first` :402・`ask` :426・ほか 4
+- **friend_feedback.py** (99 行) — 友人の「要らない」を PC 側で片付ける(notes:docs/spec/friend.md の 2-14。ユーザー「不採用の場合こちらにフィードバック」)。
+  - 名前: `record_delivery` :22・`find_delivery` :27・`apply` :63
 - **intake.py** (841 行) — 友人からの依頼の受付(notes:docs/spec/friend.md)。
   - 名前: `configured_folder` :81・`out_dir_of` :92・`submit_urls` :97・`submit_file` :121・`youtube_id` :131・`parse_lines` :137・`decode_text` :163・`probe_video` :177・`youtube_info` :189・`parse_ranges` :237・`class Intake` :266
 - **live_requests.py** (22 行) — 友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend.md の 2-15)。
@@ -81,8 +81,8 @@
   - 名前: `record_rerun` :49・`apply_retranscribe` :85・`replace_original_multi` :154・`thin_rows` :173・`apply_range` :186・`run_retranscribe` :231・`rebuild_whole` :277・`validate_retranscribe` :368・`validate_whole` :404・`validate_rerun` :434
 - **retime.py** (32 行) — ③ 人の操作の層 human/proof: 行の時刻の候補の API の包み POST /api/retime {id, rows: [行の id…]}
   - 名前: `retime_engine` :12・`retime_doc` :18
-- **speakers.py** (711 行) — ③ 人の操作の層 human/proof: 話者判別の結果を文書へ(apply_diarization・1 人指定 single_speaker・守る行 diar_keep_row)・判別のジョブの受付と文書への書き込み(validate_diarize・
-  - 名前: `set_context_namer` :31・`check_context_namer` :40・`apply_diarization` :62・`diar_keep_row` :79・`validate_diarize` :171・`single_speaker` :195・`run_diarize` :223・`autodiar_enabled` :275・`autodiar_ready` :280・`autodiar_enqueue` :300・`autodiar_after_transcribe` :332・`is_generic_speaker_name` :419・ほか 7
+- **speakers.py** (715 行) — ③ 人の操作の層 human/proof: 話者判別の結果を文書へ(apply_diarization・1 人指定 single_speaker・守る行 diar_keep_row)・判別のジョブの受付と文書への書き込み(validate_diarize・
+  - 名前: `set_context_namer` :31・`check_context_namer` :40・`apply_diarization` :62・`diar_keep_row` :79・`validate_diarize` :170・`single_speaker` :194・`run_diarize` :222・`autodiar_enabled` :279・`autodiar_ready` :284・`autodiar_enqueue` :304・`autodiar_after_transcribe` :336・`is_generic_speaker_name` :423・ほか 7
 - **store.py** (1165 行) — ③ 文書の置き場: 文書を書く唯一の口 commit と機械の層・人の層(層が正 = 文書は組み立て済みの写し・古い写しの読み直し fresh_copy)・保存の錠 saving・
   - 名前: `tx_path` :37・`write_doc` :41・`read_layers` :73・`commit` :114・`layers_for` :171・`fresh_copy` :201・`snapshot` :251・`backup_doc` :259・`sanitize_sub_style` :278・`sanitize_transcript` :291・`doc_length` :373・`good_row` :394・ほか 37
 - **voiceclips.py** (215 行) — 声を覚える材料の短い音(10-24 夜。ユーザー「誰の声をメンバー全員分」・「精度に関係する物は残す」)。

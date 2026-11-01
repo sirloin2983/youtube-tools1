@@ -5,7 +5,7 @@
 ## src/friendapp/
 
 - **__init__.py** (2 行) — 友人の玄関(FriendApp。友人の PC の 2 つ目の玄関。資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。ytt と ② flow だけを読む(③ human は読まない)
-- **api.py** (994 行) — 友人の玄関の口の中身(F3-3。HTTP の形は server.py。ここは欄の検査・② への受付・送った物の進み具合と取り消し・失敗のやり直し・前回の値)。
+- **api.py** (983 行) — 友人の玄関の口の中身(F3-3。HTTP の形は server.py。ここは欄の検査・② への受付・送った物の進み具合と取り消し・失敗のやり直し・前回の値)。
   - 名前: `class FormError` :64・`live_auto` :73・`oembed` :81・`probe_live` :86・`guess_streamer` :92・`file_title` :101・`clean_ranges` :107・`fit_name` :126・`class Api` :135・`fsio_inside` :956・`rowtitle` :963
 - **diag.py** (328 行) — 友人のアプリの診断の記録(ユーザー決定。notes:docs/spec/friend.md の 13-11)。友人の PC でしか出ない不具合を、伝聞でなく記録で追うため。
   - 名前: `add_secret` :58・`mask` :74・`windows_text` :97・`stage_rows` :108・`transcribe_rows` :123・`probe_only` :136・`prune_names` :142・`class Diag` :153
@@ -15,8 +15,8 @@
   - 名前: `public_key` :96・`sign` :103・`verify` :113
 - **engine.py** (538 行) — 友人の玄関の ② の組み立て(flow の部品を糸つきで持つ)。
   - 名前: `stage_lines` :41・`transcribe_line` :57・`transcribe_lines` :77・`transcribe_records` :83・`export_records` :103・`class FriendQueue` :122・`class Engine` :147・`live_cause` :502
-- **inbox.py** (1312 行) — 友人の受信箱の正(notes:plan/done/f1-friend-requirements.md の C-3、資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。
-  - 名前: `pack_name` :87・`pack_title` :93・`unique_dest` :97・`case_of` :105・`class Inbox` :116
+- **inbox.py** (1317 行) — 友人の受信箱の正(notes:plan/done/f1-friend-requirements.md の C-3、資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。
+  - 名前: `pack_name` :87・`pack_title` :93・`unique_dest` :97・`case_of` :105・`class Inbox` :132
 - **live.py** (54 行) — 友人の玄関のライブの依頼の欄と結びつき(資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-15)。軽い部品だけ(画面を先に出すため)。
   - 名前: `fixed` :23・`check_settings` :28・`settings_label` :50
 - **live_session.py** (346 行) — 友人の玄関のライブ係(資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-15)。
@@ -24,29 +24,29 @@
   - 受ける口: `/api/queue/add` :92・`/api/queue` :95
 - **oplog.py** (137 行) — 友人のアプリの操作の記録(形の正は notes:plan/友人の不具合の自動対応-1025.md の「操作の記録」)。
   - 名前: `day_name` :32・`clean_ui` :47・`class OpLog` :91
-- **places.py** (251 行) — 友人の玄関の置き場所(資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。
-  - 名前: `home` :36・`data_root` :48・`friend_dir` :56・`cookies_path` :60・`outbox_dir` :65・`is_maker_data` :69・`tool_env` :98・`lay_tools_shallow` :119・`lay_whisper` :147・`api_key_env` :172・`members_env` :186・`first_roster` :197・ほか 1
+- **places.py** (260 行) — 友人の玄関の置き場所(資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。
+  - 名前: `home` :36・`data_root` :48・`friend_dir` :56・`cookies_path` :60・`outbox_dir` :65・`is_maker_data` :69・`tool_env` :98・`lay_tools_shallow` :119・`app_tools_dir` :150・`lay_whisper` :155・`api_key_env` :181・`members_env` :195・ほか 2
 - **progress.py** (285 行) — 友人のアプリの「送った物」の行に出す、失敗の言葉と進み具合を作る部品(F3-3。notes:plan/done/f1-friend-requirements.md の C-2-15・C-2-16)。純粋な関数だけ(ファイルもネットも触らない。時計は引数で受ける)。
   - 名前: `classify` :106・`waiting_message` :129・`retry_note` :139・`stage` :181・`eta` :229・`slow` :248・`text` :266
 - **report.py** (751 行) — 友人のアプリの状態の書き出しと、そのきっかけ(形の正は notes:plan/友人の不具合の自動対応-1025.md。受け取り側はユーザーの PC の別の部品)。
   - 名前: `fit` :63・`judge` :91・`live_cands` :132・`dir_bytes` :155・`class Reporter` :169
-- **server.py** (1137 行) — 友人の玄関(資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。友人の PC の 2 つ目の玄関(ユーザーの PC は src/app/server.py)。
-  - 名前: `save_dir` :125・`open_folder` :134・`pick_file_dialog` :150・`pick_folder_dialog` :190・`page_token` :227・`inject_meta` :234・`class Handler` :241・`client_log_line` :558・`class Server` :564・`class FriendApp` :583・`make_logger` :1017・`say` :1057・ほか 2
+- **server.py** (1138 行) — 友人の玄関(資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。友人の PC の 2 つ目の玄関(ユーザーの PC は src/app/server.py)。
+  - 名前: `save_dir` :125・`open_folder` :134・`pick_file_dialog` :150・`pick_folder_dialog` :190・`page_token` :227・`inject_meta` :234・`class Handler` :241・`client_log_line` :558・`class Server` :564・`class FriendApp` :583・`make_logger` :1018・`say` :1058・ほか 2
   - 受ける口: `/api/friend/client-log` :114・`/api/friend/state` :281・`/api/friend` :281・`/api/ping` :283・`/api/friend/inbox` :285・`/api/friend/tidy` :290・`/api/friend/update` :292・`/api/friend/setup` :294・`/api/friend/peek` :300・`/api/friend/player` :305・`/api/friend/receive` :307・`/api/friend/media` :310・`/api/friend/settings` :321・`/api/friend/streams` :323・`/api/flow/status` :325・`/api/friend/upload` :340・`/api/friend/peek-live` :386・`/api/friend/ops` :392・`/api/friend/send` :398・`/api/friend/pick-file` :403・`/api/friend/decide` :411・`/api/friend/undo` :413・`/api/friend/hold` :415・`/api/friend/files` :419・`/api/friend/report` :421・`/api/friend/prefs` :423・`/api/friend/retry` :426・`/api/friend/cancel` :430・`/api/friend/local` :434・`/api/friend/open` :438・`/api/friend/update/apply` :451・`/api/friend/update/now` :457・`/api/friend/streams/refresh` :462・`/api/friend/settings/key` :470・`/api/friend/pick-folder` :475・`/api/friend/notice-seen` :487・`/api/shutdown` :493・`/api/flow/submit` :497・`/api/flow/cancel` :506・`/api/ytt/streamer-colors` :510・`/api/ytt/client-log` :512
 - **settings.py** (321 行) — 友人の玄関の ⚙(資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。
   - 名前: `class SettingsError` :45・`clean_key` :50・`looks_like_key` :54・`judge` :59・`probe_key` :87・`check_key` :101・`keys_path` :109・`load_key` :113・`save_key` :118・`check_folder` :127・`class Settings` :152
-- **setup.py** (967 行) — 友人の玄関の初回の取得(資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。
+- **setup.py** (1067 行) — 友人の玄関の初回の取得(資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。
   - 名前: `class FetchError` :65・`class Cancelled` :69・`safe_relative` :78・`problem` :94・`parse_item` :123・`load` :133・`archive_name` :157・`expect` :165・`folder` :170・`marker` :174・`label` :178・`is_done` :187・ほか 11
 - **signing.py** (72 行) — 更新の署名(安全面の直し 1・10-29 決めた事 1〜3。案 A = Ed25519・公開鍵を src に焼き込む)。
   - 名前: `canonical` :20・`load_keys` :26・`check` :44・`accept` :61・`sign` :67
 - **streams.py** (559 行) — 友人のアプリの「送る」画面の左に並べる、ホロライブ JP(と DEV_IS)の配信の一覧(F3-2)。API キー無し。
   - 名前: `parse_rss` :159・`classify` :191・`class Streams` :261
-- **sync.py** (1123 行) — 友人の玄関の Dropbox の同期(資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-14〜2-17・5-1)。
-  - 名前: `class SyncError` :100・`name_ok` :105・`out_kind` :111・`clean_text` :123・`clean_origin` :128・`parse_meta` :139・`parse_meta_info` :145・`failure_text` :165・`server_time` :172・`safe_rel` :180・`safe_join` :187・`local_name` :197・ほか 14
-- **tidy.py** (622 行) — アプリのフォルダの整理(形は Fable と相談 = 共有のメモ f3a-tidy-design.md。決定 3-86)。新しい版に入れ替えて起動できたあとと ⚙ から。
-  - 名前: `keep_floor` :76・`class Tidy` :161・`prune_old_files` :597・`prune_diag` :615
-- **toolcheck.py** (111 行) — 友人の PC の初回の準備の最後の「道具を動かして確かめる」(F3-5。notes:plan/done/f1-friend-requirements.md の C-5-2・C-0)。
-  - 名前: `run_cmd` :26・`check_tool` :37・`check_tools` :53・`make_wav` :58・`whisper_run` :68・`check_whisper` :76・`signature` :97・`failed` :109
+- **sync.py** (1133 行) — 友人の玄関の Dropbox の同期(資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章、docs/spec/friend.md の 2-14〜2-17・5-1)。
+  - 名前: `class SyncError` :102・`name_ok` :107・`out_kind` :113・`clean_text` :125・`clean_origin` :130・`parse_meta` :141・`parse_meta_info` :147・`failure_text` :167・`server_time` :174・`safe_rel` :182・`safe_join` :189・`local_name` :199・ほか 14
+- **tidy.py** (615 行) — アプリのフォルダの整理(形は Fable と相談 = 共有のメモ f3a-tidy-design.md。決定 3-86)。新しい版に入れ替えて起動できたあとと ⚙ から。
+  - 名前: `keep_floor` :76・`class Tidy` :154・`prune_old_files` :590・`prune_diag` :608
+- **toolcheck.py** (152 行) — 友人の PC の初回の準備の最後の「道具を動かして確かめる」(F3-5。notes:plan/done/f1-friend-requirements.md の C-5-2・C-0)。
+  - 名前: `run_cmd` :27・`check_tool` :38・`check_tools` :54・`make_wav` :59・`whisper_run` :69・`check_whisper` :77・`haas_run` :102・`check_haas` :113・`signature` :138・`failed` :150
 - **upgrade.py** (525 行) — 友人のアプリの更新の決まり(いつ入れ替えるか・重要な直し・新しい版の確かめと戻し・心拍・固まり)。
   - 名前: `vt` :60・`wait_reason` :67・`verify_sec` :84・`typical` :92・`beat_doc` :98・`class Upgrade` :108
 - **voicesend.py** (124 行) — 友人の PC から送る声の材料(10-24 夜。ユーザー「誰の声をメンバー全員分」。案 = 資料の git:before-1028-cleanup:plan/声の材料を友人のPCから-1024.md)。

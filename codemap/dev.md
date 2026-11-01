@@ -6,8 +6,8 @@
 
 - **_common.py** (48 行) — dev/ の道具が共通で使う小物(標準ライブラリだけ)。guard_hook.py・push_helper.py は単独で動く条件なので、ここを読まない。
   - 名前: `console_utf8` :9・`find_node` :18・`read_utf8` :31・`write_utf8` :37・`tracked_files` :43
-- **build_friend_zip.py** (918 行) — 友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(設計 資料の git:before-1028-cleanup:docs/design/f1-build.md の 2・3 節)。
-  - 名前: `class BuildError` :128・`say` :132・`download` :144・`cached` :156・`wheel_pins` :191・`pip_download` :209・`wheels` :219・`check_certifi` :256・`unzip_into` :272・`lay_python` :297・`src_files` :322・`lay_src` :337・ほか 25
+- **build_friend_zip.py** (953 行) — 友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(設計 資料の git:before-1028-cleanup:docs/design/f1-build.md の 2・3 節)。
+  - 名前: `class BuildError` :130・`say` :134・`download` :146・`cached` :158・`wheel_pins` :193・`pip_download` :211・`wheels` :221・`check_certifi` :258・`unzip_into` :274・`lay_python` :299・`src_files` :324・`lay_src` :339・ほか 27
 - **code_map.py** (466 行) — コードの地図と言葉の索引を作る道具(AI のセッションがコードの場所を早く見つけるため)。
   - 名前: `git_files` :53・`skipped` :57・`is_test` :61・`read` :65・`one_line` :73・`comment_head` :85・`py_info` :112・`js_info` :143・`cs_info` :164・`info` :186・`layer_of` :199・`norm_route` :206・ほか 12
   - 受ける口: 
@@ -25,8 +25,8 @@
   - 名前: `have` :29・`extract` :38・`main` :54
 - **friend_bugs.py** (62 行) — 友人の不具合の書き出しの一覧を見る・友人の PC に「送って」の印を置く(ユーザーの PC。notes:plan/友人の不具合の自動対応-1025.md)。
   - 名前: `main` :28
-- **friend_demo.py** (331 行) — 友人の受信箱(src/friendapp)を見本のデータで動かす(画面の見直し・ui_audit・手での確認用)。本物の作業データ・② には触らない。
-  - 名前: `demo_fetch` :33・`demo_probe` :38・`class StubQueue` :43・`class StubEngine` :68・`demo_thumb` :95・`class DemoStreams` :104・`seed` :146・`write_demo_fetch` :218・`class DemoDownloader` :232・`demo_file` :245・`write_demo_update` :255・`main` :267
+- **friend_demo.py** (332 行) — 友人の受信箱(src/friendapp)を見本のデータで動かす(画面の見直し・ui_audit・手での確認用)。本物の作業データ・② には触らない。
+  - 名前: `demo_fetch` :33・`demo_probe` :38・`class StubQueue` :43・`class StubEngine` :68・`demo_thumb` :95・`class DemoStreams` :104・`seed` :146・`write_demo_fetch` :219・`class DemoDownloader` :233・`demo_file` :246・`write_demo_update` :256・`main` :268
 - **friend_diag.py** (251 行) — 友人のアプリから届いた診断の記録を読む(ユーザーの PC。notes:docs/spec/friend.md の 13-11)。AI が原因を調べるときに流す。
   - 名前: `default_dir` :36・`prune` :47・`load` :61・`is_error` :84・`live_lines` :95・`lines_of` :145・`main` :208
 - **friend_preflight.py** (1257 行) — 友人に配る zip を、配る前にこの PC で「友人の PC と同じ状態」にして通しで試す(配る前の検査。notes:docs/spec/friend.md の 13-11)。
@@ -89,6 +89,8 @@
 
 - **build_whisper_vulkan.py** (167 行) — whisper.cpp を AMD などの GPU(Vulkan)用に、この PC で作る(精度改善の計画 段2-2。build-whisper-vulkan.bat から呼ぶ)。
   - 名前: `say` :33・`fail` :37・`run` :43・`find_cmake` :50・`find_vulkan_sdk` :67・`rmtree_all` :77・`sha256` :90・`main` :98
+- **place_speechcpp.py** (86 行) — speech.cpp(Haas-ja の主の文字起こしの実行ファイル)を作業データに置く(11-01・保管庫 plan/Haas に替える時の変更の一覧.md の段 1)。
+  - 名前: `say` :30・`fail` :34・`sha256` :40・`main` :48
 
 ## テスト
 

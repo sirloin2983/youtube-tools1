@@ -25,8 +25,8 @@
   - 名前: `tx_root` :53・`loc_path` :58・`check_folder` :67・`placed` :108・`doc_dir` :119・`doc_file` :132・`hist_dir` :139・`bak_dir` :144・`iter_tids` :149・`doc_files` :155・`unseen` :184・`place` :203・ほか 2
 - **errors.py** (35 行) — API の失敗の形。
   - 名前: `class ApiError` :13・`class Cancelled` :19・`class Refused` :23・`class ResolveExportError` :32
-- **fsio.py** (546 行) — ファイルの読み書き(スタジオの common.atomic_write と、文字起こしの atomic_write / pipeline_io の書き込みを1つにしたもの)。
-  - 名前: `replace_retry` :19・`unlink_quiet` :32・`temp_in` :40・`atomic_write` :59・`create_new` :77・`write_json` :99・`append_jsonl` :109・`sha256_file` :116・`class TooLarge` :125・`read_json_file` :133・`is_network_path` :153・`norm_path` :160・ほか 21
+- **fsio.py** (589 行) — ファイルの読み書き(スタジオの common.atomic_write と、文字起こしの atomic_write / pipeline_io の書き込みを1つにしたもの)。
+  - 名前: `replace_retry` :19・`unlink_quiet` :32・`temp_in` :40・`atomic_write` :59・`create_new` :77・`write_json` :99・`append_jsonl` :109・`sha256_file` :116・`class TooLarge` :125・`read_json_file` :133・`is_network_path` :153・`norm_path` :160・ほか 23
 - **gpuinfo.py** (165 行) — この PC の GPU の名前と VRAM を調べる(F1 F0-2。資料の git:before-1028-cleanup:docs/design/f1-build.md の 2 の F0-2・3 の (f1b))。標準ライブラリと ytt だけ。
   - 名前: `vendor_of` :28・`gb` :37・`parse_nvidia_smi` :46・`parse_cim` :62・`pick` :80・`from_nvidia_smi` :97・`from_registry` :104・`from_cim` :136・`probe` :144・`info` :158
 - **httpsec.py** (292 行) — ローカルサーバー(127.0.0.1)の安全検査。スタジオ・文字起こし・入口で同じ規則を1か所に持つ。
@@ -64,12 +64,12 @@
   - 名前: `load_live` :24・`load_video` :35・`save_series` :82・`read` :96・`load_all` :108・`videos` :116・`video` :121・`studio_videos` :157・`studio_stream` :162
 - **textutil.py** (78 行) — ログ・画面に出す文と数の小物(標準ライブラリだけ)。
   - 名前: `redact` :18・`one_line` :26・`permission_message` :32・`tail_reason` :40・`fmt_ts` :47・`fmt_ms` :53・`num` :59・`person_key` :73
-- **tools.py** (730 行) — 外部プログラム(ffmpeg・ffprobe・yt-dlp)の場所と、子プロセスを動かすときの小道具。
-  - 名前: `remember` :36・`recent` :52・`ytt_env` :57・`find_tool` :71・`is_dev_build` :110・`pick_ffmpeg` :115・`find_ffmpeg` :165・`media_tool` :170・`ffmpeg_info` :176・`parse_ffmpeg_info` :190・`duration_in` :201・`media_duration` :206・ほか 22
+- **tools.py** (789 行) — 外部プログラム(ffmpeg・ffprobe・yt-dlp)の場所と、子プロセスを動かすときの小道具。
+  - 名前: `remember` :36・`recent` :52・`ytt_env` :57・`find_tool` :71・`is_dev_build` :110・`pick_ffmpeg` :115・`find_ffmpeg` :165・`media_tool` :170・`ffmpeg_info` :176・`parse_ffmpeg_info` :190・`duration_in` :201・`media_duration` :206・ほか 24
 - **trashbin.py** (270 行) — ごみ箱フォルダの 1 か所(形と、移す・戻す・古い日付を消す動作)。どの層からも使う(① の録画の部品・④ の片付けと「要らない」・友人のアプリ)ので ytt に置く。
   - 名前: `safe_move` :70・`day_name` :99・`free_path` :108・`append_manifest` :118・`old_day_dirs` :136・`purge` :154・`to_trash` :175・`record` :226・`put_back` :241
-- **txbase.py** (103 行) — 認識の部品が共有する小さな物: 記録(ロガー)・決まった値(文字・言語・長さの上限)・要確認の印の文と幻覚の決まり文句・ジョブの注意。
-  - 名前: `char_class` :40・`alt_fold` :56・`add_warning` :71・`env_off` :76・`wcpp_flavor` :87・`wcpp_bin_dir` :92・`wcpp_exe` :97・`wcpp_model_dir` :101
+- **txbase.py** (136 行) — 認識の部品が共有する小さな物: 記録(ロガー)・決まった値(文字・言語・長さの上限)・要確認の印の文と幻覚の決まり文句・ジョブの注意。
+  - 名前: `char_class` :40・`alt_fold` :56・`add_warning` :71・`env_off` :76・`wcpp_flavor` :87・`wcpp_bin_dir` :92・`wcpp_exe` :97・`speech_bin_dir` :108・`speech_exe` :113・`speech_choice` :120・`wcpp_model_dir` :134
 - **txtext.py** (103 行) — 文字起こしの文字の語彙(標準ライブラリと ytt/txbase だけの純粋な関数と決まった値)。
   - 名前: `text_chars` :18・`strip_punct` :33・`squeeze_bars` :41・`split_segment` :73・`split_terms` :100
 - **txwords.py** (42 行) — 文字起こしの単語の時刻 transcripts/<id>.words.json の読み書き(標準ライブラリ・ytt の fsio と workdata だけ = 純粋な形の記録)。
