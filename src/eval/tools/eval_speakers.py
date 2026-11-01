@@ -61,6 +61,7 @@ from eval.tools import _evalcommon as C  # noqa: E402  共通の部品(作業デ
 from eval.tools._evalcommon import dist, is_reviewed, pct, rate, read_json  # noqa: E402
 from ytt import docloc, fsio  # noqa: E402
 from human.proof import speakers as proof_speakers  # noqa: E402
+from flow import diar as _flow_diar  # noqa: E402
 from pipeline.transcribe import diarize as transcribe_diarize  # noqa: E402
 from pipeline.transcribe import recognize as _recognize  # noqa: E402
 from pipeline.transcribe import backend as _backend  # noqa: E402
@@ -838,7 +839,7 @@ def run_evaluate(data_dir=None, since=None, until=None, include_eval=True, inclu
                 t0 = time.monotonic()
                 try:
                     if base not in cache:
-                        cache[base] = diarize_once(job, wav, total, st)
+                        cache[base] = _flow_diar.merge_minor(job, wav, diarize_once(job, wav, total, st), offset)[0]   # 本番と同じく短い番号を移す
                     turns = cache[base]
                 except Exception as e:   # 1 つの設定で落ちても、ほかの設定・文書は続ける
                     msg = str(getattr(e, "message", "") or e)[:200]

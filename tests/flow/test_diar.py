@@ -150,5 +150,38 @@ class TestRowVoices(unittest.TestCase):
         self.assertEqual(segs[0]["speaker"], "")
 
 
+class TestMinorLabels(unittest.TestCase):
+    """話す時間の短い番号(合計の MINOR_SHARE 未満・いちばん長い番号は外さない)を、声の一番近い残りの番号へ移す(11-01 予備3 の 12 章)"""
+
+    def test_picks_and_moves_by_voice(self):
+        from unittest import mock
+        # 0 = 60 秒・1 = 30 秒・2 = 2 秒(2.1%)・3 = 2 秒(0 の声の割れた片方)
+        turns = [(0, 60, 0), (60, 90, 1), (90, 92, 2), (92.5, 94.5, 3), (59, 61, 1)]
+        minor, secs = diar.minor_labels(turns)
+        self.assertEqual((sorted(minor), round(secs[0])), ([2, 3], 60))
+        self.assertEqual(diar.minor_labels([(0, 1, 5)])[0], {})                       # 1 人なら外さない
+        self.assertEqual(diar.minor_labels([(0, 1, 1), (1, 100, 0)])[0], {1: 1})       # 一番長い番号は外さない・短い方だけ
+        spans = diar._label_spans(turns)
+        self.assertEqual(spans[0], [(0, 59)])                                          # ほかの番号と重なる所を除く
+        self.assertEqual(spans[1], [(60, 61), (60, 90)])                               # 1 秒以上の切れ端は残す
+        vecs = {0: [1.0, 0.0], 1: [0.0, 1.0], 2: [0.1, 0.99], 3: [0.98, 0.2]}
+        seen = []
+
+        def emb(job, spec, wav, groups, hints):
+            seen.append((spec["embedding"], groups, hints))
+            return [vecs[k] for k in (0, 1, 2, 3)]
+        with mock.patch.object(diar, "embed", emb):
+            out, info = diar.merge_minor({}, "a.wav", turns, 100.0)
+        self.assertEqual(seen[0][0], diar.learn_embedding(diar.default_embedding()))  # 声の名前付けのモデル
+        self.assertEqual((seen[0][1][0], seen[0][2]), ([(100.0, 159.0)], {"start": 100.0}))   # 元の動画の秒
+        self.assertEqual([k for _, _, k in out], [0, 1, 1, 0, 1])                      # 2 → 1・3 → 0(行は捨てない)
+        self.assertEqual((info["share"], info["labels"]["3"]["to"], info["labels"]["3"]["by"]), (diar.MINOR_SHARE, 0, "voice"))
+        with mock.patch.object(diar, "embed", side_effect=RuntimeError("no sherpa")):
+            out, info = diar.merge_minor({}, "a.wav", turns, 0.0)
+        self.assertEqual([k for _, _, k in out], [0, 1, 0, 0, 1])                      # 声が取れなければ一番長く話す番号へ
+        self.assertEqual(info["labels"]["2"]["by"], "longest")
+        self.assertEqual(diar.merge_minor({}, "a.wav", [(0, 10, 0), (10, 15, 1)], 0.0), ([(0, 10, 0), (10, 15, 1)], None))   # 外す番号が無い
+
+
 if __name__ == "__main__":
     unittest.main()

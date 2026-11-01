@@ -239,8 +239,13 @@ def run_diarize(job):
         start, end = _yschemas.num_or(doc.get("start"), 0.0) or 0.0, _yschemas.num_or(doc.get("end"))
         turns = _diar.diarize(job, spec, wav, {"sourcePath": src, "start": start, "end": end})   # 3 時間の上限・音声の取り出し・判別(疑似は backend の口)
         _slots.check_cancel(job)
+        turns, minor = _diar.merge_minor(job, wav, turns, start)   # 話す時間の短い番号(ゲームの声など)を声の近い番号へ(行は捨てない)
+        _slots.check_cancel(job)
         auto = {"eval": bool(spec.get("autoEval")), "contextName": spec.get("contextName") or None} if spec.get("auto") else None
         job["speakers"], job["unsure"] = apply_diarization(spec["tid"], turns, start, spec["numSpeakers"], spec["embedding"], auto, bool(spec.get("smooth")))
+        if minor:
+            _diar.record_minor(spec["tid"], minor)
+            job["minorMoved"] = len(minor["labels"])
         if spec.get("recognize", True):   # A-3: 覚えている声と照らし合わせて、仮の名前(話者n)に名前を付ける。失敗しても判別の結果は残す
             try:
                 job["named"] = _recognize_voices(job, spec["tid"], wav, start, _diar.match_embedding(spec["embedding"]), spec.get("names") or None)   # 照らすモデルは判別と別(VOICE_EMB)

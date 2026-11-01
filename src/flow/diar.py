@@ -6,13 +6,14 @@
 
 動詞(③ が呼ぶ口。どれも ① を呼ぶ前後で ② が足すことを docstring の「② が足すこと」に書いた):
 - 部品と判別モデル: models_ready・default_embedding・embedding・embeddings
-- 判別: diarize(ジョブの音声 → 区間)・assign(区間 → 行の割り当て)・record_run・record_single(<id>.diar.json)・latest_run
+- 判別: diarize(ジョブの音声 → 区間)・merge_minor(話す時間の短い番号を声の近い番号へ移す)・assign(区間 → 行の割り当て)・record_run・record_single・record_minor(<id>.diar.json)・latest_run
 - 声: embed(声の特徴)・match_known_voices(行 → 声の特徴 → 覚えた声との照合)・voice_learn_rows(声を覚える行の選び方)・record_match・record_match_error・record_context・empty_voice
 - 覚えた声の置き場所(作業データの voices/<判別モデル>.json): VOICES_DIR・voices_dir・voices_path・load_voices・save_voices・voices_edit・merge_voice
 計算(判別 = speech.cpp の子プロセス・声の特徴 = sherpa-onnx と numpy)は ① の中・認識ワーカーの中だけ(ここでは読み込まない = tests/pipeline/transcribe/test_worker.py の検査)。
 ① の名前は呼ぶたびに `_calc.名前` で読む(テストの patch.object(S, "has_diar"・"has_sherpa"・"ensure_diar_model"・"ensure_diar_models"・"embed_groups"・"write_diar") が ① に届く)。
 疑似の判別・声の特徴は ① の口 backend.Backend.diarize・embed のまま(疑似の本体は eval/fake/fake_asr)。
 """
+import bisect
 import contextlib
 import json
 import os
@@ -102,6 +103,100 @@ def _diarize_job_real(job, spec, wav):
         raise
     except Exception as e:
         raise _errors.ApiError("diar_failed", "話者の判別に失敗しました: %s %s" % (e.__class__.__name__, str(e)[:150]), 500)
+
+
+# ---------- 話す時間の短い番号を移す(ゲームの声など。11-01 予備3 の試し = 保管庫 plan/Nemotron話者分離の調べ-1101.md の 12 章・ユーザー「メンバーの声を消さないなら入れていい」) ----------
+# 配信の中で話す時間が全部の番号の合計の MINOR_SHARE 未満の番号は外す(いちばん長く話す番号は外さない)。外した番号の区間は捨てずに、
+# 声の特徴(声の名前付けのモデル)が一番近い残りの番号へ移す(生スバルで、外した番号が白上フブキの声の割れた小さい方だった)。
+# 声の特徴が取れない(短い区間だけ・部品が無い)ときは、いちばん長く話す番号へ移す。試しの数: カード 52 枚の当たり 42 → 44・少なく数えた外れ 5 → 5・ソロ 232 → 234 / 239
+MINOR_SHARE = 0.05
+
+
+def minor_labels(turns):
+    """turns = [(開始, 終了, 番号)] -> ({外す番号: 秒}, {番号: 秒})。番号が 1 つなら外さない"""
+    secs = {}
+    for a, b, k in turns:
+        secs[k] = secs.get(k, 0.0) + max(0.0, b - a)
+    total = sum(secs.values())
+    if len(secs) < 2 or total <= 0:
+        return {}, secs
+    top = max(secs, key=lambda k: (secs[k], -k))
+    return {k: v for k, v in secs.items() if k != top and v < MINOR_SHARE * total}, secs
+
+
+def _label_spans(turns):
+    """番号ごとの声の特徴を取る区間 {番号: [(開始, 終了)]}: ほかの番号と重ならない所の 1 秒以上(① VOICE_MIN_ROW)を長い順に ① VOICE_MAX_ROWS 区間・VOICE_MAX_SEC 秒まで"""
+    ts = sorted(turns)
+    starts = [t[0] for t in ts]
+    dmax = max((b - a for a, b, _ in ts), default=0.0)
+    out = {}
+    for i, (a, b, k) in enumerate(ts):
+        cut = [(a, b)]
+        for j in range(bisect.bisect_left(starts, a - dmax), bisect.bisect_left(starts, b)):   # 重なりうる区間だけ(長い配信で数千区間)
+            x, y, t = ts[j]
+            if j == i or t == k or y <= a or x >= b:
+                continue
+            nxt = []
+            for p, q in cut:
+                if y <= p or x >= q:
+                    nxt.append((p, q))
+                    continue
+                if x > p:
+                    nxt.append((p, x))
+                if y < q:
+                    nxt.append((y, q))
+            cut = nxt
+        out.setdefault(k, []).extend(s for s in cut if s[1] - s[0] >= _calc.VOICE_MIN_ROW)
+    for k, rs in out.items():
+        rs.sort(key=lambda s: -(s[1] - s[0]))
+        pick, tot = [], 0.0
+        for s in rs[:_calc.VOICE_MAX_ROWS]:
+            if tot >= _calc.VOICE_MAX_SEC:
+                break
+            pick.append(s)
+            tot += s[1] - s[0]
+        out[k] = sorted(pick)
+    return out
+
+
+def merge_minor(job, wav, turns, offset):
+    """話す時間の短い番号を、声の一番近い残りの番号へ移す -> (移したあとの turns, 記録 {"share", "labels": {番号: {"sec", "share", "to", "score", "by"}}} か None)。
+    turns = [(開始, 終了, 番号)](音声の頭からの秒)・wav = 判別の音声・offset = 音声の頭の元の動画の秒。
+    ② が足すこと: 番号ごとの声の区間を選び、① の声の特徴(embed)で番号どうしを比べる。比べられなければ一番長く話す番号へ"""
+    minor, secs = minor_labels(turns)
+    if not minor:
+        return turns, None
+    keep = [k for k in secs if k not in minor]
+    top = max(keep, key=lambda k: secs[k])
+    spans = _label_spans(turns)
+    labels = sorted(secs)
+    vecs = {}
+    try:
+        got = embed(job, {"embedding": learn_embedding(default_embedding())}, wav,
+                    [[(a + offset, b + offset) for a, b in spans.get(k, [])] for k in labels], {"start": offset})
+        vecs = dict(zip(labels, got))
+    except _slots.Cancelled:
+        raise
+    except Exception as e:   # 声の特徴が取れなくても移す(一番長く話す番号へ)
+        _txbase.log.warning("短い番号の声の特徴を取れませんでした(一番長く話す番号へ移します): %s %s", e.__class__.__name__, str(e)[:150])
+    total = sum(secs.values())
+    moved = {}
+    for k in sorted(minor):
+        v = vecs.get(k)
+        sc = sorted(((_calc._cos(v, vecs[t]), t) for t in keep if vecs.get(t)), reverse=True) if v else []
+        to, score = (sc[0][1], round(sc[0][0], 3)) if sc else (top, None)
+        moved[k] = {"sec": round(minor[k], 1), "share": round(minor[k] / total, 4), "to": to, "score": score, "by": "voice" if sc else "longest"}
+    return [(a, b, moved[k]["to"] if k in moved else k) for a, b, k in turns], {"share": MINOR_SHARE, "labels": {str(k): m for k, m in moved.items()}}
+
+
+def record_minor(tid, info):
+    """最新の判別の記録に、移した短い番号を書く(latest.minor。番号は判別の生の番号 = labelMap の鍵ではない)。書けなくても判別は失敗にしない"""
+    try:
+        with _calc._diar_edit(tid) as d:
+            if d:
+                d["latest"]["minor"] = info
+    except Exception as e:
+        _txbase.log.warning("短い番号の記録を書けませんでした: %s %s", e.__class__.__name__, str(e)[:150])
 
 
 def assign(doc, turns, offset, keep_row, smooth=False):
