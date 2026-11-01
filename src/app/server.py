@@ -30,6 +30,7 @@
   GET  /api/intake                        友人からの依頼の受付の状態・設定・最近の依頼(src/human/friend/intake.py。notes:docs/spec/friend.md)
   POST /api/intake/scan                   {} 今すぐフォルダを見る(裏で。応答は今の状態)
   GET  /api/check/voiceclip?doc=&row=     誰の声のカードの行の短い音(wav。src/human/proof/voiceclips.py。元の動画が片付いた文書の行も聞ける)
+  GET  /api/check/voicemeasure?key=       誰の声のカードの測る分の行の短い音(wav。src/app/check/voice_measure.py。ショートの元の配信から研究が切り出した物)
   GET  /api/home/requests                 ホームの「友人の依頼」: 受付の記録に実行の記録を結んだ行 {rows: [{id, title, state, label, done, link, why, ...}]}(src/app/homereq.py)
   GET  /api/backup                        作業データのバックアップの状態・設定(src/manage/keep/backup.py。notes:docs/spec/data.md の「バックアップ」)
   POST /api/backup/run                    {} 今すぐ写す(裏で。応答は今の状態)
@@ -113,7 +114,7 @@ from app import streamer as streamer_mod  # noqa: E402  (src/app/streamer.py: �
 from human.friend import intake as intake_mod  # noqa: E402  (src/human/friend/intake.py: 友人からの依頼の受付)
 from manage.keep import backup as backup_mod  # noqa: E402  (src/manage/keep/backup.py: 作業データのバックアップ)
 from eval.drill import accuracy as accuracy_mod  # noqa: E402  (src/eval/drill/accuracy.py: 精度の自動測定 = src/eval/tools/eval_*.py を手が空いた夜に子プロセスで)
-from app.check import deck as check_deck, lineup as check_lineup, refresh as check_refresh, sources as check_sources, voice_solo as check_voice_solo, voicefetch as check_voicefetch, voicefill as check_voicefill, ytqueue as check_ytqueue, ytnotify as check_ytnotify, shortjobs as check_shortjobs, evalredo as check_evalredo, keep as check_keep  # noqa: E402  (src/app/check: 「確かめる」の待ち行列。V1)
+from app.check import deck as check_deck, lineup as check_lineup, refresh as check_refresh, sources as check_sources, voice_solo as check_voice_solo, voice_measure as check_voice_measure, voicefetch as check_voicefetch, voicefill as check_voicefill, ytqueue as check_ytqueue, ytnotify as check_ytnotify, shortjobs as check_shortjobs, evalredo as check_evalredo, keep as check_keep  # noqa: E402  (src/app/check: 「確かめる」の待ち行列。V1)
 from human.proof import voiceclips  # noqa: E402  (誰の声のカードの行の短い音。元の動画が片付いても聞ける・覚えられる。10-24 夜)
 from human.check import answerlog as check_answerlog  # noqa: E402  (答えた札 = 自動の片付けで、価値のカードを待っている切り抜きを残す)
 from human.check import apply as check_apply  # noqa: E402  (src/human/check/apply.py: 「確かめる」の答えの記録と反映。V1)
@@ -806,6 +807,12 @@ class PortalHandler(httpsec.LocalHandler):
                 return self._fail(400, "bad_request", str(e))
         if u.path == "/api/check/voiceclip":   # 誰の声のカードの行の短い音(10-24 夜。画面の player.js が <video> で流す)
             p = voiceclips.clip_path((q.get("doc") or [""])[0], (q.get("row") or [""])[0])
+            if not p:
+                return self._fail(404, "not_found", "その行の音はありません")
+            with open(p, "rb") as f:
+                return self._send(200, f.read(), "audio/wav", {"Cache-Control": "private, max-age=3600"})
+        if u.path == "/api/check/voicemeasure":   # 誰の声のカードの測る分の行の音(11-01。app/check/voice_measure)
+            p = check_voice_measure.clip_path(self.server.cleanup.app_dir, (q.get("key") or [""])[0])
             if not p:
                 return self._fail(404, "not_found", "その行の音はありません")
             with open(p, "rb") as f:
