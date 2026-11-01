@@ -24,8 +24,8 @@ faster-whisper(ctranslate2)と sherpa-onnx はネイティブコードで、メ�
   要求  {"rid": 1, "op": "load", "name": "large-v3", "pref": "auto", "force_cpu": false, "engine": "faster-whisper"}
         {"rid": 2, "op": "transcribe", "name", "device", "engine", "audio": {"wav": パス} | {"wav", "from", "to"}, "kw": {...}}
         engine = 認識エンジン(tx_engines.py の名前。無ければ faster-whisper。計画 段2-1)
-        {"rid": 3, "op": "diarize", "wav": パス, "num": 0, "emb": "voxceleb"}   (任意で "threshold"・"minOn"・"minOff" = 判別の設定を変えて測るとき)
-        {"rid": 4, "op": "embed", "wav": パス, "emb": "voxceleb", "groups": [[[開始, 終了], ...], ...]}   声の特徴(A-3。音声の先頭からの秒)
+        {"rid": 3, "op": "diarize", "wav": パス, "num": 0}   話者分離(Nemotron・speech diarize を子プロセスで。num は記録用 = モデルには渡さない)
+        {"rid": 4, "op": "embed", "wav": パス, "emb": "campplus", "groups": [[[開始, 終了], ...], ...]}   声の特徴(A-3。音声の先頭からの秒)
         {"rid": 5, "op": "complete", "name": "qwen3-8b", "device": "vulkan", "engine": "llama-text", "messages": [...], "max_tokens": 400}   文字の LLM(P18。結果 {"content"})
         {"op": "cancel", "rid": 2}   /   {"op": "quit"}
   応答  {"rid", "ev": "set", "k": "phase"|"state"|"device"|"progress", "v"}   途中経過(サーバーのジョブに写す)
@@ -226,9 +226,7 @@ def _op_transcribe(m, rid, job, out, cancels):
 
 
 def _op_diarize(m, rid, job, out, cancels):
-    # 判別の設定(threshold・minOn・minOff)は任意。無い要求は既定の値
-    tune = {k: m[w] for k, w in diarize.DIAR_TUNE if m.get(w) is not None}
-    turns = diarize._diarize_local(job, str(m.get("wav")), int(m.get("num") or 0), str(m.get("emb") or diarize.DIAR_EMB_DEFAULT), **tune)
+    turns = diarize._diarize_local(job, str(m.get("wav")), int(m.get("num") or 0))
     return [[float(a), float(b), int(k)] for a, b, k in turns]
 
 

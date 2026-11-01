@@ -127,9 +127,9 @@ class RealWorkerTest(unittest.TestCase):
         return spec, self.run_job(spec, kind)
 
     def test_diarize_and_voices(self):
-        """話者判別(人数 2・自動・しきい値)・声を覚えてもう一度判別する(層が正: 人の層の名前が残り、仮の名前の付け直しは無い)"""
+        """話者判別(Nemotron・人数の指定は記録だけ)・声を覚えてもう一度判別する(層が正: 人の層の名前が残り、仮の名前の付け直しは無い)"""
         if not self.diar:
-            self.skipTest("sherpa-onnx か判別のモデルが無い")
+            self.skipTest("sherpa-onnx・speech.cpp か判別のモデルが無い")
         self.assertEqual(_worker_client.worker_env()["TRANSCRIBE_DATA_DIR"], self.dir)
         tid = self.transcribe(self.media2)["tid"]
         job = self.run_job(_speakers.validate_diarize({"tid": tid, "numSpeakers": 2}), "diarize")
@@ -141,8 +141,7 @@ class RealWorkerTest(unittest.TestCase):
         j = {"cancel": False, "proc": None, "phase": "", "state": "", "device": "", "progress": 0.0}
         _recognize.extract_audio(j, {"sourcePath": self.media, "start": 0.0, "end": None}, wav)
         try:
-            self.assertEqual({k for _, _, k in _diarize.diarize_real(j, wav, 0, "voxceleb")}, {0, 1})                   # 人数 自動・設定は既定のまま
-            self.assertEqual({k for _, _, k in _diarize.diarize_real(j, wav, 0, "voxceleb", threshold=1.5)}, {0})     # 判別の設定がワーカーまで届く
+            self.assertEqual({k for _, _, k in _diarize.diarize_real(j, wav, 0)}, {0, 1})                   # 人数 自動
         finally:
             os.unlink(wav)
         d["speakers"][0]["name"] = "兎田ぺこら"
@@ -733,13 +732,13 @@ class ProtocolTest(unittest.TestCase):
         self.assertEqual(job["progress"], 0.99)
         self.assertEqual(len(job["phase"]), 200)
 
-    def test_diarize_request_tune_is_optional(self):
-        """ワーカーの diarize: threshold・minOn・minOff が無い要求は引数 4 つの呼び方。あれば名前つきで渡す"""
+    def test_diarize_request(self):
+        """ワーカーの diarize: 音と人数(記録用)だけを渡す。前の要求の emb・threshold などは読まない(11-01 に Nemotron へ)"""
         from pipeline.transcribe import worker as W
         got, sent = [], []
 
-        def fake(job, wav, num, emb, **kw):
-            got.append(((wav, num, emb), kw))
+        def fake(job, wav, num, *a, **kw):
+            got.append(((wav, num), a, kw))
             return [(0.0, 1.0, 0)]
 
         class Out:
@@ -748,7 +747,7 @@ class ProtocolTest(unittest.TestCase):
         with mock.patch.object(_diarize, "_diarize_local", fake):
             W.handle({"rid": 1, "op": "diarize", "wav": "a.wav", "num": 0, "emb": "voxceleb"}, Out(), set())
             W.handle({"rid": 2, "op": "diarize", "wav": "a.wav", "num": 2, "emb": "voxceleb", "threshold": 0.7, "minOn": 0.2, "minOff": 0.5}, Out(), set())
-        self.assertEqual(got, [(("a.wav", 0, "voxceleb"), {}), (("a.wav", 2, "voxceleb"), {"threshold": 0.7, "min_on": 0.2, "min_off": 0.5})])
+        self.assertEqual(got, [(("a.wav", 0), (), {}), (("a.wav", 2), (), {})])
         self.assertEqual([m["ev"] for m in sent], ["result", "result"])
 
 

@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
-"""① 自動の流れの層 pipeline/transcribe: 話者判別の計算(sherpa-onnx)と判別の記録・声の特徴と覚えた声との照らし合わせ。
+"""① 自動の流れの層 pipeline/transcribe: 話者判別の計算(Nemotron 3 Diarization・speech.cpp)と判別の記録・声の特徴(sherpa-onnx)と覚えた声との照らし合わせ。
 
 ここに無い物(文書へ反映する側・判別のジョブ・空の行の下書き・
 自動の判別・声を覚える・字幕の見た目は human/proof/speakers.py)。③ の speakers はここを直に読まず、② flow/diar.py(判別のジョブの段取り・
 判別の記録を書く _record_diar・覚えた声の置き場所)を通す。
 serve.名前 は serve の名前の受付がここへ回す(テストの S.名前 = …・patch.object(S, "has_sherpa") もここに届く)。
-- 判別のモデル: DIAR_SEG・DIAR_EMBS(固定の URL と SHA-256)を作業データの models/diar に取る(ensure_diar_models)。置き場所は呼ぶたびに ytt/workdata の DATA_DIR から
+- 判別のモデル: DIAR_NEMO(固定の URL・大きさ・SHA-256)を作業データの models/diar に取る(ensure_diar_model)。声の特徴のモデル DIAR_EMBS も同じ所(ensure_diar_models)。置き場所は呼ぶたびに ytt/workdata の DATA_DIR から
   (diar_models_dir。DIAR_DIR は上書き用 = src/eval/tools/eval_speakers が本物の作業データの場所を入れる)
-- 判別: diarize_real(サーバーは認識ワーカーに頼む)→ ワーカーの中の _diarize_local(sherpa-onnx)。行への割り当て assign_speakers・細切れのならし smooth_labels
+- 判別: diarize_real(サーバーは認識ワーカーに頼む)→ ワーカーの中の _diarize_local(speech diarize を子プロセスで)。行への割り当て assign_speakers・細切れのならし smooth_labels
 - 判別の記録 transcripts/<id>.diar.json(build_diar_run・write_diar・read_diar・update_diar_voices)
 - 声の特徴: embed_groups(ワーカーの中の _embed_local)と照らし合わせ match_voices_explain。本物と疑似は backend の口(疑似は eval/fake/fake_asr の diarize_fake・embed_fake)
-numpy・sherpa_onnx は _diarize_local・_embed_local の関数の中で読む(サーバーのプロセスでは読まない = tests/pipeline/transcribe/test_worker.py の検査)。
+numpy・sherpa_onnx は _embed_local の関数の中で読む(サーバーのプロセスでは読まない = tests/pipeline/transcribe/test_worker.py の検査)。
 読むのは標準ライブラリ・ytt・兄弟(backend・tx_engines・txbase・worker_client)だけ(editor の ed_*・serve・eval は読まない)。
 """
 import bisect
@@ -19,53 +19,70 @@ import hashlib
 import json
 import math
 import os
-import shutil
-import tarfile
 import threading
 import time
 import urllib.error
 import urllib.request
 
-from ytt import docloc as _docloc, errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas, workdata as _workdata
+from ytt import docloc as _docloc, errors as _errors, fsio as _fsio, jobs as _heavy, schemas as _yschemas, tools as _ytools, workdata as _workdata
 from . import backend as _backend, tx_engines, worker_client
 from ytt import txbase as _txbase
 
-# ---------- 話者の自動判別(sherpa-onnx) ----------
+# ---------- 話者分離(Nemotron 3 Diarization・speech.cpp の speech diarize) ----------
 # 流れ: 音声を取り出す → 「誰がいつ話したか」の区間を求める(diarization) → 文字起こしの各行に、重なりが最も長い人を割り当てる。
-# 文字起こしモデルとは独立に動くので、どのモデルで作った文字起こしにも使える。CPU で動く(PyTorch 不要)。
+# 文字起こしモデルとは独立に動くので、どのモデルで作った文字起こしにも使える。11-01 に pyannote(sherpa-onnx の segmentation 3.0 + voxceleb の
+# かたまり分け)から入れ替えた(ユーザー「完全に入れ替えていい」・保管庫 plan/Nemotron入れ替えの一覧.md)。名前は付けない(話者 0・1… の番号だけ。最大 8 人)。
+# speech.cpp の `speech worker` は diarize を受けないので、`speech diarize <gguf> --format json` を認識ワーカーの中から子プロセスで呼ぶ(黒い窓なし・優先度「低」)。
+# 実行ファイルは Haas と同じ手元の直しの版(ytt/txbase.speech_exe)。機器は auto(GPU が使えれば Vulkan)で、だめなら 1 回だけ CPU で取り直す。
 # モデルの置き場所は呼ぶたびに作業データ(ytt/workdata の DATA_DIR)の models/diar。
 # DIAR_DIR は上書き用(src/eval/tools/eval_speakers が本物の作業データの models/diar を入れる)。None なら作業データの中
 DIAR_DIR = None
-DIAR_SEG = {"file": "segmentation.onnx", "member": "sherpa-onnx-pyannote-segmentation-3-0/model.onnx", "label": "話者の切り替わり検出",
-            "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2",
-            "sha256": "24615ee884c897d9d2ba09bb4d30da6bb1b15e685065962db5b02e76e4996488", "max": 40 * 1024 * 1024}
+_NEMO_HF = "https://huggingface.co/sakasegawa/Nemotron-3-Diarization-GGUF/resolve/9096d41cb78bba7ac882b96d453e25239eac692b/"   # speech.cpp 0.10.0 の catalog.json の revision
+DIAR_NEMO = {"file": "Nemotron-3-Diarization-99M-Q8_0.gguf", "url": _NEMO_HF + "Nemotron-3-Diarization-99M-Q8_0.gguf", "size": 106179488,
+             "sha256": "336df6350dce2ea5ff06aa6e2b249d331a859ced13305fbb45c44bdb3c0abe20", "label": "話者分離(Nemotron 3 Diarization)"}   # 大きさと SHA-256 は catalog.json の値(手元で取った物も同じ)
+DIAR_ENGINE = "nemotron-3-diarization"
+DIAR_COMMAND = None   # テスト用: 偽の speech の起動の引数(この後ろに diarize・モデル・--format などを足す)
+DIAR_TIMEOUT = 1800   # 1 回の判別の上限(秒。3 時間の音で GPU 15 秒・CPU 4 スレッド 6 分ほど)
 _GH = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/"
-# 声の特徴を取り出すモデル(表の形は残す。standard = ERes2Net は持たない(ユーザー決定 10-11「普段よく使っているモデル以外は要らない」)。
-# 知らない名前(古い設定・覚えた声の standard など)は flow/diar.embedding が既定に読み替える)。
-# campplus は 10-11 に「使っていない」で外したのを 10-22 に戻した: 声の名前付け(覚える・照らし合わせる)だけに使う(VOICE_EMB)。
-# 評価用のソロの文書 83 本の一つ抜きで、本人が 1 位 9 → 44 / 75・名前付けの誤りが増えない。人を分ける判別は voxceleb のまま(campplus だと組 B で行の正しさ 80 → 78%)
+# 声の特徴を取り出すモデル(声の名前付け = 覚える・照らし合わせる。sherpa-onnx・認識ワーカーの中)。人を分ける判別には使わない(11-01 から Nemotron)。
+# campplus は 10-22 から声の名前付けのモデル(評価用のソロの文書 83 本の一つ抜きで、本人が 1 位 9 → 44 / 75)。
+# voxceleb は 11-01 まで判別の声の特徴に使っていた。古い文書・設定の名前と、10-22 より前に voxceleb で覚えた声を読むために表に残す(頼まれた時だけ取る)
 DIAR_EMBS = {
     "voxceleb": {"file": "embedding-voxceleb.onnx", "member": None, "label": "VoxCeleb ResNet34(多言語の声で学習)", "mb": 27, "max": 80 * 1024 * 1024,
                  "url": _GH + "wespeaker_en_voxceleb_resnet34_LM.onnx", "sha256": "e9848563da86f263117134dfd7ad63c92355b37de492b55e325400c9d9c39012"},
     "campplus": {"file": "embedding-campplus.onnx", "member": None, "label": "3D-Speaker CAM++(中国語+英語)", "mb": 28, "max": 80 * 1024 * 1024,
                  "url": _GH + "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx", "sha256": "aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2"},
 }
-DIAR_EMB_DEFAULT = "voxceleb"
-VOICE_EMB = "campplus"   # 声の名前付けに使うモデル(覚えた声は voices/<モデル>.json でモデルごとに別。"" = 判別と同じモデル = 10-22 より前の形)
+VOICE_EMB = "campplus"   # 声の名前付けに使うモデル(覚えた声は voices/<モデル>.json でモデルごとに別)
+DIAR_EMB_DEFAULT = VOICE_EMB   # 判別のジョブの指定の embedding の既定(= 照らし合わせる声のモデル。11-01 まで判別の声の特徴の voxceleb)
 MAX_DIAR_SEC = 3 * 3600
-DIAR_CLUSTER_THRESHOLD, DIAR_MIN_ON, DIAR_MIN_OFF = 0.6, 0.1, 0.3   # sherpa-onnx の設定(_diarize_local と、判別の記録 <id>.diar.json の engine に同じ値を使う)
 
 
 def diar_threads():
-    """話者判別(sherpa-onnx)のスレッド数。既定は min(8, CPU)(P コアの数。環境変数 TRANSCRIBE_DIAR_THREADS で変えられる)"""
-    n = tx_engines.env_num("TRANSCRIBE_DIAR_THREADS", 0, lo=0, hi=64)   # 0 以下・読めない = CPU の数から決める
-    return n if n > 0 else max(1, min(8, os.cpu_count() or 2))
+    """CPU で判別するときと声の特徴(sherpa-onnx)のスレッド数。既定は 4(PC の決まり = 合わせて 6 本まで。環境変数 TRANSCRIBE_DIAR_THREADS で変えられる)"""
+    n = tx_engines.env_num("TRANSCRIBE_DIAR_THREADS", 0, lo=0, hi=64)   # 0 以下・読めない = 既定
+    return n if n > 0 else max(1, min(4, os.cpu_count() or 2))
 
 
 def has_sherpa():
+    """声の特徴(sherpa-onnx)が使えるか(声を覚える・照らし合わせる)"""
     if worker_client.worker_fake():
         return True
     return worker_client.worker_has("sherpa_onnx", "numpy")
+
+
+def speech_exe():
+    """判別に使う speech.cpp の実行ファイル(Haas と同じ置き場所 = エンジンの置き場所の bin。置き場所が決まっていなければ "")"""
+    d = tx_engines.engine_home()
+    return _txbase.speech_exe(d) if d else ""
+
+
+def has_diar():
+    """話者分離が使えるか(speech.cpp の実行ファイルが置いてあるか。モデルは最初の判別で取る)"""
+    if worker_client.worker_fake() or DIAR_COMMAND:
+        return True
+    exe = speech_exe()
+    return bool(exe) and os.path.isfile(exe)
 
 
 def diar_models_dir():
@@ -82,8 +99,8 @@ def _have(item):
 
 
 def diar_info():
-    return {"ready": _backend.is_fake() or has_sherpa(), "segReady": _have(DIAR_SEG), "default": DIAR_EMB_DEFAULT,
-            "embeddings": [{"key": k, "label": v["label"], "mb": v["mb"], "ready": _have(v)} for k, v in DIAR_EMBS.items()]}
+    return {"ready": _backend.is_fake() or has_diar(), "engine": DIAR_ENGINE, "modelReady": _have(DIAR_NEMO), "voiceReady": _backend.is_fake() or has_sherpa(),
+            "default": DIAR_EMB_DEFAULT, "embeddings": [{"key": k, "label": v["label"], "mb": v["mb"], "ready": _have(v)} for k, v in DIAR_EMBS.items()]}
 
 
 def _download_verified(job, item, tmp):
@@ -108,93 +125,91 @@ def _download_verified(job, item, tmp):
             if total:
                 job["phase"] = "話者判別のモデルをダウンロード中(%s %d%%)" % (item["label"], min(100, done * 100 // total))
     if h.hexdigest() != item["sha256"]:
-        raise _errors.ApiError("model_hash", "ダウンロードしたモデルが想定と一致しません(配布元で差し替えられた可能性があります)。ツールの更新を確認してください", 500)
+        raise _errors.ApiError("model_hash", "ダウンロードしたモデルが想定と一致しません(配布元で差し替えられた可能性があります)。ツールの更新を確かめてください", 500)
+
+
+def ensure_diar_model(job):
+    """話者分離のモデル(DIAR_NEMO)を用意する(あれば大きさと SHA-256 を確かめるだけ = tx_engines.fetch_file)"""
+    if worker_client.worker_fake():   # テスト用(ワーカーの中の偽の判別を使う。モデルはダウンロードしない)
+        return
+    def progress(f):
+        job["phase"] = "話者判別のモデルをダウンロード中(%s %d%%)" % (DIAR_NEMO["label"], min(100, int(f * 100)))
+    try:
+        tx_engines.fetch_file(DIAR_NEMO, diar_models_dir(), None, lambda: bool(job.get("cancel")), progress)
+    except tx_engines.EngineError as e:
+        if e.code == "cancelled":
+            _heavy.check_cancel(job)
+        raise _errors.ApiError("fetch_blocked" if e.code == "fetch_blocked" else "model_download",
+                               "話者判別のモデルを用意できませんでした(初回はインターネット接続が必要です): %s" % e.message, 409 if e.code == "fetch_blocked" else 500)
 
 
 def ensure_diar_models(job, emb=DIAR_EMB_DEFAULT):
+    """声の特徴のモデル(DIAR_EMBS[emb])を用意する(声を覚える・照らし合わせる前)"""
     if worker_client.worker_fake():   # テスト用(ワーカーの中の偽の判別を使う。モデルはダウンロードしない)
         return
     os.makedirs(diar_models_dir(), exist_ok=True)
-    for item in (DIAR_SEG, DIAR_EMBS[emb]):
-        if _have(item):
-            continue
-        dest = _diar_path(item)
-        tmp, part = dest + ".download", dest + ".part"
-        try:
-            _download_verified(job, item, tmp)
-            if item["member"]:  # tar.bz2 から model.onnx だけを取り出す(展開先のパスは tar の中身に依存させない)
-                with tarfile.open(tmp, "r:bz2") as tf:
-                    m = tf.getmember(item["member"])
-                    if not m.isfile() or m.size > item["max"]:
-                        raise _errors.ApiError("model_download", "モデルの形式が想定と違います", 500)
-                    with tf.extractfile(m) as src, open(part, "wb") as out:
-                        shutil.copyfileobj(src, out)
-                _fsio.replace_retry(part, dest)
-            else:
-                _fsio.replace_retry(tmp, dest)
-        except (urllib.error.URLError, OSError, tarfile.TarError, KeyError) as e:
-            raise _errors.ApiError("model_download", "話者判別のモデルをダウンロードできませんでした(初回はインターネット接続が必要です): %s" % str(e)[:150], 500)
-        finally:
-            for x in (tmp, part):
-                _fsio.unlink_quiet(x)
+    item = DIAR_EMBS[emb]
+    if _have(item):
+        return
+    dest = _diar_path(item)
+    tmp = dest + ".download"
+    try:
+        _download_verified(job, item, tmp)
+        _fsio.replace_retry(tmp, dest)
+    except (urllib.error.URLError, OSError) as e:
+        raise _errors.ApiError("model_download", "声の特徴のモデルをダウンロードできませんでした(初回はインターネット接続が必要です): %s" % str(e)[:150], 500)
+    finally:
+        _fsio.unlink_quiet(tmp)
 
 
-DIAR_TUNE = (("threshold", "threshold"), ("min_on", "minOn"), ("min_off", "minOff"))   # 判別の設定を変えて測るときの任意の引数(引数の名前, ワーカーの要求の鍵)
-
-
-def diar_tune(threshold=None, min_on=None, min_off=None):
-    """判別の設定の任意の引数を確かめる -> {引数の名前: 値}(渡したものだけ。どれも 0 以上 10 未満の数)。src/eval/tools/eval_speakers.py の run が使う"""
-    out = {}
-    for (k, _w), v in zip(DIAR_TUNE, (threshold, min_on, min_off)):
-        if v is None:
-            continue
-        try:
-            x = float(v)
-        except (TypeError, ValueError):
-            x = -1.0
-        if not 0.0 <= x < 10.0:   # NaN もここで断る
-            raise _errors.ApiError("bad_request", "話者判別の設定(%s)が正しくありません" % k, 400)
-        out[k] = x
-    return out
-
-
-def diarize_real(job, wav, num, emb=DIAR_EMB_DEFAULT, threshold=None, min_on=None, min_off=None):
-    """話者の判別。sherpa-onnx(ネイティブコード)は認識ワーカー(別プロセス)の中で動かす。戻り値は [(開始, 終了, 話者番号)]。
-    threshold・min_on・min_off は判別の設定を変えて測るとき(src/eval/tools/eval_speakers.py の run)だけ。渡さなければ既定の値で、ワーカーへの要求は変わらない"""
-    tune = diar_tune(threshold, min_on, min_off)
+def diarize_real(job, wav, num):
+    """話者の判別。speech.cpp は認識ワーカー(別プロセス)の中から子プロセスで呼ぶ。戻り値は [(開始, 終了, 話者番号)]。
+    num = 人数の指定(Nemotron には渡せない = 記録の requested に残るだけ。0 = 自動)"""
     if worker_client.IN_WORKER:
-        return _diarize_local(job, wav, num, emb, **tune)
-    args = {"wav": wav, "num": int(num), "emb": emb}
-    args.update({w: tune[k] for k, w in DIAR_TUNE if k in tune})
-    turns = worker_client.WORKER.call("diarize", args, job)
+        return _diarize_local(job, wav, num)
+    turns = worker_client.WORKER.call("diarize", {"wav": wav, "num": int(num)}, job)
     return [(float(a), float(b), int(k)) for a, b, k in turns]
 
 
-def _diarize_local(job, wav, num, emb=DIAR_EMB_DEFAULT, threshold=None, min_on=None, min_off=None):
-    import sherpa_onnx as so
-    threads = diar_threads()
-    tune = diar_tune(threshold, min_on, min_off)
-    cfg = so.OfflineSpeakerDiarizationConfig(
-        segmentation=so.OfflineSpeakerSegmentationModelConfig(
-            pyannote=so.OfflineSpeakerSegmentationPyannoteModelConfig(model=_diar_path(DIAR_SEG)), num_threads=threads),
-        embedding=so.SpeakerEmbeddingExtractorConfig(model=_diar_path(DIAR_EMBS[emb]), num_threads=threads),
-        clustering=so.FastClusteringConfig(num_clusters=num if num > 0 else -1, threshold=tune.get("threshold", DIAR_CLUSTER_THRESHOLD)),
-        min_duration_on=tune.get("min_on", DIAR_MIN_ON), min_duration_off=tune.get("min_off", DIAR_MIN_OFF))   # 短い相づちを落としにくくする
-    if not cfg.validate():
-        raise _errors.ApiError("diar_failed", "話者判別の設定を読み込めませんでした(モデルファイルが壊れている可能性があります。models フォルダを削除して、もう一度試してください)", 500)
-    sd = so.OfflineSpeakerDiarization(cfg)
-    if sd.sample_rate != 16000:
-        raise _errors.ApiError("diar_failed", "話者判別のモデルの形式が想定と違います", 500)
-    samples = worker_client.read_wav_f32(wav)
+def _diar_cmd(device):
+    base = list(DIAR_COMMAND) if DIAR_COMMAND else [speech_exe()]
+    return base + ["diarize", _diar_path(DIAR_NEMO), "--format", "json", "--device", device, "--threads", str(diar_threads())]
 
-    def cb(done, total, *_):
-        if total:
-            job["progress"] = min(0.99, done / total)
-        return 1 if job["cancel"] else 0   # 0 以外を返すと中断する
 
-    res = sd.process(samples, callback=cb).sort_by_start_time()
-    _heavy.check_cancel(job)
-    return [(float(r.start), float(r.end), int(r.speaker)) for r in res]
+def parse_diar_json(out):
+    """speech diarize --format json の出力(1 ファイル 1 行の {"file", "segments": [{"start", "end", "speaker"}]})-> [(開始, 終了, 話者番号)](開始の順)"""
+    turns = []
+    for line in out.splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        d = json.loads(line)
+        for s in d.get("segments") or ():
+            a, b, k = float(s["start"]), float(s["end"]), int(s["speaker"])
+            if b > a and k >= 0:
+                turns.append((a, b, k))
+    return sorted(turns)
+
+
+def _diarize_local(job, wav, num=0, emb=None):
+    """認識ワーカーの中で動く: speech diarize を子プロセスで(機器 auto → だめなら CPU で 1 回)。中止は孫ごと止める(tools.run)"""
+    home = tx_engines.engine_home()
+    choice = (_txbase.speech_choice(home) if home else None) or {}
+    devices = ["cpu"] if choice.get("device") == "cpu" else ["auto", "cpu"]
+    flags = _ytools.no_window_flags(priority="low")
+    last = ""
+    for dev in devices:
+        job["phase"] = "話者を判別中(%s)" % ("CPU" if dev == "cpu" else "GPU")
+        try:
+            r = _ytools.run(_diar_cmd(dev) + [wav], timeout=DIAR_TIMEOUT, cancelled=lambda: bool(job.get("cancel")), flags=flags, err_tail=40)
+        except OSError as e:
+            raise _errors.ApiError("diar_failed", "話者判別の speech.cpp を起動できませんでした: %s" % _ytools.why(e), 500)
+        _heavy.check_cancel(job)
+        if r.code == 0 and r.why is None:
+            return parse_diar_json(r.out.decode("utf-8", "replace"))
+        last = "時間切れ" if r.why == "timeout" else " / ".join(r.err_lines(3)) or "終了コード %s" % r.code
+        _txbase.log.warning("話者判別(%s)が失敗しました: %s", dev, last[:200])
+    raise _errors.ApiError("diar_failed", "話者の判別に失敗しました: %s" % last[:200], 500)
 
 
 DIAR_NEAR_SEC = 5.0   # 話者の区間と重ならない行は、前後この秒以内でいちばん近い区間の話者に(不確か)。10-23 に 1.5 → 5(評価用 23 本で組 B の行の正しさ 79.6 → 81.0%・組 A と人数は同じ。1.5 で前のまま)
@@ -356,9 +371,9 @@ def _diar_engine(emb, requested):
 
 
 def _diar_engine_real(emb, requested):
-    return {"name": "sherpa-onnx", "segmentation": "pyannote-segmentation-3-0", "embedding": emb, "embeddingFile": DIAR_EMBS[emb]["file"],
-            "requested": requested or "auto", "clusterThreshold": DIAR_CLUSTER_THRESHOLD, "minDurationOn": DIAR_MIN_ON, "minDurationOff": DIAR_MIN_OFF,
-            "threads": diar_threads(), "nearGapSec": 1.5, "voiceMatch": VOICE_MATCH, "voiceMargin": VOICE_MARGIN}
+    """11-01 まで(sherpa-onnx)の回は name・segmentation・clusterThreshold などを持つ(読む側は engine の中身を見ない = 古い記録もそのまま)"""
+    return {"name": DIAR_ENGINE, "model": DIAR_NEMO["file"], "speechCpp": "%s-%s" % (_txbase.SPEECH_CPP_VERSION, _txbase.SPEECH_CPP_FLAVOR),
+            "embedding": emb, "requested": requested or "auto", "nearGapSec": DIAR_NEAR_SEC, "voiceMatch": VOICE_MATCH, "voiceMargin": VOICE_MARGIN}
 
 
 def _turn_overlaps(ts):
@@ -396,7 +411,7 @@ def build_diar_run(segs, res, turns, offset, requested, emb, idmap, auto=None, s
 
 
 # ---------- 声の特徴と、覚えた声との照らし合わせ(A-3。覚えた声の置き場所と段取りは flow/diar(RS6 a-4)・覚えるジョブは human/proof/speakers) ----------
-# 名前を付けた話者の行の音声から「声の特徴」(sherpa-onnx の話者の埋め込み。判別モデルごとに別)を取り、覚えている声とコサイン類似度で比べる。
+# 名前を付けた話者の行の音声から「声の特徴」(sherpa-onnx の話者の埋め込み。声のモデルごとに別)を取り、覚えている声とコサイン類似度で比べる。
 # 計算(numpy・sherpa-onnx)は認識ワーカーの中だけ(_embed_local)。サーバーでは読み込まない
 VOICE_MATCH = 0.60       # 覚えている声とのコサイン類似度がこれ以上なら同じ人とみなす
 VOICE_MARGIN = 0.08       # 2番目に近い声との差がこれより小さければ決めない(似た声を取り違えるより、名前を付けない方が安全)

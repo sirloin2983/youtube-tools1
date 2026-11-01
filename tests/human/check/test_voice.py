@@ -204,7 +204,7 @@ class RelearnTest(Base):
         def add_job(spec, kind):
             self.jobs.append((kind, spec))
             return {"id": "job%d" % len(self.jobs)}
-        for p in (mock.patch.dict(_heavy.JOB_RUNNERS, {"voice-learn": lambda job: None}), mock.patch.object(_diar, "models_ready", return_value=True),
+        for p in (mock.patch.dict(_heavy.JOB_RUNNERS, {"voice-learn": lambda job: None}), mock.patch.object(_diar, "voice_ready", return_value=True),
                   mock.patch.object(voice._tools, "check_source", return_value="x.mp4"), mock.patch.object(_heavy, "add_job", side_effect=add_job),
                   mock.patch.object(voice, "RELEARN_PAUSED", False)):   # 覚え直しの決まりを確かめる(本物は 10-25 から一時止め)
             p.start()
@@ -304,7 +304,7 @@ class RelearnTest(Base):
         self.assertEqual((self.seg("s2")["speaker"], got["applied"]["added"]), ("S1", None))
 
     def test_not_ready(self):
-        with mock.patch.object(_diar, "models_ready", return_value=False):
+        with mock.patch.object(_diar, "voice_ready", return_value=False):
             self.answer("s4", {"choice": "S1"})
             self.answer("s1", {"choice": "S1"})
         self.assertEqual(self.jobs, [])                                  # 部品が無い = 材料は残す

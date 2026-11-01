@@ -20,9 +20,6 @@ HERE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirn
 REPO = os.path.dirname(os.path.dirname(HERE))   # src(ツールと共通部品 ytt の置き場所)
 sys.path.insert(0, REPO)
 from eval.tools import eval_speakers as E  # noqa: E402
-from pipeline.transcribe import worker_client  # noqa: E402
-from pipeline.transcribe import diarize as _diarize  # noqa: E402
-from ytt import errors as _errors  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
 import testkit  # noqa: E402
 
@@ -453,23 +450,20 @@ class TestRun(Base):
 
     def test_settings_scoring_lengths_and_table(self):
         before = self.env.snapshot(self.env.tdir)
-        res, _ = printed(E.main, ["run", "--data-dir", self.env.root, "--threshold", "0.5,1.0", "--num", "auto,2"])
+        res, _ = printed(E.main, ["run", "--data-dir", self.env.root, "--num", "auto,2"])
         self.assertEqual(self.env.snapshot(self.env.tdir), before)                                         # 文書・diar.json は書かない
         self.assertFalse(os.path.isdir(os.path.join(self.env.root, "transcribe", "evals")))
         m = res["meta"]
         self.assertEqual((m["mode"], m["backend"], m["docs"], m["reviewedDocs"], m["rows"], m["skipped"]["noAudio"]), ("run", "fake", 2, 2, 47, 1))
-        by = {(s["settings"]["threshold"], s["settings"]["num"]): s for s in res["bySetting"]}
-        self.assertEqual(len(by), 4)
-        a = by[(0.5, 0)]                     # A は 2 人に分けすぎ(7/12)・B はちょうど(35/35)
+        by = {s["settings"]["num"]: s for s in res["bySetting"]}
+        self.assertEqual(len(by), 2)
+        a = by[0]                            # A は 2 人に分けすぎ(7/12)・B はちょうど(35/35)
         self.assertEqual((a["correct"], a["rows"]), (42, 47))
         self.assertEqual((a["byLength"]["short"]["correct"], a["byLength"]["short"]["rows"], a["byLength"]["short"]["docs"]), (7, 12, 1))
         self.assertEqual((a["byLength"]["long"]["correct"], a["byLength"]["long"]["rows"]), (35, 35))
         self.assertEqual(a["speakerCount"]["diff"], {"0": 1, "1": 1})
         self.assertEqual(a["byLength"]["short"]["speakerCount"]["over"], 1)
-        b = by[(1.0, 0)]                     # しきい値を上げると 1 人にまとまる: A はちょうど・B は少なすぎ(20/35)
-        self.assertEqual((b["correct"], b["byLength"]["short"]["correct"], b["byLength"]["long"]["correct"]), (32, 12, 20))
-        self.assertEqual(b["speakerCount"]["diff"], {"-1": 1, "0": 1})
-        self.assertEqual(by[(1.0, 2)]["correct"], 42)   # 人数を決めたらしきい値は効かない(本物と同じ)
+        self.assertEqual(by[2]["correct"], 42)   # 人数の印(疑似は 2 人のまま)
         for s in res["bySetting"]:
             self.assertGreaterEqual(s["sec"], 0)
             self.assertIn("overlap", s)
@@ -482,40 +476,12 @@ class TestRun(Base):
                            speakers={"S1": "話者1", "S2": "B"}, reviewed=False, diar={})
         res, _ = printed(lambda: E.run_evaluate(self.env.root, only=["dddddddddddd"]))
         self.assertEqual((res["meta"]["rows"], res["meta"]["draftRows"], res["meta"]["unverifiedRows"]), (1, 1, 1))
-        self.assertEqual(res["bySetting"][0]["settings"], {"threshold": 0.6, "num": 0, "emb": "voxceleb", "minOn": 0.1, "minOff": 0.3, "smooth": False})   # 既定 = 本番の値
-        for bad in (["--threshold", "x"], ["--num", "11"], ["--emb", "nope"], ["--min-on", "-1"], ["--smooth", "maybe"]):
+        self.assertEqual(res["bySetting"][0]["settings"], {"num": 0, "emb": "campplus", "smooth": False})   # 既定 = 本番の値
+        for bad in (["--threshold", "0.5"], ["--num", "11"], ["--emb", "voxceleb"], ["--smooth", "maybe"]):   # pyannote の設定(しきい値・声のモデル)は 11-01 に外した
             with self.assertRaises(SystemExit), contextlib.redirect_stdout(io.StringIO()):
                 E.main(["run", "--data-dir", self.env.root] + bad)
         with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
-            E.main(["--data-dir", self.env.root, "--threshold", "0.5"])     # run だけの設定
-
-
-class TestDiarizeTune(unittest.TestCase):
-    """src/pipeline/transcribe/diarize.py の diarize_real: 判別の設定は任意。渡さなければワーカーへの要求に設定の鍵を入れない"""
-
-    def test_worker_request_shape(self):
-        with mock.patch.dict(os.environ, {"TRANSCRIBE_BACKEND": "fake"}):
-            E.C.prepare()
-        calls = []
-
-        class W:
-            def call(self, op, args, job=None):
-                calls.append((op, dict(args)))
-                return [[0.0, 1.0, 0]]
-        saved = (worker_client.IN_WORKER, worker_client.WORKER)
-        worker_client.IN_WORKER, worker_client.WORKER = False, W()
-        try:
-            self.assertEqual(_diarize.diarize_real({}, "a.wav", 0, "voxceleb"), [(0.0, 1.0, 0)])
-            _diarize.diarize_real({}, "a.wav", 2, "voxceleb", threshold=0.7, min_off=0.5)
-            with self.assertRaises(_errors.ApiError):
-                _diarize.diarize_real({}, "a.wav", 0, "voxceleb", threshold=-1)
-        finally:
-            worker_client.IN_WORKER, worker_client.WORKER = saved
-        self.assertEqual(calls[0], ("diarize", {"wav": "a.wav", "num": 0, "emb": "voxceleb"}))
-        self.assertEqual(calls[1], ("diarize", {"wav": "a.wav", "num": 2, "emb": "voxceleb", "threshold": 0.7, "minOff": 0.5}))
-        self.assertEqual(len(calls), 2)
-        self.assertEqual(_diarize.diar_tune(), {})
-        self.assertEqual(_diarize.diar_tune("0.6", None, 0), {"threshold": 0.6, "min_off": 0.0})
+            E.main(["--data-dir", self.env.root, "--num", "2"])     # run だけの設定
 
 
 class TestSmooth(Base):

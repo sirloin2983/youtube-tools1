@@ -160,7 +160,7 @@ def _apply_diarization(tid, turns, offset, requested, emb, auto=None, smooth=Fal
         sg["flag"] = "、".join(parts)[:100]
     store.backup_doc(tid, "diarize")   # 判別の前の状態を履歴に残す(画面の「履歴」から戻せる)
     doc.update({"speakers": speakers, "segments": segs, "updatedAt": int(time.time() * 1000),
-                "diarization": dict({"engine": "sherpa-onnx", "embedding": emb, "requested": requested, "found": len(order), "unsure": unsure, "at": int(time.time() * 1000)},
+                "diarization": dict({"engine": _diar.DIAR_ENGINE, "embedding": emb, "requested": requested, "found": len(order), "unsure": unsure, "at": int(time.time() * 1000)},
                                     **({"auto": True} if auto else {}), **({"smoothed": len(smoothed)} if smoothed is not None else {}))})
     _commit_diar(tid, before, doc, {str(g.get("id")) for g, k in zip(segs, keep) if k})
     _diar.record_run(tid, a, turns, offset, requested, emb, idmap, auto)   # 機械の最初の結果(人が直す前)を <id>.diar.json に
@@ -266,7 +266,7 @@ def run_diarize(job):
 # 覚えた声で名前が付かなかった(仮の名前 話者n の)話者のうち、話した秒がいちばん長い人に「動画の手がかり」の名前
 # (drill.drill_candidates の suggest = 覚えた声 → 動画の入ったメンバーのフォルダ → 配信の文脈)を付ける。新しい認識の道は作らない(今の diarize のジョブ)。
 # 人が付けたものは置き換えない: 文字のある行に1つでも話者があれば何もしない(足すときと、ジョブが動き出すときの両方で確かめる)。
-# 判別の部品(sherpa-onnx)が無いときは黙って飛ばす(ログだけ。文字起こしは失敗にしない)。外から呼ぶ口は autodiar_enqueue・autodiar_after_transcribe
+# 判別の部品(speech.cpp)が無いときは黙って飛ばす(ログだけ。文字起こしは失敗にしない)。外から呼ぶ口は autodiar_enqueue・autodiar_after_transcribe
 # (⑤ eval/drill/evalbatch と doc_jobs)・autodiar_enabled・autodiar_ready。名前は autodiar_ / _autodiar_ で始める
 _AUTODIAR_BY = "context"   # diar.json の voices の by(動画の手がかりで付けた。覚えた声 = threshold・消去法 = elimination・依頼 = request と並べる)
 
@@ -277,7 +277,7 @@ def autodiar_enabled():
 
 
 def autodiar_ready():
-    """判別の部品があるか(疑似のときは常に)。サーバー側では sherpa-onnx を読み込まない(has_sherpa はワーカー側で調べる)。
+    """判別の部品(speech.cpp)があるか(疑似のときは常に)。
     テスト用の worker-fake(ワーカーの中だけ偽のモデル)では使わない(判別は本物の経路 = モデルの取得になるため)。決まりは ② の models_ready(auto=True)"""
     return _diar.models_ready(auto=True)
 
@@ -304,8 +304,8 @@ def autodiar_enqueue(tid, batch=False, smooth=None):
     if not autodiar_enabled():
         return {"skipped": "off"}
     if not autodiar_ready():
-        _txbase.log.info("話者の自動判別を飛ばしました(判別の部品 sherpa-onnx が無い): %s", tid)
-        return {"skipped": "no_sherpa"}
+        _txbase.log.info("話者の自動判別を飛ばしました(判別の部品 speech.cpp が無い): %s", tid)
+        return {"skipped": "no_diar"}
     doc = store.read_transcript(tid)
     why = _autodiar_why_not(doc)
     if why:
@@ -593,8 +593,8 @@ def run_voice_learn(job):
         grp = {n: plan["groups"][n] for n in spec.get("names") or [] if n in plan["groups"]}
         if not grp:
             raise _errors.ApiError("no_names", "覚えられる話者の行がありません(待っている間に名前・校正済みの印が変わった可能性があります)", 400)
-        if not _diar.models_ready():
-            raise _errors.ApiError("no_sherpa", "声を覚えるには話者判別の部品(sherpa-onnx)が要ります。フォルダ内の install-diarize.bat を実行してください", 400)
+        if not _diar.voice_ready():
+            raise _errors.ApiError("no_sherpa", "声を覚えるには声の照合の部品(sherpa-onnx)が要ります。フォルダ内の install-diarize.bat を実行してください", 400)
         people = sorted(grp)
         if src:
             hints = {"sourcePath": src, "start": start, "end": end}

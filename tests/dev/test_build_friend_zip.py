@@ -264,11 +264,10 @@ class BuildTest(Base):
         self.assertFalse([k for k in items if k.startswith("sensevoice/")])   # 2 つ目の読み(後処理 A)は 11-01 に消した
         for name, s in SEP.SEP_MODELS.items():   # 声の分離(10-22)
             self.assertEqual((items["sep/" + name]["sha256"], items["sep/" + name]["dest"]), (s["sha256"], "transcribe/models/sep"))
-        self.assertEqual(items["diar/segmentation"]["sha256"], D.DIAR_SEG["sha256"])
-        self.assertEqual(items["diar/segmentation"]["member"], D.DIAR_SEG["member"])
-        self.assertEqual(items["diar/" + D.DIAR_EMB_DEFAULT]["sha256"], D.DIAR_EMBS[D.DIAR_EMB_DEFAULT]["sha256"])
+        i = items["diar/" + D.DIAR_ENGINE]   # 話者分離(Nemotron。11-01 に pyannote の segmentation・voxceleb から替えた)
+        self.assertEqual((i["url"], i["size"], i["sha256"], i["unzip"], i["dest"]), (D.DIAR_NEMO["url"], 106179488, D.DIAR_NEMO["sha256"], None, "transcribe/models/diar"))
         self.assertEqual(items["diar/" + D.VOICE_EMB]["sha256"], D.DIAR_EMBS[D.VOICE_EMB]["sha256"])   # 声の名前付けのモデル(10-22)
-        self.assertEqual(items["diar/segmentation"]["dest"], "transcribe/models/diar")
+        self.assertFalse([k for k in items if k in ("diar/segmentation", "diar/voxceleb")])
         for t in B.TOOLS:   # 道具はキャッシュの記録の値
             with open(os.path.join(self.shared_cache, "tools", t["file"] + ".sha256.json"), encoding="utf-8") as f:
                 rec = json.load(f)

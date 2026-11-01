@@ -71,12 +71,11 @@ def install():
     sys.modules["faster_whisper"] = fw
     models._gpu_ready_local = lambda: False
 
-    def fake_diarize(job, wav, num, emb=None, threshold=None, min_on=None, min_off=None):
+    def fake_diarize(job, wav, num, emb=None):
         """サーバーの疑似の判別(fake_asr.diarize_fake)と同じ区切りを、wav の長さで作る(偽物どうしが食い違わないよう、本体を共有する)"""
         with wave.open(wav, "rb") as w:
             total = w.getnframes() / float(w.getframerate())
-        diarize.diar_tune(threshold, min_on, min_off)   # 本物と同じく、正しくない値は断る
-        return fake_asr.diarize_fake(job, total, num, threshold)
+        return fake_asr.diarize_fake(job, total, num, None)
     diarize._diarize_local = fake_diarize
     diarize._embed_local = lambda job, wav, emb, groups: fake_asr.embed_fake(groups)   # 声の特徴(A-3)も偽の話者判別と同じ区切りで
     # whisper.cpp(段2-2)は偽の whisper-cli(tests/pipeline/transcribe/fake_whisper_cli.py。リポジトリ直下は ytt.layout で探す)を動かす。モデルは取らない

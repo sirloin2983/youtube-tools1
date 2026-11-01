@@ -117,8 +117,8 @@ function renderDiarSetup(){
   sel.innerHTML = d.embeddings.map(e => `<option value="${esc(e.key)}">${esc(e.label)}${e.ready ? '' : `(初回に約${e.mb}MBをダウンロード)`}</option>`).join('');
   sel.value = d.embeddings.some(e => e.key === cur) ? cur : d.default;
   const e = d.embeddings.find(x => x.key === sel.value);
-  box.innerHTML = !d.ready ? '<div class="notice">話者の自動判別には、追加の部品(sherpa-onnx)が必要です。フォルダ内の <code>install-diarize.bat</code>(Mac は <code>install-diarize.command</code>)を実行して、ツールを起動し直してください。</div>'
-    : (!(d.segReady && e && e.ready) ? `<p class="hint" style="margin:0">初回だけ、判別用のモデルを自動でダウンロードします(合計 約${(d.segReady ? 0 : 6) + (e ? e.mb : 0)}MB)。</p>` : '');
+  box.innerHTML = !d.ready ? '<div class="notice">話者の自動判別には speech.cpp が必要です(<code>setup\\place_speechcpp.py</code> で置いて、ツールを起動し直してください)。</div>'
+    : (!(d.modelReady && e && e.ready) ? `<p class="hint" style="margin:0">初回だけ、判別(Nemotron)と声の照合のモデルを自動でダウンロードします(合計 約${(d.modelReady ? 0 : 106) + (e && !e.ready ? e.mb : 0)}MB)。</p>` : '');
   $('#diarGo').disabled = !d.ready;
   $('#diarSmooth').checked = S.settings.diarSmooth === true;
 }
@@ -236,8 +236,8 @@ function namedSpeakers(){ return S.doc ? (S.doc.speakers || []).filter(s => s.na
 
 function renderVoiceLearn(){
   const b = $('#voiceLearn'), n = namedSpeakers(), d = S.tools && S.tools.diarize, ev = !!(S.doc && S.doc.evalSet);
-  b.disabled = !S.doc || ev || !n.length || !(d && d.ready) || !!lockJob();   // 評価用は押せなくし、理由をヒントに出す(隠さない)
-  $('#voiceLearnHint').textContent = ev ? EVAL_VOICE_MSG : !(d && d.ready) ? '話者判別の部品(sherpa-onnx)が要ります' : !n.length ? '先に下の一覧で話者に名前を付けてください'
+  b.disabled = !S.doc || ev || !n.length || !(d && d.voiceReady) || !!lockJob();   // 評価用は押せなくし、理由をヒントに出す(隠さない)
+  $('#voiceLearnHint').textContent = ev ? EVAL_VOICE_MSG : !(d && d.voiceReady) ? '声の照合の部品(sherpa-onnx)が要ります' : !n.length ? '先に下の一覧で話者に名前を付けてください'
     : n.map(s => s.name).slice(0, 6).join('・') + ' の声を覚えます(校正済みの行だけを使います。押すと、覚える前に確かめます)';
 }
 

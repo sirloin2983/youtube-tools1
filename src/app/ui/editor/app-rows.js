@@ -135,7 +135,7 @@ function docInfoText(d){
   const pr = d.params || {}, vad = { weak: '弱め', normal: '標準', off: 'なし' }, dz = d.diarization, rt = d.retranscribed;
   return `認識の設定: ${String(d.model || '').split('/').pop()}${pr.device ? ' / ' + devLabel(pr.device) : ''} / 声の検出: ${vad[pr.vadMode] || (pr.vad === false ? 'なし' : '標準')}`
     + (pr.vadUsed && pr.vadMode && pr.vadUsed !== pr.vadMode ? '→' + (vad[pr.vadUsed] || '') + '(捨てすぎたので自動で緩めた)' : '') + (pr.boost ? ' / 音量補正あり' : '') + (pr.beam === 1 ? ' / 速度優先' : '')
-    + (dz ? ' / 話者判別: ' + dz.found + '人(' + (dz.requested ? '指定' + dz.requested + '人' : '人数は自動') + ', ' + ({ voxceleb: 'VoxCeleb', campplus: 'CAM++', standard: 'ERes2Net' }[dz.embedding] || 'ERes2Net') + ')' : '')
+    + (dz ? ' / 話者判別: ' + dz.found + '人(' + (dz.requested ? '指定' + dz.requested + '人' : '人数は自動') + ', ' + (dz.engine === 'nemotron-3-diarization' ? 'Nemotron・声 ' : '') + ({ voxceleb: 'VoxCeleb', campplus: 'CAM++', standard: 'ERes2Net' }[dz.embedding] || 'ERes2Net') + ')' : '')
     + (pr.dictApplied ? ' / 辞書を自動適用(' + pr.dictApplied + '箇所)' : '') + (pr.learnApplied ? ' / 学習済みの置換を自動適用(' + pr.learnApplied + '箇所)' : '')
     + ((pr.glossAuto || []).length ? ' / 用語を自動追加: ' + pr.glossAuto.slice(0, 5).join('、') + (pr.glossAuto.length > 5 ? ' ほか' : '') : '')
     + (rt ? ' / ' + (rt.whole ? '全体を再認識' : '再認識') + ': ' + String(rt.model).split('/').pop() + '(' + rt.lines + '行)' : '');

@@ -4,13 +4,14 @@
     py -3.12 -m eval.tools.eval_speakers [stored] [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--json] [--data-dir 作業データの親フォルダ] [--no-eval] [--include-draft]
                                 [--reviewed only|prefer|ignore] [--docs id,…]
         保存してある判別の記録(<id>.diar.json)を人の最終と比べる(既定。引数なしはこれ)
-    py -3.12 -m eval.tools.eval_speakers run --threshold 0.5,0.6,0.7 [--num auto,2] [--emb voxceleb] [--min-on 0.1] [--min-off 0.3] [--docs id,…] [--reviewed …] [--json]
+    py -3.12 -m eval.tools.eval_speakers run [--num auto,2] [--docs id,…] [--reviewed …] [--json]
         文書の音声をもう一度判別して(設定の組ごと)人の最終と比べる。本番と同じ道(音声の取り出し extract_audio → diarize_real → assign_speakers)。
-        判別はこの道具のプロセスの中で動かす(eval_asr.py の run と同じ。サーバーではないので sherpa-onnx を読んでよい。認識ワーカーは起動しない)。
-        モデルは作業データの models/diar のもの(無ければ取得せずに止める)。文書・diar.json は書かない(--json のときだけ evals/speakers/<日時>-run.json)。
+        判別はこの道具のプロセスの中で動かす(eval_asr.py の run と同じ。speech.cpp の speech diarize を子プロセスで。認識ワーカーは起動しない)。
+        11-01 に判別を pyannote(しきい値・min-on・min-off の組)から Nemotron 3 Diarization に替えた = 設定の組は人数だけ(Nemotron は人数を受けないので記録の印だけ)。
+        モデルと speech.cpp は作業データの models/diar・bin のもの(無ければ取得せずに止める)。文書・diar.json は書かない(--json のときだけ evals/speakers/<日時>-run.json)。
         元の動画が無ければ保管データの full.flac(eval_asr.py と同じ。今ある保管データだけ)。TRANSCRIBE_BACKEND=fake なら疑似の判別(テスト用)
         --or-stored を付けると、モデルが無い・判別し直せる文書が 0 本のときは止めずに stored で測る。**夜の測定(src/eval/drill/accuracy.py)は run --or-stored --json**
-        = 確かめ済みの評価用を今の既定の設定(DIAR_CLUSTER_THRESHOLD など)で毎晩判別し直した数字(文書には書かない。CPU・22 本で約 51 秒)
+        = 確かめ済みの評価用を今の判別(Nemotron)で毎晩判別し直した数字(文書には書かない)
     --smooth off,on(stored・run のどちらでも): 話者の細切れをならす(S2。src/pipeline/transcribe/diarize.py の smooth_labels・smooth_speakers。本番と同じ関数を直に読む = serve は読まない)を、
         ならさない/ならすで比べる。stored は保存してある判別の記録(rows の label・ratio・overlaps)と文書の今の行の時刻で「ならしたら」を計算するだけ(判別し直さない)。
         run は 1 回の判別の結果を両方で採点する。行の正しさ・ならした行の数・ならした行のうち人が確かめた行で合った/外れた数・直った/壊れた数(ならさないと比べて)
@@ -63,6 +64,7 @@ from human.proof import speakers as proof_speakers  # noqa: E402
 from pipeline.transcribe import diarize as transcribe_diarize  # noqa: E402
 from pipeline.transcribe import recognize as _recognize  # noqa: E402
 from pipeline.transcribe import backend as _backend  # noqa: E402
+from pipeline.transcribe import tx_engines as _tx_engines  # noqa: E402
 from ytt import tools as _tools  # noqa: E402
 from eval.fake import fake_asr as _fake_asr  # noqa: E402
 from ytt import schemas as _schemas  # noqa: E402
@@ -705,44 +707,28 @@ def _conv_num(x):
     return n
 
 
-def _conv_sec(x):
-    v = float(x)
-    if not 0.0 <= v < 10.0:   # src/pipeline/transcribe/diarize.py の diar_tune と同じ範囲
-        raise ValueError(x)
-    return v
-
-
-def run_grid(threshold=None, num=None, emb=None, min_on=None, min_off=None, smooth=None):
-    """設定の組(どれも「,」区切り。指定しない項目は本番の既定の値)-> [{"threshold", "num", "emb", "minOn", "minOff", "smooth"}]。
+def run_grid(num=None, smooth=None):
+    """設定の組(「,」区切り。指定しなければ本番の既定)-> [{"num", "emb", "smooth"}]。emb = 記録の印(照らし合わせる声のモデル。判別には使わない)。
     smooth = [False, True] など(ならす/ならさない。判別は 1 回で、採点だけ両方。指定しなければ ならさない だけ)"""
-    ths = parse_list(threshold, _conv_sec, "--threshold") if threshold else [transcribe_diarize.DIAR_CLUSTER_THRESHOLD]
     nums = parse_list(num, _conv_num, "--num") if num else [0]
-    embs = parse_list(emb, str, "--emb") if emb else [transcribe_diarize.DIAR_EMB_DEFAULT]
-    bad = [e for e in embs if e not in transcribe_diarize.DIAR_EMBS]
-    if bad:
-        raise SystemExit("--emb は %s のどれかです: %s" % ("・".join(transcribe_diarize.DIAR_EMBS), ", ".join(bad)))
-    ons = parse_list(min_on, _conv_sec, "--min-on") if min_on else [transcribe_diarize.DIAR_MIN_ON]
-    offs = parse_list(min_off, _conv_sec, "--min-off") if min_off else [transcribe_diarize.DIAR_MIN_OFF]
     sms = smooth or [False]
-    return [{"threshold": t, "num": n, "emb": e, "minOn": a, "minOff": b, "smooth": sm} for e in embs for n in nums for t in ths for a in ons for b in offs for sm in sms]
+    return [{"num": n, "emb": transcribe_diarize.DIAR_EMB_DEFAULT, "smooth": sm} for n in nums for sm in sms]
 
 
 def setting_key(st):
-    return "しきい値 %.2f / 人数 %s / %s / on %.2f / off %.2f%s" % (st["threshold"], st["num"] or "自動", st["emb"], st["minOn"], st["minOff"],
-                                                              " / ならす" if st.get("smooth") else "")
+    return "%s / 人数 %s%s" % (transcribe_diarize.DIAR_ENGINE, st["num"] or "自動", " / ならす" if st.get("smooth") else "")
 
 
 def check_models(root, grid):
-    """本物の判別のモデルが作業データの models/diar にあるか(無ければ取得せずに止める)。DIAR_DIR を本物の場所にする"""
+    """本物の判別のモデル(作業データの models/diar)と speech.cpp(作業データの bin)があるか(無ければ取得せずに止める)。DIAR_DIR・エンジンの置き場所を本物の場所にする"""
     d = os.path.join(root, "models", "diar")
-    need = [transcribe_diarize.DIAR_SEG["file"]] + sorted({transcribe_diarize.DIAR_EMBS[st["emb"]]["file"] for st in grid})
-    missing = [f for f in need if not (os.path.isfile(os.path.join(d, f)) and os.path.getsize(os.path.join(d, f)) > 1000)]
-    if missing:
-        raise SystemExit("話者判別のモデルがありません(この道具は取得しません。編集の画面で一度判別すると取得されます): %s の %s" % (d, "・".join(missing)))
-    try:
-        import sherpa_onnx  # noqa: F401  (道具のプロセスで読む。サーバーではない)
-    except ImportError:
-        raise SystemExit("話者判別の部品(sherpa-onnx)が入っていません(setup の install-diarize.bat)。py -3.12 で動かしているか確かめてください")
+    f = os.path.join(d, transcribe_diarize.DIAR_NEMO["file"])
+    if not (os.path.isfile(f) and os.path.getsize(f) == transcribe_diarize.DIAR_NEMO["size"]):
+        raise SystemExit("話者判別のモデルがありません(この道具は取得しません。編集の画面で一度判別すると取得されます): %s" % f)
+    if not (_tx_engines.ENGINE_DIR or os.environ.get("TRANSCRIBE_ENGINE_DIR")):
+        _tx_engines.ENGINE_DIR = root
+    if not transcribe_diarize.has_diar():
+        raise SystemExit("話者判別の speech.cpp がありません: %s" % transcribe_diarize.speech_exe())
     transcribe_diarize.DIAR_DIR = d
 
 
@@ -758,8 +744,8 @@ def doc_audio(tid, doc, root, wav, job):
 def diarize_once(job, wav, total, st):
     """設定 st で 1 回判別する -> [(開始, 終了, 話者番号)](音声の先頭からの秒)。疑似(TRANSCRIBE_BACKEND=fake)は diarize_fake"""
     if _backend.is_fake():
-        return _fake_asr.diarize_fake(job, total, st["num"], st["threshold"])
-    return transcribe_diarize.diarize_real(job, wav, st["num"], st["emb"], threshold=st["threshold"], min_on=st["minOn"], min_off=st["minOff"])
+        return _fake_asr.diarize_fake(job, total, st["num"], None)
+    return transcribe_diarize.diarize_real(job, wav, st["num"])
 
 
 def score_turns(doc, turns, offset, since_ms, until_ms, include_draft, conf, whole, smooth=False):
@@ -788,13 +774,13 @@ def score_turns(doc, turns, offset, since_ms, until_ms, include_draft, conf, who
 
 
 def run_evaluate(data_dir=None, since=None, until=None, include_eval=True, include_draft=False, reviewed=None, only=None,
-                 threshold=None, num_=None, emb=None, min_on=None, min_off=None, log=print, smooth=None):
+                 num_=None, log=print, smooth=None):
     """文書の音声をもう一度判別して(設定の組ごと)人の最終と比べる。文書・diar.json は書かない。smooth = [False, True] など(--smooth)"""
     root = C.locate("transcribe", data_dir)
     C.prepare(prefix="eval_speakers_")   # 判別はこのプロセスの中で動かす(worker_client.IN_WORKER)
     tdir = os.path.join(root, "transcripts")
     since_ms, until_ms = C.period(since, until)
-    grid = run_grid(threshold, num_, emb, min_on, min_off, smooth)
+    grid = run_grid(num_, smooth)
     real = not _backend.is_fake()
     if real:
         check_models(root, grid)
@@ -893,12 +879,12 @@ def run_evaluate(data_dir=None, since=None, until=None, include_eval=True, inclu
         notes.append("字幕に出さない行(noSub・ゲーム音声など)%d 行は測っていません" % totals["noSub"])
     if skipped["noAudio"]:
         notes.append("音声が無い・取り出せない文書 %d 件は測っていません" % skipped["noAudio"])
-    meta = {"schema": SCHEMA, "mode": "run", "at": int(time.time() * 1000), "git": C.git_rev(), "dataDir": root, "backend": "sherpa-onnx" if real else "fake",
+    meta = {"schema": SCHEMA, "mode": "run", "at": int(time.time() * 1000), "git": C.git_rev(), "dataDir": root, "backend": transcribe_diarize.DIAR_ENGINE if real else "fake",
             "threads": transcribe_diarize.diar_threads() if real else None, "since": since, "until": until, "includeEval": bool(include_eval), "includeDraft": bool(include_draft),
             "only": sorted(only) if only else None, "reviewed": rinfo, "docs": totals["docs"], "evalDocs": totals["evalDocs"], "reviewedDocs": totals["reviewedDocs"],
             "audioSec": round(totals["audioSec"], 1), "rows": nrows, "few": few,
-            "fewNote": "まだ少ない(参考): 人が確かめた話者つきの行が %d 行(%d 行未満)。これで判別の既定の値(しきい値 %.2f など)を決めない"
-                       % (nrows, FEW_ROWS, transcribe_diarize.DIAR_CLUSTER_THRESHOLD) if few else "",
+            "fewNote": "まだ少ない(参考): 人が確かめた話者つきの行が %d 行(%d 行未満)。これで判別の既定の値を決めない"
+                       % (nrows, FEW_ROWS) if few else "",
             "draftRows": totals["drafts"], "machineDraftRows": totals["machineDraft"], "unverifiedRows": totals["unverified"], "noSubRows": totals["noSub"], "confirmRule": CONFIRM_RULE,
             "skipped": skipped, "settings": grid, "notes": notes}
     out = []
@@ -914,7 +900,7 @@ def print_run(res):
     m = res["meta"]
     rv = m.get("reviewed") or {}
     print("話者の判別をやり直して測る(run・%s)  文書 %d 件(うち評価用 %d・確かめ済み %d)・音声 %.0f 秒・人が確かめた話者つきの行 %d  作業データ: %s"
-          % ("本物の sherpa-onnx・スレッド %s" % m["threads"] if m["backend"] != "fake" else "疑似の判別", m["docs"], m["evalDocs"], m["reviewedDocs"],
+          % ("本物の %s・CPU のときスレッド %s" % (m["backend"], m["threads"]) if m["backend"] != "fake" else "疑似の判別", m["docs"], m["evalDocs"], m["reviewedDocs"],
              m["audioSec"], m["rows"], m["dataDir"]))
     print("  --reviewed %s%s  数える行: %s" % (rv.get("effective", "?"), "(only から戻した)" if rv.get("fallback") else "",
                                           "全部(--include-draft)" if m["includeDraft"] else "人が確かめた行だけ"))
@@ -1055,18 +1041,14 @@ def main(argv=None):
                    help="評価用の確かめ済み(動画を全部聞いて直した印)の扱い。only = 評価用は確かめ済みだけ(既定。--docs のときは prefer。0 本なら今までの選び方に戻す)/"
                         " prefer = 確かめ済みでない評価用も混ぜる / ignore = 印を見ない。評価用でない文書はどれでも入る")
     p.add_argument("--docs", help="文書の id をカンマ区切りで")
-    g = p.add_argument_group("run(判別し直す)の設定。どれも「,」区切りで複数 → 全部の組み合わせ。指定しない項目は本番の既定の値")
-    g.add_argument("--threshold", help="クラスタのしきい値(DIAR_CLUSTER_THRESHOLD。大きいほど人をまとめる)")
-    g.add_argument("--num", help="人数(auto = 自動 か 1〜10)")
-    g.add_argument("--emb", help="声の特徴のモデル(voxceleb だけ。campplus・standard は 0.58.0 で消した。作業データに無いモデルは使えない)")
-    g.add_argument("--min-on", dest="min_on", help="声の区間の最短(秒。DIAR_MIN_ON)")
-    g.add_argument("--min-off", dest="min_off", help="すき間の最短(秒。DIAR_MIN_OFF)")
+    g = p.add_argument_group("run(判別し直す)の設定。「,」区切りで複数 → 全部の組み合わせ。指定しなければ本番の既定")
+    g.add_argument("--num", help="人数(auto = 自動 か 1〜10。Nemotron には渡さない = 記録の印だけ)")
     p.add_argument("--smooth", help="話者の細切れをならす(S2)を比べる: off・on の「,」区切り(例 off,on)。stored は記録から計算・run は同じ判別の結果を両方で採点")
     p.add_argument("--or-stored", dest="or_stored", action="store_true",
                    help="run のとき: 判別のモデルが無い・測れる文書が 0 本(音声が無い)なら、止めずに stored(保存してある記録)に切り替えて測る(夜の測定 = 入口の accuracy.py 用)")
     args = p.parse_args(argv)
     only = C.split_ids(args.docs)
-    tune = {"threshold": args.threshold, "num_": args.num, "emb": args.emb, "min_on": args.min_on, "min_off": args.min_off}
+    tune = {"num_": args.num}
     smooth = parse_smooth(args.smooth)
     mode = args.mode
     res = None
@@ -1087,7 +1069,7 @@ def main(argv=None):
         pass
     elif mode == "stored":
         if any(v is not None for v in tune.values()):
-            p.error("--threshold・--num・--emb・--min-on・--min-off は run のときだけ使えます")
+            p.error("--num は run のときだけ使えます")
         res = evaluate(args.data_dir, args.since, args.until, not args.no_eval, args.include_draft, args.reviewed, only, smooth, exclude_learned=args.exclude_learned)
         print_report(res)
     else:

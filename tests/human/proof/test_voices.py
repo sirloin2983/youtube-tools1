@@ -36,6 +36,7 @@ from ytt import tools as _tools  # noqa: E402
 from pipeline.transcribe import diarize as transcribe_diarize  # noqa: E402
 from pipeline.transcribe import worker_client  # noqa: E402
 from ytt import schemas as ys  # noqa: E402
+from ytt import txbase as _txbase  # noqa: E402
 
 _FILL_LLM = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "pipeline", "transcribe", "test_fill_llm.py")
 _spec = importlib.util.spec_from_file_location("_tx_test_fill_llm", _FILL_LLM)
@@ -45,8 +46,8 @@ REAL_DIAR = os.path.join(_fill_llm.REAL_HOME, "models", "diar")
 
 
 def _diar_ready():
-    files = [os.path.join(REAL_DIAR, x["file"]) for x in (transcribe_diarize.DIAR_SEG, transcribe_diarize.DIAR_EMBS[transcribe_diarize.DIAR_EMB_DEFAULT],
-                                                       transcribe_diarize.DIAR_EMBS[transcribe_diarize.VOICE_EMB])]
+    files = [os.path.join(REAL_DIAR, x["file"]) for x in (transcribe_diarize.DIAR_NEMO, transcribe_diarize.DIAR_EMBS[transcribe_diarize.VOICE_EMB])]   # 判別(Nemotron)と声の名前付け
+    files.append(_txbase.speech_exe(_fill_llm.REAL_HOME))   # 判別の speech.cpp
     return _fill_llm._have_sherpa() and all(os.path.isfile(f) and os.path.getsize(f) > 1000 for f in files)   # 取りに行く条件(diarize._have)と同じ
 
 
@@ -280,7 +281,7 @@ class TestDiarRecord(VoiceDir):
             self.assertTrue(json.load(f)["speakers"])   # 判別の結果は残る
 
 
-@unittest.skipUnless(_diar_ready(), "sherpa-onnx か話者判別のモデルが無い")
+@unittest.skipUnless(_diar_ready(), "sherpa-onnx・speech.cpp か話者判別のモデルが無い")
 class TestDiarRealRun(VoiceDir):
     """本物の判別の通し: 2 人の声(日本語の声 → 低くした英語の声 → 日本語の声)。行は 校正済み・音のメモ・短い行・手で作った行(ゲーム音声など・字幕に出さない)・
     声の外の定型の幻覚(autoFill の文書は判別のあとに捨てる)を混ぜる"""
@@ -302,7 +303,7 @@ class TestDiarRealRun(VoiceDir):
             self.skipTest("音声合成か ffmpeg が無い")
         super().setUp()
         for obj, name, value in ((worker_client, "IN_WORKER", True), (transcribe_diarize, "DIAR_DIR", REAL_DIAR), (transcribe_diarize, "has_sherpa", _fill_llm._have_sherpa),
-                                 (transcribe_diarize, "_download_verified", _no_download)):
+                                 (transcribe_diarize, "_download_verified", _no_download), (transcribe_diarize.tx_engines, "ENGINE_DIR", _fill_llm.REAL_HOME)):
             self.patch(obj, name, value)   # ワーカーの中と同じ道(このプロセスで sherpa-onnx を読む)
 
     def validate(self, req):
@@ -339,10 +340,10 @@ class TestDiarRealRun(VoiceDir):
         self.assertIn("s6", g)   # 定型の幻覚を声の区間で捨てる C は 11-01 に消した(行は残る)
         self.assertIn(ed_state.WEAK_FLAG, g["s5"]["flag"])                                     # 0.8 秒未満の行は話者が不確か
         self.assertTrue(any(f in g["s2"]["flag"] for f in (ed_state.WEAK_FLAG, ys.MIXED_FLAG)), g["s2"]["flag"])   # 2 人にまたがる行
-        self.assertEqual({k: d["diarization"].get(k) for k in ("engine", "requested", "found", "fillDropped")}, {"engine": "sherpa-onnx", "requested": 2, "found": 2, "fillDropped": None})
+        self.assertEqual({k: d["diarization"].get(k) for k in ("engine", "requested", "found", "fillDropped")}, {"engine": "nemotron-3-diarization", "requested": 2, "found": 2, "fillDropped": None})
         dz = transcribe_diarize.read_diar(TID)
         run = dz["latest"]
-        self.assertEqual((dz["history"], run["engine"]["name"], run["engine"]["requested"], sorted(run["labelMap"].values())), ([], "sherpa-onnx", 2, ["S1", "S2"]))
+        self.assertEqual((dz["history"], run["engine"]["name"], run["engine"]["requested"], sorted(run["labelMap"].values())), ([], "nemotron-3-diarization", 2, ["S1", "S2"]))
         self.assertGreaterEqual(len(run["turns"]), 3)
         self.assertEqual(run["smooth"]["on"], True)                                     # 要求の smooth が判別の記録まで届く
         self.assertEqual({k: run["rows"][k]["speaker"] for k in ("s1", "s3")}, {"s1": ja, "s3": en})

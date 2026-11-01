@@ -9,8 +9,8 @@
 - 判別: diarize(ジョブの音声 → 区間)・assign(区間 → 行の割り当て)・record_run・record_single(<id>.diar.json)・latest_run
 - 声: embed(声の特徴)・match_known_voices(行 → 声の特徴 → 覚えた声との照合)・voice_learn_rows(声を覚える行の選び方)・record_match・record_match_error・record_context・empty_voice
 - 覚えた声の置き場所(作業データの voices/<判別モデル>.json): VOICES_DIR・voices_dir・voices_path・load_voices・save_voices・voices_edit・merge_voice
-計算(sherpa-onnx・numpy)は ① の中・認識ワーカーの中だけ(ここでは読み込まない = tests/pipeline/transcribe/test_worker.py の検査)。
-① の名前は呼ぶたびに `_calc.名前` で読む(テストの patch.object(S, "has_sherpa"・"ensure_diar_models"・"embed_groups"・"write_diar") が ① に届く)。
+計算(判別 = speech.cpp の子プロセス・声の特徴 = sherpa-onnx と numpy)は ① の中・認識ワーカーの中だけ(ここでは読み込まない = tests/pipeline/transcribe/test_worker.py の検査)。
+① の名前は呼ぶたびに `_calc.名前` で読む(テストの patch.object(S, "has_diar"・"has_sherpa"・"ensure_diar_model"・"ensure_diar_models"・"embed_groups"・"write_diar") が ① に届く)。
 疑似の判別・声の特徴は ① の口 backend.Backend.diarize・embed のまま(疑似の本体は eval/fake/fake_asr)。
 """
 import contextlib
@@ -26,15 +26,23 @@ from . import keys as _keys
 
 
 # ---------- 部品と判別モデル ----------
+DIAR_ENGINE = _calc.DIAR_ENGINE   # 文書の diarization.engine(③ は ① の定数を直に読まない)
+
+
 def models_ready(auto=False):
-    """判別の部品が使えるか(疑似のときは常に)。auto = 文字起こしのあとの自動の判別の問い(テスト用の worker-fake では使わない =
-    判別は本物の経路でモデルの取得になるため)。サーバー側では sherpa-onnx を読み込まない(① の has_sherpa はワーカー側で調べる)。
+    """判別の部品が使えるか(疑似のときは常に)= speech.cpp の実行ファイル(① has_diar)。auto = 文字起こしのあとの自動の判別の問い(テスト用の worker-fake では使わない =
+    判別は本物の経路でモデルの取得になるため)。
     ② が足すこと: 疑似(backend の口)と worker-fake の決まりを ① の部品の有無に重ねる"""
     def real():
         if auto and _wc.worker_fake():
             return False
-        return _calc.has_sherpa()
+        return _calc.has_diar()
     return _backend.select().diar_ready(real)   # 疑似は常に使える(backend の口。OPT-E2 1a-2)
+
+
+def voice_ready():
+    """声の特徴(覚える・照らし合わせる)の部品が使えるか(疑似のときは常に)。サーバー側では sherpa-onnx を読み込まない(① の has_sherpa はワーカー側で調べる)"""
+    return _backend.select().diar_ready(_calc.has_sherpa)
 
 
 def default_embedding():
@@ -83,13 +91,13 @@ def diarize(job, spec, wav, hints):
 
 def _diarize_job_real(job, spec, wav):
     """判別のジョブの本物の道(backend の口の real): 部品の確かめ → モデルの取得 → ワーカーで判別 -> [(開始, 終了, 話者番号)]"""
-    if not _calc.has_sherpa():
-        raise _errors.ApiError("no_sherpa", "話者判別の部品(sherpa-onnx)が入っていません。フォルダ内の install-diarize.bat(Mac は install-diarize.command)を実行してください", 400)
+    if not _calc.has_diar():
+        raise _errors.ApiError("no_diar", "話者判別の部品(speech.cpp)がありません(setup\\place_speechcpp.py で置いてください)", 400)
     job["state"] = "loading"
-    _calc.ensure_diar_models(job, spec["embedding"])
-    job["state"], job["phase"], job["progress"] = "running", "話者を判別中(CPU。長い音声は時間がかかります)", 0.0
+    _calc.ensure_diar_model(job)
+    job["state"], job["phase"], job["progress"] = "running", "話者を判別中", 0.0
     try:
-        return _calc.diarize_real(job, wav, spec["numSpeakers"], spec["embedding"])
+        return _calc.diarize_real(job, wav, spec["numSpeakers"])
     except (_slots.Cancelled, _errors.ApiError):
         raise
     except Exception as e:
@@ -157,7 +165,7 @@ def embed(job, spec, wav, groups, hints):
             _recognize.extract_audio(job, {"sourcePath": hints["sourcePath"], "start": hints["start"], "end": hints.get("end")}, wav)
         _backend.select().diar_models(job, spec["embedding"], fetch)   # 疑似は取らない(backend の口。OPT-E2 1a-2)
         job["state"], job["phase"], job["progress"] = "running", "声の特徴を取り出し中(CPU)", 0.0
-    elif spec["embedding"] != _calc.DIAR_EMB_DEFAULT:
+    else:   # 判別のあとの照合(11-01 から判別は声の特徴のモデルを取らない = いつも確かめる。あれば何もしない)
         state = job.get("state")
         _backend.select().diar_models(job, spec["embedding"], fetch)
         job["state"] = state or "running"   # 取ったあと「読み込み中」のまま残さない

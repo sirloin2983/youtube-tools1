@@ -697,7 +697,7 @@ class TestThreadDefaults(unittest.TestCase):
 
     def test_diar_threads(self):
         with mock.patch.dict(os.environ, {"TRANSCRIBE_DIAR_THREADS": ""}), mock.patch("os.cpu_count", return_value=24):
-            self.assertEqual(transcribe_diarize.diar_threads(), 8)
+            self.assertEqual(transcribe_diarize.diar_threads(), 4)   # PC の決まり(合わせて 6 本まで)
         with mock.patch.dict(os.environ, {"TRANSCRIBE_DIAR_THREADS": "12"}):
             self.assertEqual(transcribe_diarize.diar_threads(), 12)
 

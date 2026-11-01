@@ -58,7 +58,7 @@ class TestVoiceEmbedding(unittest.TestCase):
             diar.save_voices("campplus", {"B": {"vec": [0.0, 1.0]}})
             self.assertEqual(diar.match_embedding("voxceleb"), "campplus")
             with mock.patch.object(D, "VOICE_EMB", ""):
-                self.assertEqual((diar.learn_embedding("voxceleb"), diar.match_embedding("x")), ("voxceleb", "voxceleb"))
+                self.assertEqual((diar.learn_embedding("voxceleb"), diar.match_embedding("voxceleb")), ("voxceleb", "voxceleb"))
 
 
 class TestMergeVoice(unittest.TestCase):

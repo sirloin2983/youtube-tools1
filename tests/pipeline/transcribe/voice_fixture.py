@@ -125,20 +125,24 @@ def no_download(*a, **kw):
 
 
 def diar_models():
-    """話者判別のモデル(切り替わり・声の特徴)が手元にあればそのパスの組、無ければ None"""
+    """話者判別のモデル(Nemotron・声の名前付け)と speech.cpp が手元にあればモデルのパスの組、無ければ None"""
     home = engine_home()
     if not home:
         return None
     from pipeline.transcribe import diarize
-    paths = [os.path.join(home, "models", "diar", item["file"])
-             for item in (diarize.DIAR_SEG, diarize.DIAR_EMBS[diarize.DIAR_EMB_DEFAULT], diarize.DIAR_EMBS[diarize.VOICE_EMB])]   # 声の名前付けのモデルも(10-22)
-    return paths if all(os.path.isfile(p) and os.path.getsize(p) > 1000 for p in paths) else None
+    from ytt import txbase
+    paths = [os.path.join(home, "models", "diar", item["file"]) for item in (diarize.DIAR_NEMO, diarize.DIAR_EMBS[diarize.VOICE_EMB])]   # 声の名前付けのモデルも(10-22)
+    ok = os.path.isfile(txbase.speech_exe(home)) and all(os.path.isfile(p) and os.path.getsize(p) > 1000 for p in paths)
+    return paths if ok else None
 
 
 def copy_diar(data_dir):
-    """判別のモデルを一時の作業データの models/diar へ写す(元は読むだけ)"""
+    """判別のモデルを一時の作業データの models/diar へ、判別の speech.cpp を bin へ写す(元は読むだけ。認識ワーカーは一時の作業データを見る)"""
+    from ytt import txbase
     dst = os.path.join(data_dir, "models", "diar")
     os.makedirs(dst, exist_ok=True)
     for p in diar_models() or ():
         shutil.copyfile(p, os.path.join(dst, os.path.basename(p)))
+    if not os.path.isdir(txbase.speech_bin_dir(data_dir)):
+        shutil.copytree(txbase.speech_bin_dir(engine_home()), txbase.speech_bin_dir(data_dir))
     return dst

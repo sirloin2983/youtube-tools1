@@ -3,7 +3,8 @@
 
     py -3.12 -m unittest tests/pipeline/transcribe/test_diarize.py -v
 
-本物の sherpa-onnx で判別 → 声を覚える → 判別し直すまでの通しは tests/human/proof/test_voices.py の TestDiarRealRun。ここに残すのは、その通しの声の見本では
+本物の判別(Nemotron・speech.cpp)と声(sherpa-onnx)で判別 → 声を覚える → 判別し直すまでの通しは tests/human/proof/test_voices.py の TestDiarRealRun。
+speech diarize の呼び方(機器 auto → CPU で取り直し・JSON の読み)は偽の speech(fake_speech_diarize.py)で確かめる。ここに残すのは、その通しの声の見本では
 決まって起こせない境目(2 人にまたがる行・区間の外・offset・同じ話者どうしの重なり・混ぜる重みの上限と次元の違い)・置き場所・記録の上限・
 サーバーからワーカーへの頼み方(通しはワーカーの中で読むので通らない)。
 """
@@ -56,7 +57,7 @@ class TestPlaces(_Patches):
         self.patch(workdata, "DATA_DIR", os.path.join("a", "data"))
         self.assertEqual(diarize.diar_models_dir(), os.path.join("a", "data", "models", "diar"))
         workdata.DATA_DIR = os.path.join("b", "data")   # 作業データの切り替え(set_data_dir)に呼ぶたびについていく
-        self.assertEqual(diarize._diar_path(diarize.DIAR_SEG), os.path.join("b", "data", "models", "diar", diarize.DIAR_SEG["file"]))
+        self.assertEqual(diarize._diar_path(diarize.DIAR_NEMO), os.path.join("b", "data", "models", "diar", diarize.DIAR_NEMO["file"]))
         saved, diarize.DIAR_DIR = diarize.DIAR_DIR, os.path.join("c", "diar")   # 上書き(src/eval/tools/eval_speakers)
         try:
             self.assertEqual(diarize.diar_models_dir(), os.path.join("c", "diar"))
@@ -107,8 +108,54 @@ class TestBackendAndWorker(unittest.TestCase):
         self.assertEqual(diarize.embed_groups({}, "w.wav", "voxceleb", [[(0.0, 1.0)]], 0.0), [[1.0, 0.5]])
         self.assertEqual(worker_client.WORKER.calls, [("embed", {"wav": "w.wav", "emb": "voxceleb", "groups": [[[0.0, 1.0]]]})])
         worker_client.WORKER = _Worker([[0, 1.5, 2]])
-        self.assertEqual(diarize.diarize_real({}, "a.wav", 0, "voxceleb"), [(0.0, 1.5, 2)])
-        self.assertEqual(worker_client.WORKER.calls, [("diarize", {"wav": "a.wav", "num": 0, "emb": "voxceleb"})])
+        self.assertEqual(diarize.diarize_real({}, "a.wav", 0), [(0.0, 1.5, 2)])
+        self.assertEqual(worker_client.WORKER.calls, [("diarize", {"wav": "a.wav", "num": 0})])
+
+
+class TestSpeechDiarize(_Patches):
+    """ワーカーの中の判別 = speech diarize を子プロセスで(11-01 に pyannote から Nemotron に入れ替えた)"""
+
+    def setUp(self):
+        home = testkit.tempdir(self, prefix="nemodiar-")
+        self.patch(diarize.tx_engines, "ENGINE_DIR", home)
+        self.patch(workdata, "DATA_DIR", home)
+        self.patch(diarize, "DIAR_COMMAND", [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "fake_speech_diarize.py")])
+        self.home = home
+
+    def test_runs_gpu_then_cpu_and_reads_json(self):
+        job = {"cancel": False}
+        self.assertEqual(diarize._diarize_local(job, "a.wav", 0), [(0.0, 2.0, 0), (1.5, 3.0, 1)])   # 開始の順
+        self.enterContext(mock.patch.dict(os.environ, {"FAKE_DIAR_FAIL": "auto"}))
+        self.assertEqual(diarize._diarize_local(job, "a.wav", 2), [(0.0, 2.0, 0), (1.5, 3.0, 1)])   # GPU で落ちたら CPU で 1 回
+        self.assertIn("CPU", job["phase"])
+        os.environ["FAKE_DIAR_FAIL"] = "cpu"   # patch.dict の中(終わりに戻る)
+        os.makedirs(diarize._txbase.speech_bin_dir(self.home), exist_ok=True)
+        with open(os.path.join(diarize._txbase.speech_bin_dir(self.home), diarize._txbase.SPEECH_CHOICE), "w", encoding="utf-8") as fp:
+            fp.write('{"ok": true, "device": "cpu"}')   # この PC で Haas を CPU に決めた = 判別も CPU だけ
+        with self.assertRaises(diarize._errors.ApiError) as c:
+            diarize._diarize_local(job, "a.wav", 0)
+        self.assertEqual(c.exception.code, "diar_failed")
+        self.assertIn("no device", c.exception.message)
+
+    def test_parse_and_ready(self):
+        out = '\n{"file": "a.wav", "segments": [{"start": 2, "end": 1, "speaker": 0}, {"start": 0, "end": 1, "speaker": 3}]}\nspeech: done\n'
+        self.assertEqual(diarize.parse_diar_json(out), [(0.0, 1.0, 3)])   # 長さの無い区間は捨てる・JSON でない行は読まない
+        self.assertTrue(diarize.has_diar())
+        self.patch(diarize, "DIAR_COMMAND", None)
+        self.patch(worker_client, "worker_fake", lambda: False)
+        self.assertFalse(diarize.has_diar())                                # speech.cpp が置いていない
+        self.assertEqual(diarize._diar_engine_real("campplus", 0)["name"], "nemotron-3-diarization")
+
+    def test_model_fetch_is_verified(self):
+        self.patch(worker_client, "worker_fake", lambda: False)
+        seen = []
+        self.patch(diarize.tx_engines, "fetch_file", lambda spec, folder, *a: seen.append((spec["sha256"], spec["size"], folder)) or "x")
+        diarize.ensure_diar_model({"cancel": False})
+        self.assertEqual(seen, [(diarize.DIAR_NEMO["sha256"], 106179488, diarize.diar_models_dir())])
+        self.patch(diarize.tx_engines, "fetch_file", mock.Mock(side_effect=diarize.tx_engines.EngineError("fetch_failed", "中身が違う")))
+        with self.assertRaises(diarize._errors.ApiError) as c:
+            diarize.ensure_diar_model({"cancel": False})
+        self.assertEqual(c.exception.code, "model_download")
 
 if __name__ == "__main__":
     unittest.main()

@@ -391,7 +391,7 @@ def _maybe_relearn(ctx, extra=()):
     RELEARN_PAUSED の間は足さない(答えの記録とカードはそのまま = 材料は貯まり、戻せば今の決まりで覚え直す)"""
     if RELEARN_PAUSED:
         return []
-    if "voice-learn" not in _heavy.JOB_RUNNERS or not _diar.models_ready():
+    if "voice-learn" not in _heavy.JOB_RUNNERS or not _diar.voice_ready():
         return []   # 編集を取り込んでいない入口・話者判別の部品が無い = 材料は残して次に
     need = _relearn_sec()
     by_doc, cache = {}, {}
