@@ -426,6 +426,7 @@ class Detector:
         except OSError as e:
             self.host.note("盛り上がりの検出: ワーカーを起動できませんでした: %s" % tools.why(e))
             return False
+        tools.cap_cpu(self.proc)   # 子の ffmpeg・yt-dlp ごと CPU の上限(録画に食い込まない。YTT_LIVE_CPU_CAP)
         self.started_at = self.clock()
         self.host.log("盛り上がりの検出: ワーカーを起動しました(pid %d)" % self.proc.pid)
         return True

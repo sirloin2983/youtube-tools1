@@ -4,7 +4,7 @@
 - no_window_flags … creationflags(窓を出さない・別グループ・優先度)。python_exe … 子プロセスに使う python.exe
 - start_logged … 常駐の子プロセスを、出力をログに足す形で起こす
 - run … 子プロセスを最後まで動かして出力を集める(取り消し・時間切れで止める)。run_progress … ffmpeg・yt-dlp の出力(-progress の進み具合)を 1 行ずつ読みながら動かす(取り消し・時間切れ・無出力で止める。窓なし・優先度「低」。ffmpeg を動かす形はこの 1 つ)
-- kill_quiet … 止める(上げない)。kill_tree … 孫ごと止める。KillJob … 親が落ちても子を残さない
+- kill_quiet … 止める(上げない)。kill_tree … 孫ごと止める。KillJob … 親が落ちても子を残さない。cap_cpu … 子に CPU の上限
 - process_memory_mb … このプロセスのメモリ。why … 例外 → 画面に出せる短い理由
 - remember・recent … run・run_progress・procs.run_short で動かした道具の名前・終了コード・秒・失敗の最後の数行(引数は持たない)を最近の 40 件だけ覚える(友人の診断 friendapp/diag が読む)
 - MEDIA_TYPES・find_ffmpeg・ffmpeg_info・parse_ffmpeg_info・duration_in・media_duration・check_source・probe_media … 編集の動画・音声のファイルの小道具(拡張子・ffmpeg の場所と -i の出力・-i の読み方(parse_ffmpeg_info。mediainfo も使う)・長さ・元のファイルの検査・映像と音声の有無)
@@ -727,3 +727,62 @@ class KillJob:
                 self.k.CloseHandle(h)
             except Exception:
                 pass
+
+
+CPU_CAP_ENV = "YTT_LIVE_CPU_CAP"   # 録画以外の子の CPU の上限(PC 全体の %。off = 付けない。11-01 ライブを軽くする案の K)
+CPU_CAP_PCT = 50                   # 既定(控えめ = 1 本で PC の半分まで。書き出しを遅らせない)
+
+
+def cpu_cap_pct(env=None):
+    """上限の % か None(off・0・読めない)"""
+    v = (os.environ if env is None else env).get(CPU_CAP_ENV, "").strip().lower()
+    if v in ("off", "0", "false"):
+        return None
+    if not v:
+        return CPU_CAP_PCT
+    try:
+        n = int(float(v))
+    except ValueError:
+        return CPU_CAP_PCT
+    return n if 1 <= n <= 100 else None
+
+
+def cap_cpu(proc, pct=None):
+    """Windows: proc をその子ごと CPU の上限つきのジョブ(JOB_OBJECT_CPU_RATE_CONTROL の HARD_CAP。PC 全体の pct %)に入れる -> 入れたか。
+    閉じても子を止めないジョブ(ハンドルはすぐ閉じる。中のプロセスが終わるまでジョブは残る)= 入口の起き直しを越えて続く子(検出のワーカー)にも使える。
+    既にジョブの中の子は入れ子になる(Windows 8 から)。この後に作る KillJob は、このジョブの中の入れ子。他の OS・作れない・pct が None は何もしない(上げない)"""
+    pct = cpu_cap_pct() if pct is None else pct
+    if os.name != "nt" or not pct or proc is None:
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class Rate(ctypes.Structure):   # JOBOBJECT_CPU_RATE_CONTROL_INFORMATION(ControlFlags・CpuRate = 1/100 %)
+            _fields_ = [("ControlFlags", wintypes.DWORD), ("CpuRate", wintypes.DWORD)]
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        k.CreateJobObjectW.restype = wintypes.HANDLE
+        k.CreateJobObjectW.argtypes = (ctypes.c_void_p, wintypes.LPCWSTR)
+        k.SetInformationJobObject.argtypes = (wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD)
+        k.OpenProcess.restype = wintypes.HANDLE
+        k.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        k.AssignProcessToJobObject.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
+        k.CloseHandle.argtypes = (wintypes.HANDLE,)
+        h = k.CreateJobObjectW(None, None)
+        if not h:
+            return False
+        try:
+            info = Rate(0x1 | 0x4, int(pct) * 100)   # ENABLE | HARD_CAP
+            if not k.SetInformationJobObject(h, 15, ctypes.byref(info), ctypes.sizeof(info)):   # 15 = JobObjectCpuRateControlInformation
+                return False
+            p = k.OpenProcess(0x0101, False, proc.pid)   # PROCESS_SET_QUOTA | PROCESS_TERMINATE
+            if not p:
+                return False
+            try:
+                return bool(k.AssignProcessToJobObject(h, p))
+            finally:
+                k.CloseHandle(p)
+        finally:
+            k.CloseHandle(h)
+    except Exception:
+        return False

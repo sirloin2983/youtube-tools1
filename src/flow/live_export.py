@@ -1290,7 +1290,8 @@ class Exporter(Patrol):
             if dur > 0:
                 job["progress"] = round(0.2 + 0.8 * min(0.99, sec / dur), 3)
         try:
-            return tools.run_progress(cmd, flags=flags, cancelled=self._stopper(job), on_time=on_time, idle_sec=IDLE_SEC)
+            return tools.run_progress(cmd, flags=flags, cancelled=self._stopper(job), on_time=on_time, idle_sec=IDLE_SEC,
+                                      on_start=tools.cap_cpu)   # CPU の上限(録画に食い込まない。YTT_LIVE_CPU_CAP)
         except OSError as e:
             raise LiveError("ffmpeg を起動できませんでした: %s" % e)
 

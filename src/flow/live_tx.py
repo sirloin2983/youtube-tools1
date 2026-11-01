@@ -458,7 +458,8 @@ class LiveTx(LX.Patrol):
             cmd = _recognize.wav_args(self._ffmpeg(), files[0][0], wav, max(0.0, ss), max(0.5, wb - wa), opts=("-loglevel", "error", "-y"),
                                       drop=("-vn", "-sn", "-dn"), fmt="wav")
             try:   # 入口の終了(_halt)で止まる・120 秒で止める(ytt/tools.run)
-                p = tools.run(cmd, timeout=WAV_TIMEOUT, cancelled=self._halt.is_set, flags=tools.no_window_flags(priority="low"), stdout=False, err_tail=20)
+                p = tools.run(cmd, timeout=WAV_TIMEOUT, cancelled=self._halt.is_set, flags=tools.no_window_flags(priority="low"), stdout=False, err_tail=20,
+                              on_start=tools.cap_cpu)   # CPU の上限(YTT_LIVE_CPU_CAP)
             except OSError as e:   # ffmpeg が消えた
                 return self._after(rc, rec, pid, False, "wav を作れませんでした(%s)" % e.__class__.__name__)
             if p.why == "cancel":   # 入口の終了: 失敗に数えない(次の起動の見回りでやり直す)
@@ -513,8 +514,13 @@ class LiveTx(LX.Patrol):
             cmd.append(p["device"])
         if p["engine"] == HAAS_ENGINE:
             cmd.append(HAAS_ENGINE)
+
+        def started(proc):
+            self.proc = proc
+            tools.cap_cpu(proc)   # 子の speech・whisper ごと CPU の上限(YTT_LIVE_CPU_CAP)
+
         try:   # 起動した子は close() が止める(on_start で覚える)
-            r = tools.run(cmd, timeout=TX_TIMEOUT, flags=tools.no_window_flags(priority="low"), stdout=False, on_start=lambda p: setattr(self, "proc", p))
+            r = tools.run(cmd, timeout=TX_TIMEOUT, flags=tools.no_window_flags(priority="low"), stdout=False, on_start=started)
         except OSError as e:
             return {"ok": False, "reason": "子プロセスを起動できませんでした: %s" % e}
         finally:

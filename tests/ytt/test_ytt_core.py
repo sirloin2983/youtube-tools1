@@ -1097,6 +1097,29 @@ class TestTools(unittest.TestCase):
         self.assertEqual((out.returncode, added), (3, "True"))
         self.assertTrue(gone, "親が落ちたのに子が残った")   # 親(このテストの子)が落ちてジョブが閉じた = 孫も終わる
 
+    @unittest.skipUnless(os.name == "nt", "Windows のジョブオブジェクト")
+    def test_cap_cpu(self):
+        """cap_cpu(録画以外の子の CPU の上限・11-01): 回し続ける子が上限で止まる・後から KillJob にも入る(入れ子)・スイッチ"""
+        self.assertIsNone(tools.cpu_cap_pct({tools.CPU_CAP_ENV: "off"}))
+        self.assertEqual(tools.cpu_cap_pct({}), tools.CPU_CAP_PCT)
+        self.assertEqual(tools.cpu_cap_pct({tools.CPU_CAP_ENV: "30"}), 30)
+        spin = [sys.executable, "-c", "import time\nt = time.time()\nwhile time.time() - t < 3: pass"]
+        p = subprocess.Popen(spin, creationflags=tools.no_window_flags())
+        job = tools.KillJob()
+        try:
+            self.assertTrue(tools.cap_cpu(p, 1))   # PC 全体の 1 %
+            self.assertTrue(job.add(p))
+            p.wait(30)
+        finally:
+            job.close()
+            tools.kill_quiet(p)
+        import ctypes
+        from ctypes import wintypes
+        ft = [wintypes.FILETIME() for _ in range(4)]
+        ctypes.windll.kernel32.GetProcessTimes(wintypes.HANDLE(p._handle), *[ctypes.byref(f) for f in ft])
+        cpu = sum((f.dwHighDateTime << 32 | f.dwLowDateTime) for f in ft[2:]) / 1e7
+        self.assertLess(cpu, 3 * 0.01 * (os.cpu_count() or 1) * 2 + 0.5)   # 上限なしなら 3 秒近く
+
     def test_ytdlp_auth_args_copies_cookies(self):
         """YouTube のログイン(友人の PC): cookie のファイルがあれば yt-dlp に呼ぶたびの写しを --cookies で渡す・無ければ何も足さない・古い写しは消す(偽の cookie)"""
         tmp = testkit.tempdir(self, "ytt_cookies_")
