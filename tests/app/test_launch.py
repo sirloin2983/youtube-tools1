@@ -738,6 +738,11 @@ class PortalHttpTest(Base):
             zero["recording"] = 0
             self.srv.editor_seen = time.monotonic()
             self.assertEqual(self.srv.auto_restart_check(), A.WAIT)   # 編集の画面を使っている
+            with mock.patch.object(self.srv, "_accuracy_busy", lambda need_editor=False: None):
+                self.assertIsNone(self.srv._queue_busy())   # 起き直しがほかの理由で待つ間は、取得の列は版の待ちで休まない(11-02)
+                self.srv._auto_wait = settle["why"] = "新しい版が続けて入るのを待っています"
+                self.assertTrue(self.srv._queue_busy().startswith("新しい版"))   # 続けて入る版の待ちの間は休む(起き直しを延ばさない)
+                settle["why"] = None
             self.srv.editor_seen = time.monotonic() - A.EDITOR_IDLE - 1
             with mock.patch.object(self.srv, "_busy_tools", lambda: [("studio", "スタジオ")]):
                 self.assertEqual(self.srv.auto_restart_check(), A.WAIT)   # 取り込んだツールのジョブ

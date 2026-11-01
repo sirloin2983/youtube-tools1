@@ -1346,6 +1346,15 @@ class PortalServer(httpsec.ExclusiveServer):
             return "YouTube の材料の番"   # 学習用データの文字起こしは休んで、手の空いた合間を YouTube の取り込みに譲る(voicefetch.wants)
         return self._fetch_busy(need_editor=True)
 
+    def _queue_busy(self):
+        """取得の列が休む理由か None。新しい版の起き直しが、続けて入る版の待ち(SETTLE_SEC)でなくほかの理由(ライブの録画中など)で待っている間は、
+        版の待ちでは休まない(11-02: 録画中に版が上がり、起き直しがライブの終わりまで待った 01:28〜02:36 の間、列が 1 件も取らなかった)"""
+        why = self._fetch_busy()
+        wait = self._auto_wait
+        if why and str(why).startswith("新しい版") and wait and not str(wait).startswith("新しい版"):
+            return self._accuracy_busy(False)
+        return why
+
     def _fetch_busy(self, need_editor=False):
         disk = _version.on_disk(self.sup.root)
         if disk and disk != VERSION:
@@ -1381,7 +1390,7 @@ class PortalServer(httpsec.ExclusiveServer):
         """YouTube の取得の列(app/check/ytqueue。10-25 ユーザー「取り方 1 と 2 を統一しよう」): 研究の頼みと候補・誰の声の材料を 1 本の列で取る。
         研究が置いた・列が回した声の音(voice-inbox)を拾う(voicefetch.intake)"""
         from flow import voicematerial as _vm
-        busy = lambda: self._fetch_busy() or ("ライブ" if any(self.live_activity(archive_wait=False).values()) else None)   # noqa: E731
+        busy = lambda: self._queue_busy() or ("ライブ" if any(self.live_activity(archive_wait=False).values()) else None)   # noqa: E731
         while not self.closing.wait(check_voicefetch.EVERY):
             try:
                 r = _vm.roster_data()
