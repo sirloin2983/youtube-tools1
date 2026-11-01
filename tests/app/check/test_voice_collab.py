@@ -1,4 +1,4 @@
-"""「確かめる」の誰の声のカードのコラボ voice:collab(src/app/check/voice_collab.py)の単体テスト: 一覧の読み(形の違う物を飛ばす)・
+"""「確かめる」のコラボの話者のカード speaker:collab(src/app/check/voice_collab.py)の単体テスト: 一覧の読み(形の違う物を飛ばす)・
 音の無いカードは出さない・ボタン(出る人 + その他の人 + 混ざり)・予想を出さない・答えは記録だけ(実物を書かない・声を覚えない)。一時フォルダだけを使う。
 
 実行(リポジトリ直下から): py -3.12 -m unittest tests/app/check/test_voice_collab.py -v
@@ -47,9 +47,10 @@ class VoiceCollabTest(unittest.TestCase):
         self.write([card("c1r01", "AAAAAAAAAAA", ["桃鈴ねね", "雪花ラミィ"]), card("c2r01", "BBBBBBBBBBB", ["白上フブキ", "さくらみこ", "大空スバル", "大神ミオ"]),
                     {"key": "BAD KEY", "video": "CCCCCCCCCCC", "people": ["a"]}, card("c3r01", "DDDDDDDDDDD", [])])
         got = {c["id"]: c for c in VC.voice_collab(self.view())}
-        self.assertEqual(set(got), {"voice:collab:AAAAAAAAAAA#c1r01", "voice:collab:BBBBBBBBBBB#c2r01"})
-        c = got["voice:collab:BBBBBBBBBBB#c2r01"]
-        self.assertEqual(lineup.parse_id(c["id"])[:2], ("voice", "collab"))
+        self.assertEqual(set(got), {"speaker:collab:AAAAAAAAAAA#c1r01", "speaker:collab:BBBBBBBBBBB#c2r01"})
+        c = got["speaker:collab:BBBBBBBBBBB#c2r01"]
+        self.assertEqual(lineup.parse_id(c["id"])[:2], ("speaker", "collab"))
+        self.assertEqual(c["kind"], "speaker")
         self.assertIsNone(c["guess"])   # 予想は出さない
         self.assertEqual([o["id"] for o in c["options"]], ["name:白上フブキ", "name:さくらみこ", "name:大空スバル", "name:大神ミオ", "name:その他の人", "mixed"])
         self.assertEqual(c["buttons"], 5)
@@ -64,9 +65,10 @@ class VoiceCollabTest(unittest.TestCase):
         self.assertEqual(VC.voice_collab(self.view()), [])
 
     def test_apply_records_only_never_learns(self):
-        self.assertTrue(apply._registered("voice", "collab"))
+        self.assertTrue(apply._registered("speaker", "collab"))
+        self.assertFalse(apply._registered("voice", "collab"))   # 誰の声の種類には出さない
         self.assertNotIn("collab", voice_mod.SOURCES)   # 声の覚え直しの材料(_pending)に入らない
-        ap = apply._REG[("voice", "collab")]
+        ap = apply._REG[("speaker", "collab")]
         c = {"target": {"collab": "c1r01", "videoId": "AAAAAAAAAAA"}}
         self.assertEqual(ap.apply(None, c, ap.check({"choice": "name:桃鈴ねね"})), {"collab": "c1r01", "video": "AAAAAAAAAAA"})
         self.assertEqual(ap.revert(None, {"applied": {"collab": "c1r01"}}), {"collab": "c1r01"})

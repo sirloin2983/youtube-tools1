@@ -710,7 +710,7 @@ def _scene_kind_pick(cx):
         pg.goto(cx.base + "check")
         check(wait_js(pg, "CheckShell.state().cur === 'value:e2e:81'"), "全部の種類で開く: %s" % state(pg))
         got = pg.evaluate(pills)
-        check(got == [["", "3", "true", False], ["voice", "0", "false", True], ["time", "0", "false", True],
+        check(got == [["", "3", "true", False], ["voice", "0", "false", True], ["speaker", "0", "false", True], ["time", "0", "false", True],   # speaker = コラボの話者(11-01)
                       ["value", "2", "false", False], ["cut", "1", "false", False], ["symbol", "0", "false", True]],   # symbol = 記号のカード(11-01)
               "切り替え: 全部が選ばれ、残りの枚数・0 の種類は薄い(読み・声かどうかは無い): %s" % got)
         pg.click("#chkKinds [data-chk-kind=cut]")

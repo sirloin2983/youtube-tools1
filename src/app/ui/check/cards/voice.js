@@ -10,7 +10,7 @@
    V = 「別の声も入っている」の切り替え(G と同じ。押してから名前を選ぶ)。後ろに別の人の声が小さく入る行 = 答えに others: true(行の音のメモ overlap・覚える材料にしない。
    2 人が同じくらい重なるなら M)。10-25 確かめるの混ざりと BGM のルール
    名前で答えた行(1 秒以上・混ざっていない・音のメモが無い・評価用でない)は、その人の声を覚え直す材料になる(1 人 30 秒分たまったら自動で。サーバーの側)。
-   コラボのカード(source collab): 名前のボタンは card.buttons 個(出る人 + その他の人・5 まで)・予想なし・learn: false = 声を覚えない(サーバーの app/check/voice_collab)。
+   コラボの話者のカード(種類 speaker・出どころ collab。同じ描き方を define('speaker') でも登録): 名前のボタンは card.buttons 個(出る人 + その他の人・5 まで)・予想なし・learn: false = 声を覚えない(サーバーの app/check/voice_collab)。
    キー: 名前は数字キー 1〜3(コラボは 1〜5)・メンバーを選ぶ P・声が無い O・混ざり M・予想どおり Enter・ゲーム音・BGM が大きい G・別の声も入っている V */
 (function () {
   'use strict';
@@ -106,7 +106,7 @@
       people(card).map(function (o) { return '<option value="' + esc(o.name) + '"></option>'; }).join('') + '</datalist></div>';
   }
 
-  CheckCards.define('voice', function () {
+  function voiceCard() {
     var view = base(), gone = false, lock = null, root = null, ctxRef = null, cur = null, pick = null;   // pick = 開いている欄の { st }(G の入り切りを答えに足す)
     function field() { return root && root.querySelector('[data-chk-pick-text]'); }
     function open(st) {
@@ -165,5 +165,7 @@
       keybar: function (card) { return pick ? [{ k: 'Enter', l: '決める' }, { k: 'Esc', l: 'やめる' }] : view.keybar(card); },
       unmount: function () { gone = true; lock = null; root = null; ctxRef = null; cur = null; pick = null; if (picker && picker.open === open) picker = null; view.unmount(); }
     };
-  });
+  }
+  CheckCards.define('voice', voiceCard);
+  CheckCards.define('speaker', voiceCard);   // コラボの話者(app/check/voice_collab)= 誰の声と同じ描き方で種類だけ別
 })();
