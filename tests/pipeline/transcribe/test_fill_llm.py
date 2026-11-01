@@ -177,7 +177,7 @@ class TestFailures(_Base):
     def test_missing_parts_and_failures_are_warnings(self):
         """LLM が起動の途中で落ちる: 文字起こしは止めず、警告を足して認識の結果のまま。声の無い行の後処理が切ってあれば何もしない(autoFill は 11-01 から効かない)"""
         rows = [{"start": 0.0, "end": 4.0, "text": "テスト文1"}]
-        self.assertEqual(fill.fill_after_rows({}, {"autoFill": True}, rows, "w.wav", 8.0), (rows, None, None))
+        self.assertEqual(fill.fill_after_rows({}, {}, rows, "w.wav", 8.0), (rows, None, None))
 
         def boom(job, spec):
             raise errors.ApiError("engine_failed", "llama-server が起動の途中で止まりました", 500)

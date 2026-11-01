@@ -227,7 +227,7 @@ DEFAULTS = {
         "maxChars": {"vertical": 16, "horizontal": 28},
         "splitChars": 24,
         "autoDict": True, "autoGloss": True, "autoContext": False, "autoLearned": False,
-        "autoFill": True, "stripNames": True, "autoLlm": False,   # E(autoLlm)は 10-31 から既定オフ: 普段の切り抜きで直した 75 行のうち 46 行がはっきり誤り(振りかけ→振りかけけ等)。原因が分かるまで。true で戻る
+        "stripNames": True, "autoLlm": False,   # E(autoLlm)は 10-31 から既定オフ: 普段の切り抜きで直した 75 行のうち 46 行がはっきり誤り(振りかけ→振りかけけ等)。原因が分かるまで。true で戻る
         "dropSilent": True,   # 声を分けて声の無い行を捨てる(pipeline/transcribe/fill.fill_drop_silent。10-23 に今の基準で測り直して下がる数なし = 既定オン。印 fill.dropped・False で前のまま)
         "endSnap": False,     # 行の終わりを分けた声の区間の終わりへ寄せる(fill.fill_snap_ends。既定オフ = 末が切れるは減るが黙っている間の字幕が少し増える)
         "llmModel": "qwen3-8b",   # LLM の後処理のモデル(src/pipeline/transcribe/llm.py の LLM_MODEL。この PC の設定 flow/machine.py が重ねる。RS7-1 S1)
@@ -301,9 +301,10 @@ def _merge_into(out, spec):
 
 
 RENAMED_KEYS = {"run": {"pinned": "requested"}}   # 改名した鍵(run.pinned → run.requested)。旧い名前は merge が今の名前に読み替える
-# 使わない項目(kotoba のときの redoLarge・autoRedo・パックの予備 pack.backup = 決定 3-34・粗編集の動画 pack.render = 10-24)。
+# 使わない項目(kotoba のときの redoLarge・autoRedo・パックの予備 pack.backup = 決定 3-34・粗編集の動画 pack.render = 10-24・
+# 後処理 A・C・D のスイッチ post.autoFill = 11-01 に A・C・D を消した。文書の鍵には入っていない = 消しても作り直しは走らない)。
 # 旧い束・待ちの記録・保存した要求にあれば黙って捨てる
-RETIRED_KEYS = {"post": ("redoLarge", "autoRedo"), "pack": ("backup", "render")}
+RETIRED_KEYS = {"post": ("redoLarge", "autoRedo", "autoFill"), "pack": ("backup", "render")}
 
 
 def read_legacy_tx(field, value):
@@ -455,7 +456,7 @@ SCHEMA = {
              "splitChars": (_int_in(8, 80), "8〜80 の整数"),
              "autoDict": (_is_bool, "true か false"), "autoGloss": (_is_bool, "true か false"), "autoContext": (_is_bool, "true か false"),
              "autoLearned": (_is_bool, "true か false"),
-             "autoFill": (_is_bool, "true か false"), "stripNames": (_is_bool, "true か false"), "autoLlm": (_is_bool, "true か false"),
+             "stripNames": (_is_bool, "true か false"), "autoLlm": (_is_bool, "true か false"),
              "llmModel": (_model_ok, "英数字と . _ - の 60 字までの名前"),
              "diarSmooth": (_is_bool, "true か false"), "dropSilent": (_is_bool, "true か false"), "endSnap": (_is_bool, "true か false"),
              "learning": (_dict_of(version=_version_ok), "{version}(80 字までの文字。空 = 指定なし)")},
@@ -515,7 +516,7 @@ def key_ok(sec, key, value):
 # 5-4 の固定の 3 つ(切り出しの精密・画質の上限・パックの fps)は FIXED の値(RS7-1 S4 = 決定 3-30 Q2)
 TX_TRANSCRIBE_KEYS = ("model", "language", "quality", "device", "vadMode", "boost")   # 文字起こしの要求に渡す transcribe 節の項目
 TX_POST_KEYS = ("autoDict", "wordSplit", "stripPunct", "autoGloss", "autoLearned",
-                "autoFill", "stripNames", "autoLlm", "autoContext", "splitChars", "diarSmooth")   # 同じく post 節(編集の画面から始めるときと同じ。後ろの 6 つは RS7-1 S2 で足した = 要求にあれば受付が settings.json でなく要求を使う)
+                "stripNames", "autoLlm", "autoContext", "splitChars", "diarSmooth")   # 同じく post 節(編集の画面から始めるときと同じ。後ろの 5 つは RS7-1 S2 で足した(autoFill は 11-01 に消した)=要求にあれば受付が settings.json でなく要求を使う)
 
 
 def hint_ranges(bundle, duration=None, pad=None):

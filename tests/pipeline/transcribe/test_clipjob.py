@@ -26,7 +26,7 @@ ROWS = [   # 疑似のエンジンの行(取り出した音声の先頭からの
     {"start": 9.0, "end": 9.5, "text": "", "avg_logprob": -0.1},
 ]
 SPEC = {"start": 100.0, "end": 110.0, "language": "ja", "wordSplit": False, "stripPunct": True, "glossary": [], "context": {"members": [], "terms": []},
-        "autoFill": False, "autoLlm": False, "stripNames": False, "model": "small", "engine": "faster-whisper", "beam": 5, "vadMode": "weak", "boost": False}
+        "autoLlm": False, "stripNames": False, "model": "small", "engine": "faster-whisper", "beam": 5, "vadMode": "weak", "boost": False}
 
 
 class _FakeEngine(backend.Backend):

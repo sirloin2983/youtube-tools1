@@ -68,7 +68,7 @@ def _texts(doc):
 class RealWorkerTest(unittest.TestCase):
     """本物の通し(faster-whisper small・CPU)。見本 = 頭 1 秒の無音・「こんにちは。」・1.5 秒・「今日は配信に…」・2.5 秒・低い声の「それでは…」。
     動画は日本語の名前のフォルダの日本語の名前。作業データは一時フォルダ(判別のモデルだけ編集の作業データから写す)・ネットへ出ない(HF_HUB_OFFLINE・TRANSCRIBE_NO_FETCH = 認識ワーカーの中のモデルの取得も止める)"""
-    SPEC = {"model": "small", "language": "ja", "device": "cpu", "autoFill": False, "autoLlm": False}
+    SPEC = {"model": "small", "language": "ja", "device": "cpu", "autoLlm": False}
 
     @classmethod
     def setUpClass(cls):

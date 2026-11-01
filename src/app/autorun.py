@@ -155,7 +155,7 @@ def _settings_want(studio, editor, autorun):
     sub = tx.get("subtitle") if isinstance(tx.get("subtitle"), dict) else {}
     wrap = sub.get("wrapChars") if isinstance(sub.get("wrapChars"), dict) else {}
     cs = tx.get("cutSilence") if isinstance(tx.get("cutSilence"), dict) else {}
-    post_keys = _spec.TX_POST_KEYS + ("autoFill", "stripNames", "autoLlm", "autoContext", "diarSmooth")
+    post_keys = _spec.TX_POST_KEYS + ("stripNames", "autoLlm", "autoContext", "diarSmooth")
     want = {
         "analyze": _settings.analyze_user(an),   # スタジオの画面で保存した解析の設定は本数と感度だけ(ほかは束の既定に固定。10-24)
         "transcribe": dict({k: tx[k] for k in _spec.TX_TRANSCRIBE_KEYS if k in tx}, engine=_spec.implied_engine(tx.get("device"))),
