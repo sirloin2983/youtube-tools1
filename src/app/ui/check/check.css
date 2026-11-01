@@ -107,12 +107,17 @@
 .chk-sec-memos{display:inline-flex;flex-wrap:wrap;gap:2px 8px}
 .chk-sec-memo{display:inline-flex;align-items:center;gap:4px;font-size:13px;min-height:28px;color:var(--muted)}
 .chk-sec-add{border-color:var(--accent)}
+.chk-sym-head{display:flex;align-items:center;gap:12px;margin-bottom:8px}
 .chk-sym-big{font-size:44px;line-height:1.3;min-width:64px;text-align:center;border:1px solid var(--line);border-radius:var(--r);display:inline-block;padding:0 10px}
-.chk-sym-ex{padding-left:18px;margin:6px 0}
-.chk-sym-ex li{margin:4px 0;word-break:break-all}
-.chk-sym-ctx{font-size:18px}
+.chk-sym-name{font-size:15px;color:var(--ink-2)}
+.chk-sym-ctx{font-size:18px;word-break:break-all}
+.chk-sym-after{font-size:16px;word-break:break-all}
+.chk-symhead{margin:0 0 12px;padding:12px 14px}
+.chk-symhead p{margin:4px 0}
+.chk-sym-props,.chk-sym-unsure{list-style:none;margin:6px 0;padding:0;display:grid;gap:6px}
+.chk-sym-props li,.chk-sym-unsure li{display:flex;align-items:center;gap:6px 10px;flex-wrap:wrap}
+.chk-sym-props li>span:first-child,.chk-sym-unsure .chk-sym-ctx{flex:1 1 260px;min-width:0}
 .chk-sym-mark{background:var(--warn-soft);color:var(--warn-ink);padding:0 2px;border-radius:2px}
-.chk-sym-src{display:block;color:var(--muted);font-size:12px}
 .chk-spk-cast{font-size:17px}
 .chk-spk-names{display:flex;flex-wrap:wrap;gap:8px;width:100%}
 .chk-spk-name{font-size:19px;min-width:150px;justify-content:flex-start}

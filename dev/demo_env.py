@@ -246,6 +246,10 @@ def seed_check(tmp, txdir, samples, videos, write_tx, now):
                 "draft": {"origin": "silence", "settings": {}, "keepsSec": keeps, "at": created}}
     with open(os.path.join(txdir, CHECK_DOC + ".edit.json"), "w", encoding="utf-8") as f:
         json.dump(edit_doc, f, ensure_ascii=False)
+    asr = {"schema": "youtube-tools-asr-raw/v1", "run": {"engine": "haas", "model": "demo"},   # 確かめるの記号のカードの見本(whisper の頃の素は出さない。11-02)
+           "segments": [{"start": 0.4, "end": 3.2, "text": "こんばんは・星見ルナです"}, {"start": 3.4, "end": 6.8, "text": "マイクラ/拠点づくり・続き"}]}
+    with open(os.path.join(txdir, CHECK_DOC + ".asr.json"), "w", encoding="utf-8") as f:
+        json.dump(asr, f, ensure_ascii=False)
     ev_rows = [{"id": "e%d" % i, "start": s, "end": s + 3.5, "text": t, "speaker": "S1"} for i, (s, t) in enumerate(
         ((1.0, "はいどうもこんにちは"), (5.0, "今日は評価用の見本です"), (12.0, "ちょっと聞いてみてください"), (24.0, "ここで少し間があります"),
          (33.0, "次の区間の行です"), (40.0, "おしまい")), 1)]

@@ -186,6 +186,7 @@
     unmountCard();
     S.cur = null; S.queue = []; S.loading = null; S.exhausted = false; S.failed = null; S.goal = null;
     renderKinds();
+    loadSymHead();
     show();
   }
   function backHref() { return S.want.back === 'cases' && S.want.c ? 'cases?c=' + encodeURIComponent(S.want.c) : ''; }
@@ -397,6 +398,50 @@
     }).then(function () { evalBusy = false; loadEvalHead(); });
   }
 
+  /* ---- 記号の決まりの欄(種類の切り替えで「記号」を選んだとき。11-02 ユーザーの案 1。読む・書く口 = api/check/symbolrules・src/human/check/symbol.py)。
+     決まりの案(同じ場面の答えがそろった物)を [認める] / [認めない]・認めた決まりの数・「迷う」の一覧([もう一度答える] = その答えの Z = カードがまた出る) ---- */
+  var symBusy = false;
+  function symHeadHtml(j) {
+    var props = Array.isArray(j.proposals) ? j.proposals : [], rules = Array.isArray(j.rules) ? j.rules : [], uns = Array.isArray(j.unsure) ? j.unsure : [];
+    return '<div class="card-title">記号の決まり</div>' +
+      (props.length ? '<p class="hint">同じ場面の答えがそろった所から作った決まりの案です。認めた物だけ決まりに入り、その場面のカードはもう出ません。</p><ul class="chk-sym-props">' +
+        props.map(function (p, i) {
+          return '<li><span>' + esc(p.text) + '<span class="hint">(答え ' + esc(String(p.n)) + ' 件' + (p.unsure ? '・迷う ' + esc(String(p.unsure)) + ' 件' : '') + ')</span></span>' +
+            '<button type="button" class="btn small primary" data-chk-sym="' + i + '" data-chk-sym-ok="1">認める</button>' +
+            '<button type="button" class="btn small" data-chk-sym="' + i + '" data-chk-sym-ok="0">認めない</button></li>';
+        }).join('') + '</ul>' : '<p class="hint">いま決まりの案はありません(同じ場面の答えが 3 件そろうと出ます)。</p>') +
+      '<p class="hint">認めた決まり ' + rules.length + ' 件' + (rules.length ? ': ' + esc(rules.slice(0, 6).map(function (r) { return r.label + 'の「' + r.ch + '」は' + (r.action === 'keep' ? '残す' : '消す'); }).join('・')) + (rules.length > 6 ? ' ほか' : '') : '') + '</p>' +
+      (uns.length ? '<details class="ui-disclosure"><summary>「迷う」と答えた所(' + uns.length + ' 件)</summary><ul class="chk-sym-unsure">' + uns.slice(0, 50).map(function (u) {
+        return '<li><span class="chk-sym-ctx">' + esc(u.text || u.ch) + '</span><span class="hint">' + esc(u.label) + '</span>' +
+          '<button type="button" class="btn small" data-chk-sym-redo="' + esc(u.answer || '') + '">もう一度答える</button></li>';
+      }).join('') + '</ul></details>' : '');
+  }
+  function loadSymHead() {
+    var box = $('#chkSymHead');
+    if (S.want.lane === 'eval' || S.want.kind !== 'symbol') { box.hidden = true; return; }
+    api('api/check/symbolrules', { method: 'GET', timeout: 15000 }).then(function (j) {
+      S.sym = j || {};
+      box.innerHTML = symHeadHtml(S.sym);
+      box.hidden = false;
+    }, function () { box.hidden = true; });
+  }
+  function symAct(b) {
+    if (symBusy) return;
+    var redo = b.getAttribute('data-chk-sym-redo'), p = !redo && S.sym && S.sym.proposals ? S.sym.proposals[+b.getAttribute('data-chk-sym')] : null;
+    if (!redo && !p) return;
+    symBusy = true;
+    var req = redo ? api('api/check/answer', { body: { undo: redo } }) :
+      api('api/check/symbolrules', { body: { ch: p.ch, left: p.left, right: p.right, action: p.action, approve: b.getAttribute('data-chk-sym-ok') === '1' } });
+    req.then(function () {
+      UIKit.toast(redo ? 'その所をもう一度カードに出します' : (b.getAttribute('data-chk-sym-ok') === '1' ? '決まりに入れました: ' + p.text : '認めませんでした: ' + p.text), { ms: 3000 });
+      S.queue = []; S.exhausted = false; S.failed = null;   // 決まり・戻した答えでカードの並びが変わる = 読み直す
+      if (!S.cur) show(); else fill().then(null, function () { /* 次に要るときにもう一度 */ });
+      refreshCounts();
+    }, function (e) {
+      UIKit.toast((redo ? '戻せませんでした: ' : '決まりを書けませんでした: ') + e.message, { kind: 'err', detail: e.detail });
+    }).then(function () { symBusy = false; loadSymHead(); });
+  }
+
   /* ---- 答える・分からない・戻す・飛ばす ---- */
   /* unk = [分からない](W): 答えの代わりに api/check/unknown へ。もう出さないだけ = 今日の数・この画面で答えた数に入れない。Z で戻せる(履歴に積む) */
   function answer(a, unk) {
@@ -431,6 +476,7 @@
     S.hist.push(entry);
     S.seen[card.id] = 1;
     S.today += n; S.answered += n;
+    if (card.kind === 'symbol') entry.p.then(loadSymHead, function () { /* 欄が古いだけ */ });   // 答えで決まりの案・迷うの一覧が変わる
     renderBand();
     show();
   }
@@ -560,6 +606,8 @@
       UIKit.life.onReturn(loadEvalHead);   // 隠していた間は止めて、戻ったら読み直す
       loadEvalHead();
     }
+    $('#chkSymHead').addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('[data-chk-sym],[data-chk-sym-redo]'); if (b) symAct(b); });
+    loadSymHead();
     S.keys = UIKit.keys.playback({ media: curMedia, enabled: function () { return !!S.cur; } });
     document.addEventListener('keydown', onKey);
     $('#chkBody').addEventListener('click', function (e) {   // 答えのボタン = キーと同じ道(描き手の keys)

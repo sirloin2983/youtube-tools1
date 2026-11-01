@@ -67,6 +67,37 @@ class SymbolCardTest(unittest.TestCase):
         with self.assertRaises(apply.Refused):
             apply.answer(self.ctx, card("u0041"), {"answer": {"choice": "keep"}})   # 「A」は記号でない
 
+    def test_place_cards_make_proposals(self):
+        """1 か所ずつのカード(11-02 の案 1): 記録だけ・同じ場面の答えが 3 件そろうと決まりの案・認めた「残す」は symbols.apply が残す・
+        認めなかった案は答えが 3 件増えるまで出ない・食い違う答えの場面は案にしない"""
+        from pipeline.transcribe import symbols as S
+
+        def place(i, ch="u002e", scene=("digit", "digit")):
+            return {"id": "symbol:asr:aaaaaaaaaaaa#0#%d" % i, "kind": "symbol", "source": "asr", "case": {"id": "", "title": ""},
+                    "target": {"symbol": ch, "docId": "aaaaaaaaaaaa", "row": None, "seg": 0, "at": i, "scene": list(scene), "ctx": "1[.]5"}}
+        for i in range(2):
+            got = apply.answer(self.ctx, place(i), {"answer": {"choice": "keep"}})
+            self.assertEqual(got["applied"]["scene"], ["u002e", "digit", "digit"])
+        self.assertFalse(os.path.exists(self.path))   # 記録だけ(字を足さない)
+        self.assertEqual(symbol.proposals(self.ctx.app_dir), [])   # 2 件では案にしない
+        apply.answer(self.ctx, place(2), {"answer": {"choice": "keep"}})
+        apply.answer(self.ctx, place(3, scene=("kana", "kana")), {"answer": {"choice": "keep"}})
+        apply.answer(self.ctx, place(4, scene=("kana", "kana")), {"answer": {"choice": "ok"}})
+        apply.answer(self.ctx, place(5, scene=("kana", "kana")), {"answer": {"choice": "keep"}})
+        p = symbol.proposals(self.ctx.app_dir)
+        self.assertEqual([(x["text"], x["n"]) for x in p], [("数字と数字の間の「.」は残す", 3)])   # かなの間は答えが食い違うので案にしない
+        symbol.decide(self.ctx.app_dir, ".", "digit", "digit", "keep", False)
+        self.assertEqual(symbol.proposals(self.ctx.app_dir), [])   # 認めなかった = 答えが増えるまで出さない
+        symbol.decide(self.ctx.app_dir, ".", "digit", "digit", "keep", True)
+        scenes = S.read_scenes(symbol.rules_path(self.ctx.app_dir))
+        self.assertEqual((S.apply("1・2")[0], S.apply("1・2", None, {("・", "digit", "digit"): "認めた"})[0]), ("12", "1・2"))   # 場面の決まりで残す
+        self.assertEqual(symbol.decided_scenes(self.ctx.app_dir), {(".", "digit", "digit"): "keep"})
+        self.assertIn((".", "digit", "digit"), scenes)
+        apply.answer(self.ctx, place(6, scene=("kana", "kana")), {"answer": {"choice": "unsure"}})
+        self.assertEqual([u["text"] for u in symbol.unsure_list(self.ctx.app_dir)], ["1[.]5"])
+        with self.assertRaises(ValueError):
+            symbol.decide(self.ctx.app_dir, ".", "digit", "nope", "keep", True)
+
 
 if __name__ == "__main__":
     unittest.main()

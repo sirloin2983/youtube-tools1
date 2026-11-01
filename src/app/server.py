@@ -32,6 +32,8 @@
   GET  /api/check/voiceclip?doc=&row=     誰の声のカードの行の短い音(wav。src/human/proof/voiceclips.py。元の動画が片付いた文書の行も聞ける)
   GET  /api/check/voicemeasure?key=       誰の声のカードの測る分の行の短い音(wav。src/app/check/voice_measure.py。ショートの元の配信から研究が切り出した物)
   GET  /api/check/voicecollab?key=        コラボの話者のカードの行の短い音(wav。src/app/check/voice_collab.py。研究が話者分離の行から切り出した物)
+  GET  /api/check/symbolrules            記号の決まりの欄 {proposals, rules, unsure}(src/human/check/symbol.py の summary。11-02)
+  POST /api/check/symbolrules            {ch, left, right, action: keep|remove, approve: true|false} 記号の決まりの案を認める / 認めない
   GET  /api/check/members                話者カードの「ほかのメンバーを足す」の探し方の表(src/app/check/members.py。期ごとの組・読み・ローマ字・呼ばれ方・色)
   GET  /api/home/requests                 ホームの「友人の依頼」: 受付の記録に実行の記録を結んだ行 {rows: [{id, title, state, label, done, link, why, ...}]}(src/app/homereq.py)
   GET  /api/backup                        作業データのバックアップの状態・設定(src/manage/keep/backup.py。notes:docs/spec/data.md の「バックアップ」)
@@ -631,6 +633,7 @@ POST_ROUTES = {"/api/cases/auto": ("_post_case_auto", True),
                "/api/intake/scan": ("_post_intake_scan", True), "/api/backup/run": ("_post_backup_run", True),
                "/api/accuracy/run": ("_post_accuracy_run", True),
                "/api/check/answer": ("_post_check", True), "/api/check/unknown": ("_post_check", True), "/api/check/skip": ("_post_check", True), "/api/check/flush": ("_post_check", True),
+               "/api/check/symbolrules": ("_post_symbol_rules", True),
                "/api/ui-timing": ("_post_ui_timing", False),
                "/api/shutdown": ("_post_shutdown", False)}
 
@@ -819,6 +822,8 @@ class PortalHandler(httpsec.LocalHandler):
                 return self._fail(404, "not_found", "その行の音はありません")
             with open(p, "rb") as f:
                 return self._send(200, f.read(), "audio/wav", {"Cache-Control": "private, max-age=3600"})
+        if u.path == "/api/check/symbolrules":   # 記号の決まりの欄(11-02)
+            return self._json(200, _check_symbol.summary(self.server.check_ctx().app_dir))
         if u.path == "/api/check/members":   # 話者カードのほかのメンバーの欄(11-02)
             return self._json(200, check_members.index())
         if u.path == "/api/check/voicecollab":   # コラボの話者のカードの行の音(11-01。app/check/voice_collab)
@@ -920,6 +925,18 @@ class PortalHandler(httpsec.LocalHandler):
         finally:
             check_deck.mark_stale()
         return self._json(200, out)
+
+    def _post_symbol_rules(self, path, body):
+        """記号の決まりの案を認める / 認めない(11-02。src/human/check/symbol.py の decide)。認めた場面のカードはもう出さない"""
+        try:
+            row = _check_symbol.decide(self.server.check_ctx().app_dir, body.get("ch"), body.get("left"), body.get("right"), body.get("action"), body.get("approve"))
+        except ValueError as e:
+            return self._fail(400, "bad_request", str(e))
+        except OSError as e:
+            return self._fail(500, "write", "記号の決まりを書けませんでした: %s" % tools.why(e))
+        finally:
+            check_deck.mark_stale()
+        return self._json(200, {"ok": True, "rule": row})
 
     def _post_flow_submit(self, path, body):
         """② の口(RS7-1 S4・RV A1): {envelope, spec?} を待ち行列に積む(src/flow/runqueue.py の Queue.submit)か、同じ本文で見積もる

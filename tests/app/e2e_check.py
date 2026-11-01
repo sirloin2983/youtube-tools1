@@ -82,6 +82,8 @@ class FakeQueue:
         self.undone = []
         self.skipped = []
         self.unknowns = []     # [分からない] [{id, body}](undo の id で戻る)
+        self.symrules = {"proposals": [], "rules": [], "unsure": []}   # 記号の決まりの欄の返事(11-02)
+        self.sym_posts = []    # 記号の決まりの案への答え
         self.next_q = []       # 受けた next の引数
         self.fail_next = 0     # 次の n 回の next を 500 に
         self.fail_answer = 0
@@ -101,6 +103,12 @@ class FakeQueue:
         u = urllib.parse.urlparse(req.url)
         q = urllib.parse.parse_qs(u.query)
         with self.lock:
+            if u.path.endswith("/api/check/symbolrules"):   # 記号の決まりの欄(11-02)
+                if req.method == "POST":
+                    self.sym_posts.append(json.loads(req.post_data or "{}"))
+                    self.symrules["proposals"] = []
+                    return route.fulfill(status=200, content_type="application/json", body='{"ok": true}')
+                return route.fulfill(status=200, content_type="application/json", body=json.dumps(self.symrules, ensure_ascii=False))
             if u.path.endswith("/api/check/members"):   # 話者カードの「ほかのメンバーを足す」の探し方の表(11-02)
                 return route.fulfill(status=200, content_type="application/json", body=json.dumps(MEMBERS, ensure_ascii=False))
             if u.path.endswith("/api/check/next"):
@@ -620,6 +628,39 @@ def _scene_speaker(cx):
         _restore_queue(cx)
 
 
+def _scene_symbol(cx):
+    """記号のカード(11-02 の案 1): 1 か所 = 1 枚・文脈に色・消した後の文・名前と全角 / 半角・場面・消してよい / 残す / 迷う。
+    種類で記号を選ぶと上に記号の決まりの欄(決まりの案を 認める / 認めない・迷うの一覧の もう一度答える = その答えの Z)"""
+    pg, check = cx.pg, cx.check
+    def sym(i):
+        return card(i, "symbol", source="asr", text="・", media=None, target={"symbol": "u30fb", "docId": "a0000000000a", "row": None, "seg": 0, "at": 3, "scene": ["kana", "kana"]},
+                    context={"left": "うん", "right": "そう", "removed": "うんそう", "title": "テストの配信"}, name="中黒(全角)", scene="かなとかなの間", sceneCount=5)
+    fy = FakeQueue([sym(i) for i in (95, 96)])
+    fy.symrules = {"proposals": [{"ch": "・", "left": "kana", "right": "kana", "label": "かなとかなの間", "action": "remove", "n": 3, "ok": 3, "keep": 0, "unsure": 0,
+                                  "text": "かなとかなの間の「・」は消す"}], "rules": [],
+                   "unsure": [{"answer": "ans009", "card": "symbol:e2e:90", "ch": "・", "label": "かなとかなの間", "text": "うん[・]そう", "at": 1}]}
+    _swap_queue(cx, fy)
+    try:
+        pg.goto(cx.base + "check?kind=symbol")
+        check(wait_js(pg, "CheckShell.state().cur === 'symbol:e2e:95'"), "記号のカードを開く: %s" % state(pg))
+        body = pg.text_content("#chkBody") or ""
+        check("中黒(全角)" in body and "消した後: うんそう" in body and "かなとかなの間" in body and pg.text_content("#chkBody mark") == "・",
+              "名前と全角 / 半角・消した後の文・場面・文脈の記号に色: %r" % body[:160])
+        check(wait_js(pg, "!document.querySelector('#chkSymHead').hidden && document.querySelector('#chkSymHead').textContent.includes('かなとかなの間の「・」は消す')"),
+              "記号を選ぶと上に記号の決まりの欄(案)")
+        pg.click("#chkSymHead [data-chk-sym-ok='1']")
+        check(wait_for(lambda: fy.sym_posts == [{"ch": "・", "left": "kana", "right": "kana", "action": "remove", "approve": True}]), "認める = POST symbolrules: %s" % fy.sym_posts)
+        press(pg, "U")
+        check(wait_js(pg, "CheckShell.state().cur === 'symbol:e2e:96'") and fy.answers[-1]["body"]["answer"] == {"choice": "unsure"}, "迷う = {choice: unsure}: %s" % fy.answers[-1:])
+        pg.click("#chkSymHead summary")
+        pg.click("#chkSymHead [data-chk-sym-redo='ans009']")
+        check(wait_for(lambda: "ans009" in fy.undone), "迷うの一覧の もう一度答える = その答えの Z: %s" % fy.undone)
+        press(pg, "A")
+        check(wait_for(lambda: fy.answers[-1]["body"]["answer"] == {"choice": "ok"}), "消してよい = {choice: ok}: %s" % fy.answers[-1:])
+    finally:
+        _restore_queue(cx)
+
+
 def _swap_queue(cx, fq2, eval_routes=None):
     """api/check/ の偽物を fq2 に差し替える(戻すのは _restore_queue)。eval_routes = transcribe/api/drill/status・eval-batch の偽物(あれば)"""
     cx.ctx.unroute(re.compile(r".*/api/check/.*"))
@@ -875,6 +916,7 @@ def main():
                 _scene_cut(cx)
                 _scene_kind_pick(cx)
                 _scene_speaker(cx)
+                _scene_symbol(cx)
                 _scene_eval_lane(cx)
                 check(all("lane" not in q for q in fq.next_q), "普段のレーンは lane=eval を渡さない")
                 _scene_real_api(cx)

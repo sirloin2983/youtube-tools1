@@ -7,6 +7,9 @@
   extra = 確かめるの「例外にする」の答え(入口の作業データの check/symbol-exceptions.json の keep_chars)。呼び手がパスを渡す。
 - apply(text, extra=None) -> (残した字, [{"ch", "at", "kept", "why"}])。at は NFKC にした字の位置。
 - decided(c) = ユーザーが消すと決めた記号か(decided_remove。消し方は変わらない・確かめるで聞かないだけ)。
+- 場面(11-02 ユーザーの案 1): 記号の前後の字の種類(scene_kind = 数字・英字・かな・漢字・空白・記号・行の端・ほか)で機械的に分ける。
+  scene_of(t, i) = (記号, 前の種類, 後の種類)。確かめるの記号のカードの答えから道具が決まりの案を作り、ユーザーが認めた「残す」の決まりは
+  入口の作業データの check/symbol-rules.json に入る(read_scenes が読む = apply の scenes)。認めた「消す」の決まりは今の消し方のまま(カードに出さないだけ)。
 """
 import json
 import os
@@ -70,6 +73,73 @@ def base_rules():
         return _base["rules"]
 
 
+SCENE_LABEL = {"digit": "数字", "latin": "英字", "kana": "かな", "kanji": "漢字", "space": "空白", "symbol": "記号", "edge": "行の端", "other": "ほかの字"}
+_scenes = {}
+
+
+def scene_kind(c):
+    """記号の前後の字の種類(場面を分ける)。c = None は行の端"""
+    if c is None:
+        return "edge"
+    if c.isspace():
+        return "space"
+    if c.isdigit():
+        return "digit"
+    if c.isascii() and c.isalpha():
+        return "latin"
+    if is_symbol(c):
+        return "symbol"
+    n = unicodedata.name(c, "")
+    if n.startswith(("HIRAGANA", "KATAKANA")) or c == "ー":
+        return "kana"
+    if n.startswith("CJK UNIFIED") or c in "々〆":
+        return "kanji"
+    return "other"
+
+
+def scene_of(t, i):
+    """-> (記号, 前の字の種類, 後の字の種類)"""
+    return (t[i], scene_kind(t[i - 1] if i else None), scene_kind(t[i + 1] if i + 1 < len(t) else None))
+
+
+def scene_label(left, right):
+    """「数字と数字の間」・「行の頭(後ろがかな)」など"""
+    if left == "edge" and right == "edge":
+        return "1 字だけの行"
+    if left == "edge":
+        return "行の頭(後ろが%s)" % SCENE_LABEL.get(right, right)
+    if right == "edge":
+        return "行の終わり(前が%s)" % SCENE_LABEL.get(left, left)
+    return "%sと%sの間" % (SCENE_LABEL.get(left, left), SCENE_LABEL.get(right, right))
+
+
+def read_scenes(path):
+    """認めた「残す」の場面の決まり(確かめるの記号の決まり check/symbol-rules.json)-> {(記号, 前, 後): 理由}(更新時刻で覚え直す)"""
+    if not path:
+        return {}
+    try:
+        st = os.stat(path)
+    except OSError:
+        return {}
+    key = (st.st_mtime_ns, st.st_size)
+    got = _scenes.get(path)
+    if got and got[0] == key:
+        return got[1]
+    out = {}
+    if st.st_size <= MAX_EXTRA_BYTES:
+        try:
+            with open(path, encoding="utf-8") as f:
+                d = json.load(f)
+            for r in (d.get("rules") or ()) if isinstance(d, dict) else ():
+                if isinstance(r, dict) and r.get("approved") is True and r.get("action") == "keep" and isinstance(r.get("ch"), str):
+                    out[(unicodedata.normalize("NFKC", r["ch"]), str(r.get("left")), str(r.get("right")))] = "認めた決まり: %s の %s は残す" % (
+                        scene_label(str(r.get("left")), str(r.get("right"))), r["ch"])
+        except (OSError, ValueError, AttributeError):
+            out = {}
+    _scenes[path] = (key, out)
+    return out
+
+
 def _emoji(c):
     o = ord(c)
     return o >= 0x1F000 or 0x2600 <= o <= 0x27BF or 0x2B00 <= o <= 0x2BFF
@@ -108,8 +178,9 @@ def read_extra(path):
     return out
 
 
-def apply(text, extra=None):
-    """記号を消す。extra = 足す例外の字 {字: 理由}(read_extra の戻り)。-> (残した字, 記号ごとの出来事)"""
+def apply(text, extra=None, scenes=None):
+    """記号を消す。extra = 足す例外の字 {字: 理由}(read_extra の戻り)・scenes = 残す場面 {(記号, 前, 後): 理由}(read_scenes の戻り)。
+    -> (残した字, 記号ごとの出来事)"""
     t = unicodedata.normalize("NFKC", text or "")
     r = base_rules()
     chars = dict(r["chars"], **(extra or {}))
@@ -127,7 +198,7 @@ def apply(text, extra=None):
         if not is_symbol(c):
             out.append(c)
             continue
-        why = guard.get(i) or chars.get(c)
+        why = guard.get(i) or chars.get(c) or ((scenes or {}).get(scene_of(t, i)) if scenes else None)
         if why is None:
             lk, rk = _kind(t[i - 1]) if i else "", _kind(t[i + 1]) if i + 1 < len(t) else ""
             for cs, side, w in r["between"]:
