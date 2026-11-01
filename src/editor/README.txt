@@ -291,6 +291,7 @@
     使えるもの: 続いている行の終わりを早める TRANSCRIBE_END_TRIM(既定 0)・続いている行をつなぐ TRANSCRIBE_JOIN_GAP(既定 0.5 秒)・読む速さの印と時刻の候補。
     GPU(whisper.cpp)は声の検出のモデル(ggml-silero)を取得しません。
   - 認識の記録 recognition.runs[].post は version・endTrim・joinGap だけです(前の版の文書に残っている pullEnds・retime・retimed は読むだけで、壊れません)。
+    Haas で読んだ文書は post.haas(行の作りの値: 先に切る字・つなぐ切れ端の字数・頭を早める秒・末を伸ばす上限)と、runs の secondNames(名前の 2 回読みで足した名前)・restarts(speech worker を起こし直した回数)も残します。
     2 つ目のエンジンの候補(<id>.alt.json)の post も clip・mergeRepeats だけです。
   - 同じ文書に同時に入れない処理: 「再認識」「疑わしい所の認識し直し」も「声を覚える」の最中は断ります(声を覚える途中で行の時刻が変わると、覚える区間がずれるため)。
     断ったときの文は「この文字起こしは、すでに別の処理(話者判別・再認識・声を覚える)の最中です」。

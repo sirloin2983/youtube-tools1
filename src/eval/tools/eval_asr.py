@@ -540,7 +540,8 @@ def recognize_doc(doc, spec, data):
         gen = _fake_asr.transcribe_fake(job, spec, wav, audio_sec) if _backend.is_fake() else _recognize.transcribe_real(job, spec, wav, audio_sec)
         rows, prev = [], []
         # 文字起こしのジョブ(run_job)と同じ整え方(長さより後ろの行を捨てる・繰り返しをまとめる・続いている行をつなぐ)。
-        segs = list(_postproc.expand_segments(gen, spec, audio_sec))
+        voice = _recognize.haas_voice(job, spec, wav) if _postproc.is_haas(spec) else None   # Haas の行の末を伸ばす声の区間(本番の recognize._rows_of と同じ)
+        segs = list(_postproc.expand_segments(gen, spec, audio_sec, voice=voice))
         pairs = []
         if spec.get("evalPost"):   # --post prod: 本番の後処理(clipjob と同じ 声の無い行 → 名簿の表記ゆれ)。学習した置換・LLM は入れない(A・C・D は 11-01 に消した)
             segs, _rec, _read = _fill.fill_after_rows(job, spec, segs, wav, audio_sec)

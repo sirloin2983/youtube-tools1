@@ -60,9 +60,9 @@ class RefreshTest(unittest.TestCase):
         return refresh.tick(self.ctx, self.call, self.app, now=now, collect=self.collect)
 
     def test_output_old(self):
-        self.assertTrue(records.output_old(doc("0.99.18")))       # 数で比べる(0.99.18 < 0.99.400)
-        self.assertTrue(records.output_old(doc("0.99.399")))      # Haas に替える前の版(11-01)
-        self.assertFalse(records.output_old(doc("0.99.400")))
+        self.assertTrue(records.output_old(doc("0.99.18")))       # 数で比べる(0.99.18 < 0.99.409)
+        self.assertTrue(records.output_old(doc("0.99.408")))      # Haas の行の末の上限を 0.5 秒にする前の版(11-01)
+        self.assertFalse(records.output_old(doc("0.99.409")))
         self.assertFalse(records.output_old(doc("0.99.1000")))
         self.assertTrue(records.output_old({"segments": []}))     # 版が分からない
         self.assertTrue(records.output_old(doc("9.0.0"), model="large-v3-turbo"))

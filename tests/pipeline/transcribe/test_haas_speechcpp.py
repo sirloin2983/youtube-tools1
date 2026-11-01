@@ -110,9 +110,12 @@ class HaasSpeechCppTest(unittest.TestCase):
         mark = os.path.join(self.tmp, "died")
         e = self.engine(FAKE_SPEECH_DIE="1:" + mark)
         with mock.patch.dict(os.environ, dict(self.env, FAKE_SPEECH_DIE="1:" + mark), clear=True):
-            segs, _ = self.run_engine(e, tone(15))
+            segs, info = self.run_engine(e, tone(15))
         self.assertEqual(e.restarts, 1)
         self.assertEqual(len(segs), 1)
+        self.assertEqual((info.restarts, info.second_names), (1, []))   # この認識の回数(文書の記録 runs へ)
+        _segs, info = self.run_engine(e, tone(15))
+        self.assertEqual(info.restarts, 0)   # 次の認識は 0 から(エンジンの累計ではない)
 
     def test_second_failure_goes_up(self):
         e = self.engine()

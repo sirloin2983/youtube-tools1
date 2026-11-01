@@ -160,6 +160,9 @@ def transcribe_vad_fallback(job, model, audio, spec, on_seg=None):
             raw.append(seg_to_dict(s))
             if on_seg:
                 on_seg(raw[-1], len(raw))   # この回(やり直しごと)の行の数
+        if isinstance(getattr(info, "second_names", None), list) and isinstance(job, dict):   # Haas の名前の 2 回読み・起こし直し(読み終えて決まる。records.recognition_run が runs に残す)
+            job["secondNames"] = list(info.second_names)
+            job["restarts"] = int(job.get("restarts") or 0) + int(getattr(info, "restarts", 0) or 0)
         if not any(r["text"] and not postproc.stock_phrase(r["text"]) and not _roster.leak_only(r["text"], terms) for r in raw) and not last:
             # 「ご視聴ありがとうございました」だけ・ヒントの語だけ = 文字が 0 と同じ
             retries.append({"mode": mode, "kept": None if kept is None else round(kept, 3), "removedSec": removed, "why": "empty"})

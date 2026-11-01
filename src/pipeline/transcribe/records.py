@@ -85,6 +85,8 @@ def recognition_run(spec, job, audio_sec, wall_sec, pairs=None):
     for k in ("gpu", "backend"):   # whisper.cpp が実際に使った装置(GPU 名・backend。無ければ書かない)
         if job.get(k):
             run[k] = str(job[k])
+    if isinstance(job.get("secondNames"), list):   # Haas(speech.cpp): 名前の 2 回読みで足した名前・speech worker を起こし直した回数
+        run.update({"secondNames": list(job["secondNames"]), "restarts": int(job.get("restarts") or 0)})
     t = engine_timing(job.get("engineTiming"))
     if t:
         run["engineTiming"] = t
@@ -96,7 +98,7 @@ def recognition_run(spec, job, audio_sec, wall_sec, pairs=None):
 
 # 文字起こしの出力(行の文字・時刻・後処理)が変わる直しを入れたら、その版に上げる。これより前の版で文字起こしした文書は「古い版」
 # (確かめるのカードの元を、今の出力で作り直す対象。app/check/refresh)。エンジン・モデルの違いは版と別に output_old が見る
-OUTPUT_SINCE = "0.99.400"   # 11-01 主の文字起こしを Haas(speech.cpp)に替えた版(段 3)。前の版の確かめるのカードの元の文書は夜に作り直す(この PC で 4 本)
+OUTPUT_SINCE = "0.99.409"   # 11-01 Haas の行の末を伸ばす上限を 1.0 → 0.5 秒に(postproc.HAAS_END_EXT)。前は 0.99.400 = 主の文字起こしを Haas(speech.cpp)に替えた版(段 3)
 
 
 def _ver_key(v):

@@ -165,7 +165,9 @@ class FakeBackend(_fa_backend.Backend):
         return ""
 
     def voice_spans(self, job, wav, real):
-        raw = os.environ.get("TRANSCRIBE_FAKE_VOICED", "")   # 「始め-終わり,…」の秒(空 = 区間なし)
+        raw = os.environ.get("TRANSCRIBE_FAKE_VOICED")   # 「始め-終わり,…」の秒(空 = 区間なし)
+        if raw is None:   # 付けていなければ全部が声(声の無い行を捨てない。編集の画面の道でも dropSilent が既定オンになった 11-01)
+            return [(0.0, 1e9)]
         return [tuple(float(v) for v in p.split("-", 1)) for p in raw.split(",") if "-" in p]
 
     def llm_ask(self, job, spec, real):

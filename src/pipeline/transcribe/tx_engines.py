@@ -1377,12 +1377,13 @@ class HaasSpeechCpp(_Qwen3Chunked):
 
     def transcribe(self, audio, **kw):
         """区切りごとに読む(_Qwen3Chunked)。名前の候補があり、1 回目の字に名簿のほかの人の短い呼び名が何度も出たら、長い呼び名を足して 2 回目を読む(P30)。
-        info.second_names = 足した名前(無ければ [])"""
+        info.second_names = 足した名前(無ければ [])・info.restarts = この認識で speech worker を起こし直した回数(行を読み終えて決まる)"""
+        r0 = self.restarts
         gen, info = super().transcribe(audio, **kw)
-        info.second_names = []
+        info.second_names, info.restarts = [], 0
         hot = _hot_terms(kw)
         if not hot or not SECOND_READ:
-            return gen, info
+            return self._count_restarts(gen, info, r0), info
         segs = list(gen)
         try:
             from . import roster as _roster
@@ -1391,11 +1392,18 @@ class HaasSpeechCpp(_Qwen3Chunked):
             _txbase.log.warning("名前の 2 回読みの名簿を読めませんでした: %s", e.__class__.__name__)
             add = []
         if not add:
-            return iter(segs), info
+            return self._count_restarts(iter(segs), info, r0), info
         info.second_names = add
         _txbase.log.info("名前を足して 2 回目を読みます: %s", "・".join(add)[:200])
         gen2, _info2 = super().transcribe(audio, **dict(kw, hotwords=",".join(hot + add)))
-        return gen2, info
+        return self._count_restarts(gen2, info, r0), info
+
+    def _count_restarts(self, gen, info, r0):
+        """行を流しながら、この認識で起こし直した回数を info.restarts に書く(区切りを読むのは行を流す間 = 読み終えて決まる)"""
+        for s in gen:
+            info.restarts = self.restarts - r0
+            yield s
+        info.restarts = self.restarts - r0
 
     def _read_chunk(self, pcm, opt):
         """1 つの区切りを読む。worker が終わっていたら 1 回だけ起こし直して読み直す(P39)。2 回目の失敗は EngineError のまま上へ"""

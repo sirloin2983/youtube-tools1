@@ -220,7 +220,9 @@ def _op_transcribe(m, rid, job, out, cancels):
         out.send({"rid": rid, "ev": "item", "v": _seg_dict(s)})
         n += 1
     models._model_used[0] = time.time()
-    return {"count": n, "cancelled": rid in cancels, "language": getattr(info, "language", None)}
+    haas = {"secondNames": [str(x)[:60] for x in info.second_names][:20], "restarts": int(getattr(info, "restarts", 0) or 0)} \
+        if isinstance(getattr(info, "second_names", None), list) else {}   # Haas(speech.cpp)の名前の 2 回読みと起こし直し(行を読み終えて決まる。文書の記録 runs へ)
+    return {"count": n, "cancelled": rid in cancels, "language": getattr(info, "language", None), **haas}
 
 
 def _op_diarize(m, rid, job, out, cancels):

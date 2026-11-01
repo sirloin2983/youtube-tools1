@@ -26,7 +26,7 @@ from test_backend import StoreDir, write_json  # noqa: F401,E402  (S = serve)
 from ytt import workdata as _workdata  # noqa: E402
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))   # tests/(testkit)
 import testkit  # noqa: E402
-from pipeline.transcribe import fill  # noqa: E402
+from pipeline.transcribe import fill, separate  # noqa: E402
 from pipeline.transcribe import llm  # noqa: E402
 from pipeline.transcribe import roster  # noqa: E402
 from human.proof import doc_jobs  # noqa: E402
@@ -97,7 +97,7 @@ class TestFillJobRun(StoreDir):
         self.assertEqual([g.get("fill") for g in segs], [{"from": "テスト文1", "by": "llm"}, {"from": "リリー:テスト文2", "by": "name"}, None])   # 後処理 B の行は LLM に選ばれない
         self.assertEqual([g["flag"].split("(")[0] for g in segs], [llm.LLM_FLAG.split("(")[0], fill.FILL_SPK_FLAG.split("(")[0], ""])
         run = doc["recognition"]["runs"][0]
-        self.assertNotIn("fill", run)   # 2 つ目の読み(A・C・D)は 11-01 に消した・dropSilent も切ってある
+        self.assertEqual(run["fill"], {"dropped": {"n": 0, "db": -separate.SEP_DB, "rows": []}})   # 2 つ目の読み(A・C・D)は 11-01 に消した。残るのは dropSilent の記録だけ(疑似は全部が声)
         self.assertEqual((run["names"], run["llm"]), (1, {"engine": "llama-text", "model": "qwen3-8b", "picked": 2, "proposed": 2, "applied": 1, "rejected": {"cap": 1}, "gloss": 0}))
         self.assertEqual({k: doc["params"][k] for k in ("autoFill", "stripNames", "autoLlm")}, {"autoFill": True, "stripNames": True, "autoLlm": True})
         self.assertEqual(doc["params"]["context"], {"members": [{"name": "テスト分子", "from": ["title"]}], "terms": 2})   # 動画のフォルダの名前から
@@ -116,6 +116,8 @@ class TestFillJobRun(StoreDir):
         base = {"sourcePath": self.video, "model": "small"}
         v = doc_jobs.validate_job(base)
         self.assertEqual((v["autoFill"], v["autoLlm"], v["stripNames"], v["context"]), (True, False, True, {"members": [], "terms": []}))   # 配信ごとの文脈は既定オフ
+        self.assertEqual((v["dropSilent"], v["endSnap"]), (True, False))   # 編集の画面から頼んでも声の無い行を捨てる(束の既定と同じ。Haas の変更の一覧 0-5)
+        self.assertFalse(doc_jobs.validate_job(dict(base, evalSet=True))["dropSilent"])   # 評価用には当てない
         write_json(_workdata.SETTINGS, {"autoFill": False, "autoLlm": False})
         v = doc_jobs.validate_job(base)
         self.assertEqual((v["autoFill"], v["autoLlm"]), (False, False))

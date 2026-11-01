@@ -335,9 +335,9 @@ class EvalAsrTest(Base):
         real = postproc.expand_segments
         calls = []
 
-        def spy(gen, spec, dur=None, join=True):
+        def spy(gen, spec, dur=None, join=True, voice=None):
             calls.append((dur, join))
-            return real(gen, spec, dur, join=join)
+            return real(gen, spec, dur, join=join, voice=voice)
 
         def fake(job, spec, wav, total):   # 8 秒の音声に、長さの外(100 秒)の行
             yield {"start": 0.0, "end": 4.0, "text": "中の行"}

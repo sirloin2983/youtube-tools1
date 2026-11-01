@@ -44,7 +44,7 @@ class HaasRowsTest(unittest.TestCase):
     def test_times_extend_end_and_early_head(self):
         rows = [{"start": 1.0, "end": 2.0, "text": "a"}, {"start": 2.6, "end": 3.0, "text": "b"}, {"start": 6.0, "end": 6.5, "text": "c"}]
         got = P.haas_times([dict(r) for r in rows], [(0.9, 2.3), (2.5, 5.0), (5.9, 9.0)], dur=10.0)
-        self.assertEqual([(r["start"], r["end"]) for r in got], [(0.95, 2.3), (2.55, 4.0), (5.95, 7.5)])   # 声の終わりまで・多くて 1 秒・次の頭まで
+        self.assertEqual([(r["start"], r["end"]) for r in got], [(0.95, 2.3), (2.55, 3.5), (5.95, 7.0)])   # 声の終わりまで・多くて 0.5 秒(HAAS_END_EXT)・次の頭まで
         got = P.haas_times([dict(r) for r in rows], None)
         self.assertEqual(got[1]["end"], 3.0)   # 声の区間が無ければ伸ばさない
 
@@ -57,6 +57,16 @@ class HaasRowsTest(unittest.TestCase):
         self.assertEqual(rows[1]["start"], 2.95)
         rows = list(P.expand_segments(iter([seg([(0.0, 0.4, "あ"), (0.5, 0.9, "い")])]), {"engine": "whisper.cpp", "wordSplit": True, "stripPunct": True}, 5.0))
         self.assertEqual([r["text"] for r in rows], ["あい"])   # whisper の道は今のまま
+
+    def test_run_record_haas(self):
+        from pipeline.transcribe import records
+        self.assertEqual(P.post_record(HAAS)["haas"], {"cutMarks": "".join(sorted(P.HAAS_CUT_MARKS)), "tiny": 2, "headEarly": 0.05, "endExt": 0.5})
+        self.assertNotIn("haas", P.post_record({"engine": "whisper.cpp"}))
+        spec = dict(HAAS, model="haas-ja-v1.0", language="ja", beam=5, vadMode="weak", boost=False)
+        self.enterContext(mock.patch.object(records._roster, "ROSTER", records._roster.BUNDLED))   # 辞書の版を読む名簿(テストでは同梱の物)
+        run = records.recognition_run(spec, {"device": "vulkan", "secondNames": ["大神ミオ"], "restarts": 1}, 10.0, 1.0)
+        self.assertEqual((run["secondNames"], run["restarts"], run["post"]["haas"]["endExt"]), (["大神ミオ"], 1, 0.5))
+        self.assertNotIn("secondNames", records.recognition_run(dict(spec, engine="whisper.cpp"), {"device": "vulkan"}, 10.0, 1.0))
 
     def test_second_names(self):
         members = {"大神ミオ": {"name": "大神ミオ", "aliases": ["ミオ", "ミオしゃ", "ミオちゃん"], "common": []},

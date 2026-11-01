@@ -109,6 +109,8 @@ def validate_job(req):
             "autoLlm": pref("autoLlm", default_on=False) and not ev,
             # 行の頭の話者名(「名前:」)を外す(fill の B。既定オン)。評価用には当てない
             "stripNames": pref("stripNames", default_on=True) and not ev,
+            # 声の無い行を捨てる(dropSilent。既定オン = 束の既定と同じ)・行の終わりを寄せる(endSnap。既定オフ)。前は束の流しだけで動いていた(Haas の変更の一覧 0-5)。評価用には当てない
+            "dropSilent": pref("dropSilent", default_on=True) and not ev, "endSnap": pref("endSnap") and not ev,
             "autoLearned": req.get("autoLearned") is True and not ev, "autoContext": req.get("autoContext") is True and not ev,
             "learning": {"version": str(req.get("learningVersion") or "")[:80]}}
     spec = _flowtx.tx_spec(req, post, src=src, dur=dur)

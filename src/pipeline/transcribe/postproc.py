@@ -149,7 +149,7 @@ def note_nosub(text):
 
 HAAS_CUT_MARKS = frozenset("。?!？！、,，")   # Haas の区切りの 1 行を先に切る字(文の終わりと読点。P22・P28)
 HAAS_TINY = 2          # 切った後のこの字数以下の切れ端は前(無ければ次)につなぐ(P37)
-HAAS_END_EXT = 1.0     # 行の末が声の区間の中なら、その声の終わりまで伸ばす上限(秒・予備1 の (a)・次の行の頭まで。0.5 か 1.0 かは友人の校正の写しで決める)
+HAAS_END_EXT = 0.5     # 行の末が声の区間の中なら、その声の終わりまで伸ばす上限(秒・予備1 の (a)・次の行の頭まで。11-01 に 1.0 → 0.5: 研究で人の末に一番近い = 人の末 ±0.2 秒が 80 → 83 / 185)
 HAAS_HEAD_EARLY = 0.05  # 行の頭を早める秒(P49。前の行の末より前にしない)
 
 
@@ -436,9 +436,13 @@ def post_record(spec=None):
     """recognition.runs[].post: この認識の行の後処理の設定(測る道具 src/eval/tools/eval_timing.py が「版ごと」に分ける)。
     version = 編集の版・endTrim(whisper.cpp の続いている行の終わりを早める秒)・joinGap(続いている行をつなぐすき間)= その spec で当てた値(post_values)。
     古い記録には pullEnds(音の谷へ寄せるか)・retime(1 秒丸めの配り直しのモデル | False)の鍵もある(読むだけ)。
-    runs[].retimed(配り直しの数)は書かない(古い記録に残るだけ)"""
+    runs[].retimed(配り直しの数)は書かない(古い記録に残るだけ)。
+    Haas(speech.cpp)は行の作りの値 haas も(cutMarks = 先に切る字・tiny = つなぐ切れ端の字数・headEarly = 頭を早める秒・endExt = 末を伸ばす上限の秒)"""
     end_trim, join_gap = post_values(spec)
-    return {"version": str(_workdata.SERVER_VERSION or ""), "endTrim": end_trim, "joinGap": join_gap, "barMax": _txtext.BAR_MAX, "noteNoSub": True}
+    out = {"version": str(_workdata.SERVER_VERSION or ""), "endTrim": end_trim, "joinGap": join_gap, "barMax": _txtext.BAR_MAX, "noteNoSub": True}
+    if is_haas(spec):
+        out["haas"] = {"cutMarks": "".join(sorted(HAAS_CUT_MARKS)), "tiny": HAAS_TINY, "headEarly": HAAS_HEAD_EARLY, "endExt": HAAS_END_EXT}
+    return out
 
 
 def row_words(p, shift=0.0):

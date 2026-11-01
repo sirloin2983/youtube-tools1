@@ -163,7 +163,7 @@ def fill_drop_silent(job, rows, wav, rec, drop=True, snap=False):
         spans = separate.voice_spans(job, wav)
     except _heavy.Cancelled:
         raise
-    except (_errors.ApiError, tx_engines.EngineError, OSError, MemoryError, RuntimeError) as e:
+    except (_errors.ApiError, tx_engines.EngineError, separate.worker_client.WorkerError, OSError, MemoryError, RuntimeError) as e:   # WorkerError = ワーカーの中で型が無い・落ちた(文字起こしは止めない)
         _txbase.add_warning(job, "声を分けられなかったので声の無い行は捨てていません: " + str(getattr(e, "message", e))[:200])
         return rows
     finally:

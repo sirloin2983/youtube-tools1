@@ -473,6 +473,8 @@ class RemoteModel:
                 for kind, v in g:
                     if kind == "item" and isinstance(v, dict):
                         yield conv(v)
+                    elif kind == "result" and isinstance(v, dict) and isinstance(v.get("secondNames"), list):   # Haas の名前の 2 回読みと起こし直し(読み終えて決まる)
+                        info.second_names, info.restarts = list(v["secondNames"]), int(v.get("restarts") or 0)
             finally:
                 g.close()
         return _Segs(segs(), g), info
