@@ -1,15 +1,15 @@
 """「確かめる」のコラボの話者のカード speaker:collab(11-01。ユーザー「確かめる物がないから自分が確認するから、確かめるのカードにしてほしい」・
-「ただ分けるんじゃなくて、ボタンも適切にして」)。誰の声のカード(501 枚)とは別の種類・別の描き方(cards/speaker.js)。
+「ただ分けるんじゃなくて、ボタンも適切にして」・11-01 夜に形を決め直した)。誰の声のカード(501 枚)とは別の種類・別の描き方(cards/speaker.js)。
 
-コラボの配信で、話者分離(Nemotron 3 Diarization と今の判別)の分かれ方を測る正解を集める行。文書の行ではなく、研究が
-Haas の言葉と話者分離の区間から作った行の短い音(C:\\dev\\speech-cpp\\work\\nemodiar\\make_cards.py が作業データの <app>/check/voice-collab/ に置く)。
-  一覧   <app>/check/voice-collab.json = {"cards": [{key, video, title, sec, people: [その配信に出る人…]}]}
-         行の選び方(研究の側): 1 配信 20 行ほど・2 つの話者分離が食い違う行・声の重なる行・短い行・ふつうの行をまぜる
-  ボタン その配信に出る人の全員(名簿の順 = 配信者を先頭にしない・配信ごとに固定)。数字キーで選び、同時に話していれば何人でも選んで Enter。
-         出る人が違っていたら「ほかの人を選ぶ」の欄(名簿の全員 + 名前の分からない人)。声が無い・叫びだけ(O)。分からない(W)は殻のボタン。
-         **道具の予想は出さない**(答えが寄らないように)。ソロのカードの BGM 大・別の声も は出さない
-  答え   {"names": [選んだ名前…]}(1 人以上)か {"choice": "other"}(声が無い・叫びだけ)。文書が無いので実物は書き換えない・**声も覚えない**
-         (試す専用の正解 = 声の登録簿に入れない)。答えの記録の applied = {collab: 行の key, video, names}。採点は研究の側(score_cards.py)。Z は記録だけ戻す
+カード 1 枚 = コラボの配信の 10 秒の区間。話している人を全員選ぶ(何人でも・順番は聞かない)= 話者分離の「区間の中に何人いるか」を測る正解
+(名前の答えは、あとの時刻の確かめと名前を当てる段の正解にも残す)。区間は研究が、話者分離と関係の無い声の有無の検出(silero-vad)だけで選び、
+作業データの <app>/check/speaker-collab/ に置く(C:\\dev\\speech-cpp\\work\\nemodiar\\make_segments.py)。道具の出力は選び方にもカードにも入れない。
+  一覧   <app>/check/speaker-collab.json = {"cards": [{key, video, title, sec, people: [その配信に出る人…]}]}
+         (11-01 の行の単位の 100 枚 = voice-collab.json は .off に名前を変えて外した。このモジュールはもう読まない)
+  ボタン その配信に出る人の全員(名簿の順 = 配信者を先頭にしない・配信ごとに固定。数字キーで選ぶ / 外す)・その他の人(メンバー以外の声。X)。
+         候補にいない人は「ほかの人を選ぶ」の欄(名簿の全員)で足す。声なし(O)。分からない(W)は殻のボタン。**道具の予想は出さない**
+  答え   {"names": [選んだ名前…]}(1 人以上。その他の人も 1 人)か {"choice": "other"}(声なし)。文書が無いので実物は書き換えない・**声も覚えない**
+         (試す専用の正解 = 声の登録簿に入れない)。答えの記録の applied = {collab: 区間の key, video, names}。採点は研究の側(score_segments.py)。Z は記録だけ戻す
   一覧のファイルはこの PC の作業データにだけ置く(配る zip には入らない = 友人の PC では出ない)
 """
 import os
@@ -23,9 +23,9 @@ from ytt.textutil import person_key as _person_key
 from . import lineup, sources
 
 KIND, SOURCE = "speaker", "collab"   # 種類 speaker(画面の札「コラボの話者」・描き方は cards/speaker.js)
-NAME, DIR_NAME = "voice-collab.json", "voice-collab"
-UNKNOWN_PERSON = "名前の分からない人"   # 「ほかの人を選ぶ」の欄の終わり(出る人の誰でもなく、名前も分からない人)
-OTHER = voice_mod.OTHER                # 声が無い・叫びだけ
+NAME, DIR_NAME = "speaker-collab.json", "speaker-collab"   # 10 秒の区間(行の単位の voice-collab.json は外した)
+OTHER_PERSON = "その他の人"   # メンバー以外の声(1 人と数える)
+OTHER = voice_mod.OTHER        # 声なし
 MAX_PEOPLE, MAX_NAMES = 6, 8
 KEY_RE = re.compile(r"^[a-z0-9]{1,16}\Z")
 VIDEO_RE = re.compile(r"^[A-Za-z0-9_-]{11}\Z")
@@ -70,7 +70,7 @@ def voice_collab(view):
     for c in cards:
         if not clip_path(app_dir, c["key"]):
             continue
-        names = ordered(c["people"], members)
+        names = ordered([n for n in c["people"] if n != OTHER_PERSON], members)
         shown = {_person_key(x) for x in names}
         sec = float(c.get("sec") or 0) or None
         out.append({"id": lineup.card_id(KIND, SOURCE, c["video"], c["key"]), "kind": KIND, "source": SOURCE,
@@ -78,7 +78,7 @@ def voice_collab(view):
                     "target": {"videoId": c["video"], "collab": c["key"], "docId": None, "row": None},
                     "media": {"url": "api/check/voicecollab?key=%s" % c["key"], "start": 0.0, "end": sec, "pad": 0.0, "padEnd": 0.0},
                     "text": "", "people": names,
-                    "pick": [n for n in dict.fromkeys(list(members) + [UNKNOWN_PERSON]) if _person_key(n) not in shown],
+                    "pick": [n for n in dict.fromkeys(members) if _person_key(n) not in shown], "otherPerson": OTHER_PERSON,
                     "score": None, "note": "",
                     "_order": [0, c["video"], random.random()]})   # 配信ごとにまとめて出す(同じ人の並びが続く = 迷わない)
     return out

@@ -1,4 +1,4 @@
-"""「確かめる」のコラボの話者のカード speaker:collab(src/app/check/voice_collab.py)の単体テスト: 一覧の読み(形の違う物を飛ばす)・
+"""「確かめる」のコラボの話者のカード speaker:collab(10 秒の区間・src/app/check/voice_collab.py)の単体テスト: 一覧の読み(形の違う物を飛ばす)・
 音の無いカードは出さない・ボタン(出る人 + その他の人 + 混ざり)・予想を出さない・答えは記録だけ(実物を書かない・声を覚えない)。一時フォルダだけを使う。
 
 実行(リポジトリ直下から): py -3.12 -m unittest tests/app/check/test_voice_collab.py -v
@@ -53,7 +53,7 @@ class VoiceCollabTest(unittest.TestCase):
         self.assertEqual(c["kind"], "speaker")
         self.assertNotIn("guess", c)   # 予想は出さない
         self.assertEqual(sorted(c["people"]), sorted(["白上フブキ", "さくらみこ", "大空スバル", "大神ミオ"]))   # 出る人の全員
-        self.assertIn(VC.UNKNOWN_PERSON, c["pick"])
+        self.assertEqual(c["otherPerson"], "その他の人")   # メンバー以外の声のボタン
         self.assertFalse(set(c["people"]) & set(c["pick"]))   # ほかの人の欄に出る人は入れない
         self.assertEqual(c["media"]["url"], "api/check/voicecollab?key=c2r01")
         self.assertTrue(VC.clip_path(self.app, "c1r01"))
@@ -72,6 +72,7 @@ class VoiceCollabTest(unittest.TestCase):
         c = {"target": {"collab": "c1r01", "videoId": "AAAAAAAAAAA"}}
         self.assertEqual(ap.apply(None, c, ap.check({"names": ["桃鈴ねね", "雪花ラミィ", "桃鈴ねね"]})),
                          {"collab": "c1r01", "video": "AAAAAAAAAAA", "names": ["桃鈴ねね", "雪花ラミィ"]})   # 同時に話した人は全員残す
+        self.assertEqual(ap.check({"names": ["桃鈴ねね", "その他の人"]}), {"names": ["桃鈴ねね", "その他の人"]})   # その他の人も 1 人
         self.assertEqual(ap.apply(None, c, ap.check({"choice": "other"})), {"collab": "c1r01", "video": "AAAAAAAAAAA", "names": []})
         for bad in ({"names": []}, {"names": [1]}, {"choice": "mixed"}, {"name": "桃鈴ねね"}, "x"):
             with self.assertRaises(ValueError):

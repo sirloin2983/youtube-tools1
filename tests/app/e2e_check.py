@@ -555,20 +555,20 @@ def _scene_voice_video_or_clip(cx):
 
 
 def _scene_speaker(cx):
-    """コラボの話者のカード(speaker:collab・cards/speaker.js): 出る人の全員が名前のボタン(数字キー)・予想なし・BGM 大や別の声も は無い・
-    数字で何人でも選んで Enter = {names: [...]}(同時に話した人を全員)・選ばずに Enter は効かない・ほかの人の欄で足す・O = 声が無い・叫びだけ。
+    """コラボの話者のカード(speaker:collab・10 秒の区間・cards/speaker.js): 出る人の全員が名前のボタン(数字キー)・予想なし・BGM 大や別の声も は無い・
+    数字で何人でも選んで Enter = {names: [...]}(話している人を全員)・X = その他の人・選ばずに Enter は効かない・ほかの人の欄で足す・O = 声なし。
     YTT_E2E_SHOT があれば、そのパスにカードの写真を撮る"""
     pg, check = cx.pg, cx.check
     def sc(i, people, pick):
         return card(i, "speaker", source="collab", target={"videoId": "AAAAAAAAAAA", "collab": "c1r%02d" % i, "docId": None, "row": None},
                     media={"url": "api/check/voicecollab?key=c1r%02d" % i, "start": 0.0, "end": 1.0, "pad": 0.0, "padEnd": 0.0}, text="",
-                    people=people, pick=pick, case={"id": "AAAAAAAAAAA", "title": "ド珍検証会(ド珍組)"})
+                    people=people, pick=pick, otherPerson="その他の人", case={"id": "AAAAAAAAAAA", "title": "ド珍検証会(ド珍組)"})
     four = ["さくらみこ", "白上フブキ", "大神ミオ", "大空スバル"]
-    fs = FakeQueue([sc(90, four, ["兎田ぺこら", "名前の分からない人"]), sc(91, four, ["兎田ぺこら"]), sc(92, four, ["兎田ぺこら"])])
+    fs = FakeQueue([sc(i, four, ["兎田ぺこら", "宝鐘マリン"]) for i in (90, 91, 92, 93)])
     clip_re = re.compile(r".*/api/check/voicecollab.*")
     _swap_queue(cx, fs)
     cx.ctx.route(clip_re, lambda route: route.fulfill(status=200, body=cx.wav, headers={"Content-Type": "audio/wav", "Accept-Ranges": "none"}))
-    names = "[...document.querySelectorAll('#chkBody .chk-spk-name')].map(b => [b.textContent.trim(), b.getAttribute('aria-pressed')])"
+    names = "[...document.querySelectorAll('#chkBody .chk-spk-names .chk-spk-name')].map(b => [b.textContent.trim(), b.getAttribute('aria-pressed')])"
     try:
         pg.goto(cx.base + "check?kind=speaker")
         check(wait_js(pg, "CheckShell.state().cur === 'speaker:e2e:90'"), "コラボの話者のカードを開く: %s" % state(pg))
@@ -596,8 +596,14 @@ def _scene_speaker(cx):
         press(pg, "Enter")
         check(wait_js(pg, "CheckShell.state().cur === 'speaker:e2e:92'") and fs.answers[-1]["body"]["answer"] == {"names": ["兎田ぺこら"]},
               "足した人で答える: %s" % fs.answers[-1:])
+        press(pg, "1")
+        press(pg, "x")
+        check(pg.get_attribute("#chkBody [data-chk-k='X']", "aria-pressed") == "true", "X = その他の人を選んだ状態")
+        press(pg, "Enter")
+        check(wait_js(pg, "CheckShell.state().cur === 'speaker:e2e:93'") and fs.answers[-1]["body"]["answer"] == {"names": ["さくらみこ", "その他の人"]},
+              "X = その他の人も 1 人として名前に入る: %s" % fs.answers[-1:])
         press(pg, "o")
-        check(wait_js(pg, "CheckShell.state().empty") and fs.answers[-1]["body"]["answer"] == {"choice": "other"}, "O = 声が無い・叫びだけ: %s" % fs.answers[-1:])
+        check(wait_js(pg, "CheckShell.state().empty") and fs.answers[-1]["body"]["answer"] == {"choice": "other"}, "O = 声なし: %s" % fs.answers[-1:])
     finally:
         cx.ctx.unroute(clip_re)
         _restore_queue(cx)
