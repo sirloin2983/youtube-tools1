@@ -9,6 +9,7 @@ import os
 import sys
 import types
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _checkkit as kit  # noqa: E402
@@ -66,7 +67,7 @@ class VoiceLinesTest(unittest.TestCase):
         self.assertEqual(c["people"], ["大空スバル", "白上フブキ", "宝鐘マリン", "尾丸ポルカ"])   # 配信者・声を覚えた全員・予想の名前
         self.assertEqual(c["otherPerson"], "ほかの人")
         self.assertEqual(c["media"]["url"], "api/check/voicelines?key=a1")
-        self.assertTrue(c["measureOnly"])
+        self.assertNotIn("measureOnly", c)   # 答えで声を覚える(11-02)
         self.assertIsNone(VL.clip_path(self.app, "../x"))
         os.remove(os.path.join(self.app, "check", VL.DIR_NAME, "a1.wav"))
         self.assertEqual(VL.voice_lines(self.view()), [])   # 音の無いカードは出さない
@@ -80,9 +81,10 @@ class VoiceLinesTest(unittest.TestCase):
         self.assertIn("lines", lineup.NORMAL_KINDS)
         self.assertIn("lines", deck.KIND_GROUP["voice"])   # 画面の「話者」で出る
 
-    def test_answer_records_all_rows_never_learns(self):
+    @mock.patch.object(voice_mod, "_maybe_relearn", return_value=[])
+    def test_answer_records_all_rows(self, _relearn):
         self.assertTrue(apply._registered("lines", "seg"))
-        self.assertNotIn("seg", voice_mod.SOURCES)   # 声の覚え直しの材料に入らない
+        self.assertIn("lines", voice_mod.CLIP_KINDS)   # 声の覚え直しはかけらの道(test_voice_lines_learn)
         ap = apply._REG[("lines", "seg")]
         self.assertGreater(ap.max_bytes, apply.MAX_ANSWER_BYTES)   # 40 行の直しが入る
         c = {"target": {"lines": "a1", "piece": 2, "videoId": "AAAAAAAAAAA"}, "who": "大空スバル", "at": 1200.0, "part": "mid2",

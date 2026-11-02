@@ -9,6 +9,7 @@ voice_learn_plan・voice_preview・validate_voice_learn・run_voice_learn・voic
 人の名前を比べる鍵は ytt/textutil.person_key の 1 つ(決定 notes:plan/decisions.md の 3-47 Q8)。文書の置き場は隣の store。
 """
 import copy
+import os
 import re
 import time
 
@@ -644,6 +645,49 @@ def run_voice_learn(job):
         job["learned"] = learned
         job["speakers"] = len(learned)
         _heavy.job_done(job, spec["tid"])
+
+
+def run_voice_learn_clip(job):
+    """文書の無い短い音(確かめるの行ごとの話者のかけら。11-02 ユーザー「答えても登録簿が増えないのはまずい」)から声を覚える。
+    spec = {doc: 控えの名前(例 "lines:<key>"), clip: 音のファイル(入口が作業データの中だけを渡す), embedding, names, groups: {名前: [[頭, 末]…]}(音の頭からの秒),
+    rowIds: {名前: [行…]}, by, provisional}。混ぜ方・控え(learnedFrom・行ごとの特徴)は文書の「声を覚える」と同じ(merge_voice・save_row_vectors)"""
+    spec = job["spec"]
+    with _heavy.job_temp_wav(job) as wav:
+        if not _diar.voice_ready():
+            raise _errors.ApiError("no_sherpa", "声を覚えるには声の照合の部品(sherpa-onnx)が要ります。フォルダ内の install-diarize.bat を実行してください", 400)
+        clip = str(spec.get("clip") or "")
+        if not os.path.isfile(clip):
+            raise _errors.ApiError("no_file", "かけらの音がありません", 400)
+        doc_key = str(spec.get("doc") or "")
+        groups = {n: [(float(a), float(b)) for a, b in spec["groups"].get(n) or () if float(b) > float(a)] for n in spec.get("names") or ()}
+        people = sorted(n for n, g in groups.items() if g)
+        if not people:
+            raise _errors.ApiError("no_names", "覚えられる行がありません", 400)
+        vecs = _diar.embed(job, spec, wav, [groups[n] for n in people], {"sourcePath": clip, "start": 0.0})   # 音声の取り出し → モデルの取得 → 声の特徴
+        _slots.check_cancel(job)
+        row_keys = [(n, rid, a, b) for n in people for rid, (a, b) in zip(spec["rowIds"].get(n) or (), groups[n])]
+        row_vecs = _diar.embed(job, spec, wav, [[(a, b)] for _n, _r, a, b in row_keys], {"start": 0.0, "wavReady": True}) if row_keys else []
+        _slots.check_cancel(job)
+        learned = []
+        with _diar.voices_edit(spec["embedding"]) as voices:
+            for n, v in zip(people, vecs):
+                if not v:
+                    continue
+                at = _voice_name(voices, n)
+                voices[at] = _diar.merge_voice(voices.get(at), v, len(groups[n]), round(sum(b - a for a, b in groups[n]), 2), doc_key,
+                                              by=spec.get("by"), row_ids=spec["rowIds"].get(n) or [], provisional=n in (spec.get("provisional") or ()))
+                learned.append(n)
+            if len(voices) > _VOICE_MAX_PEOPLE:
+                raise _errors.ApiError("too_many", "覚えられる声は %d 人までです(使わない声を消してください)" % _VOICE_MAX_PEOPLE, 400)
+        if not learned:
+            raise _errors.ApiError("no_voice", "声の特徴を取り出せませんでした(行が短すぎる・音声が無い可能性があります)", 400)
+        for n in learned:
+            items = {"%s#%s" % (doc_key, rid): {"vec": [round(x, 6) for x in rv], "sec": round(b - a, 2), "short": False}
+                     for (nn, rid, a, b), rv in zip(row_keys, row_vecs) if nn == n and rv}
+            _diar.save_row_vectors(spec["embedding"], _voice_name(_diar.load_voices(spec["embedding"]), n), items)
+        job["learned"] = learned
+        job["speakers"] = len(learned)
+        _heavy.job_done(job, None)
 
 
 def voices_summary():

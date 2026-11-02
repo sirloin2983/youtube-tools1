@@ -12,7 +12,10 @@
   答え   {"rows": [{id, speaker?: 名前, none?: true, text?: 直した文字}]}(変えた行だけ。何も変えなければ {} = 全部の行が予想どおり・文字どおり)
          予想の無い行は話者を選ばないと答えられない(画面が止める・サーバーも 400)
   記録   applied = {lines, piece, video, who, at, part, rows: [{id, start, end, guess, guessScore, speaker, none?, text0, text}]}(全部の行。変えなかった行は
-         予想の 1 位と元の文字)。文書が無いので実物は書き換えない・**声も覚えない**(評価用は学習に使わない)。採点は研究の側。Z は記録だけ戻す
+         予想の 1 位と元の文字)+ doc = "lines:<key>"・learn = 覚える材料の行。文書が無いので実物は書き換えない。採点は研究の側(配信を分けて測る)
+  声     製品の声の登録簿を覚え直す(11-02 ユーザー「答えても正解の行だけ増えて登録簿が増えないのはまずい」)。決まりは誰の声のカードと同じ
+         (human/check/voice._maybe_relearn: 名前で答えた 1 秒以上の行・ほかの人と声なしは除く・初めての人は 10 秒で仮・30 秒ごと・learnedFrom で
+         同じ行を 2 度覚えない・Z で材料から外れる)。音はかけらのファイルから(ジョブ voice-learn-clip = human/proof/speakers.run_voice_learn_clip)
   一覧のファイルはこの PC の作業データにだけ置く(配る zip には入らない = 友人の PC では出ない)
 """
 import os
@@ -20,7 +23,7 @@ import random
 import re
 
 from human.check import apply as _apply, voice as voice_mod
-from ytt import fsio
+from ytt import fsio, txbase as _txbase
 from . import lineup, sources
 
 KIND, SOURCE = "lines", "seg"
@@ -116,7 +119,7 @@ def voice_lines(view):
                         "text": "", "who": c["who"], "at": at, "part": str(c.get("part") or "")[:8],
                         "rows": [dict(r, guess=(r["guess"][0]["name"] if r["guess"] else None), score=(r["guess"][0]["score"] if r["guess"] else None),
                                       second=(r["guess"][1] if len(r["guess"]) > 1 else None)) for r in rows],
-                        "people": names, "otherPerson": OTHER_PERSON, "guess": None, "score": None, "note": "", "cast": [c["who"]], "measureOnly": True,
+                        "people": names, "otherPerson": OTHER_PERSON, "guess": None, "score": None, "note": "", "cast": [c["who"]],
                         "_order": [0, c["video"], rnd, i]})   # 配信ごとにまとめ、同じかけらの一切れは続けて頭から出す(同じ人の声が続く = 迷わない)
     return out
 
@@ -151,7 +154,8 @@ def check_answer(ans):
 
 
 def _apply_lines(ctx, card, ans):
-    """文書が無いので実物は変えない・声も覚えない。-> applied(全部の行の 予想・答えた話者・元の文字・直した文字)。予想の無い行に答えが無ければ ValueError"""
+    """文書が無いので実物は変えない。-> applied(全部の行の 予想・答えた話者・元の文字・直した文字 + 覚える材料 learn・覚え直し relearn)。
+    予想の無い行に答えが無ければ 400"""
     t, got = card.get("target") or {}, {r["id"]: r for r in ans.get("rows") or ()}
     rows = []
     for r in card.get("rows") or ():
@@ -163,7 +167,17 @@ def _apply_lines(ctx, card, ans):
         elif not one["speaker"]:
             raise _apply.Refused("予想の無い行(%s)の話者を選んでください" % r["id"], 400, "bad_request")
         rows.append(one)
-    return {"lines": t.get("lines"), "piece": t.get("piece"), "video": t.get("videoId"), "who": card.get("who"), "at": card.get("at"), "part": card.get("part"), "rows": rows}
+    doc = "%s:%s" % (KIND, t.get("lines"))
+    learn = [dict(lr, row=r["id"], start=r["start"], end=r["end"]) for r in rows if r["speaker"] and r["speaker"] != OTHER_PERSON
+             for lr in [voice_mod.clip_learn_of(r["speaker"], r["start"], r["end"])] if lr]
+    out = {"lines": t.get("lines"), "piece": t.get("piece"), "video": t.get("videoId"), "who": card.get("who"), "at": card.get("at"), "part": card.get("part"),
+           "rows": rows, "doc": doc, "learn": learn}
+    if learn:
+        try:
+            out["relearn"] = voice_mod._maybe_relearn(ctx, extra=[dict(lr, doc=doc) for lr in learn])
+        except Exception as e:   # 覚え直しが始められなくても答えは済んだまま(次の答えでまた数える)
+            _txbase.log.warning("確かめる: かけらの声の覚え直しを始められませんでした: %s %s", e.__class__.__name__, str(e)[:200])
+    return out
 
 
 def _revert_lines(ctx, row):
@@ -171,4 +185,5 @@ def _revert_lines(ctx, row):
 
 
 sources.register(KIND, SOURCE, voice_lines)
+voice_mod.register_clip(KIND, lambda ctx, key: clip_path(getattr(ctx, "app_dir", "") or "", key))
 _apply.register(KIND, SOURCE, _apply_lines, _revert_lines, check_answer, max_bytes=MAX_ANSWER_BYTES)
