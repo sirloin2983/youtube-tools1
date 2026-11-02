@@ -570,7 +570,10 @@ class Server(httpsec.ExclusiveServer):
         self.allowed_hosts = httpsec.allowed_hosts(self.server_address[1])
 
     def handle_error(self, request, client_address):
-        """口の思わぬ例外: 今まで通り標準エラーへ出し、診断にも残す(同じ例外の名前は 10 分に 1 回)"""
+        """口の思わぬ例外: 今まで通り標準エラーへ出し、診断にも残す(同じ例外の名前は 10 分に 1 回)。
+        画面が先に切った(10053・10054・時間切れ)のは土台と同じく黙る = 診断にも残さない(11-02 友人の PC で /api/state の書き込み中に 10053)"""
+        if isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):
+            return
         super().handle_error(request, client_address)
         d = getattr(self.app, "diag", None)
         if d is not None:
