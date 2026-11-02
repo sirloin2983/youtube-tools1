@@ -112,17 +112,14 @@ def rebuild(emb, name, exclude=(), log=None, embed=None, now=None):
         if not isinstance(lf, dict) or not lf.get("doc"):
             continue
         tid = str(lf["doc"])
-        if ":" in tid:   # 文書の無いかけら(lines:・material:。11-02)= 行ごとの特徴の控えだけで混ぜる(音から取り直さない)
-            rows, short = [(str(r), 0.0, 0.0) for r in lf.get("rows") or ()], False
-        else:
-            try:
-                doc = store.read_transcript(tid)
-            except _errors.ApiError:
-                log("まとめ直し: %s の文書 %s が読めないので飛ばしました" % (name, tid))
-                continue
-            rows = _doc_rows(doc, name, lf.get("rows"))
-            short = _vm.is_short(doc.get("sourcePath"))
-        need = [(r, a, b) for r, a, b in rows if "%s#%s" % (tid, r) not in mine and ":" not in tid]
+        try:
+            doc = store.read_transcript(tid)
+        except _errors.ApiError:
+            log("まとめ直し: %s の文書 %s が読めないので飛ばしました" % (name, tid))
+            continue
+        rows = _doc_rows(doc, name, lf.get("rows"))
+        short = _vm.is_short(doc.get("sourcePath"))
+        need = [(r, a, b) for r, a, b in rows if "%s#%s" % (tid, r) not in mine]
         if need:
             got = embed(emb, tid, need)
             for r, a, b in need:

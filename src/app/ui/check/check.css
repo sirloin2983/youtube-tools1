@@ -107,31 +107,6 @@
 .chk-sec-memos{display:inline-flex;flex-wrap:wrap;gap:2px 8px}
 .chk-sec-memo{display:inline-flex;align-items:center;gap:4px;font-size:13px;min-height:28px;color:var(--muted)}
 .chk-sec-add{border-color:var(--accent)}
-/* 行ごとの話者(lines.js。11-02) */
-.chk-ln-list{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:4px}
-.chk-ln-row{display:grid;grid-template-columns:auto 96px minmax(170px,220px) 1fr;align-items:center;gap:6px 8px;padding:4px 8px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2)}
-.chk-ln-row.chk-ln-now{border-color:var(--accent-line);background:var(--accent-soft)}
-.chk-ln-row.chk-ln-split{border-style:dashed}
-.chk-ln-plays{display:flex;gap:4px}
-.chk-ln-play{min-width:32px}
-.chk-ln-t{font:600 12px/1.3 var(--mono);color:var(--ink-3)}
-.chk-ln-tag{display:block;font:500 11px/1.3 var(--sans, inherit);color:var(--warn)}
-.chk-ln-who{display:grid;gap:2px;min-width:0}
-.chk-ln-spk{width:100%;min-width:0;box-sizing:border-box}
-.chk-ln-both{display:flex;gap:4px}.chk-ln-both .chk-ln-spk{width:50%}
-.chk-ln-guess{min-width:0;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.chk-ln-words{display:flex;flex-wrap:wrap;align-items:center;min-width:0;font-size:15px;line-height:1.7}
-.chk-ln-w{padding:0 1px}
-.chk-ln-gap{display:inline-block;width:8px;height:22px;padding:0;margin:0;border:0;background:transparent;cursor:col-resize;border-radius:2px}
-.chk-ln-gap:hover,.chk-ln-gap:focus-visible{background:var(--accent);width:3px;margin:0 2px;outline:none}
-.chk-ln-mv,.chk-ln-ed{font-size:11px;line-height:1.4;padding:0 5px;margin:0 4px;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:var(--ink-3);cursor:pointer}
-.chk-ln-mv{color:var(--accent);border-color:var(--accent-line)}
-.chk-ln-text{flex:1 1 280px;min-width:0}
-.chk-ln-chg{border-color:var(--warn);background:var(--warn-soft)}
-.chk-ln-top{display:flex;align-items:flex-start;gap:8px}.chk-ln-top .chk-stagebox{flex:0 1 560px;min-width:0}
-.chk-ln-top .chk-screen{height:auto;min-height:0;aspect-ratio:auto;background:transparent}
-.chk-ln-top video{display:block;width:100%;height:54px;max-height:54px;background:transparent}   /* 音だけ(wav)= 黒い絵の枠を出さず、行を上に寄せる */
-.chk-ln-norow{font-size:13px;display:flex;align-items:center;gap:4px;margin-right:auto}
 .chk-sym-head{display:flex;align-items:center;gap:12px;margin-bottom:8px}
 .chk-sym-big{font-size:44px;line-height:1.3;min-width:64px;text-align:center;border:1px solid var(--line);border-radius:var(--r);display:inline-block;padding:0 10px}
 .chk-sym-name{font-size:15px;color:var(--ink-2)}

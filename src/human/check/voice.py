@@ -27,8 +27,6 @@
   待っている・動いている覚え直しの行も数えない。失敗しても答えは済んだまま。失敗した覚え直しと同じ行だけなら足し直さない(材料が増えたらまた試す。
   入口を起動し直すとジョブの表が空になるので 1 度は試し直す。登録簿の人数の上限・特徴を取れないなどの決まった失敗もこれで繰り返さない)。
   Z で戻した答えは材料から外れる(覚えた後なら声は戻さない)。
-  文書の無いカード(行ごとの話者のかけら lines。11-02)も同じ決まりで数える: register_clip で種類と音の在りかを登録し、答えの applied に
-  doc = "<種類>:<かけら>"・learn = [{row, name, sec, emb, start, end}] を残す。覚えるのはジョブ voice-learn-clip(かけらの音から。文書を触らない)。
 ③ の層: 文書は human/check/_doc と human/proof(store・speakers)、声の登録簿とジョブは ② flow(diar・jobs)を通す。① は読まない。
 """
 import re
@@ -58,7 +56,6 @@ SPK_COLORS = _speakers.SPK_COLORS
 _CTRL_RE = re.compile(r"[\x00-\x1f\x7f]")
 UNKNOWN_MEMBER, OUTSIDER, GAME_VOICE = "誰か分からないメンバー", "メンバー以外の人", "ゲームの声"   # 話者カードの人と同じく選べる札(11-02)
 SPECIALS = (UNKNOWN_MEMBER, OUTSIDER, GAME_VOICE)
-CLIP_KINDS = {}                 # 文書の無いカードの種類 -> resolve(ctx, かけらの key) = 音のファイルか None(入口が登録する = register_clip。11-02)
 MAX_NAMES = 8                   # 話者カードで選べる人の数
 
 
@@ -423,41 +420,23 @@ def _learned_rows(emb, name, cache):
 def _inflight():
     """待っている・動いている覚え直し(by check)の行 -> {(文書, 行)}"""
     out = set()
-    for j in _heavy.active_jobs("voice-learn") + _heavy.active_jobs("voice-learn-clip"):
+    for j in _heavy.active_jobs("voice-learn"):
         sp = j["spec"]
         if sp.get("by") == "check":
-            out.update((str(sp.get("tid") or sp.get("doc")), str(r)) for r in sp.get("rows") or ())
+            out.update((str(sp.get("tid")), str(r)) for r in sp.get("rows") or ())
     return out
 
 
-def register_clip(kind, resolve):
-    """文書の無いカードの種類を声の覚え直しに入れる(入口の出どころが読み込みのときに)。resolve(ctx, かけらの key) -> 音のファイルか None"""
-    CLIP_KINDS[kind] = resolve
-
-
-def clip_learn_of(name, a, b, emb=None):
-    """かけらの行の答えが覚える材料になるなら {name, sec, emb}(ならなければ None)。名前の決まりと 1 秒は文書の行と同じ"""
-    a, b = _yschemas.num_or(a), _yschemas.num_or(b)
-    if a is None or b is None or b - a < MIN_LEARN_SEC or not _learnable_name(name):
-        return None
-    return {"name": str(name).strip()[:60], "sec": round(b - a, 2), "emb": emb or _diar.learn_embedding("")}
-
-
-def _pending(ctx, extra=(), spans=None):
-    """まだ覚えていない材料 -> {(emb, 名前): {文書: {行: 秒}}}。extra = 記録にまだ書いていない今の答えの材料 [{doc, row, name, sec, emb}]。
-    spans = 入れ物 {(文書, 行): (頭, 末)}(かけらの行の時刻。覚え直しのジョブが音のどこを使うか)"""
+def _pending(ctx, extra=()):
+    """まだ覚えていない材料 -> {(emb, 名前): {文書: {行: 秒}}}。extra = 記録にまだ書いていない今の答えの材料 [{doc, row, name, sec, emb}]"""
     items, rows = [], answerlog.state(ctx.app_dir).effective()
     collab = collab_docs(ctx.app_dir, rows)   # ソロの配信の守り: コラボだった見込みの文書の行は数えない
     for r in rows:
-        ap = r.get("applied") or {}
-        if r.get("kind") in CLIP_KINDS and isinstance(ap.get("learn"), list):   # かけらの行(1 枚に何行も)
-            items += [dict(lr, doc=ap.get("doc")) for lr in ap["learn"] if isinstance(lr, dict)]
+        if r.get("kind") != KIND or r.get("source") not in SOURCES or str((r.get("applied") or {}).get("doc") or "") in collab:
             continue
-        if r.get("kind") != KIND or r.get("source") not in SOURCES or str(ap.get("doc") or "") in collab:
-            continue
-        lr = ap.get("learn")
+        lr = (r.get("applied") or {}).get("learn")
         if isinstance(lr, dict):
-            items.append(dict(lr, doc=ap.get("doc"), row=ap.get("row")))
+            items.append(dict(lr, doc=(r.get("applied") or {}).get("doc"), row=(r.get("applied") or {}).get("row")))
     items += [it for it in extra if str(it.get("doc") or "") not in collab]
     cache, busy, out = {}, _inflight(), {}
     for it in items:
@@ -466,8 +445,6 @@ def _pending(ctx, extra=(), spans=None):
         if not tid or not rid or not name or not emb or not sec or (tid, rid) in busy or (tid, rid) in _learned_rows(emb, name, cache):
             continue
         out.setdefault((emb, name), {}).setdefault(tid, {})[rid] = float(sec)
-        if spans is not None and it.get("start") is not None:
-            spans[(tid, rid)] = (_yschemas.num_or(it.get("start")), _yschemas.num_or(it.get("end")))
     return out
 
 
@@ -476,8 +453,8 @@ def _failed_rows():
     out = {}
     for j in _heavy.all_jobs():
         sp = j["spec"]
-        if j.get("kind") in ("voice-learn", "voice-learn-clip") and j.get("state") == "error" and sp.get("by") == "check":
-            out.setdefault(str(sp.get("tid") or sp.get("doc")), set()).update(str(r) for r in sp.get("rows") or ())
+        if j.get("kind") == "voice-learn" and j.get("state") == "error" and sp.get("by") == "check":
+            out.setdefault(str(sp.get("tid")), set()).update(str(r) for r in sp.get("rows") or ())
     return out
 
 
@@ -489,17 +466,16 @@ def _maybe_relearn(ctx, extra=()):
     if "voice-learn" not in _heavy.JOB_RUNNERS or not _diar.voice_ready():
         return []   # 編集を取り込んでいない入口・話者判別の部品が無い = 材料は残して次に
     need = _relearn_sec()
-    by_doc, cache, spans = {}, {}, {}
-    for (emb, name), docs in _pending(ctx, extra, spans).items():
+    by_doc, cache = {}, {}
+    for (emb, name), docs in _pending(ctx, extra).items():
         first = not any(_person_key(n) == _person_key(name) for n in registry(emb, cache))   # まだ声が無い人 = FIRST_SEC で仮に覚える(10-25)
         if sum(sum(rows.values()) for rows in docs.values()) < (min(FIRST_SEC, need) if first else need):
             continue
         for tid, rows in docs.items():
-            d = by_doc.setdefault(tid, {"emb": emb, "names": [], "rows": [], "first": [], "by_name": {}})
+            d = by_doc.setdefault(tid, {"emb": emb, "names": [], "rows": [], "first": []})
             if d["emb"] == emb:
                 d["names"].append(name)
                 d["rows"] += list(rows)
-                d["by_name"][name] = set(rows)
                 if first:
                     d["first"].append(name)
     out, failed = [], _failed_rows()
@@ -508,8 +484,7 @@ def _maybe_relearn(ctx, extra=()):
             out.append({"doc": tid, "names": d["names"], "skipped": "前に失敗した覚え直しと同じ行だけです(材料が増えたらまた試します)"})
             continue
         try:
-            clip = tid.split(":", 1)[0] if ":" in tid else None
-            out.append(dict(_submit_clip(ctx, tid, d, spans) if clip in CLIP_KINDS else _submit(tid, d), doc=tid))
+            out.append(dict(_submit(tid, d), doc=tid))
         except (_errors.ApiError, _apply.Refused, OSError, ValueError) as e:
             out.append({"doc": tid, "names": d["names"], "skipped": getattr(e, "message", None) or str(e)})
     return out
@@ -531,32 +506,6 @@ def _submit(tid, d):
             "provisional": [n for n in d.get("first") or () if n in names]}   # まだ声が無い人 = 仮の声として覚える(flow/diar.merge_voice)
     job = _heavy.add_job(spec, "voice-learn")
     return {"names": names, "rows": len(rows), "job": job["id"]}
-
-
-def _submit_clip(ctx, tid, d, spans):
-    """かけら(文書の無いカード)の覚え直しのジョブ voice-learn-clip を足す。tid = 「<種類>:<かけらの key>」"""
-    if "voice-learn-clip" not in _heavy.JOB_RUNNERS:
-        raise _apply.Refused("この入口ではかけらから声を覚えられません", 409, "not_ready")
-    kind, key = tid.split(":", 1)
-    clip = CLIP_KINDS[kind](ctx, key)
-    if not clip:
-        raise _apply.Refused("かけらの音がありません", 409, "no_file")
-    groups, row_ids = {}, {}
-    mine = {r for r in d["rows"]}
-    for (t, rid), (a, b) in sorted(spans.items(), key=lambda kv: kv[1]):
-        if t == tid and rid in mine and a is not None and b is not None:
-            n = next((x for x in d["names"] if rid in d.get("by_name", {}).get(x, ())), None)
-            if n:
-                groups.setdefault(n, []).append([a, b])
-                row_ids.setdefault(n, []).append(rid)
-    if not groups:
-        raise _apply.Refused("覚えられる行がありません", 409, "no_rows")
-    names = sorted(groups)
-    spec = {"doc": tid, "clip": clip, "embedding": d["emb"], "names": names, "groups": groups, "rowIds": row_ids,
-            "rows": [r for n in names for r in row_ids[n]], "by": "check", "title": "声を覚え直す(確かめる・かけら): " + key,
-            "provisional": [n for n in d.get("first") or () if n in names]}
-    job = _heavy.add_job(spec, "voice-learn-clip")
-    return {"names": names, "rows": len(spec["rows"]), "job": job["id"]}
 
 
 for _src in SOURCES:
