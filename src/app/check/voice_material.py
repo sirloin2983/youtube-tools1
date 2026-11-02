@@ -1,18 +1,20 @@
-"""「確かめる」の声の材料の確かめのカード material:solo と、声の材料を製品の登録簿へ「仮」で入れる見回り(11-02。保管庫 plan/話者の物差し-1101.md の 13 章「カード ア」・要件 4)。
+"""「確かめる」の声の材料の確かめのカード material:solo と、人が確かめた声の材料だけを製品の登録簿へ入れる見回り(11-02。保管庫 plan/話者の物差し-1101.md の 13 章「カード ア」・要件 4)。
 
 声の材料 = 行ごとの話者の一覧(app/check/voice_lines の speaker-lines.json)のうち material: true のかけら(研究がソロの判定を通した 48 秒ほど。
 題名の決まり + 判別で 2 人目 5% 以下)。音は同じ speaker-lines/<key>.wav。
-  入れる   見回り tick が、まだ登録簿に無いかけらを BATCH 個ずつジョブ voice-learn-material(human/proof/speakers.run_voice_learn_material)で入れる。
-           覚えるのはかけらの 1 秒以上の行を配信者(who)の声として。登録簿の learnedFrom の文書の名前は "material:<key>"・sure = 人が確かめたか(初めは False = 仮)。
+  入れる   見回り tick が、人が「この人だけ」と答えた(sure)かけらのうち登録簿に無い物を BATCH 個ずつジョブ voice-learn-material(human/proof/speakers.run_voice_learn_material)で入れる。
+           人が確かめていないかけらは入れない(11-02 午後 ユーザー「人が確かめてないものを追加しないで」。前は全部を「仮」で入れていた)。
+           覚えるのはかけらの 1 秒以上の行を配信者(who)の声として。登録簿の learnedFrom の文書の名前は "material:<key>"・sure = True。
            行ごとの特徴の控え(voices/<モデル>.rows.json の "material:<key>#<行>")も残す = 配信ごと・かけらごとに外してまとめ直せる。
            入れられなかったかけらは RETRY_SEC たってから試し直す。覚え直しの一時止め(human/check/voice.RELEARN_PAUSED)の間と入口の手が空いていない間は休む
   カード   配信ごとに 1 枚(PER_VIDEO。まず 1 本 1 枚で始め、混ざりの見つかる割合を見て増やす)。配信のかけらから 1 つ(配信ごとに頭・中・終わりが散るよう選ぶ)・
            その中の行の切れ目の一切れ(6 秒ほど・話す時間がいちばん長い一切れ)。前後の数秒も流せる(画面 cards/material.js)
   答え     {"answer": "only" | "not" | "mixed" | "unusual" | "unknown"} = この人だけ / この人ではない / 別の声が混ざる(客・ゲームのキャラ) /
            声がふだんと違う(BGM 大・叫び・ささやき) / 分からない
-  反映     only = そのかけらを「確か」に / not・mixed = その配信のかけらを全部登録簿から外す / unusual = そのかけらだけ外す / unknown = 変えない。
+  反映     only = そのかけらを「確か」に(= 登録簿へ入れる) / not・mixed = その配信のかけらを全部外す / unusual = そのかけらだけ外す / unknown = 変えない。
            状態は <app>/check/voice-material-state.json({sure: {key: {by, at}}, dropped: {key: {why, by, video, at}}, asked, failed})に書き、
-           登録簿への反映(外す = ジョブ voice-unlearn でまとめ直す・確かの印)は見回りがする。Z = その答えで書いた状態を消す(外した材料は見回りが入れ直す)
+           登録簿への反映は見回りがする: 確かでない(sure に無い・dropped にある)material:* が登録簿にあれば、先にジョブ voice-unlearn でまとめ直して外す
+           (前に仮で入れた分・Z で確かを取り消した分も)。Z = その答えで書いた状態を消す
   記録     applied = {material: key, video, who, at, part, piece: [頭, 末](かけらの中の秒), answer, keys: [状態を変えたかけら]}
 """
 import os
@@ -28,7 +30,7 @@ from . import lineup, sources, voice_lines
 
 KIND, SOURCE = "material", "solo"
 STATE_NAME = "voice-material-state.json"
-ENABLED = True       # スイッチ: 声の材料を登録簿へ仮で入れる見回り(11-02)
+ENABLED = True       # スイッチ: 人が確かめた声の材料を登録簿へ入れ、確かでない分を外す見回り(11-02)
 PER_VIDEO = 1        # 配信ごとのカードの枚数(まず 1。混ざりの見つかる割合を見て増やす)
 BATCH = 10           # 1 つのジョブで入れるかけらの数
 RETRY_SEC = 24 * 3600
@@ -154,7 +156,7 @@ def _registry_docs(voices):
 
 
 def tick(app_dir, busy, log, now=None):
-    """見回り 1 回: 外す答えの反映(voice-unlearn)→ 確かの印 → まだ入れていないかけらを入れる(voice-learn-material)。-> 頼んだジョブの種類か None"""
+    """見回り 1 回: 確かでない材料を外す(voice-unlearn)→ 確かの印 → 確かなかけらでまだ入れていない物を入れる(voice-learn-material)。-> 頼んだジョブの種類か None"""
     if not ENABLED or not app_dir or voice_mod.RELEARN_PAUSED or busy():
         return None
     if "voice-learn-material" not in _heavy.JOB_RUNNERS or not _diar.voice_ready():
@@ -162,37 +164,35 @@ def tick(app_dir, busy, log, now=None):
     if _heavy.active_jobs("voice-learn-material") or _heavy.active_jobs("voice-unlearn"):
         return None
     now = time.time() if now is None else now
-    mats = materials(app_dir)
-    if not mats:
-        return None
     emb = _diar.learn_embedding("")
     voices = _diar.load_voices(emb)
     have = _registry_docs(voices)
     with _lock:
         st = read_state(app_dir)
+        keep = {k for k in st["sure"] if k not in st["dropped"]}
         drop = {}
-        for k in st["dropped"]:
-            got = have.get(DOC_PREFIX + k)
-            if got:
-                drop.setdefault(got[0], []).append(DOC_PREFIX + k)
+        for d, (name, _sure) in have.items():   # 確かでない材料(前に仮で入れた分・外す答え・確かを取り消した分)は外す
+            if d[len(DOC_PREFIX):] not in keep:
+                drop.setdefault(name, []).append(d)
         if drop:
             name, docs = sorted(drop.items())[0]
-            job = _heavy.add_job({"embedding": emb, "name": name, "docs": sorted(docs), "title": "声の材料を外す(確かめる): %s %d 個" % (name, len(docs))}, "voice-unlearn")
-            log("声の材料: %s の %d 個を登録簿から外すジョブ %s を足しました" % (name, len(docs), job["id"]))
+            job = _heavy.add_job({"embedding": emb, "name": name, "docs": sorted(docs), "title": "確かでない声の材料を外す: %s %d 個" % (name, len(docs))}, "voice-unlearn")
+            log("声の材料: %s の確かでない %d 個を登録簿から外すジョブ %s を足しました(残り %d 人)" % (name, len(docs), job["id"], len(drop) - 1))
             return "voice-unlearn"
-        fix = {d: k in st["sure"] for k in (c["key"] for c in mats) for d in [DOC_PREFIX + k] if d in have and have[d][1] != (k in st["sure"])}
+        fix = {d for d, (_n, sure) in have.items() if not sure}
         if fix:
             with _diar.voices_edit(emb) as cur:
                 for v in cur.values():
                     for lf in v.get("learnedFrom") or ():
                         if isinstance(lf, dict) and lf.get("doc") in fix:
-                            lf["sure"] = fix[lf["doc"]]
+                            lf["sure"] = True
         for k, rec in list(st["asked"].items()):   # 頼んだジョブが終わったのに入っていない = 失敗(RETRY_SEC まで試さない)
             if not any(j["id"] == rec.get("job") for j in _heavy.active_jobs("voice-learn-material")):
                 del st["asked"][k]
                 if DOC_PREFIX + k not in have:
                     st["failed"][k] = {"at": int(now * 1000)}
-        todo = [c for c in mats if DOC_PREFIX + c["key"] not in have and c["key"] not in st["dropped"] and learn_rows(c)
+        mats = [c for c in materials(app_dir) if c["key"] in keep] if keep else []
+        todo = [c for c in mats if DOC_PREFIX + c["key"] not in have and learn_rows(c)
                 and (c["key"] not in st["failed"] or now * 1000 - int((st["failed"][c["key"]] or {}).get("at") or 0) >= RETRY_SEC * 1000)][:BATCH]
         if not todo:
             _write_state(app_dir, st)
@@ -203,13 +203,13 @@ def tick(app_dir, busy, log, now=None):
             who = names.get(_person_key(c["who"]), c["who"])
             rows = learn_rows(c)
             clips.append({"doc": DOC_PREFIX + c["key"], "clip": voice_lines.clip_path(app_dir, c["key"]), "names": [who],
-                          "groups": {who: [[a, b] for _r, a, b in rows]}, "rowIds": {who: [r for r, _a, _b in rows]}, "sure": c["key"] in st["sure"], "by": "material"})
-        job = _heavy.add_job({"embedding": emb, "clips": clips, "by": "material", "title": "声の材料を登録簿へ仮で入れる: %d 個" % len(clips)}, "voice-learn-material")
+                          "groups": {who: [[a, b] for _r, a, b in rows]}, "rowIds": {who: [r for r, _a, _b in rows]}, "sure": True, "by": "material"})
+        job = _heavy.add_job({"embedding": emb, "clips": clips, "by": "material", "title": "確かめた声の材料を登録簿へ入れる: %d 個" % len(clips)}, "voice-learn-material")
         for c in todo:
             st["asked"][c["key"]] = {"job": job["id"], "at": int(now * 1000)}
         _write_state(app_dir, st)
-    left = sum(1 for c in mats if DOC_PREFIX + c["key"] not in have and c["key"] not in st["dropped"]) - len(todo)
-    log("声の材料: %d 個を登録簿へ仮で入れるジョブ %s を足しました(残り %d 個)" % (len(todo), job["id"], max(0, left)))
+    left = sum(1 for c in mats if DOC_PREFIX + c["key"] not in have) - len(todo)
+    log("声の材料: 確かめた %d 個を登録簿へ入れるジョブ %s を足しました(残り %d 個)" % (len(todo), job["id"], max(0, left)))
     return "voice-learn-material"
 
 

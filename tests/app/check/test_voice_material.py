@@ -95,40 +95,53 @@ class MaterialTest(unittest.TestCase):
         n = apply.answer(self.ctx, cards["BBBBBBBBBBB"], {"answer": {"answer": "unknown"}})
         self.assertEqual(n["applied"]["keys"], [])
 
-    def test_tick_ingest_drop_sure(self):
+    def sure(self, *keys):
+        with VM._lock:
+            st = VM.read_state(self.app)
+            for k in keys:
+                st["sure"][k] = {"by": "x", "at": 1}
+            VM._write_state(self.app, st)
+
+    def test_tick_only_sure_ingest_and_drop_unsure(self):
+        self.assertIsNone(self.tick())   # 人が確かめていないかけらは入れない(11-02 午後)
+        self.assertEqual(self.jobs, [])
+        self.sure("ka", "kc")
         self.assertEqual(self.tick(), "voice-learn-material")
         kind, spec = self.jobs[0]
-        self.assertEqual([c["doc"] for c in spec["clips"]], ["material:ka", "material:kb", "material:kc"])
+        self.assertEqual([c["doc"] for c in spec["clips"]], ["material:ka", "material:kc"])
         one = spec["clips"][0]
-        self.assertEqual((one["names"], one["groups"], one["rowIds"], one["sure"]), (["大空スバル"], {"大空スバル": [[0.5, 3.0], [10.0, 14.0]]}, {"大空スバル": ["r0", "r2"]}, False))
-        self.assertEqual(sorted(VM.read_state(self.app)["asked"]), ["ka", "kb", "kc"])
-        # ジョブが終わって ka・kb だけ入った = kc は失敗(1 日待つ)
+        self.assertEqual((one["names"], one["groups"], one["rowIds"], one["sure"]), (["大空スバル"], {"大空スバル": [[0.5, 3.0], [10.0, 14.0]]}, {"大空スバル": ["r0", "r2"]}, True))
+        self.assertEqual(sorted(VM.read_state(self.app)["asked"]), ["ka", "kc"])
+        # ジョブが終わって ka だけ入った = kc は失敗(1 日待つ)。kb は前に仮で入った分(確かでない)
         with _diar.voices_edit(EMB) as v:
             v["大空スバル"] = _diar.merge_voice(None, [1.0, 0.0], 2, 6.5, "material:ka", row_ids=["r0", "r2"])
             v["大空スバル"] = _diar.merge_voice(v["大空スバル"], [1.0, 0.0], 2, 6.5, "material:kb", row_ids=["r0", "r2"])
-            v["大空スバル"]["learnedFrom"][0]["sure"] = False
+            v["白上フブキ"] = _diar.merge_voice(None, [0.0, 1.0], 2, 6.5, "material:kz", row_ids=["r0"])
+        self.jobs.clear()
+        self.assertEqual(self.tick(now=2000.0), "voice-unlearn")   # 確かでない材料を先に外す(人ごとに 1 つずつ)
+        self.assertEqual((self.jobs[0][1]["name"], self.jobs[0][1]["docs"]), ("大空スバル", ["material:kb"]))
+        with _diar.voices_edit(EMB) as v:
+            v["大空スバル"]["learnedFrom"] = [x for x in v["大空スバル"]["learnedFrom"] if x["doc"] != "material:kb"]
+        self.assertEqual(self.tick(now=2000.0), "voice-unlearn")
+        self.assertEqual((self.jobs[1][1]["name"], self.jobs[1][1]["docs"]), ("白上フブキ", ["material:kz"]))   # 一覧に無いかけらでも外す
+        with _diar.voices_edit(EMB) as v:
+            v.pop("白上フブキ")
         self.assertIsNone(self.tick(now=2000.0))
         st = VM.read_state(self.app)
         self.assertEqual((st["asked"], sorted(st["failed"])), ({}, ["kc"]))
+        self.assertTrue(_diar.load_voices(EMB)["大空スバル"]["learnedFrom"][0]["sure"])   # 確かの印を登録簿へ
+        self.jobs.clear()
         self.assertEqual(self.tick(now=2000.0 + VM.RETRY_SEC), "voice-learn-material")   # 1 日たったら試し直す
-        # 確かの印 → 登録簿へ
+        self.assertEqual([c["doc"] for c in self.jobs[0][1]["clips"]], ["material:kc"])
+        # 外す答え・確かの取り消し → voice-unlearn
         with VM._lock:
             st = VM.read_state(self.app)
-            st["sure"]["ka"] = {"by": "x", "at": 1}
+            st["dropped"]["ka"] = {"why": "unusual", "by": "x", "video": "AAAAAAAAAAA", "at": 1}
             st["asked"] = {}
             VM._write_state(self.app, st)
         self.jobs.clear()
-        self.tick(now=3000.0)
-        lf = {x["doc"]: x for x in _diar.load_voices(EMB)["大空スバル"]["learnedFrom"]}
-        self.assertTrue(lf["material:ka"]["sure"])
-        # 外す答え → voice-unlearn を先に
-        with VM._lock:
-            st = VM.read_state(self.app)
-            st["dropped"]["kb"] = {"why": "unusual", "by": "x", "video": "AAAAAAAAAAA", "at": 1}
-            VM._write_state(self.app, st)
-        self.jobs.clear()
         self.assertEqual(self.tick(now=4000.0), "voice-unlearn")
-        self.assertEqual((self.jobs[0][1]["name"], self.jobs[0][1]["docs"]), ("大空スバル", ["material:kb"]))
+        self.assertEqual((self.jobs[0][1]["name"], self.jobs[0][1]["docs"]), ("大空スバル", ["material:ka"]))
         with mock.patch.object(VM.voice_mod, "RELEARN_PAUSED", True):
             self.assertIsNone(self.tick(now=5000.0))   # 覚え直しの一時止めの間は休む
 
