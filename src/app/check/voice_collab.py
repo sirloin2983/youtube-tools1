@@ -13,6 +13,7 @@
          "bgm": true(BGM が大きい)・"alt": true(声色が違う)を足せる。「メンバー以外の人」の札はこの種類では OTHER_PERSON の名前で送る = 前の答えと同じ。
          カードには測る専用の札 measureOnly(画面に出さない))
          (試す専用の正解 = 声の登録簿に入れない)。答えの記録の applied = {collab: 区間の key, video, names}。採点は研究の側(score_segments.py)。Z は記録だけ戻す
+  分からない その 10 秒の音を控える(app/check/voice_unknown。11-02)
   一覧のファイルはこの PC の作業データにだけ置く(配る zip には入らない = 友人の PC では出ない)
 """
 import os
@@ -22,7 +23,7 @@ from flow import voicematerial as _vm
 from human.check import apply as _apply, voice as voice_mod
 from ytt import fsio
 from ytt.textutil import person_key as _person_key
-from . import lineup, sources
+from . import lineup, sources, voice_unknown
 
 KIND, SOURCE = "speaker", "collab"   # 種類 speaker(画面の札「コラボの話者」・描き方は cards/speaker.js)
 NAME, DIR_NAME = "speaker-collab.json", "speaker-collab"   # 10 秒の区間(行の単位の voice-collab.json は外した)
@@ -115,5 +116,16 @@ def _revert_collab(ctx, row):
     return {"collab": (row.get("applied") or {}).get("collab")}
 
 
+def _unknown_collab(ctx, card, row):
+    """[分からない] の 10 秒の音を控える(app/check/voice_unknown。11-02 ユーザー「わからないにしたやつ記憶しておいてほしい」)"""
+    app_dir = getattr(ctx, "app_dir", "") or ""
+    p = clip_path(app_dir, (card.get("target") or {}).get("collab"))
+    data = None
+    if p:
+        with open(p, "rb") as f:
+            data = f.read()
+    voice_unknown.keep(app_dir, card, row, data)
+
+
 sources.register(KIND, SOURCE, voice_collab)
-_apply.register(KIND, SOURCE, _apply_collab, _revert_collab, check_answer)
+_apply.register(KIND, SOURCE, _apply_collab, _revert_collab, check_answer, on_unknown=_unknown_collab)

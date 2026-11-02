@@ -18,7 +18,7 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _checkkit as kit  # noqa: E402
 
-from app.check import deck, lineup, sources, speaker_solo as SS  # noqa: E402
+from app.check import deck, lineup, sources, speaker_solo as SS, voice_collab, voice_unknown  # noqa: E402
 from flow import diar as _diar, jobs as _heavy  # noqa: E402
 from human.check import apply  # noqa: E402
 from human.proof import speakers as _speakers  # noqa: E402
@@ -99,6 +99,37 @@ class SpeakerSoloTest(unittest.TestCase):
         self.assertEqual((struct.unpack("<h", frames[:2])[0], struct.unpack("<h", frames[-2:])[0]), (20, 29))   # 20〜30 秒
         self.assertIsNone(SS.clip_piece(self.app, "kz"))
         self.assertIsNone(SS.clip_piece(self.app, "kb"))   # 空の音 = 読めない
+
+    def test_unknown_keeps_audio_and_listing(self):
+        """[分からない] = 音(ソロは選んだ 10 秒だけ)と位置を控え、一覧に出す。Z で戻すと一覧から外れる。声は覚えない(11-02)"""
+        rate = 8000
+        with wave.open(os.path.join(self.app, "check", SS.DIR_NAME, "ka.wav"), "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(rate)
+            w.writeframes(b"".join(struct.pack("<h", sec) * rate for sec in range(48)))
+        u = apply.unknown(self.ctx, self.cards()["ka"])
+        got = voice_unknown.listing(self.app)
+        self.assertEqual([(r["id"], r["card"], r["kind"], r["source"], r["key"], r["piece"]) for r in got], [(u["answer"], self.cards()["ka"]["id"], "speaker", "solo", "ka", [20.0, 30.0])])
+        with wave.open(got[0]["file"], "rb") as w:
+            self.assertEqual(w.getnframes(), 10 * rate)
+        self.assertIsNone(self.tick())   # 声は覚えない
+        apply.undo(self.ctx, u["answer"])
+        self.assertEqual(voice_unknown.listing(self.app), [])
+        self.assertTrue(os.path.isfile(got[0]["file"]))   # 音の控えは残す
+        # コラボの 10 秒も同じ
+        os.makedirs(os.path.join(self.app, "check", voice_collab.DIR_NAME))
+        with open(os.path.join(self.app, "check", voice_collab.NAME), "w", encoding="utf-8") as f:
+            json.dump({"cards": [{"key": "c1", "video": "DDDDDDDDDDD", "title": "コラボ", "sec": 10.0, "people": ["大空スバル", "白上フブキ"]}]}, f, ensure_ascii=False)
+        with open(os.path.join(self.app, "check", voice_collab.DIR_NAME, "c1.wav"), "wb") as f:
+            f.write(b"RIFFcollab")
+        view = sources.View(types.SimpleNamespace(root=None, env=None, app_dir=self.app), State())
+        cc = voice_collab.voice_collab(view)[0]
+        apply.unknown(self.ctx, cc)
+        got = voice_unknown.listing(self.app)
+        self.assertEqual([(r["kind"], r["source"], r["key"], r.get("piece")) for r in got], [("speaker", "collab", "c1", None)])
+        with open(got[0]["file"], "rb") as f:
+            self.assertEqual(f.read(), b"RIFFcollab")
 
     def test_answers_learn_only_streamer_alone(self):
         a = self.answer("ka", {"names": ["大空スバル"]})

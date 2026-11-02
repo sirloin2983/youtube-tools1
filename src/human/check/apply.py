@@ -61,16 +61,18 @@ class Context:
 
 
 class _Applier:
-    def __init__(self, kind, source, apply, revert=None, check=None, defer=None, max_bytes=None):
+    def __init__(self, kind, source, apply, revert=None, check=None, defer=None, max_bytes=None, on_unknown=None):
         self.kind, self.source, self.apply, self.revert, self.check, self.defer = kind, source, apply, revert, check, defer
         self.max_bytes = max_bytes or MAX_ANSWER_BYTES
+        self.on_unknown = on_unknown
 
 
-def register(kind, source, apply, revert=None, check=None, defer=None, max_bytes=None):
-    """種類と出どころの反映の関数を登録する(同じ組は上書き)。max_bytes = 答えの大きさの上限(既定 MAX_ANSWER_BYTES。区間カードは行の直しを何行も送る = C-EVAL)。-> 登録した物"""
+def register(kind, source, apply, revert=None, check=None, defer=None, max_bytes=None, on_unknown=None):
+    """種類と出どころの反映の関数を登録する(同じ組は上書き)。max_bytes = 答えの大きさの上限(既定 MAX_ANSWER_BYTES。区間カードは行の直しを何行も送る = C-EVAL)。
+    on_unknown(ctx, card, row) = [分からない] の行を書いたあとに呼ぶ(控えを残すなど。失敗しても分からないは済んだまま。11-02 誰の声のカード)。-> 登録した物"""
     if not callable(apply):
         raise TypeError("apply は関数にしてください")
-    ap = _Applier(kind, source, apply, revert, check, defer, max_bytes)
+    ap = _Applier(kind, source, apply, revert, check, defer, max_bytes, on_unknown)
     _REG[(kind, source)] = ap
     return ap
 
@@ -289,6 +291,12 @@ def unknown(ctx, card, page=None):
         row = _line(unknown=card["id"], kind=card.get("kind"), source=card.get("source"), case=card.get("case"),
                     target=card.get("target") or {}, mark=answerlog.card_mark(card))
         answerlog.append(ctx.app_dir, row)
+        ap = _REG.get((card.get("kind"), card.get("source")))
+        if ap is not None and ap.on_unknown is not None:
+            try:
+                ap.on_unknown(ctx, card, row)
+            except Exception:   # noqa: BLE001  (控えが書けなくても分からないは済んだまま)
+                pass
         return {"ok": True, "answer": row["id"], "card": card["id"], "flushed": flushed}
 
 

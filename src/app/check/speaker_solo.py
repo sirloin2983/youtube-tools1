@@ -15,6 +15,7 @@
          無ければジョブ voice-learn-clips(human/proof/speakers.run_voice_learn_clips)で入れ、Z で戻した答えの分が残っていればジョブ voice-unlearn で外してまとめ直す
          (行ごとの特徴の控え "solo:<key>#w" から。外すと何も残らない人は声を消す)。入らなかった物は RETRY_SEC たってから試し直す
   記録   applied = {solo: key, video, who, names, bgm?, alt?, piece: [頭, 末], learn}
+  分からない その 10 秒の音と位置を控える(app/check/voice_unknown。11-02 ユーザー「わからないにしたやつ記憶しておいてほしい」)
 """
 import io
 import os
@@ -27,7 +28,7 @@ from flow import diar as _diar, jobs as _heavy, voicematerial as _vm
 from human.check import answerlog, apply as _apply, voice as voice_mod
 from ytt import fsio
 from ytt.textutil import person_key as _person_key
-from . import lineup, sources, voice_collab
+from . import lineup, sources, voice_collab, voice_unknown
 
 KIND, SOURCE = "speaker", "solo"
 NAME, DIR_NAME, STATE_NAME = "speaker-solo.json", "speaker-solo", "speaker-solo-state.json"
@@ -250,5 +251,10 @@ def tick(app_dir, busy, log, now=None):
     return "voice-learn-clips"
 
 
+def _unknown_solo(ctx, card, row):
+    app_dir = getattr(ctx, "app_dir", "") or ""
+    voice_unknown.keep(app_dir, card, row, clip_piece(app_dir, (card.get("target") or {}).get("solo")))
+
+
 sources.register(KIND, SOURCE, speaker_solo)
-_apply.register(KIND, SOURCE, _apply_solo, _revert_solo, voice_collab.check_answer)
+_apply.register(KIND, SOURCE, _apply_solo, _revert_solo, voice_collab.check_answer, on_unknown=_unknown_solo)
