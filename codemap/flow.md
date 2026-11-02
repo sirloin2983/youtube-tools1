@@ -110,8 +110,8 @@
   - 名前: `low_why` :32・`heat_spans` :43・`final_pref` :50・`plan` :67
 - **voicematerial.py** (255 行) — ② 管理の層 flow: 声を覚える材料の選び方と切り出し(10-24 夜。ユーザー「誰の声をメンバー全員分」)。
   - 名前: `is_short` :41・`num` :46・`rows` :50・`song_title` :57・`song_row` :62・`titles` :67・`group_block` :91・`solo_person` :102・`main_speaker` :129・`roster_file` :139・`roster_people` :144・`roster_data` :154・ほか 7
-- **wire.py** (89 行) — ② 管理の層 flow: 文字起こしの配線(ジョブの種類の登録・ジョブの表の設定・本物と疑似の選び方・① の口の登録)。RS6 a-5b(決定 3-29)。登録は 1 つの install にまとまっている。
-  - 名前: `install` :39・`setup_places` :64・`setup_headless` :79
+- **wire.py** (91 行) — ② 管理の層 flow: 文字起こしの配線(ジョブの種類の登録・ジョブの表の設定・本物と疑似の選び方・① の口の登録)。RS6 a-5b(決定 3-29)。登録は 1 つの install にまとまっている。
+  - 名前: `install` :41・`setup_places` :66・`setup_headless` :81
 
 ## テスト
 

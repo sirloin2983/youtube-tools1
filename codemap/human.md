@@ -15,20 +15,20 @@
   - 名前: `card_switch` :24・`busy` :38・`edit_row` :46・`edit_fields` :70・`revert_fields` :80・`doc_id` :94・`row_target` :102・`choice` :112
 - **answerlog.py** (212 行) — 「確かめる」の答えの記録(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-1)。
   - 名前: `answers_path` :48・`new_id` :56・`day_of` :61・`card_mark` :66・`append` :76・`class State` :107・`state` :189・`read_skips` :195・`add_skip` :203
-- **apply.py** (302 行) — 「確かめる」の答えを実物へ反映する土台(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-2・3-3)。
-  - 名前: `class Context` :46・`register` :69・`flush` :207・`answer` :214・`undo` :255・`unknown` :281・`skip` :295
+- **apply.py** (310 行) — 「確かめる」の答えを実物へ反映する土台(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-2・3-3)。
+  - 名前: `class Context` :46・`register` :70・`flush` :209・`answer` :216・`undo` :257・`unknown` :283・`skip` :303
 - **cutcard.py** (44 行) — 「確かめる」の自動カットのカードの答えの記録(CUT-CARD。決定: plan/opt-eval.md の Q4 自動カットのカード)。
   - 名前: `enabled` :25
 - **section.py** (304 行) — 「確かめる」の評価のレーンの区間カードの反映(C-EVAL (2)。決定 3-47「確かめると評価をまとめる」・3-49 Q2。設計の相談は Fable)。
   - 名前: `enabled` :296
-- **symbol.py** (93 行) — 「確かめる」の記号のカード「この記号は消してよいか」の反映(11-01 ユーザー「消してよかったかを見直す道具は確かめるに作ればよくない？」)。
-  - 名前: `code_of` :22・`char_of` :27・`extra_path` :38
+- **symbol.py** (213 行) — 「確かめる」の記号のカード「この文の、この記号は消してよいか」の反映と、記号の決まりの案(11-01 ユーザー「消してよかったかを見直す道具は確かめるに作ればよくない？」・
+  - 名前: `code_of` :31・`char_of` :36・`scene_label` :47・`extra_path` :58・`rules_path` :63・`read_rules` :74・`decided_scenes` :84・`proposals` :150・`decide` :175・`unsure_list` :193・`summary` :205
 - **timerow.py** (109 行) — 「確かめる」の時刻のカード「行の時刻が合っているか」の反映(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-2・5 節・決定 3-41)。
   - 名前: `_move` :21・`_check` :29・`_times` :50・`_apply_time` :54・`_revert_time` :86
 - **value.py** (188 行) — 「確かめる」の価値のカード(切り抜く価値があるか = 70 点以上か)の反映(資料の git:before-1028-cleanup:docs/design/v1-check-build.md・決定 3-41)。
   - 名前: `_score` :36・`_code` :47・`_msg` :51・`_need` :55・`_auto_check` :65・`_cand_check` :79・`_auto_apply` :84・`_auto_revert` :96・`_studio` :108・`_set_status` :115・`_cand_apply` :144・`_cancel_export` :159・ほか 1
-- **voice.py** (441 行) — 「確かめる」の誰の声のカード(voice:diar)の答えの形・選択肢・反映・声の覚え直し(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-2・5 節、
-  - 名前: `diar_enabled` :53・`doc_embedding` :75・`registry` :80・`options_for` :95・`guess_for` :116・`buttons` :132・`people_for` :141
+- **voice.py** (513 行) — 「確かめる」の誰の声のカード(voice:diar)の答えの形・選択肢・反映・声の覚え直し(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-2・5 節、
+  - 名前: `diar_enabled` :62・`doc_embedding` :84・`registry` :89・`options_for` :104・`guess_for` :125・`buttons` :141・`people_for` :150・`answer_names` :298・`collab_docs` :316
 
 ## src/human/cut/
 
@@ -81,13 +81,13 @@
   - 名前: `record_rerun` :49・`apply_retranscribe` :85・`replace_original_multi` :154・`thin_rows` :173・`apply_range` :186・`run_retranscribe` :231・`rebuild_whole` :277・`validate_retranscribe` :368・`validate_whole` :404・`validate_rerun` :434
 - **retime.py** (32 行) — ③ 人の操作の層 human/proof: 行の時刻の候補の API の包み POST /api/retime {id, rows: [行の id…]}
   - 名前: `retime_engine` :12・`retime_doc` :18
-- **speakers.py** (715 行) — ③ 人の操作の層 human/proof: 話者判別の結果を文書へ(apply_diarization・1 人指定 single_speaker・守る行 diar_keep_row)・判別のジョブの受付と文書への書き込み(validate_diarize・
-  - 名前: `set_context_namer` :31・`check_context_namer` :40・`apply_diarization` :62・`diar_keep_row` :79・`validate_diarize` :170・`single_speaker` :194・`run_diarize` :222・`autodiar_enabled` :279・`autodiar_ready` :284・`autodiar_enqueue` :304・`autodiar_after_transcribe` :336・`is_generic_speaker_name` :423・ほか 7
+- **speakers.py** (806 行) — ③ 人の操作の層 human/proof: 話者判別の結果を文書へ(apply_diarization・1 人指定 single_speaker・守る行 diar_keep_row)・判別のジョブの受付と文書への書き込み(validate_diarize・
+  - 名前: `set_context_namer` :32・`check_context_namer` :41・`apply_diarization` :63・`diar_keep_row` :80・`validate_diarize` :171・`single_speaker` :195・`run_diarize` :223・`autodiar_enabled` :280・`autodiar_ready` :285・`autodiar_enqueue` :305・`autodiar_after_transcribe` :337・`is_generic_speaker_name` :424・ほか 9
 - **store.py** (1165 行) — ③ 文書の置き場: 文書を書く唯一の口 commit と機械の層・人の層(層が正 = 文書は組み立て済みの写し・古い写しの読み直し fresh_copy)・保存の錠 saving・
   - 名前: `tx_path` :37・`write_doc` :41・`read_layers` :73・`commit` :114・`layers_for` :171・`fresh_copy` :201・`snapshot` :251・`backup_doc` :259・`sanitize_sub_style` :278・`sanitize_transcript` :291・`doc_length` :373・`good_row` :394・ほか 37
 - **voiceclips.py** (215 行) — 声を覚える材料の短い音(10-24 夜。ユーザー「誰の声をメンバー全員分」・「精度に関係する物は残す」)。
   - 名前: `root` :28・`index` :40・`clip_path` :54・`media` :63・`make` :72・`put_bytes` :106・`timeline_wav` :135・`bgm` :199
-- **voicerebuild.py** (158 行) — 覚えた声を 1 行ずつ外してまとめ直す(10-25 ユーザーとまとめ役が 1 行ずつ聞いて確かめた結果。資料の git:before-1028-cleanup:plan/間違った正解のリスク-1025.md の 6)。
+- **voicerebuild.py** (161 行) — 覚えた声を 1 行ずつ外してまとめ直す(10-25 ユーザーとまとめ役が 1 行ずつ聞いて確かめた結果。資料の git:before-1028-cleanup:plan/間違った正解のリスク-1025.md の 6)。
   - 名前: `rows_path` :23・`row_vectors` :47・`backfill` :64・`rebuild` :96
 
 ## src/human/review/

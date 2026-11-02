@@ -100,8 +100,8 @@
   - 名前: `fold` :40・`load` :51・`channel_regions` :90・`find_in_text` :120・`match_name` :133・`build_context` :144・`member_terms` :168・`fit` :179・`prompt_terms` :194・`stream_context` :204・`leak_only` :229・`alias_variants` :263・ほか 1
 - **separate.py** (164 行) — 「編集」のサーバーの部品: 声を伴奏から分けて(Spleeter 2stems・sherpa-onnx・CPU)、分けた声の音量から声のある区間を作る(資料の git:before-1028-cleanup:plan/voice-separation-1022.md)。
   - 名前: `sep_model_dir` :34・`spans_from_db` :38・`prefetch` :73・`prefetch_local` :89・`voice_spans` :109
-- **symbols.py** (157 行) — 文字起こしの記号の決まり(11-01。保管庫 plan/文字起こしの書き方の決まり.md の 1-1 と decisions の 11-01 の例外)。
-  - 名前: `is_symbol` :25・`base_rules` :56・`decided` :78・`read_extra` :85・`apply` :111・`code_of` :143・`char_of` :148
+- **symbols.py** (228 行) — 文字起こしの記号の決まり(11-01。保管庫 plan/文字起こしの書き方の決まり.md の 1-1 と decisions の 11-01 の例外)。
+  - 名前: `is_symbol` :28・`base_rules` :59・`scene_kind` :80・`scene_of` :100・`scene_label` :105・`read_scenes` :116・`decided` :148・`read_extra` :155・`apply` :181・`code_of` :214・`char_of` :219
 - **tx_engines.py** (1706 行) — 文字起こしの認識エンジンの口(精度改善の計画 段2。資料の git:before-1028-cleanup:plan/line-b-transcription.md(付録))。
   - 名前: `engine_home` :56・`engine_of` :65・`env_num` :70・`is_16k_mono` :79・`half_cpu` :84・`class EngineError` :89・`class Engine` :97・`class FasterWhisper` :150・`scan_timings` :225・`gpu_peek` :249・`wcpp_env` :264・`wcpp_bin_dir` :273・ほか 27
 - **worker.py** (340 行) — ① 文字起こしの認識ワーカー(統合計画の段階3-3)。編集のサーバーが別プロセスとして起動する(worker_client.WorkerClient)。人が直接起動するものではない。

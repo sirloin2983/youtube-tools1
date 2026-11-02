@@ -11,8 +11,8 @@
 - **code_map.py** (466 行) — コードの地図と言葉の索引を作る道具(AI のセッションがコードの場所を早く見つけるため)。
   - 名前: `git_files` :53・`skipped` :57・`is_test` :61・`read` :65・`one_line` :73・`comment_head` :85・`py_info` :112・`js_info` :143・`cs_info` :164・`info` :186・`layer_of` :199・`norm_route` :206・ほか 12
   - 受ける口: 
-- **demo_env.py** (356 行) — 見本のデータで入口と3ツールを動かす(画面の見直し・画面の写真・手での確認用)。本物の作業データには触らない。
-  - 名前: `run` :48・`make_media` :52・`seed` :66・`seed_check` :191・`seed_requests` :257・`main` :298
+- **demo_env.py** (360 行) — 見本のデータで入口と3ツールを動かす(画面の見直し・画面の写真・手での確認用)。本物の作業データには触らない。
+  - 名前: `run` :48・`make_media` :52・`seed` :66・`seed_check` :191・`seed_requests` :261・`main` :302
 - **dev_stats.py** (90 行) — 開発の無駄の見張り(10-25 まとめ役): 日ごとの入口の起動し直しの回数と、コミットのうち作業のコミットの割合を数える(読むだけ)。
   - 名前: `restarts` :28・`commits` :47・`table` :60・`main` :73
 - **doc_state.py** (237 行) — 計画の資料の頭の `状態`・`線` を計画の正(保管庫の plan/data/)から決めて書く・食い違いを止める。
@@ -47,6 +47,8 @@
   - 名前: `walk` :64・`read` :72・`rel` :80・`is_test` :84・`class Corpus` :88・`py_files` :109・`has_mark` :116・`unused_imports` :121・`dead_names` :145・`long_functions` :160・`dup_helpers` :171・`js_dead` :187・ほか 7
 - **loc.py** (356 行) — コードの行数を数える共通の道具(ユーザーと決めた数え方。セッションごとの数の食い違いを無くす)。
   - 名前: `classify` :40・`test_layer` :65・`count_text` :78・`py_docstring_starts` :92・`py_code_lines` :103・`scan_code_lines` :118・`skip_to` :172・`skip_string` :177・`prefix_code_lines` :200・`git` :228・`files_at` :235・`tally` :258・ほか 5
+- **make_member_index.py** (89 行) — 確かめるの話者カードの「ほかのメンバーを足す」の欄が使う、メンバーの探し方の表を作る(11-02 ユーザー「ひらがな・ローマ字・呼び名で絞れる」)。
+  - 名前: `table` :50・`main` :64
 - **members_channels.py** (151 行) — 名簿 friend-apps/holo-colors/members.json の JP・DEV_IS の各メンバーに YouTube のチャンネル ID(channel)を入れる・確かめる道具。
   - 名前: `read_text` :29・`targets` :34・`norm` :43・`fetch_rss` :48・`verdict` :69・`cmd_check` :81・`cmd_set` :106・`main` :140
 - **notes_tool.py** (461 行) — 資料のフォルダ(Obsidian の保管庫の中。layout.notes_root())のパスの検査と、資料を動かす道具。
@@ -72,9 +74,11 @@
 - **spec_check.py** (220 行) — 仕様(保管庫の docs/spec/)とコードの食い違いを探す。
   - 名前: `git_files` :45・`read` :49・`class Code` :57・`spec_files` :75・`live_lines` :84・`norm_api` :101・`clean_path` :109・`setting_keys` :114・`check` :130・`gone` :181・`main` :198
   - 受ける口: 
-- **ui_audit.py** (1051 行) — 画面(UI)の見直しの合格の基準のうち、機械で測れるものを測る道具(読むだけ。基準は `notes:docs/spec/ui.md` の A)。
+- **ui_audit.py** (1052 行) — 画面(UI)の見直しの合格の基準のうち、機械で測れるものを測る道具(読むだけ。基準は `notes:docs/spec/ui.md` の A)。
   - 名前: `class Findings` :107・`read` :123・`rel` :131・`screen_files` :135・`allowed` :144・`each_line` :149・`regex_starts` :157・`scan_string` :167・`scan_code` :181・`strip_js_comments` :231・`html_texts` :238・`py_strings` :253・ほか 31
   - 受ける口: `/api/info` :100
+- **unknown_voices.py** (35 行) — 誰の声のカード(ソロの 10 秒・コラボの 10 秒)で [分からない] にしたカードの一覧を出す(11-02 ユーザー「わからないにしたやつ記憶しておいてほしい」)。
+  - 名前: `main` :15
 - **voice_rebuild.py** (59 行) — 覚えた声を 1 行ずつ外してまとめ直す道具(human/proof/voicerebuild。10-25)。本物の作業データの登録簿を書き換える(前の版は .bak-<時刻> に写す)。
   - 名前: `main` :17
 - **worklog.py** (280 行) — 作業の記録(保管庫の docs/worklog/)をセッションごとのファイルに分けて書き、週のまとめを集めて作る。
