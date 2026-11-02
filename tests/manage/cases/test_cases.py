@@ -448,6 +448,11 @@ class TestAutoClips(Base):
             f.write("こわれた行\n")
         self.assertEqual((self.clip_of("m2")["review"]["deliveredAt"], self.clip_of("m2")["review"]["delivered"]), (at + 4, "r1__二度目.zip"))
         self.assertFalse(os.path.exists(cases.locations(self.root, self.env)["cases"]), "届けたは案件ファイルに写さない")
+        # 人の切り抜き(ライブの依頼の書き出し。届けた記録は配信の id が空・マークつき = パックの名前で引く)= 届けたときだけ review(友人へ渡した。11-03)
+        self.assertNotIn("review", self.clip_of("m3"))
+        self.sent(txindex.pack_dir(self.manual), at + 5, "rid__依頼.zip", vid="", mid="m3", path=self.manual)
+        self.assertEqual(self.clip_of("m3")["review"], {"deliveredAt": at + 5, "delivered": "rid__依頼.zip", "failure": None})
+        self.assertIsNone(self.clip_of("m3")["auto"])
 
     def test_clip_live_reads_only_live_clips(self):
         """.clip.json の読み方(まとめて実行の M8 = autorun.live_auto_origin も同じ): ライブの書き出しだけ。無い・ライブでないものは (None, None)"""

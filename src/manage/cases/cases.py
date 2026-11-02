@@ -245,7 +245,7 @@ def _sent_full(dm):
 
 def _apply_review(cases, saved, failures, delivered, not_sent=None):
     """自動でできた切り抜きに、届けた(② の届けた記録)と失敗の文と送らなかった理由(② の送らなかった記録 not_sent)を
-    重ねる(clip["review"])。
+    重ねる(clip["review"])。自動でない切り抜きは、届けた記録があるときだけ review(届けた)を付ける(ライブの依頼の書き出し。11-03)。
     日数で片付けた(expiredAt)切り抜きで動画がもう無い物は一覧から外す(片付けはスタジオのマークを変えない。マークは書き出し済みのまま残る)"""
     for c in cases:
         rec = _auto_records(saved.get(c["id"]))
@@ -256,7 +256,10 @@ def _apply_review(cases, saved, failures, delivered, not_sent=None):
             if isinstance(c.get("marks"), dict):
                 c["marks"]["exported"] = len(c["clips"])
         for cl in c.get("clips") or []:
-            if not cl.get("auto"):
+            if not cl.get("auto"):   # 自動でない切り抜き(ライブの依頼の書き出しなど)= 届けた記録があるときだけ「友人へ渡した」(11-03: こより・めらのコラボの依頼で 0 と出た)
+                dm = delivered_of(delivered, c["id"], cl.get("markId"), cl.get("path"))
+                if dm:
+                    cl["review"] = {"deliveredAt": _int_ms(dm.get("at")) or 1, "delivered": dm.get("zip") or "", "failure": None}
                 continue
             dm = delivered_of(delivered, c["id"], cl.get("markId"), cl.get("path"))
             done = _int_ms((dm or {}).get("at")) or (1 if dm else 0)   # 時刻の無い古い行も「届けた」(ずっと前)

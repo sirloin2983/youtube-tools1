@@ -321,7 +321,24 @@
       if (c.gone) sub.push('スタジオから消えた配信(候補は見られません)');
     }
     $('#csSub').textContent = sub.join(' ・ ');
+    renderLiveLink();
     renderCheckLink();
+  }
+  /* 同じ配信のライブの録画の案件(id = <日付>-<時刻>-<動画 id>)へのリンク(動画の id の案件 = アーカイブを解析した候補の側だけ。11-03:
+     ライブで書き出して友人へ渡した切り抜きは録画の案件に載り、時刻も録画の頭からなので、ここへは混ぜずにリンクだけ)。新しい録画を 1 つ */
+  function liveSibling(c) {
+    if (!c || caseKind(c) === 'live' || !/^[A-Za-z0-9_-]{11}$/.test(c.id)) return null;
+    var re = new RegExp('^\\d{8}-\\d{6}-' + c.id.replace(/[-]/g, '\\-') + '$');
+    return allCases(S.data).filter(function (x) { return x && re.test(x.id); }).sort(function (a, b) { return a.id < b.id ? 1 : -1; })[0] || null;
+  }
+  function renderLiveLink() {
+    var a = $('#csLive'), lv = liveSibling(S.kase);
+    a.hidden = !lv;
+    if (!lv) return;
+    var n = (lv.clips || []).length;
+    a.textContent = 'ライブの録画の案件(切り抜き ' + n + ' 本)';
+    a.href = CaseLink.href({ c: lv.id, tab: 'cand' });
+    a.title = 'この配信をライブで録画した案件を開きます。ライブから書き出した切り抜きと友人へ渡した数はそちらに出ます(時刻は録画の頭から)';
   }
 
   /* ---- パネル ---- */

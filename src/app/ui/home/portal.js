@@ -1446,11 +1446,11 @@
     /* -> {href, label} か {why}(押せない理由)。案件の一覧を読んだあとは、一覧に無い案件を「片付いた」とする(文書 d だけの道は照らせないので押せる)。
        録画中のライブの案件は、録画が終わるまで案件の一覧に載らないので照らさない(録画中の札の「開く」と同じ案件の画面へ)。
        録画が終わったライブは入口が道を動画の id に移し、録画の id も l.rec に添える(案件は録画の id のまま載ることもある = 両方で照らし、
-       どちらにも無い時だけ片付いた。10-30) */
+       どちらにも無い時だけ片付いた。10-30)。両方あるときは録画の案件(ライブから書き出した切り抜きはそこに載る。動画の id の案件はアーカイブを解析した候補。11-03) */
     var l = r.link;
     if (!l) return { why: r.why || '案件が分からない' };
     var c = l.c;
-    if (c && casesData && !caseById(c) && l.rec && caseById(l.rec)) c = l.rec;
+    if (c && casesData && l.rec && caseById(l.rec)) c = l.rec;
     if (c && casesData && !caseById(c) && !(l.live && r.state === 'live')) return { why: l.live ? '録画が片付いた' : '案件が片付いた' };
     return { href: CaseLink.href({ c: c, d: l.d, tab: l.tab }), label: l.live ? 'ライブを開く' : '開く' };
   }
