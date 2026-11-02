@@ -18,7 +18,7 @@ import re
 import time
 import zlib
 
-NORMAL_KINDS = ("value", "voice", "time", "cut", "symbol", "speaker")   # 普段のレーン(cut = 自動カットのカード CUT-CARD・symbol = 文字起こしから消した記号 11-01・speaker = コラボの話者 11-01 = app/check/voice_collab。読み read と「この行は声ですか?」speech は 10-31 に消した = Haas に替えるため)
+NORMAL_KINDS = ("value", "voice", "time", "cut", "symbol", "speaker")   # 普段のレーン(cut = 自動カットのカード CUT-CARD・symbol = 文字起こしから消した記号 11-01・speaker = ソロの 10 秒 11-02 = app/check/speaker_solo(コラボの話者 speaker:collab は 11-02 に消した)。読み read と「この行は声ですか?」speech は 10-31 に消した = Haas に替えるため)
 EVAL_KINDS = ("section",)   # 評価のレーン(評価用の文書の区間カード。C-EVAL (2))
 KINDS = NORMAL_KINDS + EVAL_KINDS
 LANES = {"normal": NORMAL_KINDS, "eval": EVAL_KINDS}

@@ -18,7 +18,7 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _checkkit as kit  # noqa: E402
 
-from app.check import deck, lineup, sources, speaker_solo as SS, voice_collab, voice_unknown  # noqa: E402
+from app.check import deck, lineup, sources, speaker_solo as SS, voice_unknown  # noqa: E402
 from flow import diar as _diar, jobs as _heavy  # noqa: E402
 from human.check import apply  # noqa: E402
 from human.proof import speakers as _speakers  # noqa: E402
@@ -117,19 +117,6 @@ class SpeakerSoloTest(unittest.TestCase):
         apply.undo(self.ctx, u["answer"])
         self.assertEqual(voice_unknown.listing(self.app), [])
         self.assertTrue(os.path.isfile(got[0]["file"]))   # 音の控えは残す
-        # コラボの 10 秒も同じ
-        os.makedirs(os.path.join(self.app, "check", voice_collab.DIR_NAME))
-        with open(os.path.join(self.app, "check", voice_collab.NAME), "w", encoding="utf-8") as f:
-            json.dump({"cards": [{"key": "c1", "video": "DDDDDDDDDDD", "title": "コラボ", "sec": 10.0, "people": ["大空スバル", "白上フブキ"]}]}, f, ensure_ascii=False)
-        with open(os.path.join(self.app, "check", voice_collab.DIR_NAME, "c1.wav"), "wb") as f:
-            f.write(b"RIFFcollab")
-        view = sources.View(types.SimpleNamespace(root=None, env=None, app_dir=self.app), State())
-        cc = voice_collab.voice_collab(view)[0]
-        apply.unknown(self.ctx, cc)
-        got = voice_unknown.listing(self.app)
-        self.assertEqual([(r["kind"], r["source"], r["key"], r.get("piece")) for r in got], [("speaker", "collab", "c1", None)])
-        with open(got[0]["file"], "rb") as f:
-            self.assertEqual(f.read(), b"RIFFcollab")
 
     def test_answers_learn_only_streamer_alone(self):
         a = self.answer("ka", {"names": ["大空スバル"]})

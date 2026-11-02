@@ -1,14 +1,15 @@
 """「確かめる」のソロから声を覚えるカード speaker:solo(11-02。保管庫 plan/話者の物差し-1101.md 14 章 ①・ユーザー「ここまでは実装していい」)。
 
-誰の声のカード(cards/speaker.js・コラボの 10 秒のカード speaker:collab と同じ画面と聞き方)。聞くことは「この 10 秒で話している人は誰?(全員)」の 1 つ。
+誰の声のカード(cards/speaker.js・11-02 に消したコラボの 10 秒のカード speaker:collab と同じ画面と聞き方)。聞くことは「この 10 秒で話している人は誰?(全員)」の 1 つ。
 音は研究(予備1)が取るソロの配信の 48 秒(1 本 2 か所 = 1/3 と 2/3 あたり。ソロの判定 = 2 人目 5% 以下を通った物)。その中で声がいちばん多い 10 秒を選んで流す。
   一覧   <app>/check/speaker-solo.json = {"cards": [{key, video, title, who, at, sec, speech: [[頭, 末]…]}]}(形は共有メモ 境目-声のカード.md の「11-02 夜」)
          音は <app>/check/speaker-solo/<key>.wav。一覧と音はこの PC の作業データにだけ置く(配る zip には入らない = 友人の PC では出ない)
   10 秒  speech(声の有無の検出の区間)といちばん重なる 10 秒(STEP 秒ずつずらして探す)。speech が無ければ真ん中の 10 秒。
          入口はその 10 秒だけを切り出して渡す(clip_piece・GET api/check/voicesolo。プレーヤーも 0:10 と出る = コラボの 10 秒と同じ)
   並び   誰の声のカードの中でランダム(app/check/lineup.SHUFFLE_KINDS)。FIRST_PEOPLE の人のカードは先頭(_first。11-02 ユーザー「こよりとめらを優先して」)
-  ボタン コラボの 10 秒と同じ(配信者・名簿の全員を足す欄・誰か分からないメンバー・メンバー以外の人・ゲームの声・BGM が大きい・声色が違う・声なし)
-  答え   {"names": [名前…], bgm?, alt?} か {"choice": "other"}(声なし)= コラボの 10 秒と同じ形(voice_collab.check_answer)
+  ボタン 配信者・(配信者・名簿の全員を足す欄・誰か分からないメンバー・メンバー以外の人・ゲームの声・BGM が大きい・声色が違う・声なし)
+  答え   {"names": [名前…], bgm?, alt?} か {"choice": "other"}(声なし)(check_answer。11-02 に消したコラボの 10 秒 speaker:collab と同じ形・
+         「メンバー以外の人」の札は OTHER_PERSON の名前で送る)
   覚える 配信者 1 人だけが選ばれ、印(bgm・alt)が無いときだけ、その 10 秒で製品の登録簿に声を覚える(人が確かめた物だけ。仮では入れない)。
          ほかの人・ゲームの声・印あり・声なし・分からないは覚えない。applied.learn = {name, start, end, sec} か None
   登録簿 入口の見回り tick(voice_fill_loop・1 分ごと)が、効いている答えの learn と登録簿の learnedFrom(doc = "solo:<key>"・sure: true)を突き合わせる:
@@ -28,7 +29,7 @@ from flow import diar as _diar, jobs as _heavy, voicematerial as _vm
 from human.check import answerlog, apply as _apply, voice as voice_mod
 from ytt import fsio
 from ytt.textutil import person_key as _person_key
-from . import lineup, sources, voice_collab, voice_unknown
+from . import lineup, sources, voice_unknown
 
 KIND, SOURCE = "speaker", "solo"
 NAME, DIR_NAME, STATE_NAME = "speaker-solo.json", "speaker-solo", "speaker-solo-state.json"
@@ -40,6 +41,9 @@ DOC_PREFIX = "solo:"
 KEY_RE = re.compile(r"^[a-z0-9]{1,16}\Z")
 VIDEO_RE = re.compile(r"^[A-Za-z0-9_-]{11}\Z")
 MAX_BYTES = 4 * 1024 * 1024
+OTHER_PERSON = "その他の人"   # メンバー以外の声(1 人と数える。コラボの 10 秒の答えと同じ名前)
+OTHER = voice_mod.OTHER        # 声なし
+MAX_NAMES = 8
 FIRST_PEOPLE = ("博衣こより", "熱千めら")   # 先頭に出す人(11-02 ユーザー「例外でこよりとめらを優先して・今日使いたいらしい」。済んだら空に)
 _lock = threading.Lock()
 
@@ -132,9 +136,28 @@ def speaker_solo(view):
                     "target": {"videoId": c["video"], "solo": c["key"], "piece": [a, b], "docId": None, "row": None},
                     "media": {"url": "api/check/voicesolo?key=%s" % c["key"], "start": 0.0, "end": round(b - a, 2), "pad": 0.0, "padEnd": 0.0},   # 音は 10 秒だけ(clip_piece)
                     "text": "", "people": [who], "who": who, "at": _num(c.get("at")),
-                    "pick": [n for n in dict.fromkeys(members) if _person_key(n) != _person_key(who)], "otherPerson": voice_collab.OTHER_PERSON,
+                    "pick": [n for n in dict.fromkeys(members) if _person_key(n) != _person_key(who)], "otherPerson": OTHER_PERSON,
                     "score": None, "note": "", "cast": [who], "_first": _person_key(who) in first})   # 並びは誰の声の中でランダム(lineup)
     return out
+
+
+def check_answer(ans):
+    """答えを整える -> {"names": [名前…]} か {"choice": "other"}。違えば ValueError(400)"""
+    if not isinstance(ans, dict):
+        raise ValueError("答えは {names} か {choice} の形で送ってください")
+    if set(ans) == {"choice"} and ans["choice"] == OTHER:
+        return {"choice": OTHER}
+    if "names" in ans and set(ans) <= {"names", "bgm", "alt"} and isinstance(ans["names"], list) and 1 <= len(ans["names"]) <= MAX_NAMES:
+        if not all(isinstance(n, str) for n in ans["names"]):
+            raise ValueError("名前は文字で送ってください")
+        out = {"names": list(dict.fromkeys(voice_mod._check_answer({"name": n})["name"] for n in ans["names"]))}
+        for k in ("bgm", "alt"):
+            if k in ans:
+                if ans[k] is not True:
+                    raise ValueError("%s は true だけ送れます" % k)
+                out[k] = True
+        return out
+    raise ValueError("答えは {names: [名前…]}(1〜%d 人)か {choice: \"other\"} の形で送ってください" % MAX_NAMES)
 
 
 def learn_of(who, ans, a, b):
@@ -257,4 +280,4 @@ def _unknown_solo(ctx, card, row):
 
 
 sources.register(KIND, SOURCE, speaker_solo)
-_apply.register(KIND, SOURCE, _apply_solo, _revert_solo, voice_collab.check_answer, on_unknown=_unknown_solo)
+_apply.register(KIND, SOURCE, _apply_solo, _revert_solo, check_answer, on_unknown=_unknown_solo)

@@ -581,16 +581,16 @@ def _scene_voice_video_or_clip(cx):
 
 
 def _scene_speaker(cx):
-    """話者カード(コラボの 10 秒の区間・speaker:collab): 出る人の全員が名前のボタン・予想なし・選ばずに決めるは押せない・何人でも選んで決める = {names}・
+    """話者カード(10 秒の区間。画面は speaker.js = ソロの 10 秒 speaker:solo。11-02 まではコラボの 10 秒 speaker:collab も): 出る人の全員が名前のボタン・予想なし・選ばずに決めるは押せない・何人でも選んで決める = {names}・
     ほかのメンバーを足す・メンバー以外の人の札は その他の人 の名前で送る(前の答えと同じ)・声なし。YTT_E2E_SHOT があれば、そのパスにカードの写真を撮る"""
     pg, check = cx.pg, cx.check
     def sc(i, people):
-        return card(i, "speaker", source="collab", target={"videoId": "AAAAAAAAAAA", "collab": "c1r%02d" % i, "docId": None, "row": None},
-                    media={"url": "api/check/voicecollab?key=c1r%02d" % i, "start": 0.0, "end": 1.0, "pad": 0.0, "padEnd": 0.0}, text="",
+        return card(i, "speaker", source="solo", target={"videoId": "AAAAAAAAAAA", "solo": "c1r%02d" % i, "piece": [0.0, 1.0], "docId": None, "row": None},
+                    media={"url": "api/check/voicesolo?key=c1r%02d" % i, "start": 0.0, "end": 1.0, "pad": 0.0, "padEnd": 0.0}, text="",
                     people=people, cast=people, otherPerson="その他の人", case={"id": "AAAAAAAAAAA", "title": "ド珍検証会(ド珍組)"})
     four = ["さくらみこ", "白上フブキ", "大神ミオ", "大空スバル"]
     fs = FakeQueue([sc(i, four) for i in (90, 91, 92, 93)])
-    clip_re = re.compile(r".*/api/check/voicecollab.*")
+    clip_re = re.compile(r".*/api/check/voicesolo.*")
     _swap_queue(cx, fs)
     cx.ctx.route(clip_re, lambda route: route.fulfill(status=200, body=cx.wav, headers={"Content-Type": "audio/wav", "Accept-Ranges": "none"}))
     names = "[...document.querySelectorAll('#chkBody .chk-spk-names .chk-spk-name')].map(b => [b.firstChild.textContent, b.getAttribute('aria-pressed')])"

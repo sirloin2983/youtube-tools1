@@ -8,7 +8,7 @@
    印(段 3): BGM が大きい・声色が違う(真似・笑い・歌)。
    答え(段 2): [決める] = {names: [選んだ名前…], bgm?, alt?}(コラボの「メンバー以外の人」は card.otherPerson の名前で送る = 前の答えと同じ)/
      [声なし] = {choice: "other"}(名前を選んでいる間は押せない)。声の材料にするか(測る専用の札 measureOnly・1 人だけ・印なし)はサーバーが決める
-     (human/check/voice・app/check/voice_collab)。キーは無い(入力欄の Enter = 絞った 1 人を足す・Esc = 閉じる) */
+     (human/check/voice・app/check/speaker_solo)。キーは無い(入力欄の Enter = 絞った 1 人を足す・Esc = 閉じる) */
 (function () {
   'use strict';
   var esc = UIKit.esc;

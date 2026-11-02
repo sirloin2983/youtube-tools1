@@ -1,4 +1,4 @@
-"""誰の声のカード(ソロの 10 秒 speaker:solo・コラボの 10 秒 speaker:collab)で [分からない] にしたカードの控え(11-02 ユーザー「わからないにしたやつ記憶しておいてほしい」)。
+"""誰の声のカード(ソロの 10 秒 speaker:solo。11-02 に消したコラボの 10 秒 speaker:collab の分も残す)で [分からない] にしたカードの控え(11-02 ユーザー「わからないにしたやつ記憶しておいてほしい」)。
 
 [分からない] を押したとき(human/check/apply.unknown が登録の keep を呼ぶ)、カードの音(ソロは選んだ 10 秒だけ)を
 <app>/check/unknown-voice/<分からないの行の id>.wav に写し、<app>/check/unknown-voice.jsonl に 1 行足す:
