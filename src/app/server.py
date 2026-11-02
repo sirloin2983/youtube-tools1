@@ -102,6 +102,7 @@ from flow import placement  # noqa: E402  (② の .flow.lock。RS6 b-B0)
 from flow import colors_api  # noqa: E402  (POST api/ytt/streamer-colors の口)
 from flow import tools as flowtools_mod  # noqa: E402  (まとめて実行の段が仕事を頼む先 FlowTools = ① の動詞は取り込んだツールの ② の器を直に。OPT2 後半 J7)
 from flow import board as board_mod  # noqa: E402  (② のジョブの掲示板 = GET /api/flow/status の jobs・cases・rev と cancel・retry。RS8 の ② の口)
+from flow import live_perf  # noqa: E402  (PC 全体の CPU の測り system_times = 声を覚える見回りの待ち _voice_learn_busy)
 from flow import livesession  # noqa: E402  (ライブ係。録画の部品を残したときの文 KEPT_NOTE。RS7-2 G2b)
 from flow import runqueue as queue_mod  # noqa: E402  (② の待ち行列。submit の版違い・束の形の例外 = 400 spec_version・bad_spec。F1 F0-1)
 from flow import learning as learning_mod  # noqa: E402  (学習データの読み手。machine の learningDir があるとき入口の文字起こしもそこから読む。F1 F6a)
@@ -1346,6 +1347,43 @@ class PortalServer(httpsec.ExclusiveServer):
             return "YouTube の材料の番"   # 学習用データの文字起こしは休んで、手の空いた合間を YouTube の取り込みに譲る(voicefetch.wants)
         return self._fetch_busy(need_editor=True)
 
+    VOICE_LEARN_CPU_MAX = 40.0   # 声を覚える見回りが始めてよい PC 全体の CPU の上限(%。PC の決まり「CPU 4 割未満で始める」)
+    VOICE_LEARN_CPU_SAMPLE = 1.0  # CPU を測る間(秒)
+
+    def _cpu_percent(self):
+        """PC 全体の CPU の使用率(%。VOICE_LEARN_CPU_SAMPLE 秒の間)か None(測れない = Windows 以外など)"""
+        try:
+            a = live_perf.system_times()
+            if a is None or self.closing.wait(self.VOICE_LEARN_CPU_SAMPLE):
+                return None
+            b = live_perf.system_times()
+        except Exception:   # noqa: BLE001
+            return None
+        if b is None or b[1] - a[1] <= 0:
+            return None
+        return max(0.0, min(100.0, 100.0 * (1.0 - (b[0] - a[0]) / (b[1] - a[1]))))
+
+    def _voice_learn_busy(self):
+        """声の登録簿を覚える・外す見回り(ソロの 10 秒 speaker_solo.tick)を始めない理由か None。録画中でも始める
+        (11-02 ユーザー「友人のライブを最優先はほかに処理をしないという意味ではない」。前は _voice_busy = 重い処理(録画の文字起こし)の間は一切始めなかった)。
+        待つのは: 新しい版の待ち・編集が動いていない・編集のジョブが順番を待っている(録画の文字起こしを後ろへ回さない)・PC 全体の CPU が 4 割以上。
+        録画中のジョブの小ささは speaker_solo.LIVE_BATCH"""
+        disk = _version.on_disk(self.sup.root)
+        if disk and disk != VERSION:
+            return "新しい版 v%s を待っています" % disk
+        try:
+            st, obj = self._client(5).call("transcribe", "GET", "/api/jobs")
+        except autorun_mod.StepError:
+            return "編集が動いていません"
+        if st != 200:
+            return "編集が動いていません"
+        if any(j.get("state") == "queued" for j in obj.get("jobs") or [] if isinstance(j, dict)):
+            return "文字起こしのジョブが順番待ち"
+        cpu = self._cpu_percent()
+        if cpu is not None and cpu >= self.VOICE_LEARN_CPU_MAX:
+            return "CPU %d%%" % cpu
+        return None
+
     def _queue_busy(self):
         """取得の列が休む理由か None。新しい版の起き直しが、続けて入る版の待ち(SETTLE_SEC)でなくほかの理由(ライブの録画中など)で待っている間は、
         版の待ちでは休まない(11-02: 録画中に版が上がり、起き直しがライブの終わりまで待った 01:28〜02:36 の間、列が 1 件も取らなかった)"""
@@ -1374,8 +1412,10 @@ class PortalServer(httpsec.ExclusiveServer):
         while not self.closing.wait(check_voicefill.EVERY):
             n += 1
             try:
-                try:   # ソロの 10 秒の答えで登録簿に声を覚える・Z で戻した分を外す(11-02。ジョブを足すだけ = 下の頼みと並べてよい)
-                    check_speaker_solo.tick(self.cleanup.app_dir, self._voice_busy, self.sup.log)
+                try:   # ソロの 10 秒の答えで登録簿に声を覚える・Z で戻した分を外す(11-02。ジョブを足すだけ = 下の頼みと並べてよい)。録画中も CPU が空けば(_voice_learn_busy)小さく
+                    rec = bool(self.live_activity(archive_wait=False).get("recording"))
+                    check_speaker_solo.tick(self.cleanup.app_dir, self._voice_learn_busy, self.sup.log,
+                                            batch=check_speaker_solo.LIVE_BATCH if rec else None)
                 except Exception as e:   # noqa: BLE001
                     self.sup.log("ソロの 10 秒の見回りができませんでした: %r" % (e,))
                 asked = check_voicefill.tick(self.cleanup.app_dir, self._post_job, self._voice_busy, self.sup.log)

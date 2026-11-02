@@ -155,6 +155,14 @@ class SpeakerSoloTest(unittest.TestCase):
         with mock.patch.object(SS.voice_mod, "RELEARN_PAUSED", True):
             self.assertIsNone(self.tick(now=5000.0 + SS.RETRY_SEC))   # 覚え直しの一時止めの間は休む
 
+    def test_tick_batch_small_while_recording(self):
+        """録画中は入口が batch = LIVE_BATCH を渡し、1 つのジョブを小さくする(編集のジョブは 1 本ずつ = 録画の文字起こしを長く待たせない。11-02)"""
+        self.answer("ka", {"names": ["大空スバル"]})
+        self.answer("kb", {"names": ["大空スバル"]})
+        self.assertEqual(SS.tick(self.app, lambda: None, self.logs.append, now=1000.0, batch=1), "voice-learn-clips")
+        self.assertEqual([c["doc"] for c in self.jobs[0][1]["clips"]], ["solo:ka"])
+        self.assertIsNone(SS.tick(self.app, lambda: "CPU 55%", self.logs.append, now=1000.0, batch=1))   # 入口の busy が理由を返せば始めない
+
     def test_run_learn_clips_and_unlearn(self):
         tmp = os.path.join(self.app, "tmp")
         clip = SS.clip_path(self.app, "ka")

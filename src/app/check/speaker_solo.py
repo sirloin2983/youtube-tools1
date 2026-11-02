@@ -14,7 +14,9 @@
          ほかの人・ゲームの声・印あり・声なし・分からないは覚えない。applied.learn = {name, start, end, sec} か None
   登録簿 入口の見回り tick(voice_fill_loop・1 分ごと)が、効いている答えの learn と登録簿の learnedFrom(doc = "solo:<key>"・sure: true)を突き合わせる:
          無ければジョブ voice-learn-clips(human/proof/speakers.run_voice_learn_clips)で入れ、Z で戻した答えの分が残っていればジョブ voice-unlearn で外してまとめ直す
-         (行ごとの特徴の控え "solo:<key>#w" から。外すと何も残らない人は声を消す)。入らなかった物は RETRY_SEC たってから試し直す
+         (行ごとの特徴の控え "solo:<key>#w" から。外すと何も残らない人は声を消す)。入らなかった物は RETRY_SEC たってから試し直す。
+         録画中も始める(11-02 ユーザー「友人のライブを最優先はほかに処理をしないという意味ではない」)。待つかは入口の busy(PC の CPU の空き)が決め、
+         録画中は 1 つのジョブを LIVE_BATCH 個にして短くする(編集のジョブは 1 本ずつ動くので、録画の文字起こしを待たせる時間を数秒に)
   記録   applied = {solo: key, video, who, names, bgm?, alt?, piece: [頭, 末], learn}
   分からない その 10 秒の音と位置を控える(app/check/voice_unknown。11-02 ユーザー「わからないにしたやつ記憶しておいてほしい」)
 """
@@ -36,6 +38,7 @@ NAME, DIR_NAME, STATE_NAME = "speaker-solo.json", "speaker-solo", "speaker-solo-
 ENABLED = True          # スイッチ: 答えで製品の登録簿に声を覚える・Z で外す見回り(11-02)
 PIECE_SEC, STEP = 10.0, 0.5
 BATCH = 10              # 1 つのジョブで覚える 10 秒の数
+LIVE_BATCH = 2          # 録画中の 1 つのジョブの数(1 個 約 1 秒 = 録画の文字起こしを待たせても 2〜3 秒。11-02 に測った)
 RETRY_SEC = 24 * 3600
 DOC_PREFIX = "solo:"
 KEY_RE = re.compile(r"^[a-z0-9]{1,16}\Z")
@@ -225,8 +228,9 @@ def _registry_docs(voices):
     return out
 
 
-def tick(app_dir, busy, log, now=None):
-    """見回り 1 回: Z で戻した分を外す(voice-unlearn)→ まだ入れていない答えの 10 秒を入れる(voice-learn-clips)。-> 頼んだジョブの種類か None"""
+def tick(app_dir, busy, log, now=None, batch=None):
+    """見回り 1 回: Z で戻した分を外す(voice-unlearn)→ まだ入れていない答えの 10 秒を入れる(voice-learn-clips)。-> 頼んだジョブの種類か None。
+    batch = 1 つのジョブで覚える数(省けば BATCH。録画中は入口が LIVE_BATCH を渡す)"""
     if not ENABLED or not app_dir or voice_mod.RELEARN_PAUSED or busy():
         return None
     if "voice-learn-clips" not in _heavy.JOB_RUNNERS or "voice-unlearn" not in _heavy.JOB_RUNNERS or not _diar.voice_ready():
@@ -256,7 +260,7 @@ def tick(app_dir, busy, log, now=None):
         for d in [d for d in st["failed"] if d in have or d not in want]:
             del st["failed"][d]
         todo = [(d, w) for d, w in sorted(want.items()) if d not in have and clip_path(app_dir, w["key"])
-                and (d not in st["failed"] or now * 1000 - int((st["failed"][d] or {}).get("at") or 0) >= RETRY_SEC * 1000)][:BATCH]
+                and (d not in st["failed"] or now * 1000 - int((st["failed"][d] or {}).get("at") or 0) >= RETRY_SEC * 1000)][:batch or BATCH]
         if not todo:
             _write_state(app_dir, st)
             return None

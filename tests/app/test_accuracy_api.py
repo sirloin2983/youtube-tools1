@@ -8,7 +8,9 @@ import json
 import os
 import sys
 import threading
+import types
 import unittest
+from unittest import mock
 
 os.environ.setdefault("YTT_DATA_DIR", "inplace")
 HOME = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src", "app")
@@ -87,6 +89,27 @@ class AccuracyProbeTest(TL.Base):
             self.assertTrue(ok)
             self.assertEqual(self.srv._accuracy_busy(), "重い処理")
         self.assertIsNone(self.srv._accuracy_busy())
+
+    def test_voice_learn_busy_starts_while_heavy(self):
+        """声を覚える見回りの待ち(11-02): 重い処理(録画の文字起こし)の間でも始める。待つのは 編集が動いていない・順番待ちのジョブ・CPU 4 割以上"""
+        self.assertTrue(self.srv._voice_learn_busy().startswith("新しい版"))   # 版の待ち(テストの作業フォルダの版は違う)
+        self.enterContext(mock.patch.object(L._version, "on_disk", lambda root: None))
+        self.assertEqual(self.srv._voice_learn_busy(), "編集が動いていません")
+        fake = types.SimpleNamespace(call=lambda tool, method, path: (200, self.editor_jobs))
+        self.editor_jobs = {"jobs": [{"state": "running"}, {"state": "done"}]}
+        with mock.patch.object(self.srv, "_client", lambda t: fake), mock.patch.object(self.srv, "_cpu_percent", lambda: 12.0), \
+                jobs.SLOTS.slot("transcribe", "録画の文字起こし") as ok:
+            self.assertTrue(ok)
+            self.assertEqual(self.srv._voice_busy(), "重い処理")   # ほかの声の材料の待ちは今のまま
+            self.assertIsNone(self.srv._voice_learn_busy())
+            with mock.patch.object(self.srv, "_cpu_percent", lambda: 40.0):
+                self.assertEqual(self.srv._voice_learn_busy(), "CPU 40%")
+            with mock.patch.object(self.srv, "_cpu_percent", lambda: None):
+                self.assertIsNone(self.srv._voice_learn_busy())   # 測れない PC では CPU で待たない
+            self.editor_jobs = {"jobs": [{"state": "queued"}]}
+            self.assertEqual(self.srv._voice_learn_busy(), "文字起こしのジョブが順番待ち")
+        c = self.srv._cpu_percent()
+        self.assertTrue(c is None or 0.0 <= c <= 100.0)
 
     def test_last_edit_probe(self):
         self.assertIsNone(self.srv._accuracy_last_edit())      # 文書のフォルダが無い
