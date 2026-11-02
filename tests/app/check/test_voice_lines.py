@@ -55,12 +55,14 @@ class VoiceLinesTest(unittest.TestCase):
                     {"key": "BAD KEY", "video": "FFFFFFFFFFF", "who": "x", "sec": 4, "rows": good}],
                    people=["白上フブキ", "宝鐘マリン"])
         got = VL.voice_lines(self.view())
-        self.assertEqual([c["id"] for c in got], ["lines:seg:AAAAAAAAAAA#a1"])
-        c = got[0]
+        self.assertEqual([c["id"] for c in got], ["lines:seg:AAAAAAAAAAA#a1#0", "lines:seg:AAAAAAAAAAA#a1#1"])   # 6 秒ほどの一切れに分ける(11-02)
+        c, c2 = got
         self.assertEqual(lineup.parse_id(c["id"])[:2], ("lines", "seg"))
-        self.assertEqual([(r["id"], r["guess"], r["score"]) for r in c["rows"]], [("r0", "大空スバル", 0.81), ("r1", None, None), ("r2", "尾丸ポルカ", 0.5)])
+        self.assertEqual([(r["id"], r["guess"], r["score"]) for r in c["rows"]], [("r0", "大空スバル", 0.81), ("r1", None, None)])
+        self.assertEqual((c["media"]["start"], c["media"]["end"], c["target"]["piece"]), (0.1, 6.3, 0))   # 再生の窓 = 一切れの行 ± 余白
         self.assertEqual(c["rows"][0]["second"], {"name": "白上フブキ", "score": 0.6})
-        self.assertEqual(c["rows"][2]["end"], 48.0)   # かけらの末に切り詰める
+        self.assertEqual(c2["rows"][0]["end"], 48.0)   # かけらの末に切り詰める
+        self.assertEqual(c2["media"]["end"], 48.0)
         self.assertEqual(c["people"], ["大空スバル", "白上フブキ", "宝鐘マリン", "尾丸ポルカ"])   # 配信者・声を覚えた全員・予想の名前
         self.assertEqual(c["otherPerson"], "ほかの人")
         self.assertEqual(c["media"]["url"], "api/check/voicelines?key=a1")
@@ -68,6 +70,11 @@ class VoiceLinesTest(unittest.TestCase):
         self.assertIsNone(VL.clip_path(self.app, "../x"))
         os.remove(os.path.join(self.app, "check", VL.DIR_NAME, "a1.wav"))
         self.assertEqual(VL.voice_lines(self.view()), [])   # 音の無いカードは出さない
+
+    def test_pieces(self):
+        r = lambda a, b: {"start": a, "end": b}   # noqa: E731
+        self.assertEqual(VL.pieces([r(0, 2), r(2, 4), r(4.5, 6), r(6, 7), r(7, 20), r(20, 21)]),
+                         [[r(0, 2), r(2, 4), r(4.5, 6)], [r(6, 7)], [r(7, 20)], [r(20, 21)]])   # 長い 1 行は 1 行で一切れ・行は割らない
 
     def test_in_lanes_and_voice_group(self):
         self.assertIn("lines", lineup.NORMAL_KINDS)
@@ -78,14 +85,14 @@ class VoiceLinesTest(unittest.TestCase):
         self.assertNotIn("seg", voice_mod.SOURCES)   # 声の覚え直しの材料に入らない
         ap = apply._REG[("lines", "seg")]
         self.assertGreater(ap.max_bytes, apply.MAX_ANSWER_BYTES)   # 40 行の直しが入る
-        c = {"target": {"lines": "a1", "videoId": "AAAAAAAAAAA"}, "who": "大空スバル", "at": 1200.0, "part": "mid2",
+        c = {"target": {"lines": "a1", "piece": 2, "videoId": "AAAAAAAAAAA"}, "who": "大空スバル", "at": 1200.0, "part": "mid2",
              "rows": [{"id": "r0", "start": 0.4, "end": 3.1, "text": "はいどうも", "guess": "大空スバル", "score": 0.81},
                       {"id": "r1", "start": 3.4, "end": 6.0, "text": "こんばんきつね", "guess": "白上フブキ", "score": 0.7},
                       {"id": "r2", "start": 6.2, "end": 9.0, "text": "うわっ", "guess": "尾丸ポルカ", "score": 0.4}]}
         self.assertEqual(ap.apply(None, c, ap.check({}))["rows"][1], {"id": "r1", "start": 3.4, "end": 6.0, "guess": "白上フブキ", "guessScore": 0.7,
                                                                    "speaker": "白上フブキ", "text0": "こんばんきつね", "text": "こんばんきつね"})   # 変えない = 予想どおり・文字どおり
         a = ap.apply(None, c, ap.check({"rows": [{"id": "r1", "speaker": "尾丸ポルカ", "text": " こんばんきーつね "}, {"id": "r2", "none": True}, {"id": "zz", "speaker": "x"}]}))
-        self.assertEqual((a["lines"], a["video"], a["who"], a["part"]), ("a1", "AAAAAAAAAAA", "大空スバル", "mid2"))
+        self.assertEqual((a["lines"], a["piece"], a["video"], a["who"], a["part"]), ("a1", 2, "AAAAAAAAAAA", "大空スバル", "mid2"))
         self.assertEqual([(r["speaker"], r["text"]) for r in a["rows"]], [("大空スバル", "はいどうも"), ("尾丸ポルカ", "こんばんきーつね"), (None, "うわっ")])
         self.assertTrue(a["rows"][2]["none"])
         nog = dict(c, rows=[dict(c["rows"][0], guess=None, score=None)])

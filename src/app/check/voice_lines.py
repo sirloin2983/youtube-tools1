@@ -1,7 +1,8 @@
 """「確かめる」の行ごとの話者のカード lines:seg(11-02。ユーザー「誰の声カードでそれぞれの行に話者をあてる形にしてほしい・ついでに行の中身も調整する」)。
 誰の声のカード(voice:solo・voice:measure)・コラボの話者(speaker:collab)とは別の種類・別の描き方(cards/lines.js)。
 
-カード 1 枚 = 声の材料の配信の短いかけら(48 秒ほど)。中の行を並べ、行ごとに話者を選び(初めは道具の予想の 1 位)、文字の誤りもその場で直す
+カード 1 枚 = 声の材料の配信の短いかけらの一切れ(PIECE_SEC 秒ほど。11-02 ユーザー「48秒は長すぎる。秒数は今の秒数くらいでいい」= 今の話者カードの音
+4.5〜10 秒に合わせる)。研究が置く 48 秒ほどのかけらは、ここで行の切れ目で一切れずつに分ける(音のファイルは 1 つのまま・再生の窓だけ変える)。中の行を並べ、行ごとに話者を選び(初めは道具の予想の 1 位)、文字の誤りもその場で直す
 = 話者の表の正答率を測る正解(行の話者)と文字起こしの正解(直した文字)を 1 度に作る。かけらと行・予想は研究が作り、作業データに置く
 (受け渡しの形は共有メモ 境目-声のカード.md。11-02 予備2 と予備1 で決めた)。
   一覧   <app>/check/speaker-lines.json = {"people": [声を覚えた全員…], "cards": [{key, video, title, who: 配信者, at: 配信の中の秒, sec, part,
@@ -10,7 +11,7 @@
   選べる物 行ごとに 声を覚えた全員(一覧の people・配信者・予想の名前)・ほかの人(OTHER_PERSON)・声なし
   答え   {"rows": [{id, speaker?: 名前, none?: true, text?: 直した文字}]}(変えた行だけ。何も変えなければ {} = 全部の行が予想どおり・文字どおり)
          予想の無い行は話者を選ばないと答えられない(画面が止める・サーバーも 400)
-  記録   applied = {lines, video, who, at, part, rows: [{id, start, end, guess, guessScore, speaker, none?, text0, text}]}(全部の行。変えなかった行は
+  記録   applied = {lines, piece, video, who, at, part, rows: [{id, start, end, guess, guessScore, speaker, none?, text0, text}]}(全部の行。変えなかった行は
          予想の 1 位と元の文字)。文書が無いので実物は書き換えない・**声も覚えない**(評価用は学習に使わない)。採点は研究の側。Z は記録だけ戻す
   一覧のファイルはこの PC の作業データにだけ置く(配る zip には入らない = 友人の PC では出ない)
 """
@@ -26,6 +27,8 @@ KIND, SOURCE = "lines", "seg"
 NAME, DIR_NAME = "speaker-lines.json", "speaker-lines"
 OTHER_PERSON = "ほかの人"   # 声を覚えた人の誰でもない人の声
 MAX_ROWS, MAX_TEXT, MAX_SEC, MAX_GUESS, MAX_PEOPLE = 40, 200, 60.0, 3, 200
+PIECE_SEC = 6.0   # 一切れの長さの目安(行を足してこれを超えるなら次の一切れ。1 行で超える行は 1 行で一切れ)
+PIECE_PAD = 0.3   # 一切れの再生の前後の余白(秒)
 MAX_ANSWER_BYTES = 32 * 1024   # 40 行の文字を直しても入る大きさ
 KEY_RE = re.compile(r"^[a-z0-9]{1,16}\Z")
 VIDEO_RE = re.compile(r"^[A-Za-z0-9_-]{11}\Z")
@@ -84,6 +87,17 @@ def clip_path(app_dir, key):
     return p if os.path.isfile(p) else None
 
 
+def pieces(rows, size=PIECE_SEC):
+    """かけらの行(時刻の順)-> [[行…]…] 一切れずつ。行を足すと一切れの頭から size 秒を超えるなら次の一切れへ(行は割らない)"""
+    out = []
+    for r in sorted(rows, key=lambda r: (r["start"], r["end"])):
+        if out and r["end"] - out[-1][0]["start"] <= size:
+            out[-1].append(r)
+        else:
+            out.append([r])
+    return out
+
+
 def voice_lines(view):
     app_dir = getattr(view.ctx, "app_dir", "") or ""
     people, cards = load(app_dir)
@@ -92,15 +106,18 @@ def voice_lines(view):
         if not clip_path(app_dir, c["key"]):
             continue
         names = list(dict.fromkeys([c["who"]] + people + [g["name"] for r in c["rows"] for g in r["guess"]]))
-        out.append({"id": lineup.card_id(KIND, SOURCE, c["video"], c["key"]), "kind": KIND, "source": SOURCE,
-                    "case": {"id": c["video"], "title": str(c.get("title") or "")[:120]},
-                    "target": {"videoId": c["video"], "lines": c["key"], "docId": None, "row": None},
-                    "media": {"url": "api/check/voicelines?key=%s" % c["key"], "start": 0.0, "end": c["sec"], "pad": 0.0, "padEnd": 0.0},
-                    "text": "", "who": c["who"], "at": _num(c.get("at")), "part": str(c.get("part") or "")[:8],
-                    "rows": [dict(r, guess=(r["guess"][0]["name"] if r["guess"] else None), score=(r["guess"][0]["score"] if r["guess"] else None),
-                                  second=(r["guess"][1] if len(r["guess"]) > 1 else None)) for r in c["rows"]],
-                    "people": names, "otherPerson": OTHER_PERSON, "guess": None, "score": None, "note": "", "cast": [c["who"]], "measureOnly": True,
-                    "_order": [0, c["video"], random.random()]})   # 配信ごとにまとめて出す(同じ人の声が続く = 迷わない)
+        at, rnd = _num(c.get("at")), random.random()
+        for i, rows in enumerate(pieces(c["rows"])):
+            a, b = max(0.0, rows[0]["start"] - PIECE_PAD), min(c["sec"], max(r["end"] for r in rows) + PIECE_PAD)
+            out.append({"id": lineup.card_id(KIND, SOURCE, c["video"], c["key"], i), "kind": KIND, "source": SOURCE,
+                        "case": {"id": c["video"], "title": str(c.get("title") or "")[:120]},
+                        "target": {"videoId": c["video"], "lines": c["key"], "piece": i, "docId": None, "row": None},
+                        "media": {"url": "api/check/voicelines?key=%s" % c["key"], "start": round(a, 3), "end": round(b, 3), "pad": 0.0, "padEnd": 0.0},
+                        "text": "", "who": c["who"], "at": at, "part": str(c.get("part") or "")[:8],
+                        "rows": [dict(r, guess=(r["guess"][0]["name"] if r["guess"] else None), score=(r["guess"][0]["score"] if r["guess"] else None),
+                                      second=(r["guess"][1] if len(r["guess"]) > 1 else None)) for r in rows],
+                        "people": names, "otherPerson": OTHER_PERSON, "guess": None, "score": None, "note": "", "cast": [c["who"]], "measureOnly": True,
+                        "_order": [0, c["video"], rnd, i]})   # 配信ごとにまとめ、同じかけらの一切れは続けて頭から出す(同じ人の声が続く = 迷わない)
     return out
 
 
@@ -146,7 +163,7 @@ def _apply_lines(ctx, card, ans):
         elif not one["speaker"]:
             raise _apply.Refused("予想の無い行(%s)の話者を選んでください" % r["id"], 400, "bad_request")
         rows.append(one)
-    return {"lines": t.get("lines"), "video": t.get("videoId"), "who": card.get("who"), "at": card.get("at"), "part": card.get("part"), "rows": rows}
+    return {"lines": t.get("lines"), "piece": t.get("piece"), "video": t.get("videoId"), "who": card.get("who"), "at": card.get("at"), "part": card.get("part"), "rows": rows}
 
 
 def _revert_lines(ctx, row):

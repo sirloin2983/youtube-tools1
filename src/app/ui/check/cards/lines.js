@@ -1,6 +1,6 @@
 /* 確かめるの「行ごとの話者」カード(/check-cards/lines.js。11-02 ユーザー「誰の声カードでそれぞれの行に話者をあてる形にしてほしい・ついでに行の中身も調整する」。
    口は check.js の先頭・出どころと答えの検査は src/app/check/voice_lines.py)。
-   1 枚 = 声の材料の配信の短いかけら(48 秒ほど)。中の行を並べ、行ごとに: 再生のボタン(その行だけ流す)・話者の欄・文字の欄。
+   1 枚 = 声の材料の配信の短いかけらの一切れ(6 秒ほど。行の時刻はかけらの頭からの秒 = 再生の窓 media.start〜end の外の時刻もそのまま)。中の行を並べ、行ごとに: 再生のボタン(その行だけ流す)・話者の欄・文字の欄。
    話者の欄: 初めは道具の予想の 1 位(予想の無い行は「選んでください」)。候補は声を覚えた全員(card.people)・ほかの人(card.otherPerson)・声なし。
    直した所(予想と違う話者・元と違う文字)は橙の枠で示す。今流れている行は色を付ける。
    答え: [決める] = {rows: [{id, speaker? | none?, text?}](変えた行だけ)}。何も変えなければ {} = 全部の行が予想どおり・文字どおり。
@@ -95,8 +95,8 @@
         var rows = (Array.isArray(card.rows) ? card.rows : []).filter(function (r) { return r && typeof r.id === 'string'; });
         var other = typeof card.otherPerson === 'string' && card.otherPerson ? card.otherPerson : 'ほかの人';
         var names = (Array.isArray(card.people) ? card.people : []).filter(function (n) { return typeof n === 'string' && n && n !== other; });
-        var sec = card.media && +card.media.end || 0, at = +card.at;
-        el.innerHTML = '<div class="chk-q">この ' + Math.round(sec || 0) + ' 秒の行ごとに、話している人を選ぶ(文字の誤りも直せます)</div>' +
+        var m0 = card.media && +card.media.start || 0, m1 = card.media && +card.media.end || 0, at = +card.at + m0, sec = Math.max(0, m1 - m0);
+        el.innerHTML = '<div class="chk-q">この ' + Math.max(1, Math.round(sec)) + ' 秒の行ごとに、話している人を選ぶ(文字の誤りも直せます)</div>' +
           '<p class="hint">' + (card.who ? '配信者 ' + esc(card.who) + (isFinite(at) && card.at != null ? '・' + esc(hms(at)) + '〜' + esc(hms(at + sec)) : '') + '。' : '') +
           '初めは道具の予想の 1 位を入れてあります。違う行だけ直して [決める]。</p>' +
           '<div class="chk-stagebox" data-chk-media></div>' +
