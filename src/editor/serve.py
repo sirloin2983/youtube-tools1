@@ -126,6 +126,8 @@ _workdata.SERVER_VERSION = SERVER_VERSION   # 部品が読む版(持ち主は yt
 # 下の層の部品が持ち主を呼ぶたびに直に読む(テストは持ち主のモジュールを差し替える)
 _flowwire.install(
     bodies={"transcribe": lambda job: _docjobs.run_job(job), "diarize": lambda job: _speakers.run_diarize(job), "voice-learn": lambda job: _speakers.run_voice_learn(job),
+            "voice-learn-clips": lambda job: _speakers.run_voice_learn_clips(job),   # 確かめるのソロの 10 秒の答えで声を覚える(11-02)
+            "voice-unlearn": lambda job: _speakers.run_voice_unlearn(job),   # Z で戻した答えの分を登録簿から外してまとめ直す(11-02)
             "retranscribe": lambda job: _rerun.run_retranscribe(job),
             "normalize": lambda job: _flownorm.run_job(job, swap=lambda tid, src, dst: _relink.norm_swap(tid, src, dst)),   # 動画を選び直したあとの 30fps の作り直し(Q1。本体は ② flow/normalize・付け替えは ④)
             "alt": lambda job: _alt.run_alt(job)},

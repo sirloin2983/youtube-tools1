@@ -31,6 +31,7 @@
   POST /api/intake/scan                   {} 今すぐフォルダを見る(裏で。応答は今の状態)
   GET  /api/check/voiceclip?doc=&row=     誰の声のカードの行の短い音(wav。src/human/proof/voiceclips.py。元の動画が片付いた文書の行も聞ける)
   GET  /api/check/voicemeasure?key=       誰の声のカードの測る分の行の短い音(wav。src/app/check/voice_measure.py。ショートの元の配信から研究が切り出した物)
+  GET  /api/check/voicesolo?key=          ソロから声を覚えるカードの 48 秒の音(wav。src/app/check/speaker_solo.py。研究がソロの配信から取った物)
   GET  /api/check/voicecollab?key=        コラボの話者のカードの行の短い音(wav。src/app/check/voice_collab.py。研究が話者分離の行から切り出した物)
   GET  /api/check/symbolrules            記号の決まりの欄 {proposals, rules, unsure}(src/human/check/symbol.py の summary。11-02)
   POST /api/check/symbolrules            {ch, left, right, action: keep|remove, approve: true|false} 記号の決まりの案を認める / 認めない
@@ -118,7 +119,7 @@ from app import streamer as streamer_mod  # noqa: E402  (src/app/streamer.py: �
 from human.friend import intake as intake_mod  # noqa: E402  (src/human/friend/intake.py: 友人からの依頼の受付)
 from manage.keep import backup as backup_mod  # noqa: E402  (src/manage/keep/backup.py: 作業データのバックアップ)
 from eval.drill import accuracy as accuracy_mod  # noqa: E402  (src/eval/drill/accuracy.py: 精度の自動測定 = src/eval/tools/eval_*.py を手が空いた夜に子プロセスで)
-from app.check import deck as check_deck, lineup as check_lineup, refresh as check_refresh, sources as check_sources, voice_solo as check_voice_solo, voice_measure as check_voice_measure, voice_collab as check_voice_collab, members as check_members, voicefetch as check_voicefetch, voicefill as check_voicefill, ytqueue as check_ytqueue, ytnotify as check_ytnotify, shortjobs as check_shortjobs, evalredo as check_evalredo, keep as check_keep  # noqa: E402  (src/app/check: 「確かめる」の待ち行列。V1)
+from app.check import deck as check_deck, lineup as check_lineup, refresh as check_refresh, sources as check_sources, voice_solo as check_voice_solo, voice_measure as check_voice_measure, voice_collab as check_voice_collab, speaker_solo as check_speaker_solo, members as check_members, voicefetch as check_voicefetch, voicefill as check_voicefill, ytqueue as check_ytqueue, ytnotify as check_ytnotify, shortjobs as check_shortjobs, evalredo as check_evalredo, keep as check_keep  # noqa: E402  (src/app/check: 「確かめる」の待ち行列。V1)
 from human.proof import voiceclips  # noqa: E402  (誰の声のカードの行の短い音。元の動画が片付いても聞ける・覚えられる。10-24 夜)
 from human.check import answerlog as check_answerlog  # noqa: E402  (答えた札 = 自動の片付けで、価値のカードを待っている切り抜きを残す)
 from human.check import apply as check_apply  # noqa: E402  (src/human/check/apply.py: 「確かめる」の答えの記録と反映。V1)
@@ -827,6 +828,11 @@ class PortalHandler(httpsec.LocalHandler):
             return self._json(200, _check_symbol.summary(self.server.check_ctx().app_dir))
         if u.path == "/api/check/members":   # 話者カードのほかのメンバーの欄(11-02)
             return self._json(200, check_members.index())
+        if u.path == "/api/check/voicesolo":   # ソロから声を覚えるカードの音(11-02。app/check/speaker_solo)
+            p = check_speaker_solo.clip_path(self.server.cleanup.app_dir, (q.get("key") or [""])[0])
+            if not p:
+                return self._fail(404, "not_found", "その音はありません")
+            return httpsec.send_file(self, p, "audio/wav", {"Cache-Control": "private, max-age=3600"})   # 48 秒あるので Range つき(10 秒の頭へ飛ぶ)
         if u.path == "/api/check/voicecollab":   # コラボの話者のカードの行の音(11-01。app/check/voice_collab)
             p = check_voice_collab.clip_path(self.server.cleanup.app_dir, (q.get("key") or [""])[0])
             if not p:
@@ -1375,6 +1381,10 @@ class PortalServer(httpsec.ExclusiveServer):
         while not self.closing.wait(check_voicefill.EVERY):
             n += 1
             try:
+                try:   # ソロの 10 秒の答えで登録簿に声を覚える・Z で戻した分を外す(11-02。ジョブを足すだけ = 下の頼みと並べてよい)
+                    check_speaker_solo.tick(self.cleanup.app_dir, self._voice_busy, self.sup.log)
+                except Exception as e:   # noqa: BLE001
+                    self.sup.log("ソロの 10 秒の見回りができませんでした: %r" % (e,))
                 asked = check_voicefill.tick(self.cleanup.app_dir, self._post_job, self._voice_busy, self.sup.log)
                 if asked is None and not check_voicefill.ASK_ON and n % check_voicefill.IDLE_EVERY:
                     continue   # voicefill 停止中(10-31): 下の 2 つは IDLE_EVERY 回に 1 回だけ(止める前、voicefill が頼んだ回には走らなかった頻度まで)

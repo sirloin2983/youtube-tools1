@@ -438,4 +438,4 @@ def collect(ctx, state=None, kinds=None):
             continue
         cards.extend(c for c in got if isinstance(c, dict) and lineup.parse_id(c.get("id")) and c.get("kind") == kind)
     return cards, view
-from . import eval_sources, cut_sources, voice_solo, voice_measure, voice_collab, symbol_sources   # noqa: E402,F401  区間カード(評価。C-EVAL)・自動カット・誰の声(ソロ・測る分・コラボ)・消した記号を足す(register)
+from . import eval_sources, cut_sources, voice_solo, voice_measure, voice_collab, speaker_solo, symbol_sources   # noqa: E402,F401  区間カード(評価。C-EVAL)・自動カット・誰の声(ソロ・測る分・コラボ・ソロの 10 秒 11-02)・消した記号を足す(register)

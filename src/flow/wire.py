@@ -29,6 +29,8 @@ DOC_LOCK = ("diarize", "retranscribe", "voice-learn")
 JOB_KINDS = {
     "transcribe": dict(retry=True),
     "diarize": dict(priority=0, exclusive=DOC_LOCK, has_tid=True),
+    "voice-learn-clips": dict(),   # 文書の無い短い音(確かめるのソロの 10 秒。11-02)から声を覚える = 文書を触らない
+    "voice-unlearn": dict(),   # 確かめるの答えを Z で戻したとき、かけらの材料を登録簿から外してまとめ直す(11-02)= 文書を触らない
     "voice-learn": dict(exclusive=DOC_LOCK, has_tid=True),
     "retranscribe": dict(exclusive=DOC_LOCK, has_tid=True),
     "normalize": dict(has_tid=True),   # 動画を選び直したあとの 30fps の作り直し(Q1)
