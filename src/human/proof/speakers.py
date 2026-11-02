@@ -655,39 +655,100 @@ def run_voice_learn_clip(job):
     with _heavy.job_temp_wav(job) as wav:
         if not _diar.voice_ready():
             raise _errors.ApiError("no_sherpa", "声を覚えるには声の照合の部品(sherpa-onnx)が要ります。フォルダ内の install-diarize.bat を実行してください", 400)
-        clip = str(spec.get("clip") or "")
-        if not os.path.isfile(clip):
-            raise _errors.ApiError("no_file", "かけらの音がありません", 400)
-        doc_key = str(spec.get("doc") or "")
-        groups = {n: [(float(a), float(b)) for a, b in spec["groups"].get(n) or () if float(b) > float(a)] for n in spec.get("names") or ()}
-        people = sorted(n for n, g in groups.items() if g)
-        if not people:
-            raise _errors.ApiError("no_names", "覚えられる行がありません", 400)
-        vecs = _diar.embed(job, spec, wav, [groups[n] for n in people], {"sourcePath": clip, "start": 0.0})   # 音声の取り出し → モデルの取得 → 声の特徴
-        _slots.check_cancel(job)
-        row_keys = [(n, rid, a, b) for n in people for rid, (a, b) in zip(spec["rowIds"].get(n) or (), groups[n])]
-        row_vecs = _diar.embed(job, spec, wav, [[(a, b)] for _n, _r, a, b in row_keys], {"start": 0.0, "wavReady": True}) if row_keys else []
-        _slots.check_cancel(job)
-        learned = []
-        with _diar.voices_edit(spec["embedding"]) as voices:
-            for n, v in zip(people, vecs):
-                if not v:
-                    continue
-                at = _voice_name(voices, n)
-                voices[at] = _diar.merge_voice(voices.get(at), v, len(groups[n]), round(sum(b - a for a, b in groups[n]), 2), doc_key,
-                                              by=spec.get("by"), row_ids=spec["rowIds"].get(n) or [], provisional=n in (spec.get("provisional") or ()))
-                learned.append(n)
-            if len(voices) > _VOICE_MAX_PEOPLE:
-                raise _errors.ApiError("too_many", "覚えられる声は %d 人までです(使わない声を消してください)" % _VOICE_MAX_PEOPLE, 400)
-        if not learned:
-            raise _errors.ApiError("no_voice", "声の特徴を取り出せませんでした(行が短すぎる・音声が無い可能性があります)", 400)
-        for n in learned:
-            items = {"%s#%s" % (doc_key, rid): {"vec": [round(x, 6) for x in rv], "sec": round(b - a, 2), "short": False}
-                     for (nn, rid, a, b), rv in zip(row_keys, row_vecs) if nn == n and rv}
-            _diar.save_row_vectors(spec["embedding"], _voice_name(_diar.load_voices(spec["embedding"]), n), items)
+        learned = _learn_clip(job, spec, spec, wav)
         job["learned"] = learned
         job["speakers"] = len(learned)
         _heavy.job_done(job, None)
+
+
+def _learn_clip(job, spec, one, wav):
+    """かけら 1 つ(one = {doc, clip, names, groups, rowIds, provisional, by?, sure?})から声を覚える -> 覚えた名前。
+    sure = 声の材料のかけらの「確か」の印(False = 仮。learnedFrom の控えに残す。11-02 話者の物差し 13 章)"""
+    clip = str(one.get("clip") or "")
+    if not os.path.isfile(clip):
+        raise _errors.ApiError("no_file", "かけらの音がありません", 400)
+    doc_key = str(one.get("doc") or "")
+    groups = {n: [(float(a), float(b)) for a, b in one["groups"].get(n) or () if float(b) > float(a)] for n in one.get("names") or ()}
+    people = sorted(n for n, g in groups.items() if g)
+    if not people:
+        raise _errors.ApiError("no_names", "覚えられる行がありません", 400)
+    vecs = _diar.embed(job, spec, wav, [groups[n] for n in people], {"sourcePath": clip, "start": 0.0})   # 音声の取り出し → モデルの取得 → 声の特徴
+    _slots.check_cancel(job)
+    row_keys = [(n, rid, a, b) for n in people for rid, (a, b) in zip(one["rowIds"].get(n) or (), groups[n])]
+    row_vecs = _diar.embed(job, spec, wav, [[(a, b)] for _n, _r, a, b in row_keys], {"start": 0.0, "wavReady": True}) if row_keys else []
+    _slots.check_cancel(job)
+    learned = []
+    with _diar.voices_edit(spec["embedding"]) as voices:
+        for n, v in zip(people, vecs):
+            if not v:
+                continue
+            at = _voice_name(voices, n)
+            old = voices.get(at)
+            if old and old.get("excluded"):   # 外したあとに戻した材料(答えの取り消し)= 外した印も消す
+                old = dict(old, excluded=[x for x in old["excluded"] if not str(x).startswith(doc_key + "#")])
+            voices[at] = _diar.merge_voice(old, v, len(groups[n]), round(sum(b - a for a, b in groups[n]), 2), doc_key,
+                                          by=one.get("by") or spec.get("by"), row_ids=one["rowIds"].get(n) or [], provisional=n in (one.get("provisional") or ()))
+            if old and "excluded" in old:
+                voices[at]["excluded"] = old["excluded"]
+            if "sure" in one:
+                for lf in voices[at].get("learnedFrom") or ():
+                    if lf.get("doc") == doc_key:
+                        lf["sure"] = bool(one["sure"])
+            learned.append(n)
+        if len(voices) > _VOICE_MAX_PEOPLE:
+            raise _errors.ApiError("too_many", "覚えられる声は %d 人までです(使わない声を消してください)" % _VOICE_MAX_PEOPLE, 400)
+    if not learned:
+        raise _errors.ApiError("no_voice", "声の特徴を取り出せませんでした(行が短すぎる・音声が無い可能性があります)", 400)
+    for n in learned:
+        items = {"%s#%s" % (doc_key, rid): {"vec": [round(x, 6) for x in rv], "sec": round(b - a, 2), "short": False}
+                 for (nn, rid, a, b), rv in zip(row_keys, row_vecs) if nn == n and rv}
+        _diar.save_row_vectors(spec["embedding"], _voice_name(_diar.load_voices(spec["embedding"]), n), items)
+    return learned
+
+
+def run_voice_learn_material(job):
+    """声の材料のかけら(ソロの判定を通った物)をまとめて製品の登録簿へ「仮」で入れる(11-02 話者の物差し 13 章。入口の見回り app/check/voice_material が頼む)。
+    spec = {embedding, clips: [{doc: "material:<key>", clip, names, groups, rowIds, sure}], by}。1 つ失敗しても残りは続ける -> job["learned"] = 入れた doc・job["failed"] = {doc: 理由}"""
+    spec = job["spec"]
+    with _heavy.job_temp_wav(job) as wav:
+        if not _diar.voice_ready():
+            raise _errors.ApiError("no_sherpa", "声を覚えるには声の照合の部品(sherpa-onnx)が要ります。フォルダ内の install-diarize.bat を実行してください", 400)
+        done, failed = [], {}
+        clips = spec.get("clips") or []
+        for i, one in enumerate(clips):
+            try:
+                if _learn_clip(job, spec, one, wav):
+                    done.append(str(one.get("doc")))
+            except _errors.ApiError as e:
+                failed[str(one.get("doc"))] = str(e.message)[:200]
+            job["progress"] = (i + 1) / max(1, len(clips))
+        job["learned"], job["failed"] = done, failed
+        job["speakers"] = len(done)
+        if not done and failed:
+            raise _errors.ApiError("no_voice", "声の材料を 1 つも入れられませんでした: " + next(iter(failed.values())), 400)
+        _heavy.job_done(job, None)
+
+
+def run_voice_unlearn(job):
+    """登録簿からかけらの材料を外して声をまとめ直す(声の材料の確かめの答え。11-02 話者の物差し 13 章)。
+    spec = {embedding, name, docs: ["material:<key>"…]}。まとめ直しは human/proof/voicerebuild(行ごとの特徴の控えから・取り直さない)"""
+    from ytt import fsio as _fsio
+    from . import voicerebuild as _rebuild   # voicerebuild が speakers を読むので、ここで読む
+    spec = job["spec"]
+    emb, name = spec["embedding"], spec["name"]
+    docs = {str(d) for d in spec.get("docs") or ()}
+    have = _fsio.read_json_or(_diar.row_vectors_path(emb), {}, kind=dict).get(name) or {}
+    exclude = [k for k in have if k.split("#", 1)[0] in docs]
+    v = _diar.load_voices(emb).get(name) or {}
+    rest = [lf for lf in v.get("learnedFrom") or () if isinstance(lf, dict) and lf.get("doc") not in docs]
+    if not rest:   # 外すと何も残らない = その人の声を消す(仮の材料だけで覚えた人)
+        with _diar.voices_edit(emb) as voices:
+            voices.pop(name, None)
+        job["removed"] = True
+    else:
+        job["rebuilt"] = _rebuild.rebuild(emb, name, exclude=exclude)
+    job["speakers"] = 1
+    _heavy.job_done(job, None)
 
 
 def voices_summary():

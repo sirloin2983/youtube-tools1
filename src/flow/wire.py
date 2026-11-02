@@ -31,6 +31,8 @@ JOB_KINDS = {
     "diarize": dict(priority=0, exclusive=DOC_LOCK, has_tid=True),
     "voice-learn": dict(exclusive=DOC_LOCK, has_tid=True),
     "voice-learn-clip": dict(),   # 文書の無い短い音(確かめるの行ごとの話者のかけら。11-02)から声を覚える = 文書を触らない
+    "voice-learn-material": dict(),   # 声の材料のかけらをまとめて登録簿へ「仮」で入れる(11-02 話者の物差し 13 章)= 文書を触らない
+    "voice-unlearn": dict(),   # 声の材料の確かめの答えで、かけらの材料を登録簿から外してまとめ直す(11-02)= 文書を触らない
     "retranscribe": dict(exclusive=DOC_LOCK, has_tid=True),
     "normalize": dict(has_tid=True),   # 動画を選び直したあとの 30fps の作り直し(Q1)
     "alt": dict(priority=2, exclusive=("alt",), has_tid=True),   # 2つ目のエンジンで聞いて <id>.alt.json に(文書は書き換えない。D1-b)

@@ -33,6 +33,16 @@ class State:
         return []
 
 
+def full(card, **by_row):
+    """区切りを変えない答え(行 id ごとに話者などを足す)"""
+    out, pos = [], 0
+    for r in card["rows"]:
+        n = len(r["words"])
+        out.append(dict({"w": [pos, pos + n]}, **by_row.get(r["id"], {})))
+        pos += n
+    return {"rows": out}
+
+
 class LinesLearnTest(unittest.TestCase):
     def setUp(self):
         self.app = kit.tempdir(self, "ytt-check-lines-learn-")
@@ -63,7 +73,7 @@ class LinesLearnTest(unittest.TestCase):
         a = apply.answer(self.ctx, c0, {"answer": {}})                                      # スバル 5.5 秒(予想どおり)= 10 秒に届かない
         self.assertEqual(self.jobs, [])
         self.assertEqual([(x["row"], x["name"], x["sec"]) for x in a["applied"]["learn"]], [("r0", "大空スバル", 5.5)])
-        apply.answer(self.ctx, c2, {"answer": {"rows": [{"id": "r3", "speaker": "ほかの人"}]}})   # ほかの人 = 覚えない
+        apply.answer(self.ctx, c2, {"answer": full(c2, r3={"speaker": "ほかの人"})})   # ほかの人 = 覚えない
         self.assertEqual(self.jobs, [])
         b = apply.answer(self.ctx, c1, {"answer": {}})                                      # + 5.5 秒(r2 は 1 秒未満)= 11 秒 ≥ 10(初めての人)
         self.assertEqual([x["row"] for x in b["applied"]["learn"]], ["r1"])
@@ -84,7 +94,7 @@ class LinesLearnTest(unittest.TestCase):
         c0, c1, _c2 = self.cards()
         a = apply.answer(self.ctx, c0, {"answer": {}})
         apply.undo(self.ctx, a["answer"])                                                   # Z = 材料から外れる
-        b = apply.answer(self.ctx, c1, {"answer": {"rows": [{"id": "r1", "none": True}]}})  # 声なし = 覚えない
+        b = apply.answer(self.ctx, c1, {"answer": full(c1, r1={"none": True})})  # 声なし = 覚えない
         self.assertEqual((b["applied"]["learn"], self.jobs, voice_mod._pending(self.ctx)), ([], [], {}))
 
     def test_run_voice_learn_clip(self):
