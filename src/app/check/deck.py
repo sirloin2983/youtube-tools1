@@ -112,7 +112,7 @@ def _goals(ctx):
     return got if isinstance(got, list) else []
 
 
-KIND_GROUP = {"voice": ("voice", "speaker")}   # 画面の種類の切り替えの 1 つ「話者」= 誰の声とコラボの話者(11-02 に 1 つの話者カードにまとめた。種類の値は 2 つのまま)
+KIND_GROUP = {"voice": ("voice", "speaker", "lines")}   # 行ごとの話者(lines。11-02)も「話者」に入れる。 画面の種類の切り替えの 1 つ「話者」= 誰の声とコラボの話者(11-02 に 1 つの話者カードにまとめた。種類の値は 2 つのまま)
 
 
 def check_args(case=None, kind=None, n=None, skip=None, lane=None):

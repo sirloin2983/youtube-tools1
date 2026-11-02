@@ -121,8 +121,8 @@
   };
 
   var KIND_TEXT = { value: '切り抜く価値があるか', voice: '話者', time: '行の時刻が合っているか',
-    cut: '機械のカットの確認', symbol: '消した記号の確認', speaker: '話者', section: '区間を聞いて直す(評価用)' };
-  var SOURCE_TEXT = { auto: '自動で採った', cand: '候補のまま', fill: '後処理', alt: '別のエンジン', diar: '話者の判別', solo: 'ソロ配信', row: '文字が決まった行', eval: '評価用の動画', edge: '切れ目', gap: '消した所', whole: '仕上がり', asr: '文字起こしの素', measure: '声で人を当てる', collab: 'コラボ' };
+    cut: '機械のカットの確認', symbol: '消した記号の確認', speaker: '話者', lines: '話者', section: '区間を聞いて直す(評価用)' };
+  var SOURCE_TEXT = { auto: '自動で採った', cand: '候補のまま', fill: '後処理', alt: '別のエンジン', diar: '話者の判別', solo: 'ソロ配信', row: '文字が決まった行', eval: '評価用の動画', edge: '切れ目', gap: '消した所', whole: '仕上がり', asr: '文字起こしの素', measure: '声で人を当てる', collab: 'コラボ', seg: '行ごとの話者' };
   var KEEP = 10, LOW = 3;
   var ID_RE = /^[\w:.#|\/-]{1,200}$/;
   var LOAD_TEXT = { offline: 'ホームにつながりませんでした(start.bat の黒い画面が閉じていないか確かめてください)' };
@@ -163,7 +163,7 @@
     var box = $('#chkKinds');
     if (S.want.lane === 'eval') { box.hidden = true; return; }
     var per = S.perKind || {}, all = 0;
-    var count = function (k) { return Math.max(0, +per[k] || 0) + (k === 'voice' ? Math.max(0, +per.speaker || 0) : 0); };   // 話者 = 誰の声 + コラボの話者(11-02 に 1 つにまとめた)
+    var count = function (k) { return Math.max(0, +per[k] || 0) + (k === 'voice' ? Math.max(0, +per.speaker || 0) + Math.max(0, +per.lines || 0) : 0); };   // 話者 = 誰の声 + コラボの話者(11-02 に 1 つにまとめた)+ 行ごとの話者
     KIND_PICK.forEach(function (p) { if (p[0]) all += count(p[0]); });
     box.innerHTML = KIND_PICK.map(function (p) {
       var n = p[0] ? count(p[0]) : all, known = !!S.perKind;

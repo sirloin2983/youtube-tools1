@@ -107,6 +107,16 @@
 .chk-sec-memos{display:inline-flex;flex-wrap:wrap;gap:2px 8px}
 .chk-sec-memo{display:inline-flex;align-items:center;gap:4px;font-size:13px;min-height:28px;color:var(--muted)}
 .chk-sec-add{border-color:var(--accent)}
+/* 行ごとの話者(lines.js。11-02) */
+.chk-ln-list{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:4px}
+.chk-ln-row{display:flex;align-items:center;gap:6px 8px;flex-wrap:wrap;padding:4px 8px;border:1px solid var(--line);border-radius:var(--r);background:var(--panel-2)}
+.chk-ln-row.chk-ln-now{border-color:var(--accent-line);background:var(--accent-soft)}
+.chk-ln-play{min-width:32px}
+.chk-ln-t{font:600 12px/1.3 var(--mono);color:var(--ink-3);min-width:92px}
+.chk-ln-spk{flex:0 1 170px;min-width:0}
+.chk-ln-guess{flex:0 1 150px;min-width:0;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chk-ln-text{flex:1 1 280px;min-width:0}
+.chk-ln-chg{border-color:var(--warn);background:var(--warn-soft)}
 .chk-sym-head{display:flex;align-items:center;gap:12px;margin-bottom:8px}
 .chk-sym-big{font-size:44px;line-height:1.3;min-width:64px;text-align:center;border:1px solid var(--line);border-radius:var(--r);display:inline-block;padding:0 10px}
 .chk-sym-name{font-size:15px;color:var(--ink-2)}
