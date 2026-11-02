@@ -7,17 +7,23 @@
       測った種類の後ろ・それ以外は あと / 目標 の小さい種類から(もう少しで決まる物を先に)
   (2) 種類の中は出どころが付けた `_order`
   (3) 同率なら軽い物から value → voice → time → cut → symbol → speaker(押す数が少ない順)
+  誰の声のカード(SHUFFLE_KINDS = voice・speaker)は 1 つの種類として扱い、中はランダム(11-02 ユーザー「後出る順番らんだむにして」= ソロの 10 秒とコラボの 10 秒が
+  人や配信ごとにまとまらずに混ざる)。乱数は日付とカードの id から決める = 1 日の中は開き直しても同じ順。出どころの `_order` は使わない。
+  例外: `_first` の付いたカード(ソロの 10 秒の優先の人 = app/check/speaker_solo.FIRST_PEOPLE)が先頭(その中もランダム)
 レーン(C-EVAL): 普段のレーン = NORMAL_KINDS(評価用の文書は出どころ sources.View が外す)・評価のレーン = EVAL_KINDS(評価用の文書の区間カードだけ)。
   その日に飛ばしたカード(later)は全部の後ろ(飛ばした順)。
 """
 import math
 import re
+import time
+import zlib
 
 NORMAL_KINDS = ("value", "voice", "time", "cut", "symbol", "speaker")   # 普段のレーン(cut = 自動カットのカード CUT-CARD・symbol = 文字起こしから消した記号 11-01・speaker = コラボの話者 11-01 = app/check/voice_collab。読み read と「この行は声ですか?」speech は 10-31 に消した = Haas に替えるため)
 EVAL_KINDS = ("section",)   # 評価のレーン(評価用の文書の区間カード。C-EVAL (2))
 KINDS = NORMAL_KINDS + EVAL_KINDS
 LANES = {"normal": NORMAL_KINDS, "eval": EVAL_KINDS}
 LIGHT = {k: i for i, k in enumerate(KINDS)}
+SHUFFLE_KINDS = ("voice", "speaker")   # 誰の声のカード: 種類をまたいでランダムに混ぜる(並びと目標は voice のもの。11-02)
 # カードの id = <種類>:<出どころ>:<対象の鍵>(同じ対象を 2 回出さない鍵。対象の鍵は文書の id・行の id・配信・マークを # でつなぐ)
 CARD_ID_RE = re.compile(r"^(value|voice|time|cut|symbol|speaker|section):([a-z]{1,12}):([A-Za-z0-9_#.-]{1,160})\Z")
 DEFAULT_N, MAX_N = 10, 50
@@ -54,24 +60,29 @@ def _order_key(card):
     return tuple(x if _finite(x) else 0 for x in o) if isinstance(o, (list, tuple)) else ()
 
 
-def _sort_key(goals_by_kind, later):
+def _sort_key(goals_by_kind, later, day=None):
     goals_by_kind = goals_by_kind or {}
     later_pos = {cid: i for i, cid in enumerate(later)}
+    day = time.strftime("%Y-%m-%d") if day is None else day
 
     def key(c):
-        lp = later_pos.get(c.get("id"))
-        return (0 if lp is None else 1, lp or 0, kind_rank(goals_by_kind.get(c.get("kind"))), LIGHT.get(c.get("kind"), 9), _order_key(c), c.get("id") or "")
+        lp, kind, cid = later_pos.get(c.get("id")), c.get("kind"), c.get("id") or ""
+        if kind in SHUFFLE_KINDS:   # 誰の声のカード: 優先の人 → 日付と id の乱数
+            kind, inner = SHUFFLE_KINDS[0], (0 if c.get("_first") else 1, zlib.crc32(("%s|%s" % (day, cid)).encode("utf-8")))
+        else:
+            inner = _order_key(c)
+        return (0 if lp is None else 1, lp or 0, kind_rank(goals_by_kind.get(kind)), LIGHT.get(kind, 9), inner, cid)
     return key
 
 
-def order(cards, goals_by_kind=None, later=()):
-    """cards を出す順に並べた新しい一覧。goals_by_kind = {種類: 入口の条件の 1 行}・later = 今日飛ばしたカードの id(順に)"""
-    return sorted(cards, key=_sort_key(goals_by_kind, later))
+def order(cards, goals_by_kind=None, later=(), day=None):
+    """cards を出す順に並べた新しい一覧。goals_by_kind = {種類: 入口の条件の 1 行}・later = 今日飛ばしたカードの id(順に)・day = 誰の声の乱数の日付(既定は今日)"""
+    return sorted(cards, key=_sort_key(goals_by_kind, later, day))
 
 
-def first(cards, goals_by_kind=None, later=()):
+def first(cards, goals_by_kind=None, later=(), day=None):
     """order の先頭だけ(並べない = 件数だけの問い合わせ n=0 で全部を並べない。O14)。空なら None"""
-    return min(cards, key=_sort_key(goals_by_kind, later)) if cards else None
+    return min(cards, key=_sort_key(goals_by_kind, later, day)) if cards else None
 
 
 def per_kind(cards, kinds=NORMAL_KINDS):

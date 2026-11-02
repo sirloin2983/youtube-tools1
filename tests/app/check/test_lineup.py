@@ -52,9 +52,23 @@ class OrderTest(unittest.TestCase):
         self.assertEqual(got, ["cut", "value", "time", "voice"])   # あと 10% → 90% → 未測定 → 届いた
 
     def test_light_first_on_tie_and_inner_order(self):
-        cards = [card("time", "t"), card("voice", "r2", (5,)), card("voice", "r1", (1,)), card("value", "v")]
+        cards = [card("cut", "c"), card("time", "r2", (5,)), card("time", "r1", (1,)), card("value", "v")]
         got = [c["id"] for c in lineup.order(cards, {})]
-        self.assertEqual(got, ["value:x:v", "voice:x:r1", "voice:x:r2", "time:x:t"])
+        self.assertEqual(got, ["value:x:v", "time:x:r1", "time:x:r2", "cut:x:c"])
+
+    def test_voice_cards_shuffled_by_day_and_first_people_lead(self):
+        """誰の声のカード(voice・speaker)は種類をまたいで日付ごとの乱数の順・_order は使わない・_first が先頭(11-02)"""
+        cards = [card("voice", "v%d" % i, (i,)) for i in range(10)] + [card("speaker", "s%d" % i, (0, i)) for i in range(10)] + [card("time", "t")]
+        cards.append(dict(card("speaker", "first", (9, 9)), _first=True))
+        a = [c["id"] for c in lineup.order(cards, {}, day="2026-11-02")]
+        self.assertEqual(a, [c["id"] for c in lineup.order(list(reversed(cards)), {}, day="2026-11-02")])   # 1 日の中は同じ順
+        self.assertNotEqual(a, [c["id"] for c in lineup.order(cards, {}, day="2026-11-03")])   # 日が変わると変わる
+        self.assertEqual((a[0], a[-1]), ("speaker:x:first", "time:x:t"))   # 優先の人が先頭・誰の声は時刻より前(並びは voice の位置)
+        kinds = [i.split(":")[0] for i in a[1:-1]]
+        self.assertNotEqual(kinds, sorted(kinds))   # 種類ごとにまとまらない
+        self.assertNotEqual(a[1:11], ["voice:x:v%d" % i for i in range(10)])
+        self.assertEqual(lineup.first(cards, {}, day="2026-11-02")["id"], "speaker:x:first")
+        self.assertNotIn("_first", lineup.public(cards[-1]))
 
     def test_skipped_go_last_in_skip_order(self):
         cards = [card("value", "a"), card("value", "b"), card("time", "c")]

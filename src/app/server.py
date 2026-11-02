@@ -31,7 +31,7 @@
   POST /api/intake/scan                   {} 今すぐフォルダを見る(裏で。応答は今の状態)
   GET  /api/check/voiceclip?doc=&row=     誰の声のカードの行の短い音(wav。src/human/proof/voiceclips.py。元の動画が片付いた文書の行も聞ける)
   GET  /api/check/voicemeasure?key=       誰の声のカードの測る分の行の短い音(wav。src/app/check/voice_measure.py。ショートの元の配信から研究が切り出した物)
-  GET  /api/check/voicesolo?key=          ソロから声を覚えるカードの 48 秒の音(wav。src/app/check/speaker_solo.py。研究がソロの配信から取った物)
+  GET  /api/check/voicesolo?key=          ソロから声を覚えるカードの 10 秒の音(48 秒から切り出した wav。src/app/check/speaker_solo.py。研究がソロの配信から取った物)
   GET  /api/check/voicecollab?key=        コラボの話者のカードの行の短い音(wav。src/app/check/voice_collab.py。研究が話者分離の行から切り出した物)
   GET  /api/check/symbolrules            記号の決まりの欄 {proposals, rules, unsure}(src/human/check/symbol.py の summary。11-02)
   POST /api/check/symbolrules            {ch, left, right, action: keep|remove, approve: true|false} 記号の決まりの案を認める / 認めない
@@ -829,10 +829,10 @@ class PortalHandler(httpsec.LocalHandler):
         if u.path == "/api/check/members":   # 話者カードのほかのメンバーの欄(11-02)
             return self._json(200, check_members.index())
         if u.path == "/api/check/voicesolo":   # ソロから声を覚えるカードの音(11-02。app/check/speaker_solo)
-            p = check_speaker_solo.clip_path(self.server.cleanup.app_dir, (q.get("key") or [""])[0])
-            if not p:
+            data = check_speaker_solo.clip_piece(self.server.cleanup.app_dir, (q.get("key") or [""])[0])   # カードの 10 秒だけ
+            if not data:
                 return self._fail(404, "not_found", "その音はありません")
-            return httpsec.send_file(self, p, "audio/wav", {"Cache-Control": "private, max-age=3600"})   # 48 秒あるので Range つき(10 秒の頭へ飛ぶ)
+            return self._send(200, data, "audio/wav", {"Cache-Control": "private, max-age=3600"})
         if u.path == "/api/check/voicecollab":   # コラボの話者のカードの行の音(11-01。app/check/voice_collab)
             p = check_voice_collab.clip_path(self.server.cleanup.app_dir, (q.get("key") or [""])[0])
             if not p:

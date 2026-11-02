@@ -5,11 +5,14 @@
 
 実行(リポジトリ直下から): py -3.12 -m unittest tests/app/check/test_speaker_solo.py -v
 """
+import io
 import json
 import os
+import struct
 import sys
 import types
 import unittest
+import wave
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -70,12 +73,32 @@ class SpeakerSoloTest(unittest.TestCase):
         self.assertEqual(sorted(got), ["ka", "kb", "kc"])   # 形の違う物・音の無い物は出さない
         c = got["ka"]
         self.assertEqual(lineup.parse_id(c["id"])[:2], ("speaker", "solo"))
-        self.assertEqual((c["media"]["start"], c["media"]["end"]), (20.0, 30.0))   # 声がいちばん多い 10 秒
+        self.assertEqual((c["target"]["piece"], c["media"]["start"], c["media"]["end"]), ([20.0, 30.0], 0.0, 10.0))   # 声がいちばん多い 10 秒・音はその 10 秒だけ
+        self.assertFalse(c["_first"])
         self.assertEqual((c["media"]["url"], c["cast"], c["people"], c["who"]), ("api/check/voicesolo?key=ka", ["大空スバル"], ["大空スバル"], "大空スバル"))
         self.assertNotIn("大空スバル", c["pick"])
-        self.assertEqual((got["kb"]["media"]["start"], got["kb"]["media"]["end"]), (19.0, 29.0))   # speech が無ければ真ん中
+        self.assertEqual(got["kb"]["target"]["piece"], [19.0, 29.0])   # speech が無ければ真ん中
         self.assertEqual(SS.piece(6.0, [(1.0, 2.0)]), (0.0, 6.0))
         self.assertIn("speaker", deck.KIND_GROUP["voice"])
+
+    def test_first_people_and_clip_piece(self):
+        with open(os.path.join(self.app, "check", SS.NAME), "w", encoding="utf-8") as f:
+            json.dump({"cards": [solo("ka", "AAAAAAAAAAA", who="博衣こより"), solo("kb", "BBBBBBBBBBB")]}, f, ensure_ascii=False)
+        rate = 16000
+        with wave.open(os.path.join(self.app, "check", SS.DIR_NAME, "ka.wav"), "wb") as w:   # 48 秒・1 秒ごとに値の違う音
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(rate)
+            w.writeframes(b"".join(struct.pack("<h", sec) * rate for sec in range(48)))
+        got = self.cards()
+        self.assertEqual((got["ka"]["_first"], got["kb"]["_first"]), (True, False))   # 優先の人(FIRST_PEOPLE)は先頭に出す印
+        data = SS.clip_piece(self.app, "ka")
+        with wave.open(io.BytesIO(data), "rb") as w:
+            frames = w.readframes(w.getnframes())
+            self.assertEqual((w.getnframes(), w.getframerate()), (10 * rate, rate))   # 10 秒だけ
+        self.assertEqual((struct.unpack("<h", frames[:2])[0], struct.unpack("<h", frames[-2:])[0]), (20, 29))   # 20〜30 秒
+        self.assertIsNone(SS.clip_piece(self.app, "kz"))
+        self.assertIsNone(SS.clip_piece(self.app, "kb"))   # 空の音 = 読めない
 
     def test_answers_learn_only_streamer_alone(self):
         a = self.answer("ka", {"names": ["大空スバル"]})

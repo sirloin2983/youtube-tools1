@@ -16,7 +16,6 @@
   一覧のファイルはこの PC の作業データにだけ置く(配る zip には入らない = 友人の PC では出ない)
 """
 import os
-import random
 import re
 
 from flow import voicematerial as _vm
@@ -83,7 +82,7 @@ def voice_collab(view):
                     "text": "", "people": names,
                     "pick": [n for n in dict.fromkeys(members) if _person_key(n) not in shown], "otherPerson": OTHER_PERSON,
                     "score": None, "note": "", "cast": names, "measureOnly": True,
-                    "_order": [0, c["video"], random.random()]})   # 配信ごとにまとめて出す(同じ人の並びが続く = 迷わない)
+                    "_order": [0]})   # 並びは誰の声のカードの中でランダム(lineup.SHUFFLE_KINDS。11-02 ユーザー「後出る順番らんだむにして」)
     return out
 
 
