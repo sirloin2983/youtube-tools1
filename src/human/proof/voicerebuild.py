@@ -103,6 +103,8 @@ def rebuild(emb, name, exclude=(), log=None, embed=None, now=None):
     v = voices.get(name)
     if not isinstance(v, dict):
         raise _errors.ApiError("not_found", "登録簿にその人がいません: %s" % name, 404)
+    if any(isinstance(x, str) for x in v.get("learnedFrom") or ()):   # 答えから作り直した形(11-03 human/check/voicebook)= 外す行を excluded に足して答えから作り直す
+        raise _errors.ApiError("answer_book", "%s の声は確かめるの答えから作った写しです(外すには答えを Z で戻すか dev/voice_registry_rebuild.py で作り直してください)" % name, 409)
     excluded = sorted(set(v.get("excluded") or ()) | {str(x) for x in exclude})
     cache = fsio.read_json_or(rows_path(emb), {}, kind=dict)
     mine = cache.setdefault(name, {})

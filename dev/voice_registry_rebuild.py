@@ -1,6 +1,7 @@
 """声の登録簿を「確かめる」の答えから作り直す道具(11-03 情報をまとめる所の 1。本体は src/human/check/voicebook.py)。
   py -3.12 dev/voice_registry_rebuild.py            空回し: 作った登録簿と今の登録簿の差を出すだけ(何も書かない。足りない特徴は音から取る)
-  py -3.12 dev/voice_registry_rebuild.py --apply    書く(今の登録簿の材料が消えるなら書かない。前の登録簿は .bak-<時刻> に写す)
+  py -3.12 dev/voice_registry_rebuild.py --apply    書く(音が無く特徴の取れない材料は入れない = 11-03 ユーザー「元の音がないものは全部消していい」。前の登録簿は .bak-<時刻> に写す)
+  py -3.12 dev/voice_registry_rebuild.py --apply --strict   今の登録簿の材料が 1 つでも消えるなら書かない
   py -3.12 dev/voice_registry_rebuild.py --unknown  分からないにしたカードの一覧(unknown-voice.jsonl)を答えから作り直す
 入口が動いている間の --apply は、入口のジョブ voice-rebuild と同じ登録簿を書くので、入口を止めてから流す(ふだんは入口の見回りが作り直す)
 """
@@ -26,6 +27,7 @@ tx_engines.ENGINE_DIR = workdata.DATA_DIR   # 声の特徴のモデルは作業�
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--strict", action="store_true")
     ap.add_argument("--unknown", action="store_true")
     ap.add_argument("--json", help="差をこの JSON に書く")
     a = ap.parse_args()
@@ -38,7 +40,7 @@ def main():
     emb = _diar.learn_embedding("")
     cur = _diar.load_voices(emb)
     if a.apply:
-        res = voicebook.rebuild(app_dir, emb, log=print)
+        res = voicebook.rebuild(app_dir, emb, log=print, strict=a.strict)
     else:
         res = voicebook.build(app_dir, emb, voices=cur)
     d = voicebook.diff(cur, res["voices"])

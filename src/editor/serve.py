@@ -103,6 +103,7 @@ from eval.drill import metrics as _evmetrics  # noqa: E402  (認識精度の測�
 from human.proof import alt as _alt  # noqa: E402  (2つ目のエンジンとの食い違いの候補。精度改善 第2版 D1-b)
 from human.proof import retime as _proofretime  # noqa: E402  (行の時刻を単語の時刻に合わせる候補の API の包み。計算は ① の _txretime)
 from human.proof import machpick as _machpick  # noqa: E402  (3 択の口: 機械の結果が変わった人の行。RS8 O2-4)
+from human.check import voicebook as _voicebook  # noqa: E402  (声の登録簿を確かめるの答えから作り直すジョブ voice-rebuild。11-03)
 from human.proof import store as _store  # noqa: E402  (文書の読み書き・層・履歴・消す・整形・校正の行の数と作業中の印・要約のキャッシュ・編集の内容)
 from manage.cases import doclist as _doclist  # noqa: E402  (一覧と元の動画・パックの有無・前回のパックの手順。RS3-E5a)
 from manage.cases import relink as _relink  # noqa: E402  (付け替え・「参照…」・素材を 30fps にそろえる)
@@ -136,6 +137,7 @@ _flowwire.install(
     backend_name=lambda: ed_state.backend_name(), fake_backend=fake_asr.FAKE,   # 呼ぶたびに決める(テストの ed_state.backend_name の差し替えが効く)
     fake_worker_module=fake_worker.__name__,   # worker-fake(テスト)のときワーカーに読ませる疑似の部品の名前(RS2-9)
     dict_learned=lambda: _docjobs.dict_learned())   # 辞書の版の材料の学習の記録は文書の側(doc_jobs が learn を読む)から。呼ぶたびに読む
+_heavy_jobs.register("voice-rebuild", lambda job: _voicebook.run_job(job))   # 声の登録簿を確かめるの答えから作り直す(11-03。文書を触らない。flow/wire の表の外 = ③ の部品)
 _heavy_jobs.attach_board(_flowboard.default())   # ② のジョブの掲示板に頭 tx で見せる(引く形・取り消し・やり直し。表と /api/jobs はそのまま。RS8 の ② の口 S2)
 # ---- 差し込みの口(import の向きを守るため、上の層の関数を起動時に渡す)はここと flow/wire.install の 2 つだけ(OPT-H1) ----
 # ① ← ②(flow/wire.install の中): jobs.configure・backend.set_selector・records.set_dict_inputs

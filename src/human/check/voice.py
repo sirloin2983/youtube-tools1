@@ -21,20 +21,18 @@
   Z(_revert_voice)= 逆の commit(行が答えたあとのままのときだけ。もう答える前のままなら書かない。足した話者は誰も使っていなければ外す)。
   名前は ytt.textutil.person_key で比べる(全角半角・大文字小文字・空白・ひらがなとカタカナの違いを無視。声を覚える・字幕の色の名前合わせと同じ)。
 声の覚え直し(_maybe_relearn): 名前で答えた行のうち、1 秒以上・混ざっていない・音のメモ(重なり・BGM・聞き取れない)が無い・評価用でない・
-  名前が仮の名前(話者n)や一般的な名前でない行を「覚える材料」(applied.learn)にし、その人の材料の合計(まだ覚えていない分)が
-  設定 check.voiceRelearnSec(編集の設定。既定 30 秒)以上になったら、材料のある文書ごとにジョブ voice-learn(by "check"・rows = その行)を足す。
-  覚えた行は登録簿 voices/<emb>.json の learnedFrom[{doc, rows, sec, by}] に控える(flow/diar.merge_voice)= 同じ行を 2 度覚えない。
-  待っている・動いている覚え直しの行も数えない。失敗しても答えは済んだまま。失敗した覚え直しと同じ行だけなら足し直さない(材料が増えたらまた試す。
-  入口を起動し直すとジョブの表が空になるので 1 度は試し直す。登録簿の人数の上限・特徴を取れないなどの決まった失敗もこれで繰り返さない)。
-  Z で戻した答えは材料から外れる(覚えた後なら声は戻さない)。
+  名前が仮の名前(話者n)や一般的な名前でない行を「覚える材料」(applied.learn)にする。登録簿は答えから作り直す写し(human/check/voicebook。11-03):
+  まだ入っていない材料があれば、答えたらすぐ(待ちの秒は無い)ジョブ voice-rebuild を足し、登録簿の learnedFrom は答えの id になる。
+  失敗しても答えは済んだまま。音が無く特徴の取れない材料は入れない(voicebook の missing)。Z で戻した答えは作り直しで登録簿からも外れる。
+  check.voiceRelearnSec(_relearn_sec)は、ソロの配信の行のカードを出す数の目安(app/check/voice_solo)にだけ使う。
 ③ の層: 文書は human/check/_doc と human/proof(store・speakers)、声の登録簿とジョブは ② flow(diar・jobs)を通す。① は読まない。
 """
 import re
 
-from ytt import errors as _errors, schemas as _yschemas, settings as _settings, tools as _tools, txbase as _txbase
+from ytt import schemas as _yschemas, settings as _settings, txbase as _txbase
 from ytt.textutil import person_key as _person_key
 from flow import diar as _diar, jobs as _heavy, voicematerial as _vm
-from human.proof import speakers as _speakers, store as _store, voiceclips as _voiceclips
+from human.proof import speakers as _speakers
 from . import _doc, answerlog, apply as _apply   # 同じ human/check の兄弟
 
 KIND, SOURCE = "voice", "diar"
@@ -410,102 +408,27 @@ def _relearn_sec():
     return float(v) if v is not None and lo <= v <= hi else RELEARN_SEC_DEFAULT
 
 
-def _learned_rows(emb, name, cache):
-    """登録簿のその人の learnedFrom の行と、まとめ直しで外した行(excluded "文書#行" = もう材料に数えない。human/proof/voicerebuild)-> {(文書, 行)}"""
-    v = registry(emb, cache).get(name) or {}
-    out = {(str(x.get("doc")), str(r)) for x in v.get("learnedFrom") or () if isinstance(x, dict) for r in x.get("rows") or () if isinstance(r, str)}
-    return out | {tuple(str(k).split("#", 1)) for k in v.get("excluded") or () if isinstance(k, str) and "#" in k}
-
-
-def _inflight():
-    """待っている・動いている覚え直し(by check)の行 -> {(文書, 行)}"""
-    out = set()
-    for j in _heavy.active_jobs("voice-learn"):
-        sp = j["spec"]
-        if sp.get("by") == "check":
-            out.update((str(sp.get("tid")), str(r)) for r in sp.get("rows") or ())
-    return out
-
-
 def _pending(ctx, extra=()):
-    """まだ覚えていない材料 -> {(emb, 名前): {文書: {行: 秒}}}。extra = 記録にまだ書いていない今の答えの材料 [{doc, row, name, sec, emb}]"""
-    items, rows = [], answerlog.state(ctx.app_dir).effective()
-    collab = collab_docs(ctx.app_dir, rows)   # ソロの配信の守り: コラボだった見込みの文書の行は数えない
-    for r in rows:
-        if r.get("kind") != KIND or r.get("source") not in SOURCES or str((r.get("applied") or {}).get("doc") or "") in collab:
-            continue
-        lr = (r.get("applied") or {}).get("learn")
-        if isinstance(lr, dict):
-            items.append(dict(lr, doc=(r.get("applied") or {}).get("doc"), row=(r.get("applied") or {}).get("row")))
-    items += [it for it in extra if str(it.get("doc") or "") not in collab]
-    cache, busy, out = {}, _inflight(), {}
-    for it in items:
-        tid, rid, name, emb = str(it.get("doc") or ""), str(it.get("row") or ""), str(it.get("name") or ""), str(it.get("emb") or "")
-        sec = _yschemas.num_or(it.get("sec"))
-        if not tid or not rid or not name or not emb or not sec or (tid, rid) in busy or (tid, rid) in _learned_rows(emb, name, cache):
-            continue
-        out.setdefault((emb, name), {}).setdefault(tid, {})[rid] = float(sec)
-    return out
-
-
-def _failed_rows():
-    """失敗した覚え直し(by check)の行 -> {文書: {行}}(ジョブの表に残っている分だけ)"""
-    out = {}
-    for j in _heavy.all_jobs():
-        sp = j["spec"]
-        if j.get("kind") == "voice-learn" and j.get("state") == "error" and sp.get("by") == "check":
-            out.setdefault(str(sp.get("tid")), set()).update(str(r) for r in sp.get("rows") or ())
-    return out
+    """まだ登録簿に入っていない材料 -> [材料](human/check/voicebook.pending。答えの古い順)。extra = 記録にまだ書いていない今の答えの材料"""
+    from . import voicebook   # voicebook が voice を読むので、ここで読む
+    todo, _stale = voicebook.pending(ctx.app_dir)
+    return todo + list(extra)
 
 
 def _maybe_relearn(ctx, extra=()):
-    """材料の合計が _relearn_sec() 以上の人がいれば、文書ごとに voice-learn のジョブを足す。-> [{name, doc, job | skipped}](足さなければ [])。
-    RELEARN_PAUSED の間は足さない(答えの記録とカードはそのまま = 材料は貯まり、戻せば今の決まりで覚え直す)"""
-    if RELEARN_PAUSED:
+    """まだ登録簿に入っていない材料か、戻した答えの材料が登録簿にあれば、登録簿を答えから作り直すジョブ voice-rebuild を足す(11-03 情報をまとめる所の 1)。
+    -> [{names, job}](足さなければ [])。待っている・動いている作り直しがあれば足さない(そのジョブが読む答えに今の答えも入る見込み = 漏れても次の見回りで拾う)。
+    RELEARN_PAUSED の間は足さない(答えの記録とカードはそのまま = 材料は貯まり、戻せば作り直しで入る)"""
+    from . import voicebook
+    if RELEARN_PAUSED or voicebook.KIND not in _heavy.JOB_RUNNERS or not _diar.voice_ready():
         return []
-    if "voice-learn" not in _heavy.JOB_RUNNERS or not _diar.voice_ready():
-        return []   # 編集を取り込んでいない入口・話者判別の部品が無い = 材料は残して次に
-    need = _relearn_sec()
-    by_doc, cache = {}, {}
-    for (emb, name), docs in _pending(ctx, extra).items():
-        first = not any(_person_key(n) == _person_key(name) for n in registry(emb, cache))   # まだ声が無い人 = FIRST_SEC で仮に覚える(10-25)
-        if sum(sum(rows.values()) for rows in docs.values()) < (min(FIRST_SEC, need) if first else need):
-            continue
-        for tid, rows in docs.items():
-            d = by_doc.setdefault(tid, {"emb": emb, "names": [], "rows": [], "first": []})
-            if d["emb"] == emb:
-                d["names"].append(name)
-                d["rows"] += list(rows)
-                if first:
-                    d["first"].append(name)
-    out, failed = [], _failed_rows()
-    for tid, d in sorted(by_doc.items()):
-        if set(d["rows"]) <= failed.get(tid, set()):   # 前に失敗した行だけ = 足しても同じ失敗(材料が増えたらまた試す。6g-1)
-            out.append({"doc": tid, "names": d["names"], "skipped": "前に失敗した覚え直しと同じ行だけです(材料が増えたらまた試します)"})
-            continue
-        try:
-            out.append(dict(_submit(tid, d), doc=tid))
-        except (_errors.ApiError, _apply.Refused, OSError, ValueError) as e:
-            out.append({"doc": tid, "names": d["names"], "skipped": getattr(e, "message", None) or str(e)})
-    return out
-
-
-def _submit(tid, d):
-    doc = _store.read_transcript(tid)
-    if doc.get("evalSet") is True:
-        raise _apply.Refused(_speakers.EVAL_SET_VOICE_MSG, 409, "eval_set")
-    if not _voiceclips.index(tid):   # 切り出した行の音があれば元の動画が無くても覚えられる(human/proof/voiceclips。10-24)
-        _tools.check_source(doc.get("sourcePath"))   # 元の動画が無ければ足さない(足しても失敗するだけ = 答えのたびに失敗のジョブを作らない)
-    plan = _speakers.voice_learn_plan(doc, d["rows"])
-    names = [n for n in d["names"] if n in plan["groups"]]
-    if not names:
-        raise _apply.Refused("覚えられる行がありません(答えたあとに行・名前が変わった可能性があります)", 409, "no_rows")
-    rows = sorted({r for n in names for r in plan["rowIds"].get(n) or ()})
-    spec = {"tid": tid, "embedding": d["emb"], "names": names, "confirmSame": names,   # カードで名前を選んだ = 同じ人(confirmSame を省く。5 節)
-            "rows": rows, "by": "check", "title": _heavy.job_title("声を覚え直す(確かめる): ", doc),
-            "provisional": [n for n in d.get("first") or () if n in names]}   # まだ声が無い人 = 仮の声として覚える(flow/diar.merge_voice)
-    job = _heavy.add_job(spec, "voice-learn")
-    return {"names": names, "rows": len(rows), "job": job["id"]}
+    todo, stale = voicebook.pending(ctx.app_dir)
+    todo += list(extra)
+    if not todo and not stale:
+        return []
+    names = sorted({str(it.get("name") or "") for it in todo} - {""})
+    job = voicebook.request(ctx.app_dir, "声の登録簿を答えから作り直す(確かめる): 新しい材料 %d 個・外す答え %d 個" % (len(todo), stale))
+    return [{"names": names, "job": job["id"]}] if job else []
 
 
 for _src in SOURCES:

@@ -1,5 +1,5 @@
 """「確かめる」の誰の声のカード(src/human/check/voice.py)の単体テスト: 答えの形・選択肢と予想・文書の行への反映(commit why check:voice)と Z・
-評価用と処理中を断る・層と食い違わない・声の覚え直し(1 人 30 秒・rows= で行を明示・learnedFrom で 2 度覚えない・待っている覚え直しを数えない)・
+評価用と処理中を断る・層と食い違わない・声の覚え直し(答えたらすぐ登録簿を答えから作り直すジョブ・learnedFrom の答えの id で 2 度数えない・待っている作り直しがあれば足さない)・
 human/proof/speakers.voice_learn_plan の rows=。一時フォルダの作業データだけを使う。
 
 実行(リポジトリ直下から): py -3.12 -m unittest tests/human/check/test_voice.py -v
@@ -15,7 +15,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from flow import diar as _diar, jobs as _heavy  # noqa: E402
-from human.check import answerlog, apply, voice  # noqa: E402
+from human.check import answerlog, apply, voice, voicebook  # noqa: E402
 from human.proof import layers, speakers, store  # noqa: E402
 from ytt import schemas, txbase, workdata  # noqa: E402
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "human"))   # tests/human/(_workdata)
@@ -204,13 +204,16 @@ class RelearnTest(Base):
         def add_job(spec, kind):
             self.jobs.append((kind, spec))
             return {"id": "job%d" % len(self.jobs)}
-        for p in (mock.patch.dict(_heavy.JOB_RUNNERS, {"voice-learn": lambda job: None}), mock.patch.object(_diar, "voice_ready", return_value=True),
-                  mock.patch.object(voice._tools, "check_source", return_value="x.mp4"), mock.patch.object(_heavy, "add_job", side_effect=add_job),
-                  mock.patch.object(voice, "RELEARN_PAUSED", False)):   # 覚え直しの決まりを確かめる(本物は 10-25 から一時止め)
+        for p in (mock.patch.dict(_heavy.JOB_RUNNERS, {voicebook.KIND: lambda job: None}), mock.patch.object(_diar, "voice_ready", return_value=True),
+                  mock.patch.object(_heavy, "add_job", side_effect=add_job),
+                  mock.patch.object(voice, "RELEARN_PAUSED", False)):   # 覚え直しの決まりを確かめる
             p.start()
             self.addCleanup(p.stop)
-        with _diar.voices_edit(EMB) as v:   # 声がもうある人 = 30 秒ごとに覚え直す(まだ声が無い人の初回は test_first_voice_at_10_sec)
+        with _diar.voices_edit(EMB) as v:
             v["ぺこら"] = _diar.merge_voice(None, [1.0, 0.0], 1, 5.0)
+
+    def pend(self):
+        return [(it["name"], it["row"], it["sec"]) for it in voice._pending(self.ctx)]
 
     def test_paused_switch(self):
         """覚え直しの一時止め(RELEARN_PAUSED)の間は足さない・答えは貯まる(10-25)"""
@@ -218,45 +221,37 @@ class RelearnTest(Base):
             self.answer("s1", {"choice": "S1"})
             self.answer("s4", {"choice": "S1"})
         self.assertEqual(self.jobs, [])
-        self.assertEqual(sum(voice._pending(self.ctx)[(EMB, "ぺこら")][TID].values()), 32.0)
+        self.assertEqual(sum(x[2] for x in self.pend()), 32.0)
 
-    def test_first_voice_at_10_sec(self):
-        """まだ声が無い人は FIRST_SEC(10 秒)で仮の声として覚える(10-25)"""
-        with _diar.voices_edit(EMB) as v:
-            v.pop("ぺこら", None)
-        self.answer("s1", {"choice": "S1"})                              # ぺこら 12 秒 ≥ 10
-        self.assertEqual(len(self.jobs), 1)
-        self.assertEqual(self.jobs[0][1]["provisional"], ["ぺこら"])
-
-    def test_learn_after_30_sec(self):
-        self.answer("s1", {"choice": "S1"})                              # ぺこら 12 秒
+    def test_rebuild_at_once(self):
+        """答えたらすぐ登録簿を答えから作り直すジョブを足す(11-03: 待ちの秒は無い = 音が片付けられる前に特徴を控える)。材料にならない答えでは足さない"""
         self.answer("s3", {"choice": "S1"})                              # 1 秒未満 = 材料にしない
         self.answer("s5", {"choice": "S1"})                              # BGM のメモ = 材料にしない
         self.assertEqual(self.jobs, [])
-        got = self.answer("s4", {"choice": "S1"})                         # + 20 秒 = 32 秒 ≥ 30
-        self.assertEqual(len(self.jobs), 1)
+        got = self.answer("s1", {"choice": "S1"})                         # ぺこら 12 秒
         kind, spec = self.jobs[0]
-        self.assertEqual((kind, spec["tid"], spec["names"], spec["rows"], spec["by"], spec["confirmSame"], spec["embedding"]),
-                         ("voice-learn", TID, ["ぺこら"], ["s1", "s4"], "check", ["ぺこら"], EMB))
-        self.assertEqual(got["applied"]["relearn"][0]["job"], "job1")
-        self.assertNotIn("proofed", self.seg("s4"))
-        # 覚えた(登録簿の learnedFrom に行を控えた)= もう材料に数えない
+        self.assertEqual((kind, spec["appDir"], spec["by"], spec["embedding"]), (voicebook.KIND, self.app, "check", EMB))
+        self.assertEqual(got["applied"]["relearn"], [{"names": ["ぺこら"], "job": "job1"}])
+        self.assertNotIn("proofed", self.seg("s1"))
+        # 作り直した(登録簿の learnedFrom が答えの id)= もう材料に数えない
         with _diar.voices_edit(EMB) as v:
-            v["ぺこら"] = _diar.merge_voice(None, [1.0, 0.0], 2, 32.0, TID, by="check", row_ids=["s1", "s4"])
-        self.assertEqual(voice._pending(self.ctx), {})
+            v["ぺこら"] = dict(v["ぺこら"], learnedFrom=[got["answer"]])
+        self.assertEqual(self.pend(), [])
 
-    def test_undo_and_threshold_and_inflight(self):
+    def test_undo_and_inflight(self):
         a = self.answer("s1", {"choice": "S1"})
         apply.undo(self.ctx, a["answer"])                                # Z で戻した = 材料から外れる
-        self.answer("s4", {"choice": "S1"})                              # 20 秒だけ
-        self.assertEqual(self.jobs, [])
-        self.assertEqual(voice._pending(self.ctx), {(EMB, "ぺこら"): {TID: {"s4": 20.0}}})
+        self.answer("s4", {"choice": "S1"})
+        self.assertEqual(self.pend(), [("ぺこら", "s4", 20.0)])
+        with mock.patch.dict(_heavy._jobs, {"j": {"kind": voicebook.KIND, "state": "running", "spec": {"by": "check"}}}):
+            self.assertEqual(voice._maybe_relearn(self.ctx), [])          # 待っている・動いている作り直しがあれば足さない
+        with _diar.voices_edit(EMB) as v:
+            v["ぺこら"] = dict(v["ぺこら"], learnedFrom=[a["answer"]])     # 戻した答えが登録簿に残っている = 外すために作り直す
+        n = len(self.jobs)
+        self.assertEqual(len(voice._maybe_relearn(self.ctx)), 1)
+        self.assertEqual(len(self.jobs), n + 1)
         with mock.patch.object(voice._settings, "load_settings", return_value={"check": {"voiceRelearnSec": 10}}):
             self.assertEqual(voice._relearn_sec(), 10.0)
-            with mock.patch.dict(_heavy._jobs, {"j": {"kind": "voice-learn", "state": "running", "spec": {"by": "check", "tid": TID, "rows": ["s4"]}}}):
-                self.assertEqual(voice._maybe_relearn(self.ctx), [])          # 待っている・動いている覚え直しの行は数えない
-            got = voice._maybe_relearn(self.ctx)
-        self.assertEqual((got[0]["names"], self.jobs[0][1]["rows"]), (["ぺこら"], ["s4"]))
         with mock.patch.object(voice._settings, "load_settings", return_value={"check": {"voiceRelearnSec": 1}}):
             self.assertEqual(voice._relearn_sec(), voice.RELEARN_SEC_DEFAULT)   # 範囲の外は既定
 
@@ -280,8 +275,9 @@ class RelearnTest(Base):
         g = self.seg("s2")
         self.assertEqual((g["speaker"], g["tags"]), ("S1", ["bgm"]))
         self.assertNotIn("learn", got["applied"])
-        self.answer("s4", {"choice": "S1"})                              # 20 秒だけ(s2 の 12 秒は数えない = 30 秒に届かない)
-        self.assertEqual((self.jobs, voice._pending(self.ctx)), ([], {(EMB, "ぺこら"): {TID: {"s4": 20.0}}}))
+        self.assertEqual(self.jobs, [])
+        self.answer("s4", {"choice": "S1"})
+        self.assertEqual(self.pend(), [("ぺこら", "s4", 20.0)])          # s2 の 12 秒は数えない
         apply.undo(self.ctx, got["answer"])
         g = self.seg("s2")
         self.assertEqual((g["speaker"], g.get("tags")), ("S2", None))
@@ -313,26 +309,23 @@ class RelearnTest(Base):
         got = apply.answer(self.ctx, card("s4", streamer, source="solo"), {"answer": {"names": ["ぺこら"]}})
         self.assertIn("learn", got["applied"])
         self.assertEqual(voice.collab_docs(self.app), set())
-        self.assertEqual(voice._pending(self.ctx), {(EMB, "ぺこら"): {TID: {"s4": 20.0}}})
+        self.assertEqual(self.pend(), [("ぺこら", "s4", 20.0)])
         apply.answer(self.ctx, card("s2", streamer, source="solo"), {"answer": {"names": [voice.OUTSIDER]}})
         self.assertEqual(voice.collab_docs(self.app), {TID})
-        self.assertEqual(voice._pending(self.ctx), {})   # その文書の行は全部数えない
+        self.assertEqual(self.pend(), [])   # その文書の行は全部数えない
         self.assertEqual(voice.answer_names({"answer": {"choice": "mixed"}}), ["?", "??"])
         self.assertEqual(voice.answer_names({"answer": {"choice": "S2"}, "guess": streamer}), ["(予想と違う人)"])
 
-    def test_failed_relearn_is_not_repeated(self):
-        """失敗した覚え直しと同じ行だけなら、答えるたびに足し直さない(材料が増えたらまた試す)"""
-        with mock.patch.dict(_heavy._jobs, {"j": {"kind": "voice-learn", "state": "error", "spec": {"by": "check", "tid": TID, "rows": ["s1", "s4"]}}}):
-            self.answer("s1", {"choice": "S1"})
-            got = self.answer("s4", {"choice": "S1"})                     # 32 秒 ≥ 30 だが前に失敗した行と同じ
-            self.assertEqual(self.jobs, [])
-            self.assertIn("skipped", got["applied"]["relearn"][0])
-            self.answer("s2", {"choice": "S1"})                          # 材料が増えた = また試す
-        self.assertEqual(self.jobs[0][1]["rows"], ["s1", "s2", "s4"])
+    def test_missing_audio_is_not_repeated(self):
+        """音が無く特徴が取れなかった答え(voicebook の missing)は、MISSING_RETRY まで材料に数えない = 作り直しを繰り返さない(11-03)"""
+        with mock.patch.object(voice, "RELEARN_PAUSED", True):
+            got = self.answer("s4", {"choice": "S1"})
+        testkit.write_json(voicebook.missing_path(EMB), {got["answer"]: answerlog.now_ms()})
+        self.assertEqual(self.pend(), [])
 
     def test_name_rules(self):
         self.answer("s4", {"choice": "S2"})                              # 「話者2」= 仮の名前は覚えない
-        self.assertEqual(voice._pending(self.ctx), {})
+        self.assertEqual(self.pend(), [])
         # 名前は ytt.textutil.person_key で比べる(カタカナ・全角半角・空白の違いは同じ人)
         got = self.answer("s2", {"name": "ペコラ"})
         self.assertEqual((self.seg("s2")["speaker"], got["applied"]["added"]), ("S1", None))
@@ -342,7 +335,7 @@ class RelearnTest(Base):
             self.answer("s4", {"choice": "S1"})
             self.answer("s1", {"choice": "S1"})
         self.assertEqual(self.jobs, [])                                  # 部品が無い = 材料は残す
-        self.assertEqual(sum(voice._pending(self.ctx)[(EMB, "ぺこら")][TID].values()), 32.0)
+        self.assertEqual(sum(x[2] for x in self.pend()), 32.0)
 
 
 class LearnPlanRowsTest(unittest.TestCase):

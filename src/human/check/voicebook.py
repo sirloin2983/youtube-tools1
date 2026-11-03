@@ -5,8 +5,10 @@
          コラボだった見込みの文書の行(voice.collab_docs)と、まとめ直しで外した行(登録簿の excluded)は入れない
   声   = 材料の行ごとの特徴(控えに無ければ音から取って控える)を、行の秒で重みを付けて平均し長さ 1 に(ショート由来は SHORT_WEIGHT 倍。voicerebuild と同じ)
   learnedFrom = その人の材料の答えの id だけ(答えの古い順)
-守り(登録簿には人が確かめた物だけ・勝手に減らさない):
-  - 今の登録簿にあって、答えがまだ効いている材料の特徴が取れない(音が無い)ときは書かない(BuildRefused)
+守り(登録簿には人が確かめた物だけ):
+  - 特徴の控えが無く音も無い材料は入れない(11-03 ユーザー「元の音がないものは全部消していい」)。入れなかった答えは voices/<emb>.missing.json に控え、
+    MISSING_RETRY 秒たつまで「まだ入っていない材料」に数えない(作り直しを繰り返さない)。strict=True(道具の --strict)なら、今の登録簿の材料が消えるとき書かない
+  - 答えたらすぐ作り直しを頼む(覚え直しの 30 秒の待ちは無い)= 特徴は音が片付けられる前に控えに入る(11-03: 答えに使った動画が片付けで消え、13 個の材料を作り直せなかった)
   - 答えの無い人(文書の「声を覚える」など by が check でない材料を持つ人)は触らない(そのまま残す)
   - 書く前の登録簿は voices/<emb>.json.bak-<時刻> に写す
 呼ぶ所: ジョブ voice-rebuild(入口の見回り = human/check/voice._maybe_relearn・app/check/speaker_solo.tick が頼む)と dev/voice_registry_rebuild.py(空回しで差を見る)
@@ -26,6 +28,7 @@ KIND = "voice-rebuild"
 SOLO_KIND, SOLO_SOURCE, SOLO_PREFIX = "speaker", "solo", "solo:"   # ソロの 10 秒(app/check/speaker_solo)の答えの形
 VOICE_KIND, VOICE_SOURCES = "voice", ("diar", "solo")             # 誰の声のカード(human/check/voice)の答えの形
 SOLO_DIR = os.path.join("check", "speaker-solo")                  # ソロの 10 秒の音 <app>/check/speaker-solo/<key>.wav
+MISSING_RETRY = 24 * 3600                                         # 特徴が取れなかった答えを、また試すまでの秒
 
 
 class BuildRefused(Exception):
@@ -74,6 +77,13 @@ def learned_rows(entry, by_answer):
                 out.add((it["doc"], it["row"]))
         elif isinstance(x, dict):
             out.update((str(x.get("doc")), str(r)) for r in x.get("rows") or () if isinstance(r, str))
+    return out
+
+
+def learned_docs(entry, by_answer):
+    """登録簿の 1 人分が材料にした文書の集まり(古い形は行の無い文書も)"""
+    out = {d for d, _r in learned_rows(entry, by_answer)}
+    out.update(str(x.get("doc")) for x in (entry or {}).get("learnedFrom") or () if isinstance(x, dict) and x.get("doc"))
     return out
 
 
@@ -207,17 +217,30 @@ def diff(cur, new):
     return out
 
 
-def rebuild(app_dir, emb=None, job=None, log=None, now=None, **kw):
-    """答えから作り直して登録簿と控えを書く -> build の結果に "backup" を足した物。今の登録簿の材料が消えるなら BuildRefused(何も書かない)"""
+def missing_path(emb):
+    return os.path.join(_diar.voices_dir(), emb + ".missing.json")
+
+
+def missing_ids(emb, now=None):
+    """特徴が取れなかった答えのうち、まだ試し直さない物の id"""
+    now = time.time() if now is None else now
+    d = fsio.read_json_or(missing_path(emb), {}, kind=dict)
+    return {k for k, at in d.items() if isinstance(at, (int, float)) and now * 1000 - at < MISSING_RETRY * 1000}
+
+
+def rebuild(app_dir, emb=None, job=None, log=None, now=None, strict=False, **kw):
+    """答えから作り直して登録簿と控えを書く -> build の結果に "backup"・"lost" を足した物。strict で今の登録簿の材料が消えるなら BuildRefused(何も書かない)"""
     log = log or (lambda m: None)
     emb = emb or _diar.learn_embedding("")
     now = time.time() if now is None else now
     cur = _diar.load_voices(emb)
     res = build(app_dir, emb, job=job, now=now, voices=cur, **kw)
     gone = lost(app_dir, cur, res["voices"])
-    if gone:
+    if gone and strict:
         raise BuildRefused("今の登録簿の材料 %d 個の声の特徴が取れません(音が無い見込み。例 %s %s#%s)" % ((len(gone),) + gone[0]))
+    res["lost"] = gone
     fsio.write_json(_diar.row_vectors_path(emb), res["cache"], indent=None)
+    fsio.write_json(missing_path(emb), {it["answer"]: int(now * 1000) for it in res["missing"]}, indent=None)
     res["backup"] = None
     if os.path.isfile(_diar.voices_path(emb)):
         res["backup"] = _diar.voices_path(emb) + ".bak-%d" % int(now)
@@ -225,8 +248,8 @@ def rebuild(app_dir, emb=None, job=None, log=None, now=None, **kw):
     with _diar.voices_edit(emb) as v:
         v.clear()
         v.update(res["voices"])
-    log("声の登録簿を確かめるの答えから作り直しました(%d 人・新しく取った特徴 %d・取れない材料 %d・前の写し %s)"
-        % (len(res["voices"]), res["added"], len(res["missing"]), os.path.basename(res["backup"] or "-")))
+    log("声の登録簿を確かめるの答えから作り直しました(%d 人・新しく取った特徴 %d・音が無く入れない材料 %d・今の登録簿から外れた材料 %d・前の写し %s)"
+        % (len(res["voices"]), res["added"], len(res["missing"]), len(gone), os.path.basename(res["backup"] or "-")))
     return res
 
 
@@ -241,7 +264,8 @@ def pending(app_dir, emb=None, rows=None):
         have |= learned_rows(v, by_answer)
         stale += len(learned_answers(v) - set(by_answer))   # 戻した答え = 作り直すと外れる
         excluded |= {str(k) for k in v.get("excluded") or ()}
-    todo = [it for it in items if (it["doc"], it["row"]) not in have and "%s#%s" % (it["doc"], it["row"]) not in excluded]
+    skip = missing_ids(emb)
+    todo = [it for it in items if (it["doc"], it["row"]) not in have and "%s#%s" % (it["doc"], it["row"]) not in excluded and it["answer"] not in skip]
     return todo, stale
 
 
