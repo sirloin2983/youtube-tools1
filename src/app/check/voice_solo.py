@@ -28,7 +28,7 @@ import random
 import time
 
 from flow import voicematerial as _vm
-from human.check import voice as voice_mod
+from human.check import voice as voice_mod, voicebook
 from human.proof import voiceclips as _voiceclips
 from pipeline.transcribe import records
 from ytt import schemas as _yschemas
@@ -150,13 +150,13 @@ def _select(view):
         answered[(str(a.get("doc") or ""), str(a.get("row") or ""))] = a
     need = voice_mod._relearn_sec() * MARGIN
     cache, info = {}, {}
+    by_answer = {it["answer"]: it for it in voicebook.materials(getattr(view.ctx, "app_dir", "") or "")} if by_person else {}   # 登録簿の learnedFrom の答えの id -> 材料(11-03)
     for who, docs in by_person.items():
         docs = sorted(docs, key=lambda x: records.output_old(x[1]))   # 今の版の文字起こしの文書から(古い版は夜の作り直し app/check/refresh を待つ)
         reg = voice_mod.registry(voice_mod.doc_embedding(docs[0][1]), cache)
         mine = next((v for n, v in reg.items() if _person_key(n) == _person_key(who)), {}) or {}
-        info[who] = (docs, sources._num(mine.get("sec")),
-                     {(str(x.get("doc")), str(r)) for x in mine.get("learnedFrom") or () if isinstance(x, dict) for r in x.get("rows") or ()},
-                     {str(x.get("doc")) for x in mine.get("learnedFrom") or () if isinstance(x, dict)})
+        learned = voicebook.learned_rows(mine, by_answer)   # 古い形({doc, rows})と答えの id の両方
+        info[who] = (docs, sources._num(mine.get("sec")), learned, voicebook.learned_docs(mine, by_answer))
     foreign = _vm.foreign_members()
     for n in [n for n in info if n in foreign]:   # EN・ID の人のカードは出さない(10-25 ユーザー「EN・ID は外す」。取った音は消さない)
         info.pop(n)

@@ -50,6 +50,7 @@
 """
 import argparse
 import bisect
+import json
 import os
 import re
 import shutil
@@ -363,14 +364,36 @@ def majority_name(rows):
 
 def learned_names(voices_root, tid, run):
     """その文書から覚えた声の名前(正規化)の集合。覚えた声のファイル(<作業データ>/voices/<判別モデル>.json)の各人の learnedFrom に tid があるもの。
-    learnedFrom が無い古い声は入らない(どの文書から覚えたか分からない = 外せない)。読めない・無いなら空"""
+    learnedFrom が無い古い声は入らない(どの文書から覚えたか分からない = 外せない)。読めない・無いなら空。
+    learnedFrom が確かめるの答えの id(11-03 の答えから作り直した登録簿)なら、答えの記録(<作業データの隣の app>/check/answers.jsonl と .old)で文書に直す"""
     emb = ((run.get("engine") or {}).get("embedding") if isinstance(run.get("engine"), dict) else None) or ""
     d = read_json(os.path.join(voices_root, "voices", str(emb) + ".json")) if emb else None
     v = d.get("voices") if isinstance(d, dict) else None
     if not isinstance(v, dict):
         return set()
+    docs = _answer_docs(voices_root) if any(isinstance(f, str) for x in v.values() if isinstance(x, dict) for f in x.get("learnedFrom") or []) else {}
     return {norm_name(n) for n, x in v.items()
-            if isinstance(x, dict) and any(isinstance(f, dict) and f.get("doc") == tid for f in x.get("learnedFrom") or [])}
+            if isinstance(x, dict) and any((isinstance(f, dict) and f.get("doc") == tid) or (isinstance(f, str) and docs.get(f) == tid)
+                                           for f in x.get("learnedFrom") or [])}
+
+
+def _answer_docs(voices_root):
+    """確かめるの答えの id -> 答えた文書の id(applied.doc)。読めなければ空"""
+    out = {}
+    p = os.path.join(os.path.dirname(os.path.abspath(voices_root)), "app", "check", "answers.jsonl")
+    for path in (p + ".old", p):
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                for ln in f:
+                    try:
+                        r = json.loads(ln)
+                    except ValueError:
+                        continue
+                    if isinstance(r, dict) and isinstance(r.get("id"), str) and isinstance(r.get("applied"), dict) and r["applied"].get("doc"):
+                        out[r["id"]] = str(r["applied"]["doc"])
+        except OSError:
+            continue
+    return out
 
 
 def voice_records(run, rows, leaked=None, drop_leaked=False):

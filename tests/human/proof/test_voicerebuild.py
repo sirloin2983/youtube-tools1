@@ -15,7 +15,7 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
 from flow import diar  # noqa: E402
-from human.check import voice as voice_mod  # noqa: E402
+from ytt import errors  # noqa: E402
 from human.proof import voicerebuild as VR  # noqa: E402
 
 EMB = "campplus"
@@ -52,8 +52,9 @@ class RebuildTest(unittest.TestCase):
         VR.rebuild(EMB, "みこ", [], embed=self.embed, now=2000)
         self.assertEqual(len(self.calls), 2)                                      # 行ごとの特徴は控えた = 2 回目は取り直さない
         self.assertEqual(diar.load_voices(EMB)["みこ"]["excluded"], ["aaaaaaaaaaa1#s2"])   # 外した行は外したまま
-        with mock.patch.object(voice_mod, "registry", lambda emb, cache=None: diar.load_voices(EMB)):
-            self.assertIn(("aaaaaaaaaaa1", "s2"), voice_mod._learned_rows(EMB, "みこ", None))   # 覚え直しの材料に数えない
+        diar.save_voices(EMB, dict(diar.load_voices(EMB), みこ=dict(diar.load_voices(EMB)["みこ"], learnedFrom=["a1000000000000-000001"])))
+        with self.assertRaises(errors.ApiError):   # 答えから作り直した形(11-03)は、この道で外さない(答えから作り直す)
+            VR.rebuild(EMB, "みこ", [], embed=self.embed, now=3000)
 
 
     def test_backfill_keeps_registry(self):

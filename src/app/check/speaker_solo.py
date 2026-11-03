@@ -12,11 +12,11 @@
          「メンバー以外の人」の札は OTHER_PERSON の名前で送る)
   覚える 配信者 1 人だけが選ばれ、印(bgm・alt)が無いときだけ、その 10 秒で製品の登録簿に声を覚える(人が確かめた物だけ。仮では入れない)。
          ほかの人・ゲームの声・印あり・声なし・分からないは覚えない。applied.learn = {name, start, end, sec} か None
-  登録簿 入口の見回り tick(voice_fill_loop・1 分ごと)が、効いている答えの learn と登録簿の learnedFrom(doc = "solo:<key>"・sure: true)を突き合わせる:
-         無ければジョブ voice-learn-clips(human/proof/speakers.run_voice_learn_clips)で入れ、Z で戻した答えの分が残っていればジョブ voice-unlearn で外してまとめ直す
-         (行ごとの特徴の控え "solo:<key>#w" から。外すと何も残らない人は声を消す)。入らなかった物は RETRY_SEC たってから試し直す。
-         録画中も始める(11-02 ユーザー「友人のライブを最優先はほかに処理をしないという意味ではない」)。待つかは入口の busy(PC の CPU の空き)が決め、
-         録画中は 1 つのジョブを LIVE_BATCH 個にして短くする(編集のジョブは 1 本ずつ動くので、録画の文字起こしを待たせる時間を数秒に)
+  登録簿 入口の見回り tick(voice_fill_loop・1 分ごと)が、まだ登録簿に入っていない答えの材料か、Z で戻した答えの材料が登録簿にあれば、
+         登録簿を答えから作り直すジョブ voice-rebuild を足す(human/check/voicebook。11-03 情報をまとめる所の 1 = 登録簿は答えの写し・learnedFrom は答えの id)。
+         特徴は行ごとの控え "solo:<key>#w" に入る。音が無く取れない答えは入れない(voicebook の missing)。
+         録画中も始める(11-02 ユーザー「友人のライブを最優先はほかに処理をしないという意味ではない」)。待つかは入口の busy(PC の CPU の空き)が決める
+         (前の speaker-solo-state.json はもう読み書きしない = 消さずに残す)
   記録   applied = {solo: key, video, who, names, bgm?, alt?, piece: [頭, 末], learn}
   分からない その 10 秒の音と位置を控える(app/check/voice_unknown。11-02 ユーザー「わからないにしたやつ記憶しておいてほしい」)
 """
@@ -24,22 +24,18 @@ import io
 import os
 import re
 import threading
-import time
 import wave
 
 from flow import diar as _diar, jobs as _heavy, voicematerial as _vm
-from human.check import answerlog, apply as _apply, voice as voice_mod
+from human.check import answerlog, apply as _apply, voice as voice_mod, voicebook
 from ytt import fsio
 from ytt.textutil import person_key as _person_key
 from . import lineup, sources, voice_unknown
 
 KIND, SOURCE = "speaker", "solo"
-NAME, DIR_NAME, STATE_NAME = "speaker-solo.json", "speaker-solo", "speaker-solo-state.json"
+NAME, DIR_NAME = "speaker-solo.json", "speaker-solo"
 ENABLED = True          # スイッチ: 答えで製品の登録簿に声を覚える・Z で外す見回り(11-02)
 PIECE_SEC, STEP = 10.0, 0.5
-BATCH = 10              # 1 つのジョブで覚える 10 秒の数
-LIVE_BATCH = 2          # 録画中の 1 つのジョブの数(1 個 約 1 秒 = 録画の文字起こしを待たせても 2〜3 秒。11-02 に測った)
-RETRY_SEC = 24 * 3600
 DOC_PREFIX = "solo:"
 KEY_RE = re.compile(r"^[a-z0-9]{1,16}\Z")
 VIDEO_RE = re.compile(r"^[A-Za-z0-9_-]{11}\Z")
@@ -191,20 +187,6 @@ def _revert_solo(ctx, row):
 
 # ---- 登録簿の見回り ----
 
-def _state_path(app_dir):
-    return os.path.join(app_dir, "check", STATE_NAME)
-
-
-def read_state(app_dir):
-    d = fsio.read_json_or(_state_path(app_dir), {}, kind=dict) if app_dir else {}
-    return {k: d.get(k) if isinstance(d.get(k), dict) else {} for k in ("asked", "failed")}
-
-
-def _write_state(app_dir, st):
-    os.makedirs(os.path.dirname(_state_path(app_dir)), exist_ok=True)
-    fsio.write_json(_state_path(app_dir), st, indent=None)
-
-
 def wanted(app_dir):
     """効いている答えのうち覚える物 -> {doc: {key, name, start, end}}"""
     out = {}
@@ -218,64 +200,18 @@ def wanted(app_dir):
     return out
 
 
-def _registry_docs(voices):
-    """登録簿のソロの 10 秒の文書 -> {文書: 登録簿の名前}"""
-    out = {}
-    for n, v in voices.items():
-        for lf in v.get("learnedFrom") or ():
-            if isinstance(lf, dict) and str(lf.get("doc") or "").startswith(DOC_PREFIX):
-                out[lf["doc"]] = n
-    return out
-
-
-def tick(app_dir, busy, log, now=None, batch=None):
-    """見回り 1 回: Z で戻した分を外す(voice-unlearn)→ まだ入れていない答えの 10 秒を入れる(voice-learn-clips)。-> 頼んだジョブの種類か None。
-    batch = 1 つのジョブで覚える数(省けば BATCH。録画中は入口が LIVE_BATCH を渡す)"""
+def tick(app_dir, busy, log, now=None):
+    """見回り 1 回: まだ入っていない答えの材料か、戻した答えの材料が登録簿にあれば、作り直しのジョブ voice-rebuild を足す -> "voice-rebuild" か None"""
     if not ENABLED or not app_dir or voice_mod.RELEARN_PAUSED or busy():
         return None
-    if "voice-learn-clips" not in _heavy.JOB_RUNNERS or "voice-unlearn" not in _heavy.JOB_RUNNERS or not _diar.voice_ready():
+    if voicebook.KIND not in _heavy.JOB_RUNNERS or not _diar.voice_ready() or _heavy.active_jobs(voicebook.KIND):
         return None
-    if _heavy.active_jobs("voice-learn-clips") or _heavy.active_jobs("voice-unlearn"):
-        return None
-    now = time.time() if now is None else now
-    want = wanted(app_dir)
-    emb = _diar.learn_embedding("")
-    voices = _diar.load_voices(emb)
-    have = _registry_docs(voices)
     with _lock:
-        st = read_state(app_dir)
-        drop = {}
-        for d, name in have.items():
-            if d not in want:
-                drop.setdefault(name, []).append(d)
-        if drop:
-            name, docs = sorted(drop.items())[0]
-            job = _heavy.add_job({"embedding": emb, "name": name, "docs": sorted(docs), "title": "戻した答えの声を外す(確かめる): %s %d 個" % (name, len(docs))}, "voice-unlearn")
-            log("ソロの 10 秒: %s の戻した答え %d 個を登録簿から外すジョブ %s を足しました" % (name, len(docs), job["id"]))
-            return "voice-unlearn"
-        for d in list(st["asked"]):   # 頼んだジョブが終わったのに入っていない = 失敗(RETRY_SEC まで試さない)
-            del st["asked"][d]
-            if d not in have:
-                st["failed"][d] = {"at": int(now * 1000)}
-        for d in [d for d in st["failed"] if d in have or d not in want]:
-            del st["failed"][d]
-        todo = [(d, w) for d, w in sorted(want.items()) if d not in have and clip_path(app_dir, w["key"])
-                and (d not in st["failed"] or now * 1000 - int((st["failed"][d] or {}).get("at") or 0) >= RETRY_SEC * 1000)][:batch or BATCH]
-        if not todo:
-            _write_state(app_dir, st)
+        todo, stale = voicebook.pending(app_dir)
+        if not todo and not stale:
             return None
-        names = {_person_key(n): n for n in voices}
-        clips = []
-        for d, w in todo:
-            who = names.get(_person_key(w["name"]), w["name"])
-            clips.append({"doc": d, "clip": clip_path(app_dir, w["key"]), "names": [who], "groups": {who: [[w["start"], w["end"]]]},
-                          "rowIds": {who: ["w"]}, "sure": True, "by": "check"})
-        job = _heavy.add_job({"embedding": emb, "clips": clips, "by": "check", "title": "ソロの 10 秒で声を覚える(確かめる): %d 個" % len(clips)}, "voice-learn-clips")
-        for d, _w in todo:
-            st["asked"][d] = {"job": job["id"], "at": int(now * 1000)}
-        _write_state(app_dir, st)
-    log("ソロの 10 秒: %d 個を登録簿へ入れるジョブ %s を足しました" % (len(todo), job["id"]))
-    return "voice-learn-clips"
+        job = voicebook.request(app_dir, "声の登録簿を答えから作り直す(確かめる): 新しい材料 %d 個・外す答え %d 個" % (len(todo), stale), log=log)
+    return voicebook.KIND if job else None
 
 
 def _unknown_solo(ctx, card, row):

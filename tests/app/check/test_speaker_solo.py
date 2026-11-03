@@ -1,6 +1,6 @@
 """「確かめる」のソロから声を覚えるカード(speaker:solo・src/app/check/speaker_solo.py。11-02 話者の物差し 14 章 ①)の単体テスト:
 一覧の読み・声がいちばん多い 10 秒・カードの形(コラボの 10 秒と同じ画面)・答えで覚えるか(配信者 1 人だけ・印なしだけ)・
-見回り(覚えるジョブ voice-learn-clips の中身・Z で戻した分を外す voice-unlearn・失敗は 1 日待つ)・
+見回り(答えから登録簿を作り直すジョブ voice-rebuild を足す・Z で戻した分も作り直しで外す)・答えから作り直す本体(human/check/voicebook)・
 覚える本体と外す本体(human/proof/speakers。声の特徴は偽物)。一時フォルダの作業データだけを使う。
 
 実行(リポジトリ直下から): py -3.12 -m unittest tests/app/check/test_speaker_solo.py -v
@@ -10,6 +10,7 @@ import json
 import os
 import struct
 import sys
+import time
 import types
 import unittest
 import wave
@@ -20,7 +21,7 @@ import _checkkit as kit  # noqa: E402
 
 from app.check import deck, lineup, sources, speaker_solo as SS, voice_unknown  # noqa: E402
 from flow import diar as _diar, jobs as _heavy  # noqa: E402
-from human.check import apply  # noqa: E402
+from human.check import apply, voicebook  # noqa: E402
 from human.proof import speakers as _speakers  # noqa: E402
 from pipeline.transcribe import diarize as transcribe_diarize, recognize as _recognize  # noqa: E402
 
@@ -53,7 +54,7 @@ class SpeakerSoloTest(unittest.TestCase):
             self.jobs.append((kind, spec))
             return {"id": "job%d" % len(self.jobs)}
         for p in (mock.patch.object(_diar, "VOICES_DIR", os.path.join(self.app, "voices")),
-                  mock.patch.dict(_heavy.JOB_RUNNERS, {"voice-learn-clips": lambda job: None, "voice-unlearn": lambda job: None}),
+                  mock.patch.dict(_heavy.JOB_RUNNERS, {"voice-learn-clips": lambda job: None, "voice-unlearn": lambda job: None, voicebook.KIND: lambda job: None}),
                   mock.patch.object(_diar, "voice_ready", return_value=True), mock.patch.object(_heavy, "add_job", side_effect=add_job),
                   mock.patch.object(_heavy, "active_jobs", return_value=[])):
             p.start()
@@ -131,37 +132,53 @@ class SpeakerSoloTest(unittest.TestCase):
         with self.assertRaises(apply.Refused):
             self.answer("ka", {"names": []})
 
-    def test_tick_learn_and_unlearn_on_undo(self):
+    def test_tick_asks_rebuild_and_on_undo(self):
+        """見回り(11-03): まだ登録簿に入っていない答えの材料か、戻した答えの材料が登録簿にあれば、答えから作り直すジョブ voice-rebuild を足す"""
         self.assertIsNone(self.tick())   # 答えが無い = 何も入れない(人が確かめていない物は入れない)
         a = self.answer("ka", {"names": ["大空スバル"]})
         self.answer("kc", {"names": ["白上フブキ"], "bgm": True})   # 印あり = 覚えない
-        self.assertEqual(self.tick(), "voice-learn-clips")
+        self.assertEqual(self.tick(), voicebook.KIND)
         kind, spec = self.jobs[0]
-        self.assertEqual(spec["clips"], [{"doc": "solo:ka", "clip": SS.clip_path(self.app, "ka"), "names": ["大空スバル"], "groups": {"大空スバル": [[20.0, 30.0]]},
-                                          "rowIds": {"大空スバル": ["w"]}, "sure": True, "by": "check"}])
-        self.assertEqual(SS.read_state(self.app)["asked"], {"solo:ka": {"job": "job1", "at": 1000000}})
-        # ジョブが終わったのに入っていない = 失敗(1 日待つ)
-        self.assertIsNone(self.tick(now=2000.0))
-        self.assertEqual(sorted(SS.read_state(self.app)["failed"]), ["solo:ka"])
-        self.assertEqual(self.tick(now=2000.0 + SS.RETRY_SEC), "voice-learn-clips")
-        with _diar.voices_edit(EMB) as v:   # 入った
-            v["大空スバル"] = _diar.merge_voice(None, [1.0, 0.0], 1, 10.0, "solo:ka", row_ids=["w"])
+        self.assertEqual((kind, spec["appDir"], spec["by"]), (voicebook.KIND, self.app, "check"))
+        with _diar.voices_edit(EMB) as v:   # 入った(作り直した登録簿 = learnedFrom は答えの id)
+            v["大空スバル"] = dict(_diar.merge_voice(None, [1.0, 0.0], 1, 10.0), learnedFrom=[a["answer"]])
         self.jobs.clear()
-        self.assertIsNone(self.tick(now=3000.0 + SS.RETRY_SEC))
-        self.assertEqual(SS.read_state(self.app), {"asked": {}, "failed": {}})
-        apply.undo(self.ctx, a["answer"])   # Z = 登録簿からも外す
-        self.assertEqual(self.tick(now=4000.0 + SS.RETRY_SEC), "voice-unlearn")
-        self.assertEqual((self.jobs[0][1]["name"], self.jobs[0][1]["docs"]), ("大空スバル", ["solo:ka"]))
+        self.assertIsNone(self.tick())
+        apply.undo(self.ctx, a["answer"])   # Z = 作り直して登録簿からも外す
+        self.assertEqual(self.tick(), voicebook.KIND)
         with mock.patch.object(SS.voice_mod, "RELEARN_PAUSED", True):
-            self.assertIsNone(self.tick(now=5000.0 + SS.RETRY_SEC))   # 覚え直しの一時止めの間は休む
+            self.assertIsNone(self.tick())   # 覚え直しの一時止めの間は休む
+        self.assertIsNone(SS.tick(self.app, lambda: "CPU 55%", self.logs.append))   # 入口の busy が理由を返せば始めない
 
-    def test_tick_batch_small_while_recording(self):
-        """録画中は入口が batch = LIVE_BATCH を渡し、1 つのジョブを小さくする(編集のジョブは 1 本ずつ = 録画の文字起こしを長く待たせない。11-02)"""
-        self.answer("ka", {"names": ["大空スバル"]})
-        self.answer("kb", {"names": ["大空スバル"]})
-        self.assertEqual(SS.tick(self.app, lambda: None, self.logs.append, now=1000.0, batch=1), "voice-learn-clips")
-        self.assertEqual([c["doc"] for c in self.jobs[0][1]["clips"]], ["solo:ka"])
-        self.assertIsNone(SS.tick(self.app, lambda: "CPU 55%", self.logs.append, now=1000.0, batch=1))   # 入口の busy が理由を返せば始めない
+    def test_rebuild_from_answers(self):
+        """答えから登録簿を作り直す(human/check/voicebook。11-03): 特徴は控えか音から・learnedFrom は答えの id・戻した答えは外れる・音の無い答えは入れずに控える・
+        答えの無い材料を持つ人(文書の「声を覚える」)は触らない・前の登録簿は .bak に写す"""
+        a = self.answer("ka", {"names": ["大空スバル"]})
+        b = self.answer("kb", {"names": ["大空スバル"]})
+        os.remove(SS.clip_path(self.app, "kb"))   # 音が片付けられた
+        with _diar.voices_edit(EMB) as v:
+            v["みこ"] = _diar.merge_voice(None, [0.0, 1.0], 1, 5.0, "abcdefabcdef", by="edit", row_ids=["s1"])   # 答えの無い材料
+        calls = []
+
+        def clip_vec(emb, it, job):
+            calls.append(it["doc"])
+            return [1.0, 0.0] if os.path.isfile(it["clip"][0]) else None
+        t0 = time.time()
+        res = voicebook.rebuild(self.app, EMB, embed_clip=clip_vec, now=t0 + 0)
+        v = _diar.load_voices(EMB)
+        self.assertEqual((v["大空スバル"]["learnedFrom"], v["大空スバル"]["sec"], v["大空スバル"]["vec"]), ([a["answer"]], 10.0, [1.0, 0.0]))
+        self.assertEqual(v["みこ"]["learnedFrom"][0]["doc"], "abcdefabcdef")   # 触らない
+        self.assertEqual(([it["answer"] for it in res["missing"]], res["kept"]), ([b["answer"]], ["みこ"]))
+        self.assertTrue(os.path.isfile(res["backup"]))
+        self.assertEqual(voicebook.pending(self.app, EMB), ([], 0))   # 音の無い答えは MISSING_RETRY まで数えない
+        voicebook.rebuild(self.app, EMB, embed_clip=clip_vec, now=t0 + 1)
+        self.assertEqual(calls.count("solo:ka"), 1)   # 控えた特徴は取り直さない
+        with self.assertRaises(voicebook.BuildRefused):   # strict(道具の --strict): 今の登録簿の材料の特徴が取れない = 書かない
+            voicebook.rebuild(self.app, EMB, embed_clip=lambda *x: None, now=t0 + 2, strict=True, cache={})
+        apply.undo(self.ctx, a["answer"])
+        self.assertEqual(voicebook.pending(self.app, EMB)[1], 1)   # 戻した答えが登録簿に残っている
+        voicebook.rebuild(self.app, EMB, embed_clip=clip_vec, now=t0 + 3)
+        self.assertNotIn("大空スバル", _diar.load_voices(EMB))   # 戻した答えだけで覚えた人 = 消える
 
     def test_run_learn_clips_and_unlearn(self):
         tmp = os.path.join(self.app, "tmp")

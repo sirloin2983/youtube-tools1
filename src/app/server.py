@@ -1376,8 +1376,7 @@ class PortalServer(httpsec.ExclusiveServer):
     def _voice_learn_busy(self):
         """声の登録簿を覚える・外す見回り(ソロの 10 秒 speaker_solo.tick)を始めない理由か None。録画中でも始める
         (11-02 ユーザー「友人のライブを最優先はほかに処理をしないという意味ではない」。前は _voice_busy = 重い処理(録画の文字起こし)の間は一切始めなかった)。
-        待つのは: 新しい版の待ち・編集が動いていない・編集のジョブが順番を待っている(録画の文字起こしを後ろへ回さない)・PC 全体の CPU が 4 割以上。
-        録画中のジョブの小ささは speaker_solo.LIVE_BATCH"""
+        待つのは: 新しい版の待ち・編集が動いていない・編集のジョブが順番を待っている(録画の文字起こしを後ろへ回さない)・PC 全体の CPU が 4 割以上。"""
         disk = _version.on_disk(self.sup.root)
         if disk and disk != VERSION:
             return "新しい版 v%s を待っています" % disk
@@ -1422,10 +1421,8 @@ class PortalServer(httpsec.ExclusiveServer):
         while not self.closing.wait(check_voicefill.EVERY):
             n += 1
             try:
-                try:   # ソロの 10 秒の答えで登録簿に声を覚える・Z で戻した分を外す(11-02。ジョブを足すだけ = 下の頼みと並べてよい)。録画中も CPU が空けば(_voice_learn_busy)小さく
-                    rec = bool(self.live_activity(archive_wait=False).get("recording"))
-                    check_speaker_solo.tick(self.cleanup.app_dir, self._voice_learn_busy, self.sup.log,
-                                            batch=check_speaker_solo.LIVE_BATCH if rec else None)
+                try:   # 答えの材料で登録簿を作り直す(11-03。ジョブを足すだけ = 下の頼みと並べてよい)。録画中も CPU が空けば(_voice_learn_busy)
+                    check_speaker_solo.tick(self.cleanup.app_dir, self._voice_learn_busy, self.sup.log)
                 except Exception as e:   # noqa: BLE001
                     self.sup.log("ソロの 10 秒の見回りができませんでした: %r" % (e,))
                 asked = check_voicefill.tick(self.cleanup.app_dir, self._post_job, self._voice_busy, self.sup.log)
