@@ -113,6 +113,7 @@ from ytt import datadir, docloc, fsio, httpsec, jobs, layout, runtime, tools, ve
 from ytt import errors as _yerrors  # noqa: E402  (確かめるの部品が上げる ApiError を状態の番号で返す)
 from app import mount as mount_mod  # noqa: E402  (src/app/mount.py: 統合サーバーへのツールの取り込み)
 from app import autorun as autorun_mod
+from app import streamimport  # noqa: E402  (出来事の記録へ古い記録を 1 回だけ。11-03 段 3)
 from app import timing  # noqa: E402  (src/app/timing.py: ホームの読み込みの記録 = logs/api-timing.jsonl・ui-timing.jsonl)
 from app import homereq  # noqa: E402  (src/app/homereq.py: ホームの「友人の依頼」の行。受付の記録 + 実行の記録)
 from app import streamer as streamer_mod  # noqa: E402  (src/app/streamer.py: 配信者の名前の当て = api/ytt/streamer-guess)
@@ -1324,6 +1325,15 @@ class PortalServer(httpsec.ExclusiveServer):
         self._song_skips = skips
         return made
 
+    def import_streams(self):
+        """出来事の記録(streams.jsonl)へ、古い配信・依頼・切り抜きの記録を 1 回だけ取り込む(app/streamimport。取り込み済みなら何もしない)"""
+        if self.closing.wait(60):   # 起動の直後の重い所を避ける
+            return
+        try:
+            streamimport.run(self.cleanup.app_dir, log=self.sup.log)
+        except Exception as e:   # noqa: BLE001  (取り込めなくても入口は止めない。元の記録が正)
+            self.sup.log("出来事の記録へ古い記録を取り込めませんでした: %s" % tools.why(e))
+
     def warm_check(self):
         """起動の直後に確かめるのカードを裏で 1 回集めて覚えておく(読むだけ。10-29「起動するたびにカード全部読んでる？めちゃくちゃ遅い」:
         覚えが無い起動の直後は、画面を開いた人が集め終わるまで 4〜8 秒待っていた)"""
@@ -1944,7 +1954,8 @@ def _main(opts):
         if srv.analytics:
             srv.analytics.start()   # 分析と日報(連携の設定が無ければ何もしない。新しいデータが来たら日報を作って LINE へ)
         threading.Thread(target=srv.purge_trash, daemon=True, name="trash-purge").start()   # 日数を過ぎたごみ箱フォルダ(段9 9-2)
-        threading.Thread(target=srv.warm_check, daemon=True, name="check-warm").start()   # 確かめるのカードを先に集めておく(開いたときに待たない。10-29)
+        threading.Thread(target=srv.warm_check, daemon=True, name="check-warm").start()
+        threading.Thread(target=srv.import_streams, daemon=True, name="stream-import").start()   # 出来事の記録へ古い記録を 1 回だけ(11-03 段 3)   # 確かめるのカードを先に集めておく(開いたときに待たない。10-29)
         threading.Thread(target=srv.voice_clips_loop, daemon=True, name="voice-clips").start()   # 誰の声のカードの行の音(10-24 夜)
         threading.Thread(target=srv.voice_fill_loop, daemon=True, name="voice-fill").start()   # 誰の声の材料を学習用データのショートから(10-25)
         threading.Thread(target=srv.voice_fetch_loop, daemon=True, name="voice-fetch").start()   # 材料の無いメンバーを YouTube から 4 分だけ(10-25)

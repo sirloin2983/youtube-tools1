@@ -44,6 +44,7 @@ KINDS = {
     "undo": "取り消した",
     "run-start": "まとめて実行を始めた",
     "run-end": "まとめて実行が終わった",
+    "import": "古い記録を取り込んだ(段 3。この行があれば取り込みは済み = app/streamimport)",
 }
 # 欄(stream と kind と at のほか)。値 = 何を入れるか。文字は MAX_TEXT 字まで(数は数のまま)
 FIELDS = {

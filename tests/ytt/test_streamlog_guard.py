@@ -25,7 +25,9 @@ WRITERS = {
     "human/friend/returns.py": {"feedback", "undo"},
     "manage/cases/cases.py": {"discard"},
     "flow/runqueue.py": {"run-start", "run-end"},
+    "app/streamimport.py": {"import"},   # 古い記録の取り込み(段 3)。取り込む行の種類は gather の中の文字(下の IMPORTER で見る)
 }
+IMPORTER = "app/streamimport.py"
 
 # 配信・依頼・切り抜きの状態を持つファイル(作業データの中の名前)
 STATE_FILES = ("exports.json", "requests.json", "bundles.json", "archive.json", "deliveries.jsonl", "not-sent.jsonl",
@@ -45,6 +47,7 @@ OWNERS = {
     "friendapp/tidy.py": ("autorun-runs.jsonl",),
     "human/friend/intake.py": ("intake-state.json",),        # 友人の依頼の受付
     "manage/cases/cases.py": ("autorun-runs.jsonl", "cases.json", "deliveries.jsonl", "exports.json"),   # 案件(読む側。写しへ移す段 4 の相手)
+    "app/streamimport.py": ("archive.json", "cases.json", "exports.json", "intake-state.json", "requests.json"),   # 古い記録を 1 回だけ取り込む(読むだけ。段 3)
 }
 
 
@@ -118,12 +121,22 @@ class GuardTest(unittest.TestCase):
             if rel == "ytt/streamlog.py":
                 continue
             for kind, keys in _calls(tree):
+                if kind is None and rel == IMPORTER:   # 取り込みは gather が作った種類で書く(種類は下で add の文字を見る)
+                    continue
                 kinds = kind if isinstance(kind, tuple) else (kind,)
                 for k in kinds:
                     self.assertIn(k, streamlog.KINDS, "%s: 知らない種類 %r" % (rel, k))
                     found.setdefault(rel, set()).add(k)
                 self.assertEqual(keys - set(streamlog.FIELDS) - {"now", "p"}, set(), "%s: 知らない欄" % rel)
         self.assertEqual(found, WRITERS)
+        with open(os.path.join(SRC, IMPORTER), encoding="utf-8") as f:   # 取り込みの add("…", 種類 …) の種類と欄も名簿の物だけ
+            tree = ast.parse(f.read())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "add":
+                a = node.args[1]
+                for k in ((a.body.value, a.orelse.value) if isinstance(a, ast.IfExp) else (a.value,)):
+                    self.assertIn(k, streamlog.KINDS)
+                self.assertEqual({k.arg for k in node.keywords if k.arg} - set(streamlog.FIELDS), set())
 
 
 if __name__ == "__main__":
