@@ -16,7 +16,8 @@
     実物が変わったかどうか分からない。apply が次の操作の前に同じ操作 id でやり直す(戻すは部品の revert をもう一度 = 戻し済みなら何もしない・
     確定は届いたか分からないので failed にする = 二重に届けない)。やりかけの Z の答えは effective に数えない(評価にも使わない)・
     カードは答えたまま(by_card に残す)。やりかけの確定の答えは held に出さない(もう一度確定しない)。
-    回すと(MAX_LOG_BYTES)前の答え・保留・やりかけを忘れる(今のファイルだけを読む。1 日 200 件で 1 年以上先)
+    答えの唯一の正(11-03 情報をまとめる所の 1): 回さない。MAX_LOG_BYTES を超えたら answers.jsonl.old の末尾へ足して空にする(fsio.append_line の keep_old)。
+    読むときは .old と今のファイルを古い順に続けて読む = 前の答え・保留・やりかけを忘れない
   - skip.json: {day: "YYYY-MM-DD", ids: [カードの id]}(その日の間だけ後ろへ回すカード。日が変わったら空と同じ)
 読み書きはここだけ(入口 app/check の待ち行列は読むだけ・③ human/check/apply が書く)。標準ライブラリと ytt だけを読む。
 """
@@ -34,10 +35,11 @@ from ytt.schemas import now_ms   # 今の時刻(ms)の正は ytt/schemas(テス�
 DIR_NAME = "check"
 ANSWERS = "answers.jsonl"
 SKIPS = "skip.json"
-MAX_LOG_BYTES = 32 * 1024 * 1024   # これを超えたら answers.jsonl.1 へ 1 世代回す(数えるのは今のファイルだけ)
+MAX_LOG_BYTES = 32 * 1024 * 1024   # これを超えたら answers.jsonl.old の末尾へ足して空にする(.old も読む = 答えは消えない)
 MAX_SKIPS = 2000                   # その日に後ろへ回すカードの数の上限(古い物から捨てる)
 ID_RE = re.compile(r"^a\d{13}-[0-9a-f]{6}\Z")
 _cache = fsio.StampCache()
+_old_cache = fsio.StampCache()
 _skip_lock = threading.Lock()
 
 
@@ -47,6 +49,11 @@ def _check_dir(app_dir):
 
 def answers_path(app_dir):
     return os.path.join(_check_dir(app_dir), ANSWERS)
+
+
+def old_path(app_dir):
+    """大きくなった答えを足していく先(answers.jsonl.old。fsio.append_line の keep_old)"""
+    return answers_path(app_dir) + ".old"
 
 
 def _skips_path(app_dir):
@@ -75,14 +82,14 @@ def card_mark(card):
 
 def append(app_dir, row):
     """1 行を書き足す(書けなければ OSError)。NaN は書かない"""
-    fsio.append_line(answers_path(app_dir), json.dumps(row, ensure_ascii=False, separators=(",", ":"), allow_nan=False) + "\n", MAX_LOG_BYTES)
+    fsio.append_line(answers_path(app_dir), json.dumps(row, ensure_ascii=False, separators=(",", ":"), allow_nan=False) + "\n", MAX_LOG_BYTES, keep_old=True)
 
 
 def _parse(path):
     rows = []
     try:
         with open(path, "rb") as f:
-            raw = f.read(MAX_LOG_BYTES + 1024 * 1024)
+            raw = f.read()
     except OSError:
         return rows
     for line in raw.decode("utf-8", "replace").splitlines():
@@ -99,9 +106,13 @@ def _parse(path):
 
 
 def _read_rows(app_dir):
-    """answers.jsonl の行(古い順)。無い・読めなければ []。ファイルが変わったときだけ読み直す(返した中身は書き換えない)"""
-    got = _cache.get(answers_path(app_dir), _parse)
-    return got if got is not None else []
+    """answers.jsonl.old と answers.jsonl の行(古い順)。無い・読めなければ []。ファイルが変わったときだけ読み直す(返した中身は書き換えない)"""
+    old = _old_cache.get(old_path(app_dir), _parse) or []
+    got = _cache.get(answers_path(app_dir), _parse) or []
+    if not old:
+        return got
+    seen = {r["id"] for r in old}   # .old へ移し終える前に止まったときの重なり(同じ id)は 1 つに
+    return old + [r for r in got if r["id"] not in seen]
 
 
 class State:

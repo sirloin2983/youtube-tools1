@@ -66,6 +66,18 @@ class ApplyTest(unittest.TestCase):
         with open(answerlog.answers_path(self.tmp), encoding="utf-8") as f:
             return [json.loads(x) for x in f if x.strip()]
 
+    def test_big_log_moves_to_old_and_keeps_answers(self):
+        """答えの記録は回さない(11-03): 大きくなったら .old の末尾へ足して空にし、読むときは .old も読む = 前の答えを忘れない"""
+        from unittest import mock
+        with mock.patch.object(answerlog, "MAX_LOG_BYTES", 10):
+            apply.answer(self.ctx, card("s1"), {"answer": "2"})
+            apply.answer(self.ctx, card("s2"), {"answer": "1"})
+        self.assertTrue(os.path.exists(answerlog.old_path(self.tmp)))
+        self.assertEqual(len(self.lines()), 1)   # 今のファイルは後の 1 行
+        st = answerlog.state(self.tmp)
+        self.assertEqual(len(st.effective()), 2)
+        self.assertEqual(sorted(st.by_card), sorted([card("s1")["id"], card("s2")["id"]]))
+
     def test_answer_and_undo(self):
         got = apply.answer(self.ctx, card("s1"), {"answer": "2", "ms": 1500})
         self.assertEqual((got["ok"], got["held"], got["applied"]["row"], self.fake.real), (True, False, "s1", {"s1": "2"}))
