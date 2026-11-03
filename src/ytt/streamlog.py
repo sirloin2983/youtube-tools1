@@ -9,6 +9,7 @@
 - 名簿 = 出来事の種類 KINDS と欄 FIELDS はここ 1 か所。種類を足すときはここに足す(知らない種類は ValueError = テストで見つかる)。
 - 書くのは入口の 1 プロセス(app/server.py に取り込んだツール)だけ。録画の部品(別プロセス)からは書かない。
 - 書けなくても呼び手は止めない(元の記録が今までどおりの正。移し終えるまでは、この記録は「今の書く所から 1 行ずつ写した物」)。
+  今の書く所は note で呼ぶ(例外を出さない)。どこから呼ぶかは tests/ytt/test_streamlog_guard.py の WRITERS
   YTT_DATA_DIR=inplace(テスト・見本)では書かない(path が None)。
 
 移し方の段(同じ資料): 1 この部品と見張りのテスト → 2 今の書く所から 1 行 → 3 古い記録から 1 回だけ取り込む → 4 画面を 1 つずつ写しへ(1 週間は旧の読み方と突き合わせ)→ 5 旧の記録は写しと明記(消すのは機能ごとに OK を取ってから)。
@@ -121,6 +122,15 @@ def record(kind, stream="", now=None, p=None, **fields):
     except OSError:
         return None
     return row
+
+
+def note(kind, stream="", **fields):
+    """今の書く所から呼ぶ口(段 2): record と同じ。何があっても例外を出さない(元の記録が正の間は、こちらが書けなくても呼び手の仕事を止めない)。
+    種類・欄の書き間違いは tests/ytt/test_streamlog_guard.py が呼び出しの文字を読んで見つける"""
+    try:
+        return record(kind, stream, **fields)
+    except Exception:   # noqa: BLE001
+        return None
 
 
 def rows(p=None):

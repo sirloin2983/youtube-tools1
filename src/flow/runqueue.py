@@ -34,6 +34,7 @@ import time
 import urllib.parse
 
 from ytt import colors as _colors, fsio, jobs as _yjobs, marks as _marks, schemas as _schemas, tools as _ytools
+from ytt import streamlog   # 配信・依頼・切り抜きの出来事の記録(11-03)
 from . import board as _board, envelope as _envelope, learning as _learning, machine as _machine, placement as _placement, prio as _prio, run as run_mod, runlog, spec as _spec
 from .run import (DOC_MODE, RUN_STATE_LABELS, STEP_LABELS, Cancelled, Run, StepError,
                   adopted_ids, pack_verdict, tx_verdict)
@@ -696,6 +697,8 @@ class Queue(run_mod.Runner):
                 return
             run.logged = True
             rec = dict(run.public(), v=runlog.LOG_VERSION)
+            streamlog.note("run-end", rec.get("videoId") or "", run=rec.get("id"), request=rec.get("requestId") or "", state=rec.get("state"),
+                           doc=rec.get("docId") or "", note=str(rec.get("error") or "")[:200])
             self._remember(rec)
             if not self.log_path:
                 return
@@ -790,6 +793,8 @@ class Queue(run_mod.Runner):
                     continue
                 run.state, run.message = "running", ""
             self._save_active()   # 実行中になった(M5)
+            streamlog.note("run-start", run.video_id or "", run=run.id, request=run.request_id or "", doc=run.doc_id or "", path=run.source_path or "",
+                           title=run.title or "")
             try:
                 self._execute(run)
                 run.state = "cancelled" if run.cancel else "done"

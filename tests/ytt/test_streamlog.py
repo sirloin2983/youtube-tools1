@@ -48,6 +48,23 @@ class StreamLogTest(unittest.TestCase):
             f.write("x")
         self.assertIsNone(S.record("deliver", "w5UO1TRxc8c", p=os.path.join(blocker, "logs", S.NAME)))
 
+    def test_delivery_writer_copies_one_row_per_clip(self):
+        """段 2: 今の書く所(届けた記録 flow/deliveries)が、出来事の記録にも切り抜き 1 本ずつ 1 行。送らなかったも"""
+        import types
+        from unittest import mock
+        from flow import deliveries
+        logs = os.path.join(self.tmp, "logs")
+        run = types.SimpleNamespace(request_id="20261102-200502-8d062d", id="r1", video_id="", title="題", mode="file_auto")
+        with mock.patch.object(S, "path", lambda env=None: self.p):
+            deliveries.record(logs, "z.zip", run, ["D:/a_pack", "D:/b_pack"], {"D:/a_pack": {"path": "D:/a.mp4", "markId": "m1"}}, origin="request")
+            deliveries.record_not_sent(logs, "w5UO1TRxc8c", "m2", "unchecked", "外した")
+        got = [(r["kind"], r.get("mark"), r.get("request"), r.get("zip"), r.get("stream")) for r in S.rows(self.p)]
+        self.assertEqual(got, [("deliver", "m1", "20261102-200502-8d062d", "z.zip", ""), ("deliver", None, "20261102-200502-8d062d", "z.zip", ""),
+                               ("not-sent", "m2", None, None, "w5UO1TRxc8c")])
+        with mock.patch.object(S, "path", lambda env=None: os.path.join(self.tmp, "file-not-dir", "x")), open(os.path.join(self.tmp, "file-not-dir"), "w"):
+            self.assertIsNone(S.note("deliver", "w5UO1TRxc8c"))   # 書けなくても例外を出さない
+            self.assertIsNone(S.note("知らない"))
+
 
 if __name__ == "__main__":
     unittest.main()

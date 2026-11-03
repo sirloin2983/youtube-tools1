@@ -55,6 +55,7 @@ from manage.keep import trash as _trash   # 動画と一緒に動かす途中の
 from flow import casebook, live_failures   # 失敗の文は 1 か所。線 D の M3 / 案件の採用.json を書く口(RS8 B3-6)
 from flow import deliveries as _deliveries   # 届けた記録の読み口(持ち主は ②。OPT-M2)
 from flow import retention   # 物の終わりの日数
+from ytt import streamlog   # 配信・依頼・切り抜きの出来事の記録(11-03)
 from flow import placement   # 置き場所の持ち主(スタジオの data.json。RS6 b-B0)
 from human import judgments as _judgments   # 人の判断の記録(持ち主は ③。MARKS-3。④ は ③ を読める)
 
@@ -740,6 +741,8 @@ def _remember(repo_root, case_id, mark_id, env=None, discarded=None, expired=Fal
     古い欄(seenAt・deliveredAt・delivered・origin・notSent)は読み飛ばし、書き換えない。-> その記録 {discardedAt?, tx?, expiredAt?}"""
     now = int(time.time() * 1000)
     loc = locations(repo_root, env)
+    streamlog.note("discard", case_id, recording=case_id, mark=mark_id, doc=discarded or "", by="auto" if expired else "self",
+                   note="日数で片付けた" if expired else "要らない")
 
     def remember(s):
         recs = _auto_records(s)

@@ -15,6 +15,7 @@ import threading
 import time
 
 from ytt import fsio, schemas
+from ytt import streamlog   # 配信・依頼・切り抜きの出来事の記録(11-03)
 
 LOG = "deliveries.jsonl"        # 届けた記録(入口の作業データの logs の中)
 # 依頼をまたいだ区間のかぶりを知らせる(人の作業なしの候補の新機能 E・10-23。スイッチ OVERLAP_ON は 10-30 の片付けで外した)
@@ -35,6 +36,9 @@ def record(log_dir, zip_path, run, packs, marks=None, origin="request"):
         fsio.append_line(os.path.join(log_dir, LOG), json.dumps(row, ensure_ascii=False) + "\n", None)
     except OSError:
         pass
+    for p in row["packs"] or [{}]:   # 出来事の記録(11-03): 切り抜き 1 本ずつ
+        streamlog.note("deliver", row["videoId"], request=row["requestId"], run=row["runId"], zip=row["zip"], mark=p.get("markId"), path=p.get("path"),
+                       origin=origin, title=row["title"])
     return row
 
 
@@ -192,6 +196,7 @@ def record_not_sent(log_dir, video_id, mark_id, code, text, run_id=""):
     row = {"at": int(time.time() * 1000), "videoId": str(video_id or ""), "markId": str(mark_id or ""), "code": str(code or "")[:40],
            "text": str(text or "")[:200], "runId": str(run_id or "")}
     fsio.append_line(os.path.join(log_dir, NOT_SENT_LOG), json.dumps(row, ensure_ascii=False) + "\n", None)
+    streamlog.note("not-sent", row["videoId"], mark=row["markId"], run=row["runId"], note=row["code"])
     return row
 
 

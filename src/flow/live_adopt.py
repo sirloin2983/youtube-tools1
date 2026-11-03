@@ -28,6 +28,7 @@ import threading
 import urllib.parse
 
 from ytt import fsio as _fsio, marks as _marks, schemas
+from ytt import streamlog   # 配信・依頼・切り抜きの出来事の記録(11-03)
 from ytt.errors import ApiError
 from . import casebook as _casebook   # 案件の 採用.json(RS8 B3-5。スタジオなしの採用を初めて書き出したとき写す)
 from . import live_batch as _batch   # 区切りの印の形(10-30)
@@ -306,5 +307,7 @@ class Adopter:
                      "recorder": rc_id, "recording": rec, "markId": mid, "jobId": job.get("id"), "studio": {"video": vid, "mark": mark["id"]},
                      "start": round(studio["start"], 3), "end": round(studio["end"], 3), "label": studio["label"], **({"text": text} if text else {}),
                      **({"batch": batch} if batch else {})})
+        streamlog.note("adopt", recording=rec, recorder=rc_id, mark=mark["id"], origin=origin, start=studio["start"], end=studio["end"], base="recording",
+                       request=(req or {}).get("rid"), by="self" if origin == "manual" else "auto")
         host.log("リアルタイム切り抜き: %s のマークを採用して書き出しを頼みました(%s %.1f〜%.1f 秒)" % (WHO[origin], rec, studio["start"], studio["end"]))
         return {"job": job, "video": vid, "mark": mark["id"], "origin": origin, "existing": False}

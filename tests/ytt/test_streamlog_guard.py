@@ -7,9 +7,25 @@
 """
 import ast
 import os
+import sys
 import unittest
 
 SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "src")
+sys.path.insert(0, SRC)
+from ytt import streamlog  # noqa: E402
+
+# 今の書く所(段 2・11-03): 出来事の記録にも 1 行書く部品 -> 書く種類。消したら落ちる(旧の記録だけに書く所に戻さない)
+WRITERS = {
+    "human/friend/intake.py": {"request", "request-reject"},
+    "flow/livesession.py": {"rec-start", "rec-link"},
+    "flow/live_archive.py": {"rec-end"},
+    "flow/live_adopt.py": {"adopt"},
+    "flow/live_export.py": {"export"},
+    "flow/deliveries.py": {"deliver", "not-sent"},
+    "human/friend/returns.py": {"feedback", "undo"},
+    "manage/cases/cases.py": {"discard"},
+    "flow/runqueue.py": {"run-start", "run-end"},
+}
 
 # 配信・依頼・切り抜きの状態を持つファイル(作業データの中の名前)
 STATE_FILES = ("exports.json", "requests.json", "bundles.json", "archive.json", "deliveries.jsonl", "not-sent.jsonl",
@@ -45,6 +61,30 @@ def _strings(tree):
             yield node.value
 
 
+def _calls(tree):
+    """streamlog.note / streamlog.record の呼び出し -> [(種類の文字か None, 欄の名前の集まり)]"""
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in ("note", "record")
+                and isinstance(node.func.value, ast.Name) and node.func.value.id == "streamlog"):
+            kind = node.args[0].value if node.args and isinstance(node.args[0], ast.Constant) else None
+            if kind is None and node.args and isinstance(node.args[0], ast.IfExp):   # "a" if x else "b"
+                kind = tuple(x.value for x in (node.args[0].body, node.args[0].orelse) if isinstance(x, ast.Constant))
+            yield kind, {k.arg for k in node.keywords if k.arg}
+
+
+def _trees():
+    for base, dirs, files in os.walk(SRC):
+        dirs[:] = [d for d in dirs if d not in ("__pycache__", "node_modules", ".venv", "build", "dist", "work", "models", "fixtures")]
+        for fn in files:
+            if fn.endswith(".py"):
+                p = os.path.join(base, fn)
+                try:
+                    with open(p, encoding="utf-8") as f:
+                        yield os.path.relpath(p, SRC).replace(os.sep, "/"), ast.parse(f.read())
+                except (SyntaxError, UnicodeDecodeError, OSError):
+                    continue
+
+
 def current():
     out = {}
     for base, dirs, files in os.walk(SRC):
@@ -70,6 +110,20 @@ class GuardTest(unittest.TestCase):
         got = current()
         self.assertEqual(got, OWNERS, "増えた: %s / 減った: %s(足すなら先に ytt/streamlog の出来事の記録へ。理由つきで OWNERS に)" % (
             sorted(set(got.items()) - set(OWNERS.items())), sorted(set(OWNERS.items()) - set(got.items()))))
+
+    def test_writers_write_the_event_log(self):
+        """今の書く所が出来事の記録にも書く(WRITERS)・呼び出しの種類と欄は名簿(streamlog.KINDS・FIELDS)にある物だけ"""
+        found = {}
+        for rel, tree in _trees():
+            if rel == "ytt/streamlog.py":
+                continue
+            for kind, keys in _calls(tree):
+                kinds = kind if isinstance(kind, tuple) else (kind,)
+                for k in kinds:
+                    self.assertIn(k, streamlog.KINDS, "%s: 知らない種類 %r" % (rel, k))
+                    found.setdefault(rel, set()).add(k)
+                self.assertEqual(keys - set(streamlog.FIELDS) - {"now", "p"}, set(), "%s: 知らない欄" % rel)
+        self.assertEqual(found, WRITERS)
 
 
 if __name__ == "__main__":

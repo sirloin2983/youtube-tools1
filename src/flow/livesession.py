@@ -38,6 +38,7 @@ import urllib.parse
 
 from pipeline.ingest import rec_core   # 録画の状態の名前(ACTIVE)。録画の部品と同じ物
 from ytt import datadir, fsio, layout, procs, schemas, tools, version as _version
+from ytt import streamlog   # 配信・依頼・切り抜きの出来事の記録(11-03)
 from . import board as _board   # ② のジョブの掲示板(RS8 の ② の口 S2。書き出し lx・作り直し la・候補の文字起こし lt を載せる)
 from . import envelope as _envelope
 from . import live_adopt   # 採用 = マーク + 書き出し(M1。RS7-2 G1b)
@@ -868,6 +869,7 @@ class LiveSession:
         if code == 200 and isinstance(d, dict) and isinstance(d.get("recording"), dict):
             self._recent = None   # ヘッダーの札にすぐ出す
             self.log("リアルタイム切り抜き: 録画を始めました %s(%s)" % (d["recording"].get("id"), url))
+            streamlog.note("rec-start", recording=d["recording"].get("id"), recorder=rc["id"], title=title)
             return view(d["recording"], False)
         if code == 409:   # 「その配信はもう録画しています」(ほかは streamlink が無い・置き場所が無いなど)
             found = self._find_active(rc, url)
@@ -905,6 +907,7 @@ class LiveSession:
         self._guard("録画の記録に依頼を書けませんでした",   # 結びつきが消えても、どの録画が友人の依頼だったか分かるように(10-30)
                     lambda: self.archiver.note_request(rc, rec, "friend", rid=item.get("rid"), streamer=item.get("streamer"), at=item.get("createdAt")))
         label = self._request_label(item)
+        streamlog.note("rec-link", request=item.get("rid"), recording=rec, recorder=rc, by="friend", title=item.get("title"))
         self.log("リアルタイム切り抜き: 友人の依頼 %s を録画 %s に結びつけました%s" % (item["rid"], rec, "(%s)" % label if label else ""))
         self.detector.wake()   # 検出がオフでも、この録画はすぐ測り始める
         return {"recorder": rc, "recording": rec, "existing": bool(out.get("existing"))}

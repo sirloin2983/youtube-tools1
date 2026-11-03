@@ -26,6 +26,7 @@ from flow import deliveries, outbox
 from human import judgments
 from human.friend import voicein
 from ytt import errors, fsio, schemas, textutil, tools
+from ytt import streamlog   # 配信・依頼・切り抜きの出来事の記録(11-03)
 
 RETURNS_DIR = "friend-returns"      # <app>/friend-returns/<YYYY-MM>/<requestId>/
 IN_DIR, DONE_DIR, FAIL_DIR = "送り返し", "受付済み", "失敗"
@@ -374,6 +375,7 @@ def _judge_v2(app_dir, v, rid, pack, clock, log):
                 log("送り返し: 戻す %s の元の判断が人の判断の記録にありません" % pack)
                 return
             judgments.retract(app_dir, hit, "friend", "friend_verdict", key=key, at=at)
+            streamlog.note("undo", hit.get("videoId"), mark=hit.get("markId"), request=rid, by="friend", note="判定を戻した " + key)
             return
         logs = os.path.join(app_dir, LOGS_DIR)
         r, p = _delivered_zip(logs, v["zip"]) if v.get("zip") else (None, None)
@@ -392,6 +394,8 @@ def _judge_v2(app_dir, v, rid, pack, clock, log):
         judgments.record(app_dir, who="friend", what=v["judge"], reason=v.get("reason"), by=v.get("by"), origin=origin, via="friend_verdict",
                          videoId=vid, markId=mid, at=at, key=key,
                          ref={"pack": pack, "requestId": rid, "zip": v.get("zip") or str(r.get("zip") or ""), "runId": str(r.get("runId") or "")}, **src)
+        streamlog.note("feedback", vid, mark=mid, request=rid, zip=v.get("zip") or str(r.get("zip") or ""), state=v["judge"], by="friend",
+                       note=v.get("reason") if isinstance(v.get("reason"), str) else "")
     except (ValueError, OSError) as e:
         log("送り返し: %s の判断を人の判断の記録に書けませんでした(%s)" % (pack, tools.why(e)))
 

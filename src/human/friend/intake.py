@@ -38,6 +38,7 @@ import time
 import uuid
 
 from flow import order as _order, placement
+from ytt import streamlog   # 配信・依頼・切り抜きの出来事の記録(11-03)
 from flow.deliver import BAD_NAME_CHARS, OUT_DIR   # ファイル名に使えない文字・出力\ の名前(届ける側 ② と同じ 1 か所。ds1)
 from flow import spec as _spec   # 区間・重みの理由つきの検査(まとめて実行と同じ。opt-human 9b-2)
 from ytt import colors, fsio, names as ytt_names, normalize, schemas, studio_env, textutil, tools, yturl
@@ -787,6 +788,10 @@ class Intake:
                "runIds": runs, "items": [{k: i.get(k, "") for k in ("label", "state", "reason")} for i in items][:30],
                **({"requestId": rid} if isinstance(rid, str) and rid else {}), **({"live": dict(live)} if isinstance(live, dict) else {})}
         self.st["requests"] = ([rec] + self.st["requests"])[:KEEP_REQUESTS]
+        lv = live if isinstance(live, dict) else {}
+        streamlog.note("request" if accepted else "request-reject", next((i.get("id") for i in items if streamlog.stream_of(i.get("id"))), ""),
+                       request=rid if isinstance(rid, str) else "", recording=lv.get("recording"), recorder=lv.get("recorder"), origin=kind,
+                       run=",".join(runs[:5]) if isinstance(runs, list) else "", title=rec["title"], note=reason, by="friend")
         self._move(folder, moved, state, items)
         self._notify_rejected(folder, rid, rec["title"], items)
         self._save_state()

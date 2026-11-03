@@ -63,6 +63,7 @@ import time
 import urllib.parse
 
 from ytt import colors, fsio, jobs, loudness, marks as _marks, names, normalize, recproto, schemas, tools, version as _version
+from ytt import streamlog   # 配信・依頼・切り抜きの出来事の記録(11-03)
 from . import keys as _keys   # 成果物の鍵(RS6 b-K1)
 from . import spec as _spec   # 録画の束に書き出したあとの欄の差分を重ねる(merge_onto。RV A1)
 from . import prio as _prio   # 優先度の表(PRIO。リアルタイム切り抜きは録画中のライブ)
@@ -1373,6 +1374,9 @@ class Exporter(Patrol):
         marked = self._studio_exported(job, media, bool(archive))
         if marked:
             warn.append(marked)
+        streamlog.note("export", vid, recording=rec, recorder=rc["id"], mark=(job.get("studio") or {}).get("mark") or job["markId"], path=media,
+                       start=a - base, end=b - base, base="recording", origin=origin, request=req.get("rid"), run=run_id,
+                       note="archive" if archive else "")
         self._set(job, state="done", progress=1.0, path=media, manifest=manifest, runId=run_id, warning=" / ".join(warn), recBase=epoch_iso(base),
                   handoffError=handoff, handoffWait=wait, message=message + self._after_note(after, run_id, wait))
         self.log("リアルタイム切り抜き: 書き出しました %s" % media)

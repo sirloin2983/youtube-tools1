@@ -84,6 +84,7 @@ import urllib.parse
 from pipeline.export import exporter as _exporter   # 区間の書き出しの束を組む所は ① の 1 か所(OPT2 の J5)
 from pipeline.transcribe import recognize as _recognize   # wav の引数を組む所は ① の 1 か所(OPT2)
 from ytt import fsio, jobs, normalize, schemas, tools
+from ytt import streamlog   # 配信・依頼・切り抜きの出来事の記録(11-03)
 from ytt.errors import ApiError
 from pipeline.analyze import fetch as _fetch   # 解析が取ったリプレイの場所(比べるだけ。flow/chatreuse)
 from . import batch as _batch   # 解析の順番の断りの種類(queued_already = 同じ配信がもう順番にある)
@@ -855,6 +856,7 @@ class Archiver(LX.Patrol):
             e = st.get("endedAt")
             if isinstance(e, (int, float)):
                 self._info_put(rc, rec, endedAt=e)
+                streamlog.note("rec-end", recording=rec, recorder=rc, note="endedAt %d" % int(e))   # 録画元の終わりを初めて控えたとき 1 回
                 return e
         ends = [LX.iso_epoch(j.get("end")) for j in js]
         ends = [e for e in ends if e is not None]
