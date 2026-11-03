@@ -259,6 +259,12 @@ class SyncTest(unittest.TestCase):
         self.assertIsNone(self.io.data("/" + name))
         self.assertIsNone(self.io.data("/%s.request.json" % RID))
 
+    def test_request_video_lists_everyone(self):
+        """動画ファイルの依頼の JSON にも出る人の全員(配信者 + コラボの相手 = speakers。受付 human/friend/intake が読む。11-03)"""
+        f = dict(FORM, kind="file", ranges=[], top=None, streamer="熱千めら", people=["博衣こより"])
+        doc = S.request_doc("video", RID, f, NOW, files=[RID + "__a.mp4"])
+        self.assertEqual((doc["streamer"], doc["speakers"]["count"], doc["speakers"]["names"]), ("熱千めら", 2, ["熱千めら", "博衣こより"]))
+
     def test_request_video_withdrawn_while_uploading(self):
         """動画を上げている間は依頼の鍵を持たない([この PC でやり直す] がすぐ返る)。上げ終えたら行を見直し、移っていれば依頼を上げず動画を消す"""
         self.key()

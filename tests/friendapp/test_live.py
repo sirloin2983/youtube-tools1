@@ -578,6 +578,15 @@ class FileTest(unittest.TestCase):
                 self.api.remember_file(bad)
         self.assertIsNone(A.guess_streamer("名前なし.mp4"))
 
+    def test_send_file_with_people(self):
+        """動画ファイルにもコラボの相手(body の people。全部の動画で同じ)= 束の hints.people に配信者と相手の全員(11-03 ユーザー「動画ファイルで複数人選択できない」)"""
+        fid = self.api.remember_file(self.src)["id"]
+        row = self.api.send({"source": "files", "files": [{"fileId": fid, "streamer": "熱千めら"}], "people": ["博衣こより", "熱千めら"], "videoTracks": 1})["rows"][0]
+        self.wait_copy(row["id"])
+        spec = self.submitted[0][1]
+        self.assertEqual((spec["hints"]["streamer"], spec["hints"]["people"]), ("熱千めら", [{"name": "熱千めら"}, {"name": "博衣こより"}]))
+        self.assertEqual(self.box.view()[0]["form"]["people"], ["博衣こより", "熱千めら"])
+
     def test_send_file_copies_then_submits(self):
         fid = self.api.remember_file(self.src)["id"]
         got = self.api.send({"source": "files", "files": [{"fileId": fid, "streamer": "兎田ぺこら"}], "people": [], "videoTracks": 2,

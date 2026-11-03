@@ -288,6 +288,17 @@ def main():
                 pg.evaluate(drop_js, "dropMore")
                 pg.wait_for_timeout(300)
                 ok &= check(pg.locator("#fileList li").count() == 1, "同じ物(同じ名前・大きさ)をもう一度落としても 1 つのまま")
+                # 6b. 動画ファイルでもコラボの相手を足せる(11-03 ユーザー「動画ファイルで複数人選択できない」)= 送る中身の people に入る
+                expect(pg.locator("#fileList li .hint")).not_to_contain_text("読み込んでいます", timeout=WAIT)
+                pg.locator("#filesWho .fr-add-person").click()
+                pg.locator("#filesWho .fr-chip-in").fill("博衣こより")
+                pg.locator("#filesWho .fr-chip-in").press("Enter")
+                expect(pg.locator("#filesWho")).to_contain_text("博衣こより", timeout=WAIT)
+                ok &= check(pg.locator("#filesWho .fr-add-person").count() == 1, "動画ファイルの欄に「+ 人」があり、足した相手の札が出る")
+                with pg.expect_request(lambda r: r.url.endswith("/api/friend/send") and r.method == "POST", timeout=WAIT) as req:
+                    pg.locator("#btnSend").click()
+                body = req.value.post_data_json or {}
+                ok &= check(body.get("source") == "files" and body.get("people") == ["博衣こより"], "動画ファイルの送る中身にコラボの相手が入る: %s" % body.get("people"))
 
                 ops = rig.app.oplog.recent()
                 ok &= check(any(o["kind"] == "click" for o in ops) and any(o["kind"] == "nav" for o in ops) and any(o["kind"] == "request" for o in ops),

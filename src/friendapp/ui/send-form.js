@@ -84,6 +84,11 @@
     var box = $('headWho');
     box.textContent = '';
     box.appendChild(chip(f.streamer, function (w) { f.streamer = w; drawWho(); }));
+    drawPeople(box);
+    var fb = $('filesWho');   /* 動画ファイル: 配信者は 1 本ずつの札・コラボの相手は全部の動画で同じ(11-03 ユーザー「動画ファイルで複数人選択できない」) */
+    if (fb) { fb.textContent = ''; drawPeople(fb); }
+  }
+  function drawPeople(box) {
     f.people.forEach(function (p, i) {
       box.appendChild(chip(p, function (w) { f.people[i] = w; if (!w.name) f.people.splice(i, 1); drawWho(); }, function () { f.people.splice(i, 1); drawWho(); }));
     });
@@ -309,6 +314,7 @@
     $('urlWhy').hidden = true;
     FRList.select('');
     drawFiles();
+    drawWho();   /* 外したコラボの相手の札を消す(動画ファイルの欄にも出す。11-03) */
     sync();
   }
   /* 一覧のカードの状態が変わった(ライブが終わった・アーカイブが出た)= 開いている欄の中身を切り替える(入れかけは残す = C-2-12) */
@@ -430,7 +436,8 @@
     var body;
     if (f.mode === 'files') {
       body = { source: 'files', videoTracks: parseInt($('tracksF').value, 10) || 1,
-        files: f.files.map(function (x) { return { fileId: x.id, streamer: x.who.name || '' }; }) };
+        files: f.files.map(function (x) { return { fileId: x.id, streamer: x.who.name || '' }; }),
+        people: f.people.map(function (p) { return p.name; }).filter(Boolean) };   /* コラボの相手(全部の動画で同じ。玄関の check_file が body から読む) */
     } else {
       var k = kind(), rg = k === 'live' ? { list: [] } : readRanges();
       body = { source: 'url', kind: k, url: f.stream.url, title: f.stream.title, ranges: rg.list, top: rg.list.length ? null : f.top,
