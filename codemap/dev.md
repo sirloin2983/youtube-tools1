@@ -81,6 +81,8 @@
   - 名前: `main` :15
 - **voice_rebuild.py** (59 行) — 覚えた声を 1 行ずつ外してまとめ直す道具(human/proof/voicerebuild。10-25)。本物の作業データの登録簿を書き換える(前の版は .bak-<時刻> に写す)。
   - 名前: `main` :17
+- **voice_registry_rebuild.py** (61 行) — 声の登録簿を「確かめる」の答えから作り直す道具(11-03 情報をまとめる所の 1。本体は src/human/check/voicebook.py)。
+  - 名前: `main` :27
 - **worklog.py** (280 行) — 作業の記録(保管庫の docs/worklog/)をセッションごとのファイルに分けて書き、週のまとめを集めて作る。
   - 名前: `worklog_dir` :56・`monday` :60・`week_name` :64・`read` :68・`write` :73・`front_matter` :78・`session_entry` :91・`sessions` :101・`auto_block` :108・`merge_week` :121・`update_index` :135・`build` :150・ほか 7
 

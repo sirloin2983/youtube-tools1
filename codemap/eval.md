@@ -51,8 +51,8 @@
   - 名前: `fold` :65・`edit_distance` :70・`rows_of` :77・`overlap` :89・`first_run` :93・`answer_of` :102・`answer_before` :106・`answer_time` :112・`checked_around` :117・`raw_text` :126・`match_seg` :132・`closer_of` :146・ほか 14
 - **eval_marks.py** (1211 行) — 盛り上がりの検出(スタジオの自動マーク)の当たり具合を、人の判定の記録で測る道具(線 C の土台。資料の git:before-1028-cleanup:plan/line-bc-master-plan.md の Q3・I-4a)。
   - 名前: `read_jsonl` :90・`locate` :109・`studio_videos` :115・`load_machine` :124・`human_marks` :137・`archive_reader` :148・`run_records` :159・`load_runs` :164・`ts_ms` :184・`dist` :191・`same` :196・`pair` :200・ほか 32
-- **eval_speakers.py** (1086 行) — 話者の判別(と覚えた声の照合)の当たり具合を、人が直した最終で測る道具(線 B の話者の評価。資料の git:before-1028-cleanup:plan/line-bc-master-plan.md の Q3・I-2a)。
-  - 名前: `read_diar` :99・`norm_name` :108・`hungarian_max` :112・`best_mapping` :163・`time_edited_flags` :177・`is_other_row` :198・`in_period` :203・`confirm_map` :207・`human_rows` :238・`overlap_rows` :279・`class Overlap` :304・`new_counts` :327・ほか 31
+- **eval_speakers.py** (1109 行) — 話者の判別(と覚えた声の照合)の当たり具合を、人が直した最終で測る道具(線 B の話者の評価。資料の git:before-1028-cleanup:plan/line-bc-master-plan.md の Q3・I-2a)。
+  - 名前: `read_diar` :100・`norm_name` :109・`hungarian_max` :113・`best_mapping` :164・`time_edited_flags` :178・`is_other_row` :199・`in_period` :204・`confirm_map` :208・`human_rows` :239・`overlap_rows` :280・`class Overlap` :305・`new_counts` :328・ほか 31
 - **eval_timing.py** (446 行) — 行の時刻(字幕の区間)を、行の時刻の原則(notes:docs/spec/subtitles.md)の数字で測る道具(notes:plan/done/line-b-row-timing.md の 7-4)。
   - 名前: `current_variant` :68・`letters` :76・`text_rows` :81・`text_match` :96・`best_overlap` :102・`measure_rows` :112・`boundary_agreement` :154・`boundary_sum` :178・`summarize` :186・`post_label` :196・`engine_label` :216・`doc_record` :224・ほか 12
 

@@ -17,11 +17,13 @@
   - 受ける口: `/api/ytt` :45
 - **prefs.py** (492 行) — ホームの設定(画面の直し「気が利く画面へ」の土台。資料の git:before-1028-cleanup-2:docs/design/briefs/ux-consistency/DESIGN_BRIEF.md)。
   - 名前: `class PrefsError` :97・`guess_streamer` :386・`class Prefs` :398
-- **server.py** (1976 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
-  - 名前: `runtime_dir` :195・`ping` :204・`tail` :212・`expected_version` :223・`tool_python` :229・`rel_or_abs` :239・`signal_stop` :247・`class Tool` :260・`app_data_dir` :310・`logs_dir_for` :316・`class Supervisor` :322・`query_int` :643・ほか 15
-  - 受ける口: `/api/drill/status` :163・`/api/eval-batch` :163・`/api/intake` :627・`/api/backup` :628・`/api/accuracy` :629・`/api/flow/runs` :630・`/api/cases/auto` :632・`/api/flow/submit` :633・`/api/flow/estimate` :633・`/api/flow/cancel` :634・`/api/intake/scan` :635・`/api/backup/run` :635・`/api/accuracy/run` :636・`/api/check/answer` :637・`/api/check/unknown` :637・`/api/check/skip` :637・`/api/check/flush` :637・`/api/check/symbolrules` :638・`/api/ui-timing` :639・`/api/shutdown` :640・`/api/ping` :771・`/api/status` :773・`/api/health` :785・`/api/log` :787・`/api/flow/status` :802・`/api/flow/history` :806・`/api/check/next` :809・`/api/check/voiceclip` :815・`/api/check/voicemeasure` :821・`/api/check/members` :829・`/api/check/voicesolo` :831・`/api/home/requests` :836・`/api/cases` :848・`/api/transcribe` :1128
+- **server.py** (1984 行) — 入口(ランチャー)— 3つのツールのサーバーをまとめて起動・終了し、入口の画面を出す。
+  - 名前: `runtime_dir` :196・`ping` :205・`tail` :213・`expected_version` :224・`tool_python` :230・`rel_or_abs` :240・`signal_stop` :248・`class Tool` :261・`app_data_dir` :311・`logs_dir_for` :317・`class Supervisor` :323・`query_int` :644・ほか 15
+  - 受ける口: `/api/drill/status` :164・`/api/eval-batch` :164・`/api/intake` :628・`/api/backup` :629・`/api/accuracy` :630・`/api/flow/runs` :631・`/api/cases/auto` :633・`/api/flow/submit` :634・`/api/flow/estimate` :634・`/api/flow/cancel` :635・`/api/intake/scan` :636・`/api/backup/run` :636・`/api/accuracy/run` :637・`/api/check/answer` :638・`/api/check/unknown` :638・`/api/check/skip` :638・`/api/check/flush` :638・`/api/check/symbolrules` :639・`/api/ui-timing` :640・`/api/shutdown` :641・`/api/ping` :772・`/api/status` :774・`/api/health` :786・`/api/log` :788・`/api/flow/status` :803・`/api/flow/history` :807・`/api/check/next` :810・`/api/check/voiceclip` :816・`/api/check/voicemeasure` :822・`/api/check/members` :830・`/api/check/voicesolo` :832・`/api/home/requests` :837・`/api/cases` :849・`/api/transcribe` :1129
 - **streamer.py** (51 行) — 配信者の名前の当て(入口の POST api/ytt/streamer-guess の中身。PortalServer が Guesser を 1 つ作って呼ぶ)。
   - 名前: `class Guesser` :18
+- **streamimport.py** (156 行) — 出来事の記録(ytt/streamlog。<データの根>\app\logs\streams.jsonl)へ、古い記録から 1 回だけ取り込む(11-03。移し方の段 3。
+  - 名前: `gather` :65・`run` :136
 - **timing.py** (89 行) — ホームの読み込みの記録(10-30。ユーザー「1 分以上かかってる」: 再現して測るのでなく、本当に開いた時の数を残して原因を見る)。
   - 名前: `begin` :32・`end` :39・`clean_path` :47・`api_record` :58・`ui_record` :75
 - **ytlogin.py** (95 行) — ユーザーの PC の YouTube のログイン(10-23 ユーザー「ログインできる形にしといて」)。友人のアプリと同じ作り(notes:docs/spec/friend.md の 13-13)。
@@ -51,16 +53,16 @@
   - 名前: `tick` :26
 - **sources.py** (442 行) — 「確かめる」のカードの出どころ(V1 の V0。資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 2-2)。読むだけ(作業データに書かない)。
   - 名前: `register` :49・`registered` :63・`has_media` :84・`class View` :94・`value_auto` :283・`value_cand` :309・`voice_diar` :341・`read_decided` :381・`time_row` :401・`collect` :425
-- **speaker_solo.py** (288 行) — 「確かめる」のソロから声を覚えるカード speaker:solo(11-02。保管庫 plan/話者の物差し-1101.md 14 章 ①・ユーザー「ここまでは実装していい」)。
-  - 名前: `load` :62・`clip_path` :78・`clip_piece` :86・`piece` :108・`speaker_solo` :124・`check_answer` :147・`learn_of` :166・`read_state` :198・`wanted` :208・`tick` :231
+- **speaker_solo.py** (224 行) — 「確かめる」のソロから声を覚えるカード speaker:solo(11-02。保管庫 plan/話者の物差し-1101.md 14 章 ①・ユーザー「ここまでは実装していい」)。
+  - 名前: `load` :58・`clip_path` :74・`clip_piece` :82・`piece` :104・`speaker_solo` :120・`check_answer` :143・`learn_of` :162・`wanted` :190・`tick` :203
 - **symbol_sources.py** (108 行) — 「確かめる」の記号のカードの出どころ symbol:asr(11-01 ユーザー「消してよかったかを見直す道具は確かめるに作ればよくない？」・11-02 ユーザーの案 1)。読むだけ。
   - 名前: `name_of` :54・`symbol_asr` :61
 - **voice_measure.py** (115 行) — 「確かめる」の誰の声のカードの出どころ voice:measure(11-01。ユーザー「人が答える物は確かめるに作る」・話者の物差しの手順 ①)。
   - 名前: `load` :37・`clip_path` :51・`voice_measure` :75
 - **voice_solo.py** (249 行) — 「確かめる」の誰の声のカードの出どころ voice:solo(10-23。ユーザーが自分の声の答えで声を覚えさせるため)。
   - 名前: `stream_counts` :199・`people` :212・`clip_targets` :224・`voice_solo` :233
-- **voice_unknown.py** (62 行) — 誰の声のカード(ソロの 10 秒 speaker:solo。11-02 に消したコラボの 10 秒 speaker:collab の分も残す)で [分からない] にしたカードの控え(11-02 ユーザー「わからないにしたやつ記憶しておいてほしい」)。
-  - 名前: `keep` :21・`listing` :41
+- **voice_unknown.py** (102 行) — 誰の声のカード(ソロの 10 秒 speaker:solo。11-02 に消したコラボの 10 秒 speaker:collab の分も残す)で [分からない] にしたカードの控え(11-02 ユーザー「わからないにしたやつ記憶しておいてほしい」)。
+  - 名前: `keep` :22・`listing` :81・`write_index` :91
 - **voicefetch.py** (407 行) — 誰の声の材料の配信の音を YouTube から少しだけ取る(10-25。ユーザー「全メンバー揃えてほしい」「ショートだけでは足りない。配信からの材料も要る」。
   - 名前: `extra_channels` :58・`members` :65・`slot_free` :77・`parse_rss` :100・`choose` :114・`wants` :235・`tick` :244・`intake` :349
 - **voicefill.py** (109 行) — 誰の声の材料を全メンバーぶんそろえる(10-25。ユーザー「誰の声を全部やったが本当に数人しかいなかった。全メンバー揃えてほしい」)。
@@ -174,6 +176,7 @@
 - tests/app/test_live_detect_api.py — 配信中の盛り上がりの検出の入口 home の側(app の殻 Live の GET|POST /live/api/peaks の振り分け・ホームの設定 prefs の検査)のテスト。
 - tests/app/test_mount.py — 入口への取り込み(src/app/mount.py)のテスト。  python -m unittest tests/app/test_mount.py -v
 - tests/app/test_settings_schema.py — 設定の画面のスキーマ(src/app/ui/settings/schema.json。S5)と、ホームの設定の検査(prefs.py)が食い違っていないか。リポジトリ直下で:
+- tests/app/test_streamimport.py — app/streamimport(出来事の記録へ古い記録を 1 回だけ取り込む。11-03 段 3)。一時フォルダだけ
 - tests/app/test_timing.py — ホームの読み込みの記録(src/app/timing.py): 遅い口・失敗した口だけを api-timing.jsonl へ、画面の 1 行を ui-timing.jsonl へ。
 - tests/app/test_window.py — 窓で開く(src/ytt/appwindow.py)・画面のエラーの記録(本体は tests/manage/ops/test_clientlog.py)・入口の共通の API(api/ytt/…)。
 - tests/app/test_ytlogin.py — ユーザーの PC の YouTube のログイン(src/app/ytlogin.py)。本物の YouTube・本物の cookie・本物の窓は使わない(偽の cookie と偽の起動)。リポジトリ直下で:

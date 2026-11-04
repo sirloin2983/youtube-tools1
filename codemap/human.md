@@ -13,8 +13,8 @@
 - **__init__.py** (3 行) — ③ 確かめる(V1。カードの答えの記録 answerlog・答えを実物へ反映する土台 apply・文書の行を直す口 _doc と、種類ごとの反映 timerow・value・voice・section・cutcard。読み read・声ですか speech は 10-31 に消した。
 - **_doc.py** (120 行) — 「確かめる」の文書の行を直す 1 つの口(読み・時刻・声のカードの反映と Z が使う。opt-human 6-1)。
   - 名前: `card_switch` :24・`busy` :38・`edit_row` :46・`edit_fields` :70・`revert_fields` :80・`doc_id` :94・`row_target` :102・`choice` :112
-- **answerlog.py** (212 行) — 「確かめる」の答えの記録(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-1)。
-  - 名前: `answers_path` :48・`new_id` :56・`day_of` :61・`card_mark` :66・`append` :76・`class State` :107・`state` :189・`read_skips` :195・`add_skip` :203
+- **answerlog.py** (223 行) — 「確かめる」の答えの記録(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-1)。
+  - 名前: `answers_path` :50・`old_path` :54・`new_id` :63・`day_of` :68・`card_mark` :73・`append` :83・`class State` :118・`state` :200・`read_skips` :206・`add_skip` :214
 - **apply.py** (310 行) — 「確かめる」の答えを実物へ反映する土台(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-2・3-3)。
   - 名前: `class Context` :46・`register` :70・`flush` :209・`answer` :216・`undo` :257・`unknown` :283・`skip` :303
 - **cutcard.py** (44 行) — 「確かめる」の自動カットのカードの答えの記録(CUT-CARD。決定: plan/opt-eval.md の Q4 自動カットのカード)。
@@ -27,8 +27,10 @@
   - 名前: `_move` :21・`_check` :29・`_times` :50・`_apply_time` :54・`_revert_time` :86
 - **value.py** (188 行) — 「確かめる」の価値のカード(切り抜く価値があるか = 70 点以上か)の反映(資料の git:before-1028-cleanup:docs/design/v1-check-build.md・決定 3-41)。
   - 名前: `_score` :36・`_code` :47・`_msg` :51・`_need` :55・`_auto_check` :65・`_cand_check` :79・`_auto_apply` :84・`_auto_revert` :96・`_studio` :108・`_set_status` :115・`_cand_apply` :144・`_cancel_export` :159・ほか 1
-- **voice.py** (513 行) — 「確かめる」の誰の声のカード(voice:diar)の答えの形・選択肢・反映・声の覚え直し(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-2・5 節、
-  - 名前: `diar_enabled` :62・`doc_embedding` :84・`registry` :89・`options_for` :104・`guess_for` :125・`buttons` :141・`people_for` :150・`answer_names` :298・`collab_docs` :316
+- **voice.py** (436 行) — 「確かめる」の誰の声のカード(voice:diar)の答えの形・選択肢・反映・声の覚え直し(資料の git:before-1028-cleanup:docs/design/v1-check-build.md の 3-2・5 節、
+  - 名前: `diar_enabled` :60・`doc_embedding` :82・`registry` :87・`options_for` :102・`guess_for` :123・`buttons` :139・`people_for` :148・`answer_names` :296・`collab_docs` :314
+- **voicebook.py** (295 行) — 声の登録簿を「確かめる」の答えから作り直す(11-03 情報をまとめる所の 1。ユーザー「すすめていい」「全部入れる」)。
+  - 名前: `class BuildRefused` :34・`materials` :38・`learned_answers` :65・`learned_rows` :70・`learned_docs` :83・`build` :121・`lost` :197・`diff` :209・`missing_path` :220・`missing_ids` :224・`rebuild` :231・`pending` :256・ほか 2
 
 ## src/human/cut/
 
@@ -45,20 +47,20 @@
 ## src/human/friend/
 
 - **__init__.py** (2 行) — ③ 友人: 受付(Dropbox)→ まとめて実行(②)に流す → 届ける。友人の返事・送り返し・ライブの依頼の結びつき
-- **bugs.py** (656 行) — ③ 人の層: 友人の PC の不具合の書き出しを受け取って仕分けし、要対応があれば Claude Code を画面なしで 1 回起こす(10-25 ユーザーの OK。
-  - 名前: `bugs_dir` :149・`parse` :157・`triage` :170・`kind_of` :204・`context` :234・`wrap` :253・`records` :272・`scan` :282・`delivered` :347・`guard` :385・`friend_first` :402・`ask` :426・ほか 4
+- **bugs.py** (673 行) — ③ 人の層: 友人の PC の不具合の書き出しを受け取って仕分けし、要対応があれば Claude Code を画面なしで 1 回起こす(10-25 ユーザーの OK。
+  - 名前: `bugs_dir` :149・`parse` :157・`triage` :170・`kind_of` :204・`context` :234・`wrap` :253・`records` :272・`scan` :282・`delivered` :347・`guard` :403・`friend_first` :420・`ask` :443・ほか 4
 - **friend_feedback.py** (99 行) — 友人の「要らない」を PC 側で片付ける(notes:docs/spec/friend.md の 2-14。ユーザー「不採用の場合こちらにフィードバック」)。
   - 名前: `record_delivery` :22・`find_delivery` :27・`apply` :63
-- **intake.py** (841 行) — 友人からの依頼の受付(notes:docs/spec/friend.md)。
-  - 名前: `configured_folder` :81・`out_dir_of` :92・`submit_urls` :97・`submit_file` :121・`youtube_id` :131・`parse_lines` :137・`decode_text` :163・`probe_video` :177・`youtube_info` :189・`parse_ranges` :237・`class Intake` :266
+- **intake.py** (846 行) — 友人からの依頼の受付(notes:docs/spec/friend.md)。
+  - 名前: `configured_folder` :82・`out_dir_of` :93・`submit_urls` :98・`submit_file` :122・`youtube_id` :132・`parse_lines` :138・`decode_text` :164・`probe_video` :178・`youtube_info` :190・`parse_ranges` :238・`class Intake` :267
 - **live_requests.py** (22 行) — 友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend.md の 2-15)。
   - 名前: `settings_label` :19
 - **notify.py** (228 行) — 友人の不具合・更新の知らせを、ツールが読んだその時にまとめ役のセッションへ届ける「知らせだけの軽い起こし」(10-25 ユーザーの決め)。
   - 名前: `collect` :75・`message` :101・`to_name` :116・`batch_send` :165・`tick` :216
 - **pubqueue.py** (166 行) — ③ 人の層: 友人の zip を配る待ちの列と、3 時間ごとの配る回(ユーザーの PC。友人の zip はまとめて配る決め・10-25 ユーザーの OK。
   - 名前: `items` :53・`hold_of` :59・`set_hold` :65・`add` :79・`take` :87・`changes` :96・`slot_of` :101・`tick` :107
-- **returns.py** (500 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。資料の git:before-1028-cleanup:docs/design/f1-build.md の (f1d))。
-  - 名前: `returns_dir` :59・`extract` :97・`parse_verdict` :131・`parse_notice` :186・`scan` :221・`recent_notices` :426・`iter_requests` :465
+- **returns.py** (504 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。資料の git:before-1028-cleanup:docs/design/f1-build.md の (f1d))。
+  - 名前: `returns_dir` :60・`extract` :98・`parse_verdict` :132・`parse_notice` :187・`scan` :222・`recent_notices` :430・`iter_requests` :469
 - **upwatch.py** (166 行) — ③ 人の層: 友人のアプリの更新の見張り(ユーザーの PC。友人のアプリの更新の決め・10-25 ユーザーの OK。notes:plan/友人の不具合の自動対応-1025.md の「更新」)。
   - 名前: `published` :54・`friend_now` :69・`last_seen` :91・`alerts` :104・`add_alert` :111・`scan` :121
 - **voicein.py** (143 行) — 友人の PC から届いた声の材料の受け取り(10-24 夜。作る側 = friendapp/voicesend。案 = 資料の git:before-1028-cleanup:plan/声の材料を友人のPCから-1024.md)。
@@ -87,7 +89,7 @@
   - 名前: `tx_path` :37・`write_doc` :41・`read_layers` :73・`commit` :114・`layers_for` :171・`fresh_copy` :201・`snapshot` :251・`backup_doc` :259・`sanitize_sub_style` :278・`sanitize_transcript` :291・`doc_length` :373・`good_row` :394・ほか 37
 - **voiceclips.py** (215 行) — 声を覚える材料の短い音(10-24 夜。ユーザー「誰の声をメンバー全員分」・「精度に関係する物は残す」)。
   - 名前: `root` :28・`index` :40・`clip_path` :54・`media` :63・`make` :72・`put_bytes` :106・`timeline_wav` :135・`bgm` :199
-- **voicerebuild.py** (161 行) — 覚えた声を 1 行ずつ外してまとめ直す(10-25 ユーザーとまとめ役が 1 行ずつ聞いて確かめた結果。資料の git:before-1028-cleanup:plan/間違った正解のリスク-1025.md の 6)。
+- **voicerebuild.py** (163 行) — 覚えた声を 1 行ずつ外してまとめ直す(10-25 ユーザーとまとめ役が 1 行ずつ聞いて確かめた結果。資料の git:before-1028-cleanup:plan/間違った正解のリスク-1025.md の 6)。
   - 名前: `rows_path` :23・`row_vectors` :47・`backfill` :64・`rebuild` :96
 
 ## src/human/review/

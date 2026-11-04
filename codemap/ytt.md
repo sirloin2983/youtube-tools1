@@ -58,6 +58,8 @@
   - 名前: `iso_now` :21・`now_ms` :26・`num` :31・`is_num` :42・`is_int` :47・`plain_int` :52・`int_in` :57・`num_or` :62・`union_spans` :71・`fmt_hms` :82・`other_speaker` :105・`no_sub_row` :110・ほか 28
 - **settings.py** (372 行) — 設定ファイル(JSON の辞書)の読み書きの共通部品(設定を 1 つにまとめる 段 2 = S4。notes:docs/spec/data.md の 4)。
   - 名前: `class SettingsError` :37・`class SettingsTooLarge` :41・`section_name_ok` :45・`retire_broken` :50・`class SettingsFile` :62・`analyze_user` :198・`load_settings` :203・`register_patch_key` :233・`patch_settings` :270・`merge_settings` :285・`replace_settings` :300・`eval_dirs` :337・ほか 2
+- **streamlog.py** (152 行) — 配信・依頼・切り抜きの出来事の記録(11-03。正 = 資料の plan/情報をまとめる所-1103.md の「決まった形: 配信・依頼・切り抜き」。ユーザー OK)。
+  - 名前: `path` :75・`stream_of` :81・`make_row` :97・`record` :112・`note` :128・`rows` :137
 - **studio_env.py** (205 行) — スタジオの環境: データの置き場所・書き出し先・疑似の旗・外部の道具・失敗の記録。
   - 名前: `set_code_dir` :29・`code_dir` :35・`set_home` :40・`home` :48・`p` :60・`fake` :65・`fake_file` :70・`fake_media` :76・`find_tool` :84・`old_log_name` :93・`rotate_log` :100・`log_failure` :105・ほか 7
 - **studiodata.py** (176 行) — 切り抜きスタジオの data.json の配信の情報(読む側。書くのは盛り上がりグラフの save_series だけ)。
@@ -99,6 +101,8 @@
 - tests/ytt/test_marks.py — ytt/marks.py(マークの純粋な語彙)の単体テスト。
 - tests/ytt/test_normalize.py — ytt.normalize(素材を 30fps にそろえる。Q1)のテスト。  py -3.12 -m unittest tests/ytt/test_normalize.py -v
 - tests/ytt/test_settings.py — ytt.settings(設定ファイルの共通部品。S4)のテスト。リポジトリ直下で:
+- tests/ytt/test_streamlog.py — ytt/streamlog(配信・依頼・切り抜きの出来事の記録。11-03)。一時フォルダの記録だけ(本物の作業データには書かない)
+- tests/ytt/test_streamlog_guard.py — 配信・依頼・切り抜きの状態を、出来事の記録(ytt/streamlog)の外に書くコードが増えていないかの見張り(11-03。資料 plan/情報をまとめる所-1103.md の「弱い所」)。
 - tests/ytt/test_workdata.py — ytt/workdata.py(編集の作業データの置き場所と版の今の値)と ytt/studiodata.py(スタジオの data.json の読み口)のテスト(役割で組み直す RS3-0A)。
 - tests/ytt/test_ytapi.py — ytt/ytapi(YouTube Data API を 1 回呼ぶ口)のテスト。外へは繋がない。  py -3.12 -m unittest tests/ytt/test_ytapi.py -v
 - tests/ytt/test_ytcookies.py — src/ytt/ytcookies.py(yt-dlp が書き戻した cookie を元へ戻す)のテスト。偽の cookie だけ(値は fake-*)。
