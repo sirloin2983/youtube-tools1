@@ -220,6 +220,13 @@ class BugsTest(unittest.TestCase):
         self.assertTrue(_inbox.TAKEN_RE.search(B.guard(self.sync, self.app, rid, self.clock)))   # 2 通目は断る(友人のアプリが「作っている」のままにする言葉)
         self.assertEqual(B.guard(self.sync, self.app, "20261025-000000-zzzzzz", self.clock), "")   # 引き継いでいない依頼は触らない
         self.assertEqual(B.friend_first(self.app, self.clock), [])
+        bad = os.path.join(self.app, "friend-returns", "2026-10", rid, "run0")
+        os.makedirs(bad)                                    # 友人の PC の失敗の記録(パック 0 本)は作れた扱いにしない
+        with open(os.path.join(bad, "run.json"), "w", encoding="utf-8") as f:
+            json.dump({"state": "error", "packs": []}, f)
+        os.utime(bad, (self.now + 5, self.now + 5))
+        self.assertEqual(B.friend_first(self.app, self.clock), [])
+        self.assertEqual(B.delivered(self.sync, self.app, rid), "")
         run = os.path.join(self.app, "friend-returns", "2026-10", rid, "run1")
         os.makedirs(run)                                    # 友人の PC で作った結果が後から届いた
         os.utime(run, (self.now + 5, self.now + 5))

@@ -353,10 +353,28 @@ def delivered(sync_folder, app_dir, rid):
         pass
     if any((r.get("requestId") or "") == rid for r in deliveries.rows(os.path.join(app_dir, "logs")) or []):
         return "届けた記録にあります"
-    for d in glob.glob(os.path.join(app_dir, "friend-returns", "*", rid)):
-        if any(os.path.isdir(os.path.join(d, n)) and n != "verdicts" and n != "notices" for n in os.listdir(d)):
-            return "友人の PC で作った結果が届いています"
+    if _made_runs(app_dir, rid):
+        return "友人の PC で作った結果が届いています"
     return ""
+
+
+def _failed_run(run_dir):
+    """送り返しの実行のフォルダが、失敗だけの記録か(run.json が error でパック 0 本。友人の PC は失敗した実行も診断のために送り返す)。
+    読めない・run.json が無い物は作れた扱い(二重に届けない側に倒す)"""
+    run = fsio.read_json_or(os.path.join(run_dir, "run.json"), None)
+    return isinstance(run, dict) and run.get("state") == "error" and not run.get("packs")
+
+
+def _made_runs(app_dir, rid):
+    """その依頼 id の友人の送り返しのうち、作れた実行のフォルダの並び(verdicts・notices と失敗だけの記録は除く。11-05 友人の
+    書き出しの失敗の記録を「作れた」と読んで引き継がなかった)"""
+    out = []
+    for d in glob.glob(os.path.join(app_dir, "friend-returns", "*", rid)):
+        for n in os.listdir(d):
+            x = os.path.join(d, n)
+            if n not in ("verdicts", "notices") and os.path.isdir(x) and not _failed_run(x):
+                out.append(x)
+    return out
 
 
 def _takeover(sync_folder, app_dir, clock, log):
@@ -409,8 +427,7 @@ def friend_first(app_dir, clock=None, log=None):
             continue
         made = (take.get("madeAt") or 0) / 1000.0
         try:
-            runs = [os.path.join(d, n) for d in glob.glob(os.path.join(app_dir, "friend-returns", "*", r["rid"])) for n in os.listdir(d)
-                    if n not in ("verdicts", "notices") and os.path.isdir(os.path.join(d, n))]
+            runs = _made_runs(app_dir, r["rid"])
             newer = any(os.path.getmtime(x) > made for x in runs)
         except OSError:   # 並べている途中など(次の見回りでまた見る)
             newer = False
