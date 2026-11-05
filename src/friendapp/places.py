@@ -192,12 +192,18 @@ def api_key_env(root, env=None):
     return False
 
 
-def members_env(h, env=None):
-    """zip の直下の members.json(配信者の名簿。dev/build_friend_zip.py が home 直下に入れる)を環境変数 YTT_HOLO_MEMBERS に
-    (ytt/colors が読む。開発の PC は friend-apps/holo-colors/ のまま = 直下に無ければ何もしない)-> 入れたか"""
+def members_env(h, env=None, code=None):
+    """zip の直下の members.json(配信者の名簿。dev/build_friend_zip.py が zip の直下に入れる)を環境変数 YTT_HOLO_MEMBERS に
+    (ytt/colors が読む。開発の PC は friend-apps/holo-colors/ のまま = どちらにも無ければ何もしない)-> 入れたか。
+    読む順: 今動いている版のフォルダ(<home>/app-<版>/。更新のたびに sync が zip の直下から写す)→ <home> の直下(最初に展開した zip の物)。
+    11-06: <home> の直下だけを読んでいたので、更新しても最初の版の名簿のまま = 字幕の色の直し(11-02 水宮枢・大空スバル)が友人の PC に届かなかった"""
     env = os.environ if env is None else env
-    p = os.path.join(h, "members.json")
-    if (env.get(_colors.MEMBERS_ENV) or "").strip() or not os.path.isfile(p):
+    if (env.get(_colors.MEMBERS_ENV) or "").strip():
+        return False
+    code = os.path.dirname(_layout.src_root()) if code is None else code
+    dirs = ([code] if os.path.basename(code).lower().startswith("app-") else []) + [h]
+    p = next((q for q in (os.path.join(d, "members.json") for d in dirs) if os.path.isfile(q)), None)
+    if p is None:
         return False
     env[_colors.MEMBERS_ENV] = p
     return True

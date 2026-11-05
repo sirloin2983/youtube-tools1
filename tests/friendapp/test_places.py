@@ -41,6 +41,23 @@ class MembersEnvTest(unittest.TestCase):
         self.assertFalse(places.members_env(self.home, env))
         self.assertEqual(env[colors.MEMBERS_ENV], "X:/mine.json")
 
+    def test_running_version_members_first(self):
+        """更新で入った版のフォルダ(app-<版>/)の members.json を、最初の zip の直下の物より先に読む(11-06 字幕の色が届かなかった)"""
+        self.put_members()
+        code = os.path.join(self.home, "app-0.99.449")
+        os.makedirs(code)
+        p = os.path.join(code, "members.json")
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("[]")
+        env = {}
+        self.assertTrue(places.members_env(self.home, env, code=code))
+        self.assertEqual(env[colors.MEMBERS_ENV], p)
+        # 版のフォルダに無ければ直下の物(app- で始まらないフォルダは見ない)
+        os.remove(p)
+        env = {}
+        self.assertTrue(places.members_env(self.home, env, code=code))
+        self.assertEqual(env[colors.MEMBERS_ENV], os.path.join(self.home, "members.json"))
+
 
 class FirstRosterTest(unittest.TestCase):
     def test_copies_bundled_to_work_data(self):
