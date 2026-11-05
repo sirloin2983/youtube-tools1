@@ -604,18 +604,13 @@ def cue_order(plan, names=None):
     return [rank.get(n, len(order)) for n in names]
 
 
-def speaker_order(plan):
-    """話者の並び(文字起こしの speakerOrder。先頭 = 配信者)= 話者ごとの段の順(resolve_textplus.speaker_lanes)"""
-    return (plan.transcript.get("speakerOrder") or []) if isinstance(plan.transcript, dict) else []
-
-
 def caption_layout(plan):
     """カット後の字幕の段(Text+ のパックと同じ規則 = resolve_textplus.stack_captions)。字幕が無ければ None。
     -> {"count": 段の数, "stacked": 2 段目より上の字幕の数, "trimmed": 切った字幕の数}(見積もり・CLI の表示用)"""
     if not plan.cues_out:
         return None
     names = cue_speakers(plan)
-    st = TP.lay_captions(plan.cues_out, plan.meta["fps"], cue_order(plan, names), names, speaker_order(plan))
+    st = TP.lay_captions(plan.cues_out, plan.meta["fps"], cue_order(plan, names), names)
     return {"count": st["count"], "stacked": st["stacked"], "trimmed": st["trimmed"]}
 
 
@@ -833,7 +828,7 @@ def build_pack(plan, out_dir=None, copy_video=False, textplus=False, force=False
                 plan, video=mvideo, meta=mmeta, keeps=mkeeps, req=dataclasses.replace(req, name=req.name or video.stem))
             files.update(TP.write_files(paths, tplan, out_dir, textplus_target, wrap=textplus_wrap,
                                         color=textplus_color, fills=fills, outlines=outlines, style=textplus_style,
-                                        video_tracks=video_tracks, order=order, names=names, speaker_order=speaker_order(plan)))
+                                        video_tracks=video_tracks, order=order, names=names))
     finally:
         for tmp, _, _ in staged:
             fsio.unlink_quiet(tmp)

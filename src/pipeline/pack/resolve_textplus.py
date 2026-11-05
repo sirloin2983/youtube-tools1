@@ -177,10 +177,12 @@ LANE_OVERLAP_SEC = 0.3    # 前の字幕がこれ未満だけはみ出すなら�
 LANE_STEP_Y = 0.2
 
 
-def stack_captions(cues, fps, order=None, max_lanes=LANE_MAX, overlap_sec=LANE_OVERLAP_SEC):
+def stack_captions(cues, fps, order=None, max_lanes=LANE_MAX, overlap_sec=LANE_OVERLAP_SEC, names=None):
     """重なる字幕を段に分ける(純粋な関数。規則はここ 1 か所)。
     cues: [(開始コマ, 終了コマ, 文), ...](カット後。remap_cues の出力)。fps: (分子, 分母)。
     order: 同時に始まる字幕を入れる順(字幕ごとの数。小さいほど先 = 下の段。話者の並び順)。None = 入力の順
+    names: 字幕ごとの話者の名前(None・空 = 分からない)。段の数 = その時に重なって話している人数にする:
+    同じ人の字幕がまだ出ている段があれば、その段に入れて前の字幕の終わりを切る(同じ人の行の重なりで段を増やさない)
     -> {"cues": [(開始, 終了, 文)](入力と同じ並び・同じ数), "lanes": [1〜max_lanes](字幕ごとの段), "count": 使った段の数(字幕が無ければ 0),
         "stacked": 2 段目より上に置いた字幕の数, "trimmed": 終わり(まれに始まり)を変えた字幕の数}
     決まり:
@@ -198,9 +200,16 @@ def stack_captions(cues, fps, order=None, max_lanes=LANE_MAX, overlap_sec=LANE_O
     thr = max(1, S.ms_to_frames(int(round(overlap_sec * 1000)), fps))
     rank = list(order) if order is not None and len(order) == n else [0] * n
     last = [None] * max_lanes   # 段ごとのいちばん後ろの字幕の番号
+    who = list(names) if names is not None and len(names) == n else [None] * n
     for i in sorted(range(n), key=lambda k: (start[k], rank[k], k)):
         s, placed = start[i], None
-        for k in range(max_lanes):
+        same = next((k for k, j in enumerate(last) if who[i] and j is not None and who[j] == who[i] and end[j] > s and start[j] < s), None)
+        if same is not None:   # 同じ人の字幕がまだ出ている = 話している人数は増えない
+            j = last[same]
+            end[j] = s
+            trimmed.add(j)
+            placed = same
+        for k in range(max_lanes if placed is None else 0):
             j = last[k]
             if j is None or end[j] <= s:
                 placed = k
@@ -227,52 +236,11 @@ def stack_captions(cues, fps, order=None, max_lanes=LANE_MAX, overlap_sec=LANE_O
             "stacked": sum(1 for x in lane if x > 1), "trimmed": len(trimmed)}
 
 
-# 話者ごとの段(10-23 まとめ役・ユーザーの最終のイメージ「3 人のコラボなら 3 段にそれぞれの話者の発言」)。
-# 字幕の話者が 2 人以上分かるときは、重なりでなく話者で段を決める: 話者の並び(文字起こしの speakerOrder。先頭 = 配信者)の 1 人目が 1 段目・2 人目が 2 段目…
-#   - 4 人以上: SPEAKER_LANE_MAX 人目から後ろの人は、いちばん上の段(SPEAKER_LANE_MAX 段目)を分け合う(縦の画面に 4 段は高すぎる)
-#   - 話者の付いていない字幕: 1 段目(配信者の段。色も配信者 = 話者の分からない行の色と同じ)
-#   - 同じ段の中で重なる字幕(同じ人の行の時刻のぶれ・上の段を分け合う人どうし): 前の字幕の終わりを次の字幕の始まりで切る。
-#     同じコマに始まるときは前の字幕を 1 コマ残し、この字幕を 1 コマ後ろへ(stack_captions の段が足りないときと同じ)
-# 話者が 1 人・分からないときは今までどおり stack_captions(重なりで段を決める)
-SPEAKER_LANES = True      # スイッチ(False = 今までの重なりの段だけ)
-SPEAKER_LANE_MAX = LANE_MAX
-
-
-def speaker_lanes(cues, names, speaker_order=None, max_lanes=SPEAKER_LANE_MAX):
-    """話者ごとの段(純粋な関数)。cues: [(開始コマ, 終了コマ, 文)]・names: 字幕ごとの話者の名前(None = 分からない)・speaker_order: 話者の並び(名前)。
-    -> stack_captions と同じ形 + "by": "speaker"。話者の分かる字幕が 2 人に満たなければ None(呼ぶ側が stack_captions に戻る)"""
-    cues = [(int(a), int(b), t) for a, b, t in cues or []]
-    n = len(cues)
-    if not n or names is None or len(names) != n:
-        return None
-    known = list(dict.fromkeys(x for x in names if x))
-    if len(known) < 2:
-        return None
-    order = [x for x in speaker_order or [] if x in known]
-    order += [x for x in known if x not in order]   # 並びに無い話者は出てきた順に後ろ
-    rank = {x: i for i, x in enumerate(order)}
-    lane = [min(rank[x], max_lanes - 1) + 1 if x else 1 for x in names]
-    start, end = [a for a, _, _ in cues], [b for _, b, _ in cues]
-    trimmed, last = set(), {}
-    for i in sorted(range(n), key=lambda k: (start[k], lane[k], k)):
-        j = last.get(lane[i])
-        if j is not None and end[j] > start[i]:
-            if start[j] < start[i]:
-                end[j] = start[i]
-            else:
-                end[j] = start[j] + 1
-                start[i] = end[j]
-                end[i] = max(end[i], start[i] + 1)
-                trimmed.add(i)
-            trimmed.add(j)
-        last[lane[i]] = i
-    return {"cues": [(start[i], end[i], cues[i][2]) for i in range(n)], "lanes": lane, "count": max(lane),
-            "stacked": sum(1 for x in lane if x > 1), "trimmed": len(trimmed), "by": "speaker"}
-
-
-def lay_captions(cues, fps, order=None, names=None, speaker_order=None):
-    """字幕の段を決める 1 か所: 話者が 2 人以上分かれば話者ごとの段(speaker_lanes)、そうでなければ重なりの段(stack_captions)"""
-    return (SPEAKER_LANES and speaker_lanes(cues, names, speaker_order)) or dict(stack_captions(cues, fps, order), by="overlap")
+# 字幕の段は、その時に重なって話している人数で決める(11-06 ユーザー「同時に喋ってるのが一人なら通常の位置・話者が増えると重ならないようにずらす」)。
+# 前は話者が 2 人以上分かると話者ごとに段を固定していた(並びの 2 人目は 1 人で話していても 2 段目)
+def lay_captions(cues, fps, order=None, names=None):
+    """字幕の段を決める 1 か所(stack_captions。names = 字幕ごとの話者 = 同じ人の重なりは段を増やさない)"""
+    return dict(stack_captions(cues, fps, order, names=names), by="overlap")
 
 
 # 字幕の改行(2段。資料の git:before-1028-cleanup:docs/design/edit-tool-design.md の 12 ②。ユーザー決定: 縦 8・横 14 文字前後で改行)。
@@ -352,7 +320,7 @@ def _wrap_lines(t, n):
 
 
 def build_import_plan(plan, media_file, target=None, wrap=None, color=None, fills=None, outlines=None, style="default", video_tracks=1,
-                      order=None, names=None, speaker_order=None):
+                      order=None, names=None):
     """pack.Plan -> Resolve 内スクリプト専用の、パスを含まない計画JSON。
     fills: 字幕ごとの文字の色 [[r,g,b,a] | None, ...](字幕の並びと同じ。A-2: 話者ごとの色)。None の字幕は style のまま
     outlines: 字幕ごとのふちの色(fills と同じ形。簡易版: 話者ごとのふちの色)。style: 見た目の種類(TEXT_STYLES のキー)
@@ -362,11 +330,11 @@ def build_import_plan(plan, media_file, target=None, wrap=None, color=None, fill
     order: 同時に始まる字幕の段の順(stack_captions)。重なる字幕は段に分け(stack_captions。切った字幕は終わりのコマが変わる)、
     2 段目より上の字幕にだけ trackUp(字幕のトラックから上へいくつ)・dy(縦の位置を上へずらす量)を、段が 2 以上のときだけ captionLanes を書く
     (重なりが無ければ今までと同じ中身。Lua は読むだけ)。字幕の並び・数は変えないので fills・outlines の順はそのまま合う。
-    names・speaker_order: 字幕ごとの話者の名前と話者の並び。2 人以上分かれば段は話者ごと(lay_captions → speaker_lanes。captionLanesBy speaker)"""
+    names: 字幕ごとの話者の名前(段は同時に話している人数 = 同じ人の重なりは段を増やさない。lay_captions)"""
     video_tracks = video_tracks_value(video_tracks)
     fps = plan.meta["fps"]
     per_line = default_wrap(target) if wrap is None else int(wrap)
-    stack = lay_captions(plan.cues_out, fps, order, names, speaker_order)
+    stack = lay_captions(plan.cues_out, fps, order, names)
     caps = caption_segments(plan.keeps, stack["cues"])
     for c in caps:
         c["text"] = wrap_caption(c["text"], per_line)
@@ -400,8 +368,6 @@ def build_import_plan(plan, media_file, target=None, wrap=None, color=None, fill
         d["videoTracks"] = video_tracks
     if stack["count"] > 1:
         d["captionLanes"] = stack["count"]
-        if stack["by"] == "speaker":
-            d["captionLanesBy"] = "speaker"
     return d
 
 
@@ -1009,13 +975,13 @@ Resolve の中でスクリプトを実行すると、カット済みのタイム
 
 
 def write_files(paths, plan, out_dir, target=None, wrap=None, color=None, fills=None, outlines=None, style="default",
-                video_tracks=1, order=None, names=None, speaker_order=None):
+                video_tracks=1, order=None, names=None):
     """Text+固有ファイルを書き、kind -> Path を返す(鍵 readme_text だけは手順書の中身の文字列)。target: Text+ を置くプロジェクトの fps・解像度(既定 30fps・1080x1920)。
     計画(区間・字幕・動画)は Lua に埋め込む(別の textplus-import.json は出さない。読み直すのは read_script_plan)。
-    order: 同時に始まる字幕の段の順(stack_captions)・names・speaker_order: 話者ごとの段(lay_captions)"""
+    order: 同時に始まる字幕の段の順(stack_captions)・names: 字幕ごとの話者(lay_captions)"""
     target = dict(target or DEFAULT_TARGET)
     import_plan = build_import_plan(plan, paths["video"].relative_to(out_dir), target, wrap, color, fills, outlines, style, video_tracks,
-                                    order, names, speaker_order)
+                                    order, names)
     script = importer_script(import_plan)
     readme = readme_from_data(import_plan)   # 計画は 1 回だけ作る(段の数・字幕の数・見た目の名前はこの計画から読む = 前のパックの「手順を見る」と必ず同じ)
     S.write_text_atomic(paths["textplus_script"], script, encoding="utf-8", newline="\n")
