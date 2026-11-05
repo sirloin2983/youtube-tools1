@@ -24,7 +24,7 @@
   - 受ける口: `/api/queue/add` :92・`/api/queue` :95
 - **oplog.py** (137 行) — 友人のアプリの操作の記録(形の正は notes:plan/友人の不具合の自動対応-1025.md の「操作の記録」)。
   - 名前: `day_name` :32・`clean_ui` :47・`class OpLog` :91
-- **places.py** (260 行) — 友人の玄関の置き場所(資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。
+- **places.py** (266 行) — 友人の玄関の置き場所(資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。
   - 名前: `home` :36・`data_root` :48・`friend_dir` :56・`cookies_path` :60・`outbox_dir` :65・`is_maker_data` :69・`tool_env` :98・`lay_tools_shallow` :119・`app_tools_dir` :150・`lay_whisper` :155・`api_key_env` :181・`members_env` :195・ほか 2
 - **progress.py** (285 行) — 友人のアプリの「送った物」の行に出す、失敗の言葉と進み具合を作る部品(F3-3。notes:plan/done/f1-friend-requirements.md の C-2-15・C-2-16)。純粋な関数だけ(ファイルもネットも触らない。時計は引数で受ける)。
   - 名前: `classify` :106・`waiting_message` :129・`retry_note` :139・`stage` :181・`eta` :229・`slow` :248・`text` :266
