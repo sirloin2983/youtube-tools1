@@ -45,7 +45,7 @@ AI(Claude・GPT)向けの決まりは AGENTS.md です。
     入れたあとの ffmpeg などは、新しい黒い画面から使えます)
   1. Python 3.12(https://www.python.org/downloads/ 。Windows はインストール時に「Add python.exe to PATH」にチェック。
        winget なら Windows: winget install Python.Python.3.12 。入れたあとは py -3.12 で動かせます)
-       部品の版は 3.12 で確かめています(setup\requirements.txt)。install.bat は 3.12 があればそれを使います。start.bat は 3.12 に部品が入っていればそれを、無ければ 3.10(前の版。しばらく残す)→ ほかの Python 3 の順に使います
+       部品の版は 3.12 で確かめています(setup\requirements.txt)。install.bat は 3.12 があればそれを使います。start.bat は 3.12 に部品が入っていればそれを、無ければほかの Python 3 を使います
   2. ffmpeg     Windows: winget install Gyan.FFmpeg   / Mac: brew install ffmpeg
   3. yt-dlp     Windows: winget install yt-dlp.yt-dlp / Mac: brew install yt-dlp
      Deno       Windows: winget install DenoLand.Deno  / Mac: brew install deno
