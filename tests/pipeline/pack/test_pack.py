@@ -84,19 +84,23 @@ class TestSpeakerLanes(unittest.TestCase):
         r = RTP.lay_captions(cues, (30, 1), None, names)
         self.assertEqual(r['lanes'], [1, 1, 2, 1, 1])        # 1 人で話す所は誰でも 1 段目・A と B が重なる所だけ A が 2 段目
         self.assertEqual(r['cues'][1][:2], (40, 50))          # 同じ人(B)の重なり = 段を増やさず前を切る
-        self.assertEqual((r['count'], r['by']), (2, 'overlap'))
+        self.assertEqual((r['count'], r['by'], r['tracks'], r['trackCount']), (2, 'speaker', [1, 1, 2, 1, 2], 2))   # トラックは話者ごと(B が先 = 1 本目)
         r = RTP.lay_captions(cues, (30, 1), None, None)       # 話者が分からなければ重なりだけで段(b・d・c が重なり c は 3 段目)
         self.assertEqual(r['lanes'], [1, 1, 3, 2, 1])
 
     def test_import_plan(self):
-        """話者が 2 人以上でも、重ならなければ 1 段(captionLanes を書かない)"""
+        """話者が 2 人以上: トラックは話者ごと(11-07 ユーザー「トラック数も一つになった」)・縦の位置は重ならなければ通常のまま"""
         ip = _textplus_plan([(0, 30, 'a'), (40, 70, 'b'), (80, 90, 'c')], [(0, 2064)], names=['A', 'B', None])
-        self.assertEqual([c.get('trackUp') for c in ip['captions']], [None, None, None])
-        self.assertNotIn('captionLanes', ip)
-        ip = _textplus_plan([(0, 60, 'a'), (30, 90, 'b')], [(0, 2064)], names=['A', 'B'])
-        self.assertEqual([c.get('trackUp') for c in ip['captions']], [None, 1])
+        self.assertEqual([(c.get('trackUp'), c.get('dy')) for c in ip['captions']], [(None, None), (1, None), (None, None)])
         self.assertEqual(ip['captionLanes'], 2)
-        self.assertNotIn('captionLanesBy', ip)
+        ip = _textplus_plan([(0, 60, 'a'), (30, 90, 'b')], [(0, 2064)], names=['A', 'B'])
+        self.assertEqual([(c.get('trackUp'), c.get('dy')) for c in ip['captions']], [(None, None), (1, RTP.LANE_STEP_Y)])
+        self.assertEqual(ip['captionLanes'], 2)
+        ip = _textplus_plan([(0, 60, 'a'), (30, 90, 'b')], [(0, 2064)], names=['A', None])   # 話者が 1 人ならトラック = 段
+        self.assertEqual([(c.get('trackUp'), c.get('dy')) for c in ip['captions']], [(None, None), (1, RTP.LANE_STEP_Y)])
+        ip = _textplus_plan([(0, 60, 'a'), (30, 90, 'b')], [(0, 2064)], names=['B', None])   # 話者の無い字幕は 1 本目、空いていなければ空いている下のトラック
+        self.assertEqual([c.get('trackUp') for c in ip['captions']], [None, 1])
+        self.assertNotIn('captionTracksBy', ip)
 
 
 class TestResolveTextPlusScript(unittest.TestCase):
@@ -305,14 +309,14 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
         self.assertIn('cut2resolve Text+: ok|', out)
 
     def test_speaker_lanes_on_tracks(self):
-        """3 人のコラボ: 1 人で話す字幕は全部 V2(通常の位置)・重なる 2 人目だけ V3 で上へ・同じトラックに重なる字幕は無い"""
+        """3 人のコラボ: トラックは話者ごと(V2〜V4)・縦の位置は重なる 2 人目だけ上へ・同じトラックに重なる字幕は無い"""
         s = {'timelineFrameRate': '30', 'timelineResolutionWidth': '1080', 'timelineResolutionHeight': '1920'}
         cues = [(30, 90, '一'), (90, 150, '二'), (120, 180, '三'), (180, 240, '四'), (240, 300, '五')]
         plan = _textplus_plan(cues, [(0, 900)], fps=(30, 1), total=900, names=['マリン', 'ぺこら', 'リオナ', None, 'マリン'])
         out = self.run_lua(plan, s, media_fps=30, fonts=self.KEI)
         cut = out.split('timeline=CUT_TextPlus\n')[1].split('timeline=')[0]
-        self.assertIn('tracks=3\n', cut)
-        for track, start, text in ((2, 108030, '一'), (2, 108090, '二'), (3, 108120, '三'), (2, 108180, '四'), (2, 108240, '五')):
+        self.assertIn('tracks=4\n', cut)
+        for track, start, text in ((2, 108030, '一'), (3, 108090, '二'), (4, 108120, '三'), (2, 108180, '四'), (2, 108240, '五')):
             self.assertIn('item track=%d start=%d dur=60 text=%s' % (track, start, text), cut)
         self.assertEqual((cut.count('  center=0.5,0.7'), cut.count('  center=0.5,0.9')), (1, 0))   # 2 段目だけ縦の位置も上へ
         items = sorted((int(t), int(a), int(a) + int(d)) for t, a, d in re.findall(r'item track=(\d+) start=(\d+) dur=(\d+) text=', cut))
@@ -693,9 +697,9 @@ class TestPackRun(unittest.TestCase):
         self.assertIn("Join-Path $packageDir '%s'" % self.MEDIA, ps1)                     # 登録するときも直下の動画を探す
         self.assertNotIn("media\\", ps1)
         lua = self.lua(out)
-        for bad in ("CreateProject", "SetSetting", "LoadProject", "InsertFusionTitleIntoTimeline", "__C2R_LANES", "cap.trackUp"):
-            self.assertNotIn(bad, lua, bad)                                                # プロジェクトを作らない・設定を変えない・重ならなければ段のコードは無い
-        for s in ('GetSetting("timelineFrameRate")', "trackIndex=captionTrack, recordFrame=recordFrame",
+        for bad in ("CreateProject", "SetSetting", "LoadProject", "InsertFusionTitleIntoTimeline", "__C2R_LANES"):
+            self.assertNotIn(bad, lua, bad)                                                # プロジェクトを作らない・設定を変えない
+        for s in ('GetSetting("timelineFrameRate")', "trackIndex=captionTrack + (cap.trackUp or 0), recordFrame=recordFrame",
                   "local media30 = math.abs(DATA.mediaFps - 30) <= 0.01", "if tfps and media30 and math.abs(tfps - 30) > 0.01 then",
                   "(not media30 and math.abs(tfps - T.fps) > 0.01)", "tw ~= T.width or th ~= T.height", "fontOk and styleOk and fpsWarn == nil",
                   '(fpsWarn and "・注意 " .. fpsWarn or "")', "local ratio = tfps / DATA.mediaFps", 'tool:SetInput("Font", fontName)',
@@ -708,7 +712,10 @@ class TestPackRun(unittest.TestCase):
             bare = bare.replace(mark, '')
         self.assertEqual(re.findall(r'__C2R_[A-Z_]+__', bare), ['__C2R_DATA__'])
         self.assertEqual(hashlib.sha256(bare.encode('utf-8')).hexdigest(), '890745b646533e5d059859aab0cc905203063db0451d9439eec829c6af432098')
-        head, tail = bare.split('__C2R_DATA__')
+        full = RTP.LUA_TEMPLATE                                                            # 話者が 2 人 = トラックは話者ごと → 段のコードが入る
+        for mark, code in RTP.LUA_LANES.items():
+            full = full.replace(mark, code)
+        head, tail = full.split('__C2R_DATA__')
         self.assertTrue(lua.startswith(head) and lua.endswith(tail))
         ip = RTP.read_script_plan(lua)
         self.assertEqual((ip["target"], ip["mediaFps"], ip["title"], ip["media"]["file"], ip["captionWrap"]),
@@ -796,8 +803,8 @@ class TestPackRun(unittest.TestCase):
         out = self.d / "tp_tracks"                                                         # 映像トラックの数(簡易版で友人が選ぶ)
         res = pack.build_pack(plan, out, textplus=True, textplus_style="lite", video_tracks=5, **self.SCREEN)
         self.assertEqual(RTP.read_script_plan(self.lua(out))["videoTracks"], 5)
-        self.assertIn("V1〜V5 同じ映像(重ねて加工する用。V2 から上は映像だけ)・V6 Text+ 字幕(一番上)", res["readme"])
-        self.assertIn("V6 の Text+ を選び", RTP.readme_from_script(self.lua(out)))
+        self.assertIn("V1〜V5 同じ映像(重ねて加工する用。V2 から上は映像だけ)・V6〜V7 Text+ 字幕(一番上)", res["readme"])   # 話者 2 人 = トラック 2 本
+        self.assertIn("V6〜V7 の Text+ を選び", RTP.readme_from_script(self.lua(out)))
 
         # 重なる字幕の段(notes:plan/done/line-b-overlap.md の 6-2 の 4): 段に分けても、字幕ごとの色(話者)は同じ字幕に付く。話者は行から直接たどる
         # (字幕の真ん中の時刻で探すと、重なる行では別の人の行に当たる)。二 は 一 に 1 秒重なる → 2 段目。三 は 二 と 2 コマ重なるが 1 段目が空いている
@@ -820,8 +827,8 @@ class TestPackRun(unittest.TestCase):
                   'trySet(tool, "Center", {cx, cy + cap.dy})', "fpsWarn == nil and laneMiss == 0)", '"・重なる字幕 V" .. captionTrack'):
             self.assertIn(s, lua)
         self.assertEqual(RTP.readme_from_script(lua), res["readme"])
-        for s in ("V1 映像・A1 音声・V2〜V3 Text+ 字幕。同時にしゃべっている所の字幕は、重ならないように上のトラック(V3)に置き",
-                  "V2〜V3 の Text+ を選び", "重なる字幕(V3)の高さを直す"):
+        for s in ("V1 映像・A1 音声・V2〜V3 Text+ 字幕。字幕は話す人ごとのトラックに分けてあります(V2 が 1 人目)",
+                  "V2〜V3 の Text+ を選び", "ずらした字幕の高さを直す"):
             self.assertIn(s, res["readme"])
         out = self.d / "over_edl"                                                          # EDL が本体のパック(Text+ でない)の SRT も、重なる所は段に分ける(10-23)
         pack.build_pack(over, out, **self.SCREEN)
@@ -870,7 +877,7 @@ class TestPackRun(unittest.TestCase):
         ip = RTP.read_script_plan(self.lua(out))
         caps = ip["captions"]
         n = len(self.LANES and [r for g in self.LANES for r in g])
-        lane = [1 + c.get("trackUp", 0) for c in caps[:n]]
+        lane = [1 + round(c.get("dy", 0) / RTP.LANE_STEP_Y) for c in caps[:n]]                 # 段 = 縦の位置(トラックは話者ごと)
         got = [(c["startFrame"], c["endFrame"]) for c in caps[:n]]
         self.assertEqual([c["text"] for c in caps[:n]], [r[2] for r in rows[:n]])               # 字幕の数・並びは変えない
         self.assertEqual((lane[0:2], got[0:2]), ([1, 1], [(0, 30), (30, 60)]))                   # a: 前を 30 で切る
@@ -887,7 +894,7 @@ class TestPackRun(unittest.TestCase):
         self.assertEqual([c.get("dy") for c in caps[10:14]], [None, 0.2, 0.4, 0.4])
         self.assertEqual((ip["captionLanes"], ip["videoTracks"]), (3, 3))
         self.assertIn('V1〜V3 同じ映像(重ねて加工する用。V2 から上は映像だけ)・V4〜V6 Text+ 字幕(一番上)・A1 音声。', res["readme"])
-        self.assertIn('上のトラック(V5〜V6)', res["readme"])
+        self.assertIn('話す人ごとのトラックに分けてあります(V4 が 1 人目)', res["readme"])
         sm = pack.summary(plan)
         self.assertEqual((sm["captionLanes"], sm["captionsTrimmed"]), (3, sum(1 for a, b in zip(got, [r[:2] for r in rows[:n]]) if a != b)))
         # 字幕の位置: 区間の頭からのコマ(区間は 1 つ)
@@ -1432,7 +1439,7 @@ class TestPackRun(unittest.TestCase):
         ip = RTP.read_script_plan(self.lua(out))
         self.assertEqual([c["text"] for c in ip["captions"]], ["一", "まだ", "二"])
         self.assertEqual([c.get("fill") for c in ip["captions"]], [None, [0.0, 0.0, 1.0, 1.0], [0.0, 0.0, 1.0, 1.0]])
-        self.assertNotIn("captionLanes", ip)
+        self.assertEqual(([c.get("trackUp") for c in ip["captions"]], [c.get("dy") for c in ip["captions"]]), ([None, 1, 1], [None] * 3))   # 話者ごとのトラック・位置は通常
         # 編集のカット(EDIT_KEEPS)の道でも同じ字幕
         p2 = pack.plan_cut(pack.Request(video=self.video, transcript=tr, keep_pairs=[(0.5, 5.0)], **pack.EDIT_KEEPS))
         self.assertEqual(([c[2] for c in p2.cues_out], p2.no_sub_rows), (["一", "まだ", "二"], 1))
