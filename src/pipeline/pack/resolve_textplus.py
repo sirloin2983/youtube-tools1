@@ -37,8 +37,8 @@ TEXT_STYLE = {
                   "BIZ UDGothic", "BIZ UDゴシック", "Yu Gothic UI", "Meiryo UI", "MS UI Gothic"],
     "autoStyles": ["Bold", "太字", "Regular", "標準"],     # 前のほどよい。どれも無ければ、その書体にある太さのどれか
     "fallback": ["MS Gothic", "Regular"],
-    "text": [["Size", 0.14], ["CharacterSpacing", 1.0], ["LineSpacing", 1.0],
-             ["VerticalTopCenterBottom", 1.0], ["HorizontalLeftCenterRight", 0.0]],
+    "text": [["Size", 0.14], ["CharacterSpacing", 1.0], ["LineSpacing", 1.0],   # 縦のアンカー VerticalTopCenterBottom: -1 上・0 真ん中・1 下
+             ["VerticalTopCenterBottom", 0.0], ["HorizontalLeftCenterRight", 0.0]],
     # シェードの要素: 番号・外観(ElementShape 0 = 文字の塗り / 1 = 文字のふち)・太さ・色(赤・緑・青・アルファ)・優先順位・ずらし(X, Y)
     "shading": [
         {"n": 1, "shape": 0, "thickness": None, "rgba": [0.0, 0.0, 0.0, 1.0], "priority": 8, "offset": [0.0, 0.0]},

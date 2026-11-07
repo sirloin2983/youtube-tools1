@@ -156,7 +156,7 @@ class TestResolveTextPlusLuaRun(unittest.TestCase):
         self.assertIn('item track=1 start=108300 dur=301', out)
         self.assertIn('item track=2 start=108030 dur=120 text=一 font=けいふぉんと', out)   # 指定のフォント(ユーザーの指定)
         self.assertIn('  style=Regular fill=0,0,0 outline=1:1,1,1', out)       # 黒い文字 + 白いふち
-        self.assertIn('  size=0.14 anchor=1,0 thick=0.12,0.18 shape=0,1,1 prio=8,7,4 offset2=0.015,-0.02 outer=1:0,0,0', out)   # + 外側の黒いふち
+        self.assertIn('  size=0.14 anchor=0,0 thick=0.12,0.18 shape=0,1,1 prio=8,7,4 offset2=0.015,-0.02 outer=1:0,0,0', out)   # + 外側の黒いふち
         self.assertIn('字体 けいふぉんと Regular(指定のフォント)', out)
         self.assertIn('・見た目 けいふぉんと・黒い文字・白いふち・黒いふち・', out)
         self.assertIn('item track=2 start=108300 dur=60 text=二', out)
@@ -723,7 +723,7 @@ class TestPackRun(unittest.TestCase):
         self.assertEqual([list(x) for x in ip["style"]["inputs"]], [list(x) for x in RTP.style_inputs()])
         self.assertEqual((ip["style"]["fonts"][:2], ip["style"]["styles"], ip["style"]["fillN"]), (["けいふぉんと", "Keifont"], ["Regular"], 1))
         inputs = dict((kv[0], kv[1]) for kv in ip["style"]["inputs"])
-        for k, v in {"Size": 0.14, "CharacterSpacing": 1.0, "LineSpacing": 1.0, "VerticalTopCenterBottom": 1.0, "HorizontalLeftCenterRight": 0.0,
+        for k, v in {"Size": 0.14, "CharacterSpacing": 1.0, "LineSpacing": 1.0, "VerticalTopCenterBottom": 0.0, "HorizontalLeftCenterRight": 0.0,
                      "Enabled1": 1, "ElementShape1": 0, "Red1": 0.0, "Green1": 0.0, "Blue1": 0.0, "Alpha1": 1.0, "Priority1": 8, "Offset1": [0.0, 0.0],
                      "Enabled2": 1, "ElementShape2": 1, "Thickness2": 0.12, "Red2": 1.0, "Green2": 1.0, "Blue2": 1.0, "Priority2": 7,
                      "Offset2": [0.015, -0.02],
