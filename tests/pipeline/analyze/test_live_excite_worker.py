@@ -45,7 +45,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 import testkit  # noqa: E402
 from pipeline.analyze import live_excite_worker as W  # noqa: E402
 from pipeline.analyze import excite, levels  # noqa: E402
-from ytt import fsio, procs, tools  # noqa: E402
+from ytt import fsio, keystore, procs, tools  # noqa: E402
 
 TOKEN = "k" * 40
 T0 = 1790000000.0
@@ -1171,6 +1171,18 @@ class WorkerRestTest(unittest.TestCase):
         w.load_config(force=True)
         self.assertIs(w.cfg["quotaFill"], False)
         w.close()
+
+    def test_token_from_keystore(self):
+        """11-07: config.json の録画元は鍵の名前(tokenKey)だけ。合言葉はワーカーが鍵の置き場から読む"""
+        keys = os.path.join(self.dir, "secrets", "keys.json")
+        keystore.put(keys, "live.recorder.fake", TOKEN)
+        cfg = write_config(self.dir, keys=keys, recorders=[{"id": "fake", "url": "http://127.0.0.1:1", "tokenKey": "live.recorder.fake"}])
+        w = make_worker(cfg, Clock(T0), SimRecorder(Clock(T0)))
+        w.load_config(force=True)
+        self.assertEqual(w.cfg["recorders"][0]["token"], TOKEN)
+        w.close()
+        with open(cfg, encoding="utf-8") as f:
+            self.assertNotIn(TOKEN, f.read())
 
     def test_quota_fill_skips_gaps(self):
         """欠けの直後(帳簿に 0 を渡した前後 GAP_MARGIN 秒)の山は埋めに使わない。欠けは配信中に gaps から捨てても state.json の gapsAll に残る"""

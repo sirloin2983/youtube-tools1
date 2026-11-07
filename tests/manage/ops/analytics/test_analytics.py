@@ -22,6 +22,7 @@ if SRC not in sys.path:
     sys.path.insert(0, SRC)
 
 from manage.ops.analytics import bridge, calc, data, render, service, timeutil as T  # noqa: E402
+from ytt import keystore  # noqa: E402
 
 UTC = T.UTC
 DAY = datetime.timedelta(days=1)
@@ -370,7 +371,9 @@ class ServiceTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.fb = FakeBridge({"id_first_aaaa": ("2026-10-08.json", "2026-10-07T23:11:00Z", make_raw())})
-        self.svc = service.Service(base_dir=self.tmp, members=data.member_matcher(ENTRIES), bridge_factory=lambda url, secret: self.fb, sims=10)   # 送る道を見る(見込みの数は見ない)ので試行は少なく
+        self.keys = os.path.join(self.tmp, "secrets", "keys.json")   # 鍵の置き場もこの一時フォルダの中(既定は <親>/app/secrets)
+        self.svc = service.Service(base_dir=self.tmp, members=data.member_matcher(ENTRIES), bridge_factory=lambda url, secret: self.fb, sims=10,
+                                   keys=self.keys)   # 送る道を見る(見込みの数は見ない)ので試行は少なく
         self.svc.set_config(URL, SECRET)
 
     def tearDown(self):
@@ -398,7 +401,8 @@ class ServiceTest(unittest.TestCase):
         self.check_web()   # 作った日報が手元の画面で出る(日報を作る tick は重いので同じ状態を分け合う)
 
     def test_not_configured(self):
-        s = service.Service(base_dir=self.tmp + "x", bridge_factory=lambda u, s: self.fb)
+        s = service.Service(base_dir=self.tmp + "x", bridge_factory=lambda u, s: self.fb, keys=os.path.join(self.tmp, "none.json"))
+        self.addCleanup(shutil.rmtree, self.tmp + "x", True)
         self.assertIsNone(s.tick())
         self.assertEqual(s.state, "off")
 
@@ -406,6 +410,25 @@ class ServiceTest(unittest.TestCase):
         snap = json.dumps(self.svc.snapshot())
         self.assertNotIn(SECRET, snap)
         self.assertTrue(self.svc.snapshot()["config"]["hasSecret"])
+        with open(os.path.join(self.tmp, "config.json"), encoding="utf-8") as f:
+            self.assertNotIn(SECRET, f.read())   # 合言葉の値は設定のファイルに書かない(鍵の置き場へ。11-07)
+        self.assertEqual(keystore.get(self.keys, service.SECRET_KEY), SECRET)
+
+    def test_old_secret_moves_to_keystore(self):
+        """11-07 まで config.json にあった "secret" は、読むときに鍵の置き場へ移して config.json から消す"""
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        with open(os.path.join(d, "config.json"), "w", encoding="utf-8") as f:
+            json.dump({"url": URL, "secret": SECRET, "enabled": True}, f)
+        keys = os.path.join(d, "k", "keys.json")
+        s = service.Service(base_dir=d, bridge_factory=lambda u, sec: (u, sec), keys=keys)
+        self.assertTrue(s.configured())
+        self.assertEqual(s.bridge(), (URL, SECRET))
+        with open(os.path.join(d, "config.json"), encoding="utf-8") as f:
+            c = json.load(f)
+        self.assertNotIn("secret", c)
+        self.assertEqual(c["secretKey"], service.SECRET_KEY)
+        self.assertEqual(keystore.get(keys, service.SECRET_KEY), SECRET)
 
     def check_web(self):
         h = FakeHandler()

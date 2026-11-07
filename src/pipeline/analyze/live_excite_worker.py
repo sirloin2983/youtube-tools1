@@ -7,7 +7,7 @@
 queued と worker.json の queued)で、受け持っている録画の検出が終わったら古い順に始める(そのときのライブ端 − SKIP_KEEP から。録画の途中から受け持った
 録画は、それより前を「飛ばした区間」にしない = 測り直さない。順番待ちのうちに配信が終わった録画は音だけで頭から測る)。
 入口とは**ファイルだけ**で話す(stdin/stdout の常駐の約束は作らない。仮決め (bk)):
-  config.json    入口が書く。{"v":1, "dir", "recorders": [{"id","url","token"}], "detect": {"sens","perHour"}, "spec": {"length","preRatio","lag","lagAuto",
+  config.json    入口が書く。{"v":1, "dir", "recorders": [{"id","url","tokenKey"}], "keys"(鍵の置き場。合言葉は tokenKey の名前で ytt/keystore から読む), "detect": {"sens","perHour"}, "spec": {"length","preRatio","lag","lagAuto",
                  "wAudio","wChat","headSec"}, "ffmpeg", "ytdlp", "chatLimitBytes", "chatStallSec", "chatKeepDir"?, "lengthHint"?, "provisional"?}。30 秒ごとに更新の時刻を見て読み直す。
                  lengthHint = M10 の人が選んだ長さの目安(入口が ② flow/lengthhint でその場で数える。enough のときだけ、新しく受け持つ
                  録画の長さ・前の割合に使う。無い・足りない = スタジオの解析の設定)。provisional = 仮の候補(既定オン。false で出さない)。
@@ -64,7 +64,7 @@ ROOT = os.path.dirname(os.path.dirname(HERE))   # analyze -> pipeline -> src(「
 if __name__ == "__main__":   # スクリプトとして起動したときだけ: このフォルダを外して src を先頭に(兄弟は絶対 import。層の決まりの例外)。import したとき(live_detect・テスト)は触らない
     sys.path[:] = [ROOT] + [p for p in sys.path if os.path.normcase(os.path.abspath(p or os.curdir)) not in (os.path.normcase(HERE), os.path.normcase(ROOT))]
 from pipeline.analyze import excite, levels, live_audio  # noqa: E402
-from ytt import datadir, fsio, procs, recproto, schemas, tools, ytledger  # noqa: E402
+from ytt import datadir, fsio, keystore, procs, recproto, schemas, tools, ytledger  # noqa: E402
 
 WORKER_VERSION = "1"
 POLL_SEC = 6.0             # 周期(5〜10 秒)
@@ -1265,6 +1265,9 @@ class Worker:
         d = fsio.read_json_or(self.config_path, None, 1024 * 1024, kind=dict) or {}
         self.cfg_key = key
         rcs = [r for r in d.get("recorders") or [] if isinstance(r, dict) and ID_RE.match(str(r.get("id") or "")) and isinstance(r.get("url"), str)]
+        # 合言葉は config.json に無く、鍵の名前(tokenKey)で鍵の置き場から読む(ytt/keystore。11-07 から。古い形の token もそのまま読める)
+        keys = d.get("keys") if isinstance(d.get("keys"), str) else None
+        rcs = [dict(r, token=keystore.get(keys, r["tokenKey"])) if isinstance(r.get("tokenKey"), str) else r for r in rcs]
         spec = clean_spec_doc(d.get("spec"))
         self.cfg = {"dir": d.get("dir") if isinstance(d.get("dir"), str) and d.get("dir") else os.path.dirname(self.config_path), "recorders": rcs,
                     "detect": clean_detect(d.get("detect")), "spec": spec, "ffmpeg": d.get("ffmpeg") or None, "ytdlp": d.get("ytdlp") or None,

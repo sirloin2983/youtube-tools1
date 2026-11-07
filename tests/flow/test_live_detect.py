@@ -33,7 +33,7 @@ import testkit  # noqa: E402
 from flow import live_batch as LB  # noqa: E402
 from flow import live_detect as D  # noqa: E402
 from flow import live_export as LX  # noqa: E402
-from ytt import fsio  # noqa: E402
+from ytt import fsio, keystore  # noqa: E402
 
 TOKEN = LF.TOKEN
 T0 = 1790000000.0
@@ -513,7 +513,7 @@ class DetectApiTest(unittest.TestCase):
         self.assertEqual(D.measured_holes({}, T0, 100.0), [])   # 欄が無ければ穴にしない
 
     def test_config_and_spec_from_studio(self):
-        """config.json: 録画元(合言葉つき)・感度・1 時間の本数・スタジオの解析の設定(範囲外は丸める)。変わったときだけ書く"""
+        """config.json: 録画元(合言葉は鍵の名前だけ・値は鍵の置き場)・感度・1 時間の本数・スタジオの解析の設定(範囲外は丸める)。変わったときだけ書く"""
         settings = {"settings": {"analyze": {"length": 400, "preRatio": 0.5, "lag": "x", "wChat": 1.4, "lagAuto": False}}}
         base = self.studio
 
@@ -526,7 +526,10 @@ class DetectApiTest(unittest.TestCase):
         self.assertEqual(self.det.tick(), "nospawn")
         with open(os.path.join(self.det.dir, "config.json"), encoding="utf-8") as f:
             c = json.load(f)
-        self.assertEqual(c["recorders"], [{"id": "fake", "url": self.rec.url, "token": TOKEN}])
+        self.assertEqual(c["recorders"], [{"id": "fake", "url": self.rec.url, "tokenKey": "live.recorder.fake"}])
+        with open(os.path.join(self.det.dir, "config.json"), encoding="utf-8") as f:
+            self.assertNotIn(TOKEN, f.read())   # 合言葉の値は config.json に書かない(11-07)
+        self.assertEqual(keystore.get(c["keys"], "live.recorder.fake"), TOKEN)
         self.assertEqual(c["detect"], {"sens": "high", "perHour": 3})
         self.assertEqual((c["spec"]["length"], c["spec"]["preRatio"], c["spec"]["lag"], c["spec"]["wChat"], c["spec"]["lagAuto"]), (300.0, 0.5, 8.0, 1.4, False))   # 上限 300(LD-2d)
         self.assertEqual(c["dir"], self.det.dir)

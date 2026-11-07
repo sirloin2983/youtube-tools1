@@ -8,7 +8,8 @@
 5. 画面の「今すぐ」でも同じこと(手動)。PC が止まっていた日は、起動したときに最新の分だけ送る
 
 作業データ(%LOCALAPPDATA%/youtube-tools/analytics/。YTT_DATA_DIR=inplace なら src/manage/ops/analytics/data/):
-- config.json: {"url", "secret", "enabled"}(合言葉は画面へ返さない)
+- config.json: {"url", "secretKey", "enabled"}(合言葉は画面へ返さない。値は鍵の置き場 ytt/keystore = <root>/app/secrets/keys.json の
+  secretKey の名前の所。11-07 に config.json の "secret" から移した = 古い形の "secret" が残っていれば、読むときに鍵の置き場へ移して消す)
 - raw/<名前>__<ファイルID>.json: 受け取った raw(そのまま)
 - reports/<kind>/<期間>.json・.html・.txt: 作った報告(画面で見る)
 - state.json: 受け取った記録・送った記録・最後の実行
@@ -21,7 +22,7 @@ import threading
 import time
 import traceback
 
-from ytt import fsio, httpsec, jobs
+from ytt import fsio, httpsec, jobs, keystore
 from ytt.version import VERSION  # 全体の版(ytt/version.py。パッケージの __init__ には import を置かない = test_layering)
 from . import bridge as bridge_mod, calc, data, render
 
@@ -42,6 +43,7 @@ CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' 
 REPORT_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"
 STATE_LABELS = {"off": "連携の設定がまだです", "idle": "動いています", "running": "分析しています…", "error": "止まっています"}
 KIND_NAMES = {"daily": "日報", "weekly": "週報", "monthly": "月報"}
+SECRET_KEY = "analytics.secret"   # 連携の合言葉の鍵の名前(ytt/keystore)
 
 
 def data_dir():
@@ -54,8 +56,9 @@ def data_dir():
 
 class Service:
     def __init__(self, base_dir=None, log=None, members=None, bridge_factory=None, clock=None, sims=calc.SIMS,
-                 check_every=CHECK_EVERY, first_wait=FIRST_WAIT, write=None, token=None):
+                 check_every=CHECK_EVERY, first_wait=FIRST_WAIT, write=None, token=None, keys=None):
         self.dir = base_dir or data_dir()
+        self.keys = keys or keystore.beside(self.dir)   # 鍵の置き場(既定 = 同じ親の app/secrets/keys.json)
         self.log = log or (lambda msg: None)
         self.members = members           # 題名 → [メンバー](無ければ最初に使うときに ytt.colors から作る)
         self.bridge_factory = bridge_factory or bridge_mod.Bridge
@@ -88,11 +91,23 @@ class Service:
 
     def config(self):
         c = self._read_json("config.json") or {}
-        return c if isinstance(c, dict) else {}
+        c = c if isinstance(c, dict) else {}
+        if "secret" in c:   # 古い形(11-07 まで): 合言葉の値を鍵の置き場へ移し、config.json には鍵の名前だけを残す
+            old = c.pop("secret")
+            if isinstance(old, str) and old:
+                keystore.put(self.keys, SECRET_KEY, old)
+                c["secretKey"] = SECRET_KEY
+            self._write_json(c, "config.json")
+        return c
+
+    def secret(self):
+        """連携の合言葉(鍵の置き場から。無ければ "")。画面・ログには出さない"""
+        name = self.config().get("secretKey")
+        return keystore.get(self.keys, name) if name else ""
 
     def configured(self):
         c = self.config()
-        return bool(c.get("url") and c.get("secret"))
+        return bool(c.get("url") and self.secret())
 
     def set_config(self, url=None, secret=None, enabled=None, plan=None, boundary=None):
         """画面から。合言葉は空なら今のまま(画面へは返さないので、URL だけ直すときに入れ直さなくてよい)。
@@ -101,7 +116,8 @@ class Service:
         if url is not None:
             c["url"] = bridge_mod.check_url(url)
         if secret:
-            c["secret"] = bridge_mod.check_secret(secret)
+            keystore.put(self.keys, SECRET_KEY, bridge_mod.check_secret(secret))
+            c["secretKey"] = SECRET_KEY
         if enabled is not None:
             c["enabled"] = bool(enabled)
         if plan is not None:
@@ -123,12 +139,11 @@ class Service:
 
     def public_config(self):
         c = self.config()
-        return {"url": c.get("url") or "", "hasSecret": bool(c.get("secret")), "enabled": c.get("enabled", True),
+        return {"url": c.get("url") or "", "hasSecret": bool(self.secret()), "enabled": c.get("enabled", True),
                 "planPerWeek": c.get("planPerWeek", DEFAULT_PLAN), "boundary": c.get("boundary") or calc.BOUNDARY.isoformat()}
 
     def bridge(self):
-        c = self.config()
-        return self.bridge_factory(c.get("url"), c.get("secret"))
+        return self.bridge_factory(self.config().get("url"), self.secret())
 
     def _matcher(self):
         if self.members is None:

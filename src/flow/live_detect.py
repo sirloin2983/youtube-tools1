@@ -9,7 +9,7 @@ autoAdopt {waitMin: 1〜60(既定 5)}(自動の採用はいつもオン。オフ
 config.json の bundles に、自動の採用の待ちは束の adopt.waitMin(決定 3-31 の仮 b1)。束の無い録画は上の設定とスタジオの解析の設定のまま。
 
 ファイル(入口の作業データ live/excite/。書き手は 1 ファイルに 1 つ = 仮決め (bj)):
-  config.json       ここが書く(変わったときだけ)。ワーカーが 30 秒ごとに読み直す: 録画元(合言葉つき)・感度・1 時間の本数・スタジオの解析の設定(長さ・前の割合・遅れ・重み・冒頭)・
+  config.json       ここが書く(変わったときだけ)。ワーカーが 30 秒ごとに読み直す: 録画元(合言葉は鍵の名前だけ・値は ytt/keystore)・感度・1 時間の本数・スタジオの解析の設定(長さ・前の割合・遅れ・重み・冒頭)・
                     ffmpeg と yt-dlp の場所
   <録画元>/<録画>/decisions.json   ここが書く: 人の採用・見送り・戻す、自動の採用 {"v":1, "n", "items": [{n, id, state: adopted|dismissed|restore, origin, markId, jobId, at}]}。
                     ワーカーが読んで候補の帳簿(PeakBook)に当てる。当てた番号は peaks.json の decN。まだ当たっていない決定は、ここが API の応答に重ねて返す
@@ -47,6 +47,7 @@ waitMin の録画は枠の候補と同じ道で、区切りの録画は頭が取
 """
 import json
 import os
+import re
 import shutil
 import sys
 import threading
@@ -61,6 +62,7 @@ from . import live_export as LX
 from . import livehost   # 親の口の型(RS7-2 G0)
 from . import lengthhint as _lengthhint   # 長さの目安を使うときに数える(OPT-E2 7f-1)
 from ytt import datadir as _datadir
+from ytt import keystore   # 録画元の合言葉の置き場(config.json には名前だけ)
 from pipeline.analyze import excite
 from pipeline.analyze import live_excite_worker as EW   # ファイルの形・定数・設定の検査はワーカーと 1 か所。numpy などは読まない
 
@@ -273,9 +275,21 @@ class Detector:
                 self._spec = clean_spec(None)
         return self._spec
 
+    def recorders_cfg(self):
+        """config.json の録画元: 合言葉の値は書かず鍵の名前だけ(値は鍵の置き場 ytt/keystore = 入口の作業データの app/secrets/keys.json へ。
+        11-07 ユーザー OK「よい」= 鍵とログインは別に持つ)。-> ([{id, url, tokenKey}], 鍵の置き場のパス)"""
+        keys = keystore.path_for(_datadir.resolve("app", self.host.root))
+        out = []
+        for r in self.host.recorders():
+            name = "live.recorder." + (re.sub(r"[^a-z0-9._-]", "-", str(r["id"]).lower())[:40] or "x")
+            keystore.put(keys, name, r.get("token") or "")   # 同じ値なら書かない・空なら消す
+            out.append({"id": r["id"], "url": r.get("url") or "", "tokenKey": name})
+        return out, keys
+
     def config(self):
         bc = self.bundles_cfg()
-        return {"v": 1, "dir": self.dir, "recorders": [{"id": r["id"], "url": r.get("url") or "", "token": r.get("token") or ""} for r in self.host.recorders()],
+        rcs, keys = self.recorders_cfg()
+        return {"v": 1, "dir": self.dir, "recorders": rcs, "keys": keys, "keysStamp": keystore.stamp(keys),   # 鍵が変われば config.json も変わる = ワーカーが読み直す
                 "detect": EW.clean_detect(self.detect_cfg()), "spec": self.spec(), "ffmpeg": self.ffmpeg(), "ytdlp": self.ytdlp(),
                 "chatLimitBytes": self.chat_limit, "chatStallSec": self.chat_stall, "lengthHint": self._length_hint(),
                 "detectAll": self.detect_cfg().get("enabled") is True, "requests": self.requests_cfg(),   # 友人の依頼の録画(2-15)
