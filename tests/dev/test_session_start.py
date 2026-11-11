@@ -71,8 +71,6 @@ class SessionStartTest(unittest.TestCase):
         write(os.path.join(self.notes, "docs", "spec", "cases.md"), "# 案件\n")
         write(os.path.join(self.notes, "docs", "子への指示文の雛形.md"),
               "# 雛形\n\n説明\n\n```\n**決まり**\n- 日本語で。\n\n**完了の条件(いつもの)**\n- lint 0。\n```\n\n後書き\n")
-        write(os.path.join(self.notes, "plan", "仮決めの一覧.md"),
-              "# 一覧\n\n## まだの重い物(2 件)\n\n1. **3-1 (a)** — 一つ目\n2. **3-2 (b)** — 二つ目\n\n## 軽い物\n3. 当たらない\n")
         for name, item in {"a1": {"id": "A1", "name": "済んだ", "state": "done", "order": 1},
                            "a2": {"id": "A2", "name": "作っている", "state": "doing", "who": "AI", "order": 2},
                            "a3": {"id": "A3", "name": "あとで", "state": "todo", "order": 3}}.items():
@@ -105,7 +103,7 @@ class SessionStartTest(unittest.TestCase):
         self.assertIn("10-18 code-map: 地図を作った", text)
         self.assertIn("[進行中] A2 作っている(AI)", text)
         self.assertIn("[次] U1 答える", text)
-        self.assertIn("1. **3-1 (a)** — 一つ目", text)
+        self.assertNotIn("仮決め", text)
         self.assertIn("wt-friend [claude/friend] +1・未コミット 1 友人の口を直す", text)
         self.assertIn("重なる: src/friendapp/api.py・src/friendapp/server.py", text)
         self.assertIn("- spec: docs/spec/friend.md", text)

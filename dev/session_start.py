@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """セッションの入口の要約。新しい AI のセッションが最初に流し、今の状態を 1 画面(150 行以内)で見る。
 
-    py -3.12 dev/session_start.py [<領域>]                    # 両方の git・版・今週の作業の記録・境目のメモ・計画・重い仮決め・動いている worktree
+    py -3.12 dev/session_start.py [<領域>]                    # 両方の git・版・今週の作業の記録・境目のメモ・計画・動いている worktree
     py -3.12 dev/session_start.py --brief <領域> --task "<一言>"   # 子への指示文の下書き(雛形・関係する地図と spec・重なりそうな worktree)
 
 読むだけ(何も書き換えない)・新しい「正」は作らない。どの行も元の場所から読んで出す:
   git(リポジトリ・保管庫)・main の src/ytt/version.py・docs/worklog/<週>/ のセッションのファイル(dev/worklog.py の形)・
   境目-*.md(共有メモのフォルダ %APPDATA%/Claude/side-session-notes/*/ と保管庫)・plan/data/ の tasks と user・
-  plan/仮決めの一覧.md・git worktree list・codemap/・docs/spec/ と AGENTS.md の「何を触るときに何を読むか」の表。
+  git worktree list・codemap/・docs/spec/ と AGENTS.md の「何を触るときに何を読むか」の表。
 雛形の正は保管庫の docs/子への指示文の雛形.md(最初の ``` の中)。
 領域は codemap/ と docs/spec/ のファイル名・AGENTS.md の表の行に当てる言葉(例: friendapp・pipeline・plan・editor・dev)。
 """
@@ -31,9 +31,7 @@ NOWIN = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 WIDTH = 120
 MAIN = "main"
 TEMPLATE_REL = "docs/子への指示文の雛形.md"
-PROV_REL = "plan/仮決めの一覧.md"
 VERSION_RE = re.compile(r'^VERSION\s*=\s*"([^"]+)"', re.M)
-HEAVY_RE = re.compile(r"^## まだの重い物[((](\d+) 件[))]", re.M)
 ACTIVE_DAYS = 2
 # 領域の言葉に足す言葉(ファイル名・表の行に当てるだけ。中身の正ではない)
 ALIASES = {
@@ -192,19 +190,6 @@ def plan_block(notes):
     for u in now:
         out.append("- " + cut("[%s] %s %s" % (STATE_WORD.get(u.get("state"), u.get("state")), u.get("id"),
                                               u.get("name", "")), WIDTH - 2))
-    return out
-
-
-def provisional_block(notes, top=3):
-    text = read(os.path.join(notes, *PROV_REL.split("/")))
-    if text is None:
-        return ["## 重い仮決め: %s が無い" % PROV_REL]
-    m = HEAVY_RE.search(text)
-    out = ["## 重い仮決め: まだ %s 件(%s。週 1 回、重い順に 1 問ずつ聞く)" % (m.group(1) if m else "?", PROV_REL)]
-    if m:
-        body = text[m.end():].split("\n## ", 1)[0]
-        for ln in [ln for ln in body.split("\n") if re.match(r"^\d+\. ", ln)][:top]:
-            out.append("  " + cut(ln, WIDTH - 2))
     return out
 
 
@@ -420,7 +405,6 @@ def summary(domain, repo, notes, today):
     out += worklog_block(notes, today)
     out += boundary_block(boundary_dirs(notes))
     out += plan_block(notes)
-    out += provisional_block(notes)
     over = None
     if domain:
         cmap, _spec, _rows = domain_refs(domain, repo, notes)
