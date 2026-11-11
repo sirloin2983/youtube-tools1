@@ -63,8 +63,8 @@
   - 名前: `class DataError` :31・`class Video` :35・`class Dataset` :73・`member_matcher` :109・`parse` :129
 - **render.py** (574 行) — 日報・週報・月報の LINE の文面と HTML(calc の結果 → 文字列)。
   - 名前: `esc` :15・`man` :19・`pct` :30・`usd` :37・`d_md` :41・`d_mdw` :45・`page` :76・`provenance` :84・`scenario` :92・`pool_keys` :97・`probs` :101・`prob_range` :105・ほか 22
-- **service.py** (415 行) — 入口の中で動く「分析と日報」: 見張り(新しい raw を受け取って分析し LINE へ)・画面と API(/analytics/)。
-  - 名前: `data_dir` :47・`class Service` :55
+- **service.py** (430 行) — 入口の中で動く「分析と日報」: 見張り(新しい raw を受け取って分析し LINE へ)・画面と API(/analytics/)。
+  - 名前: `data_dir` :49・`class Service` :57
 - **timeutil.py** (94 行) — 日付と時刻の定義(1 か所。監査の E2・E3・E4。notes:plan/done/analytics-daily-report.md の 12-4 の 2)。
   - 名前: `pt_offset` :21・`to_pt` :29・`pt_day_start_utc` :34・`parse_utc` :41・`day_from_int` :58・`jst_date` :67・`md` :71・`md_w` :76・`day_end_utc` :81・`elapsed_hours_at_day_end` :86・`add_months` :91
 

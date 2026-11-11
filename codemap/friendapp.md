@@ -28,7 +28,7 @@
   - 名前: `home` :36・`data_root` :48・`friend_dir` :56・`cookies_path` :60・`outbox_dir` :65・`is_maker_data` :69・`tool_env` :98・`lay_tools_shallow` :119・`app_tools_dir` :150・`lay_whisper` :155・`api_key_env` :181・`members_env` :195・ほか 2
 - **progress.py** (285 行) — 友人のアプリの「送った物」の行に出す、失敗の言葉と進み具合を作る部品(F3-3。notes:plan/done/f1-friend-requirements.md の C-2-15・C-2-16)。純粋な関数だけ(ファイルもネットも触らない。時計は引数で受ける)。
   - 名前: `classify` :106・`waiting_message` :129・`retry_note` :139・`stage` :181・`eta` :229・`slow` :248・`text` :266
-- **report.py** (751 行) — 友人のアプリの状態の書き出しと、そのきっかけ(形の正は notes:plan/友人の不具合の自動対応-1025.md。受け取り側はユーザーの PC の別の部品)。
+- **report.py** (751 行) — 友人のアプリの状態の書き出しと、そのきっかけ(形の正は notes:今の道具の仕様/友人の不具合の自動対応.md。受け取り側はユーザーの PC の別の部品)。
   - 名前: `fit` :63・`judge` :91・`live_cands` :132・`dir_bytes` :155・`class Reporter` :169
 - **server.py** (1141 行) — 友人の玄関(資料の git:before-1028-cleanup:docs/design/friend-history.md の 7 章)。友人の PC の 2 つ目の玄関(ユーザーの PC は src/app/server.py)。
   - 名前: `save_dir` :125・`open_folder` :134・`pick_file_dialog` :150・`pick_folder_dialog` :190・`page_token` :227・`inject_meta` :234・`class Handler` :241・`client_log_line` :558・`class Server` :564・`class FriendApp` :586・`make_logger` :1021・`say` :1061・ほか 2

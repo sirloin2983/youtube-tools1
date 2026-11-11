@@ -45,8 +45,8 @@
   - 名前: `from_archive` :158・`needs_archive` :163・`class ArchiveError` :169・`class Later` :173・`run_proc` :182・`probe_archive` :214・`heat_of` :262・`processed_of` :270・`readiness` :278・`fetch_full_audio` :296・`run_align` :326・`align_ok` :340・ほか 6
 - **live_batch.py** (298 行) — 友人のライブの依頼の届け方 = 区切りごとにまとめて届ける(10-30 ユーザーの仮決定 = 研究のおすすめ。decisions の最後の【重】)。
   - 名前: `base_total` :81・`max_total` :85・`total` :90・`trim_lim` :98・`fill_count` :103・`share` :108・`on` :117・`batch_sec` :122・`settled` :126・`live_quota` :132・`short_rounds` :137・`is_long` :142・ほか 16
-- **live_detect.py** (1175 行) — 配信中の盛り上がりの検出(線 D の L2)と自動の採用(M11)の入口の側。計画は 資料の git:before-1028-cleanup:plan/line-d-detect.md(3 の「候補の API の約束」は線 2 = スタジオの画面との境目。変えない)。
-  - 名前: `clean_spec` :96・`overlay` :110・`merge_spans` :131・`measured_holes` :142・`class Detector` :162
+- **live_detect.py** (1189 行) — 配信中の盛り上がりの検出(線 D の L2)と自動の採用(M11)の入口の側。計画は 資料の git:before-1028-cleanup:plan/line-d-detect.md(3 の「候補の API の約束」は線 2 = スタジオの画面との境目。変えない)。
+  - 名前: `clean_spec` :98・`overlay` :112・`merge_spans` :133・`measured_holes` :144・`class Detector` :164
 - **live_export.py** (1469 行) — リアルタイム切り抜き(線 D の P2: マークと書き出し。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0・5・6)の入口の側の中身。
   - 名前: `read_after` :96・`class LiveError` :126・`fail_text` :133・`rec_http_error` :144・`pick_folder` :156・`rec_list` :165・`rec_gaps` :174・`latest_per_mark` :196・`cleaned_up` :206・`check_after` :217・`check_origin` :229・`clean_auto` :238・ほか 10
 - **live_failures.py** (184 行) — リアルタイム切り抜き(線 D)の失敗の集約(M3。資料の git:before-1028-cleanup:plan/line-d-auto-pack.md の 4)。

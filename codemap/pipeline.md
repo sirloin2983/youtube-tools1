@@ -23,7 +23,7 @@
   - 名前: `args` :23・`clear` :37・`level` :43・`read` :54・`collect` :63
 - **live_audio.py** (117 行) — 配信中の録画の 16kHz モノラルの音の控え(11-01 ライブを軽くする案の C = 同じ音を 1 回だけデコードする)。
   - 名前: `enabled` :24・`append` :28・`drop` :48・`cut` :76・`write_wav` :111
-- **live_excite_worker.py** (1831 行) — 配信中の盛り上がりの検出のワーカー(線 D の L2。資料の git:before-1028-cleanup:plan/line-d-detect.md・資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0-10)。入口(src/…
+- **live_excite_worker.py** (1834 行) — 配信中の盛り上がりの検出のワーカー(線 D の L2。資料の git:before-1028-cleanup:plan/line-d-detect.md・資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0-10)。入口(src/…
   - 名前: `chat_trouble` :161・`class MeasureError` :179・`class NoTool` :183・`class RecorderDown` :187・`clean_requests` :195・`request_spec` :210・`clean_spec_doc` :232・`clean_bundles` :246・`clean_detect` :257・`read_series` :267・`measure_levels` :298・`parse_chat_line` :318・ほか 13
 
 ## src/pipeline/export/
@@ -54,16 +54,16 @@
   - 名前: `class Cancelled` :45・`class OutputExists` :52・`class Task` :61・`parse_time` :76・`parse_cut_list` :114・`sec_to_frames` :145・`cue_frames` :149・`frames_to_sec` :155・`fps_label` :160・`cut_list_to_keeps` :165・`normalize` :180・`subtract` :198・ほか 34
 - **edge_pause.py** (107 行) — 切り抜きの両端を「話の間」へ寄せる(10-23。決定 3-153。notes:plan/heatmap-study.md の「切り抜きの端を話の間へ」)。
   - 名前: `levels` :29・`voice_level` :49・`pauses` :55・`snap_end` :69・`snap_start` :80・`snap` :91
-- **pack.py** (959 行) — カットの計算(試算)とパックの作成。画面(serve.py)と ② の自動の流れが呼ぶ共通部(処理を二重に持たない)。
-  - 名前: `class RowEdge` :42・`class Request` :77・`class Plan` :111・`class Cache` :135・`default_out_dir` :199・`row_edge_from` :203・`widen_row_edges` :227・`row_edge_pending` :270・`silence_pending` :279・`detect_pending` :287・`without_detect` :296・`plan_cut` :315・ほか 16
+- **pack.py** (964 行) — カットの計算(試算)とパックの作成。画面(serve.py)と ② の自動の流れが呼ぶ共通部(処理を二重に持たない)。
+  - 名前: `class RowEdge` :42・`class Request` :77・`class Plan` :111・`class Cache` :135・`default_out_dir` :199・`row_edge_from` :203・`widen_row_edges` :227・`row_edge_pending` :270・`silence_pending` :279・`detect_pending` :287・`without_detect` :296・`plan_cut` :315・ほか 17
 - **preview.py** (124 行) — ① 確認用の動画(友人が受け取るかを決める前に見る、1 本の切り抜きの 480p の動画)とパックの中の切り抜きの動画の引き方(ds1 = 要件 1-5。② flow/deliver から分けた)。
   - 名前: `pack_title` :24・`scratch_path` :30・`remove_quiet` :35・`pack_video` :41・`make_preview` :80・`clip_preview` :105・`pack_seconds` :118
 - **request.py** (369 行) — パックの指定(JSON の spec・output)-> pack.Request と build_pack の引数。指定の読み方の 1 か所
   - 名前: `clean_path` :33・`input_path` :65・`request_from_spec` :110・`clip_range_from_spec` :183・`row_edge_from_spec` :193・`advanced_from_spec` :202・`words_from_spec` :213・`keeps_from_spec` :237・`speaker_color_map` :258・`speaker_styles_from` :277・`apply_speaker_styles` :300・`output_from_spec` :321・ほか 1
 - **resolve_export.py** (274 行) — 文字起こしの文書から Resolve のパックへの受け渡し(カットのたたき台・パックの見積もり・手順)と、「残す行」の規則。
   - 名前: `is_kept` :25・`kept_spans` :31・`tool_info` :58・`sorted_segments` :62・`build_transcript_v1` :81・`pack_instructions` :111・`edit_draft` :183・`edit_preview` :248
-- **resolve_textplus.py** (1059 行) — Resolve Free向け Text+ 試験パック。Luaスクリプトを同梱する。
-  - 名前: `hex_rgba` :70・`text_style` :81・`style_inputs` :97・`video_tracks_value` :119・`parse_target` :126・`caption_segments` :149・`stack_captions` :180・`lay_captions` :241・`default_wrap` :268・`wrap_caption` :273・`build_import_plan` :322・`importer_script` :391・ほか 7
+- **resolve_textplus.py** (1108 行) — Resolve Free向け Text+ 試験パック。Luaスクリプトを同梱する。
+  - 名前: `hex_rgba` :70・`text_style` :81・`style_inputs` :97・`video_tracks_value` :119・`parse_target` :126・`caption_segments` :149・`stack_captions` :180・`speaker_tracks` :250・`lay_captions` :274・`default_wrap` :306・`wrap_caption` :311・`build_import_plan` :360・ほか 8
 - **srt2resolve.py** (392 行) — パックの部品(動画の情報の読み取り・字幕の読み込み・フレームの計算・SRT の組み立ての小道具)。
   - 名前: `class ToolError` :27・`same_path` :31・`staged` :44・`write_text_atomic` :56・`tool` :65・`arg_path` :70・`clean_text` :94・`parse_subs` :101・`read_sub_file` :125・`snap_fps` :149・`codec_warnings` :161・`probe` :198・ほか 10
 - **tidy.py** (111 行) — 編集カットの形「無音を詰める」(10-24。ユーザー「言葉を削るんじゃなくて、無音を削ってほしい。ただ不自然になるから調整が必要」。

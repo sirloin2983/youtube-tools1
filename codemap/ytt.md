@@ -33,6 +33,8 @@
   - 名前: `allowed_hosts` :32・`new_local_token` :39・`host_ok` :48・`origin_ok` :52・`fetch_site_ok` :57・`navigation_ok` :61・`send_head` :66・`send` :79・`class LocalHandler` :87・`class BodyError` :128・`drain_body` :141・`read_json_body` :156・ほか 6
 - **jobs.py** (266 行) — 重い処理の同時実行数の上限(統合計画の段階4)。
   - 名前: `limit_from_env` :42・`class HeavySlots` :51・`check_cancel` :190・`class Ctl` :198
+- **keystore.py** (77 行) — 鍵の置き場(11-07 ユーザー OK「よい」: 鍵とログインは別に持つ。鍵の置き場 = 入口の作業データの app\secrets)。
+  - 名前: `path_for` :20・`beside` :25・`check_name` :30・`get` :42・`has` :49・`put` :53・`stamp` :70
 - **layout.py** (75 行) — リポジトリの中のフォルダの並び(段0 の改名は `資料の git:before-1028-cleanup:docs/design/phase0-restructure.md`)。
   - 名前: `src_root` :31・`repo_root` :36・`inplace_root` :41・`tool_dir` :49・`holo_colors_dir` :54・`notes_root` :62・`copy_shared_code` :68
 - **loudness.py** (164 行) — 聞こえ方の音量(ラウドネス。LUFS)をそろえる決まりの1か所(スタジオの書き出し・パック作りが共通で使う)。
@@ -58,7 +60,7 @@
   - 名前: `iso_now` :21・`now_ms` :26・`num` :31・`is_num` :42・`is_int` :47・`plain_int` :52・`int_in` :57・`num_or` :62・`union_spans` :71・`fmt_hms` :82・`other_speaker` :105・`no_sub_row` :110・ほか 28
 - **settings.py** (372 行) — 設定ファイル(JSON の辞書)の読み書きの共通部品(設定を 1 つにまとめる 段 2 = S4。notes:docs/spec/data.md の 4)。
   - 名前: `class SettingsError` :37・`class SettingsTooLarge` :41・`section_name_ok` :45・`retire_broken` :50・`class SettingsFile` :62・`analyze_user` :198・`load_settings` :203・`register_patch_key` :233・`patch_settings` :270・`merge_settings` :285・`replace_settings` :300・`eval_dirs` :337・ほか 2
-- **streamlog.py** (152 行) — 配信・依頼・切り抜きの出来事の記録(11-03。正 = 資料の plan/情報をまとめる所-1103.md の「決まった形: 配信・依頼・切り抜き」。ユーザー OK)。
+- **streamlog.py** (152 行) — 配信・依頼・切り抜きの出来事の記録(11-03。正 = 資料の 今の道具の仕様/情報をまとめる所-1103.md の「決まった形: 配信・依頼・切り抜き」。ユーザー OK)。
   - 名前: `path` :75・`stream_of` :81・`make_row` :97・`record` :112・`note` :128・`rows` :137
 - **studio_env.py** (205 行) — スタジオの環境: データの置き場所・書き出し先・疑似の旗・外部の道具・失敗の記録。
   - 名前: `set_code_dir` :29・`code_dir` :35・`set_home` :40・`home` :48・`p` :60・`fake` :65・`fake_file` :70・`fake_media` :76・`find_tool` :84・`old_log_name` :93・`rotate_log` :100・`log_failure` :105・ほか 7
@@ -98,6 +100,7 @@
 - tests/ytt/test_docloc.py — ytt/docloc.py(文字起こしの文書の置き場所を引く口。RS8 B-2)のテスト。
 - tests/ytt/test_flags.py — 行の印(flag)のつなぎ方・探し方(ytt.schemas の join_flags・has_flag・flag_parts)のテスト。  py -3.12 -m unittest tests/ytt/test_flags.py -v
 - tests/ytt/test_gpuinfo.py — ytt/gpuinfo(この PC の GPU の名前と VRAM。F1 F0-2)のテスト。  py -3.12 -m unittest tests/ytt/test_gpuinfo.py -v
+- tests/ytt/test_keystore.py — ytt/keystore(鍵の置き場。11-07)のテスト。  py -3.12 -m unittest tests/ytt/test_keystore.py -v
 - tests/ytt/test_marks.py — ytt/marks.py(マークの純粋な語彙)の単体テスト。
 - tests/ytt/test_normalize.py — ytt.normalize(素材を 30fps にそろえる。Q1)のテスト。  py -3.12 -m unittest tests/ytt/test_normalize.py -v
 - tests/ytt/test_settings.py — ytt.settings(設定ファイルの共通部品。S4)のテスト。リポジトリ直下で:

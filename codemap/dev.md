@@ -17,8 +17,8 @@
   - 名前: `restarts` :28・`commits` :47・`table` :60・`main` :73
 - **doc_state.py** (237 行) — 計画の資料の頭の `状態`・`線` を計画の正(保管庫の plan/data/)から決めて書く・食い違いを止める。
   - 名前: `plan_data` :28・`task_lines` :34・`decide` :43・`derived` :51・`front` :75・`read_props` :86・`write_props` :110・`write` :143・`plan_docs` :152・`check` :162・`sync` :199・`main` :217
-- **drift_report.py** (179 行) — 資料どうし・資料とコードの食い違いをまとめて流し、1 枚の一覧(保管庫の plan/食い違いの一覧.md。自動)に出す。
-  - 名前: `read` :31・`md_files` :36・`is_index` :45・`caps` :54・`entry_docs` :70・`sentences` :76・`duplicates` :96・`collect` :108・`render` :117・`cell` :138・`write_report` :143・`main` :160
+- **drift_report.py** (182 行) — 資料どうし・資料とコードの食い違いをまとめて流し、件数と中身を画面に出す(書くファイルは無い)。
+  - 名前: `read` :32・`md_files` :37・`is_index` :46・`caps` :55・`entry_docs` :71・`sentences` :78・`duplicates` :98・`collect` :110・`render` :119・`cell` :140・`write_report` :145・`main` :162
 - **dropbox_auth.py** (165 行) — 友人のアプリの Dropbox の鍵を作る(ユーザーの PC で1回だけ。標準ライブラリと ytt の fsio だけ)。
   - 名前: `make_verifier` :40・`challenge_for` :47・`authorize_url` :53・`token_request_body` :65・`exchange` :74・`extra_scopes` :95・`missing_scopes` :101・`write_config` :109・`main` :114
 - **fetch_webview2.py** (75 行) — 友人のアプリ FriendApp.exe が使う WebView2 の部品(DLL 3 つ)を NuGet の公式パッケージから取る(F3-1。notes:plan/done/f1-friend-requirements.md の C-1-1)。
@@ -35,11 +35,15 @@
   - 名前: `install` :262
 - **friend_worktime.py** (176 行) — 友人の作業の時刻の集計(新機能 D・10-23。資料の git:before-1028-cleanup:plan/人の作業なしの候補-1023.md の D)。ユーザーの PC で流す。作業データは読むだけ。
   - 名前: `data_root` :33・`verdicts` :45・`delivered` :62・`streamers` :82・`shorts` :97・`collect` :112・`main` :150
-- **guard_hook.py** (434 行) — Claude Code の PreToolUse のフック: 事故のもとになる操作を機械が断る。標準ライブラリだけ・速く。
-  - 名前: `class Tok` :51・`tok` :56・`tokenize` :62・`pipelines` :137・`word_of` :155・`norm_path` :171・`is_main_checkout` :184・`generated_kind` :198・`check_kill` :216・`check_sed` :242・`git_sub` :255・`check_git` :271・ほか 9
-- **land.py** (379 行) — 作業のブランチを main に入れ、版(src/ytt/version.py の VERSION と README.txt の見出し)を道具が 1 つ上げる。
+- **guard_hook.py** (431 行) — Claude Code の PreToolUse のフック: 事故のもとになる操作を機械が断る。標準ライブラリだけ・速く。
+  - 名前: `class Tok` :50・`tok` :55・`tokenize` :61・`pipelines` :136・`word_of` :154・`norm_path` :170・`is_main_checkout` :183・`generated_kind` :197・`check_kill` :213・`check_sed` :239・`git_sub` :252・`check_git` :268・ほか 9
+- **inbox_hook.py** (74 行) — 受け箱のフック(PostToolUse。11-07): 道具を 1 回使うたびに、自分のセッションの受け箱(dev/inbox_send.py が書く)に新しい指示があれば、
+  - 名前: `take` :18・`render` :46・`main` :58
+- **inbox_send.py** (75 行) — 作業中のセッションへの追加の指示を、そのセッションの受け箱に書き足す(11-07。ユーザー OK「これでいい」)。
+  - 名前: `box` :28・`send` :32・`main` :49
+- **land.py** (378 行) — 作業のブランチを main に入れ、版(src/ytt/version.py の VERSION と README.txt の見出し)を道具が 1 つ上げる。
   - 名前: `class Stop` :50・`git` :54・`main_worktree` :63・`bump` :74・`read_version` :79・`set_version` :86・`set_readme` :90・`needs_bump` :100・`pid_alive` :105・`class Lock` :123・`pending_paths` :170・`daily_codemap` :178・ほか 5
-- **land_gate.py** (406 行) — main に入れる前の関所(dev/land.py が版を上げる前に流す)。単独でも流せる:
+- **land_gate.py** (402 行) — main に入れる前の関所(dev/land.py が版を上げる前に流す)。単独でも流せる:
   - 名前: `layer_of_dir` :70・`dependents` :77・`select` :82・`pick_units` :103・`pick_by_imports` :110・`run_units` :120・`cache_path` :132・`load_cache` :137・`save_cache` :148・`count_of` :164・`run_check` :170・`run_tool` :184・ほか 12
 - **layer_map.py** (130 行) — 役割の層と、今のファイルの行き先(役割で組み直す計画 `notes:plan/done/role-restructure.md` の 7 節を機械で読める形にしたもの)。
   - 名前: `layer_of` :110・`allowed` :120
@@ -51,12 +55,12 @@
   - 名前: `table` :50・`main` :64
 - **members_channels.py** (151 行) — 名簿 friend-apps/holo-colors/members.json の JP・DEV_IS の各メンバーに YouTube のチャンネル ID(channel)を入れる・確かめる道具。
   - 名前: `read_text` :29・`targets` :34・`norm` :43・`fetch_rss` :48・`verdict` :69・`cmd_check` :81・`cmd_set` :106・`main` :140
-- **notes_tool.py** (461 行) — 資料のフォルダ(Obsidian の保管庫の中。layout.notes_root())のパスの検査と、資料を動かす道具。
-  - 名前: `vault` :45・`plan_data` :49・`data_files` :55・`rebuild_data` :72・`md_files` :80・`code_files` :88・`local_target` :96・`pseudo_link` :108・`unlink_prose` :123・`tag_spans` :140・`vrel` :159・`link_to` :163・ほか 7
-- **plan_artifact.py** (482 行) — 資料の保管庫(layout.notes_root())の plan/ の HTML(index.html・user-tasks.html)を、claude.ai の Artifact(リンクで開けるページ。スマホでも見る)用に 1 枚ずつまとめる。
+- **notes_tool.py** (570 行) — 資料のフォルダ(Obsidian の保管庫の中。layout.notes_root())のパスの検査と、資料を動かす道具。
+  - 名前: `vault` :55・`archive_root` :59・`in_archive` :63・`missing` :69・`plan_data` :74・`data_files` :80・`rebuild_data` :97・`md_files` :105・`code_files` :113・`local_target` :121・`pseudo_link` :133・`unlink_prose` :148・ほか 11
+- **plan_artifact.py** (480 行) — 資料の保管庫(layout.notes_root())の plan/ の HTML(index.html・user-tasks.html)を、claude.ai の Artifact(リンクで開けるページ。スマホでも見る)用に 1 枚ずつまとめる。
   - 名前: `read` :44・`inline_assets` :49・`main_fragment` :62・`link_paths` :71・`task_line` :86・`class Linker` :91・`line_page_name` :121・`line_groups` :125・`build_line_page` :140・`build_line_pages` :160・`build_index` :167・`first_sentences` :205・ほか 12
-- **plan_data.py** (420 行) — 計画のデータ(保管庫の plan/data/。計画の正)を 1 件 1 ファイルで持ち、表示用の plan/data.js を集めて作る。
-  - 名前: `plan_dir_default` :49・`data_dir` :53・`has_split` :57・`read_text` :63・`write_atomic` :68・`ordered_keys` :77・`dumps` :82・`slug` :86・`file_name` :105・`items` :113・`sort_key` :129・`main_version` :135・ほか 10
+- **plan_data.py** (308 行) — 計画のデータ(保管庫の plan/data/。計画の正)を 1 件 1 ファイルで持ち、表示用の plan/data.js を集めて作る。
+  - 名前: `plan_dir_default` :41・`data_dir` :45・`has_split` :49・`read_text` :55・`write_atomic` :60・`ordered_keys` :69・`dumps` :74・`slug` :78・`file_name` :97・`items` :101・`sort_key` :117・`main_version` :121・ほか 7
 - **push_helper.py** (263 行) — push.bat の補助。標準ライブラリだけ。リポジトリ直下で git が使えることが前提。
   - 名前: `git` :61・`read_removals` :70・`tracked` :90・`apply_removals` :95・`staged_files` :115・`staged_blob` :121・`problems_for` :125・`check` :160・`notes_root` :179・`push_notes` :186・`main` :232
 - **rule_checks.py** (474 行) — 規則(書き方・置き場所・ファイルの形)の見張り。test-trim の規則の担当。
@@ -67,12 +71,12 @@
   - 名前: `label` :57・`summary` :62・`selected` :69・`run_one` :82・`main` :96
 - **run_unit.py** (203 行) — unittest を層ごと・フォルダごとに流す道具(1 本ずつ別のプロセス)。リポジトリ直下で:
   - 名前: `find_files` :49・`matches` :61・`build_units` :77・`run_one` :92・`report` :127・`run_all` :142・`print_summary` :161・`main` :173
-- **session_start.py** (458 行) — セッションの入口の要約。新しい AI のセッションが最初に流し、今の状態を 1 画面(150 行以内)で見る。
-  - 名前: `cut` :49・`run` :54・`git` :64・`read` :68・`git_block` :78・`versions` :98・`worklog_block` :107・`boundary_dirs` :123・`boundary_notes` :131・`boundary_block` :150・`load_items` :164・`plan_block` :174・ほか 16
-- **signing_key.py** (97 行) — 友人のアプリの更新の署名の鍵(安全面の直し 1・10-29。手順は保管庫 docs/spec/更新の署名の鍵.md)。
+- **session_start.py** (535 行) — セッションの入口の要約。新しい AI のセッションが最初に流し、今の状態を 1 画面(150 行以内)で見る。
+  - 名前: `cut` :65・`run` :70・`git` :80・`read` :84・`git_block` :94・`versions` :114・`worklog_block` :123・`boundary_dirs` :139・`boundary_notes` :147・`boundary_block` :166・`todo_block` :180・`count_files` :198・ほか 18
+- **signing_key.py** (97 行) — 友人のアプリの更新の署名の鍵(安全面の直し 1・10-29。手順は保管庫 今の道具の仕様/友人まわり.md の「更新の署名の鍵」)。
   - 名前: `load` :25・`new` :48・`check` :69・`main` :78
-- **spec_check.py** (220 行) — 仕様(保管庫の docs/spec/)とコードの食い違いを探す。
-  - 名前: `git_files` :45・`read` :49・`class Code` :57・`spec_files` :75・`live_lines` :84・`norm_api` :101・`clean_path` :109・`setting_keys` :114・`check` :130・`gone` :181・`main` :198
+- **spec_check.py** (222 行) — 仕様(保管庫の 今の道具の仕様/。残っていれば docs/spec/ も)とコードの食い違いを探す。
+  - 名前: `git_files` :47・`read` :51・`class Code` :59・`spec_files` :77・`live_lines` :86・`norm_api` :103・`clean_path` :111・`setting_keys` :116・`check` :132・`gone` :183・`main` :200
   - 受ける口: 
 - **ui_audit.py** (1052 行) — 画面(UI)の見直しの合格の基準のうち、機械で測れるものを測る道具(読むだけ。基準は `notes:docs/spec/ui.md` の A)。
   - 名前: `class Findings` :107・`read` :123・`rel` :131・`screen_files` :135・`allowed` :144・`each_line` :149・`regex_starts` :157・`scan_string` :167・`scan_code` :181・`strip_js_comments` :231・`html_texts` :238・`py_strings` :253・ほか 31
@@ -83,8 +87,8 @@
   - 名前: `main` :17
 - **voice_registry_rebuild.py** (61 行) — 声の登録簿を「確かめる」の答えから作り直す道具(11-03 情報をまとめる所の 1。本体は src/human/check/voicebook.py)。
   - 名前: `main` :27
-- **worklog.py** (280 行) — 作業の記録(保管庫の docs/worklog/)をセッションごとのファイルに分けて書き、週のまとめを集めて作る。
-  - 名前: `worklog_dir` :56・`monday` :60・`week_name` :64・`read` :68・`write` :73・`front_matter` :78・`session_entry` :91・`sessions` :101・`auto_block` :108・`merge_week` :121・`update_index` :135・`build` :150・ほか 7
+- **worklog.py** (364 行) — 作業の記録(保管庫の docs/worklog/)をセッションごとのファイルに分けて書き、週のまとめを集めて作る。
+  - 名前: `worklog_dir` :54・`monday` :58・`week_name` :62・`read` :66・`write` :71・`front_matter` :76・`session_entry` :89・`sessions` :99・`auto_block` :106・`merge_week` :119・`update_index` :133・`build` :148・ほか 12
 
 ## dev/obsidian/graph-history-toggle/
 
@@ -111,6 +115,7 @@
 - tests/dev/test_friend_preflight.py — 配る前の検査(dev/friend_preflight.py・dev/friend_preflight_shim.py)と、build_friend_zip.py --publish の関所のテスト。
 - tests/dev/test_friend_worktime.py — dev/friend_worktime.py(友人の作業の時刻の集計。新機能 D)のテスト。一時フォルダの作業データだけを読む
 - tests/dev/test_guard_hook.py — dev/guard_hook.py(PreToolUse のフックの守り)のテスト。よくある命令を並べて、通す / 断るを確かめる。一時フォルダだけを使う
+- tests/dev/test_inbox.py — dev/inbox_send.py と dev/inbox_hook.py(作業中のセッションの受け箱。11-07)。一時フォルダだけ
 - tests/dev/test_land.py — dev/land.py(main に入れる・版を道具が上げる)のテスト。一時フォルダの git リポジトリと worktree だけを使う
 - tests/dev/test_land_gate.py — dev/land_gate.py(main に入れる前の関所)と dev/worklog.py check(報告の型)のテスト。一時フォルダだけを使う(テストは流さない)
 - tests/dev/test_layering.py — 役割の層の import の向きを守るテスト(役割で組み直す計画 `notes:plan/done/role-restructure.md` の 4 節 1。RS0)。
@@ -119,7 +124,7 @@
 - tests/dev/test_no_src_workdata.py — YTT_DATA_DIR=inplace のとき、作業データ(ログ・起動中の印・書き出し先)が src の中にできないことを見張る。リポジトリ直下で:
 - tests/dev/test_notes_tool.py — dev/notes_tool.py(資料のフォルダのパスの検査と、資料を動かす道具)のテスト。一時フォルダの資料のフォルダと git で確かめる
 - tests/dev/test_plan_artifact.py — dev/plan_artifact.py(計画のページ plan/ を 1 枚の公開用 HTML に組む道具)のテスト。目次と Artifact 用の 1 枚・ホームの自動の部分・版と参照・図を見る。
-- tests/dev/test_plan_data.py — dev/plan_data.py(計画のデータ plan/data/ の 1 件 1 ファイルと data.js の生成・仮決めの自動の確定)のテスト。一時フォルダだけを使う
+- tests/dev/test_plan_data.py — dev/plan_data.py(計画のデータ plan/data/ の 1 件 1 ファイルと data.js の生成)のテスト。一時フォルダだけを使う
 - tests/dev/test_push_helper.py — dev/push_helper.py(push.bat の補助: ファイルの削除・コミット前の検査)のテスト。一時フォルダの git リポジトリだけを使う。
 - tests/dev/test_resolve_pack_contract.py — Resolve パックの契約テスト(文字起こしの文書から cut2resolve の Text+ パックを作る経路。作るのは pack.py だけ。
 - tests/dev/test_rule_checks.py — 規則の見張り(dev/rule_checks.py・dev/rule_imports.py・dev/ui_audit.py の A-16〜A-19・A-37)が、破った見本で止まり、正しい見本で通ることを確かめる。

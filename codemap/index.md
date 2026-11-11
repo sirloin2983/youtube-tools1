@@ -5,23 +5,23 @@
 
 | 層 | md | ファイル | 行 |
 |---|---|---|---|
-| ytt(基盤) | [ytt.md](ytt.md) | 58 | 12729 |
-| ① pipeline(道具 = データを加工する) | [pipeline.md](pipeline.md) | 91 | 30280 |
-| ② flow(管理 = いつ・どの順で・どこに置くか) | [flow.md](flow.md) | 106 | 35090 |
+| ytt(基盤) | [ytt.md](ytt.md) | 60 | 12856 |
+| ① pipeline(道具 = データを加工する) | [pipeline.md](pipeline.md) | 91 | 30356 |
+| ② flow(管理 = いつ・どの順で・どこに置くか) | [flow.md](flow.md) | 106 | 35107 |
 | ③ human(人の操作) | [human.md](human.md) | 74 | 20863 |
-| ④ manage(データ) | [manage.md](manage.md) | 43 | 11638 |
+| ④ manage(データ) | [manage.md](manage.md) | 43 | 11676 |
 | ⑤ eval(検証) | [eval.md](eval.md) | 37 | 15589 |
 | src/app(入口と画面) | [app.md](app.md) | 114 | 39155 |
 | src/friendapp(友人の玄関) | [friendapp.md](friendapp.md) | 59 | 23338 |
 | その他の画面(editor・studio・ui-kit・cut2resolve) | [tools.md](tools.md) | 19 | 10410 |
-| dev・setup(開発の道具) | [dev.md](dev.md) | 69 | 17683 |
+| dev・setup(開発の道具) | [dev.md](dev.md) | 72 | 18066 |
 | friend-apps・chrome-ext(C# のアプリ・拡張) | [apps.md](apps.md) | 19 | 9364 |
 
 ## `/api/...` の口(受ける所 → 呼ぶ所)
 
 受ける所は .py の処理(比べる・表の鍵)。呼ぶ所は画面の .js・.cs・ほかの .py(テストは除く)。
 
-- `/api` — dev/code_map.py:208・dev/spec_check.py:103・src/app/live.py:292
+- `/api` — dev/code_map.py:208・dev/spec_check.py:105・src/app/live.py:292
 - `/api/accuracy` — src/app/server.py:630 ← portal.js
 - `/api/accuracy/run` — src/app/server.py:637 ← portal.js
 - `/api/archive` — src/app/live.py:323・src/app/live.py:320 ← review.js
