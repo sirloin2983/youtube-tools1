@@ -10,7 +10,7 @@
   2. sed -i(CRLF を壊す)
   3. git add -A / --all / . / :/ と git commit -a(ほかのセッションの差分を巻き込む)
   4. main の作業フォルダ(.git がフォルダで dev/land.py がある所)での git commit。抜け道は YTT_MAIN_COMMIT=1 だけ
-  5. 生成物(保管庫の plan/data.js・plan/仮決めの一覧.md・リポジトリの codemap/*.md)への直の書き込み(Edit・Write・リダイレクト・Set-Content など)
+  5. 生成物(保管庫の plan/data.js・リポジトリの codemap/*.md)への直の書き込み(Edit・Write・リダイレクト・Set-Content など)
 足す物(断らない): unittest・pytest を YTT_DATA_DIR なしで直に流すときは、作業データの切り離しを忘れていると知らせる。
 例外を出したら必ず通す(フックが壊れると全部のセッションの操作が止まるため)。設定の command は「|| true」付き。
 """
@@ -30,7 +30,6 @@ MSG = {
     "main": "main の作業フォルダでは直にコミットしない。worktree でコミットして py -3.12 dev/land.py で入れる"
             "(まとめ役が main で直すときだけ、頭に YTT_MAIN_COMMIT=1 を付ける。PowerShell は $env:YTT_MAIN_COMMIT=1; )。",
     "data.js": "plan/data.js は dev/plan_data.py build が作る生成物(直しても次の build で消える)。plan/data/ の JSON を直して build する。",
-    "prov": "plan/仮決めの一覧.md は dev/plan_data.py sweep が作る生成物。plan/data/provisional/ を直して sweep する。",
     "codemap": "codemap/ は dev/code_map.py が作る生成物。コードを直してから py -3.12 dev/code_map.py で作り直す。",
 }
 WARN_DATA_DIR = ("[守り] テストを直に流すときは作業データを切り離す(頭に YTT_DATA_DIR=inplace、"
@@ -200,11 +199,9 @@ def generated_kind(path):
     low = path.replace("\\", "/")
     parent = os.path.dirname(low)
     name = os.path.basename(low)
-    if os.path.basename(parent).lower() == "plan" and os.path.isdir(os.path.join(parent, "data")):
-        if name.lower() == "data.js":
-            return "data.js"
-        if name == "仮決めの一覧.md":
-            return "prov"
+    if (os.path.basename(parent).lower() == "plan" and os.path.isdir(os.path.join(parent, "data"))
+            and name.lower() == "data.js"):
+        return "data.js"
     if (os.path.basename(parent).lower() == "codemap" and name.lower().endswith(".md")
             and os.path.isfile(os.path.join(os.path.dirname(parent), "dev", "code_map.py"))):
         return "codemap"

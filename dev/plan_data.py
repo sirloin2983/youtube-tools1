@@ -3,21 +3,18 @@
 
     python dev/plan_data.py build                      # plan/data/ から plan/data.js を作る(手で直さない。git にも入れない)
     python dev/plan_data.py check                      # 各 JSON が読めるか・id の重複・ファイル名・必須の欄・参照(終了コード 1 = 問題あり)
-    python dev/plan_data.py new <種類> <id> [欄=値 ...]  # 1 件の雛形を作る(order とファイル名は道具が振る)。種類 = tasks・recent・history・user・provisional
-    python dev/plan_data.py sweep [--today YYYY-MM-DD] [--dry-run]
-        # 軽い仮決めで入れて 7 日たち hold の無い物を確定へ移し(plan/data/confirmed/)、仮決めの一覧 plan/仮決めの一覧.md を作り直す
-    python dev/plan_data.py split                      # 1 回きり: 今の手書きの plan/data.js を plan/data/ に分ける
+    python dev/plan_data.py new <種類> <id> [欄=値 ...]  # 1 件の雛形を作る(order とファイル名は道具が振る)。種類 = tasks・recent・history・user
+    python dev/plan_data.py split                     # 1 回きり: 今の手書きの plan/data.js を plan/data/ に分ける
 
 並行のセッションが 1 つの data.js の末尾に同時に書き足すとカンマ抜けで壊れるので、配列の 1 件を 1 ファイルにする:
   plan/data/main.json        めったに直さない共有の部分(updated・lines・phases・totals・critical・schedule・gates・numbers・conflicts・userTasks の残り)
   plan/data/summary.md       全体の説明(PLAN.summary。素の文)
-  plan/data/<種類>/<名前>.json  tasks・recent・history・user(userTasks の ordered / later。欄 list)・provisional・confirmed(自動で確定した仮決め)
-並びは各ファイルの order(小さい順。同じなら id)。provisional は重い物が先・新しい順。ファイル名は id から道具が作る ASCII(slug)。
+  plan/data/<種類>/<名前>.json  tasks・recent・history・user(userTasks の ordered / later。欄 list)
+並びは各ファイルの order(小さい順。同じなら id)。ファイル名は id から道具が作る ASCII(slug)。
 全体の版(versions の「全体」)は main ブランチの src/ytt/version.py から入れる(worktree の枝の版は入れない)。
 """
 import argparse
 import binascii
-import datetime
 import json
 import os
 import re
@@ -29,20 +26,15 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "src"))
 from ytt import layout  # noqa: E402
 
-KINDS = ("tasks", "recent", "history", "user", "provisional", "confirmed")
+KINDS = ("tasks", "recent", "history", "user")
 REQUIRED = {"tasks": ("id", "name", "state"), "recent": ("id", "name"), "history": ("id", "name"),
-            "user": ("id", "name", "list"), "provisional": ("sec", "id", "date", "what", "weight"),
-            "confirmed": ("sec", "id", "what", "confirmed")}
+            "user": ("id", "name", "list")}
 USER_LISTS = ("ordered", "later")
-WEIGHTS = ("軽", "重")
-WHY = ("形", "戻せない", "データ", "言い方")
-LIGHT_DAYS = 7
 RESERVED = {"con", "prn", "aux", "nul"} | {"com%d" % i for i in range(1, 10)} | {"lpt%d" % i for i in range(1, 10)}
 KEY_ORDER = ("id", "sec", "name", "list", "line", "who", "phase", "pre", "rec", "ai", "user", "state", "date", "added",
              "weight", "why", "what", "impact", "hold", "confirmed", "order")
 HEADER = ("/* plan/data.js — 自動で作る(dev/plan_data.py build)。手で直さない・git に入れない。\n"
           "   計画の正は plan/data/(1 件 1 ファイル。直し方は plan/data/README.md)。ここを直しても次の build で消える。 */\n")
-PROV_LIST = "仮決めの一覧.md"
 WHOLE = "全体"
 
 
@@ -103,10 +95,6 @@ def slug(text):
 
 
 def file_name(kind, item):
-    if kind in ("provisional", "confirmed"):
-        return "%s-%s.json" % (slug(item.get("sec", "")), slug(item.get("id", "")))
-    if kind == "recent":
-        return "%s.json" % slug(item.get("id", ""))
     return "%s.json" % slug(item.get("id", ""))
 
 
@@ -127,8 +115,6 @@ def items(plan_dir, kind):
 
 
 def sort_key(kind):
-    if kind == "provisional":
-        return lambda it: (0 if it.get("weight") == "重" else 1, it.get("order", 0), str(it.get("id")))
     return lambda it: (it.get("order", 0), str(it.get("id")))
 
 
@@ -161,7 +147,6 @@ def load(plan_dir, version=None):
     ut = plan.setdefault("userTasks", {})
     for lst in USER_LISTS:
         ut[lst] = [strip_internal(it) for it in got["user"] if it.get("list") == lst]
-    ut["provisional"] = [strip_internal(it) for it in got["provisional"]]
     for k in ("recent", "tasks", "history"):
         plan[k] = [strip_internal(it) for it in got[k]]
     if version is not False:
@@ -223,21 +208,12 @@ def check(plan_dir, refs=True):
             if n.lower() in lower:
                 bad.append((rel, 1, "大文字小文字だけ違うファイルがある: " + lower[n.lower()]))
             lower[n.lower()] = n
-            key = (it.get("sec", ""), it.get("id")) if kind in ("provisional", "confirmed") else it.get("id")
+            key = it.get("id")
             if key in seen:
                 bad.append((rel, 1, "id が重なる: %s(%s)" % (it.get("id"), seen[key])))
             seen[key] = n
             if kind == "user" and it.get("list") not in USER_LISTS:
                 bad.append((rel, 1, "list は %s のどれか" % "・".join(USER_LISTS)))
-            if kind == "provisional":
-                if it.get("weight") not in WEIGHTS:
-                    bad.append((rel, 1, "weight は 軽 か 重"))
-                if it.get("weight") == "重" and not it.get("why"):
-                    bad.append((rel, 1, "重い物は why(%s)を 1 つ以上" % "・".join(WHY)))
-                if [w for w in it.get("why", []) if w not in WHY]:
-                    bad.append((rel, 1, "why は %s から" % "・".join(WHY)))
-                if not _date_ok(it.get("added")):
-                    bad.append((rel, 1, "added(入れた日 YYYY-MM-DD)が無い"))
             if kind in ("tasks", "history", "user"):
                 ids[it.get("id")] = rel
     if refs:
@@ -249,14 +225,6 @@ def check(plan_dir, refs=True):
     return bad
 
 
-def _date_ok(s):
-    try:
-        datetime.date.fromisoformat(str(s))
-        return True
-    except ValueError:
-        return False
-
-
 def _line(e):
     return getattr(e, "lineno", 1) or 1
 
@@ -266,96 +234,23 @@ def _line_msg(msg):
     return int(m.group(1)) if m else 1
 
 
-# ---------------------------------------------------------------- 足す・仮決めの見回り
+# ---------------------------------------------------------------- 足す
 
 def new(plan_dir, kind, ident, fields):
-    if kind not in KINDS[:5]:
-        raise SystemExit("種類は tasks・recent・history・user・provisional")
+    if kind not in KINDS:
+        raise SystemExit("種類は tasks・recent・history・user")
     item = {"id": ident}
     item.update(fields)
-    if kind == "provisional":
-        item.setdefault("added", datetime.date.today().isoformat())
-        item.setdefault("date", item["added"][5:])
-        item.setdefault("weight", "重")   # 迷う物は重
-        item.setdefault("why", [] if item["weight"] == "軽" else ["形"])
-        item.setdefault("what", "")
-        item.setdefault("impact", "")
     if kind == "user":
         item.setdefault("list", "ordered")
     orders = [it.get("order", 0) for _n, it, _e in items(plan_dir, kind) if it]
-    # provisional は新しい物が上 = 小さい order。ほかは末尾
-    item["order"] = (min(orders, default=0) - 10) if kind == "provisional" else (max(orders, default=0) + 10)
+    item["order"] = max(orders, default=0) + 10   # 末尾
     path = os.path.join(data_dir(plan_dir), kind, file_name(kind, item))
     if os.path.exists(path):
         raise SystemExit("もうある: %s" % path)
     write_atomic(path, dumps(item))
     build(plan_dir)
     return path
-
-
-def sweep(plan_dir, today=None, dry_run=False):
-    """軽い仮決めで added から 7 日たち hold の無い物を confirmed へ移す。仮決めの一覧を作り直す。-> 移した件数"""
-    today = today or datetime.date.today()
-    moved = 0
-    for n, it, err in items(plan_dir, "provisional"):
-        if err or it.get("weight") != "軽" or it.get("hold") or not _date_ok(it.get("added")):
-            continue
-        if datetime.date.fromisoformat(it["added"]) + datetime.timedelta(days=LIGHT_DAYS) > today:
-            continue
-        moved += 1
-        if dry_run:
-            continue
-        it["confirmed"] = today.isoformat()
-        src = os.path.join(data_dir(plan_dir), "provisional", n)
-        write_atomic(os.path.join(data_dir(plan_dir), "confirmed", file_name("confirmed", it)), dumps(it))
-        os.remove(src)
-    if not dry_run:
-        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        import notes_tool   # 文の [送る](説明)・#pack が Obsidian のリンク・タグにならないように
-        write_atomic(os.path.join(plan_dir, PROV_LIST), notes_tool.unlink_prose(prov_list(plan_dir, today)))
-        build(plan_dir)
-    return moved
-
-
-def heavy_rank(it):
-    """重い順: 当たる理由の数が多い → 古い"""
-    return (-len(it.get("why", [])), it.get("added", ""), str(it.get("sec")))
-
-
-def prov_list(plan_dir, today):
-    monday = today - datetime.timedelta(days=today.weekday())
-    pend = [it for _n, it, e in items(plan_dir, "provisional") if it]
-    heavy = sorted((it for it in pend if it.get("weight") == "重"), key=heavy_rank)
-    light = sorted((it for it in pend if it.get("weight") == "軽"), key=lambda it: it.get("added", ""))
-    done = sorted((it for _n, it, e in items(plan_dir, "confirmed") if it and it.get("confirmed", "") >= monday.isoformat()),
-                  key=lambda it: (it.get("confirmed"), str(it.get("sec"))))
-    out = ["---", "種類: 索引", "状態: 有効", "---", "", "# 仮決めの一覧(重い物と、今週自動で確定した軽い物)", "",
-           "更新(%s): 自動で作る(dev/plan_data.py sweep。plan_artifact も流す)・手で直さない。正は plan/data/provisional/ と [`plan/decisions.md`](decisions.md) の 3" % today.isoformat(), "",
-           "- 重い = 形を大きく変える・消すと戻せない・本物のデータを動かす・ユーザーの言い方から変えた(迷う物も重い)。**1 問ずつユーザーに聞く**(重い順 = 当たる理由の数 → 古い順)",
-           "- 軽い = 戻せる・影響が小さい・内部の作り。入れて %d 日たって問題が出なければ自動で確定(問題が出たら欄 hold: true を足して止める)" % LIGHT_DAYS, "",
-           "## まだの重い物(%d 件)" % len(heavy), ""]
-    out += ["%d. **%s %s**(%s・%s)%s — %s" % (i, it.get("sec"), it.get("id"), it.get("date"), "・".join(it.get("why", [])),
-                                              "", _one(it.get("what"))) for i, it in enumerate(heavy, 1)] or ["(無し)"]
-    out += ["", "## 今週(%s〜)自動で確定した軽い物(%d 件)" % (monday.isoformat()[5:], len(done)), ""]
-    out += ["- %s %s(%s に確定)— %s" % (it.get("sec"), it.get("id"), it.get("confirmed", "")[5:], _one(it.get("what")))
-            for it in done] or ["(無し)"]
-    out += ["", "## 確定を待つ軽い物(%d 件。古い順)" % len(light), ""]
-    out += ["- %s %s(%s に入れた → %s に確定%s)" % (it.get("sec"), it.get("id"), it.get("added", "")[5:],
-                                              _plus(it.get("added"), LIGHT_DAYS)[5:], "・止めている" if it.get("hold") else "")
-            for it in light] or ["(無し)"]
-    return "\n".join(out) + "\n"
-
-
-def _one(text, limit=160):
-    text = re.sub(r"\s+", " ", str(text or "")).strip()
-    return text if len(text) <= limit else text[:limit - 1] + "…"
-
-
-def _plus(day, n):
-    try:
-        return (datetime.date.fromisoformat(day) + datetime.timedelta(days=n)).isoformat()
-    except (TypeError, ValueError):
-        return "????-??-??"
 
 
 def main(argv):
@@ -372,9 +267,6 @@ def main(argv):
     p.add_argument("kind")
     p.add_argument("id")
     p.add_argument("fields", nargs="*", help="欄=値(値が [ { で始まれば JSON)")
-    p = sub.add_parser("sweep")
-    p.add_argument("--today")
-    p.add_argument("--dry-run", action="store_true")
     a = ap.parse_args(argv)
     plan_dir = os.path.abspath(a.plan) if a.plan else plan_dir_default()
     if not has_split(plan_dir):
@@ -398,10 +290,6 @@ def main(argv):
             k, _, v = kv.partition("=")
             fields[k] = json.loads(v) if v[:1] in "[{" else v
         print(new(plan_dir, a.kind, a.id, fields))
-        return 0
-    if a.cmd == "sweep":
-        today = datetime.date.fromisoformat(a.today) if a.today else None
-        print("自動で確定した軽い仮決め %d 件" % sweep(plan_dir, today, a.dry_run))
         return 0
     if a.cmd == "split":
         weights = None

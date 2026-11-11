@@ -19,9 +19,6 @@ PLAN = {
         {"id": "A", "name": "線A", "pct": 10, "next": "次の物", "aim": "docs/spec/a.md を読む", "docs": ["x.md", "../docs/spec/a.md"]},
         {"id": "B", "name": "線B", "pct": 20, "next": "docs/spec/none.md は無い"},
     ],
-    "userTasks": {"provisional": [
-        {"sec": "3-1", "id": "p1", "date": "10-12", "what": "x", "weight": "重", "why": ["形"], "added": "2026-10-12"},
-        {"sec": "3-2", "id": "p2", "date": "10-12", "what": "y", "weight": "重", "why": ["形"], "added": "2026-10-12"}]},
     "tasks": [
         {"id": "T1", "name": "仕事 1(plan/x.md)", "line": "A", "state": "done"},
         {"id": "T2", "name": "仕事 2", "line": "A・B", "state": "doing"},

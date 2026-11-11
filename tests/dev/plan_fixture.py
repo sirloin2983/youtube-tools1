@@ -23,7 +23,5 @@ def lay(plan_dir, plan):
     for lst in plan_data.USER_LISTS:
         for i, it in enumerate(ut.pop(lst, []), 1):
             put("user", dict(it, list=lst), i * 10)
-    for i, it in enumerate(ut.pop("provisional", []), 1):
-        put("provisional", it, i * 10)
     plan_data.write_atomic(os.path.join(dd, "summary.md"), plan.pop("summary", "") + "\n")
     plan_data.write_atomic(os.path.join(dd, "main.json"), json.dumps(plan, ensure_ascii=False, indent=2) + "\n")

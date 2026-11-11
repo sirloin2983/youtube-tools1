@@ -117,7 +117,6 @@ class GuardTest(unittest.TestCase):
         self.assertBlocked("data.js", ['Set-Content -Path "%s" -Value x' % dj, "'x' | Out-File %s" % dj,
                                        "Copy-Item a.js -Destination %s" % dj], tool="PowerShell")
         self.assertBlocked("codemap", ["echo x > %s/codemap/dev.md" % self.main])
-        self.assertBlocked("prov", ["echo x > %s/plan/仮決めの一覧.md" % self.vault])
         self.assertPass(["cat %s" % dj, "sed -n 1,5p %s" % dj, "py -3.12 dev/plan_data.py build",
                          "py -3.12 dev/code_map.py", "cp %s /tmp/backup.js" % dj, "echo x > %s/plan/notes.md" % self.vault,
                          "echo x > %s/plan/data/tasks/a.json" % self.vault, "echo x 2>&1 > out.txt"])

@@ -6,7 +6,7 @@
 見る物:
   - 止める物 = dev/notes_tool.py check と同じ(リンク切れ・計画のデータ・資料の頭の状態 dev/doc_state.py)
   - 警告 = 仕様とコードの食い違い(dev/spec_check.py)・文書の行数の上限・入口の文書(AGENTS.md・ホーム・docs/spec)の同じ文の重なり
-週に 1 回(仮決めの一覧と同じ日)に見る。dev/plan_artifact.py が公開し直すたびに作り直すので、ふだんは開くだけでよい。
+週に 1 回見る。dev/plan_artifact.py が公開し直すたびに作り直すので、ふだんは開くだけでよい。
 行数の上限と重なりは目安(仮決め 3-93)。超えたら短くする・リンクにする(同じ話は 1 か所だけに書く)。
 """
 import argparse
@@ -117,8 +117,8 @@ def collect(root):
 def render(res, today):
     total_warn = len(res["spec"]) + len(res["caps"]) + len(res["dups"])
     out = ["---", "種類: 索引", "状態: 有効", "---", "", "# 食い違いの一覧(資料どうし・資料とコード)", "",
-           "更新(%s): 自動で作る(`dev/drift_report.py`。`dev/plan_artifact.py` も流す)・手で直さない。週に 1 回、"
-           "[仮決めの一覧](仮決めの一覧.md) と同じ日に見て、警告を減らす" % today.isoformat(), "",
+           "更新(%s): 自動で作る(`dev/drift_report.py`。`dev/plan_artifact.py` も流す)・手で直さない。週に 1 回見て、"
+           "警告を減らす" % today.isoformat(), "",
            "- 止める物 %d 件(0 でないと lint・push.bat が止まる。`py -3.12 dev/notes_tool.py check`。資料の頭の状態だけなら `check --fix`)" % len(res["bad"]),
            "- 警告 %d 件(止めない。仕様とコード %d・行数 %d・同じ文 %d)" % (total_warn, len(res["spec"]), len(res["caps"]), len(res["dups"])), ""]
 

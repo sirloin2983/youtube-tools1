@@ -1,5 +1,4 @@
-"""dev/plan_data.py(計画のデータ plan/data/ の 1 件 1 ファイルと data.js の生成・仮決めの自動の確定)のテスト。一時フォルダだけを使う"""
-import datetime
+"""dev/plan_data.py(計画のデータ plan/data/ の 1 件 1 ファイルと data.js の生成)のテスト。一時フォルダだけを使う"""
 import json
 import os
 import sys
@@ -26,10 +25,6 @@ PLAN = {
         "notes": ["メモ"],
         "ordered": [{"id": "U1", "name": "やる", "why": "x"}],
         "later": [{"id": "U2", "name": "あとで", "why": "y"}],
-        "provisional": [
-            {"sec": "3-88", "id": "(a)", "date": "10-18", "what": "軽い物", "impact": "小", "weight": "軽", "why": [], "added": "2026-10-18"},
-            {"sec": "3-87", "id": "(b)", "date": "10-17", "what": "重い物", "impact": "大", "weight": "重", "why": ["データ"], "added": "2026-10-18"},
-        ],
     },
     "history": [{"id": "H1", "name": "済んだ", "line": "A"}],
 }
@@ -60,7 +55,7 @@ class PlanDataTest(unittest.TestCase):
         self.assertEqual(back["versions"], [["全体(仮)", "9.9.9"], ["ui-kit", "v1"]])
         ut = back["userTasks"]
         self.assertEqual(ut["ordered"], self.orig["userTasks"]["ordered"])
-        self.assertEqual([p["id"] for p in ut["provisional"]], ["(b)", "(a)"])   # 重い物が先
+        self.assertEqual(ut["later"], self.orig["userTasks"]["later"])
         self.assertEqual(plan_data.slug("CON"), "con_")   # Windows の予約名はファイルにできない
         self.assertNotEqual(plan_data.slug("統1"), plan_data.slug("統2"))
         self.assertEqual(plan_data.check(self.plan), [])
@@ -82,24 +77,6 @@ class PlanDataTest(unittest.TestCase):
         self.assertFalse(wrote)
         self.assertTrue(probs)
         self.assertEqual(self.built()[0], before)
-
-    def test_sweep_confirms_only_light_old_unheld(self):
-        pv = plan_data.new(self.plan, "provisional", "(c)", {"sec": "3-89", "what": "迷う物"})
-        with open(pv, encoding="utf-8") as f:
-            self.assertEqual(json.load(f)["weight"], "重")   # 重さを書かない物は重い側
-        self.assertEqual(plan_data.sweep(self.plan, datetime.date(2026, 10, 24)), 0)   # 7 日たっていない
-        path = os.path.join(self.plan, "data", "provisional", "3-88-a.json")
-        with open(path, encoding="utf-8") as f:
-            it = json.load(f)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(dict(it, hold=True), f, ensure_ascii=False)
-        self.assertEqual(plan_data.sweep(self.plan, datetime.date(2026, 10, 25)), 0)   # 止めた物は確定しない
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(it, f, ensure_ascii=False)
-        self.assertEqual(plan_data.sweep(self.plan, datetime.date(2026, 10, 25)), 1)   # 軽い (a) だけ
-        self.assertEqual(os.listdir(os.path.join(self.plan, "data", "confirmed")), ["3-88-a.json"])
-        _, back = self.built()
-        self.assertEqual([p["id"] for p in back["userTasks"]["provisional"]], ["(c)", "(b)"])
 
 
 if __name__ == "__main__":

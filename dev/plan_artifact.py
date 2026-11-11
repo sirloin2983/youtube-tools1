@@ -4,7 +4,7 @@
     python dev/plan_artifact.py [--out <フォルダ>] [--plan <保管庫の plan フォルダ>] [--no-index]
     # --out の既定: <リポジトリ直下>/.artifact-build/plan/   --plan の既定: <保管庫>/plan
 
-計画の正が plan/data/ に分けてあれば、先に軽い仮決めの自動の確定(dev/plan_data.py sweep)と plan/data.js の生成をする。
+計画の正が plan/data/ に分けてあれば、先に plan/data.js の生成(dev/plan_data.py build)をする。
 索引を書くときは、計画の資料の頭の状態・線(dev/doc_state.py)と食い違いの一覧 plan/食い違いの一覧.md(dev/drift_report.py)も作り直す。
 あわせて、計画のデータから計画の索引 <plan>/計画の索引.md・線ごとのまとめ <plan>/線*.md・ホームの自動の部分 <保管庫>/ホーム.md を書き出す
 (Obsidian で読む用。--no-index で止める)。--graph で保管庫の根の ホーム.md(無いとき)と .obsidian/graph.json の colorGroups・search も書く。
@@ -268,8 +268,7 @@ def build_home_auto(plan, plan_dir):
             out.append("  - 線 %s: %s %s" % (t.get("line", ""), t.get("id", ""), cell(t.get("name", ""), 80)))
         if len(sel) > STATE_CAP:
             out.append("  - ほか %d 件" % (len(sel) - STATE_CAP))
-    out += ["", "## 確認待ちの仮決め: %d 件" % len(plan.get("userTasks", {}).get("provisional", [])), "",
-            "[一覧](plan/decisions.md)", "", "## 今週の作業", ""]
+    out += ["", "## 今週の作業", ""]
     name, summary = week_summary(notes)
     if name is None:
         out.append("(まだ無い)")
@@ -450,8 +449,7 @@ def main():
     if not plan_data.has_split(PLAN):
         print("plan/data/main.json が無い: %s" % PLAN, file=sys.stderr)
         return 1
-    plan_data.sweep(PLAN)   # 正は plan/data/(1 件 1 ファイル)。軽い仮決めの自動の確定 → data.js を作る
-    _wrote, probs = plan_data.build(PLAN)
+    _wrote, probs = plan_data.build(PLAN)   # 正は plan/data/(1 件 1 ファイル) → data.js を作る
     if probs:
         for f, ln, msg in probs:
             print("%s:%d %s" % (f, ln, msg), file=sys.stderr)
@@ -462,7 +460,7 @@ def main():
         doc_state.sync(os.path.dirname(PLAN))   # 計画の資料の頭の状態・線は計画のデータから(手で書かない)
         write_index(PLAN)
         if os.path.normcase(os.path.dirname(PLAN)) == os.path.normcase(layout.notes_root()):   # 本物の保管庫だけ(リポジトリ全体を読むので重い)
-            drift_report.write_report(os.path.dirname(PLAN))   # 食い違いの一覧(仮決めの一覧と同じ時に作り直す)
+            drift_report.write_report(os.path.dirname(PLAN))   # 食い違いの一覧
     if a.graph:
         write_vault_extras(os.path.dirname(PLAN))
     css, data, common = read("plan.css"), read("data.js"), read("plan.js")
