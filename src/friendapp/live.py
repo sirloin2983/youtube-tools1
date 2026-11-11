@@ -15,7 +15,7 @@ SENS_LABELS = {"high": "高い", "normal": "ふつう", "low": "低い"}
 STORE_DIR = os.path.join("app", "live")
 REQUESTS_NAME = "requests.json"
 REC_FOLDER = "ライブの録画"         # 一時保管の中の録画の置き場所(7 章)
-# 友人の画面から外したライブの 5 つの値(10-30 ユーザー「友人の設定は任せる」・保管庫 plan/decisions.md の 10-30 の行)。友人の form.json・設定・送る欄の値は読まない。
+# 友人の画面から外したライブの 5 つの値(10-30 ユーザー「友人の設定は任せる」・決定と要件/)。友人の form.json・設定・送る欄の値は読まない。
 # 感度・余白 = 研究が測った友人の実際の値。1 時間の枠・待ち・配信後の追加は、区切りごとに届ける形(flow/live_batch.BATCH_ON)を切って前の形に戻した時だけ効く = 今の既定
 FIXED = {"sens": "low", "pad": 2.0, "perHour": SETTINGS_DEFAULT["perHour"], "waitMin": SETTINGS_DEFAULT["waitMin"], "afterStream": SETTINGS_DEFAULT["afterStream"]}
 

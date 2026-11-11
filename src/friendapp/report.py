@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""友人のアプリの状態の書き出しと、そのきっかけ(形の正は notes:plan/友人の不具合の自動対応-1025.md。受け取り側はユーザーの PC の別の部品)。
+"""友人のアプリの状態の書き出しと、そのきっかけ(形の正は notes:今の道具の仕様/友人の不具合の自動対応.md。受け取り側はユーザーの PC の別の部品)。
 
 - 置き方: すぐ送る物(error・stuck・live_end・crash・ask)は送り返しの箱 <data>/app/outbox/ に <依頼 id か app>__state-<ミリ秒 13 桁>.state.json
   (診断と同じ流れ = 同期 friendapp/sync.py が Dropbox の /診断/ へ上げる)。手元の物(trouble・request_end・periodic)は作業データの diag/local/ に
@@ -84,7 +84,7 @@ def fit(doc, target=TARGET_BYTES, hard=MAX_BYTES):
     return json.dumps(doc, ensure_ascii=False).encode("utf-8")
 
 
-# 友人の段の名前(progress.FRIEND_OF・動画を取得)-> 受け取り側が見分ける段の名前(plan/友人の不具合の自動対応-1025.md)
+# 友人の段の名前(progress.FRIEND_OF・動画を取得)-> 受け取り側が見分ける段の名前(今の道具の仕様/友人の不具合の自動対応.md)
 STAGE_NAME = {"動画を取得": "fetch", "見どころを探す": "detect", "切り抜き": "export", "文字起こし": "transcribe", "仕上げ": "pack"}
 
 

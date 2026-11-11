@@ -1,4 +1,4 @@
-"""友人のアプリの更新の署名の鍵(安全面の直し 1・10-29。手順は保管庫 docs/spec/更新の署名の鍵.md)。
+"""友人のアプリの更新の署名の鍵(安全面の直し 1・10-29。手順は保管庫 今の道具の仕様/友人まわり.md の「更新の署名の鍵」)。
 
     py -3.12 dev/signing_key.py new              # 秘密鍵 friend-apps/launcher/signing.key を作り、公開鍵を src/friendapp/pubkeys.json に足す(もうあれば断る)
     py -3.12 dev/signing_key.py new --replace    # 鍵が漏れた・作り直す: 前の鍵を signing.key.old-<時刻> に退けて新しく作る(前の公開鍵は pubkeys.json に残す)

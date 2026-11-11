@@ -19,7 +19,7 @@ from ytt import fsio, recproto
 from . import deliver as _deliver
 from . import live_failures
 
-ON = True                    # 戻すスイッチ(偽 = 知らせない。plan/スイッチの台帳.md)
+ON = True                    # 戻すスイッチ(偽 = 知らせない。今の道具の仕様/スイッチの台帳.md)
 GAP_SEC = 300                # c の目安: 欠けの合計がこれ以上(5 分。根拠と測り直しは decisions の 10-30)
 NOANSWER_SEC = 600           # b: 録画中の録画の録画元がこの秒答えないまま(録画の部品の IDLE_END と同じ 10 分)
 KEEP_SEC = 7 * 24 * 3600     # 覚えを残す期間(調子に出す期間 live_failures.WINDOW_SEC と同じ)
