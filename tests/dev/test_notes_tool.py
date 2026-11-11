@@ -36,17 +36,40 @@ class NotesToolTest(unittest.TestCase):
         subprocess.run(["git", "-C", self.v, "config", "core.autocrlf", "false"], check=True)
         subprocess.run(["git", "-C", self.v, "add", "-A"], check=True)
         subprocess.run(["git", "-C", self.v, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init"], check=True)
-        self.old = (os.environ.get("YTT_NOTES_DIR"), notes_tool.REPO)
+        self.arc = os.path.join(self.tmp, "archive")
+        self.old = (os.environ.get("YTT_NOTES_DIR"), os.environ.get(notes_tool.ARCHIVE_ENV), notes_tool.REPO)
         os.environ["YTT_NOTES_DIR"] = self.v
+        os.environ[notes_tool.ARCHIVE_ENV] = self.arc
         notes_tool.REPO = self.repo
 
     def tearDown(self):
-        env, notes_tool.REPO = self.old
-        if env is None:
-            os.environ.pop("YTT_NOTES_DIR", None)
-        else:
-            os.environ["YTT_NOTES_DIR"] = env
+        env, arc, notes_tool.REPO = self.old
+        for k, v in (("YTT_NOTES_DIR", env), (notes_tool.ARCHIVE_ENV, arc)):
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
         shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_archive_moves_and_check_looks_there(self):
+        put(self.v, "plan/q.md", "q\n")
+        moved, n, probs = notes_tool.archive(["plan/p.md"])
+        self.assertEqual((moved, probs), (1, []))
+        self.assertFalse(os.path.exists(os.path.join(self.v, "plan", "p.md")))
+        self.assertEqual(get(self.arc, "plan/p.md"), "[`docs/spec/a.md`](../docs/spec/a.md)・[外](https://example.com)\n")
+        self.assertIn("`控え:plan/p.md`", get(self.v, "docs/spec/a.md"))   # 残る資料のリンクは文字に
+        self.assertEqual(notes_tool.check(), [])   # notes: と data.js の指す先は控えにある = 切れていない
+        put(self.v, "plan/q.md", "q2\n")
+        put(self.arc, "plan/q.md", "q\n")
+        moved, _n, probs = notes_tool.archive(["plan/q.md"])
+        self.assertEqual(moved, 0)   # 控えに違う中身があれば移さない
+        self.assertTrue(probs and os.path.exists(os.path.join(self.v, "plan", "q.md")))
+
+    def test_mv_plain_does_not_touch_git(self):
+        notes_tool.mv([("plan/p.md", "plan/done/p.md")], plain=True)
+        self.assertTrue(os.path.isfile(os.path.join(self.v, "plan", "done", "p.md")))
+        st = subprocess.run(["git", "-C", self.v, "diff", "--cached", "--name-only"], capture_output=True, text=True).stdout
+        self.assertEqual(st.strip(), "")
 
     def test_check_finds_only_broken(self):
         self.assertEqual(notes_tool.check(), [])   # 本文のかっこ・外の URL は数えない

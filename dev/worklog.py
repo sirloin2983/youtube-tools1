@@ -6,6 +6,7 @@
     python dev/worklog.py build      # 週のまとめ docs/worklog/<週>週.md の自動の部分と docs/worklog/README.md(記録の書式と週の一覧)の週の一覧を作り直す
     python dev/worklog.py check <セッションの名前かパス>   # 報告の型の検査(決まった見出し・英字の割合)。見出しが欠けたら終了コード 1
         # dev/land.py が main に入れる前に、入れるセッションの記録について流す(名前の既定 = ブランチの claude/ と末尾の -16 進を外した物)
+    python dev/worklog.py archive    # 今週より前の週を控えのフォルダへ移す(dev/session_start.py が毎回流す)。済んでいない行を出す
 
 セッションのファイルは、そのセッションだけが書く(ほかのセッションの記録を巻き込まない・末尾の取り合いが無い)。
 頭のプロパティ「まとめ」(1 行)を、週のまとめの「## まとめ」に新しい順で並べる。1 つのセッションで何度か書くときは同じファイルに「## 」で足す。
@@ -28,20 +29,17 @@ SESSION_FILE = re.compile(r"^(\d{4}-\d{2}-\d{2})-(.+)\.md$")
 NAME_OK = re.compile(r"^[^\\/:*?\"<>|\s]+$")
 LIST_HEAD = "## 週のファイル(新しい週が上)"
 PLACEHOLDER = "(1 行で。週のまとめに出る)"
-# 報告の型(AGENTS.md の「作業の記録」)。各見出しが 1 回は要る(中身が無ければ「なし」)。「## 見出し」か「- 見出し:」の形
-HEADINGS = ("直した物", "確かめた物", "本物ではまだ確かめていない物", "ユーザーがすること")
+# 報告の型(AGENTS.md の「作業の記録」)。各見出しが 1 回は要る(中身が無ければ「なし」)。「## 見出し」か「- 見出し:」の形。
+# 11-11 に 2 つへ減らした(ユーザー「作業の記録もそんなにいらない」「５はなんでもいい」)。何を直したかは頭の「まとめ」とコミットに
+HEADINGS = ("本物ではまだ確かめていない物", "ユーザーがすること")
 TEMPLATE = """---
 種類: 記録
 状態: 有効
 まとめ: {summary}
 ---
 # {date} {who}— {title}
-- 直した物:
-- 確かめた物:
-- 本物ではまだ確かめていない物:
+- 本物ではまだ確かめていない物: なし
 - ユーザーがすること: なし
-- 仮で決めたこと: なし
-- 未コミット: なし
 """
 # 英字の割合: コードの名前・パス・コマンド(`…`・``` の塊・リンクの先・URL・. / \ : を含む語)は数えない。
 # 日本語の記録は 0.18〜0.29(仮名と漢字は 1 字ずつ・英字も 1 字ずつ数える)。英語の文が混ざると 0.5 を超える
@@ -211,18 +209,95 @@ def find_session(name, notes=None):
     """セッションの名前 → 記録のファイル(いちばん新しい物)。パスならそのまま。無ければ None"""
     if os.path.isfile(name):
         return name
+    found = []
+    # 前の週は控えのフォルダへ移る(archive_old_weeks)= 先週に始めて今週 main に入れるセッションのために控えも探す
+    for d in (worklog_dir(notes), os.path.join(archive_root(), "docs", "worklog")):
+        if not os.path.isdir(d):
+            continue
+        for w in os.listdir(d):
+            wp = os.path.join(d, w)
+            if WEEK_DIR.match(w) and os.path.isdir(wp):
+                for n in os.listdir(wp):
+                    m = SESSION_FILE.match(n)
+                    if m and m.group(2) == name:
+                        found.append((m.group(1), os.path.join(wp, n)))
+        if found:
+            break
+    return max(found)[1] if found else None
+
+
+def archive_root():
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import notes_tool
+    return notes_tool.archive_root()
+
+
+def open_lines(text):
+    """「本物ではまだ確かめていない物」「ユーザーがすること」の、「なし」でない行 -> [(見出し, 中身)]"""
+    out = []
+    for h in HEADINGS:
+        for m in re.finditer(r"^(?:#{2,4}\s*|[-*]\s*(?:\*\*)?)%s(?:\*\*)?\s*[:：]?\s*(.*)$" % re.escape(h), body_of(text), re.M):
+            v = m.group(1).strip()
+            if v and not re.match(r"^(なし|無し|ない)[。.]?$", v):
+                out.append((h, v))
+    return out
+
+
+def old_weeks(notes, today):
+    """今週より前の週の名前(フォルダか週の .md がある物)"""
     d = worklog_dir(notes)
     if not os.path.isdir(d):
-        return None
-    found = []
-    for w in os.listdir(d):
+        return []
+    this = week_name(today)
+    names = set()
+    for n in os.listdir(d):
+        w = n[:-3] if n.endswith(".md") else n
+        if WEEK_DIR.match(w) and w < this:
+            names.add(w)
+    return sorted(names)
+
+
+def archive_old_weeks(notes=None, today=None):
+    """今週より前の週(フォルダと週の .md)を控えのフォルダへ移す(dev/notes_tool.py の archive)。README の週の一覧の行も外す。
+    残すのは今週だけ(11-11 ユーザー「作業の記録もそんなにいらない」)。
+    -> (移した週, まだ済んでいない行 [(週/ファイル, 見出し, 中身)], 問題)。移す前に、2 つの見出しが「なし」でない行を集める"""
+    notes = notes or layout.notes_root()
+    today = today or datetime.date.today()
+    weeks = old_weeks(notes, today)
+    if not weeks:
+        return [], [], []
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import notes_tool
+    d = worklog_dir(notes)
+    pending, paths = [], []
+    for w in weeks:
         wp = os.path.join(d, w)
-        if WEEK_DIR.match(w) and os.path.isdir(wp):
-            for n in os.listdir(wp):
-                m = SESSION_FILE.match(n)
-                if m and m.group(2) == name:
-                    found.append((m.group(1), os.path.join(wp, n)))
-    return max(found)[1] if found else None
+        if os.path.isdir(wp):
+            for n in sorted(os.listdir(wp)):
+                if SESSION_FILE.match(n):
+                    pending += [("%s/%s" % (w, n), h, v) for h, v in open_lines(read(os.path.join(wp, n)))]
+            paths.append("docs/worklog/" + w)
+        if os.path.isfile(wp + ".md"):
+            paths.append("docs/worklog/%s.md" % w)
+    _moved, _n, probs = notes_tool.archive(paths, root=notes)
+    gone = [w for w in weeks if not os.path.exists(os.path.join(d, w)) and not os.path.exists(os.path.join(d, w + ".md"))]
+    drop_index(notes, gone)
+    return gone, pending, probs
+
+
+def drop_index(notes, weeks):
+    """README.md の週の一覧から、移した週の行を外す(archive が文字にした行も)"""
+    path = os.path.join(notes, "docs", "worklog", "README.md")
+    if not weeks or not os.path.isfile(path):
+        return False
+    text = read(path)
+    keep = [ln for ln in text.split("\n")
+            if not (ln.startswith("- ") and any(ln.startswith("- [%s]" % w) or ("控え:docs/worklog/%s.md" % w) in ln for w in weeks))]
+    new = "\n".join(keep)
+    if new != text:
+        write(path, new)
+        return True
+    return False
 
 
 def check(path):
@@ -249,9 +324,18 @@ def main(argv):
     p.add_argument("--title", default="")
     p.add_argument("--who", default="Claude Code ")
     sub.add_parser("build")
+    sub.add_parser("archive")
     p = sub.add_parser("check")
     p.add_argument("name")
     a = ap.parse_args(argv)
+    if a.cmd == "archive":
+        gone, pending, probs = archive_old_weeks()
+        for where, h, v in pending:
+            print("- %s %s: %s" % (where, h, v))
+        for s in probs:
+            print("[問題] " + s)
+        print("控えへ移した週 %d(%s)・済んでいない行 %d" % (len(gone), "・".join(gone) or "なし", len(pending)))
+        return 1 if probs else 0
     if a.cmd == "check":
         path = find_session(a.name)
         if not path:

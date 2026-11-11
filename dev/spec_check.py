@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""仕様(保管庫の docs/spec/)とコードの食い違いを探す。
+"""仕様(保管庫の 今の道具の仕様/。残っていれば docs/spec/ も)とコードの食い違いを探す。
 
     python dev/spec_check.py          # 止める物と警告を並べる(終了コード 1 = 止める物がある)
     python dev/spec_check.py --gone   # 消した道具の名前だけを探す(終了コード 1 = 残っている。main に入れる関所 dev/land_gate.py が止める)
 
-食い違い(終了コード 1。警告として週 1 回の食い違いの一覧 dev/drift_report.py に出す。lint・push.bat は止めない =
+食い違い(終了コード 1。dev/drift_report.py も数える。lint・push.bat は止めない =
 保管庫は全部の worktree で共有なので、まだ main に入っていない別の worktree のコードを書いた仕様で止まらないように):
   - 環境変数 `YTT_*` がコード(git の src・dev・setup・friend-apps・chrome-ext と直下の起動ファイル)のどこにも無い
   - `/api/...` の口が、コードの地図(dev/code_map.py)の受ける所・呼ぶ所のどれにも当たらない
   - バッククォートの中の src/・dev/・setup/・friend-apps/・chrome-ext/ のパスが無い
 警告(終了コード に関わらない):
   - 設定の鍵: 表の直前に `<!-- spec-check: 設定 -->` の印がある表の 1 列目のバッククォートが、コードの文字列に無い
-  - 逆向き: src/・friend-apps/ のコード(テストを除く)が使う `YTT_*` が docs/spec のどこにも書いていない
+  - 逆向き: src/・friend-apps/ のコード(テストを除く)が使う `YTT_*` が仕様のどこにも書いていない
 消した道具の名前(--gone。GONE の名前。止める): 今の正に 1 つでも出たら止める。今の正 = リポジトリの git のファイル全部(配る zip の中身 =
-src・friend-apps を含む。GONE_OK の物を除く)と、保管庫の AGENTS.md・docs/spec・codemap。経緯は docs/design・作業の記録・plan/done へ(そこは見ない)。
+src・friend-apps を含む。GONE_OK の物を除く)と、保管庫の AGENTS.md・今の道具の仕様(と docs/spec)・codemap。経緯は docs/design・作業の記録・plan/done へ(そこは見ない)。
 除くもの: 行に `<!-- spec-check: 旧 -->` の印・見出しに「経緯」「履歴」「過去」「旧い名前」が入る節(次の同じ深さの見出しまで)。
 コードのブロック(``` の中)は除かない(環境変数の例はそこにある)。
 """
@@ -37,7 +37,9 @@ CODE_DIRS = ("src/", "dev/", "setup/", "friend-apps/", "chrome-ext/")
 GONE = re.compile(r"RequestSender|request-sender|送るアプリ|依頼ボックス", re.I)   # 消した道具の名前
 # 名前を出してよい物: この検査とそのテスト・手元に残った前のアプリのフォルダの鍵を git に入れない守り(.gitignore・push の鍵の検査)
 GONE_OK = ("dev/spec_check.py", "tests/dev/test_doc_state.py", ".gitignore", "dev/push_helper.py", "tests/dev/test_push_helper.py")
-GONE_NOTES = ("AGENTS.md", "docs/spec", "codemap")
+# 今の道具の仕様の正(11-11 に docs/spec/ から替えた。docs/spec/ は控えへ移すまでの間だけ読む)
+SPEC_DIRS = ("今の道具の仕様", "docs/spec")
+GONE_NOTES = ("AGENTS.md",) + SPEC_DIRS + ("codemap",)
 CODE_EXTS = (".py", ".js", ".cjs", ".mjs", ".cs", ".bat", ".vbs", ".ps1", ".html", ".json", ".txt", ".command", ".gs", ".css")
 SELF = ("dev/spec_check.py",)
 
@@ -73,11 +75,11 @@ class Code:
 
 
 def spec_files(root):
-    d = os.path.join(root, "docs", "spec")
     out = []
-    for base, dirs, files in os.walk(d):
-        dirs.sort()
-        out += [os.path.join(base, f) for f in sorted(files) if f.endswith(".md")]
+    for top in SPEC_DIRS:
+        for base, dirs, files in os.walk(os.path.join(root, *top.split("/"))):
+            dirs.sort()
+            out += [os.path.join(base, f) for f in sorted(files) if f.endswith(".md")]
     return out
 
 
@@ -169,7 +171,7 @@ def check(root=None, code=None):
                     used.setdefault(name, path)
     for name, path in sorted(used.items()):
         if name not in mentioned:
-            warn.append((path, 1, "環境変数が docs/spec に書いていない: " + name))
+            warn.append((path, 1, "環境変数が仕様に書いていない: " + name))
     return bad, warn
 
 

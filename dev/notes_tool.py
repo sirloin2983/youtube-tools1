@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """資料のフォルダ(Obsidian の保管庫の中。layout.notes_root())のパスの検査と、資料を動かす道具。
 
-    python dev/notes_tool.py check [--fix]         # 切れたパスと食い違いを並べる(終了コード 1 = ある)。--fix は計画の資料の頭の状態・線だけ直す
-    python dev/notes_tool.py mv <旧> <新> [...]   # 資料のフォルダの中で git mv して、指している所を全部直す
+    python dev/notes_tool.py check                 # 切れたパスを並べる(終了コード 1 = ある)。控えのフォルダの同じ場所にある物は数えない
+    python dev/notes_tool.py archive <パス> [...] # 資料のフォルダの物(ファイルかフォルダ。資料のフォルダからの相対)を控えのフォルダの同じ場所へ移す。
+        # 写して中身が同じかを確かめてから元を消す(git には触らない = コミットは呼び手)。残る資料の中のリンクは文字(`控え:<パス>`)にする。
+        # コードの notes: は触らない(check が控えのフォルダも見る)。--dry は移す物を並べるだけ
+    python dev/notes_tool.py mv [--plain] <旧> <新> [...]   # 資料のフォルダの中で git mv して、指している所を全部直す(--plain = git を使わずに動かす)
     python dev/notes_tool.py retarget <旧> <新> [...]   # 動かさずに、旧を指すリンク・data.js・notes: を新へ向け直す(文書をまとめたとき)
     python dev/notes_tool.py drop <コミット> <消す物> [...]   # 消す前に、指している所を git:<コミット>:<パス> の文字にする
     python dev/notes_tool.py fix-prose            # 本文のかっこ書き [送る](説明) に空白を入れてリンクにしない・タグになる #7BDF0E を `` で囲む
@@ -12,13 +15,16 @@ check が見る物(dev/lint.py も同じ物を数える):
   - 計画のデータ(plan/data/ の JSON と summary.md。分けてなければ plan/data.js)の docs の並び(plan/ からの相対)と、文の中の docs/… plan/… の .md・.html。
     JSON が読めるか・id・必須の欄・参照は dev/plan_data.py の check
   - リポジトリのコード・README の notes:docs/… notes:plan/…
-  - 計画の資料の頭の 状態・線 が計画のデータ(tasks の docs)と合うか・plan/done/ の置き場所(dev/doc_state.py)
+  指す先が資料のフォルダに無くても、控えのフォルダ(archive_root()。過去の資料を保管庫と同じ並びでしまう所)の同じパスにあれば数えない。
+  (計画のページ一式と頭の状態の検査 dev/doc_state.py・dev/plan_data.py check は 11-11 にやめた。ユーザー「１はやめていい」)
 mv が直す物: md の相対リンク(動かした文書の中のリンクも)・リンクの表示が旧いパスそのものならその文字・
   計画のデータ(plan/data/。直したら data.js を作り直す)・リポジトリの notes: の参照。リンクでない文字のパス(過去の記録の中など)は直さない。
 Obsidian の中で動かすと md のリンクだけは Obsidian が直すが、data.js と notes: は直らない = 動かしたら check を流す。
 """
+import filecmp
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -40,10 +46,29 @@ URL = re.compile(r"[a-zA-Z][a-zA-Z0-9+.\-]*://\S+")
 SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.\-]*:")
 CODE_EXTS = (".py", ".js", ".cjs", ".mjs", ".css", ".html", ".bat", ".txt", ".md", ".cs", ".ps1", ".command", ".sh", ".gs")
 SKIP_DIRS = {".git", "node_modules", "dist", "__pycache__", ".artifact-build", "worktrees", "0old"}
+# 控えのフォルダ(過去の資料の置き場。保管庫の外・消さない・AI は自動では読まない)。中は保管庫と同じ並び。
+# 開発の道具だけが使う(製品と一緒に配らない)ので dev/ に置く。YTT_NOTES_ARCHIVE で替えられる
+ARCHIVE_ENV = "YTT_NOTES_ARCHIVE"
+ARCHIVE_DEFAULT = r"D:\資料の控え\youtube-tools\保管庫"
 
 
 def vault():
     return layout.notes_root()
+
+
+def archive_root():
+    return os.environ.get(ARCHIVE_ENV) or ARCHIVE_DEFAULT
+
+
+def in_archive(rel):
+    """資料のフォルダからの相対パスが、控えのフォルダの同じ場所にあるか"""
+    rel = rel.replace("\\", "/").strip("/")
+    return bool(rel) and not rel.startswith("../") and os.path.exists(os.path.join(archive_root(), *rel.split("/")))
+
+
+def missing(full, root):
+    """資料のフォルダの中を指すパス full が、資料のフォルダにも控えのフォルダにも無いか"""
+    return not os.path.exists(full) and not in_archive(os.path.relpath(full, root))
 
 
 def plan_data():
@@ -218,14 +243,12 @@ def explain_data_js(text, path="plan/data.js", use_node=True):
 
 
 def check(root=None):
-    """切れたパスと食い違いを [(どこ, 行, 説明)] で返す。資料のフォルダが無い PC では空。
-    計画の資料の頭の状態(dev/doc_state.py)も数える。仕様とコードの食い違い(dev/spec_check.py)は警告なのでここでは数えない"""
+    """切れたパスを [(どこ, 行, 説明)] で返す。資料のフォルダが無い PC では空。
+    控えのフォルダの同じ場所にある物は切れたと数えない。仕様とコードの食い違い(dev/spec_check.py)は警告なのでここでは数えない"""
     root = root or vault()
     if not os.path.isdir(root):
         return []
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    import doc_state
-    bad = doc_state.check(root)
+    bad = []
     for p in md_files(root):
         fence = False
         for ln, line in enumerate(read(p).splitlines(), 1):
@@ -240,7 +263,7 @@ def check(root=None):
                     bad.append((vrel(p, root), ln, "かっこ書きがリンクになる(] と ( の間に空白): " + m.group(0)))
                     continue
                 lt = local_target(m.group(4))
-                if lt and lt[0] and not os.path.exists(os.path.normpath(os.path.join(os.path.dirname(p), lt[0]))):
+                if lt and lt[0] and missing(os.path.normpath(os.path.join(os.path.dirname(p), lt[0])), root):
                     bad.append((vrel(p, root), ln, lt[0]))
     for rel, data in data_files(root):
         if rel == "plan/data.js":
@@ -252,13 +275,11 @@ def check(root=None):
                     full = os.path.normpath(os.path.join(root, "plan", q))
                     # ../chrome-ext/… のようにリポジトリのファイルを指す物はリポジトリで探す
                     alt = os.path.join(REPO, os.path.relpath(full, root))
-                    if not os.path.exists(full) and not os.path.exists(alt):
+                    if missing(full, root) and not os.path.exists(alt):
                         bad.append((rel, ln, q))
             for m in DATA_TEXT.finditer(line):
-                if not os.path.exists(os.path.join(root, m.group(1))):
+                if missing(os.path.join(root, m.group(1)), root):
                     bad.append((rel, ln, m.group(1)))
-    if plan_data().has_split(os.path.join(root, "plan")):   # 1 件 1 ファイルの JSON が読めるか・id・必須の欄・参照
-        bad += plan_data().check(os.path.join(root, "plan"))
     for p in code_files():
         try:
             text = read(p)
@@ -268,7 +289,7 @@ def check(root=None):
             continue
         for ln, line in enumerate(text.splitlines(), 1):
             for m in NOTE_REF.finditer(line):
-                if not os.path.exists(os.path.join(root, m.group(1).rstrip(".-"))):
+                if missing(os.path.join(root, m.group(1).rstrip(".-")), root):
                     bad.append((vrel(p, REPO), ln, "notes:" + m.group(1)))
     return bad
 
@@ -324,15 +345,21 @@ def relink_text(text, old_file, new_file, resolve=lambda p: p, root=None):
     return LINK.sub(sub, text)
 
 
-def mv(pairs, move=True):
+def mv(pairs, move=True, plain=False):
     """資料のフォルダの中で git mv し、md のリンク・data.js・リポジトリの notes: を直す。
-    move=False は動かさずに「旧を指す所を新へ向け直す」だけ(文書をまとめたとき。旧は呼び手が消す)"""
+    move=False は動かさずに「旧を指す所を新へ向け直す」だけ(文書をまとめたとき。旧は呼び手が消す)。
+    plain=True は git を使わずに動かす(index に何も積まない = コミットは呼び手が自分のファイルだけ add する)"""
     root = vault()
     files = _mapping(root, pairs)
     if move:
         for old, new in pairs:
             os.makedirs(os.path.dirname(os.path.join(root, new)), exist_ok=True)
-            subprocess.run(["git", "-C", root, "mv", old, new], check=True)
+            if plain:
+                if os.path.exists(os.path.join(root, new)):
+                    raise SystemExit("移す先にもう物がある: %s" % new)
+                shutil.move(os.path.join(root, old), os.path.join(root, new))
+            else:
+                subprocess.run(["git", "-C", root, "mv", old, new], check=True)
     back = {v: k for k, v in files.items()} if move else {}
     resolve = lambda p: _moved(p, files, pairs, root)  # noqa: E731
     n = 0
@@ -421,15 +448,95 @@ def drop(paths, rev):
     return n
 
 
+def _files_under(full):
+    if os.path.isdir(full):
+        for d, _ds, fs in os.walk(full):
+            for f in fs:
+                yield os.path.join(d, f)
+    elif os.path.isfile(full):
+        yield full
+
+
+def archive(paths, root=None, dest=None, dry=False):
+    """資料のフォルダの物を控えのフォルダの同じ場所へ移す。-> (移したファイルの数, 直した資料の数, 問題 [文])。
+    1 ファイルずつ: 写す → 中身が同じかを比べる → 元を消す。控えにもう違う中身の同じ名前があれば移さない(問題に出す)。
+    移した物を指す、資料のフォルダに残る md のリンクは「表示(`控え:<パス>`)」の文字にする。git には触らない"""
+    root = os.path.normpath(root or vault())
+    dest = os.path.normpath(dest or archive_root())
+    gone, moved, probs = [], 0, []
+    for rel in paths:
+        rel = rel.replace("\\", "/").strip("/")
+        full = os.path.normpath(os.path.join(root, *rel.split("/")))
+        if not (full + os.sep).startswith(root + os.sep) or full == root:
+            probs.append("資料のフォルダの外は移さない: %s" % rel)
+            continue
+        if not os.path.exists(full):
+            probs.append("無い: %s" % rel)
+            continue
+        gone.append(full)
+        for src in list(_files_under(full)):
+            to = os.path.join(dest, os.path.relpath(src, root))
+            if dry:
+                moved += 1
+                continue
+            if os.path.exists(to) and not filecmp.cmp(src, to, shallow=False):
+                probs.append("控えに違う中身の同じ名前がある(移していない): %s" % vrel(src, root))
+                continue
+            os.makedirs(os.path.dirname(to), exist_ok=True)
+            if not os.path.exists(to):
+                shutil.copy2(src, to)
+            if not filecmp.cmp(src, to, shallow=False):
+                probs.append("写しが元と違う(移していない): %s" % vrel(src, root))
+                continue
+            os.remove(src)
+            moved += 1
+        if not dry and os.path.isdir(full):   # 空になったフォルダだけ消す(残った物があれば残す)
+            for d, _ds, _fs in sorted(os.walk(full), key=lambda x: -len(x[0])):
+                try:
+                    os.rmdir(d)
+                except OSError:
+                    pass
+    if dry or not gone:
+        return moved, 0, probs
+
+    def is_gone(p):
+        p = os.path.normpath(p)
+        return any(p == g or p.startswith(g + os.sep) for g in gone) and not os.path.exists(p)
+
+    def sub(m, here):
+        lt = local_target(m.group(4))
+        if m.group(1) != "[" or not lt or not lt[0]:
+            return m.group(0)
+        target = os.path.normpath(os.path.join(os.path.dirname(here), lt[0]))
+        if not is_gone(target):
+            return m.group(0)
+        ref = "`控え:%s`" % vrel(target, root)
+        return ref if m.group(2).strip("`") == vrel(target, root) else "%s(%s)" % (m.group(2), ref)
+
+    n = 0
+    for p in md_files(root):
+        text = read(p)
+        new = LINK.sub(lambda m: sub(m, p), text)
+        if new != text:
+            write(p, new)
+            n += 1
+    return moved, n, probs
+
+
 def main(argv):
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
+    if argv[:1] == ["archive"] and len(argv) >= 2:
+        dry = "--dry" in argv
+        moved, n, probs = archive([x for x in argv[1:] if x != "--dry"], dry=dry)
+        for s in probs:
+            print("[問題] " + s)
+        print("%s ファイル %d 本(控えのフォルダ %s)・リンクを文字にした資料 %d 本" % (
+            "移す物" if dry else "移した", moved, archive_root(), n))
+        return 1 if probs else 0
     if argv[:1] == ["check"]:
-        if "--fix" in argv:   # 計画の資料の頭の状態・線だけを計画のデータに合わせる(ほかは直さない)
-            import doc_state
-            doc_state.sync(vault())
         bad = check()
         for where, ln, p in bad:
             print("%s:%d %s" % (where, ln, p))
@@ -448,9 +555,11 @@ def main(argv):
     if argv[:1] == ["drop"] and len(argv) >= 3:
         print("直したファイル %d 本" % drop([x.replace("\\", "/").rstrip("/") for x in argv[2:]], argv[1]))
         return 0
+    plain = "--plain" in argv[1:]
+    argv = [x for x in argv if x != "--plain"]
     if argv[:1] in (["mv"], ["retarget"]) and len(argv) >= 3 and len(argv) % 2 == 1:
         pairs = [(argv[i].replace("\\", "/").rstrip("/"), argv[i + 1].replace("\\", "/").rstrip("/")) for i in range(1, len(argv), 2)]
-        print("直したファイル %d 本" % mv(pairs, move=argv[0] == "mv"))
+        print("直したファイル %d 本" % mv(pairs, move=argv[0] == "mv", plain=plain))
         return 0
     print(__doc__)
     return 2

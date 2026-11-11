@@ -16,8 +16,6 @@ GOOD = """---
 まとめ: 関所を足した
 ---
 # 2026-10-18 Claude Code — 関所
-- 直した物: `dev/land.py` に関所を足した
-- 確かめた物: 単体テスト
 ## 本物ではまだ確かめていない物
 なし
 - **ユーザーがすること**: なし
@@ -84,28 +82,34 @@ class TableTest(unittest.TestCase):
     def setUp(self):
         tmp = testkit.tempdir(self)
         self.root = os.path.join(tmp, "repo")
-        for d in ("src/ytt", "src/newlayer", "friend-apps/launcher", "dev"):
+        dirs = ["src/%s" % d for v in land_gate.LAYER_SRC.values() for d in v if d != "eval"]
+        for d in dirs + ["src/newlayer", "friend-apps/launcher", "friend-apps/odd", "dev"]:
             os.makedirs(os.path.join(self.root, *d.split("/")))
-        self.md = os.path.join(tmp, "code.md")
-        put(self.md, "# x\n\n" + land_gate.TABLE_HEAD + "\n説明\n\n| フォルダ | テスト |\n| --- | --- |\n"
-            "| `src/ytt/`(旧 `src/ytt_core/`) | a |\n| `friend-apps/launcher/` | b |\n| `friend-apps/gone/` | c |\n"
-            "| `dev/` | d |\n| `docs/`・`plan/` | e |\n\n## 7. 次\n| `src/other/` | x |\n")
+        self.md = os.path.join(tmp, "コードの決まり.md")
+        rows = "".join("| `%s` | 役目 | なし |\n" % k for k in land_gate.LAYER_SRC if k != "manage")
+        put(self.md, "# x\n\n" + land_gate.TABLE_HEAD + "\n説明\n\n| 部分 | 役目 | import してよい相手 |\n| --- | --- | --- |\n"
+            + rows + "| `gone` | 消えた | なし |\n\n## 2. 次\n| `other` | x |\n")
 
-    def test_folders_of_first_column(self):
-        self.assertEqual(land_gate.table_folders(self.md),
-                         ["src/ytt/", "friend-apps/launcher/", "friend-apps/gone/", "dev/", "docs/", "plan/"])
+    def test_parts_of_first_column(self):
+        parts = land_gate.table_parts(self.md)
+        self.assertIn("ytt", parts)
+        self.assertIn("gone", parts)
+        self.assertNotIn("other", parts)   # 次の節の表は読まない
 
     def test_drift_warns_both_ways(self):
         warns = land_gate.table_drift(self.root, self.md)
-        self.assertTrue(any("friend-apps/gone/ は、もう無い" in w for w in warns))
-        self.assertTrue(any("src/newlayer/ が表に無い" in w for w in warns))
-        self.assertEqual(len(warns), 2)
+        self.assertTrue(any("表の部分 gone に関所の決まりが無い" in w for w in warns), warns)
+        self.assertTrue(any("関所の層 manage が表に無い" in w for w in warns), warns)
+        self.assertTrue(any("src/eval/ は、もう無い" in w for w in warns), warns)
+        self.assertTrue(any("src/newlayer/ に関所の決まりが無い" in w for w in warns), warns)
+        self.assertTrue(any("friend-apps/odd/ に関所の決まりが無い" in w for w in warns), warns)
+        self.assertEqual(len(warns), 5, warns)
 
     def test_real_table_matches_repo(self):
-        """今の code.md の表(保管庫がある PC だけ)と、関所の決まり・実際のフォルダがずれていない"""
-        code_md = os.path.join(land_gate.layout.notes_root(), "docs", "spec", "code.md")
+        """今の コードの決まり.md の表(保管庫にある PC だけ)と、関所の決まり・実際のフォルダがずれていない"""
+        code_md = os.path.join(land_gate.layout.notes_root(), *land_gate.CODE_RULES)
         if not os.path.isfile(code_md):
-            self.skipTest("保管庫が無い")
+            self.skipTest("保管庫に コードの決まり.md が無い")
         self.assertEqual(land_gate.table_drift(REPO, code_md), [])
 
 
@@ -124,10 +128,20 @@ class WorklogCheckTest(unittest.TestCase):
 
     def test_missing_heading_stops(self):
         p = os.path.join(self.notes, "a.md")
-        put(p, GOOD.replace("- 確かめた物: 単体テスト\n", "- 確かめ: 単体テスト\n"))
+        put(p, GOOD.replace("- **ユーザーがすること**: なし\n", "- **ユーザーの番**: なし\n"))
         probs, _w = worklog.check(p)
         self.assertEqual(len(probs), 1)
-        self.assertIn("確かめた物", probs[0])
+        self.assertIn("ユーザーがすること", probs[0])
+
+    def test_find_session_looks_in_archive(self):
+        """前の週は控えのフォルダへ移る = 先週に始めたセッションの記録は控えから探す"""
+        arc = os.path.join(self.notes, "archive")
+        old = os.environ.get("YTT_NOTES_ARCHIVE")
+        os.environ["YTT_NOTES_ARCHIVE"] = arc
+        self.addCleanup(lambda: os.environ.pop("YTT_NOTES_ARCHIVE") if old is None else os.environ.update(YTT_NOTES_ARCHIVE=old))
+        p = os.path.join(arc, "docs", "worklog", "2026-10-12週", "2026-10-13-gate.md")
+        put(p, GOOD)
+        self.assertEqual(worklog.find_session("gate", os.path.join(self.notes, "vault")), p)
 
     def test_english_warns_but_code_names_do_not_count(self):
         code_heavy = GOOD + "".join("- `dev/land_gate.py` の `select()` と `run_unit.build_units` を使う(tests/ytt/test_ytt_core.py)\n"

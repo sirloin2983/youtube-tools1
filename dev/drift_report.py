@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""資料どうし・資料とコードの食い違いをまとめて流し、1 枚の一覧(保管庫の plan/食い違いの一覧.md。自動)に出す。
+"""資料どうし・資料とコードの食い違いをまとめて流し、件数と中身を画面に出す(書くファイルは無い)。
 
-    python dev/drift_report.py    # 流して件数を出し、一覧を書く
+    python dev/drift_report.py    # 流して件数と中身を出す(止める物があれば終了コード 1)
 
 見る物:
-  - 止める物 = dev/notes_tool.py check と同じ(リンク切れ・計画のデータ・資料の頭の状態 dev/doc_state.py)
-  - 警告 = 仕様とコードの食い違い(dev/spec_check.py)・文書の行数の上限・入口の文書(AGENTS.md・ホーム・docs/spec)の同じ文の重なり
-週に 1 回見る。dev/plan_artifact.py が公開し直すたびに作り直すので、ふだんは開くだけでよい。
-行数の上限と重なりは目安(仮決め 3-93)。超えたら短くする・リンクにする(同じ話は 1 か所だけに書く)。
+  - 止める物 = dev/notes_tool.py check と同じ(リンク切れ。控えのフォルダにある物は数えない)
+  - 警告 = 仕様とコードの食い違い(dev/spec_check.py)・文書の行数の上限・入口の文書(AGENTS.md・ホーム・今の道具の仕様)の同じ文の重なり
+一覧のファイル(plan/食い違いの一覧.md)を書くのは 11-11 にやめた(ユーザー「２はけしていい」)。問題がある時は、
+セッションの最初に dev/session_start.py が 1 行で知らせる。write_report は止めた計画のページの道具 dev/plan_artifact.py だけが呼ぶ。
+行数の上限と重なりは目安。超えたら短くする・リンクにする(同じ話は 1 か所だけに書く)。
 """
 import argparse
 import datetime
@@ -22,8 +23,8 @@ from ytt import layout  # noqa: E402
 
 REPORT = "plan/食い違いの一覧.md"
 # 上から先に当たった上限(保管庫からの相対のパターン, 行)。自動で作る索引(種類: 索引)は数えない
-CAPS = (("AGENTS.md", 200), ("ホーム.md", 120), ("plan/decisions.md", 700), ("plan/done/*", 0),
-        ("plan/*.md", 400), ("docs/spec/*", 800))
+CAPS = (("AGENTS.md", 200), ("ホーム.md", 120), ("plan/*.md", 400), ("今の道具の仕様/*", 800), ("docs/spec/*", 800))
+SPEC_DIRS = ("今の道具の仕様", "docs/spec")
 DUP_MIN = 50
 AUTO = re.compile(r"<!-- 自動: ここから.*?<!-- 自動: ここまで -->", re.S)
 
@@ -69,8 +70,9 @@ def caps(root):
 
 def entry_docs(root):
     out = ["AGENTS.md", "ホーム.md"]
-    out += [rel for rel, _ in md_files(os.path.join(root, "docs", "spec"))]
-    return [r if r in ("AGENTS.md", "ホーム.md") else "docs/spec/" + r for r in out]
+    for d in SPEC_DIRS:
+        out += [d + "/" + rel for rel, _ in md_files(os.path.join(root, *d.split("/")))]
+    return out
 
 
 def sentences(text):
@@ -119,7 +121,7 @@ def render(res, today):
     out = ["---", "種類: 索引", "状態: 有効", "---", "", "# 食い違いの一覧(資料どうし・資料とコード)", "",
            "更新(%s): 自動で作る(`dev/drift_report.py`。`dev/plan_artifact.py` も流す)・手で直さない。週に 1 回見て、"
            "警告を減らす" % today.isoformat(), "",
-           "- 止める物 %d 件(0 でないと lint・push.bat が止まる。`py -3.12 dev/notes_tool.py check`。資料の頭の状態だけなら `check --fix`)" % len(res["bad"]),
+           "- 止める物 %d 件(0 でないと lint・push.bat が止まる。`py -3.12 dev/notes_tool.py check`)" % len(res["bad"]),
            "- 警告 %d 件(止めない。仕様とコード %d・行数 %d・同じ文 %d)" % (total_warn, len(res["spec"]), len(res["caps"]), len(res["dups"])), ""]
 
     def section(title, rows):
@@ -167,10 +169,11 @@ def main(argv):
     if not os.path.isdir(root):
         print("資料のフォルダが無い: %s" % root)
         return 0
-    res = write_report(root)
-    print("止める物 %d 件・警告 %d 件(仕様とコード %d・行数 %d・同じ文 %d)%s" % (
+    res = collect(root)
+    print(render(res, datetime.date.today()))
+    print("止める物 %d 件・警告 %d 件(仕様とコード %d・行数 %d・同じ文 %d)" % (
         len(res["bad"]), len(res["spec"]) + len(res["caps"]) + len(res["dups"]), len(res["spec"]), len(res["caps"]),
-        len(res["dups"]), " → " + REPORT))
+        len(res["dups"])))
     return 1 if res["bad"] else 0
 
 

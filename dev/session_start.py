@@ -1,20 +1,25 @@
 #!/usr/bin/env python3
 """セッションの入口の要約。新しい AI のセッションが最初に流し、今の状態を 1 画面(150 行以内)で見る。
 
-    py -3.12 dev/session_start.py [<領域>]                    # 両方の git・版・今週の作業の記録・境目のメモ・計画・動いている worktree
-    py -3.12 dev/session_start.py --brief <領域> --task "<一言>"   # 子への指示文の下書き(雛形・関係する地図と spec・重なりそうな worktree)
+    py -3.12 dev/session_start.py [<領域>]                    # 片付け(下)・両方の git・版・今週の作業の記録・境目のメモ・やること・動いている worktree
+    py -3.12 dev/session_start.py --brief <領域> --task "<一言>"   # 子への指示文の下書き(雛形・関係する地図と仕様・重なりそうな worktree)
+    py -3.12 dev/session_start.py --no-tidy [<領域>]          # 片付けをせずに要約だけ
 
-読むだけ(何も書き換えない)・新しい「正」は作らない。どの行も元の場所から読んで出す:
+要約は読むだけ・新しい「正」は作らない。どの行も元の場所から読んで出す:
   git(リポジトリ・保管庫)・main の src/ytt/version.py・docs/worklog/<週>/ のセッションのファイル(dev/worklog.py の形)・
-  境目-*.md(共有メモのフォルダ %APPDATA%/Claude/side-session-notes/*/ と保管庫)・plan/data/ の tasks と user・
-  git worktree list・codemap/・docs/spec/ と AGENTS.md の「何を触るときに何を読むか」の表。
+  境目-*.md(共有メモのフォルダ %APPDATA%/Claude/side-session-notes/*/ と保管庫)・保管庫の やること.md・
+  git worktree list・codemap/・今の道具の仕様/(と、残っていれば docs/spec/)と AGENTS.md の「何を触るときに何を読むか」の表。
+片付け(tidy。資料が溜まらないように道具がする。11-11 の資料の整理):
+  自分で移す(控えのフォルダへ。dev/notes_tool.py archive。いつでも戻せる): 今週より前の作業の記録(dev/worklog.py archive_old_weeks)・
+    途中/ の、頭の「終わり: <日付>」を過ぎた物と「状態: 済み」の物。
+  知らせる(1 行ずつ。止めない・まとめ役が片付ける): 置き場ごとの数・やること.md などの行数が上限(CAPS)を超えた・途中/ に「終わり:」の無い物・
+    決まった置き場(PLACES)の外の物・切れたパス(dev/notes_tool.py check)。作業の記録を移した時は、済んでいない行を出す。
 雛形の正は保管庫の docs/子への指示文の雛形.md(最初の ``` の中)。
-領域は codemap/ と docs/spec/ のファイル名・AGENTS.md の表の行に当てる言葉(例: friendapp・pipeline・plan・editor・dev)。
+領域は codemap/ と 今の道具の仕様/ のファイル名・AGENTS.md の表の行に当てる言葉(例: friendapp・pipeline・editor・dev)。
 """
 import argparse
 import datetime
 import glob
-import json
 import os
 import re
 import subprocess
@@ -36,12 +41,25 @@ ACTIVE_DAYS = 2
 # 領域の言葉に足す言葉(ファイル名・表の行に当てるだけ。中身の正ではない)
 ALIASES = {
     "friendapp": ["friend", "友人"], "friend": ["friendapp", "友人"],
-    "pipeline": ["受け渡し"], "plan": ["計画", "plan/"], "editor": ["編集", "文字起こし", "校正"],
-    "dev": ["code", "lint", "開発の道具"], "live": ["録画"], "pack": ["cut2resolve", "パック"],
-    "ui": ["ui-kit", "画面"], "app": ["入口"], "data": ["作業データ"], "cases": ["案件"], "check": ["確かめる"],
+    "pipeline": ["受け渡し"], "editor": ["編集", "文字起こし", "校正"],
+    "dev": ["code", "lint", "開発の道具", "コード"], "live": ["録画", "ライブ"], "pack": ["cut2resolve", "パック"],
+    "ui": ["ui-kit", "画面"], "app": ["入口", "全体の形"], "data": ["作業データ", "データ"], "cases": ["案件"], "check": ["確かめる"],
 }
-TASK_SHOW = ("doing", "next", "wait", "cont")
-STATE_WORD = {"doing": "進行中", "next": "次", "wait": "ユーザー待ち", "cont": "継続", "todo": "あと"}
+SPEC_DIRS = ("今の道具の仕様", "docs/spec")   # 今の道具の仕様の正(docs/spec/ は 11-11 に控えへ移す。残っている間だけ読む)
+TODO_REL = "やること.md"
+TODO_LINES = 30
+DOING_REL = "途中"
+# 置き場ごとの上限(保管庫からの相対, 数, 中のフォルダも数えるか)と、行数の上限(保管庫からの相対, 行)。目安(超えたら知らせるだけ)
+FOLDER_CAPS = (("決定と要件", 10, True), ("今の道具の仕様", 25, True), ("研究", 10, True), ("道具の作り直し", 10, True),
+               (DOING_REL, 10, True), ("docs/worklog", 60, True), ("plan", 12, False))
+LINE_CAPS = ((TODO_REL, 150), ("今の道具の仕様/直す候補.md", 200), ("決定.md", 300), ("AGENTS.md", 200))
+# 決まった置き場(保管庫の直下と docs/ の直下)。ほかは「置き場の外」と知らせる
+PLACES = {"": {"AGENTS.md", "ホーム.md", ".gitignore", TODO_REL, "決定.md", "決定と要件", "今の道具の仕様", "研究",
+               "道具の作り直し", DOING_REL, "docs", "plan", "chrome-ext", "src"},
+          "docs": {"AIの動き", "worklog", "動作環境.md", "子への指示文の雛形.md", "資料の書き方.md", "複数のAIの注意.md"}}
+END_RE = re.compile(r"^終わり[:：]\s*(\d{4}-\d{2}-\d{2})", re.M)
+DONE_RE = re.compile(r"^状態[:：]\s*(済み|終わった|完了)", re.M)
+PENDING_SHOW = 15
 
 
 def cut(text, n=WIDTH):
@@ -157,40 +175,111 @@ def boundary_block(dirs, limit=10):
     return out
 
 
-# ---- 計画 ----
+# ---- やること ----
 
-def load_items(folder):
-    items = []
-    for p in glob.glob(os.path.join(folder, "*.json")):
-        try:
-            items.append(json.loads(read(p) or "{}"))
-        except ValueError:
-            items.append({"id": os.path.basename(p), "name": "(読めない JSON)", "state": "?"})
-    return sorted(items, key=lambda x: (x.get("order", 0), str(x.get("id", ""))))
-
-
-def plan_block(notes):
-    data = os.path.join(notes, "plan", "data")
-    if not os.path.isdir(data):
-        return ["## 計画: plan/data/ が無い"]
-    tasks = load_items(os.path.join(data, "tasks"))
-    users = load_items(os.path.join(data, "user"))
-    counts = {}
-    for t in tasks:
-        counts[t.get("state")] = counts.get(t.get("state"), 0) + 1
-    out = ["## 計画(plan/data/。工程 %d: %s)" % (len(tasks), "・".join(
-        "%s %d" % (STATE_WORD.get(k, k), v) for k, v in sorted(counts.items(), key=lambda kv: str(kv[0])) if k != "done"))]
-    for t in tasks:
-        if t.get("state") in TASK_SHOW:
-            out.append("- " + cut("[%s] %s %s(%s)" % (STATE_WORD[t["state"]], t.get("id"), t.get("name", ""),
-                                                      t.get("who", "")), WIDTH - 2))
-    now = [u for u in users if u.get("state") != "done" and u.get("list") == "ordered"]
-    later = [u for u in users if u.get("state") != "done" and u.get("list") != "ordered"]
-    out.append("人の番(1-1 今できる %d 件・1-2 あとで %d 件):" % (len(now), len(later)))
-    for u in now:
-        out.append("- " + cut("[%s] %s %s" % (STATE_WORD.get(u.get("state"), u.get("state")), u.get("id"),
-                                              u.get("name", "")), WIDTH - 2))
+def todo_block(notes, limit=TODO_LINES):
+    """保管庫の やること.md の頭(頭の YAML を除いた見出しと箇条。計画のページ一式は 11-11 にやめた)"""
+    text = read(os.path.join(notes, TODO_REL))
+    if text is None:
+        return ["## やること: %s が無い" % TODO_REL]
+    if text.startswith("---\n"):
+        end = text.find("\n---", 4)
+        text = text[end + 4:] if end >= 0 else text
+    lines = [ln for ln in text.split("\n") if ln.startswith(("## ", "### ", "- ", "| ")) and not ln.startswith("| ---")]
+    out = ["## やること(%s・%d 行)" % (TODO_REL, len(text.split("\n")))]
+    out += [cut(ln, WIDTH) for ln in lines[:limit]]
+    if len(lines) > limit:
+        out.append("- ほか %d 行(%s)" % (len(lines) - limit, TODO_REL))
     return out
+
+
+# ---- 片付け(控えへ移す・知らせる) ----
+
+def count_files(path, recursive=True):
+    if not os.path.isdir(path):
+        return 0
+    if not recursive:
+        return sum(1 for n in os.listdir(path) if os.path.isfile(os.path.join(path, n)) and not n.startswith("."))
+    n = 0
+    for _d, ds, fs in os.walk(path):
+        ds[:] = [x for x in ds if not x.startswith(".") and x != "__pycache__"]
+        n += sum(1 for f in fs if not f.startswith("."))
+    return n
+
+
+def doing_due(notes, today):
+    """途中/ の物 -> (移す物 [相対], 「終わり:」の無い物 [相対])"""
+    d = os.path.join(notes, DOING_REL)
+    due, no_end = [], []
+    if not os.path.isdir(d):
+        return due, no_end
+    for n in sorted(os.listdir(d)):
+        if n.startswith("."):
+            continue
+        p = os.path.join(d, n)
+        rel_p = "%s/%s" % (DOING_REL, n)
+        head = "\n".join((read(p) or "").split("\n")[:15]) if os.path.isfile(p) else \
+            "\n".join("\n".join((read(os.path.join(p, f)) or "").split("\n")[:15]) for f in sorted(os.listdir(p)) if f.endswith(".md"))
+        m = END_RE.search(head)
+        if DONE_RE.search(head) or (m and m.group(1) < today.isoformat()):
+            due.append(rel_p)
+        elif not m and not re.search(r"^終わり[:：]", head, re.M):
+            no_end.append(rel_p)
+    return due, no_end
+
+
+def notices(notes, with_links=True):
+    """上限・置き場の外・切れたパスの知らせ(1 行ずつ)"""
+    out = []
+    for rel_p, cap, rec in FOLDER_CAPS:
+        n = count_files(os.path.join(notes, *rel_p.split("/")), rec)
+        if n > cap:
+            out.append("%s/ が %d 本(目安 %d)" % (rel_p, n, cap))
+    for rel_p, cap in LINE_CAPS:
+        text = read(os.path.join(notes, *rel_p.split("/")))
+        if text is not None and text.count("\n") + 1 > cap:
+            out.append("%s が %d 行(目安 %d)" % (rel_p, text.count("\n") + 1, cap))
+    for base, allowed in PLACES.items():
+        d = os.path.join(notes, base) if base else notes
+        if not os.path.isdir(d):
+            continue
+        extra = sorted(n for n in os.listdir(d) if not n.startswith(".") and n not in allowed)
+        if extra:
+            out.append("決まった置き場の外: %s" % cut("・".join((base + "/" if base else "") + n for n in extra), WIDTH - 20))
+    if with_links:
+        try:
+            import notes_tool
+            bad = notes_tool.check(root=notes)
+        except Exception as e:   # 知らせのための検査で入口を止めない
+            bad, out = [], out + ["切れたパスの検査が落ちた: %s" % cut(e, 60)]
+        if bad:
+            out.append("切れたパス %d 件(py -3.12 dev/notes_tool.py check)" % len(bad))
+    return out
+
+
+def tidy(notes, today, with_links=True):
+    """片付け -> 出す行(何も無ければ空)。移すのは控えのフォルダへ(dev/notes_tool.py archive)"""
+    if not os.path.isdir(notes):
+        return []
+    import notes_tool
+    out = []
+    gone, pending, probs = worklog.archive_old_weeks(notes, today)
+    if gone:
+        out.append("- 作業の記録の前の週を控えへ移した: %s。済んでいない行 %d(まとめ役が %s へ写すか捨てる)" % (
+            "・".join(gone), len(pending), TODO_REL))
+        out += ["    " + cut("%s %s: %s" % p, WIDTH - 4) for p in pending[:PENDING_SHOW]]
+        if len(pending) > PENDING_SHOW:
+            out.append("    ほか %d 行(控えのフォルダ %s の docs/worklog/)" % (len(pending) - PENDING_SHOW, notes_tool.archive_root()))
+    due, no_end = doing_due(notes, today)
+    if due:
+        _m, _n, p2 = notes_tool.archive(due, root=notes)
+        probs += p2
+        out.append("- %s/ の終わった物を控えへ移した: %s" % (DOING_REL, "・".join(due)))
+    out += ["- [問題] " + s for s in probs]
+    if no_end:
+        out.append("- %s/ に「終わり:」の無い物: %s(まとめ役が片付ける)" % (DOING_REL, "・".join(no_end)))
+    out += ["- %s(まとめ役が片付ける)" % s for s in notices(notes, with_links)]
+    return ["## 片付けと知らせ"] + out if out else []
 
 
 # ---- worktree ----
@@ -279,11 +368,11 @@ def domain_refs(domain, repo, notes):
 
     def hit(stem):
         s = stem.lower()
-        return any(w == s or (len(w) >= 3 and w in s) for w in words)
+        return any(w == s or ((len(w) >= 3 or not w.isascii()) and w in s) for w in words)   # 日本語は 2 字でも
 
     cmap = sorted(p for p in glob.glob(os.path.join(repo, "codemap", "*.md"))
                   if hit(os.path.splitext(os.path.basename(p))[0]) and os.path.basename(p) != "index.md")
-    spec = sorted(p for p in glob.glob(os.path.join(notes, "docs", "spec", "**", "*.md"), recursive=True)
+    spec = sorted(p for d in SPEC_DIRS for p in glob.glob(os.path.join(notes, *d.split("/"), "**", "*.md"), recursive=True)
                   if hit(os.path.splitext(os.path.basename(p))[0]))
     rows = []
     agents = read(os.path.join(notes, "AGENTS.md")) or ""
@@ -320,7 +409,7 @@ def domain_block(domain, repo, notes):
     cmap, spec, rows = domain_refs(domain, repo, notes)
     out = ["## 領域 %s" % domain]
     out += ["- 地図: %s" % rel(p, repo) for p in cmap] or ["- 地図: (当たる頁なし。codemap/index.md と codemap/words.md を見る)"]
-    out += ["- spec: %s" % rel(p, notes) for p in spec] or ["- spec: (当たる文書なし)"]
+    out += ["- 仕様: %s" % rel(p, notes) for p in spec] or ["- 仕様: (当たる文書なし)"]
     for what, refs in rows:
         out.append("- " + cut("%s → %s" % (what, refs), WIDTH - 2))
     return out
@@ -361,7 +450,7 @@ def brief(domain, task, repo, notes, act=None):
     out = ["Task:", task, "", "**なぜ**", "(ここに 1〜3 行)", "", "**触る所(コードを探すときは、まず codemap/)**"]
     out += ["- 地図: `%s`" % rel(p, repo) for p in cmap] or [
         "- 地図: `codemap/index.md`・`codemap/words.md`"]
-    out += ["- spec: `%s`" % rel(p, notes) for p in spec]
+    out += ["- 仕様: `%s`" % rel(p, notes) for p in spec]
     for what, refs in rows:
         out.append("- %s → %s" % (what, refs))
     out += ["", "**並行で動いている worktree(重なりの注意。触る前に相手へ SendMessage)**"]
@@ -387,7 +476,7 @@ def loc_line(repo):
         return ""
 
 
-def summary(domain, repo, notes, today):
+def summary(domain, repo, notes, today, tidy_lines=()):
     with ThreadPoolExecutor(4) as ex:
         f_repo = ex.submit(git_block, "リポジトリ", repo, True)
         f_notes = ex.submit(git_block, "保管庫", notes)
@@ -400,11 +489,12 @@ def summary(domain, repo, notes, today):
     out = ["# セッションの入口 %s 版: main %s / ここ %s" % (
         datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), v_main, v_here)]
     out += [loc_text] if loc_text else []
+    out += list(tidy_lines)
     out.append("## git")
     out += repo_lines + notes_lines
     out += worklog_block(notes, today)
     out += boundary_block(boundary_dirs(notes))
-    out += plan_block(notes)
+    out += todo_block(notes)
     over = None
     if domain:
         cmap, _spec, _rows = domain_refs(domain, repo, notes)
@@ -413,7 +503,7 @@ def summary(domain, repo, notes, today):
     out += worktree_lines(act, total, stale, me=os.path.normcase(os.path.abspath(repo)), overlap=over)
     if domain:
         out += domain_block(domain, repo, notes)
-    out.append("次: 触る物の spec を読む・子へは --brief <領域> --task \"…\"")
+    out.append("次: 触る物の仕様(今の道具の仕様/)を読む・子へは --brief <領域> --task \"…\"")
     return "\n".join(out)
 
 
@@ -426,6 +516,7 @@ def main(argv):
     ap.add_argument("domain", nargs="?", default="")
     ap.add_argument("--brief", metavar="領域")
     ap.add_argument("--task", default="")
+    ap.add_argument("--no-tidy", action="store_true", help="片付け(控えへ移す・知らせる)をしない")
     a = ap.parse_args(argv)
     notes = layout.notes_root()
     if a.brief is not None:
@@ -433,7 +524,9 @@ def main(argv):
             ap.error("--brief には --task \"<一言>\" が要る")
         print(brief(a.brief, a.task, REPO, notes))
         return 0
-    print(summary(a.domain, REPO, notes, datetime.date.today()))
+    today = datetime.date.today()
+    lines = [] if a.no_tidy else tidy(notes, today)
+    print(summary(a.domain, REPO, notes, today, lines))
     return 0
 
 

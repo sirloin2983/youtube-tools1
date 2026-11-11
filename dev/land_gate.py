@@ -5,10 +5,9 @@
         # 既定のブランチ = 今のブランチ。--list は選んだテストの一覧だけ(流さない)
 
 流す物(落ちたら止める。e2e は入れない = 一式は今までどおり大きな区切りで dev/run_e2e.py):
-  1 検査: dev/lint.py(0 件。規則の見張り dev/rule_checks.py・dev/rule_imports.py もここ)・dev/ui_audit.py static(画面の約束 A-xx の Must 0)・dev/plan_data.py check・dev/notes_tool.py check(保管庫。中身は notes_tool に任せる)・dev/spec_check.py --gone(消した道具の名前が今の正に残っていない)。
+  1 検査: dev/lint.py(0 件。規則の見張り dev/rule_checks.py・dev/rule_imports.py もここ)・dev/ui_audit.py static(画面の約束 A-xx の Must 0)・dev/notes_tool.py check(保管庫。中身は notes_tool に任せる)・dev/spec_check.py --gone(消した道具の名前が今の正に残っていない)。
     落ちても main の作業フォルダで同じ数以上なら警告だけ(保管庫は 1 つ = ほかのセッションの途中の資料の変更でこの枝が止まらない)
-  2 単体テスト: `git diff --name-only main...<ブランチ>` の変えたファイルから、docs/spec/code.md の 6「フォルダと、変えたら通すテスト」の
-    行に当たる層を選び、dev/run_unit.py と同じ流し方(1 本ずつ別のプロセス・YTT_DATA_DIR=inplace・窓なし)で並べて流す。
+  2 単体テスト: `git diff --name-only main...<ブランチ>` の変えたファイルから、層(LAYER_SRC。保管庫の 今の道具の仕様/コードの決まり.md の 1 の部分)を選び、dev/run_unit.py と同じ流し方(1 本ずつ別のプロセス・YTT_DATA_DIR=inplace・窓なし)で並べて流す。
     層を変えたら、その層を import してよい上の層(dev/layer_map.py の ALLOWED)のテストも流す。ytt(基盤)を変えたら全部。
     層のテスト(tests/<層>/)を変えたら、その層を変えたのと同じ。dev/・setup/・tests/dev/ を変えたら tests/dev/ の全部。いつも流す見張り(GUARDS)= 層の向き・YTT_DATA_DIR の切り離し・src に作業データを残さない
     BY_IMPORTS(既定。10-23)= 層の決まりの代わりに、変えたファイルを import(と道・ファイル名の文字列)でたどって使うテストだけ(dev/test_deps.py)。
@@ -18,7 +17,7 @@
 テストと検査は、ブランチをチェックアウトしている作業フォルダで流す(main と合わせた形ではない。main の新しい分を取り込んでいなければ警告)。
 検査(1)は単体テスト(2)と並べて流す。作業フォルダに未コミット・未追跡の物が無いときは、通った単体を木の hash ごとに控え(git の共通ディレクトリの
 ytt-gate-cache.json。新しい CACHE_TREES 個の木)、同じ木の流し直しでは通った物を飛ばす(1 バイトでも変われば木が変わる = 全部流す)。前回の秒で遅い順に始める。
-表(code.md の 6)と実際のフォルダがずれていたら警告する(止めない)。抜け道は --skip-* の明示だけ = land.py が記録(git の共通ディレクトリの ytt-land.log)に残す。
+表(コードの決まり.md の 1)と関所の決まり・実際のフォルダがずれていたら警告する(止めない)。抜け道は --skip-* の明示だけ = land.py が記録(git の共通ディレクトリの ytt-land.log)に残す。
 """
 import argparse
 import json
@@ -60,7 +59,8 @@ MANUAL = {"friend-apps/holo-colors/": r"friend-apps\holo-colors\build.bat",
           "tests/chrome-ext/yt-studio-time/": "node --test tests/chrome-ext/yt-studio-time/test_main.cjs"}
 # テストの要らない場所(lint・notes_tool が見る)
 NO_TESTS = ("codemap/", ".claude/", "README.txt", "AGENTS.md", "CLAUDE.md", ".gitignore", ".gitattributes", "push.bat")
-TABLE_HEAD = "## 6. フォルダと、変えたら通すテスト"
+TABLE_HEAD = "## 1. コードの部分の境目"   # 保管庫の 今の道具の仕様/コードの決まり.md(11-11 に docs/spec/code.md から替えた)
+CODE_RULES = ("今の道具の仕様", "コードの決まり.md")
 BY_IMPORTS = True   # 単体テストを import のつながりで選ぶ(False = 層の決まりだけ = 前のまま。抜けの検査 = py -3.12 dev/test_deps.py --history 200)
 TAIL = 12
 CACHE_NAME = "ytt-gate-cache.json"   # 通った単体の控え {"trees": {木の hash: [通った本]}, "secs": {本: 前回の秒}}
@@ -193,41 +193,37 @@ def run_tool(root, args, timeout=600):
     return p.returncode == 0, "\n".join(out[-TAIL:])
 
 
-def table_folders(code_md):
-    """code.md の 6 の表の 1 列目のフォルダ(最初の「(」より前の `…/`)"""
+def table_parts(code_md):
+    """コードの決まり.md の 1 の表の 1 列目の部分の名前(`ytt` など)"""
     text = worklog.read(code_md)
     if TABLE_HEAD not in text:
         return None
     sec = text.split(TABLE_HEAD, 1)[1].split("\n## ", 1)[0]
     found = []
     for ln in sec.splitlines():
-        if ln.startswith("| ") and not ln.startswith(("| フォルダ", "| ---")):
-            first = ln[2:].split(" | ", 1)[0].split("(", 1)[0]
-            found += [f for f in re.findall(r"`([^`]+/)`", first)]
+        if ln.startswith("| ") and not ln.startswith(("| 部分", "| ---")):
+            found += re.findall(r"`([^`/]+)`", ln[2:].split(" | ", 1)[0])
     return found
 
 
 def table_drift(root, code_md):
-    """表と実際のフォルダのずれ -> 警告の一覧"""
-    folders = table_folders(code_md) if os.path.isfile(code_md) else None
-    if folders is None:
-        return ["code.md の 6 の表が読めない(%s)" % code_md]
-    warns = []
-    for f in folders:
-        if f in ("docs/", "plan/"):
-            continue
-        if not os.path.isdir(os.path.join(root, f)):
-            warns.append("表の %s は、もう無い(表の行を直す)" % f)
-        elif not (layer_of_dir(f) or f.startswith(("dev/", "setup/")) or f.startswith(tuple(MANUAL))):
-            warns.append("表の %s に関所の決まりが無い(dev/land_gate.py の LAYER_DIRS・MANUAL に足す)" % f)
-    covered = tuple(folders)
+    """表(部分の境目)と関所の決まり(LAYER_SRC・MANUAL)と実際のフォルダのずれ -> 警告の一覧"""
+    parts = table_parts(code_md) if os.path.isfile(code_md) else None
+    if parts is None:
+        return ["コードの決まり.md の 1 の表が読めない(%s)" % code_md]
+    warns = ["表の部分 %s に関所の決まりが無い(dev/land_gate.py の LAYER_SRC に足す)" % p for p in parts if p not in LAYER_SRC]
+    warns += ["関所の層 %s が表に無い(コードの決まり.md の 1 に行を足す)" % k for k in LAYER_SRC if k not in parts]
+    for k, dirs in LAYER_SRC.items():
+        for d in dirs:
+            if not os.path.isdir(os.path.join(root, "src", d)):
+                warns.append("関所の層 %s の src/%s/ は、もう無い(LAYER_SRC を直す)" % (k, d))
     for top in ("src", "friend-apps", "chrome-ext"):
         base = os.path.join(root, top)
         for name in sorted(os.listdir(base)) if os.path.isdir(base) else []:
             d = "%s/%s/" % (top, name)
-            if os.path.isdir(os.path.join(base, name)) and name != "__pycache__" and not d.startswith(covered) \
-                    and d not in ("src/home/",):   # 旧い入口の起動の殻だけ(表は src/app/ の行の「旧 src/home/」)
-                warns.append("%s が表に無い(code.md の 6 に行を足す)" % d)
+            if os.path.isdir(os.path.join(base, name)) and name != "__pycache__" and not layer_of_dir(d) \
+                    and not d.startswith(tuple(MANUAL)) and d not in ("src/home/",):   # 旧い入口の起動の殻だけ
+                warns.append("%s に関所の決まりが無い(dev/land_gate.py の LAYER_SRC・MANUAL に足す)" % d)
     return warns
 
 
@@ -294,7 +290,7 @@ def run(branch, root=REPO, skip=(), worklog_name=None, jobs=None, list_only=Fals
         g.warns.append("単体テストの外の物を変えた。手で流す: " + m)
     for p in unknown[:5]:
         g.warns.append("関所の決まりが無い場所: %s(dev/land_gate.py の select に足す)" % p)
-    g.warns += table_drift(wt, os.path.join(notes, "docs", "spec", "code.md"))
+    g.warns += table_drift(wt, os.path.join(notes, *CODE_RULES))
     if list_only:
         for u in units:
             log("  " + u.label)
@@ -338,11 +334,11 @@ def run(branch, root=REPO, skip=(), worklog_name=None, jobs=None, list_only=Fals
 
 
 def _checks(g, wt, root):
-    """検査 5 本(直列。単体テストと並べて呼ぶ)"""
+    """検査 4 本(直列。単体テストと並べて呼ぶ)。計画のデータ(dev/plan_data.py check)は 11-11 にやめた(ユーザー「１はやめていい」)"""
     t0 = time.monotonic()
     main_wt = worktree_of(root, "main")
-    for name, args in (("lint", ["dev/lint.py"]), ("画面の静的な検査", ["dev/ui_audit.py", "static"]), ("計画のデータ", ["dev/plan_data.py", "check"]),
-                           ("資料のパス", ["dev/notes_tool.py", "check"]), ("消した道具の名前", ["dev/spec_check.py", "--gone"])):
+    for name, args in (("lint", ["dev/lint.py"]), ("画面の静的な検査", ["dev/ui_audit.py", "static"]),
+                       ("資料のパス", ["dev/notes_tool.py", "check"]), ("消した道具の名前", ["dev/spec_check.py", "--gone"])):
         prob, warn = run_check(wt, main_wt, name, args)
         g.problems += [prob] if prob else []
         g.warns += [warn] if warn else []
@@ -374,7 +370,7 @@ def record(common, branch, g, landed):
 
 def add_args(ap):
     ap.add_argument("--skip-tests", action="store_true", help="単体テストを抜く(記録に残る)")
-    ap.add_argument("--skip-checks", action="store_true", help="lint・計画のデータ・資料のパスを抜く(記録に残る)")
+    ap.add_argument("--skip-checks", action="store_true", help="lint・資料のパスを抜く(記録に残る)")
     ap.add_argument("--skip-worklog", action="store_true", help="作業の記録の検査を抜く(記録に残る)")
     ap.add_argument("--worklog", default=None, help="作業の記録の名前かパス(既定はブランチから)")
     ap.add_argument("-j", dest="jobs", type=int, default=None, help="テストを並べて流す数")
