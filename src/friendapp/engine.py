@@ -11,6 +11,7 @@
   録画が終わったか・作っている物が残っているか・検出がまだ採用しうるかを見て行を進める(live_tick)。行を閉じたら診断 kind live(friendapp/diag)。
   パックが無いまま閉じた理由は原因ごと(live_cause = 候補なし・チャットなし・検出が動かない・採用の失敗・書き出しの失敗 など)
 """
+import contextlib
 import os
 import shutil
 import threading
@@ -163,6 +164,7 @@ class Engine:
         self._rec_lost = {}   # 録画元 id -> 答えなくなった時刻(秒。LOST_NOTICE)
         self._pv_lock = threading.Condition()
         self._mk_lock = threading.Lock()
+        self._pv_stop = set()   # 確認用の動画づくりを止めて欲しい行の id(previews_paused)
         self._pv_thread = threading.Thread(target=self._preview_loop, name="friend-preview", daemon=True)
         self._pv_thread.start()
         self.reconcile()
@@ -426,6 +428,20 @@ class Engine:
         with self._mk_lock:
             self._make_previews(rid)
 
+    @contextlib.contextmanager
+    def previews_paused(self, rid):
+        """[受け取る]・[見送る] が、確認用の動画を作っている最中のパックを移せなかったとき(10-26 友人の PermissionError)の待ち:
+        その行の確認用の動画づくり(ffmpeg)を止めさせてから鍵を取る(11-13 友人: 作り終わりの 38 秒を待ち、ボタンが 10 秒返事しなかった)。
+        決めた物の確認用の動画は要らない。抜けたら、決めていない物の分を作り直しの列へ戻す(作った物は作り直さない)"""
+        self._pv_stop.add(rid)
+        try:
+            with self._mk_lock:
+                self._pv_stop.discard(rid)
+                yield
+        finally:
+            self._pv_stop.discard(rid)
+            self._want_previews(rid)
+
     def _make_previews(self, rid):
         t0, made, err = time.time(), [0, 0], ""   # made = [作れた本数, 作れなかった本数]
         try:
@@ -452,7 +468,10 @@ class Engine:
                 continue
             dirs = [by_name[n]["dir"] for n in g["names"] if n in by_name and by_name[n].get("dir") and os.path.isdir(_fsio.long_path(by_name[n]["dir"]))
                     and not by_name[n].get("verdict")]
-            tmp = _preview.clip_preview(dirs[0], log=self.log) if dirs else None
+            try:
+                tmp = _preview.clip_preview(dirs[0], check=lambda: self._preview_check(rid), log=self.log) if dirs else None
+            except _PreviewStopped:   # 友人が決めるので止めた(previews_paused。作りかけは make_preview が消す)
+                return
             if not tmp:
                 made[1] += 1 if dirs else 0
                 continue
@@ -460,6 +479,10 @@ class Engine:
             shutil.move(_fsio.long_path(tmp), _fsio.long_path(dest))
             self.inbox.set_preview(rid, g["n"], dest)
             made[0] += 1
+
+    def _preview_check(self, rid):
+        if rid in self._pv_stop:
+            raise _PreviewStopped(rid)
 
     def reload_learning(self):
         """学習の束を取り直したとき(同期): machine の learningDir の束を、② の読み手に入れ直す(同じ物を道具と辞書の版が使う)"""
@@ -479,6 +502,10 @@ class Engine:
         with self._pv_lock:
             self._previews.append(None)
             self._pv_lock.notify()
+
+
+class _PreviewStopped(Exception):
+    """確認用の動画づくりを、友人が決めるために止めた(previews_paused)"""
 
 
 def _pack_info(mark):

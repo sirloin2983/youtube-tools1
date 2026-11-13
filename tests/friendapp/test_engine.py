@@ -74,7 +74,9 @@ class EngineTest(unittest.TestCase):
 
     def fake_preview(self, tag):
         """確認用の動画の偽物(ffmpeg は使わない)。呼ばれた dirs を self.calls に残す"""
-        def fn(ds, log=None):
+        def fn(ds, check=None, log=None):
+            if check is not None:
+                check()
             self.calls.append((tag, list(ds) if isinstance(ds, (list, tuple)) else ds))
             p = os.path.join(self.tmp, "tmp-%s-%d.mp4" % (tag, len(self.calls)))
             with open(p, "wb") as f:
@@ -120,6 +122,24 @@ class EngineTest(unittest.TestCase):
         r["packs"][0]["verdict"] = "skip"   # 作る前に見送った
         eng.make_previews(r["id"])
         self.assertEqual(self.calls, [("clip", dirs[1])])
+
+    def test_previews_paused_stops_making_and_requeues(self):
+        """友人が決める間は確認用の動画づくりを止める(11-13 友人: 作り終わりを待ってボタンが 10 秒返事しなかった)。抜けたら決めていない物を作り直す"""
+        self.ib.add("20261016-100000-aaaaaa", {}, {}, run_id="r1")
+        dirs = self.packs(2)
+        eng = self.make()
+        eng.after_run(fake_run("r1", "done", dirs))
+        eng._pv_stop.add("20261016-100000-aaaaaa")   # 決めるのを待っている(previews_paused が鍵を待つ間)
+        eng._make_previews_of("20261016-100000-aaaaaa", [0, 0])
+        self.assertEqual(self.calls, [])   # 止めた = ffmpeg を最後まで回さない
+        self.assertFalse(any(g["preview"] for g in self.ib.row("20261016-100000-aaaaaa")["groups"]))
+        eng._pv_stop.clear()
+        with mock.patch.object(eng, "_want_previews") as want:
+            with eng.previews_paused("20261016-100000-aaaaaa"):
+                self.assertTrue(eng._mk_lock.locked())
+                self.assertNotIn("20261016-100000-aaaaaa", eng._pv_stop)   # 鍵を取ったら止める印は外す
+        want.assert_called_once_with("20261016-100000-aaaaaa")
+        self.assertFalse(eng._mk_lock.locked())
 
     def test_after_run_cancelled_row_is_removed(self):
         """[取り消す] で止めた実行(届いた物なし)は行ごと消える"""

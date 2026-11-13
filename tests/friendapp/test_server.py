@@ -1,4 +1,5 @@
 """src/friendapp/server.py と api.py の HTTP の口のテスト(本物のソケットで 127.0.0.1 のポート 0 に起こす。② は偽の engine)。リポジトリ直下で: py -3.12 -m unittest tests/friendapp/test_server.py"""
+import contextlib
 import datetime
 import http.client
 import json
@@ -556,7 +557,13 @@ class ServerTest(Base):
         # 確認用の動画を作っている間はパックを移せない(10-26 友人): 作り終わるのを待ってもう一度移す
         rid = "20250615-130100-aaaaaa"
         self.make_arrived(rid, ["a_pack"])
-        self.app.engine = mock.Mock(_mk_lock=threading.Lock())
+        paused = []
+
+        @contextlib.contextmanager
+        def previews_paused(r):   # 確認用の動画づくりを止めさせてから鍵を取る(11-13)
+            paused.append(r)
+            yield
+        self.app.engine = mock.Mock(previews_paused=previews_paused)
         real, calls = shutil.move, []
         def move(*a):
             calls.append(a)
@@ -569,6 +576,7 @@ class ServerTest(Base):
         self.assertTrue(d["ok"])
         self.assertEqual(d["done"], [{"id": rid, "name": "a_pack"}])
         self.assertEqual(d["errors"], [])
+        self.assertEqual(paused, [rid])
 
     def test_decide_errors(self):
         rid = "20250615-130200-aaaaaa"

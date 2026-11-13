@@ -119,7 +119,7 @@ class LiveFlowTest(unittest.TestCase):
         os.makedirs(self.places["cases"])
         self.box = I.Inbox(os.path.join(self.places["friend"], "inbox.json"), os.path.join(self.tmp, "outbox"), self.places["save"],
                            lambda: self.places["cases"])
-        for p in (mock.patch.object(E._preview, "pack_seconds", lambda d: 30.0), mock.patch.object(E._preview, "clip_preview", lambda d, log=None: None),
+        for p in (mock.patch.object(E._preview, "pack_seconds", lambda d: 30.0), mock.patch.object(E._preview, "clip_preview", lambda d, check=None, log=None: None),
                   mock.patch.object(E._outbox, "build", lambda *a, **k: None)):
             p.start()
             self.addCleanup(p.stop)

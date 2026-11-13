@@ -660,10 +660,11 @@ class FriendApp:
         for rid, names in by_row.items():
             try:
                 got = self.inbox.decide(rid, names, body.get("verdict"), reason=body.get("reason"), score=body.get("score"))
-                mk = getattr(self.engine, "_mk_lock", None)
-                if got["errors"] and mk is not None:
-                    # 届いた直後は確認用の動画をパックから作っていて、移せない(10-26 友人の PermissionError)。作り終わるのを待って 1 度だけやり直す
-                    with mk:
+                pause = getattr(self.engine, "previews_paused", None)
+                if got["errors"] and pause is not None:
+                    # 届いた直後は確認用の動画をパックから作っていて、移せない(10-26 友人の PermissionError)。
+                    # 作るのを止めさせて(11-13 友人: 作り終わりを待つとボタンが 10 秒以上返事しない)1 度だけやり直す
+                    with pause(rid):
                         again = self.inbox.decide(rid, [e["name"] for e in got["errors"]], body.get("verdict"), reason=body.get("reason"), score=body.get("score"))
                     got = dict(again, done=got["done"] + again["done"], pending=got["pending"] + again["pending"])
             except ValueError as e:
