@@ -70,6 +70,7 @@ class Base(unittest.TestCase):
         self.it = intake.Intake(self.prefs, lambda: self.runner, self.data, clock=lambda: self.now,
                                 probe=lambda p: self.probes.get(os.path.basename(p), {"ok": True, "duration": 60.0, "reason": ""}),
                                 info=lambda vid: self.infos.get(vid, {"duration": 3600.0, "live": "not_live", "title": "題名 " + vid, "channel": "ch"}))
+        self.it.new_host = os.path.join(self.tmp, "friend-requests-data")   # 本物の新しい道具の置き場を読まない
 
 
     def put(self, name, data):
@@ -185,6 +186,94 @@ class TestState(Base):
         self.prefs.patch("intake", {"folder": self.folder})
         self.it.scan()
         self.assertEqual(self.it.snapshot()["stateLabel"], "見張り中")
+
+
+class TestStage5(Base):
+    """段 5: オフは依頼を読まないだけ(送り返し・不具合・更新の見張り・知らせ・配る列は続ける)・新しい道具の入口が同じフォルダを見ている間は依頼を読まない"""
+
+    WATCH = (("returns", "scan"), ("bugs", "scan"), ("upwatch", "scan"), ("notify", "tick"), ("pubqueue", "tick"))
+
+    def setUp(self):
+        super().setUp()
+        self.calls = []
+        for mod, fn in self.WATCH + (("bugs", "friend_first"),):
+            p = mock.patch.object(getattr(intake, mod), fn, lambda *a, _n="%s.%s" % (mod, fn), **kw: self.calls.append(_n) or set())
+            p.start()
+            self.addCleanup(p.stop)
+        self.watched = ["%s.%s" % w for w in self.WATCH]
+
+    def put_request(self):
+        return self.put_urls(["https://youtu.be/abcdefghijk 2"])
+
+    def new_host(self, intake_dir):
+        base = self.it.new_host
+        os.makedirs(os.path.join(base, "locks"), exist_ok=True)
+        with open(os.path.join(base, "settings.json"), "w", encoding="utf-8") as f:
+            json.dump({"intakeDir": intake_dir}, f)
+        lock = fsio.try_lock(os.path.join(base, "locks", "host.lock"))
+        self.assertIsNotNone(lock)
+        self.addCleanup(lambda: lock.closed or fsio.unlock(lock))
+        return lock
+
+    def test_off_keeps_watching(self):
+        self.prefs.patch("intake", {"enabled": False})
+        rid = self.put_request()
+        self.put("手で置いた.mp4", b"x")
+        self.scan2()
+        self.assertEqual((self.runner.requests, self.runner.files, self.it.snapshot()["requests"]), ([], [], []))
+        self.assertEqual(sorted(os.listdir(self.folder)), sorted([rid + ".request.json", "手で置いた.mp4"]), "直下の依頼にも手で置いた物にも触らない")
+        self.assertEqual(self.calls, self.watched * 2, "送り返し・不具合・更新の見張り・知らせ・配る列は続ける。引き継ぎの取り消しはオンの時だけ")
+        snap = self.it.snapshot()
+        self.assertEqual((snap["state"], snap["message"]), ("off", intake.OFF_WATCH_TEXT))
+
+    def test_off_without_folder_does_nothing(self):
+        for folder in ("", os.path.join(self.tmp, "nai")):
+            self.prefs.patch("intake", {"enabled": False, "folder": folder})
+            self.it.scan()
+            self.assertEqual(self.calls, [])
+            self.assertEqual(self.it.snapshot()["message"], intake.OFF_TEXT)
+
+    def test_on_reads_and_watches(self):
+        self.put_request()
+        self.scan2()
+        self.assertEqual(len(self.runner.requests), 1)
+        self.assertEqual(self.calls, (self.watched + ["bugs.friend_first"]) * 2)
+
+    def test_new_host_holds_folder(self):
+        lock = self.new_host(self.folder.upper())
+        rid = self.put_request()
+        self.scan2()
+        self.assertEqual((self.runner.requests, self.it.snapshot()["requests"]), ([], []))
+        self.assertTrue(os.path.isfile(os.path.join(self.folder, rid + ".request.json")))
+        snap = self.it.snapshot()
+        self.assertEqual((snap["state"], snap["stateLabel"], snap["message"]), ("error", "止まっています", intake.NEW_HOST_TEXT))
+        self.assertEqual(self.calls, self.watched * 2, "依頼のほかの見張りは続ける")
+        fsio.unlock(lock)   # 入口が止まった = 次の見回りから読む
+        self.scan2()
+        self.assertEqual(len(self.runner.requests), 1)
+        self.assertEqual(self.it.snapshot()["state"], "watching")
+
+    def test_new_host_holds_rules(self):
+        base, holds = self.it.new_host, intake.new_host_holds
+        self.assertFalse(holds(self.folder, base), "新しい道具が無い")
+        os.makedirs(base)
+        with open(os.path.join(base, "settings.json"), "w", encoding="utf-8") as f:
+            f.write("{こわれた")
+        self.assertFalse(holds(self.folder, base), "設定が読めない")
+        lock = self.new_host(os.path.join(self.tmp, "ほか"))
+        self.assertFalse(holds(self.folder, base), "ほかのフォルダを見ている")
+        fsio.unlock(lock)
+        lock = self.new_host(os.path.relpath(self.folder, base))
+        self.assertTrue(holds(self.folder, base), "相対のパスは置き場から読む(新しい道具と同じ)")
+        fsio.unlock(lock)
+        self.assertFalse(holds(self.folder, base), "入口が動いていない(錠を持っていない)")
+        os.remove(os.path.join(base, "locks", "host.lock"))
+        self.assertFalse(holds(self.folder, base), "錠のファイルが無い")
+        self.assertFalse(os.path.exists(os.path.join(base, "locks", "host.lock")), "錠のファイルを作らない")
+
+    def test_new_host_dir(self):
+        self.assertEqual(intake.new_host_dir({"FR_DATA": " D:/x "}), os.path.abspath("D:/x"))
+        self.assertEqual(intake.new_host_dir({"USERPROFILE": "C:/Users/u"}), os.path.abspath("C:/Users/u/friend-requests-data"))
 
 
 class TestSend(Base):

@@ -571,6 +571,32 @@ def try_lock(path):
         return None
 
 
+def is_locked(path):
+    """ほかのプロセスが path の印(try_lock と同じ先頭の 1 バイト)を持っているか。試しに取ってすぐ外す。
+    ファイルが無い・開けない時は偽(作らない)。開くのを断られた(PermissionError)時は持っていると見る"""
+    if not os.path.isfile(path):
+        return False
+    try:
+        f = open(path, "r+b")
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    try:
+        if os.name == "nt":
+            import msvcrt
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        f.close()
+        return True
+    unlock(f)
+    return False
+
+
 def unlock(f):
     """try_lock の印を外して閉じる(None なら何もしない)"""
     if f is None:
