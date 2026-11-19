@@ -111,9 +111,9 @@ def new_host_dir(environ=None):
     return os.path.abspath(os.path.join(environ.get("USERPROFILE") or os.path.expanduser("~"), NEW_HOST_DIR_NAME))
 
 
-def new_host_holds(folder, base=None):
-    """新しい道具の入口が folder を受付のフォルダにして動いているか(settings.json の intakeDir が同じフォルダで、入口の錠をほかのプロセスが持っている)。
-    設定が無い・読めない・形が違う時は偽(新しい道具を入れていない PC で、今の道具の受付を止めない)"""
+def new_host_uses(folder, base=None):
+    """新しい道具の設定(settings.json の intakeDir)が folder を受付のフォルダにしているか(入口が動いているかは見ない)。
+    設定が無い・読めない・形が違う時は偽"""
     base = base or new_host_dir()
     try:
         raw = fsio.read_json_file(os.path.join(base, NEW_HOST_SETTINGS), 256 * 1024)
@@ -123,9 +123,14 @@ def new_host_holds(folder, base=None):
     if not isinstance(v, str) or not v.strip() or not folder:
         return False
     theirs = os.path.abspath(os.path.join(base, os.path.expandvars(v)))   # 新しい道具の settings._path と同じ読み方(相対なら置き場から)
-    if not _same_dir(theirs, folder):
-        return False
-    return fsio.is_locked(os.path.join(base, *NEW_HOST_LOCK))
+    return _same_dir(theirs, folder)
+
+
+def new_host_holds(folder, base=None):
+    """新しい道具の入口が folder を受付のフォルダにして動いているか(settings.json の intakeDir が同じフォルダで、入口の錠をほかのプロセスが持っている)。
+    設定が無い・読めない・形が違う時は偽(新しい道具を入れていない PC で、今の道具の受付を止めない)"""
+    base = base or new_host_dir()
+    return new_host_uses(folder, base) and fsio.is_locked(os.path.join(base, *NEW_HOST_LOCK))
 
 
 def _same_dir(a, b):
@@ -491,7 +496,7 @@ class Intake:
             if not cfg.get("enabled"):
                 self.state, self.message = "off", OFF_WATCH_TEXT if usable else OFF_TEXT
                 if usable:
-                    self._watch_friend(folder)
+                    self._watch_friend(folder, reading=False)
                 return
             if not folder:
                 self.state, self.message = "error", "見張るフォルダが決まっていません(設定で Dropbox のフォルダを指定してください)"
@@ -501,7 +506,7 @@ class Intake:
                 return
             if new_host_holds(folder, self.new_host):   # 2 つの道具が同じ依頼を作って 2 組届けないよう、新しい入口が動いている間は依頼を読まない
                 self.state, self.message = "error", NEW_HOST_TEXT
-                self._watch_friend(folder)
+                self._watch_friend(folder, reading=False)
                 return
             self.state, self.message = "watching", ""
             try:
@@ -536,10 +541,14 @@ class Intake:
             self._watch_friend(folder)
             self._stop_taken(bugs.friend_first(self.data_dir, self.clock, self.log))   # 引き継いだ依頼に友人の物が先に届いた = こちらは届けない
 
-    def _watch_friend(self, folder):
-        """依頼のほかの見張り(受付がオフでも・新しい入口が依頼を読んでいても動かす)。どれも失敗しても見回りは止めない"""
+    def _watch_friend(self, folder, reading=True):
+        """依頼のほかの見張り(受付がオフでも・新しい入口が依頼を読んでいても動かす)。どれも失敗しても見回りは止めない。
+        reading = 今の道具が依頼を読んでいるか。読んでいなくて、新しい道具の設定が同じフォルダを受付にしていれば、
+        不具合の AI に新しい道具の記録の場所を伝える(A3。入口が落ちていても、それまでの依頼は新しい道具の記録にあるので錠は見ない)"""
         returns.scan(folder, self.data_dir, self.clock, self.log, feedback=self.feedback)   # 送り返し\(友人の PC の ② の結果と採否。F1 の F2)
-        bugs.scan(folder, self.data_dir, self.clock, self.log)   # 診断\ の不具合の書き出し
+        base = self.new_host or new_host_dir()
+        other = base if not reading and new_host_uses(folder, base) else None
+        bugs.scan(folder, self.data_dir, self.clock, self.log, new_host=other)   # 診断\ の不具合の書き出し
         upwatch.scan(folder, self.data_dir, self.clock, self.log)   # 更新の見張り
         notify.tick(self.data_dir, self.clock, self.log)   # 上の 2 つが書いた知らせをまとめ役へ
         pubqueue.tick(self.data_dir, bugs.repo_root(), self.clock, self.log)   # まとめて配る回(区切りを越えて最初の見回りで 1 回)

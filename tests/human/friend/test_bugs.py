@@ -111,6 +111,34 @@ class BugsTest(unittest.TestCase):
         self.assertEqual(self.spawned, [])
         self.assertTrue(os.path.exists(os.path.join(self.sync, B.IN_DIR, n)))   # 元は動かさない
 
+    def test_new_host_note(self):
+        """A3: 新しい道具が依頼を受けている時だけ、記録の場所の 1 段落を足し、records\\ と logs\\ だけを読める所に足す"""
+        self.put(["undelivered"])
+        self.scan()
+        cmd = self.spawned[0][0]
+        prompt = cmd[cmd.index("-p") + 1]
+        self.assertNotIn("friend-requests", prompt)
+        self.assertEqual(cmd.count("--add-dir"), 1)
+        self.assertNotIn("{", prompt)
+        B._running.clear()
+        os.remove(B._state_path(self.app))
+        for r in B.records(self.app):
+            B._set_ai(self.app, r["name"], None)
+        base = os.path.join(self.tmp, "friend-requests-data")
+        B.scan(self.sync, self.app, self.clock, spawn=self.spawn, repo=self.tmp, new_host=base)
+        cmd = self.spawned[1][0]
+        prompt = cmd[cmd.index("-p") + 1]
+        self.assertIn(base + "\\records\\<依頼 id>\\", prompt)
+        self.assertIn(base + "\\logs\\host.log", prompt)
+        self.assertIn(B.NEW_HOST_REPO, prompt)
+        self.assertIn("今の道具の受付は依頼を読んでいません", prompt)
+        self.assertIn("新しい道具のコードと設定は直しません", prompt)
+        self.assertIn("secrets", prompt)   # 読まない、と書いてある
+        dirs = [cmd[i + 1] for i, a in enumerate(cmd) if a == "--add-dir"]
+        self.assertEqual(dirs[1:], [os.path.join(base, "records"), os.path.join(base, "logs")])
+        self.assertFalse(any("secrets" in d for d in dirs), "鍵の置き場は読める所に足さない")
+        self.assertIn("守ること(必ず):", prompt)
+
     def test_needs_wakes_once_with_guards(self):
         n = self.put(["undelivered"])
         self.scan()

@@ -271,6 +271,29 @@ class TestStage5(Base):
         self.assertFalse(holds(self.folder, base), "錠のファイルが無い")
         self.assertFalse(os.path.exists(os.path.join(base, "locks", "host.lock")), "錠のファイルを作らない")
 
+    def test_bug_ai_told_new_host(self):
+        """A3: 今の道具が依頼を読まず、新しい道具の設定が同じフォルダを受付にしている時だけ、不具合の AI に新しい道具の置き場を渡す"""
+        got = []
+        p = mock.patch.object(intake.bugs, "scan", lambda *a, **kw: got.append(kw.get("new_host")))
+        p.start()
+        self.addCleanup(p.stop)
+        base = self.it.new_host
+
+        def scan(enabled):
+            self.prefs.patch("intake", {"enabled": enabled})
+            got.clear()
+            self.it.scan()
+            return got[-1]
+
+        self.assertIsNone(scan(False), "新しい道具の設定が無いオフ(今までどおり)")
+        lock = self.new_host(self.folder)
+        self.assertEqual(scan(True), base, "新しい入口が動いていてオンでも読まない(A2)")
+        fsio.unlock(lock)
+        self.assertEqual(scan(False), base, "オフで、新しい道具の設定が同じフォルダ(入口が落ちていても伝える)")
+        self.assertIsNone(scan(True), "オンで入口が動いていない = 今の道具が読む")
+        lock = self.new_host(os.path.join(self.tmp, "ほか"))
+        self.assertIsNone(scan(False), "新しい道具はほかのフォルダを見ている")
+
     def test_new_host_dir(self):
         self.assertEqual(intake.new_host_dir({"FR_DATA": " D:/x "}), os.path.abspath("D:/x"))
         self.assertEqual(intake.new_host_dir({"USERPROFILE": "C:/Users/u"}), os.path.abspath("C:/Users/u/friend-requests-data"))
