@@ -139,6 +139,7 @@ class VoiceDir(StoreDir):
     def setUp(self):
         super().setUp()
         self.patch(_diar, "VOICES_DIR", os.path.join(self.tmp, "voices"))
+        self.patch(transcribe_diarize, "ensure_diar_models", lambda *a: None)   # 声の特徴は各テストが embed_groups を差し替えて作る。モデルを取りに行かない
 
     def job(self, spec):
         return {"id": "j1", "spec": spec, "cancel": False, "state": "queued", "phase": "", "progress": 0.0, "speakers": 0}
