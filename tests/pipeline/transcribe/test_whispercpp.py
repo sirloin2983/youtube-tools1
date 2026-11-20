@@ -151,6 +151,9 @@ class WhisperCppTest(unittest.TestCase):
         body = b"model-bytes" * 100
         spec = {"file": "x.bin", "url": "https://example.invalid/x.bin", "size": len(body), "sha256": hashlib.sha256(body).hexdigest()}
         folder = os.path.join(self.tmp, "models")
+        env = dict(os.environ)
+        env.pop(E.NO_FETCH_ENV, None)   # urlopen は偽物なので、取得を止める印を外して取る道を通す
+        self.enterContext(mock.patch.dict(os.environ, env, clear=True))
 
         class Resp(io.BytesIO):
             def __enter__(self):
