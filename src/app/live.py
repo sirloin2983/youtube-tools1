@@ -77,6 +77,7 @@ from manage.keep import live_cleanup   # 録画を自動で消す。P4
 from human.friend import live_requests  # noqa: E402  (友人のライブ配信の依頼と録画の結びつき。notes:docs/spec/friend.md の 2-15)
 from flow import deliver as deliver_mod  # noqa: E402  (自動の切り抜きを友人へ届けるときの依頼 id の形)
 from human.friend import intake as intake_mod  # noqa: E402  (受付のフォルダと 出力\ の読み方 configured_folder・out_dir_of = 受付と同じ 1 か所)
+from human.friend import owner as owner_mod  # noqa: E402  (受付のフォルダの持ち主 = 新しい道具の settings.json の intakeDir。段 8)
 
 CODE_DIR = os.path.dirname(os.path.abspath(__file__))
 VENDOR_DIR = os.path.join(CODE_DIR, "ui", "home", "vendor")
@@ -400,13 +401,31 @@ class Live(livesession.LiveSession):
         """自分の配信の自動の切り抜き(配信中の自動採用 auto・配信後の追加 archive)を確認なしで友人へ届ける(ユーザー決定。
         切り替えの設定は作らない = 依頼の受付のフォルダが決まっていればいつも届ける。10-19 に設定 live.autoDeliver を消した)。
         人のマーク(manual)は案件の [採用(友人へ届ける)] で。届ける先(依頼の受付のフォルダ)が無ければ届けない。
+        受付のフォルダの持ち主が新しい道具の間(と、その設定を読めない間)は届けない: その配信は録画を始めた時に新しい道具への依頼として
+        渡してあり(own_begun。決めたこと 41)、届けるのは新しい道具 1 つ(段 8)。
         -> (届ける依頼の形 {rid, deliverDir, autoDeliver: True(出どころ auto の印)} か None, after, streamer)"""
         if origin == "manual":
             return None, after, streamer
-        out = self.deliver_dir()
-        if not out:
+        folder = intake_mod.configured_folder(self.prefs)
+        if not folder or owner_mod.owner_is_new(folder):
             return None, after, streamer
-        return {"rid": deliver_mod.request_id(), "deliverDir": out, "autoDeliver": True}, "auto", streamer
+        return {"rid": deliver_mod.request_id(), "deliverDir": intake_mod.out_dir_of(folder), "autoDeliver": True}, "auto", streamer
+
+    def own_begun(self, url):
+        """自分の配信の録画を新しく始めた: 受付のフォルダの持ち主が新しい道具なら(その設定を読めない時も)、その配信を新しい道具への
+        ライブの依頼として受付のフォルダの直下に置く(決めたこと 41。録画・検出・届けは新しい道具がする = この録画の自動の切り抜きは
+        _auto_deliver_for が届けない)。今の道具が持ち主なら何もしない(今までどおり自動の切り抜きを届ける)。置けなければ記録に 1 行"""
+        folder = intake_mod.configured_folder(self.prefs)
+        vid = live_export.video_id_of(url)
+        if not folder or not vid or not owner_mod.owner_is_new(folder):
+            return
+        rid = deliver_mod.request_id()
+        try:
+            owner_mod.hand_over_live(folder, rid, "https://www.youtube.com/watch?v=" + vid)
+        except OSError as e:
+            self.log("リアルタイム切り抜き: 自分の配信(%s)を新しい道具へ依頼として渡せませんでした: %s" % (vid, e))
+            return
+        self.log("リアルタイム切り抜き: 自分の配信(%s)を新しい道具への依頼 %s として渡しました(届けるのは新しい道具)" % (vid, rid))
 
     # --- P3: スタジオから ---
     def export_studio(self, body):

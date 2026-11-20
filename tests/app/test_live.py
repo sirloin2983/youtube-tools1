@@ -633,6 +633,9 @@ class AutoDeliverTest(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="ytt-live-autodeliver-")
+        p = mock.patch.dict(os.environ, {"FR_DATA": os.path.join(self.tmp, "friend-requests-data")})   # 本物の新しい道具の置き場を読まない(段 8)
+        p.start()
+        self.addCleanup(p.stop)
         self.prefs = P.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
         self.folder = os.path.join(self.tmp, "Dropbox", "切り抜き依頼")
         os.makedirs(self.folder)
@@ -675,6 +678,85 @@ class AutoDeliverTest(unittest.TestCase):
         self.assertEqual((req["rid"], after), ("20261008-120000-abcdef", "auto"))
         req2, after2, _w2 = self.live._request_for("local", "r2", "archive", "auto", "")   # 依頼が配信後の追加を要らないと言えば、自分の設定でも届けない
         self.assertEqual((req2, after2), (None, "auto"))
+
+
+class OwnStreamHandOverTest(unittest.TestCase):
+    """段 8(横2)と決めたこと 41: 受付のフォルダの持ち主が新しい道具(その settings.json の intakeDir が同じフォルダ)の間は、自分の配信の
+    自動の切り抜きを今の道具から届けず、録画を始めた時にその配信を新しい道具へライブの依頼として渡す(届け元を 1 つに)"""
+
+    VID = "dMVBWMfHdVQ"
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ytt-live-handover-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.fr = os.path.join(self.tmp, "friend-requests-data")
+        p = mock.patch.dict(os.environ, {"FR_DATA": self.fr})   # 本物の新しい道具の置き場を読まない
+        p.start()
+        self.addCleanup(p.stop)
+        self.prefs = P.Prefs(os.path.join(self.tmp, "prefs.json"), fsio.atomic_write)
+        self.folder = os.path.join(self.tmp, "Dropbox", "切り抜き依頼")
+        os.makedirs(self.folder)
+        self.prefs.patch("intake", {"folder": self.folder})
+        self.prefs.patch("live", {"enabled": True})
+        self.live = LV.Live(self.prefs, self.tmp, os.path.join(self.tmp, "logs"), store_dir=os.path.join(self.tmp, "live"), spawn=False)
+        self.begun = []
+        p2 = mock.patch.object(self.live, "begin", side_effect=lambda url, **kw: self.begun.append(url) or self.answer)
+        p2.start()
+        self.addCleanup(p2.stop)
+        p3 = mock.patch.object(self.live, "own_bundle", return_value=None)
+        p3.start()
+        self.addCleanup(p3.stop)
+        self.answer = {"live": True, "existing": False, "recorder": "local",
+                       "recording": {"id": "20261120-100000-" + self.VID, "url": "https://www.youtube.com/watch?v=" + self.VID}}
+
+    def settings(self, intake_dir=None, text=None):
+        os.makedirs(self.fr, exist_ok=True)
+        with open(os.path.join(self.fr, "settings.json"), "w", encoding="utf-8") as f:
+            f.write(text if text is not None else json.dumps({"intakeDir": intake_dir} if intake_dir is not None else {}))
+
+    def requests(self):
+        return sorted(n for n in os.listdir(self.folder) if n.endswith(".request.json"))
+
+    def test_new_owner_does_not_deliver_auto_clips(self):
+        for case in ("同じフォルダ", "壊れている"):
+            if case == "同じフォルダ":
+                self.settings(self.folder.upper())
+            else:
+                self.settings(text="{こわれた")
+            for origin in ("auto", "archive"):
+                self.assertEqual(self.live._request_for("local", "r1", origin, "auto", ""), (None, "auto", ""), (case, origin))
+        self.settings(os.path.join(self.tmp, "ほか"))
+        req, _a, _s = self.live._request_for("local", "r1", "auto", "auto", "")
+        self.assertEqual(req["deliverDir"], os.path.join(self.folder, "出力"), "新しい道具がほかのフォルダ = 今の道具が届ける")
+
+    def test_own_stream_is_handed_over_once(self):
+        self.settings(self.folder)
+        out = self.live.begin_own("https://youtu.be/" + self.VID)
+        self.assertTrue(out["live"])
+        got = self.requests()
+        self.assertEqual(len(got), 1)
+        with open(os.path.join(self.folder, got[0]), encoding="utf-8") as f:
+            doc = json.load(f)
+        self.assertEqual((doc["v"], doc["kind"], doc["url"], doc["id"] + ".request.json"),
+                         (1, "live", "https://www.youtube.com/watch?v=" + self.VID, got[0]))
+        self.assertRegex(doc["id"], r"^\d{8}-\d{6}-[0-9a-f]{6}$")   # 新しい道具の受付が読む依頼 id の形
+        self.assertFalse([n for n in os.listdir(self.folder) if n.startswith(".")], "書きかけを残さない")
+        self.answer = dict(self.answer, existing=True)
+        self.live.begin_own("https://youtu.be/" + self.VID)
+        self.assertEqual(len(self.requests()), 1, "録画中の配信をもう一度始めても渡さない")
+
+    def test_own_stream_from_the_queue_is_handed_over(self):
+        self.settings(self.folder)
+        out = self.live.submit({"id": "live000001", "kind": "live", "input": {"videoId": self.VID}}, None)
+        self.assertTrue(out["live"])
+        self.assertEqual(len(self.requests()), 1)
+
+    def test_old_owner_keeps_delivering_itself(self):
+        for setup in (lambda: None, lambda: self.settings(), lambda: self.settings(os.path.join(self.tmp, "ほか"))):
+            setup()
+            self.live.begin_own("https://youtu.be/" + self.VID)
+            self.assertEqual(self.requests(), [], "今の道具が持ち主なら渡さない(自動の切り抜きは今までどおり届ける)")
+            self.assertIsNotNone(self.live._request_for("local", "r1", "auto", "auto", "")[0])
 
 
 class StudioSettingsTest(unittest.TestCase):

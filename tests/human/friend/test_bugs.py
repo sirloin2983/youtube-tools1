@@ -111,12 +111,21 @@ class BugsTest(unittest.TestCase):
         self.assertEqual(self.spawned, [])
         self.assertTrue(os.path.exists(os.path.join(self.sync, B.IN_DIR, n)))   # 元は動かさない
 
-    def test_new_host_note(self):
-        """A3: 新しい道具が依頼を受けている時だけ、記録の場所の 1 段落を足し、records\\ と logs\\ だけを読める所に足す"""
-        self.put(["undelivered"])
-        self.scan()
+    def test_new_host_guide_per_request(self):
+        """段 8(A3 を直した): 新しい道具が受けた依頼(その records\\<依頼 id>\\ がある)だけ、対応の文を新しい道具の文 1 つにし
+        (「こちらで作って届ける」を並べない)、新しい道具の records\\ と logs\\ だけを読める所に足す。受付の今の形は見ない"""
+        rid = "20261024-193027-fe9dc7"
+        base = os.path.join(self.tmp, "friend-requests-data")
+        n = "%s__state-%d.state.json" % (rid, int(self.now * 1000) - 60000)
+        p = os.path.join(self.sync, B.IN_DIR, n)
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump({"v": 1, "kind": "state", "trigger": "error", "rid": rid, "codes": ["yt_fetch_gave_up"], "facts": {"retry": {"gaveUp": True}},
+                       "summary": "s"}, f)   # やり直しを諦めた = 同じ依頼 id の 3 通目を待たずに起こす
+        os.utime(p, (self.now - 60, self.now - 60))
+        B.scan(self.sync, self.app, self.clock, spawn=self.spawn, repo=self.tmp, new_host=base)
         cmd = self.spawned[0][0]
         prompt = cmd[cmd.index("-p") + 1]
+        self.assertIn(B.KINDS[1][2], prompt, "新しい道具に記録の無い依頼は今までの対応")
         self.assertNotIn("friend-requests", prompt)
         self.assertEqual(cmd.count("--add-dir"), 1)
         self.assertNotIn("{", prompt)
@@ -124,20 +133,22 @@ class BugsTest(unittest.TestCase):
         os.remove(B._state_path(self.app))
         for r in B.records(self.app):
             B._set_ai(self.app, r["name"], None)
-        base = os.path.join(self.tmp, "friend-requests-data")
+        os.makedirs(os.path.join(base, "records", rid))
         B.scan(self.sync, self.app, self.clock, spawn=self.spawn, repo=self.tmp, new_host=base)
         cmd = self.spawned[1][0]
         prompt = cmd[cmd.index("-p") + 1]
+        self.assertNotIn(B.KINDS[1][2], prompt, "こちらで作って届ける対応は入れない(逆の 2 文を並べない)")
+        self.assertIn("依頼 %s は、新しい道具" % rid, prompt)
         self.assertIn(base + "\\records\\<依頼 id>\\", prompt)
         self.assertIn(base + "\\logs\\host.log", prompt)
         self.assertIn(B.NEW_HOST_REPO, prompt)
-        self.assertIn("今の道具の受付は依頼を読んでいません", prompt)
         self.assertIn("新しい道具のコードと設定は直しません", prompt)
         self.assertIn("secrets", prompt)   # 読まない、と書いてある
         dirs = [cmd[i + 1] for i, a in enumerate(cmd) if a == "--add-dir"]
         self.assertEqual(dirs[1:], [os.path.join(base, "records"), os.path.join(base, "logs")])
         self.assertFalse(any("secrets" in d for d in dirs), "鍵の置き場は読める所に足さない")
         self.assertIn("守ること(必ず):", prompt)
+        self.assertEqual(B.guide_for(1, [rid, ""], base).count(B.KINDS[1][2]), 1, "混ざった時は、ほかの依頼にだけ今までの対応")
 
     def test_needs_wakes_once_with_guards(self):
         n = self.put(["undelivered"])
@@ -265,6 +276,21 @@ class BugsTest(unittest.TestCase):
         os.makedirs(os.path.join(self.sync, "出力"))
         open(os.path.join(self.sync, "出力", rid + "__題.zip"), "w").close()
         self.assertEqual(B.delivered(self.sync, self.app, rid), "出力 にもう置いてあります")
+
+    def test_no_takeover_while_new_tool_owns(self):
+        """段 8: 受付のフォルダの持ち主が新しい道具の間(受付が takeover=False で呼ぶ)は、引き継ぎの印を置かない"""
+        os.environ[B.SWITCH_ENV] = "0"
+        rid = "20261025-010203-abcdef"
+        n = "%s__state-%d.state.json" % (rid, int(self.now * 1000) - 60000)
+        p = os.path.join(self.sync, B.IN_DIR, n)
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump({"v": 1, "kind": "state", "trigger": "error", "rid": rid, "codes": ["yt_fetch_gave_up"], "facts": {"retry": {"gaveUp": True}}}, f)
+        os.utime(p, (self.now - 60, self.now - 60))
+        B.scan(self.sync, self.app, self.clock, spawn=self.spawn, repo=self.tmp, takeover=False)
+        self.assertFalse(os.path.isdir(os.path.join(self.sync, B.IN_DIR, B.TAKE_DIR)))
+        self.assertNotIn("takeover", B.records(self.app)[0])
+        self.scan()   # 持ち主が今の道具に戻れば引き継ぐ
+        self.assertEqual(B.records(self.app)[0]["takeover"]["state"], "asked")
 
     def test_takeover_skips_already_delivered(self):
         rid = "20261025-010203-bbbbbb"

@@ -583,7 +583,14 @@ class LiveSession:
             env = live_envelope(url)
         except ValueError:
             return self.begin(url)
-        return self.begin(url, envelope=env, bundle=self.own_bundle())
+        out = self.begin(url, envelope=env, bundle=self.own_bundle())
+        if out.get("live") and not out.get("existing"):
+            self.own_begun((out.get("recording") or {}).get("url") or url)
+        return out
+
+    def own_begun(self, url):
+        """自分の配信(友人の依頼に結びつかない録画)を新しく始めた時に 1 回(begin_own・submit)。入口の Live が、受付のフォルダの持ち主が
+        新しい道具なら、その配信を新しい道具へ依頼として渡す(決めたこと 41)。ここ(画面なしの芯・友人の玄関)は何もしない"""
 
     def bundle_top(self, rc, rec):
         """1 録画の自動の採用の上限 = その録画の束の adopt.top(友人の PC の auto_max。束の無い録画は None = live_detect.AUTO_MAX_PER_REC)"""
@@ -795,6 +802,8 @@ class LiveSession:
         if not v.get("live"):
             return dict(v, id=env["id"])
         r = v["recording"]
+        if not v["existing"]:
+            self.own_begun(r.get("url") or url)
         return {"id": env["id"], "live": True, "recorder": v["recorder"], "recording": r.get("id"), "existing": v["existing"], "title": r.get("title") or ""}
 
     def _pick_recorder(self, rc_id=None):

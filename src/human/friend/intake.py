@@ -24,6 +24,9 @@
 - 友人が時刻で指定した区間(items[].ranges)・カット(cut)は、形を確かめてまとめて実行へ渡す(notes:docs/spec/friend.md の 2-6)。
   解析の重み(weights)は 10-23 に友人のアプリから消した = 古い友人のアプリから来ても読まない(いつも既定の重み)
 - 受付のフォルダ(ホームの設定 intake.folder)と 出力/ の読み方は configured_folder・out_dir_of の 1 か所(入口は Intake.folder()・out_dir() を使う)
+- 受付のフォルダの持ち主は新しい道具 friend-requests の settings.json の intakeDir 1 つ(owner.py。根っこの直しの段 8)。持ち主が新しい道具の間・
+  その設定を読めない間は、依頼を読まず(スイッチがオンでも)、引き継ぎと配る回を回さない。送り返し・不具合・更新の見張り・知らせは続け、
+  新しい道具の入口が HOST_DOWN_SEC 動いていなければ知らせの一覧に 1 行(1 回の止まりに 1 回)
 - 1 日の件数の上限は無い(件数では断らない・次の日に回さない。今日の件数は画面に出すだけ)
 - URL は YouTube の配信・動画だけ。11 文字の ID を取り出し、それだけを yt-dlp に渡す(任意の URL を渡さない)
 - 動画は拡張子と ffprobe で形を確かめてから(他人が作ったファイルを ffmpeg で読むこと自体が攻撃の入口になり得るため)
@@ -48,6 +51,7 @@ from . import pubqueue  # noqa: E402  (友人の zip を配る待ちの列と 3 
 from . import upwatch  # noqa: E402  (友人のアプリの更新の見張り: 配った版・友人の今の版・起動できなかった の知らせ。10-25)
 from . import notify  # noqa: E402  (友人の知らせ(見張り・不具合・AI の結果)をまとめ役のセッションへ 1 通にまとめて届ける。10-25)
 from . import returns  # noqa: E402  (友人の送り返し 送り返し\ の zip と採否を app/friend-returns へ並べる。F1 の F2)
+from . import owner  # noqa: E402  (受付のフォルダの持ち主 = 新しい道具の settings.json の intakeDir。段 8)
 
 VIDEO_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v")
 REQ_SUFFIX = ".request.json"
@@ -77,11 +81,13 @@ _HIDDEN = 0x2 | 0x4   # FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM
 STATE_LABELS = {"off": "オフ", "watching": "見張り中", "error": "止まっています"}
 OFF_TEXT = "オフです(設定でオンにすると、フォルダを見張ります)"
 OFF_WATCH_TEXT = "依頼の受付はオフです(送り返し・友人の不具合・更新の見張りは続けています)"
-NEW_HOST_TEXT = "新しい道具の入口がこのフォルダを見ています。入口を止めてからオンにしてください"
-# 新しい道具(C:/dev/friend-requests)の記録の置き場・設定・入口の錠。形は新しい道具の fr/settings.py と fr/host/shared.py の Places に合わせる
-NEW_HOST_ENV, NEW_HOST_DIR_NAME = "FR_DATA", "friend-requests-data"
-NEW_HOST_SETTINGS = "settings.json"
-NEW_HOST_LOCK = ("locks", "host.lock")
+NEW_HOST_TEXT = "このフォルダの依頼は新しい道具(friend-requests)が受けています(その settings.json の intakeDir)。今の道具で受けるには、そこから intakeDir を外してください"
+OWNER_TEXT = {owner.NEW: NEW_HOST_TEXT,
+              owner.BUSY: "新しい道具の設定(settings.json)を今は読めないので、依頼を読んでいません(読めたら次の見回りで決めます)",
+              owner.BROKEN: "新しい道具の設定(settings.json)が壊れているので、依頼を読んでいません(2 つの道具が同じ依頼を作らないため)"}
+HOST_DOWN_SEC = 10 * 60   # 今の道具が依頼を読まない間に、新しい道具の入口がこれだけ動いていなければ知らせる(友人の画面の [この PC でやり直す] は 1 時間)
+HOST_DOWN_TEXT = ("新しい道具の入口が %d 分より長く動いていません。受付のフォルダの依頼はだれも読んでいません"
+                  "(新しい道具の tools\\start_host.vbs で起こす。今の道具へ戻すなら段5の手順.md の 9 章)")
 REQ_LABELS = {"accepted": "受け付けた", "rejected": "断った"}
 DAILY_KEEP_DAYS = 7   # 日ごとの数(受け付けた件数・友人の「要らない」の本数)を残す日数
 
@@ -100,46 +106,6 @@ def configured_folder(prefs, defaults=None):
 def out_dir_of(folder):
     """受付のフォルダの 出力\\(友人のアプリの「受け取る」が読む)。folder が空なら None"""
     return os.path.join(folder, OUT_DIR) if folder else None
-
-
-def new_host_dir(environ=None):
-    """新しい道具の記録の置き場(環境変数 FR_DATA → USERPROFILE の下の friend-requests-data。新しい道具の settings.data_dir と同じ順。--data は見ない)"""
-    environ = os.environ if environ is None else environ
-    v = str(environ.get(NEW_HOST_ENV) or "").strip()
-    if v:
-        return os.path.abspath(v)
-    return os.path.abspath(os.path.join(environ.get("USERPROFILE") or os.path.expanduser("~"), NEW_HOST_DIR_NAME))
-
-
-def new_host_uses(folder, base=None):
-    """新しい道具の設定(settings.json の intakeDir)が folder を受付のフォルダにしているか(入口が動いているかは見ない)。
-    設定が無い・読めない・形が違う時は偽"""
-    base = base or new_host_dir()
-    try:
-        raw = fsio.read_json_file(os.path.join(base, NEW_HOST_SETTINGS), 256 * 1024)
-    except (OSError, ValueError):
-        return False
-    v = raw.get("intakeDir") if isinstance(raw, dict) else None
-    if not isinstance(v, str) or not v.strip() or not folder:
-        return False
-    theirs = os.path.abspath(os.path.join(base, os.path.expandvars(v)))   # 新しい道具の settings._path と同じ読み方(相対なら置き場から)
-    return _same_dir(theirs, folder)
-
-
-def new_host_holds(folder, base=None):
-    """新しい道具の入口が folder を受付のフォルダにして動いているか(settings.json の intakeDir が同じフォルダで、入口の錠をほかのプロセスが持っている)。
-    設定が無い・読めない・形が違う時は偽(新しい道具を入れていない PC で、今の道具の受付を止めない)"""
-    base = base or new_host_dir()
-    return new_host_uses(folder, base) and fsio.is_locked(os.path.join(base, *NEW_HOST_LOCK))
-
-
-def _same_dir(a, b):
-    if os.path.normcase(os.path.normpath(os.path.abspath(a))) == os.path.normcase(os.path.normpath(os.path.abspath(b))):
-        return True
-    try:
-        return os.path.samefile(a, b)
-    except OSError:
-        return False
 
 
 def submit_urls(runner, items, request_id=None, deliver_dir=None, speakers=None, video_tracks=None, cut=None, streamer=None):
@@ -327,7 +293,8 @@ class Intake:
         self.defaults = defaults
         self.feedback = feedback
         self.flush = flush
-        self.new_host = None   # 新しい道具の記録の置き場(None = new_host_dir()。テストが差し替える)
+        self.new_host = None   # 新しい道具の記録の置き場(None = owner.new_host_dir()。テストが差し替える)
+        self._host_down_since = None   # 今の道具が依頼を読まない間に、新しい道具の入口が動いていないと最初に見た時刻
         self.live_begin = live_begin
         self.log = log or (lambda msg: None)
         self.clock = clock or time.time
@@ -493,10 +460,11 @@ class Intake:
             self.last_scan = self.clock()
             folder = cfg.get("folder") if isinstance(cfg.get("folder"), str) else ""
             usable = bool(folder) and not fsio.is_network_path(folder) and os.path.isdir(folder)
+            own = owner.owner(folder, self.new_host) if usable else owner.OLD
             if not cfg.get("enabled"):
                 self.state, self.message = "off", OFF_WATCH_TEXT if usable else OFF_TEXT
                 if usable:
-                    self._watch_friend(folder, reading=False)
+                    self._watch_friend(folder, own)
                 return
             if not folder:
                 self.state, self.message = "error", "見張るフォルダが決まっていません(設定で Dropbox のフォルダを指定してください)"
@@ -504,9 +472,9 @@ class Intake:
             if not usable:
                 self.state, self.message = "error", "見張るフォルダが見つかりません: %s" % folder
                 return
-            if new_host_holds(folder, self.new_host):   # 2 つの道具が同じ依頼を作って 2 組届けないよう、新しい入口が動いている間は依頼を読まない
-                self.state, self.message = "error", NEW_HOST_TEXT
-                self._watch_friend(folder, reading=False)
+            if own != owner.OLD:   # 持ち主は新しい道具(か、その設定を読めない)= 依頼を読まない(2 つの道具が同じ依頼を作って 2 組届けない)
+                self.state, self.message = "error", OWNER_TEXT[own]
+                self._watch_friend(folder, own)
                 return
             self.state, self.message = "watching", ""
             try:
@@ -538,20 +506,36 @@ class Intake:
                     continue   # 友人のプログラムの動画で、JSON がまだ届いていない
                 # 依頼の JSON の無いファイル(手で置いた動画・.txt・JSON が来ないまま WAIT_FILES たった友人の動画)は受け付けない
                 self._record(folder, "video", "manual", n, [n], "", [], [{"label": n, "state": "rejected", "reason": MANUAL_REASON}])
-            self._watch_friend(folder)
+            self._watch_friend(folder, own)
             self._stop_taken(bugs.friend_first(self.data_dir, self.clock, self.log))   # 引き継いだ依頼に友人の物が先に届いた = こちらは届けない
 
-    def _watch_friend(self, folder, reading=True):
-        """依頼のほかの見張り(受付がオフでも・新しい入口が依頼を読んでいても動かす)。どれも失敗しても見回りは止めない。
-        reading = 今の道具が依頼を読んでいるか。読んでいなくて、新しい道具の設定が同じフォルダを受付にしていれば、
-        不具合の AI に新しい道具の記録の場所を伝える(A3。入口が落ちていても、それまでの依頼は新しい道具の記録にあるので錠は見ない)"""
+    def _watch_friend(self, folder, own):
+        """依頼のほかの見張り(受付がオフでも・持ち主が新しい道具でも動かす)。どれも失敗しても見回りは止めない。
+        own = 受付のフォルダの持ち主(owner.owner)。今の道具が持ち主でない間は、引き継ぎ(bugs の _takeover)と配る回(pubqueue)を回さず
+        (友人へ置く道を 1 つに)、新しい道具の入口が動いているかを見張る。不具合の AI への指示は、依頼ごとに新しい道具が受けたかで bugs が決める"""
+        mine = own == owner.OLD
+        base = self.new_host or owner.new_host_dir()
         returns.scan(folder, self.data_dir, self.clock, self.log, feedback=self.feedback)   # 送り返し\(友人の PC の ② の結果と採否。F1 の F2)
-        base = self.new_host or new_host_dir()
-        other = base if not reading and new_host_uses(folder, base) else None
-        bugs.scan(folder, self.data_dir, self.clock, self.log, new_host=other)   # 診断\ の不具合の書き出し
+        bugs.scan(folder, self.data_dir, self.clock, self.log, new_host=base, takeover=mine)   # 診断\ の不具合の書き出し
+        self._watch_host(None if mine else base)
         upwatch.scan(folder, self.data_dir, self.clock, self.log)   # 更新の見張り
-        notify.tick(self.data_dir, self.clock, self.log)   # 上の 2 つが書いた知らせをまとめ役へ
-        pubqueue.tick(self.data_dir, bugs.repo_root(), self.clock, self.log)   # まとめて配る回(区切りを越えて最初の見回りで 1 回)
+        notify.tick(self.data_dir, self.clock, self.log)   # 上の見張りが書いた知らせをまとめ役へ
+        if mine:
+            pubqueue.tick(self.data_dir, bugs.repo_root(), self.clock, self.log)   # まとめて配る回(区切りを越えて最初の見回りで 1 回)
+
+    def _watch_host(self, base):
+        """今の道具が依頼を読まない間(base = 新しい道具の置き場。None = 今の道具が持ち主)、新しい道具の入口が HOST_DOWN_SEC 動いていなければ
+        知らせの一覧に 1 行(鍵は止まりを最初に見た時刻 = 1 回の止まりに 1 回。notify がまとめ役へ届ける)"""
+        if base is None or owner.host_running(base):
+            self._host_down_since = None
+            return
+        now = self.clock()
+        if self._host_down_since is None:
+            self._host_down_since = now
+        if now - self._host_down_since >= HOST_DOWN_SEC:
+            text = HOST_DOWN_TEXT % (HOST_DOWN_SEC // 60)
+            if upwatch.add_alert(self.data_dir, "top", "new-host-down:%d" % int(self._host_down_since), text, now=now):
+                self.log("依頼の受付: " + text)
 
     def _stop_taken(self, rids):
         """引き継いだ依頼 rids のこちらの実行を取り消す(友人の PC の物が先に届いた。もう終わった実行・取り消せない受け手は飛ばす)"""

@@ -73,6 +73,7 @@ if DEV not in sys.path:
     sys.path.insert(0, DEV)
 from ytt import datadir, fsio as _fsio, txbase as _txbase, version as _version, workdata  # noqa: E402
 from human.friend import pubqueue as _pubqueue, upwatch as _upwatch  # noqa: E402  配る待ちの列と知らせの一覧
+from human.friend import owner as _owner  # noqa: E402  受付のフォルダの持ち主(新しい道具の settings.json の intakeDir。段 8)
 from friendapp import sync as _fsync  # noqa: E402  python/ の印(runtime_mark)は友人のアプリと同じ 1 か所
 from pipeline.transcribe import diarize as _diarize, separate as _separate, tx_engines as _tx  # noqa: E402  取る物の表の正(写さない)
 import _common  # noqa: E402
@@ -710,6 +711,16 @@ def default_out(first, publish=False):
     return os.path.join(folder, "更新")
 
 
+def owner_gate(out):
+    """受付のフォルダの 更新\\ へ置いてよいか(段 8 = 横2): その受付のフォルダの持ち主が新しい道具 friend-requests(その settings.json の
+    intakeDir が同じフォルダ)の間と、その設定を読めない間は BuildError(latest.json を書かない = 小さいバージョンで上書きしない。
+    バージョンは比べない)。前のアプリへ戻す時は、先に intakeDir を外して持ち主を戻してから配る -> out"""
+    if _owner.owner_is_new(os.path.dirname(out)):
+        raise BuildError("受付のフォルダの持ち主が新しい道具(friend-requests の settings.json の intakeDir)か、その設定を読めないので、"
+                         "更新\\ には置きません(列は残します)。今の道具から配るのは、intakeDir を外して持ち主を戻してから")
+    return out
+
+
 def build(out_dir, cache, wcpp_dir, first=False, with_key=False, fetch=True, notes="", fetcher=download, downloader=pip_download,
           launcher_build=LAUNCHER_BUILD, members_src=MEMBERS_SRC, key_src=KEY_SRC, mark=None, speech_dir=None):  # lint: long 一本の流れ(置く → 表 → 検査 → zip)
     """zip を作って {zip, size, sha256, files, light} を返す(light = 軽い更新の {zip, size, sha256}。--first は無し)。失敗は BuildError。
@@ -917,7 +928,7 @@ def main(argv=None):
             rollback(os.path.dirname(default_out(False, True)), None if a.rollback == "prev" else a.rollback, a.why)
             return 0
         if a.withdraw:   # 取り下げ: --out が無ければ更新の置き場所(Dropbox)・外した zip は作る PC の手元へ
-            withdraw(a.out or default_out(False, True), a.withdraw, os.path.join(datadir.locate("app", SRC), "friend-withdrawn"))
+            withdraw(a.out or owner_gate(default_out(False, True)), a.withdraw, os.path.join(datadir.locate("app", SRC), "friend-withdrawn"))
             return 0
         a.mark = update_mark(a.important, a.fix_request, a.fix_kind, a.asked)
         if a.publish:   # 列に積んだ物も一緒に乗せる(この版で直したこと)
@@ -930,7 +941,7 @@ def main(argv=None):
         a.cache = a.cache or default_cache()
         a.wcpp = default_wcpp()
         if a.publish:
-            got = publish(a, out)
+            got = publish(a, owner_gate(out))
         else:
             got = build(out, a.cache, a.wcpp, first=a.first, with_key=a.with_key, fetch=not a.no_fetch, mark=a.mark)
     except (BuildError, OSError) as e:

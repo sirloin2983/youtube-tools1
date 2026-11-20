@@ -572,29 +572,30 @@ def try_lock(path):
 
 
 def is_locked(path):
-    """ほかのプロセスが path の印(try_lock と同じ先頭の 1 バイト)を持っているか。試しに取ってすぐ外す。
-    ファイルが無い・開けない時は偽(作らない)。開くのを断られた(PermissionError)時は持っていると見る"""
+    """ほかのプロセスが path の印(try_lock と同じ先頭の 1 バイト)を持っているか。ファイルが無い・開けない時は偽(作らない)。
+    Windows では印を取らずに、頭の 1 バイトを読めるかで見る(印のある所は、持ち主でないファイルの口から読めない)。試しに取ると、
+    その一瞬に起きた持ち主(新しい道具の入口は 1 回だけ取りに行く)が「二重」で終わるため。開くのを断られた時・読むのを断られた時は持っていると見る。
+    ほかの OS(flock は読むのを止めない)は試しに取ってすぐ外す"""
     if not os.path.isfile(path):
         return False
     try:
-        f = open(path, "r+b")
+        f = open(path, "rb" if os.name == "nt" else "r+b")
     except PermissionError:
         return True
     except OSError:
         return False
     try:
         if os.name == "nt":
-            import msvcrt
-            f.seek(0)
-            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
-        else:
-            import fcntl
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            f.read(1)
+            return False
+        import fcntl
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        return False
     except OSError:
-        f.close()
         return True
-    unlock(f)
-    return False
+    finally:
+        f.close()
 
 
 def unlock(f):

@@ -189,31 +189,43 @@ class TestState(Base):
 
 
 class TestStage5(Base):
-    """段 5: オフは依頼を読まないだけ(送り返し・不具合・更新の見張り・知らせ・配る列は続ける)・新しい道具の入口が同じフォルダを見ている間は依頼を読まない"""
+    """段 5 と段 8(横2): オフは依頼を読まないだけ(送り返し・不具合・更新の見張り・知らせ・配る列は続ける)。
+    受付のフォルダの持ち主は新しい道具の settings.json の intakeDir 1 つ(human/friend/owner)。同じフォルダなら、入口が動いているか
+    (ロック)・ホームのスイッチに関わらず依頼を読まない。settings.json を今読めない・壊れている時も読まない(読まない側に倒す)"""
 
     WATCH = (("returns", "scan"), ("bugs", "scan"), ("upwatch", "scan"), ("notify", "tick"), ("pubqueue", "tick"))
 
     def setUp(self):
         super().setUp()
         self.calls = []
+        self.bug_kw = []
         for mod, fn in self.WATCH + (("bugs", "friend_first"),):
-            p = mock.patch.object(getattr(intake, mod), fn, lambda *a, _n="%s.%s" % (mod, fn), **kw: self.calls.append(_n) or set())
+            p = mock.patch.object(getattr(intake, mod), fn, lambda *a, _n="%s.%s" % (mod, fn), **kw: self.calls.append(_n) or (
+                self.bug_kw.append(kw) if _n == "bugs.scan" else None) or set())
             p.start()
             self.addCleanup(p.stop)
         self.watched = ["%s.%s" % w for w in self.WATCH]
+        self.base = self.it.new_host
 
     def put_request(self):
         return self.put_urls(["https://youtu.be/abcdefghijk 2"])
 
-    def new_host(self, intake_dir):
-        base = self.it.new_host
-        os.makedirs(os.path.join(base, "locks"), exist_ok=True)
-        with open(os.path.join(base, "settings.json"), "w", encoding="utf-8") as f:
-            json.dump({"intakeDir": intake_dir}, f)
-        lock = fsio.try_lock(os.path.join(base, "locks", "host.lock"))
+    def settings(self, intake_dir=None, text=None):
+        """新しい道具の settings.json を書く(intake_dir が None なら intakeDir の無い形)"""
+        os.makedirs(self.base, exist_ok=True)
+        with open(os.path.join(self.base, "settings.json"), "w", encoding="utf-8") as f:
+            f.write(text if text is not None else json.dumps({"workDir": "D:/w", **({"intakeDir": intake_dir} if intake_dir is not None else {})}))
+
+    def host_lock(self):
+        """新しい道具の入口が動いている形(locks\\host.lock の頭の 1 バイトを持つ)"""
+        lock = fsio.try_lock(os.path.join(self.base, "locks", "host.lock"))
         self.assertIsNotNone(lock)
         self.addCleanup(lambda: lock.closed or fsio.unlock(lock))
         return lock
+
+    def assert_not_read(self, rid, why):
+        self.assertEqual((self.runner.requests, self.it.snapshot()["requests"]), ([], []), why)
+        self.assertTrue(os.path.isfile(os.path.join(self.folder, rid + ".request.json")), why)
 
     def test_off_keeps_watching(self):
         self.prefs.patch("intake", {"enabled": False})
@@ -234,69 +246,122 @@ class TestStage5(Base):
             self.assertEqual(self.it.snapshot()["message"], intake.OFF_TEXT)
 
     def test_on_reads_and_watches(self):
+        self.settings()   # 新しい道具はあるが intakeDir が無い = 今の道具が持ち主
         self.put_request()
         self.scan2()
         self.assertEqual(len(self.runner.requests), 1)
         self.assertEqual(self.calls, (self.watched + ["bugs.friend_first"]) * 2)
+        self.assertEqual([kw.get("takeover") for kw in self.bug_kw], [True, True], "持ち主なら引き継ぐ")
 
-    def test_new_host_holds_folder(self):
-        lock = self.new_host(self.folder.upper())
+    def test_new_owner_is_intake_dir_not_the_lock(self):
+        """段 8: intakeDir が同じフォルダなら、入口が止まっていても(ロックを持っていなくても)依頼を読まない。外せば次の見回りから読む"""
+        self.settings(self.folder.upper())
         rid = self.put_request()
         self.scan2()
-        self.assertEqual((self.runner.requests, self.it.snapshot()["requests"]), ([], []))
-        self.assertTrue(os.path.isfile(os.path.join(self.folder, rid + ".request.json")))
+        self.assert_not_read(rid, "入口が止まっていても読まない")
         snap = self.it.snapshot()
         self.assertEqual((snap["state"], snap["stateLabel"], snap["message"]), ("error", "止まっています", intake.NEW_HOST_TEXT))
-        self.assertEqual(self.calls, self.watched * 2, "依頼のほかの見張りは続ける")
-        fsio.unlock(lock)   # 入口が止まった = 次の見回りから読む
+        self.assertEqual(self.calls, [w for w in self.watched if w != "pubqueue.tick"] * 2, "依頼のほかの見張りは続ける。配る回は回さない")
+        self.assertEqual([kw.get("takeover") for kw in self.bug_kw], [False, False], "持ち主でない間は引き継がない")
+        self.host_lock()
         self.scan2()
-        self.assertEqual(len(self.runner.requests), 1)
+        self.assert_not_read(rid, "入口が動いていても同じ")
+        self.settings(os.path.join(self.tmp, "ほか"))
+        self.scan2()
+        self.assertEqual(len(self.runner.requests), 1, "新しい道具がほかのフォルダを受付にした = 今の道具が読む")
         self.assertEqual(self.it.snapshot()["state"], "watching")
 
-    def test_new_host_holds_rules(self):
-        base, holds = self.it.new_host, intake.new_host_holds
-        self.assertFalse(holds(self.folder, base), "新しい道具が無い")
-        os.makedirs(base)
-        with open(os.path.join(base, "settings.json"), "w", encoding="utf-8") as f:
-            f.write("{こわれた")
-        self.assertFalse(holds(self.folder, base), "設定が読めない")
-        lock = self.new_host(os.path.join(self.tmp, "ほか"))
-        self.assertFalse(holds(self.folder, base), "ほかのフォルダを見ている")
-        fsio.unlock(lock)
-        lock = self.new_host(os.path.relpath(self.folder, base))
-        self.assertTrue(holds(self.folder, base), "相対のパスは置き場から読む(新しい道具と同じ)")
-        fsio.unlock(lock)
-        self.assertFalse(holds(self.folder, base), "入口が動いていない(錠を持っていない)")
-        os.remove(os.path.join(base, "locks", "host.lock"))
-        self.assertFalse(holds(self.folder, base), "錠のファイルが無い")
-        self.assertFalse(os.path.exists(os.path.join(base, "locks", "host.lock")), "錠のファイルを作らない")
+    def test_unreadable_settings_do_not_read(self):
+        """段 8: settings.json を今読めない(掴まれている)・壊れている時は読まない側に倒す。無い(新しい道具を入れていない)時だけ読む"""
+        rid = self.put_request()
+        self.settings(text="{こわれた")
+        self.scan2()
+        self.assert_not_read(rid, "壊れている")
+        self.assertEqual(self.it.snapshot()["message"], intake.OWNER_TEXT["broken"])
+        self.settings(os.path.join(self.tmp, "ほか"))
+        held = fsio.try_lock(os.path.join(self.base, "settings.json"))   # ほかのプロセスが掴んでいる形(頭の 1 バイトが読めない)
+        self.addCleanup(lambda: held.closed or fsio.unlock(held))
+        self.scan2()
+        self.assert_not_read(rid, "今は読めない")
+        self.assertEqual(self.it.snapshot()["message"], intake.OWNER_TEXT["busy"])
+        fsio.unlock(held)
+        os.remove(os.path.join(self.base, "settings.json"))
+        self.scan2()
+        self.assertEqual(len(self.runner.requests), 1, "無い = 今の道具が読む")
 
-    def test_bug_ai_told_new_host(self):
-        """A3: 今の道具が依頼を読まず、新しい道具の設定が同じフォルダを受付にしている時だけ、不具合の AI に新しい道具の置き場を渡す"""
-        got = []
-        p = mock.patch.object(intake.bugs, "scan", lambda *a, **kw: got.append(kw.get("new_host")))
+    def test_owner_rules(self):
+        """持ち主の決め方(human/friend/owner): 無い = 今の道具・intakeDir が同じフォルダ = 新しい道具(相対は置き場から)・壊れている = 分からない"""
+        own = lambda: intake.owner.owner(self.folder, self.base)   # noqa: E731
+        self.assertEqual(own(), "old", "新しい道具が無い")
+        for d, want in (({}, "old"), ({"intakeDir": ""}, "old"), ({"intakeDir": None}, "old"), ({"intakeDir": 5}, "broken"),
+                        ({"intakeDir": os.path.join(self.tmp, "ほか")}, "old"), ({"intakeDir": self.folder.replace("\\", "/")}, "new"),
+                        ({"intakeDir": os.path.relpath(self.folder, self.base)}, "new")):
+            self.settings(text=json.dumps(d))
+            self.assertEqual(own(), want, d)
+        self.settings(text="[]")
+        self.assertEqual(own(), "broken")
+        self.assertEqual(intake.owner.owner("", self.base), "old", "今の道具の受付のフォルダが決まっていない")
+        self.assertEqual(intake.owner.new_host_dir({"FR_DATA": " D:/x "}), os.path.abspath("D:/x"))
+        self.assertEqual(intake.owner.new_host_dir({"USERPROFILE": "C:/Users/u"}), os.path.abspath("C:/Users/u/friend-requests-data"))
+        rid = "20261120-101010-abc123"
+        self.assertFalse(intake.owner.taken_by_new(rid, self.base))
+        os.makedirs(os.path.join(self.base, "records", rid))
+        self.assertTrue(intake.owner.taken_by_new(rid, self.base))
+        self.assertFalse(intake.owner.taken_by_new("..", self.base), "依頼 id の形でない物は見ない")
+
+    @unittest.skipUnless(os.name == "nt", "Windows のロック")
+    def test_host_running_does_not_take_the_lock(self):
+        """入口が動いているかは、ロックを取らずに読めるかで見る(試しに取ると、その一瞬に起きた入口が「二重の入口」で終わる)"""
+        path = os.path.join(self.base, "locks", "host.lock")
+        self.assertFalse(intake.owner.host_running(self.base), "ロックのファイルが無い")
+        self.assertFalse(os.path.exists(path), "ロックのファイルを作らない")
+        lock = self.host_lock()
+        self.assertTrue(intake.owner.host_running(self.base))
+        fsio.unlock(lock)
+        import msvcrt
+        with mock.patch.object(msvcrt, "locking", side_effect=AssertionError("ロックを取った")):
+            self.assertFalse(intake.owner.host_running(self.base))
+
+    def test_host_down_is_told_once(self):
+        """段 8(切-5): 今の道具が依頼を読まない間に、新しい道具の入口が HOST_DOWN_SEC 動いていなければ、知らせの一覧に 1 行(1 回だけ)"""
+        from human.friend import upwatch
+        alerts = []
+        p = mock.patch.object(intake.upwatch, "add_alert", lambda app, level, key, text, now=None: alerts.append((level, key, text)))
         p.start()
         self.addCleanup(p.stop)
-        base = self.it.new_host
-
-        def scan(enabled):
-            self.prefs.patch("intake", {"enabled": enabled})
-            got.clear()
-            self.it.scan()
-            return got[-1]
-
-        self.assertIsNone(scan(False), "新しい道具の設定が無いオフ(今までどおり)")
-        lock = self.new_host(self.folder)
-        self.assertEqual(scan(True), base, "新しい入口が動いていてオンでも読まない(A2)")
+        self.settings(self.folder)
+        lock = self.host_lock()
+        self.it.scan()
+        self.now += intake.HOST_DOWN_SEC + 60
+        self.it.scan()
+        self.assertEqual(alerts, [], "入口が動いている")
         fsio.unlock(lock)
-        self.assertEqual(scan(False), base, "オフで、新しい道具の設定が同じフォルダ(入口が落ちていても伝える)")
-        self.assertIsNone(scan(True), "オンで入口が動いていない = 今の道具が読む")
-        lock = self.new_host(os.path.join(self.tmp, "ほか"))
-        self.assertIsNone(scan(False), "新しい道具はほかのフォルダを見ている")
-
-    def test_new_host_dir(self):
-        self.assertEqual(intake.new_host_dir({"FR_DATA": " D:/x "}), os.path.abspath("D:/x"))
-        self.assertEqual(intake.new_host_dir({"USERPROFILE": "C:/Users/u"}), os.path.abspath("C:/Users/u/friend-requests-data"))
+        self.it.scan()
+        self.now += intake.HOST_DOWN_SEC - 60
+        self.it.scan()
+        self.assertEqual(alerts, [], "まだ短い")
+        self.now += 120
+        self.it.scan()
+        self.it.scan()
+        self.assertEqual(len(alerts), 2, "知らせの一覧は鍵で 1 回にする(add_alert)。同じ鍵を渡す")
+        self.assertEqual(alerts[0], alerts[1])
+        self.assertEqual(alerts[0][0], "top")
+        self.assertIn("新しい道具の入口", alerts[0][2])
+        self.assertTrue(upwatch.ALERTS_NAME)
+        lock = self.host_lock()
+        self.it.scan()
+        fsio.unlock(lock)
+        self.it.scan()
+        self.now += intake.HOST_DOWN_SEC + 1
+        self.it.scan()
+        self.assertEqual(len(alerts), 3)
+        self.assertNotEqual(alerts[2][1], alerts[0][1], "止まり直したら別の鍵(もう 1 回知らせる)")
+        self.prefs.patch("intake", {"enabled": False})
+        self.settings()
+        self.now += intake.HOST_DOWN_SEC * 2
+        self.it.scan()
+        self.it.scan()
+        self.assertEqual(len(alerts), 3, "今の道具が持ち主なら(オフでも)知らせない")
 
 
 class TestSend(Base):

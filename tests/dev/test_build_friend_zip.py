@@ -635,6 +635,34 @@ class UpdateMarkTest(unittest.TestCase):
         finally:
             shutil.rmtree(d, ignore_errors=True)
 
+    def test_publish_waits_for_the_owner(self):
+        """段 8(横2): 受付のフォルダの持ち主が新しい道具(その settings.json の intakeDir が同じ)の間・その設定を読めない間は、
+        配る道具は 更新\\ に置かない(latest.json を書かない。小さいバージョンで上書きしない)。取り下げも同じ。戻すのは持ち主を先に戻してから"""
+        from human.friend import pubqueue
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        folder = os.path.join(d, "受付")
+        fr = os.path.join(d, "friend-requests-data")
+        os.makedirs(fr)
+        with open(os.path.join(d, "prefs.json"), "w", encoding="utf-8") as f:
+            json.dump({"intake": {"enabled": False, "folder": folder}}, f)
+        published = []
+        with mock.patch.object(B.datadir, "locate", return_value=d), mock.patch.dict(os.environ, {"FR_DATA": fr}), \
+                mock.patch.object(B, "publish", lambda a, out: published.append(out) or {"zip": "x.zip", "size": 1, "files": 1}), \
+                mock.patch.object(B, "withdraw", lambda out, ver, keep: published.append(("withdraw", out))):
+            pubqueue.add(d, "直した", "0.99.1")
+            for text in (json.dumps({"intakeDir": folder}), "{こわれた"):
+                with open(os.path.join(fr, "settings.json"), "w", encoding="utf-8") as f:
+                    f.write(text)
+                for argv in (["--publish", "--from-queue"], ["--publish", "--important", "--fix-kind", "4", "--note", "直した"], ["--withdraw", "0.99.1"]):
+                    self.assertEqual(B.main(argv), 1, (text, argv))
+                self.assertEqual(published, [], "置かない")
+                self.assertEqual([x["note"] for x in pubqueue.items(d)], ["直した"], "列は残す")
+            with open(os.path.join(fr, "settings.json"), "w", encoding="utf-8") as f:
+                json.dump({"intakeDir": os.path.join(d, "ほか")}, f)
+            self.assertEqual(B.main(["--publish", "--from-queue"]), 0)
+            self.assertEqual(published, [os.path.join(folder, "更新")], "今の道具が持ち主なら配る")
+
     def test_history_in_latest(self):
         """配った後の latest.json に最近の更新(changes のある版・新しい順)と python/ の印"""
         d = tempfile.mkdtemp()
