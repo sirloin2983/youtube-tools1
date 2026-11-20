@@ -9,9 +9,9 @@
   - 名前: `class ToolClient` :102・`spec_from_settings` :175・`live_auto_origin` :193・`class AutoRunner` :204
 - **homereq.py** (114 行) — ホームの「友人の依頼」(10-24。ホームの見直しの 1・5): 受付の記録(human/friend/intake の snapshot の requests)に、
   - 名前: `rows` :87
-- **live.py** (496 行) — リアルタイム切り抜き(線 D。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0)の入口の側。**既定はオフ**(ホームの設定の節 live.enabled)。
-  - 名前: `studio_review` :98・`studio_audio` :105・`studio_lag` :123・`class Live` :132
-  - 受ける口: `/api/peaks` :251・`/api/exports` :258・`/api/info` :270・`/api/begin` :306・`/api/export` :309・`/api/export/cancel` :318・`/api/archive/cancel` :320・`/api/archive` :323
+- **live.py** (515 行) — リアルタイム切り抜き(線 D。資料の git:before-1028-cleanup:plan/line-d-live-clipping.md の 0)の入口の側。**既定はオフ**(ホームの設定の節 live.enabled)。
+  - 名前: `studio_review` :99・`studio_audio` :106・`studio_lag` :124・`class Live` :133
+  - 受ける口: `/api/peaks` :252・`/api/exports` :259・`/api/info` :271・`/api/begin` :307・`/api/export` :310・`/api/export/cancel` :319・`/api/archive/cancel` :321・`/api/archive` :324
 - **mount.py** (208 行) — 統合サーバーへのツールの取り込み(統合計画の段階3。資料の git:before-1028-cleanup:docs/design/integration-plan.md)。
   - 名前: `class MountError` :52・`tool_modules` :56・`check_no_collision` :66・`load_serve` :76・`send_redirect` :103・`make_handler` :113・`class Mount` :160
   - 受ける口: `/api/ytt` :45

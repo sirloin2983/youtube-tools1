@@ -71,7 +71,7 @@
   - 名前: `channel_regions` :37・`live_row` :55・`live_list` :150
 - **livehost.py** (87 行) — ライブの親(host)の口(RS7-2 G0)。
   - 名前: `class RequestBook` :25・`class MarkBook` :37・`class LiveHost` :47
-- **livesession.py** (1414 行) — ② 管理の層 flow: ライブ係(RS7-2 G2b。notes:plan/done/f1-friend-pc.md)。
+- **livesession.py** (1423 行) — ② 管理の層 flow: ライブ係(RS7-2 G2b。notes:plan/done/f1-friend-pc.md)。
   - 名前: `validate_url` :90・`probe_live` :127・`rec_view` :157・`recorder_data_dir` :178・`is_local_url` :191・`stream_url` :199・`live_envelope` :205・`cfg_bundle` :215・`now_bundle` :236・`request_bundle` :255・`request_settings` :288・`speakers_of` :295・ほか 4
 - **machine.py** (303 行) — ② 管理の層 flow: この PC の設定(機械の都合)を 1 か所に(RS7-1 の S1。決定 3-30 の Q1・notes:plan/done/f1-friend-pc.md の決めたこと 8・9)。
   - 名前: `check` :68・`root` :102・`path` :107・`read_file` :119・`read_env` :136・`llm_for_vram` :163・`auto_llm` :173・`overlay_llm` :179・`explicit` :212・`load` :221・`get` :239・`save` :247・ほか 1

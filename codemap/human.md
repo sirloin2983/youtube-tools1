@@ -47,16 +47,18 @@
 ## src/human/friend/
 
 - **__init__.py** (2 行) — ③ 友人: 受付(Dropbox)→ まとめて実行(②)に流す → 届ける。友人の返事・送り返し・ライブの依頼の結びつき
-- **bugs.py** (673 行) — ③ 人の層: 友人の PC の不具合の書き出しを受け取って仕分けし、要対応があれば Claude Code を画面なしで 1 回起こす(10-25 ユーザーの OK。
-  - 名前: `bugs_dir` :149・`parse` :157・`triage` :170・`kind_of` :204・`context` :234・`wrap` :253・`records` :272・`scan` :282・`delivered` :347・`guard` :403・`friend_first` :420・`ask` :443・ほか 4
+- **bugs.py** (702 行) — ③ 人の層: 友人の PC の不具合の書き出しを受け取って仕分けし、要対応があれば Claude Code を画面なしで 1 回起こす(10-25 ユーザーの OK。
+  - 名前: `guide_for` :159・`bugs_dir` :169・`parse` :177・`triage` :190・`kind_of` :224・`context` :254・`wrap` :273・`records` :292・`scan` :302・`delivered` :370・`guard` :426・`friend_first` :443・ほか 5
 - **friend_feedback.py** (99 行) — 友人の「要らない」を PC 側で片付ける(notes:docs/spec/friend.md の 2-14。ユーザー「不採用の場合こちらにフィードバック」)。
   - 名前: `record_delivery` :22・`find_delivery` :27・`apply` :63
-- **intake.py** (846 行) — 友人からの依頼の受付(notes:docs/spec/friend.md)。
-  - 名前: `configured_folder` :82・`out_dir_of` :93・`submit_urls` :98・`submit_file` :122・`youtube_id` :132・`parse_lines` :138・`decode_text` :164・`probe_video` :178・`youtube_info` :190・`parse_ranges` :238・`class Intake` :267
+- **intake.py** (894 行) — 友人からの依頼の受付(notes:docs/spec/friend.md)。
+  - 名前: `configured_folder` :95・`out_dir_of` :106・`submit_urls` :111・`submit_file` :135・`youtube_id` :145・`parse_lines` :151・`decode_text` :177・`probe_video` :191・`youtube_info` :203・`parse_ranges` :251・`class Intake` :280
 - **live_requests.py** (22 行) — 友人のライブ配信の依頼と録画の結びつき(notes:docs/spec/friend.md の 2-15)。
   - 名前: `settings_label` :19
 - **notify.py** (228 行) — 友人の不具合・更新の知らせを、ツールが読んだその時にまとめ役のセッションへ届ける「知らせだけの軽い起こし」(10-25 ユーザーの決め)。
   - 名前: `collect` :75・`message` :101・`to_name` :116・`batch_send` :165・`tick` :216
+- **owner.py** (115 行) — ③ 人の層: 受付のフォルダの持ち主(今の道具か、新しい道具 friend-requests か)を決める 1 か所(根っこの直しの段 8 = 横2。
+  - 名前: `new_host_dir` :36・`owner` :45・`owner_is_new` :69・`taken_by_new` :74・`host_running` :81・`live_request` :86・`hand_over_live` :94
 - **pubqueue.py** (166 行) — ③ 人の層: 友人の zip を配る待ちの列と、3 時間ごとの配る回(ユーザーの PC。友人の zip はまとめて配る決め・10-25 ユーザーの OK。
   - 名前: `items` :53・`hold_of` :59・`set_hold` :65・`add` :79・`take` :87・`changes` :96・`slot_of` :101・`tick` :107
 - **returns.py** (504 行) — ③ 人の層: 友人からの送り返しを受け取って並べる(F1 の F2。資料の git:before-1028-cleanup:docs/design/f1-build.md の (f1d))。

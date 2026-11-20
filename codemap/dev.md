@@ -6,8 +6,8 @@
 
 - **_common.py** (48 行) — dev/ の道具が共通で使う小物(標準ライブラリだけ)。guard_hook.py・push_helper.py は単独で動く条件なので、ここを読まない。
   - 名前: `console_utf8` :9・`find_node` :18・`read_utf8` :31・`write_utf8` :37・`tracked_files` :43
-- **build_friend_zip.py** (953 行) — 友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(設計 資料の git:before-1028-cleanup:docs/design/f1-build.md の 2・3 節)。
-  - 名前: `class BuildError` :130・`say` :134・`download` :146・`cached` :158・`wheel_pins` :193・`pip_download` :211・`wheels` :221・`check_certifi` :258・`unzip_into` :274・`lay_python` :299・`src_files` :324・`lay_src` :339・ほか 27
+- **build_friend_zip.py** (964 行) — 友人の PC に配る zip(新しいアプリ FriendApp + ② + ① の Python のコード + 埋め込み用 Python + 部品)を作る道具(設計 資料の git:before-1028-cleanup:docs/design/f1-build.md の 2・3 節)。
+  - 名前: `class BuildError` :131・`say` :135・`download` :147・`cached` :159・`wheel_pins` :194・`pip_download` :212・`wheels` :222・`check_certifi` :259・`unzip_into` :275・`lay_python` :300・`src_files` :325・`lay_src` :340・ほか 28
 - **code_map.py** (466 行) — コードの地図と言葉の索引を作る道具(AI のセッションがコードの場所を早く見つけるため)。
   - 名前: `git_files` :53・`skipped` :57・`is_test` :61・`read` :65・`one_line` :73・`comment_head` :85・`py_info` :112・`js_info` :143・`cs_info` :164・`info` :186・`layer_of` :199・`norm_route` :206・ほか 12
   - 受ける口: 
@@ -69,8 +69,8 @@
   - 名前: `check` :37・`c_adopt_defaults` :86・`c_live_tx_constants` :99・`c_port_ranges` :127・`c_tool_module_names` :134・`schema_shape_problems` :155・`schema_items` :210・`c_settings_schema` :225・`c_studio_schema` :250・`c_portal_title` :267・`c_static_table` :274・`c_spec_consistency` :282・ほか 21
 - **run_e2e.py** (132 行) — 画面テスト(e2e)の一式を 1 本ずつ流して、1 本 1 行(所要秒・OK/FAIL の数)で出す。一式の正はこのファイルの SUITE。
   - 名前: `label` :57・`summary` :62・`selected` :69・`run_one` :82・`main` :96
-- **run_unit.py** (203 行) — unittest を層ごと・フォルダごとに流す道具(1 本ずつ別のプロセス)。リポジトリ直下で:
-  - 名前: `find_files` :49・`matches` :61・`build_units` :77・`run_one` :92・`report` :127・`run_all` :142・`print_summary` :161・`main` :173
+- **run_unit.py** (204 行) — unittest を層ごと・フォルダごとに流す道具(1 本ずつ別のプロセス)。リポジトリ直下で:
+  - 名前: `find_files` :49・`matches` :61・`build_units` :77・`run_one` :92・`report` :128・`run_all` :143・`print_summary` :162・`main` :174
 - **session_start.py** (535 行) — セッションの入口の要約。新しい AI のセッションが最初に流し、今の状態を 1 画面(150 行以内)で見る。
   - 名前: `cut` :65・`run` :70・`git` :80・`read` :84・`git_block` :94・`versions` :114・`worklog_block` :123・`boundary_dirs` :139・`boundary_notes` :147・`boundary_block` :166・`todo_block` :180・`count_files` :198・ほか 18
 - **signing_key.py** (97 行) — 友人のアプリの更新の署名の鍵(安全面の直し 1・10-29。手順は保管庫 今の道具の仕様/友人まわり.md の「更新の署名の鍵」)。
