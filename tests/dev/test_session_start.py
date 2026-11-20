@@ -68,7 +68,7 @@ class SessionStartTest(unittest.TestCase):
               "| 案件の画面 | [`今の道具の仕様/案件と確かめる.md`](今の道具の仕様/案件と確かめる.md) |\n\n## 次の節\n| 友人 | 当たらない |\n")
         write(os.path.join(self.notes, "今の道具の仕様", "友人まわり.md"), "# 友人\n")
         write(os.path.join(self.notes, "今の道具の仕様", "案件と確かめる.md"), "# 案件\n")
-        write(os.path.join(self.notes, "docs", "子への指示文の雛形.md"),
+        write(os.path.join(self.notes, "docs", "子への指示文のテンプレート.md"),
               "# 雛形\n\n説明\n\n```\n**決まり**\n- 日本語で。\n\n**完了の条件(いつもの)**\n- lint 0。\n```\n\n後書き\n")
         write(os.path.join(self.notes, "やること.md"),
               "---\n種類: 計画\n---\n# やること\n\n## 今の仕事と次\n- 作っている(AI)\n\n## ユーザーの番\n- 答える\n")

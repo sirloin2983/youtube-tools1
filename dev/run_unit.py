@@ -94,6 +94,7 @@ def run_one(unit, timeout=TIMEOUT_SEC):
     timeout 秒を過ぎたら孫ごと止めて落ちた扱い"""
     env = dict(os.environ)
     env["YTT_DATA_DIR"] = "inplace"
+    env["TRANSCRIBE_NO_FETCH"] = "1"   # 単体テストはネットからモデル・部品を取らない(取りに行くテストは fetch_blocked で落ちて分かる)
     env.pop("PYTHONIOENCODING", None)
     cjs = unit.rel.endswith(".cjs")
     if cjs and not NODE:

@@ -14,7 +14,7 @@
     途中/ の、頭の「終わり: <日付>」を過ぎた物と「状態: 済み」の物。
   知らせる(1 行ずつ。止めない・まとめ役が片付ける): 置き場ごとの数・やること.md などの行数が上限(CAPS)を超えた・途中/ に「終わり:」の無い物・
     決まった置き場(PLACES)の外の物・切れたパス(dev/notes_tool.py check)。作業の記録を移した時は、済んでいない行を出す。
-雛形の正は保管庫の docs/子への指示文の雛形.md(最初の ``` の中)。
+雛形の正は保管庫の docs/子への指示文のテンプレート.md(最初の ``` の中)。
 領域は codemap/ と 今の道具の仕様/ のファイル名・AGENTS.md の表の行に当てる言葉(例: friendapp・pipeline・editor・dev)。
 """
 import argparse
@@ -35,7 +35,7 @@ import worklog  # noqa: E402
 NOWIN = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 WIDTH = 120
 MAIN = "main"
-TEMPLATE_REL = "docs/子への指示文の雛形.md"
+TEMPLATE_REL = "docs/子への指示文のテンプレート.md"
 VERSION_RE = re.compile(r'^VERSION\s*=\s*"([^"]+)"', re.M)
 ACTIVE_DAYS = 2
 # 領域の言葉に足す言葉(ファイル名・表の行に当てるだけ。中身の正ではない)
@@ -56,7 +56,7 @@ LINE_CAPS = ((TODO_REL, 150), ("今の道具の仕様/直す候補.md", 200), ("
 # 決まった置き場(保管庫の直下と docs/ の直下)。ほかは「置き場の外」と知らせる
 PLACES = {"": {"AGENTS.md", "ホーム.md", ".gitignore", TODO_REL, "決定.md", "決定と要件", "今の道具の仕様", "研究",
                "道具の作り直し", DOING_REL, "docs", "plan", "chrome-ext", "src"},
-          "docs": {"AIの動き", "worklog", "動作環境.md", "子への指示文の雛形.md", "資料の書き方.md", "複数のAIの注意.md"}}
+          "docs": {"AIの動き", "worklog", "動作環境.md", "子への指示文のテンプレート.md", "資料の書き方.md", "複数のAIの注意.md"}}
 END_RE = re.compile(r"^終わり[:：]\s*(\d{4}-\d{2}-\d{2})", re.M)
 DONE_RE = re.compile(r"^状態[:：]\s*(済み|終わった|完了)", re.M)
 PENDING_SHOW = 15
@@ -431,7 +431,7 @@ def overlaps(repo, act, files):
 # ---- 子への指示文 ----
 
 def template_text(notes):
-    """雛形の正(docs/子への指示文の雛形.md)の最初の ``` の中"""
+    """雛形の正(docs/子への指示文のテンプレート.md)の最初の ``` の中"""
     text = read(os.path.join(notes, *TEMPLATE_REL.split("/")))
     if text is None:
         raise SystemExit("雛形が無い: %s" % os.path.join(notes, TEMPLATE_REL))
