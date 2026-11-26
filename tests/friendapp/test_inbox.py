@@ -21,7 +21,6 @@ T0 = 1750000000.0          # 基準の時刻(秒)
 DAY_MS = 86400 * 1000
 RID = "20250615-120000-aaaaaa"
 RID2 = "20250615-120100-bbbbbb"
-RID3 = "20250615-120200-cccccc"
 
 
 class Clock:
@@ -428,24 +427,6 @@ class InboxTest(unittest.TestCase):
         self.arrive(RID2, ["b_pack"], title="", streamer="")
         r2 = self.box.row(RID2)
         self.assertEqual(self.box.keep_dest(r2, r2["packs"][0]), (self.save, "2025-01-02_一覧の人_一覧の題_#2"))
-
-    def test_decide_when_pack_folder_is_gone(self):
-        """パックのフォルダを友人が消した・移した: 見送る・3 日の自動は片付けずに決まる / 受け取るは「見つかりません」(ソフトを閉じる案内は出さない)"""
-        for rid, verdict, by in ((RID, "skip", None), (RID2, "skip", "auto"), (RID3, "keep", None)):
-            with self.subTest(verdict=verdict, by=by):
-                _r, _case, dirs = self.arrive(rid, ["a_pack"])
-                shutil.rmtree(dirs[0])
-                got = self.box.decide(rid, [], verdict, by=by)
-                if verdict == "keep":
-                    self.assertEqual(got["done"], [])
-                    msg = got["errors"][0]["message"]
-                    self.assertIn("見つかりません", msg)
-                    self.assertNotIn("ソフトを閉じて", msg)
-                    self.assertIsNone(self.box.row(rid)["packs"][0]["verdict"])
-                else:
-                    self.assertEqual((got["done"], got["errors"]), (["a_pack"], []))
-                    self.assertEqual(self.box.row(rid)["packs"][0]["verdict"], "skip")
-                    self.assertEqual(len(self.verdict_files(rid, "a_pack")), 1)
 
     def test_decide_error_is_reported_and_not_decided(self):
         for verdict, exc, said in (("keep", PermissionError("denied"), "保存先へ移せませんでした"), ("skip", OSError("busy"), "片付けられませんでした")):

@@ -94,10 +94,6 @@ def pack_title(name):
     return name[:-len(PACK_SUFFIX)] if name.endswith(PACK_SUFFIX) and len(name) > len(PACK_SUFFIX) else name
 
 
-class PackGone(FileNotFoundError):
-    """パックのフォルダが手元に無い(友人が消した・移した)。受け取るときだけ失敗にする"""
-
-
 def unique_dest(folder, name):
     """folder/name が既にあれば末尾に -xxxx を足した名前"""
     dest = os.path.join(folder, name)
@@ -959,20 +955,13 @@ class Inbox:
 
     @staticmethod
     def _move_failed(verdict, e):
-        if isinstance(e, PackGone):   # 押し直しても直らない = ソフトを閉じる案内は出さない
-            return "受け取れませんでした。パックのフォルダが見つかりません(消したか、別の場所へ移しています)。要らなければ「見送る」で片付けられます"
         what = "保存先へ移せませんでした" if verdict == "keep" else "片付けられませんでした"
         return "%s(%s)。フォルダを開いているソフトを閉じてから、もう一度押してください" % (what, e.__class__.__name__)
 
     def _place(self, r, p, verdict, by):
         src = p["dir"]
         if not os.path.isdir(fsio.long_path(src)):
-            if verdict == "keep":
-                raise PackGone(src)
-            # 見送る・届かなくてよかった・3 日の自動: 片付ける物がもう無い = 移さずに決める(Dropbox の取っていないパックと同じ)。
-            # 0.99.457 まで FileNotFoundError で止め「ソフトを閉じて押し直して」と出していた = 何度押しても決まらず、3 日の自動でも残り続けた
-            self.log("パックのフォルダが無いので、片付けずに決めます: %s" % p["name"])
-            return
+            raise FileNotFoundError(src)
         if verdict == "keep":
             folder, name = self.keep_dest(r, p)
             os.makedirs(fsio.long_path(folder), exist_ok=True)
